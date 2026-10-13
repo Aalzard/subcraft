@@ -53,7 +53,7 @@ impl ViewParams {
             proj,
             eye: view.inverse().w_axis.truncate(),
             light_dir: Vec3::new(0.65, 0.75, 0.35).normalize(),
-            light_intensity: 2.6,
+            light_intensity: 1.5,
             environment_intensity: 1.0,
             exposure: 1.0,
             height_scale: 0.02,

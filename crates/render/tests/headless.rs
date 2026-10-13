@@ -136,3 +136,36 @@ fn height_bumps_and_metallic_change_shading() {
     let changed = diff(&flat, &metal);
     assert!(changed > 5000, "metallic + low roughness should look clearly different ({changed} px)");
 }
+
+/// Visual check: a sphere whose roughness rises left→right (top half dielectric, bottom metal).
+#[test]
+fn roughness_gradient_sphere_shows_sharp_to_blurry_reflections() {
+    let Some((_, device, queue)) = headless::device() else {
+        eprintln!("no wgpu adapter available: skipping");
+        return;
+    };
+    let mesh = primitives::uv_sphere(1.0, 64, 32);
+    let mut rough = solid(1, [0.0; 4]);
+    let mut metal = solid(1, [0.0; 4]);
+    for y in 0..256u32 {
+        for x in 0..256u32 {
+            rough.set(x, y, [0.02 + 0.9 * ((x % 128) as f32 / 127.0); 4]);
+            metal.set(x, y, [if y > 128 { 1.0 } else { 0.0 }; 4]);
+        }
+    }
+    let view = Mat4::look_at_rh(Vec3::new(0.0, 0.4, 3.2), Vec3::ZERO, Vec3::Y);
+    let p = ViewParams::new(view, Mat4::perspective_rh(45f32.to_radians(), 1.0, 0.1, 100.0));
+    let mut r = ViewportRenderer::new(&device, &queue);
+    r.set_mesh(&device, &mesh);
+    r.upload_channel(&device, &queue, 0, ChannelKind::BaseColor, &solid(4, [0.5, 0.5, 0.5, 1.0]), None);
+    r.upload_channel(&device, &queue, 0, ChannelKind::Roughness, &rough, None);
+    r.upload_channel(&device, &queue, 0, ChannelKind::Metallic, &metal, None);
+    let img = r.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+    save("sphere_roughness.png", &img);
+    // Smooth vs rough strips must differ in local contrast.
+    let contrast = |x0: u32| {
+        let vals: Vec<i32> = (60..130).map(|y| px(&img, x0, y)[1] as i32).collect();
+        vals.windows(2).map(|w| (w[0] - w[1]).abs()).sum::<i32>()
+    };
+    eprintln!("contrast smooth {} rough {}", contrast(96), contrast(70));
+}

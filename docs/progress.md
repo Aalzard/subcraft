@@ -85,6 +85,12 @@ In the cloud container (no GPU) the app ran on lavapipe/llvmpipe (Vulkan) under 
 * Driven with xdotool under Xvfb: Export window lists the planned files and clicking Export wrote
   all 10 maps of both texture sets; File > Quit with unsaved changes shows the Save / Don't save /
   Cancel prompt; Cancel keeps the app open, Don't save closes it.
+* User report "material channels don't work": painting Roughness changed the texture but at most
+  1/255 on screen. Cause: the smooth sky gradient gave dielectrics nothing to reflect, and the
+  scene was overexposed. Fix: studio environment in reflections (ring of light panels around the
+  horizon, overhead light, key softbox; edges blur and dim with roughness), rebalanced key /
+  ambient so mid-gray reads mid-gray. New end-to-end test (`ui/tests/material_channels.rs`):
+  Session strokes of metallic / roughness / height each change 5k-12k viewport pixels.
 * Not testable in the container: the native file dialogs (rfd needs a desktop portal on Linux).
   The save/open code paths behind them are covered by `app` and `project` tests; the dialogs
   themselves need a check on Windows.
