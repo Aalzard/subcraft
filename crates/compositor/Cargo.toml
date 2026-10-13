@@ -1,0 +1,20 @@
+[package]
+name = "subcraft-compositor"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+subcraft-core.workspace = true
+subcraft-image.workspace = true
+subcraft-mesh.workspace = true
+subcraft-doc.workspace = true
+subcraft-materials.workspace = true
+glam.workspace = true
+half.workspace = true
+rayon.workspace = true
+log.workspace = true

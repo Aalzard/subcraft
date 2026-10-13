@@ -1,0 +1,18 @@
+[package]
+name = "subcraft-image"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+subcraft-core.workspace = true
+half.workspace = true
+bytemuck.workspace = true
+rayon.workspace = true
+image.workspace = true
+thiserror.workspace = true
+serde.workspace = true

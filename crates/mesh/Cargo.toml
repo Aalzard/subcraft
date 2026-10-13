@@ -1,0 +1,22 @@
+[package]
+name = "subcraft-mesh"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+subcraft-core.workspace = true
+glam.workspace = true
+bytemuck.workspace = true
+rayon.workspace = true
+gltf.workspace = true
+tobj.workspace = true
+ufbx.workspace = true
+mikktspace.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+log.workspace = true

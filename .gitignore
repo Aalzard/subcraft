@@ -1,0 +1,4 @@
+/target
+*.scpp.tmp
+/scratch
+/preview_out

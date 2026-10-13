@@ -1,0 +1,23 @@
+[package]
+name = "subcraft-project"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+subcraft-core.workspace = true
+subcraft-image.workspace = true
+subcraft-mesh.workspace = true
+subcraft-doc.workspace = true
+glam.workspace = true
+half.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+zip.workspace = true
+thiserror.workspace = true
+log.workspace = true

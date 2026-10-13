@@ -1,0 +1,79 @@
+[workspace]
+resolver = "3"
+members = ["crates/*", "apps/*", "tools/*"]
+default-members = ["apps/subcraft"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "LicenseRef-SubCraft-Proprietary"
+rust-version = "1.95"
+authors = ["SubCraft contributors"]
+
+[workspace.dependencies]
+# internal crates
+subcraft-core = { path = "crates/core" }
+subcraft-image = { path = "crates/image" }
+subcraft-mesh = { path = "crates/mesh" }
+subcraft-doc = { path = "crates/doc" }
+subcraft-materials = { path = "crates/materials" }
+subcraft-compositor = { path = "crates/compositor" }
+subcraft-paint = { path = "crates/paint" }
+subcraft-bake = { path = "crates/bake" }
+subcraft-project = { path = "crates/project" }
+subcraft-export = { path = "crates/export" }
+subcraft-assets = { path = "crates/assets" }
+subcraft-render = { path = "crates/render" }
+subcraft-app = { path = "crates/app" }
+subcraft-ui = { path = "crates/ui" }
+
+# foundation
+glam = { version = "0.30", features = ["serde", "bytemuck"] }
+half = { version = "2.7", features = ["bytemuck", "serde"] }
+bytemuck = { version = "1.25", features = ["derive"] }
+serde = { version = "1", features = ["derive", "rc"] }
+serde_json = { version = "1", features = ["float_roundtrip"] }
+uuid = { version = "1", features = ["v4", "v5", "serde"] }
+thiserror = "2"
+anyhow = "1"
+log = "0.4"
+rayon = "1"
+parking_lot = "0.12"
+
+# geometry / formats
+gltf = { version = "1.4", default-features = false, features = ["import", "utils", "names", "KHR_materials_pbrSpecularGlossiness"] }
+tobj = "4"
+ufbx = "0.11"
+mikktspace = "0.3"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "tga", "tiff", "hdr", "exr", "bmp"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
+
+# ui / gpu
+egui = "0.36"
+eframe = { version = "0.36", default-features = false, features = ["wgpu", "default_fonts", "accesskit"] }
+egui-wgpu = "0.36"
+egui_dock = { version = "0.21", features = ["serde"] }
+rfd = "0.17"
+pollster = "0.4"
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+dbg_macro = "warn"
+todo = "warn"
+too_many_arguments = "allow"
+type_complexity = "allow"
+
+[profile.dev]
+opt-level = 1
+
+# Texture engine code is hot even in debug builds; dependencies always optimized.
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 16
+debug = 1
