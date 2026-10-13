@@ -9,6 +9,7 @@
 pub mod gpu_mesh;
 pub mod headless;
 pub mod material;
+pub mod preview;
 pub mod target;
 
 use std::collections::HashMap;
@@ -25,7 +26,8 @@ pub use egui_wgpu;
 pub use egui_wgpu::wgpu as wgpu_api;
 pub use gpu_mesh::GpuMesh;
 pub use material::{ChannelTexture, GpuMaterial, SHADED_CHANNELS};
-pub use target::{OUTPUT_FORMAT, RenderTarget};
+pub use preview::{PreviewPass, PreviewTarget};
+pub use target::{DISPLAY_FORMAT, OUTPUT_FORMAT, RenderTarget};
 
 /// Camera and lighting for one frame.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -78,6 +80,8 @@ pub struct ViewportRenderer {
     mesh: Option<GpuMesh>,
     materials: HashMap<u32, GpuMaterial>,
     target: Option<RenderTarget>,
+    preview: PreviewPass,
+    preview_target: Option<PreviewTarget>,
 }
 
 impl ViewportRenderer {
@@ -172,7 +176,7 @@ impl ViewportRenderer {
                 (k, ChannelTexture::constant(device, queue, [d[0], d[1], d[2], 1.0], composite_comps(k), k.key()))
             })
             .collect();
-        Self { pipeline, globals, globals_bg, material_layout, sampler, defaults, mesh: None, materials: HashMap::new(), target: None }
+        Self { pipeline, globals, globals_bg, material_layout, sampler, defaults, mesh: None, materials: HashMap::new(), target: None, preview: PreviewPass::new(device), preview_target: None }
     }
 
     /// Replace the mesh (drops all material textures).
@@ -214,6 +218,17 @@ impl ViewportRenderer {
     /// View of an uploaded channel texture (UV view display).
     pub fn channel_view(&self, material_slot: u32, kind: ChannelKind) -> Option<&wgpu::TextureView> {
         self.materials.get(&material_slot)?.channels.get(&kind).map(|t| &t.view)
+    }
+
+    /// Render a display preview (sRGB 8-bit, egui-ready `display_view`) of an uploaded channel.
+    pub fn channel_preview(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, material_slot: u32, kind: ChannelKind) -> Option<&PreviewTarget> {
+        let tex = self.materials.get(&material_slot)?.channels.get(&kind)?;
+        if self.preview_target.as_ref().is_none_or(|t| t.size != tex.size) {
+            self.preview_target = Some(PreviewPass::target(device, tex.size));
+        }
+        let dst = self.preview_target.as_ref().expect("created above");
+        self.preview.run(device, queue, &tex.view, kind.is_color(), dst);
+        Some(dst)
     }
 
     fn ensure_bind_groups(&mut self, device: &wgpu::Device) {
