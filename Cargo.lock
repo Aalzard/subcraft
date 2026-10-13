@@ -3253,6 +3253,7 @@ dependencies = [
  "glam",
  "half",
  "log",
+ "pollster 0.4.0",
  "rayon",
  "subcraft-core",
  "subcraft-image",
