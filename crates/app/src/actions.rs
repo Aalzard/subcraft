@@ -23,6 +23,7 @@ pub enum Action {
     SaveAs,
     OpenProject,
     Export,
+    Bake,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -127,6 +128,7 @@ pub const ACTIONS: &[ActionInfo] = &[
     ActionInfo { action: Action::SaveAs, label: "Save Project As", shortcuts: &[Shortcut::ctrl_shift(Key::S)] },
     ActionInfo { action: Action::OpenProject, label: "Open Project", shortcuts: &[Shortcut::ctrl(Key::O)] },
     ActionInfo { action: Action::Export, label: "Export Textures", shortcuts: &[Shortcut::ctrl_shift(Key::E)] },
+    ActionInfo { action: Action::Bake, label: "Bake Mesh Maps", shortcuts: &[Shortcut::ctrl(Key::B)] },
 ];
 
 pub fn info(action: Action) -> &'static ActionInfo {

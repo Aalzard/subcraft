@@ -169,3 +169,26 @@ fn roughness_gradient_sphere_shows_sharp_to_blurry_reflections() {
     };
     eprintln!("contrast smooth {} rough {}", contrast(96), contrast(70));
 }
+
+#[test]
+fn every_mesh_map_layout_uploads_and_previews() {
+    let Some((_, device, queue)) = headless::device() else {
+        eprintln!("no wgpu adapter available: skipping");
+        return;
+    };
+    use subcraft_core::MeshMapKind;
+    use subcraft_render::PreviewSource;
+    let mut r = ViewportRenderer::new(&device, &queue);
+    r.set_mesh(&device, &primitives::cube(2.0));
+    for kind in MeshMapKind::ALL {
+        let c = kind.components();
+        let mut img = TiledImage::new(100, 100, c, [0.25, 0.5, 0.75, 0.0]); // non-tile-multiple size
+        img.set(3, 3, [1.0; 4]);
+        r.upload_mesh_map(&device, &queue, 0, kind, &img);
+        let preview = r.preview(&device, &queue, 0, PreviewSource::MeshMap(kind));
+        assert!(preview.is_some(), "{kind:?}");
+    }
+    // A 3-component image in a shading slot (baked AO is 1-comp, but any RGB map must work too).
+    r.upload_channel(&device, &queue, 0, ChannelKind::BaseColor, &TiledImage::new(64, 64, 3, [0.2, 0.4, 0.6, 0.0]), None);
+    let _ = r.render(&device, &queue, [32, 32], &params()).read_rgba8(&device, &queue);
+}

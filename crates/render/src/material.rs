@@ -8,13 +8,14 @@ use subcraft_core::ChannelKind;
 use subcraft_image::{TILE_SIZE, TILE_TEXELS, TiledImage};
 
 /// Channels the viewport shader reads, in binding order (after the sampler).
-pub const SHADED_CHANNELS: [ChannelKind; 6] = [
+pub const SHADED_CHANNELS: [ChannelKind; 7] = [
     ChannelKind::BaseColor,
     ChannelKind::Roughness,
     ChannelKind::Metallic,
     ChannelKind::Normal,
     ChannelKind::Emissive,
     ChannelKind::Height,
+    ChannelKind::AmbientOcclusion,
 ];
 
 pub struct ChannelTexture {
@@ -61,16 +62,29 @@ impl ChannelTexture {
         t
     }
 
-    /// Upload tiles of `image` (same size and component count).
+    /// Upload tiles of `image` (same size; 3-component images are padded to RGBA).
     pub fn upload(&self, queue: &wgpu::Queue, image: &TiledImage, tiles: &[usize]) {
-        let comps = image.comps();
+        let src_comps = image.comps();
+        // GPU texel layout: there is no 3-component float format, RGB is stored as RGBA.
+        let comps = if src_comps == 3 { 4 } else { src_comps };
         let mut fill_tile: Option<Vec<f16>> = None;
+        let mut padded: Vec<f16> = Vec::new();
         for &t in tiles {
             let r = image.tile_rect(t);
             let data: &[f16] = match image.tile(t) {
+                Some(tile) if src_comps == 3 => {
+                    padded.clear();
+                    for px in tile.data.chunks_exact(3) {
+                        padded.extend_from_slice(&[px[0], px[1], px[2], f16::ONE]);
+                    }
+                    &padded
+                }
                 Some(tile) => &tile.data,
                 None => fill_tile.get_or_insert_with(|| {
-                    let f = image.fill();
+                    let mut f = image.fill();
+                    if src_comps == 3 {
+                        f[3] = 1.0;
+                    }
                     (0..TILE_TEXELS * comps).map(|i| f16::from_f32(f[i % comps])).collect()
                 }),
             };
@@ -96,12 +110,14 @@ impl ChannelTexture {
 /// Channel textures + bind group of one texture set (material slot).
 pub struct GpuMaterial {
     pub channels: BTreeMap<ChannelKind, ChannelTexture>,
+    /// Baked mesh maps (2D view display).
+    pub mesh_maps: BTreeMap<subcraft_core::MeshMapKind, ChannelTexture>,
     pub bind_group: Option<wgpu::BindGroup>,
 }
 
 impl GpuMaterial {
     pub fn new() -> Self {
-        Self { channels: BTreeMap::new(), bind_group: None }
+        Self { channels: BTreeMap::new(), mesh_maps: BTreeMap::new(), bind_group: None }
     }
 }
 

@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-10-13 (session 4: height bumps, project save/load, texture export)
+Last updated: 2026-10-13 (session 5: mesh-map baking)
 
 ## Decisions
 
@@ -12,7 +12,7 @@ Last updated: 2026-10-13 (session 4: height bumps, project save/load, texture ex
 * Undo: history of structurally shared document snapshots + merge keys; strokes push the
   post-stroke document — `adr/0006-undo.md`.
 
-## Done (all tests passing — 127 tests, `cargo test --workspace`)
+## Done (all tests passing — 140 tests, `cargo test --workspace`)
 
 | Crate | Contents | Tests |
 |---|---|---|
@@ -23,11 +23,12 @@ Last updated: 2026-10-13 (session 4: height bumps, project save/load, texture ex
 | `materials` | noise + patterns; **`sample`**: lazily built per-tile `TileGeometry` (normalized position, normal, coverage) cached per slot + resolution, `MeshMaps`, `eval_fill_tile` for Uniform / Bitmap / Procedural / MeshMap through UV / Planar / Triplanar | 10 |
 | `compositor` | W3C separable compositing of all 32 modes (whiteout / RNM / HSV / signed height), isolated + passthrough folders, mask stack (paint, fill, generators, levels, invert), rayon per-tile evaluation, `CompositeCache` dirty-tile diff | 18 (6 unit + 12 acceptance) |
 | `paint` | `BrushSettings` / `BrushMaterial` / `Camera`, path resampling (spacing, lazy mouse, straight line, jitter), symmetry via mirrored cameras, CPU depth map + backface culling, tile-parallel UV-raster stamp kernel (Tangent\|Wrap, Tangent\|Planar, Camera, UV), stroke-opacity-capped coverage written from the pre-stroke snapshot, eraser, mask painting, polygon fill (triangle / element / UV island) | 21 (10 unit + 11 acceptance) |
-| `app` | **new**: `Session` (scene + BVH/geometry/depth caches, document + `History`, selection, brush state, active stroke, per-texture-set `CompositeCache`), undoable `Command`s (layers, visibility, rename, blend mode/opacity with coalesced drags, fill channels/projection, masks + effects), stroke lifecycle (one history entry per stroke, cancel), picking, toolkit-independent `Action` + shortcut table; project save / open with unsaved-changes tracking; texture export | 11 |
-| `render` | **new**: wgpu offscreen viewport: metal/roughness GGX + key light + procedural sky (analytic irradiance + split-sum), ACES, 4x MSAA to an sRGB texture; composite channels uploaded per dirty tile as f16; channel preview pass for the 2D view; Height shown as bump (tangent-space normal from height, whiteout with the normal map); headless device + readback | 3 (render on any adapter; llvmpipe here) |
+| `app` | **new**: `Session` (scene + BVH/geometry/depth caches, document + `History`, selection, brush state, active stroke, per-texture-set `CompositeCache`), undoable `Command`s (layers, visibility, rename, blend mode/opacity with coalesced drags, fill channels/projection, masks + effects), stroke lifecycle (one history entry per stroke, cancel), picking, toolkit-independent `Action` + shortcut table; project save / open with unsaved-changes tracking; texture export; background `BakeJob` feeding mesh maps to generators / export / project | 12 |
+| `render` | **new**: wgpu offscreen viewport: metal/roughness GGX + key light + procedural sky (analytic irradiance + split-sum), ACES, 4x MSAA to an sRGB texture; composite channels uploaded per dirty tile as f16; channel preview pass for the 2D view; Height shown as bump; studio reflections (ring of panels + overhead + key softbox, roughness-dependent blur); baked / painted AO occludes ambient light; gray previews for scalar channels and baked maps; headless device + readback | 6 (render on any adapter; llvmpipe here) |
 | `ui` | **new**: eframe + egui_dock workspace: 3D view (orbit/pan/zoom, painting, Shift+click lines, brush cursor), 2D view (composite + UV wireframe), Layers, Properties (fill channels, procedural patterns, projection, masks, generators/levels/invert), Brush (tools, settings, jitter, symmetry, lazy mouse, material channels), Texture Sets, History (click to jump), menus, status bar, shortcuts, dark theme, layout persistence | 2 |
-| `project` | **new**: `.subcraft` zip container: `manifest.json` (format + schema version gate), `mesh.bin`, `document.json` (explicit schema v1 for texture sets / layer tree / masks / effects; small value types pinned by a golden JSON test), sparse raster blobs (`SCTILE`, only allocated tiles), original resource bytes; atomic save (temp file + rename); validation on load (resolutions, component counts, truncation) | 7 |
-| `export` | **new**: templates (PBR Metal/Rough, Unreal packed ORM + DirectX normal, Unity HDRP mask map, glTF ORM), per-component packing (invert for smoothness, constants), sRGB only for color channels in integer formats, height baked into exported normals (same math as the viewport), height as mid-gray-centered PNG16 / raw EXR, UV padding (infinite / N texels / none), file-name plan | 5 |
+| `bake` | **new**: CPU baker: tangent-space normal (low poly MikkTSpace frame; optional high poly through a front/rear cage), world normal, position, ID (per mesh element), AO (cosine-weighted BVH rays), curvature (seam-independent 3D neighbourhood convexity, 0.5 flat), thickness; gutter padding; progress + cancel | 7 |
+| `project` | **new**: `.subcraft` zip container: `manifest.json` (format + schema version gate), `mesh.bin`, `document.json` (explicit schema v1 for texture sets / layer tree / masks / effects; small value types pinned by a golden JSON test), sparse raster blobs (`SCTILE`, only allocated tiles), baked mesh maps per texture set, original resource bytes; atomic save (temp file + rename); validation on load (resolutions, component counts, truncation) | 8 |
+| `export` | **new**: templates (PBR Metal/Rough, Unreal packed ORM + DirectX normal, Unity HDRP mask map, glTF ORM), per-component packing (invert for smoothness, constants), sRGB only for color channels in integer formats, height baked into exported normals (same math as the viewport), height as mid-gray-centered PNG16 / raw EXR, UV padding (infinite / N texels / none), file-name plan; baked AO fills a missing Ambient Occlusion channel | 6 |
 | `apps/subcraft` | desktop binary: `subcraft [project.subcraft | mesh] [--demo] [--view-2d] [--screenshot out.png]` | - |
 
 Acceptance tests from the brief, all passing (`crates/compositor/tests/compositor.rs`,
@@ -95,6 +96,19 @@ In the cloud container (no GPU) the app ran on lavapipe/llvmpipe (Vulkan) under 
   The save/open code paths behind them are covered by `app` and `project` tests; the dialogs
   themselves need a check on Windows.
 
+### Session 5 — baking, verified in the running app
+
+* File > Bake mesh maps (Ctrl+B) or Texture Sets > Bake mesh maps: maps, size, AO samples /
+  distance, curvature radius, optional high-poly file + cage. Runs on a background thread with a
+  progress bar and Cancel; results install into the session, re-evaluate composites (Edges /
+  Cavity generators and mesh-map fills now use real data), shade the viewport (AO) and show in
+  the 2D view ("Baked …" entries). Saved in projects; baked AO fills AO slots in exports.
+* Running it in the app found a crash: 3-component maps (world normal, position, ID) were
+  uploaded as RGB into RGBA16F textures (wgpu validation error). Fixed by padding to RGBA; new
+  render test uploads and previews every mesh-map layout.
+* Sample crate, all 7 maps at 512²: ~3 s per texture set (release, 4 cores); 1024² ~4x that.
+* Screenshot: `docs/screenshots/baked-ao-2d-view.png`.
+
 CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraft-mesh -p subcraft-doc -p subcraft-materials -p subcraft-compositor -p subcraft-paint`
 
 ### Deviations from the brief (sound-engineering choices)
@@ -119,11 +133,11 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
 
 ## Next steps (in order)
 
-1. `bake` (normal from high poly / world normal / position / ID / AO / curvature / thickness into
-   `MeshMaps`) so Edges / Cavity generators and mesh-map fills get real data; Bake window;
-   AO + curvature included in exports.
-2. `assets`: brush alphas + stencils, material / smart-material presets, environment HDRIs
-   (real IBL with prefiltered maps), shelf panel.
+1. `assets`: brush alphas + stencils, material / smart-material presets (built on the
+   generators that baking now feeds), environment HDRIs (real IBL with prefiltered maps), shelf
+   panel.
+2. Bake follow-ups: per-material high-poly matching by name, cage mesh support, anti-aliased
+   (supersampled) bakes, GPU baking for large meshes.
 3. Autosave + recent files; export presets saved per project; custom export templates editor.
 4. UI follow-ups: drag-and-drop layer reordering, inline rename, eyedropper, painting in the
    2D view, texture-set resolution change, camera FOV / ortho toggle, texture mipmaps.
@@ -131,4 +145,4 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
    clipping in the depth rasterizer; f16 tile geometry; renormalize normals after opacity
    lerp; GPU compositor behind the same interface.
 
-Remaining stub crates (empty `lib.rs`): bake, assets.
+Remaining stub crate (empty `lib.rs`): assets.

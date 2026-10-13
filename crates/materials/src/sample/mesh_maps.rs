@@ -26,6 +26,26 @@ impl MeshMaps {
         self.maps.get(&kind)
     }
 
+    pub fn from_map(maps: BTreeMap<MeshMapKind, TiledImage>) -> Self {
+        Self { maps }
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (MeshMapKind, &TiledImage)> {
+        self.maps.iter().map(|(k, v)| (*k, v))
+    }
+
+    pub fn as_map(&self) -> &BTreeMap<MeshMapKind, TiledImage> {
+        &self.maps
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.maps.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.maps.len()
+    }
+
     /// Values of `kind` for every texel of `geo`'s tile (gray maps replicated to 3 components).
     /// A map at a different resolution is point-sampled at texel centers.
     pub fn read_tile(&self, kind: MeshMapKind, geo: &TileGeometry, out: &mut [[f32; 3]]) {

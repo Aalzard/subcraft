@@ -16,6 +16,7 @@ struct Globals {
 @group(1) @binding(4) var t_normal: texture_2d<f32>;
 @group(1) @binding(5) var t_emissive: texture_2d<f32>;
 @group(1) @binding(6) var t_height: texture_2d<f32>;
+@group(1) @binding(7) var t_ao: texture_2d<f32>;
 
 struct VsIn {
     @location(0) pos: vec3<f32>,
@@ -124,6 +125,7 @@ fn fs_main(in: VsOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f
     let metal = clamp(textureSample(t_metal, samp, in.uv).r, 0.0, 1.0);
     let ntex = textureSample(t_normal, samp, in.uv).rgb * 2.0 - 1.0;
     let emissive = textureSample(t_emissive, samp, in.uv).rgb;
+    let ao = clamp(textureSample(t_ao, samp, in.uv).r, 0.0, 1.0);
 
     // Height -> tangent-space bump normal (central differences, one texel apart). UV v grows
     // downward while the bitangent points up the image (OpenGL convention), hence +dh/dv for y.
@@ -172,7 +174,8 @@ fn fs_main(in: VsOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f
 
     let r = reflect(-v, n);
     let env_spec = mix(sky(r), irradiance(r), rough) + studio(r, l, rough);
-    let ambient = (diffuse * irradiance(n) + env_brdf(f0, rough, nov) * env_spec) * g.params.y;
+    // Ambient (environment) light is occluded by AO; specular occlusion approximated by AO too.
+    let ambient = (diffuse * irradiance(n) + env_brdf(f0, rough, nov) * env_spec) * g.params.y * ao;
 
     let color = (direct + ambient + emissive) * g.params.x;
     return vec4<f32>(aces(color), 1.0);

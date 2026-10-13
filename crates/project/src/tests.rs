@@ -57,7 +57,7 @@ fn rich_document() -> Document {
 
 fn roundtrip(doc: &Document) -> ProjectData {
     let mesh = primitives::sample_crate();
-    let buf = write_project(Cursor::new(Vec::new()), &mesh, doc, &ResourceStore::default()).unwrap();
+    let buf = write_project(Cursor::new(Vec::new()), &mesh, doc, &ResourceStore::default(), &MeshMapSet::new()).unwrap();
     read_project(Cursor::new(buf.into_inner())).unwrap()
 }
 
@@ -71,15 +71,32 @@ fn document_roundtrips_exactly() {
 }
 
 #[test]
+fn baked_mesh_maps_roundtrip() {
+    let doc = rich_document();
+    let mut maps = MeshMapSet::new();
+    let mut ao = TiledImage::new(256, 256, 1, [1.0; 4]);
+    ao.set(10, 10, [0.25; 4]);
+    let mut inner = std::collections::BTreeMap::new();
+    inner.insert(subcraft_core::MeshMapKind::AmbientOcclusion, ao);
+    inner.insert(subcraft_core::MeshMapKind::WorldSpaceNormal, TiledImage::new(256, 256, 3, [0.5, 1.0, 0.5, 0.0]));
+    maps.insert(doc.texture_sets[0].id, inner);
+    let mesh = primitives::sample_crate();
+    let buf = write_project(Cursor::new(Vec::new()), &mesh, &doc, &ResourceStore::default(), &maps).unwrap();
+    let back = read_project(Cursor::new(buf.into_inner())).unwrap();
+    assert_eq!(back.mesh_maps, maps);
+    assert_eq!(back.document, doc);
+}
+
+#[test]
 fn file_save_is_atomic_and_overwrites() {
     let dir = std::env::temp_dir().join(format!("subcraft-test-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("crate.subcraft");
     let mesh = primitives::sample_crate();
     let mut doc = rich_document();
-    save_project(&path, &mesh, &doc, &ResourceStore::default()).unwrap();
+    save_project(&path, &mesh, &doc, &ResourceStore::default(), &MeshMapSet::new()).unwrap();
     doc.texture_sets[0].name = "Renamed".into();
-    save_project(&path, &mesh, &doc, &ResourceStore::default()).unwrap();
+    save_project(&path, &mesh, &doc, &ResourceStore::default(), &MeshMapSet::new()).unwrap();
     assert!(!temp_path(&path).exists(), "temporary file cleaned up");
     let back = load_project(&path).unwrap();
     assert_eq!(back.document.texture_sets[0].name, "Renamed");
@@ -105,7 +122,7 @@ fn rejects_newer_schema_and_non_projects() {
 fn corrupt_raster_is_an_error_not_a_panic() {
     let doc = rich_document();
     let mesh = primitives::sample_crate();
-    let good = write_project(Cursor::new(Vec::new()), &mesh, &doc, &ResourceStore::default()).unwrap().into_inner();
+    let good = write_project(Cursor::new(Vec::new()), &mesh, &doc, &ResourceStore::default(), &MeshMapSet::new()).unwrap().into_inner();
     // Rebuild the container with one raster truncated.
     let mut src = zip::ZipArchive::new(Cursor::new(good)).unwrap();
     let mut out = zip::ZipWriter::new(Cursor::new(Vec::new()));

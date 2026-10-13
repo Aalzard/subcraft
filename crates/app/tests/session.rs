@@ -199,3 +199,61 @@ fn export_writes_maps_for_every_texture_set() {
     assert!(files[0].file_name().unwrap().to_str().unwrap().starts_with("SampleCrate_Body_"));
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn background_bake_feeds_smart_mask_generators_and_survives_save() {
+    use subcraft_app::{BakeRequest, BakeSettings, MeshMapKind};
+    use subcraft_doc::{Generator, GeneratorKind, MaskEffectKind};
+    let mut s = Session::new(primitives::cube(2.0), 128);
+    let ts = s.document().texture_sets[0].id;
+    // A white fill shown only where the Edges generator (baked curvature) says so.
+    s.execute(Command::AddLayer(NewLayer::Fill)).unwrap();
+    let fill = s.selection().layer.unwrap();
+    s.execute(Command::SetFillChannel {
+        layer: fill,
+        channel: ChannelKind::BaseColor,
+        fill: FillChannel { enabled: true, source: FillSource::uniform(ChannelValue::rgb(1.0, 1.0, 1.0)) },
+    })
+    .unwrap();
+    s.execute(Command::AddMask { layer: fill, white: false }).unwrap();
+    let mut g = Generator::new(GeneratorKind::Edges);
+    g.level = 0.6;
+    g.softness = 0.05;
+    s.execute(Command::AddMaskEffect { layer: fill, kind: MaskEffectKind::Generator(g) }).unwrap();
+    s.update_composites();
+    let before = s.composite(ts).unwrap().channel(ChannelKind::BaseColor).unwrap().clone();
+
+    let req = BakeRequest {
+        settings: BakeSettings { size: 128, maps: vec![MeshMapKind::Curvature, MeshMapKind::AmbientOcclusion], ao_samples: 8, ..BakeSettings::default() },
+        high_poly: None,
+        texture_sets: vec![(ts, 0)],
+    };
+    let mut job = s.start_bake(req);
+    let result = loop {
+        if let Some(r) = job.poll(&mut s) {
+            break r;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    };
+    assert_eq!(result, Ok(1));
+    assert_eq!(s.mesh_maps(ts).unwrap().len(), 2);
+    assert!(s.is_modified(), "baking marks the project modified");
+    let updates = s.update_composites();
+    assert!(!updates.is_empty(), "new mesh maps re-evaluate the composite");
+    let after = s.composite(ts).unwrap().channel(ChannelKind::BaseColor).unwrap();
+    assert_ne!(&before, after, "Edges generator now uses real curvature");
+    // Some texels became white (edges), the face centers did not.
+    let dense = after.to_dense();
+    let white = dense.chunks_exact(4).filter(|p| p[0] > 0.95).count();
+    let gray = dense.chunks_exact(4).filter(|p| (p[0] - 0.5).abs() < 0.02).count();
+    assert!(white > 100 && gray > white, "edges white ({white}), faces untouched ({gray})");
+
+    let dir = std::env::temp_dir().join(format!("subcraft-bake-save-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("baked.subcraft");
+    s.save(Some(&path)).unwrap();
+    assert!(!s.is_modified());
+    let reopened = Session::open_project(&path).unwrap();
+    assert_eq!(reopened.mesh_maps(ts).unwrap().len(), 2, "baked maps saved in the project");
+    std::fs::remove_dir_all(&dir).unwrap();
+}

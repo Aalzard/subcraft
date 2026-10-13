@@ -96,6 +96,8 @@ pub struct Session {
     project_path: Option<PathBuf>,
     /// Document as of the last save / load / new (for the unsaved-changes indicator).
     saved_doc: Document,
+    /// Mesh maps changed (baked) since the last save.
+    maps_dirty: bool,
 }
 
 impl Session {
@@ -138,6 +140,7 @@ impl Session {
             revision: 0,
             layer_counter,
             project_path: None,
+            maps_dirty: false,
         }
     }
 
@@ -149,6 +152,9 @@ impl Session {
         }
         let mut s = Self::from_parts(data.mesh, data.document, data.resources, "Open Project");
         s.project_path = Some(path.to_path_buf());
+        for (ts, maps) in data.mesh_maps {
+            s.mesh_maps.insert(ts, MeshMaps::from_map(maps));
+        }
         Ok(s)
     }
 
@@ -161,9 +167,11 @@ impl Session {
             Some(p) => p.to_path_buf(),
             None => return Err("no project path: use Save As".into()),
         };
-        subcraft_project::save_project(&path, &self.scene.mesh, &self.doc, &self.resources).map_err(|e| e.to_string())?;
+        let maps: subcraft_project::MeshMapSet = self.mesh_maps.iter().map(|(id, m)| (*id, m.as_map().clone())).collect();
+        subcraft_project::save_project(&path, &self.scene.mesh, &self.doc, &self.resources, &maps).map_err(|e| e.to_string())?;
         self.project_path = Some(path.clone());
         self.saved_doc = self.doc.clone();
+        self.maps_dirty = false;
         Ok(path)
     }
 
@@ -173,7 +181,32 @@ impl Session {
 
     /// True if the document differs from the last save / load.
     pub fn is_modified(&self) -> bool {
-        self.doc != self.saved_doc
+        self.maps_dirty || self.doc != self.saved_doc
+    }
+
+    // ----- baking --------------------------------------------------------------------------------
+
+    /// Baked mesh maps of a texture set.
+    pub fn mesh_maps(&self, ts: TextureSetId) -> Option<&MeshMaps> {
+        self.mesh_maps.get(&ts).filter(|m| !m.is_empty())
+    }
+
+    /// Install baked maps (merged over existing ones) and refresh that set's composite.
+    pub fn set_mesh_maps(&mut self, ts: TextureSetId, maps: std::collections::BTreeMap<subcraft_core::MeshMapKind, subcraft_image::TiledImage>) {
+        let entry = self.mesh_maps.entry(ts).or_default();
+        let mut merged = entry.as_map().clone();
+        merged.extend(maps);
+        *entry = MeshMaps::from_map(merged);
+        if let Some(c) = self.composites.get_mut(&ts) {
+            c.invalidate();
+        }
+        self.maps_dirty = true;
+        self.revision += 1;
+    }
+
+    /// Start baking on a background thread; poll the job each frame.
+    pub fn start_bake(&self, request: crate::bake_job::BakeRequest) -> crate::bake_job::BakeJob {
+        crate::bake_job::BakeJob::start(self.scene.mesh.clone(), Arc::new(self.scene.bvh.clone()), request)
     }
 
     /// The built-in two-material sample crate.
@@ -497,7 +530,7 @@ impl Session {
             Action::BrushSmaller => self.brush.settings.size = (self.brush.settings.size / 1.15).max(0.1),
             Action::BrushLarger => self.brush.settings.size = (self.brush.settings.size * 1.15).min(100.0),
             Action::ToggleSymmetryX => self.brush.options.symmetry[0] = !self.brush.options.symmetry[0],
-            Action::ResetCamera | Action::Save | Action::SaveAs | Action::OpenProject | Action::Export => return Ok(false),
+            Action::ResetCamera | Action::Save | Action::SaveAs | Action::OpenProject | Action::Export | Action::Bake => return Ok(false),
         }
         Ok(true)
     }
@@ -628,7 +661,12 @@ impl Session {
             .iter()
             .filter_map(|ts| {
                 let c = self.composite(ts.id)?;
-                Some(subcraft_export::ExportTextureSet { name: &ts.name, material_slot: ts.material_slot, channels: &c.channels })
+                Some(subcraft_export::ExportTextureSet {
+                    name: &ts.name,
+                    material_slot: ts.material_slot,
+                    channels: &c.channels,
+                    mesh_maps: self.mesh_maps.get(&ts.id).map(|m| m.as_map()),
+                })
             })
             .collect()
     }
