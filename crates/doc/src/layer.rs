@@ -219,9 +219,15 @@ impl Layer {
             return false;
         }
         match (&self.content, &other.content) {
+            // A channel image present on one side only is a raster change (absent = transparent,
+            // e.g. created lazily by the first stroke) as long as it has the paint-image layout.
             (LayerContent::Paint(a), LayerContent::Paint(b)) => {
-                a.channels.len() == b.channels.len()
-                    && a.channels.iter().zip(&b.channels).all(|((ka, ia), (kb, ib))| ka == kb && ia.same_layout(ib))
+                let keys: std::collections::BTreeSet<_> = a.channels.keys().chain(b.channels.keys()).collect();
+                keys.into_iter().all(|k| match (a.channels.get(k), b.channels.get(k)) {
+                    (Some(ia), Some(ib)) => ia.same_layout(ib),
+                    (Some(i), None) | (None, Some(i)) => i.same_layout(&empty_paint_image(*k, i.width())) && i.width() == i.height(),
+                    (None, None) => true,
+                })
             }
             (LayerContent::Fill(a), LayerContent::Fill(b)) => a == b,
             (LayerContent::Group(a), LayerContent::Group(b)) => {

@@ -3170,10 +3170,12 @@ name = "subcraft-materials"
 version = "0.1.0"
 dependencies = [
  "glam",
+ "parking_lot",
  "serde",
  "subcraft-core",
  "subcraft-doc",
  "subcraft-image",
+ "subcraft-mesh",
  "uuid",
 ]
 
@@ -3201,6 +3203,7 @@ dependencies = [
  "glam",
  "half",
  "log",
+ "parking_lot",
  "rayon",
  "serde",
  "subcraft-core",

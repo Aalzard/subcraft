@@ -120,9 +120,12 @@ fn closest_on_triangle(p: [Vec2; 3], q: Vec2) -> ([f32; 3], f32) {
 
 /// Per-texel surface data for a texture set, at a given resolution.
 /// `position.w` / `normal.w` hold coverage (1 = covered by some triangle).
+/// Arrays are row-major over `width × height` texels starting at texel `origin`.
 pub struct SurfaceTexels {
     pub width: u32,
     pub height: u32,
+    /// Texture-space texel coordinates of element 0 (non-zero for region rasterization).
+    pub origin: [i32; 2],
     pub position: Vec<[f32; 4]>,
     pub normal: Vec<[f32; 4]>,
     pub triangle: Vec<u32>,
@@ -139,20 +142,38 @@ impl SurfaceTexels {
 /// Rasterize all triangles in `tris` into dense surface maps (used by bakers, fill-layer
 /// projections and export coverage). Texels strictly inside a triangle win over rim texels.
 pub fn rasterize_surface(mesh: &Mesh, tris: std::ops::Range<usize>, width: u32, height: u32, expand: f32) -> SurfaceTexels {
-    let n = (width * height) as usize;
+    rasterize_surface_region(mesh, tris, width, height, expand, IRect::from_size(width, height))
+}
+
+/// [`rasterize_surface`] restricted to the texel rectangle `region` of a `width × height`
+/// texture (per-tile evaluation). Output arrays cover exactly `region` (clipped to the texture).
+pub fn rasterize_surface_region(
+    mesh: &Mesh,
+    tris: impl IntoIterator<Item = usize>,
+    width: u32,
+    height: u32,
+    expand: f32,
+    region: IRect,
+) -> SurfaceTexels {
+    let region = region.intersect(&IRect::from_size(width, height));
+    let (rw, rh) = (region.width() as u32, region.height() as u32);
+    let n = (rw * rh) as usize;
     let mut out = SurfaceTexels {
-        width,
-        height,
+        width: rw,
+        height: rh,
+        origin: [region.x0, region.y0],
         position: vec![[0.0; 4]; n],
         normal: vec![[0.0; 4]; n],
         triangle: vec![SurfaceTexels::NO_TRIANGLE; n],
     };
+    if n == 0 {
+        return out;
+    }
     let mut best_dist = vec![f32::INFINITY; n];
-    let full = IRect::from_size(width, height);
     for t in tris {
         let uv = mesh.tri_uvs(t);
-        raster_triangle(uv, width, height, full, expand, |h| {
-            let i = (h.y as u32 * width + h.x as u32) as usize;
+        raster_triangle(uv, width, height, region, expand, |h| {
+            let i = ((h.y - region.y0) as u32 * rw + (h.x - region.x0) as u32) as usize;
             let d = h.distance.max(0.0);
             if d < best_dist[i] {
                 best_dist[i] = d;
@@ -244,6 +265,23 @@ mod tests {
             if s.covered(i) {
                 let p = Vec3::new(s.position[i][0], s.position[i][1], s.position[i][2]);
                 assert!((p.abs().max_element() - 1.0).abs() < 1e-3, "{p}");
+            }
+        }
+    }
+
+    #[test]
+    fn region_raster_matches_full_raster() {
+        let mesh = primitives::cube(2.0);
+        let full = rasterize_surface(&mesh, 0..mesh.triangle_count(), 128, 128, 1.0);
+        let region = IRect::new(64, 0, 128, 64);
+        let part = rasterize_surface_region(&mesh, 0..mesh.triangle_count(), 128, 128, 1.0, region);
+        assert_eq!((part.width, part.height, part.origin), (64, 64, [64, 0]));
+        for y in 0..64 {
+            for x in 0..64 {
+                let a = (y * 64 + x) as usize;
+                let b = (y * 128 + x + 64) as usize;
+                assert_eq!(part.triangle[a], full.triangle[b]);
+                assert_eq!(part.position[a], full.position[b]);
             }
         }
     }

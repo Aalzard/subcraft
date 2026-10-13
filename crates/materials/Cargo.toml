@@ -11,7 +11,9 @@ workspace = true
 [dependencies]
 subcraft-core.workspace = true
 subcraft-image.workspace = true
+subcraft-mesh.workspace = true
 subcraft-doc.workspace = true
 glam.workspace = true
 serde.workspace = true
 uuid.workspace = true
+parking_lot.workspace = true

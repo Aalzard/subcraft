@@ -17,5 +17,6 @@ subcraft-materials.workspace = true
 glam.workspace = true
 half.workspace = true
 rayon.workspace = true
+parking_lot.workspace = true
 serde.workspace = true
 log.workspace = true
