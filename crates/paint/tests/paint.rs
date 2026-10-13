@@ -374,3 +374,35 @@ fn errors_for_unpaintable_targets() {
     assert_eq!(begin(sc.layer, PaintTarget::MaskBase), Some(subcraft_paint::PaintError::NoMask));
     assert_eq!(begin(LayerId::new(), PaintTarget::Content), Some(subcraft_paint::PaintError::LayerNotFound));
 }
+
+#[test]
+fn brush_alpha_shapes_the_footprint() {
+    // Same stamp with the round tip (hardness 1) and a solid square alpha: the square covers
+    // ~4/π more texels; a left-half alpha paints only on one side of the center.
+    let count = |alpha: Option<subcraft_image::Bitmap>| {
+        let mut sc = Scene::new(primitives::plane(2.0, 4), 256);
+        let cam = Camera::orthographic(Vec3::new(0.0, 5.0, 0.0), Vec3::ZERO, -Vec3::Z, 1.2, 0.1, 20.0, [400, 400]);
+        let settings = BrushSettings { size: 20.0, hardness: 1.0, ..BrushSettings::default() };
+        let mut s = Stroke::begin(&sc.ts, sc.layer, PaintTarget::Content, StrokeMode::Paint, settings, StrokeOptions::default(), &red())
+            .unwrap()
+            .with_alpha(alpha.map(Arc::new));
+        let mut ts = sc.ts.clone();
+        s.add_point(&mut ts, &sc.ctx(&cam), cam.project(Vec3::ZERO).unwrap().truncate()).unwrap();
+        sc.ts = ts;
+        let img = sc.image(ChannelKind::BaseColor).unwrap();
+        let painted: Vec<u32> = (0..256 * 256u32).filter(|&i| alpha_at(&img, i) > 0.5).collect();
+        let left = painted.iter().filter(|&&i| i % 256 < 128).count();
+        (painted.len() as f32, left as f32)
+    };
+    let (round, _) = count(None);
+    let (square, _) = count(Some(subcraft_image::Bitmap::new_f32(4, 4, 1, vec![1.0; 16])));
+    let ratio = square / round;
+    assert!((ratio - 4.0 / std::f32::consts::PI).abs() < 0.08, "square/round coverage {ratio}");
+    let half: Vec<f32> = (0..64 * 64).map(|i| if i % 64 < 32 { 1.0 } else { 0.0 }).collect();
+    let (total, left) = count(Some(subcraft_image::Bitmap::new_f32(64, 64, 1, half)));
+    assert!(left / total > 0.95 || left / total < 0.05, "half alpha paints one side only ({left}/{total})");
+}
+
+fn alpha_at(img: &TiledImage, i: u32) -> f32 {
+    img.get(i % 256, i / 256)[img.comps() - 1]
+}

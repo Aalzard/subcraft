@@ -1,6 +1,7 @@
 //! Stamps: brush dabs resolved onto the surface, and their footprint.
 
 use glam::{Vec2, Vec3};
+use subcraft_image::{Bitmap, Wrap};
 use subcraft_mesh::{Bvh, Mesh};
 
 use crate::camera::Camera;
@@ -80,14 +81,17 @@ pub fn resolve(dab: &Dab, camera_index: usize, camera: &Camera, mesh: &Mesh, bvh
 }
 
 impl Stamp {
-    /// Brush strength (0..1) at surface point `p` / texel UV `uv`.
+    /// Brush strength (0..1) at surface point `p` / texel UV `uv`. With a brush `alpha`, the
+    /// footprint is the alpha image stretched over the square [-r, r]² (luminance × alpha);
+    /// otherwise a round falloff.
     #[inline]
-    pub fn footprint(&self, alignment: Alignment, camera: &Camera, p: Vec3, uv: Vec2) -> f32 {
+    pub fn footprint(&self, alignment: Alignment, camera: &Camera, p: Vec3, uv: Vec2, alpha: Option<&Bitmap>) -> f32 {
+        let reach = reach(alpha.is_some());
         let local = match alignment {
             Alignment::TangentWrap => {
                 let w = p - self.center;
                 let dist = w.length();
-                if dist >= self.radius {
+                if dist >= self.radius * reach {
                     return 0.0;
                 }
                 let inplane = w - self.normal * w.dot(self.normal);
@@ -100,7 +104,7 @@ impl Stamp {
             }
             Alignment::TangentPlanar => {
                 let w = p - self.center;
-                if w.dot(self.normal).abs() >= self.radius {
+                if w.dot(self.normal).abs() >= self.radius * reach {
                     return 0.0;
                 }
                 Vec2::new(w.dot(self.tangent), w.dot(self.bitangent)) / self.radius
@@ -114,6 +118,21 @@ impl Stamp {
         let (s, c) = self.angle.sin_cos();
         let r = Vec2::new(local.x * c + local.y * s, -local.x * s + local.y * c);
         let r = Vec2::new(r.x, r.y / self.roundness.clamp(0.01, 1.0));
-        falloff(r.length(), self.hardness)
+        match alpha {
+            None => falloff(r.length(), self.hardness),
+            Some(bmp) => {
+                if r.x.abs() >= 1.0 || r.y.abs() >= 1.0 {
+                    return 0.0;
+                }
+                let t = bmp.sample(r.x * 0.5 + 0.5, r.y * 0.5 + 0.5, Wrap::Clamp, false);
+                (t[0] * t[3]).clamp(0.0, 1.0)
+            }
+        }
     }
+}
+
+/// How far (in radii) a footprint can reach: the corners of the alpha square.
+#[inline]
+pub fn reach(has_alpha: bool) -> f32 {
+    if has_alpha { std::f32::consts::SQRT_2 } else { 1.0 }
 }

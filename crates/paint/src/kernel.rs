@@ -36,6 +36,8 @@ pub struct KernelInput<'a> {
     pub depth: &'a [Arc<DepthMap>],
     /// Minimum `n · -projection_dir` for a texel to be painted; `None` disables culling.
     pub backface_cos: Option<f32>,
+    /// Brush alpha (tip image); `None` = round procedural tip.
+    pub alpha: Option<&'a subcraft_image::Bitmap>,
 }
 
 /// A rasterized texel of one triangle.
@@ -62,12 +64,14 @@ impl KernelInput<'_> {
 
     /// Triangles of the active texture set the stamp can touch.
     pub fn candidates(&self, s: &Stamp) -> Vec<u32> {
+        let reach = crate::stamp::reach(self.alpha.is_some());
         let mut out = match self.alignment {
-            Alignment::TangentWrap => self.bvh.query_sphere(s.center, s.radius),
-            Alignment::TangentPlanar => self.bvh.query_sphere(s.center, s.radius * std::f32::consts::SQRT_2),
+            Alignment::TangentWrap => self.bvh.query_sphere(s.center, s.radius * reach),
+            Alignment::TangentPlanar => self.bvh.query_sphere(s.center, s.radius * reach * std::f32::consts::SQRT_2),
             Alignment::Camera => {
                 let cam = &self.cameras[s.camera];
-                let (lo, hi) = (s.screen - Vec2::splat(s.radius_px), s.screen + Vec2::splat(s.radius_px));
+                let r_px = s.radius_px * reach;
+                let (lo, hi) = (s.screen - Vec2::splat(r_px), s.screen + Vec2::splat(r_px));
                 let overlaps = |pts: &mut dyn Iterator<Item = Vec3>| {
                     let (mut min, mut max) = (Vec2::splat(f32::INFINITY), Vec2::splat(f32::NEG_INFINITY));
                     for p in pts {
@@ -93,7 +97,7 @@ impl KernelInput<'_> {
             }
             Alignment::Uv => {
                 let res = self.geometry.resolution as f32;
-                let r = s.radius_uv * res + KERNEL_EXPAND + 1.0;
+                let r = s.radius_uv * reach * res + KERNEL_EXPAND + 1.0;
                 let c = s.uv * res;
                 let rect = IRect::new((c.x - r).floor() as i32, (c.y - r).floor() as i32, (c.x + r).ceil() as i32, (c.y + r).ceil() as i32);
                 let mut set = BTreeSet::new();
@@ -194,7 +198,7 @@ impl KernelInput<'_> {
                 if !ok {
                     continue;
                 }
-                let a = st.footprint(self.alignment, cam, s.p, s.uv);
+                let a = st.footprint(self.alignment, cam, s.p, s.uv, self.alpha);
                 let slot = &mut stamp_a[s.idx as usize];
                 if a > *slot {
                     *slot = a;
