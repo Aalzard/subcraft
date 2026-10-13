@@ -9,6 +9,7 @@ use subcraft_app::{ACTIONS, Action, Command, Key, NewLayer, Session, Shortcut, a
 use subcraft_core::{ChannelKind, ChannelValue};
 use subcraft_doc::{FillChannel, FillSource, Generator, GeneratorKind, LayerContent, MaskEffectKind, ProceduralKind, ProceduralParams};
 
+use crate::dialogs::{self, Pending};
 use crate::orbit::OrbitCamera;
 use crate::panels;
 use crate::state::{Tool, UiState};
@@ -42,7 +43,7 @@ impl Tab {
 /// Command-line options.
 #[derive(Clone, Debug, Default)]
 pub struct LaunchOptions {
-    /// Mesh to open instead of the sample crate.
+    /// Project (`.subcraft`) or mesh to open instead of the sample crate.
     pub mesh: Option<PathBuf>,
     /// Build a small demo layer stack (fills, masks and painted strokes) on start.
     pub demo: bool,
@@ -70,13 +71,23 @@ pub struct SubcraftApp {
     frames: u64,
     screenshot: Option<PathBuf>,
     screenshot_requested: bool,
+    /// Action approved this frame, run after the UI pass.
+    pending_now: Option<Pending>,
 }
 
 impl SubcraftApp {
     pub fn new(cc: &eframe::CreationContext<'_>, options: LaunchOptions) -> Self {
         theme::apply(&cc.egui_ctx);
         let mut status = None;
+        let is_project = |p: &std::path::Path| p.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case(subcraft_app::PROJECT_EXTENSION));
         let session = match &options.mesh {
+            Some(path) if is_project(path) => match Session::open_project(path) {
+                Ok(s) => s,
+                Err(e) => {
+                    status = Some(format!("Could not open {}: {e}. Showing the sample.", path.display()));
+                    Session::sample()
+                }
+            },
             Some(path) => match Session::open_mesh(path, subcraft_app::DEFAULT_RESOLUTION) {
                 Ok((s, warnings)) => {
                     if !warnings.is_empty() {
@@ -110,7 +121,7 @@ impl SubcraftApp {
         {
             let _ = dock.set_active_tab(path);
         }
-        Self { state, dock, frames: 0, screenshot: options.screenshot, screenshot_requested: false }
+        Self { state, dock, frames: 0, screenshot: options.screenshot, screenshot_requested: false, pending_now: None }
     }
 
     fn shortcuts(&mut self, ctx: &egui::Context) {
@@ -143,6 +154,17 @@ impl SubcraftApp {
             Action::ResetCamera => self.state.camera = OrbitCamera::framing(&self.state.session.scene().mesh.bounds),
             Action::BrushTool => self.state.tool = Tool::Brush,
             Action::EraserTool => self.state.tool = Tool::Eraser,
+            Action::Save => {
+                dialogs::save(&mut self.state, false, now);
+            }
+            Action::SaveAs => {
+                dialogs::save(&mut self.state, true, now);
+            }
+            Action::OpenProject => self.request(Pending::OpenProject, now),
+            Action::Export => {
+                self.state.export.open = true;
+                self.state.export.settings.height_to_normal = self.state.height_scale;
+            }
             _ => {
                 if let Err(e) = self.state.session.perform(action) {
                     self.state.set_status(e.to_string(), now);
@@ -155,21 +177,32 @@ impl SubcraftApp {
         let now = ui.input(|i| i.time);
         egui::MenuBar::new().ui(ui, |ui| {
             ui.menu_button("File", |ui| {
+                let item = |ui: &mut Ui, label: &str, sc: &str| ui.add(egui::Button::new(label).shortcut_text(sc)).clicked();
                 if ui.button("New (sample crate)").clicked() {
-                    self.state.set_session(Session::sample());
+                    self.request(Pending::NewSample, now);
                     ui.close();
                 }
-                if ui.button("Open mesh…").clicked() {
+                if ui.button("New from mesh…").clicked() {
                     ui.close();
-                    if let Some(path) = rfd::FileDialog::new().add_filter("Meshes", &subcraft_mesh::SUPPORTED_EXTENSIONS).pick_file() {
-                        match Session::open_mesh(&path, subcraft_app::DEFAULT_RESOLUTION) {
-                            Ok((s, _)) => {
-                                self.state.set_session(s);
-                                self.state.set_status(format!("Opened {}", path.display()), now);
-                            }
-                            Err(e) => self.state.set_status(format!("Could not open mesh: {e}"), now),
-                        }
-                    }
+                    self.request(Pending::OpenMesh, now);
+                }
+                if item(ui, "Open project…", "Ctrl+O") {
+                    ui.close();
+                    self.request(Pending::OpenProject, now);
+                }
+                ui.separator();
+                if item(ui, "Save", "Ctrl+S") {
+                    ui.close();
+                    self.perform(Action::Save, now);
+                }
+                if item(ui, "Save as…", "Ctrl+Shift+S") {
+                    ui.close();
+                    self.perform(Action::SaveAs, now);
+                }
+                ui.separator();
+                if item(ui, "Export textures…", "Ctrl+Shift+E") {
+                    ui.close();
+                    self.perform(Action::Export, now);
                 }
                 ui.separator();
                 if ui.button("Quit").clicked() {
@@ -220,6 +253,16 @@ impl SubcraftApp {
                 }
             });
         });
+    }
+
+    /// Run `action` now, or after the unsaved-changes prompt.
+    fn request(&mut self, action: Pending, now: f64) {
+        if self.state.session.is_modified() && self.screenshot.is_none() {
+            self.state.confirm = Some(action);
+        } else {
+            self.pending_now = Some(action);
+        }
+        let _ = now;
     }
 
     fn status_bar(&mut self, ui: &mut Ui) {
@@ -301,6 +344,8 @@ fn map_key(k: egui::Key) -> Option<Key> {
         egui::Key::F => Key::F,
         egui::Key::G => Key::G,
         egui::Key::N => Key::N,
+        egui::Key::O => Key::O,
+        egui::Key::S => Key::S,
         egui::Key::X => Key::X,
         egui::Key::Y => Key::Y,
         egui::Key::Z => Key::Z,
@@ -367,6 +412,27 @@ impl eframe::App for SubcraftApp {
             .show_leaf_close_all_buttons(false)
             .show_inside(ui, &mut Viewer { state: &mut self.state });
         self.shortcuts_window(&ctx);
+        let now = ctx.input(|i| i.time);
+        dialogs::export_window(&mut self.state, &ctx, now);
+        if let Some(action) = dialogs::unsaved_prompt(&mut self.state, &ctx, now) {
+            self.pending_now = Some(action);
+        }
+        // Closing with unsaved work asks first.
+        if ctx.input(|i| i.viewport().close_requested()) && !self.state.allow_close && self.state.session.is_modified() && self.screenshot.is_none() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            self.state.confirm = Some(Pending::Close);
+        }
+        if let Some(action) = self.pending_now.take() {
+            if action == Pending::Close {
+                self.state.allow_close = true;
+            }
+            dialogs::run_pending(&mut self.state, action, &ctx, now);
+        }
+        let title = dialogs::title(&self.state);
+        if title != self.state.last_title {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
+            self.state.last_title = title;
+        }
         self.handle_screenshot(&ctx);
     }
 

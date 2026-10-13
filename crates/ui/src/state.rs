@@ -46,6 +46,12 @@ pub struct UiState {
     pub frame_time_ms: f32,
     /// Viewport height-to-bump strength.
     pub height_scale: f32,
+    pub export: crate::dialogs::ExportUi,
+    /// Action waiting for the unsaved-changes prompt.
+    pub confirm: Option<crate::dialogs::Pending>,
+    /// The user already agreed to close without saving.
+    pub allow_close: bool,
+    pub last_title: String,
 }
 
 impl UiState {
@@ -72,6 +78,10 @@ impl UiState {
             show_shortcuts: false,
             frame_time_ms: 0.0,
             height_scale: 0.02,
+            export: Default::default(),
+            confirm: None,
+            allow_close: false,
+            last_title: String::new(),
         }
     }
 

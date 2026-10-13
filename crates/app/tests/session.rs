@@ -158,3 +158,44 @@ fn pick_reports_material_slot() {
     assert!((p.position.z - 0.5).abs() < 1e-3);
     assert!(s.pick(&cam, Vec2::new(1.0, 1.0)).is_none());
 }
+
+#[test]
+fn save_and_reopen_project() {
+    let dir = std::env::temp_dir().join(format!("subcraft-app-test-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("test.subcraft");
+    let mut s = session();
+    assert!(!s.is_modified());
+    assert!(s.save(None).is_err(), "no path yet");
+    s.execute(Command::AddLayer(NewLayer::Fill)).unwrap();
+    s.execute(Command::AddLayer(NewLayer::Paint)).unwrap();
+    let cam = camera();
+    s.begin_stroke().unwrap();
+    s.stroke_to(&cam, cam.project(Vec3::new(0.0, 0.0, 0.5)).unwrap().truncate(), false).unwrap();
+    s.end_stroke();
+    assert!(s.is_modified());
+    s.save(Some(&path)).unwrap();
+    assert!(!s.is_modified());
+    assert_eq!(s.project_path(), Some(path.as_path()));
+
+    let reopened = Session::open_project(&path).unwrap();
+    assert_eq!(reopened.document(), s.document());
+    assert!(!reopened.is_modified());
+    assert!(!reopened.history().can_undo(), "fresh history after open");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn export_writes_maps_for_every_texture_set() {
+    let mut s = session();
+    let settings = subcraft_app::ExportSettings::default();
+    let plan = s.export_plan(&settings);
+    // Body + Trim, each BaseColor/Roughness/Metallic/Normal/Height.
+    assert_eq!(plan.len(), 10, "{plan:?}");
+    let dir = std::env::temp_dir().join(format!("subcraft-app-export-{}", std::process::id()));
+    let files = s.export_textures(&dir, &settings).unwrap();
+    assert_eq!(files.len(), 10);
+    assert!(files.iter().all(|f| f.exists()));
+    assert!(files[0].file_name().unwrap().to_str().unwrap().starts_with("SampleCrate_Body_"));
+    std::fs::remove_dir_all(&dir).unwrap();
+}

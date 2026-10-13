@@ -19,6 +19,10 @@ pub enum Action {
     BrushLarger,
     ToggleSymmetryX,
     ResetCamera,
+    Save,
+    SaveAs,
+    OpenProject,
+    Export,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -29,6 +33,8 @@ pub enum Key {
     F,
     G,
     N,
+    O,
+    S,
     X,
     Y,
     Z,
@@ -47,6 +53,8 @@ impl Key {
             Key::F => "F",
             Key::G => "G",
             Key::N => "N",
+            Key::O => "O",
+            Key::S => "S",
             Key::X => "X",
             Key::Y => "Y",
             Key::Z => "Z",
@@ -115,6 +123,10 @@ pub const ACTIONS: &[ActionInfo] = &[
     ActionInfo { action: Action::BrushLarger, label: "Brush Larger", shortcuts: &[Shortcut::key(Key::CloseBracket)] },
     ActionInfo { action: Action::ToggleSymmetryX, label: "Toggle X Symmetry", shortcuts: &[Shortcut::key(Key::X)] },
     ActionInfo { action: Action::ResetCamera, label: "Reset Camera", shortcuts: &[Shortcut::key(Key::Home)] },
+    ActionInfo { action: Action::Save, label: "Save Project", shortcuts: &[Shortcut::ctrl(Key::S)] },
+    ActionInfo { action: Action::SaveAs, label: "Save Project As", shortcuts: &[Shortcut::ctrl_shift(Key::S)] },
+    ActionInfo { action: Action::OpenProject, label: "Open Project", shortcuts: &[Shortcut::ctrl(Key::O)] },
+    ActionInfo { action: Action::Export, label: "Export Textures", shortcuts: &[Shortcut::ctrl_shift(Key::E)] },
 ];
 
 pub fn info(action: Action) -> &'static ActionInfo {

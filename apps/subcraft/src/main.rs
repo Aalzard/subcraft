@@ -1,6 +1,6 @@
 //! SubCraft desktop application.
 //!
-//! Usage: `subcraft [mesh.obj|.gltf|.glb|.fbx] [--demo] [--view-2d] [--screenshot out.png]`
+//! Usage: `subcraft [project.subcraft|mesh.obj|.gltf|.glb|.fbx] [--demo] [--view-2d] [--screenshot out.png]`
 
 fn main() -> anyhow::Result<()> {
     env_logger_lite();
@@ -12,7 +12,7 @@ fn main() -> anyhow::Result<()> {
             "--view-2d" => options.view_2d = true,
             "--screenshot" => options.screenshot = args.next().map(Into::into),
             "-h" | "--help" => {
-                println!("usage: subcraft [mesh file] [--demo] [--view-2d] [--screenshot out.png]");
+                println!("usage: subcraft [project.subcraft | mesh file] [--demo] [--view-2d] [--screenshot out.png]");
                 return Ok(());
             }
             path => options.mesh = Some(path.into()),
