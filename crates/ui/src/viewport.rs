@@ -87,7 +87,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     match (&state.render_state, &mut state.renderer) {
         (Some(rs), Some(renderer)) => {
             let t0 = std::time::Instant::now();
-            let target = renderer.render(&rs.device, &rs.queue, size, &state.camera.view_params(size));
+            let mut params = state.camera.view_params(size);
+            params.height_scale = state.height_scale;
+            let target = renderer.render(&rs.device, &rs.queue, size, &params);
             let mut egui_renderer = rs.renderer.write();
             let id = match state.viewport_texture {
                 Some(id) => {

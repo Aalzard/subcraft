@@ -44,6 +44,8 @@ pub struct UiState {
     pub rename: Option<(subcraft_core::LayerId, String)>,
     pub show_shortcuts: bool,
     pub frame_time_ms: f32,
+    /// Viewport height-to-bump strength.
+    pub height_scale: f32,
 }
 
 impl UiState {
@@ -69,6 +71,7 @@ impl UiState {
             rename: None,
             show_shortcuts: false,
             frame_time_ms: 0.0,
+            height_scale: 0.02,
         }
     }
 

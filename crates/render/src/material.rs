@@ -8,8 +8,14 @@ use subcraft_core::ChannelKind;
 use subcraft_image::{TILE_SIZE, TILE_TEXELS, TiledImage};
 
 /// Channels the viewport shader reads, in binding order (after the sampler).
-pub const SHADED_CHANNELS: [ChannelKind; 5] =
-    [ChannelKind::BaseColor, ChannelKind::Roughness, ChannelKind::Metallic, ChannelKind::Normal, ChannelKind::Emissive];
+pub const SHADED_CHANNELS: [ChannelKind; 6] = [
+    ChannelKind::BaseColor,
+    ChannelKind::Roughness,
+    ChannelKind::Metallic,
+    ChannelKind::Normal,
+    ChannelKind::Emissive,
+    ChannelKind::Height,
+];
 
 pub struct ChannelTexture {
     pub texture: wgpu::Texture,

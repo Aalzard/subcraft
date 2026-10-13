@@ -123,6 +123,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 });
             }
             ui.label(RichText::new("Unchecked channels are never touched by the stroke.").small().weak());
+            ui.label(RichText::new("Tip: paint bumps with Height (raise its value above 0). Normal paints a fixed direction; flat = no change.").small().weak());
         }
     });
 }

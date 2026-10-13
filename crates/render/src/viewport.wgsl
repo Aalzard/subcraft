@@ -4,7 +4,7 @@ struct Globals {
     view_proj: mat4x4<f32>,
     eye: vec4<f32>,
     light_dir: vec4<f32>,
-    // x: exposure, y: environment intensity, z: light intensity
+    // x: exposure, y: environment intensity, z: light intensity, w: height bump scale
     params: vec4<f32>,
 };
 
@@ -15,6 +15,7 @@ struct Globals {
 @group(1) @binding(3) var t_metal: texture_2d<f32>;
 @group(1) @binding(4) var t_normal: texture_2d<f32>;
 @group(1) @binding(5) var t_emissive: texture_2d<f32>;
+@group(1) @binding(6) var t_height: texture_2d<f32>;
 
 struct VsIn {
     @location(0) pos: vec3<f32>,
@@ -89,13 +90,26 @@ fn fs_main(in: VsOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f
     let ntex = textureSample(t_normal, samp, in.uv).rgb * 2.0 - 1.0;
     let emissive = textureSample(t_emissive, samp, in.uv).rgb;
 
+    // Height -> tangent-space bump normal (central differences, one texel apart). UV v grows
+    // downward while the bitangent points up the image (OpenGL convention), hence +dh/dv for y.
+    let texel = 1.0 / vec2<f32>(textureDimensions(t_height));
+    let h_l = textureSample(t_height, samp, in.uv - vec2<f32>(texel.x, 0.0)).r;
+    let h_r = textureSample(t_height, samp, in.uv + vec2<f32>(texel.x, 0.0)).r;
+    let h_u = textureSample(t_height, samp, in.uv - vec2<f32>(0.0, texel.y)).r;
+    let h_d = textureSample(t_height, samp, in.uv + vec2<f32>(0.0, texel.y)).r;
+    let dhdu = (h_r - h_l) / (2.0 * texel.x);
+    let dhdv = (h_d - h_u) / (2.0 * texel.y);
+    let bump = normalize(vec3<f32>(-dhdu * g.params.w, dhdv * g.params.w, 1.0));
+    // Combine with the normal map (whiteout).
+    let nts = normalize(vec3<f32>(ntex.xy + bump.xy, max(ntex.z, 1e-3) * bump.z));
+
     var n0 = normalize(in.normal);
     if (!front) {
         n0 = -n0;
     }
     let t = normalize(in.tangent.xyz - n0 * dot(n0, in.tangent.xyz));
     let b = cross(n0, t) * in.tangent.w;
-    let n = normalize(t * ntex.x + b * ntex.y + n0 * max(ntex.z, 1e-3));
+    let n = normalize(t * nts.x + b * nts.y + n0 * nts.z);
 
     let v = normalize(g.eye.xyz - in.world);
     let l = normalize(g.light_dir.xyz);

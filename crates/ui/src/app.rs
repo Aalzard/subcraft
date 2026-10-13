@@ -207,6 +207,11 @@ impl SubcraftApp {
                     self.dock = default_layout();
                     ui.close();
                 }
+                ui.separator();
+                ui.horizontal(|ui| {
+                    ui.label("Height bump");
+                    ui.add(egui::Slider::new(&mut self.state.height_scale, 0.0..=0.1));
+                });
             });
             ui.menu_button("Help", |ui| {
                 if ui.button("Keyboard shortcuts").clicked() {

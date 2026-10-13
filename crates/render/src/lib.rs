@@ -40,6 +40,8 @@ pub struct ViewParams {
     pub light_intensity: f32,
     pub environment_intensity: f32,
     pub exposure: f32,
+    /// Height-to-bump strength (UV units of slope per height unit; 0 disables bumps).
+    pub height_scale: f32,
     /// Linear background color.
     pub background: [f32; 3],
 }
@@ -54,6 +56,7 @@ impl ViewParams {
             light_intensity: 2.6,
             environment_intensity: 1.0,
             exposure: 1.0,
+            height_scale: 0.02,
             background: [0.018, 0.019, 0.022],
         }
     }
@@ -260,7 +263,7 @@ impl ViewportRenderer {
             view_proj: (params.proj * params.view).to_cols_array_2d(),
             eye: params.eye.extend(1.0).to_array(),
             light_dir: params.light_dir.normalize_or(Vec3::Y).extend(0.0).to_array(),
-            params: [params.exposure, params.environment_intensity, params.light_intensity, 0.0],
+            params: [params.exposure, params.environment_intensity, params.light_intensity, params.height_scale],
         };
         queue.write_buffer(&self.globals, 0, bytemuck::bytes_of(&globals));
         let target = self.target.as_ref().expect("created above");
