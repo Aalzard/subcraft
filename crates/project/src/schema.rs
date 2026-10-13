@@ -41,6 +41,15 @@ pub struct TextureSetV1 {
     pub channels: Vec<ChannelDefV1>,
     /// Bottom-to-top.
     pub layers: Vec<LayerV1>,
+    /// Baked mesh maps (optional; absent in files written before baking existed).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mesh_maps: Vec<MeshMapV1>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct MeshMapV1 {
+    pub kind: subcraft_core::MeshMapKind,
+    pub raster: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

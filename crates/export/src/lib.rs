@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 
 use glam::Vec3;
 use rayon::prelude::*;
-use subcraft_core::ChannelKind;
+use subcraft_core::{ChannelKind, MeshMapKind};
 use subcraft_core::color::linear_to_srgb;
 use subcraft_image::dilate::{dilate_infinite, dilate_width};
 use subcraft_image::{FileFormat, TiledImage, save_image};
@@ -54,6 +54,18 @@ pub struct ExportTextureSet<'a> {
     pub name: &'a str,
     pub material_slot: u32,
     pub channels: &'a BTreeMap<ChannelKind, TiledImage>,
+    /// Baked mesh maps; baked AO stands in for a missing Ambient Occlusion channel.
+    pub mesh_maps: Option<&'a BTreeMap<MeshMapKind, TiledImage>>,
+}
+
+impl ExportTextureSet<'_> {
+    /// Image providing `kind`: the channel composite, or the baked AO for the AO channel.
+    fn source(&self, kind: ChannelKind) -> Option<&TiledImage> {
+        self.channels.get(&kind).or_else(|| match kind {
+            ChannelKind::AmbientOcclusion => self.mesh_maps.and_then(|m| m.get(&MeshMapKind::AmbientOcclusion)),
+            _ => None,
+        })
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -71,7 +83,7 @@ pub fn sanitize(s: &str) -> String {
 }
 
 fn map_applies(map: &OutputMap, set: &ExportTextureSet) -> bool {
-    map.components.iter().filter_map(|s| s.channel()).any(|k| set.channels.contains_key(&k))
+    map.components.iter().filter_map(|s| s.channel()).any(|k| set.source(k).is_some())
         || map.components.iter().any(|s| matches!(s, Source::Normal { .. })) && set.channels.contains_key(&ChannelKind::Height)
 }
 
@@ -99,8 +111,20 @@ impl<'a> Dense<'a> {
     fn channel(&mut self, kind: ChannelKind) -> &(usize, Vec<f32>) {
         let size = self.size;
         let set = self.set;
-        self.cache.entry(kind).or_insert_with(|| match set.channels.get(&kind) {
-            Some(img) => (img.comps(), img.to_dense()),
+        self.cache.entry(kind).or_insert_with(|| match set.source(kind) {
+            Some(img) if img.width() == size => (img.comps(), img.to_dense()),
+            Some(img) => {
+                // Baked at another resolution: nearest-neighbour resample.
+                let c = img.comps();
+                let mut out = Vec::with_capacity((size * size) as usize * c);
+                for y in 0..size {
+                    for x in 0..size {
+                        let px = img.get(x * img.width() / size, y * img.height() / size);
+                        out.extend_from_slice(&px[..c]);
+                    }
+                }
+                (c, out)
+            }
             None => {
                 let d = kind.default_value().0;
                 let n = (size * size) as usize;

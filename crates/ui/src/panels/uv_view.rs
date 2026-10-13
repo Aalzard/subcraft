@@ -1,31 +1,42 @@
-//! 2D view of the selected texture set's composite with its UV wireframe.
+//! 2D view: the selected texture set's channels or baked mesh maps, with its UV wireframe.
 
 use egui::{Color32, Pos2, Rect, Sense, Stroke, Ui};
-use subcraft_core::ChannelKind;
+use subcraft_core::{ChannelKind, MeshMapKind};
 use subcraft_mesh::topology;
-use subcraft_render::wgpu_api as wgpu;
+use subcraft_render::{PreviewSource, wgpu_api as wgpu};
 
 use crate::state::UiState;
 
-const VIEW_CHANNELS: [ChannelKind; 3] = [ChannelKind::BaseColor, ChannelKind::Normal, ChannelKind::Emissive];
+fn label(s: PreviewSource) -> String {
+    match s {
+        PreviewSource::Channel(k) => k.display_name().to_string(),
+        PreviewSource::MeshMap(k) => format!("Baked {}", k.display_name()),
+    }
+}
 
 pub fn show(state: &mut UiState, ui: &mut Ui) {
     let ts = state.session.selected_texture_set();
-    let slot = ts.material_slot;
-    let available: Vec<ChannelKind> = VIEW_CHANNELS.iter().copied().filter(|k| ts.has_channel(*k)).collect();
+    let (ts_id, slot) = (ts.id, ts.material_slot);
+    let mut sources: Vec<PreviewSource> = ts.channel_kinds().map(PreviewSource::Channel).collect();
+    if let Some(maps) = state.session.mesh_maps(ts_id) {
+        sources.extend(MeshMapKind::ALL.iter().filter(|k| maps.get(**k).is_some()).map(|k| PreviewSource::MeshMap(*k)));
+    }
+    if !sources.contains(&state.uv.source) {
+        state.uv.source = PreviewSource::Channel(ChannelKind::BaseColor);
+    }
     ui.horizontal(|ui| {
-        ui.label("Channel");
-        for k in &available {
-            ui.selectable_value(&mut state.uv.channel, *k, k.display_name());
-        }
+        ui.label("Show");
+        egui::ComboBox::from_id_salt("uv_source").selected_text(label(state.uv.source)).width(180.0).show_ui(ui, |ui| {
+            for s in &sources {
+                ui.selectable_value(&mut state.uv.source, *s, label(*s));
+            }
+        });
         if ui.button("Fit").clicked() {
             state.uv.zoom = 1.0;
             state.uv.offset = egui::Vec2::ZERO;
         }
+        ui.checkbox(&mut state.uv_wireframe, "UV lines");
     });
-    if !available.contains(&state.uv.channel) {
-        state.uv.channel = ChannelKind::BaseColor;
-    }
     let (rect, response) = ui.allocate_exact_size(ui.available_size(), Sense::click_and_drag());
     if response.hovered() {
         let scroll = ui.input(|i| i.smooth_scroll_delta.y);
@@ -43,7 +54,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
 
     state.sync_gpu();
     if let (Some(rs), Some(renderer)) = (&state.render_state, &mut state.renderer)
-        && let Some(preview) = renderer.channel_preview(&rs.device, &rs.queue, slot, state.uv.channel)
+        && let Some(preview) = renderer.preview(&rs.device, &rs.queue, slot, state.uv.source)
     {
         let view = &preview.display_view;
         let mut r = rs.renderer.write();
@@ -62,11 +73,13 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     }
     painter.rect_stroke(img_rect, 0.0, Stroke::new(1.0, Color32::from_gray(90)), egui::StrokeKind::Outside);
 
-    let mesh = state.session.scene().mesh.clone();
-    let edges = state.uv_edges.entry(slot).or_insert_with(|| topology::uv_edges(&mesh, mesh.material_triangles(slot)));
-    let to = |p: glam::Vec2| img_rect.min + egui::vec2(p.x * side, p.y * side);
-    let stroke = Stroke::new(0.6, Color32::from_rgba_unmultiplied(255, 255, 255, 70));
-    for [a, b] in edges.iter() {
-        painter.line_segment([to(*a), to(*b)], stroke);
+    if state.uv_wireframe {
+        let mesh = state.session.scene().mesh.clone();
+        let edges = state.uv_edges.entry(slot).or_insert_with(|| topology::uv_edges(&mesh, mesh.material_triangles(slot)));
+        let to = |p: glam::Vec2| img_rect.min + egui::vec2(p.x * side, p.y * side);
+        let stroke = Stroke::new(0.6, Color32::from_rgba_unmultiplied(255, 255, 255, 70));
+        for [a, b] in edges.iter() {
+            painter.line_segment([to(*a), to(*b)], stroke);
+        }
     }
 }

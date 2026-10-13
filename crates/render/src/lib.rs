@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use bytemuck::{Pod, Zeroable};
 use egui_wgpu::wgpu;
 use glam::{Mat4, Vec3};
-use subcraft_core::ChannelKind;
+use subcraft_core::{ChannelKind, MeshMapKind};
 use subcraft_image::TiledImage;
 use subcraft_mesh::Mesh;
 use wgpu::util::DeviceExt;
@@ -28,6 +28,13 @@ pub use gpu_mesh::GpuMesh;
 pub use material::{ChannelTexture, GpuMaterial, SHADED_CHANNELS};
 pub use preview::{PreviewPass, PreviewTarget};
 pub use target::{DISPLAY_FORMAT, OUTPUT_FORMAT, RenderTarget};
+
+/// What the 2D view displays.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum PreviewSource {
+    Channel(ChannelKind),
+    MeshMap(MeshMapKind),
+}
 
 /// Camera and lighting for one frame.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -223,14 +230,27 @@ impl ViewportRenderer {
         self.materials.get(&material_slot)?.channels.get(&kind).map(|t| &t.view)
     }
 
-    /// Render a display preview (sRGB 8-bit, egui-ready `display_view`) of an uploaded channel.
-    pub fn channel_preview(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, material_slot: u32, kind: ChannelKind) -> Option<&PreviewTarget> {
-        let tex = self.materials.get(&material_slot)?.channels.get(&kind)?;
+    /// Upload a baked mesh map (2D view display; replaces any previous one of that kind).
+    pub fn upload_mesh_map(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, material_slot: u32, kind: MeshMapKind, image: &TiledImage) {
+        let mat = self.materials.entry(material_slot).or_default();
+        let tex = ChannelTexture::new(device, image.width(), image.comps(), kind.key());
+        tex.upload(queue, image, &(0..image.tile_count()).collect::<Vec<_>>());
+        mat.mesh_maps.insert(kind, tex);
+    }
+
+    /// Render a display preview (sRGB 8-bit, egui-ready `display_view`) of an uploaded channel or
+    /// baked map. Scalar sources are shown as gray.
+    pub fn preview(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, material_slot: u32, source: PreviewSource) -> Option<&PreviewTarget> {
+        let mat = self.materials.get(&material_slot)?;
+        let (tex, is_color) = match source {
+            PreviewSource::Channel(k) => (mat.channels.get(&k)?, k.is_color()),
+            PreviewSource::MeshMap(k) => (mat.mesh_maps.get(&k)?, false),
+        };
         if self.preview_target.as_ref().is_none_or(|t| t.size != tex.size) {
             self.preview_target = Some(PreviewPass::target(device, tex.size));
         }
         let dst = self.preview_target.as_ref().expect("created above");
-        self.preview.run(device, queue, &tex.view, kind.is_color(), dst);
+        self.preview.run(device, queue, &tex.view, is_color, tex.comps == 1, dst);
         Some(dst)
     }
 

@@ -6,7 +6,7 @@ use glam::Vec2;
 use subcraft_app::{Command, Session};
 use subcraft_core::ChannelKind;
 use subcraft_paint::PolygonFillMode;
-use subcraft_render::{SHADED_CHANNELS, ViewportRenderer, egui_wgpu};
+use subcraft_render::{PreviewSource, SHADED_CHANNELS, ViewportRenderer, egui_wgpu};
 
 use crate::orbit::OrbitCamera;
 
@@ -20,7 +20,7 @@ pub enum Tool {
 pub struct UvView {
     pub zoom: f32,
     pub offset: egui::Vec2,
-    pub channel: ChannelKind,
+    pub source: PreviewSource,
     pub texture: Option<egui::TextureId>,
 }
 
@@ -52,6 +52,10 @@ pub struct UiState {
     /// The user already agreed to close without saving.
     pub allow_close: bool,
     pub last_title: String,
+    pub bake: crate::dialogs::BakeUi,
+    pub uv_wireframe: bool,
+    /// Mesh maps last uploaded to the GPU (to re-upload only when a bake replaced them).
+    pub uploaded_maps: HashMap<(subcraft_core::TextureSetId, subcraft_core::MeshMapKind), subcraft_image::TiledImage>,
 }
 
 impl UiState {
@@ -70,7 +74,7 @@ impl UiState {
             fill_mode: PolygonFillMode::UvIsland,
             active_channel: ChannelKind::BaseColor,
             status: None,
-            uv: UvView { zoom: 1.0, offset: egui::Vec2::ZERO, channel: ChannelKind::BaseColor, texture: None },
+            uv: UvView { zoom: 1.0, offset: egui::Vec2::ZERO, source: PreviewSource::Channel(ChannelKind::BaseColor), texture: None },
             painting: false,
             last_stroke_point: None,
             uv_edges: HashMap::new(),
@@ -82,6 +86,9 @@ impl UiState {
             confirm: None,
             allow_close: false,
             last_title: String::new(),
+            bake: Default::default(),
+            uv_wireframe: true,
+            uploaded_maps: HashMap::new(),
         }
     }
 
@@ -92,6 +99,7 @@ impl UiState {
         self.session = session;
         self.gpu_dirty = true;
         self.uv_edges.clear();
+        self.uploaded_maps.clear();
         self.painting = false;
         self.last_stroke_point = None;
     }
@@ -137,6 +145,22 @@ impl UiState {
         } else {
             for u in &updates {
                 upload(renderer, u.texture_set, u.material_slot, Some(&u.tiles));
+            }
+        }
+        // Baked maps: re-upload when a bake replaced them. Baked AO also shades the viewport
+        // when the texture set has no Ambient Occlusion channel of its own.
+        for ts in &session.document().texture_sets {
+            let Some(maps) = session.mesh_maps(ts.id) else { continue };
+            for (kind, img) in maps.iter() {
+                let key = (ts.id, kind);
+                if self.uploaded_maps.get(&key).is_some_and(|u| u.same_storage(img)) {
+                    continue;
+                }
+                renderer.upload_mesh_map(&rs.device, &rs.queue, ts.material_slot, kind, img);
+                if kind == subcraft_core::MeshMapKind::AmbientOcclusion && !ts.has_channel(ChannelKind::AmbientOcclusion) {
+                    renderer.upload_channel(&rs.device, &rs.queue, ts.material_slot, ChannelKind::AmbientOcclusion, img, None);
+                }
+                self.uploaded_maps.insert(key, img.clone());
             }
         }
     }

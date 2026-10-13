@@ -4,14 +4,18 @@
 //! calls, and read back the document, history and composites to display them.
 
 pub mod actions;
+pub mod bake_job;
 pub mod command;
 pub mod session;
 
 pub use actions::{ACTIONS, Action, ActionInfo, Key, Shortcut, action_for};
+pub use bake_job::{BakeJob, BakeRequest};
 pub use command::{Command, CommandError, NewLayer};
 pub use session::{BrushState, CompositeUpdate, DEFAULT_RESOLUTION, Pick, Scene, Selection, Session};
 
 pub use subcraft_compositor::{Composite, composite_comps};
+pub use subcraft_bake::BakeSettings;
+pub use subcraft_core::MeshMapKind;
 pub use subcraft_export::{ExportSettings, ExportTemplate, Padding};
 pub use subcraft_image::FileFormat;
 pub use subcraft_project::EXTENSION as PROJECT_EXTENSION;

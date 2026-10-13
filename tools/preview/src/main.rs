@@ -22,6 +22,7 @@ fn main() {
     for slot in 0..mesh.materials.len() as u32 {
         uv_layout(&mesh, slot, &out);
         world_normals(&mesh, slot, &out);
+        baked_maps(&mesh, slot, &out);
     }
     println!("wrote previews to {}", out.canonicalize().unwrap_or(out).display());
 }
@@ -126,4 +127,35 @@ fn draw_line(rgb: &mut [f32], size: usize, a: Vec2, b: Vec2, color: [f32; 3]) {
             rgb[o..o + 3].copy_from_slice(&color);
         }
     }
+}
+
+/// Bake every mesh map of a texture set (low on low) and write them side by side.
+fn baked_maps(mesh: &Mesh, slot: u32, out: &Path) {
+    use subcraft_bake::{BakeInput, BakeSettings, Geometry, Progress, bake};
+    use subcraft_core::MeshMapKind;
+    const S: u32 = 512;
+    let bvh = subcraft_mesh::Bvh::build(mesh);
+    let input = BakeInput { low: Geometry { mesh, bvh: &bvh }, high: None, material_slot: slot };
+    let settings = BakeSettings { size: S, ..BakeSettings::default() };
+    let t = std::time::Instant::now();
+    let maps = bake(&input, &settings, &Progress::new()).expect("bake");
+    println!("baked {} maps for slot {slot} at {S}² in {:?}", maps.len(), t.elapsed());
+    let kinds = [MeshMapKind::AmbientOcclusion, MeshMapKind::Curvature, MeshMapKind::Thickness, MeshMapKind::WorldSpaceNormal, MeshMapKind::Id, MeshMapKind::Position];
+    let w = S as usize * kinds.len();
+    let mut rgb = vec![0.0f32; w * S as usize * 3];
+    for (k, kind) in kinds.iter().enumerate() {
+        let img = &maps[kind];
+        let dense = img.to_dense();
+        let c = img.comps();
+        for y in 0..S as usize {
+            for x in 0..S as usize {
+                let src = &dense[(y * S as usize + x) * c..][..c];
+                let px = if c == 1 { [src[0]; 3] } else { [src[0], src[1], src[2]] };
+                let o = (y * w + k * S as usize + x) * 3;
+                rgb[o..o + 3].copy_from_slice(&px);
+            }
+        }
+    }
+    let name = format!("baked_{}.png", mesh.materials[slot as usize].name.to_lowercase());
+    save_image(&out.join(name), w as u32, S, 3, &rgb, FileFormat::Png8).expect("write baked maps");
 }

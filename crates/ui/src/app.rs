@@ -161,6 +161,7 @@ impl SubcraftApp {
                 dialogs::save(&mut self.state, true, now);
             }
             Action::OpenProject => self.request(Pending::OpenProject, now),
+            Action::Bake => self.state.bake.open = true,
             Action::Export => {
                 self.state.export.open = true;
                 self.state.export.settings.height_to_normal = self.state.height_scale;
@@ -203,6 +204,10 @@ impl SubcraftApp {
                 if item(ui, "Export textures…", "Ctrl+Shift+E") {
                     ui.close();
                     self.perform(Action::Export, now);
+                }
+                if item(ui, "Bake mesh maps…", "Ctrl+B") {
+                    ui.close();
+                    self.perform(Action::Bake, now);
                 }
                 ui.separator();
                 if ui.button("Quit").clicked() {
@@ -414,6 +419,8 @@ impl eframe::App for SubcraftApp {
         self.shortcuts_window(&ctx);
         let now = ctx.input(|i| i.time);
         dialogs::export_window(&mut self.state, &ctx, now);
+        dialogs::bake_window(&mut self.state, &ctx, now);
+        dialogs::poll_bake(&mut self.state, &ctx, now);
         if let Some(action) = dialogs::unsaved_prompt(&mut self.state, &ctx, now) {
             self.pending_now = Some(action);
         }

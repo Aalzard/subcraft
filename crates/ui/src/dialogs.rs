@@ -223,3 +223,132 @@ pub fn title(state: &UiState) -> String {
     let star = if state.session.is_modified() { " *" } else { "" };
     format!("SubCraft — {name}{star}")
 }
+
+// ----- baking ----------------------------------------------------------------------------------
+
+pub struct BakeUi {
+    pub open: bool,
+    pub settings: subcraft_app::BakeSettings,
+    pub high_poly: String,
+    pub all_sets: bool,
+    pub job: Option<subcraft_app::BakeJob>,
+}
+
+impl Default for BakeUi {
+    fn default() -> Self {
+        Self { open: false, settings: subcraft_app::BakeSettings::default(), high_poly: String::new(), all_sets: true, job: None }
+    }
+}
+
+/// Apply results of a running bake (call every frame).
+pub fn poll_bake(state: &mut UiState, ctx: &egui::Context, now: f64) {
+    let Some(job) = state.bake.job.as_mut() else { return };
+    ctx.request_repaint_after(std::time::Duration::from_millis(100));
+    if let Some(result) = job.poll(&mut state.session) {
+        state.bake.job = None;
+        match result {
+            Ok(n) => state.set_status(format!("Baked mesh maps for {n} texture set(s). See them in the 2D view."), now),
+            Err(e) => state.set_status(format!("Bake: {e}"), now),
+        }
+    }
+}
+
+pub fn bake_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
+    if !state.bake.open {
+        return;
+    }
+    let mut open = true;
+    let selected = state.session.selected_texture_set();
+    let (sel_id, sel_slot, sel_name) = (selected.id, selected.material_slot, selected.name.clone());
+    let all: Vec<(subcraft_core::TextureSetId, u32)> = state.session.document().texture_sets.iter().map(|t| (t.id, t.material_slot)).collect();
+    egui::Window::new("Bake Mesh Maps").open(&mut open).default_width(420.0).show(ctx, |ui| {
+        let busy = state.bake.job.is_some();
+        ui.add_enabled_ui(!busy, |ui| {
+            let b = &mut state.bake;
+            ui.horizontal(|ui| {
+                ui.label("Bake");
+                ui.selectable_value(&mut b.all_sets, true, "All texture sets");
+                ui.selectable_value(&mut b.all_sets, false, format!("Only {sel_name}"));
+            });
+            egui::Grid::new("bake_grid").num_columns(2).spacing([8.0, 6.0]).show(ui, |ui| {
+                ui.label("Size");
+                egui::ComboBox::from_id_salt("bake_size").selected_text(format!("{}²", b.settings.size)).show_ui(ui, |ui| {
+                    for r in [256u32, 512, 1024, 2048, 4096] {
+                        ui.selectable_value(&mut b.settings.size, r, format!("{r}²"));
+                    }
+                });
+                ui.end_row();
+                ui.label("High poly");
+                ui.horizontal(|ui| {
+                    ui.add(egui::TextEdit::singleline(&mut b.high_poly).hint_text("optional (none = low on low)").desired_width(220.0));
+                    if ui.button("Browse…").clicked()
+                        && let Some(p) = rfd::FileDialog::new().add_filter("Meshes", &subcraft_mesh::SUPPORTED_EXTENSIONS).pick_file()
+                    {
+                        b.high_poly = p.display().to_string();
+                    }
+                    if !b.high_poly.is_empty() && ui.small_button("x").clicked() {
+                        b.high_poly.clear();
+                    }
+                });
+                ui.end_row();
+                if !b.high_poly.is_empty() {
+                    ui.label("Cage front / rear");
+                    ui.horizontal(|ui| {
+                        ui.add(egui::DragValue::new(&mut b.settings.cage_front).speed(0.001).range(0.0..=0.5));
+                        ui.add(egui::DragValue::new(&mut b.settings.cage_rear).speed(0.001).range(0.0..=0.5));
+                    });
+                    ui.end_row();
+                }
+                ui.label("AO samples");
+                ui.add(egui::Slider::new(&mut b.settings.ao_samples, 4..=256).logarithmic(true));
+                ui.end_row();
+                ui.label("AO distance");
+                ui.add(egui::Slider::new(&mut b.settings.ao_distance, 0.01..=1.0).logarithmic(true));
+                ui.end_row();
+                ui.label("Curvature radius");
+                ui.add(egui::Slider::new(&mut b.settings.curvature_radius, 0.002..=0.1).logarithmic(true));
+                ui.end_row();
+            });
+            ui.separator();
+            ui.label("Maps");
+            ui.horizontal_wrapped(|ui| {
+                for k in subcraft_core::MeshMapKind::ALL {
+                    let mut on = b.settings.maps.contains(&k);
+                    if ui.checkbox(&mut on, k.display_name()).changed() {
+                        if on {
+                            b.settings.maps.push(k);
+                        } else {
+                            b.settings.maps.retain(|m| *m != k);
+                        }
+                    }
+                }
+            });
+            ui.label(egui::RichText::new("Curvature feeds the Edges generator, AO the Cavity generator; baked AO also shades the 3D view and fills AO in exports.").small().weak());
+        });
+        ui.separator();
+        match &state.bake.job {
+            Some(job) => {
+                ui.label(job.stage());
+                ui.add(egui::ProgressBar::new(job.fraction()).show_percentage());
+                if ui.button("Cancel").clicked() {
+                    job.cancel();
+                }
+            }
+            None => {
+                let can = !state.bake.settings.maps.is_empty();
+                if ui.add_enabled(can, egui::Button::new(egui::RichText::new("Bake").strong())).clicked() {
+                    let mut settings = state.bake.settings.clone();
+                    settings.maps.sort();
+                    let request = subcraft_app::BakeRequest {
+                        settings,
+                        high_poly: (!state.bake.high_poly.trim().is_empty()).then(|| PathBuf::from(state.bake.high_poly.trim())),
+                        texture_sets: if state.bake.all_sets { all.clone() } else { vec![(sel_id, sel_slot)] },
+                    };
+                    state.bake.job = Some(state.session.start_bake(request));
+                    state.set_status("Baking…", now);
+                }
+            }
+        }
+    });
+    state.bake.open = open;
+}

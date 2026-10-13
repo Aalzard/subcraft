@@ -52,12 +52,16 @@ impl From<zip::result::ZipError> for ProjectError {
     }
 }
 
+/// Baked mesh maps per texture set.
+pub type MeshMapSet = BTreeMap<TextureSetId, BTreeMap<subcraft_core::MeshMapKind, TiledImage>>;
+
 /// Everything a project file holds.
 #[derive(Debug)]
 pub struct ProjectData {
     pub mesh: Mesh,
     pub document: Document,
     pub resources: ResourceStore,
+    pub mesh_maps: MeshMapSet,
 }
 
 // ----- save ----------------------------------------------------------------------------------
@@ -136,7 +140,13 @@ fn referenced_resources(doc: &Document) -> Vec<ResourceId> {
 }
 
 /// Write a project container to any seekable writer (files, memory buffers in tests).
-pub fn write_project<W: Write + Seek>(w: W, mesh: &Mesh, doc: &Document, resources: &ResourceStore) -> Result<W, ProjectError> {
+pub fn write_project<W: Write + Seek>(
+    w: W,
+    mesh: &Mesh,
+    doc: &Document,
+    resources: &ResourceStore,
+    mesh_maps: &MeshMapSet,
+) -> Result<W, ProjectError> {
     let mut writer = Writer { rasters: Vec::new() };
     let texture_sets = doc
         .texture_sets
@@ -148,6 +158,10 @@ pub fn write_project<W: Write + Seek>(w: W, mesh: &Mesh, doc: &Document, resourc
             resolution: ts.resolution,
             channels: ts.channels.iter().map(|c| ChannelDefV1 { kind: c.kind, format: c.format }).collect(),
             layers: ts.layers.iter().map(|l| writer.layer(l)).collect(),
+            mesh_maps: mesh_maps
+                .get(&ts.id)
+                .map(|m| m.iter().map(|(&kind, img)| MeshMapV1 { kind, raster: writer.raster(img) }).collect())
+                .unwrap_or_default(),
         })
         .collect();
     let mut res_files = Vec::new();
@@ -197,11 +211,11 @@ fn to_json<T: serde::Serialize>(v: &T) -> String {
 }
 
 /// Save atomically to `path` (temp file + rename).
-pub fn save_project(path: &Path, mesh: &Mesh, doc: &Document, resources: &ResourceStore) -> Result<(), ProjectError> {
+pub fn save_project(path: &Path, mesh: &Mesh, doc: &Document, resources: &ResourceStore, mesh_maps: &MeshMapSet) -> Result<(), ProjectError> {
     let tmp = temp_path(path);
     let result = (|| -> Result<(), ProjectError> {
         let file = std::fs::File::create(&tmp)?;
-        let buf = write_project(std::io::BufWriter::new(file), mesh, doc, resources)?;
+        let buf = write_project(std::io::BufWriter::new(file), mesh, doc, resources, mesh_maps)?;
         let file = buf.into_inner().map_err(|e| ProjectError::Io(e.into_error()))?;
         file.sync_all()?;
         drop(file);
@@ -331,6 +345,7 @@ pub fn read_project<R: Read + Seek>(r: R) -> Result<ProjectData, ProjectError> {
     let doc: DocumentV1 = serde_json::from_slice(&loader.bytes(&manifest.document)?).map_err(|e| ProjectError::Invalid(format!("document: {e}")))?;
 
     let mut texture_sets = Vec::new();
+    let mut mesh_maps = MeshMapSet::new();
     for t in &doc.texture_sets {
         if !subcraft_doc::RESOLUTIONS.contains(&t.resolution) {
             return Err(ProjectError::Invalid(format!("texture set {}: unsupported resolution {}", t.name, t.resolution)));
@@ -345,6 +360,17 @@ pub fn read_project<R: Read + Seek>(r: R) -> Result<ProjectData, ProjectError> {
         };
         let layers = t.layers.iter().map(|l| loader.layer(l, &ts).map(Arc::new)).collect::<Result<Vec<_>, _>>()?;
         ts.layers = layers;
+        let mut maps = BTreeMap::new();
+        for m in &t.mesh_maps {
+            let img = raster::decode(&loader.bytes(&m.raster)?).map_err(|e| ProjectError::Invalid(format!("{}: {e}", m.raster)))?;
+            if img.width() != img.height() || img.comps() != m.kind.components() {
+                return Err(ProjectError::Invalid(format!("{}: unexpected layout for {:?}", m.raster, m.kind)));
+            }
+            maps.insert(m.kind, img);
+        }
+        if !maps.is_empty() {
+            mesh_maps.insert(ts.id, maps);
+        }
         texture_sets.push(ts);
     }
 
@@ -361,7 +387,7 @@ pub fn read_project<R: Read + Seek>(r: R) -> Result<ProjectData, ProjectError> {
             encoded: Some(Arc::new(bytes)),
         });
     }
-    Ok(ProjectData { mesh, document: Document { texture_sets }, resources })
+    Ok(ProjectData { mesh, document: Document { texture_sets }, resources, mesh_maps })
 }
 
 pub fn load_project(path: &Path) -> Result<ProjectData, ProjectError> {

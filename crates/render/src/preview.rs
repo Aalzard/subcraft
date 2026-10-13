@@ -9,8 +9,7 @@ pub struct PreviewPass {
     pipeline: wgpu::RenderPipeline,
     layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
-    color_flag: wgpu::Buffer,
-    data_flag: wgpu::Buffer,
+    flags: wgpu::Buffer,
 }
 
 pub struct PreviewTarget {
@@ -81,14 +80,12 @@ impl PreviewPass {
             min_filter: wgpu::FilterMode::Nearest,
             ..Default::default()
         });
-        let flag = |v: f32| {
-            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("preview flag"),
-                contents: bytemuck::cast_slice(&[v, 0.0, 0.0, 0.0]),
-                usage: wgpu::BufferUsages::UNIFORM,
-            })
-        };
-        Self { pipeline, layout, sampler, color_flag: flag(1.0), data_flag: flag(0.0) }
+        let flags = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("preview flags"),
+            contents: bytemuck::cast_slice(&[0.0f32; 4]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+        Self { pipeline, layout, sampler, flags }
     }
 
     pub fn target(device: &wgpu::Device, size: u32) -> PreviewTarget {
@@ -107,17 +104,17 @@ impl PreviewPass {
         PreviewTarget { size, texture, render_view, display_view }
     }
 
-    pub fn run(&self, device: &wgpu::Device, queue: &wgpu::Queue, src: &wgpu::TextureView, is_color: bool, dst: &PreviewTarget) {
+    /// Convert `src` into `dst`. `gray` replicates the first component (scalar channels / maps).
+    pub fn run(&self, device: &wgpu::Device, queue: &wgpu::Queue, src: &wgpu::TextureView, is_color: bool, gray: bool, dst: &PreviewTarget) {
+        let flags = [if is_color { 1.0f32 } else { 0.0 }, if gray { 1.0 } else { 0.0 }, 0.0, 0.0];
+        queue.write_buffer(&self.flags, 0, bytemuck::cast_slice(&flags));
         let bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("preview"),
             layout: &self.layout,
             entries: &[
                 wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::Sampler(&self.sampler) },
                 wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(src) },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: if is_color { self.color_flag.as_entire_binding() } else { self.data_flag.as_entire_binding() },
-                },
+                wgpu::BindGroupEntry { binding: 2, resource: self.flags.as_entire_binding() },
             ],
         });
         let mut enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("preview") });
