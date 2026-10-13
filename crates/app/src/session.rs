@@ -2,7 +2,7 @@
 //! brush state, the active stroke and the composite caches.
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use glam::{Vec2, Vec3};
@@ -93,6 +93,9 @@ pub struct Session {
     /// Bumped on every document change (UI caches key off it).
     revision: u64,
     layer_counter: u32,
+    project_path: Option<PathBuf>,
+    /// Document as of the last save / load / new (for the unsaved-changes indicator).
+    saved_doc: Document,
 }
 
 impl Session {
@@ -100,20 +103,27 @@ impl Session {
     pub fn new(mesh: Mesh, resolution: u32) -> Self {
         let names: Vec<String> = mesh.materials.iter().map(|m| m.name.clone()).collect();
         let mut doc = Document::from_material_slots(&names, resolution);
-        let mut first_layer = None;
         for ts in doc.texture_sets.iter_mut() {
             let tc = ts.clone();
-            let id = ts.insert_above(None, Layer::new_paint("Layer 1", &tc));
-            first_layer.get_or_insert(id);
+            ts.insert_above(None, Layer::new_paint("Layer 1", &tc));
         }
-        let selection = Selection { texture_set: doc.texture_sets[0].id, layer: first_layer };
-        let material = BrushMaterial::new(&doc.texture_sets[0]);
+        Self::from_parts(mesh, doc, ResourceStore::default(), "New Project")
+    }
+
+    /// Session over an existing document (project load).
+    pub fn from_parts(mesh: Mesh, doc: Document, resources: ResourceStore, label: &str) -> Self {
+        assert!(!doc.texture_sets.is_empty(), "a document has at least one texture set");
+        let first = &doc.texture_sets[0];
+        let selection = Selection { texture_set: first.id, layer: first.layers.last().map(|l| l.id) };
+        let material = BrushMaterial::new(first);
+        let layer_counter = doc.texture_sets.iter().map(|t| t.layer_count() as u32).max().unwrap_or(1);
         Self {
             scene: Scene::new(mesh),
-            resources: ResourceStore::default(),
+            resources,
             mesh_maps: HashMap::new(),
             no_maps: MeshMaps::new(),
-            history: History::new(doc.clone(), "New Project"),
+            history: History::new(doc.clone(), label),
+            saved_doc: doc.clone(),
             doc,
             selection,
             brush: BrushState {
@@ -126,8 +136,44 @@ impl Session {
             stroke: None,
             composites: HashMap::new(),
             revision: 0,
-            layer_counter: 1,
+            layer_counter,
+            project_path: None,
         }
+    }
+
+    /// Open a `.subcraft` project.
+    pub fn open_project(path: &Path) -> Result<Self, String> {
+        let data = subcraft_project::load_project(path).map_err(|e| e.to_string())?;
+        if data.document.texture_sets.is_empty() {
+            return Err("project has no texture sets".into());
+        }
+        let mut s = Self::from_parts(data.mesh, data.document, data.resources, "Open Project");
+        s.project_path = Some(path.to_path_buf());
+        Ok(s)
+    }
+
+    /// Save to `path` (or the current project path). Returns the path written.
+    pub fn save(&mut self, path: Option<&Path>) -> Result<PathBuf, String> {
+        if self.stroke.is_some() {
+            return Err("finish the stroke before saving".into());
+        }
+        let path = match path.or(self.project_path.as_deref()) {
+            Some(p) => p.to_path_buf(),
+            None => return Err("no project path: use Save As".into()),
+        };
+        subcraft_project::save_project(&path, &self.scene.mesh, &self.doc, &self.resources).map_err(|e| e.to_string())?;
+        self.project_path = Some(path.clone());
+        self.saved_doc = self.doc.clone();
+        Ok(path)
+    }
+
+    pub fn project_path(&self) -> Option<&Path> {
+        self.project_path.as_deref()
+    }
+
+    /// True if the document differs from the last save / load.
+    pub fn is_modified(&self) -> bool {
+        self.doc != self.saved_doc
     }
 
     /// The built-in two-material sample crate.
@@ -451,7 +497,7 @@ impl Session {
             Action::BrushSmaller => self.brush.settings.size = (self.brush.settings.size / 1.15).max(0.1),
             Action::BrushLarger => self.brush.settings.size = (self.brush.settings.size * 1.15).min(100.0),
             Action::ToggleSymmetryX => self.brush.options.symmetry[0] = !self.brush.options.symmetry[0],
-            Action::ResetCamera => return Ok(false),
+            Action::ResetCamera | Action::Save | Action::SaveAs | Action::OpenProject | Action::Export => return Ok(false),
         }
         Ok(true)
     }
@@ -556,6 +602,43 @@ impl Session {
             }
         }
         out
+    }
+
+    /// Base name for exported files: the project file name, else the mesh name.
+    pub fn export_name(&self) -> String {
+        self.project_path
+            .as_deref()
+            .and_then(|p| p.file_stem())
+            .and_then(|s| s.to_str())
+            .map(str::to_string)
+            .unwrap_or_else(|| self.scene.mesh.name.clone())
+    }
+
+    /// Files an export with `settings` would write.
+    pub fn export_plan(&mut self, settings: &subcraft_export::ExportSettings) -> Vec<(String, String)> {
+        self.update_composites();
+        let name = self.export_name();
+        let sets = self.export_sets();
+        subcraft_export::plan(&name, &sets, settings)
+    }
+
+    fn export_sets(&self) -> Vec<subcraft_export::ExportTextureSet<'_>> {
+        self.doc
+            .texture_sets
+            .iter()
+            .filter_map(|ts| {
+                let c = self.composite(ts.id)?;
+                Some(subcraft_export::ExportTextureSet { name: &ts.name, material_slot: ts.material_slot, channels: &c.channels })
+            })
+            .collect()
+    }
+
+    /// Export every texture set's composite through `settings` into `dir`.
+    pub fn export_textures(&mut self, dir: &Path, settings: &subcraft_export::ExportSettings) -> Result<Vec<PathBuf>, String> {
+        self.update_composites();
+        let name = self.export_name();
+        let sets = self.export_sets();
+        subcraft_export::export(&self.scene.mesh, &name, &sets, settings, dir).map_err(|e| e.to_string())
     }
 
     /// Channels present in the selected texture set.

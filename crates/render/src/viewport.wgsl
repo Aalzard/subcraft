@@ -4,7 +4,7 @@ struct Globals {
     view_proj: mat4x4<f32>,
     eye: vec4<f32>,
     light_dir: vec4<f32>,
-    // x: exposure, y: environment intensity, z: light intensity
+    // x: exposure, y: environment intensity, z: light intensity, w: height bump scale
     params: vec4<f32>,
 };
 
@@ -15,6 +15,7 @@ struct Globals {
 @group(1) @binding(3) var t_metal: texture_2d<f32>;
 @group(1) @binding(4) var t_normal: texture_2d<f32>;
 @group(1) @binding(5) var t_emissive: texture_2d<f32>;
+@group(1) @binding(6) var t_height: texture_2d<f32>;
 
 struct VsIn {
     @location(0) pos: vec3<f32>,
@@ -45,9 +46,9 @@ fn vs_main(v: VsIn) -> VsOut {
 const PI: f32 = 3.14159265;
 
 fn sky(d: vec3<f32>) -> vec3<f32> {
-    let ground = vec3<f32>(0.16, 0.14, 0.12);
-    let horizon = vec3<f32>(0.62, 0.64, 0.68);
-    let zenith = vec3<f32>(0.26, 0.38, 0.62);
+    let ground = vec3<f32>(0.10, 0.09, 0.08);
+    let horizon = vec3<f32>(0.42, 0.43, 0.46);
+    let zenith = vec3<f32>(0.20, 0.27, 0.40);
     let y = clamp(d.y, -1.0, 1.0);
     if (y < 0.0) {
         return mix(horizon, ground, smoothstep(0.0, 0.35, -y));
@@ -55,10 +56,45 @@ fn sky(d: vec3<f32>) -> vec3<f32> {
     return mix(horizon, zenith, smoothstep(0.0, 0.8, y));
 }
 
+// A round studio softbox seen in reflection: angular radius grows with roughness while total
+// energy stays roughly constant, so smooth surfaces show a small bright highlight and rough
+// surfaces a wide dim one.
+fn softbox(r: vec3<f32>, dir: vec3<f32>, radius: f32, intensity: f32, rough: f32) -> f32 {
+    let w = radius + rough * rough * 1.6;
+    let ang = acos(clamp(dot(r, dir), -1.0, 1.0));
+    let falloff = 1.0 - smoothstep(w * 0.6, w, ang);
+    return intensity * (radius * radius) / (w * w) * falloff;
+}
+
+// Soft-edged band: 1 within `half` of the center, edges widened by `soft`.
+fn band(d: f32, half: f32, soft: f32) -> f32 {
+    return 1.0 - smoothstep(half - soft, half + soft, d);
+}
+
+// Studio environment seen in reflections: a ring of eight light panels around the horizon,
+// a round overhead light and the key softbox. Edge softness grows with roughness and panel
+// brightness drops as they spread, so every surface reflects crisp shapes when smooth and a
+// soft wash when rough, from any viewing angle.
+fn studio(r: vec3<f32>, key: vec3<f32>, rough: f32) -> vec3<f32> {
+    let soft = 0.02 + rough * 0.75;
+    let step = PI / 4.0;
+    let az = atan2(r.z, r.x);
+    let da = abs(az / step - round(az / step)) * step;
+    let el = asin(clamp(r.y, -1.0, 1.0));
+    let half_a = 0.27;
+    let half_e = 0.36;
+    let spread = (half_a * half_e) / ((half_a + soft) * (half_e + soft));
+    let panels = band(da, half_a, soft) * band(abs(el - 0.05), half_e, soft) * 14.0 * spread;
+    let top_half = 0.35;
+    let top = band(acos(clamp(r.y, -1.0, 1.0)), top_half, soft) * 10.0 * (top_half * top_half) / ((top_half + soft) * (top_half + soft));
+    let warm = vec3<f32>(1.0, 0.96, 0.9);
+    return warm * (panels + top + softbox(r, key, 0.22, 30.0, rough));
+}
+
 // Cosine-weighted irradiance of the sky above, approximated per normal.
 fn irradiance(n: vec3<f32>) -> vec3<f32> {
-    let up = vec3<f32>(0.42, 0.48, 0.58);
-    let down = vec3<f32>(0.20, 0.18, 0.16);
+    let up = vec3<f32>(0.32, 0.35, 0.40);
+    let down = vec3<f32>(0.13, 0.12, 0.11);
     return mix(down, up, n.y * 0.5 + 0.5);
 }
 
@@ -89,13 +125,26 @@ fn fs_main(in: VsOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f
     let ntex = textureSample(t_normal, samp, in.uv).rgb * 2.0 - 1.0;
     let emissive = textureSample(t_emissive, samp, in.uv).rgb;
 
+    // Height -> tangent-space bump normal (central differences, one texel apart). UV v grows
+    // downward while the bitangent points up the image (OpenGL convention), hence +dh/dv for y.
+    let texel = 1.0 / vec2<f32>(textureDimensions(t_height));
+    let h_l = textureSample(t_height, samp, in.uv - vec2<f32>(texel.x, 0.0)).r;
+    let h_r = textureSample(t_height, samp, in.uv + vec2<f32>(texel.x, 0.0)).r;
+    let h_u = textureSample(t_height, samp, in.uv - vec2<f32>(0.0, texel.y)).r;
+    let h_d = textureSample(t_height, samp, in.uv + vec2<f32>(0.0, texel.y)).r;
+    let dhdu = (h_r - h_l) / (2.0 * texel.x);
+    let dhdv = (h_d - h_u) / (2.0 * texel.y);
+    let bump = normalize(vec3<f32>(-dhdu * g.params.w, dhdv * g.params.w, 1.0));
+    // Combine with the normal map (whiteout).
+    let nts = normalize(vec3<f32>(ntex.xy + bump.xy, max(ntex.z, 1e-3) * bump.z));
+
     var n0 = normalize(in.normal);
     if (!front) {
         n0 = -n0;
     }
     let t = normalize(in.tangent.xyz - n0 * dot(n0, in.tangent.xyz));
     let b = cross(n0, t) * in.tangent.w;
-    let n = normalize(t * ntex.x + b * ntex.y + n0 * max(ntex.z, 1e-3));
+    let n = normalize(t * nts.x + b * nts.y + n0 * nts.z);
 
     let v = normalize(g.eye.xyz - in.world);
     let l = normalize(g.light_dir.xyz);
@@ -122,7 +171,7 @@ fn fs_main(in: VsOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f
     let direct = (kd + spec) * light * nol;
 
     let r = reflect(-v, n);
-    let env_spec = mix(sky(r), irradiance(r), rough);
+    let env_spec = mix(sky(r), irradiance(r), rough) + studio(r, l, rough);
     let ambient = (diffuse * irradiance(n) + env_brdf(f0, rough, nov) * env_spec) * g.params.y;
 
     let color = (direct + ambient + emissive) * g.params.x;

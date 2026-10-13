@@ -207,7 +207,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         cmds.push(Command::RemoveMask(id));
                     }
                 });
-                ui.label(RichText::new("Paint the mask: Brush panel → Target: Mask.").small().weak());
+                ui.label(RichText::new("Paint the mask: Brush panel, Target: Mask.").small().weak());
                 ui.horizontal_wrapped(|ui| {
                     ui.label("Add:");
                     for (kind, name) in [

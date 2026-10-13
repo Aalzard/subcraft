@@ -12,4 +12,7 @@ pub use command::{Command, CommandError, NewLayer};
 pub use session::{BrushState, CompositeUpdate, DEFAULT_RESOLUTION, Pick, Scene, Selection, Session};
 
 pub use subcraft_compositor::{Composite, composite_comps};
+pub use subcraft_export::{ExportSettings, ExportTemplate, Padding};
+pub use subcraft_image::FileFormat;
+pub use subcraft_project::EXTENSION as PROJECT_EXTENSION;
 pub use subcraft_paint::Camera;

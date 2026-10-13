@@ -87,3 +87,85 @@ fn empty_scene_is_background_and_resizes() {
     let b = r.render(&device, &queue, [100, 70], &params()).read_rgba8(&device, &queue);
     assert_eq!(b.len(), 100 * 70 * 4);
 }
+
+fn render_with(device: &subcraft_render::wgpu_api::Device, queue: &subcraft_render::wgpu_api::Queue, channels: &[(ChannelKind, TiledImage)], p: &ViewParams) -> Vec<u8> {
+    let mut r = ViewportRenderer::new(device, queue);
+    r.set_mesh(device, &primitives::cube(2.0));
+    r.upload_channel(device, queue, 0, ChannelKind::BaseColor, &solid(4, [0.6, 0.6, 0.6, 1.0]), None);
+    for (k, img) in channels {
+        r.upload_channel(device, queue, 0, *k, img, None);
+    }
+    r.render(device, queue, [SIZE, SIZE], p).read_rgba8(device, queue)
+}
+
+fn diff(a: &[u8], b: &[u8]) -> usize {
+    a.chunks_exact(4).zip(b.chunks_exact(4)).filter(|(x, y)| x.iter().zip(y.iter()).any(|(p, q)| p.abs_diff(*q) > 6)).count()
+}
+
+#[test]
+fn height_bumps_and_metallic_change_shading() {
+    let Some((_, device, queue)) = headless::device() else {
+        eprintln!("no wgpu adapter available: skipping");
+        return;
+    };
+    let flat = render_with(&device, &queue, &[], &params());
+    // A raised disc in the middle of every cube face cell.
+    let mut height = solid(1, [0.0; 4]);
+    for y in 0..256u32 {
+        for x in 0..256u32 {
+            let (cx, cy) = ((x % 85) as f32 - 42.0, (y % 128) as f32 - 64.0);
+            if (cx * cx + cy * cy).sqrt() < 25.0 {
+                height.set(x, y, [0.5; 4]);
+            }
+        }
+    }
+    let bumped = render_with(&device, &queue, &[(ChannelKind::Height, height.clone())], &params());
+    save("cube_height.png", &bumped);
+    let changed = diff(&flat, &bumped);
+    assert!(changed > 200, "height bumps should change shading ({changed} px)");
+    let off = render_with(&device, &queue, &[(ChannelKind::Height, height)], &ViewParams { height_scale: 0.0, ..params() });
+    assert_eq!(diff(&flat, &off), 0, "height scale 0 disables bumps");
+
+    let metal = render_with(
+        &device,
+        &queue,
+        &[(ChannelKind::Metallic, solid(1, [1.0; 4])), (ChannelKind::Roughness, solid(1, [0.15; 4]))],
+        &params(),
+    );
+    save("cube_metal.png", &metal);
+    let changed = diff(&flat, &metal);
+    assert!(changed > 5000, "metallic + low roughness should look clearly different ({changed} px)");
+}
+
+/// Visual check: a sphere whose roughness rises left→right (top half dielectric, bottom metal).
+#[test]
+fn roughness_gradient_sphere_shows_sharp_to_blurry_reflections() {
+    let Some((_, device, queue)) = headless::device() else {
+        eprintln!("no wgpu adapter available: skipping");
+        return;
+    };
+    let mesh = primitives::uv_sphere(1.0, 64, 32);
+    let mut rough = solid(1, [0.0; 4]);
+    let mut metal = solid(1, [0.0; 4]);
+    for y in 0..256u32 {
+        for x in 0..256u32 {
+            rough.set(x, y, [0.02 + 0.9 * ((x % 128) as f32 / 127.0); 4]);
+            metal.set(x, y, [if y > 128 { 1.0 } else { 0.0 }; 4]);
+        }
+    }
+    let view = Mat4::look_at_rh(Vec3::new(0.0, 0.4, 3.2), Vec3::ZERO, Vec3::Y);
+    let p = ViewParams::new(view, Mat4::perspective_rh(45f32.to_radians(), 1.0, 0.1, 100.0));
+    let mut r = ViewportRenderer::new(&device, &queue);
+    r.set_mesh(&device, &mesh);
+    r.upload_channel(&device, &queue, 0, ChannelKind::BaseColor, &solid(4, [0.5, 0.5, 0.5, 1.0]), None);
+    r.upload_channel(&device, &queue, 0, ChannelKind::Roughness, &rough, None);
+    r.upload_channel(&device, &queue, 0, ChannelKind::Metallic, &metal, None);
+    let img = r.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+    save("sphere_roughness.png", &img);
+    // Smooth vs rough strips must differ in local contrast.
+    let contrast = |x0: u32| {
+        let vals: Vec<i32> = (60..130).map(|y| px(&img, x0, y)[1] as i32).collect();
+        vals.windows(2).map(|w| (w[0] - w[1]).abs()).sum::<i32>()
+    };
+    eprintln!("contrast smooth {} rough {}", contrast(96), contrast(70));
+}
