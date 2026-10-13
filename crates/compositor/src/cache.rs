@@ -100,11 +100,7 @@ fn collect_list(old: &[Arc<Layer>], new: &[Arc<Layer>], out: &mut BTreeSet<usize
                     out.extend(ib.changed_tiles(&empty_paint_image(*kind, ib.width())));
                 }
             }
-            (LayerContent::Group(ga), LayerContent::Group(gb)) => {
-                if !collect_list(&ga.children, &gb.children, out) {
-                    return false;
-                }
-            }
+            (LayerContent::Group(ga), LayerContent::Group(gb)) if !collect_list(&ga.children, &gb.children, out) => return false,
             _ => {}
         }
     }

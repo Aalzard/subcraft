@@ -3203,6 +3203,7 @@ dependencies = [
  "glam",
  "half",
  "log",
+ "parking_lot",
  "rayon",
  "serde",
  "subcraft-core",
