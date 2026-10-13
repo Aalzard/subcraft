@@ -15,5 +15,6 @@ subcraft-image.workspace = true
 subcraft-mesh.workspace = true
 subcraft-doc.workspace = true
 subcraft-materials.workspace = true
+subcraft-bake.workspace = true
 glam.workspace = true
 rayon.workspace = true
