@@ -18,3 +18,4 @@ bytemuck.workspace = true
 rayon.workspace = true
 egui-wgpu.workspace = true
 log.workspace = true
+pollster.workspace = true

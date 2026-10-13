@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-10-13 (session 2: compositor + paint engine, cloud brief `cloud-brief-engine.md`)
+Last updated: 2026-10-13 (session 3: first visual milestone — app, renderer, UI)
 
 ## Decisions
 
@@ -12,7 +12,7 @@ Last updated: 2026-10-13 (session 2: compositor + paint engine, cloud brief `clo
 * Undo: history of structurally shared document snapshots + merge keys; strokes push the
   post-stroke document — `adr/0006-undo.md`.
 
-## Done (all tests passing — 99 tests)
+## Done (all tests passing — 112 tests, `cargo test --workspace`)
 
 | Crate | Contents | Tests |
 |---|---|---|
@@ -21,8 +21,12 @@ Last updated: 2026-10-13 (session 2: compositor + paint engine, cloud brief `clo
 | `mesh` | canonical `Mesh` + `MeshBuilder`, OBJ/glTF/FBX import, OBJ writer, SAH BVH, topology, versioned binary encoding, UV rasterizer with conservative rim + **region rasterization** (`rasterize_surface_region`), seam-heavy primitives | 22 |
 | `doc` | 32 blend modes, fills/projections, masks, paint/fill/folder layers, `TextureSet` tree ops, `Document`, `History`, `ResourceStore`; `same_parameters` now treats a lazily created paint channel as a raster-only change | 9 |
 | `materials` | noise + patterns; **`sample`**: lazily built per-tile `TileGeometry` (normalized position, normal, coverage) cached per slot + resolution, `MeshMaps`, `eval_fill_tile` for Uniform / Bitmap / Procedural / MeshMap through UV / Planar / Triplanar | 10 |
-| `compositor` | **new**: W3C separable compositing of all 32 modes (whiteout / RNM / HSV / signed height), isolated + passthrough folders, mask stack (paint, fill, generators, levels, invert), rayon per-tile evaluation, `CompositeCache` dirty-tile diff | 18 (6 unit + 12 acceptance) |
-| `paint` | **new**: `BrushSettings` / `BrushMaterial` / `Camera`, path resampling (spacing, lazy mouse, straight line, jitter), symmetry via mirrored cameras, CPU depth map + backface culling, tile-parallel UV-raster stamp kernel (Tangent\|Wrap, Tangent\|Planar, Camera, UV), stroke-opacity-capped coverage written from the pre-stroke snapshot, eraser, mask painting, polygon fill (triangle / element / UV island) | 21 (10 unit + 11 acceptance) |
+| `compositor` | W3C separable compositing of all 32 modes (whiteout / RNM / HSV / signed height), isolated + passthrough folders, mask stack (paint, fill, generators, levels, invert), rayon per-tile evaluation, `CompositeCache` dirty-tile diff | 18 (6 unit + 12 acceptance) |
+| `paint` | `BrushSettings` / `BrushMaterial` / `Camera`, path resampling (spacing, lazy mouse, straight line, jitter), symmetry via mirrored cameras, CPU depth map + backface culling, tile-parallel UV-raster stamp kernel (Tangent\|Wrap, Tangent\|Planar, Camera, UV), stroke-opacity-capped coverage written from the pre-stroke snapshot, eraser, mask painting, polygon fill (triangle / element / UV island) | 21 (10 unit + 11 acceptance) |
+| `app` | **new**: `Session` (scene + BVH/geometry/depth caches, document + `History`, selection, brush state, active stroke, per-texture-set `CompositeCache`), undoable `Command`s (layers, visibility, rename, blend mode/opacity with coalesced drags, fill channels/projection, masks + effects), stroke lifecycle (one history entry per stroke, cancel), picking, toolkit-independent `Action` + shortcut table | 9 |
+| `render` | **new**: wgpu offscreen viewport: metal/roughness GGX + key light + procedural sky (analytic irradiance + split-sum), ACES, 4x MSAA to an sRGB texture; composite channels uploaded per dirty tile as f16; channel preview pass for the 2D view; headless device + readback | 2 (render on any adapter; llvmpipe here) |
+| `ui` | **new**: eframe + egui_dock workspace: 3D view (orbit/pan/zoom, painting, Shift+click lines, brush cursor), 2D view (composite + UV wireframe), Layers, Properties (fill channels, procedural patterns, projection, masks, generators/levels/invert), Brush (tools, settings, jitter, symmetry, lazy mouse, material channels), Texture Sets, History (click to jump), menus, status bar, shortcuts, dark theme, layout persistence | 2 |
+| `apps/subcraft` | **new**: desktop binary: `subcraft [mesh] [--demo] [--view-2d] [--screenshot out.png]` | - |
 
 Acceptance tests from the brief, all passing (`crates/compositor/tests/compositor.rs`,
 `crates/paint/tests/paint.rs`, `crates/materials/src/sample/tests.rs`):
@@ -48,7 +52,29 @@ full composite with a 6-octave Clouds procedural fill 650 ms (805 ms incl. first
 first dab incl. 1920×1080 depth map 23 ms; 200 cursor samples (95 stamps) 75 ms; incremental
 recomposite after that stroke 12 ms (15 tiles).
 
-Run: `cargo test -p subcraft-core -p subcraft-image -p subcraft-mesh -p subcraft-doc -p subcraft-materials -p subcraft-compositor -p subcraft-paint`
+Run the app: `cargo run --release` (opens the sample crate; `cargo run --release -- --demo` adds
+a wood + moss layer stack with painted strokes; `cargo run --release -- path/to/mesh.fbx` opens a mesh).
+
+Tests: `cargo test --workspace` (render tests skip themselves if no GPU adapter exists).
+
+### First visual milestone, verified by running the real app (session 3)
+
+In the cloud container (no GPU) the app ran on lavapipe/llvmpipe (Vulkan) under Xvfb:
+
+* `--demo --screenshot`: window, dock layout, procedural wood fill, moss fill masked by a
+  Directional generator (top faces only), painted strokes, 2D view with UV wireframe:
+  `docs/screenshots/demo-3d-view.png`, `demo-2d-view.png`.
+* Real input via `xdotool`: LMB drag paints (the stroke continues across the corner seam onto
+  the side island), `]` enlarges the brush, Ctrl+Z removes the last stroke, Ctrl+Y restores it,
+  RMB drag orbits: `docs/screenshots/mouse-painting.png`.
+* Bugs found and fixed by running it: egui samples textures as gamma-encoded, so the viewport is
+  shown through an `Rgba8Unorm` view of the sRGB target (and the 2D view through a linear-to-sRGB
+  preview pass); icon glyphs missing from the default fonts replaced with text; scripted
+  screenshot runs no longer overwrite the saved layout. (Xvfb has no window manager: keyboard
+  tests need `xdotool windowfocus`.)
+* Viewport render is about 40 ms/frame at 920x860 on llvmpipe (CPU); a real GPU is far faster.
+
+CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraft-mesh -p subcraft-doc -p subcraft-materials -p subcraft-compositor -p subcraft-paint`
 
 ### Deviations from the brief (sound-engineering choices)
 
@@ -72,15 +98,16 @@ Run: `cargo test -p subcraft-core -p subcraft-image -p subcraft-mesh -p subcraft
 
 ## Next steps (in order)
 
-1. `render` (wgpu PBR + IBL viewport consuming `Composite` + dirty tiles, UV view, brush cursor)
-   + `ui` (dock layout, theme, panels) + `app` (session, command registry, shortcuts; stroke
-   begin → add_point → push to `History` at stroke end) + `apps/subcraft` → **first visual
-   milestone: show the user screenshots and launch the app for testing**.
-2. `project` (zip container, versioned schema, atomic save), `export` (templates, packing,
-   padding), `bake` (normal/world normal/position/ID/AO/curvature/thickness → `MeshMaps`), `assets`.
-3. Engine follow-ups: brush alpha bitmaps + stencils; incremental dirty tracking inside mask paint
-   effects; near-plane clipping in the depth rasterizer; f16 tile geometry to halve its memory;
-   renormalize normals after opacity lerp; GPU compositor behind the same interface.
+1. `project` (zip container, versioned schema, atomic save/load, autosave), `export` (templates,
+   channel packing, UV padding via `image::dilate`), File menu Save / Open / Export.
+2. `bake` (normal / world normal / position / ID / AO / curvature / thickness into `MeshMaps`)
+   so Edges / Cavity generators and mesh-map fills get real data; bake dialog.
+3. `assets`: brush alphas + stencils, material / smart-material presets, environment HDRIs
+   (real IBL with prefiltered maps), shelf panel.
+4. UI follow-ups: drag-and-drop layer reordering, inline rename, eyedropper, painting in the
+   2D view, texture-set resolution change, camera FOV / ortho toggle, texture mipmaps.
+5. Engine follow-ups: incremental dirty tracking inside mask paint effects; near-plane
+   clipping in the depth rasterizer; f16 tile geometry; renormalize normals after opacity
+   lerp; GPU compositor behind the same interface.
 
-Remaining stub crates (empty `lib.rs`): bake, project, export, assets, render, app, ui;
-`apps/subcraft/src/main.rs` is an empty `main`.
+Remaining stub crates (empty `lib.rs`): bake, project, export, assets.
