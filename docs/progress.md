@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-10-14 (session 17: shelf search)
+Last updated: 2026-10-14 (session 18: brush presets)
 
 ## Decisions
 
@@ -330,6 +330,22 @@ In the cloud container (no GPU) the app ran on lavapipe/llvmpipe (Vulkan) under 
 * Verified in the real app: "gol" → Gold only, Wood chip → Wood, Smart Materials + Mine → the
   saved "My Blue Metal" only (`docs/screenshots/shelf-search.png`).
 
+### Session 18 — brush presets (roadmap 2, part 4)
+
+* Brush panel → **Presets**: type a name (or leave it empty to use the tip's name) and
+  **Save preset**: size, flow, opacity, spacing, hardness, angle, roundness, jitter, alignment,
+  culling, lazy mouse, symmetry, the material channel values and the tip go to
+  `Library/brush-presets/<name>.scbrush` (JSON). Presets show first in Shelf → Brushes with the
+  tip's thumbnail; click to load, right-click → Show in folder / Remove from library. Presets are
+  found by search ("preset") and the Mine chip.
+* The tip is referenced by name (built-in or library alpha), not embedded; a missing tip falls
+  back to Round with a status message. `BrushSettings`, `BrushMaterial`, `StrokeOptions` now use
+  `#[serde(default)]`, so presets written by older versions load after new fields are added.
+* Tests (3 new, 190 total): full round trip through the library, missing tip → Round + message,
+  minimal / foreign / broken files.
+* Verified in the real app: Splatter at 18 % saved as "Big Splatter", switched to Round 5 %,
+  clicking the preset restored Splatter 18 % (`docs/screenshots/brush-presets.png`).
+
 CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraft-mesh -p subcraft-doc -p subcraft-materials -p subcraft-compositor -p subcraft-paint`
 
 ### Deviations from the brief (sound-engineering choices)
@@ -367,7 +383,7 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
      export maps with the free Adobe Substance 3D Player and import them as a texture set.
 2. User asset library on disk: ~~persist imported alphas + HDRIs~~ (session 15); ~~save custom smart
    materials / masks~~ (session 16); ~~shelf search and categories~~ (session 17);
-   next: brush presets, drag-and-drop from shelf.
+   ~~brush presets~~ (session 18); next: drag-and-drop from shelf.
 3. Stencils / projection painting with an image; clone tool; smudge / blur filter layers.
 4. Bake follow-ups: per-material high-poly matching by name, cage mesh support, anti-aliased
    (supersampled) bakes, GPU baking for large meshes.

@@ -29,6 +29,32 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 });
             });
 
+            section(ui, "presets", "Presets", true, |ui| {
+                ui.horizontal(|ui| {
+                    ui.add(egui::TextEdit::singleline(&mut state.preset_name).hint_text("Preset name").desired_width(150.0));
+                    let can_save = state.user_library.is_some();
+                    if ui
+                        .add_enabled(can_save, egui::Button::new(format!("{}  Save preset", crate::icons::SAVE)))
+                        .on_hover_text("Save size, flow, tip, jitter, symmetry and material to your library")
+                        .clicked()
+                    {
+                        let name = if state.preset_name.trim().is_empty() { state.session.brush.alpha_name.clone() } else { state.preset_name.clone() };
+                        let preset = state.session.brush_preset(&name);
+                        let lib = state.user_library.clone().expect("enabled only with a library");
+                        let now = ui.input(|i| i.time);
+                        match subcraft_app::brush_preset::save_brush_preset(&lib, &preset) {
+                            Ok(p) => {
+                                state.set_status(format!("Saved brush preset \"{}\"", p.name), now);
+                                state.brush_presets.push(p);
+                                state.preset_name.clear();
+                            }
+                            Err(e) => state.set_status(format!("Save preset: {e}"), now),
+                        }
+                    }
+                });
+                hint(ui, "Saved presets appear first in Shelf › Brushes.");
+            });
+
             let b = &mut state.session.brush;
             section(ui, "brush", "Brush", true, |ui| {
                 prop_row(ui, "Tip", |ui| {

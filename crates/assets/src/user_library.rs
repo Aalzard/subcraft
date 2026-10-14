@@ -19,6 +19,7 @@ pub enum UserAssetKind {
     Environment,
     SmartMaterial,
     SmartMask,
+    BrushPreset,
 }
 
 impl UserAssetKind {
@@ -28,6 +29,7 @@ impl UserAssetKind {
             UserAssetKind::Environment => "environments",
             UserAssetKind::SmartMaterial => "smart-materials",
             UserAssetKind::SmartMask => "smart-masks",
+            UserAssetKind::BrushPreset => "brush-presets",
         }
     }
 
@@ -37,6 +39,7 @@ impl UserAssetKind {
             UserAssetKind::Environment => &["hdr", "exr", "png", "jpg", "jpeg"],
             UserAssetKind::SmartMaterial => &["scsmart"],
             UserAssetKind::SmartMask => &["scmask"],
+            UserAssetKind::BrushPreset => &["scbrush"],
         }
     }
 }
