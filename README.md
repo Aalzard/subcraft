@@ -10,9 +10,9 @@ smart materials, bake mesh maps, and export game-ready textures.
 
 ![SubCraft](docs/screenshots/ui-redesign.png)
 
-> **What's new:** your own image textures, texture-set import, image masks, a personal asset library,
-> saved smart materials and brush presets, shelf search and drag & drop, and stencils. See the
-> [changelog](CHANGELOG.md).
+> **What's new in 0.1.1:** a **Textures** tab in the shelf (drag a texture onto Base Color, Normal…),
+> separate **X / Y tiling** and offset, **strength sliders** for every channel, and a fix for a startup
+> crash on some Intel graphics drivers. See the [changelog](CHANGELOG.md).
 
 > **Status: early but usable.** The core engine, painting, baking, smart materials, save/load and
 > export all work and are covered by tests. Expect rough edges, missing features and breaking
@@ -28,7 +28,10 @@ smart materials, bake mesh maps, and export game-ready textures.
 - **Your own textures**: use any image (PNG, JPG, TGA, TIF, EXR…) in a fill layer with UV, tri-planar or
   planar projection, or **import a whole texture set** (base color, roughness, normal, height…) as one
   material: files are matched by name, glossiness and DirectX normals are converted automatically.
-  Images are stored inside the project, so it stays portable.
+  Images are stored inside the project, so it stays portable. Imported images show up in
+  **Shelf → Textures**: drag one onto a channel (Base Color, Normal, Roughness…) to use it there.
+  Tile X and Y separately, and set each channel's **strength** (normal / height strength, roughness,
+  metallic, base color brightness, emissive intensity).
 - **Masks**: paintable masks with stacked effects: Edges (curvature), Cavity (AO), Directional,
   Position gradient, noise fills, **images** (e.g. a logo), Levels and Invert.
 - **Painting**: brush and eraser on the 3D model with tips (alphas), symmetry, lazy mouse, jitter,
@@ -57,7 +60,8 @@ smart materials, bake mesh maps, and export game-ready textures.
    start SubCraft from the Start Menu. Uninstall it any time from **Settings → Apps**.
 
 Prefer no installer? Download **`SubCraft-<version>-windows-x64.zip`** instead, unzip it and run
-`SubCraft.exe`. Either way, any GPU with DirectX 12 or Vulkan works.
+`SubCraft.exe`. Either way, any GPU with DirectX 12 works (SubCraft uses Direct3D 12 on Windows; to
+try Vulkan instead, set the environment variable `WGPU_BACKEND=vulkan`).
 
 ## Download (Linux)
 
