@@ -12,6 +12,10 @@ What changed in SubCraft, newest first. Download the latest build from the
   from the README. Missing recent files are marked and removable. Update restarts open the
   restored workspace directly.
 
+### Fixed
+- Long project names no longer overlap top-bar menus or actions in a narrow window.
+- The welcome hub fits narrow windows and wraps its actions to keep them visible.
+
 ## 0.1.4
 
 ### New

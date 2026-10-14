@@ -733,11 +733,19 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
 * Resumed draft PR #35 and merged v0.1.4 into its branch, retaining the updater, welcome hub,
   recents and guide. Update restarts now bypass the welcome hub even for an unmodified restored
   project; added a startup regression. What's new also describes the desktop update button.
-* Verification so far: 256 workspace tests passed including GPU checks; clippy completed with
-  existing warnings. Desktop dist and browser dist builds passed (16,113,240-byte wasm).
-  Captured current native welcome/guide screenshots with isolated data/library and no update
-  check or desktop input; the guide run exited successfully. The fresh browser tab is now
-  accessible on port 8773; welcome/guide interaction checks are in progress.
+* Final verification: 258 workspace tests passed including GPU checks; clippy completed with
+  existing warnings. Desktop and web dist builds passed (16,110,595-byte wasm, +8,293 bytes
+  versus v0.1.4). Both shipping GUI screenshot runs opened the generated multi-part project
+  with isolated data/library and exited successfully, without desktop input or update checks.
+* Browser verification on port 8773: walked all six guide steps, opened bake/export settings,
+  downloaded a 9,429-byte project and reopened it through the welcome hub, imported the
+  generated named OBJ, tried the sample, opened What's new, and checked the startup preference
+  survives a reload while Help can still reopen the hub. Existing eframe viewport warnings
+  appeared; no runtime errors were observed. Actual FBX/GLB bake-to-export runs remain next.
+* Browser testing found overlapping project titles and a clipped welcome hub in narrow panes.
+  Titles now stay inside the gap between controls; the hub fits and wraps actions. Added real
+  egui rendering regressions and verified the final rebuilt browser UI. Updated screenshot
+  documentation against v0.1.4. The owner authorized merging #35 once required checks pass.
 * Starter asset inventory for the next feature: 30 normal PNGs and 30 alpha PNGs, all 1024²,
   under the original repository's output/textures and output/alphas. Total PNG sizes are
   12,311,802 bytes for normals and 1,583,193 for alphas. These are not in v0.1.4 yet.
@@ -746,8 +754,8 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
 
 Current priorities requested by the owner:
 1. ~~Right-click texturing and Parts~~ — session 30; PR #34 merged.
-2. Welcome screen, recent files, quick-start guide and screenshot documentation — session 31;
-   draft pending browser interaction verification.
+2. Welcome screen, recent files, quick-start guide and screenshot documentation — sessions 31/34;
+   verified and merge authorized; waiting for the final commit's required checks.
 3. Bundle the owner's normal/alpha starter pack, shelf previews and measured desktop/web sizes.
 4. Real multi-part FBX/GLB bake → smart material → paint → export; layer dragging/inline rename.
 5. Browser import/save/export verification and work split across frames.

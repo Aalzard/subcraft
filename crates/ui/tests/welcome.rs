@@ -44,6 +44,26 @@ fn welcome_and_each_guide_page_render_without_editing_the_project() {
     }
 }
 
+#[test]
+fn narrow_welcome_keeps_startup_and_project_controls_inside_the_window() {
+    let mut state = UiState::new(Session::sample(), None); state.welcome.open = true;
+    let ctx = egui::Context::default(); subcraft_ui::theme::apply(&ctx);
+    for frame in 0..3 {
+        let mut output = ctx.run_ui(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(440.0, 768.0))), ..Default::default() }, |ui| {
+            assert!(welcome::show(&mut state, ui.ctx()).is_none());
+        });
+        output.textures_delta.clear();
+        if frame == 0 { continue; } // egui measures an anchored window before its first visible frame.
+        for label in ["New from a model…", "Open project…", "Try the sample", "Show this screen on startup"] {
+            let text = output.shapes.iter().find_map(|shape| match &shape.shape {
+                egui::epaint::Shape::Text(t) if t.galley.job.text == label => Some(t), _ => None,
+            }).unwrap_or_else(|| panic!("Welcome control must be visible: {label}"));
+            assert!(text.pos.x >= 0.0, "{label} starts offscreen");
+            assert!(text.pos.x + text.galley.size().x <= 440.0, "{label} ends offscreen");
+        }
+    }
+}
+
 // Feed egui input directly; this never sends mouse or keyboard input to the desktop.
 fn frame(state: &mut UiState, ctx: &egui::Context, events: Vec<egui::Event>) -> (egui::FullOutput, Option<welcome::WelcomeAction>) {
     let mut action = None;

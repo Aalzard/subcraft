@@ -27,7 +27,7 @@ screen and six-step in-app guide are in development for the next desktop release
 
 - **Welcome and quick start (in development)**: open a model/project, try the sample, see what's new, or follow
   the six-step guide from Help. Desktop recent files make it easy to resume; the startup screen
-  can be turned off in Preferences.
+  can be turned off on the welcome screen or in Preferences. The hub fits narrow windows.
 - **Layer stack**: paint layers, fill layers (uniform, procedural, image and mesh-map sources) and
   folders, with 32 blend modes and opacity per channel. Right-click a layer to duplicate, delete or
   save it to your library.

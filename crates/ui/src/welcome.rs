@@ -28,17 +28,17 @@ pub fn show(state: &mut UiState, ctx: &egui::Context) -> Option<WelcomeAction> {
         let mut open = true;
         egui::Window::new("Welcome to SubCraft").open(&mut open).collapsible(false).resizable(false)
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
-            ui.set_width(560.0);
+            ui.set_width(560.0_f32.min((ctx.content_rect().width() - 32.0).max(220.0)));
             ui.heading("Start texturing");
             ui.label(RichText::new("Open a model, build materials and export PBR textures.").color(theme::TEXT_DIM));
             ui.add_space(12.0);
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 if primary_button(ui, "New from a model…").on_hover_text("OBJ, GLB/glTF or FBX with UVs").clicked() { action = Some(WelcomeAction::Pending(Pending::OpenMesh)); }
                 if secondary_button(ui, "Open project…").on_hover_text("Open a saved .subcraft project").clicked() { action = Some(WelcomeAction::Pending(Pending::OpenProject)); }
                 if secondary_button(ui, "Try the sample").on_hover_text("Open the built-in crate with UVs").clicked() { action = Some(WelcomeAction::Pending(Pending::NewSample)); }
             });
             ui.add_space(10.0);
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 if secondary_button(ui, "Quick start").on_hover_text("Six steps from a model to exported textures").clicked() { state.welcome.open = false; state.welcome.guide = Some(0); }
                 if secondary_button(ui, "What's new").on_hover_text("See the latest features in this build").clicked() { state.welcome.whats_new = true; }
                 if secondary_button(ui, "Continue in workspace").clicked() { state.welcome.open = false; }

@@ -144,6 +144,37 @@ mod launch_tests {
         assert_eq!(app.state.confirm, Some(Pending::OpenRecent));
         assert_eq!(app.state.session.document(), &doc);
     }
+
+    #[test]
+    fn long_header_titles_cannot_paint_over_menus_or_actions() {
+        let mut mesh = subcraft_mesh::primitives::cube(2.0);
+        mesh.name = "A very long multi-part model with a name that exceeds the header gap".into();
+        let mut app = SubcraftApp {
+            state: UiState::new(Session::new(mesh, 128), None),
+            dock: default_layout(), frames: 0, screenshot: None, screenshot_requested: false,
+            pending_now: None, active_tabs: HashSet::new(), test_crash: false,
+        };
+        let title = dialogs::title(&app.state).trim_start_matches("SubCraft — ").to_string();
+        for width in [460.0, 1200.0] {
+            let ctx = egui::Context::default(); theme::apply(&ctx);
+            let mut output = ctx.run_ui(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 600.0))), ..Default::default() }, |ui| {
+                egui::Panel::top("test-header").exact_size(44.0).show(ui, |ui| app.header_bar(ui));
+            });
+            output.textures_delta.clear();
+            let texts: Vec<_> = output.shapes.iter().filter_map(|s| {
+                if let egui::epaint::Shape::Text(t) = &s.shape { Some((s.clip_rect, t)) } else { None }
+            }).collect();
+            let project = texts.iter().find(|(_, t)| t.galley.job.text == title);
+            if width == 460.0 { assert!(project.is_none(), "A narrow header must leave room for its controls"); }
+            else {
+                let (clip, _) = project.expect("A wide header should show the project name");
+                let (_, help) = texts.iter().find(|(_, t)| t.galley.job.text == "Help").unwrap();
+                let (_, export) = texts.iter().find(|(_, t)| t.galley.job.text.contains("Export")).unwrap();
+                assert!(clip.left() > help.pos.x + help.galley.size().x);
+                assert!(clip.right() < export.pos.x);
+            }
+        }
+    }
 }
 
 pub struct SubcraftApp {
@@ -313,7 +344,7 @@ impl SubcraftApp {
         let now = ui.input(|i| i.time);
         let bar = ui.max_rect();
         // Right side first so the left side can't push it out of the bar.
-        ui.scope_builder(egui::UiBuilder::new().max_rect(bar).layout(egui::Layout::right_to_left(egui::Align::Center)), |ui| {
+        let right_edge = ui.scope_builder(egui::UiBuilder::new().max_rect(bar).layout(egui::Layout::right_to_left(egui::Align::Center)), |ui| {
             if primary_button(ui, format!("{}  Export", icons::EXPORT)).on_hover_text("Export textures (Ctrl+Shift+E)").clicked() {
                 self.perform(Action::Export, now);
             }
@@ -333,20 +364,25 @@ impl SubcraftApp {
             if ui.add_enabled_ui(can_undo, |ui| icon_button(ui, icons::UNDO, "Undo (Ctrl+Z)")).inner.clicked() {
                 self.perform(Action::Undo, now);
             }
-        });
-        ui.scope_builder(egui::UiBuilder::new().max_rect(bar).layout(egui::Layout::left_to_right(egui::Align::Center)), |ui| {
+            ui.cursor().right()
+        }).inner;
+        let left_edge = ui.scope_builder(egui::UiBuilder::new().max_rect(bar).layout(egui::Layout::left_to_right(egui::Align::Center)), |ui| {
             // Brand mark.
             let (r, _) = ui.allocate_exact_size(egui::vec2(18.0, 18.0), egui::Sense::hover());
             ui.painter().rect_filled(r, 0.0, theme::ACCENT);
             ui.painter().rect_filled(egui::Rect::from_min_size(r.min + egui::vec2(5.0, 5.0), egui::vec2(8.0, 8.0)), 0.0, theme::BG_2);
             ui.label(RichText::new("SubCraft").font(theme::font_strong(14.0)).color(theme::TEXT));
             ui.add_space(10.0);
-            self.menu(ui);
-        });
-        // Project name centered in the bar.
-        let title = dialogs::title(&self.state);
-        let name = title.trim_start_matches("SubCraft — ");
-        ui.painter().text(bar.center(), egui::Align2::CENTER_CENTER, name, theme::font(12.5), theme::TEXT_FAINT);
+            self.menu(ui)
+        }).inner;
+        // Keep long project names out of the menus/actions, including in a narrow browser panel.
+        let title_rect = egui::Rect::from_min_max(egui::pos2(left_edge + 8.0, bar.top()), egui::pos2(right_edge - 8.0, bar.bottom()));
+        if title_rect.width() >= 80.0 {
+            let title = dialogs::title(&self.state);
+            let name = title.trim_start_matches("SubCraft — ");
+            let center = egui::pos2(bar.center().x.clamp(title_rect.left(), title_rect.right()), bar.center().y);
+            ui.painter().with_clip_rect(title_rect.intersect(ui.clip_rect())).text(center, egui::Align2::CENTER_CENTER, name, theme::font(12.5), theme::TEXT_FAINT);
+        }
     }
 
     /// Vertical tool strip left of the dock area.
@@ -392,7 +428,7 @@ impl SubcraftApp {
         });
     }
 
-    fn menu(&mut self, ui: &mut Ui) {
+    fn menu(&mut self, ui: &mut Ui) -> f32 {
         let now = ui.input(|i| i.time);
         egui::MenuBar::new().ui(ui, |ui| {
             let item = |ui: &mut Ui, icon: &str, label: &str, sc: &str| ui.add(egui::Button::new(format!("{icon}   {label}")).shortcut_text(sc)).clicked();
@@ -514,7 +550,8 @@ impl SubcraftApp {
                     ui.close();
                 }
             });
-        });
+            ui.cursor().left()
+        }).inner
     }
 
     /// Run `action` now, or after the unsaved-changes prompt.
