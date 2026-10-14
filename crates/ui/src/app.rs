@@ -72,6 +72,8 @@ pub struct LaunchOptions {
     pub recover: bool,
     /// Autosave interval instead of the preference (testing).
     pub autosave_interval: Option<std::time::Duration>,
+    /// Panic a moment after start (tests the crash report).
+    pub test_crash: bool,
 }
 
 pub fn default_layout() -> DockState<Tab> {
@@ -97,6 +99,7 @@ pub struct SubcraftApp {
     pending_now: Option<Pending>,
     /// Tabs whose body was shown last frame (drawn with the accent marker).
     active_tabs: HashSet<Tab>,
+    test_crash: bool,
 }
 
 impl SubcraftApp {
@@ -131,6 +134,8 @@ impl SubcraftApp {
         if let Some(s) = status {
             state.set_status(s, 0.0);
         }
+        crate::bug_report::record_gpu(cc.wgpu_render_state.as_ref());
+        state.bug_report = crate::bug_report::BugReportUi::load();
         let prefs = cc.storage.and_then(|s| s.get_string(crate::recovery::PREFS_KEY)).and_then(|j| serde_json::from_str(&j).ok()).unwrap_or_default();
         state.recovery = crate::recovery::RecoveryUi::start(&state.session, prefs, options.autosave_interval);
         if options.recover && !state.recovery.crashed.is_empty() {
@@ -152,7 +157,16 @@ impl SubcraftApp {
         {
             let _ = dock.set_active_tab(path);
         }
-        Self { state, dock, frames: 0, screenshot: options.screenshot, screenshot_requested: false, pending_now: None, active_tabs: HashSet::new() }
+        Self {
+            state,
+            dock,
+            frames: 0,
+            screenshot: options.screenshot,
+            screenshot_requested: false,
+            pending_now: None,
+            active_tabs: HashSet::new(),
+            test_crash: options.test_crash,
+        }
     }
 
     fn shortcuts(&mut self, ctx: &egui::Context) {
@@ -390,6 +404,17 @@ impl SubcraftApp {
                     self.state.show_shortcuts = true;
                     ui.close();
                 }
+                ui.separator();
+                if item(ui, icons::INFO, "Report a bug…", "") {
+                    self.state.bug_report.open = true;
+                    ui.close();
+                }
+                if let Some(log) = subcraft_app::diagnostics::log_file()
+                    && item(ui, icons::FOLDER_OPEN, "Show log files", "")
+                {
+                    crate::panels::shelf::show_in_folder(&log);
+                    ui.close();
+                }
             });
         });
     }
@@ -601,6 +626,11 @@ impl eframe::App for SubcraftApp {
         crate::recovery::preferences_window(&mut self.state, &ctx);
         crate::recovery::backup_reminder(&mut self.state, &ctx, now);
         crate::recovery::prompt(&mut self.state, &ctx, now);
+        crate::bug_report::report_window(&mut self.state, &ctx);
+        crate::bug_report::crash_window(&mut self.state, &ctx);
+        if self.test_crash && self.frames > 30 {
+            panic!("test crash requested with --test-crash");
+        }
         dialogs::export_window(&mut self.state, &ctx, now);
         dialogs::bake_window(&mut self.state, &ctx, now);
         dialogs::poll_bake(&mut self.state, &ctx, now);

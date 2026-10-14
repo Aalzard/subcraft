@@ -78,6 +78,8 @@ pub struct UiState {
     pub textures: crate::panels::textures::TextureLibrary,
     /// Autosave, crash recovery and preferences.
     pub recovery: crate::recovery::RecoveryUi,
+    /// Help → Report a bug and crash reports of earlier runs.
+    pub bug_report: crate::bug_report::BugReportUi,
 }
 
 impl UiState {
@@ -123,6 +125,7 @@ impl UiState {
             stencil_tex: None,
             textures: Default::default(),
             recovery: crate::recovery::RecoveryUi::disabled(),
+            bug_report: Default::default(),
         }
     }
 
@@ -210,7 +213,9 @@ impl UiState {
     }
 
     pub fn set_status(&mut self, msg: impl Into<String>, now: f64) {
-        self.status = Some((msg.into(), now));
+        let msg = msg.into();
+        log::info!("status: {msg}");
+        self.status = Some((msg, now));
     }
 
     /// Execute commands, reporting the first error in the status bar.

@@ -4,6 +4,7 @@
 //! logic lives in `subcraft-app`.
 
 pub mod app;
+pub mod bug_report;
 pub mod dialogs;
 pub mod files;
 pub mod icons;

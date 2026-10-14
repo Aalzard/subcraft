@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-10-14 (session 28: autosave + crash recovery)
+Last updated: 2026-10-14 (session 29: report a bug + crash logs)
 
 ## Decisions
 
@@ -516,6 +516,45 @@ In the cloud container (no GPU) the app ran on lavapipe/llvmpipe (Vulkan) under 
   (`web-backup-reminder.jpg`). **Not verified by hand:** clicking Recover / Discard / Show folder
   in the desktop prompt (same code path as `--recover` / `CrashedSession::discard`, both tested),
   the web Download backup button (it is the normal web Save) and the browser's close-tab dialog.
+
+### Session 29 — report a bug + crash logs
+
+* `app::diagnostics`: logger (replaces the stderr-only one in `main.rs`): stderr (non-packaged
+  builds), the last 300 lines in memory, and `<data dir>/logs/subcraft.log`; older runs rotate to
+  `subcraft.1.log` … (5 kept), and a run over 4 MB rotates mid-run. SubCraft messages from Info up,
+  other crates (wgpu, eframe) Warn and up. Times are UTC (logged in the header line).
+  First lines: version + OS (`cmd /c ver` on Windows without a console window, `/etc/os-release`
+  on Linux), GPU / backend / driver (`bug_report::record_gpu` from the wgpu adapter). Every history
+  entry is logged as `action: <label>` (slider drags once per merged entry) and status-bar messages
+  as `status: …`, so the log shows recent actions and user-visible errors.
+* Panic hook (`install_panic_hook`): writes `<data dir>/crashes/crash-<UTC time>-NN.txt` with
+  version, OS, GPU, message, location + thread, full backtrace and the last log lines (10 kept),
+  then runs the default hook. It writes to the log file with `try_lock` so a panic inside the
+  logger can't deadlock.
+* Next start: unseen reports → "SubCraft crashed last time" window (message, report path) with
+  Report a bug… / Show report / Close; either button marks them seen (`.seen` marker). It waits
+  until the recovery prompt is answered.
+* Help → **Report a bug…**: shows version / OS / GPU and the log file to attach, **Open GitHub
+  issue** opens `issues/new?template=bug_report.yml&version=…&os=…&gpu=…&logs=…` (plus title and
+  description for crashes); Help → Show log files. eframe's `links` feature enabled for opening
+  URLs on desktop. Nothing is sent automatically.
+* `.github/ISSUE_TEMPLATE/bug_report.yml` + `feature_request.yml` (issue forms; field ids
+  `version`, `os`, `gpu`, `logs`, `what-happened` match the link's query) replace the Markdown
+  templates. Discussions are not turned on (waiting for the owner's OK).
+* `--test-crash` panics after 30 frames (testing).
+* Tests (4 new, 223 total): issue link carries version / OS / GPU / log path, everything
+  percent-encoded, crash title; log rotation shifts and drops the oldest; crash reports written
+  with unique sortable names, shown once, pruned to 10 with their markers; UTC date formatting.
+* Verified in the real app on Windows (`SUBCRAFT_DATA` temp folder): a `--demo` run logged the
+  OS (Windows 10.0.26200.9457), GPU (RTX 4060, Dx12, driver 32.0.16.1062) and every demo action;
+  `--test-crash` exited with code 101 and wrote a 13 KB crash report with backtrace and log tail;
+  the next start showed the crash window (`docs/screenshots/crash-report-window.png`), and the
+  logs had rotated to `subcraft.1.log` / `.2.log`. Web build: Help → Report a bug window
+  (`report-a-bug-web.png`; the browser hides the GPU name, so it says "unknown GPU
+  (BrowserWebGpu)"), and Open GitHub issue built the right link and tried to open a tab.
+  **Not verified:** that GitHub prefills the form fields from the link (the `bug_report.yml`
+  form only exists on GitHub after this PR is merged), the desktop Open GitHub issue / Show
+  report / Show log files clicks (no mouse driving on the desktop), and macOS.
 
 CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraft-mesh -p subcraft-doc -p subcraft-materials -p subcraft-compositor -p subcraft-paint`
 
