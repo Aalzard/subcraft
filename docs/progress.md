@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-10-14 (session 30: right-click texturing and Parts)
+Last updated: 2026-10-15 (session 34: welcome integration after v0.1.4)
 
 ## Decisions
 
@@ -12,7 +12,7 @@ Last updated: 2026-10-14 (session 30: right-click texturing and Parts)
 * Undo: history of structurally shared document snapshots + merge keys; strokes push the
   post-stroke document — `adr/0006-undo.md`.
 
-## Done (all tests passing — 153 tests, `cargo test --workspace`)
+## Implemented subsystems (latest test counts are in the session entries)
 
 | Crate | Contents | Tests |
 |---|---|---|
@@ -612,7 +612,38 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   the final catalogue-cache/help-text adjustments were verified by the workspace/GPU tests and
   builds, but were not re-clicked in the browser after that block.
 
-### Session 32 — v0.1.3 release preparation (2026-10-15)
+### Session 31 — welcome screen and quick start
+
+* PR #34 merged after the owner approved it and all three required checks passed.
+* Welcome hub offers New from a model, Open project, Try the sample, desktop recent files,
+  Quick start and What's new. Startup display is optional, migrates older preferences to on,
+  and can be changed in the hub or Edit → Preferences. Help reopens all three windows.
+* Recent navigation history lives in desktop settings, keeps twelve deduplicated model/project
+  locations, refreshes availability on startup/open/save, and marks missing files as removable.
+  Successful opens/saves update it; failed opens retain the current document. Recent opens use
+  the existing unsaved-changes guard. Browser uploads are not recorded as persistent locations.
+* Six-step guide: model → bake → smart material → paint/Parts → save → export. Its buttons use
+  existing actions/dialogs, and Back/Next/Finish work without editing the project. Launcher data
+  and guide text live in app; widgets only dispatch actions. Added short welcome tooltips and a
+  full-changelog link. Screenshot flags: `--welcome`, `--quick-start`, `--guide-step 1..6`.
+* Added `docs/getting-started.md` with real app screenshots and linked it from README.
+  `screenshots/welcome.png` and `quick-start-parts.png` were captured by the release executable
+  from the throwaway seven-object OBJ/project fixture, using isolated data/library folders.
+* Verification: 246 workspace tests passed, including GPU tests, preference migration, recent
+  open/failure, unsaved guard, every guide page and synthetic egui button/navigation input.
+  Clippy completed with existing warnings. Desktop release and wasm/dist + wasm-bindgen builds
+  passed; both release-app screenshot runs exited successfully. No desktop input was driven.
+* Outstanding: browser welcome/guide interaction could not be verified because browser policy
+  rejected reconnecting to the local preview. No workaround was attempted; requested that the
+  owner reopen/tag the tab. This feature remains draft until that check is possible; starter-pack
+  implementation has not begun, preserving the requested feature order.
+* Starter-pack inventory only: all 60 source PNGs decoded/verified (30 RGB normal maps and 30
+  grayscale alphas, all 1024²). Normals are 12,311,802 bytes, alphas 1,583,193; gzip totals
+  13,589,367 bytes, only 2.2% smaller. Plan on-demand web loading rather than embedding those
+  images in the wasm. Baseline after this feature: release exe 26,303,488 bytes; web wasm
+  16,112,859 bytes. Source assets in the owner's primary checkout remain untouched.
+
+### Session 32 — v0.1.3 release (2026-10-15)
 
 * Owner requested that public downloads include the latest updates. Prepared v0.1.3 from main:
   autosave/recovery, diagnostics/bug reports, and the merged Parts/eyedropper workflow. Welcome
@@ -640,8 +671,16 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
 * Not tested: manual installer wizard, admin/all-users installation, upgrade of the owner's
   existing installation, or browser interaction with this version bump. The browser policy
   block still applies; the merged Parts workflow had prior WebGPU verification in session 30.
-* Release publication awaits the version PR's checks and owner merge approval. Until it is
-  published and the package upload workflow completes, public latest remains v0.1.2.
+* PR #36 passed all five checks and merged after owner approval. Published v0.1.3 from merge
+  commit `d4802d8`, with the three checked CI packages attached before publication. Confirmed
+  anonymous downloads and that releases/latest redirects to v0.1.3; web build and Pages deploy
+  passed. Public installer is 9,311,778 bytes (8.88 MiB), Windows zip 10,571,257 bytes, Linux
+  archive 12,073,788 bytes. Ran the CI-packaged executable on the fixture too; the model region
+  matched the local installed-build screenshot exactly. Shipping code excludes draft #35.
+* Merged release main into the welcome branch, retaining the welcome entry under Unreleased
+  and both session records. Browser interaction remains the outstanding check for PR #35.
+  Re-ran all 246 tests, clippy, native release and web builds on the 0.1.3 base; native welcome
+  and guide screenshot runs passed and the documentation images were refreshed.
 
 ### Session 33 — in-app desktop updates and v0.1.4 preparation (2026-10-15)
 
@@ -685,11 +724,38 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   the successful real fixture-app restart screenshots and production HTTPS probe were retained.
   v0.1.4 is prepared on the updater PR; publication requires owner merge/release approval.
 
+### Session 34 — welcome integration after the updater release (2026-10-15)
+
+* Owner approved PR #37 merge/publication. All three required checks and both packaging checks
+  passed; merged at `49b1bdc` and published v0.1.4 with all three checked CI packages attached.
+  Public latest resolves to v0.1.4 and anonymous downloads passed size/signature range checks.
+  The release workflow and main's Linux/Windows/web checks passed; Pages deployment passed.
+* Resumed draft PR #35 and merged v0.1.4 into its branch, retaining the updater, welcome hub,
+  recents and guide. Update restarts now bypass the welcome hub even for an unmodified restored
+  project; added a startup regression. What's new also describes the desktop update button.
+* Final verification: 258 workspace tests passed including GPU checks; clippy completed with
+  existing warnings. Desktop and web dist builds passed (16,110,595-byte wasm, +8,293 bytes
+  versus v0.1.4). Both shipping GUI screenshot runs opened the generated multi-part project
+  with isolated data/library and exited successfully, without desktop input or update checks.
+* Browser verification on port 8773: walked all six guide steps, opened bake/export settings,
+  downloaded a 9,429-byte project and reopened it through the welcome hub, imported the
+  generated named OBJ, tried the sample, opened What's new, and checked the startup preference
+  survives a reload while Help can still reopen the hub. Existing eframe viewport warnings
+  appeared; no runtime errors were observed. Actual FBX/GLB bake-to-export runs remain next.
+* Browser testing found overlapping project titles and a clipped welcome hub in narrow panes.
+  Titles now stay inside the gap between controls; the hub fits and wraps actions. Added real
+  egui rendering regressions and verified the final rebuilt browser UI. Updated screenshot
+  documentation against v0.1.4. The owner authorized merging #35 once required checks pass.
+* Starter asset inventory for the next feature: 30 normal PNGs and 30 alpha PNGs, all 1024²,
+  under the original repository's output/textures and output/alphas. Total PNG sizes are
+  12,311,802 bytes for normals and 1,583,193 for alphas. These are not in v0.1.4 yet.
+
 ## Next steps (in order)
 
 Current priorities requested by the owner:
 1. ~~Right-click texturing and Parts~~ — session 30; PR #34 merged.
-2. Welcome screen, recent files, quick-start guide and screenshot documentation.
+2. Welcome screen, recent files, quick-start guide and screenshot documentation — sessions 31/34;
+   verified and merge authorized; waiting for the final commit's required checks.
 3. Bundle the owner's normal/alpha starter pack, shelf previews and measured desktop/web sizes.
 4. Real multi-part FBX/GLB bake → smart material → paint → export; layer dragging/inline rename.
 5. Browser import/save/export verification and work split across frames.

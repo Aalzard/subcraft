@@ -24,6 +24,7 @@ pub enum Pending {
     NewSample,
     OpenMesh,
     OpenProject,
+    OpenRecent,
 }
 
 pub struct ExportUi {
@@ -68,6 +69,7 @@ pub fn save(state: &mut UiState, save_as: bool, now: f64) -> bool {
     };
     match state.session.save(path.as_deref()) {
         Ok(p) => {
+            state.welcome.remember(&p);
             state.set_status(format!("Saved {}", p.display()), now);
             true
         }
@@ -86,6 +88,17 @@ pub fn run_pending(state: &mut UiState, action: Pending, ctx: &egui::Context, _n
         // In the browser a .gltf can come with its .bin, so meshes allow several files.
         Pending::OpenMesh => crate::files::pick(ctx, crate::files::Purpose::OpenMesh, crate::files::MESHES, cfg!(target_arch = "wasm32"), None),
         Pending::OpenProject => crate::files::pick(ctx, crate::files::Purpose::OpenProject, PROJECT_FILTER, false, None),
+        Pending::OpenRecent => {
+            if let Some(path) = state.welcome.pending_recent.take() {
+                match Session::open_recent(&path) {
+                    Ok((s, warnings)) => {
+                        state.set_session(s); state.welcome.remember(&path);
+                        state.set_status(if warnings.is_empty() { format!("Opened {}", path.display()) } else { format!("Opened with {} warning(s): {}", warnings.len(), warnings[0]) }, _now);
+                    }
+                    Err(e) => state.set_status(format!("Could not open recent file: {e}"), _now),
+                }
+            }
+        }
     }
 }
 
@@ -93,6 +106,7 @@ pub fn open_project(state: &mut UiState, path: &std::path::Path, now: f64) {
     match Session::open_project(path) {
         Ok(s) => {
             state.set_session(s);
+            state.welcome.remember(path);
             state.set_status(format!("Opened {}", path.display()), now);
         }
         Err(e) => state.set_status(format!("Could not open project: {e}"), now),

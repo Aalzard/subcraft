@@ -5,6 +5,17 @@ What changed in SubCraft, newest first. Download the latest build from the
 
 ## Unreleased
 
+### New
+- **Welcome screen and quick start**: New from a model, Open project, desktop recent files,
+  Try the sample, What's new and a six-step in-app guide. Help reopens them; turn off the
+  startup screen in Edit → Preferences. An illustrated `docs/getting-started.md` is linked
+  from the README. Missing recent files are marked and removable. Update restarts open the
+  restored workspace directly.
+
+### Fixed
+- Long project names no longer overlap top-bar menus or actions in a narrow window.
+- The welcome hub fits narrow windows and wraps its actions to keep them visible.
+
 ## 0.1.4
 
 ### New

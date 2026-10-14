@@ -15,6 +15,8 @@ pub mod state;
 pub mod theme;
 pub mod viewport;
 pub mod widgets;
+pub mod welcome;
+
 pub mod updates;
 
 pub use app::{LaunchOptions, SubcraftApp, Tab};

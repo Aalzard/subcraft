@@ -15,6 +15,9 @@ smart materials, bake mesh maps, and export game-ready textures.
 > future desktop releases with your unsaved project restored. Versions through v0.1.3 need one
 > download to get the button. See the [changelog](CHANGELOG.md).
 
+New here? Follow the [illustrated getting-started guide](docs/getting-started.md). A welcome
+screen and six-step in-app guide are in development for the next desktop release.
+
 > **Status: early but usable.** The core engine, painting, baking, smart materials, save/load and
 > export all work and are covered by tests. Expect rough edges, missing features and breaking
 > changes to the project file format. See [`docs/progress.md`](docs/progress.md) for what is done
@@ -22,6 +25,9 @@ smart materials, bake mesh maps, and export game-ready textures.
 
 ## Features
 
+- **Welcome and quick start (in development)**: open a model/project, try the sample, see what's new, or follow
+  the six-step guide from Help. Desktop recent files make it easy to resume; the startup screen
+  can be turned off on the welcome screen or in Preferences. The hub fits narrow windows.
 - **Layer stack**: paint layers, fill layers (uniform, procedural, image and mesh-map sources) and
   folders, with 32 blend modes and opacity per channel. Right-click a layer to duplicate, delete or
   save it to your library.

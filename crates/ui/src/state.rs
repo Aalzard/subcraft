@@ -27,6 +27,8 @@ pub struct UvView {
 }
 
 pub struct UiState {
+    pub welcome: crate::welcome::WelcomeUi,
+
     #[cfg(not(target_arch = "wasm32"))]
     pub updater: Option<subcraft_app::updater::Updater>,
     pub parts_kind: subcraft_core::PartKind,
@@ -95,6 +97,8 @@ impl UiState {
         session.brush.material.set(ChannelKind::BaseColor, subcraft_core::ChannelValue::rgb(0.85, 0.32, 0.06));
         let renderer = render_state.as_ref().map(|rs| ViewportRenderer::new(&rs.device, &rs.queue));
         Self {
+            welcome: Default::default(),
+
             #[cfg(not(target_arch = "wasm32"))]
             updater: subcraft_app::updater::Updater::new().ok(),
             parts_kind: subcraft_core::PartKind::Connected,
@@ -217,6 +221,7 @@ impl UiState {
         session.brush.material = self.session.brush.material.clone();
         self.camera = OrbitCamera::framing(&session.scene().mesh.bounds);
         self.session = session;
+        self.welcome.open = false;
         self.hovered_part = None;
         self.context_part = None;
         self.uploaded_view_revision = u64::MAX;

@@ -104,6 +104,7 @@ fn handle(state: &mut UiState, purpose: Purpose, paths: &[PathBuf], now: f64) {
         Purpose::OpenMesh => match subcraft_app::Session::open_mesh(first, subcraft_app::DEFAULT_RESOLUTION) {
             Ok((s, _)) => {
                 state.set_session(s);
+                state.welcome.remember(first);
                 state.set_status(format!("Opened {}", file_name(first)), now);
             }
             Err(e) => state.set_status(format!("Could not open mesh: {e}"), now),

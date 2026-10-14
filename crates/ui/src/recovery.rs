@@ -23,11 +23,12 @@ pub struct Preferences {
     pub autosave_minutes: u32,
     /// Recovery copies kept.
     pub autosave_keep: usize,
+    pub show_welcome: bool,
 }
 
 impl Default for Preferences {
     fn default() -> Self {
-        Self { autosave_minutes: (recovery::DEFAULT_INTERVAL.as_secs() / 60) as u32, autosave_keep: recovery::DEFAULT_KEEP }
+        Self { autosave_minutes: (recovery::DEFAULT_INTERVAL.as_secs() / 60) as u32, autosave_keep: recovery::DEFAULT_KEEP, show_welcome: true }
     }
 }
 
@@ -276,6 +277,8 @@ pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
     let mut open = true;
     egui::Window::new(RichText::new("Preferences").font(theme::font_strong(14.0))).open(&mut open).collapsible(false).resizable(false).show(ctx, |ui| {
         ui.set_width(380.0);
+        ui.checkbox(&mut rec.prefs.show_welcome, "Show welcome screen on startup");
+        ui.add_space(10.0);
         ui.label(RichText::new("Autosave").font(theme::font_strong(12.5)));
         ui.add_space(4.0);
         let desc = if cfg!(target_arch = "wasm32") {

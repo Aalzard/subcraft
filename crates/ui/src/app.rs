@@ -63,6 +63,11 @@ impl Tab {
 /// Command-line options.
 #[derive(Clone, Debug, Default)]
 pub struct LaunchOptions {
+    /// Open the welcome hub even when taking a screenshot.
+    pub welcome: bool,
+    /// Open a step of the in-app guide (zero-based).
+    pub guide_step: Option<usize>,
+
     /// Open a workspace snapshot preserved during an in-app update.
     pub resume_update: Option<PathBuf>,
     /// Check releases on startup (scripted verification / Help).
@@ -85,6 +90,13 @@ pub struct LaunchOptions {
     pub test_crash: bool,
 }
 
+impl LaunchOptions {
+    fn shows_welcome(&self, enabled: bool, recovered: bool) -> bool {
+        self.resume_update.is_none() && (self.welcome || (enabled && self.mesh.is_none()
+            && !self.demo && self.screenshot.is_none() && !recovered))
+    }
+}
+
 pub fn default_layout() -> DockState<Tab> {
     let mut dock = DockState::new(vec![Tab::Viewport, Tab::UvView]);
     let surface = dock.main_surface_mut();
@@ -97,6 +109,73 @@ pub fn default_layout() -> DockState<Tab> {
 }
 
 const DOCK_KEY: &str = "subcraft_dock_v4";
+
+#[cfg(test)]
+mod launch_tests {
+    use super::*;
+
+    #[test]
+    fn restored_updates_and_existing_work_open_directly_in_the_workspace() {
+        let mut options = LaunchOptions::default();
+        assert!(options.shows_welcome(true, false)); assert!(!options.shows_welcome(false, false));
+        assert!(!options.shows_welcome(true, true));
+        options.mesh = Some("project.subcraft".into()); assert!(!options.shows_welcome(true, false));
+        options.mesh = None; options.demo = true; assert!(!options.shows_welcome(true, false));
+        options.demo = false; options.screenshot = Some("capture.png".into()); assert!(!options.shows_welcome(true, false));
+        options.welcome = true; assert!(options.shows_welcome(false, false));
+        options.resume_update = Some("job.json".into());
+        assert!(!options.shows_welcome(true, false)); assert!(!options.shows_welcome(true, true));
+    }
+
+    #[test]
+    fn recent_open_waits_for_unsaved_changes_before_replacing_a_session() {
+        let mut app = SubcraftApp {
+            state: UiState::new(Session::new(subcraft_mesh::primitives::cube(2.0), 128), None),
+            dock: default_layout(), frames: 0, screenshot: None, screenshot_requested: false,
+            pending_now: None, active_tabs: HashSet::new(), test_crash: false,
+        };
+        app.request(Pending::OpenRecent, 0.0);
+        assert_eq!(app.pending_now.take(), Some(Pending::OpenRecent));
+        assert_eq!(app.state.confirm, None);
+        app.state.session.execute(Command::AddLayer(NewLayer::Paint)).unwrap();
+        let doc = app.state.session.document().clone();
+        app.request(Pending::OpenRecent, 0.0);
+        assert_eq!(app.pending_now, None);
+        assert_eq!(app.state.confirm, Some(Pending::OpenRecent));
+        assert_eq!(app.state.session.document(), &doc);
+    }
+
+    #[test]
+    fn long_header_titles_cannot_paint_over_menus_or_actions() {
+        let mut mesh = subcraft_mesh::primitives::cube(2.0);
+        mesh.name = "A very long multi-part model with a name that exceeds the header gap".into();
+        let mut app = SubcraftApp {
+            state: UiState::new(Session::new(mesh, 128), None),
+            dock: default_layout(), frames: 0, screenshot: None, screenshot_requested: false,
+            pending_now: None, active_tabs: HashSet::new(), test_crash: false,
+        };
+        let title = dialogs::title(&app.state).trim_start_matches("SubCraft — ").to_string();
+        for width in [460.0, 1200.0] {
+            let ctx = egui::Context::default(); theme::apply(&ctx);
+            let mut output = ctx.run_ui(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 600.0))), ..Default::default() }, |ui| {
+                egui::Panel::top("test-header").exact_size(44.0).show(ui, |ui| app.header_bar(ui));
+            });
+            output.textures_delta.clear();
+            let texts: Vec<_> = output.shapes.iter().filter_map(|s| {
+                if let egui::epaint::Shape::Text(t) = &s.shape { Some((s.clip_rect, t)) } else { None }
+            }).collect();
+            let project = texts.iter().find(|(_, t)| t.galley.job.text == title);
+            if width == 460.0 { assert!(project.is_none(), "A narrow header must leave room for its controls"); }
+            else {
+                let (clip, _) = project.expect("A wide header should show the project name");
+                let (_, help) = texts.iter().find(|(_, t)| t.galley.job.text == "Help").unwrap();
+                let (_, export) = texts.iter().find(|(_, t)| t.galley.job.text.contains("Export")).unwrap();
+                assert!(clip.left() > help.pos.x + help.galley.size().x);
+                assert!(clip.right() < export.pos.x);
+            }
+        }
+    }
+}
 
 pub struct SubcraftApp {
     state: UiState,
@@ -148,6 +227,8 @@ impl SubcraftApp {
         let restore_failed = status.is_some();
         let mut state = UiState::new(session, cc.wgpu_render_state.clone())
             .with_user_library(subcraft_app::assets::UserLibrary::default_root().map(subcraft_app::assets::UserLibrary::new));
+        #[cfg(not(target_arch = "wasm32"))]
+        let opened_from_arg = !status.as_ref().is_some_and(|s| s.starts_with("Could not open"));
         if let Some(s) = status {
             state.set_status(s, 0.0);
         }
@@ -164,6 +245,13 @@ impl SubcraftApp {
         state.bug_report = crate::bug_report::BugReportUi::load();
         let prefs = cc.storage.and_then(|s| s.get_string(crate::recovery::PREFS_KEY)).and_then(|j| serde_json::from_str(&j).ok()).unwrap_or_default();
         state.recovery = crate::recovery::RecoveryUi::start(&state.session, prefs, options.autosave_interval);
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            state.welcome.recent = cc.storage.and_then(|s| s.get_string(crate::welcome::RECENTS_KEY))
+                .and_then(|j| serde_json::from_str(&j).ok()).unwrap_or_default();
+            state.welcome.refresh();
+            if opened_from_arg && let Some(path) = &options.mesh { state.welcome.remember(path); }
+        }
         if options.recover && !state.recovery.crashed.is_empty() {
             let c = state.recovery.crashed.remove(0);
             crate::recovery::recover(&mut state, c, 0.0);
@@ -171,6 +259,10 @@ impl SubcraftApp {
         if options.demo {
             build_demo(&mut state);
         }
+        state.welcome.open = options.shows_welcome(state.recovery.prefs.show_welcome, state.session.is_recovered());
+        state.welcome.guide = options.guide_step.map(|s| s.min(subcraft_app::launch::QUICK_START.len() - 1));
+        if state.welcome.guide.is_some() { state.welcome.open = false; }
+
         #[cfg(all(feature = "update-fixture", not(target_arch = "wasm32")))]
         if options.auto_update_fixture && let Some(updater) = &mut state.updater { updater.request_update(); }
         let dock = cc
@@ -252,7 +344,7 @@ impl SubcraftApp {
         let now = ui.input(|i| i.time);
         let bar = ui.max_rect();
         // Right side first so the left side can't push it out of the bar.
-        ui.scope_builder(egui::UiBuilder::new().max_rect(bar).layout(egui::Layout::right_to_left(egui::Align::Center)), |ui| {
+        let right_edge = ui.scope_builder(egui::UiBuilder::new().max_rect(bar).layout(egui::Layout::right_to_left(egui::Align::Center)), |ui| {
             if primary_button(ui, format!("{}  Export", icons::EXPORT)).on_hover_text("Export textures (Ctrl+Shift+E)").clicked() {
                 self.perform(Action::Export, now);
             }
@@ -272,20 +364,25 @@ impl SubcraftApp {
             if ui.add_enabled_ui(can_undo, |ui| icon_button(ui, icons::UNDO, "Undo (Ctrl+Z)")).inner.clicked() {
                 self.perform(Action::Undo, now);
             }
-        });
-        ui.scope_builder(egui::UiBuilder::new().max_rect(bar).layout(egui::Layout::left_to_right(egui::Align::Center)), |ui| {
+            ui.cursor().right()
+        }).inner;
+        let left_edge = ui.scope_builder(egui::UiBuilder::new().max_rect(bar).layout(egui::Layout::left_to_right(egui::Align::Center)), |ui| {
             // Brand mark.
             let (r, _) = ui.allocate_exact_size(egui::vec2(18.0, 18.0), egui::Sense::hover());
             ui.painter().rect_filled(r, 0.0, theme::ACCENT);
             ui.painter().rect_filled(egui::Rect::from_min_size(r.min + egui::vec2(5.0, 5.0), egui::vec2(8.0, 8.0)), 0.0, theme::BG_2);
             ui.label(RichText::new("SubCraft").font(theme::font_strong(14.0)).color(theme::TEXT));
             ui.add_space(10.0);
-            self.menu(ui);
-        });
-        // Project name centered in the bar.
-        let title = dialogs::title(&self.state);
-        let name = title.trim_start_matches("SubCraft — ");
-        ui.painter().text(bar.center(), egui::Align2::CENTER_CENTER, name, theme::font(12.5), theme::TEXT_FAINT);
+            self.menu(ui)
+        }).inner;
+        // Keep long project names out of the menus/actions, including in a narrow browser panel.
+        let title_rect = egui::Rect::from_min_max(egui::pos2(left_edge + 8.0, bar.top()), egui::pos2(right_edge - 8.0, bar.bottom()));
+        if title_rect.width() >= 80.0 {
+            let title = dialogs::title(&self.state);
+            let name = title.trim_start_matches("SubCraft — ");
+            let center = egui::pos2(bar.center().x.clamp(title_rect.left(), title_rect.right()), bar.center().y);
+            ui.painter().with_clip_rect(title_rect.intersect(ui.clip_rect())).text(center, egui::Align2::CENTER_CENTER, name, theme::font(12.5), theme::TEXT_FAINT);
+        }
     }
 
     /// Vertical tool strip left of the dock area.
@@ -331,7 +428,7 @@ impl SubcraftApp {
         });
     }
 
-    fn menu(&mut self, ui: &mut Ui) {
+    fn menu(&mut self, ui: &mut Ui) -> f32 {
         let now = ui.input(|i| i.time);
         egui::MenuBar::new().ui(ui, |ui| {
             let item = |ui: &mut Ui, icon: &str, label: &str, sc: &str| ui.add(egui::Button::new(format!("{icon}   {label}")).shortcut_text(sc)).clicked();
@@ -430,6 +527,11 @@ impl SubcraftApp {
             });
             ui.menu_button("Help", |ui| {
                 ui.set_min_width(240.0);
+                if item(ui, icons::CUBE, "Welcome screen", "") { self.state.welcome.open = true; ui.close(); }
+                if item(ui, icons::CURSOR, "Quick start", "") { self.state.welcome.guide = Some(0); self.state.welcome.open = false; ui.close(); }
+                if item(ui, icons::INFO, "What's new", "") { self.state.welcome.whats_new = true; ui.close(); }
+                ui.separator();
+
                 #[cfg(not(target_arch = "wasm32"))]
                 if item(ui, icons::DOWNLOAD, "Check for updates…", "") { if let Some(updater) = &mut self.state.updater { updater.check(); } ui.close(); }
                 if item(ui, icons::KEYBOARD, "Keyboard shortcuts", "") {
@@ -448,7 +550,8 @@ impl SubcraftApp {
                     ui.close();
                 }
             });
-        });
+            ui.cursor().left()
+        }).inner
     }
 
     /// Run `action` now, or after the unsaved-changes prompt.
@@ -662,6 +765,27 @@ impl eframe::App for SubcraftApp {
         crate::recovery::prompt(&mut self.state, &ctx, now);
         crate::bug_report::report_window(&mut self.state, &ctx);
         crate::bug_report::crash_window(&mut self.state, &ctx);
+        if let Some(action) = crate::welcome::show(&mut self.state, &ctx) {
+            match action {
+                crate::welcome::WelcomeAction::Pending(pending) => self.request(pending, now),
+                crate::welcome::WelcomeAction::Guide(action) => match action {
+                    subcraft_app::launch::GuideAction::OpenModel => self.request(Pending::OpenMesh, now),
+                    subcraft_app::launch::GuideAction::Bake => self.state.bake.open = true,
+                    subcraft_app::launch::GuideAction::SmartMaterial => {
+                        self.state.shelf.tab = panels::shelf::ShelfTab::SmartMaterials;
+                        if let Some(path) = self.dock.find_tab(&Tab::Shelf) { let _ = self.dock.set_active_tab(path); }
+                    }
+                    subcraft_app::launch::GuideAction::PaintParts => {
+                        if let Some(path) = self.dock.find_tab(&Tab::Parts) { let _ = self.dock.set_active_tab(path); }
+                        self.state.tool = Tool::Brush;
+                    }
+                    subcraft_app::launch::GuideAction::Save => self.perform(Action::Save, now),
+                    subcraft_app::launch::GuideAction::Export => self.state.export.open = true,
+                },
+            }
+            ctx.request_repaint();
+        }
+
         crate::updates::tick(&mut self.state, &ctx);
         if self.test_crash && self.frames > 30 {
             panic!("test crash requested with --test-crash");
@@ -702,6 +826,8 @@ impl eframe::App for SubcraftApp {
         if let Ok(j) = serde_json::to_string(&self.state.recovery.prefs) {
             storage.set_string(crate::recovery::PREFS_KEY, j);
         }
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Ok(j) = serde_json::to_string(&self.state.welcome.recent) { storage.set_string(crate::welcome::RECENTS_KEY, j); }
     }
 
     /// Clean exit: the recovery folder of this session is no longer needed.
