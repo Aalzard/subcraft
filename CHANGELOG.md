@@ -6,6 +6,12 @@ What changed in SubCraft, newest first. Download the latest build from the
 ## Unreleased
 
 ### New
+- **Layer tree editing**: drag rows or names above/below layers, into folders, and out to either
+  end of the top level, with visible drop guides and scrolling at the list edges. Folder arrows
+  expand/collapse; dropping inside opens the folder. Double-click/F2 renames inline, Enter accepts,
+  Esc cancels. Right-click also offers grouping, moving into folders and moving to the top level.
+  Moves preserve UUIDs, masks and children, are undoable, and survive save/load. Adapted from
+  CalangoTech's Studio fork, with destination validation moved into the app controller.
 - **Welcome screen and quick start**: New from a model, Open project, desktop recent files,
   Try the sample, What's new and a six-step in-app guide. Help reopens them; turn off the
   startup screen in Edit → Preferences. An illustrated `docs/getting-started.md` is linked

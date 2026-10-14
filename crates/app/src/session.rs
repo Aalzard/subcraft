@@ -510,6 +510,22 @@ impl Session {
                     ts.move_to(layer, parent, index).map_err(|e| CommandError::Invalid(format!("{e:?}")))
                 })?;
             }
+            Command::DropLayer { texture_set, layer, target } => {
+                // A drag belongs to the texture set where it started, even if selection changes.
+                if texture_set != self.selection.texture_set { return Err(CommandError::Invalid("the dragged texture set is no longer selected".into())); }
+                let ts = self.doc.texture_set(texture_set).ok_or(CommandError::TextureSetNotFound)?;
+                if ts.find(layer).is_none() { return Err(CommandError::LayerNotFound); }
+                if let Some(destination) = crate::layer_tree::drop_destination(ts, layer, target) {
+                    self.edit_layer_set(layer, "Move Layer", None, |ts| {
+                        ts.move_to(layer, destination.parent, destination.index).map_err(|e| CommandError::Invalid(format!("{e:?}")))?;
+                        if let Some(parent) = destination.parent
+                            && let LayerContent::Group(folder) = &mut Self::layer_mut(ts, parent)?.content
+                        { folder.expanded = true; }
+                        Ok(())
+                    })?;
+                    self.selection.layer = Some(layer);
+                }
+            }
             Command::MoveUp(id) | Command::MoveDown(id) => {
                 let up = matches!(cmd, Command::MoveUp(_));
                 self.edit_layer_set(id, "Move Layer", None, |ts| {
@@ -528,6 +544,13 @@ impl Session {
             Command::SetVisible { layer, visible } => {
                 self.edit_layer_set(layer, if visible { "Show Layer" } else { "Hide Layer" }, None, |ts| {
                     Self::layer_mut(ts, layer)?.visible = visible;
+                    Ok(())
+                })?;
+            }
+            Command::SetFolderExpanded { layer, expanded } => {
+                self.edit_layer_set(layer, if expanded { "Expand Folder" } else { "Collapse Folder" }, None, |ts| {
+                    let LayerContent::Group(folder) = &mut Self::layer_mut(ts, layer)?.content else { return Err(CommandError::Invalid("only folders can be expanded".into())); };
+                    folder.expanded = expanded;
                     Ok(())
                 })?;
             }

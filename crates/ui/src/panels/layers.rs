@@ -4,13 +4,55 @@ use std::sync::Arc;
 
 use egui::{RichText, Ui};
 use subcraft_app::{Command, NewLayer};
-use subcraft_core::ChannelKind;
+use subcraft_core::{ChannelKind, LayerId, TextureSetId};
+use subcraft_app::layer_tree::{DropTarget, drop_destination};
 use subcraft_doc::{BlendMode, Layer, LayerKind};
 
 use crate::icons;
 use crate::state::UiState;
 use crate::theme::{self, ACCENT, PAD, TEXT_DIM, TEXT_FAINT};
-use crate::widgets::{badge, divider, empty_state, fill_width, icon_button, list_row, prop_row, row_text, slider_row};
+use crate::widgets::{badge, divider, empty_state, fill_width, icon_button, list_row_sense, prop_row, row_text, slider_row};
+
+// Folder drop zones and inline rename adapted from CalangoTech's Studio fork (bd6c064).
+#[derive(Clone, Copy)]
+struct LayerDrag { texture_set: TextureSetId, layer: LayerId }
+
+#[derive(Clone)]
+struct InlineRename { layer: LayerId, text: String, focus: bool }
+
+fn row_target(rect: egui::Rect, pointer: egui::Pos2, layer: &Layer) -> DropTarget {
+    let relative = (pointer.y - rect.top()) / rect.height();
+    if layer.is_folder() && (0.25..=0.75).contains(&relative) {
+        DropTarget::Inside(layer.id)
+    } else if relative < 0.5 { DropTarget::Above(layer.id) } else { DropTarget::Below(layer.id) }
+}
+
+fn drop_marker(ui: &Ui, rect: egui::Rect, target: DropTarget) {
+    let stroke = egui::Stroke::new(2.0, ACCENT);
+    match target {
+        DropTarget::Above(_) | DropTarget::RootTop => { ui.painter().line_segment([rect.left_top(), rect.right_top()], stroke); }
+        DropTarget::Below(_) | DropTarget::RootBottom => { ui.painter().line_segment([rect.left_bottom(), rect.right_bottom()], stroke); }
+        DropTarget::Inside(_) => { ui.painter().rect_stroke(rect, 0.0, stroke, egui::StrokeKind::Inside); }
+    }
+}
+
+fn layer_drop(ui: &Ui, resp: &egui::Response, ts: &subcraft_doc::TextureSet, target: DropTarget, cmds: &mut Vec<Command>) {
+    if let Some(drag) = resp.dnd_hover_payload::<LayerDrag>()
+        && drag.texture_set == ts.id && drop_destination(ts, drag.layer, target).is_some()
+    { drop_marker(ui, resp.rect, target); }
+    // Taking a payload of the wrong type clears it too. Preserve shelf/material dragging.
+    if egui::DragAndDrop::has_payload_of_type::<LayerDrag>(ui.ctx())
+        && let Some(drag) = resp.dnd_release_payload::<LayerDrag>()
+        && drag.texture_set == ts.id && drop_destination(ts, drag.layer, target).is_some()
+    { cmds.push(Command::DropLayer { texture_set: drag.texture_set, layer: drag.layer, target }); }
+}
+
+fn root_drop(ui: &mut Ui, ts: &subcraft_doc::TextureSet, target: DropTarget, cmds: &mut Vec<Command>) {
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 24.0), egui::Sense::hover());
+    let label = if target == DropTarget::RootTop { "Top level — top" } else { "Top level — bottom" };
+    ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, label, theme::font(10.0), TEXT_FAINT);
+    layer_drop(ui, &resp, ts, target, cmds);
+}
 
 fn rows<'a>(list: &'a [Arc<Layer>], depth: usize, out: &mut Vec<(usize, &'a Layer)>) {
     for l in list.iter().rev() {
@@ -28,6 +70,14 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     let mut cmds = Vec::new();
     let sel = state.session.selection().layer;
     let pad = egui::Margin::symmetric(PAD, 8);
+    let rename_id = egui::Id::new(("layer_inline_rename", state.session.selection().texture_set));
+    let mut rename = ui.ctx().data_mut(|data| data.get_temp::<InlineRename>(rename_id));
+    if rename.as_ref().is_some_and(|edit| state.session.selected_texture_set().find(edit.layer).is_none()) { rename = None; }
+    if !ui.ctx().egui_wants_keyboard_input() && ui.input(|i| i.key_pressed(egui::Key::F2))
+        && let Some(layer) = state.session.selected_layer()
+    { rename = Some(InlineRename { layer: layer.id, text: layer.name.clone(), focus: true }); }
+    let mut finish_rename = None;
+    let cancel_rename = rename.is_some() && ui.input(|i| i.key_pressed(egui::Key::Escape));
 
     // Toolbar: create on the left, arrange on the right.
     egui::Frame::new().inner_margin(pad).show(ui, |ui| {
@@ -136,14 +186,31 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         .show(ui, |ui| {
         ui.spacing_mut().item_spacing.y = 1.0;
         fill_width(ui);
+        if egui::DragAndDrop::has_payload_of_type::<LayerDrag>(ui.ctx())
+            && let Some(pointer) = ui.input(|i| i.pointer.interact_pos())
+        {
+            let visible = ui.clip_rect();
+            if visible.contains(pointer) {
+                let speed = if pointer.y < visible.top() + 24.0 { 300.0 } else if pointer.y > visible.bottom() - 24.0 { -300.0 } else { 0.0 };
+                ui.scroll_with_delta(egui::vec2(0.0, speed * ui.input(|i| i.stable_dt)));
+                if speed != 0.0 { ui.ctx().request_repaint(); }
+            }
+        }
+        root_drop(ui, ts, DropTarget::RootTop, &mut cmds);
         if list.is_empty() {
             empty_state(ui, icons::STACK, "No layers yet. Add one above.");
         }
         for (depth, l) in &list {
             let selected = sel == Some(l.id);
             let b = l.blend_for(active);
-            let resp = list_row(ui, selected, |ui| {
+            let resp = ui.push_id(l.id, |ui| list_row_sense(ui, selected, egui::Sense::click_and_drag(), |ui| {
                 ui.add_space(*depth as f32 * 16.0);
+                if let subcraft_doc::LayerContent::Group(group) = &l.content {
+                    let icon = if group.expanded { icons::CARET_DOWN } else { icons::CARET_RIGHT };
+                    if icon_button(ui, icon, if group.expanded { "Collapse folder" } else { "Expand folder" }).clicked() {
+                        cmds.push(Command::SetFolderExpanded { layer: l.id, expanded: !group.expanded });
+                    }
+                } else { ui.add_space(26.0); }
                 let (eye, tip) = if l.visible { (icons::EYE, "Hide") } else { (icons::EYE_SLASH, "Show") };
                 if icon_button(ui, eye, tip).clicked() {
                     cmds.push(Command::SetVisible { layer: l.id, visible: !l.visible });
@@ -151,7 +218,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 let icon = match l.kind() {
                     LayerKind::Paint => icons::PAINT_BRUSH,
                     LayerKind::Fill => icons::PAINT_BUCKET,
-                    LayerKind::Folder => icons::FOLDER_OPEN,
+                    LayerKind::Folder => if matches!(&l.content, subcraft_doc::LayerContent::Group(g) if g.expanded) { icons::FOLDER_OPEN } else { icons::FOLDER },
                 };
                 let icon_color = if selected { ACCENT } else { TEXT_DIM };
                 ui.label(RichText::new(icon).font(theme::font(14.0)).color(icon_color)).on_hover_text(format!("{:?} layer", l.kind()));
@@ -159,18 +226,32 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 if !l.visible {
                     text = text.color(TEXT_FAINT);
                 }
-                ui.add(egui::Label::new(text).truncate().selectable(false));
+                if let Some(edit) = rename.as_mut().filter(|edit| edit.layer == l.id) {
+                    let r = ui.add(egui::TextEdit::singleline(&mut edit.text).id_salt("inline_name").desired_width((ui.available_width() - 65.0).max(40.0)));
+                    if edit.focus { r.request_focus(); edit.focus = false; }
+                    else if r.lost_focus() || (r.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))) {
+                        finish_rename = Some((l.id, edit.text.trim().to_string()));
+                    }
+                } else { ui.add(egui::Label::new(text).truncate().selectable(false)); }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.label(RichText::new(format!("{} {:.0}", b.mode.short_label(), b.opacity * 100.0)).font(theme::font(11.0)).color(TEXT_FAINT));
                     if l.mask.is_some() {
                         badge(ui, "mask", ACCENT).on_hover_text("Has a mask");
                     }
                 });
-            });
+            })).inner;
+            if rename.as_ref().is_none_or(|edit| edit.layer != l.id) {
+                resp.dnd_set_drag_payload(LayerDrag { texture_set: ts.id, layer: l.id });
+            }
             if resp.clicked() {
                 cmds.push(Command::SelectLayer(Some(l.id)));
             }
-            if let Some(item) = resp.dnd_release_payload::<crate::panels::shelf::ShelfDrag>() {
+            if resp.double_clicked() { rename = Some(InlineRename { layer: l.id, text: l.name.clone(), focus: true }); }
+            if let Some(pointer) = ui.input(|i| i.pointer.interact_pos()) {
+                layer_drop(ui, &resp, ts, row_target(resp.rect, pointer, l), &mut cmds);
+            }
+            if egui::DragAndDrop::has_payload_of_type::<crate::panels::shelf::ShelfDrag>(ui.ctx())
+                && let Some(item) = resp.dnd_release_payload::<crate::panels::shelf::ShelfDrag>() {
                 drop_request = Some((l.id, *item));
             }
             if resp.dnd_hover_payload::<crate::panels::shelf::ShelfDrag>().is_some() {
@@ -180,6 +261,27 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             }
             let has_effects = l.mask.as_ref().is_some_and(|m| !m.effects.is_empty());
             resp.context_menu(|ui| {
+                if ui.add(egui::Button::new("Rename").shortcut_text("F2")).clicked() {
+                    rename = Some(InlineRename { layer: l.id, text: l.name.clone(), focus: true });
+                    cmds.push(Command::SelectLayer(Some(l.id))); ui.close();
+                }
+                if ui.button("Group in new folder").clicked() { cmds.push(Command::GroupLayer(l.id)); ui.close(); }
+                ui.menu_button("Move into folder", |ui| {
+                    let mut folders = Vec::new();
+                    ts.walk(|folder, depth| {
+                        if folder.is_folder() && drop_destination(ts, l.id, DropTarget::Inside(folder.id)).is_some() {
+                            folders.push((folder.id, format!("{}{}", "  ".repeat(depth), folder.name)));
+                        }
+                    });
+                    if folders.is_empty() { ui.weak("No available folders"); }
+                    for (folder, label) in folders {
+                        if ui.button(label).clicked() { cmds.push(Command::DropLayer { texture_set: ts.id, layer: l.id, target: DropTarget::Inside(folder) }); ui.close(); }
+                    }
+                });
+                if ts.location(l.id).is_some_and(|loc| loc.parent.is_some()) && ui.button("Move to top level").clicked() {
+                    cmds.push(Command::DropLayer { texture_set: ts.id, layer: l.id, target: DropTarget::RootTop }); ui.close();
+                }
+                ui.separator();
                 use subcraft_app::part_workflow::LayerAction;
                 for (label, action) in [("Add paint layer", LayerAction::AddPaint), ("Add fill layer", LayerAction::AddFill)] {
                     if ui.button(label).clicked() { layer_action = Some((l.id, action)); ui.close(); }
@@ -216,7 +318,18 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     ui.close();
                 }
             });
+            resp.on_hover_text("Drag to reorder. Drop in a folder's center to move inside it; drop at Top level to move out. Double-click or F2 to rename.");
         }
+        root_drop(ui, ts, DropTarget::RootBottom, &mut cmds);
+    });
+    if cancel_rename { rename = None; }
+    else if let Some((layer, name)) = finish_rename {
+        if !name.is_empty() && ts.find(layer).is_some_and(|l| l.name != name) { cmds.push(Command::Rename { layer, name }); }
+        rename = None; state.rename = None;
+    }
+    ui.ctx().data_mut(|data| {
+        if let Some(edit) = rename { data.insert_temp(rename_id, edit); }
+        else { data.remove::<InlineRename>(rename_id); }
     });
     state.run(cmds, now);
     if let Some((layer, action)) = layer_action {
