@@ -497,6 +497,12 @@ impl Session {
                     Self::layer_mut(ts, layer)?.mask.take().map(|_| ()).ok_or(CommandError::NoMask)
                 })?;
             }
+            Command::SetParts { layer, parts } => {
+                self.edit_layer_set(layer, "Layer Parts", None, |ts| {
+                    Self::layer_mut(ts, layer)?.parts = parts;
+                    Ok(())
+                })?;
+            }
             Command::SetMaskEnabled { layer, enabled } => {
                 self.edit_layer_set(layer, "Mask Enabled", None, |ts| {
                     Self::layer_mut(ts, layer)?.mask.as_mut().ok_or(CommandError::NoMask)?.enabled = enabled;
