@@ -5,6 +5,16 @@ What changed in SubCraft, newest first. Download the latest build from the
 
 ## Unreleased
 
+## 0.1.4
+
+### New
+- **In-app desktop updates**: a green **Check / update** button in the top bar checks the latest
+  stable GitHub release, downloads the matching installer or portable package, verifies its
+  SHA-256 digest, installs it and restarts. A private project checkpoint restores unsaved work
+  and the original save path. Failed installation returns to the previous app and workspace.
+  Windows installations keep their per-user/all-users mode; all-users updates ask for Windows
+  permission. Windows and Linux x64 portable updates replace only the executable.
+
 ## 0.1.3
 
 ### New

@@ -236,6 +236,12 @@ impl Session {
         self.recovered = true;
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn restore_after_update(&mut self, project_path: Option<PathBuf>, modified: bool) {
+        self.project_path = project_path;
+        self.recovered = modified;
+    }
+
     /// Opened from a recovery copy and not saved since.
     pub fn is_recovered(&self) -> bool {
         self.recovered

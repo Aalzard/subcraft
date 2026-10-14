@@ -643,6 +643,48 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
 * Release publication awaits the version PR's checks and owner merge approval. Until it is
   published and the package upload workflow completes, public latest remains v0.1.2.
 
+### Session 33 — in-app desktop updates and v0.1.4 preparation (2026-10-15)
+
+* Published v0.1.3 after PR #36's checks passed and owner approval. Installer, Windows zip and
+  Linux archive are attached to the public latest release; release/package and Pages workflows
+  passed. Anonymous download checks passed. The owner's existing v0.1.2 installation is intact.
+* Owner prioritised a green update button before continuing the roadmap. The top bar now checks
+  the latest stable GitHub release, downloads the package for the current install type, verifies
+  size/SHA-256 and restarts after installation. Help also offers a check-only action. Native HTTP,
+  archive and OS dependencies stay out of wasm; all project/checkpoint logic stays in app.
+* Windows installed copies preserve per-user/all-users mode; all-users uses Windows elevation.
+  Windows/Linux x64 portable copies replace only the executable with rollback. A copied helper
+  validates the job and official release before allowing the parent to close, then rechecks the
+  payload. Project checkpoints preserve unsaved document changes, original save path and UUID
+  selection. Bake completion is awaited; undo history and camera state reset on restart.
+  Large completed payloads are removed on restart; checkpoints are retained in the data folder.
+* Tested the complete native UI/check/download/helper/install/restart path with isolated real
+  v0.1.3 and v0.1.4 executables, a local release fixture and the explicit test-only update-fixture
+  feature. Both portable and silent per-user installer paths passed, including install paths
+  with spaces. Installer tests changed only AppId/name to protect the production registration.
+  Before/after 3D screenshot crops are pixel-identical (RGB mean absolute difference 0).
+  Original project hashes and unsaved flags were preserved; uninstall and original installation
+  hash/registration checks passed. No desktop input was driven.
+  A further portable cycle restored 12 allocated paint tiles from unsaved demo strokes, while
+  the original project remained blank; its model screenshot also matched exactly after restart.
+* Installer testing caught Inno rejecting Windows canonical device-path prefixes; fixed and
+  added a regression. The failed attempt restarted the old app and restored its checkpoint.
+  Production transport separately checked the actual public v0.1.3 metadata and downloaded
+  its 9,307,434-byte installer, verifying the official SHA-256 digest over HTTPS.
+* Local verification: 248 workspace tests passed including GPU comparisons, clippy completed
+  with existing warnings and no updater warnings, shipping Windows GUI/zip/installer and wasm
+  builds passed. The v0.1.4 installer is 10,091,781 bytes (9.62 MiB; +0.75 MiB), Windows zip
+  11,669,622 bytes, executable 28,641,280 bytes. The wasm output is 16,102,302 bytes versus
+  16,102,337 for v0.1.3 (-35 bytes);
+  no native updater dependencies appear in the wasm dependency tree. Screenshot:
+  `screenshots/update-restart.png` (real per-user update fixture). README, changelog, development
+  notes and ADR 0007 describe the update contract and one-time bootstrap download.
+* Not tested: all-users/UAC interaction, a Linux GUI restart cycle, or browser interaction.
+  Browser reconnection remains policy-blocked. Automatic approval review also blocked an extra
+  launch of the shipping GUI for a check-only screenshot with the reason "blocked by policy";
+  the successful real fixture-app restart screenshots and production HTTPS probe were retained.
+  v0.1.4 is prepared on the updater PR; publication requires owner merge/release approval.
+
 ## Next steps (in order)
 
 Current priorities requested by the owner:

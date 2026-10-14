@@ -22,6 +22,11 @@ fn main() {
 
 #[cfg(not(target_arch = "wasm32"))]
 fn main() -> anyhow::Result<()> {
+    let cli: Vec<_> = std::env::args_os().skip(1).collect();
+    if cli.first().is_some_and(|a| a == "--apply-update") {
+        let path = cli.get(1).ok_or_else(|| anyhow::anyhow!("Missing update job"))?;
+        return subcraft_app::updater::apply_job(std::path::Path::new(path)).map_err(|e| anyhow::anyhow!("{e}"));
+    }
     // Logs go to the data folder (and to the console of non-packaged builds); panics leave a
     // crash report there that the next start shows.
     let data = subcraft_app::recovery::data_dir();
@@ -33,6 +38,10 @@ fn main() -> anyhow::Result<()> {
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
         match a.as_str() {
+            "--resume-update" => options.resume_update = args.next().map(Into::into),
+            "--check-updates" => options.check_updates = true,
+            #[cfg(feature = "update-fixture")]
+            "--auto-update-fixture" => options.auto_update_fixture = true,
             "--demo" => options.demo = true,
             "--view-2d" => options.view_2d = true,
             "--screenshot" => options.screenshot = args.next().map(Into::into),
@@ -47,6 +56,10 @@ fn main() -> anyhow::Result<()> {
             }
             path => options.mesh = Some(path.into()),
         }
+    }
+    #[cfg(feature = "update-fixture")]
+    if options.resume_update.is_some() {
+        options.screenshot = std::env::var_os("SUBCRAFT_UPDATE_FIXTURE_SCREENSHOT").map(Into::into);
     }
     subcraft_ui::run(options).map_err(|e| anyhow::anyhow!("{e}"))
 }
