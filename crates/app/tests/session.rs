@@ -257,3 +257,58 @@ fn background_bake_feeds_smart_mask_generators_and_survives_save() {
     assert_eq!(reopened.mesh_maps(ts).unwrap().len(), 2, "baked maps saved in the project");
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn shelf_assets_become_undoable_layers_and_masks() {
+    use subcraft_app::assets::Library;
+    let lib = Library::builtin();
+    let mut s = session();
+    let gold = lib.materials.iter().find(|m| m.name == "Gold").unwrap();
+    s.add_material(gold).unwrap();
+    let l = s.selected_layer().unwrap();
+    assert_eq!((l.name.as_str(), l.kind()), ("Gold", LayerKind::Fill));
+    assert_eq!(s.history().undo_label(), Some("Material: Gold"));
+
+    let smart = &lib.smart_materials[0];
+    s.add_smart_material(smart).unwrap();
+    let folder = s.selected_layer().unwrap();
+    assert!(folder.is_folder() && folder.children().len() >= 2);
+    assert_eq!(s.selected_texture_set().layers.len(), 3);
+
+    s.execute(Command::SelectLayer(Some(s.selected_texture_set().layers[1].id))).unwrap();
+    let edge = lib.smart_masks.iter().find(|m| m.name == "Edge Wear").unwrap();
+    s.apply_smart_mask(edge).unwrap();
+    let mask = s.selected_layer().unwrap().mask.as_ref().unwrap();
+    assert_eq!(mask.effects.len(), 1);
+    assert_eq!(mask.base.fill()[0], 0.0, "smart masks start from a black mask");
+    s.execute(Command::Undo).unwrap();
+    assert!(s.selected_layer().unwrap().mask.is_none());
+
+    // Brush alpha is used by strokes.
+    s.set_brush_alpha(&lib.alphas[1]);
+    assert_eq!(s.brush.alpha_name, "Square");
+    assert!(s.brush.alpha.is_some());
+    s.set_brush_alpha(&lib.alphas[0]);
+    assert!(s.brush.alpha.is_none());
+}
+
+#[test]
+fn thumbnail_scenes_composite_presets() {
+    use subcraft_app::assets::Library;
+    use subcraft_app::thumbnails::PreviewScene;
+    let lib = Library::builtin();
+    let sphere = PreviewScene::sphere();
+    let gold = lib.materials.iter().find(|m| m.name == "Gold").unwrap();
+    let c = sphere.composite(gold.build(sphere.texture_set()));
+    let base = c.channel(ChannelKind::BaseColor).unwrap().get(64, 64);
+    assert!((base[0] - 1.0).abs() < 1e-2 && base[2] < 0.4, "gold base color: {base:?}");
+    assert!((c.channel(ChannelKind::Metallic).unwrap().get(64, 64)[0] - 1.0).abs() < 1e-3);
+    // The smart-material cube has baked maps, so edge wear differs from face centers.
+    let cube = PreviewScene::cube();
+    let worn = lib.smart_materials.iter().find(|m| m.name == "Worn Painted Metal").unwrap();
+    let c = cube.composite(worn.build(cube.texture_set()));
+    let metal = c.channel(ChannelKind::Metallic).unwrap().to_dense();
+    let bare = metal.iter().filter(|&&m| m > 0.9).count();
+    let painted = metal.iter().filter(|&&m| m < 0.1).count();
+    assert!(bare > 100 && painted > bare, "edges show bare steel ({bare}), faces are painted ({painted})");
+}

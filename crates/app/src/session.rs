@@ -46,6 +46,9 @@ pub struct Selection {
 /// Current brush configuration (not undoable).
 #[derive(Clone, Debug)]
 pub struct BrushState {
+    /// Tip image (`None` = round procedural tip) and its display name.
+    pub alpha: Option<Arc<subcraft_image::Bitmap>>,
+    pub alpha_name: String,
     pub settings: BrushSettings,
     pub options: StrokeOptions,
     pub material: BrushMaterial,
@@ -129,6 +132,8 @@ impl Session {
             doc,
             selection,
             brush: BrushState {
+                alpha: None,
+                alpha_name: "Round".into(),
                 settings: BrushSettings::default(),
                 options: StrokeOptions::default(),
                 material,
@@ -369,6 +374,27 @@ impl Session {
                 self.selection.layer = Some(id);
                 self.commit(label, None);
             }
+            Command::InsertLayer { layer, label } => {
+                let ts_id = self.selection.texture_set;
+                let reference = self.selection.layer;
+                let ts = self.doc.texture_set_mut(ts_id).ok_or(CommandError::TextureSetNotFound)?;
+                let mut layer = *layer;
+                if ts.find(layer.id).is_some() {
+                    layer = layer.duplicate_with_new_ids();
+                }
+                let id = ts.insert_above(reference, layer);
+                self.selection.layer = Some(id);
+                self.commit(&label, None);
+            }
+            Command::ApplyMaskEffects { layer, effects, label } => {
+                self.edit_layer_set(layer, &label, None, |ts| {
+                    let res = ts.resolution;
+                    let l = Self::layer_mut(ts, layer)?;
+                    let mask = l.mask.get_or_insert_with(|| Mask::new(res, false));
+                    mask.effects.extend(effects.into_iter().map(|k| Arc::new(MaskEffect::new(k))));
+                    Ok(())
+                })?;
+            }
             Command::DeleteLayer(id) => {
                 let loc = self.edit_layer_set(id, "Delete Layer", None, |ts| {
                     let loc = ts.location(id);
@@ -545,7 +571,7 @@ impl Session {
         let layer = self.selection.layer.ok_or(PaintError::LayerNotFound)?;
         let ts = self.selected_texture_set();
         let b = &self.brush;
-        let stroke = Stroke::begin(ts, layer, b.target, b.mode, b.settings, b.options, &b.material)?;
+        let stroke = Stroke::begin(ts, layer, b.target, b.mode, b.settings, b.options, &b.material)?.with_alpha(b.alpha.clone());
         let label = match (b.mode, b.target) {
             (StrokeMode::Paint, PaintTarget::Content) => "Paint Stroke",
             (StrokeMode::Erase, PaintTarget::Content) => "Erase Stroke",
@@ -677,6 +703,32 @@ impl Session {
         let name = self.export_name();
         let sets = self.export_sets();
         subcraft_export::export(&self.scene.mesh, &name, &sets, settings, dir).map_err(|e| e.to_string())
+    }
+
+    // ----- assets --------------------------------------------------------------------------------
+
+    /// Add a material preset as a fill layer above the selection.
+    pub fn add_material(&mut self, preset: &subcraft_assets::MaterialPreset) -> Result<(), CommandError> {
+        let layer = preset.build(self.selected_texture_set());
+        self.execute(Command::InsertLayer { layer: Box::new(layer), label: format!("Material: {}", preset.name) })
+    }
+
+    /// Add a smart material (folder of masked layers) above the selection.
+    pub fn add_smart_material(&mut self, smart: &subcraft_assets::SmartMaterial) -> Result<(), CommandError> {
+        let layer = smart.build(self.selected_texture_set());
+        self.execute(Command::InsertLayer { layer: Box::new(layer), label: format!("Smart Material: {}", smart.name) })
+    }
+
+    /// Apply a smart mask to the selected layer.
+    pub fn apply_smart_mask(&mut self, mask: &subcraft_assets::SmartMask) -> Result<(), CommandError> {
+        let layer = self.selection.layer.ok_or(CommandError::LayerNotFound)?;
+        self.execute(Command::ApplyMaskEffects { layer, effects: mask.effects.clone(), label: format!("Smart Mask: {}", mask.name) })
+    }
+
+    /// Use a brush alpha for the next strokes.
+    pub fn set_brush_alpha(&mut self, alpha: &subcraft_assets::BrushAlpha) {
+        self.brush.alpha = alpha.bitmap.clone();
+        self.brush.alpha_name = alpha.name.clone();
     }
 
     /// Channels present in the selected texture set.

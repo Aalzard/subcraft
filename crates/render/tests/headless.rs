@@ -192,3 +192,42 @@ fn every_mesh_map_layout_uploads_and_previews() {
     r.upload_channel(&device, &queue, 0, ChannelKind::BaseColor, &TiledImage::new(64, 64, 3, [0.2, 0.4, 0.6, 0.0]), None);
     let _ = r.render(&device, &queue, [32, 32], &params()).read_rgba8(&device, &queue);
 }
+
+#[test]
+fn hdri_environment_shows_in_reflections() {
+    let Some((_, device, queue)) = headless::device() else {
+        eprintln!("no wgpu adapter available: skipping");
+        return;
+    };
+    use subcraft_render::{EnvironmentParams, HdriUpload};
+    // Red sky (v < 0.5), blue ground, 3 mip levels.
+    let make = |w: u32, h: u32| -> Vec<f32> {
+        (0..w * h).flat_map(|i| if (i / w) < h / 2 { [2.0, 0.1, 0.1, 1.0] } else { [0.1, 0.1, 2.0, 1.0] }).collect()
+    };
+    let (l0, l1, l2) = (make(64, 32), make(32, 16), make(16, 8));
+    let levels = [(64u32, 32u32, l0.as_slice()), (32, 16, l1.as_slice()), (16, 8, l2.as_slice())];
+    let mut sh = [[0.0f32; 3]; 9];
+    sh[0] = [1.0 / 0.282_095, 0.3 / 0.282_095, 1.0 / 0.282_095];
+    let mut r = ViewportRenderer::new(&device, &queue);
+    r.set_mesh(&device, &primitives::uv_sphere(1.0, 48, 24));
+    r.upload_channel(&device, &queue, 0, ChannelKind::BaseColor, &solid(4, [0.9, 0.9, 0.9, 1.0]), None);
+    r.upload_channel(&device, &queue, 0, ChannelKind::Metallic, &solid(1, [1.0; 4]), None);
+    r.upload_channel(&device, &queue, 0, ChannelKind::Roughness, &solid(1, [0.05; 4]), None);
+    r.set_hdri(&device, &queue, Some(HdriUpload { levels: &levels, sh }));
+    let view = Mat4::look_at_rh(Vec3::new(0.0, 0.0, 3.2), Vec3::ZERO, Vec3::Y);
+    let mut p = ViewParams::new(view, Mat4::perspective_rh(45f32.to_radians(), 1.0, 0.1, 100.0));
+    p.light_intensity = 0.0;
+    p.environment = EnvironmentParams { use_hdri: true, ..EnvironmentParams::default() };
+    let img = r.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+    save("sphere_hdri.png", &img);
+    let top = px(&img, SIZE / 2, SIZE / 2 - 50);
+    let bottom = px(&img, SIZE / 2, SIZE / 2 + 50);
+    let (top, bottom) = (top.map(i32::from), bottom.map(i32::from));
+    assert!(top[0] > top[2] + 40, "upper sphere reflects the red sky: {top:?}");
+    assert!(bottom[2] > bottom[0] + 40, "lower sphere reflects the blue ground: {bottom:?}");
+    // Procedural mode ignores the HDRI.
+    p.environment.use_hdri = false;
+    let proc_img = r.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+    let t2 = px(&proc_img, SIZE / 2, SIZE / 2 - 50).map(i32::from);
+    assert!(t2[0] < t2[2] + 40, "studio sky is not red: {t2:?}");
+}

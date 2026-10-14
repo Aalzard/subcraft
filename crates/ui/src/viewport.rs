@@ -89,6 +89,17 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             let t0 = std::time::Instant::now();
             let mut params = state.camera.view_params(size);
             params.height_scale = state.height_scale;
+            crate::panels::shelf::apply_environment(
+                &state.library,
+                state.env.index,
+                state.env.rotation_deg,
+                state.env.intensity,
+                &mut params,
+                renderer,
+                &mut state.env.uploaded,
+                &rs.device,
+                &rs.queue,
+            );
             let target = renderer.render(&rs.device, &rs.queue, size, &params);
             let mut egui_renderer = rs.renderer.write();
             let id = match state.viewport_texture {
