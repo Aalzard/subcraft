@@ -22,6 +22,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         return;
     };
     let mut cmds = Vec::new();
+    let mut texture_drop: Option<(ChannelKind, std::path::PathBuf)> = None;
     let id = layer.id;
     let channels = state.session.channels();
 
@@ -79,11 +80,12 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 });
 
                 section(ui, "channels", "Channels", true, |ui| {
+                hint(ui, "Tip: drag a texture from Shelf › Textures onto a channel below.");
                 for kind in &channels {
                     let mut ch = f.channels.get(kind).cloned().unwrap_or(FillChannel::disabled(FillSource::uniform(kind.default_paint_value())));
                     let mut changed = false;
                     let mut pick_image = false;
-                    egui::Frame::new().fill(BG_2).inner_margin(egui::Margin::symmetric(10, 8)).show(ui, |ui| {
+                    let row = egui::Frame::new().fill(BG_2).inner_margin(egui::Margin::symmetric(10, 8)).show(ui, |ui| {
                     ui.horizontal(|ui| {
                         let name = RichText::new(kind.display_name()).color(if ch.enabled { theme::TEXT } else { TEXT_FAINT });
                         changed |= ui.checkbox(&mut ch.enabled, name).changed();
@@ -182,6 +184,17 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         changed = true;
                     }
                     });
+                    // Drag a texture from Shelf → Textures onto this row to use it here.
+                    let is_texture = |d: &crate::panels::shelf::ShelfDrag| matches!(d, crate::panels::shelf::ShelfDrag::Texture(_));
+                    if row.response.dnd_hover_payload::<crate::panels::shelf::ShelfDrag>().is_some_and(|d| is_texture(&d)) {
+                        ui.painter().rect_stroke(row.response.rect, 0.0, egui::Stroke::new(1.5, ACCENT), egui::StrokeKind::Inside);
+                    }
+                    if let Some(d) = row.response.dnd_release_payload::<crate::panels::shelf::ShelfDrag>()
+                        && let crate::panels::shelf::ShelfDrag::Texture(i) = *d
+                        && let Some(path) = state.textures.items.get(i).map(|t| t.path.clone())
+                    {
+                        texture_drop = Some((*kind, path));
+                    }
                     ui.add_space(2.0);
                     if changed {
                         cmds.push(Command::SetFillChannel { layer: id, channel: *kind, fill: ch });
@@ -262,6 +275,15 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         cmds.extend(head_cmds);
     }));
     state.run(cmds, now);
+    if let Some((channel, path)) = texture_drop {
+        match state.session.set_fill_channel_image(id, channel, &path) {
+            Ok(()) => state.set_status(
+                format!("{} now uses {}", channel.display_name(), path.file_name().and_then(|n| n.to_str()).unwrap_or("the texture")),
+                now,
+            ),
+            Err(e) => state.set_status(format!("Texture: {e}"), now),
+        }
+    }
 }
 
 fn effect_editor(ui: &mut Ui, state: &mut UiState, now: f64, layer: subcraft_core::LayerId, e: &Arc<MaskEffect>, cmds: &mut Vec<Command>) {
@@ -324,7 +346,10 @@ fn effect_editor(ui: &mut Ui, state: &mut UiState, now: f64, layer: subcraft_cor
 fn choose_image(state: &mut UiState, now: f64) -> Option<subcraft_core::ResourceId> {
     let path = rfd::FileDialog::new().add_filter("Images", &subcraft_image::IMAGE_EXTENSIONS).pick_file()?;
     match state.session.import_image(&path) {
-        Ok(id) => Some(id),
+        Ok(id) => {
+            state.remember_textures(std::slice::from_ref(&path));
+            Some(id)
+        }
         Err(e) => {
             state.set_status(format!("Import image: {e}"), now);
             None

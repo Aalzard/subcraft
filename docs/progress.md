@@ -389,6 +389,42 @@ In the cloud container (no GPU) the app ran on lavapipe/llvmpipe (Vulkan) under 
   automated attempt was invalidated by remembered panel state); the sliders cover the same
   transform and work.
 
+### Session 22 — tiling X / Y and offset
+
+* Properties → Projection: Tiling X / Y with a **Link** toggle (on when X = Y), Offset X / Y and a
+  reset button. Uses the existing `Projection::scale` / `offset` fields, so no schema change.
+* Screenshot runs use a temp `persistence_path`, so scripted shots no longer inherit the user's
+  scroll / panel state. Test: `transform_2d` scales X and Y separately before offset and rotation.
+* Verified in the real app (`docs/screenshots/projection-tiling.png`).
+
+### Session 23 — channel strength sliders
+
+* `FillChannel::strength` (default 1) applied after the fill is evaluated
+  (`compositor/src/strength.rs`): Normal scales the tangent-space XY and renormalizes, Height is a
+  signed multiply, Base Color a clamped brightness, Emissive unclamped, other scalars clamped 0..1.
+* Saved as `FillChannelV1::strength` (`serde(default = 1)`), so older projects load unchanged.
+* Tests: strength kernels (3), compositor normal / height, project round trip.
+* Verified in the real app (`docs/screenshots/channel-strength.png`).
+
+### Session 24 — textures in the shelf, drag onto channels
+
+* Shelf → **Textures** (first tab, opens by default once there are textures): every image in the
+  library's `textures/` folder, with thumbnails decoded on a background thread and filter chips
+  per detected channel. "Import textures…" copies files there; images picked for a channel or a
+  texture set are remembered too.
+* Drag a texture onto a **channel row** in Properties (highlighted while hovering):
+  `Session::set_fill_channel_image` imports it, converts gloss / DirectX normal only when the name
+  names that same channel, and keeps the channel's strength — one undo step. Drop on the model or
+  a layer (or click): `Session::add_texture_layer` makes a fill layer in the channel its name
+  suggests, Base Color otherwise.
+* Tests (4 new): channel drop (conversion, kept strength, paint layer refused), texture as layer,
+  library categories, copy-once + reload.
+* Verified in the real app with a CeramicTiles set (base color, glossiness, height, DirectX
+  normal): Textures tab with Base Color / Roughness / Height / Normal chips and thumbnails; the
+  fill layer built from those files renders tiles with relief (`docs/screenshots/textures-shelf.png`).
+  **Not yet verified by hand:** the mouse drag itself onto a channel row (the drop handler is the
+  same `dnd_release_payload` path as the existing shelf drops; the session call is tested).
+
 CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraft-mesh -p subcraft-doc -p subcraft-materials -p subcraft-compositor -p subcraft-paint`
 
 ### Deviations from the brief (sound-engineering choices)

@@ -248,6 +248,7 @@ pub fn import_texture_set_dialog(state: &mut UiState, now: f64) {
     };
     match state.session.import_texture_set(&files) {
         Ok(r) => {
+            state.remember_textures(&files);
             for (file, why) in &r.skipped {
                 log::info!("import texture set: skipped {file}: {why}");
             }

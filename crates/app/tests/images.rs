@@ -217,3 +217,61 @@ fn texture_set_without_recognizable_maps_is_an_error() {
     assert_eq!(s.document(), &before, "nothing changes");
     std::fs::remove_dir_all(&dir).ok();
 }
+
+#[test]
+fn texture_dropped_on_a_channel_keeps_strength_and_converts_by_name() {
+    let dir = temp_dir("drop");
+    write_uniform(&dir.join("bricks_normal_dx.png"), [0.5, 0.3, 1.0]);
+    write_uniform(&dir.join("photo.png"), [0.5, 0.3, 1.0]);
+    let mut s = Session::new(primitives::sample_crate(), 64);
+    s.execute(Command::AddLayer(NewLayer::Fill)).unwrap();
+    let layer = s.selected_layer().unwrap().id;
+    // Give Normal a strength first: dropping a texture must keep it.
+    let mut n = match &s.selected_layer().unwrap().content {
+        LayerContent::Fill(f) => f.channels[&ChannelKind::Normal].clone(),
+        _ => unreachable!(),
+    };
+    n.strength = 2.0;
+    s.execute(Command::SetFillChannel { layer, channel: ChannelKind::Normal, fill: n }).unwrap();
+
+    s.set_fill_channel_image(layer, ChannelKind::Normal, &dir.join("bricks_normal_dx.png")).unwrap();
+    let ch = |s: &Session, k: ChannelKind| match &s.selected_layer().unwrap().content {
+        LayerContent::Fill(f) => f.channels[&k].clone(),
+        _ => unreachable!(),
+    };
+    let normal = ch(&s, ChannelKind::Normal);
+    assert!(normal.enabled);
+    assert_eq!(normal.strength, 2.0, "strength kept");
+    let FillSource::Bitmap { resource } = normal.source else { panic!("image source") };
+    let g = s.resources().bitmap(resource).unwrap().texel(0, 0, false)[1];
+    assert!((g - 0.7).abs() < 2.0 / 255.0, "DirectX normal converted on the Normal channel: {g}");
+
+    // A name that doesn't say "normal" is used as-is.
+    s.set_fill_channel_image(layer, ChannelKind::Normal, &dir.join("photo.png")).unwrap();
+    let FillSource::Bitmap { resource } = ch(&s, ChannelKind::Normal).source else { panic!() };
+    assert!((s.resources().bitmap(resource).unwrap().texel(0, 0, false)[1] - 0.3).abs() < 2.0 / 255.0);
+
+    // Paint layers have no channels to drop onto.
+    s.execute(Command::AddLayer(NewLayer::Paint)).unwrap();
+    let paint = s.selected_layer().unwrap().id;
+    assert!(s.set_fill_channel_image(paint, ChannelKind::BaseColor, &dir.join("photo.png")).is_err());
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn texture_added_as_a_layer_uses_the_channel_its_name_suggests() {
+    let dir = temp_dir("texlayer");
+    write_uniform(&dir.join("wall_roughness.png"), [0.4; 3]);
+    write_uniform(&dir.join("holiday photo.png"), [0.2, 0.4, 0.6]);
+    let mut s = Session::new(primitives::sample_crate(), 64);
+    let enabled = |s: &Session| match &s.selected_layer().unwrap().content {
+        LayerContent::Fill(f) => f.channels.iter().filter(|(_, c)| c.enabled).map(|(k, _)| *k).collect::<Vec<_>>(),
+        _ => panic!("fill layer"),
+    };
+    s.add_texture_layer(&dir.join("wall_roughness.png")).unwrap();
+    assert_eq!(enabled(&s), [ChannelKind::Roughness]);
+    let name = s.add_texture_layer(&dir.join("holiday photo.png")).unwrap();
+    assert_eq!(name, "holiday photo");
+    assert_eq!(enabled(&s), [ChannelKind::BaseColor], "unknown names become base color");
+    std::fs::remove_dir_all(&dir).ok();
+}

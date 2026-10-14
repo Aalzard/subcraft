@@ -3,7 +3,19 @@
 What changed in SubCraft, newest first. Download the latest build from the
 [Releases page](https://github.com/Aalzard/subcraft/releases/latest).
 
-## Unreleased (coming in 0.1.0)
+## Unreleased
+
+### New
+- **Textures in the shelf**: Shelf → Textures lists every image you imported (or put in
+  `Library	extures`), sorted into Base Color / Normal / Roughness… by file name. Drag one onto a
+  channel row in Properties to use it there, or onto the model / a layer for a new fill layer.
+- **Tiling X / Y and offset**: fill projections tile and shift on each axis separately (Link keeps
+  them equal), with a reset button.
+- **Channel strength sliders**: every fill channel has a power slider — Normal and Height
+  strength, Roughness / Metallic / AO strength, Base Color brightness, Emissive intensity. Saved in
+  projects (older projects open at full strength).
+
+## 0.1.0
 
 ### New
 - **Windows installer**: `SubCraft-<version>-setup.exe` with Start Menu shortcut, optional desktop
