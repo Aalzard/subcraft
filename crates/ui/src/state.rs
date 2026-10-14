@@ -117,6 +117,16 @@ impl UiState {
             log::warn!("library alpha skipped: {e}");
         }
         self.library.alphas.extend(alphas);
+        let (materials, errors) = subcraft_app::library::load_smart_materials(&lib);
+        for e in errors {
+            log::warn!("library smart material skipped: {e}");
+        }
+        self.library.smart_materials.extend(materials);
+        let (masks, errors) = subcraft_app::library::load_smart_masks(&lib);
+        for e in errors {
+            log::warn!("library smart mask skipped: {e}");
+        }
+        self.library.smart_masks.extend(masks);
         let files = lib.list(UserAssetKind::Environment);
         if !files.is_empty() {
             let (tx, rx) = std::sync::mpsc::channel();

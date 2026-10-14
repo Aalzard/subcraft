@@ -145,6 +145,10 @@ pub struct SmartMask {
     pub id: AssetId,
     pub name: String,
     pub effects: Vec<MaskEffectKind>,
+    /// Images used by image mask effects (saved smart masks).
+    pub resources: Vec<std::sync::Arc<subcraft_doc::Resource>>,
+    /// File in the user library (`None` for built-in smart masks).
+    pub user_file: Option<std::path::PathBuf>,
 }
 
 pub(crate) fn generator(kind: GeneratorKind, level: f32, softness: f32, noise: f32, invert: bool) -> MaskEffectKind {
@@ -157,7 +161,7 @@ pub(crate) fn generator(kind: GeneratorKind, level: f32, softness: f32, noise: f
 }
 
 fn mask(name: &str, effects: Vec<MaskEffectKind>) -> SmartMask {
-    SmartMask { id: AssetId::from_name(&format!("smart_mask/{name}")), name: name.into(), effects }
+    SmartMask { id: AssetId::from_name(&format!("smart_mask/{name}")), name: name.into(), effects, resources: Vec::new(), user_file: None }
 }
 
 /// Built-in smart masks. Edges / Cavity need baked curvature / AO.

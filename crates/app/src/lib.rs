@@ -7,6 +7,7 @@ pub mod actions;
 pub mod bake_job;
 pub mod command;
 pub mod images;
+pub mod library;
 pub mod session;
 pub mod thumbnails;
 

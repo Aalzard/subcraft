@@ -719,6 +719,9 @@ impl Session {
 
     /// Add a smart material (folder of masked layers) above the selection.
     pub fn add_smart_material(&mut self, smart: &subcraft_assets::SmartMaterial) -> Result<(), CommandError> {
+        for r in smart.resources() {
+            self.resources.insert_shared(r.clone());
+        }
         let layer = smart.build(self.selected_texture_set());
         self.execute(Command::InsertLayer { layer: Box::new(layer), label: format!("Smart Material: {}", smart.name) })
     }
@@ -726,6 +729,9 @@ impl Session {
     /// Apply a smart mask to the selected layer.
     pub fn apply_smart_mask(&mut self, mask: &subcraft_assets::SmartMask) -> Result<(), CommandError> {
         let layer = self.selection.layer.ok_or(CommandError::LayerNotFound)?;
+        for r in &mask.resources {
+            self.resources.insert_shared(r.clone());
+        }
         self.execute(Command::ApplyMaskEffects { layer, effects: mask.effects.clone(), label: format!("Smart Mask: {}", mask.name) })
     }
 

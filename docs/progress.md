@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-10-14 (session 15: user asset library)
+Last updated: 2026-10-14 (session 16: saved smart materials / masks)
 
 ## Decisions
 
@@ -292,6 +292,32 @@ In the cloud container (no GPU) the app ran on lavapipe/llvmpipe (Vulkan) under 
   Remove deletes the panorama, and after a restart the imported alpha is still there and the
   removed environment is gone (`docs/screenshots/user-library-shelf.png`, `user-library-menu.png`).
 
+### Session 16 — save your own smart materials and smart masks (roadmap 2, part 2)
+
+* Right-click a layer row → **Save as smart material** (any layer or folder; the whole subtree)
+  or **Save mask as smart mask** (the mask's effect stack). Files go to
+  `Library/smart-materials/*.scsmart` and `Library/smart-masks/*.scmask`, named after the layer
+  (`name (2)` if taken, unsafe characters replaced), appear in the shelf at once and at every
+  start; the shelf name is the file name, so renaming the file renames the asset. Right-click a
+  saved item → Show in folder / Remove from library. The row menu also has Duplicate / Delete.
+* Format (`crates/project/src/fragment.rs`): the project's own layer / mask-effect schema (v2),
+  raster blobs and embedded images in a small zip, so smart materials evolve with projects.
+  The project writer/loader were factored (`mask_effect`, `pack_resources`, `unpack_resources`,
+  `write_payload`) so both containers share one implementation.
+* Applying: fresh ids, one undo step, the images the smart material / mask uses are added to
+  the project; painted rasters are resampled when the target texture set has another resolution
+  (`TiledImage::resampled`, `Layer::map_rasters`).
+* Tests (8 new, 184 total): fragment round trip (folder + paint raster + mask with image +
+  generator, only referenced images stored), smart mask round trip, project files rejected as
+  fragments, resampling, unique / safe file names, save → load → apply identical composite in
+  a fresh session, 128 → 512 resample keeps painted values, smart mask brings its image,
+  broken library files skipped.
+* Verified in the real app on Windows (temporary library): applied Worn Painted Metal, renamed
+  it "My Blue Metal", right-click → Save as smart material (1.6 KB file), restarted, the saved
+  item showed in the shelf with a thumbnail and applied to the Trim texture set
+  (`docs/screenshots/save-smart-material-menu.png`, `saved-smart-material.png`). The smart-mask
+  path is covered by tests; not clicked through by hand.
+
 CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraft-mesh -p subcraft-doc -p subcraft-materials -p subcraft-compositor -p subcraft-paint`
 
 ### Deviations from the brief (sound-engineering choices)
@@ -327,9 +353,9 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
      height, AO) are never color-transformed.
    - SBSAR can't be read directly (Adobe's closed Substance engine); the documented route is to
      export maps with the free Adobe Substance 3D Player and import them as a texture set.
-2. User asset library on disk: ~~persist imported alphas + HDRIs~~ (session 15); next: save
-   custom smart materials / masks / brush presets, shelf search and categories, drag-and-drop
-   from shelf.
+2. User asset library on disk: ~~persist imported alphas + HDRIs~~ (session 15); ~~save custom smart
+   materials / masks~~ (session 16); next: brush presets, shelf search and categories,
+   drag-and-drop from shelf.
 3. Stencils / projection painting with an image; clone tool; smudge / blur filter layers.
 4. Bake follow-ups: per-material high-poly matching by name, cage mesh support, anti-aliased
    (supersampled) bakes, GPU baking for large meshes.

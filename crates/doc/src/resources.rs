@@ -43,6 +43,11 @@ impl ResourceStore {
         id
     }
 
+    /// Insert an already shared resource unless one with its id exists.
+    pub fn insert_shared(&mut self, r: Arc<Resource>) {
+        self.map.entry(r.id).or_insert(r);
+    }
+
     pub fn get(&self, id: ResourceId) -> Option<&Arc<Resource>> {
         self.map.get(&id)
     }

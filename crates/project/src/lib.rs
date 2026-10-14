@@ -11,6 +11,7 @@
 //! Saving is atomic: the container is written to a temporary file next to the target, synced,
 //! then renamed over it, so a crash never leaves a half-written project.
 
+pub mod fragment;
 pub mod raster;
 pub mod schema;
 
@@ -21,7 +22,7 @@ use std::sync::Arc;
 
 use subcraft_core::{EffectId, LayerId, ResourceId, TextureSetId};
 use subcraft_doc::{
-    ChannelBlend, ChannelDef, Document, FillChannel, FillContent, FillSource, GroupContent, Layer, LayerContent, Mask, MaskEffect,
+    ChannelBlend, ChannelDef, Document, FillChannel, FillContent, GroupContent, Layer, LayerContent, Mask, MaskEffect,
     MaskEffectKind, PaintContent, Resource, ResourceStore, TextureSet,
 };
 use subcraft_image::TiledImage;
@@ -77,34 +78,34 @@ impl Writer {
         name
     }
 
+    fn mask_effect(&mut self, e: &MaskEffect) -> MaskEffectV1 {
+        MaskEffectV1 {
+            id: e.id.0,
+            name: e.name.clone(),
+            visible: e.visible,
+            blend: e.blend,
+            opacity: e.opacity,
+            kind: match &e.kind {
+                MaskEffectKind::Paint { image } => MaskEffectKindV1::Paint { raster: self.raster(image) },
+                MaskEffectKind::Fill { value, procedural, projection } => {
+                    MaskEffectKindV1::Fill { value: *value, procedural: *procedural, projection: *projection }
+                }
+                MaskEffectKind::Generator(g) => MaskEffectKindV1::Generator { generator: *g },
+                MaskEffectKind::Levels(l) => MaskEffectKindV1::Levels { levels: *l },
+                MaskEffectKind::Invert => MaskEffectKindV1::Invert,
+                MaskEffectKind::Image { resource, projection, invert } => {
+                    MaskEffectKindV1::Image { resource: resource.0, projection: *projection, invert: *invert }
+                }
+            },
+        }
+    }
+
     fn layer(&mut self, l: &Layer) -> LayerV1 {
         let blend = l.blend.iter().map(|(&channel, b)| BlendV1 { channel, mode: b.mode, opacity: b.opacity }).collect();
         let mask = l.mask.as_ref().map(|m| MaskV1 {
             enabled: m.enabled,
             base: self.raster(&m.base),
-            effects: m
-                .effects
-                .iter()
-                .map(|e| MaskEffectV1 {
-                    id: e.id.0,
-                    name: e.name.clone(),
-                    visible: e.visible,
-                    blend: e.blend,
-                    opacity: e.opacity,
-                    kind: match &e.kind {
-                        MaskEffectKind::Paint { image } => MaskEffectKindV1::Paint { raster: self.raster(image) },
-                        MaskEffectKind::Fill { value, procedural, projection } => {
-                            MaskEffectKindV1::Fill { value: *value, procedural: *procedural, projection: *projection }
-                        }
-                        MaskEffectKind::Generator(g) => MaskEffectKindV1::Generator { generator: *g },
-                        MaskEffectKind::Levels(l) => MaskEffectKindV1::Levels { levels: *l },
-                        MaskEffectKind::Invert => MaskEffectKindV1::Invert,
-                        MaskEffectKind::Image { resource, projection, invert } => {
-                            MaskEffectKindV1::Image { resource: resource.0, projection: *projection, invert: *invert }
-                        }
-                    },
-                })
-                .collect(),
+            effects: m.effects.iter().map(|e| self.mask_effect(e)).collect(),
         });
         let content = match &l.content {
             LayerContent::Paint(p) => ContentV1::Paint {
@@ -127,25 +128,9 @@ impl Writer {
 fn referenced_resources(doc: &Document) -> Vec<ResourceId> {
     let mut out = Vec::new();
     for ts in &doc.texture_sets {
-        ts.walk(|l, _| {
-            let mut add = |r: ResourceId| {
-                if !out.contains(&r) {
-                    out.push(r);
-                }
-            };
-            if let LayerContent::Fill(f) = &l.content {
-                for c in f.channels.values() {
-                    if let FillSource::Bitmap { resource } = c.source {
-                        add(resource);
-                    }
-                }
-            }
-            for e in l.mask.iter().flat_map(|m| &m.effects) {
-                if let MaskEffectKind::Image { resource, .. } = e.kind {
-                    add(resource);
-                }
-            }
-        });
+        for l in &ts.layers {
+            l.collect_resources(&mut out);
+        }
     }
     out
 }
@@ -175,21 +160,7 @@ pub fn write_project<W: Write + Seek>(
                 .unwrap_or_default(),
         })
         .collect();
-    let mut res_files = Vec::new();
-    let mut res_entries = Vec::new();
-    for id in referenced_resources(doc) {
-        let Some(r) = resources.get(id) else { continue };
-        let Some(bytes) = &r.encoded else {
-            log::warn!("resource {} has no original file bytes; not saved", r.name);
-            continue;
-        };
-        // By content, so re-saving a loaded project keeps the extension (TGA falls back to the name).
-        let hint = r.source_path.as_deref().and_then(|p| p.to_str()).unwrap_or(&r.name);
-        let ext = subcraft_image::guess_extension(bytes, Some(hint));
-        let file = format!("resources/{}.{ext}", id.0);
-        res_entries.push(ResourceV1 { id: id.0, name: r.name.clone(), kind: r.kind, file: file.clone() });
-        res_files.push((file, bytes.clone()));
-    }
+    let (res_entries, res_files) = pack_resources(&referenced_resources(doc), resources);
     let document = DocumentV1 { texture_sets, resources: res_entries };
     let manifest = Manifest {
         format: FORMAT_NAME.into(),
@@ -207,16 +178,64 @@ pub fn write_project<W: Write + Seek>(
     zip.write_all(to_json(&document).as_bytes())?;
     zip.start_file("mesh.bin", deflate)?;
     zip.write_all(&subcraft_mesh::serialize::encode(mesh))?;
-    for (name, bytes) in &writer.rasters {
+    write_payload(&mut zip, &writer.rasters, &res_files)?;
+    Ok(zip.finish()?)
+}
+
+/// Resource table entries + file payloads for `ids` (resources without original bytes are skipped).
+fn pack_resources(ids: &[ResourceId], resources: &ResourceStore) -> (Vec<ResourceV1>, Vec<(String, Arc<Vec<u8>>)>) {
+    let mut files = Vec::new();
+    let mut entries = Vec::new();
+    for &id in ids {
+        let Some(r) = resources.get(id) else { continue };
+        let Some(bytes) = &r.encoded else {
+            log::warn!("resource {} has no original file bytes; not saved", r.name);
+            continue;
+        };
+        // By content, so re-saving a loaded project keeps the extension (TGA falls back to the name).
+        let hint = r.source_path.as_deref().and_then(|p| p.to_str()).unwrap_or(&r.name);
+        let ext = subcraft_image::guess_extension(bytes, Some(hint));
+        let file = format!("resources/{}.{ext}", id.0);
+        entries.push(ResourceV1 { id: id.0, name: r.name.clone(), kind: r.kind, file: file.clone() });
+        files.push((file, bytes.clone()));
+    }
+    (entries, files)
+}
+
+/// Raster blobs (deflated) and resource files (stored: already compressed image formats).
+fn write_payload<W: Write + Seek>(
+    zip: &mut zip::ZipWriter<W>,
+    rasters: &[(String, Vec<u8>)],
+    resources: &[(String, Arc<Vec<u8>>)],
+) -> Result<(), ProjectError> {
+    let deflate = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+    for (name, bytes) in rasters {
         zip.start_file(name.as_str(), deflate)?;
         zip.write_all(bytes)?;
     }
-    for (name, bytes) in &res_files {
-        // Already compressed image formats: store.
+    for (name, bytes) in resources {
         zip.start_file(name.as_str(), SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored))?;
         zip.write_all(bytes)?;
     }
-    Ok(zip.finish()?)
+    Ok(())
+}
+
+fn unpack_resources<R: Read + Seek>(loader: &mut Loader<'_, R>, entries: &[ResourceV1]) -> Result<ResourceStore, ProjectError> {
+    let mut resources = ResourceStore::default();
+    for r in entries {
+        let bytes = loader.bytes(&r.file)?;
+        let bitmap = subcraft_image::io::decode_bitmap(&bytes, Some(&r.file))
+            .map_err(|e| ProjectError::Invalid(format!("resource {}: {e}", r.name)))?;
+        resources.insert(Resource {
+            id: ResourceId(r.id),
+            name: r.name.clone(),
+            kind: r.kind,
+            bitmap: Arc::new(bitmap),
+            source_path: None,
+            encoded: Some(Arc::new(bytes)),
+        });
+    }
+    Ok(resources)
 }
 
 fn to_json<T: serde::Serialize>(v: &T) -> String {
@@ -274,8 +293,23 @@ impl<R: Read + Seek> Loader<'_, R> {
         Ok(img)
     }
 
-    fn layer(&mut self, l: &LayerV1, ts: &TextureSet) -> Result<Layer, ProjectError> {
-        let res = ts.resolution;
+    fn mask_effect(&mut self, e: &MaskEffectV1, res: u32) -> Result<MaskEffect, ProjectError> {
+        let kind = match &e.kind {
+            MaskEffectKindV1::Paint { raster } => MaskEffectKind::Paint { image: self.raster(raster, res)? },
+            MaskEffectKindV1::Fill { value, procedural, projection } => {
+                MaskEffectKind::Fill { value: *value, procedural: *procedural, projection: *projection }
+            }
+            MaskEffectKindV1::Generator { generator } => MaskEffectKind::Generator(*generator),
+            MaskEffectKindV1::Levels { levels } => MaskEffectKind::Levels(*levels),
+            MaskEffectKindV1::Invert => MaskEffectKind::Invert,
+            MaskEffectKindV1::Image { resource, projection, invert } => {
+                MaskEffectKind::Image { resource: ResourceId(*resource), projection: *projection, invert: *invert }
+            }
+        };
+        Ok(MaskEffect { id: EffectId(e.id), name: e.name.clone(), visible: e.visible, blend: e.blend, opacity: e.opacity, kind })
+    }
+
+    fn layer(&mut self, l: &LayerV1, res: u32) -> Result<Layer, ProjectError> {
         let mask = match &l.mask {
             None => None,
             Some(m) => {
@@ -285,26 +319,7 @@ impl<R: Read + Seek> Loader<'_, R> {
                 }
                 let mut effects = Vec::new();
                 for e in &m.effects {
-                    let kind = match &e.kind {
-                        MaskEffectKindV1::Paint { raster } => MaskEffectKind::Paint { image: self.raster(raster, res)? },
-                        MaskEffectKindV1::Fill { value, procedural, projection } => {
-                            MaskEffectKind::Fill { value: *value, procedural: *procedural, projection: *projection }
-                        }
-                        MaskEffectKindV1::Generator { generator } => MaskEffectKind::Generator(*generator),
-                        MaskEffectKindV1::Levels { levels } => MaskEffectKind::Levels(*levels),
-                        MaskEffectKindV1::Invert => MaskEffectKind::Invert,
-                        MaskEffectKindV1::Image { resource, projection, invert } => {
-                            MaskEffectKind::Image { resource: ResourceId(*resource), projection: *projection, invert: *invert }
-                        }
-                    };
-                    effects.push(Arc::new(MaskEffect {
-                        id: EffectId(e.id),
-                        name: e.name.clone(),
-                        visible: e.visible,
-                        blend: e.blend,
-                        opacity: e.opacity,
-                        kind,
-                    }));
+                    effects.push(Arc::new(self.mask_effect(e, res)?));
                 }
                 Some(Mask { enabled: m.enabled, base, effects })
             }
@@ -327,7 +342,7 @@ impl<R: Read + Seek> Loader<'_, R> {
             }),
             ContentV1::Folder { expanded, children } => LayerContent::Group(GroupContent {
                 expanded: *expanded,
-                children: children.iter().map(|c| self.layer(c, ts).map(Arc::new)).collect::<Result<_, _>>()?,
+                children: children.iter().map(|c| self.layer(c, res).map(Arc::new)).collect::<Result<_, _>>()?,
             }),
         };
         Ok(Layer {
@@ -374,7 +389,7 @@ pub fn read_project<R: Read + Seek>(r: R) -> Result<ProjectData, ProjectError> {
             channels: t.channels.iter().map(|c| ChannelDef { kind: c.kind, format: c.format }).collect(),
             layers: Vec::new(),
         };
-        let layers = t.layers.iter().map(|l| loader.layer(l, &ts).map(Arc::new)).collect::<Result<Vec<_>, _>>()?;
+        let layers = t.layers.iter().map(|l| loader.layer(l, ts.resolution).map(Arc::new)).collect::<Result<Vec<_>, _>>()?;
         ts.layers = layers;
         let mut maps = BTreeMap::new();
         for m in &t.mesh_maps {
@@ -390,19 +405,7 @@ pub fn read_project<R: Read + Seek>(r: R) -> Result<ProjectData, ProjectError> {
         texture_sets.push(ts);
     }
 
-    let mut resources = ResourceStore::default();
-    for r in &doc.resources {
-        let bytes = loader.bytes(&r.file)?;
-        let bitmap = subcraft_image::io::decode_bitmap(&bytes, Some(&r.file)).map_err(|e| ProjectError::Invalid(format!("resource {}: {e}", r.name)))?;
-        resources.insert(Resource {
-            id: ResourceId(r.id),
-            name: r.name.clone(),
-            kind: r.kind,
-            bitmap: Arc::new(bitmap),
-            source_path: None,
-            encoded: Some(Arc::new(bytes)),
-        });
-    }
+    let resources = unpack_resources(&mut loader, &doc.resources)?;
     Ok(ProjectData { mesh, document: Document { texture_sets }, resources, mesh_maps })
 }
 
