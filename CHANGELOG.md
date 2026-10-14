@@ -6,6 +6,8 @@ What changed in SubCraft, newest first. Download the latest build from the
 ## Unreleased (coming in 0.1.0)
 
 ### New
+- **Linux build**: `SubCraft-<version>-linux-x86_64.tar.gz` with an `install.sh` that adds SubCraft
+  to your application menu (no root needed).
 - **Windows installer**: `SubCraft-<version>-setup.exe` with Start Menu shortcut, optional desktop
   shortcut, uninstaller in Settings → Apps and `.subcraft` file association. A portable zip is
   still available. (#10)

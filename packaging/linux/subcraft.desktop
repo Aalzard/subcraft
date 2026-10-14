@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=SubCraft
+GenericName=3D Texture Painter
+Comment=Paint PBR textures directly on 3D models
+Exec=subcraft %f
+Icon=subcraft
+Terminal=false
+Categories=Graphics;3DGraphics;
+MimeType=application/x-subcraft-project;
+Keywords=texture;paint;pbr;3d;material;

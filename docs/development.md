@@ -128,9 +128,14 @@ GitHub builds the installer and the zip on a clean Windows machine and attaches 
    **Generate release notes**.
 4. Click **Publish release**.
 
-About 15 minutes later `SubCraft-0.2.0-setup.exe` and `SubCraft-0.2.0-windows-x64.zip` appear under
-the release's **Assets** (watch progress in the **Actions** tab, workflow "Release"). The
+About 15 minutes later `SubCraft-0.2.0-setup.exe`, `SubCraft-0.2.0-windows-x64.zip` and
+`SubCraft-0.2.0-linux-x86_64.tar.gz` appear under the release's **Assets** (watch progress in the **Actions** tab, workflow "Release"). The
 **Download** button at the top of the README always points to the newest release.
+
+To (re)build the files for a release that already exists: **Actions → Release → Run workflow**,
+enter the tag (e.g. `v0.1.0`) and run it.
+
+The Linux package can also be built on a Linux machine with `./scripts/build-linux.sh`.
 
 ## 7. Working with Claude Code locally (optional)
 
