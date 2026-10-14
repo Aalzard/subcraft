@@ -27,6 +27,15 @@ pub struct TileGeometry {
     pub resolution: u32,
     /// Per-texel data; `None` when no triangle touches the tile.
     texels: Option<TileTexels>,
+    regions: Option<Arc<RegionIds>>,
+}
+
+/// Shared triangle tables keep each covered texel's selection storage at one u32.
+#[derive(Debug)]
+struct RegionIds {
+    parts: Vec<u32>,
+    islands: OnceLock<Vec<u32>>,
+    mesh: Arc<Mesh>,
 }
 
 #[derive(Debug)]
@@ -37,7 +46,7 @@ struct TileTexels {
     normal: Box<[[f32; 3]]>,
     /// 1 = covered by a triangle of the texture set (inside or rim), 0 = gutter.
     coverage: Box<[f32]>,
-    /// Mesh part (connected piece) of the texel's triangle; `NO_PART` in the gutter.
+    /// Original triangle index, resolved through shared region tables; `NO_PART` in the gutter.
     part: Box<[u32]>,
 }
 
@@ -46,7 +55,7 @@ const NO_PART: u32 = u32::MAX;
 impl TileGeometry {
     /// A tile without any surface (all texels uncovered).
     pub fn empty(index: usize, x0: u32, y0: u32, resolution: u32) -> Self {
-        Self { index, x0, y0, resolution, texels: None }
+        Self { index, x0, y0, resolution, texels: None, regions: None }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -85,7 +94,20 @@ impl TileGeometry {
     /// Mesh part ([`subcraft_mesh::topology::mesh_elements`]) under texel `i`, if any.
     #[inline]
     pub fn part(&self, i: usize) -> Option<u32> {
-        self.texels.as_ref().map(|t| t.part[i]).filter(|&p| p != NO_PART)
+        self.region(i, subcraft_core::PartKind::Connected)
+    }
+
+    pub fn region(&self, i: usize, kind: subcraft_core::PartKind) -> Option<u32> {
+        let triangle = self.texels.as_ref()?.part[i];
+        if triangle == NO_PART { return None; }
+        let regions = self.regions.as_ref()?;
+        let t = triangle as usize;
+        Some(match kind {
+            subcraft_core::PartKind::Connected => regions.parts[t],
+            subcraft_core::PartKind::UvIsland => regions.islands.get_or_init(|| subcraft_mesh::topology::uv_islands(&regions.mesh))[t],
+            subcraft_core::PartKind::Object => regions.mesh.tri_object.get(t).copied().flatten()?,
+            subcraft_core::PartKind::Material => regions.mesh.tri_material[t],
+        })
     }
 }
 
@@ -102,7 +124,7 @@ pub struct TextureSetGeometry {
     bins: Vec<Vec<u32>>,
     tiles: Box<[OnceLock<Arc<TileGeometry>>]>,
     /// Mesh part per triangle (computed on first use).
-    parts: OnceLock<Vec<u32>>,
+    parts: OnceLock<Arc<RegionIds>>,
 }
 
 impl std::fmt::Debug for TextureSetGeometry {
@@ -161,7 +183,27 @@ impl TextureSetGeometry {
 
     /// Mesh part of every triangle ([`subcraft_mesh::topology::mesh_elements`]).
     pub fn triangle_parts(&self) -> &[u32] {
-        self.parts.get_or_init(|| subcraft_mesh::topology::mesh_elements(&self.mesh))
+        &self.regions().parts
+    }
+
+    fn regions(&self) -> &Arc<RegionIds> {
+        self.parts.get_or_init(|| Arc::new(RegionIds {
+            parts: subcraft_mesh::topology::mesh_elements(&self.mesh),
+            islands: OnceLock::new(), mesh: self.mesh.clone(),
+        }))
+    }
+
+    pub fn triangle_islands(&self) -> &[u32] {
+        self.regions().islands.get_or_init(|| subcraft_mesh::topology::uv_islands(&self.mesh))
+    }
+
+    pub fn triangle_region(&self, triangle: usize, kind: subcraft_core::PartKind) -> Option<u32> {
+        Some(match kind {
+            subcraft_core::PartKind::Connected => *self.triangle_parts().get(triangle)?,
+            subcraft_core::PartKind::UvIsland => *self.triangle_islands().get(triangle)?,
+            subcraft_core::PartKind::Object => self.mesh.tri_object.get(triangle).copied().flatten()?,
+            subcraft_core::PartKind::Material => *self.mesh.tri_material.get(triangle)?,
+        })
     }
 
     /// Normalize an object-space position into the 0..1 (by max extent) frame.
@@ -194,7 +236,6 @@ impl TextureSetGeometry {
         let mut normal = vec![[0.0f32; 3]; TILE_TEXELS].into_boxed_slice();
         let mut coverage = vec![0.0f32; TILE_TEXELS].into_boxed_slice();
         let mut part = vec![NO_PART; TILE_TEXELS].into_boxed_slice();
-        let parts = self.triangle_parts();
         for ly in 0..s.height as usize {
             for lx in 0..s.width as usize {
                 let si = ly * s.width as usize + lx;
@@ -206,10 +247,10 @@ impl TextureSetGeometry {
                 position[di] = self.normalize_position(p).to_array();
                 normal[di] = [s.normal[si][0], s.normal[si][1], s.normal[si][2]];
                 coverage[di] = 1.0;
-                part[di] = parts[s.triangle[si] as usize];
+                part[di] = s.triangle[si];
             }
         }
-        TileGeometry { index, x0, y0, resolution: self.resolution, texels: Some(TileTexels { position, normal, coverage, part }) }
+        TileGeometry { index, x0, y0, resolution: self.resolution, texels: Some(TileTexels { position, normal, coverage, part }), regions: Some(self.regions().clone()) }
     }
 }
 

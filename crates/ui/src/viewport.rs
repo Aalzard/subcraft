@@ -76,6 +76,37 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
 
     let camera = state.camera.paint_camera(size);
 
+    if response.secondary_clicked() && !alt && !stencil_edit {
+        state.context_part = pointer.and_then(|p| state.session.surface_target(&camera, to_screen(p), state.parts_kind));
+    }
+    let mut part_action = None;
+    response.context_menu(|ui| {
+        if let Some(target) = state.context_part {
+            ui.label(target.part.kind.label());
+            ui.menu_button("Target", |ui| {
+                for kind in subcraft_core::PartKind::ALL {
+                    if ui.selectable_label(state.parts_kind == kind, kind.label()).clicked()
+                        && let Some(next) = state.session.target_kind(target, kind) {
+                        state.context_part = Some(next); state.parts_kind = kind;
+                    }
+                }
+            });
+            if let Some(action) = crate::panels::parts::menu(ui, state.context_part.unwrap_or(target), state.session.selection().layer.is_some() && state.session.selection().texture_set == target.texture_set) {
+                part_action = Some((state.context_part.unwrap_or(target), action));
+            }
+        } else { ui.label("Right-click the model to texture a part."); }
+        if state.session.has_hidden_parts() && ui.button("Show all parts").clicked() { state.session.show_all_parts(); ui.close(); }
+        if ui.button("Eyedropper tool").clicked() { state.tool = Tool::Eyedropper; ui.close(); }
+    });
+    if let Some((target, action)) = part_action { crate::panels::parts::apply(state, target, action, now); }
+    if response.hovered() && !typing && !mods.any() {
+        let target = pointer.and_then(|p| state.session.surface_target(&camera, to_screen(p), state.parts_kind));
+        for (key, action) in [(egui::Key::I, subcraft_app::PartAction::Isolate), (egui::Key::H, subcraft_app::PartAction::Hide)] {
+            if ui.input(|i| i.key_pressed(key)) && let Some(target) = target { crate::panels::parts::apply(state, target, action, now); }
+        }
+        if ui.input(|i| i.key_pressed(egui::Key::Escape)) { state.session.show_all_parts(); }
+    }
+
     // ----- drops from the shelf: apply to the texture set under the cursor --------------------
     if let Some(item) = response.dnd_release_payload::<crate::panels::shelf::ShelfDrag>() {
         if let Some(p) = pointer
@@ -93,6 +124,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     if state.picking_parts && (!picking || ui.input(|i| i.key_pressed(egui::Key::Escape))) {
         state.picking_parts = false;
     }
+    let hover_kind = if picking { state.session.selected_layer().and_then(|l| l.parts.as_ref()).map_or(state.parts_kind, |p| p.kind) } else { state.parts_kind };
+    let hovered = if response.hovered() { pointer.and_then(|p| state.session.surface_target(&camera, to_screen(p), hover_kind)).map(|t| t.part) }
+        else if response.context_menu_opened() { state.context_part.map(|t| t.part) } else { None };
+    state.hovered_part = hovered;
     let hovered_part = if picking { pointer.and_then(|p| state.session.part_at(&camera, to_screen(p))) } else { None };
     if picking && primary_pressed && response.hovered() && !alt && !stencil_edit {
         let layer = state.session.selected_layer().map(|l| l.id);
@@ -112,6 +147,12 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         if let Some(p) = pointer {
             let sp = to_screen(p);
             match state.tool {
+                Tool::Eyedropper => {
+                    if state.session.sample_surface(&camera, sp, mods.shift) {
+                        state.gpu_dirty = true;
+                        state.set_status(if mods.shift { "Picked material" } else { "Picked color" }, now);
+                    }
+                }
                 Tool::PolygonFill => {
                     state.session.brush.mode = StrokeMode::Paint;
                     if let Err(e) = state.session.polygon_fill(&camera, sp, state.fill_mode) {
@@ -119,6 +160,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     }
                 }
                 _ => {
+                    if let Err(e) = state.session.prepare_surface_paint(&camera, sp) { state.set_status(format!("Parts: {e}"), now); }
                     state.session.brush.mode = if state.tool == Tool::Eraser { StrokeMode::Erase } else { StrokeMode::Paint };
                     match state.session.begin_stroke() {
                         Ok(()) => {
@@ -205,14 +247,14 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         }
         ui.ctx().set_cursor_icon(if alt { egui::CursorIcon::Move } else { egui::CursorIcon::Crosshair });
     }
-    if let Some(part) = hovered_part {
+    if let Some(part) = hovered {
         draw_part(state, &painter, &camera, part, ppp);
     }
     draw_stencil(state, ui, &painter, rect, size);
     if drop_hover {
         painter.rect_stroke(rect.shrink(1.0), 0.0, Stroke::new(2.0, ACCENT), egui::StrokeKind::Inside);
     }
-    let hint = "LMB paint  ·  Shift+LMB line  ·  Alt+LMB / RMB orbit  ·  MMB pan  ·  Wheel zoom  ·  [ ] size";
+    let hint = "LMB paint · RMB menu / drag orbit · I isolate · H hide · Esc show all · Wheel zoom";
     pill(&painter, rect.left_bottom() + egui::vec2(10.0, -10.0), egui::Align2::LEFT_BOTTOM, hint, theme::TEXT_FAINT);
     let mut right = rect.right_top() + egui::vec2(-10.0, 10.0);
     if state.session.brush.options.symmetry.iter().any(|&s| s) {
@@ -240,16 +282,15 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
 
 /// Highlight the triangles of a mesh part (x-ray: occluded triangles show too, so the whole
 /// piece reads at a glance).
-fn draw_part(state: &UiState, painter: &egui::Painter, camera: &subcraft_app::Camera, part: u32, ppp: f32) {
+fn draw_part(state: &UiState, painter: &egui::Painter, camera: &subcraft_app::Camera, part: subcraft_app::PartKey, ppp: f32) {
     let s = &state.session;
     let ts = s.selected_texture_set();
     let geo = s.scene().geometry.get(ts.material_slot, ts.resolution);
-    let parts = geo.triangle_parts();
-    let mesh = &s.scene().mesh;
+    let mesh = &s.viewport_scene().mesh;
     let origin = painter.clip_rect().min;
     let fill = Color32::from_rgba_unmultiplied(255, 122, 26, 70);
     let mut shape = egui::Mesh::default();
-    for t in mesh.material_triangles(ts.material_slot).filter(|&t| parts[t] == part) {
+    for t in (0..mesh.triangle_count()).filter(|&t| geo.triangle_region(t, part.kind) == Some(part.id)) {
         let p = mesh.tri_positions(t);
         let Some(q) = p.iter().map(|&v| camera.project(v)).collect::<Option<Vec<_>>>() else { continue };
         let base = shape.vertices.len() as u32;

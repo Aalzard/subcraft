@@ -11,9 +11,9 @@ smart materials, bake mesh maps, and export game-ready textures.
 
 ![SubCraft](docs/screenshots/ui-redesign.png)
 
-> **What's new in 0.1.1:** a **Textures** tab in the shelf (drag a texture onto Base Color, Normal…),
-> separate **X / Y tiling** and offset, **strength sliders** for every channel, and a fix for a startup
-> crash on some Intel graphics drivers. See the [changelog](CHANGELOG.md).
+> **In development:** right-click a model part to fill, paint or mask it, add generators, pick
+> color/material, or isolate/hide it. A Parts panel lists connected pieces, UV islands, object
+> names and material IDs. See the [changelog](CHANGELOG.md).
 
 > **Status: early but usable.** The core engine, painting, baking, smart materials, save/load and
 > export all work and are covered by tests. Expect rough edges, missing features and breaking
@@ -35,6 +35,13 @@ smart materials, bake mesh maps, and export game-ready textures.
   metallic, base color brightness, emissive intensity).
 - **Masks**: paintable masks with stacked effects: Edges (curvature), Cavity (AO), Directional,
   Position gradient, noise fills, **images** (e.g. a logo), Levels and Invert.
+- **Parts workflow**: right-click the piece under the cursor to fill it, paint only there, mask
+  the selected layer or add a generator mask. Switch between connected pieces, UV islands,
+  imported objects and material IDs. Hover highlights the piece; **I** isolates, **H** hides,
+  **Esc** restores all parts. View visibility doesn't change exported textures. OBJ, FBX and
+  glTF/GLB object names are kept in saved projects (schema 3; older projects still open).
+- **Eyedropper**: pick linear material values before lighting; Shift+click with the eyedropper
+  picks all channels. Adapted from [CalangoTech's SubCraft Studio fork](https://github.com/CalangoTech/subcraft).
 - **Painting**: brush and eraser on the 3D model with tips (alphas), symmetry, lazy mouse, jitter,
   **stencils** (paint through an image laid over the view) and polygon fill (triangle, mesh part,
   UV island). Save your brush setups as **presets**.
@@ -122,6 +129,9 @@ On Linux you may need the usual windowing libraries (for example on Debian / Ubu
 | Paint / erase | Left mouse (B = brush, E = eraser) |
 | Straight line | Shift + click |
 | Orbit | Alt + left mouse, or right mouse |
+| Part actions | Right click without dragging |
+| Isolate / hide hovered part | `I` / `H` in the 3D view |
+| Show all parts | `Esc` in the 3D view, or Parts → Show all parts |
 | Pan | Middle mouse |
 | Zoom | Mouse wheel, or Alt + right mouse |
 | Brush size | `[` and `]` |
@@ -133,6 +143,8 @@ On Linux you may need the usual windowing libraries (for example on Debian / Ubu
 | Undo / redo | Ctrl + Z / Ctrl + Y |
 
 Help → Keyboard shortcuts lists all of them.
+
+<img src="docs/screenshots/parts-workflow.png" alt="Imported object names in Parts, with a fill restricted to the crate body" width="760">
 
 ## Project layout
 

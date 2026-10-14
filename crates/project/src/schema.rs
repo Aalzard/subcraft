@@ -14,7 +14,8 @@ use uuid::Uuid;
 
 /// 1: initial. 2: mask `Image` effect (v1 files load unchanged; v2 files need SubCraft >= 0.1 with
 /// image masks).
-pub const SCHEMA_VERSION: u32 = 2;
+// 3: object metadata (mesh blob v2) and geometry-mask domains. Legacy projects still load.
+pub const SCHEMA_VERSION: u32 = 3;
 pub const FORMAT_NAME: &str = "subcraft-project";
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -84,6 +85,8 @@ pub struct LayerV1 {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PartsV1 {
     pub enabled: bool,
+    #[serde(default)]
+    pub kind: subcraft_core::PartKind,
     pub parts: Vec<u32>,
 }
 

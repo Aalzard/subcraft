@@ -73,7 +73,7 @@ fn apply_layer(layer: &Layer, accs: &mut [Acc], active: &[bool], tc: &TileContex
         }
         let m = mask.get_or_insert_with(|| vec![1.0; TILE_TEXELS]);
         for (i, v) in m.iter_mut().enumerate() {
-            *v *= parts.factor(tc.geo.part(i));
+            *v *= parts.factor(tc.geo.region(i, parts.kind));
         }
     }
     let mask_at = |i: usize| mask.as_ref().map_or(1.0, |m| m[i]);

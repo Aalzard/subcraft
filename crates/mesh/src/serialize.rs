@@ -5,10 +5,10 @@
 
 use glam::{Vec2, Vec3, Vec4};
 
-use crate::mesh::{Aabb, MaterialSlot, Mesh, Submesh};
+use crate::mesh::{Aabb, MaterialSlot, Mesh, MeshObject, Submesh};
 
 const MAGIC: &[u8; 6] = b"SCMESH";
-const VERSION: u16 = 1;
+const VERSION: u16 = 2;
 
 #[derive(Debug, thiserror::Error)]
 pub enum MeshDecodeError {
@@ -95,6 +95,12 @@ pub fn encode(mesh: &Mesh) -> Vec<u8> {
         w.u32(s.first_triangle);
         w.u32(s.triangle_count);
     }
+    w.u32(mesh.objects.len() as u32);
+    for object in &mesh.objects {
+        w.0.extend_from_slice(object.id.0.as_bytes());
+        w.str(&object.name);
+    }
+    w.u32s(&mesh.tri_object.iter().map(|o| o.unwrap_or(u32::MAX)).collect::<Vec<_>>());
     w.0
 }
 
@@ -104,7 +110,7 @@ pub fn decode(bytes: &[u8]) -> Result<Mesh, MeshDecodeError> {
         return Err(MeshDecodeError::BadMagic);
     }
     let version = u16::from_le_bytes(r.take(2)?.try_into().expect("2"));
-    if version != VERSION {
+    if version != 1 && version != VERSION {
         return Err(MeshDecodeError::Version(version));
     }
     let name = r.str()?;
@@ -126,7 +132,17 @@ pub fn decode(bytes: &[u8]) -> Result<Mesh, MeshDecodeError> {
         submeshes.push(Submesh { material: r.u32()?, first_triangle: r.u32()?, triangle_count: r.u32()? });
     }
     let bounds = Aabb::from_points(positions.iter().copied());
-    let mesh = Mesh { name, positions, normals, uvs, tangents, indices, tri_material, materials, submeshes, bounds };
+    let mut objects = Vec::new();
+    let mut tri_object = Vec::new();
+    if version >= 2 {
+        let count = r.u32()?;
+        for _ in 0..count {
+            let id = subcraft_core::ObjectId(uuid::Uuid::from_bytes(r.take(16)?.try_into().expect("16 bytes")));
+            objects.push(MeshObject { id, name: r.str()? });
+        }
+        tri_object = r.u32s()?.into_iter().map(|o| (o != u32::MAX).then_some(o)).collect();
+    }
+    let mesh = Mesh { name, positions, normals, uvs, tangents, indices, tri_material, tri_object, objects, materials, submeshes, bounds };
     let problems = mesh.validate();
     if !problems.is_empty() {
         return Err(MeshDecodeError::Invalid(problems.join("; ")));
@@ -149,6 +165,8 @@ mod tests {
         assert_eq!(back.tangents, m.tangents);
         assert_eq!(back.materials, m.materials);
         assert_eq!(back.submeshes, m.submeshes);
+        assert_eq!(back.objects, m.objects);
+        assert_eq!(back.tri_object, m.tri_object);
     }
 
     #[test]
@@ -156,5 +174,19 @@ mod tests {
         let bytes = encode(&primitives::cube(1.0));
         assert!(decode(&bytes[..bytes.len() / 2]).is_err());
         assert!(matches!(decode(b"NOTMESH!"), Err(MeshDecodeError::BadMagic)));
+    }
+
+    #[test]
+    fn version_one_loads_without_object_metadata_and_invalid_indices_are_rejected() {
+        let mesh = primitives::cube(1.0);
+        let mut old = encode(&mesh);
+        old.truncate(old.len() - 8 - mesh.tri_object.len() * 4);
+        old[6..8].copy_from_slice(&1u16.to_le_bytes());
+        let back = decode(&old).unwrap();
+        assert!(back.objects.is_empty() && back.tri_object.is_empty());
+        assert_eq!(back.indices, mesh.indices);
+        let mut broken = mesh;
+        broken.tri_object[0] = Some(100);
+        assert!(matches!(decode(&encode(&broken)), Err(MeshDecodeError::Invalid(_))));
     }
 }

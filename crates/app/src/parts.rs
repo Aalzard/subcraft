@@ -37,7 +37,8 @@ impl Session {
             return None;
         }
         let geo = self.scene().geometry.get(ts.material_slot, ts.resolution);
-        geo.triangle_parts().get(pick.triangle as usize).copied()
+        let kind = self.selected_layer().and_then(|l| l.parts.as_ref()).map_or(subcraft_core::PartKind::Connected, |p| p.kind);
+        geo.triangle_region(pick.triangle as usize, kind)
     }
 
     /// Show `part` on the layer if hidden, hide it if shown. A layer without a part mask gets one
@@ -51,7 +52,8 @@ impl Session {
                 }
                 p
             }
-            _ => PartMask::new([part]),
+            Some(p) => PartMask::for_kind(p.kind, [part]),
+            None => PartMask::new([part]),
         };
         self.execute(Command::SetParts { layer, parts: Some(parts) })
     }

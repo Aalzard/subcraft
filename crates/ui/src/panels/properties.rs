@@ -25,7 +25,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     let mut texture_drop: Option<(ChannelKind, std::path::PathBuf)> = None;
     let id = layer.id;
     let channels = state.session.channels();
-    let mesh_parts = state.session.mesh_parts();
+    let part_kind = layer.parts.as_ref().map_or(subcraft_core::PartKind::Connected, |p| p.kind);
+    let mesh_parts = state.session.parts(part_kind).iter().filter(|p| p.materials.contains(&state.session.selected_texture_set().material_slot)).cloned().collect::<Vec<_>>();
     let mut picking = state.picking_parts;
 
     egui::ScrollArea::vertical().id_salt("props").auto_shrink([false, false]).show(ui, |ui| panel(ui, |ui| {
@@ -86,20 +87,20 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         ui.horizontal(|ui| {
                             let all: std::collections::BTreeSet<u32> = mesh_parts.iter().map(|m| m.id).collect();
                             if ui.small_button("All").clicked() {
-                                part_cmds.push(Command::SetParts { layer: id, parts: Some(PartMask { enabled: true, parts: all.clone() }) });
+                                part_cmds.push(Command::SetParts { layer: id, parts: Some(PartMask::for_kind(part_kind, all.clone())) });
                             }
                             if ui.small_button("None").clicked() {
-                                part_cmds.push(Command::SetParts { layer: id, parts: Some(PartMask::new([])) });
+                                part_cmds.push(Command::SetParts { layer: id, parts: Some(PartMask::for_kind(part_kind, [])) });
                             }
                             if ui.small_button("Invert").clicked() {
                                 let inv = all.difference(&p.parts).copied();
-                                part_cmds.push(Command::SetParts { layer: id, parts: Some(PartMask::new(inv)) });
+                                part_cmds.push(Command::SetParts { layer: id, parts: Some(PartMask::for_kind(part_kind, inv)) });
                             }
                         });
                         egui::ScrollArea::vertical().id_salt("part-list").max_height(160.0).min_scrolled_height(0.0).show(ui, |ui| {
-                            for (k, m) in mesh_parts.iter().enumerate() {
+                            for m in &mesh_parts {
                                 let mut on = p.parts.contains(&m.id);
-                                if ui.checkbox(&mut on, format!("Part {}  ·  {} triangles", k + 1, m.triangles)).changed() {
+                                if ui.checkbox(&mut on, format!("{}  ·  {} triangles", m.name, m.triangles)).changed() {
                                     let mut next = p.clone();
                                     if on {
                                         next.parts.insert(m.id);
@@ -113,8 +114,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         });
                     }
                 }
-                if mesh_parts.len() == 1 {
-                    hint(ui, "This model is one connected piece. To pick a blade or a handle on its own, make them separate objects (or materials) in your 3D app.");
+                if mesh_parts.len() == 1 && part_kind == subcraft_core::PartKind::Connected {
+                    hint(ui, "This texture set has one connected piece. Use UV islands in Parts for smaller regions.");
                 }
             },
         );

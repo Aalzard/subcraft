@@ -11,6 +11,7 @@ pub mod diagnostics;
 pub mod images;
 pub mod library;
 pub mod parts;
+pub mod part_workflow;
 pub mod recovery;
 pub mod session;
 pub mod thumbnails;
@@ -20,6 +21,7 @@ pub use bake_job::{BakeJob, BakeRequest};
 pub use command::{Command, CommandError, NewLayer};
 pub use images::TextureSetImport;
 pub use parts::MeshPart;
+pub use part_workflow::{PartAction, PartInfo, PartKey, SurfaceTarget};
 pub use recovery::{AutosaveEvent, Autosaver, CrashedSession, RecoveryStore};
 pub use session::{BrushState, CompositeUpdate, DEFAULT_RESOLUTION, Pick, ProjectSnapshot, Scene, Selection, Session};
 

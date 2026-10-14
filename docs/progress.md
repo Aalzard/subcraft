@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-10-14 (session 29: report a bug + crash logs)
+Last updated: 2026-10-14 (session 30: right-click texturing and Parts)
 
 ## Decisions
 
@@ -578,7 +578,51 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
 * **Generators**: Directional uses the low-poly interpolated normal (always available) rather
   than a baked world-normal map; Position Gradient runs along +Y within the mesh bounds.
 
+### Session 30 — right-click texturing and Parts
+
+* Reviewed and independently tested diagnostics PR #33 (workspace tests, clippy, desktop test
+  panic/restart and WebGPU bug-report dialog). Merged after Test (Linux), Build + engine tests
+  (Windows), Build (web), and both packaging jobs succeeded.
+* Reviewed CalangoTech's Studio fork, commit `bd6c064`. Adapted its unlit eyedropper approach,
+  adding bilinear repeat sampling and GPU refresh regression coverage. Layer-move, UV-free bake,
+  supersampling and mask-filter implementations are candidates for separate later PRs. None of
+  the fork's recovery code was copied.
+* Parts panel: cached catalogues for connected pieces, UV islands, named objects and material
+  IDs. Import preserves OBJ object / glTF node / FBX node names with UUID object identity;
+  mesh blob v2 and project schema 3 retain them; old mesh v1 / project schemas still load.
+* 3D context menu: fill, paint only here, mask selected layer, four generator masks, color/material
+  picking, isolate/hide; same actions on Parts rows. I/H act on the hovered piece, Esc/Show all
+  restores visibility. Hover highlights the target. RMB dragging still orbits.
+* Editing logic stays in app. A fill/paint part spanning material IDs creates layers in all its
+  texture sets in one undo step; subsequent strokes select the matching paint layer. Geometry
+  masks restrict actual stroke and polygon-fill writes. Layer menu adds paint/fill layers,
+  white/black masks, generators and mask fill/paint effects alongside duplicate/delete/library save.
+* Isolate/hide uses a temporary mesh with degenerate hidden triangles, preserving triangle
+  numbering. Picking, painting and depth use that mesh; project saving, masks, bakes and exports
+  keep original geometry. Browser testing caught lost GPU materials on visibility changes; fixed
+  full re-upload, including baked AO, and covered it with GPU image comparisons.
+* Verification: 239 workspace tests passed (including GPU comparisons), clippy completed with
+  existing warnings; desktop release and web builds passed. Desktop screenshot from a throwaway example that
+  exports/imports a seven-object OBJ, fills one object and saves/reopens a project; WebGPU context
+  menu, targeted fill, isolate, H/Esc, layer generator menu, no browser errors. Screenshots:
+  `screenshots/parts-workflow.png`, `parts-context-web.png`, `layer-context-web.png`.
+  Desktop menu clicks were not driven (no desktop input); their app actions and browser UI were
+  exercised. Browser file upload/download and large-model responsiveness remain later tasks.
+  Browser policy subsequently blocked reconnecting to localhost after the environment changed;
+  the final catalogue-cache/help-text adjustments were verified by the workspace/GPU tests and
+  builds, but were not re-clicked in the browser after that block.
+
 ## Next steps (in order)
+
+Current priorities requested by the owner:
+1. ~~Right-click texturing and Parts~~ — session 30; PR checks/merge tracked separately.
+2. Welcome screen, recent files, quick-start guide and screenshot documentation.
+3. Bundle the owner's normal/alpha starter pack, shelf previews and measured desktop/web sizes.
+4. Real multi-part FBX/GLB bake → smart material → paint → export; layer dragging/inline rename.
+5. Browser import/save/export verification and work split across frames.
+6. Projection painting, clone, smudge/blur, followed by the remaining engine/library follow-ups.
+
+Earlier roadmap details:
 
 1. **Your own image textures** (users ask for this: "add our own textures", SBSAR materials).
    - ~~Fill layer channels: an "Image" source with a file picker~~ — done (session 12).

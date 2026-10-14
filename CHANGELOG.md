@@ -6,6 +6,13 @@ What changed in SubCraft, newest first. Download the latest build from the
 ## Unreleased
 
 ### New
+- **Right-click texturing and Parts**: fill or paint only the clicked piece/UV island, mask a
+  layer, add edge-wear/dirt/directional/position generator masks, pick color/material and
+  isolate/hide pieces (I/H; Esc restores). Parts lists connected pieces, UV islands, material
+  IDs and imported OBJ/FBX/glTF object names. Named objects and mask domains use project schema
+  3; older projects still open. The layer menu now includes paint/fill layers, masks and effects.
+- **Eyedropper**: unlit linear color/material sampling, adapted from CalangoTech's Studio fork.
+  Part masks now prevent paint writes outside their selection, even if the mask is later removed.
 - **Report a bug** (Help menu): opens a new GitHub issue in your browser with your SubCraft
   version, OS and GPU already filled in, and tells you which log file to attach. Nothing is sent
   automatically.

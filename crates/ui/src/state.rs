@@ -16,6 +16,7 @@ pub enum Tool {
     Brush,
     Eraser,
     PolygonFill,
+    Eyedropper,
 }
 
 pub struct UvView {
@@ -26,6 +27,10 @@ pub struct UvView {
 }
 
 pub struct UiState {
+    pub parts_kind: subcraft_core::PartKind,
+    pub hovered_part: Option<subcraft_app::PartKey>,
+    pub context_part: Option<subcraft_app::SurfaceTarget>,
+    pub uploaded_view_revision: u64,
     pub session: Session,
     pub camera: OrbitCamera,
     pub render_state: Option<egui_wgpu::RenderState>,
@@ -88,6 +93,10 @@ impl UiState {
         session.brush.material.set(ChannelKind::BaseColor, subcraft_core::ChannelValue::rgb(0.85, 0.32, 0.06));
         let renderer = render_state.as_ref().map(|rs| ViewportRenderer::new(&rs.device, &rs.queue));
         Self {
+            parts_kind: subcraft_core::PartKind::Connected,
+            hovered_part: None,
+            context_part: None,
+            uploaded_view_revision: u64::MAX,
             camera: OrbitCamera::framing(&session.scene().mesh.bounds),
             session,
             render_state,
@@ -204,6 +213,9 @@ impl UiState {
         session.brush.material = self.session.brush.material.clone();
         self.camera = OrbitCamera::framing(&session.scene().mesh.bounds);
         self.session = session;
+        self.hovered_part = None;
+        self.context_part = None;
+        self.uploaded_view_revision = u64::MAX;
         self.gpu_dirty = true;
         self.uv_edges.clear();
         self.uploaded_maps.clear();
@@ -233,9 +245,11 @@ impl UiState {
             self.session.update_composites();
             return;
         };
-        let full = self.gpu_dirty;
+        let view_changed = self.uploaded_view_revision != self.session.view_revision();
+        let full = self.gpu_dirty || view_changed;
         if full {
-            renderer.set_mesh(&rs.device, &self.session.scene().mesh);
+            renderer.set_mesh(&rs.device, &self.session.viewport_scene().mesh);
+            self.uploaded_view_revision = self.session.view_revision();
             self.gpu_dirty = false;
         }
         let updates = self.session.update_composites();
@@ -263,7 +277,7 @@ impl UiState {
             let Some(maps) = session.mesh_maps(ts.id) else { continue };
             for (kind, img) in maps.iter() {
                 let key = (ts.id, kind);
-                if self.uploaded_maps.get(&key).is_some_and(|u| u.same_storage(img)) {
+                if !full && self.uploaded_maps.get(&key).is_some_and(|u| u.same_storage(img)) {
                     continue;
                 }
                 renderer.upload_mesh_map(&rs.device, &rs.queue, ts.material_slot, kind, img);
