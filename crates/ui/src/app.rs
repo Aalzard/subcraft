@@ -24,6 +24,7 @@ pub enum Tab {
     Brush,
     TextureSets,
     History,
+    Shelf,
 }
 
 impl Tab {
@@ -36,6 +37,7 @@ impl Tab {
             Tab::Brush => "Brush",
             Tab::TextureSets => "Texture Sets",
             Tab::History => "History",
+            Tab::Shelf => "Shelf",
         }
     }
 }
@@ -58,12 +60,13 @@ pub fn default_layout() -> DockState<Tab> {
     let surface = dock.main_surface_mut();
     let [center, right] = surface.split_right(NodeIndex::root(), 0.73, vec![Tab::Layers]);
     surface.split_below(right, 0.5, vec![Tab::Properties, Tab::Brush]);
-    let [_, left] = surface.split_left(center, 0.2, vec![Tab::TextureSets]);
+    let [center, left] = surface.split_left(center, 0.2, vec![Tab::TextureSets]);
     surface.split_below(left, 0.4, vec![Tab::History]);
+    surface.split_below(center, 0.72, vec![Tab::Shelf]);
     dock
 }
 
-const DOCK_KEY: &str = "subcraft_dock_v1";
+const DOCK_KEY: &str = "subcraft_dock_v2";
 
 pub struct SubcraftApp {
     state: UiState,
@@ -386,6 +389,7 @@ impl egui_dock::TabViewer for Viewer<'_> {
             Tab::Brush => panels::brush::show(self.state, ui),
             Tab::TextureSets => panels::texture_sets::show(self.state, ui),
             Tab::History => panels::history::show(self.state, ui),
+            Tab::Shelf => panels::shelf::show(self.state, ui),
         }
     }
 

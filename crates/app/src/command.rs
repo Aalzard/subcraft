@@ -2,7 +2,7 @@
 //! [`Session::execute`](crate::Session::execute); widgets never edit the document directly.
 
 use subcraft_core::{ChannelKind, EffectId, LayerId, TextureSetId};
-use subcraft_doc::{BlendMode, FillChannel, MaskEffect, MaskEffectKind, Projection};
+use subcraft_doc::{BlendMode, FillChannel, Layer, MaskEffect, MaskEffectKind, Projection};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum NewLayer {
@@ -23,6 +23,10 @@ pub enum Command {
     SelectLayer(Option<LayerId>),
     /// Insert above the selected layer (or at the top) of the selected texture set and select it.
     AddLayer(NewLayer),
+    /// Insert a ready-made layer (material preset, smart material) like [`Command::AddLayer`].
+    InsertLayer { layer: Box<Layer>, label: String },
+    /// Give the layer a black mask (if it has none) and append these effects (smart mask).
+    ApplyMaskEffects { layer: LayerId, effects: Vec<MaskEffectKind>, label: String },
     DeleteLayer(LayerId),
     DuplicateLayer(LayerId),
     /// Wrap the layer into a new folder.

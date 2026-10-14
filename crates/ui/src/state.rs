@@ -54,6 +54,9 @@ pub struct UiState {
     pub last_title: String,
     pub bake: crate::dialogs::BakeUi,
     pub uv_wireframe: bool,
+    pub library: subcraft_app::assets::Library,
+    pub shelf: crate::panels::shelf::ShelfUi,
+    pub env: crate::panels::shelf::EnvUi,
     /// Mesh maps last uploaded to the GPU (to re-upload only when a bake replaced them).
     pub uploaded_maps: HashMap<(subcraft_core::TextureSetId, subcraft_core::MeshMapKind), subcraft_image::TiledImage>,
 }
@@ -88,6 +91,9 @@ impl UiState {
             last_title: String::new(),
             bake: Default::default(),
             uv_wireframe: true,
+            library: subcraft_app::assets::Library::builtin(),
+            shelf: Default::default(),
+            env: Default::default(),
             uploaded_maps: HashMap::new(),
         }
     }

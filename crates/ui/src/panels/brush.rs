@@ -29,6 +29,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         });
 
         header(ui, "Brush");
+        ui.label(format!("Tip: {}  (change in Shelf > Brushes)", b.alpha_name));
         let s = &mut b.settings;
         egui::Grid::new("brush_grid").num_columns(2).show(ui, |ui| {
             ui.label("Size");

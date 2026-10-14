@@ -6,9 +6,22 @@ struct Globals {
     light_dir: vec4<f32>,
     // x: exposure, y: environment intensity, z: light intensity, w: height bump scale
     params: vec4<f32>,
+    light_color: vec4<f32>,
+    ground: vec4<f32>,
+    horizon: vec4<f32>,
+    zenith: vec4<f32>,
+    irr_up: vec4<f32>,
+    irr_down: vec4<f32>,
+    // x: ring panels, y: overhead light, z: key softbox, w: 1 = HDRI environment
+    lights: vec4<f32>,
+    // x: environment rotation (radians), y: HDRI intensity, z: last prefiltered mip level
+    env_misc: vec4<f32>,
+    sh: array<vec4<f32>, 9>,
 };
 
 @group(0) @binding(0) var<uniform> g: Globals;
+@group(0) @binding(1) var env_tex: texture_2d<f32>;
+@group(0) @binding(2) var env_samp: sampler;
 @group(1) @binding(0) var samp: sampler;
 @group(1) @binding(1) var t_base: texture_2d<f32>;
 @group(1) @binding(2) var t_rough: texture_2d<f32>;
@@ -47,14 +60,33 @@ fn vs_main(v: VsIn) -> VsOut {
 const PI: f32 = 3.14159265;
 
 fn sky(d: vec3<f32>) -> vec3<f32> {
-    let ground = vec3<f32>(0.10, 0.09, 0.08);
-    let horizon = vec3<f32>(0.42, 0.43, 0.46);
-    let zenith = vec3<f32>(0.20, 0.27, 0.40);
     let y = clamp(d.y, -1.0, 1.0);
     if (y < 0.0) {
-        return mix(horizon, ground, smoothstep(0.0, 0.35, -y));
+        return mix(g.horizon.rgb, g.ground.rgb, smoothstep(0.0, 0.35, -y));
     }
-    return mix(horizon, zenith, smoothstep(0.0, 0.8, y));
+    return mix(g.horizon.rgb, g.zenith.rgb, smoothstep(0.0, 0.8, y));
+}
+
+fn rotate_env(d: vec3<f32>) -> vec3<f32> {
+    let c = cos(g.env_misc.x);
+    let s = sin(g.env_misc.x);
+    return vec3<f32>(c * d.x - s * d.z, d.y, s * d.x + c * d.z);
+}
+
+fn equirect(d: vec3<f32>) -> vec2<f32> {
+    return vec2<f32>(atan2(d.z, d.x) / (2.0 * PI) + 0.5, acos(clamp(d.y, -1.0, 1.0)) / PI);
+}
+
+fn sh_irradiance(n: vec3<f32>) -> vec3<f32> {
+    let x = n.x;
+    let y = n.y;
+    let z = n.z;
+    var e = g.sh[0].rgb * 0.282095;
+    e += g.sh[1].rgb * (0.488603 * y) + g.sh[2].rgb * (0.488603 * z) + g.sh[3].rgb * (0.488603 * x);
+    e += g.sh[4].rgb * (1.092548 * x * y) + g.sh[5].rgb * (1.092548 * y * z);
+    e += g.sh[6].rgb * (0.315392 * (3.0 * z * z - 1.0)) + g.sh[7].rgb * (1.092548 * x * z);
+    e += g.sh[8].rgb * (0.546274 * (x * x - y * y));
+    return max(e, vec3<f32>(0.0));
 }
 
 // A round studio softbox seen in reflection: angular radius grows with roughness while total
@@ -85,18 +117,28 @@ fn studio(r: vec3<f32>, key: vec3<f32>, rough: f32) -> vec3<f32> {
     let half_a = 0.27;
     let half_e = 0.36;
     let spread = (half_a * half_e) / ((half_a + soft) * (half_e + soft));
-    let panels = band(da, half_a, soft) * band(abs(el - 0.05), half_e, soft) * 14.0 * spread;
+    let panels = band(da, half_a, soft) * band(abs(el - 0.05), half_e, soft) * g.lights.x * spread;
     let top_half = 0.35;
-    let top = band(acos(clamp(r.y, -1.0, 1.0)), top_half, soft) * 10.0 * (top_half * top_half) / ((top_half + soft) * (top_half + soft));
+    let top = band(acos(clamp(r.y, -1.0, 1.0)), top_half, soft) * g.lights.y * (top_half * top_half) / ((top_half + soft) * (top_half + soft));
     let warm = vec3<f32>(1.0, 0.96, 0.9);
-    return warm * (panels + top + softbox(r, key, 0.22, 30.0, rough));
+    return warm * (panels + top + softbox(r, key, 0.22, g.lights.z, rough));
 }
 
-// Cosine-weighted irradiance of the sky above, approximated per normal.
+// Diffuse environment light seen by a normal.
 fn irradiance(n: vec3<f32>) -> vec3<f32> {
-    let up = vec3<f32>(0.32, 0.35, 0.40);
-    let down = vec3<f32>(0.13, 0.12, 0.11);
-    return mix(down, up, n.y * 0.5 + 0.5);
+    if (g.lights.w > 0.5) {
+        return sh_irradiance(rotate_env(n)) * g.env_misc.y;
+    }
+    return mix(g.irr_down.rgb, g.irr_up.rgb, n.y * 0.5 + 0.5);
+}
+
+// Specular environment light along a reflection direction.
+fn environment(r: vec3<f32>, key: vec3<f32>, rough: f32) -> vec3<f32> {
+    if (g.lights.w > 0.5) {
+        let uv = equirect(rotate_env(r));
+        return textureSampleLevel(env_tex, env_samp, uv, rough * g.env_misc.z).rgb * g.env_misc.y;
+    }
+    return mix(sky(r), irradiance(r), rough) + studio(r, key, rough);
 }
 
 // Analytic split-sum environment BRDF (Karis, "Physically Based Shading on Mobile").
@@ -169,11 +211,11 @@ fn fs_main(in: VsOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f
     let f = f0 + (1.0 - f0) * pow(1.0 - voh, 5.0);
     let spec = d * gv * gl * f / max(4.0 * nov * nol, 1e-4);
     let kd = (1.0 - f) * diffuse / PI;
-    let light = vec3<f32>(1.0, 0.96, 0.9) * g.params.z;
+    let light = g.light_color.rgb * g.params.z;
     let direct = (kd + spec) * light * nol;
 
     let r = reflect(-v, n);
-    let env_spec = mix(sky(r), irradiance(r), rough) + studio(r, l, rough);
+    let env_spec = environment(r, l, rough);
     // Ambient (environment) light is occluded by AO; specular occlusion approximated by AO too.
     let ambient = (diffuse * irradiance(n) + env_brdf(f0, rough, nov) * env_spec) * g.params.y * ao;
 

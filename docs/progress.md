@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-10-13 (session 5: mesh-map baking)
+Last updated: 2026-10-14 (session 6: assets — shelf, smart materials, environments, brush alphas)
 
 ## Decisions
 
@@ -12,7 +12,7 @@ Last updated: 2026-10-13 (session 5: mesh-map baking)
 * Undo: history of structurally shared document snapshots + merge keys; strokes push the
   post-stroke document — `adr/0006-undo.md`.
 
-## Done (all tests passing — 140 tests, `cargo test --workspace`)
+## Done (all tests passing — 149 tests, `cargo test --workspace`)
 
 | Crate | Contents | Tests |
 |---|---|---|
@@ -22,11 +22,12 @@ Last updated: 2026-10-13 (session 5: mesh-map baking)
 | `doc` | 32 blend modes, fills/projections, masks, paint/fill/folder layers, `TextureSet` tree ops, `Document`, `History`, `ResourceStore`; `same_parameters` now treats a lazily created paint channel as a raster-only change | 9 |
 | `materials` | noise + patterns; **`sample`**: lazily built per-tile `TileGeometry` (normalized position, normal, coverage) cached per slot + resolution, `MeshMaps`, `eval_fill_tile` for Uniform / Bitmap / Procedural / MeshMap through UV / Planar / Triplanar | 10 |
 | `compositor` | W3C separable compositing of all 32 modes (whiteout / RNM / HSV / signed height), isolated + passthrough folders, mask stack (paint, fill, generators, levels, invert), rayon per-tile evaluation, `CompositeCache` dirty-tile diff | 18 (6 unit + 12 acceptance) |
-| `paint` | `BrushSettings` / `BrushMaterial` / `Camera`, path resampling (spacing, lazy mouse, straight line, jitter), symmetry via mirrored cameras, CPU depth map + backface culling, tile-parallel UV-raster stamp kernel (Tangent\|Wrap, Tangent\|Planar, Camera, UV), stroke-opacity-capped coverage written from the pre-stroke snapshot, eraser, mask painting, polygon fill (triangle / element / UV island) | 21 (10 unit + 11 acceptance) |
-| `app` | **new**: `Session` (scene + BVH/geometry/depth caches, document + `History`, selection, brush state, active stroke, per-texture-set `CompositeCache`), undoable `Command`s (layers, visibility, rename, blend mode/opacity with coalesced drags, fill channels/projection, masks + effects), stroke lifecycle (one history entry per stroke, cancel), picking, toolkit-independent `Action` + shortcut table; project save / open with unsaved-changes tracking; texture export; background `BakeJob` feeding mesh maps to generators / export / project | 12 |
-| `render` | **new**: wgpu offscreen viewport: metal/roughness GGX + key light + procedural sky (analytic irradiance + split-sum), ACES, 4x MSAA to an sRGB texture; composite channels uploaded per dirty tile as f16; channel preview pass for the 2D view; Height shown as bump; studio reflections (ring of panels + overhead + key softbox, roughness-dependent blur); baked / painted AO occludes ambient light; gray previews for scalar channels and baked maps; headless device + readback | 6 (render on any adapter; llvmpipe here) |
+| `paint` | `BrushSettings` / `BrushMaterial` / `Camera`, path resampling (spacing, lazy mouse, straight line, jitter), symmetry via mirrored cameras, CPU depth map + backface culling, tile-parallel UV-raster stamp kernel (Tangent\|Wrap, Tangent\|Planar, Camera, UV), stroke-opacity-capped coverage written from the pre-stroke snapshot, eraser, mask painting, polygon fill (triangle / element / UV island), brush alpha tips (`Stroke::with_alpha`) | 22 (10 unit + 12 acceptance) |
+| `app` | **new**: `Session` (scene + BVH/geometry/depth caches, document + `History`, selection, brush state, active stroke, per-texture-set `CompositeCache`), undoable `Command`s (layers, visibility, rename, blend mode/opacity with coalesced drags, fill channels/projection, masks + effects), stroke lifecycle (one history entry per stroke, cancel), picking, toolkit-independent `Action` + shortcut table; project save / open with unsaved-changes tracking; texture export; background `BakeJob` feeding mesh maps to generators / export / project; shelf actions (insert preset / smart material layers, smart masks, brush alpha) and offscreen thumbnail scenes | 14 |
+| `render` | **new**: wgpu offscreen viewport: metal/roughness GGX + key light + procedural sky (analytic irradiance + split-sum), ACES, 4x MSAA to an sRGB texture; composite channels uploaded per dirty tile as f16; channel preview pass for the 2D view; Height shown as bump; studio reflections (ring of panels + overhead + key softbox, roughness-dependent blur); baked / painted AO occludes ambient light; gray previews for scalar channels and baked maps; environment parameters per frame + HDRI upload (prefiltered mips sampled by roughness, SH irradiance, rotation); headless device + readback | 7 (render on any adapter; llvmpipe here) |
 | `ui` | **new**: eframe + egui_dock workspace: 3D view (orbit/pan/zoom, painting, Shift+click lines, brush cursor), 2D view (composite + UV wireframe), Layers, Properties (fill channels, procedural patterns, projection, masks, generators/levels/invert), Brush (tools, settings, jitter, symmetry, lazy mouse, material channels), Texture Sets, History (click to jump), menus, status bar, shortcuts, dark theme, layout persistence | 2 |
 | `bake` | **new**: CPU baker: tangent-space normal (low poly MikkTSpace frame; optional high poly through a front/rear cage), world normal, position, ID (per mesh element), AO (cosine-weighted BVH rays), curvature (seam-independent 3D neighbourhood convexity, 0.5 flat), thickness; gutter padding; progress + cancel | 7 |
+| `assets` | **new**: built-in brush tips (procedural) + image import; 17 material presets (measured metal reflectances, plastics, paints, procedural concrete / wood / rust / leather); 5 smart materials (folders of presets masked by Edges / Cavity / Directional generators + grunge); 5 smart masks; 5 procedural environments + HDRI import (CPU prefiltered mip chain, SH9 irradiance, sun direction) | 5 |
 | `project` | **new**: `.subcraft` zip container: `manifest.json` (format + schema version gate), `mesh.bin`, `document.json` (explicit schema v1 for texture sets / layer tree / masks / effects; small value types pinned by a golden JSON test), sparse raster blobs (`SCTILE`, only allocated tiles), baked mesh maps per texture set, original resource bytes; atomic save (temp file + rename); validation on load (resolutions, component counts, truncation) | 8 |
 | `export` | **new**: templates (PBR Metal/Rough, Unreal packed ORM + DirectX normal, Unity HDRP mask map, glTF ORM), per-component packing (invert for smoothness, constants), sRGB only for color channels in integer formats, height baked into exported normals (same math as the viewport), height as mid-gray-centered PNG16 / raw EXR, UV padding (infinite / N texels / none), file-name plan; baked AO fills a missing Ambient Occlusion channel | 6 |
 | `apps/subcraft` | desktop binary: `subcraft [project.subcraft | mesh] [--demo] [--view-2d] [--screenshot out.png]` | - |
@@ -109,6 +110,21 @@ In the cloud container (no GPU) the app ran on lavapipe/llvmpipe (Vulkan) under 
 * Sample crate, all 7 maps at 512²: ~3 s per texture set (release, 4 cores); 1024² ~4x that.
 * Screenshot: `docs/screenshots/baked-ao-2d-view.png`.
 
+### Session 6 — assets, verified in the running app
+
+* New **Shelf** panel under the 3D view: Materials, Smart Materials, Smart Masks, Brushes,
+  Environments, each with rendered thumbnails (materials on a sphere; smart materials / masks on
+  a cube with baked curvature + AO, so wear and dirt show; environments on a chrome sphere;
+  brush tips as images). Thumbnails render one per frame on a separate offscreen renderer.
+* Click to apply: material preset = fill layer, smart material = folder of masked layers (one
+  undo step), smart mask = black mask + generators on the selected layer, brush tip = next
+  strokes, environment = viewport lighting (with rotation / intensity). Import alpha / HDRI.
+* Driven in the app: bake (Ctrl+B) then Worn Painted Metal on the crate body gave paint with
+  dirt in the trim contact areas and worn edges; Sunset environment re-lit the scene;
+  screenshots `docs/screenshots/smart-material-worn-metal.png`, `shelf-materials.png`.
+* Not saved in projects yet: the chosen environment and imported alphas / HDRIs (viewport and
+  tool settings, like Painter's shelf; next step is a user library folder).
+
 CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraft-mesh -p subcraft-doc -p subcraft-materials -p subcraft-compositor -p subcraft-paint`
 
 ### Deviations from the brief (sound-engineering choices)
@@ -133,16 +149,16 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
 
 ## Next steps (in order)
 
-1. `assets`: brush alphas + stencils, material / smart-material presets (built on the
-   generators that baking now feeds), environment HDRIs (real IBL with prefiltered maps), shelf
-   panel.
-2. Bake follow-ups: per-material high-poly matching by name, cage mesh support, anti-aliased
+1. User asset library on disk (save custom smart materials / masks / brush presets, persist
+   imported alphas + HDRIs), shelf search and categories, drag-and-drop from shelf.
+2. Stencils / projection painting with an image; clone tool; smudge / blur filter layers.
+3. Bake follow-ups: per-material high-poly matching by name, cage mesh support, anti-aliased
    (supersampled) bakes, GPU baking for large meshes.
-3. Autosave + recent files; export presets saved per project; custom export templates editor.
-4. UI follow-ups: drag-and-drop layer reordering, inline rename, eyedropper, painting in the
+4. Autosave + recent files; export presets saved per project; custom export templates editor.
+5. UI follow-ups: drag-and-drop layer reordering, inline rename, eyedropper, painting in the
    2D view, texture-set resolution change, camera FOV / ortho toggle, texture mipmaps.
-5. Engine follow-ups: incremental dirty tracking inside mask paint effects; near-plane
+6. Engine follow-ups: incremental dirty tracking inside mask paint effects; near-plane
    clipping in the depth rasterizer; f16 tile geometry; renormalize normals after opacity
    lerp; GPU compositor behind the same interface.
 
-Remaining stub crate (empty `lib.rs`): assets.
+All workspace crates now have real implementations.

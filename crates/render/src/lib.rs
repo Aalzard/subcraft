@@ -36,6 +36,48 @@ pub enum PreviewSource {
     MeshMap(MeshMapKind),
 }
 
+/// Environment lighting (procedural sky + studio lights, or an uploaded HDRI).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct EnvironmentParams {
+    pub ground: [f32; 3],
+    pub horizon: [f32; 3],
+    pub zenith: [f32; 3],
+    pub irradiance_up: [f32; 3],
+    pub irradiance_down: [f32; 3],
+    pub panels: f32,
+    pub top: f32,
+    pub key_softbox: f32,
+    /// Use the HDRI uploaded with [`ViewportRenderer::set_hdri`] instead of the procedural sky.
+    pub use_hdri: bool,
+    pub hdri_intensity: f32,
+    /// Rotation of the environment around +Y (radians).
+    pub rotation: f32,
+}
+
+impl Default for EnvironmentParams {
+    fn default() -> Self {
+        Self {
+            ground: [0.10, 0.09, 0.08],
+            horizon: [0.42, 0.43, 0.46],
+            zenith: [0.20, 0.27, 0.40],
+            irradiance_up: [0.32, 0.35, 0.40],
+            irradiance_down: [0.13, 0.12, 0.11],
+            panels: 14.0,
+            top: 10.0,
+            key_softbox: 30.0,
+            use_hdri: false,
+            hdri_intensity: 1.0,
+            rotation: 0.0,
+        }
+    }
+}
+
+/// HDRI data to upload: prefiltered levels (largest first, linear RGBA f32) + SH9 irradiance.
+pub struct HdriUpload<'a> {
+    pub levels: &'a [(u32, u32, &'a [f32])],
+    pub sh: [[f32; 3]; 9],
+}
+
 /// Camera and lighting for one frame.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ViewParams {
@@ -45,7 +87,9 @@ pub struct ViewParams {
     /// Direction towards the key light (world space).
     pub light_dir: Vec3,
     pub light_intensity: f32,
+    pub light_color: [f32; 3],
     pub environment_intensity: f32,
+    pub environment: EnvironmentParams,
     pub exposure: f32,
     /// Height-to-bump strength (UV units of slope per height unit; 0 disables bumps).
     pub height_scale: f32,
@@ -61,7 +105,9 @@ impl ViewParams {
             eye: view.inverse().w_axis.truncate(),
             light_dir: Vec3::new(0.65, 0.75, 0.35).normalize(),
             light_intensity: 1.5,
+            light_color: [1.0, 0.96, 0.9],
             environment_intensity: 1.0,
+            environment: EnvironmentParams::default(),
             exposure: 1.0,
             height_scale: 0.02,
             background: [0.018, 0.019, 0.022],
@@ -76,6 +122,15 @@ struct Globals {
     eye: [f32; 4],
     light_dir: [f32; 4],
     params: [f32; 4],
+    light_color: [f32; 4],
+    ground: [f32; 4],
+    horizon: [f32; 4],
+    zenith: [f32; 4],
+    irr_up: [f32; 4],
+    irr_down: [f32; 4],
+    lights: [f32; 4],
+    env_misc: [f32; 4],
+    sh: [[f32; 4]; 9],
 }
 
 pub const SAMPLE_COUNT: u32 = 4;
@@ -83,7 +138,12 @@ pub const SAMPLE_COUNT: u32 = 4;
 pub struct ViewportRenderer {
     pipeline: wgpu::RenderPipeline,
     globals: wgpu::Buffer,
+    globals_layout: wgpu::BindGroupLayout,
     globals_bg: wgpu::BindGroup,
+    env_sampler: wgpu::Sampler,
+    env_texture: wgpu::TextureView,
+    env_levels: u32,
+    env_sh: [[f32; 3]; 9],
     material_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
     defaults: HashMap<ChannelKind, ChannelTexture>,
@@ -102,12 +162,30 @@ impl ViewportRenderer {
         });
         let globals_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("globals layout"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: None },
-                count: None,
-            }],
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: None },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
         });
         let mut entries = vec![wgpu::BindGroupLayoutEntry {
             binding: 0,
@@ -166,11 +244,17 @@ impl ViewportRenderer {
             contents: bytemuck::bytes_of(&Globals::zeroed()),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
-        let globals_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("globals"),
-            layout: &globals_layout,
-            entries: &[wgpu::BindGroupEntry { binding: 0, resource: globals.as_entire_binding() }],
+        let env_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("environment sampler"),
+            address_mode_u: wgpu::AddressMode::Repeat,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
+            ..Default::default()
         });
+        let env_texture = ChannelTexture::constant(device, queue, [0.5, 0.5, 0.5, 1.0], 4, "environment placeholder").view;
+        let globals_bg = Self::globals_bind_group(device, &globals_layout, &globals, &env_texture, &env_sampler);
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("material sampler"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -186,7 +270,72 @@ impl ViewportRenderer {
                 (k, ChannelTexture::constant(device, queue, [d[0], d[1], d[2], 1.0], composite_comps(k), k.key()))
             })
             .collect();
-        Self { pipeline, globals, globals_bg, material_layout, sampler, defaults, mesh: None, materials: HashMap::new(), target: None, preview: PreviewPass::new(device), preview_target: None }
+        Self {
+            pipeline,
+            globals,
+            globals_layout,
+            globals_bg,
+            env_sampler,
+            env_texture,
+            env_levels: 1,
+            env_sh: [[0.0; 3]; 9],
+            material_layout, sampler, defaults, mesh: None, materials: HashMap::new(), target: None, preview: PreviewPass::new(device), preview_target: None }
+    }
+
+    fn globals_bind_group(
+        device: &wgpu::Device,
+        layout: &wgpu::BindGroupLayout,
+        globals: &wgpu::Buffer,
+        env: &wgpu::TextureView,
+        sampler: &wgpu::Sampler,
+    ) -> wgpu::BindGroup {
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("globals"),
+            layout,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: globals.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(env) },
+                wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(sampler) },
+            ],
+        })
+    }
+
+    /// Upload a prefiltered HDRI (mip level k = level k of the data). `None` restores the
+    /// placeholder; select it per frame with [`EnvironmentParams::use_hdri`].
+    pub fn set_hdri(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, hdri: Option<HdriUpload>) {
+        match hdri {
+            None => {
+                self.env_texture = ChannelTexture::constant(device, queue, [0.5, 0.5, 0.5, 1.0], 4, "environment placeholder").view;
+                self.env_levels = 1;
+                self.env_sh = [[0.0; 3]; 9];
+            }
+            Some(h) => {
+                let (w, hgt, _) = h.levels[0];
+                let tex = device.create_texture(&wgpu::TextureDescriptor {
+                    label: Some("hdri"),
+                    size: wgpu::Extent3d { width: w, height: hgt, depth_or_array_layers: 1 },
+                    mip_level_count: h.levels.len() as u32,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: wgpu::TextureFormat::Rgba16Float,
+                    usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                    view_formats: &[],
+                });
+                for (k, (lw, lh, data)) in h.levels.iter().enumerate() {
+                    let halfs: Vec<half::f16> = data.iter().map(|&v| half::f16::from_f32(v)).collect();
+                    queue.write_texture(
+                        wgpu::TexelCopyTextureInfo { texture: &tex, mip_level: k as u32, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+                        bytemuck::cast_slice(&halfs),
+                        wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(lw * 8), rows_per_image: Some(*lh) },
+                        wgpu::Extent3d { width: *lw, height: *lh, depth_or_array_layers: 1 },
+                    );
+                }
+                self.env_texture = tex.create_view(&wgpu::TextureViewDescriptor::default());
+                self.env_levels = h.levels.len() as u32;
+                self.env_sh = h.sh;
+            }
+        }
+        self.globals_bg = Self::globals_bind_group(device, &self.globals_layout, &self.globals, &self.env_texture, &self.env_sampler);
     }
 
     /// Replace the mesh (drops all material textures).
@@ -279,11 +428,26 @@ impl ViewportRenderer {
             self.target = Some(RenderTarget::new(device, size, SAMPLE_COUNT));
         }
         self.ensure_bind_groups(device);
+        let e = &params.environment;
+        let v4 = |c: [f32; 3]| [c[0], c[1], c[2], 0.0];
+        let mut sh = [[0.0f32; 4]; 9];
+        for (dst, src) in sh.iter_mut().zip(&self.env_sh) {
+            *dst = v4(*src);
+        }
         let globals = Globals {
             view_proj: (params.proj * params.view).to_cols_array_2d(),
             eye: params.eye.extend(1.0).to_array(),
             light_dir: params.light_dir.normalize_or(Vec3::Y).extend(0.0).to_array(),
             params: [params.exposure, params.environment_intensity, params.light_intensity, params.height_scale],
+            light_color: v4(params.light_color),
+            ground: v4(e.ground),
+            horizon: v4(e.horizon),
+            zenith: v4(e.zenith),
+            irr_up: v4(e.irradiance_up),
+            irr_down: v4(e.irradiance_down),
+            lights: [e.panels, e.top, e.key_softbox, if e.use_hdri && self.env_levels > 1 { 1.0 } else { 0.0 }],
+            env_misc: [e.rotation, e.hdri_intensity, (self.env_levels - 1) as f32, 0.0],
+            sh,
         };
         queue.write_buffer(&self.globals, 0, bytemuck::bytes_of(&globals));
         let target = self.target.as_ref().expect("created above");
