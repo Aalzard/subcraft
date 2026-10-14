@@ -88,9 +88,27 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     }
     let drop_hover = response.dnd_hover_payload::<crate::panels::shelf::ShelfDrag>().is_some();
 
+    // ----- part picking: clicks show / hide the selected layer on mesh parts ----------------------
+    let picking = state.picking_parts && state.session.selected_layer().is_some() && !state.painting;
+    if state.picking_parts && (!picking || ui.input(|i| i.key_pressed(egui::Key::Escape))) {
+        state.picking_parts = false;
+    }
+    let hovered_part = if picking { pointer.and_then(|p| state.session.part_at(&camera, to_screen(p))) } else { None };
+    if picking && primary_pressed && response.hovered() && !alt && !stencil_edit {
+        let layer = state.session.selected_layer().map(|l| l.id);
+        match (layer, hovered_part) {
+            (Some(layer), Some(part)) => {
+                if let Err(e) = state.session.toggle_layer_part(layer, part) {
+                    state.set_status(format!("Parts: {e}"), now);
+                }
+            }
+            _ => state.set_status("Click a part of the selected texture set", now),
+        }
+    }
+
     // ----- painting ----------------------------------------------------------------------------
-    let paint_tool = matches!(state.tool, Tool::Brush | Tool::Eraser);
-    if primary_pressed && response.hovered() && !alt && !stencil_edit {
+    let paint_tool = matches!(state.tool, Tool::Brush | Tool::Eraser) && !picking;
+    if primary_pressed && response.hovered() && !alt && !stencil_edit && !picking {
         if let Some(p) = pointer {
             let sp = to_screen(p);
             match state.tool {
@@ -182,10 +200,13 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 painter.circle_stroke(p, r_px, Stroke::new(1.5, Color32::from_black_alpha(160)));
                 painter.circle_stroke(p, r_px, Stroke::new(1.0, color));
             }
-        } else if state.tool == Tool::PolygonFill {
+        } else if state.tool == Tool::PolygonFill && !picking {
             painter.circle_filled(p, 3.0, ACCENT);
         }
         ui.ctx().set_cursor_icon(if alt { egui::CursorIcon::Move } else { egui::CursorIcon::Crosshair });
+    }
+    if let Some(part) = hovered_part {
+        draw_part(state, &painter, &camera, part, ppp);
     }
     draw_stencil(state, ui, &painter, rect, size);
     if drop_hover {
@@ -199,12 +220,45 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         let r = pill(&painter, right, egui::Align2::RIGHT_TOP, &format!("{}  Symmetry {axes}", icons::SYMMETRY), ACCENT);
         right.x = r.left() - 6.0;
     }
+    if picking {
+        let shown = state.session.selected_layer().and_then(|l| l.parts.as_ref()).filter(|p| p.enabled).map(|p| p.parts.contains(&hovered_part.unwrap_or(u32::MAX)));
+        let what = match (hovered_part, shown) {
+            (Some(_), Some(true)) => "click to hide the layer on this part",
+            (Some(_), _) => "click to show the layer on this part",
+            (None, _) => "click parts to show / hide the layer",
+        };
+        let r = pill(&painter, right, egui::Align2::RIGHT_TOP, &format!("{}  Picking parts: {what}  ·  Esc done", icons::CURSOR), ACCENT);
+        right.x = r.left() - 6.0;
+    }
     if state.session.brush.target == subcraft_paint::PaintTarget::MaskBase {
         pill(&painter, right, egui::Align2::RIGHT_TOP, &format!("{}  Painting mask", icons::MASK), ACCENT);
     }
     if state.painting || response.dragged() {
         ui.ctx().request_repaint();
     }
+}
+
+/// Highlight the triangles of a mesh part (x-ray: occluded triangles show too, so the whole
+/// piece reads at a glance).
+fn draw_part(state: &UiState, painter: &egui::Painter, camera: &subcraft_app::Camera, part: u32, ppp: f32) {
+    let s = &state.session;
+    let ts = s.selected_texture_set();
+    let geo = s.scene().geometry.get(ts.material_slot, ts.resolution);
+    let parts = geo.triangle_parts();
+    let mesh = &s.scene().mesh;
+    let origin = painter.clip_rect().min;
+    let fill = Color32::from_rgba_unmultiplied(255, 122, 26, 70);
+    let mut shape = egui::Mesh::default();
+    for t in mesh.material_triangles(ts.material_slot).filter(|&t| parts[t] == part) {
+        let p = mesh.tri_positions(t);
+        let Some(q) = p.iter().map(|&v| camera.project(v)).collect::<Option<Vec<_>>>() else { continue };
+        let base = shape.vertices.len() as u32;
+        for v in q {
+            shape.colored_vertex(egui::pos2(origin.x + v.x / ppp, origin.y + v.y / ppp), fill);
+        }
+        shape.add_triangle(base, base + 1, base + 2);
+    }
+    painter.add(egui::Shape::mesh(shape));
 }
 
 /// Semi-transparent stencil image over the 3D view (hidden while N bypasses it).

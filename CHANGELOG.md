@@ -3,6 +3,14 @@
 What changed in SubCraft, newest first. Download the latest build from the
 [Releases page](https://github.com/Aalzard/subcraft/releases/latest).
 
+## Unreleased
+
+### New
+- **Parts**: show a layer only on some pieces of the model, like an axe's blade. Properties →
+  Parts → *Pick parts in the 3D view*, then click pieces to show or hide the layer there (the piece
+  under the cursor lights up). Painting, fills, smart materials and export all respect it, and it
+  is saved in the project. Parts are the separate (unconnected) pieces of the mesh.
+
 ## 0.1.1
 
 ### New

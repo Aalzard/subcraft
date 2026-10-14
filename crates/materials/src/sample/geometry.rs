@@ -37,7 +37,11 @@ struct TileTexels {
     normal: Box<[[f32; 3]]>,
     /// 1 = covered by a triangle of the texture set (inside or rim), 0 = gutter.
     coverage: Box<[f32]>,
+    /// Mesh part (connected piece) of the texel's triangle; `NO_PART` in the gutter.
+    part: Box<[u32]>,
 }
+
+const NO_PART: u32 = u32::MAX;
 
 impl TileGeometry {
     /// A tile without any surface (all texels uncovered).
@@ -77,6 +81,12 @@ impl TileGeometry {
     pub fn coverage(&self, i: usize) -> f32 {
         self.texels.as_ref().map_or(0.0, |t| t.coverage[i])
     }
+
+    /// Mesh part ([`subcraft_mesh::topology::mesh_elements`]) under texel `i`, if any.
+    #[inline]
+    pub fn part(&self, i: usize) -> Option<u32> {
+        self.texels.as_ref().map(|t| t.part[i]).filter(|&p| p != NO_PART)
+    }
 }
 
 /// Lazily built per-tile geometry for one texture set at one resolution.
@@ -91,6 +101,8 @@ pub struct TextureSetGeometry {
     pub max_extent: f32,
     bins: Vec<Vec<u32>>,
     tiles: Box<[OnceLock<Arc<TileGeometry>>]>,
+    /// Mesh part per triangle (computed on first use).
+    parts: OnceLock<Vec<u32>>,
 }
 
 impl std::fmt::Debug for TextureSetGeometry {
@@ -130,6 +142,7 @@ impl TextureSetGeometry {
             max_extent,
             bins,
             tiles: (0..n).map(|_| OnceLock::new()).collect(),
+            parts: OnceLock::new(),
         }
     }
 
@@ -144,6 +157,11 @@ impl TextureSetGeometry {
     /// Triangles whose (rim-expanded) UV footprint touches tile `index`.
     pub fn tile_triangles(&self, index: usize) -> &[u32] {
         &self.bins[index]
+    }
+
+    /// Mesh part of every triangle ([`subcraft_mesh::topology::mesh_elements`]).
+    pub fn triangle_parts(&self) -> &[u32] {
+        self.parts.get_or_init(|| subcraft_mesh::topology::mesh_elements(&self.mesh))
     }
 
     /// Normalize an object-space position into the 0..1 (by max extent) frame.
@@ -175,6 +193,8 @@ impl TextureSetGeometry {
         let mut position = vec![[0.0f32; 3]; TILE_TEXELS].into_boxed_slice();
         let mut normal = vec![[0.0f32; 3]; TILE_TEXELS].into_boxed_slice();
         let mut coverage = vec![0.0f32; TILE_TEXELS].into_boxed_slice();
+        let mut part = vec![NO_PART; TILE_TEXELS].into_boxed_slice();
+        let parts = self.triangle_parts();
         for ly in 0..s.height as usize {
             for lx in 0..s.width as usize {
                 let si = ly * s.width as usize + lx;
@@ -186,9 +206,10 @@ impl TextureSetGeometry {
                 position[di] = self.normalize_position(p).to_array();
                 normal[di] = [s.normal[si][0], s.normal[si][1], s.normal[si][2]];
                 coverage[di] = 1.0;
+                part[di] = parts[s.triangle[si] as usize];
             }
         }
-        TileGeometry { index, x0, y0, resolution: self.resolution, texels: Some(TileTexels { position, normal, coverage }) }
+        TileGeometry { index, x0, y0, resolution: self.resolution, texels: Some(TileTexels { position, normal, coverage, part }) }
     }
 }
 

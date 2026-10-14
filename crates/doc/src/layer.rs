@@ -105,7 +105,30 @@ pub struct Layer {
     pub visible: bool,
     pub blend: BTreeMap<ChannelKind, ChannelBlend>,
     pub mask: Option<Mask>,
+    /// Show the layer only on these mesh parts (like a geometry mask); `None` = everywhere.
+    pub parts: Option<PartMask>,
     pub content: LayerContent,
+}
+
+/// The mesh parts (connected pieces, see `subcraft_mesh::topology::mesh_elements`) a layer is
+/// visible on. Multiplies the layer's mask; independent of it.
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct PartMask {
+    pub enabled: bool,
+    /// Visible part ids. Ids are stable for a given mesh (the mesh is stored in the project).
+    pub parts: std::collections::BTreeSet<u32>,
+}
+
+impl PartMask {
+    pub fn new(parts: impl IntoIterator<Item = u32>) -> Self {
+        Self { enabled: true, parts: parts.into_iter().collect() }
+    }
+
+    /// Visibility factor for texels of `part` (texels outside every triangle have no part).
+    #[inline]
+    pub fn factor(&self, part: Option<u32>) -> f32 {
+        if !self.enabled || part.is_some_and(|p| self.parts.contains(&p)) { 1.0 } else { 0.0 }
+    }
 }
 
 fn default_blends(ts: &TextureSet, folder: bool) -> BTreeMap<ChannelKind, ChannelBlend> {
@@ -132,6 +155,7 @@ impl Layer {
             visible: true,
             blend: default_blends(ts, false),
             mask: None,
+            parts: None,
             content: LayerContent::Paint(PaintContent::default()),
         }
     }
@@ -149,6 +173,7 @@ impl Layer {
             visible: true,
             blend: default_blends(ts, false),
             mask: None,
+            parts: None,
             content: LayerContent::Fill(FillContent { projection: Projection::default(), channels }),
         }
     }
@@ -160,6 +185,7 @@ impl Layer {
             visible: true,
             blend: default_blends(ts, true),
             mask: None,
+            parts: None,
             content: LayerContent::Group(GroupContent { children: Vec::new(), expanded: true }),
         }
     }
@@ -266,7 +292,7 @@ impl Layer {
 
     /// Equality ignoring raster contents (used for dirty-region diffing).
     pub fn same_parameters(&self, other: &Layer) -> bool {
-        if self.id != other.id || self.visible != other.visible || self.blend != other.blend {
+        if self.id != other.id || self.visible != other.visible || self.blend != other.blend || self.parts != other.parts {
             return false;
         }
         let masks_same = match (&self.mask, &other.mask) {
