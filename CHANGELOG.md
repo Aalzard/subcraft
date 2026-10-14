@@ -15,6 +15,10 @@ What changed in SubCraft, newest first. Download the latest build from the
   strength, Roughness / Metallic / AO strength, Base Color brightness, Emissive intensity. Saved in
   projects (older projects open at full strength).
 
+### Fixed
+- SubCraft crashed at startup on some PCs (older Intel graphics drivers, `igvk64.dll`). On
+  Windows it now runs on Direct3D 12 instead of Vulkan; set `WGPU_BACKEND=vulkan` to go back.
+
 ## 0.1.0
 
 ### New
