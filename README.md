@@ -16,7 +16,7 @@ smart materials, bake mesh maps, and export game-ready textures.
 > download to get the button. See the [changelog](CHANGELOG.md).
 
 New here? Follow the [illustrated getting-started guide](docs/getting-started.md). A welcome
-screen and six-step in-app guide are in development for the next desktop release.
+screen and six-step in-app guide are available in the browser and included in the next desktop release.
 
 > **Status: early but usable.** The core engine, painting, baking, smart materials, save/load and
 > export all work and are covered by tests. Expect rough edges, missing features and breaking
@@ -25,12 +25,21 @@ screen and six-step in-app guide are in development for the next desktop release
 
 ## Features
 
-- **Welcome and quick start (in development)**: open a model/project, try the sample, see what's new, or follow
+- **Welcome and quick start (next desktop release)**: open a model/project, try the sample, see what's new, or follow
   the six-step guide from Help. Desktop recent files make it easy to resume; the startup screen
   can be turned off on the welcome screen or in Preferences. The hub fits narrow windows.
 - **Layer stack**: paint layers, fill layers (uniform, procedural, image and mesh-map sources) and
   folders, with 32 blend modes and opacity per channel. Right-click a layer to duplicate, delete or
   save it to your library.
+- **Layer tree editing (next desktop release)**: drag a layer's name or row above/below another
+  layer; drop in the center of a folder to put it inside. Drop at **Top level — top/bottom** to
+  move it out. Folder arrows expand/collapse; double-click a name or press **F2** to rename
+  inline (**Enter** accepts, **Esc** cancels). Moves and renames support undo/redo and project
+  save/load. Folder drop zones and rename are adapted from
+  [CalangoTech's Studio fork](https://github.com/CalangoTech/subcraft/commit/bd6c064).
+
+  <img src="docs/screenshots/layer-tree.png" alt="SubCraft layer tree with an expanded Details folder, an indented paint layer and top-level drop targets" width="640">
+
 - **PBR channels**: base color, roughness, metallic, normal, height (shown as bumps), ambient occlusion.
 - **Your own textures**: use any image (PNG, JPG, TGA, TIF, EXR…) in a fill layer with UV, tri-planar or
   planar projection, or **import a whole texture set** (base color, roughness, normal, height…) as one

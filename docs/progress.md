@@ -750,16 +750,49 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   under the original repository's output/textures and output/alphas. Total PNG sizes are
   12,311,802 bytes for normals and 1,583,193 for alphas. These are not in v0.1.4 yet.
 
+### Session 35 — layer tree editing (2026-10-15)
+
+* Welcome PR #35 merged as c152e97 after its required checks passed. The owner then moved
+  fundamental editing ahead of the starter pack: layer dragging/folders first, then an
+  editable pen/Bézier path tool in its own PR.
+* Reviewed CalangoTech's Studio fork, including bd6c064's layer tree. Adapted its folder drop
+  zones and inline rename, retaining SubCraft's Parts/mask/generator menus. Rows/names drag
+  directly; app-level destination rules handle bottom-to-top indices, nested moves, cycles,
+  stale UUIDs/texture sets and no-op drops. Separate top/bottom root zones let layers leave
+  folders. A move selects the layer and opens its destination folder in one history entry.
+* Added folder disclosure buttons, correct open/closed icons, inline double-click/F2 rename,
+  Enter/focus-loss commit, Esc cancellation and blank-name rejection. The context menu also
+  offers Group, Move into folder and Move to top level. Existing schema 3 already stores folder
+  expansion and the tree; no schema bump is needed. Shelf payloads keep their existing route.
+* Validation: 270 workspace tests and clippy passed (existing warnings); 12 new app/UI regressions
+  exercise real egui pointer/key events, long-list edge scrolling, nested/cyclic/stale
+  destinations, numeric composite colors, undo/redo, folder opening and save/load.
+* Desktop and web dist builds passed. Shipping GUI launch opened the generated seven-object,
+  1,008-triangle model/project with isolated data/library, saved `docs/screenshots/layer-tree.png`
+  and exited successfully on D3D12. No desktop input was sent. Browser checks on port 8773
+  verified dragging names above/below folders, collapsing, dropping into a collapsed folder,
+  leaving it via the root target, undo/redo, double-click rename and Enter. The edited 9,888-byte
+  project downloaded and reopened with its order, hierarchy and renamed layer intact. Existing
+  eframe viewport warnings appeared; no runtime errors were observed.
+* Web wasm: 16,161,410 bytes, +50,815 (+0.32%) versus the welcome build. Native executable:
+  28,775,424 bytes. README includes the real desktop screenshot and fork credit. Linux/native
+  mouse gestures were not run locally; Linux checks run in CI, and direct egui input plus browser
+  gestures cover the shared interaction code. The PR still needs the owner's merge approval;
+  these edits are not in public desktop v0.1.4 yet.
+
 ## Next steps (in order)
 
 Current priorities requested by the owner:
 1. ~~Right-click texturing and Parts~~ — session 30; PR #34 merged.
-2. Welcome screen, recent files, quick-start guide and screenshot documentation — sessions 31/34;
-   verified and merge authorized; waiting for the final commit's required checks.
-3. Bundle the owner's normal/alpha starter pack, shelf previews and measured desktop/web sizes.
-4. Real multi-part FBX/GLB bake → smart material → paint → export; layer dragging/inline rename.
-5. Browser import/save/export verification and work split across frames.
-6. Projection painting, clone, smudge/blur, followed by the remaining engine/library follow-ups.
+2. ~~Welcome screen, recent files, quick-start guide and screenshot documentation~~ — sessions
+   31/34; PR #35 merged. Included in the next desktop release; the public desktop is v0.1.4.
+3. Layer dragging, folder controls and inline rename — session 35; implemented and tested,
+   awaiting PR review and the owner's merge approval.
+4. Editable pen/Bézier paths (owner's clarification), as a separate tool feature.
+5. Bundle the owner's normal/alpha starter pack, shelf previews and measured desktop/web sizes.
+6. Real multi-part FBX/GLB bake → smart material → paint → export.
+7. Browser import/save/export verification and work split across frames.
+8. Projection painting, clone, smudge/blur, followed by the remaining engine/library follow-ups.
 
 Earlier roadmap details:
 

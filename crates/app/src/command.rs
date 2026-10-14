@@ -36,10 +36,13 @@ pub enum Command {
     /// Wrap the layer into a new folder.
     GroupLayer(LayerId),
     MoveLayer { layer: LayerId, parent: Option<LayerId>, index: usize },
+    /// Visual layer-tree drop. The controller validates UUIDs, cycles and insertion indices.
+    DropLayer { texture_set: TextureSetId, layer: LayerId, target: crate::layer_tree::DropTarget },
     /// One step up / down among siblings (up = towards the top of the stack).
     MoveUp(LayerId),
     MoveDown(LayerId),
     SetVisible { layer: LayerId, visible: bool },
+    SetFolderExpanded { layer: LayerId, expanded: bool },
     Rename { layer: LayerId, name: String },
     SetBlendMode { layer: LayerId, channel: ChannelKind, mode: BlendMode },
     /// Coalesces with neighbouring opacity edits of the same layer/channel until [`Command::Seal`].

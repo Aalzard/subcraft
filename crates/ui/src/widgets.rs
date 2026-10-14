@@ -207,7 +207,12 @@ pub fn badge(ui: &mut Ui, text: &str, color: Color32) -> Response {
 /// A full-width selectable list row. `content` lays out left-to-right inside the row; widgets
 /// added there take clicks before the row does.
 pub fn list_row(ui: &mut Ui, selected: bool, content: impl FnOnce(&mut Ui)) -> Response {
-    let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), ROW_HEIGHT), Sense::click());
+    list_row_sense(ui, selected, Sense::click(), content)
+}
+
+/// A list row that can also accept a drag, while its child buttons keep their own clicks.
+pub fn list_row_sense(ui: &mut Ui, selected: bool, sense: Sense, content: impl FnOnce(&mut Ui)) -> Response {
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), ROW_HEIGHT), sense);
     let painter = ui.painter();
     if selected {
         painter.rect_filled(rect, CornerRadius::ZERO, ACCENT_SOFT);
