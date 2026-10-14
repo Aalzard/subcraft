@@ -15,6 +15,8 @@ pub mod part_workflow;
 pub mod recovery;
 pub mod session;
 pub mod thumbnails;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod updater;
 
 pub use actions::{ACTIONS, Action, ActionInfo, Key, Shortcut, action_for};
 pub use bake_job::{BakeJob, BakeRequest};

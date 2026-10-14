@@ -15,6 +15,7 @@ path = "src/main.rs"
 [features]
 # Packaged Windows builds: run as a GUI app (no console window). `scripts/build-windows.ps1` enables it.
 windows-gui = []
+update-fixture = ["subcraft-ui/update-fixture", "subcraft-app/update-fixture"]
 
 [dependencies]
 subcraft-ui.workspace = true

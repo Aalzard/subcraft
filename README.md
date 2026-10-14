@@ -11,9 +11,9 @@ smart materials, bake mesh maps, and export game-ready textures.
 
 ![SubCraft](docs/screenshots/ui-redesign.png)
 
-> **New in v0.1.3:** right-click a model part to fill, paint or mask it, add generators, pick
-> color/material, or isolate/hide it. A Parts panel lists connected pieces, UV islands, object
-> names and material IDs. See the [changelog](CHANGELOG.md).
+> **v0.1.4:** the green **Check / update** button downloads, installs and restarts
+> future desktop releases with your unsaved project restored. Versions through v0.1.3 need one
+> download to get the button. See the [changelog](CHANGELOG.md).
 
 > **Status: early but usable.** The core engine, painting, baking, smart materials, save/load and
 > export all work and are covered by tests. Expect rough edges, missing features and breaking
@@ -59,6 +59,10 @@ smart materials, bake mesh maps, and export game-ready textures.
   SubCraft crashes or is closed by force, it offers to bring your work back on the next start.
 - **Bug reports**: Help → Report a bug… opens a GitHub issue with your version, OS and GPU filled
   in. Logs and crash reports stay on your PC (`%LOCALAPPDATA%\SubCraft`) until you attach them.
+- **Desktop updates** (v0.1.4): the green **Check / update** button downloads the latest
+  stable release, verifies it, installs and restarts with your unsaved project restored.
+  Installed Windows copies use the installer; portable Windows/Linux x64 copies replace their
+  executable. Windows asks for permission when updating an all-users installation.
 - **Projects and export**: `.subcraft` project files; export templates for PBR metal/rough, Unreal
   (ORM + DirectX normal), Unity HDRP (mask map) and glTF.
 - **Mesh import**: OBJ, glTF / GLB and FBX.
@@ -91,7 +95,16 @@ Prefer no installer? Download **`SubCraft-<version>-windows-x64.zip`** instead, 
 `SubCraft.exe`. Either way, any GPU with DirectX 12 works (SubCraft uses Direct3D 12 on Windows; to
 try Vulkan instead, set the environment variable `WGPU_BACKEND=vulkan`).
 
-The installer replaces an earlier installed version. Download again from **Releases → latest**
+The installer replaces an earlier installed version. Versions through v0.1.3 need one download
+to get the new green **Check / update** button. Once you have it, click the button in the top bar
+to install future stable releases and restart with your project restored. Wait until release
+packages finish uploading if the app says they are still being prepared.
+
+<img src="docs/screenshots/update-restart.png" alt="SubCraft restarted after an update, with the green update button and unsaved project restored" width="800">
+
+*Local installer update test: the original project and unsaved layer edits are restored.*
+
+Download again from **Releases → latest**
 to get the current desktop build; the browser version updates separately when changes land on
 main. Features in open pull requests are available after they are merged and released.
 

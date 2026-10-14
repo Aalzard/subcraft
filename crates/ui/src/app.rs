@@ -63,6 +63,12 @@ impl Tab {
 /// Command-line options.
 #[derive(Clone, Debug, Default)]
 pub struct LaunchOptions {
+    /// Open a workspace snapshot preserved during an in-app update.
+    pub resume_update: Option<PathBuf>,
+    /// Check releases on startup (scripted verification / Help).
+    pub check_updates: bool,
+    #[cfg(all(feature = "update-fixture", not(target_arch = "wasm32")))]
+    pub auto_update_fixture: bool,
     /// Project (`.subcraft`) or mesh to open instead of the sample crate.
     pub mesh: Option<PathBuf>,
     /// Build a small demo layer stack (fills, masks and painted strokes) on start.
@@ -110,7 +116,13 @@ impl SubcraftApp {
         theme::apply(&cc.egui_ctx);
         let mut status = None;
         let is_project = |p: &std::path::Path| p.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case(subcraft_app::PROJECT_EXTENSION));
-        let session = match &options.mesh {
+        #[cfg(not(target_arch = "wasm32"))]
+        let resumed = options.resume_update.as_ref().and_then(|path| match subcraft_app::updater::resume_session(path) {
+            Ok(session) => Some(session), Err(e) => { status = Some(format!("Could not restore update snapshot: {e}")); None }
+        });
+        #[cfg(target_arch = "wasm32")]
+        let resumed: Option<Session> = None;
+        let session = if let Some(session) = resumed { session } else { match &options.mesh {
             Some(path) if is_project(path) => match Session::open_project(path) {
                 Ok(s) => s,
                 Err(e) => {
@@ -131,11 +143,22 @@ impl SubcraftApp {
                 }
             },
             None => Session::sample(),
-        };
+        }};
+        #[cfg(not(target_arch = "wasm32"))]
+        let restore_failed = status.is_some();
         let mut state = UiState::new(session, cc.wgpu_render_state.clone())
             .with_user_library(subcraft_app::assets::UserLibrary::default_root().map(subcraft_app::assets::UserLibrary::new));
         if let Some(s) = status {
             state.set_status(s, 0.0);
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if !restore_failed && let Some(path) = &options.resume_update {
+                let result = std::fs::read_to_string(path.with_file_name("result.txt")).unwrap_or_else(|_| "Your workspace was restored after an update.".into());
+                state.set_status(result.clone(), 0.0);
+                if result.starts_with("Update failed") && let Some(updater) = &mut state.updater { updater.open = true; updater.phase = subcraft_app::updater::Phase::Error(result); }
+            }
+            if options.check_updates && let Some(updater) = &mut state.updater { updater.check(); }
         }
         crate::bug_report::record_gpu(cc.wgpu_render_state.as_ref());
         state.bug_report = crate::bug_report::BugReportUi::load();
@@ -148,6 +171,8 @@ impl SubcraftApp {
         if options.demo {
             build_demo(&mut state);
         }
+        #[cfg(all(feature = "update-fixture", not(target_arch = "wasm32")))]
+        if options.auto_update_fixture && let Some(updater) = &mut state.updater { updater.request_update(); }
         let dock = cc
             .storage
             .and_then(|s| s.get_string(DOCK_KEY))
@@ -234,6 +259,7 @@ impl SubcraftApp {
             if secondary_button(ui, format!("{}  Bake", icons::MAGIC_WAND)).on_hover_text("Bake mesh maps (Ctrl+B)").clicked() {
                 self.perform(Action::Bake, now);
             }
+            crate::updates::button(&mut self.state, ui);
             if icon_button(ui, icons::SAVE, "Save (Ctrl+S)").clicked() {
                 self.perform(Action::Save, now);
             }
@@ -404,6 +430,8 @@ impl SubcraftApp {
             });
             ui.menu_button("Help", |ui| {
                 ui.set_min_width(240.0);
+                #[cfg(not(target_arch = "wasm32"))]
+                if item(ui, icons::DOWNLOAD, "Check for updates…", "") { if let Some(updater) = &mut self.state.updater { updater.check(); } ui.close(); }
                 if item(ui, icons::KEYBOARD, "Keyboard shortcuts", "") {
                     self.state.show_shortcuts = true;
                     ui.close();
@@ -634,6 +662,7 @@ impl eframe::App for SubcraftApp {
         crate::recovery::prompt(&mut self.state, &ctx, now);
         crate::bug_report::report_window(&mut self.state, &ctx);
         crate::bug_report::crash_window(&mut self.state, &ctx);
+        crate::updates::tick(&mut self.state, &ctx);
         if self.test_crash && self.frames > 30 {
             panic!("test crash requested with --test-crash");
         }
