@@ -1,5 +1,8 @@
 # SubCraft
 
+[![Download for Windows](https://img.shields.io/badge/Download-Windows%20installer-ff7a1a?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/Aalzard/subcraft/releases/latest)
+[![Latest release](https://img.shields.io/github/v/release/Aalzard/subcraft?style=for-the-badge&label=latest&color=2b2b2b)](https://github.com/Aalzard/subcraft/releases/latest)
+
 An independent, open-source 3D texture painting application in the spirit of Substance Painter,
 written in Rust. Paint directly on 3D models with layered PBR materials, masks, generators and
 smart materials, bake mesh maps, and export game-ready textures.
@@ -32,10 +35,15 @@ smart materials, bake mesh maps, and export game-ready textures.
 
 ## Download (Windows)
 
-Grab `SubCraft-<version>-windows-x64.zip` from the
-[Releases page](https://github.com/Aalzard/subcraft/releases), unzip it and run `SubCraft.exe`.
-Nothing else to install; any GPU with DirectX 12 or Vulkan works. (The exe isn't code-signed, so
-SmartScreen may ask: **More info → Run anyway**.)
+1. Open the [latest release](https://github.com/Aalzard/subcraft/releases/latest) and download
+   **`SubCraft-<version>-setup.exe`** under **Assets**.
+2. Run it. Windows SmartScreen may say "Windows protected your PC" because the installer isn't
+   code-signed yet: click **More info → Run anyway**.
+3. Follow the steps (you can choose "Install for me only" if you don't have admin rights), then
+   start SubCraft from the Start Menu. Uninstall it any time from **Settings → Apps**.
+
+Prefer no installer? Download **`SubCraft-<version>-windows-x64.zip`** instead, unzip it and run
+`SubCraft.exe`. Either way, any GPU with DirectX 12 or Vulkan works.
 
 ## Building from source
 
