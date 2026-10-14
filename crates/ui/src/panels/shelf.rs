@@ -15,6 +15,36 @@ use subcraft_render::{SHADED_CHANNELS, ViewParams, ViewportRenderer};
 use crate::state::UiState;
 use crate::theme;
 
+/// A shelf item being dragged onto the viewport or the layer stack.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ShelfDrag {
+    Material(usize),
+    SmartMaterial(usize),
+    SmartMask(usize),
+}
+
+/// Apply a material / smart material (inserted above the selected layer of the selected
+/// texture set) or a smart mask (on the selected layer). Shared by clicks and drops.
+pub fn apply_shelf_item(s: &mut UiState, item: ShelfDrag, now: f64) {
+    let result = match item {
+        ShelfDrag::Material(i) => match s.library.materials.get(i).cloned() {
+            Some(m) => s.session.add_material(&m).map_err(|e| e.to_string()),
+            None => Ok(()),
+        },
+        ShelfDrag::SmartMaterial(i) => match s.library.smart_materials.get(i).cloned() {
+            Some(m) => s.session.add_smart_material(&m).map_err(|e| e.to_string()),
+            None => Ok(()),
+        },
+        ShelfDrag::SmartMask(i) => match s.library.smart_masks.get(i).cloned() {
+            Some(m) => s.session.apply_smart_mask(&m).map_err(|e| format!("{e} (select a layer first)")),
+            None => Ok(()),
+        },
+    };
+    if let Err(e) = result {
+        s.set_status(e, now);
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ShelfTab {
     Materials,
@@ -125,7 +155,23 @@ const TILE: f32 = 88.0;
 
 /// Thumbnail tile: square image with a hairline frame (accent when hovered / selected), name below.
 fn tile(ui: &mut Ui, thumb: Option<&egui::TextureHandle>, name: &str, selected: bool, tooltip: &str) -> egui::Response {
-    let (rect, resp) = ui.allocate_exact_size(egui::vec2(TILE, TILE + 22.0), egui::Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(TILE, TILE + 22.0), egui::Sense::click_and_drag());
+    if resp.dragged()
+        && egui::DragAndDrop::has_payload_of_type::<ShelfDrag>(ui.ctx())
+        && let Some(p) = ui.ctx().pointer_latest_pos()
+    {
+        egui::Area::new(egui::Id::new("shelf-drag-ghost"))
+            .order(egui::Order::Tooltip)
+            .fixed_pos(p + egui::vec2(14.0, 10.0))
+            .interactable(false)
+            .show(ui.ctx(), |ui| {
+                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    ui.label(RichText::new(format!("{}  {name}", crate::icons::PLUS)).color(theme::TEXT));
+                    ui.label(RichText::new("Drop on the model or a layer").small().color(theme::TEXT_FAINT));
+                });
+            });
+        ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+    }
     let img = egui::Rect::from_min_size(rect.min, egui::vec2(TILE, TILE));
     let painter = ui.painter();
     painter.rect_filled(img, 0.0, theme::FIELD);
@@ -312,13 +358,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                             continue;
                         }
                         shown += 1;
-                        if tile(ui, thumbs.get(&m.id), &m.name, false, &format!("{} ({}): add as a fill layer", m.name, m.category)).clicked() {
-                            action = Some(Box::new(move |s: &mut UiState| {
-                                let m = s.library.materials[i].clone();
-                                if let Err(e) = s.session.add_material(&m) {
-                                    s.set_status(e.to_string(), now);
-                                }
-                            }));
+                        let resp = tile(ui, thumbs.get(&m.id), &m.name, false, &format!("{} ({}): click or drag onto the model / a layer", m.name, m.category));
+                        resp.dnd_set_drag_payload(ShelfDrag::Material(i));
+                        if resp.clicked() {
+                            action = Some(Box::new(move |s: &mut UiState| apply_shelf_item(s, ShelfDrag::Material(i), now)));
                         }
                     }
                 }
@@ -328,7 +371,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                             continue;
                         }
                         shown += 1;
-                        let resp = tile(ui, thumbs.get(&m.id), &m.name, false, &format!("{}: add as a folder of masked layers", m.name));
+                        let resp = tile(ui, thumbs.get(&m.id), &m.name, false, &format!("{}: click or drag onto the model / a layer", m.name));
+                        resp.dnd_set_drag_payload(ShelfDrag::SmartMaterial(i));
                         if let Some(file) = &m.user_file
                             && library_menu(&resp, state.user_library.as_ref(), file, &mut lib_status)
                         {
@@ -337,12 +381,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                             }));
                         }
                         if resp.clicked() {
-                            action = Some(Box::new(move |s: &mut UiState| {
-                                let m = s.library.smart_materials[i].clone();
-                                if let Err(e) = s.session.add_smart_material(&m) {
-                                    s.set_status(e.to_string(), now);
-                                }
-                            }));
+                            action = Some(Box::new(move |s: &mut UiState| apply_shelf_item(s, ShelfDrag::SmartMaterial(i), now)));
                         }
                     }
                 }
@@ -352,7 +391,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                             continue;
                         }
                         shown += 1;
-                        let resp = tile(ui, thumbs.get(&m.id), &m.name, false, &format!("{}: mask the selected layer", m.name));
+                        let resp = tile(ui, thumbs.get(&m.id), &m.name, false, &format!("{}: click to mask the selected layer, or drag onto a layer", m.name));
+                        resp.dnd_set_drag_payload(ShelfDrag::SmartMask(i));
                         if let Some(file) = &m.user_file
                             && library_menu(&resp, state.user_library.as_ref(), file, &mut lib_status)
                         {
@@ -361,12 +401,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                             }));
                         }
                         if resp.clicked() {
-                            action = Some(Box::new(move |s: &mut UiState| {
-                                let m = s.library.smart_masks[i].clone();
-                                if let Err(e) = s.session.apply_smart_mask(&m) {
-                                    s.set_status(format!("{e} (select a layer first)"), now);
-                                }
-                            }));
+                            action = Some(Box::new(move |s: &mut UiState| apply_shelf_item(s, ShelfDrag::SmartMask(i), now)));
                         }
                     }
                 }
