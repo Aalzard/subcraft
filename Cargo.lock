@@ -3206,6 +3206,7 @@ name = "subcraft-app"
 version = "0.1.2"
 dependencies = [
  "anyhow",
+ "dirs",
  "glam",
  "log",
  "parking_lot",
@@ -3223,6 +3224,7 @@ dependencies = [
  "subcraft-paint",
  "subcraft-project",
  "uuid",
+ "web-time",
 ]
 
 [[package]]

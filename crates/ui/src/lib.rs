@@ -9,6 +9,7 @@ pub mod files;
 pub mod icons;
 pub mod orbit;
 pub mod panels;
+pub mod recovery;
 pub mod state;
 pub mod theme;
 pub mod viewport;

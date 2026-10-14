@@ -6,6 +6,13 @@ What changed in SubCraft, newest first. Download the latest build from the
 ## Unreleased
 
 ### New
+- **Autosave and crash recovery**: SubCraft saves a recovery copy of the open project in the
+  background every 5 minutes (change it in Edit → Preferences) and after big operations like
+  baking or applying a smart material. Copies go to `%LOCALAPPDATA%\SubCraft\recovery` (the last 3
+  are kept), never over your own `.subcraft` file. If SubCraft crashes or gets killed, the next
+  start asks *"SubCraft didn't close properly. Recover your last session?"* with Recover / Discard /
+  Show folder. In the browser it reminds you to download a backup instead, and closing the tab
+  with unsaved work asks first.
 - **Web version**: use SubCraft in the browser at https://aalzard.github.io/subcraft/ (needs
   WebGPU). Open uploads files, Save and Export download them. FBX is desktop only, and big
   operations are slower than in the desktop app.

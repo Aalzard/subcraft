@@ -105,6 +105,25 @@ pub struct Session {
     saved_doc: Document,
     /// Mesh maps changed (baked) since the last save.
     maps_dirty: bool,
+    /// Bumped whenever baked mesh maps change (autosave change tracking).
+    maps_generation: u64,
+    /// Opened from a recovery copy: unsaved until the user saves.
+    recovered: bool,
+}
+
+/// Everything a project file holds, captured cheaply (shared tiles and resources) so it can be
+/// written on a background thread while editing continues.
+pub struct ProjectSnapshot {
+    pub mesh: Arc<Mesh>,
+    pub document: Document,
+    pub resources: ResourceStore,
+    pub mesh_maps: subcraft_project::MeshMapSet,
+}
+
+impl ProjectSnapshot {
+    pub fn save(&self, path: &Path) -> Result<(), String> {
+        subcraft_project::save_project(path, &self.mesh, &self.document, &self.resources, &self.mesh_maps).map_err(|e| e.to_string())
+    }
 }
 
 impl Session {
@@ -152,16 +171,22 @@ impl Session {
             layer_counter,
             project_path: None,
             maps_dirty: false,
+            maps_generation: 0,
+            recovered: false,
         }
     }
 
     /// Open a `.subcraft` project.
     pub fn open_project(path: &Path) -> Result<Self, String> {
+        Self::open_project_labeled(path, "Open Project")
+    }
+
+    pub(crate) fn open_project_labeled(path: &Path, label: &str) -> Result<Self, String> {
         let data = subcraft_project::load_project(path).map_err(|e| e.to_string())?;
         if data.document.texture_sets.is_empty() {
             return Err("project has no texture sets".into());
         }
-        let mut s = Self::from_parts(data.mesh, data.document, data.resources, "Open Project");
+        let mut s = Self::from_parts(data.mesh, data.document, data.resources, label);
         s.project_path = Some(path.to_path_buf());
         for (ts, maps) in data.mesh_maps {
             s.mesh_maps.insert(ts, MeshMaps::from_map(maps));
@@ -183,7 +208,34 @@ impl Session {
         self.project_path = Some(path.clone());
         self.saved_doc = self.doc.clone();
         self.maps_dirty = false;
+        self.recovered = false;
         Ok(path)
+    }
+
+    /// The last committed state (no half-finished stroke) for a background save.
+    pub fn snapshot(&self) -> ProjectSnapshot {
+        ProjectSnapshot {
+            mesh: self.scene.mesh.clone(),
+            document: self.history.current().clone(),
+            resources: self.resources.clone(),
+            mesh_maps: self.mesh_maps.iter().map(|(id, m)| (*id, m.as_map().clone())).collect(),
+        }
+    }
+
+    /// Changes whenever baked mesh maps change.
+    pub fn maps_generation(&self) -> u64 {
+        self.maps_generation
+    }
+
+    /// After opening a recovery copy: point at the user's own file again and count as unsaved.
+    pub(crate) fn mark_recovered(&mut self, project_path: Option<PathBuf>) {
+        self.project_path = project_path;
+        self.recovered = true;
+    }
+
+    /// Opened from a recovery copy and not saved since.
+    pub fn is_recovered(&self) -> bool {
+        self.recovered
     }
 
     pub fn project_path(&self) -> Option<&Path> {
@@ -192,7 +244,7 @@ impl Session {
 
     /// True if the document differs from the last save / load.
     pub fn is_modified(&self) -> bool {
-        self.maps_dirty || self.doc != self.saved_doc
+        self.maps_dirty || self.recovered || self.doc != self.saved_doc
     }
 
     // ----- baking --------------------------------------------------------------------------------
@@ -212,6 +264,7 @@ impl Session {
             c.invalidate();
         }
         self.maps_dirty = true;
+        self.maps_generation += 1;
         self.revision += 1;
     }
 

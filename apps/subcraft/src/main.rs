@@ -30,8 +30,12 @@ fn main() -> anyhow::Result<()> {
             "--demo" => options.demo = true,
             "--view-2d" => options.view_2d = true,
             "--screenshot" => options.screenshot = args.next().map(Into::into),
+            "--recover" => options.recover = true,
+            "--autosave-interval" => {
+                options.autosave_interval = args.next().and_then(|s| s.parse::<f64>().ok()).map(std::time::Duration::from_secs_f64);
+            }
             "-h" | "--help" => {
-                println!("usage: subcraft [project.subcraft | mesh file] [--demo] [--view-2d] [--screenshot out.png]");
+                println!("usage: subcraft [project.subcraft | mesh file] [--demo] [--view-2d] [--screenshot out.png] [--recover] [--autosave-interval seconds]");
                 return Ok(());
             }
             path => options.mesh = Some(path.into()),

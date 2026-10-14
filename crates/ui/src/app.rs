@@ -68,6 +68,10 @@ pub struct LaunchOptions {
     pub screenshot: Option<PathBuf>,
     /// Start with the 2D (UV) view in front.
     pub view_2d: bool,
+    /// Recover the newest crashed session without asking.
+    pub recover: bool,
+    /// Autosave interval instead of the preference (testing).
+    pub autosave_interval: Option<std::time::Duration>,
 }
 
 pub fn default_layout() -> DockState<Tab> {
@@ -126,6 +130,12 @@ impl SubcraftApp {
             .with_user_library(subcraft_app::assets::UserLibrary::default_root().map(subcraft_app::assets::UserLibrary::new));
         if let Some(s) = status {
             state.set_status(s, 0.0);
+        }
+        let prefs = cc.storage.and_then(|s| s.get_string(crate::recovery::PREFS_KEY)).and_then(|j| serde_json::from_str(&j).ok()).unwrap_or_default();
+        state.recovery = crate::recovery::RecoveryUi::start(&state.session, prefs, options.autosave_interval);
+        if options.recover && !state.recovery.crashed.is_empty() {
+            let c = state.recovery.crashed.remove(0);
+            crate::recovery::recover(&mut state, c, 0.0);
         }
         if options.demo {
             build_demo(&mut state);
@@ -330,6 +340,11 @@ impl SubcraftApp {
                 if ui.add_enabled(can_redo, egui::Button::new(format!("{}   {redo}", icons::REDO)).shortcut_text("Ctrl+Y")).clicked() {
                     self.perform(Action::Redo, now);
                 }
+                ui.separator();
+                if item(ui, icons::SLIDERS, "Preferences…", "") {
+                    self.state.recovery.show_prefs = true;
+                    ui.close();
+                }
             });
             ui.menu_button("Layer", |ui| {
                 ui.set_min_width(240.0);
@@ -411,6 +426,15 @@ impl SubcraftApp {
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.label(small(format!("{:.1} ms", self.state.frame_time_ms), theme::TEXT_FAINT));
+                let rec = &self.state.recovery;
+                if rec.autosaver.is_saving() {
+                    ui.label(small(format!("{}  Autosaving…", icons::SAVE), theme::TEXT_FAINT));
+                } else if let Some(t) = rec.last_saved {
+                    let mins = t.elapsed().map_or(0, |d| d.as_secs() / 60);
+                    let when = if mins == 0 { "just now".to_string() } else { format!("{mins} min ago") };
+                    ui.label(small(format!("{}  Autosaved {when}", icons::SAVE), theme::TEXT_FAINT))
+                        .on_hover_text(rec.autosaver.live().map(|l| format!("Recovery copies: {}", l.dir().display())).unwrap_or_default());
+                }
                 let mesh = &self.state.session.scene().mesh;
                 ui.label(small(format!("{} tris", mesh.triangle_count()), theme::TEXT_FAINT));
             });
@@ -573,6 +597,10 @@ impl eframe::App for SubcraftApp {
         }
         self.shortcuts_window(&ctx);
         let now = ctx.input(|i| i.time);
+        crate::recovery::tick(&mut self.state, &ctx, now);
+        crate::recovery::preferences_window(&mut self.state, &ctx);
+        crate::recovery::backup_reminder(&mut self.state, &ctx, now);
+        crate::recovery::prompt(&mut self.state, &ctx, now);
         dialogs::export_window(&mut self.state, &ctx, now);
         dialogs::bake_window(&mut self.state, &ctx, now);
         dialogs::poll_bake(&mut self.state, &ctx, now);
@@ -606,6 +634,14 @@ impl eframe::App for SubcraftApp {
         if let Ok(j) = serde_json::to_string(&self.dock) {
             storage.set_string(DOCK_KEY, j);
         }
+        if let Ok(j) = serde_json::to_string(&self.state.recovery.prefs) {
+            storage.set_string(crate::recovery::PREFS_KEY, j);
+        }
+    }
+
+    /// Clean exit: the recovery folder of this session is no longer needed.
+    fn on_exit(&mut self) {
+        self.state.recovery.autosaver.finish_clean();
     }
 }
 
