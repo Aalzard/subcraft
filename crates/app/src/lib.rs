@@ -10,6 +10,7 @@ pub mod command;
 pub mod diagnostics;
 pub mod images;
 pub mod library;
+pub mod launch;
 pub mod parts;
 pub mod part_workflow;
 pub mod recovery;

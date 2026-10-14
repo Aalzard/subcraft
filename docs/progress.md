@@ -612,11 +612,43 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   the final catalogue-cache/help-text adjustments were verified by the workspace/GPU tests and
   builds, but were not re-clicked in the browser after that block.
 
+### Session 31 — welcome screen and quick start
+
+* PR #34 merged after the owner approved it and all three required checks passed.
+* Welcome hub offers New from a model, Open project, Try the sample, desktop recent files,
+  Quick start and What's new. Startup display is optional, migrates older preferences to on,
+  and can be changed in the hub or Edit → Preferences. Help reopens all three windows.
+* Recent navigation history lives in desktop settings, keeps twelve deduplicated model/project
+  locations, refreshes availability on startup/open/save, and marks missing files as removable.
+  Successful opens/saves update it; failed opens retain the current document. Recent opens use
+  the existing unsaved-changes guard. Browser uploads are not recorded as persistent locations.
+* Six-step guide: model → bake → smart material → paint/Parts → save → export. Its buttons use
+  existing actions/dialogs, and Back/Next/Finish work without editing the project. Launcher data
+  and guide text live in app; widgets only dispatch actions. Added short welcome tooltips and a
+  full-changelog link. Screenshot flags: `--welcome`, `--quick-start`, `--guide-step 1..6`.
+* Added `docs/getting-started.md` with real app screenshots and linked it from README.
+  `screenshots/welcome.png` and `quick-start-parts.png` were captured by the release executable
+  from the throwaway seven-object OBJ/project fixture, using isolated data/library folders.
+* Verification: 246 workspace tests passed, including GPU tests, preference migration, recent
+  open/failure, unsaved guard, every guide page and synthetic egui button/navigation input.
+  Clippy completed with existing warnings. Desktop release and wasm/dist + wasm-bindgen builds
+  passed; both release-app screenshot runs exited successfully. No desktop input was driven.
+* Outstanding: browser welcome/guide interaction could not be verified because browser policy
+  rejected reconnecting to the local preview. No workaround was attempted; requested that the
+  owner reopen/tag the tab. This feature remains draft until that check is possible; starter-pack
+  implementation has not begun, preserving the requested feature order.
+* Starter-pack inventory only: all 60 source PNGs decoded/verified (30 RGB normal maps and 30
+  grayscale alphas, all 1024²). Normals are 12,311,802 bytes, alphas 1,583,193; gzip totals
+  13,589,367 bytes, only 2.2% smaller. Plan on-demand web loading rather than embedding those
+  images in the wasm. Baseline after this feature: release exe 26,303,488 bytes; web wasm
+  16,112,859 bytes. Source assets in the owner's primary checkout remain untouched.
+
 ## Next steps (in order)
 
 Current priorities requested by the owner:
-1. ~~Right-click texturing and Parts~~ — session 30; PR checks/merge tracked separately.
-2. Welcome screen, recent files, quick-start guide and screenshot documentation.
+1. ~~Right-click texturing and Parts~~ — session 30; PR #34 merged.
+2. Welcome screen, recent files, quick-start guide and screenshot documentation — session 31;
+   draft pending browser interaction verification.
 3. Bundle the owner's normal/alpha starter pack, shelf previews and measured desktop/web sizes.
 4. Real multi-part FBX/GLB bake → smart material → paint → export; layer dragging/inline rename.
 5. Browser import/save/export verification and work split across frames.

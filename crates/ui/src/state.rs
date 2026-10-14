@@ -27,6 +27,7 @@ pub struct UvView {
 }
 
 pub struct UiState {
+    pub welcome: crate::welcome::WelcomeUi,
     pub parts_kind: subcraft_core::PartKind,
     pub hovered_part: Option<subcraft_app::PartKey>,
     pub context_part: Option<subcraft_app::SurfaceTarget>,
@@ -93,6 +94,7 @@ impl UiState {
         session.brush.material.set(ChannelKind::BaseColor, subcraft_core::ChannelValue::rgb(0.85, 0.32, 0.06));
         let renderer = render_state.as_ref().map(|rs| ViewportRenderer::new(&rs.device, &rs.queue));
         Self {
+            welcome: Default::default(),
             parts_kind: subcraft_core::PartKind::Connected,
             hovered_part: None,
             context_part: None,
@@ -213,6 +215,7 @@ impl UiState {
         session.brush.material = self.session.brush.material.clone();
         self.camera = OrbitCamera::framing(&session.scene().mesh.bounds);
         self.session = session;
+        self.welcome.open = false;
         self.hovered_part = None;
         self.context_part = None;
         self.uploaded_view_revision = u64::MAX;

@@ -33,6 +33,13 @@ fn main() -> anyhow::Result<()> {
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
         match a.as_str() {
+            "--welcome" => options.welcome = true,
+            "--quick-start" => options.guide_step = Some(0),
+            "--guide-step" => {
+                let step = args.next().and_then(|s| s.parse::<usize>().ok()).filter(|s| (1..=6).contains(s))
+                    .ok_or_else(|| anyhow::anyhow!("--guide-step expects 1 through 6"))?;
+                options.guide_step = Some(step - 1);
+            }
             "--demo" => options.demo = true,
             "--view-2d" => options.view_2d = true,
             "--screenshot" => options.screenshot = args.next().map(Into::into),
@@ -42,7 +49,7 @@ fn main() -> anyhow::Result<()> {
                 options.autosave_interval = args.next().and_then(|s| s.parse::<f64>().ok()).map(std::time::Duration::from_secs_f64);
             }
             "-h" | "--help" => {
-                println!("usage: subcraft [project.subcraft | mesh file] [--demo] [--view-2d] [--screenshot out.png] [--recover] [--autosave-interval seconds]");
+                println!("usage: subcraft [project.subcraft | mesh file] [--demo] [--view-2d] [--screenshot out.png] [--welcome] [--quick-start] [--guide-step 1..6] [--recover] [--autosave-interval seconds]");
                 return Ok(());
             }
             path => options.mesh = Some(path.into()),

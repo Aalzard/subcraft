@@ -63,6 +63,10 @@ impl Tab {
 /// Command-line options.
 #[derive(Clone, Debug, Default)]
 pub struct LaunchOptions {
+    /// Open the welcome hub even when taking a screenshot.
+    pub welcome: bool,
+    /// Open a step of the in-app guide (zero-based).
+    pub guide_step: Option<usize>,
     /// Project (`.subcraft`) or mesh to open instead of the sample crate.
     pub mesh: Option<PathBuf>,
     /// Build a small demo layer stack (fills, masks and painted strokes) on start.
@@ -91,6 +95,29 @@ pub fn default_layout() -> DockState<Tab> {
 }
 
 const DOCK_KEY: &str = "subcraft_dock_v4";
+
+#[cfg(test)]
+mod launch_tests {
+    use super::*;
+
+    #[test]
+    fn recent_open_waits_for_unsaved_changes_before_replacing_a_session() {
+        let mut app = SubcraftApp {
+            state: UiState::new(Session::new(subcraft_mesh::primitives::cube(2.0), 128), None),
+            dock: default_layout(), frames: 0, screenshot: None, screenshot_requested: false,
+            pending_now: None, active_tabs: HashSet::new(), test_crash: false,
+        };
+        app.request(Pending::OpenRecent, 0.0);
+        assert_eq!(app.pending_now.take(), Some(Pending::OpenRecent));
+        assert_eq!(app.state.confirm, None);
+        app.state.session.execute(Command::AddLayer(NewLayer::Paint)).unwrap();
+        let doc = app.state.session.document().clone();
+        app.request(Pending::OpenRecent, 0.0);
+        assert_eq!(app.pending_now, None);
+        assert_eq!(app.state.confirm, Some(Pending::OpenRecent));
+        assert_eq!(app.state.session.document(), &doc);
+    }
+}
 
 pub struct SubcraftApp {
     state: UiState,
@@ -134,6 +161,8 @@ impl SubcraftApp {
         };
         let mut state = UiState::new(session, cc.wgpu_render_state.clone())
             .with_user_library(subcraft_app::assets::UserLibrary::default_root().map(subcraft_app::assets::UserLibrary::new));
+        #[cfg(not(target_arch = "wasm32"))]
+        let opened_from_arg = !status.as_ref().is_some_and(|s| s.starts_with("Could not open"));
         if let Some(s) = status {
             state.set_status(s, 0.0);
         }
@@ -141,6 +170,13 @@ impl SubcraftApp {
         state.bug_report = crate::bug_report::BugReportUi::load();
         let prefs = cc.storage.and_then(|s| s.get_string(crate::recovery::PREFS_KEY)).and_then(|j| serde_json::from_str(&j).ok()).unwrap_or_default();
         state.recovery = crate::recovery::RecoveryUi::start(&state.session, prefs, options.autosave_interval);
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            state.welcome.recent = cc.storage.and_then(|s| s.get_string(crate::welcome::RECENTS_KEY))
+                .and_then(|j| serde_json::from_str(&j).ok()).unwrap_or_default();
+            state.welcome.refresh();
+            if opened_from_arg && let Some(path) = &options.mesh { state.welcome.remember(path); }
+        }
         if options.recover && !state.recovery.crashed.is_empty() {
             let c = state.recovery.crashed.remove(0);
             crate::recovery::recover(&mut state, c, 0.0);
@@ -148,6 +184,10 @@ impl SubcraftApp {
         if options.demo {
             build_demo(&mut state);
         }
+        state.welcome.open = options.welcome || (state.recovery.prefs.show_welcome && options.mesh.is_none()
+            && !options.demo && options.screenshot.is_none() && !state.session.is_recovered());
+        state.welcome.guide = options.guide_step.map(|s| s.min(subcraft_app::launch::QUICK_START.len() - 1));
+        if state.welcome.guide.is_some() { state.welcome.open = false; }
         let dock = cc
             .storage
             .and_then(|s| s.get_string(DOCK_KEY))
@@ -404,6 +444,10 @@ impl SubcraftApp {
             });
             ui.menu_button("Help", |ui| {
                 ui.set_min_width(240.0);
+                if item(ui, icons::CUBE, "Welcome screen", "") { self.state.welcome.open = true; ui.close(); }
+                if item(ui, icons::CURSOR, "Quick start", "") { self.state.welcome.guide = Some(0); self.state.welcome.open = false; ui.close(); }
+                if item(ui, icons::INFO, "What's new", "") { self.state.welcome.whats_new = true; ui.close(); }
+                ui.separator();
                 if item(ui, icons::KEYBOARD, "Keyboard shortcuts", "") {
                     self.state.show_shortcuts = true;
                     ui.close();
@@ -634,6 +678,26 @@ impl eframe::App for SubcraftApp {
         crate::recovery::prompt(&mut self.state, &ctx, now);
         crate::bug_report::report_window(&mut self.state, &ctx);
         crate::bug_report::crash_window(&mut self.state, &ctx);
+        if let Some(action) = crate::welcome::show(&mut self.state, &ctx) {
+            match action {
+                crate::welcome::WelcomeAction::Pending(pending) => self.request(pending, now),
+                crate::welcome::WelcomeAction::Guide(action) => match action {
+                    subcraft_app::launch::GuideAction::OpenModel => self.request(Pending::OpenMesh, now),
+                    subcraft_app::launch::GuideAction::Bake => self.state.bake.open = true,
+                    subcraft_app::launch::GuideAction::SmartMaterial => {
+                        self.state.shelf.tab = panels::shelf::ShelfTab::SmartMaterials;
+                        if let Some(path) = self.dock.find_tab(&Tab::Shelf) { let _ = self.dock.set_active_tab(path); }
+                    }
+                    subcraft_app::launch::GuideAction::PaintParts => {
+                        if let Some(path) = self.dock.find_tab(&Tab::Parts) { let _ = self.dock.set_active_tab(path); }
+                        self.state.tool = Tool::Brush;
+                    }
+                    subcraft_app::launch::GuideAction::Save => self.perform(Action::Save, now),
+                    subcraft_app::launch::GuideAction::Export => self.state.export.open = true,
+                },
+            }
+            ctx.request_repaint();
+        }
         if self.test_crash && self.frames > 30 {
             panic!("test crash requested with --test-crash");
         }
@@ -673,6 +737,8 @@ impl eframe::App for SubcraftApp {
         if let Ok(j) = serde_json::to_string(&self.state.recovery.prefs) {
             storage.set_string(crate::recovery::PREFS_KEY, j);
         }
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Ok(j) = serde_json::to_string(&self.state.welcome.recent) { storage.set_string(crate::welcome::RECENTS_KEY, j); }
     }
 
     /// Clean exit: the recovery folder of this session is no longer needed.
