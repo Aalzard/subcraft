@@ -3,7 +3,7 @@
 What changed in SubCraft, newest first. Download the latest build from the
 [Releases page](https://github.com/Aalzard/subcraft/releases/latest).
 
-## Unreleased
+## 0.1.2
 
 ### New
 - **Parts**: show a layer only on some pieces of the model, like an axe's blade. Properties →
