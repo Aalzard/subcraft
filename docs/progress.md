@@ -454,6 +454,28 @@ In the cloud container (no GPU) the app ran on lavapipe/llvmpipe (Vulkan) under 
   lists 1 of 3 visible (`docs/screenshots/parts.png`). **Not yet verified by hand:** the clicks
   and hover highlight in the 3D view (no mouse driving while the user is at the PC).
 
+### Session 27 — web version
+
+* The app builds for `wasm32-unknown-unknown` and runs on WebGPU (`web/index.html`,
+  `scripts/build-web.sh`, `.github/workflows/web.yml` → GitHub Pages).
+* `core::vfs` (read / write / create_dir_all / exists): `std::fs` on desktop; in the browser an
+  in-memory store for uploads plus a write sink that downloads the file. Image load/save
+  (`encode_image`), OBJ (`tobj::load_obj_buf`, `.mtl` next to the OBJ), glTF (`gltf_from_vfs`
+  on web: GLB or `.gltf` + uploaded `.bin`), project / fragment save + load and export go
+  through it. FBX (`ufbx`, C) is desktop only.
+* `core::task::spawn`: a thread on desktop, inline on the web (bake job, texture thumbnails,
+  HDRI loading). `doc::History` and the viewport timer use `web-time`.
+* `ui::files`: pickers by `Purpose` (open mesh / project, high poly, stencil, texture set,
+  shelf textures, alpha, HDRI, fill channel / mask images), answered via `poll` each frame;
+  native rfd dialogs answer at once, browser uploads later. Save on the web downloads
+  `<name>.subcraft`; Export downloads every file.
+* `RenderTarget::read_rgba8_async` + `PendingReadback`: shelf thumbnails no longer block (the
+  browser can't wait on the GPU; desktop benefits too).
+* Verified in the in-app browser (Chromium, WebGPU) on a local server: UI, 3D view, a paint
+  stroke, shelf thumbnails, applying Rusty Iron (a few seconds, single thread), no console
+  errors. **Not yet verified:** upload / download (needs the browser's file chooser), baking,
+  other browsers, the Pages deployment.
+
 CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraft-mesh -p subcraft-doc -p subcraft-materials -p subcraft-compositor -p subcraft-paint`
 
 ### Deviations from the brief (sound-engineering choices)

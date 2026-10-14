@@ -20,7 +20,7 @@ pub const MAX_IMAGE_SIDE: u32 = 16384;
 impl Session {
     /// Import an image file (PNG, JPEG, TGA, TIFF, BMP, EXR, HDR) as a texture resource.
     pub fn import_image(&mut self, path: &Path) -> Result<ResourceId, String> {
-        let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let bytes = subcraft_core::vfs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
         let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("image").to_string();
         let id = self.import_image_bytes(&name, bytes)?;
         Ok(id)
@@ -82,7 +82,7 @@ impl Session {
     /// losslessly under a name saying what was done.
     pub fn import_converted(&mut self, path: &Path, conversion: MapConversion) -> Result<ResourceId, String> {
         let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("image").to_string();
-        let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let bytes = subcraft_core::vfs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
         if conversion == MapConversion::None {
             return self.import_image_bytes(&name, bytes);
         }

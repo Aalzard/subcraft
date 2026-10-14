@@ -77,6 +77,8 @@ pub struct ShelfUi {
     sphere: Option<PreviewScene>,
     cube: Option<PreviewScene>,
     renderer: Option<(ViewportRenderer, Option<SceneKind>)>,
+    /// Thumbnail whose pixels are on their way back from the GPU.
+    pending: Option<(AssetId, subcraft_render::PendingReadback)>,
 }
 
 impl Default for ShelfUi {
@@ -89,6 +91,7 @@ impl Default for ShelfUi {
             sphere: None,
             cube: None,
             renderer: None,
+            pending: None,
         }
     }
 }
@@ -280,10 +283,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         ui.add_space(16.0);
         match state.shelf.tab {
             ShelfTab::Textures => {
-                if ui.button(format!("{}  Import textures…", crate::icons::DOWNLOAD)).clicked()
-                    && let Some(files) = rfd::FileDialog::new().add_filter("Images", &subcraft_image::IMAGE_EXTENSIONS).pick_files()
-                {
-                    state.remember_textures(&files);
+                if ui.button(format!("{}  Import textures…", crate::icons::DOWNLOAD)).clicked() {
+                    crate::files::pick(ui.ctx(), crate::files::Purpose::ShelfTextures, crate::files::IMAGES, true, None);
                 }
                 library_folder_button(ui, state, subcraft_app::assets::UserAssetKind::Texture);
                 ui.label(
@@ -294,56 +295,19 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             }
             ShelfTab::Materials => {
                 if ui.button(format!("{}  Import texture set…", crate::icons::DOWNLOAD)).clicked() {
-                    crate::panels::layers::import_texture_set_dialog(state, now);
+                    crate::panels::layers::import_texture_set_dialog(ui.ctx());
                 }
                 ui.label(RichText::new("Select a texture's maps (color, roughness, normal…) to make one fill layer.").small().color(theme::TEXT_FAINT));
             }
             ShelfTab::Brushes => {
-                if ui.button(format!("{}  Import alpha…", crate::icons::DOWNLOAD)).clicked()
-                    && let Some(p) = rfd::FileDialog::new().add_filter("Images", &["png", "jpg", "jpeg", "tga", "tif", "tiff", "exr"]).pick_file()
-                {
-                    // Copied into the library so it is still there next time.
-                    let imported = match &state.user_library {
-                        Some(lib) => lib
-                            .add_file(subcraft_app::assets::UserAssetKind::Alpha, &p)
-                            .and_then(|stored| subcraft_app::assets::user_library::load_alpha(&stored)),
-                        None => subcraft_app::assets::alphas::import(&p),
-                    };
-                    match imported {
-                        Ok(a) => {
-                            state.session.set_brush_alpha(&a);
-                            // Re-importing a file already in the library just selects it.
-                            if !state.library.alphas.iter().any(|x| x.id == a.id) {
-                                state.library.alphas.push(a);
-                            }
-                        }
-                        Err(e) => state.set_status(format!("Import alpha: {e}"), now),
-                    }
+                if ui.button(format!("{}  Import alpha…", crate::icons::DOWNLOAD)).clicked() {
+                    crate::files::pick(ui.ctx(), crate::files::Purpose::Alpha, crate::files::ALPHAS, false, None);
                 }
                 library_folder_button(ui, state, subcraft_app::assets::UserAssetKind::Alpha);
             }
             ShelfTab::Environments => {
-                if ui.button(format!("{}  Import HDRI…", crate::icons::DOWNLOAD)).clicked()
-                    && let Some(p) = rfd::FileDialog::new().add_filter("Panoramas", &["hdr", "exr", "png", "jpg", "jpeg"]).pick_file()
-                {
-                    let imported = match &state.user_library {
-                        Some(lib) => lib
-                            .add_file(subcraft_app::assets::UserAssetKind::Environment, &p)
-                            .and_then(|stored| subcraft_app::assets::user_library::load_environment(&stored)),
-                        None => subcraft_app::assets::environment::import_hdri(&p),
-                    };
-                    match imported {
-                        Ok(e) => {
-                            state.env.index = match state.library.environments.iter().position(|x| x.id == e.id) {
-                                Some(i) => i,
-                                None => {
-                                    state.library.environments.push(e);
-                                    state.library.environments.len() - 1
-                                }
-                            };
-                        }
-                        Err(e) => state.set_status(format!("Import HDRI: {e}"), now),
-                    }
+                if ui.button(format!("{}  Import HDRI…", crate::icons::DOWNLOAD)).clicked() {
+                    crate::files::pick(ui.ctx(), crate::files::Purpose::Hdri, crate::files::PANORAMAS, false, None);
                 }
                 library_folder_button(ui, state, subcraft_app::assets::UserAssetKind::Environment);
                 ui.spacing_mut().slider_width = 110.0;
@@ -556,6 +520,24 @@ fn alpha_image(b: &subcraft_image::Bitmap) -> egui::ColorImage {
 
 /// Render one missing thumbnail of the visible tab per frame (keeps the UI responsive).
 fn generate_one_thumbnail(state: &mut UiState, ctx: &egui::Context) {
+    // Finish the thumbnail in flight first (the GPU copy is never waited on).
+    if let Some((id, pending)) = &state.shelf.pending {
+        let Some(rs) = state.render_state.clone() else { return };
+        match pending.try_take(&rs.device) {
+            None => {
+                ctx.request_repaint();
+                return;
+            }
+            Some(bytes) => {
+                if let Some(bytes) = bytes {
+                    let img = egui::ColorImage::from_rgba_unmultiplied([THUMB as usize, THUMB as usize], &bytes);
+                    let tex = ctx.load_texture(format!("thumb-{id}"), img, egui::TextureOptions::LINEAR);
+                    state.shelf.thumbs.insert(*id, tex);
+                }
+                state.shelf.pending = None;
+            }
+        }
+    }
     let lib = &state.library;
     let missing = |id: &AssetId| !state.shelf.thumbs.contains_key(id);
     enum Job {
@@ -642,10 +624,9 @@ fn generate_one_thumbnail(state: &mut UiState, ctx: &egui::Context) {
         let mut uploaded = None;
         apply_environment(&state.library, i, 0.0, 1.0, &mut params, renderer, &mut uploaded, &rs.device, &rs.queue);
     }
-    let bytes = renderer.render(&rs.device, &rs.queue, [THUMB, THUMB], &params).read_rgba8(&rs.device, &rs.queue);
-    let img = egui::ColorImage::from_rgba_unmultiplied([THUMB as usize, THUMB as usize], &bytes);
-    let tex = ctx.load_texture(format!("thumb-{id}"), img, egui::TextureOptions::LINEAR);
-    state.shelf.thumbs.insert(id, tex);
+    let pending = renderer.render(&rs.device, &rs.queue, [THUMB, THUMB], &params).read_rgba8_async(&rs.device, &rs.queue);
+    state.shelf.pending = Some((id, pending));
+    ctx.request_repaint();
 }
 
 /// White paint shown through a smart mask (for mask thumbnails).

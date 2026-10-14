@@ -155,7 +155,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     let painter = ui.painter_at(rect);
     match (&state.render_state, &mut state.renderer) {
         (Some(rs), Some(renderer)) => {
-            let t0 = std::time::Instant::now();
+            let t0 = web_time::Instant::now();
             let mut params = state.camera.view_params(size);
             params.height_scale = state.height_scale;
             crate::panels::shelf::apply_environment(

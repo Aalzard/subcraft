@@ -208,7 +208,7 @@ pub fn coverage(mesh: &Mesh, material_slot: u32, size: u32) -> Vec<bool> {
 
 /// Write every applicable map of every texture set into `dir`. Returns the written files.
 pub fn export(mesh: &Mesh, mesh_name: &str, sets: &[ExportTextureSet], settings: &ExportSettings, dir: &Path) -> Result<Vec<PathBuf>, ExportError> {
-    std::fs::create_dir_all(dir).map_err(|e| ExportError::Folder(dir.to_path_buf(), e))?;
+    subcraft_core::vfs::create_dir_all(dir).map_err(|e| ExportError::Folder(dir.to_path_buf(), e))?;
     let mut written = Vec::new();
     for set in sets {
         let Some(size) = set.channels.values().next().map(|i| i.width()) else { continue };

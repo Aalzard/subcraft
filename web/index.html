@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SubCraft</title>
+  <link rel="icon" type="image/png" href="icon.png">
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #16171b; color: #c9cbd1;
+                 font: 15px system-ui, sans-serif; }
+    #subcraft_canvas { position: fixed; inset: 0; width: 100%; height: 100%; outline: none; }
+    #loading { position: fixed; inset: 0; display: flex; flex-direction: column; gap: 14px;
+               align-items: center; justify-content: center; text-align: center; padding: 24px; }
+    #loading img { width: 96px; height: 96px; }
+  </style>
+</head>
+<body>
+  <canvas id="subcraft_canvas"></canvas>
+  <div id="loading"><img src="icon.png" alt=""><div>Loading SubCraft…</div></div>
+  <script type="module">
+    import init from "./subcraft.js";
+    if (!navigator.gpu) {
+      document.getElementById("loading").innerHTML =
+        "<img src='icon.png' alt=''><div>SubCraft needs WebGPU. Use a recent Chrome, Edge, Firefox or Safari,<br>" +
+        "or <a style='color:#ff7a1a' href='https://github.com/Aalzard/subcraft/releases/latest'>download the desktop app</a>.</div>";
+    } else {
+      init().then(() => {
+        // The app takes over the page once its first frame is drawn.
+        const hide = () => document.getElementById("loading")?.remove();
+        requestAnimationFrame(() => requestAnimationFrame(hide));
+      });
+    }
+  </script>
+</body>
+</html>

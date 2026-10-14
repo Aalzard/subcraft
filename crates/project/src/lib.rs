@@ -244,6 +244,7 @@ fn to_json<T: serde::Serialize>(v: &T) -> String {
 }
 
 /// Save atomically to `path` (temp file + rename).
+#[cfg(not(target_arch = "wasm32"))]
 pub fn save_project(path: &Path, mesh: &Mesh, doc: &Document, resources: &ResourceStore, mesh_maps: &MeshMapSet) -> Result<(), ProjectError> {
     let tmp = temp_path(path);
     let result = (|| -> Result<(), ProjectError> {
@@ -261,6 +262,15 @@ pub fn save_project(path: &Path, mesh: &Mesh, doc: &Document, resources: &Resour
     result
 }
 
+/// Web build: encode in memory and hand the file to `vfs` (which offers it as a download).
+#[cfg(target_arch = "wasm32")]
+pub fn save_project(path: &Path, mesh: &Mesh, doc: &Document, resources: &ResourceStore, mesh_maps: &MeshMapSet) -> Result<(), ProjectError> {
+    let buf = write_project(std::io::Cursor::new(Vec::new()), mesh, doc, resources, mesh_maps)?;
+    subcraft_core::vfs::write(path, &buf.into_inner())?;
+    Ok(())
+}
+
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 fn temp_path(path: &Path) -> PathBuf {
     let mut name = path.file_name().map(|n| n.to_os_string()).unwrap_or_default();
     name.push(".saving");
@@ -412,8 +422,10 @@ pub fn read_project<R: Read + Seek>(r: R) -> Result<ProjectData, ProjectError> {
 }
 
 pub fn load_project(path: &Path) -> Result<ProjectData, ProjectError> {
-    let file = std::fs::File::open(path)?;
-    read_project(std::io::BufReader::new(file))
+    #[cfg(not(target_arch = "wasm32"))]
+    return read_project(std::io::BufReader::new(std::fs::File::open(path)?));
+    #[cfg(target_arch = "wasm32")]
+    return read_project(std::io::Cursor::new(subcraft_core::vfs::read(path)?));
 }
 
 #[cfg(test)]

@@ -15,8 +15,11 @@ bytemuck.workspace = true
 rayon.workspace = true
 gltf.workspace = true
 tobj.workspace = true
-ufbx.workspace = true
 mikktspace.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 log.workspace = true
+
+# FBX import is a C library; the web build (wasm32) goes without it.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+ufbx.workspace = true

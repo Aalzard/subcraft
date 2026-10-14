@@ -1,11 +1,26 @@
-//! SubCraft desktop application.
+//! SubCraft application (desktop, and the web version built from the same code).
 //!
-//! Usage: `subcraft [project.subcraft|mesh.obj|.gltf|.glb|.fbx] [--demo] [--view-2d] [--screenshot out.png]`
+//! Desktop usage: `subcraft [project.subcraft|mesh.obj|.gltf|.glb|.fbx] [--demo] [--view-2d] [--screenshot out.png]`
 
 // Packaged Windows builds open without a console window (logs then go nowhere; run a normal
 // build from a terminal to see them).
 #![cfg_attr(all(windows, feature = "windows-gui"), windows_subsystem = "windows")]
 
+/// Web version: start in the page's `subcraft_canvas` (see `web/index.html`).
+#[cfg(target_arch = "wasm32")]
+fn main() {
+    let _ = eframe::WebLogger::init(log::LevelFilter::Info);
+    wasm_bindgen_futures::spawn_local(async {
+        if let Err(e) = subcraft_ui::start_web("subcraft_canvas").await {
+            log::error!("SubCraft failed to start: {e:?}");
+            if let Some(el) = web_sys::window().and_then(|w| w.document()).and_then(|d| d.get_element_by_id("loading")) {
+                el.set_inner_html("SubCraft could not start in this browser. It needs WebGPU: use a recent Chrome, Edge, Firefox or Safari.");
+            }
+        }
+    });
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 fn main() -> anyhow::Result<()> {
     env_logger_lite();
     let mut options = subcraft_ui::LaunchOptions::default();
@@ -26,6 +41,7 @@ fn main() -> anyhow::Result<()> {
 }
 
 /// Minimal stderr logger for warnings and errors (no extra dependency).
+#[cfg(not(target_arch = "wasm32"))]
 fn env_logger_lite() {
     struct L;
     impl log::Log for L {

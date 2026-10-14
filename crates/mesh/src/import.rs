@@ -38,7 +38,10 @@ pub fn import_mesh(path: &Path) -> Result<ImportReport, ImportError> {
     match ext.as_str() {
         "obj" => load_obj(path, &mut b, &mut warnings)?,
         "gltf" | "glb" => load_gltf(path, &mut b, &mut warnings)?,
+        #[cfg(not(target_arch = "wasm32"))]
         "fbx" => load_fbx(path, &mut b, &mut warnings)?,
+        #[cfg(target_arch = "wasm32")]
+        "fbx" => return Err(ImportError::Fbx("FBX isn't available in the web version; export the model as glTF / GLB or OBJ".into())),
         other => return Err(ImportError::UnsupportedFormat(other.to_string())),
     }
     let stats_pre = b.stats;
@@ -63,7 +66,14 @@ pub fn import_mesh(path: &Path) -> Result<ImportReport, ImportError> {
 
 fn load_obj(path: &Path, b: &mut MeshBuilder, warnings: &mut Vec<String>) -> Result<(), ImportError> {
     let opts = tobj::LoadOptions { triangulate: true, single_index: true, ignore_points: true, ignore_lines: true };
-    let (models, materials) = tobj::load_obj(path, &opts).map_err(|e| ImportError::Obj(e.to_string()))?;
+    // Read through `vfs` (works in the browser too); `.mtl` files resolve next to the OBJ.
+    let bytes = subcraft_core::vfs::read(path).map_err(|e| ImportError::Obj(format!("{}: {e}", path.display())))?;
+    let base = path.parent().map(Path::to_path_buf).unwrap_or_default();
+    let (models, materials) = tobj::load_obj_buf(&mut std::io::Cursor::new(bytes), &opts, |mtl| {
+        let mtl_bytes = subcraft_core::vfs::read(&base.join(mtl)).map_err(|_| tobj::LoadError::OpenFileFailed)?;
+        tobj::load_mtl_buf(&mut std::io::Cursor::new(mtl_bytes))
+    })
+    .map_err(|e| ImportError::Obj(e.to_string()))?;
     let materials = match materials {
         Ok(m) => m,
         Err(e) => {
@@ -98,7 +108,10 @@ fn load_obj(path: &Path, b: &mut MeshBuilder, warnings: &mut Vec<String>) -> Res
 }
 
 fn load_gltf(path: &Path, b: &mut MeshBuilder, warnings: &mut Vec<String>) -> Result<(), ImportError> {
+    #[cfg(not(target_arch = "wasm32"))]
     let (doc, buffers, _images) = gltf::import(path).map_err(|e| ImportError::Gltf(e.to_string()))?;
+    #[cfg(target_arch = "wasm32")]
+    let (doc, buffers) = gltf_from_vfs(path)?;
     let scene = doc.default_scene().or_else(|| doc.scenes().next());
     let roots: Vec<gltf::Node> = match &scene {
         Some(s) => s.nodes().collect(),
@@ -159,6 +172,38 @@ fn load_gltf(path: &Path, b: &mut MeshBuilder, warnings: &mut Vec<String>) -> Re
     Ok(())
 }
 
+/// glTF / GLB from uploaded files (web build): external `.bin` buffers are read next to the
+/// `.gltf`; images are not needed (materials are not imported).
+#[cfg(target_arch = "wasm32")]
+fn gltf_from_vfs(path: &Path) -> Result<(gltf::Document, Vec<gltf::buffer::Data>), ImportError> {
+    let err = |e: String| ImportError::Gltf(e);
+    let bytes = subcraft_core::vfs::read(path).map_err(|e| err(format!("{}: {e}", path.display())))?;
+    let gltf::Gltf { document, mut blob } = gltf::Gltf::from_slice(&bytes).map_err(|e| err(e.to_string()))?;
+    let base = path.parent().map(Path::to_path_buf).unwrap_or_default();
+    let mut buffers = Vec::new();
+    for b in document.buffers() {
+        let mut data = match b.source() {
+            gltf::buffer::Source::Bin => blob.take().ok_or_else(|| err("GLB binary chunk missing".into()))?,
+            gltf::buffer::Source::Uri(uri) if uri.starts_with("data:") => {
+                return Err(err("embedded (base64) .gltf files aren't supported in the web version; export as .glb".into()));
+            }
+            gltf::buffer::Source::Uri(uri) => {
+                let file = base.join(uri.replace("%20", " "));
+                subcraft_core::vfs::read(&file).map_err(|_| err(format!("{uri} is missing: upload it together with the .gltf, or export a .glb")))?
+            }
+        };
+        if data.len() < b.length() {
+            return Err(err(format!("buffer {} is shorter than declared", b.index())));
+        }
+        while data.len() % 4 != 0 {
+            data.push(0);
+        }
+        buffers.push(gltf::buffer::Data(data));
+    }
+    Ok((document, buffers))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 fn load_fbx(path: &Path, b: &mut MeshBuilder, warnings: &mut Vec<String>) -> Result<(), ImportError> {
     let opts = ufbx::LoadOpts {
         target_axes: ufbx::CoordinateAxes::right_handed_y_up(),

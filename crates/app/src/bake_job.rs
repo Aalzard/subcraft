@@ -48,7 +48,7 @@ impl BakeJob {
         let sets_done = Arc::new(AtomicUsize::new(0));
         let stage = Arc::new(Mutex::new("Starting".to_string()));
         let (p, done, st) = (progress.clone(), sets_done.clone(), stage.clone());
-        std::thread::spawn(move || {
+        subcraft_core::task::spawn(move || {
             let high = match &request.high_poly {
                 Some(path) => {
                     *st.lock().expect("stage lock") = format!("Loading high poly {}", path.display());

@@ -350,7 +350,7 @@ impl SubcraftApp {
                 ui.separator();
                 if item(ui, icons::IMAGE, "Import texture set…", "") {
                     ui.close();
-                    crate::panels::layers::import_texture_set_dialog(&mut self.state, now);
+                    crate::panels::layers::import_texture_set_dialog(ui.ctx());
                 }
             });
             ui.menu_button("View", |ui| {
@@ -576,6 +576,7 @@ impl eframe::App for SubcraftApp {
         dialogs::export_window(&mut self.state, &ctx, now);
         dialogs::bake_window(&mut self.state, &ctx, now);
         dialogs::poll_bake(&mut self.state, &ctx, now);
+        crate::files::poll(&mut self.state, now);
         if let Some(action) = dialogs::unsaved_prompt(&mut self.state, &ctx, now) {
             self.pending_now = Some(action);
         }

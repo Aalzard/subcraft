@@ -33,6 +33,7 @@ half = { version = "2.7", features = ["bytemuck", "serde"] }
 bytemuck = { version = "1.25", features = ["derive"] }
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = { version = "1", features = ["float_roundtrip"] }
+web-time = "1.1"
 uuid = { version = "1", features = ["v4", "v5", "serde"] }
 thiserror = "2"
 anyhow = "1"

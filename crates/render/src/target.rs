@@ -49,6 +49,34 @@ impl RenderTarget {
         Self { size, msaa_view: view(&msaa), depth_view: view(&depth), output_view: view(&output), display_view, output }
     }
 
+    /// Start copying the resolved image back to the CPU without waiting (works in the browser,
+    /// where the GPU can't be waited on). The target can be re-rendered right away.
+    pub fn read_rgba8_async(&self, device: &wgpu::Device, queue: &wgpu::Queue) -> PendingReadback {
+        let [w, h] = self.size;
+        let row = w * 4;
+        let padded = row.div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT) * wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("readback"),
+            size: (padded * h) as u64,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        let mut enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("readback") });
+        enc.copy_texture_to_buffer(
+            self.output.as_image_copy(),
+            wgpu::TexelCopyBufferInfo {
+                buffer: &buffer,
+                layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(padded), rows_per_image: Some(h) },
+            },
+            wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+        );
+        queue.submit([enc.finish()]);
+        let state = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let s = state.clone();
+        buffer.slice(..).map_async(wgpu::MapMode::Read, move |r| *s.lock().expect("readback state") = Some(r.is_ok()));
+        PendingReadback { buffer, state, size: [w, h], padded }
+    }
+
     /// Copy the resolved image back to the CPU as tightly packed sRGB RGBA8 rows.
     pub fn read_rgba8(&self, device: &wgpu::Device, queue: &wgpu::Queue) -> Vec<u8> {
         let [w, h] = self.size;
@@ -81,5 +109,35 @@ impl RenderTarget {
         drop(data);
         buffer.unmap();
         out
+    }
+}
+
+/// A GPU → CPU image copy in flight (see [`RenderTarget::read_rgba8_async`]).
+pub struct PendingReadback {
+    buffer: wgpu::Buffer,
+    state: std::sync::Arc<std::sync::Mutex<Option<bool>>>,
+    size: [u32; 2],
+    padded: u32,
+}
+
+impl PendingReadback {
+    /// The tightly packed sRGB RGBA8 rows once the copy is done (`Some(None)` if it failed);
+    /// `None` while still in flight. Never blocks.
+    pub fn try_take(&self, device: &wgpu::Device) -> Option<Option<Vec<u8>>> {
+        let _ = device.poll(wgpu::PollType::Poll);
+        let ok = (*self.state.lock().expect("readback state"))?;
+        if !ok {
+            return Some(None);
+        }
+        let [w, h] = self.size;
+        let row = (w * 4) as usize;
+        let data = self.buffer.slice(..).get_mapped_range().ok()?;
+        let mut out = Vec::with_capacity(row * h as usize);
+        for y in 0..h as usize {
+            out.extend_from_slice(&data[y * self.padded as usize..][..row]);
+        }
+        drop(data);
+        self.buffer.unmap();
+        Some(Some(out))
     }
 }

@@ -27,7 +27,7 @@ pub use egui_wgpu::wgpu as wgpu_api;
 pub use gpu_mesh::GpuMesh;
 pub use material::{ChannelTexture, GpuMaterial, SHADED_CHANNELS};
 pub use preview::{PreviewPass, PreviewTarget};
-pub use target::{DISPLAY_FORMAT, OUTPUT_FORMAT, RenderTarget};
+pub use target::{DISPLAY_FORMAT, OUTPUT_FORMAT, PendingReadback, RenderTarget};
 
 /// What the 2D view displays.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
