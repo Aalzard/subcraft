@@ -24,6 +24,12 @@ pub fn run(options: LaunchOptions) -> eframe::Result {
             .with_inner_size([1600.0, 940.0])
             .with_min_inner_size([900.0, 560.0]),
         renderer: eframe::Renderer::Wgpu,
+        // Scripted screenshots start from a clean UI state (no remembered scroll positions or
+        // window size) and never touch the user's saved settings.
+        persistence_path: options
+            .screenshot
+            .as_ref()
+            .map(|_| std::env::temp_dir().join(format!("subcraft-screenshot-state-{}", std::process::id()))),
         ..Default::default()
     };
     eframe::run_native("SubCraft", native, Box::new(move |cc| Ok(Box::new(SubcraftApp::new(cc, options)))))
