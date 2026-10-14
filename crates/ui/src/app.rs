@@ -346,6 +346,11 @@ impl SubcraftApp {
                         ui.close();
                     }
                 }
+                ui.separator();
+                if item(ui, icons::IMAGE, "Import texture set…", "") {
+                    ui.close();
+                    crate::panels::layers::import_texture_set_dialog(&mut self.state, now);
+                }
             });
             ui.menu_button("View", |ui| {
                 ui.set_min_width(240.0);

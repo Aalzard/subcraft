@@ -55,6 +55,49 @@ fn from_dynamic(img: image::DynamicImage) -> Bitmap {
     }
 }
 
+/// Encode a bitmap losslessly in memory: PNG (8 / 16-bit) or EXR for float data.
+/// Returns the bytes and the file extension.
+pub fn encode_bitmap(b: &Bitmap) -> Result<(Vec<u8>, &'static str), ImageIoError> {
+    use image::DynamicImage as D;
+    let (w, h) = (b.width, b.height);
+    let bad = || ImageIoError::Unsupported(format!("{} channels", b.channels));
+    let (img, fmt, ext) = match &b.data {
+        BitmapData::U8(v) => {
+            let v = v.clone();
+            let img = match b.channels {
+                1 => D::ImageLuma8(image::ImageBuffer::from_raw(w, h, v).ok_or_else(bad)?),
+                2 => D::ImageLumaA8(image::ImageBuffer::from_raw(w, h, v).ok_or_else(bad)?),
+                3 => D::ImageRgb8(image::ImageBuffer::from_raw(w, h, v).ok_or_else(bad)?),
+                _ => D::ImageRgba8(image::ImageBuffer::from_raw(w, h, v).ok_or_else(bad)?),
+            };
+            (img, image::ImageFormat::Png, "png")
+        }
+        BitmapData::U16(v) => {
+            let v = v.clone();
+            let img = match b.channels {
+                1 => D::ImageLuma16(image::ImageBuffer::from_raw(w, h, v).ok_or_else(bad)?),
+                2 => D::ImageLumaA16(image::ImageBuffer::from_raw(w, h, v).ok_or_else(bad)?),
+                3 => D::ImageRgb16(image::ImageBuffer::from_raw(w, h, v).ok_or_else(bad)?),
+                _ => D::ImageRgba16(image::ImageBuffer::from_raw(w, h, v).ok_or_else(bad)?),
+            };
+            (img, image::ImageFormat::Png, "png")
+        }
+        BitmapData::F32(v) => {
+            let rgba: Vec<f32> = match b.channels {
+                1 => v.iter().flat_map(|&x| [x, x, x, 1.0]).collect(),
+                2 => v.chunks_exact(2).flat_map(|p| [p[0], p[0], p[0], p[1]]).collect(),
+                3 => v.chunks_exact(3).flat_map(|p| [p[0], p[1], p[2], 1.0]).collect(),
+                _ => v.clone(),
+            };
+            let img = D::ImageRgba32F(image::ImageBuffer::from_raw(w, h, rgba).ok_or_else(bad)?);
+            (img, image::ImageFormat::OpenExr, "exr")
+        }
+    };
+    let mut cur = std::io::Cursor::new(Vec::new());
+    img.write_to(&mut cur, fmt)?;
+    Ok((cur.into_inner(), ext))
+}
+
 /// File extensions accepted as texture images (file dialogs, texture-set import).
 pub const IMAGE_EXTENSIONS: [&str; 9] = ["png", "jpg", "jpeg", "tga", "tif", "tiff", "exr", "bmp", "hdr"];
 
@@ -222,6 +265,28 @@ mod tests {
         assert_eq!(guess_extension(b"not an image", Some("notes.txt")), "bin");
         assert_eq!(guess_extension(b"not an image", None), "bin");
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn encode_bitmap_roundtrips_every_depth() {
+        let cases = [
+            Bitmap::new_u8(2, 1, 3, vec![1, 2, 3, 250, 251, 252]),
+            Bitmap { width: 1, height: 2, channels: 1, data: BitmapData::U16(vec![7, 65000]) },
+            Bitmap::new_f32(1, 1, 3, vec![0.25, 2.5, -1.0]),
+        ];
+        for b in cases {
+            let (bytes, ext) = encode_bitmap(&b).unwrap();
+            let back = decode_bitmap(&bytes, None).unwrap();
+            assert_eq!((back.width, back.height), (b.width, b.height));
+            for y in 0..b.height {
+                for x in 0..b.width {
+                    let (a, c) = (b.texel(x, y, false), back.texel(x, y, false));
+                    for k in 0..3 {
+                        assert!((a[k] - c[k]).abs() < 1e-6, "{ext}: {a:?} vs {c:?}");
+                    }
+                }
+            }
+        }
     }
 
     #[test]
