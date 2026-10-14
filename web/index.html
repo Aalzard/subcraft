@@ -17,6 +17,12 @@
 <body>
   <canvas id="subcraft_canvas"></canvas>
   <div id="loading"><img src="icon.png" alt=""><div>Loading SubCraft…</div></div>
+  <script>
+    // Closing the tab with unsaved work asks first (the app sets window.subcraftUnsaved).
+    window.addEventListener("beforeunload", (e) => {
+      if (window.subcraftUnsaved) { e.preventDefault(); e.returnValue = ""; }
+    });
+  </script>
   <script type="module">
     import init from "./subcraft.js";
     if (!navigator.gpu) {

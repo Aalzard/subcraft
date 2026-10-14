@@ -47,6 +47,9 @@ smart materials, bake mesh maps, and export game-ready textures.
   live in `Documents\SubCraft\Library` and are back every time you start SubCraft.
 - **Viewport**: real-time PBR preview with studio or HDRI lighting, plus a 2D UV view of every channel
   and baked map.
+- **Autosave and crash recovery**: a recovery copy of your project is saved in the background
+  every few minutes (Edit → Preferences) to SubCraft's data folder, never over your own file. If
+  SubCraft crashes or is closed by force, it offers to bring your work back on the next start.
 - **Projects and export**: `.subcraft` project files; export templates for PBR metal/rough, Unreal
   (ORM + DirectX normal), Unity HDRP (mask map) and glTF.
 - **Mesh import**: OBJ, glTF / GLB and FBX.
@@ -61,6 +64,8 @@ Firefox or Safari). Nothing to install. The web version is the same app with a f
 - **Speed**: it runs on one CPU thread, so big fills, smart materials and baking take longer
   than in the desktop app (the page pauses briefly while they compute).
 - **No library folder**: imported textures, brush tips and HDRIs last for the session only.
+- **No autosave**: the browser can't write files in the background, so SubCraft reminds you to
+  download a backup of unsaved work every few minutes, and asks before you close the tab.
 
 For real work, the desktop app below is faster.
 

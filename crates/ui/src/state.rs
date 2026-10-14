@@ -76,6 +76,8 @@ pub struct UiState {
     pub stencil_tex: Option<(usize, egui::TextureHandle)>,
     /// Image textures shown in Shelf → Textures (the library's `textures/` folder).
     pub textures: crate::panels::textures::TextureLibrary,
+    /// Autosave, crash recovery and preferences.
+    pub recovery: crate::recovery::RecoveryUi,
 }
 
 impl UiState {
@@ -120,6 +122,7 @@ impl UiState {
             preset_name: String::new(),
             stencil_tex: None,
             textures: Default::default(),
+            recovery: crate::recovery::RecoveryUi::disabled(),
         }
     }
 
@@ -203,6 +206,7 @@ impl UiState {
         self.uploaded_maps.clear();
         self.painting = false;
         self.last_stroke_point = None;
+        self.recovery.autosaver.session_replaced();
     }
 
     pub fn set_status(&mut self, msg: impl Into<String>, now: f64) {

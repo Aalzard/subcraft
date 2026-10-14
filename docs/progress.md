@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-10-14 (session 21: stencils)
+Last updated: 2026-10-14 (session 28: autosave + crash recovery)
 
 ## Decisions
 
@@ -476,6 +476,47 @@ In the cloud container (no GPU) the app ran on lavapipe/llvmpipe (Vulkan) under 
   errors. **Not yet verified:** upload / download (needs the browser's file chooser), baking,
   other browsers, the Pages deployment.
 
+### Session 28 — autosave + crash recovery
+
+* `app::recovery`: every running SubCraft claims `<data dir>/recovery/<uuid>/` (data dir =
+  `$SUBCRAFT_DATA` or `%LOCALAPPDATA%\SubCraft`) with `session.json` (version, project name, the
+  user's project path) and `running.lock`, held with an OS file lock (`File::try_lock`) for the
+  life of the process. A clean exit (`eframe::App::on_exit`) deletes the folder; a folder whose
+  lock nobody holds is a crash. Works with several SubCraft windows at once (each has its own
+  lock) and needs no PID checks.
+* `Autosaver`: copies the last committed document (`Session::snapshot`, structurally shared, so
+  instant) and writes `autosave-NNNN.subcraft` on a background thread via the normal atomic
+  project writer; keeps the newest N (default 3, `rotate` by sequence number). Due when the
+  project is modified **and** changed since the last copy (document or baked maps), every
+  interval (default 5 min, Edit → Preferences, 0 = off) or soon after a bake / shelf apply
+  (30 s minimum gap). Copies only ever go into the session folder (checked before writing).
+* Start-up: crashed sessions with copies → modal "SubCraft didn't close properly. Recover your last
+  session?" (project, file, last autosave) with Recover / Discard / Show folder; ones without
+  copies are deleted silently, `*.saving` leftovers removed. Recover opens the newest copy, points
+  the session back at the user's file (Save writes there) and keeps it marked unsaved; the copies
+  move into the new session's folder until it exits cleanly. `--recover` recovers without asking,
+  `--autosave-interval <s>` overrides the interval (testing).
+* Status bar: "Autosaving…" / "Autosaved N min ago" (hover: folder). Preferences persist (eframe
+  storage, `subcraft_prefs_v1`).
+* Web: no data folder, so no autosave. Instead a "Unsaved work" window offers **Download backup**
+  every interval while there are unsaved changes, and `web/index.html` asks before closing the
+  tab (`window.subcraftUnsaved`, set by the app).
+* Tests (8 new, 219 total): rotation by number, next path, clean exit vs crash marker, live
+  sessions never reported, empty crashed sessions cleaned, adopt; end to end on a real session
+  (`app/tests/recovery.rs`): 3 timed copies → 2 kept, user's file bytes + mtime unchanged, "crash"
+  → recover → identical layers, Save goes to the user's file; operation-triggered copies respect
+  the gap, baking counts as a change.
+* Verified in the real app on Windows: opened a saved project with `--demo --autosave-interval 2`,
+  autosave written after 2 s, killed the process (`Stop-Process -Force`): the project file's
+  hash was unchanged; the next start showed the prompt (`docs/screenshots/recovery-prompt.png`);
+  `--recover` restored Wood / Moss / Layer 1 / Saved Fill with "Recovered … Save it to keep it"
+  (`recovery-restored.png`); the recovery folder was empty after that clean exit. Web build in the
+  in-app browser: Edit → Preferences (1 min, persisted across reload), a stroke sets the
+  close-tab flag, the reminder shows after a minute and Later dismisses it
+  (`web-backup-reminder.jpg`). **Not verified by hand:** clicking Recover / Discard / Show folder
+  in the desktop prompt (same code path as `--recover` / `CrashedSession::discard`, both tested),
+  the web Download backup button (it is the normal web Save) and the browser's close-tab dialog.
+
 CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraft-mesh -p subcraft-doc -p subcraft-materials -p subcraft-compositor -p subcraft-paint`
 
 ### Deviations from the brief (sound-engineering choices)
@@ -517,7 +558,7 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
 3. Stencils / projection painting with an image; clone tool; smudge / blur filter layers.
 4. Bake follow-ups: per-material high-poly matching by name, cage mesh support, anti-aliased
    (supersampled) bakes, GPU baking for large meshes.
-5. Autosave + recent files; export presets saved per project; custom export templates editor.
+5. ~~Autosave~~ (session 28) + recent files; export presets saved per project; custom export templates editor.
 6. UI follow-ups: drag-and-drop layer reordering, inline rename, eyedropper, painting in the
    2D view, texture-set resolution change, camera FOV / ortho toggle, texture mipmaps.
 7. Engine follow-ups: incremental dirty tracking inside mask paint effects; near-plane

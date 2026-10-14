@@ -273,7 +273,10 @@ pub fn poll_bake(state: &mut UiState, ctx: &egui::Context, now: f64) {
     if let Some(result) = job.poll(&mut state.session) {
         state.bake.job = None;
         match result {
-            Ok(n) => state.set_status(format!("Baked mesh maps for {n} texture set(s). See them in the 2D view."), now),
+            Ok(n) => {
+                state.set_status(format!("Baked mesh maps for {n} texture set(s). See them in the 2D view."), now);
+                state.recovery.autosaver.request_soon();
+            }
             Err(e) => state.set_status(format!("Bake: {e}"), now),
         }
     }

@@ -46,8 +46,9 @@ pub fn apply_shelf_item(s: &mut UiState, item: ShelfDrag, now: f64) {
             None => Ok(()),
         },
     };
-    if let Err(e) = result {
-        s.set_status(e, now);
+    match result {
+        Ok(()) => s.recovery.autosaver.request_soon(),
+        Err(e) => s.set_status(e, now),
     }
 }
 

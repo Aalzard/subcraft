@@ -10,6 +10,7 @@ pub mod command;
 pub mod images;
 pub mod library;
 pub mod parts;
+pub mod recovery;
 pub mod session;
 pub mod thumbnails;
 
@@ -18,7 +19,8 @@ pub use bake_job::{BakeJob, BakeRequest};
 pub use command::{Command, CommandError, NewLayer};
 pub use images::TextureSetImport;
 pub use parts::MeshPart;
-pub use session::{BrushState, CompositeUpdate, DEFAULT_RESOLUTION, Pick, Scene, Selection, Session};
+pub use recovery::{AutosaveEvent, Autosaver, CrashedSession, RecoveryStore};
+pub use session::{BrushState, CompositeUpdate, DEFAULT_RESOLUTION, Pick, ProjectSnapshot, Scene, Selection, Session};
 
 pub use subcraft_compositor::{Composite, composite_comps};
 pub use subcraft_assets as assets;
