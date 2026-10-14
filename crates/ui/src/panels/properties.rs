@@ -7,13 +7,13 @@ use subcraft_app::Command;
 use subcraft_core::{ChannelKind, ChannelValue, MeshMapKind};
 use subcraft_doc::{
     FillChannel, FillSource, Generator, GeneratorKind, LayerContent, Levels, MaskEffect, MaskEffectKind, ProceduralKind,
-    ProceduralParams, Projection, ProjectionMode,
+    PartMask, ProceduralParams, Projection, ProjectionMode,
 };
 
 use crate::icons;
 use crate::state::UiState;
 use crate::theme::{self, ACCENT, BG_2, TEXT_DIM, TEXT_FAINT};
-use crate::widgets::{channel_value, empty_state, fill_width, hint, icon_button, panel, prop_row, secondary_button, section, section_with, segmented, slider_row};
+use crate::widgets::{channel_value, empty_state, fill_width, hint, icon_button, panel, primary_button, prop_row, secondary_button, section, section_with, segmented, slider_row};
 
 pub fn show(state: &mut UiState, ui: &mut Ui) {
     let now = ui.input(|i| i.time);
@@ -25,6 +25,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     let mut texture_drop: Option<(ChannelKind, std::path::PathBuf)> = None;
     let id = layer.id;
     let channels = state.session.channels();
+    let mesh_parts = state.session.mesh_parts();
+    let mut picking = state.picking_parts;
 
     egui::ScrollArea::vertical().id_salt("props").auto_shrink([false, false]).show(ui, |ui| panel(ui, |ui| {
         // Name, with the layer type as an icon.
@@ -50,6 +52,74 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         });
 
         ui.add_space(8.0);
+
+        let mut part_cmds = Vec::new();
+        let mut part_head = Vec::new();
+        section_with(
+            ui,
+            "parts",
+            "Parts",
+            layer.parts.is_some(),
+            |ui| {
+                if let Some(p) = &layer.parts {
+                    if icon_button(ui, icons::TRASH, "Show on the whole model again").clicked() {
+                        part_head.push(Command::SetParts { layer: id, parts: None });
+                    }
+                    let (icon, tip) = if p.enabled { (icons::EYE, "Ignore parts (show everywhere)") } else { (icons::EYE_SLASH, "Use parts again") };
+                    if icon_button(ui, icon, tip).clicked() {
+                        part_head.push(Command::SetParts { layer: id, parts: Some(PartMask { enabled: !p.enabled, ..p.clone() }) });
+                    }
+                }
+            },
+            |ui| {
+                let label = if picking { format!("{}  Done picking", icons::CHECK) } else { format!("{}  Pick parts in the 3D view", icons::CURSOR) };
+                let pick = if picking { primary_button(ui, label) } else { secondary_button(ui, label) };
+                if pick.clicked() {
+                    picking = !picking;
+                }
+                match &layer.parts {
+                    None => hint(ui, "Show this layer only on some pieces of the model (a blade, a handle…): pick them, then paint or fill as usual."),
+                    Some(p) => {
+                        let shown = mesh_parts.iter().filter(|m| p.parts.contains(&m.id)).count();
+                        let state_text = if p.enabled { format!("Visible on {shown} of {} parts.", mesh_parts.len()) } else { "Off: the layer shows everywhere.".into() };
+                        hint(ui, &state_text);
+                        ui.horizontal(|ui| {
+                            let all: std::collections::BTreeSet<u32> = mesh_parts.iter().map(|m| m.id).collect();
+                            if ui.small_button("All").clicked() {
+                                part_cmds.push(Command::SetParts { layer: id, parts: Some(PartMask { enabled: true, parts: all.clone() }) });
+                            }
+                            if ui.small_button("None").clicked() {
+                                part_cmds.push(Command::SetParts { layer: id, parts: Some(PartMask::new([])) });
+                            }
+                            if ui.small_button("Invert").clicked() {
+                                let inv = all.difference(&p.parts).copied();
+                                part_cmds.push(Command::SetParts { layer: id, parts: Some(PartMask::new(inv)) });
+                            }
+                        });
+                        egui::ScrollArea::vertical().id_salt("part-list").max_height(160.0).min_scrolled_height(0.0).show(ui, |ui| {
+                            for (k, m) in mesh_parts.iter().enumerate() {
+                                let mut on = p.parts.contains(&m.id);
+                                if ui.checkbox(&mut on, format!("Part {}  ·  {} triangles", k + 1, m.triangles)).changed() {
+                                    let mut next = p.clone();
+                                    if on {
+                                        next.parts.insert(m.id);
+                                    } else {
+                                        next.parts.remove(&m.id);
+                                    }
+                                    next.enabled = true;
+                                    part_cmds.push(Command::SetParts { layer: id, parts: Some(next) });
+                                }
+                            }
+                        });
+                    }
+                }
+                if mesh_parts.len() == 1 {
+                    hint(ui, "This model is one connected piece. To pick a blade or a handle on its own, make them separate objects (or materials) in your 3D app.");
+                }
+            },
+        );
+        cmds.extend(part_head);
+        cmds.extend(part_cmds);
 
         match &layer.content {
             LayerContent::Paint(p) => {
@@ -204,6 +274,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             }
         }
 
+
         let mut head_cmds = Vec::new();
         section_with(
             ui,
@@ -274,6 +345,12 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         );
         cmds.extend(head_cmds);
     }));
+    if picking != state.picking_parts {
+        state.picking_parts = picking;
+        if picking {
+            state.set_status("Click parts in the 3D view to show or hide this layer there. Esc when done.", now);
+        }
+    }
     state.run(cmds, now);
     if let Some((channel, path)) = texture_drop {
         match state.session.set_fill_channel_image(id, channel, &path) {

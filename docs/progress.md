@@ -435,6 +435,25 @@ In the cloud container (no GPU) the app ran on lavapipe/llvmpipe (Vulkan) under 
   identically; `WGPU_BACKEND=vulkan` skips the probe and runs. Not reproduced on Intel hardware
   (none here).
 
+### Session 26 — part masks ("select only the blade")
+
+* A user asked how to select one piece of a divided mesh. New per-layer `Layer::parts:
+  Option<PartMask>` (enabled + set of part ids), independent of the paintable mask and multiplied
+  into it in the compositor; a layer with an enabled, empty set is skipped. Parts are
+  `topology::mesh_elements` (connected pieces), cached per `TextureSetGeometry`, with the part of
+  every texel stored in `TileGeometry` (from the rasterized triangle).
+* Saved as `LayerV1::parts` (optional; older readers ignore it, so no schema bump).
+* App: `Command::SetParts`, `Session::{mesh_parts, part_at, toggle_layer_part}` (one undo step
+  per click). UI: Properties → **Parts** (near the top; open when the layer uses parts) with
+  *Pick parts in the 3D view*, All / None / Invert and a checkbox per part; while picking, clicks in
+  the 3D view toggle the hovered part (highlighted in orange, x-ray), Esc or *Done* ends it, and a
+  pill in the view says what a click will do. One-piece meshes get a hint to split the model.
+* Tests (3 new): separate pieces are separate parts and clicks find them (gap = none), layer only
+  on picked parts with toggle / undo / disable / empty set, save + reopen.
+* Verified in the real app with a three-piece OBJ: the fill shows only on the blade and Parts
+  lists 1 of 3 visible (`docs/screenshots/parts.png`). **Not yet verified by hand:** the clicks
+  and hover highlight in the 3D view (no mouse driving while the user is at the PC).
+
 CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraft-mesh -p subcraft-doc -p subcraft-materials -p subcraft-compositor -p subcraft-paint`
 
 ### Deviations from the brief (sound-engineering choices)

@@ -75,7 +75,16 @@ pub struct LayerV1 {
     pub blend: Vec<BlendV1>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mask: Option<MaskV1>,
+    /// Mesh parts the layer is visible on (absent = everywhere). Older readers ignore it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parts: Option<PartsV1>,
     pub content: ContentV1,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PartsV1 {
+    pub enabled: bool,
+    pub parts: Vec<u32>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

@@ -65,7 +65,17 @@ fn apply_layer(layer: &Layer, accs: &mut [Acc], active: &[bool], tc: &TileContex
     if !live.contains(&true) {
         return;
     }
-    let mask = eval_mask(layer.mask.as_ref(), tc);
+    let mut mask = eval_mask(layer.mask.as_ref(), tc);
+    // Part mask: the layer only shows on its chosen mesh parts.
+    if let Some(parts) = layer.parts.as_ref().filter(|p| p.enabled) {
+        if parts.parts.is_empty() {
+            return; // visible nowhere
+        }
+        let m = mask.get_or_insert_with(|| vec![1.0; TILE_TEXELS]);
+        for (i, v) in m.iter_mut().enumerate() {
+            *v *= parts.factor(tc.geo.part(i));
+        }
+    }
     let mask_at = |i: usize| mask.as_ref().map_or(1.0, |m| m[i]);
     let mut content = vec![[0.0f32; 4]; TILE_TEXELS];
 

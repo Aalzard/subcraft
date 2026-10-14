@@ -23,7 +23,7 @@ use std::sync::Arc;
 use subcraft_core::{EffectId, LayerId, ResourceId, TextureSetId};
 use subcraft_doc::{
     ChannelBlend, ChannelDef, Document, FillChannel, FillContent, GroupContent, Layer, LayerContent, Mask, MaskEffect,
-    MaskEffectKind, PaintContent, Resource, ResourceStore, TextureSet,
+    MaskEffectKind, PaintContent, PartMask, Resource, ResourceStore, TextureSet,
 };
 use subcraft_image::TiledImage;
 use subcraft_mesh::Mesh;
@@ -121,7 +121,8 @@ impl Writer {
             },
             LayerContent::Group(g) => ContentV1::Folder { expanded: g.expanded, children: g.children.iter().map(|c| self.layer(c)).collect() },
         };
-        LayerV1 { id: l.id.0, name: l.name.clone(), visible: l.visible, blend, mask, content }
+        let parts = l.parts.as_ref().map(|p| PartsV1 { enabled: p.enabled, parts: p.parts.iter().copied().collect() });
+        LayerV1 { id: l.id.0, name: l.name.clone(), visible: l.visible, blend, mask, parts, content }
     }
 }
 
@@ -351,6 +352,7 @@ impl<R: Read + Seek> Loader<'_, R> {
             visible: l.visible,
             blend: l.blend.iter().map(|b| (b.channel, ChannelBlend { mode: b.mode, opacity: b.opacity })).collect(),
             mask,
+            parts: l.parts.as_ref().map(|p| PartMask { enabled: p.enabled, parts: p.parts.iter().copied().collect() }),
             content,
         })
     }

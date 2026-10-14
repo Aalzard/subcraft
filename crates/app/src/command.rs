@@ -2,7 +2,7 @@
 //! [`Session::execute`](crate::Session::execute); widgets never edit the document directly.
 
 use subcraft_core::{ChannelKind, EffectId, LayerId, TextureSetId};
-use subcraft_doc::{BlendMode, FillChannel, Layer, MaskEffect, MaskEffectKind, Projection};
+use subcraft_doc::{BlendMode, FillChannel, Layer, MaskEffect, MaskEffectKind, PartMask, Projection};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum NewLayer {
@@ -50,6 +50,8 @@ pub enum Command {
     RemoveMaskEffect { layer: LayerId, effect: EffectId },
     /// Replace an effect (matched by id); coalesces while dragging.
     SetMaskEffect { layer: LayerId, effect: MaskEffect },
+    /// Show the layer only on these mesh parts (`None` = everywhere).
+    SetParts { layer: LayerId, parts: Option<PartMask> },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -40,6 +40,8 @@ pub struct UiState {
     pub status: Option<(String, f64)>,
     pub uv: UvView,
     pub painting: bool,
+    /// Clicks in the 3D view show / hide the selected layer on mesh parts (Properties → Parts).
+    pub picking_parts: bool,
     pub last_stroke_point: Option<Vec2>,
     pub uv_edges: HashMap<u32, Vec<[Vec2; 2]>>,
     pub rename: Option<(subcraft_core::LayerId, String)>,
@@ -94,6 +96,7 @@ impl UiState {
             status: None,
             uv: UvView { zoom: 1.0, offset: egui::Vec2::ZERO, source: PreviewSource::Channel(ChannelKind::BaseColor), texture: None },
             painting: false,
+            picking_parts: false,
             last_stroke_point: None,
             uv_edges: HashMap::new(),
             rename: None,
