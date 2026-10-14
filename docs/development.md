@@ -117,6 +117,11 @@ folder (`unins000.exe /VERYSILENT`).
 
 The installer script is `installer\subcraft.iss`; open it in the Inno Setup editor to change it.
 
+Both Windows packaging scripts read `CARGO_TARGET_DIR` (or use `target` when it is unset).
+Run `./tests/packaging-windows.ps1` to verify that default, relative and absolute target folders
+package the correct executable and licenses, and that a missing custom target fails instead of
+falling back to an old build. Version changes also trigger desktop packaging on pull requests.
+
 ## 6. Publish a download on GitHub
 
 GitHub builds the installer and the zip on a clean Windows machine and attaches both to a release:

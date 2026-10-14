@@ -612,10 +612,41 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   the final catalogue-cache/help-text adjustments were verified by the workspace/GPU tests and
   builds, but were not re-clicked in the browser after that block.
 
+### Session 32 — v0.1.3 release preparation (2026-10-15)
+
+* Owner requested that public downloads include the latest updates. Prepared v0.1.3 from main:
+  autosave/recovery, diagnostics/bug reports, and the merged Parts/eyedropper workflow. Welcome
+  work remains in draft PR #35 pending browser interaction verification; starter assets are not
+  included yet. Version bump and Cargo.lock go through a release PR before publishing the tag.
+* Fixed Windows packaging to read the same `CARGO_TARGET_DIR` that Cargo builds into. The old
+  script could copy a stale `target/dist/subcraft.exe` after building somewhere else. Cleanup
+  paths are checked inside dist before replacement. Added black-box PowerShell tests for
+  default/relative/absolute/missing custom targets, staged/zip payloads and font licenses.
+* Version changes and packaging-test changes trigger Windows/Linux package CI; the Windows
+  job runs packaging-path regressions before compiling the executable and Inno installer.
+  README and CHANGELOG describe v0.1.3; development notes document the target-dir tests.
+* Verification: 239 workspace tests passed (including GPU tests), clippy completed with existing
+  warnings, all four packaging cases passed. Built actual Windows GUI/dist executable, zip
+  and installer with the E: target directory; web/dist + wasm-bindgen also passed. Installer
+  is 9,268,331 bytes (8.84 MiB), zip 10,554,397 bytes (10.07 MiB), executable 26,236,416 bytes.
+* Ran silent per-user install of a 0.1.2 payload, upgrade to the packaged 0.1.3 payload, launch
+  the installed executable on the throwaway seven-object project and capture a screenshot,
+  then silent uninstall. Verified executable hashes, embedded version and removal of the
+  temporary uninstall entry. Only the test installer AppId/name were changed for isolation;
+  app payload and installation script behavior match the shipping package. User's installed
+  v0.1.2 binary hash and registration stayed unchanged. Data/library were isolated on E:;
+  no desktop mouse/keyboard input was used. Evidence lives in the E: build cache under
+  `subcraft-release-013-smoke` (installed-parts.png, install/upgrade/uninstall logs).
+* Not tested: manual installer wizard, admin/all-users installation, upgrade of the owner's
+  existing installation, or browser interaction with this version bump. The browser policy
+  block still applies; the merged Parts workflow had prior WebGPU verification in session 30.
+* Release publication awaits the version PR's checks and owner merge approval. Until it is
+  published and the package upload workflow completes, public latest remains v0.1.2.
+
 ## Next steps (in order)
 
 Current priorities requested by the owner:
-1. ~~Right-click texturing and Parts~~ — session 30; PR checks/merge tracked separately.
+1. ~~Right-click texturing and Parts~~ — session 30; PR #34 merged.
 2. Welcome screen, recent files, quick-start guide and screenshot documentation.
 3. Bundle the owner's normal/alpha starter pack, shelf previews and measured desktop/web sizes.
 4. Real multi-part FBX/GLB bake → smart material → paint → export; layer dragging/inline rename.

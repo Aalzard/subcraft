@@ -11,7 +11,7 @@ smart materials, bake mesh maps, and export game-ready textures.
 
 ![SubCraft](docs/screenshots/ui-redesign.png)
 
-> **In development:** right-click a model part to fill, paint or mask it, add generators, pick
+> **New in v0.1.3:** right-click a model part to fill, paint or mask it, add generators, pick
 > color/material, or isolate/hide it. A Parts panel lists connected pieces, UV islands, object
 > names and material IDs. See the [changelog](CHANGELOG.md).
 
@@ -90,6 +90,10 @@ For real work, the desktop app below is faster.
 Prefer no installer? Download **`SubCraft-<version>-windows-x64.zip`** instead, unzip it and run
 `SubCraft.exe`. Either way, any GPU with DirectX 12 works (SubCraft uses Direct3D 12 on Windows; to
 try Vulkan instead, set the environment variable `WGPU_BACKEND=vulkan`).
+
+The installer replaces an earlier installed version. Download again from **Releases → latest**
+to get the current desktop build; the browser version updates separately when changes land on
+main. Features in open pull requests are available after they are merged and released.
 
 ## Download (Linux)
 
