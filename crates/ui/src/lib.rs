@@ -18,7 +18,11 @@ pub use app::{LaunchOptions, SubcraftApp, Tab};
 /// Open the main window.
 pub fn run(options: LaunchOptions) -> eframe::Result {
     let native = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_title("SubCraft").with_inner_size([1600.0, 940.0]).with_min_inner_size([900.0, 560.0]),
+        viewport: egui::ViewportBuilder::default()
+            .with_title("SubCraft")
+            .with_icon(std::sync::Arc::new(theme::app_icon()))
+            .with_inner_size([1600.0, 940.0])
+            .with_min_inner_size([900.0, 560.0]),
         renderer: eframe::Renderer::Wgpu,
         ..Default::default()
     };

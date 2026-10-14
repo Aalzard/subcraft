@@ -203,3 +203,18 @@ pub fn dock_style(ui_style: &egui::Style) -> DockStyle {
     d.buttons.collapse_tabs_active_color = TEXT;
     d
 }
+
+/// Window / taskbar icon: the brand mark (accent square with a dark inset), drawn in code.
+pub fn app_icon() -> egui::IconData {
+    let n = 64u32;
+    let (a, b) = (n * 5 / 18, n * 13 / 18);
+    let mut rgba = Vec::with_capacity((n * n * 4) as usize);
+    for y in 0..n {
+        for x in 0..n {
+            let inner = (a..b).contains(&x) && (a..b).contains(&y);
+            let c = if inner { BG_2 } else { ACCENT };
+            rgba.extend_from_slice(&[c.r(), c.g(), c.b(), 255]);
+        }
+    }
+    egui::IconData { rgba, width: n, height: n }
+}

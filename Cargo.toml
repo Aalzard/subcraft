@@ -77,3 +77,9 @@ opt-level = 3
 lto = "thin"
 codegen-units = 16
 debug = 1
+
+# Packaged downloads (`scripts/build-windows.ps1`): no debug info, stripped symbols.
+[profile.dist]
+inherits = "release"
+debug = false
+strip = true

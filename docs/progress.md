@@ -12,7 +12,7 @@ Last updated: 2026-10-14 (session 6: assets — shelf, smart materials, environm
 * Undo: history of structurally shared document snapshots + merge keys; strokes push the
   post-stroke document — `adr/0006-undo.md`.
 
-## Done (all tests passing — 152 tests, `cargo test --workspace`)
+## Done (all tests passing — 153 tests, `cargo test --workspace`)
 
 | Crate | Contents | Tests |
 |---|---|---|
@@ -168,6 +168,22 @@ In the cloud container (no GPU) the app ran on lavapipe/llvmpipe (Vulkan) under 
 * Checked before publishing: no keys / tokens in the files or the git history.
 * Making the repository public is a GitHub setting the owner flips (Settings → General →
   Danger Zone → Change visibility).
+
+### Session 10 — Windows .exe and local development guide
+
+* `scripts/build-windows.ps1` (Windows PowerShell 5.1 / 7): builds with the new `dist` profile
+  (release without debug info, stripped: 28 MB exe instead of 192 MB) and the `windows-gui` feature
+  (no console window), then packages `dist/SubCraft-<version>-windows-x64.zip` with the README and
+  licenses. Tested here with PowerShell 7 (10.6 MB zip; the packaged binary starts and renders).
+* The exe embeds the brand icon (`apps/subcraft/assets/icon.ico` via `winresource` in `build.rs`;
+  a missing resource compiler only warns). The window / taskbar icon is drawn in code
+  (`theme::app_icon`, tested).
+* `.github/workflows/release.yml`: publishing a GitHub Release builds the zip on windows-latest and
+  attaches it; PRs touching packaging build it as an artifact.
+* `docs/development.md`: Windows setup, daily branch / PR loop with the protected `main`, building
+  the exe, publishing a release, troubleshooting.
+* Not verifiable from Linux: the Windows-only code paths (resource embedding, GUI subsystem) and
+  the C part of the FBX importer don't cross-compile here; the Windows CI jobs build them.
 
 CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraft-mesh -p subcraft-doc -p subcraft-materials -p subcraft-compositor -p subcraft-paint`
 

@@ -30,7 +30,14 @@ smart materials, bake mesh maps, and export game-ready textures.
   (ORM + DirectX normal), Unity HDRP (mask map) and glTF.
 - **Mesh import**: OBJ, glTF / GLB and FBX.
 
-## Getting started
+## Download (Windows)
+
+Grab `SubCraft-<version>-windows-x64.zip` from the
+[Releases page](https://github.com/Aalzard/subcraft/releases), unzip it and run `SubCraft.exe`.
+Nothing else to install; any GPU with DirectX 12 or Vulkan works. (The exe isn't code-signed, so
+SmartScreen may ask: **More info → Run anyway**.)
+
+## Building from source
 
 You need a recent stable [Rust toolchain](https://rustup.rs) (1.95 or newer) and a GPU with
 Vulkan, Metal or DirectX 12 support.
@@ -43,6 +50,9 @@ cargo run --release
 
 The app opens with a sample crate. Try `cargo run --release -- --demo` for a ready-made layer
 stack, or pass a mesh / project file: `cargo run --release -- path/to/model.fbx`.
+
+Step-by-step Windows setup, the daily workflow and building the `.exe` yourself:
+[`docs/development.md`](docs/development.md).
 
 On Linux you may need the usual windowing libraries (for example on Debian / Ubuntu:
 `libxkbcommon-x11-0 libegl1`) and a Vulkan driver.

@@ -15,6 +15,9 @@ to get a change merged.
 
 ## Setup
 
+New to Rust on Windows? [`docs/development.md`](docs/development.md) walks through installing
+everything, the branch / pull request loop and building the `.exe`.
+
 ```sh
 git clone https://github.com/Aalzard/subcraft.git
 cd subcraft
