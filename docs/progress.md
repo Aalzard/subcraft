@@ -209,15 +209,29 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
 
 ## Next steps (in order)
 
-1. User asset library on disk (save custom smart materials / masks / brush presets, persist
+1. **Your own image textures** (users ask for this: "add our own textures", SBSAR materials).
+   - Fill layer channels: an "Image" source with a file picker (PNG / JPG / TGA / TIF / EXR) using
+     the existing `FillSource::Bitmap`, with the layer's projection (UV / tri-planar / planar),
+     tiling and rotation.
+   - "Import texture set as material": pick several maps or a folder; channels are matched by file
+     name (basecolor / albedo / diffuse, roughness / gloss (inverted), metallic, normal (OpenGL or
+     DirectX, flip Y option), height / displacement, ao) and become one fill layer.
+   - Images as masks (mask fill effect from an image) and as brush stencils later.
+   - Imported images are stored in the project (`ResourceStore`, UUID identity, versioned schema;
+     bump the schema if needed) so projects stay portable; optionally added to the shelf.
+   - Color rules: base color is sRGB → linear on import; data maps (roughness, metallic, normal,
+     height, AO) are never color-transformed.
+   - SBSAR can't be read directly (Adobe's closed Substance engine); the documented route is to
+     export maps with the free Adobe Substance 3D Player and import them as a texture set.
+2. User asset library on disk (save custom smart materials / masks / brush presets, persist
    imported alphas + HDRIs), shelf search and categories, drag-and-drop from shelf.
-2. Stencils / projection painting with an image; clone tool; smudge / blur filter layers.
-3. Bake follow-ups: per-material high-poly matching by name, cage mesh support, anti-aliased
+3. Stencils / projection painting with an image; clone tool; smudge / blur filter layers.
+4. Bake follow-ups: per-material high-poly matching by name, cage mesh support, anti-aliased
    (supersampled) bakes, GPU baking for large meshes.
-4. Autosave + recent files; export presets saved per project; custom export templates editor.
-5. UI follow-ups: drag-and-drop layer reordering, inline rename, eyedropper, painting in the
+5. Autosave + recent files; export presets saved per project; custom export templates editor.
+6. UI follow-ups: drag-and-drop layer reordering, inline rename, eyedropper, painting in the
    2D view, texture-set resolution change, camera FOV / ortho toggle, texture mipmaps.
-6. Engine follow-ups: incremental dirty tracking inside mask paint effects; near-plane
+7. Engine follow-ups: incremental dirty tracking inside mask paint effects; near-plane
    clipping in the depth rasterizer; f16 tile geometry; renormalize normals after opacity
    lerp; GPU compositor behind the same interface.
 
