@@ -17,6 +17,8 @@ pub mod viewport;
 pub mod widgets;
 pub mod welcome;
 
+pub mod updates;
+
 pub use app::{LaunchOptions, SubcraftApp, Tab};
 
 /// Open the main window.

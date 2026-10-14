@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-10-14 (session 30: right-click texturing and Parts)
+Last updated: 2026-10-15 (session 34: welcome integration after v0.1.4)
 
 ## Decisions
 
@@ -12,7 +12,7 @@ Last updated: 2026-10-14 (session 30: right-click texturing and Parts)
 * Undo: history of structurally shared document snapshots + merge keys; strokes push the
   post-stroke document — `adr/0006-undo.md`.
 
-## Done (all tests passing — 153 tests, `cargo test --workspace`)
+## Implemented subsystems (latest test counts are in the session entries)
 
 | Crate | Contents | Tests |
 |---|---|---|
@@ -681,6 +681,66 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   and both session records. Browser interaction remains the outstanding check for PR #35.
   Re-ran all 246 tests, clippy, native release and web builds on the 0.1.3 base; native welcome
   and guide screenshot runs passed and the documentation images were refreshed.
+
+### Session 33 — in-app desktop updates and v0.1.4 preparation (2026-10-15)
+
+* Published v0.1.3 after PR #36's checks passed and owner approval. Installer, Windows zip and
+  Linux archive are attached to the public latest release; release/package and Pages workflows
+  passed. Anonymous download checks passed. The owner's existing v0.1.2 installation is intact.
+* Owner prioritised a green update button before continuing the roadmap. The top bar now checks
+  the latest stable GitHub release, downloads the package for the current install type, verifies
+  size/SHA-256 and restarts after installation. Help also offers a check-only action. Native HTTP,
+  archive and OS dependencies stay out of wasm; all project/checkpoint logic stays in app.
+* Windows installed copies preserve per-user/all-users mode; all-users uses Windows elevation.
+  Windows/Linux x64 portable copies replace only the executable with rollback. A copied helper
+  validates the job and official release before allowing the parent to close, then rechecks the
+  payload. Project checkpoints preserve unsaved document changes, original save path and UUID
+  selection. Bake completion is awaited; undo history and camera state reset on restart.
+  Large completed payloads are removed on restart; checkpoints are retained in the data folder.
+* Tested the complete native UI/check/download/helper/install/restart path with isolated real
+  v0.1.3 and v0.1.4 executables, a local release fixture and the explicit test-only update-fixture
+  feature. Both portable and silent per-user installer paths passed, including install paths
+  with spaces. Installer tests changed only AppId/name to protect the production registration.
+  Before/after 3D screenshot crops are pixel-identical (RGB mean absolute difference 0).
+  Original project hashes and unsaved flags were preserved; uninstall and original installation
+  hash/registration checks passed. No desktop input was driven.
+  A further portable cycle restored 12 allocated paint tiles from unsaved demo strokes, while
+  the original project remained blank; its model screenshot also matched exactly after restart.
+* Installer testing caught Inno rejecting Windows canonical device-path prefixes; fixed and
+  added a regression. The failed attempt restarted the old app and restored its checkpoint.
+  Production transport separately checked the actual public v0.1.3 metadata and downloaded
+  its 9,307,434-byte installer, verifying the official SHA-256 digest over HTTPS.
+* Local verification: 248 workspace tests passed including GPU comparisons, clippy completed
+  with existing warnings and no updater warnings, shipping Windows GUI/zip/installer and wasm
+  builds passed. The v0.1.4 installer is 10,091,781 bytes (9.62 MiB; +0.75 MiB), Windows zip
+  11,669,622 bytes, executable 28,641,280 bytes. The wasm output is 16,102,302 bytes versus
+  16,102,337 for v0.1.3 (-35 bytes);
+  no native updater dependencies appear in the wasm dependency tree. Screenshot:
+  `screenshots/update-restart.png` (real per-user update fixture). README, changelog, development
+  notes and ADR 0007 describe the update contract and one-time bootstrap download.
+* Not tested: all-users/UAC interaction, a Linux GUI restart cycle, or browser interaction.
+  Browser reconnection remains policy-blocked. Automatic approval review also blocked an extra
+  launch of the shipping GUI for a check-only screenshot with the reason "blocked by policy";
+  the successful real fixture-app restart screenshots and production HTTPS probe were retained.
+  v0.1.4 is prepared on the updater PR; publication requires owner merge/release approval.
+
+### Session 34 — welcome integration after the updater release (2026-10-15)
+
+* Owner approved PR #37 merge/publication. All three required checks and both packaging checks
+  passed; merged at `49b1bdc` and published v0.1.4 with all three checked CI packages attached.
+  Public latest resolves to v0.1.4 and anonymous downloads passed size/signature range checks.
+  The release workflow and main's Linux/Windows/web checks passed; Pages deployment passed.
+* Resumed draft PR #35 and merged v0.1.4 into its branch, retaining the updater, welcome hub,
+  recents and guide. Update restarts now bypass the welcome hub even for an unmodified restored
+  project; added a startup regression. What's new also describes the desktop update button.
+* Verification so far: 256 workspace tests passed including GPU checks; clippy completed with
+  existing warnings. Desktop dist and browser dist builds passed (16,113,240-byte wasm).
+  Captured current native welcome/guide screenshots with isolated data/library and no update
+  check or desktop input; the guide run exited successfully. The fresh browser tab is now
+  accessible on port 8773; welcome/guide interaction checks are in progress.
+* Starter asset inventory for the next feature: 30 normal PNGs and 30 alpha PNGs, all 1024²,
+  under the original repository's output/textures and output/alphas. Total PNG sizes are
+  12,311,802 bytes for normals and 1,583,193 for alphas. These are not in v0.1.4 yet.
 
 ## Next steps (in order)
 

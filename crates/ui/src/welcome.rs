@@ -87,7 +87,7 @@ pub fn show(state: &mut UiState, ctx: &egui::Context) -> Option<WelcomeAction> {
     if state.welcome.whats_new {
         egui::Window::new("What's new").open(&mut state.welcome.whats_new).collapsible(false).default_width(420.0).show(ctx, |ui| {
             ui.heading("Current development build");
-            for text in ["Right-click Parts workflow, named objects and UV-island masks.", "Eyedropper for unlit color and material values.", "Autosave, recovery copies, crash reports and Help → Report a bug.", "Welcome screen, desktop recents and this six-step quick start."] { ui.label(text); ui.add_space(6.0); }
+            for text in ["Right-click Parts workflow, named objects and UV-island masks.", "Eyedropper for unlit color and material values.", "Autosave, recovery copies, crash reports and Help → Report a bug.", "Desktop: the green Check / update button installs releases and restarts with your project restored.", "Welcome screen, desktop recents and this six-step quick start."] { ui.label(text); ui.add_space(6.0); }
             ui.hyperlink_to("Full changelog", "https://github.com/Aalzard/subcraft/blob/main/CHANGELOG.md");
         });
     }

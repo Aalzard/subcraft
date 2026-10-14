@@ -28,6 +28,9 @@ pub struct UvView {
 
 pub struct UiState {
     pub welcome: crate::welcome::WelcomeUi,
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub updater: Option<subcraft_app::updater::Updater>,
     pub parts_kind: subcraft_core::PartKind,
     pub hovered_part: Option<subcraft_app::PartKey>,
     pub context_part: Option<subcraft_app::SurfaceTarget>,
@@ -95,6 +98,9 @@ impl UiState {
         let renderer = render_state.as_ref().map(|rs| ViewportRenderer::new(&rs.device, &rs.queue));
         Self {
             welcome: Default::default(),
+
+            #[cfg(not(target_arch = "wasm32"))]
+            updater: subcraft_app::updater::Updater::new().ok(),
             parts_kind: subcraft_core::PartKind::Connected,
             hovered_part: None,
             context_part: None,

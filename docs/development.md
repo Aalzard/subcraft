@@ -142,6 +142,21 @@ enter the tag (e.g. `v0.1.0`) and run it.
 
 The Linux package can also be built on a Linux machine with `./scripts/build-linux.sh`.
 
+### Desktop update contract
+
+Starting with the release that includes the green **Check / update** button, desktop users
+can download, verify, install and restart from the top bar. Publish stable `v<semver>` tags
+with the existing package names and GitHub SHA-256 asset digests. While packages are uploading,
+the app asks users to check again. Test-only `update-fixture` must stay disabled in packaging.
+
+Native tests in `app::updater` cover release selection, bounded downloads/checksums, archive
+extraction, portable replacement/rollback guards, update job paths and unsaved project
+restoration. See [ADR 0007](adr/0007-desktop-updates.md) for the helper protocol. Use isolated
+`SUBCRAFT_DATA` and `SUBCRAFT_LIBRARY` folders during real updater tests. An end-to-end fixture
+build may use `--features windows-gui,update-fixture`, `SUBCRAFT_UPDATE_FIXTURE_URL` set to a
+loopback HTTP server, and `--auto-update-fixture`. The feature restricts transport overrides
+to `http://127.0.0.1:<port>`; ordinary builds always use the official HTTPS endpoints.
+
 ## 7. Build the web version
 
 The same code builds for the browser (WebAssembly + WebGPU). One-time setup:
