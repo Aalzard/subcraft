@@ -12,7 +12,7 @@ Last updated: 2026-10-14 (session 6: assets — shelf, smart materials, environm
 * Undo: history of structurally shared document snapshots + merge keys; strokes push the
   post-stroke document — `adr/0006-undo.md`.
 
-## Done (all tests passing — 149 tests, `cargo test --workspace`)
+## Done (all tests passing — 150 tests, `cargo test --workspace`)
 
 | Crate | Contents | Tests |
 |---|---|---|
@@ -124,6 +124,21 @@ In the cloud container (no GPU) the app ran on lavapipe/llvmpipe (Vulkan) under 
   screenshots `docs/screenshots/smart-material-worn-metal.png`, `shelf-materials.png`.
 * Not saved in projects yet: the chosen environment and imported alphas / HDRIs (viewport and
   tool settings, like Painter's shelf; next step is a user library folder).
+
+### Session 7 — edge wear followed UV seams (fixed, verified in the running app)
+
+* User report: edge wear / curvature masks looked "applied by UV, not by the object's edges".
+* Cause: generator masks (Edges, Cavity, Directional, Position) break up their threshold with
+  noise, and that noise was projected in **UV**. Each island got an unrelated patch of noise, so
+  wear appeared on one side of an edge and stopped dead at the seam. The baked curvature itself
+  was already seam-free (checked: sphere / torus show no seam lines; both faces of a box edge
+  bake identical values at every distance).
+* Fix: the breakup noise is now triplanar on object position (`compositor/src/mask.rs`).
+  Test `generator_noise_breakup_is_continuous_across_uv_seams` (flat quad split into two far-apart,
+  mirrored islands): average mask jump across the seam was 0.45 before, < 0.05 after.
+* Driven in the app: bake + Worn Painted Metal on the crate, before/after in
+  `docs/screenshots/edge-wear-seam-fix.png` (left: one-sided band on the lid's top face cut at
+  the seam; right: broken-up wear following the edge).
 
 CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraft-mesh -p subcraft-doc -p subcraft-materials -p subcraft-compositor -p subcraft-paint`
 

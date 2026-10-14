@@ -5,7 +5,7 @@
 
 use glam::Vec3;
 use subcraft_core::MeshMapKind;
-use subcraft_doc::{Generator, GeneratorKind, Mask, MaskEffectKind, Projection};
+use subcraft_doc::{Generator, GeneratorKind, Mask, MaskEffectKind, Projection, ProjectionMode};
 use subcraft_image::TILE_TEXELS;
 use subcraft_materials::sample::eval_procedural;
 
@@ -80,7 +80,9 @@ fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]]) {
     let set = tc.set_geometry;
     let ext_y = set.bounds.extent().y.max(1e-12);
     let half = g.softness.max(1e-4) * 0.5;
-    let noise_proj = Projection::default();
+    // Breakup noise is projected in 3D (triplanar on object position), never in UV: UV noise
+    // jumps at every seam and would make wear follow the islands instead of the shape.
+    let noise_proj = Projection { mode: ProjectionMode::Triplanar, triplanar_sharpness: 4.0, ..Projection::default() };
     for (i, o) in out.iter_mut().enumerate() {
         let raw = match g.kind {
             GeneratorKind::Edges | GeneratorKind::MeshMap(_) => map[i][0],
