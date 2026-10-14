@@ -2,6 +2,10 @@
 //!
 //! Usage: `subcraft [project.subcraft|mesh.obj|.gltf|.glb|.fbx] [--demo] [--view-2d] [--screenshot out.png]`
 
+// Packaged Windows builds open without a console window (logs then go nowhere; run a normal
+// build from a terminal to see them).
+#![cfg_attr(all(windows, feature = "windows-gui"), windows_subsystem = "windows")]
+
 fn main() -> anyhow::Result<()> {
     env_logger_lite();
     let mut options = subcraft_ui::LaunchOptions::default();

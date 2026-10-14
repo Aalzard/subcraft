@@ -1,0 +1,53 @@
+name: Release
+
+# Publishing a GitHub Release (e.g. tag v0.2.0) builds the Windows zip and attaches it.
+# Pull requests that touch the packaging only build it, as a downloadable artifact.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - scripts/build-windows.ps1
+      - apps/subcraft/**
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  windows:
+    name: Package (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build and package
+        shell: pwsh
+        run: ./scripts/build-windows.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SubCraft-windows-x64
+          path: dist/*.zip
+          if-no-files-found: error
+
+  publish:
+    name: Attach to release
+    if: github.event_name == 'release'
+    needs: windows
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: SubCraft-windows-x64
+          path: dist
+      - name: Upload zip to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" dist/*.zip --clobber --repo "${{ github.repository }}"
