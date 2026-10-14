@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-10-14 (session 11: Windows installer)
+Last updated: 2026-10-14 (session 12: image textures in fill layers)
 
 ## Decisions
 
@@ -207,6 +207,28 @@ In the cloud container (no GPU) the app ran on lavapipe/llvmpipe (Vulkan) under 
 * README: Download button (links to the latest release) + live version badge + install steps
   incl. SmartScreen; `docs/development.md`: building the installer and publishing a release.
 
+### Session 12 — your own image textures in fill layers (roadmap 1, part 1)
+
+* Fill-layer channels have a new **Image** source (Properties → Channels → source dropdown):
+  a file dialog picks PNG / JPG / TGA / TIF / BMP / EXR / HDR; the channel shows a thumbnail,
+  file name, size and **Replace…**. The layer's projection (UV / tri-planar / planar, scale,
+  rotation, offset) applies. Choosing an image is one undoable step.
+* `Session::import_image` (`crates/app/src/images.rs`): the original file bytes go into the
+  `ResourceStore` (UUID identity) and are embedded in the project, so it stays portable; importing
+  the same file again reuses the resource; unreadable files and images over 16384 px report errors.
+* Color rules unchanged and now tested end to end: Base Color decodes sRGB → linear, data channels
+  (roughness etc.) use the raw values.
+* Fixed while testing: projects with TGA images could not be reopened (TGA has no file signature,
+  decoding from memory failed) and re-saving a loaded project renamed its images `*.bin`.
+  `image::io::decode_bitmap` / `guess_extension` now fall back to the file name.
+* Tests (6 new, 159 total): `crates/app/tests/images.rs` (sRGB vs raw, image orientation, save →
+  delete source → reopen bit-exact for PNG / TGA / EXR, second save, dedup, undo / redo, bad files),
+  `image::io` extension + in-memory decode for every format.
+* Verified in the real app on Windows: a project with a brick image on the crate's Body, reopened
+  after deleting the source PNG — renders with 2x tiling, Properties shows the image row
+  (`docs/screenshots/image-fill-layer.png`). Not clicked through by hand: the native file dialog
+  itself (same `rfd` call as the shelf's existing Import alpha).
+
 CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraft-mesh -p subcraft-doc -p subcraft-materials -p subcraft-compositor -p subcraft-paint`
 
 ### Deviations from the brief (sound-engineering choices)
@@ -232,9 +254,7 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
 ## Next steps (in order)
 
 1. **Your own image textures** (users ask for this: "add our own textures", SBSAR materials).
-   - Fill layer channels: an "Image" source with a file picker (PNG / JPG / TGA / TIF / EXR) using
-     the existing `FillSource::Bitmap`, with the layer's projection (UV / tri-planar / planar),
-     tiling and rotation.
+   - ~~Fill layer channels: an "Image" source with a file picker~~ — done (session 12).
    - "Import texture set as material": pick several maps or a folder; channels are matched by file
      name (basecolor / albedo / diffuse, roughness / gloss (inverted), metallic, normal (OpenGL or
      DirectX, flip Y option), height / displacement, ao) and become one fill layer.

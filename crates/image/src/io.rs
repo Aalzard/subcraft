@@ -22,9 +22,16 @@ pub fn load_bitmap(path: &Path) -> Result<Bitmap, ImageIoError> {
     Ok(from_dynamic(img))
 }
 
-/// Decode an in-memory image file.
-pub fn decode_bitmap(bytes: &[u8]) -> Result<Bitmap, ImageIoError> {
-    Ok(from_dynamic(image::load_from_memory(bytes)?))
+/// Decode an in-memory image file. The format is detected from the content; `name` (a file
+/// name such as `wood.tga`) is the fallback for formats without a signature, like TGA.
+pub fn decode_bitmap(bytes: &[u8], name: Option<&str>) -> Result<Bitmap, ImageIoError> {
+    let format = match image::guess_format(bytes) {
+        Ok(f) => f,
+        Err(e) => name
+            .and_then(|n| image::ImageFormat::from_path(n).ok())
+            .ok_or(e)?,
+    };
+    Ok(from_dynamic(image::load_from_memory_with_format(bytes, format)?))
 }
 
 fn from_dynamic(img: image::DynamicImage) -> Bitmap {
@@ -46,6 +53,22 @@ fn from_dynamic(img: image::DynamicImage) -> Bitmap {
             Bitmap { width: w, height: h, channels: 4, data: BitmapData::F32(b.into_raw()) }
         }
     }
+}
+
+/// File extensions accepted as texture images (file dialogs, texture-set import).
+pub const IMAGE_EXTENSIONS: [&str; 9] = ["png", "jpg", "jpeg", "tga", "tif", "tiff", "exr", "bmp", "hdr"];
+
+/// Extension for encoded image bytes: detected from the content, else taken from `name` if it is
+/// a known image extension (TGA has no signature), else "bin".
+pub fn guess_extension(bytes: &[u8], name: Option<&str>) -> String {
+    if let Some(ext) = image::guess_format(bytes).ok().and_then(|f| f.extensions_str().first().copied()) {
+        return ext.to_string();
+    }
+    name.and_then(|n| std::path::Path::new(n).extension())
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .filter(|e| IMAGE_EXTENSIONS.contains(&e.as_str()))
+        .unwrap_or_else(|| "bin".to_string())
 }
 
 /// Output file encodings supported by the exporter.
@@ -179,6 +202,25 @@ mod tests {
         for (i, &v) in bytes.iter().enumerate() {
             assert_eq!(v as usize, i % 256);
         }
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn guesses_extension_from_content() {
+        let dir = std::env::temp_dir().join(format!("subcraft-guess-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for (name, fmt, ext) in [("a.png", FileFormat::Png8, "png"), ("b.tga", FileFormat::Tga8, "tga"), ("c.exr", FileFormat::Exr32, "exr")] {
+            let path = dir.join(name);
+            save_image(&path, 2, 2, 3, &[0.5; 12], fmt).unwrap();
+            let bytes = std::fs::read(&path).unwrap();
+            assert_eq!(guess_extension(&bytes, Some(name)), ext, "{name}");
+            // Decoding from memory works for every format, TGA via the name hint.
+            let b = decode_bitmap(&bytes, Some(name)).unwrap();
+            assert_eq!((b.width, b.height), (2, 2), "{name}");
+        }
+        assert_eq!(guess_extension(b"<png bytes>", Some("x.png")), "png", "name fallback");
+        assert_eq!(guess_extension(b"not an image", Some("notes.txt")), "bin");
+        assert_eq!(guess_extension(b"not an image", None), "bin");
         std::fs::remove_dir_all(&dir).ok();
     }
 

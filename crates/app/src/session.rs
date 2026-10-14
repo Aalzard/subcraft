@@ -248,6 +248,10 @@ impl Session {
     pub fn resources(&self) -> &ResourceStore {
         &self.resources
     }
+
+    pub(crate) fn resources_mut(&mut self) -> &mut ResourceStore {
+        &mut self.resources
+    }
     pub fn is_stroking(&self) -> bool {
         self.stroke.is_some()
     }

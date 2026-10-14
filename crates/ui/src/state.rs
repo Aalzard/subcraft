@@ -59,6 +59,8 @@ pub struct UiState {
     pub env: crate::panels::shelf::EnvUi,
     /// Mesh maps last uploaded to the GPU (to re-upload only when a bake replaced them).
     pub uploaded_maps: HashMap<(subcraft_core::TextureSetId, subcraft_core::MeshMapKind), subcraft_image::TiledImage>,
+    /// Thumbnails of imported images (resources are immutable, so entries never go stale).
+    pub image_thumbs: HashMap<subcraft_core::ResourceId, egui::TextureHandle>,
 }
 
 impl UiState {
@@ -95,6 +97,7 @@ impl UiState {
             shelf: Default::default(),
             env: Default::default(),
             uploaded_maps: HashMap::new(),
+            image_thumbs: HashMap::new(),
         }
     }
 
