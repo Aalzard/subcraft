@@ -9,6 +9,10 @@ smart materials, bake mesh maps, and export game-ready textures.
 
 ![SubCraft](docs/screenshots/ui-redesign.png)
 
+> **What's new:** your own image textures, texture-set import, image masks, a personal asset library,
+> saved smart materials and brush presets, shelf search and drag & drop, and stencils. See the
+> [changelog](CHANGELOG.md).
+
 > **Status: early but usable.** The core engine, painting, baking, smart materials, save/load and
 > export all work and are covered by tests. Expect rough edges, missing features and breaking
 > changes to the project file format. See [`docs/progress.md`](docs/progress.md) for what is done
