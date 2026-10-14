@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-10-14 (session 6: assets — shelf, smart materials, environments, brush alphas)
+Last updated: 2026-10-14 (session 11: Windows installer)
 
 ## Decisions
 
@@ -184,6 +184,28 @@ In the cloud container (no GPU) the app ran on lavapipe/llvmpipe (Vulkan) under 
   the exe, publishing a release, troubleshooting.
 * Not verifiable from Linux: the Windows-only code paths (resource embedding, GUI subsystem) and
   the C part of the FBX importer don't cross-compile here; the Windows CI jobs build them.
+
+### Session 11 — Windows installer, verified on a Windows 11 PC (RTX 4060)
+
+* Whole suite on Windows: `cargo test --workspace` → 153 passed, 0 failed (GPU render tests ran on
+  the RTX 4060). `scripts/build-windows.ps1` → `SubCraft-0.1.0-windows-x64.zip` (8.8 MB).
+* New `installer/subcraft.iss` (Inno Setup 6) + `scripts/build-installer.ps1`: builds the exe and
+  zip, then `dist/SubCraft-<version>-setup.exe` (7.9 MB). Version read from the root `Cargo.toml`
+  (numeric file version derived, so `0.2.0-beta.1` works). Program Files by default, "install for
+  me only" offered; Start Menu shortcut, optional desktop shortcut, uninstaller in Apps, MIT
+  license page, optional `.subcraft` association, fixed AppId so upgrades replace older versions.
+* Verified here (per-user silent install, `/CURRENTUSER /VERYSILENT /TASKS="desktopicon,associate"`):
+  files installed, both shortcuts, Apps entry "SubCraft 0.1.0", association registered; launching
+  the **Start Menu shortcut** opened the installed app and it rendered the sample crate;
+  opening a `.subcraft` file through the shell association opened it in SubCraft (title showed the
+  file); uninstall removed files, shortcuts, Apps entry and registry keys. First run left an empty
+  `.subcraft` key — fixed with `uninsdeletekeyifempty`, re-tested clean.
+* Not verified locally: the all-users (Program Files) install, which needs a UAC prompt; it uses
+  the same script with `{autopf}` / HKLM. The release workflow builds the installer on
+  `windows-latest` (Inno Setup 6.7.1 is preinstalled on the Windows Server 2025 image; the job
+  installs it with Chocolatey if missing) and attaches the setup.exe and the zip to the release.
+* README: Download button (links to the latest release) + live version badge + install steps
+  incl. SmartScreen; `docs/development.md`: building the installer and publishing a release.
 
 CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraft-mesh -p subcraft-doc -p subcraft-materials -p subcraft-compositor -p subcraft-paint`
 

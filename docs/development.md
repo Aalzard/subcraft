@@ -1,7 +1,7 @@
 # Developing SubCraft locally (Windows)
 
 A step-by-step guide: set up once, then the daily loop of changing code, testing it, and getting it
-into `main`, plus building the Windows `.exe` and publishing a download.
+into `main`, plus building the Windows `.exe` and installer and publishing a download.
 
 Commands are for **PowerShell**. They work the same on macOS / Linux with `/` instead of `\`.
 
@@ -86,21 +86,53 @@ be installed to run it; any PC with a DirectX 12 or Vulkan GPU works. Windows Sm
 warn about an unknown publisher the first time (the exe is not code-signed): click
 **More info → Run anyway**.
 
-## 5. Publish a download on GitHub
+## 5. Build the Windows installer
 
-GitHub builds the zip for you on a clean Windows machine and attaches it to a release:
+The installer (`SubCraft-<version>-setup.exe`) is made with **Inno Setup 6**. Install it once:
+
+```powershell
+winget install JRSoftware.InnoSetup
+```
+
+Then build it (this also builds the exe and the zip from step 4):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\build-installer.ps1
+```
+
+Result: `dist\SubCraft-0.1.0-setup.exe` (about 10 MB). The version always comes from the root
+`Cargo.toml`. Use `-SkipBuild` to repackage an existing build without recompiling.
+
+The installer:
+
+- installs to `C:\Program Files\SubCraft` (asks for admin), or to your user folder if you pick
+  **Install for me only**;
+- adds a Start Menu shortcut, an optional desktop shortcut and an uninstaller in
+  **Settings → Apps** (look for "SubCraft");
+- shows the MIT license and, optionally, makes `.subcraft` project files open in SubCraft.
+
+Quiet install for testing (no wizard, no admin, per-user):
+`.\dist\SubCraft-0.1.0-setup.exe /CURRENTUSER /VERYSILENT`. The uninstaller sits in the install
+folder (`unins000.exe /VERYSILENT`).
+
+The installer script is `installer\subcraft.iss`; open it in the Inno Setup editor to change it.
+
+## 6. Publish a download on GitHub
+
+GitHub builds the installer and the zip on a clean Windows machine and attaches both to a release:
 
 1. Bump the version in the root `Cargo.toml` (`version = "0.1.0"` → `"0.2.0"`) through a normal
-   pull request, so the zip name matches.
+   pull request, so the file names match. (Skip this for the very first release, v0.1.0.)
 2. On GitHub: **Releases → Draft a new release**.
 3. **Choose a tag** → type `v0.2.0` → **Create new tag**. Give it a title and click
    **Generate release notes**.
 4. Click **Publish release**.
 
-About 15 minutes later `SubCraft-0.2.0-windows-x64.zip` appears under the release's **Assets**
-(watch progress in the **Actions** tab, workflow "Release"). That page is the link to share.
+About 15 minutes later `SubCraft-0.2.0-setup.exe` and `SubCraft-0.2.0-windows-x64.zip` appear under
+the release's **Assets** (watch progress in the **Actions** tab, workflow "Release"). The
+**Download** button at the top of the README always points to the newest release.
 
-## 6. Working with Claude Code locally (optional)
+## 7. Working with Claude Code locally (optional)
 
 [Claude Code](https://code.claude.com/docs) can work in this folder on your PC the same way it
 does in the cloud. Start it inside the SubCraft folder: it reads [`CLAUDE.md`](../CLAUDE.md)
@@ -116,3 +148,4 @@ work on a branch and open a pull request, so the protected `main` and the checks
 | Builds are very slow | Exclude the `target` folder from Windows Defender real-time scanning. |
 | The app window is black or won't open | Update your GPU driver; SubCraft needs DirectX 12 or Vulkan. |
 | `git push` to `main` is rejected | Expected: `main` is protected. Push a branch and open a pull request. |
+| `Inno Setup 6 (ISCC.exe) not found` | Run `winget install JRSoftware.InnoSetup`, or pass `-Iscc <path to ISCC.exe>`. |
