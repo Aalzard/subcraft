@@ -51,6 +51,20 @@ impl Projection {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn transform_scales_x_and_y_separately_then_offsets() {
+        let p = Projection { scale: [2.0, 3.0], offset: [0.25, -0.5], ..Projection::default() };
+        assert_eq!(p.transform_2d([1.0, 1.0]), [2.25, 2.5]);
+        let r = Projection { rotation_deg: 90.0, ..Projection::default() };
+        let q = r.transform_2d([1.0, 0.0]);
+        assert!(q[0].abs() < 1e-6 && (q[1] - 1.0).abs() < 1e-6, "{q:?}");
+    }
+}
+
 /// Procedural pattern generators (original implementations in `subcraft-materials`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

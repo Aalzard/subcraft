@@ -355,10 +355,42 @@ fn projection_editor(ui: &mut Ui, proj: &mut Projection) -> bool {
     prop_row(ui, "Mode", |ui| {
         changed |= segmented(ui, &mut proj.mode, &[(ProjectionMode::Uv, "UV"), (ProjectionMode::Triplanar, "Tri-planar"), (ProjectionMode::Planar, "Planar")]);
     });
-    prop_row(ui, "Scale", |ui| {
-        changed |= ui.add(egui::DragValue::new(&mut proj.scale[0]).speed(0.05).range(0.01..=256.0)).changed();
+    // Tiling: X and Y linked by default (lock), separate when unlocked. The lock is UI state,
+    // remembered per editor; it starts unlocked if the two values already differ.
+    let lock_id = ui.id().with("tiling_lock");
+    let mut locked = ui.data(|d| d.get_temp::<bool>(lock_id)).unwrap_or(proj.scale[0] == proj.scale[1]);
+    prop_row(ui, "Tiling", |ui| {
+        fn tiling(v: &mut f32) -> egui::DragValue<'_> {
+            egui::DragValue::new(v).speed(0.05).range(0.01..=256.0).max_decimals(2)
+        }
+        if locked {
+            if ui.add(tiling(&mut proj.scale[0])).on_hover_text("Repeats across the surface (X and Y together)").changed() {
+                proj.scale[1] = proj.scale[0];
+                changed = true;
+            }
+        } else {
+            ui.label(RichText::new("X").color(TEXT_DIM));
+            changed |= ui.add(tiling(&mut proj.scale[0])).changed();
+            ui.label(RichText::new("Y").color(TEXT_DIM));
+            changed |= ui.add(tiling(&mut proj.scale[1])).changed();
+        }
+        if ui.checkbox(&mut locked, "Link").on_hover_text("Same tiling for X and Y; untick to set them separately").changed() {
+            if locked && proj.scale[1] != proj.scale[0] {
+                proj.scale[1] = proj.scale[0];
+                changed = true;
+            }
+        }
     });
-    proj.scale[1] = proj.scale[0];
+    ui.data_mut(|d| d.insert_temp(lock_id, locked));
+    prop_row(ui, "Offset", |ui| {
+        fn offset(v: &mut f32) -> egui::DragValue<'_> {
+            egui::DragValue::new(v).speed(0.005).range(-16.0..=16.0).max_decimals(3)
+        }
+        ui.label(RichText::new("X").color(TEXT_DIM));
+        changed |= ui.add(offset(&mut proj.offset[0])).changed();
+        ui.label(RichText::new("Y").color(TEXT_DIM));
+        changed |= ui.add(offset(&mut proj.offset[1])).changed();
+    });
     changed |= slider_row(ui, "Rotation", egui::Slider::new(&mut proj.rotation_deg, -180.0..=180.0).suffix("°")).changed();
     if proj.mode == ProjectionMode::Triplanar {
         changed |= slider_row(ui, "Sharpness", egui::Slider::new(&mut proj.triplanar_sharpness, 1.0..=32.0)).changed();
@@ -367,6 +399,11 @@ fn projection_editor(ui: &mut Ui, proj: &mut Projection) -> bool {
         prop_row(ui, "Axis", |ui| {
             changed |= segmented(ui, &mut proj.planar_axis, &[(0u8, "X"), (1, "Y"), (2, "Z")]);
         });
+    }
+    let default = Projection { mode: proj.mode, planar_axis: proj.planar_axis, ..Projection::default() };
+    if *proj != default && ui.small_button("Reset tiling, offset and rotation").clicked() {
+        *proj = default;
+        changed = true;
     }
     changed
 }
