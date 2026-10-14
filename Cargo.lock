@@ -3425,6 +3425,7 @@ dependencies = [
  "egui-wgpu",
  "egui_dock",
  "glam",
+ "image",
  "log",
  "pollster 0.4.0",
  "rfd",

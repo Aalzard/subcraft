@@ -37,13 +37,12 @@ fn ui_punctuation_is_covered() {
 }
 
 #[test]
-fn app_icon_is_the_brand_mark() {
+fn app_icon_is_the_app_artwork() {
     let icon = theme::app_icon();
-    assert_eq!((icon.width, icon.height), (64, 64));
-    assert_eq!(icon.rgba.len(), 64 * 64 * 4);
-    let px = |x: usize, y: usize| &icon.rgba[(y * 64 + x) * 4..(y * 64 + x) * 4 + 4];
-    let accent = theme::ACCENT;
-    assert_eq!(px(1, 1), &[accent.r(), accent.g(), accent.b(), 255], "border is the accent");
-    let inset = theme::BG_2;
-    assert_eq!(px(32, 32), &[inset.r(), inset.g(), inset.b(), 255], "center is the dark inset");
+    assert_eq!((icon.width, icon.height), (128, 128));
+    assert_eq!(icon.rgba.len(), 128 * 128 * 4);
+    let px = |x: usize, y: usize| &icon.rgba[(y * 128 + x) * 4..(y * 128 + x) * 4 + 4];
+    assert_eq!(px(0, 0)[3], 0, "rounded corners are transparent");
+    let bg = px(64, 6);
+    assert!(bg[3] == 255 && bg[0] > 230 && bg[1] > 80 && bg[1] < 140 && bg[2] < 40, "orange background: {bg:?}");
 }

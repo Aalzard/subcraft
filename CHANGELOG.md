@@ -3,6 +3,12 @@
 What changed in SubCraft, newest first. Download the latest build from the
 [Releases page](https://github.com/Aalzard/subcraft/releases/latest).
 
+## Unreleased
+
+### Changed
+- **New app icon**: an engraved hand on orange, used for the program, the window and taskbar, the
+  installer and the Linux menu entry.
+
 ## 0.1.1
 
 ### New
