@@ -1,0 +1,21 @@
+name: Feature request
+description: Suggest a tool, workflow or improvement
+labels: [enhancement]
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: What do you want to do?
+      description: The workflow or result you're after. Comparisons with Substance Painter or other tools are welcome.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: How could it work?
+      description: Any idea of the UI or behavior.
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Mockups, references, related issues.

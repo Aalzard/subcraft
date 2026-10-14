@@ -22,7 +22,13 @@ fn main() {
 
 #[cfg(not(target_arch = "wasm32"))]
 fn main() -> anyhow::Result<()> {
-    env_logger_lite();
+    // Logs go to the data folder (and to the console of non-packaged builds); panics leave a
+    // crash report there that the next start shows.
+    let data = subcraft_app::recovery::data_dir();
+    subcraft_app::diagnostics::init_logging(data.as_ref().map(|d| d.join("logs")).as_deref(), !cfg!(feature = "windows-gui"));
+    if let Some(d) = &data {
+        subcraft_app::diagnostics::install_panic_hook(d.join("crashes"));
+    }
     let mut options = subcraft_ui::LaunchOptions::default();
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
@@ -31,6 +37,7 @@ fn main() -> anyhow::Result<()> {
             "--view-2d" => options.view_2d = true,
             "--screenshot" => options.screenshot = args.next().map(Into::into),
             "--recover" => options.recover = true,
+            "--test-crash" => options.test_crash = true,
             "--autosave-interval" => {
                 options.autosave_interval = args.next().and_then(|s| s.parse::<f64>().ok()).map(std::time::Duration::from_secs_f64);
             }
@@ -42,24 +49,4 @@ fn main() -> anyhow::Result<()> {
         }
     }
     subcraft_ui::run(options).map_err(|e| anyhow::anyhow!("{e}"))
-}
-
-/// Minimal stderr logger for warnings and errors (no extra dependency).
-#[cfg(not(target_arch = "wasm32"))]
-fn env_logger_lite() {
-    struct L;
-    impl log::Log for L {
-        fn enabled(&self, m: &log::Metadata) -> bool {
-            m.level() <= log::Level::Info && m.target().starts_with("subcraft")
-        }
-        fn log(&self, r: &log::Record) {
-            if self.enabled(r.metadata()) {
-                eprintln!("[{}] {}", r.level(), r.args());
-            }
-        }
-        fn flush(&self) {}
-    }
-    static LOGGER: L = L;
-    let _ = log::set_logger(&LOGGER);
-    log::set_max_level(log::LevelFilter::Info);
 }

@@ -50,6 +50,8 @@ smart materials, bake mesh maps, and export game-ready textures.
 - **Autosave and crash recovery**: a recovery copy of your project is saved in the background
   every few minutes (Edit → Preferences) to SubCraft's data folder, never over your own file. If
   SubCraft crashes or is closed by force, it offers to bring your work back on the next start.
+- **Bug reports**: Help → Report a bug… opens a GitHub issue with your version, OS and GPU filled
+  in. Logs and crash reports stay on your PC (`%LOCALAPPDATA%\SubCraft`) until you attach them.
 - **Projects and export**: `.subcraft` project files; export templates for PBR metal/rough, Unreal
   (ORM + DirectX normal), Unity HDRP (mask map) and glTF.
 - **Mesh import**: OBJ, glTF / GLB and FBX.

@@ -353,6 +353,11 @@ impl Session {
     // ----- commands ------------------------------------------------------------------------------
 
     fn commit(&mut self, label: &str, merge_key: Option<String>) {
+        // Recent actions end up in the log (and in crash reports). Slider drags merge into one
+        // history entry; log only the first step.
+        if merge_key.is_none() || self.history.current_merge_key() != merge_key.as_deref() {
+            log::info!("action: {label}");
+        }
         self.history.push_merge(label, self.doc.clone(), merge_key);
         self.revision += 1;
     }
@@ -704,6 +709,7 @@ impl Session {
     pub fn end_stroke(&mut self) {
         let Some(active) = self.stroke.take() else { return };
         if self.doc != *self.history.current() {
+            log::info!("action: {}", active.label);
             self.history.push(active.label, self.doc.clone());
             self.revision += 1;
         }

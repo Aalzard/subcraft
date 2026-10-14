@@ -46,6 +46,11 @@ impl History {
         &self.entries[self.cursor].doc
     }
 
+    /// Merge key of the current entry (slider drags coalesce under one key).
+    pub fn current_merge_key(&self) -> Option<&str> {
+        self.entries[self.cursor].merge_key.as_deref()
+    }
+
     pub fn cursor(&self) -> usize {
         self.cursor
     }

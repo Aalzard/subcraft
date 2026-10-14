@@ -51,7 +51,7 @@ zip = { version = "9", default-features = false, features = ["deflate"] }
 
 # ui / gpu
 egui = "0.36"
-eframe = { version = "0.36", default-features = false, features = ["wgpu", "default_fonts", "accesskit", "x11", "wayland", "persistence"] }
+eframe = { version = "0.36", default-features = false, features = ["wgpu", "default_fonts", "accesskit", "x11", "wayland", "persistence", "links"] }
 egui-wgpu = "0.36"
 egui_dock = { version = "0.21", features = ["serde"] }
 rfd = "0.17"

@@ -6,6 +6,14 @@ What changed in SubCraft, newest first. Download the latest build from the
 ## Unreleased
 
 ### New
+- **Report a bug** (Help menu): opens a new GitHub issue in your browser with your SubCraft
+  version, OS and GPU already filled in, and tells you which log file to attach. Nothing is sent
+  automatically.
+- **Log files and crash reports**: SubCraft writes a log (`%LOCALAPPDATA%\SubCraft\logs`, last 5
+  runs, Help → Show log files) with the version, OS, GPU, recent actions and errors. If it
+  crashes, a crash report is saved in `%LOCALAPPDATA%\SubCraft\crashes` and shown on the next
+  start, with a button to report it.
+- New GitHub issue forms for bug reports and feature requests.
 - **Autosave and crash recovery**: SubCraft saves a recovery copy of the open project in the
   background every 5 minutes (change it in Edit → Preferences) and after big operations like
   baking or applying a smart material. Copies go to `%LOCALAPPDATA%\SubCraft\recovery` (the last 3

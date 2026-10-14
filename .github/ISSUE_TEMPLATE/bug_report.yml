@@ -1,0 +1,54 @@
+name: Bug report
+description: Something is broken, crashes or behaves unexpectedly
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! The quickest way to file this is **Help → Report a bug…** in SubCraft:
+        it fills in your version, OS and GPU for you.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What went wrong, and what did you expect instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open an FBX with two materials
+        2. Bake mesh maps
+        3. Drag Rusty Iron onto the model
+  - type: input
+    id: version
+    attributes:
+      label: SubCraft version
+      placeholder: "0.1.2 (Help → Report a bug shows it)"
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: "Windows 11 / Ubuntu 24.04 / web (which browser)"
+  - type: input
+    id: gpu
+    attributes:
+      label: GPU
+      placeholder: "e.g. NVIDIA GeForce RTX 4060 (Dx12)"
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log file / crash report
+      description: |
+        Drag the files into this box. Logs are in `%LOCALAPPDATA%\SubCraft\logs` (Help → Show log files),
+        crash reports in `%LOCALAPPDATA%\SubCraft\crashes`. On Linux: `~/.local/share/SubCraft`.
+        In the browser, paste the red errors from the console (F12).
+  - type: textarea
+    id: extra
+    attributes:
+      label: Screenshots or files
+      description: A screenshot or the model you used helps a lot (only if you're OK sharing it).
