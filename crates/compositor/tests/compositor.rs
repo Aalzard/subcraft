@@ -389,3 +389,61 @@ fn normal_channel_combines_with_whiteout() {
     assert_rgb(&c, ChannelKind::Normal, 64, 64, expect);
     assert!(px(&c, ChannelKind::Normal, 64, 64)[0] > tilt(0.3).0[0] + 0.02);
 }
+
+#[test]
+fn generator_noise_breakup_is_continuous_across_uv_seams() {
+    // A flat 2×2 quad split at x = 0 into two UV islands that sit far apart (the right one is
+    // also mirrored), so the seam is not a geometric edge.
+    use glam::{Vec2, Vec3};
+    use subcraft_mesh::{Corner, MeshBuilder};
+    let mut b = MeshBuilder::new("SplitPlane");
+    let m = b.material("SplitPlane");
+    let c = |x: f32, z: f32, u: f32, v: f32| Corner { position: Vec3::new(x, 0.0, z), normal: Some(Vec3::Y), uv: Some(Vec2::new(u, v)) };
+    let (l, r) = ([c(-1.0, -1.0, 0.05, 0.05), c(0.0, -1.0, 0.45, 0.05), c(0.0, 1.0, 0.45, 0.95), c(-1.0, 1.0, 0.05, 0.95)],
+        [c(0.0, -1.0, 0.55, 0.95), c(1.0, -1.0, 0.95, 0.95), c(1.0, 1.0, 0.95, 0.05), c(0.0, 1.0, 0.55, 0.05)]);
+    for q in [l, r] {
+        b.push_triangle(m, [q[0], q[2], q[1]]);
+        b.push_triangle(m, [q[0], q[3], q[2]]);
+    }
+    let fx = Fixture::with_mesh(b.build().unwrap());
+
+    // Directional along X reads 0.5 everywhere on this plane, so the noise alone decides the mask.
+    let mut ts = texture_set();
+    let tc = ts.clone();
+    let mut layer = fill_layer(&tc, &[(ChannelKind::Roughness, ChannelValue::scalar(1.0))]);
+    let mut mask = Mask::new(RES, false);
+    let mut g = Generator::new(GeneratorKind::Directional);
+    g.direction = [1.0, 0.0, 0.0];
+    g.level = 0.5;
+    g.softness = 0.1;
+    g.noise_amount = 0.8;
+    mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Generator(g))));
+    layer.mask = Some(mask);
+    ts.insert_above(None, layer);
+    let comp = composite_full(&ts, &fx.ctx());
+
+    // Fully covered texels hugging the seam on each island (positions are normalized to 0..1, so the seam is x = 0.5 and one
+    // texel is ~0.01 wide), keyed by their 3D z.
+    let geo = &fx.geo;
+    let (mut left, mut right) = (Vec::new(), Vec::new());
+    for t in 0..geo.tile_count() {
+        let tile = geo.tile(t);
+        for i in 0..4096 {
+            let [x, _, z] = tile.position(i);
+            if tile.coverage(i) < 1.0 || (x - 0.5).abs() > 0.015 {
+                continue;
+            }
+            let (tx, ty) = tile.texel_xy(i);
+            let v = px(&comp, ChannelKind::Roughness, tx, ty)[0];
+            if tx < RES / 2 { left.push((z, v)) } else { right.push((z, v)) }
+        }
+    }
+    assert!(left.len() > 20 && right.len() > 20);
+    let mut diff = 0.0;
+    for &(z, v) in &left {
+        let nearest = right.iter().min_by(|a, b| (a.0 - z).abs().total_cmp(&(b.0 - z).abs())).unwrap();
+        diff += (nearest.1 - v).abs();
+    }
+    let diff = diff / left.len() as f32;
+    assert!(diff < 0.05, "mask jumps across the UV seam by {diff} on average");
+}
