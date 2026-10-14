@@ -12,7 +12,16 @@ use crate::presets::{MaterialPreset, generator, materials};
 pub struct SmartMaterial {
     pub id: AssetId,
     pub name: String,
-    build: fn(&TextureSet) -> Layer,
+    source: SmartSource,
+    /// File in the user library (`None` for built-in smart materials).
+    pub user_file: Option<std::path::PathBuf>,
+}
+
+#[derive(Clone)]
+enum SmartSource {
+    Builtin(fn(&TextureSet) -> Layer),
+    /// A layer saved by the user, with the images it uses and the resolution its rasters have.
+    Saved { layer: Arc<Layer>, resolution: u32, resources: Vec<Arc<subcraft_doc::Resource>> },
 }
 
 impl std::fmt::Debug for SmartMaterial {
@@ -22,9 +31,45 @@ impl std::fmt::Debug for SmartMaterial {
 }
 
 impl SmartMaterial {
-    /// The folder layer for `ts`.
+    /// A smart material saved by the user (see `subcraft_project::fragment`).
+    pub fn saved(
+        name: String,
+        layer: Layer,
+        resolution: u32,
+        resources: Vec<Arc<subcraft_doc::Resource>>,
+        user_file: Option<std::path::PathBuf>,
+    ) -> Self {
+        let key = user_file.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| name.clone());
+        Self {
+            id: AssetId::from_name(&format!("smart/user/{key}")),
+            name,
+            source: SmartSource::Saved { layer: Arc::new(layer), resolution, resources },
+            user_file,
+        }
+    }
+
+    /// The layer for `ts`: fresh ids every time; saved rasters are resampled to the texture
+    /// set's resolution when it differs.
     pub fn build(&self, ts: &TextureSet) -> Layer {
-        (self.build)(ts)
+        match &self.source {
+            SmartSource::Builtin(f) => f(ts),
+            SmartSource::Saved { layer, resolution, .. } => {
+                let mut l = layer.duplicate_with_new_ids();
+                if *resolution != ts.resolution {
+                    let r = ts.resolution;
+                    l.map_rasters(&|img| img.resampled(r, r));
+                }
+                l
+            }
+        }
+    }
+
+    /// Images the layer needs in the project's resource store.
+    pub fn resources(&self) -> &[Arc<subcraft_doc::Resource>] {
+        match &self.source {
+            SmartSource::Builtin(_) => &[],
+            SmartSource::Saved { resources, .. } => resources,
+        }
     }
 }
 
@@ -112,7 +157,7 @@ fn tarnished_gold(ts: &TextureSet) -> Layer {
 }
 
 fn smart(name: &str, build: fn(&TextureSet) -> Layer) -> SmartMaterial {
-    SmartMaterial { id: AssetId::from_name(&format!("smart_material/{name}")), name: name.into(), build }
+    SmartMaterial { id: AssetId::from_name(&format!("smart_material/{name}")), name: name.into(), source: SmartSource::Builtin(build), user_file: None }
 }
 
 pub fn smart_materials() -> Vec<SmartMaterial> {

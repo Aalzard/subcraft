@@ -105,6 +105,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     }
 
     let ts = state.session.selected_texture_set();
+    let mut save_request: Option<(subcraft_core::LayerId, bool)> = None;
     let mut list = Vec::new();
     rows(&ts.layers, 0, &mut list);
     egui::ScrollArea::vertical().id_salt("layer_rows").auto_shrink([false, false]).show(ui, |ui| {
@@ -144,9 +145,60 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             if resp.clicked() {
                 cmds.push(Command::SelectLayer(Some(l.id)));
             }
+            let has_effects = l.mask.as_ref().is_some_and(|m| !m.effects.is_empty());
+            resp.context_menu(|ui| {
+                if ui.button(format!("{}  Save as smart material", icons::SAVE)).clicked() {
+                    save_request = Some((l.id, false));
+                    ui.close();
+                }
+                if has_effects && ui.button(format!("{}  Save mask as smart mask", icons::MASK)).clicked() {
+                    save_request = Some((l.id, true));
+                    ui.close();
+                }
+                ui.separator();
+                if ui.button(format!("{}  Duplicate", icons::COPY)).clicked() {
+                    cmds.push(Command::DuplicateLayer(l.id));
+                    ui.close();
+                }
+                if ui.button(format!("{}  Delete", icons::TRASH)).clicked() {
+                    cmds.push(Command::DeleteLayer(l.id));
+                    ui.close();
+                }
+            });
         }
     });
     state.run(cmds, now);
+    if let Some((layer, mask)) = save_request {
+        save_to_library(state, layer, mask, now);
+    }
+}
+
+/// Save a layer as a smart material (or its mask as a smart mask) into the user library and
+/// show it in the shelf.
+pub fn save_to_library(state: &mut UiState, layer: subcraft_core::LayerId, mask: bool, now: f64) {
+    let Some(lib) = state.user_library.clone() else {
+        state.set_status("No library folder (Documents not found; set SUBCRAFT_LIBRARY)", now);
+        return;
+    };
+    let result = if mask {
+        state.session.save_smart_mask(layer, &lib).map(|m| {
+            let msg = format!("Saved smart mask \"{}\" to the library", m.name);
+            state.library.smart_masks.push(m);
+            state.shelf.tab = crate::panels::shelf::ShelfTab::SmartMasks;
+            msg
+        })
+    } else {
+        state.session.save_smart_material(layer, &lib).map(|m| {
+            let msg = format!("Saved smart material \"{}\" to the library", m.name);
+            state.library.smart_materials.push(m);
+            state.shelf.tab = crate::panels::shelf::ShelfTab::SmartMaterials;
+            msg
+        })
+    };
+    match result {
+        Ok(msg) => state.set_status(msg, now),
+        Err(e) => state.set_status(format!("Save to library: {e}"), now),
+    }
 }
 
 /// Pick texture files (base color, roughness, normal…) and import them as one fill layer.

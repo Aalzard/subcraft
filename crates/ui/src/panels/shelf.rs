@@ -307,7 +307,15 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 }
                 ShelfTab::SmartMaterials => {
                     for (i, m) in state.library.smart_materials.iter().enumerate() {
-                        if tile(ui, thumbs.get(&m.id), &m.name, false, &format!("{}: add as a folder of masked layers", m.name)).clicked() {
+                        let resp = tile(ui, thumbs.get(&m.id), &m.name, false, &format!("{}: add as a folder of masked layers", m.name));
+                        if let Some(file) = &m.user_file
+                            && library_menu(&resp, state.user_library.as_ref(), file, &mut lib_status)
+                        {
+                            action = Some(Box::new(move |s: &mut UiState| {
+                                s.library.smart_materials.remove(i);
+                            }));
+                        }
+                        if resp.clicked() {
                             action = Some(Box::new(move |s: &mut UiState| {
                                 let m = s.library.smart_materials[i].clone();
                                 if let Err(e) = s.session.add_smart_material(&m) {
@@ -319,7 +327,15 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 }
                 ShelfTab::SmartMasks => {
                     for (i, m) in state.library.smart_masks.iter().enumerate() {
-                        if tile(ui, thumbs.get(&m.id), &m.name, false, &format!("{}: mask the selected layer", m.name)).clicked() {
+                        let resp = tile(ui, thumbs.get(&m.id), &m.name, false, &format!("{}: mask the selected layer", m.name));
+                        if let Some(file) = &m.user_file
+                            && library_menu(&resp, state.user_library.as_ref(), file, &mut lib_status)
+                        {
+                            action = Some(Box::new(move |s: &mut UiState| {
+                                s.library.smart_masks.remove(i);
+                            }));
+                        }
+                        if resp.clicked() {
                             action = Some(Box::new(move |s: &mut UiState| {
                                 let m = s.library.smart_masks[i].clone();
                                 if let Err(e) = s.session.apply_smart_mask(&m) {

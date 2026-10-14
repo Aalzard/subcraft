@@ -336,6 +336,40 @@ impl TiledImage {
     }
 }
 
+impl TiledImage {
+    /// Bilinear resample to a new size (texel centers aligned). An image with no allocated tiles
+    /// stays sparse.
+    pub fn resampled(&self, width: u32, height: u32) -> TiledImage {
+        if width == self.width && height == self.height {
+            return self.clone();
+        }
+        let comps = self.comps();
+        if self.allocated_tiles() == 0 {
+            return TiledImage::new(width, height, comps, self.fill);
+        }
+        let src = self.to_dense();
+        let (sw, sh) = (self.width as usize, self.height as usize);
+        let mut out = vec![0.0f32; (width * height) as usize * comps];
+        for y in 0..height as usize {
+            let fy = ((y as f32 + 0.5) * sh as f32 / height as f32 - 0.5).clamp(0.0, (sh - 1) as f32);
+            let (y0, ty) = (fy.floor() as usize, fy.fract());
+            let y1 = (y0 + 1).min(sh - 1);
+            for x in 0..width as usize {
+                let fx = ((x as f32 + 0.5) * sw as f32 / width as f32 - 0.5).clamp(0.0, (sw - 1) as f32);
+                let (x0, tx) = (fx.floor() as usize, fx.fract());
+                let x1 = (x0 + 1).min(sw - 1);
+                for c in 0..comps {
+                    let at = |xx: usize, yy: usize| src[(yy * sw + xx) * comps + c];
+                    let top = at(x0, y0) + (at(x1, y0) - at(x0, y0)) * tx;
+                    let bot = at(x0, y1) + (at(x1, y1) - at(x0, y1)) * tx;
+                    out[(y * width as usize + x) * comps + c] = top + (bot - top) * ty;
+                }
+            }
+        }
+        TiledImage::from_dense(width, height, comps, self.fill, &out)
+    }
+}
+
 /// Mutable view over a tile table; slots can be split across threads (`par_iter_mut`).
 pub struct TileSlots<'a> {
     pub comps: usize,
@@ -402,6 +436,26 @@ mod tests {
         let back = img.to_dense();
         for (a, b) in data.iter().zip(&back) {
             assert!((a - b).abs() < 1e-3);
+        }
+    }
+
+    #[test]
+    fn resample_preserves_values_and_sparsity() {
+        let empty = TiledImage::new(128, 128, 2, [0.0; 4]);
+        let r = empty.resampled(256, 256);
+        assert_eq!((r.width(), r.height(), r.allocated_tiles()), (256, 256, 0));
+
+        // Left half 1, right half 0: halves survive up- and down-sampling.
+        let mut img = TiledImage::new(128, 128, 1, [0.0; 4]);
+        for y in 0..128 {
+            for x in 0..64 {
+                img.set(x, y, [1.0; 4]);
+            }
+        }
+        for size in [64u32, 256] {
+            let r = img.resampled(size, size);
+            assert_eq!(r.get(size / 8, size / 2)[0], 1.0, "{size}");
+            assert_eq!(r.get(size - size / 8, size / 2)[0], 0.0, "{size}");
         }
     }
 

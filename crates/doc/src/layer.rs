@@ -199,6 +199,58 @@ impl Layer {
         l
     }
 
+    /// Replace every raster in this subtree (paint channels, mask base, mask paint effects) with
+    /// `f(raster)`, e.g. to resample a saved smart material to another resolution.
+    pub fn map_rasters(&mut self, f: &dyn Fn(&TiledImage) -> TiledImage) {
+        if let Some(m) = &mut self.mask {
+            m.base = f(&m.base);
+            for e in m.effects.iter_mut() {
+                if let crate::mask::MaskEffectKind::Paint { image } = &e.kind {
+                    let image = f(image);
+                    Arc::make_mut(e).kind = crate::mask::MaskEffectKind::Paint { image };
+                }
+            }
+        }
+        match &mut self.content {
+            LayerContent::Paint(p) => {
+                for img in p.channels.values_mut() {
+                    *img = f(img);
+                }
+            }
+            LayerContent::Group(g) => {
+                for c in g.children.iter_mut() {
+                    Arc::make_mut(c).map_rasters(f);
+                }
+            }
+            LayerContent::Fill(_) => {}
+        }
+    }
+
+    /// Image resources this subtree uses (fill-channel images and image mask effects), in order,
+    /// without duplicates, appended to `out`.
+    pub fn collect_resources(&self, out: &mut Vec<subcraft_core::ResourceId>) {
+        let mut add = |r: subcraft_core::ResourceId| {
+            if !out.contains(&r) {
+                out.push(r);
+            }
+        };
+        if let LayerContent::Fill(f) = &self.content {
+            for c in f.channels.values() {
+                if let FillSource::Bitmap { resource } = c.source {
+                    add(resource);
+                }
+            }
+        }
+        for e in self.mask.iter().flat_map(|m| &m.effects) {
+            if let crate::mask::MaskEffectKind::Image { resource, .. } = e.kind {
+                add(resource);
+            }
+        }
+        for c in self.children() {
+            c.collect_resources(out);
+        }
+    }
+
     /// Equality ignoring raster contents (used for dirty-region diffing).
     pub fn same_parameters(&self, other: &Layer) -> bool {
         if self.id != other.id || self.visible != other.visible || self.blend != other.blend {

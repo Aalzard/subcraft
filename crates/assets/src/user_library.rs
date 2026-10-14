@@ -17,6 +17,8 @@ pub const ENV_VAR: &str = "SUBCRAFT_LIBRARY";
 pub enum UserAssetKind {
     Alpha,
     Environment,
+    SmartMaterial,
+    SmartMask,
 }
 
 impl UserAssetKind {
@@ -24,6 +26,8 @@ impl UserAssetKind {
         match self {
             UserAssetKind::Alpha => "alphas",
             UserAssetKind::Environment => "environments",
+            UserAssetKind::SmartMaterial => "smart-materials",
+            UserAssetKind::SmartMask => "smart-masks",
         }
     }
 
@@ -31,6 +35,8 @@ impl UserAssetKind {
         match self {
             UserAssetKind::Alpha => &subcraft_image::IMAGE_EXTENSIONS,
             UserAssetKind::Environment => &["hdr", "exr", "png", "jpg", "jpeg"],
+            UserAssetKind::SmartMaterial => &["scsmart"],
+            UserAssetKind::SmartMask => &["scmask"],
         }
     }
 }
@@ -95,6 +101,23 @@ impl UserLibrary {
             }
         }
         unreachable!("the loop returns")
+    }
+
+    /// A new file path `<folder>/<name>.<ext>` that doesn't exist yet (`name (2).ext`, ...).
+    /// Characters not allowed in file names are replaced.
+    pub fn new_file_path(&self, kind: UserAssetKind, name: &str) -> PathBuf {
+        let clean: String = name
+            .chars()
+            .map(|c| if c.is_control() || r#"<>:"/\|?*"#.contains(c) { '_' } else { c })
+            .collect();
+        let clean = clean.trim().trim_end_matches('.');
+        let stem = if clean.is_empty() { "Untitled" } else { clean };
+        let ext = kind.extensions()[0];
+        let dir = self.folder(kind);
+        (1..)
+            .map(|n| if n == 1 { dir.join(format!("{stem}.{ext}")) } else { dir.join(format!("{stem} ({n}).{ext}")) })
+            .find(|p| !p.exists())
+            .expect("an unused name exists")
     }
 
     /// Delete a library file. Refuses paths outside the library.
@@ -245,6 +268,20 @@ mod tests {
         let env = load_environment(&files[0]).unwrap();
         assert_eq!(env.name, "sky");
         assert!(env.user_file.is_some());
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn new_file_paths_are_unique_and_safe() {
+        let root = temp_root("names");
+        let lib = UserLibrary::new(&root);
+        let p = lib.new_file_path(UserAssetKind::SmartMaterial, "Rusty: Iron/Old?");
+        assert_eq!(p.file_name().unwrap(), "Rusty_ Iron_Old_.scsmart");
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(&p, b"x").unwrap();
+        let q = lib.new_file_path(UserAssetKind::SmartMaterial, "Rusty: Iron/Old?");
+        assert_eq!(q.file_name().unwrap(), "Rusty_ Iron_Old_ (2).scsmart");
+        assert_eq!(lib.new_file_path(UserAssetKind::SmartMask, "  ").file_name().unwrap(), "Untitled.scmask");
         std::fs::remove_dir_all(&root).ok();
     }
 
