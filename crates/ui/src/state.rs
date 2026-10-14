@@ -70,6 +70,8 @@ pub struct UiState {
     pub brush_presets: Vec<subcraft_app::brush_preset::BrushPreset>,
     /// Name typed for the next "Save preset".
     pub preset_name: String,
+    /// Overlay texture of the current stencil image (keyed by its bitmap pointer).
+    pub stencil_tex: Option<(usize, egui::TextureHandle)>,
 }
 
 impl UiState {
@@ -111,6 +113,7 @@ impl UiState {
             env_loader: None,
             brush_presets: Vec::new(),
             preset_name: String::new(),
+            stencil_tex: None,
         }
     }
 

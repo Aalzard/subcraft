@@ -55,6 +55,40 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 hint(ui, "Saved presets appear first in Shelf › Brushes.");
             });
 
+            section(ui, "stencil", "Stencil", false, |ui| {
+                let now = ui.input(|i| i.time);
+                ui.horizontal(|ui| {
+                    if ui.button(format!("{}  Choose image…", crate::icons::IMAGE)).clicked()
+                        && let Some(p) = rfd::FileDialog::new().add_filter("Images", &subcraft_image::IMAGE_EXTENSIONS).pick_file()
+                    {
+                        match subcraft_image::load_bitmap(&p) {
+                            Ok(bmp) => {
+                                state.session.brush.stencil = Some(std::sync::Arc::new(subcraft_paint::Stencil::new(std::sync::Arc::new(bmp))));
+                            }
+                            Err(e) => state.set_status(format!("Stencil: {e}"), now),
+                        }
+                    }
+                    if state.session.brush.stencil.is_some() && ui.button(format!("{}  Remove", crate::icons::X)).clicked() {
+                        state.session.brush.stencil = None;
+                    }
+                });
+                if let Some(st) = state.session.brush.stencil.clone() {
+                    let mut s = (*st).clone();
+                    let mut changed = false;
+                    changed |= slider_row(ui, "Scale", egui::Slider::new(&mut s.scale, 0.05..=4.0).logarithmic(true)).changed();
+                    let mut deg = s.rotation.to_degrees();
+                    if slider_row(ui, "Rotation", egui::Slider::new(&mut deg, -180.0..=180.0).suffix("°")).changed() {
+                        s.rotation = deg.to_radians();
+                        changed = true;
+                    }
+                    prop_row(ui, "", |ui| changed |= ui.checkbox(&mut s.tiling, "Tile").changed());
+                    if changed {
+                        state.session.brush.stencil = Some(std::sync::Arc::new(s));
+                    }
+                }
+                hint(ui, "White paints, black blocks. In the 3D view hold S and drag: left = rotate, middle = move, right = scale. Hold N to paint without it.");
+            });
+
             let b = &mut state.session.brush;
             section(ui, "brush", "Brush", true, |ui| {
                 prop_row(ui, "Tip", |ui| {

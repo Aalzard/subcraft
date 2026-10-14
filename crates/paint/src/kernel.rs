@@ -38,6 +38,8 @@ pub struct KernelInput<'a> {
     pub backface_cos: Option<f32>,
     /// Brush alpha (tip image); `None` = round procedural tip.
     pub alpha: Option<&'a subcraft_image::Bitmap>,
+    /// Screen-space stencil, evaluated in the main (first) camera's viewport.
+    pub stencil: Option<&'a crate::stencil::Stencil>,
 }
 
 /// A rasterized texel of one triangle.
@@ -189,16 +191,30 @@ impl KernelInput<'_> {
         debug_assert_eq!(cov.len(), TILE_TEXELS);
         let mut vis: Vec<Option<Vec<bool>>> = vec![None; self.cameras.len()];
         let mut stamp_a = vec![0.0f32; TILE_TEXELS];
+        // Stencil factor per sample: the stencil is fixed to the main view, even for mirrored
+        // (symmetry) stamps, like a sheet laid over the screen.
+        let stencil: Option<Vec<f32>> = match (self.stencil, self.cameras.first()) {
+            (Some(st), Some(cam)) => Some(
+                samples
+                    .iter()
+                    .map(|s| cam.project(s.p).map_or(0.0, |q| st.value_at(q.truncate(), cam.viewport)))
+                    .collect(),
+            ),
+            _ => None,
+        };
         for &si in tile_stamps {
             let st = &stamps[si as usize];
             let v = vis[st.camera].get_or_insert_with(|| samples.iter().map(|s| self.visible(st.camera, s)).collect());
             let cam = &self.cameras[st.camera];
             stamp_a.fill(0.0);
-            for (s, &ok) in samples.iter().zip(v.iter()) {
+            for (k, (s, &ok)) in samples.iter().zip(v.iter()).enumerate() {
                 if !ok {
                     continue;
                 }
-                let a = st.footprint(self.alignment, cam, s.p, s.uv, self.alpha);
+                let mut a = st.footprint(self.alignment, cam, s.p, s.uv, self.alpha);
+                if let Some(f) = &stencil {
+                    a *= f[k];
+                }
                 let slot = &mut stamp_a[s.idx as usize];
                 if a > *slot {
                     *slot = a;
