@@ -547,6 +547,7 @@ impl eframe::App for SubcraftApp {
         }
         self.state.sync_gpu();
         self.state.poll_library();
+        self.state.textures.poll(&ctx);
         if self.state.env_loader.is_some() {
             ctx.request_repaint_after(std::time::Duration::from_millis(200));
         }

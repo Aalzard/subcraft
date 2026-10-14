@@ -21,6 +21,8 @@ pub enum ShelfDrag {
     Material(usize),
     SmartMaterial(usize),
     SmartMask(usize),
+    /// An image from Shelf → Textures (drop on a channel row to use it there).
+    Texture(usize),
 }
 
 /// Apply a material / smart material (inserted above the selected layer of the selected
@@ -39,6 +41,10 @@ pub fn apply_shelf_item(s: &mut UiState, item: ShelfDrag, now: f64) {
             Some(m) => s.session.apply_smart_mask(&m).map_err(|e| format!("{e} (select a layer first)")),
             None => Ok(()),
         },
+        ShelfDrag::Texture(i) => match s.textures.items.get(i).map(|t| t.path.clone()) {
+            Some(p) => s.session.add_texture_layer(&p).map(|name| s.set_status(format!("Added \"{name}\" as a fill layer"), now)),
+            None => Ok(()),
+        },
     };
     if let Err(e) = result {
         s.set_status(e, now);
@@ -47,6 +53,7 @@ pub fn apply_shelf_item(s: &mut UiState, item: ShelfDrag, now: f64) {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ShelfTab {
+    Textures,
     Materials,
     SmartMaterials,
     SmartMasks,
@@ -263,6 +270,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 0.0;
         let tab = &mut state.shelf.tab;
+        shelf_tab(ui, tab, ShelfTab::Textures, crate::icons::IMAGE, "Textures");
         shelf_tab(ui, tab, ShelfTab::Materials, crate::icons::DROP, "Materials");
         shelf_tab(ui, tab, ShelfTab::SmartMaterials, crate::icons::SPARKLE, "Smart Materials");
         shelf_tab(ui, tab, ShelfTab::SmartMasks, crate::icons::MASK, "Smart Masks");
@@ -271,6 +279,19 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         ui.spacing_mut().item_spacing.x = 8.0;
         ui.add_space(16.0);
         match state.shelf.tab {
+            ShelfTab::Textures => {
+                if ui.button(format!("{}  Import textures…", crate::icons::DOWNLOAD)).clicked()
+                    && let Some(files) = rfd::FileDialog::new().add_filter("Images", &subcraft_image::IMAGE_EXTENSIONS).pick_files()
+                {
+                    state.remember_textures(&files);
+                }
+                library_folder_button(ui, state, subcraft_app::assets::UserAssetKind::Texture);
+                ui.label(
+                    RichText::new("Drag a texture onto a channel in Properties (Base Color, Normal…), or onto the model / a layer for a new fill layer.")
+                        .small()
+                        .color(theme::TEXT_FAINT),
+                );
+            }
             ShelfTab::Materials => {
                 if ui.button(format!("{}  Import texture set…", crate::icons::DOWNLOAD)).clicked() {
                     crate::panels::layers::import_texture_set_dialog(state, now);
@@ -352,6 +373,23 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         ui.spacing_mut().item_spacing = egui::vec2(10.0, 10.0);
             let thumbs = &state.shelf.thumbs;
             match state.shelf.tab {
+                ShelfTab::Textures => {
+                    for (i, t) in state.textures.items.iter().enumerate() {
+                        if !filter.matches(&t.name, Some(t.category), true) {
+                            continue;
+                        }
+                        shown += 1;
+                        let resp = tile(ui, t.thumb.as_ref(), &t.name, false, &format!("{} ({}): drag onto a channel, the model or a layer", t.name, t.category));
+                        resp.dnd_set_drag_payload(ShelfDrag::Texture(i));
+                        if library_menu(&resp, state.user_library.as_ref(), &t.path, &mut lib_status) {
+                            let path = t.path.clone();
+                            action = Some(Box::new(move |s: &mut UiState| s.textures.remove(&path)));
+                        }
+                        if resp.clicked() {
+                            action = Some(Box::new(move |s: &mut UiState| apply_shelf_item(s, ShelfDrag::Texture(i), now)));
+                        }
+                    }
+                }
                 ShelfTab::Materials => {
                     for (i, m) in state.library.materials.iter().enumerate() {
                         if !filter.matches(&m.name, Some(m.category), false) {
@@ -526,6 +564,8 @@ fn generate_one_thumbnail(state: &mut UiState, ctx: &egui::Context) {
         Environment(usize),
     }
     let job = match state.shelf.tab {
+        // Texture thumbnails come from their own background loader.
+        ShelfTab::Textures => None,
         ShelfTab::Brushes => lib.alphas.iter().position(|a| missing(&a.id)).map(Job::Alpha),
         ShelfTab::Materials => lib.materials.iter().find(|m| missing(&m.id)).map(|m| {
             let m = m.clone();
@@ -649,6 +689,12 @@ fn filter_row(state: &mut UiState, ui: &mut Ui) {
     let mut chips = vec![(Chip::All, "All".to_string()), (Chip::Mine, "Mine".to_string())];
     if state.shelf.tab == ShelfTab::Materials {
         for c in categories(state.library.materials.iter().map(|m| m.category)) {
+            chips.push((Chip::Category(c.clone()), c));
+        }
+    }
+    if state.shelf.tab == ShelfTab::Textures {
+        chips.retain(|(c, _)| *c != Chip::Mine); // every texture is yours
+        for c in categories(state.textures.items.iter().map(|t| t.category)) {
             chips.push((Chip::Category(c.clone()), c));
         }
     }

@@ -72,6 +72,8 @@ pub struct UiState {
     pub preset_name: String,
     /// Overlay texture of the current stencil image (keyed by its bitmap pointer).
     pub stencil_tex: Option<(usize, egui::TextureHandle)>,
+    /// Image textures shown in Shelf → Textures (the library's `textures/` folder).
+    pub textures: crate::panels::textures::TextureLibrary,
 }
 
 impl UiState {
@@ -114,6 +116,7 @@ impl UiState {
             brush_presets: Vec::new(),
             preset_name: String::new(),
             stencil_tex: None,
+            textures: Default::default(),
         }
     }
 
@@ -140,6 +143,11 @@ impl UiState {
             log::warn!("library brush preset skipped: {e}");
         }
         self.brush_presets = presets;
+        self.textures = crate::panels::textures::TextureLibrary::load(&lib);
+        if !self.textures.items.is_empty() {
+            // Open the shelf on the user's own textures once there are some.
+            self.shelf.tab = crate::panels::shelf::ShelfTab::Textures;
+        }
         let files = lib.list(UserAssetKind::Environment);
         if !files.is_empty() {
             let (tx, rx) = std::sync::mpsc::channel();
@@ -155,6 +163,15 @@ impl UiState {
         log::info!("asset library: {}", lib.root().display());
         self.user_library = Some(lib);
         self
+    }
+
+    /// Remember image files the user imported: copied to the library's textures (when there is
+    /// a library) and listed in Shelf → Textures.
+    pub fn remember_textures(&mut self, paths: &[std::path::PathBuf]) {
+        let lib = self.user_library.clone();
+        for e in self.textures.add_files(lib.as_ref(), paths) {
+            log::warn!("texture not added to the library: {e}");
+        }
     }
 
     /// Pick up HDRIs finished by the background loader (call once per frame).

@@ -20,6 +20,8 @@ pub enum UserAssetKind {
     SmartMaterial,
     SmartMask,
     BrushPreset,
+    /// Image textures (base color, normal, roughness maps, ...).
+    Texture,
 }
 
 impl UserAssetKind {
@@ -30,6 +32,7 @@ impl UserAssetKind {
             UserAssetKind::SmartMaterial => "smart-materials",
             UserAssetKind::SmartMask => "smart-masks",
             UserAssetKind::BrushPreset => "brush-presets",
+            UserAssetKind::Texture => "textures",
         }
     }
 
@@ -40,6 +43,7 @@ impl UserAssetKind {
             UserAssetKind::SmartMaterial => &["scsmart"],
             UserAssetKind::SmartMask => &["scmask"],
             UserAssetKind::BrushPreset => &["scbrush"],
+            UserAssetKind::Texture => &subcraft_image::IMAGE_EXTENSIONS,
         }
     }
 }
