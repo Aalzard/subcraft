@@ -29,6 +29,7 @@ rfd.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 log.workspace = true
+pollster.workspace = true
 
 [dev-dependencies]
 subcraft-mesh.workspace = true

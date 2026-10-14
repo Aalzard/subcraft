@@ -425,6 +425,16 @@ In the cloud container (no GPU) the app ran on lavapipe/llvmpipe (Vulkan) under 
   **Not yet verified by hand:** the mouse drag itself onto a channel row (the drop handler is the
   same `dnd_release_payload` path as the existing shelf drops; the session call is tested).
 
+### Session 25 — Direct3D 12 on Windows (startup crash fix)
+
+* A user's v0.1.0 crashed at startup with an access violation in `igvk64.dll` (Intel's Vulkan
+  driver, 31.0.101.2127). wgpu offered Vulkan + DX12 and picked Vulkan. `ui::wgpu_options` now
+  restricts Windows to DX12 (the Vulkan driver is never loaded), falling back to Vulkan + GL only
+  when no DX12 adapter exists; `WGPU_BACKEND` still overrides.
+* Verified: release build logs "Direct3D 12 (NVIDIA GeForce RTX 4060)" and the demo renders
+  identically; `WGPU_BACKEND=vulkan` skips the probe and runs. Not reproduced on Intel hardware
+  (none here).
+
 CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraft-mesh -p subcraft-doc -p subcraft-materials -p subcraft-compositor -p subcraft-paint`
 
 ### Deviations from the brief (sound-engineering choices)
