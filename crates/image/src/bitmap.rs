@@ -117,6 +117,41 @@ impl Bitmap {
         out
     }
 
+    /// Copy with `f(component_index, value)` applied to the color components (never alpha).
+    /// Values are normalized 0..1 for integer data and kept as-is for float data.
+    pub fn map_color(&self, f: impl Fn(usize, f32) -> f32) -> Bitmap {
+        let ch = self.channels as usize;
+        let color_comps = if ch == 2 || ch == 4 { ch - 1 } else { ch };
+        let mut out = self.clone();
+        match &mut out.data {
+            BitmapData::U8(v) => {
+                for (i, b) in v.iter_mut().enumerate() {
+                    let c = i % ch;
+                    if c < color_comps {
+                        *b = (f(c, *b as f32 / 255.0).clamp(0.0, 1.0) * 255.0).round() as u8;
+                    }
+                }
+            }
+            BitmapData::U16(v) => {
+                for (i, w) in v.iter_mut().enumerate() {
+                    let c = i % ch;
+                    if c < color_comps {
+                        *w = (f(c, *w as f32 / 65535.0).clamp(0.0, 1.0) * 65535.0).round() as u16;
+                    }
+                }
+            }
+            BitmapData::F32(v) => {
+                for (i, x) in v.iter_mut().enumerate() {
+                    let c = i % ch;
+                    if c < color_comps {
+                        *x = f(c, *x);
+                    }
+                }
+            }
+        }
+        out
+    }
+
     /// Generate a grayscale bitmap from a function of normalized coordinates.
     pub fn from_fn_gray(width: u32, height: u32, f: impl Fn(f32, f32) -> f32 + Sync) -> Self {
         let mut data = vec![0.0f32; (width * height) as usize];
@@ -167,6 +202,16 @@ mod tests {
         let t = b.texel(0, 0, true);
         assert!((t[0] - srgb_to_linear(128.0 / 255.0)).abs() < 1e-6);
         assert!((t[3] - 128.0 / 255.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn map_color_skips_alpha_and_keeps_depth() {
+        let b = Bitmap::new_u8(1, 1, 4, vec![0, 100, 255, 7]);
+        let inv = b.map_color(|_, v| 1.0 - v);
+        assert_eq!(inv.data, BitmapData::U8(vec![255, 155, 0, 7]));
+        let g = Bitmap { width: 1, height: 1, channels: 3, data: BitmapData::U16(vec![0, 65535, 0]) };
+        let flipped = g.map_color(|c, v| if c == 1 { 1.0 - v } else { v });
+        assert_eq!(flipped.data, BitmapData::U16(vec![0, 0, 0]));
     }
 
     #[test]

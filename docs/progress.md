@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-10-14 (session 12: image textures in fill layers)
+Last updated: 2026-10-14 (session 13: import texture sets)
 
 ## Decisions
 
@@ -229,6 +229,30 @@ In the cloud container (no GPU) the app ran on lavapipe/llvmpipe (Vulkan) under 
   (`docs/screenshots/image-fill-layer.png`). Not clicked through by hand: the native file dialog
   itself (same `rfd` call as the shelf's existing Import alpha).
 
+### Session 13 — import a texture set as one material (roadmap 1, part 2)
+
+* **Import texture set…** (Layers toolbar image icon, Layer menu, Shelf → Materials): pick a
+  texture's maps in one file dialog; they become **one fill layer** named after the files (one
+  undo step) on the selected texture set.
+* Matching by file name (`crates/assets/src/texture_maps.rs`), scanning words from the end, with
+  camelCase / `_` / `-` / space splitting: base color (basecolor, base_color, albedo, diffuse, diff,
+  color, col, bc), roughness (rough), **glossiness / smoothness → inverted to roughness**, metallic
+  (metalness, metal), normal (nrm, nor, normalGL, nor_gl; **DirectX `normalDX` / `nor_dx` → green
+  flipped to OpenGL**; an OpenGL normal wins if both exist), height (displacement, disp, bump), AO,
+  emissive, opacity. One file per channel. Skipped with a reason: non-images, unrecognized names
+  (previews), packed ARM / ORM maps (not supported yet), duplicates, channels the texture set lacks
+  (e.g. AO in the default template). Skips are logged; the status bar summarizes.
+* Converted maps (gloss, DirectX normal) are stored converted, losslessly (PNG 8 / 16-bit, EXR for
+  float), so no project-format change was needed. `Bitmap::map_color`, `image::encode_bitmap`.
+* Tests (9 new, 168 total): 23 real-world names (Poly Haven, ambientCG, Unreal, camelCase), plan
+  selection / skip reasons / layer naming, `map_color`, in-memory encode round trip for 8 / 16-bit /
+  float, end-to-end import (gloss 0.2 → roughness 0.8, DX green 0.3 → GL 0.7, sRGB base color,
+  composite, single undo), "nothing recognized" leaves the document unchanged.
+* Verified in the real app on Windows, through the real file dialog (driven with simulated
+  input): `docs/screenshots/import-texture-set-dialog.png`, `import-texture-set.png`.
+* Found, not fixed here: in a short Layers panel, the second layer row overlaps the Blend / Opacity
+  rows (pre-existing layout issue; next UI fix).
+
 CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraft-mesh -p subcraft-doc -p subcraft-materials -p subcraft-compositor -p subcraft-paint`
 
 ### Deviations from the brief (sound-engineering choices)
@@ -255,9 +279,8 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
 
 1. **Your own image textures** (users ask for this: "add our own textures", SBSAR materials).
    - ~~Fill layer channels: an "Image" source with a file picker~~ — done (session 12).
-   - "Import texture set as material": pick several maps or a folder; channels are matched by file
-     name (basecolor / albedo / diffuse, roughness / gloss (inverted), metallic, normal (OpenGL or
-     DirectX, flip Y option), height / displacement, ao) and become one fill layer.
+   - ~~"Import texture set as material"~~ — done (session 13). Follow-up: packed ARM / ORM maps
+     (needs a per-channel component selector on image sources).
    - Images as masks (mask fill effect from an image) and as brush stencils later.
    - Imported images are stored in the project (`ResourceStore`, UUID identity, versioned schema;
      bump the schema if needed) so projects stay portable; optionally added to the shelf.

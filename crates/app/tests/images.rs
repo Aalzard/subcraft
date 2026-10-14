@@ -139,3 +139,81 @@ fn unreadable_files_are_reported() {
     assert!(s.resources().is_empty());
     std::fs::remove_dir_all(&dir).ok();
 }
+
+/// Uniform RGB PNG.
+fn write_uniform(path: &std::path::Path, rgb: [f32; 3]) {
+    let data: Vec<f32> = (0..16 * 16).flat_map(|_| rgb).collect();
+    save_image(path, 16, 16, 3, &data, FileFormat::Png8).unwrap();
+}
+
+#[test]
+fn texture_set_folder_becomes_one_fill_layer() {
+    let dir = temp_dir("texset");
+    write_uniform(&dir.join("Wood_BaseColor.png"), [0.6, 0.4, 0.2]);
+    write_uniform(&dir.join("Wood_Glossiness.png"), [0.2, 0.2, 0.2]);
+    write_uniform(&dir.join("Wood_NormalDX.png"), [0.5, 0.3, 1.0]);
+    write_uniform(&dir.join("Wood_Height.png"), [0.25, 0.25, 0.25]);
+    write_uniform(&dir.join("Wood_AO.png"), [0.9, 0.9, 0.9]);
+    write_uniform(&dir.join("Wood_ARM.png"), [1.0, 0.5, 0.0]);
+    std::fs::write(dir.join("notes.txt"), "license").unwrap();
+    let files: Vec<PathBuf> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().path()).collect();
+
+    let mut s = Session::new(primitives::sample_crate(), 64);
+    let layers_before = s.selected_texture_set().layers.len();
+    let entries_before = s.history().entries().len();
+    let r = s.import_texture_set(&files).unwrap();
+
+    assert_eq!(r.layer_name, "Wood");
+    let mut used: Vec<ChannelKind> = r.used.iter().map(|(_, c)| *c).collect();
+    used.sort();
+    assert_eq!(used, [ChannelKind::BaseColor, ChannelKind::Height, ChannelKind::Roughness, ChannelKind::Normal]);
+    let skipped: Vec<&str> = r.skipped.iter().map(|(f, _)| f.as_str()).collect();
+    for f in ["Wood_AO.png", "Wood_ARM.png", "notes.txt"] {
+        assert!(skipped.contains(&f), "{f} should be skipped: {:?}", r.skipped);
+    }
+    assert!(r.summary().contains("Wood"));
+
+    // One new layer, selected, one history entry.
+    assert_eq!(s.selected_texture_set().layers.len(), layers_before + 1);
+    assert_eq!(s.history().entries().len(), entries_before + 1);
+    let layer = s.selected_layer().unwrap().clone();
+    assert_eq!(layer.name, "Wood");
+    let LayerContent::Fill(f) = &layer.content else { panic!("fill layer") };
+    assert!(!f.channels[&ChannelKind::Metallic].enabled, "channels without a map stay off");
+    let bitmap_of = |ch: ChannelKind| match f.channels[&ch].source {
+        FillSource::Bitmap { resource } => s.resources().bitmap(resource).unwrap().clone(),
+        ref other => panic!("{ch:?}: {other:?}"),
+    };
+    // Gloss 0.2 -> roughness 0.8; DirectX green 0.3 -> OpenGL 0.7 (8-bit).
+    assert!((bitmap_of(ChannelKind::Roughness).texel(0, 0, false)[0] - 0.8).abs() < 2.0 / 255.0);
+    let n = bitmap_of(ChannelKind::Normal).texel(0, 0, false);
+    assert!((n[1] - 0.7).abs() < 2.0 / 255.0 && (n[0] - 0.5).abs() < 2.0 / 255.0, "{n:?}");
+
+    s.update_composites();
+    let tol = 3e-3;
+    assert!((texel(&s, ChannelKind::BaseColor, 0.3, 0.3) - srgb_to_linear(0.6)).abs() < tol);
+    assert!((texel(&s, ChannelKind::Roughness, 0.3, 0.3) - 0.8).abs() < tol);
+    assert!(texel_g(&s, ChannelKind::Normal) > 0.6, "normal tilts toward +Y (OpenGL)");
+
+    s.execute(Command::Undo).unwrap();
+    assert_eq!(s.selected_texture_set().layers.len(), layers_before, "one undo removes the import");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+fn texel_g(s: &Session, ch: ChannelKind) -> f32 {
+    let ts = s.selected_texture_set().id;
+    let img = s.composite(ts).unwrap().channel(ch).unwrap();
+    img.get(img.width() / 3, img.height() / 3)[1]
+}
+
+#[test]
+fn texture_set_without_recognizable_maps_is_an_error() {
+    let dir = temp_dir("texset-none");
+    write_uniform(&dir.join("preview.png"), [0.5; 3]);
+    let mut s = Session::new(primitives::cube(1.0), 64);
+    let before = s.document().clone();
+    let err = s.import_texture_set(&[dir.join("preview.png")]).unwrap_err();
+    assert!(err.contains("no texture maps recognized"), "{err}");
+    assert_eq!(s.document(), &before, "nothing changes");
+    std::fs::remove_dir_all(&dir).ok();
+}

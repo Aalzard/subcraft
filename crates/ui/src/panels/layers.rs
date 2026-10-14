@@ -42,6 +42,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             if icon_button(ui, icons::FOLDER, "New folder (Ctrl+G)").clicked() {
                 cmds.push(Command::AddLayer(NewLayer::Folder));
             }
+            if icon_button(ui, icons::IMAGE, "Import texture set as a fill layer…").clicked() {
+                import_texture_set_dialog(state, now);
+            }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.add_enabled_ui(sel.is_some(), |ui| {
                     let id = sel.unwrap_or_default();
@@ -144,4 +147,24 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         }
     });
     state.run(cmds, now);
+}
+
+/// Pick texture files (base color, roughness, normal…) and import them as one fill layer.
+pub fn import_texture_set_dialog(state: &mut UiState, now: f64) {
+    let Some(files) = rfd::FileDialog::new()
+        .set_title("Import texture set: select the maps (base color, roughness, normal, …)")
+        .add_filter("Images", &subcraft_image::IMAGE_EXTENSIONS)
+        .pick_files()
+    else {
+        return;
+    };
+    match state.session.import_texture_set(&files) {
+        Ok(r) => {
+            for (file, why) in &r.skipped {
+                log::info!("import texture set: skipped {file}: {why}");
+            }
+            state.set_status(r.summary(), now);
+        }
+        Err(e) => state.set_status(format!("Import texture set: {e}"), now),
+    }
 }
