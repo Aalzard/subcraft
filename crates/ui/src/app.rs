@@ -545,6 +545,10 @@ impl eframe::App for SubcraftApp {
             let _ = self.state.session.execute(Command::Seal);
         }
         self.state.sync_gpu();
+        self.state.poll_library();
+        if self.state.env_loader.is_some() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(200));
+        }
 
         let bar = |fill| egui::Frame::new().fill(fill).inner_margin(egui::Margin::symmetric(12, 0));
         egui::Panel::top("header").exact_size(44.0).show_separator_line(false).frame(bar(theme::BG_2)).show(ui, |ui| self.header_bar(ui));

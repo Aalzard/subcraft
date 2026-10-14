@@ -114,7 +114,7 @@ pub fn apply_environment(
 const TILE: f32 = 88.0;
 
 /// Thumbnail tile: square image with a hairline frame (accent when hovered / selected), name below.
-fn tile(ui: &mut Ui, thumb: Option<&egui::TextureHandle>, name: &str, selected: bool, tooltip: &str) -> bool {
+fn tile(ui: &mut Ui, thumb: Option<&egui::TextureHandle>, name: &str, selected: bool, tooltip: &str) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(TILE, TILE + 22.0), egui::Sense::click());
     let img = egui::Rect::from_min_size(rect.min, egui::vec2(TILE, TILE));
     let painter = ui.painter();
@@ -139,7 +139,49 @@ fn tile(ui: &mut Ui, thumb: Option<&egui::TextureHandle>, name: &str, selected: 
     let galley = painter.layout(name.to_string(), theme::font(11.0), color, TILE);
     let text_pos = egui::pos2(rect.center().x - galley.size().x / 2.0, img.bottom() + 5.0);
     painter.galley(text_pos, galley, color);
-    resp.on_hover_text(tooltip).on_hover_cursor(egui::CursorIcon::PointingHand).clicked()
+    resp.on_hover_text(tooltip).on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
+/// Right-click menu of an asset stored in the user library. Returns true if it was removed.
+fn library_menu(
+    resp: &egui::Response,
+    lib: Option<&subcraft_app::assets::UserLibrary>,
+    file: &std::path::Path,
+    status: &mut Option<String>,
+) -> bool {
+    let mut removed = false;
+    resp.context_menu(|ui| {
+        if ui.button(format!("{}  Show in folder", crate::icons::FOLDER_OPEN)).clicked() {
+            show_in_folder(file);
+            ui.close();
+        }
+        if ui.button(format!("{}  Remove from library", crate::icons::TRASH)).clicked() {
+            match lib.map(|l| l.remove(file)) {
+                Some(Ok(())) => removed = true,
+                Some(Err(e)) => *status = Some(e),
+                None => {}
+            }
+            ui.close();
+        }
+    });
+    removed
+}
+
+/// Open the system file browser at `path` (selecting it when it is a file).
+pub fn show_in_folder(path: &std::path::Path) {
+    #[cfg(windows)]
+    let r = if path.is_dir() {
+        std::process::Command::new("explorer").arg(path).spawn()
+    } else {
+        std::process::Command::new("explorer").arg(format!("/select,{}", path.display())).spawn()
+    };
+    #[cfg(not(windows))]
+    let r = std::process::Command::new(if cfg!(target_os = "macos") { "open" } else { "xdg-open" })
+        .arg(if path.is_dir() { path } else { path.parent().unwrap_or(path) })
+        .spawn();
+    if let Err(e) = r {
+        log::warn!("could not open {}: {e}", path.display());
+    }
 }
 
 /// Underlined text tab.
@@ -183,27 +225,50 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 if ui.button(format!("{}  Import alpha…", crate::icons::DOWNLOAD)).clicked()
                     && let Some(p) = rfd::FileDialog::new().add_filter("Images", &["png", "jpg", "jpeg", "tga", "tif", "tiff", "exr"]).pick_file()
                 {
-                    match subcraft_app::assets::alphas::import(&p) {
+                    // Copied into the library so it is still there next time.
+                    let imported = match &state.user_library {
+                        Some(lib) => lib
+                            .add_file(subcraft_app::assets::UserAssetKind::Alpha, &p)
+                            .and_then(|stored| subcraft_app::assets::user_library::load_alpha(&stored)),
+                        None => subcraft_app::assets::alphas::import(&p),
+                    };
+                    match imported {
                         Ok(a) => {
                             state.session.set_brush_alpha(&a);
-                            state.library.alphas.push(a);
+                            // Re-importing a file already in the library just selects it.
+                            if !state.library.alphas.iter().any(|x| x.id == a.id) {
+                                state.library.alphas.push(a);
+                            }
                         }
                         Err(e) => state.set_status(format!("Import alpha: {e}"), now),
                     }
                 }
+                library_folder_button(ui, state, subcraft_app::assets::UserAssetKind::Alpha);
             }
             ShelfTab::Environments => {
                 if ui.button(format!("{}  Import HDRI…", crate::icons::DOWNLOAD)).clicked()
                     && let Some(p) = rfd::FileDialog::new().add_filter("Panoramas", &["hdr", "exr", "png", "jpg", "jpeg"]).pick_file()
                 {
-                    match subcraft_app::assets::environment::import_hdri(&p) {
+                    let imported = match &state.user_library {
+                        Some(lib) => lib
+                            .add_file(subcraft_app::assets::UserAssetKind::Environment, &p)
+                            .and_then(|stored| subcraft_app::assets::user_library::load_environment(&stored)),
+                        None => subcraft_app::assets::environment::import_hdri(&p),
+                    };
+                    match imported {
                         Ok(e) => {
-                            state.library.environments.push(e);
-                            state.env.index = state.library.environments.len() - 1;
+                            state.env.index = match state.library.environments.iter().position(|x| x.id == e.id) {
+                                Some(i) => i,
+                                None => {
+                                    state.library.environments.push(e);
+                                    state.library.environments.len() - 1
+                                }
+                            };
                         }
                         Err(e) => state.set_status(format!("Import HDRI: {e}"), now),
                     }
                 }
+                library_folder_button(ui, state, subcraft_app::assets::UserAssetKind::Environment);
                 ui.spacing_mut().slider_width = 110.0;
                 ui.label(RichText::new("Rotation").color(theme::TEXT_DIM));
                 ui.add(egui::Slider::new(&mut state.env.rotation_deg, -180.0..=180.0).suffix("°"));
@@ -222,6 +287,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     crate::widgets::divider(ui);
     generate_one_thumbnail(state, ui.ctx());
     let mut action: Option<Box<dyn FnOnce(&mut UiState)>> = None;
+    let mut lib_status: Option<String> = None;
     egui::ScrollArea::vertical().id_salt("shelf").auto_shrink([false, false]).show(ui, |ui| {
         egui::Frame::new().inner_margin(egui::Margin::same(theme::PAD)).show(ui, |ui| ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing = egui::vec2(10.0, 10.0);
@@ -229,7 +295,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             match state.shelf.tab {
                 ShelfTab::Materials => {
                     for (i, m) in state.library.materials.iter().enumerate() {
-                        if tile(ui, thumbs.get(&m.id), &m.name, false, &format!("{} ({}): add as a fill layer", m.name, m.category)) {
+                        if tile(ui, thumbs.get(&m.id), &m.name, false, &format!("{} ({}): add as a fill layer", m.name, m.category)).clicked() {
                             action = Some(Box::new(move |s: &mut UiState| {
                                 let m = s.library.materials[i].clone();
                                 if let Err(e) = s.session.add_material(&m) {
@@ -241,7 +307,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 }
                 ShelfTab::SmartMaterials => {
                     for (i, m) in state.library.smart_materials.iter().enumerate() {
-                        if tile(ui, thumbs.get(&m.id), &m.name, false, &format!("{}: add as a folder of masked layers", m.name)) {
+                        if tile(ui, thumbs.get(&m.id), &m.name, false, &format!("{}: add as a folder of masked layers", m.name)).clicked() {
                             action = Some(Box::new(move |s: &mut UiState| {
                                 let m = s.library.smart_materials[i].clone();
                                 if let Err(e) = s.session.add_smart_material(&m) {
@@ -253,7 +319,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 }
                 ShelfTab::SmartMasks => {
                     for (i, m) in state.library.smart_masks.iter().enumerate() {
-                        if tile(ui, thumbs.get(&m.id), &m.name, false, &format!("{}: mask the selected layer", m.name)) {
+                        if tile(ui, thumbs.get(&m.id), &m.name, false, &format!("{}: mask the selected layer", m.name)).clicked() {
                             action = Some(Box::new(move |s: &mut UiState| {
                                 let m = s.library.smart_masks[i].clone();
                                 if let Err(e) = s.session.apply_smart_mask(&m) {
@@ -266,7 +332,16 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 ShelfTab::Brushes => {
                     let current = state.session.brush.alpha_name.clone();
                     for (i, a) in state.library.alphas.iter().enumerate() {
-                        if tile(ui, thumbs.get(&a.id), &a.name, a.name == current, "Brush tip") {
+                        let tip = if a.user_file.is_some() { "Brush tip (your library: right-click for options)" } else { "Brush tip" };
+                        let resp = tile(ui, thumbs.get(&a.id), &a.name, a.name == current, tip);
+                        if let Some(file) = &a.user_file
+                            && library_menu(&resp, state.user_library.as_ref(), file, &mut lib_status)
+                        {
+                            action = Some(Box::new(move |s: &mut UiState| {
+                                s.library.alphas.remove(i);
+                            }));
+                        }
+                        if resp.clicked() {
                             action = Some(Box::new(move |s: &mut UiState| {
                                 let a = s.library.alphas[i].clone();
                                 s.session.set_brush_alpha(&a);
@@ -279,7 +354,20 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 }
                 ShelfTab::Environments => {
                     for (i, e) in state.library.environments.iter().enumerate() {
-                        if tile(ui, thumbs.get(&e.id), &e.name, i == state.env.index, "Viewport lighting") {
+                        let tip = if e.user_file.is_some() { "Viewport lighting (your library: right-click for options)" } else { "Viewport lighting" };
+                        let resp = tile(ui, thumbs.get(&e.id), &e.name, i == state.env.index, tip);
+                        if let Some(file) = &e.user_file
+                            && library_menu(&resp, state.user_library.as_ref(), file, &mut lib_status)
+                        {
+                            action = Some(Box::new(move |s: &mut UiState| {
+                                s.library.environments.remove(i);
+                                if s.env.index >= i {
+                                    s.env.index = s.env.index.saturating_sub(1);
+                                }
+                                s.env.uploaded = None;
+                            }));
+                        }
+                        if resp.clicked() {
                             action = Some(Box::new(move |s: &mut UiState| s.env.index = i));
                         }
                     }
@@ -289,6 +377,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     });
     if let Some(a) = action {
         a(state);
+    }
+    if let Some(msg) = lib_status {
+        state.set_status(msg, now);
     }
     if state.shelf.tab != ShelfTab::Brushes || state.shelf.thumbs.len() < state.library.alphas.len() {
         ui.ctx().request_repaint_after(std::time::Duration::from_millis(30));
@@ -415,4 +506,20 @@ fn mask_preview_layer(ts: &subcraft_doc::TextureSet, effects: &[subcraft_doc::Ma
     mask.effects = effects.iter().cloned().map(|k| Arc::new(MaskEffect::new(k))).collect();
     l.mask = Some(mask);
     l
+}
+
+/// "Open library folder" (creates it on first use so the user can drop files in).
+fn library_folder_button(ui: &mut Ui, state: &UiState, kind: subcraft_app::assets::UserAssetKind) {
+    let Some(lib) = &state.user_library else { return };
+    let dir = lib.folder(kind);
+    if ui
+        .button(format!("{}  Library folder", crate::icons::FOLDER_OPEN))
+        .on_hover_text(format!("{}\nFiles here appear in the shelf at startup.", dir.display()))
+        .clicked()
+    {
+        if let Err(e) = std::fs::create_dir_all(&dir) {
+            log::warn!("could not create {}: {e}", dir.display());
+        }
+        show_in_folder(&dir);
+    }
 }

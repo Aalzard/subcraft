@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-10-14 (session 14: image masks)
+Last updated: 2026-10-14 (session 15: user asset library)
 
 ## Decisions
 
@@ -270,6 +270,28 @@ In the cloud container (no GPU) the app ran on lavapipe/llvmpipe (Vulkan) under 
   (`docs/screenshots/image-mask-star.png`).
 * Brush stencils from images are a separate item (roadmap step 3, stencils / projection painting).
 
+### Session 15 — user asset library on disk (roadmap 2, part 1)
+
+* Library folder `Documents/SubCraft/Library` (or `$SUBCRAFT_LIBRARY`), with `alphas/` and
+  `environments/`. **Import alpha…** / **Import HDRI…** now copy the file there, so imported tips
+  and HDRIs are back after a restart; re-importing the same file selects it instead of duplicating;
+  a different file with the same name becomes `name (2).ext`. Files dropped into the folders by
+  hand also appear.
+* Startup: library alphas load immediately, HDRIs are prefiltered on a background thread and pop
+  into the shelf when ready (no startup delay). Unreadable files are logged and skipped.
+* Shelf: **Library folder** button (Brushes, Environments) opens the folder; right-click a library
+  item → **Show in folder** / **Remove from library** (deletes the library copy only; refuses
+  paths outside the library).
+* `crates/assets/src/user_library.rs` (`UserLibrary`, `load_alpha`, `load_environment`),
+  `user_file` on `BrushAlpha` / `Environment`.
+* Tests (5 new, 176 total): import → restart → loaded with a stable id (source file deleted),
+  dedup + numbered names, broken files reported, remove only inside the library, HDRI from the
+  library, root resolution (override / Documents / empty value).
+* Verified in the real app on Windows (temporary library via `SUBCRAFT_LIBRARY`): pre-seeded alpha
+  + panorama appear at startup, Import alpha through the real dialog copies the file, right-click
+  Remove deletes the panorama, and after a restart the imported alpha is still there and the
+  removed environment is gone (`docs/screenshots/user-library-shelf.png`, `user-library-menu.png`).
+
 CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraft-mesh -p subcraft-doc -p subcraft-materials -p subcraft-compositor -p subcraft-paint`
 
 ### Deviations from the brief (sound-engineering choices)
@@ -305,8 +327,9 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
      height, AO) are never color-transformed.
    - SBSAR can't be read directly (Adobe's closed Substance engine); the documented route is to
      export maps with the free Adobe Substance 3D Player and import them as a texture set.
-2. User asset library on disk (save custom smart materials / masks / brush presets, persist
-   imported alphas + HDRIs), shelf search and categories, drag-and-drop from shelf.
+2. User asset library on disk: ~~persist imported alphas + HDRIs~~ (session 15); next: save
+   custom smart materials / masks / brush presets, shelf search and categories, drag-and-drop
+   from shelf.
 3. Stencils / projection painting with an image; clone tool; smudge / blur filter layers.
 4. Bake follow-ups: per-material high-poly matching by name, cage mesh support, anti-aliased
    (supersampled) bakes, GPU baking for large meshes.

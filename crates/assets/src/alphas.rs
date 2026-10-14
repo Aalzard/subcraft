@@ -16,6 +16,8 @@ pub struct BrushAlpha {
     pub name: String,
     /// `None` = the procedural round tip (hardness controls its falloff).
     pub bitmap: Option<Arc<Bitmap>>,
+    /// File in the user library (`None` for built-in tips).
+    pub user_file: Option<std::path::PathBuf>,
 }
 
 const SIZE: u32 = 256;
@@ -30,7 +32,7 @@ fn gray(f: impl Fn(f32, f32) -> f32 + Sync) -> Option<Arc<Bitmap>> {
 }
 
 fn alpha(name: &str, bitmap: Option<Arc<Bitmap>>) -> BrushAlpha {
-    BrushAlpha { id: AssetId::from_name(&format!("alpha/{name}")), name: name.into(), bitmap }
+    BrushAlpha { id: AssetId::from_name(&format!("alpha/{name}")), name: name.into(), bitmap, user_file: None }
 }
 
 /// Built-in tips (deterministic, generated at startup).
@@ -84,5 +86,6 @@ pub fn import(path: &Path) -> Result<BrushAlpha, String> {
         id: AssetId::from_name(&format!("alpha/import/{}", path.display())),
         name,
         bitmap: Some(Arc::new(Bitmap::new_f32(w, h, 2, data))),
+        user_file: None,
     })
 }

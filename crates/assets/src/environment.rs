@@ -78,10 +78,12 @@ pub struct Environment {
     pub id: AssetId,
     pub name: String,
     pub source: EnvironmentSource,
+    /// File in the user library (`None` for built-in environments).
+    pub user_file: Option<std::path::PathBuf>,
 }
 
 fn env(name: &str, p: ProceduralEnv) -> Environment {
-    Environment { id: AssetId::from_name(&format!("environment/{name}")), name: name.into(), source: EnvironmentSource::Procedural(p) }
+    Environment { id: AssetId::from_name(&format!("environment/{name}")), name: name.into(), source: EnvironmentSource::Procedural(p), user_file: None }
 }
 
 pub fn builtin() -> Vec<Environment> {
@@ -310,5 +312,6 @@ pub fn import_hdri(path: &Path) -> Result<Environment, String> {
         id: AssetId::from_name(&format!("environment/import/{}", path.display())),
         name,
         source: EnvironmentSource::Hdri(Arc::new(prefilter(&bmp))),
+        user_file: None,
     })
 }
