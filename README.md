@@ -11,12 +11,12 @@ smart materials, bake mesh maps, and export game-ready textures.
 
 ![SubCraft](docs/screenshots/ui-redesign.png)
 
-> **In development:** right-click a model part to fill, paint or mask it, add generators, pick
+> **New in v0.1.3:** right-click a model part to fill, paint or mask it, add generators, pick
 > color/material, or isolate/hide it. A Parts panel lists connected pieces, UV islands, object
 > names and material IDs. See the [changelog](CHANGELOG.md).
 
-New here? Follow the [illustrated getting-started guide](docs/getting-started.md), or choose
-**Quick start** on the welcome screen for six steps inside the app.
+New here? Follow the [illustrated getting-started guide](docs/getting-started.md). A welcome
+screen and six-step in-app guide are in development for the next desktop release.
 
 > **Status: early but usable.** The core engine, painting, baking, smart materials, save/load and
 > export all work and are covered by tests. Expect rough edges, missing features and breaking
@@ -25,7 +25,7 @@ New here? Follow the [illustrated getting-started guide](docs/getting-started.md
 
 ## Features
 
-- **Welcome and quick start**: open a model/project, try the sample, see what's new, or follow
+- **Welcome and quick start (in development)**: open a model/project, try the sample, see what's new, or follow
   the six-step guide from Help. Desktop recent files make it easy to resume; the startup screen
   can be turned off in Preferences.
 - **Layer stack**: paint layers, fill layers (uniform, procedural, image and mesh-map sources) and
@@ -96,6 +96,10 @@ For real work, the desktop app below is faster.
 Prefer no installer? Download **`SubCraft-<version>-windows-x64.zip`** instead, unzip it and run
 `SubCraft.exe`. Either way, any GPU with DirectX 12 works (SubCraft uses Direct3D 12 on Windows; to
 try Vulkan instead, set the environment variable `WGPU_BACKEND=vulkan`).
+
+The installer replaces an earlier installed version. Download again from **Releases → latest**
+to get the current desktop build; the browser version updates separately when changes land on
+main. Features in open pull requests are available after they are merged and released.
 
 ## Download (Linux)
 

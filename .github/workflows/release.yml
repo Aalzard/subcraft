@@ -22,6 +22,9 @@ on:
       - installer/**
       - packaging/**
       - apps/subcraft/**
+      - Cargo.toml
+      - Cargo.lock
+      - tests/packaging-windows.ps1
 
 permissions:
   contents: read
@@ -48,6 +51,9 @@ jobs:
             choco install innosetup --no-progress -y
             if (-not (Test-Path $iscc)) { throw "Inno Setup install failed" }
           }
+      - name: Test Windows packaging paths
+        shell: pwsh
+        run: ./tests/packaging-windows.ps1
       - name: Build exe, zip and installer
         shell: pwsh
         run: ./scripts/build-installer.ps1

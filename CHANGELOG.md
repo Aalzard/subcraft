@@ -10,6 +10,10 @@ What changed in SubCraft, newest first. Download the latest build from the
   Try the sample, What's new and a six-step in-app guide. Help reopens them; turn off the
   startup screen in Edit → Preferences. An illustrated `docs/getting-started.md` is linked
   from the README. Missing recent files are marked and removable.
+
+## 0.1.3
+
+### New
 - **Right-click texturing and Parts**: fill or paint only the clicked piece/UV island, mask a
   layer, add edge-wear/dirt/directional/position generator masks, pick color/material and
   isolate/hide pieces (I/H; Esc restores). Parts lists connected pieces, UV islands, material
@@ -37,6 +41,9 @@ What changed in SubCraft, newest first. Download the latest build from the
   operations are slower than in the desktop app.
 
 ### Changed
+- Windows packaging respects `CARGO_TARGET_DIR`, so custom build folders cannot accidentally
+  package an older executable from `target/`. Packaging-path regressions run in CI, and version
+  bump pull requests also build both desktop packages.
 - Shelf thumbnails no longer pause the app while they render.
 
 ## 0.1.2
