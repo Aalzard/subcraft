@@ -1,6 +1,6 @@
 //! 2D view: the selected texture set's channels or baked mesh maps, with its UV wireframe.
 
-use egui::{Color32, Pos2, Rect, Sense, Stroke, Ui};
+use egui::{Color32, Pos2, Rect, RichText, Sense, Stroke, Ui};
 use subcraft_core::{ChannelKind, MeshMapKind};
 use subcraft_mesh::topology;
 use subcraft_render::{PreviewSource, wgpu_api as wgpu};
@@ -24,18 +24,23 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     if !sources.contains(&state.uv.source) {
         state.uv.source = PreviewSource::Channel(ChannelKind::BaseColor);
     }
-    ui.horizontal(|ui| {
-        ui.label("Show");
-        egui::ComboBox::from_id_salt("uv_source").selected_text(label(state.uv.source)).width(180.0).show_ui(ui, |ui| {
-            for s in &sources {
-                ui.selectable_value(&mut state.uv.source, *s, label(*s));
+    egui::Frame::new().fill(crate::theme::BG_1).inner_margin(egui::Margin::symmetric(crate::theme::PAD, 6)).show(ui, |ui| {
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("Show").color(crate::theme::TEXT_DIM));
+            egui::ComboBox::from_id_salt("uv_source").selected_text(label(state.uv.source)).width(200.0).show_ui(ui, |ui| {
+                for s in &sources {
+                    ui.selectable_value(&mut state.uv.source, *s, label(*s));
+                }
+            });
+            ui.add_space(8.0);
+            if crate::widgets::icon_toggle(ui, crate::icons::GRID, state.uv_wireframe, "Show UV lines").clicked() {
+                state.uv_wireframe = !state.uv_wireframe;
+            }
+            if crate::widgets::icon_button(ui, crate::icons::FIT, "Fit to view").clicked() {
+                state.uv.zoom = 1.0;
+                state.uv.offset = egui::Vec2::ZERO;
             }
         });
-        if ui.button("Fit").clicked() {
-            state.uv.zoom = 1.0;
-            state.uv.offset = egui::Vec2::ZERO;
-        }
-        ui.checkbox(&mut state.uv_wireframe, "UV lines");
     });
     let (rect, response) = ui.allocate_exact_size(ui.available_size(), Sense::click_and_drag());
     if response.hovered() {
@@ -50,7 +55,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     let side = rect.width().min(rect.height()) * 0.95 * state.uv.zoom;
     let img_rect = Rect::from_center_size(rect.center() + state.uv.offset, egui::vec2(side, side));
     let painter = ui.painter_at(rect);
-    painter.rect_filled(rect, 0.0, Color32::from_rgb(24, 25, 27));
+    painter.rect_filled(rect, 0.0, crate::theme::BG_0);
 
     state.sync_gpu();
     if let (Some(rs), Some(renderer)) = (&state.render_state, &mut state.renderer)
@@ -71,7 +76,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         };
         painter.image(id, img_rect, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
     }
-    painter.rect_stroke(img_rect, 0.0, Stroke::new(1.0, Color32::from_gray(90)), egui::StrokeKind::Outside);
+    painter.rect_stroke(img_rect, 0.0, Stroke::new(1.0, crate::theme::BORDER_STRONG), egui::StrokeKind::Outside);
 
     if state.uv_wireframe {
         let mesh = state.session.scene().mesh.clone();

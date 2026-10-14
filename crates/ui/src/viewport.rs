@@ -6,7 +6,18 @@ use subcraft_paint::StrokeMode;
 use subcraft_render::wgpu_api as wgpu;
 
 use crate::state::{Tool, UiState};
-use crate::theme::ACCENT;
+use crate::theme::{self, ACCENT};
+use crate::icons;
+
+/// Text on a translucent dark plate, anchored at `pos`; returns the plate rect.
+fn pill(painter: &egui::Painter, pos: Pos2, align: egui::Align2, text: &str, color: Color32) -> Rect {
+    let galley = painter.layout_no_wrap(text.to_string(), theme::font(11.5), color);
+    let size = galley.size() + egui::vec2(16.0, 10.0);
+    let rect = align.anchor_size(pos, size);
+    painter.rect_filled(rect, 0.0, Color32::from_black_alpha(150));
+    painter.galley(rect.min + egui::vec2(8.0, 5.0), galley, color);
+    rect
+}
 
 pub fn show(state: &mut UiState, ui: &mut Ui) {
     let (rect, response) = ui.allocate_exact_size(ui.available_size(), Sense::click_and_drag());
@@ -117,8 +128,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             painter.image(id, rect, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
         }
         _ => {
-            painter.rect_filled(rect, 0.0, Color32::from_rgb(20, 20, 22));
-            painter.text(rect.center(), egui::Align2::CENTER_CENTER, "No GPU renderer available", egui::FontId::proportional(16.0), Color32::GRAY);
+            painter.rect_filled(rect, 0.0, theme::BG_0);
+            painter.text(rect.center(), egui::Align2::CENTER_CENTER, "No GPU renderer available", theme::font(15.0), theme::TEXT_FAINT);
         }
     }
 
@@ -136,11 +147,16 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         }
         ui.ctx().set_cursor_icon(if alt { egui::CursorIcon::Move } else { egui::CursorIcon::Crosshair });
     }
-    let hint = "LMB paint · Shift+LMB line · Alt+LMB / RMB orbit · MMB pan · wheel zoom · [ ] size";
-    painter.text(rect.left_top() + egui::vec2(8.0, 6.0), egui::Align2::LEFT_TOP, hint, egui::FontId::proportional(12.0), Color32::from_gray(150));
+    let hint = "LMB paint  ·  Shift+LMB line  ·  Alt+LMB / RMB orbit  ·  MMB pan  ·  Wheel zoom  ·  [ ] size";
+    pill(&painter, rect.left_bottom() + egui::vec2(10.0, -10.0), egui::Align2::LEFT_BOTTOM, hint, theme::TEXT_FAINT);
+    let mut right = rect.right_top() + egui::vec2(-10.0, 10.0);
     if state.session.brush.options.symmetry.iter().any(|&s| s) {
         let axes: String = ["X", "Y", "Z"].iter().zip(state.session.brush.options.symmetry).filter(|(_, on)| *on).map(|(a, _)| *a).collect();
-        painter.text(rect.right_top() + egui::vec2(-8.0, 6.0), egui::Align2::RIGHT_TOP, format!("Symmetry {axes}"), egui::FontId::proportional(12.0), ACCENT);
+        let r = pill(&painter, right, egui::Align2::RIGHT_TOP, &format!("{}  Symmetry {axes}", icons::SYMMETRY), ACCENT);
+        right.x = r.left() - 6.0;
+    }
+    if state.session.brush.target == subcraft_paint::PaintTarget::MaskBase {
+        pill(&painter, right, egui::Align2::RIGHT_TOP, &format!("{}  Painting mask", icons::MASK), ACCENT);
     }
     if state.painting || response.dragged() {
         ui.ctx().request_repaint();

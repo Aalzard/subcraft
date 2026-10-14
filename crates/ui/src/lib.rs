@@ -5,6 +5,7 @@
 
 pub mod app;
 pub mod dialogs;
+pub mod icons;
 pub mod orbit;
 pub mod panels;
 pub mod state;
