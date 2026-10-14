@@ -12,7 +12,7 @@ Last updated: 2026-10-14 (session 6: assets — shelf, smart materials, environm
 * Undo: history of structurally shared document snapshots + merge keys; strokes push the
   post-stroke document — `adr/0006-undo.md`.
 
-## Done (all tests passing — 150 tests, `cargo test --workspace`)
+## Done (all tests passing — 152 tests, `cargo test --workspace`)
 
 | Crate | Contents | Tests |
 |---|---|---|
@@ -139,6 +139,24 @@ In the cloud container (no GPU) the app ran on lavapipe/llvmpipe (Vulkan) under 
 * Driven in the app: bake + Worn Painted Metal on the crate, before/after in
   `docs/screenshots/edge-wear-seam-fix.png` (left: one-sided band on the lid's top face cut at
   the seam; right: broken-up wear following the edge).
+
+### Session 8 — UI redesign, verified in the running app
+
+* User request: sleeker, modern UI with sharp edges, more breathing room, clearly separated sections.
+* New theme (`ui/src/theme.rs`): layered charcoal surfaces, square corners everywhere, 1px hairlines,
+  one orange accent, larger spacing / control heights. Embedded fonts (`ui/assets/fonts`, subset):
+  Inter (OFL) for text, Phosphor (MIT) for icons, usable inline in any label (`ui/src/icons.rs`).
+* Shell: header bar (brand, menus with icons, centered project name, undo / redo / save, Bake and an
+  accent Export button), left tool rail (brush, eraser, fill, X symmetry, paint-mask toggle, reset
+  camera, shortcuts), slim status bar. Dock tabs carry icons, the active one an accent top line;
+  3px gaps between panels; leaf collapse arrows removed. Default layout gives Properties more room
+  (dock layout key bumped to v3, so the new default shows once).
+* Shared widgets (`ui/src/widgets.rs`): collapsible sections, label/editor property rows with a fixed
+  label column and full-width sliders, icon buttons, segmented controls, list rows with accent
+  selection bar, badges, empty states. All panels and the Bake / Export / unsaved dialogs use them.
+* Tests: `crates/ui/tests/theme.rs` checks every icon and the punctuation used are in the embedded
+  fonts (and that a dropped glyph is really absent). Screenshot `docs/screenshots/ui-redesign.png`;
+  also clicked through fill-layer properties with mask effects, Brush tab, 2D view, Bake and Export.
 
 CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraft-mesh -p subcraft-doc -p subcraft-materials -p subcraft-compositor -p subcraft-paint`
 

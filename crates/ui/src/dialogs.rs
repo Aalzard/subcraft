@@ -6,6 +6,16 @@ use egui::RichText;
 use subcraft_app::{ExportSettings, ExportTemplate, FileFormat, Padding, Session};
 
 use crate::state::UiState;
+use crate::theme::{self, TEXT_DIM};
+use crate::widgets::{caption, divider, hint, primary_button, secondary_button, segmented};
+
+fn dim(text: &str) -> RichText {
+    RichText::new(text).color(TEXT_DIM)
+}
+
+fn window_title(text: &str) -> RichText {
+    RichText::new(text).font(theme::font_strong(14.0))
+}
 
 /// Something that would discard unsaved work; asked about first.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -100,17 +110,18 @@ pub fn unsaved_prompt(state: &mut UiState, ctx: &egui::Context, now: f64) -> Opt
     let mut decided = None;
     egui::Modal::new(egui::Id::new("unsaved")).show(ctx, |ui| {
         ui.set_width(340.0);
-        ui.heading("Unsaved changes");
-        ui.label("Save your changes before continuing?");
-        ui.add_space(8.0);
-        ui.horizontal(|ui| {
-            if ui.button("Save").clicked() && save(state, false, now) {
+        ui.label(window_title("Unsaved changes"));
+        ui.add_space(4.0);
+        ui.label(dim("Save your changes before continuing?"));
+        ui.add_space(14.0);
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if primary_button(ui, "Save").clicked() && save(state, false, now) {
                 decided = Some(Some(pending));
             }
-            if ui.button("Don't save").clicked() {
+            if secondary_button(ui, "Don't save").clicked() {
                 decided = Some(Some(pending));
             }
-            if ui.button("Cancel").clicked() {
+            if secondary_button(ui, "Cancel").clicked() {
                 decided = Some(None);
             }
         });
@@ -133,10 +144,10 @@ pub fn export_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
     }
     let mut open = true;
     let templates = ExportTemplate::builtin();
-    egui::Window::new("Export Textures").open(&mut open).default_width(460.0).show(ctx, |ui| {
+    egui::Window::new(window_title("Export Textures")).open(&mut open).collapsible(false).default_width(480.0).show(ctx, |ui| {
         let ex = &mut state.export;
-        egui::Grid::new("export_grid").num_columns(2).spacing([8.0, 6.0]).show(ui, |ui| {
-            ui.label("Folder");
+        egui::Grid::new("export_grid").num_columns(2).spacing([16.0, 10.0]).show(ui, |ui| {
+            ui.label(dim("Folder"));
             ui.horizontal(|ui| {
                 ui.add(egui::TextEdit::singleline(&mut ex.folder).desired_width(300.0));
                 if ui.button("Browse…").clicked()
@@ -146,14 +157,14 @@ pub fn export_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
                 }
             });
             ui.end_row();
-            ui.label("Template");
+            ui.label(dim("Template"));
             egui::ComboBox::from_id_salt("template").selected_text(&templates[ex.template].name).show_ui(ui, |ui| {
                 for (i, t) in templates.iter().enumerate() {
                     ui.selectable_value(&mut ex.template, i, &t.name);
                 }
             });
             ui.end_row();
-            ui.label("File format");
+            ui.label(dim("File format"));
             let fmt_text = ex.settings.format_override.map_or("Template default", |f| f.label());
             egui::ComboBox::from_id_salt("format").selected_text(fmt_text).show_ui(ui, |ui| {
                 ui.selectable_value(&mut ex.settings.format_override, None, "Template default");
@@ -162,7 +173,7 @@ pub fn export_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
                 }
             });
             ui.end_row();
-            ui.label("Padding");
+            ui.label(dim("Padding"));
             ui.horizontal(|ui| {
                 let mut kind = match ex.settings.padding {
                     Padding::Infinite => 0,
@@ -185,23 +196,31 @@ pub fn export_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
                 }
             });
             ui.end_row();
-            ui.label("Height to normal");
+            ui.label(dim("Height to normal"));
             ui.add(egui::Slider::new(&mut ex.settings.height_to_normal, 0.0..=0.1));
             ui.end_row();
         });
         ex.settings.template = templates[ex.template].clone();
         let settings = ex.settings.clone();
         let folder = PathBuf::from(&ex.folder);
-        ui.separator();
+        ui.add_space(6.0);
+        divider(ui);
+        ui.add_space(4.0);
         let plan = state.session.export_plan(&settings);
-        ui.label(RichText::new(format!("{} files", plan.len())).strong());
-        egui::ScrollArea::vertical().max_height(180.0).show(ui, |ui| {
-            for (_, f) in &plan {
-                ui.label(RichText::new(f).monospace().small());
-            }
+        ui.label(caption(&format!("{} files", plan.len())));
+        egui::Frame::new().fill(theme::FIELD).inner_margin(egui::Margin::same(8)).show(ui, |ui| {
+            egui::ScrollArea::vertical().max_height(170.0).show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
+                for (_, f) in &plan {
+                    ui.label(RichText::new(f).monospace().small().color(TEXT_DIM));
+                }
+            });
         });
-        ui.separator();
-        if ui.add_enabled(!plan.is_empty(), egui::Button::new(RichText::new("Export").strong())).clicked() {
+        ui.add_space(6.0);
+        let go = ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.add_enabled_ui(!plan.is_empty(), |ui| primary_button(ui, format!("{}  Export", crate::icons::EXPORT))).inner.clicked()
+        });
+        if go.inner {
             match state.session.export_textures(&folder, &settings) {
                 Ok(files) => state.set_status(format!("Exported {} files to {}", files.len(), folder.display()), now),
                 Err(e) => state.set_status(format!("Export failed: {e}"), now),
@@ -261,24 +280,26 @@ pub fn bake_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
     let selected = state.session.selected_texture_set();
     let (sel_id, sel_slot, sel_name) = (selected.id, selected.material_slot, selected.name.clone());
     let all: Vec<(subcraft_core::TextureSetId, u32)> = state.session.document().texture_sets.iter().map(|t| (t.id, t.material_slot)).collect();
-    egui::Window::new("Bake Mesh Maps").open(&mut open).default_width(420.0).show(ctx, |ui| {
+    egui::Window::new(window_title("Bake Mesh Maps")).open(&mut open).collapsible(false).default_width(440.0).show(ctx, |ui| {
         let busy = state.bake.job.is_some();
         ui.add_enabled_ui(!busy, |ui| {
             let b = &mut state.bake;
             ui.horizontal(|ui| {
-                ui.label("Bake");
-                ui.selectable_value(&mut b.all_sets, true, "All texture sets");
-                ui.selectable_value(&mut b.all_sets, false, format!("Only {sel_name}"));
+                ui.label(dim("Bake"));
+                ui.add_space(8.0);
+                let only = format!("Only {sel_name}");
+                segmented(ui, &mut b.all_sets, &[(true, "All texture sets"), (false, only.as_str())]);
             });
-            egui::Grid::new("bake_grid").num_columns(2).spacing([8.0, 6.0]).show(ui, |ui| {
-                ui.label("Size");
+            ui.add_space(4.0);
+            egui::Grid::new("bake_grid").num_columns(2).spacing([16.0, 10.0]).show(ui, |ui| {
+                ui.label(dim("Size"));
                 egui::ComboBox::from_id_salt("bake_size").selected_text(format!("{}²", b.settings.size)).show_ui(ui, |ui| {
                     for r in [256u32, 512, 1024, 2048, 4096] {
                         ui.selectable_value(&mut b.settings.size, r, format!("{r}²"));
                     }
                 });
                 ui.end_row();
-                ui.label("High poly");
+                ui.label(dim("High poly"));
                 ui.horizontal(|ui| {
                     ui.add(egui::TextEdit::singleline(&mut b.high_poly).hint_text("optional (none = low on low)").desired_width(220.0));
                     if ui.button("Browse…").clicked()
@@ -286,31 +307,31 @@ pub fn bake_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
                     {
                         b.high_poly = p.display().to_string();
                     }
-                    if !b.high_poly.is_empty() && ui.small_button("x").clicked() {
+                    if !b.high_poly.is_empty() && crate::widgets::icon_button(ui, crate::icons::X, "Clear").clicked() {
                         b.high_poly.clear();
                     }
                 });
                 ui.end_row();
                 if !b.high_poly.is_empty() {
-                    ui.label("Cage front / rear");
+                    ui.label(dim("Cage front / rear"));
                     ui.horizontal(|ui| {
                         ui.add(egui::DragValue::new(&mut b.settings.cage_front).speed(0.001).range(0.0..=0.5));
                         ui.add(egui::DragValue::new(&mut b.settings.cage_rear).speed(0.001).range(0.0..=0.5));
                     });
                     ui.end_row();
                 }
-                ui.label("AO samples");
+                ui.label(dim("AO samples"));
                 ui.add(egui::Slider::new(&mut b.settings.ao_samples, 4..=256).logarithmic(true));
                 ui.end_row();
-                ui.label("AO distance");
+                ui.label(dim("AO distance"));
                 ui.add(egui::Slider::new(&mut b.settings.ao_distance, 0.01..=1.0).logarithmic(true));
                 ui.end_row();
-                ui.label("Curvature radius");
+                ui.label(dim("Curvature radius"));
                 ui.add(egui::Slider::new(&mut b.settings.curvature_radius, 0.002..=0.1).logarithmic(true));
                 ui.end_row();
             });
-            ui.separator();
-            ui.label("Maps");
+            ui.add_space(6.0);
+            ui.label(caption("Maps"));
             ui.horizontal_wrapped(|ui| {
                 for k in subcraft_core::MeshMapKind::ALL {
                     let mut on = b.settings.maps.contains(&k);
@@ -323,20 +344,28 @@ pub fn bake_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
                     }
                 }
             });
-            ui.label(egui::RichText::new("Curvature feeds the Edges generator, AO the Cavity generator; baked AO also shades the 3D view and fills AO in exports.").small().weak());
+            ui.add_space(2.0);
+            hint(ui, "Curvature feeds the Edges generator, AO the Cavity generator; baked AO also shades the 3D view and fills AO in exports.");
         });
-        ui.separator();
+        ui.add_space(6.0);
+        divider(ui);
+        ui.add_space(6.0);
         match &state.bake.job {
             Some(job) => {
-                ui.label(job.stage());
-                ui.add(egui::ProgressBar::new(job.fraction()).show_percentage());
-                if ui.button("Cancel").clicked() {
-                    job.cancel();
-                }
+                ui.label(dim(&job.stage()));
+                ui.add(egui::ProgressBar::new(job.fraction()).show_percentage().fill(theme::ACCENT));
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if secondary_button(ui, "Cancel").clicked() {
+                        job.cancel();
+                    }
+                });
             }
             None => {
                 let can = !state.bake.settings.maps.is_empty();
-                if ui.add_enabled(can, egui::Button::new(egui::RichText::new("Bake").strong())).clicked() {
+                let go = ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.add_enabled_ui(can, |ui| primary_button(ui, format!("{}  Bake", crate::icons::MAGIC_WAND))).inner.clicked()
+                });
+                if go.inner {
                     let mut settings = state.bake.settings.clone();
                     settings.maps.sort();
                     let request = subcraft_app::BakeRequest {

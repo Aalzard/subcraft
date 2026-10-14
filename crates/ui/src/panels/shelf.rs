@@ -13,6 +13,7 @@ use subcraft_doc::{FillChannel, FillSource, Layer, LayerContent, Mask, MaskEffec
 use subcraft_render::{SHADED_CHANNELS, ViewParams, ViewportRenderer};
 
 use crate::state::UiState;
+use crate::theme;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ShelfTab {
@@ -110,35 +111,70 @@ pub fn apply_environment(
     }
 }
 
+const TILE: f32 = 88.0;
+
+/// Thumbnail tile: square image with a hairline frame (accent when hovered / selected), name below.
 fn tile(ui: &mut Ui, thumb: Option<&egui::TextureHandle>, name: &str, selected: bool, tooltip: &str) -> bool {
-    let mut clicked = false;
-    ui.allocate_ui(egui::vec2(86.0, 104.0), |ui| {
-        ui.vertical_centered(|ui| {
-            let size = egui::vec2(76.0, 76.0);
-            let r = match thumb {
-                Some(t) => ui.add(egui::Button::image(egui::Image::new((t.id(), size))).selected(selected)),
-                None => ui.add_sized(size, egui::Button::new("…").selected(selected)),
-            };
-            clicked = r.on_hover_text(tooltip).clicked();
-            ui.label(RichText::new(name).small());
-        });
-    });
-    clicked
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(TILE, TILE + 22.0), egui::Sense::click());
+    let img = egui::Rect::from_min_size(rect.min, egui::vec2(TILE, TILE));
+    let painter = ui.painter();
+    painter.rect_filled(img, 0.0, theme::FIELD);
+    match thumb {
+        Some(t) => {
+            painter.image(t.id(), img.shrink(1.0), egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), Color32::WHITE);
+        }
+        None => {
+            painter.text(img.center(), egui::Align2::CENTER_CENTER, crate::icons::IMAGE, theme::font(20.0), theme::TEXT_FAINT);
+        }
+    }
+    let stroke = if selected {
+        egui::Stroke::new(2.0, theme::ACCENT)
+    } else if resp.hovered() {
+        egui::Stroke::new(1.0, theme::ACCENT_HOVER)
+    } else {
+        egui::Stroke::new(1.0, theme::BORDER)
+    };
+    painter.rect_stroke(img, 0.0, stroke, egui::StrokeKind::Inside);
+    let color = if selected || resp.hovered() { theme::TEXT } else { theme::TEXT_DIM };
+    let galley = painter.layout(name.to_string(), theme::font(11.0), color, TILE);
+    let text_pos = egui::pos2(rect.center().x - galley.size().x / 2.0, img.bottom() + 5.0);
+    painter.galley(text_pos, galley, color);
+    resp.on_hover_text(tooltip).on_hover_cursor(egui::CursorIcon::PointingHand).clicked()
+}
+
+/// Underlined text tab.
+fn shelf_tab(ui: &mut Ui, current: &mut ShelfTab, value: ShelfTab, icon: &str, label: &str) {
+    let selected = *current == value;
+    let text = format!("{icon}  {label}");
+    let color = if selected { theme::TEXT } else { theme::TEXT_FAINT };
+    let galley = ui.painter().layout_no_wrap(text, theme::font_strong(12.0), color);
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(galley.size().x + 16.0, 34.0), egui::Sense::click());
+    let color = if resp.hovered() && !selected { theme::TEXT_DIM } else { color };
+    ui.painter().galley_with_override_text_color(rect.center() - galley.size() / 2.0, galley, color);
+    if selected {
+        ui.painter().rect_filled(egui::Rect::from_min_max(egui::pos2(rect.left(), rect.bottom() - 2.0), rect.right_bottom()), 0.0, theme::ACCENT);
+    }
+    if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+        *current = value;
+    }
 }
 
 pub fn show(state: &mut UiState, ui: &mut Ui) {
     let now = ui.input(|i| i.time);
+    egui::Frame::new().inner_margin(egui::Margin { left: 6, right: theme::PAD, top: 0, bottom: 0 }).show(ui, |ui| {
     ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 0.0;
         let tab = &mut state.shelf.tab;
-        ui.selectable_value(tab, ShelfTab::Materials, "Materials");
-        ui.selectable_value(tab, ShelfTab::SmartMaterials, "Smart Materials");
-        ui.selectable_value(tab, ShelfTab::SmartMasks, "Smart Masks");
-        ui.selectable_value(tab, ShelfTab::Brushes, "Brushes");
-        ui.selectable_value(tab, ShelfTab::Environments, "Environments");
-        ui.separator();
+        shelf_tab(ui, tab, ShelfTab::Materials, crate::icons::DROP, "Materials");
+        shelf_tab(ui, tab, ShelfTab::SmartMaterials, crate::icons::SPARKLE, "Smart Materials");
+        shelf_tab(ui, tab, ShelfTab::SmartMasks, crate::icons::MASK, "Smart Masks");
+        shelf_tab(ui, tab, ShelfTab::Brushes, crate::icons::PAINT_BRUSH, "Brushes");
+        shelf_tab(ui, tab, ShelfTab::Environments, crate::icons::SUN, "Environments");
+        ui.spacing_mut().item_spacing.x = 8.0;
+        ui.add_space(16.0);
         match state.shelf.tab {
             ShelfTab::Brushes => {
-                if ui.button("Import alpha…").clicked()
+                if ui.button(format!("{}  Import alpha…", crate::icons::DOWNLOAD)).clicked()
                     && let Some(p) = rfd::FileDialog::new().add_filter("Images", &["png", "jpg", "jpeg", "tga", "tif", "tiff", "exr"]).pick_file()
                 {
                     match subcraft_app::assets::alphas::import(&p) {
@@ -151,7 +187,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 }
             }
             ShelfTab::Environments => {
-                if ui.button("Import HDRI…").clicked()
+                if ui.button(format!("{}  Import HDRI…", crate::icons::DOWNLOAD)).clicked()
                     && let Some(p) = rfd::FileDialog::new().add_filter("Panoramas", &["hdr", "exr", "png", "jpg", "jpeg"]).pick_file()
                 {
                     match subcraft_app::assets::environment::import_hdri(&p) {
@@ -162,25 +198,28 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         Err(e) => state.set_status(format!("Import HDRI: {e}"), now),
                     }
                 }
-                ui.label("Rotation");
+                ui.spacing_mut().slider_width = 110.0;
+                ui.label(RichText::new("Rotation").color(theme::TEXT_DIM));
                 ui.add(egui::Slider::new(&mut state.env.rotation_deg, -180.0..=180.0).suffix("°"));
-                ui.label("Intensity");
+                ui.label(RichText::new("Intensity").color(theme::TEXT_DIM));
                 ui.add(egui::Slider::new(&mut state.env.intensity, 0.1..=4.0).logarithmic(true));
             }
             ShelfTab::SmartMasks => {
-                ui.label(RichText::new("Applies to the selected layer. Edges / Cavity need baked maps (Ctrl+B).").small().weak());
+                ui.label(RichText::new("Applies to the selected layer. Edges / Cavity need baked maps (Ctrl+B).").small().color(theme::TEXT_FAINT));
             }
             ShelfTab::SmartMaterials => {
-                ui.label(RichText::new("Wear and dirt follow baked curvature / AO (Ctrl+B).").small().weak());
+                ui.label(RichText::new("Wear and dirt follow baked curvature / AO (Ctrl+B).").small().color(theme::TEXT_FAINT));
             }
             ShelfTab::Materials => {}
         }
     });
-    ui.separator();
+    });
+    crate::widgets::divider(ui);
     generate_one_thumbnail(state, ui.ctx());
     let mut action: Option<Box<dyn FnOnce(&mut UiState)>> = None;
-    egui::ScrollArea::vertical().id_salt("shelf").show(ui, |ui| {
-        ui.horizontal_wrapped(|ui| {
+    egui::ScrollArea::vertical().id_salt("shelf").auto_shrink([false, false]).show(ui, |ui| {
+        egui::Frame::new().inner_margin(egui::Margin::same(theme::PAD)).show(ui, |ui| ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing = egui::vec2(10.0, 10.0);
             let thumbs = &state.shelf.thumbs;
             match state.shelf.tab {
                 ShelfTab::Materials => {
@@ -241,7 +280,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     }
                 }
             }
-        });
+        }));
     });
     if let Some(a) = action {
         a(state);

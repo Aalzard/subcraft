@@ -2,8 +2,10 @@
 
 use std::path::PathBuf;
 
+use std::collections::HashSet;
+
 use egui::{RichText, Ui};
-use egui_dock::{DockArea, DockState, NodeIndex, Style};
+use egui_dock::{DockArea, DockState, NodeIndex};
 use serde::{Deserialize, Serialize};
 use subcraft_app::{ACTIONS, Action, Command, Key, NewLayer, Session, Shortcut, action_for};
 use subcraft_core::{ChannelKind, ChannelValue};
@@ -11,9 +13,9 @@ use subcraft_doc::{FillChannel, FillSource, Generator, GeneratorKind, LayerConte
 
 use crate::dialogs::{self, Pending};
 use crate::orbit::OrbitCamera;
-use crate::panels;
 use crate::state::{Tool, UiState};
-use crate::theme;
+use crate::widgets::{icon_button, primary_button, secondary_button, tool_button};
+use crate::{icons, panels, theme};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Tab {
@@ -40,6 +42,19 @@ impl Tab {
             Tab::Shelf => "Shelf",
         }
     }
+
+    fn icon(self) -> &'static str {
+        match self {
+            Tab::Viewport => icons::CUBE,
+            Tab::UvView => icons::GRID,
+            Tab::Layers => icons::STACK,
+            Tab::Properties => icons::SLIDERS,
+            Tab::Brush => icons::PAINT_BRUSH,
+            Tab::TextureSets => icons::CUBE_WIRE,
+            Tab::History => icons::HISTORY,
+            Tab::Shelf => icons::SQUARES,
+        }
+    }
 }
 
 /// Command-line options.
@@ -58,15 +73,15 @@ pub struct LaunchOptions {
 pub fn default_layout() -> DockState<Tab> {
     let mut dock = DockState::new(vec![Tab::Viewport, Tab::UvView]);
     let surface = dock.main_surface_mut();
-    let [center, right] = surface.split_right(NodeIndex::root(), 0.73, vec![Tab::Layers]);
-    surface.split_below(right, 0.5, vec![Tab::Properties, Tab::Brush]);
+    let [center, right] = surface.split_right(NodeIndex::root(), 0.74, vec![Tab::Layers]);
+    surface.split_below(right, 0.4, vec![Tab::Properties, Tab::Brush]);
     let [center, left] = surface.split_left(center, 0.2, vec![Tab::TextureSets]);
-    surface.split_below(left, 0.4, vec![Tab::History]);
-    surface.split_below(center, 0.72, vec![Tab::Shelf]);
+    surface.split_below(left, 0.42, vec![Tab::History]);
+    surface.split_below(center, 0.74, vec![Tab::Shelf]);
     dock
 }
 
-const DOCK_KEY: &str = "subcraft_dock_v2";
+const DOCK_KEY: &str = "subcraft_dock_v3";
 
 pub struct SubcraftApp {
     state: UiState,
@@ -76,6 +91,8 @@ pub struct SubcraftApp {
     screenshot_requested: bool,
     /// Action approved this frame, run after the UI pass.
     pending_now: Option<Pending>,
+    /// Tabs whose body was shown last frame (drawn with the accent marker).
+    active_tabs: HashSet<Tab>,
 }
 
 impl SubcraftApp {
@@ -124,7 +141,7 @@ impl SubcraftApp {
         {
             let _ = dock.set_active_tab(path);
         }
-        Self { state, dock, frames: 0, screenshot: options.screenshot, screenshot_requested: false, pending_now: None }
+        Self { state, dock, frames: 0, screenshot: options.screenshot, screenshot_requested: false, pending_now: None, active_tabs: HashSet::new() }
     }
 
     fn shortcuts(&mut self, ctx: &egui::Context) {
@@ -177,74 +194,166 @@ impl SubcraftApp {
         }
     }
 
+    /// Top bar: brand, menus, project name, then undo/redo and the main actions on the right.
+    fn header_bar(&mut self, ui: &mut Ui) {
+        let now = ui.input(|i| i.time);
+        let bar = ui.max_rect();
+        // Right side first so the left side can't push it out of the bar.
+        ui.scope_builder(egui::UiBuilder::new().max_rect(bar).layout(egui::Layout::right_to_left(egui::Align::Center)), |ui| {
+            if primary_button(ui, format!("{}  Export", icons::EXPORT)).on_hover_text("Export textures (Ctrl+Shift+E)").clicked() {
+                self.perform(Action::Export, now);
+            }
+            if secondary_button(ui, format!("{}  Bake", icons::MAGIC_WAND)).on_hover_text("Bake mesh maps (Ctrl+B)").clicked() {
+                self.perform(Action::Bake, now);
+            }
+            if icon_button(ui, icons::SAVE, "Save (Ctrl+S)").clicked() {
+                self.perform(Action::Save, now);
+            }
+            ui.add_space(6.0);
+            let h = self.state.session.history();
+            let (can_undo, can_redo) = (h.can_undo(), h.can_redo());
+            if ui.add_enabled_ui(can_redo, |ui| icon_button(ui, icons::REDO, "Redo (Ctrl+Y)")).inner.clicked() {
+                self.perform(Action::Redo, now);
+            }
+            if ui.add_enabled_ui(can_undo, |ui| icon_button(ui, icons::UNDO, "Undo (Ctrl+Z)")).inner.clicked() {
+                self.perform(Action::Undo, now);
+            }
+        });
+        ui.scope_builder(egui::UiBuilder::new().max_rect(bar).layout(egui::Layout::left_to_right(egui::Align::Center)), |ui| {
+            // Brand mark.
+            let (r, _) = ui.allocate_exact_size(egui::vec2(18.0, 18.0), egui::Sense::hover());
+            ui.painter().rect_filled(r, 0.0, theme::ACCENT);
+            ui.painter().rect_filled(egui::Rect::from_min_size(r.min + egui::vec2(5.0, 5.0), egui::vec2(8.0, 8.0)), 0.0, theme::BG_2);
+            ui.label(RichText::new("SubCraft").font(theme::font_strong(14.0)).color(theme::TEXT));
+            ui.add_space(10.0);
+            self.menu(ui);
+        });
+        // Project name centered in the bar.
+        let title = dialogs::title(&self.state);
+        let name = title.trim_start_matches("SubCraft — ");
+        ui.painter().text(bar.center(), egui::Align2::CENTER_CENTER, name, theme::font(12.5), theme::TEXT_FAINT);
+    }
+
+    /// Vertical tool strip left of the dock area.
+    fn tool_rail(&mut self, ui: &mut Ui) {
+        ui.spacing_mut().item_spacing.y = 2.0;
+        ui.add_space(6.0);
+        ui.vertical_centered(|ui| {
+            let tool = &mut self.state.tool;
+            for (t, icon, tip) in [
+                (Tool::Brush, icons::PAINT_BRUSH, "Brush (B)"),
+                (Tool::Eraser, icons::ERASER, "Eraser (E)"),
+                (Tool::PolygonFill, icons::PAINT_BUCKET, "Polygon fill"),
+            ] {
+                if tool_button(ui, icon, *tool == t, tip).clicked() {
+                    *tool = t;
+                }
+            }
+            ui.add_space(6.0);
+            rail_divider(ui);
+            ui.add_space(6.0);
+            let sym = &mut self.state.session.brush.options.symmetry[0];
+            if tool_button(ui, icons::SYMMETRY, *sym, "Mirror strokes across X (X)").clicked() {
+                *sym = !*sym;
+            }
+            let target = &mut self.state.session.brush.target;
+            let on_mask = *target == subcraft_paint::PaintTarget::MaskBase;
+            if tool_button(ui, icons::MASK, on_mask, "Paint the layer's mask instead of its content").clicked() {
+                *target = if on_mask { subcraft_paint::PaintTarget::Content } else { subcraft_paint::PaintTarget::MaskBase };
+            }
+            ui.add_space(6.0);
+            rail_divider(ui);
+            ui.add_space(6.0);
+            if tool_button(ui, icons::CAMERA, false, "Reset camera (Home)").clicked() {
+                self.perform(Action::ResetCamera, ui.input(|i| i.time));
+            }
+            ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
+                ui.add_space(6.0);
+                if tool_button(ui, icons::KEYBOARD, self.state.show_shortcuts, "Keyboard shortcuts").clicked() {
+                    self.state.show_shortcuts = !self.state.show_shortcuts;
+                }
+            });
+        });
+    }
+
     fn menu(&mut self, ui: &mut Ui) {
         let now = ui.input(|i| i.time);
         egui::MenuBar::new().ui(ui, |ui| {
+            let item = |ui: &mut Ui, icon: &str, label: &str, sc: &str| ui.add(egui::Button::new(format!("{icon}   {label}")).shortcut_text(sc)).clicked();
             ui.menu_button("File", |ui| {
-                let item = |ui: &mut Ui, label: &str, sc: &str| ui.add(egui::Button::new(label).shortcut_text(sc)).clicked();
-                if ui.button("New (sample crate)").clicked() {
+                ui.set_min_width(240.0);
+                if item(ui, icons::FILE_PLUS, "New (sample crate)", "") {
                     self.request(Pending::NewSample, now);
                     ui.close();
                 }
-                if ui.button("New from mesh…").clicked() {
+                if item(ui, icons::CUBE, "New from mesh…", "") {
                     ui.close();
                     self.request(Pending::OpenMesh, now);
                 }
-                if item(ui, "Open project…", "Ctrl+O") {
+                if item(ui, icons::FOLDER_OPEN, "Open project…", "Ctrl+O") {
                     ui.close();
                     self.request(Pending::OpenProject, now);
                 }
                 ui.separator();
-                if item(ui, "Save", "Ctrl+S") {
+                if item(ui, icons::SAVE, "Save", "Ctrl+S") {
                     ui.close();
                     self.perform(Action::Save, now);
                 }
-                if item(ui, "Save as…", "Ctrl+Shift+S") {
+                if item(ui, icons::SAVE, "Save as…", "Ctrl+Shift+S") {
                     ui.close();
                     self.perform(Action::SaveAs, now);
                 }
                 ui.separator();
-                if item(ui, "Export textures…", "Ctrl+Shift+E") {
+                if item(ui, icons::EXPORT, "Export textures…", "Ctrl+Shift+E") {
                     ui.close();
                     self.perform(Action::Export, now);
                 }
-                if item(ui, "Bake mesh maps…", "Ctrl+B") {
+                if item(ui, icons::MAGIC_WAND, "Bake mesh maps…", "Ctrl+B") {
                     ui.close();
                     self.perform(Action::Bake, now);
                 }
                 ui.separator();
-                if ui.button("Quit").clicked() {
+                if item(ui, icons::X, "Quit", "") {
                     ui.send_viewport_cmd(egui::ViewportCommand::Close);
                 }
             });
             ui.menu_button("Edit", |ui| {
+                ui.set_min_width(240.0);
                 let h = self.state.session.history();
                 let undo = h.undo_label().map(|l| format!("Undo {l}")).unwrap_or("Undo".into());
                 let redo = h.redo_label().map(|l| format!("Redo {l}")).unwrap_or("Redo".into());
                 let (can_undo, can_redo) = (h.can_undo(), h.can_redo());
-                if ui.add_enabled(can_undo, egui::Button::new(undo).shortcut_text("Ctrl+Z")).clicked() {
+                if ui.add_enabled(can_undo, egui::Button::new(format!("{}   {undo}", icons::UNDO)).shortcut_text("Ctrl+Z")).clicked() {
                     self.perform(Action::Undo, now);
                 }
-                if ui.add_enabled(can_redo, egui::Button::new(redo).shortcut_text("Ctrl+Y")).clicked() {
+                if ui.add_enabled(can_redo, egui::Button::new(format!("{}   {redo}", icons::REDO)).shortcut_text("Ctrl+Y")).clicked() {
                     self.perform(Action::Redo, now);
                 }
             });
             ui.menu_button("Layer", |ui| {
-                for a in [Action::NewPaintLayer, Action::NewFillLayer, Action::NewFolder, Action::DuplicateLayer, Action::DeleteLayer] {
+                ui.set_min_width(240.0);
+                for (a, icon) in [
+                    (Action::NewPaintLayer, icons::PAINT_BRUSH),
+                    (Action::NewFillLayer, icons::PAINT_BUCKET),
+                    (Action::NewFolder, icons::FOLDER),
+                    (Action::DuplicateLayer, icons::COPY),
+                    (Action::DeleteLayer, icons::TRASH),
+                ] {
                     let info = subcraft_app::actions::info(a);
                     let sc = info.shortcuts.first().map(|s| s.label()).unwrap_or_default();
-                    if ui.add(egui::Button::new(info.label).shortcut_text(sc)).clicked() {
+                    if item(ui, icon, info.label, &sc) {
                         self.perform(a, now);
                         ui.close();
                     }
                 }
             });
             ui.menu_button("View", |ui| {
-                if ui.button("Reset camera").clicked() {
+                ui.set_min_width(240.0);
+                if item(ui, icons::CAMERA, "Reset camera", "Home") {
                     self.perform(Action::ResetCamera, now);
                     ui.close();
                 }
-                if ui.button("Reset layout").clicked() {
+                if item(ui, icons::SQUARES, "Reset layout", "") {
                     self.dock = default_layout();
                     ui.close();
                 }
@@ -255,7 +364,8 @@ impl SubcraftApp {
                 });
             });
             ui.menu_button("Help", |ui| {
-                if ui.button("Keyboard shortcuts").clicked() {
+                ui.set_min_width(240.0);
+                if item(ui, icons::KEYBOARD, "Keyboard shortcuts", "") {
                     self.state.show_shortcuts = true;
                     ui.close();
                 }
@@ -275,43 +385,45 @@ impl SubcraftApp {
 
     fn status_bar(&mut self, ui: &mut Ui) {
         let now = ui.input(|i| i.time);
-        ui.horizontal(|ui| {
-            let tool = match self.state.tool {
-                Tool::Brush => "Brush",
-                Tool::Eraser => "Eraser",
-                Tool::PolygonFill => "Polygon fill",
+        ui.horizontal_centered(|ui| {
+            ui.spacing_mut().item_spacing.x = 14.0;
+            let (icon, tool) = match self.state.tool {
+                Tool::Brush => (icons::PAINT_BRUSH, "Brush"),
+                Tool::Eraser => (icons::ERASER, "Eraser"),
+                Tool::PolygonFill => (icons::PAINT_BUCKET, "Polygon fill"),
             };
-            ui.label(RichText::new(tool).color(theme::ACCENT));
-            ui.separator();
-            ui.label(format!("Size {:.1}%", self.state.session.brush.settings.size));
-            ui.separator();
+            let small = |t: String, c| RichText::new(t).font(theme::font(11.5)).color(c);
+            ui.label(small(format!("{icon}  {tool}"), theme::ACCENT));
+            ui.label(small(format!("Size {:.1}%", self.state.session.brush.settings.size), theme::TEXT_DIM));
             if let Some(l) = self.state.session.selected_layer() {
-                ui.label(format!("{} / {}", self.state.session.selected_texture_set().name, l.name));
+                ui.label(small(format!("{}  {} / {}", icons::STACK, self.state.session.selected_texture_set().name, l.name), theme::TEXT_DIM));
             }
             if let Some((msg, t)) = &self.state.status
                 && now - t < 6.0
             {
-                ui.separator();
-                ui.label(RichText::new(msg).color(egui::Color32::from_rgb(240, 200, 120)));
+                ui.label(small(format!("{}  {msg}", icons::INFO), theme::WARNING));
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label(RichText::new(format!("render {:.1} ms", self.state.frame_time_ms)).weak());
+                ui.label(small(format!("{:.1} ms", self.state.frame_time_ms), theme::TEXT_FAINT));
+                let mesh = &self.state.session.scene().mesh;
+                ui.label(small(format!("{} tris", mesh.triangle_count()), theme::TEXT_FAINT));
             });
         });
     }
 
     fn shortcuts_window(&mut self, ctx: &egui::Context) {
         let mut open = self.state.show_shortcuts;
-        egui::Window::new("Keyboard shortcuts").open(&mut open).resizable(false).show(ctx, |ui| {
-            egui::Grid::new("shortcuts").striped(true).show(ui, |ui| {
+        egui::Window::new("Keyboard shortcuts").open(&mut open).resizable(false).collapsible(false).show(ctx, |ui| {
+            egui::Grid::new("shortcuts").num_columns(2).spacing([32.0, 8.0]).show(ui, |ui| {
+                let key = |t: String| RichText::new(t).monospace().color(theme::ACCENT);
                 for a in ACTIONS {
-                    ui.label(a.label);
-                    ui.label(a.shortcuts.iter().map(|s| s.label()).collect::<Vec<_>>().join(" / "));
+                    ui.label(RichText::new(a.label).color(theme::TEXT_DIM));
+                    ui.label(key(a.shortcuts.iter().map(|s| s.label()).collect::<Vec<_>>().join(" / ")));
                     ui.end_row();
                 }
                 for (what, how) in [("Orbit", "Alt+LMB or RMB drag"), ("Pan", "MMB drag"), ("Zoom", "Wheel or Alt+RMB drag"), ("Straight line", "Shift+click")] {
-                    ui.label(what);
-                    ui.label(how);
+                    ui.label(RichText::new(what).color(theme::TEXT_DIM));
+                    ui.label(key(how.to_string()));
                     ui.end_row();
                 }
             });
@@ -344,6 +456,11 @@ impl SubcraftApp {
     }
 }
 
+fn rail_divider(ui: &mut Ui) {
+    let (r, _) = ui.allocate_exact_size(egui::vec2(24.0, 1.0), egui::Sense::hover());
+    ui.painter().hline(r.x_range(), r.center().y, egui::Stroke::new(1.0, theme::BORDER_STRONG));
+}
+
 fn map_key(k: egui::Key) -> Option<Key> {
     Some(match k {
         egui::Key::B => Key::B,
@@ -367,6 +484,9 @@ fn map_key(k: egui::Key) -> Option<Key> {
 
 struct Viewer<'a> {
     state: &'a mut UiState,
+    /// Tabs shown last frame (marked) and the set being collected this frame.
+    was_active: &'a HashSet<Tab>,
+    active: HashSet<Tab>,
 }
 
 impl egui_dock::TabViewer for Viewer<'_> {
@@ -377,10 +497,19 @@ impl egui_dock::TabViewer for Viewer<'_> {
     }
 
     fn title(&mut self, tab: &mut Tab) -> egui::WidgetText {
-        tab.title().into()
+        RichText::new(format!("{}   {}", tab.icon(), tab.title())).font(theme::font_strong(12.0)).into()
+    }
+
+    fn on_tab_button(&mut self, tab: &mut Tab, response: &egui::Response) {
+        if self.was_active.contains(tab) {
+            let r = response.rect;
+            let painter = response.ctx.layer_painter(response.layer_id);
+            painter.rect_filled(egui::Rect::from_min_size(r.min, egui::vec2(r.width(), 2.0)), 0.0, theme::ACCENT);
+        }
     }
 
     fn ui(&mut self, ui: &mut Ui, tab: &mut Tab) {
+        self.active.insert(*tab);
         match tab {
             Tab::Viewport => crate::viewport::show(self.state, ui),
             Tab::UvView => panels::uv_view::show(self.state, ui),
@@ -412,14 +541,25 @@ impl eframe::App for SubcraftApp {
         }
         self.state.sync_gpu();
 
-        egui::Panel::top("menu").show(ui, |ui| self.menu(ui));
-        egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui));
-        let style = Style::from_egui(ui.style());
-        DockArea::new(&mut self.dock)
-            .style(style)
-            .show_close_buttons(false)
-            .show_leaf_close_all_buttons(false)
-            .show_inside(ui, &mut Viewer { state: &mut self.state });
+        let bar = |fill| egui::Frame::new().fill(fill).inner_margin(egui::Margin::symmetric(12, 0));
+        egui::Panel::top("header").exact_size(44.0).show_separator_line(false).frame(bar(theme::BG_2)).show(ui, |ui| self.header_bar(ui));
+        egui::Panel::bottom("status").exact_size(26.0).show_separator_line(false).frame(bar(theme::BG_0)).show(ui, |ui| self.status_bar(ui));
+        egui::Panel::left("tools")
+            .exact_size(48.0)
+            .resizable(false)
+            .show_separator_line(false)
+            .frame(egui::Frame::new().fill(theme::BG_2).inner_margin(egui::Margin::symmetric(4, 0)))
+            .show(ui, |ui| self.tool_rail(ui));
+        let style = theme::dock_style(ui.style());
+        let mut viewer = Viewer { state: &mut self.state, was_active: &self.active_tabs, active: HashSet::new() };
+        egui::Frame::new().fill(theme::BG_0).inner_margin(egui::Margin { left: 3, right: 0, top: 3, bottom: 0 }).show(ui, |ui| {
+            DockArea::new(&mut self.dock).style(style).show_close_buttons(false).show_leaf_close_all_buttons(false).show_leaf_collapse_buttons(false).show_inside(ui, &mut viewer);
+        });
+        let active = std::mem::take(&mut viewer.active);
+        if active != self.active_tabs {
+            self.active_tabs = active;
+            ctx.request_repaint();
+        }
         self.shortcuts_window(&ctx);
         let now = ctx.input(|i| i.time);
         dialogs::export_window(&mut self.state, &ctx, now);
