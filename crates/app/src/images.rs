@@ -115,7 +115,7 @@ impl Session {
                     self.import_image_bytes(&format!("{stem} ({suffix}).{ext}"), encoded)?
                 }
             };
-            fill.channels.insert(m.channel, FillChannel { enabled: true, source: FillSource::Bitmap { resource } });
+            fill.channels.insert(m.channel, FillChannel::new(FillSource::Bitmap { resource }));
             result.used.push((name, m.channel));
         }
         if result.used.is_empty() {

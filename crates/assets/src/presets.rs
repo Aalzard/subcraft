@@ -27,7 +27,7 @@ impl MaterialPreset {
             }
             for (kind, source) in &self.channels {
                 if ts.has_channel(*kind) {
-                    f.channels.insert(*kind, FillChannel { enabled: true, source: source.clone() });
+                    f.channels.insert(*kind, FillChannel::new(source.clone()));
                 }
             }
         }

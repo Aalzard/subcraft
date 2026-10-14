@@ -74,7 +74,7 @@ fn fill_layer(ts: &TextureSet, values: &[(ChannelKind, ChannelValue)]) -> Layer 
     for (k, ch) in f.channels.iter_mut() {
         ch.enabled = false;
         if let Some((_, v)) = values.iter().find(|(kk, _)| kk == k) {
-            *ch = FillChannel { enabled: true, source: FillSource::uniform(*v) };
+            *ch = FillChannel::new(FillSource::uniform(*v));
         }
     }
     l
@@ -82,7 +82,7 @@ fn fill_layer(ts: &TextureSet, values: &[(ChannelKind, ChannelValue)]) -> Layer 
 
 fn set_fill(ts: &mut TextureSet, id: LayerId, kind: ChannelKind, v: ChannelValue) {
     let LayerContent::Fill(f) = &mut ts.find_mut(id).unwrap().content else { panic!() };
-    f.channels.insert(kind, FillChannel { enabled: true, source: FillSource::uniform(v) });
+    f.channels.insert(kind, FillChannel::new(FillSource::uniform(v)));
 }
 
 #[test]
@@ -494,4 +494,19 @@ fn image_mask_uses_alpha_or_raw_brightness() {
     // A resource missing from the store contributes nothing.
     let c = eval(&fx, ResourceId::new(), false);
     assert_scalar(&c, ChannelKind::Roughness, right, RES / 2, 0.3);
+}
+
+#[test]
+fn fill_channel_strength_reaches_the_composite() {
+    let fx = Fixture::plane();
+    let mut ts = texture_set();
+    let mut l = fill_layer(&ts, &[(ChannelKind::Roughness, ChannelValue::scalar(0.5)), (ChannelKind::Height, ChannelValue::scalar(0.2))]);
+    if let LayerContent::Fill(f) = &mut l.content {
+        f.channels.get_mut(&ChannelKind::Roughness).unwrap().strength = 1.5;
+        f.channels.get_mut(&ChannelKind::Height).unwrap().strength = 3.0;
+    }
+    ts.insert_above(None, l);
+    let c = composite_full(&ts, &fx.ctx());
+    assert_scalar(&c, ChannelKind::Roughness, 10, 10, 0.75);
+    assert_scalar(&c, ChannelKind::Height, 10, 10, 0.6);
 }

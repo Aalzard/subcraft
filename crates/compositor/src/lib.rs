@@ -8,6 +8,7 @@
 
 pub mod blend;
 pub mod cache;
+pub mod strength;
 pub mod mask;
 pub mod tile;
 mod util;

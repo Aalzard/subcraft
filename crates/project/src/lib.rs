@@ -116,7 +116,7 @@ impl Writer {
                 channels: f
                     .channels
                     .iter()
-                    .map(|(&channel, c)| FillChannelV1 { channel, enabled: c.enabled, source: c.source.clone() })
+                    .map(|(&channel, c)| FillChannelV1 { channel, enabled: c.enabled, source: c.source.clone(), strength: c.strength })
                     .collect(),
             },
             LayerContent::Group(g) => ContentV1::Folder { expanded: g.expanded, children: g.children.iter().map(|c| self.layer(c)).collect() },
@@ -338,7 +338,7 @@ impl<R: Read + Seek> Loader<'_, R> {
             }
             ContentV1::Fill { projection, channels } => LayerContent::Fill(FillContent {
                 projection: *projection,
-                channels: channels.iter().map(|c| (c.channel, FillChannel { enabled: c.enabled, source: c.source.clone() })).collect(),
+                channels: channels.iter().map(|c| (c.channel, FillChannel { enabled: c.enabled, source: c.source.clone(), strength: c.strength })).collect(),
             }),
             ContentV1::Folder { expanded, children } => LayerContent::Group(GroupContent {
                 expanded: *expanded,

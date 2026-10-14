@@ -31,7 +31,7 @@ fn session_with_folder(dir: &std::path::Path, res: u32) -> (Session, subcraft_co
     s.execute(Command::AddLayer(NewLayer::Fill)).unwrap();
     let fill = s.selected_layer().unwrap().id;
     s.execute(Command::MoveLayer { layer: fill, parent: Some(folder), index: 0 }).unwrap();
-    let red = FillChannel { enabled: true, source: FillSource::uniform(ChannelValue::rgb(0.8, 0.05, 0.02)) };
+    let red = FillChannel::new(FillSource::uniform(ChannelValue::rgb(0.8, 0.05, 0.02)));
     s.execute(Command::SetFillChannel { layer: fill, channel: ChannelKind::BaseColor, fill: red }).unwrap();
     s.execute(Command::AddMask { layer: fill, white: false }).unwrap();
     s.execute(Command::AddMaskEffect { layer: fill, kind: MaskEffectKind::Image { resource: img, projection: Projection::default(), invert: false } })

@@ -56,6 +56,19 @@ pub fn empty_paint_image(kind: ChannelKind, resolution: u32) -> TiledImage {
 pub struct FillChannel {
     pub enabled: bool,
     pub source: FillSource,
+    /// Strength of the channel's result (1 = as is). Height: bump scale; Normal: tilt scale
+    /// (0 = flat); Base Color / Emissive: brightness; other channels: value multiplier.
+    pub strength: f32,
+}
+
+impl FillChannel {
+    pub fn new(source: FillSource) -> Self {
+        Self { enabled: true, source, strength: 1.0 }
+    }
+
+    pub fn disabled(source: FillSource) -> Self {
+        Self { enabled: false, source, strength: 1.0 }
+    }
 }
 
 /// Parametric content covering the whole surface.
@@ -128,7 +141,7 @@ impl Layer {
         let channels = ts
             .channels
             .iter()
-            .map(|c| (c.kind, FillChannel { enabled: true, source: FillSource::uniform(c.kind.default_paint_value()) }))
+            .map(|c| (c.kind, FillChannel::new(FillSource::uniform(c.kind.default_paint_value()))))
             .collect();
         Self {
             id: LayerId::new(),
