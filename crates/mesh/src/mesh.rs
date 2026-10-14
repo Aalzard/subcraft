@@ -77,9 +77,18 @@ pub struct Mesh {
     pub indices: Vec<u32>,
     /// Material slot per triangle (redundant with `submeshes`, kept for O(1) lookup).
     pub tri_material: Vec<u32>,
+    /// Object index per triangle; empty in legacy meshes. Objects carry UUID identity.
+    pub tri_object: Vec<Option<u32>>,
+    pub objects: Vec<MeshObject>,
     pub materials: Vec<MaterialSlot>,
     pub submeshes: Vec<Submesh>,
     pub bounds: Aabb,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MeshObject {
+    pub id: subcraft_core::ObjectId,
+    pub name: String,
 }
 
 impl Default for Aabb {
@@ -170,6 +179,14 @@ impl Mesh {
         if self.tri_material.len() != self.triangle_count() {
             problems.push("tri_material length mismatch".into());
         }
+        if !self.tri_object.is_empty() && (self.tri_object.len() != self.triangle_count()
+            || self.tri_object.iter().flatten().any(|&o| o as usize >= self.objects.len())) {
+            problems.push("object indices are invalid".into());
+        }
+        let mut object_ids = std::collections::HashSet::new();
+        if self.objects.iter().any(|o| !object_ids.insert(o.id)) {
+            problems.push("duplicate object UUID".into());
+        }
         if self.positions.iter().any(|p| !p.is_finite()) {
             problems.push("non-finite vertex position".into());
         }
@@ -205,6 +222,9 @@ pub struct MeshBuilder {
     material_lookup: HashMap<String, u32>,
     corners: Vec<Corner>,
     tri_material: Vec<u32>,
+    objects: Vec<MeshObject>,
+    tri_object: Vec<Option<u32>>,
+    current_object: Option<u32>,
     pub stats: BuildStats,
 }
 
@@ -212,6 +232,7 @@ impl MeshBuilder {
     /// Take accumulated corners (3 per triangle), leaving the builder empty.
     pub(crate) fn take_corners(&mut self) -> Vec<Corner> {
         self.tri_material.clear();
+        self.tri_object.clear();
         std::mem::take(&mut self.corners)
     }
 }
@@ -256,6 +277,14 @@ impl MeshBuilder {
         }
         self.corners.extend_from_slice(&c);
         self.tri_material.push(material);
+        self.tri_object.push(self.current_object);
+    }
+
+    /// Begin an object instance. Equal display names do not merge identity.
+    pub fn object(&mut self, name: &str) {
+        let name = if name.trim().is_empty() { "Object" } else { name };
+        self.current_object = Some(self.objects.len() as u32);
+        self.objects.push(MeshObject { id: subcraft_core::ObjectId::new(), name: name.into() });
     }
 
     pub fn triangle_count(&self) -> usize {
@@ -276,9 +305,11 @@ impl MeshBuilder {
         order.sort_by_key(|&t| self.tri_material[t]);
         let mut corners = Vec::with_capacity(self.corners.len());
         let mut tri_material = Vec::with_capacity(tri_count);
+        let mut tri_object = Vec::with_capacity(tri_count);
         for &t in &order {
             corners.extend_from_slice(&self.corners[3 * t..3 * t + 3]);
             tri_material.push(self.tri_material[t]);
+            tri_object.push(self.tri_object[t]);
         }
 
         // Normals: fill missing ones with angle-weighted smooth normals over welded positions.
@@ -302,7 +333,7 @@ impl MeshBuilder {
         let tangents = crate::tangent::compute_corner_tangents(&positions, &normals, &uvs);
 
         // Deduplicate identical corners into shared vertices.
-        let mut mesh = Mesh { name: self.name, materials: self.materials, ..Default::default() };
+        let mut mesh = Mesh { name: self.name, materials: self.materials, objects: self.objects, ..Default::default() };
         let mut lookup: HashMap<[u32; 12], u32> = HashMap::with_capacity(corners.len());
         mesh.indices.reserve(corners.len());
         for i in 0..corners.len() {
@@ -331,6 +362,7 @@ impl MeshBuilder {
             mesh.indices.push(idx);
         }
         mesh.tri_material = tri_material;
+        mesh.tri_object = tri_object;
         mesh.bounds = Aabb::from_points(mesh.positions.iter().copied());
 
         // Submesh ranges.

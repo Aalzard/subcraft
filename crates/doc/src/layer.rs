@@ -115,13 +115,18 @@ pub struct Layer {
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct PartMask {
     pub enabled: bool,
+    pub kind: subcraft_core::PartKind,
     /// Visible part ids. Ids are stable for a given mesh (the mesh is stored in the project).
     pub parts: std::collections::BTreeSet<u32>,
 }
 
 impl PartMask {
     pub fn new(parts: impl IntoIterator<Item = u32>) -> Self {
-        Self { enabled: true, parts: parts.into_iter().collect() }
+        Self::for_kind(subcraft_core::PartKind::Connected, parts)
+    }
+
+    pub fn for_kind(kind: subcraft_core::PartKind, parts: impl IntoIterator<Item = u32>) -> Self {
+        Self { enabled: true, kind, parts: parts.into_iter().collect() }
     }
 
     /// Visibility factor for texels of `part` (texels outside every triangle have no part).

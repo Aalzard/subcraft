@@ -25,6 +25,7 @@ pub enum Tab {
     Properties,
     Brush,
     TextureSets,
+    Parts,
     History,
     Shelf,
 }
@@ -38,6 +39,7 @@ impl Tab {
             Tab::Properties => "Properties",
             Tab::Brush => "Brush",
             Tab::TextureSets => "Texture Sets",
+            Tab::Parts => "Parts",
             Tab::History => "History",
             Tab::Shelf => "Shelf",
         }
@@ -51,6 +53,7 @@ impl Tab {
             Tab::Properties => icons::SLIDERS,
             Tab::Brush => icons::PAINT_BRUSH,
             Tab::TextureSets => icons::CUBE_WIRE,
+            Tab::Parts => icons::CUBE_WIRE,
             Tab::History => icons::HISTORY,
             Tab::Shelf => icons::SQUARES,
         }
@@ -81,13 +84,13 @@ pub fn default_layout() -> DockState<Tab> {
     let surface = dock.main_surface_mut();
     let [center, right] = surface.split_right(NodeIndex::root(), 0.74, vec![Tab::Layers]);
     surface.split_below(right, 0.4, vec![Tab::Properties, Tab::Brush]);
-    let [center, left] = surface.split_left(center, 0.2, vec![Tab::TextureSets]);
+    let [center, left] = surface.split_left(center, 0.2, vec![Tab::Parts, Tab::TextureSets]);
     surface.split_below(left, 0.42, vec![Tab::History]);
     surface.split_below(center, 0.74, vec![Tab::Shelf]);
     dock
 }
 
-const DOCK_KEY: &str = "subcraft_dock_v3";
+const DOCK_KEY: &str = "subcraft_dock_v4";
 
 pub struct SubcraftApp {
     state: UiState,
@@ -269,6 +272,7 @@ impl SubcraftApp {
                 (Tool::Brush, icons::PAINT_BRUSH, "Brush (B)"),
                 (Tool::Eraser, icons::ERASER, "Eraser (E)"),
                 (Tool::PolygonFill, icons::PAINT_BUCKET, "Polygon fill"),
+                (Tool::Eyedropper, icons::CURSOR, "Eyedropper (Shift+click picks material)"),
             ] {
                 if tool_button(ui, icon, *tool == t, tip).clicked() {
                     *tool = t;
@@ -437,6 +441,7 @@ impl SubcraftApp {
                 Tool::Brush => (icons::PAINT_BRUSH, "Brush"),
                 Tool::Eraser => (icons::ERASER, "Eraser"),
                 Tool::PolygonFill => (icons::PAINT_BUCKET, "Polygon fill"),
+                Tool::Eyedropper => (icons::CURSOR, "Eyedropper"),
             };
             let small = |t: String, c| RichText::new(t).font(theme::font(11.5)).color(c);
             ui.label(small(format!("{icon}  {tool}"), theme::ACCENT));
@@ -476,7 +481,7 @@ impl SubcraftApp {
                     ui.label(key(a.shortcuts.iter().map(|s| s.label()).collect::<Vec<_>>().join(" / ")));
                     ui.end_row();
                 }
-                for (what, how) in [("Orbit", "Alt+LMB or RMB drag"), ("Pan", "MMB drag"), ("Zoom", "Wheel or Alt+RMB drag"), ("Straight line", "Shift+click")] {
+                for (what, how) in [("Orbit", "Alt+LMB or RMB drag"), ("Pan", "MMB drag"), ("Zoom", "Wheel or Alt+RMB drag"), ("Straight line", "Shift+click"), ("Part actions", "RMB click"), ("Isolate / hide part", "I / H in the 3D view"), ("Restore all parts", "Esc in the 3D view"), ("Pick material", "Shift+click with eyedropper")] {
                     ui.label(RichText::new(what).color(theme::TEXT_DIM));
                     ui.label(key(how.to_string()));
                     ui.end_row();
@@ -572,6 +577,7 @@ impl egui_dock::TabViewer for Viewer<'_> {
             Tab::Properties => panels::properties::show(self.state, ui),
             Tab::Brush => panels::brush::show(self.state, ui),
             Tab::TextureSets => panels::texture_sets::show(self.state, ui),
+            Tab::Parts => panels::parts::show(self.state, ui),
             Tab::History => panels::history::show(self.state, ui),
             Tab::Shelf => panels::shelf::show(self.state, ui),
         }

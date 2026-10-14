@@ -122,6 +122,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     let ts = state.session.selected_texture_set();
     let mut save_request: Option<(subcraft_core::LayerId, bool)> = None;
     let mut drop_request: Option<(subcraft_core::LayerId, crate::panels::shelf::ShelfDrag)> = None;
+    let mut layer_action = None;
     let mut list = Vec::new();
     rows(&ts.layers, 0, &mut list);
     // Default min height (64 px) would let rows spill over the pinned blend controls when the
@@ -179,6 +180,24 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             }
             let has_effects = l.mask.as_ref().is_some_and(|m| !m.effects.is_empty());
             resp.context_menu(|ui| {
+                use subcraft_app::part_workflow::LayerAction;
+                for (label, action) in [("Add paint layer", LayerAction::AddPaint), ("Add fill layer", LayerAction::AddFill)] {
+                    if ui.button(label).clicked() { layer_action = Some((l.id, action)); ui.close(); }
+                }
+                ui.menu_button("Add mask", |ui| {
+                    for (label, action) in [("White mask", LayerAction::WhiteMask), ("Black mask", LayerAction::BlackMask)] {
+                        if ui.button(label).clicked() { layer_action = Some((l.id, action)); ui.close(); }
+                    }
+                });
+                ui.menu_button("Add generator", |ui| {
+                    for (label, kind) in [("Edge wear", subcraft_doc::GeneratorKind::Edges), ("Dirt", subcraft_doc::GeneratorKind::Cavity), ("Directional", subcraft_doc::GeneratorKind::Directional), ("Position gradient", subcraft_doc::GeneratorKind::PositionGradient)] {
+                        if ui.button(label).clicked() { layer_action = Some((l.id, LayerAction::Generator(kind))); ui.close(); }
+                    }
+                });
+                for (label, action) in [("Add fill mask effect", LayerAction::MaskFill), ("Add paint mask effect", LayerAction::MaskPaint)] {
+                    if ui.button(label).clicked() { layer_action = Some((l.id, action)); ui.close(); }
+                }
+                ui.separator();
                 if ui.button(format!("{}  Save as smart material", icons::SAVE)).clicked() {
                     save_request = Some((l.id, false));
                     ui.close();
@@ -200,6 +219,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         }
     });
     state.run(cmds, now);
+    if let Some((layer, action)) = layer_action {
+        if let Err(e) = state.session.layer_action(layer, action) { state.set_status(format!("Layer: {e}"), now); }
+    }
     if let Some((layer, item)) = drop_request {
         state.run(vec![Command::SelectLayer(Some(layer))], now);
         crate::panels::shelf::apply_shelf_item(state, item, now);

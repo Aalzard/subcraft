@@ -141,13 +141,17 @@ pub fn sample_crate() -> Mesh {
     let body = b.material("Body");
     let trim = b.material("Trim");
     // Body: the main box. Trim: corner posts and bands, each with its own atlas islands.
+    b.object("Body");
     add_atlas_box(&mut b, body, Vec3::ZERO, Vec3::new(1.6, 1.0, 1.0), 6, 0.02);
     let post = Vec3::new(0.14, 1.08, 0.14);
-    for (x, z) in [(-0.8, -0.5), (0.8, -0.5), (0.8, 0.5), (-0.8, 0.5)] {
+    for (i, (x, z)) in [(-0.8, -0.5), (0.8, -0.5), (0.8, 0.5), (-0.8, 0.5)].into_iter().enumerate() {
+        b.object(&format!("Corner post {}", i + 1));
         add_atlas_box_into_region(&mut b, trim, Vec3::new(x, 0.0, z), post, 2, region_of(x, z));
     }
     let band = Vec3::new(1.72, 0.12, 1.12);
+    b.object("Upper band");
     add_atlas_box_into_region(&mut b, trim, Vec3::new(0.0, 0.32, 0.0), band, 4, [0.0, 0.5, 0.5, 0.75]);
+    b.object("Lower band");
     add_atlas_box_into_region(&mut b, trim, Vec3::new(0.0, -0.32, 0.0), band, 4, [0.5, 0.5, 1.0, 0.75]);
     b.build().expect("crate is valid")
 }

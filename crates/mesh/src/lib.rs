@@ -11,4 +11,4 @@ pub mod uv_raster;
 
 pub use bvh::{Bvh, RayHit};
 pub use import::{ImportError, ImportReport, SUPPORTED_EXTENSIONS, import_mesh};
-pub use mesh::{Aabb, BuildError, Corner, MaterialSlot, Mesh, MeshBuilder, Submesh, SurfacePoint};
+pub use mesh::{Aabb, BuildError, Corner, MaterialSlot, Mesh, MeshBuilder, MeshObject, Submesh, SurfacePoint};

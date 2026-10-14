@@ -13,7 +13,7 @@ use subcraft_core::LayerId;
 use subcraft_doc::TextureSet;
 use subcraft_image::TILE_TEXELS;
 use subcraft_materials::TextureSetGeometry;
-use subcraft_mesh::{Bvh, Mesh, topology};
+use subcraft_mesh::{Bvh, Mesh};
 
 use crate::camera::Camera;
 use crate::depth::{DepthCache, DepthMap};
@@ -46,6 +46,7 @@ pub struct Stroke {
     last_depth: Option<f32>,
     alpha: Option<Arc<subcraft_image::Bitmap>>,
     stencil: Option<Arc<crate::stencil::Stencil>>,
+    parts: Option<subcraft_doc::PartMask>,
 }
 
 impl Stroke {
@@ -72,6 +73,7 @@ impl Stroke {
             last_depth: None,
             alpha: None,
             stencil: None,
+            parts: ts.find(layer).and_then(|l| l.parts.clone()),
         })
     }
 
@@ -212,6 +214,7 @@ impl Stroke {
             .map(|(t, w, mut cov)| {
                 let samples = input.rasterize_tile(t, w.tris.iter().copied());
                 input.accumulate(&samples, stamps, &w.stamps, &mut cov);
+                self.restrict_coverage(ctx.geometry, t, &mut cov);
                 (t, cov)
             })
             .collect();
@@ -251,8 +254,8 @@ impl Stroke {
         }
         let group = match mode {
             PolygonFillMode::Triangle => None,
-            PolygonFillMode::MeshElement => Some(topology::mesh_elements(mesh)),
-            PolygonFillMode::UvIsland => Some(topology::uv_islands(mesh)),
+            PolygonFillMode::MeshElement => Some(ctx.geometry.triangle_parts()),
+            PolygonFillMode::UvIsland => Some(ctx.geometry.triangle_islands()),
         };
         let tris: Vec<u32> = match &group {
             None => vec![hit.tri],
@@ -288,11 +291,21 @@ impl Stroke {
                 for s in input.rasterize_tile(t, tr) {
                     cov[s.idx as usize] = 1.0;
                 }
+                self.restrict_coverage(ctx.geometry, t, &mut cov);
                 (t, cov)
             })
             .collect();
         let tiles: Vec<usize> = done.iter().map(|(t, _)| *t).collect();
         self.coverage.extend(done);
         self.write(ts, &tiles)
+    }
+
+    fn restrict_coverage(&self, geometry: &TextureSetGeometry, tile: usize, cov: &mut [f32]) {
+        if let Some(parts) = self.parts.as_ref().filter(|p| p.enabled) {
+            let geo = geometry.tile(tile);
+            for (i, c) in cov.iter_mut().enumerate() {
+                *c *= parts.factor(geo.region(i, parts.kind));
+            }
+        }
     }
 }

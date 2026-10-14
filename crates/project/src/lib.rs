@@ -121,7 +121,7 @@ impl Writer {
             },
             LayerContent::Group(g) => ContentV1::Folder { expanded: g.expanded, children: g.children.iter().map(|c| self.layer(c)).collect() },
         };
-        let parts = l.parts.as_ref().map(|p| PartsV1 { enabled: p.enabled, parts: p.parts.iter().copied().collect() });
+        let parts = l.parts.as_ref().map(|p| PartsV1 { enabled: p.enabled, kind: p.kind, parts: p.parts.iter().copied().collect() });
         LayerV1 { id: l.id.0, name: l.name.clone(), visible: l.visible, blend, mask, parts, content }
     }
 }
@@ -362,7 +362,7 @@ impl<R: Read + Seek> Loader<'_, R> {
             visible: l.visible,
             blend: l.blend.iter().map(|b| (b.channel, ChannelBlend { mode: b.mode, opacity: b.opacity })).collect(),
             mask,
-            parts: l.parts.as_ref().map(|p| PartMask { enabled: p.enabled, parts: p.parts.iter().copied().collect() }),
+            parts: l.parts.as_ref().map(|p| PartMask { enabled: p.enabled, kind: p.kind, parts: p.parts.iter().copied().collect() }),
             content,
         })
     }

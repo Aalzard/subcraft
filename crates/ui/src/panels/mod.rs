@@ -1,6 +1,7 @@
 pub mod brush;
 pub mod history;
 pub mod layers;
+pub mod parts;
 pub mod properties;
 pub mod shelf;
 pub mod shelf_filter;

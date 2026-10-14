@@ -11,6 +11,15 @@ use subcraft_mesh::primitives;
 
 use super::*;
 
+#[test]
+fn old_part_masks_default_to_connected_and_new_domains_have_stable_names() {
+    let parts: PartsV1 = serde_json::from_str(r#"{"enabled":true,"parts":[0,2]}"#).unwrap();
+    assert_eq!(parts.kind, subcraft_core::PartKind::Connected);
+    for (kind, name) in subcraft_core::PartKind::ALL.into_iter().zip(["connected", "uv_island", "object", "material"]) {
+        assert_eq!(serde_json::to_string(&kind).unwrap(), format!("\"{name}\""));
+    }
+}
+
 fn rich_document() -> Document {
     let mut ts = TextureSet::new("Body", 0, 128);
     let tc = ts.clone();

@@ -68,6 +68,10 @@ define_id!(
     /// An effect inside a mask or content effect stack.
     EffectId
 );
+define_id!(
+    /// An imported mesh object (instances with the same name remain distinct).
+    ObjectId
+);
 
 #[cfg(test)]
 mod tests {

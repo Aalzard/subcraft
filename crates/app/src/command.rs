@@ -25,6 +25,10 @@ pub enum Command {
     AddLayer(NewLayer),
     /// Insert a ready-made layer (material preset, smart material) like [`Command::AddLayer`].
     InsertLayer { layer: Box<Layer>, label: String },
+    /// One part can span texture sets; insert all its layers atomically.
+    InsertPartLayers { layers: Vec<(TextureSetId, Box<Layer>)>, label: String },
+    /// Atomic combined edit, retaining the node's UUID.
+    ReplaceLayer { layer: LayerId, replacement: Box<Layer>, label: String },
     /// Give the layer a black mask (if it has none) and append these effects (smart mask).
     ApplyMaskEffects { layer: LayerId, effects: Vec<MaskEffectKind>, label: String },
     DeleteLayer(LayerId),

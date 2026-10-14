@@ -82,6 +82,7 @@ fn load_obj(path: &Path, b: &mut MeshBuilder, warnings: &mut Vec<String>) -> Res
         }
     };
     for model in &models {
+        b.object(&model.name);
         let m = &model.mesh;
         let mat_name = match m.material_id {
             Some(id) if id < materials.len() => materials[id].name.clone(),
@@ -122,6 +123,7 @@ fn load_gltf(path: &Path, b: &mut MeshBuilder, warnings: &mut Vec<String>) -> Re
     while let Some((node, parent)) = stack.pop() {
         let world = parent * Mat4::from_cols_array_2d(&node.transform().matrix());
         if let Some(mesh) = node.mesh() {
+            b.object(node.name().or_else(|| mesh.name()).unwrap_or("Object"));
             let normal_m = Mat3::from_mat4(world).inverse().transpose();
             let flip = world.determinant() < 0.0;
             for prim in mesh.primitives() {
@@ -215,6 +217,7 @@ fn load_fbx(path: &Path, b: &mut MeshBuilder, warnings: &mut Vec<String>) -> Res
     let mut tri_indices: Vec<u32> = Vec::new();
     for node in scene.nodes.iter() {
         let Some(mesh) = node.mesh.as_ref() else { continue };
+        b.object(&node.element.name);
         let m = &node.geometry_to_world;
         let nm = ufbx::matrix_for_normals(m);
         let to_v3 = |v: ufbx::Vec3| Vec3::new(v.x as f32, v.y as f32, v.z as f32);
@@ -277,7 +280,13 @@ pub fn write_obj(mesh: &Mesh, path: &Path) -> std::io::Result<()> {
     }
     for s in &mesh.submeshes {
         writeln!(f, "usemtl {}", mesh.materials[s.material as usize].name)?;
+        let mut last_object = None;
         for t in s.first_triangle..s.first_triangle + s.triangle_count {
+            let object = mesh.tri_object.get(t as usize).copied().flatten();
+            if t == s.first_triangle || object != last_object {
+                writeln!(f, "o {}", object.map_or(mesh.name.as_str(), |o| mesh.objects[o as usize].name.as_str()))?;
+                last_object = object;
+            }
             let [a, b, c] = mesh.tri(t as usize).map(|i| i + 1);
             writeln!(f, "f {a}/{a}/{a} {b}/{b}/{b} {c}/{c}/{c}")?;
         }
@@ -369,5 +378,20 @@ mod tests {
             s.push(if c.len() > 2 { T[n as usize & 63] as char } else { '=' });
         }
         s
+    }
+
+    #[test]
+    fn obj_keeps_object_names_when_material_sort_changes_triangle_order() {
+        let dir = tmp("object-names");
+        let path = dir.join("parts.obj");
+        std::fs::write(&path, "mtllib parts.mtl\nv 0 0 0\nv 1 0 0\nv 0 1 0\nv 2 0 0\nv 3 0 0\nv 2 1 0\nvt 0 0\nvt 1 0\nvt 0 1\no Blade\nusemtl Steel\nf 1/1 2/2 3/3\no Handle\nusemtl Wood\nf 4/1 5/2 6/3\n").unwrap();
+        std::fs::write(dir.join("parts.mtl"), "newmtl Steel\nKd 1 1 1\nnewmtl Wood\nKd 1 1 1\n").unwrap();
+        let mesh = import_mesh(&path).unwrap().mesh;
+        assert_eq!(mesh.objects.iter().map(|o| o.name.as_str()).collect::<Vec<_>>(), ["Blade", "Handle"]);
+        for t in 0..mesh.triangle_count() {
+            assert_eq!(mesh.objects[mesh.tri_object[t].unwrap() as usize].name, if mesh.tri_positions(t)[0].x < 1.0 { "Blade" } else { "Handle" });
+        }
+        assert_ne!(mesh.objects[0].id, mesh.objects[1].id);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

@@ -63,6 +63,7 @@ pub struct BrushState {
 /// A surface point under the cursor.
 #[derive(Clone, Copy, Debug)]
 pub struct Pick {
+    pub uv: Vec2,
     pub position: Vec3,
     pub normal: Vec3,
     pub triangle: u32,
@@ -86,6 +87,7 @@ struct ActiveStroke {
 }
 
 pub struct Session {
+    pub(crate) part_view: crate::part_workflow::PartView,
     scene: Scene,
     resources: ResourceStore,
     mesh_maps: HashMap<TextureSetId, MeshMaps>,
@@ -147,6 +149,7 @@ impl Session {
         let layer_counter = doc.texture_sets.iter().map(|t| t.layer_count() as u32).max().unwrap_or(1);
         Self {
             scene: Scene::new(mesh),
+            part_view: Default::default(),
             resources,
             mesh_maps: HashMap::new(),
             no_maps: MeshMaps::new(),
@@ -334,9 +337,10 @@ impl Session {
     /// Surface point under a screen position.
     pub fn pick(&self, camera: &Camera, screen: Vec2) -> Option<Pick> {
         let (o, d) = camera.ray(screen);
-        let hit = self.scene.bvh.intersect(o, d, 0.0, f32::INFINITY)?;
+        let hit = self.viewport_scene().bvh.intersect(o, d, 0.0, f32::INFINITY)?;
         let sp = self.scene.mesh.interpolate(hit.tri as usize, hit.u, hit.v);
         Some(Pick {
+            uv: sp.uv,
             position: sp.position,
             normal: sp.normal,
             triangle: hit.tri,
@@ -399,6 +403,21 @@ impl Session {
             return Err(CommandError::StrokeInProgress);
         }
         match cmd {
+            Command::InsertPartLayers { layers, label } => {
+                if layers.iter().any(|(id, _)| self.doc.texture_set(*id).is_none()) { return Err(CommandError::TextureSetNotFound); }
+                let mut doc = self.doc.clone();
+                for (id, layer) in layers {
+                    let ts = doc.texture_set_mut(id).expect("validated");
+                    let reference = if id == self.selection.texture_set { self.selection.layer } else { None };
+                    let inserted = ts.insert_above(reference, *layer);
+                    if id == self.selection.texture_set { self.selection.layer = Some(inserted); }
+                }
+                self.doc = doc; self.commit(&label, None);
+            }
+            Command::ReplaceLayer { layer, replacement, label } => {
+                if layer != replacement.id { return Err(CommandError::Invalid("replacement must keep layer UUID".into())); }
+                self.edit_layer_set(layer, &label, None, |ts| { *Self::layer_mut(ts, layer)? = *replacement; Ok(()) })?;
+            }
             Command::Undo => {
                 if self.history.undo().is_some() {
                     self.sync_after_history_move();
@@ -695,7 +714,8 @@ impl Session {
             return Err(PaintError::LayerNotFound);
         };
         let geo = self.scene.geometry.get(ts.material_slot, ts.resolution);
-        let ctx = PaintContext { mesh: &self.scene.mesh, bvh: &self.scene.bvh, geometry: &geo, camera, depth: &self.scene.depth };
+        let view = self.viewport_scene();
+        let ctx = PaintContext { mesh: &view.mesh, bvh: &view.bvh, geometry: &geo, camera, depth: &view.depth };
         let result = f(&mut active.stroke, &mut ts, &ctx);
         if let Some(slot) = self.doc.texture_set_mut(ts_id) {
             *slot = ts;
