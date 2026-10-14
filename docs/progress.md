@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-10-14 (session 19: shelf drag and drop)
+Last updated: 2026-10-14 (session 20: layers panel fix)
 
 ## Decisions
 
@@ -361,6 +361,18 @@ In the cloud container (no GPU) the app ran on lavapipe/llvmpipe (Vulkan) under 
 * Verified in the real app with real mouse drags: Plastic Glossy Red dropped on a post →
   applied to the Trim set (`docs/screenshots/shelf-drag.png`, `shelf-drop-trim.png`); Edge Wear
   dropped on the Layer 1 row → masked that layer, one history entry (`shelf-drop-layer.png`).
+
+### Session 20 — Layers panel overlap fix
+
+* Bug (found in session 13): when the Layers panel is short (e.g. a 1280×720 window), layer rows
+  were drawn over the Blend / Opacity controls. Cause: egui's `ScrollArea` has a 64 px minimum
+  height, so the list grew past the space left above the pinned blend controls.
+* Fix: the list is limited to the remaining height (`min_scrolled_height(0)`, `max_height`) and
+  scrolls; below 200 px of panel height, Blend and Opacity collapse into one compact row (blend
+  dropdown + opacity %), so more rows stay visible. Normal sizes are unchanged.
+* Verified in the real app at 1280×720 and maximized
+  (`docs/screenshots/layers-overlap-before.png`, `layers-overlap-after.png`). Layout only, no new
+  unit test (covered by the screenshots).
 
 CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraft-mesh -p subcraft-doc -p subcraft-materials -p subcraft-compositor -p subcraft-paint`
 

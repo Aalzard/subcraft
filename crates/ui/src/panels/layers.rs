@@ -78,7 +78,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     });
     divider(ui);
 
-    // Blend controls of the selected layer, pinned to the bottom.
+    // Blend controls of the selected layer, pinned to the bottom (one compact row when the panel
+    // is short, so at least two layer rows stay visible).
+    let compact = ui.available_height() < 200.0;
     let active = state.active_channel;
     if let Some(l) = state.session.selected_layer() {
         let id = l.id;
@@ -89,17 +91,30 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             .show_separator_line(false)
             .frame(egui::Frame::new().fill(theme::BG_2).inner_margin(egui::Margin::symmetric(PAD, 10)))
             .show(ui, |ui| {
-                prop_row(ui, "Blend", |ui| {
-                    egui::ComboBox::from_id_salt("blend_mode").selected_text(b.mode.label()).show_ui(ui, |ui| {
+                let blend_combo = |ui: &mut Ui, cmds: &mut Vec<Command>, width: f32| {
+                    egui::ComboBox::from_id_salt("blend_mode").width(width).selected_text(b.mode.label()).show_ui(ui, |ui| {
                         for m in BlendMode::available(active == ChannelKind::Normal, folder) {
                             if ui.selectable_label(b.mode == m, m.label()).clicked() {
                                 cmds.push(Command::SetBlendMode { layer: id, channel: active, mode: m });
                             }
                         }
                     });
-                });
-                if slider_row(ui, "Opacity", egui::Slider::new(&mut b.opacity, 0.0..=1.0).max_decimals(2)).changed() {
-                    cmds.push(Command::SetBlendOpacity { layer: id, channel: active, opacity: b.opacity });
+                };
+                if compact {
+                    // Short panel: one row so the layer list keeps room.
+                    ui.horizontal(|ui| {
+                        blend_combo(ui, &mut cmds, (ui.available_width() - 70.0).max(60.0));
+                        let mut pct = b.opacity * 100.0;
+                        let r = ui.add(egui::DragValue::new(&mut pct).range(0.0..=100.0).speed(0.5).suffix(" %").max_decimals(0)).on_hover_text("Opacity");
+                        if r.changed() {
+                            cmds.push(Command::SetBlendOpacity { layer: id, channel: active, opacity: pct / 100.0 });
+                        }
+                    });
+                } else {
+                    prop_row(ui, "Blend", |ui| blend_combo(ui, &mut cmds, ui.available_width()));
+                    if slider_row(ui, "Opacity", egui::Slider::new(&mut b.opacity, 0.0..=1.0).max_decimals(2)).changed() {
+                        cmds.push(Command::SetBlendOpacity { layer: id, channel: active, opacity: b.opacity });
+                    }
                 }
             });
     }
@@ -109,7 +124,15 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     let mut drop_request: Option<(subcraft_core::LayerId, crate::panels::shelf::ShelfDrag)> = None;
     let mut list = Vec::new();
     rows(&ts.layers, 0, &mut list);
-    egui::ScrollArea::vertical().id_salt("layer_rows").auto_shrink([false, false]).show(ui, |ui| {
+    // Default min height (64 px) would let rows spill over the pinned blend controls when the
+    // panel is short; the list must only use the space that is left (it scrolls).
+    let rows_height = ui.available_height().max(0.0);
+    egui::ScrollArea::vertical()
+        .id_salt("layer_rows")
+        .auto_shrink([false, false])
+        .min_scrolled_height(0.0)
+        .max_height(rows_height)
+        .show(ui, |ui| {
         ui.spacing_mut().item_spacing.y = 1.0;
         fill_width(ui);
         if list.is_empty() {
