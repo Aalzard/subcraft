@@ -1,3 +1,4 @@
+<img width="1254" height="1254" alt="Engraved Hand on Orange " src="https://github.com/user-attachments/assets/520d56f6-acd7-4ca3-9819-cffb4395b82e" />
 # SubCraft
 
 [![Download for Windows](https://img.shields.io/badge/Download-Windows%20installer-ff7a1a?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/Aalzard/subcraft/releases/latest)
