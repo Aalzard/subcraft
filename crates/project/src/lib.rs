@@ -172,7 +172,9 @@ pub fn write_project<W: Write + Seek>(
             log::warn!("resource {} has no original file bytes; not saved", r.name);
             continue;
         };
-        let ext = r.source_path.as_ref().and_then(|p| p.extension()).and_then(|e| e.to_str()).unwrap_or("bin").to_ascii_lowercase();
+        // By content, so re-saving a loaded project keeps the extension (TGA falls back to the name).
+        let hint = r.source_path.as_deref().and_then(|p| p.to_str()).unwrap_or(&r.name);
+        let ext = subcraft_image::guess_extension(bytes, Some(hint));
         let file = format!("resources/{}.{ext}", id.0);
         res_entries.push(ResourceV1 { id: id.0, name: r.name.clone(), kind: r.kind, file: file.clone() });
         res_files.push((file, bytes.clone()));
@@ -377,7 +379,7 @@ pub fn read_project<R: Read + Seek>(r: R) -> Result<ProjectData, ProjectError> {
     let mut resources = ResourceStore::default();
     for r in &doc.resources {
         let bytes = loader.bytes(&r.file)?;
-        let bitmap = subcraft_image::io::decode_bitmap(&bytes).map_err(|e| ProjectError::Invalid(format!("resource {}: {e}", r.name)))?;
+        let bitmap = subcraft_image::io::decode_bitmap(&bytes, Some(&r.file)).map_err(|e| ProjectError::Invalid(format!("resource {}: {e}", r.name)))?;
         resources.insert(Resource {
             id: ResourceId(r.id),
             name: r.name.clone(),
