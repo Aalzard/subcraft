@@ -406,3 +406,46 @@ fn brush_alpha_shapes_the_footprint() {
 fn alpha_at(img: &TiledImage, i: u32) -> f32 {
     img.get(i % 256, i / 256)[img.comps() - 1]
 }
+
+#[test]
+fn stencil_masks_paint_in_screen_space() {
+    use subcraft_image::Bitmap;
+    use subcraft_paint::Stencil;
+
+    let res = 256;
+    let mut sc = Scene::new(primitives::cube(2.0), res);
+    let cam = front_camera(5.0);
+    // 2:1 image covering the 512² view: left half of the screen white, right half black. Wide
+    // enough that bilinear filtering blurs the edge by only ~4 px.
+    let row: Vec<u8> = (0..256).map(|x| if x < 128 { 255 } else { 0 }).collect();
+    let img = Bitmap::new_u8(256, 128, 1, row.repeat(128));
+    let stencil = Arc::new(Stencil { scale: 1.0, ..Stencil::new(Arc::new(img)) });
+    let settings = BrushSettings { size: 20.0, hardness: 0.8, ..BrushSettings::default() };
+    let mut s = Stroke::begin(&sc.ts, sc.layer, PaintTarget::Content, StrokeMode::Paint, settings, StrokeOptions::default(), &red())
+        .unwrap()
+        .with_stencil(Some(stencil));
+    let mut ts = sc.ts.clone();
+    let (a, b) = (cam.project(Vec3::new(-0.8, 0.0, 1.0)).unwrap().truncate(), cam.project(Vec3::new(0.8, 0.0, 1.0)).unwrap().truncate());
+    for k in 0..=40 {
+        s.add_point(&mut ts, &sc.ctx(&cam), a.lerp(b, k as f32 / 40.0)).unwrap();
+    }
+    sc.ts = ts;
+    let img = sc.image(ChannelKind::BaseColor).unwrap();
+    let surf = sc.surface();
+    let (mut left, mut right) = (0, 0);
+    for i in 0..(res * res) as usize {
+        if !surf.covered(i) || alpha(&img, i, res) < 0.01 {
+            continue;
+        }
+        let p = surf.position[i];
+        let x = cam.project(Vec3::new(p[0], p[1], p[2])).unwrap().x;
+        if x < 250.0 {
+            left += 1;
+        } else if x > 262.0 {
+            right += 1;
+        }
+    }
+    assert!(left > 200, "paint goes through the white half ({left} texels)");
+    assert_eq!(right, 0, "the black half blocks paint");
+}
+

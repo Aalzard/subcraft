@@ -13,6 +13,7 @@ pub mod kernel;
 pub mod path;
 pub mod settings;
 pub mod stamp;
+pub mod stencil;
 pub mod stroke;
 pub mod target;
 
@@ -20,5 +21,6 @@ pub use camera::Camera;
 pub use depth::{DepthCache, DepthMap};
 pub use settings::{Alignment, BrushChannel, BrushMaterial, BrushSettings, PaintTarget, PolygonFillMode, StrokeMode, StrokeOptions, falloff};
 pub use stamp::Stamp;
+pub use stencil::Stencil;
 pub use stroke::{PaintContext, Stroke};
 pub use target::PaintError;

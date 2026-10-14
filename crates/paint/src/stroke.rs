@@ -45,6 +45,7 @@ pub struct Stroke {
     stamp_count: u32,
     last_depth: Option<f32>,
     alpha: Option<Arc<subcraft_image::Bitmap>>,
+    stencil: Option<Arc<crate::stencil::Stencil>>,
 }
 
 impl Stroke {
@@ -70,12 +71,19 @@ impl Stroke {
             stamp_count: 0,
             last_depth: None,
             alpha: None,
+            stencil: None,
         })
     }
 
     /// Use a brush alpha (tip image: white paints) instead of the round procedural tip.
     pub fn with_alpha(mut self, alpha: Option<Arc<subcraft_image::Bitmap>>) -> Self {
         self.alpha = alpha;
+        self
+    }
+
+    /// Mask the stroke with a screen-space stencil (white paints, black blocks).
+    pub fn with_stencil(mut self, stencil: Option<Arc<crate::stencil::Stencil>>) -> Self {
+        self.stencil = stencil;
         self
     }
 
@@ -189,6 +197,7 @@ impl Stroke {
             depth: &depth,
             backface_cos,
             alpha: self.alpha.as_deref(),
+            stencil: self.stencil.as_deref(),
         };
         let bins = input.bin(stamps);
         let work: Vec<(usize, TileWork, Box<[f32]>)> = bins
@@ -261,6 +270,7 @@ impl Stroke {
             depth: &[],
             backface_cos: None,
             alpha: None,
+            stencil: None,
         };
         let mut bins: std::collections::BTreeMap<usize, Vec<u32>> = std::collections::BTreeMap::new();
         for &t in &tris {

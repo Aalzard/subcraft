@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-10-14 (session 20: layers panel fix)
+Last updated: 2026-10-14 (session 21: stencils)
 
 ## Decisions
 
@@ -373,6 +373,21 @@ In the cloud container (no GPU) the app ran on lavapipe/llvmpipe (Vulkan) under 
 * Verified in the real app at 1280×720 and maximized
   (`docs/screenshots/layers-overlap-before.png`, `layers-overlap-after.png`). Layout only, no new
   unit test (covered by the screenshots).
+
+### Session 21 — stencils (roadmap 3, part 1)
+
+* Brush panel → **Stencil**: Choose image… / Remove, Scale, Rotation, Tile. The image lies over
+  the 3D view (semi-transparent); white lets paint through, black blocks it (brightness × alpha,
+  sampled in the main view's screen space, also for symmetry strokes). In the 3D view hold
+  **S** + drag: left = rotate, middle = move, right = scale; hold **N** to paint without it.
+* `crates/paint/src/stencil.rs` (`Stencil`), kernel factor per texel, `Stroke::with_stencil`,
+  `BrushState::{stencil, stencil_bypass}`. Not saved in projects (tool setting, like Painter).
+* Tests (5 new): stencil transform / sampling / corners, paint acceptance (white half paints,
+  black half blocks: 0 texels), session (black blocks, N bypass paints).
+* Verified in the real app: star logo stencil, two strokes → paint has the star's sharp edges
+  (`docs/screenshots/stencil.png`). **Not yet verified by hand:** the hold-S drag controls (the
+  automated attempt was invalidated by remembered panel state); the sliders cover the same
+  transform and work.
 
 CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraft-mesh -p subcraft-doc -p subcraft-materials -p subcraft-compositor -p subcraft-paint`
 

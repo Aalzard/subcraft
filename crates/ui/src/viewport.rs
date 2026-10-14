@@ -32,17 +32,45 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         (i.modifiers, i.smooth_scroll_delta.y, i.pointer.delta(), i.pointer.primary_pressed(), i.pointer.primary_down(), i.pointer.latest_pos())
     });
 
+    // ----- stencil: hold S + drag (LMB rotate, MMB move, RMB scale); hold N to bypass ------------
+    let (s_down, n_down) = ui.input(|i| (i.key_down(egui::Key::S) && !i.modifiers.any(), i.key_down(egui::Key::N) && !i.modifiers.any()));
+    let typing = ui.ctx().egui_wants_keyboard_input();
+    state.session.brush.stencil_bypass = n_down && !typing;
+    let stencil_edit = s_down && !typing && state.session.brush.stencil.is_some();
+    if stencil_edit && response.hovered() {
+        let mut st = (**state.session.brush.stencil.as_ref().expect("checked above")).clone();
+        let mut changed = false;
+        if response.dragged_by(PointerButton::Primary) {
+            st.rotation += delta.x * 0.01;
+            changed = true;
+        }
+        if response.dragged_by(PointerButton::Middle) {
+            st.center += Vec2::new(delta.x / rect.width(), delta.y / rect.height());
+            changed = true;
+        }
+        if response.dragged_by(PointerButton::Secondary) {
+            st.scale = (st.scale * (-delta.y * 0.01).exp()).clamp(0.02, 8.0);
+            changed = true;
+        }
+        if changed {
+            state.session.brush.stencil = Some(std::sync::Arc::new(st));
+        }
+        ui.ctx().set_cursor_icon(egui::CursorIcon::AllScroll);
+    }
+
     // ----- navigation (Painter-style: Alt+LMB orbit, Alt+MMB / MMB pan, Alt+RMB zoom; RMB orbit) --
     if response.hovered() && scroll != 0.0 {
         state.camera.zoom((-scroll * 0.0015).exp());
     }
     let alt = mods.alt;
-    if response.dragged_by(PointerButton::Secondary) && alt {
+    if stencil_edit {
+        // Drags belong to the stencil.
+    } else if response.dragged_by(PointerButton::Secondary) && alt {
         state.camera.zoom((delta.y * 0.01).exp());
     } else if response.dragged_by(PointerButton::Secondary) || (response.dragged_by(PointerButton::Primary) && alt) {
         state.camera.orbit(delta.x, delta.y);
     }
-    if response.dragged_by(PointerButton::Middle) {
+    if response.dragged_by(PointerButton::Middle) && !stencil_edit {
         state.camera.pan(delta.x * ppp, delta.y * ppp, size[1] as f32);
     }
 
@@ -62,7 +90,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
 
     // ----- painting ----------------------------------------------------------------------------
     let paint_tool = matches!(state.tool, Tool::Brush | Tool::Eraser);
-    if primary_pressed && response.hovered() && !alt {
+    if primary_pressed && response.hovered() && !alt && !stencil_edit {
         if let Some(p) = pointer {
             let sp = to_screen(p);
             match state.tool {
@@ -159,6 +187,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         }
         ui.ctx().set_cursor_icon(if alt { egui::CursorIcon::Move } else { egui::CursorIcon::Crosshair });
     }
+    draw_stencil(state, ui, &painter, rect, size);
     if drop_hover {
         painter.rect_stroke(rect.shrink(1.0), 0.0, Stroke::new(2.0, ACCENT), egui::StrokeKind::Inside);
     }
@@ -176,4 +205,35 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     if state.painting || response.dragged() {
         ui.ctx().request_repaint();
     }
+}
+
+/// Semi-transparent stencil image over the 3D view (hidden while N bypasses it).
+fn draw_stencil(state: &mut UiState, ui: &Ui, painter: &egui::Painter, rect: Rect, size: [u32; 2]) {
+    let Some(st) = state.session.brush.stencil.clone() else {
+        state.stencil_tex = None;
+        return;
+    };
+    if state.session.brush.stencil_bypass {
+        return;
+    }
+    let key = std::sync::Arc::as_ptr(&st.bitmap) as usize;
+    if state.stencil_tex.as_ref().is_none_or(|(k, _)| *k != key) {
+        let (w, h, rgba) = st.bitmap.preview_rgba8(512);
+        let img = egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &rgba);
+        let tex = ui.ctx().load_texture("stencil", img, egui::TextureOptions::LINEAR);
+        state.stencil_tex = Some((key, tex));
+    }
+    let Some((_, tex)) = &state.stencil_tex else { return };
+    let ppp = ui.ctx().pixels_per_point();
+    let to_ui = |v: glam::Vec2| egui::pos2(rect.min.x + v.x / ppp, rect.min.y + v.y / ppp);
+    let c = st.corners(size);
+    let tint = Color32::from_white_alpha(110);
+    let mut mesh = egui::Mesh::with_texture(tex.id());
+    for (p, uv) in c.iter().zip([egui::pos2(0.0, 0.0), egui::pos2(1.0, 0.0), egui::pos2(1.0, 1.0), egui::pos2(0.0, 1.0)]) {
+        mesh.vertices.push(egui::epaint::Vertex { pos: to_ui(*p), uv, color: tint });
+    }
+    mesh.indices.extend_from_slice(&[0, 1, 2, 0, 2, 3]);
+    painter.with_clip_rect(rect).add(egui::Shape::mesh(mesh));
+    let outline: Vec<egui::Pos2> = c.iter().map(|p| to_ui(*p)).collect();
+    painter.with_clip_rect(rect).add(egui::Shape::closed_line(outline, Stroke::new(1.0, Color32::from_white_alpha(90))));
 }

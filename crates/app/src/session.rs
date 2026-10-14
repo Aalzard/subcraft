@@ -54,6 +54,10 @@ pub struct BrushState {
     pub material: BrushMaterial,
     pub mode: StrokeMode,
     pub target: PaintTarget,
+    /// Screen-space stencil (white paints, black blocks); `None` = no stencil.
+    pub stencil: Option<Arc<subcraft_paint::Stencil>>,
+    /// Temporarily ignore the stencil (held N key), without removing it.
+    pub stencil_bypass: bool,
 }
 
 /// A surface point under the cursor.
@@ -139,6 +143,8 @@ impl Session {
                 material,
                 mode: StrokeMode::Paint,
                 target: PaintTarget::Content,
+                stencil: None,
+                stencil_bypass: false,
             },
             stroke: None,
             composites: HashMap::new(),
@@ -575,7 +581,9 @@ impl Session {
         let layer = self.selection.layer.ok_or(PaintError::LayerNotFound)?;
         let ts = self.selected_texture_set();
         let b = &self.brush;
-        let stroke = Stroke::begin(ts, layer, b.target, b.mode, b.settings, b.options, &b.material)?.with_alpha(b.alpha.clone());
+        let stroke = Stroke::begin(ts, layer, b.target, b.mode, b.settings, b.options, &b.material)?
+            .with_alpha(b.alpha.clone())
+            .with_stencil(if b.stencil_bypass { None } else { b.stencil.clone() });
         let label = match (b.mode, b.target) {
             (StrokeMode::Paint, PaintTarget::Content) => "Paint Stroke",
             (StrokeMode::Erase, PaintTarget::Content) => "Erase Stroke",
