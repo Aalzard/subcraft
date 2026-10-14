@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-10-14 (session 16: saved smart materials / masks)
+Last updated: 2026-10-14 (session 17: shelf search)
 
 ## Decisions
 
@@ -318,6 +318,18 @@ In the cloud container (no GPU) the app ran on lavapipe/llvmpipe (Vulkan) under 
   (`docs/screenshots/save-smart-material-menu.png`, `saved-smart-material.png`). The smart-mask
   path is covered by tests; not clicked through by hand.
 
+### Session 17 — shelf search and categories (roadmap 2, part 3)
+
+* Every shelf tab has a **Search…** box and filter chips: **All**, **Mine** (items from the user
+  library) and, on Materials, one chip per category (Metal, Plastic, Paint, Stone, Wood, Fabric).
+  Every search word must appear in the name or category (case-insensitive); clicking an active
+  chip turns it off; chips reset when switching tabs; an empty result says so.
+* Logic in `crates/ui/src/panels/shelf_filter.rs` (pure, 3 unit tests); 187 tests total.
+* The bundled icon font is a subset without a magnifier glyph — the font-coverage test caught it,
+  so the box uses a "Search…" hint instead of an icon.
+* Verified in the real app: "gol" → Gold only, Wood chip → Wood, Smart Materials + Mine → the
+  saved "My Blue Metal" only (`docs/screenshots/shelf-search.png`).
+
 CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraft-mesh -p subcraft-doc -p subcraft-materials -p subcraft-compositor -p subcraft-paint`
 
 ### Deviations from the brief (sound-engineering choices)
@@ -354,8 +366,8 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
    - SBSAR can't be read directly (Adobe's closed Substance engine); the documented route is to
      export maps with the free Adobe Substance 3D Player and import them as a texture set.
 2. User asset library on disk: ~~persist imported alphas + HDRIs~~ (session 15); ~~save custom smart
-   materials / masks~~ (session 16); next: brush presets, shelf search and categories,
-   drag-and-drop from shelf.
+   materials / masks~~ (session 16); ~~shelf search and categories~~ (session 17);
+   next: brush presets, drag-and-drop from shelf.
 3. Stencils / projection painting with an image; clone tool; smudge / blur filter layers.
 4. Bake follow-ups: per-material high-poly matching by name, cage mesh support, anti-aliased
    (supersampled) bakes, GPU baking for large meshes.

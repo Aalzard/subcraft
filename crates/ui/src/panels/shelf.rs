@@ -34,6 +34,8 @@ enum SceneKind {
 
 pub struct ShelfUi {
     pub tab: ShelfTab,
+    pub filter: crate::panels::shelf_filter::ShelfFilter,
+    filter_tab: ShelfTab,
     thumbs: HashMap<AssetId, egui::TextureHandle>,
     sphere: Option<PreviewScene>,
     cube: Option<PreviewScene>,
@@ -42,7 +44,15 @@ pub struct ShelfUi {
 
 impl Default for ShelfUi {
     fn default() -> Self {
-        Self { tab: ShelfTab::SmartMaterials, thumbs: HashMap::new(), sphere: None, cube: None, renderer: None }
+        Self {
+            tab: ShelfTab::SmartMaterials,
+            filter: Default::default(),
+            filter_tab: ShelfTab::SmartMaterials,
+            thumbs: HashMap::new(),
+            sphere: None,
+            cube: None,
+            renderer: None,
+        }
     }
 }
 
@@ -284,10 +294,13 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         }
     });
     });
+    filter_row(state, ui);
     crate::widgets::divider(ui);
     generate_one_thumbnail(state, ui.ctx());
     let mut action: Option<Box<dyn FnOnce(&mut UiState)>> = None;
     let mut lib_status: Option<String> = None;
+    let filter = state.shelf.filter.clone();
+    let mut shown = 0usize;
     egui::ScrollArea::vertical().id_salt("shelf").auto_shrink([false, false]).show(ui, |ui| {
         egui::Frame::new().inner_margin(egui::Margin::same(theme::PAD)).show(ui, |ui| ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing = egui::vec2(10.0, 10.0);
@@ -295,6 +308,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             match state.shelf.tab {
                 ShelfTab::Materials => {
                     for (i, m) in state.library.materials.iter().enumerate() {
+                        if !filter.matches(&m.name, Some(m.category), false) {
+                            continue;
+                        }
+                        shown += 1;
                         if tile(ui, thumbs.get(&m.id), &m.name, false, &format!("{} ({}): add as a fill layer", m.name, m.category)).clicked() {
                             action = Some(Box::new(move |s: &mut UiState| {
                                 let m = s.library.materials[i].clone();
@@ -307,6 +324,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 }
                 ShelfTab::SmartMaterials => {
                     for (i, m) in state.library.smart_materials.iter().enumerate() {
+                        if !filter.matches(&m.name, None, m.user_file.is_some()) {
+                            continue;
+                        }
+                        shown += 1;
                         let resp = tile(ui, thumbs.get(&m.id), &m.name, false, &format!("{}: add as a folder of masked layers", m.name));
                         if let Some(file) = &m.user_file
                             && library_menu(&resp, state.user_library.as_ref(), file, &mut lib_status)
@@ -327,6 +348,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 }
                 ShelfTab::SmartMasks => {
                     for (i, m) in state.library.smart_masks.iter().enumerate() {
+                        if !filter.matches(&m.name, None, m.user_file.is_some()) {
+                            continue;
+                        }
+                        shown += 1;
                         let resp = tile(ui, thumbs.get(&m.id), &m.name, false, &format!("{}: mask the selected layer", m.name));
                         if let Some(file) = &m.user_file
                             && library_menu(&resp, state.user_library.as_ref(), file, &mut lib_status)
@@ -348,6 +373,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 ShelfTab::Brushes => {
                     let current = state.session.brush.alpha_name.clone();
                     for (i, a) in state.library.alphas.iter().enumerate() {
+                        if !filter.matches(&a.name, None, a.user_file.is_some()) {
+                            continue;
+                        }
+                        shown += 1;
                         let tip = if a.user_file.is_some() { "Brush tip (your library: right-click for options)" } else { "Brush tip" };
                         let resp = tile(ui, thumbs.get(&a.id), &a.name, a.name == current, tip);
                         if let Some(file) = &a.user_file
@@ -370,6 +399,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 }
                 ShelfTab::Environments => {
                     for (i, e) in state.library.environments.iter().enumerate() {
+                        if !filter.matches(&e.name, None, e.user_file.is_some()) {
+                            continue;
+                        }
+                        shown += 1;
                         let tip = if e.user_file.is_some() { "Viewport lighting (your library: right-click for options)" } else { "Viewport lighting" };
                         let resp = tile(ui, thumbs.get(&e.id), &e.name, i == state.env.index, tip);
                         if let Some(file) = &e.user_file
@@ -388,6 +421,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         }
                     }
                 }
+            }
+            if shown == 0 {
+                let msg = if filter.is_active() { "No matches. Clear the search or pick another filter." } else { "Nothing here yet." };
+                ui.label(RichText::new(msg).color(theme::TEXT_FAINT));
             }
         }));
     });
@@ -538,4 +575,38 @@ fn library_folder_button(ui: &mut Ui, state: &UiState, kind: subcraft_app::asset
         }
         show_in_folder(&dir);
     }
+}
+
+/// Search box + category chips for the visible tab (chips reset when the tab changes).
+fn filter_row(state: &mut UiState, ui: &mut Ui) {
+    use crate::panels::shelf_filter::{Chip, categories};
+    if state.shelf.filter_tab != state.shelf.tab {
+        state.shelf.filter_tab = state.shelf.tab;
+        state.shelf.filter.chip = Chip::All;
+    }
+    let mut chips = vec![(Chip::All, "All".to_string()), (Chip::Mine, "Mine".to_string())];
+    if state.shelf.tab == ShelfTab::Materials {
+        for c in categories(state.library.materials.iter().map(|m| m.category)) {
+            chips.push((Chip::Category(c.clone()), c));
+        }
+    }
+    egui::Frame::new().inner_margin(egui::Margin { left: theme::PAD, right: theme::PAD, top: 4, bottom: 6 }).show(ui, |ui| {
+        ui.horizontal(|ui| {
+            let filter = &mut state.shelf.filter;
+            ui.add(egui::TextEdit::singleline(&mut filter.query).hint_text("Search…").desired_width(180.0));
+            if !filter.query.is_empty() && crate::widgets::icon_button(ui, crate::icons::X, "Clear search").clicked() {
+                filter.query.clear();
+            }
+            ui.add_space(8.0);
+            ui.spacing_mut().item_spacing.x = 4.0;
+            for (chip, label) in chips {
+                let selected = filter.chip == chip;
+                let text = RichText::new(label).font(theme::font(11.5)).color(if selected { theme::ACCENT } else { theme::TEXT_DIM });
+                let b = egui::Button::new(text).fill(if selected { theme::ACCENT_SOFT } else { theme::BG_3 }).stroke(egui::Stroke::NONE);
+                if ui.add(b).clicked() {
+                    filter.chip = if selected { Chip::All } else { chip };
+                }
+            }
+        });
+    });
 }
