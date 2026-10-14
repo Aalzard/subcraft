@@ -31,15 +31,23 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "cargo build failed (exit code $LASTEXITCODE)" }
     }
 
-    $exe = Join-Path 'target\dist' $exeName
+    $targetDir = if ([string]::IsNullOrWhiteSpace($env:CARGO_TARGET_DIR)) { 'target' } else { $env:CARGO_TARGET_DIR }
+    $exe = Join-Path (Join-Path $targetDir 'dist') $exeName
     if (-not (Test-Path $exe)) { throw "Build output not found: $exe" }
 
     $name = "SubCraft-$version-windows-x64"
     $dist = Join-Path $root 'dist'
     $stage = Join-Path $dist $name
     $zip = Join-Path $dist "$name.zip"
-    if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
-    if (Test-Path $zip) { Remove-Item $zip -Force }
+    # Validate cleanup targets before replacing an earlier package.
+    $distPrefix = [IO.Path]::GetFullPath($dist).TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
+    foreach ($p in @($stage, $zip)) {
+        if (-not [IO.Path]::GetFullPath($p).StartsWith($distPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+            throw "Package output is outside dist: $p"
+        }
+    }
+    if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Recurse -Force }
+    if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip -Force }
     New-Item -ItemType Directory -Path $stage | Out-Null
 
     $outExe = if ($onWindows) { 'SubCraft.exe' } else { 'SubCraft' }
