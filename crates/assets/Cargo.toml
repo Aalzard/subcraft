@@ -20,3 +20,4 @@ serde.workspace = true
 serde_json.workspace = true
 uuid.workspace = true
 log.workspace = true
+dirs.workspace = true

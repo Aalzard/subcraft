@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 
 use glam::Vec2;
+use subcraft_app::assets::{UserAssetKind, UserLibrary};
 use subcraft_app::{Command, Session};
 use subcraft_core::ChannelKind;
 use subcraft_paint::PolygonFillMode;
@@ -61,6 +62,10 @@ pub struct UiState {
     pub uploaded_maps: HashMap<(subcraft_core::TextureSetId, subcraft_core::MeshMapKind), subcraft_image::TiledImage>,
     /// Thumbnails of imported images (resources are immutable, so entries never go stale).
     pub image_thumbs: HashMap<subcraft_core::ResourceId, egui::TextureHandle>,
+    /// The user's asset library folder (None if no Documents folder could be found).
+    pub user_library: Option<UserLibrary>,
+    /// Library HDRIs still being prefiltered on a background thread.
+    pub env_loader: Option<std::sync::mpsc::Receiver<Result<subcraft_app::assets::Environment, String>>>,
 }
 
 impl UiState {
@@ -98,6 +103,50 @@ impl UiState {
             env: Default::default(),
             uploaded_maps: HashMap::new(),
             image_thumbs: HashMap::new(),
+            user_library: None,
+            env_loader: None,
+        }
+        .with_user_library(UserLibrary::default_root().map(UserLibrary::new))
+    }
+
+    /// Add the library's alphas now and start loading its HDRIs in the background.
+    pub fn with_user_library(mut self, lib: Option<UserLibrary>) -> Self {
+        let Some(lib) = lib else { return self };
+        let (alphas, errors) = lib.load_alphas();
+        for e in errors {
+            log::warn!("library alpha skipped: {e}");
+        }
+        self.library.alphas.extend(alphas);
+        let files = lib.list(UserAssetKind::Environment);
+        if !files.is_empty() {
+            let (tx, rx) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                for f in files {
+                    if tx.send(subcraft_app::assets::user_library::load_environment(&f)).is_err() {
+                        break;
+                    }
+                }
+            });
+            self.env_loader = Some(rx);
+        }
+        log::info!("asset library: {}", lib.root().display());
+        self.user_library = Some(lib);
+        self
+    }
+
+    /// Pick up HDRIs finished by the background loader (call once per frame).
+    pub fn poll_library(&mut self) {
+        let Some(rx) = &self.env_loader else { return };
+        loop {
+            match rx.try_recv() {
+                Ok(Ok(env)) => self.library.environments.push(env),
+                Ok(Err(e)) => log::warn!("library environment skipped: {e}"),
+                Err(std::sync::mpsc::TryRecvError::Empty) => break,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.env_loader = None;
+                    break;
+                }
+            }
         }
     }
 

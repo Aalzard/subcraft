@@ -54,6 +54,7 @@ eframe = { version = "0.36", default-features = false, features = ["wgpu", "defa
 egui-wgpu = "0.36"
 egui_dock = { version = "0.21", features = ["serde"] }
 rfd = "0.17"
+dirs = "7"
 pollster = "0.4"
 
 [workspace.lints.rust]
