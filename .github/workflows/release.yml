@@ -1,17 +1,26 @@
 name: Release
 
-# Publishing a GitHub Release (e.g. tag v0.2.0) builds the Windows installer and portable zip
-# and attaches both. Pull requests that touch the packaging only build them, as artifacts.
+# Publishing a GitHub Release (e.g. tag v0.2.0) builds the Windows installer, the Windows portable
+# zip and the Linux tarball, and attaches all three. Pull requests that touch the packaging only
+# build them, as artifacts. "Run workflow" with a tag (re)builds and attaches them to that
+# existing release.
 on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to attach the builds to (e.g. v0.1.0); empty = artifacts only"
+        required: false
+        default: ""
   pull_request:
     paths:
       - .github/workflows/release.yml
       - scripts/build-windows.ps1
       - scripts/build-installer.ps1
+      - scripts/build-linux.sh
       - installer/**
+      - packaging/**
       - apps/subcraft/**
 
 permissions:
@@ -50,21 +59,44 @@ jobs:
             dist/*-setup.exe
           if-no-files-found: error
 
+  linux:
+    name: Package (Linux)
+    # Built on the oldest supported Ubuntu so the binary's glibc requirement runs on newer distros.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build and package
+        run: ./scripts/build-linux.sh
+      - name: Check the package
+        run: |
+          tar -tzf dist/*.tar.gz | sort
+          tar -xzf dist/*.tar.gz -C "$RUNNER_TEMP"
+          file "$RUNNER_TEMP"/SubCraft-*/subcraft
+          "$RUNNER_TEMP"/SubCraft-*/subcraft --help
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SubCraft-linux-x86_64
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
   publish:
     name: Attach to release
-    if: github.event_name == 'release'
-    needs: windows
+    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.tag != '')
+    needs: [windows, linux]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: SubCraft-windows-x64
           path: dist
-      - name: Upload installer and zip to the release
+          merge-multiple: true
+      - name: Upload builds to the release
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
         run: |
           ls -l dist
-          gh release upload "${{ github.event.release.tag_name }}" dist/*-setup.exe dist/*.zip --clobber --repo "${{ github.repository }}"
+          gh release upload "$TAG" dist/*-setup.exe dist/*.zip dist/*.tar.gz --clobber --repo "${{ github.repository }}"

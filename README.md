@@ -1,6 +1,7 @@
 # SubCraft
 
 [![Download for Windows](https://img.shields.io/badge/Download-Windows%20installer-ff7a1a?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/Aalzard/subcraft/releases/latest)
+[![Download for Linux](https://img.shields.io/badge/Download-Linux-ff7a1a?style=for-the-badge&logo=linux&logoColor=white)](https://github.com/Aalzard/subcraft/releases/latest)
 [![Latest release](https://img.shields.io/github/v/release/Aalzard/subcraft?style=for-the-badge&label=latest&color=2b2b2b)](https://github.com/Aalzard/subcraft/releases/latest)
 
 An independent, open-source 3D texture painting application in the spirit of Substance Painter,
@@ -57,6 +58,17 @@ smart materials, bake mesh maps, and export game-ready textures.
 
 Prefer no installer? Download **`SubCraft-<version>-windows-x64.zip`** instead, unzip it and run
 `SubCraft.exe`. Either way, any GPU with DirectX 12 or Vulkan works.
+
+## Download (Linux)
+
+1. Download **`SubCraft-<version>-linux-x86_64.tar.gz`** from the
+   [latest release](https://github.com/Aalzard/subcraft/releases/latest) and unpack it:
+   `tar -xzf SubCraft-*-linux-x86_64.tar.gz`
+2. Run `./install.sh` inside the folder to add SubCraft to your application menu (installs to
+   `~/.local`, no root needed; `./install.sh --uninstall` removes it), or just start `./subcraft`.
+
+Needs a Vulkan driver (Mesa or your GPU vendor's) and X11 or Wayland. Built on Ubuntu 22.04, so it
+runs on that and newer distributions.
 
 ## Building from source
 
