@@ -447,3 +447,51 @@ fn generator_noise_breakup_is_continuous_across_uv_seams() {
     let diff = diff / left.len() as f32;
     assert!(diff < 0.05, "mask jumps across the UV seam by {diff} on average");
 }
+
+#[test]
+fn image_mask_uses_alpha_or_raw_brightness() {
+    use subcraft_core::ResourceId;
+    use subcraft_doc::{Projection, Resource, ResourceKind};
+    use subcraft_image::Bitmap;
+
+    let mut fx = Fixture::plane();
+    let add = |fx: &mut Fixture, b: Bitmap| {
+        let id = ResourceId::new();
+        fx.res.insert(Resource { id, name: "m.png".into(), kind: ResourceKind::Texture, bitmap: Arc::new(b), source_path: None, encoded: None });
+        id
+    };
+    // 8x1 images: left half / right half. Sampled near u = 0.25 / 0.75, far from the edge.
+    let halves = |a: [u8; 4], b: [u8; 4], ch: usize| -> Vec<u8> { (0..8).flat_map(|x| if x < 4 { a } else { b }[..ch].to_vec()).collect() };
+    let logo = add(&mut fx, Bitmap::new_u8(8, 1, 4, halves([9, 9, 9, 0], [9, 9, 9, 255], 4)));
+    let gray = add(&mut fx, Bitmap::new_u8(8, 1, 1, halves([64; 4], [192; 4], 1)));
+    let (left, right) = (RES / 4, 3 * RES / 4);
+
+    let eval = |fx: &Fixture, resource: ResourceId, invert: bool| {
+        let mut ts = texture_set();
+        let mut l = fill_layer(&ts, &[(ChannelKind::Roughness, ChannelValue::scalar(1.0))]);
+        let mut mask = Mask::new(RES, false);
+        mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Image { resource, projection: Projection::default(), invert })));
+        l.mask = Some(mask);
+        ts.insert_above(None, l);
+        composite_full(&ts, &fx.ctx())
+    };
+
+    // Alpha image: transparent part leaves the black mask, opaque part reveals the layer.
+    let c = eval(&fx, logo, false);
+    assert_scalar(&c, ChannelKind::Roughness, left, RES / 2, 0.3);
+    assert_scalar(&c, ChannelKind::Roughness, right, RES / 2, 1.0);
+    // Inverted alpha image stamps black: on a black mask nothing shows.
+    let c = eval(&fx, logo, true);
+    assert_scalar(&c, ChannelKind::Roughness, right, RES / 2, 0.3);
+
+    // Grayscale image: raw values (no sRGB decode) become the mask.
+    let c = eval(&fx, gray, false);
+    assert_scalar(&c, ChannelKind::Roughness, left, RES / 2, 0.3 + 0.7 * 64.0 / 255.0);
+    assert_scalar(&c, ChannelKind::Roughness, right, RES / 2, 0.3 + 0.7 * 192.0 / 255.0);
+    let c = eval(&fx, gray, true);
+    assert_scalar(&c, ChannelKind::Roughness, left, RES / 2, 0.3 + 0.7 * (1.0 - 64.0 / 255.0));
+
+    // A resource missing from the store contributes nothing.
+    let c = eval(&fx, ResourceId::new(), false);
+    assert_scalar(&c, ChannelKind::Roughness, right, RES / 2, 0.3);
+}

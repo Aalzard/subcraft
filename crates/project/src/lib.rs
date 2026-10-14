@@ -99,6 +99,9 @@ impl Writer {
                         MaskEffectKind::Generator(g) => MaskEffectKindV1::Generator { generator: *g },
                         MaskEffectKind::Levels(l) => MaskEffectKindV1::Levels { levels: *l },
                         MaskEffectKind::Invert => MaskEffectKindV1::Invert,
+                        MaskEffectKind::Image { resource, projection, invert } => {
+                            MaskEffectKindV1::Image { resource: resource.0, projection: *projection, invert: *invert }
+                        }
                     },
                 })
                 .collect(),
@@ -125,13 +128,21 @@ fn referenced_resources(doc: &Document) -> Vec<ResourceId> {
     let mut out = Vec::new();
     for ts in &doc.texture_sets {
         ts.walk(|l, _| {
+            let mut add = |r: ResourceId| {
+                if !out.contains(&r) {
+                    out.push(r);
+                }
+            };
             if let LayerContent::Fill(f) = &l.content {
                 for c in f.channels.values() {
-                    if let FillSource::Bitmap { resource } = c.source
-                        && !out.contains(&resource)
-                    {
-                        out.push(resource);
+                    if let FillSource::Bitmap { resource } = c.source {
+                        add(resource);
                     }
+                }
+            }
+            for e in l.mask.iter().flat_map(|m| &m.effects) {
+                if let MaskEffectKind::Image { resource, .. } = e.kind {
+                    add(resource);
                 }
             }
         });
@@ -172,7 +183,9 @@ pub fn write_project<W: Write + Seek>(
             log::warn!("resource {} has no original file bytes; not saved", r.name);
             continue;
         };
-        let ext = r.source_path.as_ref().and_then(|p| p.extension()).and_then(|e| e.to_str()).unwrap_or("bin").to_ascii_lowercase();
+        // By content, so re-saving a loaded project keeps the extension (TGA falls back to the name).
+        let hint = r.source_path.as_deref().and_then(|p| p.to_str()).unwrap_or(&r.name);
+        let ext = subcraft_image::guess_extension(bytes, Some(hint));
         let file = format!("resources/{}.{ext}", id.0);
         res_entries.push(ResourceV1 { id: id.0, name: r.name.clone(), kind: r.kind, file: file.clone() });
         res_files.push((file, bytes.clone()));
@@ -280,6 +293,9 @@ impl<R: Read + Seek> Loader<'_, R> {
                         MaskEffectKindV1::Generator { generator } => MaskEffectKind::Generator(*generator),
                         MaskEffectKindV1::Levels { levels } => MaskEffectKind::Levels(*levels),
                         MaskEffectKindV1::Invert => MaskEffectKind::Invert,
+                        MaskEffectKindV1::Image { resource, projection, invert } => {
+                            MaskEffectKind::Image { resource: ResourceId(*resource), projection: *projection, invert: *invert }
+                        }
                     };
                     effects.push(Arc::new(MaskEffect {
                         id: EffectId(e.id),
@@ -377,7 +393,7 @@ pub fn read_project<R: Read + Seek>(r: R) -> Result<ProjectData, ProjectError> {
     let mut resources = ResourceStore::default();
     for r in &doc.resources {
         let bytes = loader.bytes(&r.file)?;
-        let bitmap = subcraft_image::io::decode_bitmap(&bytes).map_err(|e| ProjectError::Invalid(format!("resource {}: {e}", r.name)))?;
+        let bitmap = subcraft_image::io::decode_bitmap(&bytes, Some(&r.file)).map_err(|e| ProjectError::Invalid(format!("resource {}: {e}", r.name)))?;
         resources.insert(Resource {
             id: ResourceId(r.id),
             name: r.name.clone(),

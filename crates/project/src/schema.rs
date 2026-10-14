@@ -12,7 +12,9 @@ use subcraft_core::ChannelKind;
 use subcraft_doc::{BlendMode, ChannelFormat, FillSource, Generator, Levels, ProceduralParams, Projection};
 use uuid::Uuid;
 
-pub const SCHEMA_VERSION: u32 = 1;
+/// 1: initial. 2: mask `Image` effect (v1 files load unchanged; v2 files need SubCraft >= 0.1 with
+/// image masks).
+pub const SCHEMA_VERSION: u32 = 2;
 pub const FORMAT_NAME: &str = "subcraft-project";
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -123,6 +125,8 @@ pub enum MaskEffectKindV1 {
     Generator { generator: Generator },
     Levels { levels: Levels },
     Invert,
+    /// Schema 2.
+    Image { resource: Uuid, projection: Projection, invert: bool },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

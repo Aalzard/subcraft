@@ -72,23 +72,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             LayerContent::Fill(f) => {
                 section(ui, "projection", "Projection", true, |ui| {
                     let mut proj = f.projection;
-                    let mut changed = false;
-                    prop_row(ui, "Mode", |ui| {
-                        changed |= segmented(ui, &mut proj.mode, &[(ProjectionMode::Uv, "UV"), (ProjectionMode::Triplanar, "Tri-planar"), (ProjectionMode::Planar, "Planar")]);
-                    });
-                    prop_row(ui, "Scale", |ui| {
-                        changed |= ui.add(egui::DragValue::new(&mut proj.scale[0]).speed(0.05).range(0.01..=256.0)).changed();
-                    });
-                    proj.scale[1] = proj.scale[0];
-                    changed |= slider_row(ui, "Rotation", egui::Slider::new(&mut proj.rotation_deg, -180.0..=180.0).suffix("°")).changed();
-                    if proj.mode == ProjectionMode::Triplanar {
-                        changed |= slider_row(ui, "Sharpness", egui::Slider::new(&mut proj.triplanar_sharpness, 1.0..=32.0)).changed();
-                    }
-                    if proj.mode == ProjectionMode::Planar {
-                        prop_row(ui, "Axis", |ui| {
-                            changed |= segmented(ui, &mut proj.planar_axis, &[(0u8, "X"), (1, "Y"), (2, "Z")]);
-                        });
-                    }
+                    let changed = projection_editor(ui, &mut proj);
                     if changed {
                         cmds.push(Command::SetFillProjection { layer: id, projection: proj });
                     }
@@ -98,6 +82,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 for kind in &channels {
                     let mut ch = f.channels.get(kind).cloned().unwrap_or(FillChannel { enabled: false, source: FillSource::uniform(kind.default_paint_value()) });
                     let mut changed = false;
+                    let mut pick_image = false;
                     egui::Frame::new().fill(BG_2).inner_margin(egui::Margin::symmetric(10, 8)).show(ui, |ui| {
                     ui.horizontal(|ui| {
                         let name = RichText::new(kind.display_name()).color(if ch.enabled { theme::TEXT } else { TEXT_FAINT });
@@ -112,23 +97,28 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                             let mut sel = current;
                             egui::ComboBox::from_id_salt(("src", *kind))
                                 .width(110.0)
-                                .selected_text(["Uniform", "Procedural", "Mesh map", "Bitmap"][current])
+                                .selected_text(["Uniform", "Procedural", "Mesh map", "Image"][current])
                                 .show_ui(ui, |ui| {
                                     ui.selectable_value(&mut sel, 0, "Uniform");
                                     ui.selectable_value(&mut sel, 1, "Procedural");
                                     ui.selectable_value(&mut sel, 2, "Mesh map");
+                                    ui.selectable_value(&mut sel, 3, "Image");
                                 });
                             if sel != current {
-                                ch.source = match sel {
-                                    0 => FillSource::uniform(kind.default_paint_value()),
-                                    1 => FillSource::Procedural {
-                                        params: ProceduralParams::new(ProceduralKind::Clouds),
-                                        low: ChannelValue::scalar(0.0),
-                                        high: ChannelValue::scalar(1.0),
-                                    },
-                                    _ => FillSource::MeshMap { map: MeshMapKind::AmbientOcclusion },
-                                };
-                                changed = true;
+                                match sel {
+                                    0 => ch.source = FillSource::uniform(kind.default_paint_value()),
+                                    1 => {
+                                        ch.source = FillSource::Procedural {
+                                            params: ProceduralParams::new(ProceduralKind::Clouds),
+                                            low: ChannelValue::scalar(0.0),
+                                            high: ChannelValue::scalar(1.0),
+                                        }
+                                    }
+                                    2 => ch.source = FillSource::MeshMap { map: MeshMapKind::AmbientOcclusion },
+                                    // Picked after the layout closure (needs the session).
+                                    _ => pick_image = true,
+                                }
+                                changed |= sel != 3;
                             }
                         });
                     });
@@ -164,10 +154,20 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                                 });
                                 hint(ui, "Uses the baked map (Ctrl+B); neutral until baked.");
                             }
-                            FillSource::Bitmap { .. } => {
-                                ui.label(RichText::new("Bitmap resource").color(TEXT_DIM));
+                            FillSource::Bitmap { resource } => {
+                                pick_image |= image_row(ui, state, *resource);
+                                hint(ui, if kind.is_color() {
+                                    "Color image: read as sRGB. Tiling and rotation are under Projection."
+                                } else {
+                                    "Data image: used as-is (no color conversion). Tiling and rotation are under Projection."
+                                });
                             }
                         }
+                    }
+                    if pick_image && let Some(resource) = choose_image(state, now) {
+                        ch.source = FillSource::Bitmap { resource };
+                        ch.enabled = true;
+                        changed = true;
                     }
                     });
                     ui.add_space(2.0);
@@ -229,10 +229,20 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         );
                         add(ui, "Levels", MaskEffectKind::Levels(Levels::default()));
                         add(ui, "Invert", MaskEffectKind::Invert);
+                        if ui.add(egui::Button::new(RichText::new(format!("{}  Image", icons::PLUS)).font(theme::font(12.0))))
+                            .on_hover_text("A black & white image or a logo with transparency")
+                            .clicked()
+                            && let Some(resource) = choose_image(state, now)
+                        {
+                            cmds.push(Command::AddMaskEffect {
+                                layer: id,
+                                kind: MaskEffectKind::Image { resource, projection: Projection::default(), invert: false },
+                            });
+                        }
                     });
                     ui.add_space(6.0);
                     for e in mask.effects.iter().rev() {
-                        effect_editor(ui, id, e, &mut cmds);
+                        effect_editor(ui, state, now, id, e, &mut cmds);
                     }
                 }
             },
@@ -242,7 +252,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     state.run(cmds, now);
 }
 
-fn effect_editor(ui: &mut Ui, layer: subcraft_core::LayerId, e: &Arc<MaskEffect>, cmds: &mut Vec<Command>) {
+fn effect_editor(ui: &mut Ui, state: &mut UiState, now: f64, layer: subcraft_core::LayerId, e: &Arc<MaskEffect>, cmds: &mut Vec<Command>) {
     let mut eff = (**e).clone();
     let mut changed = false;
     egui::Frame::new().fill(BG_2).inner_margin(egui::Margin::symmetric(10, 8)).show(ui, |ui| {
@@ -277,6 +287,17 @@ fn effect_editor(ui: &mut Ui, layer: subcraft_core::LayerId, e: &Arc<MaskEffect>
                     changed |= slider_row(ui, "In high", egui::Slider::new(&mut l.in_high, 0.0..=1.0)).changed();
                     changed |= slider_row(ui, "Gamma", egui::Slider::new(&mut l.gamma, 0.1..=4.0)).changed();
                 }
+                MaskEffectKind::Image { resource, projection, invert } => {
+                    if image_row(ui, state, *resource)
+                        && let Some(r) = choose_image(state, now)
+                    {
+                        *resource = r;
+                        changed = true;
+                    }
+                    prop_row(ui, "", |ui| changed |= ui.checkbox(invert, "Invert").changed());
+                    changed |= projection_editor(ui, projection);
+                    hint(ui, "Uses the image's transparency if it has any, otherwise its brightness.");
+                }
                 _ => {}
             }
         }
@@ -285,4 +306,67 @@ fn effect_editor(ui: &mut Ui, layer: subcraft_core::LayerId, e: &Arc<MaskEffect>
     if changed {
         cmds.push(Command::SetMaskEffect { layer, effect: eff });
     }
+}
+
+/// Open a file dialog and import the chosen image into the project.
+fn choose_image(state: &mut UiState, now: f64) -> Option<subcraft_core::ResourceId> {
+    let path = rfd::FileDialog::new().add_filter("Images", &subcraft_image::IMAGE_EXTENSIONS).pick_file()?;
+    match state.session.import_image(&path) {
+        Ok(id) => Some(id),
+        Err(e) => {
+            state.set_status(format!("Import image: {e}"), now);
+            None
+        }
+    }
+}
+
+/// Thumbnail, name and size of an image resource, with a Replace button. True if clicked.
+fn image_row(ui: &mut Ui, state: &mut UiState, resource: subcraft_core::ResourceId) -> bool {
+    let Some(r) = state.session.resources().get(resource).cloned() else {
+        ui.label(RichText::new(format!("{}  Image missing from the project", icons::WARNING)).color(theme::WARNING));
+        return secondary_button(ui, "Choose image…").clicked();
+    };
+    let tex = state
+        .image_thumbs
+        .entry(resource)
+        .or_insert_with(|| {
+            let (w, h, rgba) = r.bitmap.preview_rgba8(96);
+            let img = egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &rgba);
+            ui.ctx().load_texture(format!("image-{}", resource.0), img, egui::TextureOptions::LINEAR)
+        })
+        .clone();
+    let mut clicked = false;
+    ui.horizontal(|ui| {
+        let size = tex.size_vec2();
+        let scale = 48.0 / size.x.max(size.y);
+        ui.image((tex.id(), size * scale));
+        ui.vertical(|ui| {
+            ui.label(RichText::new(&r.name).color(theme::TEXT));
+            ui.label(RichText::new(format!("{} × {}", r.bitmap.width, r.bitmap.height)).color(TEXT_DIM).font(theme::font(11.0)));
+            clicked = secondary_button(ui, "Replace…").clicked();
+        });
+    });
+    clicked
+}
+
+/// Mode / scale / rotation (+ sharpness or axis) editor shared by fill layers and image masks.
+fn projection_editor(ui: &mut Ui, proj: &mut Projection) -> bool {
+    let mut changed = false;
+    prop_row(ui, "Mode", |ui| {
+        changed |= segmented(ui, &mut proj.mode, &[(ProjectionMode::Uv, "UV"), (ProjectionMode::Triplanar, "Tri-planar"), (ProjectionMode::Planar, "Planar")]);
+    });
+    prop_row(ui, "Scale", |ui| {
+        changed |= ui.add(egui::DragValue::new(&mut proj.scale[0]).speed(0.05).range(0.01..=256.0)).changed();
+    });
+    proj.scale[1] = proj.scale[0];
+    changed |= slider_row(ui, "Rotation", egui::Slider::new(&mut proj.rotation_deg, -180.0..=180.0).suffix("°")).changed();
+    if proj.mode == ProjectionMode::Triplanar {
+        changed |= slider_row(ui, "Sharpness", egui::Slider::new(&mut proj.triplanar_sharpness, 1.0..=32.0)).changed();
+    }
+    if proj.mode == ProjectionMode::Planar {
+        prop_row(ui, "Axis", |ui| {
+            changed |= segmented(ui, &mut proj.planar_axis, &[(0u8, "X"), (1, "Y"), (2, "Z")]);
+        });
+    }
+    changed
 }

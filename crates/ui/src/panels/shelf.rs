@@ -173,6 +173,12 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         ui.spacing_mut().item_spacing.x = 8.0;
         ui.add_space(16.0);
         match state.shelf.tab {
+            ShelfTab::Materials => {
+                if ui.button(format!("{}  Import texture set…", crate::icons::DOWNLOAD)).clicked() {
+                    crate::panels::layers::import_texture_set_dialog(state, now);
+                }
+                ui.label(RichText::new("Select a texture's maps (color, roughness, normal…) to make one fill layer.").small().color(theme::TEXT_FAINT));
+            }
             ShelfTab::Brushes => {
                 if ui.button(format!("{}  Import alpha…", crate::icons::DOWNLOAD)).clicked()
                     && let Some(p) = rfd::FileDialog::new().add_filter("Images", &["png", "jpg", "jpeg", "tga", "tif", "tiff", "exr"]).pick_file()
@@ -210,7 +216,6 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             ShelfTab::SmartMaterials => {
                 ui.label(RichText::new("Wear and dirt follow baked curvature / AO (Ctrl+B).").small().color(theme::TEXT_FAINT));
             }
-            ShelfTab::Materials => {}
         }
     });
     });

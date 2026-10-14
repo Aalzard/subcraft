@@ -6,6 +6,7 @@ pub mod alphas;
 pub mod environment;
 pub mod presets;
 pub mod smart;
+pub mod texture_maps;
 
 pub use alphas::BrushAlpha;
 pub use environment::{Environment, EnvironmentSource, HdriLevel, PrefilteredHdri, ProceduralEnv};
