@@ -7,7 +7,7 @@
 //!
 //! Continuous edits (slider drags) coalesce through a merge key until [`History::seal`].
 
-use std::time::Instant;
+use web_time::Instant;
 
 use crate::document::Document;
 

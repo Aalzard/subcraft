@@ -1,5 +1,6 @@
 # SubCraft
 
+[![Try it in your browser](https://img.shields.io/badge/Try%20it-in%20your%20browser-ff7a1a?style=for-the-badge&logo=googlechrome&logoColor=white)](https://aalzard.github.io/subcraft/)
 [![Download for Windows](https://img.shields.io/badge/Download-Windows%20installer-ff7a1a?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/Aalzard/subcraft/releases/latest)
 [![Download for Linux](https://img.shields.io/badge/Download-Linux-ff7a1a?style=for-the-badge&logo=linux&logoColor=white)](https://github.com/Aalzard/subcraft/releases/latest)
 [![Latest release](https://img.shields.io/github/v/release/Aalzard/subcraft?style=for-the-badge&label=latest&color=2b2b2b)](https://github.com/Aalzard/subcraft/releases/latest)
@@ -49,6 +50,19 @@ smart materials, bake mesh maps, and export game-ready textures.
 - **Projects and export**: `.subcraft` project files; export templates for PBR metal/rough, Unreal
   (ORM + DirectX normal), Unity HDRP (mask map) and glTF.
 - **Mesh import**: OBJ, glTF / GLB and FBX.
+
+## Try it in your browser
+
+Open **https://aalzard.github.io/subcraft/** in a browser with WebGPU (recent Chrome, Edge,
+Firefox or Safari). Nothing to install. The web version is the same app with a few differences:
+
+- **Files**: *Open* uploads from your computer; *Save* and *Export* download the files.
+  Import OBJ, glTF or **GLB** (upload a `.gltf` together with its `.bin`). FBX is desktop only.
+- **Speed**: it runs on one CPU thread, so big fills, smart materials and baking take longer
+  than in the desktop app (the page pauses briefly while they compute).
+- **No library folder**: imported textures, brush tips and HDRIs last for the session only.
+
+For real work, the desktop app below is faster.
 
 ## Download (Windows)
 

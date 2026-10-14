@@ -65,7 +65,7 @@ impl TextureLibrary {
             return;
         }
         let (tx, rx) = channel();
-        std::thread::spawn(move || {
+        subcraft_core::task::spawn(move || {
             for p in new {
                 let thumb = subcraft_image::load_bitmap(&p).map(|b| b.preview_rgba8(THUMB)).map_err(|e| e.to_string());
                 if tx.send((p, thumb)).is_err() {

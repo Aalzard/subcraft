@@ -248,10 +248,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         let r = slider_row(ui, label, egui::Slider::new(&mut ch.strength, range).max_decimals(2));
                         changed |= r.on_hover_text(tip).changed();
                     }
-                    if pick_image && let Some(resource) = choose_image(state, now) {
-                        ch.source = FillSource::Bitmap { resource };
-                        ch.enabled = true;
-                        changed = true;
+                    if pick_image {
+                        let purpose = crate::files::Purpose::FillChannel { layer: id, channel: *kind };
+                        crate::files::pick(ui.ctx(), purpose, crate::files::IMAGES, false, None);
                     }
                     });
                     // Drag a texture from Shelf → Textures onto this row to use it here.
@@ -328,17 +327,13 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         if ui.add(egui::Button::new(RichText::new(format!("{}  Image", icons::PLUS)).font(theme::font(12.0))))
                             .on_hover_text("A black & white image or a logo with transparency")
                             .clicked()
-                            && let Some(resource) = choose_image(state, now)
                         {
-                            cmds.push(Command::AddMaskEffect {
-                                layer: id,
-                                kind: MaskEffectKind::Image { resource, projection: Projection::default(), invert: false },
-                            });
+                            crate::files::pick(ui.ctx(), crate::files::Purpose::AddMaskImage { layer: id }, crate::files::IMAGES, false, None);
                         }
                     });
                     ui.add_space(6.0);
                     for e in mask.effects.iter().rev() {
-                        effect_editor(ui, state, now, id, e, &mut cmds);
+                        effect_editor(ui, state, id, e, &mut cmds);
                     }
                 }
             },
@@ -363,7 +358,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     }
 }
 
-fn effect_editor(ui: &mut Ui, state: &mut UiState, now: f64, layer: subcraft_core::LayerId, e: &Arc<MaskEffect>, cmds: &mut Vec<Command>) {
+fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_core::LayerId, e: &Arc<MaskEffect>, cmds: &mut Vec<Command>) {
     let mut eff = (**e).clone();
     let mut changed = false;
     egui::Frame::new().fill(BG_2).inner_margin(egui::Margin::symmetric(10, 8)).show(ui, |ui| {
@@ -399,11 +394,8 @@ fn effect_editor(ui: &mut Ui, state: &mut UiState, now: f64, layer: subcraft_cor
                     changed |= slider_row(ui, "Gamma", egui::Slider::new(&mut l.gamma, 0.1..=4.0)).changed();
                 }
                 MaskEffectKind::Image { resource, projection, invert } => {
-                    if image_row(ui, state, *resource)
-                        && let Some(r) = choose_image(state, now)
-                    {
-                        *resource = r;
-                        changed = true;
+                    if image_row(ui, state, *resource) {
+                        crate::files::pick(ui.ctx(), crate::files::Purpose::MaskImage { layer, effect: e.id }, crate::files::IMAGES, false, None);
                     }
                     prop_row(ui, "", |ui| changed |= ui.checkbox(invert, "Invert").changed());
                     changed |= projection_editor(ui, projection);
@@ -416,21 +408,6 @@ fn effect_editor(ui: &mut Ui, state: &mut UiState, now: f64, layer: subcraft_cor
     ui.add_space(4.0);
     if changed {
         cmds.push(Command::SetMaskEffect { layer, effect: eff });
-    }
-}
-
-/// Open a file dialog and import the chosen image into the project.
-fn choose_image(state: &mut UiState, now: f64) -> Option<subcraft_core::ResourceId> {
-    let path = rfd::FileDialog::new().add_filter("Images", &subcraft_image::IMAGE_EXTENSIONS).pick_file()?;
-    match state.session.import_image(&path) {
-        Ok(id) => {
-            state.remember_textures(std::slice::from_ref(&path));
-            Some(id)
-        }
-        Err(e) => {
-            state.set_status(format!("Import image: {e}"), now);
-            None
-        }
     }
 }
 

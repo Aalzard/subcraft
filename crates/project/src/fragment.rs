@@ -17,7 +17,7 @@ use subcraft_doc::{Layer, MaskEffect, MaskEffectKind, ResourceStore};
 use zip::write::SimpleFileOptions;
 
 use crate::schema::{LayerV1, MaskEffectV1, ResourceV1, SCHEMA_VERSION};
-use crate::{Loader, ProjectError, Writer, pack_resources, temp_path, to_json, unpack_resources, write_payload};
+use crate::{Loader, ProjectError, Writer, pack_resources, to_json, unpack_resources, write_payload};
 
 pub const FRAGMENT_FORMAT: &str = "subcraft-fragment";
 pub const SMART_MATERIAL_EXTENSION: &str = "scsmart";
@@ -110,8 +110,9 @@ pub fn write_fragment<W: Write + Seek>(w: W, f: &Fragment) -> Result<W, ProjectE
 }
 
 /// Save atomically (temp file + rename).
+#[cfg(not(target_arch = "wasm32"))]
 pub fn save_fragment(path: &Path, f: &Fragment) -> Result<(), ProjectError> {
-    let tmp = temp_path(path);
+    let tmp = crate::temp_path(path);
     let result = (|| -> Result<(), ProjectError> {
         let file = std::fs::File::create(&tmp)?;
         let buf = write_fragment(std::io::BufWriter::new(file), f)?;
@@ -125,6 +126,14 @@ pub fn save_fragment(path: &Path, f: &Fragment) -> Result<(), ProjectError> {
         let _ = std::fs::remove_file(&tmp);
     }
     result
+}
+
+/// Web build: encode in memory and hand the file to `vfs`.
+#[cfg(target_arch = "wasm32")]
+pub fn save_fragment(path: &Path, f: &Fragment) -> Result<(), ProjectError> {
+    let buf = write_fragment(std::io::Cursor::new(Vec::new()), f)?;
+    subcraft_core::vfs::write(path, &buf.into_inner())?;
+    Ok(())
 }
 
 pub fn read_fragment<R: Read + Seek>(r: R) -> Result<Fragment, ProjectError> {
@@ -148,7 +157,10 @@ pub fn read_fragment<R: Read + Seek>(r: R) -> Result<Fragment, ProjectError> {
 }
 
 pub fn load_fragment(path: &Path) -> Result<Fragment, ProjectError> {
-    read_fragment(std::io::BufReader::new(std::fs::File::open(path)?))
+    #[cfg(not(target_arch = "wasm32"))]
+    return read_fragment(std::io::BufReader::new(std::fs::File::open(path)?));
+    #[cfg(target_arch = "wasm32")]
+    return read_fragment(std::io::Cursor::new(subcraft_core::vfs::read(path)?));
 }
 
 #[cfg(test)]

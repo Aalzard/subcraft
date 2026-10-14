@@ -56,17 +56,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             });
 
             section(ui, "stencil", "Stencil", false, |ui| {
-                let now = ui.input(|i| i.time);
                 ui.horizontal(|ui| {
-                    if ui.button(format!("{}  Choose image…", crate::icons::IMAGE)).clicked()
-                        && let Some(p) = rfd::FileDialog::new().add_filter("Images", &subcraft_image::IMAGE_EXTENSIONS).pick_file()
-                    {
-                        match subcraft_image::load_bitmap(&p) {
-                            Ok(bmp) => {
-                                state.session.brush.stencil = Some(std::sync::Arc::new(subcraft_paint::Stencil::new(std::sync::Arc::new(bmp))));
-                            }
-                            Err(e) => state.set_status(format!("Stencil: {e}"), now),
-                        }
+                    if ui.button(format!("{}  Choose image…", crate::icons::IMAGE)).clicked() {
+                        crate::files::pick(ui.ctx(), crate::files::Purpose::Stencil, crate::files::IMAGES, false, None);
                     }
                     if state.session.brush.stencil.is_some() && ui.button(format!("{}  Remove", crate::icons::X)).clicked() {
                         state.session.brush.stencil = None;

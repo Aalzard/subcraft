@@ -35,6 +35,9 @@ pub struct ExportUi {
 
 impl Default for ExportUi {
     fn default() -> Self {
+        #[cfg(target_arch = "wasm32")]
+        let folder = PathBuf::from(crate::files::DOWNLOADS);
+        #[cfg(not(target_arch = "wasm32"))]
         let folder = std::env::current_dir().map(|d| d.join("exports")).unwrap_or_else(|_| PathBuf::from("exports"));
         Self { open: false, settings: ExportSettings::default(), template: 0, folder: folder.display().to_string() }
     }
@@ -46,7 +49,12 @@ const PROJECT_FILTER: (&str, &[&str]) = ("SubCraft project", &[subcraft_app::PRO
 pub fn save(state: &mut UiState, save_as: bool, now: f64) -> bool {
     let path = if save_as || state.session.project_path().is_none() {
         let name = format!("{}.{}", state.session.export_name(), subcraft_app::PROJECT_EXTENSION);
-        match rfd::FileDialog::new().add_filter(PROJECT_FILTER.0, PROJECT_FILTER.1).set_file_name(name).save_file() {
+        // In the browser there is no save dialog: the project is downloaded under its name.
+        #[cfg(target_arch = "wasm32")]
+        let picked = Some(std::path::Path::new(crate::files::DOWNLOADS).join(name));
+        #[cfg(not(target_arch = "wasm32"))]
+        let picked = rfd::FileDialog::new().add_filter(PROJECT_FILTER.0, PROJECT_FILTER.1).set_file_name(name).save_file();
+        match picked {
             Some(mut p) => {
                 if p.extension().is_none() {
                     p.set_extension(subcraft_app::PROJECT_EXTENSION);
@@ -71,26 +79,13 @@ pub fn save(state: &mut UiState, save_as: bool, now: f64) -> bool {
 }
 
 /// Run an action that replaces the session (after any unsaved-changes prompt).
-pub fn run_pending(state: &mut UiState, action: Pending, ctx: &egui::Context, now: f64) {
+pub fn run_pending(state: &mut UiState, action: Pending, ctx: &egui::Context, _now: f64) {
     match action {
         Pending::Close => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
         Pending::NewSample => state.set_session(Session::sample()),
-        Pending::OpenMesh => {
-            if let Some(path) = rfd::FileDialog::new().add_filter("Meshes", &subcraft_mesh::SUPPORTED_EXTENSIONS).pick_file() {
-                match Session::open_mesh(&path, subcraft_app::DEFAULT_RESOLUTION) {
-                    Ok((s, _)) => {
-                        state.set_session(s);
-                        state.set_status(format!("Opened {}", path.display()), now);
-                    }
-                    Err(e) => state.set_status(format!("Could not open mesh: {e}"), now),
-                }
-            }
-        }
-        Pending::OpenProject => {
-            if let Some(path) = rfd::FileDialog::new().add_filter(PROJECT_FILTER.0, PROJECT_FILTER.1).pick_file() {
-                open_project(state, &path, now);
-            }
-        }
+        // In the browser a .gltf can come with its .bin, so meshes allow several files.
+        Pending::OpenMesh => crate::files::pick(ctx, crate::files::Purpose::OpenMesh, crate::files::MESHES, cfg!(target_arch = "wasm32"), None),
+        Pending::OpenProject => crate::files::pick(ctx, crate::files::Purpose::OpenProject, PROJECT_FILTER, false, None),
     }
 }
 
@@ -147,16 +142,25 @@ pub fn export_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
     egui::Window::new(window_title("Export Textures")).open(&mut open).collapsible(false).default_width(480.0).show(ctx, |ui| {
         let ex = &mut state.export;
         egui::Grid::new("export_grid").num_columns(2).spacing([16.0, 10.0]).show(ui, |ui| {
-            ui.label(dim("Folder"));
-            ui.horizontal(|ui| {
-                ui.add(egui::TextEdit::singleline(&mut ex.folder).desired_width(300.0));
-                if ui.button("Browse…").clicked()
-                    && let Some(p) = rfd::FileDialog::new().set_directory(&ex.folder).pick_folder()
-                {
-                    ex.folder = p.display().to_string();
-                }
-            });
-            ui.end_row();
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                ui.label(dim("Folder"));
+                ui.horizontal(|ui| {
+                    ui.add(egui::TextEdit::singleline(&mut ex.folder).desired_width(300.0));
+                    if ui.button("Browse…").clicked()
+                        && let Some(p) = rfd::FileDialog::new().set_directory(&ex.folder).pick_folder()
+                    {
+                        ex.folder = p.display().to_string();
+                    }
+                });
+                ui.end_row();
+            }
+            #[cfg(target_arch = "wasm32")]
+            {
+                ui.label(dim("Files"));
+                ui.label(dim("Downloaded by your browser (it may ask to allow several downloads)."));
+                ui.end_row();
+            }
             ui.label(dim("Template"));
             egui::ComboBox::from_id_salt("template").selected_text(&templates[ex.template].name).show_ui(ui, |ui| {
                 for (i, t) in templates.iter().enumerate() {
@@ -222,7 +226,10 @@ pub fn export_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
         });
         if go.inner {
             match state.session.export_textures(&folder, &settings) {
+                #[cfg(not(target_arch = "wasm32"))]
                 Ok(files) => state.set_status(format!("Exported {} files to {}", files.len(), folder.display()), now),
+                #[cfg(target_arch = "wasm32")]
+                Ok(files) => state.set_status(format!("Downloaded {} files", files.len()), now),
                 Err(e) => state.set_status(format!("Export failed: {e}"), now),
             }
         }
@@ -302,10 +309,8 @@ pub fn bake_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
                 ui.label(dim("High poly"));
                 ui.horizontal(|ui| {
                     ui.add(egui::TextEdit::singleline(&mut b.high_poly).hint_text("optional (none = low on low)").desired_width(220.0));
-                    if ui.button("Browse…").clicked()
-                        && let Some(p) = rfd::FileDialog::new().add_filter("Meshes", &subcraft_mesh::SUPPORTED_EXTENSIONS).pick_file()
-                    {
-                        b.high_poly = p.display().to_string();
+                    if ui.button("Browse…").clicked() {
+                        crate::files::pick(ui.ctx(), crate::files::Purpose::BakeHighPoly, crate::files::MESHES, cfg!(target_arch = "wasm32"), None);
                     }
                     if !b.high_poly.is_empty() && crate::widgets::icon_button(ui, crate::icons::X, "Clear").clicked() {
                         b.high_poly.clear();

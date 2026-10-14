@@ -9,6 +9,8 @@ pub mod color;
 pub mod ids;
 pub mod meshmap;
 pub mod rect;
+pub mod task;
+pub mod vfs;
 
 pub use glam;
 pub use half::f16;

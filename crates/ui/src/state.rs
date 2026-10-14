@@ -154,7 +154,7 @@ impl UiState {
         let files = lib.list(UserAssetKind::Environment);
         if !files.is_empty() {
             let (tx, rx) = std::sync::mpsc::channel();
-            std::thread::spawn(move || {
+            subcraft_core::task::spawn(move || {
                 for f in files {
                     if tx.send(subcraft_app::assets::user_library::load_environment(&f)).is_err() {
                         break;

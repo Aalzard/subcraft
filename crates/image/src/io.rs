@@ -14,12 +14,8 @@ pub enum ImageIoError {
 
 /// Load any supported image file as an encoded-value bitmap.
 pub fn load_bitmap(path: &Path) -> Result<Bitmap, ImageIoError> {
-    let img = image::ImageReader::open(path)
-        .map_err(image::ImageError::IoError)?
-        .with_guessed_format()
-        .map_err(image::ImageError::IoError)?
-        .decode()?;
-    Ok(from_dynamic(img))
+    let bytes = subcraft_core::vfs::read(path).map_err(image::ImageError::IoError)?;
+    decode_bitmap(&bytes, path.file_name().and_then(|n| n.to_str()))
 }
 
 /// Decode an in-memory image file. The format is detected from the content; `name` (a file
@@ -163,7 +159,14 @@ pub fn save_image(
     data: &[f32],
     format: FileFormat,
 ) -> Result<(), ImageIoError> {
+    let bytes = encode_image(width, height, comps, data, format)?;
+    subcraft_core::vfs::write(path, &bytes).map_err(|e| ImageIoError::Image(image::ImageError::IoError(e)))
+}
+
+/// Encode `data` like [`save_image`] into an in-memory file.
+pub fn encode_image(width: u32, height: u32, comps: usize, data: &[f32], format: FileFormat) -> Result<Vec<u8>, ImageIoError> {
     assert_eq!(data.len(), (width * height) as usize * comps);
+    let mut out = std::io::Cursor::new(Vec::new());
     let q8 = |v: f32| (v.clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
     let q16 = |v: f32| (v.clamp(0.0, 1.0) * 65535.0 + 0.5) as u16;
     match format {
@@ -171,7 +174,7 @@ pub fn save_image(
             let bytes: Vec<u8> = data.iter().map(|&v| q8(v)).collect();
             let comps = if format == FileFormat::Jpeg && comps == 4 {
                 // JPEG has no alpha: drop it.
-                return save_image(path, width, height, 3, &drop_alpha(data), format);
+                return encode_image(width, height, 3, &drop_alpha(data), format);
             } else {
                 comps
             };
@@ -187,7 +190,7 @@ pub fn save_image(
                 FileFormat::Tga8 => image::ImageFormat::Tga,
                 _ => image::ImageFormat::Jpeg,
             };
-            image::save_buffer_with_format(path, &bytes, width, height, color, fmt)?;
+            image::write_buffer_with_format(&mut out, &bytes, width, height, color, fmt)?;
         }
         FileFormat::Png16 => {
             let words: Vec<u16> = data.iter().map(|&v| q16(v)).collect();
@@ -206,7 +209,7 @@ pub fn save_image(
                 ),
                 n => return Err(ImageIoError::Unsupported(format!("{n} components"))),
             };
-            img.save_with_format(path, image::ImageFormat::Png)?;
+            img.write_to(&mut out, image::ImageFormat::Png)?;
         }
         FileFormat::Exr32 => {
             // EXR via the image crate takes RGB/RGBA float.
@@ -218,10 +221,10 @@ pub fn save_image(
             };
             let img: image::Rgba32FImage =
                 image::ImageBuffer::from_raw(width, height, rgba).expect("size checked");
-            image::DynamicImage::ImageRgba32F(img).save_with_format(path, image::ImageFormat::OpenExr)?;
+            image::DynamicImage::ImageRgba32F(img).write_to(&mut out, image::ImageFormat::OpenExr)?;
         }
     }
-    Ok(())
+    Ok(out.into_inner())
 }
 
 fn drop_alpha(data: &[f32]) -> Vec<f32> {

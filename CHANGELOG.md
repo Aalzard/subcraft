@@ -3,6 +3,16 @@
 What changed in SubCraft, newest first. Download the latest build from the
 [Releases page](https://github.com/Aalzard/subcraft/releases/latest).
 
+## Unreleased
+
+### New
+- **Web version**: use SubCraft in the browser at https://aalzard.github.io/subcraft/ (needs
+  WebGPU). Open uploads files, Save and Export download them. FBX is desktop only, and big
+  operations are slower than in the desktop app.
+
+### Changed
+- Shelf thumbnails no longer pause the app while they render.
+
 ## 0.1.2
 
 ### New
