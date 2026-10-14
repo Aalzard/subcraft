@@ -85,8 +85,8 @@ pub fn encode_bitmap(b: &Bitmap) -> Result<(Vec<u8>, &'static str), ImageIoError
         BitmapData::F32(v) => {
             let rgba: Vec<f32> = match b.channels {
                 1 => v.iter().flat_map(|&x| [x, x, x, 1.0]).collect(),
-                2 => v.chunks_exact(2).flat_map(|p| [p[0], p[0], p[0], p[1]]).collect(),
-                3 => v.chunks_exact(3).flat_map(|p| [p[0], p[1], p[2], 1.0]).collect(),
+                2 => v.as_chunks::<2>().0.iter().flat_map(|p| [p[0], p[0], p[0], p[1]]).collect(),
+                3 => v.as_chunks::<3>().0.iter().flat_map(|p| [p[0], p[1], p[2], 1.0]).collect(),
                 _ => v.clone(),
             };
             let img = D::ImageRgba32F(image::ImageBuffer::from_raw(w, h, rgba).ok_or_else(bad)?);
