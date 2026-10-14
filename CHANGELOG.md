@@ -3,7 +3,7 @@
 What changed in SubCraft, newest first. Download the latest build from the
 [Releases page](https://github.com/Aalzard/subcraft/releases/latest).
 
-## Unreleased
+## 0.1.2
 
 ### New
 - **Parts**: show a layer only on some pieces of the model, like an axe's blade. Properties →
@@ -11,11 +11,15 @@ What changed in SubCraft, newest first. Download the latest build from the
   under the cursor lights up). Painting, fills, smart materials and export all respect it, and it
   is saved in the project. Parts are the separate (unconnected) pieces of the mesh.
 
+### Changed
+- **New app icon**: an engraved hand on orange, used for the program, the window and taskbar, the
+  installer and the Linux menu entry.
+
 ## 0.1.1
 
 ### New
 - **Textures in the shelf**: Shelf → Textures lists every image you imported (or put in
-  `Library	extures`), sorted into Base Color / Normal / Roughness… by file name. Drag one onto a
+  `Library\textures`), sorted into Base Color / Normal / Roughness… by file name. Drag one onto a
   channel row in Properties to use it there, or onto the model / a layer for a new fill layer.
 - **Tiling X / Y and offset**: fill projections tile and shift on each axis separately (Link keeps
   them equal), with a reset button.
