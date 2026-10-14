@@ -112,7 +112,6 @@ impl UiState {
             brush_presets: Vec::new(),
             preset_name: String::new(),
         }
-        .with_user_library(UserLibrary::default_root().map(UserLibrary::new))
     }
 
     /// Add the library's alphas now and start loading its HDRIs in the background.

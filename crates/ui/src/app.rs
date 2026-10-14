@@ -122,7 +122,8 @@ impl SubcraftApp {
             },
             None => Session::sample(),
         };
-        let mut state = UiState::new(session, cc.wgpu_render_state.clone());
+        let mut state = UiState::new(session, cc.wgpu_render_state.clone())
+            .with_user_library(subcraft_app::assets::UserLibrary::default_root().map(subcraft_app::assets::UserLibrary::new));
         if let Some(s) = status {
             state.set_status(s, 0.0);
         }

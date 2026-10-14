@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-10-14 (session 18: brush presets)
+Last updated: 2026-10-14 (session 19: shelf drag and drop)
 
 ## Decisions
 
@@ -346,6 +346,22 @@ In the cloud container (no GPU) the app ran on lavapipe/llvmpipe (Vulkan) under 
 * Verified in the real app: Splatter at 18 % saved as "Big Splatter", switched to Round 5 %,
   clicking the preset restored Splatter 18 % (`docs/screenshots/brush-presets.png`).
 
+### Session 19 — drag and drop from the shelf (roadmap 2, part 5)
+
+* Materials, smart materials and smart masks can be **dragged** from the shelf (a floating label
+  follows the cursor). Drop targets highlight while hovered:
+  * **3D view**: applies to the texture set under the cursor (dropping on the crate's posts
+    switches to Trim first); a drop on the background uses the selected texture set.
+  * **Layer row**: materials / smart materials land above that layer; smart masks go onto it.
+  Clicks still work as before; both go through one `shelf::apply_shelf_item`.
+* `UiState::new` no longer reads the user's Documents library itself; the app calls
+  `with_user_library` at startup (keeps UI tests independent of the machine's files).
+* Tests (3 new, 193 total): drop/click routing for materials, smart materials, smart masks and
+  out-of-range items (`crates/ui/tests/shelf_drop.rs`).
+* Verified in the real app with real mouse drags: Plastic Glossy Red dropped on a post →
+  applied to the Trim set (`docs/screenshots/shelf-drag.png`, `shelf-drop-trim.png`); Edge Wear
+  dropped on the Layer 1 row → masked that layer, one history entry (`shelf-drop-layer.png`).
+
 CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraft-mesh -p subcraft-doc -p subcraft-materials -p subcraft-compositor -p subcraft-paint`
 
 ### Deviations from the brief (sound-engineering choices)
@@ -383,7 +399,7 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
      export maps with the free Adobe Substance 3D Player and import them as a texture set.
 2. User asset library on disk: ~~persist imported alphas + HDRIs~~ (session 15); ~~save custom smart
    materials / masks~~ (session 16); ~~shelf search and categories~~ (session 17);
-   ~~brush presets~~ (session 18); next: drag-and-drop from shelf.
+   ~~brush presets~~ (session 18), ~~drag-and-drop from shelf~~ (session 19).
 3. Stencils / projection painting with an image; clone tool; smudge / blur filter layers.
 4. Bake follow-ups: per-material high-poly matching by name, cage mesh support, anti-aliased
    (supersampled) bakes, GPU baking for large meshes.

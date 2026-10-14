@@ -48,6 +48,18 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
 
     let camera = state.camera.paint_camera(size);
 
+    // ----- drops from the shelf: apply to the texture set under the cursor --------------------
+    if let Some(item) = response.dnd_release_payload::<crate::panels::shelf::ShelfDrag>() {
+        if let Some(p) = pointer
+            && let Some(pick) = state.session.pick(&camera, to_screen(p))
+            && let Some(ts) = state.session.document().texture_set_for_slot(pick.material_slot).map(|t| t.id)
+        {
+            let _ = state.session.execute(subcraft_app::Command::SelectTextureSet(ts));
+        }
+        crate::panels::shelf::apply_shelf_item(state, *item, now);
+    }
+    let drop_hover = response.dnd_hover_payload::<crate::panels::shelf::ShelfDrag>().is_some();
+
     // ----- painting ----------------------------------------------------------------------------
     let paint_tool = matches!(state.tool, Tool::Brush | Tool::Eraser);
     if primary_pressed && response.hovered() && !alt {
@@ -146,6 +158,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             painter.circle_filled(p, 3.0, ACCENT);
         }
         ui.ctx().set_cursor_icon(if alt { egui::CursorIcon::Move } else { egui::CursorIcon::Crosshair });
+    }
+    if drop_hover {
+        painter.rect_stroke(rect.shrink(1.0), 0.0, Stroke::new(2.0, ACCENT), egui::StrokeKind::Inside);
     }
     let hint = "LMB paint  ·  Shift+LMB line  ·  Alt+LMB / RMB orbit  ·  MMB pan  ·  Wheel zoom  ·  [ ] size";
     pill(&painter, rect.left_bottom() + egui::vec2(10.0, -10.0), egui::Align2::LEFT_BOTTOM, hint, theme::TEXT_FAINT);

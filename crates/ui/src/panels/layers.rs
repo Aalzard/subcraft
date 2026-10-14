@@ -106,6 +106,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
 
     let ts = state.session.selected_texture_set();
     let mut save_request: Option<(subcraft_core::LayerId, bool)> = None;
+    let mut drop_request: Option<(subcraft_core::LayerId, crate::panels::shelf::ShelfDrag)> = None;
     let mut list = Vec::new();
     rows(&ts.layers, 0, &mut list);
     egui::ScrollArea::vertical().id_salt("layer_rows").auto_shrink([false, false]).show(ui, |ui| {
@@ -145,6 +146,14 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             if resp.clicked() {
                 cmds.push(Command::SelectLayer(Some(l.id)));
             }
+            if let Some(item) = resp.dnd_release_payload::<crate::panels::shelf::ShelfDrag>() {
+                drop_request = Some((l.id, *item));
+            }
+            if resp.dnd_hover_payload::<crate::panels::shelf::ShelfDrag>().is_some() {
+                // Materials land above the row; smart masks go onto the row's layer.
+                let r = resp.rect;
+                ui.painter().rect_stroke(r, 0.0, egui::Stroke::new(1.5, ACCENT), egui::StrokeKind::Inside);
+            }
             let has_effects = l.mask.as_ref().is_some_and(|m| !m.effects.is_empty());
             resp.context_menu(|ui| {
                 if ui.button(format!("{}  Save as smart material", icons::SAVE)).clicked() {
@@ -168,6 +177,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         }
     });
     state.run(cmds, now);
+    if let Some((layer, item)) = drop_request {
+        state.run(vec![Command::SelectLayer(Some(layer))], now);
+        crate::panels::shelf::apply_shelf_item(state, item, now);
+    }
     if let Some((layer, mask)) = save_request {
         save_to_library(state, layer, mask, now);
     }
