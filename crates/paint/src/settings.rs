@@ -22,6 +22,7 @@ pub enum Alignment {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct BrushSettings {
     /// Brush diameter in percent of the mesh bounding-box diagonal (object space).
     pub size: f32,
@@ -106,10 +107,17 @@ pub struct BrushChannel {
 
 /// What a paint stroke deposits per channel; masks receive `mask_value`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct BrushMaterial {
     pub channels: BTreeMap<ChannelKind, BrushChannel>,
     /// Grayscale painted into mask rasters.
     pub mask_value: f32,
+}
+
+impl Default for BrushMaterial {
+    fn default() -> Self {
+        Self { channels: BTreeMap::new(), mask_value: 1.0 }
+    }
 }
 
 impl BrushMaterial {
@@ -138,6 +146,7 @@ impl BrushMaterial {
 
 /// Stroke-level options that shape the stamp path rather than the footprint.
 #[derive(Clone, Copy, Debug, PartialEq, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct StrokeOptions {
     /// Lazy mouse: the brush trails the cursor by this many pixels (0 = off).
     pub lazy_distance_px: f32,

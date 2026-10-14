@@ -371,6 +371,33 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     }
                 }
                 ShelfTab::Brushes => {
+                    for (i, p) in state.brush_presets.iter().enumerate() {
+                        if !filter.matches(&p.name, Some("preset"), true) {
+                            continue;
+                        }
+                        shown += 1;
+                        let tip_id = state.library.alphas.iter().find(|a| Some(&a.name) == p.tip.as_ref() || (p.tip.is_none() && a.bitmap.is_none())).map(|a| a.id);
+                        let thumb = tip_id.and_then(|id| thumbs.get(&id));
+                        let resp = tile(ui, thumb, &p.name, false, "Brush preset: tip, size, flow, jitter and material (right-click for options)");
+                        if let Some(file) = &p.user_file
+                            && library_menu(&resp, state.user_library.as_ref(), file, &mut lib_status)
+                        {
+                            action = Some(Box::new(move |s: &mut UiState| {
+                                s.brush_presets.remove(i);
+                            }));
+                        }
+                        if resp.clicked() {
+                            action = Some(Box::new(move |s: &mut UiState| {
+                                let p = s.brush_presets[i].clone();
+                                if let Some(msg) = s.session.apply_brush_preset(&p, &s.library.alphas) {
+                                    s.set_status(msg, now);
+                                }
+                                if s.tool == crate::state::Tool::PolygonFill {
+                                    s.tool = crate::state::Tool::Brush;
+                                }
+                            }));
+                        }
+                    }
                     let current = state.session.brush.alpha_name.clone();
                     for (i, a) in state.library.alphas.iter().enumerate() {
                         if !filter.matches(&a.name, None, a.user_file.is_some()) {

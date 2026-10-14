@@ -66,6 +66,10 @@ pub struct UiState {
     pub user_library: Option<UserLibrary>,
     /// Library HDRIs still being prefiltered on a background thread.
     pub env_loader: Option<std::sync::mpsc::Receiver<Result<subcraft_app::assets::Environment, String>>>,
+    /// Brush presets from the user library.
+    pub brush_presets: Vec<subcraft_app::brush_preset::BrushPreset>,
+    /// Name typed for the next "Save preset".
+    pub preset_name: String,
 }
 
 impl UiState {
@@ -105,6 +109,8 @@ impl UiState {
             image_thumbs: HashMap::new(),
             user_library: None,
             env_loader: None,
+            brush_presets: Vec::new(),
+            preset_name: String::new(),
         }
         .with_user_library(UserLibrary::default_root().map(UserLibrary::new))
     }
@@ -127,6 +133,11 @@ impl UiState {
             log::warn!("library smart mask skipped: {e}");
         }
         self.library.smart_masks.extend(masks);
+        let (presets, errors) = subcraft_app::brush_preset::load_brush_presets(&lib);
+        for e in errors {
+            log::warn!("library brush preset skipped: {e}");
+        }
+        self.brush_presets = presets;
         let files = lib.list(UserAssetKind::Environment);
         if !files.is_empty() {
             let (tx, rx) = std::sync::mpsc::channel();
