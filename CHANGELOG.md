@@ -3,7 +3,7 @@
 What changed in SubCraft, newest first. Download the latest build from the
 [Releases page](https://github.com/Aalzard/subcraft/releases/latest).
 
-## Unreleased
+## 0.1.1
 
 ### New
 - **Textures in the shelf**: Shelf → Textures lists every image you imported (or put in
