@@ -16,17 +16,26 @@ smart materials, bake mesh maps, and export game-ready textures.
 
 ## Features
 
-- **Layer stack**: paint layers, fill layers (uniform, procedural, mesh-map sources) and folders, with
-  32 blend modes and opacity per channel.
+- **Layer stack**: paint layers, fill layers (uniform, procedural, image and mesh-map sources) and
+  folders, with 32 blend modes and opacity per channel. Right-click a layer to duplicate, delete or
+  save it to your library.
 - **PBR channels**: base color, roughness, metallic, normal, height (shown as bumps), ambient occlusion.
+- **Your own textures**: use any image (PNG, JPG, TGA, TIF, EXR…) in a fill layer with UV, tri-planar or
+  planar projection, or **import a whole texture set** (base color, roughness, normal, height…) as one
+  material: files are matched by name, glossiness and DirectX normals are converted automatically.
+  Images are stored inside the project, so it stays portable.
 - **Masks**: paintable masks with stacked effects: Edges (curvature), Cavity (AO), Directional,
-  Position gradient, noise fills, Levels and Invert.
-- **Painting**: brush and eraser on the 3D model with tips (alphas), symmetry, lazy mouse, jitter and
-  polygon fill (triangle, mesh part, UV island).
+  Position gradient, noise fills, **images** (e.g. a logo), Levels and Invert.
+- **Painting**: brush and eraser on the 3D model with tips (alphas), symmetry, lazy mouse, jitter,
+  **stencils** (paint through an image laid over the view) and polygon fill (triangle, mesh part,
+  UV island). Save your brush setups as **presets**.
 - **Baking**: normal (from an optional high poly through a cage), world-space normal, AO, curvature,
   thickness, position and ID maps, on the CPU in the background.
 - **Shelf**: built-in materials, smart materials (Worn Painted Metal, Rusty Iron, Old Wood…),
-  smart masks, brush tips and lighting environments (including HDRI import).
+  smart masks, brush tips and lighting environments (including HDRI import). Search and filter by
+  category, and **drag** items onto the model or a layer.
+- **Your library**: imported tips and HDRIs, your saved smart materials, smart masks and brush presets
+  live in `Documents\SubCraft\Library` and are back every time you start SubCraft.
 - **Viewport**: real-time PBR preview with studio or HDRI lighting, plus a 2D UV view of every channel
   and baked map.
 - **Projects and export**: `.subcraft` project files; export templates for PBR metal/rough, Unreal
@@ -75,6 +84,9 @@ On Linux you may need the usual windowing libraries (for example on Debian / Ubu
 | Pan | Middle mouse |
 | Zoom | Mouse wheel, or Alt + right mouse |
 | Brush size | `[` and `]` |
+| Move / rotate / scale stencil | Hold S + middle / left / right mouse |
+| Paint without the stencil | Hold N |
+| Apply a shelf item | Click it, or drag it onto the model or a layer |
 | Bake mesh maps | Ctrl + B |
 | Export textures | Ctrl + Shift + E |
 | Undo / redo | Ctrl + Z / Ctrl + Y |
