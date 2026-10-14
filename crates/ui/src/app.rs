@@ -626,13 +626,13 @@ fn build_demo(state: &mut UiState) {
         low: ChannelValue::rgb(0.18, 0.09, 0.04),
         high: ChannelValue::rgb(0.45, 0.25, 0.11),
     };
-    run(s, Command::SetFillChannel { layer: base, channel: ChannelKind::BaseColor, fill: FillChannel { enabled: true, source: wood } });
+    run(s, Command::SetFillChannel { layer: base, channel: ChannelKind::BaseColor, fill: FillChannel::new(wood) });
     let rough = FillSource::Procedural {
         params: ProceduralParams { scale: 8.0, ..ProceduralParams::new(ProceduralKind::Grunge) },
         low: ChannelValue::scalar(0.45),
         high: ChannelValue::scalar(0.8),
     };
-    run(s, Command::SetFillChannel { layer: base, channel: ChannelKind::Roughness, fill: FillChannel { enabled: true, source: rough } });
+    run(s, Command::SetFillChannel { layer: base, channel: ChannelKind::Roughness, fill: FillChannel::new(rough) });
     run(s, Command::Rename { layer: base, name: "Wood".into() });
     // Moss on top-facing surfaces.
     run(s, Command::SelectLayer(Some(paint)));
@@ -644,8 +644,8 @@ fn build_demo(state: &mut UiState) {
         low: ChannelValue::rgb(0.06, 0.12, 0.03),
         high: ChannelValue::rgb(0.2, 0.35, 0.08),
     };
-    run(s, Command::SetFillChannel { layer: moss, channel: ChannelKind::BaseColor, fill: FillChannel { enabled: true, source: moss_color } });
-    run(s, Command::SetFillChannel { layer: moss, channel: ChannelKind::Roughness, fill: FillChannel { enabled: true, source: FillSource::uniform(ChannelValue::scalar(0.9)) } });
+    run(s, Command::SetFillChannel { layer: moss, channel: ChannelKind::BaseColor, fill: FillChannel::new(moss_color) });
+    run(s, Command::SetFillChannel { layer: moss, channel: ChannelKind::Roughness, fill: FillChannel::new(FillSource::uniform(ChannelValue::scalar(0.9))) });
     if let Some(LayerContent::Fill(f)) = s.selected_layer().map(|l| l.content.clone()) {
         for (k, ch) in f.channels {
             if !matches!(k, ChannelKind::BaseColor | ChannelKind::Roughness) && ch.enabled {

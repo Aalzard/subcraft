@@ -572,7 +572,7 @@ fn generate_one_thumbnail(state: &mut UiState, ctx: &egui::Context) {
             let ts = scene.texture_set();
             let mut l = Layer::new_fill("Chrome", ts);
             if let LayerContent::Fill(f) = &mut l.content {
-                let set = |k| FillChannel { enabled: true, source: FillSource::uniform(k) };
+                let set = |k| FillChannel::new(FillSource::uniform(k));
                 f.channels.insert(ChannelKind::BaseColor, set(ChannelValue::rgb(0.9, 0.9, 0.9)));
                 f.channels.insert(ChannelKind::Metallic, set(ChannelValue::scalar(1.0)));
                 f.channels.insert(ChannelKind::Roughness, set(ChannelValue::scalar(0.12)));
@@ -615,7 +615,7 @@ fn mask_preview_layer(ts: &subcraft_doc::TextureSet, effects: &[subcraft_doc::Ma
         for c in f.channels.values_mut() {
             c.enabled = false;
         }
-        f.channels.insert(ChannelKind::BaseColor, FillChannel { enabled: true, source: FillSource::uniform(ChannelValue::rgb(0.95, 0.55, 0.2)) });
+        f.channels.insert(ChannelKind::BaseColor, FillChannel::new(FillSource::uniform(ChannelValue::rgb(0.95, 0.55, 0.2))));
     }
     let mut mask = Mask::new(ts.resolution, false);
     mask.effects = effects.iter().cloned().map(|k| Arc::new(MaskEffect::new(k))).collect();

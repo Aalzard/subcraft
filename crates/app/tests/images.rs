@@ -34,7 +34,7 @@ fn session_with_image_fill(image: &std::path::Path) -> (Session, subcraft_core::
     s.execute(Command::AddLayer(NewLayer::Fill)).unwrap();
     let layer = s.selected_layer().unwrap().id;
     for ch in [ChannelKind::BaseColor, ChannelKind::Roughness] {
-        let fill = FillChannel { enabled: true, source: FillSource::Bitmap { resource: res } };
+        let fill = FillChannel::new(FillSource::Bitmap { resource: res });
         s.execute(Command::SetFillChannel { layer, channel: ch, fill }).unwrap();
     }
     s.update_composites();

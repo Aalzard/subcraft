@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use egui::{RichText, Ui};
 use subcraft_app::Command;
-use subcraft_core::{ChannelValue, MeshMapKind};
+use subcraft_core::{ChannelKind, ChannelValue, MeshMapKind};
 use subcraft_doc::{
     FillChannel, FillSource, Generator, GeneratorKind, LayerContent, Levels, MaskEffect, MaskEffectKind, ProceduralKind,
     ProceduralParams, Projection, ProjectionMode,
@@ -80,7 +80,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
 
                 section(ui, "channels", "Channels", true, |ui| {
                 for kind in &channels {
-                    let mut ch = f.channels.get(kind).cloned().unwrap_or(FillChannel { enabled: false, source: FillSource::uniform(kind.default_paint_value()) });
+                    let mut ch = f.channels.get(kind).cloned().unwrap_or(FillChannel::disabled(FillSource::uniform(kind.default_paint_value())));
                     let mut changed = false;
                     let mut pick_image = false;
                     egui::Frame::new().fill(BG_2).inner_margin(egui::Margin::symmetric(10, 8)).show(ui, |ui| {
@@ -163,6 +163,18 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                                 });
                             }
                         }
+                    }
+                    if ch.enabled {
+                        // How strongly this channel's result applies (bump, normal tilt, value).
+                        let (label, range, tip) = match kind {
+                            ChannelKind::Height => ("Strength", 0.0..=4.0, "Bump strength (0 = flat)"),
+                            ChannelKind::Normal => ("Strength", 0.0..=4.0, "Normal map strength (0 = flat)"),
+                            ChannelKind::BaseColor => ("Brightness", 0.0..=2.0, "Multiplies the color"),
+                            ChannelKind::Emissive => ("Intensity", 0.0..=10.0, "Glow intensity"),
+                            _ => ("Strength", 0.0..=2.0, "Multiplies the value"),
+                        };
+                        let r = slider_row(ui, label, egui::Slider::new(&mut ch.strength, range).max_decimals(2));
+                        changed |= r.on_hover_text(tip).changed();
                     }
                     if pick_image && let Some(resource) = choose_image(state, now) {
                         ch.source = FillSource::Bitmap { resource };

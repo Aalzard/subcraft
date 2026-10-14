@@ -87,6 +87,7 @@ fn apply_layer(layer: &Layer, accs: &mut [Acc], active: &[bool], tc: &TileContex
             for (acc, _) in accs.iter_mut().zip(&live).filter(|(_, l)| **l) {
                 let Some(ch) = fill.channels.get(&acc.kind).filter(|c| c.enabled) else { continue };
                 eval_fill_tile(&ch.source, acc.kind.is_color(), &fill.projection, tc.geo, &tc.sample, &mut content);
+                crate::strength::apply_strength(acc.kind, ch.strength, &mut content);
                 if acc.kind.components() == 1 {
                     for px in content.iter_mut() {
                         *px = [px[0], px[0], px[0], px[3]];

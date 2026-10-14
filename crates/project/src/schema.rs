@@ -90,6 +90,13 @@ pub struct FillChannelV1 {
     pub channel: ChannelKind,
     pub enabled: bool,
     pub source: FillSource,
+    /// Added after schema 2 shipped; older files have none and mean 1.0. Older readers ignore it.
+    #[serde(default = "one")]
+    pub strength: f32,
+}
+
+fn one() -> f32 {
+    1.0
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

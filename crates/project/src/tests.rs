@@ -20,12 +20,12 @@ fn rich_document() -> Document {
         f.channels.insert(
             ChannelKind::BaseColor,
             FillChannel {
-                enabled: true,
-                source: FillSource::Procedural {
+                strength: 0.6,
+                ..FillChannel::new(FillSource::Procedural {
                     params: ProceduralParams::new(ProceduralKind::Cells),
                     low: ChannelValue::rgb(0.1, 0.2, 0.3),
                     high: ChannelValue::rgb(0.9, 0.8, 0.7),
-                },
+                })
             },
         );
         f.projection.mode = subcraft_doc::ProjectionMode::Triplanar;

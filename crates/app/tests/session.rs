@@ -72,7 +72,7 @@ fn layer_edits_and_errors() {
     let l = s.selected_texture_set().find(base).unwrap();
     assert_eq!((l.name.as_str(), l.visible, l.blend_for(ChannelKind::BaseColor).mode), ("Dirt", false, BlendMode::Multiply));
     assert_eq!(
-        s.execute(Command::SetFillChannel { layer: base, channel: ChannelKind::Roughness, fill: FillChannel { enabled: true, source: FillSource::uniform(ChannelValue::scalar(0.1)) } }),
+        s.execute(Command::SetFillChannel { layer: base, channel: ChannelKind::Roughness, fill: FillChannel::new(FillSource::uniform(ChannelValue::scalar(0.1))) }),
         Err(CommandError::NotAFillLayer)
     );
     s.execute(Command::AddMask { layer: base, white: false }).unwrap();
@@ -212,7 +212,7 @@ fn background_bake_feeds_smart_mask_generators_and_survives_save() {
     s.execute(Command::SetFillChannel {
         layer: fill,
         channel: ChannelKind::BaseColor,
-        fill: FillChannel { enabled: true, source: FillSource::uniform(ChannelValue::rgb(1.0, 1.0, 1.0)) },
+        fill: FillChannel::new(FillSource::uniform(ChannelValue::rgb(1.0, 1.0, 1.0))),
     })
     .unwrap();
     s.execute(Command::AddMask { layer: fill, white: false }).unwrap();
