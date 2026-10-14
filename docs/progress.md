@@ -158,6 +158,17 @@ In the cloud container (no GPU) the app ran on lavapipe/llvmpipe (Vulkan) under 
   fonts (and that a dropped glyph is really absent). Screenshot `docs/screenshots/ui-redesign.png`;
   also clicked through fill-layer properties with mask effects, Brush tab, 2D view, Bake and Export.
 
+### Session 9 — ready to go public
+
+* License: dual MIT OR Apache-2.0 (`LICENSE-MIT`, `LICENSE-APACHE`, workspace `license` field),
+  replacing the proprietary marker. Bundled fonts keep their OFL / MIT licenses.
+* Added `README.md`, `CONTRIBUTING.md` (setup, architecture rules, PR checklist),
+  `CODE_OF_CONDUCT.md` (Contributor Covenant 2.1), issue / PR templates and CI
+  (`.github/workflows/ci.yml`: Linux full test suite on lavapipe; Windows build + engine tests).
+* Checked before publishing: no keys / tokens in the files or the git history.
+* Making the repository public is a GitHub setting the owner flips (Settings → General →
+  Danger Zone → Change visibility).
+
 CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraft-mesh -p subcraft-doc -p subcraft-materials -p subcraft-compositor -p subcraft-paint`
 
 ### Deviations from the brief (sound-engineering choices)
