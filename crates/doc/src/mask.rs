@@ -101,6 +101,9 @@ pub enum MaskEffectKind {
     Generator(Generator),
     Levels(Levels),
     Invert,
+    /// Grayscale from an imported image through a projection: the image's alpha if it has one
+    /// (a logo on a transparent background), else its brightness.
+    Image { resource: subcraft_core::ResourceId, projection: Projection, invert: bool },
 }
 
 impl MaskEffectKind {
@@ -111,6 +114,7 @@ impl MaskEffectKind {
             MaskEffectKind::Generator(g) => format!("Generator ({})", g.kind.label()),
             MaskEffectKind::Levels(_) => "Levels".into(),
             MaskEffectKind::Invert => "Invert".into(),
+            MaskEffectKind::Image { .. } => "Image".into(),
         }
     }
 }

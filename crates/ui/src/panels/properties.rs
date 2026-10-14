@@ -72,23 +72,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             LayerContent::Fill(f) => {
                 section(ui, "projection", "Projection", true, |ui| {
                     let mut proj = f.projection;
-                    let mut changed = false;
-                    prop_row(ui, "Mode", |ui| {
-                        changed |= segmented(ui, &mut proj.mode, &[(ProjectionMode::Uv, "UV"), (ProjectionMode::Triplanar, "Tri-planar"), (ProjectionMode::Planar, "Planar")]);
-                    });
-                    prop_row(ui, "Scale", |ui| {
-                        changed |= ui.add(egui::DragValue::new(&mut proj.scale[0]).speed(0.05).range(0.01..=256.0)).changed();
-                    });
-                    proj.scale[1] = proj.scale[0];
-                    changed |= slider_row(ui, "Rotation", egui::Slider::new(&mut proj.rotation_deg, -180.0..=180.0).suffix("°")).changed();
-                    if proj.mode == ProjectionMode::Triplanar {
-                        changed |= slider_row(ui, "Sharpness", egui::Slider::new(&mut proj.triplanar_sharpness, 1.0..=32.0)).changed();
-                    }
-                    if proj.mode == ProjectionMode::Planar {
-                        prop_row(ui, "Axis", |ui| {
-                            changed |= segmented(ui, &mut proj.planar_axis, &[(0u8, "X"), (1, "Y"), (2, "Z")]);
-                        });
-                    }
+                    let changed = projection_editor(ui, &mut proj);
                     if changed {
                         cmds.push(Command::SetFillProjection { layer: id, projection: proj });
                     }
@@ -245,10 +229,20 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         );
                         add(ui, "Levels", MaskEffectKind::Levels(Levels::default()));
                         add(ui, "Invert", MaskEffectKind::Invert);
+                        if ui.add(egui::Button::new(RichText::new(format!("{}  Image", icons::PLUS)).font(theme::font(12.0))))
+                            .on_hover_text("A black & white image or a logo with transparency")
+                            .clicked()
+                            && let Some(resource) = choose_image(state, now)
+                        {
+                            cmds.push(Command::AddMaskEffect {
+                                layer: id,
+                                kind: MaskEffectKind::Image { resource, projection: Projection::default(), invert: false },
+                            });
+                        }
                     });
                     ui.add_space(6.0);
                     for e in mask.effects.iter().rev() {
-                        effect_editor(ui, id, e, &mut cmds);
+                        effect_editor(ui, state, now, id, e, &mut cmds);
                     }
                 }
             },
@@ -258,7 +252,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     state.run(cmds, now);
 }
 
-fn effect_editor(ui: &mut Ui, layer: subcraft_core::LayerId, e: &Arc<MaskEffect>, cmds: &mut Vec<Command>) {
+fn effect_editor(ui: &mut Ui, state: &mut UiState, now: f64, layer: subcraft_core::LayerId, e: &Arc<MaskEffect>, cmds: &mut Vec<Command>) {
     let mut eff = (**e).clone();
     let mut changed = false;
     egui::Frame::new().fill(BG_2).inner_margin(egui::Margin::symmetric(10, 8)).show(ui, |ui| {
@@ -292,6 +286,17 @@ fn effect_editor(ui: &mut Ui, layer: subcraft_core::LayerId, e: &Arc<MaskEffect>
                     changed |= slider_row(ui, "In low", egui::Slider::new(&mut l.in_low, 0.0..=1.0)).changed();
                     changed |= slider_row(ui, "In high", egui::Slider::new(&mut l.in_high, 0.0..=1.0)).changed();
                     changed |= slider_row(ui, "Gamma", egui::Slider::new(&mut l.gamma, 0.1..=4.0)).changed();
+                }
+                MaskEffectKind::Image { resource, projection, invert } => {
+                    if image_row(ui, state, *resource)
+                        && let Some(r) = choose_image(state, now)
+                    {
+                        *resource = r;
+                        changed = true;
+                    }
+                    prop_row(ui, "", |ui| changed |= ui.checkbox(invert, "Invert").changed());
+                    changed |= projection_editor(ui, projection);
+                    hint(ui, "Uses the image's transparency if it has any, otherwise its brightness.");
                 }
                 _ => {}
             }
@@ -342,4 +347,26 @@ fn image_row(ui: &mut Ui, state: &mut UiState, resource: subcraft_core::Resource
         });
     });
     clicked
+}
+
+/// Mode / scale / rotation (+ sharpness or axis) editor shared by fill layers and image masks.
+fn projection_editor(ui: &mut Ui, proj: &mut Projection) -> bool {
+    let mut changed = false;
+    prop_row(ui, "Mode", |ui| {
+        changed |= segmented(ui, &mut proj.mode, &[(ProjectionMode::Uv, "UV"), (ProjectionMode::Triplanar, "Tri-planar"), (ProjectionMode::Planar, "Planar")]);
+    });
+    prop_row(ui, "Scale", |ui| {
+        changed |= ui.add(egui::DragValue::new(&mut proj.scale[0]).speed(0.05).range(0.01..=256.0)).changed();
+    });
+    proj.scale[1] = proj.scale[0];
+    changed |= slider_row(ui, "Rotation", egui::Slider::new(&mut proj.rotation_deg, -180.0..=180.0).suffix("°")).changed();
+    if proj.mode == ProjectionMode::Triplanar {
+        changed |= slider_row(ui, "Sharpness", egui::Slider::new(&mut proj.triplanar_sharpness, 1.0..=32.0)).changed();
+    }
+    if proj.mode == ProjectionMode::Planar {
+        prop_row(ui, "Axis", |ui| {
+            changed |= segmented(ui, &mut proj.planar_axis, &[(0u8, "X"), (1, "Y"), (2, "Z")]);
+        });
+    }
+    changed
 }

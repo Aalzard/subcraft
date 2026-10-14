@@ -7,7 +7,8 @@ use glam::Vec3;
 use subcraft_core::MeshMapKind;
 use subcraft_doc::{Generator, GeneratorKind, Mask, MaskEffectKind, Projection, ProjectionMode};
 use subcraft_image::TILE_TEXELS;
-use subcraft_materials::sample::eval_procedural;
+use subcraft_image::Wrap;
+use subcraft_materials::sample::{eval_procedural, sample_projected};
 
 use crate::TileContext;
 use crate::blend::{BlendTarget, composite};
@@ -43,6 +44,7 @@ pub fn eval_mask(mask: Option<&Mask>, tc: &TileContext) -> Option<Vec<f32>> {
                     *o = [1.0 - v, 1.0, 0.0, 0.0];
                 }
             }
+            MaskEffectKind::Image { resource, projection, invert } => eval_image(*resource, projection, *invert, tc, &mut e),
         }
         for (mv, ev) in m.iter_mut().zip(&e) {
             let mut dst = [*mv, *mv, *mv, 1.0];
@@ -97,5 +99,22 @@ fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]]) {
         };
         let v = smoothstep(level - half, level + half, raw);
         *o = [if g.invert { 1.0 - v } else { v }, 1.0, 0.0, 0.0];
+    }
+}
+
+/// Image mask effect. With alpha: value 1 (0 inverted) with coverage = alpha, so a logo on a
+/// transparent background stamps onto the mask. Without alpha: value = Rec.709 luminance of the
+/// raw (not color-transformed) pixels. A missing resource contributes nothing.
+fn eval_image(resource: subcraft_core::ResourceId, projection: &Projection, invert: bool, tc: &TileContext, e: &mut [[f32; 4]]) {
+    let Some(bmp) = tc.sample.resources.bitmap(resource) else {
+        e.fill([0.0; 4]);
+        return;
+    };
+    let has_alpha = bmp.channels == 2 || bmp.channels == 4;
+    let geo = tc.geo;
+    for (i, o) in e.iter_mut().enumerate() {
+        let s = sample_projected(projection, geo.uv(i), geo.position(i), geo.normal(i), |p| bmp.sample(p[0], p[1], Wrap::Repeat, false));
+        let (v, a) = if has_alpha { (1.0, s[3]) } else { (0.2126 * s[0] + 0.7152 * s[1] + 0.0722 * s[2], 1.0) };
+        *o = [if invert { 1.0 - v } else { v }, a.clamp(0.0, 1.0), 0.0, 0.0];
     }
 }

@@ -162,3 +162,72 @@ fn embedded_value_types_have_stable_json() {
         r#"{"mode":"uv","scale":[1.0,1.0],"rotation_deg":0.0,"offset":[0.0,0.0],"triplanar_sharpness":8.0,"planar_axis":2}"#
     );
 }
+
+/// Rebuild a container, transforming `manifest.json` with `f`.
+fn with_manifest(bytes: Vec<u8>, f: impl Fn(String) -> String) -> Vec<u8> {
+    let mut src = zip::ZipArchive::new(Cursor::new(bytes)).unwrap();
+    let mut out = zip::ZipWriter::new(Cursor::new(Vec::new()));
+    for i in 0..src.len() {
+        let mut file = src.by_index(i).unwrap();
+        let name = file.name().unwrap().to_string();
+        let mut data = Vec::new();
+        file.read_to_end(&mut data).unwrap();
+        if name == "manifest.json" {
+            data = f(String::from_utf8(data).unwrap()).into_bytes();
+        }
+        out.start_file(name, SimpleFileOptions::default()).unwrap();
+        out.write_all(&data).unwrap();
+    }
+    out.finish().unwrap().into_inner()
+}
+
+#[test]
+fn schema_1_projects_still_load() {
+    let doc = rich_document();
+    let mesh = primitives::sample_crate();
+    let bytes = write_project(Cursor::new(Vec::new()), &mesh, &doc, &ResourceStore::default(), &MeshMapSet::new()).unwrap().into_inner();
+    let v1 = with_manifest(bytes, |m| m.replace(&format!("\"schema_version\": {SCHEMA_VERSION}"), "\"schema_version\": 1"));
+    let back = read_project(Cursor::new(v1)).unwrap();
+    assert_eq!(back.document, doc);
+}
+
+#[test]
+fn image_mask_effect_keeps_its_image() {
+    use subcraft_core::ResourceId;
+    use subcraft_doc::{Projection, Resource, ResourceKind};
+
+    let png = {
+        let dir = std::env::temp_dir().join(format!("subcraft-proj-img-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("logo.png");
+        subcraft_image::save_image(&p, 2, 2, 2, &[0.0, 0.0, 1.0, 1.0, 1.0, 0.5, 0.0, 1.0], subcraft_image::FileFormat::Png8).unwrap();
+        let b = std::fs::read(&p).unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+        b
+    };
+    let id = ResourceId::new();
+    let mut res = ResourceStore::default();
+    res.insert(Resource {
+        id,
+        name: "logo.png".into(),
+        kind: ResourceKind::Texture,
+        bitmap: Arc::new(subcraft_image::io::decode_bitmap(&png, None).unwrap()),
+        source_path: None,
+        encoded: Some(Arc::new(png)),
+    });
+    let mut ts = TextureSet::new("Body", 0, 128);
+    let mut layer = Layer::new_paint("Decal", &ts);
+    let mut mask = Mask::new(128, false);
+    let mut projection = Projection::default();
+    projection.scale = [3.0, 3.0];
+    mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Image { resource: id, projection, invert: true })));
+    layer.mask = Some(mask);
+    ts.insert_above(None, layer);
+    let doc = Document { texture_sets: vec![ts] };
+
+    let bytes = write_project(Cursor::new(Vec::new()), &primitives::cube(1.0), &doc, &res, &MeshMapSet::new()).unwrap().into_inner();
+    let back = read_project(Cursor::new(bytes)).unwrap();
+    assert_eq!(back.document, doc);
+    let r = back.resources.get(id).expect("mask image saved with the project");
+    assert_eq!((r.bitmap.width, r.bitmap.channels), (2, 2));
+}

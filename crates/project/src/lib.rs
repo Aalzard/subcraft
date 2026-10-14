@@ -99,6 +99,9 @@ impl Writer {
                         MaskEffectKind::Generator(g) => MaskEffectKindV1::Generator { generator: *g },
                         MaskEffectKind::Levels(l) => MaskEffectKindV1::Levels { levels: *l },
                         MaskEffectKind::Invert => MaskEffectKindV1::Invert,
+                        MaskEffectKind::Image { resource, projection, invert } => {
+                            MaskEffectKindV1::Image { resource: resource.0, projection: *projection, invert: *invert }
+                        }
                     },
                 })
                 .collect(),
@@ -125,13 +128,21 @@ fn referenced_resources(doc: &Document) -> Vec<ResourceId> {
     let mut out = Vec::new();
     for ts in &doc.texture_sets {
         ts.walk(|l, _| {
+            let mut add = |r: ResourceId| {
+                if !out.contains(&r) {
+                    out.push(r);
+                }
+            };
             if let LayerContent::Fill(f) = &l.content {
                 for c in f.channels.values() {
-                    if let FillSource::Bitmap { resource } = c.source
-                        && !out.contains(&resource)
-                    {
-                        out.push(resource);
+                    if let FillSource::Bitmap { resource } = c.source {
+                        add(resource);
                     }
+                }
+            }
+            for e in l.mask.iter().flat_map(|m| &m.effects) {
+                if let MaskEffectKind::Image { resource, .. } = e.kind {
+                    add(resource);
                 }
             }
         });
@@ -282,6 +293,9 @@ impl<R: Read + Seek> Loader<'_, R> {
                         MaskEffectKindV1::Generator { generator } => MaskEffectKind::Generator(*generator),
                         MaskEffectKindV1::Levels { levels } => MaskEffectKind::Levels(*levels),
                         MaskEffectKindV1::Invert => MaskEffectKind::Invert,
+                        MaskEffectKindV1::Image { resource, projection, invert } => {
+                            MaskEffectKind::Image { resource: ResourceId(*resource), projection: *projection, invert: *invert }
+                        }
                     };
                     effects.push(Arc::new(MaskEffect {
                         id: EffectId(e.id),

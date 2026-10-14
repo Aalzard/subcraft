@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-10-14 (session 13: import texture sets)
+Last updated: 2026-10-14 (session 14: image masks)
 
 ## Decisions
 
@@ -253,6 +253,23 @@ In the cloud container (no GPU) the app ran on lavapipe/llvmpipe (Vulkan) under 
 * Found, not fixed here: in a short Layers panel, the second layer row overlaps the Blend / Opacity
   rows (pre-existing layout issue; next UI fix).
 
+### Session 14 — images as masks (roadmap 1, part 3)
+
+* New mask effect **Image** (Properties → Mask → **+ Image**): pick an image; the effect shows its
+  thumbnail, **Replace…**, **Invert** and its own projection (UV / tri-planar / planar, scale,
+  rotation, axis). Images with transparency (a logo) stamp white where opaque; images without
+  use their brightness (raw values, no sRGB decode). A missing image contributes nothing.
+* Project **schema 2** (`MaskEffectKindV1::Image`); schema-1 projects load unchanged (test), older
+  SubCraft builds refuse schema-2 files with the "saved by a newer SubCraft" message. Mask images
+  are embedded in the project like fill images.
+* The fill layer's projection controls became a shared `projection_editor` (fill + image mask).
+* Tests (3 new, 171 total): compositor (alpha logo, inverted, grayscale raw values, missing image),
+  project (schema-1 file loads, image mask keeps its image through save / load).
+* Verified in the real app on Windows through the real dialogs: Plastic Glossy Red from the shelf,
+  black mask, + Image → star logo PNG, Planar projection → a red star on the crate's front
+  (`docs/screenshots/image-mask-star.png`).
+* Brush stencils from images are a separate item (roadmap step 3, stencils / projection painting).
+
 CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraft-mesh -p subcraft-doc -p subcraft-materials -p subcraft-compositor -p subcraft-paint`
 
 ### Deviations from the brief (sound-engineering choices)
@@ -281,7 +298,7 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
    - ~~Fill layer channels: an "Image" source with a file picker~~ — done (session 12).
    - ~~"Import texture set as material"~~ — done (session 13). Follow-up: packed ARM / ORM maps
      (needs a per-channel component selector on image sources).
-   - Images as masks (mask fill effect from an image) and as brush stencils later.
+   - ~~Images as masks~~ — done (session 14). Brush stencils: see step 3.
    - Imported images are stored in the project (`ResourceStore`, UUID identity, versioned schema;
      bump the schema if needed) so projects stay portable; optionally added to the shelf.
    - Color rules: base color is sRGB → linear on import; data maps (roughness, metallic, normal,
