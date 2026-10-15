@@ -871,6 +871,18 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   multi-part FBX/GLB workflow polish remain separate roadmap work; no Linux GUI/tablet input was
   run locally. The release has not been published yet.
 
+### Session 39 — v0.1.5 release preparation (2026-10-15)
+
+* Browser export #41 merged as dd722bf after all three required checks passed. The owner asked
+  for the starter pack first, then the release; preparation continues on `codex/release-0-1-5`.
+* Bumped workspace packages to 0.1.5, grouped the changelog, updated README/guide availability,
+  and made What's new show the build version, starter images, Pen, layer editing, welcome and
+  browser ZIP export. Added a real egui What's new button/heading/content regression.
+* Candidate builds, full checks and isolated installer/upgrade/launch verification are in
+  progress. Release assets will be attached to a draft before publishing so latest downloads
+  never point at an empty release. The production installation and user data stay separate
+  from the temporary test installation.
+
 ## Next steps (in order)
 
 Current priorities requested by the owner:
@@ -880,8 +892,8 @@ Current priorities requested by the owner:
 3. ~~Layer dragging, folder controls and inline rename~~ — session 35; #38 merged after all
    required checks passed and the owner's approval.
 4. ~~Editable pen/Bézier paths~~ — session 36; #39 merged after required checks and owner approval.
-5. ~~Starter pack and image previews~~ — session 37; #40 merged. Finish the browser export PR,
-   then publish v0.1.5 with the accumulated improvements as requested by the owner.
+5. ~~Starter pack and image previews~~ — session 37; #40 merged. Browser ZIP #41 merged too.
+   Finish v0.1.5 candidate verification and publish the accumulated improvements.
 6. Real multi-part FBX/GLB bake → smart material → paint → export.
 7. Browser import/save/export verification and work split across frames. Multi-download export
    is fixed in session 38; remaining work includes large operations and real GLB/OBJ import checks.

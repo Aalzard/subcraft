@@ -90,8 +90,8 @@ brush tools. Save/Export waits for any path still being drawn.
 
 ![Editable pen path on the model](screenshots/pen-path.png)
 
-Pen projects use schema 4 and need a build with the Pen tool to reopen; earlier projects still
-open. The public desktop v0.1.4 does not include this tool yet.
+Projects saved with the Pen tool use schema 4 and need SubCraft v0.1.5 or newer to reopen.
+Earlier projects still open.
 
 ## Starter textures and alpha tips
 

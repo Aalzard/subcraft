@@ -5,6 +5,8 @@ What changed in SubCraft, newest first. Download the latest build from the
 
 ## Unreleased
 
+## 0.1.5
+
 ### New
 - **CC0 texture starter pack**: 30 tileable 1024px normal maps and 30 brush alphas supplied by
   Aalzard, with a Starter pack shelf category, thumbnails and a Tileable filter. Normal maps drag
