@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-10-15 (session 34: welcome integration after v0.1.4)
+Last updated: 2026-10-15 (session 40: starter pack and v0.1.5 published)
 
 ## Decisions
 
@@ -883,17 +883,42 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   never point at an empty release. The production installation and user data stay separate
   from the temporary test installation.
 
+### Session 40 — v0.1.5 published with the starter pack (2026-10-15)
+
+* Release PR #42 merged as fbe6b7e after the three required checks and both packaging jobs passed.
+  Its tree matches tested candidate c4db1a3 exactly. Published tag/release v0.1.5 with the Windows
+  installer, Windows portable ZIP and Linux archive attached before publication. Asset sizes and
+  SHA-256 digests were checked against the downloaded CI candidates. The stable latest endpoint
+  now exposes v0.1.5 for the existing v0.1.4 update button.
+* All 319 local workspace tests passed; clippy passed with existing warnings. Ran the exact CI
+  Windows payload after an isolated per-user v0.1.4 install and upgrade to v0.1.5. Payload hash,
+  embedded version, bundled CC0 credits, native screenshot launch and silent uninstall passed.
+  The production executable and installation registration were unchanged. The CI web candidate
+  displayed the current What's new and reopened the schema-4 starter project without console
+  errors. Earlier browser preview/painting/save/reopen/export results remain in sessions 37–38.
+* Final candidate sizes: installer 23,222,859 B, Windows ZIP 24,867,813 B, Linux archive
+  26,388,176 B and web wasm 16,740,045 B. Full starter PNGs total 12,928,272 B, with 340,359 B of
+  thumbnails. Desktop embeds the full pack; web fetches selected full images separately. README
+  includes the image overview, preview screenshot and download-size table.
+* Verified the public site after deployment: What's new reports 0.1.5, a selected 1024px normal
+  loaded with its lit preview, and no console errors appeared. The public wasm SHA-256 matches
+  the tested CI candidate. One fresh compressed HTTPS module transfer was 5,600,744 B in 2.999 s;
+  this measures network transfer, with module compilation/GPU startup taking additional time.
+* Linux GUI, physical tablet input and the manual all-users installer wizard were not run
+  locally. Automatic approval review blocked Cargo incremental-cache cleanup without a specific
+  reason; the cache was left untouched and CI packages were used for release smoke tests.
+
 ## Next steps (in order)
 
 Current priorities requested by the owner:
 1. ~~Right-click texturing and Parts~~ — session 30; PR #34 merged.
 2. ~~Welcome screen, recent files, quick-start guide and screenshot documentation~~ — sessions
-   31/34; PR #35 merged. Included in the next desktop release; the public desktop is v0.1.4.
+   31/34; PR #35 merged. Included in published desktop v0.1.5.
 3. ~~Layer dragging, folder controls and inline rename~~ — session 35; #38 merged after all
    required checks passed and the owner's approval.
 4. ~~Editable pen/Bézier paths~~ — session 36; #39 merged after required checks and owner approval.
 5. ~~Starter pack and image previews~~ — session 37; #40 merged. Browser ZIP #41 merged too.
-   Finish v0.1.5 candidate verification and publish the accumulated improvements.
+   Both are included in published v0.1.5 with the welcome screen, layer editing and Pen tool.
 6. Real multi-part FBX/GLB bake → smart material → paint → export.
 7. Browser import/save/export verification and work split across frames. Multi-download export
    is fixed in session 38; remaining work includes large operations and real GLB/OBJ import checks.
