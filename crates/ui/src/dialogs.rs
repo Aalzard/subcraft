@@ -172,7 +172,7 @@ pub fn export_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
             #[cfg(target_arch = "wasm32")]
             {
                 ui.label(dim("Files"));
-                ui.label(dim("Downloaded by your browser (it may ask to allow several downloads)."));
+                ui.label(dim("One ZIP download containing all texture maps."));
                 ui.end_row();
             }
             ui.label(dim("Template"));
@@ -220,6 +220,7 @@ pub fn export_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
         });
         ex.settings.template = templates[ex.template].clone();
         let settings = ex.settings.clone();
+        #[cfg(not(target_arch = "wasm32"))]
         let folder = PathBuf::from(&ex.folder);
         ui.add_space(6.0);
         divider(ui);
@@ -239,12 +240,15 @@ pub fn export_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
             ui.add_enabled_ui(!plan.is_empty(), |ui| primary_button(ui, format!("{}  Export", crate::icons::EXPORT))).inner.clicked()
         });
         if go.inner {
+            #[cfg(not(target_arch = "wasm32"))]
             match state.session.export_textures(&folder, &settings) {
-                #[cfg(not(target_arch = "wasm32"))]
                 Ok(files) => state.set_status(format!("Exported {} files to {}", files.len(), folder.display()), now),
-                #[cfg(target_arch = "wasm32")]
-                Ok(files) => state.set_status(format!("Downloaded {} files", files.len()), now),
                 Err(e) => state.set_status(format!("Export failed: {e}"), now),
+            }
+            #[cfg(target_arch = "wasm32")]
+            match state.session.export_archive(&settings) {
+                Ok(archive)=>if crate::web::download(&archive.name,&archive.bytes) {state.set_status(format!("Downloaded {} maps in {}",archive.files,archive.name),now);} else {state.set_status("Could not start the ZIP download; export again to retry",now);},
+                Err(e)=>state.set_status(format!("Export failed: {e}"),now),
             }
         }
     });

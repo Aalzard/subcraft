@@ -850,6 +850,27 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   pointer/tablet gestures and Linux execution were not run locally; shared egui/browser
   interaction tests and CI cover those routes. No release has been published yet.
 
+### Session 38 — complete browser export downloads (2026-10-15)
+
+* Starter pack #40 merged as 4a16359 after Linux/Windows/web checks and both packaging jobs
+  passed. The owner requested including the starter pack before publishing v0.1.5. Its web
+  assets/CC0 credits are deployed; desktop release preparation follows this export fix.
+* Browser export previously sent every map separately through the virtual-file download sink;
+  only the first map reached disk in verification. Added a single in-memory ZIP, rendered through
+  the same engine callback as folder export. PNG/JPEG/EXR payloads are stored without redundant
+  compression. Archives reject unsafe/duplicate names, and the app owns export orchestration.
+  Browser export makes no per-map virtual-file writes. Project Save keeps its existing download.
+* Validation: 318 workspace tests passed (four new), clippy passed with existing warnings,
+  native/web builds passed and native GUI screenshot launch exited 0 with the generated project.
+  Tests compare all ten archived files byte-for-byte with folder export, exercise packed/16-bit
+  output, reject name collisions/unsafe entries and compare app archive contents with its plan.
+* Actual browser export downloaded a 277,217-byte ZIP with all ten 512px PNGs. CRC/decode checks
+  passed and every decoded pixel matched the native output exactly. Project Save also downloaded
+  successfully. No browser runtime errors appeared. Final wasm: 16,881,451 bytes (+99,722 / 0.59%
+  over starter previews). Screenshot is in the guide. Large-operation frame splitting and real
+  multi-part FBX/GLB workflow polish remain separate roadmap work; no Linux GUI/tablet input was
+  run locally. The release has not been published yet.
+
 ## Next steps (in order)
 
 Current priorities requested by the owner:
@@ -859,11 +880,11 @@ Current priorities requested by the owner:
 3. ~~Layer dragging, folder controls and inline rename~~ — session 35; #38 merged after all
    required checks passed and the owner's approval.
 4. ~~Editable pen/Bézier paths~~ — session 36; #39 merged after required checks and owner approval.
-5. Starter pack and image previews — session 37 in progress; finish full verification, then
-   release the accumulated improvements as requested by the owner.
+5. ~~Starter pack and image previews~~ — session 37; #40 merged. Finish the browser export PR,
+   then publish v0.1.5 with the accumulated improvements as requested by the owner.
 6. Real multi-part FBX/GLB bake → smart material → paint → export.
-7. Browser import/save/export verification and work split across frames. Fix the multi-download
-   export observed in session 36: only the first PNG was saved despite a ten-file success message.
+7. Browser import/save/export verification and work split across frames. Multi-download export
+   is fixed in session 38; remaining work includes large operations and real GLB/OBJ import checks.
 8. Projection painting, clone, smudge/blur, followed by the remaining engine/library follow-ups.
 
 Earlier roadmap details:

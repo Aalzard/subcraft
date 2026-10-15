@@ -846,6 +846,12 @@ impl Session {
         subcraft_export::export(&self.scene.mesh, &name, &sets, settings, dir).map_err(|e| e.to_string())
     }
 
+    /// Export every map in one download without sending individual writes to the web sink.
+    pub fn export_archive(&mut self, settings: &subcraft_export::ExportSettings) -> Result<subcraft_export::TextureArchive,String> {
+        self.update_composites();let name=self.export_name();let sets=self.export_sets();
+        subcraft_export::archive(&self.scene.mesh,&name,&sets,settings).map_err(|e|e.to_string())
+    }
+
     // ----- assets --------------------------------------------------------------------------------
 
     /// Add a material preset as a fill layer above the selection.
