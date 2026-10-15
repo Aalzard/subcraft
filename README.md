@@ -60,6 +60,17 @@ screen and six-step in-app guide are available in the browser and included in th
 - **Painting**: brush and eraser on the 3D model with tips (alphas), symmetry, lazy mouse, jitter,
   **stencils** (paint through an image laid over the view) and polygon fill (triangle, mesh part,
   UV island). Save your brush setups as **presets**.
+- **Pen paths (next desktop release)**: press **P**, click to add anchors and drag for Bézier
+  handles in the 3D or 2D view. Drag anchors/handles to edit; **Shift** moves one handle separately,
+  **Delete** removes a point, **Enter** finishes and **Esc** cancels the current edit. Properties
+  offers New path, Corner/Smooth, Closed path, UV width, hardness, opacity and channel values.
+  Paths remain editable in saved projects and support undo/redo. Their rasters are computed
+  across frames. Use the 2D view for handles outside UV islands, and separate paths across UV
+  seams; overlapping UVs share texels. Pen uses round strokes; alpha tips and symmetry belong to
+  Brush. New projects use schema 4; earlier project files still open.
+
+  <img src="docs/screenshots/pen-path.png" alt="SubCraft pen path on a multi-part model, with editable path controls and UV width" width="640">
+
 - **Baking**: normal (from an optional high poly through a cage), world-space normal, AO, curvature,
   thickness, position and ID maps, on the CPU in the background.
 - **Shelf**: built-in materials, smart materials (Worn Painted Metal, Rusty Iron, Old Wood…),

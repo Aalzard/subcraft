@@ -11,6 +11,7 @@ pub mod camera;
 pub mod depth;
 pub mod kernel;
 pub mod path;
+pub mod pen;
 pub mod settings;
 pub mod stamp;
 pub mod stencil;

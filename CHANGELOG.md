@@ -6,6 +6,14 @@ What changed in SubCraft, newest first. Download the latest build from the
 ## Unreleased
 
 ### New
+- **Editable pen/Bézier paths**: select Pen (P), click points in the 3D or 2D view and drag to
+  create curves. Move anchors and handles, break mirrored handles with Shift, close/open paths,
+  choose Corner/Smooth points, delete points, and adjust width, hardness, opacity and PBR channel
+  values. Paths live on their own editable layers, support undo/redo, and remain editable after
+  save/load or duplication. Raster work is split across frames; saving/exporting and update
+  restart wait for pending path edits. Project schema 4 stores path parameters and their tiled
+  raster cache; schemas 1–3 still load. Width follows UVs; use separate paths across UV seams and
+  the 2D view for handles outside UV islands.
 - **Layer tree editing**: drag rows or names above/below layers, into folders, and out to either
   end of the top level, with visible drop guides and scrolling at the list edges. Folder arrows
   expand/collapse; dropping inside opens the folder. Double-click/F2 renames inline, Enter accepts,

@@ -15,7 +15,8 @@ use uuid::Uuid;
 /// 1: initial. 2: mask `Image` effect (v1 files load unchanged; v2 files need SubCraft >= 0.1 with
 /// image masks).
 // 3: object metadata (mesh blob v2) and geometry-mask domains. Legacy projects still load.
-pub const SCHEMA_VERSION: u32 = 3;
+// 4: editable pen paths, with anchor UUIDs, UV handles, style and a derived raster cache.
+pub const SCHEMA_VERSION: u32 = 4;
 pub const FORMAT_NAME: &str = "subcraft-project";
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -114,9 +115,34 @@ fn one() -> f32 {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ContentV1 {
-    Paint { channels: Vec<PaintChannelV1> },
+    Paint {
+        channels: Vec<PaintChannelV1>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        path: Option<PenPathV4>,
+    },
     Fill { projection: Projection, channels: Vec<FillChannelV1> },
     Folder { expanded: bool, children: Vec<LayerV1> },
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PenAnchorV4 {
+    pub id: Uuid,
+    pub position: [f32; 2],
+    pub incoming: [f32; 2],
+    pub outgoing: [f32; 2],
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PenChannelV4 { pub channel: ChannelKind, pub value: [f32; 3] }
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PenPathV4 {
+    pub anchors: Vec<PenAnchorV4>,
+    pub closed: bool,
+    pub radius: f32,
+    pub hardness: f32,
+    pub opacity: f32,
+    pub values: Vec<PenChannelV4>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

@@ -3,6 +3,10 @@ use crate::state::UiState;
 #[cfg(not(target_arch = "wasm32"))]
 use subcraft_app::updater::Phase;
 
+pub fn can_restart(state: &UiState) -> bool {
+    state.bake.job.is_none() && !state.pen.is_editing() && !state.pen.is_pending()
+}
+
 pub fn button(state: &mut UiState, ui: &mut egui::Ui) {
     #[cfg(not(target_arch = "wasm32"))]
     if let Some(updater) = &mut state.updater {
@@ -19,11 +23,12 @@ pub fn button(state: &mut UiState, ui: &mut egui::Ui) {
 pub fn tick(state: &mut UiState, ctx: &egui::Context) {
     #[cfg(not(target_arch = "wasm32"))]
     {
+        let can_restart = can_restart(state);
         let Some(updater) = &mut state.updater else { return }; updater.poll();
         if updater.auto_install {
             match updater.phase.clone() {
                 Phase::Available(release) => updater.download(release),
-                Phase::Prepared { .. } if state.bake.job.is_none() => { updater.install(&mut state.session); state.painting = false; },
+                Phase::Prepared { .. } if can_restart => { updater.install(&mut state.session); state.painting = false; },
                 _ => {},
             }
         }
@@ -40,7 +45,7 @@ pub fn tick(state: &mut UiState, ctx: &egui::Context) {
                 Phase::Current => { ui.label("You're up to date."); },
                 Phase::Available(release) => { ui.heading(format!("Version {} is available", release.version)); egui::ScrollArea::vertical().max_height(220.0).show(ui, |ui| { ui.label(&release.notes); }); if ui.button("Update and restart").clicked() { updater.auto_install = true; } },
                 Phase::Downloading { bytes, total } => { ui.label("Downloading update… You can keep working."); ui.add(egui::ProgressBar::new(*bytes as f32 / (*total).max(1) as f32).text(format!("{:.1} / {:.1} MiB", *bytes as f32 / 1048576.0, *total as f32 / 1048576.0))); if ui.button("Skip installation").clicked() { updater.auto_install = false; } },
-                Phase::Prepared { .. } => { ui.label(if state.bake.job.is_some() { "Waiting for your bake to finish…" } else { "Download verified. Ready to update and restart." }); if ui.button("Update and restart").clicked() { updater.auto_install = true; } },
+                Phase::Prepared { .. } => { ui.label(if !can_restart { "Waiting for your current work to finish…" } else { "Download verified. Ready to update and restart." }); if ui.button("Update and restart").clicked() { updater.auto_install = true; } },
                 Phase::Preparing => { ui.spinner(); ui.label("Preserving your project and preparing the restart…"); },
                 Phase::Exiting => { ui.label("Restarting SubCraft…"); },
                 Phase::Error(error) => { ui.label(egui::RichText::new(error).color(crate::theme::TEXT)); if ui.button("Try again").clicked() { updater.check(); } },

@@ -175,6 +175,29 @@ mod launch_tests {
             }
         }
     }
+
+    #[test]
+    fn save_and_open_wait_for_pen_jobs_and_then_use_the_finished_document() {
+        let file = std::env::temp_dir().join(format!("subcraft-pen-save-{}.subcraft", subcraft_core::ObjectId::new()));
+        let mut session = Session::new(subcraft_mesh::primitives::cube(2.0), 128); session.save(Some(&file)).unwrap();
+        let mut app = SubcraftApp {
+            state: UiState::new(session, None), dock: default_layout(), frames: 0,
+            screenshot: None, screenshot_requested: false, pending_now: None,
+            active_tabs: HashSet::new(), test_crash: false,
+        };
+        app.state.pen.begin(&app.state.session, glam::Vec2::splat(0.4), None).unwrap();
+        app.perform(Action::Save, 0.0); assert!(app.state.pen_after.is_some());
+        assert_eq!(Session::open_project(&file).unwrap().selected_layer().unwrap().kind(), subcraft_doc::LayerKind::Paint);
+        while app.state.pen.poll(&mut app.state.session, 16384).unwrap() {}
+        app.flush_pen_after(0.1);
+        assert_eq!(Session::open_project(&file).unwrap().document(), app.state.session.document());
+        assert!(!app.state.session.is_modified());
+        app.state.pen.begin(&app.state.session, glam::Vec2::splat(0.6), None).unwrap();
+        app.request(Pending::OpenProject, 0.2); assert_eq!(app.state.confirm, None); assert!(app.pending_now.is_none());
+        while app.state.pen.poll(&mut app.state.session, 16384).unwrap() {}
+        app.flush_pen_after(0.3); assert_eq!(app.state.confirm, Some(Pending::OpenProject));
+        std::fs::remove_file(file).unwrap();
+    }
 }
 
 pub struct SubcraftApp {
@@ -315,10 +338,20 @@ impl SubcraftApp {
     }
 
     fn perform(&mut self, action: Action, now: f64) {
+        if self.state.pen.is_editing() || self.state.pen.is_pending() {
+            if action == Action::Undo { self.state.pen.undo_pending(&self.state.session); return; }
+            if matches!(action, Action::Save | Action::SaveAs | Action::Export) {
+                if let Err(e) = self.state.pen.release(&self.state.session) { self.state.set_status(e.to_string(), now); }
+                if self.state.pen.is_pending() {
+                    self.state.pen_after = Some(crate::pen::After::Action(action)); return;
+                }
+            }
+        }
         match action {
             Action::ResetCamera => self.state.camera = OrbitCamera::framing(&self.state.session.scene().mesh.bounds),
             Action::BrushTool => self.state.tool = Tool::Brush,
             Action::EraserTool => self.state.tool = Tool::Eraser,
+            Action::PenTool => { self.state.tool = Tool::Pen; self.state.picking_parts = false; }
             Action::Save => {
                 dialogs::save(&mut self.state, false, now);
             }
@@ -396,21 +429,23 @@ impl SubcraftApp {
                 (Tool::Eraser, icons::ERASER, "Eraser (E)"),
                 (Tool::PolygonFill, icons::PAINT_BUCKET, "Polygon fill"),
                 (Tool::Eyedropper, icons::CURSOR, "Eyedropper (Shift+click picks material)"),
+                (Tool::Pen, icons::CURVE, "Pen paths (P): click points, drag for curves; edit anchors and handles in 2D View"),
             ] {
                 if tool_button(ui, icon, *tool == t, tip).clicked() {
                     *tool = t;
+                    if t == Tool::Pen { self.state.picking_parts = false; }
                 }
             }
             ui.add_space(6.0);
             rail_divider(ui);
             ui.add_space(6.0);
             let sym = &mut self.state.session.brush.options.symmetry[0];
-            if tool_button(ui, icons::SYMMETRY, *sym, "Mirror strokes across X (X)").clicked() {
+            if ui.add_enabled_ui(*tool != Tool::Pen, |ui| tool_button(ui, icons::SYMMETRY, *sym, "Mirror brush strokes across X (X)")).inner.clicked() {
                 *sym = !*sym;
             }
             let target = &mut self.state.session.brush.target;
             let on_mask = *target == subcraft_paint::PaintTarget::MaskBase;
-            if tool_button(ui, icons::MASK, on_mask, "Paint the layer's mask instead of its content").clicked() {
+            if ui.add_enabled_ui(*tool != Tool::Pen, |ui| tool_button(ui, icons::MASK, on_mask, "Paint the layer's mask instead of its content (Brush tool)")).inner.clicked() {
                 *target = if on_mask { subcraft_paint::PaintTarget::Content } else { subcraft_paint::PaintTarget::MaskBase };
             }
             ui.add_space(6.0);
@@ -556,12 +591,29 @@ impl SubcraftApp {
 
     /// Run `action` now, or after the unsaved-changes prompt.
     fn request(&mut self, action: Pending, now: f64) {
+        if self.state.pen.is_editing() || self.state.pen.is_pending() {
+            if let Err(e) = self.state.pen.release(&self.state.session) { self.state.set_status(e.to_string(), now); }
+            if self.state.pen.is_pending() {
+                self.state.pen_after = Some(crate::pen::After::Request(action)); return;
+            }
+        }
         if self.state.session.is_modified() && self.screenshot.is_none() {
             self.state.confirm = Some(action);
         } else {
             self.pending_now = Some(action);
         }
         let _ = now;
+    }
+
+    fn flush_pen_after(&mut self, now: f64) {
+        if !self.state.pen.is_editing() && !self.state.pen.is_pending()
+            && let Some(after) = self.state.pen_after.take()
+        {
+            match after {
+                crate::pen::After::Action(action) => self.perform(action, now),
+                crate::pen::After::Request(action) => self.request(action, now),
+            }
+        }
     }
 
     fn status_bar(&mut self, ui: &mut Ui) {
@@ -573,10 +625,14 @@ impl SubcraftApp {
                 Tool::Eraser => (icons::ERASER, "Eraser"),
                 Tool::PolygonFill => (icons::PAINT_BUCKET, "Polygon fill"),
                 Tool::Eyedropper => (icons::CURSOR, "Eyedropper"),
+                Tool::Pen => (icons::CURVE, "Pen paths"),
             };
             let small = |t: String, c| RichText::new(t).font(theme::font(11.5)).color(c);
             ui.label(small(format!("{icon}  {tool}"), theme::ACCENT));
-            ui.label(small(format!("Size {:.1}%", self.state.session.brush.settings.size), theme::TEXT_DIM));
+            let size = if self.state.tool == Tool::Pen {
+                self.state.pen.preview(&self.state.session).map_or_else(|| "Click to start a path".into(), |p| format!("Width {:.2}% UV", p.radius * 200.0))
+            } else { format!("Size {:.1}%", self.state.session.brush.settings.size) };
+            ui.label(small(size, theme::TEXT_DIM));
             if let Some(l) = self.state.session.selected_layer() {
                 ui.label(small(format!("{}  {} / {}", icons::STACK, self.state.session.selected_texture_set().name, l.name), theme::TEXT_DIM));
             }
@@ -661,6 +717,7 @@ fn map_key(k: egui::Key) -> Option<Key> {
         egui::Key::G => Key::G,
         egui::Key::N => Key::N,
         egui::Key::O => Key::O,
+        egui::Key::P => Key::P,
         egui::Key::S => Key::S,
         egui::Key::X => Key::X,
         egui::Key::Y => Key::Y,
@@ -727,6 +784,7 @@ impl eframe::App for SubcraftApp {
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         self.frames += 1;
+        crate::pen::keyboard(&mut self.state, &ctx, ctx.input(|i| i.time));
         self.shortcuts(&ctx);
         if ctx.input(|i| i.pointer.any_released()) {
             let _ = self.state.session.execute(Command::Seal);
@@ -759,6 +817,8 @@ impl eframe::App for SubcraftApp {
         }
         self.shortcuts_window(&ctx);
         let now = ctx.input(|i| i.time);
+        crate::pen::finish_frame(&mut self.state, &ctx, now);
+        self.flush_pen_after(now);
         crate::recovery::tick(&mut self.state, &ctx, now);
         crate::recovery::preferences_window(&mut self.state, &ctx);
         crate::recovery::backup_reminder(&mut self.state, &ctx, now);
@@ -798,9 +858,10 @@ impl eframe::App for SubcraftApp {
             self.pending_now = Some(action);
         }
         // Closing with unsaved work asks first.
-        if ctx.input(|i| i.viewport().close_requested()) && !self.state.allow_close && self.state.session.is_modified() && self.screenshot.is_none() {
+        if ctx.input(|i| i.viewport().close_requested()) && !self.state.allow_close && self.screenshot.is_none()
+            && (self.state.session.is_modified() || self.state.pen.is_editing() || self.state.pen.is_pending()) {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-            self.state.confirm = Some(Pending::Close);
+            self.request(Pending::Close, now);
         }
         if let Some(action) = self.pending_now.take() {
             if action == Pending::Close {

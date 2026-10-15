@@ -9,6 +9,7 @@ pub mod dialogs;
 pub mod files;
 pub mod icons;
 pub mod orbit;
+pub mod pen;
 pub mod panels;
 pub mod recovery;
 pub mod state;

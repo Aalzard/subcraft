@@ -142,8 +142,16 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     }
 
     // ----- painting ----------------------------------------------------------------------------
+    if state.tool == Tool::Pen && !picking && !alt && !stencil_edit && !typing && let Some(p) = pointer {
+            if primary_pressed && response.hovered() {
+                let hit = state.pen.preview(&state.session).and_then(|path| crate::pen::hit(path, state.pen.selected_anchor(), p, |uv| pen_position(state, &camera, rect, ppp, uv)));
+                if let Err(e) = state.pen.begin_surface(&mut state.session, &camera, to_screen(p), hit) { state.set_status(format!("Pen: {e}"), now); }
+            } else if primary_down && state.pen.is_editing() {
+                state.pen.drag_surface(&state.session, &camera, to_screen(p), mods.shift);
+            }
+    }
     let paint_tool = matches!(state.tool, Tool::Brush | Tool::Eraser) && !picking;
-    if primary_pressed && response.hovered() && !alt && !stencil_edit && !picking {
+    if primary_pressed && response.hovered() && !alt && !stencil_edit && !picking && state.tool != Tool::Pen {
         if let Some(p) = pointer {
             let sp = to_screen(p);
             match state.tool {
@@ -234,6 +242,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     }
 
     // ----- overlays ------------------------------------------------------------------------------
+    if state.tool == Tool::Pen && let Some(path) = state.pen.preview(&state.session) {
+        crate::pen::draw(&painter, path, state.pen.selected_anchor(), |uv| pen_position(state, &camera, rect, ppp, uv));
+    }
     if let Some(p) = response.hover_pos() {
         if paint_tool && !alt {
             if let Some(pick) = state.session.pick(&camera, to_screen(p)) {
@@ -254,10 +265,11 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     if drop_hover {
         painter.rect_stroke(rect.shrink(1.0), 0.0, Stroke::new(2.0, ACCENT), egui::StrokeKind::Inside);
     }
-    let hint = "LMB paint · RMB menu / drag orbit · I isolate · H hide · Esc show all · Wheel zoom";
+    let hint = if state.tool == Tool::Pen { "Click points · drag for curves · edit in 2D View · Enter finish · Esc cancel" }
+        else { "LMB paint · RMB menu / drag orbit · I isolate · H hide · Esc show all · Wheel zoom" };
     pill(&painter, rect.left_bottom() + egui::vec2(10.0, -10.0), egui::Align2::LEFT_BOTTOM, hint, theme::TEXT_FAINT);
     let mut right = rect.right_top() + egui::vec2(-10.0, 10.0);
-    if state.session.brush.options.symmetry.iter().any(|&s| s) {
+    if state.tool != Tool::Pen && state.session.brush.options.symmetry.iter().any(|&s| s) {
         let axes: String = ["X", "Y", "Z"].iter().zip(state.session.brush.options.symmetry).filter(|(_, on)| *on).map(|(a, _)| *a).collect();
         let r = pill(&painter, right, egui::Align2::RIGHT_TOP, &format!("{}  Symmetry {axes}", icons::SYMMETRY), ACCENT);
         right.x = r.left() - 6.0;
@@ -278,6 +290,17 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     if state.painting || response.dragged() {
         ui.ctx().request_repaint();
     }
+}
+
+/// Project UV controls only where their sampled surface is visible.
+fn pen_position(state: &UiState, camera: &subcraft_app::Camera, rect: Rect, ppp: f32, uv: Vec2) -> Option<Pos2> {
+    let position = state.session.pen_uv_position(uv)?;
+    let screen = camera.project(position)?.truncate();
+    let pick = state.session.pick(camera, screen)?;
+    // Keep overlays off occluded/hidden surfaces. UV sampling is quantized to texel centers.
+    let tolerance = state.session.scene().mesh.bounds.diagonal() * 0.03;
+    if pick.material_slot != state.session.selected_texture_set().material_slot || pick.position.distance(position) > tolerance { return None; }
+    Some(rect.min + egui::vec2(screen.x, screen.y) / ppp)
 }
 
 /// Highlight the triangles of a mesh part (x-ray: occluded triangles show too, so the whole

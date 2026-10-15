@@ -110,6 +110,11 @@ impl Writer {
         let content = match &l.content {
             LayerContent::Paint(p) => ContentV1::Paint {
                 channels: p.channels.iter().map(|(&channel, img)| PaintChannelV1 { channel, raster: self.raster(img) }).collect(),
+                path: p.path.as_ref().map(|path| PenPathV4 {
+                    anchors: path.anchors.iter().map(|a| PenAnchorV4 { id: a.id.0, position: a.position.to_array(), incoming: a.incoming.to_array(), outgoing: a.outgoing.to_array() }).collect(),
+                    closed: path.closed, radius: path.radius, hardness: path.hardness, opacity: path.opacity,
+                    values: path.values.iter().map(|(&channel, value)| PenChannelV4 { channel, value: value.0 }).collect(),
+                }),
             },
             LayerContent::Fill(f) => ContentV1::Fill {
                 projection: f.projection,
@@ -336,8 +341,18 @@ impl<R: Read + Seek> Loader<'_, R> {
             }
         };
         let content = match &l.content {
-            ContentV1::Paint { channels } => {
+            ContentV1::Paint { channels, path } => {
                 let mut p = PaintContent::default();
+                if let Some(path) = path {
+                    let source = subcraft_doc::PenPath {
+                        anchors: path.anchors.iter().map(|a| subcraft_doc::PenAnchor { id: subcraft_core::AnchorId(a.id), position: a.position.into(), incoming: a.incoming.into(), outgoing: a.outgoing.into() }).collect(),
+                        closed: path.closed, radius: path.radius, hardness: path.hardness, opacity: path.opacity,
+                        values: path.values.iter().map(|v| (v.channel, subcraft_core::ChannelValue(v.value))).collect(),
+                    };
+                    source.validate().map_err(|e| ProjectError::Invalid(e.into()))?;
+                    if source.values.len() != path.values.len() { return Err(ProjectError::Invalid("duplicate pen channels".into())); }
+                    p.path = Some(source);
+                }
                 for c in channels {
                     let img = self.raster(&c.raster, res)?;
                     if img.comps() != c.channel.components() + 1 {

@@ -71,5 +71,24 @@ ask you to allow multiple downloads. Check the exported maps in the app or engin
 The Unreal template packs ORM and uses DirectX normals; PBR/glTF use OpenGL normals. Choose the
 right template before judging the result under lighting.
 
+## Editable pen paths
+
+Select **Pen (P)**. Click on the model or in **2D View** to add an anchor; drag while adding it
+to create Bézier handles. Drag existing anchors/handles to edit, or hold **Shift** to move one
+handle separately. **Enter** finishes adding points, **Esc** cancels the current edit and
+**Delete** removes the selected point. Each released gesture is undoable; parameters stay
+editable after saving and reopening.
+
+In **Properties → Editable pen path**, use **New path**, **Corner/Smooth**, **Closed path**, width,
+hardness, opacity and channel values. Width is measured in UV space. Use 2D View for handles
+outside UV islands; use separate paths across seams. Overlapping UVs share texture painting.
+Middle/Alt drag pans; the wheel zooms. Pen uses round strokes; alpha tips and symmetry remain
+brush tools. Save/Export waits for any path still being drawn.
+
+![Editable pen path on the model](screenshots/pen-path.png)
+
+Pen projects use schema 4 and need a build with the Pen tool to reopen; earlier projects still
+open. The public desktop v0.1.4 does not include this tool yet.
+
 For more detail, see the [README](../README.md), [changelog](../CHANGELOG.md) and
 [development notes](development.md).
