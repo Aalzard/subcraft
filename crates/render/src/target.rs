@@ -8,6 +8,7 @@ pub const DISPLAY_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
 pub struct RenderTarget {
+    display_copy: Option<crate::display::DisplayCopy>,
     pub size: [u32; 2],
     pub msaa_view: wgpu::TextureView,
     pub depth_view: wgpu::TextureView,
@@ -42,11 +43,15 @@ impl RenderTarget {
             OUTPUT_FORMAT,
             1,
             wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_SRC,
-            &[DISPLAY_FORMAT],
+            crate::display::view_formats(device),
         );
         let view = |t: &wgpu::Texture| t.create_view(&wgpu::TextureViewDescriptor::default());
-        let display_view = output.create_view(&wgpu::TextureViewDescriptor { format: Some(DISPLAY_FORMAT), ..Default::default() });
-        Self { size, msaa_view: view(&msaa), depth_view: view(&depth), output_view: view(&output), display_view, output }
+        let (display_view, display_copy) = crate::display::view(device, &output, size);
+        Self { size, msaa_view: view(&msaa), depth_view: view(&depth), output_view: view(&output), display_view, output, display_copy }
+    }
+
+    pub fn encode_display(&self, encoder: &mut wgpu::CommandEncoder) {
+        if let Some(copy) = &self.display_copy { copy.encode(encoder); }
     }
 
     /// Start copying the resolved image back to the CPU without waiting (works in the browser,
@@ -79,7 +84,12 @@ impl RenderTarget {
 
     /// Copy the resolved image back to the CPU as tightly packed sRGB RGBA8 rows.
     pub fn read_rgba8(&self, device: &wgpu::Device, queue: &wgpu::Queue) -> Vec<u8> {
-        let [w, h] = self.size;
+        read_texture_rgba8(device, queue, &self.output, self.size)
+    }
+}
+
+pub(crate) fn read_texture_rgba8(device: &wgpu::Device, queue: &wgpu::Queue, texture: &wgpu::Texture, size: [u32; 2]) -> Vec<u8> {
+        let [w, h] = size;
         let row = w * 4;
         let padded = row.div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT) * wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
         let buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -90,7 +100,7 @@ impl RenderTarget {
         });
         let mut enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("readback") });
         enc.copy_texture_to_buffer(
-            self.output.as_image_copy(),
+            texture.as_image_copy(),
             wgpu::TexelCopyBufferInfo {
                 buffer: &buffer,
                 layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(padded), rows_per_image: Some(h) },
@@ -109,7 +119,6 @@ impl RenderTarget {
         drop(data);
         buffer.unmap();
         out
-    }
 }
 
 /// A GPU → CPU image copy in flight (see [`RenderTarget::read_rgba8_async`]).

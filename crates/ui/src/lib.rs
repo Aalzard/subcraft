@@ -7,6 +7,7 @@ pub mod app;
 pub mod bug_report;
 pub mod dialogs;
 pub mod files;
+pub mod graphics;
 pub mod icons;
 pub mod orbit;
 pub mod pen;
@@ -25,6 +26,25 @@ pub use app::{LaunchOptions, SubcraftApp, Tab};
 /// Open the main window.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn run(options: LaunchOptions) -> eframe::Result {
+    let graphics = graphics::GraphicsUi::load();
+    let api = graphics.selected;
+    let environment_override = graphics.environment_override;
+    let result = run_with_graphics(options.clone(), graphics, api);
+    if let Err(error) = result {
+        if api == subcraft_app::graphics::GraphicsApi::Automatic || environment_override { return Err(error); }
+        log::warn!("{} startup failed: {error}; retrying Automatic", api.label());
+        let mut graphics = graphics::GraphicsUi::load();
+        graphics.warning = Some(format!("{} could not start. Automatic is being used for this run. Choose another API here if needed.", api.label()));
+        let mut options = options; options.preferences = true;
+        return run_with_graphics(options, graphics, subcraft_app::graphics::GraphicsApi::Automatic);
+    }
+    Ok(())
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn run_with_graphics(mut options: LaunchOptions, graphics: graphics::GraphicsUi, api: subcraft_app::graphics::GraphicsApi) -> eframe::Result {
+    let wgpu_options = graphics::wgpu_options(api, graphics.environment_override);
+    options.graphics_startup = Some(graphics);
     let native = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("SubCraft")
@@ -32,7 +52,7 @@ pub fn run(options: LaunchOptions) -> eframe::Result {
             .with_inner_size([1600.0, 940.0])
             .with_min_inner_size([900.0, 560.0]),
         renderer: eframe::Renderer::Wgpu,
-        wgpu_options: wgpu_options(),
+        wgpu_options,
         // Scripted screenshots start from a clean UI state (no remembered scroll positions or
         // window size) and never touch the user's saved settings.
         persistence_path: options
@@ -55,7 +75,7 @@ pub async fn start_web(canvas_id: &str) -> Result<(), wasm_bindgen::JsValue> {
         .and_then(|d| d.get_element_by_id(canvas_id))
         .and_then(|e| e.dyn_into::<web_sys::HtmlCanvasElement>().ok())
         .ok_or_else(|| wasm_bindgen::JsValue::from_str("canvas not found"))?;
-    let options = eframe::WebOptions { wgpu_options: wgpu_options(), ..Default::default() };
+    let options = eframe::WebOptions { wgpu_options: graphics::wgpu_options(subcraft_app::graphics::GraphicsApi::Automatic, false), ..Default::default() };
     eframe::WebRunner::new()
         .start(canvas, options, Box::new(|cc| Ok(Box::new(SubcraftApp::new(cc, LaunchOptions::default())))))
         .await
@@ -92,31 +112,4 @@ mod web {
     }
 }
 
-/// Graphics setup. On Windows SubCraft runs on Direct3D 12: some GPU drivers (older Intel ones in
-/// particular) crash inside their Vulkan driver at startup, and with DX12 the Vulkan driver is
-/// never loaded. Vulkan is only used when the PC has no DX12 adapter. Setting `WGPU_BACKEND`
-/// (`dx12`, `vulkan`, `gl`) overrides the choice.
-fn wgpu_options() -> egui_wgpu::WgpuConfiguration {
-    let mut setup = egui_wgpu::WgpuSetupCreateNew::without_display_handle();
-    if let Some(backends) = preferred_backends() {
-        setup.instance_descriptor.backends = backends;
-    }
-    egui_wgpu::WgpuConfiguration { wgpu_setup: setup.into(), ..Default::default() }
-}
-
-fn preferred_backends() -> Option<egui_wgpu::wgpu::Backends> {
-    use egui_wgpu::wgpu;
-    if !cfg!(windows) || std::env::var_os("WGPU_BACKEND").is_some() {
-        return None;
-    }
-    let desc = wgpu::InstanceDescriptor { backends: wgpu::Backends::DX12, ..wgpu::InstanceDescriptor::new_without_display_handle() };
-    let dx12 = pollster::block_on(wgpu::Instance::new(desc).enumerate_adapters(wgpu::Backends::DX12));
-    if dx12.is_empty() {
-        log::warn!("no Direct3D 12 adapter found; using Vulkan");
-        Some(wgpu::Backends::VULKAN | wgpu::Backends::GL)
-    } else {
-        log::info!("graphics: Direct3D 12 ({})", dx12[0].get_info().name);
-        Some(wgpu::Backends::DX12)
-    }
-}
 pub mod asset_preview;

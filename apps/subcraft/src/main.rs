@@ -38,6 +38,7 @@ fn main() -> anyhow::Result<()> {
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
         match a.as_str() {
+            "--preferences" => options.preferences = true,
             "--welcome" => options.welcome = true,
             "--quick-start" => options.guide_step = Some(0),
             "--guide-step" => {

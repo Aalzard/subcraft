@@ -92,6 +92,12 @@ screen and six-step in-app guide are available on desktop and in the browser.
   live in `Documents\SubCraft\Library` and are back every time you start SubCraft.
 - **Viewport**: real-time PBR preview with studio or HDRI lighting, plus a 2D UV view of every channel
   and baked map.
+- **Graphics API** (next desktop release): Edit → Preferences → Graphics offers Automatic,
+  DirectX 12 (Windows) and OpenGL (Windows/Linux), and shows the API currently running. Save
+  your project and restart to apply a change. Startup errors retry Automatic with an explanation.
+  An explicit `WGPU_BACKEND` environment setting takes precedence. The browser chooses its own API.
+
+  <img src="docs/screenshots/graphics-api.png" alt="SubCraft running on OpenGL, with the graphics selector and active API in Preferences" width="640">
 - **Autosave and crash recovery**: a recovery copy of your project is saved in the background
   every few minutes (Edit → Preferences) to SubCraft's data folder, never over your own file. If
   SubCraft crashes or is closed by force, it offers to bring your work back on the next start.

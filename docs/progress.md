@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-10-15 (session 40: starter pack and v0.1.5 published)
+Last updated: 2026-10-15 (session 41: graphics API preferences)
 
 ## Decisions
 
@@ -908,9 +908,36 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   locally. Automatic approval review blocked Cargo incremental-cache cleanup without a specific
   reason; the cache was left untouched and CI packages were used for release smoke tests.
 
+### Session 41 — graphics API preferences (2026-10-15)
+
+* The owner confirmed that the green button successfully updated the app to v0.1.5. Requested
+  desktop API selection, an ArtCraft independence notice, removal of object hover tint and
+  painting when only the edge of the brush overlaps the model. These are separate branches/PRs.
+* Added Edit → Preferences → Graphics: Automatic, DirectX 12 on Windows and OpenGL on
+  Windows/Linux, with the actual running API shown. A version-1 app-data settings file is read
+  before GPU creation and saved atomically on selection. Changes apply next launch; UI asks
+  users to save/restart. Existing `WGPU_BACKEND` overrides remain effective and are explained.
+  Returned explicit-API startup errors retry Automatic once and open Preferences. Corrupt/future
+  settings fall back safely. Browser Preferences reports its API without desktop-only choices.
+* The first real OpenGL launch caught unsupported alternate texture view formats. Added a
+  display-copy fallback for both viewport and channel previews that preserves sRGB-encoded
+  egui input, leaving the normal fast path on other APIs. Numeric GPU tests roundtrip all 256
+  encoded levels and check orientation within one byte. Kept linear shading, MSAA and readback.
+* Validation: 325 workspace tests passed, clippy passed with existing warnings, native/web
+  builds passed. Actual DirectX 12 and OpenGL GUI screenshot launches exited 0 with the generated
+  seven-part schema-4 starter project; OpenGL 2D preview also launched. Re-ran the six renderer
+  image tests and the new display test on actual OpenGL; all passed. Browser Preferences reports
+  WebGPU and renders the workspace without runtime errors. Screenshot is linked from README.
+  Linux/macOS GUI and physically missing/failed drivers were not exercised locally.
+* The first local link ran out of E: disk space. NTFS compression preserved the entire inactive
+  incremental cache while reducing 26,148,288,818 B to 15,507,901,087 B. No files were deleted.
+  Subsequent builds keep the requested E: target and disable incremental compilation.
+
 ## Next steps (in order)
 
 Current priorities requested by the owner:
+* Current follow-ups: ArtCraft independence notice, remove hover tint, then brush overlap at
+  model edges. Graphics selection is implemented in session 41 and awaits its feature PR merge.
 1. ~~Right-click texturing and Parts~~ — session 30; PR #34 merged.
 2. ~~Welcome screen, recent files, quick-start guide and screenshot documentation~~ — sessions
    31/34; PR #35 merged. Included in published desktop v0.1.5.

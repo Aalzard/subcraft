@@ -28,6 +28,7 @@ pub struct UvView {
 }
 
 pub struct UiState {
+    pub graphics: crate::graphics::GraphicsUi,
     pub asset_preview: crate::asset_preview::AssetPreviewUi,
     pub welcome: crate::welcome::WelcomeUi,
 
@@ -101,7 +102,10 @@ impl UiState {
         // A brush color that stands out on the default gray material.
         session.brush.material.set(ChannelKind::BaseColor, subcraft_core::ChannelValue::rgb(0.85, 0.32, 0.06));
         let renderer = render_state.as_ref().map(|rs| ViewportRenderer::new(&rs.device, &rs.queue));
+        let mut graphics = crate::graphics::GraphicsUi::default();
+        if let Some(rs) = &render_state { graphics.record_active(rs.adapter.get_info().backend); }
         Self {
+            graphics,
             asset_preview: Default::default(),
             welcome: Default::default(),
 

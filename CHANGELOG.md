@@ -5,6 +5,13 @@ What changed in SubCraft, newest first. Download the latest build from the
 
 ## Unreleased
 
+### New
+- Desktop graphics selection in Edit → Preferences: Automatic, DirectX 12 on Windows and
+  OpenGL on Windows/Linux, with the active API shown. The setting persists immediately and
+  applies at next launch; save your project before restarting. Failed explicit API startup
+  retries Automatic and opens Preferences with an explanation. `WGPU_BACKEND` still overrides
+  the preference. Browser settings report the browser's active API.
+
 ## 0.1.5
 
 Published desktop packages: Windows installer 23.22 MB, Windows ZIP 24.87 MB and Linux x64

@@ -3,7 +3,7 @@
 use egui_wgpu::wgpu;
 use wgpu::util::DeviceExt;
 
-use crate::target::{DISPLAY_FORMAT, OUTPUT_FORMAT};
+use crate::target::OUTPUT_FORMAT;
 
 pub struct PreviewPass {
     pipeline: wgpu::RenderPipeline,
@@ -13,6 +13,7 @@ pub struct PreviewPass {
 }
 
 pub struct PreviewTarget {
+    display_copy: Option<crate::display::DisplayCopy>,
     pub size: u32,
     pub texture: wgpu::Texture,
     pub render_view: wgpu::TextureView,
@@ -97,11 +98,11 @@ impl PreviewPass {
             dimension: wgpu::TextureDimension::D2,
             format: OUTPUT_FORMAT,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-            view_formats: &[DISPLAY_FORMAT],
+            view_formats: crate::display::view_formats(device),
         });
         let render_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let display_view = texture.create_view(&wgpu::TextureViewDescriptor { format: Some(DISPLAY_FORMAT), ..Default::default() });
-        PreviewTarget { size, texture, render_view, display_view }
+        let (display_view, display_copy) = crate::display::view(device, &texture, [size, size]);
+        PreviewTarget { size, texture, render_view, display_view, display_copy }
     }
 
     /// Convert `src` into `dst`. `gray` replicates the first component (scalar channels / maps).
@@ -136,6 +137,7 @@ impl PreviewPass {
             pass.set_bind_group(0, &bg, &[]);
             pass.draw(0..3, 0..1);
         }
+        if let Some(copy) = &dst.display_copy { copy.encode(&mut enc); }
         queue.submit([enc.finish()]);
     }
 }

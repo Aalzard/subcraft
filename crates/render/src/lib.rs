@@ -7,6 +7,7 @@
 //! sRGB output.
 
 pub mod gpu_mesh;
+mod display;
 pub mod headless;
 pub mod material;
 pub mod preview;
@@ -486,6 +487,7 @@ impl ViewportRenderer {
                 }
             }
         }
+        target.encode_display(&mut encoder);
         queue.submit([encoder.finish()]);
         target
     }
