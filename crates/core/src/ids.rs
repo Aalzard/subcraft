@@ -72,6 +72,10 @@ define_id!(
     /// An imported mesh object (instances with the same name remain distinct).
     ObjectId
 );
+define_id!(
+    /// An editable anchor in a pen path.
+    AnchorId
+);
 
 #[cfg(test)]
 mod tests {

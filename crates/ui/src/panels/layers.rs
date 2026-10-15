@@ -217,6 +217,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 }
                 let icon = match l.kind() {
                     LayerKind::Paint => icons::PAINT_BRUSH,
+                    LayerKind::Path => icons::CURVE,
                     LayerKind::Fill => icons::PAINT_BUCKET,
                     LayerKind::Folder => if matches!(&l.content, subcraft_doc::LayerContent::Group(g) if g.expanded) { icons::FOLDER_OPEN } else { icons::FOLDER },
                 };

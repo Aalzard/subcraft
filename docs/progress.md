@@ -780,18 +780,56 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   gestures cover the shared interaction code. The PR still needs the owner's merge approval;
   these edits are not in public desktop v0.1.4 yet.
 
+### Session 36 — editable pen/Bézier paths (2026-10-15)
+
+* The owner authorized merging #38 once its three required checks passed. Linux, Windows and
+  web all passed; #38 merged as fbe780f. Development continued on `codex/bezier-pen` from main.
+* Added UUID pen anchors, relative cubic handles and style as optional paint-layer source data,
+  with explicit project schema 4 and legacy defaulting for schemas 1–3. A derived tiled cache
+  feeds existing compositing/export; duplication regenerates anchor UUIDs and shares rasters.
+  ADR-0008 records the data, job and UV conventions. Ordinary brushing cannot overwrite the
+  derived path cache; pen layers keep masks, Parts, blending and tree operations.
+* App controller owns drafts, mirror/broken-handle edits, Corner/Smooth/Delete, queued gestures,
+  per-gesture undo and stale-job checks. Bounded raster work runs across frames, with capped
+  anchors/subdivision/tile references/queue length and unchanged-tile sharing. Surface picking
+  uses canonical UV tile wrapping. Paths support PBR channels and subpixel edge coverage.
+* Added Pen (P), 2D and 3D pointer controls/overlays, parameter controls, closed paths, New path,
+  Enter/Esc/Delete and Shift handles. Save/Open/Export, close and update restart wait for pending
+  path work; browser close protection includes it. UV width/seams/overlaps and 2D editing outside
+  islands are documented. Brush alphas/symmetry remain brush features.
+* Verification: 296 workspace tests passed (26 new tests), including GPU checks, numeric
+  raster coverage, budget equivalence, duplicate identity, parameter validation, project/schema
+  round trips, queued undo, preservation of concurrent names/masks/folders, direct egui 2D/3D
+  input, pan/zoom, separate handles and pending Save/Open/update handling. A throwaway example
+  opened the generated seven-part project, placed/shaped a curve and exported ten maps. Clippy
+  passed with existing warnings. Shipping GUI screenshot runs in both 3D and 2D exited 0 on
+  D3D12 with isolated data/library; README includes the actual 3D screenshot.
+* Final browser build on port 8773 verified automatic Pen selection on load, creating a second
+  path directly on the 3D model, moving a handle in 2D, undo/redo, closing the curve, downloading
+  a 61,780-byte project and reopening it with the curve/closed state and editable handles intact.
+  BaseColor exported as a 512px PNG and was visually checked. The browser saved only that first
+  map although the existing exporter reported ten files; record this multi-download problem for
+  the web workflow follow-up rather than claiming all ten browser maps passed. Only existing
+  eframe Title/SetTheme warnings appeared; no browser runtime errors were observed.
+* Final wasm: 16,332,539 bytes, +171,129 (+1.06%) over the layer-tree build. Native executable:
+  28,997,120 bytes. Native pointer/tablet interaction and Linux execution were not run locally;
+  shared egui input tests/browser gestures cover editing, and Linux runs in CI. No installer
+  release was made; the public desktop remains v0.1.4. The pen PR needs owner merge approval.
+
 ## Next steps (in order)
 
 Current priorities requested by the owner:
 1. ~~Right-click texturing and Parts~~ — session 30; PR #34 merged.
 2. ~~Welcome screen, recent files, quick-start guide and screenshot documentation~~ — sessions
    31/34; PR #35 merged. Included in the next desktop release; the public desktop is v0.1.4.
-3. Layer dragging, folder controls and inline rename — session 35; implemented and tested,
-   awaiting PR review and the owner's merge approval.
-4. Editable pen/Bézier paths (owner's clarification), as a separate tool feature.
+3. ~~Layer dragging, folder controls and inline rename~~ — session 35; #38 merged after all
+   required checks passed and the owner's approval.
+4. Editable pen/Bézier paths — session 36; local verification complete, open its PR and await
+   CI plus owner merge approval.
 5. Bundle the owner's normal/alpha starter pack, shelf previews and measured desktop/web sizes.
 6. Real multi-part FBX/GLB bake → smart material → paint → export.
-7. Browser import/save/export verification and work split across frames.
+7. Browser import/save/export verification and work split across frames. Fix the multi-download
+   export observed in session 36: only the first PNG was saved despite a ten-file success message.
 8. Projection painting, clone, smudge/blur, followed by the remaining engine/library follow-ups.
 
 Earlier roadmap details:

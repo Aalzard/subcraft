@@ -34,6 +34,8 @@ impl ChannelBlend {
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct PaintContent {
     pub channels: BTreeMap<ChannelKind, TiledImage>,
+    /// Editable pen source; channel rasters are its derived, tiled cache.
+    pub path: Option<crate::pen::PenPath>,
 }
 
 impl PaintContent {
@@ -94,6 +96,7 @@ pub enum LayerContent {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LayerKind {
     Paint,
+    Path,
     Fill,
     Folder,
 }
@@ -196,7 +199,8 @@ impl Layer {
     }
 
     pub fn kind(&self) -> LayerKind {
-        match self.content {
+        match &self.content {
+            LayerContent::Paint(p) if p.path.is_some() => LayerKind::Path,
             LayerContent::Paint(_) => LayerKind::Paint,
             LayerContent::Fill(_) => LayerKind::Fill,
             LayerContent::Group(_) => LayerKind::Folder,
@@ -230,6 +234,9 @@ impl Layer {
     pub fn duplicate_with_new_ids(&self) -> Layer {
         let mut l = self.clone();
         l.id = LayerId::new();
+        if let LayerContent::Paint(p) = &mut l.content && let Some(path) = &mut p.path {
+            for a in &mut path.anchors { a.id = subcraft_core::AnchorId::new(); }
+        }
         if let Some(mask) = &mut l.mask {
             for e in mask.effects.iter_mut() {
                 Arc::make_mut(e).id = subcraft_core::EffectId::new();

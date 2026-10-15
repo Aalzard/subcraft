@@ -14,6 +14,7 @@ pub mod launch;
 pub mod layer_tree;
 pub mod parts;
 pub mod part_workflow;
+pub mod pen;
 pub mod recovery;
 pub mod session;
 pub mod thumbnails;

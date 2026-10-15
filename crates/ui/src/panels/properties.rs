@@ -33,6 +33,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         // Name, with the layer type as an icon.
         ui.horizontal(|ui| {
             let icon = match &layer.content {
+                LayerContent::Paint(p) if p.path.is_some() => icons::CURVE,
                 LayerContent::Paint(_) => icons::PAINT_BRUSH,
                 LayerContent::Fill(_) => icons::PAINT_BUCKET,
                 LayerContent::Group(_) => icons::FOLDER_OPEN,
@@ -123,6 +124,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         cmds.extend(part_cmds);
 
         match &layer.content {
+            LayerContent::Paint(p) if p.path.is_some() => {
+                let path = state.pen.preview(&state.session).cloned().unwrap_or_else(|| p.path.as_ref().unwrap().clone());
+                section(ui, "pen", "Editable pen path", true, |ui| crate::pen::properties(state, ui, &path, now));
+            }
             LayerContent::Paint(p) => {
                 section(ui, "paint", "Paint layer", true, |ui| {
                     if p.channels.is_empty() {

@@ -49,11 +49,12 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             state.uv.zoom = (state.uv.zoom * (scroll * 0.002).exp()).clamp(0.2, 20.0);
         }
     }
-    if response.dragged() {
+    if response.dragged_by(egui::PointerButton::Middle) || (response.dragged_by(egui::PointerButton::Primary) && (state.tool != crate::state::Tool::Pen || ui.input(|i| i.modifiers.alt))) {
         state.uv.offset += response.drag_delta();
     }
     let side = rect.width().min(rect.height()) * 0.95 * state.uv.zoom;
     let img_rect = Rect::from_center_size(rect.center() + state.uv.offset, egui::vec2(side, side));
+    crate::pen::uv_input(state, ui, &response, img_rect);
     let painter = ui.painter_at(rect);
     painter.rect_filled(rect, 0.0, crate::theme::BG_0);
 
@@ -86,5 +87,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         for [a, b] in edges.iter() {
             painter.line_segment([to(*a), to(*b)], stroke);
         }
+    }
+    if state.tool == crate::state::Tool::Pen && let Some(path) = state.pen.preview(&state.session) {
+        crate::pen::draw(&painter, path, state.pen.selected_anchor(), |uv| Some(img_rect.min + egui::vec2(uv.x, uv.y) * side));
     }
 }

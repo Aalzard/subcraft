@@ -21,6 +21,8 @@ pub enum PaintError {
     LayerNotFound,
     /// Content strokes need a paint layer.
     NotAPaintLayer,
+    /// The raster is derived from editable anchors, so a brush must not overwrite it.
+    EditablePath,
     NoMask,
     /// No enabled brush channel exists in the texture set.
     NothingToPaint,
@@ -33,6 +35,7 @@ impl std::fmt::Display for PaintError {
         let s = match self {
             PaintError::LayerNotFound => "layer not found",
             PaintError::NotAPaintLayer => "only paint layers can be painted",
+            PaintError::EditablePath => "use the Pen tool to edit this path, or create a paint layer for brushing",
             PaintError::NoMask => "layer has no mask",
             PaintError::NothingToPaint => "no enabled brush channel in this texture set",
             PaintError::ResolutionMismatch => "resolution mismatch",
@@ -72,6 +75,7 @@ pub fn begin_targets(ts: &TextureSet, layer: LayerId, target: PaintTarget, mater
         }
         PaintTarget::Content => {
             let LayerContent::Paint(paint) = &l.content else { return Err(PaintError::NotAPaintLayer) };
+            if paint.path.is_some() { return Err(PaintError::EditablePath); }
             let mut out = Vec::new();
             for (&kind, ch) in material.channels.iter().filter(|(k, c)| c.enabled && ts.has_channel(**k)) {
                 let snapshot = paint.channels.get(&kind).cloned().unwrap_or_else(|| empty_paint_image(kind, res));

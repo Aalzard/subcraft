@@ -360,6 +360,21 @@ impl Session {
         self.brush.settings.radius(self.scene.mesh.bounds.diagonal())
     }
 
+    /// Surface position corresponding to a texture UV, for displaying editable path overlays.
+    /// The geometry cache shares the compositor's UV wrapping and texel convention.
+    pub fn pen_uv_position(&self, uv: Vec2) -> Option<Vec3> {
+        if !uv.is_finite() || uv.min_element() < 0.0 || uv.max_element() > 1.0 { return None; }
+        let ts = self.selected_texture_set(); let r = ts.resolution;
+        let xy = (uv * r as f32).as_uvec2().min(glam::UVec2::splat(r - 1));
+        let size = subcraft_image::TILE_SIZE;
+        let geometry = self.scene.geometry.get(ts.material_slot, r);
+        let tile = geometry.tile((xy.y / size * r.div_ceil(size) + xy.x / size) as usize);
+        let i = (xy.y % size * size + xy.x % size) as usize;
+        if tile.coverage(i) == 0.0 { return None; }
+        let bounds = &self.scene.mesh.bounds;
+        Some(bounds.min + Vec3::from_array(tile.position(i)) * (bounds.max - bounds.min).max_element())
+    }
+
     // ----- commands ------------------------------------------------------------------------------
 
     fn commit(&mut self, label: &str, merge_key: Option<String>) {
@@ -678,7 +693,7 @@ impl Session {
             Action::BrushSmaller => self.brush.settings.size = (self.brush.settings.size / 1.15).max(0.1),
             Action::BrushLarger => self.brush.settings.size = (self.brush.settings.size * 1.15).min(100.0),
             Action::ToggleSymmetryX => self.brush.options.symmetry[0] = !self.brush.options.symmetry[0],
-            Action::ResetCamera | Action::Save | Action::SaveAs | Action::OpenProject | Action::Export | Action::Bake => return Ok(false),
+            Action::PenTool | Action::ResetCamera | Action::Save | Action::SaveAs | Action::OpenProject | Action::Export | Action::Bake => return Ok(false),
         }
         Ok(true)
     }

@@ -17,6 +17,7 @@ pub enum Tool {
     Eraser,
     PolygonFill,
     Eyedropper,
+    Pen,
 }
 
 pub struct UvView {
@@ -43,6 +44,8 @@ pub struct UiState {
     /// GPU copy of the mesh/materials is stale (new session).
     pub gpu_dirty: bool,
     pub tool: Tool,
+    pub pen: subcraft_app::pen::PenEditor,
+    pub pen_after: Option<crate::pen::After>,
     pub fill_mode: PolygonFillMode,
     /// Channel whose blend mode/opacity the layer stack shows.
     pub active_channel: ChannelKind,
@@ -93,6 +96,7 @@ pub struct UiState {
 
 impl UiState {
     pub fn new(mut session: Session, render_state: Option<egui_wgpu::RenderState>) -> Self {
+        let tool = if session.selected_layer().is_some_and(|l| l.kind() == subcraft_doc::LayerKind::Path) { Tool::Pen } else { Tool::Brush };
         // A brush color that stands out on the default gray material.
         session.brush.material.set(ChannelKind::BaseColor, subcraft_core::ChannelValue::rgb(0.85, 0.32, 0.06));
         let renderer = render_state.as_ref().map(|rs| ViewportRenderer::new(&rs.device, &rs.queue));
@@ -111,7 +115,9 @@ impl UiState {
             renderer,
             viewport_texture: None,
             gpu_dirty: true,
-            tool: Tool::Brush,
+            tool,
+            pen: Default::default(),
+            pen_after: None,
             fill_mode: PolygonFillMode::UvIsland,
             active_channel: ChannelKind::BaseColor,
             status: None,
@@ -218,6 +224,9 @@ impl UiState {
 
     /// Replace the session (new project / opened mesh).
     pub fn set_session(&mut self, mut session: Session) {
+        self.pen = Default::default();
+        self.pen_after = None;
+        if session.selected_layer().is_some_and(|l| l.kind() == subcraft_doc::LayerKind::Path) { self.tool = Tool::Pen; }
         session.brush.material = self.session.brush.material.clone();
         self.camera = OrbitCamera::framing(&session.scene().mesh.bounds);
         self.session = session;
