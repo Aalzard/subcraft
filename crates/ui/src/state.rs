@@ -28,6 +28,7 @@ pub struct UvView {
 }
 
 pub struct UiState {
+    pub asset_preview: crate::asset_preview::AssetPreviewUi,
     pub welcome: crate::welcome::WelcomeUi,
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -101,6 +102,7 @@ impl UiState {
         session.brush.material.set(ChannelKind::BaseColor, subcraft_core::ChannelValue::rgb(0.85, 0.32, 0.06));
         let renderer = render_state.as_ref().map(|rs| ViewportRenderer::new(&rs.device, &rs.queue));
         Self {
+            asset_preview: Default::default(),
             welcome: Default::default(),
 
             #[cfg(not(target_arch = "wasm32"))]
@@ -224,6 +226,7 @@ impl UiState {
 
     /// Replace the session (new project / opened mesh).
     pub fn set_session(&mut self, mut session: Session) {
+        self.asset_preview.cancel_apply();
         self.pen = Default::default();
         self.pen_after = None;
         if session.selected_layer().is_some_and(|l| l.kind() == subcraft_doc::LayerKind::Path) { self.tool = Tool::Pen; }

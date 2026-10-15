@@ -7,6 +7,7 @@ pub enum Chip {
     All,
     /// Items stored in the user library.
     Mine,
+    Tileable,
     /// A material category ("Metal", "Plastic", ...).
     Category(String),
 }
@@ -22,9 +23,13 @@ impl ShelfFilter {
     /// True if an item passes the chip and every word of the query appears (case-insensitive)
     /// in its name or category.
     pub fn matches(&self, name: &str, category: Option<&str>, is_user: bool) -> bool {
+        self.matches_tagged(name,category,is_user,false)
+    }
+    pub fn matches_tagged(&self, name: &str, category: Option<&str>, is_user: bool, tileable: bool) -> bool {
         let chip_ok = match &self.chip {
             Chip::All => true,
             Chip::Mine => is_user,
+            Chip::Tileable => tileable,
             Chip::Category(c) => category.is_some_and(|x| x.eq_ignore_ascii_case(c)),
         };
         if !chip_ok {

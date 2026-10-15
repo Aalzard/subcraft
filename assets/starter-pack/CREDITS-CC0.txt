@@ -1,0 +1,9 @@
+SubCraft starter pack
+
+30 normal maps and 30 brush alpha maps supplied by Aalzard for SubCraft.
+These 60 images are dedicated to the public domain under CC0 1.0 Universal.
+https://creativecommons.org/publicdomain/zero/1.0/
+
+You may use, modify and redistribute them, including in commercial work.
+No attribution is required. SubCraft code keeps its own MIT/Apache-2.0 licenses.
+The manifest records the losslessly optimized full-size PNG files.

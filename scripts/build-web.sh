@@ -11,4 +11,7 @@ cargo build --profile dist -p subcraft --target wasm32-unknown-unknown
 mkdir -p "$out"
 wasm-bindgen --target web --no-typescript --out-dir "$out" "$target/wasm32-unknown-unknown/dist/subcraft.wasm"
 cp web/index.html web/icon.png "$out/"
+mkdir -p "$out/starter-pack"
+cp -R assets/starter-pack/textures assets/starter-pack/alphas "$out/starter-pack/"
+cp assets/starter-pack/CREDITS-CC0.txt "$out/starter-pack/"
 ls -l "$out"

@@ -74,8 +74,19 @@ screen and six-step in-app guide are available in the browser and included in th
 - **Baking**: normal (from an optional high poly through a cage), world-space normal, AO, curvature,
   thickness, position and ID maps, on the CPU in the background.
 - **Shelf**: built-in materials, smart materials (Worn Painted Metal, Rusty Iron, Old Wood…),
-  smart masks, brush tips and lighting environments (including HDRI import). Search and filter by
-  category, and **drag** items onto the model or a layer.
+  smart masks, brush tips and lighting environments (including HDRI import). Search/filter by
+  category and drag items onto the model or a layer.
+- **CC0 Starter pack (next desktop release)**: **30 normal maps and 30 brush alphas**. Find normals under
+  Textures → Starter pack and drag onto Normal, or the model/layers; find tips under Brushes.
+  Click an image to inspect 1×1 / 2×2 / 3×3 tiles, a lit normal preview or sample alpha stroke.
+  Adjust normal strength/green convention, brightness/contrast for tips, invert, scale, rotation,
+  repeat/mirror/clamp and seamless edge blending, then apply a copy. Tileable normals have a
+  filter chip. Desktop carries the images offline; web loads full PNGs on demand. The pack is
+  12.9 MB losslessly compressed, with 340 KB of thumbnails. See [CC0 credits](assets/starter-pack/CREDITS-CC0.txt).
+
+  <img src="docs/screenshots/starter-pack-overview.jpg" alt="All 30 starter normal maps and 30 grayscale brush alpha tips" width="640">
+
+  <img src="docs/screenshots/starter-alpha-preview.jpg" alt="In-app alpha preview with repeated tiles, contrast, rotation and a sample brush stroke" width="480">
 - **Your library**: imported tips and HDRIs, your saved smart materials, smart masks and brush presets
   live in `Documents\SubCraft\Library` and are back every time you start SubCraft.
 - **Viewport**: real-time PBR preview with studio or HDRI lighting, plus a 2D UV view of every channel

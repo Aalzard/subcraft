@@ -23,12 +23,14 @@ pub enum ShelfDrag {
     SmartMask(usize),
     /// An image from Shelf → Textures (drop on a channel row to use it there).
     Texture(usize),
+    Starter(usize),
 }
 
 /// Apply a material / smart material (inserted above the selected layer of the selected
 /// texture set) or a smart mask (on the selected layer). Shared by clicks and drops.
 pub fn apply_shelf_item(s: &mut UiState, item: ShelfDrag, now: f64) {
     let result = match item {
+        ShelfDrag::Starter(i) => {s.asset_preview.queue(&s.session,i,None);Ok(())},
         ShelfDrag::Material(i) => match s.library.materials.get(i).cloned() {
             Some(m) => s.session.add_material(&m).map_err(|e| e.to_string()),
             None => Ok(()),
@@ -165,7 +167,7 @@ pub fn apply_environment(
 const TILE: f32 = 88.0;
 
 /// Thumbnail tile: square image with a hairline frame (accent when hovered / selected), name below.
-fn tile(ui: &mut Ui, thumb: Option<&egui::TextureHandle>, name: &str, selected: bool, tooltip: &str) -> egui::Response {
+pub(crate) fn tile(ui: &mut Ui, thumb: Option<&egui::TextureHandle>, name: &str, selected: bool, tooltip: &str) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(TILE, TILE + 22.0), egui::Sense::click_and_drag());
     if resp.dragged()
         && egui::DragAndDrop::has_payload_of_type::<ShelfDrag>(ui.ctx())
@@ -336,6 +338,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     egui::ScrollArea::vertical().id_salt("shelf").auto_shrink([false, false]).show(ui, |ui| {
         egui::Frame::new().inner_margin(egui::Margin::same(theme::PAD)).show(ui, |ui| ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing = egui::vec2(10.0, 10.0);
+            shown += crate::asset_preview::shelf(state,ui);
             let thumbs = &state.shelf.thumbs;
             match state.shelf.tab {
                 ShelfTab::Textures => {
@@ -351,7 +354,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                             action = Some(Box::new(move |s: &mut UiState| s.textures.remove(&path)));
                         }
                         if resp.clicked() {
-                            action = Some(Box::new(move |s: &mut UiState| apply_shelf_item(s, ShelfDrag::Texture(i), now)));
+                            let name=t.name.clone();let path=t.path.clone();let ctx=ui.ctx().clone();
+                            let kind=if t.category=="Normal" {subcraft_assets::starter::Kind::Normal} else {subcraft_assets::starter::Kind::Texture};
+                            action = Some(Box::new(move |s: &mut UiState| s.asset_preview.start(&ctx,name,kind,crate::asset_preview::Source::File(path),true)));
                         }
                     }
                 }
@@ -438,6 +443,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     }
                     let current = state.session.brush.alpha_name.clone();
                     for (i, a) in state.library.alphas.iter().enumerate() {
+                        if a.name.starts_with("Starter: ") {continue;}
                         if !filter.matches(&a.name, None, a.user_file.is_some()) {
                             continue;
                         }
@@ -452,9 +458,11 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                             }));
                         }
                         if resp.clicked() {
+                            let ctx=ui.ctx().clone();
                             action = Some(Box::new(move |s: &mut UiState| {
                                 let a = s.library.alphas[i].clone();
                                 s.session.set_brush_alpha(&a);
+                                if let Some(bitmap)=a.bitmap {s.asset_preview.start(&ctx,a.name,subcraft_assets::starter::Kind::Alpha,crate::asset_preview::Source::Bitmap(bitmap),true);}
                                 if s.tool == crate::state::Tool::PolygonFill {
                                     s.tool = crate::state::Tool::Brush;
                                 }
@@ -675,13 +683,14 @@ fn filter_row(state: &mut UiState, ui: &mut Ui) {
         }
     }
     if state.shelf.tab == ShelfTab::Textures {
-        chips.retain(|(c, _)| *c != Chip::Mine); // every texture is yours
+        chips.push((Chip::Tileable,"Tileable".into()));
         for c in categories(state.textures.items.iter().map(|t| t.category)) {
             chips.push((Chip::Category(c.clone()), c));
         }
     }
+    if matches!(state.shelf.tab,ShelfTab::Textures|ShelfTab::Brushes) {chips.push((Chip::Category("Starter pack".into()),"Starter pack".into()));}
     egui::Frame::new().inner_margin(egui::Margin { left: theme::PAD, right: theme::PAD, top: 4, bottom: 6 }).show(ui, |ui| {
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             let filter = &mut state.shelf.filter;
             ui.add(egui::TextEdit::singleline(&mut filter.query).hint_text("Search…").desired_width(180.0));
             if !filter.query.is_empty() && crate::widgets::icon_button(ui, crate::icons::X, "Clear search").clicked() {

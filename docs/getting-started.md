@@ -73,6 +73,7 @@ right template before judging the result under lighting.
 
 ## Editable pen paths
 
+
 Select **Pen (P)**. Click on the model or in **2D View** to add an anchor; drag while adding it
 to create Bézier handles. Drag existing anchors/handles to edit, or hold **Shift** to move one
 handle separately. **Enter** finishes adding points, **Esc** cancels the current edit and
@@ -89,6 +90,29 @@ brush tools. Save/Export waits for any path still being drawn.
 
 Pen projects use schema 4 and need a build with the Pen tool to reopen; earlier projects still
 open. The public desktop v0.1.4 does not include this tool yet.
+
+## Starter textures and alpha tips
+
+In **Shelf → Textures → Starter pack**, drag a normal map onto a fill layer's **Normal** row,
+or onto the model/layer list to add a normal-only fill layer. **Tileable** filters the tagged
+maps. In **Shelf → Brushes → Starter pack**, click an alpha to preview it, then **Use as brush
+tip**. Built-in tips and imported images remain available in All/Mine.
+
+Click a texture to open its preview. Choose **1×1 / 2×2 / 3×3** to inspect seams. Normals have a
+strength slider, a lit sphere, green flip for OpenGL/DirectX and bump inversion. Alphas have
+brightness/contrast, invert and a sample stroke. Both offer scale, rotation, wrap mode and
+**Make seamless** edge blending. Inspect the repeated result; blending softens boundary details.
+**Add adjusted fill layer** bakes the adjustments into a new image copy. The original files stay
+unchanged, and normal-map resources travel inside saved projects. Width/height are 1024px for
+all pack images. Full images load only when selected; desktop needs no network connection.
+
+![The 60 included images](screenshots/starter-pack-overview.jpg)
+
+![Normal-map preview and tiling controls](screenshots/starter-normal-preview.jpg)
+
+![Starter normal map and alpha stroke on the model](screenshots/starter-pack-model.png)
+
+The images are [CC0](../assets/starter-pack/CREDITS-CC0.txt), including for commercial use.
 
 For more detail, see the [README](../README.md), [changelog](../CHANGELOG.md) and
 [development notes](development.md).

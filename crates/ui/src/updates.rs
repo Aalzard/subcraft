@@ -4,7 +4,7 @@ use crate::state::UiState;
 use subcraft_app::updater::Phase;
 
 pub fn can_restart(state: &UiState) -> bool {
-    state.bake.job.is_none() && !state.pen.is_editing() && !state.pen.is_pending()
+    state.bake.job.is_none() && !state.pen.is_editing() && !state.pen.is_pending() && !state.asset_preview.is_applying()
 }
 
 pub fn button(state: &mut UiState, ui: &mut egui::Ui) {
