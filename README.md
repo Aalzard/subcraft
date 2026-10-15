@@ -11,12 +11,13 @@ smart materials, bake mesh maps, and export game-ready textures.
 
 ![SubCraft](docs/screenshots/ui-redesign.png)
 
-> **v0.1.4:** the green **Check / update** button downloads, installs and restarts
-> future desktop releases with your unsaved project restored. Versions through v0.1.3 need one
-> download to get the button. See the [changelog](CHANGELOG.md).
+> **v0.1.5** adds the 60-image starter pack, texture/alpha previews, editable pen paths, layer
+> dragging/folders/rename and the welcome guide. Browser Export downloads all maps in one ZIP.
+> On desktop v0.1.4, use the green **Check / update** button. Earlier versions need one download
+> to get the button. See the [changelog](CHANGELOG.md).
 
 New here? Follow the [illustrated getting-started guide](docs/getting-started.md). A welcome
-screen and six-step in-app guide are available in the browser and included in the next desktop release.
+screen and six-step in-app guide are available on desktop and in the browser.
 
 > **Status: early but usable.** The core engine, painting, baking, smart materials, save/load and
 > export all work and are covered by tests. Expect rough edges, missing features and breaking
@@ -25,13 +26,13 @@ screen and six-step in-app guide are available in the browser and included in th
 
 ## Features
 
-- **Welcome and quick start (next desktop release)**: open a model/project, try the sample, see what's new, or follow
+- **Welcome and quick start**: open a model/project, try the sample, see what's new, or follow
   the six-step guide from Help. Desktop recent files make it easy to resume; the startup screen
   can be turned off on the welcome screen or in Preferences. The hub fits narrow windows.
 - **Layer stack**: paint layers, fill layers (uniform, procedural, image and mesh-map sources) and
   folders, with 32 blend modes and opacity per channel. Right-click a layer to duplicate, delete or
   save it to your library.
-- **Layer tree editing (next desktop release)**: drag a layer's name or row above/below another
+- **Layer tree editing**: drag a layer's name or row above/below another
   layer; drop in the center of a folder to put it inside. Drop at **Top level — top/bottom** to
   move it out. Folder arrows expand/collapse; double-click a name or press **F2** to rename
   inline (**Enter** accepts, **Esc** cancels). Moves and renames support undo/redo and project
@@ -60,7 +61,7 @@ screen and six-step in-app guide are available in the browser and included in th
 - **Painting**: brush and eraser on the 3D model with tips (alphas), symmetry, lazy mouse, jitter,
   **stencils** (paint through an image laid over the view) and polygon fill (triangle, mesh part,
   UV island). Save your brush setups as **presets**.
-- **Pen paths (next desktop release)**: press **P**, click to add anchors and drag for Bézier
+- **Pen paths**: press **P**, click to add anchors and drag for Bézier
   handles in the 3D or 2D view. Drag anchors/handles to edit; **Shift** moves one handle separately,
   **Delete** removes a point, **Enter** finishes and **Esc** cancels the current edit. Properties
   offers New path, Corner/Smooth, Closed path, UV width, hardness, opacity and channel values.
@@ -76,7 +77,7 @@ screen and six-step in-app guide are available in the browser and included in th
 - **Shelf**: built-in materials, smart materials (Worn Painted Metal, Rusty Iron, Old Wood…),
   smart masks, brush tips and lighting environments (including HDRI import). Search/filter by
   category and drag items onto the model or a layer.
-- **CC0 Starter pack (next desktop release)**: **30 normal maps and 30 brush alphas**. Find normals under
+- **CC0 Starter pack**: **30 normal maps and 30 brush alphas**. Find normals under
   Textures → Starter pack and drag onto Normal, or the model/layers; find tips under Brushes.
   Click an image to inspect 1×1 / 2×2 / 3×3 tiles, a lit normal preview or sample alpha stroke.
   Adjust normal strength/green convention, brightness/contrast for tips, invert, scale, rotation,

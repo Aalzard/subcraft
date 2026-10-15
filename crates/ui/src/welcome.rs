@@ -86,8 +86,8 @@ pub fn show(state: &mut UiState, ctx: &egui::Context) -> Option<WelcomeAction> {
     }
     if state.welcome.whats_new {
         egui::Window::new("What's new").open(&mut state.welcome.whats_new).collapsible(false).default_width(420.0).show(ctx, |ui| {
-            ui.heading("Current development build");
-            for text in ["Right-click Parts workflow, named objects and UV-island masks.", "Eyedropper for unlit color and material values.", "Autosave, recovery copies, crash reports and Help → Report a bug.", "Desktop: the green Check / update button installs releases and restarts with your project restored.", "Welcome screen, desktop recents and this six-step quick start."] { ui.label(text); ui.add_space(6.0); }
+            ui.heading(format!("SubCraft {}",env!("CARGO_PKG_VERSION")));
+            for text in ["Starter pack: 30 normal maps and 30 brush alphas, with tiled, lit and sample-stroke previews.", "Pen (P): editable Bézier paths on models and in 2D View.", "Drag layers above/below or into folders; double-click to rename.", "Welcome screen, desktop recent files and a six-step quick start.", "Browser Export downloads every texture map in one ZIP.", "Projects saved in this version need SubCraft 0.1.5 or newer; older projects still open."] { ui.label(text); ui.add_space(6.0); }
             ui.hyperlink_to("Full changelog", "https://github.com/Aalzard/subcraft/blob/main/CHANGELOG.md");
         });
     }
