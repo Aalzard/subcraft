@@ -121,6 +121,19 @@ Firefox or Safari). Nothing to install. The web version is the same app with a f
 
 For real work, the desktop app below is faster.
 
+**v0.1.5 sizes** (decimal MB):
+
+| Download | Size |
+|---|---:|
+| Windows installer | 23.22 MB |
+| Windows portable ZIP | 24.87 MB |
+| Linux x64 archive | 26.39 MB |
+| Browser WebAssembly module | 16.74 MB |
+
+The browser module includes the thumbnail catalog. The 12.93 MB of full starter PNGs are
+separate files fetched only when selected; they do not all load at startup. Network compression,
+cache and the selected images affect actual transfer size and loading time.
+
 ## Download (Windows)
 
 1. Open the [latest release](https://github.com/Aalzard/subcraft/releases/latest) and download
@@ -143,9 +156,9 @@ packages finish uploading if the app says they are still being prepared.
 
 *Local installer update test: the original project and unsaved layer edits are restored.*
 
-Download again from **Releases → latest**
-to get the current desktop build; the browser version updates separately when changes land on
-main. Features in open pull requests are available after they are merged and released.
+The [latest release](https://github.com/Aalzard/subcraft/releases/latest) has the current desktop
+packages; the browser version updates separately when changes land on main. Features in open
+pull requests are available after they are merged and released.
 
 ## Download (Linux)
 

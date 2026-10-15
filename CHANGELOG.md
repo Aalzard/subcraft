@@ -7,6 +7,9 @@ What changed in SubCraft, newest first. Download the latest build from the
 
 ## 0.1.5
 
+Published desktop packages: Windows installer 23.22 MB, Windows ZIP 24.87 MB and Linux x64
+archive 26.39 MB. The browser module is 16.74 MB; full starter PNGs load on demand.
+
 ### New
 - **CC0 texture starter pack**: 30 tileable 1024px normal maps and 30 brush alphas supplied by
   Aalzard, with a Starter pack shelf category, thumbnails and a Tileable filter. Normal maps drag
