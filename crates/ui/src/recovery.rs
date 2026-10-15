@@ -135,7 +135,7 @@ pub fn tick(state: &mut UiState, ctx: &egui::Context, now: f64) {
 
 #[cfg(target_arch = "wasm32")]
 fn web_backup_tick(state: &mut UiState, ctx: &egui::Context, now: f64) {
-    let unsaved = state.session.is_modified() || state.pen.is_editing() || state.pen.is_pending();
+    let unsaved = state.session.is_modified() || state.pen.is_editing() || state.pen.is_pending() || state.asset_preview.is_applying();
     let rec = &mut state.recovery;
     if rec.page_unsaved != Some(unsaved) {
         // Read by the page's `beforeunload` handler (web/index.html): closing the tab asks first.

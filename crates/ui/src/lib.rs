@@ -118,3 +118,4 @@ fn preferred_backends() -> Option<egui_wgpu::wgpu::Backends> {
         Some(wgpu::Backends::DX12)
     }
 }
+pub mod asset_preview;

@@ -3,6 +3,8 @@
 //! them and the app turns them into commands.
 
 pub mod alphas;
+pub mod preview;
+pub mod starter;
 pub mod environment;
 pub mod presets;
 pub mod smart;

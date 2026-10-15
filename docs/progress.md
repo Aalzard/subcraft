@@ -816,6 +816,40 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   shared egui input tests/browser gestures cover editing, and Linux runs in CI. No installer
   release was made; the public desktop remains v0.1.4. The pen PR needs owner merge approval.
 
+### Session 37 — CC0 starter images and shelf preview (2026-10-15)
+
+* Owner approved #39 after all required checks. Linux, Windows and web passed; Pen merged as
+  4c711f7. Owner requested adding the starter images before the next desktop release.
+* Added all 30 normal maps and 30 alphas from the owner's output folder, losslessly optimized
+  from 13,894,995 to 12,928,272 bytes. Thumbnail PNGs total 340,359 bytes. CC0 credits and a
+  manifest accompany the full-size assets; desktop embeds the full images for portable/updater
+  compatibility, while the wasm excludes them and fetches individual PNGs from static hosting.
+* Added shelf categories/tileable filter, normal drag/drop and an image/alpha preview with
+  repeated tiles, lit sphere/sample stroke, strength, green flip, invert, brightness/contrast,
+  scale, rotation, addressing modes and edge blending. Assets owns image math; app owns captured
+  destinations, resource UUIDs, portability and undo. Preview/apply pixel jobs have frame budgets.
+  Save/Open/Export/close and update restart wait for pending image application.
+* Added tests for every catalog image, normal/vector math, alpha coverage, address modes,
+  seam equality, job-budget equivalence, lit/stroke previews, undo/redo, save/load, stale targets,
+  real egui controls, apply/cancel, filter metadata and pending Save/update guards. Windows
+  packaging regression includes starter credits. Final workspace run: 314 passed (18 new);
+  clippy passed with existing warnings. The throwaway example applied a 1024px adjusted normal
+  and alpha stroke to the seven-part model, exported ten maps and reopened its portable project.
+  Latest Windows GUI screenshot run exited 0 with isolated data/library and no desktop input.
+* Browser verification found a missing final repaint after asynchronous application: the saved
+  data was correct but the viewport stayed stale until another input. Fixed the final repaint,
+  added application/loading progress and visible errors, and added a regression for the frame
+  that displays a completed job. Final browser normal-row replacement now updates immediately.
+  Tiling, normal strength/green flip, alpha contrast/rotation/invert, wrap menus, lit sphere and
+  sample stroke were exercised. Adjusted alpha painting and a final project download/reopen
+  passed; the stroke and embedded normal maps persisted, with no browser runtime errors.
+* Final feature wasm is 16,781,729 bytes, +449,190 (+2.75%) over Pen. Its initial shelf requests
+  no full pack PNGs; selecting a normal fetches one image. Full source pixels match all 60 owner
+  PNGs exactly. The first optimized native build was 42,384,384 bytes. Shipping installer/zip
+  sizes and final release smoke tests will be recorded with the version/release PR. Native
+  pointer/tablet gestures and Linux execution were not run locally; shared egui/browser
+  interaction tests and CI cover those routes. No release has been published yet.
+
 ## Next steps (in order)
 
 Current priorities requested by the owner:
@@ -824,9 +858,9 @@ Current priorities requested by the owner:
    31/34; PR #35 merged. Included in the next desktop release; the public desktop is v0.1.4.
 3. ~~Layer dragging, folder controls and inline rename~~ — session 35; #38 merged after all
    required checks passed and the owner's approval.
-4. Editable pen/Bézier paths — session 36; local verification complete, open its PR and await
-   CI plus owner merge approval.
-5. Bundle the owner's normal/alpha starter pack, shelf previews and measured desktop/web sizes.
+4. ~~Editable pen/Bézier paths~~ — session 36; #39 merged after required checks and owner approval.
+5. Starter pack and image previews — session 37 in progress; finish full verification, then
+   release the accumulated improvements as requested by the owner.
 6. Real multi-part FBX/GLB bake → smart material → paint → export.
 7. Browser import/save/export verification and work split across frames. Fix the multi-download
    export observed in session 36: only the first PNG was saved despite a ten-file success message.

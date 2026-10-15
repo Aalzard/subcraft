@@ -6,6 +6,16 @@ What changed in SubCraft, newest first. Download the latest build from the
 ## Unreleased
 
 ### New
+- **CC0 texture starter pack**: 30 tileable 1024px normal maps and 30 brush alphas supplied by
+  Aalzard, with a Starter pack shelf category, thumbnails and a Tileable filter. Normal maps drag
+  onto Normal or create a normal-only fill layer. Full images are bundled offline on desktop and
+  fetched on demand in the browser; lossless optimization reduced 13,894,995 bytes to 12,928,272.
+  Shelf thumbnails total 340,359 bytes. Credits ship with desktop and web packages.
+- **Texture/alpha preview**: 1×1, 2×2 and 3×3 tile views, lit normal sphere and sample alpha stroke;
+  normal strength, flip-green (OpenGL/DirectX), bump inversion, alpha brightness/contrast, scale,
+  rotation, repeat/mirror/clamp and seamless edge blend. Changes apply to a copy and adjusted
+  normal maps embed in saved projects. Pixel work is split across frames; Save/Export and update
+  restart wait for pending application.
 - **Editable pen/Bézier paths**: select Pen (P), click points in the 3D or 2D view and drag to
   create curves. Move anchors and handles, break mirrored handles with Shift, close/open paths,
   choose Corner/Smooth points, delete points, and adjust width, hardness, opacity and PBR channel

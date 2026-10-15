@@ -338,11 +338,11 @@ impl SubcraftApp {
     }
 
     fn perform(&mut self, action: Action, now: f64) {
-        if self.state.pen.is_editing() || self.state.pen.is_pending() {
-            if action == Action::Undo { self.state.pen.undo_pending(&self.state.session); return; }
+        if self.state.pen.is_editing() || self.state.pen.is_pending() || self.state.asset_preview.is_applying() {
+            if action == Action::Undo { if self.state.asset_preview.is_applying() {self.state.asset_preview.cancel_apply();} else {self.state.pen.undo_pending(&self.state.session);} return; }
             if matches!(action, Action::Save | Action::SaveAs | Action::Export) {
                 if let Err(e) = self.state.pen.release(&self.state.session) { self.state.set_status(e.to_string(), now); }
-                if self.state.pen.is_pending() {
+                if self.state.pen.is_pending() || self.state.asset_preview.is_applying() {
                     self.state.pen_after = Some(crate::pen::After::Action(action)); return;
                 }
             }
@@ -591,9 +591,9 @@ impl SubcraftApp {
 
     /// Run `action` now, or after the unsaved-changes prompt.
     fn request(&mut self, action: Pending, now: f64) {
-        if self.state.pen.is_editing() || self.state.pen.is_pending() {
+        if self.state.pen.is_editing() || self.state.pen.is_pending() || self.state.asset_preview.is_applying() {
             if let Err(e) = self.state.pen.release(&self.state.session) { self.state.set_status(e.to_string(), now); }
-            if self.state.pen.is_pending() {
+            if self.state.pen.is_pending() || self.state.asset_preview.is_applying() {
                 self.state.pen_after = Some(crate::pen::After::Request(action)); return;
             }
         }
@@ -606,7 +606,7 @@ impl SubcraftApp {
     }
 
     fn flush_pen_after(&mut self, now: f64) {
-        if !self.state.pen.is_editing() && !self.state.pen.is_pending()
+        if !self.state.pen.is_editing() && !self.state.pen.is_pending() && !self.state.asset_preview.is_applying()
             && let Some(after) = self.state.pen_after.take()
         {
             match after {
@@ -817,6 +817,7 @@ impl eframe::App for SubcraftApp {
         }
         self.shortcuts_window(&ctx);
         let now = ctx.input(|i| i.time);
+        crate::asset_preview::show(&mut self.state,&ctx);
         crate::pen::finish_frame(&mut self.state, &ctx, now);
         self.flush_pen_after(now);
         crate::recovery::tick(&mut self.state, &ctx, now);
@@ -859,7 +860,7 @@ impl eframe::App for SubcraftApp {
         }
         // Closing with unsaved work asks first.
         if ctx.input(|i| i.viewport().close_requested()) && !self.state.allow_close && self.screenshot.is_none()
-            && (self.state.session.is_modified() || self.state.pen.is_editing() || self.state.pen.is_pending()) {
+            && (self.state.session.is_modified() || self.state.pen.is_editing() || self.state.pen.is_pending() || self.state.asset_preview.is_applying()) {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.request(Pending::Close, now);
         }
@@ -974,3 +975,17 @@ fn build_demo(state: &mut UiState) {
         s.end_stroke();
     }
 }
+    #[test]
+    fn save_waits_for_pending_shelf_image_and_embeds_the_result() {
+        let file=std::env::temp_dir().join(format!("subcraft-image-save-{}.subcraft",subcraft_core::ObjectId::new()));
+        let mut session=Session::new(subcraft_mesh::primitives::cube(2.0),128);session.save(Some(&file)).unwrap();
+        let mut app=SubcraftApp {state:UiState::new(session,None),dock:default_layout(),frames:0,screenshot:None,screenshot_requested:false,pending_now:None,active_tabs:HashSet::new(),test_crash:false};
+        app.state.asset_preview.queue(&app.state.session,0,None);app.perform(Action::Save,0.0);assert!(app.state.pen_after.is_some());
+        let ctx=egui::Context::default();
+        for _ in 0..2000 {
+            let mut out=ctx.run_ui(egui::RawInput::default(),|ui|crate::asset_preview::show(&mut app.state,ui.ctx()));out.textures_delta.clear();
+            app.flush_pen_after(0.1);if !app.state.asset_preview.is_applying(){break;}std::thread::yield_now();
+        }
+        assert!(!app.state.asset_preview.is_applying());assert!(app.state.pen_after.is_none());assert!(!app.state.session.is_modified());
+        let reopened=Session::open_project(&file).unwrap();assert_eq!(reopened.document(),app.state.session.document());assert!(reopened.resources().iter().any(|r|r.name.starts_with("Starter: ")));std::fs::remove_file(file).unwrap();
+    }

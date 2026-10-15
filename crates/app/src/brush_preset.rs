@@ -32,6 +32,19 @@ pub struct BrushPreset {
 }
 
 impl Session {
+    /// Persist a used starter tip only when a preset needs it. The whole pack stays lazy.
+    pub fn save_current_brush_preset(&mut self, lib: &UserLibrary, name: &str) -> Result<(BrushPreset,Option<BrushAlpha>),String> {
+        let mut saved_tip=None;
+        if self.brush.alpha_name.starts_with("Starter: ") && let Some(bitmap)=self.brush.alpha.clone() {
+            let path=lib.new_file_path(UserAssetKind::Alpha,&self.brush.alpha_name);
+            std::fs::create_dir_all(lib.folder(UserAssetKind::Alpha)).map_err(|e|e.to_string())?;
+            let (bytes,_)=subcraft_image::encode_bitmap(&bitmap).map_err(|e|e.to_string())?;
+            std::fs::write(&path,bytes).map_err(|e|e.to_string())?;
+            let alpha=BrushAlpha {id:subcraft_core::AssetId::from_name(&format!("alpha/user/{}",path.file_name().and_then(|n|n.to_str()).unwrap_or("tip.png"))),name:display_name(&path,&self.brush.alpha_name),bitmap:Some(bitmap),user_file:Some(path)};
+            self.set_brush_alpha(&alpha);saved_tip=Some(alpha);
+        }
+        let preset=save_brush_preset(lib,&self.brush_preset(name))?;Ok((preset,saved_tip))
+    }
     /// The current brush as a preset.
     pub fn brush_preset(&self, name: &str) -> BrushPreset {
         let b = &self.brush;

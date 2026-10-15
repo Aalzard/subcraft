@@ -39,11 +39,11 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         .clicked()
                     {
                         let name = if state.preset_name.trim().is_empty() { state.session.brush.alpha_name.clone() } else { state.preset_name.clone() };
-                        let preset = state.session.brush_preset(&name);
                         let lib = state.user_library.clone().expect("enabled only with a library");
                         let now = ui.input(|i| i.time);
-                        match subcraft_app::brush_preset::save_brush_preset(&lib, &preset) {
-                            Ok(p) => {
+                        match state.session.save_current_brush_preset(&lib, &name) {
+                            Ok((p,tip)) => {
+                                if let Some(tip)=tip {state.library.alphas.push(tip);}
                                 state.set_status(format!("Saved brush preset \"{}\"", p.name), now);
                                 state.brush_presets.push(p);
                                 state.preset_name.clear();

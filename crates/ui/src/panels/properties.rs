@@ -23,6 +23,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     };
     let mut cmds = Vec::new();
     let mut texture_drop: Option<(ChannelKind, std::path::PathBuf)> = None;
+    let mut starter_drop = None;
     let id = layer.id;
     let channels = state.session.channels();
     let part_kind = layer.parts.as_ref().map_or(subcraft_core::PartKind::Connected, |p| p.kind);
@@ -260,15 +261,16 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     }
                     });
                     // Drag a texture from Shelf → Textures onto this row to use it here.
-                    let is_texture = |d: &crate::panels::shelf::ShelfDrag| matches!(d, crate::panels::shelf::ShelfDrag::Texture(_));
+                    let is_texture = |d: &crate::panels::shelf::ShelfDrag| matches!(d, crate::panels::shelf::ShelfDrag::Texture(_)|crate::panels::shelf::ShelfDrag::Starter(_));
                     if row.response.dnd_hover_payload::<crate::panels::shelf::ShelfDrag>().is_some_and(|d| is_texture(&d)) {
                         ui.painter().rect_stroke(row.response.rect, 0.0, egui::Stroke::new(1.5, ACCENT), egui::StrokeKind::Inside);
                     }
-                    if let Some(d) = row.response.dnd_release_payload::<crate::panels::shelf::ShelfDrag>()
-                        && let crate::panels::shelf::ShelfDrag::Texture(i) = *d
-                        && let Some(path) = state.textures.items.get(i).map(|t| t.path.clone())
-                    {
-                        texture_drop = Some((*kind, path));
+                    if let Some(d) = row.response.dnd_release_payload::<crate::panels::shelf::ShelfDrag>() {
+                        match *d {
+                            crate::panels::shelf::ShelfDrag::Texture(i)=>if let Some(path)=state.textures.items.get(i).map(|t|t.path.clone()) {texture_drop=Some((*kind,path));},
+                            crate::panels::shelf::ShelfDrag::Starter(i)=>starter_drop=Some((i,*kind)),
+                            _=>{},
+                        }
                     }
                     ui.add_space(2.0);
                     if changed {
@@ -353,6 +355,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         }
     }
     state.run(cmds, now);
+    if let Some((i,channel))=starter_drop {state.asset_preview.queue(&state.session,i,Some((id,channel)));}
     if let Some((channel, path)) = texture_drop {
         match state.session.set_fill_channel_image(id, channel, &path) {
             Ok(()) => state.set_status(
