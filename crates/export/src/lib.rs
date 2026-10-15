@@ -16,7 +16,7 @@ use rayon::prelude::*;
 use subcraft_core::{ChannelKind, MeshMapKind};
 use subcraft_core::color::linear_to_srgb;
 use subcraft_image::dilate::{dilate_infinite, dilate_width};
-use subcraft_image::{FileFormat, TiledImage, save_image};
+use subcraft_image::{FileFormat, TiledImage};
 use subcraft_mesh::Mesh;
 use subcraft_mesh::uv_raster::rasterize_surface;
 
@@ -74,6 +74,8 @@ pub enum ExportError {
     Folder(PathBuf, std::io::Error),
     #[error("could not write {0}: {1}")]
     Write(PathBuf, String),
+    #[error("could not create texture archive: {0}")]
+    Archive(String),
 }
 
 /// File-system friendly name part.
@@ -210,6 +212,34 @@ pub fn coverage(mesh: &Mesh, material_slot: u32, size: u32) -> Vec<bool> {
 pub fn export(mesh: &Mesh, mesh_name: &str, sets: &[ExportTextureSet], settings: &ExportSettings, dir: &Path) -> Result<Vec<PathBuf>, ExportError> {
     subcraft_core::vfs::create_dir_all(dir).map_err(|e| ExportError::Folder(dir.to_path_buf(), e))?;
     let mut written = Vec::new();
+    render_maps(mesh,mesh_name,sets,settings,|name,bytes| {
+        let path=dir.join(name);
+        subcraft_core::vfs::write(&path,bytes).map_err(|e|ExportError::Write(path.clone(),e.to_string()))?;
+        written.push(path);Ok(())
+    })?;
+    Ok(written)
+}
+
+/// All rendered maps in one file. No virtual-file writes or per-map download side effects.
+pub struct TextureArchive {pub name: String,pub files: usize,pub bytes: Vec<u8>}
+
+pub fn archive(mesh: &Mesh, mesh_name: &str, sets: &[ExportTextureSet], settings: &ExportSettings) -> Result<TextureArchive,ExportError> {
+    use std::io::{Cursor,Write};
+    let mut zip=zip::ZipWriter::new(Cursor::new(Vec::new()));
+    let mut names=std::collections::HashSet::new();
+    let options=zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+    let files=render_maps(mesh,mesh_name,sets,settings,|name,bytes| {
+        if name.contains(['/', '\\']) || !names.insert(name.to_string()) {return Err(ExportError::Archive(format!("invalid or duplicate output name: {name}")));}
+        zip.start_file(name,options).map_err(|e|ExportError::Archive(e.to_string()))?;
+        zip.write_all(bytes).map_err(|e|ExportError::Archive(e.to_string()))
+    })?;
+    let bytes=zip.finish().map_err(|e|ExportError::Archive(e.to_string()))?.into_inner();
+    Ok(TextureArchive {name:format!("{}-textures.zip",sanitize(mesh_name)),files,bytes})
+}
+
+/// Directory and archive exports share rendering, encoding, templates and padding.
+fn render_maps(mesh: &Mesh, mesh_name: &str, sets: &[ExportTextureSet], settings: &ExportSettings, mut write: impl FnMut(&str,&[u8])->Result<(),ExportError>) -> Result<usize,ExportError> {
+    let mut count=0;
     for set in sets {
         let Some(size) = set.channels.values().next().map(|i| i.width()) else { continue };
         let covered = if settings.padding == Padding::None { Vec::new() } else { coverage(mesh, set.material_slot, size) };
@@ -226,12 +256,11 @@ pub fn export(mesh: &Mesh, mesh_name: &str, sets: &[ExportTextureSet], settings:
                 }
             }
             let name = format!("{}_{}_{}.{}", sanitize(mesh_name), sanitize(set.name), map.suffix, format.extension());
-            let path = dir.join(name);
-            save_image(&path, size, size, comps, &data, format).map_err(|e| ExportError::Write(path.clone(), e.to_string()))?;
-            written.push(path);
+            let bytes=subcraft_image::io::encode_image(size,size,comps,&data,format).map_err(|e|ExportError::Write(PathBuf::from(&name),e.to_string()))?;
+            write(&name,&bytes)?;count+=1;
         }
     }
-    Ok(written)
+    Ok(count)
 }
 
 #[cfg(test)]

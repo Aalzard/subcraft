@@ -101,7 +101,8 @@ screen and six-step in-app guide are available in the browser and included in th
   Installed Windows copies use the installer; portable Windows/Linux x64 copies replace their
   executable. Windows asks for permission when updating an all-users installation.
 - **Projects and export**: `.subcraft` project files; export templates for PBR metal/rough, Unreal
-  (ORM + DirectX normal), Unity HDRP (mask map) and glTF.
+  (ORM + DirectX normal), Unity HDRP (mask map) and glTF. Browser Export downloads one ZIP
+  containing all texture maps; extract it into a folder.
 - **Mesh import**: OBJ, glTF / GLB and FBX.
 
 ## Try it in your browser

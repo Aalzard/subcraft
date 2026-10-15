@@ -37,6 +37,9 @@ What changed in SubCraft, newest first. Download the latest build from the
   restored workspace directly.
 
 ### Fixed
+- **Browser export downloads every map in one ZIP** instead of triggering separate downloads
+  that browsers could silently drop after the first PNG. The archive uses the desktop renderer,
+  encoding, padding and templates; project Save remains a separate `.subcraft` download.
 - Long project names no longer overlap top-bar menus or actions in a narrow window.
 - The welcome hub fits narrow windows and wraps its actions to keep them visible.
 

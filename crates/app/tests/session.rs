@@ -10,6 +10,11 @@ fn session() -> Session {
     Session::new(primitives::sample_crate(), 256)
 }
 
+#[test]
+fn browser_archive_matches_the_export_plan_for_all_texture_sets() {
+    let mut s=session();let settings=subcraft_export::ExportSettings::default();let plan=s.export_plan(&settings);let result=s.export_archive(&settings).unwrap();assert_eq!(result.files,plan.len());let zip=zip::ZipArchive::new(std::io::Cursor::new(result.bytes)).unwrap();let names:Vec<_>=zip.file_names().map(|n|n.unwrap().into_owned()).collect();for (_,name) in plan {assert!(names.contains(&name));}
+}
+
 fn camera() -> Camera {
     Camera::perspective(Vec3::new(1.5, 1.2, 3.0), Vec3::ZERO, Vec3::Y, 40.0, 0.05, 100.0, [800, 600])
 }

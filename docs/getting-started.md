@@ -65,8 +65,10 @@ project file. Save your own project regularly; in the browser, download a backup
 ## 6. Export textures
 
 Click **Export** (Ctrl+Shift+E). Choose PBR metal/rough, Unreal, Unity HDRP or glTF to match your
-target application. Desktop writes to your chosen folder; the browser downloads files and may
-ask you to allow multiple downloads. Check the exported maps in the app or engine using them.
+target application. Desktop writes to your chosen folder. The browser downloads one ZIP with
+all texture maps; extract it into a folder before using them in your engine.
+
+![Browser export downloads all maps in one ZIP](screenshots/browser-export-zip.jpg)
 
 The Unreal template packs ORM and uses DirectX normals; PBR/glTF use OpenGL normals. Choose the
 right template before judging the result under lighting.

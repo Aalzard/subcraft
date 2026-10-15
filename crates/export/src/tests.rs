@@ -8,6 +8,33 @@ use super::*;
 
 const RES: u32 = 128;
 
+#[test]
+fn archive_contains_all_ten_maps_identical_to_directory_export() {
+    use std::io::Read;
+    let mesh=primitives::sample_crate();let ch=channels();
+    let sets=[ExportTextureSet {name:"Body",material_slot:0,channels:&ch,mesh_maps:None},ExportTextureSet {name:"Trim",material_slot:1,channels:&ch,mesh_maps:None}];
+    let settings=ExportSettings::default();let dir=tmp("archive");let files=export(&mesh,"Test Model",&sets,&settings,&dir).unwrap();
+    let result=archive(&mesh,"Test Model",&sets,&settings).unwrap();assert_eq!(result.files,10);assert_eq!(result.name,"Test_Model-textures.zip");
+    let mut zip=zip::ZipArchive::new(std::io::Cursor::new(result.bytes)).unwrap();assert_eq!(zip.len(),files.len());
+    for p in files {let mut entry=zip.by_name(p.file_name().unwrap().to_str().unwrap()).unwrap();assert_eq!(entry.compression(),zip::CompressionMethod::Stored);let mut bytes=Vec::new();entry.read_to_end(&mut bytes).unwrap();assert_eq!(bytes,std::fs::read(p).unwrap());let b=subcraft_image::io::decode_bitmap(&bytes,Some("map.png")).unwrap();assert_eq!((b.width,b.height),(RES,RES));}
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn archive_uses_packed_templates_and_format_overrides() {
+    let mesh=primitives::plane(2.0,1);let ch=channels();let sets=[ExportTextureSet {name:"Body",material_slot:0,channels:&ch,mesh_maps:None}];
+    let settings=ExportSettings {template:ExportTemplate::unreal(),format_override:Some(FileFormat::Png16),..Default::default()};
+    let result=archive(&mesh,"M",&sets,&settings).unwrap();let mut zip=zip::ZipArchive::new(std::io::Cursor::new(result.bytes)).unwrap();assert_eq!(result.files,plan("M",&sets,&settings).len());
+    let mut entry=zip.by_name("M_Body_OcclusionRoughnessMetallic.png").unwrap();let mut bytes=Vec::new();std::io::Read::read_to_end(&mut entry,&mut bytes).unwrap();let b=subcraft_image::io::decode_bitmap(&bytes,Some("map.png")).unwrap();let p=b.texel(10,10,false);assert!((p[1]-0.25).abs()<1e-4);assert!((p[2]-1.0).abs()<1e-4);
+}
+
+#[test]
+fn archive_rejects_colliding_and_unsafe_output_names() {
+    let mesh=primitives::plane(2.0,1);let ch=channels();let set=||ExportTextureSet {name:"Same",material_slot:0,channels:&ch,mesh_maps:None};
+    assert!(archive(&mesh,"M",&[set(),set()],&ExportSettings::default()).is_err());
+    let mut settings=ExportSettings::default();settings.template.maps[0].suffix="../outside".into();assert!(archive(&mesh,"M",&[set()],&settings).is_err());
+}
+
 fn channels() -> BTreeMap<ChannelKind, TiledImage> {
     let mut m = BTreeMap::new();
     m.insert(ChannelKind::BaseColor, TiledImage::new(RES, RES, 4, [0.5, 0.25, 0.0, 1.0]));

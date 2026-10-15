@@ -49,7 +49,7 @@ pub fn run(options: LaunchOptions) -> eframe::Result {
 #[cfg(target_arch = "wasm32")]
 pub async fn start_web(canvas_id: &str) -> Result<(), wasm_bindgen::JsValue> {
     use wasm_bindgen::JsCast;
-    subcraft_core::vfs::set_sink(|path, bytes| web::download(&path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "file".into()), bytes));
+    subcraft_core::vfs::set_sink(|path, bytes| {web::download(&path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "file".into()), bytes);});
     let canvas = web_sys::window()
         .and_then(|w| w.document())
         .and_then(|d| d.get_element_by_id(canvas_id))
@@ -66,7 +66,7 @@ mod web {
     use wasm_bindgen::JsCast;
 
     /// Offer `bytes` as a file download named `name`.
-    pub fn download(name: &str, bytes: &[u8]) {
+    pub fn download(name: &str, bytes: &[u8]) -> bool {
         let result = (|| -> Option<()> {
             let parts = js_sys::Array::of1(&js_sys::Uint8Array::from(bytes));
             let opts = web_sys::BlobPropertyBag::new();
@@ -88,6 +88,7 @@ mod web {
         if result.is_none() {
             log::error!("could not start the download of {name}");
         }
+        result.is_some()
     }
 }
 
