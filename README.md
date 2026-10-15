@@ -130,9 +130,10 @@ For real work, the desktop app below is faster.
 | Linux x64 archive | 26.39 MB |
 | Browser WebAssembly module | 16.74 MB |
 
-The browser module includes the thumbnail catalog. The 12.93 MB of full starter PNGs are
-separate files fetched only when selected; they do not all load at startup. Network compression,
-cache and the selected images affect actual transfer size and loading time.
+The browser module includes the thumbnail catalog. A fresh public HTTPS fetch transferred
+5.60 MB in 3.00 seconds on the test connection; startup also compiles the module and sets up the
+GPU. The 12.93 MB of full starter PNGs are separate files fetched only when selected. Connection,
+cache, hardware and the selected images affect actual transfer size and loading time.
 
 ## Download (Windows)
 

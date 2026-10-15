@@ -900,6 +900,10 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   26,388,176 B and web wasm 16,740,045 B. Full starter PNGs total 12,928,272 B, with 340,359 B of
   thumbnails. Desktop embeds the full pack; web fetches selected full images separately. README
   includes the image overview, preview screenshot and download-size table.
+* Verified the public site after deployment: What's new reports 0.1.5, a selected 1024px normal
+  loaded with its lit preview, and no console errors appeared. The public wasm SHA-256 matches
+  the tested CI candidate. One fresh compressed HTTPS module transfer was 5,600,744 B in 2.999 s;
+  this measures network transfer, with module compilation/GPU startup taking additional time.
 * Linux GUI, physical tablet input and the manual all-users installer wizard were not run
   locally. Automatic approval review blocked Cargo incremental-cache cleanup without a specific
   reason; the cache was left untouched and CI packages were used for release smoke tests.
