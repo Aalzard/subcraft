@@ -45,6 +45,30 @@ fn welcome_and_each_guide_page_render_without_editing_the_project() {
 }
 
 #[test]
+fn welcome_and_about_keep_the_full_independence_notice_visible_in_small_windows() {
+    for size in [egui::vec2(900.0, 560.0), egui::vec2(440.0, 768.0)] {
+        for about in [false, true] {
+            let mut state = UiState::new(Session::sample(), None);
+            state.welcome.open = !about; state.welcome.about = about;
+            let before = state.session.document().clone();
+            let ctx = egui::Context::default(); subcraft_ui::theme::apply(&ctx);
+            for _ in 0..3 {
+                let mut out = ctx.run_ui(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)), ..Default::default() }, |ui| { welcome::show(&mut state, ui.ctx()); });
+                out.textures_delta.clear();
+            }
+            let mut out = ctx.run_ui(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)), ..Default::default() }, |ui| { welcome::show(&mut state, ui.ctx()); });
+            out.textures_delta.clear();
+            let notice = out.shapes.iter().find_map(|s| match &s.shape {
+                egui::epaint::Shape::Text(t) if t.galley.text() == subcraft_app::launch::INDEPENDENCE_NOTICE => Some(t), _ => None,
+            }).expect("The complete independence statement must be visible");
+            assert!(notice.pos.x >= 0.0 && notice.pos.y >= 0.0);
+            assert!(notice.pos.x + notice.galley.size().x <= size.x && notice.pos.y + notice.galley.size().y <= size.y);
+            assert_eq!(state.session.document(), &before);
+        }
+    }
+}
+
+#[test]
 fn narrow_welcome_keeps_startup_and_project_controls_inside_the_window() {
     let mut state = UiState::new(Session::sample(), None); state.welcome.open = true;
     let ctx = egui::Context::default(); subcraft_ui::theme::apply(&ctx);

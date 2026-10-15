@@ -9,6 +9,9 @@ An independent, open-source 3D texture painting application in the spirit of Sub
 written in Rust. Paint directly on 3D models with layered PBR materials, masks, generators and
 smart materials, bake mesh maps, and export game-ready textures.
 
+**SubCraft is an independent project. It is not officially developed by, affiliated with,
+or endorsed by ArtCraft.**
+
 ![SubCraft](docs/screenshots/ui-redesign.png)
 
 > **v0.1.5** adds the 60-image starter pack, texture/alpha previews, editable pen paths, layer

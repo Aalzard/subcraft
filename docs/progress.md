@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-10-15 (session 41: graphics API preferences)
+Last updated: 2026-10-15 (session 42: ArtCraft independence notice)
 
 ## Decisions
 
@@ -933,11 +933,26 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   incremental cache while reducing 26,148,288,818 B to 15,507,901,087 B. No files were deleted.
   Subsequent builds keep the requested E: target and disable incremental compilation.
 
+### Session 42 — ArtCraft independence notice (2026-10-15)
+
+* Graphics PR #44 passed Linux tests, Windows build/engine tests, web build and both package
+  jobs. It awaits the owner's merge approval. `codex/artcraft-independence` builds on that
+  tested branch so combined behavior is covered while retaining one feature per PR.
+* Added the explicit statement that SubCraft is independent and is not officially developed
+  by, affiliated with, or endorsed by ArtCraft. It is prominent near the README introduction,
+  repeated on the welcome screen, and available in Help → About SubCraft with the version,
+  license and repository link. The app uses one shared wording for both windows.
+* Validation: 326 workspace tests passed. The new UI regression checks the complete notice
+  in welcome/About at the minimum desktop size and in a narrow window, with project content
+  unchanged. Native welcome screenshot launch exited 0 with isolated data/library and the
+  generated project. Web build passed; actual browser welcome and Help → About displayed the
+  full statement with no runtime errors. No new graphics/paint behavior is introduced here.
+
 ## Next steps (in order)
 
 Current priorities requested by the owner:
-* Current follow-ups: ArtCraft independence notice, remove hover tint, then brush overlap at
-  model edges. Graphics selection is implemented in session 41 and awaits its feature PR merge.
+* Current follow-ups: remove hover tint, then brush overlap at model edges. Graphics selection
+  and the independence notice are implemented in sessions 41–42 and await feature PR merges.
 1. ~~Right-click texturing and Parts~~ — session 30; PR #34 merged.
 2. ~~Welcome screen, recent files, quick-start guide and screenshot documentation~~ — sessions
    31/34; PR #35 merged. Included in published desktop v0.1.5.

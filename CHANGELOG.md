@@ -6,6 +6,9 @@ What changed in SubCraft, newest first. Download the latest build from the
 ## Unreleased
 
 ### New
+- Clear ArtCraft independence notice in the README, on the welcome screen and in the new
+  Help → About SubCraft window: SubCraft is not officially developed by, affiliated with,
+  or endorsed by ArtCraft.
 - Desktop graphics selection in Edit → Preferences: Automatic, DirectX 12 on Windows and
   OpenGL on Windows/Linux, with the active API shown. The setting persists immediately and
   applies at next launch; save your project before restarting. Failed explicit API startup

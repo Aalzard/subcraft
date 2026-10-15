@@ -572,6 +572,7 @@ impl SubcraftApp {
                 if item(ui, icons::CUBE, "Welcome screen", "") { self.state.welcome.open = true; ui.close(); }
                 if item(ui, icons::CURSOR, "Quick start", "") { self.state.welcome.guide = Some(0); self.state.welcome.open = false; ui.close(); }
                 if item(ui, icons::INFO, "What's new", "") { self.state.welcome.whats_new = true; ui.close(); }
+                if item(ui, icons::INFO, "About SubCraft…", "") { self.state.welcome.about = true; ui.close(); }
                 ui.separator();
 
                 #[cfg(not(target_arch = "wasm32"))]
