@@ -5,6 +5,11 @@ What changed in SubCraft, newest first. Download the latest build from the
 
 ## Unreleased
 
+### Fixed
+- Removed the orange object/part hover overlay entirely, including part-picking mode and
+  hovering the Parts list. Right-click actions, part-mask picking and I/H/Esc shortcuts remain
+  available without changing the model's displayed colors.
+
 ### New
 - Clear ArtCraft independence notice in the README, on the welcome screen and in the new
   Help → About SubCraft window: SubCraft is not officially developed by, affiliated with,

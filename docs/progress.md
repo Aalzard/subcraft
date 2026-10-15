@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-10-15 (session 42: ArtCraft independence notice)
+Last updated: 2026-10-15 (session 43: removed object hover tint)
 
 ## Decisions
 
@@ -948,11 +948,24 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   generated project. Web build passed; actual browser welcome and Help → About displayed the
   full statement with no runtime errors. No new graphics/paint behavior is introduced here.
 
+### Session 43 — remove object hover tint (2026-10-15)
+
+* Removed the orange triangle overlay entirely, including explicit part picking and hovering
+  the Parts list. Removed its shared hover state and unnecessary ordinary-hover surface query.
+  Parts list names retain their tooltips/context menus; right-click targeting, layer part-mask
+  picking and I/H/Esc actions remain available. README no longer promises hover highlighting.
+* Validation: 328 workspace tests passed. New real egui pointer/key tests verify no geometry
+  tint in ordinary hover or part-picking mode, no hover document edits, functioning H/Esc and
+  working part-mask clicks. Native generated-project screenshot launch exited 0 with isolated
+  data/library. Web build passed; actual browser part context menu still targets the model.
+  Model RGB was exactly identical before/after hovering: 229,710 channels compared, zero
+  differences, with no browser runtime errors. This branch builds on #45 for combined testing.
+
 ## Next steps (in order)
 
 Current priorities requested by the owner:
-* Current follow-ups: remove hover tint, then brush overlap at model edges. Graphics selection
-  and the independence notice are implemented in sessions 41–42 and await feature PR merges.
+* Current follow-up: brush overlap at model edges. Graphics selection, the independence notice
+  and hover-tint removal are implemented in sessions 41–43 and await feature PR merges.
 1. ~~Right-click texturing and Parts~~ — session 30; PR #34 merged.
 2. ~~Welcome screen, recent files, quick-start guide and screenshot documentation~~ — sessions
    31/34; PR #35 merged. Included in published desktop v0.1.5.

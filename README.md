@@ -56,9 +56,10 @@ screen and six-step in-app guide are available on desktop and in the browser.
   Position gradient, noise fills, **images** (e.g. a logo), Levels and Invert.
 - **Parts workflow**: right-click the piece under the cursor to fill it, paint only there, mask
   the selected layer or add a generator mask. Switch between connected pieces, UV islands,
-  imported objects and material IDs. Hover highlights the piece; **I** isolates, **H** hides,
+  imported objects and material IDs. **I** isolates, **H** hides the part under the cursor,
   **Esc** restores all parts. View visibility doesn't change exported textures. OBJ, FBX and
   glTF/GLB object names are kept in saved projects (schema 3; older projects still open).
+  Moving across parts keeps the model's displayed colors unchanged, including part-picking mode.
 - **Eyedropper**: pick linear material values before lighting; Shift+click with the eyedropper
   picks all channels. Adapted from [CalangoTech's SubCraft Studio fork](https://github.com/CalangoTech/subcraft).
 - **Painting**: brush and eraser on the 3D model with tips (alphas), symmetry, lazy mouse, jitter,

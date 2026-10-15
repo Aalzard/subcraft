@@ -35,7 +35,6 @@ pub struct UiState {
     #[cfg(not(target_arch = "wasm32"))]
     pub updater: Option<subcraft_app::updater::Updater>,
     pub parts_kind: subcraft_core::PartKind,
-    pub hovered_part: Option<subcraft_app::PartKey>,
     pub context_part: Option<subcraft_app::SurfaceTarget>,
     pub uploaded_view_revision: u64,
     pub session: Session,
@@ -112,7 +111,6 @@ impl UiState {
             #[cfg(not(target_arch = "wasm32"))]
             updater: subcraft_app::updater::Updater::new().ok(),
             parts_kind: subcraft_core::PartKind::Connected,
-            hovered_part: None,
             context_part: None,
             uploaded_view_revision: u64::MAX,
             camera: OrbitCamera::framing(&session.scene().mesh.bounds),
@@ -238,7 +236,6 @@ impl UiState {
         self.camera = OrbitCamera::framing(&session.scene().mesh.bounds);
         self.session = session;
         self.welcome.open = false;
-        self.hovered_part = None;
         self.context_part = None;
         self.uploaded_view_revision = u64::MAX;
         self.gpu_dirty = true;
