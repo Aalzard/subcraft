@@ -291,7 +291,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 }
                 library_folder_button(ui, state, subcraft_app::assets::UserAssetKind::Texture);
                 ui.label(
-                    RichText::new("Drag a texture onto a channel in Properties (Base Color, Normal…), or onto the model / a layer for a new fill layer.")
+                    RichText::new("Imported maps become one material. Drag a texture onto a channel in Properties (Base Color, Normal…), or onto the model / a layer for a new fill layer.")
                         .small()
                         .color(theme::TEXT_FAINT),
                 );

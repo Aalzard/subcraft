@@ -9,6 +9,9 @@ What changed in SubCraft, newest first. Download the latest build from the
 - Importing a texture set with an ambient occlusion map adds an Ambient Occlusion channel to
   the texture set instead of skipping the map, so the texture's AO reaches the viewport and the
   Unreal / Unity / glTF exports. Texture sets without their own AO still use baked AO.
+- Shelf → Textures → Import textures… now also turns the picked maps into one fill-layer
+  material (base color, roughness, AO…) on the selected texture set, besides keeping them on
+  the shelf. Images whose names don't say which map they are only go to the shelf.
 - Removed the orange object/part hover overlay entirely, including part-picking mode and
   hovering the Parts list. Right-click actions, part-mask picking and I/H/Esc shortcuts remain
   available without changing the model's displayed colors.

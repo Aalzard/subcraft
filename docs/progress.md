@@ -977,6 +977,17 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
 * Verified in the real app on Windows: dragging the AO texture onto the model adds the
   Ambient Occlusion channel row.
 
+### Session 45 — Shelf import builds the material (2026-10-16)
+
+* Shelf → Textures → Import textures… only copied files into the library, so users dragged
+  maps onto channels one by one. It now also runs the texture-set import
+  (`files::import_shelf_textures`): named maps become one fill layer (AO included, session 44);
+  images whose names name no map (photos, decals) only go to the shelf, with a status message.
+* Tests (`ui/tests/shelf_import.rs`): three named maps → three shelf items and one layer with
+  Base Color, Roughness and AO; a plain photo → shelf only, document unchanged.
+* Verified in the real app on Windows: importing MaterialCraft's six exported maps gave one
+  layer with every channel filled, AO included.
+
 ## Next steps (in order)
 
 Current priorities requested by the owner:
