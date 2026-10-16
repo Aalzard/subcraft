@@ -270,6 +270,7 @@ fn ago(t: std::time::SystemTime) -> String {
 
 /// Edit → Preferences.
 pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
+    let graphics = &mut state.graphics;
     let rec = &mut state.recovery;
     if !rec.show_prefs {
         return;
@@ -277,6 +278,7 @@ pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
     let mut open = true;
     egui::Window::new(RichText::new("Preferences").font(theme::font_strong(14.0))).open(&mut open).collapsible(false).resizable(false).show(ctx, |ui| {
         ui.set_width(380.0);
+        crate::graphics::controls(graphics, ui);
         ui.checkbox(&mut rec.prefs.show_welcome, "Show welcome screen on startup");
         ui.add_space(10.0);
         ui.label(RichText::new("Autosave").font(theme::font_strong(12.5)));

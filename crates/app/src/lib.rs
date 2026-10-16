@@ -10,6 +10,7 @@ pub mod brush_preset;
 pub mod command;
 pub mod diagnostics;
 pub mod images;
+pub mod graphics;
 pub mod library;
 pub mod launch;
 pub mod layer_tree;

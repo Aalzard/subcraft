@@ -25,6 +25,9 @@ pub enum Command {
     AddLayer(NewLayer),
     /// Insert a ready-made layer (material preset, smart material) like [`Command::AddLayer`].
     InsertLayer { layer: Box<Layer>, label: String },
+    /// [`Command::InsertLayer`] that first adds these channels to the selected texture set when it
+    /// lacks them (an imported texture set brings an Ambient Occlusion map). One undo step.
+    InsertLayerWithChannels { layer: Box<Layer>, channels: Vec<ChannelKind>, label: String },
     /// One part can span texture sets; insert all its layers atomically.
     InsertPartLayers { layers: Vec<(TextureSetId, Box<Layer>)>, label: String },
     /// Atomic combined edit, retaining the node's UUID.

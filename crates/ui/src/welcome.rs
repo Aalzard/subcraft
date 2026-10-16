@@ -7,7 +7,7 @@ use crate::{dialogs::Pending, state::UiState, theme, widgets::{primary_button, s
 pub const RECENTS_KEY: &str = "subcraft_recent_v1";
 #[derive(Default)]
 pub struct WelcomeUi {
-    pub open: bool, pub guide: Option<usize>, pub whats_new: bool,
+    pub open: bool, pub guide: Option<usize>, pub whats_new: bool, pub about: bool,
     pub recent: RecentFiles, pub items: Vec<RecentItem>, pub pending_recent: Option<PathBuf>,
 }
 
@@ -64,6 +64,8 @@ pub fn show(state: &mut UiState, ctx: &egui::Context) -> Option<WelcomeAction> {
             ui.add_space(14.0); ui.separator();
             ui.checkbox(&mut state.recovery.prefs.show_welcome, "Show this screen on startup");
             ui.label(RichText::new("You can reopen it from Help at any time.").small().color(theme::TEXT_FAINT));
+            ui.add_space(8.0); ui.separator();
+            ui.label(RichText::new(subcraft_app::launch::INDEPENDENCE_NOTICE).small().color(theme::TEXT_DIM));
         });
         state.welcome.open &= open;
     }
@@ -83,6 +85,18 @@ pub fn show(state: &mut UiState, ctx: &egui::Context) -> Option<WelcomeAction> {
             });
         });
         if !open { state.welcome.guide = None; }
+    }
+    if state.welcome.about {
+        egui::Window::new("About SubCraft").open(&mut state.welcome.about).collapsible(false).resizable(false).show(ctx, |ui| {
+            ui.set_width(440.0_f32.min((ctx.content_rect().width() - 48.0).max(220.0)));
+            ui.heading(format!("SubCraft {}", env!("CARGO_PKG_VERSION")));
+            ui.label("An open-source 3D texture painting application.");
+            ui.add_space(12.0);
+            ui.label(subcraft_app::launch::INDEPENDENCE_NOTICE);
+            ui.add_space(12.0);
+            ui.label(RichText::new("Licensed under MIT or Apache-2.0.").color(theme::TEXT_DIM));
+            ui.hyperlink_to("SubCraft on GitHub", "https://github.com/Aalzard/subcraft");
+        });
     }
     if state.welcome.whats_new {
         egui::Window::new("What's new").open(&mut state.welcome.whats_new).collapsible(false).default_width(420.0).show(ctx, |ui| {

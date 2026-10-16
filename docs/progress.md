@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-10-15 (session 40: starter pack and v0.1.5 published)
+Last updated: 2026-10-15 (session 43: removed object hover tint)
 
 ## Decisions
 
@@ -908,9 +908,118 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   locally. Automatic approval review blocked Cargo incremental-cache cleanup without a specific
   reason; the cache was left untouched and CI packages were used for release smoke tests.
 
+### Session 41 — graphics API preferences (2026-10-15)
+
+* The owner confirmed that the green button successfully updated the app to v0.1.5. Requested
+  desktop API selection, an ArtCraft independence notice, removal of object hover tint and
+  painting when only the edge of the brush overlaps the model. These are separate branches/PRs.
+* Added Edit → Preferences → Graphics: Automatic, DirectX 12 on Windows and OpenGL on
+  Windows/Linux, with the actual running API shown. A version-1 app-data settings file is read
+  before GPU creation and saved atomically on selection. Changes apply next launch; UI asks
+  users to save/restart. Existing `WGPU_BACKEND` overrides remain effective and are explained.
+  Returned explicit-API startup errors retry Automatic once and open Preferences. Corrupt/future
+  settings fall back safely. Browser Preferences reports its API without desktop-only choices.
+* The first real OpenGL launch caught unsupported alternate texture view formats. Added a
+  display-copy fallback for both viewport and channel previews that preserves sRGB-encoded
+  egui input, leaving the normal fast path on other APIs. Numeric GPU tests roundtrip all 256
+  encoded levels and check orientation within one byte. Kept linear shading, MSAA and readback.
+* Validation: 325 workspace tests passed, clippy passed with existing warnings, native/web
+  builds passed. Actual DirectX 12 and OpenGL GUI screenshot launches exited 0 with the generated
+  seven-part schema-4 starter project; OpenGL 2D preview also launched. Re-ran the six renderer
+  image tests and the new display test on actual OpenGL; all passed. Browser Preferences reports
+  WebGPU and renders the workspace without runtime errors. Screenshot is linked from README.
+  Linux/macOS GUI and physically missing/failed drivers were not exercised locally.
+* The first local link ran out of E: disk space. NTFS compression preserved the entire inactive
+  incremental cache while reducing 26,148,288,818 B to 15,507,901,087 B. No files were deleted.
+  Subsequent builds keep the requested E: target and disable incremental compilation.
+
+### Session 42 — ArtCraft independence notice (2026-10-15)
+
+* Graphics PR #44 passed Linux tests, Windows build/engine tests, web build and both package
+  jobs. It awaits the owner's merge approval. `codex/artcraft-independence` builds on that
+  tested branch so combined behavior is covered while retaining one feature per PR.
+* Added the explicit statement that SubCraft is independent and is not officially developed
+  by, affiliated with, or endorsed by ArtCraft. It is prominent near the README introduction,
+  repeated on the welcome screen, and available in Help → About SubCraft with the version,
+  license and repository link. The app uses one shared wording for both windows.
+* Validation: 326 workspace tests passed. The new UI regression checks the complete notice
+  in welcome/About at the minimum desktop size and in a narrow window, with project content
+  unchanged. Native welcome screenshot launch exited 0 with isolated data/library and the
+  generated project. Web build passed; actual browser welcome and Help → About displayed the
+  full statement with no runtime errors. No new graphics/paint behavior is introduced here.
+
+### Session 43 — remove object hover tint (2026-10-15)
+
+* Removed the orange triangle overlay entirely, including explicit part picking and hovering
+  the Parts list. Removed its shared hover state and unnecessary ordinary-hover surface query.
+  Parts list names retain their tooltips/context menus; right-click targeting, layer part-mask
+  picking and I/H/Esc actions remain available. README no longer promises hover highlighting.
+* Validation: 328 workspace tests passed. New real egui pointer/key tests verify no geometry
+  tint in ordinary hover or part-picking mode, no hover document edits, functioning H/Esc and
+  working part-mask clicks. Native generated-project screenshot launch exited 0 with isolated
+  data/library. Web build passed; actual browser part context menu still targets the model.
+  Model RGB was exactly identical before/after hovering: 229,710 channels compared, zero
+  differences, with no browser runtime errors. This branch builds on #45 for combined testing.
+
+### Session 44 — imported AO maps add an AO channel (2026-10-16)
+
+* Found while testing MaterialCraft → SubCraft hand-off: the default texture set has no Ambient
+  Occlusion channel, so Import texture set skipped `ambient_occlusion.png` and Unreal / Unity
+  exports filled AO with 1.0. AO is still not in the default template (baked AO keeps shading
+  sets without their own AO); instead an import with an AO map adds the channel.
+* `Command::InsertLayerWithChannels` adds channels and the layer in one undo step; the layer is
+  built for the channel list after the import, so it has a blend for the new channel. The UI
+  re-uploads all GPU textures when a texture set's channel list changes, so undoing the import
+  doesn't leave the texture's AO on the GPU.
+* Tests: import adds AO (one history entry), composite AO 0.4 from the map, Unreal ORM red and
+  Unity mask-map green carry the texture's AO instead of the baked 0.9, project save keeps the
+  channel, undo removes it and exports use baked AO again.
+* Verified in the real app on Windows: dragging the AO texture onto the model adds the
+  Ambient Occlusion channel row.
+
+### Session 45 — Shelf import builds the material (2026-10-16)
+
+* Shelf → Textures → Import textures… only copied files into the library, so users dragged
+  maps onto channels one by one. It now also runs the texture-set import
+  (`files::import_shelf_textures`): named maps become one fill layer (AO included, session 44);
+  images whose names name no map (photos, decals) only go to the shelf, with a status message.
+* Tests (`ui/tests/shelf_import.rs`): three named maps → three shelf items and one layer with
+  Base Color, Roughness and AO; a plain photo → shelf only, document unchanged.
+* Verified in the real app on Windows: importing MaterialCraft's six exported maps gave one
+  layer with every channel filled, AO included.
+
+### Session 46 — smart material thumbnails (2026-10-16)
+
+* A smart material saved from an imported texture ("Bricks") showed as a white cube: the
+  preview scene had an empty resource store, so its image fills sampled nothing.
+  `PreviewScene::composite_with` takes the smart material's images.
+* Owner request: smart materials and smart masks preview on a sphere
+  (`PreviewScene::baked_sphere`, still with baked curvature + AO for generators). Edge-wear
+  materials show less wear than on the old cube, since a sphere has no sharp edges.
+* Test: a saved smart material with an image base color composites that color in the preview,
+  and doesn't without its images.
+* Verified in the real app on Windows: the saved Bricks smart material shows its bricks on a
+  sphere.
+
+### Session 47 — brush overlap at model edges (2026-10-16)
+
+* Owner report: a dab stopped painting as soon as its center ray missed the model, even with
+  most of the brush still over it. `stamp::resolve_overlap` (started in the
+  `codex/brush-edge-overlap` worktree) falls back to the nearest accepted triangle within the
+  brush footprint when the center ray misses (or hits another texture set / hidden part); the
+  stamp center stays on the cursor ray at that surface's depth, and the kernel still decides
+  coverage and occlusion. `Bvh::from_triangles` skips zero-area (hidden) triangles.
+* Tests: a dab centered just past the cube's front-face edge paints texels along the edge; a
+  dab out of reach paints nothing (fails without the fix); BVH skips collapsed faces.
+* Verified in the real app on Windows by the owner: painting along an edge keeps painting where
+  the brush overlaps. Combined with sessions 41–46 on `handoff-ao-channel`; all workspace tests
+  pass.
+
 ## Next steps (in order)
 
 Current priorities requested by the owner:
+* Brush overlap at model edges (session 47), graphics selection, the independence notice and
+  hover-tint removal (sessions 41–43) are merged together on `handoff-ao-channel`.
 1. ~~Right-click texturing and Parts~~ — session 30; PR #34 merged.
 2. ~~Welcome screen, recent files, quick-start guide and screenshot documentation~~ — sessions
    31/34; PR #35 merged. Included in published desktop v0.1.5.

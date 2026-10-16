@@ -98,6 +98,22 @@ fn file_name(p: &std::path::Path) -> String {
     p.file_name().and_then(|n| n.to_str()).unwrap_or("file").to_string()
 }
 
+/// Shelf → Import textures: keep the files in Shelf → Textures and, when their names say which
+/// maps they are (basecolor, roughness, ao…), also make them one fill-layer material on the
+/// selected texture set. Plain images (photos, decals) only go to the shelf.
+pub fn import_shelf_textures(state: &mut UiState, paths: &[PathBuf], now: f64) {
+    state.remember_textures(paths);
+    match state.session.import_texture_set(paths) {
+        Ok(r) => {
+            for (file, why) in &r.skipped {
+                log::info!("import textures: skipped {file}: {why}");
+            }
+            state.set_status(r.summary(), now);
+        }
+        Err(_) => state.set_status(format!("Added {} texture(s) to Shelf › Textures", paths.len()), now),
+    }
+}
+
 fn handle(state: &mut UiState, purpose: Purpose, paths: &[PathBuf], now: f64) {
     let Some(first) = paths.first() else { return };
     match purpose {
@@ -125,7 +141,7 @@ fn handle(state: &mut UiState, purpose: Purpose, paths: &[PathBuf], now: f64) {
             }
             Err(e) => state.set_status(format!("Import texture set: {e}"), now),
         },
-        Purpose::ShelfTextures => state.remember_textures(paths),
+        Purpose::ShelfTextures => import_shelf_textures(state, paths, now),
         Purpose::Alpha => {
             // Copied into the library so it is still there next time.
             let imported = match &state.user_library {

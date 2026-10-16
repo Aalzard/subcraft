@@ -63,6 +63,9 @@ impl Tab {
 /// Command-line options.
 #[derive(Clone, Debug, Default)]
 pub struct LaunchOptions {
+    /// Open Preferences (also useful for isolated renderer smoke tests).
+    pub preferences: bool,
+    pub graphics_startup: Option<crate::graphics::GraphicsUi>,
     /// Open the welcome hub even when taking a screenshot.
     pub welcome: bool,
     /// Open a step of the in-app guide (zero-based).
@@ -266,8 +269,12 @@ impl SubcraftApp {
         }
         crate::bug_report::record_gpu(cc.wgpu_render_state.as_ref());
         state.bug_report = crate::bug_report::BugReportUi::load();
+        if let Some(graphics) = options.graphics_startup.clone() {
+            let active = state.graphics.active.clone(); state.graphics = graphics; state.graphics.active = active;
+        }
         let prefs = cc.storage.and_then(|s| s.get_string(crate::recovery::PREFS_KEY)).and_then(|j| serde_json::from_str(&j).ok()).unwrap_or_default();
         state.recovery = crate::recovery::RecoveryUi::start(&state.session, prefs, options.autosave_interval);
+        state.recovery.show_prefs = options.preferences;
         #[cfg(not(target_arch = "wasm32"))]
         {
             state.welcome.recent = cc.storage.and_then(|s| s.get_string(crate::welcome::RECENTS_KEY))
@@ -565,6 +572,7 @@ impl SubcraftApp {
                 if item(ui, icons::CUBE, "Welcome screen", "") { self.state.welcome.open = true; ui.close(); }
                 if item(ui, icons::CURSOR, "Quick start", "") { self.state.welcome.guide = Some(0); self.state.welcome.open = false; ui.close(); }
                 if item(ui, icons::INFO, "What's new", "") { self.state.welcome.whats_new = true; ui.close(); }
+                if item(ui, icons::INFO, "About SubCraft…", "") { self.state.welcome.about = true; ui.close(); }
                 ui.separator();
 
                 #[cfg(not(target_arch = "wasm32"))]

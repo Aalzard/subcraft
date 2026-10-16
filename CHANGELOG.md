@@ -5,6 +5,31 @@ What changed in SubCraft, newest first. Download the latest build from the
 
 ## Unreleased
 
+### Fixed
+- Importing a texture set with an ambient occlusion map adds an Ambient Occlusion channel to
+  the texture set instead of skipping the map, so the texture's AO reaches the viewport and the
+  Unreal / Unity / glTF exports. Texture sets without their own AO still use baked AO.
+- Shelf → Textures → Import textures… now also turns the picked maps into one fill-layer
+  material (base color, roughness, AO…) on the selected texture set, besides keeping them on
+  the shelf. Images whose names don't say which map they are only go to the shelf.
+- Saved smart materials that use images showed a blank white thumbnail; the preview now has
+  their images. Smart material and smart mask thumbnails are shown on a sphere.
+- The brush keeps painting where it overlaps the model when its center moves just past the
+  model's edge, instead of stopping.
+- Removed the orange object/part hover overlay entirely, including part-picking mode and
+  hovering the Parts list. Right-click actions, part-mask picking and I/H/Esc shortcuts remain
+  available without changing the model's displayed colors.
+
+### New
+- Clear ArtCraft independence notice in the README, on the welcome screen and in the new
+  Help → About SubCraft window: SubCraft is not officially developed by, affiliated with,
+  or endorsed by ArtCraft.
+- Desktop graphics selection in Edit → Preferences: Automatic, DirectX 12 on Windows and
+  OpenGL on Windows/Linux, with the active API shown. The setting persists immediately and
+  applies at next launch; save your project before restarting. Failed explicit API startup
+  retries Automatic and opens Preferences with an explanation. `WGPU_BACKEND` still overrides
+  the preference. Browser settings report the browser's active API.
+
 ## 0.1.5
 
 Published desktop packages: Windows installer 23.22 MB, Windows ZIP 24.87 MB and Linux x64

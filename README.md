@@ -1,3 +1,4 @@
+<img width="1254" height="1254" alt="Engraved Hand on Orange " src="https://github.com/user-attachments/assets/520d56f6-acd7-4ca3-9819-cffb4395b82e" />
 # SubCraft
 
 [![Try it in your browser](https://img.shields.io/badge/Try%20it-in%20your%20browser-ff7a1a?style=for-the-badge&logo=googlechrome&logoColor=white)](https://aalzard.github.io/subcraft/)
@@ -8,6 +9,9 @@
 An independent, open-source 3D texture painting application in the spirit of Substance Painter,
 written in Rust. Paint directly on 3D models with layered PBR materials, masks, generators and
 smart materials, bake mesh maps, and export game-ready textures.
+
+**SubCraft is an independent project. It is not officially developed by, affiliated with,
+or endorsed by ArtCraft.**
 
 ![SubCraft](docs/screenshots/ui-redesign.png)
 
@@ -53,9 +57,10 @@ screen and six-step in-app guide are available on desktop and in the browser.
   Position gradient, noise fills, **images** (e.g. a logo), Levels and Invert.
 - **Parts workflow**: right-click the piece under the cursor to fill it, paint only there, mask
   the selected layer or add a generator mask. Switch between connected pieces, UV islands,
-  imported objects and material IDs. Hover highlights the piece; **I** isolates, **H** hides,
+  imported objects and material IDs. **I** isolates, **H** hides the part under the cursor,
   **Esc** restores all parts. View visibility doesn't change exported textures. OBJ, FBX and
   glTF/GLB object names are kept in saved projects (schema 3; older projects still open).
+  Moving across parts keeps the model's displayed colors unchanged, including part-picking mode.
 - **Eyedropper**: pick linear material values before lighting; Shift+click with the eyedropper
   picks all channels. Adapted from [CalangoTech's SubCraft Studio fork](https://github.com/CalangoTech/subcraft).
 - **Painting**: brush and eraser on the 3D model with tips (alphas), symmetry, lazy mouse, jitter,
@@ -92,6 +97,12 @@ screen and six-step in-app guide are available on desktop and in the browser.
   live in `Documents\SubCraft\Library` and are back every time you start SubCraft.
 - **Viewport**: real-time PBR preview with studio or HDRI lighting, plus a 2D UV view of every channel
   and baked map.
+- **Graphics API** (next desktop release): Edit → Preferences → Graphics offers Automatic,
+  DirectX 12 (Windows) and OpenGL (Windows/Linux), and shows the API currently running. Save
+  your project and restart to apply a change. Startup errors retry Automatic with an explanation.
+  An explicit `WGPU_BACKEND` environment setting takes precedence. The browser chooses its own API.
+
+  <img src="docs/screenshots/graphics-api.png" alt="SubCraft running on OpenGL, with the graphics selector and active API in Preferences" width="640">
 - **Autosave and crash recovery**: a recovery copy of your project is saved in the background
   every few minutes (Edit → Preferences) to SubCraft's data folder, never over your own file. If
   SubCraft crashes or is closed by force, it offers to bring your work back on the next start.

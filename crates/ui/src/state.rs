@@ -28,13 +28,13 @@ pub struct UvView {
 }
 
 pub struct UiState {
+    pub graphics: crate::graphics::GraphicsUi,
     pub asset_preview: crate::asset_preview::AssetPreviewUi,
     pub welcome: crate::welcome::WelcomeUi,
 
     #[cfg(not(target_arch = "wasm32"))]
     pub updater: Option<subcraft_app::updater::Updater>,
     pub parts_kind: subcraft_core::PartKind,
-    pub hovered_part: Option<subcraft_app::PartKey>,
     pub context_part: Option<subcraft_app::SurfaceTarget>,
     pub uploaded_view_revision: u64,
     pub session: Session,
@@ -75,6 +75,9 @@ pub struct UiState {
     pub env: crate::panels::shelf::EnvUi,
     /// Mesh maps last uploaded to the GPU (to re-upload only when a bake replaced them).
     pub uploaded_maps: HashMap<(subcraft_core::TextureSetId, subcraft_core::MeshMapKind), subcraft_image::TiledImage>,
+    /// Channel lists of the texture sets last uploaded. A change (an import adding Ambient
+    /// Occlusion, or undoing it) re-uploads everything so no removed channel stays on the GPU.
+    pub uploaded_channels: Vec<(subcraft_core::TextureSetId, Vec<ChannelKind>)>,
     /// Thumbnails of imported images (resources are immutable, so entries never go stale).
     pub image_thumbs: HashMap<subcraft_core::ResourceId, egui::TextureHandle>,
     /// The user's asset library folder (None if no Documents folder could be found).
@@ -101,14 +104,16 @@ impl UiState {
         // A brush color that stands out on the default gray material.
         session.brush.material.set(ChannelKind::BaseColor, subcraft_core::ChannelValue::rgb(0.85, 0.32, 0.06));
         let renderer = render_state.as_ref().map(|rs| ViewportRenderer::new(&rs.device, &rs.queue));
+        let mut graphics = crate::graphics::GraphicsUi::default();
+        if let Some(rs) = &render_state { graphics.record_active(rs.adapter.get_info().backend); }
         Self {
+            graphics,
             asset_preview: Default::default(),
             welcome: Default::default(),
 
             #[cfg(not(target_arch = "wasm32"))]
             updater: subcraft_app::updater::Updater::new().ok(),
             parts_kind: subcraft_core::PartKind::Connected,
-            hovered_part: None,
             context_part: None,
             uploaded_view_revision: u64::MAX,
             camera: OrbitCamera::framing(&session.scene().mesh.bounds),
@@ -142,6 +147,7 @@ impl UiState {
             shelf: Default::default(),
             env: Default::default(),
             uploaded_maps: HashMap::new(),
+            uploaded_channels: Vec::new(),
             image_thumbs: HashMap::new(),
             user_library: None,
             env_loader: None,
@@ -234,7 +240,6 @@ impl UiState {
         self.camera = OrbitCamera::framing(&session.scene().mesh.bounds);
         self.session = session;
         self.welcome.open = false;
-        self.hovered_part = None;
         self.context_part = None;
         self.uploaded_view_revision = u64::MAX;
         self.gpu_dirty = true;
@@ -267,10 +272,13 @@ impl UiState {
             return;
         };
         let view_changed = self.uploaded_view_revision != self.session.view_revision();
-        let full = self.gpu_dirty || view_changed;
+        let channels: Vec<_> = self.session.document().texture_sets.iter().map(|ts| (ts.id, ts.channel_kinds().collect())).collect();
+        let channels_changed = self.uploaded_channels != channels;
+        let full = self.gpu_dirty || view_changed || channels_changed;
         if full {
             renderer.set_mesh(&rs.device, &self.session.viewport_scene().mesh);
             self.uploaded_view_revision = self.session.view_revision();
+            self.uploaded_channels = channels;
             self.gpu_dirty = false;
         }
         let updates = self.session.update_composites();

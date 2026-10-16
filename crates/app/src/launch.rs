@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use crate::{Session, DEFAULT_RESOLUTION};
 
 pub const MAX_RECENT: usize = 12;
+pub const INDEPENDENCE_NOTICE: &str = "SubCraft is an independent project. It is not officially developed by, affiliated with, or endorsed by ArtCraft.";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FileKind { Project, Model }

@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use subcraft_assets::texture_maps::{Classified, MapConversion};
 use subcraft_core::{ChannelKind, LayerId, ResourceId};
-use subcraft_doc::{FillChannel, FillSource, Layer, LayerContent, Resource, ResourceKind};
+use subcraft_doc::{ChannelDef, FillChannel, FillSource, Layer, LayerContent, Resource, ResourceKind};
 
 use crate::command::Command;
 use crate::session::Session;
@@ -16,6 +16,11 @@ use crate::session::Session;
 /// Largest accepted image side (larger textures are almost always a mistake at this stage and
 /// cost a lot of memory as decoded bitmaps).
 pub const MAX_IMAGE_SIDE: u32 = 16384;
+
+/// Channels a texture-set import adds to the texture set instead of skipping the map. AO stays out
+/// of the default template so baked AO keeps shading sets without their own, but an imported
+/// texture's AO map should survive into exports.
+const ADDED_ON_IMPORT: [ChannelKind; 1] = [ChannelKind::AmbientOcclusion];
 
 impl Session {
     /// Import an image file (PNG, JPEG, TGA, TIFF, BMP, EXR, HDR) as a texture resource.
@@ -142,7 +147,9 @@ impl Session {
 
     /// Import several texture files as one fill layer on the selected texture set. Files are
     /// matched to channels by name (see `assets::texture_maps`); glossiness is inverted to
-    /// roughness and DirectX normals are converted to OpenGL. One undo step.
+    /// roughness and DirectX normals are converted to OpenGL. An Ambient Occlusion map adds that
+    /// channel to the texture set when it lacks one (the texture's AO then replaces baked AO in the
+    /// viewport and exports). One undo step.
     pub fn import_texture_set(&mut self, paths: &[PathBuf]) -> Result<TextureSetImport, String> {
         let plan = subcraft_assets::texture_maps::plan(paths);
         let file_name = |p: &Path| p.file_name().and_then(|n| n.to_str()).unwrap_or("image").to_string();
@@ -151,7 +158,15 @@ impl Session {
             skipped: plan.skipped.iter().map(|(p, why)| (file_name(p), why.clone())).collect(),
             ..Default::default()
         };
-        let ts = self.selected_texture_set().clone();
+        let mut ts = self.selected_texture_set().clone();
+        let mut add_channels = Vec::new();
+        for (_, m) in &plan.maps {
+            if !ts.has_channel(m.channel) && ADDED_ON_IMPORT.contains(&m.channel) && !add_channels.contains(&m.channel) {
+                add_channels.push(m.channel);
+            }
+        }
+        // Build the layer for the channels the set will have, so it gets blends for the new ones.
+        ts.channels.extend(add_channels.iter().map(|&k| ChannelDef::default_for(k)));
         let mut layer = Layer::new_fill(plan.name.clone(), &ts);
         let LayerContent::Fill(fill) = &mut layer.content else { unreachable!("new_fill makes a fill layer") };
         for c in fill.channels.values_mut() {
@@ -174,8 +189,13 @@ impl Session {
                 "none of the maps matches a channel of this texture set".into()
             });
         }
-        self.execute(Command::InsertLayer { layer: Box::new(layer), label: format!("Import {}", plan.name) })
-            .map_err(|e| e.to_string())?;
+        let label = format!("Import {}", plan.name);
+        let cmd = if add_channels.is_empty() {
+            Command::InsertLayer { layer: Box::new(layer), label }
+        } else {
+            Command::InsertLayerWithChannels { layer: Box::new(layer), channels: add_channels, label }
+        };
+        self.execute(cmd).map_err(|e| e.to_string())?;
         Ok(result)
     }
 }

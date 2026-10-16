@@ -3,10 +3,11 @@
 use std::path::PathBuf;
 
 use subcraft_app::{Command, NewLayer, Session};
-use subcraft_core::ChannelKind;
 use subcraft_core::color::srgb_to_linear;
+use subcraft_core::{ChannelKind, MeshMapKind};
 use subcraft_doc::{FillChannel, FillSource, LayerContent};
-use subcraft_image::{FileFormat, save_image};
+use subcraft_export::{ExportSettings, ExportTemplate};
+use subcraft_image::{FileFormat, TiledImage, save_image};
 use subcraft_mesh::primitives;
 
 fn temp_dir(name: &str) -> PathBuf {
@@ -166,9 +167,12 @@ fn texture_set_folder_becomes_one_fill_layer() {
     assert_eq!(r.layer_name, "Wood");
     let mut used: Vec<ChannelKind> = r.used.iter().map(|(_, c)| *c).collect();
     used.sort();
-    assert_eq!(used, [ChannelKind::BaseColor, ChannelKind::Height, ChannelKind::Roughness, ChannelKind::Normal]);
+    assert_eq!(
+        used,
+        [ChannelKind::BaseColor, ChannelKind::Height, ChannelKind::Roughness, ChannelKind::Normal, ChannelKind::AmbientOcclusion]
+    );
     let skipped: Vec<&str> = r.skipped.iter().map(|(f, _)| f.as_str()).collect();
-    for f in ["Wood_AO.png", "Wood_ARM.png", "notes.txt"] {
+    for f in ["Wood_ARM.png", "notes.txt"] {
         assert!(skipped.contains(&f), "{f} should be skipped: {:?}", r.skipped);
     }
     assert!(r.summary().contains("Wood"));
@@ -197,6 +201,70 @@ fn texture_set_folder_becomes_one_fill_layer() {
 
     s.execute(Command::Undo).unwrap();
     assert_eq!(s.selected_texture_set().layers.len(), layers_before, "one undo removes the import");
+    assert!(!s.selected_texture_set().has_channel(ChannelKind::AmbientOcclusion), "and the AO channel it added");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// Value at (0, 0) of the selected texture set's exported `suffix` map.
+fn exported_texel(s: &Session, dir: &std::path::Path, suffix: &str) -> [f32; 4] {
+    let set = s.selected_texture_set().name.clone();
+    let path = std::fs::read_dir(dir)
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .find(|p| p.file_name().unwrap().to_string_lossy().contains(&format!("_{set}_{suffix}")))
+        .unwrap_or_else(|| panic!("no {set} {suffix} map in {dir:?}"));
+    let name = path.file_name().unwrap().to_string_lossy().to_string();
+    subcraft_image::io::decode_bitmap(&std::fs::read(&path).unwrap(), Some(&name)).unwrap().texel(0, 0, false)
+}
+
+#[test]
+fn imported_ao_map_adds_the_channel_and_reaches_exports() {
+    let dir = temp_dir("texset-ao");
+    write_uniform(&dir.join("brick_basecolor.png"), [0.6, 0.3, 0.2]);
+    write_uniform(&dir.join("brick_ambient_occlusion.png"), [0.4, 0.4, 0.4]);
+    let files = vec![dir.join("brick_basecolor.png"), dir.join("brick_ambient_occlusion.png")];
+
+    let mut s = Session::new(primitives::sample_crate(), 128);
+    let ts = s.selected_texture_set().id;
+    assert!(!s.selected_texture_set().has_channel(ChannelKind::AmbientOcclusion), "default template has no AO");
+    let baked = std::collections::BTreeMap::from([(MeshMapKind::AmbientOcclusion, TiledImage::new(128, 128, 1, [0.9; 4]))]);
+    s.set_mesh_maps(ts, baked);
+    let unreal = ExportSettings { template: ExportTemplate::unreal(), ..Default::default() };
+
+    // Without an AO channel the export uses the baked AO.
+    let before = dir.join("before");
+    s.export_textures(&before, &unreal).unwrap();
+    assert!((exported_texel(&s, &before, "OcclusionRoughnessMetallic")[0] - 0.9).abs() < 2.0 / 255.0);
+
+    let entries_before = s.history().entries().len();
+    let r = s.import_texture_set(&files).unwrap();
+    assert!(r.used.iter().any(|(f, c)| f == "brick_ambient_occlusion.png" && *c == ChannelKind::AmbientOcclusion), "{r:?}");
+    assert!(s.selected_texture_set().has_channel(ChannelKind::AmbientOcclusion), "import added the channel");
+    assert_eq!(s.history().entries().len(), entries_before + 1, "channel + layer are one undo step");
+    s.update_composites();
+    let ao = texel(&s, ChannelKind::AmbientOcclusion, 0.3, 0.3);
+    assert!((ao - 0.4).abs() < 3e-3, "composite AO {ao}");
+
+    // The texture's AO, not the baked one, goes into Unreal's packed map and Unity's mask map.
+    let after = dir.join("after");
+    s.export_textures(&after, &unreal).unwrap();
+    assert!((exported_texel(&s, &after, "OcclusionRoughnessMetallic")[0] - 0.4).abs() < 2.0 / 255.0);
+    let unity = dir.join("unity");
+    s.export_textures(&unity, &ExportSettings { template: ExportTemplate::unity_hdrp(), ..Default::default() }).unwrap();
+    assert!((exported_texel(&s, &unity, "MaskMap")[1] - 0.4).abs() < 2.0 / 255.0);
+
+    // Saved with the project.
+    let project = dir.join("ao.subcraft");
+    s.save(Some(&project)).unwrap();
+    let reopened = Session::open_project(&project).unwrap();
+    assert!(reopened.document().texture_set(ts).unwrap().has_channel(ChannelKind::AmbientOcclusion));
+
+    // Undo removes channel and layer; the baked AO is used again.
+    s.execute(Command::Undo).unwrap();
+    assert!(!s.selected_texture_set().has_channel(ChannelKind::AmbientOcclusion));
+    let undone = dir.join("undone");
+    s.export_textures(&undone, &unreal).unwrap();
+    assert!((exported_texel(&s, &undone, "OcclusionRoughnessMetallic")[0] - 0.9).abs() < 2.0 / 255.0);
     std::fs::remove_dir_all(&dir).ok();
 }
 

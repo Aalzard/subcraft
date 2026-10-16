@@ -20,7 +20,7 @@ use crate::depth::{DepthCache, DepthMap};
 use crate::kernel::{KernelInput, TileWork};
 use crate::path::{PathSample, ScreenPath, rand01};
 use crate::settings::{Alignment, BrushMaterial, BrushSettings, PaintTarget, PolygonFillMode, StrokeMode, StrokeOptions};
-use crate::stamp::{Dab, Stamp, resolve};
+use crate::stamp::{Dab, Stamp, resolve_overlap};
 use crate::target::{ImageKey, PaintError, TargetImage, begin_targets, store};
 
 /// Scene inputs a stroke reads.
@@ -171,7 +171,10 @@ impl Stroke {
             }
             let dab = Dab { screen, radius, flow, angle, roundness: s.roundness, hardness: s.hardness };
             for (ci, cam) in cameras.iter().enumerate() {
-                if let Some(st) = resolve(&dab, ci, cam, ctx.mesh, ctx.bvh) {
+                let parts = self.parts.as_ref().filter(|p| p.enabled);
+                let accept = |t: u32| ctx.mesh.tri_material[t as usize] == ctx.geometry.material_slot && parts.is_none_or(|p|
+                    ctx.geometry.triangle_region(t as usize, p.kind).is_some_and(|id| p.parts.contains(&id)));
+                if let Some(st) = resolve_overlap(&dab, ci, cam, ctx.mesh, ctx.bvh, s.alignment, self.alpha.is_some(), accept) {
                     if ci == 0 {
                         self.last_depth = Some(cam.view_depth(st.center).max(1e-3));
                     }
