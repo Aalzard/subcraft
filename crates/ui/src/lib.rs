@@ -16,6 +16,7 @@ pub mod recovery;
 pub mod state;
 pub mod theme;
 pub mod viewport;
+pub mod viewport_bar;
 pub mod widgets;
 pub mod welcome;
 

@@ -96,6 +96,48 @@ pub struct ViewParams {
     pub height_scale: f32,
     /// Linear background color.
     pub background: [f32; 3],
+    /// 4x MSAA when true, no anti-aliasing (faster) when false.
+    pub antialias: bool,
+    /// Full material shading or one channel shown unlit.
+    pub view_mode: ViewMode,
+}
+
+/// What the 3D view shows on the model.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum ViewMode {
+    /// Full PBR shading.
+    #[default]
+    Material,
+    BaseColor,
+    Normal,
+    Roughness,
+    Metallic,
+    Height,
+    AmbientOcclusion,
+}
+
+impl ViewMode {
+    pub const ALL: [ViewMode; 7] = [
+        ViewMode::Material,
+        ViewMode::BaseColor,
+        ViewMode::Normal,
+        ViewMode::Roughness,
+        ViewMode::Metallic,
+        ViewMode::Height,
+        ViewMode::AmbientOcclusion,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            ViewMode::Material => "Material",
+            ViewMode::BaseColor => "Base Color",
+            ViewMode::Normal => "Normal",
+            ViewMode::Roughness => "Roughness",
+            ViewMode::Metallic => "Metallic",
+            ViewMode::Height => "Height",
+            ViewMode::AmbientOcclusion => "Ambient Occlusion",
+        }
+    }
 }
 
 impl ViewParams {
@@ -112,6 +154,8 @@ impl ViewParams {
             exposure: 1.0,
             height_scale: 0.02,
             background: [0.018, 0.019, 0.022],
+            antialias: true,
+            view_mode: ViewMode::Material,
         }
     }
 }
@@ -137,7 +181,10 @@ struct Globals {
 pub const SAMPLE_COUNT: u32 = 4;
 
 pub struct ViewportRenderer {
+    /// 4x MSAA pipeline.
     pipeline: wgpu::RenderPipeline,
+    /// Single-sample pipeline (anti-aliasing off).
+    pipeline_no_aa: wgpu::RenderPipeline,
     globals: wgpu::Buffer,
     globals_layout: wgpu::BindGroupLayout,
     globals_bg: wgpu::BindGroup,
@@ -213,7 +260,7 @@ impl ViewportRenderer {
             bind_group_layouts: &[Some(&globals_layout), Some(&material_layout)],
             immediate_size: 0,
         });
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let make_pipeline = |samples: u32| device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("viewport pipeline"),
             layout: Some(&layout),
             vertex: wgpu::VertexState {
@@ -230,7 +277,7 @@ impl ViewportRenderer {
                 stencil: Default::default(),
                 bias: Default::default(),
             }),
-            multisample: wgpu::MultisampleState { count: SAMPLE_COUNT, ..Default::default() },
+            multisample: wgpu::MultisampleState { count: samples, ..Default::default() },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
                 entry_point: Some("fs_main"),
@@ -240,6 +287,8 @@ impl ViewportRenderer {
             multiview_mask: None,
             cache: None,
         });
+        let pipeline = make_pipeline(SAMPLE_COUNT);
+        let pipeline_no_aa = make_pipeline(1);
         let globals = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("globals"),
             contents: bytemuck::bytes_of(&Globals::zeroed()),
@@ -273,6 +322,7 @@ impl ViewportRenderer {
             .collect();
         Self {
             pipeline,
+            pipeline_no_aa,
             globals,
             globals_layout,
             globals_bg,
@@ -425,8 +475,9 @@ impl ViewportRenderer {
     /// Render a frame into the offscreen target (resized as needed) and return the target.
     pub fn render(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, size: [u32; 2], params: &ViewParams) -> &RenderTarget {
         let size = [size[0].max(1), size[1].max(1)];
-        if self.target.as_ref().is_none_or(|t| t.size != size) {
-            self.target = Some(RenderTarget::new(device, size, SAMPLE_COUNT));
+        let samples = if params.antialias { SAMPLE_COUNT } else { 1 };
+        if self.target.as_ref().is_none_or(|t| t.size != size || t.samples != samples) {
+            self.target = Some(RenderTarget::new(device, size, samples));
         }
         self.ensure_bind_groups(device);
         let e = &params.environment;
@@ -447,7 +498,7 @@ impl ViewportRenderer {
             irr_up: v4(e.irradiance_up),
             irr_down: v4(e.irradiance_down),
             lights: [e.panels, e.top, e.key_softbox, if e.use_hdri && self.env_levels > 1 { 1.0 } else { 0.0 }],
-            env_misc: [e.rotation, e.hdri_intensity, (self.env_levels - 1) as f32, 0.0],
+            env_misc: [e.rotation, e.hdri_intensity, (self.env_levels - 1) as f32, params.view_mode as u32 as f32],
             sh,
         };
         queue.write_buffer(&self.globals, 0, bytemuck::bytes_of(&globals));
@@ -457,13 +508,15 @@ impl ViewportRenderer {
             let bg = params.background;
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("viewport pass"),
+                // Multisampled: draw into the MSAA texture and resolve; single-sample: draw directly.
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &target.msaa_view,
+                    view: target.msaa_view.as_ref().unwrap_or(&target.output_view),
                     depth_slice: None,
-                    resolve_target: Some(&target.output_view),
+                    resolve_target: target.msaa_view.as_ref().map(|_| &target.output_view),
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color { r: bg[0] as f64, g: bg[1] as f64, b: bg[2] as f64, a: 1.0 }),
-                        store: wgpu::StoreOp::Discard,
+                        // The MSAA samples are only needed until resolved; a direct draw is the image.
+                        store: if target.msaa_view.is_some() { wgpu::StoreOp::Discard } else { wgpu::StoreOp::Store },
                     },
                 })],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
@@ -476,7 +529,7 @@ impl ViewportRenderer {
                 multiview_mask: None,
             });
             if let Some(mesh) = &self.mesh {
-                pass.set_pipeline(&self.pipeline);
+                pass.set_pipeline(if samples > 1 { &self.pipeline } else { &self.pipeline_no_aa });
                 pass.set_bind_group(0, &self.globals_bg, &[]);
                 pass.set_vertex_buffer(0, mesh.vertices.slice(..));
                 pass.set_index_buffer(mesh.indices.slice(..), wgpu::IndexFormat::Uint32);

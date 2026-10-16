@@ -24,11 +24,18 @@ pub struct Preferences {
     /// Recovery copies kept.
     pub autosave_keep: usize,
     pub show_welcome: bool,
+    /// 3D view toolbar settings.
+    pub viewport: crate::viewport_bar::ViewportPrefs,
 }
 
 impl Default for Preferences {
     fn default() -> Self {
-        Self { autosave_minutes: (recovery::DEFAULT_INTERVAL.as_secs() / 60) as u32, autosave_keep: recovery::DEFAULT_KEEP, show_welcome: true }
+        Self {
+            autosave_minutes: (recovery::DEFAULT_INTERVAL.as_secs() / 60) as u32,
+            autosave_keep: recovery::DEFAULT_KEEP,
+            show_welcome: true,
+            viewport: Default::default(),
+        }
     }
 }
 

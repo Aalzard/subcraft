@@ -1015,6 +1015,26 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   the brush overlaps. Combined with sessions 41–46 on `handoff-ao-channel`; all workspace tests
   pass.
 
+### Session 48 — 3D View toolbar (2026-10-17)
+
+* Owner request: a row at the top of the 3D view with the view resolution, anti-aliasing,
+  orthographic and what the model shows. `viewport_bar.rs` (`ViewportPrefs`, saved inside
+  `Preferences`, so it persists with the other settings).
+* Resolution renders the viewport at 100/75/50/25 % of its pixels and stretches the image;
+  painting and picking keep full-size coordinates (same projection). Anti-aliasing switches
+  between 4x MSAA and a single-sample pipeline drawing straight into the output (whose store op
+  must then be Store, not Discard — the first version rendered blank). Orthographic:
+  `OrbitCamera` keeps `distance` as the view size and pulls the eye behind the scene so zooming
+  in never clips; the paint camera detects orthographic from the projection. View mode uses the
+  spare `env_misc.w` uniform: the shader returns the chosen channel unlit, data channels
+  pre-linearized so they display as stored (like the 2D view).
+* Tests: GPU render — unlit modes show stored values on every face (roughness 0.25 → gray 64,
+  metallic 1 → white, base color as authored, flat normal), Material equals the normal shaded
+  image, AA off differs only at edges; ortho camera keeps the on-screen size, keeps every
+  corner in the depth range when zoomed in, and paint/render matrices stay equal; render size
+  scaling; old preference files load with defaults.
+* Verified in the real app on Windows by the owner: all four controls work and persist.
+
 ## Next steps (in order)
 
 Current priorities requested by the owner:

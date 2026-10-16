@@ -21,6 +21,9 @@ What changed in SubCraft, newest first. Download the latest build from the
   available without changing the model's displayed colors.
 
 ### New
+- 3D View toolbar: render resolution (100 / 75 / 50 / 25 % for speed), anti-aliasing on/off,
+  orthographic camera, and a View mode that shows the full material or one channel (base
+  color, normal, roughness, metallic, height, AO) on the model. Remembered between launches.
 - Clear ArtCraft independence notice in the README, on the welcome screen and in the new
   Help → About SubCraft window: SubCraft is not officially developed by, affiliated with,
   or endorsed by ArtCraft.

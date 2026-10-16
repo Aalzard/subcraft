@@ -5,7 +5,7 @@ use glam::{Mat4, Vec3};
 use subcraft_core::ChannelKind;
 use subcraft_image::{FileFormat, TiledImage, save_image};
 use subcraft_mesh::primitives;
-use subcraft_render::{ViewParams, ViewportRenderer, headless};
+use subcraft_render::{ViewMode, ViewParams, ViewportRenderer, headless};
 
 const SIZE: u32 = 192;
 
@@ -100,6 +100,35 @@ fn render_with(device: &subcraft_render::wgpu_api::Device, queue: &subcraft_rend
 
 fn diff(a: &[u8], b: &[u8]) -> usize {
     a.chunks_exact(4).zip(b.chunks_exact(4)).filter(|(x, y)| x.iter().zip(y.iter()).any(|(p, q)| p.abs_diff(*q) > 6)).count()
+}
+
+#[test]
+fn view_modes_show_one_channel_unlit_and_antialiasing_can_be_off() {
+    let Some((_, device, queue)) = headless::device() else {
+        eprintln!("no wgpu adapter available: skipping");
+        return;
+    };
+    let channels = [(ChannelKind::Roughness, solid(1, [0.25; 4])), (ChannelKind::Metallic, solid(1, [1.0; 4]))];
+    let shaded = render_with(&device, &queue, &channels, &params());
+    let with = |mode| render_with(&device, &queue, &channels, &ViewParams { view_mode: mode, ..params() });
+
+    // Unlit channel views: every face of the cube shows the stored value, whatever the lighting.
+    let rough = with(ViewMode::Roughness);
+    let (center, top) = (px(&rough, SIZE / 2, SIZE / 2), px(&rough, SIZE / 2, SIZE / 4));
+    assert_eq!(center, top, "unlit: all faces equal");
+    assert!(center[0].abs_diff(64) <= 2 && center[0] == center[1], "roughness 0.25 shows as gray 64: {center:?}");
+    assert!(px(&with(ViewMode::Metallic), SIZE / 2, SIZE / 2)[0] >= 253, "metallic 1 is white");
+    let base = px(&with(ViewMode::BaseColor), SIZE / 2, SIZE / 2);
+    let expect = (subcraft_core::color::linear_to_srgb(0.6) * 255.0).round() as u8;
+    assert!(base[0].abs_diff(expect) <= 2, "base color as authored ({expect}): {base:?}");
+    let normal = px(&with(ViewMode::Normal), SIZE / 2, SIZE / 2);
+    assert!(normal[0].abs_diff(128) <= 2 && normal[2] >= 253, "flat normal map color: {normal:?}");
+    assert_eq!(with(ViewMode::Material), shaded, "Material is the normal shaded view");
+
+    // Without MSAA the image still renders; only edge pixels may differ.
+    let no_aa = render_with(&device, &queue, &channels, &ViewParams { antialias: false, ..params() });
+    let changed = diff(&shaded, &no_aa);
+    assert!(changed > 0 && changed < (SIZE * SIZE / 20) as usize, "{changed} pixels differ (edges only)");
 }
 
 #[test]
