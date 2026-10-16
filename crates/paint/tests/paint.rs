@@ -115,6 +115,35 @@ fn stroke_across_a_cube_seam_is_continuous_in_3d() {
     assert!(worst < 0.15, "coverage jumps by {worst} across the seam");
 }
 
+/// Front-face (+Z) texels of the cube within `band` of its right edge (x = 1): their alphas.
+fn front_edge_alphas(sc: &Scene, img: &TiledImage, band: f32) -> Vec<f32> {
+    let surf = sc.surface();
+    (0..surf.triangle.len())
+        .filter(|&i| surf.covered(i))
+        .filter(|&i| sc.mesh.geometric_normal(surf.triangle[i] as usize).z > 0.9 && surf.position[i][0] > 1.0 - band)
+        .map(|i| alpha(img, i, sc.ts.resolution))
+        .collect()
+}
+
+#[test]
+fn a_dab_whose_center_misses_still_paints_where_its_edge_overlaps() {
+    let settings = BrushSettings { size: 30.0, hardness: 1.0, ..BrushSettings::default() };
+    let cam = front_camera(6.0);
+
+    // Center just past the right edge of the front face: the brush overlaps the face.
+    let mut sc = Scene::new(primitives::cube(2.0), 128);
+    sc.stroke(&cam, &[Vec3::new(1.08, 0.0, 1.0)], settings, StrokeOptions::default(), &red());
+    let img = sc.image(ChannelKind::BaseColor).expect("the overlapping dab painted");
+    let painted = front_edge_alphas(&sc, &img, 0.1).iter().filter(|&&a| a > 0.5).count();
+    assert!(painted > 10, "texels along the edge are painted ({painted})");
+
+    // Far from the cube nothing is touched.
+    let mut far = Scene::new(primitives::cube(2.0), 128);
+    far.stroke(&cam, &[Vec3::new(2.5, 0.0, 1.0)], settings, StrokeOptions::default(), &red());
+    let untouched = far.image(ChannelKind::BaseColor).is_none_or(|img| front_edge_alphas(&far, &img, 0.1).iter().all(|&a| a == 0.0));
+    assert!(untouched, "a dab that doesn't reach the cube paints nothing");
+}
+
 fn slab_back_untouched(settings: BrushSettings) {
     let res = 256;
     let mut sc = Scene::new(primitives::thin_slab(1.0, 1.0, 0.01), res);

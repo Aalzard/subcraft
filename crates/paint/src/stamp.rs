@@ -46,7 +46,11 @@ pub struct Dab {
 pub fn resolve(dab: &Dab, camera_index: usize, camera: &Camera, mesh: &Mesh, bvh: &Bvh) -> Option<Stamp> {
     let (origin, dir) = camera.ray(dab.screen);
     let hit = bvh.intersect(origin, dir, 0.0, f32::INFINITY)?;
-    let sp = mesh.interpolate(hit.tri as usize, hit.u, hit.v);
+    Some(from_surface(dab, camera_index, camera, mesh, hit.tri, hit.u, hit.v, None))
+}
+
+fn from_surface(dab: &Dab, camera_index: usize, camera: &Camera, mesh: &Mesh, tri: u32, u: f32, v: f32, center: Option<Vec3>) -> Stamp {
+    let sp = mesh.interpolate(tri as usize, u, v);
     let n = sp.normal;
     let right = camera.right();
     let mut t = right - n * right.dot(n);
@@ -55,19 +59,26 @@ pub fn resolve(dab: &Dab, camera_index: usize, camera: &Camera, mesh: &Mesh, bvh
     }
     let t = t.normalize();
     let b = t.cross(n);
-    let p = mesh.tri_positions(hit.tri as usize);
-    let uv = mesh.tri_uvs(hit.tri as usize);
+    let p = mesh.tri_positions(tri as usize);
+    let uv = mesh.tri_uvs(tri as usize);
     let world_area = (p[1] - p[0]).cross(p[2] - p[0]).length();
     let uv_area = (uv[1] - uv[0]).perp_dot(uv[2] - uv[0]).abs();
     let uv_per_unit = if world_area > 1e-12 { (uv_area / world_area).sqrt() } else { 0.0 };
-    let depth = camera.view_depth(sp.position);
-    Some(Stamp {
+    let center = center.unwrap_or(sp.position);
+    let depth = camera.view_depth(center);
+    // Extrapolate the chart for UV alignment when the cursor lies beyond its surface edge.
+    let chart_uv = if center == sp.position { sp.uv } else {
+        let (a,b,w) = (p[1]-p[0],p[2]-p[0],center-p[0]);
+        let (aa,ab,bb) = (a.dot(a),a.dot(b),b.dot(b)); let det = aa*bb-ab*ab;
+        if det.abs() > 1e-20 { let u=(bb*w.dot(a)-ab*w.dot(b))/det; let v=(aa*w.dot(b)-ab*w.dot(a))/det; uv[0]+u*(uv[1]-uv[0])+v*(uv[2]-uv[0]) } else { sp.uv }
+    };
+    Stamp {
         camera: camera_index,
         screen: dab.screen,
-        center: sp.position,
+        center,
         normal: n,
-        uv: sp.uv,
-        tri: hit.tri,
+        uv: chart_uv,
+        tri,
         radius: dab.radius,
         radius_px: dab.radius * camera.pixels_per_unit(depth),
         radius_uv: dab.radius * uv_per_unit,
@@ -77,7 +88,70 @@ pub fn resolve(dab: &Dab, camera_index: usize, camera: &Camera, mesh: &Mesh, bvh
         hardness: dab.hardness,
         tangent: t,
         bitangent: b,
-    })
+    }
+}
+
+/// Resolve a full footprint, including when its center ray misses. The center remains on the
+/// cursor ray, at the nearest touched surface's depth. Final coverage/occlusion stays in kernel.
+pub fn resolve_overlap(dab: &Dab, camera_index: usize, camera: &Camera, mesh: &Mesh, bvh: &Bvh,
+    alignment: Alignment, has_alpha: bool, accept: impl Fn(u32) -> bool) -> Option<Stamp> {
+    if !dab.screen.is_finite() || !dab.radius.is_finite() || dab.radius <= 0.0 { return None; }
+    if let Some(stamp) = resolve(dab, camera_index, camera, mesh, bvh) && accept(stamp.tri) { return Some(stamp); }
+    let (origin, dir) = camera.ray(dab.screen);
+    let extent = reach(has_alpha) * if alignment == Alignment::TangentPlanar { std::f32::consts::SQRT_2 } else { 1.0 };
+    let radius = dab.radius * extent;
+    let vp = camera.view_proj();
+    let mut best: Option<(f32, f32, u32, Vec3)> = None;
+    bvh.query(|bounds| expanded_ray(bounds.min, bounds.max, origin, dir, radius), |tri| {
+        if !accept(tri) { return; }
+        let p = mesh.tri_positions(tri as usize);
+        let clip = p.map(|v| vp * v.extend(1.0));
+        if clip.iter().any(|v| v.w <= 1e-6 || v.z < 0.0) { return; }
+        let screen = clip.map(|v| camera.ndc_to_screen(v.truncate().truncate()/v.w));
+        let Some(weights) = closest_weights(dab.screen, screen) else { return };
+        let projected = screen[0]*weights.x + screen[1]*weights.y + screen[2]*weights.z;
+        let w = weights / Vec3::new(clip[0].w,clip[1].w,clip[2].w);
+        let w = w / w.element_sum();
+        let point = p[0]*w.x+p[1]*w.y+p[2]*w.z;
+        let depth = camera.view_depth(point);
+        let r_px = dab.radius * camera.pixels_per_unit(depth);
+        let score = projected.distance_squared(dab.screen) / (r_px*r_px).max(1e-20);
+        if score >= extent*extent || !score.is_finite() { return; }
+        if best.as_ref().is_none_or(|b| score < b.0 || (score == b.0 && depth < b.1)) { best = Some((score, depth, tri, w)); }
+    });
+    let (_,depth,tri,w) = best?;
+    let along = camera.forward().dot(dir);
+    if along <= 1e-6 { return None; }
+    let center = origin + dir * ((depth-camera.view_depth(origin))/along);
+    Some(from_surface(dab, camera_index, camera, mesh, tri, w.y, w.z, Some(center)))
+}
+
+fn expanded_ray(min: Vec3, max: Vec3, origin: Vec3, dir: Vec3, radius: f32) -> bool {
+    let (min,max) = (min-Vec3::splat(radius),max+Vec3::splat(radius));
+    let (mut near,mut far) = (0.0_f32,f32::INFINITY);
+    for axis in 0..3 {
+        if dir[axis].abs() < 1e-12 { if origin[axis] < min[axis] || origin[axis] > max[axis] { return false; } }
+        else { let a=(min[axis]-origin[axis])/dir[axis]; let b=(max[axis]-origin[axis])/dir[axis]; near=near.max(a.min(b)); far=far.min(a.max(b)); if far<near { return false; } }
+    }
+    true
+}
+
+/// Closest point on a projected triangle, expressed as screen-linear barycentrics. Analytic
+/// edges handle thin pieces and corners without sampling a ring of rays or a depth-image disc.
+fn closest_weights(p: Vec2, q: [Vec2;3]) -> Option<Vec3> {
+    let area = (q[1]-q[0]).perp_dot(q[2]-q[0]);
+    if area.abs() < 1e-9 { return None; }
+    let b = (q[2]-q[1]).perp_dot(p-q[1])/area;
+    let c = (q[0]-q[2]).perp_dot(p-q[2])/area;
+    let w = Vec3::new(b,c,1.0-b-c);
+    if w.min_element() >= 0.0 { return Some(w); }
+    let mut best=(f32::INFINITY,Vec3::ZERO);
+    for (a,b) in [(0,1),(1,2),(2,0)] {
+        let edge=q[b]-q[a]; let t=((p-q[a]).dot(edge)/edge.length_squared().max(1e-20)).clamp(0.0,1.0);
+        let distance=(q[a]+edge*t).distance_squared(p);
+        if distance<best.0 { let mut w=Vec3::ZERO; w[a]=1.0-t; w[b]=t; best=(distance,w); }
+    }
+    Some(best.1)
 }
 
 impl Stamp {

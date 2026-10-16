@@ -14,6 +14,8 @@ What changed in SubCraft, newest first. Download the latest build from the
   the shelf. Images whose names don't say which map they are only go to the shelf.
 - Saved smart materials that use images showed a blank white thumbnail; the preview now has
   their images. Smart material and smart mask thumbnails are shown on a sphere.
+- The brush keeps painting where it overlaps the model when its center moves just past the
+  model's edge, instead of stopping.
 - Removed the orange object/part hover overlay entirely, including part-picking mode and
   hovering the Parts list. Right-click actions, part-mask picking and I/H/Esc shortcuts remain
   available without changing the model's displayed colors.

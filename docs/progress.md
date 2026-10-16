@@ -1001,11 +1001,25 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
 * Verified in the real app on Windows: the saved Bricks smart material shows its bricks on a
   sphere.
 
+### Session 47 — brush overlap at model edges (2026-10-16)
+
+* Owner report: a dab stopped painting as soon as its center ray missed the model, even with
+  most of the brush still over it. `stamp::resolve_overlap` (started in the
+  `codex/brush-edge-overlap` worktree) falls back to the nearest accepted triangle within the
+  brush footprint when the center ray misses (or hits another texture set / hidden part); the
+  stamp center stays on the cursor ray at that surface's depth, and the kernel still decides
+  coverage and occlusion. `Bvh::from_triangles` skips zero-area (hidden) triangles.
+* Tests: a dab centered just past the cube's front-face edge paints texels along the edge; a
+  dab out of reach paints nothing (fails without the fix); BVH skips collapsed faces.
+* Verified in the real app on Windows by the owner: painting along an edge keeps painting where
+  the brush overlaps. Combined with sessions 41–46 on `handoff-ao-channel`; all workspace tests
+  pass.
+
 ## Next steps (in order)
 
 Current priorities requested by the owner:
-* Current follow-up: brush overlap at model edges. Graphics selection, the independence notice
-  and hover-tint removal are implemented in sessions 41–43 and await feature PR merges.
+* Brush overlap at model edges (session 47), graphics selection, the independence notice and
+  hover-tint removal (sessions 41–43) are merged together on `handoff-ao-channel`.
 1. ~~Right-click texturing and Parts~~ — session 30; PR #34 merged.
 2. ~~Welcome screen, recent files, quick-start guide and screenshot documentation~~ — sessions
    31/34; PR #35 merged. Included in published desktop v0.1.5.

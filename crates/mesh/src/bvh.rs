@@ -48,10 +48,14 @@ impl Bvh {
     }
 
     pub fn from_triangles(tris: &[[Vec3; 3]]) -> Self {
-        let n = tris.len();
+        // Hidden viewport faces retain their IDs as zero-area triangles. Keep them out of
+        // volume queries too, so an expanded brush ray cannot visit thousands of hidden faces.
+        let tri_ids: Vec<u32> = tris.iter().enumerate().filter(|(_, t)| (t[1] - t[0]).cross(t[2] - t[0]).length_squared() > 0.0).map(|(i, _)| i as u32).collect();
+        let n = tri_ids.len();
+        if n == 0 { return Self::default(); }
         let mut bvh = Bvh {
             nodes: Vec::with_capacity(2 * n.max(1)),
-            tri_ids: (0..n as u32).collect(),
+            tri_ids,
             v0: tris.iter().map(|t| t[0]).collect(),
             e1: tris.iter().map(|t| t[1] - t[0]).collect(),
             e2: tris.iter().map(|t| t[2] - t[0]).collect(),
@@ -438,5 +442,17 @@ mod tests {
                 assert!(found.contains(&(t as u32)), "triangle {t} missing");
             }
         }
+    }
+
+    #[test]
+    fn collapsed_hidden_faces_do_not_enter_queries_and_visible_triangle_ids_stay_stable() {
+        let mut tris = vec![[Vec3::ZERO; 3]; 10000];
+        tris.push([Vec3::new(-1.0,-1.0,0.0),Vec3::new(1.0,-1.0,0.0),Vec3::new(0.0,1.0,0.0)]);
+        let bvh = Bvh::from_triangles(&tris); let mut visited = Vec::new();
+        bvh.query(|_| true, |t| visited.push(t)); assert_eq!(visited, [10000]);
+        assert_eq!(bvh.intersect(Vec3::Z, -Vec3::Z, 0.0, 10.0).unwrap().tri, 10000);
+        let empty = Bvh::from_triangles(&tris[..10000]);
+        assert!(empty.query_sphere(Vec3::ZERO, 1.0).is_empty());
+        assert!(empty.intersect(Vec3::Z, -Vec3::Z, 0.0, 10.0).is_none());
     }
 }
