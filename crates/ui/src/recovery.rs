@@ -24,6 +24,9 @@ pub struct Preferences {
     /// Recovery copies kept.
     pub autosave_keep: usize,
     pub show_welcome: bool,
+    /// Desktop: look for a newer release in the background at startup and point at the update
+    /// button when there is one.
+    pub check_updates_on_start: bool,
     /// 3D view toolbar settings.
     pub viewport: crate::viewport_bar::ViewportPrefs,
 }
@@ -34,6 +37,7 @@ impl Default for Preferences {
             autosave_minutes: (recovery::DEFAULT_INTERVAL.as_secs() / 60) as u32,
             autosave_keep: recovery::DEFAULT_KEEP,
             show_welcome: true,
+            check_updates_on_start: true,
             viewport: Default::default(),
         }
     }
@@ -287,6 +291,10 @@ pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
         ui.set_width(380.0);
         crate::graphics::controls(graphics, ui);
         ui.checkbox(&mut rec.prefs.show_welcome, "Show welcome screen on startup");
+        if !cfg!(target_arch = "wasm32") {
+            ui.checkbox(&mut rec.prefs.check_updates_on_start, "Check for updates when SubCraft starts")
+                .on_hover_text("Asks GitHub for the latest release in the background and points at the update button when there is a new one.");
+        }
         ui.add_space(10.0);
         ui.label(RichText::new("Autosave").font(theme::font_strong(12.5)));
         ui.add_space(4.0);

@@ -1060,6 +1060,23 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   without reordering layers. Existing drag-to-reorder tests still pass.
 * Not yet verified in the real app.
 
+### Session 51 — startup update notice (2026-10-17)
+
+* Owner request: when anyone opens SubCraft and a new version exists, a window should point at
+  the update button. Before, releases were only checked with `--check-updates` or the button.
+* Startup now runs the existing background check (`Updater::check`) when
+  `Preferences::check_updates_on_start` is on (default; Edit → Preferences), except for
+  screenshot runs and the restart after an update. The automatic check keeps the updates
+  window closed; `updates::startup_notice` waits while checking, stays silent when current,
+  offline or already updating, and shows a callout under the green button (arrow pointing at
+  it) for an available or downloaded release: **Update now** runs the normal update, **Later**
+  hides it until the next start.
+* Test: the notice logic for every updater phase. The callout window itself is drawn with
+  egui; it is first visible against a real newer release (needs a build older than the
+  latest GitHub release).
+* Found while checking lints: earlier clippy filters used `/` paths and missed Windows `\`
+  output; re-checked, all remaining clippy warnings predate this work.
+
 ## Next steps (in order)
 
 Current priorities requested by the owner:
