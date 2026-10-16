@@ -3,7 +3,7 @@
 What changed in SubCraft, newest first. Download the latest build from the
 [Releases page](https://github.com/Aalzard/subcraft/releases/latest).
 
-## Unreleased
+## 0.1.6
 
 ### Fixed
 - Importing a texture set with an ambient occlusion map adds an Ambient Occlusion channel to
