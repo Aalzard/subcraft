@@ -27,6 +27,8 @@ What changed in SubCraft, newest first. Download the latest build from the
 - Texture Sets → Resolution: change a texture set's working resolution (128 to 4096) at any
   time, or apply it to every texture set. Painted strokes and masks are resampled; one undo
   step brings the old ones back. Lower is faster to paint and fill.
+- Blend mode and opacity are now on the right of every layer row (for the channel picked at
+  the top of the Layers panel) instead of in a separate block under the list.
 - Clear ArtCraft independence notice in the README, on the welcome screen and in the new
   Help → About SubCraft window: SubCraft is not officially developed by, affiliated with,
   or endorsed by ArtCraft.

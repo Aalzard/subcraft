@@ -1049,6 +1049,17 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   exactly, unsupported sizes are rejected.
 * Not yet verified in the real app.
 
+### Session 50 — blend mode in the layer row (2026-10-17)
+
+* Owner request: change a layer's blend mode (Normal → Overlay…) on the right of its row, not
+  in the separate Blend / Opacity block under the list. Each row now has a compact blend menu
+  (short label, full names in the menu, tall enough to show most modes) and a draggable opacity
+  number for the active channel; the pinned block is gone, giving the list its space back.
+* Test (`ui/tests/layer_tree.rs`, real egui pointer events): picking Multiply in the Middle
+  row's menu changes only that layer; dragging the Bottom row's opacity number lowers it
+  without reordering layers. Existing drag-to-reorder tests still pass.
+* Not yet verified in the real app.
+
 ## Next steps (in order)
 
 Current priorities requested by the owner:

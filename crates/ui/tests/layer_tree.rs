@@ -142,3 +142,43 @@ fn held_drag_scrolls_a_long_list_and_can_reach_the_root_bottom_target() {
     frame(&mut state, &ctx, vec![button(end, false)]);
     assert_eq!(state.session.selected_texture_set().layers[0].id, source);
 }
+
+/// Center of the visible `text` on the same row as the visible `row` text.
+fn text_in_row(output: &egui::FullOutput, row: &str, text: &str) -> egui::Pos2 {
+    let y = text_position(output, row).y;
+    output.shapes.iter().find_map(|s| match &s.shape {
+        egui::epaint::Shape::Text(t) if t.galley.text() == text && ((t.pos + t.galley.size() * 0.5).y - y).abs() < 8.0 => Some(t.pos + t.galley.size() * 0.5),
+        _ => None,
+    }).unwrap_or_else(|| panic!("no {text} in row {row}"))
+}
+
+#[test]
+fn blend_mode_and_opacity_are_edited_in_the_layer_row() {
+    let (mut state, ctx, ids) = setup();
+    let channel = state.active_channel;
+    // Pick Multiply from the Middle row's blend menu.
+    let output = layout(&mut state, &ctx);
+    let norm = text_in_row(&output, "Middle", "Norm");
+    frame(&mut state, &ctx, vec![egui::Event::PointerMoved(norm), button(norm, true)]);
+    frame(&mut state, &ctx, vec![button(norm, false)]);
+    let output = layout(&mut state, &ctx);
+    let multiply = text_position(&output, "Multiply");
+    frame(&mut state, &ctx, vec![egui::Event::PointerMoved(multiply), button(multiply, true)]);
+    frame(&mut state, &ctx, vec![button(multiply, false)]);
+    let mode = |s: &UiState, id| s.session.selected_texture_set().find(id).unwrap().blend_for(channel).mode;
+    assert_eq!(mode(&state, ids[1]), subcraft_doc::BlendMode::Multiply, "Middle changed");
+    assert_eq!(mode(&state, ids[0]), subcraft_doc::BlendMode::Normal, "other rows untouched");
+    assert_eq!(mode(&state, ids[2]), subcraft_doc::BlendMode::Normal);
+
+    // Drag the Bottom row's opacity number to the left: lower opacity, no reorder.
+    let order: Vec<_> = state.session.selected_texture_set().layers.iter().map(|l| l.id).collect();
+    let output = layout(&mut state, &ctx);
+    let pct = text_in_row(&output, "Bottom", "100");
+    frame(&mut state, &ctx, vec![egui::Event::PointerMoved(pct), button(pct, true)]);
+    for k in 1..=8 { frame(&mut state, &ctx, vec![egui::Event::PointerMoved(pct - egui::vec2(5.0 * k as f32, 0.0))]); }
+    frame(&mut state, &ctx, vec![button(pct - egui::vec2(40.0, 0.0), false)]);
+    let opacity = state.session.selected_texture_set().find(ids[0]).unwrap().blend_for(channel).opacity;
+    assert!(opacity < 0.95, "opacity lowered: {opacity}");
+    let after: Vec<_> = state.session.selected_texture_set().layers.iter().map(|l| l.id).collect();
+    assert_eq!(after, order, "dragging the number doesn't move the layer");
+}

@@ -128,46 +128,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     });
     divider(ui);
 
-    // Blend controls of the selected layer, pinned to the bottom (one compact row when the panel
-    // is short, so at least two layer rows stay visible).
-    let compact = ui.available_height() < 200.0;
+    // Blend mode and opacity of the active channel sit on the right of every layer row.
     let active = state.active_channel;
-    if let Some(l) = state.session.selected_layer() {
-        let id = l.id;
-        let folder = l.is_folder();
-        let mut b = l.blend_for(active);
-        egui::Panel::bottom("layer_blend")
-            .resizable(false)
-            .show_separator_line(false)
-            .frame(egui::Frame::new().fill(theme::BG_2).inner_margin(egui::Margin::symmetric(PAD, 10)))
-            .show(ui, |ui| {
-                let blend_combo = |ui: &mut Ui, cmds: &mut Vec<Command>, width: f32| {
-                    egui::ComboBox::from_id_salt("blend_mode").width(width).selected_text(b.mode.label()).show_ui(ui, |ui| {
-                        for m in BlendMode::available(active == ChannelKind::Normal, folder) {
-                            if ui.selectable_label(b.mode == m, m.label()).clicked() {
-                                cmds.push(Command::SetBlendMode { layer: id, channel: active, mode: m });
-                            }
-                        }
-                    });
-                };
-                if compact {
-                    // Short panel: one row so the layer list keeps room.
-                    ui.horizontal(|ui| {
-                        blend_combo(ui, &mut cmds, (ui.available_width() - 70.0).max(60.0));
-                        let mut pct = b.opacity * 100.0;
-                        let r = ui.add(egui::DragValue::new(&mut pct).range(0.0..=100.0).speed(0.5).suffix(" %").max_decimals(0)).on_hover_text("Opacity");
-                        if r.changed() {
-                            cmds.push(Command::SetBlendOpacity { layer: id, channel: active, opacity: pct / 100.0 });
-                        }
-                    });
-                } else {
-                    prop_row(ui, "Blend", |ui| blend_combo(ui, &mut cmds, ui.available_width()));
-                    if slider_row(ui, "Opacity", egui::Slider::new(&mut b.opacity, 0.0..=1.0).max_decimals(2)).changed() {
-                        cmds.push(Command::SetBlendOpacity { layer: id, channel: active, opacity: b.opacity });
-                    }
-                }
-            });
-    }
 
     let ts = state.session.selected_texture_set();
     let mut save_request: Option<(subcraft_core::LayerId, bool)> = None;
@@ -175,8 +137,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     let mut layer_action = None;
     let mut list = Vec::new();
     rows(&ts.layers, 0, &mut list);
-    // Default min height (64 px) would let rows spill over the pinned blend controls when the
-    // panel is short; the list must only use the space that is left (it scrolls).
+    // Default min height (64 px) would let rows spill past the panel when it is short; the list
+    // must only use the space that is left (it scrolls).
     let rows_height = ui.available_height().max(0.0);
     egui::ScrollArea::vertical()
         .id_salt("layer_rows")
@@ -235,7 +197,25 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     }
                 } else { ui.add(egui::Label::new(text).truncate().selectable(false)); }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(RichText::new(format!("{} {:.0}", b.mode.short_label(), b.opacity * 100.0)).font(theme::font(11.0)).color(TEXT_FAINT));
+                    let channel = active.display_name();
+                    let mut pct = b.opacity * 100.0;
+                    let opacity = egui::DragValue::new(&mut pct).range(0.0..=100.0).speed(0.5).suffix("%").max_decimals(0);
+                    if ui.add_sized([40.0, 20.0], opacity).on_hover_text(format!("{channel} opacity (drag)")).changed() {
+                        cmds.push(Command::SetBlendOpacity { layer: l.id, channel: active, opacity: pct / 100.0 });
+                    }
+                    egui::ComboBox::from_id_salt(("row_blend", l.id))
+                        .width(70.0)
+                        .height(420.0)
+                        .selected_text(RichText::new(b.mode.short_label()).font(theme::font(11.0)))
+                        .show_ui(ui, |ui| {
+                            for m in BlendMode::available(active == ChannelKind::Normal, l.is_folder()) {
+                                if ui.selectable_label(b.mode == m, m.label()).clicked() {
+                                    cmds.push(Command::SetBlendMode { layer: l.id, channel: active, mode: m });
+                                }
+                            }
+                        })
+                        .response
+                        .on_hover_text(format!("{channel} blend mode: {}", b.mode.label()));
                     if l.mask.is_some() {
                         badge(ui, "mask", ACCENT).on_hover_text("Has a mask");
                     }
