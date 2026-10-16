@@ -20,6 +20,8 @@ fn pill(painter: &egui::Painter, pos: Pos2, align: egui::Align2, text: &str, col
 }
 
 pub fn show(state: &mut UiState, ui: &mut Ui) {
+    crate::viewport_bar::show(ui, &mut state.recovery.prefs.viewport);
+    state.camera.orthographic = state.recovery.prefs.viewport.orthographic;
     let (rect, response) = ui.allocate_exact_size(ui.available_size(), Sense::click_and_drag());
     let ppp = ui.ctx().pixels_per_point();
     let size = [(rect.width() * ppp).round().max(1.0) as u32, (rect.height() * ppp).round().max(1.0) as u32];
@@ -204,6 +206,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             let t0 = web_time::Instant::now();
             let mut params = state.camera.view_params(size);
             params.height_scale = state.height_scale;
+            let view = &state.recovery.prefs.viewport;
+            params.antialias = view.antialias;
+            params.view_mode = view.view_mode();
+            let render_size = view.render_size(size);
             crate::panels::shelf::apply_environment(
                 &state.library,
                 state.env.index,
@@ -215,7 +221,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 &rs.device,
                 &rs.queue,
             );
-            let target = renderer.render(&rs.device, &rs.queue, size, &params);
+            let target = renderer.render(&rs.device, &rs.queue, render_size, &params);
             let mut egui_renderer = rs.renderer.write();
             let id = match state.viewport_texture {
                 Some(id) => {

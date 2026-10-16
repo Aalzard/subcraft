@@ -14,7 +14,8 @@ struct Globals {
     irr_down: vec4<f32>,
     // x: ring panels, y: overhead light, z: key softbox, w: 1 = HDRI environment
     lights: vec4<f32>,
-    // x: environment rotation (radians), y: HDRI intensity, z: last prefiltered mip level
+    // x: environment rotation (radians), y: HDRI intensity, z: last prefiltered mip level,
+    // w: view mode (0 material, 1 base color, 2 normal, 3 roughness, 4 metallic, 5 height, 6 AO)
     env_misc: vec4<f32>,
     sh: array<vec4<f32>, 9>,
 };
@@ -160,8 +161,32 @@ fn aces(x: vec3<f32>) -> vec3<f32> {
     return clamp((x * (a * x + b)) / (x * (c * x + d) + e), vec3<f32>(0.0), vec3<f32>(1.0));
 }
 
+// Data value shown as stored: pre-linearized so the sRGB target encodes it back to `c`.
+fn as_stored(c: vec3<f32>) -> vec4<f32> {
+    let v = clamp(c, vec3<f32>(0.0), vec3<f32>(1.0));
+    let lo = v / 12.92;
+    let hi = pow((v + 0.055) / 1.055, vec3<f32>(2.4));
+    return vec4<f32>(select(hi, lo, v <= vec3<f32>(0.04045)), 1.0);
+}
+
+// Single-channel view modes: the channel unlit, as the 2D view shows it.
+fn channel_view(mode: i32, uv: vec2<f32>) -> vec4<f32> {
+    switch mode {
+        case 1: { return vec4<f32>(textureSample(t_base, samp, uv).rgb, 1.0); }
+        case 2: { return as_stored(textureSample(t_normal, samp, uv).rgb); }
+        case 3: { return as_stored(vec3<f32>(textureSample(t_rough, samp, uv).r)); }
+        case 4: { return as_stored(vec3<f32>(textureSample(t_metal, samp, uv).r)); }
+        case 5: { return as_stored(vec3<f32>(textureSample(t_height, samp, uv).r)); }
+        default: { return as_stored(vec3<f32>(textureSample(t_ao, samp, uv).r)); }
+    }
+}
+
 @fragment
 fn fs_main(in: VsOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
+    let mode = i32(round(g.env_misc.w));
+    if (mode > 0) {
+        return channel_view(mode, in.uv);
+    }
     let base = textureSample(t_base, samp, in.uv).rgb;
     let rough = clamp(textureSample(t_rough, samp, in.uv).r, 0.04, 1.0);
     let metal = clamp(textureSample(t_metal, samp, in.uv).r, 0.0, 1.0);

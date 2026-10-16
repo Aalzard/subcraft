@@ -34,6 +34,11 @@ pub struct UiState {
 
     #[cfg(not(target_arch = "wasm32"))]
     pub updater: Option<subcraft_app::updater::Updater>,
+    /// The startup update check is running or found a release: show the callout at the update
+    /// button until the user answers it.
+    pub update_notice: bool,
+    /// Where the update button was drawn last frame (the callout points at it).
+    pub update_button: Option<egui::Rect>,
     pub parts_kind: subcraft_core::PartKind,
     pub context_part: Option<subcraft_app::SurfaceTarget>,
     pub uploaded_view_revision: u64,
@@ -113,6 +118,8 @@ impl UiState {
 
             #[cfg(not(target_arch = "wasm32"))]
             updater: subcraft_app::updater::Updater::new().ok(),
+            update_notice: false,
+            update_button: None,
             parts_kind: subcraft_core::PartKind::Connected,
             context_part: None,
             uploaded_view_revision: u64::MAX,

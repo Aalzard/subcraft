@@ -3,7 +3,7 @@
 What changed in SubCraft, newest first. Download the latest build from the
 [Releases page](https://github.com/Aalzard/subcraft/releases/latest).
 
-## Unreleased
+## 0.1.6
 
 ### Fixed
 - Importing a texture set with an ambient occlusion map adds an Ambient Occlusion channel to
@@ -21,6 +21,17 @@ What changed in SubCraft, newest first. Download the latest build from the
   available without changing the model's displayed colors.
 
 ### New
+- 3D View toolbar: render resolution (100 / 75 / 50 / 25 % for speed), anti-aliasing on/off,
+  orthographic camera, and a View mode that shows the full material or one channel (base
+  color, normal, roughness, metallic, height, AO) on the model. Remembered between launches.
+- Texture Sets → Resolution: change a texture set's working resolution (128 to 4096) at any
+  time, or apply it to every texture set. Painted strokes and masks are resampled; one undo
+  step brings the old ones back. Lower is faster to paint and fill.
+- Update notice: when SubCraft starts it checks GitHub for a newer release in the background;
+  if there is one, a small window points at the green Update button (Update now / Later).
+  Turn it off in Edit → Preferences → "Check for updates when SubCraft starts".
+- Blend mode and opacity are now on the right of every layer row (for the channel picked at
+  the top of the Layers panel) instead of in a separate block under the list.
 - Clear ArtCraft independence notice in the README, on the welcome screen and in the new
   Help → About SubCraft window: SubCraft is not officially developed by, affiliated with,
   or endorsed by ArtCraft.

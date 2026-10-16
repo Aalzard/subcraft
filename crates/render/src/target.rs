@@ -10,7 +10,11 @@ pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 pub struct RenderTarget {
     display_copy: Option<crate::display::DisplayCopy>,
     pub size: [u32; 2],
-    pub msaa_view: wgpu::TextureView,
+    /// Samples per pixel (1 = no anti-aliasing).
+    pub samples: u32,
+    /// Multisampled color, resolved into `output`; `None` when `samples` is 1 (draw into
+    /// `output_view` directly).
+    pub msaa_view: Option<wgpu::TextureView>,
     pub depth_view: wgpu::TextureView,
     /// Resolved image (copied out by `read_rgba8`).
     pub output: wgpu::Texture,
@@ -36,7 +40,7 @@ impl RenderTarget {
                 view_formats,
             })
         };
-        let msaa = make("viewport msaa", OUTPUT_FORMAT, samples, wgpu::TextureUsages::RENDER_ATTACHMENT, &[]);
+        let msaa = (samples > 1).then(|| make("viewport msaa", OUTPUT_FORMAT, samples, wgpu::TextureUsages::RENDER_ATTACHMENT, &[]));
         let depth = make("viewport depth", DEPTH_FORMAT, samples, wgpu::TextureUsages::RENDER_ATTACHMENT, &[]);
         let output = make(
             "viewport output",
@@ -47,7 +51,7 @@ impl RenderTarget {
         );
         let view = |t: &wgpu::Texture| t.create_view(&wgpu::TextureViewDescriptor::default());
         let (display_view, display_copy) = crate::display::view(device, &output, size);
-        Self { size, msaa_view: view(&msaa), depth_view: view(&depth), output_view: view(&output), display_view, output, display_copy }
+        Self { size, samples, msaa_view: msaa.as_ref().map(view), depth_view: view(&depth), output_view: view(&output), display_view, output, display_copy }
     }
 
     pub fn encode_display(&self, encoder: &mut wgpu::CommandEncoder) {

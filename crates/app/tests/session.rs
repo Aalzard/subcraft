@@ -345,3 +345,45 @@ fn saved_smart_material_thumbnail_uses_its_images() {
     let without = scene.composite(smart.build(scene.texture_set()));
     assert_ne!(without.channel(ChannelKind::BaseColor).unwrap().get(64, 64), base, "without its images it can't");
 }
+
+#[test]
+fn changing_texture_set_resolution_resamples_paint_in_one_undo_step() {
+    use subcraft_doc::{Layer, TextureSet};
+    use subcraft_image::TiledImage;
+    let mut s = Session::new(primitives::sample_crate(), 128);
+    let ts = s.selected_texture_set().id;
+    // A paint layer with a red square in the left half.
+    let mut layer = Layer::new_paint("Paint", &TextureSet::new("t", 0, 128));
+    let mut red = TiledImage::new(128, 128, 4, [0.0; 4]);
+    for y in 0..128 {
+        for x in 0..64 {
+            red.set(x, y, [1.0, 0.0, 0.0, 1.0]);
+        }
+    }
+    let LayerContent::Paint(p) = &mut layer.content else { panic!("paint layer") };
+    p.channels.insert(ChannelKind::BaseColor, red);
+    s.execute(Command::InsertLayer { layer: Box::new(layer), label: "paint".into() }).unwrap();
+    let before = s.document().clone();
+    let entries = s.history().entries().len();
+
+    s.execute(Command::SetResolution { texture_set: Some(ts), resolution: 512 }).unwrap();
+    assert_eq!(s.history().entries().len(), entries + 1);
+    assert_eq!(s.selected_texture_set().resolution, 512);
+    let LayerContent::Paint(p) = &s.selected_layer().unwrap().content else { panic!("paint layer") };
+    let img = &p.channels[&ChannelKind::BaseColor];
+    assert_eq!((img.width(), img.height()), (512, 512), "rasters follow the texture set");
+    assert!(img.get(64, 256)[3] > 0.99 && img.get(448, 256)[3] < 0.01, "the stroke stays in the left half");
+    s.update_composites();
+    assert_eq!(s.composite(ts).unwrap().resolution, 512, "composite rebuilt at the new size");
+
+    // Other texture sets keep theirs; "all" changes every set in one step.
+    let other = s.document().texture_sets.iter().find(|t| t.id != ts).map(|t| t.resolution);
+    assert_eq!(other, Some(128));
+    s.execute(Command::SetResolution { texture_set: None, resolution: 256 }).unwrap();
+    assert!(s.document().texture_sets.iter().all(|t| t.resolution == 256));
+
+    s.execute(Command::Undo).unwrap();
+    s.execute(Command::Undo).unwrap();
+    assert_eq!(s.document(), &before, "undo restores the exact rasters");
+    assert!(s.execute(Command::SetResolution { texture_set: Some(ts), resolution: 300 }).is_err(), "only supported sizes");
+}

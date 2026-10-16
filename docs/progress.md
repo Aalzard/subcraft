@@ -1015,6 +1015,68 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   the brush overlaps. Combined with sessions 41–46 on `handoff-ao-channel`; all workspace tests
   pass.
 
+### Session 48 — 3D View toolbar (2026-10-17)
+
+* Owner request: a row at the top of the 3D view with the view resolution, anti-aliasing,
+  orthographic and what the model shows. `viewport_bar.rs` (`ViewportPrefs`, saved inside
+  `Preferences`, so it persists with the other settings).
+* Resolution renders the viewport at 100/75/50/25 % of its pixels and stretches the image;
+  painting and picking keep full-size coordinates (same projection). Anti-aliasing switches
+  between 4x MSAA and a single-sample pipeline drawing straight into the output (whose store op
+  must then be Store, not Discard — the first version rendered blank). Orthographic:
+  `OrbitCamera` keeps `distance` as the view size and pulls the eye behind the scene so zooming
+  in never clips; the paint camera detects orthographic from the projection. View mode uses the
+  spare `env_misc.w` uniform: the shader returns the chosen channel unlit, data channels
+  pre-linearized so they display as stored (like the 2D view).
+* Tests: GPU render — unlit modes show stored values on every face (roughness 0.25 → gray 64,
+  metallic 1 → white, base color as authored, flat normal), Material equals the normal shaded
+  image, AA off differs only at edges; ortho camera keeps the on-screen size, keeps every
+  corner in the depth range when zoomed in, and paint/render matrices stay equal; render size
+  scaling; old preference files load with defaults.
+* Verified in the real app on Windows by the owner: all four controls work and persist.
+
+### Session 49 — texture-set resolution switch (2026-10-17)
+
+* Performance request: texture sets were fixed at their creation resolution (1024 by default).
+  Texture Sets → Resolution picks any of `RESOLUTIONS` for the selected set, or **Apply to
+  all**. `TextureSet::set_resolution` resamples every painted raster (paint channels, mask base
+  and paint effects, inside folders) bilinearly; fill layers are evaluated at the new size.
+  `Command::SetResolution { texture_set: Option<_>, .. }` is one undo step (also for all sets).
+  The composite cache, tile geometry and GPU textures rebuild on the size change; baked mesh
+  maps at another size are point-sampled as before.
+* Test: a painted half-red layer at 128 → 512 keeps its stroke in the left half, the composite
+  is 512, other sets keep theirs, "all" changes every set, two undos restore the document
+  exactly, unsupported sizes are rejected.
+* Not yet verified in the real app.
+
+### Session 50 — blend mode in the layer row (2026-10-17)
+
+* Owner request: change a layer's blend mode (Normal → Overlay…) on the right of its row, not
+  in the separate Blend / Opacity block under the list. Each row now has a compact blend menu
+  (short label, full names in the menu, tall enough to show most modes) and a draggable opacity
+  number for the active channel; the pinned block is gone, giving the list its space back.
+* Test (`ui/tests/layer_tree.rs`, real egui pointer events): picking Multiply in the Middle
+  row's menu changes only that layer; dragging the Bottom row's opacity number lowers it
+  without reordering layers. Existing drag-to-reorder tests still pass.
+* Not yet verified in the real app.
+
+### Session 51 — startup update notice (2026-10-17)
+
+* Owner request: when anyone opens SubCraft and a new version exists, a window should point at
+  the update button. Before, releases were only checked with `--check-updates` or the button.
+* Startup now runs the existing background check (`Updater::check`) when
+  `Preferences::check_updates_on_start` is on (default; Edit → Preferences), except for
+  screenshot runs and the restart after an update. The automatic check keeps the updates
+  window closed; `updates::startup_notice` waits while checking, stays silent when current,
+  offline or already updating, and shows a callout under the green button (arrow pointing at
+  it) for an available or downloaded release: **Update now** runs the normal update, **Later**
+  hides it until the next start.
+* Test: the notice logic for every updater phase. The callout window itself is drawn with
+  egui; it is first visible against a real newer release (needs a build older than the
+  latest GitHub release).
+* Found while checking lints: earlier clippy filters used `/` paths and missed Windows `\`
+  output; re-checked, all remaining clippy warnings predate this work.
+
 ## Next steps (in order)
 
 Current priorities requested by the owner:

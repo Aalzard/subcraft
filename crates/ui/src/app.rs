@@ -265,7 +265,6 @@ impl SubcraftApp {
                 state.set_status(result.clone(), 0.0);
                 if result.starts_with("Update failed") && let Some(updater) = &mut state.updater { updater.open = true; updater.phase = subcraft_app::updater::Phase::Error(result); }
             }
-            if options.check_updates && let Some(updater) = &mut state.updater { updater.check(); }
         }
         crate::bug_report::record_gpu(cc.wgpu_render_state.as_ref());
         state.bug_report = crate::bug_report::BugReportUi::load();
@@ -275,6 +274,18 @@ impl SubcraftApp {
         let prefs = cc.storage.and_then(|s| s.get_string(crate::recovery::PREFS_KEY)).and_then(|j| serde_json::from_str(&j).ok()).unwrap_or_default();
         state.recovery = crate::recovery::RecoveryUi::start(&state.session, prefs, options.autosave_interval);
         state.recovery.show_prefs = options.preferences;
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            // Background release check; a newer version gets a callout at the update button.
+            // Not for scripted screenshots or right after an update restart.
+            let automatic = state.recovery.prefs.check_updates_on_start && options.screenshot.is_none() && options.resume_update.is_none();
+            if (options.check_updates || automatic) && let Some(updater) = &mut state.updater {
+                updater.check();
+                // The automatic check is silent: no window, only the callout if there's an update.
+                updater.open = options.check_updates;
+                state.update_notice = true;
+            }
+        }
         #[cfg(not(target_arch = "wasm32"))]
         {
             state.welcome.recent = cc.storage.and_then(|s| s.get_string(crate::welcome::RECENTS_KEY))
