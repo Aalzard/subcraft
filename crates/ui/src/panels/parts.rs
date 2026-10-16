@@ -56,10 +56,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             for part in parts {
                 let key = part.key();
                 let visible = state.session.part_visible(key);
-                let resp = ui.selectable_label(state.hovered_part == Some(key), RichText::new(&part.name).color(if visible { theme::TEXT } else { theme::TEXT_FAINT }));
+                let resp = ui.add(egui::Label::new(RichText::new(&part.name).color(if visible { theme::TEXT } else { theme::TEXT_FAINT })).sense(egui::Sense::click()));
                 let materials: Vec<_> = part.materials.iter().map(|&m| format!("{} ({m})", state.session.scene().mesh.materials[m as usize].name)).collect();
                 resp.clone().on_hover_text(format!("{} triangles · {}", part.triangles, materials.join(", ")));
-                if resp.hovered() { state.hovered_part = Some(key); }
                 resp.context_menu(|ui| {
                     if let Some(target) = state.session.target_for_part(key) && let Some(action) = menu(ui, target, state.session.selection().layer.is_some() && state.session.selection().texture_set == target.texture_set) { request = Some((target, action)); }
                 });
