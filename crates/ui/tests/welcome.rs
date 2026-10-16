@@ -135,5 +135,5 @@ fn whats_new_shows_the_shipping_version_and_current_features() {
     let mut state=UiState::new(Session::sample(),None);let ctx=egui::Context::default();subcraft_ui::theme::apply(&ctx);state.welcome.open=true;
     click(&mut state,&ctx,"What's new");for _ in 0..3 {frame(&mut state,&ctx,vec![]);}
     let (output,_)=frame(&mut state,&ctx,vec![]);let labels:Vec<_>=output.shapes.iter().filter_map(|s|if let egui::Shape::Text(t)=&s.shape {Some(t.galley.text())}else{None}).collect();
-    assert!(labels.contains(&format!("SubCraft {}",env!("CARGO_PKG_VERSION")).as_str()));assert!(labels.iter().any(|t|t.contains("30 normal maps")));assert!(labels.iter().any(|t|t.contains("Bézier")));assert!(labels.iter().any(|t|t.contains("one ZIP")));
+    assert!(labels.contains(&format!("SubCraft {}",env!("CARGO_PKG_VERSION")).as_str()));assert!(labels.iter().any(|t|t.contains("one material")));assert!(labels.iter().any(|t|t.contains("3D View toolbar")));assert!(labels.iter().any(|t|t.contains("new update")));
 }
