@@ -93,6 +93,18 @@ impl TextureSet {
         self.channels.iter().any(|c| c.kind == kind)
     }
 
+    /// Change the working resolution, resampling every painted raster (paint channels, masks)
+    /// so strokes stay where they were. Fill layers are evaluated at the new size anyway.
+    pub fn set_resolution(&mut self, resolution: u32) {
+        if resolution == self.resolution {
+            return;
+        }
+        self.resolution = resolution;
+        for layer in &mut self.layers {
+            Arc::make_mut(layer).map_rasters(&|img| img.resampled(resolution, resolution));
+        }
+    }
+
     pub fn channel_kinds(&self) -> impl Iterator<Item = ChannelKind> + '_ {
         self.channels.iter().map(|c| c.kind)
     }

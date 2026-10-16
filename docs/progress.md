@@ -1035,6 +1035,20 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   scaling; old preference files load with defaults.
 * Verified in the real app on Windows by the owner: all four controls work and persist.
 
+### Session 49 — texture-set resolution switch (2026-10-17)
+
+* Performance request: texture sets were fixed at their creation resolution (1024 by default).
+  Texture Sets → Resolution picks any of `RESOLUTIONS` for the selected set, or **Apply to
+  all**. `TextureSet::set_resolution` resamples every painted raster (paint channels, mask base
+  and paint effects, inside folders) bilinearly; fill layers are evaluated at the new size.
+  `Command::SetResolution { texture_set: Option<_>, .. }` is one undo step (also for all sets).
+  The composite cache, tile geometry and GPU textures rebuild on the size change; baked mesh
+  maps at another size are point-sampled as before.
+* Test: a painted half-red layer at 128 → 512 keeps its stroke in the left half, the composite
+  is 512, other sets keep theirs, "all" changes every set, two undos restore the document
+  exactly, unsupported sizes are rejected.
+* Not yet verified in the real app.
+
 ## Next steps (in order)
 
 Current priorities requested by the owner:

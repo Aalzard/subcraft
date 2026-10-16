@@ -24,6 +24,9 @@ What changed in SubCraft, newest first. Download the latest build from the
 - 3D View toolbar: render resolution (100 / 75 / 50 / 25 % for speed), anti-aliasing on/off,
   orthographic camera, and a View mode that shows the full material or one channel (base
   color, normal, roughness, metallic, height, AO) on the model. Remembered between launches.
+- Texture Sets → Resolution: change a texture set's working resolution (128 to 4096) at any
+  time, or apply it to every texture set. Painted strokes and masks are resampled; one undo
+  step brings the old ones back. Lower is faster to paint and fill.
 - Clear ArtCraft independence notice in the README, on the welcome screen and in the new
   Help → About SubCraft window: SubCraft is not officially developed by, affiliated with,
   or endorsed by ArtCraft.

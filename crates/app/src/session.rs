@@ -494,6 +494,22 @@ impl Session {
                 self.selection.layer = Some(id);
                 self.commit(&label, None);
             }
+            Command::SetResolution { texture_set, resolution } => {
+                if !subcraft_doc::RESOLUTIONS.contains(&resolution) {
+                    return Err(CommandError::Invalid(format!("unsupported resolution {resolution}")));
+                }
+                if texture_set.is_some_and(|id| self.doc.texture_set(id).is_none()) {
+                    return Err(CommandError::TextureSetNotFound);
+                }
+                let mut changed = false;
+                for ts in self.doc.texture_sets.iter_mut().filter(|ts| texture_set.is_none_or(|id| ts.id == id)) {
+                    changed |= ts.resolution != resolution;
+                    ts.set_resolution(resolution);
+                }
+                if changed {
+                    self.commit(&format!("Resolution {resolution}"), None);
+                }
+            }
             Command::InsertLayerWithChannels { layer, channels, label } => {
                 let ts = self.doc.texture_set_mut(self.selection.texture_set).ok_or(CommandError::TextureSetNotFound)?;
                 for kind in channels {

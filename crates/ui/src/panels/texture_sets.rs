@@ -33,6 +33,32 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         divider(ui);
         egui::Frame::new().inner_margin(egui::Margin::symmetric(PAD, 10)).show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 8.0;
+            ui.label(caption("Resolution"));
+            let current = state.session.selected_texture_set().resolution;
+            let mut picked = current;
+            ui.horizontal(|ui| {
+                egui::ComboBox::from_id_salt("texture_set_resolution")
+                    .selected_text(format!("{current} × {current}"))
+                    .show_ui(ui, |ui| {
+                        for r in subcraft_doc::RESOLUTIONS {
+                            ui.selectable_value(&mut picked, r, format!("{r} × {r}"));
+                        }
+                    })
+                    .response
+                    .on_hover_text("Working resolution of this texture set. Painted strokes are resampled; Ctrl+Z restores them.");
+                let all_same = state.session.document().texture_sets.iter().all(|ts| ts.resolution == current);
+                if ui.add_enabled(!all_same, egui::Button::new("Apply to all")).on_hover_text("Use this resolution for every texture set").clicked() {
+                    cmds.push(Command::SetResolution { texture_set: None, resolution: current });
+                }
+            });
+            if picked != current {
+                cmds.push(Command::SetResolution { texture_set: Some(sel), resolution: picked });
+            }
+            ui.label(RichText::new("Lower is faster to paint and fill. Raise it before exporting for sharper maps.").small().color(TEXT_FAINT));
+        });
+        divider(ui);
+        egui::Frame::new().inner_margin(egui::Margin::symmetric(PAD, 10)).show(ui, |ui| {
+            ui.spacing_mut().item_spacing.y = 8.0;
             ui.label(caption("Mesh maps"));
             let baked = state.session.mesh_maps(sel).map_or(0, |m| m.len());
             ui.horizontal(|ui| {

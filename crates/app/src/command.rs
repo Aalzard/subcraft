@@ -20,6 +20,9 @@ pub enum Command {
     /// End a continuous edit (slider drag): the next change starts a new history entry.
     Seal,
     SelectTextureSet(TextureSetId),
+    /// Change a texture set's working resolution (one of `subcraft_doc::RESOLUTIONS`),
+    /// resampling its painted rasters; `None` changes every texture set. One undo step.
+    SetResolution { texture_set: Option<TextureSetId>, resolution: u32 },
     SelectLayer(Option<LayerId>),
     /// Insert above the selected layer (or at the top) of the selected texture set and select it.
     AddLayer(NewLayer),
