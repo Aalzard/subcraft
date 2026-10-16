@@ -69,7 +69,8 @@ const THUMB: u32 = 96;
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum SceneKind {
     Sphere,
-    Cube,
+    /// Sphere with baked mesh maps (smart materials and masks).
+    BakedSphere,
 }
 
 pub struct ShelfUi {
@@ -78,7 +79,7 @@ pub struct ShelfUi {
     filter_tab: ShelfTab,
     thumbs: HashMap<AssetId, egui::TextureHandle>,
     sphere: Option<PreviewScene>,
-    cube: Option<PreviewScene>,
+    baked_sphere: Option<PreviewScene>,
     renderer: Option<(ViewportRenderer, Option<SceneKind>)>,
     /// Thumbnail whose pixels are on their way back from the GPU.
     pending: Option<(AssetId, subcraft_render::PendingReadback)>,
@@ -92,7 +93,7 @@ impl Default for ShelfUi {
             filter_tab: ShelfTab::SmartMaterials,
             thumbs: HashMap::new(),
             sphere: None,
-            cube: None,
+            baked_sphere: None,
             renderer: None,
             pending: None,
         }
@@ -551,7 +552,8 @@ fn generate_one_thumbnail(state: &mut UiState, ctx: &egui::Context) {
     let missing = |id: &AssetId| !state.shelf.thumbs.contains_key(id);
     enum Job {
         Alpha(usize),
-        Layer(AssetId, SceneKind, Box<dyn Fn(&subcraft_doc::TextureSet) -> Layer>),
+        /// The layer builder and the images the layer uses.
+        Layer(AssetId, SceneKind, Box<dyn Fn(&subcraft_doc::TextureSet) -> Layer>, Vec<std::sync::Arc<subcraft_doc::Resource>>),
         Environment(usize),
     }
     let job = match state.shelf.tab {
@@ -560,15 +562,16 @@ fn generate_one_thumbnail(state: &mut UiState, ctx: &egui::Context) {
         ShelfTab::Brushes => lib.alphas.iter().position(|a| missing(&a.id)).map(Job::Alpha),
         ShelfTab::Materials => lib.materials.iter().find(|m| missing(&m.id)).map(|m| {
             let m = m.clone();
-            Job::Layer(m.id, SceneKind::Sphere, Box::new(move |ts| m.build(ts)))
+            Job::Layer(m.id, SceneKind::Sphere, Box::new(move |ts| m.build(ts)), Vec::new())
         }),
         ShelfTab::SmartMaterials => lib.smart_materials.iter().find(|m| missing(&m.id)).map(|m| {
             let m = m.clone();
-            Job::Layer(m.id, SceneKind::Cube, Box::new(move |ts| m.build(ts)))
+            let images = m.resources().to_vec();
+            Job::Layer(m.id, SceneKind::BakedSphere, Box::new(move |ts| m.build(ts)), images)
         }),
         ShelfTab::SmartMasks => lib.smart_masks.iter().find(|m| missing(&m.id)).map(|m| {
             let m = m.clone();
-            Job::Layer(m.id, SceneKind::Cube, Box::new(move |ts| mask_preview_layer(ts, &m.effects)))
+            Job::Layer(m.id, SceneKind::BakedSphere, Box::new(move |ts| mask_preview_layer(ts, &m.effects)), Vec::new())
         }),
         ShelfTab::Environments => lib.environments.iter().position(|e| missing(&e.id)).map(Job::Environment),
     };
@@ -587,17 +590,17 @@ fn generate_one_thumbnail(state: &mut UiState, ctx: &egui::Context) {
         return;
     }
     let Some(rs) = state.render_state.clone() else { return };
-    let (id, kind, layer_fn, env_index) = match job {
-        Job::Layer(id, k, f) => (id, k, Some(f), None),
-        Job::Environment(i) => (state.library.environments[i].id, SceneKind::Sphere, None, Some(i)),
+    let (id, kind, layer_fn, images, env_index) = match job {
+        Job::Layer(id, k, f, images) => (id, k, Some(f), images, None),
+        Job::Environment(i) => (state.library.environments[i].id, SceneKind::Sphere, None, Vec::new(), Some(i)),
         Job::Alpha(_) => unreachable!(),
     };
     let scene = match kind {
         SceneKind::Sphere => state.shelf.sphere.get_or_insert_with(PreviewScene::sphere),
-        SceneKind::Cube => state.shelf.cube.get_or_insert_with(PreviewScene::cube),
+        SceneKind::BakedSphere => state.shelf.baked_sphere.get_or_insert_with(PreviewScene::baked_sphere),
     };
     let composite = match &layer_fn {
-        Some(f) => scene.composite(f(scene.texture_set())),
+        Some(f) => scene.composite_with(f(scene.texture_set()), &images),
         None => {
             // Environment preview: a glossy metal sphere.
             let ts = scene.texture_set();
@@ -622,10 +625,7 @@ fn generate_one_thumbnail(state: &mut UiState, ctx: &egui::Context) {
             renderer.upload_channel(&rs.device, &rs.queue, 0, k, img, None);
         }
     }
-    let eye = match kind {
-        SceneKind::Sphere => Vec3::new(0.0, 0.3, 3.4),
-        SceneKind::Cube => Vec3::new(2.2, 1.9, 2.6),
-    };
+    let eye = Vec3::new(0.0, 0.3, 3.4);
     let view = Mat4::look_at_rh(eye, Vec3::ZERO, Vec3::Y);
     let mut params = ViewParams::new(view, Mat4::perspective_rh(38f32.to_radians(), 1.0, 0.1, 50.0));
     params.background = [0.035, 0.036, 0.04];

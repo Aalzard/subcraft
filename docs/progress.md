@@ -988,6 +988,19 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
 * Verified in the real app on Windows: importing MaterialCraft's six exported maps gave one
   layer with every channel filled, AO included.
 
+### Session 46 — smart material thumbnails (2026-10-16)
+
+* A smart material saved from an imported texture ("Bricks") showed as a white cube: the
+  preview scene had an empty resource store, so its image fills sampled nothing.
+  `PreviewScene::composite_with` takes the smart material's images.
+* Owner request: smart materials and smart masks preview on a sphere
+  (`PreviewScene::baked_sphere`, still with baked curvature + AO for generators). Edge-wear
+  materials show less wear than on the old cube, since a sphere has no sharp edges.
+* Test: a saved smart material with an image base color composites that color in the preview,
+  and doesn't without its images.
+* Verified in the real app on Windows: the saved Bricks smart material shows its bricks on a
+  sphere.
+
 ## Next steps (in order)
 
 Current priorities requested by the owner:

@@ -1,13 +1,14 @@
 //! Offscreen preview scenes for shelf thumbnails: a material / smart material composited on a
-//! small mesh (a sphere for materials, a baked cube for smart materials so edge wear and cavity
-//! dirt show up). Pure CPU; the UI renders the returned composite.
+//! small mesh (a sphere for materials; a sphere with baked curvature + AO for smart materials and
+//! masks, so their generators have mesh maps to read). Pure CPU; the UI renders the returned
+//! composite.
 
 use std::sync::Arc;
 
 use subcraft_bake::{BakeInput, BakeSettings, Geometry, Progress, bake};
 use subcraft_compositor::{Composite, EvalContext, composite_full};
 use subcraft_core::MeshMapKind;
-use subcraft_doc::{Layer, ResourceStore, TextureSet};
+use subcraft_doc::{Layer, Resource, ResourceStore, TextureSet};
 use subcraft_materials::{MeshMaps, TextureSetGeometry};
 use subcraft_mesh::{Bvh, Mesh, primitives};
 
@@ -52,7 +53,12 @@ impl PreviewScene {
         Self::new(primitives::uv_sphere(1.0, 48, 24), false)
     }
 
-    /// A cube with baked curvature + AO (smart materials and masks).
+    /// A sphere with baked curvature + AO (smart materials and masks).
+    pub fn baked_sphere() -> Self {
+        Self::new(primitives::uv_sphere(1.0, 48, 24), true)
+    }
+
+    /// A cube with baked curvature + AO (edges for wear generators).
     pub fn cube() -> Self {
         Self::new(primitives::cube(1.6), true)
     }
@@ -64,9 +70,19 @@ impl PreviewScene {
 
     /// Composite of `layer` alone on this scene.
     pub fn composite(&self, layer: Layer) -> Composite {
+        self.composite_with(layer, &[])
+    }
+
+    /// Composite of `layer` with the images it uses (a saved smart material's textures; without
+    /// them its image fills would sample nothing).
+    pub fn composite_with(&self, layer: Layer, images: &[Arc<Resource>]) -> Composite {
         let mut ts = self.template.clone();
         ts.insert_above(None, layer);
-        let ctx = EvalContext { geometry: &self.geometry, resources: &self.resources, mesh_maps: &self.maps };
+        let mut resources = self.resources.clone();
+        for r in images {
+            resources.insert_shared(r.clone());
+        }
+        let ctx = EvalContext { geometry: &self.geometry, resources: &resources, mesh_maps: &self.maps };
         composite_full(&ts, &ctx)
     }
 }

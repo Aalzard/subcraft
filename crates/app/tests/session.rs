@@ -317,3 +317,31 @@ fn thumbnail_scenes_composite_presets() {
     let painted = metal.iter().filter(|&&m| m < 0.1).count();
     assert!(bare > 100 && painted > bare, "edges show bare steel ({bare}), faces are painted ({painted})");
 }
+
+#[test]
+fn saved_smart_material_thumbnail_uses_its_images() {
+    use std::sync::Arc;
+    use subcraft_app::assets::smart::SmartMaterial;
+    use subcraft_app::thumbnails::PreviewScene;
+    use subcraft_doc::{Layer, Resource, ResourceKind};
+    let red = subcraft_image::Bitmap::new_f32(4, 4, 3, [0.8f32, 0.1, 0.1].repeat(16));
+    let image = Arc::new(Resource {
+        id: subcraft_core::ResourceId::new(),
+        name: "red.png".into(),
+        kind: ResourceKind::Texture,
+        bitmap: Arc::new(red),
+        source_path: None,
+        encoded: None,
+    });
+    let scene = PreviewScene::baked_sphere();
+    let mut layer = Layer::new_fill("Bricks", scene.texture_set());
+    let LayerContent::Fill(f) = &mut layer.content else { panic!("fill layer") };
+    f.channels.insert(ChannelKind::BaseColor, FillChannel::new(FillSource::Bitmap { resource: image.id }));
+    let smart = SmartMaterial::saved("Bricks".into(), layer, 128, vec![image], None);
+
+    let with = scene.composite_with(smart.build(scene.texture_set()), smart.resources());
+    let base = with.channel(ChannelKind::BaseColor).unwrap().get(64, 64);
+    assert!(base[0] > 0.4 && base[1] < 0.2, "the saved image shows: {base:?}");
+    let without = scene.composite(smart.build(scene.texture_set()));
+    assert_ne!(without.channel(ChannelKind::BaseColor).unwrap().get(64, 64), base, "without its images it can't");
+}
