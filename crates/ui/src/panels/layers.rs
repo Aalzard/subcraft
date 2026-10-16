@@ -11,7 +11,7 @@ use subcraft_doc::{BlendMode, Layer, LayerKind};
 use crate::icons;
 use crate::state::UiState;
 use crate::theme::{self, ACCENT, PAD, TEXT_DIM, TEXT_FAINT};
-use crate::widgets::{badge, divider, empty_state, fill_width, icon_button, list_row_sense, prop_row, row_text, slider_row};
+use crate::widgets::{badge, divider, empty_state, fill_width, icon_button, list_row_sense, prop_row, row_text};
 
 // Folder drop zones and inline rename adapted from CalangoTech's Studio fork (bd6c064).
 #[derive(Clone, Copy)]
