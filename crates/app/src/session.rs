@@ -8,7 +8,7 @@ use std::sync::Arc;
 use glam::{Vec2, Vec3};
 use subcraft_compositor::{Composite, CompositeCache, EvalContext};
 use subcraft_core::{ChannelKind, LayerId, TextureSetId};
-use subcraft_doc::{Document, History, Layer, LayerContent, LayerLocation, Mask, MaskEffect, ResourceStore, TextureSet};
+use subcraft_doc::{ChannelDef, Document, History, Layer, LayerContent, LayerLocation, Mask, MaskEffect, ResourceStore, TextureSet};
 use subcraft_materials::{GeometryCache, MeshMaps};
 use subcraft_mesh::{Bvh, Mesh, import_mesh, primitives};
 use subcraft_paint::{
@@ -493,6 +493,16 @@ impl Session {
                 let id = ts.insert_above(reference, layer);
                 self.selection.layer = Some(id);
                 self.commit(&label, None);
+            }
+            Command::InsertLayerWithChannels { layer, channels, label } => {
+                let ts = self.doc.texture_set_mut(self.selection.texture_set).ok_or(CommandError::TextureSetNotFound)?;
+                for kind in channels {
+                    if !ts.has_channel(kind) {
+                        ts.channels.push(ChannelDef::default_for(kind));
+                    }
+                }
+                // InsertLayer commits the document including the new channels: one history entry.
+                return self.execute(Command::InsertLayer { layer, label });
             }
             Command::ApplyMaskEffects { layer, effects, label } => {
                 self.edit_layer_set(layer, &label, None, |ts| {

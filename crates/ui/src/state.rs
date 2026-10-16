@@ -75,6 +75,9 @@ pub struct UiState {
     pub env: crate::panels::shelf::EnvUi,
     /// Mesh maps last uploaded to the GPU (to re-upload only when a bake replaced them).
     pub uploaded_maps: HashMap<(subcraft_core::TextureSetId, subcraft_core::MeshMapKind), subcraft_image::TiledImage>,
+    /// Channel lists of the texture sets last uploaded. A change (an import adding Ambient
+    /// Occlusion, or undoing it) re-uploads everything so no removed channel stays on the GPU.
+    pub uploaded_channels: Vec<(subcraft_core::TextureSetId, Vec<ChannelKind>)>,
     /// Thumbnails of imported images (resources are immutable, so entries never go stale).
     pub image_thumbs: HashMap<subcraft_core::ResourceId, egui::TextureHandle>,
     /// The user's asset library folder (None if no Documents folder could be found).
@@ -144,6 +147,7 @@ impl UiState {
             shelf: Default::default(),
             env: Default::default(),
             uploaded_maps: HashMap::new(),
+            uploaded_channels: Vec::new(),
             image_thumbs: HashMap::new(),
             user_library: None,
             env_loader: None,
@@ -268,10 +272,13 @@ impl UiState {
             return;
         };
         let view_changed = self.uploaded_view_revision != self.session.view_revision();
-        let full = self.gpu_dirty || view_changed;
+        let channels: Vec<_> = self.session.document().texture_sets.iter().map(|ts| (ts.id, ts.channel_kinds().collect())).collect();
+        let channels_changed = self.uploaded_channels != channels;
+        let full = self.gpu_dirty || view_changed || channels_changed;
         if full {
             renderer.set_mesh(&rs.device, &self.session.viewport_scene().mesh);
             self.uploaded_view_revision = self.session.view_revision();
+            self.uploaded_channels = channels;
             self.gpu_dirty = false;
         }
         let updates = self.session.update_composites();

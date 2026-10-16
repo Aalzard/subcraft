@@ -961,6 +961,22 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   Model RGB was exactly identical before/after hovering: 229,710 channels compared, zero
   differences, with no browser runtime errors. This branch builds on #45 for combined testing.
 
+### Session 44 — imported AO maps add an AO channel (2026-10-16)
+
+* Found while testing MaterialCraft → SubCraft hand-off: the default texture set has no Ambient
+  Occlusion channel, so Import texture set skipped `ambient_occlusion.png` and Unreal / Unity
+  exports filled AO with 1.0. AO is still not in the default template (baked AO keeps shading
+  sets without their own AO); instead an import with an AO map adds the channel.
+* `Command::InsertLayerWithChannels` adds channels and the layer in one undo step; the layer is
+  built for the channel list after the import, so it has a blend for the new channel. The UI
+  re-uploads all GPU textures when a texture set's channel list changes, so undoing the import
+  doesn't leave the texture's AO on the GPU.
+* Tests: import adds AO (one history entry), composite AO 0.4 from the map, Unreal ORM red and
+  Unity mask-map green carry the texture's AO instead of the baked 0.9, project save keeps the
+  channel, undo removes it and exports use baked AO again.
+* Verified in the real app on Windows: dragging the AO texture onto the model adds the
+  Ambient Occlusion channel row.
+
 ## Next steps (in order)
 
 Current priorities requested by the owner:
