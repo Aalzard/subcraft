@@ -9,6 +9,14 @@ while working, use Back/Next, or close it and reopen it later.
 
 <img src="screenshots/welcome.png" alt="Welcome screen with model/project actions, desktop recent files and startup preference" width="760">
 
+Open **File → Preferences…** (also available from Edit). **UI size** is the first setting:
+drag its slider or type a percentage to scale text, icons and controls together, from **75% to
+150%**. The default is a slightly smaller **95%**; **Reset** restores it. Changes apply live
+and are saved between runs. This is independent of the 3D view's render Resolution setting.
+Preferences scrolls when a large UI or small window needs more room.
+
+![UI size is the first preference](screenshots/ui-size-preferences.png)
+
 ## 1. Open a model
 
 Choose **New from a model…** on the welcome screen or **File → New from mesh…**. Desktop accepts
@@ -55,24 +63,62 @@ Right-drag orbits, the wheel zooms, and **Home** resets the camera.
 
 ### Paint a normal map or material onto a paint layer
 
-The essential brush settings are now **above the 3D View**, beside Resolution, **AA**
-(anti-aliasing), **Ortho** (orthographic) and the material/channel display. A thin divider
-separates the brush controls. Use the short **Size** and **Hardness** sliders, or drag their
-number fields. **Flow** and **Opacity** are compact percentage boxes: drag left/right to adjust,
-or double-click to type a value. Size is a percentage of the model's diagonal; the other three
-show 0–100%. The **Brush** menu switches between Brush, Eraser and Fill.
+The essential brush settings are **above the 3D View**, beside Resolution, **Anti-aliasing**,
+**Ortho** (orthographic) and the material/channel display. A thin divider separates the brush
+controls. Click the small **brush**, **eraser** or **paint bucket** icon to select a tool;
+the active icon is orange, matching the left tool rail.
 
-In narrower docks the brush controls move to a second top row, then switch to number fields.
-In tiny docks, open the **Brush/Eraser/Fill** menu for all four settings; **View** holds the
+**Size** has a plain orange number: drag it left/right to adjust, or click to type and press
+Enter. **Opacity** works the same way with a neutral percentage. Hold **Shift** during a
+number drag for finer control. Size is a percentage of the model's diagonal; the other three
+settings show 0–100%. **Flow** has a thin amount indicator: click its label/value to open a
+slider. **Hardness** has a small dot indicator and opens its own slider. Both popovers also
+allow numeric entry; click outside or press **Esc** to close. Flow is paint per stamp, while
+Opacity caps the complete stroke. Fill uses Opacity and disables brush-specific settings.
+
+In narrower docks the brush controls move to a second top row. In tiny docks, open the
+**sliders icon** beside the tool icons for all four settings; **View** holds the
 viewport options. Advanced settings, channel images and presets remain in the Brush panel.
 Changes from the bar, existing size shortcuts and presets use the same brush state.
+The default layout gives more width to the 3D canvas; your saved dock arrangement is preserved.
+Use **View → Reset layout** to adopt the wider default, or drag the dock dividers to suit your screen.
 
-![Compact brush controls beside the viewport settings](screenshots/brush-top-bar-wide.jpg)
+![Final compact toolbar, subtle grid, calmer panels and 95% UI](screenshots/ui-refinement-final.png)
 
-![A narrower viewport uses a second row without crowding](screenshots/brush-top-bar-wrapped.png)
+![Flow slider opened from the toolbar](screenshots/brush-toolbar-flow.jpg)
+
+Parts, History and Layers now use subtle alternating row shading and more vertical space.
+The current history step and selected layer keep their orange highlight. Hidden Parts use a
+crossed-eye icon; right-click any part row for the existing actions. Brush and Properties use
+banded section headers with icons: click a header/caret to expand it. The property rows inside
+also alternate gently. Existing controls, context menus and shortcuts behave the same way.
+
+![Subtle bands in Parts, History, Layers and Properties](screenshots/panel-row-bands.png)
+
+Click the **grid icon** beside the material/view controls to show or hide the subtle 3D floor
+and direction guides. **Right-click** that icon for axis settings: **X is red**, **Y is green
+and points up**, **Z is blue**. Y starts hidden. These display preferences are saved between runs.
+The floor sits just below the model, follows world-axis directions, fades into the distance,
+and stays behind the model. It does not affect painting, picking or exported textures.
+
+![Subtle floor grid and red/blue axis guides](screenshots/viewport-grid.png)
+
+Click the **mirror icon** beside Brush/Eraser/Fill in the 3D toolbar for **Symmetry & Lazy Mouse**.
+Toggle **X**, **Y** and **Z** independently; combinations mirror across several planes through
+the model center. The small **Lazy Mouse** slider controls how far the brush trails the cursor
+(0–100px; **0 is off**). The icon turns orange when any mirror or Lazy Mouse is active.
+The popover stays open while adjusting; click outside or press Esc to close. Existing **X**
+still toggles mirror X. These settings are included in brush presets and add no undo step.
+The old sidebar Stroke controls and left-rail symmetry shortcut button have moved here.
+
+![Symmetry icon in the 3D toolbar with a cleaner side panel](screenshots/brush-symmetry-toolbar.png)
+
+Material actions use calmer gray text and almost-square 2px corners. Each brush channel's
+**Image…** action chooses a texture; existing images still offer Replace/Clear. **Paint whole
+material…** sits below the Material header with its own spacing.
 
 Select an ordinary **paint layer**, choose **Brush (B)**, and set **Paint on → Layer** in the
-Brush panel. In **Material**, use the channel's **Choose image…** (or **Replace…**) button.
+Brush panel. In **Material**, use the channel's **Image…** (or **Replace…**) button.
 For a normal-only stroke, uncheck the other channels. **Clear image** restores that channel's
 flat value; its enable checkbox still decides whether it paints. Normal maps use OpenGL (+Y);
 files named `normalDX` / `normal_dx` are converted automatically when assigned to Normal.

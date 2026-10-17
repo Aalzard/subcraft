@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-10-18 (session 54: compact viewport brush controls)
+Last updated: 2026-10-18 (session 60: saved UI size; all requested UI refinements complete)
 
 ## Decisions
 
@@ -1178,14 +1178,183 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   `target/release/subcraft.exe` was built for this UI check. No push or release publication.
   Implementation commit: `92ed2f6`; ADR-0012 records the shared-state/layout decisions.
 
+### Session 55 — icon toolbar, unboxed numbers and slider popovers (2026-10-18)
+
+* Owner-requested refinement of session 54's top bar. `ui::brush_bar` reuses the three left-rail
+  Phosphor icons at 26px for direct Brush/Eraser/Fill selection. Size is an accent-colored,
+  unboxed draggable number; Opacity is a neutral unboxed percentage. Click to type, Shift-drag
+  for precision. Flow has a thin amount indicator and click-to-open slider; Hardness has a dot
+  indicator and its own slider. Popovers retain stable IDs across value changes and close on
+  outside click/Escape. Fill disables brush-only controls in the bar and tiny settings popup.
+* `ui::viewport_bar` restores the full **Anti-aliasing** label, retains the subtle group divider
+  and responsive wrapping/menus. `ui::app::default_layout` gives the center more width (78%
+  before the right panel, 84% after the left); existing saved layouts remain intact. The side
+  Brush panel hint explains the new interactions. No new paint/app/document/preset fields,
+  schema version, raster behavior, or undo entries; controls still dispatch SetBrushSettings.
+* Three new egui tests (six toolbar tests total): direct icon selection/shared tool state and
+  disabled Fill flow; genuinely unboxed Size geometry plus pointer scrubbing; independent
+  Flow/Hardness slider input and popover lifetime. Existing tests now cover twelve dock
+  widths (200–1280px), full Anti-aliasing text, maximum values, tiny settings popup and opacity
+  scrubbing. **359 workspace tests passed, 0 failed, 0 ignored**; `cargo clippy --workspace
+  --all-targets` exits 0 with existing warnings. An initial concurrent-build run hit the existing
+  async shelf-image test's bounded polling timeout; the complete rerun passed. No tests skipped
+  or weakened. Existing numeric paint acceptance remains green; no texels are changed here.
+* Native Windows / RTX 4060 D3D12 checks on the imported OBJ fixture: compact inline strip at
+  1600px and a wide window, complete Anti-aliasing text, icon switching matching the left rail,
+  Fill's disabled settings, Flow slider → 37%, Hardness slider → 73%, Size click/type → 12%.
+  Popovers remain open while adjusting and switch independently. Screenshots:
+  `screenshots/brush-toolbar-icons.png`, `screenshots/brush-toolbar-flow.jpg`,
+  `screenshots/brush-toolbar-hardness.jpg`. Optimized local test build:
+  `target/release/subcraft.exe` (also `subcraft-toolbar.exe`). Built separately while the owner's
+  unsaved app was open; refreshed the standard executable only after that process had exited.
+  The owner's open document was not modified or closed by these checks.
+* **Not verified by hand:** native numeric scrubbing (the automated fast drag did not change
+  Size), Shift precision, Opacity entry in this revision, tiny-menu gestures, preset round trips,
+  other OS/browser/tablet inputs or full 4K frame pacing. Synthetic egui inputs cover Size and
+  Opacity drags, tiny-menu access and slider changes; this is distinct from native verification.
+  Previous Phase 1 limits still apply. ADR-0012, getting-started, roadmap and handoff updated.
+
+### Session 56 — subtle panel bands, spacing and section icons (2026-10-18)
+
+* Owner requested clearer row differentiation in the right Brush/Properties area, Layers,
+  Parts and History. `ui::theme` defines alternating charcoal bands differing by only 5–7 RGB
+  levels; selected orange rows and hover take priority. Shared list rows are 34px high.
+  `ui::widgets` adds full-width 32px section headers with disclosure arrows and meaningful
+  Phosphor icons, and 28px property rows. Section/property counters are independent, scoped
+  to the containing panel's transient UI ID and reset each render pass, retaining saved IDs
+  and expanded states. Layers/History stripe by visible index; Parts now has full-width rows
+  with a cube or hidden-eye icon, truncation and its existing tooltip/context menu.
+* Three new tests verify palette restraint, alternating header/property groups and per-frame
+  reset, real panel geometry/no document edits, selected-row precedence and child-button input.
+  Existing seven layer-tree interaction tests pass at the new height. **362 workspace tests
+  passed, 0 failed, 0 ignored**; `cargo clippy --workspace --all-targets` exits 0 with existing
+  warnings. No paint kernels, texel values, schema, preset fields or undo behavior changed.
+* Verified visually in the actual Windows D3D12 app with `--demo --screenshot`: alternating
+  Parts/History/Layers rows, selected layers/history, section headers/icons in Properties.
+  Screenshot: `screenshots/panel-row-bands.png`. Optimized preview: `target/release/subcraft-panels.exe`.
+  **Not verified by hand:** clicking/expanding the newly styled Brush sections, Parts context
+  menus, history jumps, native layer dragging or narrow/resized/high-DPI panel layouts. Existing
+  synthetic layer tests remain green. Native Computer Use was stopped by the owner's physical
+  Escape key before further interaction; no further Computer Use calls were made.
+* Latest owner priority override: add a subtle 3D floor grid, red X / green Y / blue Z direction
+  lines, Y hidden by default, and a top-bar grid icon to toggle visibility. This is **not yet
+  implemented**; no grid source changes are present. Proposed continuation is a depth-tested,
+  finite/faded render pass with cached geometry, viewport preferences and GPU numeric tests.
+  Finish that request before returning to the remaining ordered brush phases. No full 4K frame
+  profile was run in this UI-only session; prior Phase 1 limits remain. See ADR-0013.
+
+### Session 57 — calmer material controls and header/body overlap fix (2026-10-18)
+
+* Owner requested softer text/actions and reported Paint whole material overlapping Material.
+  `ui::widgets::section_with` now renders header actions in an unallocated child: the header
+  rectangle was already allocated, and scope_builder's second cursor advance pulled the body
+  upward. Bodies start with 8px spacing. A regression checks actual Material/action bounds at
+  280/340/420px sidebar widths. `ui::theme` reduces body text from near-white to (202,207,214)
+  and uses 4px control corners. Quiet secondary actions have dim text, no hard outline and 28px
+  hit targets. Brush channel cards separate image actions from enabled flat-value editors;
+  compact Image… actions replace repeated thin Choose image buttons. Import/drop handlers stay
+  shared with app. No paint, schema, preset or undo changes.
+* Two new UI tests: narrow Material/action geometry and calm button color/radius/hit target.
+  Existing channel drop/projection/blend/clear regression still passes. **364 workspace tests
+  passed, 0 failed, 0 ignored**; Clippy `--workspace --all-targets` exits 0, existing warnings.
+* Actual native Windows D3D12 check via `subcraft-preview.exe --demo --brush-panel --screenshot
+  docs/screenshots/brush-material-calm.png`: Brush panel is active, Material heading and whole
+  material action are separated, first image action is visible, softened text/corners shown.
+  Added --brush-panel startup option for direct testing. **Not verified by hand:** native image
+  file-picker clicks, drops, scrolling/resizing or new button interaction. Computer Use remains
+  stopped after the owner's Escape; native CLI screenshot mode was used, not desktop input.
+* Owner explicitly requested completing all follow-ups sequentially. After this completed item:
+  finish the 3D grid, then a toolbar symmetry X/Y/Z + Lazy Mouse popover (remove sidebar/rail
+  duplicates), then UI-size preferences first in Preferences, default slightly smaller.
+
+### Session 58 — subtle 3D floor grid and axis controls (2026-10-18)
+
+* Completed the owner's grid request in `render::grid`: a finite, faded XZ floor just below
+  the whole model's base; world-direction X red / Y green / Z blue guides, Y hidden by default.
+  Spacing uses a model-relative 1/2/5 step. Distance and grazing-angle fading keep the horizon
+  quiet. Final neutral line alphas are 0.05 minor / 0.09 major after native visual review.
+  The guide is depth-tested against the mesh and never writes depth, paint texels or exports.
+  Whole-model bounds avoid moving the floor when hiding/isolating parts. Geometry is cached
+  (246 vertices); visible frames update 112 uniform bytes and submit one line-list draw.
+* `ui::viewport_bar` has a grid icon: click toggles visibility; right-click opens X/Y/Z settings.
+  Viewport preferences save the flags and old files load grid on / Y off. `ui::viewport` passes
+  display state to render. Other render callers opt in through ViewParams::grid, leaving
+  thumbnails/exports unchanged. Default canvas width increases to 80%/85% dock fractions;
+  custom layouts remain intact and narrow toolbar rows still wrap.
+* Owner clarified button corners should be almost sharp: all interactive controls/cards now
+  use a restrained 2px radius, retaining the calmer palette. Updated the radius acceptance test.
+* Three new tests: bounded grid geometry/axis directions/defaults; numeric GPU acceptance of
+  red/blue defaults, optional green Y, axes off, exact grid-off background, and unchanged opaque
+  model pixels across perspective/ortho and AA on/off; real egui grid toggle/axis-popup edits
+  and preference round trip. Layout coverage expands to fourteen widths. **367 workspace tests
+  passed, 0 failed, 0 ignored**; Clippy `--workspace --all-targets` exits 0, existing warnings.
+* Native Windows / RTX 4060 D3D12 CLI screenshot: `screenshots/viewport-grid.png` shows the
+  floor around the demo model, correct depth occlusion, red/blue guides, no upward Y, toolbar
+  grid icon, and 2px controls. **Not verified by hand:** native grid-icon/right-click gestures,
+  axis switching, orbit/zoom or a 4K production project. GPU/UI input tests cover these shared
+  rendering/control paths; full end-to-end 4K frame pacing remains unmeasured. Desktop Computer
+  Use remains stopped; native CLI screenshot mode was used. ADR-0014 records the design.
+
+### Session 59 — symmetry and Lazy Mouse in a toolbar popover (2026-10-18)
+
+* Completed the owner's next item: `ui::brush_bar` has one mirror icon beside the three paint
+  tool icons. Its popover holds independent X/Y/Z mirrors and a compact Lazy Mouse 0–100px
+  slider (0 off); it stays open while changing controls and lights when any option is active.
+  `ui::panels::brush` removes the Stroke section and redundant tool chooser, retaining Paint
+  target / Fill by; `ui::app` removes the rail's duplicate X mirror button. Existing X shortcut
+  remains. `app::Command::SetStrokeOptions` validates finite lazy distance, clamps the range,
+  retains the stroke-in-progress guard, and writes the existing shared preset/tool state.
+* Two new tests: app command/preset consistency, non-finite rejection, range clamping, unchanged
+  history/document and active-stroke rejection; real egui X/Y/Z + lazy slider edits, shortcut
+  consistency, preset capture, and absence of sidebar duplicates. **369 workspace tests passed,
+  0 failed, 0 ignored**; Clippy `--workspace --all-targets` exits 0 with existing warnings.
+  The existing numeric mirror/lazy stroke tests remain green; raster behavior is unchanged.
+* Actual native Windows D3D12 CLI screenshot (`--demo --brush-panel`):
+  `screenshots/brush-symmetry-toolbar.png` shows the top mirror icon, responsive toolbar and
+  cleaner Paint target sidebar without the old rail toggle. **Not verified by hand:** native
+  opening/toggling/dragging this popover, preset round trips or tablet gestures. Synthetic egui
+  events exercise all its controls; desktop Computer Use remains stopped after Escape.
+  ADR-0012 and the guide describe the single shared state. Next: UI-size preferences.
+
+### Session 60 — saved interface size, smaller default and exact viewport mapping (2026-10-18)
+
+* Completed the final owner-requested UI item. `ui::recovery::Preferences` saves UI size, with
+  **95% default**, 75–150% range and Reset → 95%. It is the first setting in Preferences and
+  applies live to the complete egui context (text/icons/widgets/layout), retaining native DPI.
+  `ui::app` loads/applies it on startup and per frame; the existing eframe preferences store
+  saves it between runs. Old files default safely, invalid percentages clamp, no project-schema
+  or brush-preset field changes. File → Preferences now opens the same window as Edit.
+  The window starts taller and scrolls when large UI/small windows need it.
+* Numeric painting acceptance exposed subpixel drift when fractional UI rectangles were mapped
+  using DPI alone. `ui::viewport` now maps pointer positions through the exact rounded camera
+  target dimensions; pen/stencil inverse projection, panning and cursor scale use the same frame.
+  No brush kernel change. ADR-0005 clarified this screen mapping; ADR-0015 records UI scaling.
+* Four new tests: File-menu access without edits; old/default/invalid preference loading and
+  serialization; actual UI-size slider/reset events, first-setting order and global zoom with
+  unchanged document/tool/history; numeric dab comparison at 75/95/150% (premultiplied max
+  component error ≤0.005 and exactly one undo step per dab). Existing hover/part picking and
+  pen regressions pass. **373 workspace tests passed, 0 failed, 0 ignored**; Clippy
+  `--workspace --all-targets` exits 0 with existing warnings.
+* Actual native Windows / RTX 4060 D3D12 screenshots: `screenshots/ui-size-preferences.png`
+  shows UI size first at 95%; `screenshots/ui-refinement-final.png` shows the complete smaller
+  interface, one-row top controls at 1600px, grid/symmetry icons, calm almost-square actions
+  and alternating panels. Test executable: `target/release/subcraft-preview.exe`.
+  **Not verified by hand:** native File-menu/scale-slider/reset gestures, live resize, mixed-DPI
+  monitor movement, tablet input, other OS/browser or full 4K production frame pacing. Synthetic
+  egui events and numeric painting cover scale changes. Desktop Computer Use stayed stopped
+  after the owner's Escape; all later real-app checks used native CLI screenshot mode.
+* All requested UI follow-ups are complete in individual tested commits. The original larger
+  brush roadmap remains partial as listed below. Nothing pushed or released; protected ZIPs,
+  output/, generate_textures.py and __pycache__/ untouched. Documentation/handoff is the final commit.
+
 ## Next steps (in order)
 
-The owner's full ordered checklist is in **brush-roadmap.md**. Session 54's essential bar was an
-explicit owner priority override; resume the remaining phase order below:
+The owner's full ordered checklist is in **brush-roadmap.md**. Sessions 54–60 completed the
+owner's explicit UI priority overrides. Resume the original brush phase order:
 1. **Finish Phase 1**: camera/per-stamp source accumulation with batch-equivalence tests, normal
    frame reorientation, async starter-pack brush destinations, remaining native checks and full
    4K frame profiling on a complex model. Static channel images are complete (session 53).
-2. Expand the essential top bar (session 54) with tip/presets/projection/etc., then 3D/2D
+2. Expand the essential top bar (sessions 54–60) with tip/presets/projection/etc., then 3D/2D
    overlays and hints/toasts/warnings with View/per-tool switches.
 3. Smoothing models/presets, locked/snapped/chained lines, projected shapes, repeat/taper.
 4. Tip editor, dual/sequence/grain tips, jitter and pen/speed/mouse dynamics.

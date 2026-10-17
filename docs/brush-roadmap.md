@@ -1,8 +1,8 @@
 # Brush roadmap
 
 Owner's ordered roadmap, tracked from 2026-10-17. `[x]` complete, `[~]` partial (remaining work
-stated), `[ ]` not started. Resume Phase 1 after the owner's essential-bar priority override
-(session 54); the remaining Phase 2 work still follows it. Existing features are extended,
+stated), `[ ]` not started. The owner's UI refinement requests (sessions 54–60) are complete.
+Resume Phase 1 before the remaining Phase 2 work. Existing features are extended,
 not replaced. See progress.md for exact test and real-app verification evidence.
 
 ## Phase 1 — Projection painting
@@ -25,10 +25,23 @@ not replaced. See progress.md for exact test and real-app verification evidence.
 ## Phase 2 — Top brush settings bar and guides in 3D / 2D
 
 - [~] Owner priority override (2026-10-18): the essential 3D bar was requested before finishing
-  Phase 1. Tool, Size/Flow/Opacity/Hardness now sit beside viewport controls; tip thumbnail,
-  spacing/smoothing, symmetry/projection, texture chips and preset dropdown remain.
+  Phase 1. Tool, Size/Flow/Opacity/Hardness and symmetry/Lazy Mouse now sit beside viewport
+  controls; tip thumbnail, spacing/advanced smoothing, projection, texture chips and presets remain.
 - [x] Essential bar uses the same app settings/presets/shortcuts; narrow docks wrap/collapse.
   Duplicate primary controls moved out of the side panel; advanced controls remain there.
+- [x] Toolbar design refinement: compact Brush/Eraser/Fill icons, unboxed Size/Opacity scrubbing,
+  Flow meter / Hardness dot with slider popovers, full Anti-aliasing label, wider default canvas.
+- [x] Panel readability refinement: subtle alternating Parts/History/Layers rows, taller rows,
+  banded Brush/Properties sections and property rows, section/part icons; ADR-0013.
+- [x] Owner-requested 3D grid: subtle floor lines, red X / green Y / blue Z guides, Y hidden by
+  default, top-toolbar grid icon toggle / right-click axis popup and saved viewport preferences.
+  GPU depth/projection/AA acceptance and native CLI screenshot; ADR-0014.
+- [x] Calmer material actions/text, 2px almost-square controls, channel cards and header/body
+  overlap fix (session 57 plus the owner's radius refinement in session 58).
+- [x] Mirror icon in the 3D toolbar opens X/Y/Z toggles and Lazy Mouse slider; sidebar Stroke
+  section / duplicate rail symmetry and sidebar tool selector removed; shared app command/presets.
+- [x] Owner-requested 95% UI default and UI-size setting first in File / Edit → Preferences,
+  75–150%, live updates / Reset, saved between runs. Numeric paint-scale acceptance; ADR-0015.
 - [~] Brush outline (existing 3D cursor); surface-following outline and 2D outline still required.
 - [ ] Tip preview and live size/flow/opacity readout during hold-key drags.
 - [ ] Lazy-mouse string, straight-line / angle-snap guides with degrees, shape handles.
