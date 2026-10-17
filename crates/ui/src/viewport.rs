@@ -29,7 +29,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         return;
     }
     let now = ui.input(|i| i.time);
-    let to_screen = |p: Pos2| Vec2::new((p.x - rect.min.x) * ppp, (p.y - rect.min.y) * ppp);
+    // The render target is rounded to whole physical pixels. Map through that exact size,
+    // rather than DPI alone, to keep picking/painting stable at fractional UI zoom factors.
+    let pixel_scale = Vec2::new(size[0] as f32 / rect.width(), size[1] as f32 / rect.height());
+    let to_screen = |p: Pos2| Vec2::new((p.x - rect.min.x) * pixel_scale.x, (p.y - rect.min.y) * pixel_scale.y);
     let (mods, scroll, delta, primary_pressed, primary_down, pointer) = ui.input(|i| {
         (i.modifiers, i.smooth_scroll_delta.y, i.pointer.delta(), i.pointer.primary_pressed(), i.pointer.primary_down(), i.pointer.latest_pos())
     });
@@ -73,7 +76,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         state.camera.orbit(delta.x, delta.y);
     }
     if response.dragged_by(PointerButton::Middle) && !stencil_edit {
-        state.camera.pan(delta.x * ppp, delta.y * ppp, size[1] as f32);
+        state.camera.pan(delta.x * pixel_scale.x, delta.y * pixel_scale.y, size[1] as f32);
     }
 
     let camera = state.camera.paint_camera(size);
@@ -142,7 +145,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     // ----- painting ----------------------------------------------------------------------------
     if state.tool == Tool::Pen && !picking && !alt && !stencil_edit && !typing && let Some(p) = pointer {
             if primary_pressed && response.hovered() {
-                let hit = state.pen.preview(&state.session).and_then(|path| crate::pen::hit(path, state.pen.selected_anchor(), p, |uv| pen_position(state, &camera, rect, ppp, uv)));
+                let hit = state.pen.preview(&state.session).and_then(|path| crate::pen::hit(path, state.pen.selected_anchor(), p, |uv| pen_position(state, &camera, rect, uv)));
                 if let Err(e) = state.pen.begin_surface(&mut state.session, &camera, to_screen(p), hit) { state.set_status(format!("Pen: {e}"), now); }
             } else if primary_down && state.pen.is_editing() {
                 state.pen.drag_surface(&state.session, &camera, to_screen(p), mods.shift);
@@ -249,12 +252,12 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
 
     // ----- overlays ------------------------------------------------------------------------------
     if state.tool == Tool::Pen && let Some(path) = state.pen.preview(&state.session) {
-        crate::pen::draw(&painter, path, state.pen.selected_anchor(), |uv| pen_position(state, &camera, rect, ppp, uv));
+        crate::pen::draw(&painter, path, state.pen.selected_anchor(), |uv| pen_position(state, &camera, rect, uv));
     }
     if let Some(p) = response.hover_pos() {
         if paint_tool && !alt {
             if let Some(pick) = state.session.pick(&camera, to_screen(p)) {
-                let r_px = state.session.brush_radius() * camera.pixels_per_unit(pick.depth) / ppp;
+                let r_px = state.session.brush_radius() * camera.pixels_per_unit(pick.depth) / pixel_scale.y;
                 let color = if state.tool == Tool::Eraser { Color32::from_rgb(120, 190, 255) } else { ACCENT };
                 painter.circle_stroke(p, r_px, Stroke::new(1.5, Color32::from_black_alpha(160)));
                 painter.circle_stroke(p, r_px, Stroke::new(1.0, color));
@@ -296,14 +299,14 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
 }
 
 /// Project UV controls only where their sampled surface is visible.
-fn pen_position(state: &UiState, camera: &subcraft_app::Camera, rect: Rect, ppp: f32, uv: Vec2) -> Option<Pos2> {
+fn pen_position(state: &UiState, camera: &subcraft_app::Camera, rect: Rect, uv: Vec2) -> Option<Pos2> {
     let position = state.session.pen_uv_position(uv)?;
     let screen = camera.project(position)?.truncate();
     let pick = state.session.pick(camera, screen)?;
     // Keep overlays off occluded/hidden surfaces. UV sampling is quantized to texel centers.
     let tolerance = state.session.scene().mesh.bounds.diagonal() * 0.03;
     if pick.material_slot != state.session.selected_texture_set().material_slot || pick.position.distance(position) > tolerance { return None; }
-    Some(rect.min + egui::vec2(screen.x, screen.y) / ppp)
+    Some(rect.min + egui::vec2(screen.x * rect.width() / camera.viewport[0] as f32, screen.y * rect.height() / camera.viewport[1] as f32))
 }
 
 /// Semi-transparent stencil image over the 3D view (hidden while N bypasses it).
@@ -323,8 +326,7 @@ fn draw_stencil(state: &mut UiState, ui: &Ui, painter: &egui::Painter, rect: Rec
         state.stencil_tex = Some((key, tex));
     }
     let Some((_, tex)) = &state.stencil_tex else { return };
-    let ppp = ui.ctx().pixels_per_point();
-    let to_ui = |v: glam::Vec2| egui::pos2(rect.min.x + v.x / ppp, rect.min.y + v.y / ppp);
+    let to_ui = |v: glam::Vec2| egui::pos2(rect.min.x + v.x * rect.width() / size[0] as f32, rect.min.y + v.y * rect.height() / size[1] as f32);
     let c = st.corners(size);
     let tint = Color32::from_white_alpha(110);
     let mut mesh = egui::Mesh::with_texture(tex.id());

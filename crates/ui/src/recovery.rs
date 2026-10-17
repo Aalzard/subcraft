@@ -14,11 +14,15 @@ use crate::widgets::{primary_button, secondary_button};
 
 /// eframe storage key of [`Preferences`].
 pub const PREFS_KEY: &str = "subcraft_prefs_v1";
+pub const DEFAULT_UI_SIZE: u32 = 95;
+pub const UI_SIZE_RANGE: std::ops::RangeInclusive<u32> = 75..=150;
 
 /// User settings kept between runs.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Preferences {
+    /// Scales all text, icons and widgets together, independently of native display DPI.
+    pub ui_size_percent: u32,
     /// Minutes between autosaves; 0 turns the timer off.
     pub autosave_minutes: u32,
     /// Recovery copies kept.
@@ -34,6 +38,7 @@ pub struct Preferences {
 impl Default for Preferences {
     fn default() -> Self {
         Self {
+            ui_size_percent: DEFAULT_UI_SIZE,
             autosave_minutes: (recovery::DEFAULT_INTERVAL.as_secs() / 60) as u32,
             autosave_keep: recovery::DEFAULT_KEEP,
             show_welcome: true,
@@ -44,6 +49,13 @@ impl Default for Preferences {
 }
 
 impl Preferences {
+    pub fn apply_ui_size(&mut self, ctx: &egui::Context) {
+        self.ui_size_percent = self.ui_size_percent.clamp(*UI_SIZE_RANGE.start(), *UI_SIZE_RANGE.end());
+        let zoom = self.ui_size_percent as f32 / 100.0;
+        if (ctx.zoom_factor() - zoom).abs() > 0.0001 {
+            ctx.set_zoom_factor(zoom);
+        }
+    }
     pub fn interval(&self) -> Duration {
         Duration::from_secs(u64::from(self.autosave_minutes) * 60)
     }
@@ -279,7 +291,7 @@ fn ago(t: std::time::SystemTime) -> String {
     }
 }
 
-/// Edit → Preferences.
+/// File / Edit → Preferences. UI size is the first setting and applies without a restart.
 pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
     let graphics = &mut state.graphics;
     let rec = &mut state.recovery;
@@ -287,8 +299,22 @@ pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
         return;
     }
     let mut open = true;
-    egui::Window::new(RichText::new("Preferences").font(theme::font_strong(14.0))).open(&mut open).collapsible(false).resizable(false).show(ctx, |ui| {
+    egui::Window::new(RichText::new("Preferences").font(theme::font_strong(14.0))).open(&mut open).collapsible(false).resizable(false).default_height(620.0).show(ctx, |ui| {
         ui.set_width(380.0);
+        egui::ScrollArea::vertical().max_height((ctx.content_rect().height() - 110.0).max(200.0)).show(ui, |ui| {
+        ui.label(RichText::new("Interface").font(theme::font_strong(12.5)));
+        ui.horizontal(|ui| {
+            ui.label("UI size");
+            ui.spacing_mut().slider_width = 155.0;
+            ui.add(egui::Slider::new(&mut rec.prefs.ui_size_percent, UI_SIZE_RANGE).step_by(5.0).suffix("%"));
+            if secondary_button(ui, "Reset").on_hover_text("Reset UI size to 95%").clicked() {
+                rec.prefs.ui_size_percent = DEFAULT_UI_SIZE;
+            }
+        });
+        ui.label(RichText::new("Scale text, icons and controls together. Default: 95%.").small().color(TEXT_DIM));
+        ui.add_space(12.0);
+        ui.separator();
+        ui.add_space(8.0);
         crate::graphics::controls(graphics, ui);
         ui.checkbox(&mut rec.prefs.show_welcome, "Show welcome screen on startup");
         if !cfg!(target_arch = "wasm32") {
@@ -324,6 +350,8 @@ pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
                 crate::panels::shelf::show_in_folder(store.root());
             }
         }
+        });
     });
+    rec.prefs.apply_ui_size(ctx);
     rec.show_prefs = open;
 }

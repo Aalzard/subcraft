@@ -151,6 +151,35 @@ mod launch_tests {
     }
 
     #[test]
+    fn file_menu_opens_preferences_without_project_edits() {
+        let mut app = SubcraftApp {
+            state: UiState::new(Session::new(subcraft_mesh::primitives::cube(2.0), 64), None),
+            dock: default_layout(), frames: 0, screenshot: None, screenshot_requested: false,
+            pending_now: None, active_tabs: HashSet::new(), test_crash: false,
+        };
+        let doc = app.state.session.document().clone();
+        let ctx = egui::Context::default(); theme::apply(&ctx);
+        let draw = |app: &mut SubcraftApp, events| {
+            let mut out = ctx.run_ui(egui::RawInput { events, screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1000.0, 600.0))), ..Default::default() }, |ui| {
+                egui::Panel::top("file-menu-test").exact_size(44.0).show(ui, |ui| app.header_bar(ui));
+            });
+            out.textures_delta.clear(); out
+        };
+        let find = |out: &egui::FullOutput, text: &str| out.shapes.iter().find_map(|s| match &s.shape {
+            egui::Shape::Text(t) if t.galley.text().ends_with(text) => Some(t.pos + t.galley.size() * 0.5), _ => None,
+        }).unwrap_or_else(|| panic!("missing {text}"));
+        for label in ["File", "Preferences…"] {
+            for _ in 0..3 { draw(&mut app, vec![]); }
+            let out = draw(&mut app, vec![]); let p = find(&out, label);
+            for pressed in [true, false] {
+                draw(&mut app, vec![egui::Event::PointerMoved(p), egui::Event::PointerButton { pos: p, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() }]);
+            }
+        }
+        assert!(app.state.recovery.show_prefs);
+        assert_eq!(app.state.session.document(), &doc);
+    }
+
+    #[test]
     fn long_header_titles_cannot_paint_over_menus_or_actions() {
         let mut mesh = subcraft_mesh::primitives::cube(2.0);
         mesh.name = "A very long multi-part model with a name that exceeds the header gap".into();
@@ -275,6 +304,7 @@ impl SubcraftApp {
         }
         let prefs = cc.storage.and_then(|s| s.get_string(crate::recovery::PREFS_KEY)).and_then(|j| serde_json::from_str(&j).ok()).unwrap_or_default();
         state.recovery = crate::recovery::RecoveryUi::start(&state.session, prefs, options.autosave_interval);
+        state.recovery.prefs.apply_ui_size(&cc.egui_ctx);
         state.recovery.show_prefs = options.preferences;
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -517,6 +547,11 @@ impl SubcraftApp {
                 if item(ui, icons::MAGIC_WAND, "Bake mesh maps…", "Ctrl+B") {
                     ui.close();
                     self.perform(Action::Bake, now);
+                }
+                ui.separator();
+                if item(ui, icons::SLIDERS, "Preferences…", "") {
+                    self.state.recovery.show_prefs = true;
+                    ui.close();
                 }
                 ui.separator();
                 if item(ui, icons::X, "Quit", "") {
@@ -803,6 +838,7 @@ impl egui_dock::TabViewer for Viewer<'_> {
 impl eframe::App for SubcraftApp {
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        self.state.recovery.prefs.apply_ui_size(&ctx);
         self.frames += 1;
         crate::pen::keyboard(&mut self.state, &ctx, ctx.input(|i| i.time));
         self.shortcuts(&ctx);
