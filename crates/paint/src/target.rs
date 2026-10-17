@@ -4,11 +4,11 @@
 //! when the stroke begins) and the stroke coverage, so repeated passes over the same texels never
 //! compound: the stroke reaches at most `stroke_opacity`.
 
-use subcraft_core::{ChannelKind, LayerId};
+use subcraft_core::{ChannelKind, LayerId, ResourceId, normal};
 use subcraft_doc::{LayerContent, TextureSet, empty_paint_image};
 use subcraft_image::{TILE_TEXELS, TiledImage};
 
-use crate::settings::{BrushMaterial, PaintTarget, StrokeMode};
+use crate::settings::{BrushMaterial, NormalPaintBlend, PaintTarget, StrokeMode};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ImageKey {
@@ -54,6 +54,8 @@ pub struct TargetImage {
     /// Number of value components; images with alpha store it after them.
     pub value_comps: usize,
     pub has_alpha: bool,
+    pub texture: Option<ResourceId>,
+    pub normal_blend: NormalPaintBlend,
 }
 
 /// Snapshot the images a stroke will write.
@@ -71,6 +73,8 @@ pub fn begin_targets(ts: &TextureSet, layer: LayerId, target: PaintTarget, mater
                 value: [material.mask_value; 3],
                 value_comps: 1,
                 has_alpha: false,
+                texture: None,
+                normal_blend: NormalPaintBlend::Replace,
             }])
         }
         PaintTarget::Content => {
@@ -82,7 +86,8 @@ pub fn begin_targets(ts: &TextureSet, layer: LayerId, target: PaintTarget, mater
                 check(&snapshot)?;
                 let n = kind.components();
                 let value = if n == 1 { [ch.value.0[0]; 3] } else { ch.value.0 };
-                out.push(TargetImage { key: ImageKey::Channel(kind), snapshot, value, value_comps: n, has_alpha: true });
+                out.push(TargetImage { key: ImageKey::Channel(kind), snapshot, value, value_comps: n, has_alpha: true,
+                    texture: material.textures.get(&kind).copied(), normal_blend: material.normal_blend });
             }
             if out.is_empty() {
                 return Err(PaintError::NothingToPaint);
@@ -99,14 +104,17 @@ impl TargetImage {
     ///   of premultiplied color toward the brush value; alpha → `a + k(1 − a)`;
     /// * erase: alpha → `a(1 − k)`, value kept;
     /// * mask base (no alpha): `lerp(v, brush, k)`; erasing lerps back toward the mask fill.
-    pub fn compute_tile(&self, tile: usize, cov: &[f32], opacity: f32, mode: StrokeMode) -> Vec<f32> {
+    pub fn compute_tile(&self, tile: usize, cov: &[f32], opacity: f32, mode: StrokeMode, source: Option<&[[f32; 4]]>) -> Vec<f32> {
         let comps = self.snapshot.comps();
         let mut buf = vec![0.0f32; TILE_TEXELS * comps];
         self.snapshot.read_tile(tile, &mut buf);
         let n = self.value_comps;
         let fill = self.snapshot.fill();
-        for (px, &c) in buf.chunks_exact_mut(comps).zip(cov) {
-            let k = (c * opacity).clamp(0.0, 1.0);
+        for (i, (px, &c)) in buf.chunks_exact_mut(comps).zip(cov).enumerate() {
+            let src = source.map_or([self.value[0], self.value[1], self.value[2], 1.0], |s| s[i]);
+            // Erasing is independent of the current material image, just like flat-value erasing.
+            let texture_alpha = if mode == StrokeMode::Paint { src[3].clamp(0.0, 1.0) } else { 1.0 };
+            let k = (c * opacity * texture_alpha).clamp(0.0, 1.0);
             if k <= 0.0 {
                 continue;
             }
@@ -114,8 +122,19 @@ impl TargetImage {
                 (true, StrokeMode::Paint) => {
                     let a0 = px[n];
                     let a = a0 + k * (1.0 - a0);
+                    let mut value = [src[0], src[1], src[2]];
+                    let is_normal = self.key == ImageKey::Channel(ChannelKind::Normal);
+                    if is_normal && self.normal_blend == NormalPaintBlend::Detail && a0 > 0.0 {
+                        let combined = normal::reoriented([px[0], px[1], px[2]], value);
+                        // Transparent backdrop contributes only the source, as in W3C blending.
+                        for j in 0..3 { value[j] += a0 * (combined[j] - value[j]); }
+                    }
                     for i in 0..n {
-                        px[i] = (px[i] * a0 * (1.0 - k) + self.value[i] * k) / a;
+                        px[i] = (px[i] * a0 * (1.0 - k) + value[i] * k) / a;
+                    }
+                    if is_normal {
+                        let unit = normal::encode(normal::decode([px[0], px[1], px[2]]));
+                        px[..3].copy_from_slice(&unit);
                     }
                     px[n] = a;
                 }

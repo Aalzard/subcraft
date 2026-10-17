@@ -26,9 +26,19 @@ pub struct BrushPreset {
     pub options: StrokeOptions,
     #[serde(default)]
     pub material: BrushMaterial,
+    /// Version 2 embeds image bytes, so presets work in another document or library.
+    #[serde(default)]
+    pub images: Vec<PresetImage>,
     /// Library file this preset was loaded from / saved to.
     #[serde(skip)]
     pub user_file: Option<PathBuf>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PresetImage {
+    pub id: subcraft_core::ResourceId,
+    pub name: String,
+    pub encoded: Vec<u8>,
 }
 
 impl Session {
@@ -50,12 +60,16 @@ impl Session {
         let b = &self.brush;
         BrushPreset {
             format: FORMAT.into(),
-            version: 1,
+            version: 2,
             name: name.trim().to_string(),
             tip: b.alpha.is_some().then(|| b.alpha_name.clone()),
             settings: b.settings,
             options: b.options,
             material: b.material.clone(),
+            images: b.material.textures.values().copied().collect::<std::collections::BTreeSet<_>>().into_iter()
+                .filter_map(|id| self.resources().get(id).map(|r| PresetImage {
+                    id, name: r.name.clone(), encoded: r.encoded.as_deref().cloned().unwrap_or_default(),
+                })).collect(),
             user_file: None,
         }
     }
@@ -63,10 +77,22 @@ impl Session {
     /// Load a preset into the brush. The tip is looked up by name in `tips`; if it is missing the
     /// round tip is used and the returned message says so.
     pub fn apply_brush_preset(&mut self, p: &BrushPreset, tips: &[BrushAlpha]) -> Option<String> {
+        let mut material = p.material.clone();
+        let mut remap = std::collections::BTreeMap::new();
+        for old in material.textures.values() {
+            let Some(image) = p.images.iter().find(|image| image.id == *old) else {
+                return Some("Brush preset is missing an embedded channel image; brush unchanged".into());
+            };
+            match self.import_image_bytes(&image.name, image.encoded.clone()) {
+                Ok(id) => { remap.insert(*old, id); }
+                Err(e) => return Some(format!("Brush preset image: {e}; brush unchanged")),
+            }
+        }
+        for id in material.textures.values_mut() { *id = remap[id]; }
         self.brush.settings = p.settings;
         self.brush.options = p.options;
         if !p.material.channels.is_empty() {
-            self.brush.material = p.material.clone();
+            self.brush.material = material;
         }
         let tip = match &p.tip {
             None => tips.iter().find(|a| a.bitmap.is_none()),
@@ -89,6 +115,9 @@ impl Session {
 
 /// Save to `brush-presets/<name>.scbrush` (numbered if taken). Returns the stored preset.
 pub fn save_brush_preset(lib: &UserLibrary, preset: &BrushPreset) -> Result<BrushPreset, String> {
+    if preset.material.textures.values().any(|id| !preset.images.iter().any(|image| image.id == *id && !image.encoded.is_empty())) {
+        return Err("brush preset has a missing channel image".into());
+    }
     let name = if preset.name.is_empty() { "Brush" } else { preset.name.as_str() };
     let path = lib.new_file_path(UserAssetKind::BrushPreset, name);
     let dir = lib.folder(UserAssetKind::BrushPreset);
@@ -107,6 +136,7 @@ pub fn load_brush_preset(path: &Path) -> Result<BrushPreset, String> {
     if p.format != FORMAT {
         return Err(format!("{}: not a SubCraft brush preset", path.display()));
     }
+    if !(1..=2).contains(&p.version) { return Err("brush preset was saved by an unsupported version".into()); }
     p.name = display_name(path, &p.name);
     p.user_file = Some(path.to_path_buf());
     Ok(p)

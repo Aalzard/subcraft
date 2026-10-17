@@ -21,6 +21,8 @@ pub enum Purpose {
     BakeHighPoly,
     Stencil,
     TextureSet,
+    BrushTextureSet,
+    BrushChannel { channel: ChannelKind },
     ShelfTextures,
     Alpha,
     Hdri,
@@ -117,6 +119,20 @@ pub fn import_shelf_textures(state: &mut UiState, paths: &[PathBuf], now: f64) {
 fn handle(state: &mut UiState, purpose: Purpose, paths: &[PathBuf], now: f64) {
     let Some(first) = paths.first() else { return };
     match purpose {
+        Purpose::BrushChannel { channel } => match state.session.set_brush_channel_image(channel, first) {
+            Ok(()) => {
+                state.textures.add_files(state.user_library.as_ref(), paths);
+                state.set_status(format!("Brush {} image assigned", channel.display_name()), now);
+            }
+            Err(e) => { state.set_status(format!("Brush image: {e}"), now); }
+        },
+        Purpose::BrushTextureSet => match state.session.import_brush_texture_set(paths) {
+            Ok(result) => {
+                state.textures.add_files(state.user_library.as_ref(), paths);
+                state.set_status(format!("Brush material: {}", result.summary()), now);
+            }
+            Err(e) => { state.set_status(format!("Brush material: {e}"), now); }
+        },
         Purpose::OpenMesh => match subcraft_app::Session::open_mesh(first, subcraft_app::DEFAULT_RESOLUTION) {
             Ok((s, _)) => {
                 state.set_session(s);

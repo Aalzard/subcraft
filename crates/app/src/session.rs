@@ -424,6 +424,7 @@ impl Session {
             return Err(CommandError::StrokeInProgress);
         }
         match cmd {
+            Command::SetBrushMaterial(material) => self.brush.material = material,
             Command::InsertPartLayers { layers, label } => {
                 if layers.iter().any(|(id, _)| self.doc.texture_set(*id).is_none()) { return Err(CommandError::TextureSetNotFound); }
                 let mut doc = self.doc.clone();
@@ -735,6 +736,7 @@ impl Session {
         let ts = self.selected_texture_set();
         let b = &self.brush;
         let stroke = Stroke::begin(ts, layer, b.target, b.mode, b.settings, b.options, &b.material)?
+            .with_resources(self.resources())
             .with_alpha(b.alpha.clone())
             .with_stencil(if b.stencil_bypass { None } else { b.stencil.clone() });
         let label = match (b.mode, b.target) {

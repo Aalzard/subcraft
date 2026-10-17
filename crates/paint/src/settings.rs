@@ -3,8 +3,8 @@
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
-use subcraft_core::{ChannelKind, ChannelValue};
-use subcraft_doc::TextureSet;
+use subcraft_core::{ChannelKind, ChannelValue, ResourceId};
+use subcraft_doc::{Projection, TextureSet};
 
 /// How the brush footprint is laid onto the surface.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
@@ -105,18 +105,35 @@ pub struct BrushChannel {
     pub value: ChannelValue,
 }
 
+/// How a normal stroke interacts with normals already painted on this layer.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NormalPaintBlend {
+    #[default]
+    Replace,
+    Detail,
+}
+
 /// What a paint stroke deposits per channel; masks receive `mask_value`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct BrushMaterial {
     pub channels: BTreeMap<ChannelKind, BrushChannel>,
+    /// Optional image sources; channel enable switches still apply. Values remain available
+    /// when an image is cleared. Resource identity never depends on a file path.
+    pub textures: BTreeMap<ChannelKind, ResourceId>,
+    pub projection: Projection,
+    /// Repeat images; when false, coordinates outside the image are transparent.
+    pub texture_tiling: bool,
+    pub normal_blend: NormalPaintBlend,
     /// Grayscale painted into mask rasters.
     pub mask_value: f32,
 }
 
 impl Default for BrushMaterial {
     fn default() -> Self {
-        Self { channels: BTreeMap::new(), mask_value: 1.0 }
+        Self { channels: BTreeMap::new(), textures: BTreeMap::new(), projection: Projection::default(), texture_tiling: true,
+            normal_blend: NormalPaintBlend::Replace, mask_value: 1.0 }
     }
 }
 
@@ -124,13 +141,13 @@ impl BrushMaterial {
     /// Every texture-set channel enabled at its default paint value; white for masks.
     pub fn new(ts: &TextureSet) -> Self {
         let channels = ts.channel_kinds().map(|k| (k, BrushChannel { enabled: true, value: k.default_paint_value() })).collect();
-        Self { channels, mask_value: 1.0 }
+        Self { channels, ..Self::default() }
     }
 
     /// Only the given channels enabled, at the given values.
     pub fn with(values: &[(ChannelKind, ChannelValue)]) -> Self {
         let channels = values.iter().map(|&(k, value)| (k, BrushChannel { enabled: true, value })).collect();
-        Self { channels, mask_value: 1.0 }
+        Self { channels, ..Self::default() }
     }
 
     pub fn set(&mut self, kind: ChannelKind, value: ChannelValue) {

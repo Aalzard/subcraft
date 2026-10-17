@@ -7,6 +7,7 @@ pub mod actions;
 pub mod asset_apply;
 pub mod bake_job;
 pub mod brush_preset;
+pub mod brush_textures;
 pub mod command;
 pub mod diagnostics;
 pub mod images;

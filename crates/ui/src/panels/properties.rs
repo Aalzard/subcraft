@@ -421,7 +421,7 @@ fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_core::LayerId
 }
 
 /// Thumbnail, name and size of an image resource, with a Replace button. True if clicked.
-fn image_row(ui: &mut Ui, state: &mut UiState, resource: subcraft_core::ResourceId) -> bool {
+pub(crate) fn image_row(ui: &mut Ui, state: &mut UiState, resource: subcraft_core::ResourceId) -> bool {
     let Some(r) = state.session.resources().get(resource).cloned() else {
         ui.label(RichText::new(format!("{}  Image missing from the project", icons::WARNING)).color(theme::WARNING));
         return secondary_button(ui, "Choose image…").clicked();
@@ -450,7 +450,7 @@ fn image_row(ui: &mut Ui, state: &mut UiState, resource: subcraft_core::Resource
 }
 
 /// Mode / scale / rotation (+ sharpness or axis) editor shared by fill layers and image masks.
-fn projection_editor(ui: &mut Ui, proj: &mut Projection) -> bool {
+pub(crate) fn projection_editor(ui: &mut Ui, proj: &mut Projection) -> bool {
     let mut changed = false;
     prop_row(ui, "Mode", |ui| {
         changed |= segmented(ui, &mut proj.mode, &[(ProjectionMode::Uv, "UV"), (ProjectionMode::Triplanar, "Tri-planar"), (ProjectionMode::Planar, "Planar")]);

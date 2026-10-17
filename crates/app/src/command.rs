@@ -13,6 +13,8 @@ pub enum NewLayer {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Command {
+    /// Tool state only: affects future strokes, without adding document history.
+    SetBrushMaterial(subcraft_paint::BrushMaterial),
     Undo,
     Redo,
     /// Jump to a history entry (History panel click).
