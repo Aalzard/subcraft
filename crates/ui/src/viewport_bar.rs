@@ -58,6 +58,8 @@ impl ViewportPrefs {
 pub fn show(ui: &mut Ui, state: &mut crate::state::UiState) {
     let mut settings = state.session.brush.settings;
     let original = settings;
+    let mut options = state.session.brush.options;
+    let original_options = options;
     let painting = crate::brush_bar::active(state.tool);
     let frame = egui::Frame::new()
         .fill(BG_2)
@@ -65,7 +67,7 @@ pub fn show(ui: &mut Ui, state: &mut crate::state::UiState) {
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width());
             let width = ui.available_width();
-            let inline = width >= 1010.0;
+            let inline = width >= 1040.0;
             ui.spacing_mut().item_spacing = egui::vec2(7.0, 6.0);
             ui.horizontal(|ui| {
                 if width < 520.0 {
@@ -84,13 +86,13 @@ pub fn show(ui: &mut Ui, state: &mut crate::state::UiState) {
                     ui.add_space(5.0);
                     ui.separator();
                     ui.add_space(5.0);
-                    crate::brush_bar::show(ui, &mut state.tool, &mut settings, width);
+                    crate::brush_bar::show(ui, &mut state.tool, &mut settings, &mut options, width);
                 }
             });
             if painting && !inline {
                 ui.separator();
                 ui.horizontal(|ui| {
-                    crate::brush_bar::show(ui, &mut state.tool, &mut settings, width)
+                    crate::brush_bar::show(ui, &mut state.tool, &mut settings, &mut options, width)
                 });
             }
         });
@@ -104,6 +106,15 @@ pub fn show(ui: &mut Ui, state: &mut crate::state::UiState) {
         if let Err(error) = state
             .session
             .execute(subcraft_app::Command::SetBrushSettings(settings))
+        {
+            state.set_status(error.to_string(), now);
+        }
+    }
+    if options != original_options {
+        let now = ui.input(|i| i.time);
+        if let Err(error) = state
+            .session
+            .execute(subcraft_app::Command::SetStrokeOptions(options))
         {
             state.set_status(error.to_string(), now);
         }

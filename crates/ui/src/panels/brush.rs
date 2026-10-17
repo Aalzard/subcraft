@@ -4,16 +4,13 @@ use egui::{RichText, Ui};
 use subcraft_paint::{Alignment, PaintTarget, PolygonFillMode};
 
 use crate::state::{Tool, UiState};
-use crate::theme::{self, TEXT_DIM, TEXT_FAINT};
+use crate::theme::{self, TEXT_FAINT};
 use crate::widgets::{hint, panel, prop_row, section, segmented, slider_row};
 
 pub fn show(state: &mut UiState, ui: &mut Ui) {
     egui::ScrollArea::vertical().id_salt("brush").auto_shrink([false, false]).show(ui, |ui| {
         panel(ui, |ui| {
-            section(ui, "tool", "Tool", true, |ui| {
-                prop_row(ui, "Tool", |ui| {
-                    segmented(ui, &mut state.tool, &[(Tool::Brush, "Brush"), (Tool::Eraser, "Eraser"), (Tool::PolygonFill, "Fill")]);
-                });
+            section(ui, "tool", "Paint target", true, |ui| {
                 if state.tool == Tool::PolygonFill {
                     prop_row(ui, "Fill by", |ui| {
                         segmented(
@@ -131,21 +128,6 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 slider_row(ui, "Position", egui::Slider::new(&mut s.position_jitter, 0.0..=2.0));
             });
 
-            section(ui, "stroke", "Stroke", true, |ui| {
-                let o = &mut b.options;
-                prop_row(ui, "Symmetry", |ui| {
-                    ui.spacing_mut().item_spacing.x = 1.0;
-                    for (i, axis) in ["X", "Y", "Z"].into_iter().enumerate() {
-                        let on = o.symmetry[i];
-                        let text = RichText::new(axis).color(if on { theme::ACCENT } else { TEXT_DIM });
-                        let fill = if on { theme::ACCENT_SOFT } else { theme::BG_3 };
-                        if ui.add(egui::Button::new(text).fill(fill).min_size(egui::vec2(34.0, 26.0))).on_hover_text(format!("Mirror across {axis}")).clicked() {
-                            o.symmetry[i] = !on;
-                        }
-                    }
-                });
-                slider_row(ui, "Lazy mouse", egui::Slider::new(&mut o.lazy_distance_px, 0.0..=100.0).suffix(" px"));
-            });
 
         });
     });

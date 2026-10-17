@@ -71,7 +71,7 @@ fn bar_fits_wide_wrapped_and_tiny_docks_and_hides_for_non_paint_tools() {
         let brush = position(&output, subcraft_ui::icons::PAINT_BRUSH)
             .expect("tool icons always reachable");
         let view = position(&output, if width >= 540.0 { "Resolution" } else { "View" }).unwrap();
-        if width >= 1040.0 {
+        if width >= 1060.0 {
             assert!((brush.y - view.y).abs() < 3.0, "inline on wide docks");
         } else {
             assert!(brush.y > view.y + 15.0, "stacked rows on narrow docks");
@@ -228,6 +228,89 @@ fn grid_icon_toggles_and_axis_popup_persists_display_preferences_without_history
     let loaded: viewport_bar::ViewportPrefs =
         serde_json::from_str(&serde_json::to_string(prefs).unwrap()).unwrap();
     assert_eq!(&loaded, prefs);
+}
+
+#[test]
+fn symmetry_popup_owns_all_axes_and_lazy_mouse_while_sidebar_has_no_duplicates() {
+    let (mut state, ctx) = setup();
+    let before = state.session.document().clone();
+    let history = state.session.history().entries().len();
+    for _ in 0..3 {
+        frame(&mut state, &ctx, 1125.0, vec![]);
+    }
+    let (out, _) = frame(&mut state, &ctx, 1125.0, vec![]);
+    click(
+        &mut state,
+        &ctx,
+        position(&out, subcraft_ui::icons::SYMMETRY).unwrap(),
+    );
+    for _ in 0..3 {
+        frame(&mut state, &ctx, 1125.0, vec![]);
+    }
+    for axis in ["X", "Y", "Z"] {
+        let (out, _) = frame(&mut state, &ctx, 1125.0, vec![]);
+        click(&mut state, &ctx, position(&out, axis).unwrap());
+    }
+    assert_eq!(state.session.brush.options.symmetry, [true; 3]);
+    let (out, _) = frame(&mut state, &ctx, 1125.0, vec![]);
+    let header = position(&out, "Lazy Mouse").expect("one popover contains smoothing");
+    let rail = out
+        .shapes
+        .iter()
+        .filter_map(|s| match &s.shape {
+            egui::Shape::Rect(r)
+                if r.rect.top() > header.y && r.rect.width() > 70.0 && r.rect.height() < 12.0 =>
+            {
+                Some(r.rect)
+            }
+            _ => None,
+        })
+        .reduce(|a, b| a.union(b))
+        .expect("lazy mouse slider");
+    click(
+        &mut state,
+        &ctx,
+        egui::pos2(egui::lerp(rail.x_range(), 0.55), rail.center().y),
+    );
+    assert!(state.session.brush.options.lazy_distance_px > 25.0);
+    assert_eq!(
+        state.session.brush_preset("Popup").options,
+        state.session.brush.options
+    );
+    assert_eq!(state.session.document(), &before);
+    assert_eq!(state.session.history().entries().len(), history);
+    frame(
+        &mut state,
+        &ctx,
+        1125.0,
+        vec![Event::Key {
+            key: egui::Key::Escape,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Default::default(),
+        }],
+    );
+    state.session.perform(Action::ToggleSymmetryX).unwrap();
+    assert_eq!(state.session.brush.options.symmetry, [false, true, true]);
+    // The real side panel no longer renders the Stroke section or a duplicate tool chooser.
+    let sidebar_ctx = egui::Context::default();
+    subcraft_ui::theme::apply(&sidebar_ctx);
+    let mut sidebar = sidebar_ctx.run_ui(
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                Pos2::ZERO,
+                egui::vec2(400.0, 2400.0),
+            )),
+            ..Default::default()
+        },
+        |ui| subcraft_ui::panels::brush::show(&mut state, ui),
+    );
+    sidebar.textures_delta.clear();
+    assert!(position(&sidebar, "STROKE").is_none());
+    assert!(position(&sidebar, "Symmetry").is_none());
+    assert!(position(&sidebar, "Lazy mouse").is_none());
+    assert!(position(&sidebar, "Eraser").is_none());
 }
 
 #[test]

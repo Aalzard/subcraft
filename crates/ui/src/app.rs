@@ -462,10 +462,6 @@ impl SubcraftApp {
             ui.add_space(6.0);
             rail_divider(ui);
             ui.add_space(6.0);
-            let sym = &mut self.state.session.brush.options.symmetry[0];
-            if ui.add_enabled_ui(*tool != Tool::Pen, |ui| tool_button(ui, icons::SYMMETRY, *sym, "Mirror brush strokes across X (X)")).inner.clicked() {
-                *sym = !*sym;
-            }
             let target = &mut self.state.session.brush.target;
             let on_mask = *target == subcraft_paint::PaintTarget::MaskBase;
             if ui.add_enabled_ui(*tool != Tool::Pen, |ui| tool_button(ui, icons::MASK, on_mask, "Paint the layer's mask instead of its content (Brush tool)")).inner.clicked() {

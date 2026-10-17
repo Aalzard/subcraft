@@ -132,7 +132,7 @@ pub fn section_with(ui: &mut Ui, id: &str, title: &str, default_open: bool, righ
         "Jitter" => Some(icons::SPARKLE),
         "Stroke" | "Pen path" => Some(icons::CURVE),
         "Parts" => Some(icons::CUBE),
-        "Mask" => Some(icons::MASK),
+        "Mask" | "Paint target" => Some(icons::MASK),
         "Projection" => Some(icons::CUBE_WIRE),
         _ => None,
     };

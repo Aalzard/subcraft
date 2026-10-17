@@ -434,6 +434,13 @@ impl Session {
                 settings.hardness = settings.hardness.clamp(0.0, 1.0);
                 self.brush.settings = settings;
             }
+            Command::SetStrokeOptions(mut options) => {
+                if !options.lazy_distance_px.is_finite() {
+                    return Err(CommandError::Invalid("lazy mouse distance must be finite".into()));
+                }
+                options.lazy_distance_px = options.lazy_distance_px.clamp(0.0, 100.0);
+                self.brush.options = options;
+            }
             Command::SetBrushMaterial(material) => self.brush.material = material,
             Command::InsertPartLayers { layers, label } => {
                 if layers.iter().any(|(id, _)| self.doc.texture_set(*id).is_none()) { return Err(CommandError::TextureSetNotFound); }

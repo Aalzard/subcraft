@@ -15,6 +15,8 @@ pub enum NewLayer {
 pub enum Command {
     /// Tool state only. The active stroke retains the settings it captured at begin.
     SetBrushSettings(subcraft_paint::BrushSettings),
+    /// Stroke-path tool state (symmetry/lazy mouse), shared by presets and future strokes.
+    SetStrokeOptions(subcraft_paint::StrokeOptions),
     /// Tool state only: affects future strokes, without adding document history.
     SetBrushMaterial(subcraft_paint::BrushMaterial),
     Undo,

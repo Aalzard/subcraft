@@ -1,6 +1,6 @@
 //! Compact viewport brush controls, editing the session's existing tool state.
 use egui::{RichText, Ui};
-use subcraft_paint::BrushSettings;
+use subcraft_paint::{BrushSettings, StrokeOptions};
 
 use crate::{
     icons,
@@ -14,7 +14,13 @@ pub(crate) fn active(tool: Tool) -> bool {
 }
 
 /// Icons select tools directly; scrubbable values and slider popovers keep the row quiet.
-pub(crate) fn show(ui: &mut Ui, tool: &mut Tool, settings: &mut BrushSettings, width: f32) {
+pub(crate) fn show(
+    ui: &mut Ui,
+    tool: &mut Tool,
+    settings: &mut BrushSettings,
+    options: &mut StrokeOptions,
+    width: f32,
+) {
     ui.spacing_mut().item_spacing.x = 9.0;
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 1.0;
@@ -37,6 +43,7 @@ pub(crate) fn show(ui: &mut Ui, tool: &mut Tool, settings: &mut BrushSettings, w
             }
         }
     });
+    stroke_options(ui, options);
     let brush = *tool != Tool::PolygonFill;
     if width < 520.0 {
         let response = widgets::icon_button(ui, icons::SLIDERS, "Brush settings");
@@ -59,6 +66,46 @@ pub(crate) fn show(ui: &mut Ui, tool: &mut Tool, settings: &mut BrushSettings, w
             popup_percent(ui, "Hardness", &mut settings.hardness, "Tip edge", true)
         });
     }
+}
+
+fn stroke_options(ui: &mut Ui, options: &mut StrokeOptions) {
+    let on = options.symmetry.iter().any(|&axis| axis) || options.lazy_distance_px > 0.0;
+    let response = widgets::icon_toggle(
+        ui,
+        icons::SYMMETRY,
+        on,
+        "Symmetry & Lazy Mouse · click for stroke options",
+    );
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(egui::WidgetType::Button, true, on, "Symmetry & Lazy Mouse")
+    });
+    egui::Popup::menu(&response)
+        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+        .show(|ui| {
+            ui.set_min_width(220.0);
+            ui.label(RichText::new("Mirror symmetry").color(TEXT_DIM));
+            ui.horizontal(|ui| {
+                for (i, axis) in ["X", "Y", "Z"].into_iter().enumerate() {
+                    let value = &mut options.symmetry[i];
+                    if ui
+                        .selectable_label(*value, axis)
+                        .on_hover_text(format!("Mirror across {axis} through the model center"))
+                        .clicked()
+                    {
+                        *value = !*value;
+                    }
+                }
+            });
+            ui.separator();
+            ui.label(RichText::new("Lazy Mouse").color(TEXT_DIM));
+            ui.spacing_mut().slider_width = 155.0;
+            ui.add(egui::Slider::new(&mut options.lazy_distance_px, 0.0..=100.0).suffix(" px"));
+            ui.label(
+                RichText::new("0 px = off · X shortcut toggles mirror X")
+                    .small()
+                    .color(TEXT_DIM),
+            );
+        });
 }
 
 fn menu_controls(ui: &mut Ui, s: &mut BrushSettings, brush: bool) {
