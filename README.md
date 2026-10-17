@@ -1,10 +1,13 @@
 <img width="1254" height="1254" alt="Engraved Hand on Orange " src="https://github.com/user-attachments/assets/520d56f6-acd7-4ca3-9819-cffb4395b82e" />
 # SubCraft
 
-[![Try it in your browser](https://img.shields.io/badge/Try%20it-in%20your%20browser-ff7a1a?style=for-the-badge&logo=googlechrome&logoColor=white)](https://aalzard.github.io/subcraft/)
 [![Download for Windows](https://img.shields.io/badge/Download-Windows%20installer-ff7a1a?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/Aalzard/subcraft/releases/latest)
 [![Download for Linux](https://img.shields.io/badge/Download-Linux-ff7a1a?style=for-the-badge&logo=linux&logoColor=white)](https://github.com/Aalzard/subcraft/releases/latest)
 [![Latest release](https://img.shields.io/github/v/release/Aalzard/subcraft?style=for-the-badge&label=latest&color=2b2b2b)](https://github.com/Aalzard/subcraft/releases/latest)
+
+> **Browser version: deprecated for now.** Development focuses on the desktop app; the web
+> version at https://aalzard.github.io/subcraft/ is not maintained and has known issues
+> (e.g. unintended panning while painting). Please use the desktop download.
 
 An independent, open-source 3D texture painting application in the spirit of Substance Painter,
 written in Rust. Paint directly on 3D models with layered PBR materials, masks, generators and
@@ -117,7 +120,10 @@ screen and six-step in-app guide are available on desktop and in the browser.
   containing all texture maps; extract it into a folder.
 - **Mesh import**: OBJ, glTF / GLB and FBX.
 
-## Try it in your browser
+## Browser version (deprecated)
+
+> **Deprecated for now** — not maintained and may have bugs; use the desktop app. The notes
+> below describe it as it was.
 
 Open **https://aalzard.github.io/subcraft/** in a browser with WebGPU (recent Chrome, Edge,
 Firefox or Safari). Nothing to install. The web version is the same app with a few differences:
