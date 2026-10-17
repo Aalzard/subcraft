@@ -7,7 +7,7 @@ use crate::{
     files::{self, Purpose},
     state::UiState,
     theme,
-    widgets::{channel_value, hint, prop_row, segmented},
+    widgets::{channel_value, hint, prop_row, quiet_button, segmented},
 };
 use egui::{RichText, Ui};
 use subcraft_app::Command;
@@ -17,8 +17,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     let mut material = state.session.brush.material.clone();
     let original = material.clone();
     let mut dropped = None;
-    if ui
-        .button("Paint whole material…")
+    if quiet_button(ui, crate::icons::PAINT_BUCKET, "Paint whole material…")
         .on_hover_text("Choose named texture maps for the brush; only imported channels paint")
         .clicked()
     {
@@ -34,40 +33,54 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         ui,
         "Choose images or drop Shelf › Textures onto a channel. Images replace flat values.",
     );
-    for kind in state.session.channels() {
+    ui.add_space(4.0);
+    for (index, kind) in state.session.channels().into_iter().enumerate() {
         ui.push_id(kind, |ui| {
             let entry = material.channels.entry(kind).or_insert(BrushChannel {
                 enabled: false,
                 value: kind.default_paint_value(),
             });
-            let row = ui.group(|ui| {
-                ui.horizontal(|ui| {
-                    ui.checkbox(&mut entry.enabled, kind.display_name());
-                    if !material.textures.contains_key(&kind) {
-                        ui.add_enabled_ui(entry.enabled, |ui| {
-                            channel_value(ui, kind, &mut entry.value);
-                        });
+            let mut pick = false;
+            let has_image = material.textures.contains_key(&kind);
+            let row = egui::Frame::new()
+                .fill(theme::ROW_BANDS[index % 2])
+                .inner_margin(egui::Margin::same(8))
+                .corner_radius(4)
+                .show(ui, |ui| {
+                    ui.set_min_width(ui.available_width());
+                    ui.horizontal(|ui| {
+                        ui.checkbox(&mut entry.enabled, kind.display_name());
+                        if !has_image {
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    pick = quiet_button(ui, crate::icons::IMAGE, "Image…")
+                                        .on_hover_text(
+                                            "Choose image… or drop a texture from the shelf",
+                                        )
+                                        .clicked();
+                                },
+                            );
+                        }
+                    });
+                    if let Some(&id) = material.textures.get(&kind) {
+                        pick = image_row(ui, state, id);
+                        if quiet_button(ui, crate::icons::X, "Clear image").clicked() {
+                            material.textures.remove(&kind);
+                        }
+                    } else if entry.enabled {
+                        channel_value(ui, kind, &mut entry.value);
+                    }
+                    if pick {
+                        files::pick(
+                            ui.ctx(),
+                            Purpose::BrushChannel { channel: kind },
+                            files::IMAGES,
+                            false,
+                            None,
+                        );
                     }
                 });
-                let pick = if let Some(&id) = material.textures.get(&kind) {
-                    let pick = image_row(ui, state, id);
-                    if ui.small_button("Clear image").clicked() {
-                        material.textures.remove(&kind);
-                    }
-                    pick
-                } else {
-                    ui.small_button("Choose image…").clicked()
-                };
-                if pick {
-                    files::pick(
-                        ui.ctx(),
-                        Purpose::BrushChannel { channel: kind },
-                        files::IMAGES,
-                        false,
-                        None,
-                    );
-                }
-            });
             if row
                 .response
                 .dnd_hover_payload::<ShelfDrag>()

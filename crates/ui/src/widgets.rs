@@ -141,10 +141,13 @@ pub fn section_with(ui: &mut Ui, id: &str, title: &str, default_open: bool, righ
     }
     painter.text(rect.left_center() + egui::vec2(if icon.is_some() { 45.0 } else { 25.0 }, 0.0), egui::Align2::LEFT_CENTER, title.to_uppercase(), theme::font_strong(10.5), fg);
     painter.hline(rect.x_range(), rect.bottom() - 0.5, Stroke::new(1.0, BORDER));
-    ui.scope_builder(UiBuilder::new().max_rect(rect.shrink2(egui::vec2(0.0, 2.0))).layout(Layout::right_to_left(Align::Center)), right);
+    // The header already owns this rectangle. A layout scope would advance the parent cursor
+    // a second time (even when empty), allowing the first body widget to overlap the header.
+    let mut actions = ui.new_child(UiBuilder::new().max_rect(rect.shrink2(egui::vec2(0.0, 2.0))).layout(Layout::right_to_left(Align::Center)));
+    right(&mut actions);
     state.store(ui.ctx());
     if open {
-        ui.add_space(4.0);
+        ui.add_space(8.0);
         body(ui);
         ui.add_space(10.0);
     } else {
@@ -223,7 +226,13 @@ pub fn primary_button(ui: &mut Ui, text: impl Into<String>) -> Response {
 
 /// Outline button (secondary action).
 pub fn secondary_button(ui: &mut Ui, text: impl Into<String>) -> Response {
-    ui.add(egui::Button::new(RichText::new(text.into()).color(TEXT)).fill(BG_3).stroke(Stroke::NONE).min_size(egui::vec2(0.0, 28.0)))
+    ui.add(egui::Button::new(RichText::new(text.into()).color(TEXT_DIM)).fill(BG_3).stroke(Stroke::NONE).corner_radius(4).min_size(egui::vec2(0.0, 28.0)))
+}
+
+/// Calm secondary action: a compact icon, readable hit target, soft corners and no hard outline.
+pub fn quiet_button(ui: &mut Ui, icon: &str, text: &str) -> Response {
+    ui.add(egui::Button::new(RichText::new(format!("{icon}  {text}")).font(theme::font(12.0)).color(TEXT_DIM))
+        .fill(theme::BG_2).stroke(Stroke::NONE).corner_radius(4).min_size(egui::vec2(0.0, 28.0)))
 }
 
 /// Joined segmented control; returns true when the value changed.

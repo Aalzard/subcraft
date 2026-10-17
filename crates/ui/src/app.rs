@@ -85,6 +85,8 @@ pub struct LaunchOptions {
     pub screenshot: Option<PathBuf>,
     /// Start with the 2D (UV) view in front.
     pub view_2d: bool,
+    /// Start with Brush settings in front (also useful for native screenshot verification).
+    pub brush_panel: bool,
     /// Recover the newest crashed session without asking.
     pub recover: bool,
     /// Autosave interval instead of the preference (testing).
@@ -316,6 +318,9 @@ impl SubcraftApp {
         if options.view_2d
             && let Some(path) = dock.find_tab(&Tab::UvView)
         {
+            let _ = dock.set_active_tab(path);
+        }
+        if options.brush_panel && let Some(path) = dock.find_tab(&Tab::Brush) {
             let _ = dock.set_active_tab(path);
         }
         Self {

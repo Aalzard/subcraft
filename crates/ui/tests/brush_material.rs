@@ -28,7 +28,9 @@ fn position(output: &egui::FullOutput, text: &str) -> egui::Pos2 {
         .shapes
         .iter()
         .find_map(|s| match &s.shape {
-            egui::epaint::Shape::Text(t) if t.galley.text() == text => {
+            egui::epaint::Shape::Text(t)
+                if t.galley.text() == text || t.galley.text().ends_with(&format!("  {text}")) =>
+            {
                 Some(t.pos + t.galley.size() * 0.5)
             }
             _ => None,

@@ -1,4 +1,4 @@
-//! Flat dark theme: layered charcoal surfaces, square corners, generous spacing, one warm accent.
+//! Dark theme: layered charcoal surfaces, softened controls, generous spacing, one warm accent.
 //! Inter for text, Phosphor for icons (both embedded, see `assets/fonts`).
 
 use std::sync::Arc;
@@ -20,7 +20,7 @@ pub const FIELD: Color32 = Color32::from_rgb(16, 17, 20); // text fields, slider
 pub const BORDER: Color32 = Color32::from_rgb(40, 43, 49);
 pub const BORDER_STRONG: Color32 = Color32::from_rgb(62, 66, 75);
 
-pub const TEXT: Color32 = Color32::from_rgb(226, 228, 232);
+pub const TEXT: Color32 = Color32::from_rgb(202, 207, 214);
 pub const TEXT_DIM: Color32 = Color32::from_rgb(152, 158, 168);
 pub const TEXT_FAINT: Color32 = Color32::from_rgb(102, 108, 118);
 
@@ -130,7 +130,7 @@ pub fn apply(ctx: &egui::Context) {
     w.open.fg_stroke = Stroke::new(1.0, TEXT);
 
     for s in [&mut w.noninteractive, &mut w.inactive, &mut w.hovered, &mut w.active, &mut w.open] {
-        s.corner_radius = CornerRadius::ZERO;
+        s.corner_radius = CornerRadius::same(4);
     }
     ctx.set_visuals(v);
 
