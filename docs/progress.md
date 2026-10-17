@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-10-15 (session 43: removed object hover tint)
+Last updated: 2026-10-18 (sessions 52–53: brush tile bounds and channel-image painting)
 
 ## Decisions
 
@@ -1077,25 +1077,95 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
 * Found while checking lints: earlier clippy filters used `/` paths and missed Windows `\`
   output; re-checked, all remaining clippy warnings predate this work.
 
+### Session 52 — conservative brush tile bounds (2026-10-18)
+
+* On `feature/brush-roadmap`, based on default `origin/main` at `cef93c9`. Local `main` was
+  stale; no fetch/push/release was performed. Protected untracked ZIPs, output/, the generator
+  script and __pycache__/ were left untouched.
+* The first 4K long-stroke profile found nearby triangles sending all their UV tiles through
+  the kernel, even for a small dab. `paint::kernel::KernelInput::stamp_tiles` now bounds tangent
+  footprints by the sphere's affine world→UV gradients and bounds UV footprints directly,
+  including the conservative raster rim. Camera alignment retains the original full-triangle
+  bounds. No dense raster or new document data is introduced.
+* One new numeric acceptance test (`paint/tests/tile_bounds.rs`) compares coverage bit-for-bit
+  against the full-triangle kernel on cube seams / a curved sphere, all four alignments,
+  square alpha tips, rotated/squashed footprints and mirrored cameras. Included in the final
+  **352 passed, 0 failed, 0 ignored** workspace run (11 new tests across sessions 52–53).
+  `cargo clippy --workspace --all-targets` passes with pre-existing warnings, none in new code.
+* Reproducer: `cargo run -p subcraft-app --release --example brush_projection -- <scratch-dir>`.
+  4K cube, one Normal channel, 5% brush, 1,000 input samples (spacing means many emit no stamp):
+  textured CPU stroke-to p95 **1.68 ms**, cold/max **3.72 ms**, total **164.0 ms**; flat p95
+  **1.60 ms**, max **3.70 ms**, total **157.1 ms**. The initial full-triangle run gave textured
+  p95 28.87 ms / max 68.80 ms and flat p95 27.75 ms / max 80.98 ms, but builds were running
+  concurrently, so those before/after timings are not a controlled speedup measurement.
+* Real app: subsequent normal painting/undo/redo in session 53 used these bounds on D3D12.
+  Screenshots are listed there. **Not verified:** sustained 4K whole-frame pacing, compositor /
+  GPU upload latency, broad brushes, multi-channel production meshes or physical tablet input.
+  The CPU profile alone is not a no-frame-drops claim. Commit: `b00ad54`.
+
+### Session 53 — Phase 1 channel images and normal painting (2026-10-18)
+
+* `paint` / `app`: optional image per brush channel, shared UV/planar/triplanar projection,
+  scale/rotation/offset, repeat or transparent-outside addressing, source-alpha opacity cap,
+  existing sRGB/data rules and gloss/DirectX conversion. Whole-material map import enables
+  matched channels only, preserving the selected layer and document history. Absent texture-set
+  channels are reported/skipped. Alpha tips, stencil, culling, symmetry and Parts stay on the
+  existing coverage path; images/projection are captured at stroke start, one undo per stroke.
+* Replace and Detail normals use normalized source-over and shared RNM in `core::normal`
+  (also used by compositor). Detail combines against pre-stroke paint on this layer, never
+  recursively per stamp. `app::brush_preset` version 2 embeds image bytes and remaps resource
+  UUIDs when applied elsewhere; v1 presets default to flat images/UV/repeat/Replace.
+  Tool settings are not new document source data; ordinary paint rasters retain project schema 4.
+* `ui`: Brush → Material has Choose/Replace/Clear per channel, imported Shelf → Textures drop
+  targets, Paint whole material…, shared fill projection controls and Normal blend. New tool
+  changes dispatch `Command::SetBrushMaterial` or app import methods. Material moved above the
+  brush sliders so the image workflow is reachable. No new shortcut or overlay was added.
+* Ten new tests: core analytic RNM golden/identity; paint projected color/data/alpha texels for
+  all three static modes, normal blend/length/opacity, transparent sources/eraser, addressing;
+  app DX normal painting with single-step undo/redo and portable project reopen, embedded preset
+  reload/remap/missing-image failure, atomic whole-material/gloss import and cancel/captured
+  images; real egui events for shelf drop/conversion, projection, Detail and Clear. With session
+  52: **352 passed, 0 failed, 0 ignored** (`cargo test --workspace`); clippy all-targets passes
+  with existing warnings. The UI harness initially dropped unapplied texture deltas; fixed its
+  frame cleanup and reran the entire suite. Native debug app build and release fixture/profile
+  example both ran. No new dependency, schema bump or migration was needed.
+* **Verified in the actual Windows app (RTX 4060 / D3D12)** using isolated temp data/library:
+  imported OBJ cube (192 triangles), selected ordinary paint layer, Paint whole material… native
+  file picker with a generated 256px DirectX normal EXR, automatic green conversion, Planar Z,
+  30% normal brush, normal-channel preview and shaded relief. Ctrl+Z removes the broad stroke
+  in one step; Ctrl+Y restores it. Detail toggle plus another dab strengthens the existing
+  relief. Ctrl+S saves the temporary project and the app closes cleanly. Screenshots:
+  `screenshots/brush-projection-normal-channel.jpg`, `brush-projection-normal-paint.jpg`,
+  `brush-projection-normal-detail.jpg`.
+* **Not verified by hand:** imported shelf drag/drop, per-channel Choose/Replace/Clear dialogs,
+  multiple maps in the native whole-material picker, UV/triplanar controls, preset save/load UI,
+  browser/Linux/macOS, external complex production models and tablet input. Synthetic egui/app
+  and numeric tests cover the listed shared handlers; this is not native gesture verification.
+  Native automated drags yielded dabs, so continuous native long-stroke input is not certified.
+* Complete static-image slice, **Phase 1 remains partial**: camera/per-stamp sources, starter-pack
+  brush destinations, projection-frame/mirrored-tangent normal reorientation and full 4K frame
+  pacing remain. Phases 2–9 have not started. ADR-0011, brush-roadmap.md, getting-started.md and
+  HANDOFF-codex.md record the contracts and continuation. Implementation commit: `44fae8d`.
+
 ## Next steps (in order)
 
-Current priorities requested by the owner:
-* Brush overlap at model edges (session 47), graphics selection, the independence notice and
-  hover-tint removal (sessions 41–43) are merged together on `handoff-ao-channel`.
-1. ~~Right-click texturing and Parts~~ — session 30; PR #34 merged.
-2. ~~Welcome screen, recent files, quick-start guide and screenshot documentation~~ — sessions
-   31/34; PR #35 merged. Included in published desktop v0.1.5.
-3. ~~Layer dragging, folder controls and inline rename~~ — session 35; #38 merged after all
-   required checks passed and the owner's approval.
-4. ~~Editable pen/Bézier paths~~ — session 36; #39 merged after required checks and owner approval.
-5. ~~Starter pack and image previews~~ — session 37; #40 merged. Browser ZIP #41 merged too.
-   Both are included in published v0.1.5 with the welcome screen, layer editing and Pen tool.
-6. Real multi-part FBX/GLB bake → smart material → paint → export.
-7. Browser import/save/export verification and work split across frames. Multi-download export
-   is fixed in session 38; remaining work includes large operations and real GLB/OBJ import checks.
-8. Projection painting, clone, smudge/blur, followed by the remaining engine/library follow-ups.
+The owner's full ordered checklist is in **brush-roadmap.md**. Finish each phase before the next:
+1. **Finish Phase 1**: camera/per-stamp source accumulation with batch-equivalence tests, normal
+   frame reorientation, async starter-pack brush destinations, remaining native checks and full
+   4K frame profiling on a complex model. Static channel images are complete (session 53).
+2. Top brush settings bar and 3D/2D overlays, hints/toasts/warnings with View/per-tool switches.
+3. Smoothing models/presets, locked/snapped/chained lines, projected shapes, repeat/taper.
+4. Tip editor, dual/sequence/grain tips, jitter and pen/speed/mouse dynamics.
+5. Radial/custom/topological symmetry, UV repetition/arrays/kaleidoscope (mirror already exists).
+6. Surface-aware paths, edge/UV/curvature constraints, stitch/rivet and wear strokes.
+7. Texture-editing brushes, all-channel eyedropper, channel/alpha locks and selections.
+8. Smart/particle/drip/decal brushes and saved stencils.
+9. Shortcuts, preset organization/import and editable/replayable past strokes.
 
-Earlier roadmap details:
+Other outstanding workflow checks remain recorded: production multi-part FBX/GLB bake → smart
+material → paint → export, browser import/save/export, large operations split across frames.
+
+Earlier roadmap details (historical; the brush phase order above takes precedence):
 
 1. **Your own image textures** (users ask for this: "add our own textures", SBSAR materials).
    - ~~Fill layer channels: an "Image" source with a file picker~~ — done (session 12).

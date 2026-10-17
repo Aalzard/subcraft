@@ -53,6 +53,42 @@ Right-drag orbits, the wheel zooms, and **Home** resets the camera.
 
 <img src="screenshots/quick-start-parts.png" alt="Step four of the in-app guide beside the Parts panel and painted crate" width="760">
 
+### Paint a normal map or material onto a paint layer
+
+Select an ordinary **paint layer**, choose **Brush (B)**, and set **Paint on → Layer** in the
+Brush panel. In **Material**, use the channel's **Choose image…** (or **Replace…**) button.
+For a normal-only stroke, uncheck the other channels. **Clear image** restores that channel's
+flat value; its enable checkbox still decides whether it paints. Normal maps use OpenGL (+Y);
+files named `normalDX` / `normal_dx` are converted automatically when assigned to Normal.
+
+Use **Paint whole material…** to select several named maps together, such as `Metal_basecolor`,
+`Metal_roughness`, `Metal_metallic`, `Metal_normalDX`, `Metal_height`. This loads the brush and
+enables only those channels. It creates no layer. Missing texture-set channels are skipped and
+reported; packed ORM/ARM imports remain unsupported. Gloss/smoothness maps invert to roughness.
+Imported images from **Shelf → Textures** can also be dragged onto a brush channel row. Starter
+pack normal drops still target fill layers in this version; use an imported file for a brush.
+
+**Image projection** is independent of brush footprint **Alignment**. UV follows the model UVs;
+Planar projects along X/Y/Z; Tri-planar blends the three object-axis projections. Tiling X/Y
+(**Link** for equal repeats), Offset, Rotation and Sharpness use the same controls as fills.
+Untick **Tile images** to paint only inside the transformed image. Camera/per-stamp image
+projection is still planned. Normal map vectors follow the existing fill interpretation;
+projection-frame rotation does not yet reorient tangent vectors across mirrored/separate islands.
+
+**Normal blend → Replace** replaces normals under the brush. **Detail** combines the new map
+with normals already painted on this same layer. Use the layer's normal blend mode to combine
+with lower layers. Both stroke modes normalize their result. Size, flow, opacity, alpha tips,
+stencils, symmetry and Parts restrictions continue to apply; the entire drag is one undo step.
+
+**Presets → Save preset** stores the images, projection, tiling and normal blend along with the
+existing brush settings. The preset carries its image bytes and works in another document after
+the original files are removed. Projects save the painted pixels; load the brush preset to
+restore its tool setup. There are no new keyboard shortcuts in this slice.
+
+![Normal map painted onto a paint layer in the Windows app](screenshots/brush-projection-normal-paint.jpg)
+
+![Detail combines another normal pass with paint already on the layer](screenshots/brush-projection-normal-detail.jpg)
+
 ## 5. Save your project
 
 Use **File → Save** (Ctrl+S) to save a `.subcraft` file containing the model, layers, imported
