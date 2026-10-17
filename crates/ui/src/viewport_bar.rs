@@ -60,7 +60,7 @@ pub fn show(ui: &mut Ui, state: &mut crate::state::UiState) {
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width());
             let width = ui.available_width();
-            let inline = width >= 1020.0;
+            let inline = width >= 980.0;
             ui.spacing_mut().item_spacing = egui::vec2(7.0, 6.0);
             ui.horizontal(|ui| {
                 if width < 520.0 {
@@ -107,7 +107,7 @@ pub fn show(ui: &mut Ui, state: &mut crate::state::UiState) {
 fn view_controls(ui: &mut Ui, prefs: &mut ViewportPrefs) {
     resolution(ui, prefs);
     ui.separator();
-    ui.checkbox(&mut prefs.antialias, "AA")
+    ui.checkbox(&mut prefs.antialias, "Anti-aliasing")
         .on_hover_text("Anti-aliasing · smooth edges (4x MSAA); off is faster");
     ui.checkbox(&mut prefs.orthographic, "Ortho")
         .on_hover_text("Orthographic · no perspective: parallel lines stay parallel");

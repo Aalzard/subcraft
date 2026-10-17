@@ -103,9 +103,9 @@ impl LaunchOptions {
 pub fn default_layout() -> DockState<Tab> {
     let mut dock = DockState::new(vec![Tab::Viewport, Tab::UvView]);
     let surface = dock.main_surface_mut();
-    let [center, right] = surface.split_right(NodeIndex::root(), 0.74, vec![Tab::Layers]);
+    let [center, right] = surface.split_right(NodeIndex::root(), 0.78, vec![Tab::Layers]);
     surface.split_below(right, 0.4, vec![Tab::Properties, Tab::Brush]);
-    let [center, left] = surface.split_left(center, 0.2, vec![Tab::Parts, Tab::TextureSets]);
+    let [center, left] = surface.split_left(center, 0.16, vec![Tab::Parts, Tab::TextureSets]);
     surface.split_below(left, 0.42, vec![Tab::History]);
     surface.split_below(center, 0.74, vec![Tab::Shelf]);
     dock

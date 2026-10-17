@@ -97,7 +97,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     ui.label(RichText::new("change in Shelf › Brushes").font(theme::font(11.0)).color(TEXT_FAINT));
                 });
                 let s = &mut b.settings;
-                hint(ui, "Size, flow, opacity and hardness are above the 3D View. Drag the number boxes or double-click to type.");
+                hint(ui, "Above the 3D View: drag Size/Opacity numbers, or click to type. Click Flow/Hardness for sliders.");
                 slider_row(ui, "Spacing", egui::Slider::new(&mut s.spacing, 0.02..=2.0).logarithmic(true));
                 slider_row(ui, "Angle", egui::Slider::new(&mut s.angle_deg, -180.0..=180.0).suffix("°"));
                 slider_row(ui, "Roundness", egui::Slider::new(&mut s.roundness, 0.05..=1.0));
