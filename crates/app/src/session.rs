@@ -424,6 +424,16 @@ impl Session {
             return Err(CommandError::StrokeInProgress);
         }
         match cmd {
+            Command::SetBrushSettings(mut settings) => {
+                if [settings.size, settings.flow, settings.stroke_opacity, settings.hardness].iter().any(|v| !v.is_finite()) {
+                    return Err(CommandError::Invalid("brush values must be finite".into()));
+                }
+                settings.size = settings.size.clamp(0.1, 100.0);
+                settings.flow = settings.flow.clamp(0.0, 1.0);
+                settings.stroke_opacity = settings.stroke_opacity.clamp(0.0, 1.0);
+                settings.hardness = settings.hardness.clamp(0.0, 1.0);
+                self.brush.settings = settings;
+            }
             Command::SetBrushMaterial(material) => self.brush.material = material,
             Command::InsertPartLayers { layers, label } => {
                 if layers.iter().any(|(id, _)| self.doc.texture_set(*id).is_none()) { return Err(CommandError::TextureSetNotFound); }

@@ -24,13 +24,21 @@ pub struct ViewportPrefs {
 
 impl Default for ViewportPrefs {
     fn default() -> Self {
-        Self { scale_percent: 100, antialias: true, orthographic: false, view_mode: 0 }
+        Self {
+            scale_percent: 100,
+            antialias: true,
+            orthographic: false,
+            view_mode: 0,
+        }
     }
 }
 
 impl ViewportPrefs {
     pub fn view_mode(&self) -> ViewMode {
-        ViewMode::ALL.get(self.view_mode).copied().unwrap_or_default()
+        ViewMode::ALL
+            .get(self.view_mode)
+            .copied()
+            .unwrap_or_default()
     }
 
     /// Render-target size for a 3D view of `size` physical pixels; the image is stretched back
@@ -41,36 +49,98 @@ impl ViewportPrefs {
     }
 }
 
-/// Draw the toolbar row, editing `prefs` in place.
-pub fn show(ui: &mut Ui, prefs: &mut ViewportPrefs) {
-    egui::Frame::new().fill(BG_2).inner_margin(egui::Margin::symmetric(8, 3)).show(ui, |ui| {
-        ui.set_width(ui.available_width());
-        ui.horizontal(|ui| {
-            dim(ui, "Resolution");
-            egui::ComboBox::from_id_salt("viewport_resolution")
-                .selected_text(format!("{}%", prefs.scale_percent))
-                .width(62.0)
-                .show_ui(ui, |ui| {
-                    for s in SCALES {
-                        ui.selectable_value(&mut prefs.scale_percent, s, format!("{s}%"));
-                    }
-                })
-                .response
-                .on_hover_text("Render the 3D view at a lower resolution to make it faster");
-            ui.separator();
-            ui.checkbox(&mut prefs.antialias, "Anti-aliasing").on_hover_text("Smooth edges (4x MSAA); off is faster");
-            ui.checkbox(&mut prefs.orthographic, "Orthographic").on_hover_text("No perspective: parallel lines stay parallel");
-            ui.separator();
-            dim(ui, "View");
-            let mut mode = prefs.view_mode();
-            egui::ComboBox::from_id_salt("viewport_view_mode").selected_text(mode.label()).show_ui(ui, |ui| {
-                for m in ViewMode::ALL {
-                    ui.selectable_value(&mut mode, m, m.label());
+/// View and brush settings share the top strip. Narrow docks use a second row, then menus.
+pub fn show(ui: &mut Ui, state: &mut crate::state::UiState) {
+    let mut settings = state.session.brush.settings;
+    let original = settings;
+    let painting = crate::brush_bar::active(state.tool);
+    let frame = egui::Frame::new()
+        .fill(BG_2)
+        .inner_margin(egui::Margin::symmetric(8, 4))
+        .show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
+            let width = ui.available_width();
+            let inline = width >= 1020.0;
+            ui.spacing_mut().item_spacing = egui::vec2(7.0, 6.0);
+            ui.horizontal(|ui| {
+                if width < 520.0 {
+                    ui.menu_button("View", |ui| {
+                        let prefs = &mut state.recovery.prefs.viewport;
+                        ui.horizontal(|ui| resolution(ui, prefs));
+                        ui.checkbox(&mut prefs.antialias, "Anti-aliasing");
+                        ui.checkbox(&mut prefs.orthographic, "Orthographic");
+                        ui.horizontal(|ui| view_mode(ui, prefs));
+                    });
+                } else {
+                    view_controls(ui, &mut state.recovery.prefs.viewport);
+                }
+                if painting && inline {
+                    ui.add_space(5.0);
+                    ui.separator();
+                    ui.add_space(5.0);
+                    crate::brush_bar::show(ui, &mut state.tool, &mut settings, width);
                 }
             });
-            prefs.view_mode = ViewMode::ALL.iter().position(|m| *m == mode).unwrap_or(0);
+            if painting && !inline {
+                ui.separator();
+                ui.horizontal(|ui| {
+                    crate::brush_bar::show(ui, &mut state.tool, &mut settings, width)
+                });
+            }
         });
-    });
+    ui.painter().hline(
+        frame.response.rect.x_range(),
+        frame.response.rect.bottom(),
+        egui::Stroke::new(1.0, crate::theme::BORDER),
+    );
+    if settings != original {
+        let now = ui.input(|i| i.time);
+        if let Err(error) = state
+            .session
+            .execute(subcraft_app::Command::SetBrushSettings(settings))
+        {
+            state.set_status(error.to_string(), now);
+        }
+    }
+}
+
+fn view_controls(ui: &mut Ui, prefs: &mut ViewportPrefs) {
+    resolution(ui, prefs);
+    ui.separator();
+    ui.checkbox(&mut prefs.antialias, "AA")
+        .on_hover_text("Anti-aliasing · smooth edges (4x MSAA); off is faster");
+    ui.checkbox(&mut prefs.orthographic, "Ortho")
+        .on_hover_text("Orthographic · no perspective: parallel lines stay parallel");
+    ui.separator();
+    view_mode(ui, prefs);
+}
+
+fn resolution(ui: &mut Ui, prefs: &mut ViewportPrefs) {
+    dim(ui, "Resolution");
+    egui::ComboBox::from_id_salt("viewport_resolution")
+        .selected_text(format!("{}%", prefs.scale_percent))
+        .width(62.0)
+        .show_ui(ui, |ui| {
+            for s in SCALES {
+                ui.selectable_value(&mut prefs.scale_percent, s, format!("{s}%"));
+            }
+        })
+        .response
+        .on_hover_text("Render the 3D view at a lower resolution to make it faster");
+}
+
+fn view_mode(ui: &mut Ui, prefs: &mut ViewportPrefs) {
+    dim(ui, "View");
+    let mut mode = prefs.view_mode();
+    egui::ComboBox::from_id_salt("viewport_view_mode")
+        .width(92.0)
+        .selected_text(mode.label())
+        .show_ui(ui, |ui| {
+            for m in ViewMode::ALL {
+                ui.selectable_value(&mut mode, m, m.label());
+            }
+        });
+    prefs.view_mode = ViewMode::ALL.iter().position(|m| *m == mode).unwrap_or(0);
 }
 
 fn dim(ui: &mut Ui, text: &str) {
@@ -95,9 +165,15 @@ mod tests {
     fn old_preferences_load_with_defaults_and_bad_modes_fall_back() {
         let p: ViewportPrefs = serde_json::from_str("{}").unwrap();
         assert_eq!(p, ViewportPrefs::default());
-        let p = ViewportPrefs { view_mode: 99, ..Default::default() };
+        let p = ViewportPrefs {
+            view_mode: 99,
+            ..Default::default()
+        };
         assert_eq!(p.view_mode(), ViewMode::Material);
-        let p = ViewportPrefs { view_mode: 2, ..Default::default() };
+        let p = ViewportPrefs {
+            view_mode: 2,
+            ..Default::default()
+        };
         assert_eq!(p.view_mode(), ViewMode::Normal);
     }
 }

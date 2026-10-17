@@ -20,7 +20,7 @@ fn pill(painter: &egui::Painter, pos: Pos2, align: egui::Align2, text: &str, col
 }
 
 pub fn show(state: &mut UiState, ui: &mut Ui) {
-    crate::viewport_bar::show(ui, &mut state.recovery.prefs.viewport);
+    crate::viewport_bar::show(ui, state);
     state.camera.orthographic = state.recovery.prefs.viewport.orthographic;
     let (rect, response) = ui.allocate_exact_size(ui.available_size(), Sense::click_and_drag());
     let ppp = ui.ctx().pixels_per_point();

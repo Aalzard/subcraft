@@ -13,6 +13,8 @@ pub enum NewLayer {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Command {
+    /// Tool state only. The active stroke retains the settings it captured at begin.
+    SetBrushSettings(subcraft_paint::BrushSettings),
     /// Tool state only: affects future strokes, without adding document history.
     SetBrushMaterial(subcraft_paint::BrushMaterial),
     Undo,
