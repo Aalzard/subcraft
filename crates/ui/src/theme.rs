@@ -130,7 +130,7 @@ pub fn apply(ctx: &egui::Context) {
     w.open.fg_stroke = Stroke::new(1.0, TEXT);
 
     for s in [&mut w.noninteractive, &mut w.inactive, &mut w.hovered, &mut w.active, &mut w.open] {
-        s.corner_radius = CornerRadius::same(4);
+        s.corner_radius = CornerRadius::same(2);
     }
     ctx.set_visuals(v);
 

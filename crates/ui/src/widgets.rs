@@ -226,13 +226,13 @@ pub fn primary_button(ui: &mut Ui, text: impl Into<String>) -> Response {
 
 /// Outline button (secondary action).
 pub fn secondary_button(ui: &mut Ui, text: impl Into<String>) -> Response {
-    ui.add(egui::Button::new(RichText::new(text.into()).color(TEXT_DIM)).fill(BG_3).stroke(Stroke::NONE).corner_radius(4).min_size(egui::vec2(0.0, 28.0)))
+    ui.add(egui::Button::new(RichText::new(text.into()).color(TEXT_DIM)).fill(BG_3).stroke(Stroke::NONE).corner_radius(2).min_size(egui::vec2(0.0, 28.0)))
 }
 
 /// Calm secondary action: a compact icon, readable hit target, soft corners and no hard outline.
 pub fn quiet_button(ui: &mut Ui, icon: &str, text: &str) -> Response {
     ui.add(egui::Button::new(RichText::new(format!("{icon}  {text}")).font(theme::font(12.0)).color(TEXT_DIM))
-        .fill(theme::BG_2).stroke(Stroke::NONE).corner_radius(4).min_size(egui::vec2(0.0, 28.0)))
+        .fill(theme::BG_2).stroke(Stroke::NONE).corner_radius(2).min_size(egui::vec2(0.0, 28.0)))
 }
 
 /// Joined segmented control; returns true when the value changed.

@@ -7,6 +7,7 @@
 //! sRGB output.
 
 pub mod gpu_mesh;
+pub mod grid;
 mod display;
 pub mod headless;
 pub mod material;
@@ -26,6 +27,7 @@ use wgpu::util::DeviceExt;
 pub use egui_wgpu;
 pub use egui_wgpu::wgpu as wgpu_api;
 pub use gpu_mesh::GpuMesh;
+pub use grid::GridParams;
 pub use material::{ChannelTexture, GpuMaterial, SHADED_CHANNELS};
 pub use preview::{PreviewPass, PreviewTarget};
 pub use target::{DISPLAY_FORMAT, OUTPUT_FORMAT, PendingReadback, RenderTarget};
@@ -100,6 +102,8 @@ pub struct ViewParams {
     pub antialias: bool,
     /// Full material shading or one channel shown unlit.
     pub view_mode: ViewMode,
+    /// Display-only floor/axes. None for thumbnails, exports and callers that need no guides.
+    pub grid: Option<GridParams>,
 }
 
 /// What the 3D view shows on the model.
@@ -156,6 +160,7 @@ impl ViewParams {
             background: [0.018, 0.019, 0.022],
             antialias: true,
             view_mode: ViewMode::Material,
+            grid: None,
         }
     }
 }
@@ -185,6 +190,7 @@ pub struct ViewportRenderer {
     pipeline: wgpu::RenderPipeline,
     /// Single-sample pipeline (anti-aliasing off).
     pipeline_no_aa: wgpu::RenderPipeline,
+    grid: grid::GridPass,
     globals: wgpu::Buffer,
     globals_layout: wgpu::BindGroupLayout,
     globals_bg: wgpu::BindGroup,
@@ -323,6 +329,7 @@ impl ViewportRenderer {
         Self {
             pipeline,
             pipeline_no_aa,
+            grid: grid::GridPass::new(device),
             globals,
             globals_layout,
             globals_bg,
@@ -502,6 +509,9 @@ impl ViewportRenderer {
             sh,
         };
         queue.write_buffer(&self.globals, 0, bytemuck::bytes_of(&globals));
+        if let Some(grid) = params.grid {
+            self.grid.prepare(device, queue, params.proj * params.view, params.eye, grid);
+        }
         let target = self.target.as_ref().expect("created above");
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("viewport") });
         {
@@ -538,6 +548,10 @@ impl ViewportRenderer {
                     pass.set_bind_group(1, bg, &[]);
                     pass.draw_indexed(r.first_index..r.first_index + r.index_count, 0, 0..1);
                 }
+            }
+            if params.grid.is_some() {
+                // The mesh depth rejects guides behind it; guides never modify depth or textures.
+                self.grid.draw(&mut pass, params.antialias);
             }
         }
         target.encode_display(&mut encoder);

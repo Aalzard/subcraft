@@ -209,6 +209,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             let view = &state.recovery.prefs.viewport;
             params.antialias = view.antialias;
             params.view_mode = view.view_mode();
+            params.grid = view.grid.then_some(subcraft_render::GridParams {
+                bounds: state.session.scene().mesh.bounds,
+                axes: view.grid_axes,
+            });
             let render_size = view.render_size(size);
             crate::panels::shelf::apply_environment(
                 &state.library,

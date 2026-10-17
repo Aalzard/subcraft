@@ -53,7 +53,8 @@ fn position(output: &egui::FullOutput, label: &str) -> Option<Pos2> {
 #[test]
 fn bar_fits_wide_wrapped_and_tiny_docks_and_hides_for_non_paint_tools() {
     for width in [
-        1280.0, 1125.0, 1020.0, 1000.0, 980.0, 700.0, 540.0, 520.0, 480.0, 420.0, 300.0, 200.0,
+        1280.0, 1125.0, 1060.0, 1040.0, 1020.0, 1000.0, 980.0, 700.0, 540.0, 520.0, 480.0, 420.0,
+        300.0, 200.0,
     ] {
         let (mut state, ctx) = setup();
         state.session.brush.settings.size = 100.0;
@@ -70,7 +71,7 @@ fn bar_fits_wide_wrapped_and_tiny_docks_and_hides_for_non_paint_tools() {
         let brush = position(&output, subcraft_ui::icons::PAINT_BRUSH)
             .expect("tool icons always reachable");
         let view = position(&output, if width >= 540.0 { "Resolution" } else { "View" }).unwrap();
-        if width >= 1000.0 {
+        if width >= 1040.0 {
             assert!((brush.y - view.y).abs() < 3.0, "inline on wide docks");
         } else {
             assert!(brush.y > view.y + 15.0, "stacked rows on narrow docks");
@@ -184,6 +185,49 @@ fn click(state: &mut UiState, ctx: &egui::Context, pos: Pos2) {
         vec![Event::PointerMoved(pos), pointer(pos, true)],
     );
     frame(state, ctx, 1125.0, vec![pointer(pos, false)]);
+}
+
+#[test]
+fn grid_icon_toggles_and_axis_popup_persists_display_preferences_without_history() {
+    let (mut state, ctx) = setup();
+    let doc = state.session.document().clone();
+    assert_eq!(state.recovery.prefs.viewport.grid_axes, [true, false, true]);
+    for _ in 0..3 {
+        frame(&mut state, &ctx, 1125.0, vec![]);
+    }
+    let (out, _) = frame(&mut state, &ctx, 1125.0, vec![]);
+    let p = position(&out, subcraft_ui::icons::GRID).unwrap();
+    click(&mut state, &ctx, p);
+    assert!(!state.recovery.prefs.viewport.grid);
+    click(&mut state, &ctx, p);
+    assert!(state.recovery.prefs.viewport.grid);
+    for pressed in [true, false] {
+        frame(
+            &mut state,
+            &ctx,
+            1125.0,
+            vec![
+                Event::PointerMoved(p),
+                Event::PointerButton {
+                    pos: p,
+                    button: egui::PointerButton::Secondary,
+                    pressed,
+                    modifiers: Default::default(),
+                },
+            ],
+        );
+    }
+    for _ in 0..3 {
+        frame(&mut state, &ctx, 1125.0, vec![]);
+    }
+    let (out, _) = frame(&mut state, &ctx, 1125.0, vec![]);
+    click(&mut state, &ctx, position(&out, "Y · up").unwrap());
+    assert_eq!(state.recovery.prefs.viewport.grid_axes, [true, true, true]);
+    assert_eq!(state.session.document(), &doc);
+    let prefs = &state.recovery.prefs.viewport;
+    let loaded: viewport_bar::ViewportPrefs =
+        serde_json::from_str(&serde_json::to_string(prefs).unwrap()).unwrap();
+    assert_eq!(&loaded, prefs);
 }
 
 #[test]

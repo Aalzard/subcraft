@@ -73,7 +73,7 @@ fn quiet_actions_have_soft_corners_muted_text_and_a_readable_hit_target() {
         .unwrap();
     assert_eq!(background.fill, theme::BG_2);
     assert_eq!(background.stroke.width, 0.0);
-    assert!(background.corner_radius.nw >= 4);
+    assert_eq!(background.corner_radius.nw, 2, "almost-square controls");
     assert!(out.shapes.iter().any(|s| {
         match &s.shape {
             egui::Shape::Text(t) => t

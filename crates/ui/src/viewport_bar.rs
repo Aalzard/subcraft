@@ -20,6 +20,9 @@ pub struct ViewportPrefs {
     pub orthographic: bool,
     /// Index into [`ViewMode::ALL`].
     pub view_mode: usize,
+    /// Display-only floor grid and axis guides. Old preference files receive these defaults.
+    pub grid: bool,
+    pub grid_axes: [bool; 3],
 }
 
 impl Default for ViewportPrefs {
@@ -29,6 +32,8 @@ impl Default for ViewportPrefs {
             antialias: true,
             orthographic: false,
             view_mode: 0,
+            grid: true,
+            grid_axes: [true, false, true],
         }
     }
 }
@@ -60,7 +65,7 @@ pub fn show(ui: &mut Ui, state: &mut crate::state::UiState) {
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width());
             let width = ui.available_width();
-            let inline = width >= 980.0;
+            let inline = width >= 1010.0;
             ui.spacing_mut().item_spacing = egui::vec2(7.0, 6.0);
             ui.horizontal(|ui| {
                 if width < 520.0 {
@@ -71,6 +76,7 @@ pub fn show(ui: &mut Ui, state: &mut crate::state::UiState) {
                         ui.checkbox(&mut prefs.orthographic, "Orthographic");
                         ui.horizontal(|ui| view_mode(ui, prefs));
                     });
+                    grid_control(ui, &mut state.recovery.prefs.viewport);
                 } else {
                     view_controls(ui, &mut state.recovery.prefs.viewport);
                 }
@@ -113,6 +119,44 @@ fn view_controls(ui: &mut Ui, prefs: &mut ViewportPrefs) {
         .on_hover_text("Orthographic · no perspective: parallel lines stay parallel");
     ui.separator();
     view_mode(ui, prefs);
+    grid_control(ui, prefs);
+}
+
+fn grid_control(ui: &mut Ui, prefs: &mut ViewportPrefs) {
+    let response = crate::widgets::icon_toggle(
+        ui,
+        crate::icons::GRID,
+        prefs.grid,
+        "Floor grid · click to show/hide · right-click for axis settings",
+    );
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(egui::WidgetType::Button, true, prefs.grid, "Floor grid")
+    });
+    if response.clicked() {
+        prefs.grid = !prefs.grid;
+    }
+    egui::Popup::context_menu(&response)
+        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+        .show(|ui| {
+            ui.label(RichText::new("Grid & axes").color(TEXT_DIM));
+            ui.checkbox(&mut prefs.grid, "Show grid");
+            ui.separator();
+            for (index, text, color) in [
+                (0, "X · red", egui::Color32::from_rgb(190, 108, 100)),
+                (1, "Y · up", egui::Color32::from_rgb(112, 172, 126)),
+                (2, "Z · blue", egui::Color32::from_rgb(106, 144, 198)),
+            ] {
+                ui.checkbox(
+                    &mut prefs.grid_axes[index],
+                    RichText::new(text).color(color),
+                );
+            }
+            ui.label(
+                RichText::new("Y is hidden by default")
+                    .small()
+                    .color(TEXT_DIM),
+            );
+        });
 }
 
 fn resolution(ui: &mut Ui, prefs: &mut ViewportPrefs) {
@@ -165,6 +209,13 @@ mod tests {
     fn old_preferences_load_with_defaults_and_bad_modes_fall_back() {
         let p: ViewportPrefs = serde_json::from_str("{}").unwrap();
         assert_eq!(p, ViewportPrefs::default());
+        assert!(p.grid);
+        assert_eq!(p.grid_axes, [true, false, true]);
+        let p: ViewportPrefs =
+            serde_json::from_str(r#"{"grid":false,"grid_axes":[false,true,false]}"#).unwrap();
+        let restored: ViewportPrefs =
+            serde_json::from_str(&serde_json::to_string(&p).unwrap()).unwrap();
+        assert_eq!(restored, p);
         let p = ViewportPrefs {
             view_mode: 99,
             ..Default::default()

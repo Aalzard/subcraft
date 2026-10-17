@@ -45,7 +45,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             let row = egui::Frame::new()
                 .fill(theme::ROW_BANDS[index % 2])
                 .inner_margin(egui::Margin::same(8))
-                .corner_radius(4)
+                .corner_radius(2)
                 .show(ui, |ui| {
                     ui.set_min_width(ui.available_width());
                     ui.horizontal(|ui| {
