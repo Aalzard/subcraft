@@ -136,12 +136,45 @@ impl KernelInput<'_> {
         self.tiles_in(triangle_rect(self.mesh.tri_uvs(t as usize), res, res, KERNEL_EXPAND))
     }
 
+    /// Conservative UV bound of a stamp on one triangle. Tangent footprints fit inside the
+    /// candidate sphere; affine world→UV gradients bound its image without sampling a tile.
+    /// Add the raster rim because rim samples use barycentrics clamped onto the triangle.
+    fn stamp_tiles(&self, t: u32, s: &Stamp) -> Vec<usize> {
+        let res = self.geometry.resolution as f32;
+        let reach = crate::stamp::reach(self.alpha.is_some());
+        let (center, radius) = match self.alignment {
+            Alignment::Camera => return self.triangle_tiles(t),
+            Alignment::Uv => (s.uv, Vec2::splat(s.radius_uv * reach)),
+            Alignment::TangentWrap | Alignment::TangentPlanar => {
+                let p = self.mesh.tri_positions(t as usize);
+                let (uv, _) = subcraft_mesh::uv_raster::wrap_to_tile(self.mesh.tri_uvs(t as usize));
+                let e1 = p[1] - p[0];
+                let e2 = p[2] - p[0];
+                let n = e1.cross(e2);
+                let n2 = n.length_squared();
+                if n2 <= 1e-20 { return self.triangle_tiles(t); }
+                let d1 = e2.cross(n) / n2;
+                let d2 = n.cross(e1) / n2;
+                let u = d1 * (uv[1].x - uv[0].x) + d2 * (uv[2].x - uv[0].x);
+                let v = d1 * (uv[1].y - uv[0].y) + d2 * (uv[2].y - uv[0].y);
+                let delta = s.center - p[0];
+                let r = s.radius * reach * if self.alignment == Alignment::TangentPlanar { std::f32::consts::SQRT_2 } else { 1.0 };
+                (uv[0] + Vec2::new(u.dot(delta), v.dot(delta)), Vec2::new(u.length(), v.length()) * r)
+            }
+        };
+        let lo = (center - radius) * res - Vec2::splat(KERNEL_EXPAND + 1.0);
+        let hi = (center + radius) * res + Vec2::splat(KERNEL_EXPAND + 1.0);
+        let rect = IRect::new(lo.x.floor() as i32, lo.y.floor() as i32, hi.x.ceil() as i32, hi.y.ceil() as i32)
+            .intersect(&triangle_rect(self.mesh.tri_uvs(t as usize), self.geometry.resolution, self.geometry.resolution, KERNEL_EXPAND));
+        self.tiles_in(rect)
+    }
+
     /// Bin a batch of stamps by tile.
     pub fn bin(&self, stamps: &[Stamp]) -> BTreeMap<usize, TileWork> {
         let mut bins: BTreeMap<usize, TileWork> = BTreeMap::new();
         for (si, s) in stamps.iter().enumerate() {
             for t in self.candidates(s) {
-                for tile in self.triangle_tiles(t) {
+                for tile in self.stamp_tiles(t, s) {
                     let w = bins.entry(tile).or_default();
                     w.tris.insert(t);
                     w.stamps.insert(si as u32);
