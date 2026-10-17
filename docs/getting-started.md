@@ -1,5 +1,9 @@
 # Getting started with SubCraft
 
+For the latest local development build, open **target/release/subcraft.exe** in the SubCraft
+folder. It contains the final panel-contrast update; older toolbar/panels/preview build names
+are obsolete. Build-cache cleanup was blocked by the environment and remains pending.
+
 The welcome hub and in-app guide are in development for the next desktop release. In v0.1.4,
 use **File → New from mesh…** or **File → New (sample crate)** to follow these steps.
 

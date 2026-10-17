@@ -5,6 +5,10 @@ stated), `[ ]` not started. The owner's UI refinement requests (sessions 54–61
 Resume Phase 1 before the remaining Phase 2 work. Existing features are extended,
 not replaced. See progress.md for exact test and real-app verification evidence.
 
+Build housekeeping (session 62): latest tested binary consolidated into
+`target/release/subcraft.exe`. Removing obsolete versions/caches remains blocked by automatic
+approval review; no artifacts were deleted. This does not change feature completion below.
+
 ## Phase 1 — Projection painting
 
 - [x] Per-channel image sources (Base Color, Roughness, Metallic, Height, Normal, and other

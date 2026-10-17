@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-10-18 (session 61: clearer alternating panel rows)
+Last updated: 2026-10-18 (session 62: latest executable consolidated; cleanup blocked)
 
 ## Decisions
 
@@ -1369,7 +1369,30 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   still contains the previous palette; open the preview for this change. Existing deletions
   of tracked historical screenshots were preserved unstaged; only this new screenshot is added.
 
+### Session 62 — consolidate the final build; deletion blocked (2026-10-18)
+
+* Owner requested removal of older versions and their disk usage. Read-only inventory found
+  ~18.91 GB in target/debug and ~3.27 GB in target/release, plus old 0.1.0 dist artifacts.
+  No app/compiler process was running at the check. Copied the final tested preview into
+  `target/release/subcraft.exe` and verified SHA256
+  `0BBDF48783CE6E38F88DD25EA7B65EBF81D76C5D83F17A216696AF6A09479959`.
+  This is now the normal launch path; preview and standard contain the same latest palette.
+* **Cleanup remains incomplete.** Automatic approval review rejected the guarded bulk cleanup
+  and the narrower explicit `Remove-Item` of `target/debug`, with only “blocked by policy”.
+  Neither deletion executed; no older versions/caches were removed and no disk space was
+  reclaimed. Do not report this cleanup as complete or bypass that review decision.
+* Before consolidation: **374 workspace tests passed, 0 failed, 0 ignored**; Clippy workspace /
+  all targets exits 0 with existing warnings. Afterwards, the normal executable ran the native
+  Windows D3D12 demo/screenshot workflow successfully and exited 0, with output in
+  `%TEMP%/subcraft-cleanup-final.png`. Existing `screenshots/panel-row-contrast.png` depicts
+  this identical binary. No source/visual changes, new tests, schema or ADR needed. No new
+  hand checks, other platforms or 4K profiling. Protected files and existing screenshot
+  deletions were left untouched. Nothing pushed/released.
+
 ## Next steps (in order)
+
+Pending owner cleanup request: remove obsolete build artifacts only when the environment's
+deletion restriction permits it, retaining the verified `target/release/subcraft.exe` above.
 
 The owner's full ordered checklist is in **brush-roadmap.md**. Sessions 54–61 completed the
 owner's explicit UI priority overrides. Resume the original brush phase order:

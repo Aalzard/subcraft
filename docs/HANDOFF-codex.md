@@ -6,14 +6,22 @@
 - `cargo test --workspace`: **374 passed, 0 failed, 0 ignored**. Clippy
   `--workspace --all-targets`: exit 0, existing warnings only. Native Windows/RTX 4060 D3D12 ran.
 
-Done this session (session 61):
+Session 62 — cleanup requested; partial:
+- Latest preview copied to `target/release/subcraft.exe`; SHA256
+  `0BBDF48783CE6E38F88DD25EA7B65EBF81D76C5D83F17A216696AF6A09479959` matches.
+  Native demo/screenshot smoke test exits 0. No source/visual changes. Tests above rerun.
+- Deletion stops at the shell tool: automatic approval review rejected bulk cleanup and the
+  safer explicit target/debug deletion, saying only “blocked by policy”. Neither ran. No space
+  reclaimed; ~22.2 GB of build artifacts and old dist packages still present. Do not bypass
+  this restriction or claim cleanup complete. Protected files and user deletions untouched.
+
+Session 61 — panel contrast complete:
 - Strengthened initially too-faint panel bands to 10–13 RGB levels apart in theme.rs; section
   headers are clearer too. Shared widgets keep hover brighter than both shades and orange
   selection dominant. Added actual pointer/color regression; no app/document/paint change.
 - Native CLI screenshot verified Parts/History/Layers and Brush headers:
   `docs/screenshots/panel-row-contrast.png`. Current test build: `target/release/subcraft-preview.exe`.
-  Owner's running `target/release/subcraft.exe` remains the previous build; do not overwrite
-  or close it while running/unsaved. Refresh it after the owner closes it, or test the preview.
+  Standard and preview now contain this same latest build (consolidated in session 62).
 
 Prior UI priorities (complete in sessions 54–60):
 - Compact Brush/Eraser/Fill icons, unboxed Size/Opacity, Flow/Hardness slider popovers; full
@@ -44,7 +52,7 @@ Stops/limits:
 - No failing/ignored tests remain. One initial async shelf-import polling test flaked under a
   concurrent build; full reruns passed without weakening it. Full 4K frame pacing is unmeasured;
   prior CPU 4K stroke-to p95 1.68ms/max 3.72ms is not whole-frame certification.
-- Owner app windows/data were left untouched. Standard and preview executables now differ.
+- Owner app windows/data were left untouched. Standard and preview now match.
 
 Keep: dependency direction; tiled COW storage; one undo per stroke; immutable source snapshots;
 shared RNM; one app brush settings/options store. Grid/UI size are display preferences only.
@@ -52,8 +60,8 @@ Project schema stays 4, brush preset version 2. See ADRs 0011–0015. Owner ques
 future X color-swap conflicts with the existing X mirror shortcut; resolve when editing shortcuts.
 
 Next 3 steps:
-1. Have the owner inspect the latest preview's row contrast; refresh the standard executable
-   after it exits, then smoke-test grid/symmetry popovers, scale/reset and pen/stencil mapping.
+1. Resolve the environment deletion restriction before completing artifact cleanup; preserve
+   the standard executable/hash above. Then resume pending native UI gesture checks.
 2. Implement camera/per-stamp sources in Stroke with batching/symmetry/alpha/undo numeric tests.
 3. Finish projection/mirrored-tangent normal reorientation, then follow the ordered roadmap for
    async brush drops, complex-model checks and full 4K paint→composite→upload profiling.
