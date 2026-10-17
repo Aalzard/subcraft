@@ -286,7 +286,7 @@ fn list_row_background(ui: &mut Ui, selected: bool, sense: Sense, band: Option<C
         painter.rect_filled(rect, CornerRadius::ZERO, ACCENT_SOFT);
         painter.rect_filled(Rect::from_min_size(rect.min, egui::vec2(2.0, rect.height())), CornerRadius::ZERO, ACCENT);
     } else if resp.hovered() {
-        painter.rect_filled(rect, CornerRadius::ZERO, theme::BG_2);
+        painter.rect_filled(rect, CornerRadius::ZERO, if band.is_some() { BG_3 } else { theme::BG_2 });
     } else if let Some(color) = band {
         painter.rect_filled(rect, CornerRadius::ZERO, color);
     }

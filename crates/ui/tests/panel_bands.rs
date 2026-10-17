@@ -66,7 +66,10 @@ fn panel_headers_and_properties_alternate_independently_and_reset_each_frame() {
         .zip(theme::ROW_BANDS[1].to_array())
         .take(3)
     {
-        assert!((3..=8).contains(&a.abs_diff(b)), "restrained band contrast");
+        assert!(
+            (10..=14).contains(&a.abs_diff(b)),
+            "visible but restrained band contrast"
+        );
     }
 }
 
@@ -114,6 +117,75 @@ fn parts_history_and_layers_render_full_width_bands_without_document_edits() {
         );
         assert_eq!(state.session.document(), &before);
         assert_eq!(state.session.history().entries().len(), history);
+    }
+}
+
+#[test]
+fn hovering_either_band_brightens_it_and_selection_still_wins() {
+    let ctx = egui::Context::default();
+    theme::apply(&ctx);
+    let mut rows: Vec<Rect> = Vec::new();
+    // Warm layout, then move over each alternating row and the selected row.
+    for target in [None, None, Some(0), Some(1), Some(2)] {
+        let events = target.map_or_else(Vec::new, |index| {
+            vec![Event::PointerMoved(rows[index].center())]
+        });
+        rows.clear();
+        let mut out = ctx.run_ui(
+            egui::RawInput {
+                events,
+                ..Default::default()
+            },
+            |ui| {
+                for index in 0..3 {
+                    rows.push(
+                        widgets::striped_list_row(
+                            ui,
+                            index,
+                            index == 2,
+                            egui::Sense::click(),
+                            |ui| {
+                                ui.label("Row");
+                            },
+                        )
+                        .rect,
+                    );
+                }
+            },
+        );
+        out.textures_delta.clear();
+        let fills = colors(
+            &out,
+            &[
+                theme::ROW_BANDS[0],
+                theme::ROW_BANDS[1],
+                theme::BG_3,
+                theme::ACCENT_SOFT,
+            ],
+        );
+        let fill = |index: usize| {
+            fills
+                .iter()
+                .find(|(rect, _)| *rect == rows[index])
+                .unwrap()
+                .1
+        };
+        assert_eq!(fill(2), theme::ACCENT_SOFT);
+        for index in 0..2 {
+            let color = fill(index);
+            if target == Some(index) {
+                for (hover, base) in color
+                    .to_array()
+                    .into_iter()
+                    .zip(theme::ROW_BANDS[index].to_array())
+                    .take(3)
+                {
+                    assert!(hover > base, "hover must brighten either alternating band");
+                }
+            } else {
+                assert_eq!(color, theme::ROW_BANDS[index]);
+            }
+        }
     }
 }
 

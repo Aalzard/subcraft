@@ -13,8 +13,8 @@ pub const BG_2: Color32 = Color32::from_rgb(29, 31, 35); // header bar, tab bar,
 pub const BG_3: Color32 = Color32::from_rgb(38, 40, 46); // controls
 pub const BG_4: Color32 = Color32::from_rgb(48, 51, 58); // hovered controls
 /// Quiet alternating bands, below the contrast of hover and selection.
-pub const ROW_BANDS: [Color32; 2] = [BG_1, Color32::from_rgb(27, 29, 33)];
-pub const SECTION_BANDS: [Color32; 2] = [Color32::from_rgb(27, 29, 33), Color32::from_rgb(31, 33, 38)];
+pub const ROW_BANDS: [Color32; 2] = [BG_1, Color32::from_rgb(32, 34, 39)];
+pub const SECTION_BANDS: [Color32; 2] = [Color32::from_rgb(24, 26, 30), Color32::from_rgb(34, 36, 41)];
 pub const FIELD: Color32 = Color32::from_rgb(16, 17, 20); // text fields, slider rails
 
 pub const BORDER: Color32 = Color32::from_rgb(40, 43, 49);
