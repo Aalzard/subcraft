@@ -1,7 +1,8 @@
 # Brush roadmap
 
 Owner's ordered roadmap, tracked from 2026-10-17. `[x]` complete, `[~]` partial (remaining work
-stated), `[ ]` not started. Finish Phase 1 before starting Phase 2. Existing features are extended,
+stated), `[ ]` not started. Resume Phase 1 after the owner's essential-bar priority override
+(session 54); the remaining Phase 2 work still follows it. Existing features are extended,
 not replaced. See progress.md for exact test and real-app verification evidence.
 
 ## Phase 1 — Projection painting
@@ -23,9 +24,11 @@ not replaced. See progress.md for exact test and real-app verification evidence.
 
 ## Phase 2 — Top brush settings bar and guides in 3D / 2D
 
-- [ ] Always-visible paint-tool bar: tool, tip thumbnail, size, flow, opacity, hardness, spacing,
-  smoothing mode/strength, symmetry, projection, texture chips, preset dropdown.
-- [ ] Bar/panel use the same app state; narrow-window collapse.
+- [~] Owner priority override (2026-10-18): the essential 3D bar was requested before finishing
+  Phase 1. Tool, Size/Flow/Opacity/Hardness now sit beside viewport controls; tip thumbnail,
+  spacing/smoothing, symmetry/projection, texture chips and preset dropdown remain.
+- [x] Essential bar uses the same app settings/presets/shortcuts; narrow docks wrap/collapse.
+  Duplicate primary controls moved out of the side panel; advanced controls remain there.
 - [~] Brush outline (existing 3D cursor); surface-following outline and 2D outline still required.
 - [ ] Tip preview and live size/flow/opacity readout during hold-key drags.
 - [ ] Lazy-mouse string, straight-line / angle-snap guides with degrees, shape handles.

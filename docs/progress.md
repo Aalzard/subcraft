@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-10-18 (sessions 52–53: brush tile bounds and channel-image painting)
+Last updated: 2026-10-18 (session 54: compact viewport brush controls)
 
 ## Decisions
 
@@ -1147,13 +1147,46 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   pacing remain. Phases 2–9 have not started. ADR-0011, brush-roadmap.md, getting-started.md and
   HANDOFF-codex.md record the contracts and continuation. Implementation commit: `44fae8d`.
 
+### Session 54 — compact brush controls beside the viewport settings (2026-10-18)
+
+* Owner priority override: move essential controls to the top of 3D View before finishing the
+  remaining projection work. `ui::viewport_bar` / `ui::brush_bar` place Brush/Eraser/Fill,
+  Size, Flow, Opacity and Hardness beside Resolution, AA, Ortho and material/channel display.
+  A vertical hairline separates the groups; the strip has a full-width subtle bottom border.
+  Size/Hardness use short sliders plus numeric boxes; Flow/Opacity are draggable percentages.
+  Double-click a field to type. Duplicate essentials were removed from the Brush panel; its
+  materials, presets and advanced settings remain.
+* Narrow docks use a second row, then all-numeric controls, then View/tool menus. The menu
+  collapses early enough for maximum-width values (100% / 100.0%) to fit. `app` owns new
+  `Command::SetBrushSettings` validation/ranges; the bar reads the same Session settings used
+  by presets, shortcuts and strokes. No extra settings store, project schema or undo entry.
+* Four new tests: app command/preset consistency, ranges, non-finite rejection, no document
+  history and active-stroke guard; real egui opacity dragging and external shortcut reflection;
+  layout at nine widths (200–1280 px) including maximum values, tool visibility; tiny-menu
+  access to every essential setting. **356 workspace tests passed, 0 failed, 0 ignored**;
+  `cargo clippy --workspace --all-targets` passes with existing warnings. No texel-writing
+  change; the existing numeric paint acceptance suite remains green.
+* Verified in the native app on Windows / RTX 4060 D3D12: wide inline strip, double-click
+  Opacity → type 65 → Enter, Size slider changing the live brush/status-bar size to 50%, and
+  history remaining at Open Project. Final build screenshots: `screenshots/brush-top-bar-wide.jpg`
+  and `screenshots/brush-top-bar-wrapped.png` (actual 1600px app screenshot run). Both final app
+  runs closed cleanly, without changing the fixture project. **Not verified by hand:** native
+  continuous dragging (automation did not yield a useful drag), tiny-menu interaction, all
+  other controls/preset round trips, Linux/macOS/browser/tablets or full 4K frame pacing.
+  The egui tests exercise the drag and tiny menu; this is distinct from native gesture testing.
+* The owner's existing debug build was running/locked and was left open. A separate optimized
+  `target/release/subcraft.exe` was built for this UI check. No push or release publication.
+  Implementation commit: `92ed2f6`; ADR-0012 records the shared-state/layout decisions.
+
 ## Next steps (in order)
 
-The owner's full ordered checklist is in **brush-roadmap.md**. Finish each phase before the next:
+The owner's full ordered checklist is in **brush-roadmap.md**. Session 54's essential bar was an
+explicit owner priority override; resume the remaining phase order below:
 1. **Finish Phase 1**: camera/per-stamp source accumulation with batch-equivalence tests, normal
    frame reorientation, async starter-pack brush destinations, remaining native checks and full
    4K frame profiling on a complex model. Static channel images are complete (session 53).
-2. Top brush settings bar and 3D/2D overlays, hints/toasts/warnings with View/per-tool switches.
+2. Expand the essential top bar (session 54) with tip/presets/projection/etc., then 3D/2D
+   overlays and hints/toasts/warnings with View/per-tool switches.
 3. Smoothing models/presets, locked/snapped/chained lines, projected shapes, repeat/taper.
 4. Tip editor, dual/sequence/grain tips, jitter and pen/speed/mouse dynamics.
 5. Radial/custom/topological symmetry, UV repetition/arrays/kaleidoscope (mirror already exists).

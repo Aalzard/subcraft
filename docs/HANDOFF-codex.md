@@ -1,12 +1,16 @@
 # Handoff to Claude — 2026-10-18
 
 - Branch: `feature/brush-roadmap`, from `origin/main` `cef93c9`; nothing pushed/released.
-- Last implementation commit: `44fae8df34087bf7daac794e0323eaf4b301a9ff`; preceding perf commit
-  `b00ad54`. This handoff is in the final documentation commit (`git rev-parse HEAD` after checkout).
-- `cargo test --workspace`: **352 passed, 0 failed, 0 ignored** (11 new). Clippy
+- Last implementation commit: `92ed2f6330bd865634ac2eb74b3a9aefda2ddfee`; prior
+  projection commit `44fae8d`, perf `b00ad54`. This handoff is in the final documentation commit
+  (`git rev-parse HEAD` after checkout).
+- `cargo test --workspace`: **356 passed, 0 failed, 0 ignored** (4 new this session). Clippy
   `--workspace --all-targets`: exit 0, existing warnings only. Debug app/release example ran.
 
 Done:
+- Session 54: compact Size/Flow/Opacity/Hardness beside 3D viewport settings, short sliders /
+  draggable numeric boxes, responsive rows/menus, shared `SetBrushSettings` app command.
+- Owner explicitly moved this essential Phase 2 toolbar slice ahead of remaining Phase 1 work.
 - Conservative UV tile bounds; bit-exact comparison against original full-triangle coverage.
 - Per-channel brush images, whole-material import, UV/planar/triplanar transforms/addressing.
 - Normal Replace/Detail with normalized output, shared core RNM; DX/gloss conversion reused.
@@ -15,7 +19,8 @@ Done:
   `docs/screenshots/brush-projection-normal-*.jpg` images. Full checklist in brush-roadmap.md.
 
 Stops/limits:
-- Phase 1 partial; no Phase 2+ work. `paint/src/stroke.rs::Stroke::write` samples static
+- Phase 1 partial; Phase 2 essential toolbar done, overlays/full bar still pending.
+  `paint/src/stroke.rs::Stroke::write` samples static
   sources after coverage. Camera/per-stamp need stamp-dependent source accumulation, not this
   post-coverage method. `paint/src/target.rs::TargetImage::compute_tile` owns snapshot blending.
 - Projection-frame / mirrored-UV tangent-vector reorientation is missing, as in fill sampling.
@@ -27,11 +32,20 @@ Stops/limits:
 - 4K CPU textured stroke-to: p95 1.68 ms, max/cold 3.72 ms, 1,000 inputs / 164 ms total;
   many inputs emit no stamp. Reproducer `cargo run -p subcraft-app --release --example
   brush_projection -- <scratch-dir>`. Whole-frame compositor/upload pacing remains unmeasured.
+- Toolbar continuation: `ui/src/viewport_bar.rs::show` / `ui/src/brush_bar.rs::show` own layout;
+  `app/src/session.rs::Session::execute` owns settings validation. No new tool-data/preset fields.
+  `target/release/subcraft.exe` is the updated local test build. The owner's running debug exe
+  was locked during build and deliberately left open/unchanged; save before switching builds.
+- Session 54 native checks: numeric Opacity entry to 65%, Size slider to 50%, unchanged history;
+  final wide/wrapped app screenshots `docs/screenshots/brush-top-bar-wide.jpg` and
+  `brush-top-bar-wrapped.png`. Native continuous drag/tiny-menu gestures, other platforms,
+  tablet input and full 4K pacing remain unverified; synthetic egui drag/menu tests pass.
 
 Keep: architecture dependency direction; COW tiled rasters; pre-stroke immutable source capture;
-one undo per stroke; image alpha × capped coverage; shared RNM. Tool state uses preset v2, not
+one undo per stroke; image alpha × capped coverage; shared RNM; one app brush settings store.
+Tool state uses preset v2, not
 new document source data, so project schema 4 stays unchanged. See ADR-0011. Do not touch the
-owner's untracked ZIPs, output/, generate_textures.py or __pycache__/.
+owner's untracked ZIPs, output/, generate_textures.py or __pycache__/. See ADR-0012 for the toolbar.
 
 Open owner questions (not blocking): should whole-material brush import offer to add missing
 texture-set channels (currently reports/skips), and should Detail optionally sample lower layers

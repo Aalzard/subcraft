@@ -55,6 +55,22 @@ Right-drag orbits, the wheel zooms, and **Home** resets the camera.
 
 ### Paint a normal map or material onto a paint layer
 
+The essential brush settings are now **above the 3D View**, beside Resolution, **AA**
+(anti-aliasing), **Ortho** (orthographic) and the material/channel display. A thin divider
+separates the brush controls. Use the short **Size** and **Hardness** sliders, or drag their
+number fields. **Flow** and **Opacity** are compact percentage boxes: drag left/right to adjust,
+or double-click to type a value. Size is a percentage of the model's diagonal; the other three
+show 0–100%. The **Brush** menu switches between Brush, Eraser and Fill.
+
+In narrower docks the brush controls move to a second top row, then switch to number fields.
+In tiny docks, open the **Brush/Eraser/Fill** menu for all four settings; **View** holds the
+viewport options. Advanced settings, channel images and presets remain in the Brush panel.
+Changes from the bar, existing size shortcuts and presets use the same brush state.
+
+![Compact brush controls beside the viewport settings](screenshots/brush-top-bar-wide.jpg)
+
+![A narrower viewport uses a second row without crowding](screenshots/brush-top-bar-wrapped.png)
+
 Select an ordinary **paint layer**, choose **Brush (B)**, and set **Paint on → Layer** in the
 Brush panel. In **Material**, use the channel's **Choose image…** (or **Replace…**) button.
 For a normal-only stroke, uncheck the other channels. **Clear image** restores that channel's
