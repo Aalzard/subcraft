@@ -53,10 +53,15 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         let mut request = None;
         egui::ScrollArea::vertical().id_salt("model-parts-list").max_height(230.0).min_scrolled_height(0.0).show(ui, |ui| {
             if parts.is_empty() { ui.label("No imported object names. Try connected pieces or UV islands."); }
-            for part in parts {
+            ui.spacing_mut().item_spacing.y = 1.0;
+            for (index, part) in parts.into_iter().enumerate() {
                 let key = part.key();
                 let visible = state.session.part_visible(key);
-                let resp = ui.add(egui::Label::new(RichText::new(&part.name).color(if visible { theme::TEXT } else { theme::TEXT_FAINT })).sense(egui::Sense::click()));
+                let resp = crate::widgets::striped_list_row(ui, index, false, egui::Sense::click(), |ui| {
+                    let icon = if visible { crate::icons::CUBE } else { crate::icons::EYE_SLASH };
+                    ui.label(RichText::new(icon).font(theme::font(14.0)).color(theme::TEXT_FAINT));
+                    ui.add(egui::Label::new(RichText::new(&part.name).color(if visible { theme::TEXT } else { theme::TEXT_FAINT })).truncate().selectable(false));
+                });
                 let materials: Vec<_> = part.materials.iter().map(|&m| format!("{} ({m})", state.session.scene().mesh.materials[m as usize].name)).collect();
                 resp.clone().on_hover_text(format!("{} triangles · {}", part.triangles, materials.join(", ")));
                 resp.context_menu(|ui| {

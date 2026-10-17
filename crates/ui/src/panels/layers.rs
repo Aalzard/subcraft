@@ -11,7 +11,7 @@ use subcraft_doc::{BlendMode, Layer, LayerKind};
 use crate::icons;
 use crate::state::UiState;
 use crate::theme::{self, ACCENT, PAD, TEXT_DIM, TEXT_FAINT};
-use crate::widgets::{badge, divider, empty_state, fill_width, icon_button, list_row_sense, prop_row, row_text};
+use crate::widgets::{badge, divider, empty_state, fill_width, icon_button, striped_list_row, prop_row, row_text};
 
 // Folder drop zones and inline rename adapted from CalangoTech's Studio fork (bd6c064).
 #[derive(Clone, Copy)]
@@ -162,10 +162,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         if list.is_empty() {
             empty_state(ui, icons::STACK, "No layers yet. Add one above.");
         }
-        for (depth, l) in &list {
+        for (index, (depth, l)) in list.iter().enumerate() {
             let selected = sel == Some(l.id);
             let b = l.blend_for(active);
-            let resp = ui.push_id(l.id, |ui| list_row_sense(ui, selected, egui::Sense::click_and_drag(), |ui| {
+            let resp = ui.push_id(l.id, |ui| striped_list_row(ui, index, selected, egui::Sense::click_and_drag(), |ui| {
                 ui.add_space(*depth as f32 * 16.0);
                 if let subcraft_doc::LayerContent::Group(group) = &l.content {
                     let icon = if group.expanded { icons::CARET_DOWN } else { icons::CARET_RIGHT };

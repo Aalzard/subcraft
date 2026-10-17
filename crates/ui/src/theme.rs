@@ -12,6 +12,9 @@ pub const BG_1: Color32 = Color32::from_rgb(22, 23, 26); // panels
 pub const BG_2: Color32 = Color32::from_rgb(29, 31, 35); // header bar, tab bar, cards
 pub const BG_3: Color32 = Color32::from_rgb(38, 40, 46); // controls
 pub const BG_4: Color32 = Color32::from_rgb(48, 51, 58); // hovered controls
+/// Quiet alternating bands, below the contrast of hover and selection.
+pub const ROW_BANDS: [Color32; 2] = [BG_1, Color32::from_rgb(27, 29, 33)];
+pub const SECTION_BANDS: [Color32; 2] = [Color32::from_rgb(27, 29, 33), Color32::from_rgb(31, 33, 38)];
 pub const FIELD: Color32 = Color32::from_rgb(16, 17, 20); // text fields, slider rails
 
 pub const BORDER: Color32 = Color32::from_rgb(40, 43, 49);
@@ -32,7 +35,7 @@ pub const WARNING: Color32 = Color32::from_rgb(240, 196, 110);
 /// Panel content padding.
 pub const PAD: i8 = 12;
 /// Height of rows in lists (layers, history, texture sets).
-pub const ROW_HEIGHT: f32 = 30.0;
+pub const ROW_HEIGHT: f32 = 34.0;
 /// Width of the label column in property rows.
 pub const LABEL_WIDTH: f32 = 84.0;
 
