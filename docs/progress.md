@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-10-18 (session 60: saved UI size; all requested UI refinements complete)
+Last updated: 2026-10-18 (session 61: clearer alternating panel rows)
 
 ## Decisions
 
@@ -1347,9 +1347,31 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   brush roadmap remains partial as listed below. Nothing pushed or released; protected ZIPs,
   output/, generate_textures.py and __pycache__/ untouched. Documentation/handoff is the final commit.
 
+### Session 61 — make alternating panel rows visible (2026-10-18)
+
+* Owner reported that the row colors were not visible enough. `ui::theme` increases the
+  Parts/History/Layers and shared property/card bands from 5–7 RGB levels apart to 10–13:
+  dark (22, 23, 26), lighter (32, 34, 39). Section headers also get clearer alternating
+  charcoal shades. Text brightness and the almost-square controls stay as requested.
+  `ui::widgets::list_row_background` brightens hovered striped rows above either band;
+  selected rows retain orange priority. No document, preset, schema or paint changes.
+* Updated the actual rendered-color acceptance bound and added an egui pointer test for both
+  alternating hover states and selection priority. Existing tests still inspect full-width
+  stripes in the real Parts/History/Layers panel functions and child-control click routing.
+  **374 workspace tests passed, 0 failed, 0 ignored**; `cargo clippy --workspace --all-targets`
+  exits 0 with existing warnings. ADR-0013 and the getting-started guide record the refinement.
+* Verified visually in the actual Windows / RTX 4060 D3D12 app using native CLI screenshot
+  mode (`--demo --brush-panel --screenshot`): `screenshots/panel-row-contrast.png` shows
+  distinguishable Parts/History/Layers rows and alternating Brush section headers. Preview:
+  `target/release/subcraft-preview.exe`. **Not verified by hand:** native pointer/selection
+  gestures, other displays/DPI/platforms or full 4K frame pacing; synthetic egui events cover
+  hover/selection. The owner's running standard executable/window was left untouched and
+  still contains the previous palette; open the preview for this change. Existing deletions
+  of tracked historical screenshots were preserved unstaged; only this new screenshot is added.
+
 ## Next steps (in order)
 
-The owner's full ordered checklist is in **brush-roadmap.md**. Sessions 54–60 completed the
+The owner's full ordered checklist is in **brush-roadmap.md**. Sessions 54–61 completed the
 owner's explicit UI priority overrides. Resume the original brush phase order:
 1. **Finish Phase 1**: camera/per-stamp source accumulation with batch-equivalence tests, normal
    frame reorientation, async starter-pack brush destinations, remaining native checks and full

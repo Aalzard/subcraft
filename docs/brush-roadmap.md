@@ -1,7 +1,7 @@
 # Brush roadmap
 
 Owner's ordered roadmap, tracked from 2026-10-17. `[x]` complete, `[~]` partial (remaining work
-stated), `[ ]` not started. The owner's UI refinement requests (sessions 54–60) are complete.
+stated), `[ ]` not started. The owner's UI refinement requests (sessions 54–61) are complete.
 Resume Phase 1 before the remaining Phase 2 work. Existing features are extended,
 not replaced. See progress.md for exact test and real-app verification evidence.
 
@@ -33,6 +33,8 @@ not replaced. See progress.md for exact test and real-app verification evidence.
   Flow meter / Hardness dot with slider popovers, full Anti-aliasing label, wider default canvas.
 - [x] Panel readability refinement: subtle alternating Parts/History/Layers rows, taller rows,
   banded Brush/Properties sections and property rows, section/part icons; ADR-0013.
+  Session 61 strengthens the initially too-faint charcoal contrast and keeps hover brighter
+  than either shade; selection retains priority.
 - [x] Owner-requested 3D grid: subtle floor lines, red X / green Y / blue Z guides, Y hidden by
   default, top-toolbar grid icon toggle / right-click axis popup and saved viewport preferences.
   GPU depth/projection/AA acceptance and native CLI screenshot; ADR-0014.

@@ -3,7 +3,10 @@
 Status: Accepted (2026-10-18).
 
 Parts, History and Layers use full-width 34px rows alternating between two charcoal colors
-only 5–7 RGB levels apart. Hover and the existing orange selection take precedence. Indented
+with RGB (22, 23, 26) / (32, 34, 39), 10–13 levels apart. The original 5–7-level
+separation proved too faint in actual use; this follow-up keeps the charcoal palette but makes
+the alternation legible. Hover brightens either band to (38, 40, 46), and the existing orange
+selection takes precedence. Section headers alternate (24, 26, 30) / (34, 36, 41). Indented
 layer children stripe in visible order; folder/visibility/opacity controls retain input priority.
 Parts uses the same row geometry, with a cube/hidden icon and its existing context-menu actions.
 

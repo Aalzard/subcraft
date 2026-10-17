@@ -87,13 +87,14 @@ Use **View → Reset layout** to adopt the wider default, or drag the dock divid
 
 ![Flow slider opened from the toolbar](screenshots/brush-toolbar-flow.jpg)
 
-Parts, History and Layers now use subtle alternating row shading and more vertical space.
-The current history step and selected layer keep their orange highlight. Hidden Parts use a
+Parts, History and Layers use alternating dark/lighter charcoal rows and more vertical space.
+The shading has been strengthened so adjacent rows are easier to distinguish. Hover brightens
+either shade; the current history step and selected layer keep their orange highlight. Hidden Parts use a
 crossed-eye icon; right-click any part row for the existing actions. Brush and Properties use
 banded section headers with icons: click a header/caret to expand it. The property rows inside
 also alternate gently. Existing controls, context menus and shortcuts behave the same way.
 
-![Subtle bands in Parts, History, Layers and Properties](screenshots/panel-row-bands.png)
+![Clearer charcoal bands in Parts, History, Layers and Brush](screenshots/panel-row-contrast.png)
 
 Click the **grid icon** beside the material/view controls to show or hide the subtle 3D floor
 and direction guides. **Right-click** that icon for axis settings: **X is red**, **Y is green
