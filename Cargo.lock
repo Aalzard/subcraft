@@ -3521,7 +3521,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "subcraft"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "anyhow",
  "eframe",
@@ -3539,7 +3539,7 @@ dependencies = [
 
 [[package]]
 name = "subcraft-app"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "anyhow",
  "dirs",
@@ -3575,7 +3575,7 @@ dependencies = [
 
 [[package]]
 name = "subcraft-assets"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "dirs",
  "glam",
@@ -3593,7 +3593,7 @@ dependencies = [
 
 [[package]]
 name = "subcraft-bake"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "glam",
  "half",
@@ -3607,7 +3607,7 @@ dependencies = [
 
 [[package]]
 name = "subcraft-compositor"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "glam",
  "half",
@@ -3622,7 +3622,7 @@ dependencies = [
 
 [[package]]
 name = "subcraft-core"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "bytemuck",
  "glam",
@@ -3635,7 +3635,7 @@ dependencies = [
 
 [[package]]
 name = "subcraft-doc"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "glam",
  "log",
@@ -3648,7 +3648,7 @@ dependencies = [
 
 [[package]]
 name = "subcraft-export"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "glam",
  "half",
@@ -3667,7 +3667,7 @@ dependencies = [
 
 [[package]]
 name = "subcraft-image"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "bytemuck",
  "half",
@@ -3680,7 +3680,7 @@ dependencies = [
 
 [[package]]
 name = "subcraft-materials"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "glam",
  "parking_lot",
@@ -3694,7 +3694,7 @@ dependencies = [
 
 [[package]]
 name = "subcraft-mesh"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "bytemuck",
  "glam",
@@ -3712,7 +3712,7 @@ dependencies = [
 
 [[package]]
 name = "subcraft-paint"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "glam",
  "half",
@@ -3729,7 +3729,7 @@ dependencies = [
 
 [[package]]
 name = "subcraft-preview"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "glam",
  "rayon",
@@ -3743,7 +3743,7 @@ dependencies = [
 
 [[package]]
 name = "subcraft-project"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "bytemuck",
  "glam",
@@ -3762,7 +3762,7 @@ dependencies = [
 
 [[package]]
 name = "subcraft-render"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "bytemuck",
  "egui-wgpu",
@@ -3778,7 +3778,7 @@ dependencies = [
 
 [[package]]
 name = "subcraft-ui"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "eframe",
  "egui",
