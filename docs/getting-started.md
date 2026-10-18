@@ -231,6 +231,18 @@ restore its tool setup. There are no new keyboard shortcuts in this slice.
 
 ## 5. Save your project
 
+### Example: CORE-07 sci-fi cube
+
+The local [CORE-07 artwork](../artworks/CORE-07/README.md) demonstrates a 4K high-to-low bake,
+PBR materials and editable masks. Open `artworks/CORE-07/CORE-07.subcraft` in SubCraft 0.1.7+.
+Click the armor/service layer's content square to edit its material, or a mask square to paint
+coverage. The top wear and grime layers expose Generator + Levels settings driven by the baked
+curvature and AO. Add a Paint layer for freehand additions. The companion asset ZIP includes
+low/high OBJ models, raw bakes, standard PBR maps, Unreal maps and renders. On a fresh checkout,
+generate these local files using the recipe in the artwork README.
+
+![CORE-07 loaded in the desktop application](screenshots/core-07-native.png)
+
 On desktop, procedural layers update in the background. During a large 4K edit, the model may
 briefly show a mixture of old and new tiles while the interface stays available; the latest
 settings win and the full texture catches up after you stop dragging. Export waits for the

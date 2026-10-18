@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-10-18 (sessions 70–71: background compositing, sparse GPU uploads, 0.1.7)
+Last updated: 2026-10-19 (session 73: CORE-07 sci-fi cube artwork and native acceptance)
 
 ## Decisions
 
@@ -1647,6 +1647,42 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
 * Owner reported everything functions well. Local test executable stays unchanged at
   `target/release/subcraft.exe`; no mouse input, additional feature changes or build cleanup.
   Hand-verification limits and remaining general filters are unchanged from session 70.
+### Session 73 — Codex: create CORE-07 in SubCraft's engine (2026-10-19)
+
+* Owner requested a realistic PBR sci-fi cube as an application test. Created
+  `artworks/CORE-07/CORE-07.subcraft`, a **4096²** project with **11 editable fill layers**:
+  brushed chassis, ceramic armor, service covers, recessed gaskets, fasteners, hazard stripes,
+  markings, actual emissive lenses, curvature edge wear and AO-driven grime. Masks remain
+  editable; wear/grime use real Generator + Levels effects. No production app code changed.
+* Reproducible creator: independent `artworks/CORE-07/source/` Cargo package, using existing
+  mesh/app/bake/image/render/export APIs. It makes a beveled **3,072-triangle** display cube
+  and a **442,368-triangle** detailed source, six separate square UV islands, and real caged
+  high-to-low baking of Normal, World Normal, AO, Curvature, Position, Thickness and ID.
+  AO: **64 rays/texel**; bake completed in **59.8 s**, full creation/export/render **124.2 s**.
+* Seven separate PBR exports plus four Unreal exports (packed ORM, DirectX normal), all checked
+  to be **4096×4096**. Raw bakes are PNG16; PBR normals are OpenGL. Neutral Height avoids
+  applying the baked geometry relief twice. The low OBJ's MTL references the separate maps.
+  Complete local bundle: `artworks/CORE-07/CORE-07-assets.zip` (~65.7 MiB), including project,
+  both models, bakes, exports, renders and source. Large generated files are locally ignored;
+  the reproducible source, validation and beauty renders are tracked. No upload/release.
+* Acceptance: **3 creator unit tests** for UV island mapping/gutters, mask landmarks/ranges,
+  finite beveled geometry/tangent frames. Generation checks every composite component for
+  finite values and requires non-flat normal relief; **354,770 / 2,263,204** sampled surface
+  texels carry detail, maximum decoded normal-length error **0.000802**. Save/reopen compares
+  the entire editable document and composites exactly. Report: `artworks/CORE-07/validation.json`.
+  **414 workspace tests pass**, 0 failed/ignored, plus those 3 separate creator tests;
+  workspace and creator Clippy exit 0 with warnings. No new engine tests or schema changes.
+* Real desktop verification: loaded the saved 4K project in the regular 0.1.7 executable and
+  inspected its complete viewport, material appearance, layers, thumbnails and Properties.
+  Screenshot: `screenshots/core-07-native.png`. Beauty and reverse images use SubCraft's actual
+  GPU PBR renderer on RTX 4060, not a third-party or AI render. Project creation used engine
+  APIs and app commands; **no mouse input**. Not verified: pointer painting/parameter gestures,
+  tablet input, imported rendering in Unreal/Unity, or interactive 4K frame pacing on this model.
+* No new architectural decision: this is an asset acceptance exercise using ADRs 0003/0005/0017.
+  Roadmap order below is unchanged; static artwork does not complete the pending complex-model
+  stroke-performance acceptance gate. User-facing instructions: the artwork README and
+  `getting-started.md` example section.
+
 ## Next steps (in order)
 
 Pending owner cleanup request: remove obsolete build artifacts only when the environment's

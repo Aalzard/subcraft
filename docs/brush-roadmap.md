@@ -10,6 +10,10 @@ Performance prerequisite (session 70): desktop viewport compositing now runs on 
 snapshots in a worker; sparse texture initialization uploads allocated tiles only. This does
 not complete the remaining brush tools, general layer filters or GPU compositor roadmap.
 
+Session 73 acceptance artwork: CORE-07 is a saved 4K cube with real high-to-low bakes, editable
+materials/masks/generators and a native screenshot. Its creation/reopen/export checks do not
+replace the pending interactive stroke/frame-pacing checks or complete additional brush phases.
+
 Build housekeeping (session 62): latest tested binary consolidated into
 `target/release/subcraft.exe`. Removing obsolete versions/caches remains blocked by automatic
 approval review; no artifacts were deleted. This does not change feature completion below.
