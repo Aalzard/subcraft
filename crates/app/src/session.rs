@@ -43,6 +43,10 @@ pub struct Selection {
     pub layer: Option<LayerId>,
 }
 
+/// The selected layer's editable domain. Transient tool state, never project data.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LayerTarget { Content, Mask }
+
 /// Current brush configuration (not undoable).
 #[derive(Clone, Debug)]
 pub struct BrushState {
@@ -96,6 +100,7 @@ pub struct Session {
     /// Live document: equals the current history entry except while a stroke is in progress.
     doc: Document,
     selection: Selection,
+    mask_clipboard: Option<Mask>,
     pub brush: BrushState,
     stroke: Option<ActiveStroke>,
     composites: HashMap<TextureSetId, CompositeCache>,
@@ -157,6 +162,7 @@ impl Session {
             saved_doc: doc.clone(),
             doc,
             selection,
+            mask_clipboard: None,
             brush: BrushState {
                 alpha: None,
                 alpha_name: "Round".into(),
@@ -313,6 +319,12 @@ impl Session {
     pub fn revision(&self) -> u64 {
         self.revision
     }
+    pub fn layer_target(&self) -> LayerTarget {
+        if self.brush.target == PaintTarget::MaskBase && self.selected_layer().is_some_and(|l| l.mask.is_some()) {
+            LayerTarget::Mask
+        } else { LayerTarget::Content }
+    }
+    pub fn can_paste_mask(&self) -> bool { self.mask_clipboard.is_some() }
     pub fn resources(&self) -> &ResourceStore {
         &self.resources
     }
@@ -476,6 +488,7 @@ impl Session {
             Command::SelectTextureSet(id) => {
                 let ts = self.doc.texture_set(id).ok_or(CommandError::TextureSetNotFound)?;
                 self.selection = Selection { texture_set: id, layer: ts.layers.last().map(|l| l.id) };
+                self.brush.target = PaintTarget::Content;
                 self.revision += 1;
             }
             Command::SelectLayer(layer) => {
@@ -483,6 +496,16 @@ impl Session {
                     self.selection.texture_set = self.texture_set_of(l).ok_or(CommandError::LayerNotFound)?;
                 }
                 self.selection.layer = layer;
+                self.brush.target = PaintTarget::Content;
+                self.revision += 1;
+            }
+            Command::SelectLayerTarget { layer, target } => {
+                let ts = self.texture_set_of(layer).ok_or(CommandError::LayerNotFound)?;
+                if target == LayerTarget::Mask && self.doc.texture_set(ts).and_then(|ts| ts.find(layer)).is_none_or(|l| l.mask.is_none()) {
+                    return Err(CommandError::NoMask);
+                }
+                self.selection = Selection { texture_set: ts, layer: Some(layer) };
+                self.brush.target = if target == LayerTarget::Mask { PaintTarget::MaskBase } else { PaintTarget::Content };
                 self.revision += 1;
             }
             Command::AddLayer(kind) => {
@@ -662,6 +685,33 @@ impl Session {
                     Self::layer_mut(ts, layer)?.mask.take().map(|_| ()).ok_or(CommandError::NoMask)
                 })?;
             }
+            Command::CopyMask(layer) => {
+                let layer = self.doc.texture_sets.iter().find_map(|ts| ts.find(layer)).ok_or(CommandError::LayerNotFound)?;
+                self.mask_clipboard = Some(layer.mask.clone().ok_or(CommandError::NoMask)?);
+            }
+            Command::PasteMask(layer) => {
+                let mut mask = self.mask_clipboard.clone().ok_or_else(|| CommandError::Invalid("Copy a mask first".into()))?;
+                self.edit_layer_set(layer, "Paste Mask", None, |ts| {
+                    mask.base = mask.base.resampled(ts.resolution, ts.resolution);
+                    mask.effects = mask.effects.iter().map(|effect| {
+                        let mut effect = (**effect).clone();
+                        effect.id = subcraft_core::EffectId::new();
+                        if let subcraft_doc::MaskEffectKind::Paint { image } = &mut effect.kind {
+                            *image = image.resampled(ts.resolution, ts.resolution);
+                        }
+                        Arc::new(effect)
+                    }).collect();
+                    Self::layer_mut(ts, layer)?.mask = Some(mask);
+                    Ok(())
+                })?;
+            }
+            Command::InvertMask(layer) => {
+                self.edit_layer_set(layer, "Invert Mask", None, |ts| {
+                    let mask = Self::layer_mut(ts, layer)?.mask.as_mut().ok_or(CommandError::NoMask)?;
+                    mask.effects.push(Arc::new(MaskEffect::new(subcraft_doc::MaskEffectKind::Invert)));
+                    Ok(())
+                })?;
+            }
             Command::SetParts { layer, parts } => {
                 self.edit_layer_set(layer, "Layer Parts", None, |ts| {
                     Self::layer_mut(ts, layer)?.parts = parts;
@@ -698,6 +748,30 @@ impl Session {
                     Ok(())
                 })?;
             }
+            Command::MoveMaskEffect { layer, effect, index } => {
+                self.edit_layer_set(layer, "Move Mask Effect", None, |ts| {
+                    let mask = Self::layer_mut(ts, layer)?.mask.as_mut().ok_or(CommandError::NoMask)?;
+                    if index >= mask.effects.len() { return Err(CommandError::Invalid("Effect destination is outside the stack".into())); }
+                    let from = mask.effects.iter().position(|e| e.id == effect).ok_or_else(|| CommandError::Invalid("No such effect".into()))?;
+                    let moved = mask.effects.remove(from);
+                    mask.effects.insert(index, moved);
+                    Ok(())
+                })?;
+            }
+            Command::DuplicateMaskEffect { layer, effect } => {
+                self.edit_layer_set(layer, "Duplicate Mask Effect", None, |ts| {
+                    let mask = Self::layer_mut(ts, layer)?.mask.as_mut().ok_or(CommandError::NoMask)?;
+                    let index = mask.effects.iter().position(|e| e.id == effect).ok_or_else(|| CommandError::Invalid("No such effect".into()))?;
+                    let mut copy = (*mask.effects[index]).clone();
+                    copy.id = subcraft_core::EffectId::new();
+                    copy.name = format!("{} copy", copy.name);
+                    mask.effects.insert(index + 1, Arc::new(copy));
+                    Ok(())
+                })?;
+            }
+        }
+        if self.brush.target == PaintTarget::MaskBase && self.selected_layer().is_none_or(|l| l.mask.is_none()) {
+            self.brush.target = PaintTarget::Content;
         }
         Ok(())
     }

@@ -30,6 +30,7 @@ pub enum Command {
     /// resampling its painted rasters; `None` changes every texture set. One undo step.
     SetResolution { texture_set: Option<TextureSetId>, resolution: u32 },
     SelectLayer(Option<LayerId>),
+    SelectLayerTarget { layer: LayerId, target: crate::session::LayerTarget },
     /// Insert above the selected layer (or at the top) of the selected texture set and select it.
     AddLayer(NewLayer),
     /// Insert a ready-made layer (material preset, smart material) like [`Command::AddLayer`].
@@ -64,6 +65,13 @@ pub enum Command {
     SetFillProjection { layer: LayerId, projection: Projection },
     AddMask { layer: LayerId, white: bool },
     RemoveMask(LayerId),
+    CopyMask(LayerId),
+    PasteMask(LayerId),
+    /// Non-destructive inversion of the evaluated mask, appended as an editable effect.
+    InvertMask(LayerId),
+    /// Destination is a bottom-to-top index in this mask's own effect stack.
+    MoveMaskEffect { layer: LayerId, effect: EffectId, index: usize },
+    DuplicateMaskEffect { layer: LayerId, effect: EffectId },
     SetMaskEnabled { layer: LayerId, enabled: bool },
     AddMaskEffect { layer: LayerId, kind: MaskEffectKind },
     RemoveMaskEffect { layer: LayerId, effect: EffectId },
