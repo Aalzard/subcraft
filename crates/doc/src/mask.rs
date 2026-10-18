@@ -133,6 +133,15 @@ impl MaskEffect {
     pub fn new(kind: MaskEffectKind) -> Self {
         Self { id: EffectId::new(), name: kind.label(), visible: true, blend: BlendMode::Normal, opacity: 1.0, kind }
     }
+
+    /// Equality ignoring paint texels (dirty-region diffing: painted tiles are diffed instead).
+    pub fn same_parameters(&self, other: &MaskEffect) -> bool {
+        let kinds = match (&self.kind, &other.kind) {
+            (MaskEffectKind::Paint { image: a }, MaskEffectKind::Paint { image: b }) => a.same_layout(b) && a.fill() == b.fill(),
+            (a, b) => a == b,
+        };
+        kinds && self.id == other.id && self.visible == other.visible && self.blend == other.blend && self.opacity == other.opacity
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]

@@ -11,7 +11,7 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use subcraft_doc::{Layer, LayerContent, TextureSet, empty_paint_image};
+use subcraft_doc::{ContentEffectKind, Layer, LayerContent, MaskEffectKind, TextureSet, changed_paint_tiles};
 
 use crate::{Composite, EvalContext};
 
@@ -87,19 +87,20 @@ fn collect_list(old: &[Arc<Layer>], new: &[Arc<Layer>], out: &mut BTreeSet<usize
         }
         if let (Some(ma), Some(mb)) = (&a.mask, &b.mask) {
             out.extend(ma.base.changed_tiles(&mb.base));
-        }
-        match (&a.content, &b.content) {
-            (LayerContent::Paint(pa), LayerContent::Paint(pb)) => {
-                for (kind, ia) in &pa.channels {
-                    match pb.channels.get(kind) {
-                        Some(ib) => out.extend(ia.changed_tiles(ib)),
-                        None => out.extend(ia.changed_tiles(&empty_paint_image(*kind, ia.width()))),
-                    }
-                }
-                for (kind, ib) in pb.channels.iter().filter(|(k, _)| !pa.channels.contains_key(k)) {
-                    out.extend(ib.changed_tiles(&empty_paint_image(*kind, ib.width())));
+            // Same parameters, so the same effect list: only paint effects differ, in texels.
+            for (ea, eb) in ma.effects.iter().zip(&mb.effects).filter(|(x, y)| !Arc::ptr_eq(x, y)) {
+                if let (MaskEffectKind::Paint { image: ia }, MaskEffectKind::Paint { image: ib }) = (&ea.kind, &eb.kind) {
+                    out.extend(ia.changed_tiles(ib));
                 }
             }
+        }
+        for (ea, eb) in a.content_effects.iter().zip(&b.content_effects).filter(|(x, y)| !Arc::ptr_eq(x, y)) {
+            if let (ContentEffectKind::Paint { channels: ca }, ContentEffectKind::Paint { channels: cb }) = (&ea.kind, &eb.kind) {
+                changed_paint_tiles(ca, cb, out);
+            }
+        }
+        match (&a.content, &b.content) {
+            (LayerContent::Paint(pa), LayerContent::Paint(pb)) => changed_paint_tiles(&pa.channels, &pb.channels, out),
             (LayerContent::Group(ga), LayerContent::Group(gb)) if !collect_list(&ga.children, &gb.children, out) => return false,
             _ => {}
         }

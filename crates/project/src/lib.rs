@@ -22,8 +22,9 @@ use std::sync::Arc;
 
 use subcraft_core::{EffectId, LayerId, ResourceId, TextureSetId};
 use subcraft_doc::{
-    ChannelBlend, ChannelDef, Document, FillChannel, FillContent, GroupContent, Layer, LayerContent, Mask, MaskEffect,
-    MaskEffectKind, PaintContent, PartMask, Resource, ResourceStore, TextureSet,
+    ChannelBlend, ChannelDef, ContentEffect, ContentEffectKind, Document, FillChannel, FillContent, GroupContent, Layer,
+    LayerContent, Mask, MaskEffect,
+    MaskEffectKind, PaintContent, PartMask, Projection, Resource, ResourceStore, TextureSet,
 };
 use subcraft_image::TiledImage;
 use subcraft_mesh::Mesh;
@@ -100,8 +101,26 @@ impl Writer {
         }
     }
 
+    fn paint_channels(&mut self, channels: &BTreeMap<subcraft_core::ChannelKind, TiledImage>) -> Vec<PaintChannelV1> {
+        channels.iter().map(|(&channel, img)| PaintChannelV1 { channel, raster: self.raster(img) }).collect()
+    }
+
+    fn content_effect(&mut self, e: &ContentEffect) -> ContentEffectV5 {
+        ContentEffectV5 {
+            id: e.id.0,
+            name: e.name.clone(),
+            visible: e.visible,
+            blend: blends(&e.blend),
+            kind: match &e.kind {
+                ContentEffectKind::Paint { channels } => ContentEffectKindV5::Paint { channels: self.paint_channels(channels) },
+                ContentEffectKind::Fill(f) => ContentEffectKindV5::Fill { projection: f.projection, channels: fill_channels(f) },
+                ContentEffectKind::Levels { channel, levels } => ContentEffectKindV5::Levels { channel: *channel, levels: *levels },
+            },
+        }
+    }
+
     fn layer(&mut self, l: &Layer) -> LayerV1 {
-        let blend = l.blend.iter().map(|(&channel, b)| BlendV1 { channel, mode: b.mode, opacity: b.opacity }).collect();
+        let blend = blends(&l.blend);
         let mask = l.mask.as_ref().map(|m| MaskV1 {
             enabled: m.enabled,
             base: self.raster(&m.base),
@@ -109,25 +128,34 @@ impl Writer {
         });
         let content = match &l.content {
             LayerContent::Paint(p) => ContentV1::Paint {
-                channels: p.channels.iter().map(|(&channel, img)| PaintChannelV1 { channel, raster: self.raster(img) }).collect(),
+                channels: self.paint_channels(&p.channels),
                 path: p.path.as_ref().map(|path| PenPathV4 {
                     anchors: path.anchors.iter().map(|a| PenAnchorV4 { id: a.id.0, position: a.position.to_array(), incoming: a.incoming.to_array(), outgoing: a.outgoing.to_array() }).collect(),
                     closed: path.closed, radius: path.radius, hardness: path.hardness, opacity: path.opacity,
                     values: path.values.iter().map(|(&channel, value)| PenChannelV4 { channel, value: value.0 }).collect(),
                 }),
             },
-            LayerContent::Fill(f) => ContentV1::Fill {
-                projection: f.projection,
-                channels: f
-                    .channels
-                    .iter()
-                    .map(|(&channel, c)| FillChannelV1 { channel, enabled: c.enabled, source: c.source.clone(), strength: c.strength })
-                    .collect(),
-            },
+            LayerContent::Fill(f) => ContentV1::Fill { projection: f.projection, channels: fill_channels(f) },
             LayerContent::Group(g) => ContentV1::Folder { expanded: g.expanded, children: g.children.iter().map(|c| self.layer(c)).collect() },
         };
         let parts = l.parts.as_ref().map(|p| PartsV1 { enabled: p.enabled, kind: p.kind, parts: p.parts.iter().copied().collect() });
-        LayerV1 { id: l.id.0, name: l.name.clone(), visible: l.visible, blend, mask, parts, content }
+        let content_effects = l.content_effects.iter().map(|e| self.content_effect(e)).collect();
+        LayerV1 { id: l.id.0, name: l.name.clone(), visible: l.visible, blend, mask, parts, content, content_effects }
+    }
+}
+
+fn blends(blend: &BTreeMap<subcraft_core::ChannelKind, ChannelBlend>) -> Vec<BlendV1> {
+    blend.iter().map(|(&channel, b)| BlendV1 { channel, mode: b.mode, opacity: b.opacity }).collect()
+}
+
+fn fill_channels(f: &FillContent) -> Vec<FillChannelV1> {
+    f.channels.iter().map(|(&channel, c)| FillChannelV1 { channel, enabled: c.enabled, source: c.source.clone(), strength: c.strength }).collect()
+}
+
+fn read_fill(projection: Projection, channels: &[FillChannelV1]) -> FillContent {
+    FillContent {
+        projection,
+        channels: channels.iter().map(|c| (c.channel, FillChannel { enabled: c.enabled, source: c.source.clone(), strength: c.strength })).collect(),
     }
 }
 
@@ -325,6 +353,33 @@ impl<R: Read + Seek> Loader<'_, R> {
         Ok(MaskEffect { id: EffectId(e.id), name: e.name.clone(), visible: e.visible, blend: e.blend, opacity: e.opacity, kind })
     }
 
+    fn paint_channels(&mut self, channels: &[PaintChannelV1], res: u32) -> Result<BTreeMap<subcraft_core::ChannelKind, TiledImage>, ProjectError> {
+        let mut out = BTreeMap::new();
+        for c in channels {
+            let img = self.raster(&c.raster, res)?;
+            if img.comps() != c.channel.components() + 1 {
+                return Err(ProjectError::Invalid(format!("{}: wrong component count for {:?}", c.raster, c.channel)));
+            }
+            out.insert(c.channel, img);
+        }
+        Ok(out)
+    }
+
+    fn content_effect(&mut self, e: &ContentEffectV5, res: u32) -> Result<ContentEffect, ProjectError> {
+        let kind = match &e.kind {
+            ContentEffectKindV5::Paint { channels } => ContentEffectKind::Paint { channels: self.paint_channels(channels, res)? },
+            ContentEffectKindV5::Fill { projection, channels } => ContentEffectKind::Fill(read_fill(*projection, channels)),
+            ContentEffectKindV5::Levels { channel, levels } => {
+                if *channel == subcraft_core::ChannelKind::Normal {
+                    return Err(ProjectError::Invalid("levels effect on the normal channel".into()));
+                }
+                ContentEffectKind::Levels { channel: *channel, levels: *levels }
+            }
+        };
+        let blend = e.blend.iter().map(|b| (b.channel, ChannelBlend { mode: b.mode, opacity: b.opacity })).collect();
+        Ok(ContentEffect { id: EffectId(e.id), name: e.name.clone(), visible: e.visible, blend, kind })
+    }
+
     fn layer(&mut self, l: &LayerV1, res: u32) -> Result<Layer, ProjectError> {
         let mask = match &l.mask {
             None => None,
@@ -353,24 +408,19 @@ impl<R: Read + Seek> Loader<'_, R> {
                     if source.values.len() != path.values.len() { return Err(ProjectError::Invalid("duplicate pen channels".into())); }
                     p.path = Some(source);
                 }
-                for c in channels {
-                    let img = self.raster(&c.raster, res)?;
-                    if img.comps() != c.channel.components() + 1 {
-                        return Err(ProjectError::Invalid(format!("{}: wrong component count for {:?}", c.raster, c.channel)));
-                    }
-                    p.channels.insert(c.channel, img);
-                }
+                p.channels = self.paint_channels(channels, res)?;
                 LayerContent::Paint(p)
             }
-            ContentV1::Fill { projection, channels } => LayerContent::Fill(FillContent {
-                projection: *projection,
-                channels: channels.iter().map(|c| (c.channel, FillChannel { enabled: c.enabled, source: c.source.clone(), strength: c.strength })).collect(),
-            }),
+            ContentV1::Fill { projection, channels } => LayerContent::Fill(read_fill(*projection, channels)),
             ContentV1::Folder { expanded, children } => LayerContent::Group(GroupContent {
                 expanded: *expanded,
                 children: children.iter().map(|c| self.layer(c, res).map(Arc::new)).collect::<Result<_, _>>()?,
             }),
         };
+        if matches!(content, LayerContent::Group(_)) && !l.content_effects.is_empty() {
+            return Err(ProjectError::Invalid("content effects on a folder".into()));
+        }
+        let content_effects = l.content_effects.iter().map(|e| self.content_effect(e, res).map(Arc::new)).collect::<Result<_, _>>()?;
         Ok(Layer {
             id: LayerId(l.id),
             name: l.name.clone(),
@@ -379,6 +429,7 @@ impl<R: Read + Seek> Loader<'_, R> {
             mask,
             parts: l.parts.as_ref().map(|p| PartMask { enabled: p.enabled, kind: p.kind, parts: p.parts.iter().copied().collect() }),
             content,
+            content_effects,
         })
     }
 }
