@@ -5,6 +5,14 @@ What changed in SubCraft, newest first. Download the latest build from the
 
 ## Unreleased
 
+### Faster
+- Dragging sliders (generators, fill colors, opacity, blending, levels…) now updates the model
+  at full frame rate: about 15 ms per frame at 1K and 2K textures instead of a 0.3–5 second
+  freeze per step. At 4K the interface stays smooth and the model catches up within a second.
+- Procedural patterns are computed once and reused; only the pattern you are editing is
+  recomputed. Generating them is also about twice as fast, with exactly the same look.
+- Only the parts of a texture that actually changed are sent to the graphics card.
+
 ### New
 - Layer rows show real thumbnails of each layer's content (for the channel picked above the
   Layers list) and, beside it, its mask. Click the content or the mask thumbnail to choose what

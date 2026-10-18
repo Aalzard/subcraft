@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-10-18 (sessions 64–68: layer/mask foundation, thumbnails, content effect stacks)
+Last updated: 2026-10-18 (sessions 64–69: layer/mask foundation, effect stacks, interactive performance)
 
 ## Decisions
 
@@ -1541,12 +1541,48 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   smart-material save/load with effects. Effect rows show icons, not thumbnails; no drag
   reorder yet. **400 workspace tests pass** after the slider fix; Clippy unchanged.
 
+### Session 69 — Claude: interactive compositing performance (2026-10-18)
+
+* Owner report: generator/material sliders “really slow, even at 1000 resolution”; lowering the
+  viewport resolution did nothing. Measured with the new `crates/app/examples/perf_slider.rs`
+  (demo stack): one generator-level step = 260–386 ms at 1024² (3–5 s at 2048²) of CPU
+  compositing, every tile/layer/channel, before any upload. ADR-0018 records causes and fixes.
+* Fixes (all exact, bit-identical output): mimalloc desktop allocator (Windows heap serialized
+  the parallel compositor, 7×); per-tile procedural field cache keyed by every parameter bit
+  (`materials::sample::field`, 8 per tile, 768 MB budget); per-thread lattice-gradient cache in
+  gradient noise (cold fields ~2× faster); parallel f16 writes straight into the composite with
+  per-channel change detection (`Composite::evaluate_tiles` → `ChangedTiles`), so the renderer
+  uploads only tiles whose texels changed; fully masked-out tiles skip layer content.
+* Interactive frames: `CompositeCache::update_within` / `Session::update_composites_within`
+  composite at most ~10 ms per frame, shared by every panel (`UiState::begin_frame`; the 3D and
+  2D panels used to each composite again); the rest stays pending, drained round-robin against
+  the newest document; small fresh changes (strokes) first. Export/bake/save/tests use the full
+  update.
+* New diagnostic `subcraft --profile-edits <file> [resolution]`: builds the demo, changes the
+  Moss generator every frame through the normal command, and writes frame/section timings.
+  Real app, after warm-up: frame p50 15.2 ms (1024²), 15.7 ms (2048²), 17.0 ms (4096²); the
+  model is fully refreshed 5 ms / 73 ms / 0.9 s after the last edit. Benchmark: one full
+  synchronous step 9.7 ms (1024²), 37 ms (2048²), ~145 ms (4096²).
+* Tests: field cache exactness/keys/eviction, cached-vs-direct noise bit identity, budgeted
+  updates converge exactly under continuous edits, zero/tiny budgets, identical re-evaluation
+  reports nothing, single-channel edits report only that channel, warm vs cold composites
+  identical. **404 workspace tests passed**, 0 failed/ignored; Clippy exit 0, pre-existing
+  warnings only.
+* **Not verified by hand:** dragging a real slider with the mouse after these changes (measured
+  through `--profile-edits`, which runs the real app loop, GPU upload and rendering, but edits
+  by command instead of pointer); other GPUs/CPUs; 4K cold warm-up (~25 fps for a few seconds
+  after opening/creating a 4K stack); pattern/projection drags at 4K (each step recomputes one
+  field: ~25 ms of work at 1024²).
+
 ## Next steps (in order)
 
 Pending owner cleanup request: remove obsolete build artifacts only when the environment's
 deletion restriction permits it, retaining the verified `target/release/subcraft.exe` above.
 
 The new priority is **layer-system-roadmap.md**:
+0. Performance follow-ups (ADR-0018): composite on a worker thread so cold fields never cost a
+   frame; split cold tiles across threads; GPU field/blend kernels; reduced-resolution preview
+   while dragging pattern/projection values at 4K.
 1. Hand-check save/reopen with effects and the Fill effect settings; then effect-row drag
    reorder, per-effect thumbnails and smart-material round trip with effects; look at why one
    native slider drag can split into two undo entries.

@@ -1,3 +1,15 @@
+# Handoff — Claude session 69 (2026-10-18): interactive performance
+
+- Same branch, nothing pushed. Owner asked for immediate slider response (“even at 1000”).
+- Done (ADR-0018, progress session 69): mimalloc, exact procedural field cache, cached noise
+  gradients, parallel writes + changed-tile uploads, 10 ms per-frame compositing budget shared
+  by all panels with round-robin pending tiles, `--profile-edits` diagnostic, perf example.
+- Real app (command-driven, not mouse): ~15 ms frames at 1K/2K, 17 ms at 4K while editing.
+- Not done: worker-thread compositing (cold fields still cost ~40 ms frames during a 4K
+  warm-up), GPU kernels, reduced-resolution drag previews. 404 tests pass.
+
+---
+
 # Handoff — Claude session (2026-10-18, sessions 67–68)
 
 - Branch `feature/brush-roadmap` (nothing pushed). Code commits: `bd43cd7` (thumbnails/mask
