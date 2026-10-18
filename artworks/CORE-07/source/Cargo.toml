@@ -1,0 +1,29 @@
+[package]
+name = "core07-artwork"
+version = "0.1.0"
+edition = "2024"
+
+[workspace]
+
+[dependencies]
+subcraft-app = { path = "../../../crates/app" }
+subcraft-core = { path = "../../../crates/core" }
+subcraft-doc = { path = "../../../crates/doc" }
+subcraft-mesh = { path = "../../../crates/mesh" }
+subcraft-image = { path = "../../../crates/image" }
+subcraft-bake = { path = "../../../crates/bake" }
+subcraft-render = { path = "../../../crates/render" }
+subcraft-export = { path = "../../../crates/export" }
+glam = "0.30"
+serde_json = "1"
+mimalloc = { version = "0.1", default-features = false }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 16
+debug = 1
+
+[[bin]]
+name = "core07-artwork"
+path = "main.rs"
