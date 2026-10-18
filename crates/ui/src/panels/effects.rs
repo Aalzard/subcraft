@@ -326,6 +326,8 @@ fn content_editor(ui: &mut Ui, state: &mut UiState, layer: &Layer, e: &ContentEf
                             changed |= ui.selectable_value(&mut blend.mode, mode, mode.label()).changed();
                         }
                     });
+                    // Fit the slider and its value box in the remaining row width.
+                    ui.spacing_mut().slider_width = (ui.available_width() - 64.0).max(40.0);
                     changed |= ui.add(egui::Slider::new(&mut blend.opacity, 0.0..=1.0).show_value(true)).changed();
                 });
             });

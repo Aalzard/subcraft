@@ -483,6 +483,10 @@ fn effect_rows_add_select_edit_and_route_paint_effects_to_the_brush() {
     assert!(text(&out, "BLENDING PER CHANNEL").is_some());
     assert!(text(&out, "PROJECTION").is_none());
     assert!(text(&out, "Levels (Base Color)").is_some(), "nested row under the layer");
+    // Per-channel opacity sliders and their values fit inside the inspector (not past the edge).
+    let values = out.shapes.iter().filter(|s| matches!(&s.shape, egui::Shape::Text(t) if t.galley.text() == "1.00")).count();
+    let inside = out.shapes.iter().filter(|s| matches!(&s.shape, egui::Shape::Text(t) if t.galley.text() == "1.00" && t.pos.x + t.galley.size().x <= 1600.0 && s.clip_rect.contains(t.pos))).count();
+    assert!(values >= 4 && inside == values, "{inside} of {values} opacity values visible");
     click_text(&mut app, &ctx, "Visible");
     assert!(!app.state.session.selected_layer().unwrap().content_effects[0].visible);
     assert_eq!(app.state.session.history().entries().len(), history + 2);
