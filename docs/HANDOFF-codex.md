@@ -10,7 +10,10 @@
   stacks (Paint, Fill, Levels) with per-channel blend, schema 5 (v1–4 load unchanged), typed
   effect selection, strokes into content and mask Paint effects (fill layers too), nested
   effect rows and effect Properties. ADR-0017. 62 accidentally deleted screenshots restored.
-- Not verified by hand: the whole effect UI (owner was using the desktop); 4K effect strokes.
+- Hand-checked (owner allowed mouse control): Paint effect on a fill layer + undo/redo, Levels
+  Properties, Back to layer, mask Paint effect strokes. Found/fixed slider overflow. Not by
+  hand: save/reopen, Fill effect settings, row menus, 4K effect strokes. Pre-existing: one
+  native slider drag can create two undo entries.
 - Known gaps: folders reject content effects (need stage graph); Fill effects only offer
   Uniform/Procedural sources; effect rows have icons, not thumbnails; no drag reorder of
   effect rows; unselected layers do not show their stacks; smart-material save/load with
@@ -19,8 +22,8 @@
   `CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=line-tables-only` for tests.
 
 Next 3 steps:
-1. Hand-check in the real app: + Add → Paint on a fill layer, paint, undo/redo; Levels and
-   Fill settings; mask Paint effect; save and reopen. Screenshot into docs/screenshots/.
+1. Hand-check save/reopen with effects, Fill effect settings and the row menus; look at the
+   double undo entry from one slider drag (pre-existing, fill sliders too).
 2. Effect rows: drag reorder, per-effect thumbnails (reuse `app::layer_previews` with an
    effect key), show stacks for unselected layers via expand/collapse; smart-material test.
 3. ADR-0016 stage graph: neighborhood/halo evaluation, then Blur/Sharpen/etc. with goldens.

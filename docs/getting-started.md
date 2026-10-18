@@ -166,6 +166,8 @@ layer's own painting or fill, so you can hide, reorder or delete them at any tim
   Erasing removes only that effect's paint. A Paint effect in the mask stack works the same
   way with grayscale (white reveals, black hides).
 
+![A Paint effect on the Moss fill layer](screenshots/content-paint-effect.jpg)
+
 Folders do not have content effects yet. Blur, sharpen, bevel and other filters, Compare Mask
 and anchor points are still planned; see **layer-system-roadmap.md**. Projects saved with
 content effects need this SubCraft version or newer (project format 5); older projects open

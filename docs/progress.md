@@ -1522,10 +1522,24 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   mask Paint effect strokes), 1 real-dock pointer test. **400 workspace tests passed**, 0
   failed/ignored; Clippy `--workspace --all-targets` exits 0, pre-existing warnings only.
 * Release `target/release/subcraft.exe` rebuilt (SHA256 `caba64e3…f1009`).
-  **Not verified by hand:** nothing in this session's effect UI was clicked in the real app —
-  the owner was using the desktop, so Claude did not drive the mouse. Also unverified: 4K
-  effect-stroke timing, effect thumbnails per effect row (rows show icons, not previews), drag
-  reorder of effect rows (not implemented), smart-material save/load with effects.
+* **Hand check (owner allowed mouse/keyboard control)**, real Windows input on the rebuilt
+  release exe, demo project, isolated `%TEMP%/subcraft-claude-native` data: selecting a layer
+  shows its Content effects row; Moss (fill) → + Add → Paint selects the effect, opens Brush,
+  shows “Painting Paint effect”; a stroke paints orange on the fill (3D Base Color view pixel
+  225,97,48; the Material view looks pale at that grazing angle because the brush roughness is
+  0.35 — gloss, not a bug); Ctrl+Z removes it, Ctrl+Y restores it. + Add → Levels opens its
+  Properties; Out low 0.53 brightens moss and the painted stroke below it; the Moss content
+  thumbnail updates. Back to layer returns to fill Properties. Mask thumbnail → Mask effects
+  (Generator) → + Add → Paint; a stroke on the side face reveals Moss there (“Mask Stroke”).
+  Evidence: `screenshots/{content-paint-effect,content-levels-effect,mask-paint-effect}.jpg`.
+* Found by hand and fixed: per-channel opacity sliders in effect Properties ran past the panel
+  edge; now sized to the row (dock test checks the values are visible: 4/4, was 1/1).
+  Observed, pre-existing and not fixed: one native slider drag can create two history entries
+  (the fill layer's own Balance slider does the same).
+* Not verified by hand: save/reopen with effects (covered by schema tests only), Fill effect
+  settings, effect reorder/duplicate/delete menus, eye toggle, 4K effect-stroke timing,
+  smart-material save/load with effects. Effect rows show icons, not thumbnails; no drag
+  reorder yet. **400 workspace tests pass** after the slider fix; Clippy unchanged.
 
 ## Next steps (in order)
 
@@ -1533,9 +1547,9 @@ Pending owner cleanup request: remove obsolete build artifacts only when the env
 deletion restriction permits it, retaining the verified `target/release/subcraft.exe` above.
 
 The new priority is **layer-system-roadmap.md**:
-1. Hand-check session 68 in the real app (add Paint/Fill/Levels effects, paint into a Paint
-   effect on a fill layer, undo/redo, save/reopen); then effect-row drag reorder, per-effect
-   thumbnails and smart-material round trip with effects.
+1. Hand-check save/reopen with effects and the Fill effect settings; then effect-row drag
+   reorder, per-effect thumbnails and smart-material round trip with effects; look at why one
+   native slider drag can split into two undo entries.
 2. Kernel/stage contracts (ADR-0016) for folders/passthrough and neighborhood filters.
 3. Neighborhood/dirty-halo evaluator, local adjustments then blur/sharpen/etc. CPU goldens;
    render-owned GPU parity and end-to-end 4K profiling.
