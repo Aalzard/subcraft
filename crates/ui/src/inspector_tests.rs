@@ -1,0 +1,275 @@
+//! Exercise the actual dock, layer rows and inspectors with pointer input.
+use super::*;
+use egui::{Event, Pos2, Rect};
+use subcraft_core::LayerId;
+
+fn setup() -> (SubcraftApp, egui::Context, [LayerId; 3]) {
+    let mut session = Session::new(subcraft_mesh::primitives::cube(2.0), 64);
+    let paint = session.selection().layer.unwrap();
+    let mut ids = [paint; 3];
+    for (index, (name, color)) in [
+        ("Blue fill", ChannelValue::rgb(0.0, 0.0, 1.0)),
+        ("Red fill", ChannelValue::rgb(1.0, 0.0, 0.0)),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        session.execute(Command::AddLayer(NewLayer::Fill)).unwrap();
+        let id = session.selection().layer.unwrap();
+        ids[index + 1] = id;
+        session
+            .execute(Command::Rename {
+                layer: id,
+                name: name.into(),
+            })
+            .unwrap();
+        session
+            .execute(Command::SetFillChannel {
+                layer: id,
+                channel: ChannelKind::BaseColor,
+                fill: FillChannel::new(FillSource::uniform(color)),
+            })
+            .unwrap();
+    }
+    session.execute(Command::SelectLayer(Some(paint))).unwrap();
+    session.execute(Command::Seal).unwrap();
+    let mut dock = default_layout();
+    dock.set_active_tab(dock.find_tab(&Tab::Brush).unwrap())
+        .unwrap();
+    let app = SubcraftApp {
+        inspector_selection: Some(InspectorSelection::current(&session)),
+        state: UiState::new(session, None),
+        dock,
+        frames: 0,
+        screenshot: None,
+        screenshot_requested: false,
+        pending_now: None,
+        active_tabs: HashSet::new(),
+        test_crash: false,
+    };
+    let ctx = egui::Context::default();
+    theme::apply(&ctx);
+    (app, ctx, ids)
+}
+
+fn frame(app: &mut SubcraftApp, ctx: &egui::Context, events: Vec<Event>) -> egui::FullOutput {
+    let mut out = ctx.run_ui(
+        egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(1600.0, 1100.0))),
+            events,
+            ..Default::default()
+        },
+        |ui| app.workspace(ui),
+    );
+    out.textures_delta.clear();
+    out
+}
+
+fn settle(app: &mut SubcraftApp, ctx: &egui::Context) -> egui::FullOutput {
+    for _ in 0..3 {
+        frame(app, ctx, vec![]);
+    }
+    frame(app, ctx, vec![])
+}
+
+fn text(out: &egui::FullOutput, label: &str) -> Option<Pos2> {
+    out.shapes.iter().find_map(|s| match &s.shape {
+        egui::Shape::Text(t) if t.galley.text() == label => Some(t.pos + t.galley.size() * 0.5),
+        _ => None,
+    })
+}
+
+fn click_text(app: &mut SubcraftApp, ctx: &egui::Context, label: &str) {
+    let out = settle(app, ctx);
+    let pos = text(&out, label).unwrap_or_else(|| panic!("missing visible control: {label}"));
+    click_at(app, ctx, pos);
+}
+
+fn click_at(app: &mut SubcraftApp, ctx: &egui::Context, pos: Pos2) {
+    for pressed in [true, false] {
+        frame(
+            app,
+            ctx,
+            vec![
+                Event::PointerMoved(pos),
+                Event::PointerButton {
+                    pos,
+                    pressed,
+                    button: egui::PointerButton::Primary,
+                    modifiers: Default::default(),
+                },
+            ],
+        );
+    }
+}
+
+fn active(app: &SubcraftApp, tab: Tab) -> bool {
+    let path = app.dock.find_tab(&tab).unwrap();
+    app.dock[path.surface][path.node].get_leaf().unwrap().active == path.tab
+}
+
+#[test]
+fn clicking_paint_fill_and_another_fill_reveals_the_selected_layers_controls() {
+    let (mut app, ctx, [paint, blue, red]) = setup();
+    let before = app.state.session.document().clone();
+    let history = app.state.session.history().entries().len();
+    assert!(active(&app, Tab::Brush));
+    click_text(&mut app, &ctx, "Red fill");
+    assert_eq!(app.state.session.selection().layer, Some(red));
+    assert!(active(&app, Tab::Properties));
+    let out = settle(&mut app, &ctx);
+    assert!(text(&out, "PROJECTION").is_some());
+    assert!(text(&out, "Paint whole material…").is_none());
+    click_text(&mut app, &ctx, "Blue fill");
+    assert_eq!(app.state.session.selection().layer, Some(blue));
+    assert!(active(&app, Tab::Properties));
+    assert_eq!(app.state.rename.as_ref().map(|(id, _)| *id), Some(blue));
+    click_text(&mut app, &ctx, "Layer 1");
+    assert_eq!(app.state.session.selection().layer, Some(paint));
+    assert!(active(&app, Tab::Brush));
+    let out = settle(&mut app, &ctx);
+    assert!(text(&out, "PAINT TARGET").is_some());
+    assert!(text(&out, "PROJECTION").is_none());
+    assert_eq!(app.state.session.document(), &before);
+    assert_eq!(app.state.session.history().entries().len(), history);
+}
+
+fn assert_color(app: &mut SubcraftApp, expected: [f32; 3]) {
+    app.state.session.update_composites();
+    let image = app
+        .state
+        .session
+        .composite(app.state.session.selection().texture_set)
+        .unwrap()
+        .channel(ChannelKind::BaseColor)
+        .unwrap();
+    for y in 0..64 {
+        for x in 0..64 {
+            let pixel = image.get(x, y);
+            for i in 0..3 {
+                assert!(
+                    (pixel[i] - expected[i]).abs() < 0.001,
+                    "pixel ({x},{y}): {pixel:?}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn fill_controls_edit_only_the_selected_fill_with_numeric_output_and_one_undo() {
+    let (mut app, ctx, [paint, blue, red]) = setup();
+    let other_fill = app
+        .state
+        .session
+        .selected_texture_set()
+        .find(blue)
+        .unwrap()
+        .clone();
+    let paint_layer = app
+        .state
+        .session
+        .selected_texture_set()
+        .find(paint)
+        .unwrap()
+        .clone();
+    click_text(&mut app, &ctx, "Red fill");
+    let brush = app.state.session.brush.material.clone();
+    assert_color(&mut app, [1.0, 0.0, 0.0]);
+    let history = app.state.session.history().entries().len();
+    let out = settle(&mut app, &ctx);
+    let path = app.dock.find_tab(&Tab::Properties).unwrap();
+    let bounds = app.dock[path.surface][path.node]
+        .get_leaf()
+        .unwrap()
+        .viewport;
+    let checkbox = out
+        .shapes
+        .iter()
+        .find_map(|shape| match &shape.shape {
+            egui::Shape::Text(t) if t.galley.text() == "Base Color" && bounds.contains(t.pos) => {
+                Some(t.pos + t.galley.size() * 0.5)
+            }
+            _ => None,
+        })
+        .expect("selected fill's Base Color checkbox");
+    click_at(&mut app, &ctx, checkbox);
+    assert_eq!(app.state.session.selection().layer, Some(red));
+    assert_color(&mut app, [0.0, 0.0, 1.0]);
+    assert_eq!(app.state.session.history().entries().len(), history + 1);
+    assert_eq!(
+        app.state.session.selected_texture_set().find(blue).unwrap(),
+        &other_fill
+    );
+    assert_eq!(
+        app.state
+            .session
+            .selected_texture_set()
+            .find(paint)
+            .unwrap(),
+        &paint_layer
+    );
+    assert_eq!(app.state.session.brush.material, brush);
+    app.state.session.execute(Command::Undo).unwrap();
+    assert_color(&mut app, [1.0, 0.0, 0.0]);
+    app.state.session.execute(Command::Redo).unwrap();
+    assert_color(&mut app, [0.0, 0.0, 1.0]);
+}
+
+#[test]
+fn manual_tabs_persist_until_selection_changes_in_a_rearranged_dock() {
+    let (mut app, _ctx, [paint, blue, _red]) = setup();
+    app.dock = DockState::new(vec![Tab::Brush, Tab::Viewport, Tab::Properties]);
+    app.state
+        .session
+        .execute(Command::SelectLayer(Some(blue)))
+        .unwrap();
+    assert!(app.follow_layer_selection());
+    assert!(active(&app, Tab::Properties));
+    app.dock
+        .set_active_tab(app.dock.find_tab(&Tab::Brush).unwrap())
+        .unwrap();
+    for _ in 0..3 {
+        assert!(!app.follow_layer_selection());
+    }
+    assert!(
+        active(&app, Tab::Brush),
+        "explicit Brush tab remains available for mask painting"
+    );
+    app.state
+        .session
+        .execute(Command::SelectLayer(Some(paint)))
+        .unwrap();
+    app.follow_layer_selection();
+    app.dock
+        .set_active_tab(app.dock.find_tab(&Tab::Properties).unwrap())
+        .unwrap();
+    assert!(!app.follow_layer_selection());
+    assert!(
+        active(&app, Tab::Properties),
+        "paint-layer mask/part properties remain accessible"
+    );
+    app.state
+        .session
+        .execute(Command::SelectLayer(None))
+        .unwrap();
+    app.follow_layer_selection();
+    assert!(active(&app, Tab::Properties));
+    app.state
+        .session
+        .execute(Command::AddLayer(NewLayer::Folder))
+        .unwrap();
+    app.follow_layer_selection();
+    assert!(active(&app, Tab::Properties));
+    app.state
+        .session
+        .execute(Command::DeleteLayer(
+            app.state.session.selection().layer.unwrap(),
+        ))
+        .unwrap();
+    app.follow_layer_selection();
+    app.state
+        .set_session(Session::new(subcraft_mesh::primitives::cube(1.0), 64));
+    app.follow_layer_selection();
+    assert!(active(&app, Tab::Brush));
+}
