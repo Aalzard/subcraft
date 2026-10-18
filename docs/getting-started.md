@@ -1,7 +1,7 @@
 # Getting started with SubCraft
 
 For the latest local development build, open **target/release/subcraft.exe** in the SubCraft
-folder. It contains the final panel-contrast update; older toolbar/panels/preview build names
+folder. It contains the panel-contrast and layer-inspector fixes; older toolbar/panels/preview build names
 are obsolete. Build-cache cleanup was blocked by the environment and remains pending.
 
 The welcome hub and in-app guide are in development for the next desktop release. In v0.1.4,
@@ -99,6 +99,15 @@ banded section headers with icons: click a header/caret to expand it. The proper
 also alternate gently. Existing controls, context menus and shortcuts behave the same way.
 
 ![Clearer charcoal bands in Parts, History, Layers and Brush](screenshots/panel-row-contrast.png)
+
+Select a **fill layer** in Layers to open its **Properties** automatically: Projection, Channels,
+images, values and masks edit that selected fill. Selecting an ordinary **paint layer** reveals
+the **Brush** settings again. Folders and editable pen paths open their own Properties too.
+You can still click Properties for a paint layer's masks/parts, or Brush to paint a fill layer's
+mask. Your explicit tab choice stays until the layer selection changes. Brush Material controls
+set the painting tool's material; fill-layer material controls live in Properties.
+
+![Selecting a fill reveals that layer's Properties](screenshots/inspector-fill-selected.jpg)
 
 Click the **grid icon** beside the material/view controls to show or hide the subtle 3D floor
 and direction guides. **Right-click** that icon for axis settings: **X is red**, **Y is green

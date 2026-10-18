@@ -39,3 +39,12 @@ selection also moves out of the sidebar, leaving Paint target there. SetStrokeOp
 and clamps lazy distance in app, retains the active-stroke guard, and changes no document
 history. Existing presets and the X mirror shortcut use the same options. No new schema or
 preset field is introduced. The popup stays open while adjusting settings.
+
+Session 63 fixes inspector selection: the dock observes the app's selected texture-set/layer
+IDs and layer kind before and after drawing. A change reveals Brush for ordinary paint layers
+and Properties for fills, folders, editable paths or no selection. New/opened non-paint layers
+also start in Properties. This runs only on selection/type changes, so explicit Brush tab
+choices for mask painting and Properties choices for paint-layer masks/parts remain available.
+Tabs are found by identity in the current dock, preserving rearranged layouts. This is UI
+presentation state only; layer edits still dispatch the existing app commands. No tool/material,
+document, undo, preset or project-schema changes occur merely from switching inspectors.

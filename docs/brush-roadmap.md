@@ -9,6 +9,9 @@ Build housekeeping (session 62): latest tested binary consolidated into
 `target/release/subcraft.exe`. Removing obsolete versions/caches remains blocked by automatic
 approval review; no artifacts were deleted. This does not change feature completion below.
 
+Session 63 fixes inspector focus: layer selection reveals the matching Brush/Properties tab;
+fill edits target the selected fill, with numeric composite/undo and real dock input coverage.
+
 ## Phase 1 — Projection painting
 
 - [x] Per-channel image sources (Base Color, Roughness, Metallic, Height, Normal, and other

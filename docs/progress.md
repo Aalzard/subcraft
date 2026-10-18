@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-10-18 (session 62: latest executable consolidated; cleanup blocked)
+Last updated: 2026-10-18 (session 63: inspector follows selected layer)
 
 ## Decisions
 
@@ -1388,6 +1388,37 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   this identical binary. No source/visual changes, new tests, schema or ADR needed. No new
   hand checks, other platforms or 4K profiling. Protected files and existing screenshot
   deletions were left untouched. Nothing pushed/released.
+
+### Session 63 — inspector follows the selected layer (2026-10-18)
+
+* Fixed the owner's report that switching from a paint layer to a fill kept showing Brush
+  settings. Brush edits the painting tool, not a fill's material. `ui::app` now watches the
+  selected texture-set/layer IDs and kind before and after drawing the actual dock. Selection
+  changes reveal Brush for ordinary paints and Properties for fills/folders/paths/no layer;
+  new/opened non-paint content starts in Properties. Existing controls then dispatch the
+  selected layer's UUID through the unchanged app commands. Manual tab choices remain intact
+  between selections, including Brush for mask painting and Properties for paint-layer masks.
+  Dock tabs are located by identity, so rearranged layouts work too. No document/preset/schema,
+  brush raster or undo behavior changes from inspector focus.
+* Three regressions in `ui/src/inspector_tests.rs`: real dock pointer input switching
+  paint → fill → another fill → paint with correct visible controls and no document/history
+  changes; actual selected-fill channel checkbox edits with every 64² composite texel checked
+  (red → blue → undo red → redo blue, error <0.001), one undo step, other fill/paint/brush
+  material unchanged; manual tab choices, rearranged docks, deselection, folder/delete and
+  session replacement. **377 workspace tests passed, 0 failed, 0 ignored**; Clippy workspace /
+  all targets exits 0 with existing warnings. ADR-0012 describes the presentation-only policy.
+* Verified with real Windows / RTX 4060 D3D12 input in the rebuilt normal
+  `target/release/subcraft.exe` (no new executable variant): paint Layer 1 → Moss fill opens
+  Properties; disabling Moss Base Color removes green in 3D/2D while the orange paint strokes
+  remain; Ctrl+Z restores it; selecting Wood shows its own Wood Rings values; selecting Layer 1
+  returns to Brush. Evidence: `screenshots/inspector-fill-selected.jpg`,
+  `screenshots/inspector-fill-edited.jpg`, `screenshots/inspector-paint-return.jpg`.
+  **Not verified by hand:** restored projects, folders/pen paths, floating inspectors, native
+  redo, tablet/mixed-DPI/other platforms or 4K frame pacing. Native accessibility element-click
+  missed a scaled checkbox; screenshot coordinates worked. Accessibility bounds need separate
+  investigation. Test data/library/recovery are under `%TEMP%/subcraft-inspector-native`;
+  the demo window remains open, with the test fill edit undone. Protected files and pre-existing
+  screenshot deletions were untouched. No push/release; docs/handoff form the final commit.
 
 ## Next steps (in order)
 
