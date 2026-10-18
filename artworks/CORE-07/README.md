@@ -37,6 +37,10 @@ The SubCraft project embeds the model, masks and baked maps and is portable on i
 
 ## Reproduce
 
+The current recipe includes the owner's later surface refinement (14 layers, deeper relief,
+roughness variation and restrained steel rust). Generate into **artworks/CORE-07-Refined** to
+preserve this original 11-layer project. See [the refined guide](../CORE-07-Refined/README.md).
+
 The small creator lives in `source/` as an independent Cargo package; it does not modify the
 application crates. Keep this directory at `artworks/CORE-07` inside a SubCraft checkout:
 
@@ -44,13 +48,13 @@ application crates. Keep this directory at `artworks/CORE-07` inside a SubCraft 
 $env:CARGO_TARGET_DIR = (Join-Path (Get-Location) 'target')
 Copy-Item Cargo.lock artworks/CORE-07/source/Cargo.lock
 cargo test --release --manifest-path artworks/CORE-07/source/Cargo.toml
-cargo run --release --manifest-path artworks/CORE-07/source/Cargo.toml -- artworks/CORE-07
+cargo run --release --manifest-path artworks/CORE-07/source/Cargo.toml -- artworks/CORE-07-Refined
 ```
 
 This rebuilds the artwork, so make a copy before experimenting. Generation uses real app
 commands and performs a full save/reopen comparison of both the editable document and every
-composite texel. The three creator tests check UV islands, material-mask landmarks and finite
-beveled mesh/tangent frames. Numerical generation checks also require finite material channels,
+composite texel. The five creator tests check UV islands, material-mask landmarks, finite
+beveled mesh/tangent frames, relief/cage bounds and localized weathering. Numerical generation checks also require finite material channels,
 non-flat baked normal details and near-unit decoded normal vectors.
 
 The native desktop preview is included as `renders/CORE-07-in-app.png` in the asset bundle

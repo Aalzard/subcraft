@@ -14,6 +14,9 @@ Session 73 acceptance artwork: CORE-07 is a saved 4K cube with real high-to-low 
 materials/masks/generators and a native screenshot. Its creation/reopen/export checks do not
 replace the pending interactive stroke/frame-pacing checks or complete additional brush phases.
 
+Session 74 refines that separate artwork with deeper rebaked relief, procedural roughness,
+localized scuffs/dust and steel-only rust. This adds asset acceptance coverage, not brush tools.
+
 Build housekeeping (session 62): latest tested binary consolidated into
 `target/release/subcraft.exe`. Removing obsolete versions/caches remains blocked by automatic
 approval review; no artifacts were deleted. This does not change feature completion below.

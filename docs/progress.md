@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-10-19 (session 73: CORE-07 sci-fi cube artwork and native acceptance)
+Last updated: 2026-10-19 (session 74: CORE-07 depth and restrained surface weathering)
 
 ## Decisions
 
@@ -1683,7 +1683,38 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   stroke-performance acceptance gate. User-facing instructions: the artwork README and
   `getting-started.md` example section.
 
+### Session 74 — Codex: CORE-07 depth, reflections and restrained weathering (2026-10-19)
+
+* Owner requested deeper details, varied reflections/roughness and modest wear, dirt and rust.
+  Extended the independent creator `artworks/CORE-07/source/main.rs`; no application crates or
+  project schema changed. Original artwork preserved; new local project/bundle in
+  `artworks/CORE-07-Refined/`, with 14 editable material/mask layers at 4096².
+* High-poly panel/vent/hardware relief increased 35%; seven maps rebaked with 64-sample AO
+  and enlarged front/rear projection cages. Ceramic, ivory covers, steel and hazard enamel
+  now have separate procedural roughness ranges. Added deterministic broken edge scuffs,
+  localized settled dust and nonmetallic oxidation confined to steel hardware. Existing
+  curvature/AO Generator + Levels stacks remain editable; graphics/lenses resist edge scuffs.
+* Added two recipe tests: numeric depth landmarks plus complete sampled cage bounds, and
+  weathering determinism/ranges, protected graphics, steel-only rust and restrained coverage.
+  **5 independent creator tests pass**; **414 workspace tests pass, 0 failed/ignored**.
+  Workspace and creator Clippy exit 0 (existing warnings). Generation also checks finite
+  composite channels, non-flat near-unit normals and exact document/composite save/reopen.
+  Clean armor roughness spans **0.388–0.482** in the exported map (same sampled original region
+  was constant **0.478**); all 11 exports checked at 4096×4096. Real bake **65.4 s**; full recipe
+  **135.8 s**. Maximum decoded normal-length error **0.000778**; validation JSONs accompany it.
+* Standard PBR and Unreal exports, low/high meshes, bake maps and native GPU beauty images
+  accompany the project. User instructions: refined README and getting-started example.
+  Complete local bundle: `artworks/CORE-07-Refined/CORE-07-assets.zip` (78,101,902 bytes).
+  Native screenshot: `screenshots/core-07-refined-native.png`. No mouse input; generation
+  uses real app/engine APIs and the saved project is opened by the desktop executable.
+  Not verified: manual pointer/pen painting, interactive 4K frame pacing or external engine
+  import. No new engine architecture or ADR; brush phase completion is unchanged.
+
 ## Next steps (in order)
+
+Artwork follow-up: open `artworks/CORE-07-Refined/CORE-07.subcraft`; compare layers 12–14 and
+adjust their masks/materials to taste. Then profile real long strokes on this 4K layered asset;
+static artwork validation does not establish interactive frame pacing.
 
 Pending owner cleanup request: remove obsolete build artifacts only when the environment's
 deletion restriction permits it, retaining the verified `target/release/subcraft.exe` above.

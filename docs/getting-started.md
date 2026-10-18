@@ -243,6 +243,14 @@ generate these local files using the recipe in the artwork README.
 
 ![CORE-07 loaded in the desktop application](screenshots/core-07-native.png)
 
+For deeper panel detail and more varied reflections, open the separate
+`artworks/CORE-07-Refined/CORE-07.subcraft` project. Ceramic, ivory covers and steel each have
+procedural roughness. Toggle layers **12–14** to compare broken edge scuffs, settled dust and
+small rust patches on steel. Select their content thumbnails to adjust material values, or
+their masks to edit coverage. Layers **10–11** retain curvature/AO Generator + Levels controls.
+The original project is preserved. See the [refined artwork guide](../artworks/CORE-07-Refined/README.md)
+for the rebuild command and exported map conventions.
+
 On desktop, procedural layers update in the background. During a large 4K edit, the model may
 briefly show a mixture of old and new tiles while the interface stays available; the latest
 settings win and the full texture catches up after you stop dragging. Export waits for the
