@@ -116,11 +116,12 @@ pub fn default_layout() -> DockState<Tab> {
 const DOCK_KEY: &str = "subcraft_dock_v4";
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-struct InspectorSelection(subcraft_app::Selection, Option<subcraft_doc::LayerKind>, subcraft_app::LayerTarget);
+struct InspectorSelection(subcraft_app::Selection, Option<subcraft_doc::LayerKind>, subcraft_app::LayerTarget, Option<subcraft_core::EffectId>, bool);
 
 impl InspectorSelection {
     fn current(session: &Session) -> Self {
-        Self(session.selection(), session.selected_layer().map(|layer| layer.kind()), session.layer_target())
+        let paints_effect = matches!(session.brush.target, subcraft_paint::PaintTarget::ContentEffect(_));
+        Self(session.selection(), session.selected_layer().map(|layer| layer.kind()), session.layer_target(), session.selected_effect(), paints_effect)
     }
 }
 
@@ -390,7 +391,9 @@ impl SubcraftApp {
         if self.inspector_selection.replace(selection) == Some(selection) {
             return false;
         }
-        let tab = if selection.1 == Some(subcraft_doc::LayerKind::Paint) && selection.2 == subcraft_app::LayerTarget::Content { Tab::Brush } else { Tab::Properties };
+        // Paint layers and content Paint effects open the brush; everything else its Properties.
+        let paint_content = selection.1 == Some(subcraft_doc::LayerKind::Paint) && selection.2 == subcraft_app::LayerTarget::Content && selection.3.is_none();
+        let tab = if paint_content || selection.4 { Tab::Brush } else { Tab::Properties };
         self.dock.find_tab(&tab).is_some_and(|path| self.dock.set_active_tab(path).is_ok())
     }
 
@@ -541,7 +544,7 @@ impl SubcraftApp {
             rail_divider(ui);
             ui.add_space(6.0);
             let target = &mut self.state.session.brush.target;
-            let on_mask = *target == subcraft_paint::PaintTarget::MaskBase;
+            let on_mask = target.is_mask();
             if ui.add_enabled_ui(*tool != Tool::Pen, |ui| tool_button(ui, icons::MASK, on_mask, "Paint the layer's mask instead of its content (Brush tool)")).inner.clicked() {
                 *target = if on_mask { subcraft_paint::PaintTarget::Content } else { subcraft_paint::PaintTarget::MaskBase };
             }

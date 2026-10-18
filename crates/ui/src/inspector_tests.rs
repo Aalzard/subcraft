@@ -460,3 +460,43 @@ fn mask_thumbnail_shortcuts_and_properties_dispatch_undoable_mask_actions() {
         1
     );
 }
+
+#[test]
+fn effect_rows_add_select_edit_and_route_paint_effects_to_the_brush() {
+    let (mut app, ctx, [_, _, red]) = setup();
+    click_text(&mut app, &ctx, "Red fill");
+    assert!(active(&app, Tab::Properties));
+    let history = app.state.session.history().entries().len();
+    let out = settle(&mut app, &ctx);
+    assert!(text(&out, "Content effects").is_some(), "the selected layer shows its content stack");
+    click_text(&mut app, &ctx, &format!("{} Add", icons::PLUS));
+    click_text(&mut app, &ctx, "Levels");
+    let layer = app.state.session.selected_layer().unwrap().clone();
+    assert_eq!(layer.id, red);
+    assert_eq!(layer.content_effects.len(), 1);
+    let levels = layer.content_effects[0].id;
+    assert_eq!(app.state.session.selected_effect(), Some(levels));
+    assert_eq!(app.state.session.history().entries().len(), history + 1);
+    // The effect's own Properties replace the fill material controls.
+    assert!(active(&app, Tab::Properties));
+    let out = settle(&mut app, &ctx);
+    assert!(text(&out, "BLENDING PER CHANNEL").is_some());
+    assert!(text(&out, "PROJECTION").is_none());
+    assert!(text(&out, "Levels (Base Color)").is_some(), "nested row under the layer");
+    click_text(&mut app, &ctx, "Visible");
+    assert!(!app.state.session.selected_layer().unwrap().content_effects[0].visible);
+    assert_eq!(app.state.session.history().entries().len(), history + 2);
+    // Back to the layer, then select the effect again from its row.
+    click_text(&mut app, &ctx, "Back to layer");
+    assert_eq!(app.state.session.selected_effect(), None);
+    assert!(text(&settle(&mut app, &ctx), "PROJECTION").is_some());
+    click_text(&mut app, &ctx, "Levels (Base Color)");
+    assert_eq!(app.state.session.selected_effect(), Some(levels));
+    // A Paint effect takes the brush, even on a fill layer.
+    click_text(&mut app, &ctx, &format!("{} Add", icons::PLUS));
+    click_text(&mut app, &ctx, "Paint");
+    let paint = app.state.session.selected_layer().unwrap().content_effects[1].id;
+    assert_eq!(app.state.session.brush.target, subcraft_paint::PaintTarget::ContentEffect(paint));
+    assert!(active(&app, Tab::Brush));
+    assert_eq!(app.state.session.history().entries().len(), history + 3);
+}

@@ -290,8 +290,11 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         let r = pill(&painter, right, egui::Align2::RIGHT_TOP, &format!("{}  Picking parts: {what}  ·  Esc done", icons::CURSOR), ACCENT);
         right.x = r.left() - 6.0;
     }
-    if state.session.brush.target == subcraft_paint::PaintTarget::MaskBase {
-        pill(&painter, right, egui::Align2::RIGHT_TOP, &format!("{}  Painting mask", icons::MASK), ACCENT);
+    match state.session.brush.target {
+        subcraft_paint::PaintTarget::MaskBase => { pill(&painter, right, egui::Align2::RIGHT_TOP, &format!("{}  Painting mask", icons::MASK), ACCENT); }
+        subcraft_paint::PaintTarget::MaskEffect(_) => { pill(&painter, right, egui::Align2::RIGHT_TOP, &format!("{}  Painting mask Paint effect", icons::MASK), ACCENT); }
+        subcraft_paint::PaintTarget::ContentEffect(_) => { pill(&painter, right, egui::Align2::RIGHT_TOP, &format!("{}  Painting Paint effect", icons::PAINT_BRUSH), ACCENT); }
+        subcraft_paint::PaintTarget::Content => {}
     }
     if state.painting || response.dragged() {
         ui.ctx().request_repaint();

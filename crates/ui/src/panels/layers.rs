@@ -131,6 +131,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     // Blend mode and opacity of the active channel sit on the right of every layer row.
     let active = state.active_channel;
     let selected_target = state.session.layer_target();
+    let selected_effect = state.session.selected_effect();
     let can_paste_mask = state.session.can_paste_mask();
 
     let ts = state.session.selected_texture_set();
@@ -313,6 +314,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 }
             });
             resp.on_hover_text("Drag to reorder. Drop in a folder's center to move inside it; drop at Top level to move out. Double-click or F2 to rename.");
+            if selected {
+                let channels: Vec<ChannelKind> = ts.channel_kinds().collect();
+                super::effects::rows(ui, l, *depth, selected_target, selected_effect, &channels, active, ts.resolution, &mut cmds);
+            }
         }
         root_drop(ui, ts, DropTarget::RootBottom, &mut cmds);
     });

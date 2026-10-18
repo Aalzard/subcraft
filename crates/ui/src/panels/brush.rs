@@ -79,7 +79,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             });
 
             section(ui, "material", "Material", true, |ui| {
-                if state.session.brush.target == PaintTarget::MaskBase {
+                if state.session.brush.target.is_mask() {
                     let mut material = state.session.brush.material.clone();
                     if slider_row(ui, "Mask value", egui::Slider::new(&mut material.mask_value, 0.0..=1.0)).changed() {
                         let _ = state.session.execute(subcraft_app::Command::SetBrushMaterial(material));

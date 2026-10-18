@@ -16,6 +16,9 @@ use crate::theme::{self, ACCENT, BG_2, TEXT_DIM, TEXT_FAINT};
 use crate::widgets::{channel_value, empty_state, fill_width, hint, icon_button, panel, primary_button, prop_row, secondary_button, section, section_with, segmented, slider_row};
 
 pub fn show(state: &mut UiState, ui: &mut Ui) {
+    if super::effects::properties(state, ui) {
+        return;
+    }
     if state.session.layer_target() == subcraft_app::LayerTarget::Mask {
         super::mask::show(state, ui);
         return;
@@ -205,60 +208,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                             }
                         });
                     });
-                    if ch.enabled {
-                        ui.add_space(2.0);
-                        match &mut ch.source {
-                            FillSource::Uniform { value } => {
-                                prop_row(ui, "Value", |ui| changed |= channel_value(ui, *kind, value).changed);
-                            }
-                            FillSource::Procedural { params, low, high } => {
-                                prop_row(ui, "Pattern", |ui| {
-                                    egui::ComboBox::from_id_salt(("kind", *kind)).selected_text(params.kind.label()).show_ui(ui, |ui| {
-                                        for k in ProceduralKind::ALL {
-                                            changed |= ui.selectable_value(&mut params.kind, k, k.label()).changed();
-                                        }
-                                    });
-                                });
-                                changed |= slider_row(ui, "Scale", egui::Slider::new(&mut params.scale, 1.0..=64.0).step_by(1.0)).changed();
-                                changed |= slider_row(ui, "Balance", egui::Slider::new(&mut params.balance, 0.0..=1.0)).changed();
-                                changed |= slider_row(ui, "Contrast", egui::Slider::new(&mut params.contrast, 0.0..=1.0)).changed();
-                                prop_row(ui, "Seed", |ui| changed |= ui.add(egui::DragValue::new(&mut params.seed)).changed());
-                                prop_row(ui, "Low", |ui| changed |= channel_value(ui, *kind, low).changed);
-                                prop_row(ui, "High", |ui| changed |= channel_value(ui, *kind, high).changed);
-                                prop_row(ui, "", |ui| changed |= ui.checkbox(&mut params.invert, "Invert").changed());
-                            }
-                            FillSource::MeshMap { map } => {
-                                prop_row(ui, "Map", |ui| {
-                                    egui::ComboBox::from_id_salt(("map", *kind)).selected_text(map.display_name()).show_ui(ui, |ui| {
-                                        for m in MeshMapKind::ALL {
-                                            changed |= ui.selectable_value(map, m, m.display_name()).changed();
-                                        }
-                                    });
-                                });
-                                hint(ui, "Uses the baked map (Ctrl+B); neutral until baked.");
-                            }
-                            FillSource::Bitmap { resource } => {
-                                pick_image |= image_row(ui, state, *resource);
-                                hint(ui, if kind.is_color() {
-                                    "Color image: read as sRGB. Tiling and rotation are under Projection."
-                                } else {
-                                    "Data image: used as-is (no color conversion). Tiling and rotation are under Projection."
-                                });
-                            }
-                        }
-                    }
-                    if ch.enabled {
-                        // How strongly this channel's result applies (bump, normal tilt, value).
-                        let (label, range, tip) = match kind {
-                            ChannelKind::Height => ("Strength", 0.0..=4.0, "Bump strength (0 = flat)"),
-                            ChannelKind::Normal => ("Strength", 0.0..=4.0, "Normal map strength (0 = flat)"),
-                            ChannelKind::BaseColor => ("Brightness", 0.0..=2.0, "Multiplies the color"),
-                            ChannelKind::Emissive => ("Intensity", 0.0..=10.0, "Glow intensity"),
-                            _ => ("Strength", 0.0..=2.0, "Multiplies the value"),
-                        };
-                        let r = slider_row(ui, label, egui::Slider::new(&mut ch.strength, range).max_decimals(2));
-                        changed |= r.on_hover_text(tip).changed();
-                    }
+                    let (c, p) = source_controls(ui, state, *kind, &mut ch);
+                    changed |= c;
+                    pick_image |= p;
                     if pick_image {
                         let purpose = crate::files::Purpose::FillChannel { layer: id, channel: *kind };
                         crate::files::pick(ui.ctx(), purpose, crate::files::IMAGES, false, None);
@@ -461,6 +413,69 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
 }
 
 /// Thumbnail, name and size of an image resource, with a Replace button. True if clicked.
+/// Value controls of an enabled fill channel (source parameters, then strength). Returns
+/// (changed, image picker requested). Shared by fill layers and Fill content effects.
+pub(crate) fn source_controls(ui: &mut Ui, state: &mut UiState, kind: ChannelKind, ch: &mut FillChannel) -> (bool, bool) {
+    let mut changed = false;
+    let mut pick_image = false;
+    let kind = &kind;
+    if ch.enabled {
+        ui.add_space(2.0);
+        match &mut ch.source {
+            FillSource::Uniform { value } => {
+                prop_row(ui, "Value", |ui| changed |= channel_value(ui, *kind, value).changed);
+            }
+            FillSource::Procedural { params, low, high } => {
+                prop_row(ui, "Pattern", |ui| {
+                    egui::ComboBox::from_id_salt(("kind", *kind)).selected_text(params.kind.label()).show_ui(ui, |ui| {
+                        for k in ProceduralKind::ALL {
+                            changed |= ui.selectable_value(&mut params.kind, k, k.label()).changed();
+                        }
+                    });
+                });
+                changed |= slider_row(ui, "Scale", egui::Slider::new(&mut params.scale, 1.0..=64.0).step_by(1.0)).changed();
+                changed |= slider_row(ui, "Balance", egui::Slider::new(&mut params.balance, 0.0..=1.0)).changed();
+                changed |= slider_row(ui, "Contrast", egui::Slider::new(&mut params.contrast, 0.0..=1.0)).changed();
+                prop_row(ui, "Seed", |ui| changed |= ui.add(egui::DragValue::new(&mut params.seed)).changed());
+                prop_row(ui, "Low", |ui| changed |= channel_value(ui, *kind, low).changed);
+                prop_row(ui, "High", |ui| changed |= channel_value(ui, *kind, high).changed);
+                prop_row(ui, "", |ui| changed |= ui.checkbox(&mut params.invert, "Invert").changed());
+            }
+            FillSource::MeshMap { map } => {
+                prop_row(ui, "Map", |ui| {
+                    egui::ComboBox::from_id_salt(("map", *kind)).selected_text(map.display_name()).show_ui(ui, |ui| {
+                        for m in MeshMapKind::ALL {
+                            changed |= ui.selectable_value(map, m, m.display_name()).changed();
+                        }
+                    });
+                });
+                hint(ui, "Uses the baked map (Ctrl+B); neutral until baked.");
+            }
+            FillSource::Bitmap { resource } => {
+                pick_image |= image_row(ui, state, *resource);
+                hint(ui, if kind.is_color() {
+                    "Color image: read as sRGB. Tiling and rotation are under Projection."
+                } else {
+                    "Data image: used as-is (no color conversion). Tiling and rotation are under Projection."
+                });
+            }
+        }
+    }
+    if ch.enabled {
+        // How strongly this channel's result applies (bump, normal tilt, value).
+        let (label, range, tip) = match kind {
+            ChannelKind::Height => ("Strength", 0.0..=4.0, "Bump strength (0 = flat)"),
+            ChannelKind::Normal => ("Strength", 0.0..=4.0, "Normal map strength (0 = flat)"),
+            ChannelKind::BaseColor => ("Brightness", 0.0..=2.0, "Multiplies the color"),
+            ChannelKind::Emissive => ("Intensity", 0.0..=10.0, "Glow intensity"),
+            _ => ("Strength", 0.0..=2.0, "Multiplies the value"),
+        };
+        let r = slider_row(ui, label, egui::Slider::new(&mut ch.strength, range).max_decimals(2));
+        changed |= r.on_hover_text(tip).changed();
+    }
+    (changed, pick_image)
+}
+
 pub(crate) fn image_row(ui: &mut Ui, state: &mut UiState, resource: subcraft_core::ResourceId) -> bool {
     let Some(r) = state.session.resources().get(resource).cloned() else {
         ui.label(RichText::new(format!("{}  Image missing from the project", icons::WARNING)).color(theme::WARNING));
