@@ -64,7 +64,7 @@ fn glyph(c: char) -> [u8; 7] {
 fn text(x: f32, y: f32, x0: f32, y0: f32, pitch: f32, label: &str) -> f32 {
     let xx = (x - x0) / pitch;
     let yy = (y - y0) / (pitch * 1.45);
-    if xx < 0. || yy < 0. || yy >= 1. {
+    if xx < 0. || !(0. ..1.).contains(&yy) {
         return 0.;
     }
     let ci = xx.floor() as usize;
@@ -195,8 +195,29 @@ fn features(fi: usize, x: f32, y: f32) -> Features {
         f.ink = f.ink.max(text(x, y, -0.15, -0.11, 0.072, "07"));
     }
     let edge_fade = 1. - smooth(0.86, 0.92, x.abs().max(y.abs()));
-    f.height *= edge_fade;
+    // Stronger real high-poly relief, baked once into the tangent normal.
+    f.height *= edge_fade * 1.35;
     f
+}
+// Continuous deterministic breakup: no per-texel white noise or UV-dependent RNG.
+fn patina(x: f32, y: f32, face: usize) -> f32 {
+    let z = face as f32 * 1.731;
+    (0.5 + 0.23 * (x * 29. + y * 17. + z).sin()
+        + 0.16 * (x * 67. - y * 43. + z * 2.).sin()
+        + 0.11 * (x * 173. + y * 137. - z).sin())
+    .clamp(0., 1.)
+}
+fn weathering(fi: usize, x: f32, y: f32, f: Features) -> [f32; 3] {
+    let p = patina(x, y, fi);
+    let protected = 1. - f.white.max(f.ink).max(f.yellow).max(f.led).max(f.gasket);
+    let rim = inside(oct(x, y, 0.71, 0.71, 0.16).abs() - 0.036);
+    let scuff = rim * smooth(0.60, 0.84, p) * protected * 0.52;
+    // Dust catches on panel lips and lower surfaces; clean broad panels remain readable.
+    let lower = smooth(0.25, 0.70, y) * f.armor * 0.20;
+    let dust = (rim * 0.23 + f.gasket * 0.25 + lower) * smooth(0.32, 0.78, p) * (1. - f.led);
+    // Oxidation belongs only on exposed steel, never the ceramic or titanium.
+    let rust = f.bolt * smooth(0.56, 0.82, p) * 0.78;
+    [scuff, dust.min(0.42), rust]
 }
 fn point(fi: usize, x: f32, y: f32, detail: bool) -> Vec3 {
     let (n, u, v) = FACES[fi];
@@ -274,12 +295,12 @@ fn sample_uv(u: f32, v: f32) -> Option<(usize, f32, f32)> {
     (cx < 3 && cy < 2 && x.abs() <= 1. && y.abs() <= 1.).then_some((cy * 3 + cx, x, y))
 }
 fn masks() -> Vec<TiledImage> {
-    let mut images: Vec<_> = (0..8)
+    let mut images: Vec<_> = (0..11)
         .map(|_| TiledImage::new(RES, RES, 1, [0.; 4]))
         .collect();
     for t in 0..images[0].tile_count() {
         let rect = images[0].tile_rect(t);
-        let mut buffers = vec![vec![0.; 4096]; 8];
+        let mut buffers = vec![vec![0.; 4096]; 11];
         for i in 0..4096 {
             let x = rect.x0 as u32 + i as u32 % 64;
             let y = rect.y0 as u32 + i as u32 / 64;
@@ -287,15 +308,17 @@ fn masks() -> Vec<TiledImage> {
                 sample_uv((x as f32 + 0.5) / RES as f32, (y as f32 + 0.5) / RES as f32)
             {
                 let f = features(fi, a, b);
+                let [scuff, dust, rust] = weathering(fi, a, b, f);
                 let values = [
-                    f.armor, f.cover, f.gasket, f.bolt, f.yellow, f.ink, f.white, f.led,
+                    f.armor, f.cover, f.gasket, f.bolt, f.yellow, f.ink, f.white, f.led, scuff,
+                    dust, rust,
                 ];
-                for k in 0..8 {
-                    buffers[k][i] = values[k];
+                for (buffer, value) in buffers.iter_mut().zip(values) {
+                    buffer[i] = value;
                 }
             }
         }
-        for k in 0..8 {
+        for k in 0..11 {
             if buffers[k].iter().any(|&v| v > 0.) {
                 images[k].write_tile(t, &buffers[k]);
             }
@@ -349,6 +372,20 @@ fn insert(s: &mut Session, l: Layer) {
     })
     .unwrap();
 }
+fn roughness(layer: &mut Layer, kind: ProceduralKind, scale: f32, low: f32, high: f32) {
+    if let LayerContent::Fill(f) = &mut layer.content {
+        let mut params = ProceduralParams::new(kind);
+        params.scale = scale;
+        f.channels.insert(
+            C::Roughness,
+            FillChannel::new(FillSource::Procedural {
+                params,
+                low: V::scalar(low),
+                high: V::scalar(high),
+            }),
+        );
+    }
+}
 fn main() {
     let out = std::env::args().nth(1).expect("output folder");
     let out = Path::new(&out);
@@ -380,8 +417,8 @@ fn main() {
         ao_distance: 0.07,
         thickness_samples: 16,
         curvature_radius: 0.007,
-        cage_front: 0.022,
-        cage_rear: 0.025,
+        cage_front: 0.060,
+        cage_rear: 0.060,
         ..Default::default()
     };
     let maps = subcraft_bake::bake(
@@ -490,6 +527,15 @@ fn main() {
         ("09  |  Cyan status lenses", [0.09, 0.77, 0.82], 0., 0.21),
     ] {
         let mut l = material(&s, name, rgb, metal, rough, Some(masks.next().unwrap()));
+        if name.starts_with("02") {
+            roughness(&mut l, ProceduralKind::Clouds, 24., 0.34, 0.56);
+        } else if name.starts_with("03") {
+            roughness(&mut l, ProceduralKind::Clouds, 32., 0.32, 0.51);
+        } else if name.starts_with("05") {
+            roughness(&mut l, ProceduralKind::Brushed, 180., 0.19, 0.34);
+        } else if name.starts_with("06") {
+            roughness(&mut l, ProceduralKind::Clouds, 38., 0.37, 0.53);
+        }
         if name.starts_with("09") {
             if let LayerContent::Fill(f) = &mut l.content {
                 f.channels.insert(
@@ -553,6 +599,33 @@ fn main() {
         }))));
     dirt.mask = Some(mask);
     insert(&mut s, dirt);
+    for (name, rgb, metal, low, high) in [
+        (
+            "12  |  Broken panel-edge scuffs",
+            [0.36, 0.39, 0.40],
+            0.70,
+            0.28,
+            0.43,
+        ),
+        (
+            "13  |  Settled dust · localized",
+            [0.20, 0.17, 0.13],
+            0.,
+            0.73,
+            0.88,
+        ),
+        (
+            "14  |  Steel oxidation · restrained",
+            [0.29, 0.115, 0.045],
+            0.,
+            0.74,
+            0.90,
+        ),
+    ] {
+        let mut l = material(&s, name, rgb, metal, high, Some(masks.next().unwrap()));
+        roughness(&mut l, ProceduralKind::Grunge, 62., low, high);
+        insert(&mut s, l);
+    }
     // Leave the armor selected so the project opens on useful material controls.
     let armor = s
         .selected_texture_set()
@@ -743,5 +816,56 @@ mod tests {
         assert!(m.tangents.iter().all(|t| t.is_finite()));
         let p = point(0, 1., 1., false);
         assert!(p.x < 1. && p.y < 1. && p.z < 1.);
+    }
+    #[test]
+    fn weathering_is_restrained_protects_graphics_and_limits_rust_to_steel() {
+        let mut rust_sum = 0.;
+        let mut scuff_sum = 0.;
+        let mut samples = 0;
+        for fi in 0..6 {
+            for iy in 0..201 {
+                for ix in 0..201 {
+                    let x = ix as f32 / 100. - 1.;
+                    let y = iy as f32 / 100. - 1.;
+                    let f = features(fi, x, y);
+                    let w = weathering(fi, x, y, f);
+                    assert_eq!(w, weathering(fi, x, y, f));
+                    assert!(w.iter().all(|v| v.is_finite() && (0. ..=1.).contains(v)));
+                    if f.bolt == 0. {
+                        assert_eq!(w[2], 0.);
+                    }
+                    if f.white.max(f.ink).max(f.yellow).max(f.led) == 1. {
+                        assert_eq!(w[0], 0.);
+                    }
+                    rust_sum += w[2];
+                    scuff_sum += w[0];
+                    samples += 1;
+                }
+            }
+        }
+        let rust_fraction = rust_sum / samples as f32;
+        let scuff_fraction = scuff_sum / samples as f32;
+        assert!(
+            (0.0001..0.012).contains(&rust_fraction),
+            "rust fraction {rust_fraction}"
+        );
+        assert!(
+            (0.0001..0.025).contains(&scuff_fraction),
+            "scuff fraction {scuff_fraction}"
+        );
+    }
+    #[test]
+    fn high_poly_panel_depth_has_numeric_landmarks() {
+        assert!((features(0, 0., 0.).height - 0.0324).abs() < 0.00001);
+        assert!((features(0, 0.71, 0.4).height + 0.0243).abs() < 0.00001);
+        // Projection cages include every authored displacement across all six faces.
+        for fi in 0..6 {
+            for iy in 0..201 {
+                for ix in 0..201 {
+                    let h = features(fi, ix as f32 / 100. - 1., iy as f32 / 100. - 1.).height;
+                    assert!((-0.060..0.060).contains(&h), "cage misses height {h}");
+                }
+            }
+        }
     }
 }
