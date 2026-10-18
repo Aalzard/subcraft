@@ -13,6 +13,14 @@ What changed in SubCraft, newest first. Download the latest build from the
   a mask between layers, remove, a grayscale UV preview, and the mask's effects with move,
   duplicate, blend and opacity controls. Shift+click a mask thumbnail to disable it, Alt+click
   to preview it. Adding a white or black mask selects it right away.
+- Effects on layer content: each paint or fill layer now has its own effect stack (Paint,
+  Fill, Levels), separate from its mask's stack. The selected layer lists the effects of the
+  content or mask (whichever thumbnail you clicked) under its row: click one to edit it in
+  Properties, use the eye to hide it, right-click to reorder, duplicate or delete.
+- Paint effects: select one and the brush paints into it, so you can paint on top of fill
+  layers and erase that paint later without touching the fill. Mask Paint effects too.
+- Projects now use format 5. Older projects open unchanged; projects with content effects
+  need this version to open.
 
 ## 0.1.6
 

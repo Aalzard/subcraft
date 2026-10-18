@@ -143,9 +143,33 @@ and can take longer on large painted masks.
 Mask Properties lists the existing effects with move up/down, Duplicate, visibility, Remove,
 blend and opacity controls. Fill supports a uniform value or procedural pattern and projection;
 Generators expose their type/threshold/softness/breakup and direction; Levels has input/output
-ranges and gamma. Effects evaluate from bottom to top. Dedicated effect rows beneath layers,
-independent content-effect stacks, general filters and anchor references are the next stages;
-see **layer-system-roadmap.md** for the full status.
+ranges and gamma. Effects evaluate from bottom to top.
+
+### Content and mask effects
+
+Every paint or fill layer has two separate effect stacks: one on its **content** and one on its
+**mask**. Select a layer and its stack appears right under its row. Which stack you see follows
+the thumbnail you clicked: the content square shows **Content effects**, the mask square shows
+**Mask effects**. Effects run from the bottom of the list to the top, and never change the
+layer's own painting or fill, so you can hide, reorder or delete them at any time.
+
+* **+ Add** (beside the stack's title) adds an effect on top and selects it. Content effects:
+  **Paint** (painted detail on top of the content), **Fill** (a material: base color, roughness…
+  — enable the channels it should change) and **Levels** (remaps one channel; transparent areas
+  stay transparent). Mask effects: Paint, Fill, Generator, Levels and Invert.
+* Click an effect row to edit it in **Properties** (name, visibility, settings and per-channel
+  blending/opacity). Click it again, or press **Back to layer** / **Back to mask**, to return.
+* The **eye** on a row hides the effect. **Right-click** a row to move it up or down,
+  duplicate or delete it. Every change is one undo step; selecting is not.
+* While a **Paint** effect is selected, the brush paints into that effect only — this also
+  lets you paint on top of a **fill layer**. The 3D view shows “Painting Paint effect”.
+  Erasing removes only that effect's paint. A Paint effect in the mask stack works the same
+  way with grayscale (white reveals, black hides).
+
+Folders do not have content effects yet. Blur, sharpen, bevel and other filters, Compare Mask
+and anchor points are still planned; see **layer-system-roadmap.md**. Projects saved with
+content effects need this SubCraft version or newer (project format 5); older projects open
+as before.
 
 Click the **grid icon** beside the material/view controls to show or hide the subtle 3D floor
 and direction guides. **Right-click** that icon for axis settings: **X is red**, **Y is green

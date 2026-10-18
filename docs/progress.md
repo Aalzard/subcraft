@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-10-18 (sessions 64–66: layer/mask foundation and evaluated thumbnails)
+Last updated: 2026-10-18 (sessions 64–68: layer/mask foundation, thumbnails, content effect stacks)
 
 ## Decisions
 
@@ -1493,14 +1493,50 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
 * Disk: E: had 439 MB free; `cargo clean --profile dev` removed `target/debug` (19.1 GiB).
   `target/release` kept. Code `bd43cd7`.
 
+### Session 68 — Claude: separate content effect stacks and Paint-effect strokes (2026-10-18)
+
+* **Model/evaluation** (`812081c`, ADR-0017): `doc::ContentEffect` (UUID, name, visibility,
+  per-channel blend, kind Paint / Fill / Levels) in `Layer::content_effects`, separate from
+  `MaskEffect`. `compositor::tile::apply_content_effects` runs the stack per channel on the
+  layer's own content before its mask/blend/opacity, so content thumbnails include it.
+  Sources composite with their alpha; Levels adjusts values and keeps coverage. Folders and
+  Levels-on-Normal are rejected. Dirty diffing treats content *and mask* Paint-effect rasters
+  like base paint (changed tiles only) — before, any mask Paint-effect change redrew all tiles.
+* **Schema 5**: `content_effects` per layer (absent = none). v1–4 files load unchanged;
+  schema-4 layers parse with no effects and no-effect layers serialize without the key.
+  Smart materials carry effects through the shared layer schema (not separately tested).
+* **Selection and strokes** (`add8bc5`): transient `Command::SelectEffect`; `Session::
+  selected_effect`. `PaintTarget::{ContentEffect, MaskEffect}` + `ImageKey::{EffectChannel,
+  MaskEffect}` route strokes into the selected Paint effect only (fill layers included), one
+  undo per stroke. Add/Remove/Set/Move/DuplicateContentEffect; Add*Effect selects the new
+  effect; removal/undo falls back to the domain base (`normalize_target`).
+* **UI** (`c012109`): `ui::panels::effects` lists the selected layer's content or mask stack
+  (following the clicked thumbnail) under its row: + Add, eye, click to select, right-click
+  move up/down / duplicate / delete. Effect Properties: name, visibility, Paint/Fill/Levels
+  settings, per-channel blend + opacity; mask effects reuse the existing editor. Content
+  Paint effects open Brush; the viewport pill says “Painting Paint effect”. Fill effects
+  offer Uniform/Procedural sources only (mesh-map/image sources stay on fill layers).
+* Tests: 5 compositor (sources, coverage, order, per-tile diff incl. mask Paint effects,
+  exact undo, thumbnails), 3 project (round trip, schema-4 layers, rejections, stable JSON),
+  3 app (stroke into a Paint effect on a fill layer with undo/redo, lifecycle/atomic errors,
+  mask Paint effect strokes), 1 real-dock pointer test. **400 workspace tests passed**, 0
+  failed/ignored; Clippy `--workspace --all-targets` exits 0, pre-existing warnings only.
+* Release `target/release/subcraft.exe` rebuilt (SHA256 `caba64e3…f1009`).
+  **Not verified by hand:** nothing in this session's effect UI was clicked in the real app —
+  the owner was using the desktop, so Claude did not drive the mouse. Also unverified: 4K
+  effect-stroke timing, effect thumbnails per effect row (rows show icons, not previews), drag
+  reorder of effect rows (not implemented), smart-material save/load with effects.
+
 ## Next steps (in order)
 
 Pending owner cleanup request: remove obsolete build artifacts only when the environment's
 deletion restriction permits it, retaining the verified `target/release/subcraft.exe` above.
 
 The new priority is **layer-system-roadmap.md**:
-1. Persistent separate effect domains + kernel/stage contracts and a lossless schema migration.
-2. Nested mask effect rows, explicit effect selection/Properties and Paint-effect stroke targeting.
+1. Hand-check session 68 in the real app (add Paint/Fill/Levels effects, paint into a Paint
+   effect on a fill layer, undo/redo, save/reopen); then effect-row drag reorder, per-effect
+   thumbnails and smart-material round trip with effects.
+2. Kernel/stage contracts (ADR-0016) for folders/passthrough and neighborhood filters.
 3. Neighborhood/dirty-halo evaluator, local adjustments then blur/sharpen/etc. CPU goldens;
    render-owned GPU parity and end-to-end 4K profiling.
 4. Compare Mask and anchor stage outputs/references with order/cycle/missing-reference checks.

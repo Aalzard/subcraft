@@ -19,18 +19,23 @@ audit and official Adobe workflow references: ADR-0016. Completion below is upda
 ## 2. Distinct content and mask effect stacks
 
 - [x] Existing mask source/effects: paint raster, fill, image, generator, levels, invert.
-- [ ] Shared effect metadata and separate content/mask containers; schema migration preserving
-  old files and numerical output. Sources vs transforms vs references remain explicit.
-- [ ] Typed effect selection and stroke routing into selected Paint effects.
-- [ ] Full primary paint/fill/folder workflows and appropriate effect compatibility rules.
-- [ ] Generator/Levels/Filter/Compare Mask/Anchor Point on supported domains with working kernels.
+- [x] Separate content/mask containers (ADR-0017): `ContentEffect` (per-channel blend, Paint/
+  Fill/Levels) vs `MaskEffect`. Schema 5; v1–4 load unchanged (tested). Sources vs adjustments
+  explicit (adjustments keep coverage); references still to come.
+- [x] Typed effect selection (`SelectEffect`, transient) and stroke routing into selected content
+  and mask Paint effects (one undo per stroke, base untouched, per-tile dirty diffing).
+- [~] Paint and fill layers have content stacks; folders rejected until the stage graph exists.
+  Levels rejected on Normal.
+- [~] Levels on content; Generator/Levels/Invert on masks. Filter/Compare Mask/Anchor Point not yet.
 
 ## 3. Nested hierarchy and editing
 
-- [ ] Selected domain's effects beneath its layer; expand/collapse per domain.
-- [~] Mask reorder/duplicate app commands implemented; nested UI and full lifecycle still needed.
-- [ ] Disable, rename, drag reorder, duplicate, delete and per-channel blend/opacity controls.
-- [ ] Effect-specific Properties, independent of parent material; generator vs bevel controls.
+- [~] Selected layer shows its selected domain's effects beneath its row. No per-layer
+  expand/collapse for unselected layers yet.
+- [x] Reorder/duplicate/delete/visibility for both stacks from the nested rows (context menu).
+- [~] Disable, rename (Properties), duplicate, delete, per-channel blend/opacity done; drag
+  reorder of effect rows not yet (context-menu Move up/down instead).
+- [x] Effect-specific Properties for content and mask effects, independent of the layer material.
 - [ ] Realtime evaluated thumbnails and model updates, including undo/redo and session changes.
 - [ ] Assess whether a separate effect editor window improves the existing dock workflow.
 
