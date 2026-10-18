@@ -28,6 +28,8 @@ pub struct TileGeometry {
     /// Per-texel data; `None` when no triangle touches the tile.
     texels: Option<TileTexels>,
     regions: Option<Arc<RegionIds>>,
+    /// Procedural fields evaluated on this tile (see [`super::field`]).
+    pub(crate) fields: super::field::FieldCache,
 }
 
 /// Shared triangle tables keep each covered texel's selection storage at one u32.
@@ -55,7 +57,7 @@ const NO_PART: u32 = u32::MAX;
 impl TileGeometry {
     /// A tile without any surface (all texels uncovered).
     pub fn empty(index: usize, x0: u32, y0: u32, resolution: u32) -> Self {
-        Self { index, x0, y0, resolution, texels: None, regions: None }
+        Self { index, x0, y0, resolution, texels: None, regions: None, fields: Default::default() }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -250,7 +252,7 @@ impl TextureSetGeometry {
                 part[di] = s.triangle[si];
             }
         }
-        TileGeometry { index, x0, y0, resolution: self.resolution, texels: Some(TileTexels { position, normal, coverage, part }), regions: Some(self.regions().clone()) }
+        TileGeometry { index, x0, y0, resolution: self.resolution, texels: Some(TileTexels { position, normal, coverage, part }), regions: Some(self.regions().clone()), fields: Default::default() }
     }
 }
 

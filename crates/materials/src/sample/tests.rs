@@ -157,3 +157,30 @@ fn geometry_positions_are_normalized_and_cached() {
     }
     assert!(covered > 256 * 256 / 2);
 }
+
+#[test]
+fn procedural_fields_are_cached_exactly_per_parameter_set() {
+    let geo = TextureSetGeometry::new(Arc::new(primitives::cube(2.0)), 0, 128);
+    let g = geo.tile(1);
+    let params = ProceduralParams::new(ProceduralKind::Clouds);
+    let tri = Projection { mode: ProjectionMode::Triplanar, ..Projection::default() };
+    let a = procedural_tile(&params, &tri, &g);
+    // Exactly the per-texel evaluation.
+    for i in 0..TILE_TEXELS {
+        assert_eq!(a[i].to_bits(), eval_procedural(&params, &tri, &g, i).to_bits());
+    }
+    // Reused for the same parameters; any parameter bit gives another field.
+    assert!(Arc::ptr_eq(&a, &procedural_tile(&params, &tri, &g)));
+    let other = ProceduralParams { balance: 0.51, ..params };
+    let b = procedural_tile(&other, &tri, &g);
+    assert!(!Arc::ptr_eq(&a, &b));
+    assert_ne!(&a[..], &b[..]);
+    let rotated = Projection { rotation_deg: 10.0, ..tri };
+    assert!(!Arc::ptr_eq(&a, &procedural_tile(&params, &rotated, &g)));
+    // At most PER_TILE fields per tile; the oldest is dropped.
+    for seed in 0..field::PER_TILE as u32 + 3 {
+        procedural_tile(&ProceduralParams { seed: 100 + seed, ..params }, &tri, &g);
+    }
+    assert_eq!(g.fields.len(), field::PER_TILE);
+    assert!(!Arc::ptr_eq(&a, &procedural_tile(&params, &tri, &g)), "evicted, then recomputed");
+}

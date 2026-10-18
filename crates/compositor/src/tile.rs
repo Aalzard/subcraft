@@ -89,6 +89,11 @@ fn apply_layer(layer: &Layer, accs: &mut [Acc], active: &[bool], tc: &TileContex
             *v *= parts.factor(tc.geo.region(i, parts.kind));
         }
     }
+    // Fully masked out in this tile: blending with zero coverage changes nothing, so skip the
+    // (possibly expensive) content evaluation entirely. Exact, not an approximation.
+    if mask.as_ref().is_some_and(|m| m.iter().all(|&v| v <= 0.0)) {
+        return;
+    }
     let mask_at = |i: usize| mask.as_ref().map_or(1.0, |m| m[i]);
     let mut content = vec![[0.0f32; 4]; TILE_TEXELS];
 

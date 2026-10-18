@@ -31,15 +31,42 @@ fn quintic(t: f32) -> f32 {
     t * t * t * (t * (t * 6.0 - 15.0) + 10.0)
 }
 
+/// Lattice gradient directions already computed on this thread, direct-mapped by hash. A slot
+/// holds `(hash, cos, sin)`; texels of a tile share corners, so most lookups skip the trig.
+/// Values are exactly what `a.cos(), a.sin()` give, so cached and uncached noise are identical.
+const GRADIENT_SLOTS: usize = 4096;
+thread_local! {
+    static GRADIENTS: std::cell::RefCell<Box<[(u32, u32, f32, f32)]>> =
+        // (MAX, MAX) never matches: a valid entry stores (h, !h).
+        std::cell::RefCell::new(vec![(u32::MAX, u32::MAX, 0.0, 0.0); GRADIENT_SLOTS].into_boxed_slice());
+}
+
+/// Unit gradient of lattice hash `h` (cached per thread).
+#[inline]
+fn gradient_dir(h: u32, slots: &mut [(u32, u32, f32, f32)]) -> Vec2 {
+    // Index by the low bits; the full hash plus its high bits identify the entry.
+    let slot = &mut slots[(h as usize) & (GRADIENT_SLOTS - 1)];
+    if slot.0 == h && slot.1 == !h {
+        return Vec2::new(slot.2, slot.3);
+    }
+    let a = (h >> 8) as f32 / (1u32 << 24) as f32 * std::f32::consts::TAU;
+    let (s, c) = (a.sin(), a.cos());
+    *slot = (h, !h, c, s);
+    Vec2::new(c, s)
+}
+
 /// Periodic gradient noise in [-1, 1] (approximately).
 pub fn gradient(p: Vec2, period: i32, seed: u32) -> f32 {
+    GRADIENTS.with(|g| gradient_with(p, period, seed, &mut g.borrow_mut()))
+}
+
+fn gradient_with(p: Vec2, period: i32, seed: u32, slots: &mut [(u32, u32, f32, f32)]) -> f32 {
     let i = p.floor();
     let f = p - i;
     let (ix, iy) = (i.x as i32, i.y as i32);
-    let grad = |cx: i32, cy: i32, d: Vec2| {
+    let mut grad = |cx: i32, cy: i32, d: Vec2| {
         let h = hash2(wrap(cx, period), wrap(cy, period), seed);
-        let a = (h >> 8) as f32 / (1u32 << 24) as f32 * std::f32::consts::TAU;
-        Vec2::new(a.cos(), a.sin()).dot(d)
+        gradient_dir(h, slots).dot(d)
     };
     let n00 = grad(ix, iy, f);
     let n10 = grad(ix + 1, iy, f - Vec2::X);
@@ -126,6 +153,28 @@ mod tests {
             assert!((gradient(p, period, 7) - gradient(shifted, period, 7)).abs() < 1e-4);
             assert!((value(p, period, 7) - value(shifted, period, 7)).abs() < 1e-5);
             assert!((fbm(p, period, 4, 7) - fbm(shifted, period, 4, 7)).abs() < 1e-4);
+        }
+    }
+
+    #[test]
+    fn cached_gradients_are_bit_identical_to_direct_trig() {
+        let direct = |h: u32| {
+            let a = (h >> 8) as f32 / (1u32 << 24) as f32 * std::f32::consts::TAU;
+            Vec2::new(a.cos(), a.sin())
+        };
+        let mut slots = vec![(u32::MAX, u32::MAX, 0.0, 0.0); GRADIENT_SLOTS];
+        // Colliding slots, the sentinel-like hash and repeated lookups.
+        let hashes = [0, 1, GRADIENT_SLOTS as u32, 2 * GRADIENT_SLOTS as u32 + 1, u32::MAX, u32::MAX - 1, 0x8da6_b343, 1];
+        for _ in 0..2 {
+            for &h in &hashes {
+                assert_eq!(gradient_dir(h, &mut slots), direct(h), "hash {h:#x}");
+            }
+        }
+        // Noise through the thread cache equals an uncached evaluation.
+        for k in 0..2000 {
+            let p = Vec2::new(k as f32 * 0.0731, k as f32 * 0.0473);
+            let mut fresh = vec![(u32::MAX, u32::MAX, 0.0, 0.0); GRADIENT_SLOTS];
+            assert_eq!(gradient(p, 7, 3).to_bits(), gradient_with(p, 7, 3, &mut fresh).to_bits());
         }
     }
 
