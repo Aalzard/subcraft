@@ -51,6 +51,19 @@ fn apply_stack(layers: &[Arc<Layer>], accs: &mut [Acc], active: &[bool], tc: &Ti
     }
 }
 
+/// Isolated authored content for a UV thumbnail, before its own mask/blend/opacity/visibility.
+/// Folder children retain their masks and blends. Uses the production evaluator and channel rules.
+pub fn preview_content(layer: &Layer, channel: ChannelKind, tc: &TileContext) -> Vec<[f32; 4]> {
+    let mut source = layer.clone();
+    source.visible = true;
+    source.mask = None;
+    source.parts = None;
+    source.blend.insert(channel, subcraft_doc::ChannelBlend::new(BlendMode::Normal));
+    let mut acc = [Acc::transparent(channel)];
+    apply_layer(&source, &mut acc, &[true], tc);
+    std::mem::take(&mut acc[0].px)
+}
+
 #[inline]
 fn effective_mode(mode: BlendMode) -> BlendMode {
     if mode == BlendMode::Passthrough { BlendMode::Normal } else { mode }

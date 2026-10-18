@@ -21,6 +21,7 @@ pub mod pen;
 pub mod recovery;
 pub mod session;
 pub mod thumbnails;
+pub mod layer_previews;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod updater;
 
