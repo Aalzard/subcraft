@@ -4,7 +4,7 @@ members = ["crates/*", "apps/*", "tools/*"]
 default-members = ["apps/subcraft"]
 
 [workspace.package]
-version = "0.1.6"
+version = "0.1.7"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 rust-version = "1.95"
@@ -40,6 +40,9 @@ anyhow = "1"
 log = "0.4"
 rayon = "1"
 parking_lot = "0.12"
+# Desktop global allocator: the Windows system heap serializes the compositor's parallel
+# per-tile buffers (7x slower slider edits measured, session 69).
+mimalloc = { version = "0.1", default-features = false }
 
 # geometry / formats
 gltf = { version = "1.4", default-features = false, features = ["import", "utils", "names", "KHR_materials_pbrSpecularGlossiness"] }

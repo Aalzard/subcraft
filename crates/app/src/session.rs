@@ -1,14 +1,14 @@
 //! The editing session: scene (mesh + acceleration structures), document + history, selection,
 //! brush state, the active stroke and the composite caches.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use glam::{Vec2, Vec3};
-use subcraft_compositor::{Composite, CompositeCache, EvalContext};
-use subcraft_core::{ChannelKind, LayerId, TextureSetId};
-use subcraft_doc::{ChannelDef, Document, History, Layer, LayerContent, LayerLocation, Mask, MaskEffect, ResourceStore, TextureSet};
+use subcraft_compositor::{Composite, CompositeCache, CompositeWorker, EvalContext, SetSnapshot, Snapshot};
+use subcraft_core::{ChannelKind, EffectId, LayerId, TextureSetId};
+use subcraft_doc::{ChannelDef, ContentEffect, ContentEffectKind, Document, History, Layer, LayerContent, LayerLocation, Mask, MaskEffect, ResourceStore, TextureSet};
 use subcraft_materials::{GeometryCache, MeshMaps};
 use subcraft_mesh::{Bvh, Mesh, import_mesh, primitives};
 use subcraft_paint::{
@@ -42,6 +42,10 @@ pub struct Selection {
     pub texture_set: TextureSetId,
     pub layer: Option<LayerId>,
 }
+
+/// The selected layer's editable domain. Transient tool state, never project data.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LayerTarget { Content, Mask }
 
 /// Current brush configuration (not undoable).
 #[derive(Clone, Debug)]
@@ -77,7 +81,10 @@ pub struct Pick {
 pub struct CompositeUpdate {
     pub texture_set: TextureSetId,
     pub material_slot: u32,
+    /// Re-evaluated tiles.
     pub tiles: Vec<usize>,
+    /// Per channel, the re-evaluated tiles whose texels actually changed (what to upload).
+    pub changed: subcraft_compositor::ChangedTiles,
 }
 
 struct ActiveStroke {
@@ -96,9 +103,26 @@ pub struct Session {
     /// Live document: equals the current history entry except while a stroke is in progress.
     doc: Document,
     selection: Selection,
+    mask_clipboard: Option<Mask>,
+    /// Selected effect of the selected layer's current domain (see [`Session::selected_effect`]).
+    effect: Option<EffectId>,
     pub brush: BrushState,
     stroke: Option<ActiveStroke>,
+    /// Composite caches while compositing runs on the calling thread (until the first
+    /// interactive update starts the worker, and always on the web).
     composites: HashMap<TextureSetId, CompositeCache>,
+    /// Background compositing (desktop, from the first interactive update on): owns the caches.
+    worker: Option<CompositeWorker>,
+    /// No worker thread can run here: composite on the calling thread.
+    inline_only: bool,
+    /// Newest composites published by the worker.
+    shown: HashMap<TextureSetId, Composite>,
+    /// Inputs last submitted to the worker (submissions happen only when they change).
+    submitted: Option<Snapshot>,
+    /// Texture sets to re-evaluate completely on the next update (mesh maps changed).
+    invalidated: BTreeSet<TextureSetId>,
+    /// Changes whenever newly evaluated composites are installed, including synchronous callers.
+    composite_generation: u64,
     /// Bumped on every document change (UI caches key off it).
     revision: u64,
     layer_counter: u32,
@@ -157,6 +181,8 @@ impl Session {
             saved_doc: doc.clone(),
             doc,
             selection,
+            mask_clipboard: None,
+            effect: None,
             brush: BrushState {
                 alpha: None,
                 alpha_name: "Round".into(),
@@ -170,6 +196,12 @@ impl Session {
             },
             stroke: None,
             composites: HashMap::new(),
+            worker: None,
+            inline_only: false,
+            shown: HashMap::new(),
+            submitted: None,
+            invalidated: BTreeSet::new(),
+            composite_generation: 0,
             revision: 0,
             layer_counter,
             project_path: None,
@@ -269,9 +301,7 @@ impl Session {
         let mut merged = entry.as_map().clone();
         merged.extend(maps);
         *entry = MeshMaps::from_map(merged);
-        if let Some(c) = self.composites.get_mut(&ts) {
-            c.invalidate();
-        }
+        self.invalidated.insert(ts);
         self.maps_dirty = true;
         self.maps_generation += 1;
         self.revision += 1;
@@ -313,6 +343,60 @@ impl Session {
     pub fn revision(&self) -> u64 {
         self.revision
     }
+    pub fn layer_target(&self) -> LayerTarget {
+        if self.brush.target.is_mask() && self.selected_layer().is_some_and(|l| l.mask.is_some()) {
+            LayerTarget::Mask
+        } else { LayerTarget::Content }
+    }
+
+    /// The selected effect, if it still exists in the selected layer's current domain stack.
+    pub fn selected_effect(&self) -> Option<EffectId> {
+        let id = self.effect?;
+        let layer = self.selected_layer()?;
+        let exists = match self.layer_target() {
+            LayerTarget::Content => layer.content_effects.iter().any(|e| e.id == id),
+            LayerTarget::Mask => layer.mask.as_ref().is_some_and(|m| m.effects.iter().any(|e| e.id == id)),
+        };
+        exists.then_some(id)
+    }
+
+    /// Brush target for selecting `effect` (or the domain itself) in `target` of `layer`.
+    fn target_for(layer: &Layer, target: LayerTarget, effect: Option<EffectId>) -> Result<PaintTarget, CommandError> {
+        let missing = || CommandError::Invalid("No such effect in this stack".into());
+        Ok(match (target, effect) {
+            (LayerTarget::Content, None) => PaintTarget::Content,
+            (LayerTarget::Mask, None) => {
+                layer.mask.as_ref().ok_or(CommandError::NoMask)?;
+                PaintTarget::MaskBase
+            }
+            (LayerTarget::Content, Some(id)) => match &layer.content_effects.iter().find(|e| e.id == id).ok_or_else(missing)?.kind {
+                ContentEffectKind::Paint { .. } => PaintTarget::ContentEffect(id),
+                _ => PaintTarget::Content,
+            },
+            (LayerTarget::Mask, Some(id)) => {
+                let mask = layer.mask.as_ref().ok_or(CommandError::NoMask)?;
+                match &mask.effects.iter().find(|e| e.id == id).ok_or_else(missing)?.kind {
+                    subcraft_doc::MaskEffectKind::Paint { .. } => PaintTarget::MaskEffect(id),
+                    _ => PaintTarget::MaskBase,
+                }
+            }
+        })
+    }
+
+    /// Keep the brush target and effect selection valid after any change (undo, removal…).
+    fn normalize_target(&mut self) {
+        let Some(layer) = self.selected_layer() else {
+            self.brush.target = PaintTarget::Content;
+            self.effect = None;
+            return;
+        };
+        let domain = if self.brush.target.is_mask() && layer.mask.is_some() { LayerTarget::Mask } else { LayerTarget::Content };
+        let effect = self.selected_effect();
+        let target = Self::target_for(layer, domain, effect).unwrap_or(PaintTarget::Content);
+        self.effect = effect;
+        self.brush.target = target;
+    }
+    pub fn can_paste_mask(&self) -> bool { self.mask_clipboard.is_some() }
     pub fn resources(&self) -> &ResourceStore {
         &self.resources
     }
@@ -332,8 +416,19 @@ impl Session {
         self.selection.layer.and_then(|id| self.selected_texture_set().find(id))
     }
 
+    /// The newest composite of a texture set. With background compositing it can trail the
+    /// document by a few frames; [`Session::update_composites`] makes it exact.
     pub fn composite(&self, ts: TextureSetId) -> Option<&Composite> {
-        self.composites.get(&ts).and_then(|c| c.composite())
+        match self.worker {
+            Some(_) => self.shown.get(&ts),
+            None => self.composites.get(&ts).and_then(|c| c.composite()),
+        }
+    }
+
+    /// Publication generation, so consumers can detect results installed by another caller
+    /// (for example export or the eyedropper) even if it consumed the tile notifications.
+    pub fn composite_generation(&self) -> u64 {
+        self.composite_generation
     }
 
     fn texture_set_of(&self, layer: LayerId) -> Option<TextureSetId> {
@@ -424,6 +519,24 @@ impl Session {
             return Err(CommandError::StrokeInProgress);
         }
         match cmd {
+            Command::SetBrushSettings(mut settings) => {
+                if [settings.size, settings.flow, settings.stroke_opacity, settings.hardness].iter().any(|v| !v.is_finite()) {
+                    return Err(CommandError::Invalid("brush values must be finite".into()));
+                }
+                settings.size = settings.size.clamp(0.1, 100.0);
+                settings.flow = settings.flow.clamp(0.0, 1.0);
+                settings.stroke_opacity = settings.stroke_opacity.clamp(0.0, 1.0);
+                settings.hardness = settings.hardness.clamp(0.0, 1.0);
+                self.brush.settings = settings;
+            }
+            Command::SetStrokeOptions(mut options) => {
+                if !options.lazy_distance_px.is_finite() {
+                    return Err(CommandError::Invalid("lazy mouse distance must be finite".into()));
+                }
+                options.lazy_distance_px = options.lazy_distance_px.clamp(0.0, 100.0);
+                self.brush.options = options;
+            }
+            Command::SetBrushMaterial(material) => self.brush.material = material,
             Command::InsertPartLayers { layers, label } => {
                 if layers.iter().any(|(id, _)| self.doc.texture_set(*id).is_none()) { return Err(CommandError::TextureSetNotFound); }
                 let mut doc = self.doc.clone();
@@ -458,6 +571,8 @@ impl Session {
             Command::SelectTextureSet(id) => {
                 let ts = self.doc.texture_set(id).ok_or(CommandError::TextureSetNotFound)?;
                 self.selection = Selection { texture_set: id, layer: ts.layers.last().map(|l| l.id) };
+                self.brush.target = PaintTarget::Content;
+                self.effect = None;
                 self.revision += 1;
             }
             Command::SelectLayer(layer) => {
@@ -465,7 +580,81 @@ impl Session {
                     self.selection.texture_set = self.texture_set_of(l).ok_or(CommandError::LayerNotFound)?;
                 }
                 self.selection.layer = layer;
+                self.brush.target = PaintTarget::Content;
+                self.effect = None;
                 self.revision += 1;
+            }
+            Command::SelectLayerTarget { layer, target } => {
+                let ts = self.texture_set_of(layer).ok_or(CommandError::LayerNotFound)?;
+                if target == LayerTarget::Mask && self.doc.texture_set(ts).and_then(|ts| ts.find(layer)).is_none_or(|l| l.mask.is_none()) {
+                    return Err(CommandError::NoMask);
+                }
+                self.selection = Selection { texture_set: ts, layer: Some(layer) };
+                self.brush.target = if target == LayerTarget::Mask { PaintTarget::MaskBase } else { PaintTarget::Content };
+                self.effect = None;
+                self.revision += 1;
+            }
+            Command::SelectEffect { layer, target, effect } => {
+                let ts = self.texture_set_of(layer).ok_or(CommandError::LayerNotFound)?;
+                let l = self.doc.texture_set(ts).and_then(|t| t.find(layer)).ok_or(CommandError::LayerNotFound)?;
+                let paint_target = Self::target_for(l, target, effect)?;
+                self.selection = Selection { texture_set: ts, layer: Some(layer) };
+                self.brush.target = paint_target;
+                self.effect = effect;
+                self.revision += 1;
+            }
+            Command::AddContentEffect { layer, kind } => {
+                Self::check_content_effect(&kind)?;
+                let id = self.edit_layer_set(layer, "Add Effect", None, |ts| {
+                    let effect = ContentEffect::new(kind, ts);
+                    let l = Self::layer_mut(ts, layer)?;
+                    if l.is_folder() {
+                        return Err(CommandError::Invalid("Folders cannot have content effects yet".into()));
+                    }
+                    let id = effect.id;
+                    l.content_effects.push(Arc::new(effect));
+                    Ok(id)
+                })?;
+                return self.execute(Command::SelectEffect { layer, target: LayerTarget::Content, effect: Some(id) });
+            }
+            Command::RemoveContentEffect { layer, effect } => {
+                self.edit_layer_set(layer, "Remove Effect", None, |ts| {
+                    let l = Self::layer_mut(ts, layer)?;
+                    let index = l.content_effects.iter().position(|e| e.id == effect).ok_or_else(|| CommandError::Invalid("No such effect".into()))?;
+                    l.content_effects.remove(index);
+                    Ok(())
+                })?;
+            }
+            Command::SetContentEffect { layer, effect } => {
+                Self::check_content_effect(&effect.kind)?;
+                let key = format!("content-effect:{layer}:{}", effect.id);
+                self.edit_layer_set(layer, "Effect", Some(key), |ts| {
+                    let l = Self::layer_mut(ts, layer)?;
+                    let slot = l.content_effects.iter_mut().find(|e| e.id == effect.id).ok_or_else(|| CommandError::Invalid("No such effect".into()))?;
+                    *slot = Arc::new(effect);
+                    Ok(())
+                })?;
+            }
+            Command::MoveContentEffect { layer, effect, index } => {
+                self.edit_layer_set(layer, "Move Effect", None, |ts| {
+                    let l = Self::layer_mut(ts, layer)?;
+                    if index >= l.content_effects.len() { return Err(CommandError::Invalid("Effect destination is outside the stack".into())); }
+                    let from = l.content_effects.iter().position(|e| e.id == effect).ok_or_else(|| CommandError::Invalid("No such effect".into()))?;
+                    let moved = l.content_effects.remove(from);
+                    l.content_effects.insert(index, moved);
+                    Ok(())
+                })?;
+            }
+            Command::DuplicateContentEffect { layer, effect } => {
+                self.edit_layer_set(layer, "Duplicate Effect", None, |ts| {
+                    let l = Self::layer_mut(ts, layer)?;
+                    let index = l.content_effects.iter().position(|e| e.id == effect).ok_or_else(|| CommandError::Invalid("No such effect".into()))?;
+                    let mut copy = (*l.content_effects[index]).clone();
+                    copy.id = subcraft_core::EffectId::new();
+                    copy.name = format!("{} copy", copy.name);
+                    l.content_effects.insert(index + 1, Arc::new(copy));
+                    Ok(())
+                })?;
             }
             Command::AddLayer(kind) => {
                 self.layer_counter += 1;
@@ -644,6 +833,33 @@ impl Session {
                     Self::layer_mut(ts, layer)?.mask.take().map(|_| ()).ok_or(CommandError::NoMask)
                 })?;
             }
+            Command::CopyMask(layer) => {
+                let layer = self.doc.texture_sets.iter().find_map(|ts| ts.find(layer)).ok_or(CommandError::LayerNotFound)?;
+                self.mask_clipboard = Some(layer.mask.clone().ok_or(CommandError::NoMask)?);
+            }
+            Command::PasteMask(layer) => {
+                let mut mask = self.mask_clipboard.clone().ok_or_else(|| CommandError::Invalid("Copy a mask first".into()))?;
+                self.edit_layer_set(layer, "Paste Mask", None, |ts| {
+                    mask.base = mask.base.resampled(ts.resolution, ts.resolution);
+                    mask.effects = mask.effects.iter().map(|effect| {
+                        let mut effect = (**effect).clone();
+                        effect.id = subcraft_core::EffectId::new();
+                        if let subcraft_doc::MaskEffectKind::Paint { image } = &mut effect.kind {
+                            *image = image.resampled(ts.resolution, ts.resolution);
+                        }
+                        Arc::new(effect)
+                    }).collect();
+                    Self::layer_mut(ts, layer)?.mask = Some(mask);
+                    Ok(())
+                })?;
+            }
+            Command::InvertMask(layer) => {
+                self.edit_layer_set(layer, "Invert Mask", None, |ts| {
+                    let mask = Self::layer_mut(ts, layer)?.mask.as_mut().ok_or(CommandError::NoMask)?;
+                    mask.effects.push(Arc::new(MaskEffect::new(subcraft_doc::MaskEffectKind::Invert)));
+                    Ok(())
+                })?;
+            }
             Command::SetParts { layer, parts } => {
                 self.edit_layer_set(layer, "Layer Parts", None, |ts| {
                     Self::layer_mut(ts, layer)?.parts = parts;
@@ -657,11 +873,14 @@ impl Session {
                 })?;
             }
             Command::AddMaskEffect { layer, kind } => {
-                self.edit_layer_set(layer, "Add Mask Effect", None, |ts| {
+                let id = self.edit_layer_set(layer, "Add Mask Effect", None, |ts| {
                     let mask = Self::layer_mut(ts, layer)?.mask.as_mut().ok_or(CommandError::NoMask)?;
-                    mask.effects.push(Arc::new(MaskEffect::new(kind)));
-                    Ok(())
+                    let effect = MaskEffect::new(kind);
+                    let id = effect.id;
+                    mask.effects.push(Arc::new(effect));
+                    Ok(id)
                 })?;
+                return self.execute(Command::SelectEffect { layer, target: LayerTarget::Mask, effect: Some(id) });
             }
             Command::RemoveMaskEffect { layer, effect } => {
                 self.edit_layer_set(layer, "Remove Mask Effect", None, |ts| {
@@ -680,6 +899,35 @@ impl Session {
                     Ok(())
                 })?;
             }
+            Command::MoveMaskEffect { layer, effect, index } => {
+                self.edit_layer_set(layer, "Move Mask Effect", None, |ts| {
+                    let mask = Self::layer_mut(ts, layer)?.mask.as_mut().ok_or(CommandError::NoMask)?;
+                    if index >= mask.effects.len() { return Err(CommandError::Invalid("Effect destination is outside the stack".into())); }
+                    let from = mask.effects.iter().position(|e| e.id == effect).ok_or_else(|| CommandError::Invalid("No such effect".into()))?;
+                    let moved = mask.effects.remove(from);
+                    mask.effects.insert(index, moved);
+                    Ok(())
+                })?;
+            }
+            Command::DuplicateMaskEffect { layer, effect } => {
+                self.edit_layer_set(layer, "Duplicate Mask Effect", None, |ts| {
+                    let mask = Self::layer_mut(ts, layer)?.mask.as_mut().ok_or(CommandError::NoMask)?;
+                    let index = mask.effects.iter().position(|e| e.id == effect).ok_or_else(|| CommandError::Invalid("No such effect".into()))?;
+                    let mut copy = (*mask.effects[index]).clone();
+                    copy.id = subcraft_core::EffectId::new();
+                    copy.name = format!("{} copy", copy.name);
+                    mask.effects.insert(index + 1, Arc::new(copy));
+                    Ok(())
+                })?;
+            }
+        }
+        self.normalize_target();
+        Ok(())
+    }
+
+    fn check_content_effect(kind: &ContentEffectKind) -> Result<(), CommandError> {
+        if matches!(kind, ContentEffectKind::Levels { channel: subcraft_core::ChannelKind::Normal, .. }) {
+            return Err(CommandError::Invalid("Levels cannot adjust the Normal channel".into()));
         }
         Ok(())
     }
@@ -735,12 +983,15 @@ impl Session {
         let ts = self.selected_texture_set();
         let b = &self.brush;
         let stroke = Stroke::begin(ts, layer, b.target, b.mode, b.settings, b.options, &b.material)?
+            .with_resources(self.resources())
             .with_alpha(b.alpha.clone())
             .with_stencil(if b.stencil_bypass { None } else { b.stencil.clone() });
         let label = match (b.mode, b.target) {
             (StrokeMode::Paint, PaintTarget::Content) => "Paint Stroke",
             (StrokeMode::Erase, PaintTarget::Content) => "Erase Stroke",
-            (_, PaintTarget::MaskBase) => "Mask Stroke",
+            (StrokeMode::Paint, PaintTarget::ContentEffect(_)) => "Paint Effect Stroke",
+            (StrokeMode::Erase, PaintTarget::ContentEffect(_)) => "Erase Effect Stroke",
+            (_, PaintTarget::MaskBase | PaintTarget::MaskEffect(_)) => "Mask Stroke",
         };
         self.stroke = Some(ActiveStroke { stroke, texture_set: ts.id, label });
         Ok(())
@@ -815,18 +1066,118 @@ impl Session {
 
     // ----- compositing ---------------------------------------------------------------------------
 
-    /// Bring every texture set's composite up to date; returns the re-evaluated tiles.
+    /// Bring every texture set's composite exactly up to date (blocks until done); returns the
+    /// tiles re-evaluated since the last update. Export, bake, saving and tests use this.
     pub fn update_composites(&mut self) -> Vec<CompositeUpdate> {
+        if self.worker.is_none() {
+            return self.update_composites_inline(None);
+        }
+        self.submit_composites();
+        self.worker.as_ref().expect("checked above").finish();
+        self.collect_composites()
+    }
+
+    /// Interactive frames: never blocks on compositing. The document goes to the background
+    /// worker (started on the first call) and whatever it finished since the last call is
+    /// returned; [`Session::composites_pending`] says whether more is coming. Where no worker
+    /// thread can run (web), up to about `budget` worth of tiles is evaluated here instead.
+    pub fn update_composites_within(&mut self, budget: Option<std::time::Duration>) -> Vec<CompositeUpdate> {
+        if self.worker.is_none() && !self.inline_only {
+            // An exact synchronous composite may already exist (for example after export).
+            // Adopting unchanged caches publishes no tiles, so retain their displayed values.
+            let shown = self.composites.iter().filter_map(|(id, c)| c.composite().map(|c| (*id, c.clone()))).collect();
+            match CompositeWorker::spawn(&mut self.composites) {
+                Ok(w) => {
+                    self.shown = shown;
+                    self.worker = Some(w);
+                }
+                Err(e) => {
+                    log::info!("compositing on the UI thread: {e}");
+                    self.inline_only = true;
+                }
+            }
+        }
+        if self.worker.is_none() {
+            return self.update_composites_inline(budget);
+        }
+        self.submit_composites();
+        self.collect_composites()
+    }
+
+    /// Whether composites are not yet up to date with the document (call again next frame).
+    pub fn composites_pending(&self) -> bool {
+        match &self.worker {
+            Some(w) => self.composite_inputs_changed() || !w.idle() || w.has_published(),
+            None => self.doc.texture_sets.iter().any(|ts| self.composites.get(&ts.id).is_some_and(|c| c.has_pending())),
+        }
+    }
+
+    fn update_composites_inline(&mut self, budget: Option<std::time::Duration>) -> Vec<CompositeUpdate> {
+        for id in std::mem::take(&mut self.invalidated) {
+            if let Some(c) = self.composites.get_mut(&id) {
+                c.invalidate();
+            }
+        }
         let mut out = Vec::new();
         for ts in &self.doc.texture_sets {
             let geo = self.scene.geometry.get(ts.material_slot, ts.resolution);
             let maps = self.mesh_maps.get(&ts.id).unwrap_or(&self.no_maps);
             let ctx = EvalContext { geometry: &geo, resources: &self.resources, mesh_maps: maps };
-            let tiles = self.composites.entry(ts.id).or_default().update(ts, &ctx);
+            let cache = self.composites.entry(ts.id).or_default();
+            let tiles = cache.update_within(ts, &ctx, budget);
             if !tiles.is_empty() {
-                out.push(CompositeUpdate { texture_set: ts.id, material_slot: ts.material_slot, tiles });
+                out.push(CompositeUpdate { texture_set: ts.id, material_slot: ts.material_slot, tiles, changed: cache.last_changed().clone() });
             }
         }
+        if !out.is_empty() { self.composite_generation += 1; }
+        out
+    }
+
+    /// The document, geometry or mesh maps differ from what the worker last received.
+    fn composite_inputs_changed(&self) -> bool {
+        let Some(last) = &self.submitted else { return true };
+        !self.invalidated.is_empty()
+            || last.sets.len() != self.doc.texture_sets.len()
+            || last.sets.iter().zip(&self.doc.texture_sets).any(|(s, ts)| {
+                !same_composite_inputs(&s.texture_set, ts) || !Arc::ptr_eq(&s.geometry, &self.scene.geometry.get(ts.material_slot, ts.resolution))
+            })
+    }
+
+    /// Hand the current document to the worker if it changed (cheap: layers, tiles and
+    /// resources are shared).
+    fn submit_composites(&mut self) {
+        let Some(worker) = &self.worker else { return };
+        if !self.composite_inputs_changed() {
+            return;
+        }
+        let sets = self
+            .doc
+            .texture_sets
+            .iter()
+            .map(|ts| SetSnapshot {
+                texture_set: ts.clone(),
+                geometry: self.scene.geometry.get(ts.material_slot, ts.resolution),
+                mesh_maps: self.mesh_maps.get(&ts.id).cloned().unwrap_or_default(),
+            })
+            .collect();
+        let snapshot = Snapshot { sets, resources: self.resources.clone(), invalidate: std::mem::take(&mut self.invalidated) };
+        worker.submit(snapshot.clone());
+        self.submitted = Some(snapshot);
+    }
+
+    /// Install what the worker published since the last call.
+    fn collect_composites(&mut self) -> Vec<CompositeUpdate> {
+        let Some(worker) = &self.worker else { return Vec::new() };
+        let mut published = worker.take();
+        let mut out = Vec::new();
+        for ts in &self.doc.texture_sets {
+            let Some(p) = published.remove(&ts.id) else { continue };
+            self.shown.insert(ts.id, p.composite);
+            out.push(CompositeUpdate { texture_set: ts.id, material_slot: ts.material_slot, tiles: p.tiles, changed: p.changed });
+        }
+        let doc = &self.doc;
+        self.shown.retain(|id, _| doc.texture_set(*id).is_some());
+        if !out.is_empty() { self.composite_generation += 1; }
         out
     }
 
@@ -914,4 +1265,14 @@ impl Session {
     pub fn channels(&self) -> Vec<ChannelKind> {
         self.selected_texture_set().channel_kinds().collect()
     }
+}
+
+/// Two texture sets composite identically (names aside): same tiling, channels and layers.
+fn same_composite_inputs(a: &TextureSet, b: &TextureSet) -> bool {
+    a.id == b.id
+        && a.material_slot == b.material_slot
+        && a.resolution == b.resolution
+        && a.channels == b.channels
+        && a.layers.len() == b.layers.len()
+        && a.layers.iter().zip(&b.layers).all(|(x, y)| Arc::ptr_eq(x, y))
 }

@@ -262,3 +262,81 @@ fn image_mask_effect_keeps_its_image() {
     let r = back.resources.get(id).expect("mask image saved with the project");
     assert_eq!((r.bitmap.width, r.bitmap.channels), (2, 2));
 }
+
+fn effect_document() -> Document {
+    use subcraft_doc::{ContentEffect, ContentEffectKind, FillContent};
+    let mut ts = TextureSet::new("Body", 0, 128);
+    let tc = ts.clone();
+    let mut layer = Layer::new_fill("Fill", &tc);
+    let mut paint = std::collections::BTreeMap::new();
+    let mut img = subcraft_doc::empty_paint_image(ChannelKind::BaseColor, 128);
+    img.set(9, 90, [0.25, 0.5, 0.75, 0.5]);
+    paint.insert(ChannelKind::BaseColor, img);
+    let mut fx_paint = ContentEffect::new(ContentEffectKind::Paint { channels: paint }, &tc);
+    fx_paint.blend.get_mut(&ChannelKind::BaseColor).unwrap().opacity = 0.3;
+    let fill = FillContent {
+        projection: subcraft_doc::Projection::default(),
+        channels: [(ChannelKind::Roughness, FillChannel::new(FillSource::uniform(ChannelValue::scalar(0.8))))].into(),
+    };
+    let mut fx_fill = ContentEffect::new(ContentEffectKind::Fill(fill), &tc);
+    fx_fill.visible = false;
+    fx_fill.name = "Rough coat".into();
+    let fx_levels = ContentEffect::new(ContentEffectKind::Levels { channel: ChannelKind::Roughness, levels: Levels { out_low: 0.2, ..Levels::default() } }, &tc);
+    layer.content_effects = vec![Arc::new(fx_paint), Arc::new(fx_fill), Arc::new(fx_levels)];
+    ts.insert_above(None, layer);
+    Document { texture_sets: vec![ts] }
+}
+
+#[test]
+fn content_effects_roundtrip_exactly_with_schema_5() {
+    let doc = effect_document();
+    let mesh = primitives::sample_crate();
+    let bytes = write_project(Cursor::new(Vec::new()), &mesh, &doc, &ResourceStore::default(), &MeshMapSet::new()).unwrap().into_inner();
+    let mut zip = zip::ZipArchive::new(Cursor::new(bytes.clone())).unwrap();
+    let mut json = String::new();
+    zip.by_name("document.json").unwrap().read_to_string(&mut json).unwrap();
+    assert!(json.contains("\"content_effects\"") && json.contains("\"type\": \"levels\""), "{json}");
+    assert_eq!(SCHEMA_VERSION, 5);
+    assert_eq!(read_project(Cursor::new(bytes)).unwrap().document, doc, "effect ids, order, blends, rasters survive");
+}
+
+#[test]
+fn schema_4_layers_have_no_content_effects_and_bad_effects_are_rejected() {
+    // A schema-4 layer has no `content_effects` key.
+    let v4: LayerV1 = serde_json::from_str(
+        r#"{"id":"00000000-0000-0000-0000-000000000001","name":"L","visible":true,"blend":[],"content":{"type":"paint","channels":[]}}"#,
+    )
+    .unwrap();
+    assert!(v4.content_effects.is_empty());
+    // Files without effects do not even write the key (older field layout unchanged).
+    let plain = serde_json::to_string(&v4).unwrap();
+    assert!(!plain.contains("content_effects"));
+
+    let mesh = primitives::sample_crate();
+    let save = |doc: &Document| write_project(Cursor::new(Vec::new()), &mesh, doc, &ResourceStore::default(), &MeshMapSet::new()).unwrap().into_inner();
+    // Levels on the normal channel is invalid data, not something to evaluate.
+    let mut doc = effect_document();
+    let layer = Arc::make_mut(&mut doc.texture_sets[0].layers[0]);
+    Arc::make_mut(&mut layer.content_effects[2]).kind =
+        subcraft_doc::ContentEffectKind::Levels { channel: ChannelKind::Normal, levels: Levels::default() };
+    assert!(matches!(read_project(Cursor::new(save(&doc))), Err(ProjectError::Invalid(_))));
+    // Folders cannot carry content effects yet.
+    let mut doc = effect_document();
+    let effects = doc.texture_sets[0].layers[0].content_effects.clone();
+    let tc = doc.texture_sets[0].clone();
+    let mut folder = Layer::new_folder("F", &tc);
+    folder.content_effects = effects;
+    doc.texture_sets[0].insert_above(None, folder);
+    assert!(matches!(read_project(Cursor::new(save(&doc))), Err(ProjectError::Invalid(_))));
+}
+
+#[test]
+fn content_effect_kinds_have_stable_json() {
+    let levels = ContentEffectKindV5::Levels { channel: ChannelKind::Roughness, levels: Levels::default() };
+    assert_eq!(
+        serde_json::to_string(&levels).unwrap(),
+        r#"{"type":"levels","channel":"roughness","levels":{"in_low":0.0,"in_high":1.0,"gamma":1.0,"out_low":0.0,"out_high":1.0}}"#
+    );
+    let paint = ContentEffectKindV5::Paint { channels: vec![PaintChannelV1 { channel: ChannelKind::BaseColor, raster: "r".into() }] };
+    assert_eq!(serde_json::to_string(&paint).unwrap(), r#"{"type":"paint","channels":[{"channel":"base_color","raster":"r"}]}"#);
+}

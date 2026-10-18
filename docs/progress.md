@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-10-15 (session 43: removed object hover tint)
+Last updated: 2026-10-18 (sessions 70–71: background compositing, sparse GPU uploads, 0.1.7)
 
 ## Decisions
 
@@ -1077,25 +1077,602 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
 * Found while checking lints: earlier clippy filters used `/` paths and missed Windows `\`
   output; re-checked, all remaining clippy warnings predate this work.
 
+### Session 52 — conservative brush tile bounds (2026-10-18)
+
+* On `feature/brush-roadmap`, based on default `origin/main` at `cef93c9`. Local `main` was
+  stale; no fetch/push/release was performed. Protected untracked ZIPs, output/, the generator
+  script and __pycache__/ were left untouched.
+* The first 4K long-stroke profile found nearby triangles sending all their UV tiles through
+  the kernel, even for a small dab. `paint::kernel::KernelInput::stamp_tiles` now bounds tangent
+  footprints by the sphere's affine world→UV gradients and bounds UV footprints directly,
+  including the conservative raster rim. Camera alignment retains the original full-triangle
+  bounds. No dense raster or new document data is introduced.
+* One new numeric acceptance test (`paint/tests/tile_bounds.rs`) compares coverage bit-for-bit
+  against the full-triangle kernel on cube seams / a curved sphere, all four alignments,
+  square alpha tips, rotated/squashed footprints and mirrored cameras. Included in the final
+  **352 passed, 0 failed, 0 ignored** workspace run (11 new tests across sessions 52–53).
+  `cargo clippy --workspace --all-targets` passes with pre-existing warnings, none in new code.
+* Reproducer: `cargo run -p subcraft-app --release --example brush_projection -- <scratch-dir>`.
+  4K cube, one Normal channel, 5% brush, 1,000 input samples (spacing means many emit no stamp):
+  textured CPU stroke-to p95 **1.68 ms**, cold/max **3.72 ms**, total **164.0 ms**; flat p95
+  **1.60 ms**, max **3.70 ms**, total **157.1 ms**. The initial full-triangle run gave textured
+  p95 28.87 ms / max 68.80 ms and flat p95 27.75 ms / max 80.98 ms, but builds were running
+  concurrently, so those before/after timings are not a controlled speedup measurement.
+* Real app: subsequent normal painting/undo/redo in session 53 used these bounds on D3D12.
+  Screenshots are listed there. **Not verified:** sustained 4K whole-frame pacing, compositor /
+  GPU upload latency, broad brushes, multi-channel production meshes or physical tablet input.
+  The CPU profile alone is not a no-frame-drops claim. Commit: `b00ad54`.
+
+### Session 53 — Phase 1 channel images and normal painting (2026-10-18)
+
+* `paint` / `app`: optional image per brush channel, shared UV/planar/triplanar projection,
+  scale/rotation/offset, repeat or transparent-outside addressing, source-alpha opacity cap,
+  existing sRGB/data rules and gloss/DirectX conversion. Whole-material map import enables
+  matched channels only, preserving the selected layer and document history. Absent texture-set
+  channels are reported/skipped. Alpha tips, stencil, culling, symmetry and Parts stay on the
+  existing coverage path; images/projection are captured at stroke start, one undo per stroke.
+* Replace and Detail normals use normalized source-over and shared RNM in `core::normal`
+  (also used by compositor). Detail combines against pre-stroke paint on this layer, never
+  recursively per stamp. `app::brush_preset` version 2 embeds image bytes and remaps resource
+  UUIDs when applied elsewhere; v1 presets default to flat images/UV/repeat/Replace.
+  Tool settings are not new document source data; ordinary paint rasters retain project schema 4.
+* `ui`: Brush → Material has Choose/Replace/Clear per channel, imported Shelf → Textures drop
+  targets, Paint whole material…, shared fill projection controls and Normal blend. New tool
+  changes dispatch `Command::SetBrushMaterial` or app import methods. Material moved above the
+  brush sliders so the image workflow is reachable. No new shortcut or overlay was added.
+* Ten new tests: core analytic RNM golden/identity; paint projected color/data/alpha texels for
+  all three static modes, normal blend/length/opacity, transparent sources/eraser, addressing;
+  app DX normal painting with single-step undo/redo and portable project reopen, embedded preset
+  reload/remap/missing-image failure, atomic whole-material/gloss import and cancel/captured
+  images; real egui events for shelf drop/conversion, projection, Detail and Clear. With session
+  52: **352 passed, 0 failed, 0 ignored** (`cargo test --workspace`); clippy all-targets passes
+  with existing warnings. The UI harness initially dropped unapplied texture deltas; fixed its
+  frame cleanup and reran the entire suite. Native debug app build and release fixture/profile
+  example both ran. No new dependency, schema bump or migration was needed.
+* **Verified in the actual Windows app (RTX 4060 / D3D12)** using isolated temp data/library:
+  imported OBJ cube (192 triangles), selected ordinary paint layer, Paint whole material… native
+  file picker with a generated 256px DirectX normal EXR, automatic green conversion, Planar Z,
+  30% normal brush, normal-channel preview and shaded relief. Ctrl+Z removes the broad stroke
+  in one step; Ctrl+Y restores it. Detail toggle plus another dab strengthens the existing
+  relief. Ctrl+S saves the temporary project and the app closes cleanly. Screenshots:
+  `screenshots/brush-projection-normal-channel.jpg`, `brush-projection-normal-paint.jpg`,
+  `brush-projection-normal-detail.jpg`.
+* **Not verified by hand:** imported shelf drag/drop, per-channel Choose/Replace/Clear dialogs,
+  multiple maps in the native whole-material picker, UV/triplanar controls, preset save/load UI,
+  browser/Linux/macOS, external complex production models and tablet input. Synthetic egui/app
+  and numeric tests cover the listed shared handlers; this is not native gesture verification.
+  Native automated drags yielded dabs, so continuous native long-stroke input is not certified.
+* Complete static-image slice, **Phase 1 remains partial**: camera/per-stamp sources, starter-pack
+  brush destinations, projection-frame/mirrored-tangent normal reorientation and full 4K frame
+  pacing remain. Phases 2–9 have not started. ADR-0011, brush-roadmap.md, getting-started.md and
+  HANDOFF-codex.md record the contracts and continuation. Implementation commit: `44fae8d`.
+
+### Session 54 — compact brush controls beside the viewport settings (2026-10-18)
+
+* Owner priority override: move essential controls to the top of 3D View before finishing the
+  remaining projection work. `ui::viewport_bar` / `ui::brush_bar` place Brush/Eraser/Fill,
+  Size, Flow, Opacity and Hardness beside Resolution, AA, Ortho and material/channel display.
+  A vertical hairline separates the groups; the strip has a full-width subtle bottom border.
+  Size/Hardness use short sliders plus numeric boxes; Flow/Opacity are draggable percentages.
+  Double-click a field to type. Duplicate essentials were removed from the Brush panel; its
+  materials, presets and advanced settings remain.
+* Narrow docks use a second row, then all-numeric controls, then View/tool menus. The menu
+  collapses early enough for maximum-width values (100% / 100.0%) to fit. `app` owns new
+  `Command::SetBrushSettings` validation/ranges; the bar reads the same Session settings used
+  by presets, shortcuts and strokes. No extra settings store, project schema or undo entry.
+* Four new tests: app command/preset consistency, ranges, non-finite rejection, no document
+  history and active-stroke guard; real egui opacity dragging and external shortcut reflection;
+  layout at nine widths (200–1280 px) including maximum values, tool visibility; tiny-menu
+  access to every essential setting. **356 workspace tests passed, 0 failed, 0 ignored**;
+  `cargo clippy --workspace --all-targets` passes with existing warnings. No texel-writing
+  change; the existing numeric paint acceptance suite remains green.
+* Verified in the native app on Windows / RTX 4060 D3D12: wide inline strip, double-click
+  Opacity → type 65 → Enter, Size slider changing the live brush/status-bar size to 50%, and
+  history remaining at Open Project. Final build screenshots: `screenshots/brush-top-bar-wide.jpg`
+  and `screenshots/brush-top-bar-wrapped.png` (actual 1600px app screenshot run). Both final app
+  runs closed cleanly, without changing the fixture project. **Not verified by hand:** native
+  continuous dragging (automation did not yield a useful drag), tiny-menu interaction, all
+  other controls/preset round trips, Linux/macOS/browser/tablets or full 4K frame pacing.
+  The egui tests exercise the drag and tiny menu; this is distinct from native gesture testing.
+* The owner's existing debug build was running/locked and was left open. A separate optimized
+  `target/release/subcraft.exe` was built for this UI check. No push or release publication.
+  Implementation commit: `92ed2f6`; ADR-0012 records the shared-state/layout decisions.
+
+### Session 55 — icon toolbar, unboxed numbers and slider popovers (2026-10-18)
+
+* Owner-requested refinement of session 54's top bar. `ui::brush_bar` reuses the three left-rail
+  Phosphor icons at 26px for direct Brush/Eraser/Fill selection. Size is an accent-colored,
+  unboxed draggable number; Opacity is a neutral unboxed percentage. Click to type, Shift-drag
+  for precision. Flow has a thin amount indicator and click-to-open slider; Hardness has a dot
+  indicator and its own slider. Popovers retain stable IDs across value changes and close on
+  outside click/Escape. Fill disables brush-only controls in the bar and tiny settings popup.
+* `ui::viewport_bar` restores the full **Anti-aliasing** label, retains the subtle group divider
+  and responsive wrapping/menus. `ui::app::default_layout` gives the center more width (78%
+  before the right panel, 84% after the left); existing saved layouts remain intact. The side
+  Brush panel hint explains the new interactions. No new paint/app/document/preset fields,
+  schema version, raster behavior, or undo entries; controls still dispatch SetBrushSettings.
+* Three new egui tests (six toolbar tests total): direct icon selection/shared tool state and
+  disabled Fill flow; genuinely unboxed Size geometry plus pointer scrubbing; independent
+  Flow/Hardness slider input and popover lifetime. Existing tests now cover twelve dock
+  widths (200–1280px), full Anti-aliasing text, maximum values, tiny settings popup and opacity
+  scrubbing. **359 workspace tests passed, 0 failed, 0 ignored**; `cargo clippy --workspace
+  --all-targets` exits 0 with existing warnings. An initial concurrent-build run hit the existing
+  async shelf-image test's bounded polling timeout; the complete rerun passed. No tests skipped
+  or weakened. Existing numeric paint acceptance remains green; no texels are changed here.
+* Native Windows / RTX 4060 D3D12 checks on the imported OBJ fixture: compact inline strip at
+  1600px and a wide window, complete Anti-aliasing text, icon switching matching the left rail,
+  Fill's disabled settings, Flow slider → 37%, Hardness slider → 73%, Size click/type → 12%.
+  Popovers remain open while adjusting and switch independently. Screenshots:
+  `screenshots/brush-toolbar-icons.png`, `screenshots/brush-toolbar-flow.jpg`,
+  `screenshots/brush-toolbar-hardness.jpg`. Optimized local test build:
+  `target/release/subcraft.exe` (also `subcraft-toolbar.exe`). Built separately while the owner's
+  unsaved app was open; refreshed the standard executable only after that process had exited.
+  The owner's open document was not modified or closed by these checks.
+* **Not verified by hand:** native numeric scrubbing (the automated fast drag did not change
+  Size), Shift precision, Opacity entry in this revision, tiny-menu gestures, preset round trips,
+  other OS/browser/tablet inputs or full 4K frame pacing. Synthetic egui inputs cover Size and
+  Opacity drags, tiny-menu access and slider changes; this is distinct from native verification.
+  Previous Phase 1 limits still apply. ADR-0012, getting-started, roadmap and handoff updated.
+
+### Session 56 — subtle panel bands, spacing and section icons (2026-10-18)
+
+* Owner requested clearer row differentiation in the right Brush/Properties area, Layers,
+  Parts and History. `ui::theme` defines alternating charcoal bands differing by only 5–7 RGB
+  levels; selected orange rows and hover take priority. Shared list rows are 34px high.
+  `ui::widgets` adds full-width 32px section headers with disclosure arrows and meaningful
+  Phosphor icons, and 28px property rows. Section/property counters are independent, scoped
+  to the containing panel's transient UI ID and reset each render pass, retaining saved IDs
+  and expanded states. Layers/History stripe by visible index; Parts now has full-width rows
+  with a cube or hidden-eye icon, truncation and its existing tooltip/context menu.
+* Three new tests verify palette restraint, alternating header/property groups and per-frame
+  reset, real panel geometry/no document edits, selected-row precedence and child-button input.
+  Existing seven layer-tree interaction tests pass at the new height. **362 workspace tests
+  passed, 0 failed, 0 ignored**; `cargo clippy --workspace --all-targets` exits 0 with existing
+  warnings. No paint kernels, texel values, schema, preset fields or undo behavior changed.
+* Verified visually in the actual Windows D3D12 app with `--demo --screenshot`: alternating
+  Parts/History/Layers rows, selected layers/history, section headers/icons in Properties.
+  Screenshot: `screenshots/panel-row-bands.png`. Optimized preview: `target/release/subcraft-panels.exe`.
+  **Not verified by hand:** clicking/expanding the newly styled Brush sections, Parts context
+  menus, history jumps, native layer dragging or narrow/resized/high-DPI panel layouts. Existing
+  synthetic layer tests remain green. Native Computer Use was stopped by the owner's physical
+  Escape key before further interaction; no further Computer Use calls were made.
+* Latest owner priority override: add a subtle 3D floor grid, red X / green Y / blue Z direction
+  lines, Y hidden by default, and a top-bar grid icon to toggle visibility. This is **not yet
+  implemented**; no grid source changes are present. Proposed continuation is a depth-tested,
+  finite/faded render pass with cached geometry, viewport preferences and GPU numeric tests.
+  Finish that request before returning to the remaining ordered brush phases. No full 4K frame
+  profile was run in this UI-only session; prior Phase 1 limits remain. See ADR-0013.
+
+### Session 57 — calmer material controls and header/body overlap fix (2026-10-18)
+
+* Owner requested softer text/actions and reported Paint whole material overlapping Material.
+  `ui::widgets::section_with` now renders header actions in an unallocated child: the header
+  rectangle was already allocated, and scope_builder's second cursor advance pulled the body
+  upward. Bodies start with 8px spacing. A regression checks actual Material/action bounds at
+  280/340/420px sidebar widths. `ui::theme` reduces body text from near-white to (202,207,214)
+  and uses 4px control corners. Quiet secondary actions have dim text, no hard outline and 28px
+  hit targets. Brush channel cards separate image actions from enabled flat-value editors;
+  compact Image… actions replace repeated thin Choose image buttons. Import/drop handlers stay
+  shared with app. No paint, schema, preset or undo changes.
+* Two new UI tests: narrow Material/action geometry and calm button color/radius/hit target.
+  Existing channel drop/projection/blend/clear regression still passes. **364 workspace tests
+  passed, 0 failed, 0 ignored**; Clippy `--workspace --all-targets` exits 0, existing warnings.
+* Actual native Windows D3D12 check via `subcraft-preview.exe --demo --brush-panel --screenshot
+  docs/screenshots/brush-material-calm.png`: Brush panel is active, Material heading and whole
+  material action are separated, first image action is visible, softened text/corners shown.
+  Added --brush-panel startup option for direct testing. **Not verified by hand:** native image
+  file-picker clicks, drops, scrolling/resizing or new button interaction. Computer Use remains
+  stopped after the owner's Escape; native CLI screenshot mode was used, not desktop input.
+* Owner explicitly requested completing all follow-ups sequentially. After this completed item:
+  finish the 3D grid, then a toolbar symmetry X/Y/Z + Lazy Mouse popover (remove sidebar/rail
+  duplicates), then UI-size preferences first in Preferences, default slightly smaller.
+
+### Session 58 — subtle 3D floor grid and axis controls (2026-10-18)
+
+* Completed the owner's grid request in `render::grid`: a finite, faded XZ floor just below
+  the whole model's base; world-direction X red / Y green / Z blue guides, Y hidden by default.
+  Spacing uses a model-relative 1/2/5 step. Distance and grazing-angle fading keep the horizon
+  quiet. Final neutral line alphas are 0.05 minor / 0.09 major after native visual review.
+  The guide is depth-tested against the mesh and never writes depth, paint texels or exports.
+  Whole-model bounds avoid moving the floor when hiding/isolating parts. Geometry is cached
+  (246 vertices); visible frames update 112 uniform bytes and submit one line-list draw.
+* `ui::viewport_bar` has a grid icon: click toggles visibility; right-click opens X/Y/Z settings.
+  Viewport preferences save the flags and old files load grid on / Y off. `ui::viewport` passes
+  display state to render. Other render callers opt in through ViewParams::grid, leaving
+  thumbnails/exports unchanged. Default canvas width increases to 80%/85% dock fractions;
+  custom layouts remain intact and narrow toolbar rows still wrap.
+* Owner clarified button corners should be almost sharp: all interactive controls/cards now
+  use a restrained 2px radius, retaining the calmer palette. Updated the radius acceptance test.
+* Three new tests: bounded grid geometry/axis directions/defaults; numeric GPU acceptance of
+  red/blue defaults, optional green Y, axes off, exact grid-off background, and unchanged opaque
+  model pixels across perspective/ortho and AA on/off; real egui grid toggle/axis-popup edits
+  and preference round trip. Layout coverage expands to fourteen widths. **367 workspace tests
+  passed, 0 failed, 0 ignored**; Clippy `--workspace --all-targets` exits 0, existing warnings.
+* Native Windows / RTX 4060 D3D12 CLI screenshot: `screenshots/viewport-grid.png` shows the
+  floor around the demo model, correct depth occlusion, red/blue guides, no upward Y, toolbar
+  grid icon, and 2px controls. **Not verified by hand:** native grid-icon/right-click gestures,
+  axis switching, orbit/zoom or a 4K production project. GPU/UI input tests cover these shared
+  rendering/control paths; full end-to-end 4K frame pacing remains unmeasured. Desktop Computer
+  Use remains stopped; native CLI screenshot mode was used. ADR-0014 records the design.
+
+### Session 59 — symmetry and Lazy Mouse in a toolbar popover (2026-10-18)
+
+* Completed the owner's next item: `ui::brush_bar` has one mirror icon beside the three paint
+  tool icons. Its popover holds independent X/Y/Z mirrors and a compact Lazy Mouse 0–100px
+  slider (0 off); it stays open while changing controls and lights when any option is active.
+  `ui::panels::brush` removes the Stroke section and redundant tool chooser, retaining Paint
+  target / Fill by; `ui::app` removes the rail's duplicate X mirror button. Existing X shortcut
+  remains. `app::Command::SetStrokeOptions` validates finite lazy distance, clamps the range,
+  retains the stroke-in-progress guard, and writes the existing shared preset/tool state.
+* Two new tests: app command/preset consistency, non-finite rejection, range clamping, unchanged
+  history/document and active-stroke rejection; real egui X/Y/Z + lazy slider edits, shortcut
+  consistency, preset capture, and absence of sidebar duplicates. **369 workspace tests passed,
+  0 failed, 0 ignored**; Clippy `--workspace --all-targets` exits 0 with existing warnings.
+  The existing numeric mirror/lazy stroke tests remain green; raster behavior is unchanged.
+* Actual native Windows D3D12 CLI screenshot (`--demo --brush-panel`):
+  `screenshots/brush-symmetry-toolbar.png` shows the top mirror icon, responsive toolbar and
+  cleaner Paint target sidebar without the old rail toggle. **Not verified by hand:** native
+  opening/toggling/dragging this popover, preset round trips or tablet gestures. Synthetic egui
+  events exercise all its controls; desktop Computer Use remains stopped after Escape.
+  ADR-0012 and the guide describe the single shared state. Next: UI-size preferences.
+
+### Session 60 — saved interface size, smaller default and exact viewport mapping (2026-10-18)
+
+* Completed the final owner-requested UI item. `ui::recovery::Preferences` saves UI size, with
+  **95% default**, 75–150% range and Reset → 95%. It is the first setting in Preferences and
+  applies live to the complete egui context (text/icons/widgets/layout), retaining native DPI.
+  `ui::app` loads/applies it on startup and per frame; the existing eframe preferences store
+  saves it between runs. Old files default safely, invalid percentages clamp, no project-schema
+  or brush-preset field changes. File → Preferences now opens the same window as Edit.
+  The window starts taller and scrolls when large UI/small windows need it.
+* Numeric painting acceptance exposed subpixel drift when fractional UI rectangles were mapped
+  using DPI alone. `ui::viewport` now maps pointer positions through the exact rounded camera
+  target dimensions; pen/stencil inverse projection, panning and cursor scale use the same frame.
+  No brush kernel change. ADR-0005 clarified this screen mapping; ADR-0015 records UI scaling.
+* Four new tests: File-menu access without edits; old/default/invalid preference loading and
+  serialization; actual UI-size slider/reset events, first-setting order and global zoom with
+  unchanged document/tool/history; numeric dab comparison at 75/95/150% (premultiplied max
+  component error ≤0.005 and exactly one undo step per dab). Existing hover/part picking and
+  pen regressions pass. **373 workspace tests passed, 0 failed, 0 ignored**; Clippy
+  `--workspace --all-targets` exits 0 with existing warnings.
+* Actual native Windows / RTX 4060 D3D12 screenshots: `screenshots/ui-size-preferences.png`
+  shows UI size first at 95%; `screenshots/ui-refinement-final.png` shows the complete smaller
+  interface, one-row top controls at 1600px, grid/symmetry icons, calm almost-square actions
+  and alternating panels. Test executable: `target/release/subcraft-preview.exe`.
+  **Not verified by hand:** native File-menu/scale-slider/reset gestures, live resize, mixed-DPI
+  monitor movement, tablet input, other OS/browser or full 4K production frame pacing. Synthetic
+  egui events and numeric painting cover scale changes. Desktop Computer Use stayed stopped
+  after the owner's Escape; all later real-app checks used native CLI screenshot mode.
+* All requested UI follow-ups are complete in individual tested commits. The original larger
+  brush roadmap remains partial as listed below. Nothing pushed or released; protected ZIPs,
+  output/, generate_textures.py and __pycache__/ untouched. Documentation/handoff is the final commit.
+
+### Session 61 — make alternating panel rows visible (2026-10-18)
+
+* Owner reported that the row colors were not visible enough. `ui::theme` increases the
+  Parts/History/Layers and shared property/card bands from 5–7 RGB levels apart to 10–13:
+  dark (22, 23, 26), lighter (32, 34, 39). Section headers also get clearer alternating
+  charcoal shades. Text brightness and the almost-square controls stay as requested.
+  `ui::widgets::list_row_background` brightens hovered striped rows above either band;
+  selected rows retain orange priority. No document, preset, schema or paint changes.
+* Updated the actual rendered-color acceptance bound and added an egui pointer test for both
+  alternating hover states and selection priority. Existing tests still inspect full-width
+  stripes in the real Parts/History/Layers panel functions and child-control click routing.
+  **374 workspace tests passed, 0 failed, 0 ignored**; `cargo clippy --workspace --all-targets`
+  exits 0 with existing warnings. ADR-0013 and the getting-started guide record the refinement.
+* Verified visually in the actual Windows / RTX 4060 D3D12 app using native CLI screenshot
+  mode (`--demo --brush-panel --screenshot`): `screenshots/panel-row-contrast.png` shows
+  distinguishable Parts/History/Layers rows and alternating Brush section headers. Preview:
+  `target/release/subcraft-preview.exe`. **Not verified by hand:** native pointer/selection
+  gestures, other displays/DPI/platforms or full 4K frame pacing; synthetic egui events cover
+  hover/selection. The owner's running standard executable/window was left untouched and
+  still contains the previous palette; open the preview for this change. Existing deletions
+  of tracked historical screenshots were preserved unstaged; only this new screenshot is added.
+
+### Session 62 — consolidate the final build; deletion blocked (2026-10-18)
+
+* Owner requested removal of older versions and their disk usage. Read-only inventory found
+  ~18.91 GB in target/debug and ~3.27 GB in target/release, plus old 0.1.0 dist artifacts.
+  No app/compiler process was running at the check. Copied the final tested preview into
+  `target/release/subcraft.exe` and verified SHA256
+  `0BBDF48783CE6E38F88DD25EA7B65EBF81D76C5D83F17A216696AF6A09479959`.
+  This is now the normal launch path; preview and standard contain the same latest palette.
+* **Cleanup remains incomplete.** Automatic approval review rejected the guarded bulk cleanup
+  and the narrower explicit `Remove-Item` of `target/debug`, with only “blocked by policy”.
+  Neither deletion executed; no older versions/caches were removed and no disk space was
+  reclaimed. Do not report this cleanup as complete or bypass that review decision.
+* Before consolidation: **374 workspace tests passed, 0 failed, 0 ignored**; Clippy workspace /
+  all targets exits 0 with existing warnings. Afterwards, the normal executable ran the native
+  Windows D3D12 demo/screenshot workflow successfully and exited 0, with output in
+  `%TEMP%/subcraft-cleanup-final.png`. Existing `screenshots/panel-row-contrast.png` depicts
+  this identical binary. No source/visual changes, new tests, schema or ADR needed. No new
+  hand checks, other platforms or 4K profiling. Protected files and existing screenshot
+  deletions were left untouched. Nothing pushed/released.
+
+### Session 63 — inspector follows the selected layer (2026-10-18)
+
+* Fixed the owner's report that switching from a paint layer to a fill kept showing Brush
+  settings. Brush edits the painting tool, not a fill's material. `ui::app` now watches the
+  selected texture-set/layer IDs and kind before and after drawing the actual dock. Selection
+  changes reveal Brush for ordinary paints and Properties for fills/folders/paths/no layer;
+  new/opened non-paint content starts in Properties. Existing controls then dispatch the
+  selected layer's UUID through the unchanged app commands. Manual tab choices remain intact
+  between selections, including Brush for mask painting and Properties for paint-layer masks.
+  Dock tabs are located by identity, so rearranged layouts work too. No document/preset/schema,
+  brush raster or undo behavior changes from inspector focus.
+* Three regressions in `ui/src/inspector_tests.rs`: real dock pointer input switching
+  paint → fill → another fill → paint with correct visible controls and no document/history
+  changes; actual selected-fill channel checkbox edits with every 64² composite texel checked
+  (red → blue → undo red → redo blue, error <0.001), one undo step, other fill/paint/brush
+  material unchanged; manual tab choices, rearranged docks, deselection, folder/delete and
+  session replacement. **377 workspace tests passed, 0 failed, 0 ignored**; Clippy workspace /
+  all targets exits 0 with existing warnings. ADR-0012 describes the presentation-only policy.
+* Verified with real Windows / RTX 4060 D3D12 input in the rebuilt normal
+  `target/release/subcraft.exe` (no new executable variant): paint Layer 1 → Moss fill opens
+  Properties; disabling Moss Base Color removes green in 3D/2D while the orange paint strokes
+  remain; Ctrl+Z restores it; selecting Wood shows its own Wood Rings values; selecting Layer 1
+  returns to Brush. Evidence: `screenshots/inspector-fill-selected.jpg`,
+  `screenshots/inspector-fill-edited.jpg`, `screenshots/inspector-paint-return.jpg`.
+  **Not verified by hand:** restored projects, folders/pen paths, floating inspectors, native
+  redo, tablet/mixed-DPI/other platforms or 4K frame pacing. Native accessibility element-click
+  missed a scaled checkbox; screenshot coordinates worked. Accessibility bounds need separate
+  investigation. Test data/library/recovery are under `%TEMP%/subcraft-inspector-native`;
+  the demo window remains open, with the test fill edit undone. Protected files and pre-existing
+  screenshot deletions were untouched. No push/release; docs/handoff form the final commit.
+
+### Session 64 — layer-system audit and non-destructive mask commands (2026-10-18)
+
+* Researched Adobe's official masking/effects, filter, Compare Mask and anchor documentation;
+  audited the existing layer tree, compositor, mask sources, history and explicit project schema.
+  ADR-0016 records what is reused and the planned domain/kernel/dependency contracts. The new
+  full ordered checklist is `layer-system-roadmap.md`; this owner request takes priority over
+  the remaining brush phases. Content-effect stacks/filters/references are not claimed implemented.
+* `app::LayerTarget` and SelectLayerTarget distinguish content/mask editing using existing brush
+  targets; validation and selection changes do not mutate document/history. CopyMask is a
+  session-local COW clipboard; PasteMask resamples to the destination and refreshes effect UUIDs
+  in one undo step. InvertMask appends the existing editable invert operation. Added mask-effect
+  move/duplicate commands, preserving stack metadata and immutable paint sources. Mask removal
+  normalizes the paint target. Existing project schema 4 already stores all these operations;
+  no new document fields or migration required in this slice. Future content/filter fields
+  explicitly require migrations and v1–4 numeric equivalence.
+* Four app regressions cover domain validation/history, all-texel inversion/disable/undo,
+  clipboard resampling/fresh IDs/source independence/save-load, and effect reordering/duplication
+  with atomic rejection. **381 workspace tests passed**, 0 failed/ignored; Clippy workspace /
+  all targets passes with existing warnings. Code `72c1714`. Native evidence is in session 66.
+
+### Session 65 — bounded evaluated preview service (2026-10-18)
+
+* `compositor::tile::preview_content` reuses production layer evaluation before the layer's own
+  mask/blend/opacity/visibility; folder children retain their own blends and masks. The new
+  toolkit/GPU-independent `app::layer_previews` snapshots COW layers/resources/maps and evaluates
+  content or resolved masks on an immutable background job. At most one queued worker per
+  service, 96 LRU entries, 64px thumbnails / 256px isolated inspection, shared geometry cache,
+  source/scene/map invalidation and obsolete-result rejection. Disabled masks still preview
+  authored data. Color is encoded for display; normal/scalar/mask data remain raw. No 4K row
+  readbacks or widget-side material evaluation. Browser uses the existing synchronous spawn
+  fallback and is not performance-certified. Fine details can disappear at preview resolution.
+* Four numeric/service tests cover independent content/mask/color/normal encoding from a 4K
+  document, production mask/composite parity, disabled masks, bounded inspection, cache reuse/
+  invalidation/scene replacement, transparent paint isolation and cache bounds. **385 workspace
+  tests passed**, 0 failed/ignored; Clippy passes. Initial parallel link failed with LNK1318/PDB
+  LIMIT while E: had little free space; a serial `cargo test --workspace -j 1` rerun passed.
+  Code `ae7063e`. No deletion workaround was attempted; prior cleanup restriction remains.
+
+### Session 66 — selectable thumbnails and mask Properties (2026-10-18)
+
+* `ui::layer_previews` uploads only completed preview pixels; visible layer rows replace generic
+  content icons with 26px content/mask squares and independent accent selection. No duplicate
+  MASK badge. `ui::panels::mask` provides mask-specific Properties and existing effect controls;
+  all edits dispatch app commands. App inspector focus now includes domain. Mask clicks route
+  painting to the mask base; content clicks return to material/tool editing. New masks select
+  themselves. Shift-click toggles mask bypass, Alt-click opens reduced UV inspection; context
+  and Properties actions expose preview, disable, invert, copy/paste and removal. Existing masks
+  remain compatible. Mask effects expose move/duplicate/visibility/remove/blend/opacity, fill
+  pattern/projection, generator kind/direction and full levels ranges. Dedicated nested effect
+  rows and independent selected-effect Properties are still planned, not emulated by this UI.
+* Two real-dock input tests cover thumbnail independence, paint/fill inspector routing without
+  history edits, shortcuts and undoable mask actions. Added a 160-sample 4K mask-stroke test with
+  concurrent preview requests: one undo, immutable original, final preview checked against mask
+  texels. Measured CPU stroke + preview-request cold **4.414ms**, warm p95 **1.495ms**, max
+  **1.669ms** in the optimized test profile on the cube. This excludes composite/upload/render
+  and does not certify full 4K frame pacing. **388 workspace tests passed**, 0 failed/ignored;
+  Clippy workspace/all targets passes with existing warnings.
+
+### Session 67 — Claude: finish and commit the thumbnail/mask slice (2026-10-18)
+
+* Codex ran out of credits during the session-66 hand check. Claude rebuilt and re-ran the
+  suite: **388 workspace tests passed**, 0 failed/ignored; Clippy `--workspace --all-targets`
+  exits 0 with existing warnings only. Release `target/release/subcraft.exe` rebuilt.
+* **Hand check by the owner:** the owner tested the rebuilt app (black mask on a painted layer,
+  painting white into it) and reported it all works. Claude's own native-input check was
+  stopped because the owner was using the same desktop; Claude did not separately verify mask
+  thumbnail refresh during painting or undo/redo by hand. Codex's screenshots
+  `screenshots/{layer-mask-thumbnails,mask-effect-controls,mask-uv-preview}.jpg` are committed.
+* The 62 tracked screenshots that showed as deleted in the working tree had no recorded reason
+  (only “left unstaged” notes); they were restored from git, not committed as deletions.
+* Disk: E: had 439 MB free; `cargo clean --profile dev` removed `target/debug` (19.1 GiB).
+  `target/release` kept. Code `bd43cd7`.
+
+### Session 68 — Claude: separate content effect stacks and Paint-effect strokes (2026-10-18)
+
+* **Model/evaluation** (`812081c`, ADR-0017): `doc::ContentEffect` (UUID, name, visibility,
+  per-channel blend, kind Paint / Fill / Levels) in `Layer::content_effects`, separate from
+  `MaskEffect`. `compositor::tile::apply_content_effects` runs the stack per channel on the
+  layer's own content before its mask/blend/opacity, so content thumbnails include it.
+  Sources composite with their alpha; Levels adjusts values and keeps coverage. Folders and
+  Levels-on-Normal are rejected. Dirty diffing treats content *and mask* Paint-effect rasters
+  like base paint (changed tiles only) — before, any mask Paint-effect change redrew all tiles.
+* **Schema 5**: `content_effects` per layer (absent = none). v1–4 files load unchanged;
+  schema-4 layers parse with no effects and no-effect layers serialize without the key.
+  Smart materials carry effects through the shared layer schema (not separately tested).
+* **Selection and strokes** (`add8bc5`): transient `Command::SelectEffect`; `Session::
+  selected_effect`. `PaintTarget::{ContentEffect, MaskEffect}` + `ImageKey::{EffectChannel,
+  MaskEffect}` route strokes into the selected Paint effect only (fill layers included), one
+  undo per stroke. Add/Remove/Set/Move/DuplicateContentEffect; Add*Effect selects the new
+  effect; removal/undo falls back to the domain base (`normalize_target`).
+* **UI** (`c012109`): `ui::panels::effects` lists the selected layer's content or mask stack
+  (following the clicked thumbnail) under its row: + Add, eye, click to select, right-click
+  move up/down / duplicate / delete. Effect Properties: name, visibility, Paint/Fill/Levels
+  settings, per-channel blend + opacity; mask effects reuse the existing editor. Content
+  Paint effects open Brush; the viewport pill says “Painting Paint effect”. Fill effects
+  offer Uniform/Procedural sources only (mesh-map/image sources stay on fill layers).
+* Tests: 5 compositor (sources, coverage, order, per-tile diff incl. mask Paint effects,
+  exact undo, thumbnails), 3 project (round trip, schema-4 layers, rejections, stable JSON),
+  3 app (stroke into a Paint effect on a fill layer with undo/redo, lifecycle/atomic errors,
+  mask Paint effect strokes), 1 real-dock pointer test. **400 workspace tests passed**, 0
+  failed/ignored; Clippy `--workspace --all-targets` exits 0, pre-existing warnings only.
+* Release `target/release/subcraft.exe` rebuilt (SHA256 `caba64e3…f1009`).
+* **Hand check (owner allowed mouse/keyboard control)**, real Windows input on the rebuilt
+  release exe, demo project, isolated `%TEMP%/subcraft-claude-native` data: selecting a layer
+  shows its Content effects row; Moss (fill) → + Add → Paint selects the effect, opens Brush,
+  shows “Painting Paint effect”; a stroke paints orange on the fill (3D Base Color view pixel
+  225,97,48; the Material view looks pale at that grazing angle because the brush roughness is
+  0.35 — gloss, not a bug); Ctrl+Z removes it, Ctrl+Y restores it. + Add → Levels opens its
+  Properties; Out low 0.53 brightens moss and the painted stroke below it; the Moss content
+  thumbnail updates. Back to layer returns to fill Properties. Mask thumbnail → Mask effects
+  (Generator) → + Add → Paint; a stroke on the side face reveals Moss there (“Mask Stroke”).
+  Evidence: `screenshots/{content-paint-effect,content-levels-effect,mask-paint-effect}.jpg`.
+* Found by hand and fixed: per-channel opacity sliders in effect Properties ran past the panel
+  edge; now sized to the row (dock test checks the values are visible: 4/4, was 1/1).
+  Observed, pre-existing and not fixed: one native slider drag can create two history entries
+  (the fill layer's own Balance slider does the same).
+* Not verified by hand: save/reopen with effects (covered by schema tests only), Fill effect
+  settings, effect reorder/duplicate/delete menus, eye toggle, 4K effect-stroke timing,
+  smart-material save/load with effects. Effect rows show icons, not thumbnails; no drag
+  reorder yet. **400 workspace tests pass** after the slider fix; Clippy unchanged.
+
+### Session 69 — Claude: interactive compositing performance (2026-10-18)
+
+* Owner report: generator/material sliders “really slow, even at 1000 resolution”; lowering the
+  viewport resolution did nothing. Measured with the new `crates/app/examples/perf_slider.rs`
+  (demo stack): one generator-level step = 260–386 ms at 1024² (3–5 s at 2048²) of CPU
+  compositing, every tile/layer/channel, before any upload. ADR-0018 records causes and fixes.
+* Fixes (all exact, bit-identical output): mimalloc desktop allocator (Windows heap serialized
+  the parallel compositor, 7×); per-tile procedural field cache keyed by every parameter bit
+  (`materials::sample::field`, 8 per tile, 768 MB budget); per-thread lattice-gradient cache in
+  gradient noise (cold fields ~2× faster); parallel f16 writes straight into the composite with
+  per-channel change detection (`Composite::evaluate_tiles` → `ChangedTiles`), so the renderer
+  uploads only tiles whose texels changed; fully masked-out tiles skip layer content.
+* Interactive frames: `CompositeCache::update_within` / `Session::update_composites_within`
+  composite at most ~10 ms per frame, shared by every panel (`UiState::begin_frame`; the 3D and
+  2D panels used to each composite again); the rest stays pending, drained round-robin against
+  the newest document; small fresh changes (strokes) first. Export/bake/save/tests use the full
+  update.
+* New diagnostic `subcraft --profile-edits <file> [resolution]`: builds the demo, changes the
+  Moss generator every frame through the normal command, and writes frame/section timings.
+  Real app, after warm-up: frame p50 15.2 ms (1024²), 15.7 ms (2048²), 17.0 ms (4096²); the
+  model is fully refreshed 5 ms / 73 ms / 0.9 s after the last edit. Benchmark: one full
+  synchronous step 9.7 ms (1024²), 37 ms (2048²), ~145 ms (4096²).
+* Tests: field cache exactness/keys/eviction, cached-vs-direct noise bit identity, budgeted
+  updates converge exactly under continuous edits, zero/tiny budgets, identical re-evaluation
+  reports nothing, single-channel edits report only that channel, warm vs cold composites
+  identical. **404 workspace tests passed**, 0 failed/ignored; Clippy exit 0, pre-existing
+  warnings only.
+* **Not verified by hand:** dragging a real slider with the mouse after these changes (measured
+  through `--profile-edits`, which runs the real app loop, GPU upload and rendering, but edits
+  by command instead of pointer); other GPUs/CPUs; 4K cold warm-up (~25 fps for a few seconds
+  after opening/creating a 4K stack); pattern/projection drags at 4K (each step recomputes one
+  field: ~25 ms of work at 1024²).
+
+### Session 70 — Codex: finish Claude's background compositor and sparse 4K uploads (2026-10-18)
+
+* Continued the owner's uncommitted optimization on `feature/brush-roadmap`; kept the existing
+  layer/mask/effect architecture and protected texture ZIPs/output/cache files. Code commits:
+  `8a6174c` (worker), `c584981` (GPU initialization).
+* `compositor::worker::CompositeWorker`: immutable COW TextureSet/resource/geometry/map
+  snapshots, one latest-wins pending slot, private Rayon pool, progressive changed-tile
+  publication, preserved invalidations, and exact synchronous completion. `Session` starts
+  it only for interactive desktop updates; threadless builds retain inline budgeting.
+  `Composite::evaluate_tiles` distributes the actual requested batch across threads.
+* Inspection found and fixed two transitions: adopting an already-computed synchronous cache
+  must preserve its displayed composite, and export/sampling can consume upload notifications.
+  `Session::composite_generation` / `UiState::sync_gpu` now detect those external publications.
+* `render::ChannelTexture::upload_all` clears a new/full GPU image to its f16 fill, then uploads
+  allocated tiles only, avoiding full empty 4K channel transfers. Incremental uploads stay
+  per-channel/per-tile. Existing GPU visibility tests now drain through real asynchronous
+  frame syncs before their exact pixel comparisons.
+* Added **10 tests**: five worker convergence/scheduling/invalidation/adoption/layout cases,
+  three Session sync/save/export cases, stale-viewport-after-export GPU regression, and sparse
+  versus dense GPU pixel equality. **414 workspace tests passed, 0 failed/ignored** using
+  `CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=line-tables-only`, serial build jobs; Clippy
+  workspace/all targets exits 0, existing warnings. An initial run exposed the two old GPU
+  tests' synchronous assumption; final tests pass through normal frame updates. A temporary
+  Claude-only `worker_probe` example was removed. `perf_slider`'s Windows-only benchmark
+  throttle now has a non-Windows no-op so Linux test builds remain portable.
+* Real native app, final 0.1.7 binary, command-driven 4096² demo: cold warm-up p50/p95
+  **14.1/27.5 ms**, max **440.7 ms at interval 2**; generator edits **14.6/33.9 ms**, max
+  **94.6 ms**, full refresh **315 ms** after the last edit; scale edits **15.1/28.6 ms**,
+  max **29.2 ms**, refresh **576 ms**. First-use graphics/upload work remains expensive in
+  the first two intervals. This is not a zero-frame-drop claim.
+* `cargo run --release -p subcraft-app --example perf_slider -- 4096` passed: synchronous
+  generator p50/p95 **157.2/180.6 ms**; UI polling p95 warm-up **0.2 ms**, generator
+  **0.6 ms**, scale **0.3 ms** (CPU only, excludes rendering/upload). Raw reports:
+  `performance/2026-10-18-{native-4k,perf-slider-4k}.txt`. ADR-0018 records measurement limits
+  and Claude's discarded cold-field splitting experiment; that experiment was not repeated.
+* Rebuilt `target/release/subcraft.exe` with `windows-gui`; SHA256
+  `ED34D3442846C3A1ACEA59A19E23C9878B0A790923C15FC5A3368AE9BF6C3F9C`.
+  Native CLI screenshot inspected: `screenshots/release-017-layers.png` shows evaluated square
+  layer/mask thumbnails, the painted demo, compact toolbar and grid. Existing hand evidence
+  for effect controls remains `screenshots/{content-paint-effect,content-levels-effect,
+  mask-paint-effect}.jpg` (session 68).
+* **No mouse control used. Not verified by hand:** pointer drags, tablet input, save/reopen
+  gestures (numeric round trips tested), effect row menus, complex production-model strokes,
+  browser/Linux runtime or installed-app update/restart. Owner separately reported the app
+  was already working well. General filters, Compare Mask and anchors are still absent.
+
+### Session 71 — Codex: prepare the 0.1.7 release (2026-10-18)
+
+* Version/lockfile and accurate release notes committed as `45c5bfa`. Includes the existing
+  texture/normal brush projection, compact UI/grid/symmetry/scale work, evaluated content/mask
+  thumbnails, mask actions, separate content/mask Paint/Fill/Levels stacks and mask generators.
+  Project schema remains **5** (v1–4 migrations retained); no new document fields in this
+  performance work. General Blur/Sharpen/Bevel filters, Compare Mask and anchors are explicitly
+  excluded from 0.1.7's claims.
+* `cargo test --workspace -j 1`: **414 passed, 0 failed/ignored** after the version bump;
+  Clippy workspace/all targets exits 0 with existing warnings. Windows packaging path tests
+  pass for default/relative/absolute/missing targets and package contents/licenses.
+* Owner requested a release, authorizing publication. Pushed only the working feature branch
+  and opened **PR #50** (`https://github.com/Aalzard/subcraft/pull/50`) following the repository
+  release guide. Native profiling and screenshot above use the final local 0.1.7 executable.
+  Publication status and artifact checks are recorded by the GitHub release and final handoff.
+
 ## Next steps (in order)
 
-Current priorities requested by the owner:
-* Brush overlap at model edges (session 47), graphics selection, the independence notice and
-  hover-tint removal (sessions 41–43) are merged together on `handoff-ao-channel`.
-1. ~~Right-click texturing and Parts~~ — session 30; PR #34 merged.
-2. ~~Welcome screen, recent files, quick-start guide and screenshot documentation~~ — sessions
-   31/34; PR #35 merged. Included in published desktop v0.1.5.
-3. ~~Layer dragging, folder controls and inline rename~~ — session 35; #38 merged after all
-   required checks passed and the owner's approval.
-4. ~~Editable pen/Bézier paths~~ — session 36; #39 merged after required checks and owner approval.
-5. ~~Starter pack and image previews~~ — session 37; #40 merged. Browser ZIP #41 merged too.
-   Both are included in published v0.1.5 with the welcome screen, layer editing and Pen tool.
-6. Real multi-part FBX/GLB bake → smart material → paint → export.
-7. Browser import/save/export verification and work split across frames. Multi-download export
-   is fixed in session 38; remaining work includes large operations and real GLB/OBJ import checks.
-8. Projection painting, clone, smudge/blur, followed by the remaining engine/library follow-ups.
+Pending owner cleanup request: remove obsolete build artifacts only when the environment's
+deletion restriction permits it, retaining the verified `target/release/subcraft.exe` above.
 
-Earlier roadmap details:
+The new priority is **layer-system-roadmap.md**:
+0. Performance follow-ups (ADR-0018): first-use graphics/upload stalls and occasional later
+   spikes; GPU field/blend kernels, staged accumulation caching and reduced-resolution drag
+   previews. Background desktop compositing and sparse GPU initialization are done. Cold-field
+   splitting showed no measurable gain and was reverted; do not reintroduce it without data.
+1. Hand-check save/reopen with effects and the Fill effect settings; then effect-row drag
+   reorder, per-effect thumbnails and smart-material round trip with effects; look at why one
+   native slider drag can split into two undo entries.
+2. Kernel/stage contracts (ADR-0016) for folders/passthrough and neighborhood filters.
+3. Neighborhood/dirty-halo evaluator, local adjustments then blur/sharpen/etc. CPU goldens;
+   render-owned GPU parity and end-to-end 4K profiling.
+4. Compare Mask and anchor stage outputs/references with order/cycle/missing-reference checks.
+5. Full-resolution isolated 2D/3D masks, mip-aware previews and remaining native/platform checks.
+
+Then resume **brush-roadmap.md** (the earlier ordered brush phases are retained below):
+1. **Finish Phase 1**: camera/per-stamp source accumulation with batch-equivalence tests, normal
+   frame reorientation, async starter-pack brush destinations, remaining native checks and full
+   4K frame profiling on a complex model. Static channel images are complete (session 53).
+2. Expand the essential top bar (sessions 54–60) with tip/presets/projection/etc., then 3D/2D
+   overlays and hints/toasts/warnings with View/per-tool switches.
+3. Smoothing models/presets, locked/snapped/chained lines, projected shapes, repeat/taper.
+4. Tip editor, dual/sequence/grain tips, jitter and pen/speed/mouse dynamics.
+5. Radial/custom/topological symmetry, UV repetition/arrays/kaleidoscope (mirror already exists).
+6. Surface-aware paths, edge/UV/curvature constraints, stitch/rivet and wear strokes.
+7. Texture-editing brushes, all-channel eyedropper, channel/alpha locks and selections.
+8. Smart/particle/drip/decal brushes and saved stencils.
+9. Shortcuts, preset organization/import and editable/replayable past strokes.
+
+Other outstanding workflow checks remain recorded: production multi-part FBX/GLB bake → smart
+material → paint → export, browser import/save/export, large operations split across frames.
+
+Earlier roadmap details (historical; the brush phase order above takes precedence):
 
 1. **Your own image textures** (users ask for this: "add our own textures", SBSAR materials).
    - ~~Fill layer channels: an "Image" source with a file picker~~ — done (session 12).

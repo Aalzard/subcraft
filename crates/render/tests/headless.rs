@@ -74,6 +74,46 @@ fn renders_textured_cube_and_partial_uploads_match_full() {
     assert_ne!(partial, img, "the green tiles are visible");
 }
 
+/// A full upload clears to the fill on the GPU and uploads only allocated tiles: the result must
+/// equal uploading every tile with the same texels.
+#[test]
+fn sparse_full_upload_matches_a_dense_one() {
+    let Some((_, device, queue)) = headless::device() else {
+        eprintln!("no wgpu adapter available: skipping");
+        return;
+    };
+    let mesh = primitives::cube(2.0);
+    let render = |base: &TiledImage, rough: &TiledImage| {
+        let mut r = ViewportRenderer::new(&device, &queue);
+        r.set_mesh(&device, &mesh);
+        r.upload_channel(&device, &queue, 0, ChannelKind::BaseColor, base, None);
+        r.upload_channel(&device, &queue, 0, ChannelKind::Roughness, rough, None);
+        r.render(&device, &queue, [SIZE, SIZE], &params()).read_rgba8(&device, &queue)
+    };
+    let mut base = solid(4, [0.8, 0.05, 0.3, 1.0]);
+    let mut rough = solid(1, [0.35; 4]);
+    for y in 64..128 {
+        for x in 0..64 {
+            base.set(x, y, [0.05, 0.7, 0.1, 1.0]);
+            rough.set(x, y, [0.9; 4]);
+        }
+    }
+    assert!(base.allocated_tiles() < base.tile_count());
+    let dense = |img: &TiledImage| {
+        let mut d = img.clone();
+        for t in 0..d.tile_count() {
+            let mut buf = vec![0.0; subcraft_image::TILE_TEXELS * d.comps()];
+            img.read_tile(t, &mut buf);
+            d.write_tile(t, &buf);
+        }
+        assert_eq!(d.allocated_tiles(), d.tile_count());
+        d
+    };
+    let sparse = render(&base, &rough);
+    assert_eq!(sparse, render(&dense(&base), &dense(&rough)), "cleared fill tiles equal uploaded fill tiles");
+    assert_ne!(sparse, render(&solid(4, [0.8, 0.05, 0.3, 1.0]), &solid(1, [0.35; 4])), "the allocated tiles are visible");
+}
+
 #[test]
 fn empty_scene_is_background_and_resizes() {
     let Some((_, device, queue)) = headless::device() else {

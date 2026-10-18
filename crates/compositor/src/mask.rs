@@ -8,7 +8,7 @@ use subcraft_core::MeshMapKind;
 use subcraft_doc::{Generator, GeneratorKind, Mask, MaskEffectKind, Projection, ProjectionMode};
 use subcraft_image::TILE_TEXELS;
 use subcraft_image::Wrap;
-use subcraft_materials::sample::{eval_procedural, sample_projected};
+use subcraft_materials::sample::{procedural_tile, sample_projected};
 
 use crate::TileContext;
 use crate::blend::{BlendTarget, composite};
@@ -28,8 +28,9 @@ pub fn eval_mask(mask: Option<&Mask>, tc: &TileContext) -> Option<Vec<f32>> {
                 read_tile_rgba(image, tc.geo, &mut e);
             }
             MaskEffectKind::Fill { value, procedural, projection } => {
+                let field = procedural.as_ref().map(|p| procedural_tile(p, projection, tc.geo));
                 for (i, o) in e.iter_mut().enumerate() {
-                    let v = procedural.as_ref().map_or(*value, |p| eval_procedural(p, projection, tc.geo, i));
+                    let v = field.as_ref().map_or(*value, |f| f[i]);
                     *o = [v, 1.0, 0.0, 0.0];
                 }
             }
@@ -85,6 +86,7 @@ fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]]) {
     // Breakup noise is projected in 3D (triplanar on object position), never in UV: UV noise
     // jumps at every seam and would make wear follow the islands instead of the shape.
     let noise_proj = Projection { mode: ProjectionMode::Triplanar, triplanar_sharpness: 4.0, ..Projection::default() };
+    let noise = (g.noise_amount > 0.0).then(|| procedural_tile(&g.noise, &noise_proj, geo));
     for (i, o) in out.iter_mut().enumerate() {
         let raw = match g.kind {
             GeneratorKind::Edges | GeneratorKind::MeshMap(_) => map[i][0],
@@ -92,8 +94,8 @@ fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]]) {
             GeneratorKind::Directional => Vec3::from_array(geo.normal(i)).dot(dir) * 0.5 + 0.5,
             GeneratorKind::PositionGradient => (geo.position(i)[1] * set.max_extent / ext_y).clamp(0.0, 1.0),
         };
-        let level = if g.noise_amount > 0.0 {
-            g.level + (eval_procedural(&g.noise, &noise_proj, geo, i) - 0.5) * g.noise_amount
+        let level = if let Some(noise) = &noise {
+            g.level + (noise[i] - 0.5) * g.noise_amount
         } else {
             g.level
         };

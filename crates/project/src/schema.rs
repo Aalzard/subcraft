@@ -16,7 +16,8 @@ use uuid::Uuid;
 /// image masks).
 // 3: object metadata (mesh blob v2) and geometry-mask domains. Legacy projects still load.
 // 4: editable pen paths, with anchor UUIDs, UV handles, style and a derived raster cache.
-pub const SCHEMA_VERSION: u32 = 4;
+// 5: per-layer content effect stacks (`content_effects`; absent = none, so 1-4 load unchanged).
+pub const SCHEMA_VERSION: u32 = 5;
 pub const FORMAT_NAME: &str = "subcraft-project";
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -81,6 +82,26 @@ pub struct LayerV1 {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parts: Option<PartsV1>,
     pub content: ContentV1,
+    /// Schema 5. Bottom-to-top content effects; absent in older files (no effects).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub content_effects: Vec<ContentEffectV5>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ContentEffectV5 {
+    pub id: Uuid,
+    pub name: String,
+    pub visible: bool,
+    pub blend: Vec<BlendV1>,
+    pub kind: ContentEffectKindV5,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ContentEffectKindV5 {
+    Paint { channels: Vec<PaintChannelV1> },
+    Fill { projection: Projection, channels: Vec<FillChannelV1> },
+    Levels { channel: ChannelKind, levels: Levels },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

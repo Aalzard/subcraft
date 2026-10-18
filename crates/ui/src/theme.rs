@@ -1,4 +1,4 @@
-//! Flat dark theme: layered charcoal surfaces, square corners, generous spacing, one warm accent.
+//! Dark theme: layered charcoal surfaces, softened controls, generous spacing, one warm accent.
 //! Inter for text, Phosphor for icons (both embedded, see `assets/fonts`).
 
 use std::sync::Arc;
@@ -12,12 +12,15 @@ pub const BG_1: Color32 = Color32::from_rgb(22, 23, 26); // panels
 pub const BG_2: Color32 = Color32::from_rgb(29, 31, 35); // header bar, tab bar, cards
 pub const BG_3: Color32 = Color32::from_rgb(38, 40, 46); // controls
 pub const BG_4: Color32 = Color32::from_rgb(48, 51, 58); // hovered controls
+/// Quiet alternating bands, below the contrast of hover and selection.
+pub const ROW_BANDS: [Color32; 2] = [BG_1, Color32::from_rgb(32, 34, 39)];
+pub const SECTION_BANDS: [Color32; 2] = [Color32::from_rgb(24, 26, 30), Color32::from_rgb(34, 36, 41)];
 pub const FIELD: Color32 = Color32::from_rgb(16, 17, 20); // text fields, slider rails
 
 pub const BORDER: Color32 = Color32::from_rgb(40, 43, 49);
 pub const BORDER_STRONG: Color32 = Color32::from_rgb(62, 66, 75);
 
-pub const TEXT: Color32 = Color32::from_rgb(226, 228, 232);
+pub const TEXT: Color32 = Color32::from_rgb(202, 207, 214);
 pub const TEXT_DIM: Color32 = Color32::from_rgb(152, 158, 168);
 pub const TEXT_FAINT: Color32 = Color32::from_rgb(102, 108, 118);
 
@@ -32,7 +35,7 @@ pub const WARNING: Color32 = Color32::from_rgb(240, 196, 110);
 /// Panel content padding.
 pub const PAD: i8 = 12;
 /// Height of rows in lists (layers, history, texture sets).
-pub const ROW_HEIGHT: f32 = 30.0;
+pub const ROW_HEIGHT: f32 = 34.0;
 /// Width of the label column in property rows.
 pub const LABEL_WIDTH: f32 = 84.0;
 
@@ -127,7 +130,7 @@ pub fn apply(ctx: &egui::Context) {
     w.open.fg_stroke = Stroke::new(1.0, TEXT);
 
     for s in [&mut w.noninteractive, &mut w.inactive, &mut w.hovered, &mut w.active, &mut w.open] {
-        s.corner_radius = CornerRadius::ZERO;
+        s.corner_radius = CornerRadius::same(2);
     }
     ctx.set_visuals(v);
 

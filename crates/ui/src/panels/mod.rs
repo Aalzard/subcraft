@@ -1,6 +1,9 @@
 pub mod brush;
+pub mod brush_material;
+pub mod effects;
 pub mod history;
 pub mod layers;
+pub mod mask;
 pub mod parts;
 pub mod properties;
 pub mod shelf;

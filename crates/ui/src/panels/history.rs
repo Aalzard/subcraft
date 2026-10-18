@@ -5,7 +5,7 @@ use subcraft_app::Command;
 
 use crate::state::UiState;
 use crate::theme::{self, TEXT_FAINT};
-use crate::widgets::list_row;
+use crate::widgets::striped_list_row;
 
 pub fn show(state: &mut UiState, ui: &mut Ui) {
     let now = ui.input(|i| i.time);
@@ -17,7 +17,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         ui.add_space(4.0);
         for (i, e) in h.entries().iter().enumerate() {
             let undone = i > cursor;
-            let resp = list_row(ui, i == cursor, |ui| {
+            let resp = striped_list_row(ui, i, i == cursor, egui::Sense::click(), |ui| {
                 ui.add_sized([22.0, 16.0], egui::Label::new(RichText::new(i.to_string()).font(theme::font(10.5)).color(TEXT_FAINT)));
                 let mut text = RichText::new(&e.label).color(if undone { TEXT_FAINT } else if i == cursor { theme::TEXT } else { theme::TEXT_DIM });
                 if undone {

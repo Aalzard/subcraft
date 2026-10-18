@@ -51,7 +51,33 @@ pub fn channel_value(ui: &mut Ui, kind: ChannelKind, v: &mut ChannelValue) -> Ed
 
 /// Panel body with the standard padding.
 pub fn panel<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
-    egui::Frame::new().inner_margin(egui::Margin::same(PAD)).show(ui, add).inner
+    egui::Frame::new().inner_margin(egui::Margin::same(PAD)).show(ui, |ui| {
+        let key = ui.unique_id().with("row_bands");
+        let pass = ui.ctx().cumulative_pass_nr();
+        ui.data_mut(|data| data.insert_temp(key, PanelBands { pass, sections: 0, properties: 0 }));
+        add(ui)
+    }).inner
+}
+
+#[derive(Clone, Copy)]
+struct PanelBands { pass: u64, sections: usize, properties: usize }
+
+/// Find the containing panel through nested horizontal/enabled scopes; reset every paint pass.
+fn next_band(ui: &Ui, section: bool) -> Option<Color32> {
+    let pass = ui.ctx().cumulative_pass_nr();
+    ui.data_mut(|data| {
+        for ancestor in ui.stack().iter() {
+            let key = ancestor.id.with("row_bands");
+            if let Some(mut bands) = data.get_temp::<PanelBands>(key).filter(|b| b.pass == pass) {
+                let index = if section { &mut bands.sections } else { &mut bands.properties };
+                let color = if section { theme::SECTION_BANDS[*index % 2] } else { theme::ROW_BANDS[*index % 2] };
+                *index += 1;
+                data.insert_temp(key, bands);
+                return Some(color);
+            }
+        }
+        None
+    })
 }
 
 /// Small uppercase caption.
@@ -87,20 +113,41 @@ pub fn section_with(ui: &mut Ui, id: &str, title: &str, default_open: bool, righ
     let id = ui.make_persistent_id(("section", id));
     let mut state = egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, default_open);
     let open = state.is_open();
-    let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 28.0), Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 32.0), Sense::click());
     if resp.clicked() {
         state.toggle(ui);
     }
     let painter = ui.painter();
+    if let Some(color) = next_band(ui, true) {
+        painter.rect_filled(rect, CornerRadius::ZERO, if resp.hovered() { BG_3 } else { color });
+    }
     let fg = if resp.hovered() { TEXT } else { TEXT_DIM };
     let caret = if open { icons::CARET_DOWN } else { icons::CARET_RIGHT };
-    painter.text(rect.left_center(), egui::Align2::LEFT_CENTER, caret, theme::font(12.0), TEXT_FAINT);
-    painter.text(rect.left_center() + egui::vec2(18.0, 0.0), egui::Align2::LEFT_CENTER, title.to_uppercase(), theme::font_strong(10.5), fg);
+    painter.text(rect.left_center() + egui::vec2(7.0, 0.0), egui::Align2::LEFT_CENTER, caret, theme::font(12.0), TEXT_FAINT);
+    let icon = match title {
+        "Tool" | "Brush" | "Paint layer" => Some(icons::PAINT_BRUSH),
+        "Presets" => Some(icons::STACK),
+        "Stencil" => Some(icons::IMAGE),
+        "Material" | "Fill layer" => Some(icons::PAINT_BUCKET),
+        "Jitter" => Some(icons::SPARKLE),
+        "Stroke" | "Pen path" => Some(icons::CURVE),
+        "Parts" => Some(icons::CUBE),
+        "Mask" | "Paint target" => Some(icons::MASK),
+        "Projection" => Some(icons::CUBE_WIRE),
+        _ => None,
+    };
+    if let Some(icon) = icon {
+        painter.text(rect.left_center() + egui::vec2(25.0, 0.0), egui::Align2::LEFT_CENTER, icon, theme::font(13.0), TEXT_DIM);
+    }
+    painter.text(rect.left_center() + egui::vec2(if icon.is_some() { 45.0 } else { 25.0 }, 0.0), egui::Align2::LEFT_CENTER, title.to_uppercase(), theme::font_strong(10.5), fg);
     painter.hline(rect.x_range(), rect.bottom() - 0.5, Stroke::new(1.0, BORDER));
-    ui.scope_builder(UiBuilder::new().max_rect(rect.shrink2(egui::vec2(0.0, 2.0))).layout(Layout::right_to_left(Align::Center)), right);
+    // The header already owns this rectangle. A layout scope would advance the parent cursor
+    // a second time (even when empty), allowing the first body widget to overlap the header.
+    let mut actions = ui.new_child(UiBuilder::new().max_rect(rect.shrink2(egui::vec2(0.0, 2.0))).layout(Layout::right_to_left(Align::Center)));
+    right(&mut actions);
     state.store(ui.ctx());
     if open {
-        ui.add_space(4.0);
+        ui.add_space(8.0);
         body(ui);
         ui.add_space(10.0);
     } else {
@@ -110,15 +157,21 @@ pub fn section_with(ui: &mut Ui, id: &str, title: &str, default_open: bool, righ
 
 /// Labelled property row: fixed-width dim label, then the editor filling the rest.
 pub fn prop_row<R>(ui: &mut Ui, label: &str, add: impl FnOnce(&mut Ui) -> R) -> R {
-    ui.horizontal(|ui| {
+    let color = next_band(ui, false);
+    let background = ui.painter().add(egui::Shape::Noop);
+    let row = ui.horizontal(|ui| {
+        ui.set_min_height(28.0);
         ui.allocate_ui_with_layout(egui::vec2(LABEL_WIDTH, 22.0), Layout::left_to_right(Align::Center), |ui| {
             ui.set_min_width(LABEL_WIDTH);
             ui.add(egui::Label::new(RichText::new(label).color(TEXT_DIM)).truncate());
         });
         fill_width(ui);
         add(ui)
-    })
-    .inner
+    });
+    if let Some(color) = color {
+        ui.painter().set(background, egui::Shape::rect_filled(row.response.rect, CornerRadius::ZERO, color));
+    }
+    row.inner
 }
 
 /// Slider property row.
@@ -173,7 +226,13 @@ pub fn primary_button(ui: &mut Ui, text: impl Into<String>) -> Response {
 
 /// Outline button (secondary action).
 pub fn secondary_button(ui: &mut Ui, text: impl Into<String>) -> Response {
-    ui.add(egui::Button::new(RichText::new(text.into()).color(TEXT)).fill(BG_3).stroke(Stroke::NONE).min_size(egui::vec2(0.0, 28.0)))
+    ui.add(egui::Button::new(RichText::new(text.into()).color(TEXT_DIM)).fill(BG_3).stroke(Stroke::NONE).corner_radius(2).min_size(egui::vec2(0.0, 28.0)))
+}
+
+/// Calm secondary action: a compact icon, readable hit target, soft corners and no hard outline.
+pub fn quiet_button(ui: &mut Ui, icon: &str, text: &str) -> Response {
+    ui.add(egui::Button::new(RichText::new(format!("{icon}  {text}")).font(theme::font(12.0)).color(TEXT_DIM))
+        .fill(theme::BG_2).stroke(Stroke::NONE).corner_radius(2).min_size(egui::vec2(0.0, 28.0)))
 }
 
 /// Joined segmented control; returns true when the value changed.
@@ -212,13 +271,24 @@ pub fn list_row(ui: &mut Ui, selected: bool, content: impl FnOnce(&mut Ui)) -> R
 
 /// A list row that can also accept a drag, while its child buttons keep their own clicks.
 pub fn list_row_sense(ui: &mut Ui, selected: bool, sense: Sense, content: impl FnOnce(&mut Ui)) -> Response {
+    list_row_background(ui, selected, sense, None, content)
+}
+
+/// Full-width list row with stable visible-order striping. Selection/hover take priority.
+pub fn striped_list_row(ui: &mut Ui, index: usize, selected: bool, sense: Sense, content: impl FnOnce(&mut Ui)) -> Response {
+    list_row_background(ui, selected, sense, Some(theme::ROW_BANDS[index % 2]), content)
+}
+
+fn list_row_background(ui: &mut Ui, selected: bool, sense: Sense, band: Option<Color32>, content: impl FnOnce(&mut Ui)) -> Response {
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), ROW_HEIGHT), sense);
     let painter = ui.painter();
     if selected {
         painter.rect_filled(rect, CornerRadius::ZERO, ACCENT_SOFT);
         painter.rect_filled(Rect::from_min_size(rect.min, egui::vec2(2.0, rect.height())), CornerRadius::ZERO, ACCENT);
     } else if resp.hovered() {
-        painter.rect_filled(rect, CornerRadius::ZERO, theme::BG_2);
+        painter.rect_filled(rect, CornerRadius::ZERO, if band.is_some() { BG_3 } else { theme::BG_2 });
+    } else if let Some(color) = band {
+        painter.rect_filled(rect, CornerRadius::ZERO, color);
     }
     let inner = rect.shrink2(egui::vec2(8.0, 0.0));
     ui.scope_builder(UiBuilder::new().max_rect(inner).layout(Layout::left_to_right(Align::Center)), |ui| {

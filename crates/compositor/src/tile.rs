@@ -8,7 +8,7 @@
 use std::sync::Arc;
 
 use subcraft_core::ChannelKind;
-use subcraft_doc::{BlendMode, Layer, LayerContent, TextureSet};
+use subcraft_doc::{BlendMode, ContentEffect, ContentEffectKind, Layer, LayerContent, TextureSet};
 use subcraft_image::TILE_TEXELS;
 use subcraft_materials::eval_fill_tile;
 
@@ -51,6 +51,19 @@ fn apply_stack(layers: &[Arc<Layer>], accs: &mut [Acc], active: &[bool], tc: &Ti
     }
 }
 
+/// Isolated authored content for a UV thumbnail, before its own mask/blend/opacity/visibility.
+/// Folder children retain their masks and blends. Uses the production evaluator and channel rules.
+pub fn preview_content(layer: &Layer, channel: ChannelKind, tc: &TileContext) -> Vec<[f32; 4]> {
+    let mut source = layer.clone();
+    source.visible = true;
+    source.mask = None;
+    source.parts = None;
+    source.blend.insert(channel, subcraft_doc::ChannelBlend::new(BlendMode::Normal));
+    let mut acc = [Acc::transparent(channel)];
+    apply_layer(&source, &mut acc, &[true], tc);
+    std::mem::take(&mut acc[0].px)
+}
+
 #[inline]
 fn effective_mode(mode: BlendMode) -> BlendMode {
     if mode == BlendMode::Passthrough { BlendMode::Normal } else { mode }
@@ -76,33 +89,41 @@ fn apply_layer(layer: &Layer, accs: &mut [Acc], active: &[bool], tc: &TileContex
             *v *= parts.factor(tc.geo.region(i, parts.kind));
         }
     }
+    // Fully masked out in this tile: blending with zero coverage changes nothing, so skip the
+    // (possibly expensive) content evaluation entirely. Exact, not an approximation.
+    if mask.as_ref().is_some_and(|m| m.iter().all(|&v| v <= 0.0)) {
+        return;
+    }
     let mask_at = |i: usize| mask.as_ref().map_or(1.0, |m| m[i]);
     let mut content = vec![[0.0f32; 4]; TILE_TEXELS];
 
     match &layer.content {
         LayerContent::Paint(paint) => {
             for (acc, _) in accs.iter_mut().zip(&live).filter(|(_, l)| **l) {
-                let Some(img) = paint.channels.get(&acc.kind) else { continue };
-                read_tile_rgba(img, tc.geo, &mut content);
-                // Paint images hold `components` values followed by alpha.
-                let n = acc.kind.components();
-                for px in content.iter_mut() {
-                    let a = px[n];
-                    *px = if n == 1 { [px[0], px[0], px[0], a] } else { [px[0], px[1], px[2], a] };
-                }
+                let Some(img) = paint.channels.get(&acc.kind) else {
+                    // No base raster on this channel: effects still apply to transparent content.
+                    if layer.content_effects.is_empty() {
+                        continue;
+                    }
+                    content.fill([0.0; 4]);
+                    apply_content_effects(&layer.content_effects, acc, &mut content, tc);
+                    blend_content(acc, &content, layer, &mask_at);
+                    continue;
+                };
+                read_paint(img, acc.kind, tc, &mut content);
+                apply_content_effects(&layer.content_effects, acc, &mut content, tc);
                 blend_content(acc, &content, layer, &mask_at);
             }
         }
         LayerContent::Fill(fill) => {
             for (acc, _) in accs.iter_mut().zip(&live).filter(|(_, l)| **l) {
-                let Some(ch) = fill.channels.get(&acc.kind).filter(|c| c.enabled) else { continue };
-                eval_fill_tile(&ch.source, acc.kind.is_color(), &fill.projection, tc.geo, &tc.sample, &mut content);
-                crate::strength::apply_strength(acc.kind, ch.strength, &mut content);
-                if acc.kind.components() == 1 {
-                    for px in content.iter_mut() {
-                        *px = [px[0], px[0], px[0], px[3]];
+                if !eval_fill(fill, acc.kind, tc, &mut content) {
+                    if layer.content_effects.is_empty() {
+                        continue;
                     }
+                    content.fill([0.0; 4]);
                 }
+                apply_content_effects(&layer.content_effects, acc, &mut content, tc);
                 blend_content(acc, &content, layer, &mask_at);
             }
         }
@@ -132,6 +153,74 @@ fn apply_layer(layer: &Layer, accs: &mut [Acc], active: &[bool], tc: &TileContex
                     blend_content(acc, &inner.px, layer, &mask_at);
                 }
             }
+        }
+    }
+}
+
+/// Read a paint raster (`components` values followed by alpha) as `[v0, v1, v2, alpha]`.
+fn read_paint(img: &subcraft_image::TiledImage, kind: ChannelKind, tc: &TileContext, out: &mut [[f32; 4]]) {
+    read_tile_rgba(img, tc.geo, out);
+    let n = kind.components();
+    for px in out.iter_mut() {
+        let a = px[n];
+        *px = if n == 1 { [px[0], px[0], px[0], a] } else { [px[0], px[1], px[2], a] };
+    }
+}
+
+/// Evaluate one channel of a fill as `[v0, v1, v2, alpha]`; false if the channel is off/absent.
+fn eval_fill(fill: &subcraft_doc::FillContent, kind: ChannelKind, tc: &TileContext, out: &mut [[f32; 4]]) -> bool {
+    let Some(ch) = fill.channels.get(&kind).filter(|c| c.enabled) else { return false };
+    eval_fill_tile(&ch.source, kind.is_color(), &fill.projection, tc.geo, &tc.sample, out);
+    crate::strength::apply_strength(kind, ch.strength, out);
+    if kind.components() == 1 {
+        for px in out.iter_mut() {
+            *px = [px[0], px[0], px[0], px[3]];
+        }
+    }
+    true
+}
+
+/// Run a layer's content effect stack (bottom to top) on one channel of its content.
+///
+/// Sources (Paint, Fill) composite their `(value, alpha)` with the effect's channel blend.
+/// Adjustments (Levels) blend the transformed value over the content and keep its coverage,
+/// so they never make transparent content visible.
+fn apply_content_effects(effects: &[Arc<ContentEffect>], acc: &Acc, content: &mut [[f32; 4]], tc: &TileContext) {
+    let kind = acc.kind;
+    let mut e = vec![[0.0f32; 4]; TILE_TEXELS];
+    for effect in effects.iter().filter(|e| e.visible) {
+        let blend = effect.blend_for(kind);
+        if !blend.is_active() {
+            continue;
+        }
+        let mode = effective_mode(blend.mode);
+        match &effect.kind {
+            ContentEffectKind::Paint { channels } => {
+                let Some(img) = channels.get(&kind) else { continue };
+                read_paint(img, kind, tc, &mut e);
+            }
+            ContentEffectKind::Fill(fill) => {
+                if !eval_fill(fill, kind, tc, &mut e) {
+                    continue;
+                }
+            }
+            ContentEffectKind::Levels { channel, levels } => {
+                if *channel != kind || kind == ChannelKind::Normal {
+                    continue;
+                }
+                for px in content.iter_mut() {
+                    let mut dst = [px[0], px[1], px[2], 1.0];
+                    let v = [levels.apply(px[0]), levels.apply(px[1]), levels.apply(px[2])];
+                    composite(&mut dst, v, blend.opacity, mode, acc.target);
+                    px[..3].copy_from_slice(&dst[..3]);
+                }
+                continue;
+            }
+        }
+        let ignore_alpha = mode == BlendMode::Replace;
+        for (dst, src) in content.iter_mut().zip(&e) {
+            let a = if ignore_alpha { 1.0 } else { src[3] } * blend.opacity;
+            composite(dst, [src[0], src[1], src[2]], a, mode, acc.target);
         }
     }
 }

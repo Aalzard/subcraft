@@ -10,8 +10,8 @@ use std::sync::Arc;
 use glam::Vec2;
 use rayon::prelude::*;
 use subcraft_core::LayerId;
-use subcraft_doc::TextureSet;
-use subcraft_image::TILE_TEXELS;
+use subcraft_doc::{Projection, ProjectionMode, ResourceStore, TextureSet};
+use subcraft_image::{TILE_TEXELS, TILE_SIZE, Wrap};
 use subcraft_materials::TextureSetGeometry;
 use subcraft_mesh::{Bvh, Mesh};
 
@@ -47,6 +47,9 @@ pub struct Stroke {
     alpha: Option<Arc<subcraft_image::Bitmap>>,
     stencil: Option<Arc<crate::stencil::Stencil>>,
     parts: Option<subcraft_doc::PartMask>,
+    projection: Projection,
+    texture_tiling: bool,
+    resources: ResourceStore,
 }
 
 impl Stroke {
@@ -74,12 +77,25 @@ impl Stroke {
             alpha: None,
             stencil: None,
             parts: ts.find(layer).and_then(|l| l.parts.clone()),
+            projection: material.projection,
+            texture_tiling: material.texture_tiling,
+            resources: ResourceStore::default(),
         })
     }
 
     /// Use a brush alpha (tip image: white paints) instead of the round procedural tip.
     pub fn with_alpha(mut self, alpha: Option<Arc<subcraft_image::Bitmap>>) -> Self {
         self.alpha = alpha;
+        self
+    }
+
+    /// Capture immutable image sources at stroke start. A missing source paints nothing.
+    pub fn with_resources(mut self, resources: &ResourceStore) -> Self {
+        for img in &self.images {
+            if let Some(resource) = img.texture.and_then(|id| resources.get(id)) {
+                self.resources.insert_shared(resource.clone());
+            }
+        }
         self
     }
 
@@ -223,11 +239,11 @@ impl Stroke {
             .collect();
         let tiles: Vec<usize> = done.iter().map(|(t, _)| *t).collect();
         self.coverage.extend(done);
-        self.write(ts, &tiles)
+        self.write(ts, ctx.geometry, &tiles)
     }
 
     /// Recompute `tiles` of every target image from snapshot + coverage and store them.
-    fn write(&self, ts: &mut TextureSet, tiles: &[usize]) -> Result<Vec<usize>, PaintError> {
+    fn write(&self, ts: &mut TextureSet, geometry: &TextureSetGeometry, tiles: &[usize]) -> Result<Vec<usize>, PaintError> {
         let tiles: Vec<usize> =
             tiles.iter().copied().filter(|t| self.coverage.get(t).is_some_and(|c| c.iter().any(|&v| v > 0.0))).collect();
         let opacity = self.settings.stroke_opacity.clamp(0.0, 1.0);
@@ -235,7 +251,34 @@ impl Stroke {
             .par_iter()
             .flat_map_iter(|&t| {
                 let cov = &self.coverage[&t];
-                self.images.iter().map(move |img| (img.key, t, img.compute_tile(t, cov, opacity, self.mode)))
+                self.images.iter().map(move |img| {
+                    let source = img.texture.filter(|_| self.mode == StrokeMode::Paint).map(|id| {
+                        let mut values = vec![[0.0; 4]; TILE_TEXELS];
+                        if let Some(bitmap) = self.resources.bitmap(id) {
+                            // UV sampling needs no surface cache. Object projections reuse the
+                            // exact normalized positions, normals and sampler used by fill layers.
+                            let geo = (self.projection.mode != ProjectionMode::Uv).then(|| geometry.tile(t));
+                            let linearize = img.key.channel().is_some_and(|k| k.is_color());
+                            let res = geometry.resolution as f32;
+                            let x0 = (t as u32 % geometry.tiles_x) * TILE_SIZE;
+                            let y0 = (t as u32 / geometry.tiles_x) * TILE_SIZE;
+                            for (i, out) in values.iter_mut().enumerate() {
+                                if cov[i] <= 0.0 { continue; }
+                                let uv = [(x0 + i as u32 % TILE_SIZE) as f32 / res + 0.5 / res,
+                                    (y0 + i as u32 / TILE_SIZE) as f32 / res + 0.5 / res];
+                                *out = subcraft_materials::sample::sample_projected(&self.projection, uv,
+                                    geo.as_ref().map_or([0.0; 3], |g| g.position(i)),
+                                    geo.as_ref().map_or([0.0; 3], |g| g.normal(i)), |p| {
+                                        if !self.texture_tiling && p.iter().any(|&v| !(0.0..=1.0).contains(&v)) {
+                                            [0.0; 4]
+                                        } else { bitmap.sample(p[0], p[1], if self.texture_tiling { Wrap::Repeat } else { Wrap::Clamp }, linearize) }
+                                    });
+                            }
+                        }
+                        values
+                    });
+                    (img.key, t, img.compute_tile(t, cov, opacity, self.mode, source.as_deref()))
+                })
             })
             .collect();
         store(ts, self.layer, &writes)?;
@@ -300,7 +343,7 @@ impl Stroke {
             .collect();
         let tiles: Vec<usize> = done.iter().map(|(t, _)| *t).collect();
         self.coverage.extend(done);
-        self.write(ts, &tiles)
+        self.write(ts, ctx.geometry, &tiles)
     }
 
     fn restrict_coverage(&self, geometry: &TextureSetGeometry, tile: usize, cov: &mut [f32]) {

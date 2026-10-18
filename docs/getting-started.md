@@ -1,5 +1,9 @@
 # Getting started with SubCraft
 
+For the latest local development build, open **target/release/subcraft.exe** in the SubCraft
+folder. It contains the panel-contrast and layer-inspector fixes; older toolbar/panels/preview build names
+are obsolete. Build-cache cleanup was blocked by the environment and remains pending.
+
 The welcome hub and in-app guide are in development for the next desktop release. In v0.1.4,
 use **File → New from mesh…** or **File → New (sample crate)** to follow these steps.
 
@@ -8,6 +12,14 @@ Start with **Try the sample** on the welcome screen, or bring a model with UVs. 
 while working, use Back/Next, or close it and reopen it later.
 
 <img src="screenshots/welcome.png" alt="Welcome screen with model/project actions, desktop recent files and startup preference" width="760">
+
+Open **File → Preferences…** (also available from Edit). **UI size** is the first setting:
+drag its slider or type a percentage to scale text, icons and controls together, from **75% to
+150%**. The default is a slightly smaller **95%**; **Reset** restores it. Changes apply live
+and are saved between runs. This is independent of the 3D view's render Resolution setting.
+Preferences scrolls when a large UI or small window needs more room.
+
+![UI size is the first preference](screenshots/ui-size-preferences.png)
 
 ## 1. Open a model
 
@@ -53,7 +65,178 @@ Right-drag orbits, the wheel zooms, and **Home** resets the camera.
 
 <img src="screenshots/quick-start-parts.png" alt="Step four of the in-app guide beside the Parts panel and painted crate" width="760">
 
+### Paint a normal map or material onto a paint layer
+
+The essential brush settings are **above the 3D View**, beside Resolution, **Anti-aliasing**,
+**Ortho** (orthographic) and the material/channel display. A thin divider separates the brush
+controls. Click the small **brush**, **eraser** or **paint bucket** icon to select a tool;
+the active icon is orange, matching the left tool rail.
+
+**Size** has a plain orange number: drag it left/right to adjust, or click to type and press
+Enter. **Opacity** works the same way with a neutral percentage. Hold **Shift** during a
+number drag for finer control. Size is a percentage of the model's diagonal; the other three
+settings show 0–100%. **Flow** has a thin amount indicator: click its label/value to open a
+slider. **Hardness** has a small dot indicator and opens its own slider. Both popovers also
+allow numeric entry; click outside or press **Esc** to close. Flow is paint per stamp, while
+Opacity caps the complete stroke. Fill uses Opacity and disables brush-specific settings.
+
+In narrower docks the brush controls move to a second top row. In tiny docks, open the
+**sliders icon** beside the tool icons for all four settings; **View** holds the
+viewport options. Advanced settings, channel images and presets remain in the Brush panel.
+Changes from the bar, existing size shortcuts and presets use the same brush state.
+The default layout gives more width to the 3D canvas; your saved dock arrangement is preserved.
+Use **View → Reset layout** to adopt the wider default, or drag the dock dividers to suit your screen.
+
+![Final compact toolbar, subtle grid, calmer panels and 95% UI](screenshots/ui-refinement-final.png)
+
+![Flow slider opened from the toolbar](screenshots/brush-toolbar-flow.jpg)
+
+Parts, History and Layers use alternating dark/lighter charcoal rows and more vertical space.
+The shading has been strengthened so adjacent rows are easier to distinguish. Hover brightens
+either shade; the current history step and selected layer keep their orange highlight. Hidden Parts use a
+crossed-eye icon; right-click any part row for the existing actions. Brush and Properties use
+banded section headers with icons: click a header/caret to expand it. The property rows inside
+also alternate gently. Existing controls, context menus and shortcuts behave the same way.
+
+![Clearer charcoal bands in Parts, History, Layers and Brush](screenshots/panel-row-contrast.png)
+
+Select a **fill layer** in Layers to open its **Properties** automatically: Projection, Channels,
+images, values and masks edit that selected fill. Selecting an ordinary **paint layer** reveals
+the **Brush** settings again. Folders and editable pen paths open their own Properties too.
+You can still click Properties for a paint layer's masks/parts, or Brush to paint a fill layer's
+mask. Your explicit tab choice stays until the layer selection changes. Brush Material controls
+set the painting tool's material; fill-layer material controls live in Properties.
+
+![Selecting a fill reveals that layer's Properties](screenshots/inspector-fill-selected.jpg)
+
+### Layer content and mask thumbnails
+
+Layer rows now show a square **content thumbnail** in place of the generic material icon.
+It previews the channel chosen above Layers (Base Color, Roughness, Normal, etc.) in UV space,
+before that layer's own mask, opacity or visibility. Empty paint content shows a checkerboard.
+A layer with a mask has a second, grayscale square beside it. The orange outline identifies
+the selected square; thumbnails update after painting, material changes and procedural edits.
+
+Click the content square to edit the layer's material/painting tool. Click the mask square
+to open its **Mask Properties** and make the brush paint its grayscale base instead of the
+material. **Paint value** controls white/reveal versus black/hide. Other brush controls stay
+in the top toolbar. This works for paint layers, fill layers and folders.
+
+Right-click a layer row → **Add mask → White mask / Black mask**. White starts fully visible;
+black starts hidden. The new mask is selected automatically. Right-click the mask thumbnail
+for Preview, Enable/Disable, Invert, Copy, Paste and Remove; the Mask Properties panel also
+has these actions. **Shift+click** a mask thumbnail toggles its effect on the layer; a diagonal
+mark shows when it is disabled. The thumbnail continues to show the authored mask.
+
+**Alt+click** its thumbnail, or press **Preview**, to open a grayscale UV preview. Thumbnails
+use reduced 64px previews and this window uses 256px; very fine texture marks may disappear
+at these preview sizes. The model/export retain full-resolution data. Full-resolution isolated
+2D/3D mask display is still planned.
+
+**Invert** adds an editable inversion effect; it does not destroy original painting or
+generators. **Copy/Paste** copies the whole mask/effect setup inside the current project
+session, resamples painted data to the target texture-set resolution and gives effects fresh
+IDs. Copy is not an undo step; Paste, Invert, Disable and Remove are undoable. The clipboard
+does not cross project sessions. Cross-resolution paste uses the existing image resampler
+and can take longer on large painted masks.
+
+Mask Properties lists the existing effects with move up/down, Duplicate, visibility, Remove,
+blend and opacity controls. Fill supports a uniform value or procedural pattern and projection;
+Generators expose their type/threshold/softness/breakup and direction; Levels has input/output
+ranges and gamma. Effects evaluate from bottom to top.
+
+### Content and mask effects
+
+Every paint or fill layer has two separate effect stacks: one on its **content** and one on its
+**mask**. Select a layer and its stack appears right under its row. Which stack you see follows
+the thumbnail you clicked: the content square shows **Content effects**, the mask square shows
+**Mask effects**. Effects run from the bottom of the list to the top, and never change the
+layer's own painting or fill, so you can hide, reorder or delete them at any time.
+
+* **+ Add** (beside the stack's title) adds an effect on top and selects it. Content effects:
+  **Paint** (painted detail on top of the content), **Fill** (a material: base color, roughness…
+  — enable the channels it should change) and **Levels** (remaps one channel; transparent areas
+  stay transparent). Mask effects: Paint, Fill, Generator, Levels and Invert.
+* Click an effect row to edit it in **Properties** (name, visibility, settings and per-channel
+  blending/opacity). Click it again, or press **Back to layer** / **Back to mask**, to return.
+* The **eye** on a row hides the effect. **Right-click** a row to move it up or down,
+  duplicate or delete it. Every change is one undo step; selecting is not.
+* While a **Paint** effect is selected, the brush paints into that effect only — this also
+  lets you paint on top of a **fill layer**. The 3D view shows “Painting Paint effect”.
+  Erasing removes only that effect's paint. A Paint effect in the mask stack works the same
+  way with grayscale (white reveals, black hides).
+
+![A Paint effect on the Moss fill layer](screenshots/content-paint-effect.jpg)
+
+Folders do not have content effects yet. Blur, sharpen, bevel and other filters, Compare Mask
+and anchor points are still planned; see **layer-system-roadmap.md**. Projects saved with
+content effects need this SubCraft version or newer (project format 5); older projects open
+as before.
+
+Click the **grid icon** beside the material/view controls to show or hide the subtle 3D floor
+and direction guides. **Right-click** that icon for axis settings: **X is red**, **Y is green
+and points up**, **Z is blue**. Y starts hidden. These display preferences are saved between runs.
+The floor sits just below the model, follows world-axis directions, fades into the distance,
+and stays behind the model. It does not affect painting, picking or exported textures.
+
+![Subtle floor grid and red/blue axis guides](screenshots/viewport-grid.png)
+
+Click the **mirror icon** beside Brush/Eraser/Fill in the 3D toolbar for **Symmetry & Lazy Mouse**.
+Toggle **X**, **Y** and **Z** independently; combinations mirror across several planes through
+the model center. The small **Lazy Mouse** slider controls how far the brush trails the cursor
+(0–100px; **0 is off**). The icon turns orange when any mirror or Lazy Mouse is active.
+The popover stays open while adjusting; click outside or press Esc to close. Existing **X**
+still toggles mirror X. These settings are included in brush presets and add no undo step.
+The old sidebar Stroke controls and left-rail symmetry shortcut button have moved here.
+
+![Symmetry icon in the 3D toolbar with a cleaner side panel](screenshots/brush-symmetry-toolbar.png)
+
+Material actions use calmer gray text and almost-square 2px corners. Each brush channel's
+**Image…** action chooses a texture; existing images still offer Replace/Clear. **Paint whole
+material…** sits below the Material header with its own spacing.
+
+Select an ordinary **paint layer**, choose **Brush (B)**, and set **Paint on → Layer** in the
+Brush panel. In **Material**, use the channel's **Image…** (or **Replace…**) button.
+For a normal-only stroke, uncheck the other channels. **Clear image** restores that channel's
+flat value; its enable checkbox still decides whether it paints. Normal maps use OpenGL (+Y);
+files named `normalDX` / `normal_dx` are converted automatically when assigned to Normal.
+
+Use **Paint whole material…** to select several named maps together, such as `Metal_basecolor`,
+`Metal_roughness`, `Metal_metallic`, `Metal_normalDX`, `Metal_height`. This loads the brush and
+enables only those channels. It creates no layer. Missing texture-set channels are skipped and
+reported; packed ORM/ARM imports remain unsupported. Gloss/smoothness maps invert to roughness.
+Imported images from **Shelf → Textures** can also be dragged onto a brush channel row. Starter
+pack normal drops still target fill layers in this version; use an imported file for a brush.
+
+**Image projection** is independent of brush footprint **Alignment**. UV follows the model UVs;
+Planar projects along X/Y/Z; Tri-planar blends the three object-axis projections. Tiling X/Y
+(**Link** for equal repeats), Offset, Rotation and Sharpness use the same controls as fills.
+Untick **Tile images** to paint only inside the transformed image. Camera/per-stamp image
+projection is still planned. Normal map vectors follow the existing fill interpretation;
+projection-frame rotation does not yet reorient tangent vectors across mirrored/separate islands.
+
+**Normal blend → Replace** replaces normals under the brush. **Detail** combines the new map
+with normals already painted on this same layer. Use the layer's normal blend mode to combine
+with lower layers. Both stroke modes normalize their result. Size, flow, opacity, alpha tips,
+stencils, symmetry and Parts restrictions continue to apply; the entire drag is one undo step.
+
+**Presets → Save preset** stores the images, projection, tiling and normal blend along with the
+existing brush settings. The preset carries its image bytes and works in another document after
+the original files are removed. Projects save the painted pixels; load the brush preset to
+restore its tool setup. There are no new keyboard shortcuts in this slice.
+
+![Normal map painted onto a paint layer in the Windows app](screenshots/brush-projection-normal-paint.jpg)
+
+![Detail combines another normal pass with paint already on the layer](screenshots/brush-projection-normal-detail.jpg)
+
 ## 5. Save your project
+
+On desktop, procedural layers update in the background. During a large 4K edit, the model may
+briefly show a mixture of old and new tiles while the interface stays available; the latest
+settings win and the full texture catches up after you stop dragging. Export waits for the
+complete result. Saving always stores your latest layer, mask and effect settings, including
+edits whose viewport preview is still catching up. There is no background-compositing toggle
+or new shortcut to learn. The browser retains the existing frame-budgeted compositor.
 
 Use **File → Save** (Ctrl+S) to save a `.subcraft` file containing the model, layers, imported
 images and baked maps. Desktop saves to the chosen location. The browser downloads the project;

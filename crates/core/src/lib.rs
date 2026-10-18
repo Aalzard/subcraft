@@ -8,6 +8,7 @@ pub mod channel;
 pub mod color;
 pub mod ids;
 pub mod meshmap;
+pub mod normal;
 pub mod part;
 pub mod rect;
 pub mod task;

@@ -7,6 +7,7 @@ pub mod actions;
 pub mod asset_apply;
 pub mod bake_job;
 pub mod brush_preset;
+pub mod brush_textures;
 pub mod command;
 pub mod diagnostics;
 pub mod images;
@@ -20,6 +21,7 @@ pub mod pen;
 pub mod recovery;
 pub mod session;
 pub mod thumbnails;
+pub mod layer_previews;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod updater;
 
@@ -30,7 +32,8 @@ pub use images::TextureSetImport;
 pub use parts::MeshPart;
 pub use part_workflow::{PartAction, PartInfo, PartKey, SurfaceTarget};
 pub use recovery::{AutosaveEvent, Autosaver, CrashedSession, RecoveryStore};
-pub use session::{BrushState, CompositeUpdate, DEFAULT_RESOLUTION, Pick, ProjectSnapshot, Scene, Selection, Session};
+pub use subcraft_compositor::ChangedTiles;
+pub use session::{BrushState, CompositeUpdate, DEFAULT_RESOLUTION, LayerTarget, Pick, ProjectSnapshot, Scene, Selection, Session};
 
 pub use subcraft_compositor::{Composite, composite_comps};
 pub use subcraft_assets as assets;

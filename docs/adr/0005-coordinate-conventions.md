@@ -19,6 +19,8 @@ Status: Accepted (2026-10-13)
   X → (z, 1 − y), Y → (x, z), Z → (x, 1 − y). Triplanar weights `|n_i|^sharpness`, normalized.
 * **Camera**: wgpu conventions — view looks down −Z, NDC depth 0..1. Screen space is pixels with
   the origin top-left and y down. View depth = −z in view space.
+  The UI's fractional scene rectangle maps through the camera viewport's exact rounded pixel
+  dimensions in both directions (ADR-0015), preserving picking at fractional interface/DPI scales.
 * **Brush**: size is the diameter in percent of the mesh bounding-box diagonal (object space).
   The tangent frame at a hit has `tangent` = camera right projected onto the surface and
   `bitangent = tangent × normal` (screen-down), matching screen axes for Camera alignment; the

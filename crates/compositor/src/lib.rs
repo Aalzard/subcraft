@@ -12,18 +12,22 @@ pub mod strength;
 pub mod mask;
 pub mod tile;
 mod util;
+pub mod worker;
 
 use std::collections::BTreeMap;
 
 use rayon::prelude::*;
 use subcraft_core::ChannelKind;
 use subcraft_doc::{ResourceStore, TextureSet};
-use subcraft_image::{TILE_TEXELS, TiledImage};
+use half::f16;
+use half::slice::HalfFloatSliceExt;
+use subcraft_image::{TILE_TEXELS, TileSlot, TiledImage, slot_data_mut};
 use subcraft_materials::{MeshMaps, SampleContext, TextureSetGeometry, TileGeometry};
 
 pub use blend::{BlendTarget, blend_fn, composite};
 pub use cache::CompositeCache;
 pub use tile::evaluate_tile;
+pub use worker::{CompositeWorker, Published, SetSnapshot, Snapshot};
 
 /// Everything outside the [`TextureSet`] that evaluation reads.
 #[derive(Clone, Copy)]
@@ -45,6 +49,9 @@ pub struct TileContext<'a> {
 pub fn composite_comps(kind: ChannelKind) -> usize {
     if kind.components() == 3 { 4 } else { 1 }
 }
+
+/// Per channel, the composite tiles whose texels changed (sorted).
+pub type ChangedTiles = BTreeMap<ChannelKind, Vec<usize>>;
 
 /// Composited channel images of one texture set.
 #[derive(Clone, Debug, PartialEq)]
@@ -76,33 +83,66 @@ impl Composite {
         t * t
     }
 
-    /// Evaluate `tiles` of `ts` in parallel and store the results.
-    pub fn evaluate_tiles(&mut self, ts: &TextureSet, ctx: &EvalContext, tiles: &[usize]) {
+    /// Evaluate `tiles` of `ts` in parallel and store the results. Each worker writes its own
+    /// tiles' slots directly (no collected intermediate copies, no serial f16 encoding pass).
+    ///
+    /// Returns, per channel, the tiles whose stored texels actually changed (sorted): a tile that
+    /// re-evaluates to identical bits keeps its storage, so callers upload only real changes.
+    pub fn evaluate_tiles(&mut self, ts: &TextureSet, ctx: &EvalContext, tiles: &[usize]) -> ChangedTiles {
         assert_eq!(ctx.geometry.resolution, ts.resolution, "geometry resolution must match the texture set");
-        let results: Vec<(usize, Vec<(ChannelKind, Vec<[f32; 4]>)>)> = tiles
-            .par_iter()
-            .map(|&t| {
+        let count = self.tile_count();
+        let mut wanted = vec![false; count];
+        for &t in tiles {
+            wanted[t] = true;
+        }
+        // Per wanted tile: (channel, components, fill, slot) for every composite channel.
+        let mut per_tile: Vec<Vec<(ChannelKind, usize, [f32; 4], &mut TileSlot)>> = (0..count).map(|_| Vec::new()).collect();
+        for (&kind, img) in self.channels.iter_mut() {
+            let slots = img.slots_mut();
+            let (comps, fill) = (slots.comps, slots.fill);
+            for (t, slot) in slots.slots.iter_mut().enumerate().filter(|(t, _)| wanted[*t]) {
+                per_tile[t].push((kind, comps, fill, slot));
+            }
+        }
+        // Only the wanted tiles, one task each: filtering after rayon splits the whole index range
+        // would hand a budgeted batch (consecutive tiles) to one or two threads.
+        let work: Vec<_> = per_tile.into_iter().enumerate().filter(|(t, _)| wanted[*t]).collect();
+        let changed: Vec<(usize, Vec<ChannelKind>)> = work
+            .into_par_iter()
+            .with_max_len(1)
+            .map(|(t, mut slots)| {
                 let geo = ctx.geometry.tile(t);
                 let tc = TileContext {
                     geo: &geo,
                     set_geometry: ctx.geometry,
                     sample: SampleContext { resources: ctx.resources, mesh_maps: ctx.mesh_maps },
                 };
-                (t, evaluate_tile(ts, &tc))
+                let mut buf = vec![0.0f32; TILE_TEXELS * 4];
+                let mut encoded = vec![f16::ZERO; TILE_TEXELS * 4];
+                let mut changed = Vec::new();
+                for (kind, px) in evaluate_tile(ts, &tc) {
+                    let Some((_, comps, fill, slot)) = slots.iter_mut().find(|s| s.0 == kind) else { continue };
+                    let n = TILE_TEXELS * *comps;
+                    for (o, p) in buf.chunks_exact_mut(*comps).zip(&px) {
+                        o.copy_from_slice(&p[..*comps]);
+                    }
+                    encoded[..n].convert_from_f32_slice(&buf[..n]);
+                    if slot.as_ref().is_some_and(|tile| tile.data[..] == encoded[..n]) {
+                        continue; // identical texels: keep the storage, nothing to upload
+                    }
+                    slot_data_mut(slot, *comps, fill).copy_from_slice(&encoded[..n]);
+                    changed.push(kind);
+                }
+                (t, changed)
             })
             .collect();
-        let mut buf = Vec::with_capacity(TILE_TEXELS * 4);
-        for (t, channels) in results {
-            for (kind, px) in channels {
-                let Some(img) = self.channels.get_mut(&kind) else { continue };
-                let comps = img.comps();
-                buf.clear();
-                for p in &px {
-                    buf.extend_from_slice(&p[..comps]);
-                }
-                img.write_tile(t, &buf);
+        let mut out = ChangedTiles::new();
+        for (t, kinds) in changed {
+            for kind in kinds {
+                out.entry(kind).or_default().push(t);
             }
         }
+        out
     }
 }
 

@@ -3,15 +3,15 @@
 use std::sync::Arc;
 
 use egui::{RichText, Ui};
-use subcraft_app::{Command, NewLayer};
+use subcraft_app::{Command, NewLayer, LayerTarget, layer_previews::PreviewKey};
 use subcraft_core::{ChannelKind, LayerId, TextureSetId};
 use subcraft_app::layer_tree::{DropTarget, drop_destination};
-use subcraft_doc::{BlendMode, Layer, LayerKind};
+use subcraft_doc::{BlendMode, Layer};
 
 use crate::icons;
 use crate::state::UiState;
-use crate::theme::{self, ACCENT, PAD, TEXT_DIM, TEXT_FAINT};
-use crate::widgets::{badge, divider, empty_state, fill_width, icon_button, list_row_sense, prop_row, row_text};
+use crate::theme::{self, ACCENT, PAD, TEXT_FAINT};
+use crate::widgets::{divider, empty_state, fill_width, icon_button, striped_list_row, prop_row, row_text};
 
 // Folder drop zones and inline rename adapted from CalangoTech's Studio fork (bd6c064).
 #[derive(Clone, Copy)]
@@ -130,6 +130,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
 
     // Blend mode and opacity of the active channel sit on the right of every layer row.
     let active = state.active_channel;
+    let selected_target = state.session.layer_target();
+    let selected_effect = state.session.selected_effect();
+    let can_paste_mask = state.session.can_paste_mask();
 
     let ts = state.session.selected_texture_set();
     let mut save_request: Option<(subcraft_core::LayerId, bool)> = None;
@@ -162,29 +165,38 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         if list.is_empty() {
             empty_state(ui, icons::STACK, "No layers yet. Add one above.");
         }
-        for (depth, l) in &list {
+        for (index, (depth, l)) in list.iter().enumerate() {
             let selected = sel == Some(l.id);
             let b = l.blend_for(active);
-            let resp = ui.push_id(l.id, |ui| list_row_sense(ui, selected, egui::Sense::click_and_drag(), |ui| {
+            let resp = ui.push_id(l.id, |ui| striped_list_row(ui, index, selected, egui::Sense::click_and_drag(), |ui| {
                 ui.add_space(*depth as f32 * 16.0);
                 if let subcraft_doc::LayerContent::Group(group) = &l.content {
                     let icon = if group.expanded { icons::CARET_DOWN } else { icons::CARET_RIGHT };
-                    if icon_button(ui, icon, if group.expanded { "Collapse folder" } else { "Expand folder" }).clicked() {
+                    if ui.add_sized([14.0, 26.0], egui::Button::new(icon).frame(false)).on_hover_text(if group.expanded { "Collapse folder" } else { "Expand folder" }).clicked() {
                         cmds.push(Command::SetFolderExpanded { layer: l.id, expanded: !group.expanded });
                     }
-                } else { ui.add_space(26.0); }
+                } else { ui.add_space(14.0); }
                 let (eye, tip) = if l.visible { (icons::EYE, "Hide") } else { (icons::EYE_SLASH, "Show") };
                 if icon_button(ui, eye, tip).clicked() {
                     cmds.push(Command::SetVisible { layer: l.id, visible: !l.visible });
                 }
-                let icon = match l.kind() {
-                    LayerKind::Paint => icons::PAINT_BRUSH,
-                    LayerKind::Path => icons::CURVE,
-                    LayerKind::Fill => icons::PAINT_BUCKET,
-                    LayerKind::Folder => if matches!(&l.content, subcraft_doc::LayerContent::Group(g) if g.expanded) { icons::FOLDER_OPEN } else { icons::FOLDER },
-                };
-                let icon_color = if selected { ACCENT } else { TEXT_DIM };
-                ui.label(RichText::new(icon).font(theme::font(14.0)).color(icon_color)).on_hover_text(format!("{:?} layer", l.kind()));
+                let thumb = state.layer_previews.image(ui, &state.session, PreviewKey { layer: l.id, channel: active, mask: false, size: 64 }, 26.0,
+                    selected && selected_target == LayerTarget::Content).on_hover_text(format!("{:?} content · {} preview · click to edit", l.kind(), active.display_name()));
+                if thumb.clicked() { cmds.push(Command::SelectLayerTarget { layer: l.id, target: LayerTarget::Content }); }
+                if let Some(mask) = &l.mask {
+                    let thumb = state.layer_previews.image(ui, &state.session, PreviewKey { layer: l.id, channel: ChannelKind::BaseColor, mask: true, size: 64 }, 26.0,
+                        selected && selected_target == LayerTarget::Mask).on_hover_text("Mask · click to edit · Alt+click: UV preview · Shift+click: enable/disable");
+                    if !mask.enabled { ui.painter().line_segment([thumb.rect.left_bottom(), thumb.rect.right_top()], egui::Stroke::new(1.5, theme::WARNING)); }
+                    if thumb.clicked() {
+                        if ui.input(|i| i.modifiers.shift) { cmds.push(Command::SetMaskEnabled { layer: l.id, enabled: !mask.enabled }); }
+                        else {
+                            cmds.push(Command::SelectLayerTarget { layer: l.id, target: LayerTarget::Mask });
+                            if state.tool == crate::state::Tool::Pen { state.tool = crate::state::Tool::Brush; }
+                            if ui.input(|i| i.modifiers.alt) { state.layer_previews.inspect = Some(l.id); }
+                        }
+                    }
+                    thumb.context_menu(|ui| super::mask::actions(ui, l.id, mask.enabled, can_paste_mask, &mut cmds));
+                }
                 let mut text = row_text(&l.name, selected || l.visible);
                 if !l.visible {
                     text = text.color(TEXT_FAINT);
@@ -216,9 +228,6 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         })
                         .response
                         .on_hover_text(format!("{channel} blend mode: {}", b.mode.label()));
-                    if l.mask.is_some() {
-                        badge(ui, "mask", ACCENT).on_hover_text("Has a mask");
-                    }
                 });
             })).inner;
             if rename.as_ref().is_none_or(|edit| edit.layer != l.id) {
@@ -272,6 +281,11 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         if ui.button(label).clicked() { layer_action = Some((l.id, action)); ui.close(); }
                     }
                 });
+                if let Some(mask) = &l.mask {
+                    ui.menu_button("Mask actions", |ui| super::mask::actions(ui, l.id, mask.enabled, can_paste_mask, &mut cmds));
+                } else if ui.add_enabled(can_paste_mask, egui::Button::new("Paste mask")).clicked() {
+                    cmds.push(Command::PasteMask(l.id)); ui.close();
+                }
                 ui.menu_button("Add generator", |ui| {
                     for (label, kind) in [("Edge wear", subcraft_doc::GeneratorKind::Edges), ("Dirt", subcraft_doc::GeneratorKind::Cavity), ("Directional", subcraft_doc::GeneratorKind::Directional), ("Position gradient", subcraft_doc::GeneratorKind::PositionGradient)] {
                         if ui.button(label).clicked() { layer_action = Some((l.id, LayerAction::Generator(kind))); ui.close(); }
@@ -300,6 +314,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 }
             });
             resp.on_hover_text("Drag to reorder. Drop in a folder's center to move inside it; drop at Top level to move out. Double-click or F2 to rename.");
+            if selected {
+                let channels: Vec<ChannelKind> = ts.channel_kinds().collect();
+                super::effects::rows(ui, l, *depth, selected_target, selected_effect, &channels, active, ts.resolution, &mut cmds);
+            }
         }
         root_drop(ui, ts, DropTarget::RootBottom, &mut cmds);
     });
@@ -314,7 +332,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     });
     state.run(cmds, now);
     if let Some((layer, action)) = layer_action {
+        let mask_added = matches!(action, subcraft_app::part_workflow::LayerAction::WhiteMask | subcraft_app::part_workflow::LayerAction::BlackMask);
         if let Err(e) = state.session.layer_action(layer, action) { state.set_status(format!("Layer: {e}"), now); }
+        else if mask_added { state.run(vec![Command::SelectLayerTarget { layer, target: LayerTarget::Mask }], now); }
     }
     if let Some((layer, item)) = drop_request {
         state.run(vec![Command::SelectLayer(Some(layer))], now);

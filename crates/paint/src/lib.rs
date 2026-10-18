@@ -20,7 +20,7 @@ pub mod target;
 
 pub use camera::Camera;
 pub use depth::{DepthCache, DepthMap};
-pub use settings::{Alignment, BrushChannel, BrushMaterial, BrushSettings, PaintTarget, PolygonFillMode, StrokeMode, StrokeOptions, falloff};
+pub use settings::{Alignment, BrushChannel, BrushMaterial, BrushSettings, NormalPaintBlend, PaintTarget, PolygonFillMode, StrokeMode, StrokeOptions, falloff};
 pub use stamp::Stamp;
 pub use stencil::Stencil;
 pub use stroke::{PaintContext, Stroke};

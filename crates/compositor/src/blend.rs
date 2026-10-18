@@ -15,6 +15,7 @@
 use glam::Vec3;
 use subcraft_core::color::{hsv_to_rgb, rgb_to_hsv};
 use subcraft_doc::BlendMode;
+pub use subcraft_core::normal::reoriented;
 
 /// What a blend writes into: decides clamping and whether normal-map modes apply.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -148,16 +149,6 @@ fn encode_normal(n: Vec3) -> [f32; 3] {
 pub fn whiteout(base: [f32; 3], detail: [f32; 3]) -> [f32; 3] {
     let (a, b) = (decode_normal(base), decode_normal(detail));
     encode_normal(Vec3::new(a.x + b.x, a.y + b.y, a.z * b.z))
-}
-
-/// Reoriented normal mapping: rotates `detail` into the frame of `base` (encoded in/out).
-pub fn reoriented(base: [f32; 3], detail: [f32; 3]) -> [f32; 3] {
-    let t = decode_normal(base) + Vec3::Z;
-    let u = decode_normal(detail) * Vec3::new(-1.0, -1.0, 1.0);
-    if t.z.abs() < 1e-6 {
-        return encode_normal(-u);
-    }
-    encode_normal(t * t.dot(u) / t.z - u)
 }
 
 /// `B(Cb, Cs)` for any mode (RGB; scalars are passed replicated as gray).

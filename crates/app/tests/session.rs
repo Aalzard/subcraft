@@ -387,3 +387,105 @@ fn changing_texture_set_resolution_resamples_paint_in_one_undo_step() {
     assert_eq!(s.document(), &before, "undo restores the exact rasters");
     assert!(s.execute(Command::SetResolution { texture_set: Some(ts), resolution: 300 }).is_err(), "only supported sizes");
 }
+
+/// Interactive updates composite on the background worker; synchronous updates (export, bake,
+/// save, tests) still see the exact composite of the newest document.
+#[test]
+fn background_compositing_converges_and_sync_updates_are_exact() {
+    use std::time::{Duration, Instant};
+    use subcraft_doc::{ProceduralKind, ProceduralParams};
+    let wood = |s: &mut Session, scale: f32| {
+        let layer = s.document().texture_sets[0].layers.iter().find(|l| l.kind() == LayerKind::Fill).unwrap().id;
+        let source = FillSource::Procedural {
+            params: ProceduralParams { scale, ..ProceduralParams::new(ProceduralKind::WoodRings) },
+            low: ChannelValue::rgb(0.2, 0.1, 0.05),
+            high: ChannelValue::rgb(0.5, 0.3, 0.1),
+        };
+        s.execute(Command::SetFillChannel { layer, channel: ChannelKind::BaseColor, fill: FillChannel::new(source) }).unwrap();
+    };
+    let same = |a: &Session, b: &Session| {
+        for (x, y) in a.document().texture_sets.iter().zip(&b.document().texture_sets) {
+            assert_eq!(a.composite(x.id).unwrap().channels, b.composite(y.id).unwrap().channels, "{}", x.name);
+        }
+    };
+    let (mut bg, mut inline) = (session(), session());
+    for s in [&mut bg, &mut inline] {
+        s.execute(Command::AddLayer(NewLayer::Fill)).unwrap();
+    }
+    // Edits arrive every frame while the worker is busy with cold fields.
+    for i in 0..5 {
+        wood(&mut bg, 2.0 + i as f32);
+        bg.update_composites_within(Some(Duration::from_millis(1)));
+    }
+    bg.update_composites();
+    assert!(!bg.composites_pending());
+    wood(&mut inline, 6.0);
+    inline.update_composites();
+    same(&bg, &inline);
+
+    // Interactive frames converge by themselves and report what changed.
+    wood(&mut bg, 2.5);
+    wood(&mut inline, 2.5);
+    inline.update_composites();
+    let start = Instant::now();
+    let mut changed = 0;
+    while bg.composites_pending() {
+        changed += bg.update_composites_within(Some(Duration::from_millis(1))).iter().map(|u| u.changed.len()).sum::<usize>();
+        assert!(start.elapsed() < Duration::from_secs(120), "the worker converges");
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    assert!(changed > 0);
+    same(&bg, &inline);
+    assert!(bg.update_composites_within(None).is_empty(), "nothing left once converged");
+
+    // New baked maps re-evaluate every tile of that texture set on the worker too.
+    let body = bg.document().texture_sets[0].id;
+    bg.set_mesh_maps(body, Default::default());
+    let updates = bg.update_composites();
+    assert_eq!(updates.len(), 1);
+    assert_eq!(updates[0].tiles.len(), 16);
+}
+
+#[test]
+fn starting_background_compositing_retains_existing_sync_results() {
+    let mut s = session();
+    s.execute(Command::AddLayer(NewLayer::Fill)).unwrap();
+    s.update_composites();
+    let before: Vec<_> = s.document().texture_sets.iter().map(|ts| (ts.id, s.composite(ts.id).unwrap().clone())).collect();
+    s.update_composites_within(Some(std::time::Duration::from_millis(1)));
+    // The worker has no dirty tiles to publish. Existing results must remain available both
+    // immediately and after a synchronous caller waits for this adopted snapshot.
+    for (id, expected) in &before {
+        assert_eq!(s.composite(*id), Some(expected));
+    }
+    s.update_composites();
+    for (id, expected) in &before {
+        assert_eq!(s.composite(*id), Some(expected));
+    }
+    assert!(!s.composites_pending());
+}
+
+#[test]
+fn save_and_export_use_newest_document_while_worker_is_busy() {
+    let mut s = session();
+    s.execute(Command::AddLayer(NewLayer::Fill)).unwrap();
+    s.update_composites_within(Some(std::time::Duration::from_millis(1)));
+    let layer = s.selection().layer.unwrap();
+    s.execute(Command::SetFillChannel {
+        layer,
+        channel: ChannelKind::BaseColor,
+        fill: FillChannel::new(FillSource::Uniform { value: ChannelValue::rgb(0.13, 0.42, 0.71) }),
+    }).unwrap();
+    let path = std::env::temp_dir().join(format!("subcraft-worker-save-{}.subcraft", layer));
+    s.save(Some(&path)).unwrap();
+    let mut reopened = Session::open_project(&path).unwrap();
+    std::fs::remove_file(&path).unwrap();
+    assert_eq!(s.document(), reopened.document(), "save stores authored data, never a stale viewport composite");
+    let archive = s.export_archive(&subcraft_export::ExportSettings::default()).unwrap();
+    assert!(archive.files > 0);
+    assert!(!s.composites_pending(), "export synchronously drains the newest snapshot");
+    reopened.update_composites();
+    for ts in &s.document().texture_sets {
+        assert_eq!(s.composite(ts.id), reopened.composite(ts.id));
+    }
+}

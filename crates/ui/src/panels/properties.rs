@@ -16,6 +16,13 @@ use crate::theme::{self, ACCENT, BG_2, TEXT_DIM, TEXT_FAINT};
 use crate::widgets::{channel_value, empty_state, fill_width, hint, icon_button, panel, primary_button, prop_row, secondary_button, section, section_with, segmented, slider_row};
 
 pub fn show(state: &mut UiState, ui: &mut Ui) {
+    if super::effects::properties(state, ui) {
+        return;
+    }
+    if state.session.layer_target() == subcraft_app::LayerTarget::Mask {
+        super::mask::show(state, ui);
+        return;
+    }
     let now = ui.input(|i| i.time);
     let Some(layer) = state.session.selected_layer().cloned() else {
         panel(ui, |ui| empty_state(ui, icons::SLIDERS, "Select a layer to edit its properties."));
@@ -201,60 +208,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                             }
                         });
                     });
-                    if ch.enabled {
-                        ui.add_space(2.0);
-                        match &mut ch.source {
-                            FillSource::Uniform { value } => {
-                                prop_row(ui, "Value", |ui| changed |= channel_value(ui, *kind, value).changed);
-                            }
-                            FillSource::Procedural { params, low, high } => {
-                                prop_row(ui, "Pattern", |ui| {
-                                    egui::ComboBox::from_id_salt(("kind", *kind)).selected_text(params.kind.label()).show_ui(ui, |ui| {
-                                        for k in ProceduralKind::ALL {
-                                            changed |= ui.selectable_value(&mut params.kind, k, k.label()).changed();
-                                        }
-                                    });
-                                });
-                                changed |= slider_row(ui, "Scale", egui::Slider::new(&mut params.scale, 1.0..=64.0).step_by(1.0)).changed();
-                                changed |= slider_row(ui, "Balance", egui::Slider::new(&mut params.balance, 0.0..=1.0)).changed();
-                                changed |= slider_row(ui, "Contrast", egui::Slider::new(&mut params.contrast, 0.0..=1.0)).changed();
-                                prop_row(ui, "Seed", |ui| changed |= ui.add(egui::DragValue::new(&mut params.seed)).changed());
-                                prop_row(ui, "Low", |ui| changed |= channel_value(ui, *kind, low).changed);
-                                prop_row(ui, "High", |ui| changed |= channel_value(ui, *kind, high).changed);
-                                prop_row(ui, "", |ui| changed |= ui.checkbox(&mut params.invert, "Invert").changed());
-                            }
-                            FillSource::MeshMap { map } => {
-                                prop_row(ui, "Map", |ui| {
-                                    egui::ComboBox::from_id_salt(("map", *kind)).selected_text(map.display_name()).show_ui(ui, |ui| {
-                                        for m in MeshMapKind::ALL {
-                                            changed |= ui.selectable_value(map, m, m.display_name()).changed();
-                                        }
-                                    });
-                                });
-                                hint(ui, "Uses the baked map (Ctrl+B); neutral until baked.");
-                            }
-                            FillSource::Bitmap { resource } => {
-                                pick_image |= image_row(ui, state, *resource);
-                                hint(ui, if kind.is_color() {
-                                    "Color image: read as sRGB. Tiling and rotation are under Projection."
-                                } else {
-                                    "Data image: used as-is (no color conversion). Tiling and rotation are under Projection."
-                                });
-                            }
-                        }
-                    }
-                    if ch.enabled {
-                        // How strongly this channel's result applies (bump, normal tilt, value).
-                        let (label, range, tip) = match kind {
-                            ChannelKind::Height => ("Strength", 0.0..=4.0, "Bump strength (0 = flat)"),
-                            ChannelKind::Normal => ("Strength", 0.0..=4.0, "Normal map strength (0 = flat)"),
-                            ChannelKind::BaseColor => ("Brightness", 0.0..=2.0, "Multiplies the color"),
-                            ChannelKind::Emissive => ("Intensity", 0.0..=10.0, "Glow intensity"),
-                            _ => ("Strength", 0.0..=2.0, "Multiplies the value"),
-                        };
-                        let r = slider_row(ui, label, egui::Slider::new(&mut ch.strength, range).max_decimals(2));
-                        changed |= r.on_hover_text(tip).changed();
-                    }
+                    let (c, p) = source_controls(ui, state, *kind, &mut ch);
+                    changed |= c;
+                    pick_image |= p;
                     if pick_image {
                         let purpose = crate::files::Purpose::FillChannel { layer: id, channel: *kind };
                         crate::files::pick(ui.ctx(), purpose, crate::files::IMAGES, false, None);
@@ -341,7 +297,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     });
                     ui.add_space(6.0);
                     for e in mask.effects.iter().rev() {
-                        effect_editor(ui, state, id, e, &mut cmds);
+                        ui.push_id(e.id, |ui| effect_editor(ui, state, id, e, &mut cmds));
                     }
                 }
             },
@@ -367,8 +323,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     }
 }
 
-fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_core::LayerId, e: &Arc<MaskEffect>, cmds: &mut Vec<Command>) {
+pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_core::LayerId, e: &Arc<MaskEffect>, cmds: &mut Vec<Command>) {
     let mut eff = (**e).clone();
+    let default_name = eff.name == eff.kind.label();
     let mut changed = false;
     egui::Frame::new().fill(BG_2).inner_margin(egui::Margin::symmetric(10, 8)).show(ui, |ui| {
         ui.horizontal(|ui| {
@@ -385,22 +342,56 @@ fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_core::LayerId
             });
         });
         if eff.visible {
+            prop_row(ui, "Blend", |ui| {
+                egui::ComboBox::from_id_salt(("effect_blend", eff.id)).selected_text(eff.blend.label()).show_ui(ui, |ui| {
+                    for mode in subcraft_doc::BlendMode::available(false, false) {
+                        changed |= ui.selectable_value(&mut eff.blend, mode, mode.label()).changed();
+                    }
+                });
+            });
             changed |= slider_row(ui, "Opacity", egui::Slider::new(&mut eff.opacity, 0.0..=1.0)).changed();
             match &mut eff.kind {
                 MaskEffectKind::Generator(g) => {
+                    prop_row(ui, "Generator", |ui| egui::ComboBox::from_id_salt("generator_kind").selected_text(g.kind.label()).show_ui(ui, |ui| {
+                        for kind in [GeneratorKind::Edges, GeneratorKind::Cavity, GeneratorKind::Directional, GeneratorKind::PositionGradient]
+                            .into_iter().chain(MeshMapKind::ALL.into_iter().map(GeneratorKind::MeshMap)) {
+                            changed |= ui.selectable_value(&mut g.kind, kind, kind.label()).changed();
+                        }
+                    }));
                     changed |= slider_row(ui, "Level", egui::Slider::new(&mut g.level, 0.0..=1.0)).changed();
                     changed |= slider_row(ui, "Softness", egui::Slider::new(&mut g.softness, 0.0..=1.0)).changed();
                     changed |= slider_row(ui, "Breakup", egui::Slider::new(&mut g.noise_amount, 0.0..=1.0)).changed();
                     prop_row(ui, "", |ui| changed |= ui.checkbox(&mut g.invert, "Invert").changed());
+                    if g.kind == GeneratorKind::Directional {
+                        prop_row(ui, "Direction", |ui| { for value in &mut g.direction {
+                            changed |= ui.add(egui::DragValue::new(value).range(-1.0..=1.0).speed(0.01)).changed();
+                        } });
+                    }
                 }
-                MaskEffectKind::Fill { procedural: Some(p), .. } => {
-                    changed |= slider_row(ui, "Scale", egui::Slider::new(&mut p.scale, 1.0..=64.0).step_by(1.0)).changed();
-                    changed |= slider_row(ui, "Balance", egui::Slider::new(&mut p.balance, 0.0..=1.0)).changed();
+                MaskEffectKind::Fill { value, procedural, projection } => {
+                    let mut use_procedural = procedural.is_some();
+                    if ui.checkbox(&mut use_procedural, "Procedural").changed() {
+                        *procedural = use_procedural.then(|| ProceduralParams::new(ProceduralKind::Clouds));
+                        changed = true;
+                    }
+                    if let Some(p) = procedural {
+                        prop_row(ui, "Pattern", |ui| egui::ComboBox::from_id_salt("mask_pattern").selected_text(p.kind.label()).show_ui(ui, |ui| {
+                            for kind in ProceduralKind::ALL { changed |= ui.selectable_value(&mut p.kind, kind, kind.label()).changed(); }
+                        }));
+                        changed |= slider_row(ui, "Scale", egui::Slider::new(&mut p.scale, 1.0..=64.0)).changed();
+                        changed |= slider_row(ui, "Balance", egui::Slider::new(&mut p.balance, 0.0..=1.0)).changed();
+                        changed |= slider_row(ui, "Contrast", egui::Slider::new(&mut p.contrast, 0.0..=1.0)).changed();
+                        prop_row(ui, "Seed", |ui| changed |= ui.add(egui::DragValue::new(&mut p.seed)).changed());
+                        changed |= ui.checkbox(&mut p.invert, "Invert pattern").changed();
+                    } else { changed |= slider_row(ui, "Value", egui::Slider::new(value, 0.0..=1.0)).changed(); }
+                    changed |= projection_editor(ui, projection);
                 }
                 MaskEffectKind::Levels(l) => {
                     changed |= slider_row(ui, "In low", egui::Slider::new(&mut l.in_low, 0.0..=1.0)).changed();
                     changed |= slider_row(ui, "In high", egui::Slider::new(&mut l.in_high, 0.0..=1.0)).changed();
                     changed |= slider_row(ui, "Gamma", egui::Slider::new(&mut l.gamma, 0.1..=4.0)).changed();
+                    changed |= slider_row(ui, "Out low", egui::Slider::new(&mut l.out_low, 0.0..=1.0)).changed();
+                    changed |= slider_row(ui, "Out high", egui::Slider::new(&mut l.out_high, 0.0..=1.0)).changed();
                 }
                 MaskEffectKind::Image { resource, projection, invert } => {
                     if image_row(ui, state, *resource) {
@@ -416,12 +407,76 @@ fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_core::LayerId
     });
     ui.add_space(4.0);
     if changed {
+        if default_name { eff.name = eff.kind.label(); }
         cmds.push(Command::SetMaskEffect { layer, effect: eff });
     }
 }
 
 /// Thumbnail, name and size of an image resource, with a Replace button. True if clicked.
-fn image_row(ui: &mut Ui, state: &mut UiState, resource: subcraft_core::ResourceId) -> bool {
+/// Value controls of an enabled fill channel (source parameters, then strength). Returns
+/// (changed, image picker requested). Shared by fill layers and Fill content effects.
+pub(crate) fn source_controls(ui: &mut Ui, state: &mut UiState, kind: ChannelKind, ch: &mut FillChannel) -> (bool, bool) {
+    let mut changed = false;
+    let mut pick_image = false;
+    let kind = &kind;
+    if ch.enabled {
+        ui.add_space(2.0);
+        match &mut ch.source {
+            FillSource::Uniform { value } => {
+                prop_row(ui, "Value", |ui| changed |= channel_value(ui, *kind, value).changed);
+            }
+            FillSource::Procedural { params, low, high } => {
+                prop_row(ui, "Pattern", |ui| {
+                    egui::ComboBox::from_id_salt(("kind", *kind)).selected_text(params.kind.label()).show_ui(ui, |ui| {
+                        for k in ProceduralKind::ALL {
+                            changed |= ui.selectable_value(&mut params.kind, k, k.label()).changed();
+                        }
+                    });
+                });
+                changed |= slider_row(ui, "Scale", egui::Slider::new(&mut params.scale, 1.0..=64.0).step_by(1.0)).changed();
+                changed |= slider_row(ui, "Balance", egui::Slider::new(&mut params.balance, 0.0..=1.0)).changed();
+                changed |= slider_row(ui, "Contrast", egui::Slider::new(&mut params.contrast, 0.0..=1.0)).changed();
+                prop_row(ui, "Seed", |ui| changed |= ui.add(egui::DragValue::new(&mut params.seed)).changed());
+                prop_row(ui, "Low", |ui| changed |= channel_value(ui, *kind, low).changed);
+                prop_row(ui, "High", |ui| changed |= channel_value(ui, *kind, high).changed);
+                prop_row(ui, "", |ui| changed |= ui.checkbox(&mut params.invert, "Invert").changed());
+            }
+            FillSource::MeshMap { map } => {
+                prop_row(ui, "Map", |ui| {
+                    egui::ComboBox::from_id_salt(("map", *kind)).selected_text(map.display_name()).show_ui(ui, |ui| {
+                        for m in MeshMapKind::ALL {
+                            changed |= ui.selectable_value(map, m, m.display_name()).changed();
+                        }
+                    });
+                });
+                hint(ui, "Uses the baked map (Ctrl+B); neutral until baked.");
+            }
+            FillSource::Bitmap { resource } => {
+                pick_image |= image_row(ui, state, *resource);
+                hint(ui, if kind.is_color() {
+                    "Color image: read as sRGB. Tiling and rotation are under Projection."
+                } else {
+                    "Data image: used as-is (no color conversion). Tiling and rotation are under Projection."
+                });
+            }
+        }
+    }
+    if ch.enabled {
+        // How strongly this channel's result applies (bump, normal tilt, value).
+        let (label, range, tip) = match kind {
+            ChannelKind::Height => ("Strength", 0.0..=4.0, "Bump strength (0 = flat)"),
+            ChannelKind::Normal => ("Strength", 0.0..=4.0, "Normal map strength (0 = flat)"),
+            ChannelKind::BaseColor => ("Brightness", 0.0..=2.0, "Multiplies the color"),
+            ChannelKind::Emissive => ("Intensity", 0.0..=10.0, "Glow intensity"),
+            _ => ("Strength", 0.0..=2.0, "Multiplies the value"),
+        };
+        let r = slider_row(ui, label, egui::Slider::new(&mut ch.strength, range).max_decimals(2));
+        changed |= r.on_hover_text(tip).changed();
+    }
+    (changed, pick_image)
+}
+
+pub(crate) fn image_row(ui: &mut Ui, state: &mut UiState, resource: subcraft_core::ResourceId) -> bool {
     let Some(r) = state.session.resources().get(resource).cloned() else {
         ui.label(RichText::new(format!("{}  Image missing from the project", icons::WARNING)).color(theme::WARNING));
         return secondary_button(ui, "Choose image…").clicked();
@@ -450,7 +505,7 @@ fn image_row(ui: &mut Ui, state: &mut UiState, resource: subcraft_core::Resource
 }
 
 /// Mode / scale / rotation (+ sharpness or axis) editor shared by fill layers and image masks.
-fn projection_editor(ui: &mut Ui, proj: &mut Projection) -> bool {
+pub(crate) fn projection_editor(ui: &mut Ui, proj: &mut Projection) -> bool {
     let mut changed = false;
     prop_row(ui, "Mode", |ui| {
         changed |= segmented(ui, &mut proj.mode, &[(ProjectionMode::Uv, "UV"), (ProjectionMode::Triplanar, "Tri-planar"), (ProjectionMode::Planar, "Planar")]);

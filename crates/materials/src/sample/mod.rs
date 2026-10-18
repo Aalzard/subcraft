@@ -4,6 +4,7 @@
 //! [`TileGeometry`]. Output texels are `[v0, v1, v2, alpha]` (straight alpha, linear values for
 //! color channels; scalar channels use `v0`).
 
+pub mod field;
 pub mod geometry;
 pub mod mesh_maps;
 pub mod projection;
@@ -54,8 +55,8 @@ pub fn eval_fill_tile(
             }
         }
         FillSource::Procedural { params, low, high } => {
-            for (i, o) in out.iter_mut().enumerate() {
-                let t = eval_procedural(params, projection, geo, i);
+            let field = procedural_tile(params, projection, geo);
+            for (o, &t) in out.iter_mut().zip(field.iter()) {
                 let mut v = [0.0; 4];
                 for c in 0..3 {
                     v[c] = low.0[c] + (high.0[c] - low.0[c]) * t;
@@ -72,6 +73,12 @@ pub fn eval_fill_tile(
             }
         }
     }
+}
+
+/// Grayscale procedural values of every texel of a tile, cached on the tile geometry: exactly
+/// [`eval_procedural`] for each texel, computed once per parameter set.
+pub fn procedural_tile(params: &ProceduralParams, projection: &Projection, geo: &TileGeometry) -> std::sync::Arc<field::Field> {
+    geo.fields.get_or_compute(field::FieldKey::new(params, projection), || (0..TILE_TEXELS).map(|i| eval_procedural(params, projection, geo, i)).collect())
 }
 
 /// Grayscale procedural value of texel `i` through a projection.

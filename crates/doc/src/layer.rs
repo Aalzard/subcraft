@@ -11,6 +11,7 @@ use subcraft_core::{ChannelKind, LayerId};
 use subcraft_image::TiledImage;
 
 use crate::blend::BlendMode;
+use crate::effect::{ContentEffect, ContentEffectKind};
 use crate::fill::{FillSource, Projection};
 use crate::mask::Mask;
 use crate::texture_set::TextureSet;
@@ -111,6 +112,8 @@ pub struct Layer {
     /// Show the layer only on these mesh parts (like a geometry mask); `None` = everywhere.
     pub parts: Option<PartMask>,
     pub content: LayerContent,
+    /// Non-destructive effects on the content, bottom to top (separate from the mask's stack).
+    pub content_effects: Vec<Arc<ContentEffect>>,
 }
 
 /// The mesh parts (connected pieces, see `subcraft_mesh::topology::mesh_elements`) a layer is
@@ -164,6 +167,7 @@ impl Layer {
             blend: default_blends(ts, false),
             mask: None,
             parts: None,
+            content_effects: Vec::new(),
             content: LayerContent::Paint(PaintContent::default()),
         }
     }
@@ -182,6 +186,7 @@ impl Layer {
             blend: default_blends(ts, false),
             mask: None,
             parts: None,
+            content_effects: Vec::new(),
             content: LayerContent::Fill(FillContent { projection: Projection::default(), channels }),
         }
     }
@@ -194,6 +199,7 @@ impl Layer {
             blend: default_blends(ts, true),
             mask: None,
             parts: None,
+            content_effects: Vec::new(),
             content: LayerContent::Group(GroupContent { children: Vec::new(), expanded: true }),
         }
     }
@@ -242,6 +248,9 @@ impl Layer {
                 Arc::make_mut(e).id = subcraft_core::EffectId::new();
             }
         }
+        for e in l.content_effects.iter_mut() {
+            Arc::make_mut(e).id = subcraft_core::EffectId::new();
+        }
         if let LayerContent::Group(g) = &mut l.content {
             for c in g.children.iter_mut() {
                 *c = Arc::new(c.duplicate_with_new_ids());
@@ -250,9 +259,15 @@ impl Layer {
         l
     }
 
-    /// Replace every raster in this subtree (paint channels, mask base, mask paint effects) with
-    /// `f(raster)`, e.g. to resample a saved smart material to another resolution.
+    /// Replace every raster in this subtree (paint channels, mask base, mask and content paint
+    /// effects) with `f(raster)`, e.g. to resample a saved smart material to another resolution.
     pub fn map_rasters(&mut self, f: &dyn Fn(&TiledImage) -> TiledImage) {
+        for e in self.content_effects.iter_mut() {
+            if let ContentEffectKind::Paint { channels } = &e.kind {
+                let channels = channels.iter().map(|(k, img)| (*k, f(img))).collect();
+                Arc::make_mut(e).kind = ContentEffectKind::Paint { channels };
+            }
+        }
         if let Some(m) = &mut self.mask {
             m.base = f(&m.base);
             for e in m.effects.iter_mut() {
@@ -292,6 +307,15 @@ impl Layer {
                 }
             }
         }
+        for e in &self.content_effects {
+            if let ContentEffectKind::Fill(f) = &e.kind {
+                for c in f.channels.values() {
+                    if let FillSource::Bitmap { resource } = c.source {
+                        add(resource);
+                    }
+                }
+            }
+        }
         for e in self.mask.iter().flat_map(|m| &m.effects) {
             if let crate::mask::MaskEffectKind::Image { resource, .. } = e.kind {
                 add(resource);
@@ -314,29 +338,51 @@ impl Layer {
                     && a.base.same_layout(&b.base)
                     && a.base.fill() == b.base.fill()
                     && a.effects.len() == b.effects.len()
-                    && a.effects.iter().zip(&b.effects).all(|(x, y)| Arc::ptr_eq(x, y) || x == y)
+                    && a.effects.iter().zip(&b.effects).all(|(x, y)| Arc::ptr_eq(x, y) || x.same_parameters(y))
             }
             _ => false,
         };
         if !masks_same {
             return false;
         }
+        if self.content_effects.len() != other.content_effects.len()
+            || !self.content_effects.iter().zip(&other.content_effects).all(|(x, y)| Arc::ptr_eq(x, y) || x.same_parameters(y))
+        {
+            return false;
+        }
         match (&self.content, &other.content) {
             // A channel image present on one side only is a raster change (absent = transparent,
             // e.g. created lazily by the first stroke) as long as it has the paint-image layout.
-            (LayerContent::Paint(a), LayerContent::Paint(b)) => {
-                let keys: std::collections::BTreeSet<_> = a.channels.keys().chain(b.channels.keys()).collect();
-                keys.into_iter().all(|k| match (a.channels.get(k), b.channels.get(k)) {
-                    (Some(ia), Some(ib)) => ia.same_layout(ib),
-                    (Some(i), None) | (None, Some(i)) => i.same_layout(&empty_paint_image(*k, i.width())) && i.width() == i.height(),
-                    (None, None) => true,
-                })
-            }
+            (LayerContent::Paint(a), LayerContent::Paint(b)) => same_paint_layout(&a.channels, &b.channels),
             (LayerContent::Fill(a), LayerContent::Fill(b)) => a == b,
             (LayerContent::Group(a), LayerContent::Group(b)) => {
                 a.children.len() == b.children.len() && a.children.iter().zip(&b.children).all(|(x, y)| x.id == y.id)
             }
             _ => false,
         }
+    }
+}
+
+/// Two per-channel paint raster sets differ only in texels (absent = transparent, e.g. created
+/// lazily by the first stroke), so a diff can refresh just their changed tiles.
+pub fn same_paint_layout(a: &BTreeMap<ChannelKind, TiledImage>, b: &BTreeMap<ChannelKind, TiledImage>) -> bool {
+    let keys: std::collections::BTreeSet<_> = a.keys().chain(b.keys()).collect();
+    keys.into_iter().all(|k| match (a.get(k), b.get(k)) {
+        (Some(ia), Some(ib)) => ia.same_layout(ib),
+        (Some(i), None) | (None, Some(i)) => i.same_layout(&empty_paint_image(*k, i.width())) && i.width() == i.height(),
+        (None, None) => true,
+    })
+}
+
+/// Tiles whose texels differ between two per-channel paint raster sets (see [`same_paint_layout`]).
+pub fn changed_paint_tiles(a: &BTreeMap<ChannelKind, TiledImage>, b: &BTreeMap<ChannelKind, TiledImage>, out: &mut impl Extend<usize>) {
+    for (kind, ia) in a {
+        match b.get(kind) {
+            Some(ib) => out.extend(ia.changed_tiles(ib)),
+            None => out.extend(ia.changed_tiles(&empty_paint_image(*kind, ia.width()))),
+        }
+    }
+    for (kind, ib) in b.iter().filter(|(k, _)| !a.contains_key(k)) {
+        out.extend(ib.changed_tiles(&empty_paint_image(*kind, ib.width())));
     }
 }

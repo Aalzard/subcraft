@@ -5,6 +5,7 @@
 
 pub mod app;
 pub mod bug_report;
+mod brush_bar;
 pub mod dialogs;
 pub mod files;
 pub mod graphics;
@@ -14,6 +15,8 @@ pub mod pen;
 pub mod panels;
 pub mod recovery;
 pub mod state;
+pub mod layer_previews;
+pub mod edit_profile;
 pub mod theme;
 pub mod viewport;
 pub mod viewport_bar;

@@ -3,6 +3,55 @@
 What changed in SubCraft, newest first. Download the latest build from the
 [Releases page](https://github.com/Aalzard/subcraft/releases/latest).
 
+## Unreleased
+
+## 0.1.7 — 2026-10-18
+
+### Faster
+- Desktop viewport compositing now runs in the background. Cold procedural tiles no longer
+  block the UI thread; the newest edit wins and export waits for the exact complete result.
+  Large texture changes appear progressively while the controls remain available.
+- Generator, material, opacity, blend and Levels edits reuse cached work instead of rebuilding
+  every procedural field. The 4K demo measures roughly 14–15 ms median editing frames on the
+  development PC; initial graphics setup can still cause a startup pause.
+- Procedural patterns are computed once and reused; only the pattern you are editing is
+  recomputed. Generating them is also about twice as fast, with exactly the same look.
+- Only the parts of a texture that actually changed are sent to the graphics card.
+- New GPU textures clear to their fill value and upload only allocated tiles, reducing the
+  cost of opening a sparse 4K stack.
+
+### New
+- Paint texture images into individual brush channels, including normal maps, or paint a whole
+  imported material. UV, planar and triplanar projection share scale/rotation/offset controls;
+  normals support Replace and renormalized detail blending. Brush presets embed the images.
+- Layer rows show real thumbnails of each layer's content (for the channel picked above the
+  Layers list) and, beside it, its mask. Click the content or the mask thumbnail to choose what
+  you edit and paint; the selected one has an orange outline.
+- Mask Properties: enable/disable, invert (as an editable effect, nothing is lost), copy/paste
+  a mask between layers, remove, a grayscale UV preview, and the mask's effects with move,
+  duplicate, blend and opacity controls. Shift+click a mask thumbnail to disable it, Alt+click
+  to preview it. Adding a white or black mask selects it right away.
+- Effects on layer content: each paint or fill layer now has its own effect stack (Paint,
+  Fill, Levels), separate from its mask's stack. The selected layer lists the effects of the
+  content or mask (whichever thumbnail you clicked) under its row: click one to edit it in
+  Properties, use the eye to hide it, right-click to reorder, duplicate or delete.
+- Paint effects: select one and the brush paints into it, so you can paint on top of fill
+  layers and erase that paint later without touching the fill. Mask Paint effects too.
+- Projects now use format 5. Older projects open unchanged; projects with content effects
+  need this version to open.
+- A compact brush toolbar above the 3D View, grid/axis controls, a symmetry and lazy-mouse
+  popover, adjustable UI size, calmer controls, and alternating rows in Layers, Parts and History.
+
+### Fixed
+- Properties follows layer/content/mask/effect selection instead of staying on the brush.
+- Starting background compositing preserves existing synchronous results. Exporting or
+  sampling during a refresh no longer leaves the viewport with stale tiles.
+
+### Still in development
+- General filters such as Blur, Sharpen and Bevel, Compare Mask, and Anchor Points are not
+  included yet. Available mask effects are Paint, Fill, image, Generator, Levels and Invert;
+  paint/fill layer content supports Paint, Fill and Levels.
+
 ## 0.1.6
 
 ### Fixed

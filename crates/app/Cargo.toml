@@ -47,3 +47,7 @@ winreg = "0.55"
 [target.'cfg(target_os = "linux")'.dependencies]
 tar = "0.4"
 flate2 = "1"
+
+[dev-dependencies]
+rayon.workspace = true
+mimalloc.workspace = true

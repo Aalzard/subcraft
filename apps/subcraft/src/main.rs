@@ -6,6 +6,12 @@
 // build from a terminal to see them).
 #![cfg_attr(all(windows, feature = "windows-gui"), windows_subsystem = "windows")]
 
+/// mimalloc instead of the system heap: compositing allocates per-tile buffers on every core,
+/// which the Windows heap serializes (ADR-0018).
+#[cfg(not(target_arch = "wasm32"))]
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 /// Web version: start in the page's `subcraft_canvas` (see `web/index.html`).
 #[cfg(target_arch = "wasm32")]
 fn main() {
@@ -35,7 +41,7 @@ fn main() -> anyhow::Result<()> {
         subcraft_app::diagnostics::install_panic_hook(d.join("crashes"));
     }
     let mut options = subcraft_ui::LaunchOptions::default();
-    let mut args = std::env::args().skip(1);
+    let mut args = std::env::args().skip(1).peekable();
     while let Some(a) = args.next() {
         match a.as_str() {
             "--preferences" => options.preferences = true,
@@ -53,14 +59,21 @@ fn main() -> anyhow::Result<()> {
             "--auto-update-fixture" => options.auto_update_fixture = true,
             "--demo" => options.demo = true,
             "--view-2d" => options.view_2d = true,
+            "--brush-panel" => options.brush_panel = true,
             "--screenshot" => options.screenshot = args.next().map(Into::into),
             "--recover" => options.recover = true,
             "--test-crash" => options.test_crash = true,
+            "--profile-edits" => {
+                let out = args.next().ok_or_else(|| anyhow::anyhow!("--profile-edits expects an output file"))?;
+                let resolution = args.peek().and_then(|s| s.parse::<u32>().ok());
+                if resolution.is_some() { args.next(); }
+                options.profile_edits = Some((out.into(), resolution));
+            }
             "--autosave-interval" => {
                 options.autosave_interval = args.next().and_then(|s| s.parse::<f64>().ok()).map(std::time::Duration::from_secs_f64);
             }
             "-h" | "--help" => {
-                println!("usage: subcraft [project.subcraft | mesh file] [--demo] [--view-2d] [--screenshot out.png] [--welcome] [--quick-start] [--guide-step 1..6] [--recover] [--autosave-interval seconds]");
+                println!("usage: subcraft [project.subcraft | mesh file] [--demo] [--view-2d] [--brush-panel] [--screenshot out.png] [--welcome] [--quick-start] [--guide-step 1..6] [--recover] [--autosave-interval seconds]");
                 return Ok(());
             }
             path => options.mesh = Some(path.into()),
