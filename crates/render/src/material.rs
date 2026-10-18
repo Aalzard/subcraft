@@ -42,11 +42,42 @@ impl ChannelTexture {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: format_for(comps),
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            // Render attachment: a full upload clears to the image's fill on the GPU.
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::RENDER_ATTACHMENT,
             view_formats: &[],
         });
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         Self { texture, view, size, comps }
+    }
+
+    /// Upload all of `image`: clear to its fill value on the GPU, then upload only the allocated
+    /// tiles (an unallocated tile is the fill). A composite still warming up is mostly fill, so
+    /// creating its texture costs a clear instead of hundreds of megabytes of uploads.
+    pub fn upload_all(&self, device: &wgpu::Device, queue: &wgpu::Queue, image: &TiledImage) {
+        let mut fill = image.fill();
+        if image.comps() == 3 {
+            fill[3] = 1.0;
+        }
+        // The f16 value a fill tile upload would store, exactly representable for the clear.
+        let c = |i: usize| f16::from_f32(fill[i]).to_f64();
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("channel clear") });
+        encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("channel clear"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &self.view,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color { r: c(0), g: c(1), b: c(2), a: c(3) }), store: wgpu::StoreOp::Store },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        // Submitted before the tile writes below: queued writes run ahead of the next submission.
+        queue.submit([encoder.finish()]);
+        let allocated: Vec<usize> = (0..image.tile_count()).filter(|&t| image.is_allocated(t)).collect();
+        self.upload(queue, image, &allocated);
     }
 
     /// 1×1 texture holding a constant (channel default when a texture set lacks the channel).

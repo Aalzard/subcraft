@@ -424,11 +424,9 @@ impl ViewportRenderer {
             mat.bind_group = None;
         }
         let tex = &mat.channels[&kind];
-        if recreate || tiles.is_none() {
-            let all: Vec<usize> = (0..image.tile_count()).collect();
-            tex.upload(queue, image, &all);
-        } else if let Some(t) = tiles {
-            tex.upload(queue, image, t);
+        match tiles {
+            Some(t) if !recreate => tex.upload(queue, image, t),
+            _ => tex.upload_all(device, queue, image),
         }
     }
 
