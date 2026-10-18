@@ -4,8 +4,11 @@
 //! when the stroke begins) and the stroke coverage, so repeated passes over the same texels never
 //! compound: the stroke reaches at most `stroke_opacity`.
 
-use subcraft_core::{ChannelKind, LayerId, ResourceId, normal};
-use subcraft_doc::{LayerContent, TextureSet, empty_paint_image};
+use std::collections::BTreeMap;
+use std::sync::Arc;
+
+use subcraft_core::{ChannelKind, EffectId, LayerId, ResourceId, normal};
+use subcraft_doc::{ContentEffectKind, LayerContent, MaskEffectKind, TextureSet, empty_paint_image};
 use subcraft_image::{TILE_TEXELS, TiledImage};
 
 use crate::settings::{BrushMaterial, NormalPaintBlend, PaintTarget, StrokeMode};
@@ -14,6 +17,18 @@ use crate::settings::{BrushMaterial, NormalPaintBlend, PaintTarget, StrokeMode};
 pub enum ImageKey {
     Channel(ChannelKind),
     MaskBase,
+    EffectChannel(EffectId, ChannelKind),
+    MaskEffect(EffectId),
+}
+
+impl ImageKey {
+    /// The material channel this image holds (`None` for mask rasters).
+    pub fn channel(self) -> Option<ChannelKind> {
+        match self {
+            ImageKey::Channel(k) | ImageKey::EffectChannel(_, k) => Some(k),
+            ImageKey::MaskBase | ImageKey::MaskEffect(_) => None,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -24,6 +39,8 @@ pub enum PaintError {
     /// The raster is derived from editable anchors, so a brush must not overwrite it.
     EditablePath,
     NoMask,
+    /// The selected effect is missing or is not a Paint effect.
+    NotAPaintEffect,
     /// No enabled brush channel exists in the texture set.
     NothingToPaint,
     /// The target image or geometry resolution differs from the texture set's.
@@ -37,6 +54,7 @@ impl std::fmt::Display for PaintError {
             PaintError::NotAPaintLayer => "only paint layers can be painted",
             PaintError::EditablePath => "use the Pen tool to edit this path, or create a paint layer for brushing",
             PaintError::NoMask => "layer has no mask",
+            PaintError::NotAPaintEffect => "the selected effect is not a Paint effect",
             PaintError::NothingToPaint => "no enabled brush channel in this texture set",
             PaintError::ResolutionMismatch => "resolution mismatch",
         };
@@ -77,24 +95,58 @@ pub fn begin_targets(ts: &TextureSet, layer: LayerId, target: PaintTarget, mater
                 normal_blend: NormalPaintBlend::Replace,
             }])
         }
+        PaintTarget::MaskEffect(id) => {
+            let mask = l.mask.as_ref().ok_or(PaintError::NoMask)?;
+            let effect = mask.effects.iter().find(|e| e.id == id).ok_or(PaintError::NotAPaintEffect)?;
+            let MaskEffectKind::Paint { image } = &effect.kind else { return Err(PaintError::NotAPaintEffect) };
+            check(image)?;
+            // Paint effects hold (value, alpha): painting adds coverage, erasing removes it.
+            Ok(vec![TargetImage {
+                key: ImageKey::MaskEffect(id),
+                snapshot: image.clone(),
+                value: [material.mask_value; 3],
+                value_comps: 1,
+                has_alpha: true,
+                texture: None,
+                normal_blend: NormalPaintBlend::Replace,
+            }])
+        }
         PaintTarget::Content => {
             let LayerContent::Paint(paint) = &l.content else { return Err(PaintError::NotAPaintLayer) };
             if paint.path.is_some() { return Err(PaintError::EditablePath); }
-            let mut out = Vec::new();
-            for (&kind, ch) in material.channels.iter().filter(|(k, c)| c.enabled && ts.has_channel(**k)) {
-                let snapshot = paint.channels.get(&kind).cloned().unwrap_or_else(|| empty_paint_image(kind, res));
-                check(&snapshot)?;
-                let n = kind.components();
-                let value = if n == 1 { [ch.value.0[0]; 3] } else { ch.value.0 };
-                out.push(TargetImage { key: ImageKey::Channel(kind), snapshot, value, value_comps: n, has_alpha: true,
-                    texture: material.textures.get(&kind).copied(), normal_blend: material.normal_blend });
-            }
-            if out.is_empty() {
-                return Err(PaintError::NothingToPaint);
-            }
-            Ok(out)
+            channel_targets(ts, &paint.channels, material, ImageKey::Channel)
+        }
+        PaintTarget::ContentEffect(id) => {
+            let effect = l.content_effects.iter().find(|e| e.id == id).ok_or(PaintError::NotAPaintEffect)?;
+            let ContentEffectKind::Paint { channels } = &effect.kind else { return Err(PaintError::NotAPaintEffect) };
+            channel_targets(ts, channels, material, |k| ImageKey::EffectChannel(id, k))
         }
     }
+}
+
+/// One target per enabled brush channel of the texture set, snapshotting `channels`.
+fn channel_targets(
+    ts: &TextureSet,
+    channels: &BTreeMap<ChannelKind, TiledImage>,
+    material: &BrushMaterial,
+    key: impl Fn(ChannelKind) -> ImageKey,
+) -> Result<Vec<TargetImage>, PaintError> {
+    let res = ts.resolution;
+    let mut out = Vec::new();
+    for (&kind, ch) in material.channels.iter().filter(|(k, c)| c.enabled && ts.has_channel(**k)) {
+        let snapshot = channels.get(&kind).cloned().unwrap_or_else(|| empty_paint_image(kind, res));
+        if snapshot.width() != res || snapshot.height() != res {
+            return Err(PaintError::ResolutionMismatch);
+        }
+        let n = kind.components();
+        let value = if n == 1 { [ch.value.0[0]; 3] } else { ch.value.0 };
+        out.push(TargetImage { key: key(kind), snapshot, value, value_comps: n, has_alpha: true,
+            texture: material.textures.get(&kind).copied(), normal_blend: material.normal_blend });
+    }
+    if out.is_empty() {
+        return Err(PaintError::NothingToPaint);
+    }
+    Ok(out)
 }
 
 impl TargetImage {
@@ -123,7 +175,7 @@ impl TargetImage {
                     let a0 = px[n];
                     let a = a0 + k * (1.0 - a0);
                     let mut value = [src[0], src[1], src[2]];
-                    let is_normal = self.key == ImageKey::Channel(ChannelKind::Normal);
+                    let is_normal = self.key.channel() == Some(ChannelKind::Normal);
                     if is_normal && self.normal_blend == NormalPaintBlend::Detail && a0 > 0.0 {
                         let combined = normal::reoriented([px[0], px[1], px[2]], value);
                         // Transparent backdrop contributes only the source, as in W3C blending.
@@ -159,6 +211,16 @@ pub fn store(ts: &mut TextureSet, layer: LayerId, writes: &[(ImageKey, usize, Ve
             ImageKey::Channel(kind) => {
                 let LayerContent::Paint(p) = &mut l.content else { return Err(PaintError::NotAPaintLayer) };
                 p.channel_mut(*kind, res).write_tile(*tile, data);
+            }
+            ImageKey::EffectChannel(id, kind) => {
+                let effect = l.content_effects.iter_mut().find(|e| e.id == *id).ok_or(PaintError::NotAPaintEffect)?;
+                Arc::make_mut(effect).kind.paint_channel_mut(*kind, res).ok_or(PaintError::NotAPaintEffect)?.write_tile(*tile, data);
+            }
+            ImageKey::MaskEffect(id) => {
+                let mask = l.mask.as_mut().ok_or(PaintError::NoMask)?;
+                let effect = mask.effects.iter_mut().find(|e| e.id == *id).ok_or(PaintError::NotAPaintEffect)?;
+                let MaskEffectKind::Paint { image } = &mut Arc::make_mut(effect).kind else { return Err(PaintError::NotAPaintEffect) };
+                image.write_tile(*tile, data);
             }
         }
     }

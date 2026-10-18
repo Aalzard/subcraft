@@ -187,6 +187,17 @@ pub enum PaintTarget {
     Content,
     /// The base raster of the layer's mask.
     MaskBase,
+    /// The rasters of a Paint effect in the layer's content stack (works on fill layers too).
+    ContentEffect(subcraft_core::EffectId),
+    /// The raster of a Paint effect in the layer's mask stack.
+    MaskEffect(subcraft_core::EffectId),
+}
+
+impl PaintTarget {
+    /// Whether strokes change the mask (grayscale `mask_value`) rather than material channels.
+    pub fn is_mask(self) -> bool {
+        matches!(self, PaintTarget::MaskBase | PaintTarget::MaskEffect(_))
+    }
 }
 
 /// Polygon-fill selection grown from the triangle under the cursor.

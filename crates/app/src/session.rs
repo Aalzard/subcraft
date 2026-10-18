@@ -7,8 +7,8 @@ use std::sync::Arc;
 
 use glam::{Vec2, Vec3};
 use subcraft_compositor::{Composite, CompositeCache, EvalContext};
-use subcraft_core::{ChannelKind, LayerId, TextureSetId};
-use subcraft_doc::{ChannelDef, Document, History, Layer, LayerContent, LayerLocation, Mask, MaskEffect, ResourceStore, TextureSet};
+use subcraft_core::{ChannelKind, EffectId, LayerId, TextureSetId};
+use subcraft_doc::{ChannelDef, ContentEffect, ContentEffectKind, Document, History, Layer, LayerContent, LayerLocation, Mask, MaskEffect, ResourceStore, TextureSet};
 use subcraft_materials::{GeometryCache, MeshMaps};
 use subcraft_mesh::{Bvh, Mesh, import_mesh, primitives};
 use subcraft_paint::{
@@ -101,6 +101,8 @@ pub struct Session {
     doc: Document,
     selection: Selection,
     mask_clipboard: Option<Mask>,
+    /// Selected effect of the selected layer's current domain (see [`Session::selected_effect`]).
+    effect: Option<EffectId>,
     pub brush: BrushState,
     stroke: Option<ActiveStroke>,
     composites: HashMap<TextureSetId, CompositeCache>,
@@ -163,6 +165,7 @@ impl Session {
             doc,
             selection,
             mask_clipboard: None,
+            effect: None,
             brush: BrushState {
                 alpha: None,
                 alpha_name: "Round".into(),
@@ -320,9 +323,57 @@ impl Session {
         self.revision
     }
     pub fn layer_target(&self) -> LayerTarget {
-        if self.brush.target == PaintTarget::MaskBase && self.selected_layer().is_some_and(|l| l.mask.is_some()) {
+        if self.brush.target.is_mask() && self.selected_layer().is_some_and(|l| l.mask.is_some()) {
             LayerTarget::Mask
         } else { LayerTarget::Content }
+    }
+
+    /// The selected effect, if it still exists in the selected layer's current domain stack.
+    pub fn selected_effect(&self) -> Option<EffectId> {
+        let id = self.effect?;
+        let layer = self.selected_layer()?;
+        let exists = match self.layer_target() {
+            LayerTarget::Content => layer.content_effects.iter().any(|e| e.id == id),
+            LayerTarget::Mask => layer.mask.as_ref().is_some_and(|m| m.effects.iter().any(|e| e.id == id)),
+        };
+        exists.then_some(id)
+    }
+
+    /// Brush target for selecting `effect` (or the domain itself) in `target` of `layer`.
+    fn target_for(layer: &Layer, target: LayerTarget, effect: Option<EffectId>) -> Result<PaintTarget, CommandError> {
+        let missing = || CommandError::Invalid("No such effect in this stack".into());
+        Ok(match (target, effect) {
+            (LayerTarget::Content, None) => PaintTarget::Content,
+            (LayerTarget::Mask, None) => {
+                layer.mask.as_ref().ok_or(CommandError::NoMask)?;
+                PaintTarget::MaskBase
+            }
+            (LayerTarget::Content, Some(id)) => match &layer.content_effects.iter().find(|e| e.id == id).ok_or_else(missing)?.kind {
+                ContentEffectKind::Paint { .. } => PaintTarget::ContentEffect(id),
+                _ => PaintTarget::Content,
+            },
+            (LayerTarget::Mask, Some(id)) => {
+                let mask = layer.mask.as_ref().ok_or(CommandError::NoMask)?;
+                match &mask.effects.iter().find(|e| e.id == id).ok_or_else(missing)?.kind {
+                    subcraft_doc::MaskEffectKind::Paint { .. } => PaintTarget::MaskEffect(id),
+                    _ => PaintTarget::MaskBase,
+                }
+            }
+        })
+    }
+
+    /// Keep the brush target and effect selection valid after any change (undo, removal…).
+    fn normalize_target(&mut self) {
+        let Some(layer) = self.selected_layer() else {
+            self.brush.target = PaintTarget::Content;
+            self.effect = None;
+            return;
+        };
+        let domain = if self.brush.target.is_mask() && layer.mask.is_some() { LayerTarget::Mask } else { LayerTarget::Content };
+        let effect = self.selected_effect();
+        let target = Self::target_for(layer, domain, effect).unwrap_or(PaintTarget::Content);
+        self.effect = effect;
+        self.brush.target = target;
     }
     pub fn can_paste_mask(&self) -> bool { self.mask_clipboard.is_some() }
     pub fn resources(&self) -> &ResourceStore {
@@ -489,6 +540,7 @@ impl Session {
                 let ts = self.doc.texture_set(id).ok_or(CommandError::TextureSetNotFound)?;
                 self.selection = Selection { texture_set: id, layer: ts.layers.last().map(|l| l.id) };
                 self.brush.target = PaintTarget::Content;
+                self.effect = None;
                 self.revision += 1;
             }
             Command::SelectLayer(layer) => {
@@ -497,6 +549,7 @@ impl Session {
                 }
                 self.selection.layer = layer;
                 self.brush.target = PaintTarget::Content;
+                self.effect = None;
                 self.revision += 1;
             }
             Command::SelectLayerTarget { layer, target } => {
@@ -506,7 +559,70 @@ impl Session {
                 }
                 self.selection = Selection { texture_set: ts, layer: Some(layer) };
                 self.brush.target = if target == LayerTarget::Mask { PaintTarget::MaskBase } else { PaintTarget::Content };
+                self.effect = None;
                 self.revision += 1;
+            }
+            Command::SelectEffect { layer, target, effect } => {
+                let ts = self.texture_set_of(layer).ok_or(CommandError::LayerNotFound)?;
+                let l = self.doc.texture_set(ts).and_then(|t| t.find(layer)).ok_or(CommandError::LayerNotFound)?;
+                let paint_target = Self::target_for(l, target, effect)?;
+                self.selection = Selection { texture_set: ts, layer: Some(layer) };
+                self.brush.target = paint_target;
+                self.effect = effect;
+                self.revision += 1;
+            }
+            Command::AddContentEffect { layer, kind } => {
+                Self::check_content_effect(&kind)?;
+                let id = self.edit_layer_set(layer, "Add Effect", None, |ts| {
+                    let effect = ContentEffect::new(kind, ts);
+                    let l = Self::layer_mut(ts, layer)?;
+                    if l.is_folder() {
+                        return Err(CommandError::Invalid("Folders cannot have content effects yet".into()));
+                    }
+                    let id = effect.id;
+                    l.content_effects.push(Arc::new(effect));
+                    Ok(id)
+                })?;
+                return self.execute(Command::SelectEffect { layer, target: LayerTarget::Content, effect: Some(id) });
+            }
+            Command::RemoveContentEffect { layer, effect } => {
+                self.edit_layer_set(layer, "Remove Effect", None, |ts| {
+                    let l = Self::layer_mut(ts, layer)?;
+                    let index = l.content_effects.iter().position(|e| e.id == effect).ok_or_else(|| CommandError::Invalid("No such effect".into()))?;
+                    l.content_effects.remove(index);
+                    Ok(())
+                })?;
+            }
+            Command::SetContentEffect { layer, effect } => {
+                Self::check_content_effect(&effect.kind)?;
+                let key = format!("content-effect:{layer}:{}", effect.id);
+                self.edit_layer_set(layer, "Effect", Some(key), |ts| {
+                    let l = Self::layer_mut(ts, layer)?;
+                    let slot = l.content_effects.iter_mut().find(|e| e.id == effect.id).ok_or_else(|| CommandError::Invalid("No such effect".into()))?;
+                    *slot = Arc::new(effect);
+                    Ok(())
+                })?;
+            }
+            Command::MoveContentEffect { layer, effect, index } => {
+                self.edit_layer_set(layer, "Move Effect", None, |ts| {
+                    let l = Self::layer_mut(ts, layer)?;
+                    if index >= l.content_effects.len() { return Err(CommandError::Invalid("Effect destination is outside the stack".into())); }
+                    let from = l.content_effects.iter().position(|e| e.id == effect).ok_or_else(|| CommandError::Invalid("No such effect".into()))?;
+                    let moved = l.content_effects.remove(from);
+                    l.content_effects.insert(index, moved);
+                    Ok(())
+                })?;
+            }
+            Command::DuplicateContentEffect { layer, effect } => {
+                self.edit_layer_set(layer, "Duplicate Effect", None, |ts| {
+                    let l = Self::layer_mut(ts, layer)?;
+                    let index = l.content_effects.iter().position(|e| e.id == effect).ok_or_else(|| CommandError::Invalid("No such effect".into()))?;
+                    let mut copy = (*l.content_effects[index]).clone();
+                    copy.id = subcraft_core::EffectId::new();
+                    copy.name = format!("{} copy", copy.name);
+                    l.content_effects.insert(index + 1, Arc::new(copy));
+                    Ok(())
+                })?;
             }
             Command::AddLayer(kind) => {
                 self.layer_counter += 1;
@@ -725,11 +841,14 @@ impl Session {
                 })?;
             }
             Command::AddMaskEffect { layer, kind } => {
-                self.edit_layer_set(layer, "Add Mask Effect", None, |ts| {
+                let id = self.edit_layer_set(layer, "Add Mask Effect", None, |ts| {
                     let mask = Self::layer_mut(ts, layer)?.mask.as_mut().ok_or(CommandError::NoMask)?;
-                    mask.effects.push(Arc::new(MaskEffect::new(kind)));
-                    Ok(())
+                    let effect = MaskEffect::new(kind);
+                    let id = effect.id;
+                    mask.effects.push(Arc::new(effect));
+                    Ok(id)
                 })?;
+                return self.execute(Command::SelectEffect { layer, target: LayerTarget::Mask, effect: Some(id) });
             }
             Command::RemoveMaskEffect { layer, effect } => {
                 self.edit_layer_set(layer, "Remove Mask Effect", None, |ts| {
@@ -770,8 +889,13 @@ impl Session {
                 })?;
             }
         }
-        if self.brush.target == PaintTarget::MaskBase && self.selected_layer().is_none_or(|l| l.mask.is_none()) {
-            self.brush.target = PaintTarget::Content;
+        self.normalize_target();
+        Ok(())
+    }
+
+    fn check_content_effect(kind: &ContentEffectKind) -> Result<(), CommandError> {
+        if matches!(kind, ContentEffectKind::Levels { channel: subcraft_core::ChannelKind::Normal, .. }) {
+            return Err(CommandError::Invalid("Levels cannot adjust the Normal channel".into()));
         }
         Ok(())
     }
@@ -833,7 +957,9 @@ impl Session {
         let label = match (b.mode, b.target) {
             (StrokeMode::Paint, PaintTarget::Content) => "Paint Stroke",
             (StrokeMode::Erase, PaintTarget::Content) => "Erase Stroke",
-            (_, PaintTarget::MaskBase) => "Mask Stroke",
+            (StrokeMode::Paint, PaintTarget::ContentEffect(_)) => "Paint Effect Stroke",
+            (StrokeMode::Erase, PaintTarget::ContentEffect(_)) => "Erase Effect Stroke",
+            (_, PaintTarget::MaskBase | PaintTarget::MaskEffect(_)) => "Mask Stroke",
         };
         self.stroke = Some(ActiveStroke { stroke, texture_set: ts.id, label });
         Ok(())

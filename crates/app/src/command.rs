@@ -2,7 +2,7 @@
 //! [`Session::execute`](crate::Session::execute); widgets never edit the document directly.
 
 use subcraft_core::{ChannelKind, EffectId, LayerId, TextureSetId};
-use subcraft_doc::{BlendMode, FillChannel, Layer, MaskEffect, MaskEffectKind, PartMask, Projection};
+use subcraft_doc::{BlendMode, ContentEffect, ContentEffectKind, FillChannel, Layer, MaskEffect, MaskEffectKind, PartMask, Projection};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum NewLayer {
@@ -31,6 +31,17 @@ pub enum Command {
     SetResolution { texture_set: Option<TextureSetId>, resolution: u32 },
     SelectLayer(Option<LayerId>),
     SelectLayerTarget { layer: LayerId, target: crate::session::LayerTarget },
+    /// Select an effect in the layer's content or mask stack (`None`: the domain itself). Tool
+    /// state only: a Paint effect receives strokes; other effects show their Properties.
+    SelectEffect { layer: LayerId, target: crate::session::LayerTarget, effect: Option<EffectId> },
+    /// Append to the layer's content stack (top) and select it. Not on folders; Levels not on Normal.
+    AddContentEffect { layer: LayerId, kind: ContentEffectKind },
+    RemoveContentEffect { layer: LayerId, effect: EffectId },
+    /// Replace an effect (matched by id); coalesces while dragging.
+    SetContentEffect { layer: LayerId, effect: ContentEffect },
+    /// Destination is a bottom-to-top index in the layer's content stack.
+    MoveContentEffect { layer: LayerId, effect: EffectId, index: usize },
+    DuplicateContentEffect { layer: LayerId, effect: EffectId },
     /// Insert above the selected layer (or at the top) of the selected texture set and select it.
     AddLayer(NewLayer),
     /// Insert a ready-made layer (material preset, smart material) like [`Command::AddLayer`].
@@ -73,6 +84,7 @@ pub enum Command {
     MoveMaskEffect { layer: LayerId, effect: EffectId, index: usize },
     DuplicateMaskEffect { layer: LayerId, effect: EffectId },
     SetMaskEnabled { layer: LayerId, enabled: bool },
+    /// Append to the mask's stack (top) and select it.
     AddMaskEffect { layer: LayerId, kind: MaskEffectKind },
     RemoveMaskEffect { layer: LayerId, effect: EffectId },
     /// Replace an effect (matched by id); coalesces while dragging.

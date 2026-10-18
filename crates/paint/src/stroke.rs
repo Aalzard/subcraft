@@ -258,7 +258,7 @@ impl Stroke {
                             // UV sampling needs no surface cache. Object projections reuse the
                             // exact normalized positions, normals and sampler used by fill layers.
                             let geo = (self.projection.mode != ProjectionMode::Uv).then(|| geometry.tile(t));
-                            let linearize = matches!(img.key, ImageKey::Channel(k) if k.is_color());
+                            let linearize = img.key.channel().is_some_and(|k| k.is_color());
                             let res = geometry.resolution as f32;
                             let x0 = (t as u32 % geometry.tiles_x) * TILE_SIZE;
                             let y0 = (t as u32 / geometry.tiles_x) * TILE_SIZE;
