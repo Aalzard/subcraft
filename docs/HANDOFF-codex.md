@@ -4,7 +4,7 @@
   sparse GPU uploads `c584981`). Documentation is the final local commit (`git log -1`).
 - Release integration: https://github.com/Aalzard/subcraft/pull/50 ; release destination
   https://github.com/Aalzard/subcraft/releases/tag/v0.1.7 . Keep this checkout on the feature
-  branch. See GitHub for final merge/build/publication status.
+  branch. Published 2026-10-19; PR #50 merged as `71e49fd`. Windows/Linux tests, browser build and both packages passed. Release workflow `39167622401` passed; all three assets have SHA-256 digests.
 - `CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=line-tables-only cargo test --workspace -j 1`:
   **414 passed, 0 failed, 0 ignored**. Clippy workspace/all targets exits 0, existing warnings.
   Windows packaging path tests pass. No failing/skipped local tests remain.

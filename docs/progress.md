@@ -1636,6 +1636,17 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   release guide. Native profiling and screenshot above use the final local 0.1.7 executable.
   Publication status and artifact checks are recorded by the GitHub release and final handoff.
 
+### Session 72 — Codex: publish 0.1.7 (2026-10-19)
+
+* PR #50 merged as `71e49fde7e4e1dba188a6589c9e5a139d1e3d9d5` after Windows engine tests,
+  Linux workspace tests, browser compilation and both packaging jobs passed on `230798f`.
+* Published https://github.com/Aalzard/subcraft/releases/tag/v0.1.7 from that merge. Official
+  release workflow `39167622401` passed; all three assets are present with SHA-256 digests:
+  Windows installer (23,363,574 bytes), portable ZIP (25,179,889), Linux archive (26,783,685).
+  A stalled local Actions-artifact download was cancelled; packaging/upload ran on GitHub.
+* Owner reported everything functions well. Local test executable stays unchanged at
+  `target/release/subcraft.exe`; no mouse input, additional feature changes or build cleanup.
+  Hand-verification limits and remaining general filters are unchanged from session 70.
 ## Next steps (in order)
 
 Pending owner cleanup request: remove obsolete build artifacts only when the environment's
