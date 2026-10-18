@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-10-18 (session 63: inspector follows selected layer)
+Last updated: 2026-10-18 (sessions 64–66: layer/mask foundation and evaluated thumbnails)
 
 ## Decisions
 
@@ -1420,13 +1420,93 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   the demo window remains open, with the test fill edit undone. Protected files and pre-existing
   screenshot deletions were untouched. No push/release; docs/handoff form the final commit.
 
+### Session 64 — layer-system audit and non-destructive mask commands (2026-10-18)
+
+* Researched Adobe's official masking/effects, filter, Compare Mask and anchor documentation;
+  audited the existing layer tree, compositor, mask sources, history and explicit project schema.
+  ADR-0016 records what is reused and the planned domain/kernel/dependency contracts. The new
+  full ordered checklist is `layer-system-roadmap.md`; this owner request takes priority over
+  the remaining brush phases. Content-effect stacks/filters/references are not claimed implemented.
+* `app::LayerTarget` and SelectLayerTarget distinguish content/mask editing using existing brush
+  targets; validation and selection changes do not mutate document/history. CopyMask is a
+  session-local COW clipboard; PasteMask resamples to the destination and refreshes effect UUIDs
+  in one undo step. InvertMask appends the existing editable invert operation. Added mask-effect
+  move/duplicate commands, preserving stack metadata and immutable paint sources. Mask removal
+  normalizes the paint target. Existing project schema 4 already stores all these operations;
+  no new document fields or migration required in this slice. Future content/filter fields
+  explicitly require migrations and v1–4 numeric equivalence.
+* Four app regressions cover domain validation/history, all-texel inversion/disable/undo,
+  clipboard resampling/fresh IDs/source independence/save-load, and effect reordering/duplication
+  with atomic rejection. **381 workspace tests passed**, 0 failed/ignored; Clippy workspace /
+  all targets passes with existing warnings. Code `72c1714`. Native evidence is in session 66.
+
+### Session 65 — bounded evaluated preview service (2026-10-18)
+
+* `compositor::tile::preview_content` reuses production layer evaluation before the layer's own
+  mask/blend/opacity/visibility; folder children retain their own blends and masks. The new
+  toolkit/GPU-independent `app::layer_previews` snapshots COW layers/resources/maps and evaluates
+  content or resolved masks on an immutable background job. At most one queued worker per
+  service, 96 LRU entries, 64px thumbnails / 256px isolated inspection, shared geometry cache,
+  source/scene/map invalidation and obsolete-result rejection. Disabled masks still preview
+  authored data. Color is encoded for display; normal/scalar/mask data remain raw. No 4K row
+  readbacks or widget-side material evaluation. Browser uses the existing synchronous spawn
+  fallback and is not performance-certified. Fine details can disappear at preview resolution.
+* Four numeric/service tests cover independent content/mask/color/normal encoding from a 4K
+  document, production mask/composite parity, disabled masks, bounded inspection, cache reuse/
+  invalidation/scene replacement, transparent paint isolation and cache bounds. **385 workspace
+  tests passed**, 0 failed/ignored; Clippy passes. Initial parallel link failed with LNK1318/PDB
+  LIMIT while E: had little free space; a serial `cargo test --workspace -j 1` rerun passed.
+  Code `ae7063e`. No deletion workaround was attempted; prior cleanup restriction remains.
+
+### Session 66 — selectable thumbnails and mask Properties (2026-10-18)
+
+* `ui::layer_previews` uploads only completed preview pixels; visible layer rows replace generic
+  content icons with 26px content/mask squares and independent accent selection. No duplicate
+  MASK badge. `ui::panels::mask` provides mask-specific Properties and existing effect controls;
+  all edits dispatch app commands. App inspector focus now includes domain. Mask clicks route
+  painting to the mask base; content clicks return to material/tool editing. New masks select
+  themselves. Shift-click toggles mask bypass, Alt-click opens reduced UV inspection; context
+  and Properties actions expose preview, disable, invert, copy/paste and removal. Existing masks
+  remain compatible. Mask effects expose move/duplicate/visibility/remove/blend/opacity, fill
+  pattern/projection, generator kind/direction and full levels ranges. Dedicated nested effect
+  rows and independent selected-effect Properties are still planned, not emulated by this UI.
+* Two real-dock input tests cover thumbnail independence, paint/fill inspector routing without
+  history edits, shortcuts and undoable mask actions. Added a 160-sample 4K mask-stroke test with
+  concurrent preview requests: one undo, immutable original, final preview checked against mask
+  texels. Measured CPU stroke + preview-request cold **4.414ms**, warm p95 **1.495ms**, max
+  **1.669ms** in the optimized test profile on the cube. This excludes composite/upload/render
+  and does not certify full 4K frame pacing. **388 workspace tests passed**, 0 failed/ignored;
+  Clippy workspace/all targets passes with existing warnings.
+
+### Session 67 — Claude: finish and commit the thumbnail/mask slice (2026-10-18)
+
+* Codex ran out of credits during the session-66 hand check. Claude rebuilt and re-ran the
+  suite: **388 workspace tests passed**, 0 failed/ignored; Clippy `--workspace --all-targets`
+  exits 0 with existing warnings only. Release `target/release/subcraft.exe` rebuilt.
+* **Hand check by the owner:** the owner tested the rebuilt app (black mask on a painted layer,
+  painting white into it) and reported it all works. Claude's own native-input check was
+  stopped because the owner was using the same desktop; Claude did not separately verify mask
+  thumbnail refresh during painting or undo/redo by hand. Codex's screenshots
+  `screenshots/{layer-mask-thumbnails,mask-effect-controls,mask-uv-preview}.jpg` are committed.
+* The 62 tracked screenshots that showed as deleted in the working tree had no recorded reason
+  (only “left unstaged” notes); they were restored from git, not committed as deletions.
+* Disk: E: had 439 MB free; `cargo clean --profile dev` removed `target/debug` (19.1 GiB).
+  `target/release` kept. Code `bd43cd7`.
+
 ## Next steps (in order)
 
 Pending owner cleanup request: remove obsolete build artifacts only when the environment's
 deletion restriction permits it, retaining the verified `target/release/subcraft.exe` above.
 
-The owner's full ordered checklist is in **brush-roadmap.md**. Sessions 54–61 completed the
-owner's explicit UI priority overrides. Resume the original brush phase order:
+The new priority is **layer-system-roadmap.md**:
+1. Persistent separate effect domains + kernel/stage contracts and a lossless schema migration.
+2. Nested mask effect rows, explicit effect selection/Properties and Paint-effect stroke targeting.
+3. Neighborhood/dirty-halo evaluator, local adjustments then blur/sharpen/etc. CPU goldens;
+   render-owned GPU parity and end-to-end 4K profiling.
+4. Compare Mask and anchor stage outputs/references with order/cycle/missing-reference checks.
+5. Full-resolution isolated 2D/3D masks, mip-aware previews and remaining native/platform checks.
+
+Then resume **brush-roadmap.md** (the earlier ordered brush phases are retained below):
 1. **Finish Phase 1**: camera/per-stamp source accumulation with batch-equivalence tests, normal
    frame reorientation, async starter-pack brush destinations, remaining native checks and full
    4K frame profiling on a complex model. Static channel images are complete (session 53).

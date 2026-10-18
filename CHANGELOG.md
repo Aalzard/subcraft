@@ -3,6 +3,17 @@
 What changed in SubCraft, newest first. Download the latest build from the
 [Releases page](https://github.com/Aalzard/subcraft/releases/latest).
 
+## Unreleased
+
+### New
+- Layer rows show real thumbnails of each layer's content (for the channel picked above the
+  Layers list) and, beside it, its mask. Click the content or the mask thumbnail to choose what
+  you edit and paint; the selected one has an orange outline.
+- Mask Properties: enable/disable, invert (as an editable effect, nothing is lost), copy/paste
+  a mask between layers, remove, a grayscale UV preview, and the mask's effects with move,
+  duplicate, blend and opacity controls. Shift+click a mask thumbnail to disable it, Alt+click
+  to preview it. Adding a white or black mask selects it right away.
+
 ## 0.1.6
 
 ### Fixed

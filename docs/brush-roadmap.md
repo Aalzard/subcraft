@@ -2,7 +2,8 @@
 
 Owner's ordered roadmap, tracked from 2026-10-17. `[x]` complete, `[~]` partial (remaining work
 stated), `[ ]` not started. The owner's UI refinement requests (sessions 54–61) are complete.
-Resume Phase 1 before the remaining Phase 2 work. Existing features are extended,
+The owner's newer layer/mask/effect foundation request takes priority; follow
+**layer-system-roadmap.md** first, then resume brush Phase 1 before the remaining Phase 2 work. Existing features are extended,
 not replaced. See progress.md for exact test and real-app verification evidence.
 
 Build housekeeping (session 62): latest tested binary consolidated into

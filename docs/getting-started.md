@@ -109,6 +109,44 @@ set the painting tool's material; fill-layer material controls live in Propertie
 
 ![Selecting a fill reveals that layer's Properties](screenshots/inspector-fill-selected.jpg)
 
+### Layer content and mask thumbnails
+
+Layer rows now show a square **content thumbnail** in place of the generic material icon.
+It previews the channel chosen above Layers (Base Color, Roughness, Normal, etc.) in UV space,
+before that layer's own mask, opacity or visibility. Empty paint content shows a checkerboard.
+A layer with a mask has a second, grayscale square beside it. The orange outline identifies
+the selected square; thumbnails update after painting, material changes and procedural edits.
+
+Click the content square to edit the layer's material/painting tool. Click the mask square
+to open its **Mask Properties** and make the brush paint its grayscale base instead of the
+material. **Paint value** controls white/reveal versus black/hide. Other brush controls stay
+in the top toolbar. This works for paint layers, fill layers and folders.
+
+Right-click a layer row → **Add mask → White mask / Black mask**. White starts fully visible;
+black starts hidden. The new mask is selected automatically. Right-click the mask thumbnail
+for Preview, Enable/Disable, Invert, Copy, Paste and Remove; the Mask Properties panel also
+has these actions. **Shift+click** a mask thumbnail toggles its effect on the layer; a diagonal
+mark shows when it is disabled. The thumbnail continues to show the authored mask.
+
+**Alt+click** its thumbnail, or press **Preview**, to open a grayscale UV preview. Thumbnails
+use reduced 64px previews and this window uses 256px; very fine texture marks may disappear
+at these preview sizes. The model/export retain full-resolution data. Full-resolution isolated
+2D/3D mask display is still planned.
+
+**Invert** adds an editable inversion effect; it does not destroy original painting or
+generators. **Copy/Paste** copies the whole mask/effect setup inside the current project
+session, resamples painted data to the target texture-set resolution and gives effects fresh
+IDs. Copy is not an undo step; Paste, Invert, Disable and Remove are undoable. The clipboard
+does not cross project sessions. Cross-resolution paste uses the existing image resampler
+and can take longer on large painted masks.
+
+Mask Properties lists the existing effects with move up/down, Duplicate, visibility, Remove,
+blend and opacity controls. Fill supports a uniform value or procedural pattern and projection;
+Generators expose their type/threshold/softness/breakup and direction; Levels has input/output
+ranges and gamma. Effects evaluate from bottom to top. Dedicated effect rows beneath layers,
+independent content-effect stacks, general filters and anchor references are the next stages;
+see **layer-system-roadmap.md** for the full status.
+
 Click the **grid icon** beside the material/view controls to show or hide the subtle 3D floor
 and direction guides. **Right-click** that icon for axis settings: **X is red**, **Y is green
 and points up**, **Z is blue**. Y starts hidden. These display preferences are saved between runs.
