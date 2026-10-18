@@ -36,7 +36,7 @@ audit and official Adobe workflow references: ADR-0016. Completion below is upda
 - [~] Disable, rename (Properties), duplicate, delete, per-channel blend/opacity done; drag
   reorder of effect rows not yet (context-menu Move up/down instead).
 - [x] Effect-specific Properties for content and mask effects, independent of the layer material.
-- [ ] Realtime evaluated thumbnails and model updates, including undo/redo and session changes.
+- [~] Layer/mask thumbnails and model update live; per-effect thumbnails remain to be added.
 - [ ] Assess whether a separate effect editor window improves the existing dock workflow.
 
 ## 4. Filter evaluator and operations
@@ -54,8 +54,8 @@ audit and official Adobe workflow references: ADR-0016. Completion below is upda
 
 - [x] Existing independent material channels; fill textures/procedurals, UV/planar/triplanar,
   tiling and projection parameters. Existing reusable Smart Materials and Smart Masks.
-- [~] Masks combine base painting and existing fill/generator/levels/image/invert effects;
-  paint-effect targeting and general filters remain.
+- [~] Masks combine base painting and existing paint/fill/generator/levels/image/invert effects;
+  general neighborhood filters remain.
 - [ ] Compare Mask with current content/mask/lower-stack/constant inputs and tolerance controls.
 - [ ] Anchor stage outputs, reference picker/dependents, cycle/order validation and copy remapping.
 - [ ] Smart asset compatibility for new stacks, filters and references.
@@ -66,7 +66,12 @@ audit and official Adobe workflow references: ADR-0016. Completion below is upda
   legacy migration fixtures. Full workspace tests and Clippy before each commit.
 - [ ] Native screenshots and explicit hand-verification limits for each visible slice.
 - [ ] Long 4K paint → effects → composite → thumbnails → GPU frame profiling on complex models.
+- [x] Desktop background compositing: exact convergence, latest edit wins, synchronous export,
+  sparse GPU uploads and native 4K demo generator/pattern-scale profiling (ADR-0018). Complex
+  production-model stroke profiling remains the separate gate above.
 - [ ] Getting-started instructions, ADR decisions and a short handoff after each session.
 
-Next complete slices: finish section 1; introduce persistent effect-domain/evaluation contracts;
-then nested mask effect selection and Paint targeting, before adding neighborhood filters.
+Next complete slices: neighborhood/stage contracts for filters and folder content effects;
+then local adjustments and blur/sharpen with CPU goldens and GPU parity. Finish per-effect
+thumbnails, drag reorder and native save/reopen checks alongside these slices. Compare Mask
+and anchors follow the stage graph. General filters are not part of the 0.1.7 release.

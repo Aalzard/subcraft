@@ -1,0 +1,33 @@
+   Compiling subcraft-core v0.1.7 (E:\Applications\ArtCraft\SubCraft\crates\core)
+   Compiling subcraft-image v0.1.7 (E:\Applications\ArtCraft\SubCraft\crates\image)
+   Compiling subcraft-mesh v0.1.7 (E:\Applications\ArtCraft\SubCraft\crates\mesh)
+   Compiling subcraft-doc v0.1.7 (E:\Applications\ArtCraft\SubCraft\crates\doc)
+   Compiling subcraft-bake v0.1.7 (E:\Applications\ArtCraft\SubCraft\crates\bake)
+   Compiling subcraft-materials v0.1.7 (E:\Applications\ArtCraft\SubCraft\crates\materials)
+   Compiling subcraft-export v0.1.7 (E:\Applications\ArtCraft\SubCraft\crates\export)
+   Compiling subcraft-project v0.1.7 (E:\Applications\ArtCraft\SubCraft\crates\project)
+   Compiling subcraft-compositor v0.1.7 (E:\Applications\ArtCraft\SubCraft\crates\compositor)
+   Compiling subcraft-assets v0.1.7 (E:\Applications\ArtCraft\SubCraft\crates\assets)
+   Compiling subcraft-paint v0.1.7 (E:\Applications\ArtCraft\SubCraft\crates\paint)
+   Compiling subcraft-app v0.1.7 (E:\Applications\ArtCraft\SubCraft\crates\app)
+    Finished `release` profile [optimized + debuginfo] target(s) in 14.51s
+warning: the following packages contain code that will be rejected by a future version of Rust: nalgebra v0.26.2
+note: to see what the problems were, use the option `--future-incompat-report`, or run `cargo report future-incompatibilities --id 1`
+     Running `target\release\examples\perf_slider.exe 4096`
+tiles 4096, empty 496, covered texels 81.2%
+4096²: first full composite 1475.6 ms, field cache 201 MB
+  step 0: 369.8 ms, field cache 248 MB
+  step 1: 167.8 ms, field cache 248 MB
+  step 2: 172.9 ms, field cache 248 MB
+generator level step: p50 157.2 ms (command 0.01 ms, 4096 tiles), p95 180.6 ms
+  all layers: 160.9 ms
+  only Fill 2 (Fill, mask false): 122.5 ms
+  only Layer 1 (Paint, mask false): 51.2 ms
+  only Fill 3 (Fill, mask true): 88.8 ms
+  no layers: 46.9 ms
+  empty: eval 126.3 ms, serial write 205.4 ms
+  all: eval 146.6 ms, serial write 192.7 ms
+wood pattern balance step (cold field): p50 422.2 ms
+interactive generator drag: 51 frames, converged after 915 ms, UI thread per frame p50 0.3 ms, p95 0.6 ms, max 4.6 ms
+4096²: interactive warm-up: 106 frames, converged after 2026 ms, UI thread per frame p50 0.1 ms, p95 0.2 ms, max 1.3 ms
+  pattern scale drag: 67 frames, converged after 1212 ms, UI thread per frame p50 0.2 ms, p95 0.3 ms, max 0.8 ms

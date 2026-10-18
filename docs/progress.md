@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-10-18 (sessions 64–69: layer/mask foundation, effect stacks, interactive performance)
+Last updated: 2026-10-18 (sessions 70–71: background compositing, sparse GPU uploads, 0.1.7)
 
 ## Decisions
 
@@ -1574,15 +1574,78 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   after opening/creating a 4K stack); pattern/projection drags at 4K (each step recomputes one
   field: ~25 ms of work at 1024²).
 
+### Session 70 — Codex: finish Claude's background compositor and sparse 4K uploads (2026-10-18)
+
+* Continued the owner's uncommitted optimization on `feature/brush-roadmap`; kept the existing
+  layer/mask/effect architecture and protected texture ZIPs/output/cache files. Code commits:
+  `8a6174c` (worker), `c584981` (GPU initialization).
+* `compositor::worker::CompositeWorker`: immutable COW TextureSet/resource/geometry/map
+  snapshots, one latest-wins pending slot, private Rayon pool, progressive changed-tile
+  publication, preserved invalidations, and exact synchronous completion. `Session` starts
+  it only for interactive desktop updates; threadless builds retain inline budgeting.
+  `Composite::evaluate_tiles` distributes the actual requested batch across threads.
+* Inspection found and fixed two transitions: adopting an already-computed synchronous cache
+  must preserve its displayed composite, and export/sampling can consume upload notifications.
+  `Session::composite_generation` / `UiState::sync_gpu` now detect those external publications.
+* `render::ChannelTexture::upload_all` clears a new/full GPU image to its f16 fill, then uploads
+  allocated tiles only, avoiding full empty 4K channel transfers. Incremental uploads stay
+  per-channel/per-tile. Existing GPU visibility tests now drain through real asynchronous
+  frame syncs before their exact pixel comparisons.
+* Added **10 tests**: five worker convergence/scheduling/invalidation/adoption/layout cases,
+  three Session sync/save/export cases, stale-viewport-after-export GPU regression, and sparse
+  versus dense GPU pixel equality. **414 workspace tests passed, 0 failed/ignored** using
+  `CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=line-tables-only`, serial build jobs; Clippy
+  workspace/all targets exits 0, existing warnings. An initial run exposed the two old GPU
+  tests' synchronous assumption; final tests pass through normal frame updates. A temporary
+  Claude-only `worker_probe` example was removed. `perf_slider`'s Windows-only benchmark
+  throttle now has a non-Windows no-op so Linux test builds remain portable.
+* Real native app, final 0.1.7 binary, command-driven 4096² demo: cold warm-up p50/p95
+  **14.1/27.5 ms**, max **440.7 ms at interval 2**; generator edits **14.6/33.9 ms**, max
+  **94.6 ms**, full refresh **315 ms** after the last edit; scale edits **15.1/28.6 ms**,
+  max **29.2 ms**, refresh **576 ms**. First-use graphics/upload work remains expensive in
+  the first two intervals. This is not a zero-frame-drop claim.
+* `cargo run --release -p subcraft-app --example perf_slider -- 4096` passed: synchronous
+  generator p50/p95 **157.2/180.6 ms**; UI polling p95 warm-up **0.2 ms**, generator
+  **0.6 ms**, scale **0.3 ms** (CPU only, excludes rendering/upload). Raw reports:
+  `performance/2026-10-18-{native-4k,perf-slider-4k}.txt`. ADR-0018 records measurement limits
+  and Claude's discarded cold-field splitting experiment; that experiment was not repeated.
+* Rebuilt `target/release/subcraft.exe` with `windows-gui`; SHA256
+  `ED34D3442846C3A1ACEA59A19E23C9878B0A790923C15FC5A3368AE9BF6C3F9C`.
+  Native CLI screenshot inspected: `screenshots/release-017-layers.png` shows evaluated square
+  layer/mask thumbnails, the painted demo, compact toolbar and grid. Existing hand evidence
+  for effect controls remains `screenshots/{content-paint-effect,content-levels-effect,
+  mask-paint-effect}.jpg` (session 68).
+* **No mouse control used. Not verified by hand:** pointer drags, tablet input, save/reopen
+  gestures (numeric round trips tested), effect row menus, complex production-model strokes,
+  browser/Linux runtime or installed-app update/restart. Owner separately reported the app
+  was already working well. General filters, Compare Mask and anchors are still absent.
+
+### Session 71 — Codex: prepare the 0.1.7 release (2026-10-18)
+
+* Version/lockfile and accurate release notes committed as `45c5bfa`. Includes the existing
+  texture/normal brush projection, compact UI/grid/symmetry/scale work, evaluated content/mask
+  thumbnails, mask actions, separate content/mask Paint/Fill/Levels stacks and mask generators.
+  Project schema remains **5** (v1–4 migrations retained); no new document fields in this
+  performance work. General Blur/Sharpen/Bevel filters, Compare Mask and anchors are explicitly
+  excluded from 0.1.7's claims.
+* `cargo test --workspace -j 1`: **414 passed, 0 failed/ignored** after the version bump;
+  Clippy workspace/all targets exits 0 with existing warnings. Windows packaging path tests
+  pass for default/relative/absolute/missing targets and package contents/licenses.
+* Owner requested a release, authorizing publication. Pushed only the working feature branch
+  and opened **PR #50** (`https://github.com/Aalzard/subcraft/pull/50`) following the repository
+  release guide. Native profiling and screenshot above use the final local 0.1.7 executable.
+  Publication status and artifact checks are recorded by the GitHub release and final handoff.
+
 ## Next steps (in order)
 
 Pending owner cleanup request: remove obsolete build artifacts only when the environment's
 deletion restriction permits it, retaining the verified `target/release/subcraft.exe` above.
 
 The new priority is **layer-system-roadmap.md**:
-0. Performance follow-ups (ADR-0018): composite on a worker thread so cold fields never cost a
-   frame; split cold tiles across threads; GPU field/blend kernels; reduced-resolution preview
-   while dragging pattern/projection values at 4K.
+0. Performance follow-ups (ADR-0018): first-use graphics/upload stalls and occasional later
+   spikes; GPU field/blend kernels, staged accumulation caching and reduced-resolution drag
+   previews. Background desktop compositing and sparse GPU initialization are done. Cold-field
+   splitting showed no measurable gain and was reverted; do not reintroduce it without data.
 1. Hand-check save/reopen with effects and the Fill effect settings; then effect-row drag
    reorder, per-effect thumbnails and smart-material round trip with effects; look at why one
    native slider drag can split into two undo entries.

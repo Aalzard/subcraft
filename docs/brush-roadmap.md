@@ -6,6 +6,10 @@ The owner's newer layer/mask/effect foundation request takes priority; follow
 **layer-system-roadmap.md** first, then resume brush Phase 1 before the remaining Phase 2 work. Existing features are extended,
 not replaced. See progress.md for exact test and real-app verification evidence.
 
+Performance prerequisite (session 70): desktop viewport compositing now runs on immutable
+snapshots in a worker; sparse texture initialization uploads allocated tiles only. This does
+not complete the remaining brush tools, general layer filters or GPU compositor roadmap.
+
 Build housekeeping (session 62): latest tested binary consolidated into
 `target/release/subcraft.exe`. Removing obsolete versions/caches remains blocked by automatic
 approval review; no artifacts were deleted. This does not change feature completion below.

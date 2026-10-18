@@ -231,6 +231,13 @@ restore its tool setup. There are no new keyboard shortcuts in this slice.
 
 ## 5. Save your project
 
+On desktop, procedural layers update in the background. During a large 4K edit, the model may
+briefly show a mixture of old and new tiles while the interface stays available; the latest
+settings win and the full texture catches up after you stop dragging. Export waits for the
+complete result. Saving always stores your latest layer, mask and effect settings, including
+edits whose viewport preview is still catching up. There is no background-compositing toggle
+or new shortcut to learn. The browser retains the existing frame-budgeted compositor.
+
 Use **File → Save** (Ctrl+S) to save a `.subcraft` file containing the model, layers, imported
 images and baked maps. Desktop saves to the chosen location. The browser downloads the project;
 keep that download so you can reopen it next time.

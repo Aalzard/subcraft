@@ -1,0 +1,44 @@
+warm-up (first composite): 82 frames in 2103.6 ms, frame interval p50 14.1 ms, p95 27.5 ms, max 440.7 ms
+frames 120: frame interval p50 14.6 ms, p95 33.9 ms, max 94.6 ms
+whole ui() p50 5.2 ms, p95 30.1 ms, max 84.9 ms
+composite+upload p50 1.9 ms, p95 10.0 ms, max 30.8 ms
+full refresh after the last edit 315.2 ms
+pattern scale drag, 40 frames: frame interval p50 15.1 ms, p95 28.6 ms, max 29.2 ms
+full refresh after the last scale edit 575.7 ms
+    sync: composite: p50 0.15 ms, p95 0.37 ms
+    sync: upload: p50 0.00 ms, p95 7.96 ms
+    tab 2D: p50 0.35 ms, p95 8.21 ms
+    tab 3D: p50 1.58 ms, p95 11.92 ms
+    tab History: p50 0.10 ms, p95 0.17 ms
+    tab Layers: p50 0.14 ms, p95 0.39 ms
+    tab Properties: p50 0.04 ms, p95 0.06 ms
+    tab Shelf: p50 0.04 ms, p95 0.07 ms
+    tab Texture sets: p50 0.05 ms, p95 0.11 ms
+  bars: p50 0.17 ms, p95 0.29 ms
+  dialogs+welcome: p50 0.11 ms, p95 0.29 ms
+  input+shortcuts: p50 0.00 ms, p95 0.00 ms
+  recovery tick: p50 0.00 ms, p95 0.00 ms
+  rest (title, close): p50 0.00 ms, p95 0.01 ms
+  sync+polls: p50 2.00 ms, p95 10.09 ms
+  windows+pen: p50 0.01 ms, p95 0.01 ms
+  workspace (docked panels): p50 3.00 ms, p95 20.20 ms
+warm-up first 12 intervals (ms): 351.9, 440.7, 22.5, 14.1, 10.7, 9.7, 13.1, 13.3, 13.5, 26.8, 16.1, 15.0
+warm-up longest interval number: Some(2)
+warm-up, longest per section:
+    sync: composite: 5.4 ms
+    sync: upload: 183.7 ms
+    tab 2D: 126.2 ms
+    tab 3D: 121.9 ms
+    tab History: 1.4 ms
+    tab Layers: 8.9 ms
+    tab Properties: 3.7 ms
+    tab Shelf: 75.7 ms
+    tab Texture sets: 3.4 ms
+  bars: 9.3 ms
+  dialogs+welcome: 2.7 ms
+  input+shortcuts: 0.0 ms
+  recovery tick: 0.0 ms
+  rest (title, close): 0.0 ms
+  sync+polls: 183.9 ms
+  windows+pen: 0.1 ms
+  workspace (docked panels): 338.6 ms
