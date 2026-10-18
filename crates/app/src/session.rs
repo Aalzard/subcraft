@@ -81,7 +81,10 @@ pub struct Pick {
 pub struct CompositeUpdate {
     pub texture_set: TextureSetId,
     pub material_slot: u32,
+    /// Re-evaluated tiles.
     pub tiles: Vec<usize>,
+    /// Per channel, the re-evaluated tiles whose texels actually changed (what to upload).
+    pub changed: subcraft_compositor::ChangedTiles,
 }
 
 struct ActiveStroke {
@@ -1036,17 +1039,30 @@ impl Session {
 
     /// Bring every texture set's composite up to date; returns the re-evaluated tiles.
     pub fn update_composites(&mut self) -> Vec<CompositeUpdate> {
+        self.update_composites_within(None)
+    }
+
+    /// Budgeted [`Session::update_composites`] for interactive frames: evaluates at most about
+    /// `budget` worth of dirty tiles and leaves the rest for later calls
+    /// ([`Session::composites_pending`]). Export, bake and saving use the complete update.
+    pub fn update_composites_within(&mut self, budget: Option<std::time::Duration>) -> Vec<CompositeUpdate> {
         let mut out = Vec::new();
         for ts in &self.doc.texture_sets {
             let geo = self.scene.geometry.get(ts.material_slot, ts.resolution);
             let maps = self.mesh_maps.get(&ts.id).unwrap_or(&self.no_maps);
             let ctx = EvalContext { geometry: &geo, resources: &self.resources, mesh_maps: maps };
-            let tiles = self.composites.entry(ts.id).or_default().update(ts, &ctx);
+            let cache = self.composites.entry(ts.id).or_default();
+            let tiles = cache.update_within(ts, &ctx, budget);
             if !tiles.is_empty() {
-                out.push(CompositeUpdate { texture_set: ts.id, material_slot: ts.material_slot, tiles });
+                out.push(CompositeUpdate { texture_set: ts.id, material_slot: ts.material_slot, tiles, changed: cache.last_changed().clone() });
             }
         }
         out
+    }
+
+    /// Whether a budgeted update left composite tiles to evaluate.
+    pub fn composites_pending(&self) -> bool {
+        self.doc.texture_sets.iter().any(|ts| self.composites.get(&ts.id).is_some_and(|c| c.has_pending()))
     }
 
     /// Base name for exported files: the project file name, else the mesh name.

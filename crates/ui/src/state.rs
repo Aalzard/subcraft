@@ -27,7 +27,12 @@ pub struct UvView {
     pub texture: Option<egui::TextureId>,
 }
 
+/// Compositing time spent per frame before the remaining dirty tiles wait for the next frame.
+pub const COMPOSITE_FRAME_BUDGET: std::time::Duration = std::time::Duration::from_millis(10);
+
 pub struct UiState {
+    /// End of this frame's compositing time (shared by every `sync_gpu` call in the frame).
+    pub composite_deadline: Option<web_time::Instant>,
     pub layer_previews: crate::layer_previews::PreviewUi,
     pub graphics: crate::graphics::GraphicsUi,
     pub asset_preview: crate::asset_preview::AssetPreviewUi,
@@ -113,6 +118,7 @@ impl UiState {
         let mut graphics = crate::graphics::GraphicsUi::default();
         if let Some(rs) = &render_state { graphics.record_active(rs.adapter.get_info().backend); }
         Self {
+            composite_deadline: None,
             layer_previews: Default::default(),
             graphics,
             asset_preview: Default::default(),
@@ -275,7 +281,12 @@ impl UiState {
         }
     }
 
-    /// Re-evaluate composites and upload changed tiles to the GPU.
+    /// Start a frame: the compositing budget for this frame's `sync_gpu` calls.
+    pub fn begin_frame(&mut self) {
+        self.composite_deadline = Some(web_time::Instant::now() + COMPOSITE_FRAME_BUDGET);
+    }
+
+    /// Re-evaluate composites (within the frame budget) and upload changed tiles to the GPU.
     pub fn sync_gpu(&mut self) {
         let (Some(rs), Some(renderer)) = (&self.render_state, &mut self.renderer) else {
             self.session.update_composites();
@@ -291,13 +302,20 @@ impl UiState {
             self.uploaded_channels = channels;
             self.gpu_dirty = false;
         }
-        let updates = self.session.update_composites();
+        // Bounded per frame so editing never stalls the UI; the rest follows on the next frames.
+        // Several panels sync in one frame: they share one budget (see `begin_frame`).
+        let budget = self.composite_deadline.map_or(COMPOSITE_FRAME_BUDGET, |d| d.saturating_duration_since(web_time::Instant::now()));
+        let updates = crate::edit_profile::time_tab("  sync: composite", || self.session.update_composites_within(Some(budget)));
+        let upload_start = web_time::Instant::now();
         let session = &self.session;
-        let upload = |renderer: &mut ViewportRenderer, ts: subcraft_core::TextureSetId, slot: u32, tiles: Option<&[usize]>| {
+        let upload = |renderer: &mut ViewportRenderer, ts: subcraft_core::TextureSetId, slot: u32, changed: Option<&subcraft_app::ChangedTiles>| {
             let Some(c) = session.composite(ts) else { return };
             for k in SHADED_CHANNELS {
-                if let Some(img) = c.channel(k) {
-                    renderer.upload_channel(&rs.device, &rs.queue, slot, k, img, tiles);
+                let Some(img) = c.channel(k) else { continue };
+                match changed {
+                    None => renderer.upload_channel(&rs.device, &rs.queue, slot, k, img, None),
+                    // Only tiles whose texels changed; unchanged channels upload nothing.
+                    Some(changed) => renderer.upload_channel(&rs.device, &rs.queue, slot, k, img, Some(changed.get(&k).map_or(&[], Vec::as_slice))),
                 }
             }
         };
@@ -307,9 +325,10 @@ impl UiState {
             }
         } else {
             for u in &updates {
-                upload(renderer, u.texture_set, u.material_slot, Some(&u.tiles));
+                upload(renderer, u.texture_set, u.material_slot, Some(&u.changed));
             }
         }
+        crate::edit_profile::record("  sync: upload", upload_start.elapsed());
         // Baked maps: re-upload when a bake replaced them. Baked AO also shades the viewport
         // when the texture set has no Ambient Occlusion channel of its own.
         for ts in &session.document().texture_sets {

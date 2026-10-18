@@ -40,6 +40,9 @@ anyhow = "1"
 log = "0.4"
 rayon = "1"
 parking_lot = "0.12"
+# Desktop global allocator: the Windows system heap serializes the compositor's parallel
+# per-tile buffers (7x slower slider edits measured, session 69).
+mimalloc = { version = "0.1", default-features = false }
 
 # geometry / formats
 gltf = { version = "1.4", default-features = false, features = ["import", "utils", "names", "KHR_materials_pbrSpecularGlossiness"] }

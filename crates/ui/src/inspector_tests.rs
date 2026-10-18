@@ -46,6 +46,7 @@ fn setup() -> (SubcraftApp, egui::Context, [LayerId; 3]) {
         pending_now: None,
         active_tabs: HashSet::new(),
         test_crash: false,
+        profile: None,
     };
     let ctx = egui::Context::default();
     theme::apply(&ctx);

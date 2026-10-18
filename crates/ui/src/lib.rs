@@ -16,6 +16,7 @@ pub mod panels;
 pub mod recovery;
 pub mod state;
 pub mod layer_previews;
+pub mod edit_profile;
 pub mod theme;
 pub mod viewport;
 pub mod viewport_bar;

@@ -93,6 +93,8 @@ pub struct LaunchOptions {
     pub autosave_interval: Option<std::time::Duration>,
     /// Panic a moment after start (tests the crash report).
     pub test_crash: bool,
+    /// Measure frames while a generator value changes every frame, write stats, quit.
+    pub profile_edits: Option<(PathBuf, Option<u32>)>,
 }
 
 impl LaunchOptions {
@@ -151,7 +153,7 @@ mod launch_tests {
         let mut app = SubcraftApp {
             state: UiState::new(Session::new(subcraft_mesh::primitives::cube(2.0), 128), None),
             dock: default_layout(), frames: 0, screenshot: None, screenshot_requested: false,
-            pending_now: None, active_tabs: HashSet::new(), inspector_selection: None, test_crash: false,
+            pending_now: None, active_tabs: HashSet::new(), inspector_selection: None, test_crash: false, profile: None,
         };
         app.request(Pending::OpenRecent, 0.0);
         assert_eq!(app.pending_now.take(), Some(Pending::OpenRecent));
@@ -169,7 +171,7 @@ mod launch_tests {
         let mut app = SubcraftApp {
             state: UiState::new(Session::new(subcraft_mesh::primitives::cube(2.0), 64), None),
             dock: default_layout(), frames: 0, screenshot: None, screenshot_requested: false,
-            pending_now: None, active_tabs: HashSet::new(), inspector_selection: None, test_crash: false,
+            pending_now: None, active_tabs: HashSet::new(), inspector_selection: None, test_crash: false, profile: None,
         };
         let doc = app.state.session.document().clone();
         let ctx = egui::Context::default(); theme::apply(&ctx);
@@ -200,7 +202,7 @@ mod launch_tests {
         let mut app = SubcraftApp {
             state: UiState::new(Session::new(mesh, 128), None),
             dock: default_layout(), frames: 0, screenshot: None, screenshot_requested: false,
-            pending_now: None, active_tabs: HashSet::new(), inspector_selection: None, test_crash: false,
+            pending_now: None, active_tabs: HashSet::new(), inspector_selection: None, test_crash: false, profile: None,
         };
         let title = dialogs::title(&app.state).trim_start_matches("SubCraft — ").to_string();
         for width in [460.0, 1200.0] {
@@ -231,7 +233,7 @@ mod launch_tests {
         let mut app = SubcraftApp {
             state: UiState::new(session, None), dock: default_layout(), frames: 0,
             screenshot: None, screenshot_requested: false, pending_now: None,
-            active_tabs: HashSet::new(), inspector_selection: None, test_crash: false,
+            active_tabs: HashSet::new(), inspector_selection: None, test_crash: false, profile: None,
         };
         app.state.pen.begin(&app.state.session, glam::Vec2::splat(0.4), None).unwrap();
         app.perform(Action::Save, 0.0); assert!(app.state.pen_after.is_some());
@@ -261,6 +263,7 @@ pub struct SubcraftApp {
     /// Follow selection changes once, leaving explicit tab choices alone between selections.
     inspector_selection: Option<InspectorSelection>,
     test_crash: bool,
+    profile: Option<crate::edit_profile::EditProfile>,
 }
 
 impl SubcraftApp {
@@ -345,8 +348,11 @@ impl SubcraftApp {
             let c = state.recovery.crashed.remove(0);
             crate::recovery::recover(&mut state, c, 0.0);
         }
-        if options.demo {
+        if options.demo || options.profile_edits.is_some() {
             build_demo(&mut state);
+        }
+        if let Some(resolution) = options.profile_edits.as_ref().and_then(|p| p.1) {
+            let _ = state.session.execute(Command::SetResolution { texture_set: None, resolution });
         }
         state.welcome.open = options.shows_welcome(state.recovery.prefs.show_welcome, state.session.is_recovered());
         state.welcome.guide = options.guide_step.map(|s| s.min(subcraft_app::launch::QUICK_START.len() - 1));
@@ -383,6 +389,7 @@ impl SubcraftApp {
             pending_now: None,
             active_tabs: HashSet::new(),
             test_crash: options.test_crash,
+            profile: options.profile_edits.map(|(out, res)| crate::edit_profile::EditProfile::new(out, res)),
         }
     }
 
@@ -865,15 +872,15 @@ impl egui_dock::TabViewer for Viewer<'_> {
     fn ui(&mut self, ui: &mut Ui, tab: &mut Tab) {
         self.active.insert(*tab);
         match tab {
-            Tab::Viewport => crate::viewport::show(self.state, ui),
-            Tab::UvView => panels::uv_view::show(self.state, ui),
-            Tab::Layers => panels::layers::show(self.state, ui),
-            Tab::Properties => panels::properties::show(self.state, ui),
-            Tab::Brush => panels::brush::show(self.state, ui),
-            Tab::TextureSets => panels::texture_sets::show(self.state, ui),
-            Tab::Parts => panels::parts::show(self.state, ui),
-            Tab::History => panels::history::show(self.state, ui),
-            Tab::Shelf => panels::shelf::show(self.state, ui),
+            Tab::Viewport => crate::edit_profile::time_tab("  tab 3D", || crate::viewport::show(self.state, ui)),
+            Tab::UvView => crate::edit_profile::time_tab("  tab 2D", || panels::uv_view::show(self.state, ui)),
+            Tab::Layers => crate::edit_profile::time_tab("  tab Layers", || panels::layers::show(self.state, ui)),
+            Tab::Properties => crate::edit_profile::time_tab("  tab Properties", || panels::properties::show(self.state, ui)),
+            Tab::Brush => crate::edit_profile::time_tab("  tab Brush", || panels::brush::show(self.state, ui)),
+            Tab::TextureSets => crate::edit_profile::time_tab("  tab Texture sets", || panels::texture_sets::show(self.state, ui)),
+            Tab::Parts => crate::edit_profile::time_tab("  tab Parts", || panels::parts::show(self.state, ui)),
+            Tab::History => crate::edit_profile::time_tab("  tab History", || panels::history::show(self.state, ui)),
+            Tab::Shelf => crate::edit_profile::time_tab("  tab Shelf", || panels::shelf::show(self.state, ui)),
         }
     }
 
@@ -889,6 +896,9 @@ impl egui_dock::TabViewer for Viewer<'_> {
 impl eframe::App for SubcraftApp {
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        if let Some(p) = &mut self.profile {
+            p.ui_begin();
+        }
         self.state.recovery.prefs.apply_ui_size(&ctx);
         self.frames += 1;
         crate::pen::keyboard(&mut self.state, &ctx, ctx.input(|i| i.time));
@@ -896,10 +906,25 @@ impl eframe::App for SubcraftApp {
         if ctx.input(|i| i.pointer.any_released()) {
             let _ = self.state.session.execute(Command::Seal);
         }
+        if let Some(p) = &mut self.profile { p.mark("input+shortcuts"); }
+        if let Some(p) = &mut self.profile {
+            p.before_sync(&mut self.state);
+            ctx.request_repaint();
+        }
+        self.state.begin_frame();
         self.state.sync_gpu();
+        if self.state.session.composites_pending() {
+            ctx.request_repaint();
+        }
+        if self.profile.as_mut().is_some_and(|p| p.after_sync(&self.state)) {
+            self.profile = None;
+            self.state.allow_close = true;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
         self.state.poll_library();
         self.state.layer_previews.poll(&ctx);
         self.state.textures.poll(&ctx);
+        if let Some(p) = &mut self.profile { p.mark("sync+polls"); }
         if self.state.env_loader.is_some() {
             ctx.request_repaint_after(std::time::Duration::from_millis(200));
         }
@@ -913,7 +938,9 @@ impl eframe::App for SubcraftApp {
             .show_separator_line(false)
             .frame(egui::Frame::new().fill(theme::BG_2).inner_margin(egui::Margin::symmetric(4, 0)))
             .show(ui, |ui| self.tool_rail(ui));
+        if let Some(p) = &mut self.profile { p.mark("bars"); }
         self.workspace(ui);
+        if let Some(p) = &mut self.profile { p.mark("workspace (docked panels)"); }
         if let Some(layer) = ctx.data_mut(|data| data.remove_temp::<subcraft_core::LayerId>(egui::Id::new("inspect_mask"))) {
             self.state.layer_previews.inspect = Some(layer);
         }
@@ -923,7 +950,9 @@ impl eframe::App for SubcraftApp {
         crate::asset_preview::show(&mut self.state,&ctx);
         crate::pen::finish_frame(&mut self.state, &ctx, now);
         self.flush_pen_after(now);
+        if let Some(p) = &mut self.profile { p.mark("windows+pen"); }
         crate::recovery::tick(&mut self.state, &ctx, now);
+        if let Some(p) = &mut self.profile { p.mark("recovery tick"); }
         crate::recovery::preferences_window(&mut self.state, &ctx);
         crate::recovery::backup_reminder(&mut self.state, &ctx, now);
         crate::recovery::prompt(&mut self.state, &ctx, now);
@@ -951,6 +980,7 @@ impl eframe::App for SubcraftApp {
         }
 
         crate::updates::tick(&mut self.state, &ctx);
+        if let Some(p) = &mut self.profile { p.mark("dialogs+welcome"); }
         if self.test_crash && self.frames > 30 {
             panic!("test crash requested with --test-crash");
         }
@@ -979,6 +1009,10 @@ impl eframe::App for SubcraftApp {
             self.state.last_title = title;
         }
         self.handle_screenshot(&ctx);
+        if let Some(p) = &mut self.profile {
+            p.mark("rest (title, close)");
+            p.ui_end();
+        }
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
@@ -1082,7 +1116,7 @@ fn build_demo(state: &mut UiState) {
     fn save_waits_for_pending_shelf_image_and_embeds_the_result() {
         let file=std::env::temp_dir().join(format!("subcraft-image-save-{}.subcraft",subcraft_core::ObjectId::new()));
         let mut session=Session::new(subcraft_mesh::primitives::cube(2.0),128);session.save(Some(&file)).unwrap();
-        let mut app=SubcraftApp {state:UiState::new(session,None),dock:default_layout(),frames:0,screenshot:None,screenshot_requested:false,pending_now:None,active_tabs:HashSet::new(),inspector_selection:None,test_crash:false};
+        let mut app=SubcraftApp {state:UiState::new(session,None),dock:default_layout(),frames:0,screenshot:None,screenshot_requested:false,pending_now:None,active_tabs:HashSet::new(),inspector_selection:None,test_crash:false,profile:None};
         app.state.asset_preview.queue(&app.state.session,0,None);app.perform(Action::Save,0.0);assert!(app.state.pen_after.is_some());
         let ctx=egui::Context::default();
         for _ in 0..2000 {
