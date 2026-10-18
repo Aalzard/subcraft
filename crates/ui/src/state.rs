@@ -48,6 +48,7 @@ pub struct UiState {
     pub parts_kind: subcraft_core::PartKind,
     pub context_part: Option<subcraft_app::SurfaceTarget>,
     pub uploaded_view_revision: u64,
+    uploaded_composite_generation: u64,
     pub session: Session,
     pub camera: OrbitCamera,
     pub render_state: Option<egui_wgpu::RenderState>,
@@ -131,6 +132,7 @@ impl UiState {
             parts_kind: subcraft_core::PartKind::Connected,
             context_part: None,
             uploaded_view_revision: u64::MAX,
+            uploaded_composite_generation: 0,
             camera: OrbitCamera::framing(&session.scene().mesh.bounds),
             session,
             render_state,
@@ -295,7 +297,10 @@ impl UiState {
         let view_changed = self.uploaded_view_revision != self.session.view_revision();
         let channels: Vec<_> = self.session.document().texture_sets.iter().map(|ts| (ts.id, ts.channel_kinds().collect())).collect();
         let channels_changed = self.uploaded_channels != channels;
-        let full = self.gpu_dirty || view_changed || channels_changed;
+        // Export/sampling may synchronously install the final composite and consume its tile
+        // notifications between frames. Refresh it instead of leaving a partial GPU result.
+        let external_composite = self.uploaded_composite_generation != self.session.composite_generation();
+        let full = self.gpu_dirty || view_changed || channels_changed || external_composite;
         if full {
             renderer.set_mesh(&rs.device, &self.session.viewport_scene().mesh);
             self.uploaded_view_revision = self.session.view_revision();
@@ -329,6 +334,7 @@ impl UiState {
             }
         }
         crate::edit_profile::record("  sync: upload", upload_start.elapsed());
+        self.uploaded_composite_generation = session.composite_generation();
         // Baked maps: re-upload when a bake replaced them. Baked AO also shades the viewport
         // when the texture set has no Ambient Occlusion channel of its own.
         for ts in &session.document().texture_sets {

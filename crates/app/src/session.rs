@@ -1,12 +1,12 @@
 //! The editing session: scene (mesh + acceleration structures), document + history, selection,
 //! brush state, the active stroke and the composite caches.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use glam::{Vec2, Vec3};
-use subcraft_compositor::{Composite, CompositeCache, EvalContext};
+use subcraft_compositor::{Composite, CompositeCache, CompositeWorker, EvalContext, SetSnapshot, Snapshot};
 use subcraft_core::{ChannelKind, EffectId, LayerId, TextureSetId};
 use subcraft_doc::{ChannelDef, ContentEffect, ContentEffectKind, Document, History, Layer, LayerContent, LayerLocation, Mask, MaskEffect, ResourceStore, TextureSet};
 use subcraft_materials::{GeometryCache, MeshMaps};
@@ -108,7 +108,21 @@ pub struct Session {
     effect: Option<EffectId>,
     pub brush: BrushState,
     stroke: Option<ActiveStroke>,
+    /// Composite caches while compositing runs on the calling thread (until the first
+    /// interactive update starts the worker, and always on the web).
     composites: HashMap<TextureSetId, CompositeCache>,
+    /// Background compositing (desktop, from the first interactive update on): owns the caches.
+    worker: Option<CompositeWorker>,
+    /// No worker thread can run here: composite on the calling thread.
+    inline_only: bool,
+    /// Newest composites published by the worker.
+    shown: HashMap<TextureSetId, Composite>,
+    /// Inputs last submitted to the worker (submissions happen only when they change).
+    submitted: Option<Snapshot>,
+    /// Texture sets to re-evaluate completely on the next update (mesh maps changed).
+    invalidated: BTreeSet<TextureSetId>,
+    /// Changes whenever newly evaluated composites are installed, including synchronous callers.
+    composite_generation: u64,
     /// Bumped on every document change (UI caches key off it).
     revision: u64,
     layer_counter: u32,
@@ -182,6 +196,12 @@ impl Session {
             },
             stroke: None,
             composites: HashMap::new(),
+            worker: None,
+            inline_only: false,
+            shown: HashMap::new(),
+            submitted: None,
+            invalidated: BTreeSet::new(),
+            composite_generation: 0,
             revision: 0,
             layer_counter,
             project_path: None,
@@ -281,9 +301,7 @@ impl Session {
         let mut merged = entry.as_map().clone();
         merged.extend(maps);
         *entry = MeshMaps::from_map(merged);
-        if let Some(c) = self.composites.get_mut(&ts) {
-            c.invalidate();
-        }
+        self.invalidated.insert(ts);
         self.maps_dirty = true;
         self.maps_generation += 1;
         self.revision += 1;
@@ -398,8 +416,19 @@ impl Session {
         self.selection.layer.and_then(|id| self.selected_texture_set().find(id))
     }
 
+    /// The newest composite of a texture set. With background compositing it can trail the
+    /// document by a few frames; [`Session::update_composites`] makes it exact.
     pub fn composite(&self, ts: TextureSetId) -> Option<&Composite> {
-        self.composites.get(&ts).and_then(|c| c.composite())
+        match self.worker {
+            Some(_) => self.shown.get(&ts),
+            None => self.composites.get(&ts).and_then(|c| c.composite()),
+        }
+    }
+
+    /// Publication generation, so consumers can detect results installed by another caller
+    /// (for example export or the eyedropper) even if it consumed the tile notifications.
+    pub fn composite_generation(&self) -> u64 {
+        self.composite_generation
     }
 
     fn texture_set_of(&self, layer: LayerId) -> Option<TextureSetId> {
@@ -1037,15 +1066,58 @@ impl Session {
 
     // ----- compositing ---------------------------------------------------------------------------
 
-    /// Bring every texture set's composite up to date; returns the re-evaluated tiles.
+    /// Bring every texture set's composite exactly up to date (blocks until done); returns the
+    /// tiles re-evaluated since the last update. Export, bake, saving and tests use this.
     pub fn update_composites(&mut self) -> Vec<CompositeUpdate> {
-        self.update_composites_within(None)
+        if self.worker.is_none() {
+            return self.update_composites_inline(None);
+        }
+        self.submit_composites();
+        self.worker.as_ref().expect("checked above").finish();
+        self.collect_composites()
     }
 
-    /// Budgeted [`Session::update_composites`] for interactive frames: evaluates at most about
-    /// `budget` worth of dirty tiles and leaves the rest for later calls
-    /// ([`Session::composites_pending`]). Export, bake and saving use the complete update.
+    /// Interactive frames: never blocks on compositing. The document goes to the background
+    /// worker (started on the first call) and whatever it finished since the last call is
+    /// returned; [`Session::composites_pending`] says whether more is coming. Where no worker
+    /// thread can run (web), up to about `budget` worth of tiles is evaluated here instead.
     pub fn update_composites_within(&mut self, budget: Option<std::time::Duration>) -> Vec<CompositeUpdate> {
+        if self.worker.is_none() && !self.inline_only {
+            // An exact synchronous composite may already exist (for example after export).
+            // Adopting unchanged caches publishes no tiles, so retain their displayed values.
+            let shown = self.composites.iter().filter_map(|(id, c)| c.composite().map(|c| (*id, c.clone()))).collect();
+            match CompositeWorker::spawn(&mut self.composites) {
+                Ok(w) => {
+                    self.shown = shown;
+                    self.worker = Some(w);
+                }
+                Err(e) => {
+                    log::info!("compositing on the UI thread: {e}");
+                    self.inline_only = true;
+                }
+            }
+        }
+        if self.worker.is_none() {
+            return self.update_composites_inline(budget);
+        }
+        self.submit_composites();
+        self.collect_composites()
+    }
+
+    /// Whether composites are not yet up to date with the document (call again next frame).
+    pub fn composites_pending(&self) -> bool {
+        match &self.worker {
+            Some(w) => self.composite_inputs_changed() || !w.idle() || w.has_published(),
+            None => self.doc.texture_sets.iter().any(|ts| self.composites.get(&ts.id).is_some_and(|c| c.has_pending())),
+        }
+    }
+
+    fn update_composites_inline(&mut self, budget: Option<std::time::Duration>) -> Vec<CompositeUpdate> {
+        for id in std::mem::take(&mut self.invalidated) {
+            if let Some(c) = self.composites.get_mut(&id) {
+                c.invalidate();
+            }
+        }
         let mut out = Vec::new();
         for ts in &self.doc.texture_sets {
             let geo = self.scene.geometry.get(ts.material_slot, ts.resolution);
@@ -1057,12 +1129,56 @@ impl Session {
                 out.push(CompositeUpdate { texture_set: ts.id, material_slot: ts.material_slot, tiles, changed: cache.last_changed().clone() });
             }
         }
+        if !out.is_empty() { self.composite_generation += 1; }
         out
     }
 
-    /// Whether a budgeted update left composite tiles to evaluate.
-    pub fn composites_pending(&self) -> bool {
-        self.doc.texture_sets.iter().any(|ts| self.composites.get(&ts.id).is_some_and(|c| c.has_pending()))
+    /// The document, geometry or mesh maps differ from what the worker last received.
+    fn composite_inputs_changed(&self) -> bool {
+        let Some(last) = &self.submitted else { return true };
+        !self.invalidated.is_empty()
+            || last.sets.len() != self.doc.texture_sets.len()
+            || last.sets.iter().zip(&self.doc.texture_sets).any(|(s, ts)| {
+                !same_composite_inputs(&s.texture_set, ts) || !Arc::ptr_eq(&s.geometry, &self.scene.geometry.get(ts.material_slot, ts.resolution))
+            })
+    }
+
+    /// Hand the current document to the worker if it changed (cheap: layers, tiles and
+    /// resources are shared).
+    fn submit_composites(&mut self) {
+        let Some(worker) = &self.worker else { return };
+        if !self.composite_inputs_changed() {
+            return;
+        }
+        let sets = self
+            .doc
+            .texture_sets
+            .iter()
+            .map(|ts| SetSnapshot {
+                texture_set: ts.clone(),
+                geometry: self.scene.geometry.get(ts.material_slot, ts.resolution),
+                mesh_maps: self.mesh_maps.get(&ts.id).cloned().unwrap_or_default(),
+            })
+            .collect();
+        let snapshot = Snapshot { sets, resources: self.resources.clone(), invalidate: std::mem::take(&mut self.invalidated) };
+        worker.submit(snapshot.clone());
+        self.submitted = Some(snapshot);
+    }
+
+    /// Install what the worker published since the last call.
+    fn collect_composites(&mut self) -> Vec<CompositeUpdate> {
+        let Some(worker) = &self.worker else { return Vec::new() };
+        let mut published = worker.take();
+        let mut out = Vec::new();
+        for ts in &self.doc.texture_sets {
+            let Some(p) = published.remove(&ts.id) else { continue };
+            self.shown.insert(ts.id, p.composite);
+            out.push(CompositeUpdate { texture_set: ts.id, material_slot: ts.material_slot, tiles: p.tiles, changed: p.changed });
+        }
+        let doc = &self.doc;
+        self.shown.retain(|id, _| doc.texture_set(*id).is_some());
+        if !out.is_empty() { self.composite_generation += 1; }
+        out
     }
 
     /// Base name for exported files: the project file name, else the mesh name.
@@ -1149,4 +1265,14 @@ impl Session {
     pub fn channels(&self) -> Vec<ChannelKind> {
         self.selected_texture_set().channel_kinds().collect()
     }
+}
+
+/// Two texture sets composite identically (names aside): same tiling, channels and layers.
+fn same_composite_inputs(a: &TextureSet, b: &TextureSet) -> bool {
+    a.id == b.id
+        && a.material_slot == b.material_slot
+        && a.resolution == b.resolution
+        && a.channels == b.channels
+        && a.layers.len() == b.layers.len()
+        && a.layers.iter().zip(&b.layers).all(|(x, y)| Arc::ptr_eq(x, y))
 }

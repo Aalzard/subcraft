@@ -12,6 +12,7 @@ pub mod strength;
 pub mod mask;
 pub mod tile;
 mod util;
+pub mod worker;
 
 use std::collections::BTreeMap;
 
@@ -26,6 +27,7 @@ use subcraft_materials::{MeshMaps, SampleContext, TextureSetGeometry, TileGeomet
 pub use blend::{BlendTarget, blend_fn, composite};
 pub use cache::CompositeCache;
 pub use tile::evaluate_tile;
+pub use worker::{CompositeWorker, Published, SetSnapshot, Snapshot};
 
 /// Everything outside the [`TextureSet`] that evaluation reads.
 #[derive(Clone, Copy)]
@@ -102,10 +104,12 @@ impl Composite {
                 per_tile[t].push((kind, comps, fill, slot));
             }
         }
-        let changed: Vec<(usize, Vec<ChannelKind>)> = per_tile
+        // Only the wanted tiles, one task each: filtering after rayon splits the whole index range
+        // would hand a budgeted batch (consecutive tiles) to one or two threads.
+        let work: Vec<_> = per_tile.into_iter().enumerate().filter(|(t, _)| wanted[*t]).collect();
+        let changed: Vec<(usize, Vec<ChannelKind>)> = work
             .into_par_iter()
-            .enumerate()
-            .filter(|(t, _)| wanted[*t])
+            .with_max_len(1)
             .map(|(t, mut slots)| {
                 let geo = ctx.geometry.tile(t);
                 let tc = TileContext {

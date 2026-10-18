@@ -19,7 +19,16 @@ fn ui_state() -> Option<UiState> {
     Some(UiState::new(Session::new(primitives::sample_crate(), 128), Some(rs)))
 }
 fn render(ui: &mut UiState) -> Vec<u8> {
-    ui.sync_gpu();
+    // Native viewports now publish composites asynchronously. Drain through actual frame
+    // syncs (not Session::update_composites, which would consume upload notifications).
+    let start = std::time::Instant::now();
+    loop {
+        ui.begin_frame();
+        ui.sync_gpu();
+        if !ui.session.composites_pending() { break; }
+        assert!(start.elapsed() < std::time::Duration::from_secs(30), "viewport composite converges");
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
     let params = ui.camera.view_params([128, 128]);
     let rs = ui.render_state.as_ref().unwrap();
     ui.renderer.as_mut().unwrap().render(&rs.device, &rs.queue, [128, 128], &params).read_rgba8(&rs.device, &rs.queue)
@@ -68,4 +77,19 @@ fn eyedropper_cannot_consume_a_fill_before_it_reaches_the_gpu() {
     let after = render(&mut ui);
     let changed = before.iter().zip(&after).filter(|(a, b)| a.abs_diff(**b) > 8).count();
     assert!(changed > 1000, "sampled fill reaches the viewport");
+}
+
+#[test]
+fn synchronous_export_cannot_leave_a_stale_viewport_composite() {
+    let Some(mut ui) = ui_state() else { eprintln!("no adapter: skipping"); return };
+    let before = render(&mut ui);
+    let target = ui.session.target_for_part(PartKey { kind: PartKind::Connected, id: 0 }).unwrap();
+    ui.session.brush.material.set(ChannelKind::BaseColor, ChannelValue::rgb(0.02, 0.8, 0.02));
+    ui.session.apply_part_action(target, PartAction::Fill).unwrap();
+    ui.session.export_archive(&subcraft_app::ExportSettings::default()).unwrap();
+    let after = render(&mut ui);
+    let changed = before.iter().zip(&after).filter(|(a, b)| a.abs_diff(**b) > 8).count();
+    assert!(changed > 1000, "export's synchronous composite still reaches the GPU");
+    ui.gpu_dirty = true;
+    assert!(render(&mut ui) == after, "incremental viewport equals a forced complete upload");
 }

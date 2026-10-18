@@ -2,17 +2,34 @@
 //! directional generator with noise breakup, painted layer) on the sample crate.
 //!
 //! `cargo run --release -p subcraft-app --example perf_slider -- [resolution]`
+#![allow(unsafe_code)]
 use std::time::Instant;
+
+/// Opt out of Windows power throttling (EcoQoS) for repeatable benchmark numbers.
+#[cfg(windows)]
+fn no_throttle() {
+    #[repr(C)]
+    struct State { version: u32, control: u32, state: u32 }
+    unsafe extern "system" {
+        fn GetCurrentProcess() -> isize;
+        fn SetProcessInformation(h: isize, class: i32, info: *const core::ffi::c_void, size: u32) -> i32;
+    }
+    let s = State { version: 1, control: 1, state: 0 };
+    let ok = unsafe { SetProcessInformation(GetCurrentProcess(), 4, &s as *const State as *const _, 12) };
+    assert_eq!(ok, 1);
+}
+
+#[cfg(not(windows))]
+fn no_throttle() {}
 
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 use subcraft_app::{Command, NewLayer, Session};
-use subcraft_core::{ChannelKind, ChannelValue};
+use subcraft_core::{ChannelKind, ChannelValue, LayerId};
 use subcraft_doc::{FillChannel, FillSource, Generator, GeneratorKind, LayerContent, MaskEffectKind, ProceduralKind, ProceduralParams};
 
-fn main() {
-    let res: u32 = std::env::args().nth(1).and_then(|a| a.parse().ok()).unwrap_or(1024);
+fn demo_session(res: u32) -> (Session, LayerId, LayerId) {
     let mut s = Session::new(subcraft_mesh::primitives::sample_crate(), res);
     let paint = s.selection().layer.unwrap();
     s.execute(Command::AddLayer(NewLayer::Fill)).unwrap();
@@ -52,6 +69,39 @@ fn main() {
     g.softness = 0.2;
     g.noise_amount = 0.35;
     s.execute(Command::AddMaskEffect { layer: moss, kind: MaskEffectKind::Generator(g) }).unwrap();
+    (s, base, moss)
+}
+
+/// p50 / p95 / max of per-frame UI thread times (ms).
+fn stats(mut v: Vec<f64>) -> String {
+    v.sort_by(f64::total_cmp);
+    format!("p50 {:.1} ms, p95 {:.1} ms, max {:.1} ms", v[v.len() / 2], v[v.len() * 95 / 100], v[v.len() - 1])
+}
+
+/// 60 Hz frames (`edit` runs at the start of each of the first `edits`) until the composite has
+/// converged: the UI thread's time per frame and the total wall time (ms).
+fn interactive_frames(s: &mut Session, edits: usize, mut edit: impl FnMut(&mut Session, usize)) -> (Vec<f64>, f64) {
+    let start = Instant::now();
+    let mut frames = Vec::new();
+    for i in 0.. {
+        let t = Instant::now();
+        if i < edits {
+            edit(s, i);
+        }
+        s.update_composites_within(Some(std::time::Duration::from_millis(10)));
+        frames.push(t.elapsed().as_secs_f64() * 1e3);
+        if i >= edits && !s.composites_pending() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_micros(16_667).saturating_sub(t.elapsed()));
+    }
+    (frames, start.elapsed().as_secs_f64() * 1e3)
+}
+
+fn main() {
+    no_throttle();
+    let res: u32 = std::env::args().nth(1).and_then(|a| a.parse().ok()).unwrap_or(1024);
+    let (mut s, base, moss) = demo_session(res);
 
     coverage_report(&s);
     let t = Instant::now();
@@ -81,34 +131,44 @@ fn main() {
     // A pattern parameter drag: the wood fill's procedural balance changes every step (cold field).
     let mut cold = Vec::new();
     for i in 0..10 {
-        let wood = s.document().texture_sets[0].layers.iter().find(|l| l.id == base).unwrap().clone();
-        let LayerContent::Fill(f) = &wood.content else { unreachable!() };
-        let mut ch = f.channels[&ChannelKind::BaseColor].clone();
-        if let FillSource::Procedural { params, .. } = &mut ch.source { params.balance = 0.4 + i as f32 * 0.01; }
         let t = Instant::now();
-        s.execute(Command::SetFillChannel { layer: base, channel: ChannelKind::BaseColor, fill: ch }).unwrap();
+        set_wood(&mut s, base, |p| p.balance = 0.4 + i as f32 * 0.01);
         s.update_composites();
         cold.push(t.elapsed().as_secs_f64() * 1e3);
     }
     cold.sort_by(f64::total_cmp);
     println!("wood pattern balance step (cold field): p50 {:.1} ms", cold[cold.len() / 2]);
-    // Budgeted frames (what the UI does): edit every frame, 10 ms compositing budget.
-    let mut frames = Vec::new();
-    for i in 0..40 {
+    // Interactive frames (what the UI does): the level changes every frame, fields are warm.
+    let (frames, total) = interactive_frames(&mut s, 40, |s, i| {
         let mut e = (*effect).clone();
         let MaskEffectKind::Generator(g) = &mut e.kind else { unreachable!() };
         g.level = 0.4 + i as f32 * 0.01;
-        let t = Instant::now();
         s.execute(Command::SetMaskEffect { layer: moss, effect: e }).unwrap();
-        let updates = s.update_composites_within(Some(std::time::Duration::from_millis(10)));
-        let tiles: usize = updates.iter().map(|u| u.tiles.len()).sum();
-        frames.push((t.elapsed().as_secs_f64() * 1e3, tiles));
+    });
+    println!("interactive generator drag: {} frames, converged after {total:.0} ms, UI thread per frame {}", frames.len(), stats(frames));
+    drop(s);
+    // Interactive warm-up of a fresh stack (every field cold), as the app's frames see it. Last:
+    // Windows may throttle a console process whose main thread mostly sleeps (EcoQoS), which
+    // would slow the synchronous measurements above.
+    {
+        let (mut s, base, _) = demo_session(res);
+        let (frames, total) = interactive_frames(&mut s, 0, |_, _| {});
+        println!("{res}²: interactive warm-up: {} frames, converged after {total:.0} ms, UI thread per frame {}", frames.len(), stats(frames));
+        // Pattern scale drag: a new cold field every frame for 40 frames.
+        let (frames, total) = interactive_frames(&mut s, 40, |s, i| set_wood(s, base, |p| p.scale = 3.0 + i as f32 * 0.02));
+        println!("  pattern scale drag: {} frames, converged after {total:.0} ms, UI thread per frame {}", frames.len(), stats(frames));
     }
-    println!("budgeted frames: {:?}", &frames[..8]);
-    let t = Instant::now();
-    let mut n = 0;
-    while s.composites_pending() { s.update_composites_within(Some(std::time::Duration::from_millis(10))); n += 1; }
-    println!("settle: {n} frames, {:.1} ms", t.elapsed().as_secs_f64() * 1e3);
+}
+
+/// Change the wood fill's base color pattern parameters.
+fn set_wood(s: &mut Session, base: LayerId, change: impl FnOnce(&mut ProceduralParams)) {
+    let wood = s.document().texture_sets[0].layers.iter().find(|l| l.id == base).unwrap().clone();
+    let LayerContent::Fill(f) = &wood.content else { unreachable!() };
+    let mut ch = f.channels[&ChannelKind::BaseColor].clone();
+    if let FillSource::Procedural { params, .. } = &mut ch.source {
+        change(params);
+    }
+    s.execute(Command::SetFillChannel { layer: base, channel: ChannelKind::BaseColor, fill: ch }).unwrap();
 }
 
 /// Composite time with subsets of the stack (fields already cached).
