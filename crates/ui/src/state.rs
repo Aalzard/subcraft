@@ -28,6 +28,7 @@ pub struct UvView {
 }
 
 pub struct UiState {
+    pub layer_previews: crate::layer_previews::PreviewUi,
     pub graphics: crate::graphics::GraphicsUi,
     pub asset_preview: crate::asset_preview::AssetPreviewUi,
     pub welcome: crate::welcome::WelcomeUi,
@@ -112,6 +113,7 @@ impl UiState {
         let mut graphics = crate::graphics::GraphicsUi::default();
         if let Some(rs) = &render_state { graphics.record_active(rs.adapter.get_info().backend); }
         Self {
+            layer_previews: Default::default(),
             graphics,
             asset_preview: Default::default(),
             welcome: Default::default(),
@@ -239,6 +241,7 @@ impl UiState {
 
     /// Replace the session (new project / opened mesh).
     pub fn set_session(&mut self, mut session: Session) {
+        self.layer_previews = Default::default();
         self.asset_preview.cancel_apply();
         self.pen = Default::default();
         self.pen_after = None;

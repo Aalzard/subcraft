@@ -16,6 +16,10 @@ use crate::theme::{self, ACCENT, BG_2, TEXT_DIM, TEXT_FAINT};
 use crate::widgets::{channel_value, empty_state, fill_width, hint, icon_button, panel, primary_button, prop_row, secondary_button, section, section_with, segmented, slider_row};
 
 pub fn show(state: &mut UiState, ui: &mut Ui) {
+    if state.session.layer_target() == subcraft_app::LayerTarget::Mask {
+        super::mask::show(state, ui);
+        return;
+    }
     let now = ui.input(|i| i.time);
     let Some(layer) = state.session.selected_layer().cloned() else {
         panel(ui, |ui| empty_state(ui, icons::SLIDERS, "Select a layer to edit its properties."));
@@ -341,7 +345,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     });
                     ui.add_space(6.0);
                     for e in mask.effects.iter().rev() {
-                        effect_editor(ui, state, id, e, &mut cmds);
+                        ui.push_id(e.id, |ui| effect_editor(ui, state, id, e, &mut cmds));
                     }
                 }
             },
@@ -367,8 +371,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     }
 }
 
-fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_core::LayerId, e: &Arc<MaskEffect>, cmds: &mut Vec<Command>) {
+pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_core::LayerId, e: &Arc<MaskEffect>, cmds: &mut Vec<Command>) {
     let mut eff = (**e).clone();
+    let default_name = eff.name == eff.kind.label();
     let mut changed = false;
     egui::Frame::new().fill(BG_2).inner_margin(egui::Margin::symmetric(10, 8)).show(ui, |ui| {
         ui.horizontal(|ui| {
@@ -385,22 +390,56 @@ fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_core::LayerId
             });
         });
         if eff.visible {
+            prop_row(ui, "Blend", |ui| {
+                egui::ComboBox::from_id_salt(("effect_blend", eff.id)).selected_text(eff.blend.label()).show_ui(ui, |ui| {
+                    for mode in subcraft_doc::BlendMode::available(false, false) {
+                        changed |= ui.selectable_value(&mut eff.blend, mode, mode.label()).changed();
+                    }
+                });
+            });
             changed |= slider_row(ui, "Opacity", egui::Slider::new(&mut eff.opacity, 0.0..=1.0)).changed();
             match &mut eff.kind {
                 MaskEffectKind::Generator(g) => {
+                    prop_row(ui, "Generator", |ui| egui::ComboBox::from_id_salt("generator_kind").selected_text(g.kind.label()).show_ui(ui, |ui| {
+                        for kind in [GeneratorKind::Edges, GeneratorKind::Cavity, GeneratorKind::Directional, GeneratorKind::PositionGradient]
+                            .into_iter().chain(MeshMapKind::ALL.into_iter().map(GeneratorKind::MeshMap)) {
+                            changed |= ui.selectable_value(&mut g.kind, kind, kind.label()).changed();
+                        }
+                    }));
                     changed |= slider_row(ui, "Level", egui::Slider::new(&mut g.level, 0.0..=1.0)).changed();
                     changed |= slider_row(ui, "Softness", egui::Slider::new(&mut g.softness, 0.0..=1.0)).changed();
                     changed |= slider_row(ui, "Breakup", egui::Slider::new(&mut g.noise_amount, 0.0..=1.0)).changed();
                     prop_row(ui, "", |ui| changed |= ui.checkbox(&mut g.invert, "Invert").changed());
+                    if g.kind == GeneratorKind::Directional {
+                        prop_row(ui, "Direction", |ui| { for value in &mut g.direction {
+                            changed |= ui.add(egui::DragValue::new(value).range(-1.0..=1.0).speed(0.01)).changed();
+                        } });
+                    }
                 }
-                MaskEffectKind::Fill { procedural: Some(p), .. } => {
-                    changed |= slider_row(ui, "Scale", egui::Slider::new(&mut p.scale, 1.0..=64.0).step_by(1.0)).changed();
-                    changed |= slider_row(ui, "Balance", egui::Slider::new(&mut p.balance, 0.0..=1.0)).changed();
+                MaskEffectKind::Fill { value, procedural, projection } => {
+                    let mut use_procedural = procedural.is_some();
+                    if ui.checkbox(&mut use_procedural, "Procedural").changed() {
+                        *procedural = use_procedural.then(|| ProceduralParams::new(ProceduralKind::Clouds));
+                        changed = true;
+                    }
+                    if let Some(p) = procedural {
+                        prop_row(ui, "Pattern", |ui| egui::ComboBox::from_id_salt("mask_pattern").selected_text(p.kind.label()).show_ui(ui, |ui| {
+                            for kind in ProceduralKind::ALL { changed |= ui.selectable_value(&mut p.kind, kind, kind.label()).changed(); }
+                        }));
+                        changed |= slider_row(ui, "Scale", egui::Slider::new(&mut p.scale, 1.0..=64.0)).changed();
+                        changed |= slider_row(ui, "Balance", egui::Slider::new(&mut p.balance, 0.0..=1.0)).changed();
+                        changed |= slider_row(ui, "Contrast", egui::Slider::new(&mut p.contrast, 0.0..=1.0)).changed();
+                        prop_row(ui, "Seed", |ui| changed |= ui.add(egui::DragValue::new(&mut p.seed)).changed());
+                        changed |= ui.checkbox(&mut p.invert, "Invert pattern").changed();
+                    } else { changed |= slider_row(ui, "Value", egui::Slider::new(value, 0.0..=1.0)).changed(); }
+                    changed |= projection_editor(ui, projection);
                 }
                 MaskEffectKind::Levels(l) => {
                     changed |= slider_row(ui, "In low", egui::Slider::new(&mut l.in_low, 0.0..=1.0)).changed();
                     changed |= slider_row(ui, "In high", egui::Slider::new(&mut l.in_high, 0.0..=1.0)).changed();
                     changed |= slider_row(ui, "Gamma", egui::Slider::new(&mut l.gamma, 0.1..=4.0)).changed();
+                    changed |= slider_row(ui, "Out low", egui::Slider::new(&mut l.out_low, 0.0..=1.0)).changed();
+                    changed |= slider_row(ui, "Out high", egui::Slider::new(&mut l.out_high, 0.0..=1.0)).changed();
                 }
                 MaskEffectKind::Image { resource, projection, invert } => {
                     if image_row(ui, state, *resource) {
@@ -416,6 +455,7 @@ fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_core::LayerId
     });
     ui.add_space(4.0);
     if changed {
+        if default_name { eff.name = eff.kind.label(); }
         cmds.push(Command::SetMaskEffect { layer, effect: eff });
     }
 }

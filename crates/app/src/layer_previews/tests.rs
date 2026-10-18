@@ -216,3 +216,78 @@ fn preview_cache_is_bounded_and_transparent_paint_does_not_include_other_layers(
     assert!(paint.rgba.as_chunks::<4>().0.iter().all(|px| px[3] == 0));
     assert!(cache.queue.len() <= CACHE_LIMIT);
 }
+
+#[test]
+fn long_4k_mask_stroke_updates_previews_and_stays_one_undo_step() {
+    let (mut s, mut key) = setup(4096);
+    key.mask = true;
+    s.execute(Command::SelectLayerTarget {
+        layer: key.layer,
+        target: crate::LayerTarget::Mask,
+    })
+    .unwrap();
+    s.brush.settings.size = 5.0;
+    s.brush.settings.hardness = 1.0;
+    let camera = subcraft_paint::Camera::orthographic(
+        glam::Vec3::new(0.0, 0.0, 4.0),
+        glam::Vec3::ZERO,
+        glam::Vec3::Y,
+        1.3,
+        0.01,
+        20.0,
+        [512, 512],
+    );
+    let mut cache = LayerPreviews::default();
+    wait(&mut cache, &s, key, None);
+    let history = s.history().entries().len();
+    let original = s
+        .selected_layer()
+        .unwrap()
+        .mask
+        .as_ref()
+        .unwrap()
+        .base
+        .clone();
+    s.begin_stroke().unwrap();
+    let mut samples = Vec::new();
+    for i in 0..160 {
+        let start = std::time::Instant::now();
+        s.stroke_to(
+            &camera,
+            glam::Vec2::new(
+                90.0 + 330.0 * i as f32 / 159.0,
+                256.0 + (i as f32 * 0.1).sin() * 20.0,
+            ),
+            false,
+        )
+        .unwrap();
+        cache.request(&s, key);
+        samples.push(start.elapsed().as_secs_f64() * 1000.0);
+    }
+    s.end_stroke();
+    assert_eq!(s.history().entries().len(), history + 1);
+    assert_eq!(
+        original.allocated_tiles(),
+        0,
+        "background snapshots and history retain original storage"
+    );
+    // Flush the final document revision, not an earlier intermediate stroke thumbnail.
+    let mut fresh = LayerPreviews::default();
+    let image = wait(&mut fresh, &s, key, None);
+    let mask = &s.selected_layer().unwrap().mask.as_ref().unwrap().base;
+    assert!(image.rgba.as_chunks::<4>().0.iter().any(|p| p[0] > 0));
+    for y in 0..64 {
+        for x in 0..64 {
+            let expected = (mask.get(x * 64 + 32, y * 64 + 32)[0] * 255.0).round() as u8;
+            assert_eq!(image.rgba[((y * 64 + x) * 4) as usize], expected);
+        }
+    }
+    let cold = samples[0];
+    samples[16..].sort_by(f64::total_cmp);
+    let warm = &samples[16..];
+    println!(
+        "4K mask stroke + preview request: cold {cold:.3} ms, warm p95 {:.3} ms, max {:.3} ms (CPU only; no composite/upload/frame timing)",
+        warm[(warm.len() as f32 * 0.95) as usize],
+        warm[warm.len() - 1]
+    );
+}

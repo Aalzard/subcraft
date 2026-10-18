@@ -116,11 +116,11 @@ pub fn default_layout() -> DockState<Tab> {
 const DOCK_KEY: &str = "subcraft_dock_v4";
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-struct InspectorSelection(subcraft_app::Selection, Option<subcraft_doc::LayerKind>);
+struct InspectorSelection(subcraft_app::Selection, Option<subcraft_doc::LayerKind>, subcraft_app::LayerTarget);
 
 impl InspectorSelection {
     fn current(session: &Session) -> Self {
-        Self(session.selection(), session.selected_layer().map(|layer| layer.kind()))
+        Self(session.selection(), session.selected_layer().map(|layer| layer.kind()), session.layer_target())
     }
 }
 
@@ -390,7 +390,7 @@ impl SubcraftApp {
         if self.inspector_selection.replace(selection) == Some(selection) {
             return false;
         }
-        let tab = if selection.1 == Some(subcraft_doc::LayerKind::Paint) { Tab::Brush } else { Tab::Properties };
+        let tab = if selection.1 == Some(subcraft_doc::LayerKind::Paint) && selection.2 == subcraft_app::LayerTarget::Content { Tab::Brush } else { Tab::Properties };
         self.dock.find_tab(&tab).is_some_and(|path| self.dock.set_active_tab(path).is_ok())
     }
 
@@ -895,6 +895,7 @@ impl eframe::App for SubcraftApp {
         }
         self.state.sync_gpu();
         self.state.poll_library();
+        self.state.layer_previews.poll(&ctx);
         self.state.textures.poll(&ctx);
         if self.state.env_loader.is_some() {
             ctx.request_repaint_after(std::time::Duration::from_millis(200));
@@ -910,6 +911,10 @@ impl eframe::App for SubcraftApp {
             .frame(egui::Frame::new().fill(theme::BG_2).inner_margin(egui::Margin::symmetric(4, 0)))
             .show(ui, |ui| self.tool_rail(ui));
         self.workspace(ui);
+        if let Some(layer) = ctx.data_mut(|data| data.remove_temp::<subcraft_core::LayerId>(egui::Id::new("inspect_mask"))) {
+            self.state.layer_previews.inspect = Some(layer);
+        }
+        crate::layer_previews::inspection_window(&mut self.state, &ctx);
         self.shortcuts_window(&ctx);
         let now = ctx.input(|i| i.time);
         crate::asset_preview::show(&mut self.state,&ctx);

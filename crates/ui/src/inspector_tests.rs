@@ -273,3 +273,190 @@ fn manual_tabs_persist_until_selection_changes_in_a_rearranged_dock() {
     app.follow_layer_selection();
     assert!(active(&app, Tab::Brush));
 }
+
+fn thumbnail(app: &mut SubcraftApp, ctx: &egui::Context, name: &str, mask: bool) -> Pos2 {
+    let out = settle(app, ctx);
+    let row = text(&out, name).unwrap();
+    let mut squares: Vec<_> = out
+        .shapes
+        .iter()
+        .filter_map(|shape| match &shape.shape {
+            egui::Shape::Rect(r)
+                if (r.rect.width() - 26.0).abs() < 0.01
+                    && (r.rect.height() - 26.0).abs() < 0.01
+                    && r.stroke.width > 0.0
+                    && (r.rect.center().y - row.y).abs() < 5.0 =>
+            {
+                Some(r.rect.center())
+            }
+            _ => None,
+        })
+        .collect();
+    squares.sort_by(|a, b| a.x.total_cmp(&b.x));
+    assert_eq!(
+        squares.len(),
+        2,
+        "content and mask are distinct square controls"
+    );
+    squares[usize::from(mask)]
+}
+
+fn click_modified(
+    app: &mut SubcraftApp,
+    ctx: &egui::Context,
+    pos: Pos2,
+    modifiers: egui::Modifiers,
+) {
+    for pressed in [true, false] {
+        let mut out = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(1600.0, 1100.0))),
+                events: vec![
+                    Event::ModifiersChanged(modifiers),
+                    Event::PointerMoved(pos),
+                    Event::PointerButton {
+                        pos,
+                        pressed,
+                        button: egui::PointerButton::Primary,
+                        modifiers,
+                    },
+                ],
+                ..Default::default()
+            },
+            |ui| app.workspace(ui),
+        );
+        out.textures_delta.clear();
+    }
+    frame(app, ctx, vec![Event::ModifiersChanged(Default::default())]);
+}
+
+#[test]
+fn adjacent_thumbnails_select_distinct_domains_and_paint_masks_open_their_own_inspector() {
+    let (mut app, ctx, [paint, _, red]) = setup();
+    for layer in [paint, red] {
+        app.state
+            .session
+            .execute(Command::AddMask { layer, white: true })
+            .unwrap();
+    }
+    let before = app.state.session.document().clone();
+    let history = app.state.session.history().entries().len();
+    for (name, layer) in [("Red fill", red), ("Layer 1", paint)] {
+        let mask = thumbnail(&mut app, &ctx, name, true);
+        click_at(&mut app, &ctx, mask);
+        assert_eq!(app.state.session.selection().layer, Some(layer));
+        assert_eq!(
+            app.state.session.layer_target(),
+            subcraft_app::LayerTarget::Mask
+        );
+        assert!(active(&app, Tab::Properties));
+        let out = settle(&mut app, &ctx);
+        assert!(text(&out, "Paint value").is_some());
+        assert!(text(&out, "PROJECTION").is_none());
+        let content = thumbnail(&mut app, &ctx, name, false);
+        click_at(&mut app, &ctx, content);
+        assert_eq!(
+            app.state.session.layer_target(),
+            subcraft_app::LayerTarget::Content
+        );
+        assert!(active(
+            &app,
+            if layer == paint {
+                Tab::Brush
+            } else {
+                Tab::Properties
+            }
+        ));
+    }
+    assert_eq!(app.state.session.document(), &before);
+    assert_eq!(app.state.session.history().entries().len(), history);
+}
+
+#[test]
+fn mask_thumbnail_shortcuts_and_properties_dispatch_undoable_mask_actions() {
+    let (mut app, ctx, [paint, _, red]) = setup();
+    app.state
+        .session
+        .execute(Command::AddMask {
+            layer: red,
+            white: true,
+        })
+        .unwrap();
+    let before = app.state.session.history().entries().len();
+    let at = thumbnail(&mut app, &ctx, "Red fill", true);
+    click_modified(
+        &mut app,
+        &ctx,
+        at,
+        egui::Modifiers {
+            shift: true,
+            ..Default::default()
+        },
+    );
+    assert!(
+        !app.state
+            .session
+            .selected_texture_set()
+            .find(red)
+            .unwrap()
+            .mask
+            .as_ref()
+            .unwrap()
+            .enabled
+    );
+    assert_eq!(app.state.session.selection().layer, Some(paint));
+    assert_eq!(app.state.session.history().entries().len(), before + 1);
+    let at = thumbnail(&mut app, &ctx, "Red fill", true);
+    click_modified(
+        &mut app,
+        &ctx,
+        at,
+        egui::Modifiers {
+            alt: true,
+            ..Default::default()
+        },
+    );
+    assert_eq!(app.state.layer_previews.inspect, Some(red));
+    assert_eq!(
+        app.state.session.layer_target(),
+        subcraft_app::LayerTarget::Mask
+    );
+    click_text(&mut app, &ctx, "Copy");
+    assert!(app.state.session.can_paste_mask());
+    let history = app.state.session.history().entries().len();
+    click_text(&mut app, &ctx, "Invert");
+    assert_eq!(app.state.session.history().entries().len(), history + 1);
+    let mask = app
+        .state
+        .session
+        .selected_layer()
+        .unwrap()
+        .mask
+        .as_ref()
+        .unwrap();
+    assert_eq!(
+        mask.base.get(0, 0)[0],
+        1.0,
+        "inversion must preserve authored pixels"
+    );
+    assert_eq!(mask.effects.len(), 1);
+    click_text(&mut app, &ctx, "Remove mask");
+    assert!(app.state.session.selected_layer().unwrap().mask.is_none());
+    assert_eq!(
+        app.state.session.layer_target(),
+        subcraft_app::LayerTarget::Content
+    );
+    app.state.session.execute(Command::Undo).unwrap();
+    assert_eq!(
+        app.state
+            .session
+            .selected_layer()
+            .unwrap()
+            .mask
+            .as_ref()
+            .unwrap()
+            .effects
+            .len(),
+        1
+    );
+}
