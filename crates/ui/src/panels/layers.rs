@@ -152,7 +152,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         .show(ui, |ui| {
         ui.spacing_mut().item_spacing.y = 1.0;
         fill_width(ui);
-        if egui::DragAndDrop::has_payload_of_type::<LayerDrag>(ui.ctx())
+        if (egui::DragAndDrop::has_payload_of_type::<LayerDrag>(ui.ctx())
+            || egui::DragAndDrop::has_payload_of_type::<subcraft_app::effect_stack::EffectAddress>(ui.ctx()))
             && let Some(pointer) = ui.input(|i| i.pointer.interact_pos())
         {
             let visible = ui.clip_rect();

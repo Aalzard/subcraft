@@ -42,6 +42,8 @@ pub enum Command {
     SetContentEffect { layer: LayerId, effect: ContentEffect },
     /// Destination is a bottom-to-top index in the layer's content stack.
     MoveContentEffect { layer: LayerId, effect: EffectId, index: usize },
+    /// Same-stack visual reorder; resolve UUID anchors against the current document on release.
+    DropEffect { source: crate::effect_stack::EffectAddress, target: crate::effect_stack::EffectAddress, side: crate::effect_stack::DropSide },
     DuplicateContentEffect { layer: LayerId, effect: EffectId },
     /// Insert above the selected layer (or at the top) of the selected texture set and select it.
     AddLayer(NewLayer),

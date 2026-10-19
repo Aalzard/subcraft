@@ -686,6 +686,20 @@ impl Session {
                     Ok(())
                 })?;
             }
+            Command::DropEffect { source, target, side } => {
+                if source.texture_set != self.selection.texture_set {
+                    return Err(CommandError::Invalid("the dragged texture set is no longer selected".into()));
+                }
+                let ts=self.doc.texture_set(source.texture_set).ok_or(CommandError::TextureSetNotFound)?;
+                if let Some(index)=crate::effect_stack::drop_destination(ts,source,target,side) {
+                    let moved=match source.domain {
+                        LayerTarget::Content=>Command::MoveContentEffect {layer:source.layer,effect:source.effect,index},
+                        LayerTarget::Mask=>Command::MoveMaskEffect {layer:source.layer,effect:source.effect,index},
+                    };
+                    self.execute(moved)?;
+                    return self.execute(Command::SelectEffect {layer:source.layer,target:source.domain,effect:Some(source.effect)});
+                }
+            }
             Command::DuplicateContentEffect { layer, effect } => {
                 self.edit_layer_set(layer, "Duplicate Effect", None, |ts| {
                     let l = Self::layer_mut(ts, layer)?;

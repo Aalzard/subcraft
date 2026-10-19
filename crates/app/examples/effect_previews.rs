@@ -125,15 +125,64 @@ fn fixture(size: u32, mask: bool) -> Result<Session, String> {
 }
 fn main() -> Result<(), String> {
     let args: Vec<_> = std::env::args().skip(1).collect();
-    let profile = args.first().is_some_and(|a| a == "--profile");
+    let reorder = args
+        .iter()
+        .any(|a| a == "--reorder" || a == "--profile-reorder");
+    let profile = args
+        .first()
+        .is_some_and(|a| a == "--profile" || a == "--profile-reorder");
     let mut s = fixture(
         if profile { 4096 } else { 512 },
         profile || args.get(1).is_some_and(|a| a == "mask"),
     )?;
+    if !profile && reorder {
+        let sets: Vec<_> = s.document().texture_sets.iter().map(|t| t.id).collect();
+        for set in sets {
+            run(&mut s, Command::SelectTextureSet(set))?;
+            let l = s.selected_layer().unwrap();
+            let domain = if args.get(1).is_some_and(|a| a == "mask") {
+                subcraft_app::LayerTarget::Mask
+            } else {
+                subcraft_app::LayerTarget::Content
+            };
+            let ids: Vec<_> = if domain == subcraft_app::LayerTarget::Mask {
+                l.mask
+                    .as_ref()
+                    .unwrap()
+                    .effects
+                    .iter()
+                    .map(|e| e.id)
+                    .collect()
+            } else {
+                l.content_effects.iter().map(|e| e.id).collect()
+            };
+            let source = subcraft_app::effect_stack::EffectAddress {
+                texture_set: set,
+                layer: l.id,
+                domain,
+                effect: ids[0],
+            };
+            run(
+                &mut s,
+                Command::DropEffect {
+                    source,
+                    target: subcraft_app::effect_stack::EffectAddress {
+                        effect: *ids.last().unwrap(),
+                        ..source
+                    },
+                    side: subcraft_app::effect_stack::DropSide::Above,
+                },
+            )?;
+        }
+        let set = s.document().texture_sets[0].id;
+        run(&mut s, Command::SelectTextureSet(set))?;
+    }
     if !profile {
-        return s.save(Some(std::path::Path::new(
-            args.first().ok_or("output project path required")?,
-        ))).map(|_|());
+        return s
+            .save(Some(std::path::Path::new(
+                args.first().ok_or("output project path required")?,
+            )))
+            .map(|_| ());
     }
     let mut cache = LayerPreviews::default();
     let mut keys = Vec::new();
@@ -162,7 +211,11 @@ fn main() -> Result<(), String> {
                 ..base
             });
         }
-        edits.push((layer.id, layer.content_effects[0].as_ref().clone()));
+        edits.push((
+            layer.id,
+            layer.content_effects[0].as_ref().clone(),
+            layer.content_effects.last().unwrap().id,
+        ));
     }
     let start = Instant::now();
     let mut times = Vec::new();
@@ -170,7 +223,39 @@ fn main() -> Result<(), String> {
     loop {
         let now = Instant::now();
         if frame < 8 {
-            for (layer, template) in &edits {
+            for (layer, template, anchor) in &edits {
+                if reorder {
+                    let set = s
+                        .document()
+                        .texture_sets
+                        .iter()
+                        .find(|t| t.find(*layer).is_some())
+                        .unwrap()
+                        .id;
+                    run(&mut s, Command::SelectTextureSet(set))?;
+                    let source = subcraft_app::effect_stack::EffectAddress {
+                        texture_set: set,
+                        layer: *layer,
+                        domain: subcraft_app::LayerTarget::Content,
+                        effect: template.id,
+                    };
+                    run(
+                        &mut s,
+                        Command::DropEffect {
+                            source,
+                            target: subcraft_app::effect_stack::EffectAddress {
+                                effect: *anchor,
+                                ..source
+                            },
+                            side: if frame % 2 == 0 {
+                                subcraft_app::effect_stack::DropSide::Above
+                            } else {
+                                subcraft_app::effect_stack::DropSide::Below
+                            },
+                        },
+                    )?;
+                    continue;
+                }
                 let mut effect = template.clone();
                 effect.kind = ContentEffectKind::Filter {
                     channel: C::BaseColor,
@@ -205,7 +290,7 @@ fn main() -> Result<(), String> {
     }
     times.sort_by(f64::total_cmp);
     println!(
-        "4K two sets / {} stage+layer+mask previews, 8 parameter revisions. CPU request/poll p50 {:.3}, p95 {:.3}, max {:.3} ms; settled {:.1} ms, {} frames, cache {} entries. GPU/render/upload and full composite excluded.",
+        "4K two sets / {} stage+layer+mask previews, 8 edit/drop revisions. CPU request/poll p50 {:.3}, p95 {:.3}, max {:.3} ms; settled {:.1} ms, {} frames, cache {} entries. GPU/render/upload and full composite excluded.",
         keys.len(),
         times[times.len() / 2],
         times[times.len() * 95 / 100],

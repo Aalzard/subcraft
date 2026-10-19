@@ -5,7 +5,7 @@
 use std::collections::BTreeMap;
 
 use egui::{RichText, Ui};
-use subcraft_app::{Command, LayerTarget};
+use subcraft_app::{Command, LayerTarget, effect_stack::{EffectAddress, DropSide, drop_destination}};
 use subcraft_core::{ChannelKind, ChannelValue, EffectId, LayerId};
 use subcraft_doc::{
     BlendMode, ContentEffect, ContentEffectKind, FillChannel, FillContent, FillSource, Generator, GeneratorKind, Layer, Levels,
@@ -159,7 +159,7 @@ pub fn rows(
         for (index, row) in rows.iter().enumerate().rev() {
             let is_selected = selected == Some(row.id);
             let resp = ui.push_id(row.id, |ui| {
-                striped_list_row_height(ui, count - 1 - index, is_selected, (preview_size + 6.0).max(theme::EFFECT_ROW_HEIGHT), egui::Sense::click(), |ui| {
+                striped_list_row_height(ui, count - 1 - index, is_selected, (preview_size + 6.0).max(theme::EFFECT_ROW_HEIGHT), egui::Sense::click_and_drag(), |ui| {
                     ui.add_space(indent);
                     ui.spacing_mut().item_spacing.x = 5.0;
                     let (eye, tip) = if row.visible { (icons::EYE, "Hide effect") } else { (icons::EYE_SLASH, "Show effect") };
@@ -174,10 +174,13 @@ pub fn rows(
                     let color = if is_selected { ACCENT } else { TEXT_DIM };
                     ui.label(RichText::new(row.icon).font(theme::font(13.0)).color(color));
                     let text = row_text(&row.name, is_selected || row.visible).font(theme::font(11.5));
-                    ui.add(egui::Label::new(if row.visible { text } else { text.color(TEXT_FAINT) }).truncate());
+                    ui.add(egui::Label::new(if row.visible { text } else { text.color(TEXT_FAINT) }).truncate().selectable(false));
                 })
             })
             .inner;
+            let address=EffectAddress {texture_set:session.selection().texture_set,layer:layer.id,domain,effect:row.id};
+            resp.dnd_set_drag_payload(address);
+            effect_drop(ui,&resp,session,address,indent,cmds);
             let x = resp.rect.left() + indent - 2.0;
             let y = resp.rect.center().y;
             let bottom = if index == 0 { y } else { resp.rect.bottom() + 1.0 };
@@ -188,7 +191,7 @@ pub fn rows(
                 cmds.push(Command::SelectEffect { layer: layer.id, target: domain, effect });
             }
             resp.context_menu(|ui| actions(ui, layer.id, mask_domain, row.id, index, count, cmds));
-            resp.on_hover_text("Click to edit in Properties (click again to return to the layer). Right-click: order, duplicate, delete.");
+            resp.on_hover_text("Click to edit in Properties (click again to return to the layer). Drag the row or preview to reorder. Esc: cancel. Right-click: order, duplicate, delete.");
         }
         if rows.is_empty() {
             ui.horizontal(|ui| {
@@ -200,6 +203,22 @@ pub fn rows(
             ui.painter().line_segment([egui::pos2(x, header.rect.center().y), egui::pos2(x, header.rect.bottom())], egui::Stroke::new(1.0, theme::BORDER_STRONG));
         }
     });
+}
+
+
+fn effect_drop(ui:&Ui, response:&egui::Response, session:&subcraft_app::Session, target:EffectAddress, indent:f32, commands:&mut Vec<Command>) {
+    let Some(pointer)=ui.input(|i|i.pointer.interact_pos()) else {return;};
+    let side=if pointer.y<response.rect.center().y {DropSide::Above}else{DropSide::Below};
+    let valid=|source|drop_destination(session.selected_texture_set(),source,target,side).is_some();
+    if let Some(source)=response.dnd_hover_payload::<EffectAddress>() && valid(*source) {
+        let y=if side==DropSide::Above {response.rect.top()}else{response.rect.bottom()};
+        ui.painter().line_segment([egui::pos2(response.rect.left()+indent,y),egui::pos2(response.rect.right()-4.0,y)],egui::Stroke::new(2.0,ACCENT));
+    }
+    // A wrong-type release must never consume a layer or shelf payload.
+    if egui::DragAndDrop::has_payload_of_type::<EffectAddress>(ui.ctx())
+        && let Some(source)=response.dnd_release_payload::<EffectAddress>() && valid(*source) {
+        commands.push(Command::DropEffect {source:*source,target,side});
+    }
 }
 
 fn visibility(layer: &Layer, mask: bool, id: EffectId, visible: bool) -> Command {
