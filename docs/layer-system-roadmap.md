@@ -24,11 +24,11 @@ audit and official Adobe workflow references: ADR-0016. Completion below is upda
   explicit (adjustments keep coverage); references still to come.
 - [x] Typed effect selection (`SelectEffect`, transient) and stroke routing into selected content
   and mask Paint effects (one undo per stroke, base untouched, per-tile dirty diffing).
-- [~] Paint/fill content stacks; folders now accept local Filter/Levels adjustments (isolated
+- [~] Paint/fill content stacks; folders now accept Filter/Levels adjustments (isolated
   children or passthrough lower accumulation). Folder Paint/Fill sources remain rejected.
-  Levels/these local filters reject Normal; HSL accepts color only.
-- [~] Local Filters and Levels on content; Generator/Levels/Invert/local Filters on masks.
-  Compare Mask/Anchor Point and neighborhood operations remain pending.
+  Levels/these filters reject Normal; HSL accepts color only.
+- [~] Local and neighborhood Filters/Levels on content; Generator/Levels/Invert/Filters on masks.
+  Compare Mask/Anchor Point and the remaining filter operations are pending.
 
 ## 3. Nested hierarchy and editing
 
@@ -43,39 +43,43 @@ audit and official Adobe workflow references: ADR-0016. Completion below is upda
 
 ## 4. Filter evaluator and operations
 
-- [~] Local previous-stage CPU kernels, halo 0, shared dirty tracking. General tile-stage graph
-  and neighborhood halos remain pending (ADR-0029).
+- [x] Immutable previous-stage CPU tile graph, shared local kernels, bounded parallel stage cache
+  and conservative chained dirty halos for Blur/Sharpen (ADR-0030).
 - [ ] Render-owned GPU backend with measured parity and bounded upload/publication work.
-- [ ] Blur, Directional Blur, Sharpen, Highpass.
+- [x] Gaussian Blur and unsharp Sharpen on content/masks and folder adjustments.
+- [ ] Directional Blur and Highpass.
 - [~] Levels, Contrast and HSL on supported content; Levels/Contrast and existing Invert on
   masks. Color Balance and content Invert remain pending.
 - [ ] Bevel, Bevel Smooth, Mask Outline, Height Adjust.
 - [~] Threshold/Clamp on content and masks; Histogram Scan/Shift remain pending.
 - [ ] Warp, Gradients and an extensible parameter/kernel registry.
-- [ ] Normal renormalization, raw data versus linear-color semantics, alpha and UV boundary policy.
+- [~] Linear/raw channel semantics, premultiplied Blur coverage, Sharpen coverage preservation
+  and UV image-edge clamping specified/tested. Normal filters and mesh-aware seam/island policies
+  remain pending.
 
 ## 5. Materials and references
 
 - [x] Existing independent material channels; fill textures/procedurals, UV/planar/triplanar,
   tiling and projection parameters. Existing reusable Smart Materials and Smart Masks.
 - [~] Masks combine base painting and existing paint/fill/generator/levels/image/invert effects;
-  general neighborhood filters remain.
+  Blur/Sharpen now work in the same stack; remaining operations still pending.
 - [ ] Compare Mask with current content/mask/lower-stack/constant inputs and tolerance controls.
 - [ ] Anchor stage outputs, reference picker/dependents, cycle/order validation and copy remapping.
-- [ ] Smart asset compatibility for new stacks, filters and references.
+- [~] Schema-10 smart filter stacks round-trip; reference compatibility remains pending.
 
 ## 6. Acceptance and delivery gates
 
-- [ ] Per-slice numeric/golden output, halos/boundaries, undo/stroke atomicity, save/load and
-  legacy migration fixtures. Full workspace tests and Clippy before each commit.
-- [ ] Native screenshots and explicit hand-verification limits for each visible slice.
+- [~] Current local/Blur/Sharpen slices have CPU goldens, halos/boundaries, undo, save/load,
+  worker/export and migration fixtures. Remaining slices/GPU parity pending. Workspace tests
+  and Clippy run before each commit.
+- [~] Native captures and explicit limits recorded for current filters; repeat for future slices.
 - [ ] Long 4K paint → effects → composite → thumbnails → GPU frame profiling on complex models.
 - [x] Desktop background compositing: exact convergence, latest edit wins, synchronous export,
   sparse GPU uploads and native 4K demo generator/pattern-scale profiling (ADR-0018). Complex
   production-model stroke profiling remains the separate gate above.
-- [ ] Getting-started instructions, ADR decisions and a short handoff after each session.
+- [~] Guide, ADRs and handoff updated through session 86; maintain for each future slice.
 
-Next complete slices: neighborhood/stage contracts for blur/sharpen with CPU goldens and GPU
-parity; local adjustments/folder stages now exist. Finish per-effect
+Next complete slices: Directional Blur/Highpass, render-owned GPU parity and full desktop
+profiling; Blur/Sharpen now have CPU stage/halo goldens and native evidence. Finish per-effect
 thumbnails, drag reorder and native save/reopen checks alongside these slices. Compare Mask
 and anchors follow the stage graph. General filters are not part of the 0.1.7 release.

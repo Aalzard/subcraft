@@ -2171,13 +2171,60 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   Implementation **1a84d31**; no push/release. Protected and unrelated artwork/dependency files
   retained. Getting-started and full roadmaps updated; all remaining large milestones retained.
 
+### Session 86 - Neighborhood Blur and Sharpen (2026-10-19)
+
+* Added non-destructive **Gaussian Blur** (Radius 0-32 working pixels) and **Sharpen**
+  (Radius + Amount 0-4) to content and mask filter menus/Properties, including adjustment
+  folders. Blur softens premultiplied color and coverage without dark fringes; Sharpen retains
+  coverage and signed Height. Both exclude Normal vectors. Existing channel blend/opacity,
+  source data, effect ordering, visibility, duplicate/remove and undo commands are reused.
+* **Architecture:** immutable previous-stage DAG in compositor/stages.rs, separable Gaussian
+  weights in materials/filter.rs, shared existing point/generator kernels. Cross-tile sampling
+  reads previous-stage neighbors; global UV texture edges clamp. Per-set 64 MiB completed-stage
+  cache plus active dependency frontiers, parallel OnceLock sharing, eviction and batch trim.
+  Empty source channels retain the old Replace early-return semantics; uniform sources and
+  dependent stages share results between tiles, avoiding redundant default-channel buffers.
+  Raster edits expand dirty tiles by conservative chained support; snapshot changes invalidate
+  stages. The point-only fast path remains. Sync callers and the background worker share the
+  exact evaluator. Reduced/enlarged previews scale radius without changing document data.
+* **Persistence/UI:** schema **10**, Blur/Sharpen variants with identity migration from 1-9,
+  project and smart resource round trips, finite range/domain validation. UI uses existing app
+  commands. Updated executable **target/debug/subcraft.exe**; guide now points to this build.
+  Significant decision: **docs/adr/0030-neighborhood-filter-stages.md**.
+* Files/crates: doc filter parameters; materials Gaussian weights; compositor stages/tile/mask/
+  cache/lib and acceptance; app previews/tests/filter fixture/profile; project schema/tests;
+  UI shared filter controls/inspector hints/tests. Wear generator kernels were not changed.
+* Validation: **496 workspace tests pass, 0 failed/ignored (14 added)**; workspace/all-target
+  Clippy exits 0 with repository warnings, no new filter warnings. CARGO_INCREMENTAL=0,
+  dev debug=line-tables-only, -j 1. Goldens compare tiled Gaussian/unsharp to an independent
+  dense 2D reference across tile and image boundaries; check premultiplied coverage/opacity,
+  unchanged normal/signed Height, chained halos beyond one tile, all 32 blend modes, folder
+  domains and eviction under parallel requests. App checks scaled 64/256px previews, newest
+  worker edits, one-gesture undo, synchronous export draining a pending blur and exact reopen.
+* Native evidence: real crate, both 512px sets, isolated-data CLI runs, all exit 0.
+  Inspected **docs/screenshots/filter-blur.png**, **filter-sharpen.png** (3D material + Radius/
+  Amount), **filter-mask-blur.png** (separate grayscale mask + properties), **filter-blur-2d.png**
+  (UV texture + wireframe). No physical mouse was driven.
+* 4K CPU profile: both 4096px sets; Blur cold **2527.3 ms**, edit/poll p50 **0.480**,
+  p95 **0.892**, max **1.121 ms**, convergence **1182.9 ms** (72 frames); Sharpen cold **1469.3 ms**,
+  p95 **0.888**, max **1.390 ms**, convergence **718.0 ms** (45 frames). Before empty/uniform
+  stage sharing the same Blur workload took **8664.1 ms** to converge, poll p95 **7.189 ms**.
+  Single-run CPU results exclude GPU/render/upload/strokes; report:
+  **docs/performance/2026-10-19-neighborhood-filters-4k.txt**.
+* **Limits:** UV-space filtering can mix adjacent atlas islands and does not cross geometric
+  UV seams. Sharpen bounds non-Height values to 0-1, including HDR emission. No GPU filter
+  backend, Directional Blur/Highpass, references or normal-detail generator inputs added.
+  Manual control drags/tablet, production assets, browser/DPI, long strokes and complete 4K
+  GPU/upload/frame pacing were NOT verified by hand. Owner's rejected Edge Wear is unresolved.
+  Implementation 187e3ca; no push/release; unrelated/protected files retained.
+
 ## Next steps (in order)
 
 1. Owner gives PROMPT-claude-edge-wear.md to Claude; wear remains unresolved. Preserve and
    coordinate shared filter files before concurrent edits. Owner checks + Add → Filter in the
    current executable; local filters/folder adjustments are implemented, not Painter parity.
-2. Add explicit previous-stage tile neighborhoods, halo/dirty/cache propagation, then complete
-   Blur/Sharpen with numeric seams/boundaries and native evidence. Keep synchronous export exact.
+2. Extend the completed CPU neighborhood stages to Directional Blur/Highpass; add measured
+   GPU parity and per-effect thumbnails/drag reorder. Preserve exact synchronous export.
 3. Profile the complete 4K upload/render path and worker convergence under controlled load;
    resume distance/Dirt/lower-normal inputs/Disable Micro Effects, references and emission per
    the material/layer roadmaps. Large brush phases remain pending.

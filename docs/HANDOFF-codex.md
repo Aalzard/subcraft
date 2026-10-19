@@ -1,43 +1,37 @@
-# Handoff — local filters and unresolved wear (2026-10-19)
+# Codex handoff - 2026-10-19
 
-- Branch feature/brush-roadmap; implementation **1a84d31**. Final docs commit is HEAD.
-- cargo test --workspace: **482 pass, 0 failed/ignored** (12 added). Workspace/all-target Clippy
-  exits 0 with existing warnings. Incremental=0, dev debug=line-tables-only, -j 1. No push/release.
-- Owner STILL rejects wear after a22eb6f/4f6d8ea. Treat it as unresolved; do not cite those tests
-  as owner acceptance. Claude prompt: docs/PROMPT-claude-edge-wear.md. No wear kernel edits here.
-- Done: Contrast/HSL/Threshold/Clamp content effects, Contrast/Threshold/Clamp on masks,
-  dedicated inspector/menu, per-channel semantics, preserved paint alpha and original sources.
-- Done: folder Filter/Levels adjustments over isolated children or passthrough lower accumulation,
-  before folder mask/opacity. Folder Paint/Fill source effects remain rejected.
-- Done: schema 9, explicit variants, identity migration, project/Smart Material round trips,
-  invalid input rejection; masks share the Smart Mask schema. See ADR-0029.
-- Done: numeric HSL/lightness/data/signed-height/gradient goldens, order/opacity/alpha/folder
-  output, incremental tiles through filters, undo/reopen/latest-worker/export convergence, UI.
+Branch: feature/brush-roadmap. Last implementation commit: 187e3ca; docs commit follows.
+496 workspace tests PASS, 0 failed/ignored; Clippy workspace/all-targets exits 0 (repository warnings).
+Use CARGO_INCREMENTAL=0, CARGO_PROFILE_DEV_DEBUG=line-tables-only, -j 1 before each commit.
+Test executable: E:/Applications/ArtCraft/SubCraft/target/debug/subcraft.exe. No push/release.
 
-Updated app: E:/Applications/ArtCraft/SubCraft/target/debug/subcraft.exe. Use + Add → Filter
-under the selected content/mask. For a stack adjustment add an empty passthrough folder.
-Native CLI captures (512, both actual crate sets, all exit 0, inspected): docs/screenshots/
-filter-hsl.png, filter-contrast.png, filter-clamp.png, filter-threshold.png, filter-folder.png.
-Developer fixture/profile: crates/app/examples/filters.rs; CLI --effect-panel selects last effect.
-No physical mouse driven. Manual slider/tablet, production assets, browser/DPI and 4K GPU
-frame pacing were NOT hand-verified. Nonidentity HSL is display-referred and clamps HDR input.
-4K CPU report: docs/performance/2026-10-19-local-filters-4k.txt. Cold 1470 ms; poll p95 0.711,
-max 3.675 ms; first-edit-to-settle 1003.1 ms, 58 frames. GPU/upload/render/strokes excluded.
-This different workload cannot establish wear speedups; its earlier convergence issue remains.
+Done:
+- Blur/Sharpen on content/masks/folders; Radius/Amount controls; existing editing/undo reused.
+- Previous-stage DAG, separable Gaussian, 64 MiB/set completed tile cache + active frontier;
+  uniform-stage sharing, absent-source Replace parity, conservative chained raster halos.
+- Premultiplied Blur coverage, Sharpen alpha/signed Height, scaled previews, schema 10 / v1-9 migration.
+- Numeric dense references, parallel eviction/all blends, latest worker/export/undo/reopen and UI tests.
+- Native crate 3D/2D/mask captures: docs/screenshots/filter-{blur,sharpen,mask-blur,blur-2d}.png.
+- 4K CPU report: docs/performance/2026-10-19-neighborhood-filters-4k.txt. Blur convergence 8.664s
+  before uniform sharing -> 1.183s; polling p95 0.892ms. Sharpen convergence 0.718s / p95 0.888ms.
 
-Partial stops: materials/filter.rs has local kernels only (previous stage, same texel, halo 0).
-compositor/tile.rs::apply_content_effects applies adjustments; no cross-tile stage graph exists.
-Do not fake Blur/Sharpen inside each 64px tile. Render-owned GPU filter processing, references,
-anchors, effect thumbnails/drag reorder, Dirt/strict lower normals/micro toggles and emission
-remain pending. Preserve alpha, raw data/color rules, folder stages and exact sync export.
-Open question for owner: approve current filter controls before expanding the filter library.
+No half-implemented filter remains. Next kernel extension point: compositor/src/stages.rs::Graph::gaussian
+and Node::Gaussian evaluation; doc/src/filter.rs holds parameters, UI dispatches existing commands.
+Keep exact sync/worker parity, bounded immutable stages, previous-stage ordering and schema migrations.
+ADR-0030 records UV edge clamping, radius units, alpha and caching. UV filters can mix nearby atlas
+islands and do not follow mesh seams. Normal filters unsupported; Sharpen clips non-Height/HDR to 0-1.
 
-Unrelated changes retained: Cargo.lock, crates/ui/Cargo.toml, crates/ui/examples, artworks/Dead-Man.
-Protected zips/output/generate_textures.py/__pycache__ untouched. Prior cache deletion was
-rejected by approval review; do not bypass via another command. Coordinate shared files if
-Claude starts wear work in this checkout; never overwrite or stage another developer's edits.
+Known unresolved: owner REJECTS Edge Wear (docs/PROMPT-claude-edge-wear.md). Do not claim it fixed;
+mask.rs::evaluate_effect is now shared by local and spatial evaluators; coordinate Claude edits.
+No failing/skipped tests. No physical mouse driven; manual drags/tablet, production assets, browser/DPI,
+full 4K GPU/upload/frame pacing and long strokes NOT hand-verified. CPU timings do not establish FPS.
+GPU filter backend, remaining filters, references/anchors and lower-normal-aware Dirt remain pending.
+Open owner decisions: future island-aware UV policy and Normal-filter semantics.
 
-Next 3 steps:
-1. Claude reproduces unresolved wear from the prompt; owner checks local filters in updated app.
-2. Add previous-stage tile neighborhoods/halos and complete Blur/Sharpen, numeric + native.
-3. Profile full 4K desktop frame pacing/worker convergence; continue normal-aware Dirt/references.
+Unrelated Cargo.lock, crates/ui/Cargo.toml, UI examples and artworks/Dead-Man retained. Protected zips,
+output/, generate_textures.py and __pycache__/ untouched. Earlier cleanup was approval-rejected; do not bypass.
+
+Next 3 concrete steps:
+1. Claude reproduces unresolved wear on the default baked crate using the owner handoff prompt.
+2. Extend Graph with Directional Blur/Highpass, goldens/migration/native evidence; then effect thumbnails.
+3. Profile full 4K desktop GPU/upload/long-stroke pacing before lower-normal-aware Dirt and references.

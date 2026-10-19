@@ -26,6 +26,8 @@ phase is complete. Stored Curvature maps need rebaking. See ADR-0028.
 
 Session 85: owner still rejects Edge Wear; see the Claude prompt and material-workflow roadmap.
 Local non-destructive filters/folder adjustments advance the layer roadmap (ADR-0029).
+Session 86 adds UV-space Blur/Sharpen on content/masks, including folder stages, bounded tile
+neighborhood evaluation and scaled previews (ADR-0030). This advances the layer roadmap.
 The ordered brush-phase checklist below remains unchanged.
 
 Session 73 acceptance artwork: CORE-07 is a saved 4K cube with real high-to-low bakes, editable

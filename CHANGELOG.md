@@ -18,6 +18,9 @@ What changed in SubCraft, newest first. Download the latest build from the
   column. Compact nested effects have connecting lines and collapsible domain headers.
 
 ### New
+- Non-destructive Gaussian Blur and Sharpen effects for layer content, masks and adjustment
+  folders. Radius/Amount controls, continuous cross-tile sampling, soft paint coverage without
+  dark fringes, scaled thumbnails and exact undo/save/export. Schema 10 opens older projects.
 - Non-destructive Contrast, HSL, Threshold and Clamp content filters; Contrast/Threshold/Clamp
   on masks. Select an effect for its own parameters, channel and blending. Filters preserve
   paint coverage, support undo and save in projects/Smart Materials/Masks (schema 9).

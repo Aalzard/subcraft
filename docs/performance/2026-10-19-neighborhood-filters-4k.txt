@@ -1,0 +1,30 @@
+Neighborhood filter CPU profile - 2026-10-19
+Windows; CPU: 13th Gen Intel(R) Core(TM) i5-13400F
+Optimized dev build; CARGO_INCREMENTAL=0; CARGO_PROFILE_DEV_DEBUG=line-tables-only.
+Native filters example uses mimalloc. This task ran Clippy, then each profile sequentially.
+
+Workload: default sample crate, Body + Trim, each 4096 x 4096. Procedural Clouds Base Color
+(scale 24), other channels uniform. Eight successive filter edits, 16ms simulated frames;
+background immutable-snapshot compositor, latest edit wins. Timers include app commands and
+composite publication/polling, but EXCLUDE GPU rendering/upload and real input/long strokes.
+
+Before pruning empty sources and sharing tile-independent stages (same Blur workload):
+4096², two sets, cold composite 2937.7 ms
+CPU edit/poll p50 0.547, p95 7.189, max 9.876 ms; convergence 8664.1 ms; 465 frames. GPU/render/upload excluded.
+After:
+Command: target/debug/examples/filters.exe --profile 4096 blur
+4096², two sets, cold composite 2527.3 ms
+CPU edit/poll p50 0.480, p95 0.892, max 1.121 ms; convergence 1182.9 ms; 72 frames. GPU/render/upload excluded.
+Command: target/debug/examples/filters.exe --profile 4096 sharpen
+4096², two sets, cold composite 1469.3 ms
+CPU edit/poll p50 0.596, p95 0.888, max 1.390 ms; convergence 718.0 ms; 45 frames. GPU/render/upload excluded.
+
+Blur cold radius 16; edited radii 4..11. Sharpen radius 4, cold amount 2; edited amounts 0.5..1.9.
+Convergence is measured from FIRST edit, including the eight input frames, not from last edit.
+Single runs, not a statistical CPU/GPU benchmark. Cold creation differs from warmed worker edits.
+Do not compare against the older HSL report's different scale/workload or infer desktop FPS.
+A final helper-function relocation only fixes a Clippy style warning; algorithms are unchanged.
+
+Result: stage sharing avoids redundant default-channel tiles and cache churn. Blur convergence
+improves from 8664.1 to 1182.9ms; polling p95 from 7.189 to 0.892ms in this workload.
+Full desktop GPU/upload/frame-pacing, production assets and long-stroke profiling remain pending.

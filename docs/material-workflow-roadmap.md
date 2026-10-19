@@ -52,8 +52,10 @@ Owner's requested scope. `[x]` implemented and tested; `[~]` partial (remaining 
   Properties, existing nested rows, blend/opacity/order/visibility/undo and evaluated previews.
 - [x] Folder local Filter/Levels adjustments: isolated children or passthrough lower stack,
   limited by the folder mask/opacity. Project/Smart Material/Mask schema 9; older stacks migrate.
-- [~] Point kernels and local dirty tracking complete. Neighborhood graph/halos, Blur/Sharpen,
-  GPU parity, references and full 4K desktop frame profiling remain pending (layer roadmap).
+- [x] Previous-stage CPU neighborhood DAG and bounded tile cache; conservative chained dirty
+  halos, UV-space Gaussian Blur and unsharp Sharpen on content/masks/folder adjustments.
+  Blur filters premultiplied coverage; Sharpen keeps alpha. Thumbnails scale radius (ADR-0030).
+- [ ] Render-owned GPU parity, references and full 4K desktop frame profiling (layer roadmap).
 
 ## Channels
 
