@@ -81,6 +81,8 @@ pub struct UiState {
     pub allow_close: bool,
     pub last_title: String,
     pub bake: crate::dialogs::BakeUi,
+    /// Frames before a scripted `--screenshot` is taken.
+    pub screenshot_frames: u32,
     pub uv_wireframe: bool,
     pub library: subcraft_app::assets::Library,
     pub shelf: crate::panels::shelf::ShelfUi,
@@ -159,6 +161,7 @@ impl UiState {
             allow_close: false,
             last_title: String::new(),
             bake: Default::default(),
+            screenshot_frames: 20,
             uv_wireframe: true,
             library: subcraft_app::assets::Library::builtin(),
             shelf: Default::default(),

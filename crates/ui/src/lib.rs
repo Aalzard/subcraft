@@ -4,6 +4,7 @@
 //! logic lives in `subcraft-app`.
 
 pub mod app;
+pub mod bake_window;
 pub mod bug_report;
 mod brush_bar;
 pub mod dialogs;

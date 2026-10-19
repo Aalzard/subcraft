@@ -196,3 +196,195 @@ fn id_colors_differ_per_element_and_cancel_stops() {
     p.cancel();
     assert_eq!(bake(&input, &settings(&[MeshMapKind::AmbientOcclusion]), &p).unwrap_err(), BakeError::Cancelled);
 }
+
+#[test]
+fn height_and_opacity_from_high_poly() {
+    let low = primitives::plane(2.0, 1);
+    let high = bumped_plane();
+    let (lb, hb) = (Bvh::build(&low), Bvh::build(&high));
+    let input = BakeInput { low: Geometry { mesh: &low, bvh: &lb }, high: Some(Geometry { mesh: &high, bvh: &hb }), material_slot: 0 };
+    // Cage reaches 0.2 above and below the plane.
+    let front = 0.2 / low.bounds.diagonal().max(high.bounds.diagonal());
+    let s = BakeSettings {
+        size: RES,
+        maps: vec![MeshMapKind::Height, MeshMapKind::Opacity],
+        cage_front: front,
+        cage_rear: front,
+        ..BakeSettings::default()
+    };
+    let maps = bake(&input, &s, &Progress::new()).unwrap();
+    let (height, opacity) = (&maps[&MeshMapKind::Height], &maps[&MeshMapKind::Opacity]);
+    let ts = texels(&low, 0, RES);
+    let center = ts.iter().min_by(|a, b| a.position.length().total_cmp(&b.position.length())).unwrap();
+    // Bump top is 0.15 above the plane: 0.5 + 0.5 · 0.15 / 0.2 = 0.875.
+    let h = at(height, center)[0];
+    assert!((h - 0.875).abs() < 0.03, "bump top height {h}");
+    for t in ts.iter().filter(|t| Vec2::new(t.position.x, t.position.z).length() > 0.8) {
+        assert!((at(height, t)[0] - 0.5).abs() < 0.01, "flat area at 0.5");
+    }
+    assert!(ts.iter().all(|t| at(opacity, t)[0] == 1.0), "high poly covers the whole plane");
+}
+
+#[test]
+fn opacity_is_zero_where_the_high_poly_is_missing() {
+    let low = primitives::plane(2.0, 1);
+    // High poly: only the x < 0 half of the plane.
+    let mut b = MeshBuilder::new("Half");
+    let m = b.material("M");
+    let c = |x: f32, z: f32| corner(Vec3::new(x, 0.0, z), Vec2::new(x, z));
+    b.push_triangle(m, [c(-1.0, -1.0), c(-1.0, 1.0), c(0.0, 1.0)]);
+    b.push_triangle(m, [c(-1.0, -1.0), c(0.0, 1.0), c(0.0, -1.0)]);
+    let high = b.build().unwrap();
+    let (lb, hb) = (Bvh::build(&low), Bvh::build(&high));
+    let input = BakeInput { low: Geometry { mesh: &low, bvh: &lb }, high: Some(Geometry { mesh: &high, bvh: &hb }), material_slot: 0 };
+    let s = BakeSettings { size: RES, maps: vec![MeshMapKind::Opacity], ..BakeSettings::default() };
+    let op = &bake(&input, &s, &Progress::new()).unwrap()[&MeshMapKind::Opacity];
+    for t in texels(&low, 0, RES) {
+        if t.position.x < -0.05 {
+            assert_eq!(at(op, &t)[0], 1.0);
+        } else if t.position.x > 0.05 {
+            assert_eq!(at(op, &t)[0], 0.0);
+        }
+    }
+}
+
+#[test]
+fn bent_normals_lean_away_from_occluders() {
+    let mesh = floor_with_box();
+    let maps = bake_low(&mesh, &[MeshMapKind::BentNormal], 0);
+    let bent = &maps[&MeshMapKind::BentNormal];
+    let ts = texels(&mesh, 0, RES);
+    let decode = |c: [f32; 4]| Vec3::new(c[0] * 2.0 - 1.0, c[1] * 2.0 - 1.0, c[2] * 2.0 - 1.0);
+    // Floor right next to the box's +X face: open directions lean toward +X.
+    let near: Vec<Vec3> =
+        ts.iter().filter(|t| (0.52..0.6).contains(&t.position.x) && t.position.z.abs() < 0.3).map(|t| decode(at(bent, t))).collect();
+    assert!(!near.is_empty());
+    let avg = near.iter().copied().sum::<Vec3>() / near.len() as f32;
+    assert!(avg.x > 0.2, "bent normal leans away from the box ({avg:?})");
+    for t in ts.iter().filter(|t| t.position.x.abs() > 1.6 && t.position.z.abs() > 1.6) {
+        let b = decode(at(bent, t));
+        assert!(b.y > 0.97, "open floor bends straight up ({b:?})");
+    }
+}
+
+/// Low: plane `A_low` (UV left half) and plane `C_low` far away (UV right half, no high partner).
+/// High: `A_HIGH` coincides with A; `B_high` is a sloped quad floating just above A.
+fn named_scene() -> (Mesh, Mesh) {
+    let mut lb = MeshBuilder::new("Low");
+    let m = lb.material("M");
+    let quad = |b: &mut MeshBuilder, x0: f32, u0: f32| {
+        let c = |x: f32, z: f32| corner_n(Vec3::new(x0 + x, 0.0, z), Vec3::Y, Vec2::new(u0 + (x + 1.0) * 0.24, 0.01 + (z + 1.0) * 0.49));
+        b.push_triangle(m, [c(-1.0, -1.0), c(-1.0, 1.0), c(1.0, 1.0)]);
+        b.push_triangle(m, [c(-1.0, -1.0), c(1.0, 1.0), c(1.0, -1.0)]);
+    };
+    lb.object("A_low");
+    quad(&mut lb, 0.0, 0.01);
+    lb.object("C_low");
+    quad(&mut lb, 10.0, 0.51);
+    let low = lb.build().unwrap();
+
+    let mut hb = MeshBuilder::new("High");
+    let m = hb.material("M");
+    let c = |x: f32, y: f32, z: f32| corner(Vec3::new(x, y, z), Vec2::new(0.5, 0.5));
+    hb.object("A_HIGH");
+    hb.push_triangle(m, [c(-1.0, 0.0, -1.0), c(-1.0, 0.0, 1.0), c(1.0, 0.0, 1.0)]);
+    hb.push_triangle(m, [c(-1.0, 0.0, -1.0), c(1.0, 0.0, 1.0), c(1.0, 0.0, -1.0)]);
+    hb.object("B_high");
+    // Rises from y = 0.02 to 0.06 across x in [-0.5, 0.5]: a clearly sloped normal.
+    hb.push_triangle(m, [c(-0.5, 0.02, -0.5), c(-0.5, 0.02, 0.5), c(0.5, 0.06, 0.5)]);
+    hb.push_triangle(m, [c(-0.5, 0.02, -0.5), c(0.5, 0.06, 0.5), c(0.5, 0.06, -0.5)]);
+    (low, hb.build().unwrap())
+}
+
+#[test]
+fn match_by_mesh_name_ignores_other_parts_inside_the_cage() {
+    let (low, high) = named_scene();
+    let (lb, hb) = (Bvh::build(&low), Bvh::build(&high));
+    let input = BakeInput { low: Geometry { mesh: &low, bvh: &lb }, high: Some(Geometry { mesh: &high, bvh: &hb }), material_slot: 0 };
+    let front = 0.1 / low.bounds.diagonal().max(high.bounds.diagonal());
+    let base = BakeSettings {
+        size: RES,
+        maps: vec![MeshMapKind::Normal, MeshMapKind::Opacity, MeshMapKind::Height],
+        cage_front: front,
+        cage_rear: front,
+        ..BakeSettings::default()
+    };
+    let ts = texels(&low, 0, RES);
+    let under_b: Vec<&Texel> = ts.iter().filter(|t| t.position.x.abs() < 0.3 && t.position.z.abs() < 0.3).collect();
+    let on_c: Vec<&Texel> = ts.iter().filter(|t| t.position.x > 5.0).collect();
+    assert!(under_b.len() > 50 && on_c.len() > 50);
+
+    // Always: A's texels under B pick up B's sloped normal.
+    let always = bake(&input, &base, &Progress::new()).unwrap();
+    let tilted = under_b.iter().filter(|t| (at(&always[&MeshMapKind::Normal], t)[0] - 0.5).abs() > 0.005).count();
+    assert!(tilted > under_b.len() / 2, "Always mode bleeds B into A ({tilted}/{})", under_b.len());
+
+    // By mesh name: A only sees A_HIGH (case-insensitive suffixes) and stays flat; C has no partner.
+    let named = bake(&input, &BakeSettings { match_mode: MatchMode::ByMeshName, ..base.clone() }, &Progress::new()).unwrap();
+    for t in &under_b {
+        let n = at(&named[&MeshMapKind::Normal], t);
+        assert!((n[0] - 0.5).abs() < 0.002 && (n[1] - 0.5).abs() < 0.002, "A stays flat: {n:?}");
+        assert!((at(&named[&MeshMapKind::Height], t)[0] - 0.5).abs() < 0.01);
+        assert_eq!(at(&named[&MeshMapKind::Opacity], t)[0], 1.0);
+    }
+    for t in &on_c {
+        assert_eq!(at(&named[&MeshMapKind::Opacity], t)[0], 0.0, "C_low has no high partner");
+        let n = at(&named[&MeshMapKind::Normal], t);
+        assert!((n[2] - 1.0).abs() < 0.01, "unmatched texels bake flat");
+    }
+}
+
+#[test]
+fn name_matching_report_and_suffixes() {
+    use crate::matching::{UNMATCHED, base_name, match_by_name};
+    assert_eq!(base_name("Bolt_low", "_low"), "bolt");
+    assert_eq!(base_name("  BOLT_HIGH ", "_high"), "bolt");
+    assert_eq!(base_name("_low", "_low"), "_low", "a bare suffix stays a name");
+    assert_eq!(base_name("Body", "_low"), "body");
+    let (low, high) = named_scene();
+    let g = match_by_name(&low, &high, "_low", "_high");
+    assert_eq!(g.report.matched, vec!["a".to_string()]);
+    assert_eq!(g.report.unmatched_low, vec!["C_low".to_string()]);
+    assert_eq!(g.report.unmatched_high, vec!["B_high".to_string()]);
+    assert_eq!(g.low.len(), low.triangle_count());
+    assert_eq!(g.high.iter().filter(|&&x| x == UNMATCHED).count(), 2);
+}
+
+#[test]
+fn id_by_material_and_object() {
+    let (low, _) = named_scene();
+    let ts = texels(&low, 0, RES);
+    let bvh = Bvh::build(&low);
+    let input = BakeInput { low: Geometry { mesh: &low, bvh: &bvh }, high: None, material_slot: 0 };
+    let bake_id = |source| {
+        let s = BakeSettings { size: RES, maps: vec![MeshMapKind::Id], id_source: source, ..BakeSettings::default() };
+        bake(&input, &s, &Progress::new()).unwrap().remove(&MeshMapKind::Id).unwrap()
+    };
+    let distinct = |img: &TiledImage| {
+        let mut c: Vec<[u32; 3]> =
+            ts.iter().map(|t| at(img, t)).map(|c| [(c[0] * 255.0) as u32, (c[1] * 255.0) as u32, (c[2] * 255.0) as u32]).collect();
+        c.sort();
+        c.dedup();
+        c.len()
+    };
+    assert_eq!(distinct(&bake_id(IdSource::MaterialSlot)), 1, "one material, one color");
+    assert_eq!(distinct(&bake_id(IdSource::MeshObject)), 2, "two objects, two colors");
+}
+
+#[test]
+fn maps_are_emitted_one_by_one_in_order() {
+    let mesh = primitives::cube(2.0);
+    let bvh = Bvh::build(&mesh);
+    let input = BakeInput { low: Geometry { mesh: &mesh, bvh: &bvh }, high: None, material_slot: 0 };
+    let maps = vec![MeshMapKind::Opacity, MeshMapKind::Curvature, MeshMapKind::Height];
+    let progress = Progress::new();
+    let mut seen = Vec::new();
+    bake_each(&input, &settings(&maps), &progress, |k, img| {
+        assert_eq!(img.comps(), k.components());
+        seen.push(k);
+    })
+    .unwrap();
+    assert_eq!(seen, maps);
+    assert_eq!(progress.fraction(), 1.0);
+    assert_eq!(progress.current_map(), None);
+}

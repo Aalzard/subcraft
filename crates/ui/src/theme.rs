@@ -132,6 +132,9 @@ pub fn apply(ctx: &egui::Context) {
     for s in [&mut w.noninteractive, &mut w.inactive, &mut w.hovered, &mut w.active, &mut w.open] {
         s.corner_radius = CornerRadius::same(2);
     }
+    // The app is dark-only: without this, a light OS theme makes egui use its light visuals for
+    // windows and popups (only the active theme's visuals are replaced below).
+    ctx.set_theme(egui::ThemePreference::Dark);
     ctx.set_visuals(v);
 
     ctx.global_style_mut(|s| {

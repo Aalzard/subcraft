@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-10-18 (sessions 70–71: background compositing, sparse GPU uploads, 0.1.7)
+Last updated: 2026-10-19 (session 72: Painter-style Baking window, 10 bakers, match by mesh name)
 
 ## Decisions
 
@@ -26,7 +26,7 @@ Last updated: 2026-10-18 (sessions 70–71: background compositing, sparse GPU u
 | `app` | **new**: `Session` (scene + BVH/geometry/depth caches, document + `History`, selection, brush state, active stroke, per-texture-set `CompositeCache`), undoable `Command`s (layers, visibility, rename, blend mode/opacity with coalesced drags, fill channels/projection, masks + effects), stroke lifecycle (one history entry per stroke, cancel), picking, toolkit-independent `Action` + shortcut table; project save / open with unsaved-changes tracking; texture export; background `BakeJob` feeding mesh maps to generators / export / project; shelf actions (insert preset / smart material layers, smart masks, brush alpha) and offscreen thumbnail scenes | 14 |
 | `render` | **new**: wgpu offscreen viewport: metal/roughness GGX + key light + procedural sky (analytic irradiance + split-sum), ACES, 4x MSAA to an sRGB texture; composite channels uploaded per dirty tile as f16; channel preview pass for the 2D view; Height shown as bump; studio reflections (ring of panels + overhead + key softbox, roughness-dependent blur); baked / painted AO occludes ambient light; gray previews for scalar channels and baked maps; environment parameters per frame + HDRI upload (prefiltered mips sampled by roughness, SH irradiance, rotation); headless device + readback | 7 (render on any adapter; llvmpipe here) |
 | `ui` | **new**: eframe + egui_dock workspace: 3D view (orbit/pan/zoom, painting, Shift+click lines, brush cursor), 2D view (composite + UV wireframe), Layers, Properties (fill channels, procedural patterns, projection, masks, generators/levels/invert), Brush (tools, settings, jitter, symmetry, lazy mouse, material channels), Texture Sets, History (click to jump), menus, status bar, shortcuts, dark theme, layout persistence | 2 |
-| `bake` | **new**: CPU baker: tangent-space normal (low poly MikkTSpace frame; optional high poly through a front/rear cage), world normal, position, ID (per mesh element), AO (cosine-weighted BVH rays), curvature (seam-independent 3D neighbourhood convexity, 0.5 flat), thickness; gutter padding; progress + cancel | 7 |
+| `bake` | CPU baker: tangent-space normal (low poly MikkTSpace frame; high poly through a front/rear cage), world normal, position, ID (mesh element / material / object name), AO (cosine-weighted BVH rays, optional same-name self occlusion), curvature (seam-independent 3D neighbourhood convexity, 0.5 flat), thickness, **height, bent normals, opacity**; **high→low match by mesh name** (`_low` / `_high` suffixes, `matching.rs`); maps emitted one by one (`bake_each`); gutter padding; progress (per map) + cancel | 14 |
 | `assets` | **new**: built-in brush tips (procedural) + image import; 16 material presets (measured metal reflectances, plastics, paints, procedural concrete / wood / rust / leather); 5 smart materials (folders of presets masked by Edges / Cavity / Directional generators + grunge); 5 smart masks; 5 procedural environments + HDRI import (CPU prefiltered mip chain, SH9 irradiance, sun direction) | 5 |
 | `project` | **new**: `.subcraft` zip container: `manifest.json` (format + schema version gate), `mesh.bin`, `document.json` (explicit schema v1 for texture sets / layer tree / masks / effects; small value types pinned by a golden JSON test), sparse raster blobs (`SCTILE`, only allocated tiles), baked mesh maps per texture set, original resource bytes; atomic save (temp file + rename); validation on load (resolutions, component counts, truncation) | 8 |
 | `export` | **new**: templates (PBR Metal/Rough, Unreal packed ORM + DirectX normal, Unity HDRP mask map, glTF ORM), per-component packing (invert for smoothness, constants), sRGB only for color channels in integer formats, height baked into exported normals (same math as the viewport), height as mid-gray-centered PNG16 / raw EXR, UV padding (infinite / N texels / none), file-name plan; baked AO fills a missing Ambient Occlusion channel | 6 |
@@ -1636,6 +1636,53 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   release guide. Native profiling and screenshot above use the final local 0.1.7 executable.
   Publication status and artifact checks are recorded by the GitHub release and final handoff.
 
+### Session 72 — Painter-style Baking window, 10 bakers, match by mesh name (2026-10-19)
+
+* **Bakers** (`crates/bake`): new map kinds `Height` (signed high-poly offset along the low normal,
+  0.5 = on the surface, ±max frontal/rear = 1/0), `BentNormal` (world-space mean open direction of
+  the AO rays) and `Opacity` (1 where the cage ray found the high poly). `MeshMapKind::ALL` now has
+  10 entries in Painter's order; project files store them by key (`height`, `bent_normals`,
+  `opacity`), so no schema bump. ID map color source: mesh element / material / mesh name.
+  AO + bent normals can be limited to the same name group ("Self occlusion: Only same mesh name").
+* **Match by mesh name** (`bake/src/matching.rs`): object names are trimmed, lower-cased and
+  stripped of the low / high suffix (`_low`, `_high`, editable); a low texel only projects onto high
+  triangles of the same base name (`Bvh::intersect_filtered`). Low parts without a partner bake
+  without detail (opacity 0); the job reports matched / low-only / high-only names.
+* **Streaming**: `bake_each` hands every map over as soon as it is finished; `BakeJob` installs it
+  into the session at once (3D view, 2D view, generators update while the rest bakes) and exposes
+  per-map status (queued / baking % / done / skipped), the current texture set + map and the
+  name-match report. Several high-poly files are merged (objects + material names kept).
+  High polys no longer need UVs (`import_detail_mesh`, `MeshBuilder::uvs_optional`) — before,
+  a typical UV-less sculpt export was rejected with "no UVs".
+* **Baking window** (`ui/src/bake_window.rs`, replaces the small dialog): left column = Common
+  parameters + one row per baker (checkbox, live % / ✓), center = parameters of the selected page
+  (output size, high definition meshes list with Add/Remove, max frontal/rear, Match
+  Always / By Mesh Name, suffixes, low-poly names → base names, last match report; per-baker
+  settings), right = texture sets with checkboxes ("Bake selected textures"), a "baking" badge,
+  and thumbnails of the focused set's maps that fill in as they finish (hover = large preview,
+  click = show in the 2D view). Footer: current set · map, overall %, Cancel.
+* Fixed while running it: on Windows with a **light OS theme** every egui window (Baking,
+  Preferences, Export…) was drawn with egui's light visuals, because `theme::apply` only replaced
+  the active theme's visuals. The theme is now forced to dark (`ctx.set_theme(Dark)`).
+* New CLI flags for scripted checks: `--bake`, `--bake-start`, `--bake-high <mesh>` (repeatable),
+  `--bake-by-name`, `--screenshot-frames <n>`.
+* Verified in the real app (Windows 11, RX 9060 XT, release build):
+  `subcraft --bake-start --screenshot-frames 90` caught the bake mid-way with 5 maps shown and
+  Position at 100% (`docs/screenshots/bake-window-streaming.png`); a generated low/high pair
+  (`Panel_low` + `Knob_low` box low poly; UV-less high poly with `Panel_high` riveted plate and
+  `Knob_high` sphere) baked all 10 maps by name, report "Matched 2: knob, panel"
+  (`docs/screenshots/bake-window-high-poly-by-name.png`; rivets taller than the default 0.01 cage
+  show as black dots in Opacity, as expected).
+* Tests: bake 7 → 14 (height/opacity values against the analytic bump, opacity on a half-covered
+  plane, bent normals leaning away from a box, Always-vs-By-Name bleed test, name report/suffixes,
+  ID by material/object, emit order); app `tests/bake.rs` (streaming from two high-poly files with
+  name matching + project round trip of the new maps, merge, previews); mesh UV-less detail mesh;
+  ui request order/exclusion. `cargo test --workspace`: **426 passed, 0 failed**. Clippy: no
+  warnings in the new/changed bake files.
+* Build note for this PC: the default `stable-x86_64-pc-windows-gnu` toolchain fails to link
+  (`lld: unable to find library -lgcc_eh`, llvm-mingw on PATH); `cargo +stable-x86_64-pc-windows-gnullvm`
+  builds and tests everything.
+
 ## Next steps (in order)
 
 Pending owner cleanup request: remove obsolete build artifacts only when the environment's
@@ -1689,8 +1736,8 @@ Earlier roadmap details (historical; the brush phase order above takes precedenc
    materials / masks~~ (session 16); ~~shelf search and categories~~ (session 17);
    ~~brush presets~~ (session 18), ~~drag-and-drop from shelf~~ (session 19).
 3. Stencils / projection painting with an image; clone tool; smudge / blur filter layers.
-4. Bake follow-ups: per-material high-poly matching by name, cage mesh support, anti-aliased
-   (supersampled) bakes, GPU baking for large meshes.
+4. Bake follow-ups: ~~high-poly matching by name~~ (session 72), cage mesh support, anti-aliased
+   (supersampled) bakes, GPU baking for large meshes, per-texture-set output size.
 5. ~~Autosave~~ (session 28) + recent files; export presets saved per project; custom export templates editor.
 6. UI follow-ups: drag-and-drop layer reordering, inline rename, eyedropper, painting in the
    2D view, texture-set resolution change, camera FOV / ortho toggle, texture mipmaps.

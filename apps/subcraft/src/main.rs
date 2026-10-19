@@ -60,6 +60,14 @@ fn main() -> anyhow::Result<()> {
             "--demo" => options.demo = true,
             "--view-2d" => options.view_2d = true,
             "--brush-panel" => options.brush_panel = true,
+            "--bake" => options.bake = true,
+            "--bake-start" => options.bake_start = true,
+            "--bake-high" => options.bake_high.extend(args.next().map(Into::into)),
+            "--bake-by-name" => options.bake_by_name = true,
+            "--screenshot-frames" => {
+                options.screenshot_frames =
+                    Some(args.next().and_then(|n| n.parse().ok()).ok_or_else(|| anyhow::anyhow!("--screenshot-frames expects a frame count"))?);
+            }
             "--screenshot" => options.screenshot = args.next().map(Into::into),
             "--recover" => options.recover = true,
             "--test-crash" => options.test_crash = true,
@@ -73,7 +81,7 @@ fn main() -> anyhow::Result<()> {
                 options.autosave_interval = args.next().and_then(|s| s.parse::<f64>().ok()).map(std::time::Duration::from_secs_f64);
             }
             "-h" | "--help" => {
-                println!("usage: subcraft [project.subcraft | mesh file] [--demo] [--view-2d] [--brush-panel] [--screenshot out.png] [--welcome] [--quick-start] [--guide-step 1..6] [--recover] [--autosave-interval seconds]");
+                println!("usage: subcraft [project.subcraft | mesh file] [--demo] [--view-2d] [--brush-panel] [--bake] [--bake-start] [--bake-high mesh]... [--bake-by-name] [--screenshot out.png] [--screenshot-frames n] [--welcome] [--quick-start] [--guide-step 1..6] [--recover] [--autosave-interval seconds]");
                 return Ok(());
             }
             path => options.mesh = Some(path.into()),

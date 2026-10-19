@@ -225,6 +225,8 @@ pub struct MeshBuilder {
     objects: Vec<MeshObject>,
     tri_object: Vec<Option<u32>>,
     current_object: Option<u32>,
+    /// Accept meshes without any UVs (high-poly detail meshes for baking are never painted).
+    uvs_optional: bool,
     pub stats: BuildStats,
 }
 
@@ -248,6 +250,12 @@ pub struct BuildStats {
 impl MeshBuilder {
     pub fn new(name: impl Into<String>) -> Self {
         Self { name: name.into(), ..Default::default() }
+    }
+
+    /// Accept a mesh without UVs (missing UVs read as zero). For bake detail meshes only.
+    pub fn uvs_optional(mut self) -> Self {
+        self.uvs_optional = true;
+        self
     }
 
     /// Get or create a material slot by name.
@@ -296,7 +304,7 @@ impl MeshBuilder {
         if tri_count == 0 {
             return Err(BuildError::NoTriangles);
         }
-        if self.stats.missing_uv_triangles == tri_count {
+        if self.stats.missing_uv_triangles == tri_count && !self.uvs_optional {
             return Err(BuildError::NoUvs);
         }
 
@@ -478,5 +486,17 @@ mod tests {
         let c = |p: [f32; 3]| Corner { position: Vec3::from(p), normal: None, uv: None };
         b.push_triangle(m, [c([0.0, 0.0, 0.0]), c([1.0, 0.0, 0.0]), c([0.0, 1.0, 0.0])]);
         assert!(matches!(b.build(), Err(BuildError::NoUvs)));
+    }
+
+    #[test]
+    fn detail_meshes_may_have_no_uvs() {
+        let mut b = MeshBuilder::new("t").uvs_optional();
+        let m = b.material("");
+        let c = |p: [f32; 3]| Corner { position: Vec3::from(p), normal: None, uv: None };
+        b.push_triangle(m, [c([0.0, 0.0, 0.0]), c([1.0, 0.0, 0.0]), c([0.0, 1.0, 0.0])]);
+        let mesh = b.build().unwrap();
+        assert!(mesh.validate().is_empty(), "{:?}", mesh.validate());
+        assert!(mesh.tangents.iter().all(|t| t.is_finite()));
+        assert!((mesh.normals[0] - Vec3::Z).length() < 1e-5);
     }
 }
