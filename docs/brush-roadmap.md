@@ -23,6 +23,10 @@ persistent bake feedback. No additional brush phase is marked complete (ADR-0019
 Session 76 adds document-level Bilinear/Nearest albedo filtering for pixel art (ADR-0020),
 including textured stroke sampling and exports. This does not complete another brush phase.
 
+Session 77 adds bake geometry inspection (blue high/red exposed low, front/rear cage) and
+map-by-map live bake display (ADR-0021). Full cage-error classification, custom cages, matching
+by name, Height baking and intra-map tile previews remain pending. No brush phase changes.
+
 Build housekeeping (session 62): latest tested binary consolidated into
 `target/release/subcraft.exe`. Removing obsolete versions/caches remains blocked by automatic
 approval review; no artifacts were deleted. This does not change feature completion below.

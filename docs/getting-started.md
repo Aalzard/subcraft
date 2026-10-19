@@ -297,6 +297,32 @@ Developers can regenerate comparison projects and exports with the `retro_albedo
 
 Open the **low-poly** model with its UVs first, then click **Bake**. In **High poly → Browse…**,
 choose the detailed OBJ, FBX, GLB or glTF source. The high-poly source does **not** need UVs.
+
+Before pressing Bake, leave **High / low overlay** enabled: the source loads in the background
+and appears over the low-poly model in its exported coordinates. **Blue** is the high-poly
+surface; **red** shows exposed low-poly surfaces sticking through it. Orbit with RMB (or
+Alt+LMB), pan with MMB and zoom with the wheel to inspect all sides. **Cage wireframe** shows
+the front/rear projection limits; changing **Cage front / rear** updates those lines live.
+This is a surface comparison, not a complete cage-error heatmap: blue does not guarantee every
+detail lies inside the cage. Export both models in matching coordinates; SubCraft does not
+automatically align or rescale them.
+Use **Reload high poly** after re-exporting a sculpt to refresh the overlay. Baking detects a
+changed source file and imports it again rather than reusing stale preview geometry.
+
+With **Live maps** and **Follow bake** enabled, each finished map appears on the low-poly model
+while the next map computes. The progress text names the map currently baking. The map menu
+lets you inspect a finished map or choose **Material**; selecting one stops automatic following.
+Scalar maps display grayscale. Updates happen one complete map at a time, including UV padding;
+there is no animated texel wipe. Supported maps are Normal, World Space Normal, ID, Ambient
+Occlusion, Curvature, Position and Thickness; Height baking is not implemented yet.
+Switch Live maps off to retain the material view. Close the dialog to return to painting.
+**Inspect high / low geometry** returns to the overlay after a bake. Cancel retains maps that
+already finished and discards the incomplete map. The normal layer may therefore remain after
+cancelling a later map. These preview controls do not change your material or export settings.
+
+![High and low model inspection with the cage](screenshots/bake-high-low-overlay.png)
+
+![A finished 4K normal map displayed while the next map bakes](screenshots/bake-live-normal-4k.png)
 Export both meshes in the same position, orientation and scale. Choose a bake size and maps,
 then press **Bake** in the dialog. Loading/BVH/bake progress appears there; the result or error
 stays visible until you start another bake.

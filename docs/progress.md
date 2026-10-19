@@ -1789,7 +1789,58 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   browser runtime, or 4K long-stroke/frame pacing. Tests include both stroke filters and prior
   high-poly bake regressions. Owner's open release window and published 0.1.7 are unchanged.
 
+### Session 77 — Codex: bake geometry inspection and live map display (2026-10-19)
+
+* **Geometry inspection:** `app::BakePreviewJob` imports high-poly sources asynchronously using
+  the existing UV-optional importer. Blue high-poly and red exposed low-poly surfaces share
+  their imported frame in a separate depth-tested `render::bake_preview` pass. Front/rear cage
+  lines use the baker's shading normals and diagonal scale; distance changes only update GPU
+  uniforms. Bake dialog controls toggle geometry, cage and live maps; Reload high poly refreshes
+  an edited sculpt. Cached import reuse checks path, length and modification time before baking.
+  Obsolete scene/path imports are discarded. No document/schema fields changed (still schema 6).
+* **Live maps:** `bake::bake_streamed` publishes each finished, padded image in request order;
+  the synchronous `bake` wrapper returns exactly the same result. The app installs one map per
+  poll and exposes the newest map/current computation stage. The 3D view follows those maps or
+  pins a completed map/Material, with independent raw RGB/grayscale bind groups. Pending sets
+  display neutral values. Closing Bake restores the saved viewport mode; 3D painting is
+  suppressed in bake mode while navigation remains available. Normal connects through the
+  existing live normal layer immediately; authored material channels are not overwritten.
+  Cancellation retains completed maps and discards the unfinished one. Dropping cancels jobs;
+  queued bake results cannot affect a different scene. ADR-0021 records these contracts.
+* Added seven tests across `bake`, `app`, `render`, `ui`: exact streamed/synchronous convergence,
+  padded flat-normal numeric values and ordered callbacks; cancellation between maps; separate
+  map installation/material isolation; scene rejection; UV-less preview import preserving its
+  exported offset plus source-cache invalidation; real-GPU depth colors/cage/RGB/scalar values,
+  material restoration and MSAA; transient UI scene/path invalidation. Existing bake/export,
+  inspector, undo/save and albedo reconstruction tests remain active.
+* Validation: **436 workspace tests pass, 0 failed/ignored** (seven added); workspace/all-target
+  Clippy exits 0 with existing warnings. CARGO_INCREMENTAL=0 and
+  CARGO_PROFILE_DEV_DEBUG=line-tables-only, -j 1. Built and ran `target/debug/subcraft.exe` on
+  NVIDIA RTX 4060 / DX12. Implementation commit **e5ae217**, branch unchanged.
+* Native evidence inspected: `screenshots/bake-high-low-overlay.png` shows the real 3,072-triangle
+  low model and 442,368-triangle UV-less high source together, with blue panels, red protruding
+  low surfaces and both cage bounds. `screenshots/bake-live-normal-4k.png` shows an actual
+  completed 4096² Normal map on the object while World Space Normal is computing (22% overall).
+  `screenshots/bake-live-ao.png` shows finished 1024² AO while Curvature computes (58%). Pinned
+  screenshot runs quit at those real worker/GPU milestones; they do not finish all seven maps.
+  `screenshots/bake-live-complete.png` runs all seven at 256² through successful completion and
+  automatic following to Thickness. CLI startup/screenshot controls only; no mouse input or
+  edits to the owner's work. Temporary fixtures/data are under `%TEMP%/subcraft-bake-preview-native`.
+  The 4K run took ~19.9 s to its Normal screenshot including startup/import, not a frame-time or
+  full-bake benchmark. Regular Material restoration is GPU-tested, not physically clicked here.
+* Limits: red/blue is a depth-visible surface comparison, not a complete cage/projection-error
+  heatmap. Blue high geometry beyond the front cage can still be missed by baking. No automatic
+  alignment, custom cage or matching-by-name feature is implied. Preview updates complete maps,
+  not partial texel tiles; Height mesh-map baking is not implemented. Physical UI gestures,
+  owner source files, production FBX/GLB, browser and long 4K navigation/frame pacing are not
+  hand-verified this session. No new brush phases, release or push.
+
 ## Next steps (in order)
+
+Bake preview follow-up: owner checks blue/red overlap, front/rear distances and live map
+selection with their original source pair. Add a full projection-miss/cage-error heatmap,
+mesh-name matching and custom cages next; Height baking and intra-map tile updates are not
+implemented. Profile production 4K baking/navigation before making frame-pacing claims.
 
 Albedo follow-up: owner checks the updated build on their pixel-art assets and configures
 nearest/point runtime sampling in their game engine. Then continue the pending bake and layer

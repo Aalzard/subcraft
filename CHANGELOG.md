@@ -6,6 +6,10 @@ What changed in SubCraft, newest first. Download the latest build from the
 ## Unreleased
 
 ### New
+- Bake inspection: blue high-poly/red exposed low-poly surfaces and adjustable front/rear
+  cage wireframe before baking. Geometry retains its exported alignment.
+- Live bake maps: completed maps appear on the low-poly model while remaining maps compute;
+  follow automatically or inspect a finished map, then return to the material view.
 - Albedo filtering: choose Bilinear or Nearest beneath Resolution in the 3D toolbar or Texture
   Sets panel. Nearest preserves imported pixel art through projection, painting, working-size
   changes, preview and exported maps. The choice is undoable and saved per texture set.
