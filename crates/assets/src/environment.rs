@@ -71,6 +71,47 @@ pub struct PrefilteredHdri {
 pub enum EnvironmentSource {
     Procedural(ProceduralEnv),
     Hdri(Arc<PrefilteredHdri>),
+    /// A built-in panorama, decoded and prefiltered the first time it is used.
+    Embedded(Arc<EmbeddedHdri>),
+}
+
+impl EnvironmentSource {
+    /// The prefiltered panorama of an HDRI source (prefiltering an embedded one on first use).
+    pub fn hdri(&self) -> Option<Result<Arc<PrefilteredHdri>, String>> {
+        match self {
+            EnvironmentSource::Procedural(_) => None,
+            EnvironmentSource::Hdri(h) => Some(Ok(h.clone())),
+            EnvironmentSource::Embedded(e) => Some(e.load()),
+        }
+    }
+}
+
+/// Encoded panorama bytes compiled into the binary.
+pub struct EmbeddedHdri {
+    pub file: &'static str,
+    bytes: &'static [u8],
+    prefiltered: std::sync::OnceLock<Result<Arc<PrefilteredHdri>, String>>,
+}
+
+impl EmbeddedHdri {
+    pub fn new(file: &'static str, bytes: &'static [u8]) -> Self {
+        Self { file, bytes, prefiltered: std::sync::OnceLock::new() }
+    }
+
+    pub fn load(&self) -> Result<Arc<PrefilteredHdri>, String> {
+        self.prefiltered
+            .get_or_init(|| {
+                let bmp = subcraft_image::io::decode_bitmap(self.bytes, Some(self.file)).map_err(|e| format!("{}: {e}", self.file))?;
+                Ok(Arc::new(prefilter(&bmp)))
+            })
+            .clone()
+    }
+}
+
+impl std::fmt::Debug for EmbeddedHdri {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EmbeddedHdri").field("file", &self.file).field("bytes", &self.bytes.len()).finish()
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -137,6 +178,9 @@ pub fn builtin() -> Vec<Environment> {
             },
         ),
     ]
+    .into_iter()
+    .chain(crate::open_pack::environments())
+    .collect()
 }
 
 /// Direction for equirect texel coordinates (0..1).

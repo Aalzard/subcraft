@@ -1,4 +1,5 @@
 use glam::Vec3;
+use subcraft_core::ChannelKind;
 use subcraft_doc::{LayerContent, TextureSet};
 use subcraft_image::Bitmap;
 
@@ -36,11 +37,13 @@ fn presets_build_for_a_texture_set() {
     let lib = Library::builtin();
     let ts = TextureSet::new("T", 0, 256);
     for m in &lib.materials {
-        let layer = m.build(&ts);
+        let (ids, _) = presets::decode_images(&m.images);
+        let layer = m.build_with(&ts, &ids);
         let LayerContent::Fill(f) = &layer.content else { panic!("{} is a fill", m.name) };
         let enabled: Vec<_> = f.channels.iter().filter(|(_, c)| c.enabled).map(|(k, _)| *k).collect();
         assert!(!enabled.is_empty(), "{}", m.name);
-        assert!(enabled.iter().all(|k| m.channels.iter().any(|(pk, _)| pk == k)), "{}: only preset channels enabled", m.name);
+        let in_preset = |k: &ChannelKind| m.channels.iter().any(|(pk, _)| pk == k) || m.images.iter().any(|i| i.channel == *k);
+        assert!(enabled.iter().all(in_preset), "{}: only preset channels enabled", m.name);
     }
     for s in &lib.smart_materials {
         let layer = s.build(&ts);

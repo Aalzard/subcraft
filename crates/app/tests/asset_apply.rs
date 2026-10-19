@@ -40,3 +40,52 @@ fn identical_adjusted_images_share_one_resource_and_channel_drop_keeps_strength(
 fn adjusted_imported_maps_keep_their_channel_classification() {
     let mut s=session();Destination::capture(&s,None).apply(&mut s,"Wood_Roughness",Kind::Texture,Bitmap::new_u8(1,1,1,vec![70])).unwrap();let LayerContent::Fill(f)=&s.selected_layer().unwrap().content else{panic!()};assert!(f.channels[&ChannelKind::Roughness].enabled);assert!(!f.channels[&ChannelKind::BaseColor].enabled);
 }
+
+#[test]
+fn open_pack_material_imports_its_images_once_and_composites_image_detail() {
+    let mut s = session();
+    let lib = subcraft_assets::Library::builtin();
+    let m = lib.materials.iter().find(|m| m.name == "Metal Plates").unwrap();
+    let before = s.resources().iter().count();
+    s.add_material(m).unwrap();
+    assert_eq!(s.history().undo_label(), Some("Material: Metal Plates"));
+    assert_eq!(s.resources().iter().count(), before + m.images.len());
+    let layer = s.selected_layer().unwrap();
+    let LayerContent::Fill(f) = &layer.content else { panic!() };
+    for img in &m.images {
+        assert!(matches!(f.channels[&img.channel].source, FillSource::Bitmap { .. }), "{:?}", img.channel);
+    }
+    // Applying it again reuses the same resources (no duplicate image data in the project).
+    s.add_material(m).unwrap();
+    assert_eq!(s.resources().iter().count(), before + m.images.len());
+    s.update_composites();
+    let ts = s.selected_texture_set().id;
+    let color = s.composite(ts).unwrap().channel(ChannelKind::BaseColor).unwrap().to_dense();
+    let (lo, hi) = color.chunks(4).fold((f32::MAX, f32::MIN), |(lo, hi), p| (lo.min(p[0]), hi.max(p[0])));
+    assert!(hi - lo > 0.02 && hi > lo * 1.5, "image detail reaches the composite ({lo}..{hi})");
+}
+
+#[test]
+fn textured_smart_material_brings_its_images_and_is_one_undo_step() {
+    let mut s = session();
+    let lib = subcraft_assets::Library::builtin();
+    let smart = lib.smart_materials.iter().find(|m| m.name == "Painted Steel Plates").unwrap();
+    let entries = s.history().entries().len();
+    s.add_smart_material(smart).unwrap();
+    assert_eq!(s.history().entries().len(), entries + 1);
+    let folder = s.selected_layer().unwrap();
+    let LayerContent::Fill(base) = &folder.children()[0].content else { panic!() };
+    let FillSource::Bitmap { resource } = base.channels[&ChannelKind::BaseColor].source else { panic!("image base color") };
+    assert!(s.resources().get(resource).is_some());
+}
+
+#[test]
+fn builtin_brush_presets_find_their_tips_and_set_the_brush() {
+    let mut s = session();
+    let tips = subcraft_assets::alphas::builtin();
+    for p in subcraft_app::brush_preset::builtin() {
+        assert_eq!(s.apply_brush_preset(&p, &tips), None, "{}", p.name);
+        assert_eq!(s.brush.settings, p.settings);
+        assert_eq!(s.brush.alpha_name, p.tip.clone().unwrap_or_else(|| "Round".into()), "{}", p.name);
+    }
+}

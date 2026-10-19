@@ -158,3 +158,61 @@ pub fn load_brush_presets(lib: &UserLibrary) -> (Vec<BrushPreset>, Vec<String>) 
 fn display_name(path: &Path, fallback: &str) -> String {
     path.file_stem().and_then(|s| s.to_str()).map(str::to_string).unwrap_or_else(|| fallback.to_string())
 }
+
+/// Ready-made brush presets on the built-in tips (`subcraft_assets::alphas::builtin`).
+pub fn builtin() -> Vec<BrushPreset> {
+    use subcraft_core::{ChannelKind::*, ChannelValue};
+    let rgb = ChannelValue::rgb;
+    let s = ChannelValue::scalar;
+    let preset = |name: &str, tip: Option<&str>, settings: BrushSettings, channels: &[(subcraft_core::ChannelKind, ChannelValue)]| BrushPreset {
+        format: FORMAT.into(),
+        version: 2,
+        name: name.into(),
+        tip: tip.map(Into::into),
+        settings,
+        options: StrokeOptions::default(),
+        material: BrushMaterial::with(channels),
+        images: Vec::new(),
+        user_file: None,
+    };
+    let d = BrushSettings::default();
+    vec![
+        preset("Soft Airbrush", None, BrushSettings { size: 12.0, hardness: 0.0, flow: 0.15, spacing: 0.08, ..d }, &[]),
+        preset(
+            "Dirt Grunge",
+            Some("Grunge"),
+            BrushSettings { size: 10.0, flow: 0.45, spacing: 0.3, size_jitter: 0.35, angle_jitter_deg: 180.0, ..d },
+            &[(BaseColor, rgb(0.06, 0.045, 0.03)), (Roughness, s(0.92)), (Metallic, s(0.0))],
+        ),
+        preset(
+            "Rust Spatter",
+            Some("Splatter"),
+            BrushSettings { size: 8.0, flow: 0.8, spacing: 0.6, size_jitter: 0.5, angle_jitter_deg: 180.0, position_jitter: 0.4, ..d },
+            &[(BaseColor, rgb(0.28, 0.09, 0.03)), (Roughness, s(0.85)), (Metallic, s(0.0))],
+        ),
+        preset(
+            "Bare Metal Scratches",
+            Some("Scratches"),
+            BrushSettings { size: 6.0, flow: 0.8, spacing: 0.4, angle_jitter_deg: 25.0, follow_path: true, ..d },
+            &[(BaseColor, rgb(0.56, 0.57, 0.58)), (Roughness, s(0.3)), (Metallic, s(1.0))],
+        ),
+        preset(
+            "Spray Paint",
+            Some("Spray"),
+            BrushSettings { size: 9.0, flow: 0.35, spacing: 0.15, ..d },
+            &[(BaseColor, rgb(0.6, 0.6, 0.6)), (Roughness, s(0.5)), (Metallic, s(0.0))],
+        ),
+        preset(
+            "Engraved Line",
+            Some("Line"),
+            BrushSettings { size: 1.5, hardness: 0.9, spacing: 0.05, follow_path: true, ..d },
+            &[(Height, s(-0.4))],
+        ),
+        preset(
+            "Raised Rivet",
+            None,
+            BrushSettings { size: 2.0, hardness: 0.3, spacing: 4.0, ..d },
+            &[(Height, s(0.6))],
+        ),
+    ]
+}

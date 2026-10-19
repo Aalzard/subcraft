@@ -1233,7 +1233,8 @@ impl Session {
 
     /// Add a material preset as a fill layer above the selection.
     pub fn add_material(&mut self, preset: &subcraft_assets::MaterialPreset) -> Result<(), CommandError> {
-        let layer = preset.build(self.selected_texture_set());
+        let ids = self.import_preset_images(&preset.images)?;
+        let layer = preset.build_with(self.selected_texture_set(), &ids);
         self.execute(Command::InsertLayer { layer: Box::new(layer), label: format!("Material: {}", preset.name) })
     }
 
@@ -1242,8 +1243,20 @@ impl Session {
         for r in smart.resources() {
             self.resources.insert_shared(r.clone());
         }
-        let layer = smart.build(self.selected_texture_set());
+        let ids = self.import_preset_images(smart.images())?;
+        let layer = smart.build_with(self.selected_texture_set(), &ids);
         self.execute(Command::InsertLayer { layer: Box::new(layer), label: format!("Smart Material: {}", smart.name) })
+    }
+
+    /// Import a built-in preset's embedded images (reusing identical ones already in the project),
+    /// so the layer's image fills resolve and saving embeds them.
+    fn import_preset_images(&mut self, images: &[subcraft_assets::PresetImage]) -> Result<subcraft_assets::ImageIds, CommandError> {
+        let mut ids = subcraft_assets::ImageIds::new();
+        for img in images {
+            let id = self.import_image_bytes(img.name, img.bytes.to_vec()).map_err(CommandError::Invalid)?;
+            ids.insert(img.name, id);
+        }
+        Ok(ids)
     }
 
     /// Apply a smart mask to the selected layer.
