@@ -362,6 +362,16 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
                             changed |= ui.selectable_value(&mut g.kind, kind, kind.label()).changed();
                         }
                     }));
+                    if g.kind == GeneratorKind::Edges {
+                        let mut natural = g.edge_spread.is_some();
+                        if ui.checkbox(&mut natural, "Natural edge wear").on_hover_text("Surface-constrained spread with an irregular boundary. Older projects retain their original wear until enabled.").changed() {
+                            g.edge_spread = natural.then(subcraft_doc::EdgeSpread::default); changed = true;
+                        }
+                        if let Some(spread) = &mut g.edge_spread {
+                            changed |= slider_row(ui, "Spread", egui::Slider::new(&mut spread.distance, 0.0..=12.5).suffix("%")).on_hover_text("Reach as a percentage of the model's longest dimension at Level 0.5. Follows connected edges, not UV islands.").changed();
+                            changed |= slider_row(ui, "Variation", egui::Slider::new(&mut spread.variation, 0.0..=1.0)).on_hover_text("Irregular edge boundary, independent of Breakup. Zero gives a clean geometric band.").changed();
+                        }
+                    }
                     changed |= slider_row(ui, "Level", egui::Slider::new(&mut g.level, 0.0..=1.0)).changed();
                     changed |= slider_row(ui, "Softness", egui::Slider::new(&mut g.softness, 0.0..=1.0)).changed();
                     changed |= slider_row(ui, "Breakup", egui::Slider::new(&mut g.noise_amount, 0.0..=1.0)).changed();
@@ -375,7 +385,9 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
                             g.noise.seed = g.noise.seed.wrapping_add(1); changed = true;
                         }
                     });
-                    changed |= ui.checkbox(&mut g.organic_breakup, "Reduce repetition").changed();
+                    if g.kind != GeneratorKind::Edges || g.edge_spread.is_none() {
+                        changed |= ui.checkbox(&mut g.organic_breakup, "Reduce repetition").changed();
+                    }
                     prop_row(ui, "", |ui| changed |= ui.checkbox(&mut g.invert, "Invert").changed());
                     if g.kind == GeneratorKind::Directional {
                         prop_row(ui, "Direction", |ui| { for value in &mut g.direction {
@@ -634,6 +646,9 @@ mod generator_tests {
         };
         let (out, _) = draw(&mut state, vec![]);
         assert!(out.shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Text(t) if t.galley.text() == "Pattern size")));
+        for label in ["Natural edge wear", "Spread", "Variation"] {
+            assert!(out.shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Text(t) if t.galley.text() == label)));
+        }
         let pos = out.shapes.iter().find_map(|s| match &s.shape { egui::Shape::Text(t) if t.galley.text() == "Next" => Some(t.pos + t.galley.size()*0.5), _ => None }).unwrap();
         let button = |pressed| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
         draw(&mut state, vec![egui::Event::PointerMoved(pos), button(true)]);

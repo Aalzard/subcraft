@@ -19,7 +19,8 @@ use uuid::Uuid;
 // 5: per-layer content effect stacks (`content_effects`; absent = none, so 1-4 load unchanged).
 // 6: texture-set albedo filtering; schemas 1–5 migrate to Bilinear.
 // 7: organic generator breakup; absent in schemas 1–6 means legacy projected noise.
-pub const SCHEMA_VERSION: u32 = 7;
+// 8: geometry-aware edge spread/variation; absent in schemas 1–7 retains legacy evaluation.
+pub const SCHEMA_VERSION: u32 = 8;
 pub const FORMAT_NAME: &str = "subcraft-project";
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

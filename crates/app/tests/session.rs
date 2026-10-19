@@ -298,6 +298,7 @@ fn background_bake_feeds_smart_mask_generators_and_survives_save() {
     .unwrap();
     s.execute(Command::AddMask { layer: fill, white: false }).unwrap();
     let mut g = Generator::new(GeneratorKind::Edges);
+    g.edge_spread = None; // This test exercises legacy baked-map dependency, not geometric wear.
     g.level = 0.6;
     g.softness = 0.05;
     s.execute(Command::AddMaskEffect { layer: fill, kind: MaskEffectKind::Generator(g) }).unwrap();

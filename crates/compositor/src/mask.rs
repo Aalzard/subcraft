@@ -68,6 +68,10 @@ fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
 /// Generator coverage: a mesh-derived raw value thresholded at `level` (optionally broken up by
 /// noise) with a `softness`-wide transition.
 fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]]) {
+    if g.kind == GeneratorKind::Edges && let Some(spread) = g.edge_spread {
+        eval_edge_spread(g, spread, tc, out);
+        return;
+    }
     let geo = tc.geo;
     let mut map = vec![[0.0f32; 3]; TILE_TEXELS];
     let map_kind = match g.kind {
@@ -102,6 +106,37 @@ fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]]) {
             g.level
         };
         let v = smoothstep(level - half, level + half, raw);
+        *o = [if g.invert { 1.0 - v } else { v }, 1.0, 0.0, 0.0];
+    }
+}
+
+fn eval_edge_spread(g: &Generator, spread: subcraft_doc::EdgeSpread, tc: &TileContext, out: &mut [[f32; 4]]) {
+    let distances = tc.set_geometry.edge_distance_tile(tc.geo);
+    // Variation changes the boundary even at zero Breakup. Breakup additionally erodes patches;
+    // both share one cached non-periodic volume field and the existing Pattern size/Seed.
+    let noise = subcraft_materials::sample::organic_tile(&g.noise, tc.geo);
+    let mut curvature = vec![[0.0; 3]; TILE_TEXELS];
+    tc.sample.mesh_maps.read_tile(MeshMapKind::Curvature, tc.geo, &mut curvature);
+    let radius = spread.distance.clamp(0.0, 12.5) * 0.01 * g.level.clamp(0.0, 1.0) * 2.0;
+    let variation = spread.variation.clamp(0.0, 1.0);
+    let breakup = g.noise_amount.clamp(0.0, 1.0);
+    let softness = g.softness.clamp(0.02, 1.0);
+    for (i, o) in out.iter_mut().enumerate() {
+        let n = noise[i];
+        // Fractal volume values cluster near 0.5. Expand their useful range so Variation has
+        // visible width changes, rather than an almost straight band at small Spread values.
+        let boundary = ((n - 0.5) * 3.0).clamp(-0.5, 0.5);
+        let reach = radius * (1.0 + variation * boundary * 1.8) * (1.0 - breakup * 0.7 * (1.0 - n));
+        let geometric = if reach > 0.0 { 1.0 - smoothstep(reach * (1.0 - softness), reach, distances[i]) } else { 0.0 };
+        // Keep baked rounded/high-poly detail, but explicitly exclude the neutral flat baseline.
+        // Geometric sources are independent of contact curvature from other crate components.
+        let convex = ((curvature[i][0] - 0.5) * 2.0).clamp(0.0, 1.0);
+        let threshold = 1.0 - g.level + (n - 0.5) * breakup + boundary * variation * 0.5;
+        let baked = if convex > 1e-4 && g.level > 0.0 {
+            smoothstep(threshold - softness * 0.5, threshold + softness * 0.5, convex)
+        } else { 0.0 };
+        let holes = if breakup > 0.0 { smoothstep(breakup * 0.65 - 0.2, breakup * 0.65, n) } else { 1.0 };
+        let v = geometric.max(baked) * holes;
         *o = [if g.invert { 1.0 - v } else { v }, 1.0, 0.0, 0.0];
     }
 }

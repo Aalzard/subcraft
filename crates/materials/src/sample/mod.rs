@@ -6,6 +6,7 @@
 
 pub mod field;
 pub mod geometry;
+pub mod edge_distance;
 pub mod mesh_maps;
 pub mod projection;
 

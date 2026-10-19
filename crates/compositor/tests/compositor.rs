@@ -457,7 +457,7 @@ fn organic_edge_breakup_matches_numeric_coverage_and_seed_size_invalidate_cached
     let mut ts = texture_set(); let tc = ts.clone();
     let mut layer = fill_layer(&tc, &[(ChannelKind::Roughness, ChannelValue::scalar(1.))]);
     let mut mask = Mask::new(RES, false);
-    let mut generator = Generator::new(GeneratorKind::Edges); generator.level = 0.6;
+    let mut generator = Generator::new(GeneratorKind::Edges); generator.level = 0.6; generator.edge_spread = None;
     mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Generator(generator))));
     layer.mask = Some(mask); let id = ts.insert_above(None, layer);
     let mut cache = CompositeCache::new(); cache.update(&ts, &fx.ctx());
@@ -482,6 +482,78 @@ fn organic_edge_breakup_matches_numeric_coverage_and_seed_size_invalidate_cached
         let changes = first.channel(ChannelKind::Roughness).unwrap().to_dense().iter()
             .zip(cache.composite().unwrap().channel(ChannelKind::Roughness).unwrap().to_dense()).filter(|(a, b)| (**a - b).abs() > 0.02).count();
         assert!(changes > 1000, "size/seed should change the visible breakup: {changes}");
+    }
+}
+
+#[test]
+fn natural_spread_matches_surface_distance_golden_and_varies_at_zero_breakup() {
+    let fx = Fixture::with_mesh(primitives::cube(2.0));
+    let mut ts = texture_set(); let tc = ts.clone();
+    let mut layer = fill_layer(&tc, &[(ChannelKind::Roughness, ChannelValue::scalar(1.0))]);
+    let mut mask = Mask::new(RES, false);
+    let mut g = Generator::new(GeneratorKind::Edges); g.noise_amount = 0.0; g.softness = 0.25;
+    g.edge_spread = Some(subcraft_doc::EdgeSpread { distance: 8.0, variation: 0.9 });
+    mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Generator(g)))); layer.mask = Some(mask);
+    let id = ts.insert_above(None, layer);
+    let mut cache = CompositeCache::new(); cache.update(&ts, &fx.ctx());
+    let first = cache.composite().unwrap().clone();
+    let mut checked = 0;
+    for t in 0..fx.geo.tile_count() {
+        let geo = fx.geo.tile(t);
+        for i in (0..4096).step_by(17) {
+            if geo.coverage(i) < 1.0 { continue; }
+            let p = geo.position(i); let n = geo.normal(i);
+            let distance = [0, 1, 2].into_iter().filter(|&axis| n[axis].abs() < 0.5)
+                .map(|axis| p[axis].min(1.0 - p[axis])).fold(f32::INFINITY, f32::min).max(0.0);
+            let noise = subcraft_materials::organic::eval(&g.noise, p);
+            let reach = 0.08 * (1.0 + 0.9 * ((noise - 0.5) * 3.0).clamp(-0.5, 0.5) * 1.8);
+            let t = ((distance - reach * 0.75) / (reach * 0.25)).clamp(0.0, 1.0);
+            let expected = 0.3 + 0.7 * (1.0 - t * t * (3.0 - 2.0 * t));
+            let (x, y) = geo.texel_xy(i); assert_scalar(&first, ChannelKind::Roughness, x, y, expected); checked += 1;
+        }
+    }
+    assert!(checked > 400, "exercise all tiles and separate cube UV islands");
+    let geo = fx.geo.tile(0); let distance_field = fx.geo.edge_distance_tile(&geo);
+    for (variation, seed, size) in [(0.0, 1, 12.5), (0.9, 51, 12.5), (0.9, 1, 35.0)] {
+        let mut edited = g; edited.edge_spread.as_mut().unwrap().variation = variation;
+        edited.noise.seed = seed; edited.set_pattern_size(size);
+        Arc::make_mut(&mut ts.find_mut(id).unwrap().mask.as_mut().unwrap().effects[0]).kind = MaskEffectKind::Generator(edited);
+        cache.update(&ts, &fx.ctx());
+        let current = cache.composite().unwrap(); assert_eq!(current, &composite_full(&ts, &fx.ctx()));
+        let changes = current.channel(ChannelKind::Roughness).unwrap().to_dense().iter()
+            .zip(first.channel(ChannelKind::Roughness).unwrap().to_dense()).filter(|(a, b)| (**a - *b).abs() > 0.02).count();
+        assert!(changes > 30, "variation/seed/size must affect the boundary at Breakup 0: {changes}");
+        assert!(Arc::ptr_eq(&distance_field, &fx.geo.edge_distance_tile(&geo)), "slider edits must reuse geometry distances");
+    }
+}
+
+#[test]
+fn spread_and_level_expand_locally_without_turning_flat_faces_white() {
+    let fx = Fixture::with_mesh(primitives::cube(2.0));
+    let mut ts = texture_set(); let tc = ts.clone();
+    let mut layer = fill_layer(&tc, &[(ChannelKind::Roughness, ChannelValue::scalar(1.0))]);
+    let mut mask = Mask::new(RES, false);
+    let mut g = Generator::new(GeneratorKind::Edges); g.noise_amount = 0.0;
+    g.edge_spread.as_mut().unwrap().distance = 2.0;
+    mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Generator(g)))); layer.mask = Some(mask);
+    let id = ts.insert_above(None, layer);
+    let small = composite_full(&ts, &fx.ctx());
+    for (spread, level) in [(8.0, 0.5), (8.0, 0.9)] {
+        g.edge_spread.as_mut().unwrap().distance = spread; g.level = level;
+        Arc::make_mut(&mut ts.find_mut(id).unwrap().mask.as_mut().unwrap().effects[0]).kind = MaskEffectKind::Generator(g);
+        let large = composite_full(&ts, &fx.ctx());
+        let (mut grew, mut far) = (0, 0);
+        for t in 0..fx.geo.tile_count() { let geo = fx.geo.tile(t); for i in 0..4096 {
+            if geo.coverage(i) < 1.0 { continue; }
+            let (x, y) = geo.texel_xy(i);
+            let before = px(&small, ChannelKind::Roughness, x, y)[0]; let after = px(&large, ChannelKind::Roughness, x, y)[0];
+            assert!(after >= before - 0.001); if after > before + 0.1 { grew += 1; }
+            let p = geo.position(i); let n = geo.normal(i);
+            if [0, 1, 2].into_iter().filter(|&a| n[a].abs() < 0.5).all(|a| p[a] > 0.3 && p[a] < 0.7) {
+                assert!((after - 0.3).abs() < 0.001); far += 1;
+            }
+        } }
+        assert!(grew > 100 && far > 100);
     }
 }
 

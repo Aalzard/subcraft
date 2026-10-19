@@ -42,6 +42,7 @@ fn generator_defaults_and_schema_7_preserve_legacy_noise_and_roundtrip_new_contr
         } else if name == "document.json" {
             let mut json: serde_json::Value = serde_json::from_slice(&data).unwrap();
             json["texture_sets"][0]["layers"][0]["mask"]["effects"][0]["kind"]["generator"].as_object_mut().unwrap().remove("organic_breakup");
+            json["texture_sets"][0]["layers"][0]["mask"]["effects"][0]["kind"]["generator"].as_object_mut().unwrap().remove("edge_spread");
             data = serde_json::to_vec(&json).unwrap();
         }
         out.start_file(name, SimpleFileOptions::default()).unwrap(); out.write_all(&data).unwrap();
@@ -49,6 +50,38 @@ fn generator_defaults_and_schema_7_preserve_legacy_noise_and_roundtrip_new_contr
     let legacy = read_project(Cursor::new(out.finish().unwrap().into_inner())).unwrap();
     let MaskEffectKind::Generator(back) = legacy.document.texture_sets[0].layers[0].mask.as_ref().unwrap().effects[0].kind else { panic!() };
     assert!(!back.organic_breakup); assert_eq!((back.noise.scale, back.noise.seed, back.noise_amount), (4., 47, 0.3));
+    assert!(back.edge_spread.is_none());
+}
+
+#[test]
+fn schema_8_spread_roundtrips_and_schema_7_preserves_legacy_evaluation() {
+    let mut g = Generator::new(GeneratorKind::Edges);
+    g.edge_spread = Some(subcraft_doc::EdgeSpread { distance: 4.25, variation: 0.86 });
+    assert_eq!(serde_json::to_string(&g.edge_spread).unwrap(), r#"{"distance":4.25,"variation":0.86}"#);
+    let mut ts = TextureSet::new("Body", 0, 128);
+    let mut layer = Layer::new_fill("Spread", &ts);
+    layer.mask = Some(Mask::new(128, false));
+    layer.mask.as_mut().unwrap().effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Generator(g))));
+    ts.insert_above(None, layer);
+    let doc = Document { texture_sets: vec![ts] };
+    let bytes = write_project(Cursor::new(Vec::new()), &primitives::sample_crate(), &doc, &ResourceStore::default(), &MeshMapSet::new()).unwrap().into_inner();
+    assert_eq!(read_project(Cursor::new(bytes.clone())).unwrap().document, doc);
+    let mut zip = zip::ZipArchive::new(Cursor::new(bytes)).unwrap();
+    let mut out = zip::ZipWriter::new(Cursor::new(Vec::new()));
+    for i in 0..zip.len() {
+        let mut f = zip.by_index(i).unwrap(); let name = f.name().unwrap().to_string(); let mut data = Vec::new(); f.read_to_end(&mut data).unwrap();
+        if name == "manifest.json" {
+            let mut json: serde_json::Value = serde_json::from_slice(&data).unwrap(); json["schema_version"] = 7.into(); data = serde_json::to_vec(&json).unwrap();
+        } else if name == "document.json" {
+            let mut json: serde_json::Value = serde_json::from_slice(&data).unwrap();
+            json["texture_sets"][0]["layers"][0]["mask"]["effects"][0]["kind"]["generator"].as_object_mut().unwrap().remove("edge_spread");
+            data = serde_json::to_vec(&json).unwrap();
+        }
+        out.start_file(name, SimpleFileOptions::default()).unwrap(); out.write_all(&data).unwrap();
+    }
+    let old = read_project(Cursor::new(out.finish().unwrap().into_inner())).unwrap();
+    let MaskEffectKind::Generator(back) = old.document.texture_sets[0].layers[0].mask.as_ref().unwrap().effects[0].kind else { panic!() };
+    assert_eq!(back, Generator { edge_spread: None, ..g });
 }
 
 #[test]
@@ -358,7 +391,7 @@ fn content_effects_roundtrip_exactly_with_schema_5() {
     let mut json = String::new();
     zip.by_name("document.json").unwrap().read_to_string(&mut json).unwrap();
     assert!(json.contains("\"content_effects\"") && json.contains("\"type\": \"levels\""), "{json}");
-    assert_eq!(SCHEMA_VERSION, 7);
+    assert_eq!(SCHEMA_VERSION, 8);
     assert_eq!(read_project(Cursor::new(bytes)).unwrap().document, doc, "effect ids, order, blends, rasters survive");
 }
 

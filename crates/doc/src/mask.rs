@@ -49,8 +49,23 @@ pub struct Generator {
     /// older projects/recipes: preserve their original pattern exactly.
     #[serde(default)]
     pub organic_breakup: bool,
+    /// Geometry-aware wear. Missing in older recipes: retain their exact threshold behavior.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edge_spread: Option<EdgeSpread>,
     /// World direction for `Directional` (normalized on use).
     pub direction: [f32; 3],
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct EdgeSpread {
+    /// Reach at Level 0.5, as percent of the mesh's longest dimension.
+    pub distance: f32,
+    /// Irregularity of the boundary, independent of holes from Breakup.
+    pub variation: f32,
+}
+
+impl Default for EdgeSpread {
+    fn default() -> Self { Self { distance: 1.5, variation: 0.7 } }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -92,6 +107,7 @@ impl Generator {
             noise_amount: if matches!(kind, GeneratorKind::Edges | GeneratorKind::Cavity) { 0.3 } else { 0.0 },
             noise,
             organic_breakup: matches!(kind, GeneratorKind::Edges | GeneratorKind::Cavity),
+            edge_spread: (kind == GeneratorKind::Edges).then(EdgeSpread::default),
             direction: [0.0, 1.0, 0.0],
         }
     }
