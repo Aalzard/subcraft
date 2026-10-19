@@ -2431,6 +2431,29 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   passes with existing warnings; no tests added. Same no-incremental/line-tables-only/-j 1 flags.
   No new app run or visual feature claimed. No push/release or protected-file changes.
 
+### Session 92 - Claude: Edge Wear root cause, hard-edge brush wrap, one-click Shelf brushes (2026-10-20)
+
+* **Edge Wear (12c55a2):** root causes on the default crate: crease spans buried inside other
+  parts (body edges in posts, band corners) were Natural sources, and the baker read parts hidden
+  behind a surface as convex edges (detached dashes on posts, Natural off and on). Sources are now
+  exposed spans only (per-part inside test), the baker ignores foreign surfaces behind the tangent
+  plane, and a field 4x finer than Pattern size chips the boundary. Rebake needed for old maps.
+* **Brush wrap (89d9ae9):** Tangent|Wrap used radial 3D distance, smearing tips down side faces.
+  Texels are now unfolded about the fold line: exact on hard edges; on bevels never compressed,
+  small facet mismatch (0.13 rho at 8 facets) shrinking with tessellation.
+* **Shelf brushes (1420a6a):** one click activates (Fill/Eyedropper/Pen -> Brush, destination kept),
+  fading "Brush: name" plate in the 3D view top-left, double-click focuses Brush tab, no preview
+  popup on tip click. `--select-brush NAME` for scripted captures.
+* **552 workspace tests pass, 0 failed/ignored** (14 new); Clippy 68 warnings, same as baseline.
+* Native captures (Linux Xvfb + lavapipe, real app): edge-wear-exposed-low-level-wide.png,
+  edge-wear-exposed-natural-off.png, edge-wear-chipped-default.png, brush-select-notice.png.
+  CPU renders: brush-wrap-before/after-cpu.png. 4K CPU edit profile (4 cores): settle 3.1-3.3 s
+  vs 2.5-2.7 s before (extra chip field); cold 12.7-13.1 s vs 10.5-11.5 s. GPU frames not measured.
+* NOT done/verified: task 4 filter audit only partly done (code read of kernels, stages, cache,
+  tile paths; no bug found yet; randomized differential test not written). Not checked on
+  Windows build, physical mouse/tablet, production meshes. Tip thumbnail in the notice shows only
+  after the Shelf has rendered that tip.
+
 ### Session 93 — Release verification and vendor review (2026-10-20)
 
 * Added release infrastructure only (no engine/UI behavior changed): locked Cargo builds,
@@ -2509,6 +2532,9 @@ universal imported-material coverage. This viewport fix does not complete any br
 Before the next public release: resolve vendor/CAPE findings, obtain an eligible verified
 signing identity, activate protected release environments, then run exact signed artifacts
 in a compatible isolated Windows environment and review the results before publishing.
+
+0. Finish task 4 audit: randomized point-vs-graph and incremental-vs-full differential tests.
+
 
 1. Claude follows **PROMPT-claude-edge-wear.md**: reproduce/fix the still-rejected Edge Wear on
    the baked default crate; inspect source/bake/sampling/build paths and all relevant modes.

@@ -1,5 +1,7 @@
 # Codex handoff — 2026-10-20, session 94
 
+# Claude session 92 (2026-10-20): see progress.md session 92. Commits 12c55a2, 89d9ae9, 1420a6a + docs. 552 tests pass. Filter audit (task 4) unfinished.
+
 Branch: feature/brush-roadmap. Last implementation commit: ee609d9d00400914b3e218a2c2aec7d6cc326ea8 (final documentation commit follows).
 Workspace: 541 passed, 0 failed/ignored (3 new tests); workspace/all-target Clippy exits 0
 with existing warnings. CARGO_INCREMENTAL=0, CARGO_PROFILE_DEV_DEBUG=line-tables-only,
