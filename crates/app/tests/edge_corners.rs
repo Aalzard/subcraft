@@ -64,19 +64,27 @@ fn default_crate_overlap_gap_is_filled_and_spread_edits_undo_reopen_and_converge
     let mut g = Generator::new(GeneratorKind::Edges); g.noise_amount = 0.0; g.level = 0.85;
     session.execute(Command::AddMaskEffect { layer, kind: MaskEffectKind::Generator(g) }).unwrap();
     session.set_mesh_maps(ts, maps); session.update_composites();
-    let before = session.composite(ts).unwrap().clone(); let mut repaired = 0;
-    for sample in samples {
-        let p = sample.position;
-        if p.y > 0.49999 && p.z > 0.49999 && p.x.abs() > 0.66 && p.x.abs() < 0.799 {
-            let (x, y) = (sample.index % 256, sample.index / 256);
-            if curvature.get(x, y)[0] < 0.8 { repaired += 1; }
-            assert!(before.channel(ChannelKind::BaseColor).unwrap().get(x, y)[0] > 0.99,
-                "default crate body/post join still has a hole at {p:?}");
-        }
-    }
-    assert!(repaired > 0, "must reproduce weak baked curvature beside the actual crate posts");
-    session.execute(Command::Seal).unwrap(); let doc = session.document().clone();
     let mut effect = session.selected_layer().unwrap().mask.as_ref().unwrap().effects[0].as_ref().clone();
+    // The same baked corner must survive with Natural disabled: no geometric spread fallback.
+    for natural in [false, true] {
+        let mut edited = g; if !natural { edited.edge_spread = None; }
+        effect.kind = MaskEffectKind::Generator(edited);
+        session.execute(Command::SetMaskEffect { layer, effect: effect.clone() }).unwrap();
+        session.update_composites(); let mut checked = 0;
+        for sample in &samples {
+            let p = sample.position;
+            if [p.x.abs() - 0.8, p.y.abs() - 0.5, p.z.abs() - 0.5].into_iter().filter(|d| d.abs() < 1e-5).count() >= 2 {
+                let (x, y) = (sample.index % 256, sample.index / 256);
+                assert!(curvature.get(x, y)[0] > 0.97, "bake still cancels its own edge at {p:?}");
+                assert!(session.composite(ts).unwrap().channel(ChannelKind::BaseColor).unwrap().get(x, y)[0] > 0.99,
+                    "body/post join has a hole at {p:?}, natural={natural}");
+                checked += 1;
+            }
+        }
+        assert!(checked > 100);
+    }
+    let before = session.composite(ts).unwrap().clone();
+    session.execute(Command::Seal).unwrap(); let doc = session.document().clone();
     g.edge_spread.as_mut().unwrap().distance = 5.0; effect.kind = MaskEffectKind::Generator(g);
     session.execute(Command::SetMaskEffect { layer, effect: effect.clone() }).unwrap();
     session.execute(Command::Undo).unwrap(); assert_eq!(session.document(), &doc);

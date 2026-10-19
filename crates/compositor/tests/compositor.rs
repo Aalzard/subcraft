@@ -528,7 +528,7 @@ fn natural_spread_matches_surface_distance_golden_and_varies_at_zero_breakup() {
 }
 
 #[test]
-fn spread_and_level_expand_locally_without_turning_flat_faces_white() {
+fn spread_reaches_independently_at_low_level_without_turning_flat_faces_white() {
     let fx = Fixture::with_mesh(primitives::cube(2.0));
     let mut ts = texture_set(); let tc = ts.clone();
     let mut layer = fill_layer(&tc, &[(ChannelKind::Roughness, ChannelValue::scalar(1.0))]);
@@ -538,7 +538,7 @@ fn spread_and_level_expand_locally_without_turning_flat_faces_white() {
     mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Generator(g)))); layer.mask = Some(mask);
     let id = ts.insert_above(None, layer);
     let small = composite_full(&ts, &fx.ctx());
-    for (spread, level) in [(8.0, 0.5), (8.0, 0.9)] {
+    for (spread, level) in [(8.0, 0.5), (8.0, 0.9), (12.5, 0.065)] {
         g.edge_spread.as_mut().unwrap().distance = spread; g.level = level;
         Arc::make_mut(&mut ts.find_mut(id).unwrap().mask.as_mut().unwrap().effects[0]).kind = MaskEffectKind::Generator(g);
         let large = composite_full(&ts, &fx.ctx());
@@ -554,7 +554,39 @@ fn spread_and_level_expand_locally_without_turning_flat_faces_white() {
             }
         } }
         assert!(grew > 100 && far > 100);
+        if level == 0.065 {
+            // No baked map in this fixture: Level cannot secretly shrink geometric reach.
+            let at_low_level = large;
+            g.level = 0.5;
+            Arc::make_mut(&mut ts.find_mut(id).unwrap().mask.as_mut().unwrap().effects[0]).kind = MaskEffectKind::Generator(g);
+            assert_eq!(at_low_level, composite_full(&ts, &fx.ctx()));
+        }
     }
+}
+
+#[test]
+fn maximum_spread_at_level_point_065_has_the_requested_numeric_reach() {
+    let fx = Fixture::with_mesh(primitives::cube(2.0));
+    let mut ts = texture_set(); let tc = ts.clone();
+    let mut layer = fill_layer(&tc, &[(ChannelKind::Roughness, ChannelValue::scalar(1.0))]);
+    let mut g = Generator::new(GeneratorKind::Edges);
+    g.level = 0.065; g.noise_amount = 0.0; g.softness = 0.25;
+    g.edge_spread = Some(subcraft_doc::EdgeSpread { distance: 12.5, variation: 0.0 });
+    let mut mask = Mask::new(RES, false);
+    mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Generator(g)))); layer.mask = Some(mask);
+    ts.insert_above(None, layer);
+    let image = composite_full(&ts, &fx.ctx()); let mut wide = 0;
+    for t in 0..fx.geo.tile_count() { let geo = fx.geo.tile(t); for i in 0..4096 {
+        if geo.coverage(i) < 1.0 { continue; }
+        let p = geo.position(i); let n = geo.normal(i);
+        let distance = [0, 1, 2].into_iter().filter(|&a| n[a].abs() < 0.5)
+            .map(|a| p[a].min(1.0 - p[a])).fold(f32::INFINITY, f32::min).max(0.0);
+        let fade = ((distance - 0.125 * 0.75) / (0.125 * 0.25)).clamp(0.0, 1.0);
+        let expected = 0.3 + 0.7 * (1.0 - fade * fade * (3.0 - 2.0 * fade));
+        let (x, y) = geo.texel_xy(i); assert_scalar(&image, ChannelKind::Roughness, x, y, expected);
+        if distance > 0.05 && distance < 0.09 { wide += 1; }
+    } }
+    assert!(wide > 100, "exercise the area lost by the old Level multiplier");
 }
 
 #[test]

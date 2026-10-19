@@ -117,7 +117,9 @@ fn eval_edge_spread(g: &Generator, spread: subcraft_doc::EdgeSpread, tc: &TileCo
     let noise = subcraft_materials::sample::organic_tile(&g.noise, tc.geo);
     let mut curvature = vec![[0.0; 3]; TILE_TEXELS];
     tc.sample.mesh_maps.read_tile(MeshMapKind::Curvature, tc.geo, &mut curvature);
-    let radius = spread.distance.clamp(0.0, 12.5) * 0.01 * g.level.clamp(0.0, 1.0) * 2.0;
+    // Spread is a physical reach, independent of the baked-detail threshold. Multiplying by
+    // Level made even maximum Spread almost disappear at the owner's Level 0.065 setting.
+    let radius = spread.distance.clamp(0.0, 12.5) * 0.01;
     let variation = spread.variation.clamp(0.0, 1.0);
     let breakup = g.noise_amount.clamp(0.0, 1.0);
     let softness = g.softness.clamp(0.02, 1.0);

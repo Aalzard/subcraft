@@ -1,5 +1,5 @@
 //! Actual default-crate acceptance fixture, or CPU-only 4K edit profile (no owner UI input).
-//! cargo run -p subcraft-app --example edge_spread -- <project.subcraft> [spread %] [variation]
+//! cargo run -p subcraft-app --example edge_spread -- <project.subcraft> [spread %] [variation] [level] [legacy]
 //! cargo run -p subcraft-app --example edge_spread -- --profile 4096
 use std::time::{Duration, Instant};
 use subcraft_app::{Command, NewLayer, Session};
@@ -81,9 +81,20 @@ fn main() -> Result<(), String> {
         let path = args.first().ok_or("expected output .subcraft path")?;
         let spread = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(2.5);
         let variation = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(0.85);
-        let (mut s, _) = fixture(512, spread, variation, true)?;
+        let level = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(0.5);
+        let natural = !args.get(4).is_some_and(|s| s == "legacy");
+        let (mut s, layers) = fixture(512, spread, variation, true)?;
+        for layer in layers {
+            let ts = s.document().texture_sets.iter().find(|ts| ts.find(layer).is_some()).unwrap().id;
+            s.execute(Command::SelectTextureSet(ts)).map_err(|e| format!("{e:?}"))?;
+            let mut effect = s.selected_texture_set().find(layer).unwrap().mask.as_ref().unwrap().effects[0].as_ref().clone();
+            let MaskEffectKind::Generator(g) = &mut effect.kind else { unreachable!() };
+            g.level = level; if !natural { g.edge_spread = None; }
+            s.execute(Command::SetMaskEffect { layer, effect }).map_err(|e| format!("{e:?}"))?;
+        }
+        s.execute(Command::SelectTextureSet(s.document().texture_sets[0].id)).map_err(|e| format!("{e:?}"))?;
         s.save(Some(std::path::Path::new(path)))?;
-        println!("Saved actual crate, baked curvature, Breakup 0, Spread {spread}%, Variation {variation}");
+        println!("Saved actual crate, baked curvature, Breakup 0, Spread {spread}%, Variation {variation}, Level {level}, Natural {natural}");
     }
     Ok(())
 }

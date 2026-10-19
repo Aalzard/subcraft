@@ -181,7 +181,7 @@ pub fn bake_streamed(
     if input.high.is_some() && details.iter().all(|d| d.tri.is_none()) {
         return Err(BakeError::NoProjection);
     }
-    let elements = if wanted(MeshMapKind::Id) { Some(topology::mesh_elements(detail_geo.mesh)) } else { None };
+    let elements = if wanted(MeshMapKind::Id) || wanted(MeshMapKind::Curvature) { Some(topology::mesh_elements(detail_geo.mesh)) } else { None };
     let bounds = low.bounds;
     let extent = bounds.extent().max(Vec3::splat(1e-6));
 
@@ -244,7 +244,8 @@ pub fn bake_streamed(
                     [1.0 - avg; 3]
                 }
                 MeshMapKind::Curvature => {
-                    [curvature::curvature_at(detail_geo.mesh, detail_geo.bvh, d.position, d.normal, settings.curvature_radius * diag); 3]
+                    [curvature::curvature_on_surface(detail_geo.mesh, detail_geo.bvh, d.position, d.normal,
+                        settings.curvature_radius * diag, d.tri.zip(elements.as_deref())); 3]
                 }
             }
         };

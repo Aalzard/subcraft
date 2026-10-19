@@ -53,14 +53,43 @@ pub fn closest_point(p: Vec3, a: Vec3, b: Vec3, c: Vec3) -> (Vec3, [f32; 3]) {
 
 /// Curvature (0..1, 0.5 = flat) at point `p` with normal `n` on `mesh`.
 pub fn curvature_at(mesh: &Mesh, bvh: &Bvh, p: Vec3, n: Vec3, radius: f32) -> f32 {
-    let mut sum = 0.0f32;
-    let mut weight = 0.0f32;
-    let mut nearest = 0.0f32;
+    curvature_on_surface(mesh, bvh, p, n, radius, None)
+}
+
+#[derive(Default)]
+struct Curvature {
+    sum: f32,
+    weight: f32,
+    nearest: f32,
+}
+
+impl Curvature {
+    fn add(&mut self, value: f32, weight: f32) {
+        self.sum += weight * value;
+        self.weight += weight;
+        self.nearest = self.nearest.max(weight);
+    }
+
+    fn value(&self) -> f32 {
+        if self.weight <= 0.0 { return 0.5; }
+        0.5 + 0.5 * (self.sum / self.weight).clamp(-1.0, 1.0) * self.nearest
+    }
+}
+
+/// Prefer intrinsic curvature of the sampled connected surface. Nearby separate components
+/// must not cancel its convex/concave corners. Flat surfaces still receive contact curvature
+/// (e.g. the floor beside a box). `source` refers to the detail mesh after high-poly projection.
+pub(crate) fn curvature_on_surface(
+    mesh: &Mesh, bvh: &Bvh, p: Vec3, n: Vec3, radius: f32,
+    source: Option<(u32, &[u32])>,
+) -> f32 {
+    let mut all = Curvature::default();
+    let mut own = Curvature::default();
     for t in bvh.query_sphere(p, radius) {
         let [a, b, c] = mesh.tri_positions(t as usize);
         let (q, bary) = closest_point(p, a, b, c);
-        let mut d = q - p;
-        let mut dist = d.length();
+        let d = q - p;
+        let dist = d.length();
         if dist >= radius {
             continue;
         }
@@ -70,30 +99,28 @@ pub fn curvature_at(mesh: &Mesh, bvh: &Bvh, p: Vec3, n: Vec3, radius: f32) -> f3
         if dn.length_squared() < 1e-6 {
             continue;
         }
-        if dist <= radius * 1e-3 {
-            // The texel sits on this triangle's boundary (e.g. exactly on an edge): measure toward
-            // its interior across the crease, not along it. The centroid's along-crease component
-            // depends on tessellation and otherwise weakens curvature at vertices/UV rim texels.
-            d = (a + b + c) / 3.0 - p;
-            let crease = n.cross(nq);
-            let crease_len2 = crease.length_squared();
-            if crease_len2 > 1e-6 {
-                d -= crease * (d.dot(crease) / crease_len2);
-            }
-            if d.length_squared() < 1e-12 {
-                continue;
-            }
-            d = d.normalize() * radius * 1e-3;
-            dist = radius * 1e-3;
+        // Measure change across the crease for every neighbor, not just coincident samples.
+        // Other triangles on the same neighboring face may be displaced along the crease;
+        // averaging those oblique directions made a straight edge pulse with tessellation.
+        // Keep the true 3D distance for proximity falloff and the query radius.
+        let crease = n.cross(nq);
+        let crease_len2 = crease.length_squared();
+        let project = |v: Vec3| if crease_len2 > 1e-6 { v - crease * (v.dot(crease) / crease_len2) } else { v };
+        let mut across = project(d);
+        if across.length_squared() <= (radius * 1e-3).powi(2) {
+            // A neighbor farther along this same edge has no reliable across-crease direction
+            // either: tiny float error must not become a full negative contribution on normalize.
+            across = project((a + b + c) / 3.0 - p);
         }
-        let w = 1.0 - dist / radius;
-        sum += w * dn.dot(d / dist);
-        weight += w;
-        nearest = nearest.max(w);
+        if across.length_squared() < 1e-24 { continue; }
+        let w = 1.0 - dist.max(radius * 1e-3) / radius;
+        let value = dn.dot(across.normalize());
+        all.add(value, w);
+        if let Some((source, elements)) = source
+            && elements[t as usize] == elements[source as usize]
+            && mesh.tri_object.get(t as usize) == mesh.tri_object.get(source as usize) {
+            own.add(value, w);
+        }
     }
-    if weight <= 0.0 {
-        return 0.5;
-    }
-    let c = (sum / weight).clamp(-1.0, 1.0) * nearest;
-    0.5 + 0.5 * c
+    if own.weight > 0.0 { own.value() } else { all.value() }
 }

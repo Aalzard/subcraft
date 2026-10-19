@@ -144,6 +144,43 @@ fn curvature_brightens_cube_edges_and_keeps_faces_flat() {
 }
 
 #[test]
+fn crate_contact_cannot_cancel_its_own_corner_curvature() {
+    for (legacy_metadata, high_poly) in [(false, false), (true, false), (false, true)] {
+        let mut mesh = primitives::sample_crate();
+        if legacy_metadata { mesh.tri_object.clear(); mesh.objects.clear(); }
+        let bvh = Bvh::build(&mesh);
+        let geo = Geometry { mesh: &mesh, bvh: &bvh };
+        let elements = subcraft_mesh::topology::mesh_elements(&mesh);
+        let mut bounds = vec![(Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY)); 7];
+        for (tri, &element) in elements.iter().enumerate() {
+            for p in mesh.tri_positions(tri) {
+                let (min, max) = &mut bounds[element as usize]; *min = min.min(p); *max = max.max(p);
+            }
+        }
+        for slot in 0..if high_poly { 1 } else { 2 } {
+            let maps = bake(&BakeInput { low: geo, high: high_poly.then_some(geo), material_slot: slot },
+                &settings(&[MeshMapKind::Curvature]), &Progress::new()).unwrap();
+            let mut checked = 0;
+            for t in texels(&mesh, slot, RES) {
+                let p = t.position;
+                let (min, max) = bounds[elements[t.tri as usize] as usize];
+                let delta = (p - min).abs().min((p - max).abs());
+                let on_edge = delta.to_array().into_iter().filter(|d| *d < 1e-5).count() >= 2;
+                // Projection onto the same crate can legitimately hit another covering part.
+                // Check the exposed top/front edge for the high-poly path, all edges for low-on-low.
+                let exposed = p.y > 0.49999 && p.z > 0.49999 && p.x.abs() > 0.66 && p.x.abs() < 0.799;
+                if on_edge && (!high_poly || exposed) {
+                    let value = at(&maps[&MeshMapKind::Curvature], &t)[0];
+                    assert!(value > 0.97, "crate edge curvature {value} at {p:?}, slot={slot}, legacy={legacy_metadata}, high={high_poly}");
+                    checked += 1;
+                }
+            }
+            assert!(checked >= if high_poly { 6 } else { 100 }, "must exercise complete low-on-low edges and exposed high-poly corners");
+        }
+    }
+}
+
+#[test]
 fn curvature_stays_connected_at_exact_cube_corners_and_uv_rims() {
     for subdivisions in [1, 4, 13] {
         let mesh = primitives::atlas_box(Vec3::splat(2.0), subdivisions, "Corner regression");

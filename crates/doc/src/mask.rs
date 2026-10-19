@@ -58,7 +58,7 @@ pub struct Generator {
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct EdgeSpread {
-    /// Reach at Level 0.5, as percent of the mesh's longest dimension.
+    /// Reach as percent of the mesh's longest dimension, independent of Level.
     pub distance: f32,
     /// Irregularity of the boundary, independent of holes from Breakup.
     pub variation: f32,
