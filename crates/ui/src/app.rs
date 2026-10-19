@@ -119,15 +119,30 @@ impl LaunchOptions {
 pub fn default_layout() -> DockState<Tab> {
     let mut dock = DockState::new(vec![Tab::Viewport, Tab::UvView]);
     let surface = dock.main_surface_mut();
-    let [center, right] = surface.split_right(NodeIndex::root(), 0.8, vec![Tab::Layers]);
-    surface.split_below(right, 0.4, vec![Tab::Properties, Tab::Brush]);
-    let [center, left] = surface.split_left(center, 0.15, vec![Tab::Parts, Tab::TextureSets]);
-    surface.split_below(left, 0.42, vec![Tab::History]);
-    surface.split_below(center, 0.74, vec![Tab::Shelf]);
+    let [center, right] = surface.split_right(NodeIndex::root(), 0.77, vec![Tab::Layers]);
+    surface.split_below(right, 0.48, vec![Tab::Properties, Tab::Brush]);
+    let [center, _] = surface.split_left(center, 0.28, vec![Tab::Shelf]);
+    surface.split_below(center, 0.82, vec![Tab::Parts, Tab::TextureSets, Tab::History]);
     dock
 }
 
-const DOCK_KEY: &str = "subcraft_dock_v4";
+// Apply the requested shelf-left / utility-tabs-bottom arrangement once, then retain edits.
+const DOCK_KEY: &str = "subcraft_dock_v5";
+
+#[cfg(test)]
+mod layout_tests {
+    use super::*;
+    #[test]
+    fn shelf_is_separate_and_utility_tabs_share_the_bottom_center_node() {
+        let dock = default_layout();
+        let parts = dock.find_tab(&Tab::Parts).unwrap();
+        for tab in [Tab::TextureSets,Tab::History] {
+            let path = dock.find_tab(&tab).unwrap(); assert_eq!((path.surface,path.node),(parts.surface,parts.node));
+        }
+        for tab in [Tab::Shelf,Tab::Viewport,Tab::Layers] {assert_ne!(dock.find_tab(&tab).unwrap().node,parts.node);}
+        assert_ne!(dock.find_tab(&Tab::Shelf).unwrap().node,dock.find_tab(&Tab::Viewport).unwrap().node);
+    }
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct InspectorSelection(subcraft_app::Selection, Option<subcraft_doc::LayerKind>, subcraft_app::LayerTarget, Option<subcraft_core::EffectId>, bool);
@@ -398,13 +413,9 @@ impl SubcraftApp {
             .unwrap_or_else(default_layout);
         let mut dock = dock;
         if options.shelf_panel {
-            dock = DockState::new(vec![Tab::Viewport, Tab::UvView]);
-            let surface = dock.main_surface_mut();
-            let [center, right] = surface.split_right(NodeIndex::root(), 0.77, vec![Tab::Layers]);
-            surface.split_below(right, 0.48, vec![Tab::Properties, Tab::Brush]);
-            let [center, _] = surface.split_left(center, 0.28, vec![Tab::Shelf]);
-            surface.split_below(center, 0.82, vec![Tab::Parts, Tab::TextureSets, Tab::History]);
+            dock = default_layout();
             state.shelf.tab = crate::panels::shelf::ShelfTab::Textures;
+            if let Some(path) = dock.find_tab(&Tab::TextureSets) { let _ = dock.set_active_tab(path); }
         }
         if options.view_2d
             && let Some(path) = dock.find_tab(&Tab::UvView)
@@ -939,7 +950,7 @@ impl egui_dock::TabViewer for Viewer<'_> {
     fn scroll_bars(&self, tab: &Tab) -> [bool; 2] {
         // These panels own bounded vertical lists and pinned preview-size footers. The dock's
         // extra scroll area would let content widen itself and scroll the footer offscreen.
-        if matches!(tab, Tab::Shelf | Tab::Layers) { [false, false] } else { [true, true] }
+        if matches!(tab, Tab::Shelf | Tab::Layers | Tab::TextureSets) { [false, false] } else { [true, true] }
     }
 
     fn clear_background(&self, tab: &Tab) -> bool {
