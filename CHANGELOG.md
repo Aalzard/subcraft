@@ -6,6 +6,13 @@ What changed in SubCraft, newest first. Download the latest build from the
 ## Unreleased
 
 ### New
+- Generator Pattern size, Seed/Next and Reduce repetition controls. New Edges/Cavity effects
+  start at 0.3 breakup; organic volume noise varies across faces while remaining UV-seam continuous.
+- Compact fill/Fill-effect/brush channel toggles, Alt-click solo and hidden disabled rows.
+- Red symmetry-plane surface guides with a Show symmetry guides switch in the mirror popup.
+- High-poly preview automatically refreshes when its source file changes. Successful bakes
+  return to Material. Albedo filtering is now only in Texture Sets; Rotation sits below Tiling.
+- Project schema 7 preserves legacy generator breakup when reading earlier projects and recipes.
 - Bake inspection: blue high-poly/red exposed low-poly surfaces and adjustable front/rear
   cage wireframe before baking. Geometry retains its exported alignment.
 - Live bake maps: completed maps appear on the low-poly model while remaining maps compute;
@@ -13,8 +20,8 @@ What changed in SubCraft, newest first. Download the latest build from the
 - Albedo filtering: choose Bilinear or Nearest beneath Resolution in the 3D toolbar or Texture
   Sets panel. Nearest preserves imported pixel art through projection, painting, working-size
   changes, preview and exported maps. The choice is undoable and saved per texture set.
-- Projects now use schema 6; older projects open with Bilinear. New saves require this build
-  or a newer reader supporting schema 6.
+- Older projects open with Bilinear. Current saves require this build or a newer reader
+  supporting schema 7.
 
 ### Fixed
 - High-poly bake sources can import without UVs; UVs are required only on the painting model.

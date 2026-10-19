@@ -27,6 +27,10 @@ Session 77 adds bake geometry inspection (blue high/red exposed low, front/rear 
 map-by-map live bake display (ADR-0021). Full cage-error classification, custom cages, matching
 by name, Height baking and intra-map tile previews remain pending. No brush phase changes.
 
+The newer owner requests are tracked in **material-workflow-roadmap.md** (generators, channel
+controls, bake refresh, emission and viewport refinements). Complete those before resuming the
+older phases. Their control changes do not imply completion of unfinished brush phases.
+
 Build housekeeping (session 62): latest tested binary consolidated into
 `target/release/subcraft.exe`. Removing obsolete versions/caches remains blocked by automatic
 approval review; no artifacts were deleted. This does not change feature completion below.

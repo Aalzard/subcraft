@@ -1,44 +1,54 @@
-# Handoff — bake inspection and live maps (2026-10-19)
+# Handoff — material workflow, first complete batch (2026-10-19)
 
-- Branch `feature/brush-roadmap`; implementation **e5ae217**. Docs are the final commit
-  (`git log -1`). **436 workspace tests passed, 0 failed/ignored**, seven added. Workspace /
-  all-target Clippy exits 0 with existing warnings. Required no-incremental/line-tables-only
-  environment used, -j 1. No branch switch, push or release.
-- Done: async UV-less high-poly preview, blue high/red exposed low, front/rear cage wireframe.
-- Done: each completed padded bake map installs independently and displays on low-poly UVs;
-  Follow bake, manual map/Material choice, live-map toggle and current-map progress.
-- Done: geometry cache source validation/reload, scene rejection, cancellation/drop handling;
-  immutable cached GPU geometry and separate raw-map bind groups preserve authored materials.
-- Updated test executable: E:\Applications\ArtCraft\SubCraft\target\debug\subcraft.exe.
-  Published/target release executable was not rebuilt; use this debug app for the new controls.
+- Branch `feature/brush-roadmap`; implementation **8c0bd67**. Docs are the final commit
+  (`git log -1`). **446 workspace tests pass, 0 failed/ignored** (10 added); workspace/all-target
+  Clippy exits 0 with existing warnings. CARGO_INCREMENTAL=0, dev debug=line-tables-only, -j 1.
+- Done: Pattern size, Seed/Next, organic volume breakup; new Edges/Cavity starts at 0.3.
+- Done: fill/Fill-effect/brush channel buttons, independent click/Alt-solo and hidden rows.
+- Done: high-source preview auto refresh; successful bakes return to Material.
+- Done: red exact symmetry surface/plane guides and visibility preference; Rotation under
+  Tiling; Albedo filtering exclusively in Texture Sets (sampler/export behavior retained).
+- Current test executable: E:\Applications\ArtCraft\SubCraft\target\debug\subcraft.exe.
+  Installed/shipping applications and target/release were not rebuilt. No push or release.
 
-Native RTX 4060 / DX12 checks (CLI only, no mouse): docs/screenshots/bake-high-low-overlay.png;
-bake-live-normal-4k.png (Normal shown while World Normal computes); bake-live-ao.png (AO while
-Curvature computes); bake-live-complete.png (all seven maps at 256 square, follows Thickness).
-Source: artworks/CORE-07-Refined/models/CORE-07-low.obj + %TEMP%/subcraft-bake-native/
-CORE-07-high-no-uv.obj (442,368 triangles). Isolated data: %TEMP%/subcraft-bake-preview-native.
-Pinned screenshot runs quit during baking; only the 256-square run completed all seven.
-Not physically checked: owner source pair, cage/reload/dropdown/close gestures, production
-FBX/GLB, browser, full seven-map 4K completion or long navigation/frame-pacing. GPU tests cover
-material restoration. No remaining test failures/skips or uncommitted implementation work.
+Native screenshots inspected: docs/screenshots/generator-organic-controls.png,
+generator-organic-large.png, generator-organic-seed-8.png,
+material-channel-toggles-symmetry-x.png, material-symmetry-z.png, bake-complete-material.png.
+RTX 4060 / DX12, CLI only; no mouse input. Fixture source: refined artwork, unchanged.
+Reproduce with crates/app/examples/generator_breakup.rs and --generator-panel / --symmetry x|z.
+Data/fixtures: %TEMP%/subcraft-material-workflow-native. 4K profiling writes no project copies.
+Debug exact synchronous cold recomputes: organic 14–28 s, legacy 28.5 s; unchanged 0–0.65 ms.
+These are uncontrolled debug timings, not release or native frame/long-stroke performance.
 
-Keep ADR-0021: preserve imported coordinates; never silently realign meshes. Red/blue compares
-visible surfaces, NOT every cage/projection miss. Geometry and raw-map display are transient;
-schema remains 6. Complete padded maps only, same exact synchronous bake output. Cancel keeps
-completed maps; Normal may already have created its undoable live display layer (ADR-0019).
-File cache reuse checks path/length/mtime. Mesh-map storage still follows existing non-history
-save rules. Closing Bake restores the regular view without overwriting viewport preferences.
+Keep ADR-0022/0023: schema **7**, missing organic_breakup migrates to false in old projects /
+recipes; do not globally change old masks. Reuse the bounded field cache. Pattern size=100/scale.
+Channel solo is one app history operation; disabled sources/strengths/images are retained.
+Brush channel toggles control future strokes, not historical paint visibility. Guide coordinates
+use the same whole-model center as mirrored painting; show-guides is a Viewport preference.
+Use shader clip-depth offset for LineList (wgpu rejects pipeline depth bias). Render headless
+GPU tests hold a per-process guard after parallel DX12 devices/readback stalled; production
+rendering is unchanged. Every final test passed; no skipped tests or remaining compilation bugs.
 
-Partial scope stops: crates/render/src/bake_preview.rs::BakePreviewPass::draw does depth
-comparison only; full cage-error heatmap/custom cages/matching are pending. crates/bake/src/
-lib.rs::bake_streamed publishes complete maps only; intra-map tile streaming and Height mesh-map
-baking remain unimplemented. Ask owner whether Height and a full projection-error heatmap take
-priority over the pending layer filters. No new brush phase was marked complete.
+Partial stops — the rest of the owner's request is in material-workflow-roadmap.md:
+- compositor/src/mask.rs::eval_generator still thresholds baked maps. True surface-distance
+  edge/dirt spread, increasing-Level spread semantics and near-edge intensity are NOT done.
+  Cavity is displayed as Dirt and has new pattern controls; it is not the full requested tool.
+- compositor/src/tile.rs::apply_layer evaluates masks without an explicit lower-normal stage.
+  Add ordered stage inputs, cross-tile/seam halos and cache dependencies before automatic
+  painted micro-normal detection/Disable Micro Effects. Do not read the final composite.
+- render/src/viewport.wgsl::fs_main only adds existing Emissive before tonemapping. Emission
+  glow/glare/starburst and their document/UI controls remain unimplemented. Reuse Emissive.
+- Paint-layer channel visibility/solo is still missing; current brush buttons do not implement it.
+
+Not hand-verified: physical UI gestures, native file replacement (actual-file app unit test
+passes), Y/multiple axes, large-mesh first-guide latency, owner assets, browser, full 4K bake,
+long strokes/frame pacing. Initial symmetry intersections compute synchronously once per scene.
 
 Next 3 steps:
-1. Owner tests this debug app with the original model pair: inspect, adjust cage, bake, select
-   maps, close to Material; then measure full 4K baking/navigation before performance claims.
-2. Add numeric projection-miss/cage diagnostics and matching/custom cages; extend this display
-   when the corresponding baker data exists. Height and intra-map tiles need separate contracts.
-3. Resume layer-system-roadmap stage/halo filters, Compare Mask/anchors, then brush Phase 1.
-   Existing split-slider undo issue and other earlier handoff limits remain outside this change.
+1. Complete shared surface-distance and stage/halo contracts for Edges/Dirt, then numeric tests
+   across seams, thin/curved meshes and dirty updates. Owner's new scope has priority.
+2. Implement strict lower-layer normal dependencies + Disable Micro Effects and paint-channel
+   visibility with reorder/undo/save tests. Use layer-system-roadmap/ADR-0016 foundations.
+3. Implement emission HDR/post-processing and persistence/UI, then GPU parity/native captures.
+   Decide per-layer versus per-set glow scope and distance units explicitly; the owner hasn't
+   specified those details. Older brush phases remain pending after this newer checklist.

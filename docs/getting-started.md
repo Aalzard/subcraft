@@ -145,6 +145,22 @@ blend and opacity controls. Fill supports a uniform value or procedural pattern 
 Generators expose their type/threshold/softness/breakup and direction; Levels has input/output
 ranges and gamma. Effects evaluate from bottom to top.
 
+Generator **Pattern size** controls breakup feature size as a percentage of the model's longest
+dimension: larger values make larger patches. **Seed** changes the variation; **Next** tries
+the next reproducible seed. **Reduce repetition** uses continuous object-space volume noise,
+so opposite faces do not reuse the same projected tile. It stays continuous across UV seams.
+Overlapping or mirrored UVs still share texels; unique wear on those parts requires unique UVs.
+New Edges and Dirt/Cavity generators start with **0.3 Breakup** and Reduce repetition on; the
+Edge Wear smart-mask recipe keeps its authored 0.35. Existing saved generators keep their
+appearance until you enable Reduce repetition. You can still lower breakup manually.
+
+At the top of **Channels**, click a channel button to toggle it independently. **Alt+click**
+enables only that channel. Disabled settings rows disappear and their values/images are kept
+for re-enabling. Fill layers and Fill effects apply the whole solo action in one undo step.
+Brush buttons choose channels for future strokes; they do not hide existing paint on a layer.
+Projection **Rotation** sits directly below **Tiling**, and changes orientation independently
+of scale. These controls are shared by the supported texture projections.
+
 ### Content and mask effects
 
 Every paint or fill layer has two separate effect stacks: one on its **content** and one on its
@@ -188,6 +204,10 @@ the model center. The small **Lazy Mouse** slider controls how far the brush tra
 The popover stays open while adjusting; click outside or press Esc to close. Existing **X**
 still toggles mirror X. These settings are included in brush presets and add no undo step.
 The old sidebar Stroke controls and left-rail symmetry shortcut button have moved here.
+Enabled mirror axes show red guides on the model where the actual mirror planes intersect it.
+The surrounding red outline identifies each plane beyond the surface. Guides update when you
+switch X/Y/Z and disappear when symmetry is off. Disable **Show symmetry guides** inside the
+same popup to hide the lines while retaining mirrored painting; the preference is remembered.
 
 ![Symmetry icon in the 3D toolbar with a cleaner side panel](screenshots/brush-symmetry-toolbar.png)
 
@@ -197,7 +217,7 @@ material…** sits below the Material header with its own spacing.
 
 Select an ordinary **paint layer**, choose **Brush (B)**, and set **Paint on → Layer** in the
 Brush panel. In **Material**, use the channel's **Image…** (or **Replace…**) button.
-For a normal-only stroke, uncheck the other channels. **Clear image** restores that channel's
+For a normal-only stroke, Alt+click **nrm**. **Clear image** restores that channel's
 flat value; its enable checkbox still decides whether it paints. Normal maps use OpenGL (+Y);
 files named `normalDX` / `normal_dx` are converted automatically when assigned to Normal.
 
@@ -269,7 +289,8 @@ project file. Save your own project regularly; in the browser, download a backup
 
 ### Pixel art and retro albedo textures
 
-Under **Resolution**, choose **Albedo → Nearest** in the 3D toolbar or Texture Sets panel.
+In the **Texture Sets** panel, beneath Resolution, choose **Albedo → Nearest**.
+This control is available only there; the 3D toolbar keeps the other viewport controls.
 **Bilinear** blends neighboring image texels; **Nearest** keeps their hard boundaries. The
 dropdown applies to the selected texture set and stays in sync in both places. In narrow
 3D docks, find it under **View**. Ctrl+Z undoes the change.
@@ -285,7 +306,7 @@ geometry-edge setting. Export normally, then also select nearest/point texture s
 your game engine: image files contain pixels, not runtime sampler settings.
 
 Projects saved by this build use **schema 6** and remember the choice per set. Older projects
-open with Bilinear; new saves require the patched build or a reader supporting schema 6.
+open with Bilinear. Current saves use schema 7 and require this build or a newer reader.
 
 Developers can regenerate comparison projects and exports with the `retro_albedo` app example.
 
@@ -306,8 +327,10 @@ the front/rear projection limits; changing **Cage front / rear** updates those l
 This is a surface comparison, not a complete cage-error heatmap: blue does not guarantee every
 detail lies inside the cage. Export both models in matching coordinates; SubCraft does not
 automatically align or rescale them.
-Use **Reload high poly** after re-exporting a sculpt to refresh the overlay. Baking detects a
-changed source file and imports it again rather than reusing stale preview geometry.
+Re-exporting or replacing the high-poly file automatically refreshes the preview while Bake
+is open. Loading runs in the background; the previous mesh remains visible until the replacement
+is ready. **Reload high poly** is optional. A running bake keeps the source it started with;
+the updated mesh is used for the next bake.
 
 With **Live maps** and **Follow bake** enabled, each finished map appears on the low-poly model
 while the next map computes. The progress text names the map currently baking. The map menu
@@ -315,7 +338,8 @@ lets you inspect a finished map or choose **Material**; selecting one stops auto
 Scalar maps display grayscale. Updates happen one complete map at a time, including UV padding;
 there is no animated texel wipe. Supported maps are Normal, World Space Normal, ID, Ambient
 Occlusion, Curvature, Position and Thickness; Height baking is not implemented yet.
-Switch Live maps off to retain the material view. Close the dialog to return to painting.
+Switch Live maps off to retain the material view. Every successful bake automatically returns
+to **Material**, including the viewport selector. Close the dialog to return to painting.
 **Inspect high / low geometry** returns to the overlay after a bake. Cancel retains maps that
 already finished and discards the incomplete map. The normal layer may therefore remain after
 cancelling a later map. These preview controls do not change your material or export settings.

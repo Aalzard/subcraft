@@ -1835,7 +1835,71 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   owner source files, production FBX/GLB, browser and long 4K navigation/frame pacing are not
   hand-verified this session. No new brush phases, release or push.
 
+### Session 78 — Codex: organic breakup and material workflow controls (2026-10-19)
+
+* **Generator controls:** `doc/materials/compositor/ui/project` expose Pattern size (% of model
+  max extent), editable Seed/Next and Reduce repetition. New Edges/Cavity generators start at
+  **0.3** breakup; the Edge Wear smart mask retains 0.35. Organic noise is a continuous seeded
+  3D value field with four octaves and coarse domain variation, cached under a distinct field
+  key within the existing budget. UV seams share positions; opposite projected faces no longer
+  share a periodic field. Reused/overlapping UV texels necessarily still share their result.
+  Schema **7** migrates missing `organic_breakup` to false for schemas 1–6 and old recipes,
+  preserving their noise/seed/scale/amount. Cavity's display label is Dirt; no distance-aware
+  Dirt or automatic micro-normal evaluation is claimed. ADR-0022.
+* **Channel controls:** new app commands independently toggle or atomically solo fill-layer /
+  Fill-effect channels, preserving their source/strength and undoing solo in one step. Brush
+  buttons update existing tool state. Properties, Fill effects and Brush material show compact
+  channel buttons; disabled rows disappear, including Normal blend and inactive image projection.
+  Alt-click solos. Existing paint-layer channel visibility is not implemented by brush buttons.
+  Albedo filtering remains the same document/sampler state but appears only in Texture Sets;
+  both toolbar placements are removed. Shared Projection Rotation moved directly below Tiling.
+* **Baking:** Bake view polls high-poly source metadata at 250 ms intervals and asynchronously
+  replaces stale preview geometry; path changes start loading immediately. Imports reject
+  obsolete results; errors retry without requiring Reload. Active bakes retain their source
+  snapshot. Every successful bake resets both the live-map selector and 3D viewport to Material.
+* **Symmetry:** app caches exact low-mesh intersections with the same whole-model X/Y/Z planes
+  mirrored painting uses, plus a small plane outline. Renderer uploads when scene/axes change
+  and depth-tests red lines without changing textures. Popup Show symmetry guides preference
+  hides lines independently of painting symmetry (old preferences default true). Initial
+  intersection work is synchronous/cached once; high-triangle-count first-use latency remains
+  unprofiled. ADR-0023 records these control/display decisions.
+* Ten tests added: deterministic/nonperiodic/continuous volume fields; analytic mask coverage,
+  seed/size cache convergence and existing UV-seam acceptance extended; schema/default/migration
+  roundtrip; seed button undo; channel independent/solo source preservation and undo; actual
+  Alt-click/hidden rows and Projection ordering; automatic file replacement import; successful
+  bake Material reset; offset-mesh plane coordinates; GPU red line/depth/material restoration.
+  Existing inspector numeric/undo and brush image tests now use the new buttons. Render tests
+  serialize their DX12 devices after a parallel-device/readback stall was observed; no tests
+  were removed or skipped. Invalid LineList depth bias was replaced by shader clip-depth offset.
+* **446 workspace tests pass, 0 failed/ignored**; workspace/all-target Clippy exits 0 with
+  existing warnings. CARGO_INCREMENTAL=0, CARGO_PROFILE_DEV_DEBUG=line-tables-only; -j 1.
+  Implementation commit **8c0bd67**, branch `feature/brush-roadmap`; no push or release.
+* Native RTX 4060 / DX12, inspected: `screenshots/generator-organic-controls.png` (12.5%, seed 1,
+  breakup 0.3), `generator-organic-large.png` (30%), `generator-organic-seed-8.png`;
+  `material-channel-toggles-symmetry-x.png` (Base Color only, Rotation under Tiling, no toolbar
+  Albedo, red X plane), `material-symmetry-z.png`; `bake-complete-material.png` (all seven maps
+  baked at 256 square and both selectors back to Material). Test executable remains
+  `target/debug/subcraft.exe`. CLI fixture loading/screenshot controls only; no mouse input.
+* Reproduction: `crates/app/examples/generator_breakup.rs`, using the existing refined artwork
+  as source without modifying it. Small fixtures/data are under `%TEMP%/subcraft-material-workflow-native`.
+  4K run writes no project copies. Debug synchronous profile: first organic 13,981 ms; size
+  change 28,207 ms; seed change 27,936 ms; legacy 28,459 ms. Unchanged cached updates 0–0.65 ms.
+  These are exact full recomputes with ordinary process scheduling, not a release benchmark or
+  native frame/long-stroke profile; no responsiveness/speedup claim is made from them.
+* **Not completed:** real edge/dirt spread distance and edge intensity; increasing Level's new
+  edge-only spread semantics; lower-layer painted-normal dependencies and Disable Micro Effects;
+  per-paint-layer channel visibility/solo; Emission glow/glare/shine. Full scope/checklist is in
+  `material-workflow-roadmap.md`. Not hand-verified: physical gestures/popover toggles, file
+  hot-replacement in an interactive native window (tested with actual files in headless app),
+  Y/combinations in the native view, owner assets, browser, full 4K bake and long-frame profiling.
+  Installed/owner applications, protected files and original artwork were not changed.
+
 ## Next steps (in order)
+
+The owner's latest scope is **material-workflow-roadmap.md**. Next complete a shared surface
+distance/stage contract for edge and dirt spread, then lower-layer normal dependencies with
+Disable Micro Effects, and emission glow/glare/shine. Do not model spread as a global Levels
+adjustment or read a completed composite containing the generator's own/future layers.
 
 Bake preview follow-up: owner checks blue/red overlap, front/rear distances and live map
 selection with their original source pair. Add a full projection-miss/cage-error heatmap,
@@ -1856,7 +1920,7 @@ static artwork validation does not establish interactive frame pacing.
 Pending owner cleanup request: remove obsolete build artifacts only when the environment's
 deletion restriction permits it, retaining the verified `target/release/subcraft.exe` above.
 
-The new priority is **layer-system-roadmap.md**:
+After the newer material workflow request, resume **layer-system-roadmap.md**:
 0. Performance follow-ups (ADR-0018): first-use graphics/upload stalls and occasional later
    spikes; GPU field/blend kernels, staged accumulation caching and reduced-resolution drag
    previews. Background desktop compositing and sparse GPU initialization are done. Cold-field
