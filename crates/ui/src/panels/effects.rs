@@ -121,6 +121,9 @@ pub fn rows(
     channels: &[ChannelKind],
     active: ChannelKind,
     resolution: u32,
+    previews: &mut crate::layer_previews::PreviewUi,
+    session: &subcraft_app::Session,
+    preview_size: f32,
     cmds: &mut Vec<Command>,
 ) {
     let mask_domain = target == LayerTarget::Mask && layer.mask.is_some();
@@ -156,13 +159,18 @@ pub fn rows(
         for (index, row) in rows.iter().enumerate().rev() {
             let is_selected = selected == Some(row.id);
             let resp = ui.push_id(row.id, |ui| {
-                striped_list_row_height(ui, count - 1 - index, is_selected, theme::EFFECT_ROW_HEIGHT, egui::Sense::click(), |ui| {
+                striped_list_row_height(ui, count - 1 - index, is_selected, (preview_size + 6.0).max(theme::EFFECT_ROW_HEIGHT), egui::Sense::click(), |ui| {
                     ui.add_space(indent);
                     ui.spacing_mut().item_spacing.x = 5.0;
                     let (eye, tip) = if row.visible { (icons::EYE, "Hide effect") } else { (icons::EYE_SLASH, "Show effect") };
                     if ui.add_sized([20.0, 22.0], egui::Button::new(RichText::new(eye).color(TEXT_FAINT)).frame(false)).on_hover_text(tip).clicked() {
                         cmds.push(visibility(layer, mask_domain, row.id, !row.visible));
                     }
+                    let thumb = previews.image(ui, session, subcraft_app::layer_previews::PreviewKey {
+                        layer:layer.id,channel:active,mask:mask_domain,effect:Some(row.id),size:64
+                    }, preview_size, is_selected).on_hover_text("Result through this effect, including the steps below it. Click to edit. Hidden effects show the bypassed result.");
+                    if !row.visible {ui.painter().line_segment([thumb.rect.left_bottom(),thumb.rect.right_top()],egui::Stroke::new(1.0,TEXT_FAINT));}
+                    if thumb.clicked() {cmds.push(Command::SelectEffect {layer:layer.id,target:domain,effect:Some(row.id)});}
                     let color = if is_selected { ACCENT } else { TEXT_DIM };
                     ui.label(RichText::new(row.icon).font(theme::font(13.0)).color(color));
                     let text = row_text(&row.name, is_selected || row.visible).font(theme::font(11.5));

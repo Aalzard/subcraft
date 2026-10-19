@@ -938,6 +938,61 @@ fn uniform_fill(fill: &subcraft_doc::FillContent, kind: ChannelKind) -> bool {
         .is_none_or(|c| !c.enabled || matches!(c.source, subcraft_doc::FillSource::Uniform { .. }))
 }
 
+/// Find the accumulation immediately below a target, honoring ancestor isolation. Parent
+/// masks/effects run after that target and therefore do not belong in its stage preview.
+fn before<'a>(
+    graph: &mut Graph<'a>,
+    layers: &'a [Arc<Layer>],
+    target: LayerId,
+    mut below: usize,
+    kind: ChannelKind,
+) -> Option<usize> {
+    for layer in layers {
+        if layer.id == target {
+            return Some(below);
+        }
+        if let LayerContent::Group(group) = &layer.content {
+            let contains = group
+                .children
+                .iter()
+                .any(|l| l.id == target || contains_layer(l, target));
+            if contains {
+                let base = if layer.blend_for(kind).mode == BlendMode::Passthrough {
+                    below
+                } else {
+                    graph.push(Node::Constant([0.0; 4]))
+                };
+                return before(graph, &group.children, target, base, kind);
+            }
+        }
+        below = graph.layer(layer, below, kind);
+    }
+    None
+}
+fn contains_layer(layer: &Layer, target: LayerId) -> bool {
+    matches!(&layer.content,LayerContent::Group(g) if g.children.iter().any(|l|l.id==target || contains_layer(l,target)))
+}
+pub(crate) fn content_preview_in_stack(
+    layer: &Layer,
+    kind: ChannelKind,
+    tc: &TileContext,
+    scale: f32,
+    stack: &[Arc<Layer>],
+) -> Vec<[f32; 4]> {
+    let cache = StageCache::default();
+    let mut graph = Graph::empty(context(tc), tc.albedo_filter, &cache);
+    graph.radius_scale = scale;
+    let d = kind.default_value().0;
+    let base = graph.push(Node::Constant([d[0], d[1], d[2], 1.0]));
+    let below = if layer.blend_for(kind).mode == BlendMode::Passthrough {
+        before(&mut graph, stack, layer.id, base, kind).unwrap_or(base)
+    } else {
+        graph.push(Node::Constant([0.0; 4]))
+    };
+    let root = graph.layer(layer, below, kind);
+    graph.get(root, index(tc)).as_ref().clone()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

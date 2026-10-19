@@ -89,3 +89,36 @@ fn collapsing_effects_keeps_selection_and_document_then_restores_rows() {
         assert_eq!(state.session.document(), &before);
     }
 }
+
+fn effect_thumbs(out:&egui::FullOutput,side:f32)->Vec<Rect> {
+    out.shapes.iter().filter_map(|s|match &s.shape {
+        egui::Shape::Rect(r) if r.stroke.width>0.0 && (r.rect.width()-side).abs()<0.01 && (r.rect.height()-side).abs()<0.01=>Some(r.rect),_=>None
+    }).collect()
+}
+#[test]
+fn effect_thumbnail_click_selects_the_correct_domain_without_editing_the_document() {
+    use subcraft_core::ChannelKind;
+    use subcraft_doc::{ContentEffectKind,Filter};
+    for mask in [false,true] {
+        let ctx=egui::Context::default();theme::apply(&ctx);let mut state=fixture();let layer=state.session.selection().layer.unwrap();
+        let (name,id)=if mask {state.session.execute(Command::SelectLayerTarget {layer,target:LayerTarget::Mask}).unwrap();("Levels",state.session.selected_layer().unwrap().mask.as_ref().unwrap().effects[1].id)}
+            else {state.session.execute(Command::AddContentEffect {layer,kind:ContentEffectKind::Filter {channel:ChannelKind::BaseColor,filter:Filter::ALL[0]}}).unwrap();state.session.execute(Command::SelectLayerTarget {layer,target:LayerTarget::Content}).unwrap();("Contrast (Base Color)",state.session.selected_layer().unwrap().content_effects[0].id)};
+        let before=state.session.document().clone();let history=state.session.history().entries().len();
+        let mut out=frame(&ctx,&mut state,340.0,vec![]);for _ in 0..2 {out=frame(&ctx,&mut state,340.0,vec![]);}
+        let label=text(&out,name).unwrap();let thumb=*effect_thumbs(&out,20.0).iter().find(|r|(r.center().y-label.center().y).abs()<2.0).unwrap();
+        for _ in 0..2 { // The thumbnail always selects; it never toggles back to the layer.
+            for pressed in [true,false] {frame(&ctx,&mut state,340.0,vec![Event::PointerMoved(thumb.center()),Event::PointerButton {pos:thumb.center(),button:egui::PointerButton::Primary,pressed,modifiers:Default::default()}]);}
+            assert_eq!(state.session.selected_effect(),Some(id));assert_eq!(state.session.layer_target(),if mask {LayerTarget::Mask}else{LayerTarget::Content});
+        }
+        assert_eq!(state.session.document(),&before);assert_eq!(state.session.history().entries().len(),history);
+    }
+}
+#[test]
+fn effect_thumbnails_follow_preview_size_and_disappear_when_the_stack_collapses() {
+    let ctx=egui::Context::default();theme::apply(&ctx);let mut state=fixture();
+    state.recovery.prefs.layer_preview_size=64;
+    let mut out=frame(&ctx,&mut state,280.0,vec![]);for _ in 0..2 {out=frame(&ctx,&mut state,280.0,vec![]);}
+    let thumbs=effect_thumbs(&out,28.0);assert_eq!(thumbs.len(),2);assert!(thumbs.iter().all(|r|r.right()<=280.0));
+    let pos=text(&out,"Mask effects").unwrap().center();for pressed in [true,false] {frame(&ctx,&mut state,280.0,vec![Event::PointerMoved(pos),Event::PointerButton {pos,button:egui::PointerButton::Primary,pressed,modifiers:Default::default()}]);}
+    let out=frame(&ctx,&mut state,280.0,vec![]);assert!(effect_thumbs(&out,28.0).is_empty());
+}

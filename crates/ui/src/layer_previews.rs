@@ -43,7 +43,9 @@ impl PreviewUi {
             egui::WidgetInfo::labeled(
                 egui::WidgetType::Button,
                 ui.is_enabled(),
-                if key.mask {
+                if key.effect.is_some() {
+                    "Effect thumbnail"
+                } else if key.mask {
                     "Mask thumbnail"
                 } else {
                     "Content thumbnail"
@@ -90,8 +92,8 @@ impl PreviewUi {
                 }
                 let handle = ui.ctx().load_texture(
                     format!(
-                        "layer-{}-{:?}-{}-{}",
-                        key.layer, key.channel, key.mask, key.size
+                        "layer-{}-{:?}-{}-{}-{:?}",
+                        key.layer, key.channel, key.mask, key.size, key.effect
                     ),
                     pixels(),
                     egui::TextureOptions::LINEAR,
@@ -152,7 +154,7 @@ pub fn inspection_window(state: &mut crate::state::UiState, ctx: &egui::Context)
     egui::Window::new(title).id(egui::Id::new("mask_uv_preview")).open(&mut open).resizable(true).show(ctx, |ui| {
         ui.label(egui::RichText::new("Evaluated mask · UV space").color(theme::TEXT_DIM));
         let side = ui.available_width().clamp(192.0, 512.0);
-        state.layer_previews.image(ui, &state.session, PreviewKey { layer, channel: ChannelKind::BaseColor, mask: true, size: 256 }, side, false);
+        state.layer_previews.image(ui, &state.session, PreviewKey { layer, channel: ChannelKind::BaseColor, mask: true, effect: None, size: 256 }, side, false);
         crate::widgets::hint(ui, "Includes painting and effects. A disabled mask still shows its authored result here.");
     });
     if !open {

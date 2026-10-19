@@ -70,11 +70,18 @@ pub fn preview_content(layer: &Layer, channel: ChannelKind, tc: &TileContext) ->
 
 /// UV preview with spatial radii scaled from working resolution to preview resolution.
 pub fn preview_content_scaled(layer: &Layer, channel: ChannelKind, tc: &TileContext, radius_scale: f32) -> Vec<[f32; 4]> {
+    preview_content_context_scaled(layer, channel, tc, radius_scale, &[])
+}
+
+/// Folder previews retain the actual input accumulation without applying later ancestor effects.
+pub fn preview_content_context_scaled(layer: &Layer, channel: ChannelKind, tc: &TileContext, radius_scale: f32, stack: &[Arc<Layer>]) -> Vec<[f32; 4]> {
     let mut source = layer.clone();
     source.visible = true;
     source.mask = None;
     source.parts = None;
-    source.blend.insert(channel, subcraft_doc::ChannelBlend::new(BlendMode::Normal));
+    let mode=if layer.is_folder() && layer.blend_for(channel).mode==BlendMode::Passthrough {BlendMode::Passthrough} else {BlendMode::Normal};
+    source.blend.insert(channel, subcraft_doc::ChannelBlend::new(mode));
+    if source.is_folder() && !stack.is_empty() { return crate::stages::content_preview_in_stack(&source,channel,tc,radius_scale,stack); }
     if crate::stages::has_spatial(&[Arc::new(source.clone())]) { return crate::stages::content_preview(&source,channel,tc,radius_scale); }
     let mut acc = [Acc::transparent(channel)];
     apply_layer(&source, &mut acc, &[true], tc);
