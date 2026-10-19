@@ -244,7 +244,7 @@ impl KernelInput<'_> {
                 if !ok {
                     continue;
                 }
-                let mut a = st.footprint(self.alignment, cam, s.p, s.uv, self.alpha);
+                let mut a = st.footprint(self.alignment, cam, s.p, s.ng, s.uv, self.alpha);
                 if let Some(f) = &stencil {
                     a *= f[k];
                 }
