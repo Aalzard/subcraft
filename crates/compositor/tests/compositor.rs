@@ -506,7 +506,12 @@ fn natural_spread_matches_surface_distance_golden_and_varies_at_zero_breakup() {
             let distance = [0, 1, 2].into_iter().filter(|&axis| n[axis].abs() < 0.5)
                 .map(|axis| p[axis].min(1.0 - p[axis])).fold(f32::INFINITY, f32::min).max(0.0);
             let noise = subcraft_materials::organic::eval(&g.noise, p);
-            let reach = 0.08 * (1.0 + 0.9 * ((noise - 0.5) * 3.0).clamp(-0.5, 0.5) * 1.8);
+            // Boundary chips: a second seeded field four times finer than Pattern size, at higher
+            // contrast, blended 50/50 with the Pattern-size field.
+            let mut chips = g.noise; chips.scale = g.noise.scale * 4.0; chips.seed = chips.seed.wrapping_add(0x5bd1);
+            let chips = subcraft_materials::organic::eval(&chips, p);
+            let boundary = ((noise - 0.5) * 3.0).clamp(-0.5, 0.5) * 0.5 + ((chips - 0.5) * 4.0).clamp(-0.5, 0.5) * 0.5;
+            let reach = 0.08 * (1.0 + 0.9 * boundary * 1.8);
             let t = ((distance - reach * 0.75) / (reach * 0.25)).clamp(0.0, 1.0);
             let expected = 0.3 + 0.7 * (1.0 - t * t * (3.0 - 2.0 * t));
             let (x, y) = geo.texel_xy(i); assert_scalar(&first, ChannelKind::Roughness, x, y, expected); checked += 1;
@@ -562,6 +567,48 @@ fn spread_reaches_independently_at_low_level_without_turning_flat_faces_white() 
             assert_eq!(at_low_level, composite_full(&ts, &fx.ctx()));
         }
     }
+}
+
+#[test]
+fn narrow_spread_boundary_is_chipped_at_its_own_scale_not_a_straight_stripe() {
+    // Owner: boundaries looked unnaturally straight at Breakup 0. Measure the band's reach in
+    // narrow columns along one cube edge; nearby columns must differ, not only slowly drift.
+    const HI: u32 = 1024;
+    let fx = Fixture { geo: TextureSetGeometry::new(Arc::new(primitives::cube(2.0)), 0, HI), res: ResourceStore::default(), maps: MeshMaps::new() };
+    let mut ratios = Vec::new();
+    for seed in [1, 7, 23] {
+    let mut ts = TextureSet::new("T", 0, HI); let tc = ts.clone();
+    let mut layer = fill_layer(&tc, &[(ChannelKind::Roughness, ChannelValue::scalar(1.0))]);
+    let mut g = Generator::new(GeneratorKind::Edges); g.noise_amount = 0.0; g.softness = 0.02; g.noise.seed = seed;
+    g.edge_spread = Some(subcraft_doc::EdgeSpread { distance: 3.0, variation: 0.7 });
+    let mut mask = Mask::new(HI, false);
+    mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Generator(g)))); layer.mask = Some(mask);
+    ts.insert_above(None, layer);
+    let image = composite_full(&ts, &fx.ctx());
+    // Top face (+Y): reach from the z=1 edge, per 1% x column (normalized frame, cube = 0..1).
+    let mut columns = std::collections::BTreeMap::<i32, f32>::new();
+    for t in 0..fx.geo.tile_count() { let geo = fx.geo.tile(t); for i in 0..4096 {
+        if geo.coverage(i) < 1.0 || geo.normal(i)[1] < 0.9 { continue; }
+        let p = geo.position(i);
+        if p[0] < 0.1 || p[0] > 0.9 || p[2] < 0.85 { continue; }
+        let (x, y) = geo.texel_xy(i);
+        if px(&image, ChannelKind::Roughness, x, y)[0] > 0.65 {
+            let reach = columns.entry((p[0] * 100.0) as i32).or_insert(0.0); *reach = reach.max(1.0 - p[2]);
+        }
+    } }
+    let reach: Vec<f32> = columns.values().copied().collect();
+    assert!(reach.len() > 70, "{} columns", reach.len());
+    let mean = reach.iter().sum::<f32>() / reach.len() as f32;
+    // Detail at the band's own scale: deviation from a 9-column (~9%) moving average. A slow
+    // Pattern-size wobble alone leaves a smooth stripe with almost no residual.
+    let residual = (4..reach.len() - 4).map(|i| {
+        let average = reach[i - 4..=i + 4].iter().sum::<f32>() / 9.0; (reach[i] - average).abs()
+    }).sum::<f32>() / (reach.len() - 8) as f32;
+    ratios.push(residual / mean);
+    }
+    // Measured before the chip field: 0.097/0.085/0.048 (mean 0.077); with it 0.107/0.104/0.072.
+    let average = ratios.iter().sum::<f32>() / ratios.len() as f32;
+    assert!(average > 0.088 && ratios.iter().all(|r| *r > 0.06), "boundary too straight: residual/reach {ratios:?}");
 }
 
 #[test]

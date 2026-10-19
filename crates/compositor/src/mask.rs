@@ -104,19 +104,32 @@ fn eval_edge_spread(g: &Generator, spread: subcraft_doc::EdgeSpread, tc: &TileCo
     // Level made even maximum Spread almost disappear at the owner's Level 0.065 setting.
     let radius = spread.distance.clamp(0.0, 12.5) * 0.01;
     let variation = spread.variation.clamp(0.0, 1.0);
+    // Pattern size alone wobbles over ~12% of the model, so a narrow band read as a straight
+    // stripe. A second field four times finer chips the boundary. It follows Pattern size and
+    // Seed but not Spread, so Spread drags reuse the cached field; tiles beyond any possible
+    // reach skip it. Variation zero keeps the clean geometric band.
+    let widest = radius * (1.0 + variation * 0.9);
+    let chips = (variation > 0.0 && radius > 0.0 && distances.iter().any(|&d| d < widest)).then(|| {
+        let mut p = g.noise;
+        p.scale = (g.noise.scale * 4.0).clamp(0.01, 256.0);
+        p.seed = p.seed.wrapping_add(0x5bd1);
+        subcraft_materials::sample::organic_tile(&p, tc.geo)
+    });
     let breakup = g.noise_amount.clamp(0.0, 1.0);
     let softness = g.softness.clamp(0.02, 1.0);
     for (i, o) in out.iter_mut().enumerate() {
         let n = noise[i];
         // Fractal volume values cluster near 0.5. Expand their useful range so Variation has
         // visible width changes, rather than an almost straight band at small Spread values.
-        let boundary = ((n - 0.5) * 3.0).clamp(-0.5, 0.5);
+        let coarse = ((n - 0.5) * 3.0).clamp(-0.5, 0.5);
+        let boundary = chips.as_ref().map_or(coarse, |c| coarse * 0.5 + ((c[i] - 0.5) * 4.0).clamp(-0.5, 0.5) * 0.5);
         let reach = radius * (1.0 + variation * boundary * 1.8) * (1.0 - breakup * 0.7 * (1.0 - n));
         let geometric = if reach > 0.0 { 1.0 - smoothstep(reach * (1.0 - softness), reach, distances[i]) } else { 0.0 };
         // Keep baked rounded/high-poly detail, but explicitly exclude the neutral flat baseline.
         // Geometric sources are independent of contact curvature from other crate components.
         let convex = ((curvature[i][0] - 0.5) * 2.0).clamp(0.0, 1.0);
-        let threshold = 1.0 - g.level + (n - 0.5) * breakup + boundary * variation * 0.5;
+        // Coarse only: chips are skipped on tiles out of reach, and must not seam baked detail.
+        let threshold = 1.0 - g.level + (n - 0.5) * breakup + coarse * variation * 0.5;
         let baked = if convex > 1e-4 && g.level > 0.0 {
             smoothstep(threshold - softness * 0.5, threshold + softness * 0.5, convex)
         } else { 0.0 };

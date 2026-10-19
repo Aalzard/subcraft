@@ -99,6 +99,13 @@ pub(crate) fn curvature_on_surface(
         if dn.length_squared() < 1e-6 {
             continue;
         }
+        let foreign = source.is_some_and(|(source, elements)| elements[t as usize] != elements[source as usize]
+            || mesh.tri_object.get(t as usize) != mesh.tri_object.get(source as usize));
+        // Another part's surface behind this tangent plane is buried under this surface (e.g. a
+        // band passing inside a post). It is not an exposed edge and must not read as convex.
+        if foreign && d.dot(n) < -radius * 1e-3 {
+            continue;
+        }
         // Measure change across the crease for every neighbor, not just coincident samples.
         // Other triangles on the same neighboring face may be displaced along the crease;
         // averaging those oblique directions made a straight edge pulse with tessellation.
@@ -116,9 +123,7 @@ pub(crate) fn curvature_on_surface(
         let w = 1.0 - dist.max(radius * 1e-3) / radius;
         let value = dn.dot(across.normalize());
         all.add(value, w);
-        if let Some((source, elements)) = source
-            && elements[t as usize] == elements[source as usize]
-            && mesh.tri_object.get(t as usize) == mesh.tri_object.get(source as usize) {
+        if source.is_some() && !foreign {
             own.add(value, w);
         }
     }

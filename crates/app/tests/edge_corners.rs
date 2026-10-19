@@ -106,3 +106,69 @@ fn default_crate_overlap_gap_is_filled_and_spread_edits_undo_reopen_and_converge
     reopened.update_composites(); assert_eq!(reopened.composite(ts).unwrap(), &worker);
     std::fs::remove_file(path).unwrap();
 }
+
+/// Owner's settings on the actual baked crate: wear starts only at exposed edges (never at the
+/// body edges buried in the posts, nor at bands hidden behind post faces), reaches broadly at
+/// Level 0.065 / Spread 12.5%, and still leaves the middle of flat panels clean.
+#[test]
+fn default_crate_wear_starts_at_exposed_edges_and_reaches_at_low_level() {
+    let mesh = primitives::sample_crate(); let bvh = Bvh::build(&mesh);
+    let size = 256;
+    let mut session = Session::new(mesh.clone(), size);
+    let sets: Vec<_> = session.document().texture_sets.iter().map(|t| (t.id, t.material_slot)).collect();
+    let mut layers = Vec::new();
+    for &(ts, slot) in &sets {
+        session.execute(Command::SelectTextureSet(ts)).unwrap();
+        let maps = bake(&BakeInput { low: Geometry { mesh: &mesh, bvh: &bvh }, high: None, material_slot: slot },
+            &BakeSettings { size, maps: vec![MeshMapKind::Curvature], ..Default::default() }, &Progress::new()).unwrap();
+        session.set_mesh_maps(ts, maps);
+        session.execute(Command::AddLayer(NewLayer::Fill)).unwrap(); let layer = session.selection().layer.unwrap();
+        session.execute(Command::SetFillChannel { layer, channel: ChannelKind::BaseColor,
+            fill: FillChannel::new(FillSource::uniform(ChannelValue::rgb(1.0, 1.0, 1.0))) }).unwrap();
+        session.execute(Command::AddMask { layer, white: false }).unwrap();
+        let mut g = Generator::new(GeneratorKind::Edges); g.noise_amount = 0.0; g.level = 0.065;
+        let spread = g.edge_spread.as_mut().unwrap(); spread.distance = 12.5; spread.variation = 0.85;
+        session.execute(Command::AddMaskEffect { layer, kind: MaskEffectKind::Generator(g) }).unwrap();
+        layers.push((ts, slot, layer, g));
+    }
+    session.update_composites();
+    let wear = |session: &Session, ts, index: u32| (session.composite(ts).unwrap().channel(ChannelKind::BaseColor).unwrap()
+        .get(index % size, index / size)[0] - 0.5) * 2.0;
+    let (ts, slot, ..) = layers[0];
+    let (mut panel, mut rim, mut broad, mut broad_sum) = (0, 0, 0, 0.0);
+    for t in texels(&mesh, slot, size) {
+        let p = t.position; let value = wear(&session, ts, t.index);
+        let side = (p.x.abs() - 0.8).abs() < 1e-4 || (p.z.abs() - 0.5).abs() < 1e-4;
+        // Body top, away from the corner posts' footprints (their x/z bands near the corners).
+        let top = (p.y - 0.5).abs() < 1e-4 && !(p.x.abs() > 0.65 && p.z.abs() > 0.35);
+        if side && p.y.abs() < 0.08 && p.x.abs() < 0.7 {
+            // Mid-height side panels, also right beside the posts that bury the vertical edges.
+            assert!(value < 0.01, "flat panel covered at {p:?}: {value}"); panel += 1;
+        } else if top {
+            let edge = (0.8 - p.x.abs()).min(0.5 - p.z.abs());
+            if edge < 0.04 { assert!(value > 0.99, "exposed rim lost at {p:?}: {value}"); rim += 1; }
+            if (0.1..0.2).contains(&edge) { broad_sum += value; broad += 1; }
+        }
+    }
+    assert!(panel > 100 && rim > 50 && broad > 100, "{panel} {rim} {broad}");
+    assert!(broad_sum / broad as f32 > 0.4, "Spread 12.5% must reach 0.1–0.2 units inward: {}", broad_sum / broad as f32);
+    // Natural off (legacy, baked detail only) at a typical level: no detached dashes on posts.
+    let (ts, slot, layer, mut g) = layers[1];
+    session.execute(Command::SelectTextureSet(ts)).unwrap();
+    g.edge_spread = None; g.level = 0.85;
+    let mut effect = session.selected_texture_set().find(layer).unwrap().mask.as_ref().unwrap().effects[0].as_ref().clone();
+    effect.kind = MaskEffectKind::Generator(g);
+    session.execute(Command::SetMaskEffect { layer, effect }).unwrap();
+    session.update_composites();
+    let mut post = 0;
+    for t in texels(&mesh, slot, size) {
+        let p = t.position;
+        let (dx, dz) = ((p.x.abs() - 0.8).abs(), (p.z.abs() - 0.5).abs());
+        let lateral = if (p.x.abs() - 0.87).abs() < 1e-4 { dz } else if (p.z.abs() - 0.57).abs() < 1e-4 { dx } else { continue };
+        if lateral < 0.05 && p.y.abs() < 0.5 {
+            let value = wear(&session, ts, t.index);
+            assert!(value < 0.01, "detached dash on a post face at {p:?}: {value}"); post += 1;
+        }
+    }
+    assert!(post > 100);
+}

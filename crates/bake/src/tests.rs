@@ -181,6 +181,28 @@ fn crate_contact_cannot_cancel_its_own_corner_curvature() {
 }
 
 #[test]
+fn parts_buried_under_a_surface_do_not_bake_fake_convex_dashes() {
+    // Crate bands pass just behind the corner posts' outer faces. Their hidden edges used to
+    // bake convex dashes onto the posts, which Edges masks turned into detached wear marks.
+    let mesh = primitives::sample_crate();
+    let maps = bake_low(&mesh, &[MeshMapKind::Curvature], 1);
+    let radius = settings(&[MeshMapKind::Curvature]).curvature_radius * mesh.bounds.diagonal();
+    let mut checked = 0;
+    for t in texels(&mesh, 1, RES) {
+        let p = t.position;
+        let (dx, dz) = ((p.x.abs() - 0.8).abs(), (p.z.abs() - 0.5).abs());
+        // Outer post faces, away from the post's own vertical edges and top/bottom rims.
+        let lateral = if (p.x.abs() - 0.87).abs() < 1e-4 { dz } else if (p.z.abs() - 0.57).abs() < 1e-4 { dx } else { continue };
+        if lateral < 0.07 - radius && p.y.abs() < 0.54 - radius {
+            let value = at(&maps[&MeshMapKind::Curvature], &t)[0];
+            assert!(value < 0.52, "buried band reads as a convex edge on a post: {value} at {p:?}");
+            checked += 1;
+        }
+    }
+    assert!(checked > 100, "only {checked} post texels checked");
+}
+
+#[test]
 fn curvature_stays_connected_at_exact_cube_corners_and_uv_rims() {
     for subdivisions in [1, 4, 13] {
         let mesh = primitives::atlas_box(Vec3::splat(2.0), subdivisions, "Corner regression");
