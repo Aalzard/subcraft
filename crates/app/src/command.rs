@@ -29,6 +29,7 @@ pub enum Command {
     /// Change a texture set's working resolution (one of `subcraft_doc::RESOLUTIONS`),
     /// resampling its painted rasters; `None` changes every texture set. One undo step.
     SetResolution { texture_set: Option<TextureSetId>, resolution: u32 },
+    SetAlbedoFilter { texture_set: TextureSetId, filter: subcraft_image::TextureFilter },
     SelectLayer(Option<LayerId>),
     SelectLayerTarget { layer: LayerId, target: crate::session::LayerTarget },
     /// Select an effect in the layer's content or mask stack (`None`: the domain itself). Tool

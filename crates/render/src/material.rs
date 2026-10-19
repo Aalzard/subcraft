@@ -140,6 +140,7 @@ impl ChannelTexture {
 
 /// Channel textures + bind group of one texture set (material slot).
 pub struct GpuMaterial {
+    pub albedo_filter: subcraft_image::TextureFilter,
     pub channels: BTreeMap<ChannelKind, ChannelTexture>,
     /// Baked mesh maps (2D view display).
     pub mesh_maps: BTreeMap<subcraft_core::MeshMapKind, ChannelTexture>,
@@ -148,7 +149,7 @@ pub struct GpuMaterial {
 
 impl GpuMaterial {
     pub fn new() -> Self {
-        Self { channels: BTreeMap::new(), mesh_maps: BTreeMap::new(), bind_group: None }
+        Self { albedo_filter: Default::default(), channels: BTreeMap::new(), mesh_maps: BTreeMap::new(), bind_group: None }
     }
 }
 

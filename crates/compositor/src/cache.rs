@@ -79,6 +79,7 @@ impl CompositeCache {
             && self.composite.as_ref().is_some_and(|c| c.resolution == ts.resolution)
             && self.last.as_ref().is_some_and(|l| l.id == ts.id && l.channels == ts.channels);
         let dirty = match (&self.last, reusable) {
+            (Some(last), true) if last.albedo_filter != ts.albedo_filter => Dirty::All,
             (Some(last), true) => diff_lists(&last.layers, &ts.layers),
             _ => Dirty::All,
         };

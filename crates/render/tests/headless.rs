@@ -9,6 +9,48 @@ use subcraft_render::{ViewMode, ViewParams, ViewportRenderer, headless};
 
 const SIZE: u32 = 192;
 
+#[test]
+fn albedo_filter_preserves_nearest_palette_and_bilinear_values_without_affecting_data() {
+    use subcraft_image::TextureFilter;
+    let Some((_, device, queue)) = headless::device() else { eprintln!("no adapter: skipping"); return };
+    let mut r = ViewportRenderer::new(&device, &queue);
+    r.set_mesh(&device, &primitives::plane(2., 1));
+    let mut base = TiledImage::new(2, 2, 4, [0., 0., 0., 1.]);
+    base.set(1, 0, [1.; 4]);
+    base.set(1, 1, [1.; 4]);
+    r.upload_channel(&device, &queue, 0, ChannelKind::BaseColor, &base, None);
+    let mut p = ViewParams::new(Mat4::look_at_rh(Vec3::new(0., 3., 0.), Vec3::ZERO, Vec3::NEG_Z), Mat4::orthographic_rh(-1., 1., -1., 1., 0.1, 10.));
+    p.antialias = false; p.view_mode = ViewMode::BaseColor;
+    let bilinear = r.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+    r.set_albedo_filter(0, TextureFilter::Nearest);
+    let nearest = r.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+    for y in 8..SIZE - 8 { for x in 8..SIZE - 8 {
+        let value = px(&nearest, x, y)[0];
+        assert!(value <= 1 || value >= 254, "nearest invented a gray value at {x},{y}: {value}");
+    }}
+    assert_eq!(px(&nearest, 80, 96)[0], 0);
+    assert_eq!(px(&nearest, 112, 96)[0], 255);
+    let expected = (subcraft_core::color::linear_to_srgb((80.5 / SIZE as f32) * 2. - 0.5) * 255.).round() as u8;
+    assert!(px(&bilinear, 80, 96)[0].abs_diff(expected) <= 2, "bilinear must interpolate in linear color");
+    assert!(diff(&bilinear, &nearest) > 4000);
+    p.view_mode = ViewMode::Material;
+    let shaded_nearest = r.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+    r.set_albedo_filter(0, TextureFilter::Bilinear);
+    let shaded_linear = r.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+    assert!(diff(&shaded_linear, &shaded_nearest) > 4000, "material view honors the same filter");
+    p.view_mode = ViewMode::BaseColor;
+    assert_eq!(r.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue), bilinear);
+    for mode in [ViewMode::Normal, ViewMode::Roughness, ViewMode::Metallic, ViewMode::Height, ViewMode::AmbientOcclusion] {
+        p.view_mode = mode;
+        let linear = r.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+        r.set_albedo_filter(0, TextureFilter::Nearest);
+        assert_eq!(r.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue), linear, "{mode:?} changed");
+        r.set_albedo_filter(0, TextureFilter::Bilinear);
+    }
+    r.set_albedo_filter(1, TextureFilter::Nearest); p.view_mode = ViewMode::BaseColor;
+    assert_eq!(r.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue), bilinear, "sets have independent filters");
+}
+
 fn params() -> ViewParams {
     let view = Mat4::look_at_rh(Vec3::new(3.0, 2.5, 4.0), Vec3::ZERO, Vec3::Y);
     let proj = Mat4::perspective_rh(45f32.to_radians(), 1.0, 0.1, 100.0);

@@ -711,6 +711,13 @@ impl Session {
                 self.selection.layer = Some(id);
                 self.commit(&label, None);
             }
+            Command::SetAlbedoFilter { texture_set, filter } => {
+                let ts = self.doc.texture_set_mut(texture_set).ok_or(CommandError::TextureSetNotFound)?;
+                if ts.albedo_filter != filter {
+                    ts.albedo_filter = filter;
+                    self.commit("Albedo filtering", None);
+                }
+            }
             Command::SetResolution { texture_set, resolution } => {
                 if !subcraft_doc::RESOLUTIONS.contains(&resolution) {
                     return Err(CommandError::Invalid(format!("unsupported resolution {resolution}")));

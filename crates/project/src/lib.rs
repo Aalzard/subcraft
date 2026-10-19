@@ -186,6 +186,7 @@ pub fn write_project<W: Write + Seek>(
             name: ts.name.clone(),
             material_slot: ts.material_slot,
             resolution: ts.resolution,
+            albedo_filter: ts.albedo_filter,
             channels: ts.channels.iter().map(|c| ChannelDefV1 { kind: c.kind, format: c.format }).collect(),
             layers: ts.layers.iter().map(|l| writer.layer(l)).collect(),
             mesh_maps: mesh_maps
@@ -464,6 +465,7 @@ pub fn read_project<R: Read + Seek>(r: R) -> Result<ProjectData, ProjectError> {
             name: t.name.clone(),
             material_slot: t.material_slot,
             resolution: t.resolution,
+            albedo_filter: t.albedo_filter,
             channels: t.channels.iter().map(|c| ChannelDef { kind: c.kind, format: c.format }).collect(),
             layers: Vec::new(),
         };

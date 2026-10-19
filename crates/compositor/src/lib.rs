@@ -40,6 +40,7 @@ pub struct EvalContext<'a> {
 
 /// Per-tile view of the evaluation inputs.
 pub struct TileContext<'a> {
+    pub albedo_filter: subcraft_image::TextureFilter,
     pub geo: &'a TileGeometry,
     pub set_geometry: &'a TextureSetGeometry,
     pub sample: SampleContext<'a>,
@@ -113,6 +114,7 @@ impl Composite {
             .map(|(t, mut slots)| {
                 let geo = ctx.geometry.tile(t);
                 let tc = TileContext {
+                    albedo_filter: ts.albedo_filter,
                     geo: &geo,
                     set_geometry: ctx.geometry,
                     sample: SampleContext { resources: ctx.resources, mesh_maps: ctx.mesh_maps },

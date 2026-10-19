@@ -29,6 +29,7 @@ struct Source {
     maps: MeshMaps,
     maps_generation: u64,
     resolution: u32,
+    albedo_filter: subcraft_image::TextureFilter,
     slot: u32,
     geometry: Arc<GeometryCache>,
 }
@@ -38,6 +39,7 @@ impl Source {
             && Arc::ptr_eq(&self.geometry, &other.geometry)
             && self.maps_generation == other.maps_generation
             && self.resolution == other.resolution
+            && self.albedo_filter == other.albedo_filter
     }
 }
 struct Entry {
@@ -127,6 +129,7 @@ impl LayerPreviews {
                     maps: session.mesh_maps(ts.id).cloned().unwrap_or_default(),
                     maps_generation: session.maps_generation(),
                     resolution: ts.resolution,
+                    albedo_filter: ts.albedo_filter,
                     slot: ts.material_slot,
                     geometry: self.geometry.as_ref().unwrap().1.clone(),
                 },
@@ -137,9 +140,11 @@ impl LayerPreviews {
         };
         let entry = &mut self.entries[index];
         let changed = !Arc::ptr_eq(&entry.source.layer, &layer)
+            || entry.source.albedo_filter != ts.albedo_filter
             || entry.source.resolution != ts.resolution
             || entry.source.maps_generation != session.maps_generation();
         if changed {
+            entry.source.albedo_filter = ts.albedo_filter;
             entry.source.layer = layer;
             entry.source.resources = session.resources().clone();
             entry.source.maps = session.mesh_maps(ts.id).cloned().unwrap_or_default();
@@ -209,6 +214,7 @@ fn evaluate(key: PreviewKey, source: &Source) -> LayerPreview {
     for tile in 0..tiles * tiles {
         let geo = geometry.tile(tile as usize);
         let tc = TileContext {
+            albedo_filter: source.albedo_filter,
             geo: &geo,
             set_geometry: &geometry,
             sample: SampleContext {

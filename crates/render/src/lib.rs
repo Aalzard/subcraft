@@ -200,6 +200,7 @@ pub struct ViewportRenderer {
     env_sh: [[f32; 3]; 9],
     material_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
+    nearest_sampler: wgpu::Sampler,
     defaults: HashMap<ChannelKind, ChannelTexture>,
     mesh: Option<GpuMesh>,
     materials: HashMap<u32, GpuMaterial>,
@@ -259,6 +260,10 @@ impl ViewportRenderer {
                 count: None,
             });
         }
+        entries.push(wgpu::BindGroupLayoutEntry {
+            binding: 8, visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering), count: None,
+        });
         let material_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { label: Some("material layout"), entries: &entries });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -326,6 +331,11 @@ impl ViewportRenderer {
                 (k, ChannelTexture::constant(device, queue, [d[0], d[1], d[2], 1.0], composite_comps(k), k.key()))
             })
             .collect();
+        let nearest_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("nearest albedo"), address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge, mag_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Nearest, ..Default::default()
+        });
         Self {
             pipeline,
             pipeline_no_aa,
@@ -337,7 +347,7 @@ impl ViewportRenderer {
             env_texture,
             env_levels: 1,
             env_sh: [[0.0; 3]; 9],
-            material_layout, sampler, defaults, mesh: None, materials: HashMap::new(), target: None, preview: PreviewPass::new(device), preview_target: None }
+            material_layout, sampler, nearest_sampler, defaults, mesh: None, materials: HashMap::new(), target: None, preview: PreviewPass::new(device), preview_target: None }
     }
 
     fn globals_bind_group(
@@ -459,12 +469,20 @@ impl ViewportRenderer {
         Some(dst)
     }
 
+    /// Change only Base Color reconstruction; reuse all channel textures and pipelines.
+    pub fn set_albedo_filter(&mut self, material_slot: u32, filter: subcraft_image::TextureFilter) {
+        let mat = self.materials.entry(material_slot).or_default();
+        if mat.albedo_filter != filter { mat.albedo_filter = filter; mat.bind_group = None; }
+    }
+
     fn ensure_bind_groups(&mut self, device: &wgpu::Device) {
         for mat in self.materials.values_mut() {
             if mat.bind_group.is_some() {
                 continue;
             }
             let mut entries = vec![wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::Sampler(&self.sampler) }];
+            let albedo_sampler = if mat.albedo_filter == subcraft_image::TextureFilter::Nearest { &self.nearest_sampler } else { &self.sampler };
+            entries.push(wgpu::BindGroupEntry { binding: 8, resource: wgpu::BindingResource::Sampler(albedo_sampler) });
             for (i, k) in SHADED_CHANNELS.iter().enumerate() {
                 let view = mat.channels.get(k).map_or(&self.defaults[k].view, |t| &t.view);
                 entries.push(wgpu::BindGroupEntry { binding: i as u32 + 1, resource: wgpu::BindingResource::TextureView(view) });

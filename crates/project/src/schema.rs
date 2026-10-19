@@ -17,7 +17,8 @@ use uuid::Uuid;
 // 3: object metadata (mesh blob v2) and geometry-mask domains. Legacy projects still load.
 // 4: editable pen paths, with anchor UUIDs, UV handles, style and a derived raster cache.
 // 5: per-layer content effect stacks (`content_effects`; absent = none, so 1-4 load unchanged).
-pub const SCHEMA_VERSION: u32 = 5;
+// 6: texture-set albedo filtering; schemas 1–5 migrate to Bilinear.
+pub const SCHEMA_VERSION: u32 = 6;
 pub const FORMAT_NAME: &str = "subcraft-project";
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -43,6 +44,9 @@ pub struct TextureSetV1 {
     pub name: String,
     pub material_slot: u32,
     pub resolution: u32,
+    /// Schema 6 migration: older files retain their original bilinear reconstruction.
+    #[serde(default)]
+    pub albedo_filter: subcraft_image::TextureFilter,
     pub channels: Vec<ChannelDefV1>,
     /// Bottom-to-top.
     pub layers: Vec<LayerV1>,

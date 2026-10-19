@@ -313,6 +313,7 @@ impl UiState {
         let updates = crate::edit_profile::time_tab("  sync: composite", || self.session.update_composites_within(Some(budget)));
         let upload_start = web_time::Instant::now();
         let session = &self.session;
+        for ts in &session.document().texture_sets { renderer.set_albedo_filter(ts.material_slot, ts.albedo_filter); }
         let upload = |renderer: &mut ViewportRenderer, ts: subcraft_core::TextureSetId, slot: u32, changed: Option<&subcraft_app::ChangedTiles>| {
             let Some(c) = session.composite(ts) else { return };
             for k in SHADED_CHANNELS {

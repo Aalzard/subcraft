@@ -206,7 +206,7 @@ fn content_preview_includes_effects() {
     let layer = ts.find(id).unwrap().clone();
     let ctx = fx.ctx();
     let geo = ctx.geometry.tile(0);
-    let tile = TileContext { geo: &geo, set_geometry: ctx.geometry, sample: SampleContext { resources: ctx.resources, mesh_maps: ctx.mesh_maps } };
+    let tile = TileContext { albedo_filter: ts.albedo_filter, geo: &geo, set_geometry: ctx.geometry, sample: SampleContext { resources: ctx.resources, mesh_maps: ctx.mesh_maps } };
     let px = preview_content(&layer, R, &tile);
     assert!(px.iter().all(|p| close(p[0], 0.6) && close(p[3], 1.0)));
 }

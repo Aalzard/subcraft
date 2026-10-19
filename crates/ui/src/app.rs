@@ -1131,9 +1131,14 @@ fn build_demo(state: &mut UiState) {
         let mut app=SubcraftApp {state:UiState::new(session,None),dock:default_layout(),frames:0,screenshot:None,screenshot_requested:false,pending_now:None,active_tabs:HashSet::new(),inspector_selection:None,test_crash:false,profile:None};
         app.state.asset_preview.queue(&app.state.session,0,None);app.perform(Action::Save,0.0);assert!(app.state.pen_after.is_some());
         let ctx=egui::Context::default();
-        for _ in 0..2000 {
+        // The worker needs real scheduling time under parallel workspace tests; a fixed
+        // number of fast headless frames can finish before image decoding gets a turn.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        loop {
             let mut out=ctx.run_ui(egui::RawInput::default(),|ui|crate::asset_preview::show(&mut app.state,ui.ctx()));out.textures_delta.clear();
-            app.flush_pen_after(0.1);if !app.state.asset_preview.is_applying(){break;}std::thread::yield_now();
+            app.flush_pen_after(0.1);if !app.state.asset_preview.is_applying(){break;}
+            assert!(std::time::Instant::now() < deadline, "pending shelf image did not finish within 10 seconds");
+            std::thread::sleep(std::time::Duration::from_millis(1));
         }
         assert!(!app.state.asset_preview.is_applying());assert!(app.state.pen_after.is_none());assert!(!app.state.session.is_modified());
         let reopened=Session::open_project(&file).unwrap();assert_eq!(reopened.document(),app.state.session.document());assert!(reopened.resources().iter().any(|r|r.name.starts_with("Starter: ")));std::fs::remove_file(file).unwrap();

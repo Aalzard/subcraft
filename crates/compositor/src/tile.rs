@@ -10,7 +10,7 @@ use std::sync::Arc;
 use subcraft_core::ChannelKind;
 use subcraft_doc::{BlendMode, ContentEffect, ContentEffectKind, Layer, LayerContent, TextureSet};
 use subcraft_image::TILE_TEXELS;
-use subcraft_materials::eval_fill_tile;
+use subcraft_materials::sample::eval_fill_tile_filtered;
 
 use crate::TileContext;
 use crate::blend::{BlendTarget, composite};
@@ -170,7 +170,8 @@ fn read_paint(img: &subcraft_image::TiledImage, kind: ChannelKind, tc: &TileCont
 /// Evaluate one channel of a fill as `[v0, v1, v2, alpha]`; false if the channel is off/absent.
 fn eval_fill(fill: &subcraft_doc::FillContent, kind: ChannelKind, tc: &TileContext, out: &mut [[f32; 4]]) -> bool {
     let Some(ch) = fill.channels.get(&kind).filter(|c| c.enabled) else { return false };
-    eval_fill_tile(&ch.source, kind.is_color(), &fill.projection, tc.geo, &tc.sample, out);
+    let filter = if kind == ChannelKind::BaseColor { tc.albedo_filter } else { subcraft_image::TextureFilter::Bilinear };
+    eval_fill_tile_filtered(&ch.source, kind.is_color(), &fill.projection, tc.geo, &tc.sample, filter, out);
     crate::strength::apply_strength(kind, ch.strength, out);
     if kind.components() == 1 {
         for px in out.iter_mut() {

@@ -71,10 +71,13 @@ fn bar_fits_wide_wrapped_and_tiny_docks_and_hides_for_non_paint_tools() {
         let brush = position(&output, subcraft_ui::icons::PAINT_BRUSH)
             .expect("tool icons always reachable");
         let view = position(&output, if width >= 540.0 { "Resolution" } else { "View" }).unwrap();
+        // Resolution and Albedo form a two-row left column; the main control band is centered
+        // beside that column on wide docks and remains below it on narrow docks.
+        let band_y = position(&output, "Albedo").map_or(view.y, |albedo| (view.y + albedo.y) * 0.5);
         if width >= 1060.0 {
-            assert!((brush.y - view.y).abs() < 3.0, "inline on wide docks");
+            assert!((brush.y - band_y).abs() < 3.0 && brush.x > view.x, "inline beside the filter column on wide docks");
         } else {
-            assert!(brush.y > view.y + 15.0, "stacked rows on narrow docks");
+            assert!(brush.y > band_y + 15.0, "stacked rows on narrow docks");
         }
         if width >= 540.0 {
             assert!(position(&output, "Anti-aliasing").is_some());

@@ -11,6 +11,6 @@ pub mod dilate;
 pub mod io;
 pub mod tiled;
 
-pub use bitmap::{Bitmap, BitmapData, Wrap};
+pub use bitmap::{Bitmap, BitmapData, TextureFilter, Wrap};
 pub use io::{FileFormat, IMAGE_EXTENSIONS, ImageIoError, encode_bitmap, guess_extension, load_bitmap, save_image};
 pub use tiled::{TILE_SIZE, TILE_TEXELS, Tile, TileSlot, TiledImage, slot_data_mut, slot_read};

@@ -201,7 +201,7 @@ fn breakdown(s: &Session) {
         let start = Instant::now();
         let results: Vec<_> = tiles.par_iter().map(|&t| {
             let g = geo.tile(t);
-            let tc = TileContext { geo: &g, set_geometry: &geo, sample: subcraft_materials::SampleContext { resources: s.resources(), mesh_maps: &maps } };
+            let tc = TileContext { albedo_filter: ts.albedo_filter, geo: &g, set_geometry: &geo, sample: subcraft_materials::SampleContext { resources: s.resources(), mesh_maps: &maps } };
             (t, evaluate_tile(t_set, &tc))
         }).collect();
         let eval = start.elapsed();

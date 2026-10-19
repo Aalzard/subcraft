@@ -49,6 +49,7 @@ pub struct Stroke {
     parts: Option<subcraft_doc::PartMask>,
     projection: Projection,
     texture_tiling: bool,
+    albedo_filter: subcraft_image::TextureFilter,
     resources: ResourceStore,
 }
 
@@ -79,6 +80,7 @@ impl Stroke {
             parts: ts.find(layer).and_then(|l| l.parts.clone()),
             projection: material.projection,
             texture_tiling: material.texture_tiling,
+            albedo_filter: ts.albedo_filter,
             resources: ResourceStore::default(),
         })
     }
@@ -271,7 +273,8 @@ impl Stroke {
                                     geo.as_ref().map_or([0.0; 3], |g| g.normal(i)), |p| {
                                         if !self.texture_tiling && p.iter().any(|&v| !(0.0..=1.0).contains(&v)) {
                                             [0.0; 4]
-                                        } else { bitmap.sample(p[0], p[1], if self.texture_tiling { Wrap::Repeat } else { Wrap::Clamp }, linearize) }
+                                        } else { bitmap.sample_filtered(p[0], p[1], if self.texture_tiling { Wrap::Repeat } else { Wrap::Clamp }, linearize,
+                                            if img.key.channel() == Some(subcraft_core::ChannelKind::BaseColor) { self.albedo_filter } else { subcraft_image::TextureFilter::Bilinear }) }
                                     });
                             }
                         }

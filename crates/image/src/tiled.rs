@@ -340,6 +340,10 @@ impl TiledImage {
     /// Bilinear resample to a new size (texel centers aligned). An image with no allocated tiles
     /// stays sparse.
     pub fn resampled(&self, width: u32, height: u32) -> TiledImage {
+        self.resampled_filtered(width, height, crate::TextureFilter::Bilinear)
+    }
+
+    pub fn resampled_filtered(&self, width: u32, height: u32, filter: crate::TextureFilter) -> TiledImage {
         if width == self.width && height == self.height {
             return self.clone();
         }
@@ -355,6 +359,14 @@ impl TiledImage {
             let (y0, ty) = (fy.floor() as usize, fy.fract());
             let y1 = (y0 + 1).min(sh - 1);
             for x in 0..width as usize {
+                if filter == crate::TextureFilter::Nearest {
+                    let xx = (((x as f32 + 0.5) * sw as f32 / width as f32) as usize).min(sw - 1);
+                    let yy = (((y as f32 + 0.5) * sh as f32 / height as f32) as usize).min(sh - 1);
+                    let dst = (y * width as usize + x) * comps;
+                    let src_at = (yy * sw + xx) * comps;
+                    out[dst..dst + comps].copy_from_slice(&src[src_at..src_at + comps]);
+                    continue;
+                }
                 let fx = ((x as f32 + 0.5) * sw as f32 / width as f32 - 0.5).clamp(0.0, (sw - 1) as f32);
                 let (x0, tx) = (fx.floor() as usize, fx.fract());
                 let x1 = (x0 + 1).min(sw - 1);

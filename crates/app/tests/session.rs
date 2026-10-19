@@ -11,6 +11,56 @@ fn session() -> Session {
 }
 
 #[test]
+fn albedo_filter_is_undoable_invalidates_composites_and_preserves_exported_pixels() {
+    use std::sync::Arc;
+    use subcraft_doc::{Resource, ResourceKind, ResourceStore};
+    use subcraft_image::{Bitmap, TextureFilter, Wrap};
+    let dir = std::env::temp_dir().join(format!("subcraft-albedo-{}", subcraft_core::LayerId::new()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mesh = primitives::plane(2., 1);
+    let mut doc = Session::new(mesh.clone(), 128).document().clone();
+    let ts = &mut doc.texture_sets[0]; ts.layers.clear();
+    let bitmap = Bitmap::new_u8(2, 1, 3, vec![0, 0, 0, 255, 255, 255]);
+    let (bytes, _) = subcraft_image::encode_bitmap(&bitmap).unwrap();
+    let mut resources = ResourceStore::default(); let id = subcraft_core::ResourceId::new();
+    resources.insert(Resource { id, name: "pixels.png".into(), kind: ResourceKind::Texture, bitmap: Arc::new(bitmap), encoded: Some(Arc::new(bytes)), source_path: None });
+    let mut layer = subcraft_doc::Layer::new_fill("Pixels", ts);
+    if let LayerContent::Fill(fill) = &mut layer.content {
+        fill.channels.insert(ChannelKind::BaseColor, FillChannel::new(FillSource::Bitmap { resource: id }));
+        fill.channels.insert(ChannelKind::Roughness, FillChannel::new(FillSource::Bitmap { resource: id }));
+    }
+    ts.layers.push(Arc::new(layer)); let ts = ts.id;
+    let path = dir.join("pixels.subcraft");
+    subcraft_project::save_project(&path, &mesh, &doc, &resources, &Default::default()).unwrap();
+    let mut session = Session::open_project(&path).unwrap(); session.update_composites();
+    let linear = session.composite(ts).unwrap().clone();
+    session.execute(Command::SetAlbedoFilter { texture_set: ts, filter: TextureFilter::Nearest }).unwrap();
+    let updates = session.update_composites();
+    assert!(updates.iter().flat_map(|u| u.changed.keys()).all(|k| *k == ChannelKind::BaseColor), "filter changes must not re-upload unchanged PBR channels");
+    let nearest = session.composite(ts).unwrap().clone();
+    let base = nearest.channel(ChannelKind::BaseColor).unwrap();
+    assert!(base.to_dense().as_chunks::<4>().0.iter().all(|p| p[0] == 0. || p[0] == 1.));
+    assert_eq!(base.get(63, 64)[0], 0.); assert_eq!(base.get(64, 64)[0], 1.);
+    assert!(linear.channel(ChannelKind::BaseColor).unwrap().get(63, 64)[0] > 0.4, "bilinear edge should be blended");
+    assert_eq!(linear.channel(ChannelKind::Roughness), nearest.channel(ChannelKind::Roughness));
+    session.execute(Command::Undo).unwrap(); session.update_composites();
+    assert_eq!(session.composite(ts), Some(&linear));
+    session.execute(Command::Redo).unwrap(); session.update_composites();
+    assert_eq!(session.composite(ts), Some(&nearest));
+    session.save(None).unwrap(); let mut reopened = Session::open_project(&path).unwrap(); reopened.update_composites();
+    assert_eq!(reopened.selected_texture_set().albedo_filter, TextureFilter::Nearest);
+    assert_eq!(reopened.composite(ts), Some(&nearest));
+    let files = reopened.export_textures(&dir, &Default::default()).unwrap();
+    let image = subcraft_image::load_bitmap(files.iter().find(|p| p.to_string_lossy().ends_with("_BaseColor.png")).unwrap()).unwrap();
+    for y in 0..128 { for x in 0..128 {
+        let value = image.texel(x, y, false)[0];
+        assert!(value == 0. || value == 1., "export invented blended color {value}");
+    }}
+    assert_eq!(image.sample_filtered(0.49, 0.5, Wrap::Clamp, false, TextureFilter::Nearest)[0], 0.);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn browser_archive_matches_the_export_plan_for_all_texture_sets() {
     let mut s=session();let settings=subcraft_export::ExportSettings::default();let plan=s.export_plan(&settings);let result=s.export_archive(&settings).unwrap();assert_eq!(result.files,plan.len());let zip=zip::ZipArchive::new(std::io::Cursor::new(result.bytes)).unwrap();let names:Vec<_>=zip.file_names().map(|n|n.unwrap().into_owned()).collect();for (_,name) in plan {assert!(names.contains(&name));}
 }

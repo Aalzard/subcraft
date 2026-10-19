@@ -38,6 +38,13 @@ pub fn eval_fill_tile(
     ctx: &SampleContext,
     out: &mut [[f32; 4]],
 ) {
+    eval_fill_tile_filtered(source, linearize, projection, geo, ctx, subcraft_image::TextureFilter::Bilinear, out);
+}
+
+pub fn eval_fill_tile_filtered(
+    source: &FillSource, linearize: bool, projection: &Projection, geo: &TileGeometry,
+    ctx: &SampleContext, filter: subcraft_image::TextureFilter, out: &mut [[f32; 4]],
+) {
     debug_assert_eq!(out.len(), TILE_TEXELS);
     match source {
         FillSource::Uniform { value } => {
@@ -50,7 +57,7 @@ pub fn eval_fill_tile(
             };
             for (i, o) in out.iter_mut().enumerate() {
                 *o = sample_projected(projection, geo.uv(i), geo.position(i), geo.normal(i), |p| {
-                    bmp.sample(p[0], p[1], Wrap::Repeat, linearize)
+                    bmp.sample_filtered(p[0], p[1], Wrap::Repeat, linearize, filter)
                 });
             }
         }

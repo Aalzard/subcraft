@@ -223,6 +223,34 @@ fn schema_1_projects_still_load() {
 }
 
 #[test]
+fn schema_6_albedo_filter_roundtrips_and_legacy_sets_migrate_to_bilinear() {
+    let mut doc = rich_document();
+    doc.texture_sets[0].albedo_filter = subcraft_image::TextureFilter::Nearest;
+    let mesh = primitives::sample_crate();
+    let bytes = write_project(Cursor::new(Vec::new()), &mesh, &doc, &ResourceStore::default(), &MeshMapSet::new()).unwrap().into_inner();
+    assert_eq!(read_project(Cursor::new(bytes.clone())).unwrap().document, doc);
+    let mut input = zip::ZipArchive::new(Cursor::new(bytes)).unwrap();
+    let mut output = zip::ZipWriter::new(Cursor::new(Vec::new()));
+    for i in 0..input.len() {
+        let mut file = input.by_index(i).unwrap();
+        let name = file.name().unwrap().to_string();
+        let mut data = Vec::new(); file.read_to_end(&mut data).unwrap();
+        if name == "document.json" {
+            let mut json: serde_json::Value = serde_json::from_slice(&data).unwrap();
+            for ts in json["texture_sets"].as_array_mut().unwrap() { ts.as_object_mut().unwrap().remove("albedo_filter"); }
+            data = serde_json::to_vec(&json).unwrap();
+        } else if name == "manifest.json" {
+            let mut json: serde_json::Value = serde_json::from_slice(&data).unwrap(); json["schema_version"] = 5.into();
+            data = serde_json::to_vec(&json).unwrap();
+        }
+        output.start_file(name, SimpleFileOptions::default()).unwrap(); output.write_all(&data).unwrap();
+    }
+    let migrated = read_project(Cursor::new(output.finish().unwrap().into_inner())).unwrap();
+    assert!(migrated.document.texture_sets.iter().all(|ts| ts.albedo_filter == subcraft_image::TextureFilter::Bilinear));
+    assert_eq!(serde_json::to_string(&subcraft_image::TextureFilter::Nearest).unwrap(), "\"nearest\"");
+}
+
+#[test]
 fn image_mask_effect_keeps_its_image() {
     use subcraft_core::ResourceId;
     use subcraft_doc::{Projection, Resource, ResourceKind};
@@ -296,7 +324,7 @@ fn content_effects_roundtrip_exactly_with_schema_5() {
     let mut json = String::new();
     zip.by_name("document.json").unwrap().read_to_string(&mut json).unwrap();
     assert!(json.contains("\"content_effects\"") && json.contains("\"type\": \"levels\""), "{json}");
-    assert_eq!(SCHEMA_VERSION, 5);
+    assert_eq!(SCHEMA_VERSION, 6);
     assert_eq!(read_project(Cursor::new(bytes)).unwrap().document, doc, "effect ids, order, blends, rasters survive");
 }
 

@@ -54,6 +54,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             if picked != current {
                 cmds.push(Command::SetResolution { texture_set: Some(sel), resolution: picked });
             }
+            ui.horizontal(|ui| crate::viewport_bar::albedo_filter(ui, state));
             ui.label(RichText::new("Lower is faster to paint and fill. Raise it before exporting for sharper maps.").small().color(TEXT_FAINT));
         });
         divider(ui);

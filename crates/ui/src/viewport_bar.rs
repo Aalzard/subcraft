@@ -72,15 +72,16 @@ pub fn show(ui: &mut Ui, state: &mut crate::state::UiState) {
             ui.horizontal(|ui| {
                 if width < 520.0 {
                     ui.menu_button("View", |ui| {
+                        ui.horizontal(|ui| resolution(ui, &mut state.recovery.prefs.viewport));
+                        ui.horizontal(|ui| albedo_filter(ui, state));
                         let prefs = &mut state.recovery.prefs.viewport;
-                        ui.horizontal(|ui| resolution(ui, prefs));
                         ui.checkbox(&mut prefs.antialias, "Anti-aliasing");
                         ui.checkbox(&mut prefs.orthographic, "Orthographic");
                         ui.horizontal(|ui| view_mode(ui, prefs));
                     });
                     grid_control(ui, &mut state.recovery.prefs.viewport);
                 } else {
-                    view_controls(ui, &mut state.recovery.prefs.viewport);
+                    view_controls(ui, state);
                 }
                 if painting && inline {
                     ui.add_space(5.0);
@@ -121,8 +122,12 @@ pub fn show(ui: &mut Ui, state: &mut crate::state::UiState) {
     }
 }
 
-fn view_controls(ui: &mut Ui, prefs: &mut ViewportPrefs) {
-    resolution(ui, prefs);
+fn view_controls(ui: &mut Ui, state: &mut crate::state::UiState) {
+    ui.vertical(|ui| {
+        ui.horizontal(|ui| resolution(ui, &mut state.recovery.prefs.viewport));
+        ui.horizontal(|ui| albedo_filter(ui, state));
+    });
+    let prefs = &mut state.recovery.prefs.viewport;
     ui.separator();
     ui.checkbox(&mut prefs.antialias, "Anti-aliasing")
         .on_hover_text("Anti-aliasing · smooth edges (4x MSAA); off is faster");
@@ -131,6 +136,24 @@ fn view_controls(ui: &mut Ui, prefs: &mut ViewportPrefs) {
     ui.separator();
     view_mode(ui, prefs);
     grid_control(ui, prefs);
+}
+
+/// Per-set document state: shared by material evaluation, preview and export.
+pub fn albedo_filter(ui: &mut Ui, state: &mut crate::state::UiState) {
+    use subcraft_image::TextureFilter;
+    let ts = state.session.selected_texture_set();
+    let (id, original) = (ts.id, ts.albedo_filter);
+    let mut filter = original;
+    let label_width = 55.0;
+    ui.add_sized([label_width, ui.spacing().interact_size.y], egui::Label::new(RichText::new("Albedo").color(TEXT_DIM)));
+    egui::ComboBox::from_id_salt("albedo_filter").width(76.0).selected_text(filter.label()).show_ui(ui, |ui| {
+        ui.selectable_value(&mut filter, TextureFilter::Bilinear, "Bilinear");
+        ui.selectable_value(&mut filter, TextureFilter::Nearest, "Nearest");
+    }).response.on_hover_text("Base Color interpolation · Nearest preserves hard pixels in imported images, the viewport and exports");
+    if filter != original
+        && let Err(error) = state.session.execute(subcraft_app::Command::SetAlbedoFilter { texture_set: id, filter }) {
+        state.set_status(error.to_string(), ui.input(|i| i.time));
+    }
 }
 
 fn grid_control(ui: &mut Ui, prefs: &mut ViewportPrefs) {
@@ -171,10 +194,10 @@ fn grid_control(ui: &mut Ui, prefs: &mut ViewportPrefs) {
 }
 
 fn resolution(ui: &mut Ui, prefs: &mut ViewportPrefs) {
-    dim(ui, "Resolution");
+    ui.add_sized([55.0, ui.spacing().interact_size.y], egui::Label::new(RichText::new("Resolution").color(TEXT_DIM)));
     egui::ComboBox::from_id_salt("viewport_resolution")
         .selected_text(format!("{}%", prefs.scale_percent))
-        .width(62.0)
+        .width(76.0)
         .show_ui(ui, |ui| {
             for s in SCALES {
                 ui.selectable_value(&mut prefs.scale_percent, s, format!("{s}%"));
@@ -205,6 +228,33 @@ fn dim(ui: &mut Ui, text: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn albedo_dropdown_is_below_resolution_and_dispatches_an_undoable_edit() {
+        let ctx = egui::Context::default(); crate::theme::apply(&ctx);
+        let mut state = crate::state::UiState::new(subcraft_app::Session::new(subcraft_mesh::primitives::cube(2.), 128), None);
+        let initial = state.session.document().clone();
+        let draw = |state: &mut crate::state::UiState, events| {
+            let mut out = ctx.run_ui(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1600., 940.))), events, ..Default::default() }, |ui| {
+                egui::CentralPanel::default().show(ui, |ui| show(ui, state));
+            }); out.textures_delta.clear(); out
+        };
+        draw(&mut state, vec![]); let output = draw(&mut state, vec![]);
+        let text_position = |output: &egui::FullOutput, text: &str| output.shapes.iter().find_map(|s| match &s.shape {
+            egui::epaint::Shape::Text(t) if t.galley.job.text == text => Some(t.pos + t.galley.size() * 0.5), _ => None,
+        }).unwrap_or_else(|| panic!("missing {text}"));
+        assert!(text_position(&output, "Albedo").y > text_position(&output, "Resolution").y);
+        let click = |state: &mut crate::state::UiState, pos| {
+            draw(state, vec![egui::Event::PointerMoved(pos), egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: true, modifiers: Default::default() }]);
+            draw(state, vec![egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: false, modifiers: Default::default() }])
+        };
+        click(&mut state, text_position(&output, "Bilinear"));
+        let menu = draw(&mut state, vec![]);
+        click(&mut state, text_position(&menu, "Nearest"));
+        assert_eq!(state.session.selected_texture_set().albedo_filter, subcraft_image::TextureFilter::Nearest);
+        state.session.execute(subcraft_app::Command::Undo).unwrap();
+        assert_eq!(state.session.document(), &initial);
+    }
 
     #[test]
     fn render_size_scales_and_never_reaches_zero() {
