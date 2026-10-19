@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-10-19 (session 79: reference-inspired charcoal workspace and layer hierarchy)
+Last updated: 2026-10-19 (session 80: shelf wrapping and independent preview-size controls)
 
 ## Decisions
 
@@ -1933,7 +1933,50 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   browser and production 4K frame pacing. These UI-only changes add no compositing or texture
   writes; prior incomplete material workflow and performance caveats remain below/in handoff.
 
+### Session 80 — Codex: shelf wrapping and preview-size footers (2026-10-19)
+
+* **Shelf:** constrained the asset area to its panel width and vertical scroll area. Narrow
+  headers use a category dropdown, with workflow hints behind an info icon. Search width
+  adapts, environment sliders get a known row width before wrapping, and names truncate to
+  one line instead of overlapping later rows. Disabled the dock's extra outer scrollbars
+  for Shelf/Layers: these panels already own vertical scrollers, and the outer scroll area
+  allowed the grid width to grow and the footer to move outside the visible panel.
+* **Preview size:** small fixed footers beneath Shelf and Layers. Independent UI preferences
+  default to 88/36 points (Shelf 48–160, Layers 24–64), load defaults from old preference files
+  and serialize with the existing UI preference storage. Layer content/mask previews grow
+  together, parent rows adapt and narrow docks cap the displayed size to retain blend/name
+  room. Effect rows stay compact. Existing 64-pixel layer and shelf preview caches are reused;
+  these controls do not change texture resolution, document data or undo history. ADR-0024.
+* Files: `ui::panels::{shelf,layers}`, shared footer widget, UI preferences, starter thumbnail
+  display and dock viewer; native `--shelf-panel` launch option creates a reproducible narrow
+  shelf beside Layers for validation. No app/paint/compositor/document semantics changed.
+* Five tests added (454 total): all six asset categories at four widths and three sizes;
+  actual size slider input at narrow/wide widths with independent values and no document/
+  history changes; old/default preference load and roundtrip; wheel scroll reaches the last
+  asset while the footer remains visible; actual dock integration with both pinned footers
+  and width-bounded assets. Existing layer target/drag/drop, brush material and band checks
+  remain in the suite. Test fixtures never drive the owner's mouse.
+* **454 workspace tests pass, 0 failed/ignored**; workspace/all-target Clippy exits 0 with
+  existing warnings. CARGO_INCREMENTAL=0, CARGO_PROFILE_DEV_DEBUG=line-tables-only; -j 1.
+  Built the native app with `cargo build --workspace --bins --examples -j 1`.
+  Implementation **db2ea03**, branch `feature/brush-roadmap`.
+* Native app inspected: `screenshots/shelf-layer-preview-controls.png`, real baked CORE-07
+  fixture in a narrow shelf layout. Assets wrap into visible columns, only the asset list
+  scrolls vertically, and both small size footers are visible within their panels. Reproduce
+  with `%TEMP%/subcraft-theme-native/Layer-layout.subcraft --generator-panel --shelf-panel
+  --screenshot ...`; isolated data/library under `%TEMP%/subcraft-preview-native`.
+  Current test executable: **target/debug/subcraft.exe**. Ordinary startup retains the saved
+  owner layout; the new CLI layout is optional validation support.
+* Not hand-verified: physical wheel/slider dragging, alternate DPI/monitors, browser and 4K
+  frame pacing. Automated pointer/wheel tests cover the gestures. No document texels changed;
+  no owner processes were closed, original artwork/preferences/protected files modified,
+  push or release. Older `target/debug/latest` and release executables were not rebuilt.
+
 ## Next steps (in order)
+
+Owner checks vertical shelf browsing and both preview-size sliders in `target/debug/subcraft.exe`.
+Then continue the earlier material-workflow scope below. Preview sizing does not complete any
+unfinished brush/generator/emission feature.
 
 Owner reviews the charcoal workspace in `target/debug/latest/subcraft.exe`. After the earlier
 app is closed, a normal workspace build can refresh `target/debug/subcraft.exe` again. Keep

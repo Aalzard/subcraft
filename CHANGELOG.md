@@ -6,6 +6,9 @@ What changed in SubCraft, newest first. Download the latest build from the
 ## Unreleased
 
 ### UI
+- Shelf assets wrap within narrow panels and scroll vertically; compact category dropdowns
+  replace clipped tabs. Shelf and Layers have independent, remembered preview-size sliders
+  beneath their lists, with adaptive layer rows and single-line asset names.
 - Softer neutral charcoal theme, warm gray text, restrained amber accents and thin sliders
   with circular handles. Near-square buttons and interface scaling are retained.
 - Layers show larger content/mask previews, type/effect counts and a quiet blend/opacity

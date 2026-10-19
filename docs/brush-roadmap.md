@@ -35,6 +35,9 @@ Session 79 follows the owner's visual reference: neutral charcoal palette, thin 
 sliders, larger layer/mask previews and compact collapsible nested effects (ADR-0024).
 This is a presentation refinement; no unfinished brush phase is marked complete.
 
+Session 80 fixes shelf wrapping in narrow docks and adds independent, remembered Shelf/Layer
+preview-size footers. These are display preferences; no additional brush phase is complete.
+
 Build housekeeping (session 62): latest tested binary consolidated into
 `target/release/subcraft.exe`. Removing obsolete versions/caches remains blocked by automatic
 approval review; no artifacts were deleted. This does not change feature completion below.

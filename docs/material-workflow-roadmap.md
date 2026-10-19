@@ -5,6 +5,9 @@ Owner's requested scope. `[x]` implemented and tested; `[~]` partial (remaining 
 
 ## Workspace presentation (new reference request)
 
+- [x] Shelf wraps downward within panel width. Shelf and Layers have independent preview-size
+  sliders beneath their scrollable lists; settings persist without altering document textures.
+
 - [x] Neutral charcoal surfaces, calmer text/amber accent, thin round-handle sliders.
 - [x] Larger independent layer/mask previews, name/type/effect-count hierarchy and quieter
   blend/opacity column; compact indented effect rows with connecting lines and stack folding.

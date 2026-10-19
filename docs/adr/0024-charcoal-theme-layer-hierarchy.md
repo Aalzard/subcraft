@@ -29,3 +29,19 @@ The reference informs visual hierarchy and color, rather than replacing SubCraft
 Larger previews cost no additional evaluation: the existing bounded asynchronous 64-pixel
 preview cache is reused. Long names truncate within their allocated column; hovering keeps
 the existing domain/tooltips available. Future effect types can reuse the compact row helper.
+
+## Preview sizing follow-up (session 80)
+
+Shelf and Layers each reserve a fixed footer below their vertical scroller for a small
+Preview size slider. UI preferences persist independent sizes (88/36 points by default;
+48–160 for Shelf, 24–64 for Layers), using serde defaults for older preference files. This
+does not change the project schema or source resolution. Layers cap the effective preview
+size to the available width and adapt parent row height; effect rows remain compact.
+
+The shelf header switches to a category dropdown in narrow docks. Hints live behind an info
+icon. Header/search controls must not expand the content width: the asset area wraps within
+the panel's explicit width and scrolls vertically. Names are limited to one line so small
+previews cannot overlap the next row. Existing preview sources/caches and asset commands
+remain authoritative; resizing the UI never recomputes document textures.
+Shelf and Layers disable egui_dock's outer scrollbars: only their bounded inner lists scroll,
+so a previous content width cannot expand the grid and the footer cannot scroll away.

@@ -1,6 +1,6 @@
 # Getting started with SubCraft
 
-For the latest local development build, open **target/debug/latest/subcraft.exe** in the SubCraft
+For the latest local development build, open **target/debug/subcraft.exe** in the SubCraft
 folder. This contains the current material-workflow and charcoal UI refinements; installed
 releases and older release binaries may have fewer features.
 
@@ -34,6 +34,20 @@ selected editing target. **Add** and effect right-click actions work as before. 
 Parts and History retain alternating row shades, a brighter hover and an amber selection edge.
 
 ![Charcoal workspace and nested mask effects](screenshots/charcoal-layer-effects.png)
+
+**Shelf previews:** assets wrap into rows inside the panel. Scroll vertically to browse the
+rest. Narrow shelves use a category dropdown instead of a clipped tab strip; the small info
+icon shows the category's workflow hint. The **Preview size** slider beneath the assets
+changes thumbnail size (48–160 points) and stays visible while the assets scroll. Long names
+are shortened to one line; hover an asset for its details.
+
+**Layer previews:** use the separate **Preview size** slider at the bottom of Layers
+(24–64 points). Both content and mask previews resize together, and the layer rows adapt.
+Narrow panels cap their displayed size to keep names and blend controls visible. This leaves
+effect rows compact. Both sliders are remembered independently between runs; they change
+display size only, without affecting material resolution, masks, paint or undo history.
+
+![Vertical shelf and independent preview-size controls](screenshots/shelf-layer-preview-controls.png)
 
 ## 1. Open a model
 
