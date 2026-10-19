@@ -13,10 +13,16 @@ pub enum MeshMapKind {
     Curvature,
     Position,
     Thickness,
+    /// Signed high-poly displacement along the low-poly normal (0.5 = on the low surface).
+    Height,
+    /// World-space average unoccluded direction (from the AO rays).
+    BentNormal,
+    /// High-poly coverage: 1 where the projection found the high poly, 0 where it missed.
+    Opacity,
 }
 
 impl MeshMapKind {
-    pub const ALL: [MeshMapKind; 7] = [
+    pub const ALL: [MeshMapKind; 10] = [
         MeshMapKind::Normal,
         MeshMapKind::WorldSpaceNormal,
         MeshMapKind::Id,
@@ -24,6 +30,9 @@ impl MeshMapKind {
         MeshMapKind::Curvature,
         MeshMapKind::Position,
         MeshMapKind::Thickness,
+        MeshMapKind::Height,
+        MeshMapKind::BentNormal,
+        MeshMapKind::Opacity,
     ];
 
     pub fn display_name(self) -> &'static str {
@@ -35,6 +44,9 @@ impl MeshMapKind {
             MeshMapKind::Curvature => "Curvature",
             MeshMapKind::Position => "Position",
             MeshMapKind::Thickness => "Thickness",
+            MeshMapKind::Height => "Height",
+            MeshMapKind::BentNormal => "Bent Normals",
+            MeshMapKind::Opacity => "Opacity",
         }
     }
 
@@ -47,6 +59,9 @@ impl MeshMapKind {
             MeshMapKind::Curvature => "curvature",
             MeshMapKind::Position => "position",
             MeshMapKind::Thickness => "thickness",
+            MeshMapKind::Height => "height",
+            MeshMapKind::BentNormal => "bent_normals",
+            MeshMapKind::Opacity => "opacity",
         }
     }
 
@@ -60,7 +75,8 @@ impl MeshMapKind {
             MeshMapKind::Normal
             | MeshMapKind::WorldSpaceNormal
             | MeshMapKind::Id
-            | MeshMapKind::Position => 3,
+            | MeshMapKind::Position
+            | MeshMapKind::BentNormal => 3,
             _ => 1,
         }
     }
@@ -75,6 +91,9 @@ impl MeshMapKind {
             MeshMapKind::Curvature => [0.5; 3],
             MeshMapKind::Position => [0.5; 3],
             MeshMapKind::Thickness => [0.0; 3],
+            MeshMapKind::Height => [0.5; 3],
+            MeshMapKind::BentNormal => [0.5, 1.0, 0.5],
+            MeshMapKind::Opacity => [1.0; 3],
         }
     }
 }

@@ -142,7 +142,7 @@ fn handle(state: &mut UiState, purpose: Purpose, paths: &[PathBuf], now: f64) {
             Err(e) => state.set_status(format!("Could not open mesh: {e}"), now),
         },
         Purpose::OpenProject => crate::dialogs::open_project(state, first, now),
-        Purpose::BakeHighPoly => state.bake.high_poly = first.display().to_string(),
+        Purpose::BakeHighPoly => state.bake.add_high_polys(paths),
         Purpose::Stencil => match subcraft_image::load_bitmap(first) {
             Ok(bmp) => state.session.brush.stencil = Some(std::sync::Arc::new(subcraft_paint::Stencil::new(std::sync::Arc::new(bmp)))),
             Err(e) => state.set_status(format!("Stencil: {e}"), now),

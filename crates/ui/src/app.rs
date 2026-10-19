@@ -95,6 +95,16 @@ pub struct LaunchOptions {
     pub test_crash: bool,
     /// Measure frames while a generator value changes every frame, write stats, quit.
     pub profile_edits: Option<(PathBuf, Option<u32>)>,
+    /// Open the Baking window.
+    pub bake: bool,
+    /// Open the Baking window and start baking the selected textures right away.
+    pub bake_start: bool,
+    /// High definition meshes preset in the Baking window.
+    pub bake_high: Vec<PathBuf>,
+    /// Match high to low by mesh name in the Baking window.
+    pub bake_by_name: bool,
+    /// Frames to wait before `screenshot` is taken (default 20).
+    pub screenshot_frames: Option<u32>,
 }
 
 impl LaunchOptions {
@@ -325,6 +335,19 @@ impl SubcraftApp {
         state.recovery = crate::recovery::RecoveryUi::start(&state.session, prefs, options.autosave_interval);
         state.recovery.prefs.apply_ui_size(&cc.egui_ctx);
         state.recovery.show_prefs = options.preferences;
+        state.screenshot_frames = options.screenshot_frames.unwrap_or(20);
+        if options.bake || options.bake_start {
+            state.bake.open = true;
+        }
+        state.bake.add_high_polys(&options.bake_high);
+        if options.bake_by_name {
+            state.bake.settings.match_mode = subcraft_app::MatchMode::ByMeshName;
+        }
+        if options.bake_start {
+            let sets: Vec<_> = state.session.document().texture_sets.iter().map(|t| (t.id, t.material_slot)).collect();
+            let request = state.bake.request(&sets);
+            state.bake.job = Some(state.session.start_bake(request));
+        }
         #[cfg(not(target_arch = "wasm32"))]
         {
             // Background release check; a newer version gets a callout at the update button.
@@ -794,7 +817,7 @@ impl SubcraftApp {
     fn handle_screenshot(&mut self, ctx: &egui::Context) {
         let Some(path) = self.screenshot.clone() else { return };
         ctx.request_repaint();
-        if !self.screenshot_requested && self.frames >= 20 {
+        if !self.screenshot_requested && self.frames >= u64::from(self.state.screenshot_frames) {
             ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
             self.screenshot_requested = true;
         }

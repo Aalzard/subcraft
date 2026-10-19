@@ -230,7 +230,7 @@ fn background_bake_feeds_smart_mask_generators_and_survives_save() {
 
     let req = BakeRequest {
         settings: BakeSettings { size: 128, maps: vec![MeshMapKind::Curvature, MeshMapKind::AmbientOcclusion], ao_samples: 8, ..BakeSettings::default() },
-        high_poly: None,
+        high_poly: Vec::new(),
         texture_sets: vec![(ts, 0)],
     };
     let mut job = s.start_bake(req);

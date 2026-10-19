@@ -31,9 +31,22 @@ pub struct ImportReport {
 pub const SUPPORTED_EXTENSIONS: [&str; 4] = ["obj", "gltf", "glb", "fbx"];
 
 pub fn import_mesh(path: &Path) -> Result<ImportReport, ImportError> {
+    import(path, false)
+}
+
+/// Import a high-poly detail mesh for baking: like [`import_mesh`], but UVs are not required
+/// (detail meshes are only ray-traced, never painted).
+pub fn import_detail_mesh(path: &Path) -> Result<ImportReport, ImportError> {
+    import(path, true)
+}
+
+fn import(path: &Path, detail: bool) -> Result<ImportReport, ImportError> {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
     let name = path.file_stem().and_then(|s| s.to_str()).unwrap_or("Mesh").to_string();
     let mut b = MeshBuilder::new(name);
+    if detail {
+        b = b.uvs_optional();
+    }
     let mut warnings = Vec::new();
     match ext.as_str() {
         "obj" => load_obj(path, &mut b, &mut warnings)?,
@@ -54,7 +67,7 @@ pub fn import_mesh(path: &Path) -> Result<ImportReport, ImportError> {
     if stats.non_finite_dropped > 0 {
         warnings.push(format!("dropped {} triangles with invalid coordinates", stats.non_finite_dropped));
     }
-    if stats.missing_uv_triangles > 0 {
+    if stats.missing_uv_triangles > 0 && !detail {
         warnings.push(format!("{} triangles have no UVs and cannot be painted", stats.missing_uv_triangles));
     }
     let problems = mesh.validate();
