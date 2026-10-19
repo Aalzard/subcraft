@@ -2266,13 +2266,66 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   driven. Rejected Edge Wear remains unresolved; its generator kernels were not touched.
   Implementation 3fc267d; no push/release, protected/unrelated files retained.
 
+### Session 88 - Bevel and Mask Outline (2026-10-19)
+
+* **Bevel:** non-destructive inward contour ramp on content, masks and folder adjustments.
+  Radius 0-32 working UV pixels, Threshold and Amount. Height supports negative Amount for
+  recessed relief; other channels/masks clamp to 0-1. Radius zero gives a hard plateau.
+  Use a small Amount on Height; on masks it creates an inset grayscale transition.
+* **Mask Outline:** thresholded contour border with Radius and Inner/Outer/Both position.
+  Both uses the radius on each side. One-pixel antialias transition; zero radius clears the
+  border. Content preserves original alpha: use a fill's mask for outward material borders.
+  Color inputs use linear luminance times coverage; scalar inputs use their raw value times
+  coverage. Transparent texels are outside. Normal vector channels remain excluded.
+* **Architecture:** new bounded Contour node reads only the preceding immutable stage. Shared
+  materials kernel computes exact squared Euclidean texel-center distances in two separable
+  linear-time passes over a tile-plus-halo scalar rectangle, not a full-layer dense RGBA image.
+  Contour position is nearest opposite center minus half a pixel (raster approximation).
+  Image borders do not invent contours. Uniform stages transform directly; full-white Bevel
+  reaches its plateau, Outline is empty. Conservative ceil(radius+0.5) supports chain through
+  existing dirty halos/cache/worker. Preview radius scales; exact sync export is retained.
+* **Persistence/UI:** append Filter variants, finite validation, schema **12**, identity
+  migration of 1-11. Actual schema-11 Directional Blur/Highpass stacks reopen unchanged.
+  Project and smart stacks round-trip. Shared Properties dispatch existing app commands;
+  independent content/mask selection, order, blend/opacity and coalesced Undo remain intact.
+* Files/crates: doc model; materials contour kernel; compositor stages/acceptance; app preview
+  and lifecycle tests plus native/profile fixture; project schema/goldens; UI controls/tests.
+  Significant design decision: **ADR-0032**. Implementation commit **62af124**.
+* Validation: **519 workspace tests pass, 0 failed/ignored (10 added)**; workspace/all-target
+  Clippy exits 0 with repository warnings and no new contour warnings. CARGO_INCREMENTAL=0,
+  dev debug=line-tables-only, -j 1. Independent exhaustive nearest-feature distance checks;
+  brute-force contour goldens across content/masks/folders, fractional/zero radii, tile/image
+  corners; signed/uniform Height, original alpha/effect opacity, multi-tile chained dirty
+  halos, parallel tiny-cache eviction, scaled 64/256px thumbnails, invalid atomic edits,
+  latest worker result, gesture Undo/Redo, sync export and reopen. No tests disabled.
+  Compile-check caught a missing exhaustive test match arm, fixed before workspace tests.
+* Native evidence: real default crate, both 512px sets, isolated data/library directories;
+  all CLI captures exit 0. Inspected **docs/screenshots/filter-bevel.png** (Height controls,
+  subtle checker relief), **filter-outline.png** (content border and Outer controls),
+  **filter-mask-bevel.png** (resolved mask ramp), **filter-mask-outline.png** (Both mask border),
+  **filter-outline-2d.png** (UV result/wireframe). Thumbnails and selected effect properties
+  visible. Updated executable **target/debug/subcraft.exe**. No physical mouse driven.
+* 4K CPU profile, two default-crate sets: Bevel cold **628.8 ms**, edit/poll p50 **0.454 /
+  p95 0.926 / max 4.938 ms**, converge **577.5 ms** (36 frames). Mask Outline cold **1048.3 ms**,
+  p50 **0.507 / p95 0.696 / max 0.711 ms**, converge **642.1 ms** (39 frames). Optimized dev,
+  mimalloc, single runs; **docs/performance/2026-10-19-bevel-outline-4k.txt**. CPU only, excluding
+  GPU/render/upload; convergence measured from first edit. These measurements do not establish
+  desktop FPS or long-stroke frame pacing.
+* Limits: texture-space contours can mix adjacent atlas islands; no mesh seam/geodesic handling,
+  analytic vector contours, Bevel Smooth/custom profiles or Normal-vector filtering. Manual
+  drags/tablet, browser/DPI, production assets and full 4K GPU/upload/long-stroke frame pacing
+  NOT verified by hand. GPU filter backend, per-effect thumbnails/drag reorder, references,
+  lower-normal generators and emission remain pending. Owner-rejected Edge Wear remains
+  unresolved; its generator kernels untouched. No push/release; protected/unrelated files retained.
+
 ## Next steps (in order)
 
 1. Owner gives PROMPT-claude-edge-wear.md to Claude; wear remains unresolved. Preserve and
    coordinate shared filter files before concurrent edits. Owner checks + Add → Filter in the
    current executable; local filters/folder adjustments are implemented, not Painter parity.
-2. Add Bevel/Mask Outline to the completed neighborhood stages, then effect thumbnails and
-   drag reorder. Add measured GPU parity; preserve exact synchronous export.
+2. Add per-effect thumbnails and drag reorder to the completed filter stages, preserving
+   independent content/mask selection. Then Bevel Smooth/Height Adjust and measured GPU parity;
+   preserve exact synchronous export.
 3. Profile the complete 4K upload/render path and worker convergence under controlled load;
    resume distance/Dirt/lower-normal inputs/Disable Micro Effects, references and emission per
    the material/layer roadmaps. Large brush phases remain pending.

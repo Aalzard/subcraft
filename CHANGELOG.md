@@ -18,6 +18,9 @@ What changed in SubCraft, newest first. Download the latest build from the
   column. Compact nested effects have connecting lines and collapsible domain headers.
 
 ### New
+- Non-destructive Bevel and Mask Outline on content, masks and adjustment folders. Radius,
+  Threshold, relief Amount and Inner/Outer/Both borders; consistent UV contour distances,
+  scaled thumbnails, undo and exact export. Schema 12 preserves older stacks.
 - Directional Blur with UV angle/radius and Highpass with detail scale/amount on content,
   masks and adjustment folders. Existing undo, worker previews and exact export are retained;
   schema 11 preserves older projects and smart resources.

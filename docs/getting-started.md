@@ -226,15 +226,15 @@ of scale. These controls are shared by the supported texture projections.
 ### Content and mask effects
 
 **Filters:** click a layer's content square, then **+ Add → Filter** beneath its row. Choose
-**Contrast**, **HSL**, **Threshold**, **Clamp**, **Blur**, **Sharpen**, **Directional Blur** or
-**Highpass**. The filter appears as an editable effect;
+**Contrast**, **HSL**, **Threshold**, **Clamp**, **Blur**, **Sharpen**, **Directional Blur**,
+**Highpass**, **Bevel** or **Mask Outline**. The filter appears as an editable effect;
 select it to change its channel and parameters in Properties. Contrast 1 is neutral; Pivot
 sets its center. HSL changes hue in degrees, saturation (1 is neutral) and lightness (0 is
 neutral). Threshold creates black/white from luminance or a scalar channel. Clamp limits
 values between Minimum and Maximum without rescaling them. Normal vectors are excluded.
 
 For masks, click the grayscale square and use **+ Add → Filter**. Contrast, Threshold, Clamp,
-Blur, Sharpen, Directional Blur and Highpass process the mask below them. HSL is available
+Blur, Sharpen, Directional Blur, Highpass, Bevel and Mask Outline process the mask below them. HSL is available
 on color content only. Eye, blend,
 opacity, Move up/down, Duplicate and Delete retain their existing behavior. Order matters:
 a Threshold after a generator changes its result; one below it changes an earlier stage.
@@ -267,12 +267,32 @@ effect's **Overlay** blend; for Height use **Signed Addition**. Highpass preserv
 coverage. Radius zero or Amount zero gives the neutral detail field, not the original texture;
 hide/remove the effect to bypass it. Existing opacity, order, duplicate and Undo controls apply.
 
+**Bevel** turns a thresholded shape into an inward relief ramp. For raised detail, put a
+black/white texture or Paint/Fill effect in **Height**, then add **Filter > Bevel** on Height.
+**Threshold** defines the shape, **Radius** (0-32 working pixels) sets the bevel width, and
+**Amount** sets the plateau height. Start with a small Amount (for example 0.025); negative
+Height Amount makes recessed detail. Outside the shape is zero. Radius zero gives a hard
+plateau. On a mask, Bevel produces a grayscale ramp for a softened inset boundary.
+
+**Mask Outline** creates a border around a painted or procedural shape. Select a fill layer's
+mask square, add Paint/Fill/Generator for the source shape, then **+ Add > Filter > Mask Outline**.
+Set **Threshold**, **Radius**, and **Position: Inner / Outer / Both**. Radius is width on each
+chosen side; Both extends by that width in both directions. Radius zero clears the border.
+Use the existing effect eye to bypass it, or blend/opacity to combine it with the original.
+The border has a small antialias transition and follows raster corners across internal tiles.
+
+Both filters produce grayscale from luminance or scalar values. Content coverage stays intact;
+use the filter on a mask to reveal fill material beyond a shape's original painted area.
+An entirely white mask has no contour: Bevel reaches its plateau, Outline is empty. Changing
+Radius changes width independently of Threshold. Thumbnails scale pixel widths automatically.
+No new shortcut is required; existing Undo, duplicate, reorder and save controls apply.
+
 These are UV texture filters: they cross internal tile boundaries, clamp at the outside of the
 texture, and can mix neighboring UV islands. They do not follow a surface across UV seams.
 Increasing texture-set resolution makes a fixed pixel radius look smaller; adjust Radius if
 needed. Normal vectors are excluded. Sharpen/Highpass preserve signed Height and bound other values
-to 0-1. Projects and Smart Materials/Masks save filters using schema 11; older projects still
-open. Bevel, Mask Outline and other neighborhood filters remain planned.
+to 0-1. Projects and Smart Materials/Masks save filters using schema 12; older projects still
+open. Bevel Smooth, Height Adjust and other filter operations remain planned.
 
 Every paint or fill layer has two separate effect stacks: one on its **content** and one on its
 **mask**. Select a layer and its stack appears right under its row. Which stack you see follows
