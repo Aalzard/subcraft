@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-10-19 (session 82: connected curvature at exact corners and UV rims)
+Last updated: 2026-10-19 (session 83: natural Edge Wear spread and default-crate joins)
 
 ## Decisions
 
@@ -2039,12 +2039,55 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   frame pacing. This narrow fix does not complete wear/dirt surface spread, lower-layer normal
   dependencies, filters or emission. ADR-0026 records the boundary rule and rebake behavior.
 
+### Session 83 — Natural Edge Wear spread on the actual default crate (2026-10-19)
+
+* Owner confirmed the stock crate still had corner gaps after session 82's bake correction.
+  The earlier isolated-cube acceptance was insufficient: overlapping posts/bands weaken the
+  body's baked convexity with concave contact contributions. Added a connected convex-crease
+  distance source so those contributions cannot erase geometric edge coverage. Seam matching
+  handles float-rounding splits, with tolerance capped by the shortest actual edge and object
+  identity/opposite-facing checks. No scene-space or UV-distance dilation.
+* New **Natural edge wear**, **Spread** and **Variation** controls in Edges Properties use the
+  existing undoable SetMaskEffect command. Spread is normalized model reach; Level grows it
+  locally. Variation changes the boundary even at Breakup 0; Breakup adds erosion/holes. The
+  clustered noise range is expanded so low-spread boundaries visibly vary. Pattern size/Seed
+  reuse the bounded volume-field cache. Geometric distance fields are parameter-independent,
+  share the same bounded tile cache, and topology is shared across sets/resolutions of a mesh.
+* Files/crates: doc::EdgeSpread, materials/sample/edge_distance.rs + geometry/field caches,
+  compositor/mask.rs evaluator, project schema **8**, UI Properties, app edge_spread example
+  and app/materials/compositor/project/UI acceptance. Missing edge_spread in schema 1–7/older
+  recipes selects the unchanged legacy evaluator. Existing masks must opt in; new Edges
+  generators enable natural wear. Project and smart recipe round trips retain the settings.
+* **468 workspace tests pass, 0 failed/ignored** (8 added); Clippy workspace/all-targets exits
+  0 with existing warnings. CARGO_INCREMENTAL=0, dev debug=line-tables-only, -j 1. Tests cover
+  actual crate contact gaps, exact planar distance over subdivisions/UV seams, thin and
+  disconnected geometry, numeric mask output across tiles, local monotonic growth, variation
+  at zero breakup, size/seed invalidation with reused distance cache, undo/save/reopen and
+  latest-edit worker convergence, schema 7 migration and real Properties opt-in/undo.
+* Native verification uses the actual sample_crate(), both Body/Trim, baked Curvature at 512,
+  editable mask generators and Breakup 0: **docs/screenshots/edge-wear-natural-crate.png**
+  (Spread 2.5%, Variation 0.85) and **edge-wear-natural-crate-wide.png** (4.5%, same variation).
+  Isolated desktop CLI captures exit 0; screenshots inspected for joined edges, irregular
+  boundaries and increased local reach. No physical mouse was driven. The first capture was
+  too uniform, prompting stronger boundary variation before the final capture/checks.
+* 4K CPU profile (both default-crate texture sets, geometric sources without baked maps):
+  cold full composite **2687.8 ms**; edit/poll **p50 0.398 / p95 0.541 / max 1.059 ms**;
+  edit-to-settle time **708.3 ms from the first edit**, 41 polled frames. Report:
+  **docs/performance/2026-10-19-natural-edge-spread-4k.txt**. The harness now matches the
+  desktop's mimalloc allocator (ADR-0018); a preliminary System-heap attempt was stopped and
+  excluded. These are optimized dev CPU measurements, not GPU upload/render frame times.
+* NOT hand-verified: physical gestures, tablet, other DPI/browser, production imported/high-poly
+  models or sustained 4K viewport/long-stroke frame pacing. Distance is exact on convex planar
+  patches and a conservative vertex-path approximation on curved/non-convex patches; baked
+  rounded/high-poly curvature contributes but its independent outward propagation, Dirt spread
+  and lower-layer painted-normal inputs remain pending. See ADR-0027 for the source contract.
+
 ## Next steps (in order)
 
-1. Owner rebakes Curvature with target/debug/subcraft.exe and checks the original affected
-   corners. Separate intentional breakup holes from any remaining geometric coverage problem.
-2. Finish the shared surface-distance/stage contract for predictable Edge Wear and Dirt spread;
-   test curved/thin/seamed meshes and ensure growing spread leaves distant flat faces untouched.
+1. Owner enables Natural edge wear on the existing crate mask and adjusts Spread/Variation;
+   old masks intentionally retain legacy contact-curvature behavior until opted in.
+2. Extend distance sources to baked-only detail/Dirt, improve curved-surface propagation, and
+   profile the complete 4K desktop upload/render path on production meshes.
 3. Add strict lower-layer normal dependencies/Disable Micro Effects, then neighborhood filters
    and the remaining effect-stack work. Keep later brush/emission milestones explicitly pending.
 

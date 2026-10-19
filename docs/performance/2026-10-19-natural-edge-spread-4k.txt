@@ -1,0 +1,2 @@
+4096² cold full composite: 2687.8 ms
+CPU edit/poll p50 0.398 / p95 0.541 / max 1.059 ms; convergence 708.3 ms; 41 frames. GPU/render/upload excluded; no long-stroke claim.

@@ -21,11 +21,17 @@ Owner's requested scope. `[x]` implemented and tested; `[~]` partial (remaining 
 - [x] Correct baked curvature at exact hard corners and clamped UV-border vertices so
   high-threshold Edges masks stay connected. Numeric tests cover every cube corner/face,
   three subdivisions, concavity/scale and save/reopen. Native screenshot in session 82.
-  Existing stored curvature must be rebaked; the owner's original affected mesh is unverified.
+  Existing stored curvature must be rebaked for that correction. This isolated-cube fix alone
+  does not solve the default crate's contact-curvature gaps; natural wear below addresses them.
 - [x] Pattern Size, Reduce Repetition, Breakup starting at 0.3 and Random Seed/Next.
   Existing saved recipes retain legacy noise (schema 7 migration; ADR-0022).
-- [ ] Increasing edge Level spreads wear outward from edges without revealing whole flat faces;
-  predictable behavior across meshes, with a real surface-distance contract.
+- [~] Natural Edge Wear adds Spread/Variation; Level grows geometric reach without revealing
+  distant flat faces. Connected convex crease sources avoid contact-curvature cancellation on
+  the default crate. Exact on convex planar patches, conservative vertex paths elsewhere;
+  UV-seam matching includes float-rounding tolerance. Numeric/undo/migration/worker checks and
+  native actual-crate captures pass (session 83); Breakup 0 retains an irregular boundary.
+  Full spread from baked-only/painted-normal detail and exact continuous curved-surface
+  propagation remain pending; this does not complete Dirt's source/stage contract.
 - [~] Existing Cavity generator (displayed as Dirt) works on black/other masks from baked AO,
   with the new size/breakup/seed controls. Surface spread distance, near-edge intensity and
   normal-detail-aware accumulation remain pending; this is not the complete requested Dirt tool.

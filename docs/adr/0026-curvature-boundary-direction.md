@@ -25,3 +25,8 @@ Acceptance: exact and approaching corners on all six faces/eight vertices, subdi
 baked atlas rim texels, concavity/flatness at multiple scales, and high-threshold generator output
 through save/reopen. Native evidence: screenshots/edge-wear-connected-corners.png. The owner's
 original mesh and production high-poly cases remain unverified.
+
+Follow-up (session 83): the owner identified the remaining case as the stock crate. Nearby
+posts/bands can contribute concave contact curvature and cancel a body's convex signal. This
+coincident-direction correction alone does not solve that case; ADR-0027 adds independent
+geometric crease sources and natural spread, with actual-crate acceptance.

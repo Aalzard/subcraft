@@ -15,6 +15,11 @@ to update existing assets). This completes a generator defect fix, not an additi
 phase or surface-aware edge-wear stroke tool. Surface spread and lower-layer normal inputs
 remain the next material-workflow milestone.
 
+Session 83 introduces optional natural geometric Edge Wear spread/variation (schema 8), with
+legacy generators retained on migration. This is a material mask operation, not the pending
+surface-aware brush stroke tool or lower-layer normal dependency work. See ADR-0027 and the
+material-workflow checklist for the distance approximation and remaining source types.
+
 Session 73 acceptance artwork: CORE-07 is a saved 4K cube with real high-to-low bakes, editable
 materials/masks/generators and a native screenshot. Its creation/reopen/export checks do not
 replace the pending interactive stroke/frame-pacing checks or complete additional brush phases.

@@ -192,12 +192,23 @@ so opposite faces do not reuse the same projected tile. It stays continuous acro
 Overlapping or mirrored UVs still share texels; unique wear on those parts requires unique UVs.
 New Edges and Dirt/Cavity generators start with **0.3 Breakup** and Reduce repetition on; the
 Edge Wear smart-mask recipe keeps its authored 0.35. Existing saved generators keep their
-appearance until you enable Reduce repetition. You can still lower breakup manually.
+appearance until you opt into the new pattern or natural-wear mode. You can still lower breakup manually.
 
 If Edge Wear has small gaps at hard corners, open **Bake mesh maps**, select **Curvature** and
 rebake with the current build. The corrected baker keeps exact corner and UV-border samples
 connected. Opening an old project retains its stored bake until you rebake. Set **Breakup** to
 0 temporarily to distinguish curvature coverage from intentional wear variation.
+
+For organic wear around the default crate's posts/bands, select the **Edges** mask effect and
+enable **Natural edge wear**. New Edges generators enable it automatically. Older saved masks
+keep their original evaluator until you turn this on. **Spread** grows wear outward along
+connected geometric creases, in percent of model size; **Level** also increases that reach.
+**Variation** makes the boundary irregular even at **Breakup 0**. Set Variation to 0 for a
+clean band; raise Breakup to remove patches. Pattern size and Seed change the shared pattern.
+These controls are undoable and saved with projects and smart masks/materials (schema 8).
+Separate crate components cannot erase each other's geometric edge source. Spread is exact on
+convex flat faces and conservative across curved/non-convex surfaces. Baked rounded/high-poly
+detail still contributes, but expanding baked-only or painted-normal details needs further work.
 
 At the top of **Channels**, click a channel button to toggle it independently. **Alt+click**
 enables only that channel. Disabled settings rows disappear and their values/images are kept

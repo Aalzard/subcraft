@@ -18,6 +18,10 @@ What changed in SubCraft, newest first. Download the latest build from the
   column. Compact nested effects have connecting lines and collapsible domain headers.
 
 ### New
+- Natural Edge Wear: Spread and Variation controls grow irregular wear from connected convex
+  edges, including at Breakup 0. Level increases local reach. Existing masks can opt in through
+  Natural edge wear; new Edges generators enable it by default. Schema 8 preserves legacy
+  generators and saves the new controls in projects/smart recipes.
 - Generator Pattern size, Seed/Next and Reduce repetition controls. New Edges/Cavity effects
   start at 0.3 breakup; organic volume noise varies across faces while remaining UV-seam continuous.
 - Compact fill/Fill-effect/brush channel toggles, Alt-click solo and hidden disabled rows.
@@ -29,13 +33,15 @@ What changed in SubCraft, newest first. Download the latest build from the
   cage wireframe before baking. Geometry retains its exported alignment.
 - Live bake maps: completed maps appear on the low-poly model while remaining maps compute;
   follow automatically or inspect a finished map, then return to the material view.
-- Albedo filtering: choose Bilinear or Nearest beneath Resolution in the 3D toolbar or Texture
-  Sets panel. Nearest preserves imported pixel art through projection, painting, working-size
+- Albedo filtering: choose Bilinear or Nearest beneath Resolution in the Texture Sets panel.
+  Nearest preserves imported pixel art through projection, painting, working-size
   changes, preview and exported maps. The choice is undoable and saved per texture set.
 - Older projects open with Bilinear. Current saves require this build or a newer reader
-  supporting schema 7.
+  supporting schema 8.
 
 ### Fixed
+- Natural wear stays connected at the default crate's body/post joins where contact curvature
+  previously erased edge coverage. Geometric seam matching tolerates float-rounding splits.
 - Curvature no longer weakens at exact hard corners and UV-border vertices due to triangle
   centroid direction, preventing holes in high-threshold Edge Wear. Rebake Curvature in existing
   projects to update stored maps.
