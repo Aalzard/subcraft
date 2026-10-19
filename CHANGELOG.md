@@ -5,6 +5,12 @@ What changed in SubCraft, newest first. Download the latest build from the
 
 ## Unreleased
 
+### UI
+- Softer neutral charcoal theme, warm gray text, restrained amber accents and thin sliders
+  with circular handles. Near-square buttons and interface scaling are retained.
+- Layers show larger content/mask previews, type/effect counts and a quiet blend/opacity
+  column. Compact nested effects have connecting lines and collapsible domain headers.
+
 ### New
 - Generator Pattern size, Seed/Next and Reduce repetition controls. New Edges/Cavity effects
   start at 0.3 breakup; organic volume noise varies across faces while remaining UV-seam continuous.

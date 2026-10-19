@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-10-19 (session 76: Bilinear/Nearest albedo filtering)
+Last updated: 2026-10-19 (session 79: reference-inspired charcoal workspace and layer hierarchy)
 
 ## Decisions
 
@@ -1894,7 +1894,50 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   Y/combinations in the native view, owner assets, browser, full 4K bake and long-frame profiling.
   Installed/owner applications, protected files and original artwork were not changed.
 
+### Session 79 — Codex: charcoal workspace and clearer layer/effect hierarchy (2026-10-19)
+
+* Followed the owner's visual reference with neutral charcoal surfaces, warm gray text,
+  restrained amber accents and three-point slider rails with compact circular handles.
+  Buttons remain near-square. Primary/secondary text keeps at least 4.5:1 contrast on panel,
+  alternate-row and selected backgrounds. Parts/History/Layers keep alternating shades,
+  hover feedback and the accent selection edge (`ui::theme`, shared widgets; ADR-0024).
+* Layers now use 48-point rows and independent 36-point material/mask thumbnails; names have
+  a quieter type/effect-count subtitle, with blend/opacity stacked in the right column.
+  Nested effects use 26-point rows, smaller text and connecting lines. Content/Mask effects
+  headers collapse their own domain without modifying the document, selection or visibility.
+  Existing UUID command routing, async 64-pixel preview cache, undo and texel evaluation are
+  unchanged. This is UI presentation, not completion of pending generator/emission features.
+* Three tests added (449 total): neutral palette/readable text and slider style; sidebar
+  geometry at 280/340/480 points with both thumbnails and Levels/generator rows; fold/unfold
+  behavior without document/selection edits. Existing real-egui inspector, thumbnail targets,
+  per-row blend/opacity, dragging/folder/drop/autoscroll and band tests remain in the suite.
+  Old tests now locate two-line row controls and the topmost popup text; scrolling waits for
+  the actual bottom drop target rather than assuming the old shorter content height.
+  Selected channel/menu foreground contrast is checked separately: native inspection caught
+  amber-on-amber text, fixed with a dark selected foreground. Toolbar interaction height
+  remains 26 points to align its labels with fixed icons despite smaller body controls.
+* Validation: **449 workspace tests pass, 0 failed/ignored**; workspace/all-target Clippy
+  exits 0 with existing warnings. CARGO_INCREMENTAL=0, CARGO_PROFILE_DEV_DEBUG=line-tables-only,
+  -j 1. Implementation **08e28ea**, branch `feature/brush-roadmap`; no push or release.
+* Native screenshot: `screenshots/charcoal-layer-effects.png`, real baked CORE-07 fixture
+  with mask Levels and Generator, generated through `app/examples/layer_layout.rs`. Source
+  artwork was not modified. Native CLI screenshot only, no mouse driving. Inspected color,
+  spacing, larger previews, layer/effect hierarchy and generator slider presentation.
+  `screenshots/charcoal-brush-workspace.png` additionally shows the sample crate, brush
+  material/channel buttons and alternating Parts/History rows in the new palette.
+* Owner's running `target/debug/subcraft.exe` (PID 9712) prevented ordinary binary replacement.
+  Kept that session intact; current preview is **target/debug/latest/subcraft.exe**, built via
+  `cargo rustc -p subcraft --bin subcraft -- -o target/debug/latest/subcraft.exe` after workspace
+  tests. Installed/release binaries, protected files and owner preferences were not changed.
+* Not verified by hand: physical dragging, popups/folding, alternate DPI/monitor combinations,
+  browser and production 4K frame pacing. These UI-only changes add no compositing or texture
+  writes; prior incomplete material workflow and performance caveats remain below/in handoff.
+
 ## Next steps (in order)
+
+Owner reviews the charcoal workspace in `target/debug/latest/subcraft.exe`. After the earlier
+app is closed, a normal workspace build can refresh `target/debug/subcraft.exe` again. Keep
+ADR-0024's independent thumbnail targets and compact effects when refining presentation.
 
 The owner's latest scope is **material-workflow-roadmap.md**. Next complete a shared surface
 distance/stage contract for edge and dirt spread, then lower-layer normal dependencies with

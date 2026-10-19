@@ -1,8 +1,8 @@
 # Getting started with SubCraft
 
-For the latest local development build, open **target/release/subcraft.exe** in the SubCraft
-folder. It contains the panel-contrast and layer-inspector fixes; older toolbar/panels/preview build names
-are obsolete. Build-cache cleanup was blocked by the environment and remains pending.
+For the latest local development build, open **target/debug/latest/subcraft.exe** in the SubCraft
+folder. This contains the current material-workflow and charcoal UI refinements; installed
+releases and older release binaries may have fewer features.
 
 The welcome hub and in-app guide are in development for the next desktop release. In v0.1.4,
 use **File → New from mesh…** or **File → New (sample crate)** to follow these steps.
@@ -20,6 +20,20 @@ and are saved between runs. This is independent of the 3D view's render Resoluti
 Preferences scrolls when a large UI or small window needs more room.
 
 ![UI size is the first preference](screenshots/ui-size-preferences.png)
+
+The workspace uses neutral charcoal panels, warm gray text and a restrained amber accent.
+Thin sliders have round handles; drag the handle or click/type in its numeric value as before.
+Layer content and masks have larger, separate square previews. Click either preview to edit
+that target. The second line identifies the layer type and total effect count; blend mode
+and draggable opacity sit in the right column. Hover for channel/domain details.
+
+Under the selected layer, **Mask effects** or **Content effects** shows the chosen target's
+stack. Shorter rows and connecting lines distinguish effects from their parent. Click the
+header/caret to fold or unfold this stack; folding does not disable effects or change the
+selected editing target. **Add** and effect right-click actions work as before. Layers,
+Parts and History retain alternating row shades, a brighter hover and an amber selection edge.
+
+![Charcoal workspace and nested mask effects](screenshots/charcoal-layer-effects.png)
 
 ## 1. Open a model
 

@@ -3,6 +3,13 @@
 Owner's requested scope. `[x]` implemented and tested; `[~]` partial (remaining work stated);
 `[ ]` pending. See progress.md for exact native evidence and hand-check limits.
 
+## Workspace presentation (new reference request)
+
+- [x] Neutral charcoal surfaces, calmer text/amber accent, thin round-handle sliders.
+- [x] Larger independent layer/mask previews, name/type/effect-count hierarchy and quieter
+  blend/opacity column; compact indented effect rows with connecting lines and stack folding.
+  Existing document commands, thumbnail cache and content/mask editing behavior are retained.
+
 ## Generators
 
 - [x] Pattern Size, Reduce Repetition, Breakup starting at 0.3 and Random Seed/Next.
