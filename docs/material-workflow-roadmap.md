@@ -5,6 +5,9 @@ Owner's requested scope. `[x]` implemented and tested; `[~]` partial (remaining 
 
 ## Workspace presentation (new reference request)
 
+- [x] Shelf-left default; Parts / Texture Sets / History bottom-center tabs. Wide Texture Sets
+  uses horizontal selection, resolution/filter and bake/mesh sections (ADR-0025).
+
 - [x] Shelf wraps downward within panel width. Shelf and Layers have independent preview-size
   sliders beneath their scrollable lists; settings persist without altering document textures.
 

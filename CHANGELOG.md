@@ -6,6 +6,9 @@ What changed in SubCraft, newest first. Download the latest build from the
 ## Unreleased
 
 ### UI
+- Shelf is now on the left by default. Parts, Texture Sets and History share bottom-center
+  tabs. Wide Texture Sets panels arrange set selection, resolution/filter and bake/mesh
+  controls horizontally; narrow sidebars retain the vertical layout.
 - Shelf assets wrap within narrow panels and scroll vertically; compact category dropdowns
   replace clipped tabs. Shelf and Layers have independent, remembered preview-size sliders
   beneath their lists, with adaptive layer rows and single-line asset names.

@@ -38,6 +38,10 @@ This is a presentation refinement; no unfinished brush phase is marked complete.
 Session 80 fixes shelf wrapping in narrow docks and adds independent, remembered Shelf/Layer
 preview-size footers. These are display preferences; no additional brush phase is complete.
 
+Session 81 makes Shelf-left / bottom-center utility tabs the normal layout and adapts Texture
+Sets to a horizontal bottom strip. The next owner task is Dead Man reference texturing;
+unfinished brush phases remain unchanged.
+
 Build housekeeping (session 62): latest tested binary consolidated into
 `target/release/subcraft.exe`. Removing obsolete versions/caches remains blocked by automatic
 approval review; no artifacts were deleted. This does not change feature completion below.

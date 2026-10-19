@@ -1,6 +1,6 @@
 # Getting started with SubCraft
 
-For the latest local development build, open **target/debug/subcraft.exe** in the SubCraft
+For the latest local development build, open **target/debug/latest/subcraft.exe** in the SubCraft
 folder. This contains the current material-workflow and charcoal UI refinements; installed
 releases and older release binaries may have fewer features.
 
@@ -48,6 +48,18 @@ effect rows compact. Both sliders are remembered independently between runs; the
 display size only, without affecting material resolution, masks, paint or undo history.
 
 ![Vertical shelf and independent preview-size controls](screenshots/shelf-layer-preview-controls.png)
+
+The normal workspace now places **Shelf on the left**, with **Parts / Texture Sets / History**
+as tabs beneath the center viewport. **View → Reset layout** restores this arrangement.
+This update applies the arrangement once; later dock changes are remembered.
+
+When **Texture Sets** is wide, its set list, Resolution/Albedo controls and bake/mesh status
+sit beside one another so you can use a shallow bottom panel without scrolling through all
+the settings. Click a set, change Resolution or Albedo, or click **Bake…** as usual. Hover the
+Resolution heading for its explanation. A long set list can scroll in its own column.
+If you dock the panel in a narrow sidebar, the same controls switch back to a vertical layout.
+
+![Bottom-center Texture Sets with horizontal controls](screenshots/bottom-texture-sets-layout.png)
 
 ## 1. Open a model
 

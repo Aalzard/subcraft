@@ -1,64 +1,46 @@
-# Handoff — shelf wrapping and preview sizing (2026-10-19)
+# Handoff — bottom panels, cleanup audit and next artwork (2026-10-19)
 
-- Branch `feature/brush-roadmap`; implementation **db2ea03**.
-  Docs are the final commit (`git log -1`). **454 workspace tests pass, 0 failed/ignored**
-  (5 added this session); workspace/all-target
-  Clippy exits 0 with existing warnings. CARGO_INCREMENTAL=0, dev debug=line-tables-only, -j 1.
-- Done: shelf grid constrained to dock width, compact category header and one-line names.
-- Done: removed duplicate dock scrollbars for Shelf/Layers; bounded lists scroll vertically.
-- Done: independent saved preview sizes with small fixed footers; layer rows grow/cap to fit.
-- Current test executable: E:\Applications\ArtCraft\SubCraft\target\debug\subcraft.exe.
-  Ordinary workspace bins/examples build works again; older latest/ and release binaries were
-  not refreshed. No owner processes were stopped or artwork/preferences altered; no push/release.
+- Branch feature/brush-roadmap; code commit d23ddee. Docs are the final commit (git log -1).
+- cargo test --workspace: 457 pass, 0 failed/ignored (3 added). Workspace/all-target Clippy
+  exits 0 with existing warnings. CARGO_INCREMENTAL=0, dev debug=line-tables-only, -j 1.
+- Done: default Shelf-left layout, Parts/Texture Sets/History bottom-center; dock storage v5
+  applies it once and later rearrangements persist. View > Reset layout restores it.
+- Done: Texture Sets uses horizontal selection / resolution-filter / bake-mesh regions at
+  widths >=660 points. Narrow sidebars stay vertical. Common command helpers retain behavior.
+- Done: six unreferenced screenshots removed through Git, 1,049,698 bytes (about 1 MiB).
+- Latest binary: E:/Applications/ArtCraft/SubCraft/target/debug/latest/subcraft.exe. The owner's
+  normal debug/subcraft.exe was running and was not stopped/overwritten. No push or release.
 
-Native screenshot: docs/screenshots/shelf-layer-preview-controls.png. Real baked CORE-07,
-vertical shelf and both fixed size sliders beside mask Levels/generator. Reproduce with
-%TEMP%/subcraft-theme-native/Layer-layout.subcraft --generator-panel --shelf-panel --screenshot.
---shelf-panel is an optional narrow-dock validation layout; ordinary startup retains the
-owner's layout. Isolated data/library: %TEMP%/subcraft-preview-native. CLI only, no mouse input.
-Source artwork is unchanged. Prior charcoal/material/bake screenshots remain in screenshots/.
-Debug exact synchronous cold recomputes: organic 14–28 s, legacy 28.5 s; unchanged 0–0.65 ms.
-These are uncontrolled debug timings, not release or native frame/long-stroke performance.
+Native capture inspected: docs/screenshots/bottom-texture-sets-layout.png. --demo --shelf-panel
+--screenshot; isolated data/library %TEMP%/subcraft-bottom-panel-native. Body/Trim and all
+compact controls fit without full-panel scrolling. Physical gestures, other DPI/monitors,
+browser and 4K frame pacing were not hand-tested. Automated selection/bake/resolution/filter
+and layout checks pass. No known failing/skipped tests. Docs ADR-0025 records the layout.
 
-Keep ADR-0024: UI only; default 48-point layer/36-point thumbnail/26-point effect rows. Reuse the async
-64-pixel preview cache; no compositor or schema changes. Collapsing effects must not disable
-them or change selection. Text contrast >=4.5:1 for primary/secondary text; near-square buttons.
-Selection.stroke is also egui's selected-label text: keep it dark against amber selection
-fill so channel toggles/menu entries remain legible. Toolbar retains 26-point icon alignment.
-Shelf/Layer preview preferences default 88/36; old files use serde defaults. Sizes are display
-only. Layers cap the effective size in narrow docks. Do not re-enable outer dock scrollbars
-for Shelf/Layers: these cause content-width feedback and allow the footer to scroll away.
+Cleanup BLOCKED: target totals ~16.3 GB; scoped target/release (~4.8 GB) and debug/incremental
+(~1.15 GB) deletion was rejected by automatic approval review: "blocked by policy". No caches
+or executables were deleted; do not retry via a different deletion route. Major E: cleanup
+remains undone. Protected zips/output/generate_textures.py/__pycache__, source, artwork and
+README-linked screenshots were preserved. Current dev dependencies remain for artwork work.
 
-Keep ADR-0022/0023: schema **7**, missing organic_breakup migrates to false in old projects /
-recipes; do not globally change old masks. Reuse the bounded field cache. Pattern size=100/scale.
-Channel solo is one app history operation; disabled sources/strengths/images are retained.
-Brush channel toggles control future strokes, not historical paint visibility. Guide coordinates
-use the same whole-model center as mirrored painting; show-guides is a Viewport preference.
-Use shader clip-depth offset for LineList (wgpu rejects pipeline depth bias). Render headless
-GPU tests hold a per-process guard after parallel DX12 devices/readback stalled; production
-rendering is unchanged. Every final test passed; no skipped tests or remaining compilation bugs.
+New owner task (create separate local SubCraft chat after this commit): fully texture
+C:/Users/Rayan/Downloads/dead_man.fbx, preserving source. Reference image:
+C:/Users/Rayan/AppData/Local/Temp/codex-clipboard-22c6ae2d-0e9a-423f-b48d-65de2ab8a6df.png.
+Copy the reference into the new artwork folder. Pale mottled decayed skin, red exposed/wounded
+tissue, dark crevices, aged teeth, varied dry/wet roughness and restrained pore/normal detail.
+Import, inspect UVs/material slots, bake, author editable PBR layers/masks, save a .subcraft,
+export textures and inspect front/back/detail views in the actual app. Do not overwrite the
+owner's open session. Prefer supported Session/CLI workflows. Artwork is NOT done this session.
 
-Partial stops — the rest of the owner's request is in material-workflow-roadmap.md:
-- compositor/src/mask.rs::eval_generator still thresholds baked maps. True surface-distance
-  edge/dirt spread, increasing-Level spread semantics and near-edge intensity are NOT done.
-  Cavity is displayed as Dirt and has new pattern controls; it is not the full requested tool.
-- compositor/src/tile.rs::apply_layer evaluates masks without an explicit lower-normal stage.
-  Add ordered stage inputs, cross-tile/seam halos and cache dependencies before automatic
-  painted micro-normal detection/Disable Micro Effects. Do not read the final composite.
-- render/src/viewport.wgsl::fs_main only adds existing Emissive before tonemapping. Emission
-  glow/glare/starburst and their document/UI controls remain unimplemented. Reuse Emissive.
-- Paint-layer channel visibility/solo is still missing; current brush buttons do not implement it.
-
-Not hand-verified: physical mouse/wheel/slider gestures, alternate DPI/monitors, native file replacement (actual-file app unit test
-passes), Y/multiple axes, large-mesh first-guide latency, owner assets, browser, full 4K bake,
-long strokes/frame pacing. Initial symmetry intersections compute synchronously once per scene.
+Keep schema 7 and ADR-0022/23/24 rules; no schema change this session. UI preview sizes are
+preferences (88/36 defaults), caches stay bounded and independent thumbnails select domains.
+Older pending feature scope remains in material-workflow-roadmap.md: actual surface-distance
+wear/dirt spread; strict lower-layer normal dependencies/Disable Micro Effects; paint-channel
+visibility; emission glow/glare/shine. mask.rs::eval_generator, tile.rs::apply_layer and
+viewport.wgsl::fs_main retain those partial stops. Never read future/final normals for masks.
+Prior debug exact 4K composites can take 14–28 seconds; no release frame-speed claim.
 
 Next 3 steps:
-1. Owner checks shelf browsing and both size sliders in debug/subcraft.exe, including their
-   own saved dock layout and DPI. Automated actual-dock/scroll/resize/persistence tests pass.
-2. Complete shared surface-distance and stage/halo contracts for Edges/Dirt, with numeric
-   tests across seams and thin/curved meshes; then strict lower-normal dependencies/Disable
-   Micro Effects and paint-channel visibility. Use layer-system-roadmap/ADR-0016 foundations.
-3. Implement emission HDR/post-processing and persistence/UI, then GPU parity/native captures.
-   Decide per-layer versus per-set glow scope and distance units explicitly; the owner hasn't
-   specified those details. Older brush phases remain pending after this newer checklist.
+1. In the new artwork task, inspect the FBX/reference, save a copied working asset and bake.
+2. Build the complete editable creature material, reopen/export and inspect native renders.
+3. Deliver project/maps/screenshots for owner review; then resume pending material features.

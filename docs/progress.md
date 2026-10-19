@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-10-19 (session 80: shelf wrapping and independent preview-size controls)
+Last updated: 2026-10-19 (session 81: shelf-left layout, horizontal Texture Sets, cleanup audit)
 
 ## Decisions
 
@@ -1972,7 +1972,51 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   no owner processes were closed, original artwork/preferences/protected files modified,
   push or release. Older `target/debug/latest` and release executables were not rebuilt.
 
+### Session 81 — Codex: bottom utility tabs and horizontal Texture Sets (2026-10-19)
+
+* Normal workspace: Shelf left; Parts / Texture Sets / History share the bottom-center tab
+  node. Layers/Properties stay right. Dock storage moves to v5 once to apply the explicitly
+  requested arrangement; subsequent dock edits persist. Reset layout uses the same factory.
+  The native `--shelf-panel` validation option now selects Textures and the Texture Sets tab.
+* Texture Sets reuses shared selection/resolution/filter/bake helpers in both orientations.
+  Wide panels use three side-by-side regions instead of scrolling the complete vertical
+  form. Narrow panels retain the vertical form. Removed the extra outer dock scrollbars for
+  Texture Sets; only a long set list can scroll in its wide column. Resolution help moves to
+  a tooltip in compact mode; Bake and mesh statistics use shorter labels. ADR-0025.
+* Three tests added: default tab grouping/separation; horizontal geometry/clipping at three
+  shallow sizes and narrow-sidebar fallback; actual compact set selection and Bake button
+  input. The existing effect inspector test now uses a full-height inspector to exercise
+  every channel independently of workspace split heights and accepts equivalent numeric
+  precision chosen by egui for wider sliders. It retains edit/visibility/undo/paint-routing
+  assertions. No document schema or compositor changes.
+* **457 workspace tests pass, 0 failed/ignored**; workspace/all-target Clippy exits 0 with
+  existing warnings. CARGO_INCREMENTAL=0, CARGO_PROFILE_DEV_DEBUG=line-tables-only; -j 1.
+  Implementation **d23ddee**, branch `feature/brush-roadmap`; no push or release.
+* Native app verified through CLI capture: `screenshots/bottom-texture-sets-layout.png`.
+  Sample crate's Body/Trim list, Resolution/Albedo and bake/mesh controls fit beside one
+  another in the bottom dock. Shelf remains separate at left; Parts/Texture Sets/History
+  tabs share the bottom-center node. Command: `--demo --shelf-panel --screenshot ...`;
+  data/library isolated under `%TEMP%/subcraft-bottom-panel-native`. Latest executable is
+  **target/debug/latest/subcraft.exe**; the open owner's normal debug executable was left
+  untouched. No physical mouse, alternate DPI/monitor or browser verification was performed.
+* Cleanup: inventory found about 16.3 GB under target, including approximately 4.8 GB of old
+  release output and 1.15 GB incremental cache. Automatic approval review rejected the scoped,
+  path-checked recursive deletion with **"blocked by policy"**; no cache or executable was
+  deleted and no alternative deletion route was attempted. Six tracked, unreferenced old
+  screenshots were safely removed through Git (1,049,698 bytes, about 1 MiB; recoverable from
+  history). README/guide-linked images, source, artwork and protected assets were retained.
+* Next owner artwork request: source **C:/Users/Rayan/Downloads/dead_man.fbx** (2,679,420 bytes),
+  reference **C:/Users/Rayan/AppData/Local/Temp/codex-clipboard-22c6ae2d-0e9a-423f-b48d-65de2ab8a6df.png**.
+  User explicitly requested a separate texturing task after these layout fixes; create it
+  against the same local SubCraft project/branch. Import, inspect UVs, bake and author an
+  editable complete PBR material matching the reference. Preserve the source and open owner
+  app. The artwork itself is not completed by this layout session.
+
 ## Next steps (in order)
+
+Start the requested separate Dead Man texturing task after the panel fixes are checked.
+Major disk cleanup remains blocked by automatic approval review; source and current build
+are retained. Do not bypass that rejection using another deletion command.
 
 Owner checks vertical shelf browsing and both preview-size sliders in `target/debug/subcraft.exe`.
 Then continue the earlier material-workflow scope below. Preview sizing does not complete any
