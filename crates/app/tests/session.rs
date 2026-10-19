@@ -489,3 +489,26 @@ fn save_and_export_use_newest_document_while_worker_is_busy() {
         assert_eq!(s.composite(ts.id), reopened.composite(ts.id));
     }
 }
+
+#[test]
+fn insert_layer_at_places_inside_folders_and_selects() {
+    let mut s = session();
+    let ts = s.selection().texture_set;
+    s.execute(Command::AddLayer(NewLayer::Folder)).unwrap();
+    let folder = s.selection().layer.unwrap();
+    let tc = s.selected_texture_set().clone();
+    let fill = subcraft_doc::Layer::new_fill("Inside", &tc);
+    let id = fill.id;
+    s.execute(Command::InsertLayerAt { texture_set: ts, parent: Some(folder), index: 99, layer: Box::new(fill), label: "Place".into() }).unwrap();
+    assert_eq!(s.selection().layer, Some(id));
+    assert_eq!(s.selected_texture_set().location(id).unwrap().parent, Some(folder));
+    let bottom = subcraft_doc::Layer::new_paint("Bottom", &tc);
+    let bottom_id = bottom.id;
+    s.execute(Command::InsertLayerAt { texture_set: ts, parent: None, index: 0, layer: Box::new(bottom), label: "Place".into() }).unwrap();
+    assert_eq!(s.selected_texture_set().layers[0].id, bottom_id);
+    let paint = s.selected_texture_set().layers[1].id;
+    let err = s.execute(Command::InsertLayerAt { texture_set: ts, parent: Some(paint), index: 0, layer: Box::new(subcraft_doc::Layer::new_paint("X", &tc)), label: "Place".into() });
+    assert!(err.is_err(), "a paint layer is not a folder");
+    s.execute(Command::Undo).unwrap();
+    assert!(s.selected_texture_set().find(bottom_id).is_none());
+}

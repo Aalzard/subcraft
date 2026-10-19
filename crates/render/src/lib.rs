@@ -12,6 +12,7 @@ mod display;
 pub mod headless;
 pub mod material;
 pub mod preview;
+pub mod snapshot;
 pub mod target;
 
 use std::collections::HashMap;

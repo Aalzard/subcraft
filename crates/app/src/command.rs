@@ -51,6 +51,9 @@ pub enum Command {
     InsertLayerWithChannels { layer: Box<Layer>, channels: Vec<ChannelKind>, label: String },
     /// One part can span texture sets; insert all its layers atomically.
     InsertPartLayers { layers: Vec<(TextureSetId, Box<Layer>)>, label: String },
+    /// Insert a ready-made layer at an exact place: `index` (bottom-to-top, clamped) among the
+    /// children of `parent` (a folder; `None` = the root) of `texture_set`, and select it.
+    InsertLayerAt { texture_set: TextureSetId, parent: Option<LayerId>, index: usize, layer: Box<Layer>, label: String },
     /// Atomic combined edit, retaining the node's UUID.
     ReplaceLayer { layer: LayerId, replacement: Box<Layer>, label: String },
     /// Give the layer a black mask (if it has none) and append these effects (smart mask).

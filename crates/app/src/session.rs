@@ -404,6 +404,14 @@ impl Session {
     pub(crate) fn resources_mut(&mut self) -> &mut ResourceStore {
         &mut self.resources
     }
+
+    /// Make images a ready-made layer uses (a saved smart material's or mask's) available before
+    /// inserting it. Resources are immutable and identified by UUID; existing ids are kept.
+    pub fn add_resources(&mut self, resources: &[Arc<subcraft_doc::Resource>]) {
+        for r in resources {
+            self.resources.insert_shared(r.clone());
+        }
+    }
     pub fn is_stroking(&self) -> bool {
         self.stroke.is_some()
     }
@@ -708,6 +716,23 @@ impl Session {
                 }
                 // InsertLayer commits the document including the new channels: one history entry.
                 return self.execute(Command::InsertLayer { layer, label });
+            }
+            Command::InsertLayerAt { texture_set, parent, index, layer, label } => {
+                let ts = self.doc.texture_set_mut(texture_set).ok_or(CommandError::TextureSetNotFound)?;
+                if let Some(p) = parent
+                    && !ts.find(p).ok_or(CommandError::LayerNotFound)?.is_folder()
+                {
+                    return Err(CommandError::Invalid("layers can only be placed inside folders".into()));
+                }
+                let mut layer = *layer;
+                if ts.find(layer.id).is_some() {
+                    layer = layer.duplicate_with_new_ids();
+                }
+                let id = ts.insert(parent, index, layer).map_err(|e| CommandError::Invalid(format!("{e:?}")))?;
+                self.selection = Selection { texture_set, layer: Some(id) };
+                self.brush.target = PaintTarget::Content;
+                self.effect = None;
+                self.commit(&label, None);
             }
             Command::ApplyMaskEffects { layer, effects, label } => {
                 self.edit_layer_set(layer, &label, None, |ts| {
