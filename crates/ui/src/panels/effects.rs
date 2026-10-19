@@ -111,37 +111,51 @@ pub fn rows(
     } else {
         layer.content_effects.iter().map(|e| Row { id: e.id, name: e.name.clone(), visible: e.visible, icon: content_icon(&e.kind) }).collect()
     };
-    let indent = depth as f32 * 16.0 + 30.0;
+    let indent = depth as f32 * 16.0 + 54.0;
     let domain = if mask_domain { LayerTarget::Mask } else { LayerTarget::Content };
     ui.push_id(("effects", layer.id, mask_domain), |ui| {
-        ui.horizontal(|ui| {
+        let open_id = ui.make_persistent_id("expanded");
+        let mut open = ui.data(|d| d.get_temp::<bool>(open_id)).unwrap_or(true);
+        let header = ui.horizontal(|ui| {
             ui.add_space(indent);
+            ui.spacing_mut().item_spacing.x = 4.0;
+            let caret = if open { icons::CARET_DOWN } else { icons::CARET_RIGHT };
+            if ui.add(egui::Button::new(RichText::new(caret).small().color(TEXT_FAINT)).frame(false)).clicked() { open = !open; }
             let title = if mask_domain { "Mask effects" } else { "Content effects" };
-            ui.label(RichText::new(title).small().color(TEXT_FAINT));
+            if ui.add(egui::Button::new(RichText::new(title).small().color(TEXT_DIM)).frame(false)).clicked() { open = !open; }
+            ui.label(RichText::new(rows.len().to_string()).small().color(TEXT_FAINT));
             ui.menu_button(RichText::new(format!("{} Add", icons::PLUS)).small(), |ui| {
                 if mask_domain { add_mask_menu(ui, layer, resolution, cmds) } else { add_content_menu(ui, layer, channels, active, cmds) }
             })
             .response
             .on_hover_text("Add an effect on top of this stack");
-        });
+        }).response;
+        ui.data_mut(|d| d.insert_temp(open_id, open));
+        if !open { return; }
         let count = rows.len();
         // Top of the stack first, like layers.
         for (index, row) in rows.iter().enumerate().rev() {
             let is_selected = selected == Some(row.id);
             let resp = ui.push_id(row.id, |ui| {
-                striped_list_row(ui, count - 1 - index, is_selected, egui::Sense::click(), |ui| {
+                striped_list_row_height(ui, count - 1 - index, is_selected, theme::EFFECT_ROW_HEIGHT, egui::Sense::click(), |ui| {
                     ui.add_space(indent);
+                    ui.spacing_mut().item_spacing.x = 5.0;
                     let (eye, tip) = if row.visible { (icons::EYE, "Hide effect") } else { (icons::EYE_SLASH, "Show effect") };
-                    if icon_button(ui, eye, tip).clicked() {
+                    if ui.add_sized([20.0, 22.0], egui::Button::new(RichText::new(eye).color(TEXT_FAINT)).frame(false)).on_hover_text(tip).clicked() {
                         cmds.push(visibility(layer, mask_domain, row.id, !row.visible));
                     }
                     let color = if is_selected { ACCENT } else { TEXT_DIM };
                     ui.label(RichText::new(row.icon).font(theme::font(13.0)).color(color));
-                    let text = row_text(&row.name, is_selected || row.visible);
-                    ui.label(if row.visible { text } else { text.color(TEXT_FAINT) });
+                    let text = row_text(&row.name, is_selected || row.visible).font(theme::font(11.5));
+                    ui.add(egui::Label::new(if row.visible { text } else { text.color(TEXT_FAINT) }).truncate());
                 })
             })
             .inner;
+            let x = resp.rect.left() + indent - 2.0;
+            let y = resp.rect.center().y;
+            let bottom = if index == 0 { y } else { resp.rect.bottom() + 1.0 };
+            ui.painter().line_segment([egui::pos2(x, resp.rect.top() - 1.0), egui::pos2(x, bottom)], egui::Stroke::new(1.0, theme::BORDER_STRONG));
+            ui.painter().line_segment([egui::pos2(x, y), egui::pos2(x + 7.0, y)], egui::Stroke::new(1.0, theme::BORDER_STRONG));
             if resp.clicked() {
                 let effect = if is_selected { None } else { Some(row.id) };
                 cmds.push(Command::SelectEffect { layer: layer.id, target: domain, effect });
@@ -152,8 +166,11 @@ pub fn rows(
         if rows.is_empty() {
             ui.horizontal(|ui| {
                 ui.add_space(indent);
-                ui.label(RichText::new("No effects. Add paint, fills or adjustments above the base.").small().color(TEXT_FAINT));
+                ui.label(RichText::new("No effects yet").small().color(TEXT_FAINT));
             });
+        } else {
+            let x = header.rect.left() + indent - 2.0;
+            ui.painter().line_segment([egui::pos2(x, header.rect.center().y), egui::pos2(x, header.rect.bottom())], egui::Stroke::new(1.0, theme::BORDER_STRONG));
         }
     });
 }

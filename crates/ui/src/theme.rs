@@ -7,28 +7,28 @@ use egui::{Color32, CornerRadius, FontData, FontDefinitions, FontFamily, FontId,
 use egui_dock::Style as DockStyle;
 
 // Surfaces, darkest to lightest.
-pub const BG_0: Color32 = Color32::from_rgb(13, 14, 16); // gaps between panels, status bar
-pub const BG_1: Color32 = Color32::from_rgb(22, 23, 26); // panels
-pub const BG_2: Color32 = Color32::from_rgb(29, 31, 35); // header bar, tab bar, cards
-pub const BG_3: Color32 = Color32::from_rgb(38, 40, 46); // controls
-pub const BG_4: Color32 = Color32::from_rgb(48, 51, 58); // hovered controls
+pub const BG_0: Color32 = Color32::from_rgb(25, 25, 25); // gaps between panels, status bar
+pub const BG_1: Color32 = Color32::from_rgb(36, 36, 36); // panels
+pub const BG_2: Color32 = Color32::from_rgb(41, 41, 41); // header bar, tab bar, cards
+pub const BG_3: Color32 = Color32::from_rgb(49, 49, 49); // controls
+pub const BG_4: Color32 = Color32::from_rgb(61, 61, 60); // hovered controls
 /// Quiet alternating bands, below the contrast of hover and selection.
-pub const ROW_BANDS: [Color32; 2] = [BG_1, Color32::from_rgb(32, 34, 39)];
-pub const SECTION_BANDS: [Color32; 2] = [Color32::from_rgb(24, 26, 30), Color32::from_rgb(34, 36, 41)];
-pub const FIELD: Color32 = Color32::from_rgb(16, 17, 20); // text fields, slider rails
+pub const ROW_BANDS: [Color32; 2] = [BG_1, Color32::from_rgb(46, 46, 46)];
+pub const SECTION_BANDS: [Color32; 2] = [BG_2, Color32::from_rgb(45, 45, 45)];
+pub const FIELD: Color32 = Color32::from_rgb(29, 29, 29); // text fields, slider rails
 
-pub const BORDER: Color32 = Color32::from_rgb(40, 43, 49);
-pub const BORDER_STRONG: Color32 = Color32::from_rgb(62, 66, 75);
+pub const BORDER: Color32 = Color32::from_rgb(52, 52, 52);
+pub const BORDER_STRONG: Color32 = Color32::from_rgb(72, 72, 70);
 
-pub const TEXT: Color32 = Color32::from_rgb(202, 207, 214);
-pub const TEXT_DIM: Color32 = Color32::from_rgb(152, 158, 168);
-pub const TEXT_FAINT: Color32 = Color32::from_rgb(102, 108, 118);
+pub const TEXT: Color32 = Color32::from_rgb(196, 195, 191);
+pub const TEXT_DIM: Color32 = Color32::from_rgb(166, 165, 160);
+pub const TEXT_FAINT: Color32 = Color32::from_rgb(122, 121, 118);
 
-pub const ACCENT: Color32 = Color32::from_rgb(255, 128, 56);
-pub const ACCENT_HOVER: Color32 = Color32::from_rgb(255, 150, 90);
+pub const ACCENT: Color32 = Color32::from_rgb(218, 145, 56);
+pub const ACCENT_HOVER: Color32 = Color32::from_rgb(232, 164, 79);
 /// Accent at low alpha over panels (selected rows, active toggles).
-pub const ACCENT_SOFT: Color32 = Color32::from_rgb(64, 40, 28);
-pub const ACCENT_DIM: Color32 = Color32::from_rgb(120, 64, 32);
+pub const ACCENT_SOFT: Color32 = Color32::from_rgb(62, 58, 50);
+pub const ACCENT_DIM: Color32 = Color32::from_rgb(113, 81, 40);
 
 pub const WARNING: Color32 = Color32::from_rgb(240, 196, 110);
 
@@ -36,6 +36,10 @@ pub const WARNING: Color32 = Color32::from_rgb(240, 196, 110);
 pub const PAD: i8 = 12;
 /// Height of rows in lists (layers, history, texture sets).
 pub const ROW_HEIGHT: f32 = 34.0;
+/// Material/mask previews need more room than a nested adjustment.
+pub const LAYER_ROW_HEIGHT: f32 = 48.0;
+pub const LAYER_THUMB_SIZE: f32 = 36.0;
+pub const EFFECT_ROW_HEIGHT: f32 = 26.0;
 /// Width of the label column in property rows.
 pub const LABEL_WIDTH: f32 = 84.0;
 
@@ -92,11 +96,13 @@ pub fn apply(ctx: &egui::Context) {
     v.faint_bg_color = BG_2;
     v.code_bg_color = FIELD;
     v.override_text_color = None;
-    v.selection.bg_fill = ACCENT_DIM;
-    v.selection.stroke = Stroke::new(1.0, ACCENT);
+    v.selection.bg_fill = ACCENT;
+    // egui also uses this stroke as selected-label text, including channel toggles.
+    v.selection.stroke = Stroke::new(1.0, BG_0);
     v.hyperlink_color = ACCENT;
     v.warn_fg_color = WARNING;
     v.slider_trailing_fill = true;
+    v.handle_shape = egui::style::HandleShape::Circle;
     v.striped = false;
     v.indent_has_left_vline = false;
     v.collapsing_header_frame = false;
@@ -109,7 +115,7 @@ pub fn apply(ctx: &egui::Context) {
 
     w.inactive.bg_fill = BG_3;
     w.inactive.weak_bg_fill = BG_3;
-    w.inactive.bg_stroke = Stroke::new(1.0, Color32::from_rgb(52, 55, 62));
+    w.inactive.bg_stroke = Stroke::new(1.0, BORDER);
     w.inactive.fg_stroke = Stroke::new(1.0, TEXT);
 
     w.hovered.bg_fill = BG_4;
@@ -146,12 +152,14 @@ pub fn apply(ctx: &egui::Context) {
         let sp = &mut s.spacing;
         sp.item_spacing = egui::vec2(8.0, 7.0);
         sp.button_padding = egui::vec2(10.0, 5.0);
-        sp.interact_size = egui::vec2(36.0, 26.0);
+        // Sliders derive their circular handle radius from this height; padding and explicit
+        // button sizes retain the larger hit targets used elsewhere.
+        sp.interact_size = egui::vec2(36.0, 18.0);
         sp.window_margin = Margin::same(16);
         sp.menu_margin = Margin::same(6);
         sp.indent = 16.0;
         sp.slider_width = 150.0;
-        sp.slider_rail_height = 4.0;
+        sp.slider_rail_height = 3.0;
         sp.combo_width = 150.0;
         sp.icon_width = 16.0;
         sp.icon_width_inner = 9.0;

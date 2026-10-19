@@ -134,7 +134,11 @@ fn held_drag_scrolls_a_long_list_and_can_reach_the_root_bottom_target() {
     frame(&mut state, &ctx, vec![egui::Event::PointerMoved(start), button(start, true)]);
     frame(&mut state, &ctx, vec![egui::Event::PointerMoved(start + egui::vec2(8.0, 0.0))]);
     let edge = egui::pos2(180.0, clip.bottom() - 4.0);
-    for _ in 0..120 { frame(&mut state, &ctx, vec![egui::Event::PointerMoved(edge)]); }
+    // Allow a larger thumbnail row to travel farther, but stop as soon as the target is visible.
+    for _ in 0..240 {
+        let output = frame(&mut state, &ctx, vec![egui::Event::PointerMoved(edge)]);
+        if clip.contains(text_position(&output, "Top level — bottom")) { break; }
+    }
     let output = frame(&mut state, &ctx, vec![]);
     let end = text_position(&output, "Top level — bottom");
     assert!(clip.contains(end), "holding the drag at the edge reveals the bottom drop target");
@@ -143,11 +147,11 @@ fn held_drag_scrolls_a_long_list_and_can_reach_the_root_bottom_target() {
     assert_eq!(state.session.selected_texture_set().layers[0].id, source);
 }
 
-/// Center of the visible `text` on the same row as the visible `row` text.
+/// Center of a control in the name's two-line material row.
 fn text_in_row(output: &egui::FullOutput, row: &str, text: &str) -> egui::Pos2 {
     let y = text_position(output, row).y;
     output.shapes.iter().find_map(|s| match &s.shape {
-        egui::epaint::Shape::Text(t) if t.galley.text() == text && ((t.pos + t.galley.size() * 0.5).y - y).abs() < 8.0 => Some(t.pos + t.galley.size() * 0.5),
+        egui::epaint::Shape::Text(t) if t.galley.text() == text && (-8.0..=28.0).contains(&((t.pos + t.galley.size() * 0.5).y - y)) => Some(t.pos + t.galley.size() * 0.5),
         _ => None,
     }).unwrap_or_else(|| panic!("no {text} in row {row}"))
 }

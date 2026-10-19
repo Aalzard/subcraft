@@ -46,3 +46,27 @@ fn app_icon_is_the_app_artwork() {
     let bg = px(64, 6);
     assert!(bg[3] == 255 && bg[0] > 230 && bg[1] > 80 && bg[1] < 140 && bg[2] < 40, "orange background: {bg:?}");
 }
+
+#[test]
+fn charcoal_theme_has_readable_muted_text_and_thin_round_sliders() {
+    let ctx = context();
+    let style = ctx.style_of(egui::Theme::Dark);
+    assert!(matches!(style.visuals.handle_shape, egui::style::HandleShape::Circle));
+    assert_eq!(style.spacing.slider_rail_height, 3.0);
+    let luminance = |c: egui::Color32| {
+        let linear = |v: u8| { let s = f32::from(v) / 255.0; if s <= 0.04045 { s / 12.92 } else { ((s + 0.055) / 1.055).powf(2.4) } };
+        0.2126 * linear(c.r()) + 0.7152 * linear(c.g()) + 0.0722 * linear(c.b())
+    };
+    for bg in [theme::BG_1, theme::ROW_BANDS[1], theme::ACCENT_SOFT] {
+        for fg in [theme::TEXT, theme::TEXT_DIM] {
+            assert!((luminance(fg) + 0.05) / (luminance(bg) + 0.05) >= 4.5, "small labels remain legible");
+        }
+    }
+    for bg in [theme::BG_0, theme::BG_1, theme::BG_2, theme::BG_3, theme::BG_4] {
+        assert!(bg.r().abs_diff(bg.b()) <= 2, "neutral surfaces do not tint the artwork");
+    }
+    let selection = &style.visuals.selection;
+    let a = luminance(selection.bg_fill);
+    let b = luminance(selection.stroke.color);
+    assert!((a.max(b) + 0.05) / (a.min(b) + 0.05) >= 4.5, "selected channel and menu labels must remain readable");
+}

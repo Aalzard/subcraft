@@ -67,6 +67,8 @@ pub fn show(ui: &mut Ui, state: &mut crate::state::UiState) {
         .fill(BG_2)
         .inner_margin(egui::Margin::symmetric(8, 4))
         .show(ui, |ui| {
+            // Keep labels/combos aligned with the fixed 26-point tool/grid icons.
+            ui.spacing_mut().interact_size.y = 26.0;
             ui.set_min_width(ui.available_width());
             let width = ui.available_width();
             let inline = width >= 1040.0;

@@ -74,7 +74,8 @@ fn settle(app: &mut SubcraftApp, ctx: &egui::Context) -> egui::FullOutput {
 }
 
 fn text(out: &egui::FullOutput, label: &str) -> Option<Pos2> {
-    out.shapes.iter().find_map(|s| match &s.shape {
+    // Popups paint last; their Paint/Fill entries can match a layer's type subtitle.
+    out.shapes.iter().rev().find_map(|s| match &s.shape {
         egui::Shape::Text(t) if t.galley.text() == label => Some(t.pos + t.galley.size() * 0.5),
         _ => None,
     })
@@ -283,10 +284,10 @@ fn thumbnail(app: &mut SubcraftApp, ctx: &egui::Context, name: &str, mask: bool)
         .iter()
         .filter_map(|shape| match &shape.shape {
             egui::Shape::Rect(r)
-                if (r.rect.width() - 26.0).abs() < 0.01
-                    && (r.rect.height() - 26.0).abs() < 0.01
+                if (r.rect.width() - crate::theme::LAYER_THUMB_SIZE).abs() < 0.01
+                    && (r.rect.height() - crate::theme::LAYER_THUMB_SIZE).abs() < 0.01
                     && r.stroke.width > 0.0
-                    && (r.rect.center().y - row.y).abs() < 5.0 =>
+                    && (r.rect.center().y - row.y).abs() < 14.0 =>
             {
                 Some(r.rect.center())
             }

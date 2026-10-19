@@ -276,11 +276,20 @@ pub fn list_row_sense(ui: &mut Ui, selected: bool, sense: Sense, content: impl F
 
 /// Full-width list row with stable visible-order striping. Selection/hover take priority.
 pub fn striped_list_row(ui: &mut Ui, index: usize, selected: bool, sense: Sense, content: impl FnOnce(&mut Ui)) -> Response {
-    list_row_background(ui, selected, sense, Some(theme::ROW_BANDS[index % 2]), content)
+    striped_list_row_height(ui, index, selected, ROW_HEIGHT, sense, content)
+}
+
+/// A shared selection/hover contract with heights suited to material and effect rows.
+pub fn striped_list_row_height(ui: &mut Ui, index: usize, selected: bool, height: f32, sense: Sense, content: impl FnOnce(&mut Ui)) -> Response {
+    list_row_sized(ui, selected, sense, Some(theme::ROW_BANDS[index % 2]), height, content)
 }
 
 fn list_row_background(ui: &mut Ui, selected: bool, sense: Sense, band: Option<Color32>, content: impl FnOnce(&mut Ui)) -> Response {
-    let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), ROW_HEIGHT), sense);
+    list_row_sized(ui, selected, sense, band, ROW_HEIGHT, content)
+}
+
+fn list_row_sized(ui: &mut Ui, selected: bool, sense: Sense, band: Option<Color32>, height: f32, content: impl FnOnce(&mut Ui)) -> Response {
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), height), sense);
     let painter = ui.painter();
     if selected {
         painter.rect_filled(rect, CornerRadius::ZERO, ACCENT_SOFT);
