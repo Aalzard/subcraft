@@ -18,6 +18,10 @@ Owner's requested scope. `[x]` implemented and tested; `[~]` partial (remaining 
 
 ## Generators
 
+- [x] Correct baked curvature at exact hard corners and clamped UV-border vertices so
+  high-threshold Edges masks stay connected. Numeric tests cover every cube corner/face,
+  three subdivisions, concavity/scale and save/reopen. Native screenshot in session 82.
+  Existing stored curvature must be rebaked; the owner's original affected mesh is unverified.
 - [x] Pattern Size, Reduce Repetition, Breakup starting at 0.3 and Random Seed/Next.
   Existing saved recipes retain legacy noise (schema 7 migration; ADR-0022).
 - [ ] Increasing edge Level spreads wear outward from edges without revealing whole flat faces;

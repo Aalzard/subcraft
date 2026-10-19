@@ -194,6 +194,11 @@ New Edges and Dirt/Cavity generators start with **0.3 Breakup** and Reduce repet
 Edge Wear smart-mask recipe keeps its authored 0.35. Existing saved generators keep their
 appearance until you enable Reduce repetition. You can still lower breakup manually.
 
+If Edge Wear has small gaps at hard corners, open **Bake mesh maps**, select **Curvature** and
+rebake with the current build. The corrected baker keeps exact corner and UV-border samples
+connected. Opening an old project retains its stored bake until you rebake. Set **Breakup** to
+0 temporarily to distinguish curvature coverage from intentional wear variation.
+
 At the top of **Channels**, click a channel button to toggle it independently. **Alt+click**
 enables only that channel. Disabled settings rows disappear and their values/images are kept
 for re-enabling. Fill layers and Fill effects apply the whole solo action in one undo step.

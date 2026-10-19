@@ -10,6 +10,11 @@ Performance prerequisite (session 70): desktop viewport compositing now runs on 
 snapshots in a worker; sparse texture initialization uploads allocated tiles only. This does
 not complete the remaining brush tools, general layer filters or GPU compositor roadmap.
 
+Session 82 fixes baked curvature weakening at exact hard corners and UV rims (rebake Curvature
+to update existing assets). This completes a generator defect fix, not an additional brush
+phase or surface-aware edge-wear stroke tool. Surface spread and lower-layer normal inputs
+remain the next material-workflow milestone.
+
 Session 73 acceptance artwork: CORE-07 is a saved 4K cube with real high-to-low bakes, editable
 materials/masks/generators and a native screenshot. Its creation/reopen/export checks do not
 replace the pending interactive stroke/frame-pacing checks or complete additional brush phases.

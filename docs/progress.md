@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-10-19 (session 81: shelf-left layout, horizontal Texture Sets, cleanup audit)
+Last updated: 2026-10-19 (session 82: connected curvature at exact corners and UV rims)
 
 ## Decisions
 
@@ -2012,7 +2012,41 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   editable complete PBR material matching the reference. Preserve the source and open owner
   app. The artwork itself is not completed by this layout session.
 
+### Session 82 — Connected Edge Wear corners (2026-10-19)
+
+* Reproduced a hard-corner curvature defect: the centroid fallback includes a component along
+  the crease, weakening exact vertex and clamped UV-rim samples according to triangulation.
+  One 90-degree cube corner measured 0.841 instead of nearly 1.0. The baker now removes that
+  along-crease component before measuring signed convexity. Ordinary samples, falloff, flat
+  surfaces and breakup semantics are retained. This is a baker correction, not UV dilation or
+  a completed surface-distance spread feature. Existing saved maps remain unchanged until rebake.
+* Files/crates: bake/src/curvature.rs and tests.rs; app/tests/edge_corners.rs; reproducible
+  app/examples/edge_corners.rs creates a 512-square editable project through Session commands.
+  No schema change. Three new tests cover all face/corner orientations and subdivisions 1/4/13,
+  baked atlas corner/rim coverage, inward/concave and flat checks over scales 0.002/2/2000, and
+  high-threshold Edges mask -> composite -> save/reopen exactness with flat faces preserved.
+* **460 workspace tests pass, 0 failed/ignored** (3 added); workspace/all-target Clippy exits 0
+  with existing warnings. Both run with CARGO_INCREMENTAL=0, dev debug=line-tables-only, -j 1.
+  The new corner regression was observed failing on the original implementation before the fix.
+* Native verification: regenerated the fixture, opened it in the rebuilt desktop app, selected
+  the real Edges mask generator and inspected **docs/screenshots/edge-wear-connected-corners.png**.
+  Gold wear joins the visible cube corners; the mask thumbnail and editable properties display.
+  CLI capture exited 0 with isolated temporary data/library; no physical mouse was driven.
+  Latest test binary: **target/debug/subcraft.exe**. The owner's running latest/subcraft.exe was
+  left open and unchanged. Nothing pushed/released; unrelated Dead Man working files preserved.
+* NOT verified: the owner's exact affected mesh/settings (not supplied), physical slider or
+  rebake gestures, production high-poly corner cases, alternate DPI/browser, long-stroke or 4K
+  frame pacing. This narrow fix does not complete wear/dirt surface spread, lower-layer normal
+  dependencies, filters or emission. ADR-0026 records the boundary rule and rebake behavior.
+
 ## Next steps (in order)
+
+1. Owner rebakes Curvature with target/debug/subcraft.exe and checks the original affected
+   corners. Separate intentional breakup holes from any remaining geometric coverage problem.
+2. Finish the shared surface-distance/stage contract for predictable Edge Wear and Dirt spread;
+   test curved/thin/seamed meshes and ensure growing spread leaves distant flat faces untouched.
+3. Add strict lower-layer normal dependencies/Disable Micro Effects, then neighborhood filters
+   and the remaining effect-stack work. Keep later brush/emission milestones explicitly pending.
 
 Start the requested separate Dead Man texturing task after the panel fixes are checked.
 Major disk cleanup remains blocked by automatic approval review; source and current build

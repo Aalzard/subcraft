@@ -36,6 +36,9 @@ What changed in SubCraft, newest first. Download the latest build from the
   supporting schema 7.
 
 ### Fixed
+- Curvature no longer weakens at exact hard corners and UV-border vertices due to triangle
+  centroid direction, preventing holes in high-threshold Edge Wear. Rebake Curvature in existing
+  projects to update stored maps.
 - High-poly bake sources can import without UVs; UVs are required only on the painting model.
 - High-poly normal bakes appear through an editable live Baked normal layer and export with
   the material. Existing mesh-map references are reused on rebake.
