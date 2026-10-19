@@ -1,6 +1,7 @@
-# Codex handoff - 2026-10-20, session 90
+# Codex handoff - 2026-10-20, session 91 (documentation handoff)
 
-Branch: feature/brush-roadmap. Last implementation: a995822; documentation commit follows.
+Branch: feature/brush-roadmap. Last implementation: a995822; previous documentation: d3081ea.
+This session only expands the Claude handoff prompt; documentation commit follows.
 538 workspace tests PASS, 0 failed/ignored (10 new); Clippy workspace/all-targets exits 0,
 repository warnings only. CARGO_INCREMENTAL=0, CARGO_PROFILE_DEV_DEBUG=line-tables-only, -j 1.
 Test build: E:/Applications/ArtCraft/SubCraft/target/debug/subcraft.exe. No push/release.
@@ -31,7 +32,12 @@ numbers are not FPS. Owner-rejected Edge Wear unresolved; kernels untouched/Clau
 Preserve unrelated Cargo.lock, UI Cargo.toml/examples, artworks/Dead-Man; protected zips/output/
 generate_textures.py/__pycache__ untouched. Earlier cleanup was approval-rejected; do not bypass.
 
+Owner's new repair/feedback scope is fully specified in docs/PROMPT-claude-edge-wear.md.
+These new brush requests have NOT been implemented; no new native verification this session.
+
 Next 3 steps:
-1. Bevel Smooth/Height Adjust with existing stage contracts and numeric/native gates.
-2. Full 4K desktop upload/render/long-stroke profiling; measured GPU filter parity.
-3. Compare Mask/anchor references and lower-normal Dirt dependencies, then emission workflow.
+1. Claude reproduces/fixes unresolved Edge Wear on the baked default crate (Natural off/on).
+2. Fix stretched side-face brush wrapping; add immediate selection/fading viewport notice and
+   double-click brush editing, preserving mask/Paint-effect destinations.
+3. Audit/fix all recent filters/folder adjustments/thumbnails/drag reorder; then resume Bevel
+   Smooth/Height Adjust, GPU/frame profiling, references/lower-normal Dirt/emission.

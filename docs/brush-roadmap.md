@@ -32,6 +32,11 @@ Session 87 extends the same layer stages with Directional Blur/Highpass (ADR-003
 Session 88 adds contour Bevel and Mask Outline on the same layer stages (ADR-0032).
 Session 89 adds per-effect stage thumbnails and correct folder preview inputs (ADR-0033).
 Session 90 adds effect drag reorder with one undo and independent domain selection (ADR-0034).
+Owner follow-up (session 91; Claude handoff, implementation pending):
+- [ ] Clean surface-wrapped painting across hard corners without stretched side-face dabs.
+- [ ] Immediate Shelf brush activation, fading top-left viewport selection notice and
+  double-click brush editor, preserving layer/mask/Paint-effect targeting.
+See PROMPT-claude-edge-wear.md for priority, source entry points and acceptance checks.
 The ordered brush-phase checklist below remains unchanged.
 
 Session 73 acceptance artwork: CORE-07 is a saved 4K cube with real high-to-low bakes, editable

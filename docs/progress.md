@@ -2415,17 +2415,32 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   remain pending. Owner-rejected Edge Wear unresolved; kernels untouched. No push/release;
   unrelated/protected files retained.
 
+### Session 91 - Claude repair/audit handoff (2026-10-20)
+
+* Documentation-only owner request: expanded **PROMPT-claude-edge-wear.md** with the current
+  repository/.git/executable paths, schema-12/538-test baseline, source entry points and ADRs.
+  Priority: unresolved Edge Wear, brush stretching around hard corners, immediate brush
+  selection with a fading viewport top-left notice/double-click editor, then a deep regression
+  audit/fix of all recent filters, folder adjustments, thumbnails and drag reorder.
+* Added explicit reproductions/acceptance expectations, preserve mask/Paint-effect targeting,
+  native-versus-headless evidence limits, protected files and required test/doc/commit workflow.
+  Updated handoff/ordered next steps/brush follow-up checklist. No feature code changed; these
+  repair/feedback requests remain unimplemented. No new tool or shortcut, so getting-started
+  and ADRs need no feature documentation in this session. Existing build/screenshots retained.
+* Baseline/checks: **538 workspace tests pass, 0 failed/ignored**, workspace/all-target Clippy
+  passes with existing warnings; no tests added. Same no-incremental/line-tables-only/-j 1 flags.
+  No new app run or visual feature claimed. No push/release or protected-file changes.
+
 ## Next steps (in order)
 
-1. Owner gives PROMPT-claude-edge-wear.md to Claude; wear remains unresolved. Preserve and
-   coordinate shared filter files before concurrent edits. Owner checks + Add → Filter in the
-   current executable; local filters/folder adjustments are implemented, not Painter parity.
-2. Add Bevel Smooth/Height Adjust on the completed filter stages, preserving independent
-   content/mask selection, reorder and stage previews. Then measured GPU parity; preserve
-   exact synchronous export.
-3. Profile the complete 4K upload/render path and worker convergence under controlled load;
-   resume distance/Dirt/lower-normal inputs/Disable Micro Effects, references and emission per
-   the material/layer roadmaps. Large brush phases remain pending.
+1. Claude follows **PROMPT-claude-edge-wear.md**: reproduce/fix the still-rejected Edge Wear on
+   the baked default crate; inspect source/bake/sampling/build paths and all relevant modes.
+2. Fix clean surface brush wrapping across hard edges, then immediate brush activation,
+   fading top-left viewport feedback and double-click brush editing. Preserve mask targets.
+3. Deeply audit/fix all delivered filters/folder adjustments, stage previews and effect drag
+   reorder with numeric/native/performance gates. The prompt records current verification gaps.
+4. Resume Bevel Smooth/Height Adjust, measured GPU parity/full 4K desktop profiling, then
+   references/lower-normal Dirt/emission and remaining brush phases. Preserve exact sync export.
 
 Start the requested separate Dead Man texturing task after the panel fixes are checked.
 Major disk cleanup remains blocked by automatic approval review; source and current build
