@@ -2371,14 +2371,58 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   owner-rejected and unresolved; its kernels untouched. No push/release; unrelated/protected
   files retained. Existing mask inspection remains bounded at 256px.
 
+### Session 90 - Effect drag reordering (2026-10-20)
+
+* **Drag reorder:** effect names, row bodies and preview squares can move within their current
+  layer/domain. Upper/lower halves of a target row place the effect above/below it; a thin
+  amber line shows valid changed destinations. Existing edge scrolling now accepts effect
+  payloads. Escape cancels; outside/self/adjacent no-op drops leave data/history untouched.
+  Eye, thumbnail click selection, collapse, context-menu moves and layer/shelf drags remain.
+* **Controller/undo:** app::effect_stack owns typed UUID addresses and bottom-to-top insertion
+  after removal. DropEffect resolves current anchors on release, rejects a changed active
+  texture set, ignores invalid/stale/cross-layer/domain addresses and invokes the existing
+  MoveContentEffect/MoveMaskEffect once. Then SelectEffect keeps the moved effect in Properties
+  and routes Paint effects correctly. One non-coalesced undo entry, retained effect/raster
+  Arcs/settings/IDs, normal dirty/thumbnail refresh and exact sync export. No schema change:
+  order already serializes in schema **12**. UI maps coordinates and dispatches commands.
+* Files/crates: app address/index module, command/controller, exhaustive/numeric integration
+  tests and native/profile fixture; UI effect rows/typed drops, scrolling and gesture tests.
+  Significant decision **ADR-0034**. Implementation **a995822**.
+* Validation: **538 workspace tests pass, 0 failed/ignored (10 added)**; workspace/all-target
+  Clippy exits 0 with repository warnings and no new drag warnings. CARGO_INCREMENTAL=0,
+  dev debug=line-tables-only, -j 1. Exhaustive source/anchor/side pairs for 1-7 effects in both
+  domains; stale/foreign identities; non-commuting filter goldens over all 128px texels;
+  stage-thumbnail refresh, one undo/redo, exact sync export and reopen; Paint raster Arc identity,
+  brush routing and rejected stale-set command. Real egui pointer events cover name/square
+  drags, both directions/domains, live marker without edits, outside/Escape/self/adjacent
+  cancellation, shelf payload preservation, foreign domains and edge scrolling. No tests disabled.
+* Native evidence: actual default crate, both 512px sets, isolated data/library; CLI exits 0.
+  Inspected **docs/screenshots/effect-reorder-content.png** (HSL moved above Contrast/Highpass,
+  updated stage previews and HSL Properties), **effect-reorder-mask.png** (Fill moved above
+  Blur/Levels/Generator, regenerated resolved mask). Fixtures execute the same DropEffect
+  controller before saving. Native captures verify post-drop appearance, not physical dragging.
+  Gestures/insertion-line/cancellation were verified by headless UI input tests. No desktop
+  mouse driven; native mouse/tablet gestures, native mid-drag marker, browser/DPI, production
+  assets and full 4K GPU/render/upload frame pacing NOT verified by hand.
+* 4K CPU profile: **--profile-reorder**, two crate sets, 18 stage/layer/mask previews, eight
+  rounds of effect drops: request/poll p50 **0.074 / p95 0.133 / max 0.166 ms**, final settlement
+  **422.2 ms**, 27 frames, cache 18 entries. Single optimized-dev/mimalloc run. Report
+  **docs/performance/2026-10-20-effect-reorder-4k.txt**; excludes full composite, GPU, rendering
+  and uploads. This does not establish desktop FPS or complete stroke frame pacing.
+* Current build **target/debug/subcraft.exe**; guide, roadmaps and handoff updated. No partial
+  drag implementation remains. Cross-layer/domain transfer is outside this reorder scope.
+  Bevel Smooth/Height Adjust, GPU parity, references/lower-normal generators and emission
+  remain pending. Owner-rejected Edge Wear unresolved; kernels untouched. No push/release;
+  unrelated/protected files retained.
+
 ## Next steps (in order)
 
 1. Owner gives PROMPT-claude-edge-wear.md to Claude; wear remains unresolved. Preserve and
    coordinate shared filter files before concurrent edits. Owner checks + Add → Filter in the
    current executable; local filters/folder adjustments are implemented, not Painter parity.
-2. Add effect-row drag reorder, preserving independent content/mask selection and the new
-   stage preview semantics. Then Bevel Smooth/Height Adjust and measured GPU parity;
-   preserve exact synchronous export.
+2. Add Bevel Smooth/Height Adjust on the completed filter stages, preserving independent
+   content/mask selection, reorder and stage previews. Then measured GPU parity; preserve
+   exact synchronous export.
 3. Profile the complete 4K upload/render path and worker convergence under controlled load;
    resume distance/Dirt/lower-normal inputs/Disable Micro Effects, references and emission per
    the material/layer roadmaps. Large brush phases remain pending.

@@ -61,6 +61,8 @@ Owner's requested scope. `[x]` implemented and tested; `[~]` partial (remaining 
   and Inner/Outer/Both borders (ADR-0032). Height supports recessed signed relief.
 - [x] Per-effect stage thumbnails for content/masks/folder adjustments, bounded background
   evaluation, independent selection and shared Layers preview sizing (ADR-0033).
+- [x] Effect drag reorder within each layer/domain: insertion marker, edge scroll, Escape,
+  moved-effect selection and one undo entry (ADR-0034).
 - [ ] Render-owned GPU parity, references and full 4K desktop frame profiling (layer roadmap).
 
 ## Channels

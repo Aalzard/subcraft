@@ -6,6 +6,9 @@ What changed in SubCraft, newest first. Download the latest build from the
 ## Unreleased
 
 ### UI
+- Drag effect names/rows/preview squares to reorder within their content or mask stack. Amber
+  insertion guides, edge scrolling and Escape cancellation; the moved effect stays selected
+  and each drop is one undo step. Existing layer/shelf dragging is preserved.
 - Effect rows show live stage thumbnails: compare the result through each Paint, Fill, Generator,
   Levels or Filter, click a square to edit, and resize with the existing Layers Preview size
   control. Passthrough folder previews now include the correct lower-stack input.

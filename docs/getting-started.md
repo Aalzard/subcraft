@@ -313,6 +313,11 @@ layer's own painting or fill, so you can hide, reorder or delete them at any tim
 * Drag **Preview size** beneath Layers to resize layer, mask and effect squares together.
   Effects stay smaller so the stack remains compact. Hidden effects have a diagonal mark and
   show the bypassed result. Collapsing the stack hides its effect previews.
+* **Drag an effect name, row or preview square** to reorder it. Drop on the upper/lower half
+  of another row to place it above/below; an amber line shows the destination. Hold near the
+  list edge to scroll. **Esc** cancels; releasing outside a valid effect row keeps the order.
+  Effects reorder within their current layer and content/mask stack. The moved effect stays
+  selected in Properties, and one Undo restores the entire move.
 * The **eye** on a row hides the effect. **Right-click** a row to move it up or down,
   duplicate or delete it. Every change is one undo step; selecting is not.
 * While a **Paint** effect is selected, the brush paints into that effect only — this also
@@ -326,7 +331,7 @@ Folders support Filter/Levels adjustments on their children or the lower stack i
 mode. Their effect previews include the correct lower input and exclude later siblings.
 Previews update in the background after painting or parameter changes; very fine marks can
 disappear at thumbnail resolution. They are regenerated when you reopen a project.
-Compare Mask, anchors, drag reorder and further filter operations remain planned; see
+Compare Mask, anchors and further filter operations remain planned; see
 **layer-system-roadmap.md**. Current projects use format 12; older projects still open.
 
 Click the **grid icon** beside the material/view controls to show or hide the subtle 3D floor

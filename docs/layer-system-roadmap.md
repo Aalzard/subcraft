@@ -35,8 +35,9 @@ audit and official Adobe workflow references: ADR-0016. Completion below is upda
 - [~] Selected layer shows its selected domain's effects beneath its row. No per-layer
   expand/collapse for unselected layers yet.
 - [x] Reorder/duplicate/delete/visibility for both stacks from the nested rows (context menu).
-- [~] Disable, rename (Properties), duplicate, delete, per-channel blend/opacity done; drag
-  reorder of effect rows not yet (context-menu Move up/down instead).
+- [x] Disable, rename (Properties), duplicate, delete, per-channel blend/opacity and drag
+  reorder within each content/mask stack, with insertion line, cancellation and edge scroll
+  (ADR-0034). Context-menu Move up/down remains available.
 - [x] Effect-specific Properties for content and mask effects, independent of the layer material.
 - [x] Layer/mask and per-effect stage thumbnails update live. Content/mask prefixes, target-channel
   encoding, folder context, background bounded cache, selectable squares and shared preview sizing
@@ -82,9 +83,9 @@ audit and official Adobe workflow references: ADR-0016. Completion below is upda
 - [x] Desktop background compositing: exact convergence, latest edit wins, synchronous export,
   sparse GPU uploads and native 4K demo generator/pattern-scale profiling (ADR-0018). Complex
   production-model stroke profiling remains the separate gate above.
-- [~] Guide, ADRs and handoff updated through session 89; maintain for each future slice.
+- [~] Guide, ADRs and handoff updated through session 90; maintain for each future slice.
 
-Next complete slices: effect drag reorder, render-owned GPU parity and full
+Next complete slices: Bevel Smooth/Height Adjust, render-owned GPU parity and full
 desktop profiling; the six neighborhood filters have CPU stage/halo goldens and native evidence.
-Finish drag reorder and native save/reopen checks alongside these slices. Compare Mask
+Continue native gesture/save/reopen checks alongside these slices. Compare Mask
 and anchors follow the stage graph. General filters are not part of the 0.1.7 release.
