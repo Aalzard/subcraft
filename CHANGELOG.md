@@ -18,6 +18,11 @@ What changed in SubCraft, newest first. Download the latest build from the
   column. Compact nested effects have connecting lines and collapsible domain headers.
 
 ### New
+- Non-destructive Contrast, HSL, Threshold and Clamp content filters; Contrast/Threshold/Clamp
+  on masks. Select an effect for its own parameters, channel and blending. Filters preserve
+  paint coverage, support undo and save in projects/Smart Materials/Masks (schema 9).
+- Folder Filter/Levels adjustments: process children in Normal mode or the lower accumulation
+  in Passthrough mode, limited by the folder mask and opacity.
 - Natural Edge Wear: Spread and Variation controls grow irregular wear from connected convex
   edges, including at Breakup 0. Spread is independent of Level. Existing masks can opt in through
   Natural edge wear; new Edges generators enable it by default. Schema 8 preserves legacy
@@ -37,7 +42,7 @@ What changed in SubCraft, newest first. Download the latest build from the
   Nearest preserves imported pixel art through projection, painting, working-size
   changes, preview and exported maps. The choice is undoable and saved per texture set.
 - Older projects open with Bilinear. Current saves require this build or a newer reader
-  supporting schema 8.
+  supporting schema 9.
 
 ### Fixed
 - Baked convex corners beside separate parts no longer lose wear when Natural edge wear is

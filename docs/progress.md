@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-10-19 (session 84: baked corners with Natural off and independent Spread)
+Last updated: 2026-10-19 (session 85: local filters and folder adjustments; wear handed off)
 
 ## Decisions
 
@@ -2123,15 +2123,64 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   files retained. Distance approximation, baked-only spread, Dirt and lower-normal inputs
   remain partial as recorded in ADR-0027/material-workflow-roadmap.md.
 
+### Session 85 — Local filters, adjustment folders and Claude wear handoff (2026-10-19)
+
+* **Owner steering:** owner still rejects Edge Wear after session 84. Marked its overall
+  result unresolved in the material roadmap; prior passing fixtures are not owner acceptance.
+  Wrote **docs/PROMPT-claude-edge-wear.md** for Claude to reproduce the actual defect, inspect
+  the running executable and investigate bake/generator/preview paths. No more wear kernel
+  changes this session. Owner requested the next app milestone; started non-destructive filters.
+* **Local filters:** typed `doc::Filter` and deterministic `materials::filter` kernels for
+  Contrast (gain/pivot), true perceptual HSL (hue/saturation/lightness), Threshold and Clamp.
+  Content filters select one supported channel and preserve paint coverage. Mask filters
+  transform the previous grayscale stage; HSL is excluded from masks/data, all four exclude
+  Normal vectors. Invalid parameters/domains reject atomically. Existing visibility, order,
+  duplicate/delete, blend/opacity, history, previews and worker evaluation are reused.
+* **Folder adjustments:** folders accept Levels/Filter adjustments. Isolated folders adjust
+  children before their own mask/blend/opacity; passthrough folders adjust the running lower
+  accumulation. Empty passthrough folders work as adjustment groups. Source Paint/Fill effects
+  remain rejected on folders. Shared UI controls live in panels/filter.rs; widgets dispatch
+  existing app commands. Filter menus appear beneath either content or mask rows.
+* **Persistence/architecture:** schema **9**, explicit filter variants; identity migration of
+  prior stacks, schema 5–8 and earlier fixture coverage; project and Smart Material round trips
+  include both domains. Smart Masks use the same mask schema. HSL returns encoded-space edits
+  to linear storage; signed Height contrast stays signed. Halo 0 only: neighborhood/GPU graph,
+  Blur/Sharpen, references and anchors remain pending. See ADR-0029 and Adobe reference there.
+* Files/crates: doc filter/effect/mask model, materials kernels, compositor tile/mask stages,
+  app validation and filter acceptance/example, project schema/loader/writer/acceptance,
+  UI filter controls/effect menus/Properties/tests and desktop --effect-panel capture option.
+* **482 workspace tests pass, 0 failed/ignored** (**12 added**), Clippy workspace/all-targets
+  exits 0 with existing warnings. CARGO_INCREMENTAL=0, dev debug=line-tables-only, -j 1.
+  Goldens cover HSL vs HSV lightness, linear/color-data rules, signed Height, gradient output
+  and alpha across tiles, mask order/opacity/disable, isolated/passthrough groups, local dirty
+  tiles through filter chains, invalid edits, duplicate/remove/undo, latest worker output,
+  exact reopen and export draining a pending color-filter edit. UI tests verify each inspector
+  and the real mask filter picker. Test-helper resolution/ZIP typing and egui texture-delta
+  cleanup/popup layout errors were repaired; no test disabled to pass the suite.
+* **Native app verified** on both texture sets of the real crate at 512 via isolated-data CLI
+  captures (all exit 0), inspected for output, selected effect controls, nested rows/thumbnails:
+  **docs/screenshots/filter-hsl.png**, **filter-contrast.png**, **filter-clamp.png**,
+  **filter-threshold.png** (mask) and **filter-folder.png** (passthrough adjustment).
+  Updated executable: **target/debug/subcraft.exe**. No physical mouse was driven. Manual
+  slider drags/tablet, browser/DPI, production imported models and real 4K GPU frame pacing
+  were not hand-verified. Nonidentity HSL clamps HDR input to its display-referred range.
+* **4K CPU profile**, both sets with procedural color + HSL: cold composite **1470.0 ms**;
+  edit/poll **p50 0.332 / p95 0.711 / max 3.675 ms**, settle **1003.1 ms from first edit**,
+  58 frames. Report: **docs/performance/2026-10-19-local-filters-4k.txt**. GPU/upload/render
+  and long strokes excluded; this different workload is not a wear performance comparison.
+  Implementation **1a84d31**; no push/release. Protected and unrelated artwork/dependency files
+  retained. Getting-started and full roadmaps updated; all remaining large milestones retained.
+
 ## Next steps (in order)
 
-1. Owner restarts target/debug/subcraft.exe and rebakes Curvature on the saved crate, then
-   checks Natural off and Level 0.065/Spread 12.5% in Natural mode. Old stored maps are retained.
-2. Extend distance sources to baked-only detail/Dirt, improve curved-surface propagation, and
-   profile the complete 4K desktop upload/render path on production meshes. Investigate the
-   variable worker convergence above with a controlled comparison before claiming speed gains.
-3. Add strict lower-layer normal dependencies/Disable Micro Effects, then neighborhood filters
-   and the remaining effect-stack work. Keep later brush/emission milestones explicitly pending.
+1. Owner gives PROMPT-claude-edge-wear.md to Claude; wear remains unresolved. Preserve and
+   coordinate shared filter files before concurrent edits. Owner checks + Add → Filter in the
+   current executable; local filters/folder adjustments are implemented, not Painter parity.
+2. Add explicit previous-stage tile neighborhoods, halo/dirty/cache propagation, then complete
+   Blur/Sharpen with numeric seams/boundaries and native evidence. Keep synchronous export exact.
+3. Profile the complete 4K upload/render path and worker convergence under controlled load;
+   resume distance/Dirt/lower-normal inputs/Disable Micro Effects, references and emission per
+   the material/layer roadmaps. Large brush phases remain pending.
 
 Start the requested separate Dead Man texturing task after the panel fixes are checked.
 Major disk cleanup remains blocked by automatic approval review; source and current build

@@ -24,6 +24,10 @@ Session 84 fixes baked contact cancellation even with Natural disabled, and sepa
 from Level (including 0.065/12.5%). This corrects those generator defects; no additional brush
 phase is complete. Stored Curvature maps need rebaking. See ADR-0028.
 
+Session 85: owner still rejects Edge Wear; see the Claude prompt and material-workflow roadmap.
+Local non-destructive filters/folder adjustments advance the layer roadmap (ADR-0029).
+The ordered brush-phase checklist below remains unchanged.
+
 Session 73 acceptance artwork: CORE-07 is a saved 4K cube with real high-to-low bakes, editable
 materials/masks/generators and a native screenshot. Its creation/reopen/export checks do not
 replace the pending interactive stroke/frame-pacing checks or complete additional brush phases.

@@ -18,13 +18,16 @@ Owner's requested scope. `[x]` implemented and tested; `[~]` partial (remaining 
 
 ## Generators
 
-- [x] Correct baked curvature at exact hard corners and clamped UV-border vertices so
+- [~] Correct baked curvature at exact hard corners and clamped UV-border vertices so
   high-threshold Edges masks stay connected. Numeric tests cover every cube corner/face,
   three subdivisions, concavity/scale and save/reopen. Native screenshot in session 82.
   Existing stored curvature must be rebaked for that correction. This isolated-cube fix alone
   did not alone solve the default crate's contact-curvature gaps. Session 84 additionally
   prioritizes intrinsic connected-surface curvature over other components' contact curvature;
   rebaking fixes those gaps even with Natural disabled. Flat contact curvature is retained.
+  Owner rejected the session 84 result as still unsatisfactory: overall Edge Wear remains
+  unresolved. Claude handoff: PROMPT-claude-edge-wear.md. Prior test results are historical
+  evidence, not owner acceptance or proof that the remaining visual problem is fixed.
 - [x] Pattern Size, Reduce Repetition, Breakup starting at 0.3 and Random Seed/Next.
   Existing saved recipes retain legacy noise (schema 7 migration; ADR-0022).
 - [~] Natural Edge Wear adds Spread/Variation; Spread controls reach independently of Level without revealing
@@ -42,6 +45,15 @@ Owner's requested scope. `[x]` implemented and tested; `[~]` partial (remaining 
   including reorder/undo changes, without anchors. Disable Micro Effects bypasses those details.
 - [ ] Numeric acceptance across UV seams/tile boundaries, thin/curved meshes, nested groups;
   dirty dependency/halo handling and complete synchronous export/save convergence.
+
+## Local effects (owner's next milestone, session 85)
+
+- [x] Content Contrast/HSL/Threshold/Clamp and mask Contrast/Threshold/Clamp with dedicated
+  Properties, existing nested rows, blend/opacity/order/visibility/undo and evaluated previews.
+- [x] Folder local Filter/Levels adjustments: isolated children or passthrough lower stack,
+  limited by the folder mask/opacity. Project/Smart Material/Mask schema 9; older stacks migrate.
+- [~] Point kernels and local dirty tracking complete. Neighborhood graph/halos, Blur/Sharpen,
+  GPU parity, references and full 4K desktop frame profiling remain pending (layer roadmap).
 
 ## Channels
 

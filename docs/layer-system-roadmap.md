@@ -24,9 +24,11 @@ audit and official Adobe workflow references: ADR-0016. Completion below is upda
   explicit (adjustments keep coverage); references still to come.
 - [x] Typed effect selection (`SelectEffect`, transient) and stroke routing into selected content
   and mask Paint effects (one undo per stroke, base untouched, per-tile dirty diffing).
-- [~] Paint and fill layers have content stacks; folders rejected until the stage graph exists.
-  Levels rejected on Normal.
-- [~] Levels on content; Generator/Levels/Invert on masks. Filter/Compare Mask/Anchor Point not yet.
+- [~] Paint/fill content stacks; folders now accept local Filter/Levels adjustments (isolated
+  children or passthrough lower accumulation). Folder Paint/Fill sources remain rejected.
+  Levels/these local filters reject Normal; HSL accepts color only.
+- [~] Local Filters and Levels on content; Generator/Levels/Invert/local Filters on masks.
+  Compare Mask/Anchor Point and neighborhood operations remain pending.
 
 ## 3. Nested hierarchy and editing
 
@@ -41,12 +43,14 @@ audit and official Adobe workflow references: ADR-0016. Completion below is upda
 
 ## 4. Filter evaluator and operations
 
-- [ ] Tile-stage graph, neighborhood halos, cache/dirty propagation and CPU reference kernels.
+- [~] Local previous-stage CPU kernels, halo 0, shared dirty tracking. General tile-stage graph
+  and neighborhood halos remain pending (ADR-0029).
 - [ ] Render-owned GPU backend with measured parity and bounded upload/publication work.
 - [ ] Blur, Directional Blur, Sharpen, Highpass.
-- [ ] Levels, Contrast, HSL, Color Balance, Invert on supported content channels/masks.
+- [~] Levels, Contrast and HSL on supported content; Levels/Contrast and existing Invert on
+  masks. Color Balance and content Invert remain pending.
 - [ ] Bevel, Bevel Smooth, Mask Outline, Height Adjust.
-- [ ] Histogram Scan/Shift, Threshold, Clamp.
+- [~] Threshold/Clamp on content and masks; Histogram Scan/Shift remain pending.
 - [ ] Warp, Gradients and an extensible parameter/kernel registry.
 - [ ] Normal renormalization, raw data versus linear-color semantics, alpha and UV boundary policy.
 
@@ -71,7 +75,7 @@ audit and official Adobe workflow references: ADR-0016. Completion below is upda
   production-model stroke profiling remains the separate gate above.
 - [ ] Getting-started instructions, ADR decisions and a short handoff after each session.
 
-Next complete slices: neighborhood/stage contracts for filters and folder content effects;
-then local adjustments and blur/sharpen with CPU goldens and GPU parity. Finish per-effect
+Next complete slices: neighborhood/stage contracts for blur/sharpen with CPU goldens and GPU
+parity; local adjustments/folder stages now exist. Finish per-effect
 thumbnails, drag reorder and native save/reopen checks alongside these slices. Compare Mask
 and anchors follow the stage graph. General filters are not part of the 0.1.7 release.

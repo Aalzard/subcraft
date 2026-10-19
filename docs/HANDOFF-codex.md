@@ -1,44 +1,43 @@
-# Handoff — corner continuity and independent Spread (2026-10-19)
+# Handoff — local filters and unresolved wear (2026-10-19)
 
-- Branch feature/brush-roadmap; implementation a22eb6f. Final docs commit is HEAD.
-- cargo test --workspace: 470 pass, 0 failed/ignored (2 added, broader existing acceptance).
-  Workspace/all-target Clippy exits 0 with warnings, including one new test-only useless_vec
-  (bake/src/tests.rs bounds buffer; can use an array). Incremental=0, debug=line-tables-only, -j 1.
-- Done: bake::curvature_on_surface prefers intrinsic connected-component/object curvature,
-  retains flat contact concavity and uses projected high-poly triangle identity.
-- Done: across-crease directions for every neighbor; centroid fallback for near-zero projected
-  float error. Native inspection exposed extra edge breaks, now covered across all Body/Trim rims.
-- Done: Spread independent of Level; numeric 0.065/12.5% acceptance and unchanged far flat faces.
-  Level selects baked convex detail; UI tooltip/three decimals and fixture CLI updated.
-- Done: Natural off/on crate output, exposed high-poly corners, absent object metadata,
-  concavity/scale, undo/reopen/worker convergence. No serialized fields changed (schema 8).
+- Branch feature/brush-roadmap; implementation **1a84d31**. Final docs commit is HEAD.
+- cargo test --workspace: **482 pass, 0 failed/ignored** (12 added). Workspace/all-target Clippy
+  exits 0 with existing warnings. Incremental=0, dev debug=line-tables-only, -j 1. No push/release.
+- Owner STILL rejects wear after a22eb6f/4f6d8ea. Treat it as unresolved; do not cite those tests
+  as owner acceptance. Claude prompt: docs/PROMPT-claude-edge-wear.md. No wear kernel edits here.
+- Done: Contrast/HSL/Threshold/Clamp content effects, Contrast/Threshold/Clamp on masks,
+  dedicated inspector/menu, per-channel semantics, preserved paint alpha and original sources.
+- Done: folder Filter/Levels adjustments over isolated children or passthrough lower accumulation,
+  before folder mask/opacity. Folder Paint/Fill source effects remain rejected.
+- Done: schema 9, explicit variants, identity migration, project/Smart Material round trips,
+  invalid input rejection; masks share the Smart Mask schema. See ADR-0029.
+- Done: numeric HSL/lightness/data/signed-height/gradient goldens, order/opacity/alpha/folder
+  output, incremental tiles through filters, undo/reopen/latest-worker/export convergence, UI.
 
-App: E:/Applications/ArtCraft/SubCraft/target/debug/subcraft.exe (rebuilt and native-tested).
-Restart this build and rebake Curvature for old projects. Natural masks at Level other than
-0.5 intentionally change width; authored settings and stored bakes are retained (ADR-0028).
-Final inspected captures (both native exit 0, baked 512, Breakup 0):
-- docs/screenshots/edge-wear-baked-natural-off.png: Natural off, Level 0.85, continuous edges.
-- docs/screenshots/edge-wear-low-level-wide.png: Level 0.065, Spread 12.5%, Variation 0.85.
-No physical mouse driven. Manual slider/tablet and production imported high-poly models not
-hand-verified; a projected ray can legitimately hit another covering part of the low mesh.
+Updated app: E:/Applications/ArtCraft/SubCraft/target/debug/subcraft.exe. Use + Add → Filter
+under the selected content/mask. For a stack adjustment add an empty passthrough folder.
+Native CLI captures (512, both actual crate sets, all exit 0, inspected): docs/screenshots/
+filter-hsl.png, filter-contrast.png, filter-clamp.png, filter-threshold.png, filter-folder.png.
+Developer fixture/profile: crates/app/examples/filters.rs; CLI --effect-panel selects last effect.
+No physical mouse driven. Manual slider/tablet, production assets, browser/DPI and 4K GPU
+frame pacing were NOT hand-verified. Nonidentity HSL is display-referred and clamps HDR input.
+4K CPU report: docs/performance/2026-10-19-local-filters-4k.txt. Cold 1470 ms; poll p95 0.711,
+max 3.675 ms; first-edit-to-settle 1003.1 ms, 58 frames. GPU/upload/render/strokes excluded.
+This different workload cannot establish wear speedups; its earlier convergence issue remains.
 
-4K CPU runs retained: docs/performance/2026-10-19-independent-spread-4k.txt. Cold 2550/2607.5 ms,
-poll p95 0.811/0.821 ms, max 1.676/1.342 ms, convergence 1636.5/1986.3 ms. Slower convergence
-than session 83's 708.3 ms needs a controlled follow-up; no speedup/GPU/frame-pacing claim.
-No known failing/skipped tests. No push/release. Previous latest/subcraft.exe remains old.
-
-Partial stops: materials/sample/edge_distance.rs::SurfaceEdges::distance is exact on convex
-planar patches, conservative vertex paths elsewhere. compositor/mask.rs::eval_edge_spread
-retains baked detail but does not propagate baked-only/painted-normal distance. Dirt spread,
-strict lower-layer normals/Disable Micro Effects, filters and emission effects remain pending.
-Keep intrinsic-vs-contact fallback, true-distance proximity and independent Spread semantics.
-Open question: preferred reach/intensity controls when extending to baked-only/normal sources.
+Partial stops: materials/filter.rs has local kernels only (previous stage, same texel, halo 0).
+compositor/tile.rs::apply_content_effects applies adjustments; no cross-tile stage graph exists.
+Do not fake Blur/Sharpen inside each 64px tile. Render-owned GPU filter processing, references,
+anchors, effect thumbnails/drag reorder, Dirt/strict lower normals/micro toggles and emission
+remain pending. Preserve alpha, raw data/color rules, folder stages and exact sync export.
+Open question for owner: approve current filter controls before expanding the filter library.
 
 Unrelated changes retained: Cargo.lock, crates/ui/Cargo.toml, crates/ui/examples, artworks/Dead-Man.
-Protected zips/output/generate_textures.py/__pycache__ untouched. Prior recursive cache cleanup
-was rejected by approval review; do not bypass through another delete route.
+Protected zips/output/generate_textures.py/__pycache__ untouched. Prior cache deletion was
+rejected by approval review; do not bypass via another command. Coordinate shared files if
+Claude starts wear work in this checkout; never overwrite or stage another developer's edits.
 
 Next 3 steps:
-1. Owner checks the saved crate after rebaking, Natural off, then 0.065/12.5% Natural wear.
-2. Investigate worker convergence under controlled load and profile full 4K upload/render.
-3. Extend shared distance/stage sources to baked detail/Dirt, then strict lower-layer normals.
+1. Claude reproduces unresolved wear from the prompt; owner checks local filters in updated app.
+2. Add previous-stage tile neighborhoods/halos and complete Blur/Sharpen, numeric + native.
+3. Profile full 4K desktop frame pacing/worker convergence; continue normal-aware Dirt/references.

@@ -225,6 +225,27 @@ of scale. These controls are shared by the supported texture projections.
 
 ### Content and mask effects
 
+**Filters:** click a layer's content square, then **+ Add → Filter** beneath its row. Choose
+**Contrast**, **HSL**, **Threshold** or **Clamp**. The filter appears as an editable effect;
+select it to change its channel and parameters in Properties. Contrast 1 is neutral; Pivot
+sets its center. HSL changes hue in degrees, saturation (1 is neutral) and lightness (0 is
+neutral). Threshold creates black/white from luminance or a scalar channel. Clamp limits
+values between Minimum and Maximum without rescaling them. Normal vectors are excluded.
+
+For masks, click the grayscale square and use **+ Add → Filter**. Contrast, Threshold and
+Clamp process the mask below them; HSL is available on color content only. Eye, blend,
+opacity, Move up/down, Duplicate and Delete retain their existing behavior. Order matters:
+a Threshold after a generator changes its result; one below it changes an earlier stage.
+Original paint stays intact, and Undo restores the previous settings.
+
+For an adjustment affecting the stack beneath it, create a **Folder**, leave its channel
+blend at **Passthrough**, and add a content Filter or Levels effect. An empty passthrough
+folder works as an adjustment group; its mask and opacity limit the adjustment. Set the
+folder's channel blend to **Normal** to filter only its children's combined content.
+Folders currently accept adjustment effects; paint/fill source effects belong on their layers.
+Projects and Smart Materials/Masks save filters using schema 9; older projects still open.
+Blur, Sharpen and other neighborhood filters remain planned.
+
 Every paint or fill layer has two separate effect stacks: one on its **content** and one on its
 **mask**. Select a layer and its stack appears right under its row. Which stack you see follows
 the thumbnail you clicked: the content square shows **Content effects**, the mask square shows
