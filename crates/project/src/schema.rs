@@ -22,7 +22,8 @@ use uuid::Uuid;
 // 8: geometry-aware edge spread/variation; absent in schemas 1–7 retains legacy evaluation.
 // 9: local filter effects and folder adjustments. Schemas 1–8 retain their original stacks.
 // 10: neighborhood Blur/Sharpen filters; schemas 1–9 migrate unchanged.
-pub const SCHEMA_VERSION: u32 = 10;
+// 11: Directional Blur and Highpass; schemas 1-10 retain their previous stacks.
+pub const SCHEMA_VERSION: u32 = 11;
 pub const FORMAT_NAME: &str = "subcraft-project";
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

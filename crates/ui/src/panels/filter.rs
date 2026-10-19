@@ -30,7 +30,7 @@ pub fn editor(ui: &mut Ui, filter: &mut Filter, channel: Option<ChannelKind>) ->
         Filter::Threshold { cutoff } => {
             changed |= slider_row(ui, "Cutoff", egui::Slider::new(cutoff, lower..=1.0)).changed();
         }
-        Filter::Blur { radius } | Filter::Sharpen { radius, .. } => {
+        Filter::Blur { radius } | Filter::Sharpen { radius, .. } | Filter::DirectionalBlur {radius,..} | Filter::Highpass {radius,..} => {
             changed |= slider_row(ui, "Radius", egui::Slider::new(radius, 0.0..=32.0).suffix(" px")).changed();
         }
         Filter::Clamp { low, high } => {
@@ -39,10 +39,15 @@ pub fn editor(ui: &mut Ui, filter: &mut Filter, channel: Option<ChannelKind>) ->
             changed |= slider_row(ui, "Maximum", egui::Slider::new(high, *low..=upper)).changed();
         }
     }
-    if let Filter::Sharpen { amount, .. } = filter {
+    if let Filter::Sharpen { amount, .. } | Filter::Highpass {amount,..} = filter {
         changed |= slider_row(ui, "Amount", egui::Slider::new(amount, 0.0..=4.0)).changed();
     }
+    if let Filter::DirectionalBlur {angle_deg,..}=filter {
+        changed |= slider_row(ui, "Angle", egui::Slider::new(angle_deg, -180.0..=180.0).suffix("\u{00b0}")).changed();
+        ui.weak("0 degrees horizontal / 90 vertical");
+    }
+    if matches!(filter,Filter::Highpass {..}) {ui.weak(if channel.is_some_and(|c|c.is_signed()) {"Detail only / neutral Height = 0"} else {"Detail only / neutral = 0.5"});}
     if filter.radius().is_some() { ui.weak("UV pixels · texture edges clamp"); }
-    if matches!(filter, Filter::Blur { .. }) && channel.is_some() { ui.weak("Blur also softens paint coverage."); }
+    if filter.softens_coverage() && channel.is_some() { ui.weak("Blur also softens paint coverage."); }
     changed
 }

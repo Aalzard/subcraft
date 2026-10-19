@@ -14,16 +14,16 @@ fn fixture(size:u32,choice:&str)->Result<Session,String> {
         s.execute(Command::AddLayer(NewLayer::Fill)).map_err(|e|format!("{e:?}"))?;
         let layer=s.selection().layer.unwrap();
         s.execute(Command::Rename {layer,name:"Filter study".into()}).map_err(|e|format!("{e:?}"))?;
-        let source=FillSource::Procedural {params:ProceduralParams {scale:if matches!(choice,"blur"|"sharpen"){24.0}else{5.0},..ProceduralParams::new(ProceduralKind::Clouds)},
+        let source=FillSource::Procedural {params:ProceduralParams {scale:if matches!(choice,"blur"|"sharpen"|"directional"|"highpass"|"mask-directional"|"mask-highpass"){24.0}else{5.0},..ProceduralParams::new(ProceduralKind::Clouds)},
             low:ChannelValue::rgb(0.03,0.005,0.001),high:ChannelValue::rgb(0.9,0.3,0.03)};
         s.execute(Command::SetFillChannel {layer,channel:C::BaseColor,fill:FillChannel::new(source)}).map_err(|e|format!("{e:?}"))?;
-        if choice=="threshold" || choice=="mask-blur" {
+        if choice=="threshold" || choice.starts_with("mask-") {
             s.execute(Command::AddMask {layer,white:false}).map_err(|e|format!("{e:?}"))?;
             s.execute(Command::AddMaskEffect {layer,kind:MaskEffectKind::Fill {value:1.0,
-                procedural:Some(ProceduralParams {scale:5.0,..ProceduralParams::new(ProceduralKind::Clouds)}),projection:Default::default()}}).map_err(|e|format!("{e:?}"))?;
-            s.execute(Command::AddMaskEffect {layer,kind:MaskEffectKind::Filter(if choice=="mask-blur" {Filter::Blur {radius:16.0}}else{Filter::Threshold {cutoff:0.5}})}).map_err(|e|format!("{e:?}"))?;
+                procedural:Some(ProceduralParams {scale:if matches!(choice,"mask-directional"|"mask-highpass"){24.0}else{5.0},..ProceduralParams::new(ProceduralKind::Clouds)}),projection:Default::default()}}).map_err(|e|format!("{e:?}"))?;
+            s.execute(Command::AddMaskEffect {layer,kind:MaskEffectKind::Filter(match choice {"mask-blur"=>Filter::Blur {radius:16.0},"mask-directional"=>Filter::DirectionalBlur {radius:16.0,angle_deg:35.0},"mask-highpass"=>Filter::Highpass {radius:8.0,amount:2.0},_=>Filter::Threshold {cutoff:0.5}})}).map_err(|e|format!("{e:?}"))?;
         } else if choice!="folder" {
-            let filter=match choice {"blur"=>Filter::Blur {radius:16.0},"sharpen"=>Filter::Sharpen {radius:4.0,amount:2.0},"contrast"=>Filter::Contrast {gain:2.0,pivot:0.3},"clamp"=>Filter::Clamp {low:0.1,high:0.4},
+            let filter=match choice {"directional"=>Filter::DirectionalBlur {radius:16.0,angle_deg:35.0},"highpass"=>Filter::Highpass {radius:8.0,amount:2.0},"blur"=>Filter::Blur {radius:16.0},"sharpen"=>Filter::Sharpen {radius:4.0,amount:2.0},"contrast"=>Filter::Contrast {gain:2.0,pivot:0.3},"clamp"=>Filter::Clamp {low:0.1,high:0.4},
                 _=>Filter::Hsl {hue:120.0,saturation:1.0,lightness:0.0}};
             s.execute(Command::AddContentEffect {layer,kind:ContentEffectKind::Filter {channel:C::BaseColor,filter}}).map_err(|e|format!("{e:?}"))?;
         }
@@ -52,7 +52,7 @@ fn main()->Result<(),String> {
                 for set in set_ids {
                     s.execute(Command::SelectTextureSet(set)).map_err(|e|format!("{e:?}"))?;
                     let layer=s.selection().layer.unwrap();let mut effect=s.selected_layer().unwrap().content_effects[0].as_ref().clone();
-                    effect.kind=ContentEffectKind::Filter {channel:C::BaseColor,filter:match choice {"blur"=>Filter::Blur {radius:4.0+frame as f32},"sharpen"=>Filter::Sharpen {radius:4.0,amount:0.5+frame as f32*0.2},_=>Filter::Hsl {hue:60.0+frame as f32*10.0,saturation:1.0,lightness:0.0}}};
+                    effect.kind=ContentEffectKind::Filter {channel:C::BaseColor,filter:match choice {"directional"=>Filter::DirectionalBlur {radius:8.0+frame as f32,angle_deg:frame as f32*10.0},"highpass"=>Filter::Highpass {radius:4.0+frame as f32,amount:1.0},"blur"=>Filter::Blur {radius:4.0+frame as f32},"sharpen"=>Filter::Sharpen {radius:4.0,amount:0.5+frame as f32*0.2},_=>Filter::Hsl {hue:60.0+frame as f32*10.0,saturation:1.0,lightness:0.0}}};
                     s.execute(Command::SetContentEffect {layer,effect}).map_err(|e|format!("{e:?}"))?;
                 }
             }

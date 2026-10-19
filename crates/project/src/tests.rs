@@ -391,7 +391,7 @@ fn content_effects_roundtrip_exactly_with_schema_5() {
     let mut json = String::new();
     zip.by_name("document.json").unwrap().read_to_string(&mut json).unwrap();
     assert!(json.contains("\"content_effects\"") && json.contains("\"type\": \"levels\""), "{json}");
-    assert_eq!(SCHEMA_VERSION, 10);
+    assert_eq!(SCHEMA_VERSION, 11);
     assert_eq!(read_project(Cursor::new(bytes)).unwrap().document, doc, "effect ids, order, blends, rasters survive");
 }
 
@@ -437,7 +437,7 @@ fn content_effect_kinds_have_stable_json() {
 }
 
 #[test]
-fn schema_10_filters_and_folder_adjustments_roundtrip_and_older_projects_migrate_unchanged() {
+fn schema_11_filters_and_folder_adjustments_roundtrip_and_older_projects_migrate_unchanged() {
     use subcraft_doc::{ContentEffect, ContentEffectKind, Filter};
     let mut ts=TextureSet::new("T",0,128); let tc=ts.clone();
     let mut folder=Layer::new_folder("Filters",&tc);
@@ -453,7 +453,7 @@ fn schema_10_filters_and_folder_adjustments_roundtrip_and_older_projects_migrate
     assert_eq!(serde_json::to_string(&ContentEffectKindV5::Filter {channel:ChannelKind::BaseColor,filter:Filter::Threshold {cutoff:0.4}}).unwrap(),
         r#"{"type":"filter","channel":"base_color","filter":{"kind":"threshold","cutoff":0.4}}"#);
     let old=effect_document(); let bytes=save(&old);
-    for schema in 5..=9 {
+    for schema in 5..=10 {
         let migrated=with_manifest(bytes.clone(),|m|m.replace(&format!("\"schema_version\": {SCHEMA_VERSION}"),&format!("\"schema_version\": {schema}")));
         assert_eq!(read_project(Cursor::new(migrated)).unwrap().document,old);
     }
@@ -469,7 +469,8 @@ fn loader_rejects_filters_with_invalid_domains_or_parameters() {
     let mesh=primitives::cube(2.0);
     for (channel,filter) in [(ChannelKind::Normal,Filter::Threshold {cutoff:0.5}),
         (ChannelKind::Roughness,Filter::ALL[1]), (ChannelKind::BaseColor,Filter::Blur {radius:33.0}),
-        (ChannelKind::Height,Filter::Sharpen {radius:2.0,amount:-1.0}),(ChannelKind::BaseColor,Filter::Clamp {low:0.8,high:0.2})] {
+        (ChannelKind::Height,Filter::Sharpen {radius:2.0,amount:-1.0}),
+        (ChannelKind::BaseColor,Filter::DirectionalBlur {radius:4.0,angle_deg:181.0}), (ChannelKind::Height,Filter::Highpass {radius:4.0,amount:5.0}),(ChannelKind::BaseColor,Filter::Clamp {low:0.8,high:0.2})] {
         let mut ts=TextureSet::new("T",0,128); let mut layer=Layer::new_fill("F",&ts);
         layer.content_effects.push(Arc::new(ContentEffect::new(ContentEffectKind::Filter {channel,filter},&ts)));
         ts.insert_above(None,layer); let doc=Document {texture_sets:vec![ts]};
@@ -484,9 +485,26 @@ fn loader_rejects_filters_with_invalid_domains_or_parameters() {
 }
 
 #[test]
-fn neighborhood_filters_have_stable_schema_10_json() {
+fn neighborhood_filters_have_stable_schema_11_json() {
     use subcraft_doc::Filter;
-    assert_eq!(SCHEMA_VERSION,10);
+    assert_eq!(SCHEMA_VERSION,11);
     assert_eq!(serde_json::to_string(&Filter::Blur {radius:4.0}).unwrap(),r#"{"kind":"blur","radius":4.0}"#);
     assert_eq!(serde_json::to_string(&Filter::Sharpen {radius:2.0,amount:1.5}).unwrap(),r#"{"kind":"sharpen","radius":2.0,"amount":1.5}"#);
+}
+
+#[test]
+fn schema_10_neighborhood_stacks_migrate_and_new_filters_have_stable_json() {
+    use subcraft_doc::{ContentEffect,ContentEffectKind,Filter};
+    let mut ts=TextureSet::new("Legacy filters",0,128);let mut l=Layer::new_fill("F",&ts);
+    let mut mask=Mask::new(128,true);
+    for f in [Filter::Blur {radius:8.0},Filter::Sharpen {radius:3.0,amount:0.5}] {
+        l.content_effects.push(Arc::new(ContentEffect::new(ContentEffectKind::Filter {channel:ChannelKind::BaseColor,filter:f},&ts)));
+        mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Filter(f))));
+    }
+    l.mask=Some(mask);ts.insert_above(None,l);let doc=Document {texture_sets:vec![ts]};
+    let bytes=write_project(Cursor::new(Vec::new()),&primitives::cube(2.0),&doc,&ResourceStore::default(),&MeshMapSet::new()).unwrap().into_inner();
+    let old=with_manifest(bytes,|s|s.replace(&format!("\"schema_version\": {SCHEMA_VERSION}"),"\"schema_version\": 10"));
+    assert_eq!(read_project(Cursor::new(old)).unwrap().document,doc);
+    assert_eq!(serde_json::to_string(&Filter::DirectionalBlur {radius:8.0,angle_deg:45.0}).unwrap(),r#"{"kind":"directional_blur","radius":8.0,"angle_deg":45.0}"#);
+    assert_eq!(serde_json::to_string(&Filter::Highpass {radius:4.0,amount:1.5}).unwrap(),r#"{"kind":"highpass","radius":4.0,"amount":1.5}"#);
 }

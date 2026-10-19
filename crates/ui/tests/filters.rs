@@ -18,7 +18,7 @@ fn selected_content_and_mask_filters_show_their_own_controls() {
     session.execute(Command::AddLayer(NewLayer::Fill)).unwrap(); let layer=session.selection().layer.unwrap();
     let mut state=UiState::new(session,None);let ctx=egui::Context::default();theme::apply(&ctx);
     for (filter,expected) in [(Filter::ALL[0],vec!["Contrast","Pivot"]),(Filter::ALL[1],vec!["Hue","Saturation","Lightness"]),
-        (Filter::ALL[2],vec!["Cutoff"]),(Filter::ALL[3],vec!["Minimum","Maximum"]),(Filter::ALL[4],vec!["Radius"]),(Filter::ALL[5],vec!["Radius","Amount"])] {
+        (Filter::ALL[2],vec!["Cutoff"]),(Filter::ALL[3],vec!["Minimum","Maximum"]),(Filter::ALL[4],vec!["Radius"]),(Filter::ALL[5],vec!["Radius","Amount"]),(Filter::ALL[6],vec!["Radius","Angle"]),(Filter::ALL[7],vec!["Radius","Amount"])] {
         state.session.execute(Command::AddContentEffect {layer,kind:ContentEffectKind::Filter {channel:ChannelKind::BaseColor,filter}}).unwrap();
         let mut out=ctx.run_ui(egui::RawInput {screen_rect:Some(Rect::from_min_size(Pos2::ZERO,egui::vec2(480.0,1200.0))),..Default::default()},
             |ui| { assert!(effects::properties(&mut state,ui)); });
@@ -45,5 +45,14 @@ fn mask_filter_picker_offers_scalar_operations_and_excludes_hsl() {
     let mut release=input.clone();release.events=vec![button(false)];
     frame(&ctx,release,|ui|{filter::editor(ui,&mut chosen,None);});
     let out=frame(&ctx,input,|ui|{filter::editor(ui,&mut chosen,None);});
-    let text=labels(&out);assert!(text.iter().any(|s|s=="Threshold"),"{text:?}");assert!(text.iter().any(|s|s=="Clamp"));assert!(!text.iter().any(|s|s=="HSL"));assert!(text.iter().any(|s|s=="Blur"));assert!(text.iter().any(|s|s=="Sharpen"));
+    let text=labels(&out);assert!(text.iter().any(|s|s=="Threshold"),"{text:?}");assert!(text.iter().any(|s|s=="Clamp"));assert!(!text.iter().any(|s|s=="HSL"));assert!(text.iter().any(|s|s=="Blur"));assert!(text.iter().any(|s|s=="Sharpen"));assert!(text.iter().any(|s|s=="Directional Blur"));assert!(text.iter().any(|s|s=="Highpass"));
+}
+
+#[test]
+fn new_mask_filter_controls_show_angle_or_amount_without_color_controls() {
+    let ctx=egui::Context::default();theme::apply(&ctx);
+    for (mut chosen,expected,absent) in [(Filter::ALL[6],"Angle","Amount"),(Filter::ALL[7],"Amount","Angle")] {
+        let out=frame(&ctx,egui::RawInput::default(),|ui|{filter::editor(ui,&mut chosen,None);});let text=labels(&out);
+        assert!(text.iter().any(|s|s==expected));assert!(text.iter().any(|s|s=="Radius"));assert!(!text.iter().any(|s|s==absent||s=="Hue"));
+    }
 }

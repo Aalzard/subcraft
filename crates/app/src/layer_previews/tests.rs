@@ -304,13 +304,18 @@ fn neighborhood_previews_scale_radius_down_and_up_without_changing_document_data
     let original=s.document().clone();let ts=&s.document().texture_sets[0];
     let source=Source {layer:s.selected_layer().unwrap().clone().into(),resources:s.resources().clone(),maps:MeshMaps::new(),maps_generation:0,
         resolution:128,albedo_filter:ts.albedo_filter,slot:0,geometry:Arc::new(GeometryCache::new(s.scene().mesh.clone()))};
+    for filter in [Filter::Blur {radius:32.0},Filter::DirectionalBlur {radius:32.0,angle_deg:0.0},Filter::Highpass {radius:32.0,amount:1.0}] {
+        let mut source=source.clone();let preview_layer=Arc::make_mut(&mut source.layer);
+        Arc::make_mut(&mut preview_layer.mask.as_mut().unwrap().effects[1]).kind=MaskEffectKind::Filter(filter);
     for size in [64,256] {
         let result=evaluate(PreviewKey {layer,channel:ChannelKind::BaseColor,mask:true,size},&source);
         let radius=32.0*size as f32/128.0;let weights=subcraft_materials::filter::gaussian_weights(radius);
         let x=size/2+(radius/2.0) as u32;let y=size/2;
         let expected:f32=weights.iter().enumerate().filter(|(i,_)|(x as i32+*i as i32-(weights.len()/2) as i32) < (size/2) as i32).map(|(_,w)|*w).sum();
+        let expected=if matches!(filter,Filter::Highpass {..}) {0.5-expected}else{expected};
         let pixel=result.rgba[((y*size+x)*4) as usize] as f32/255.0;
         assert!((pixel-expected).abs()<0.005,"size {size}: {pixel} vs {expected}");assert!(pixel>0.02);
+    }
     }
     assert_eq!(s.document(),&original);
 }

@@ -10,7 +10,7 @@ pub fn apply(filter: Filter, input: [f32; 3], channel: ChannelKind) -> [f32; 3] 
             let v = pivot + (v - pivot) * gain;
             if channel.is_signed() { v } else { v.clamp(0.0, 1.0) }
         }),
-        Filter::Blur { .. } | Filter::Sharpen { .. } => input, // Neighborhood evaluation is staged by compositor.
+        Filter::Blur { .. } | Filter::Sharpen { .. } | Filter::DirectionalBlur { .. } | Filter::Highpass { .. } => input, // Neighborhood evaluation is staged by compositor.
         Filter::Clamp { low, high } => input.map(|v| v.clamp(low, high)),
         Filter::Threshold { cutoff } => {
             let value = if channel.is_color() { input[0] * 0.2126 + input[1] * 0.7152 + input[2] * 0.0722 } else { input[0] };
@@ -100,5 +100,46 @@ mod gaussian_tests {
             for (a,b) in w.iter().zip(w.iter().rev()) {assert_eq!(a,b);}
         }
         let w=gaussian_weights(3.0);assert!((w[3]-0.3990503).abs()<1e-6);
+    }
+}
+
+/// Gaussian line taps in top-left image coordinates; 180-degree periodic, cardinal axes exact.
+pub fn directional_taps(radius:f32,angle_deg:f32)->Vec<[f32;3]> {
+    if !angle_deg.is_finite() {return vec![[0.0,0.0,1.0]];}
+    let angle=angle_deg.rem_euclid(180.0);
+    let axis=if angle==0.0 {[1.0,0.0]} else if angle==90.0 {[0.0,1.0]} else {
+        let (sin,cos)=angle.to_radians().sin_cos();[cos,sin]
+    };
+    let weights=gaussian_weights(radius);let r=(weights.len()/2) as f32;
+    weights.into_iter().enumerate().filter(|(_,w)|*w>0.0).map(|(i,w)| {
+        let t=i as f32-r;[axis[0]*t,axis[1]*t,w]
+    }).collect()
+}
+
+pub fn highpass(source:[f32;3],blurred:[f32;3],amount:f32,channel:ChannelKind)->[f32;3] {
+    if channel==ChannelKind::Normal || !amount.is_finite() || !(0.0..=4.0).contains(&amount) {return source;}
+    let neutral=if channel.is_signed(){0.0}else{0.5};
+    std::array::from_fn(|c| {let v=neutral+amount*(source[c]-blurred[c]);if channel.is_signed(){v}else{v.clamp(0.0,1.0)}})
+}
+
+#[cfg(test)]
+mod directional_highpass_tests {
+    use super::*;
+    #[test]
+    fn line_taps_preserve_cardinal_axes_periodicity_and_weight() {
+        for a in [-180.0,0.0,180.0] {for t in directional_taps(4.0,a) {assert_eq!(t[1],0.0);}}
+        assert_eq!(directional_taps(4.0,-90.0),directional_taps(4.0,90.0));
+        assert_eq!(directional_taps(4.0,-135.0),directional_taps(4.0,45.0));
+        let t=directional_taps(3.0,45.0);assert!((t.iter().map(|t|t[2]).sum::<f32>()-1.0).abs()<1e-6);
+        assert!((t[0][0]-t[0][1]).abs()<1e-6);assert_eq!(directional_taps(0.0,0.0),vec![[0.0,0.0,1.0]]);
+    }
+    #[test]
+    fn highpass_has_explicit_neutral_signed_and_clamped_values() {
+        let k=ChannelKind::BaseColor;
+        assert_eq!(highpass([0.2;3],[0.2;3],4.0,k),[0.5;3]);
+        assert_eq!(highpass([0.9,0.1,0.4],[0.1,0.9,0.4],1.0,k),[1.0,0.0,0.5]);
+        assert_eq!(highpass([-0.5;3],[0.25;3],2.0,ChannelKind::Height),[-1.5;3]);
+        assert_eq!(highpass([0.9;3],[0.1;3],0.0,k),[0.5;3]);
+        assert_eq!(highpass([0.9;3],[0.1;3],0.0,ChannelKind::Height),[0.0;3]);
     }
 }

@@ -124,6 +124,11 @@ enum Node<'a> {
         kind: ChannelKind,
         passthrough: bool,
     },
+    Directional {
+        input: usize,
+        taps: Arc<Vec<[f32; 3]>>,
+        support: u32,
+    },
     Gaussian {
         input: usize,
         weights: Arc<Vec<f32>>,
@@ -135,7 +140,8 @@ impl Node<'_> {
         match self {
             Self::MaskEffect { input, .. }
             | Self::ContentEffect { input, .. }
-            | Self::Gaussian { input, .. } => Some(*input),
+            | Self::Gaussian { input, .. }
+            | Self::Directional { input, .. } => Some(*input),
             Self::Layer { below, .. } => Some(*below),
             _ => None,
         }
@@ -186,7 +192,7 @@ impl<'a> Graph<'a> {
             Node::Constant(_) => true,
             Node::Fill(fill, kind) => uniform_fill(fill, *kind),
             Node::Paint(image, _) | Node::MaskBase(image) => image.allocated_tiles() == 0,
-            Node::Gaussian { input, .. } => self.uniform[*input],
+            Node::Gaussian { input, .. } | Node::Directional { input, .. } => self.uniform[*input],
             Node::ContentEffect {
                 input,
                 effect,
@@ -229,13 +235,30 @@ impl<'a> Graph<'a> {
         self.nodes.push(node);
         id
     }
-    fn gaussian(&mut self, input: usize, filter: Filter) -> Option<usize> {
+    fn neighborhood(&mut self, input: usize, filter: Filter) -> Option<usize> {
         let radius = filter.radius()?;
         if !filter.valid() {
             return None;
         }
-        if radius == 0.0 || matches!(filter, Filter::Sharpen { amount: 0.0, .. }) {
+        if self.uniform[input]
+            || radius == 0.0
+            || matches!(
+                filter,
+                Filter::Sharpen { amount: 0.0, .. } | Filter::Highpass { amount: 0.0, .. }
+            )
+        {
             return Some(input);
+        }
+        if let Filter::DirectionalBlur { angle_deg, .. } = filter {
+            let radius = radius * self.radius_scale;
+            let taps = Arc::new(subcraft_materials::filter::directional_taps(
+                radius, angle_deg,
+            ));
+            return Some(self.push(Node::Directional {
+                input,
+                taps,
+                support: radius.ceil() as u32,
+            }));
         }
         let weights = Arc::new(subcraft_materials::filter::gaussian_weights(
             radius * self.radius_scale,
@@ -255,7 +278,7 @@ impl<'a> Graph<'a> {
         let mut input = self.push(Node::MaskBase(&mask.base));
         for effect in mask.effects.iter().filter(|e| e.visible && e.opacity > 0.0) {
             let filtered = if let MaskEffectKind::Filter(f) = effect.kind {
-                self.gaussian(input, f)
+                self.neighborhood(input, f)
             } else {
                 None
             };
@@ -331,7 +354,7 @@ impl<'a> Graph<'a> {
                 if !filter.valid() || !filter.supports_channel(kind) {
                     continue;
                 }
-                self.gaussian(input, filter)
+                self.neighborhood(input, filter)
             } else {
                 None
             };
@@ -431,13 +454,7 @@ impl<'a> Graph<'a> {
                         unreachable!()
                     };
                     let blend = effect.blend_for(*kind);
-                    if effective_mode(blend.mode) == BlendMode::Normal
-                        && matches!(
-                            filter,
-                            Filter::Blur { radius: 0.0 }
-                                | Filter::Sharpen { radius: 0.0, .. }
-                                | Filter::Sharpen { amount: 0.0, .. }
-                        )
+                    if effective_mode(blend.mode) == BlendMode::Normal && filter.spatial_identity()
                     {
                         return out;
                     }
@@ -453,7 +470,7 @@ impl<'a> Graph<'a> {
                             effective_mode(blend.mode),
                             target,
                         );
-                        if matches!(filter, Filter::Blur { .. }) {
+                        if filter.softens_coverage() {
                             let t = blend.opacity.clamp(0.0, 1.0);
                             let a = src[3] + (value[3] - src[3]) * t;
                             for c in 0..3 {
@@ -560,6 +577,30 @@ impl<'a> Graph<'a> {
                 }
                 out
             }
+            Node::Directional {
+                input,
+                taps,
+                support,
+            } => {
+                let grid = Neighborhood::new(self, *input, &geo, *support);
+                let mut out = vec![[0.0; 4]; TILE_TEXELS];
+                for (i, dst) in out.iter_mut().enumerate() {
+                    let (x, y) = geo.texel_xy(i);
+                    for &[dx, dy, w] in taps.iter() {
+                        let src = grid.premultiplied(x as f32 + dx, y as f32 + dy);
+                        for c in 0..4 {
+                            dst[c] += src[c] * w;
+                        }
+                    }
+                    if dst[3] > 1e-12 {
+                        let a = dst[3];
+                        for c in &mut dst[..3] {
+                            *c /= a;
+                        }
+                    }
+                }
+                out
+            }
             Node::Gaussian {
                 input,
                 weights,
@@ -627,6 +668,69 @@ impl<'a> Graph<'a> {
     }
 }
 
+/// Preload a bounded rectangle once; no cache locks or graph traversal inside bilinear taps.
+struct Neighborhood {
+    x0: usize,
+    y0: usize,
+    cols: usize,
+    res: u32,
+    tiles: Vec<Pixels>,
+}
+impl Neighborhood {
+    fn new(
+        graph: &Graph<'_>,
+        input: usize,
+        geo: &subcraft_materials::TileGeometry,
+        r: u32,
+    ) -> Self {
+        let res = graph.ctx.geometry.resolution;
+        let n = res.div_ceil(TILE_SIZE);
+        let x0 = geo.x0.saturating_sub(r) / TILE_SIZE;
+        let y0 = geo.y0.saturating_sub(r) / TILE_SIZE;
+        let x1 = (geo.x0 + TILE_SIZE - 1 + r).min(res - 1) / TILE_SIZE;
+        let y1 = (geo.y0 + TILE_SIZE - 1 + r).min(res - 1) / TILE_SIZE;
+        let mut tiles = Vec::new();
+        for y in y0..=y1 {
+            for x in x0..=x1 {
+                tiles.push(graph.get(input, (y * n + x) as usize));
+            }
+        }
+        Self {
+            x0: x0 as usize,
+            y0: y0 as usize,
+            cols: (x1 - x0 + 1) as usize,
+            res,
+            tiles,
+        }
+    }
+    fn pixel(&self, x: u32, y: u32) -> [f32; 4] {
+        let tile = (y / TILE_SIZE) as usize - self.y0;
+        let tile = tile * self.cols + (x / TILE_SIZE) as usize - self.x0;
+        self.tiles[tile][((y % TILE_SIZE) * TILE_SIZE + x % TILE_SIZE) as usize]
+    }
+    fn premultiplied(&self, x: f32, y: f32) -> [f32; 4] {
+        let x = x.clamp(0.0, (self.res - 1) as f32);
+        let y = y.clamp(0.0, (self.res - 1) as f32);
+        let (x0, y0) = (x.floor() as u32, y.floor() as u32);
+        let (fx, fy) = (x - x0 as f32, y - y0 as f32);
+        let mut out = [0.0; 4];
+        for (yy, wy) in [(y0, 1.0 - fy), ((y0 + 1).min(self.res - 1), fy)] {
+            for (xx, wx) in [(x0, 1.0 - fx), ((x0 + 1).min(self.res - 1), fx)] {
+                let w = wx * wy;
+                if w == 0.0 {
+                    continue;
+                }
+                let src = self.pixel(xx, yy);
+                for c in 0..3 {
+                    out[c] += src[c] * src[3] * w;
+                }
+                out[3] += src[3] * w;
+            }
+        }
+        out
+    }
+}
+
 fn spatial_value(
     filter: Filter,
     source: [f32; 4],
@@ -636,8 +740,20 @@ fn spatial_value(
     match filter {
         Filter::Blur { radius: 0.0 }
         | Filter::Sharpen { radius: 0.0, .. }
-        | Filter::Sharpen { amount: 0.0, .. } => source,
-        Filter::Blur { .. } => blurred,
+        | Filter::Sharpen { amount: 0.0, .. }
+        | Filter::DirectionalBlur { radius: 0.0, .. } => source,
+        Filter::Blur { .. } | Filter::DirectionalBlur { .. } => blurred,
+        Filter::Highpass { amount, .. } => {
+            let mut out = source;
+            let v = subcraft_materials::filter::highpass(
+                [source[0], source[1], source[2]],
+                [blurred[0], blurred[1], blurred[2]],
+                amount,
+                kind,
+            );
+            out[..3].copy_from_slice(&v);
+            out
+        }
         Filter::Sharpen { amount, .. } => {
             let mut out = source;
             for c in 0..3 {
@@ -730,7 +846,6 @@ fn uniform_fill(fill: &subcraft_doc::FillContent, kind: ChannelKind) -> bool {
         .is_none_or(|c| !c.enabled || matches!(c.source, subcraft_doc::FillSource::Uniform { .. }))
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -772,15 +887,32 @@ mod tests {
             resources: &resources,
             mesh_maps: &maps,
         };
-        let large = StageCache::default();
-        let reference = Graph::new(&ts, ctx, &large);
-        let expected: Vec<_> = (0..4).map(|t| reference.tile(t)[0].1.clone()).collect();
-        let tiny = StageCache::new(2);
-        let graph = Graph::new(&ts, ctx, &tiny);
-        (0..12usize).into_par_iter().for_each(|i| {
-            assert_eq!(graph.tile(i % 4)[0].1, expected[i % 4]);
-        });
-        tiny.trim();
-        assert!(tiny.entries.lock().unwrap().cells.len() <= 2);
+        for filter in [
+            Filter::Blur { radius: 4.0 },
+            Filter::DirectionalBlur {
+                radius: 4.0,
+                angle_deg: 35.0,
+            },
+            Filter::Highpass {
+                radius: 4.0,
+                amount: 1.0,
+            },
+        ] {
+            let layer = Arc::make_mut(&mut ts.layers[0]);
+            Arc::make_mut(&mut layer.content_effects[0]).kind = ContentEffectKind::Filter {
+                channel: ChannelKind::Roughness,
+                filter,
+            };
+            let large = StageCache::default();
+            let reference = Graph::new(&ts, ctx, &large);
+            let expected: Vec<_> = (0..4).map(|t| reference.tile(t)[0].1.clone()).collect();
+            let tiny = StageCache::new(2);
+            let graph = Graph::new(&ts, ctx, &tiny);
+            (0..12usize).into_par_iter().for_each(|i| {
+                assert_eq!(graph.tile(i % 4)[0].1, expected[i % 4]);
+            });
+            tiny.trim();
+            assert!(tiny.entries.lock().unwrap().cells.len() <= 2);
+        }
     }
 }
