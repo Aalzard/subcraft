@@ -5,6 +5,13 @@ What changed in SubCraft, newest first. Download the latest build from the
 
 ## Unreleased
 
+### New
+- Albedo filtering: choose Bilinear or Nearest beneath Resolution in the 3D toolbar or Texture
+  Sets panel. Nearest preserves imported pixel art through projection, painting, working-size
+  changes, preview and exported maps. The choice is undoable and saved per texture set.
+- Projects now use schema 6; older projects open with Bilinear. New saves require this build
+  or a newer reader supporting schema 6.
+
 ### Fixed
 - High-poly bake sources can import without UVs; UVs are required only on the painting model.
 - High-poly normal bakes appear through an editable live Baked normal layer and export with

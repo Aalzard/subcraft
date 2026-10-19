@@ -28,6 +28,9 @@ full save/reopen equality and finite/normal acceptance. The native app screensho
 
 Rebuild using `../CORE-07/source/Cargo.toml` from the SubCraft repository root:
 
+Use the matching application build when reopening regenerated files: the current checkout
+writes schema 6, while the original saved artwork remains compatible with its older reader.
+
 ```powershell
 $env:CARGO_TARGET_DIR = (Join-Path (Get-Location) 'target')
 cargo test --release --manifest-path artworks/CORE-07/source/Cargo.toml

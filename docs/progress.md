@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-10-19 (session 75: repair high-poly baking workflow)
+Last updated: 2026-10-19 (session 76: Bilinear/Nearest albedo filtering)
 
 ## Decisions
 
@@ -1748,7 +1748,52 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   remain unchanged. Not verified: owner's exact source files (not provided), native pointer
   Browse/Bake gestures, production FBX/GLB pairs, web runtime, or 4K interactive bake/frame pacing.
 
+### Session 76 — Codex: pixel-art albedo reconstruction and export (2026-10-19)
+
+* Owner requested Bilinear/Nearest beneath Resolution and explicitly confirmed preview **and
+  exported texture**. Added an undoable per-texture-set `albedo_filter` through an app command;
+  the 3D toolbar and Texture Sets controls share the document field. Narrow docks use View.
+  Bilinear remains default; explicit project **schema 6** field migration gives schemas 1–5
+  Bilinear. Existing files open; new saves require a reader supporting schema 6. ADR-0020.
+* `image` adds typed filtering and point bitmap/raster reconstruction with wrapping/clamping
+  and existing color/alpha rules. `materials/compositor` applies it only to imported Base Color
+  fills/content fills; cache and thumbnail snapshots invalidate on change. Cache reuse retains
+  unchanged PBR channels, avoiding unrelated GPU uploads. `paint` captures the choice for future
+  textured strokes; resolution changes preserve Base Color paint/content-effect pixels through
+  folders. Masks and other channels retain previous interpolation. Existing blurred rasters
+  are not regenerated, and intentional opacity/triplanar/soft-brush blends still mix colors.
+* `render` selects a persistent Base Color sampler per material slot in Material and Base Color
+  views; sampler toggles reuse textures/pipelines. 2D Base Color magnification shares the choice.
+  Export consumes the same complete CPU composite, so it preserves reconstructed pixels.
+  Game engines must still select their own nearest/point runtime sampler.
+* Added six tests: numeric sampler/address/color/alpha and raster resampling; channel-specific
+  resolution changes; schema-6 roundtrip and field-absent legacy migration; command/cache/undo,
+  save/reopen and actual exported PNG pixels; GPU nearest palette/bilinear interpolation,
+  material/data-channel isolation and per-slot switching; actual dropdown click/placement/undo.
+  Extended textured-stroke acceptance through both filters and all three supported projections.
+* Reproducible native/export fixture: `crates/app/examples/retro_albedo.rs`. Its 16² four-color
+  bitmap projects into a 128² working set. Actual exported Base Color PNGs contain **4 colors
+  with Nearest**, **180 with Bilinear**. Comparison projects/exports live in the temporary
+  `subcraft-albedo-native` folder, not protected root output/.
+* Final validation: **429 workspace tests pass, 0 failed/ignored**; workspace/all-target Clippy
+  exits 0 with warnings. Required no-incremental/line-tables-only environment used. Responsive
+  bar tests cover widths 200–1280 and the two-row Resolution/Albedo column. Fixed the previously
+  recorded async image-save test flake by replacing 2,000 busy frames with a bounded 10-second
+  wait/yield; its behavior assertions remain intact. No production image-save changes.
+* Ran the updated **target/debug/subcraft.exe** and inspected both Material modes and Nearest
+  2D: `screenshots/albedo-bilinear-3d.png`, `albedo-nearest-3d.png`, `albedo-nearest-2d.png`.
+  Nearest shows hard pixel boundaries; Bilinear visibly interpolates the same source. The
+  saved choice appears beneath Resolution on opening each project. Actual exported PNG palette
+  counts checked independently. Native startup used CLI/project loading; no mouse input.
+  Not hand-verified: physical dropdown/pen gestures, owner assets, external-engine imports,
+  browser runtime, or 4K long-stroke/frame pacing. Tests include both stroke filters and prior
+  high-poly bake regressions. Owner's open release window and published 0.1.7 are unchanged.
+
 ## Next steps (in order)
+
+Albedo follow-up: owner checks the updated build on their pixel-art assets and configures
+nearest/point runtime sampling in their game engine. Then continue the pending bake and layer
+workflow checks below; this sampler change does not complete any additional brush phase.
 
 High-poly bake follow-up: owner tests the patched app with the exact original model pair;
 hand-check production FBX/GLB sources, cage adjustments and a full 4K interactive bake workflow.

@@ -44,6 +44,9 @@ preserve this original 11-layer project. See [the refined guide](../CORE-07-Refi
 The small creator lives in `source/` as an independent Cargo package; it does not modify the
 application crates. Keep this directory at `artworks/CORE-07` inside a SubCraft checkout:
 
+Regenerating with the current checkout writes its current project schema; use the matching
+application build. Existing local artwork files are preserved until you explicitly rebuild them.
+
 ```powershell
 $env:CARGO_TARGET_DIR = (Join-Path (Get-Location) 'target')
 Copy-Item Cargo.lock artworks/CORE-07/source/Cargo.lock

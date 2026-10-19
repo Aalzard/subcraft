@@ -20,6 +20,9 @@ localized scuffs/dust and steel-only rust. This adds asset acceptance coverage, 
 Session 75 repairs high-poly baking: UV-less source import, a live normal display layer and
 persistent bake feedback. No additional brush phase is marked complete (ADR-0019).
 
+Session 76 adds document-level Bilinear/Nearest albedo filtering for pixel art (ADR-0020),
+including textured stroke sampling and exports. This does not complete another brush phase.
+
 Build housekeeping (session 62): latest tested binary consolidated into
 `target/release/subcraft.exe`. Removing obsolete versions/caches remains blocked by automatic
 approval review; no artifacts were deleted. This does not change feature completion below.

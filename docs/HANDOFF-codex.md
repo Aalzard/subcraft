@@ -1,43 +1,43 @@
-# Handoff — high-poly baking repair (2026-10-19)
+# Handoff — albedo interpolation (2026-10-19)
 
-- Branch `feature/brush-roadmap`; implementation commit `274d144`. This handoff is in the final
-  docs commit (`git log -1`). **423 workspace tests passed, 0 failed/ignored**, 9 added.
-  Clippy workspace/all-targets exits 0 (pre-existing warnings). CARGO_INCREMENTAL=0,
-  CARGO_PROFILE_DEV_DEBUG=line-tables-only; checks -j 1. No push/release or branch switch.
+- Branch `feature/brush-roadmap`; implementation commit **4ac31a0**. This handoff is in the
+  final docs commit (`git log -1`). **429 workspace tests passed, 0 failed/ignored** (6 added),
+  Clippy workspace/all-targets exits 0 with warnings. CARGO_INCREMENTAL=0,
+  CARGO_PROFILE_DEV_DEBUG=line-tables-only; -j 1. No push/release or branch switch.
 
 Done:
-- `mesh`: UV-less high-poly import through import_mesh_for_baking/build_for_baking; low paint
-  import stays strict. Existing import formats share the path; no automatic unwrapping.
-- `bake`: total projection misses report alignment/cage failure; partial ID misses use neutral
-  IDs instead of indexing the high-poly element array with low-poly triangle IDs.
-- `app/bake_job.rs::poll` + `session.rs::show_baked_normal`: successful high Normal bake adds a
-  live normal-only top fill, Inverse Detail RNM, undoable insertion, authored material/selection
-  unchanged. Existing mesh-map links prevent duplicates. Poll waits while a brush stroke is
-  active. Partial failures and worker disconnects surface errors. Maps keep existing separate
-  non-history storage; undoing insertion does not undo the maps themselves.
-- `ui/dialogs.rs`: persistent results/errors and clear cage/UV guidance; actual Bake-button
-  dispatch covered by synthetic egui input. CLI --bake-high / --bake-size uses the same job;
-  screenshots wait for the job/composite to complete. ADR-0019 explains the decisions.
-- Native screenshots inspected: docs/screenshots/high-poly-bake-no-uv.png (all 7 maps at 1024,
-  442,368-triangle UV-less high source, visible normal detail and completion) and
-  high-poly-bake-misaligned.png (actionable failure, unchanged low). No mouse input.
-- Updated local test app: E:\Applications\ArtCraft\SubCraft\target\debug\subcraft.exe.
-  Owner's open target/release/subcraft.exe was left running; it still contains the old code.
-  Published 0.1.7 is unchanged. Artwork originals and protected root files untouched.
+- Per-texture-set Bilinear/Nearest Albedo controls beneath Resolution in 3D and Texture Sets;
+  shared app command, undo/redo, no-op preservation. Narrow 3D docks use View menu.
+- Source Base Color image filtering affects fills/content fills, future textured strokes,
+  working-resolution paint resampling and exports. Masks/other channels retain old behavior.
+- Cache/thumbnail invalidation includes the setting; unchanged PBR channels retain GPU tiles.
+- Per-material GPU Base Color sampler; Material/unlit Base Color and 2D magnification agree.
+  Samplers/textures/pipelines reused. CPU/GPU numeric tests and real exported PNG checks.
+- Schema **6** writes albedo_filter. Schemas 1–5 migrate absent fields to Bilinear. New saves
+  need this reader or newer; published 0.1.7 cannot read schema 6. Existing projects still open.
+- Reproducible fixture: crates/app/examples/retro_albedo.rs. Comparison projects and exports
+  in %TEMP%/subcraft-albedo-native. A four-color 16-square source exports 4 colors in Nearest
+  and 180 in Bilinear at 128 square. Tests also cover both filters in all 3 brush projections.
+- Native screenshots inspected: docs/screenshots/albedo-bilinear-3d.png,
+  albedo-nearest-3d.png, albedo-nearest-2d.png. Native project loading/CLI, no mouse input.
+- Fixed known test-only image-save timing flake: bounded real-time wait instead of busy frames.
+  Responsive acceptance updated for the two-row left column; 200–1280 widths pass.
 
-No partial implementation or remaining failing/skipped tests. Initial headless tests needed
-window sizing frames and texture-delta disposal; corrected and reran. Existing async image-save
-UI test failed once during the interrupted run, then passed isolated and in full reruns; its
-iteration-based wait may still be timing-sensitive. Not verified: owner's exact models (not
-provided), native pointer Browse/Bake gestures, production FBX/GLB pairs, web runtime, 4K
-interactive baking/frame pacing. Existing slider split-undo issue remains outside this change.
-Keep baked links live/in UV space; do not flatten or silently double-apply existing references.
-No new project schema: existing fill/source/blend serialization covers the new layer.
+Updated test app: E:\Applications\ArtCraft\SubCraft\target\debug\subcraft.exe.
+Owner's open target/release/subcraft.exe, original artwork and protected root files unchanged.
+No partial work, remaining failures or skipped tests. Not hand-checked: physical dropdown/pen
+input, owner's pixel assets, external engine imports, browser, 4K long strokes/frame pacing.
+Prior high-poly bake regressions pass; owner's exact high/low pair remains unverified.
+
+Keep ADR-0020 decisions: document state rather than viewport preference; Base Color only;
+point sampling before compositing/export; color/alpha rules; schema migration; cache reuse.
+Existing blurred paint cannot be recovered by a filter change. Opacity, soft brush and triplanar
+blends remain intentional. Exported PNGs do not configure engine sampling: choose nearest/point
+there too. No PS1 geometry wobble/affine mapping/dithering/quantization feature is implied.
 
 Next 3 steps:
-1. Owner saves current work, opens the patched debug app and retries their exact low/high pair;
-   then rebuild the regular release executable when it is no longer in use.
-2. Validate production FBX/GLB/cage adjustments and a 4K native bake; consider reporting partial
-   projection coverage. Custom cages/name matching/automatic alignment remain future work.
-3. Resume layer-system-roadmap stage/halo contracts and tested neighborhood filters, followed
-   by Compare Mask/anchors. Brush roadmap phase order remains unchanged.
+1. Owner tests patched debug app with their pixel assets and exact high/low bake pair; save work
+   before changing app windows. Rebuild normal release executable when it is not in use.
+2. Check real engine imports and native 4K strokes/bakes with this setting; no 4K claim yet.
+3. Resume layer-system-roadmap stage/halo contracts and tested filters, then Compare Mask and
+   anchors. Brush phase order unchanged. Existing slider split-undo issue remains outside scope.

@@ -267,6 +267,32 @@ project file. Save your own project regularly; in the browser, download a backup
 
 ## 6. Export textures
 
+### Pixel art and retro albedo textures
+
+Under **Resolution**, choose **Albedo → Nearest** in the 3D toolbar or Texture Sets panel.
+**Bilinear** blends neighboring image texels; **Nearest** keeps their hard boundaries. The
+dropdown applies to the selected texture set and stays in sync in both places. In narrow
+3D docks, find it under **View**. Ctrl+Z undoes the change.
+
+The choice affects imported Base Color fill images, content fill effects, future textured brush
+strokes, Base Color resampling when changing working resolution, the 3D/2D preview and exported
+albedo pixels. Other channels keep their usual filtering. It cannot undo blur already painted
+into a raster; reapply the source image if needed. Soft brushes, layer blends and triplanar
+axis blending still mix colors; use UV or planar projection when an exact palette is required.
+
+Use 100% viewport resolution when inspecting pixel edges. Anti-aliasing remains an independent
+geometry-edge setting. Export normally, then also select nearest/point texture sampling in
+your game engine: image files contain pixels, not runtime sampler settings.
+
+Projects saved by this build use **schema 6** and remember the choice per set. Older projects
+open with Bilinear; new saves require the patched build or a reader supporting schema 6.
+
+Developers can regenerate comparison projects and exports with the `retro_albedo` app example.
+
+[Compare Bilinear](screenshots/albedo-bilinear-3d.png) ·
+[Nearest in 3D](screenshots/albedo-nearest-3d.png) ·
+[Nearest in 2D](screenshots/albedo-nearest-2d.png)
+
 ### Bake a high-resolution mesh onto your painting model
 
 Open the **low-poly** model with its UVs first, then click **Bake**. In **High poly → Browse…**,
