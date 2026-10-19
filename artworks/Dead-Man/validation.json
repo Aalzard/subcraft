@@ -1,0 +1,14 @@
+{
+  "all_channels_finite": true,
+  "ao_rays": 64,
+  "authored_lesion_sites": 34,
+  "bake_source": "low-on-low; only supplied body mesh exists",
+  "baked_maps": 7,
+  "color_encoding": "sRGB base color, linear data; OpenGL +Y normal; signed height encoded around 0.5 in PNG16",
+  "covered_texels": 9482418,
+  "elapsed_seconds": 166.69703674316406,
+  "layers": 20,
+  "mesh_map_resolution": 2048,
+  "save_reopen_composite": "bit-exact",
+  "texture_resolution": 4096
+}

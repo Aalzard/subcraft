@@ -1,0 +1,37 @@
+{
+  "reproducible_1024_sha256": true,
+  "starter_assets_unchanged": true,
+  "resolutions": {
+    "1024": {
+      "new_map_count": 40,
+      "exact_names_and_8bit_png_headers": "PASS",
+      "maximum_unit_length_error": 0.006270289421081543,
+      "all_blue_dominant": true,
+      "all_seams_within_internal_line_ranges": true,
+      "all_alphas_full_range_and_black_borders": true
+    },
+    "2048": {
+      "new_map_count": 40,
+      "exact_names_and_8bit_png_headers": "PASS",
+      "maximum_unit_length_error": 0.006278812885284424,
+      "all_blue_dominant": true,
+      "all_seams_within_internal_line_ranges": true,
+      "all_alphas_full_range_and_black_borders": true
+    },
+    "4096": {
+      "new_map_count": 40,
+      "exact_names_and_8bit_png_headers": "PASS",
+      "maximum_unit_length_error": 0.006278812885284424,
+      "all_blue_dominant": true,
+      "all_seams_within_internal_line_ranges": true,
+      "all_alphas_full_range_and_black_borders": true
+    }
+  },
+  "default_all_pack_60_pngs": "PASS",
+  "visual_review": {
+    "20_normal_and_20_alpha_contact_sheets": "PASS",
+    "four_2x2_tiles": "PASS",
+    "no_visible_alpha_banding": "PASS"
+  },
+  "generator_sha256": "986a4616b9a41ac8c2c47a6c1f095e8428849f9269e8fb633406d1e8ab45b3c9"
+}

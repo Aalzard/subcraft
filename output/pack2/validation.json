@@ -1,0 +1,860 @@
+{
+  "size": 1024,
+  "pack": "scifi",
+  "strength": 1.0,
+  "algorithm": {
+    "flat_pixel": [
+      128,
+      128,
+      255
+    ],
+    "opengl_green_sign": "PASS",
+    "wrap_gradients": "central difference using numpy.roll"
+  },
+  "normals": {
+    "CircuitTraces": {
+      "mean_rgb": [
+        127.89459228515625,
+        127.88447570800781,
+        252.74884033203125
+      ],
+      "vector_length_min": 0.9947729706764221,
+      "vector_length_max": 1.0051692724227905,
+      "vector_length_max_error": 0.005227029323577881,
+      "blue_dominant_every_pixel": true,
+      "calibrated_uv_height_depth": 0.0045966471792499046,
+      "seams": {
+        "x": {
+          "seam_mean_8bit": 0.0,
+          "interior_mean_8bit": 1.0931390523910522,
+          "interior_line_p95_8bit": 4.508854389190674,
+          "seam_to_interior_ratio": 0.0,
+          "seam_line_percentile": 13.978494623655912,
+          "within_internal_line_range": true
+        },
+        "y": {
+          "seam_mean_8bit": 0.0,
+          "interior_mean_8bit": 1.2910352945327759,
+          "interior_line_p95_8bit": 4.597135543823242,
+          "seam_to_interior_ratio": 0.0,
+          "seam_line_percentile": 20.625610948191593,
+          "within_internal_line_range": true
+        }
+      },
+      "normal_vs_2x2_height_conversion_max_lsb": 0
+    },
+    "SciFiHullPanels": {
+      "mean_rgb": [
+        127.95775032043457,
+        127.94796752929688,
+        253.14496994018555
+      ],
+      "vector_length_min": 0.994834840297699,
+      "vector_length_max": 1.0057199001312256,
+      "vector_length_max_error": 0.005719900131225586,
+      "blue_dominant_every_pixel": true,
+      "calibrated_uv_height_depth": 0.015718683785690142,
+      "seams": {
+        "x": {
+          "seam_mean_8bit": 0.3828125,
+          "interior_mean_8bit": 0.43030354380607605,
+          "interior_line_p95_8bit": 2.654752254486084,
+          "seam_to_interior_ratio": 0.8896335959434509,
+          "seam_line_percentile": 86.3147605083089,
+          "within_internal_line_range": true
+        },
+        "y": {
+          "seam_mean_8bit": 0.1861979216337204,
+          "interior_mean_8bit": 0.43490222096443176,
+          "interior_line_p95_8bit": 2.906510353088379,
+          "seam_to_interior_ratio": 0.4281374216079712,
+          "seam_line_percentile": 68.32844574780059,
+          "within_internal_line_range": true
+        }
+      },
+      "normal_vs_2x2_height_conversion_max_lsb": 0
+    },
+    "ParallelRidges": {
+      "mean_rgb": [
+        127.5390625,
+        128.0,
+        250.83203125
+      ],
+      "vector_length_min": 0.9950820803642273,
+      "vector_length_max": 1.0044958591461182,
+      "vector_length_max_error": 0.004917919635772705,
+      "blue_dominant_every_pixel": true,
+      "calibrated_uv_height_depth": 0.004014878542613465,
+      "seams": {
+        "x": {
+          "seam_mean_8bit": 3.0,
+          "interior_mean_8bit": 2.418703079223633,
+          "interior_line_p95_8bit": 7.6666059494018555,
+          "seam_to_interior_ratio": 1.240334153175354,
+          "seam_line_percentile": 67.5464320625611,
+          "within_internal_line_range": true
+        },
+        "y": {
+          "seam_mean_8bit": 0.0,
+          "interior_mean_8bit": 0.0,
+          "interior_line_p95_8bit": 0.0,
+          "seam_to_interior_ratio": 0.0,
+          "seam_line_percentile": 100.0,
+          "within_internal_line_range": true
+        }
+      },
+      "normal_vs_2x2_height_conversion_max_lsb": 0
+    },
+    "CrosshatchGrooves": {
+      "mean_rgb": [
+        127.52458572387695,
+        127.52616214752197,
+        251.0131425857544
+      ],
+      "vector_length_min": 0.9944018721580505,
+      "vector_length_max": 1.005108118057251,
+      "vector_length_max_error": 0.005598127841949463,
+      "blue_dominant_every_pixel": true,
+      "calibrated_uv_height_depth": 0.0024960575385138636,
+      "seams": {
+        "x": {
+          "seam_mean_8bit": 4.1334638595581055,
+          "interior_mean_8bit": 3.829657554626465,
+          "interior_line_p95_8bit": 4.395832538604736,
+          "seam_to_interior_ratio": 1.0793298482894897,
+          "seam_line_percentile": 60.01955034213099,
+          "within_internal_line_range": true
+        },
+        "y": {
+          "seam_mean_8bit": 3.2649741172790527,
+          "interior_mean_8bit": 3.8312385082244873,
+          "interior_line_p95_8bit": 4.3958330154418945,
+          "seam_to_interior_ratio": 0.85219806432724,
+          "seam_line_percentile": 13.196480938416421,
+          "within_internal_line_range": true
+        }
+      },
+      "normal_vs_2x2_height_conversion_max_lsb": 0
+    },
+    "CableChannels": {
+      "mean_rgb": [
+        127.81581115722656,
+        127.82945251464844,
+        252.22634887695312
+      ],
+      "vector_length_min": 0.9944637417793274,
+      "vector_length_max": 1.0059033632278442,
+      "vector_length_max_error": 0.005903363227844238,
+      "blue_dominant_every_pixel": true,
+      "calibrated_uv_height_depth": 0.0066214371756509755,
+      "seams": {
+        "x": {
+          "seam_mean_8bit": 0.0,
+          "interior_mean_8bit": 0.8871884346008301,
+          "interior_line_p95_8bit": 2.8002638816833496,
+          "seam_to_interior_ratio": 0.0,
+          "seam_line_percentile": 19.843597262952102,
+          "within_internal_line_range": true
+        },
+        "y": {
+          "seam_mean_8bit": 0.0,
+          "interior_mean_8bit": 0.7037512063980103,
+          "interior_line_p95_8bit": 2.7001302242279053,
+          "seam_to_interior_ratio": 0.0,
+          "seam_line_percentile": 17.10654936461388,
+          "within_internal_line_range": true
+        }
+      },
+      "normal_vs_2x2_height_conversion_max_lsb": 0
+    },
+    "VentSlats": {
+      "mean_rgb": [
+        127.87298583984375,
+        127.67363357543945,
+        252.65672302246094
+      ],
+      "vector_length_min": 0.9945874214172363,
+      "vector_length_max": 1.0053528547286987,
+      "vector_length_max_error": 0.005412578582763672,
+      "blue_dominant_every_pixel": true,
+      "calibrated_uv_height_depth": 0.004765270878023603,
+      "seams": {
+        "x": {
+          "seam_mean_8bit": 0.0,
+          "interior_mean_8bit": 0.1193080022931099,
+          "interior_line_p95_8bit": 0.5216147303581238,
+          "seam_to_interior_ratio": 0.0,
+          "seam_line_percentile": 55.034213098729225,
+          "within_internal_line_range": true
+        },
+        "y": {
+          "seam_mean_8bit": 0.0,
+          "interior_mean_8bit": 2.080833673477173,
+          "interior_line_p95_8bit": 10.859634399414062,
+          "seam_to_interior_ratio": 0.0,
+          "seam_line_percentile": 34.11534701857282,
+          "within_internal_line_range": true
+        }
+      },
+      "normal_vs_2x2_height_conversion_max_lsb": 0
+    },
+    "HoneycombVent": {
+      "mean_rgb": [
+        127.70923137664795,
+        127.79641723632812,
+        252.0128879547119
+      ],
+      "vector_length_min": 0.9947111010551453,
+      "vector_length_max": 1.005108118057251,
+      "vector_length_max_error": 0.005288898944854736,
+      "blue_dominant_every_pixel": true,
+      "calibrated_uv_height_depth": 0.0032270824914426705,
+      "seams": {
+        "x": {
+          "seam_mean_8bit": 1.6875,
+          "interior_mean_8bit": 2.4993889331817627,
+          "interior_line_p95_8bit": 5.675519943237305,
+          "seam_to_interior_ratio": 0.675165057182312,
+          "seam_line_percentile": 39.49169110459433,
+          "within_internal_line_range": true
+        },
+        "y": {
+          "seam_mean_8bit": 4.240234375,
+          "interior_mean_8bit": 2.419466018676758,
+          "interior_line_p95_8bit": 6.9440107345581055,
+          "seam_to_interior_ratio": 1.752549648284912,
+          "seam_line_percentile": 67.15542521994135,
+          "within_internal_line_range": true
+        }
+      },
+      "normal_vs_2x2_height_conversion_max_lsb": 0
+    },
+    "PerforatedMetal": {
+      "mean_rgb": [
+        127.81931495666504,
+        127.81958770751953,
+        252.85569763183594
+      ],
+      "vector_length_min": 0.9940306544303894,
+      "vector_length_max": 1.0059645175933838,
+      "vector_length_max_error": 0.005969345569610596,
+      "blue_dominant_every_pixel": true,
+      "calibrated_uv_height_depth": 0.00746843470675146,
+      "seams": {
+        "x": {
+          "seam_mean_8bit": 0.7360025644302368,
+          "interior_mean_8bit": 1.0004935264587402,
+          "interior_line_p95_8bit": 2.6540374755859375,
+          "seam_to_interior_ratio": 0.7356395125389099,
+          "seam_line_percentile": 54.936461388074285,
+          "within_internal_line_range": true
+        },
+        "y": {
+          "seam_mean_8bit": 0.2395833432674408,
+          "interior_mean_8bit": 1.0012726783752441,
+          "interior_line_p95_8bit": 3.349153518676758,
+          "seam_to_interior_ratio": 0.23927882313728333,
+          "seam_line_percentile": 37.04789833822092,
+          "within_internal_line_range": true
+        }
+      },
+      "normal_vs_2x2_height_conversion_max_lsb": 0
+    },
+    "RivetedPanels": {
+      "mean_rgb": [
+        127.95039749145508,
+        127.9339485168457,
+        253.23822021484375
+      ],
+      "vector_length_min": 0.9950820803642273,
+      "vector_length_max": 1.0057810544967651,
+      "vector_length_max_error": 0.005781054496765137,
+      "blue_dominant_every_pixel": true,
+      "calibrated_uv_height_depth": 0.007860497440094882,
+      "seams": {
+        "x": {
+          "seam_mean_8bit": 0.58203125,
+          "interior_mean_8bit": 0.6811932325363159,
+          "interior_line_p95_8bit": 1.6806044578552246,
+          "seam_to_interior_ratio": 0.8544290065765381,
+          "seam_line_percentile": 82.01368523949169,
+          "within_internal_line_range": true
+        },
+        "y": {
+          "seam_mean_8bit": 1.6132811307907104,
+          "interior_mean_8bit": 0.8773025274276733,
+          "interior_line_p95_8bit": 5.877864837646484,
+          "seam_to_interior_ratio": 1.8389108180999756,
+          "seam_line_percentile": 91.78885630498533,
+          "within_internal_line_range": true
+        }
+      },
+      "normal_vs_2x2_height_conversion_max_lsb": 0
+    },
+    "BoltedArmor": {
+      "mean_rgb": [
+        127.94604778289795,
+        127.94183826446533,
+        252.74396419525146
+      ],
+      "vector_length_min": 0.9940925240516663,
+      "vector_length_max": 1.0061479806900024,
+      "vector_length_max_error": 0.006147980690002441,
+      "blue_dominant_every_pixel": true,
+      "calibrated_uv_height_depth": 0.01647265893903343,
+      "seams": {
+        "x": {
+          "seam_mean_8bit": 0.0,
+          "interior_mean_8bit": 0.5247243046760559,
+          "interior_line_p95_8bit": 2.0296878814697266,
+          "seam_to_interior_ratio": 0.0,
+          "seam_line_percentile": 55.62072336265884,
+          "within_internal_line_range": true
+        },
+        "y": {
+          "seam_mean_8bit": 0.0,
+          "interior_mean_8bit": 0.5623370409011841,
+          "interior_line_p95_8bit": 2.561718702316284,
+          "seam_to_interior_ratio": 0.0,
+          "seam_line_percentile": 55.816226783968716,
+          "within_internal_line_range": true
+        }
+      },
+      "normal_vs_2x2_height_conversion_max_lsb": 0
+    },
+    "CoolingFins": {
+      "mean_rgb": [
+        127.82028198242188,
+        127.9857177734375,
+        251.7607421875
+      ],
+      "vector_length_min": 0.9955765604972839,
+      "vector_length_max": 1.0041896104812622,
+      "vector_length_max_error": 0.0044234395027160645,
+      "blue_dominant_every_pixel": true,
+      "calibrated_uv_height_depth": 0.002475319886824821,
+      "seams": {
+        "x": {
+          "seam_mean_8bit": 4.223958492279053,
+          "interior_mean_8bit": 3.332136631011963,
+          "interior_line_p95_8bit": 13.53264045715332,
+          "seam_to_interior_ratio": 1.267642617225647,
+          "seam_line_percentile": 68.81720430107528,
+          "within_internal_line_range": true
+        },
+        "y": {
+          "seam_mean_8bit": 0.0,
+          "interior_mean_8bit": 0.19574780762195587,
+          "interior_line_p95_8bit": 1.9916666746139526,
+          "seam_to_interior_ratio": 0.0,
+          "seam_line_percentile": 93.35288367546431,
+          "within_internal_line_range": true
+        }
+      },
+      "normal_vs_2x2_height_conversion_max_lsb": 0
+    },
+    "ConcentricMachining": {
+      "mean_rgb": [
+        127.65115642547607,
+        127.65135288238525,
+        250.77504348754883
+      ],
+      "vector_length_min": 0.9940925240516663,
+      "vector_length_max": 1.0059033632278442,
+      "vector_length_max_error": 0.00590747594833374,
+      "blue_dominant_every_pixel": true,
+      "calibrated_uv_height_depth": 0.047277481115739824,
+      "seams": {
+        "x": {
+          "seam_mean_8bit": 5.059244632720947,
+          "interior_mean_8bit": 3.9757676124572754,
+          "interior_line_p95_8bit": 6.020895957946777,
+          "seam_to_interior_ratio": 1.2725201845169067,
+          "seam_line_percentile": 59.43304007820137,
+          "within_internal_line_range": true
+        },
+        "y": {
+          "seam_mean_8bit": 4.959635257720947,
+          "interior_mean_8bit": 3.9759349822998047,
+          "interior_line_p95_8bit": 6.021940231323242,
+          "seam_to_interior_ratio": 1.2474135160446167,
+          "seam_line_percentile": 56.598240469208214,
+          "within_internal_line_range": true
+        }
+      },
+      "normal_vs_2x2_height_conversion_max_lsb": 0
+    },
+    "KnurledMetal": {
+      "mean_rgb": [
+        127.50153827667236,
+        127.50102806091309,
+        250.28142261505127
+      ],
+      "vector_length_min": 0.9945874214172363,
+      "vector_length_max": 1.0054140090942383,
+      "vector_length_max_error": 0.005414009094238281,
+      "blue_dominant_every_pixel": true,
+      "calibrated_uv_height_depth": 0.004736350377377933,
+      "seams": {
+        "x": {
+          "seam_mean_8bit": 2.5856120586395264,
+          "interior_mean_8bit": 2.27500581741333,
+          "interior_line_p95_8bit": 2.6027987003326416,
+          "seam_to_interior_ratio": 1.1365299224853516,
+          "seam_line_percentile": 92.08211143695014,
+          "within_internal_line_range": true
+        },
+        "y": {
+          "seam_mean_8bit": 2.0784504413604736,
+          "interior_mean_8bit": 2.2753679752349854,
+          "interior_line_p95_8bit": 2.6001625061035156,
+          "seam_to_interior_ratio": 0.9134568572044373,
+          "seam_line_percentile": 24.53567937438905,
+          "within_internal_line_range": true
+        }
+      },
+      "normal_vs_2x2_height_conversion_max_lsb": 0
+    },
+    "GrateLattice": {
+      "mean_rgb": [
+        127.93365478515625,
+        127.9495849609375,
+        252.67205810546875
+      ],
+      "vector_length_min": 0.9952675700187683,
+      "vector_length_max": 1.0048019886016846,
+      "vector_length_max_error": 0.00480198860168457,
+      "blue_dominant_every_pixel": true,
+      "calibrated_uv_height_depth": 0.004434886292428022,
+      "seams": {
+        "x": {
+          "seam_mean_8bit": 0.0,
+          "interior_mean_8bit": 0.939068078994751,
+          "interior_line_p95_8bit": 10.617212295532227,
+          "seam_to_interior_ratio": 0.0,
+          "seam_line_percentile": 73.41153470185728,
+          "within_internal_line_range": true
+        },
+        "y": {
+          "seam_mean_8bit": 0.0,
+          "interior_mean_8bit": 0.8519061803817749,
+          "interior_line_p95_8bit": 6.434895038604736,
+          "seam_to_interior_ratio": 0.0,
+          "seam_line_percentile": 74.19354838709677,
+          "within_internal_line_range": true
+        }
+      },
+      "normal_vs_2x2_height_conversion_max_lsb": 0
+    },
+    "CableBundle": {
+      "mean_rgb": [
+        127.556884765625,
+        127.7869873046875,
+        251.9239501953125
+      ],
+      "vector_length_min": 0.9955765008926392,
+      "vector_length_max": 1.0050468444824219,
+      "vector_length_max_error": 0.005046844482421875,
+      "blue_dominant_every_pixel": true,
+      "calibrated_uv_height_depth": 0.0076222857494546905,
+      "seams": {
+        "x": {
+          "seam_mean_8bit": 0.3333333432674408,
+          "interior_mean_8bit": 1.5495274066925049,
+          "interior_line_p95_8bit": 5.9666643142700195,
+          "seam_to_interior_ratio": 0.2151193618774414,
+          "seam_line_percentile": 22.09188660801564,
+          "within_internal_line_range": true
+        },
+        "y": {
+          "seam_mean_8bit": 0.4160156548023224,
+          "interior_mean_8bit": 0.37789246439933777,
+          "interior_line_p95_8bit": 0.4388020634651184,
+          "seam_to_interior_ratio": 1.1008837223052979,
+          "seam_line_percentile": 81.23167155425219,
+          "within_internal_line_range": true
+        }
+      },
+      "normal_vs_2x2_height_conversion_max_lsb": 0
+    },
+    "SciFiFloorPanels": {
+      "mean_rgb": [
+        127.89261245727539,
+        127.89438819885254,
+        252.25268745422363
+      ],
+      "vector_length_min": 0.9945874214172363,
+      "vector_length_max": 1.0061479806900024,
+      "vector_length_max_error": 0.006147980690002441,
+      "blue_dominant_every_pixel": true,
+      "calibrated_uv_height_depth": 0.013479289034143,
+      "seams": {
+        "x": {
+          "seam_mean_8bit": 0.0,
+          "interior_mean_8bit": 2.5642285346984863,
+          "interior_line_p95_8bit": 4.590563774108887,
+          "seam_to_interior_ratio": 0.0,
+          "seam_line_percentile": 5.180840664711632,
+          "within_internal_line_range": true
+        },
+        "y": {
+          "seam_mean_8bit": 2.96875,
+          "interior_mean_8bit": 2.4527993202209473,
+          "interior_line_p95_8bit": 3.3472652435302734,
+          "seam_to_interior_ratio": 1.210351824760437,
+          "seam_line_percentile": 45.650048875855326,
+          "within_internal_line_range": true
+        }
+      },
+      "normal_vs_2x2_height_conversion_max_lsb": 0
+    },
+    "RibbedRubber": {
+      "mean_rgb": [
+        127.50784015655518,
+        127.4999647140503,
+        252.10469722747803
+      ],
+      "vector_length_min": 0.9947729706764221,
+      "vector_length_max": 1.0052917003631592,
+      "vector_length_max_error": 0.00529170036315918,
+      "blue_dominant_every_pixel": true,
+      "calibrated_uv_height_depth": 0.008085138056545139,
+      "seams": {
+        "x": {
+          "seam_mean_8bit": 1.8121744394302368,
+          "interior_mean_8bit": 1.406821846961975,
+          "interior_line_p95_8bit": 3.965467929840088,
+          "seam_to_interior_ratio": 1.2881336212158203,
+          "seam_line_percentile": 84.1642228739003,
+          "within_internal_line_range": true
+        },
+        "y": {
+          "seam_mean_8bit": 0.2509765625,
+          "interior_mean_8bit": 0.21756978332996368,
+          "interior_line_p95_8bit": 0.26331380009651184,
+          "seam_to_interior_ratio": 1.1535451412200928,
+          "seam_line_percentile": 83.77321603128055,
+          "within_internal_line_range": true
+        }
+      },
+      "normal_vs_2x2_height_conversion_max_lsb": 0
+    },
+    "TechGreebles": {
+      "mean_rgb": [
+        127.79840469360352,
+        127.75968551635742,
+        252.11101150512695
+      ],
+      "vector_length_min": 0.99421626329422,
+      "vector_length_max": 1.0058422088623047,
+      "vector_length_max_error": 0.0058422088623046875,
+      "blue_dominant_every_pixel": true,
+      "calibrated_uv_height_depth": 0.011271328785284978,
+      "seams": {
+        "x": {
+          "seam_mean_8bit": 0.0,
+          "interior_mean_8bit": 0.8535022735595703,
+          "interior_line_p95_8bit": 2.067577362060547,
+          "seam_to_interior_ratio": 0.0,
+          "seam_line_percentile": 17.6930596285435,
+          "within_internal_line_range": true
+        },
+        "y": {
+          "seam_mean_8bit": 0.0,
+          "interior_mean_8bit": 0.9895323514938354,
+          "interior_line_p95_8bit": 2.637434959411621,
+          "seam_to_interior_ratio": 0.0,
+          "seam_line_percentile": 15.151515151515152,
+          "within_internal_line_range": true
+        }
+      },
+      "normal_vs_2x2_height_conversion_max_lsb": 0
+    },
+    "RockStrata": {
+      "mean_rgb": [
+        127.49345779418945,
+        127.52468872070312,
+        250.58710193634033
+      ],
+      "vector_length_min": 0.9944018721580505,
+      "vector_length_max": 1.0058422088623047,
+      "vector_length_max_error": 0.0058422088623046875,
+      "blue_dominant_every_pixel": true,
+      "calibrated_uv_height_depth": 0.027259785514703358,
+      "seams": {
+        "x": {
+          "seam_mean_8bit": 0.5944010019302368,
+          "interior_mean_8bit": 0.6209689974784851,
+          "interior_line_p95_8bit": 0.998858630657196,
+          "seam_to_interior_ratio": 0.9572152495384216,
+          "seam_line_percentile": 46.138807429130004,
+          "within_internal_line_range": true
+        },
+        "y": {
+          "seam_mean_8bit": 1.2047526836395264,
+          "interior_mean_8bit": 1.2239625453948975,
+          "interior_line_p95_8bit": 1.7901368141174316,
+          "seam_to_interior_ratio": 0.984305202960968,
+          "seam_line_percentile": 50.9286412512219,
+          "within_internal_line_range": true
+        }
+      },
+      "normal_vs_2x2_height_conversion_max_lsb": 0
+    },
+    "CrateredSurface": {
+      "mean_rgb": [
+        127.54097080230713,
+        127.56220722198486,
+        251.1994915008545
+      ],
+      "vector_length_min": 0.9940925240516663,
+      "vector_length_max": 1.0062702894210815,
+      "vector_length_max_error": 0.006270289421081543,
+      "blue_dominant_every_pixel": true,
+      "calibrated_uv_height_depth": 0.03998725026066734,
+      "seams": {
+        "x": {
+          "seam_mean_8bit": 1.3528645038604736,
+          "interior_mean_8bit": 1.0808724164962769,
+          "interior_line_p95_8bit": 1.5599279403686523,
+          "seam_to_interior_ratio": 1.2516412734985352,
+          "seam_line_percentile": 80.4496578690127,
+          "within_internal_line_range": true
+        },
+        "y": {
+          "seam_mean_8bit": 1.494140625,
+          "interior_mean_8bit": 1.0846729278564453,
+          "interior_line_p95_8bit": 1.6121745109558105,
+          "seam_to_interior_ratio": 1.3775033950805664,
+          "seam_line_percentile": 90.12707722385142,
+          "within_internal_line_range": true
+        }
+      },
+      "normal_vs_2x2_height_conversion_max_lsb": 0
+    }
+  },
+  "alphas": {
+    "StraightLine": {
+      "range_0_to_1": [
+        0.0,
+        1.0
+      ],
+      "border_max": 0,
+      "unique_levels": 102,
+      "nonzero_coverage_percent": 1.9202232360839844
+    },
+    "ParallelLines": {
+      "range_0_to_1": [
+        0.0,
+        1.0
+      ],
+      "border_max": 0,
+      "unique_levels": 144,
+      "nonzero_coverage_percent": 4.5684814453125
+    },
+    "DashedLine": {
+      "range_0_to_1": [
+        0.0,
+        1.0
+      ],
+      "border_max": 0,
+      "unique_levels": 243,
+      "nonzero_coverage_percent": 1.5725135803222656
+    },
+    "DottedLine": {
+      "range_0_to_1": [
+        0.0,
+        1.0
+      ],
+      "border_max": 0,
+      "unique_levels": 235,
+      "nonzero_coverage_percent": 0.5061149597167969
+    },
+    "Crosshatch": {
+      "range_0_to_1": [
+        0.0,
+        1.0
+      ],
+      "border_max": 0,
+      "unique_levels": 240,
+      "nonzero_coverage_percent": 10.82315444946289
+    },
+    "GridLines": {
+      "range_0_to_1": [
+        0.0,
+        1.0
+      ],
+      "border_max": 0,
+      "unique_levels": 14,
+      "nonzero_coverage_percent": 8.253002166748047
+    },
+    "ConcentricRings": {
+      "range_0_to_1": [
+        0.0,
+        1.0
+      ],
+      "border_max": 0,
+      "unique_levels": 256,
+      "nonzero_coverage_percent": 7.4741363525390625
+    },
+    "ChevronBands": {
+      "range_0_to_1": [
+        0.0,
+        1.0
+      ],
+      "border_max": 0,
+      "unique_levels": 39,
+      "nonzero_coverage_percent": 4.971408843994141
+    },
+    "CircuitBranch": {
+      "range_0_to_1": [
+        0.0,
+        1.0
+      ],
+      "border_max": 0,
+      "unique_levels": 256,
+      "nonzero_coverage_percent": 3.7012100219726562
+    },
+    "CircuitNodes": {
+      "range_0_to_1": [
+        0.0,
+        1.0
+      ],
+      "border_max": 0,
+      "unique_levels": 256,
+      "nonzero_coverage_percent": 5.221366882324219
+    },
+    "PanelSeam": {
+      "range_0_to_1": [
+        0.0,
+        1.0
+      ],
+      "border_max": 0,
+      "unique_levels": 42,
+      "nonzero_coverage_percent": 1.4606475830078125
+    },
+    "PanelCorner": {
+      "range_0_to_1": [
+        0.0,
+        1.0
+      ],
+      "border_max": 0,
+      "unique_levels": 192,
+      "nonzero_coverage_percent": 3.0007362365722656
+    },
+    "BoltCluster": {
+      "range_0_to_1": [
+        0.0,
+        1.0
+      ],
+      "border_max": 0,
+      "unique_levels": 256,
+      "nonzero_coverage_percent": 8.600044250488281
+    },
+    "VentSlots": {
+      "range_0_to_1": [
+        0.0,
+        1.0
+      ],
+      "border_max": 0,
+      "unique_levels": 248,
+      "nonzero_coverage_percent": 12.14132308959961
+    },
+    "HexCellCluster": {
+      "range_0_to_1": [
+        0.0,
+        1.0
+      ],
+      "border_max": 0,
+      "unique_levels": 40,
+      "nonzero_coverage_percent": 3.9110183715820312
+    },
+    "SciFiGlyphs": {
+      "range_0_to_1": [
+        0.0,
+        1.0
+      ],
+      "border_max": 0,
+      "unique_levels": 47,
+      "nonzero_coverage_percent": 2.8818130493164062
+    },
+    "HUDReticle": {
+      "range_0_to_1": [
+        0.0,
+        1.0
+      ],
+      "border_max": 0,
+      "unique_levels": 256,
+      "nonzero_coverage_percent": 3.4267425537109375
+    },
+    "TechGreebles": {
+      "range_0_to_1": [
+        0.0,
+        1.0
+      ],
+      "border_max": 0,
+      "unique_levels": 179,
+      "nonzero_coverage_percent": 13.355159759521484
+    },
+    "CableArc": {
+      "range_0_to_1": [
+        0.0,
+        1.0
+      ],
+      "border_max": 0,
+      "unique_levels": 55,
+      "nonzero_coverage_percent": 5.663776397705078
+    },
+    "EnergyArc": {
+      "range_0_to_1": [
+        0.0,
+        1.0
+      ],
+      "border_max": 0,
+      "unique_levels": 232,
+      "nonzero_coverage_percent": 6.434345245361328
+    }
+  },
+  "sha256": {
+    "textures/CircuitTraces_Normal.png": "432b3bf5959e99eb3eaeacf659e07f343611417a49ede7648208d3f5054a08b7",
+    "textures/SciFiHullPanels_Normal.png": "762f8f094eb2be89d325a41d0ccb8cdb9e3a01d5c8f6ccf71f500cc0292048c5",
+    "textures/ParallelRidges_Normal.png": "71db2b16f7e399d591920d8501ba50130d0287a514b6646c0cbff8375e50cd78",
+    "textures/CrosshatchGrooves_Normal.png": "74ee24b7a235b7559adfba4d127199a67ab21e8c2ca39f39f7cec47cb50a3512",
+    "textures/CableChannels_Normal.png": "746eccb1a8a8863bda3b6371721a7531fef4b1bc07d24940fe6d19e9cbc5e1b4",
+    "textures/VentSlats_Normal.png": "510fe48edb327cc37174ecf27752559c71da4f3b14e870c423ca848a340eb601",
+    "textures/HoneycombVent_Normal.png": "7a6974e07c8641e7e51157440605d0c4b28d93fe9581851f55057b086e3ac668",
+    "textures/PerforatedMetal_Normal.png": "70d3fd46a6bb7b99fd619d86782f672f2680996d845b46846179927417a585b5",
+    "textures/RivetedPanels_Normal.png": "85e4ef782dfe2408678de29afc7bf2d1f8705538b486b1e04b4891501be17321",
+    "textures/BoltedArmor_Normal.png": "a37eeb3fdf8ae56e3afb1878324a7ae98d3e4ea84a61e0019a1b3e7f9507c073",
+    "textures/CoolingFins_Normal.png": "3cf49a7f598425ea49e519bfd7947a2bffd29ec82970a8980156dd06245c9ac0",
+    "textures/ConcentricMachining_Normal.png": "eeb2b787f59930713e9dacbab17679892e1f10fd5a6a3de6052197ebc8af6100",
+    "textures/KnurledMetal_Normal.png": "e4e212ce800c20c8f5811b98422a8a0fd5876e0b4f11ba94b51d52200130d46d",
+    "textures/GrateLattice_Normal.png": "89d95e618dacad33451ff1fd5d99aef928ac9509514a46df16a1f7691d68c43c",
+    "textures/CableBundle_Normal.png": "53dc80dcc18d88a527d289cdfde5daed1d737e1f7b407f8006667dd37a0a38ab",
+    "textures/SciFiFloorPanels_Normal.png": "e3b6fc78502421f2a2110b612dcf8e7c70356fca69d9d1a1d3d35ee91973a167",
+    "textures/RibbedRubber_Normal.png": "6fec54541c51c5b030130be4d56aa962abb979b73538fc352523cf4e161e59e3",
+    "textures/TechGreebles_Normal.png": "f3e728286b0885f6de449ad90d090e4b73ce5375c37d7459e993b0f7cc5c4cb9",
+    "textures/RockStrata_Normal.png": "cf5798bf5bcc3330138d45553e08f18d43dcc7d59aeae46cb9904a2fd523903b",
+    "textures/CrateredSurface_Normal.png": "47972bbaceb918fd1b47b899d30041367124c87edfa8afe54ce56b4f283b9f98",
+    "alphas/StraightLine_Alpha.png": "11e68f57dad9fbb01daf4933c31747fcf8259ad40d829309d1e1fae25dfab1ff",
+    "alphas/ParallelLines_Alpha.png": "74fd9b52b119522bb21ec4c30b3f40581d456362f0ef460081190e8ada9d017b",
+    "alphas/DashedLine_Alpha.png": "39e3af1378397e5222d401775a218f1b2011131d9ffde906af3a32233b7ef874",
+    "alphas/DottedLine_Alpha.png": "bbc79da022cb6811a851abc54553053b90ef15c48ec485603c1625183be2511e",
+    "alphas/Crosshatch_Alpha.png": "cb8891b2010e183fa8acdd034fde3de444999f58f4cbeadf7a8ec7ace18139cb",
+    "alphas/GridLines_Alpha.png": "513feba656c24e5c50ca6d8a6e7febad6a0a093089adc9198ddf7ceeaea6463e",
+    "alphas/ConcentricRings_Alpha.png": "f5c1616766277470f9ca14ba0d77c1ccce392b6b3c8d8f81a4fde6574e187c7d",
+    "alphas/ChevronBands_Alpha.png": "0f5c61ec78860d7ed7bd7f3ea2c2f7978b0b896a4089bf316451f47a2772a803",
+    "alphas/CircuitBranch_Alpha.png": "8a9a80d4a321224f59fad351619a8ff8bd038462a011e2493f97881611bd203b",
+    "alphas/CircuitNodes_Alpha.png": "b0b3cdb23a3ba841399b6c902534e9b0b0f97dafcdd03ce4efc5a1e386886b71",
+    "alphas/PanelSeam_Alpha.png": "4c390eb4550401f91a256d070797d8cccd2a94aae99777f3ebcd5c791462e68c",
+    "alphas/PanelCorner_Alpha.png": "4d1cbb16dd721aff2a6a70d50c28ecd39416e2794910b6ec73a7f85125f2ede6",
+    "alphas/BoltCluster_Alpha.png": "711a3c25de9383e9ca1113326de28c2e16f6de5ac9a4337ebd1259c69d394890",
+    "alphas/VentSlots_Alpha.png": "c484d44a6443e6fb85090f3904e2d776d3692c13dcd7df18ef0132cedb580aa7",
+    "alphas/HexCellCluster_Alpha.png": "f08d23b3bdd8125e5da96f9417f5afda6bc554131a781f78daab441ae486d940",
+    "alphas/SciFiGlyphs_Alpha.png": "5caee2a89a59a079416e1ab2ba91a29c4ee8da547c5941701ffc212117697f95",
+    "alphas/HUDReticle_Alpha.png": "0d87110057f53ebca507a2b8634c8c00598c6a18e630716f448bfb4b845ba581",
+    "alphas/TechGreebles_Alpha.png": "2396ce78a3a3f3fa4999c83e435819c9972587ce50693a5591c7da50d8ec6302",
+    "alphas/CableArc_Alpha.png": "27235128fe15c0f7ea1a87b36271206fdacad7f3b39ab78a13603cf5f72a915f",
+    "alphas/EnergyArc_Alpha.png": "6988a3f305a2939a913a7e8705c9329a5a332760e37573941f99a256bcf6aaf1"
+  }
+}

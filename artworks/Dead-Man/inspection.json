@@ -1,0 +1,26 @@
+{
+  "bounds_max": [
+    110.52214813232422,
+    26.88736343383789,
+    22.714874267578125
+  ],
+  "bounds_min": [
+    -110.35858917236328,
+    -382.2618103027344,
+    -66.968994140625
+  ],
+  "covered_samples_at_512": 147062,
+  "import_warnings": [
+    "7 degenerate triangles dropped by importer"
+  ],
+  "materials": [
+    "deadman"
+  ],
+  "objects": [
+    "body_low_mesh.002"
+  ],
+  "separate_high_poly": false,
+  "triangles": 96188,
+  "uv_overlap_samples_at_512": 0,
+  "vertices": 51920
+}

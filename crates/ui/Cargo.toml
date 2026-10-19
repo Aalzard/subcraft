@@ -38,6 +38,8 @@ pollster.workspace = true
 
 [dev-dependencies]
 subcraft-mesh.workspace = true
+rayon.workspace = true
+mimalloc.workspace = true
 
 # Web build: browser canvas, uploads and downloads.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
