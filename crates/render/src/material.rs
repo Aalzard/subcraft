@@ -145,11 +145,12 @@ pub struct GpuMaterial {
     /// Baked mesh maps (2D view display).
     pub mesh_maps: BTreeMap<subcraft_core::MeshMapKind, ChannelTexture>,
     pub bind_group: Option<wgpu::BindGroup>,
+    pub bake_bind_groups: BTreeMap<subcraft_core::MeshMapKind, wgpu::BindGroup>,
 }
 
 impl GpuMaterial {
     pub fn new() -> Self {
-        Self { albedo_filter: Default::default(), channels: BTreeMap::new(), mesh_maps: BTreeMap::new(), bind_group: None }
+        Self { albedo_filter: Default::default(), channels: BTreeMap::new(), mesh_maps: BTreeMap::new(), bind_group: None, bake_bind_groups: BTreeMap::new() }
     }
 }
 

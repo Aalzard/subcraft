@@ -90,6 +90,10 @@ pub struct LaunchOptions {
     /// Start a real high-to-low bake and show its dialog (also usable with --screenshot).
     pub bake_high_poly: Option<PathBuf>,
     pub bake_size: Option<u32>,
+    /// Inspect the real high/low geometry before baking, without starting the bake.
+    pub bake_preview_only: bool,
+    /// Pin a completed map for reproducible native screenshot validation.
+    pub bake_preview_map: Option<subcraft_core::MeshMapKind>,
     /// Recover the newest crashed session without asking.
     pub recover: bool,
     /// Autosave interval instead of the preference (testing).
@@ -333,9 +337,10 @@ impl SubcraftApp {
             state.bake.high_poly = high.display().to_string();
             if let Some(size) = options.bake_size { state.bake.settings.size = size; }
             let texture_sets = state.session.document().texture_sets.iter().map(|t| (t.id, t.material_slot)).collect();
-            state.bake.job = Some(state.session.start_bake(subcraft_app::BakeRequest {
+            if !options.bake_preview_only { state.bake.job = Some(state.session.start_bake(subcraft_app::BakeRequest {
                 settings: state.bake.settings.clone(), high_poly: Some(high.clone()), texture_sets,
-            }));
+            })); }
+            if let Some(kind) = options.bake_preview_map { state.bake.displayed_map = Some(kind); state.bake.follow_maps = false; }
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -806,7 +811,16 @@ impl SubcraftApp {
     fn handle_screenshot(&mut self, ctx: &egui::Context) {
         let Some(path) = self.screenshot.clone() else { return };
         ctx.request_repaint();
-        if !self.screenshot_requested && self.frames >= 20 && self.state.bake.job.is_none() && !self.state.session.composites_pending() {
+        // A pinned map can be captured during a real bake, after its GPU upload. This follows
+        // actual worker completion, never a simulated timer or a placeholder image.
+        let pinned_ready = !self.state.bake.follow_maps && self.state.bake.displayed_map.is_some_and(|kind| {
+            let ts = self.state.session.selection().texture_set;
+            self.state.session.mesh_maps(ts).and_then(|m| m.get(kind)).is_some_and(|image|
+                self.state.uploaded_maps.get(&(ts, kind)).is_some_and(|gpu| gpu.same_storage(image)))
+        });
+        if !self.screenshot_requested && self.frames >= 20 && (pinned_ready || self.state.bake.job.is_none() && !self.state.session.composites_pending())
+            && !self.state.bake.preview_pending() && (self.state.bake.preview_mesh.is_none() || self.state.bake.preview_uploaded)
+        {
             ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
             self.screenshot_requested = true;
         }

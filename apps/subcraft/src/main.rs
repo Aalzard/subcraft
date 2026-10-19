@@ -61,6 +61,12 @@ fn main() -> anyhow::Result<()> {
             "--view-2d" => options.view_2d = true,
             "--brush-panel" => options.brush_panel = true,
             "--bake-high" => options.bake_high_poly = Some(args.next().ok_or_else(|| anyhow::anyhow!("--bake-high expects a high-poly mesh path"))?.into()),
+            "--bake-preview" => options.bake_preview_only = true,
+            "--bake-preview-map" => {
+                let name = args.next().ok_or_else(|| anyhow::anyhow!("--bake-preview-map expects a mesh-map key"))?;
+                options.bake_preview_map = Some(subcraft_app::MeshMapKind::ALL.into_iter().find(|k| k.key() == name)
+                    .ok_or_else(|| anyhow::anyhow!("unknown bake map {name}"))?);
+            }
             "--bake-size" => {
                 options.bake_size = Some(args.next().and_then(|s| s.parse::<u32>().ok()).filter(|s| [256, 512, 1024, 2048, 4096].contains(s))
                     .ok_or_else(|| anyhow::anyhow!("--bake-size expects 256, 512, 1024, 2048 or 4096"))?);
@@ -78,7 +84,7 @@ fn main() -> anyhow::Result<()> {
                 options.autosave_interval = args.next().and_then(|s| s.parse::<f64>().ok()).map(std::time::Duration::from_secs_f64);
             }
             "-h" | "--help" => {
-                println!("usage: subcraft [project.subcraft | mesh file] [--demo] [--view-2d] [--brush-panel] [--bake-high mesh] [--bake-size 256|512|1024|2048|4096] [--screenshot out.png] [--welcome] [--quick-start] [--guide-step 1..6] [--recover] [--autosave-interval seconds]");
+                println!("usage: subcraft [project.subcraft | mesh file] [--demo] [--view-2d] [--brush-panel] [--bake-high mesh] [--bake-preview] [--bake-preview-map map_key] [--bake-size 256|512|1024|2048|4096] [--screenshot out.png] [--welcome] [--quick-start] [--guide-step 1..6] [--recover] [--autosave-interval seconds]");
                 return Ok(());
             }
             path => options.mesh = Some(path.into()),

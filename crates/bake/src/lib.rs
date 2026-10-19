@@ -79,6 +79,7 @@ pub struct Progress {
     done: AtomicUsize,
     total: AtomicUsize,
     cancel: AtomicBool,
+    current_map: AtomicUsize,
 }
 
 impl Progress {
@@ -94,6 +95,9 @@ impl Progress {
     }
     pub fn is_cancelled(&self) -> bool {
         self.cancel.load(Ordering::Relaxed)
+    }
+    pub fn current_map(&self) -> Option<MeshMapKind> {
+        self.current_map.load(Ordering::Relaxed).checked_sub(1).and_then(|i| MeshMapKind::ALL.get(i).copied())
     }
 }
 
@@ -131,7 +135,18 @@ const CHUNK: usize = 2048;
 
 /// Bake the requested maps for one texture set.
 pub fn bake(input: &BakeInput, settings: &BakeSettings, progress: &Progress) -> Result<BTreeMap<MeshMapKind, TiledImage>, BakeError> {
+    bake_streamed(input, settings, progress, |_, _| {})
+}
+
+/// Publish each complete, padded map as soon as it is ready. The callback runs on the calling
+/// thread; synchronous callers keep the same exact output through [`bake`]. No partial map is
+/// published, including on cancellation. Cloning an image here only shares its immutable tiles.
+pub fn bake_streamed(
+    input: &BakeInput, settings: &BakeSettings, progress: &Progress,
+    mut completed: impl FnMut(MeshMapKind, &TiledImage),
+) -> Result<BTreeMap<MeshMapKind, TiledImage>, BakeError> {
     let size = settings.size;
+    progress.current_map.store(0, Ordering::Relaxed);
     let low = input.low.mesh;
     let samples = texels(low, input.material_slot, size);
     if samples.is_empty() {
@@ -172,6 +187,7 @@ pub fn bake(input: &BakeInput, settings: &BakeSettings, progress: &Progress) -> 
 
     let mut out = BTreeMap::new();
     for &kind in &settings.maps {
+        progress.current_map.store(MeshMapKind::ALL.iter().position(|k| *k == kind).expect("known map") + 1, Ordering::Relaxed);
         let comps = kind.components();
         // Per-texel evaluation, chunked for cancellation and progress.
         let eval = |i: usize| -> [f32; 3] {
@@ -253,8 +269,12 @@ pub fn bake(input: &BakeInput, settings: &BakeSettings, progress: &Progress) -> 
         dilate_infinite(size as usize, size as usize, comps, &mut dense, &covered);
         let mut fill = [0.0f32; 4];
         fill[..comps].copy_from_slice(&neutral[..comps]);
-        out.insert(kind, TiledImage::from_dense(size, size, comps, fill, &dense));
+        let image = TiledImage::from_dense(size, size, comps, fill, &dense);
+        if progress.is_cancelled() { return Err(BakeError::Cancelled); }
+        completed(kind, &image);
+        out.insert(kind, image);
     }
+    progress.current_map.store(0, Ordering::Relaxed);
     Ok(out)
 }
 

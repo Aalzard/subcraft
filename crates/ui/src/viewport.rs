@@ -125,7 +125,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     let drop_hover = response.dnd_hover_payload::<crate::panels::shelf::ShelfDrag>().is_some();
 
     // ----- part picking: clicks show / hide the selected layer on mesh parts ----------------------
-    let picking = state.picking_parts && state.session.selected_layer().is_some() && !state.painting;
+    let bake_mode = state.bake.open || state.bake.job.is_some();
+    let picking = !bake_mode && state.picking_parts && state.session.selected_layer().is_some() && !state.painting;
     if state.picking_parts && (!picking || ui.input(|i| i.key_pressed(egui::Key::Escape))) {
         state.picking_parts = false;
     }
@@ -143,7 +144,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     }
 
     // ----- painting ----------------------------------------------------------------------------
-    if state.tool == Tool::Pen && !picking && !alt && !stencil_edit && !typing && let Some(p) = pointer {
+    if !bake_mode && state.tool == Tool::Pen && !picking && !alt && !stencil_edit && !typing && let Some(p) = pointer {
             if primary_pressed && response.hovered() {
                 let hit = state.pen.preview(&state.session).and_then(|path| crate::pen::hit(path, state.pen.selected_anchor(), p, |uv| pen_position(state, &camera, rect, uv)));
                 if let Err(e) = state.pen.begin_surface(&mut state.session, &camera, to_screen(p), hit) { state.set_status(format!("Pen: {e}"), now); }
@@ -151,8 +152,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 state.pen.drag_surface(&state.session, &camera, to_screen(p), mods.shift);
             }
     }
-    let paint_tool = matches!(state.tool, Tool::Brush | Tool::Eraser) && !picking;
-    if primary_pressed && response.hovered() && !alt && !stencil_edit && !picking && state.tool != Tool::Pen {
+    let paint_tool = !bake_mode && matches!(state.tool, Tool::Brush | Tool::Eraser) && !picking;
+    if !bake_mode && primary_pressed && response.hovered() && !alt && !stencil_edit && !picking && state.tool != Tool::Pen {
         if let Some(p) = pointer {
             let sp = to_screen(p);
             match state.tool {
@@ -212,6 +213,21 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             let view = &state.recovery.prefs.viewport;
             params.antialias = view.antialias;
             params.view_mode = view.view_mode();
+            if let Some(high) = &state.bake.preview_mesh {
+                if !state.bake.preview_uploaded {
+                    renderer.set_bake_preview(&rs.device, Some((&state.session.scene().mesh, high)));
+                    state.bake.preview_uploaded = true;
+                }
+            } else if !state.bake.preview_uploaded {
+                renderer.set_bake_preview(&rs.device, None);
+                state.bake.preview_uploaded = true;
+            }
+            params.bake_overlay = state.bake.overlay_active();
+            params.bake_cage = state.bake.cage;
+            params.bake_distances = [state.bake.settings.cage_front, state.bake.settings.cage_rear];
+            if state.bake.open && state.bake.live_maps && !params.bake_overlay {
+                params.bake_map = state.bake.displayed_map;
+            }
             params.grid = view.grid.then_some(subcraft_render::GridParams {
                 bounds: state.session.scene().mesh.bounds,
                 axes: view.grid_axes,
@@ -271,7 +287,11 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     if drop_hover {
         painter.rect_stroke(rect.shrink(1.0), 0.0, Stroke::new(2.0, ACCENT), egui::StrokeKind::Inside);
     }
-    let hint = if state.tool == Tool::Pen { "Click points · drag for curves · edit in 2D View · Enter finish · Esc cancel" }
+    let bake_hint = state.bake.displayed_map.map(|k| format!("Bake preview · {} · close Bake Mesh Maps to return to material", k.display_name()));
+    let hint = if bake_mode {
+        if state.bake.overlay_active() { "Blue: high poly · Red: exposed low poly · Pale: cage · RMB orbit · Wheel zoom" }
+        else { bake_hint.as_deref().unwrap_or("Baking mesh maps · RMB orbit · Wheel zoom") }
+    } else if state.tool == Tool::Pen { "Click points · drag for curves · edit in 2D View · Enter finish · Esc cancel" }
         else { "LMB paint · RMB menu / drag orbit · I isolate · H hide · Esc show all · Wheel zoom" };
     pill(&painter, rect.left_bottom() + egui::vec2(10.0, -10.0), egui::Align2::LEFT_BOTTOM, hint, theme::TEXT_FAINT);
     let mut right = rect.right_top() + egui::vec2(-10.0, 10.0);

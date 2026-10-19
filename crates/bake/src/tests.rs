@@ -6,6 +6,41 @@ use super::*;
 
 const RES: u32 = 128;
 
+#[test]
+fn streamed_maps_are_complete_padded_ordered_and_exactly_match_sync() {
+    let mesh = primitives::plane(2., 1);
+    let bvh = Bvh::build(&mesh);
+    let input = BakeInput { low: Geometry { mesh: &mesh, bvh: &bvh }, high: None, material_slot: 0 };
+    let settings = BakeSettings { size: 32, ao_samples: 4, thickness_samples: 4, ..BakeSettings::default() };
+    let mut events = Vec::new();
+    let streamed = bake_streamed(&input, &settings, &Progress::new(), |kind, map| {
+        assert_eq!((map.width(), map.height(), map.comps()), (32, 32, kind.components()));
+        assert!(map.to_dense().iter().all(|v| v.is_finite()));
+        events.push((kind, map.clone()));
+    }).unwrap();
+    assert_eq!(events.iter().map(|(k, _)| *k).collect::<Vec<_>>(), settings.maps);
+    let sync = bake(&input, &settings, &Progress::new()).unwrap();
+    assert_eq!(streamed, sync);
+    for (kind, image) in events { assert_eq!(&image, &sync[&kind]); }
+    for p in streamed[&MeshMapKind::Normal].to_dense().as_chunks::<3>().0 { assert_eq!(p, &[0.5, 0.5, 1.]); }
+}
+
+#[test]
+fn cancelling_between_maps_never_publishes_an_incomplete_map() {
+    let mesh = primitives::plane(2., 1);
+    let bvh = Bvh::build(&mesh);
+    let input = BakeInput { low: Geometry { mesh: &mesh, bvh: &bvh }, high: None, material_slot: 0 };
+    let progress = Progress::new();
+    let mut events = Vec::new();
+    let result = bake_streamed(&input, &settings(&[MeshMapKind::Normal, MeshMapKind::AmbientOcclusion]), &progress, |k, img| {
+        events.push((k, img.clone())); progress.cancel();
+    });
+    assert_eq!(result, Err(BakeError::Cancelled));
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].0, MeshMapKind::Normal);
+    assert_eq!(events[0].1.get(64, 64)[..3], [0.5, 0.5, 1.]);
+}
+
 fn settings(maps: &[MeshMapKind]) -> BakeSettings {
     BakeSettings { size: RES, maps: maps.to_vec(), ao_samples: 64, ..BakeSettings::default() }
 }

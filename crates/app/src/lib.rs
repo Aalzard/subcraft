@@ -26,7 +26,7 @@ pub mod layer_previews;
 pub mod updater;
 
 pub use actions::{ACTIONS, Action, ActionInfo, Key, Shortcut, action_for};
-pub use bake_job::{BakeJob, BakeRequest};
+pub use bake_job::{BakeJob, BakeRequest, BakePreviewJob};
 pub use command::{Command, CommandError, NewLayer};
 pub use images::TextureSetImport;
 pub use parts::MeshPart;

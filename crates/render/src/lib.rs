@@ -8,6 +8,7 @@
 
 pub mod gpu_mesh;
 pub mod grid;
+mod bake_preview;
 mod display;
 pub mod headless;
 pub mod material;
@@ -104,6 +105,12 @@ pub struct ViewParams {
     pub view_mode: ViewMode,
     /// Display-only floor/axes. None for thumbnails, exports and callers that need no guides.
     pub grid: Option<GridParams>,
+    /// Display-only high/low comparison using meshes supplied by `set_bake_preview`.
+    pub bake_overlay: bool,
+    pub bake_cage: bool,
+    pub bake_distances: [f32; 2],
+    /// Show a raw baked map on the low-poly UVs without changing material textures.
+    pub bake_map: Option<MeshMapKind>,
 }
 
 /// What the 3D view shows on the model.
@@ -161,6 +168,7 @@ impl ViewParams {
             antialias: true,
             view_mode: ViewMode::Material,
             grid: None,
+            bake_overlay: false, bake_cage: true, bake_distances: [0.01; 2], bake_map: None,
         }
     }
 }
@@ -191,6 +199,7 @@ pub struct ViewportRenderer {
     /// Single-sample pipeline (anti-aliasing off).
     pipeline_no_aa: wgpu::RenderPipeline,
     grid: grid::GridPass,
+    bake_preview: bake_preview::BakePreviewPass,
     globals: wgpu::Buffer,
     globals_layout: wgpu::BindGroupLayout,
     globals_bg: wgpu::BindGroup,
@@ -340,6 +349,7 @@ impl ViewportRenderer {
             pipeline,
             pipeline_no_aa,
             grid: grid::GridPass::new(device),
+            bake_preview: bake_preview::BakePreviewPass::new(device),
             globals,
             globals_layout,
             globals_bg,
@@ -416,6 +426,11 @@ impl ViewportRenderer {
         self.mesh.is_some()
     }
 
+    /// Cache display geometry once, independently of the project's mesh and material textures.
+    pub fn set_bake_preview(&mut self, device: &wgpu::Device, meshes: Option<(&Mesh, &Mesh)>) {
+        self.bake_preview.set_meshes(device, meshes);
+    }
+
     /// Upload `tiles` of a channel's composite (all tiles when `None`, or when the texture had
     /// to be (re)created because size or format changed).
     pub fn upload_channel(
@@ -451,6 +466,7 @@ impl ViewportRenderer {
         let tex = ChannelTexture::new(device, image.width(), image.comps(), kind.key());
         tex.upload(queue, image, &(0..image.tile_count()).collect::<Vec<_>>());
         mat.mesh_maps.insert(kind, tex);
+        mat.bake_bind_groups.remove(&kind);
     }
 
     /// Render a display preview (sRGB 8-bit, egui-ready `display_view`) of an uploaded channel or
@@ -503,6 +519,26 @@ impl ViewportRenderer {
             self.target = Some(RenderTarget::new(device, size, samples));
         }
         self.ensure_bind_groups(device);
+        if let Some(kind) = params.bake_map {
+            for mat in self.materials.values_mut() {
+                if mat.bake_bind_groups.contains_key(&kind) { continue; }
+                let neutral = ChannelTexture::constant(device, queue, {
+                    let n = kind.neutral_value(); [n[0], n[1], n[2], 1.]
+                }, if kind.components() == 1 { 1 } else { 4 }, "pending bake neutral");
+                let tex = mat.mesh_maps.get(&kind).unwrap_or(&neutral);
+                let mut entries = vec![
+                    wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::Sampler(&self.sampler) },
+                    wgpu::BindGroupEntry { binding: 8, resource: wgpu::BindingResource::Sampler(&self.sampler) },
+                ];
+                for (i, k) in SHADED_CHANNELS.iter().enumerate() {
+                    let view = if i == 0 { &tex.view } else { &self.defaults[k].view };
+                    entries.push(wgpu::BindGroupEntry { binding: i as u32 + 1, resource: wgpu::BindingResource::TextureView(view) });
+                }
+                mat.bake_bind_groups.insert(kind, device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("bake map preview"), layout: &self.material_layout, entries: &entries,
+                }));
+            }
+        }
         let e = &params.environment;
         let v4 = |c: [f32; 3]| [c[0], c[1], c[2], 0.0];
         let mut sh = [[0.0f32; 4]; 9];
@@ -521,10 +557,14 @@ impl ViewportRenderer {
             irr_up: v4(e.irradiance_up),
             irr_down: v4(e.irradiance_down),
             lights: [e.panels, e.top, e.key_softbox, if e.use_hdri && self.env_levels > 1 { 1.0 } else { 0.0 }],
-            env_misc: [e.rotation, e.hdri_intensity, (self.env_levels - 1) as f32, params.view_mode as u32 as f32],
+            env_misc: [e.rotation, e.hdri_intensity, (self.env_levels - 1) as f32,
+                params.bake_map.map_or(params.view_mode as u32 as f32, |k| if k.components() == 1 { 8. } else { 7. })],
             sh,
         };
         queue.write_buffer(&self.globals, 0, bytemuck::bytes_of(&globals));
+        if params.bake_overlay {
+            self.bake_preview.prepare(queue, params.proj * params.view, params.bake_distances);
+        }
         if let Some(grid) = params.grid {
             self.grid.prepare(device, queue, params.proj * params.view, params.eye, grid);
         }
@@ -554,13 +594,17 @@ impl ViewportRenderer {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
-            if let Some(mesh) = &self.mesh {
+            if params.bake_overlay {
+                self.bake_preview.draw(&mut pass, params.antialias, params.bake_cage);
+            } else if let Some(mesh) = &self.mesh {
                 pass.set_pipeline(if samples > 1 { &self.pipeline } else { &self.pipeline_no_aa });
                 pass.set_bind_group(0, &self.globals_bg, &[]);
                 pass.set_vertex_buffer(0, mesh.vertices.slice(..));
                 pass.set_index_buffer(mesh.indices.slice(..), wgpu::IndexFormat::Uint32);
                 for r in &mesh.ranges {
-                    let Some(bg) = self.materials.get(&r.material_slot).and_then(|m| m.bind_group.as_ref()) else { continue };
+                    let Some(bg) = self.materials.get(&r.material_slot).and_then(|m| match params.bake_map {
+                        Some(k) => m.bake_bind_groups.get(&k), None => m.bind_group.as_ref(),
+                    }) else { continue };
                     pass.set_bind_group(1, bg, &[]);
                     pass.draw_indexed(r.first_index..r.first_index + r.index_count, 0, 0..1);
                 }

@@ -178,6 +178,8 @@ fn channel_view(mode: i32, uv: vec2<f32>) -> vec4<f32> {
         case 3: { return as_stored(vec3<f32>(textureSample(t_rough, samp, uv).r)); }
         case 4: { return as_stored(vec3<f32>(textureSample(t_metal, samp, uv).r)); }
         case 5: { return as_stored(vec3<f32>(textureSample(t_height, samp, uv).r)); }
+        case 7: { return as_stored(textureSample(t_base, samp, uv).rgb); }
+        case 8: { return as_stored(vec3<f32>(textureSample(t_base, samp, uv).r)); }
         default: { return as_stored(vec3<f32>(textureSample(t_ao, samp, uv).r)); }
     }
 }

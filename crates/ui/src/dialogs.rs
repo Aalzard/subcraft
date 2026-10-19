@@ -278,19 +278,65 @@ pub struct BakeUi {
     pub job: Option<subcraft_app::BakeJob>,
     /// Kept in the dialog until another bake starts, including actionable failures.
     pub result: Option<Result<usize, String>>,
+    pub preview: bool,
+    pub cage: bool,
+    pub live_maps: bool,
+    pub displayed_map: Option<subcraft_core::MeshMapKind>,
+    pub follow_maps: bool,
+    pub preview_mesh: Option<std::sync::Arc<subcraft_mesh::Mesh>>,
+    preview_source: Option<subcraft_app::bake_job::BakePreviewMesh>,
+    preview_job: Option<subcraft_app::BakePreviewJob>,
+    preview_path: String,
+    preview_scene: Option<std::sync::Arc<subcraft_mesh::Mesh>>,
+    pub preview_error: Option<String>,
+    pub preview_uploaded: bool,
 }
 
 impl Default for BakeUi {
     fn default() -> Self {
-        Self { open: false, settings: subcraft_app::BakeSettings::default(), high_poly: String::new(), all_sets: true, job: None, result: None }
+        Self { open: false, settings: subcraft_app::BakeSettings::default(), high_poly: String::new(), all_sets: true, job: None, result: None,
+            preview: true, cage: true, live_maps: true, displayed_map: None, follow_maps: true, preview_mesh: None,
+            preview_job: None, preview_source: None, preview_path: String::new(), preview_scene: None, preview_error: None, preview_uploaded: false }
+    }
+}
+
+impl BakeUi {
+    pub fn preview_pending(&self) -> bool { self.preview_job.is_some() }
+    pub fn overlay_active(&self) -> bool {
+        self.open && self.preview && self.job.is_none() && self.result.is_none() && self.displayed_map.is_none() && self.preview_mesh.is_some()
     }
 }
 
 /// Apply results of a running bake (call every frame).
 pub fn poll_bake(state: &mut UiState, ctx: &egui::Context, now: f64) {
+    let b = &mut state.bake;
+    let scene = &state.session.scene().mesh;
+    let scene_changed = b.preview_scene.as_ref().is_some_and(|m| !std::sync::Arc::ptr_eq(m, scene));
+    if b.preview_scene.is_none() { b.preview_scene = Some(scene.clone()); }
+    if scene_changed || b.preview_path != b.high_poly.trim() {
+        if !b.preview_path.is_empty() { b.result = None; b.displayed_map = None; }
+        b.preview_job = None; b.preview_mesh = None; b.preview_uploaded = false; b.preview_error = None;
+        b.preview_source = None;
+        b.preview_path = b.high_poly.trim().to_string(); b.preview_scene = Some(scene.clone());
+        if scene_changed { b.displayed_map = None; }
+        if scene_changed { b.result = None; }
+    }
+    if b.open && b.preview && b.job.is_none() && b.result.is_none() && !b.preview_path.is_empty()
+        && b.preview_mesh.is_none() && b.preview_job.is_none() && b.preview_error.is_none() {
+        b.preview_job = Some(subcraft_app::BakePreviewJob::start(b.preview_path.clone().into()));
+    }
+    if let Some(job) = &b.preview_job {
+        ctx.request_repaint_after(std::time::Duration::from_millis(50));
+        if let Some(result) = job.poll() {
+            b.preview_job = None;
+            match result { Ok(source) => { b.preview_mesh = Some(source.mesh.clone()); b.preview_source = Some(source); b.preview_uploaded = false; }, Err(e) => b.preview_error = Some(e) }
+        }
+    }
     let Some(job) = state.bake.job.as_mut() else { return };
     ctx.request_repaint_after(std::time::Duration::from_millis(100));
-    if let Some(result) = job.poll(&mut state.session) {
+    let result = job.poll(&mut state.session);
+    if state.bake.follow_maps && let Some((_, kind)) = job.latest_map { state.bake.displayed_map = Some(kind); }
+    if let Some(result) = result {
         state.bake.job = None;
         match &result {
             Ok(n) => {
@@ -311,7 +357,8 @@ pub fn bake_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
     let selected = state.session.selected_texture_set();
     let (sel_id, sel_slot, sel_name) = (selected.id, selected.material_slot, selected.name.clone());
     let all: Vec<(subcraft_core::TextureSetId, u32)> = state.session.document().texture_sets.iter().map(|t| (t.id, t.material_slot)).collect();
-    egui::Window::new(window_title("Bake Mesh Maps")).open(&mut open).collapsible(false).default_width(440.0).show(ctx, |ui| {
+    egui::Window::new(window_title("Bake Mesh Maps")).open(&mut open).collapsible(false).default_width(440.0)
+        .default_pos(egui::pos2(32., 100.)).show(ctx, |ui| {
         let busy = state.bake.job.is_some();
         ui.add_enabled_ui(!busy, |ui| {
             let b = &mut state.bake;
@@ -376,6 +423,35 @@ pub fn bake_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
             ui.add_space(2.0);
             hint(ui, "High poly needs no UVs; keep it aligned with the low poly. Cage distances are fractions of the model diagonal. A normal bake adds a live Baked normal layer; AO and curvature feed shading and generators.");
         });
+        ui.horizontal(|ui| {
+            ui.checkbox(&mut state.bake.preview, "High / low overlay");
+            ui.checkbox(&mut state.bake.cage, "Cage wireframe");
+            ui.checkbox(&mut state.bake.live_maps, "Live maps");
+        });
+        if state.bake.preview_pending() { ui.label(dim("Loading high-poly preview…")); }
+        if let Some(error) = &state.bake.preview_error { ui.colored_label(theme::WARNING, error); }
+        if !busy && !state.bake.high_poly.trim().is_empty() && secondary_button(ui, "Reload high poly").clicked() {
+            state.bake.preview_mesh = None; state.bake.preview_source = None; state.bake.preview_job = None;
+            state.bake.preview_error = None; state.bake.preview_uploaded = false; state.bake.result = None;
+            state.bake.displayed_map = None;
+        }
+        hint(ui, "Blue: high poly · Red: exposed low poly · Pale lines: front/rear cage. Orbit to inspect. Imported transforms are preserved.");
+        if state.session.mesh_maps(sel_id).is_some() {
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut state.bake.follow_maps, "Follow bake");
+                egui::ComboBox::from_id_salt("bake_display_map")
+                    .selected_text(state.bake.displayed_map.map_or("Material", |k| k.display_name())).show_ui(ui, |ui| {
+                        if ui.selectable_value(&mut state.bake.displayed_map, None, "Material").clicked() { state.bake.follow_maps = false; }
+                        if let Some(maps) = state.session.mesh_maps(sel_id) { for (kind, _) in maps.iter() {
+                            if ui.selectable_value(&mut state.bake.displayed_map, Some(kind), kind.display_name()).clicked() { state.bake.follow_maps = false; }
+                        }}
+                    });
+            });
+        }
+        if !busy && state.bake.preview_mesh.is_some() && state.bake.result.is_some()
+            && secondary_button(ui, "Inspect high / low geometry").clicked() {
+            state.bake.result = None; state.bake.displayed_map = None; state.bake.follow_maps = false;
+        }
         ui.add_space(6.0);
         divider(ui);
         ui.add_space(6.0);
@@ -403,6 +479,8 @@ pub fn bake_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
                 });
                 if go.inner {
                     state.bake.result = None;
+                    state.bake.displayed_map = None;
+                    state.bake.follow_maps = true;
                     let mut settings = state.bake.settings.clone();
                     settings.maps.sort();
                     let request = subcraft_app::BakeRequest {
@@ -410,7 +488,10 @@ pub fn bake_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
                         high_poly: (!state.bake.high_poly.trim().is_empty()).then(|| PathBuf::from(state.bake.high_poly.trim())),
                         texture_sets: if state.bake.all_sets { all.clone() } else { vec![(sel_id, sel_slot)] },
                     };
-                    state.bake.job = Some(state.session.start_bake(request));
+                    let prepared = (state.bake.preview_path == state.bake.high_poly.trim()
+                        && state.bake.preview_scene.as_ref().is_some_and(|m| std::sync::Arc::ptr_eq(m, &state.session.scene().mesh)))
+                        .then(|| state.bake.preview_source.clone()).flatten();
+                    state.bake.job = Some(state.session.start_bake_prepared(request, prepared));
                     state.set_status("Baking…", now);
                 }
             }
@@ -422,6 +503,32 @@ pub fn bake_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
 #[cfg(test)]
 mod bake_tests {
     use super::*;
+
+    #[test]
+    fn preview_state_is_transient_and_invalidated_when_scene_or_path_changes() {
+        let ctx = egui::Context::default();
+        let mut state = UiState::new(Session::new(subcraft_mesh::primitives::plane(2., 1), 128), None);
+        let before = state.session.document().clone();
+        state.bake.open = true;
+        state.bake.preview_path = "old.obj".into();
+        state.bake.high_poly = "old.obj".into();
+        state.bake.preview_scene = Some(state.session.scene().mesh.clone());
+        state.bake.preview_mesh = Some(std::sync::Arc::new(subcraft_mesh::primitives::cube(2.)));
+        assert!(state.bake.overlay_active());
+        state.bake.displayed_map = Some(subcraft_core::MeshMapKind::Normal);
+        assert!(!state.bake.overlay_active());
+        state.bake.high_poly.clear();
+        poll_bake(&mut state, &ctx, 0.);
+        assert!(state.bake.preview_mesh.is_none());
+        assert!(state.bake.displayed_map.is_none());
+        assert_eq!(state.session.document(), &before);
+        state.bake.preview_mesh = Some(std::sync::Arc::new(subcraft_mesh::primitives::cube(2.)));
+        state.bake.result = Some(Ok(1));
+        state.session = Session::new(subcraft_mesh::primitives::cube(3.), 128);
+        poll_bake(&mut state, &ctx, 1.);
+        assert!(state.bake.preview_mesh.is_none());
+        assert!(state.bake.result.is_none());
+    }
 
     fn draw(state: &mut UiState, ctx: &egui::Context, events: Vec<egui::Event>) -> egui::FullOutput {
         let mut output = ctx.run_ui(egui::RawInput {

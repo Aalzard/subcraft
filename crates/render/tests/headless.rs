@@ -10,6 +10,48 @@ use subcraft_render::{ViewMode, ViewParams, ViewportRenderer, headless};
 const SIZE: u32 = 192;
 
 #[test]
+fn bake_overlay_compares_depth_and_raw_maps_preserve_materials() {
+    use subcraft_core::MeshMapKind;
+    let Some((_, device, queue)) = headless::device() else { eprintln!("no adapter: skipping"); return };
+    let low = primitives::cube(2.);
+    let mut renderer = ViewportRenderer::new(&device, &queue);
+    renderer.set_mesh(&device, &low);
+    renderer.upload_channel(&device, &queue, 0, ChannelKind::BaseColor, &solid(4, [0.1, 0.6, 0.1, 1.]), None);
+    let mut p = params(); p.antialias = false;
+    let material = renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+    p.bake_overlay = true; p.bake_cage = false;
+    for (size, blue) in [(2.2, true), (1.8, false), (2.2, true)] {
+        renderer.set_bake_preview(&device, Some((&low, &primitives::cube(size))));
+        let img = renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+        let c = px(&img, SIZE / 2, SIZE / 2);
+        assert!(if blue { c[2] > c[0] * 2 } else { c[0] > c[2] * 2 }, "depth comparison {size}: {c:?}");
+    }
+    p.bake_cage = true; p.bake_distances = [0.08, 0.02];
+    let cage = renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+    p.bake_cage = false;
+    let no_cage = renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+    assert!(diff(&cage, &no_cage) > 100, "front cage is visible above high poly");
+    p.bake_overlay = false;
+    assert_eq!(renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue), material);
+    for (kind, comps, value, expected) in [
+        (MeshMapKind::Normal, 3, [0.5, 0.25, 1., 0.], [128u8, 64, 255]),
+        (MeshMapKind::AmbientOcclusion, 1, [0.25; 4], [64u8; 3]),
+    ] {
+        renderer.upload_mesh_map(&device, &queue, 0, kind, &solid(comps, value));
+        p.bake_map = Some(kind);
+        let img = renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+        let c = px(&img, SIZE / 2, SIZE / 2);
+        for k in 0..3 { assert!(c[k].abs_diff(expected[k]) <= 1, "{kind:?}: {c:?}"); }
+    }
+    p.bake_map = None;
+    assert_eq!(renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue), material);
+    renderer.set_bake_preview(&device, None);
+    p.antialias = true; p.bake_overlay = true;
+    let blank = renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+    assert_eq!(px(&blank, SIZE / 2, SIZE / 2), px(&blank, 2, 2));
+}
+
+#[test]
 fn albedo_filter_preserves_nearest_palette_and_bilinear_values_without_affecting_data() {
     use subcraft_image::TextureFilter;
     let Some((_, device, queue)) = headless::device() else { eprintln!("no adapter: skipping"); return };
