@@ -17,6 +17,9 @@ replace the pending interactive stroke/frame-pacing checks or complete additiona
 Session 74 refines that separate artwork with deeper rebaked relief, procedural roughness,
 localized scuffs/dust and steel-only rust. This adds asset acceptance coverage, not brush tools.
 
+Session 75 repairs high-poly baking: UV-less source import, a live normal display layer and
+persistent bake feedback. No additional brush phase is marked complete (ADR-0019).
+
 Build housekeeping (session 62): latest tested binary consolidated into
 `target/release/subcraft.exe`. Removing obsolete versions/caches remains blocked by automatic
 approval review; no artifacts were deleted. This does not change feature completion below.

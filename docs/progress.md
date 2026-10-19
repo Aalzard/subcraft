@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-10-19 (session 74: CORE-07 depth and restrained surface weathering)
+Last updated: 2026-10-19 (session 75: repair high-poly baking workflow)
 
 ## Decisions
 
@@ -1710,7 +1710,48 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   Not verified: manual pointer/pen painting, interactive 4K frame pacing or external engine
   import. No new engine architecture or ADR; brush phase completion is unchanged.
 
+### Session 75 — Codex: high-poly baking that appeared to do nothing (2026-10-19)
+
+* Owner reported choosing a high-poly object and pressing Bake produced no apparent result.
+  Found the paint importer rejected high-poly sources without UVs; completed baked normals
+  were not connected to material shading; failures only appeared in transient status text.
+* `mesh`: separate `import_mesh_for_baking` / `build_for_baking` accept UV-less ray-cast sources,
+  while normal paint-target imports continue requiring UVs. Shared OBJ/FBX/glTF import path.
+  `bake`: fully missed projections now explain alignment/cage correction. Partial projection
+  misses use neutral IDs instead of indexing high-poly elements with low-poly triangle IDs,
+  which could panic. Low-on-low maps retain their behavior.
+* `app`: background high-poly Normal bakes create an undoable normal-only **Baked normal ·
+  high poly** fill at the affected set's top. Live UV mesh-map source plus Inverse Detail RNM
+  preserves authored detail and other channels; existing links are reused. Selection is kept,
+  and applying results waits for active brush strokes. Partial failures and worker disconnects
+  report errors instead of silent success. Baked maps retain existing non-history storage.
+* `ui`: loading/bake progress plus completion/errors stay in the Bake window until the next
+  run. Added alignment/cage guidance. `--bake-high path --bake-size size` runs the same app job;
+  screenshots wait for baking/composite completion. Architecture: ADR-0019; no new schema.
+* Tests added: strict-low versus UV-less-high import and BVH; total/partial projection misses;
+  analytic sloped normals through material/composite, actual exported PNG, exact save/reopen,
+  rebake without duplicate layers, unchanged material/selection and layer undo/redo; partial
+  job failures; existing authored links; unexpected worker disconnect; headless real Bake-button
+  dispatch and persistent error text. **423 workspace tests pass, 0 failed/ignored** (9 added);
+  Clippy exits 0 with pre-existing warnings. Required no-incremental/line-tables-only environment
+  used. The first full run exposed an initial-sizing/unhandled-texture-delta mistake in the new
+  headless test helper; fixed it and reran both isolated UI cases and the entire workspace.
+  An existing async image-save test failed in that interrupted run but passed isolated and in
+  the subsequent full run; its iteration-based timing remains a possible test-only flake.
+* Real desktop: `target/debug/subcraft.exe`, low CORE-07 OBJ and **442,368-triangle** high OBJ
+  stripped of all UVs. Completed all seven maps at **1024²**; inspected visible baked detail,
+  live layer and persistent completion in `screenshots/high-poly-bake-no-uv.png`. A deliberately
+  misaligned UV-less source showed the alignment/cage error in the open dialog and left the
+  low cube unchanged: `screenshots/high-poly-bake-misaligned.png`. Used the real background job
+  and native UI with CLI initiation; **no mouse input**. Existing owner window was left alone.
+  Updated local test executable is in **target/debug/**; target/release and published 0.1.7
+  remain unchanged. Not verified: owner's exact source files (not provided), native pointer
+  Browse/Bake gestures, production FBX/GLB pairs, web runtime, or 4K interactive bake/frame pacing.
+
 ## Next steps (in order)
+
+High-poly bake follow-up: owner tests the patched app with the exact original model pair;
+hand-check production FBX/GLB sources, cage adjustments and a full 4K interactive bake workflow.
 
 Artwork follow-up: open `artworks/CORE-07-Refined/CORE-07.subcraft`; compare layers 12–14 and
 adjust their masks/materials to taste. Then profile real long strokes on this 4K layered asset;

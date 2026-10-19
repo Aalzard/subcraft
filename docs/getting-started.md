@@ -267,6 +267,27 @@ project file. Save your own project regularly; in the browser, download a backup
 
 ## 6. Export textures
 
+### Bake a high-resolution mesh onto your painting model
+
+Open the **low-poly** model with its UVs first, then click **Bake**. In **High poly → Browse…**,
+choose the detailed OBJ, FBX, GLB or glTF source. The high-poly source does **not** need UVs.
+Export both meshes in the same position, orientation and scale. Choose a bake size and maps,
+then press **Bake** in the dialog. Loading/BVH/bake progress appears there; the result or error
+stays visible until you start another bake.
+
+Keep **Normal** enabled to see high-poly detail. A successful high-poly normal bake adds
+**Baked normal · high poly** in Layers, affecting only Normal. Its live mesh-map reference
+updates when you bake again; an existing Normal mesh-map layer is reused. You can hide this
+layer to compare the result or adjust its Normal opacity/strength. The normal result is included
+in saved projects and texture exports. Other channels keep their authored materials.
+
+If the dialog says no high-poly surface was reached, check model alignment and increase
+**Cage front / rear** carefully. These distances are fractions of the model's bounding diagonal:
+0.01 means 1%. Too small misses details; too large can hit unrelated nearby surfaces.
+Inspect individual maps using **2D View**. Baking changes surface shading, not the low-poly
+silhouette. For reproducible desktop checks, `subcraft low.obj --bake-high high.obj
+--bake-size 1024` opens this workflow; `--screenshot result.png` waits for completion.
+
 Click **Export** (Ctrl+Shift+E). Choose PBR metal/rough, Unreal, Unity HDRP or glTF to match your
 target application. Desktop writes to your chosen folder. The browser downloads one ZIP with
 all texture maps; extract it into a folder before using them in your engine.

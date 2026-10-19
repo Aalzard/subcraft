@@ -5,6 +5,13 @@ What changed in SubCraft, newest first. Download the latest build from the
 
 ## Unreleased
 
+### Fixed
+- High-poly bake sources can import without UVs; UVs are required only on the painting model.
+- High-poly normal bakes appear through an editable live Baked normal layer and export with
+  the material. Existing mesh-map references are reused on rebake.
+- Bake errors/completion stay visible in the dialog. Misaligned/out-of-cage sources report
+  failure, partial ID projection misses no longer crash, and partial job failures are reported.
+
 ## 0.1.7 — 2026-10-18
 
 ### Faster
