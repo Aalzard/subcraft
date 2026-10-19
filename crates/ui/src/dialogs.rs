@@ -276,11 +276,13 @@ pub struct BakeUi {
     pub high_poly: String,
     pub all_sets: bool,
     pub job: Option<subcraft_app::BakeJob>,
+    /// Kept in the dialog until another bake starts, including actionable failures.
+    pub result: Option<Result<usize, String>>,
 }
 
 impl Default for BakeUi {
     fn default() -> Self {
-        Self { open: false, settings: subcraft_app::BakeSettings::default(), high_poly: String::new(), all_sets: true, job: None }
+        Self { open: false, settings: subcraft_app::BakeSettings::default(), high_poly: String::new(), all_sets: true, job: None, result: None }
     }
 }
 
@@ -290,13 +292,14 @@ pub fn poll_bake(state: &mut UiState, ctx: &egui::Context, now: f64) {
     ctx.request_repaint_after(std::time::Duration::from_millis(100));
     if let Some(result) = job.poll(&mut state.session) {
         state.bake.job = None;
-        match result {
+        match &result {
             Ok(n) => {
                 state.set_status(format!("Baked mesh maps for {n} texture set(s). See them in the 2D view."), now);
                 state.recovery.autosaver.request_soon();
             }
             Err(e) => state.set_status(format!("Bake: {e}"), now),
         }
+        state.bake.result = Some(result);
     }
 }
 
@@ -371,11 +374,18 @@ pub fn bake_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
                 }
             });
             ui.add_space(2.0);
-            hint(ui, "Curvature feeds the Edges generator, AO the Cavity generator; baked AO also shades the 3D view and fills AO in exports.");
+            hint(ui, "High poly needs no UVs; keep it aligned with the low poly. Cage distances are fractions of the model diagonal. A normal bake adds a live Baked normal layer; AO and curvature feed shading and generators.");
         });
         ui.add_space(6.0);
         divider(ui);
         ui.add_space(6.0);
+        if let Some(result) = &state.bake.result {
+            match result {
+                Ok(n) => { ui.label(dim(&format!("Bake complete: {n} texture set(s). Inspect Baked normal in Layers or mesh maps in 2D View."))); }
+                Err(e) => { ui.colored_label(theme::WARNING, format!("Bake failed: {e}")); }
+            }
+            ui.add_space(6.0);
+        }
         match &state.bake.job {
             Some(job) => {
                 ui.label(dim(&job.stage()));
@@ -392,6 +402,7 @@ pub fn bake_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
                     ui.add_enabled_ui(can, |ui| primary_button(ui, format!("{}  Bake", crate::icons::MAGIC_WAND))).inner.clicked()
                 });
                 if go.inner {
+                    state.bake.result = None;
                     let mut settings = state.bake.settings.clone();
                     settings.maps.sort();
                     let request = subcraft_app::BakeRequest {
@@ -406,4 +417,54 @@ pub fn bake_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
         }
     });
     state.bake.open = open;
+}
+
+#[cfg(test)]
+mod bake_tests {
+    use super::*;
+
+    fn draw(state: &mut UiState, ctx: &egui::Context, events: Vec<egui::Event>) -> egui::FullOutput {
+        let mut output = ctx.run_ui(egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1600., 940.))), events,
+            ..Default::default()
+        }, |_| bake_window(state, ctx, 0.));
+        output.textures_delta.clear();
+        output
+    }
+
+    #[test]
+    fn clicking_bake_dispatches_a_job_and_clears_the_previous_result() {
+        let ctx = egui::Context::default(); theme::apply(&ctx);
+        let mut state = UiState::new(Session::new(subcraft_mesh::primitives::plane(2., 1), 128), None);
+        state.bake.open = true;
+        state.bake.settings.size = 128;
+        state.bake.settings.maps = vec![subcraft_core::MeshMapKind::Normal];
+        state.bake.result = Some(Err("Previous failure".into()));
+        draw(&mut state, &ctx, vec![]);
+        let output = draw(&mut state, &ctx, vec![]);
+        let pos = output.shapes.iter().find_map(|s| match &s.shape {
+            egui::epaint::Shape::Text(t) if t.galley.job.text.ends_with("  Bake") => Some(t.pos + t.galley.size() * 0.5),
+            _ => None,
+        }).expect("visible Bake button");
+        let button = |pressed| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::default() };
+        draw(&mut state, &ctx, vec![egui::Event::PointerMoved(pos), button(true)]);
+        draw(&mut state, &ctx, vec![button(false)]);
+        assert!(state.bake.job.is_some(), "the actual button starts the background job");
+        assert!(state.bake.result.is_none());
+    }
+
+    #[test]
+    fn bake_errors_remain_visible_in_the_dialog() {
+        let ctx = egui::Context::default(); theme::apply(&ctx);
+        let mut state = UiState::new(Session::new(subcraft_mesh::primitives::plane(2., 1), 128), None);
+        state.bake.open = true;
+        state.bake.result = Some(Err("align models and increase Cage front / rear".into()));
+        // Floating windows need an initial sizing frame before they paint their text.
+        draw(&mut state, &ctx, vec![]);
+        draw(&mut state, &ctx, vec![]);
+        for _ in 0..3 {
+            let output = draw(&mut state, &ctx, vec![]);
+            assert!(output.shapes.iter().any(|s| matches!(&s.shape, egui::epaint::Shape::Text(t) if t.galley.job.text.contains("Bake failed: align models"))));
+        }
+    }
 }

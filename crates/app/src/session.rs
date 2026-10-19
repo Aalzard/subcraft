@@ -312,6 +312,34 @@ impl Session {
         crate::bake_job::BakeJob::start(self.scene.mesh.clone(), Arc::new(self.scene.bvh.clone()), request)
     }
 
+    /// Expose a high-to-low normal bake in the existing layer workflow, without changing
+    /// authored materials. A live mesh-map reference updates on rebakes and saves normally.
+    pub(crate) fn show_baked_normal(&mut self, ts_id: TextureSetId) {
+        use subcraft_doc::{BlendMode, ChannelBlend, FillChannel, FillSource};
+        use subcraft_core::MeshMapKind;
+        fn uses_bake(l: &Layer) -> bool {
+            let source = |s: &FillSource| matches!(s, FillSource::MeshMap { map: MeshMapKind::Normal });
+            let channels = |c: &std::collections::BTreeMap<ChannelKind, FillChannel>| {
+                c.get(&ChannelKind::Normal).is_some_and(|f| f.enabled && source(&f.source))
+            };
+            matches!(&l.content, LayerContent::Fill(f) if channels(&f.channels))
+                || l.content_effects.iter().any(|e| matches!(&e.kind, ContentEffectKind::Fill(f) if channels(&f.channels)))
+                || l.children().iter().any(|l| uses_bake(l))
+        }
+        let Some(ts) = self.doc.texture_set_mut(ts_id) else { return };
+        if ts.layers.iter().any(|l| uses_bake(l)) { return; }
+        if !ts.has_channel(ChannelKind::Normal) { ts.channels.push(ChannelDef::default_for(ChannelKind::Normal)); }
+        let mut layer = Layer::new_fill("Baked normal · high poly", ts);
+        if let LayerContent::Fill(fill) = &mut layer.content {
+            fill.channels.clear();
+            fill.channels.insert(ChannelKind::Normal, FillChannel::new(FillSource::MeshMap { map: MeshMapKind::Normal }));
+        }
+        // The bake is the base orientation; authored normals beneath it remain detail.
+        layer.blend.insert(ChannelKind::Normal, ChannelBlend::new(BlendMode::NormalMapInverseDetail));
+        ts.layers.push(Arc::new(layer));
+        self.commit("Show baked normal", None);
+    }
+
     /// The built-in two-material sample crate.
     pub fn sample() -> Self {
         Self::new(primitives::sample_crate(), DEFAULT_RESOLUTION)

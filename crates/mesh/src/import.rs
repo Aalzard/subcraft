@@ -31,6 +31,15 @@ pub struct ImportReport {
 pub const SUPPORTED_EXTENSIONS: [&str; 4] = ["obj", "gltf", "glb", "fbx"];
 
 pub fn import_mesh(path: &Path) -> Result<ImportReport, ImportError> {
+    import(path, false)
+}
+
+/// Import a high-poly ray-cast source, accepting meshes without UV coordinates.
+pub fn import_mesh_for_baking(path: &Path) -> Result<ImportReport, ImportError> {
+    import(path, true)
+}
+
+fn import(path: &Path, bake_source: bool) -> Result<ImportReport, ImportError> {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
     let name = path.file_stem().and_then(|s| s.to_str()).unwrap_or("Mesh").to_string();
     let mut b = MeshBuilder::new(name);
@@ -45,7 +54,7 @@ pub fn import_mesh(path: &Path) -> Result<ImportReport, ImportError> {
         other => return Err(ImportError::UnsupportedFormat(other.to_string())),
     }
     let stats_pre = b.stats;
-    let mesh = b.build()?;
+    let mesh = if bake_source { b.build_for_baking()? } else { b.build()? };
     let mut stats = stats_pre;
     stats.generated_normals |= mesh.normals.is_empty();
     if stats.degenerate_dropped > 0 {
@@ -307,6 +316,22 @@ mod tests {
         let d = std::env::temp_dir().join(format!("subcraft-import-{}-{name}", std::process::id()));
         std::fs::create_dir_all(&d).unwrap();
         d
+    }
+
+    #[test]
+    fn high_poly_import_accepts_no_uvs_but_paint_import_still_requires_them() {
+        let dir = tmp("high-no-uv");
+        let path = dir.join("high.obj");
+        std::fs::write(&path, "v -1 0 -1\nv -1 0 1\nv 1 0.2 -1\nf 1 2 3\n").unwrap();
+        assert!(matches!(import_mesh(&path), Err(ImportError::Build(BuildError::NoUvs))));
+        let high = import_mesh_for_baking(&path).unwrap();
+        assert_eq!(high.mesh.triangle_count(), 1);
+        assert_eq!(high.stats.missing_uv_triangles, 1);
+        assert!(high.mesh.validate().is_empty());
+        assert!(high.mesh.normals.iter().all(|n| n.is_finite() && (n.length() - 1.).abs() < 1e-5));
+        let bvh = crate::Bvh::build(&high.mesh);
+        assert!(bvh.intersect(Vec3::new(-0.5, 1., -0.5), -Vec3::Y, 0., 2.).is_some());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

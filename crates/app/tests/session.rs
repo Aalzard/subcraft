@@ -264,6 +264,96 @@ fn background_bake_feeds_smart_mask_generators_and_survives_save() {
 }
 
 #[test]
+fn high_poly_without_uvs_bakes_visible_normals_rebakes_and_exports() {
+    use subcraft_app::{BakeRequest, BakeSettings, MeshMapKind};
+    use subcraft_compositor::{BlendTarget, blend_fn};
+    use subcraft_image::Wrap;
+    let dir = std::env::temp_dir().join(format!("subcraft-high-bake-{}", subcraft_core::LayerId::new()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("sculpt-no-uv.obj");
+    std::fs::write(&path, "v -1 0 -1\nv -1 0 1\nv 1 0.2 1\nv 1 0.2 -1\nf 1 2 3\nf 1 3 4\n").unwrap();
+    let mut s = Session::new(primitives::plane(2., 1), 128);
+    let ts = s.selection().texture_set;
+    // An existing material's flat normal must not hide the bake, or be modified by it.
+    s.execute(Command::AddLayer(NewLayer::Fill)).unwrap();
+    let original = s.selected_layer().unwrap().clone();
+    let selection = s.selection();
+    let request = BakeRequest { settings: BakeSettings { size: 128, maps: vec![MeshMapKind::Normal], cage_front: 0.15, ..Default::default() },
+        high_poly: Some(path), texture_sets: vec![(ts, 0)] };
+    let wait = |s: &mut Session, request| {
+        let mut job = s.start_bake(request);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+        loop {
+            if let Some(result) = job.poll(s) { return result; }
+            assert!(std::time::Instant::now() < deadline, "bake worker timed out");
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+    };
+    assert_eq!(wait(&mut s, request.clone()), Ok(1));
+    assert_eq!(s.selection(), selection);
+    assert_eq!(s.selected_layer().unwrap(), &original);
+    let count = s.selected_texture_set().layers.len();
+    assert_eq!(count, 3);
+    s.execute(Command::Undo).unwrap();
+    assert_eq!(s.selected_texture_set().layers.len(), 2, "the display layer is undoable");
+    s.execute(Command::Redo).unwrap();
+    assert_eq!(s.selected_texture_set().layers.len(), count);
+    s.update_composites();
+    let baked = s.mesh_maps(ts).unwrap().get(MeshMapKind::Normal).unwrap().get(64, 64);
+    let low = &s.scene().mesh;
+    let sp = low.interpolate(0, 0.25, 0.25);
+    let n = Vec3::new(-0.1, 1., 0.).normalize();
+    let tangent = sp.tangent.truncate();
+    let bitangent = sp.normal.cross(tangent) * sp.tangent.w;
+    let expected = Vec3::new(n.dot(tangent), n.dot(bitangent), n.dot(sp.normal)) * 0.5 + Vec3::splat(0.5);
+    for c in 0..3 { assert!((baked[c] - expected[c]).abs() < 0.001, "analytic slope: {baked:?}, {expected:?}"); }
+    let composite = s.composite(ts).unwrap().channel(ChannelKind::Normal).unwrap().get(64, 64);
+    for c in 0..3 { assert!((composite[c] - baked[c]).abs() < 0.001); }
+    assert!((composite[0] - 0.5).abs() + (composite[1] - 0.5).abs() > 0.04);
+    let settings = subcraft_export::ExportSettings { height_to_normal: 0., ..Default::default() };
+    let exports = s.export_textures(&dir, &settings).unwrap();
+    let normal_path = exports.iter().find(|p| p.file_name().unwrap().to_string_lossy().ends_with("_Normal.png")).unwrap();
+    let exported = subcraft_image::load_bitmap(normal_path).unwrap().sample(0.5, 0.5, Wrap::Clamp, false);
+    for c in 0..3 { assert!((exported[c] - composite[c]).abs() < 0.005); }
+    let project = dir.join("baked.subcraft");
+    s.save(Some(&project)).unwrap();
+    let mut reopened = Session::open_project(&project).unwrap();
+    reopened.update_composites();
+    assert_eq!(s.document(), reopened.document());
+    assert_eq!(s.composite(ts), reopened.composite(ts));
+    // Re-baking uses the existing live reference; no extra normal layer or selection change.
+    assert_eq!(wait(&mut s, request), Ok(1));
+    assert_eq!(s.selected_texture_set().layers.len(), count);
+    // Authored normal detail still combines with the bake, numerically matching production RNM.
+    let detail = ChannelValue::rgb(0.5, 0.6, 0.9899);
+    s.execute(Command::SetFillChannel { layer: original.id, channel: ChannelKind::Normal, fill: FillChannel::new(FillSource::uniform(detail)) }).unwrap();
+    s.update_composites();
+    let wanted = blend_fn(BlendMode::NormalMapInverseDetail, [detail.0[0], detail.0[1], detail.0[2]], [baked[0], baked[1], baked[2]], BlendTarget::for_channel(ChannelKind::Normal));
+    let got = s.composite(ts).unwrap().channel(ChannelKind::Normal).unwrap().get(64, 64);
+    for c in 0..3 { assert!((got[c] - wanted[c]).abs() < 0.002); }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn bake_reports_partial_failure_instead_of_silent_success() {
+    use subcraft_app::{BakeRequest, BakeSettings, MeshMapKind};
+    let mut s = Session::new(primitives::plane(2., 1), 128);
+    let ts = s.selection().texture_set;
+    let mut job = s.start_bake(BakeRequest { settings: BakeSettings { size: 128, maps: vec![MeshMapKind::Normal], ..Default::default() }, high_poly: None,
+        texture_sets: vec![(ts, 0), (ts, 999)] });
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let result = loop {
+        if let Some(result) = job.poll(&mut s) { break result; }
+        assert!(std::time::Instant::now() < deadline);
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    };
+    let error = result.unwrap_err();
+    assert!(error.contains("1 of 2 texture sets baked"));
+    assert!(error.contains("no UV-covered texels"));
+    assert!(s.mesh_maps(ts).unwrap().get(MeshMapKind::Normal).is_some());
+}
+
+#[test]
 fn shelf_assets_become_undoable_layers_and_masks() {
     use subcraft_app::assets::Library;
     let lib = Library::builtin();

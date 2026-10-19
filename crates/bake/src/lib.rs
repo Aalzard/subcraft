@@ -101,6 +101,7 @@ impl Progress {
 pub enum BakeError {
     Cancelled,
     NoTexels,
+    NoProjection,
 }
 
 impl std::fmt::Display for BakeError {
@@ -108,6 +109,7 @@ impl std::fmt::Display for BakeError {
         match self {
             BakeError::Cancelled => f.write_str("bake cancelled"),
             BakeError::NoTexels => f.write_str("texture set has no UV-covered texels"),
+            BakeError::NoProjection => f.write_str("no high-poly surface was reached: align the low/high models in the same coordinates and increase Cage front / rear"),
         }
     }
 }
@@ -120,7 +122,7 @@ struct Detail {
     position: Vec3,
     normal: Vec3,
     /// Triangle in the detail mesh.
-    tri: u32,
+    tri: Option<u32>,
     /// Offset direction for ray origins (geometric normal).
     offset: Vec3,
 }
@@ -149,10 +151,10 @@ pub fn bake(input: &BakeInput, settings: &BakeSettings, progress: &Progress) -> 
                 let sp = high.mesh.interpolate(hit.tri as usize, hit.u, hit.v);
                 let ng = sp.geometric_normal;
                 let normal = if sp.normal.dot(n) < 0.0 { -sp.normal } else { sp.normal };
-                return Detail { position: sp.position, normal, tri: hit.tri, offset: if ng.dot(n) < 0.0 { -ng } else { ng } };
+                return Detail { position: sp.position, normal, tri: Some(hit.tri), offset: if ng.dot(n) < 0.0 { -ng } else { ng } };
             }
         }
-        Detail { position: t.position, normal: t.normal, tri: t.tri, offset: t.geometric_normal }
+        Detail { position: t.position, normal: t.normal, tri: input.high.is_none().then_some(t.tri), offset: t.geometric_normal }
     };
 
     let wanted = |k: MeshMapKind| settings.maps.contains(&k);
@@ -161,6 +163,9 @@ pub fn bake(input: &BakeInput, settings: &BakeSettings, progress: &Progress) -> 
     progress.done.store(0, Ordering::Relaxed);
 
     let details: Vec<Detail> = samples.par_iter().map(project).collect();
+    if input.high.is_some() && details.iter().all(|d| d.tri.is_none()) {
+        return Err(BakeError::NoProjection);
+    }
     let elements = if wanted(MeshMapKind::Id) { Some(topology::mesh_elements(detail_geo.mesh)) } else { None };
     let bounds = low.bounds;
     let extent = bounds.extent().max(Vec3::splat(1e-6));
@@ -190,7 +195,8 @@ pub fn bake(input: &BakeInput, settings: &BakeSettings, progress: &Progress) -> 
                     [p.x, p.y, p.z]
                 }
                 MeshMapKind::Id => {
-                    let e = elements.as_ref().map_or(0, |e| e[d.tri as usize]);
+                    let Some(tri) = d.tri else { return kind.neutral_value()[..3].try_into().expect("RGB ID"); };
+                    let e = elements.as_ref().map_or(0, |e| e[tri as usize]);
                     let hue = (e as f32 * 0.618_034).fract();
                     hsv_to_rgb([hue, 0.65, 0.9])
                 }

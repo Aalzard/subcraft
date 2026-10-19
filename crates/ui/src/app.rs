@@ -87,6 +87,9 @@ pub struct LaunchOptions {
     pub view_2d: bool,
     /// Start with Brush settings in front (also useful for native screenshot verification).
     pub brush_panel: bool,
+    /// Start a real high-to-low bake and show its dialog (also usable with --screenshot).
+    pub bake_high_poly: Option<PathBuf>,
+    pub bake_size: Option<u32>,
     /// Recover the newest crashed session without asking.
     pub recover: bool,
     /// Autosave interval instead of the preference (testing).
@@ -325,6 +328,15 @@ impl SubcraftApp {
         state.recovery = crate::recovery::RecoveryUi::start(&state.session, prefs, options.autosave_interval);
         state.recovery.prefs.apply_ui_size(&cc.egui_ctx);
         state.recovery.show_prefs = options.preferences;
+        if let Some(high) = &options.bake_high_poly {
+            state.bake.open = true;
+            state.bake.high_poly = high.display().to_string();
+            if let Some(size) = options.bake_size { state.bake.settings.size = size; }
+            let texture_sets = state.session.document().texture_sets.iter().map(|t| (t.id, t.material_slot)).collect();
+            state.bake.job = Some(state.session.start_bake(subcraft_app::BakeRequest {
+                settings: state.bake.settings.clone(), high_poly: Some(high.clone()), texture_sets,
+            }));
+        }
         #[cfg(not(target_arch = "wasm32"))]
         {
             // Background release check; a newer version gets a callout at the update button.
@@ -794,7 +806,7 @@ impl SubcraftApp {
     fn handle_screenshot(&mut self, ctx: &egui::Context) {
         let Some(path) = self.screenshot.clone() else { return };
         ctx.request_repaint();
-        if !self.screenshot_requested && self.frames >= 20 {
+        if !self.screenshot_requested && self.frames >= 20 && self.state.bake.job.is_none() && !self.state.session.composites_pending() {
             ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
             self.screenshot_requested = true;
         }

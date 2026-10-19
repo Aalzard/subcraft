@@ -166,6 +166,36 @@ fn normal_map_from_high_poly_captures_the_bump() {
 }
 
 #[test]
+fn a_high_poly_outside_the_cage_is_an_actionable_failure() {
+    let low = primitives::plane(2., 1);
+    let mut high = primitives::plane(2., 1);
+    for p in &mut high.positions { p.y += 10.; }
+    let (lb, hb) = (Bvh::build(&low), Bvh::build(&high));
+    let input = BakeInput { low: Geometry { mesh: &low, bvh: &lb }, high: Some(Geometry { mesh: &high, bvh: &hb }), material_slot: 0 };
+    let error = bake(&input, &settings(&[MeshMapKind::Normal]), &Progress::new()).unwrap_err();
+    assert_eq!(error, BakeError::NoProjection);
+    assert!(error.to_string().contains("Cage front / rear"));
+}
+
+#[test]
+fn partial_high_poly_misses_do_not_index_low_triangles_into_high_ids() {
+    let low = primitives::plane(2., 8);
+    let mut high = MeshBuilder::new("partial");
+    let mat = high.material("high");
+    high.push_triangle(mat, [corner(Vec3::new(-1., 0.01, -1.), Vec2::ZERO),
+        corner(Vec3::new(-1., 0.01, 1.), Vec2::Y), corner(Vec3::new(1., 0.01, -1.), Vec2::X)]);
+    let high = high.build().unwrap();
+    let (lb, hb) = (Bvh::build(&low), Bvh::build(&high));
+    let input = BakeInput { low: Geometry { mesh: &low, bvh: &lb }, high: Some(Geometry { mesh: &high, bvh: &hb }), material_slot: 0 };
+    let maps = bake(&input, &settings(&[MeshMapKind::Id]), &Progress::new()).unwrap();
+    let id = &maps[&MeshMapKind::Id];
+    assert!(id.to_dense().iter().all(|v| v.is_finite()));
+    let a = id.get(16, 16);
+    let b = id.get(112, 112);
+    assert_ne!(a, b, "misses retain neutral IDs instead of a false high-poly triangle");
+}
+
+#[test]
 fn thickness_is_bright_on_thin_parts() {
     let slab = primitives::thin_slab(2.0, 2.0, 0.05);
     let cube = primitives::cube(2.0);
