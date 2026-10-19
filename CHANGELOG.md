@@ -6,6 +6,9 @@ What changed in SubCraft, newest first. Download the latest build from the
 ## Unreleased
 
 ### UI
+- Effect rows show live stage thumbnails: compare the result through each Paint, Fill, Generator,
+  Levels or Filter, click a square to edit, and resize with the existing Layers Preview size
+  control. Passthrough folder previews now include the correct lower-stack input.
 - Shelf is now on the left by default. Parts, Texture Sets and History share bottom-center
   tabs. Wide Texture Sets panels arrange set selection, resolution/filter and bake/mesh
   controls horizontally; narrow sidebars retain the vertical layout.

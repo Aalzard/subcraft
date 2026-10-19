@@ -38,7 +38,9 @@ audit and official Adobe workflow references: ADR-0016. Completion below is upda
 - [~] Disable, rename (Properties), duplicate, delete, per-channel blend/opacity done; drag
   reorder of effect rows not yet (context-menu Move up/down instead).
 - [x] Effect-specific Properties for content and mask effects, independent of the layer material.
-- [~] Layer/mask thumbnails and model update live; per-effect thumbnails remain to be added.
+- [x] Layer/mask and per-effect stage thumbnails update live. Content/mask prefixes, target-channel
+  encoding, folder context, background bounded cache, selectable squares and shared preview sizing
+  (ADR-0033). Fine details remain limited by the 64px sampling grid.
 - [ ] Assess whether a separate effect editor window improves the existing dock workflow.
 
 ## 4. Filter evaluator and operations
@@ -80,10 +82,9 @@ audit and official Adobe workflow references: ADR-0016. Completion below is upda
 - [x] Desktop background compositing: exact convergence, latest edit wins, synchronous export,
   sparse GPU uploads and native 4K demo generator/pattern-scale profiling (ADR-0018). Complex
   production-model stroke profiling remains the separate gate above.
-- [~] Guide, ADRs and handoff updated through session 88; maintain for each future slice.
+- [~] Guide, ADRs and handoff updated through session 89; maintain for each future slice.
 
-Next complete slices: per-effect thumbnails/drag reorder, render-owned GPU parity and full
+Next complete slices: effect drag reorder, render-owned GPU parity and full
 desktop profiling; the six neighborhood filters have CPU stage/halo goldens and native evidence.
-Finish per-effect
-thumbnails, drag reorder and native save/reopen checks alongside these slices. Compare Mask
+Finish drag reorder and native save/reopen checks alongside these slices. Compare Mask
 and anchors follow the stage graph. General filters are not part of the 0.1.7 release.

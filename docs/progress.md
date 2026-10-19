@@ -2318,13 +2318,66 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   lower-normal generators and emission remain pending. Owner-rejected Edge Wear remains
   unresolved; its generator kernels untouched. No push/release; protected/unrelated files retained.
 
+### Session 89 - Effect stage thumbnails (2026-10-20)
+
+* **Effect rows:** small live preview squares for each content/mask effect, inclusive of the
+  authored base and every preceding effect. Later effects never appear in an earlier square.
+  Paint/Fill use the Layers channel; Levels/Filter use their explicit target channel. Masks
+  stay grayscale, color content encodes linear-to-sRGB, data stays raw. Hidden effects show
+  the bypassed result with a diagonal mark. Clicking the square always selects the effect
+  through SelectEffect without editing history; original row/context-menu behavior remains.
+* **Layout/performance:** effect squares 18-28 UI points, proportional to the existing Layers
+  Preview size footer, with compact row heights and retained type icons. Only visible squares
+  request work; collapse removes them. Reuse immutable single-worker preview jobs, latest
+  snapshot/stale-result rejection and the shared 96-entry CPU/GPU cache. Requests include an
+  effect UUID and domain; removed effects return None and remove cached/queued entries.
+  Prefix truncation happens only on a worker-owned COW snapshot. No UI project logic, full
+  4K readbacks, new persistent fields or migration; project schema stays **12**.
+* **Folder correction:** passthrough folder previews now read their actual lower-layer input.
+  Ancestor isolation starts transparent; passthrough inherits lower accumulation. Exclude
+  later siblings and ancestor effects/masks. Ignore the target's own presentation mask,
+  opacity, parts and visibility, matching authored-content preview semantics. Snapshot root
+  Arc pointers invalidate on lower-layer edits. Non-folder content remains isolated.
+* Files/crates: app preview keys/snapshots/cache/evaluation, numeric/lifecycle/stroke tests and
+  native/profile example; compositor folder preview context; UI image presentation/effect rows,
+  layer sizing and hit-target tests. Design **ADR-0033**. Implementation **c88079a**.
+* Validation: **528 workspace tests pass, 0 failed/ignored (9 added)**; workspace/all-target
+  Clippy exits 0 with repository warnings and no new preview warnings. CARGO_INCREMENTAL=0,
+  dev debug=line-tables-only, -j 1. Numeric prefix values for Paint/Fill/Generator/Levels/
+  Invert/Filter, own-mask/visibility bypass, target-channel encoding, alpha, scaled Gaussian
+  stage support; nested isolation/input invalidation; latest edits, coalesced undo, reordering,
+  removed UUIDs, reopen, cache/queue bounds and a 160-sample 4K Paint-effect stroke (one undo).
+  Headless UI checks correct content/mask selection without history, repeated square clicks,
+  compact sizing/narrow sidebar and collapse. No tests disabled. Compile-check caught an
+  incorrect test accessor and example save return type, fixed before workspace tests.
+* Native evidence: actual default crate, both 512px texture sets, isolated data/library,
+  all CLI captures exit 0. Inspected **docs/screenshots/effect-thumbnails-content.png** (three
+  content stages with selected Contrast), **effect-thumbnails-mask.png** (Fill, Generator,
+  Levels and Blur grayscale stages), **effect-thumbnails-folder.png** (green lower-input HSL
+  preview instead of empty transparency). Current executable **target/debug/subcraft.exe**.
+  No physical mouse driven. Selection/collapse were exercised by headless UI input tests;
+  native click/drag/tablet, browser/DPI and production scenes NOT verified by hand.
+* 4K CPU preview profile: two default-crate sets, **18** stage/layer/mask previews and eight
+  parameter revisions: request/poll p50 **0.084 / p95 0.128 / max 0.202 ms**, final settlement
+  **424.5 ms**, 27 frames, cache 18 entries. Optimized dev + mimalloc, single run. Report
+  **docs/performance/2026-10-20-effect-thumbnails-4k.txt**. Excludes full composites, GPU,
+  render and uploads; not a desktop FPS measurement. Separate 160-sample 4K Paint-effect
+  stroke + thumbnail request (app unit test, default allocator): cold **5.456 ms**, warm
+  p95 **1.565 / max 1.643 ms**, numeric result and one undo pass. Also excludes composite/GPU/
+  render/upload; not full frame timing.
+* Limits: reduced 64px previews can omit fine details; independent prefixes currently repeat
+  evaluation instead of sharing stage results. Full-resolution/mip-aware previews, effect
+  drag reorder, GPU parity and full 4K desktop frame pacing remain pending. Edge Wear remains
+  owner-rejected and unresolved; its kernels untouched. No push/release; unrelated/protected
+  files retained. Existing mask inspection remains bounded at 256px.
+
 ## Next steps (in order)
 
 1. Owner gives PROMPT-claude-edge-wear.md to Claude; wear remains unresolved. Preserve and
    coordinate shared filter files before concurrent edits. Owner checks + Add → Filter in the
    current executable; local filters/folder adjustments are implemented, not Painter parity.
-2. Add per-effect thumbnails and drag reorder to the completed filter stages, preserving
-   independent content/mask selection. Then Bevel Smooth/Height Adjust and measured GPU parity;
+2. Add effect-row drag reorder, preserving independent content/mask selection and the new
+   stage preview semantics. Then Bevel Smooth/Height Adjust and measured GPU parity;
    preserve exact synchronous export.
 3. Profile the complete 4K upload/render path and worker convergence under controlled load;
    resume distance/Dirt/lower-normal inputs/Disable Micro Effects, references and emission per

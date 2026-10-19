@@ -306,6 +306,13 @@ layer's own painting or fill, so you can hide, reorder or delete them at any tim
   stay transparent). Mask effects: Paint, Fill, Generator, Levels and Invert.
 * Click an effect row to edit it in **Properties** (name, visibility, settings and per-channel
   blending/opacity). Click it again, or press **Back to layer** / **Back to mask**, to return.
+* Each effect now has a small **preview square**. It shows the result through that effect,
+  including the steps below it, so you can compare stages. Click the square to select the
+  effect and edit its Properties. Filter/Levels squares show their target channel; Paint/Fill
+  squares use the Layers channel dropdown. Mask squares stay grayscale.
+* Drag **Preview size** beneath Layers to resize layer, mask and effect squares together.
+  Effects stay smaller so the stack remains compact. Hidden effects have a diagonal mark and
+  show the bypassed result. Collapsing the stack hides its effect previews.
 * The **eye** on a row hides the effect. **Right-click** a row to move it up or down,
   duplicate or delete it. Every change is one undo step; selecting is not.
 * While a **Paint** effect is selected, the brush paints into that effect only — this also
@@ -315,10 +322,12 @@ layer's own painting or fill, so you can hide, reorder or delete them at any tim
 
 ![A Paint effect on the Moss fill layer](screenshots/content-paint-effect.jpg)
 
-Folders do not have content effects yet. Blur, sharpen, bevel and other filters, Compare Mask
-and anchor points are still planned; see **layer-system-roadmap.md**. Projects saved with
-content effects need this SubCraft version or newer (project format 5); older projects open
-as before.
+Folders support Filter/Levels adjustments on their children or the lower stack in Passthrough
+mode. Their effect previews include the correct lower input and exclude later siblings.
+Previews update in the background after painting or parameter changes; very fine marks can
+disappear at thumbnail resolution. They are regenerated when you reopen a project.
+Compare Mask, anchors, drag reorder and further filter operations remain planned; see
+**layer-system-roadmap.md**. Current projects use format 12; older projects still open.
 
 Click the **grid icon** beside the material/view controls to show or hide the subtle 3D floor
 and direction guides. **Right-click** that icon for axis settings: **X is red**, **Y is green

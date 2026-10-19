@@ -59,6 +59,8 @@ Owner's requested scope. `[x]` implemented and tested; `[~]` partial (remaining 
   angle/radius/amount controls, signed neutral Height and exact legacy schema-10 migration.
 - [x] Bevel and Mask Outline on content/masks/folder stages: threshold, radius, relief amount
   and Inner/Outer/Both borders (ADR-0032). Height supports recessed signed relief.
+- [x] Per-effect stage thumbnails for content/masks/folder adjustments, bounded background
+  evaluation, independent selection and shared Layers preview sizing (ADR-0033).
 - [ ] Render-owned GPU parity, references and full 4K desktop frame profiling (layer roadmap).
 
 ## Channels

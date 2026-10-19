@@ -1,0 +1,4 @@
+Effect-stage previews; optimized dev, mimalloc; single runs; CPU only.
+4K two sets / 18 stage+layer+mask previews, 8 parameter revisions. CPU request/poll p50 0.084, p95 0.128, max 0.202 ms; settled 424.5 ms, 27 frames, cache 18 entries. GPU/render/upload and full composite excluded.
+
+4K Paint-effect stroke, app unit test, 160 samples: cold 5.456 ms; warm p95 1.565 / max 1.643 ms. One undo and numeric thumbnail checks pass. CPU only; composite/render/GPU/upload excluded. Single run, optimized dev, default unit-test allocator.

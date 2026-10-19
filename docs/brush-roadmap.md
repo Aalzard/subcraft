@@ -30,6 +30,7 @@ Session 86 adds UV-space Blur/Sharpen on content/masks, including folder stages,
 neighborhood evaluation and scaled previews (ADR-0030). This advances the layer roadmap.
 Session 87 extends the same layer stages with Directional Blur/Highpass (ADR-0031).
 Session 88 adds contour Bevel and Mask Outline on the same layer stages (ADR-0032).
+Session 89 adds per-effect stage thumbnails and correct folder preview inputs (ADR-0033).
 The ordered brush-phase checklist below remains unchanged.
 
 Session 73 acceptance artwork: CORE-07 is a saved 4K cube with real high-to-low bakes, editable
