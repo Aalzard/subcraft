@@ -46,6 +46,9 @@ pub enum Command {
     AddLayer(NewLayer),
     /// Insert a ready-made layer (material preset, smart material) like [`Command::AddLayer`].
     InsertLayer { layer: Box<Layer>, label: String },
+    /// Add a material channel (Ambient Occlusion, Emissive, Opacity…) to a texture set and
+    /// enable it on the brush. No-op when the set already has it.
+    AddChannel { texture_set: TextureSetId, kind: ChannelKind },
     /// [`Command::InsertLayer`] that first adds these channels to the selected texture set when it
     /// lacks them (an imported texture set brings an Ambient Occlusion map). One undo step.
     InsertLayerWithChannels { layer: Box<Layer>, channels: Vec<ChannelKind>, label: String },

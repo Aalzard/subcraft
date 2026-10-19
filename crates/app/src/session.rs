@@ -699,6 +699,15 @@ impl Session {
                     self.commit(&format!("Resolution {resolution}"), None);
                 }
             }
+            Command::AddChannel { texture_set, kind } => {
+                let ts = self.doc.texture_set_mut(texture_set).ok_or(CommandError::TextureSetNotFound)?;
+                if ts.has_channel(kind) {
+                    return Ok(());
+                }
+                ts.channels.push(ChannelDef::default_for(kind));
+                self.brush.material.set(kind, kind.default_paint_value());
+                self.commit(&format!("Add {} Channel", kind.display_name()), None);
+            }
             Command::InsertLayerWithChannels { layer, channels, label } => {
                 let ts = self.doc.texture_set_mut(self.selection.texture_set).ok_or(CommandError::TextureSetNotFound)?;
                 for kind in channels {
@@ -1009,6 +1018,40 @@ impl Session {
         result
     }
 
+    /// Continue the stroke at a 2D-view texture position (UV 0..1, origin top-left). The stroke
+    /// paints UV discs on the texels of the selected layer, without a 3D visibility test.
+    /// `texels_per_px` scales the lazy-mouse distance from view pixels to texels.
+    pub fn stroke_to_uv(&mut self, uv: Vec2, line: bool, texels_per_px: f32) -> Result<Vec<usize>, PaintError> {
+        let Some(active) = self.stroke.take() else { return Ok(Vec::new()) };
+        let result = self.with_stroke_context(active.texture_set, &uv_camera(), |stroke, ts, ctx| {
+            stroke.add_uv_point(ts, ctx, uv, line, texels_per_px)
+        }, active);
+        if result.as_ref().is_ok_and(|t| !t.is_empty()) {
+            self.revision += 1;
+        }
+        result
+    }
+
+    /// Polygon fill from the 2D view: the triangle / element / UV island at `uv` (one history entry).
+    pub fn polygon_fill_uv(&mut self, uv: Vec2, mode: PolygonFillMode) -> Result<Vec<usize>, PaintError> {
+        if self.stroke.is_some() {
+            return Ok(Vec::new());
+        }
+        self.begin_stroke()?;
+        let active = self.stroke.take().expect("just begun");
+        let tiles = self.with_stroke_context(active.texture_set, &uv_camera(), |stroke, ts, ctx| stroke.polygon_fill_uv(ts, ctx, uv, mode), active)?;
+        if let Some(a) = self.stroke.as_mut() {
+            a.label = "Polygon Fill";
+        }
+        self.end_stroke();
+        Ok(tiles)
+    }
+
+    /// Brush radius in UV units for the selected texture set (matches [`Session::stroke_to_uv`]).
+    pub fn brush_radius_uv(&self, uv_per_unit: f32) -> f32 {
+        self.brush_radius() * uv_per_unit
+    }
+
     /// Polygon fill on the selected layer at a screen position (one history entry).
     pub fn polygon_fill(&mut self, camera: &Camera, screen: Vec2, mode: PolygonFillMode) -> Result<Vec<usize>, PaintError> {
         if self.stroke.is_some() {
@@ -1268,6 +1311,11 @@ impl Session {
 }
 
 /// Two texture sets composite identically (names aside): same tiling, channels and layers.
+/// Placeholder camera for 2D-view strokes: UV stamps never project through it.
+fn uv_camera() -> Camera {
+    Camera { view: glam::Mat4::IDENTITY, proj: glam::Mat4::IDENTITY, viewport: [1, 1] }
+}
+
 fn same_composite_inputs(a: &TextureSet, b: &TextureSet) -> bool {
     a.id == b.id
         && a.material_slot == b.material_slot

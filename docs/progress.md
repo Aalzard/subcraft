@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-10-18 (sessions 70–71: background compositing, sparse GPU uploads, 0.1.7)
+Last updated: 2026-10-19 (session 73: painting in the 2D view, per-channel paint switches)
 
 ## Decisions
 
@@ -1636,6 +1636,36 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   release guide. Native profiling and screenshot above use the final local 0.1.7 executable.
   Publication status and artifact checks are recorded by the GitHub release and final handoff.
 
+### Session 73 — painting in the 2D view and per-channel paint switches (2026-10-19)
+
+* User request: brush / textures / layer editing in the 2D view like Painter, and painting a
+  single PBR channel (only roughness, only metallic, …).
+* `paint`: `Stroke::add_uv_point` paints UV-space stamps (`Alignment::Uv` footprint, no 3D
+  visibility test, so faces hidden from the 3D camera are reachable). Brush size = the 3D size
+  at the texture set's average texel density (`stroke::uv_per_unit`), so strokes cover the same
+  texels in both views. Spacing, jitter, follow-path, lazy mouse (view px → texels), Shift+click
+  lines, brush alphas, brush images, parts restriction and mask / Paint-effect targets all go
+  through the existing kernel; symmetry and stencils stay 3D-only. `Stroke::polygon_fill_uv`
+  picks the triangle under the UV (`stroke::triangle_at_uv`) and reuses the 3D fill.
+* `BrushMaterial::{is_enabled, toggle, solo}`; `app`: `Session::stroke_to_uv`,
+  `polygon_fill_uv`, `brush_radius_uv`, and `Command::AddChannel` (adds AO / Emissive / Opacity /
+  Specular / … to a texture set and enables it on the brush; one undo step).
+* UI: the 2D view header has the brush bar (Brush / Eraser / Polygon Fill, size, flow,
+  opacity, hardness, symmetry/lazy popover) and channel switches; LMB paints, Alt+LMB / MMB pan,
+  wheel zooms; brush cursor sized in UV. A crosshair button next to "Show" paints only the shown
+  channel. The same channel switches sit under the 3D view's brush bar: click = on/off,
+  Shift+click = paint only that channel (again = all), "+" adds a missing PBR channel.
+* Tests: `paint/tests/uv_paint.rs` (disc footprint ≈ πr² with nothing beyond the radius on a
+  back face, only enabled channels written, gap-free UV line, UV polygon fill bit-identical to
+  the 3D fill of the same triangle in Triangle and UV-island modes, UV picking of every
+  triangle centroid); `settings` toggle/solo unit test; `app/tests/session.rs` (2D stroke =
+  one undo step painting only the soloed channel, AddChannel + undo); `ui/tests/uv_paint.rs`
+  (real egui drags in the 2D view: stroke without panning, Alt+drag pans, Shift+click
+  "Rough" then paint touches only roughness, polygon fill). `cargo test --workspace`: all pass.
+* Ran the release build (`--demo --view-2d --screenshot`): toolbar and switches render,
+  `docs/screenshots/uv-view-painting.png`. Not done: hand-painting with a real mouse/pen in
+  the running app on Windows (the egui-input tests drive the same code paths).
+
 ## Next steps (in order)
 
 Pending owner cleanup request: remove obsolete build artifacts only when the environment's
@@ -1692,8 +1722,8 @@ Earlier roadmap details (historical; the brush phase order above takes precedenc
 4. Bake follow-ups: per-material high-poly matching by name, cage mesh support, anti-aliased
    (supersampled) bakes, GPU baking for large meshes.
 5. ~~Autosave~~ (session 28) + recent files; export presets saved per project; custom export templates editor.
-6. UI follow-ups: drag-and-drop layer reordering, inline rename, eyedropper, painting in the
-   2D view, texture-set resolution change, camera FOV / ortho toggle, texture mipmaps.
+6. UI follow-ups: drag-and-drop layer reordering, inline rename, eyedropper, ~~painting in the
+   2D view~~ (session 73; follow-ups: UV-space symmetry, 2D stencils, eyedropper in 2D), texture-set resolution change, camera FOV / ortho toggle, texture mipmaps.
 7. Engine follow-ups: incremental dirty tracking inside mask paint effects; near-plane
    clipping in the depth rasterizer; f16 tile geometry; renormalize normals after opacity
    lerp; GPU compositor behind the same interface.

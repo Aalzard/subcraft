@@ -25,6 +25,10 @@ pub struct UvView {
     pub offset: egui::Vec2,
     pub source: PreviewSource,
     pub texture: Option<egui::TextureId>,
+    /// A stroke started in the 2D view is in progress.
+    pub painting: bool,
+    /// UV of the last 2D stroke point (Shift+click draws a line from it).
+    pub last_point: Option<Vec2>,
 }
 
 /// Compositing time spent per frame before the remaining dirty tiles wait for the next frame.
@@ -69,6 +73,8 @@ pub struct UiState {
     pub picking_parts: bool,
     pub last_stroke_point: Option<Vec2>,
     pub uv_edges: HashMap<u32, Vec<[Vec2; 2]>>,
+    /// UV units per object unit of each material slot (2D brush cursor size).
+    pub uv_density: HashMap<u32, f32>,
     pub rename: Option<(subcraft_core::LayerId, String)>,
     pub show_shortcuts: bool,
     pub frame_time_ms: f32,
@@ -145,11 +151,12 @@ impl UiState {
             fill_mode: PolygonFillMode::UvIsland,
             active_channel: ChannelKind::BaseColor,
             status: None,
-            uv: UvView { zoom: 1.0, offset: egui::Vec2::ZERO, source: PreviewSource::Channel(ChannelKind::BaseColor), texture: None },
+            uv: UvView { zoom: 1.0, offset: egui::Vec2::ZERO, source: PreviewSource::Channel(ChannelKind::BaseColor), texture: None, painting: false, last_point: None },
             painting: false,
             picking_parts: false,
             last_stroke_point: None,
             uv_edges: HashMap::new(),
+            uv_density: HashMap::new(),
             rename: None,
             show_shortcuts: false,
             frame_time_ms: 0.0,
@@ -262,6 +269,9 @@ impl UiState {
         self.uploaded_view_revision = u64::MAX;
         self.gpu_dirty = true;
         self.uv_edges.clear();
+        self.uv_density.clear();
+        self.uv.painting = false;
+        self.uv.last_point = None;
         self.uploaded_maps.clear();
         self.painting = false;
         self.last_stroke_point = None;

@@ -159,6 +159,30 @@ impl BrushMaterial {
             c.enabled = false;
         }
     }
+
+    /// Whether strokes write `kind`.
+    pub fn is_enabled(&self, kind: ChannelKind) -> bool {
+        self.channels.get(&kind).is_some_and(|c| c.enabled)
+    }
+
+    /// Switch painting of `kind` on or off, keeping its value.
+    pub fn toggle(&mut self, kind: ChannelKind) {
+        let on = !self.is_enabled(kind);
+        self.set_enabled(kind, on);
+    }
+
+    /// Paint only `kind` among `channels`. Soloing the channel that is already the only one
+    /// enabled turns every channel back on.
+    pub fn solo(&mut self, kind: ChannelKind, channels: &[ChannelKind]) {
+        let only = channels.iter().all(|&k| self.is_enabled(k) == (k == kind));
+        for &k in channels {
+            self.set_enabled(k, only || k == kind);
+        }
+    }
+
+    fn set_enabled(&mut self, kind: ChannelKind, enabled: bool) {
+        self.channels.entry(kind).or_insert(BrushChannel { enabled, value: kind.default_paint_value() }).enabled = enabled;
+    }
 }
 
 /// Stroke-level options that shape the stamp path rather than the footprint.
@@ -212,6 +236,24 @@ pub enum PolygonFillMode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn channel_switches_toggle_and_solo() {
+        use ChannelKind::*;
+        let channels = [BaseColor, Roughness, Metallic];
+        let mut m = BrushMaterial::with(&[(BaseColor, ChannelValue::rgb(1.0, 0.0, 0.0)), (Roughness, ChannelValue::scalar(0.2))]);
+        m.toggle(Metallic);
+        assert!(m.is_enabled(Metallic), "a missing channel switches on at its default value");
+        assert_eq!(m.channels[&Metallic].value, Metallic.default_paint_value());
+        m.toggle(BaseColor);
+        assert!(!m.is_enabled(BaseColor));
+        m.solo(Roughness, &channels);
+        assert_eq!(channels.map(|k| m.is_enabled(k)), [false, true, false]);
+        assert_eq!(m.channels[&Roughness].value, ChannelValue::scalar(0.2), "values survive switching");
+        m.solo(Roughness, &channels);
+        assert_eq!(channels.map(|k| m.is_enabled(k)), [true, true, true], "solo again = all");
+        assert_eq!(m.channels[&BaseColor].value, ChannelValue::rgb(1.0, 0.0, 0.0));
+    }
 
     #[test]
     fn falloff_shape() {

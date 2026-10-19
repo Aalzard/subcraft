@@ -489,3 +489,48 @@ fn save_and_export_use_newest_document_while_worker_is_busy() {
         assert_eq!(s.composite(ts.id), reopened.composite(ts.id));
     }
 }
+
+#[test]
+fn add_channel_enables_it_on_the_brush_and_undoes_in_one_step() {
+    let mut s = session();
+    let ts = s.selection().texture_set;
+    assert!(!s.selected_texture_set().has_channel(ChannelKind::AmbientOcclusion));
+    s.execute(Command::AddChannel { texture_set: ts, kind: ChannelKind::AmbientOcclusion }).unwrap();
+    assert!(s.selected_texture_set().has_channel(ChannelKind::AmbientOcclusion));
+    assert!(s.brush.material.is_enabled(ChannelKind::AmbientOcclusion));
+    let entries = s.history().entries().len();
+    s.execute(Command::AddChannel { texture_set: ts, kind: ChannelKind::AmbientOcclusion }).unwrap();
+    assert_eq!(s.history().entries().len(), entries, "adding an existing channel is a no-op");
+    s.execute(Command::Undo).unwrap();
+    assert!(!s.selected_texture_set().has_channel(ChannelKind::AmbientOcclusion));
+}
+
+#[test]
+fn strokes_from_the_2d_view_paint_the_selected_layer_as_one_undo_step() {
+    let mut s = session();
+    let channels = s.channels();
+    let mut material = s.brush.material.clone();
+    material.set(ChannelKind::Metallic, ChannelValue::scalar(1.0));
+    material.solo(ChannelKind::Metallic, &channels);
+    s.execute(Command::SetBrushMaterial(material)).unwrap();
+    // Centroid of a triangle of the selected texture set, in its UV tile.
+    let slot = s.selected_texture_set().material_slot;
+    let mesh = s.scene().mesh.clone();
+    let t = mesh.material_triangles(slot).next().unwrap();
+    let (q, _) = subcraft_mesh::uv_raster::wrap_to_tile(mesh.tri_uvs(t));
+    let uv = (q[0] + q[1] + q[2]) / 3.0;
+    s.begin_stroke().unwrap();
+    let tiles = s.stroke_to_uv(uv, false, 1.0).unwrap();
+    assert!(!tiles.is_empty());
+    s.end_stroke();
+    assert!(s.history().can_undo());
+    let layer = s.selected_layer().unwrap();
+    let LayerContent::Paint(p) = &layer.content else { panic!() };
+    assert!(p.channels[&ChannelKind::Metallic].allocated_tiles() > 0);
+    assert!(!p.channels.contains_key(&ChannelKind::BaseColor), "only the soloed channel is painted");
+    s.execute(Command::Undo).unwrap();
+    let LayerContent::Paint(p) = &s.selected_layer().unwrap().content else { panic!() };
+    assert!(p.channels.get(&ChannelKind::Metallic).is_none_or(|i| i.allocated_tiles() == 0));
+
+    assert!(!s.polygon_fill_uv(uv, subcraft_paint::PolygonFillMode::UvIsland).unwrap().is_empty());
+}
