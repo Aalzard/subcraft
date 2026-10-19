@@ -1,7 +1,7 @@
 //! Shared filter parameter controls. Callers dispatch a single existing SetEffect command.
 use egui::Ui;
 use subcraft_core::ChannelKind;
-use subcraft_doc::Filter;
+use subcraft_doc::{Filter, OutlinePosition};
 use crate::widgets::{prop_row, slider_row};
 
 pub fn editor(ui: &mut Ui, filter: &mut Filter, channel: Option<ChannelKind>) -> bool {
@@ -30,7 +30,7 @@ pub fn editor(ui: &mut Ui, filter: &mut Filter, channel: Option<ChannelKind>) ->
         Filter::Threshold { cutoff } => {
             changed |= slider_row(ui, "Cutoff", egui::Slider::new(cutoff, lower..=1.0)).changed();
         }
-        Filter::Blur { radius } | Filter::Sharpen { radius, .. } | Filter::DirectionalBlur {radius,..} | Filter::Highpass {radius,..} => {
+        Filter::Blur { radius } | Filter::Sharpen { radius, .. } | Filter::DirectionalBlur {radius,..} | Filter::Highpass {radius,..} | Filter::Bevel {radius,..} | Filter::MaskOutline {radius,..} => {
             changed |= slider_row(ui, "Radius", egui::Slider::new(radius, 0.0..=32.0).suffix(" px")).changed();
         }
         Filter::Clamp { low, high } => {
@@ -41,6 +41,26 @@ pub fn editor(ui: &mut Ui, filter: &mut Filter, channel: Option<ChannelKind>) ->
     }
     if let Filter::Sharpen { amount, .. } | Filter::Highpass {amount,..} = filter {
         changed |= slider_row(ui, "Amount", egui::Slider::new(amount, 0.0..=4.0)).changed();
+    }
+    if let Filter::Bevel {amount,..} = filter {
+        changed |= slider_row(ui, "Amount", egui::Slider::new(amount, lower..=1.0)).changed();
+    }
+    if let Filter::Bevel {threshold,..} | Filter::MaskOutline {threshold,..} = filter {
+        changed |= slider_row(ui, "Threshold", egui::Slider::new(threshold, lower..=1.0)).changed();
+    }
+    if let Filter::MaskOutline {position,..} = filter {
+        prop_row(ui,"Position",|ui| {
+            egui::ComboBox::from_id_salt("outline_position").selected_text(match position {OutlinePosition::Inner=>"Inner",OutlinePosition::Outer=>"Outer",OutlinePosition::Both=>"Both"}).show_ui(ui,|ui| {
+                for (value,label) in [(OutlinePosition::Inner,"Inner"),(OutlinePosition::Outer,"Outer"),(OutlinePosition::Both,"Both")] {
+                    changed |= ui.selectable_value(position,value,label).changed();
+                }
+            });
+        });
+    }
+    if filter.is_contour() {
+        ui.weak("Threshold defines the shape / radius sets border width.");
+        if channel.is_some() {ui.weak("Grayscale result / paint coverage is preserved.");}
+        if matches!(filter,Filter::Bevel {..}) {ui.weak("Inward relief ramp / use Height for raised detail.");}
     }
     if let Filter::DirectionalBlur {angle_deg,..}=filter {
         changed |= slider_row(ui, "Angle", egui::Slider::new(angle_deg, -180.0..=180.0).suffix("\u{00b0}")).changed();

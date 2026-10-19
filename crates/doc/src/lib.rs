@@ -19,7 +19,7 @@ pub use blend::BlendMode;
 pub use document::Document;
 pub use effect::{ContentEffect, ContentEffectKind};
 pub use fill::{FillSource, ProceduralKind, ProceduralParams, Projection, ProjectionMode};
-pub use filter::Filter;
+pub use filter::{Filter, OutlinePosition};
 pub use history::{History, HistoryEntry};
 pub use layer::{ChannelBlend, FillChannel, FillContent, GroupContent, Layer, LayerContent, LayerKind, PaintContent, PartMask, changed_paint_tiles, empty_paint_image, same_paint_layout};
 pub use mask::{EdgeSpread, Generator, GeneratorKind, Levels, Mask, MaskEffect, MaskEffectKind};

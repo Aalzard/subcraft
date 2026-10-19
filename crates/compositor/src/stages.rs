@@ -129,6 +129,12 @@ enum Node<'a> {
         taps: Arc<Vec<[f32; 3]>>,
         support: u32,
     },
+    Contour {
+        input: usize,
+        filter: Filter,
+        kind: ChannelKind,
+        radius: f32,
+    },
     Gaussian {
         input: usize,
         weights: Arc<Vec<f32>>,
@@ -141,6 +147,7 @@ impl Node<'_> {
             Self::MaskEffect { input, .. }
             | Self::ContentEffect { input, .. }
             | Self::Gaussian { input, .. }
+            | Self::Contour { input, .. }
             | Self::Directional { input, .. } => Some(*input),
             Self::Layer { below, .. } => Some(*below),
             _ => None,
@@ -192,7 +199,9 @@ impl<'a> Graph<'a> {
             Node::Constant(_) => true,
             Node::Fill(fill, kind) => uniform_fill(fill, *kind),
             Node::Paint(image, _) | Node::MaskBase(image) => image.allocated_tiles() == 0,
-            Node::Gaussian { input, .. } | Node::Directional { input, .. } => self.uniform[*input],
+            Node::Gaussian { input, .. }
+            | Node::Directional { input, .. }
+            | Node::Contour { input, .. } => self.uniform[*input],
             Node::ContentEffect {
                 input,
                 effect,
@@ -235,10 +244,18 @@ impl<'a> Graph<'a> {
         self.nodes.push(node);
         id
     }
-    fn neighborhood(&mut self, input: usize, filter: Filter) -> Option<usize> {
+    fn neighborhood(&mut self, input: usize, filter: Filter, kind: ChannelKind) -> Option<usize> {
         let radius = filter.radius()?;
         if !filter.valid() {
             return None;
+        }
+        if filter.is_contour() {
+            return Some(self.push(Node::Contour {
+                input,
+                filter,
+                kind,
+                radius: radius * self.radius_scale,
+            }));
         }
         if self.uniform[input]
             || radius == 0.0
@@ -278,7 +295,7 @@ impl<'a> Graph<'a> {
         let mut input = self.push(Node::MaskBase(&mask.base));
         for effect in mask.effects.iter().filter(|e| e.visible && e.opacity > 0.0) {
             let filtered = if let MaskEffectKind::Filter(f) = effect.kind {
-                self.neighborhood(input, f)
+                self.neighborhood(input, f, ChannelKind::Roughness)
             } else {
                 None
             };
@@ -354,7 +371,7 @@ impl<'a> Graph<'a> {
                 if !filter.valid() || !filter.supports_channel(kind) {
                     continue;
                 }
-                self.neighborhood(input, filter)
+                self.neighborhood(input, filter, kind)
             } else {
                 None
             };
@@ -577,6 +594,80 @@ impl<'a> Graph<'a> {
                 }
                 out
             }
+            Node::Contour {
+                input,
+                filter,
+                kind,
+                radius,
+            } => {
+                use subcraft_materials::filter::contour;
+                let threshold = match filter {
+                    Filter::Bevel { threshold, .. } | Filter::MaskOutline { threshold, .. } => {
+                        *threshold
+                    }
+                    _ => unreachable!(),
+                };
+                let source = self.get(*input, tile);
+                if self.uniform[*input] {
+                    let v = contour::value(
+                        *filter,
+                        contour::inside(source[0], *kind, threshold),
+                        f32::INFINITY,
+                        *radius,
+                        *kind,
+                    );
+                    return vec![[v, v, v, source[0][3]]; TILE_TEXELS];
+                }
+                let support = (radius + 0.5).ceil() as u32;
+                let grid = Neighborhood::new(self, *input, &geo, support);
+                let res = self.ctx.geometry.resolution;
+                let x0 = geo.x0.saturating_sub(support);
+                let y0 = geo.y0.saturating_sub(support);
+                let x1 = (geo.x0 + TILE_SIZE + support).min(res);
+                let y1 = (geo.y0 + TILE_SIZE + support).min(res);
+                let width = (x1 - x0) as usize;
+                let height = (y1 - y0) as usize;
+                let classes: Vec<_> = (y0..y1)
+                    .flat_map(|y| (x0..x1).map(move |x| (x, y)))
+                    .map(|(x, y)| contour::inside(grid.pixel(x, y), *kind, threshold))
+                    .collect();
+                // Only the requested side(s) need a distance field. No full-resolution dense cache.
+                let inner = (!matches!(
+                    filter,
+                    Filter::MaskOutline {
+                        position: subcraft_doc::OutlinePosition::Outer,
+                        ..
+                    }
+                ))
+                .then(|| contour::squared_distance(&classes, width, height, false));
+                let outer = matches!(
+                    filter,
+                    Filter::MaskOutline {
+                        position: subcraft_doc::OutlinePosition::Outer
+                            | subcraft_doc::OutlinePosition::Both,
+                        ..
+                    }
+                )
+                .then(|| contour::squared_distance(&classes, width, height, true));
+                let mut out = source.as_ref().clone();
+                for (i, p) in out.iter_mut().enumerate() {
+                    let (x, y) = geo.texel_xy(i);
+                    if x >= res || y >= res {
+                        continue;
+                    }
+                    let at = ((y - y0) * (x1 - x0) + x - x0) as usize;
+                    let inside = classes[at];
+                    let d = if inside {
+                        inner.as_ref()
+                    } else {
+                        outer.as_ref()
+                    }
+                    .map_or(f32::INFINITY, |d| d[at]);
+                    let v = contour::value(*filter, inside, d, *radius, *kind);
+                    p[..3].fill(v);
+                }
+                out
+            }
             Node::Directional {
                 input,
                 taps,
@@ -738,6 +829,7 @@ fn spatial_value(
     kind: ChannelKind,
 ) -> [f32; 4] {
     match filter {
+        Filter::Bevel { .. } | Filter::MaskOutline { .. } => blurred,
         Filter::Blur { radius: 0.0 }
         | Filter::Sharpen { radius: 0.0, .. }
         | Filter::Sharpen { amount: 0.0, .. }
@@ -788,13 +880,13 @@ pub(crate) fn halo(layers: &[Arc<Layer>]) -> u32 {
     for l in layers.iter().filter(|l| l.visible) {
         for e in l.content_effects.iter().filter(|e| e.visible) {
             if let ContentEffectKind::Filter { filter, .. } = e.kind {
-                sum = sum.saturating_add(filter.radius().unwrap_or(0.0).ceil() as u32);
+                sum = sum.saturating_add(filter.support());
             }
         }
         if let Some(m) = l.mask.as_ref().filter(|m| m.enabled) {
             for e in m.effects.iter().filter(|e| e.visible) {
                 if let MaskEffectKind::Filter(f) = e.kind {
-                    sum = sum.saturating_add(f.radius().unwrap_or(0.0).ceil() as u32);
+                    sum = sum.saturating_add(f.support());
                 }
             }
         }
@@ -888,6 +980,16 @@ mod tests {
             mesh_maps: &maps,
         };
         for filter in [
+            Filter::Bevel {
+                radius: 8.0,
+                amount: 0.4,
+                threshold: 0.5,
+            },
+            Filter::MaskOutline {
+                radius: 8.0,
+                threshold: 0.5,
+                position: subcraft_doc::OutlinePosition::Both,
+            },
             Filter::Blur { radius: 4.0 },
             Filter::DirectionalBlur {
                 radius: 4.0,

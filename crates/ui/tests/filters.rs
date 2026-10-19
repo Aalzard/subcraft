@@ -18,7 +18,7 @@ fn selected_content_and_mask_filters_show_their_own_controls() {
     session.execute(Command::AddLayer(NewLayer::Fill)).unwrap(); let layer=session.selection().layer.unwrap();
     let mut state=UiState::new(session,None);let ctx=egui::Context::default();theme::apply(&ctx);
     for (filter,expected) in [(Filter::ALL[0],vec!["Contrast","Pivot"]),(Filter::ALL[1],vec!["Hue","Saturation","Lightness"]),
-        (Filter::ALL[2],vec!["Cutoff"]),(Filter::ALL[3],vec!["Minimum","Maximum"]),(Filter::ALL[4],vec!["Radius"]),(Filter::ALL[5],vec!["Radius","Amount"]),(Filter::ALL[6],vec!["Radius","Angle"]),(Filter::ALL[7],vec!["Radius","Amount"])] {
+        (Filter::ALL[2],vec!["Cutoff"]),(Filter::ALL[3],vec!["Minimum","Maximum"]),(Filter::ALL[4],vec!["Radius"]),(Filter::ALL[5],vec!["Radius","Amount"]),(Filter::ALL[6],vec!["Radius","Angle"]),(Filter::ALL[7],vec!["Radius","Amount"]),(Filter::ALL[8],vec!["Radius","Amount","Threshold"]),(Filter::ALL[9],vec!["Radius","Threshold","Position"])] {
         state.session.execute(Command::AddContentEffect {layer,kind:ContentEffectKind::Filter {channel:ChannelKind::BaseColor,filter}}).unwrap();
         let mut out=ctx.run_ui(egui::RawInput {screen_rect:Some(Rect::from_min_size(Pos2::ZERO,egui::vec2(480.0,1200.0))),..Default::default()},
             |ui| { assert!(effects::properties(&mut state,ui)); });
@@ -54,5 +54,15 @@ fn new_mask_filter_controls_show_angle_or_amount_without_color_controls() {
     for (mut chosen,expected,absent) in [(Filter::ALL[6],"Angle","Amount"),(Filter::ALL[7],"Amount","Angle")] {
         let out=frame(&ctx,egui::RawInput::default(),|ui|{filter::editor(ui,&mut chosen,None);});let text=labels(&out);
         assert!(text.iter().any(|s|s==expected));assert!(text.iter().any(|s|s=="Radius"));assert!(!text.iter().any(|s|s==absent||s=="Hue"));
+    }
+}
+
+#[test]
+fn contour_mask_inspectors_show_threshold_and_side_controls() {
+    let ctx=egui::Context::default();theme::apply(&ctx);
+    for (mut chosen,expected) in [(Filter::ALL[8],"Amount"),(Filter::ALL[9],"Position")] {
+        let out=frame(&ctx,egui::RawInput::default(),|ui|{filter::editor(ui,&mut chosen,None);});let text=labels(&out);
+        for name in ["Radius","Threshold",expected] {assert!(text.iter().any(|s|s==name),"{text:?}");}
+        assert!(!text.iter().any(|s|s=="Hue"||s=="Angle"));
     }
 }

@@ -1,6 +1,7 @@
 //! Deterministic point filters. Read only the previous effect stage at the same texel (halo 0).
 use subcraft_core::{ChannelKind, color::{linear3_to_srgb, srgb3_to_linear}};
 use subcraft_doc::Filter;
+pub mod contour;
 
 pub fn apply(filter: Filter, input: [f32; 3], channel: ChannelKind) -> [f32; 3] {
     if !filter.valid() || !filter.supports_channel(channel) { return input; }
@@ -10,7 +11,7 @@ pub fn apply(filter: Filter, input: [f32; 3], channel: ChannelKind) -> [f32; 3] 
             let v = pivot + (v - pivot) * gain;
             if channel.is_signed() { v } else { v.clamp(0.0, 1.0) }
         }),
-        Filter::Blur { .. } | Filter::Sharpen { .. } | Filter::DirectionalBlur { .. } | Filter::Highpass { .. } => input, // Neighborhood evaluation is staged by compositor.
+        Filter::Blur { .. } | Filter::Sharpen { .. } | Filter::DirectionalBlur { .. } | Filter::Highpass { .. } | Filter::Bevel {..} | Filter::MaskOutline {..} => input, // Neighborhood evaluation is staged by compositor.
         Filter::Clamp { low, high } => input.map(|v| v.clamp(low, high)),
         Filter::Threshold { cutoff } => {
             let value = if channel.is_color() { input[0] * 0.2126 + input[1] * 0.7152 + input[2] * 0.0722 } else { input[0] };

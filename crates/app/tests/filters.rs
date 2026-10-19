@@ -69,7 +69,7 @@ fn invalid_filters_and_wrong_domains_leave_document_and_history_unchanged() {
     let before=s.document().clone(); let entries=s.history().entries().len();
     for (channel,filter) in [(C::Normal,Filter::Threshold {cutoff:0.5}),
         (C::Roughness,Filter::Hsl {hue:90.0,saturation:1.0,lightness:0.0}),
-        (C::BaseColor,Filter::Clamp {low:0.8,high:0.2}), (C::BaseColor,Filter::Blur {radius:33.0}), (C::Height,Filter::Sharpen {radius:2.0,amount:-1.0}), (C::BaseColor,Filter::DirectionalBlur {radius:4.0,angle_deg:f32::NAN}), (C::Normal,Filter::Highpass {radius:4.0,amount:1.0})] {
+        (C::BaseColor,Filter::Clamp {low:0.8,high:0.2}), (C::BaseColor,Filter::Blur {radius:33.0}), (C::Height,Filter::Sharpen {radius:2.0,amount:-1.0}), (C::BaseColor,Filter::DirectionalBlur {radius:4.0,angle_deg:f32::NAN}), (C::Normal,Filter::Highpass {radius:4.0,amount:1.0}), (C::Height,Filter::Bevel {radius:4.0,amount:2.0,threshold:0.5}), (C::BaseColor,Filter::MaskOutline {radius:4.0,threshold:f32::NAN,position:subcraft_doc::OutlinePosition::Both})] {
         assert!(s.execute(Command::AddContentEffect {layer,kind:ContentEffectKind::Filter {channel,filter}}).is_err());
     }
     assert!(s.execute(Command::AddMaskEffect {layer,kind:MaskEffectKind::Filter(Filter::ALL[1])}).is_err());
@@ -151,4 +151,43 @@ fn directional_mask_latest_angle_undo_and_sync_export_are_exact() {
     assert!(expected[0]>0.6 && expected[0]<0.8);assert!((pixel[0]-expected[0]).abs()<0.01);
     let path=std::env::temp_dir().join(format!("subcraft-directional-{}.subcraft",layer.0));s.save(Some(&path)).unwrap();let mut reopened=Session::open_project(&path).unwrap();reopened.update_composites();
     assert_eq!(reopened.document(),s.document());assert_eq!(reopened.composite(reopened.selection().texture_set),s.composite(s.selection().texture_set));std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn contour_content_and_mask_latest_worker_undo_export_and_reopen_keep_sources() {
+    use subcraft_doc::OutlinePosition as P;
+    for is_mask in [false,true] {
+        let mut s=Session::new(subcraft_mesh::primitives::plane(2.0,1),128);
+        s.execute(Command::AddLayer(NewLayer::Fill)).unwrap();let layer=s.selection().layer.unwrap();
+        s.execute(Command::SetFillChannel {layer,channel:C::BaseColor,fill:FillChannel::new(FillSource::uniform(ChannelValue::rgb(1.0,1.0,1.0)))}).unwrap();
+        let initial=Filter::Bevel {radius:4.0,amount:0.8,threshold:0.5};
+        if is_mask {
+            s.execute(Command::AddMask {layer,white:false}).unwrap();
+            s.execute(Command::AddMaskEffect {layer,kind:MaskEffectKind::Paint {image:step_image(2)}}).unwrap();
+            s.execute(Command::AddMaskEffect {layer,kind:MaskEffectKind::Filter(initial)}).unwrap();
+        } else {
+            s.execute(Command::AddContentEffect {layer,kind:ContentEffectKind::Paint {channels:std::collections::BTreeMap::from([(C::BaseColor,step_image(4))])}}).unwrap();
+            s.execute(Command::AddContentEffect {layer,kind:ContentEffectKind::Filter {channel:C::BaseColor,filter:initial}}).unwrap();
+        }
+        s.execute(Command::Seal).unwrap();let before=s.document().clone();
+        for radius in [0.0,8.0,16.0] {
+            let filter=Filter::MaskOutline {radius,threshold:0.5,position:P::Outer};
+            if is_mask {let mut effect=s.selected_layer().unwrap().mask.as_ref().unwrap().effects[1].as_ref().clone();effect.kind=MaskEffectKind::Filter(filter);s.execute(Command::SetMaskEffect {layer,effect}).unwrap();}
+            else {let mut effect=s.selected_layer().unwrap().content_effects[1].as_ref().clone();effect.kind=ContentEffectKind::Filter {channel:C::BaseColor,filter};s.execute(Command::SetContentEffect {layer,effect}).unwrap();}
+            s.update_composites_within(Some(std::time::Duration::from_millis(1)));
+        }
+        let deadline=std::time::Instant::now()+std::time::Duration::from_secs(10);
+        while s.composites_pending() {assert!(std::time::Instant::now()<deadline);std::thread::sleep(std::time::Duration::from_millis(1));s.update_composites_within(Some(std::time::Duration::from_millis(1)));}
+        assert_eq!(s.composite(s.selection().texture_set).unwrap().channel(C::BaseColor).unwrap().get(64,63),[1.0;4]);
+        s.execute(Command::Undo).unwrap();assert_eq!(s.document(),&before);s.execute(Command::Redo).unwrap();
+        // Change the side immediately before export: no worker publication can be assumed.
+        let filter=Filter::MaskOutline {radius:8.0,threshold:0.5,position:P::Inner};
+        if is_mask {let mut effect=s.selected_layer().unwrap().mask.as_ref().unwrap().effects[1].as_ref().clone();effect.kind=MaskEffectKind::Filter(filter);s.execute(Command::SetMaskEffect {layer,effect}).unwrap();}
+        else {let mut effect=s.selected_layer().unwrap().content_effects[1].as_ref().clone();effect.kind=ContentEffectKind::Filter {channel:C::BaseColor,filter};s.execute(Command::SetContentEffect {layer,effect}).unwrap();}
+        let pixel=exported_edge(&mut s);let expected=if is_mask {0.5}else{0.0};assert!((pixel[0]-expected).abs()<0.005);
+        let actual=s.selected_layer().unwrap();let old=before.texture_sets[0].find(layer).unwrap();
+        if is_mask {assert_eq!(actual.mask.as_ref().unwrap().effects[0],old.mask.as_ref().unwrap().effects[0]);}else{assert_eq!(actual.content_effects[0],old.content_effects[0]);}
+        let path=std::env::temp_dir().join(format!("subcraft-contours-{}.subcraft",layer.0));s.save(Some(&path)).unwrap();let mut reopened=Session::open_project(&path).unwrap();reopened.update_composites();
+        assert_eq!(reopened.document(),s.document());assert_eq!(reopened.composite(reopened.selection().texture_set),s.composite(s.selection().texture_set));std::fs::remove_file(path).unwrap();
+    }
 }

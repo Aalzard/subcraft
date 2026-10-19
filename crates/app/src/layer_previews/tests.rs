@@ -319,3 +319,30 @@ fn neighborhood_previews_scale_radius_down_and_up_without_changing_document_data
     }
     assert_eq!(s.document(),&original);
 }
+
+#[test]
+fn contour_thumbnails_scale_the_border_and_relief_without_mutating_the_source() {
+    use subcraft_doc::{Filter,OutlinePosition as P};
+    let mut s=Session::new(subcraft_mesh::primitives::plane(2.0,1),128);let layer=s.selection().layer.unwrap();
+    s.execute(Command::AddMask {layer,white:false}).unwrap();
+    let mut image=subcraft_image::TiledImage::new(128,128,2,[0.0;4]);for y in 0..128 {for x in 0..64 {image.set(x,y,[1.0,1.0,0.0,0.0]);}}
+    s.execute(Command::AddMaskEffect {layer,kind:MaskEffectKind::Paint {image}}).unwrap();
+    s.execute(Command::AddMaskEffect {layer,kind:MaskEffectKind::Filter(Filter::ALL[8])}).unwrap();
+    let original=s.document().clone();let ts=&s.document().texture_sets[0];
+    let source=Source {layer:s.selected_layer().unwrap().clone().into(),resources:s.resources().clone(),maps:MeshMaps::new(),maps_generation:0,
+        resolution:128,albedo_filter:ts.albedo_filter,slot:0,geometry:Arc::new(GeometryCache::new(s.scene().mesh.clone()))};
+    for filter in [Filter::Bevel {radius:16.0,amount:0.8,threshold:0.5},Filter::MaskOutline {radius:16.0,threshold:0.5,position:P::Both}] {
+        let mut source=source.clone();Arc::make_mut(&mut Arc::make_mut(&mut source.layer).mask.as_mut().unwrap().effects[1]).kind=MaskEffectKind::Filter(filter);
+        for size in [64,256] {
+            let result=evaluate(PreviewKey {layer,channel:ChannelKind::BaseColor,mask:true,size},&source);
+            let r=16.0*size as f32/128.0;
+            for x in [size/2-1,size/2-r as u32/2,size/2+1,size/2+r as u32+2] {
+                let inside=x<size/2;let d=(x as f32-(size as f32/2.0-0.5)).abs();
+                let expected=if matches!(filter,Filter::Bevel {..}) {if inside {0.8*(d/r).min(1.0)}else{0.0}}else{(r+0.5-d).clamp(0.0,1.0)};
+                let actual=result.rgba[((size/2*size+x)*4) as usize] as f32/255.0;
+                assert!((actual-expected).abs()<0.005,"{filter:?} size {size} x{x}: {actual} vs {expected}");
+            }
+        }
+    }
+    assert_eq!(s.document(),&original);
+}

@@ -23,7 +23,8 @@ use uuid::Uuid;
 // 9: local filter effects and folder adjustments. Schemas 1–8 retain their original stacks.
 // 10: neighborhood Blur/Sharpen filters; schemas 1–9 migrate unchanged.
 // 11: Directional Blur and Highpass; schemas 1-10 retain their previous stacks.
-pub const SCHEMA_VERSION: u32 = 11;
+// 12: Bevel and Mask Outline; schemas 1-11 migrate unchanged (no contour effects to default).
+pub const SCHEMA_VERSION: u32 = 12;
 pub const FORMAT_NAME: &str = "subcraft-project";
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
