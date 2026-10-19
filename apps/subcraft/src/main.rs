@@ -63,6 +63,7 @@ fn main() -> anyhow::Result<()> {
             "--shelf-panel" => options.shelf_panel = true,
             "--generator-panel" => options.generator_panel = true,
             "--effect-panel" => options.effect_panel = true,
+            "--select-brush" => options.select_brush = Some(args.next().ok_or_else(|| anyhow::anyhow!("--select-brush expects a Shelf brush name"))?),
             "--symmetry" => {
                 let axes = args.next().ok_or_else(|| anyhow::anyhow!("--symmetry expects x, y, z or a combination"))?.to_ascii_lowercase();
                 if axes.is_empty() || !axes.chars().all(|c| "xyz".contains(c)) { anyhow::bail!("--symmetry expects x, y, z or a combination"); }

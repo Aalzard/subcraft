@@ -77,15 +77,36 @@ impl Session {
     /// Load a preset into the brush. The tip is looked up by name in `tips`; if it is missing the
     /// round tip is used and the returned message says so.
     pub fn apply_brush_preset(&mut self, p: &BrushPreset, tips: &[BrushAlpha]) -> Option<String> {
+        self.load_brush_preset(p, tips).unwrap_or_else(Some)
+    }
+
+    /// Make a Shelf brush (preset or bare tip) the active brush in one click. The paint
+    /// destination (content, mask or Paint effect) is tool state and is left untouched.
+    /// Returns what actually became active, or why the brush is unchanged.
+    pub fn select_shelf_brush(&mut self, brush: ShelfBrush, tips: &[BrushAlpha]) -> Result<SelectedBrush, String> {
+        match brush {
+            ShelfBrush::Preset(p) => {
+                let warning = self.load_brush_preset(p, tips)?;
+                Ok(SelectedBrush { name: p.name.clone(), tip: self.brush.alpha_name.clone(), warning })
+            }
+            ShelfBrush::Tip(a) => {
+                self.set_brush_alpha(a);
+                Ok(SelectedBrush { name: a.name.clone(), tip: a.name.clone(), warning: None })
+            }
+        }
+    }
+
+    /// `Err` leaves the brush unchanged; `Ok(Some)` applied with a warning (missing tip).
+    fn load_brush_preset(&mut self, p: &BrushPreset, tips: &[BrushAlpha]) -> Result<Option<String>, String> {
         let mut material = p.material.clone();
         let mut remap = std::collections::BTreeMap::new();
         for old in material.textures.values() {
             let Some(image) = p.images.iter().find(|image| image.id == *old) else {
-                return Some("Brush preset is missing an embedded channel image; brush unchanged".into());
+                return Err("Brush preset is missing an embedded channel image; brush unchanged".into());
             };
             match self.import_image_bytes(&image.name, image.encoded.clone()) {
                 Ok(id) => { remap.insert(*old, id); }
-                Err(e) => return Some(format!("Brush preset image: {e}; brush unchanged")),
+                Err(e) => return Err(format!("Brush preset image: {e}; brush unchanged")),
             }
         }
         for id in material.textures.values_mut() { *id = remap[id]; }
@@ -101,16 +122,32 @@ impl Session {
         match tip {
             Some(a) => {
                 self.set_brush_alpha(a);
-                None
+                Ok(None)
             }
             None => {
                 if let Some(round) = tips.iter().find(|a| a.bitmap.is_none()) {
                     self.set_brush_alpha(round);
                 }
-                Some(format!("brush tip \"{}\" not found; using Round", p.tip.as_deref().unwrap_or("?")))
+                Ok(Some(format!("brush tip \"{}\" not found; using Round", p.tip.as_deref().unwrap_or("?"))))
             }
         }
     }
+}
+
+/// A Shelf > Brushes entry.
+#[derive(Clone, Copy, Debug)]
+pub enum ShelfBrush<'a> {
+    Preset(&'a BrushPreset),
+    Tip(&'a BrushAlpha),
+}
+
+/// The brush that became active after a Shelf click (for the viewport acknowledgement).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SelectedBrush {
+    pub name: String,
+    /// Tip actually in use (a preset whose tip is missing falls back to Round).
+    pub tip: String,
+    pub warning: Option<String>,
 }
 
 /// Save to `brush-presets/<name>.scbrush` (numbered if taken). Returns the stored preset.

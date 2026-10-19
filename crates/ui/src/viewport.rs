@@ -324,9 +324,32 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         subcraft_paint::PaintTarget::ContentEffect(_) => { pill(&painter, right, egui::Align2::RIGHT_TOP, &format!("{}  Painting Paint effect", icons::PAINT_BRUSH), ACCENT); }
         subcraft_paint::PaintTarget::Content => {}
     }
+    brush_notice(state, ui, &painter, rect, now);
     if state.painting || response.dragged() {
         ui.ctx().request_repaint();
     }
+}
+
+/// "Brush: name" with its tip thumbnail, anchored inside the 3D view's top-left corner (below
+/// the viewport toolbar). Paint-only: it never takes pointer input. Holds, then fades out.
+fn brush_notice(state: &mut UiState, ui: &Ui, painter: &egui::Painter, rect: Rect, now: f64) {
+    let Some(notice) = &state.brush_notice else { return };
+    let Some(opacity) = notice.opacity(now) else { state.brush_notice = None; return };
+    let fade = |c: Color32| c.gamma_multiply(opacity);
+    let galley = painter.layout_no_wrap(format!("Brush: {}", notice.name), theme::font(12.0), fade(theme::TEXT));
+    let thumb = crate::panels::shelf::tip_thumbnail(state, &notice.tip);
+    let side = 22.0;
+    let inset = if thumb.is_some() { side + 8.0 } else { 0.0 };
+    let size = egui::vec2(galley.size().x + inset + 18.0, side.max(galley.size().y) + 10.0);
+    let plate = Rect::from_min_size(rect.left_top() + egui::vec2(10.0, 10.0), size);
+    painter.rect_filled(plate, 2.0, Color32::from_black_alpha((150.0 * opacity) as u8));
+    painter.rect_filled(Rect::from_min_size(plate.min, egui::vec2(2.0, plate.height())), 0.0, fade(ACCENT));
+    if let Some(texture) = thumb {
+        let image = Rect::from_min_size(plate.min + egui::vec2(9.0, (plate.height() - side) / 2.0), egui::vec2(side, side));
+        painter.image(texture, image, Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), fade(Color32::WHITE));
+    }
+    painter.galley(plate.min + egui::vec2(9.0 + inset, (plate.height() - galley.size().y) / 2.0), galley, fade(theme::TEXT));
+    ui.ctx().request_repaint();
 }
 
 /// Project UV controls only where their sampled surface is visible.
@@ -368,4 +391,37 @@ fn draw_stencil(state: &mut UiState, ui: &Ui, painter: &egui::Painter, rect: Rec
     painter.with_clip_rect(rect).add(egui::Shape::mesh(mesh));
     let outline: Vec<egui::Pos2> = c.iter().map(|p| to_ui(*p)).collect();
     painter.with_clip_rect(rect).add(egui::Shape::closed_line(outline, Stroke::new(1.0, Color32::from_white_alpha(90))));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::BrushNotice;
+
+    fn draw(state: &mut UiState, ctx: &egui::Context, time: f64) -> Vec<egui::epaint::ClippedShape> {
+        let rect = Rect::from_min_size(egui::pos2(200.0, 80.0), egui::vec2(600.0, 400.0));
+        let mut out = ctx.run_ui(egui::RawInput { time: Some(time), screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(1000.0, 600.0))), ..Default::default() }, |ui| {
+            let painter = ui.painter_at(rect);
+            brush_notice(state, ui, &painter, rect, time);
+        });
+        out.textures_delta.clear();
+        out.shapes
+    }
+
+    #[test]
+    fn brush_notice_sits_in_the_viewport_top_left_and_fades_away() {
+        let ctx = egui::Context::default();
+        theme::apply(&ctx);
+        let mut state = UiState::new(subcraft_app::Session::new(subcraft_mesh::primitives::cube(2.0), 64), None);
+        state.brush_notice = Some(BrushNotice { name: "Scratches".into(), tip: "Scratches".into(), since: 1.0 });
+        let text = |shapes: &[egui::epaint::ClippedShape]| shapes.iter().find_map(|s| match &s.shape {
+            egui::Shape::Text(t) if t.galley.text() == "Brush: Scratches" => Some((t.pos, t.fallback_color, t.override_text_color)),
+            _ => None,
+        });
+        let (pos, ..) = text(&draw(&mut state, &ctx, 1.2)).expect("notice drawn");
+        assert!(pos.x > 200.0 && pos.x < 240.0 && pos.y > 80.0 && pos.y < 110.0, "anchored inside the top-left corner: {pos:?}");
+        assert!(text(&draw(&mut state, &ctx, 1.0 + BrushNotice::HOLD + BrushNotice::FADE * 0.5)).is_some(), "still fading");
+        assert!(text(&draw(&mut state, &ctx, 1.0 + BrushNotice::HOLD + BrushNotice::FADE + 0.01)).is_none());
+        assert!(state.brush_notice.is_none(), "expired notice is cleared");
+    }
 }

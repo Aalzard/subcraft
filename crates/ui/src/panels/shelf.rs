@@ -254,6 +254,25 @@ pub fn show_in_folder(path: &std::path::Path) {
     }
 }
 
+type ShelfAction = Box<dyn FnOnce(&mut UiState)>;
+
+/// Brush tiles: a click activates the brush; the second click of a double-click opens its
+/// Brush settings instead (the first click already selected it, so no duplicate notice).
+fn brush_click(resp: &egui::Response, ctx: &egui::Context, select: impl FnOnce(&mut UiState) + 'static) -> Option<ShelfAction> {
+    if resp.double_clicked() {
+        let ctx = ctx.clone();
+        Some(Box::new(move |s: &mut UiState| { s.open_brush_editor = true; ctx.request_repaint(); }))
+    } else if resp.clicked() {
+        let ctx = ctx.clone();
+        Some(Box::new(move |s: &mut UiState| { select(s); ctx.request_repaint(); }))
+    } else { None }
+}
+
+/// Thumbnail of a brush tip by name, once the Shelf has rendered it.
+pub(crate) fn tip_thumbnail(state: &UiState, tip: &str) -> Option<egui::TextureId> {
+    state.library.alphas.iter().find(|a| a.name == tip).and_then(|a| state.shelf.thumbs.get(&a.id)).map(|t| t.id())
+}
+
 /// Underlined text tab.
 fn shelf_tab(ui: &mut Ui, current: &mut ShelfTab, value: ShelfTab, icon: &str, label: &str) {
     let selected = *current == value;
@@ -450,16 +469,11 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                                 s.brush_presets.remove(i);
                             }));
                         }
-                        if resp.clicked() {
-                            action = Some(Box::new(move |s: &mut UiState| {
-                                let p = s.brush_presets[i].clone();
-                                if let Some(msg) = s.session.apply_brush_preset(&p, &s.library.alphas) {
-                                    s.set_status(msg, now);
-                                }
-                                if s.tool == crate::state::Tool::PolygonFill {
-                                    s.tool = crate::state::Tool::Brush;
-                                }
-                            }));
+                        if let Some(a) = brush_click(&resp, ui.ctx(), move |s: &mut UiState| {
+                            let p = s.brush_presets[i].clone();
+                            s.select_shelf_brush(subcraft_app::brush_preset::ShelfBrush::Preset(&p), now);
+                        }) {
+                            action = Some(a);
                         }
                     }
                     let current = state.session.brush.alpha_name.clone();
@@ -478,16 +492,11 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                                 s.library.alphas.remove(i);
                             }));
                         }
-                        if resp.clicked() {
-                            let ctx=ui.ctx().clone();
-                            action = Some(Box::new(move |s: &mut UiState| {
-                                let a = s.library.alphas[i].clone();
-                                s.session.set_brush_alpha(&a);
-                                if let Some(bitmap)=a.bitmap {s.asset_preview.start(&ctx,a.name,subcraft_assets::starter::Kind::Alpha,crate::asset_preview::Source::Bitmap(bitmap),true);}
-                                if s.tool == crate::state::Tool::PolygonFill {
-                                    s.tool = crate::state::Tool::Brush;
-                                }
-                            }));
+                        if let Some(a) = brush_click(&resp, ui.ctx(), move |s: &mut UiState| {
+                            let a = s.library.alphas[i].clone();
+                            s.select_shelf_brush(subcraft_app::brush_preset::ShelfBrush::Tip(&a), now);
+                        }) {
+                            action = Some(a);
                         }
                     }
                 }

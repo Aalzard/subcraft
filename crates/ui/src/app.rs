@@ -91,6 +91,9 @@ pub struct LaunchOptions {
     pub shelf_panel: bool,
     /// Open the selected layer's first mask generator for native validation.
     pub generator_panel: bool,
+    /// Select this Shelf brush (tip or preset name) shortly before a scripted screenshot, the
+    /// same way a Shelf click does, to capture the viewport acknowledgement natively.
+    pub select_brush: Option<String>,
     pub effect_panel: bool,
     pub symmetry_axes: Option<[bool; 3]>,
     /// Start a real high-to-low bake and show its dialog (also usable with --screenshot).
@@ -192,6 +195,26 @@ mod launch_tests {
         assert_eq!(app.pending_now, None);
         assert_eq!(app.state.confirm, Some(Pending::OpenRecent));
         assert_eq!(app.state.session.document(), &doc);
+    }
+
+    #[test]
+    fn shelf_double_click_request_brings_the_brush_settings_forward_once() {
+        let mut app = SubcraftApp {
+            state: UiState::new(Session::new(subcraft_mesh::primitives::cube(2.0), 64), None),
+            dock: default_layout(), frames: 0, screenshot: None, screenshot_requested: false,
+            pending_now: None, active_tabs: HashSet::new(), inspector_selection: None, test_crash: false, profile: None,
+        };
+        let brush = app.dock.find_tab(&Tab::Brush).unwrap();
+        let properties = app.dock.find_tab(&Tab::Properties).unwrap();
+        app.dock.set_active_tab(properties).unwrap();
+        let active = |app: &mut SubcraftApp| app.dock.find_active_focused().map(|(_, tab)| *tab);
+        app.open_requested_brush_editor();
+        assert_ne!(active(&mut app), Some(Tab::Brush), "no request, no change");
+        app.state.open_brush_editor = true;
+        app.open_requested_brush_editor();
+        assert_eq!(active(&mut app), Some(Tab::Brush));
+        assert!(!app.state.open_brush_editor, "consumed");
+        assert_eq!(Some(brush.node_path()), app.dock.focused_leaf());
     }
 
     #[test]
@@ -406,6 +429,7 @@ impl SubcraftApp {
             let target = layer.mask.as_ref().and_then(|m| m.effects.iter().find(|e| matches!(e.kind, subcraft_doc::MaskEffectKind::Generator(_)))).map(|e| (layer.id, e.id));
             if let Some((layer, effect)) = target { let _ = state.session.execute(Command::SelectEffect { layer, target: subcraft_app::LayerTarget::Mask, effect: Some(effect) }); }
         }
+        state.capture_select_brush = options.select_brush.clone();
         state.welcome.guide = options.guide_step.map(|s| s.min(subcraft_app::launch::QUICK_START.len() - 1));
         if state.welcome.guide.is_some() { state.welcome.open = false; }
 
@@ -460,10 +484,19 @@ impl SubcraftApp {
         self.dock.find_tab(&tab).is_some_and(|path| self.dock.set_active_tab(path).is_ok())
     }
 
+    /// A Shelf double-click asks for the Brush settings: bring that tab forward and focus it.
+    fn open_requested_brush_editor(&mut self) {
+        if std::mem::take(&mut self.state.open_brush_editor) && let Some(path) = self.dock.find_tab(&Tab::Brush) {
+            let _ = self.dock.set_active_tab(path);
+            self.dock.set_focused_node_and_surface(path.node_path());
+        }
+    }
+
     /// Resolve selection before drawing (shortcuts/imports) and after drawing (layer clicks).
     fn workspace(&mut self, ui: &mut Ui) {
         let ctx = ui.ctx().clone();
         self.follow_layer_selection();
+        self.open_requested_brush_editor();
         let style = theme::dock_style(ui.style());
         let mut viewer = Viewer { state: &mut self.state, was_active: &self.active_tabs, active: HashSet::new() };
         egui::Frame::new().fill(theme::BG_0).inner_margin(egui::Margin { left: 3, right: 0, top: 3, bottom: 0 }).show(ui, |ui| {
@@ -972,6 +1005,16 @@ impl eframe::App for SubcraftApp {
         }
         self.state.recovery.prefs.apply_ui_size(&ctx);
         self.frames += 1;
+        if self.frames == 15 && let Some(name) = self.state.capture_select_brush.take() {
+            let now = ctx.input(|i| i.time);
+            let preset = self.state.brush_presets.iter().find(|p| p.name == name).cloned();
+            let tip = self.state.library.alphas.iter().find(|a| a.name == name).cloned();
+            match (preset, tip) {
+                (Some(p), _) => self.state.select_shelf_brush(subcraft_app::brush_preset::ShelfBrush::Preset(&p), now),
+                (None, Some(a)) => self.state.select_shelf_brush(subcraft_app::brush_preset::ShelfBrush::Tip(&a), now),
+                (None, None) => self.state.set_status(format!("No Shelf brush named {name}"), now),
+            }
+        }
         crate::pen::keyboard(&mut self.state, &ctx, ctx.input(|i| i.time));
         self.shortcuts(&ctx);
         if ctx.input(|i| i.pointer.any_released()) {
