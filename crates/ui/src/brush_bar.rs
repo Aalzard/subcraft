@@ -248,3 +248,80 @@ fn popup_percent(ui: &mut Ui, name: &str, value: &mut f32, help: &str, tip: bool
             });
     });
 }
+
+/// Material channels a texture set can add from the channel switches' "+" menu.
+const ADDABLE: [subcraft_core::ChannelKind; 9] = {
+    use subcraft_core::ChannelKind::*;
+    [BaseColor, Height, Roughness, Metallic, Normal, AmbientOcclusion, Emissive, Opacity, Specular]
+};
+
+fn channel_label(kind: subcraft_core::ChannelKind) -> &'static str {
+    use subcraft_core::ChannelKind::*;
+    match kind {
+        BaseColor => "Color",
+        Height => "Height",
+        Roughness => "Rough",
+        Metallic => "Metal",
+        Normal => "Normal",
+        AmbientOcclusion => "AO",
+        Emissive => "Emissive",
+        Opacity => "Opacity",
+        Specular => "Spec",
+        other => other.short_name(),
+    }
+}
+
+/// Which material channels the brush paints: click switches one on or off, Shift+click paints
+/// only that channel (again: all channels). "+" adds a missing PBR channel to the texture set.
+pub(crate) fn channel_switches(ui: &mut Ui, state: &mut crate::state::UiState) {
+    let channels = state.session.channels();
+    let mut material = state.session.brush.material.clone();
+    let original = material.clone();
+    let shift = ui.input(|i| i.modifiers.shift);
+    let mask = state.session.brush.target.is_mask();
+    let mut add = None;
+    ui.add_enabled_ui(!mask, |ui| {
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing.x = 2.0;
+            for &kind in &channels {
+                let on = material.is_enabled(kind);
+                let text = RichText::new(channel_label(kind)).font(theme::font(11.5)).color(if on { TEXT } else { TEXT_DIM });
+                let help = if mask {
+                    "Painting a mask: channels don't apply".to_string()
+                } else {
+                    format!("{} · click: paint on/off · Shift+click: paint only this channel", kind.display_name())
+                };
+                if ui.selectable_label(on, text).on_hover_text(help).clicked() {
+                    if shift { material.solo(kind, &channels) } else { material.toggle(kind) }
+                }
+            }
+            let missing: Vec<_> = ADDABLE.into_iter().filter(|k| !channels.contains(k)).collect();
+            if !missing.is_empty() {
+                let response = widgets::icon_button(ui, icons::PLUS, "Add a material channel to this texture set");
+                egui::Popup::menu(&response).show(|ui| {
+                    for kind in missing {
+                        if ui.button(kind.display_name()).clicked() {
+                            add = Some(kind);
+                        }
+                    }
+                });
+            }
+        });
+    });
+    let now = ui.input(|i| i.time);
+    if material != original
+        && let Err(e) = state.session.execute(subcraft_app::Command::SetBrushMaterial(material))
+    {
+        state.set_status(e.to_string(), now);
+    }
+    if let Some(kind) = add {
+        let texture_set = state.session.selection().texture_set;
+        match state.session.execute(subcraft_app::Command::AddChannel { texture_set, kind }) {
+            Ok(()) => {
+                state.gpu_dirty = true;
+                state.set_status(format!("{} channel added", kind.display_name()), now);
+            }
+            Err(e) => state.set_status(e.to_string(), now),
+        }
+    }
+}

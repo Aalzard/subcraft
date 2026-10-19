@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use glam::Vec2;
+use glam::{Vec2, Vec3};
 use rayon::prelude::*;
 use subcraft_core::LayerId;
 use subcraft_doc::{Projection, ProjectionMode, ResourceStore, TextureSet};
@@ -50,6 +50,8 @@ pub struct Stroke {
     projection: Projection,
     texture_tiling: bool,
     resources: ResourceStore,
+    /// Average UV units per object unit of the painted texture set (2D-view strokes).
+    uv_per_unit: Option<f32>,
 }
 
 impl Stroke {
@@ -80,6 +82,7 @@ impl Stroke {
             projection: material.projection,
             texture_tiling: material.texture_tiling,
             resources: ResourceStore::default(),
+            uv_per_unit: None,
         })
     }
 
@@ -129,6 +132,74 @@ impl Stroke {
         let spacing = self.spacing_px(ctx);
         self.path.line_to(to, spacing, &mut samples);
         self.paint_samples(ts, ctx, &samples)
+    }
+
+    /// Feed a 2D-view cursor position in texture UV (0..1, origin top-left; `line`: straight
+    /// segment). Stamps are UV discs ([`Alignment::Uv`]) with no 3D visibility test, so
+    /// hidden and back faces are reachable. Symmetry and stencils belong to the 3D view and do
+    /// not apply. `texels_per_px` converts the lazy-mouse distance from view pixels to texels.
+    pub fn add_uv_point(&mut self, ts: &mut TextureSet, ctx: &PaintContext, uv: Vec2, line: bool, texels_per_px: f32) -> Result<Vec<usize>, PaintError> {
+        self.check(ts, ctx)?;
+        let res = ctx.geometry.resolution as f32;
+        let radius_uv = self.uv_radius(ctx);
+        let spacing = (self.settings.spacing * 2.0 * radius_uv * res).max(0.5);
+        let mut samples = Vec::new();
+        if line {
+            self.path.line_to(uv * res, spacing, &mut samples);
+        } else {
+            self.path.push(uv * res, spacing, self.options.lazy_distance_px * texels_per_px.max(0.0), &mut samples);
+        }
+        self.paint_uv_samples(ts, ctx, &samples, radius_uv)
+    }
+
+    /// Brush radius in UV units: the 3D brush size at the texture set's average texel density,
+    /// so a stroke covers the same texels in both views.
+    fn uv_radius(&mut self, ctx: &PaintContext) -> f32 {
+        let upu = *self.uv_per_unit.get_or_insert_with(|| uv_per_unit(ctx.mesh, ctx.geometry.material_slot));
+        self.settings.radius(ctx.mesh.bounds.diagonal()) * upu
+    }
+
+    fn paint_uv_samples(&mut self, ts: &mut TextureSet, ctx: &PaintContext, samples: &[PathSample], radius_uv: f32) -> Result<Vec<usize>, PaintError> {
+        if samples.is_empty() || radius_uv <= 0.0 || !radius_uv.is_finite() {
+            return Ok(Vec::new());
+        }
+        let s = self.settings;
+        let res = ctx.geometry.resolution as f32;
+        let radius = s.radius(ctx.mesh.bounds.diagonal());
+        let mut stamps = Vec::with_capacity(samples.len());
+        for sample in samples {
+            let k = self.stamp_count;
+            self.stamp_count += 1;
+            let scale = 1.0 - s.size_jitter.clamp(0.0, 1.0) * rand01(s.seed, k, 0);
+            let flow = s.flow.clamp(0.0, 1.0) * (1.0 - s.flow_jitter.clamp(0.0, 1.0) * rand01(s.seed, k, 1));
+            let mut angle = (s.angle_deg + s.angle_jitter_deg * (2.0 * rand01(s.seed, k, 2) - 1.0)).to_radians();
+            if s.follow_path {
+                angle += sample.dir.y.atan2(sample.dir.x);
+            }
+            let mut pos = sample.pos;
+            if s.position_jitter > 0.0 {
+                let (a, d) = (rand01(s.seed, k, 3) * std::f32::consts::TAU, rand01(s.seed, k, 4).sqrt());
+                pos += Vec2::new(a.cos(), a.sin()) * d * s.position_jitter * 2.0 * radius_uv * scale * res;
+            }
+            stamps.push(Stamp {
+                camera: 0,
+                screen: pos,
+                center: Vec3::ZERO,
+                normal: Vec3::Z,
+                uv: pos / res,
+                tri: 0,
+                radius: radius * scale,
+                radius_px: 0.0,
+                radius_uv: radius_uv * scale,
+                flow,
+                angle,
+                roundness: s.roundness,
+                hardness: s.hardness,
+                tangent: Vec3::X,
+                bitangent: Vec3::Y,
+            });
+        }
+        self.apply_stamps(ts, ctx, std::slice::from_ref(ctx.camera), &stamps, Alignment::Uv, false)
     }
 
     fn check(&self, ts: &TextureSet, ctx: &PaintContext) -> Result<(), PaintError> {
@@ -198,14 +269,13 @@ impl Stroke {
                 }
             }
         }
-        self.apply_stamps(ts, ctx, &cameras, &stamps)
+        self.apply_stamps(ts, ctx, &cameras, &stamps, self.settings.alignment, true)
     }
 
-    fn apply_stamps(&mut self, ts: &mut TextureSet, ctx: &PaintContext, cameras: &[Camera], stamps: &[Stamp]) -> Result<Vec<usize>, PaintError> {
+    fn apply_stamps(&mut self, ts: &mut TextureSet, ctx: &PaintContext, cameras: &[Camera], stamps: &[Stamp], alignment: Alignment, stencil: bool) -> Result<Vec<usize>, PaintError> {
         if stamps.is_empty() {
             return Ok(Vec::new());
         }
-        let alignment = self.settings.alignment;
         let depth: Vec<Arc<DepthMap>> =
             if alignment == Alignment::Uv { Vec::new() } else { cameras.iter().map(|c| ctx.depth.get(ctx.mesh, c)).collect() };
         let backface_cos = self.settings.backface_culling.then(|| self.settings.backface_angle_deg.to_radians().cos());
@@ -218,7 +288,7 @@ impl Stroke {
             depth: &depth,
             backface_cos,
             alpha: self.alpha.as_deref(),
-            stencil: self.stencil.as_deref(),
+            stencil: self.stencil.as_deref().filter(|_| stencil),
         };
         let bins = input.bin(stamps);
         let work: Vec<(usize, TileWork, Box<[f32]>)> = bins
@@ -293,9 +363,22 @@ impl Stroke {
         self.check(ts, ctx)?;
         let (o, d) = ctx.camera.ray(screen);
         let Some(hit) = ctx.bvh.intersect(o, d, 0.0, f32::INFINITY) else { return Ok(Vec::new()) };
+        self.fill_from(ts, ctx, hit.tri, mode)
+    }
+
+    /// [`Stroke::polygon_fill`] from the 2D view: the triangle whose UV footprint contains `uv`.
+    pub fn polygon_fill_uv(&mut self, ts: &mut TextureSet, ctx: &PaintContext, uv: Vec2, mode: PolygonFillMode) -> Result<Vec<usize>, PaintError> {
+        self.check(ts, ctx)?;
+        match triangle_at_uv(ctx.mesh, ctx.geometry, uv) {
+            Some(tri) => self.fill_from(ts, ctx, tri, mode),
+            None => Ok(Vec::new()),
+        }
+    }
+
+    fn fill_from(&mut self, ts: &mut TextureSet, ctx: &PaintContext, hit_tri: u32, mode: PolygonFillMode) -> Result<Vec<usize>, PaintError> {
         let mesh = ctx.mesh;
         let slot = ctx.geometry.material_slot;
-        if mesh.tri_material[hit.tri as usize] != slot {
+        if mesh.tri_material[hit_tri as usize] != slot {
             return Ok(Vec::new());
         }
         let group = match mode {
@@ -304,9 +387,9 @@ impl Stroke {
             PolygonFillMode::UvIsland => Some(ctx.geometry.triangle_islands()),
         };
         let tris: Vec<u32> = match &group {
-            None => vec![hit.tri],
+            None => vec![hit_tri],
             Some(g) => {
-                let id = g[hit.tri as usize];
+                let id = g[hit_tri as usize];
                 mesh.material_triangles(slot).filter(|&t| g[t] == id).map(|t| t as u32).collect()
             }
         };
@@ -354,4 +437,50 @@ impl Stroke {
             }
         }
     }
+}
+
+/// Average UV units per object unit over a material slot's triangles (square root of the UV to
+/// surface area ratio). Falls back to one texture width per bounding-box diagonal.
+pub fn uv_per_unit(mesh: &Mesh, slot: u32) -> f32 {
+    let (mut world, mut uv) = (0.0f64, 0.0f64);
+    for t in mesh.material_triangles(slot) {
+        let p = mesh.tri_positions(t);
+        let q = mesh.tri_uvs(t);
+        world += (p[1] - p[0]).cross(p[2] - p[0]).length() as f64;
+        uv += (q[1] - q[0]).perp_dot(q[2] - q[0]).abs() as f64;
+    }
+    if world > 1e-20 && uv > 1e-20 {
+        (uv / world).sqrt() as f32
+    } else {
+        1.0 / mesh.bounds.diagonal().max(1e-6)
+    }
+}
+
+/// Triangle of the geometry's material slot whose (tile-wrapped) UV triangle contains `uv`.
+pub fn triangle_at_uv(mesh: &Mesh, geometry: &TextureSetGeometry, uv: Vec2) -> Option<u32> {
+    if !uv.is_finite() || uv.min_element() < 0.0 || uv.max_element() >= 1.0 {
+        return None;
+    }
+    let texel = (uv * geometry.resolution as f32).as_uvec2();
+    let tile = (texel.y / TILE_SIZE * geometry.tiles_x + texel.x / TILE_SIZE) as usize;
+    let mut best: Option<(f32, u32)> = None;
+    for &t in geometry.tile_triangles(tile) {
+        if mesh.tri_material[t as usize] != geometry.material_slot {
+            continue;
+        }
+        let (q, _) = subcraft_mesh::uv_raster::wrap_to_tile(mesh.tri_uvs(t as usize));
+        let (e0, e1, w) = (q[1] - q[0], q[2] - q[0], uv - q[0]);
+        let d = e0.perp_dot(e1);
+        if d.abs() < 1e-14 {
+            continue;
+        }
+        let (b1, b2) = (w.perp_dot(e1) / d, e0.perp_dot(w) / d);
+        // Distance outside the triangle in barycentric units (0 = inside); the nearest wins so
+        // clicks on a shared edge still pick a triangle.
+        let outside = (-b1).max(0.0) + (-b2).max(0.0) + (b1 + b2 - 1.0).max(0.0);
+        if outside < 1e-4 && best.is_none_or(|b| outside < b.0) {
+            best = Some((outside, t));
+        }
+    }
+    best.map(|b| b.1)
 }

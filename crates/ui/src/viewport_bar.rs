@@ -95,6 +95,9 @@ pub fn show(ui: &mut Ui, state: &mut crate::state::UiState) {
                     crate::brush_bar::show(ui, &mut state.tool, &mut settings, &mut options, width)
                 });
             }
+            if painting {
+                crate::brush_bar::channel_switches(ui, state);
+            }
         });
     ui.painter().hline(
         frame.response.rect.x_range(),
