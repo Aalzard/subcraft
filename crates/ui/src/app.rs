@@ -87,6 +87,8 @@ pub struct LaunchOptions {
     pub view_2d: bool,
     /// Start with Brush settings in front (also useful for native screenshot verification).
     pub brush_panel: bool,
+    /// Start with a narrow vertical texture shelf (native layout validation).
+    pub shelf_panel: bool,
     /// Open the selected layer's first mask generator for native validation.
     pub generator_panel: bool,
     pub symmetry_axes: Option<[bool; 3]>,
@@ -395,6 +397,15 @@ impl SubcraftApp {
             .filter(|_| options.screenshot.is_none())
             .unwrap_or_else(default_layout);
         let mut dock = dock;
+        if options.shelf_panel {
+            dock = DockState::new(vec![Tab::Viewport, Tab::UvView]);
+            let surface = dock.main_surface_mut();
+            let [center, right] = surface.split_right(NodeIndex::root(), 0.77, vec![Tab::Layers]);
+            surface.split_below(right, 0.48, vec![Tab::Properties, Tab::Brush]);
+            let [center, _] = surface.split_left(center, 0.28, vec![Tab::Shelf]);
+            surface.split_below(center, 0.82, vec![Tab::Parts, Tab::TextureSets, Tab::History]);
+            state.shelf.tab = crate::panels::shelf::ShelfTab::Textures;
+        }
         if options.view_2d
             && let Some(path) = dock.find_tab(&Tab::UvView)
         {
@@ -923,6 +934,12 @@ impl egui_dock::TabViewer for Viewer<'_> {
 
     fn is_closeable(&self, _tab: &Tab) -> bool {
         false
+    }
+
+    fn scroll_bars(&self, tab: &Tab) -> [bool; 2] {
+        // These panels own bounded vertical lists and pinned preview-size footers. The dock's
+        // extra scroll area would let content widen itself and scroll the footer offscreen.
+        if matches!(tab, Tab::Shelf | Tab::Layers) { [false, false] } else { [true, true] }
     }
 
     fn clear_background(&self, tab: &Tab) -> bool {

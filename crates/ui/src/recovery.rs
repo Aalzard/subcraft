@@ -23,6 +23,9 @@ pub const UI_SIZE_RANGE: std::ops::RangeInclusive<u32> = 75..=150;
 pub struct Preferences {
     /// Scales all text, icons and widgets together, independently of native display DPI.
     pub ui_size_percent: u32,
+    /// Display sizes only; independent of source images and document texture resolution.
+    pub shelf_preview_size: u32,
+    pub layer_preview_size: u32,
     /// Minutes between autosaves; 0 turns the timer off.
     pub autosave_minutes: u32,
     /// Recovery copies kept.
@@ -39,6 +42,8 @@ impl Default for Preferences {
     fn default() -> Self {
         Self {
             ui_size_percent: DEFAULT_UI_SIZE,
+            shelf_preview_size: 88,
+            layer_preview_size: 36,
             autosave_minutes: (recovery::DEFAULT_INTERVAL.as_secs() / 60) as u32,
             autosave_keep: recovery::DEFAULT_KEEP,
             show_welcome: true,

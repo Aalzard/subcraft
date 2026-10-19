@@ -142,7 +142,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     rows(&ts.layers, 0, &mut list);
     // Default min height (64 px) would let rows spill past the panel when it is short; the list
     // must only use the space that is left (it scrolls).
-    let rows_height = ui.available_height().max(0.0);
+    let rows_height = (ui.available_height() - 44.0).max(0.0);
+    let preview_size = state.recovery.prefs.layer_preview_size.clamp(24, 64) as f32;
     egui::ScrollArea::vertical()
         .id_salt("layer_rows")
         .auto_shrink([false, false])
@@ -166,9 +167,12 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             empty_state(ui, icons::STACK, "No layers yet. Add one above.");
         }
         for (index, (depth, l)) in list.iter().enumerate() {
+            // Reserve room for names and the blend/opacity column even in a narrow dock.
+            let thumb_size = preview_size.min(((ui.available_width() - 176.0 - *depth as f32 * 16.0) / 2.0).clamp(24.0, 64.0));
+            let row_height = (thumb_size + 12.0).max(44.0);
             let selected = sel == Some(l.id);
             let b = l.blend_for(active);
-            let resp = ui.push_id(l.id, |ui| striped_list_row_height(ui, index, selected, theme::LAYER_ROW_HEIGHT, egui::Sense::click_and_drag(), |ui| {
+            let resp = ui.push_id(l.id, |ui| striped_list_row_height(ui, index, selected, row_height, egui::Sense::click_and_drag(), |ui| {
                 ui.add_space(*depth as f32 * 16.0);
                 if let subcraft_doc::LayerContent::Group(group) = &l.content {
                     let icon = if group.expanded { icons::CARET_DOWN } else { icons::CARET_RIGHT };
@@ -180,11 +184,11 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 if icon_button(ui, eye, tip).clicked() {
                     cmds.push(Command::SetVisible { layer: l.id, visible: !l.visible });
                 }
-                let thumb = state.layer_previews.image(ui, &state.session, PreviewKey { layer: l.id, channel: active, mask: false, size: 64 }, theme::LAYER_THUMB_SIZE,
+                let thumb = state.layer_previews.image(ui, &state.session, PreviewKey { layer: l.id, channel: active, mask: false, size: 64 }, thumb_size,
                     selected && selected_target == LayerTarget::Content).on_hover_text(format!("{:?} content · {} preview · click to edit", l.kind(), active.display_name()));
                 if thumb.clicked() { cmds.push(Command::SelectLayerTarget { layer: l.id, target: LayerTarget::Content }); }
                 if let Some(mask) = &l.mask {
-                    let thumb = state.layer_previews.image(ui, &state.session, PreviewKey { layer: l.id, channel: ChannelKind::BaseColor, mask: true, size: 64 }, theme::LAYER_THUMB_SIZE,
+                    let thumb = state.layer_previews.image(ui, &state.session, PreviewKey { layer: l.id, channel: ChannelKind::BaseColor, mask: true, size: 64 }, thumb_size,
                         selected && selected_target == LayerTarget::Mask).on_hover_text("Mask · click to edit · Alt+click: UV preview · Shift+click: enable/disable");
                     if !mask.enabled { ui.painter().line_segment([thumb.rect.left_bottom(), thumb.rect.right_top()], egui::Stroke::new(1.5, theme::WARNING)); }
                     if thumb.clicked() {
@@ -337,6 +341,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         }
         root_drop(ui, ts, DropTarget::RootBottom, &mut cmds);
     });
+    crate::widgets::preview_size_footer(ui, &mut state.recovery.prefs.layer_preview_size, 24..=64);
     if cancel_rename { rename = None; }
     else if let Some((layer, name)) = finish_rename {
         if !name.is_empty() && ts.find(layer).is_some_and(|l| l.name != name) { cmds.push(Command::Rename { layer, name }); }

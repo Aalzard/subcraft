@@ -165,11 +165,9 @@ pub fn apply_environment(
     }
 }
 
-const TILE: f32 = 88.0;
-
 /// Thumbnail tile: square image with a hairline frame (accent when hovered / selected), name below.
-pub(crate) fn tile(ui: &mut Ui, thumb: Option<&egui::TextureHandle>, name: &str, selected: bool, tooltip: &str) -> egui::Response {
-    let (rect, resp) = ui.allocate_exact_size(egui::vec2(TILE, TILE + 22.0), egui::Sense::click_and_drag());
+pub(crate) fn tile(ui: &mut Ui, side: f32, thumb: Option<&egui::TextureHandle>, name: &str, selected: bool, tooltip: &str) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(side, side + 22.0), egui::Sense::click_and_drag());
     if resp.dragged()
         && egui::DragAndDrop::has_payload_of_type::<ShelfDrag>(ui.ctx())
         && let Some(p) = ui.ctx().pointer_latest_pos()
@@ -186,7 +184,7 @@ pub(crate) fn tile(ui: &mut Ui, thumb: Option<&egui::TextureHandle>, name: &str,
             });
         ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
     }
-    let img = egui::Rect::from_min_size(rect.min, egui::vec2(TILE, TILE));
+    let img = egui::Rect::from_min_size(rect.min, egui::vec2(side, side));
     let painter = ui.painter();
     painter.rect_filled(img, 0.0, theme::FIELD);
     match thumb {
@@ -206,7 +204,9 @@ pub(crate) fn tile(ui: &mut Ui, thumb: Option<&egui::TextureHandle>, name: &str,
     };
     painter.rect_stroke(img, 0.0, stroke, egui::StrokeKind::Inside);
     let color = if selected || resp.hovered() { theme::TEXT } else { theme::TEXT_DIM };
-    let galley = painter.layout(name.to_string(), theme::font(11.0), color, TILE);
+    let mut job = egui::text::LayoutJob::simple(name.to_string(), theme::font(11.0), color, side);
+    job.wrap.max_rows = 1;
+    let galley = painter.layout_job(job);
     let text_pos = egui::pos2(rect.center().x - galley.size().x / 2.0, img.bottom() + 5.0);
     painter.galley(text_pos, galley, color);
     resp.on_hover_text(tooltip).on_hover_cursor(egui::CursorIcon::PointingHand)
@@ -271,18 +271,32 @@ fn shelf_tab(ui: &mut Ui, current: &mut ShelfTab, value: ShelfTab, icon: &str, l
     }
 }
 
+fn shelf_hint(ui: &mut Ui, text: &str) {
+    ui.label(RichText::new(crate::icons::INFO).color(theme::TEXT_FAINT)).on_hover_text(text);
+}
+
 pub fn show(state: &mut UiState, ui: &mut Ui) {
     let now = ui.input(|i| i.time);
     egui::Frame::new().inner_margin(egui::Margin { left: 6, right: theme::PAD, top: 0, bottom: 0 }).show(ui, |ui| {
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing.x = 0.0;
+        let narrow = ui.available_width() < 720.0;
         let tab = &mut state.shelf.tab;
+        if narrow {
+            let label = match tab { ShelfTab::Textures => "Textures", ShelfTab::Materials => "Materials", ShelfTab::SmartMaterials => "Smart Materials", ShelfTab::SmartMasks => "Smart Masks", ShelfTab::Brushes => "Brushes", ShelfTab::Environments => "Environments" };
+            egui::ComboBox::from_id_salt("shelf_category").selected_text(label).width(144.0).show_ui(ui, |ui| {
+                for (kind, name) in [(ShelfTab::Textures,"Textures"),(ShelfTab::Materials,"Materials"),(ShelfTab::SmartMaterials,"Smart Materials"),(ShelfTab::SmartMasks,"Smart Masks"),(ShelfTab::Brushes,"Brushes"),(ShelfTab::Environments,"Environments")] {
+                    ui.selectable_value(tab, kind, name);
+                }
+            });
+        } else {
         shelf_tab(ui, tab, ShelfTab::Textures, crate::icons::IMAGE, "Textures");
         shelf_tab(ui, tab, ShelfTab::Materials, crate::icons::DROP, "Materials");
         shelf_tab(ui, tab, ShelfTab::SmartMaterials, crate::icons::SPARKLE, "Smart Materials");
         shelf_tab(ui, tab, ShelfTab::SmartMasks, crate::icons::MASK, "Smart Masks");
         shelf_tab(ui, tab, ShelfTab::Brushes, crate::icons::PAINT_BRUSH, "Brushes");
         shelf_tab(ui, tab, ShelfTab::Environments, crate::icons::SUN, "Environments");
+        }
         ui.spacing_mut().item_spacing.x = 8.0;
         ui.add_space(16.0);
         match state.shelf.tab {
@@ -291,17 +305,13 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     crate::files::pick(ui.ctx(), crate::files::Purpose::ShelfTextures, crate::files::IMAGES, true, None);
                 }
                 library_folder_button(ui, state, subcraft_app::assets::UserAssetKind::Texture);
-                ui.label(
-                    RichText::new("Imported maps become one material. Drag a texture onto a channel in Properties (Base Color, Normal…), or onto the model / a layer for a new fill layer.")
-                        .small()
-                        .color(theme::TEXT_FAINT),
-                );
+                shelf_hint(ui, "Imported maps become one material. Drag a texture onto a channel in Properties (Base Color, Normal…), or onto the model / a layer for a new fill layer.");
             }
             ShelfTab::Materials => {
                 if ui.button(format!("{}  Import texture set…", crate::icons::DOWNLOAD)).clicked() {
                     crate::panels::layers::import_texture_set_dialog(ui.ctx());
                 }
-                ui.label(RichText::new("Select a texture's maps (color, roughness, normal…) to make one fill layer.").small().color(theme::TEXT_FAINT));
+                shelf_hint(ui, "Select a texture's maps (color, roughness, normal…) to make one fill layer.");
             }
             ShelfTab::Brushes => {
                 if ui.button(format!("{}  Import alpha…", crate::icons::DOWNLOAD)).clicked() {
@@ -314,17 +324,22 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     crate::files::pick(ui.ctx(), crate::files::Purpose::Hdri, crate::files::PANORAMAS, false, None);
                 }
                 library_folder_button(ui, state, subcraft_app::assets::UserAssetKind::Environment);
-                ui.spacing_mut().slider_width = 110.0;
-                ui.label(RichText::new("Rotation").color(theme::TEXT_DIM));
-                ui.add(egui::Slider::new(&mut state.env.rotation_deg, -180.0..=180.0).suffix("°"));
-                ui.label(RichText::new("Intensity").color(theme::TEXT_DIM));
-                ui.add(egui::Slider::new(&mut state.env.intensity, 0.1..=4.0).logarithmic(true));
+                let width = ui.max_rect().width().min(300.0);
+                for (label, value, range) in [("Rotation", &mut state.env.rotation_deg, -180.0..=180.0), ("Intensity", &mut state.env.intensity, 0.1..=4.0)] {
+                    // Give compound sliders a known width before wrapping their parent row.
+                    ui.allocate_ui_with_layout(egui::vec2(width, 20.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                        ui.add_sized([60.0, 18.0], egui::Label::new(RichText::new(label).color(theme::TEXT_DIM)));
+                        ui.spacing_mut().slider_width = (ui.available_width() - 64.0).max(20.0);
+                        let slider = egui::Slider::new(value, range);
+                        ui.add(if label == "Rotation" { slider.suffix("°") } else { slider.logarithmic(true) });
+                    });
+                }
             }
             ShelfTab::SmartMasks => {
-                ui.label(RichText::new("Applies to the selected layer. Edges / Cavity need baked maps (Ctrl+B).").small().color(theme::TEXT_FAINT));
+                shelf_hint(ui, "Applies to the selected layer. Edges / Cavity need baked maps (Ctrl+B).");
             }
             ShelfTab::SmartMaterials => {
-                ui.label(RichText::new("Wear and dirt follow baked curvature / AO (Ctrl+B).").small().color(theme::TEXT_FAINT));
+                shelf_hint(ui, "Wear and dirt follow baked curvature / AO (Ctrl+B).");
             }
         }
     });
@@ -336,10 +351,15 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     let mut lib_status: Option<String> = None;
     let filter = state.shelf.filter.clone();
     let mut shown = 0usize;
-    egui::ScrollArea::vertical().id_salt("shelf").auto_shrink([false, false]).show(ui, |ui| {
+    let grid_width = ui.available_width();
+    let tile_size = (state.recovery.prefs.shelf_preview_size.clamp(48, 160) as f32).min((grid_width - 2.0 * f32::from(theme::PAD)).max(1.0));
+    let grid_height = (ui.available_height() - 44.0).max(0.0);
+    ui.allocate_ui_with_layout(egui::vec2(grid_width, grid_height), egui::Layout::top_down(egui::Align::Min), |ui| {
+    egui::ScrollArea::vertical().id_salt("shelf").auto_shrink([false, false]).min_scrolled_height(0.0).max_height(grid_height).show(ui, |ui| {
         egui::Frame::new().inner_margin(egui::Margin::same(theme::PAD)).show(ui, |ui| ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing = egui::vec2(10.0, 10.0);
-            shown += crate::asset_preview::shelf(state,ui);
+            ui.set_max_width((grid_width - 2.0 * f32::from(theme::PAD)).max(0.0));
+            shown += crate::asset_preview::shelf(state,ui,tile_size);
             let thumbs = &state.shelf.thumbs;
             match state.shelf.tab {
                 ShelfTab::Textures => {
@@ -348,7 +368,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                             continue;
                         }
                         shown += 1;
-                        let resp = tile(ui, t.thumb.as_ref(), &t.name, false, &format!("{} ({}): drag onto a channel, the model or a layer", t.name, t.category));
+                        let resp = tile(ui, tile_size, t.thumb.as_ref(), &t.name, false, &format!("{} ({}): drag onto a channel, the model or a layer", t.name, t.category));
                         resp.dnd_set_drag_payload(ShelfDrag::Texture(i));
                         if library_menu(&resp, state.user_library.as_ref(), &t.path, &mut lib_status) {
                             let path = t.path.clone();
@@ -367,7 +387,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                             continue;
                         }
                         shown += 1;
-                        let resp = tile(ui, thumbs.get(&m.id), &m.name, false, &format!("{} ({}): click or drag onto the model / a layer", m.name, m.category));
+                        let resp = tile(ui, tile_size, thumbs.get(&m.id), &m.name, false, &format!("{} ({}): click or drag onto the model / a layer", m.name, m.category));
                         resp.dnd_set_drag_payload(ShelfDrag::Material(i));
                         if resp.clicked() {
                             action = Some(Box::new(move |s: &mut UiState| apply_shelf_item(s, ShelfDrag::Material(i), now)));
@@ -380,7 +400,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                             continue;
                         }
                         shown += 1;
-                        let resp = tile(ui, thumbs.get(&m.id), &m.name, false, &format!("{}: click or drag onto the model / a layer", m.name));
+                        let resp = tile(ui, tile_size, thumbs.get(&m.id), &m.name, false, &format!("{}: click or drag onto the model / a layer", m.name));
                         resp.dnd_set_drag_payload(ShelfDrag::SmartMaterial(i));
                         if let Some(file) = &m.user_file
                             && library_menu(&resp, state.user_library.as_ref(), file, &mut lib_status)
@@ -400,7 +420,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                             continue;
                         }
                         shown += 1;
-                        let resp = tile(ui, thumbs.get(&m.id), &m.name, false, &format!("{}: click to mask the selected layer, or drag onto a layer", m.name));
+                        let resp = tile(ui, tile_size, thumbs.get(&m.id), &m.name, false, &format!("{}: click to mask the selected layer, or drag onto a layer", m.name));
                         resp.dnd_set_drag_payload(ShelfDrag::SmartMask(i));
                         if let Some(file) = &m.user_file
                             && library_menu(&resp, state.user_library.as_ref(), file, &mut lib_status)
@@ -422,7 +442,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         shown += 1;
                         let tip_id = state.library.alphas.iter().find(|a| Some(&a.name) == p.tip.as_ref() || (p.tip.is_none() && a.bitmap.is_none())).map(|a| a.id);
                         let thumb = tip_id.and_then(|id| thumbs.get(&id));
-                        let resp = tile(ui, thumb, &p.name, false, "Brush preset: tip, size, flow, jitter and material (right-click for options)");
+                        let resp = tile(ui, tile_size, thumb, &p.name, false, "Brush preset: tip, size, flow, jitter and material (right-click for options)");
                         if let Some(file) = &p.user_file
                             && library_menu(&resp, state.user_library.as_ref(), file, &mut lib_status)
                         {
@@ -450,7 +470,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         }
                         shown += 1;
                         let tip = if a.user_file.is_some() { "Brush tip (your library: right-click for options)" } else { "Brush tip" };
-                        let resp = tile(ui, thumbs.get(&a.id), &a.name, a.name == current, tip);
+                        let resp = tile(ui, tile_size, thumbs.get(&a.id), &a.name, a.name == current, tip);
                         if let Some(file) = &a.user_file
                             && library_menu(&resp, state.user_library.as_ref(), file, &mut lib_status)
                         {
@@ -478,7 +498,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         }
                         shown += 1;
                         let tip = if e.user_file.is_some() { "Viewport lighting (your library: right-click for options)" } else { "Viewport lighting" };
-                        let resp = tile(ui, thumbs.get(&e.id), &e.name, i == state.env.index, tip);
+                        let resp = tile(ui, tile_size, thumbs.get(&e.id), &e.name, i == state.env.index, tip);
                         if let Some(file) = &e.user_file
                             && library_menu(&resp, state.user_library.as_ref(), file, &mut lib_status)
                         {
@@ -502,6 +522,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             }
         }));
     });
+    });
+    crate::widgets::preview_size_footer(ui, &mut state.recovery.prefs.shelf_preview_size, 48..=160);
     if let Some(a) = action {
         a(state);
     }
@@ -692,7 +714,7 @@ fn filter_row(state: &mut UiState, ui: &mut Ui) {
     egui::Frame::new().inner_margin(egui::Margin { left: theme::PAD, right: theme::PAD, top: 4, bottom: 6 }).show(ui, |ui| {
         ui.horizontal_wrapped(|ui| {
             let filter = &mut state.shelf.filter;
-            ui.add(egui::TextEdit::singleline(&mut filter.query).hint_text("Search…").desired_width(180.0));
+            ui.add(egui::TextEdit::singleline(&mut filter.query).hint_text("Search…").desired_width(ui.available_width().min(180.0)));
             if !filter.query.is_empty() && crate::widgets::icon_button(ui, crate::icons::X, "Clear search").clicked() {
                 filter.query.clear();
             }

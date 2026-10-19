@@ -60,6 +60,7 @@ fn main() -> anyhow::Result<()> {
             "--demo" => options.demo = true,
             "--view-2d" => options.view_2d = true,
             "--brush-panel" => options.brush_panel = true,
+            "--shelf-panel" => options.shelf_panel = true,
             "--generator-panel" => options.generator_panel = true,
             "--symmetry" => {
                 let axes = args.next().ok_or_else(|| anyhow::anyhow!("--symmetry expects x, y, z or a combination"))?.to_ascii_lowercase();

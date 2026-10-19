@@ -66,6 +66,29 @@ fn frame(app: &mut SubcraftApp, ctx: &egui::Context, events: Vec<Event>) -> egui
     out
 }
 
+#[test]
+fn narrow_shelf_and_layer_footers_fit_the_real_dock_without_outer_scrolling() {
+    let (mut app, ctx, _) = setup();
+    app.dock = DockState::new(vec![Tab::Shelf]);
+    app.dock.main_surface_mut().split_right(NodeIndex::root(), 0.25, vec![Tab::Layers]);
+    app.state.shelf.tab = crate::panels::shelf::ShelfTab::Textures;
+    let out = settle(&mut app, &ctx);
+    let footers: Vec<_> = out.shapes.iter().filter_map(|s| match &s.shape {
+        egui::Shape::Text(t) if t.galley.text() == "Preview size" => Some((s.clip_rect, Rect::from_min_size(t.pos, t.galley.size()))),
+        _ => None,
+    }).collect();
+    assert_eq!(footers.len(), 2);
+    for (clip, rect) in footers {
+        assert!(rect.top() > 1030.0 && clip.contains_rect(rect), "footer must remain visible at the bottom of its dock: {rect:?}");
+    }
+    for shape in &out.shapes {
+        if let egui::Shape::Rect(r) = &shape.shape
+            && r.stroke.width > 0.0 && (r.rect.width()-88.0).abs() < 0.01 && (r.rect.height()-88.0).abs() < 0.01 {
+            assert!(r.rect.left() >= shape.clip_rect.left()-1.0 && r.rect.right() <= shape.clip_rect.right()+1.0, "asset should wrap inside the actual dock: {:?}", r.rect);
+        }
+    }
+}
+
 fn settle(app: &mut SubcraftApp, ctx: &egui::Context) -> egui::FullOutput {
     for _ in 0..3 {
         frame(app, ctx, vec![]);

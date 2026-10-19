@@ -197,7 +197,7 @@ pub fn open(state: &mut UiState, ctx: &egui::Context, index: usize, apply: bool,
     if apply {state.asset_preview.apply_to(&state.session,channel);}
 }
 
-pub fn shelf(state: &mut UiState, ui: &mut egui::Ui) -> usize {
+pub fn shelf(state: &mut UiState, ui: &mut egui::Ui, side: f32) -> usize {
     use crate::panels::shelf::{ShelfTab,ShelfDrag};
     let kind=match state.shelf.tab {ShelfTab::Textures=>Kind::Normal,ShelfTab::Brushes=>Kind::Alpha,_=>return 0};
     let mut shown=0;let mut clicked=None;
@@ -208,7 +208,7 @@ pub fn shelf(state: &mut UiState, ui: &mut egui::Ui) -> usize {
             && let Ok(b)=subcraft_image::io::decode_bitmap(e.thumb,Some("thumb.png")) {
                 slot.insert(texture(ui.ctx(),&format!("starter-thumb-{i}"),&b));
         }
-        let resp=crate::panels::shelf::tile(ui,state.asset_preview.thumbs.get(&i),e.name,false,"CC0 Starter pack: click to preview and adjust. Drag normals onto Normal, the model or a layer.");
+        let resp=crate::panels::shelf::tile(ui,side,state.asset_preview.thumbs.get(&i),e.name,false,"CC0 Starter pack: click to preview and adjust. Drag normals onto Normal, the model or a layer.");
         if kind==Kind::Normal {resp.dnd_set_drag_payload(ShelfDrag::Starter(i));}
         if resp.clicked() {clicked=Some(i);}
     }

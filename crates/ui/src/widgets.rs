@@ -307,6 +307,21 @@ fn list_row_sized(ui: &mut Ui, selected: bool, sense: Sense, band: Option<Color3
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
+/// Fixed footer beneath a scrollable asset/layer list. Size is a UI preference, not document data.
+pub fn preview_size_footer(ui: &mut Ui, value: &mut u32, range: std::ops::RangeInclusive<u32>) -> Response {
+    *value = (*value).clamp(*range.start(), *range.end());
+    divider(ui);
+    egui::Frame::new().inner_margin(egui::Margin::symmetric(8, 3)).show(ui, |ui| {
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("Preview size").font(theme::font(10.5)).color(TEXT_DIM));
+            ui.spacing_mut().slider_width = (ui.available_width() - 36.0).clamp(36.0, 110.0);
+            let response = ui.add(egui::Slider::new(value, range).show_value(false));
+            ui.label(RichText::new(format!("{}", *value)).small().color(TEXT_FAINT));
+            response.on_hover_text("Preview size in UI points; texture resolution stays unchanged")
+        }).inner
+    }).inner
+}
+
 /// Text that is dim unless `strong`.
 pub fn row_text(text: &str, strong: bool) -> RichText {
     if strong { RichText::new(text).color(TEXT) } else { RichText::new(text).color(TEXT_DIM) }
