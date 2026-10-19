@@ -20,6 +20,12 @@ fn pill(painter: &egui::Painter, pos: Pos2, align: egui::Align2, text: &str, col
 }
 
 pub fn show(state: &mut UiState, ui: &mut Ui) {
+    // Until the compositor reports a window size, egui lays out in its 10000x10000-point fallback
+    // canvas. A render target built from that would dwarf the real viewport (10k+ wide MSAA
+    // textures) or outright exceed the device texture limit; wait for a real screen rect.
+    if ui.ctx().input(|i| i.raw.screen_rect.is_none()) {
+        return;
+    }
     crate::viewport_bar::show(ui, state);
     state.camera.orthographic = state.recovery.prefs.viewport.orthographic;
     let (rect, response) = ui.allocate_exact_size(ui.available_size(), Sense::click_and_drag());

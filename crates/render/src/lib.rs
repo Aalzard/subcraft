@@ -479,7 +479,10 @@ impl ViewportRenderer {
 
     /// Render a frame into the offscreen target (resized as needed) and return the target.
     pub fn render(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, size: [u32; 2], params: &ViewParams) -> &RenderTarget {
-        let size = [size[0].max(1), size[1].max(1)];
+        // A viewport can exceed what the device allows (very wide windows, or egui's fallback
+        // canvas before the window size is known); scale the target down uniformly instead of
+        // asking wgpu for a texture it must reject.
+        let size = crate::target::fit_to_limit([size[0].max(1), size[1].max(1)], device.limits().max_texture_dimension_2d);
         let samples = if params.antialias { SAMPLE_COUNT } else { 1 };
         if self.target.as_ref().is_none_or(|t| t.size != size || t.samples != samples) {
             self.target = Some(RenderTarget::new(device, size, samples));

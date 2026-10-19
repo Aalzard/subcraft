@@ -25,6 +25,19 @@ pub struct RenderTarget {
     pub display_view: wgpu::TextureView,
 }
 
+/// Shrink `size` uniformly so that neither edge exceeds `limit` physical pixels (never enlarges,
+/// never returns a zero edge). Keeps the target's aspect ratio, so a viewport larger than the
+/// device limit is rendered at reduced resolution instead of failing.
+pub fn fit_to_limit(size: [u32; 2], limit: u32) -> [u32; 2] {
+    let limit = limit.max(1);
+    let longest = size[0].max(size[1]).max(1);
+    if longest <= limit {
+        return [size[0].max(1), size[1].max(1)];
+    }
+    let scaled = |v: u32| ((v as u64 * limit as u64 / longest as u64) as u32).clamp(1, limit);
+    [scaled(size[0]), scaled(size[1])]
+}
+
 impl RenderTarget {
     pub fn new(device: &wgpu::Device, size: [u32; 2], samples: u32) -> Self {
         let extent = wgpu::Extent3d { width: size[0], height: size[1], depth_or_array_layers: 1 };
@@ -152,5 +165,27 @@ impl PendingReadback {
         drop(data);
         self.buffer.unmap();
         Some(Some(out))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fit_to_limit;
+
+    #[test]
+    fn fit_to_limit_shrinks_uniformly_only_when_an_edge_exceeds_the_device_limit() {
+        assert_eq!(fit_to_limit([1000, 600], 8192), [1000, 600]);
+        assert_eq!(fit_to_limit([8192, 8192], 8192), [8192, 8192]);
+        assert_eq!(fit_to_limit([10147, 2160], 8192), [8192, 1743]);
+        assert_eq!(fit_to_limit([10147, 900], 8192), [8192, 726]);
+        assert_eq!(fit_to_limit([2160, 10147], 8192), [1743, 8192]);
+        assert_eq!(fit_to_limit([4000, 2000], 1024), [1024, 512]);
+    }
+
+    #[test]
+    fn fit_to_limit_never_returns_a_zero_edge() {
+        assert_eq!(fit_to_limit([1, 10147], 8192), [1, 8192]);
+        assert_eq!(fit_to_limit([0, 0], 8192), [1, 1]);
+        assert_eq!(fit_to_limit([4, 2], 0), [1, 1]);
     }
 }
