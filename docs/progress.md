@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-10-19 (session 83: natural Edge Wear spread and default-crate joins)
+Last updated: 2026-10-19 (session 84: baked corners with Natural off and independent Spread)
 
 ## Decisions
 
@@ -2082,12 +2082,54 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   rounded/high-poly curvature contributes but its independent outward propagation, Dirt spread
   and lower-layer painted-normal inputs remain pending. See ADR-0027 for the source contract.
 
+### Session 84 — Baked corner contacts and low-Level Spread (2026-10-19)
+
+* **Baked corners with Natural disabled:** the actual crate still lost convex curvature near
+  posts in the legacy mode. `bake::curvature_on_surface` now prefers intrinsic curvature of
+  the sampled connected component/object, falling back to contact curvature on flat surfaces.
+  Connectivity is computed once per bake and shared with the ID map; high-poly projection
+  uses the detail triangle. Stored maps are preserved until explicitly rebaked. No UV dilation.
+  Added a numeric crate bake regression (normal/absent object metadata and exposed high-poly
+  corners), and extended app acceptance to require covered body edges with Natural off/on.
+  Initial native inspection exposed additional periodic edge breaks. All neighboring directions
+  now remove along-crease displacement, with a centroid fallback for tiny perpendicular float
+  errors; true proximity still limits the radius. Acceptance now checks full Body/Trim rims,
+  rather than only the original top/front corners. Concavity and flat contacts remain tested.
+* **Independent Spread:** `compositor::mask::eval_edge_spread` no longer multiplies physical
+  reach by Level. At 0.065/12.5%, the radius is now 12.5% of model extent, rather than 1.625%.
+  Level selects baked positive detail; Variation/Breakup retain their roles. UI tooltips explain
+  the separation and Level permits three decimals. Added numeric full-image reach acceptance
+  and extended local-growth checks to the owner's values, exact Level independence without
+  baked detail, and distant-flat-face exclusion. The app fixture supports Level/legacy options.
+* No serialized fields changed: schema 8/migrations and existing authored settings remain.
+  Existing Natural masks at Level other than 0.5 intentionally change width; see ADR-0028.
+  Files: bake curvature/lib/tests, compositor evaluator/acceptance, doc field documentation,
+  UI Properties, app crate acceptance/example and user documentation.
+* **470 workspace tests pass, 0 failed/ignored** (2 added; existing acceptance strengthened).
+  Workspace/all-target Clippy exits 0 with warnings, including a test-only `useless_vec` in
+  the new fixed-size bounds buffer. CARGO_INCREMENTAL=0, dev debug=line-tables-only, -j 1.
+  Both final native CLI captures exit 0 and were inspected: **docs/screenshots/edge-wear-baked-natural-off.png**
+  (rebaked 512 Body/Trim, Natural off, Level 0.85, Breakup 0, continuous edges) and
+  **docs/screenshots/edge-wear-low-level-wide.png** (Natural on, Level 0.065, Spread 12.5%,
+  Variation 0.85, Breakup 0, broad irregular reach). Updated app: **target/debug/subcraft.exe**.
+* 4K CPU profile, both sets, geometric fields without baked maps: cold **2550.0/2607.5 ms**;
+  edit/poll p95 **0.811/0.821 ms**, max **1.676/1.342 ms**, convergence **1636.5/1986.3 ms**.
+  Both runs retained in **docs/performance/2026-10-19-independent-spread-4k.txt**. Polling is
+  short, but convergence was slower than session 83's 708.3 ms; this uncontrolled comparison
+  needs follow-up, not a performance-improvement claim. GPU/upload/render and long strokes
+  were not measured. No physical mouse driven; slider drags/tablet and production imported
+  high-poly assets were not hand-verified. Existing baked maps still require explicit rebaking.
+  Implementation commit **a22eb6f**; no push/release. Unrelated artwork/dependencies/protected
+  files retained. Distance approximation, baked-only spread, Dirt and lower-normal inputs
+  remain partial as recorded in ADR-0027/material-workflow-roadmap.md.
+
 ## Next steps (in order)
 
-1. Owner enables Natural edge wear on the existing crate mask and adjusts Spread/Variation;
-   old masks intentionally retain legacy contact-curvature behavior until opted in.
+1. Owner restarts target/debug/subcraft.exe and rebakes Curvature on the saved crate, then
+   checks Natural off and Level 0.065/Spread 12.5% in Natural mode. Old stored maps are retained.
 2. Extend distance sources to baked-only detail/Dirt, improve curved-surface propagation, and
-   profile the complete 4K desktop upload/render path on production meshes.
+   profile the complete 4K desktop upload/render path on production meshes. Investigate the
+   variable worker convergence above with a controlled comparison before claiming speed gains.
 3. Add strict lower-layer normal dependencies/Disable Micro Effects, then neighborhood filters
    and the remaining effect-stack work. Keep later brush/emission milestones explicitly pending.
 

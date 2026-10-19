@@ -19,7 +19,7 @@ What changed in SubCraft, newest first. Download the latest build from the
 
 ### New
 - Natural Edge Wear: Spread and Variation controls grow irregular wear from connected convex
-  edges, including at Breakup 0. Level increases local reach. Existing masks can opt in through
+  edges, including at Breakup 0. Spread is independent of Level. Existing masks can opt in through
   Natural edge wear; new Edges generators enable it by default. Schema 8 preserves legacy
   generators and saves the new controls in projects/smart recipes.
 - Generator Pattern size, Seed/Next and Reduce repetition controls. New Edges/Cavity effects
@@ -40,6 +40,10 @@ What changed in SubCraft, newest first. Download the latest build from the
   supporting schema 8.
 
 ### Fixed
+- Baked convex corners beside separate parts no longer lose wear when Natural edge wear is
+  off. Rebake Curvature to update stored maps; flat contact creases retain their concavity.
+- Maximum Spread now reaches its full distance at low Level values such as 0.065. Existing
+  Natural masks retain settings but may change width at Level values other than 0.5.
 - Natural wear stays connected at the default crate's body/post joins where contact curvature
   previously erased edge coverage. Geometric seam matching tolerates float-rounding splits.
 - Curvature no longer weakens at exact hard corners and UV-border vertices due to triangle

@@ -22,14 +22,17 @@ Owner's requested scope. `[x]` implemented and tested; `[~]` partial (remaining 
   high-threshold Edges masks stay connected. Numeric tests cover every cube corner/face,
   three subdivisions, concavity/scale and save/reopen. Native screenshot in session 82.
   Existing stored curvature must be rebaked for that correction. This isolated-cube fix alone
-  does not solve the default crate's contact-curvature gaps; natural wear below addresses them.
+  did not alone solve the default crate's contact-curvature gaps. Session 84 additionally
+  prioritizes intrinsic connected-surface curvature over other components' contact curvature;
+  rebaking fixes those gaps even with Natural disabled. Flat contact curvature is retained.
 - [x] Pattern Size, Reduce Repetition, Breakup starting at 0.3 and Random Seed/Next.
   Existing saved recipes retain legacy noise (schema 7 migration; ADR-0022).
-- [~] Natural Edge Wear adds Spread/Variation; Level grows geometric reach without revealing
+- [~] Natural Edge Wear adds Spread/Variation; Spread controls reach independently of Level without revealing
   distant flat faces. Connected convex crease sources avoid contact-curvature cancellation on
   the default crate. Exact on convex planar patches, conservative vertex paths elsewhere;
   UV-seam matching includes float-rounding tolerance. Numeric/undo/migration/worker checks and
   native actual-crate captures pass (session 83); Breakup 0 retains an irregular boundary.
+  Session 84 removes the Level multiplier, so 0.065/12.5% has full selected reach.
   Full spread from baked-only/painted-normal detail and exact continuous curved-surface
   propagation remain pending; this does not complete Dirt's source/stage contract.
 - [~] Existing Cavity generator (displayed as Dirt) works on black/other masks from baked AO,

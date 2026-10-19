@@ -20,6 +20,10 @@ legacy generators retained on migration. This is a material mask operation, not 
 surface-aware brush stroke tool or lower-layer normal dependency work. See ADR-0027 and the
 material-workflow checklist for the distance approximation and remaining source types.
 
+Session 84 fixes baked contact cancellation even with Natural disabled, and separates Spread
+from Level (including 0.065/12.5%). This corrects those generator defects; no additional brush
+phase is complete. Stored Curvature maps need rebaking. See ADR-0028.
+
 Session 73 acceptance artwork: CORE-07 is a saved 4K cube with real high-to-low bakes, editable
 materials/masks/generators and a native screenshot. Its creation/reopen/export checks do not
 replace the pending interactive stroke/frame-pacing checks or complete additional brush phases.

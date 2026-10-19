@@ -24,8 +24,8 @@ them. Computation runs through existing immutable compositor jobs, with exact sy
 evaluation for export/tests. This does not introduce a UV dilation, a full-resolution image
 neighborhood pass, a final-normal feedback loop or app/UI dependencies in materials.
 
-Spread is percent of the longest mesh dimension at Level 0.5. Increasing Level increases
-geometric reach (twice Level), with a smooth width-controlled falloff. Volume noise changes
+Spread is percent of the longest mesh dimension, independent of Level (corrected in
+session 84; see ADR-0028). Level selects baked detail; smooth falloff controls the boundary. Volume noise changes
 the reach through Variation even when Breakup is zero; Breakup adds erosion/holes. Pattern size
 and Seed drive both through the existing bounded organic field. Variation zero permits a
 clean geometric band. Baked positive curvature still supplies rounded/high-poly detail;

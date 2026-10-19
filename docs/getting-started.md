@@ -196,16 +196,22 @@ appearance until you opt into the new pattern or natural-wear mode. You can stil
 
 If Edge Wear has small gaps at hard corners, open **Bake mesh maps**, select **Curvature** and
 rebake with the current build. The corrected baker keeps exact corner and UV-border samples
-connected. Opening an old project retains its stored bake until you rebake. Set **Breakup** to
+connected, including the default crate's body beside its posts with **Natural edge wear off**.
+Nearby separate parts cannot cancel a surface's own corner curvature; flat surfaces still
+receive contact curvature. Opening an old project retains its stored bake until you rebake. Set **Breakup** to
 0 temporarily to distinguish curvature coverage from intentional wear variation.
 
 For organic wear around the default crate's posts/bands, select the **Edges** mask effect and
 enable **Natural edge wear**. New Edges generators enable it automatically. Older saved masks
 keep their original evaluator until you turn this on. **Spread** grows wear outward along
-connected geometric creases, in percent of model size; **Level** also increases that reach.
+connected geometric creases, in percent of model size, independently of **Level**. For example,
+**Level 0.065 / Spread 12.5%** now has the full selected reach. Level selects the baked convex
+detail contribution in Natural mode; it no longer shrinks the geometric spread radius.
 **Variation** makes the boundary irregular even at **Breakup 0**. Set Variation to 0 for a
 clean band; raise Breakup to remove patches. Pattern size and Seed change the shared pattern.
 These controls are undoable and saved with projects and smart masks/materials (schema 8).
+Existing natural masks with Level other than 0.5 change width after this correction; settings
+are retained, so reduce Spread if you want their earlier narrower result.
 Separate crate components cannot erase each other's geometric edge source. Spread is exact on
 convex flat faces and conservative across curved/non-convex surfaces. Baked rounded/high-poly
 detail still contributes, but expanding baked-only or painted-normal details needs further work.
