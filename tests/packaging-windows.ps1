@@ -12,12 +12,12 @@ function Assert-Equal($actual, $expected, [string]$message) {
 try {
     New-Item -ItemType Directory -Path $testRoot | Out-Null
     $fixture = Join-Path $testRoot 'fixture'
-    foreach ($dir in 'scripts', 'crates/ui/assets/fonts', 'assets/starter-pack', 'target/dist', 'relative-build/dist') {
+    foreach ($dir in 'scripts', 'crates/ui/assets/fonts', 'assets/starter-pack', 'assets/open-pack', 'target/dist', 'relative-build/dist') {
         New-Item -ItemType Directory -Path (Join-Path $fixture $dir) -Force | Out-Null
     }
     Copy-Item -LiteralPath (Join-Path $repo 'scripts/build-windows.ps1') -Destination (Join-Path $fixture 'scripts/build-windows.ps1')
     Set-Content -LiteralPath (Join-Path $fixture 'Cargo.toml') -Value 'version = "1.2.3"'
-    foreach ($file in 'README.md', 'LICENSE-MIT', 'LICENSE-APACHE', 'crates/ui/assets/fonts/test-LICENSE.txt', 'assets/starter-pack/CREDITS-CC0.txt') {
+    foreach ($file in 'README.md', 'LICENSE-MIT', 'LICENSE-APACHE', 'crates/ui/assets/fonts/test-LICENSE.txt', 'assets/starter-pack/CREDITS-CC0.txt', 'assets/open-pack/CREDITS-CC0.txt') {
         Set-Content -LiteralPath (Join-Path $fixture $file) -Value $file
     }
     $absoluteTarget = Join-Path $testRoot 'absolute-build'
@@ -38,6 +38,7 @@ try {
         Assert-Equal (Get-Content -LiteralPath (Join-Path $stage 'SubCraft.exe') -Raw).Trim() $case.Expected 'Wrong staged binary'
         if (-not (Test-Path -LiteralPath (Join-Path $stage 'third-party/test-LICENSE.txt'))) { throw 'Missing font license' }
         if (-not (Test-Path -LiteralPath (Join-Path $stage 'third-party/starter-pack-CC0.txt'))) { throw 'Missing starter pack credits' }
+        if (-not (Test-Path -LiteralPath (Join-Path $stage 'third-party/open-pack-CC0.txt'))) { throw 'Missing open pack credits' }
         $zip = [IO.Compression.ZipFile]::OpenRead((Join-Path $fixture 'dist/SubCraft-1.2.3-windows-x64.zip'))
         try {
             $entry = $zip.Entries | Where-Object { $_.Name -eq 'SubCraft.exe' } | Select-Object -First 1

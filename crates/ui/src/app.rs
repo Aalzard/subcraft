@@ -87,6 +87,12 @@ pub struct LaunchOptions {
     pub view_2d: bool,
     /// Start with Brush settings in front (also useful for native screenshot verification).
     pub brush_panel: bool,
+    /// Open this shelf tab (`textures`, `materials`, `smart-materials`, `smart-masks`, `brushes`,
+    /// `environments`), optionally searched (`materials/stone`); a screenshot then waits for its
+    /// thumbnails.
+    pub shelf: Option<String>,
+    /// Light the viewport with the environment of this name.
+    pub environment: Option<String>,
     /// Recover the newest crashed session without asking.
     pub recover: bool,
     /// Autosave interval instead of the preference (testing).
@@ -367,6 +373,25 @@ impl SubcraftApp {
             .filter(|_| options.screenshot.is_none())
             .unwrap_or_else(default_layout);
         let mut dock = dock;
+        use crate::panels::shelf::ShelfTab;
+        if let Some(arg) = options.shelf.as_deref() {
+            let (tab, query) = arg.split_once('/').unwrap_or((arg, ""));
+            let tab = match tab {
+                "textures" => ShelfTab::Textures,
+                "materials" => ShelfTab::Materials,
+                "smart-masks" => ShelfTab::SmartMasks,
+                "brushes" => ShelfTab::Brushes,
+                "environments" => ShelfTab::Environments,
+                _ => ShelfTab::SmartMaterials,
+            };
+            state.shelf.open(tab, query);
+        }
+        if let Some(name) = options.environment.as_deref() {
+            match state.library.environments.iter().position(|e| e.name == name) {
+                Some(i) => state.env.index = i,
+                None => log::warn!("no environment named {name}"),
+            }
+        }
         if options.view_2d
             && let Some(path) = dock.find_tab(&Tab::UvView)
         {
@@ -794,7 +819,8 @@ impl SubcraftApp {
     fn handle_screenshot(&mut self, ctx: &egui::Context) {
         let Some(path) = self.screenshot.clone() else { return };
         ctx.request_repaint();
-        if !self.screenshot_requested && self.frames >= 20 {
+        // Wait for shelf thumbnails (capped) so scripted shelf screenshots show them.
+        if !self.screenshot_requested && self.frames >= 20 && (!self.state.shelf.busy || self.frames >= 1200) {
             ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
             self.screenshot_requested = true;
         }

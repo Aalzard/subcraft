@@ -1,24 +1,81 @@
 //! Material presets (fill layers) and smart masks (mask effect stacks).
 
-use subcraft_core::{AssetId, ChannelKind, ChannelValue};
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use subcraft_core::{AssetId, ChannelKind, ChannelValue, ResourceId};
 use subcraft_doc::{
     FillChannel, FillSource, Generator, GeneratorKind, Layer, LayerContent, MaskEffectKind, ProceduralKind, ProceduralParams, Projection,
-    ProjectionMode, TextureSet,
+    ProjectionMode, Resource, ResourceKind, TextureSet,
 };
 
-/// A fill layer recipe: channel sources (others disabled) and a projection.
+/// An embedded image a built-in material fills one channel with. It is decoded only when the
+/// material is applied or previewed, so listing the shelf costs nothing.
+#[derive(Clone, Copy)]
+pub struct PresetImage {
+    pub channel: ChannelKind,
+    /// Unique file name; also the key in [`ImageIds`].
+    pub name: &'static str,
+    /// Fill-channel strength (Height maps are 0..1 images, used as a gentle bump).
+    pub strength: f32,
+    pub bytes: &'static [u8],
+}
+
+impl std::fmt::Debug for PresetImage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PresetImage").field("channel", &self.channel).field("name", &self.name).field("bytes", &self.bytes.len()).finish()
+    }
+}
+
+/// Resource ids of preset images in the project they are applied to, keyed by image name.
+pub type ImageIds = HashMap<&'static str, ResourceId>;
+
+/// Decode images into fresh resources (shelf previews; the session imports its own copies).
+/// Images that fail to decode are left out, so their channels stay off.
+pub fn decode_images(images: &[PresetImage]) -> (ImageIds, Vec<Arc<Resource>>) {
+    let mut ids = ImageIds::new();
+    let mut resources = Vec::new();
+    for img in images {
+        match subcraft_image::io::decode_bitmap(img.bytes, Some(img.name)) {
+            Ok(bitmap) => {
+                let id = ResourceId::new();
+                ids.insert(img.name, id);
+                resources.push(Arc::new(Resource {
+                    id,
+                    name: img.name.into(),
+                    kind: ResourceKind::Texture,
+                    bitmap: Arc::new(bitmap),
+                    source_path: None,
+                    encoded: Some(Arc::new(img.bytes.to_vec())),
+                }));
+            }
+            Err(e) => log::warn!("built-in image {}: {e}", img.name),
+        }
+    }
+    (ids, resources)
+}
+
+/// A fill layer recipe: channel sources (others disabled), embedded images and a projection.
 #[derive(Clone, Debug)]
 pub struct MaterialPreset {
     pub id: AssetId,
     pub name: String,
     pub category: &'static str,
     pub channels: Vec<(ChannelKind, FillSource)>,
+    /// Image channels (they win over `channels` for the same channel once imported).
+    pub images: Vec<PresetImage>,
     pub projection: Projection,
 }
 
 impl MaterialPreset {
     /// Fill layer for `ts`: preset channels enabled (when the set has them), all others off.
+    /// Image channels need [`MaterialPreset::build_with`].
     pub fn build(&self, ts: &TextureSet) -> Layer {
+        self.build_with(ts, &ImageIds::new())
+    }
+
+    /// [`MaterialPreset::build`] with the project's resource ids for the preset's images.
+    pub fn build_with(&self, ts: &TextureSet, ids: &ImageIds) -> Layer {
         let mut layer = Layer::new_fill(self.name.clone(), ts);
         if let LayerContent::Fill(f) = &mut layer.content {
             f.projection = self.projection;
@@ -28,6 +85,11 @@ impl MaterialPreset {
             for (kind, source) in &self.channels {
                 if ts.has_channel(*kind) {
                     f.channels.insert(*kind, FillChannel::new(source.clone()));
+                }
+            }
+            for img in &self.images {
+                if let Some(&resource) = ids.get(img.name).filter(|_| ts.has_channel(img.channel)) {
+                    f.channels.insert(img.channel, FillChannel { strength: img.strength, ..FillChannel::new(FillSource::Bitmap { resource }) });
                 }
             }
         }
@@ -52,7 +114,7 @@ fn triplanar(scale: f32) -> Projection {
 }
 
 fn preset(name: &str, category: &'static str, channels: Vec<(ChannelKind, FillSource)>, projection: Projection) -> MaterialPreset {
-    MaterialPreset { id: AssetId::from_name(&format!("material/{name}")), name: name.into(), category, channels, projection }
+    MaterialPreset { id: AssetId::from_name(&format!("material/{name}")), name: name.into(), category, channels, images: Vec::new(), projection }
 }
 
 fn metal(name: &str, color: [f32; 3], rough: f32) -> MaterialPreset {
@@ -137,6 +199,9 @@ pub fn materials() -> Vec<MaterialPreset> {
             triplanar(1.0),
         ),
     ]
+    .into_iter()
+    .chain(crate::open_pack::materials())
+    .collect()
 }
 
 /// A mask recipe: effects added on top of a black mask.
@@ -179,5 +244,15 @@ pub fn smart_masks() -> Vec<SmartMask> {
                 projection: triplanar(2.0),
             }],
         ),
+        mask("Heavy Edge Wear", vec![generator(GeneratorKind::Edges, 0.45, 0.15, 0.6, false)]),
+        mask("Soft Cavity Dirt", vec![generator(GeneratorKind::Cavity, 0.4, 0.45, 0.25, false)]),
+        mask("Moss on Top", vec![generator(GeneratorKind::Directional, 0.55, 0.3, 0.7, false)]),
+        mask("Rising Damp", vec![generator(GeneratorKind::PositionGradient, 0.18, 0.2, 0.6, true)]),
+        mask("Scratches", vec![procedural_mask(ProceduralKind::Scratches, 3.0, 0.5)]),
+        mask("Cloudy Variation", vec![procedural_mask(ProceduralKind::Clouds, 4.0, 0.2)]),
     ]
+}
+
+fn procedural_mask(kind: ProceduralKind, scale: f32, contrast: f32) -> MaskEffectKind {
+    MaskEffectKind::Fill { value: 1.0, procedural: Some(ProceduralParams { scale, contrast, ..ProceduralParams::new(kind) }), projection: triplanar(2.0) }
 }

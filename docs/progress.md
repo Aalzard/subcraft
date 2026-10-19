@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-10-18 (sessions 70–71: background compositing, sparse GPU uploads, 0.1.7)
+Last updated: 2026-10-19 (session 74: CC0 open pack — materials, HDRIs, smart materials/masks, brush presets)
 
 ## Decisions
 
@@ -1635,6 +1635,38 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   and opened **PR #50** (`https://github.com/Aalzard/subcraft/pull/50`) following the repository
   release guide. Native profiling and screenshot above use the final local 0.1.7 executable.
   Publication status and artifact checks are recorded by the GitHub release and final handoff.
+
+### Session 74 — CC0 open pack: materials, HDRIs, smart materials, masks, brush presets (2026-10-19)
+
+* User request: import free-licensed smart materials, masks, filters, brushes, alphas, textures and
+  environments as styling options. Nothing was taken from Adobe Substance 3D Painter (its bundled
+  content is Adobe-licensed); everything below is CC0 or written for SubCraft.
+* `assets/open-pack` (credits in `CREDITS-CC0.txt`, shipped by the Windows/Linux packages):
+  10 ambientCG PBR materials (Color, Roughness, NormalGL, Height, Metalness when present; the
+  1K-JPG downloads re-encoded, gray maps as 1-channel JPEG, 7.9 MB) and 4 Poly Haven 1K HDRIs
+  (5.3 MB). Desktop embeds them; the web build leaves the pack out.
+* `assets::open_pack`: materials are `MaterialPreset`s with `PresetImage`s, decoded only when
+  applied or previewed; `build_with(ts, ids)` fills image channels (UV projection — tangent
+  normal maps need the mesh frame; 2:1 maps tile twice as often vertically; height strength
+  0.08). Environments use the new `EnvironmentSource::Embedded`, prefiltered once on first use.
+* 5 textured smart materials (Painted Steel Plates, Rusted Steel, Worn Leather, Mossy Bricks,
+  Dusty Concrete), 6 smart masks (Heavy Edge Wear, Soft Cavity Dirt, Moss on Top, Rising Damp,
+  Scratches, Cloudy Variation) and 7 built-in brush presets on the built-in tips (Soft Airbrush,
+  Dirt Grunge, Rust Spatter, Bare Metal Scratches, Spray Paint, Engraved Line, Raised Rivet).
+  `Session::add_material` / `add_smart_material` import the images (deduplicated by bytes) so the
+  project stays portable; one undo step.
+* Not added: filters (blur/sharpen need the neighborhood evaluator, roadmap step 3) and new
+  alphas/textures (the starter pack's 30 CC0 alphas and 30 normals already cover them).
+* Launch options `--shelf <tab>[/search]` and `--environment <name>`; a screenshot waits until the
+  shelf's thumbnails are rendered. Used for `docs/screenshots/open-pack-*.png`.
+* Tests: `assets/tests/open_pack.rs` (every image decodes at 1024 wide with square texels, gray
+  data maps, image channels only with ids, dielectric default, all HDRIs prefilter once with
+  ambient light, library ids unique, textured smart material structure), `app/tests/asset_apply.rs`
+  (material imports images once and composites image detail, smart material one undo step,
+  presets find their tips), Windows packaging test (open-pack credits). Workspace tests all pass.
+* Ran the release build: Materials / Smart Materials / Environments / Brushes thumbnails render
+  from the pack, and the viewport lights with each HDRI. "Weathered Steel" was renamed "Stained
+  Steel" after measuring its maps (mean roughness 0.13: polished, not weathered).
 
 ## Next steps (in order)
 
