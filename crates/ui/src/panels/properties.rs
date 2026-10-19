@@ -292,6 +292,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         );
                         add(ui, "Levels", MaskEffectKind::Levels(Levels::default()));
                         add(ui, "Invert", MaskEffectKind::Invert);
+                        super::effects::add_mask_filters(ui, id, &mut cmds);
                         if ui.add(egui::Button::new(RichText::new(format!("{}  Image", icons::PLUS)).font(theme::font(12.0))))
                             .on_hover_text("A black & white image or a logo with transparency")
                             .clicked()
@@ -422,6 +423,10 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
                     changed |= slider_row(ui, "Gamma", egui::Slider::new(&mut l.gamma, 0.1..=4.0)).changed();
                     changed |= slider_row(ui, "Out low", egui::Slider::new(&mut l.out_low, 0.0..=1.0)).changed();
                     changed |= slider_row(ui, "Out high", egui::Slider::new(&mut l.out_high, 0.0..=1.0)).changed();
+                }
+                MaskEffectKind::Filter(filter) => {
+                    changed |= super::filter::editor(ui, filter, None);
+                    hint(ui, "Filters the mask below this effect; opacity mixes the result with that input.");
                 }
                 MaskEffectKind::Image { resource, projection, invert } => {
                     if image_row(ui, state, *resource) {

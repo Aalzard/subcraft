@@ -648,8 +648,8 @@ impl Session {
                 let id = self.edit_layer_set(layer, "Add Effect", None, |ts| {
                     let effect = ContentEffect::new(kind, ts);
                     let l = Self::layer_mut(ts, layer)?;
-                    if l.is_folder() {
-                        return Err(CommandError::Invalid("Folders cannot have content effects yet".into()));
+                    if l.is_folder() && !effect.kind.is_adjustment() {
+                        return Err(CommandError::Invalid("Folders support adjustment effects only".into()));
                     }
                     let id = effect.id;
                     l.content_effects.push(Arc::new(effect));
@@ -670,6 +670,7 @@ impl Session {
                 let key = format!("content-effect:{layer}:{}", effect.id);
                 self.edit_layer_set(layer, "Effect", Some(key), |ts| {
                     let l = Self::layer_mut(ts, layer)?;
+                    if l.is_folder() && !effect.kind.is_adjustment() { return Err(CommandError::Invalid("Folders support adjustment effects only".into())); }
                     let slot = l.content_effects.iter_mut().find(|e| e.id == effect.id).ok_or_else(|| CommandError::Invalid("No such effect".into()))?;
                     *slot = Arc::new(effect);
                     Ok(())
@@ -757,6 +758,7 @@ impl Session {
                 return self.execute(Command::InsertLayer { layer, label });
             }
             Command::ApplyMaskEffects { layer, effects, label } => {
+                for kind in &effects { Self::check_mask_effect(kind)?; }
                 self.edit_layer_set(layer, &label, None, |ts| {
                     let res = ts.resolution;
                     let l = Self::layer_mut(ts, layer)?;
@@ -939,6 +941,7 @@ impl Session {
                 })?;
             }
             Command::AddMaskEffect { layer, kind } => {
+                Self::check_mask_effect(&kind)?;
                 let id = self.edit_layer_set(layer, "Add Mask Effect", None, |ts| {
                     let mask = Self::layer_mut(ts, layer)?.mask.as_mut().ok_or(CommandError::NoMask)?;
                     let effect = MaskEffect::new(kind);
@@ -957,6 +960,7 @@ impl Session {
                 })?;
             }
             Command::SetMaskEffect { layer, effect } => {
+                Self::check_mask_effect(&effect.kind)?;
                 let key = format!("effect:{layer}:{}", effect.id);
                 self.edit_layer_set(layer, "Mask Effect", Some(key), |ts| {
                     let mask = Self::layer_mut(ts, layer)?.mask.as_mut().ok_or(CommandError::NoMask)?;
@@ -992,8 +996,20 @@ impl Session {
     }
 
     fn check_content_effect(kind: &ContentEffectKind) -> Result<(), CommandError> {
+        if let ContentEffectKind::Filter { channel, filter } = kind
+            && (!filter.valid() || !filter.supports_channel(*channel)) {
+            return Err(CommandError::Invalid("Filter parameters or target channel are invalid".into()));
+        }
         if matches!(kind, ContentEffectKind::Levels { channel: subcraft_core::ChannelKind::Normal, .. }) {
             return Err(CommandError::Invalid("Levels cannot adjust the Normal channel".into()));
+        }
+        Ok(())
+    }
+
+    fn check_mask_effect(kind: &subcraft_doc::MaskEffectKind) -> Result<(), CommandError> {
+        if let subcraft_doc::MaskEffectKind::Filter(filter) = kind
+            && (!filter.valid() || !filter.supports_mask()) {
+            return Err(CommandError::Invalid("Filter parameters or mask target are invalid".into()));
         }
         Ok(())
     }

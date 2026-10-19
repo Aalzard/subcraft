@@ -136,10 +136,11 @@ fn effect_lifecycle_reorder_duplicate_remove_and_selection_follow_undo() {
     assert_eq!(s.selected_effect(), None);
     assert_eq!(s.brush.target, PaintTarget::Content);
 
-    // Folders are rejected for now.
+    // Folders accept adjustments; source effects remain invalid.
     s.execute(Command::AddLayer(NewLayer::Folder)).unwrap();
     let folder = s.selection().layer.unwrap();
-    assert!(s.execute(Command::AddContentEffect { layer: folder, kind: levels }).is_err());
+    assert!(s.execute(Command::AddContentEffect { layer: folder, kind: levels }).is_ok());
+    assert!(s.execute(Command::AddContentEffect { layer: folder, kind: ContentEffectKind::Paint { channels: Default::default() } }).is_err());
 }
 
 #[test]

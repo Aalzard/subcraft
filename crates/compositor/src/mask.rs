@@ -40,6 +40,12 @@ pub fn eval_mask(mask: Option<&Mask>, tc: &TileContext) -> Option<Vec<f32>> {
                     *o = [l.apply(v), 1.0, 0.0, 0.0];
                 }
             }
+            MaskEffectKind::Filter(filter) => {
+                let usable = filter.valid() && filter.supports_mask();
+                for (o, &value) in e.iter_mut().zip(&m) {
+                    *o = [if usable { subcraft_materials::filter::apply_mask(*filter, value) } else { value }, 1.0, 0.0, 0.0];
+                }
+            }
             MaskEffectKind::Invert => {
                 for (o, &v) in e.iter_mut().zip(&m) {
                     *o = [1.0 - v, 1.0, 0.0, 0.0];

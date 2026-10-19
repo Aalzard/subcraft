@@ -93,6 +93,7 @@ impl Writer {
                 }
                 MaskEffectKind::Generator(g) => MaskEffectKindV1::Generator { generator: *g },
                 MaskEffectKind::Levels(l) => MaskEffectKindV1::Levels { levels: *l },
+                MaskEffectKind::Filter(filter) => MaskEffectKindV1::Filter { filter: *filter },
                 MaskEffectKind::Invert => MaskEffectKindV1::Invert,
                 MaskEffectKind::Image { resource, projection, invert } => {
                     MaskEffectKindV1::Image { resource: resource.0, projection: *projection, invert: *invert }
@@ -115,6 +116,7 @@ impl Writer {
                 ContentEffectKind::Paint { channels } => ContentEffectKindV5::Paint { channels: self.paint_channels(channels) },
                 ContentEffectKind::Fill(f) => ContentEffectKindV5::Fill { projection: f.projection, channels: fill_channels(f) },
                 ContentEffectKind::Levels { channel, levels } => ContentEffectKindV5::Levels { channel: *channel, levels: *levels },
+                ContentEffectKind::Filter { channel, filter } => ContentEffectKindV5::Filter { channel: *channel, filter: *filter },
             },
         }
     }
@@ -346,6 +348,10 @@ impl<R: Read + Seek> Loader<'_, R> {
             }
             MaskEffectKindV1::Generator { generator } => MaskEffectKind::Generator(*generator),
             MaskEffectKindV1::Levels { levels } => MaskEffectKind::Levels(*levels),
+            MaskEffectKindV1::Filter { filter } => {
+                if !filter.valid() || !filter.supports_mask() { return Err(ProjectError::Invalid("invalid mask filter".into())); }
+                MaskEffectKind::Filter(*filter)
+            }
             MaskEffectKindV1::Invert => MaskEffectKind::Invert,
             MaskEffectKindV1::Image { resource, projection, invert } => {
                 MaskEffectKind::Image { resource: ResourceId(*resource), projection: *projection, invert: *invert }
@@ -370,6 +376,10 @@ impl<R: Read + Seek> Loader<'_, R> {
         let kind = match &e.kind {
             ContentEffectKindV5::Paint { channels } => ContentEffectKind::Paint { channels: self.paint_channels(channels, res)? },
             ContentEffectKindV5::Fill { projection, channels } => ContentEffectKind::Fill(read_fill(*projection, channels)),
+            ContentEffectKindV5::Filter { channel, filter } => {
+                if !filter.valid() || !filter.supports_channel(*channel) { return Err(ProjectError::Invalid("invalid content filter".into())); }
+                ContentEffectKind::Filter { channel: *channel, filter: *filter }
+            }
             ContentEffectKindV5::Levels { channel, levels } => {
                 if *channel == subcraft_core::ChannelKind::Normal {
                     return Err(ProjectError::Invalid("levels effect on the normal channel".into()));
@@ -418,8 +428,9 @@ impl<R: Read + Seek> Loader<'_, R> {
                 children: children.iter().map(|c| self.layer(c, res).map(Arc::new)).collect::<Result<_, _>>()?,
             }),
         };
-        if matches!(content, LayerContent::Group(_)) && !l.content_effects.is_empty() {
-            return Err(ProjectError::Invalid("content effects on a folder".into()));
+        if matches!(content, LayerContent::Group(_)) && l.content_effects.iter().any(|e|
+            !matches!(e.kind, ContentEffectKindV5::Filter { .. } | ContentEffectKindV5::Levels { .. })) {
+            return Err(ProjectError::Invalid("source effects on a folder".into()));
         }
         let content_effects = l.content_effects.iter().map(|e| self.content_effect(e, res).map(Arc::new)).collect::<Result<_, _>>()?;
         Ok(Layer {

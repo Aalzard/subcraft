@@ -30,7 +30,7 @@ fn content_icon(kind: &ContentEffectKind) -> &'static str {
     match kind {
         ContentEffectKind::Paint { .. } => icons::PAINT_BRUSH,
         ContentEffectKind::Fill(_) => icons::PAINT_BUCKET,
-        ContentEffectKind::Levels { .. } => icons::SLIDERS,
+        ContentEffectKind::Levels { .. } | ContentEffectKind::Filter { .. } => icons::SLIDERS,
     }
 }
 
@@ -39,7 +39,7 @@ fn mask_icon(kind: &MaskEffectKind) -> &'static str {
         MaskEffectKind::Paint { .. } => icons::PAINT_BRUSH,
         MaskEffectKind::Fill { .. } => icons::PAINT_BUCKET,
         MaskEffectKind::Generator(_) => icons::MAGIC_WAND,
-        MaskEffectKind::Levels(_) => icons::SLIDERS,
+        MaskEffectKind::Levels(_) | MaskEffectKind::Filter(_) => icons::SLIDERS,
         MaskEffectKind::Invert => icons::INTERSECT,
         MaskEffectKind::Image { .. } => icons::IMAGE,
     }
@@ -65,14 +65,36 @@ fn add_content_menu(ui: &mut Ui, layer: &Layer, channels: &[ChannelKind], active
         ("Levels", ContentEffectKind::Levels { channel: levels_channel, levels: Levels::default() }),
     ];
     for (label, kind) in options {
+        if layer.is_folder() && !kind.is_adjustment() { continue; }
         if ui.button(label).clicked() {
             cmds.push(Command::AddContentEffect { layer: layer.id, kind });
             ui.close();
         }
     }
+    ui.menu_button("Filter", |ui| {
+        for filter in subcraft_doc::Filter::ALL {
+            let channel = if filter.supports_channel(active) { Some(active) }
+                else { channels.iter().copied().find(|k| filter.supports_channel(*k)) };
+            if ui.add_enabled(channel.is_some(), egui::Button::new(filter.label())).clicked() {
+                cmds.push(Command::AddContentEffect { layer: layer.id, kind: ContentEffectKind::Filter { channel: channel.unwrap(), filter } });
+                ui.close();
+            }
+        }
+    });
+}
+
+pub(crate) fn add_mask_filters(ui: &mut Ui, layer: LayerId, cmds: &mut Vec<Command>) {
+    ui.menu_button("Filter", |ui| {
+        for filter in subcraft_doc::Filter::ALL.into_iter().filter(|f| f.supports_mask()) {
+            if ui.button(filter.label()).clicked() {
+                cmds.push(Command::AddMaskEffect { layer, kind: MaskEffectKind::Filter(filter) }); ui.close();
+            }
+        }
+    });
 }
 
 fn add_mask_menu(ui: &mut Ui, layer: &Layer, resolution: u32, cmds: &mut Vec<Command>) {
+    add_mask_filters(ui, layer.id, cmds);
     let options = [
         ("Paint", MaskEffectKind::Paint { image: TiledImage::new(resolution, resolution, 2, [0.0; 4]) }),
         ("Fill", MaskEffectKind::Fill { value: 1.0, procedural: None, projection: Default::default() }),
@@ -102,9 +124,6 @@ pub fn rows(
     cmds: &mut Vec<Command>,
 ) {
     let mask_domain = target == LayerTarget::Mask && layer.mask.is_some();
-    if !mask_domain && layer.is_folder() {
-        return; // Folders have no content stack yet (ADR-0017).
-    }
     let rows: Vec<Row> = if mask_domain {
         let mask = layer.mask.as_ref().unwrap();
         mask.effects.iter().map(|e| Row { id: e.id, name: e.name.clone(), visible: e.visible, icon: mask_icon(&e.kind) }).collect()
@@ -334,11 +353,24 @@ fn content_editor(ui: &mut Ui, state: &mut UiState, layer: &Layer, e: &ContentEf
                 changed |= slider_row(ui, "Out low", egui::Slider::new(&mut levels.out_low, 0.0..=1.0)).changed();
                 changed |= slider_row(ui, "Out high", egui::Slider::new(&mut levels.out_high, 0.0..=1.0)).changed();
             }
+            ContentEffectKind::Filter { channel, filter } => {
+                hint(ui, "Adjusts the previous effect stage. Paint coverage and other channels are preserved.");
+                prop_row(ui, "Channel", |ui| {
+                    egui::ComboBox::from_id_salt("filter_channel").selected_text(channel.display_name()).show_ui(ui, |ui| {
+                        for k in channels.iter().filter(|k| filter.supports_channel(**k)) {
+                            changed |= ui.selectable_value(channel, *k, k.display_name()).changed();
+                        }
+                    });
+                });
+                changed |= super::filter::editor(ui, filter, Some(*channel));
+            }
         }
     });
     section(ui, "effect_blend", "Blending per channel", true, |ui| {
         hint(ui, "How this effect combines with the content below it, per channel.");
         for kind in &channels {
+            if let ContentEffectKind::Filter { channel, .. } | ContentEffectKind::Levels { channel, .. } = &eff.kind
+                && channel != kind { continue; }
             if let ContentEffectKind::Fill(fill) = &eff.kind && !fill.channels.get(kind).is_some_and(|c| c.enabled) { continue; }
             let Some(blend) = eff.blend.get_mut(kind) else { continue };
             ui.push_id(("effect_blend", *kind), |ui| {

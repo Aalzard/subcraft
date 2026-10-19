@@ -391,7 +391,7 @@ fn content_effects_roundtrip_exactly_with_schema_5() {
     let mut json = String::new();
     zip.by_name("document.json").unwrap().read_to_string(&mut json).unwrap();
     assert!(json.contains("\"content_effects\"") && json.contains("\"type\": \"levels\""), "{json}");
-    assert_eq!(SCHEMA_VERSION, 8);
+    assert_eq!(SCHEMA_VERSION, 9);
     assert_eq!(read_project(Cursor::new(bytes)).unwrap().document, doc, "effect ids, order, blends, rasters survive");
 }
 
@@ -415,7 +415,7 @@ fn schema_4_layers_have_no_content_effects_and_bad_effects_are_rejected() {
     Arc::make_mut(&mut layer.content_effects[2]).kind =
         subcraft_doc::ContentEffectKind::Levels { channel: ChannelKind::Normal, levels: Levels::default() };
     assert!(matches!(read_project(Cursor::new(save(&doc))), Err(ProjectError::Invalid(_))));
-    // Folders cannot carry content effects yet.
+    // Folder source effects remain invalid (adjustments are supported in schema 9).
     let mut doc = effect_document();
     let effects = doc.texture_sets[0].layers[0].content_effects.clone();
     let tc = doc.texture_sets[0].clone();
@@ -434,4 +434,50 @@ fn content_effect_kinds_have_stable_json() {
     );
     let paint = ContentEffectKindV5::Paint { channels: vec![PaintChannelV1 { channel: ChannelKind::BaseColor, raster: "r".into() }] };
     assert_eq!(serde_json::to_string(&paint).unwrap(), r#"{"type":"paint","channels":[{"channel":"base_color","raster":"r"}]}"#);
+}
+
+#[test]
+fn schema_9_filters_and_folder_adjustments_roundtrip_and_older_projects_migrate_unchanged() {
+    use subcraft_doc::{ContentEffect, ContentEffectKind, Filter};
+    let mut ts=TextureSet::new("T",0,128); let tc=ts.clone();
+    let mut folder=Layer::new_folder("Filters",&tc);
+    for filter in Filter::ALL {
+        folder.content_effects.push(Arc::new(ContentEffect::new(ContentEffectKind::Filter {channel:ChannelKind::BaseColor,filter},&tc)));
+    }
+    let mut mask=Mask::new(128,false);
+    for filter in Filter::ALL.into_iter().filter(|f|f.supports_mask()) { mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Filter(filter)))); }
+    folder.mask=Some(mask); ts.insert_above(None,folder);
+    let doc=Document {texture_sets:vec![ts]}; let mesh=primitives::cube(2.0);
+    let save=|doc:&Document|write_project(Cursor::new(Vec::new()),&mesh,doc,&ResourceStore::default(),&MeshMapSet::new()).unwrap().into_inner();
+    let bytes=save(&doc); assert_eq!(read_project(Cursor::new(bytes)).unwrap().document,doc);
+    assert_eq!(serde_json::to_string(&ContentEffectKindV5::Filter {channel:ChannelKind::BaseColor,filter:Filter::Threshold {cutoff:0.4}}).unwrap(),
+        r#"{"type":"filter","channel":"base_color","filter":{"kind":"threshold","cutoff":0.4}}"#);
+    let old=effect_document(); let bytes=save(&old);
+    for schema in 5..=8 {
+        let migrated=with_manifest(bytes.clone(),|m|m.replace(&format!("\"schema_version\": {SCHEMA_VERSION}"),&format!("\"schema_version\": {schema}")));
+        assert_eq!(read_project(Cursor::new(migrated)).unwrap().document,old);
+    }
+    let fragment=crate::fragment::Fragment {kind:crate::fragment::FragmentKind::SmartMaterial,name:"Filters".into(),resolution:128,
+        layers:vec![doc.texture_sets[0].layers[0].as_ref().clone()],mask_effects:vec![],resources:ResourceStore::default()};
+    let bytes=crate::fragment::write_fragment(Cursor::new(Vec::new()),&fragment).unwrap().into_inner();
+    assert_eq!(crate::fragment::read_fragment(Cursor::new(bytes)).unwrap().layers,fragment.layers);
+}
+
+#[test]
+fn loader_rejects_filters_with_invalid_domains_or_parameters() {
+    use subcraft_doc::{ContentEffect, ContentEffectKind, Filter};
+    let mesh=primitives::cube(2.0);
+    for (channel,filter) in [(ChannelKind::Normal,Filter::Threshold {cutoff:0.5}),
+        (ChannelKind::Roughness,Filter::ALL[1]),(ChannelKind::BaseColor,Filter::Clamp {low:0.8,high:0.2})] {
+        let mut ts=TextureSet::new("T",0,128); let mut layer=Layer::new_fill("F",&ts);
+        layer.content_effects.push(Arc::new(ContentEffect::new(ContentEffectKind::Filter {channel,filter},&ts)));
+        ts.insert_above(None,layer); let doc=Document {texture_sets:vec![ts]};
+        let bytes=write_project(Cursor::new(Vec::new()),&mesh,&doc,&ResourceStore::default(),&MeshMapSet::new()).unwrap().into_inner();
+        assert!(matches!(read_project(Cursor::new(bytes)),Err(ProjectError::Invalid(_))));
+    }
+    let mut ts=TextureSet::new("T",0,128); let mut layer=Layer::new_fill("F",&ts);
+    let mut mask=Mask::new(128,false);mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Filter(Filter::ALL[1]))));layer.mask=Some(mask);
+    ts.insert_above(None,layer);let doc=Document {texture_sets:vec![ts]};
+    let bytes=write_project(Cursor::new(Vec::new()),&mesh,&doc,&ResourceStore::default(),&MeshMapSet::new()).unwrap().into_inner();
+    assert!(matches!(read_project(Cursor::new(bytes)),Err(ProjectError::Invalid(_))));
 }

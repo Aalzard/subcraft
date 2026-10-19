@@ -140,7 +140,8 @@ fn apply_layer(layer: &Layer, accs: &mut [Acc], active: &[bool], tc: &TileContex
                 })
                 .collect();
             apply_stack(&group.children, &mut child, &live, tc);
-            for ((acc, inner), _) in accs.iter_mut().zip(child).zip(&live).filter(|(_, l)| **l) {
+            for ((acc, mut inner), _) in accs.iter_mut().zip(child).zip(&live).filter(|(_, l)| **l) {
+                apply_content_effects(&layer.content_effects, acc, &mut inner.px, tc);
                 let blend = layer.blend_for(acc.kind);
                 if blend.mode == BlendMode::Passthrough {
                     for (i, (dst, src)) in acc.px.iter_mut().zip(&inner.px).enumerate() {
@@ -213,6 +214,16 @@ fn apply_content_effects(effects: &[Arc<ContentEffect>], acc: &Acc, content: &mu
                     let mut dst = [px[0], px[1], px[2], 1.0];
                     let v = [levels.apply(px[0]), levels.apply(px[1]), levels.apply(px[2])];
                     composite(&mut dst, v, blend.opacity, mode, acc.target);
+                    px[..3].copy_from_slice(&dst[..3]);
+                }
+                continue;
+            }
+            ContentEffectKind::Filter { channel, filter } => {
+                if *channel != kind || !filter.supports_channel(kind) || !filter.valid() { continue; }
+                for px in content.iter_mut() {
+                    let mut dst = [px[0], px[1], px[2], 1.0];
+                    let value = subcraft_materials::filter::apply(*filter, [px[0], px[1], px[2]], kind);
+                    composite(&mut dst, value, blend.opacity, mode, acc.target);
                     px[..3].copy_from_slice(&dst[..3]);
                 }
                 continue;

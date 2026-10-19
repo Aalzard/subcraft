@@ -20,7 +20,8 @@ use uuid::Uuid;
 // 6: texture-set albedo filtering; schemas 1–5 migrate to Bilinear.
 // 7: organic generator breakup; absent in schemas 1–6 means legacy projected noise.
 // 8: geometry-aware edge spread/variation; absent in schemas 1–7 retains legacy evaluation.
-pub const SCHEMA_VERSION: u32 = 8;
+// 9: local filter effects and folder adjustments. Schemas 1–8 retain their original stacks.
+pub const SCHEMA_VERSION: u32 = 9;
 pub const FORMAT_NAME: &str = "subcraft-project";
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -108,6 +109,7 @@ pub enum ContentEffectKindV5 {
     Paint { channels: Vec<PaintChannelV1> },
     Fill { projection: Projection, channels: Vec<FillChannelV1> },
     Levels { channel: ChannelKind, levels: Levels },
+    Filter { channel: ChannelKind, filter: subcraft_doc::Filter },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -196,6 +198,7 @@ pub enum MaskEffectKindV1 {
     Fill { value: f32, procedural: Option<ProceduralParams>, projection: Projection },
     Generator { generator: Generator },
     Levels { levels: Levels },
+    Filter { filter: subcraft_doc::Filter },
     Invert,
     /// Schema 2.
     Image { resource: Uuid, projection: Projection, invert: bool },

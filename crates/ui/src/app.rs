@@ -91,6 +91,7 @@ pub struct LaunchOptions {
     pub shelf_panel: bool,
     /// Open the selected layer's first mask generator for native validation.
     pub generator_panel: bool,
+    pub effect_panel: bool,
     pub symmetry_axes: Option<[bool; 3]>,
     /// Start a real high-to-low bake and show its dialog (also usable with --screenshot).
     pub bake_high_poly: Option<PathBuf>,
@@ -395,6 +396,11 @@ impl SubcraftApp {
         if let Some(symmetry) = options.symmetry_axes {
             let stroke = subcraft_paint::StrokeOptions { symmetry, ..state.session.brush.options };
             let _ = state.session.execute(Command::SetStrokeOptions(stroke));
+        }
+        if options.effect_panel && let Some(layer) = state.session.selected_layer() {
+            let target = layer.content_effects.last().map(|e| (layer.id, subcraft_app::LayerTarget::Content, e.id))
+                .or_else(|| layer.mask.as_ref().and_then(|m| m.effects.last()).map(|e| (layer.id, subcraft_app::LayerTarget::Mask, e.id)));
+            if let Some((layer, target, effect)) = target { let _ = state.session.execute(Command::SelectEffect { layer, target, effect: Some(effect) }); }
         }
         if options.generator_panel && let Some(layer) = state.session.selected_layer() {
             let target = layer.mask.as_ref().and_then(|m| m.effects.iter().find(|e| matches!(e.kind, subcraft_doc::MaskEffectKind::Generator(_)))).map(|e| (layer.id, e.id));

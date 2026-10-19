@@ -128,6 +128,7 @@ pub enum MaskEffectKind {
     Fill { value: f32, procedural: Option<ProceduralParams>, projection: Projection },
     Generator(Generator),
     Levels(Levels),
+    Filter(crate::Filter),
     Invert,
     /// Grayscale from an imported image through a projection: the image's alpha if it has one
     /// (a logo on a transparent background), else its brightness.
@@ -141,6 +142,7 @@ impl MaskEffectKind {
             MaskEffectKind::Fill { .. } => "Fill".into(),
             MaskEffectKind::Generator(g) => format!("Generator ({})", g.kind.label()),
             MaskEffectKind::Levels(_) => "Levels".into(),
+            MaskEffectKind::Filter(filter) => filter.label().into(),
             MaskEffectKind::Invert => "Invert".into(),
             MaskEffectKind::Image { .. } => "Image".into(),
         }
