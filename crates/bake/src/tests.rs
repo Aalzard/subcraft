@@ -144,6 +144,56 @@ fn curvature_brightens_cube_edges_and_keeps_faces_flat() {
 }
 
 #[test]
+fn curvature_stays_connected_at_exact_cube_corners_and_uv_rims() {
+    for subdivisions in [1, 4, 13] {
+        let mesh = primitives::atlas_box(Vec3::splat(2.0), subdivisions, "Corner regression");
+        let bvh = Bvh::build(&mesh);
+        let radius = 0.02 * mesh.bounds.diagonal();
+        for normal in [Vec3::X, -Vec3::X, Vec3::Y, -Vec3::Y, Vec3::Z, -Vec3::Z] {
+            for x in [-1.0, 1.0] { for y in [-1.0, 1.0] { for z in [-1.0, 1.0] {
+                let corner = Vec3::new(x, y, z);
+                if corner.dot(normal) < 0.0 { continue; }
+                let near = corner * (1.0 - radius * 0.001) + normal * (radius * 0.001);
+                let approaching = curvature::curvature_at(&mesh, &bvh, near, normal, radius);
+                let exact = curvature::curvature_at(&mesh, &bvh, corner, normal, radius);
+                assert!(exact > 0.97 && (exact - approaching).abs() < 0.03,
+                    "corner drops at {corner:?}, {normal:?}, subdivision {subdivisions}: {approaching} -> {exact}");
+            } } }
+        }
+        let maps = bake_low(&mesh, &[MeshMapKind::Curvature], 0);
+        let mut checked = 0;
+        for t in texels(&mesh, 0, RES) {
+            if (Vec3::ONE - t.position.abs()).max_element() < radius * 0.1 {
+                let value = at(&maps[&MeshMapKind::Curvature], &t)[0];
+                assert!(value > 0.93, "baked corner/rim at {:?} has a gap: {value}", t.position);
+                checked += 1;
+            }
+        }
+        assert!(checked >= 12, "must exercise the clamped island-corner rim");
+    }
+}
+
+#[test]
+fn corner_curvature_preserves_concavity_flat_surfaces_and_scale() {
+    for size in [0.002, 2.0, 2000.0] {
+        let mut mesh = primitives::atlas_box(Vec3::splat(size), 4, "Concave corner");
+        for normal in &mut mesh.normals { *normal = -*normal; }
+        let bvh = Bvh::build(&mesh);
+        let radius = 0.02 * mesh.bounds.diagonal();
+        let corner = Vec3::splat(size * 0.5);
+        for normal in [-Vec3::X, -Vec3::Y, -Vec3::Z] {
+            let value = curvature::curvature_at(&mesh, &bvh, corner, normal, radius);
+            assert!(value < 0.03, "inward corner must remain concave at size {size}: {value}");
+        }
+        let plane = primitives::plane(size, 4);
+        let bvh = Bvh::build(&plane);
+        for point in [Vec3::ZERO, Vec3::new(size * 0.5, 0.0, size * 0.5)] {
+            assert_eq!(curvature::curvature_at(&plane, &bvh, point, Vec3::Y, radius), 0.5);
+        }
+    }
+}
+
+#[test]
 fn low_on_low_normals_are_flat_and_world_normals_match_faces() {
     let mesh = primitives::cube(2.0);
     let maps = bake_low(&mesh, &[MeshMapKind::Normal, MeshMapKind::WorldSpaceNormal, MeshMapKind::Position], 0);

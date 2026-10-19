@@ -64,21 +64,27 @@ pub fn curvature_at(mesh: &Mesh, bvh: &Bvh, p: Vec3, n: Vec3, radius: f32) -> f3
         if dist >= radius {
             continue;
         }
-        if dist <= radius * 1e-3 {
-            // The texel sits on this triangle's boundary (e.g. exactly on an edge): measure toward
-            // the triangle's interior instead, at full weight.
-            d = (a + b + c) / 3.0 - p;
-            if d.length_squared() < 1e-12 {
-                continue;
-            }
-            d = d.normalize() * radius * 1e-3;
-            dist = radius * 1e-3;
-        }
         let [ia, ib, ic] = mesh.tri(t as usize).map(|i| i as usize);
         let nq = (mesh.normals[ia] * bary[0] + mesh.normals[ib] * bary[1] + mesh.normals[ic] * bary[2]).normalize_or_zero();
         let dn = nq - n;
         if dn.length_squared() < 1e-6 {
             continue;
+        }
+        if dist <= radius * 1e-3 {
+            // The texel sits on this triangle's boundary (e.g. exactly on an edge): measure toward
+            // its interior across the crease, not along it. The centroid's along-crease component
+            // depends on tessellation and otherwise weakens curvature at vertices/UV rim texels.
+            d = (a + b + c) / 3.0 - p;
+            let crease = n.cross(nq);
+            let crease_len2 = crease.length_squared();
+            if crease_len2 > 1e-6 {
+                d -= crease * (d.dot(crease) / crease_len2);
+            }
+            if d.length_squared() < 1e-12 {
+                continue;
+            }
+            d = d.normalize() * radius * 1e-3;
+            dist = radius * 1e-3;
         }
         let w = 1.0 - dist / radius;
         sum += w * dn.dot(d / dist);
