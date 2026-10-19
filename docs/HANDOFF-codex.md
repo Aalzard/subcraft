@@ -1,37 +1,40 @@
-# Codex handoff - 2026-10-19
+# Codex handoff - 2026-10-19, session 87
 
-Branch: feature/brush-roadmap. Last implementation commit: 187e3ca; docs commit follows.
-496 workspace tests PASS, 0 failed/ignored; Clippy workspace/all-targets exits 0 (repository warnings).
-Use CARGO_INCREMENTAL=0, CARGO_PROFILE_DEV_DEBUG=line-tables-only, -j 1 before each commit.
-Test executable: E:/Applications/ArtCraft/SubCraft/target/debug/subcraft.exe. No push/release.
+Branch: feature/brush-roadmap. Last implementation: 3fc267d; documentation commit follows.
+509 workspace tests PASS, 0 failed/ignored (13 new); Clippy workspace/all-targets exits 0,
+repository warnings only. CARGO_INCREMENTAL=0, CARGO_PROFILE_DEV_DEBUG=line-tables-only, -j 1.
+Test build: E:/Applications/ArtCraft/SubCraft/target/debug/subcraft.exe. No push/release.
 
 Done:
-- Blur/Sharpen on content/masks/folders; Radius/Amount controls; existing editing/undo reused.
-- Previous-stage DAG, separable Gaussian, 64 MiB/set completed tile cache + active frontier;
-  uniform-stage sharing, absent-source Replace parity, conservative chained raster halos.
-- Premultiplied Blur coverage, Sharpen alpha/signed Height, scaled previews, schema 10 / v1-9 migration.
-- Numeric dense references, parallel eviction/all blends, latest worker/export/undo/reopen and UI tests.
-- Native crate 3D/2D/mask captures: docs/screenshots/filter-{blur,sharpen,mask-blur,blur-2d}.png.
-- 4K CPU report: docs/performance/2026-10-19-neighborhood-filters-4k.txt. Blur convergence 8.664s
-  before uniform sharing -> 1.183s; polling p95 0.892ms. Sharpen convergence 0.718s / p95 0.888ms.
+- Directional Blur on content/masks/folders: radius, UV angle, premultiplied bilinear line sampling.
+- Highpass on both domains/folders: radius/amount, original alpha, neutral .5 or signed Height 0.
+- Existing undo/worker/cache/dirty halos/scaled previews reused; exact sync export and reopen tested.
+- Schema 11 / legacy 1-10 migration; actual schema-10 Blur/Sharpen fixture; smart stacks round-trip.
+- Dense numeric borders/angles/alpha/order/blends/folders/cache goldens; invalid edits/UI checks.
+- Native crate captures: docs/screenshots/filter-{directional,highpass,mask-directional,
+  mask-highpass,directional-2d}.png. CLI exit 0; inspected results/properties/thumbnails.
+- CPU 4K report: docs/performance/2026-10-19-directional-highpass-4k.txt. Directional poll p95
+  1.071 / max 9.492ms, settle 3.539s; Highpass p95 1.351 / max 2.303ms, settle 1.316s.
 
-No half-implemented filter remains. Next kernel extension point: compositor/src/stages.rs::Graph::gaussian
-and Node::Gaussian evaluation; doc/src/filter.rs holds parameters, UI dispatches existing commands.
-Keep exact sync/worker parity, bounded immutable stages, previous-stage ordering and schema migrations.
-ADR-0030 records UV edge clamping, radius units, alpha and caching. UV filters can mix nearby atlas
-islands and do not follow mesh seams. Normal filters unsupported; Sharpen clips non-Height/HDR to 0-1.
+No partial filter remains. Kernel extension point: compositor/src/stages.rs::Graph::neighborhood,
+Node::Directional/Gaussian and materials/src/filter.rs. UI only dispatches existing effect commands.
+Keep ADR-0031: angle follows top-left UV (+45 down-right), 180-degree periodic; premultiplied
+bilinear samples; Highpass radius/amount zero = neutral, never identity. Known-uniform lowpass
+inputs bypass convolution. Height stays signed; other Highpass/HDR values clamp to 0-1. Normal
+vectors unsupported. Preserve previous-stage data, cache bounds, sync parity and schema migrations.
 
-Known unresolved: owner REJECTS Edge Wear (docs/PROMPT-claude-edge-wear.md). Do not claim it fixed;
-mask.rs::evaluate_effect is now shared by local and spatial evaluators; coordinate Claude edits.
-No failing/skipped tests. No physical mouse driven; manual drags/tablet, production assets, browser/DPI,
-full 4K GPU/upload/frame pacing and long strokes NOT hand-verified. CPU timings do not establish FPS.
-GPU filter backend, remaining filters, references/anchors and lower-normal-aware Dirt remain pending.
-Open owner decisions: future island-aware UV policy and Normal-filter semantics.
+Known: rejected Edge Wear is unresolved; generator kernels untouched; Claude prompt still applies.
+No failing/skipped tests. Directional settlement is more expensive; further optimization remains.
+UV filters can mix atlas islands and do not follow mesh seams. No physical mouse driven. Manual
+drags/tablet, browser/DPI, production assets, long strokes and full 4K GPU/upload pacing NOT verified.
+CPU polling is not FPS. Open decisions: atlas-aware policy and future Normal filter semantics.
+Bevel/Mask Outline, effect thumbnails/drag reorder, GPU parity, references and lower-normal Dirt
+remain unimplemented (not half-written). Coordinate shared files if Claude edits wear concurrently.
 
-Unrelated Cargo.lock, crates/ui/Cargo.toml, UI examples and artworks/Dead-Man retained. Protected zips,
-output/, generate_textures.py and __pycache__/ untouched. Earlier cleanup was approval-rejected; do not bypass.
+Preserved unrelated Cargo.lock, UI Cargo.toml/examples, artworks/Dead-Man; protected zips/output/
+generate_textures.py/__pycache__ untouched. Earlier cleanup was approval-rejected; do not bypass.
 
-Next 3 concrete steps:
-1. Claude reproduces unresolved wear on the default baked crate using the owner handoff prompt.
-2. Extend Graph with Directional Blur/Highpass, goldens/migration/native evidence; then effect thumbnails.
-3. Profile full 4K desktop GPU/upload/long-stroke pacing before lower-normal-aware Dirt and references.
+Next 3 steps:
+1. Implement Bevel/Mask Outline on the existing neighborhood contract, with numeric/native gates.
+2. Add per-effect thumbnails and drag reorder without changing content/mask target selection.
+3. Profile full 4K desktop uploads/render/long strokes, then GPU parity and lower-normal references.

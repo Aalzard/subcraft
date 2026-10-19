@@ -226,14 +226,16 @@ of scale. These controls are shared by the supported texture projections.
 ### Content and mask effects
 
 **Filters:** click a layer's content square, then **+ Add → Filter** beneath its row. Choose
-**Contrast**, **HSL**, **Threshold**, **Clamp**, **Blur** or **Sharpen**. The filter appears as an editable effect;
+**Contrast**, **HSL**, **Threshold**, **Clamp**, **Blur**, **Sharpen**, **Directional Blur** or
+**Highpass**. The filter appears as an editable effect;
 select it to change its channel and parameters in Properties. Contrast 1 is neutral; Pivot
 sets its center. HSL changes hue in degrees, saturation (1 is neutral) and lightness (0 is
 neutral). Threshold creates black/white from luminance or a scalar channel. Clamp limits
 values between Minimum and Maximum without rescaling them. Normal vectors are excluded.
 
 For masks, click the grayscale square and use **+ Add → Filter**. Contrast, Threshold, Clamp,
-Blur and Sharpen process the mask below them; HSL is available on color content only. Eye, blend,
+Blur, Sharpen, Directional Blur and Highpass process the mask below them. HSL is available
+on color content only. Eye, blend,
 opacity, Move up/down, Duplicate and Delete retain their existing behavior. Order matters:
 a Threshold after a generator changes its result; one below it changes an earlier stage.
 Original paint stays intact, and Undo restores the previous settings.
@@ -252,12 +254,25 @@ above/below a Threshold to change whether the thresholded edge or its source is 
 Existing eye, blend, opacity, duplicate, removal and Undo controls apply. Layer/mask thumbnails
 and enlarged previews account for their smaller or larger resolution automatically.
 
+**Directional Blur** softens along one axis. Set **Radius** (0-32 working pixels) and **Angle**
+(-180 to 180 degrees). 0 is horizontal, 90 vertical, 45 slopes down-right and -45 slopes up-right
+in the UV image. The axis repeats every 180 degrees. It softens paint coverage without dark
+fringes; zero radius leaves the input unchanged with Normal effect blending. Try it above a mask or
+procedural pattern for directional streaking.
+
+**Highpass** removes broad changes and keeps detail. **Radius** selects the detail scale;
+**Amount** controls contrast (0-4). Normal effect blending shows detail around 0.5 gray for
+color/scalar channels and masks, or zero for signed Height. To retain original color, use the
+effect's **Overlay** blend; for Height use **Signed Addition**. Highpass preserves painted
+coverage. Radius zero or Amount zero gives the neutral detail field, not the original texture;
+hide/remove the effect to bypass it. Existing opacity, order, duplicate and Undo controls apply.
+
 These are UV texture filters: they cross internal tile boundaries, clamp at the outside of the
 texture, and can mix neighboring UV islands. They do not follow a surface across UV seams.
 Increasing texture-set resolution makes a fixed pixel radius look smaller; adjust Radius if
-needed. Normal vectors are excluded. Sharpen preserves signed Height and bounds other values
-to 0-1. Projects and Smart Materials/Masks save filters using schema 10; older projects still
-open. Directional Blur, Highpass and other neighborhood filters remain planned.
+needed. Normal vectors are excluded. Sharpen/Highpass preserve signed Height and bound other values
+to 0-1. Projects and Smart Materials/Masks save filters using schema 11; older projects still
+open. Bevel, Mask Outline and other neighborhood filters remain planned.
 
 Every paint or fill layer has two separate effect stacks: one on its **content** and one on its
 **mask**. Select a layer and its stack appears right under its row. Which stack you see follows

@@ -55,6 +55,8 @@ Owner's requested scope. `[x]` implemented and tested; `[~]` partial (remaining 
 - [x] Previous-stage CPU neighborhood DAG and bounded tile cache; conservative chained dirty
   halos, UV-space Gaussian Blur and unsharp Sharpen on content/masks/folder adjustments.
   Blur filters premultiplied coverage; Sharpen keeps alpha. Thumbnails scale radius (ADR-0030).
+- [x] Directional Blur and Highpass extend the same content/mask/folder stages (ADR-0031);
+  angle/radius/amount controls, signed neutral Height and exact legacy schema-10 migration.
 - [ ] Render-owned GPU parity, references and full 4K desktop frame profiling (layer roadmap).
 
 ## Channels

@@ -18,6 +18,9 @@ What changed in SubCraft, newest first. Download the latest build from the
   column. Compact nested effects have connecting lines and collapsible domain headers.
 
 ### New
+- Directional Blur with UV angle/radius and Highpass with detail scale/amount on content,
+  masks and adjustment folders. Existing undo, worker previews and exact export are retained;
+  schema 11 preserves older projects and smart resources.
 - Non-destructive Gaussian Blur and Sharpen effects for layer content, masks and adjustment
   folders. Radius/Amount controls, continuous cross-tile sampling, soft paint coverage without
   dark fringes, scaled thumbnails and exact undo/save/export. Schema 10 opens older projects.

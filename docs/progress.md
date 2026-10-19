@@ -2218,13 +2218,61 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   GPU/upload/frame pacing were NOT verified by hand. Owner's rejected Edge Wear is unresolved.
   Implementation 187e3ca; no push/release; unrelated/protected files retained.
 
+### Session 87 - Directional Blur and Highpass (2026-10-19)
+
+* **Directional Blur:** Gaussian UV line with Radius 0-32 working pixels and Angle -180..180
+  degrees. 0 is horizontal, 90 vertical, +45 down-right (ADR-0005 image frame); axis repeats
+  every 180 degrees. Bilinear sampling interpolates premultiplied color/alpha, then Gaussian
+  accumulation unpremultiplies; painted coverage softens without dark fringes. Radius zero
+  is exact identity under Normal effect blending. Available on content/masks/folder adjustments.
+* **Highpass:** Radius and Amount (0-4), neutral + amount*(source-Gaussian). Neutral is 0.5 for
+  bounded color/scalar/masks, zero for signed Height. Preserve original paint coverage; bound
+  non-Height results to 0-1, including HDR. Radius/Amount zero give neutral, not original input.
+  Guide explains Overlay for bounded color/masks and Signed Addition for Height.
+* **Architecture/persistence:** extend existing previous-stage DAG, not another stack. A
+  Directional node preloads a bounded tile rectangle once; no locks in bilinear tap loops.
+  Reuse 64 MiB completed-stage cache, conservative chained halos, scaled previews, app effect
+  commands/history, worker snapshots and exact sync export. Known uniform lowpass inputs bypass
+  convolution, ensuring exact neutral Highpass instead of floating residue. Schema **11**,
+  explicit parameters, finite validation and identity migration of versions 1-10. Kernels in
+  materials, stage sampling/composition in compositor; no egui/wgpu in logic crates.
+* Files/crates: doc filter model; materials taps/Highpass math; compositor stages and numeric
+  acceptance; app integration/preview tests and fixture/profile; project schema/goldens/legacy
+  migration; UI shared controls/hints/tests. Significant decision: **ADR-0031**.
+* Validation: **509 workspace tests pass, 0 failed/ignored (13 added)**; workspace/all-target
+  Clippy exits 0 with repository warnings and no new filter warnings. Flags: CARGO_INCREMENTAL=0,
+  dev debug=line-tables-only, -j 1. Independent dense double-precision bilinear line goldens
+  cover cardinal/diagonal/fractional values and image/tile boundaries. Other checks cover
+  colored premultiplied coverage/opacity, Highpass neutral/sign/alpha/blends, mask order,
+  isolated/passthrough folders, dirty halos, parallel tiny-cache eviction, atomic invalid edits,
+  newest worker angle, one-gesture undo, sync export, reopen, legacy schema-10 filters and
+  64/256px preview scaling. No tests disabled. Compile-check caught a preview-test variable
+  shadowing error, repaired before the workspace run.
+* Native evidence: real default crate, both 512px sets, isolated-data CLI captures all exit 0.
+  Inspected **docs/screenshots/filter-directional.png**, **filter-highpass.png** (material and
+  Radius/Angle/Amount), **filter-mask-directional.png**, **filter-mask-highpass.png** (separate
+  mask previews/properties), **filter-directional-2d.png** (UV result + wireframe).
+  Updated test executable: **target/debug/subcraft.exe**.
+* 4K CPU profile: both sets at 4096; Directional Blur cold **3673.7 ms**, edit/poll
+  p50 **0.367 / p95 1.071 / max 9.492 ms**, convergence **3538.7 ms**, 203 frames. Highpass cold
+  **1893.8 ms**, p50 **0.481 / p95 1.351 / max 2.303 ms**, convergence **1316.2 ms**, 77 frames.
+  Report **docs/performance/2026-10-19-directional-highpass-4k.txt**. Single runs, CPU only;
+  settlement is from first edit. Directional bilinear work is more expensive than the Gaussian
+  kernel; further optimization/GPU parity remains pending. These values do not establish FPS.
+* Limits: UV-space image clamping, not geometric seam/island-aware filtering; Normal vectors
+  remain excluded. GPU filters, Bevel/Mask Outline, effect thumbnails/drag reorder, lower-normal
+  generators and references remain pending. Manual slider drags/tablet, browser/DPI, production
+  meshes, long strokes and full 4K GPU/upload/frame pacing NOT hand-verified. No physical mouse
+  driven. Rejected Edge Wear remains unresolved; its generator kernels were not touched.
+  Implementation 3fc267d; no push/release, protected/unrelated files retained.
+
 ## Next steps (in order)
 
 1. Owner gives PROMPT-claude-edge-wear.md to Claude; wear remains unresolved. Preserve and
    coordinate shared filter files before concurrent edits. Owner checks + Add → Filter in the
    current executable; local filters/folder adjustments are implemented, not Painter parity.
-2. Extend the completed CPU neighborhood stages to Directional Blur/Highpass; add measured
-   GPU parity and per-effect thumbnails/drag reorder. Preserve exact synchronous export.
+2. Add Bevel/Mask Outline to the completed neighborhood stages, then effect thumbnails and
+   drag reorder. Add measured GPU parity; preserve exact synchronous export.
 3. Profile the complete 4K upload/render path and worker convergence under controlled load;
    resume distance/Dirt/lower-normal inputs/Disable Micro Effects, references and emission per
    the material/layer roadmaps. Large brush phases remain pending.
