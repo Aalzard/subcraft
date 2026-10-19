@@ -87,6 +87,9 @@ pub struct LaunchOptions {
     pub view_2d: bool,
     /// Start with Brush settings in front (also useful for native screenshot verification).
     pub brush_panel: bool,
+    /// Open the selected layer's first mask generator for native validation.
+    pub generator_panel: bool,
+    pub symmetry_axes: Option<[bool; 3]>,
     /// Start a real high-to-low bake and show its dialog (also usable with --screenshot).
     pub bake_high_poly: Option<PathBuf>,
     pub bake_size: Option<u32>,
@@ -372,6 +375,14 @@ impl SubcraftApp {
             let _ = state.session.execute(Command::SetResolution { texture_set: None, resolution });
         }
         state.welcome.open = options.shows_welcome(state.recovery.prefs.show_welcome, state.session.is_recovered());
+        if let Some(symmetry) = options.symmetry_axes {
+            let stroke = subcraft_paint::StrokeOptions { symmetry, ..state.session.brush.options };
+            let _ = state.session.execute(Command::SetStrokeOptions(stroke));
+        }
+        if options.generator_panel && let Some(layer) = state.session.selected_layer() {
+            let target = layer.mask.as_ref().and_then(|m| m.effects.iter().find(|e| matches!(e.kind, subcraft_doc::MaskEffectKind::Generator(_)))).map(|e| (layer.id, e.id));
+            if let Some((layer, effect)) = target { let _ = state.session.execute(Command::SelectEffect { layer, target: subcraft_app::LayerTarget::Mask, effect: Some(effect) }); }
+        }
         state.welcome.guide = options.guide_step.map(|s| s.min(subcraft_app::launch::QUICK_START.len() - 1));
         if state.welcome.guide.is_some() { state.welcome.open = false; }
 

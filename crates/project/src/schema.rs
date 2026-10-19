@@ -18,7 +18,8 @@ use uuid::Uuid;
 // 4: editable pen paths, with anchor UUIDs, UV handles, style and a derived raster cache.
 // 5: per-layer content effect stacks (`content_effects`; absent = none, so 1-4 load unchanged).
 // 6: texture-set albedo filtering; schemas 1–5 migrate to Bilinear.
-pub const SCHEMA_VERSION: u32 = 6;
+// 7: organic generator breakup; absent in schemas 1–6 means legacy projected noise.
+pub const SCHEMA_VERSION: u32 = 7;
 pub const FORMAT_NAME: &str = "subcraft-project";
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

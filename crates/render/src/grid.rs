@@ -130,6 +130,12 @@ pub(crate) struct GridPass {
 
 impl GridPass {
     pub fn new(device: &wgpu::Device) -> Self {
+        Self::create(device)
+    }
+    pub fn new_guides(device: &wgpu::Device) -> Self {
+        Self::create(device)
+    }
+    fn create(device: &wgpu::Device) -> Self {
         let uniforms = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("grid uniforms"),
             contents: bytemuck::bytes_of(&Uniforms::zeroed()),
@@ -270,6 +276,17 @@ impl GridPass {
             pass.set_vertex_buffer(0, vertices.slice(..));
             pass.draw(0..self.count, 0..1);
         }
+    }
+
+    pub fn set_lines(&mut self, device: &wgpu::Device, lines: &[[Vec3; 2]]) {
+        let vertices: Vec<_> = lines.iter().flat_map(|line| line.iter()).map(|p| Vertex { position: p.to_array(), color: [0.7, 0.015, 0.01, 0.85], kind: 4 }).collect();
+        self.count = vertices.len() as u32;
+        self.vertices = (!vertices.is_empty()).then(|| device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("symmetry guides"), contents: bytemuck::cast_slice(&vertices), usage: wgpu::BufferUsages::VERTEX,
+        }));
+    }
+    pub fn prepare_lines(&self, queue: &wgpu::Queue, view_proj: Mat4) {
+        queue.write_buffer(&self.uniforms, 0, bytemuck::bytes_of(&Uniforms { view_proj: view_proj.to_cols_array_2d(), origin_radius: [0., 0., 0., 1.], eye: [0., 2., 0., 1.], axes: [1.; 4] }));
     }
 }
 

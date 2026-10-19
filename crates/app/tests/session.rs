@@ -11,6 +11,32 @@ fn session() -> Session {
 }
 
 #[test]
+fn fill_channel_toggles_are_independent_and_solo_is_one_undo_step() {
+    let mut s = session(); s.execute(Command::AddLayer(NewLayer::Fill)).unwrap();
+    let layer = s.selection().layer.unwrap();
+    let mut rough = FillChannel::new(FillSource::uniform(ChannelValue::scalar(0.72))); rough.strength = 0.42;
+    s.execute(Command::SetFillChannel { layer, channel: ChannelKind::Roughness, fill: rough.clone() }).unwrap();
+    s.execute(Command::Seal).unwrap(); let before = s.document().clone(); let count = s.history().entries().len();
+    s.execute(Command::ToggleFillChannel { layer, effect: None, channel: ChannelKind::Height, solo: true }).unwrap();
+    let LayerContent::Fill(fill) = &s.selected_layer().unwrap().content else { panic!() };
+    assert_eq!(fill.channels.values().filter(|c| c.enabled).count(), 1);
+    assert!(fill.channels[&ChannelKind::Height].enabled);
+    assert_eq!(fill.channels[&ChannelKind::Roughness].source, rough.source);
+    assert_eq!(fill.channels[&ChannelKind::Roughness].strength, rough.strength);
+    assert_eq!(s.history().entries().len(), count + 1);
+    s.execute(Command::Undo).unwrap(); assert_eq!(s.document(), &before);
+    s.execute(Command::Redo).unwrap();
+    s.execute(Command::ToggleFillChannel { layer, effect: None, channel: ChannelKind::Roughness, solo: false }).unwrap();
+    let LayerContent::Fill(fill) = &s.selected_layer().unwrap().content else { panic!() };
+    assert!(fill.channels[&ChannelKind::Height].enabled && fill.channels[&ChannelKind::Roughness].enabled);
+    let doc = s.document().clone();
+    s.execute(Command::ToggleBrushChannel { channel: ChannelKind::Normal, solo: true }).unwrap();
+    assert!(s.brush.material.channels[&ChannelKind::Normal].enabled);
+    assert_eq!(s.brush.material.channels.values().filter(|c| c.enabled).count(), 1);
+    assert_eq!(s.document(), &doc);
+}
+
+#[test]
 fn albedo_filter_is_undoable_invalidates_composites_and_preserves_exported_pixels() {
     use std::sync::Arc;
     use subcraft_doc::{Resource, ResourceKind, ResourceStore};

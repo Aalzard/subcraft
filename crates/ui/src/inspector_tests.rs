@@ -184,17 +184,17 @@ fn fill_controls_edit_only_the_selected_fill_with_numeric_output_and_one_undo() 
         .get_leaf()
         .unwrap()
         .viewport;
-    let checkbox = out
+    let toggle = out
         .shapes
         .iter()
         .find_map(|shape| match &shape.shape {
-            egui::Shape::Text(t) if t.galley.text() == "Base Color" && bounds.contains(t.pos) => {
+            egui::Shape::Text(t) if t.galley.text() == "color" && bounds.contains(t.pos) => {
                 Some(t.pos + t.galley.size() * 0.5)
             }
             _ => None,
         })
-        .expect("selected fill's Base Color checkbox");
-    click_at(&mut app, &ctx, checkbox);
+        .expect("selected fill's Base Color toggle");
+    click_at(&mut app, &ctx, toggle);
     assert_eq!(app.state.session.selection().layer, Some(red));
     assert_color(&mut app, [0.0, 0.0, 1.0]);
     assert_eq!(app.state.session.history().entries().len(), history + 1);

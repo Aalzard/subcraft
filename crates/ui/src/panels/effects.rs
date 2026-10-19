@@ -261,12 +261,16 @@ fn content_editor(ui: &mut Ui, state: &mut UiState, layer: &Layer, e: &ContentEf
             ContentEffectKind::Fill(fill) => {
                 hint(ui, "A material on top of the layer's content. Enable the channels it should change.");
                 changed |= super::properties::projection_editor(ui, &mut fill.projection);
+                let states: Vec<_> = channels.iter().map(|k| (*k, fill.channels.get(k).is_some_and(|c| c.enabled))).collect();
+                if let Some((channel, solo)) = super::properties::channel_toggles(ui, &states) {
+                    cmds.push(Command::ToggleFillChannel { layer: layer.id, effect: Some(eff.id), channel, solo });
+                }
                 for kind in &channels {
                     let mut ch = fill.channels.get(kind).cloned().unwrap_or(FillChannel::disabled(FillSource::uniform(kind.default_paint_value())));
+                    if !ch.enabled { continue; }
                     let before = ch.clone();
                     ui.push_id(("effect_fill", *kind), |ui| {
-                        let name = RichText::new(kind.display_name()).color(if ch.enabled { theme::TEXT } else { TEXT_FAINT });
-                        ui.checkbox(&mut ch.enabled, name);
+                        ui.label(RichText::new(kind.display_name()).color(theme::TEXT));
                         if ch.enabled {
                             let current = match ch.source {
                                 FillSource::Procedural { .. } => 1,
@@ -318,6 +322,7 @@ fn content_editor(ui: &mut Ui, state: &mut UiState, layer: &Layer, e: &ContentEf
     section(ui, "effect_blend", "Blending per channel", true, |ui| {
         hint(ui, "How this effect combines with the content below it, per channel.");
         for kind in &channels {
+            if let ContentEffectKind::Fill(fill) = &eff.kind && !fill.channels.get(kind).is_some_and(|c| c.enabled) { continue; }
             let Some(blend) = eff.blend.get_mut(kind) else { continue };
             ui.push_id(("effect_blend", *kind), |ui| {
                 prop_row(ui, kind.display_name(), |ui| {

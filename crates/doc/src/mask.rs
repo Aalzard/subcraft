@@ -45,6 +45,10 @@ pub struct Generator {
     /// Procedural breakup applied to the threshold (0 = none).
     pub noise_amount: f32,
     pub noise: ProceduralParams,
+    /// Seamless object-space volume noise instead of repeating axis projections. Absent in
+    /// older projects/recipes: preserve their original pattern exactly.
+    #[serde(default)]
+    pub organic_breakup: bool,
     /// World direction for `Directional` (normalized on use).
     pub direction: [f32; 3],
 }
@@ -68,7 +72,7 @@ impl GeneratorKind {
     pub fn label(self) -> String {
         match self {
             GeneratorKind::Edges => "Edges".into(),
-            GeneratorKind::Cavity => "Cavity".into(),
+            GeneratorKind::Cavity => "Dirt".into(),
             GeneratorKind::Directional => "Directional".into(),
             GeneratorKind::PositionGradient => "Position Gradient".into(),
             GeneratorKind::MeshMap(m) => format!("Mesh Map: {}", m.display_name()),
@@ -85,10 +89,18 @@ impl Generator {
             level: 0.5,
             softness: 0.15,
             invert: false,
-            noise_amount: 0.0,
+            noise_amount: if matches!(kind, GeneratorKind::Edges | GeneratorKind::Cavity) { 0.3 } else { 0.0 },
             noise,
+            organic_breakup: matches!(kind, GeneratorKind::Edges | GeneratorKind::Cavity),
             direction: [0.0, 1.0, 0.0],
         }
+    }
+
+    /// Approximate feature size as a percentage of the whole mesh's longest dimension.
+    pub fn pattern_size(&self) -> f32 { 100.0 / self.noise.scale.max(0.01) }
+
+    pub fn set_pattern_size(&mut self, percent: f32) {
+        if percent.is_finite() { self.noise.scale = 100.0 / percent.clamp(1.0, 100.0); }
     }
 }
 

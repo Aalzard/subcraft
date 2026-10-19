@@ -88,6 +88,10 @@ pub fn procedural_tile(params: &ProceduralParams, projection: &Projection, geo: 
     geo.fields.get_or_compute(field::FieldKey::new(params, projection), || (0..TILE_TEXELS).map(|i| eval_procedural(params, projection, geo, i)).collect())
 }
 
+pub fn organic_tile(params: &ProceduralParams, geo: &TileGeometry) -> std::sync::Arc<field::Field> {
+    geo.fields.get_or_compute(field::FieldKey::organic(params), || (0..TILE_TEXELS).map(|i| crate::organic::eval(params, geo.position(i))).collect())
+}
+
 /// Grayscale procedural value of texel `i` through a projection.
 #[inline]
 pub fn eval_procedural(params: &ProceduralParams, projection: &Projection, geo: &TileGeometry, i: usize) -> f32 {

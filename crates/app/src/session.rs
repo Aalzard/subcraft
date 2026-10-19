@@ -24,6 +24,7 @@ pub const DEFAULT_RESOLUTION: u32 = 1024;
 
 /// Immutable geometry of the session and everything derived from it.
 pub struct Scene {
+    symmetry_sections: std::sync::OnceLock<[Vec<[Vec3; 2]>; 3]>,
     pub mesh: Arc<Mesh>,
     pub bvh: Bvh,
     pub geometry: GeometryCache,
@@ -33,7 +34,7 @@ pub struct Scene {
 impl Scene {
     pub fn new(mesh: Mesh) -> Self {
         let mesh = Arc::new(mesh);
-        Self { bvh: Bvh::build(&mesh), geometry: GeometryCache::new(mesh.clone()), depth: DepthCache::new(), mesh }
+        Self { symmetry_sections: Default::default(), bvh: Bvh::build(&mesh), geometry: GeometryCache::new(mesh.clone()), depth: DepthCache::new(), mesh }
     }
 }
 
@@ -363,6 +364,12 @@ impl Session {
 
     pub fn scene(&self) -> &Scene {
         &self.scene
+    }
+
+    pub fn symmetry_guide_segments(&self) -> Vec<[Vec3; 2]> {
+        if !self.brush.options.symmetry.contains(&true) { return Vec::new(); }
+        let sections = self.scene.symmetry_sections.get_or_init(|| crate::guides::symmetry_sections(&self.scene.mesh));
+        sections.iter().zip(self.brush.options.symmetry).filter(|(_, enabled)| *enabled).flat_map(|(lines, _)| lines.iter().copied()).collect()
     }
     pub fn document(&self) -> &Document {
         &self.doc
@@ -850,6 +857,25 @@ impl Session {
                 self.edit_layer_set(layer, "Fill", Some(key), |ts| {
                     let LayerContent::Fill(f) = &mut Self::layer_mut(ts, layer)?.content else { return Err(CommandError::NotAFillLayer) };
                     f.channels.insert(channel, fill);
+                    Ok(())
+                })?;
+            }
+            Command::ToggleBrushChannel { channel, solo } => {
+                let channels = &mut self.brush.material.channels;
+                let on = solo || !channels.get(&channel).is_some_and(|c| c.enabled);
+                if solo { for c in channels.values_mut() { c.enabled = false; } }
+                channels.entry(channel).or_insert(subcraft_paint::BrushChannel { enabled: false, value: channel.default_paint_value() }).enabled = on;
+            }
+            Command::ToggleFillChannel { layer, effect, channel, solo } => {
+                self.edit_layer_set(layer, if solo { "Solo Channel" } else { "Toggle Channel" }, None, |ts| {
+                    let l = Self::layer_mut(ts, layer)?;
+                    let fill = if let Some(effect) = effect {
+                        let e = l.content_effects.iter_mut().find(|e| e.id == effect).ok_or_else(|| CommandError::Invalid("effect not found".into()))?;
+                        let subcraft_doc::ContentEffectKind::Fill(f) = &mut Arc::make_mut(e).kind else { return Err(CommandError::NotAFillLayer) }; f
+                    } else { let LayerContent::Fill(f) = &mut l.content else { return Err(CommandError::NotAFillLayer) }; f };
+                    let on = solo || !fill.channels.get(&channel).is_some_and(|c| c.enabled);
+                    if solo { for c in fill.channels.values_mut() { c.enabled = false; } }
+                    fill.channels.entry(channel).or_insert(subcraft_doc::FillChannel::disabled(subcraft_doc::FillSource::uniform(channel.default_paint_value()))).enabled = on;
                     Ok(())
                 })?;
             }

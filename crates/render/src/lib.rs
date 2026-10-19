@@ -111,6 +111,7 @@ pub struct ViewParams {
     pub bake_distances: [f32; 2],
     /// Show a raw baked map on the low-poly UVs without changing material textures.
     pub bake_map: Option<MeshMapKind>,
+    pub symmetry_guides: bool,
 }
 
 /// What the 3D view shows on the model.
@@ -168,7 +169,7 @@ impl ViewParams {
             antialias: true,
             view_mode: ViewMode::Material,
             grid: None,
-            bake_overlay: false, bake_cage: true, bake_distances: [0.01; 2], bake_map: None,
+            bake_overlay: false, bake_cage: true, bake_distances: [0.01; 2], bake_map: None, symmetry_guides: false,
         }
     }
 }
@@ -199,6 +200,7 @@ pub struct ViewportRenderer {
     /// Single-sample pipeline (anti-aliasing off).
     pipeline_no_aa: wgpu::RenderPipeline,
     grid: grid::GridPass,
+    symmetry: Option<grid::GridPass>,
     bake_preview: bake_preview::BakePreviewPass,
     globals: wgpu::Buffer,
     globals_layout: wgpu::BindGroupLayout,
@@ -349,6 +351,7 @@ impl ViewportRenderer {
             pipeline,
             pipeline_no_aa,
             grid: grid::GridPass::new(device),
+            symmetry: None,
             bake_preview: bake_preview::BakePreviewPass::new(device),
             globals,
             globals_layout,
@@ -424,6 +427,11 @@ impl ViewportRenderer {
 
     pub fn has_mesh(&self) -> bool {
         self.mesh.is_some()
+    }
+
+    pub fn set_symmetry_guides(&mut self, device: &wgpu::Device, lines: &[[Vec3; 2]]) {
+        if lines.is_empty() { self.symmetry = None; return; }
+        self.symmetry.get_or_insert_with(|| grid::GridPass::new_guides(device)).set_lines(device, lines);
     }
 
     /// Cache display geometry once, independently of the project's mesh and material textures.
@@ -562,6 +570,7 @@ impl ViewportRenderer {
             sh,
         };
         queue.write_buffer(&self.globals, 0, bytemuck::bytes_of(&globals));
+        if params.symmetry_guides && let Some(guides) = &self.symmetry { guides.prepare_lines(queue, params.proj * params.view); }
         if params.bake_overlay {
             self.bake_preview.prepare(queue, params.proj * params.view, params.bake_distances);
         }
@@ -613,6 +622,7 @@ impl ViewportRenderer {
                 // The mesh depth rejects guides behind it; guides never modify depth or textures.
                 self.grid.draw(&mut pass, params.antialias);
             }
+            if params.symmetry_guides && let Some(guides) = &self.symmetry { guides.draw(&mut pass, params.antialias); }
         }
         target.encode_display(&mut encoder);
         queue.submit([encoder.finish()]);

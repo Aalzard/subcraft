@@ -15,6 +15,9 @@ struct Out {
 @vertex fn vs_main(@location(0) pos: vec3<f32>, @location(1) color: vec4<f32>, @location(2) kind: u32) -> Out {
     var o: Out;
     o.clip = g.view_proj * vec4<f32>(pos, 1.0);
+    // LineList cannot use pipeline depth bias. Nudge guide depth without moving its world
+    // position or screen-space plane, so coplanar surface intersections remain visible.
+    if kind == 4u { o.clip.z -= 0.000002 * o.clip.w; }
     o.world = pos;
     o.color = color;
     o.kind = kind;
@@ -22,6 +25,7 @@ struct Out {
 }
 @fragment fn fs_main(v: Out) -> @location(0) vec4<f32> {
     var enabled = 1.0;
+    if v.kind == 4u { return v.color; }
     if v.kind > 0u { enabled = g.axes[v.kind - 1u]; }
     let distance_fade = 1.0 - smoothstep(g.origin_radius.w * 0.4, g.origin_radius.w, distance(v.world, g.origin_radius.xyz));
     var angle_fade = 1.0;

@@ -74,6 +74,9 @@ pub enum Command {
     SetBlendOpacity { layer: LayerId, channel: ChannelKind, opacity: f32 },
     /// Coalesces like opacity.
     SetFillChannel { layer: LayerId, channel: ChannelKind, fill: FillChannel },
+    /// Atomic independent toggle or solo (Alt-click), preserving every source and strength.
+    ToggleFillChannel { layer: LayerId, effect: Option<EffectId>, channel: ChannelKind, solo: bool },
+    ToggleBrushChannel { channel: ChannelKind, solo: bool },
     SetFillProjection { layer: LayerId, projection: Projection },
     AddMask { layer: LayerId, white: bool },
     RemoveMask(LayerId),

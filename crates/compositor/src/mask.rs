@@ -86,7 +86,9 @@ fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]]) {
     // Breakup noise is projected in 3D (triplanar on object position), never in UV: UV noise
     // jumps at every seam and would make wear follow the islands instead of the shape.
     let noise_proj = Projection { mode: ProjectionMode::Triplanar, triplanar_sharpness: 4.0, ..Projection::default() };
-    let noise = (g.noise_amount > 0.0).then(|| procedural_tile(&g.noise, &noise_proj, geo));
+    let noise = (g.noise_amount > 0.0).then(|| if g.organic_breakup {
+        subcraft_materials::sample::organic_tile(&g.noise, geo)
+    } else { procedural_tile(&g.noise, &noise_proj, geo) });
     for (i, o) in out.iter_mut().enumerate() {
         let raw = match g.kind {
             GeneratorKind::Edges | GeneratorKind::MeshMap(_) => map[i][0],

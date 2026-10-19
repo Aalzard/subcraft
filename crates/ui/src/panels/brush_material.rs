@@ -34,6 +34,11 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         "Choose images or drop Shelf › Textures onto a channel. Images replace flat values.",
     );
     ui.add_space(4.0);
+    let states: Vec<_> = state.session.channels().into_iter().map(|k| (k, material.channels.get(&k).is_some_and(|c| c.enabled))).collect();
+    if let Some((channel, solo)) = super::properties::channel_toggles(ui, &states) {
+        let _ = state.session.execute(Command::ToggleBrushChannel { channel, solo });
+        material = state.session.brush.material.clone();
+    }
     for (index, kind) in state.session.channels().into_iter().enumerate() {
         ui.push_id(kind, |ui| {
             let entry = material.channels.entry(kind).or_insert(BrushChannel {
@@ -41,6 +46,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 value: kind.default_paint_value(),
             });
             let mut pick = false;
+            if !entry.enabled { return; }
             let has_image = material.textures.contains_key(&kind);
             let row = egui::Frame::new()
                 .fill(theme::ROW_BANDS[index % 2])
@@ -49,7 +55,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 .show(ui, |ui| {
                     ui.set_min_width(ui.available_width());
                     ui.horizontal(|ui| {
-                        ui.checkbox(&mut entry.enabled, kind.display_name());
+                        ui.label(kind.display_name());
                         if !has_image {
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
@@ -104,7 +110,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             }
         });
     }
-    if !material.textures.is_empty() {
+    if material.textures.keys().any(|kind| material.channels.get(kind).is_some_and(|c| c.enabled)) {
         ui.label(RichText::new("Image projection").strong());
         projection_editor(ui, &mut material.projection);
         ui.checkbox(&mut material.texture_tiling, "Tile images")
@@ -114,6 +120,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             "UV uses the model's UVs; planar / tri-planar use the same object frame as fill layers.",
         );
     }
+    if material.channels.get(&subcraft_core::ChannelKind::Normal).is_some_and(|c| c.enabled) {
     prop_row(ui, "Normal blend", |ui| {
         segmented(
             ui,
@@ -126,8 +133,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     });
     hint(
         ui,
-        "Detail combines with normals already painted on this layer. Uncheck other channels to paint only normals.",
+        "Detail combines with normals already painted on this layer. Alt+click nrm to paint only normals.",
     );
+    }
     let now = ui.input(|i| i.time);
     if material != original
         && let Err(e) = state.session.execute(Command::SetBrushMaterial(material))

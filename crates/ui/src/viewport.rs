@@ -213,6 +213,14 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             let view = &state.recovery.prefs.viewport;
             params.antialias = view.antialias;
             params.view_mode = view.view_mode();
+            params.symmetry_guides = view.symmetry_guides && state.session.brush.options.symmetry.contains(&true) && !bake_mode;
+            if params.symmetry_guides {
+                let key = (std::sync::Arc::as_ptr(&state.session.scene().mesh) as usize, state.session.brush.options.symmetry);
+                if state.symmetry_uploaded != Some(key) {
+                    renderer.set_symmetry_guides(&rs.device, &state.session.symmetry_guide_segments());
+                    state.symmetry_uploaded = Some(key);
+                }
+            }
             if let Some(high) = &state.bake.preview_mesh {
                 if !state.bake.preview_uploaded {
                     renderer.set_bake_preview(&rs.device, Some((&state.session.scene().mesh, high)));

@@ -417,6 +417,7 @@ fn generator_noise_breakup_is_continuous_across_uv_seams() {
     g.level = 0.5;
     g.softness = 0.1;
     g.noise_amount = 0.8;
+    g.organic_breakup = true;
     mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Generator(g))));
     layer.mask = Some(mask);
     ts.insert_above(None, layer);
@@ -446,6 +447,42 @@ fn generator_noise_breakup_is_continuous_across_uv_seams() {
     }
     let diff = diff / left.len() as f32;
     assert!(diff < 0.05, "mask jumps across the UV seam by {diff} on average");
+}
+
+#[test]
+fn organic_edge_breakup_matches_numeric_coverage_and_seed_size_invalidate_cached_fields() {
+    use subcraft_core::MeshMapKind;
+    let mut fx = Fixture::plane();
+    fx.maps.insert(MeshMapKind::Curvature, subcraft_image::TiledImage::new(RES, RES, 1, [0.6; 4]));
+    let mut ts = texture_set(); let tc = ts.clone();
+    let mut layer = fill_layer(&tc, &[(ChannelKind::Roughness, ChannelValue::scalar(1.))]);
+    let mut mask = Mask::new(RES, false);
+    let mut generator = Generator::new(GeneratorKind::Edges); generator.level = 0.6;
+    mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Generator(generator))));
+    layer.mask = Some(mask); let id = ts.insert_above(None, layer);
+    let mut cache = CompositeCache::new(); cache.update(&ts, &fx.ctx());
+    let first = cache.composite().unwrap().clone();
+    for index in 0..fx.geo.tile_count() {
+        let geo = fx.geo.tile(index);
+        for i in (0..4096).step_by(117) {
+            if geo.coverage(i) < 1. { continue; }
+            let noise = subcraft_materials::organic::eval(&generator.noise, geo.position(i));
+            let level = generator.level + (noise - 0.5) * generator.noise_amount;
+            let t = ((0.60009766 - (level - generator.softness * 0.5)) / generator.softness).clamp(0., 1.);
+            let expected = 0.3 + 0.7 * t * t * (3. - 2. * t);
+            let (x, y) = geo.texel_xy(i); assert_scalar(&first, ChannelKind::Roughness, x, y, expected);
+        }
+    }
+    for (size, seed) in [(25., 1), (25., 8)] {
+        generator.set_pattern_size(size); generator.noise.seed = seed;
+        let effect = Arc::make_mut(&mut ts.find_mut(id).unwrap().mask.as_mut().unwrap().effects[0]);
+        effect.kind = MaskEffectKind::Generator(generator);
+        cache.update(&ts, &fx.ctx());
+        assert_eq!(cache.composite().unwrap(), &composite_full(&ts, &fx.ctx()));
+        let changes = first.channel(ChannelKind::Roughness).unwrap().to_dense().iter()
+            .zip(cache.composite().unwrap().channel(ChannelKind::Roughness).unwrap().to_dense()).filter(|(a, b)| (**a - b).abs() > 0.02).count();
+        assert!(changes > 1000, "size/seed should change the visible breakup: {changes}");
+    }
 }
 
 #[test]

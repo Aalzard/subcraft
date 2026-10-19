@@ -9,8 +9,35 @@ use subcraft_render::{ViewMode, ViewParams, ViewportRenderer, headless};
 
 const SIZE: u32 = 192;
 
+// Concurrent DX12 device creation/readback can stall the driver. Keep CPU assertions and
+// production rendering unchanged; these tests each own a complete device until teardown.
+fn gpu_test() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+#[test]
+fn symmetry_surface_lines_are_red_and_hiding_them_restores_the_exact_material() {
+    let _gpu = gpu_test();
+    let Some((_, device, queue)) = headless::device() else { eprintln!("no adapter: skipping"); return };
+    let mut r = ViewportRenderer::new(&device, &queue);
+    r.set_mesh(&device, &primitives::cube(2.));
+    r.upload_channel(&device, &queue, 0, ChannelKind::BaseColor, &solid(4, [0.2, 0.2, 0.2, 1.]), None);
+    let mut p = params(); let baseline = r.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+    r.set_symmetry_guides(&device, &[[Vec3::new(0., -1., 1.), Vec3::new(0., 1., 1.)]]);
+    p.symmetry_guides = true;
+    let guides = r.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+    let red = guides.as_chunks::<4>().0.iter().zip(baseline.as_chunks::<4>().0).filter(|(a, b)| a[0] > a[1].saturating_add(50) && a != b).count();
+    assert!(red > 40, "visible red surface guide: {red}");
+    p.symmetry_guides = false;
+    assert_eq!(r.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue), baseline);
+    p.symmetry_guides = true; r.set_symmetry_guides(&device, &[]);
+    assert_eq!(r.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue), baseline);
+}
+
 #[test]
 fn bake_overlay_compares_depth_and_raw_maps_preserve_materials() {
+    let _gpu = gpu_test();
     use subcraft_core::MeshMapKind;
     let Some((_, device, queue)) = headless::device() else { eprintln!("no adapter: skipping"); return };
     let low = primitives::cube(2.);
@@ -53,6 +80,7 @@ fn bake_overlay_compares_depth_and_raw_maps_preserve_materials() {
 
 #[test]
 fn albedo_filter_preserves_nearest_palette_and_bilinear_values_without_affecting_data() {
+    let _gpu = gpu_test();
     use subcraft_image::TextureFilter;
     let Some((_, device, queue)) = headless::device() else { eprintln!("no adapter: skipping"); return };
     let mut r = ViewportRenderer::new(&device, &queue);
@@ -116,6 +144,7 @@ fn save(name: &str, img: &[u8]) {
 
 #[test]
 fn renders_textured_cube_and_partial_uploads_match_full() {
+    let _gpu = gpu_test();
     let Some((adapter, device, queue)) = headless::device() else {
         eprintln!("no wgpu adapter available: skipping");
         return;
@@ -162,6 +191,7 @@ fn renders_textured_cube_and_partial_uploads_match_full() {
 /// equal uploading every tile with the same texels.
 #[test]
 fn sparse_full_upload_matches_a_dense_one() {
+    let _gpu = gpu_test();
     let Some((_, device, queue)) = headless::device() else {
         eprintln!("no wgpu adapter available: skipping");
         return;
@@ -200,6 +230,7 @@ fn sparse_full_upload_matches_a_dense_one() {
 
 #[test]
 fn empty_scene_is_background_and_resizes() {
+    let _gpu = gpu_test();
     let Some((_, device, queue)) = headless::device() else {
         eprintln!("no wgpu adapter available: skipping");
         return;
@@ -228,6 +259,7 @@ fn diff(a: &[u8], b: &[u8]) -> usize {
 
 #[test]
 fn view_modes_show_one_channel_unlit_and_antialiasing_can_be_off() {
+    let _gpu = gpu_test();
     let Some((_, device, queue)) = headless::device() else {
         eprintln!("no wgpu adapter available: skipping");
         return;
@@ -257,6 +289,7 @@ fn view_modes_show_one_channel_unlit_and_antialiasing_can_be_off() {
 
 #[test]
 fn height_bumps_and_metallic_change_shading() {
+    let _gpu = gpu_test();
     let Some((_, device, queue)) = headless::device() else {
         eprintln!("no wgpu adapter available: skipping");
         return;
@@ -293,6 +326,7 @@ fn height_bumps_and_metallic_change_shading() {
 /// Visual check: a sphere whose roughness rises left→right (top half dielectric, bottom metal).
 #[test]
 fn roughness_gradient_sphere_shows_sharp_to_blurry_reflections() {
+    let _gpu = gpu_test();
     let Some((_, device, queue)) = headless::device() else {
         eprintln!("no wgpu adapter available: skipping");
         return;
@@ -325,6 +359,7 @@ fn roughness_gradient_sphere_shows_sharp_to_blurry_reflections() {
 
 #[test]
 fn every_mesh_map_layout_uploads_and_previews() {
+    let _gpu = gpu_test();
     let Some((_, device, queue)) = headless::device() else {
         eprintln!("no wgpu adapter available: skipping");
         return;
@@ -348,6 +383,7 @@ fn every_mesh_map_layout_uploads_and_previews() {
 
 #[test]
 fn hdri_environment_shows_in_reflections() {
+    let _gpu = gpu_test();
     let Some((_, device, queue)) = headless::device() else {
         eprintln!("no wgpu adapter available: skipping");
         return;

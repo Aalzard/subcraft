@@ -290,13 +290,14 @@ pub struct BakeUi {
     preview_scene: Option<std::sync::Arc<subcraft_mesh::Mesh>>,
     pub preview_error: Option<String>,
     pub preview_uploaded: bool,
+    preview_checked_at: f64,
 }
 
 impl Default for BakeUi {
     fn default() -> Self {
         Self { open: false, settings: subcraft_app::BakeSettings::default(), high_poly: String::new(), all_sets: true, job: None, result: None,
             preview: true, cage: true, live_maps: true, displayed_map: None, follow_maps: true, preview_mesh: None,
-            preview_job: None, preview_source: None, preview_path: String::new(), preview_scene: None, preview_error: None, preview_uploaded: false }
+            preview_job: None, preview_source: None, preview_path: String::new(), preview_scene: None, preview_error: None, preview_uploaded: false, preview_checked_at: 0. }
     }
 }
 
@@ -321,6 +322,17 @@ pub fn poll_bake(state: &mut UiState, ctx: &egui::Context, now: f64) {
         if scene_changed { b.displayed_map = None; }
         if scene_changed { b.result = None; }
     }
+    if b.open && b.preview && !b.preview_path.is_empty() { ctx.request_repaint_after(std::time::Duration::from_millis(250)); }
+    if b.open && b.preview && !b.preview_path.is_empty() && b.preview_job.is_none() && now - b.preview_checked_at >= 0.25 {
+        b.preview_checked_at = now;
+        let changed = b.preview_source.as_ref().is_some_and(|source| !source.is_current(std::path::Path::new(&b.preview_path)));
+        if changed || b.preview_error.is_some() {
+            b.preview_job = Some(subcraft_app::BakePreviewJob::start(b.preview_path.clone().into()));
+            b.preview_error = None;
+            if b.job.is_none() { b.result = None; b.displayed_map = None; }
+        }
+        ctx.request_repaint_after(std::time::Duration::from_millis(250));
+    }
     if b.open && b.preview && b.job.is_none() && b.result.is_none() && !b.preview_path.is_empty()
         && b.preview_mesh.is_none() && b.preview_job.is_none() && b.preview_error.is_none() {
         b.preview_job = Some(subcraft_app::BakePreviewJob::start(b.preview_path.clone().into()));
@@ -340,6 +352,9 @@ pub fn poll_bake(state: &mut UiState, ctx: &egui::Context, now: f64) {
         state.bake.job = None;
         match &result {
             Ok(n) => {
+                state.bake.displayed_map = None;
+                state.bake.follow_maps = true;
+                state.recovery.prefs.viewport.view_mode = 0;
                 state.set_status(format!("Baked mesh maps for {n} texture set(s). See them in the 2D view."), now);
                 state.recovery.autosaver.request_soon();
             }
@@ -503,6 +518,49 @@ pub fn bake_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
 #[cfg(test)]
 mod bake_tests {
     use super::*;
+    #[test]
+    fn a_successful_bake_always_returns_to_material() {
+        let ctx = egui::Context::default();
+        let mut state = UiState::new(Session::new(subcraft_mesh::primitives::plane(2., 1), 128), None);
+        state.bake.open = true; state.bake.displayed_map = Some(subcraft_core::MeshMapKind::Thickness);
+        state.recovery.prefs.viewport.view_mode = 5;
+        let ts = state.session.selected_texture_set();
+        state.bake.job = Some(state.session.start_bake(subcraft_app::BakeRequest {
+            high_poly: None, texture_sets: vec![(ts.id, ts.material_slot)],
+            settings: subcraft_app::BakeSettings { size: 128, maps: vec![subcraft_core::MeshMapKind::Normal], ..Default::default() },
+        }));
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while state.bake.job.is_some() {
+            poll_bake(&mut state, &ctx, 0.);
+            assert!(std::time::Instant::now() < deadline); std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        assert!(matches!(state.bake.result, Some(Ok(1))));
+        assert!(state.bake.displayed_map.is_none());
+        assert_eq!(state.recovery.prefs.viewport.view_mode, 0);
+    }
+
+    #[test]
+    fn replacing_a_high_poly_file_refreshes_its_preview_without_reload() {
+        let path = std::env::temp_dir().join(format!("subcraft-watch-{}.obj", subcraft_core::LayerId::new()));
+        std::fs::write(&path, "v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n").unwrap();
+        let ctx = egui::Context::default();
+        let mut state = UiState::new(Session::new(subcraft_mesh::primitives::plane(2., 1), 128), None);
+        state.bake.open = true; state.bake.high_poly = path.display().to_string();
+        let wait = |state: &mut UiState, expected, time| {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            loop {
+                poll_bake(state, &ctx, time);
+                if state.bake.preview_mesh.as_ref().is_some_and(|m| m.bounds.max.x == expected) { break; }
+                assert!(std::time::Instant::now() < deadline, "preview update timed out");
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+        };
+        wait(&mut state, 1., 1.);
+        std::fs::write(&path, "v 20 0 0\nv 21 0 0\nv 20 1 0\nf 1 2 3\n").unwrap();
+        wait(&mut state, 21., 2.);
+        assert!(state.bake.preview_error.is_none());
+        std::fs::remove_file(path).unwrap();
+    }
 
     #[test]
     fn preview_state_is_transient_and_invalidated_when_scene_or_path_changes() {

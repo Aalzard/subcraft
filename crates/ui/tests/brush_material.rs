@@ -77,6 +77,9 @@ fn shelf_drop_projection_blend_and_clear_share_app_brush_state() {
     for _ in 0..3 {
         frame(&mut state, &ctx, vec![]);
     }
+    if !state.session.brush.material.channels.get(&ChannelKind::Normal).is_some_and(|c| c.enabled) {
+        click(&mut state, &ctx, "nrm");
+    }
     let output = frame(&mut state, &ctx, vec![]);
     let pos = position(&output, "Normal");
     frame(
@@ -112,6 +115,9 @@ fn shelf_drop_projection_blend_and_clear_share_app_brush_state() {
     );
     click(&mut state, &ctx, "Clear image");
     assert!(state.session.brush.material.textures.is_empty());
+    click(&mut state, &ctx, "nrm");
+    let output = frame(&mut state, &ctx, vec![]);
+    assert!(!output.shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Text(t) if t.galley.text() == "Normal blend")));
     assert_eq!(state.session.document(), &before);
     assert_eq!(state.session.history().entries().len(), history);
     std::fs::remove_dir_all(dir).unwrap();

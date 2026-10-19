@@ -23,6 +23,7 @@ pub struct ViewportPrefs {
     /// Display-only floor grid and axis guides. Old preference files receive these defaults.
     pub grid: bool,
     pub grid_axes: [bool; 3],
+    pub symmetry_guides: bool,
 }
 
 impl Default for ViewportPrefs {
@@ -34,6 +35,7 @@ impl Default for ViewportPrefs {
             view_mode: 0,
             grid: true,
             grid_axes: [true, false, true],
+            symmetry_guides: true,
         }
     }
 }
@@ -73,7 +75,6 @@ pub fn show(ui: &mut Ui, state: &mut crate::state::UiState) {
                 if width < 520.0 {
                     ui.menu_button("View", |ui| {
                         ui.horizontal(|ui| resolution(ui, &mut state.recovery.prefs.viewport));
-                        ui.horizontal(|ui| albedo_filter(ui, state));
                         let prefs = &mut state.recovery.prefs.viewport;
                         ui.checkbox(&mut prefs.antialias, "Anti-aliasing");
                         ui.checkbox(&mut prefs.orthographic, "Orthographic");
@@ -87,13 +88,13 @@ pub fn show(ui: &mut Ui, state: &mut crate::state::UiState) {
                     ui.add_space(5.0);
                     ui.separator();
                     ui.add_space(5.0);
-                    crate::brush_bar::show(ui, &mut state.tool, &mut settings, &mut options, width);
+                    crate::brush_bar::show(ui, &mut state.tool, &mut settings, &mut options, &mut state.recovery.prefs.viewport.symmetry_guides, width);
                 }
             });
             if painting && !inline {
                 ui.separator();
                 ui.horizontal(|ui| {
-                    crate::brush_bar::show(ui, &mut state.tool, &mut settings, &mut options, width)
+                    crate::brush_bar::show(ui, &mut state.tool, &mut settings, &mut options, &mut state.recovery.prefs.viewport.symmetry_guides, width)
                 });
             }
         });
@@ -123,10 +124,7 @@ pub fn show(ui: &mut Ui, state: &mut crate::state::UiState) {
 }
 
 fn view_controls(ui: &mut Ui, state: &mut crate::state::UiState) {
-    ui.vertical(|ui| {
-        ui.horizontal(|ui| resolution(ui, &mut state.recovery.prefs.viewport));
-        ui.horizontal(|ui| albedo_filter(ui, state));
-    });
+    resolution(ui, &mut state.recovery.prefs.viewport);
     let prefs = &mut state.recovery.prefs.viewport;
     ui.separator();
     ui.checkbox(&mut prefs.antialias, "Anti-aliasing")
@@ -230,20 +228,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn albedo_dropdown_is_below_resolution_and_dispatches_an_undoable_edit() {
+    fn texture_sets_albedo_dropdown_is_below_resolution_and_dispatches_an_undoable_edit() {
         let ctx = egui::Context::default(); crate::theme::apply(&ctx);
         let mut state = crate::state::UiState::new(subcraft_app::Session::new(subcraft_mesh::primitives::cube(2.), 128), None);
         let initial = state.session.document().clone();
         let draw = |state: &mut crate::state::UiState, events| {
             let mut out = ctx.run_ui(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1600., 940.))), events, ..Default::default() }, |ui| {
-                egui::CentralPanel::default().show(ui, |ui| show(ui, state));
+                egui::CentralPanel::default().show(ui, |ui| crate::panels::texture_sets::show(state, ui));
             }); out.textures_delta.clear(); out
         };
         draw(&mut state, vec![]); let output = draw(&mut state, vec![]);
         let text_position = |output: &egui::FullOutput, text: &str| output.shapes.iter().find_map(|s| match &s.shape {
             egui::epaint::Shape::Text(t) if t.galley.job.text == text => Some(t.pos + t.galley.size() * 0.5), _ => None,
         }).unwrap_or_else(|| panic!("missing {text}"));
-        assert!(text_position(&output, "Albedo").y > text_position(&output, "Resolution").y);
+        assert!(text_position(&output, "Albedo").y > text_position(&output, "RESOLUTION").y);
         let click = |state: &mut crate::state::UiState, pos| {
             draw(state, vec![egui::Event::PointerMoved(pos), egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: true, modifiers: Default::default() }]);
             draw(state, vec![egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: false, modifiers: Default::default() }])
