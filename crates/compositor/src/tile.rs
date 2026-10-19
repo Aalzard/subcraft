@@ -39,6 +39,17 @@ impl Acc {
 /// Composite all layers of `ts` for one tile. Returns, per texture-set channel (in
 /// `ts.channels` order), the accumulated `[v0, v1, v2, alpha]` texels.
 pub fn evaluate_tile(ts: &TextureSet, tc: &TileContext) -> Vec<(ChannelKind, Vec<[f32; 4]>)> {
+    if crate::stages::has_spatial(&ts.layers) {
+        let cache = crate::stages::StageCache::default();
+        let ctx = crate::EvalContext { geometry: tc.set_geometry, resources: tc.sample.resources, mesh_maps: tc.sample.mesh_maps };
+        let graph = crate::stages::Graph::new(ts, ctx, &cache);
+        let tile = (tc.geo.y0 / 64 * ts.resolution.div_ceil(64) + tc.geo.x0 / 64) as usize;
+        return graph.tile(tile).into_iter().map(|(k,p)|(k,p.as_ref().clone())).collect();
+    }
+    evaluate_tile_local(ts,tc)
+}
+
+pub(crate) fn evaluate_tile_local(ts: &TextureSet, tc: &TileContext) -> Vec<(ChannelKind, Vec<[f32; 4]>)> {
     let mut accs: Vec<Acc> = ts.channel_kinds().map(Acc::root).collect();
     let active = vec![true; accs.len()];
     apply_stack(&ts.layers, &mut accs, &active, tc);
@@ -54,18 +65,24 @@ fn apply_stack(layers: &[Arc<Layer>], accs: &mut [Acc], active: &[bool], tc: &Ti
 /// Isolated authored content for a UV thumbnail, before its own mask/blend/opacity/visibility.
 /// Folder children retain their masks and blends. Uses the production evaluator and channel rules.
 pub fn preview_content(layer: &Layer, channel: ChannelKind, tc: &TileContext) -> Vec<[f32; 4]> {
+    preview_content_scaled(layer,channel,tc,1.0)
+}
+
+/// UV preview with spatial radii scaled from working resolution to preview resolution.
+pub fn preview_content_scaled(layer: &Layer, channel: ChannelKind, tc: &TileContext, radius_scale: f32) -> Vec<[f32; 4]> {
     let mut source = layer.clone();
     source.visible = true;
     source.mask = None;
     source.parts = None;
     source.blend.insert(channel, subcraft_doc::ChannelBlend::new(BlendMode::Normal));
+    if crate::stages::has_spatial(&[Arc::new(source.clone())]) { return crate::stages::content_preview(&source,channel,tc,radius_scale); }
     let mut acc = [Acc::transparent(channel)];
     apply_layer(&source, &mut acc, &[true], tc);
     std::mem::take(&mut acc[0].px)
 }
 
 #[inline]
-fn effective_mode(mode: BlendMode) -> BlendMode {
+pub(crate) fn effective_mode(mode: BlendMode) -> BlendMode {
     if mode == BlendMode::Passthrough { BlendMode::Normal } else { mode }
 }
 
@@ -159,7 +176,7 @@ fn apply_layer(layer: &Layer, accs: &mut [Acc], active: &[bool], tc: &TileContex
 }
 
 /// Read a paint raster (`components` values followed by alpha) as `[v0, v1, v2, alpha]`.
-fn read_paint(img: &subcraft_image::TiledImage, kind: ChannelKind, tc: &TileContext, out: &mut [[f32; 4]]) {
+pub(crate) fn read_paint(img: &subcraft_image::TiledImage, kind: ChannelKind, tc: &TileContext, out: &mut [[f32; 4]]) {
     read_tile_rgba(img, tc.geo, out);
     let n = kind.components();
     for px in out.iter_mut() {
@@ -169,7 +186,7 @@ fn read_paint(img: &subcraft_image::TiledImage, kind: ChannelKind, tc: &TileCont
 }
 
 /// Evaluate one channel of a fill as `[v0, v1, v2, alpha]`; false if the channel is off/absent.
-fn eval_fill(fill: &subcraft_doc::FillContent, kind: ChannelKind, tc: &TileContext, out: &mut [[f32; 4]]) -> bool {
+pub(crate) fn eval_fill(fill: &subcraft_doc::FillContent, kind: ChannelKind, tc: &TileContext, out: &mut [[f32; 4]]) -> bool {
     let Some(ch) = fill.channels.get(&kind).filter(|c| c.enabled) else { return false };
     let filter = if kind == ChannelKind::BaseColor { tc.albedo_filter } else { subcraft_image::TextureFilter::Bilinear };
     eval_fill_tile_filtered(&ch.source, kind.is_color(), &fill.projection, tc.geo, &tc.sample, filter, out);
@@ -246,4 +263,9 @@ fn blend_content(acc: &mut Acc, content: &[[f32; 4]], layer: &Layer, mask_at: &d
         let a = if ignore_alpha { 1.0 } else { src[3] } * blend.opacity * mask_at(i);
         composite(dst, [src[0], src[1], src[2]], a, mode, acc.target);
     }
+}
+
+pub(crate) fn point_effect(effect: &Arc<ContentEffect>, kind: ChannelKind, pixels: &mut [[f32; 4]], tc: &TileContext) {
+    let acc = Acc { kind, target: BlendTarget::for_channel(kind), px: Vec::new() };
+    apply_content_effects(std::slice::from_ref(effect), &acc, pixels, tc);
 }

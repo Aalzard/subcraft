@@ -30,11 +30,19 @@ pub fn editor(ui: &mut Ui, filter: &mut Filter, channel: Option<ChannelKind>) ->
         Filter::Threshold { cutoff } => {
             changed |= slider_row(ui, "Cutoff", egui::Slider::new(cutoff, lower..=1.0)).changed();
         }
+        Filter::Blur { radius } | Filter::Sharpen { radius, .. } => {
+            changed |= slider_row(ui, "Radius", egui::Slider::new(radius, 0.0..=32.0).suffix(" px")).changed();
+        }
         Filter::Clamp { low, high } => {
             let lower = lower.min(*low).min(*high); let upper = 1.0f32.max(*low).max(*high);
             changed |= slider_row(ui, "Minimum", egui::Slider::new(low, lower..=*high)).changed();
             changed |= slider_row(ui, "Maximum", egui::Slider::new(high, *low..=upper)).changed();
         }
     }
+    if let Filter::Sharpen { amount, .. } = filter {
+        changed |= slider_row(ui, "Amount", egui::Slider::new(amount, 0.0..=4.0)).changed();
+    }
+    if filter.radius().is_some() { ui.weak("UV pixels · texture edges clamp"); }
+    if matches!(filter, Filter::Blur { .. }) && channel.is_some() { ui.weak("Blur also softens paint coverage."); }
     changed
 }

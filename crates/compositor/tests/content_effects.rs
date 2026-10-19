@@ -147,6 +147,7 @@ fn point_filters_match_gradient_goldens_across_tiles_and_preserve_paint_coverage
                 Filter::Hsl { .. } => [0.0, v, 0.0],
                 Filter::Threshold { .. } => [if v*0.2126 >= 0.1 {1.0} else {0.0}; 3],
                 Filter::Clamp { .. } => [v.clamp(0.1,0.6), 0.1, 0.1],
+                Filter::Blur { .. } | Filter::Sharpen { .. } => unreachable!("neighborhood goldens are in spatial.rs"),
             };
             let actual = image.channel(C).unwrap().get(x,y);
             for k in 0..3 { let expected = if y < RES/2 { 0.25 + 0.5*transformed[k] } else { 0.5 };

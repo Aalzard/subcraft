@@ -354,7 +354,7 @@ fn content_editor(ui: &mut Ui, state: &mut UiState, layer: &Layer, e: &ContentEf
                 changed |= slider_row(ui, "Out high", egui::Slider::new(&mut levels.out_high, 0.0..=1.0)).changed();
             }
             ContentEffectKind::Filter { channel, filter } => {
-                hint(ui, "Adjusts the previous effect stage. Paint coverage and other channels are preserved.");
+                hint(ui, "Adjusts the preceding effect stage. Blur softens coverage; other filters preserve it.");
                 prop_row(ui, "Channel", |ui| {
                     egui::ComboBox::from_id_salt("filter_channel").selected_text(channel.display_name()).show_ui(ui, |ui| {
                         for k in channels.iter().filter(|k| filter.supports_channel(**k)) {

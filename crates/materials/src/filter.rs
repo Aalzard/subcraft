@@ -10,6 +10,7 @@ pub fn apply(filter: Filter, input: [f32; 3], channel: ChannelKind) -> [f32; 3] 
             let v = pivot + (v - pivot) * gain;
             if channel.is_signed() { v } else { v.clamp(0.0, 1.0) }
         }),
+        Filter::Blur { .. } | Filter::Sharpen { .. } => input, // Neighborhood evaluation is staged by compositor.
         Filter::Clamp { low, high } => input.map(|v| v.clamp(low, high)),
         Filter::Threshold { cutoff } => {
             let value = if channel.is_color() { input[0] * 0.2126 + input[1] * 0.7152 + input[2] * 0.0722 } else { input[0] };
@@ -71,5 +72,33 @@ mod tests {
         assert_eq!(apply(hsl(0.0, 1.0, 0.0), hdr, ChannelKind::Emissive), hdr);
         assert_eq!(apply(hsl(50.0, 1.0, 0.0), [0.3; 3], ChannelKind::Roughness), [0.3; 3]);
         assert_eq!(apply_mask(hsl(50.0, 1.0, 0.0), 0.3), 0.3);
+    }
+}
+
+/// Normalized Gaussian with finite support ceil(radius), sigma = radius / 3.
+/// A zero radius is exactly the identity; tiny preview radii converge to it.
+pub fn gaussian_weights(radius: f32) -> Vec<f32> {
+    if !radius.is_finite() || radius <= 0.0 { return vec![1.0]; }
+    let radius = radius.min(128.0);
+    let support = radius.ceil() as i32;
+    let sigma = (radius / 3.0).max(1e-5);
+    let mut weights: Vec<_> = (-support..=support).map(|x| (-0.5 * (x as f32 / sigma).powi(2)).exp()).collect();
+    let sum: f32 = weights.iter().sum();
+    for w in &mut weights { *w /= sum; }
+    weights
+}
+
+#[cfg(test)]
+mod gaussian_tests {
+    use super::*;
+    #[test]
+    fn finite_gaussian_is_normalized_symmetric_and_has_exact_identity() {
+        assert_eq!(gaussian_weights(0.0),vec![1.0]);
+        for r in [0.001,0.5,1.0,3.0,32.0] {
+            let w=gaussian_weights(r);assert_eq!(w.len(),2*r.ceil() as usize+1);
+            assert!((w.iter().sum::<f32>()-1.0).abs()<2e-6);
+            for (a,b) in w.iter().zip(w.iter().rev()) {assert_eq!(a,b);}
+        }
+        let w=gaussian_weights(3.0);assert!((w[3]-0.3990503).abs()<1e-6);
     }
 }

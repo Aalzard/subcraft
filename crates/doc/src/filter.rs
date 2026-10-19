@@ -1,4 +1,4 @@
-//! Serializable local filter parameters. Kernels live in materials, never in widgets.
+//! Serializable filter parameters. Kernels live in materials, never in widgets.
 use serde::{Deserialize, Serialize};
 use subcraft_core::ChannelKind;
 
@@ -11,16 +11,19 @@ pub enum Filter {
     /// Color inputs use linear Rec.709 luminance; scalar inputs use their raw value.
     Threshold { cutoff: f32 },
     Clamp { low: f32, high: f32 },
+    /// Gaussian support radius in working texture pixels.
+    Blur { radius: f32 },
+    Sharpen { radius: f32, amount: f32 },
 }
 
 impl Filter {
-    pub const ALL: [Self; 4] = [Self::Contrast { gain: 1.0, pivot: 0.5 },
+    pub const ALL: [Self; 6] = [Self::Contrast { gain: 1.0, pivot: 0.5 },
         Self::Hsl { hue: 0.0, saturation: 1.0, lightness: 0.0 },
-        Self::Threshold { cutoff: 0.5 }, Self::Clamp { low: 0.0, high: 1.0 }];
+        Self::Threshold { cutoff: 0.5 }, Self::Clamp { low: 0.0, high: 1.0 }, Self::Blur { radius: 4.0 }, Self::Sharpen { radius: 2.0, amount: 1.0 }];
 
     pub fn label(self) -> &'static str {
         match self { Self::Contrast { .. } => "Contrast", Self::Hsl { .. } => "HSL",
-            Self::Threshold { .. } => "Threshold", Self::Clamp { .. } => "Clamp" }
+            Self::Threshold { .. } => "Threshold", Self::Clamp { .. } => "Clamp", Self::Blur { .. } => "Blur", Self::Sharpen { .. } => "Sharpen" }
     }
 
     pub fn supports_channel(self, channel: ChannelKind) -> bool {
@@ -29,12 +32,18 @@ impl Filter {
 
     pub fn supports_mask(self) -> bool { !matches!(self, Self::Hsl { .. }) }
 
+    pub fn radius(self) -> Option<f32> {
+        match self { Self::Blur { radius } | Self::Sharpen { radius, .. } => Some(radius), _ => None }
+    }
+
     pub fn valid(self) -> bool {
         match self {
             Self::Contrast { gain, pivot } => gain.is_finite() && (0.0..=4.0).contains(&gain) && pivot.is_finite(),
             Self::Hsl { hue, saturation, lightness } => hue.is_finite() && (-180.0..=180.0).contains(&hue)
                 && saturation.is_finite() && (0.0..=2.0).contains(&saturation)
                 && lightness.is_finite() && (-1.0..=1.0).contains(&lightness),
+            Self::Blur { radius } => radius.is_finite() && (0.0..=32.0).contains(&radius),
+            Self::Sharpen { radius, amount } => Self::Blur { radius }.valid() && amount.is_finite() && (0.0..=4.0).contains(&amount),
             Self::Threshold { cutoff } => cutoff.is_finite(),
             Self::Clamp { low, high } => low.is_finite() && high.is_finite() && low <= high,
         }
@@ -47,6 +56,8 @@ mod tests {
     #[test]
     fn filter_parameters_and_domains_are_checked() {
         for f in Filter::ALL { assert!(f.valid()); assert!(!f.supports_channel(ChannelKind::Normal)); }
+        assert!(!Filter::Blur {radius:32.01}.valid());
+        assert!(!Filter::Sharpen {radius:2.0,amount:f32::NAN}.valid());
         assert!(!Filter::Hsl { hue: 0.0, saturation: 1.0, lightness: 0.0 }.supports_mask());
         assert!(!Filter::Clamp { low: 0.8, high: 0.2 }.valid());
         assert!(!Filter::Threshold { cutoff: f32::NAN }.valid());

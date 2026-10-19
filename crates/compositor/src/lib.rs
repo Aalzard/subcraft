@@ -12,6 +12,7 @@ pub mod strength;
 pub mod mask;
 pub mod tile;
 mod util;
+mod stages;
 pub mod worker;
 
 use std::collections::BTreeMap;
@@ -90,6 +91,11 @@ impl Composite {
     /// Returns, per channel, the tiles whose stored texels actually changed (sorted): a tile that
     /// re-evaluates to identical bits keeps its storage, so callers upload only real changes.
     pub fn evaluate_tiles(&mut self, ts: &TextureSet, ctx: &EvalContext, tiles: &[usize]) -> ChangedTiles {
+        self.evaluate_tiles_with_stages(ts, ctx, tiles, &stages::StageCache::default())
+    }
+
+    pub(crate) fn evaluate_tiles_with_stages(&mut self, ts: &TextureSet, ctx: &EvalContext, tiles: &[usize], cache: &stages::StageCache) -> ChangedTiles {
+        let graph = stages::has_spatial(&ts.layers).then(|| stages::Graph::new(ts, *ctx, cache));
         assert_eq!(ctx.geometry.resolution, ts.resolution, "geometry resolution must match the texture set");
         let count = self.tile_count();
         let mut wanted = vec![false; count];
@@ -122,10 +128,13 @@ impl Composite {
                 let mut buf = vec![0.0f32; TILE_TEXELS * 4];
                 let mut encoded = vec![f16::ZERO; TILE_TEXELS * 4];
                 let mut changed = Vec::new();
-                for (kind, px) in evaluate_tile(ts, &tc) {
+                let values = if let Some(graph) = &graph { graph.tile(t) } else {
+                    tile::evaluate_tile_local(ts, &tc).into_iter().map(|(k,p)|(k,std::sync::Arc::new(p))).collect()
+                };
+                for (kind, px) in values {
                     let Some((_, comps, fill, slot)) = slots.iter_mut().find(|s| s.0 == kind) else { continue };
                     let n = TILE_TEXELS * *comps;
-                    for (o, p) in buf.chunks_exact_mut(*comps).zip(&px) {
+                    for (o, p) in buf.chunks_exact_mut(*comps).zip(px.iter()) {
                         o.copy_from_slice(&p[..*comps]);
                     }
                     encoded[..n].convert_from_f32_slice(&buf[..n]);
@@ -138,6 +147,7 @@ impl Composite {
                 (t, changed)
             })
             .collect();
+        cache.trim();
         let mut out = ChangedTiles::new();
         for (t, kinds) in changed {
             for kind in kinds {

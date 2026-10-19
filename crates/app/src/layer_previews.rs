@@ -2,7 +2,7 @@
 use crate::Session;
 use std::collections::VecDeque;
 use std::sync::{Arc, mpsc};
-use subcraft_compositor::{TileContext, mask::eval_mask, tile::preview_content};
+use subcraft_compositor::{TileContext, mask::eval_mask_scaled, tile::preview_content_scaled};
 use subcraft_core::{ChannelKind, LayerId};
 use subcraft_doc::{Layer, LayerContent, ResourceStore};
 use subcraft_materials::{GeometryCache, MeshMaps, SampleContext};
@@ -204,6 +204,7 @@ impl LayerPreviews {
 fn evaluate(key: PreviewKey, source: &Source) -> LayerPreview {
     let geometry = source.geometry.get(source.slot, key.size);
     let mut rgba = vec![0; (key.size * key.size * 4) as usize];
+    let radius_scale = key.size as f32 / source.resolution as f32;
     // Disabled masks still display their authored result, with disabled state drawn by UI.
     let mask = source.layer.mask.as_ref().map(|mask| {
         let mut m = mask.clone();
@@ -223,13 +224,13 @@ fn evaluate(key: PreviewKey, source: &Source) -> LayerPreview {
             },
         };
         let pixels = if key.mask {
-            eval_mask(mask.as_ref(), &tc)
+            eval_mask_scaled(mask.as_ref(), &tc, radius_scale)
                 .unwrap_or_else(|| vec![0.0; 4096])
                 .into_iter()
                 .map(|v| [v, v, v, 1.0])
                 .collect()
         } else {
-            preview_content(&source.layer, key.channel, &tc)
+            preview_content_scaled(&source.layer, key.channel, &tc, radius_scale)
         };
         for (i, pixel) in pixels.iter().enumerate() {
             let (x, y) = geo.texel_xy(i);

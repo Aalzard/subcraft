@@ -16,43 +16,20 @@ use crate::util::read_tile_rgba;
 
 /// Mask values (0..1) for every texel of the tile, or `None` when the mask is absent/disabled.
 pub fn eval_mask(mask: Option<&Mask>, tc: &TileContext) -> Option<Vec<f32>> {
+    eval_mask_scaled(mask,tc,1.0)
+}
+
+/// Reduced/enlarged UV inspection scales only neighborhood radii, never document data.
+pub fn eval_mask_scaled(mask: Option<&Mask>, tc: &TileContext, radius_scale:f32) -> Option<Vec<f32>> {
     let mask = mask.filter(|m| m.enabled)?;
+    if crate::stages::mask_spatial(mask) { return Some(crate::stages::mask_preview(mask,tc,radius_scale)); }
     let mut px = vec![[0.0f32; 4]; TILE_TEXELS];
     read_tile_rgba(&mask.base, tc.geo, &mut px);
     let mut m: Vec<f32> = px.iter().map(|p| p[0]).collect();
     let mut e = vec![[0.0f32; 4]; TILE_TEXELS];
     for effect in mask.effects.iter().filter(|e| e.visible && e.opacity > 0.0) {
         // e[i] = [value, alpha, _, _]
-        match &effect.kind {
-            MaskEffectKind::Paint { image } => {
-                read_tile_rgba(image, tc.geo, &mut e);
-            }
-            MaskEffectKind::Fill { value, procedural, projection } => {
-                let field = procedural.as_ref().map(|p| procedural_tile(p, projection, tc.geo));
-                for (i, o) in e.iter_mut().enumerate() {
-                    let v = field.as_ref().map_or(*value, |f| f[i]);
-                    *o = [v, 1.0, 0.0, 0.0];
-                }
-            }
-            MaskEffectKind::Generator(g) => eval_generator(g, tc, &mut e),
-            MaskEffectKind::Levels(l) => {
-                for (o, &v) in e.iter_mut().zip(&m) {
-                    *o = [l.apply(v), 1.0, 0.0, 0.0];
-                }
-            }
-            MaskEffectKind::Filter(filter) => {
-                let usable = filter.valid() && filter.supports_mask();
-                for (o, &value) in e.iter_mut().zip(&m) {
-                    *o = [if usable { subcraft_materials::filter::apply_mask(*filter, value) } else { value }, 1.0, 0.0, 0.0];
-                }
-            }
-            MaskEffectKind::Invert => {
-                for (o, &v) in e.iter_mut().zip(&m) {
-                    *o = [1.0 - v, 1.0, 0.0, 0.0];
-                }
-            }
-            MaskEffectKind::Image { resource, projection, invert } => eval_image(*resource, projection, *invert, tc, &mut e),
-        }
+        evaluate_effect(&effect.kind, tc, &m, &mut e);
         for (mv, ev) in m.iter_mut().zip(&e) {
             let mut dst = [*mv, *mv, *mv, 1.0];
             composite(&mut dst, [ev[0]; 3], ev[1] * effect.opacity, effect.blend, BlendTarget::MASK);
@@ -164,4 +141,37 @@ fn eval_image(resource: subcraft_core::ResourceId, projection: &Projection, inve
         let (v, a) = if has_alpha { (1.0, s[3]) } else { (0.2126 * s[0] + 0.7152 * s[1] + 0.0722 * s[2], 1.0) };
         *o = [if invert { 1.0 - v } else { v }, a.clamp(0.0, 1.0), 0.0, 0.0];
     }
+}
+
+pub(crate) fn evaluate_effect(kind: &MaskEffectKind, tc: &TileContext, m: &[f32], e: &mut [[f32; 4]]) {
+        match kind {
+            MaskEffectKind::Paint { image } => {
+                read_tile_rgba(image, tc.geo, e);
+            }
+            MaskEffectKind::Fill { value, procedural, projection } => {
+                let field = procedural.as_ref().map(|p| procedural_tile(p, projection, tc.geo));
+                for (i, o) in e.iter_mut().enumerate() {
+                    let v = field.as_ref().map_or(*value, |f| f[i]);
+                    *o = [v, 1.0, 0.0, 0.0];
+                }
+            }
+            MaskEffectKind::Generator(g) => eval_generator(g, tc, e),
+            MaskEffectKind::Levels(l) => {
+                for (o, &v) in e.iter_mut().zip(m) {
+                    *o = [l.apply(v), 1.0, 0.0, 0.0];
+                }
+            }
+            MaskEffectKind::Filter(filter) => {
+                let usable = filter.valid() && filter.supports_mask();
+                for (o, &value) in e.iter_mut().zip(m) {
+                    *o = [if usable { subcraft_materials::filter::apply_mask(*filter, value) } else { value }, 1.0, 0.0, 0.0];
+                }
+            }
+            MaskEffectKind::Invert => {
+                for (o, &v) in e.iter_mut().zip(m) {
+                    *o = [1.0 - v, 1.0, 0.0, 0.0];
+                }
+            }
+            MaskEffectKind::Image { resource, projection, invert } => eval_image(*resource, projection, *invert, tc, e),
+        }
 }

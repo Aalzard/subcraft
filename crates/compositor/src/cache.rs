@@ -34,6 +34,7 @@ pub struct CompositeCache {
     cursor: usize,
     /// Smoothed wall time per tile of a parallel batch (ms), for batch sizing.
     tile_ms: f64,
+    stages: crate::stages::StageCache,
 }
 
 /// Result of diffing two layer trees.
@@ -83,6 +84,23 @@ impl CompositeCache {
             (Some(last), true) => diff_lists(&last.layers, &ts.layers),
             _ => Dirty::All,
         };
+        let dirty = match dirty {
+            Dirty::Tiles(set) if !set.is_empty() => {
+                let radius = crate::stages::halo(&ts.layers).max(self.last.as_ref().map_or(0,|last|crate::stages::halo(&last.layers)));
+                let n = ts.resolution.div_ceil(subcraft_image::TILE_SIZE) as usize;
+                let halo = radius.div_ceil(subcraft_image::TILE_SIZE).min(n as u32) as usize;
+                let mut expanded = BTreeSet::new();
+                for tile in set {
+                    let (x,y)=(tile%n,tile/n);
+                    for yy in y.saturating_sub(halo)..=(y+halo).min(n-1) {
+                        for xx in x.saturating_sub(halo)..=(x+halo).min(n-1) {expanded.insert(yy*n+xx);}
+                    }
+                }
+                Dirty::Tiles(expanded)
+            }
+            other => other,
+        };
+        if !matches!(&dirty,Dirty::Tiles(set) if set.is_empty()) { self.stages.clear(); }
         let composite = match (&mut self.composite, reusable) {
             (Some(c), true) => c,
             (slot, _) => slot.insert(Composite::new(ts)),
@@ -113,7 +131,7 @@ impl CompositeCache {
         let mut evaluated = Vec::new();
         let mut batches = 0;
         if !fresh.is_empty() {
-            for (kind, tiles) in composite.evaluate_tiles(ts, ctx, &fresh) {
+            for (kind, tiles) in composite.evaluate_tiles_with_stages(ts, ctx, &fresh, &self.stages) {
                 self.changed.entry(kind).or_default().extend(tiles);
             }
             evaluated.extend(fresh);
@@ -142,7 +160,7 @@ impl CompositeCache {
                 }
             };
             let t0 = Instant::now();
-            let changed = composite.evaluate_tiles(ts, ctx, &batch);
+            let changed = composite.evaluate_tiles_with_stages(ts, ctx, &batch, &self.stages);
             let per_tile = t0.elapsed().as_secs_f64() * 1e3 / batch.len() as f64;
             self.tile_ms = if self.tile_ms > 0.0 { self.tile_ms * 0.7 + per_tile * 0.3 } else { per_tile };
             for (kind, tiles) in changed {
