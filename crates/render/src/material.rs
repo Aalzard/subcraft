@@ -23,9 +23,11 @@ pub struct ChannelTexture {
     pub view: wgpu::TextureView,
     pub size: u32,
     pub comps: usize,
+    pub(crate) mip_views: Vec<wgpu::TextureView>,
+    pub(crate) mip_inputs: Vec<wgpu::BindGroup>,
 }
 
-fn format_for(comps: usize) -> wgpu::TextureFormat {
+pub(crate) fn format_for(comps: usize) -> wgpu::TextureFormat {
     match comps {
         1 => wgpu::TextureFormat::R16Float,
         2 => wgpu::TextureFormat::Rg16Float,
@@ -35,19 +37,35 @@ fn format_for(comps: usize) -> wgpu::TextureFormat {
 
 impl ChannelTexture {
     pub fn new(device: &wgpu::Device, size: u32, comps: usize, label: &str) -> Self {
+        Self::create(device, size, comps, label, None)
+    }
+
+    pub(crate) fn new_mipmapped(device: &wgpu::Device, size: u32, comps: usize, label: &str, layout: &wgpu::BindGroupLayout) -> Self {
+        Self::create(device, size, comps, label, Some(layout))
+    }
+
+    fn create(device: &wgpu::Device, size: u32, comps: usize, label: &str, layout: Option<&wgpu::BindGroupLayout>) -> Self {
+        let levels = if layout.is_some() { size.ilog2() + 1 } else { 1 };
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some(label),
             size: wgpu::Extent3d { width: size, height: size, depth_or_array_layers: 1 },
-            mip_level_count: 1,
+            mip_level_count: levels,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: format_for(comps),
             // Render attachment: a full upload clears to the image's fill on the GPU.
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::RENDER_ATTACHMENT,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::RENDER_ATTACHMENT,
             view_formats: &[],
         });
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        Self { texture, view, size, comps }
+        let mip_views: Vec<_> = (0..levels).map(|level| texture.create_view(&wgpu::TextureViewDescriptor {
+            base_mip_level: level, mip_level_count: Some(1), ..Default::default()
+        })).collect();
+        let mip_inputs = layout.map(|layout| mip_views.iter().take((levels - 1) as usize).map(|view| device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("mip source"), layout,
+            entries: &[wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(view) }],
+        })).collect()).unwrap_or_default();
+        Self { texture, view, size, comps, mip_views, mip_inputs }
     }
 
     /// Upload all of `image`: clear to its fill value on the GPU, then upload only the allocated
@@ -64,7 +82,7 @@ impl ChannelTexture {
         encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("channel clear"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &self.view,
+                view: &self.mip_views[0],
                 depth_slice: None,
                 resolve_target: None,
                 ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color { r: c(0), g: c(1), b: c(2), a: c(3) }), store: wgpu::StoreOp::Store },

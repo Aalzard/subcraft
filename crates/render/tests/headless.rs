@@ -127,6 +127,35 @@ fn params() -> ViewParams {
     ViewParams::new(view, proj)
 }
 
+#[test]
+fn minified_detail_averages_without_aliasing_and_nearest_keeps_original_pixels() {
+    let _gpu = gpu_test();
+    let Some((_, device, queue)) = headless::device() else { eprintln!("no adapter: skipping"); return; };
+    let mut r = ViewportRenderer::new(&device, &queue);
+    r.set_mesh(&device, &primitives::plane(2., 1));
+    let mut checker = TiledImage::new(1024, 1024, 4, [0., 0., 0., 1.]);
+    for y in 0..1024 { for x in 0..1024 { if (x + y) % 2 == 0 { checker.set(x, y, [1.; 4]); } } }
+    let before = checker.clone();
+    r.upload_channel(&device, &queue, 0, ChannelKind::BaseColor, &checker, None);
+    let mut p = ViewParams::new(Mat4::look_at_rh(Vec3::new(0., 3., 0.), Vec3::ZERO, Vec3::NEG_Z), Mat4::orthographic_rh(-1., 1., -1., 1., 0.1, 10.));
+    p.antialias = false; p.view_mode = ViewMode::BaseColor;
+    let expected = (subcraft_core::color::linear_to_srgb(0.5) * 255.).round() as u8;
+    for offset in [0., 0.0003, 0.0008] {
+        p.view = Mat4::look_at_rh(Vec3::new(offset, 3., 0.), Vec3::new(offset, 0., 0.), Vec3::NEG_Z);
+        let image = r.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+        for y in 8..SIZE-8 { for x in 8..SIZE-8 { assert!(px(&image, x, y)[0].abs_diff(expected) <= 1, "minified checker aliases at {x},{y}"); } }
+    }
+    r.set_albedo_filter(0, subcraft_image::TextureFilter::Nearest);
+    let image = r.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+    let mut black = 0; let mut white = 0;
+    for y in 8..SIZE-8 { for x in 8..SIZE-8 {
+        let v = px(&image, x, y)[0]; assert!(v <= 1 || v >= 254, "nearest was mip-filtered: {v}");
+        if v <= 1 { black += 1; } else { white += 1; }
+    } }
+    assert!(black > 1000 && white > 1000);
+    assert_eq!(checker, before, "viewport filtering changed authoritative texels");
+}
+
 fn solid(comps: usize, v: [f32; 4]) -> TiledImage {
     TiledImage::new(256, 256, comps, v)
 }

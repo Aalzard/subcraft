@@ -12,6 +12,7 @@ mod bake_preview;
 mod display;
 pub mod headless;
 pub mod material;
+mod mipmap;
 pub mod preview;
 pub mod target;
 
@@ -212,6 +213,7 @@ pub struct ViewportRenderer {
     material_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
     nearest_sampler: wgpu::Sampler,
+    mipmaps: mipmap::MipGenerator,
     defaults: HashMap<ChannelKind, ChannelTexture>,
     mesh: Option<GpuMesh>,
     materials: HashMap<u32, GpuMaterial>,
@@ -333,6 +335,7 @@ impl ViewportRenderer {
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
             ..Default::default()
         });
         let defaults = SHADED_CHANNELS
@@ -345,7 +348,7 @@ impl ViewportRenderer {
         let nearest_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("nearest albedo"), address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge, mag_filter: wgpu::FilterMode::Nearest,
-            min_filter: wgpu::FilterMode::Nearest, ..Default::default()
+            min_filter: wgpu::FilterMode::Nearest, lod_max_clamp: 0.0, ..Default::default()
         });
         Self {
             pipeline,
@@ -360,7 +363,7 @@ impl ViewportRenderer {
             env_texture,
             env_levels: 1,
             env_sh: [[0.0; 3]; 9],
-            material_layout, sampler, nearest_sampler, defaults, mesh: None, materials: HashMap::new(), target: None, preview: PreviewPass::new(device), preview_target: None }
+            material_layout, sampler, nearest_sampler, mipmaps: mipmap::MipGenerator::new(device), defaults, mesh: None, materials: HashMap::new(), target: None, preview: PreviewPass::new(device), preview_target: None }
     }
 
     fn globals_bind_group(
@@ -453,7 +456,7 @@ impl ViewportRenderer {
         let mat = self.materials.entry(material_slot).or_default();
         let recreate = mat.channels.get(&kind).is_none_or(|t| t.size != image.width() || t.comps != image.comps());
         if recreate {
-            mat.channels.insert(kind, ChannelTexture::new(device, image.width(), image.comps(), kind.key()));
+            mat.channels.insert(kind, ChannelTexture::new_mipmapped(device, image.width(), image.comps(), kind.key(), &self.mipmaps.layout));
             mat.bind_group = None;
         }
         let tex = &mat.channels[&kind];
@@ -461,6 +464,7 @@ impl ViewportRenderer {
             Some(t) if !recreate => tex.upload(queue, image, t),
             _ => tex.upload_all(device, queue, image),
         }
+        self.mipmaps.update(device, queue, tex, image, if recreate { None } else { tiles });
     }
 
     /// View of an uploaded channel texture (UV view display).
