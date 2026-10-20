@@ -5,6 +5,12 @@ What changed in SubCraft, newest first. Download the latest build from the
 
 ## Unreleased
 
+### Distribution
+- Prepare signed release checks: pinned tools/actions, locked dependencies, app/installer
+  signatures, Defender reports, checksums and GitHub provenance. Publishing requires an
+  enrolled signing identity. Add an offline Sandbox smoke-test harness; hosted signing
+  and guest execution remain unverified on this development PC.
+
 ### UI
 - Drag effect names/rows/preview squares to reorder within their content or mask stack. Amber
   insertion guides, edge scrolling and Escape cancellation; the moved effect stays selected

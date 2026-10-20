@@ -1,0 +1,39 @@
+{
+  "scope": "static antivirus and optional Authenticode checks; not isolated runtime analysis",
+  "signatures_required": false,
+  "scanned": [
+    {
+      "exit_code": 0,
+      "file": "SubCraft-0.1.7-setup.exe",
+      "sha256": "f90a726e8b38937ef0d980f3b4a32c2e7da43e697ac49924877d18e4c150cbd1"
+    },
+    {
+      "exit_code": 0,
+      "file": "SubCraft-0.1.7-windows-x64.zip",
+      "sha256": "86f5d8dd8ec02abdd2219ef596d1ad461d3192298906dcae3f62043d008a890b"
+    },
+    {
+      "exit_code": 0,
+      "file": "SubCraft.exe",
+      "sha256": "db23ee20920464e803a09ec8d036d631499d3f46f5460b7c9e3f6c6c47ae9941"
+    }
+  ],
+  "signatures": [
+    {
+      "file": "SubCraft-0.1.7-setup.exe",
+      "status": "NotSigned",
+      "timestamped": false
+    },
+    {
+      "file": "SubCraft.exe",
+      "status": "NotSigned",
+      "timestamped": false
+    }
+  ],
+  "schema": 1,
+  "result": "no threats detected",
+  "checked_at_utc": "2026-10-20T11:30:07.4873806Z",
+  "defender_signature_version": "1.461.114.0",
+  "commit": "71e49fde7e4e1dba188a6589c9e5a139d1e3d9d5",
+  "version": "0.1.7"
+}

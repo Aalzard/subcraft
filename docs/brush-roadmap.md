@@ -185,6 +185,11 @@ fill edits target the selected fill, with numeric composite/undo and real dock i
 
 ## Requirements applying to every item
 
+Release infrastructure follow-up (2026-10-20, session 93): signing/scan/provenance gates and
+an offline Sandbox harness were prepared; no brush phase item was advanced. See
+[release verification](release-security.md) for pending publisher enrollment, vendor/CAPE
+analysis and isolated runtime testing. This work does not complete earlier native/4K checks.
+
 - [x] Keep paint/app independent of egui/wgpu; UI dispatches new material commands to app.
 - [x] One document undo entry per stroke; immutable sources captured at stroke begin.
 - [x] Old preset compatibility; versioned project data only when document source data changes.

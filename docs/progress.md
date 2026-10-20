@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-10-19 (session 85: local filters and folder adjustments; wear handed off)
+Last updated: 2026-10-20 (session 93: release verification; signing/runtime enrollment pending)
 
 ## Decisions
 
@@ -2431,7 +2431,44 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   passes with existing warnings; no tests added. Same no-incremental/line-tables-only/-j 1 flags.
   No new app run or visual feature claimed. No push/release or protected-file changes.
 
+### Session 93 — Release verification and vendor review (2026-10-20)
+
+* Added release infrastructure only (no engine/UI behavior changed): locked Cargo builds,
+  pinned Rust 1.98/actions, requested-tag checkout/version checks, application-before-package
+  and installer-after-package signing, fail-closed signature/Defender checks, deterministic
+  SHA256SUMS, GitHub provenance and no replacement of published assets. Production requires
+  enrolled signing configuration and protected signing/publish environments. Server-side
+  environment protection has NOT been configured. See ADR-0035 and release-security.md.
+* Scripts: sign-windows.ps1, test-release-windows.ps1, write-release-checksums.ps1,
+  new-sandbox-check.ps1 and guarded sandbox-guest-check.ps1; existing build scripts/workflow
+  extended. Tests: 52 security/workflow assertions plus five black-box packaging scenarios;
+  YAML and actionlint 1.7.12 validation pass. Workspace: **538 passed, 0 failed/ignored**
+  (Rust total unchanged; release checks are additional PowerShell coverage). Workspace/all-target
+  Clippy exits 0 with existing warnings. CARGO_INCREMENTAL=0,
+  CARGO_PROFILE_DEV_DEBUG=line-tables-only, --locked, -j 1. Implementation: **3304c4f**.
+* Real release evidence: exact public 0.1.7 installer/ZIP hashes match GitHub. The new gate
+  scanned installer, ZIP and extracted executable using active Defender; all three exit 0,
+  no threats detected. Original files remain unsigned. Public machine-readable evidence:
+  security/0.1.7-static-scan.json. No installer/application was executed on the host.
+* Offline Sandbox installation/render/uninstall harness prepared and configuration/host guard
+  tested. Guest NOT run: Windows 11 Home, no Sandbox executable, virtualization reported
+  disabled. This is not malware API tracing; CAPE mitigation-policy/unhooking flags remain
+  unresolved. No false-positive verdict or absence-of-malware claim.
+* Sent three potential-false-positive review requests through the owner's connected Gmail:
+  Arctic Wolf, Trapmine and SecureAge support. Sent records verified; Arctic Wolf automatic
+  receipt acknowledged (required submission information was included), analysis pending.
+  No private repo files were uploaded. Owner requested
+  signing options; documented Microsoft, Certum and SSL.com eligibility/fees/restrictions.
+  No account purchase, identity submission, cloud roles or certificate provisioning.
+* Updated guide/changelog/brush-roadmap/handoff and ADR. No visible app feature changed, so
+  no native screenshot or hand-check claimed. No 4K performance claim. Protected files and
+  Claude's existing untracked subcraft-session92.patch left alone. No push/release.
+
 ## Next steps (in order)
+
+Before the next public release: resolve vendor/CAPE findings, obtain an eligible verified
+signing identity, activate protected release environments, then run exact signed artifacts
+in a compatible isolated Windows environment and review the results before publishing.
 
 1. Claude follows **PROMPT-claude-edge-wear.md**: reproduce/fix the still-rejected Edge Wear on
    the baked default crate; inspect source/bake/sampling/build paths and all relevant modes.

@@ -1,0 +1,21 @@
+Release infrastructure implementation: 3304c4f8c8b2a42ec055e784e705ddc953e6e1aa
+Rust/Cargo 1.98.0, Windows 11 Home, 2026-10-20.
+CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=line-tables-only
+cargo test --workspace --locked -j 1: PASS, 538 passed, 0 failed/ignored.
+cargo clippy --workspace --all-targets --locked -j 1: PASS (exit 0), existing warnings.
+tests/packaging-windows.ps1: PASS, 5 scenarios, staged/ZIP contents and licenses.
+tests/release-security.ps1: PASS, 24 assertions.
+tests/release-workflow.ps1: PASS, 28 assertions.
+actionlint 1.7.12 .github/workflows/release.yml: PASS.
+Release workflow YAML and PowerShell parsing: PASS.
+Git Bash -n scripts/build-linux.sh: PASS (syntax only).
+Actual unsigned 0.1.7 installer: correctly rejected by sign-windows.ps1 -VerifyOnly.
+Exact public 0.1.7 installer/ZIP/executable: Defender no threats; see 0.1.7-static-scan.json.
+
+NOT RUN: successful production signing/timestamping; hosted workflow/provenance/publication;
+Linux packaging execution; Windows Sandbox guest install/render/uninstall; API/module tracing;
+native interactive UI/painting/performance. No new app feature/4K performance claim.
+No trusted signing account exists yet. Windows Sandbox is absent; virtualization reports disabled.
+Prepared offline harness/configuration is not a passing isolated runtime test.
+CAPE unhooking/mitigation-policy flags remain unexplained; vendor review pending.
+Antivirus results are not absence-of-malware proof.

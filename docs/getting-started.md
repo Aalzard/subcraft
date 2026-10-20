@@ -1,5 +1,11 @@
 # Getting started with SubCraft
 
+For future signed downloads, check the publisher in Windows file **Properties → Digital
+Signatures** and compare the file's SHA-256 against the release's **SHA256SUMS.txt**
+using PowerShell: `Get-FileHash -Algorithm SHA256 <downloaded-file>`.
+Original v0.1.7 is unsigned. Signing/provenance infrastructure is prepared for future
+releases and does not retroactively sign it; see [release verification](release-security.md).
+
 For the latest local development build, open **target/debug/subcraft.exe** in the SubCraft
 folder. This contains the current material-workflow and charcoal UI refinements; installed
 releases and older release binaries may have fewer features.
