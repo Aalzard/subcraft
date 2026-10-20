@@ -10,6 +10,12 @@ Performance prerequisite (session 70): desktop viewport compositing now runs on 
 snapshots in a worker; sparse texture initialization uploads allocated tiles only. This does
 not complete the remaining brush tools, general layer filters or GPU compositor roadmap.
 
+Session 94 adds incremental viewport material mipmaps to remove distance-dependent PBR
+grain. Nearest albedo retains its original pixel sampling; source/export data is unchanged.
+Native wood/metal captures and a bounded seven-channel 4K upload/render profile are recorded
+in progress.md. Full interactive stroke/frame pacing remains unverified; phase statuses below
+are unchanged by this rendering fix.
+
 Session 82 fixes baked curvature weakening at exact hard corners and UV rims (rebake Curvature
 to update existing assets). This completes a generator defect fix, not an additional brush
 phase or surface-aware edge-wear stroke tool. Surface spread and lower-layer normal inputs

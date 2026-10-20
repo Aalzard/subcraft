@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-10-20 (session 93: release verification; signing/runtime enrollment pending)
+Last updated: 2026-10-20 (session 94: stable minified PBR viewport textures)
 
 ## Decisions
 
@@ -2464,7 +2464,47 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   no native screenshot or hand-check claimed. No 4K performance claim. Protected files and
   Claude's existing untracked subcraft-session92.patch left alone. No push/release.
 
+### Session 94 — Imported PBR viewport grain (2026-10-20)
+
+* Reproduced the owner's grainy surface using full PBR imports from D:/Textures:
+  Planks023A_4K-PNG and Metal006_4K-PNG on a UV plane. Material GPU textures had only mip
+  zero; MSAA could not resolve subpixel height/normal/color detail. Added render-owned GPU
+  area-average mip chains and trilinear sampling for material channels (ADR-0036).
+* Files/crates: render/src/material.rs, lib.rs, new mipmap.rs/mipmap.wgsl and headless
+  acceptance coverage. Sparse fill clears/allocated-tile uploads retained; partial uploads
+  regenerate only affected mip bounds. Views/bind groups/pipelines cached; no interactive GPU
+  readback or wait. Nearest albedo clamps to mip zero for retro pixels. CPU composites,
+  source textures, exported texels, projects and undo are unchanged.
+* Added **3 tests**, total **541 passed, 0 failed/ignored**, using cargo test --workspace
+  --locked -j 4, CARGO_INCREMENTAL=0, CARGO_PROFILE_DEV_DEBUG=line-tables-only. Numeric GPU
+  coverage: all channel formats, odd-sized area conservation, partial/full equality at every
+  mip, implicit-fill restoration and empty updates. Acceptance: minified checker stays at
+  its linear-space mean across camera offsets; Nearest retains only source palette values;
+  authoritative input unchanged. Workspace/all-target Clippy and desktop build checked.
+* Ran the real native app (RTX 4060/DX12) through its automated screenshot path, with isolated user/library
+  data and the real importer. Visually inspected matching before/after images:
+  screenshots/material-filtering-before.png and material-filtering-after.png (wood),
+  screenshots/material-metal-before.png and material-metal-after.png (metal). Fine noisy
+  grain is filtered at distance while material structure and reflections remain visible.
+  New ui/examples/material_viewport.rs makes fixture import/native capture reproducible.
+* Profile: new render/examples/perf_material_upload.rs, RTX 4060/Vulkan, 4096², 120 stroke-like
+  updates of seven channel tiles plus 640×480 rendering. CPU submission median/p95/max
+  **0.851/1.255/1.403 ms**; including GPU completion **0.923/1.338/1.480 ms**. Synthetic render
+  path only, excludes compositor/UI/input; this is not a desktop FPS or full long-stroke
+  guarantee. Mips cost approximately one third additional material GPU memory.
+* NOT hand-verified: the owner's unsaved scene, physical brush/orbit interaction, browser,
+  other GPUs, a full platform/backend matrix or production 4K frame pacing. No universal glossiness fix claimed:
+  authored roughness/height and lighting remain meaningful. Two other candidate imports
+  failed PNG decoding (Planks020 normalGL, Concrete044A displacement); originals left alone,
+  importer audit remains a follow-up. No physical mouse input, push or release. Protected
+  files and existing untracked subcraft-session92.patch preserved.
+
 ## Next steps (in order)
+
+Owner checks imported PBRs in the refreshed target/debug/subcraft.exe, especially close-up
+wood and zoom/orbit transitions. Profile complete production strokes/UI frame pacing and
+GPU memory on a layered 4K asset; audit the two source PNG decode failures before claiming
+universal imported-material coverage. This viewport fix does not complete any brush phase.
 
 Before the next public release: resolve vendor/CAPE findings, obtain an eligible verified
 signing identity, activate protected release environments, then run exact signed artifacts

@@ -10,6 +10,15 @@ For the latest local development build, open **target/debug/subcraft.exe** in th
 folder. This contains the current material-workflow and charcoal UI refinements; installed
 releases and older release binaries may have fewer features.
 
+Imported PBR materials now use automatic distance filtering in the 3D viewport, so fine
+wood grain and normal/height details stay clearer when zoomed out. No extra control is
+required. In **Texture Sets → Albedo**, use **Bilinear** for this smooth preview; **Nearest**
+keeps sharp source pixels for retro texturing. Source maps and exported textures keep their
+existing resolution and data. The viewport's **Anti-aliasing** checkbox separately controls
+mesh-edge smoothing.
+
+![Imported wood PBR with stable distance filtering](screenshots/material-filtering-after.png)
+
 The welcome hub and in-app guide are in development for the next desktop release. In v0.1.4,
 use **File → New from mesh…** or **File → New (sample crate)** to follow these steps.
 

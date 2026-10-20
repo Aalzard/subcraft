@@ -5,6 +5,11 @@ What changed in SubCraft, newest first. Download the latest build from the
 
 ## Unreleased
 
+### Rendering
+- Filter minified material textures with incremental GPU mipmaps, reducing fine PBR grain
+  and shimmer at distance. Preserve sparse uploads, original/exported texels and the Nearest
+  albedo pixel-art mode. Verified with native 4K wood/metal imports and numeric GPU tests.
+
 ### Distribution
 - Prepare signed release checks: pinned tools/actions, locked dependencies, app/installer
   signatures, Defender reports, checksums and GitHub provenance. Publishing requires an
