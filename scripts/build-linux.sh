@@ -10,7 +10,7 @@ version="$(sed -n 's/^version *= *"\([^"]*\)".*/\1/p' Cargo.toml | head -n 1)"
 
 if [ "$1" != "--skip-build" ]; then
     echo "Building SubCraft $version (dist profile)..."
-    cargo build --profile dist -p subcraft
+    cargo build --locked --profile dist -p subcraft
 fi
 
 name="SubCraft-$version-linux-x86_64"

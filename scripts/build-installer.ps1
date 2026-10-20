@@ -16,7 +16,9 @@
 #>
 param(
     [switch]$SkipBuild,
-    [string]$Iscc
+    [string]$Iscc,
+    [string]$CertificateThumbprint,
+    [switch]$RequireSignature
 )
 
 $ErrorActionPreference = 'Stop'
@@ -55,6 +57,8 @@ try {
 
     $buildArgs = @{}
     if ($SkipBuild) { $buildArgs['SkipBuild'] = $true }
+    if ($CertificateThumbprint) { $buildArgs['CertificateThumbprint'] = $CertificateThumbprint }
+    if ($RequireSignature) { $buildArgs['RequireSignature'] = $true }
     & (Join-Path $PSScriptRoot 'build-windows.ps1') @buildArgs
 
     $dist = Join-Path $root 'dist'
@@ -69,6 +73,12 @@ try {
 
     $setup = Join-Path $dist "SubCraft-$version-setup.exe"
     if (-not (Test-Path $setup)) { throw "Installer not found after compiling: $setup" }
+    if ($CertificateThumbprint) {
+        & (Join-Path $PSScriptRoot 'sign-windows.ps1') -Path $setup -CertificateThumbprint $CertificateThumbprint
+    }
+    if ($RequireSignature) {
+        & (Join-Path $PSScriptRoot 'sign-windows.ps1') -Path $setup -VerifyOnly
+    }
     $size = '{0:N1} MB' -f ((Get-Item $setup).Length / 1MB)
     Write-Host ''
     Write-Host "Done: $setup ($size)" -ForegroundColor Green
