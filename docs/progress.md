@@ -2553,6 +2553,36 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
 * **564 workspace tests pass, 0 failed/ignored; Clippy exits 0 with 68 warnings (baseline).**
   Test app: E:\Applications\ArtCraft\SubCraft\target\debug\subcraft.exe
 
+### Session 96 - Claude: Clone, Smudge and camera projection painting (2026-10-21)
+
+* **Clone tool:** Ctrl+click the model sets the source point; the first dab of the next stroke fixes a
+  screen offset that later strokes keep (aligned) until a new source is picked. Each texel copies the
+  pre-stroke paint found by ray-casting through the stroke-start camera at (texel screen + offset),
+  restricted to the painted texture set; alpha is kept, so an empty source never overwrites paint.
+  A cyan cross marks the source, a ring the current copy point. Symmetry is ignored while cloning.
+* **Smudge tool:** stamp by stamp the footprint-weighted mean (alpha-premultiplied) under the brush is
+  picked up and a carried value (85% persistence per stamp) is deposited with footprint x Flow;
+  works on enabled channels, Paint effects and mask rasters; normals are re-normalized. No
+  stencil. Flow is the strength; Opacity is not used.
+* **Camera projection:** BrushMaterial.camera_projection ("Project from the view" in the Brush panel)
+  casts the channel images from the stroke's starting camera, fitted to the shorter viewport side,
+  placed with the existing scale/rotation/offset; not a new ProjectionMode, so fill layers are untouched.
+  Per-stamp projection is still open.
+* **Files:** paint/stroke.rs (smudge_stamps, remap, clone sampling), kernel.rs (footprints),
+  settings.rs (StrokeMode::Smudge/Clone), target.rs, app/session.rs (clone source/offset, labels),
+  ui (Tool::Clone/Smudge, rail/bar icons, viewport input and marker, `--capture-tool clone|smudge|projection`
+  scripted captures). Tool icons reuse Copy and Drop: the bundled Phosphor font is a 53-glyph subset.
+  The viewport bar now needs 1094 px inner width to sit inline and 575 px for full controls; tiny
+  docks hide the two new icons unless active (tests updated).
+* Tests: 5 in app/tests/clone_smudge.rs (smudge drags paint, one undo, untouched texels exact,
+  deterministic, masks; clone copies and keeps offset, empty source harmless, missing source error;
+  camera projection differs from UV mapping on a rotated plane). **569 workspace tests pass, 0 failed/ignored;
+  Clippy exits 0 with 68 warnings (baseline).**
+* Real app (scripted, Windows debug, RTX 4060): docs/screenshots/tool-smudge.png, tool-clone.png,
+  brush-camera-projection.png. NOT verified: real mouse strokes, Ctrl+click in the viewport, symmetry,
+  tablet pressure, heavy-brush performance, clone across seams on production meshes; the clone
+  source is a point, not a rotated/scaled stamp; no heal/seam blending.
+
 ## Next steps (in order)
 
 Owner checks imported PBRs in the refreshed target/debug/subcraft.exe, especially close-up

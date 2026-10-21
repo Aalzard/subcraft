@@ -121,6 +121,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     if material.textures.keys().any(|kind| material.channels.get(kind).is_some_and(|c| c.enabled)) {
         ui.label(RichText::new("Image projection").strong());
         projection_editor(ui, &mut material.projection);
+        ui.checkbox(&mut material.camera_projection, "Project from the view")
+            .on_hover_text("Like a slide projector: the image is cast from the camera the stroke started in, whatever the model's UVs. Scale, rotation and offset place it on screen.");
         ui.checkbox(&mut material.texture_tiling, "Tile images")
             .on_hover_text("Off: paint only inside image coordinates 0–1");
         hint(

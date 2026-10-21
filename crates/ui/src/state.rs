@@ -18,6 +18,10 @@ pub enum Tool {
     PolygonFill,
     Eyedropper,
     Pen,
+    /// Paints what lies at the clone source (Ctrl+click sets it).
+    Clone,
+    /// Drags the paint under the brush along the stroke.
+    Smudge,
 }
 
 /// Viewport acknowledgement of the brush chosen on the Shelf. It holds, then fades out.
@@ -90,6 +94,8 @@ pub struct UiState {
     pub open_brush_editor: bool,
     /// Scripted capture only (`--select-brush`): Shelf brush to select before the screenshot.
     pub capture_select_brush: Option<String>,
+    /// Scripted Clone/Smudge demonstration for native captures (`--capture-tool`).
+    pub capture_tool: Option<String>,
     pub uv: UvView,
     pub painting: bool,
     /// Clicks in the 3D view show / hide the selected layer on mesh parts (Properties → Parts).
@@ -176,6 +182,7 @@ impl UiState {
             brush_notice: None,
             open_brush_editor: false,
             capture_select_brush: None,
+            capture_tool: None,
             uv: UvView { zoom: 1.0, offset: egui::Vec2::ZERO, source: PreviewSource::Channel(ChannelKind::BaseColor), texture: None },
             painting: false,
             picking_parts: false,

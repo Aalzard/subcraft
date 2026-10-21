@@ -109,6 +109,9 @@ pub struct Session {
     effect: Option<EffectId>,
     pub brush: BrushState,
     stroke: Option<ActiveStroke>,
+    /// Clone tool: object-space source point, and the screen offset the first stroke fixed.
+    clone_source: Option<Vec3>,
+    clone_offset: Option<Vec2>,
     /// Composite caches while compositing runs on the calling thread (until the first
     /// interactive update starts the worker, and always on the web).
     composites: HashMap<TextureSetId, CompositeCache>,
@@ -196,6 +199,8 @@ impl Session {
                 stencil_bypass: false,
             },
             stroke: None,
+            clone_source: None,
+            clone_offset: None,
             composites: HashMap::new(),
             worker: None,
             inline_only: false,
@@ -1078,11 +1083,18 @@ impl Session {
         let layer = self.selection.layer.ok_or(PaintError::LayerNotFound)?;
         let ts = self.selected_texture_set();
         let b = &self.brush;
-        let stroke = Stroke::begin(ts, layer, b.target, b.mode, b.settings, b.options, &b.material)?
+        let mut stroke = Stroke::begin(ts, layer, b.target, b.mode, b.settings, b.options, &b.material)?
             .with_resources(self.resources())
             .with_alpha(b.alpha.clone())
             .with_stencil(if b.stencil_bypass { None } else { b.stencil.clone() });
+        if b.mode == StrokeMode::Clone {
+            let point = self.clone_source.ok_or(PaintError::NoCloneSource)?;
+            stroke = stroke.with_clone(point, self.clone_offset);
+        }
+        let b = &self.brush;
         let label = match (b.mode, b.target) {
+            (StrokeMode::Smudge, _) => "Smudge Stroke",
+            (StrokeMode::Clone, _) => "Clone Stroke",
             (StrokeMode::Paint, PaintTarget::Content) => "Paint Stroke",
             (StrokeMode::Erase, PaintTarget::Content) => "Erase Stroke",
             (StrokeMode::Paint, PaintTarget::ContentEffect(_)) => "Paint Effect Stroke",
@@ -1102,7 +1114,29 @@ impl Session {
         if result.as_ref().is_ok_and(|t| !t.is_empty()) {
             self.revision += 1;
         }
+        if let Some(offset) = self.stroke.as_ref().and_then(|a| a.stroke.clone_offset()) {
+            self.clone_offset = Some(offset);
+        }
         result
+    }
+
+    /// Clone tool: use the surface point under `screen` as the source (a new offset is fixed by
+    /// the next stroke's first dab). Returns false when the cursor is not over the model.
+    pub fn set_clone_source(&mut self, camera: &Camera, screen: Vec2) -> bool {
+        let Some(pick) = self.pick(camera, screen) else { return false };
+        self.clone_source = Some(pick.position);
+        self.clone_offset = None;
+        true
+    }
+
+    /// The clone source point (object space), if one is set.
+    pub fn clone_source(&self) -> Option<Vec3> {
+        self.clone_source
+    }
+
+    /// Screen offset from the stroke position to the clone source, once a stroke fixed it.
+    pub fn clone_offset(&self) -> Option<Vec2> {
+        self.clone_offset
     }
 
     /// Polygon fill on the selected layer at a screen position (one history entry).

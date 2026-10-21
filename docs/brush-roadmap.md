@@ -90,7 +90,7 @@ fill edits target the selected fill, with numeric composite/undo and real dock i
   channels present in the texture set), retaining flat values when cleared.
 - [x] Paint whole material from named imported maps; unmatched channels disabled. Channels absent
   from the current texture set are reported/skipped, not implicitly added by a tool setting.
-- [~] Projection modes: UV, planar, triplanar complete; camera and per-stamp still required.
+- [~] Projection modes: UV, planar, triplanar complete; camera projection added (session 96, "Project from the view": the image is cast from the stroke's starting view); per-stamp still required.
 - [x] Scale, rotation, offset, tiling controls, using fill-layer projection sampling.
 - [x] Reuse gloss inversion and DirectX → OpenGL normal conversion.
 - [x] Replace / detail-combine normals on paint layers; shared RNM, normalized output.
@@ -126,7 +126,7 @@ fill edits target the selected fill, with numeric composite/undo and real dock i
 - [~] Brush outline (existing 3D cursor); surface-following outline and 2D outline still required.
 - [ ] Tip preview and live size/flow/opacity readout during hold-key drags.
 - [ ] Lazy-mouse string, straight-line / angle-snap guides with degrees, shape handles.
-- [ ] Symmetry planes / radial axis, stencil frame, clone source marker, active texture guides.
+- [ ] Symmetry planes / radial axis, stencil frame, active texture guides. (Clone source marker done in session 96.)
 - [ ] Active-tool hint line, per-tool don't-show-again, View toggles for every overlay/hint.
 - [ ] Mode-toggle toasts and warnings for masked layers, locked channels, fill selection,
   outside Parts selection.
@@ -168,7 +168,8 @@ fill edits target the selected fill, with numeric composite/undo and real dock i
 
 ## Phase 7 — Texture-editing brushes
 
-- [ ] Clone/source point; smudge; blur; sharpen; dodge/burn; heal/seam blend.
+- [x] Clone (Ctrl+click source, aligned offset kept across strokes) and Smudge (session 96); both work on content, Paint effects and masks, one undo per stroke.
+- [ ] Blur; sharpen; dodge/burn; heal/seam blend brush tools.
 - [~] Existing context-menu color/material eyedropper; all-channel brush workflow remains.
 - [ ] Channel locks; alpha lock; lasso limit; fill by color range / curvature.
 

@@ -206,7 +206,7 @@ impl KernelInput<'_> {
         out
     }
 
-    fn visible(&self, camera: usize, s: &TexelSample) -> bool {
+    pub(crate) fn visible(&self, camera: usize, s: &TexelSample) -> bool {
         if self.alignment == Alignment::Uv {
             return true;
         }
@@ -217,6 +217,21 @@ impl KernelInput<'_> {
             return false;
         }
         self.depth[camera].visible(cam, s.p, s.ng)
+    }
+
+    /// Footprint (0..1 per tile texel) of one stamp on a tile's rasterized samples: visibility,
+    /// back-face culling and the tip shape, without flow, stencil or stroke accumulation.
+    pub fn footprints(&self, samples: &[TexelSample], st: &Stamp) -> Vec<f32> {
+        let mut out = vec![0.0f32; TILE_TEXELS];
+        let cam = self.cameras.get(st.camera);
+        for s in samples {
+            if !self.visible(st.camera, s) { continue; }
+            let Some(cam) = cam else { continue };
+            let a = st.footprint(self.alignment, cam, s.p, s.ng, s.uv, self.alpha);
+            let slot = &mut out[s.idx as usize];
+            if a > *slot { *slot = a; }
+        }
+        out
     }
 
     /// Accumulate the given stamps into a tile's stroke coverage (`TILE_TEXELS` values).

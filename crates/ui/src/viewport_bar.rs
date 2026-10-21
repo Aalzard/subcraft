@@ -71,7 +71,7 @@ pub fn show(ui: &mut Ui, state: &mut crate::state::UiState) {
             ui.spacing_mut().interact_size.y = 26.0;
             ui.set_min_width(ui.available_width());
             let width = ui.available_width();
-            let inline = width >= 1040.0;
+            let inline = width >= 1094.0; // five tool icons (Clone and Smudge joined the three paint tools)
             ui.spacing_mut().item_spacing = egui::vec2(7.0, 6.0);
             ui.horizontal(|ui| {
                 if width < 520.0 {

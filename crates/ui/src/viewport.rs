@@ -152,7 +152,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 state.pen.drag_surface(&state.session, &camera, to_screen(p), mods.shift);
             }
     }
-    let paint_tool = !bake_mode && matches!(state.tool, Tool::Brush | Tool::Eraser) && !picking;
+    let paint_tool = !bake_mode && matches!(state.tool, Tool::Brush | Tool::Eraser | Tool::Clone | Tool::Smudge) && !picking;
     if !bake_mode && primary_pressed && response.hovered() && !alt && !stencil_edit && !picking && state.tool != Tool::Pen {
         if let Some(p) = pointer {
             let sp = to_screen(p);
@@ -163,6 +163,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         state.set_status(if mods.shift { "Picked material" } else { "Picked color" }, now);
                     }
                 }
+                Tool::Clone if mods.command => {
+                    if state.session.set_clone_source(&camera, sp) { state.set_status("Clone source set: now paint where the copy should go", now); }
+                    else { state.set_status("Ctrl+click the model to set the clone source", now); }
+                }
                 Tool::PolygonFill => {
                     state.session.brush.mode = StrokeMode::Paint;
                     if let Err(e) = state.session.polygon_fill(&camera, sp, state.fill_mode) {
@@ -171,7 +175,12 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 }
                 _ => {
                     if let Err(e) = state.session.prepare_surface_paint(&camera, sp) { state.set_status(format!("Parts: {e}"), now); }
-                    state.session.brush.mode = if state.tool == Tool::Eraser { StrokeMode::Erase } else { StrokeMode::Paint };
+                    state.session.brush.mode = match state.tool {
+                        Tool::Eraser => StrokeMode::Erase,
+                        Tool::Clone => StrokeMode::Clone,
+                        Tool::Smudge => StrokeMode::Smudge,
+                        _ => StrokeMode::Paint,
+                    };
                     match state.session.begin_stroke() {
                         Ok(()) => {
                             state.painting = true;
@@ -184,6 +193,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                             }
                             state.last_stroke_point = Some(sp);
                         }
+                        Err(subcraft_paint::PaintError::NoCloneSource) => state.set_status("Ctrl+click the model to set the clone source first", now),
                         Err(e) => state.set_status(format!("Can't paint here: {e} (select a paint layer)"), now),
                     }
                 }
@@ -291,6 +301,19 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         }
         ui.ctx().set_cursor_icon(if alt { egui::CursorIcon::Move } else { egui::CursorIcon::Crosshair });
     }
+    if state.tool == Tool::Clone && let Some(source) = state.session.clone_source() && let Some(at) = camera.project(source) {
+        let marker = rect.min + egui::vec2(at.x / pixel_scale.x, at.y / pixel_scale.y);
+        let cross = Color32::from_rgb(120, 220, 255);
+        for (w, c) in [(3.0, Color32::from_black_alpha(160)), (1.5, cross)] {
+            painter.line_segment([marker - egui::vec2(7.0, 0.0), marker + egui::vec2(7.0, 0.0)], Stroke::new(w, c));
+            painter.line_segment([marker - egui::vec2(0.0, 7.0), marker + egui::vec2(0.0, 7.0)], Stroke::new(w, c));
+        }
+        // While an aligned offset exists, the copy comes from beside the cursor: show it.
+        if let (Some(offset), Some(p)) = (state.session.clone_offset(), response.hover_pos()) {
+            let from = p + egui::vec2(offset.x / pixel_scale.x, offset.y / pixel_scale.y);
+            painter.circle_stroke(from, 6.0, Stroke::new(1.5, cross));
+        }
+    }
     draw_stencil(state, ui, &painter, rect, size);
     if drop_hover {
         painter.rect_stroke(rect.shrink(1.0), 0.0, Stroke::new(2.0, ACCENT), egui::StrokeKind::Inside);
@@ -300,6 +323,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         if state.bake.overlay_active() { "Blue: high poly · Red: exposed low poly · Pale: cage · RMB orbit · Wheel zoom" }
         else { bake_hint.as_deref().unwrap_or("Baking mesh maps · RMB orbit · Wheel zoom") }
     } else if state.tool == Tool::Pen { "Click points · drag for curves · edit in 2D View · Enter finish · Esc cancel" }
+        else if state.tool == Tool::Clone { "Ctrl+click: set the source · LMB paint to copy it · RMB orbit" }
+        else if state.tool == Tool::Smudge { "LMB drag to smudge the paint under the brush · RMB orbit" }
         else { "LMB paint · RMB menu / drag orbit · I isolate · H hide · Esc show all · Wheel zoom" };
     pill(&painter, rect.left_bottom() + egui::vec2(10.0, -10.0), egui::Align2::LEFT_BOTTOM, hint, theme::TEXT_FAINT);
     let mut right = rect.right_top() + egui::vec2(-10.0, 10.0);

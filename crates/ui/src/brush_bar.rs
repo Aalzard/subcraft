@@ -10,7 +10,7 @@ use crate::{
 };
 
 pub(crate) fn active(tool: Tool) -> bool {
-    matches!(tool, Tool::Brush | Tool::Eraser | Tool::PolygonFill)
+    matches!(tool, Tool::Brush | Tool::Eraser | Tool::PolygonFill | Tool::Clone | Tool::Smudge)
 }
 
 /// Icons select tools directly; scrubbable values and slider popovers keep the row quiet.
@@ -29,7 +29,12 @@ pub(crate) fn show(
             (Tool::Brush, icons::PAINT_BRUSH, "Brush (B)"),
             (Tool::Eraser, icons::ERASER, "Eraser (E)"),
             (Tool::PolygonFill, icons::PAINT_BUCKET, "Polygon Fill"),
+            (Tool::Clone, icons::COPY, "Clone (Ctrl+click sets the source)"),
+            (Tool::Smudge, icons::DROP, "Smudge"),
         ] {
+            // Tiny docks keep the three core tools; Clone and Smudge stay reachable from the
+            // tool rail (and remain shown while one of them is active).
+            if width < 340.0 && matches!(value, Tool::Clone | Tool::Smudge) && *tool != value { continue; }
             let response = widgets::icon_toggle(ui, icon, *tool == value, help);
             response.widget_info(|| {
                 egui::WidgetInfo::selected(
@@ -46,7 +51,7 @@ pub(crate) fn show(
     });
     stroke_options(ui, options, guides);
     let brush = *tool != Tool::PolygonFill;
-    if width < 520.0 {
+    if width < 575.0 {
         let response = widgets::icon_button(ui, icons::SLIDERS, "Brush settings");
         egui::Popup::menu(&response)
             .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)

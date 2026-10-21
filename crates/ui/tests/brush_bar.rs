@@ -53,7 +53,7 @@ fn position(output: &egui::FullOutput, label: &str) -> Option<Pos2> {
 #[test]
 fn bar_fits_wide_wrapped_and_tiny_docks_and_hides_for_non_paint_tools() {
     for width in [
-        1280.0, 1125.0, 1060.0, 1040.0, 1020.0, 1000.0, 980.0, 700.0, 540.0, 520.0, 480.0, 420.0,
+        1280.0, 1125.0, 1115.0, 1100.0, 1060.0, 1040.0, 1020.0, 1000.0, 980.0, 700.0, 600.0, 595.0, 540.0, 520.0, 480.0, 420.0,
         300.0, 200.0,
     ] {
         let (mut state, ctx) = setup();
@@ -74,14 +74,16 @@ fn bar_fits_wide_wrapped_and_tiny_docks_and_hides_for_non_paint_tools() {
         // Resolution and Albedo form a two-row left column; the main control band is centered
         // beside that column on wide docks and remains below it on narrow docks.
         let band_y = position(&output, "Albedo").map_or(view.y, |albedo| (view.y + albedo.y) * 0.5);
-        if width >= 1060.0 {
-            assert!((brush.y - band_y).abs() < 3.0 && brush.x > view.x, "inline beside the filter column on wide docks");
+        if width >= 1115.0 {
+            assert!((brush.y - band_y).abs() < 3.0 && brush.x > view.x, "inline beside the filter column on wide docks (width {width}, brush {brush:?}, band_y {band_y}, view {view:?})");
         } else {
             assert!(brush.y > band_y + 15.0, "stacked rows on narrow docks");
         }
         if width >= 540.0 {
             assert!(position(&output, "Anti-aliasing").is_some());
             assert!(position(&output, "AA").is_none());
+        }
+        if width >= 595.0 {
             for label in ["Size", "Flow", "Opacity", "Hardness"] {
                 assert!(
                     position(&output, label).is_some(),

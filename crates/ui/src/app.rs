@@ -94,6 +94,8 @@ pub struct LaunchOptions {
     /// Select this Shelf brush (tip or preset name) shortly before a scripted screenshot, the
     /// same way a Shelf click does, to capture the viewport acknowledgement natively.
     pub select_brush: Option<String>,
+    /// Run a scripted Clone or Smudge demonstration ("clone" / "smudge") for native captures.
+    pub capture_tool: Option<String>,
     pub effect_panel: bool,
     pub symmetry_axes: Option<[bool; 3]>,
     /// Start a real high-to-low bake and show its dialog (also usable with --screenshot).
@@ -430,6 +432,7 @@ impl SubcraftApp {
             if let Some((layer, effect)) = target { let _ = state.session.execute(Command::SelectEffect { layer, target: subcraft_app::LayerTarget::Mask, effect: Some(effect) }); }
         }
         state.capture_select_brush = options.select_brush.clone();
+        state.capture_tool = options.capture_tool.clone();
         state.welcome.guide = options.guide_step.map(|s| s.min(subcraft_app::launch::QUICK_START.len() - 1));
         if state.welcome.guide.is_some() { state.welcome.open = false; }
 
@@ -628,6 +631,8 @@ impl SubcraftApp {
                 (Tool::Brush, icons::PAINT_BRUSH, "Brush (B)"),
                 (Tool::Eraser, icons::ERASER, "Eraser (E)"),
                 (Tool::PolygonFill, icons::PAINT_BUCKET, "Polygon fill"),
+                (Tool::Clone, icons::COPY, "Clone: Ctrl+click the model to set the source, then paint to copy it"),
+                (Tool::Smudge, icons::DROP, "Smudge: drag the paint under the brush along the stroke"),
                 (Tool::Eyedropper, icons::CURSOR, "Eyedropper (Shift+click picks material)"),
                 (Tool::Pen, icons::CURVE, "Pen paths (P): click points, drag for curves; edit anchors and handles in 2D View"),
             ] {
@@ -826,6 +831,8 @@ impl SubcraftApp {
                 Tool::Brush => (icons::PAINT_BRUSH, "Brush"),
                 Tool::Eraser => (icons::ERASER, "Eraser"),
                 Tool::PolygonFill => (icons::PAINT_BUCKET, "Polygon fill"),
+                Tool::Clone => (icons::COPY, "Clone"),
+                Tool::Smudge => (icons::DROP, "Smudge"),
                 Tool::Eyedropper => (icons::CURSOR, "Eyedropper"),
                 Tool::Pen => (icons::CURVE, "Pen paths"),
             };
@@ -1015,6 +1022,9 @@ impl eframe::App for SubcraftApp {
                 (None, None) => self.state.set_status(format!("No Shelf brush named {name}"), now),
             }
         }
+        if self.frames == 16 && let Some(which) = self.state.capture_tool.take() {
+            scripted_tool_capture(&mut self.state, &which, ctx.input(|i| i.time));
+        }
         crate::pen::keyboard(&mut self.state, &ctx, ctx.input(|i| i.time));
         self.shortcuts(&ctx);
         if ctx.input(|i| i.pointer.any_released()) {
@@ -1151,6 +1161,60 @@ impl eframe::App for SubcraftApp {
 
 /// Demo stack on the sample crate: procedural base, an upward-facing "moss" fill masked by a
 /// directional generator, and a few painted strokes.
+/// Native-capture helper: the same session calls the viewport makes, driven by a script instead of
+/// the mouse (no input is sent to the desktop).
+fn scripted_tool_capture(state: &mut UiState, which: &str, now: f64) {
+    use glam::Vec2;
+    use subcraft_paint::StrokeMode;
+    let cam = state.camera.paint_camera([900, 650]);
+    let s = &mut state.session;
+    s.brush.settings.size = 7.0;
+    s.brush.settings.hardness = 0.8;
+    let stroke = |s: &mut Session, mode: StrokeMode, pts: &[(f32, f32)]| {
+        s.brush.mode = mode;
+        if s.begin_stroke().is_err() { return; }
+        for &(x, y) in pts { let _ = s.stroke_to(&cam, Vec2::new(x, y), false); }
+        s.end_stroke();
+    };
+    let line = |x0: f32, y0: f32, x1: f32, y1: f32| (0..=24).map(|i| { let t = i as f32 / 24.0; (x0 + (x1 - x0) * t, y0 + (y1 - y0) * t) }).collect::<Vec<_>>();
+    let set = |s: &mut Session, c: [f32; 3]| s.brush.material = subcraft_paint::BrushMaterial::with(&[(ChannelKind::BaseColor, ChannelValue::rgb(c[0], c[1], c[2]))]);
+    match which {
+        "smudge" => {
+            state.tool = Tool::Smudge;
+            for (i, c) in [[0.85, 0.1, 0.05], [0.1, 0.25, 0.9], [0.95, 0.8, 0.1]].into_iter().enumerate() {
+                set(s, c);
+                stroke(s, StrokeMode::Paint, &line(300.0, 250.0 + 45.0 * i as f32, 560.0, 250.0 + 45.0 * i as f32));
+            }
+            stroke(s, StrokeMode::Smudge, &line(380.0, 215.0, 410.0, 420.0));
+            stroke(s, StrokeMode::Smudge, &line(470.0, 215.0, 440.0, 420.0));
+        }
+        "clone" => {
+            state.tool = Tool::Clone;
+            set(s, [0.85, 0.1, 0.05]);
+            stroke(s, StrokeMode::Paint, &line(300.0, 270.0, 380.0, 270.0));
+            set(s, [0.1, 0.25, 0.9]);
+            stroke(s, StrokeMode::Paint, &line(300.0, 310.0, 380.0, 340.0));
+            set(s, [0.95, 0.8, 0.1]);
+            stroke(s, StrokeMode::Paint, &line(300.0, 300.0, 380.0, 300.0));
+            if s.set_clone_source(&cam, Vec2::new(340.0, 305.0)) {
+                stroke(s, StrokeMode::Clone, &line(470.0, 260.0, 560.0, 260.0));
+                stroke(s, StrokeMode::Clone, &line(470.0, 330.0, 560.0, 350.0));
+            }
+        }
+        "projection" => {
+            // A colourful 8 x 8 checker cast from the view onto whatever the strokes cross.
+            let px: Vec<u8> = (0..64).flat_map(|i| { let (x, y) = (i % 8, i / 8); if (x + y) % 2 == 0 { [235, 70 + 20 * y as u8, 60] } else { [40 + 25 * x as u8, 120, 230] } }).collect();
+            if let Err(e) = s.set_brush_channel_bitmap(ChannelKind::BaseColor, "projection checker", subcraft_image::Bitmap::new_u8(8, 8, 3, px)) { state.set_status(e, now); return; }
+            s.brush.material.camera_projection = true;
+            s.brush.material.texture_tiling = false;
+            s.brush.material.projection.scale = [1.4, 1.4];
+            s.brush.settings.size = 22.0;
+            for y in [250.0, 300.0, 350.0, 400.0] { stroke(s, StrokeMode::Paint, &line(260.0, y, 640.0, y)); }
+        }
+        _ => state.set_status(format!("--capture-tool expects clone, smudge or projection, not {which}"), now),
+    }
+}
+
 fn build_demo(state: &mut UiState) {
     let s = &mut state.session;
     let run = |s: &mut Session, c: Command| {

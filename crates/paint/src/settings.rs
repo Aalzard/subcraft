@@ -126,6 +126,10 @@ pub struct BrushMaterial {
     /// Repeat images; when false, coordinates outside the image are transparent.
     pub texture_tiling: bool,
     pub normal_blend: NormalPaintBlend,
+    /// Project the channel images from the view the stroke started in (like a slide projector)
+    /// instead of through `projection`'s UV / planar / tri-planar mapping. `projection`'s
+    /// scale, rotation and offset still place the image on the screen.
+    pub camera_projection: bool,
     /// Grayscale painted into mask rasters.
     pub mask_value: f32,
 }
@@ -133,7 +137,7 @@ pub struct BrushMaterial {
 impl Default for BrushMaterial {
     fn default() -> Self {
         Self { channels: BTreeMap::new(), textures: BTreeMap::new(), projection: Projection::default(), texture_tiling: true,
-            normal_blend: NormalPaintBlend::Replace, mask_value: 1.0 }
+            normal_blend: NormalPaintBlend::Replace, camera_projection: false, mask_value: 1.0 }
     }
 }
 
@@ -178,6 +182,10 @@ pub enum StrokeMode {
     Paint,
     /// Reduces paint alpha; on a mask raster, returns texels toward the mask's untouched value.
     Erase,
+    /// Drags the paint under the brush along the stroke (enabled channels only).
+    Smudge,
+    /// Paints what lies at the clone source, offset from where the stroke starts.
+    Clone,
 }
 
 /// What a paint stroke writes into.
