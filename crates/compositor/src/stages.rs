@@ -318,7 +318,7 @@ impl<'a> Graph<'a> {
             return below;
         }
         // Match the point evaluator's absent-source early return, including Replace mode.
-        if layer.content_effects.is_empty()
+        if !crate::util::effects_touch(layer, kind)
             && match &layer.content {
                 LayerContent::Paint(p) => !p.channels.contains_key(&kind),
                 LayerContent::Fill(f) => !f.channels.get(&kind).is_some_and(|c| c.enabled),

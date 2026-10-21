@@ -126,7 +126,7 @@ fn apply_layer(layer: &Layer, accs: &mut [Acc], active: &[bool], tc: &TileContex
             for (acc, _) in accs.iter_mut().zip(&live).filter(|(_, l)| **l) {
                 let Some(img) = paint.channels.get(&acc.kind) else {
                     // No base raster on this channel: effects still apply to transparent content.
-                    if layer.content_effects.is_empty() {
+                    if !crate::util::effects_touch(layer, acc.kind) {
                         continue;
                     }
                     content.fill([0.0; 4]);
@@ -142,7 +142,7 @@ fn apply_layer(layer: &Layer, accs: &mut [Acc], active: &[bool], tc: &TileContex
         LayerContent::Fill(fill) => {
             for (acc, _) in accs.iter_mut().zip(&live).filter(|(_, l)| **l) {
                 if !eval_fill(fill, acc.kind, tc, &mut content) {
-                    if layer.content_effects.is_empty() {
+                    if !crate::util::effects_touch(layer, acc.kind) {
                         continue;
                     }
                     content.fill([0.0; 4]);
