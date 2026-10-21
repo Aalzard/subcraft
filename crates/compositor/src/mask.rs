@@ -103,6 +103,8 @@ fn eval_edge_spread(g: &Generator, spread: subcraft_doc::EdgeSpread, tc: &TileCo
     // Spread is a physical reach, independent of the baked-detail threshold. Multiplying by
     // Level made even maximum Spread almost disappear at the owner's Level 0.065 setting.
     let radius = spread.distance.clamp(0.0, 12.5) * 0.01;
+    // Level is the amount of wear: how much of that reach is uncovered (old projects: all of it).
+    let extent = if spread.level_reach { subcraft_doc::EdgeSpread::level_extent(g.level) } else { 1.0 };
     let variation = spread.variation.clamp(0.0, 1.0);
     // Pattern size alone wobbles over ~12% of the model, so a narrow band read as a straight
     // stripe. A second field four times finer chips the boundary. It follows Pattern size and
@@ -124,6 +126,7 @@ fn eval_edge_spread(g: &Generator, spread: subcraft_doc::EdgeSpread, tc: &TileCo
         let coarse = ((n - 0.5) * 3.0).clamp(-0.5, 0.5);
         let boundary = chips.as_ref().map_or(coarse, |c| coarse * 0.5 + ((c[i] - 0.5) * 4.0).clamp(-0.5, 0.5) * 0.5);
         let reach = radius * (1.0 + variation * boundary * 1.8) * (1.0 - breakup * 0.7 * (1.0 - n));
+        let reach = reach * extent;
         let geometric = if reach > 0.0 { 1.0 - smoothstep(reach * (1.0 - softness), reach, distances[i]) } else { 0.0 };
         // Keep baked rounded/high-poly detail, but explicitly exclude the neutral flat baseline.
         // Geometric sources are independent of contact curvature from other crate components.

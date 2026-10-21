@@ -369,13 +369,18 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
                             g.edge_spread = natural.then(subcraft_doc::EdgeSpread::default); changed = true;
                         }
                         if let Some(spread) = &mut g.edge_spread {
-                            changed |= slider_row(ui, "Spread", egui::Slider::new(&mut spread.distance, 0.0..=12.5).suffix("%")).on_hover_text("Reach as a percentage of the model's longest dimension, independent of Level. Follows connected edges, not UV islands.").changed();
-                            changed |= slider_row(ui, "Variation", egui::Slider::new(&mut spread.variation, 0.0..=1.0)).on_hover_text("Irregular edge boundary, independent of Breakup. Zero gives a clean geometric band.").changed();
+                            changed |= slider_row(ui, "Spread", egui::Slider::new(&mut spread.distance, 0.0..=12.5).suffix("%")).on_hover_text("How far wear can reach from an exposed edge along the surface, as a percentage of the model's longest dimension. Level decides how much of that reach is worn. Follows connected edges, not UV islands.").changed();
+                            changed |= slider_row(ui, "Variation", egui::Slider::new(&mut spread.variation, 0.0..=1.0)).on_hover_text("Irregular, chipped boundary, independent of Breakup. Zero gives a clean geometric band.").changed();
+                            if !spread.level_reach {
+                                prop_row(ui, "", |ui| {
+                                    if ui.checkbox(&mut spread.level_reach, "Level controls the amount").on_hover_text("This wear was made when Level only selected baked detail and Spread alone set the reach. Turn on to make Level the amount of wear within Spread.").changed() { changed = true; }
+                                });
+                            }
                         }
                     }
                     changed |= slider_row(ui, "Level", egui::Slider::new(&mut g.level, 0.0..=1.0).max_decimals(3)).on_hover_text(
                         if g.kind == GeneratorKind::Edges && g.edge_spread.is_some() {
-                            "Select baked convex detail. Spread controls geometric reach independently."
+                            "Amount of wear: how much of the Spread reach is worn (0 = none, 1 = all of it), and which baked convex detail shows. Spread sets how far wear can reach."
                         } else { "Threshold for the generator's source values." }).changed();
                     changed |= slider_row(ui, "Softness", egui::Slider::new(&mut g.softness, 0.0..=1.0)).changed();
                     changed |= slider_row(ui, "Breakup", egui::Slider::new(&mut g.noise_amount, 0.0..=1.0)).changed();

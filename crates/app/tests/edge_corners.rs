@@ -128,6 +128,7 @@ fn default_crate_wear_starts_at_exposed_edges_and_reaches_at_low_level() {
         session.execute(Command::AddMask { layer, white: false }).unwrap();
         let mut g = Generator::new(GeneratorKind::Edges); g.noise_amount = 0.0; g.level = 0.065;
         let spread = g.edge_spread.as_mut().unwrap(); spread.distance = 12.5; spread.variation = 0.85;
+        spread.level_reach = false; // The original independent-reach behavior, as saved by older projects.
         session.execute(Command::AddMaskEffect { layer, kind: MaskEffectKind::Generator(g) }).unwrap();
         layers.push((ts, slot, layer, g));
     }

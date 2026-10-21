@@ -62,10 +62,22 @@ pub struct EdgeSpread {
     pub distance: f32,
     /// Irregularity of the boundary, independent of holes from Breakup.
     pub variation: f32,
+    /// Level is the amount of wear: it sets how far into the Spread reach the wear extends
+    /// (0 = none, 1 = the whole reach). False keeps the original behavior, where Level only
+    /// selected baked convex detail and Spread alone set the reach. Not written when false, so
+    /// older projects round-trip unchanged.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub level_reach: bool,
+}
+
+impl EdgeSpread {
+    /// Fraction of the reach that Level 0..1 uncovers: steep at first so low Levels still show
+    /// wear beyond the edge itself, smooth and strictly increasing, 0 at Level 0.
+    pub fn level_extent(level: f32) -> f32 { level.clamp(0.0, 1.0).powf(0.4) }
 }
 
 impl Default for EdgeSpread {
-    fn default() -> Self { Self { distance: 1.5, variation: 0.7 } }
+    fn default() -> Self { Self { distance: 1.5, variation: 0.7, level_reach: true } }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]

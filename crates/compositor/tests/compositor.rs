@@ -492,7 +492,7 @@ fn natural_spread_matches_surface_distance_golden_and_varies_at_zero_breakup() {
     let mut layer = fill_layer(&tc, &[(ChannelKind::Roughness, ChannelValue::scalar(1.0))]);
     let mut mask = Mask::new(RES, false);
     let mut g = Generator::new(GeneratorKind::Edges); g.noise_amount = 0.0; g.softness = 0.25;
-    g.edge_spread = Some(subcraft_doc::EdgeSpread { distance: 8.0, variation: 0.9 });
+    g.edge_spread = Some(subcraft_doc::EdgeSpread { distance: 8.0, variation: 0.9, level_reach: false });
     mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Generator(g)))); layer.mask = Some(mask);
     let id = ts.insert_above(None, layer);
     let mut cache = CompositeCache::new(); cache.update(&ts, &fx.ctx());
@@ -539,6 +539,7 @@ fn spread_reaches_independently_at_low_level_without_turning_flat_faces_white() 
     let mut layer = fill_layer(&tc, &[(ChannelKind::Roughness, ChannelValue::scalar(1.0))]);
     let mut mask = Mask::new(RES, false);
     let mut g = Generator::new(GeneratorKind::Edges); g.noise_amount = 0.0;
+    g.edge_spread.as_mut().unwrap().level_reach = false; // Old projects: Level never shrinks the reach.
     g.edge_spread.as_mut().unwrap().distance = 2.0;
     mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Generator(g)))); layer.mask = Some(mask);
     let id = ts.insert_above(None, layer);
@@ -580,7 +581,7 @@ fn narrow_spread_boundary_is_chipped_at_its_own_scale_not_a_straight_stripe() {
     let mut ts = TextureSet::new("T", 0, HI); let tc = ts.clone();
     let mut layer = fill_layer(&tc, &[(ChannelKind::Roughness, ChannelValue::scalar(1.0))]);
     let mut g = Generator::new(GeneratorKind::Edges); g.noise_amount = 0.0; g.softness = 0.02; g.noise.seed = seed;
-    g.edge_spread = Some(subcraft_doc::EdgeSpread { distance: 3.0, variation: 0.7 });
+    g.edge_spread = Some(subcraft_doc::EdgeSpread { distance: 3.0, variation: 0.7, level_reach: false });
     let mut mask = Mask::new(HI, false);
     mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Generator(g)))); layer.mask = Some(mask);
     ts.insert_above(None, layer);
@@ -618,7 +619,7 @@ fn maximum_spread_at_level_point_065_has_the_requested_numeric_reach() {
     let mut layer = fill_layer(&tc, &[(ChannelKind::Roughness, ChannelValue::scalar(1.0))]);
     let mut g = Generator::new(GeneratorKind::Edges);
     g.level = 0.065; g.noise_amount = 0.0; g.softness = 0.25;
-    g.edge_spread = Some(subcraft_doc::EdgeSpread { distance: 12.5, variation: 0.0 });
+    g.edge_spread = Some(subcraft_doc::EdgeSpread { distance: 12.5, variation: 0.0, level_reach: false });
     let mut mask = Mask::new(RES, false);
     mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Generator(g)))); layer.mask = Some(mask);
     ts.insert_above(None, layer);

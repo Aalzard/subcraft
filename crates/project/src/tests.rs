@@ -56,7 +56,7 @@ fn generator_defaults_and_schema_7_preserve_legacy_noise_and_roundtrip_new_contr
 #[test]
 fn schema_8_spread_roundtrips_and_schema_7_preserves_legacy_evaluation() {
     let mut g = Generator::new(GeneratorKind::Edges);
-    g.edge_spread = Some(subcraft_doc::EdgeSpread { distance: 4.25, variation: 0.86 });
+    g.edge_spread = Some(subcraft_doc::EdgeSpread { distance: 4.25, variation: 0.86, level_reach: false });
     assert_eq!(serde_json::to_string(&g.edge_spread).unwrap(), r#"{"distance":4.25,"variation":0.86}"#);
     let mut ts = TextureSet::new("Body", 0, 128);
     let mut layer = Layer::new_fill("Spread", &ts);
