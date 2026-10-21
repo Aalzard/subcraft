@@ -2522,6 +2522,37 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   importer audit remains a follow-up. No physical mouse input, push or release. Protected
   files and existing untracked subcraft-session92.patch preserved.
 
+### Session 95 - Claude: real-app check, filter audit, brush-slot drops, Level/Spread (2026-10-21)
+
+* **Real-app check (Windows debug build, RTX 4060/DX12, scripted --screenshot only):** Natural edge
+  wear matches the CPU render. Level 0.065 / Spread 12.5 covers most of the thin crate parts and the
+  top face; at Level 0.5 / Spread 4 the wear is joined along bands and posts with a chipped
+  boundary; Natural off at Level 0.85 gives thin connected lines, no dashes on posts. The Shelf
+  brush notice shows top-left. NOT hand-verified: painting across a hard edge with a checker tip,
+  double-click opening the Brush tab, mask target kept (need a mouse; only the earlier CPU wrap
+  renders exist). Captures: win-edge-wear-*.png, win-brush-select-notice.png, win-wear-*.png.
+* **Filter audit (afd8018):** crates/compositor/tests/differential.rs adds randomized point-vs-graph
+  and incremental-cache-vs-full tests (folders, masks, mask/content effects, all non-normal blend
+  modes; Blur/Sharpen/Directional/Highpass/Bevel/Mask Outline). 1500 seeds pass. Bug fixed: an
+  effect on one channel made a layer without content in another channel take part there (Replace
+  wiped what was below); now only effects that touch the channel count. Thumbnails and drag reorder
+  have only their existing tests, no new work. Physical native drag still not hand-checked.
+* **Issue 58 (8be56a4):** Shelf and starter-pack textures can be dropped on any Brush channel slot,
+  including switched-off channels (shown as targets while dragging); the app owns the assignment
+  (set_brush_channel_bitmap, Destination::capture_brush). Tests: app/tests/brush_channel_drop.rs,
+  ui/tests/brush_material.rs. Not tried with a physical drag.
+* **Level/Spread (bf7a428):** Before, with Natural on, Level changed nothing once Spread > 0
+  (wear-sheet-natural-before.png). EdgeSpread.level_reach (default on, not serialized when off):
+  Level uncovers level^0.4 of the Spread reach (0 = none, 1 = all); baked convex detail is still
+  keyed to Level. Projects saved earlier read back as level_reach=false and render as before; a
+  "Level controls the amount" checkbox upgrades them. Tests: app/tests/edge_level_spread.rs. The
+  old acceptance "Level 0.065 reaches broadly" now only holds for old-style wear.
+* **Task 4 / issue 53:** the viewport texture-limit fix is not on any local branch; skipped.
+* **Showcase:** docs/screenshots/showcase-*.png and docs/discord-post.md. No parts menu, pen path
+  or video capture (mouse needed). Examples added: edge_project, showcase_project, wear_sheet.
+* **564 workspace tests pass, 0 failed/ignored; Clippy exits 0 with 68 warnings (baseline).**
+  Test app: E:\Applications\ArtCraft\SubCraft\target\debug\subcraft.exe
+
 ## Next steps (in order)
 
 Owner checks imported PBRs in the refreshed target/debug/subcraft.exe, especially close-up

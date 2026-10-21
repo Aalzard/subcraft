@@ -1,3 +1,5 @@
+# Claude session 95 (2026-10-21): see progress.md session 95. Commits afd8018, 8be56a4, 9950f57, bf7a428 + docs. 564 tests pass. Natural wear Level=amount / Spread=reach; brush-slot drops (issue 58); randomized compositor differential tests. Not hand-verified: wrap across hard edges, double-click Brush tab, physical drags. Issue 53 fix missing locally.
+
 # Codex handoff — 2026-10-20, session 94
 
 # Claude session 92 (2026-10-20): see progress.md session 92. Commits 12c55a2, 89d9ae9, 1420a6a + docs. 552 tests pass. Filter audit (task 4) unfinished.
