@@ -16,6 +16,7 @@ pub mod graphics;
 pub mod library;
 pub mod launch;
 pub mod layer_tree;
+pub mod new_project;
 pub mod effect_stack;
 pub mod parts;
 pub mod part_workflow;

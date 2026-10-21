@@ -78,6 +78,8 @@ fn main() -> anyhow::Result<()> {
             }
             "--quality" => options.quality = Some(args.next().ok_or_else(|| anyhow::anyhow!("--quality expects tone=..,bloom=..,ao=.."))?),
             "--export-window" => options.export_window = true,
+            "--new-project" => options.new_project_model = args.next().map(Into::into),
+            "--new-project-high" => options.new_project_high = args.next().map(Into::into),
             "--properties-panel" => options.properties_panel = true,
             "--export-template" => options.export_template = args.next().and_then(|s| s.parse().ok()),
             "--render-window" => options.render_window = true,

@@ -116,6 +116,7 @@ pub struct UiState {
     /// Viewport height-to-bump strength.
     pub height_scale: f32,
     pub export: crate::dialogs::ExportUi,
+    pub new_project: crate::new_project::NewProjectUi,
     /// Action waiting for the unsaved-changes prompt.
     pub confirm: Option<crate::dialogs::Pending>,
     /// The user already agreed to close without saving.
@@ -194,6 +195,7 @@ impl UiState {
             render_window: false,
             pending_render_job: None,
             render_export: Default::default(),
+            new_project: Default::default(),
             render_request: None,
             last_view_size: [1280, 720],
             uv: UvView { zoom: 1.0, offset: egui::Vec2::ZERO, source: PreviewSource::Channel(ChannelKind::BaseColor), texture: None },

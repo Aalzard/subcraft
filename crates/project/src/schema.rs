@@ -24,7 +24,9 @@ use uuid::Uuid;
 // 10: neighborhood Blur/Sharpen filters; schemas 1–9 migrate unchanged.
 // 11: Directional Blur and Highpass; schemas 1-10 retain their previous stacks.
 // 12: Bevel and Mask Outline; schemas 1-11 migrate unchanged (no contour effects to default).
-pub const SCHEMA_VERSION: u32 = 12;
+// 13: UDIM tile per texture set and project settings (export choices, normal format); schemas
+//     1-12 migrate unchanged (no tile, default settings).
+pub const SCHEMA_VERSION: u32 = 13;
 pub const FORMAT_NAME: &str = "subcraft-project";
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -42,6 +44,13 @@ pub struct DocumentV1 {
     pub texture_sets: Vec<TextureSetV1>,
     #[serde(default)]
     pub resources: Vec<ResourceV1>,
+    /// Schema 13: saved with the project, outside the undo history. Omitted when default.
+    #[serde(default, skip_serializing_if = "is_default_settings")]
+    pub settings: subcraft_doc::ProjectSettings,
+}
+
+fn is_default_settings(s: &subcraft_doc::ProjectSettings) -> bool {
+    *s == subcraft_doc::ProjectSettings::default()
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -53,6 +62,9 @@ pub struct TextureSetV1 {
     /// Schema 6 migration: older files retain their original bilinear reconstruction.
     #[serde(default)]
     pub albedo_filter: subcraft_image::TextureFilter,
+    /// Schema 13: UDIM tile `[column, row]` this set paints (absent = ordinary set).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub udim_tile: Option<[i32; 2]>,
     pub channels: Vec<ChannelDefV1>,
     /// Bottom-to-top.
     pub layers: Vec<LayerV1>,

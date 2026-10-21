@@ -17,6 +17,10 @@ use crate::state::UiState;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Purpose {
     OpenMesh,
+    /// The model chosen in the New Project window.
+    NewProjectModel,
+    /// The optional high-poly model of the New Project window.
+    NewProjectHighPoly,
     OpenProject,
     BakeHighPoly,
     Stencil,
@@ -133,6 +137,8 @@ fn handle(state: &mut UiState, purpose: Purpose, paths: &[PathBuf], now: f64) {
             }
             Err(e) => { state.set_status(format!("Brush material: {e}"), now); }
         },
+        Purpose::NewProjectModel => state.new_project.load_model(first),
+        Purpose::NewProjectHighPoly => state.new_project.load_high_poly(first),
         Purpose::OpenMesh => match subcraft_app::Session::open_mesh(first, subcraft_app::DEFAULT_RESOLUTION) {
             Ok((s, _)) => {
                 state.set_session(s);

@@ -36,6 +36,8 @@ pub struct Preferences {
     pub check_updates_on_start: bool,
     /// 3D view toolbar settings.
     pub viewport: crate::viewport_bar::ViewportPrefs,
+    /// The choices made in the New Project window last time.
+    pub new_project: subcraft_app::new_project::NewProjectSettings,
 }
 
 impl Default for Preferences {
@@ -49,6 +51,7 @@ impl Default for Preferences {
             show_welcome: true,
             check_updates_on_start: true,
             viewport: Default::default(),
+            new_project: Default::default(),
         }
     }
 }

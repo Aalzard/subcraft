@@ -62,6 +62,8 @@ pub type MeshMapSet = BTreeMap<TextureSetId, BTreeMap<subcraft_core::MeshMapKind
 pub struct ProjectData {
     pub mesh: Mesh,
     pub document: Document,
+    /// Saved with the project, outside the undo history.
+    pub settings: subcraft_doc::ProjectSettings,
     pub resources: ResourceStore,
     pub mesh_maps: MeshMapSet,
 }
@@ -179,6 +181,18 @@ pub fn write_project<W: Write + Seek>(
     resources: &ResourceStore,
     mesh_maps: &MeshMapSet,
 ) -> Result<W, ProjectError> {
+    write_project_with(w, mesh, doc, resources, mesh_maps, &subcraft_doc::ProjectSettings::default())
+}
+
+/// Like [`write_project`], with the project settings.
+pub fn write_project_with<W: Write + Seek>(
+    w: W,
+    mesh: &Mesh,
+    doc: &Document,
+    resources: &ResourceStore,
+    mesh_maps: &MeshMapSet,
+    settings: &subcraft_doc::ProjectSettings,
+) -> Result<W, ProjectError> {
     let mut writer = Writer { rasters: Vec::new() };
     let texture_sets = doc
         .texture_sets
@@ -189,6 +203,7 @@ pub fn write_project<W: Write + Seek>(
             material_slot: ts.material_slot,
             resolution: ts.resolution,
             albedo_filter: ts.albedo_filter,
+            udim_tile: ts.udim_tile,
             channels: ts.channels.iter().map(|c| ChannelDefV1 { kind: c.kind, format: c.format }).collect(),
             layers: ts.layers.iter().map(|l| writer.layer(l)).collect(),
             mesh_maps: mesh_maps
@@ -198,7 +213,7 @@ pub fn write_project<W: Write + Seek>(
         })
         .collect();
     let (res_entries, res_files) = pack_resources(&referenced_resources(doc), resources);
-    let document = DocumentV1 { texture_sets, resources: res_entries };
+    let document = DocumentV1 { texture_sets, resources: res_entries, settings: settings.clone() };
     let manifest = Manifest {
         format: FORMAT_NAME.into(),
         schema_version: SCHEMA_VERSION,
@@ -282,10 +297,16 @@ fn to_json<T: serde::Serialize>(v: &T) -> String {
 /// Save atomically to `path` (temp file + rename).
 #[cfg(not(target_arch = "wasm32"))]
 pub fn save_project(path: &Path, mesh: &Mesh, doc: &Document, resources: &ResourceStore, mesh_maps: &MeshMapSet) -> Result<(), ProjectError> {
+    save_project_with(path, mesh, doc, resources, mesh_maps, &subcraft_doc::ProjectSettings::default())
+}
+
+/// Like [`save_project`], with the project settings.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn save_project_with(path: &Path, mesh: &Mesh, doc: &Document, resources: &ResourceStore, mesh_maps: &MeshMapSet, settings: &subcraft_doc::ProjectSettings) -> Result<(), ProjectError> {
     let tmp = temp_path(path);
     let result = (|| -> Result<(), ProjectError> {
         let file = std::fs::File::create(&tmp)?;
-        let buf = write_project(std::io::BufWriter::new(file), mesh, doc, resources, mesh_maps)?;
+        let buf = write_project_with(std::io::BufWriter::new(file), mesh, doc, resources, mesh_maps, settings)?;
         let file = buf.into_inner().map_err(|e| ProjectError::Io(e.into_error()))?;
         file.sync_all()?;
         drop(file);
@@ -301,7 +322,12 @@ pub fn save_project(path: &Path, mesh: &Mesh, doc: &Document, resources: &Resour
 /// Web build: encode in memory and hand the file to `vfs` (which offers it as a download).
 #[cfg(target_arch = "wasm32")]
 pub fn save_project(path: &Path, mesh: &Mesh, doc: &Document, resources: &ResourceStore, mesh_maps: &MeshMapSet) -> Result<(), ProjectError> {
-    let buf = write_project(std::io::Cursor::new(Vec::new()), mesh, doc, resources, mesh_maps)?;
+    save_project_with(path, mesh, doc, resources, mesh_maps, &subcraft_doc::ProjectSettings::default())
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn save_project_with(path: &Path, mesh: &Mesh, doc: &Document, resources: &ResourceStore, mesh_maps: &MeshMapSet, settings: &subcraft_doc::ProjectSettings) -> Result<(), ProjectError> {
+    let buf = write_project_with(std::io::Cursor::new(Vec::new()), mesh, doc, resources, mesh_maps, settings)?;
     subcraft_core::vfs::write(path, &buf.into_inner())?;
     Ok(())
 }
@@ -477,6 +503,7 @@ pub fn read_project<R: Read + Seek>(r: R) -> Result<ProjectData, ProjectError> {
             material_slot: t.material_slot,
             resolution: t.resolution,
             albedo_filter: t.albedo_filter,
+            udim_tile: t.udim_tile,
             channels: t.channels.iter().map(|c| ChannelDef { kind: c.kind, format: c.format }).collect(),
             layers: Vec::new(),
         };
@@ -497,7 +524,7 @@ pub fn read_project<R: Read + Seek>(r: R) -> Result<ProjectData, ProjectError> {
     }
 
     let resources = unpack_resources(&mut loader, &doc.resources)?;
-    Ok(ProjectData { mesh, document: Document { texture_sets }, resources, mesh_maps })
+    Ok(ProjectData { mesh, document: Document { texture_sets }, settings: doc.settings.clone(), resources, mesh_maps })
 }
 
 pub fn load_project(path: &Path) -> Result<ProjectData, ProjectError> {

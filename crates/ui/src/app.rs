@@ -100,6 +100,10 @@ pub struct LaunchOptions {
     pub shelf_tab: Option<String>,
     /// Open the Export Textures window (scripted captures).
     pub export_window: bool,
+    /// Open the New Project window with this model loaded (scripted captures).
+    pub new_project_model: Option<PathBuf>,
+    /// High-poly model for the same window.
+    pub new_project_high: Option<PathBuf>,
     /// Give Properties the whole right column (scripted captures of its long blocks).
     pub properties_panel: bool,
     /// Export template to select (index into the built-in list) when the window opens.
@@ -475,6 +479,12 @@ impl SubcraftApp {
             }
         }
         state.pending_render_job = options.render_job.clone();
+        if let Some(model) = &options.new_project_model {
+            state.new_project.show_window(&state.recovery.prefs.new_project.clone());
+            state.new_project.load_model(model);
+            if let Some(high) = &options.new_project_high { state.new_project.load_high_poly(high); }
+            state.welcome.open = false;
+        }
         state.export.open = options.export_window || options.export_template.is_some();
         if let Some(i) = options.export_template { state.export.template = i.min(subcraft_export::ExportTemplate::builtin().len() - 1); }
         state.render_window = options.render_window;
@@ -731,7 +741,7 @@ impl SubcraftApp {
                     self.request(Pending::NewSample, now);
                     ui.close();
                 }
-                if item(ui, icons::CUBE, "New from mesh…", "") {
+                if item(ui, icons::CUBE, "New project from a model…", "") {
                     ui.close();
                     self.request(Pending::OpenMesh, now);
                 }
@@ -1144,6 +1154,7 @@ impl eframe::App for SubcraftApp {
         let now = ctx.input(|i| i.time);
         crate::asset_preview::show(&mut self.state,&ctx);
         crate::render_export::window(&mut self.state, &ctx);
+        crate::new_project::window(&mut self.state, &ctx);
         crate::render_export::handle_request(&mut self.state, ctx.input(|i| i.time));
         crate::pen::finish_frame(&mut self.state, &ctx, now);
         self.flush_pen_after(now);

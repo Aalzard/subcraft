@@ -10,6 +10,7 @@ pub mod dialogs;
 pub mod files;
 pub mod graphics;
 pub mod icons;
+pub mod new_project;
 pub mod orbit;
 pub mod render_export;
 pub mod pen;

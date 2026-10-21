@@ -2670,6 +2670,30 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   `--properties-panel`. NOT verified: physical clicks on the chip, narrow-dock look of the cards,
   Alt+click on the new chips (they follow the existing toggle rules), the AO chip in the viewport.
 
+### Session 100 - Claude: New Project window (2026-10-21)
+
+* **New Project (File > New project from a model, Welcome screen, `--new-project <model> [--new-project-high <hi>]`):**
+  pick a model (OBJ/FBX/glTF/GLB; browser: upload) and see what is inside before anything is created:
+  triangles, materials, objects, UV bounds, UDIM tiles, and warnings (no UVs, overlapping UVs,
+  triangles crossing a tile border, tile folding). Choices: template (PBR / Unreal ORM / Unity /
+  Godot / Stylized = which channels exist, normal format), resolution (per-set overrides under
+  Advanced), texture-set split (by material / by object / one set), UDIM option (one set per tile,
+  only shown for 2+ tiles), normal format OpenGL/DirectX, optional high-poly (UV-free allowed; the Bake
+  window opens with it). Last choices are remembered in the preferences. Tangent space is MikkTSpace
+  (informational line; no switch).
+* All logic is in `app::new_project` (`NewProjectSettings`, `summarize`, `plan_sets`,
+  `Session::from_mesh_with`); `ui::new_project` only draws and dispatches. `Mesh::regroup`
+  (mesh/regroup.rs) rebuilds material slots for a split rule and shifts UDIM tile UVs into 0..1 so
+  everything per set (paint, bake, export) works unchanged. `TextureSet.udim_tile`, and
+  `ProjectSettings` (normal format, export template, export maps off, UDIM folders) are saved in
+  project schema 13 (older files migrate unchanged).
+* Tests: mesh regroup, app/tests/new_project.rs + unit tests, ui/tests/new_project_window.rs (renders,
+  Enter creates with template/resolution, remembered choices, no-UV model refused). Real app
+  (scripted): `--new-project target/.../tiled_props.obj --new-project-high ...` screenshot with 3
+  UDIM tiles, 2 materials, 3 objects. NOT verified: physical clicks/typing in the window, browser
+  upload path, FBX/glTF models with several UV tiles. Exported normal maps do not apply the project
+  normal format yet (Part 2 of this session).
+
 ## Next steps (in order)
 
 Owner checks imported PBRs in the refreshed target/debug/subcraft.exe, especially close-up

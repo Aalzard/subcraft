@@ -77,6 +77,9 @@ pub struct TextureSet {
     pub channels: Vec<ChannelDef>,
     /// Bottom-to-top.
     pub layers: Vec<Arc<Layer>>,
+    /// The UDIM tile (`[column, row]` in stored UV space, see `subcraft_mesh::regroup`) this set
+    /// paints; `None` for an ordinary set. Its mesh slot was moved into the 0..1 square.
+    pub udim_tile: Option<[i32; 2]>,
 }
 
 impl TextureSet {
@@ -89,6 +92,20 @@ impl TextureSet {
             albedo_filter: Default::default(),
             channels: ChannelKind::METAL_ROUGH.iter().map(|&k| ChannelDef::default_for(k)).collect(),
             layers: Vec::new(),
+            udim_tile: None,
+        }
+    }
+
+    /// The 1001-style UDIM number of this set's tile.
+    pub fn udim_number(&self) -> Option<u32> {
+        self.udim_tile.map(|[col, row]| (1001 + col - 10 * row).max(1001) as u32)
+    }
+
+    /// The name without a trailing `.1002` tile suffix (what exported file names start with).
+    pub fn base_name(&self) -> &str {
+        match (self.udim_number(), self.name.rsplit_once('.')) {
+            (Some(_), Some((base, tail))) if tail.len() == 4 && tail.bytes().all(|b| b.is_ascii_digit()) => base,
+            _ => &self.name,
         }
     }
 

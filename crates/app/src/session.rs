@@ -133,6 +133,9 @@ pub struct Session {
     project_path: Option<PathBuf>,
     /// Document as of the last save / load / new (for the unsaved-changes indicator).
     saved_doc: Document,
+    /// Saved with the project but outside the undo history (export choices, normal format).
+    settings: subcraft_doc::ProjectSettings,
+    saved_settings: subcraft_doc::ProjectSettings,
     /// Mesh maps changed (baked) since the last save.
     maps_dirty: bool,
     /// Bumped whenever baked mesh maps change (autosave change tracking).
@@ -148,11 +151,12 @@ pub struct ProjectSnapshot {
     pub document: Document,
     pub resources: ResourceStore,
     pub mesh_maps: subcraft_project::MeshMapSet,
+    pub settings: subcraft_doc::ProjectSettings,
 }
 
 impl ProjectSnapshot {
     pub fn save(&self, path: &Path) -> Result<(), String> {
-        subcraft_project::save_project(path, &self.mesh, &self.document, &self.resources, &self.mesh_maps).map_err(|e| e.to_string())
+        subcraft_project::save_project_with(path, &self.mesh, &self.document, &self.resources, &self.mesh_maps, &self.settings).map_err(|e| e.to_string())
     }
 }
 
@@ -183,6 +187,8 @@ impl Session {
             no_maps: MeshMaps::new(),
             history: History::new(doc.clone(), label),
             saved_doc: doc.clone(),
+            settings: Default::default(),
+            saved_settings: Default::default(),
             doc,
             selection,
             mask_clipboard: None,
@@ -229,6 +235,8 @@ impl Session {
         }
         let mut s = Self::from_parts(data.mesh, data.document, data.resources, label);
         s.project_path = Some(path.to_path_buf());
+        s.saved_settings = data.settings.clone();
+        s.settings = data.settings;
         for (ts, maps) in data.mesh_maps {
             s.mesh_maps.insert(ts, MeshMaps::from_map(maps));
         }
@@ -245,9 +253,10 @@ impl Session {
             None => return Err("no project path: use Save As".into()),
         };
         let maps: subcraft_project::MeshMapSet = self.mesh_maps.iter().map(|(id, m)| (*id, m.as_map().clone())).collect();
-        subcraft_project::save_project(&path, &self.scene.mesh, &self.doc, &self.resources, &maps).map_err(|e| e.to_string())?;
+        subcraft_project::save_project_with(&path, &self.scene.mesh, &self.doc, &self.resources, &maps, &self.settings).map_err(|e| e.to_string())?;
         self.project_path = Some(path.clone());
         self.saved_doc = self.doc.clone();
+        self.saved_settings = self.settings.clone();
         self.maps_dirty = false;
         self.recovered = false;
         Ok(path)
@@ -260,6 +269,7 @@ impl Session {
             document: self.history.current().clone(),
             resources: self.resources.clone(),
             mesh_maps: self.mesh_maps.iter().map(|(id, m)| (*id, m.as_map().clone())).collect(),
+            settings: self.settings.clone(),
         }
     }
 
@@ -291,7 +301,17 @@ impl Session {
 
     /// True if the document differs from the last save / load.
     pub fn is_modified(&self) -> bool {
-        self.maps_dirty || self.recovered || self.doc != self.saved_doc
+        self.maps_dirty || self.recovered || self.doc != self.saved_doc || self.settings != self.saved_settings
+    }
+
+    /// Project-wide settings (export choices, normal format), saved with the project.
+    pub fn settings(&self) -> &subcraft_doc::ProjectSettings {
+        &self.settings
+    }
+
+    /// Replace the project settings. Not undoable; marks the project as modified.
+    pub fn set_settings(&mut self, settings: subcraft_doc::ProjectSettings) {
+        self.settings = settings;
     }
 
     // ----- baking --------------------------------------------------------------------------------

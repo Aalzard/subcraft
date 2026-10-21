@@ -4,6 +4,7 @@ pub mod bvh;
 pub mod import;
 pub mod mesh;
 pub mod primitives;
+pub mod regroup;
 pub mod serialize;
 pub mod tangent;
 pub mod topology;
