@@ -370,3 +370,64 @@ fn id_colors_differ_per_element_and_cancel_stops() {
     p.cancel();
     assert_eq!(bake(&input, &settings(&[MeshMapKind::AmbientOcclusion]), &p).unwrap_err(), BakeError::Cancelled);
 }
+
+#[test]
+fn height_map_records_the_bump_from_a_high_poly_and_is_flat_without_one() {
+    let low = primitives::plane(2.0, 1);
+    let high = bumped_plane();
+    let (lb, hb) = (Bvh::build(&low), Bvh::build(&high));
+    let input = BakeInput { low: Geometry { mesh: &low, bvh: &lb }, high: Some(Geometry { mesh: &high, bvh: &hb }), material_slot: 0 };
+    let diag = low.bounds.diagonal();
+    let s = BakeSettings { size: RES, maps: vec![MeshMapKind::Height], cage_front: 0.1, cage_rear: 0.05, ..BakeSettings::default() };
+    let maps = bake(&input, &s, &Progress::new()).unwrap();
+    let height = &maps[&MeshMapKind::Height];
+    assert_eq!(height.comps(), 1);
+    let (mut centre, mut flat) = (0.0f32, 0.0f32);
+    let (mut nc, mut nf) = (0, 0);
+    for t in texels(&low, 0, RES) {
+        let v = at(height, &t)[0];
+        assert!((0.0..=1.0).contains(&v));
+        let r = Vec2::new(t.position.x, t.position.z).length();
+        if r < 0.05 { centre += v; nc += 1; }
+        if r > 0.8 { flat += v; nf += 1; }
+    }
+    let (centre, flat) = (centre / nc as f32, flat / nf as f32);
+    assert!((flat - 0.5).abs() < 0.02, "the flat surround stays at 0.5: {flat}");
+    // The bump is 0.15 tall; the front cage is 0.1 of the diagonal, so the peak reads 0.5 + 0.5 * 0.15 / (0.1 * diag).
+    let expected = 0.5 + 0.5 * (0.15 / (0.1 * diag)).min(1.0);
+    assert!((centre - expected).abs() < 0.04, "peak height {centre} vs {expected}");
+    // Low on low: nothing stands above the surface.
+    let flat_maps = bake_low(&low, &[MeshMapKind::Height], 0);
+    for t in texels(&low, 0, RES).iter().step_by(31) {
+        assert_eq!(at(&flat_maps[&MeshMapKind::Height], t)[0], 0.5);
+    }
+}
+
+#[test]
+fn bent_normal_leans_away_from_a_wall_and_equals_the_normal_in_the_open() {
+    let open = primitives::plane(2.0, 2);
+    let maps = bake_low(&open, &[MeshMapKind::BentNormal], 0);
+    let bent = &maps[&MeshMapKind::BentNormal];
+    assert_eq!(bent.comps(), 3);
+    for t in texels(&open, 0, RES).iter().step_by(37) {
+        let b = at(bent, t);
+        assert!((b[0] - 0.5).abs() < 0.12 && (b[1] - 0.5).abs() < 0.12 && b[2] > 0.9, "open plane bends to the normal: {b:?}");
+    }
+    // Floor beside a box: the open sky is away from the box, so the bent normal tilts that way.
+    let mesh = floor_with_box();
+    let maps = bake_low(&mesh, &[MeshMapKind::BentNormal], 0);
+    let bent = &maps[&MeshMapKind::BentNormal];
+    let (mut tilt_away, mut count) = (0.0f32, 0);
+    for t in texels(&mesh, 0, RES) {
+        let to_box = Vec3::new(t.position.x.clamp(-0.5, 0.5) - t.position.x, 0.0, t.position.z.clamp(-0.5, 0.5) - t.position.z);
+        let d = to_box.length();
+        if d > 0.0 && d < 0.1 {
+            let b = at(bent, &t);
+            assert!(b.iter().all(|v| v.is_finite()));
+            // Tangent frame of the floor is not world aligned, so test the tilt magnitude instead of a sign.
+            tilt_away += Vec2::new(b[0] - 0.5, b[1] - 0.5).length();
+            count += 1;
+        }
+    }
+    assert!(count > 20 && tilt_away / count as f32 > 0.1, "texels beside the box lean: {}", tilt_away / count.max(1) as f32);
+}

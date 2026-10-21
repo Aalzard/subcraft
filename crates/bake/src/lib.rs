@@ -7,8 +7,9 @@
 //!
 //! Maps: tangent-space normal (OpenGL / MikkTSpace frame of the low poly), world-space normal,
 //! position (normalized per axis to the low-poly bounds), ID (color per mesh element), ambient
-//! occlusion (cosine-weighted hemisphere rays), curvature (3D neighbourhood convexity, 0.5 flat)
-//! and thickness (rays into the surface; bright = thin). Gutters are padded from the nearest
+//! occlusion (cosine-weighted hemisphere rays), curvature (3D neighbourhood convexity, 0.5 flat),
+//! thickness (rays into the surface; bright = thin), height (signed distance to the high poly
+//! inside the cage, 0.5 flat) and bent normal (average open direction, tangent space). Gutters are padded from the nearest
 //! island texel.
 
 pub mod curvature;
@@ -129,6 +130,9 @@ struct Detail {
     tri: Option<u32>,
     /// Offset direction for ray origins (geometric normal).
     offset: Vec3,
+    /// Signed distance from the low-poly point to the detail surface along the cage normal
+    /// (positive = the detail stands above the low poly).
+    height: f32,
 }
 
 const CHUNK: usize = 2048;
@@ -166,10 +170,10 @@ pub fn bake_streamed(
                 let sp = high.mesh.interpolate(hit.tri as usize, hit.u, hit.v);
                 let ng = sp.geometric_normal;
                 let normal = if sp.normal.dot(n) < 0.0 { -sp.normal } else { sp.normal };
-                return Detail { position: sp.position, normal, tri: Some(hit.tri), offset: if ng.dot(n) < 0.0 { -ng } else { ng } };
+                return Detail { position: sp.position, normal, tri: Some(hit.tri), offset: if ng.dot(n) < 0.0 { -ng } else { ng }, height: front - hit.t };
             }
         }
-        Detail { position: t.position, normal: t.normal, tri: input.high.is_none().then_some(t.tri), offset: t.geometric_normal }
+        Detail { position: t.position, normal: t.normal, tri: input.high.is_none().then_some(t.tri), offset: t.geometric_normal, height: 0.0 }
     };
 
     let wanted = |k: MeshMapKind| settings.maps.contains(&k);
@@ -233,6 +237,31 @@ pub fn bake_streamed(
                     }
                     let ao = if counted == 0 { 1.0 } else { 1.0 - occluded as f32 / counted as f32 };
                     [ao; 3]
+                }
+                MeshMapKind::Height => {
+                    // Piecewise so the front and rear cage distances both span half the range.
+                    let reach = if d.height >= 0.0 { settings.cage_front } else { settings.cage_rear } * diag;
+                    let h = 0.5 + 0.5 * (d.height / reach.max(1e-9)).clamp(-1.0, 1.0);
+                    [h; 3]
+                }
+                MeshMapKind::BentNormal => {
+                    let n = t.normal.normalize_or(t.geometric_normal);
+                    let tan = (t.tangent.truncate() - n * n.dot(t.tangent.truncate())).normalize_or(n.any_orthonormal_vector());
+                    let bit = n.cross(tan) * if t.tangent.w < 0.0 { -1.0 } else { 1.0 };
+                    let mut dirs = Vec::with_capacity(settings.ao_samples as usize);
+                    cosine_directions(d.normal, settings.ao_samples.max(1), hash01(t.index, 3), &mut dirs);
+                    let origin = d.position + d.offset * bias;
+                    let dist = settings.ao_distance * diag;
+                    let mut sum = Vec3::ZERO;
+                    for dir in &dirs {
+                        if dir.dot(d.offset) > 0.0 && !detail_geo.bvh.occluded(origin, *dir, 0.0, dist) {
+                            sum += *dir;
+                        }
+                    }
+                    // Fully occluded texels keep the surface normal.
+                    let bent = sum.try_normalize().unwrap_or(d.normal);
+                    let ts = Vec3::new(bent.dot(tan), bent.dot(bit), bent.dot(n)).normalize_or(Vec3::Z);
+                    [ts.x * 0.5 + 0.5, ts.y * 0.5 + 0.5, ts.z * 0.5 + 0.5]
                 }
                 MeshMapKind::Thickness => {
                     let mut dirs = Vec::with_capacity(settings.thickness_samples as usize);
