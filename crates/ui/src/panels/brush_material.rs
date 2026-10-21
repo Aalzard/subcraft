@@ -17,6 +17,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     let mut material = state.session.brush.material.clone();
     let original = material.clone();
     let mut dropped = None;
+    let mut starter_dropped = None;
+    // While a texture is being dragged, channels that are switched off still accept it (the app
+    // switches the channel on when it receives the image).
+    let dragging_texture = egui::DragAndDrop::payload::<ShelfDrag>(ui.ctx()).is_some_and(|d| matches!(*d, ShelfDrag::Texture(_) | ShelfDrag::Starter(_)));
     if quiet_button(ui, crate::icons::PAINT_BUCKET, "Paint whole material…")
         .on_hover_text("Choose named texture maps for the brush; only imported channels paint")
         .clicked()
@@ -46,7 +50,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 value: kind.default_paint_value(),
             });
             let mut pick = false;
-            if !entry.enabled { return; }
+            let enabled = entry.enabled;
+            if !enabled && !dragging_texture { return; }
             let has_image = material.textures.contains_key(&kind);
             let row = egui::Frame::new()
                 .fill(theme::ROW_BANDS[index % 2])
@@ -56,7 +61,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     ui.set_min_width(ui.available_width());
                     ui.horizontal(|ui| {
                         ui.label(kind.display_name());
-                        if !has_image {
+                        if !enabled {
+                            ui.weak("drop the image here to use it");
+                        } else if !has_image {
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
@@ -69,7 +76,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                             );
                         }
                     });
-                    if let Some(&id) = material.textures.get(&kind) {
+                    if !enabled {
+                    } else if let Some(&id) = material.textures.get(&kind) {
                         pick = image_row(ui, state, id);
                         if quiet_button(ui, crate::icons::X, "Clear image").clicked() {
                             material.textures.remove(&kind);
@@ -90,7 +98,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             if row
                 .response
                 .dnd_hover_payload::<ShelfDrag>()
-                .is_some_and(|d| matches!(*d, ShelfDrag::Texture(_)))
+                .is_some_and(|d| matches!(*d, ShelfDrag::Texture(_) | ShelfDrag::Starter(_)))
             {
                 ui.painter().rect_stroke(
                     row.response.rect,
@@ -99,14 +107,14 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     egui::StrokeKind::Inside,
                 );
             }
-            if let Some(d) = row.response.dnd_release_payload::<ShelfDrag>()
-                && let ShelfDrag::Texture(i) = *d
-            {
-                dropped = state
-                    .textures
-                    .items
-                    .get(i)
-                    .map(|item| (kind, item.path.clone()));
+            if let Some(d) = row.response.dnd_release_payload::<ShelfDrag>() {
+                match *d {
+                    ShelfDrag::Texture(i) => {
+                        dropped = state.textures.items.get(i).map(|item| (kind, item.path.clone()));
+                    }
+                    ShelfDrag::Starter(i) => starter_dropped = Some((i, kind)),
+                    _ => {}
+                }
             }
         });
     }
@@ -141,6 +149,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         && let Err(e) = state.session.execute(Command::SetBrushMaterial(material))
     {
         state.set_status(e.to_string(), now);
+    }
+    if let Some((index, channel)) = starter_dropped {
+        state.asset_preview.queue_brush(&state.session, index, channel);
     }
     if let Some((channel, path)) = dropped {
         match state.session.set_brush_channel_image(channel, &path) {

@@ -6,15 +6,18 @@ use subcraft_doc::{FillChannel, FillSource, Layer, LayerContent, Resource, Resou
 use subcraft_image::Bitmap;
 use crate::{Command, Selection, Session};
 
-pub struct Destination { scene: Arc<subcraft_mesh::Mesh>, selection: Selection, channel: Option<(LayerId,ChannelKind)> }
+pub struct Destination { scene: Arc<subcraft_mesh::Mesh>, selection: Selection, channel: Option<(LayerId,ChannelKind)>, brush_channel: Option<ChannelKind> }
 impl Destination {
-    pub fn capture(session: &Session, channel: Option<(LayerId,ChannelKind)>) -> Self { Self { scene:session.scene().mesh.clone(),selection:session.selection(),channel } }
+    pub fn capture(session: &Session, channel: Option<(LayerId,ChannelKind)>) -> Self { Self { scene:session.scene().mesh.clone(),selection:session.selection(),channel,brush_channel:None } }
+    /// The brush's image for `channel` (tool state: no layer or document change).
+    pub fn capture_brush(session: &Session, channel: ChannelKind) -> Self { Self { brush_channel:Some(channel),..Self::capture(session,None) } }
     pub fn apply(self, session: &mut Session, name: &str, kind: Kind, bitmap: Bitmap) -> Result<(),String> {
         if !Arc::ptr_eq(&self.scene,&session.scene().mesh) { return Err("Project changed; image application canceled".into()); }
         if kind==Kind::Alpha {
             let alpha=BrushAlpha { id:AssetId::from_name(&format!("adjusted-alpha/{name}")),name:name.into(),bitmap:Some(Arc::new(bitmap)),user_file:None };
             session.set_brush_alpha(&alpha); return Ok(());
         }
+        if let Some(channel)=self.brush_channel { return session.set_brush_channel_bitmap(channel,name,bitmap); }
         let ts=session.document().texture_set(self.selection.texture_set).ok_or("Texture set no longer exists")?;
         let channel=if kind==Kind::Normal {ChannelKind::Normal} else {match subcraft_assets::texture_maps::classify(name) {subcraft_assets::texture_maps::Classified::Map(m)=>m.channel,_=>ChannelKind::BaseColor}};
         if !ts.has_channel(channel) { return Err("Texture set does not contain that channel".into()); }

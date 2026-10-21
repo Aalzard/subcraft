@@ -24,8 +24,15 @@ impl AssetPreviewUi {
     pub fn is_applying(&self) -> bool {self.destination.is_some()}
     pub fn cancel_apply(&mut self) {self.destination=None;self.apply=None;self.queued=None;}
     pub fn queue(&mut self, session: &subcraft_app::Session, index: usize, channel: Option<(subcraft_core::LayerId,subcraft_core::ChannelKind)>) {
-        if self.builtin==Some(index)&&self.source.is_some()&&self.loader.is_none() {self.apply_to(session,channel);return;}
-        if ENTRIES.get(index).is_none() {return;} self.cancel_apply();self.queued=Some(index);self.destination=Some(subcraft_app::asset_apply::Destination::capture(session,channel));
+        self.queue_to(index,subcraft_app::asset_apply::Destination::capture(session,channel));
+    }
+    /// Use starter image `index` as the brush's image for `channel` (dropped on a Brush slot).
+    pub fn queue_brush(&mut self, session: &subcraft_app::Session, index: usize, channel: subcraft_core::ChannelKind) {
+        self.queue_to(index,subcraft_app::asset_apply::Destination::capture_brush(session,channel));
+    }
+    fn queue_to(&mut self, index: usize, destination: subcraft_app::asset_apply::Destination) {
+        if self.builtin==Some(index)&&self.source.is_some()&&self.loader.is_none() {self.destination=Some(destination);self.apply=None;return;}
+        if ENTRIES.get(index).is_none() {return;} self.cancel_apply();self.queued=Some(index);self.destination=Some(destination);
     }
     pub fn start(&mut self, ctx: &egui::Context, name: String, kind: Kind, source: Source, open: bool) {
         self.cancel_apply(); self.open=open;self.name=name;self.kind=Some(kind);self.settings=Settings::default();self.tiles=1;
