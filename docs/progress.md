@@ -2607,6 +2607,43 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   painting with them, 4K bake time, metallic/roughness/height judged only numerically, a
   mud/wet-darkening look (no wetness channel), and artist taste: values are a first pass.
 
+### Session 98 - Claude: viewport quality, engine export presets, Height / Bent Normal bakes, emission glow (2026-10-21)
+
+* **Viewport quality (render/post.rs, post.wgsl, offline.rs; ui/render_export.rs):** tone mapping choice
+  (ACES default, Filmic, Reinhard, Linear), exposure, bloom (bright pass + blur, half resolution),
+  screen-space ambient occlusion (depth prepass, Alchemy-style, blurred) and a "Render quality"
+  window (View menu / File menu). Bloom/AO run only when switched on (frames stay bit-identical to
+  before otherwise). Settings are viewport preferences (ViewportPrefs, old preference files load).
+  **Export:** File > Render image / turntable: still PNG at 1024-4096 px with optional 2x
+  supersampling (linear-light box filter), or a turntable of 24-120 numbered PNG frames
+  (`turntable_0001.png`...). No grid or guides. Scripted: `--render-image out.png`, `--turntable DIR`,
+  `--quality tone=filmic,bloom=0.6,threshold=0.6,ao=1,ao-radius=4,exposure=1,glow=0.8,glare=0.5,
+  glare-mode=star,glare-length=0.6`, `--render-window`. No GIF/MP4: the project has no encoder
+  (Cargo.lock is protected); import the PNG sequence elsewhere.
+* **Emission glow / glare (roadmap Emission):** an emission-only pass (HDR) feeds a soft glow (default
+  0.35, nonzero) and optional glare streaks (horizontal, vertical, both, starburst; length, strength).
+  Only models with an Emissive channel are affected; the effects are viewport-only and never reach
+  exported textures. The default texture set has no Emissive channel: Insert a fill layer with it (the
+  `emiss` toggle) as before. Streaks are smooth [1 2 1] stage chains at doubling strides at half
+  resolution; fine detail is soft by design.
+* **Export presets:** new Unity URP (MetallicSmoothness R=G=B metallic + A smoothness, Occlusion gray,
+  OpenGL normals, Height) and Godot 4 (ORM R occlusion G roughness B metallic, OpenGL normals,
+  Emissive, Height); Unreal renamed "ORM packed"; templates are appended so saved choices keep
+  their index. Tests export each template and check every packed channel value.
+* **Bakes:** new Height (signed distance to the high poly inside the cage, 0.5 flat; flat without a
+  high poly) and Bent Normal (average unoccluded direction, tangent space) mesh maps, in the Bake
+  dialog and 2D view; Height/Bent Normal also work as generator sources. Projects store maps by key.
+* Tests: render/tests/post.rs (tone map order, bloom, AO, flat plane, glow, glare directions; GPU,
+  skipped without an adapter), render/src/offline.rs, ui/tests/render_quality.rs, export and bake tests.
+  **592 workspace tests pass, 0 failed/ignored; Clippy exits 0 with 68 warnings (baseline).**
+* Real app (Windows debug, RTX 4060/DX12, scripted): viewport-quality-glow-glare.png, render-quality-window.png,
+  turntable-frames.png (36-frame turntable written by the app), export-presets-godot-urp.png (new
+  `--export-template N`), bake-height-bent-normal-dialog.png (native bake with the crate as its own
+  high poly). NOT verified: interactive slider use and frame cost in the live viewport, 4096 px
+  supersampled export on small GPUs (about 1 GB), OpenGL/WebGL backends for the HDR passes, AO on
+  very thin or huge models (radius is a percentage of the diagonal), engine import of the exported
+  textures in Unreal/Unity/Godot themselves, Height/Bent Normal on production high polys.
+
 ## Next steps (in order)
 
 Owner checks imported PBRs in the refreshed target/debug/subcraft.exe, especially close-up

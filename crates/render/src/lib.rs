@@ -13,6 +13,8 @@ mod display;
 pub mod headless;
 pub mod material;
 mod mipmap;
+pub mod offline;
+pub mod post;
 pub mod preview;
 pub mod target;
 
@@ -31,6 +33,7 @@ pub use egui_wgpu::wgpu as wgpu_api;
 pub use gpu_mesh::GpuMesh;
 pub use grid::GridParams;
 pub use material::{ChannelTexture, GpuMaterial, SHADED_CHANNELS};
+pub use post::{GlareMode, PostParams, ToneMap};
 pub use preview::{PreviewPass, PreviewTarget};
 pub use target::{DISPLAY_FORMAT, OUTPUT_FORMAT, PendingReadback, RenderTarget};
 
@@ -113,6 +116,8 @@ pub struct ViewParams {
     /// Show a raw baked map on the low-poly UVs without changing material textures.
     pub bake_map: Option<MeshMapKind>,
     pub symmetry_guides: bool,
+    /// Tone mapping, bloom and ambient occlusion (defaults leave the image as before).
+    pub post: PostParams,
 }
 
 /// What the 3D view shows on the model.
@@ -171,6 +176,7 @@ impl ViewParams {
             view_mode: ViewMode::Material,
             grid: None,
             bake_overlay: false, bake_cage: true, bake_distances: [0.01; 2], bake_map: None, symmetry_guides: false,
+            post: PostParams::default(),
         }
     }
 }
@@ -190,6 +196,7 @@ struct Globals {
     irr_down: [f32; 4],
     lights: [f32; 4],
     env_misc: [f32; 4],
+    post: [f32; 4],
     sh: [[f32; 4]; 9],
 }
 
@@ -200,6 +207,8 @@ pub struct ViewportRenderer {
     pipeline: wgpu::RenderPipeline,
     /// Single-sample pipeline (anti-aliasing off).
     pipeline_no_aa: wgpu::RenderPipeline,
+    /// Emission-only pass feeding the glow and glare effects.
+    pipeline_emissive: wgpu::RenderPipeline,
     grid: grid::GridPass,
     symmetry: Option<grid::GridPass>,
     bake_preview: bake_preview::BakePreviewPass,
@@ -220,6 +229,7 @@ pub struct ViewportRenderer {
     target: Option<RenderTarget>,
     preview: PreviewPass,
     preview_target: Option<PreviewTarget>,
+    post: post::PostPass,
 }
 
 impl ViewportRenderer {
@@ -311,6 +321,28 @@ impl ViewportRenderer {
             multiview_mask: None,
             cache: None,
         });
+        let pipeline_emissive = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("emission pipeline"),
+            layout: Some(&layout),
+            vertex: wgpu::VertexState { module: &shader, entry_point: Some("vs_main"), compilation_options: Default::default(), buffers: &[Some(gpu_mesh::Vertex::layout())] },
+            primitive: wgpu::PrimitiveState { cull_mode: None, ..Default::default() },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: target::DEPTH_FORMAT,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(wgpu::CompareFunction::Less),
+                stencil: Default::default(),
+                bias: Default::default(),
+            }),
+            multisample: Default::default(),
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_emissive"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState { format: post::HDR_FORMAT, blend: None, write_mask: wgpu::ColorWrites::ALL })],
+            }),
+            multiview_mask: None,
+            cache: None,
+        });
         let pipeline = make_pipeline(SAMPLE_COUNT);
         let pipeline_no_aa = make_pipeline(1);
         let globals = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -350,7 +382,10 @@ impl ViewportRenderer {
             address_mode_v: wgpu::AddressMode::ClampToEdge, mag_filter: wgpu::FilterMode::Nearest,
             min_filter: wgpu::FilterMode::Nearest, lod_max_clamp: 0.0, ..Default::default()
         });
+        let post = post::PostPass::new(device, &globals_layout, &shader);
         Self {
+            post,
+            pipeline_emissive,
             pipeline,
             pipeline_no_aa,
             grid: grid::GridPass::new(device),
@@ -571,6 +606,7 @@ impl ViewportRenderer {
             lights: [e.panels, e.top, e.key_softbox, if e.use_hdri && self.env_levels > 1 { 1.0 } else { 0.0 }],
             env_misc: [e.rotation, e.hdri_intensity, (self.env_levels - 1) as f32,
                 params.bake_map.map_or(params.view_mode as u32 as f32, |k| if k.components() == 1 { 8. } else { 7. })],
+            post: [params.post.tone_map.id(), 0.0, 0.0, 0.0],
             sh,
         };
         queue.write_buffer(&self.globals, 0, bytemuck::bytes_of(&globals));
@@ -627,6 +663,13 @@ impl ViewportRenderer {
                 self.grid.draw(&mut pass, params.antialias);
             }
             if params.symmetry_guides && let Some(guides) = &self.symmetry { guides.draw(&mut pass, params.antialias); }
+        }
+        // Glow and glare only exist where the model has an Emissive channel to draw.
+        let has_emission = self.materials.values().any(|m| m.channels.contains_key(&ChannelKind::Emissive));
+        let emission_on = has_emission && params.post.wants_emission() && params.bake_map.is_none();
+        if (params.post.active() || emission_on) && !params.bake_overlay {
+            let draw = self.mesh.as_ref().filter(|_| emission_on).map(|mesh| post::EmissionDraw { pipeline: &self.pipeline_emissive, mesh, materials: &self.materials });
+            self.post.run(device, queue, &mut encoder, target, &self.globals_bg, self.mesh.as_ref(), draw.as_ref(), params.proj, &params.post);
         }
         target.encode_display(&mut encoder);
         queue.submit([encoder.finish()]);

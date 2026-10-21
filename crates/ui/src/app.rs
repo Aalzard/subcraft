@@ -98,6 +98,16 @@ pub struct LaunchOptions {
     pub capture_tool: Option<String>,
     /// Open this Shelf tab (textures, materials, smart-materials, smart-masks, brushes, environments).
     pub shelf_tab: Option<String>,
+    /// Open the Export Textures window (scripted captures).
+    pub export_window: bool,
+    /// Export template to select (index into the built-in list) when the window opens.
+    pub export_template: Option<usize>,
+    /// Open the Render quality window (scripted captures).
+    pub render_window: bool,
+    /// Render a still or a turntable from the loaded project, then quit (scripted export).
+    pub render_job: Option<crate::render_export::Job>,
+    /// Look overrides for scripted renders, e.g. `tone=filmic,bloom=0.8,ao=0.7,exposure=1.2`.
+    pub quality: Option<String>,
     pub effect_panel: bool,
     pub symmetry_axes: Option<[bool; 3]>,
     /// Start a real high-to-low bake and show its dialog (also usable with --screenshot).
@@ -435,6 +445,37 @@ impl SubcraftApp {
         }
         state.capture_select_brush = options.select_brush.clone();
         state.capture_tool = options.capture_tool.clone();
+        if let Some(spec) = options.quality.as_deref() {
+            let prefs = &mut state.recovery.prefs.viewport;
+            for part in spec.split(',') {
+                let Some((key, value)) = part.split_once('=') else { continue };
+                let number = value.parse::<f32>().ok();
+                match (key.trim(), number) {
+                    ("bloom", Some(v)) => prefs.bloom = v,
+                    ("threshold", Some(v)) => prefs.bloom_threshold = v,
+                    ("ao", Some(v)) => prefs.ssao = v,
+                    ("ao-radius", Some(v)) => prefs.ssao_radius = v,
+                    ("exposure", Some(v)) => prefs.exposure = v,
+                    ("glow", Some(v)) => prefs.emission_glow = v,
+                    ("glow-radius", Some(v)) => prefs.glow_radius = v,
+                    ("glare", Some(v)) => prefs.glare = v,
+                    ("glare-length", Some(v)) => prefs.glare_length = v,
+                    ("glare-mode", _) => {
+                        let wanted = value.trim().to_ascii_lowercase();
+                        if let Some(i) = subcraft_render::GlareMode::ALL.iter().position(|m| m.label().to_ascii_lowercase().starts_with(&wanted)) { prefs.glare_mode = i; }
+                    }
+                    ("tone", _) => {
+                        let wanted = value.trim().to_ascii_lowercase();
+                        if let Some(i) = subcraft_render::ToneMap::ALL.iter().position(|t| t.label().to_ascii_lowercase().starts_with(&wanted)) { prefs.tone_map = i; }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        state.pending_render_job = options.render_job.clone();
+        state.export.open = options.export_window || options.export_template.is_some();
+        if let Some(i) = options.export_template { state.export.template = i.min(subcraft_export::ExportTemplate::builtin().len() - 1); }
+        state.render_window = options.render_window;
         if let Some(tab) = options.shelf_tab.as_deref() {
             use crate::panels::shelf::ShelfTab;
             state.shelf.tab = match tab {
@@ -709,6 +750,10 @@ impl SubcraftApp {
                     ui.close();
                     self.perform(Action::Export, now);
                 }
+                if item(ui, icons::CAMERA, "Render image / turntable…", "") {
+                    ui.close();
+                    self.state.render_window = true;
+                }
                 if item(ui, icons::MAGIC_WAND, "Bake mesh maps…", "Ctrl+B") {
                     ui.close();
                     self.perform(Action::Bake, now);
@@ -771,6 +816,10 @@ impl SubcraftApp {
                 }
                 if item(ui, icons::SQUARES, "Reset layout", "") {
                     self.dock = default_layout();
+                    ui.close();
+                }
+                if item(ui, icons::SUN, "Render quality…", "") {
+                    self.state.render_window = true;
                     ui.close();
                 }
                 ui.separator();
@@ -913,6 +962,12 @@ impl SubcraftApp {
         if !self.screenshot_requested && self.frames >= 20 && (pinned_ready || self.state.bake.job.is_none() && !self.state.session.composites_pending())
             && !self.state.bake.preview_pending() && (self.state.bake.preview_mesh.is_none() || self.state.bake.preview_uploaded)
         {
+            if let Some(job) = self.state.pending_render_job.take() {
+                match crate::render_export::run(&mut self.state, &job) {
+                    Ok(message) => log::info!("{message}"),
+                    Err(e) => log::error!("scripted render failed: {e}"),
+                }
+            }
             ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
             self.screenshot_requested = true;
         }
@@ -1085,6 +1140,8 @@ impl eframe::App for SubcraftApp {
         self.shortcuts_window(&ctx);
         let now = ctx.input(|i| i.time);
         crate::asset_preview::show(&mut self.state,&ctx);
+        crate::render_export::window(&mut self.state, &ctx);
+        crate::render_export::handle_request(&mut self.state, ctx.input(|i| i.time));
         crate::pen::finish_frame(&mut self.state, &ctx, now);
         self.flush_pen_after(now);
         if let Some(p) = &mut self.profile { p.mark("windows+pen"); }

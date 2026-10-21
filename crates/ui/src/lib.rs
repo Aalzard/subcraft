@@ -11,6 +11,7 @@ pub mod files;
 pub mod graphics;
 pub mod icons;
 pub mod orbit;
+pub mod render_export;
 pub mod pen;
 pub mod panels;
 pub mod recovery;

@@ -66,6 +66,20 @@ fn main() -> anyhow::Result<()> {
             "--select-brush" => options.select_brush = Some(args.next().ok_or_else(|| anyhow::anyhow!("--select-brush expects a Shelf brush name"))?),
             "--capture-tool" => options.capture_tool = Some(args.next().ok_or_else(|| anyhow::anyhow!("--capture-tool expects clone or smudge"))?),
             "--shelf-tab" => options.shelf_tab = Some(args.next().ok_or_else(|| anyhow::anyhow!("--shelf-tab expects a Shelf tab name"))?),
+            "--render-image" => {
+                let path: std::path::PathBuf = args.next().ok_or_else(|| anyhow::anyhow!("--render-image expects an output .png"))?.into();
+                options.render_job = Some(subcraft_ui::render_export::Job::Image(path));
+                options.screenshot.get_or_insert_with(|| std::env::temp_dir().join("subcraft-render-window.png"));
+            }
+            "--turntable" => {
+                let dir: std::path::PathBuf = args.next().ok_or_else(|| anyhow::anyhow!("--turntable expects an output folder"))?.into();
+                options.render_job = Some(subcraft_ui::render_export::Job::Turntable(dir));
+                options.screenshot.get_or_insert_with(|| std::env::temp_dir().join("subcraft-render-window.png"));
+            }
+            "--quality" => options.quality = Some(args.next().ok_or_else(|| anyhow::anyhow!("--quality expects tone=..,bloom=..,ao=.."))?),
+            "--export-window" => options.export_window = true,
+            "--export-template" => options.export_template = args.next().and_then(|s| s.parse().ok()),
+            "--render-window" => options.render_window = true,
             "--symmetry" => {
                 let axes = args.next().ok_or_else(|| anyhow::anyhow!("--symmetry expects x, y, z or a combination"))?.to_ascii_lowercase();
                 if axes.is_empty() || !axes.chars().all(|c| "xyz".contains(c)) { anyhow::bail!("--symmetry expects x, y, z or a combination"); }

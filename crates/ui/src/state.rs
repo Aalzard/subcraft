@@ -96,6 +96,14 @@ pub struct UiState {
     pub capture_select_brush: Option<String>,
     /// Scripted Clone/Smudge demonstration for native captures (`--capture-tool`).
     pub capture_tool: Option<String>,
+    /// "Render quality" window open, its export settings, and a pending export request.
+    pub render_window: bool,
+    /// Scripted export waiting for the first finished frame.
+    pub pending_render_job: Option<crate::render_export::Job>,
+    pub render_export: crate::render_export::ExportSettings,
+    pub render_request: Option<crate::render_export::RenderRequest>,
+    /// Pixel size of the 3D view at its last draw (export keeps the aspect ratio).
+    pub last_view_size: [u32; 2],
     pub uv: UvView,
     pub painting: bool,
     /// Clicks in the 3D view show / hide the selected layer on mesh parts (Properties → Parts).
@@ -183,6 +191,11 @@ impl UiState {
             open_brush_editor: false,
             capture_select_brush: None,
             capture_tool: None,
+            render_window: false,
+            pending_render_job: None,
+            render_export: Default::default(),
+            render_request: None,
+            last_view_size: [1280, 720],
             uv: UvView { zoom: 1.0, offset: egui::Vec2::ZERO, source: PreviewSource::Channel(ChannelKind::BaseColor), texture: None },
             painting: false,
             picking_parts: false,

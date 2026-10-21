@@ -17,6 +17,8 @@ struct Globals {
     // x: environment rotation (radians), y: HDRI intensity, z: last prefiltered mip level,
     // w: view mode (0 material, 1 base color, 2 normal, 3 roughness, 4 metallic, 5 height, 6 AO)
     env_misc: vec4<f32>,
+    // x: tone map (0 ACES, 1 Filmic, 2 Reinhard, 3 Linear)
+    post: vec4<f32>,
     sh: array<vec4<f32>, 9>,
 };
 
@@ -162,6 +164,23 @@ fn aces(x: vec3<f32>) -> vec3<f32> {
     return clamp((x * (a * x + b)) / (x * (c * x + d) + e), vec3<f32>(0.0), vec3<f32>(1.0));
 }
 
+fn hable(x: vec3<f32>) -> vec3<f32> {
+    let a = 0.15; let b = 0.50; let c = 0.10; let d = 0.20; let e = 0.02; let f = 0.30;
+    return ((x * (a * x + c * b) + d * e) / (x * (a * x + b) + d * f)) - e / f;
+}
+
+fn tonemap(color: vec3<f32>, mode: i32) -> vec3<f32> {
+    switch mode {
+        case 1: {
+            let white = hable(vec3<f32>(11.2));
+            return clamp(hable(color * 2.0) / white, vec3<f32>(0.0), vec3<f32>(1.0));
+        }
+        case 2: { return clamp(color / (color + vec3<f32>(1.0)), vec3<f32>(0.0), vec3<f32>(1.0)); }
+        case 3: { return clamp(color, vec3<f32>(0.0), vec3<f32>(1.0)); }
+        default: { return aces(color); }
+    }
+}
+
 // Data value shown as stored: pre-linearized so the sRGB target encodes it back to `c`.
 fn as_stored(c: vec3<f32>) -> vec4<f32> {
     let v = clamp(c, vec3<f32>(0.0), vec3<f32>(1.0));
@@ -248,5 +267,12 @@ fn fs_main(in: VsOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f
     let ambient = (diffuse * irradiance(n) + env_brdf(f0, rough, nov) * env_spec) * g.params.y * ao;
 
     let color = (direct + ambient + emissive) * g.params.x;
-    return vec4<f32>(aces(color), 1.0);
+    return vec4<f32>(tonemap(color, i32(round(g.post.x))), 1.0);
+}
+
+// Emission only, in linear HDR: feeds the glow and glare passes of the viewport.
+@fragment
+fn fs_emissive(in: VsOut) -> @location(0) vec4<f32> {
+    let e = textureSample(t_emissive, samp, in.uv).rgb * g.params.x;
+    return vec4<f32>(e, 1.0);
 }

@@ -24,6 +24,21 @@ pub struct ViewportPrefs {
     pub grid: bool,
     pub grid_axes: [bool; 3],
     pub symmetry_guides: bool,
+    /// Index into [`subcraft_render::ToneMap::ALL`].
+    pub tone_map: usize,
+    pub exposure: f32,
+    pub bloom: f32,
+    pub bloom_threshold: f32,
+    pub ssao: f32,
+    /// Ambient-occlusion reach in percent of the model's size.
+    pub ssao_radius: f32,
+    /// Glow around emissive areas (0 = off) and its reach multiplier.
+    pub emission_glow: f32,
+    pub glow_radius: f32,
+    /// Streaks from bright emission (0 = off), index into [`subcraft_render::GlareMode::ALL`], length 0..1.
+    pub glare: f32,
+    pub glare_mode: usize,
+    pub glare_length: f32,
 }
 
 impl Default for ViewportPrefs {
@@ -36,6 +51,17 @@ impl Default for ViewportPrefs {
             grid: true,
             grid_axes: [true, false, true],
             symmetry_guides: true,
+            tone_map: 0,
+            exposure: 1.0,
+            bloom: 0.0,
+            bloom_threshold: 0.8,
+            ssao: 0.0,
+            ssao_radius: 3.0,
+            emission_glow: 0.35,
+            glow_radius: 1.0,
+            glare: 0.0,
+            glare_mode: 0,
+            glare_length: 0.5,
         }
     }
 }
@@ -46,6 +72,26 @@ impl ViewportPrefs {
             .get(self.view_mode)
             .copied()
             .unwrap_or_default()
+    }
+
+    pub fn tone_map(&self) -> subcraft_render::ToneMap {
+        subcraft_render::ToneMap::ALL.get(self.tone_map).copied().unwrap_or_default()
+    }
+
+    /// Post-processing for a model of bounding-box `diagonal`.
+    pub fn post_params(&self, diagonal: f32) -> subcraft_render::PostParams {
+        subcraft_render::PostParams {
+            tone_map: self.tone_map(),
+            bloom: self.bloom.clamp(0.0, 4.0),
+            bloom_threshold: self.bloom_threshold.clamp(0.0, 4.0),
+            ssao: self.ssao.clamp(0.0, 1.0),
+            ssao_radius: (self.ssao_radius.clamp(0.1, 50.0) * 0.01 * diagonal).max(1e-4),
+            emission_glow: self.emission_glow.clamp(0.0, 4.0),
+            glow_radius: self.glow_radius.clamp(0.25, 8.0),
+            glare: self.glare.clamp(0.0, 4.0),
+            glare_mode: subcraft_render::GlareMode::ALL.get(self.glare_mode).copied().unwrap_or_default(),
+            glare_length: self.glare_length.clamp(0.0, 1.0),
+        }
     }
 
     /// Render-target size for a 3D view of `size` physical pixels; the image is stretched back

@@ -28,6 +28,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     if size[0] < 8 || size[1] < 8 {
         return;
     }
+    state.last_view_size = size;
     let now = ui.input(|i| i.time);
     // The render target is rounded to whole physical pixels. Map through that exact size,
     // rather than DPI alone, to keep picking/painting stable at fractional UI zoom factors.
@@ -222,6 +223,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             params.height_scale = state.height_scale;
             let view = &state.recovery.prefs.viewport;
             params.antialias = view.antialias;
+            params.exposure = view.exposure;
+            params.post = view.post_params(state.session.scene().mesh.bounds.diagonal());
             params.view_mode = view.view_mode();
             params.symmetry_guides = view.symmetry_guides && state.session.brush.options.symmetry.contains(&true) && !bake_mode;
             if params.symmetry_guides {

@@ -78,13 +78,12 @@ Owner's requested scope. `[x]` implemented and tested; `[~]` partial (remaining 
 
 ## Emission
 
-- [ ] Reuse the existing Emissive channel as Emission, exposed through the same channel toggles.
-- [ ] Independent emission intensity, including glow/glare disabled; existing export semantics.
-- [ ] Subtle nonzero default glow, independent toggle, strength/radius/spread inside Emission.
-- [ ] Optional horizontal/vertical/both glare with proportion controls.
-- [ ] Customizable starburst/shine intensity and spread; real-time viewport update.
-- [ ] Numeric GPU tests, HDR/tonemap contract and save/migration; preview effects do not bake
-  screen-space glare into exported PBR textures.
+- [x] Emissive channel reused as Emission with the same toggles (session 98 adds glow/glare in the viewport).
+- [x] Independent emission intensity; glow and glare can each be switched off (0); exports unchanged.
+- [x] Subtle nonzero default glow (0.35) with strength and radius in Render quality > Emission (not inside the layer's Emission panel).
+- [x] Optional horizontal / vertical / both glare with strength and length controls.
+- [~] Starburst glare with strength and length; updates live. Separate shine/spread controls are not split out.
+- [x] Numeric GPU tests; glow/glare are viewport preferences and never enter exported PBR textures.
 
 ## Viewport and projection
 

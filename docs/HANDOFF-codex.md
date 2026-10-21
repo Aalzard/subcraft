@@ -4,6 +4,8 @@
 
 # Claude session 97 (2026-10-21): 15 new smart materials, 16 new smart masks, 5 new procedural generators (Dirt, Cracks, Streaks, Speckles, Pores); see progress.md session 97.
 
+# Claude session 98 (2026-10-21): viewport post (tone map, bloom, AO), render/turntable export, emission glow/glare, Unity URP + Godot presets, Height + Bent Normal bakes; see progress.md session 98. 592 tests pass.
+
 # Codex handoff — 2026-10-20, session 94
 
 # Claude session 92 (2026-10-20): see progress.md session 92. Commits 12c55a2, 89d9ae9, 1420a6a + docs. 552 tests pass. Filter audit (task 4) unfinished.
