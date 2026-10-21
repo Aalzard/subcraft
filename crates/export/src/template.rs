@@ -86,7 +86,7 @@ impl ExportTemplate {
     pub fn unreal() -> Self {
         use ChannelKind::*;
         Self {
-            name: "Unreal Engine (Packed)".into(),
+            name: "Unreal Engine (ORM packed)".into(),
             maps: vec![
                 OutputMap::new("BaseColor", FileFormat::Png8, rgb(BaseColor), true),
                 OutputMap::new("Normal", FileFormat::Png8, normal(true), false),
@@ -144,7 +144,55 @@ impl ExportTemplate {
         }
     }
 
+    /// Unity URP / Built-in Lit: Metallic map (R metallic, A smoothness), a separate Occlusion
+    /// map (green channel, shown as gray), OpenGL normals.
+    pub fn unity_urp() -> Self {
+        use ChannelKind::*;
+        Self {
+            name: "Unity URP (Metallic + Occlusion)".into(),
+            maps: vec![
+                OutputMap::new("BaseColor", FileFormat::Png8, rgb(BaseColor), true),
+                OutputMap::new("Normal", FileFormat::Png8, normal(false), false),
+                OutputMap::new(
+                    "MetallicSmoothness",
+                    FileFormat::Png8,
+                    vec![
+                        Source::ch(Metallic, 0),
+                        Source::ch(Metallic, 0),
+                        Source::ch(Metallic, 0),
+                        Source::Channel { kind: Roughness, component: 0, invert: true },
+                    ],
+                    false,
+                ),
+                OutputMap::new("Occlusion", FileFormat::Png8, vec![Source::ch(AmbientOcclusion, 0); 3], false),
+                OutputMap::new("Emissive", FileFormat::Png8, rgb(Emissive), true),
+                OutputMap::new("Height", FileFormat::Png16, vec![Source::Height], false),
+            ],
+        }
+    }
+
+    /// Godot 4 StandardMaterial3D: one ORM texture (R occlusion, G roughness, B metallic),
+    /// OpenGL normals, plus Emission and Height.
+    pub fn godot() -> Self {
+        use ChannelKind::*;
+        Self {
+            name: "Godot 4 (ORM)".into(),
+            maps: vec![
+                OutputMap::new("BaseColor", FileFormat::Png8, rgb(BaseColor), true),
+                OutputMap::new("Normal", FileFormat::Png8, normal(false), false),
+                OutputMap::new(
+                    "ORM",
+                    FileFormat::Png8,
+                    vec![Source::ch(AmbientOcclusion, 0), Source::ch(Roughness, 0), Source::ch(Metallic, 0)],
+                    false,
+                ),
+                OutputMap::new("Emissive", FileFormat::Png8, rgb(Emissive), true),
+                OutputMap::new("Height", FileFormat::Png16, vec![Source::Height], false),
+            ],
+        }
+    }
+
     pub fn builtin() -> Vec<ExportTemplate> {
-        vec![Self::pbr_metal_rough(), Self::unreal(), Self::unity_hdrp(), Self::gltf()]
+        vec![Self::pbr_metal_rough(), Self::unreal(), Self::unity_hdrp(), Self::gltf(), Self::unity_urp(), Self::godot()]
     }
 }
