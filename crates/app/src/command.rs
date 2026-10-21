@@ -79,6 +79,9 @@ pub enum Command {
     /// Atomic independent toggle or solo (Alt-click), preserving every source and strength.
     ToggleFillChannel { layer: LayerId, effect: Option<EffectId>, channel: ChannelKind, solo: bool },
     ToggleBrushChannel { channel: ChannelKind, solo: bool },
+    /// Turn `channel` on for a fill layer. If the texture set lacks it, the channel is added to the
+    /// set (every layer gets its blend entry) in the same undo step.
+    AddFillChannel { layer: LayerId, channel: ChannelKind },
     SetFillProjection { layer: LayerId, projection: Projection },
     AddMask { layer: LayerId, white: bool },
     RemoveMask(LayerId),

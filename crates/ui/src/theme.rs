@@ -17,6 +17,25 @@ pub const ROW_BANDS: [Color32; 2] = [BG_1, Color32::from_rgb(46, 46, 46)];
 pub const SECTION_BANDS: [Color32; 2] = [BG_2, Color32::from_rgb(45, 45, 45)];
 pub const FIELD: Color32 = Color32::from_rgb(29, 29, 29); // text fields, slider rails
 
+/// Stacked blocks in Properties (one channel, one mask effect): clearly lighter than the panel.
+pub const CARD: Color32 = Color32::from_rgb(56, 56, 55);
+pub const CARD_BORDER: Color32 = Color32::from_rgb(86, 86, 83);
+
+/// Colour of the left accent bar of a channel card (muted, so the set reads as a family).
+pub fn channel_accent(kind: subcraft_core::ChannelKind) -> Color32 {
+    use subcraft_core::ChannelKind::*;
+    match kind {
+        BaseColor => Color32::from_rgb(214, 150, 70),
+        Height => Color32::from_rgb(140, 150, 168),
+        Roughness => Color32::from_rgb(120, 168, 196),
+        Metallic => Color32::from_rgb(176, 180, 196),
+        Normal => Color32::from_rgb(132, 120, 208),
+        AmbientOcclusion => Color32::from_rgb(120, 168, 130),
+        Emissive => Color32::from_rgb(236, 206, 90),
+        _ => Color32::from_rgb(150, 150, 146),
+    }
+}
+
 pub const BORDER: Color32 = Color32::from_rgb(52, 52, 52);
 pub const BORDER_STRONG: Color32 = Color32::from_rgb(72, 72, 70);
 

@@ -6,6 +6,8 @@
 
 # Claude session 98 (2026-10-21): viewport post (tone map, bloom, AO), render/turntable export, emission glow/glare, Unity URP + Godot presets, Height + Bent Normal bakes; see progress.md session 98. 592 tests pass.
 
+# Claude session 99 (2026-10-21): Emission chips (+ emiss / + ao, AddFillChannel), white intensity-3 defaults, channel cards; see progress.md session 99. 597 tests pass.
+
 # Codex handoff — 2026-10-20, session 94
 
 # Claude session 92 (2026-10-20): see progress.md session 92. Commits 12c55a2, 89d9ae9, 1420a6a + docs. 552 tests pass. Filter audit (task 4) unfinished.

@@ -69,6 +69,15 @@ impl FillChannel {
         Self { enabled: true, source, strength: 1.0 }
     }
 
+    /// What a fill layer gets when `kind` is added to it. Emission starts white at Intensity 3
+    /// (a visible glow from the default viewport glow); the rest use their usual paint value.
+    pub fn default_for(kind: ChannelKind) -> Self {
+        match kind {
+            ChannelKind::Emissive => Self { enabled: true, source: FillSource::uniform(subcraft_core::ChannelValue::rgb(1.0, 1.0, 1.0)), strength: 3.0 },
+            _ => Self::new(FillSource::uniform(kind.default_paint_value())),
+        }
+    }
+
     pub fn disabled(source: FillSource) -> Self {
         Self { enabled: false, source, strength: 1.0 }
     }

@@ -896,7 +896,25 @@ impl Session {
                     } else { let LayerContent::Fill(f) = &mut l.content else { return Err(CommandError::NotAFillLayer) }; f };
                     let on = solo || !fill.channels.get(&channel).is_some_and(|c| c.enabled);
                     if solo { for c in fill.channels.values_mut() { c.enabled = false; } }
-                    fill.channels.entry(channel).or_insert(subcraft_doc::FillChannel::disabled(subcraft_doc::FillSource::uniform(channel.default_paint_value()))).enabled = on;
+                    fill.channels.entry(channel).or_insert(subcraft_doc::FillChannel { enabled: false, ..subcraft_doc::FillChannel::default_for(channel) }).enabled = on;
+                    // A layer made before the set had this channel has no blend for it, which means "off".
+                    if on { l.blend.entry(channel).or_insert(subcraft_doc::ChannelBlend::new(subcraft_doc::BlendMode::Normal)); }
+                    Ok(())
+                })?;
+            }
+            Command::AddFillChannel { layer, channel } => {
+                if !matches!(self.selected_texture_set().find(layer).map(|l| &l.content), Some(LayerContent::Fill(_))) {
+                    return Err(CommandError::NotAFillLayer);
+                }
+                self.edit_layer_set(layer, "Add Channel", None, |ts| {
+                    if !ts.has_channel(channel) {
+                        ts.channels.push(ChannelDef::default_for(channel));
+                        add_blend(&mut ts.layers, channel);
+                    }
+                    let l = Self::layer_mut(ts, layer)?;
+                    let LayerContent::Fill(f) = &mut l.content else { return Err(CommandError::NotAFillLayer) };
+                    f.channels.insert(channel, subcraft_doc::FillChannel::default_for(channel));
+                    l.blend.entry(channel).or_insert(subcraft_doc::ChannelBlend::new(subcraft_doc::BlendMode::Normal));
                     Ok(())
                 })?;
             }
@@ -1405,4 +1423,17 @@ fn same_composite_inputs(a: &TextureSet, b: &TextureSet) -> bool {
         && a.channels == b.channels
         && a.layers.len() == b.layers.len()
         && a.layers.iter().zip(&b.layers).all(|(x, y)| Arc::ptr_eq(x, y))
+}
+
+/// Give every layer of a tree its blend entry for a channel the texture set just gained
+/// (folders pass it through; without an entry a layer ignores the channel).
+fn add_blend(layers: &mut [Arc<Layer>], channel: ChannelKind) {
+    for layer in layers {
+        let l = Arc::make_mut(layer);
+        let mode = if l.is_folder() { subcraft_doc::BlendMode::Passthrough } else { subcraft_doc::BlendMode::Normal };
+        l.blend.entry(channel).or_insert(subcraft_doc::ChannelBlend::new(mode));
+        if let Some(children) = l.children_mut() {
+            add_blend(children, channel);
+        }
+    }
 }

@@ -336,3 +336,28 @@ pub fn empty_state(ui: &mut Ui, icon: &str, text: &str) {
         ui.label(RichText::new(text).color(TEXT_FAINT));
     });
 }
+
+/// A card for one stacked block (a channel, a mask effect): lighter than the panel, with a visible
+/// border and room above it. Returns the card's response; paint the accent with [`card_accent`].
+pub fn card<R>(ui: &mut Ui, accent: egui::Color32, add: impl FnOnce(&mut Ui) -> R) -> egui::InnerResponse<R> {
+    ui.add_space(8.0);
+    let response = egui::Frame::new()
+        .fill(crate::theme::CARD)
+        .stroke(egui::Stroke::new(1.0, crate::theme::CARD_BORDER))
+        .corner_radius(3)
+        .inner_margin(egui::Margin { left: 14, right: 10, top: 8, bottom: 10 })
+        .show(ui, add);
+    card_accent(ui, response.response.rect, accent);
+    response
+}
+
+/// The coloured bar on a card's left edge.
+pub fn card_accent(ui: &Ui, rect: egui::Rect, color: egui::Color32) {
+    let bar = egui::Rect::from_min_max(rect.min, egui::pos2(rect.min.x + 4.0, rect.max.y));
+    ui.painter().rect_filled(bar, egui::CornerRadius { nw: 3, sw: 3, ne: 0, se: 0 }, color);
+}
+
+/// Header line of a card: name on the left, a thin rule under it.
+pub fn card_header_rule(ui: &mut Ui) {
+    ui.add(egui::Separator::default().spacing(6.0));
+}

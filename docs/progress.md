@@ -2644,6 +2644,32 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   very thin or huge models (radius is a percentage of the diagonal), engine import of the exported
   textures in Unreal/Unity/Godot themselves, Height/Bent Normal on production high polys.
 
+### Session 99 - Claude: Emission in the UI, its defaults, and channel cards (2026-10-21)
+
+* **Emission can be switched on (Properties > Channels):** the texture set's channels show as chips as
+  before; channels the set lacks (Emission, AO) show as "+ emiss" / "+ ao". The chip dispatches the new
+  `Command::AddFillChannel { layer, channel }` (app crate): it adds the channel to the texture set if
+  missing, gives every layer in the set its blend entry (folders Passthrough, layers Normal; without an
+  entry a layer ignores the channel), and turns the channel on for the layer, all in one undo step.
+  Toggling a channel the set has but an older layer lacks now also adds that layer's blend entry
+  (before, such a layer silently contributed nothing). Texture-set import now also adds Emissive when
+  it finds an emissive map (ADDED_ON_IMPORT).
+* **Defaults for a new Emissive channel (FillChannel::default_for):** Intensity 3.0 and neutral white
+  (not orange). The viewport glow is a preference (Render quality > Emission, default 0.35, radius 1) so
+  glow shows without opening that window and a value the user set is never overwritten.
+* **Channel cards:** each channel block in Properties (and each mask effect) is a card: lighter fill,
+  visible border, a coloured accent bar per channel (theme::channel_accent), a bold header with a rule
+  and 8 px between cards (widgets::card).
+* Tests: app/tests/emission_channel.rs (defaults, one undo step, folder blends, composite, save/reopen,
+  older layer toggle, refused paint layer, import with an emissive map), ui/tests/emission_chip.rs
+  (chip click through real egui events). **597 workspace tests pass, 0 failed/ignored; Clippy exits 0
+  with 68 warnings (baseline).**
+* Real app (scripted, no mouse): emission-chip-white-edges-glow.png (new project, emission added by the
+  same command as the chip, white fill masked by Edges, glow with the default preference),
+  properties-channel-cards-before-after.png. New capture options: `--capture-tool emission|cards`,
+  `--properties-panel`. NOT verified: physical clicks on the chip, narrow-dock look of the cards,
+  Alt+click on the new chips (they follow the existing toggle rules), the AO chip in the viewport.
+
 ## Next steps (in order)
 
 Owner checks imported PBRs in the refreshed target/debug/subcraft.exe, especially close-up

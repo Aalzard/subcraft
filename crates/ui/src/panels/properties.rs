@@ -12,7 +12,7 @@ use subcraft_doc::{
 
 use crate::icons;
 use crate::state::UiState;
-use crate::theme::{self, ACCENT, BG_2, TEXT_DIM, TEXT_FAINT};
+use crate::theme::{self, ACCENT, TEXT_DIM, TEXT_FAINT};
 use crate::widgets::{channel_value, empty_state, fill_width, hint, icon_button, panel, primary_button, prop_row, secondary_button, section, section_with, segmented, slider_row};
 
 pub fn show(state: &mut UiState, ui: &mut Ui) {
@@ -165,8 +165,11 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
 
                 section(ui, "channels", "Channels", true, |ui| {
                 let states: Vec<_> = channels.iter().map(|k| (*k, f.channels.get(k).is_some_and(|c| c.enabled))).collect();
-                if let Some((channel, solo)) = channel_toggles(ui, &states) {
-                    cmds.push(Command::ToggleFillChannel { layer: id, effect: None, channel, solo });
+                let addable: Vec<ChannelKind> = ADDABLE_CHANNELS.into_iter().filter(|k| !channels.contains(k)).collect();
+                match channel_chips(ui, &states, &addable) {
+                    Some(ChannelAction::Toggle(channel, solo)) => cmds.push(Command::ToggleFillChannel { layer: id, effect: None, channel, solo }),
+                    Some(ChannelAction::Add(channel)) => cmds.push(Command::AddFillChannel { layer: id, channel }),
+                    None => {}
                 }
                 hint(ui, "Tip: drag a texture from Shelf › Textures onto a channel below.");
                 for kind in &channels {
@@ -174,9 +177,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     if !ch.enabled { continue; }
                     let mut changed = false;
                     let mut pick_image = false;
-                    let row = egui::Frame::new().fill(BG_2).inner_margin(egui::Margin::symmetric(10, 8)).show(ui, |ui| {
+                    let row = crate::widgets::card(ui, theme::channel_accent(*kind), |ui| {
                     ui.horizontal(|ui| {
-                        ui.label(RichText::new(kind.display_name()).color(theme::TEXT));
+                        ui.label(RichText::new(kind.display_name()).font(theme::font_strong(13.0)).color(theme::TEXT));
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             let current = match ch.source {
                                 FillSource::Uniform { .. } => 0,
@@ -212,6 +215,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                             }
                         });
                     });
+                    crate::widgets::card_header_rule(ui);
                     let (c, p) = source_controls(ui, state, *kind, &mut ch);
                     changed |= c;
                     pick_image |= p;
@@ -232,7 +236,6 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                             _=>{},
                         }
                     }
-                    ui.add_space(2.0);
                     if changed {
                         cmds.push(Command::SetFillChannel { layer: id, channel: *kind, fill: ch });
                     }
@@ -332,7 +335,7 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
     let mut eff = (**e).clone();
     let default_name = eff.name == eff.kind.label();
     let mut changed = false;
-    egui::Frame::new().fill(BG_2).inner_margin(egui::Margin::symmetric(10, 8)).show(ui, |ui| {
+    crate::widgets::card(ui, theme::ACCENT_DIM, |ui| {
         ui.horizontal(|ui| {
             let (icon, tip) = if eff.visible { (icons::EYE, "Hide effect") } else { (icons::EYE_SLASH, "Show effect") };
             if icon_button(ui, icon, tip).clicked() {
@@ -516,15 +519,41 @@ pub(crate) fn source_controls(ui: &mut Ui, state: &mut UiState, kind: ChannelKin
     (changed, pick_image)
 }
 
+/// What a click on the channel chips asks for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ChannelAction {
+    /// Toggle a channel the texture set already has (`true`: Alt-click, solo).
+    Toggle(ChannelKind, bool),
+    /// Add a channel the texture set does not have yet, and turn it on for this layer.
+    Add(ChannelKind),
+}
+
+/// Channels a fill layer can gain even though the default texture set lacks them.
+pub(crate) const ADDABLE_CHANNELS: [ChannelKind; 2] = [ChannelKind::Emissive, ChannelKind::AmbientOcclusion];
+
 /// UI events only: the app owns independent/solo state changes and their undo transaction.
 pub(crate) fn channel_toggles(ui: &mut Ui, channels: &[(ChannelKind, bool)]) -> Option<(ChannelKind, bool)> {
+    match channel_chips(ui, channels, &[]) {
+        Some(ChannelAction::Toggle(kind, solo)) => Some((kind, solo)),
+        _ => None,
+    }
+}
+
+/// Chips for the set's channels plus "+ name" chips for `addable` channels it lacks.
+pub(crate) fn channel_chips(ui: &mut Ui, channels: &[(ChannelKind, bool)], addable: &[ChannelKind]) -> Option<ChannelAction> {
     let mut clicked = None;
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing = egui::vec2(3., 4.);
         for &(kind, on) in channels {
             let response = ui.selectable_label(on, kind.short_name()).on_hover_text(format!("{} · Click: toggle · Alt+click: only this channel", kind.display_name()));
             response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, on, kind.display_name()));
-            if response.clicked() { clicked = Some((kind, ui.input(|i| i.modifiers.alt))); }
+            if response.clicked() { clicked = Some(ChannelAction::Toggle(kind, ui.input(|i| i.modifiers.alt))); }
+        }
+        for &kind in addable {
+            let label = format!("+ {}", kind.short_name());
+            let response = ui.selectable_label(false, label.clone()).on_hover_text(format!("Add the {} channel to this texture set and turn it on for this layer (one undo step)", kind.display_name()));
+            response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label.clone()));
+            if response.clicked() { clicked = Some(ChannelAction::Add(kind)); }
         }
     });
     clicked

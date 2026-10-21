@@ -100,6 +100,8 @@ pub struct LaunchOptions {
     pub shelf_tab: Option<String>,
     /// Open the Export Textures window (scripted captures).
     pub export_window: bool,
+    /// Give Properties the whole right column (scripted captures of its long blocks).
+    pub properties_panel: bool,
     /// Export template to select (index into the built-in list) when the window opens.
     pub export_template: Option<usize>,
     /// Open the Render quality window (scripted captures).
@@ -499,6 +501,7 @@ impl SubcraftApp {
             .filter(|_| options.screenshot.is_none())
             .unwrap_or_else(default_layout);
         let mut dock = dock;
+        if options.properties_panel && let Some(path) = dock.find_tab(&Tab::Layers) { let _ = dock.remove_tab(path); }
         if options.shelf_panel {
             dock = default_layout();
             state.shelf.tab = crate::panels::shelf::ShelfTab::Textures;
@@ -1281,7 +1284,44 @@ fn scripted_tool_capture(state: &mut UiState, which: &str, now: f64) {
             s.brush.settings.size = 22.0;
             for y in [250.0, 300.0, 350.0, 400.0] { stroke(s, StrokeMode::Paint, &line(260.0, y, 640.0, y)); }
         }
-        _ => state.set_status(format!("--capture-tool expects clone, smudge or projection, not {which}"), now),
+        "emission" => {
+            // A new project: bake curvature, add emission through the same command as the "+ emiss"
+            // chip, keep only that channel on a white fill and mask it with the Edges generator.
+            use subcraft_core::{ChannelKind, MeshMapKind};
+            let mesh = s.scene().mesh.clone();
+            let bvh = subcraft_mesh::Bvh::build(&mesh);
+            let sets: Vec<_> = s.document().texture_sets.iter().map(|t| (t.id, t.material_slot, t.resolution)).collect();
+            for (ts, slot, size) in sets {
+                let _ = s.execute(Command::SelectTextureSet(ts));
+                let input = subcraft_bake::BakeInput { low: subcraft_bake::Geometry { mesh: &mesh, bvh: &bvh }, high: None, material_slot: slot };
+                let settings = subcraft_bake::BakeSettings { size, maps: vec![MeshMapKind::Curvature], ..Default::default() };
+                if let Ok(maps) = subcraft_bake::bake(&input, &settings, &subcraft_bake::Progress::new()) { s.set_mesh_maps(ts, maps); }
+                let _ = s.execute(Command::AddLayer(NewLayer::Fill));
+                let Some(layer) = s.selection().layer else { continue };
+                let _ = s.execute(Command::AddFillChannel { layer, channel: ChannelKind::Emissive });
+                for kind in s.channels() {
+                    if kind != ChannelKind::Emissive {
+                        let _ = s.execute(Command::ToggleFillChannel { layer, effect: None, channel: kind, solo: false });
+                    }
+                }
+                let _ = s.execute(Command::AddMask { layer, white: false });
+                let mut g = subcraft_doc::Generator::new(subcraft_doc::GeneratorKind::Edges);
+                g.level = 0.55;
+                let _ = s.execute(Command::AddMaskEffect { layer, kind: subcraft_doc::MaskEffectKind::Generator(g) });
+                // Show the layer's own Properties (Channels), not the mask effect just added.
+                let _ = s.execute(Command::SelectEffect { layer, target: subcraft_app::LayerTarget::Content, effect: None });
+            }
+        }
+        "cards" => {
+            // A fill layer with every channel on, Properties showing its channel blocks.
+            use subcraft_core::ChannelKind;
+            let _ = s.execute(Command::AddLayer(NewLayer::Fill));
+            if let Some(layer) = s.selection().layer {
+                let _ = s.execute(Command::AddFillChannel { layer, channel: ChannelKind::Emissive });
+                let _ = s.execute(Command::SelectEffect { layer, target: subcraft_app::LayerTarget::Content, effect: None });
+            }
+        }
+        _ => state.set_status(format!("--capture-tool expects clone, smudge, projection, emission or cards, not {which}"), now),
     }
 }
 
