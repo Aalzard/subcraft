@@ -1,3 +1,5 @@
+# Claude session 101 (2026-10-21): Export per-map checkboxes + Select all/None/Invert, Alt+click solo, UDIM end to end (tile = texture set, .1001 names or 1001/ folders); see progress.md session 101.
+
 # Claude session 100 (2026-10-21): New Project window (template, resolution, split rule, UDIM tiles, normal format, high poly, summary + warnings); see progress.md session 100. 614 tests pass.
 
 # Claude session 95 (2026-10-21): see progress.md session 95. Commits afd8018, 8be56a4, 9950f57, bf7a428 + docs. 564 tests pass. Natural wear Level=amount / Spread=reach; brush-slot drops (issue 58); randomized compositor differential tests. Not hand-verified: wrap across hard edges, double-click Brush tab, physical drags. Issue 53 fix missing locally.

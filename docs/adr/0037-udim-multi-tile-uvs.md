@@ -1,6 +1,6 @@
 # ADR-0037 — UDIM / multi-tile UVs (proposal, not implemented)
 
-Status: Proposed (2026-10-21). Waiting for the owner's decision before any code.
+Status: Option 1 implemented (2026-10-21, progress.md sessions 100-101): tile = texture set, one resolution per material, 1001-style names or per-tile folders. Open: 2D tile picker, apply-to-all-tiles for smart materials, shared layer stacks.
 
 ## Context
 

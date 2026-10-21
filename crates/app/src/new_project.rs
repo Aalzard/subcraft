@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use subcraft_core::ChannelKind;
 use subcraft_doc::{ChannelDef, Document, Layer, NormalFormat, ProjectSettings, ResourceStore, TextureSet};
 use subcraft_mesh::Mesh;
-use subcraft_mesh::regroup::{Tile, udim_number};
+use subcraft_mesh::regroup::{Tile, is_valid_udim, udim_number};
 
 use crate::Session;
 
@@ -114,7 +114,8 @@ pub struct NewProjectSettings {
     /// Channels the project starts with (starts as the template's; the user may add or remove).
     pub channels: Vec<ChannelKind>,
     pub resolution: u32,
-    /// Texture-set name -> resolution, for sets that differ from `resolution`.
+    /// Material (texture-set base name, without a `.1001` tile suffix) -> resolution, for materials
+    /// that differ from `resolution`. All tiles of a material share one resolution.
     pub resolution_overrides: BTreeMap<String, u32>,
     pub normal_format: NormalFormat,
     pub split: SplitRule,
@@ -162,6 +163,7 @@ impl NewProjectSettings {
         }
     }
 
+    /// Resolution of a texture set (or of the material `set_name` belongs to).
     pub fn resolution_for(&self, set_name: &str) -> u32 {
         self.resolution_overrides.get(set_name).copied().unwrap_or(self.resolution)
     }
@@ -235,6 +237,9 @@ pub fn summarize(mesh: &Mesh, import_warnings: &[String]) -> MeshSummary {
     if s.uses_udim() {
         let list: Vec<String> = s.tiles.iter().map(|t| t.number.to_string()).collect();
         s.warnings.push(format!("The UVs use {} UDIM tiles ({}). Without the UDIM option they would be folded onto one tile and overlap.", s.tiles.len(), list.join(", ")));
+        if s.tiles.iter().any(|t| !is_valid_udim(t.tile)) {
+            s.warnings.push("Some UVs lie left of u = 0 or below v = 0, outside the UDIM range (tiles start at 1001, going right and up). They still get their own texture sets, numbered below 1001; check the unwrap.".into());
+        }
         let crossing = mesh.triangles_crossing_tiles();
         if crossing > 0 {
             s.warnings.push(format!("{crossing} triangles cross a UDIM tile border; they are painted in the tile holding their center."));
@@ -274,6 +279,8 @@ fn overlap_share(mesh: &Mesh) -> f32 {
 #[derive(Clone, Debug, PartialEq)]
 pub struct SetPlan {
     pub name: String,
+    /// The material / group the set belongs to (`name` without the tile suffix).
+    pub base: String,
     pub tile: Option<Tile>,
     pub triangles: usize,
 }
@@ -304,9 +311,14 @@ fn grouping(mesh: &Mesh, settings: &NewProjectSettings) -> Grouping {
     };
     let udim = settings.udim && mesh.udim_tiles(None).len() > 1;
     // Slots are ordered by group, then by UDIM number (1001, 1002, ... 1011).
-    let tile_of_number: BTreeMap<u32, Tile> = mesh.udim_tiles(None).into_keys().map(|t| (udim_number(t), t)).collect();
-    let mut keys: BTreeMap<(u32, Option<u32>), usize> = BTreeMap::new();
-    let tri_key: Vec<(u32, Option<u32>)> = (0..n).map(|t| (base_of[t], udim.then(|| udim_number(mesh.triangle_tile(t))))).collect();
+    let tile_key = |t: usize| -> Option<(u32, Tile)> {
+        udim.then(|| {
+            let tile = mesh.triangle_tile(t);
+            (udim_number(tile), tile)
+        })
+    };
+    let mut keys: BTreeMap<(u32, Option<(u32, Tile)>), usize> = BTreeMap::new();
+    let tri_key: Vec<(u32, Option<(u32, Tile)>)> = (0..n).map(|t| (base_of[t], tile_key(t))).collect();
     for key in &tri_key {
         *keys.entry(*key).or_insert(0) += 1;
     }
@@ -315,14 +327,14 @@ fn grouping(mesh: &Mesh, settings: &NewProjectSettings) -> Grouping {
     for (i, (key, triangles)) in keys.iter().enumerate() {
         slot_of_key.insert(*key, i as u32);
         let base = &base_names[key.0 as usize];
-        let tile = key.1.map(|number| tile_of_number[&number]);
+        let tile = key.1.map(|(_, tile)| tile);
         let name = match key.1 {
-            Some(number) => format!("{base}.{number}"),
+            Some((number, _)) => format!("{base}.{number}"),
             None => base.clone(),
         };
         shifts.push(tile.map_or(Vec2::ZERO, |t| Vec2::new(t[0] as f32, t[1] as f32)));
         names.push(name.clone());
-        plans.push(SetPlan { name, tile, triangles: *triangles });
+        plans.push(SetPlan { name, base: base.clone(), tile, triangles: *triangles });
     }
     let slot_of_tri = tri_key.iter().map(|k| slot_of_key[k]).collect();
     (slot_of_tri, shifts, plans, names)
@@ -363,7 +375,7 @@ impl Session {
         let mut sets = Vec::new();
         for (slot, &plan_index) in kept.iter().enumerate() {
             let plan = &plans[plan_index as usize];
-            let resolution = NewProjectSettings::valid_resolution(settings.resolution_for(&plan.name));
+            let resolution = NewProjectSettings::valid_resolution(settings.resolution_for(&plan.base));
             let mut ts = TextureSet::new(plan.name.clone(), slot as u32, resolution);
             ts.channels = settings.channels.iter().map(|&k| ChannelDef::default_for(k)).collect();
             ts.udim_tile = plan.tile;

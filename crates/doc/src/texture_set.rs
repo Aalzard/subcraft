@@ -98,7 +98,7 @@ impl TextureSet {
 
     /// The 1001-style UDIM number of this set's tile.
     pub fn udim_number(&self) -> Option<u32> {
-        self.udim_tile.map(|[col, row]| (1001 + col - 10 * row).max(1001) as u32)
+        self.udim_tile.map(|[col, row]| (1001 + col - 10 * row).max(0) as u32)
     }
 
     /// The name without a trailing `.1002` tile suffix (what exported file names start with).

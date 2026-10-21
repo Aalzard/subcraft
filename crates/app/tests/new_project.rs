@@ -167,9 +167,9 @@ fn udim_tiles_become_texture_sets_inside_the_unit_square_when_enabled() {
 }
 
 #[test]
-fn udim_tiles_per_set_resolution_and_save_reopen_keep_everything() {
+fn udim_tiles_share_the_material_resolution_and_save_reopen_keep_everything() {
     let mut settings = NewProjectSettings { resolution: 256, ..Default::default() };
-    settings.resolution_overrides.insert("Body.1002".into(), 512);
+    settings.resolution_overrides.insert("Body".into(), 512);
     let mut s = Session::from_mesh_with(udim_mesh(), &settings).unwrap();
     let path = std::env::temp_dir().join(format!("subcraft-udim-{}.subcraft", std::process::id()));
     s.save(Some(&path)).unwrap();
@@ -177,7 +177,7 @@ fn udim_tiles_per_set_resolution_and_save_reopen_keep_everything() {
     assert_eq!(reopened.document(), s.document());
     let sets = &reopened.document().texture_sets;
     assert_eq!(sets.iter().map(|t| t.udim_tile).collect::<Vec<_>>(), [Some([0, 0]), Some([1, 0]), Some([0, -1])]);
-    assert_eq!(sets[1].resolution, 512);
+    assert!(sets.iter().all(|t| t.resolution == 512), "one resolution per material, whatever the tile");
     assert_eq!(reopened.settings(), s.settings());
     assert_eq!(reopened.settings().normal_format, Some(NormalFormat::OpenGl));
     std::fs::remove_file(path).unwrap();

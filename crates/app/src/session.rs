@@ -382,7 +382,16 @@ impl Session {
         if report.mesh.triangle_count() == 0 {
             return Err("mesh has no triangles".into());
         }
-        Ok((Self::new(report.mesh, resolution), report.warnings))
+        let mut warnings = report.warnings;
+        let tiles = report.mesh.udim_tiles(None).len();
+        if tiles > 1 {
+            // Folding the tiles onto one would make their islands paint over each other.
+            let settings = crate::new_project::NewProjectSettings { resolution, ..Default::default() };
+            let session = Self::from_mesh_with(report.mesh, &settings)?;
+            warnings.push(format!("The model uses {tiles} UDIM tiles; each tile became its own texture set (use File > New project to choose differently)."));
+            return Ok((session, warnings));
+        }
+        Ok((Self::new(report.mesh, resolution), warnings))
     }
 
     // ----- queries -------------------------------------------------------------------------------
@@ -1359,12 +1368,54 @@ impl Session {
             .unwrap_or_else(|| self.scene.mesh.name.clone())
     }
 
-    /// Files an export with `settings` would write.
+    /// `settings` with the choices saved in the project applied: unchecked maps, normal-map
+    /// format and UDIM folders.
+    pub fn effective_export_settings(&self, settings: &subcraft_export::ExportSettings) -> subcraft_export::ExportSettings {
+        let mut s = settings.clone();
+        s.selection = self.export_selection();
+        s.udim_folders = self.settings.udim_folders;
+        if let Some(format) = self.settings.normal_format {
+            s.normal_directx = Some(format == subcraft_doc::NormalFormat::DirectX);
+        }
+        s
+    }
+
+    /// Files an export with `settings` would write (checked maps only).
     pub fn export_plan(&mut self, settings: &subcraft_export::ExportSettings) -> Vec<(String, String)> {
         self.update_composites();
+        let settings = self.effective_export_settings(settings);
         let name = self.export_name();
         let sets = self.export_sets();
-        subcraft_export::plan(&name, &sets, settings)
+        subcraft_export::plan(&name, &sets, &settings)
+    }
+
+    /// Every map the template offers per texture set, with its checkbox state.
+    pub fn export_choices(&mut self, settings: &subcraft_export::ExportSettings) -> Vec<subcraft_export::PlannedFile> {
+        self.update_composites();
+        let settings = self.effective_export_settings(settings);
+        let name = self.export_name();
+        let sets = self.export_sets();
+        subcraft_export::plan_all(&name, &sets, &settings)
+    }
+
+    /// Checked-map selection saved in the project.
+    pub fn export_selection(&self) -> subcraft_export::MapSelection {
+        subcraft_export::MapSelection::from_stored(&self.settings.export_maps_off, self.settings.export_solo_previous.as_deref())
+    }
+
+    /// Change the checked maps (`all` = every offered map, see [`Session::export_choices`]).
+    /// Saved with the project; not undoable.
+    pub fn edit_export_selection(&mut self, settings: &subcraft_export::ExportSettings, edit: impl FnOnce(&mut subcraft_export::MapSelection, &[subcraft_export::MapKey])) {
+        let all: Vec<subcraft_export::MapKey> = self.export_choices(settings).into_iter().map(|f| (f.set, f.suffix)).collect();
+        let mut selection = self.export_selection();
+        edit(&mut selection, &all);
+        self.settings.export_maps_off = selection.stored_off();
+        self.settings.export_solo_previous = selection.stored_solo_previous();
+    }
+
+    /// Number of distinct UDIM tiles in the project (0 or 1 for ordinary projects).
+    pub fn udim_tile_count(&self) -> usize {
+        self.doc.texture_sets.iter().filter_map(|t| t.udim_number()).collect::<std::collections::BTreeSet<_>>().len()
     }
 
     fn export_sets(&self) -> Vec<subcraft_export::ExportTextureSet<'_>> {
@@ -1376,6 +1427,7 @@ impl Session {
                 Some(subcraft_export::ExportTextureSet {
                     name: &ts.name,
                     material_slot: ts.material_slot,
+                    udim: ts.udim_number(),
                     channels: &c.channels,
                     mesh_maps: self.mesh_maps.get(&ts.id).map(|m| m.as_map()),
                 })
@@ -1386,15 +1438,16 @@ impl Session {
     /// Export every texture set's composite through `settings` into `dir`.
     pub fn export_textures(&mut self, dir: &Path, settings: &subcraft_export::ExportSettings) -> Result<Vec<PathBuf>, String> {
         self.update_composites();
+        let settings = self.effective_export_settings(settings);
         let name = self.export_name();
         let sets = self.export_sets();
-        subcraft_export::export(&self.scene.mesh, &name, &sets, settings, dir).map_err(|e| e.to_string())
+        subcraft_export::export(&self.scene.mesh, &name, &sets, &settings, dir).map_err(|e| e.to_string())
     }
 
     /// Export every map in one download without sending individual writes to the web sink.
     pub fn export_archive(&mut self, settings: &subcraft_export::ExportSettings) -> Result<subcraft_export::TextureArchive,String> {
-        self.update_composites();let name=self.export_name();let sets=self.export_sets();
-        subcraft_export::archive(&self.scene.mesh,&name,&sets,settings).map_err(|e|e.to_string())
+        self.update_composites();let settings=self.effective_export_settings(settings);let name=self.export_name();let sets=self.export_sets();
+        subcraft_export::archive(&self.scene.mesh,&name,&sets,&settings).map_err(|e|e.to_string())
     }
 
     // ----- assets --------------------------------------------------------------------------------

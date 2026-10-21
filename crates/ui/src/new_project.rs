@@ -269,7 +269,7 @@ fn project_section(ui: &mut Ui, np: &mut NewProjectUi) {
             ui.add_space(6.0);
             ui.label(RichText::new("Texture sets that will be created").color(TEXT_DIM));
             for set in plan_sets(&model.mesh, &np.settings) {
-                ui.label(format!("{}  ·  {} triangles  ·  {} px", set.name, group_digits(set.triangles), np.settings.resolution_for(&set.name)));
+                ui.label(format!("{}  ·  {} triangles  ·  {} px", set.name, group_digits(set.triangles), np.settings.resolution_for(&set.base)));
             }
         }
     });
@@ -316,20 +316,26 @@ fn advanced_section(ui: &mut Ui, np: &mut NewProjectUi) {
     });
     ui.add_space(6.0);
     if let Some(model) = &np.model {
-        ui.label(RichText::new("Resolution per texture set").color(TEXT_DIM));
+        ui.label(RichText::new("Resolution per material (all tiles of a material share it)").color(TEXT_DIM));
+        let mut bases: Vec<String> = Vec::new();
         for set in plan_sets(&model.mesh, &np.settings) {
+            if !bases.contains(&set.base) {
+                bases.push(set.base);
+            }
+        }
+        for base in bases {
             ui.horizontal(|ui| {
-                ui.label(&set.name);
-                let mut current = np.settings.resolution_for(&set.name);
-                egui::ComboBox::from_id_salt(("np_set_res", set.name.clone())).selected_text(format!("{current}")).show_ui(ui, |ui| {
+                ui.label(&base);
+                let mut current = np.settings.resolution_for(&base);
+                egui::ComboBox::from_id_salt(("np_set_res", base.clone())).selected_text(format!("{current}")).show_ui(ui, |ui| {
                     for r in PROJECT_RESOLUTIONS {
                         ui.selectable_value(&mut current, r, format!("{r}"));
                     }
                 });
                 if current == np.settings.resolution {
-                    np.settings.resolution_overrides.remove(&set.name);
+                    np.settings.resolution_overrides.remove(&base);
                 } else {
-                    np.settings.resolution_overrides.insert(set.name.clone(), current);
+                    np.settings.resolution_overrides.insert(base, current);
                 }
             });
         }

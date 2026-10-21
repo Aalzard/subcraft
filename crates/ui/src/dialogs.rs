@@ -32,6 +32,8 @@ pub struct ExportUi {
     pub settings: ExportSettings,
     pub template: usize,
     pub folder: String,
+    /// Template name last stored in / read from the project settings.
+    pub known_template: String,
 }
 
 impl Default for ExportUi {
@@ -40,7 +42,7 @@ impl Default for ExportUi {
         let folder = PathBuf::from(crate::files::DOWNLOADS);
         #[cfg(not(target_arch = "wasm32"))]
         let folder = std::env::current_dir().map(|d| d.join("exports")).unwrap_or_else(|_| PathBuf::from("exports"));
-        Self { open: false, settings: ExportSettings::default(), template: 0, folder: folder.display().to_string() }
+        Self { open: false, settings: ExportSettings::default(), template: 0, folder: folder.display().to_string(), known_template: String::new() }
     }
 }
 
@@ -226,19 +228,20 @@ pub fn export_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
         ui.add_space(6.0);
         divider(ui);
         ui.add_space(4.0);
-        let plan = state.session.export_plan(&settings);
-        ui.label(caption(&format!("{} files", plan.len())));
-        egui::Frame::new().fill(theme::FIELD).inner_margin(egui::Margin::same(8)).show(ui, |ui| {
-            egui::ScrollArea::vertical().max_height(170.0).show(ui, |ui| {
-                ui.set_min_width(ui.available_width());
-                for (_, f) in &plan {
-                    ui.label(RichText::new(f).monospace().small().color(TEXT_DIM));
-                }
-            });
-        });
+        export_options(ui, state);
+        ui.add_space(4.0);
+        divider(ui);
+        ui.add_space(4.0);
+        let choices = state.session.export_choices(&settings);
+        let enabled = choices.iter().filter(|f| f.enabled).count();
+        export_map_list(ui, state, &settings, &choices);
+        let plan_len = enabled;
         ui.add_space(6.0);
         let go = ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.add_enabled_ui(!plan.is_empty(), |ui| primary_button(ui, format!("{}  Export", crate::icons::EXPORT))).inner.clicked()
+            if plan_len == 0 {
+                ui.label(dim("Check at least one map to export."));
+            }
+            ui.add_enabled_ui(plan_len > 0, |ui| primary_button(ui, format!("{}  Export", crate::icons::EXPORT))).inner.clicked()
         });
         if go.inner {
             #[cfg(not(target_arch = "wasm32"))]
@@ -254,6 +257,100 @@ pub fn export_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
         }
     });
     state.export.open = open;
+}
+
+/// Project-wide export choices: template memory, normal-map convention, UDIM folders.
+fn export_options(ui: &mut egui::Ui, state: &mut UiState) {
+    let templates = ExportTemplate::builtin();
+    let stored = state.session.settings().export_template.clone();
+    if stored != state.export.known_template || state.export.known_template.is_empty() {
+        // A different project (or first frame): follow its template; one that names none is not rewritten.
+        match templates.iter().position(|t| t.name == stored) {
+            Some(i) => { state.export.template = i; state.export.known_template = stored; }
+            None => state.export.known_template = templates[state.export.template].name.clone(),
+        }
+    }
+    let name = templates[state.export.template].name.clone();
+    if name != state.export.known_template {
+        let mut project = state.session.settings().clone();
+        project.export_template = name.clone();
+        state.session.set_settings(project);
+        state.export.known_template = name;
+    }
+    let mut project = state.session.settings().clone();
+    ui.horizontal(|ui| {
+        ui.label(dim("Normal maps"));
+        let text = project.normal_format.map_or("Template default", |f| f.label());
+        egui::ComboBox::from_id_salt("export_normal_format").selected_text(text).show_ui(ui, |ui| {
+            ui.selectable_value(&mut project.normal_format, None, "Template default");
+            ui.selectable_value(&mut project.normal_format, Some(subcraft_doc::NormalFormat::OpenGl), subcraft_doc::NormalFormat::OpenGl.label());
+            ui.selectable_value(&mut project.normal_format, Some(subcraft_doc::NormalFormat::DirectX), subcraft_doc::NormalFormat::DirectX.label());
+        });
+    });
+    if state.session.udim_tile_count() >= 2 {
+        ui.checkbox(&mut project.udim_folders, "Export Each UDIM to a Separate Folder")
+            .on_hover_text("On: 1001/, 1002/ ... one sub-folder per tile. Off: one folder, file names end in .1001, .1002");
+    }
+    if project != *state.session.settings() {
+        state.session.set_settings(project);
+    }
+}
+
+/// What a click in the map list asks for (applied by the session, see `edit_export_selection`).
+enum MapClick {
+    Toggle(String, String, bool),
+    Solo(String, String),
+    Set(String, bool),
+    All,
+    None,
+    Invert,
+}
+
+/// The per-map checklist with Select all / None / Invert. Alt+click solos a map.
+fn export_map_list(ui: &mut egui::Ui, state: &mut UiState, settings: &ExportSettings, choices: &[subcraft_export::PlannedFile]) {
+    let mut click = None;
+    ui.horizontal(|ui| {
+        ui.label(caption(&format!("{} of {} files", choices.iter().filter(|f| f.enabled).count(), choices.len())));
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if ui.small_button("Invert").clicked() { click = Some(MapClick::Invert); }
+            if ui.small_button("None").clicked() { click = Some(MapClick::None); }
+            if ui.small_button("Select all").clicked() { click = Some(MapClick::All); }
+        });
+    });
+    egui::Frame::new().fill(theme::FIELD).inner_margin(egui::Margin::same(8)).show(ui, |ui| {
+        egui::ScrollArea::vertical().max_height(220.0).show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
+            let mut current: Option<&str> = None;
+            for f in choices {
+                if current != Some(f.set.as_str()) {
+                    current = Some(&f.set);
+                    let mut all_on = choices.iter().filter(|c| c.set == f.set).all(|c| c.enabled);
+                    if ui.checkbox(&mut all_on, RichText::new(&f.set).strong()).clicked() {
+                        click = Some(MapClick::Set(f.set.clone(), all_on));
+                    }
+                }
+                ui.horizontal(|ui| {
+                    ui.add_space(18.0);
+                    let mut on = f.enabled;
+                    let r = ui.checkbox(&mut on, RichText::new(&f.suffix)).on_hover_text("Alt+click: export only this map (Alt+click again to bring the others back)");
+                    if r.clicked() {
+                        click = Some(if ui.input(|i| i.modifiers.alt) { MapClick::Solo(f.set.clone(), f.suffix.clone()) } else { MapClick::Toggle(f.set.clone(), f.suffix.clone(), on) });
+                    }
+                    ui.label(RichText::new(&f.path).monospace().small().color(if f.enabled { TEXT_DIM } else { theme::TEXT_DIM.gamma_multiply(0.5) }));
+                });
+            }
+        });
+    });
+    if let Some(click) = click {
+        state.session.edit_export_selection(settings, |sel, all| match click {
+            MapClick::Toggle(set, suffix, on) => sel.set_on(&set, &suffix, on),
+            MapClick::Solo(set, suffix) => sel.solo(&set, &suffix, all),
+            MapClick::Set(set, on) => sel.set_set_on(&set, all, on),
+            MapClick::All => sel.select_all(),
+            MapClick::None => sel.select_none(all),
+            MapClick::Invert => sel.invert(all),
+        });
+    }
 }
 
 /// Window title with project name and unsaved marker.

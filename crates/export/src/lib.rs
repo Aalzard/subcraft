@@ -6,6 +6,7 @@
 //! all absent are skipped. Color channels are sRGB-encoded for integer formats and stay linear in
 //! EXR. Data channels are never color-transformed.
 
+pub mod selection;
 pub mod template;
 
 use std::collections::{BTreeMap, HashMap};
@@ -20,6 +21,7 @@ use subcraft_image::{FileFormat, TiledImage};
 use subcraft_mesh::Mesh;
 use subcraft_mesh::uv_raster::rasterize_surface;
 
+pub use selection::{MapKey, MapSelection};
 pub use template::{ExportTemplate, OutputMap, Source};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -41,11 +43,17 @@ pub struct ExportSettings {
     pub height_to_normal: f32,
     /// Force every map to this file format.
     pub format_override: Option<FileFormat>,
+    /// Maps switched off per texture set (default: all on).
+    pub selection: MapSelection,
+    /// Force DirectX (`true`) or OpenGL (`false`) normal maps whatever the template says.
+    pub normal_directx: Option<bool>,
+    /// UDIM sets go in one sub-folder per tile (`1001/`...) instead of a `.1001` file-name suffix.
+    pub udim_folders: bool,
 }
 
 impl Default for ExportSettings {
     fn default() -> Self {
-        Self { template: ExportTemplate::pbr_metal_rough(), padding: Padding::Infinite, height_to_normal: 0.02, format_override: None }
+        Self { template: ExportTemplate::pbr_metal_rough(), padding: Padding::Infinite, height_to_normal: 0.02, format_override: None, selection: MapSelection::default(), normal_directx: None, udim_folders: false }
     }
 }
 
@@ -53,6 +61,8 @@ impl Default for ExportSettings {
 pub struct ExportTextureSet<'a> {
     pub name: &'a str,
     pub material_slot: u32,
+    /// UDIM number (1001...) when this set is one tile of a material.
+    pub udim: Option<u32>,
     pub channels: &'a BTreeMap<ChannelKind, TiledImage>,
     /// Baked mesh maps; baked AO stands in for a missing Ambient Occlusion channel.
     pub mesh_maps: Option<&'a BTreeMap<MeshMapKind, TiledImage>>,
@@ -89,16 +99,53 @@ fn map_applies(map: &OutputMap, set: &ExportTextureSet) -> bool {
         || map.components.iter().any(|s| matches!(s, Source::Normal { .. })) && set.channels.contains_key(&ChannelKind::Height)
 }
 
-/// Files an export would write: `(texture set, file name)`.
-pub fn plan(mesh_name: &str, sets: &[ExportTextureSet], settings: &ExportSettings) -> Vec<(String, String)> {
+/// One output file of the template for one texture set, whether or not it is switched on.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PlannedFile {
+    pub set: String,
+    pub suffix: String,
+    /// Path relative to the export folder (`/`-separated; UDIM folders add a leading `1001/`).
+    pub path: String,
+    pub enabled: bool,
+}
+
+/// The set name without its `.1001` tile suffix.
+fn base_name<'a>(set: &'a ExportTextureSet) -> &'a str {
+    match set.udim {
+        Some(n) => set.name.strip_suffix(&format!(".{n}")).unwrap_or(set.name),
+        None => set.name,
+    }
+}
+
+fn output_path(mesh_name: &str, set: &ExportTextureSet, suffix: &str, ext: &str, settings: &ExportSettings) -> String {
+    let (mesh, base) = (sanitize(mesh_name), sanitize(base_name(set)));
+    match set.udim {
+        None => format!("{mesh}_{}_{suffix}.{ext}", sanitize(set.name)),
+        Some(n) if settings.udim_folders => format!("{n}/{mesh}_{base}_{suffix}.{ext}"),
+        Some(n) => format!("{mesh}_{base}_{suffix}.{n}.{ext}"),
+    }
+}
+
+/// Every file the template could write, with its checkbox state.
+pub fn plan_all(mesh_name: &str, sets: &[ExportTextureSet], settings: &ExportSettings) -> Vec<PlannedFile> {
     let mut out = Vec::new();
     for set in sets {
         for map in settings.template.maps.iter().filter(|m| map_applies(m, set)) {
             let fmt = settings.format_override.unwrap_or(map.format);
-            out.push((set.name.to_string(), format!("{}_{}_{}.{}", sanitize(mesh_name), sanitize(set.name), map.suffix, fmt.extension())));
+            out.push(PlannedFile {
+                set: set.name.to_string(),
+                suffix: map.suffix.clone(),
+                path: output_path(mesh_name, set, &map.suffix, fmt.extension(), settings),
+                enabled: settings.selection.is_on(set.name, &map.suffix),
+            });
         }
     }
     out
+}
+
+/// Files an export would write (only the checked maps): `(texture set, relative path)`.
+pub fn plan(mesh_name: &str, sets: &[ExportTextureSet], settings: &ExportSettings) -> Vec<(String, String)> {
+    plan_all(mesh_name, sets, settings).into_iter().filter(|f| f.enabled).map(|f| (f.set, f.path)).collect()
 }
 
 /// Dense channel data of one texture set (lazily converted, shared by all maps).
@@ -183,6 +230,7 @@ fn evaluate_map(map: &OutputMap, dense: &mut Dense, settings: &ExportSettings, f
                 }
             }
             Source::Normal { component, directx } => {
+                let directx = settings.normal_directx.unwrap_or(directx);
                 let nm = dense.normal(settings.height_to_normal);
                 let c = component.min(2) as usize;
                 for i in 0..n {
@@ -214,6 +262,7 @@ pub fn export(mesh: &Mesh, mesh_name: &str, sets: &[ExportTextureSet], settings:
     let mut written = Vec::new();
     render_maps(mesh,mesh_name,sets,settings,|name,bytes| {
         let path=dir.join(name);
+        if let Some(parent)=path.parent() {subcraft_core::vfs::create_dir_all(parent).map_err(|e|ExportError::Folder(parent.to_path_buf(),e))?;}
         subcraft_core::vfs::write(&path,bytes).map_err(|e|ExportError::Write(path.clone(),e.to_string()))?;
         written.push(path);Ok(())
     })?;
@@ -229,7 +278,7 @@ pub fn archive(mesh: &Mesh, mesh_name: &str, sets: &[ExportTextureSet], settings
     let mut names=std::collections::HashSet::new();
     let options=zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
     let files=render_maps(mesh,mesh_name,sets,settings,|name,bytes| {
-        if name.contains(['/', '\\']) || !names.insert(name.to_string()) {return Err(ExportError::Archive(format!("invalid or duplicate output name: {name}")));}
+        if name.contains('\\') || name.starts_with('/') || name.split('/').any(|p| p == "..") || !names.insert(name.to_string()) {return Err(ExportError::Archive(format!("invalid or duplicate output name: {name}")));}
         zip.start_file(name,options).map_err(|e|ExportError::Archive(e.to_string()))?;
         zip.write_all(bytes).map_err(|e|ExportError::Archive(e.to_string()))
     })?;
@@ -244,7 +293,10 @@ fn render_maps(mesh: &Mesh, mesh_name: &str, sets: &[ExportTextureSet], settings
         let Some(size) = set.channels.values().next().map(|i| i.width()) else { continue };
         let covered = if settings.padding == Padding::None { Vec::new() } else { coverage(mesh, set.material_slot, size) };
         let mut dense = Dense { set, size, cache: HashMap::new(), normal: None };
-        for map in settings.template.maps.iter().filter(|m| map_applies(m, set)) {
+        for map in settings.template.maps.iter().filter(|m| map_applies(m, set) && settings.selection.is_on(set.name, &m.suffix)) {
+            if map.suffix.contains(['/', '\\']) || map.suffix.contains("..") {
+                return Err(ExportError::Archive(format!("invalid map suffix: {}", map.suffix)));
+            }
             let format = settings.format_override.unwrap_or(map.format);
             let comps = map.components.len();
             let mut data = evaluate_map(map, &mut dense, settings, format);
@@ -255,7 +307,7 @@ fn render_maps(mesh: &Mesh, mesh_name: &str, sets: &[ExportTextureSet], settings
                     dilate_width(size as usize, size as usize, comps, &mut data, &covered, t);
                 }
             }
-            let name = format!("{}_{}_{}.{}", sanitize(mesh_name), sanitize(set.name), map.suffix, format.extension());
+            let name = output_path(mesh_name, set, &map.suffix, format.extension(), settings);
             let bytes=subcraft_image::io::encode_image(size,size,comps,&data,format).map_err(|e|ExportError::Write(PathBuf::from(&name),e.to_string()))?;
             write(&name,&bytes)?;count+=1;
         }

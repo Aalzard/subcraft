@@ -16,9 +16,15 @@ use crate::mesh::{Aabb, MaterialSlot, Mesh, Submesh};
 pub type Tile = [i32; 2];
 
 /// The 1001-style UDIM number of a tile: 1001 + column + 10 * row, rows counted upward from the
-/// bottom of the image like every DCC tool does.
+/// bottom of the image like every DCC tool does. Tiles left of or below the origin (not valid UDIM)
+/// get numbers under 1001 (e.g. 1000, 991); they stay distinct tiles, see [`is_valid_udim`].
 pub fn udim_number(tile: Tile) -> u32 {
-    (1001 + tile[0] - 10 * tile[1]).max(1001) as u32
+    (1001 + tile[0] - 10 * tile[1]).max(0) as u32
+}
+
+/// Whether the tile is inside the UDIM range: u >= 0 and v >= 0 in image terms, at most 10 wide.
+pub fn is_valid_udim(tile: Tile) -> bool {
+    (0..10).contains(&tile[0]) && tile[1] <= 0
 }
 
 impl Mesh {

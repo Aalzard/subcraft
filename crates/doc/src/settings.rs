@@ -29,8 +29,11 @@ pub struct ProjectSettings {
     pub normal_format: Option<NormalFormat>,
     /// Name of the export template last used; empty = the default one.
     pub export_template: String,
-    /// Output maps unchecked in the Export window, by file-name suffix (e.g. `Height`).
+    /// Output maps unchecked in the Export window, as `"texture set/map suffix"` (e.g. `Body/Height`).
     pub export_maps_off: Vec<String>,
+    /// Selection to come back to when Alt+click solo is toggled off. Not saved.
+    #[serde(skip)]
+    pub export_solo_previous: Option<Vec<String>>,
     /// Put each UDIM tile's files in its own sub-folder (`1001/`, `1002/`...).
     pub udim_folders: bool,
 }

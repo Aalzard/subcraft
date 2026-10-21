@@ -2694,6 +2694,42 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   upload path, FBX/glTF models with several UV tiles. Exported normal maps do not apply the project
   normal format yet (Part 2 of this session).
 
+### Session 101 - Claude: Export map checkboxes, Alt+click solo, UDIM end to end (2026-10-21)
+
+* **Export Textures lists every output map of the template per texture set with checkboxes**, plus
+  Select all / None / Invert, a per-set checkbox, and a live "N of M files" count. Only checked maps are
+  written (folder export, web ZIP and the plan all go through `export::plan_all` / `render_maps`); packed
+  maps are written only when their own checkbox is on. Nothing checked disables Export and shows a
+  hint. The selection is saved in the project (`ProjectSettings.export_maps_off`, entries
+  `"set/suffix"`, schema 13), together with the last template and the normal-map convention; merely
+  opening the window does not mark the project modified. The project's normal format (Template default /
+  OpenGL / DirectX, in the window and in New Project) is now actually applied to exported normal maps
+  (`ExportSettings.normal_directx`).
+* **Alt+click solo:** Alt+click a map checkbox/label keeps only that map; Alt+click it again restores the
+  previous selection (Alt+click another map while soloed moves the solo, the original selection is
+  still remembered; any ordinary change forgets it). Logic is `export::MapSelection` (selection.rs);
+  the window only forwards the click through `Session::edit_export_selection`. Tooltip explains it.
+* **UDIM** (ADR-0037 option 1, implemented): New Project / opening a multi-tile model gives one
+  texture set per tile (`Body.1001`, `Body.1002`...), each with its own layer stack; the stored mesh
+  has every tile shifted into 0..1 so paint, bakes, composites and export need no change. All tiles of
+  a material share one resolution (New Project > Advanced lists materials, not tiles). Opening a
+  multi-tile OBJ/FBX/glTF directly now splits it the same way and reports "The model uses N UDIM tiles".
+  Tiles outside the UDIM range (left of u = 0 or below v = 0) get their own sets numbered below 1001 and
+  a warning (before, they were silently merged into 1001: fixed). Export names:
+  `Name_Body_BaseColor.1001.png`; with "Export Each UDIM to a Separate Folder" (only shown with 2+ tiles,
+  saved in the project) files go to `1001/Name_Body_BaseColor.png`, `1002/...`; the web ZIP uses the
+  same folders.
+* Tests: export crate (selection, solo, packed maps, normal override, UDIM names/folders/archive),
+  app/tests/export_selection.rs, app/tests/udim_project.rs (3-tile synthetic mesh: independent layer
+  stacks, painting on tile 1002 leaves 1001/1011 untouched, export in both folder states, save/reopen,
+  multi-tile OBJ import), ui/tests/export_maps.rs (real egui clicks, Alt+click, hint, UDIM checkbox
+  visibility).
+* NOT done / not verified: no 2D-view tile picker and no "apply smart material to all tiles" command
+  (each tile set is selected in Texture Sets like any set); the 3D viewport shows each tile with its
+  own set's textures through the existing per-slot materials but this was checked only by tests and a
+  scripted screenshot, not by painting with a real mouse; mesh export keeps the shifted UVs; layer stacks
+  are per tile (not shared across the tiles of a material).
+
 ## Next steps (in order)
 
 Owner checks imported PBRs in the refreshed target/debug/subcraft.exe, especially close-up
