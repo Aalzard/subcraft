@@ -65,6 +65,7 @@ fn main() -> anyhow::Result<()> {
             "--effect-panel" => options.effect_panel = true,
             "--select-brush" => options.select_brush = Some(args.next().ok_or_else(|| anyhow::anyhow!("--select-brush expects a Shelf brush name"))?),
             "--capture-tool" => options.capture_tool = Some(args.next().ok_or_else(|| anyhow::anyhow!("--capture-tool expects clone or smudge"))?),
+            "--shelf-tab" => options.shelf_tab = Some(args.next().ok_or_else(|| anyhow::anyhow!("--shelf-tab expects a Shelf tab name"))?),
             "--symmetry" => {
                 let axes = args.next().ok_or_else(|| anyhow::anyhow!("--symmetry expects x, y, z or a combination"))?.to_ascii_lowercase();
                 if axes.is_empty() || !axes.chars().all(|c| "xyz".contains(c)) { anyhow::bail!("--symmetry expects x, y, z or a combination"); }

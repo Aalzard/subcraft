@@ -2,6 +2,8 @@
 
 # Claude session 96 (2026-10-21): Clone + Smudge tools and camera projection painting; see progress.md session 96. 569 tests pass. Not hand-verified with a real mouse.
 
+# Claude session 97 (2026-10-21): 15 new smart materials, 16 new smart masks, 5 new procedural generators (Dirt, Cracks, Streaks, Speckles, Pores); see progress.md session 97.
+
 # Codex handoff — 2026-10-20, session 94
 
 # Claude session 92 (2026-10-20): see progress.md session 92. Commits 12c55a2, 89d9ae9, 1420a6a + docs. 552 tests pass. Filter audit (task 4) unfinished.

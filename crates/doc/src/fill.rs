@@ -86,10 +86,20 @@ pub enum ProceduralKind {
     GradientU,
     /// Linear gradient along V.
     GradientV,
+    /// Blotchy grime with fine specks and soft smears.
+    Dirt,
+    /// Thin cracks along cell borders (1 on a crack).
+    Cracks,
+    /// Vertical streaks, like rain or drips running down a surface.
+    Streaks,
+    /// Fine scattered dots.
+    Speckles,
+    /// Small pits: one dot per cell.
+    Pores,
 }
 
 impl ProceduralKind {
-    pub const ALL: [ProceduralKind; 9] = [
+    pub const ALL: [ProceduralKind; 14] = [
         ProceduralKind::Clouds,
         ProceduralKind::Cells,
         ProceduralKind::Grunge,
@@ -99,6 +109,11 @@ impl ProceduralKind {
         ProceduralKind::Checker,
         ProceduralKind::GradientU,
         ProceduralKind::GradientV,
+        ProceduralKind::Dirt,
+        ProceduralKind::Cracks,
+        ProceduralKind::Streaks,
+        ProceduralKind::Speckles,
+        ProceduralKind::Pores,
     ];
 
     pub fn label(self) -> &'static str {
@@ -112,6 +127,11 @@ impl ProceduralKind {
             ProceduralKind::Checker => "Checker",
             ProceduralKind::GradientU => "Gradient U",
             ProceduralKind::GradientV => "Gradient V",
+            ProceduralKind::Dirt => "Dirt",
+            ProceduralKind::Cracks => "Cracks",
+            ProceduralKind::Streaks => "Streaks",
+            ProceduralKind::Speckles => "Speckles",
+            ProceduralKind::Pores => "Pores",
         }
     }
 }

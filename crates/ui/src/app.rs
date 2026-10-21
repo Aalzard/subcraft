@@ -96,6 +96,8 @@ pub struct LaunchOptions {
     pub select_brush: Option<String>,
     /// Run a scripted Clone or Smudge demonstration ("clone" / "smudge") for native captures.
     pub capture_tool: Option<String>,
+    /// Open this Shelf tab (textures, materials, smart-materials, smart-masks, brushes, environments).
+    pub shelf_tab: Option<String>,
     pub effect_panel: bool,
     pub symmetry_axes: Option<[bool; 3]>,
     /// Start a real high-to-low bake and show its dialog (also usable with --screenshot).
@@ -433,6 +435,17 @@ impl SubcraftApp {
         }
         state.capture_select_brush = options.select_brush.clone();
         state.capture_tool = options.capture_tool.clone();
+        if let Some(tab) = options.shelf_tab.as_deref() {
+            use crate::panels::shelf::ShelfTab;
+            state.shelf.tab = match tab {
+                "materials" => ShelfTab::Materials,
+                "smart-materials" => ShelfTab::SmartMaterials,
+                "smart-masks" => ShelfTab::SmartMasks,
+                "brushes" => ShelfTab::Brushes,
+                "environments" => ShelfTab::Environments,
+                _ => ShelfTab::Textures,
+            };
+        }
         state.welcome.guide = options.guide_step.map(|s| s.min(subcraft_app::launch::QUICK_START.len() - 1));
         if state.welcome.guide.is_some() { state.welcome.open = false; }
 

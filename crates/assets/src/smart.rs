@@ -73,12 +73,12 @@ impl SmartMaterial {
     }
 }
 
-fn base(name: &str) -> MaterialPreset {
+pub(crate) fn base(name: &str) -> MaterialPreset {
     materials().into_iter().find(|m| m.name == name).expect("built-in material exists")
 }
 
 /// A uniform-color dielectric layer.
-fn coat(ts: &TextureSet, name: &str, color: [f32; 3], rough: f32, metal: f32) -> Layer {
+pub(crate) fn coat(ts: &TextureSet, name: &str, color: [f32; 3], rough: f32, metal: f32) -> Layer {
     let m = MaterialPreset {
         id: AssetId::from_name(name),
         name: name.into(),
@@ -93,22 +93,22 @@ fn coat(ts: &TextureSet, name: &str, color: [f32; 3], rough: f32, metal: f32) ->
     m.build(ts)
 }
 
-fn masked(mut layer: Layer, ts: &TextureSet, effects: Vec<MaskEffect>) -> Layer {
+pub(crate) fn masked(mut layer: Layer, ts: &TextureSet, effects: Vec<MaskEffect>) -> Layer {
     let mut mask = Mask::new(ts.resolution, false);
     mask.effects = effects.into_iter().map(Arc::new).collect();
     layer.mask = Some(mask);
     layer
 }
 
-fn fx(kind: MaskEffectKind) -> MaskEffect {
+pub(crate) fn fx(kind: MaskEffectKind) -> MaskEffect {
     MaskEffect::new(kind)
 }
 
-fn fx_blend(kind: MaskEffectKind, blend: BlendMode) -> MaskEffect {
+pub(crate) fn fx_blend(kind: MaskEffectKind, blend: BlendMode) -> MaskEffect {
     MaskEffect { blend, ..MaskEffect::new(kind) }
 }
 
-fn grunge(scale: f32, seed: u32) -> MaskEffectKind {
+pub(crate) fn grunge(scale: f32, seed: u32) -> MaskEffectKind {
     MaskEffectKind::Fill {
         value: 1.0,
         procedural: Some(ProceduralParams { scale, seed, contrast: 0.3, ..ProceduralParams::new(ProceduralKind::Grunge) }),
@@ -116,7 +116,7 @@ fn grunge(scale: f32, seed: u32) -> MaskEffectKind {
     }
 }
 
-fn folder(name: &str, ts: &TextureSet, children: Vec<Layer>) -> Layer {
+pub(crate) fn folder(name: &str, ts: &TextureSet, children: Vec<Layer>) -> Layer {
     let mut f = Layer::new_folder(name, ts);
     if let LayerContent::Group(g) = &mut f.content {
         g.children = children.into_iter().map(Arc::new).collect();
@@ -156,7 +156,7 @@ fn tarnished_gold(ts: &TextureSet) -> Layer {
     folder("Tarnished Gold", ts, vec![base("Gold").build(ts), tarnish])
 }
 
-fn smart(name: &str, build: fn(&TextureSet) -> Layer) -> SmartMaterial {
+pub(crate) fn smart(name: &str, build: fn(&TextureSet) -> Layer) -> SmartMaterial {
     SmartMaterial { id: AssetId::from_name(&format!("smart_material/{name}")), name: name.into(), source: SmartSource::Builtin(build), user_file: None }
 }
 
@@ -168,4 +168,7 @@ pub fn smart_materials() -> Vec<SmartMaterial> {
         smart("Old Wood", old_wood),
         smart("Tarnished Gold", tarnished_gold),
     ]
+    .into_iter()
+    .chain(crate::smart_more::smart_materials())
+    .collect()
 }

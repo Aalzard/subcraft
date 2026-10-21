@@ -2583,6 +2583,30 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   tablet pressure, heavy-brush performance, clone across seams on production meshes; the clone
   source is a point, not a rotated/scaled stamp; no heal/seam blending.
 
+### Session 97 - Claude: Shelf content, 15 smart materials, 16 smart masks, 5 dirt generators (2026-10-21)
+
+* **Generators:** five new procedural kinds (ProceduralKind, snake_case in saved files; older apps
+  cannot read projects that use them): Dirt, Cracks, Streaks (run along V), Speckles, Pores.
+  All tile at integer scale and are deterministic (materials/pattern.rs tests).
+* **Smart materials (assets/smart_more.rs, all original, built from our own fills/generators/masks):**
+  Worn Leather, Chipped Painted Metal, Mossy Stone, Brushed Steel, Dusty Concrete, Oxidized Copper,
+  Scratched Plastic, Cracked Clay, Frosted Ice, Rough Wood, Peeling Painted Wood, Hammered Brass,
+  Sandstone, Dry Mud, Worn Rubber (20 smart materials in total). Edges / Cavity layers need baked
+  Curvature / AO. Edge layers use the legacy (non-Natural) edge generator.
+* **Smart masks:** Edge Dirt, Top-Down Dust, Scratches, Moss in Crevices, Water Streaks, Drip Stains,
+  Chipped Edges, Cracks, Speckled Dirt, Rust Bleed, Bottom Splash, Sun Fade, Soot Crevices, Peeling
+  Edges, Pitting, Grime Blotches (21 smart masks in total). A smart mask is a list of bare effect
+  kinds laid over a black mask (a later Normal effect replaces an earlier one), so each recipe is a
+  single effect shaped by its own noise; combining effects with blend modes would need SmartMask to
+  store blends (not done).
+* Tests: app/tests/smart_content.rs (every smart material on the baked crate: in range, not flat,
+  mutually distinct, one undo step; every smart mask: selects part of the crate, deterministic).
+* Real app (Windows debug, scripted): shelf-smart-materials.png / shelf-smart-masks.png (new
+  `--shelf-tab NAME`), smart-materials-gallery.png (CPU base-colour contact sheet of all 20).
+  NOT verified: the look under real lighting for every material beyond the Shelf thumbnails, hand
+  painting with them, 4K bake time, metallic/roughness/height judged only numerically, a
+  mud/wet-darkening look (no wetness channel), and artist taste: values are a first pass.
+
 ## Next steps (in order)
 
 Owner checks imported PBRs in the refreshed target/debug/subcraft.exe, especially close-up
