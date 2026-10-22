@@ -2984,3 +2984,9 @@ Earlier roadmap details (historical; the brush phase order above takes precedenc
    lerp; GPU compositor behind the same interface.
 
 All workspace crates now have real implementations.
+
+## Startup crash on very wide windows (0.1.7, reported on GitHub)
+- Cause: the viewport targets were created at panel size x pixels_per_point with no clamp, and egui-wgpu requests `max_texture_dimension_2d: 8192`. A window restored wider than that (saved in `%APPDATA%\SubCraft\data\app.ron`, so every start) panicked in `create_texture` ("viewport msaa", 10147 > 8192).
+- Fix: `ViewportRenderer::render` clamps the target to the device limit; the device now requests the adapter's real 2D texture limit; offline renders refuse sizes over the limit and drop supersampling when 2x does not fit.
+- Verified: `oversized_viewport_is_clamped_to_the_device_limit_instead_of_panicking` fails with the exact reported panic without the clamp and passes with it. Not verified on the reporter's PC.
+- Brush "Image projection" Scale is a repeat count (4 = four times as many repeats, smaller pattern), checked numerically in `crates/app/tests/brush_normal_scale.rs`.
