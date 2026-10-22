@@ -3,24 +3,80 @@
 What changed in SubCraft, newest first. Download the latest build from the
 [Releases page](https://github.com/Aalzard/subcraft/releases/latest).
 
-## Unreleased
+## 0.1.8 — 2026-10-22
+
+### New
+- **Clone and Smudge tools**, and **Project from the view** for brush images (camera projection).
+  Clone: Ctrl+click sets the source, later strokes keep the offset. Smudge drags paint along
+  with Flow as strength. Both work on paint layers and masks.
+- **New Project window** (File, Welcome screen): pick a model and see triangles, materials,
+  objects, UV range, UDIM tiles and warnings before creating anything. Choose template,
+  resolution, texture-set split (by material / object / one set), UDIM option, normal format
+  and an optional high-poly model. Your last choices are remembered.
+- **UDIM**: a model with several UV tiles becomes one texture set per tile, each with its own
+  layers; export as `.1001` file names or one folder per tile.
+- **Export checkboxes**: every output map is listed per texture set with checkboxes, Select
+  all / None / Invert and a live file count. Alt+click a map to export only that one. The
+  selection and the project's normal-map format are saved in the project and now really apply
+  to exported normal maps.
+- **Engine presets** for Unity URP and Godot 4; the Unreal preset is renamed "ORM packed".
+- **Height and Bent Normal bakes** (Bake window and 2D view; both also work as generator sources).
+- **Viewport rendering**: tone mapping (ACES, Filmic, Reinhard, Linear), exposure, bloom,
+  ambient occlusion, and emission glow and glare streaks (Render quality window). File >
+  Render image saves a still (1024-4096 px, optional 2x supersampling); Turntable saves
+  24-120 numbered PNG frames.
+- **Emission** can be switched on from Properties (+ emiss chip), starting white at intensity 3.
+- **Shelf content**: 15 new smart materials (20 in total), 16 new smart masks (21 in total) and
+  five new procedural generators (Dirt, Cracks, Streaks, Speckles, Pores).
+- **50 new normal maps and 50 new brush alphas** in the CC0 starter pack: now 80 + 80, all CC0.
+- **10 built-in HDRI environments** (Paint Booth, Ceramic Gallery, Library Hall, Atelier
+  Windows, Redwood Creek, Alpine Lake Blue Hour, Salt Flats Twilight, Glasshouse Morning, Neon
+  Arcade, Orbital Atrium) next to the five studio/sky presets. They are AI-generated
+  panoramas with synthesized HDR lighting, CC0 (see `assets/environments/CREDITS-CC0.txt`).
+  The full-size 2048x1024 originals are an optional extra download on the release page.
+- Material filtering, effect reordering and stage thumbnails, Bevel / Mask Outline / Blur /
+  Sharpen / Highpass / Directional Blur filters and Natural Edge Wear controls (details below).
+
+### Changed
+- Viewport tone mapping, bloom, AO and glow are display-only; exported textures are never affected.
+- Package size grows: the starter pack is about 60 MB instead of 13 MB and the bundled
+  environments add about 16 MB, because all images ship inside the program (see the release notes
+  for installer sizes).
+- Project files use schema 13; older projects open unchanged. Saving with this version
+  needs this version or newer to reopen.
+
+### Fixed
+- Natural and Exposed Edge Wear connectivity, curvature at hard corners and UV borders,
+  maximum Spread at low Level, high-poly bakes without UVs, live baked-normal layers and bake
+  error reporting (details below).
+- Brush slots accept drops; wrap and filter audits from the 0.1.8 development cycle.
+- UVs outside the 0..1 tile range are no longer silently merged into tile 1001.
 
 ### Removed
-- The browser version (WebAssembly build and its GitHub Pages site) is gone. SubCraft is a desktop
+- The browser version (WebAssembly build and its GitHub Pages site). SubCraft is a desktop
   app for Windows and Linux; nothing changes for desktop users (ADR-0038).
 
-### Rendering
+### Limitations
+- Turntable export writes PNG frames only: there is no GIF or MP4 encoder.
+- UDIM has no 2D tile picker and no "apply to all tiles" command; layer stacks are per tile.
+- Clone copies from a point (no heal or seam blending); camera projection projects once per
+  stroke, not per stamp.
+- Windows installers and packages are not code-signed yet, so SmartScreen may warn.
+
+### Details of earlier work in this release
+
+#### Rendering
 - Filter minified material textures with incremental GPU mipmaps, reducing fine PBR grain
   and shimmer at distance. Preserve sparse uploads, original/exported texels and the Nearest
   albedo pixel-art mode. Verified with native 4K wood/metal imports and numeric GPU tests.
 
-### Distribution
+#### Distribution
 - Prepare signed release checks: pinned tools/actions, locked dependencies, app/installer
   signatures, Defender reports, checksums and GitHub provenance. Publishing requires an
   enrolled signing identity. Add an offline Sandbox smoke-test harness; hosted signing
   and guest execution remain unverified on this development PC.
 
-### UI
+#### UI
 - Drag effect names/rows/preview squares to reorder within their content or mask stack. Amber
   insertion guides, edge scrolling and Escape cancellation; the moved effect stays selected
   and each drop is one undo step. Existing layer/shelf dragging is preserved.
@@ -38,7 +94,7 @@ What changed in SubCraft, newest first. Download the latest build from the
 - Layers show larger content/mask previews, type/effect counts and a quiet blend/opacity
   column. Compact nested effects have connecting lines and collapsible domain headers.
 
-### New
+#### New
 - Non-destructive Bevel and Mask Outline on content, masks and adjustment folders. Radius,
   Threshold, relief Amount and Inner/Outer/Both borders; consistent UV contour distances,
   scaled thumbnails, undo and exact export. Schema 12 preserves older stacks.
@@ -74,7 +130,7 @@ What changed in SubCraft, newest first. Download the latest build from the
 - Older projects open with Bilinear. Current saves require this build or a newer reader
   supporting schema 9.
 
-### Fixed
+#### Fixed
 - Baked convex corners beside separate parts no longer lose wear when Natural edge wear is
   off. Rebake Curvature to update stored maps; flat contact creases retain their concavity.
 - Maximum Spread now reaches its full distance at low Level values such as 0.065. Existing

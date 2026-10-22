@@ -78,14 +78,28 @@ If you dock the panel in a narrow sidebar, the same controls switch back to a ve
 
 ## 1. Open a model
 
-Choose **New from a model…** on the welcome screen or **File → New from mesh…**. SubCraft accepts
-OBJ, GLB/glTF and FBX. A `.gltf` needs its `.bin` and other files next to it; a GLB is easier to share because those resources are embedded.
+Choose **New project from a model…** on the welcome screen or in the **File** menu and pick an
+OBJ, GLB/glTF or FBX file (a `.gltf` needs its `.bin` and other files next to it; a GLB embeds them).
+The **New Project** window opens before anything is created:
 
-Your model needs UVs for painting and texture export. Separate material IDs become texture sets;
-switch sets in the **Texture Sets** panel. Imported object names appear in **Parts**.
+![New Project window](screenshots/v018-new-project.png)
 
-To resume work, use **Open project…** for a `.subcraft` file. Desktop recent files list both
-models and projects, and mark moved/deleted files as missing. Remove an entry to tidy the list.
+- **Model** shows triangles, materials, objects, the UV range and any UDIM tiles, with warnings
+  (no UVs, overlapping UVs, triangles crossing a tile border).
+- **Template** chooses which channels exist (PBR, Unreal ORM, Unity, Godot, Stylized) and the
+  default normal format; **Resolution** applies to every set (per-set sizes are under Advanced).
+- **Texture sets** splits the model by material, by object or into one set.
+- **Use UDIM tiles** (shown when the model has two or more tiles) makes one texture set per tile.
+- **Normal maps**: OpenGL (Y+) or DirectX (Y-); this is applied when you export.
+- **High-poly model** is optional; choosing one opens the Bake window with it afterwards.
+
+Your last choices are remembered. Press **Create project** (or Enter).
+
+Your model needs UVs for painting and texture export. Switch texture sets in the **Texture Sets**
+panel; imported object names appear in **Parts**.
+
+To resume work, use **Open project…** for a `.subcraft` file. Recent files list both models and
+projects, and mark moved/deleted files as missing. Remove an entry to tidy the list.
 Turn off **Show this screen on startup** here or in **Edit → Preferences** if you prefer.
 
 ## 2. Bake mesh maps
@@ -444,6 +458,17 @@ Autosave creates recovery copies in SubCraft's data folder. It does not overwrit
 project file. Save your own project regularly.
 
 ## 6. Export textures
+
+### Choose what to export
+
+Click **Export** (Ctrl+Shift+E). The window lists every output map of the template for each texture
+set, with a checkbox per map, a checkbox per set, **Select all / None / Invert** and a live
+"N of M files" count. **Alt+click** a map to export only that one; Alt+click it again to restore your
+selection. Your choices, the template and the normal-map convention are saved with the project.
+Models with UDIM tiles export as `Name_Body_BaseColor.1001.png`, or one folder per tile if you turn on
+**Export each UDIM to a separate folder**.
+
+![Export Textures window](screenshots/v018-export-window.png)
 
 ### Pixel art and retro albedo textures
 

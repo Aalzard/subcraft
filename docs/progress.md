@@ -2730,6 +2730,28 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   scripted screenshot, not by painting with a real mouse; mesh export keeps the shifted UVs; layer stacks
   are per tile (not shared across the tiles of a material).
 
+### Session 102 - Claude: remove the browser version, asset packs, README rewrite (2026-10-22)
+
+* **Browser version removed (ADR-0038):** web/, scripts/build-web.sh, .github/workflows/web.yml,
+  .cargo/config.toml (wasm flags), every `target_arch = "wasm32"` path (vfs/task, file pickers, download
+  sink, wasm start, web backup reminder, wasm glTF reader), web-only dependencies, web docs and badge.
+  `Build (web)` was never a required check (ruleset requires Test (Linux) and Build + engine tests
+  (Windows)). Desktop behaviour unchanged. Old GitHub Pages site still has to be switched off by the owner.
+* **Starter pack 2:** +50 normals, +50 alphas from texture_pack_2 (checked: 1024x1024, unit-length
+  normals, no seams, alphas with black borders; none dropped). Lossless oxipng without colour-type changes;
+  pixel-for-pixel equal. Pack now **80 normals + 80 alphas = 160 images, 59.7 MB** (was 13 MB; embedded in
+  the executable), thumbnails 1.15 MB. Manifest, credits, starter.rs and the catalog test updated.
+* **Environments:** the 10 AI-generated HDRIs (hdri_pack_2) are bundled at 1024x512 (1.6-1.9 MB each,
+  16.5 MB total, RGBE RLE, peaks within 6%) as `EnvironmentSource::Embedded`, decoded and prefiltered on
+  first use (no startup cost). hdri_pack (20 procedural HDRIs) was not bundled by owner decision. Full-size
+  originals: dist/SubCraft-extra-environments.zip (not committed, 56 MB, for the release page). Credits say
+  plainly that these are AI-generated with synthesized radiance. Credits file is copied into packages.
+* Tests: 634 pass (2 new for the bundled HDRIs, smart material / mask counts 20 / 21). New scripted
+  captures: docs/screenshots/v018-*.png (overview, shelf textures / brushes / environments / smart
+  materials, New Project, Export).
+* NOT verified: a normal map / brush tip applied by hand, real mouse use of the new Shelf tiles, installer
+  size (see release notes), Linux build of the packaging changes.
+
 ## Next steps (in order)
 
 Owner checks imported PBRs in the refreshed target/debug/subcraft.exe, especially close-up

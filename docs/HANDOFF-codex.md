@@ -1,3 +1,5 @@
+# Claude session 102 (2026-10-22): browser version removed (ADR-0038), starter pack 80+80, 10 bundled HDRIs, README/CHANGELOG 0.1.8; see progress.md session 102. 634 tests pass. Release 0.1.8: signing environments (release-signing / release-publish) do not exist yet, see release-security.md.
+
 # Claude session 101 (2026-10-21): Export per-map checkboxes + Select all/None/Invert, Alt+click solo, UDIM end to end (tile = texture set, .1001 names or 1001/ folders); see progress.md session 101.
 
 # Claude session 100 (2026-10-21): New Project window (template, resolution, split rule, UDIM tiles, normal format, high poly, summary + warnings); see progress.md session 100. 614 tests pass.

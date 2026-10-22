@@ -9,6 +9,7 @@ fn library_contents_are_well_formed() {
     let lib = Library::builtin();
     assert!(lib.alphas.len() >= 6 && lib.materials.len() >= 12 && lib.smart_materials.len() >= 4 && lib.smart_masks.len() >= 4);
     assert!(lib.environments.len() >= 4);
+    assert_eq!((lib.smart_materials.len(), lib.smart_masks.len()), (20, 21), "5 + 15 smart materials, 5 + 16 smart masks");
     let mut ids: Vec<_> = lib.materials.iter().map(|m| m.id).chain(lib.alphas.iter().map(|a| a.id)).collect();
     let n = ids.len();
     ids.sort();
