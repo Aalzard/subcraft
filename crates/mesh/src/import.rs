@@ -1,4 +1,4 @@
-//! Mesh importers (OBJ, glTF/GLB, FBX). Each normalizes into [`MeshBuilder`] corners using the
+//! Mesh importers (OBJ, glTF/GLB, FBX, and the model inside a Substance Painter .spp). Each normalizes into [`MeshBuilder`] corners using the
 //! canonical conventions; importer data structures never escape this module.
 
 use std::path::Path;
@@ -9,7 +9,7 @@ use crate::mesh::{BuildError, BuildStats, Corner, Mesh, MeshBuilder};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ImportError {
-    #[error("unsupported mesh format '.{0}' (supported: obj, gltf, glb, fbx)")]
+    #[error("unsupported mesh format '.{0}' (supported: obj, gltf, glb, fbx, spp)")]
     UnsupportedFormat(String),
     #[error("failed to read OBJ: {0}")]
     Obj(String),
@@ -17,6 +17,8 @@ pub enum ImportError {
     Gltf(String),
     #[error("failed to read FBX: {0}")]
     Fbx(String),
+    #[error("failed to read Substance Painter project: {0}")]
+    Spp(String),
     #[error(transparent)]
     Build(#[from] BuildError),
 }
@@ -28,7 +30,7 @@ pub struct ImportReport {
     pub warnings: Vec<String>,
 }
 
-pub const SUPPORTED_EXTENSIONS: [&str; 4] = ["obj", "gltf", "glb", "fbx"];
+pub const SUPPORTED_EXTENSIONS: [&str; 5] = ["obj", "gltf", "glb", "fbx", "spp"];
 
 pub fn import_mesh(path: &Path) -> Result<ImportReport, ImportError> {
     import(path, false)
@@ -48,6 +50,7 @@ fn import(path: &Path, bake_source: bool) -> Result<ImportReport, ImportError> {
         "obj" => load_obj(path, &mut b, &mut warnings)?,
         "gltf" | "glb" => load_gltf(path, &mut b, &mut warnings)?,
         "fbx" => load_fbx(path, &mut b, &mut warnings)?,
+        "spp" => load_spp(path, &mut b, &mut warnings)?,
         other => return Err(ImportError::UnsupportedFormat(other.to_string())),
     }
     let stats_pre = b.stats;
@@ -174,6 +177,32 @@ fn load_gltf(path: &Path, b: &mut MeshBuilder, warnings: &mut Vec<String>) -> Re
     if skipped_modes > 0 {
         warnings.push(format!("skipped {skipped_modes} non-triangle primitives"));
     }
+    Ok(())
+}
+
+/// The model of a Substance Painter project. Layers, painted pixels and baked maps are not read, so
+/// the result is the geometry with its UVs, one object per mesh in the project.
+fn load_spp(path: &Path, b: &mut MeshBuilder, warnings: &mut Vec<String>) -> Result<(), ImportError> {
+    let meshes = crate::spp::read_meshes(path).map_err(|e| ImportError::Spp(e.to_string()))?;
+    let material = b.material("DefaultMaterial");
+    for m in &meshes {
+        b.object(&m.name);
+        let has_uv = m.uvs.len() == m.positions.len();
+        let has_n = m.normals.len() == m.positions.len();
+        let corner = |i: u32| {
+            let i = i as usize;
+            Corner {
+                position: m.positions[i],
+                normal: has_n.then(|| m.normals[i]),
+                // Painter's UVs have their origin at the bottom-left, like OBJ.
+                uv: has_uv.then(|| Vec2::new(m.uvs[i].x, 1.0 - m.uvs[i].y)),
+            }
+        };
+        for t in &m.triangles {
+            b.push_triangle(material, [corner(t[0]), corner(t[1]), corner(t[2])]);
+        }
+    }
+    warnings.push("Only the model was read from the Substance Painter project; its layers, painted textures and baked maps are not imported yet".into());
     Ok(())
 }
 
