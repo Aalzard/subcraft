@@ -5,15 +5,15 @@ use subcraft_image::{Bitmap,BitmapData};
 fn finish(b: Bitmap,k: Kind,s: Settings,side: u32,budget: usize)->Bitmap {let mut j=ImageJob::new(Arc::new(b),k,s,side).unwrap();j.step(0);assert_eq!(j.progress(),0.0);while !j.is_done(){j.step(budget);}j.finish().unwrap()}
 
 #[test]
-fn catalog_has_sixty_unique_small_thumbnails_and_lossless_full_size_pngs() {
-    assert_eq!(starter::ENTRIES.len(),60);let mut ids=BTreeSet::new();let mut normals=0;let mut bytes=0;let mut thumbs=0;
+fn catalog_has_160_unique_small_thumbnails_and_lossless_full_size_pngs() {
+    assert_eq!(starter::ENTRIES.len(),160);let mut ids=BTreeSet::new();let mut normals=0;let mut bytes=0;let mut thumbs=0;
     for (i,e) in starter::ENTRIES.iter().enumerate() {
         assert!(ids.insert(e.id()));let full=starter::encoded(i).unwrap();assert_eq!(e.bytes,full.len());bytes+=full.len();thumbs+=e.thumb.len();
         let b=subcraft_image::io::decode_bitmap(full,Some(e.file)).unwrap();assert_eq!((b.width,b.height),(1024,1024));
         let t=subcraft_image::io::decode_bitmap(e.thumb,Some("thumb.png")).unwrap();assert_eq!((t.width,t.height),(96,96));
         if e.kind==Kind::Normal {normals+=1;assert_eq!(b.channels,3);assert!(e.tileable());}else{assert_eq!(b.channels,1);assert!(!e.tileable());}
     }
-    assert_eq!(normals,30);assert_eq!(bytes,12_928_272);assert!(thumbs<350_000);assert!(starter::encoded(60).is_none());
+    assert_eq!(normals,80);assert_eq!(bytes,59_691_322);assert!(thumbs<1_200_000);assert!(starter::encoded(160).is_none());
 }
 #[test]
 fn neutral_normal_and_zero_strength_are_linear_unit_vectors() {
