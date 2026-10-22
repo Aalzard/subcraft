@@ -146,7 +146,8 @@ pub fn apply_environment(
             params.light_color = p.light_color;
             params.environment_intensity = intensity;
         }
-        EnvironmentSource::Hdri(h) => {
+        EnvironmentSource::Hdri(_) | EnvironmentSource::Embedded(_) => {
+            let Some(h) = env.source.hdri() else { return };
             if *uploaded != Some(env.id) {
                 let levels: Vec<(u32, u32, &[f32])> = h.levels.iter().map(|l| (l.width, l.height, l.rgba.as_slice())).collect();
                 renderer.set_hdri(device, queue, Some(subcraft_render::HdriUpload { levels: &levels, sh: h.sh }));

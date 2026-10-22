@@ -67,6 +67,7 @@ try {
     New-Item -ItemType Directory -Path $fonts | Out-Null
     Copy-Item 'crates\ui\assets\fonts\*-LICENSE.txt' $fonts
     Copy-Item 'assets\starter-pack\CREDITS-CC0.txt' (Join-Path $fonts 'starter-pack-CC0.txt')
+    Copy-Item 'assets\environments\CREDITS-CC0.txt' (Join-Path $fonts 'environments-CC0.txt')
 
     Compress-Archive -Path $stage -DestinationPath $zip
     $size = '{0:N1} MB' -f ((Get-Item $zip).Length / 1MB)
