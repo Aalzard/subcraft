@@ -65,6 +65,12 @@ pub fn wgpu_options(api: GraphicsApi, environment_override: bool) -> egui_wgpu::
         let dx12 = pollster::block_on(wgpu::Instance::new(desc).enumerate_adapters(wgpu::Backends::DX12));
         setup.instance_descriptor.backends = if dx12.is_empty() { wgpu::Backends::VULKAN | wgpu::Backends::GL } else { wgpu::Backends::DX12 };
     }
+    let egui_default = setup.device_descriptor.clone();
+    setup.device_descriptor = std::sync::Arc::new(move |adapter| {
+        let mut desc = egui_default(adapter);
+        desc.required_limits.max_texture_dimension_2d = adapter.limits().max_texture_dimension_2d;
+        desc
+    });
     egui_wgpu::WgpuConfiguration { wgpu_setup: setup.into(), ..Default::default() }
 }
 

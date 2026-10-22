@@ -449,3 +449,19 @@ fn hdri_environment_shows_in_reflections() {
     let t2 = px(&proc_img, SIZE / 2, SIZE / 2 - 50).map(i32::from);
     assert!(t2[0] < t2[2] + 40, "studio sky is not red: {t2:?}");
 }
+
+#[test]
+fn oversized_viewport_is_clamped_to_the_device_limit_instead_of_panicking() {
+    let _gpu = gpu_test();
+    let Some((_, device, queue)) = headless::device() else { eprintln!("no adapter: skipping"); return };
+    let limit = device.limits().max_texture_dimension_2d;
+    let mut r = ViewportRenderer::new(&device, &queue);
+    r.set_mesh(&device, &primitives::cube(2.));
+    // 10147 px wide is what a window spanning several monitors asked for in the bug report.
+    let target = r.render(&device, &queue, [limit + 1955, 8], &params());
+    assert_eq!(target.size, [limit, 8]);
+    let img = target.read_rgba8(&device, &queue);
+    assert_eq!(img.len(), (limit * 8 * 4) as usize);
+    let target = r.render(&device, &queue, [0, 0], &params());
+    assert_eq!(target.size, [1, 1]);
+}

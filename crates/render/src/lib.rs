@@ -558,9 +558,10 @@ impl ViewportRenderer {
         }
     }
 
-    /// Render a frame into the offscreen target (resized as needed) and return the target.
+    /// Render a frame into the offscreen target (resized as needed, never beyond what the
+    /// device can allocate) and return the target.
     pub fn render(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, size: [u32; 2], params: &ViewParams) -> &RenderTarget {
-        let size = [size[0].max(1), size[1].max(1)];
+        let size = fit_target_size(size, device.limits().max_texture_dimension_2d);
         let samples = if params.antialias { SAMPLE_COUNT } else { 1 };
         if self.target.as_ref().is_none_or(|t| t.size != size || t.samples != samples) {
             self.target = Some(RenderTarget::new(device, size, samples));
@@ -684,4 +685,23 @@ impl ViewportRenderer {
 /// Stored components of a composite channel image (mirrors `subcraft_compositor`).
 pub fn composite_comps(kind: ChannelKind) -> usize {
     if kind.components() == 3 { 4 } else { 1 }
+}
+
+/// A render-target size the device can allocate: at least 1 px, at most `max_dimension` per axis.
+/// A window spanning several monitors (or an 8K display) can ask for more than the 8192 px
+/// that the default device limits allow; the image is then rendered smaller and stretched.
+pub fn fit_target_size(size: [u32; 2], max_dimension: u32) -> [u32; 2] {
+    size.map(|s| s.clamp(1, max_dimension.max(1)))
+}
+
+#[cfg(test)]
+mod size_tests {
+    use super::fit_target_size;
+    #[test]
+    fn target_size_is_clamped_to_the_device_limit_and_never_zero() {
+        assert_eq!(fit_target_size([10147, 1009], 8192), [8192, 1009]);
+        assert_eq!(fit_target_size([0, 5], 8192), [1, 5]);
+        assert_eq!(fit_target_size([100, 100], 8192), [100, 100]);
+        assert_eq!(fit_target_size([u32::MAX, 3], 0), [1, 1]);
+    }
 }
