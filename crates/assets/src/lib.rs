@@ -19,6 +19,7 @@ pub use smart::SmartMaterial;
 pub use user_library::{UserAssetKind, UserLibrary};
 
 /// Everything the shelf offers.
+#[derive(Clone)]
 pub struct Library {
     pub alphas: Vec<BrushAlpha>,
     pub materials: Vec<MaterialPreset>,

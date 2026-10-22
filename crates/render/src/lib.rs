@@ -16,6 +16,7 @@ mod mipmap;
 pub mod offline;
 pub mod post;
 pub mod preview;
+pub mod snapshot;
 pub mod target;
 
 use std::collections::HashMap;
