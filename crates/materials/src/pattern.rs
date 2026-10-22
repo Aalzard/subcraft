@@ -41,6 +41,33 @@ pub fn raw(kind: ProceduralKind, p: Vec2, scale: f32, seed: u32) -> f32 {
         }
         ProceduralKind::GradientU => p.x.rem_euclid(1.0),
         ProceduralKind::GradientV => p.y.rem_euclid(1.0),
+        ProceduralKind::Dirt => {
+            // Soft grime blotches broken up by fine specks.
+            let blotch = fbm(q, period, 5, seed);
+            let specks = fbm(q * 5.0, period * 5, 2, seed ^ 0x2f1);
+            smooth((blotch * 0.8 + specks * 0.35 - 0.5) / 0.22)
+        }
+        ProceduralKind::Cracks => {
+            // Worley borders, bent by noise so the cracks wander; 1 on the crack.
+            let warp = Vec2::new(fbm(q * 2.0, period * 2, 3, seed ^ 0x51) - 0.5, fbm(q * 2.0 + Vec2::splat(31.0), period * 2, 3, seed ^ 0x52) - 0.5);
+            let w = (q + warp * 0.35).rem_euclid(Vec2::splat(period as f32));
+            let (f1, f2) = worley(w, period, seed);
+            1.0 - smooth((f2 - f1) / 0.07)
+        }
+        ProceduralKind::Streaks => {
+            // Narrow in u, long in v: columns of drips that fade as they run.
+            let col = value_xy(Vec2::new(q.x * 6.0, q.y), period * 6, period, seed);
+            let run = value_xy(Vec2::new(q.x * 6.0 + 17.0, q.y * 2.0), period * 6, period * 2, seed ^ 0x8a);
+            smooth((col * 0.7 + run * 0.4 - 0.55) / 0.2)
+        }
+        ProceduralKind::Speckles => {
+            let n = value_xy(q * 24.0, period * 24, period * 24, seed);
+            smooth((n - 0.72) / 0.1)
+        }
+        ProceduralKind::Pores => {
+            let (f1, _) = worley(q * 3.0, period * 3, seed);
+            1.0 - smooth((f1 - 0.08) / 0.12)
+        }
     }
 }
 
@@ -112,7 +139,7 @@ mod tests {
 
     #[test]
     fn uv_patterns_tile_at_integer_scale() {
-        for kind in [ProceduralKind::Clouds, ProceduralKind::Cells, ProceduralKind::Brushed, ProceduralKind::Grunge, ProceduralKind::WoodRings, ProceduralKind::Scratches] {
+        for kind in [ProceduralKind::Clouds, ProceduralKind::Cells, ProceduralKind::Brushed, ProceduralKind::Grunge, ProceduralKind::WoodRings, ProceduralKind::Scratches, ProceduralKind::Dirt, ProceduralKind::Cracks, ProceduralKind::Streaks, ProceduralKind::Speckles, ProceduralKind::Pores] {
             let params = ProceduralParams::new(kind);
             for k in 0..40 {
                 let p = Vec2::new(0.013 * k as f32, 0.71);
@@ -121,5 +148,38 @@ mod tests {
                 assert!((a - b).abs() < 2e-3, "{kind:?} not tileable: {a} vs {b}");
             }
         }
+    }
+
+    /// Mean of a pattern over a regular grid of the unit tile.
+    fn mean(kind: ProceduralKind, scale: f32, seed: u32) -> f32 {
+        let params = ProceduralParams { scale, seed, ..ProceduralParams::new(kind) };
+        let n = 64;
+        (0..n * n).map(|i| eval(&params, Vec2::new((i % n) as f32 + 0.5, (i / n) as f32 + 0.5) / n as f32)).sum::<f32>() / (n * n) as f32
+    }
+
+    #[test]
+    fn dirt_generators_cover_part_of_the_surface_and_depend_on_the_seed() {
+        for kind in [ProceduralKind::Dirt, ProceduralKind::Cracks, ProceduralKind::Streaks, ProceduralKind::Speckles, ProceduralKind::Pores] {
+            let m = mean(kind, 4.0, 3);
+            assert!((0.01..0.7).contains(&m), "{kind:?} covers {m}");
+            assert!((m - mean(kind, 4.0, 4)).abs() > 1e-4 || kind == ProceduralKind::Speckles, "{kind:?} ignores its seed");
+            assert_eq!(m, mean(kind, 4.0, 3));
+        }
+    }
+
+    #[test]
+    fn streaks_run_along_v_and_cracks_are_thin_lines() {
+        // Streaks vary much faster across u than along v.
+        let params = ProceduralParams { scale: 4.0, seed: 5, ..ProceduralParams::new(ProceduralKind::Streaks) };
+        let (mut across, mut along) = (0.0, 0.0);
+        for i in 0..400 {
+            let p = Vec2::new((i % 20) as f32 * 0.05 + 0.013, (i / 20) as f32 * 0.05 + 0.021);
+            let v = eval(&params, p);
+            across += (v - eval(&params, p + Vec2::new(0.01, 0.0))).abs();
+            along += (v - eval(&params, p + Vec2::new(0.0, 0.01))).abs();
+        }
+        assert!(across > 2.0 * along, "across {across} vs along {along}");
+        let cracks = mean(ProceduralKind::Cracks, 5.0, 7);
+        assert!(cracks < 0.35, "cracks should be thin: {cracks}");
     }
 }

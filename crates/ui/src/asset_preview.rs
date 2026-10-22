@@ -24,29 +24,27 @@ impl AssetPreviewUi {
     pub fn is_applying(&self) -> bool {self.destination.is_some()}
     pub fn cancel_apply(&mut self) {self.destination=None;self.apply=None;self.queued=None;}
     pub fn queue(&mut self, session: &subcraft_app::Session, index: usize, channel: Option<(subcraft_core::LayerId,subcraft_core::ChannelKind)>) {
-        if self.builtin==Some(index)&&self.source.is_some()&&self.loader.is_none() {self.apply_to(session,channel);return;}
-        if ENTRIES.get(index).is_none() {return;} self.cancel_apply();self.queued=Some(index);self.destination=Some(subcraft_app::asset_apply::Destination::capture(session,channel));
+        self.queue_to(index,subcraft_app::asset_apply::Destination::capture(session,channel));
+    }
+    /// Use starter image `index` as the brush's image for `channel` (dropped on a Brush slot).
+    pub fn queue_brush(&mut self, session: &subcraft_app::Session, index: usize, channel: subcraft_core::ChannelKind) {
+        self.queue_to(index,subcraft_app::asset_apply::Destination::capture_brush(session,channel));
+    }
+    fn queue_to(&mut self, index: usize, destination: subcraft_app::asset_apply::Destination) {
+        if self.builtin==Some(index)&&self.source.is_some()&&self.loader.is_none() {self.destination=Some(destination);self.apply=None;return;}
+        if ENTRIES.get(index).is_none() {return;} self.cancel_apply();self.queued=Some(index);self.destination=Some(destination);
     }
     pub fn start(&mut self, ctx: &egui::Context, name: String, kind: Kind, source: Source, open: bool) {
         self.cancel_apply(); self.open=open;self.name=name;self.kind=Some(kind);self.settings=Settings::default();self.tiles=1;
         self.builtin=match &source {Source::Builtin(i)=>Some(*i),_=>None};
         self.source=None;self.image=None;self.example=None;self.job=None;self.error=None;self.dirty=true;
         let (tx,rx)=channel();self.loader=Some(rx); let ctx=ctx.clone();
-        #[cfg(not(target_arch="wasm32"))]
         subcraft_core::task::spawn(move || {
             let result=match source {
                 Source::Builtin(i)=>subcraft_assets::starter::encoded(i).ok_or_else(||"Unknown starter image".to_string()).and_then(decode),
                 Source::File(p)=>load_file(&p),
                 Source::Bitmap(b)=>Ok(b),
             }; let _=tx.send(result);ctx.request_repaint();
-        });
-        #[cfg(target_arch="wasm32")]
-        wasm_bindgen_futures::spawn_local(async move {
-            let result=match source {
-                Source::Builtin(i)=>fetch(i).await.and_then(|b|decode(&b)),
-                Source::File(p)=>load_file(&p),
-                Source::Bitmap(b)=>Ok(b),
-            };let _=tx.send(result);ctx.request_repaint();
         });
     }
     pub fn apply_to(&mut self, session: &subcraft_app::Session, channel: Option<(subcraft_core::LayerId,subcraft_core::ChannelKind)>) {
@@ -169,18 +167,6 @@ fn load_file(path: &std::path::Path) -> Result<Arc<Bitmap>,String> {
     Ok(Arc::new(match conversion {MapConversion::None=>bitmap,MapConversion::Invert=>bitmap.map_color(|_,v|1.0-v),_=>bitmap.map_color(|c,v|if c==1 {1.0-v}else{v})}))
 }
 
-#[cfg(target_arch="wasm32")]
-async fn fetch(index: usize) -> Result<Vec<u8>,String> {
-    use wasm_bindgen::JsCast;
-    let entry=ENTRIES.get(index).ok_or("Unknown starter image")?;
-    let url=format!("starter-pack/{}",entry.file);
-    let response=wasm_bindgen_futures::JsFuture::from(web_sys::window().ok_or("Browser window unavailable")?.fetch_with_str(&url)).await.map_err(|_|"Starter image download failed; try selecting it again")?;
-    let response=response.dyn_into::<web_sys::Response>().map_err(|_|"Invalid image response")?;
-    if !response.ok() {return Err(format!("Image download returned HTTP {}",response.status()));}
-    let buffer=wasm_bindgen_futures::JsFuture::from(response.array_buffer().map_err(|_|"Cannot read image download")?).await.map_err(|_|"Cannot read image download")?;
-    let bytes=js_sys::Uint8Array::new(&buffer).to_vec();
-    if bytes.len()!=entry.bytes {return Err("Image download has an unexpected size; reload the page and retry".into());} Ok(bytes)
-}
 
 fn texture(ctx: &egui::Context, name: &str, bitmap: &Bitmap) -> egui::TextureHandle {
     let (w,h,rgba)=bitmap.preview_rgba8(4096);ctx.load_texture(name,egui::ColorImage::from_rgba_unmultiplied([w as usize,h as usize],&rgba),egui::TextureOptions::LINEAR)
@@ -197,7 +183,7 @@ pub fn open(state: &mut UiState, ctx: &egui::Context, index: usize, apply: bool,
     if apply {state.asset_preview.apply_to(&state.session,channel);}
 }
 
-pub fn shelf(state: &mut UiState, ui: &mut egui::Ui) -> usize {
+pub fn shelf(state: &mut UiState, ui: &mut egui::Ui, side: f32) -> usize {
     use crate::panels::shelf::{ShelfTab,ShelfDrag};
     let kind=match state.shelf.tab {ShelfTab::Textures=>Kind::Normal,ShelfTab::Brushes=>Kind::Alpha,_=>return 0};
     let mut shown=0;let mut clicked=None;
@@ -208,7 +194,7 @@ pub fn shelf(state: &mut UiState, ui: &mut egui::Ui) -> usize {
             && let Ok(b)=subcraft_image::io::decode_bitmap(e.thumb,Some("thumb.png")) {
                 slot.insert(texture(ui.ctx(),&format!("starter-thumb-{i}"),&b));
         }
-        let resp=crate::panels::shelf::tile(ui,state.asset_preview.thumbs.get(&i),e.name,false,"CC0 Starter pack: click to preview and adjust. Drag normals onto Normal, the model or a layer.");
+        let resp=crate::panels::shelf::tile(ui,side,state.asset_preview.thumbs.get(&i),e.name,false,"CC0 Starter pack: click to preview and adjust. Drag normals onto Normal, the model or a layer.");
         if kind==Kind::Normal {resp.dnd_set_drag_payload(ShelfDrag::Starter(i));}
         if resp.clicked() {clicked=Some(i);}
     }

@@ -24,6 +24,7 @@ pub const DEFAULT_RESOLUTION: u32 = 1024;
 
 /// Immutable geometry of the session and everything derived from it.
 pub struct Scene {
+    symmetry_sections: std::sync::OnceLock<[Vec<[Vec3; 2]>; 3]>,
     pub mesh: Arc<Mesh>,
     pub bvh: Bvh,
     pub geometry: GeometryCache,
@@ -33,7 +34,7 @@ pub struct Scene {
 impl Scene {
     pub fn new(mesh: Mesh) -> Self {
         let mesh = Arc::new(mesh);
-        Self { bvh: Bvh::build(&mesh), geometry: GeometryCache::new(mesh.clone()), depth: DepthCache::new(), mesh }
+        Self { symmetry_sections: Default::default(), bvh: Bvh::build(&mesh), geometry: GeometryCache::new(mesh.clone()), depth: DepthCache::new(), mesh }
     }
 }
 
@@ -108,8 +109,11 @@ pub struct Session {
     effect: Option<EffectId>,
     pub brush: BrushState,
     stroke: Option<ActiveStroke>,
+    /// Clone tool: object-space source point, and the screen offset the first stroke fixed.
+    clone_source: Option<Vec3>,
+    clone_offset: Option<Vec2>,
     /// Composite caches while compositing runs on the calling thread (until the first
-    /// interactive update starts the worker, and always on the web).
+    /// interactive update starts the worker).
     composites: HashMap<TextureSetId, CompositeCache>,
     /// Background compositing (desktop, from the first interactive update on): owns the caches.
     worker: Option<CompositeWorker>,
@@ -129,6 +133,9 @@ pub struct Session {
     project_path: Option<PathBuf>,
     /// Document as of the last save / load / new (for the unsaved-changes indicator).
     saved_doc: Document,
+    /// Saved with the project but outside the undo history (export choices, normal format).
+    settings: subcraft_doc::ProjectSettings,
+    saved_settings: subcraft_doc::ProjectSettings,
     /// Mesh maps changed (baked) since the last save.
     maps_dirty: bool,
     /// Bumped whenever baked mesh maps change (autosave change tracking).
@@ -144,11 +151,12 @@ pub struct ProjectSnapshot {
     pub document: Document,
     pub resources: ResourceStore,
     pub mesh_maps: subcraft_project::MeshMapSet,
+    pub settings: subcraft_doc::ProjectSettings,
 }
 
 impl ProjectSnapshot {
     pub fn save(&self, path: &Path) -> Result<(), String> {
-        subcraft_project::save_project(path, &self.mesh, &self.document, &self.resources, &self.mesh_maps).map_err(|e| e.to_string())
+        subcraft_project::save_project_with(path, &self.mesh, &self.document, &self.resources, &self.mesh_maps, &self.settings).map_err(|e| e.to_string())
     }
 }
 
@@ -179,6 +187,8 @@ impl Session {
             no_maps: MeshMaps::new(),
             history: History::new(doc.clone(), label),
             saved_doc: doc.clone(),
+            settings: Default::default(),
+            saved_settings: Default::default(),
             doc,
             selection,
             mask_clipboard: None,
@@ -195,6 +205,8 @@ impl Session {
                 stencil_bypass: false,
             },
             stroke: None,
+            clone_source: None,
+            clone_offset: None,
             composites: HashMap::new(),
             worker: None,
             inline_only: false,
@@ -223,6 +235,8 @@ impl Session {
         }
         let mut s = Self::from_parts(data.mesh, data.document, data.resources, label);
         s.project_path = Some(path.to_path_buf());
+        s.saved_settings = data.settings.clone();
+        s.settings = data.settings;
         for (ts, maps) in data.mesh_maps {
             s.mesh_maps.insert(ts, MeshMaps::from_map(maps));
         }
@@ -239,9 +253,10 @@ impl Session {
             None => return Err("no project path: use Save As".into()),
         };
         let maps: subcraft_project::MeshMapSet = self.mesh_maps.iter().map(|(id, m)| (*id, m.as_map().clone())).collect();
-        subcraft_project::save_project(&path, &self.scene.mesh, &self.doc, &self.resources, &maps).map_err(|e| e.to_string())?;
+        subcraft_project::save_project_with(&path, &self.scene.mesh, &self.doc, &self.resources, &maps, &self.settings).map_err(|e| e.to_string())?;
         self.project_path = Some(path.clone());
         self.saved_doc = self.doc.clone();
+        self.saved_settings = self.settings.clone();
         self.maps_dirty = false;
         self.recovered = false;
         Ok(path)
@@ -254,6 +269,7 @@ impl Session {
             document: self.history.current().clone(),
             resources: self.resources.clone(),
             mesh_maps: self.mesh_maps.iter().map(|(id, m)| (*id, m.as_map().clone())).collect(),
+            settings: self.settings.clone(),
         }
     }
 
@@ -268,7 +284,6 @@ impl Session {
         self.recovered = true;
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn restore_after_update(&mut self, project_path: Option<PathBuf>, modified: bool) {
         self.project_path = project_path;
         self.recovered = modified;
@@ -285,7 +300,17 @@ impl Session {
 
     /// True if the document differs from the last save / load.
     pub fn is_modified(&self) -> bool {
-        self.maps_dirty || self.recovered || self.doc != self.saved_doc
+        self.maps_dirty || self.recovered || self.doc != self.saved_doc || self.settings != self.saved_settings
+    }
+
+    /// Project-wide settings (export choices, normal format), saved with the project.
+    pub fn settings(&self) -> &subcraft_doc::ProjectSettings {
+        &self.settings
+    }
+
+    /// Replace the project settings. Not undoable; marks the project as modified.
+    pub fn set_settings(&mut self, settings: subcraft_doc::ProjectSettings) {
+        self.settings = settings;
     }
 
     // ----- baking --------------------------------------------------------------------------------
@@ -312,6 +337,39 @@ impl Session {
         crate::bake_job::BakeJob::start(self.scene.mesh.clone(), Arc::new(self.scene.bvh.clone()), request)
     }
 
+    /// Reuse the high-poly mesh already loaded for the bake preview.
+    pub fn start_bake_prepared(&self, request: crate::bake_job::BakeRequest, high: Option<crate::bake_job::BakePreviewMesh>) -> crate::bake_job::BakeJob {
+        crate::bake_job::BakeJob::start_prepared(self.scene.mesh.clone(), Arc::new(self.scene.bvh.clone()), request, high)
+    }
+
+    /// Expose a high-to-low normal bake in the existing layer workflow, without changing
+    /// authored materials. A live mesh-map reference updates on rebakes and saves normally.
+    pub(crate) fn show_baked_normal(&mut self, ts_id: TextureSetId) {
+        use subcraft_doc::{BlendMode, ChannelBlend, FillChannel, FillSource};
+        use subcraft_core::MeshMapKind;
+        fn uses_bake(l: &Layer) -> bool {
+            let source = |s: &FillSource| matches!(s, FillSource::MeshMap { map: MeshMapKind::Normal });
+            let channels = |c: &std::collections::BTreeMap<ChannelKind, FillChannel>| {
+                c.get(&ChannelKind::Normal).is_some_and(|f| f.enabled && source(&f.source))
+            };
+            matches!(&l.content, LayerContent::Fill(f) if channels(&f.channels))
+                || l.content_effects.iter().any(|e| matches!(&e.kind, ContentEffectKind::Fill(f) if channels(&f.channels)))
+                || l.children().iter().any(|l| uses_bake(l))
+        }
+        let Some(ts) = self.doc.texture_set_mut(ts_id) else { return };
+        if ts.layers.iter().any(|l| uses_bake(l)) { return; }
+        if !ts.has_channel(ChannelKind::Normal) { ts.channels.push(ChannelDef::default_for(ChannelKind::Normal)); }
+        let mut layer = Layer::new_fill("Baked normal · high poly", ts);
+        if let LayerContent::Fill(fill) = &mut layer.content {
+            fill.channels.clear();
+            fill.channels.insert(ChannelKind::Normal, FillChannel::new(FillSource::MeshMap { map: MeshMapKind::Normal }));
+        }
+        // The bake is the base orientation; authored normals beneath it remain detail.
+        layer.blend.insert(ChannelKind::Normal, ChannelBlend::new(BlendMode::NormalMapInverseDetail));
+        ts.layers.push(Arc::new(layer));
+        self.commit("Show baked normal", None);
+    }
+
     /// The built-in two-material sample crate.
     pub fn sample() -> Self {
         Self::new(primitives::sample_crate(), DEFAULT_RESOLUTION)
@@ -323,13 +381,28 @@ impl Session {
         if report.mesh.triangle_count() == 0 {
             return Err("mesh has no triangles".into());
         }
-        Ok((Self::new(report.mesh, resolution), report.warnings))
+        let mut warnings = report.warnings;
+        let tiles = report.mesh.udim_tiles(None).len();
+        if tiles > 1 {
+            // Folding the tiles onto one would make their islands paint over each other.
+            let settings = crate::new_project::NewProjectSettings { resolution, ..Default::default() };
+            let session = Self::from_mesh_with(report.mesh, &settings)?;
+            warnings.push(format!("The model uses {tiles} UDIM tiles; each tile became its own texture set (use File > New project to choose differently)."));
+            return Ok((session, warnings));
+        }
+        Ok((Self::new(report.mesh, resolution), warnings))
     }
 
     // ----- queries -------------------------------------------------------------------------------
 
     pub fn scene(&self) -> &Scene {
         &self.scene
+    }
+
+    pub fn symmetry_guide_segments(&self) -> Vec<[Vec3; 2]> {
+        if !self.brush.options.symmetry.contains(&true) { return Vec::new(); }
+        let sections = self.scene.symmetry_sections.get_or_init(|| crate::guides::symmetry_sections(&self.scene.mesh));
+        sections.iter().zip(self.brush.options.symmetry).filter(|(_, enabled)| *enabled).flat_map(|(lines, _)| lines.iter().copied()).collect()
     }
     pub fn document(&self) -> &Document {
         &self.doc
@@ -608,8 +681,8 @@ impl Session {
                 let id = self.edit_layer_set(layer, "Add Effect", None, |ts| {
                     let effect = ContentEffect::new(kind, ts);
                     let l = Self::layer_mut(ts, layer)?;
-                    if l.is_folder() {
-                        return Err(CommandError::Invalid("Folders cannot have content effects yet".into()));
+                    if l.is_folder() && !effect.kind.is_adjustment() {
+                        return Err(CommandError::Invalid("Folders support adjustment effects only".into()));
                     }
                     let id = effect.id;
                     l.content_effects.push(Arc::new(effect));
@@ -630,6 +703,7 @@ impl Session {
                 let key = format!("content-effect:{layer}:{}", effect.id);
                 self.edit_layer_set(layer, "Effect", Some(key), |ts| {
                     let l = Self::layer_mut(ts, layer)?;
+                    if l.is_folder() && !effect.kind.is_adjustment() { return Err(CommandError::Invalid("Folders support adjustment effects only".into())); }
                     let slot = l.content_effects.iter_mut().find(|e| e.id == effect.id).ok_or_else(|| CommandError::Invalid("No such effect".into()))?;
                     *slot = Arc::new(effect);
                     Ok(())
@@ -644,6 +718,20 @@ impl Session {
                     l.content_effects.insert(index, moved);
                     Ok(())
                 })?;
+            }
+            Command::DropEffect { source, target, side } => {
+                if source.texture_set != self.selection.texture_set {
+                    return Err(CommandError::Invalid("the dragged texture set is no longer selected".into()));
+                }
+                let ts=self.doc.texture_set(source.texture_set).ok_or(CommandError::TextureSetNotFound)?;
+                if let Some(index)=crate::effect_stack::drop_destination(ts,source,target,side) {
+                    let moved=match source.domain {
+                        LayerTarget::Content=>Command::MoveContentEffect {layer:source.layer,effect:source.effect,index},
+                        LayerTarget::Mask=>Command::MoveMaskEffect {layer:source.layer,effect:source.effect,index},
+                    };
+                    self.execute(moved)?;
+                    return self.execute(Command::SelectEffect {layer:source.layer,target:source.domain,effect:Some(source.effect)});
+                }
             }
             Command::DuplicateContentEffect { layer, effect } => {
                 self.edit_layer_set(layer, "Duplicate Effect", None, |ts| {
@@ -683,6 +771,13 @@ impl Session {
                 self.selection.layer = Some(id);
                 self.commit(&label, None);
             }
+            Command::SetAlbedoFilter { texture_set, filter } => {
+                let ts = self.doc.texture_set_mut(texture_set).ok_or(CommandError::TextureSetNotFound)?;
+                if ts.albedo_filter != filter {
+                    ts.albedo_filter = filter;
+                    self.commit("Albedo filtering", None);
+                }
+            }
             Command::SetResolution { texture_set, resolution } => {
                 if !subcraft_doc::RESOLUTIONS.contains(&resolution) {
                     return Err(CommandError::Invalid(format!("unsupported resolution {resolution}")));
@@ -710,6 +805,7 @@ impl Session {
                 return self.execute(Command::InsertLayer { layer, label });
             }
             Command::ApplyMaskEffects { layer, effects, label } => {
+                for kind in &effects { Self::check_mask_effect(kind)?; }
                 self.edit_layer_set(layer, &label, None, |ts| {
                     let res = ts.resolution;
                     let l = Self::layer_mut(ts, layer)?;
@@ -813,6 +909,43 @@ impl Session {
                     Ok(())
                 })?;
             }
+            Command::ToggleBrushChannel { channel, solo } => {
+                let channels = &mut self.brush.material.channels;
+                let on = solo || !channels.get(&channel).is_some_and(|c| c.enabled);
+                if solo { for c in channels.values_mut() { c.enabled = false; } }
+                channels.entry(channel).or_insert(subcraft_paint::BrushChannel { enabled: false, value: channel.default_paint_value() }).enabled = on;
+            }
+            Command::ToggleFillChannel { layer, effect, channel, solo } => {
+                self.edit_layer_set(layer, if solo { "Solo Channel" } else { "Toggle Channel" }, None, |ts| {
+                    let l = Self::layer_mut(ts, layer)?;
+                    let fill = if let Some(effect) = effect {
+                        let e = l.content_effects.iter_mut().find(|e| e.id == effect).ok_or_else(|| CommandError::Invalid("effect not found".into()))?;
+                        let subcraft_doc::ContentEffectKind::Fill(f) = &mut Arc::make_mut(e).kind else { return Err(CommandError::NotAFillLayer) }; f
+                    } else { let LayerContent::Fill(f) = &mut l.content else { return Err(CommandError::NotAFillLayer) }; f };
+                    let on = solo || !fill.channels.get(&channel).is_some_and(|c| c.enabled);
+                    if solo { for c in fill.channels.values_mut() { c.enabled = false; } }
+                    fill.channels.entry(channel).or_insert(subcraft_doc::FillChannel { enabled: false, ..subcraft_doc::FillChannel::default_for(channel) }).enabled = on;
+                    // A layer made before the set had this channel has no blend for it, which means "off".
+                    if on { l.blend.entry(channel).or_insert(subcraft_doc::ChannelBlend::new(subcraft_doc::BlendMode::Normal)); }
+                    Ok(())
+                })?;
+            }
+            Command::AddFillChannel { layer, channel } => {
+                if !matches!(self.selected_texture_set().find(layer).map(|l| &l.content), Some(LayerContent::Fill(_))) {
+                    return Err(CommandError::NotAFillLayer);
+                }
+                self.edit_layer_set(layer, "Add Channel", None, |ts| {
+                    if !ts.has_channel(channel) {
+                        ts.channels.push(ChannelDef::default_for(channel));
+                        add_blend(&mut ts.layers, channel);
+                    }
+                    let l = Self::layer_mut(ts, layer)?;
+                    let LayerContent::Fill(f) = &mut l.content else { return Err(CommandError::NotAFillLayer) };
+                    f.channels.insert(channel, subcraft_doc::FillChannel::default_for(channel));
+                    l.blend.entry(channel).or_insert(subcraft_doc::ChannelBlend::new(subcraft_doc::BlendMode::Normal));
+                    Ok(())
+                })?;
+            }
             Command::SetFillProjection { layer, projection } => {
                 let key = format!("projection:{layer}");
                 self.edit_layer_set(layer, "Projection", Some(key), |ts| {
@@ -873,6 +1006,7 @@ impl Session {
                 })?;
             }
             Command::AddMaskEffect { layer, kind } => {
+                Self::check_mask_effect(&kind)?;
                 let id = self.edit_layer_set(layer, "Add Mask Effect", None, |ts| {
                     let mask = Self::layer_mut(ts, layer)?.mask.as_mut().ok_or(CommandError::NoMask)?;
                     let effect = MaskEffect::new(kind);
@@ -891,6 +1025,7 @@ impl Session {
                 })?;
             }
             Command::SetMaskEffect { layer, effect } => {
+                Self::check_mask_effect(&effect.kind)?;
                 let key = format!("effect:{layer}:{}", effect.id);
                 self.edit_layer_set(layer, "Mask Effect", Some(key), |ts| {
                     let mask = Self::layer_mut(ts, layer)?.mask.as_mut().ok_or(CommandError::NoMask)?;
@@ -926,8 +1061,20 @@ impl Session {
     }
 
     fn check_content_effect(kind: &ContentEffectKind) -> Result<(), CommandError> {
+        if let ContentEffectKind::Filter { channel, filter } = kind
+            && (!filter.valid() || !filter.supports_channel(*channel)) {
+            return Err(CommandError::Invalid("Filter parameters or target channel are invalid".into()));
+        }
         if matches!(kind, ContentEffectKind::Levels { channel: subcraft_core::ChannelKind::Normal, .. }) {
             return Err(CommandError::Invalid("Levels cannot adjust the Normal channel".into()));
+        }
+        Ok(())
+    }
+
+    fn check_mask_effect(kind: &subcraft_doc::MaskEffectKind) -> Result<(), CommandError> {
+        if let subcraft_doc::MaskEffectKind::Filter(filter) = kind
+            && (!filter.valid() || !filter.supports_mask()) {
+            return Err(CommandError::Invalid("Filter parameters or mask target are invalid".into()));
         }
         Ok(())
     }
@@ -982,11 +1129,18 @@ impl Session {
         let layer = self.selection.layer.ok_or(PaintError::LayerNotFound)?;
         let ts = self.selected_texture_set();
         let b = &self.brush;
-        let stroke = Stroke::begin(ts, layer, b.target, b.mode, b.settings, b.options, &b.material)?
+        let mut stroke = Stroke::begin(ts, layer, b.target, b.mode, b.settings, b.options, &b.material)?
             .with_resources(self.resources())
             .with_alpha(b.alpha.clone())
             .with_stencil(if b.stencil_bypass { None } else { b.stencil.clone() });
+        if b.mode == StrokeMode::Clone {
+            let point = self.clone_source.ok_or(PaintError::NoCloneSource)?;
+            stroke = stroke.with_clone(point, self.clone_offset);
+        }
+        let b = &self.brush;
         let label = match (b.mode, b.target) {
+            (StrokeMode::Smudge, _) => "Smudge Stroke",
+            (StrokeMode::Clone, _) => "Clone Stroke",
             (StrokeMode::Paint, PaintTarget::Content) => "Paint Stroke",
             (StrokeMode::Erase, PaintTarget::Content) => "Erase Stroke",
             (StrokeMode::Paint, PaintTarget::ContentEffect(_)) => "Paint Effect Stroke",
@@ -1006,7 +1160,29 @@ impl Session {
         if result.as_ref().is_ok_and(|t| !t.is_empty()) {
             self.revision += 1;
         }
+        if let Some(offset) = self.stroke.as_ref().and_then(|a| a.stroke.clone_offset()) {
+            self.clone_offset = Some(offset);
+        }
         result
+    }
+
+    /// Clone tool: use the surface point under `screen` as the source (a new offset is fixed by
+    /// the next stroke's first dab). Returns false when the cursor is not over the model.
+    pub fn set_clone_source(&mut self, camera: &Camera, screen: Vec2) -> bool {
+        let Some(pick) = self.pick(camera, screen) else { return false };
+        self.clone_source = Some(pick.position);
+        self.clone_offset = None;
+        true
+    }
+
+    /// The clone source point (object space), if one is set.
+    pub fn clone_source(&self) -> Option<Vec3> {
+        self.clone_source
+    }
+
+    /// Screen offset from the stroke position to the clone source, once a stroke fixed it.
+    pub fn clone_offset(&self) -> Option<Vec2> {
+        self.clone_offset
     }
 
     /// Polygon fill on the selected layer at a screen position (one history entry).
@@ -1080,7 +1256,7 @@ impl Session {
     /// Interactive frames: never blocks on compositing. The document goes to the background
     /// worker (started on the first call) and whatever it finished since the last call is
     /// returned; [`Session::composites_pending`] says whether more is coming. Where no worker
-    /// thread can run (web), up to about `budget` worth of tiles is evaluated here instead.
+    /// thread is running, up to about `budget` worth of tiles is evaluated here instead.
     pub fn update_composites_within(&mut self, budget: Option<std::time::Duration>) -> Vec<CompositeUpdate> {
         if self.worker.is_none() && !self.inline_only {
             // An exact synchronous composite may already exist (for example after export).
@@ -1191,12 +1367,54 @@ impl Session {
             .unwrap_or_else(|| self.scene.mesh.name.clone())
     }
 
-    /// Files an export with `settings` would write.
+    /// `settings` with the choices saved in the project applied: unchecked maps, normal-map
+    /// format and UDIM folders.
+    pub fn effective_export_settings(&self, settings: &subcraft_export::ExportSettings) -> subcraft_export::ExportSettings {
+        let mut s = settings.clone();
+        s.selection = self.export_selection();
+        s.udim_folders = self.settings.udim_folders;
+        if let Some(format) = self.settings.normal_format {
+            s.normal_directx = Some(format == subcraft_doc::NormalFormat::DirectX);
+        }
+        s
+    }
+
+    /// Files an export with `settings` would write (checked maps only).
     pub fn export_plan(&mut self, settings: &subcraft_export::ExportSettings) -> Vec<(String, String)> {
         self.update_composites();
+        let settings = self.effective_export_settings(settings);
         let name = self.export_name();
         let sets = self.export_sets();
-        subcraft_export::plan(&name, &sets, settings)
+        subcraft_export::plan(&name, &sets, &settings)
+    }
+
+    /// Every map the template offers per texture set, with its checkbox state.
+    pub fn export_choices(&mut self, settings: &subcraft_export::ExportSettings) -> Vec<subcraft_export::PlannedFile> {
+        self.update_composites();
+        let settings = self.effective_export_settings(settings);
+        let name = self.export_name();
+        let sets = self.export_sets();
+        subcraft_export::plan_all(&name, &sets, &settings)
+    }
+
+    /// Checked-map selection saved in the project.
+    pub fn export_selection(&self) -> subcraft_export::MapSelection {
+        subcraft_export::MapSelection::from_stored(&self.settings.export_maps_off, self.settings.export_solo_previous.as_deref())
+    }
+
+    /// Change the checked maps (`all` = every offered map, see [`Session::export_choices`]).
+    /// Saved with the project; not undoable.
+    pub fn edit_export_selection(&mut self, settings: &subcraft_export::ExportSettings, edit: impl FnOnce(&mut subcraft_export::MapSelection, &[subcraft_export::MapKey])) {
+        let all: Vec<subcraft_export::MapKey> = self.export_choices(settings).into_iter().map(|f| (f.set, f.suffix)).collect();
+        let mut selection = self.export_selection();
+        edit(&mut selection, &all);
+        self.settings.export_maps_off = selection.stored_off();
+        self.settings.export_solo_previous = selection.stored_solo_previous();
+    }
+
+    /// Number of distinct UDIM tiles in the project (0 or 1 for ordinary projects).
+    pub fn udim_tile_count(&self) -> usize {
+        self.doc.texture_sets.iter().filter_map(|t| t.udim_number()).collect::<std::collections::BTreeSet<_>>().len()
     }
 
     fn export_sets(&self) -> Vec<subcraft_export::ExportTextureSet<'_>> {
@@ -1208,6 +1426,7 @@ impl Session {
                 Some(subcraft_export::ExportTextureSet {
                     name: &ts.name,
                     material_slot: ts.material_slot,
+                    udim: ts.udim_number(),
                     channels: &c.channels,
                     mesh_maps: self.mesh_maps.get(&ts.id).map(|m| m.as_map()),
                 })
@@ -1218,15 +1437,16 @@ impl Session {
     /// Export every texture set's composite through `settings` into `dir`.
     pub fn export_textures(&mut self, dir: &Path, settings: &subcraft_export::ExportSettings) -> Result<Vec<PathBuf>, String> {
         self.update_composites();
+        let settings = self.effective_export_settings(settings);
         let name = self.export_name();
         let sets = self.export_sets();
-        subcraft_export::export(&self.scene.mesh, &name, &sets, settings, dir).map_err(|e| e.to_string())
+        subcraft_export::export(&self.scene.mesh, &name, &sets, &settings, dir).map_err(|e| e.to_string())
     }
 
-    /// Export every map in one download without sending individual writes to the web sink.
+    /// Export every map as one in-memory ZIP archive.
     pub fn export_archive(&mut self, settings: &subcraft_export::ExportSettings) -> Result<subcraft_export::TextureArchive,String> {
-        self.update_composites();let name=self.export_name();let sets=self.export_sets();
-        subcraft_export::archive(&self.scene.mesh,&name,&sets,settings).map_err(|e|e.to_string())
+        self.update_composites();let settings=self.effective_export_settings(settings);let name=self.export_name();let sets=self.export_sets();
+        subcraft_export::archive(&self.scene.mesh,&name,&sets,&settings).map_err(|e|e.to_string())
     }
 
     // ----- assets --------------------------------------------------------------------------------
@@ -1275,4 +1495,17 @@ fn same_composite_inputs(a: &TextureSet, b: &TextureSet) -> bool {
         && a.channels == b.channels
         && a.layers.len() == b.layers.len()
         && a.layers.iter().zip(&b.layers).all(|(x, y)| Arc::ptr_eq(x, y))
+}
+
+/// Give every layer of a tree its blend entry for a channel the texture set just gained
+/// (folders pass it through; without an entry a layer ignores the channel).
+fn add_blend(layers: &mut [Arc<Layer>], channel: ChannelKind) {
+    for layer in layers {
+        let l = Arc::make_mut(layer);
+        let mode = if l.is_folder() { subcraft_doc::BlendMode::Passthrough } else { subcraft_doc::BlendMode::Normal };
+        l.blend.entry(channel).or_insert(subcraft_doc::ChannelBlend::new(mode));
+        if let Some(children) = l.children_mut() {
+            add_blend(children, channel);
+        }
+    }
 }

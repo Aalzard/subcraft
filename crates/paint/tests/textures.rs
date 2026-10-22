@@ -60,12 +60,13 @@ fn projected_color_data_and_alpha_match_numeric_sampler_at_every_written_texel()
         camera: &camera,
         depth: &depth,
     };
-    for mode in [
+    for (mode, filter) in [
         ProjectionMode::Uv,
         ProjectionMode::Planar,
         ProjectionMode::Triplanar,
-    ] {
+    ].into_iter().flat_map(|mode| [subcraft_image::TextureFilter::Bilinear, subcraft_image::TextureFilter::Nearest].map(|filter| (mode, filter))) {
         let mut ts = TextureSet::new("T", 0, 128);
+        ts.albedo_filter = filter;
         let layer = ts.insert_above(None, Layer::new_paint("Paint", &ts.clone()));
         let mut material = BrushMaterial::with(&[
             (K::BaseColor, ChannelValue::rgb(1.0, 0.0, 0.0)),
@@ -124,7 +125,8 @@ fn projected_color_data_and_alpha_match_numeric_sampler_at_every_written_texel()
                         g.uv(i),
                         g.position(i),
                         g.normal(i),
-                        |uv| bmp.sample(uv[0], uv[1], Wrap::Repeat, kind.is_color()),
+                        |uv| bmp.sample_filtered(uv[0], uv[1], Wrap::Repeat, kind.is_color(),
+                            if kind == K::BaseColor { filter } else { subcraft_image::TextureFilter::Bilinear }),
                     );
                     let (x, y) = g.texel_xy(i);
                     let px = image.get(x, y);

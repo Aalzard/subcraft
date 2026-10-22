@@ -478,3 +478,46 @@ fn stencil_masks_paint_in_screen_space() {
     assert_eq!(right, 0, "the black half blocks paint");
 }
 
+
+/// Painting near a hard edge wraps onto the side face as the same coherent tip, not a smear:
+/// with a tip striped symmetrically about its center, a side texel at depth d below the edge
+/// must match the top texel at distance a + d from the center on the opposite side (the box
+/// unfolded flat). The old radial 3D-distance wrap mapped depth d to √(a² + d²) and stretched
+/// the stripes down the side. Covers different UV scales and irregular tessellations.
+#[test]
+fn wrapped_tip_on_the_side_face_matches_the_unfolded_top() {
+    for (subdivisions, res) in [(1, 512), (4, 512), (7, 1024)] {
+        let mut sc = Scene::new(primitives::atlas_box(Vec3::splat(2.0), subdivisions, "Wrap"), res);
+        let cam = Camera::perspective(Vec3::new(0.0, 4.0, 3.2), Vec3::new(0.0, 0.9, 0.7), Vec3::Y, 30.0, 0.1, 100.0, [800, 800]);
+        let (a, period) = (0.2f32, 9.0);
+        let stripes: Vec<f32> = (0..256 * 256).map(|i| if ((i / 256) as f32 / 256.0 * period).floor() as i32 % 2 == 0 { 1.0 } else { 0.0 }).collect();
+        let settings = BrushSettings { size: 30.0, hardness: 1.0, spacing: 10.0, ..BrushSettings::default() };
+        let mut s = Stroke::begin(&sc.ts, sc.layer, PaintTarget::Content, StrokeMode::Paint, settings, StrokeOptions::default(), &red())
+            .unwrap().with_alpha(Some(Arc::new(subcraft_image::Bitmap::new_f32(256, 256, 1, stripes))));
+        let mut ts = sc.ts.clone();
+        s.add_point(&mut ts, &sc.ctx(&cam), cam.project(Vec3::new(0.0, 1.0, 1.0 - a)).unwrap().truncate()).unwrap();
+        sc.ts = ts;
+        let img = sc.image(ChannelKind::BaseColor).unwrap(); let surface = sc.surface();
+        // Coverage profiles along x≈0, binned by unfolded distance from the stamp center.
+        let bins = 120; let bin = |s: f32| (s / 0.6 * bins as f32) as usize;
+        let (mut top, mut side) = (vec![(0.0f32, 0u32); bins], vec![(0.0f32, 0u32); bins]);
+        for (i, p) in surface.position.iter().enumerate() {
+            if surface.triangle[i] == SurfaceTexels::NO_TRIANGLE || p[0].abs() > 0.04 { continue; }
+            let value = alpha(&img, i, res);
+            let (target, s) = if (p[1] - 1.0).abs() < 1e-4 && p[2] < 1.0 - a { (&mut top, 1.0 - a - p[2]) }
+                else if (p[2] - 1.0).abs() < 1e-4 && p[1] < 1.0 { (&mut side, a + 1.0 - p[1]) } else { continue };
+            if s < 0.6 { let b = &mut target[bin(s)]; b.0 += value; b.1 += 1; }
+        }
+        let (mut agree, mut compared, mut painted_side) = (0, 0, 0);
+        for (t, sd) in top.iter().zip(&side) {
+            if t.1 == 0 || sd.1 == 0 { continue; }
+            let (t, sd) = (t.0 / t.1 as f32, sd.0 / sd.1 as f32);
+            if sd > 0.5 { painted_side += 1; }
+            // Ignore bins straddling a stripe transition.
+            if (0.2..0.8).contains(&t) || (0.2..0.8).contains(&sd) { continue; }
+            compared += 1; if (t > 0.5) == (sd > 0.5) { agree += 1; }
+        }
+        assert!(painted_side > 10 && compared > 30, "subdivisions {subdivisions}: side {painted_side}, compared {compared}");
+        assert!(agree as f32 >= compared as f32 * 0.95, "subdivisions {subdivisions}: stripes on the side are stretched ({agree}/{compared})");
+    }
+}

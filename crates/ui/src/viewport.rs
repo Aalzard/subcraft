@@ -28,6 +28,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     if size[0] < 8 || size[1] < 8 {
         return;
     }
+    state.last_view_size = size;
     let now = ui.input(|i| i.time);
     // The render target is rounded to whole physical pixels. Map through that exact size,
     // rather than DPI alone, to keep picking/painting stable at fractional UI zoom factors.
@@ -125,7 +126,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     let drop_hover = response.dnd_hover_payload::<crate::panels::shelf::ShelfDrag>().is_some();
 
     // ----- part picking: clicks show / hide the selected layer on mesh parts ----------------------
-    let picking = state.picking_parts && state.session.selected_layer().is_some() && !state.painting;
+    let bake_mode = state.bake.open || state.bake.job.is_some();
+    let picking = !bake_mode && state.picking_parts && state.session.selected_layer().is_some() && !state.painting;
     if state.picking_parts && (!picking || ui.input(|i| i.key_pressed(egui::Key::Escape))) {
         state.picking_parts = false;
     }
@@ -143,7 +145,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     }
 
     // ----- painting ----------------------------------------------------------------------------
-    if state.tool == Tool::Pen && !picking && !alt && !stencil_edit && !typing && let Some(p) = pointer {
+    if !bake_mode && state.tool == Tool::Pen && !picking && !alt && !stencil_edit && !typing && let Some(p) = pointer {
             if primary_pressed && response.hovered() {
                 let hit = state.pen.preview(&state.session).and_then(|path| crate::pen::hit(path, state.pen.selected_anchor(), p, |uv| pen_position(state, &camera, rect, uv)));
                 if let Err(e) = state.pen.begin_surface(&mut state.session, &camera, to_screen(p), hit) { state.set_status(format!("Pen: {e}"), now); }
@@ -151,8 +153,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 state.pen.drag_surface(&state.session, &camera, to_screen(p), mods.shift);
             }
     }
-    let paint_tool = matches!(state.tool, Tool::Brush | Tool::Eraser) && !picking;
-    if primary_pressed && response.hovered() && !alt && !stencil_edit && !picking && state.tool != Tool::Pen {
+    let paint_tool = !bake_mode && matches!(state.tool, Tool::Brush | Tool::Eraser | Tool::Clone | Tool::Smudge) && !picking;
+    if !bake_mode && primary_pressed && response.hovered() && !alt && !stencil_edit && !picking && state.tool != Tool::Pen {
         if let Some(p) = pointer {
             let sp = to_screen(p);
             match state.tool {
@@ -162,6 +164,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         state.set_status(if mods.shift { "Picked material" } else { "Picked color" }, now);
                     }
                 }
+                Tool::Clone if mods.command => {
+                    if state.session.set_clone_source(&camera, sp) { state.set_status("Clone source set: now paint where the copy should go", now); }
+                    else { state.set_status("Ctrl+click the model to set the clone source", now); }
+                }
                 Tool::PolygonFill => {
                     state.session.brush.mode = StrokeMode::Paint;
                     if let Err(e) = state.session.polygon_fill(&camera, sp, state.fill_mode) {
@@ -170,7 +176,12 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 }
                 _ => {
                     if let Err(e) = state.session.prepare_surface_paint(&camera, sp) { state.set_status(format!("Parts: {e}"), now); }
-                    state.session.brush.mode = if state.tool == Tool::Eraser { StrokeMode::Erase } else { StrokeMode::Paint };
+                    state.session.brush.mode = match state.tool {
+                        Tool::Eraser => StrokeMode::Erase,
+                        Tool::Clone => StrokeMode::Clone,
+                        Tool::Smudge => StrokeMode::Smudge,
+                        _ => StrokeMode::Paint,
+                    };
                     match state.session.begin_stroke() {
                         Ok(()) => {
                             state.painting = true;
@@ -183,6 +194,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                             }
                             state.last_stroke_point = Some(sp);
                         }
+                        Err(subcraft_paint::PaintError::NoCloneSource) => state.set_status("Ctrl+click the model to set the clone source first", now),
                         Err(e) => state.set_status(format!("Can't paint here: {e} (select a paint layer)"), now),
                     }
                 }
@@ -211,7 +223,32 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             params.height_scale = state.height_scale;
             let view = &state.recovery.prefs.viewport;
             params.antialias = view.antialias;
+            params.exposure = view.exposure;
+            params.post = view.post_params(state.session.scene().mesh.bounds.diagonal());
             params.view_mode = view.view_mode();
+            params.symmetry_guides = view.symmetry_guides && state.session.brush.options.symmetry.contains(&true) && !bake_mode;
+            if params.symmetry_guides {
+                let key = (std::sync::Arc::as_ptr(&state.session.scene().mesh) as usize, state.session.brush.options.symmetry);
+                if state.symmetry_uploaded != Some(key) {
+                    renderer.set_symmetry_guides(&rs.device, &state.session.symmetry_guide_segments());
+                    state.symmetry_uploaded = Some(key);
+                }
+            }
+            if let Some(high) = &state.bake.preview_mesh {
+                if !state.bake.preview_uploaded {
+                    renderer.set_bake_preview(&rs.device, Some((&state.session.scene().mesh, high)));
+                    state.bake.preview_uploaded = true;
+                }
+            } else if !state.bake.preview_uploaded {
+                renderer.set_bake_preview(&rs.device, None);
+                state.bake.preview_uploaded = true;
+            }
+            params.bake_overlay = state.bake.overlay_active();
+            params.bake_cage = state.bake.cage;
+            params.bake_distances = [state.bake.settings.cage_front, state.bake.settings.cage_rear];
+            if state.bake.open && state.bake.live_maps && !params.bake_overlay {
+                params.bake_map = state.bake.displayed_map;
+            }
             params.grid = view.grid.then_some(subcraft_render::GridParams {
                 bounds: state.session.scene().mesh.bounds,
                 axes: view.grid_axes,
@@ -267,11 +304,30 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         }
         ui.ctx().set_cursor_icon(if alt { egui::CursorIcon::Move } else { egui::CursorIcon::Crosshair });
     }
+    if state.tool == Tool::Clone && let Some(source) = state.session.clone_source() && let Some(at) = camera.project(source) {
+        let marker = rect.min + egui::vec2(at.x / pixel_scale.x, at.y / pixel_scale.y);
+        let cross = Color32::from_rgb(120, 220, 255);
+        for (w, c) in [(3.0, Color32::from_black_alpha(160)), (1.5, cross)] {
+            painter.line_segment([marker - egui::vec2(7.0, 0.0), marker + egui::vec2(7.0, 0.0)], Stroke::new(w, c));
+            painter.line_segment([marker - egui::vec2(0.0, 7.0), marker + egui::vec2(0.0, 7.0)], Stroke::new(w, c));
+        }
+        // While an aligned offset exists, the copy comes from beside the cursor: show it.
+        if let (Some(offset), Some(p)) = (state.session.clone_offset(), response.hover_pos()) {
+            let from = p + egui::vec2(offset.x / pixel_scale.x, offset.y / pixel_scale.y);
+            painter.circle_stroke(from, 6.0, Stroke::new(1.5, cross));
+        }
+    }
     draw_stencil(state, ui, &painter, rect, size);
     if drop_hover {
         painter.rect_stroke(rect.shrink(1.0), 0.0, Stroke::new(2.0, ACCENT), egui::StrokeKind::Inside);
     }
-    let hint = if state.tool == Tool::Pen { "Click points · drag for curves · edit in 2D View · Enter finish · Esc cancel" }
+    let bake_hint = state.bake.displayed_map.map(|k| format!("Bake preview · {} · close Bake Mesh Maps to return to material", k.display_name()));
+    let hint = if bake_mode {
+        if state.bake.overlay_active() { "Blue: high poly · Red: exposed low poly · Pale: cage · RMB orbit · Wheel zoom" }
+        else { bake_hint.as_deref().unwrap_or("Baking mesh maps · RMB orbit · Wheel zoom") }
+    } else if state.tool == Tool::Pen { "Click points · drag for curves · edit in 2D View · Enter finish · Esc cancel" }
+        else if state.tool == Tool::Clone { "Ctrl+click: set the source · LMB paint to copy it · RMB orbit" }
+        else if state.tool == Tool::Smudge { "LMB drag to smudge the paint under the brush · RMB orbit" }
         else { "LMB paint · RMB menu / drag orbit · I isolate · H hide · Esc show all · Wheel zoom" };
     pill(&painter, rect.left_bottom() + egui::vec2(10.0, -10.0), egui::Align2::LEFT_BOTTOM, hint, theme::TEXT_FAINT);
     let mut right = rect.right_top() + egui::vec2(-10.0, 10.0);
@@ -296,9 +352,32 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         subcraft_paint::PaintTarget::ContentEffect(_) => { pill(&painter, right, egui::Align2::RIGHT_TOP, &format!("{}  Painting Paint effect", icons::PAINT_BRUSH), ACCENT); }
         subcraft_paint::PaintTarget::Content => {}
     }
+    brush_notice(state, ui, &painter, rect, now);
     if state.painting || response.dragged() {
         ui.ctx().request_repaint();
     }
+}
+
+/// "Brush: name" with its tip thumbnail, anchored inside the 3D view's top-left corner (below
+/// the viewport toolbar). Paint-only: it never takes pointer input. Holds, then fades out.
+fn brush_notice(state: &mut UiState, ui: &Ui, painter: &egui::Painter, rect: Rect, now: f64) {
+    let Some(notice) = &state.brush_notice else { return };
+    let Some(opacity) = notice.opacity(now) else { state.brush_notice = None; return };
+    let fade = |c: Color32| c.gamma_multiply(opacity);
+    let galley = painter.layout_no_wrap(format!("Brush: {}", notice.name), theme::font(12.0), fade(theme::TEXT));
+    let thumb = crate::panels::shelf::tip_thumbnail(state, &notice.tip);
+    let side = 22.0;
+    let inset = if thumb.is_some() { side + 8.0 } else { 0.0 };
+    let size = egui::vec2(galley.size().x + inset + 18.0, side.max(galley.size().y) + 10.0);
+    let plate = Rect::from_min_size(rect.left_top() + egui::vec2(10.0, 10.0), size);
+    painter.rect_filled(plate, 2.0, Color32::from_black_alpha((150.0 * opacity) as u8));
+    painter.rect_filled(Rect::from_min_size(plate.min, egui::vec2(2.0, plate.height())), 0.0, fade(ACCENT));
+    if let Some(texture) = thumb {
+        let image = Rect::from_min_size(plate.min + egui::vec2(9.0, (plate.height() - side) / 2.0), egui::vec2(side, side));
+        painter.image(texture, image, Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), fade(Color32::WHITE));
+    }
+    painter.galley(plate.min + egui::vec2(9.0 + inset, (plate.height() - galley.size().y) / 2.0), galley, fade(theme::TEXT));
+    ui.ctx().request_repaint();
 }
 
 /// Project UV controls only where their sampled surface is visible.
@@ -340,4 +419,37 @@ fn draw_stencil(state: &mut UiState, ui: &Ui, painter: &egui::Painter, rect: Rec
     painter.with_clip_rect(rect).add(egui::Shape::mesh(mesh));
     let outline: Vec<egui::Pos2> = c.iter().map(|p| to_ui(*p)).collect();
     painter.with_clip_rect(rect).add(egui::Shape::closed_line(outline, Stroke::new(1.0, Color32::from_white_alpha(90))));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::BrushNotice;
+
+    fn draw(state: &mut UiState, ctx: &egui::Context, time: f64) -> Vec<egui::epaint::ClippedShape> {
+        let rect = Rect::from_min_size(egui::pos2(200.0, 80.0), egui::vec2(600.0, 400.0));
+        let mut out = ctx.run_ui(egui::RawInput { time: Some(time), screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(1000.0, 600.0))), ..Default::default() }, |ui| {
+            let painter = ui.painter_at(rect);
+            brush_notice(state, ui, &painter, rect, time);
+        });
+        out.textures_delta.clear();
+        out.shapes
+    }
+
+    #[test]
+    fn brush_notice_sits_in_the_viewport_top_left_and_fades_away() {
+        let ctx = egui::Context::default();
+        theme::apply(&ctx);
+        let mut state = UiState::new(subcraft_app::Session::new(subcraft_mesh::primitives::cube(2.0), 64), None);
+        state.brush_notice = Some(BrushNotice { name: "Scratches".into(), tip: "Scratches".into(), since: 1.0 });
+        let text = |shapes: &[egui::epaint::ClippedShape]| shapes.iter().find_map(|s| match &s.shape {
+            egui::Shape::Text(t) if t.galley.text() == "Brush: Scratches" => Some((t.pos, t.fallback_color, t.override_text_color)),
+            _ => None,
+        });
+        let (pos, ..) = text(&draw(&mut state, &ctx, 1.2)).expect("notice drawn");
+        assert!(pos.x > 200.0 && pos.x < 240.0 && pos.y > 80.0 && pos.y < 110.0, "anchored inside the top-left corner: {pos:?}");
+        assert!(text(&draw(&mut state, &ctx, 1.0 + BrushNotice::HOLD + BrushNotice::FADE * 0.5)).is_some(), "still fading");
+        assert!(text(&draw(&mut state, &ctx, 1.0 + BrushNotice::HOLD + BrushNotice::FADE + 0.01)).is_none());
+        assert!(state.brush_notice.is_none(), "expired notice is cleared");
+    }
 }

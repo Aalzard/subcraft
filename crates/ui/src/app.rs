@@ -75,7 +75,7 @@ pub struct LaunchOptions {
     pub resume_update: Option<PathBuf>,
     /// Check releases on startup (scripted verification / Help).
     pub check_updates: bool,
-    #[cfg(all(feature = "update-fixture", not(target_arch = "wasm32")))]
+    #[cfg(feature = "update-fixture")]
     pub auto_update_fixture: bool,
     /// Project (`.subcraft`) or mesh to open instead of the sample crate.
     pub mesh: Option<PathBuf>,
@@ -87,6 +87,42 @@ pub struct LaunchOptions {
     pub view_2d: bool,
     /// Start with Brush settings in front (also useful for native screenshot verification).
     pub brush_panel: bool,
+    /// Start with a narrow vertical texture shelf (native layout validation).
+    pub shelf_panel: bool,
+    /// Open the selected layer's first mask generator for native validation.
+    pub generator_panel: bool,
+    /// Select this Shelf brush (tip or preset name) shortly before a scripted screenshot, the
+    /// same way a Shelf click does, to capture the viewport acknowledgement natively.
+    pub select_brush: Option<String>,
+    /// Run a scripted Clone or Smudge demonstration ("clone" / "smudge") for native captures.
+    pub capture_tool: Option<String>,
+    /// Open this Shelf tab (textures, materials, smart-materials, smart-masks, brushes, environments).
+    pub shelf_tab: Option<String>,
+    /// Open the Export Textures window (scripted captures).
+    pub export_window: bool,
+    /// Open the New Project window with this model loaded (scripted captures).
+    pub new_project_model: Option<PathBuf>,
+    /// High-poly model for the same window.
+    pub new_project_high: Option<PathBuf>,
+    /// Give Properties the whole right column (scripted captures of its long blocks).
+    pub properties_panel: bool,
+    /// Export template to select (index into the built-in list) when the window opens.
+    pub export_template: Option<usize>,
+    /// Open the Render quality window (scripted captures).
+    pub render_window: bool,
+    /// Render a still or a turntable from the loaded project, then quit (scripted export).
+    pub render_job: Option<crate::render_export::Job>,
+    /// Look overrides for scripted renders, e.g. `tone=filmic,bloom=0.8,ao=0.7,exposure=1.2`.
+    pub quality: Option<String>,
+    pub effect_panel: bool,
+    pub symmetry_axes: Option<[bool; 3]>,
+    /// Start a real high-to-low bake and show its dialog (also usable with --screenshot).
+    pub bake_high_poly: Option<PathBuf>,
+    pub bake_size: Option<u32>,
+    /// Inspect the real high/low geometry before baking, without starting the bake.
+    pub bake_preview_only: bool,
+    /// Pin a completed map for reproducible native screenshot validation.
+    pub bake_preview_map: Option<subcraft_core::MeshMapKind>,
     /// Recover the newest crashed session without asking.
     pub recover: bool,
     /// Autosave interval instead of the preference (testing).
@@ -107,15 +143,30 @@ impl LaunchOptions {
 pub fn default_layout() -> DockState<Tab> {
     let mut dock = DockState::new(vec![Tab::Viewport, Tab::UvView]);
     let surface = dock.main_surface_mut();
-    let [center, right] = surface.split_right(NodeIndex::root(), 0.8, vec![Tab::Layers]);
-    surface.split_below(right, 0.4, vec![Tab::Properties, Tab::Brush]);
-    let [center, left] = surface.split_left(center, 0.15, vec![Tab::Parts, Tab::TextureSets]);
-    surface.split_below(left, 0.42, vec![Tab::History]);
-    surface.split_below(center, 0.74, vec![Tab::Shelf]);
+    let [center, right] = surface.split_right(NodeIndex::root(), 0.77, vec![Tab::Layers]);
+    surface.split_below(right, 0.48, vec![Tab::Properties, Tab::Brush]);
+    let [center, _] = surface.split_left(center, 0.28, vec![Tab::Shelf]);
+    surface.split_below(center, 0.82, vec![Tab::Parts, Tab::TextureSets, Tab::History]);
     dock
 }
 
-const DOCK_KEY: &str = "subcraft_dock_v4";
+// Apply the requested shelf-left / utility-tabs-bottom arrangement once, then retain edits.
+const DOCK_KEY: &str = "subcraft_dock_v5";
+
+#[cfg(test)]
+mod layout_tests {
+    use super::*;
+    #[test]
+    fn shelf_is_separate_and_utility_tabs_share_the_bottom_center_node() {
+        let dock = default_layout();
+        let parts = dock.find_tab(&Tab::Parts).unwrap();
+        for tab in [Tab::TextureSets,Tab::History] {
+            let path = dock.find_tab(&tab).unwrap(); assert_eq!((path.surface,path.node),(parts.surface,parts.node));
+        }
+        for tab in [Tab::Shelf,Tab::Viewport,Tab::Layers] {assert_ne!(dock.find_tab(&tab).unwrap().node,parts.node);}
+        assert_ne!(dock.find_tab(&Tab::Shelf).unwrap().node,dock.find_tab(&Tab::Viewport).unwrap().node);
+    }
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct InspectorSelection(subcraft_app::Selection, Option<subcraft_doc::LayerKind>, subcraft_app::LayerTarget, Option<subcraft_core::EffectId>, bool);
@@ -164,6 +215,26 @@ mod launch_tests {
         assert_eq!(app.pending_now, None);
         assert_eq!(app.state.confirm, Some(Pending::OpenRecent));
         assert_eq!(app.state.session.document(), &doc);
+    }
+
+    #[test]
+    fn shelf_double_click_request_brings_the_brush_settings_forward_once() {
+        let mut app = SubcraftApp {
+            state: UiState::new(Session::new(subcraft_mesh::primitives::cube(2.0), 64), None),
+            dock: default_layout(), frames: 0, screenshot: None, screenshot_requested: false,
+            pending_now: None, active_tabs: HashSet::new(), inspector_selection: None, test_crash: false, profile: None,
+        };
+        let brush = app.dock.find_tab(&Tab::Brush).unwrap();
+        let properties = app.dock.find_tab(&Tab::Properties).unwrap();
+        app.dock.set_active_tab(properties).unwrap();
+        let active = |app: &mut SubcraftApp| app.dock.find_active_focused().map(|(_, tab)| *tab);
+        app.open_requested_brush_editor();
+        assert_ne!(active(&mut app), Some(Tab::Brush), "no request, no change");
+        app.state.open_brush_editor = true;
+        app.open_requested_brush_editor();
+        assert_eq!(active(&mut app), Some(Tab::Brush));
+        assert!(!app.state.open_brush_editor, "consumed");
+        assert_eq!(Some(brush.node_path()), app.dock.focused_leaf());
     }
 
     #[test]
@@ -271,12 +342,9 @@ impl SubcraftApp {
         theme::apply(&cc.egui_ctx);
         let mut status = None;
         let is_project = |p: &std::path::Path| p.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case(subcraft_app::PROJECT_EXTENSION));
-        #[cfg(not(target_arch = "wasm32"))]
         let resumed = options.resume_update.as_ref().and_then(|path| match subcraft_app::updater::resume_session(path) {
             Ok(session) => Some(session), Err(e) => { status = Some(format!("Could not restore update snapshot: {e}")); None }
         });
-        #[cfg(target_arch = "wasm32")]
-        let resumed: Option<Session> = None;
         let session = if let Some(session) = resumed { session } else { match &options.mesh {
             Some(path) if is_project(path) => match Session::open_project(path) {
                 Ok(s) => s,
@@ -299,16 +367,13 @@ impl SubcraftApp {
             },
             None => Session::sample(),
         }};
-        #[cfg(not(target_arch = "wasm32"))]
         let restore_failed = status.is_some();
         let mut state = UiState::new(session, cc.wgpu_render_state.clone())
             .with_user_library(subcraft_app::assets::UserLibrary::default_root().map(subcraft_app::assets::UserLibrary::new));
-        #[cfg(not(target_arch = "wasm32"))]
         let opened_from_arg = !status.as_ref().is_some_and(|s| s.starts_with("Could not open"));
         if let Some(s) = status {
             state.set_status(s, 0.0);
         }
-        #[cfg(not(target_arch = "wasm32"))]
         {
             if !restore_failed && let Some(path) = &options.resume_update {
                 let result = std::fs::read_to_string(path.with_file_name("result.txt")).unwrap_or_else(|_| "Your workspace was restored after an update.".into());
@@ -325,7 +390,16 @@ impl SubcraftApp {
         state.recovery = crate::recovery::RecoveryUi::start(&state.session, prefs, options.autosave_interval);
         state.recovery.prefs.apply_ui_size(&cc.egui_ctx);
         state.recovery.show_prefs = options.preferences;
-        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(high) = &options.bake_high_poly {
+            state.bake.open = true;
+            state.bake.high_poly = high.display().to_string();
+            if let Some(size) = options.bake_size { state.bake.settings.size = size; }
+            let texture_sets = state.session.document().texture_sets.iter().map(|t| (t.id, t.material_slot)).collect();
+            if !options.bake_preview_only { state.bake.job = Some(state.session.start_bake(subcraft_app::BakeRequest {
+                settings: state.bake.settings.clone(), high_poly: Some(high.clone()), texture_sets,
+            })); }
+            if let Some(kind) = options.bake_preview_map { state.bake.displayed_map = Some(kind); state.bake.follow_maps = false; }
+        }
         {
             // Background release check; a newer version gets a callout at the update button.
             // Not for scripted screenshots or right after an update restart.
@@ -337,7 +411,6 @@ impl SubcraftApp {
                 state.update_notice = true;
             }
         }
-        #[cfg(not(target_arch = "wasm32"))]
         {
             state.welcome.recent = cc.storage.and_then(|s| s.get_string(crate::welcome::RECENTS_KEY))
                 .and_then(|j| serde_json::from_str(&j).ok()).unwrap_or_default();
@@ -355,10 +428,73 @@ impl SubcraftApp {
             let _ = state.session.execute(Command::SetResolution { texture_set: None, resolution });
         }
         state.welcome.open = options.shows_welcome(state.recovery.prefs.show_welcome, state.session.is_recovered());
+        if let Some(symmetry) = options.symmetry_axes {
+            let stroke = subcraft_paint::StrokeOptions { symmetry, ..state.session.brush.options };
+            let _ = state.session.execute(Command::SetStrokeOptions(stroke));
+        }
+        if options.effect_panel && let Some(layer) = state.session.selected_layer() {
+            let target = layer.content_effects.last().map(|e| (layer.id, subcraft_app::LayerTarget::Content, e.id))
+                .or_else(|| layer.mask.as_ref().and_then(|m| m.effects.last()).map(|e| (layer.id, subcraft_app::LayerTarget::Mask, e.id)));
+            if let Some((layer, target, effect)) = target { let _ = state.session.execute(Command::SelectEffect { layer, target, effect: Some(effect) }); }
+        }
+        if options.generator_panel && let Some(layer) = state.session.selected_layer() {
+            let target = layer.mask.as_ref().and_then(|m| m.effects.iter().find(|e| matches!(e.kind, subcraft_doc::MaskEffectKind::Generator(_)))).map(|e| (layer.id, e.id));
+            if let Some((layer, effect)) = target { let _ = state.session.execute(Command::SelectEffect { layer, target: subcraft_app::LayerTarget::Mask, effect: Some(effect) }); }
+        }
+        state.capture_select_brush = options.select_brush.clone();
+        state.capture_tool = options.capture_tool.clone();
+        if let Some(spec) = options.quality.as_deref() {
+            let prefs = &mut state.recovery.prefs.viewport;
+            for part in spec.split(',') {
+                let Some((key, value)) = part.split_once('=') else { continue };
+                let number = value.parse::<f32>().ok();
+                match (key.trim(), number) {
+                    ("bloom", Some(v)) => prefs.bloom = v,
+                    ("threshold", Some(v)) => prefs.bloom_threshold = v,
+                    ("ao", Some(v)) => prefs.ssao = v,
+                    ("ao-radius", Some(v)) => prefs.ssao_radius = v,
+                    ("exposure", Some(v)) => prefs.exposure = v,
+                    ("glow", Some(v)) => prefs.emission_glow = v,
+                    ("glow-radius", Some(v)) => prefs.glow_radius = v,
+                    ("glare", Some(v)) => prefs.glare = v,
+                    ("glare-length", Some(v)) => prefs.glare_length = v,
+                    ("glare-mode", _) => {
+                        let wanted = value.trim().to_ascii_lowercase();
+                        if let Some(i) = subcraft_render::GlareMode::ALL.iter().position(|m| m.label().to_ascii_lowercase().starts_with(&wanted)) { prefs.glare_mode = i; }
+                    }
+                    ("tone", _) => {
+                        let wanted = value.trim().to_ascii_lowercase();
+                        if let Some(i) = subcraft_render::ToneMap::ALL.iter().position(|t| t.label().to_ascii_lowercase().starts_with(&wanted)) { prefs.tone_map = i; }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        state.pending_render_job = options.render_job.clone();
+        if let Some(model) = &options.new_project_model {
+            state.new_project.show_window(&state.recovery.prefs.new_project.clone());
+            state.new_project.load_model(model);
+            if let Some(high) = &options.new_project_high { state.new_project.load_high_poly(high); }
+            state.welcome.open = false;
+        }
+        state.export.open = options.export_window || options.export_template.is_some();
+        if let Some(i) = options.export_template { state.export.template = i.min(subcraft_export::ExportTemplate::builtin().len() - 1); }
+        state.render_window = options.render_window;
+        if let Some(tab) = options.shelf_tab.as_deref() {
+            use crate::panels::shelf::ShelfTab;
+            state.shelf.tab = match tab {
+                "materials" => ShelfTab::Materials,
+                "smart-materials" => ShelfTab::SmartMaterials,
+                "smart-masks" => ShelfTab::SmartMasks,
+                "brushes" => ShelfTab::Brushes,
+                "environments" => ShelfTab::Environments,
+                _ => ShelfTab::Textures,
+            };
+        }
         state.welcome.guide = options.guide_step.map(|s| s.min(subcraft_app::launch::QUICK_START.len() - 1));
         if state.welcome.guide.is_some() { state.welcome.open = false; }
 
-        #[cfg(all(feature = "update-fixture", not(target_arch = "wasm32")))]
+        #[cfg(feature = "update-fixture")]
         if options.auto_update_fixture && let Some(updater) = &mut state.updater { updater.request_update(); }
         let dock = cc
             .storage
@@ -367,6 +503,12 @@ impl SubcraftApp {
             .filter(|_| options.screenshot.is_none())
             .unwrap_or_else(default_layout);
         let mut dock = dock;
+        if options.properties_panel && let Some(path) = dock.find_tab(&Tab::Layers) { let _ = dock.remove_tab(path); }
+        if options.shelf_panel {
+            dock = default_layout();
+            state.shelf.tab = crate::panels::shelf::ShelfTab::Textures;
+            if let Some(path) = dock.find_tab(&Tab::TextureSets) { let _ = dock.set_active_tab(path); }
+        }
         if options.view_2d
             && let Some(path) = dock.find_tab(&Tab::UvView)
         {
@@ -404,10 +546,19 @@ impl SubcraftApp {
         self.dock.find_tab(&tab).is_some_and(|path| self.dock.set_active_tab(path).is_ok())
     }
 
+    /// A Shelf double-click asks for the Brush settings: bring that tab forward and focus it.
+    fn open_requested_brush_editor(&mut self) {
+        if std::mem::take(&mut self.state.open_brush_editor) && let Some(path) = self.dock.find_tab(&Tab::Brush) {
+            let _ = self.dock.set_active_tab(path);
+            self.dock.set_focused_node_and_surface(path.node_path());
+        }
+    }
+
     /// Resolve selection before drawing (shortcuts/imports) and after drawing (layer clicks).
     fn workspace(&mut self, ui: &mut Ui) {
         let ctx = ui.ctx().clone();
         self.follow_layer_selection();
+        self.open_requested_brush_editor();
         let style = theme::dock_style(ui.style());
         let mut viewer = Viewer { state: &mut self.state, was_active: &self.active_tabs, active: HashSet::new() };
         egui::Frame::new().fill(theme::BG_0).inner_margin(egui::Margin { left: 3, right: 0, top: 3, bottom: 0 }).show(ui, |ui| {
@@ -519,7 +670,7 @@ impl SubcraftApp {
             ui.add_space(10.0);
             self.menu(ui)
         }).inner;
-        // Keep long project names out of the menus/actions, including in a narrow browser panel.
+        // Keep long project names out of the menus/actions.
         let title_rect = egui::Rect::from_min_max(egui::pos2(left_edge + 8.0, bar.top()), egui::pos2(right_edge - 8.0, bar.bottom()));
         if title_rect.width() >= 80.0 {
             let title = dialogs::title(&self.state);
@@ -539,6 +690,8 @@ impl SubcraftApp {
                 (Tool::Brush, icons::PAINT_BRUSH, "Brush (B)"),
                 (Tool::Eraser, icons::ERASER, "Eraser (E)"),
                 (Tool::PolygonFill, icons::PAINT_BUCKET, "Polygon fill"),
+                (Tool::Clone, icons::COPY, "Clone: Ctrl+click the model to set the source, then paint to copy it"),
+                (Tool::Smudge, icons::DROP, "Smudge: drag the paint under the brush along the stroke"),
                 (Tool::Eyedropper, icons::CURSOR, "Eyedropper (Shift+click picks material)"),
                 (Tool::Pen, icons::CURVE, "Pen paths (P): click points, drag for curves; edit anchors and handles in 2D View"),
             ] {
@@ -580,7 +733,7 @@ impl SubcraftApp {
                     self.request(Pending::NewSample, now);
                     ui.close();
                 }
-                if item(ui, icons::CUBE, "New from mesh…", "") {
+                if item(ui, icons::CUBE, "New project from a model…", "") {
                     ui.close();
                     self.request(Pending::OpenMesh, now);
                 }
@@ -601,6 +754,10 @@ impl SubcraftApp {
                 if item(ui, icons::EXPORT, "Export textures…", "Ctrl+Shift+E") {
                     ui.close();
                     self.perform(Action::Export, now);
+                }
+                if item(ui, icons::CAMERA, "Render image / turntable…", "") {
+                    ui.close();
+                    self.state.render_window = true;
                 }
                 if item(ui, icons::MAGIC_WAND, "Bake mesh maps…", "Ctrl+B") {
                     ui.close();
@@ -666,6 +823,10 @@ impl SubcraftApp {
                     self.dock = default_layout();
                     ui.close();
                 }
+                if item(ui, icons::SUN, "Render quality…", "") {
+                    self.state.render_window = true;
+                    ui.close();
+                }
                 ui.separator();
                 ui.horizontal(|ui| {
                     ui.label("Height bump");
@@ -680,7 +841,6 @@ impl SubcraftApp {
                 if item(ui, icons::INFO, "About SubCraft…", "") { self.state.welcome.about = true; ui.close(); }
                 ui.separator();
 
-                #[cfg(not(target_arch = "wasm32"))]
                 if item(ui, icons::DOWNLOAD, "Check for updates…", "") { if let Some(updater) = &mut self.state.updater { updater.check(); } ui.close(); }
                 if item(ui, icons::KEYBOARD, "Keyboard shortcuts", "") {
                     self.state.show_shortcuts = true;
@@ -737,6 +897,8 @@ impl SubcraftApp {
                 Tool::Brush => (icons::PAINT_BRUSH, "Brush"),
                 Tool::Eraser => (icons::ERASER, "Eraser"),
                 Tool::PolygonFill => (icons::PAINT_BUCKET, "Polygon fill"),
+                Tool::Clone => (icons::COPY, "Clone"),
+                Tool::Smudge => (icons::DROP, "Smudge"),
                 Tool::Eyedropper => (icons::CURSOR, "Eyedropper"),
                 Tool::Pen => (icons::CURVE, "Pen paths"),
             };
@@ -794,7 +956,22 @@ impl SubcraftApp {
     fn handle_screenshot(&mut self, ctx: &egui::Context) {
         let Some(path) = self.screenshot.clone() else { return };
         ctx.request_repaint();
-        if !self.screenshot_requested && self.frames >= 20 {
+        // A pinned map can be captured during a real bake, after its GPU upload. This follows
+        // actual worker completion, never a simulated timer or a placeholder image.
+        let pinned_ready = !self.state.bake.follow_maps && self.state.bake.displayed_map.is_some_and(|kind| {
+            let ts = self.state.session.selection().texture_set;
+            self.state.session.mesh_maps(ts).and_then(|m| m.get(kind)).is_some_and(|image|
+                self.state.uploaded_maps.get(&(ts, kind)).is_some_and(|gpu| gpu.same_storage(image)))
+        });
+        if !self.screenshot_requested && self.frames >= 20 && (pinned_ready || self.state.bake.job.is_none() && !self.state.session.composites_pending())
+            && !self.state.bake.preview_pending() && (self.state.bake.preview_mesh.is_none() || self.state.bake.preview_uploaded)
+        {
+            if let Some(job) = self.state.pending_render_job.take() {
+                match crate::render_export::run(&mut self.state, &job) {
+                    Ok(message) => log::info!("{message}"),
+                    Err(e) => log::error!("scripted render failed: {e}"),
+                }
+            }
             ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
             self.screenshot_requested = true;
         }
@@ -888,6 +1065,12 @@ impl egui_dock::TabViewer for Viewer<'_> {
         false
     }
 
+    fn scroll_bars(&self, tab: &Tab) -> [bool; 2] {
+        // These panels own bounded vertical lists and pinned preview-size footers. The dock's
+        // extra scroll area would let content widen itself and scroll the footer offscreen.
+        if matches!(tab, Tab::Shelf | Tab::Layers | Tab::TextureSets) { [false, false] } else { [true, true] }
+    }
+
     fn clear_background(&self, tab: &Tab) -> bool {
         !matches!(tab, Tab::Viewport | Tab::UvView)
     }
@@ -901,6 +1084,19 @@ impl eframe::App for SubcraftApp {
         }
         self.state.recovery.prefs.apply_ui_size(&ctx);
         self.frames += 1;
+        if self.frames == 15 && let Some(name) = self.state.capture_select_brush.take() {
+            let now = ctx.input(|i| i.time);
+            let preset = self.state.brush_presets.iter().find(|p| p.name == name).cloned();
+            let tip = self.state.library.alphas.iter().find(|a| a.name == name).cloned();
+            match (preset, tip) {
+                (Some(p), _) => self.state.select_shelf_brush(subcraft_app::brush_preset::ShelfBrush::Preset(&p), now),
+                (None, Some(a)) => self.state.select_shelf_brush(subcraft_app::brush_preset::ShelfBrush::Tip(&a), now),
+                (None, None) => self.state.set_status(format!("No Shelf brush named {name}"), now),
+            }
+        }
+        if self.frames == 16 && let Some(which) = self.state.capture_tool.take() {
+            scripted_tool_capture(&mut self.state, &which, ctx.input(|i| i.time));
+        }
         crate::pen::keyboard(&mut self.state, &ctx, ctx.input(|i| i.time));
         self.shortcuts(&ctx);
         if ctx.input(|i| i.pointer.any_released()) {
@@ -948,13 +1144,15 @@ impl eframe::App for SubcraftApp {
         self.shortcuts_window(&ctx);
         let now = ctx.input(|i| i.time);
         crate::asset_preview::show(&mut self.state,&ctx);
+        crate::render_export::window(&mut self.state, &ctx);
+        crate::new_project::window(&mut self.state, &ctx);
+        crate::render_export::handle_request(&mut self.state, ctx.input(|i| i.time));
         crate::pen::finish_frame(&mut self.state, &ctx, now);
         self.flush_pen_after(now);
         if let Some(p) = &mut self.profile { p.mark("windows+pen"); }
         crate::recovery::tick(&mut self.state, &ctx, now);
         if let Some(p) = &mut self.profile { p.mark("recovery tick"); }
         crate::recovery::preferences_window(&mut self.state, &ctx);
-        crate::recovery::backup_reminder(&mut self.state, &ctx, now);
         crate::recovery::prompt(&mut self.state, &ctx, now);
         crate::bug_report::report_window(&mut self.state, &ctx);
         crate::bug_report::crash_window(&mut self.state, &ctx);
@@ -1025,7 +1223,6 @@ impl eframe::App for SubcraftApp {
         if let Ok(j) = serde_json::to_string(&self.state.recovery.prefs) {
             storage.set_string(crate::recovery::PREFS_KEY, j);
         }
-        #[cfg(not(target_arch = "wasm32"))]
         if let Ok(j) = serde_json::to_string(&self.state.welcome.recent) { storage.set_string(crate::welcome::RECENTS_KEY, j); }
     }
 
@@ -1037,6 +1234,97 @@ impl eframe::App for SubcraftApp {
 
 /// Demo stack on the sample crate: procedural base, an upward-facing "moss" fill masked by a
 /// directional generator, and a few painted strokes.
+/// Native-capture helper: the same session calls the viewport makes, driven by a script instead of
+/// the mouse (no input is sent to the desktop).
+fn scripted_tool_capture(state: &mut UiState, which: &str, now: f64) {
+    use glam::Vec2;
+    use subcraft_paint::StrokeMode;
+    let cam = state.camera.paint_camera([900, 650]);
+    let s = &mut state.session;
+    s.brush.settings.size = 7.0;
+    s.brush.settings.hardness = 0.8;
+    let stroke = |s: &mut Session, mode: StrokeMode, pts: &[(f32, f32)]| {
+        s.brush.mode = mode;
+        if s.begin_stroke().is_err() { return; }
+        for &(x, y) in pts { let _ = s.stroke_to(&cam, Vec2::new(x, y), false); }
+        s.end_stroke();
+    };
+    let line = |x0: f32, y0: f32, x1: f32, y1: f32| (0..=24).map(|i| { let t = i as f32 / 24.0; (x0 + (x1 - x0) * t, y0 + (y1 - y0) * t) }).collect::<Vec<_>>();
+    let set = |s: &mut Session, c: [f32; 3]| s.brush.material = subcraft_paint::BrushMaterial::with(&[(ChannelKind::BaseColor, ChannelValue::rgb(c[0], c[1], c[2]))]);
+    match which {
+        "smudge" => {
+            state.tool = Tool::Smudge;
+            for (i, c) in [[0.85, 0.1, 0.05], [0.1, 0.25, 0.9], [0.95, 0.8, 0.1]].into_iter().enumerate() {
+                set(s, c);
+                stroke(s, StrokeMode::Paint, &line(300.0, 250.0 + 45.0 * i as f32, 560.0, 250.0 + 45.0 * i as f32));
+            }
+            stroke(s, StrokeMode::Smudge, &line(380.0, 215.0, 410.0, 420.0));
+            stroke(s, StrokeMode::Smudge, &line(470.0, 215.0, 440.0, 420.0));
+        }
+        "clone" => {
+            state.tool = Tool::Clone;
+            set(s, [0.85, 0.1, 0.05]);
+            stroke(s, StrokeMode::Paint, &line(300.0, 270.0, 380.0, 270.0));
+            set(s, [0.1, 0.25, 0.9]);
+            stroke(s, StrokeMode::Paint, &line(300.0, 310.0, 380.0, 340.0));
+            set(s, [0.95, 0.8, 0.1]);
+            stroke(s, StrokeMode::Paint, &line(300.0, 300.0, 380.0, 300.0));
+            if s.set_clone_source(&cam, Vec2::new(340.0, 305.0)) {
+                stroke(s, StrokeMode::Clone, &line(470.0, 260.0, 560.0, 260.0));
+                stroke(s, StrokeMode::Clone, &line(470.0, 330.0, 560.0, 350.0));
+            }
+        }
+        "projection" => {
+            // A colourful 8 x 8 checker cast from the view onto whatever the strokes cross.
+            let px: Vec<u8> = (0..64).flat_map(|i| { let (x, y) = (i % 8, i / 8); if (x + y) % 2 == 0 { [235, 70 + 20 * y as u8, 60] } else { [40 + 25 * x as u8, 120, 230] } }).collect();
+            if let Err(e) = s.set_brush_channel_bitmap(ChannelKind::BaseColor, "projection checker", subcraft_image::Bitmap::new_u8(8, 8, 3, px)) { state.set_status(e, now); return; }
+            s.brush.material.camera_projection = true;
+            s.brush.material.texture_tiling = false;
+            s.brush.material.projection.scale = [1.4, 1.4];
+            s.brush.settings.size = 22.0;
+            for y in [250.0, 300.0, 350.0, 400.0] { stroke(s, StrokeMode::Paint, &line(260.0, y, 640.0, y)); }
+        }
+        "emission" => {
+            // A new project: bake curvature, add emission through the same command as the "+ emiss"
+            // chip, keep only that channel on a white fill and mask it with the Edges generator.
+            use subcraft_core::{ChannelKind, MeshMapKind};
+            let mesh = s.scene().mesh.clone();
+            let bvh = subcraft_mesh::Bvh::build(&mesh);
+            let sets: Vec<_> = s.document().texture_sets.iter().map(|t| (t.id, t.material_slot, t.resolution)).collect();
+            for (ts, slot, size) in sets {
+                let _ = s.execute(Command::SelectTextureSet(ts));
+                let input = subcraft_bake::BakeInput { low: subcraft_bake::Geometry { mesh: &mesh, bvh: &bvh }, high: None, material_slot: slot };
+                let settings = subcraft_bake::BakeSettings { size, maps: vec![MeshMapKind::Curvature], ..Default::default() };
+                if let Ok(maps) = subcraft_bake::bake(&input, &settings, &subcraft_bake::Progress::new()) { s.set_mesh_maps(ts, maps); }
+                let _ = s.execute(Command::AddLayer(NewLayer::Fill));
+                let Some(layer) = s.selection().layer else { continue };
+                let _ = s.execute(Command::AddFillChannel { layer, channel: ChannelKind::Emissive });
+                for kind in s.channels() {
+                    if kind != ChannelKind::Emissive {
+                        let _ = s.execute(Command::ToggleFillChannel { layer, effect: None, channel: kind, solo: false });
+                    }
+                }
+                let _ = s.execute(Command::AddMask { layer, white: false });
+                let mut g = subcraft_doc::Generator::new(subcraft_doc::GeneratorKind::Edges);
+                g.level = 0.55;
+                let _ = s.execute(Command::AddMaskEffect { layer, kind: subcraft_doc::MaskEffectKind::Generator(g) });
+                // Show the layer's own Properties (Channels), not the mask effect just added.
+                let _ = s.execute(Command::SelectEffect { layer, target: subcraft_app::LayerTarget::Content, effect: None });
+            }
+        }
+        "cards" => {
+            // A fill layer with every channel on, Properties showing its channel blocks.
+            use subcraft_core::ChannelKind;
+            let _ = s.execute(Command::AddLayer(NewLayer::Fill));
+            if let Some(layer) = s.selection().layer {
+                let _ = s.execute(Command::AddFillChannel { layer, channel: ChannelKind::Emissive });
+                let _ = s.execute(Command::SelectEffect { layer, target: subcraft_app::LayerTarget::Content, effect: None });
+            }
+        }
+        _ => state.set_status(format!("--capture-tool expects clone, smudge, projection, emission or cards, not {which}"), now),
+    }
+}
+
 fn build_demo(state: &mut UiState) {
     let s = &mut state.session;
     let run = |s: &mut Session, c: Command| {
@@ -1119,9 +1407,14 @@ fn build_demo(state: &mut UiState) {
         let mut app=SubcraftApp {state:UiState::new(session,None),dock:default_layout(),frames:0,screenshot:None,screenshot_requested:false,pending_now:None,active_tabs:HashSet::new(),inspector_selection:None,test_crash:false,profile:None};
         app.state.asset_preview.queue(&app.state.session,0,None);app.perform(Action::Save,0.0);assert!(app.state.pen_after.is_some());
         let ctx=egui::Context::default();
-        for _ in 0..2000 {
+        // The worker needs real scheduling time under parallel workspace tests; a fixed
+        // number of fast headless frames can finish before image decoding gets a turn.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        loop {
             let mut out=ctx.run_ui(egui::RawInput::default(),|ui|crate::asset_preview::show(&mut app.state,ui.ctx()));out.textures_delta.clear();
-            app.flush_pen_after(0.1);if !app.state.asset_preview.is_applying(){break;}std::thread::yield_now();
+            app.flush_pen_after(0.1);if !app.state.asset_preview.is_applying(){break;}
+            assert!(std::time::Instant::now() < deadline, "pending shelf image did not finish within 10 seconds");
+            std::thread::sleep(std::time::Duration::from_millis(1));
         }
         assert!(!app.state.asset_preview.is_applying());assert!(app.state.pen_after.is_none());assert!(!app.state.session.is_modified());
         let reopened=Session::open_project(&file).unwrap();assert_eq!(reopened.document(),app.state.session.document());assert!(reopened.resources().iter().any(|r|r.name.starts_with("Starter: ")));std::fs::remove_file(file).unwrap();

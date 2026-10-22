@@ -1,0 +1,2 @@
+4096², two sets, cold composite 1470.0 ms
+CPU edit/poll p50 0.332, p95 0.711, max 3.675 ms; convergence 1003.1 ms; 58 frames. GPU/render/upload excluded.

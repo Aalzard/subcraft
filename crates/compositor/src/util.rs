@@ -25,3 +25,16 @@ pub fn read_tile_rgba(img: &TiledImage, geo: &TileGeometry, out: &mut [[f32; 4]]
         }
     }
 }
+
+/// Whether any content effect of `layer` can change channel `kind`. A layer without content for
+/// a channel only takes part in it (even in Replace mode) if such an effect exists; an effect on
+/// another channel must not make it wipe this one.
+pub(crate) fn effects_touch(layer: &subcraft_doc::Layer, kind: subcraft_core::ChannelKind) -> bool {
+    use subcraft_doc::ContentEffectKind as K;
+    layer.content_effects.iter().filter(|e| e.visible && e.blend_for(kind).is_active()).any(|e| match &e.kind {
+        K::Paint { channels } => channels.contains_key(&kind),
+        K::Fill(f) => f.channels.get(&kind).is_some_and(|c| c.enabled),
+        K::Levels { channel, .. } => *channel == kind && kind != subcraft_core::ChannelKind::Normal,
+        K::Filter { channel, filter } => *channel == kind && filter.supports_channel(kind) && filter.valid(),
+    })
+}

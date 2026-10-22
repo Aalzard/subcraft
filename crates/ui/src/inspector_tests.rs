@@ -66,6 +66,29 @@ fn frame(app: &mut SubcraftApp, ctx: &egui::Context, events: Vec<Event>) -> egui
     out
 }
 
+#[test]
+fn narrow_shelf_and_layer_footers_fit_the_real_dock_without_outer_scrolling() {
+    let (mut app, ctx, _) = setup();
+    app.dock = DockState::new(vec![Tab::Shelf]);
+    app.dock.main_surface_mut().split_right(NodeIndex::root(), 0.25, vec![Tab::Layers]);
+    app.state.shelf.tab = crate::panels::shelf::ShelfTab::Textures;
+    let out = settle(&mut app, &ctx);
+    let footers: Vec<_> = out.shapes.iter().filter_map(|s| match &s.shape {
+        egui::Shape::Text(t) if t.galley.text() == "Preview size" => Some((s.clip_rect, Rect::from_min_size(t.pos, t.galley.size()))),
+        _ => None,
+    }).collect();
+    assert_eq!(footers.len(), 2);
+    for (clip, rect) in footers {
+        assert!(rect.top() > 1030.0 && clip.contains_rect(rect), "footer must remain visible at the bottom of its dock: {rect:?}");
+    }
+    for shape in &out.shapes {
+        if let egui::Shape::Rect(r) = &shape.shape
+            && r.stroke.width > 0.0 && (r.rect.width()-88.0).abs() < 0.01 && (r.rect.height()-88.0).abs() < 0.01 {
+            assert!(r.rect.left() >= shape.clip_rect.left()-1.0 && r.rect.right() <= shape.clip_rect.right()+1.0, "asset should wrap inside the actual dock: {:?}", r.rect);
+        }
+    }
+}
+
 fn settle(app: &mut SubcraftApp, ctx: &egui::Context) -> egui::FullOutput {
     for _ in 0..3 {
         frame(app, ctx, vec![]);
@@ -74,7 +97,8 @@ fn settle(app: &mut SubcraftApp, ctx: &egui::Context) -> egui::FullOutput {
 }
 
 fn text(out: &egui::FullOutput, label: &str) -> Option<Pos2> {
-    out.shapes.iter().find_map(|s| match &s.shape {
+    // Popups paint last; their Paint/Fill entries can match a layer's type subtitle.
+    out.shapes.iter().rev().find_map(|s| match &s.shape {
         egui::Shape::Text(t) if t.galley.text() == label => Some(t.pos + t.galley.size() * 0.5),
         _ => None,
     })
@@ -184,17 +208,17 @@ fn fill_controls_edit_only_the_selected_fill_with_numeric_output_and_one_undo() 
         .get_leaf()
         .unwrap()
         .viewport;
-    let checkbox = out
+    let toggle = out
         .shapes
         .iter()
         .find_map(|shape| match &shape.shape {
-            egui::Shape::Text(t) if t.galley.text() == "Base Color" && bounds.contains(t.pos) => {
+            egui::Shape::Text(t) if t.galley.text() == "color" && bounds.contains(t.pos) => {
                 Some(t.pos + t.galley.size() * 0.5)
             }
             _ => None,
         })
-        .expect("selected fill's Base Color checkbox");
-    click_at(&mut app, &ctx, checkbox);
+        .expect("selected fill's Base Color toggle");
+    click_at(&mut app, &ctx, toggle);
     assert_eq!(app.state.session.selection().layer, Some(red));
     assert_color(&mut app, [0.0, 0.0, 1.0]);
     assert_eq!(app.state.session.history().entries().len(), history + 1);
@@ -283,10 +307,10 @@ fn thumbnail(app: &mut SubcraftApp, ctx: &egui::Context, name: &str, mask: bool)
         .iter()
         .filter_map(|shape| match &shape.shape {
             egui::Shape::Rect(r)
-                if (r.rect.width() - 26.0).abs() < 0.01
-                    && (r.rect.height() - 26.0).abs() < 0.01
+                if (r.rect.width() - crate::theme::LAYER_THUMB_SIZE).abs() < 0.01
+                    && (r.rect.height() - crate::theme::LAYER_THUMB_SIZE).abs() < 0.01
                     && r.stroke.width > 0.0
-                    && (r.rect.center().y - row.y).abs() < 5.0 =>
+                    && (r.rect.center().y - row.y).abs() < 14.0 =>
             {
                 Some(r.rect.center())
             }
@@ -465,6 +489,10 @@ fn mask_thumbnail_shortcuts_and_properties_dispatch_undoable_mask_actions() {
 #[test]
 fn effect_rows_add_select_edit_and_route_paint_effects_to_the_brush() {
     let (mut app, ctx, [_, _, red]) = setup();
+    // Exercise every channel row in a full-height inspector; the default workspace split
+    // legitimately scrolls long effect properties. Dock placement is tested separately.
+    app.dock = DockState::new(vec![Tab::Layers]);
+    app.dock.main_surface_mut().split_right(NodeIndex::root(), 0.65, vec![Tab::Properties, Tab::Brush]);
     click_text(&mut app, &ctx, "Red fill");
     assert!(active(&app, Tab::Properties));
     let history = app.state.session.history().entries().len();
@@ -485,8 +513,9 @@ fn effect_rows_add_select_edit_and_route_paint_effects_to_the_brush() {
     assert!(text(&out, "PROJECTION").is_none());
     assert!(text(&out, "Levels (Base Color)").is_some(), "nested row under the layer");
     // Per-channel opacity sliders and their values fit inside the inspector (not past the edge).
-    let values = out.shapes.iter().filter(|s| matches!(&s.shape, egui::Shape::Text(t) if t.galley.text() == "1.00")).count();
-    let inside = out.shapes.iter().filter(|s| matches!(&s.shape, egui::Shape::Text(t) if t.galley.text() == "1.00" && t.pos.x + t.galley.size().x <= 1600.0 && s.clip_rect.contains(t.pos))).count();
+    // egui picks numeric precision from slider width (1.00 / 1.000 are the same value).
+    let values = out.shapes.iter().filter(|s| matches!(&s.shape, egui::Shape::Text(t) if t.galley.text().parse::<f32>() == Ok(1.0))).count();
+    let inside = out.shapes.iter().filter(|s| matches!(&s.shape, egui::Shape::Text(t) if t.galley.text().parse::<f32>() == Ok(1.0) && t.pos.x + t.galley.size().x <= 1600.0 && s.clip_rect.contains(t.pos))).count();
     assert!(values >= 4 && inside == values, "{inside} of {values} opacity values visible");
     click_text(&mut app, &ctx, "Visible");
     assert!(!app.state.session.selected_layer().unwrap().content_effects[0].visible);

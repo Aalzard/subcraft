@@ -16,37 +16,20 @@ use crate::util::read_tile_rgba;
 
 /// Mask values (0..1) for every texel of the tile, or `None` when the mask is absent/disabled.
 pub fn eval_mask(mask: Option<&Mask>, tc: &TileContext) -> Option<Vec<f32>> {
+    eval_mask_scaled(mask,tc,1.0)
+}
+
+/// Reduced/enlarged UV inspection scales only neighborhood radii, never document data.
+pub fn eval_mask_scaled(mask: Option<&Mask>, tc: &TileContext, radius_scale:f32) -> Option<Vec<f32>> {
     let mask = mask.filter(|m| m.enabled)?;
+    if crate::stages::mask_spatial(mask) { return Some(crate::stages::mask_preview(mask,tc,radius_scale)); }
     let mut px = vec![[0.0f32; 4]; TILE_TEXELS];
     read_tile_rgba(&mask.base, tc.geo, &mut px);
     let mut m: Vec<f32> = px.iter().map(|p| p[0]).collect();
     let mut e = vec![[0.0f32; 4]; TILE_TEXELS];
     for effect in mask.effects.iter().filter(|e| e.visible && e.opacity > 0.0) {
         // e[i] = [value, alpha, _, _]
-        match &effect.kind {
-            MaskEffectKind::Paint { image } => {
-                read_tile_rgba(image, tc.geo, &mut e);
-            }
-            MaskEffectKind::Fill { value, procedural, projection } => {
-                let field = procedural.as_ref().map(|p| procedural_tile(p, projection, tc.geo));
-                for (i, o) in e.iter_mut().enumerate() {
-                    let v = field.as_ref().map_or(*value, |f| f[i]);
-                    *o = [v, 1.0, 0.0, 0.0];
-                }
-            }
-            MaskEffectKind::Generator(g) => eval_generator(g, tc, &mut e),
-            MaskEffectKind::Levels(l) => {
-                for (o, &v) in e.iter_mut().zip(&m) {
-                    *o = [l.apply(v), 1.0, 0.0, 0.0];
-                }
-            }
-            MaskEffectKind::Invert => {
-                for (o, &v) in e.iter_mut().zip(&m) {
-                    *o = [1.0 - v, 1.0, 0.0, 0.0];
-                }
-            }
-            MaskEffectKind::Image { resource, projection, invert } => eval_image(*resource, projection, *invert, tc, &mut e),
-        }
+        evaluate_effect(&effect.kind, tc, &m, &mut e);
         for (mv, ev) in m.iter_mut().zip(&e) {
             let mut dst = [*mv, *mv, *mv, 1.0];
             composite(&mut dst, [ev[0]; 3], ev[1] * effect.opacity, effect.blend, BlendTarget::MASK);
@@ -68,6 +51,10 @@ fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
 /// Generator coverage: a mesh-derived raw value thresholded at `level` (optionally broken up by
 /// noise) with a `softness`-wide transition.
 fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]]) {
+    if g.kind == GeneratorKind::Edges && let Some(spread) = g.edge_spread {
+        eval_edge_spread(g, spread, tc, out);
+        return;
+    }
     let geo = tc.geo;
     let mut map = vec![[0.0f32; 3]; TILE_TEXELS];
     let map_kind = match g.kind {
@@ -86,7 +73,9 @@ fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]]) {
     // Breakup noise is projected in 3D (triplanar on object position), never in UV: UV noise
     // jumps at every seam and would make wear follow the islands instead of the shape.
     let noise_proj = Projection { mode: ProjectionMode::Triplanar, triplanar_sharpness: 4.0, ..Projection::default() };
-    let noise = (g.noise_amount > 0.0).then(|| procedural_tile(&g.noise, &noise_proj, geo));
+    let noise = (g.noise_amount > 0.0).then(|| if g.organic_breakup {
+        subcraft_materials::sample::organic_tile(&g.noise, geo)
+    } else { procedural_tile(&g.noise, &noise_proj, geo) });
     for (i, o) in out.iter_mut().enumerate() {
         let raw = match g.kind {
             GeneratorKind::Edges | GeneratorKind::MeshMap(_) => map[i][0],
@@ -100,6 +89,55 @@ fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]]) {
             g.level
         };
         let v = smoothstep(level - half, level + half, raw);
+        *o = [if g.invert { 1.0 - v } else { v }, 1.0, 0.0, 0.0];
+    }
+}
+
+fn eval_edge_spread(g: &Generator, spread: subcraft_doc::EdgeSpread, tc: &TileContext, out: &mut [[f32; 4]]) {
+    let distances = tc.set_geometry.edge_distance_tile(tc.geo);
+    // Variation changes the boundary even at zero Breakup. Breakup additionally erodes patches;
+    // both share one cached non-periodic volume field and the existing Pattern size/Seed.
+    let noise = subcraft_materials::sample::organic_tile(&g.noise, tc.geo);
+    let mut curvature = vec![[0.0; 3]; TILE_TEXELS];
+    tc.sample.mesh_maps.read_tile(MeshMapKind::Curvature, tc.geo, &mut curvature);
+    // Spread is a physical reach, independent of the baked-detail threshold. Multiplying by
+    // Level made even maximum Spread almost disappear at the owner's Level 0.065 setting.
+    let radius = spread.distance.clamp(0.0, 12.5) * 0.01;
+    // Level is the amount of wear: how much of that reach is uncovered (old projects: all of it).
+    let extent = if spread.level_reach { subcraft_doc::EdgeSpread::level_extent(g.level) } else { 1.0 };
+    let variation = spread.variation.clamp(0.0, 1.0);
+    // Pattern size alone wobbles over ~12% of the model, so a narrow band read as a straight
+    // stripe. A second field four times finer chips the boundary. It follows Pattern size and
+    // Seed but not Spread, so Spread drags reuse the cached field; tiles beyond any possible
+    // reach skip it. Variation zero keeps the clean geometric band.
+    let widest = radius * (1.0 + variation * 0.9);
+    let chips = (variation > 0.0 && radius > 0.0 && distances.iter().any(|&d| d < widest)).then(|| {
+        let mut p = g.noise;
+        p.scale = (g.noise.scale * 4.0).clamp(0.01, 256.0);
+        p.seed = p.seed.wrapping_add(0x5bd1);
+        subcraft_materials::sample::organic_tile(&p, tc.geo)
+    });
+    let breakup = g.noise_amount.clamp(0.0, 1.0);
+    let softness = g.softness.clamp(0.02, 1.0);
+    for (i, o) in out.iter_mut().enumerate() {
+        let n = noise[i];
+        // Fractal volume values cluster near 0.5. Expand their useful range so Variation has
+        // visible width changes, rather than an almost straight band at small Spread values.
+        let coarse = ((n - 0.5) * 3.0).clamp(-0.5, 0.5);
+        let boundary = chips.as_ref().map_or(coarse, |c| coarse * 0.5 + ((c[i] - 0.5) * 4.0).clamp(-0.5, 0.5) * 0.5);
+        let reach = radius * (1.0 + variation * boundary * 1.8) * (1.0 - breakup * 0.7 * (1.0 - n));
+        let reach = reach * extent;
+        let geometric = if reach > 0.0 { 1.0 - smoothstep(reach * (1.0 - softness), reach, distances[i]) } else { 0.0 };
+        // Keep baked rounded/high-poly detail, but explicitly exclude the neutral flat baseline.
+        // Geometric sources are independent of contact curvature from other crate components.
+        let convex = ((curvature[i][0] - 0.5) * 2.0).clamp(0.0, 1.0);
+        // Coarse only: chips are skipped on tiles out of reach, and must not seam baked detail.
+        let threshold = 1.0 - g.level + (n - 0.5) * breakup + coarse * variation * 0.5;
+        let baked = if convex > 1e-4 && g.level > 0.0 {
+            smoothstep(threshold - softness * 0.5, threshold + softness * 0.5, convex)
+        } else { 0.0 };
+        let holes = if breakup > 0.0 { smoothstep(breakup * 0.65 - 0.2, breakup * 0.65, n) } else { 1.0 };
+        let v = geometric.max(baked) * holes;
         *o = [if g.invert { 1.0 - v } else { v }, 1.0, 0.0, 0.0];
     }
 }
@@ -119,4 +157,37 @@ fn eval_image(resource: subcraft_core::ResourceId, projection: &Projection, inve
         let (v, a) = if has_alpha { (1.0, s[3]) } else { (0.2126 * s[0] + 0.7152 * s[1] + 0.0722 * s[2], 1.0) };
         *o = [if invert { 1.0 - v } else { v }, a.clamp(0.0, 1.0), 0.0, 0.0];
     }
+}
+
+pub(crate) fn evaluate_effect(kind: &MaskEffectKind, tc: &TileContext, m: &[f32], e: &mut [[f32; 4]]) {
+        match kind {
+            MaskEffectKind::Paint { image } => {
+                read_tile_rgba(image, tc.geo, e);
+            }
+            MaskEffectKind::Fill { value, procedural, projection } => {
+                let field = procedural.as_ref().map(|p| procedural_tile(p, projection, tc.geo));
+                for (i, o) in e.iter_mut().enumerate() {
+                    let v = field.as_ref().map_or(*value, |f| f[i]);
+                    *o = [v, 1.0, 0.0, 0.0];
+                }
+            }
+            MaskEffectKind::Generator(g) => eval_generator(g, tc, e),
+            MaskEffectKind::Levels(l) => {
+                for (o, &v) in e.iter_mut().zip(m) {
+                    *o = [l.apply(v), 1.0, 0.0, 0.0];
+                }
+            }
+            MaskEffectKind::Filter(filter) => {
+                let usable = filter.valid() && filter.supports_mask();
+                for (o, &value) in e.iter_mut().zip(m) {
+                    *o = [if usable { subcraft_materials::filter::apply_mask(*filter, value) } else { value }, 1.0, 0.0, 0.0];
+                }
+            }
+            MaskEffectKind::Invert => {
+                for (o, &v) in e.iter_mut().zip(m) {
+                    *o = [1.0 - v, 1.0, 0.0, 0.0];
+                }
+            }
+            MaskEffectKind::Image { resource, projection, invert } => eval_image(*resource, projection, *invert, tc, e),
+        }
 }

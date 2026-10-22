@@ -10,7 +10,7 @@ use crate::{
 };
 
 pub(crate) fn active(tool: Tool) -> bool {
-    matches!(tool, Tool::Brush | Tool::Eraser | Tool::PolygonFill)
+    matches!(tool, Tool::Brush | Tool::Eraser | Tool::PolygonFill | Tool::Clone | Tool::Smudge)
 }
 
 /// Icons select tools directly; scrubbable values and slider popovers keep the row quiet.
@@ -19,6 +19,7 @@ pub(crate) fn show(
     tool: &mut Tool,
     settings: &mut BrushSettings,
     options: &mut StrokeOptions,
+    guides: &mut bool,
     width: f32,
 ) {
     ui.spacing_mut().item_spacing.x = 9.0;
@@ -28,7 +29,12 @@ pub(crate) fn show(
             (Tool::Brush, icons::PAINT_BRUSH, "Brush (B)"),
             (Tool::Eraser, icons::ERASER, "Eraser (E)"),
             (Tool::PolygonFill, icons::PAINT_BUCKET, "Polygon Fill"),
+            (Tool::Clone, icons::COPY, "Clone (Ctrl+click sets the source)"),
+            (Tool::Smudge, icons::DROP, "Smudge"),
         ] {
+            // Tiny docks keep the three core tools; Clone and Smudge stay reachable from the
+            // tool rail (and remain shown while one of them is active).
+            if width < 340.0 && matches!(value, Tool::Clone | Tool::Smudge) && *tool != value { continue; }
             let response = widgets::icon_toggle(ui, icon, *tool == value, help);
             response.widget_info(|| {
                 egui::WidgetInfo::selected(
@@ -43,9 +49,9 @@ pub(crate) fn show(
             }
         }
     });
-    stroke_options(ui, options);
+    stroke_options(ui, options, guides);
     let brush = *tool != Tool::PolygonFill;
-    if width < 520.0 {
+    if width < 575.0 {
         let response = widgets::icon_button(ui, icons::SLIDERS, "Brush settings");
         egui::Popup::menu(&response)
             .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
@@ -68,7 +74,7 @@ pub(crate) fn show(
     }
 }
 
-fn stroke_options(ui: &mut Ui, options: &mut StrokeOptions) {
+fn stroke_options(ui: &mut Ui, options: &mut StrokeOptions, guides: &mut bool) {
     let on = options.symmetry.iter().any(|&axis| axis) || options.lazy_distance_px > 0.0;
     let response = widgets::icon_toggle(
         ui,
@@ -96,6 +102,7 @@ fn stroke_options(ui: &mut Ui, options: &mut StrokeOptions) {
                     }
                 }
             });
+            ui.checkbox(guides, "Show symmetry guides");
             ui.separator();
             ui.label(RichText::new("Lazy Mouse").color(TEXT_DIM));
             ui.spacing_mut().slider_width = 155.0;

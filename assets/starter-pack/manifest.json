@@ -1,8 +1,29 @@
 {
-  "original_bytes": 13894995,
-  "packed_bytes": 12928272,
-  "thumbnail_bytes": 340359,
+  "original_bytes": 63064883,
+  "packed_bytes": 59691322,
+  "thumbnail_bytes": 1150474,
   "images": [
+    {
+      "name": "Alien Organic Hull",
+      "kind": "Normal",
+      "file": "textures/AlienOrganicHull_Normal.png",
+      "bytes": 821091,
+      "sha256": "3ef4fd9a6a5d64a17c2b96e16baca8f3c0c01bcf7b7fb82b3eff7439c0903bab"
+    },
+    {
+      "name": "Animal Fur Clumps",
+      "kind": "Normal",
+      "file": "textures/AnimalFurClumps_Normal.png",
+      "bytes": 1504731,
+      "sha256": "80a7747d853c0734f008a464a734b226135a42f65f8055e07d7aa4b419399986"
+    },
+    {
+      "name": "Birch Bark",
+      "kind": "Normal",
+      "file": "textures/BirchBark_Normal.png",
+      "bytes": 601734,
+      "sha256": "b383f967c6789a5cbabcf0ea5bdefdbb9324771bba33063bcd8e2051cd43c516"
+    },
     {
       "name": "Bolted Armor",
       "kind": "Normal",
@@ -11,11 +32,25 @@
       "sha256": "543e62d389d171ee09af9e4ec644e1da7cd8fa3d570d35a7b8a9a661d326f353"
     },
     {
+      "name": "Bone Surface",
+      "kind": "Normal",
+      "file": "textures/BoneSurface_Normal.png",
+      "bytes": 1077885,
+      "sha256": "5756810fdebaee493d0875dba9ae1148419df7aa0901a1e10de92ac5e1fe54be"
+    },
+    {
       "name": "Brick",
       "kind": "Normal",
       "file": "textures/Brick_Normal.png",
       "bytes": 457281,
       "sha256": "0d3ff14d7277c255c56a232bc0d7f8f7129733c37ce4bd010d1f9aff7b926c99"
+    },
+    {
+      "name": "Bullet Holes Dents",
+      "kind": "Normal",
+      "file": "textures/BulletHolesDents_Normal.png",
+      "bytes": 671959,
+      "sha256": "8352a8da1deab7683ce20632c17b0b7cb2ad1f103edaaa5863e08bda68c3dbb2"
     },
     {
       "name": "Cable Bundle",
@@ -30,6 +65,20 @@
       "file": "textures/CableChannels_Normal.png",
       "bytes": 50998,
       "sha256": "c5299aea0a3f96dcb0deca00d8156744e8a221cdec177b5efa855fd9f8b7821d"
+    },
+    {
+      "name": "Carbon Fiber Twill",
+      "kind": "Normal",
+      "file": "textures/CarbonFiberTwill_Normal.png",
+      "bytes": 237801,
+      "sha256": "58af220fb661d0a93f5c6332464f5df81f7651897aa3b236aab96452d5402640"
+    },
+    {
+      "name": "Celtic Knot Relief",
+      "kind": "Normal",
+      "file": "textures/CelticKnotRelief_Normal.png",
+      "bytes": 612136,
+      "sha256": "6a9c9db0cfb846a8bd08140d06e962201aaa9f1ad916e6875d4f35e51ebe2ee5"
     },
     {
       "name": "Circuit Traces",
@@ -67,6 +116,20 @@
       "sha256": "88f372b8157067fe8a63d6f32837ea4429079ec2d2986dae21238318548c2cc1"
     },
     {
+      "name": "Coral Brain",
+      "kind": "Normal",
+      "file": "textures/CoralBrain_Normal.png",
+      "bytes": 826288,
+      "sha256": "1f33aa5ed793a391aeb05721966d746d77806b1ea0bb558b2b73aea41bc01a3b"
+    },
+    {
+      "name": "Corrugated Metal",
+      "kind": "Normal",
+      "file": "textures/CorrugatedMetal_Normal.png",
+      "bytes": 663661,
+      "sha256": "16d738008a7956acfafcbf4de66fb2e1b3e9b9361d4b0fc8becb30f22859d4ce"
+    },
+    {
       "name": "Cratered Surface",
       "kind": "Normal",
       "file": "textures/CrateredSurface_Normal.png",
@@ -81,6 +144,13 @@
       "sha256": "74ee24b7a235b7559adfba4d127199a67ab21e8c2ca39f39f7cec47cb50a3512"
     },
     {
+      "name": "Crystal Cluster",
+      "kind": "Normal",
+      "file": "textures/CrystalCluster_Normal.png",
+      "bytes": 794670,
+      "sha256": "4f541e1aff4a4fb98fc8a8bc49f9f9a720a2edb3fb8a704805f7d5b79c6b3b30"
+    },
+    {
       "name": "Diamond Plate",
       "kind": "Normal",
       "file": "textures/DiamondPlate_Normal.png",
@@ -88,11 +158,60 @@
       "sha256": "459179b4a9e8273d0aa3e1c21621a49d36d0db7ea1dab2935218bc00f22aec9c"
     },
     {
+      "name": "Dragon Scales Spiky",
+      "kind": "Normal",
+      "file": "textures/DragonScalesSpiky_Normal.png",
+      "bytes": 607240,
+      "sha256": "0f18dfac6005d230707c3778612034b4c4db1038b175193ee7ccb68a337f40cc"
+    },
+    {
+      "name": "Dry Cracked Mud",
+      "kind": "Normal",
+      "file": "textures/DryCrackedMud_Normal.png",
+      "bytes": 770926,
+      "sha256": "29b8d5f86ca63a77f03859a55c94fa61b2cfbdd467420cbbb0d427da73f5efb6"
+    },
+    {
+      "name": "Eggshell Pitting",
+      "kind": "Normal",
+      "file": "textures/EggshellPitting_Normal.png",
+      "bytes": 972848,
+      "sha256": "ba42a5271393d16edcd8e41a723a62d75926b51c26c8fd77a8228d546536776e"
+    },
+    {
       "name": "Fabric Weave",
       "kind": "Normal",
       "file": "textures/FabricWeave_Normal.png",
       "bytes": 922219,
       "sha256": "0ea41da9dd6524b304f0c92c3d014191b6f10330e3cc61d41b650a150381f062"
+    },
+    {
+      "name": "Fish Scales Large",
+      "kind": "Normal",
+      "file": "textures/FishScalesLarge_Normal.png",
+      "bytes": 996211,
+      "sha256": "83fc201099113ae0c2b4047b4bd6e34ac3c89b35f69db4ccbef04f13948baac7"
+    },
+    {
+      "name": "Frozen Ice Cracks",
+      "kind": "Normal",
+      "file": "textures/FrozenIceCracks_Normal.png",
+      "bytes": 324293,
+      "sha256": "c952cfdba79694c8821429d4e1099c91001e40913ec01312cadf3d6d5056f2dc"
+    },
+    {
+      "name": "Granite Grain",
+      "kind": "Normal",
+      "file": "textures/GraniteGrain_Normal.png",
+      "bytes": 1664821,
+      "sha256": "65ad45c8e9e26b47b3b134fc19caaa913386c447797438cb179103cab0497438"
+    },
+    {
+      "name": "Grass Blades",
+      "kind": "Normal",
+      "file": "textures/GrassBlades_Normal.png",
+      "bytes": 1273249,
+      "sha256": "bee5f8b511a79fb215c13e10e6c0a1899cd1f851d85e9aebd56ddeb6a0c89b86"
     },
     {
       "name": "Grate Lattice",
@@ -109,11 +228,25 @@
       "sha256": "ea00aa6e08b74320f6e7cb3809d214a3d525f54a8cf1d253a1fdecd474c67168"
     },
     {
+      "name": "Hex Armor Overlap",
+      "kind": "Normal",
+      "file": "textures/HexArmorOverlap_Normal.png",
+      "bytes": 547120,
+      "sha256": "e24cbdd60caefce06d3a08bdca60f808915ad7f63887e915b1d3fcee229c55ae"
+    },
+    {
       "name": "Hex Tiles",
       "kind": "Normal",
       "file": "textures/HexTiles_Normal.png",
       "bytes": 411356,
       "sha256": "55c57608a49e99b76fc01dfac0b1ba04adf7f9b4c81fe628bcd36d49f810f802"
+    },
+    {
+      "name": "Honeycomb Organic",
+      "kind": "Normal",
+      "file": "textures/HoneycombOrganic_Normal.png",
+      "bytes": 741579,
+      "sha256": "a8daad8bd695bf0479a95a04859d01b42beadf3f086f6a55ba32461c27671b8e"
     },
     {
       "name": "Honeycomb Vent",
@@ -123,11 +256,32 @@
       "sha256": "7a6974e07c8641e7e51157440605d0c4b28d93fe9581851f55057b086e3ac668"
     },
     {
+      "name": "Insect Chitin",
+      "kind": "Normal",
+      "file": "textures/InsectChitin_Normal.png",
+      "bytes": 764053,
+      "sha256": "f0fa5c4eb9ae7ce65a0b93f5ddf07b7a3fa68812f5ec90f032e6674002985bb7"
+    },
+    {
       "name": "Knurled Metal",
       "kind": "Normal",
       "file": "textures/KnurledMetal_Normal.png",
       "bytes": 481681,
       "sha256": "34450c278db0adbaf50a05273609cb4519cd32512258125a360e2a239403ed7c"
+    },
+    {
+      "name": "Lava Crust",
+      "kind": "Normal",
+      "file": "textures/LavaCrust_Normal.png",
+      "bytes": 1248179,
+      "sha256": "9efa4b2748ba279272a15fdf792bbc732c790bac3877a4e8b70204e3a1e8d715"
+    },
+    {
+      "name": "Leaf Litter",
+      "kind": "Normal",
+      "file": "textures/LeafLitter_Normal.png",
+      "bytes": 1264530,
+      "sha256": "ca82c29ec272d3ff99f42d3dc10ce51de54498fd35448e5bc7a63771718253f1"
     },
     {
       "name": "Leather",
@@ -137,6 +291,55 @@
       "sha256": "ad84172af94a570a6b358f0ff58815aabfd2e2509b06e1d78d48c588c381f445"
     },
     {
+      "name": "Lotus Seed Pods",
+      "kind": "Normal",
+      "file": "textures/LotusSeedPods_Normal.png",
+      "bytes": 1006059,
+      "sha256": "2ac0d48722deafae6d4deef23d9e999196711d99af534ef18965b23cbd8da46b"
+    },
+    {
+      "name": "Magic Vines",
+      "kind": "Normal",
+      "file": "textures/MagicVines_Normal.png",
+      "bytes": 622860,
+      "sha256": "4710ca8aa7ff0064074590952efcdedafda08492504cc2b10ab11acbbe5ebf9d"
+    },
+    {
+      "name": "Mangrove Root Mat",
+      "kind": "Normal",
+      "file": "textures/MangroveRootMat_Normal.png",
+      "bytes": 1168914,
+      "sha256": "0c482c07e50b4698e60703e728a5bff81083da2fb22d68a9ec40342ae3fa396b"
+    },
+    {
+      "name": "Moss Clumps",
+      "kind": "Normal",
+      "file": "textures/MossClumps_Normal.png",
+      "bytes": 1217907,
+      "sha256": "be3d75902b68c0ce034e671c8f625fb031ba6151fd03c493a56ed9622279bc46"
+    },
+    {
+      "name": "Old Road Setts",
+      "kind": "Normal",
+      "file": "textures/OldRoadSetts_Normal.png",
+      "bytes": 731243,
+      "sha256": "17518b35dda61604b986a0f9cce119860dc3418348828c8e301d715b7277ab1a"
+    },
+    {
+      "name": "Ornate Filigree",
+      "kind": "Normal",
+      "file": "textures/OrnateFiligree_Normal.png",
+      "bytes": 703954,
+      "sha256": "8f686ed94c95b846975dc31f10cfcc66a5479c00dc5c797653c66c81881effb4"
+    },
+    {
+      "name": "Palm Frond Mat",
+      "kind": "Normal",
+      "file": "textures/PalmFrondMat_Normal.png",
+      "bytes": 1088972,
+      "sha256": "23dc3e07a4952d16bedb35ca6ccb51ce4b00a9b8ee420ae2f1bd209d696c85c4"
+    },
+    {
       "name": "Parallel Ridges",
       "kind": "Normal",
       "file": "textures/ParallelRidges_Normal.png",
@@ -144,11 +347,25 @@
       "sha256": "cf1bf8d61820c5b50b060da979852ce5b6749549abe735b388b3bd162f2021d0"
     },
     {
+      "name": "Peeling Paint",
+      "kind": "Normal",
+      "file": "textures/PeelingPaint_Normal.png",
+      "bytes": 844049,
+      "sha256": "9a7981b7945b65171d795dc515519be889e36f2d9952ced1e66e9c6e8a64fa53"
+    },
+    {
       "name": "Perforated Metal",
       "kind": "Normal",
       "file": "textures/PerforatedMetal_Normal.png",
       "bytes": 196502,
       "sha256": "97195eff454fea800b760384cade8226e4dc70fb768d07b81546eb9cdd9b3ae6"
+    },
+    {
+      "name": "Quilted Leather",
+      "kind": "Normal",
+      "file": "textures/QuiltedLeather_Normal.png",
+      "bytes": 1336508,
+      "sha256": "c240d3247295376809ec1018ec8295987578a75360e6d65fee9156b5f3f74204"
     },
     {
       "name": "Reptile Scales",
@@ -165,6 +382,13 @@
       "sha256": "7ca568e201a0296b100733d0d5966f601f75d8525b21f082fe6174aa5bfe0f5b"
     },
     {
+      "name": "River Pebbles",
+      "kind": "Normal",
+      "file": "textures/RiverPebbles_Normal.png",
+      "bytes": 798074,
+      "sha256": "38b1e4f10c5c8d7d9bac691bfbc23d2d3bfd08de8f6fbcd5469ee8477e72fd5c"
+    },
+    {
       "name": "Riveted Panels",
       "kind": "Normal",
       "file": "textures/RivetedPanels_Normal.png",
@@ -177,6 +401,34 @@
       "file": "textures/RockStrata_Normal.png",
       "bytes": 657552,
       "sha256": "044ec8922deeffefefdae5e09613120d8b224d7d7c98d2ab64c3f5ea9d79b48c"
+    },
+    {
+      "name": "Rune Stone Carvings",
+      "kind": "Normal",
+      "file": "textures/RuneStoneCarvings_Normal.png",
+      "bytes": 772426,
+      "sha256": "31adf23b7c5f0baf6ad9a3c295a39b1b596bacacf0d7bc1182774d22d93f3004"
+    },
+    {
+      "name": "Rust Pitting",
+      "kind": "Normal",
+      "file": "textures/RustPitting_Normal.png",
+      "bytes": 1480568,
+      "sha256": "a6dbd4ddf3abb3044bf0ed49f9edb6ce67f86e8165b0c7d7e7edfff3fe7c1635"
+    },
+    {
+      "name": "Sand Ripples",
+      "kind": "Normal",
+      "file": "textures/SandRipples_Normal.png",
+      "bytes": 744045,
+      "sha256": "3578948d8b7225c01b7fbe27f62da26efed0bf2e1df2a23e6d8c185aef40af49"
+    },
+    {
+      "name": "Sandstone Erosion",
+      "kind": "Normal",
+      "file": "textures/SandstoneErosion_Normal.png",
+      "bytes": 1203113,
+      "sha256": "3a9b88b96b2257d799285de3f1828623b614a90c3eaff6581b46a7fae9c812d0"
     },
     {
       "name": "Sci Fi Floor Panels",
@@ -193,11 +445,88 @@
       "sha256": "0a26c67c63f5a26de4af852ff5e562b0369fd28e10a97ece5251c4a1dd20253f"
     },
     {
+      "name": "Scratched Painted Metal",
+      "kind": "Normal",
+      "file": "textures/ScratchedPaintedMetal_Normal.png",
+      "bytes": 934751,
+      "sha256": "528aa2e9de29066996ce59c86cb6ae168002ac714dc2ad1a7a6e38607272fe1e"
+    },
+    {
+      "name": "Sea Shell Fan",
+      "kind": "Normal",
+      "file": "textures/SeaShellFan_Normal.png",
+      "bytes": 878833,
+      "sha256": "a92caf2e73683b689573635e0107f590cb3fdf0977cbefae4ef8919688063c4f"
+    },
+    {
+      "name": "Slate Layers",
+      "kind": "Normal",
+      "file": "textures/SlateLayers_Normal.png",
+      "bytes": 695539,
+      "sha256": "5183a35f11431620f25b0b919972379a97ad054d61d2814b4f6c7270eb233733"
+    },
+    {
+      "name": "Snake Skin Diamond",
+      "kind": "Normal",
+      "file": "textures/SnakeSkinDiamond_Normal.png",
+      "bytes": 1039460,
+      "sha256": "671dc79bcee91e00a633fee8a6aa29ad38238c10d682591d09661b4cb0de5150"
+    },
+    {
+      "name": "Snow Drift",
+      "kind": "Normal",
+      "file": "textures/SnowDrift_Normal.png",
+      "bytes": 864814,
+      "sha256": "2b2d1f6700937f2df3a786cb3886d4fac1b98408761705029b44c2e4b27d84f7"
+    },
+    {
+      "name": "Solar Panel Cells",
+      "kind": "Normal",
+      "file": "textures/SolarPanelCells_Normal.png",
+      "bytes": 192842,
+      "sha256": "2b83dd216481e04f8685bad5c90bbde6f53558fead9381b31b0bd3f099184bbd"
+    },
+    {
+      "name": "Stained Leading",
+      "kind": "Normal",
+      "file": "textures/StainedLeading_Normal.png",
+      "bytes": 523354,
+      "sha256": "b1ec9aa229159a177e19a3ade0725788db8aaa0568a3a3cd0abbf4a5392b29e8"
+    },
+    {
+      "name": "Stone Brick Medieval",
+      "kind": "Normal",
+      "file": "textures/StoneBrickMedieval_Normal.png",
+      "bytes": 647641,
+      "sha256": "20a60e9426e991364ee47d82584d2b8a76d9a43a76d1af6a1c5a746da6a348b8"
+    },
+    {
+      "name": "Stylized Cartoon Stone",
+      "kind": "Normal",
+      "file": "textures/StylizedCartoonStone_Normal.png",
+      "bytes": 456610,
+      "sha256": "eabe0acc52fa230176b3c7d9d34ebd575402e876992541d7abca88d6a869fa69"
+    },
+    {
+      "name": "Stylized Wood Planks Cartoon",
+      "kind": "Normal",
+      "file": "textures/StylizedWoodPlanksCartoon_Normal.png",
+      "bytes": 564347,
+      "sha256": "df1ea4bee4bae513bb72737ee3264a24c6e46042becf996ef87d3851cd4d7e9b"
+    },
+    {
       "name": "Tech Greebles",
       "kind": "Normal",
       "file": "textures/TechGreebles_Normal.png",
       "bytes": 129030,
       "sha256": "2ef61a887d94489634f727246b694195dbdd47f4153ea5e2eaec012b42b17aef"
+    },
+    {
+      "name": "Tree Bark",
+      "kind": "Normal",
+      "file": "textures/TreeBark_Normal.png",
+      "bytes": 711155,
+      "sha256": "7d51d28f435a510b6c44348b8dd1d5917393b7f3484108f1c79a204599be4635"
     },
     {
       "name": "Vent Slats",
@@ -207,6 +536,20 @@
       "sha256": "d9d4dd4621880a11317500d5cb9f4d01de9c1d201df9f9eca026ef3ddc445105"
     },
     {
+      "name": "Water Streak Stains",
+      "kind": "Normal",
+      "file": "textures/WaterStreakStains_Normal.png",
+      "bytes": 688300,
+      "sha256": "50426a6326d68de1e4703b0931f58796c8555b12635f65aecf7fa5c8bcf37bed"
+    },
+    {
+      "name": "Weld Seams Metal",
+      "kind": "Normal",
+      "file": "textures/WeldSeamsMetal_Normal.png",
+      "bytes": 575976,
+      "sha256": "914d7c7f7a1e1528472930ff3958e03115614128ed8c75137c6811d1af0bba8c"
+    },
+    {
       "name": "Wood Planks",
       "kind": "Normal",
       "file": "textures/WoodPlanks_Normal.png",
@@ -214,11 +557,53 @@
       "sha256": "9fe002fefce7361faa63dcca9d7dd2f042050ecf2ab46a770514d6bc413d5cbf"
     },
     {
+      "name": "Woven Rope Braided",
+      "kind": "Normal",
+      "file": "textures/WovenRopeBraided_Normal.png",
+      "bytes": 1295155,
+      "sha256": "ff4e4f04b417422505bb76b761131cda24e5795c013fbd791d68ffd86b414b51"
+    },
+    {
+      "name": "Barcode Block",
+      "kind": "Alpha",
+      "file": "alphas/BarcodeBlock_Alpha.png",
+      "bytes": 5958,
+      "sha256": "f72a4c7e1cd08da1efb6a151175455966fd986785ffb98be67206a97f2d7239c"
+    },
+    {
+      "name": "Blood Splatter Directions",
+      "kind": "Alpha",
+      "file": "alphas/BloodSplatterDirections_Alpha.png",
+      "bytes": 36499,
+      "sha256": "01bed070870e60fe1318686232f1e8378db28f3ef308dc77b6102a8f867e11ac"
+    },
+    {
       "name": "Bolt Cluster",
       "kind": "Alpha",
       "file": "alphas/BoltCluster_Alpha.png",
       "bytes": 31330,
       "sha256": "1b7ed579e6e8279a25c404aac75f654fdb7a14da2986085d97ca15e381425b15"
+    },
+    {
+      "name": "Branch Twigs",
+      "kind": "Alpha",
+      "file": "alphas/BranchTwigs_Alpha.png",
+      "bytes": 24314,
+      "sha256": "1b7fa335b03deb887ea534bc93802735321b5197b922dd645d523a57bdcedb13"
+    },
+    {
+      "name": "Bullet Impact Cluster",
+      "kind": "Alpha",
+      "file": "alphas/BulletImpactCluster_Alpha.png",
+      "bytes": 63402,
+      "sha256": "8c8148e4c56522d0df92c22fc43001002f29268da3e29fdfcea84e556c0f1d82"
+    },
+    {
+      "name": "Burn Marks",
+      "kind": "Alpha",
+      "file": "alphas/BurnMarks_Alpha.png",
+      "bytes": 117636,
+      "sha256": "39c33d57abe0530b07211cd6236311371ae607270b1bfe0624dc61c56db2203d"
     },
     {
       "name": "Cable Arc",
@@ -235,11 +620,25 @@
       "sha256": "6b59addaddf4818ee98ec549898c9aef5d5ca7add7fa6ab8c997b0673237dc86"
     },
     {
+      "name": "Charcoal Smudge",
+      "kind": "Alpha",
+      "file": "alphas/CharcoalSmudge_Alpha.png",
+      "bytes": 135296,
+      "sha256": "d7d377e11aa71b2151ca8b56dfe59b2c3c94501c672541b2d9bcc69f33f5cb07"
+    },
+    {
       "name": "Chevron Bands",
       "kind": "Alpha",
       "file": "alphas/ChevronBands_Alpha.png",
       "bytes": 12986,
       "sha256": "4574a9921af0e41cef6207fd29af489666c7251105c17b193bba843ac0b7dd5c"
+    },
+    {
+      "name": "Circle Of Dashes UI",
+      "kind": "Alpha",
+      "file": "alphas/CircleOfDashesUI_Alpha.png",
+      "bytes": 31617,
+      "sha256": "8425c9fb1702ea8507ab3cd9e908a0d1f07b8d528e40c4f31a9d0aa61200764b"
     },
     {
       "name": "Circuit Branch",
@@ -256,6 +655,13 @@
       "sha256": "1829ab1a72cddd02340b187f5327183e35bd9069768c9579eb077778459c1557"
     },
     {
+      "name": "Circuit Ring",
+      "kind": "Alpha",
+      "file": "alphas/CircuitRing_Alpha.png",
+      "bytes": 37927,
+      "sha256": "235525da1193f56176037e8e5e586d8848b163022ea324e340aa9a2e7995ac9c"
+    },
+    {
       "name": "Concentric Rings",
       "kind": "Alpha",
       "file": "alphas/ConcentricRings_Alpha.png",
@@ -268,6 +674,13 @@
       "file": "alphas/Cracks_Alpha.png",
       "bytes": 36406,
       "sha256": "278ce90dc2635724df6e70218a83b4bc78ba374bce0dcc2cd7fcbea2aa4e28ad"
+    },
+    {
+      "name": "Crack Spiderweb",
+      "kind": "Alpha",
+      "file": "alphas/CrackSpiderweb_Alpha.png",
+      "bytes": 55131,
+      "sha256": "140f99bf47255aa4cf9dec32cbad914a12a2d805f6a5b4b314a527209a6d9484"
     },
     {
       "name": "Crosshatch",
@@ -284,6 +697,13 @@
       "sha256": "cdd229eca0c85873298b0a5aa553613849d87a5a5e965419d1a49db8fec397b4"
     },
     {
+      "name": "Data Stream Columns",
+      "kind": "Alpha",
+      "file": "alphas/DataStreamColumns_Alpha.png",
+      "bytes": 37504,
+      "sha256": "05ac1dffe867648cb59ccd5e7b3a7153136384c03273829956d49887c7407618"
+    },
+    {
       "name": "Dotted Line",
       "kind": "Alpha",
       "file": "alphas/DottedLine_Alpha.png",
@@ -298,11 +718,67 @@
       "sha256": "535731d6caec7b15e99685cf26bba6e4dc232cfa97496026d75b1225c098aa14"
     },
     {
+      "name": "Dust Dirt Patch",
+      "kind": "Alpha",
+      "file": "alphas/DustDirtPatch_Alpha.png",
+      "bytes": 220064,
+      "sha256": "a366db3dfbe937278d31c36a28b11898c46ac551301f5cb10d4542664084fe9d"
+    },
+    {
+      "name": "Edge Wear Broken",
+      "kind": "Alpha",
+      "file": "alphas/EdgeWearBroken_Alpha.png",
+      "bytes": 22952,
+      "sha256": "a82f59c1745679e92093192250d8d7fafa22ef813557a9abab46d6199d69643c"
+    },
+    {
       "name": "Energy Arc",
       "kind": "Alpha",
       "file": "alphas/EnergyArc_Alpha.png",
       "bytes": 36378,
       "sha256": "73f0b823517a7ed7e9a442d94aa56a51704bc5239c297af206de9fa844e3c567"
+    },
+    {
+      "name": "Feather Single",
+      "kind": "Alpha",
+      "file": "alphas/FeatherSingle_Alpha.png",
+      "bytes": 116564,
+      "sha256": "8e008be5ee3304867bf0a6b282f42560cba9e73667abf908459b597f08bdd3b2"
+    },
+    {
+      "name": "Fern Frond",
+      "kind": "Alpha",
+      "file": "alphas/FernFrond_Alpha.png",
+      "bytes": 125164,
+      "sha256": "2c62c6b019afd4e0f4a341219b4a8e45912b203f0d6abb8768f59567d1b15208"
+    },
+    {
+      "name": "Fingerprint Smudge",
+      "kind": "Alpha",
+      "file": "alphas/FingerprintSmudge_Alpha.png",
+      "bytes": 210667,
+      "sha256": "6444ef899f090278c8f6f031509478303ef685f4e301fb2f18bce81a4872f1c1"
+    },
+    {
+      "name": "Frost Crystals",
+      "kind": "Alpha",
+      "file": "alphas/FrostCrystals_Alpha.png",
+      "bytes": 82061,
+      "sha256": "91ffcfd6041a9193e5672ba5196f01b5a5fdf16227a14141349317cba392e8f0"
+    },
+    {
+      "name": "Glitch Blocks",
+      "kind": "Alpha",
+      "file": "alphas/GlitchBlocks_Alpha.png",
+      "bytes": 12628,
+      "sha256": "1e10f8b93d3f905212db0a55d1029b8e32219f2bcddaceaa8249ceae1df7ce41"
+    },
+    {
+      "name": "Grass Tuft",
+      "kind": "Alpha",
+      "file": "alphas/GrassTuft_Alpha.png",
+      "bytes": 88871,
+      "sha256": "d4042e37608ded074ece87c917db36deb40eaacafbc658da27a3459e7c6d2eaa"
     },
     {
       "name": "Grid Lines",
@@ -312,11 +788,25 @@
       "sha256": "1a1dadca67f5bb380cbc9fe4e4791145ca0d6171d0ff081735de26ebce655a7c"
     },
     {
+      "name": "Grime Streak Down",
+      "kind": "Alpha",
+      "file": "alphas/GrimeStreakDown_Alpha.png",
+      "bytes": 65779,
+      "sha256": "8bda31e9ce6f0202617674975de2e6abe1e85ec4b5ff37c12f7601a4ea3031d9"
+    },
+    {
       "name": "Grunge Blotches",
       "kind": "Alpha",
       "file": "alphas/GrungeBlotches_Alpha.png",
       "bytes": 223494,
       "sha256": "1727d2845a6d5224e21d81affb76f5cb5c4e0f7a628541828fcd4b198df35a2b"
+    },
+    {
+      "name": "Halftone Dots Radial",
+      "kind": "Alpha",
+      "file": "alphas/HalftoneDotsRadial_Alpha.png",
+      "bytes": 66926,
+      "sha256": "75b61a9a05eaa43ca1b653a604878028b0b09423c9ea522daa07ed3340d32891"
     },
     {
       "name": "Hard Round",
@@ -333,6 +823,13 @@
       "sha256": "f11fdd8f3b5a09488988b0cfa90897294e46d3806281d1be5237f1602d4780b5"
     },
     {
+      "name": "Hex Grid Fade",
+      "kind": "Alpha",
+      "file": "alphas/HexGridFade_Alpha.png",
+      "bytes": 61387,
+      "sha256": "8310db3dbc079ad72b0499240ed9fb1f41acd41bbac84923c3b73acbce892e25"
+    },
+    {
       "name": "HUDReticle",
       "kind": "Alpha",
       "file": "alphas/HUDReticle_Alpha.png",
@@ -340,11 +837,67 @@
       "sha256": "bbb6af04a250ef0e0d85a941253d70a8192d43e15e0b619e248c0f90801deb4b"
     },
     {
+      "name": "Ink Brush Stroke Taper",
+      "kind": "Alpha",
+      "file": "alphas/InkBrushStrokeTaper_Alpha.png",
+      "bytes": 65968,
+      "sha256": "9cf97030eccd59b5afbdd3b1fa217864e2d5101fee29d7ca71a576e8a27bec08"
+    },
+    {
+      "name": "Leaf Cluster",
+      "kind": "Alpha",
+      "file": "alphas/LeafCluster_Alpha.png",
+      "bytes": 96128,
+      "sha256": "cffaed18028689e3453d545f99bd1b0ed67ecd64e33997368c9e037663a14429"
+    },
+    {
+      "name": "Leaf Single",
+      "kind": "Alpha",
+      "file": "alphas/LeafSingle_Alpha.png",
+      "bytes": 58492,
+      "sha256": "be1fd2aa12853711249856a1dbf6541dffb9bfe0300d2ee4a9355dadc506c1ca"
+    },
+    {
+      "name": "Lichen Patch",
+      "kind": "Alpha",
+      "file": "alphas/LichenPatch_Alpha.png",
+      "bytes": 176301,
+      "sha256": "36832a05650cbb6223e315a8121d6e13c170cc82e2919076749f0cb3ec5391cf"
+    },
+    {
+      "name": "Moss Splotch",
+      "kind": "Alpha",
+      "file": "alphas/MossSplotch_Alpha.png",
+      "bytes": 120777,
+      "sha256": "c88af0d6fead4a0b27d40cf8f5781c5199ad2ed07926ac14c6110c98643aae65"
+    },
+    {
+      "name": "Mushroom Caps",
+      "kind": "Alpha",
+      "file": "alphas/MushroomCaps_Alpha.png",
+      "bytes": 40921,
+      "sha256": "d38a3990f6fd2ca5ec8308c8845df05265a74b1ff1bd7f901fbdf43ba106fc2c"
+    },
+    {
+      "name": "Oil Splash Ring",
+      "kind": "Alpha",
+      "file": "alphas/OilSplashRing_Alpha.png",
+      "bytes": 84329,
+      "sha256": "efd0f8b47d521383f62d6fbac633a2e573e7feb48e907ae128978f69c9941600"
+    },
+    {
       "name": "Oil Stroke",
       "kind": "Alpha",
       "file": "alphas/OilStroke_Alpha.png",
       "bytes": 74141,
       "sha256": "67ee2db2d0ec4fa824e9f51f563dcc67a87584a3cd1e3207ad44079541d755a5"
+    },
+    {
+      "name": "Paint Chips Edge",
+      "kind": "Alpha",
+      "file": "alphas/PaintChipsEdge_Alpha.png",
+      "bytes": 46528,
+      "sha256": "44c7d1e0dd1623dafa2f9fdfbc0d2175c9fd52ab009a810d99c3bb5b7a8c34bc"
     },
     {
       "name": "Panel Corner",
@@ -368,6 +921,83 @@
       "sha256": "3cd5efc79cf5c6b8816a9a9b6ac3ef68a30129d0632a8e398e91652f73cff484"
     },
     {
+      "name": "Paw Print",
+      "kind": "Alpha",
+      "file": "alphas/PawPrint_Alpha.png",
+      "bytes": 65973,
+      "sha256": "d40f975ba514167451f2aaa7cd99e0ddf216b5c471d950d762c85346b9a6a060"
+    },
+    {
+      "name": "Peeling Flake",
+      "kind": "Alpha",
+      "file": "alphas/PeelingFlake_Alpha.png",
+      "bytes": 91496,
+      "sha256": "977a39a3905cc1680653556ae723844945ebd71966e4f2f27d1a223b4cb79418"
+    },
+    {
+      "name": "Petal Flower",
+      "kind": "Alpha",
+      "file": "alphas/PetalFlower_Alpha.png",
+      "bytes": 96433,
+      "sha256": "f3214f95399e02a90fba5b769d288ea4c4d8f5b949facc1a182313e0987fd723"
+    },
+    {
+      "name": "Pine Needles",
+      "kind": "Alpha",
+      "file": "alphas/PineNeedles_Alpha.png",
+      "bytes": 71211,
+      "sha256": "d37cfe8ee05cf1b30959a103bd83718e1b2b5c18929b0ec8b022d4814f6970f1"
+    },
+    {
+      "name": "Plasma Burn",
+      "kind": "Alpha",
+      "file": "alphas/PlasmaBurn_Alpha.png",
+      "bytes": 154922,
+      "sha256": "544898441256643e95b3f9e6ad40182a3bf3a8fb1dff7747a7e6f663a8842d17"
+    },
+    {
+      "name": "Rain Streaks",
+      "kind": "Alpha",
+      "file": "alphas/RainStreaks_Alpha.png",
+      "bytes": 32825,
+      "sha256": "fc7a3905c6abe6e981e35fff9aac63525e7a5d65ac73567111b8f81fb1a0d3c0"
+    },
+    {
+      "name": "River Stone Scatter",
+      "kind": "Alpha",
+      "file": "alphas/RiverStoneScatter_Alpha.png",
+      "bytes": 81522,
+      "sha256": "3b6a36cb3b0c45d9251a9a4b016adb7618480f2e4c33fd7641c00862574ccef4"
+    },
+    {
+      "name": "Rivet Row",
+      "kind": "Alpha",
+      "file": "alphas/RivetRow_Alpha.png",
+      "bytes": 13424,
+      "sha256": "a04dd89305e891e621e749393c4c592d375639f4137b6bfd218bfa0b6ee206d9"
+    },
+    {
+      "name": "Rust Bloom Cluster",
+      "kind": "Alpha",
+      "file": "alphas/RustBloomCluster_Alpha.png",
+      "bytes": 128523,
+      "sha256": "f7e30121d5d048823d0f97fab9a20cec4611691adcfd13e56c5773aa890001d2"
+    },
+    {
+      "name": "Sand Grains",
+      "kind": "Alpha",
+      "file": "alphas/SandGrains_Alpha.png",
+      "bytes": 83499,
+      "sha256": "f174506b47cf070c571f44612b5af06a8460bd5648f97ffc25909c97b5536ef5"
+    },
+    {
+      "name": "Scanline Band",
+      "kind": "Alpha",
+      "file": "alphas/ScanlineBand_Alpha.png",
+      "bytes": 18699,
+      "sha256": "f575ec1ff2a678bec85f0fe446ccb2a334257865210a215db02699e161a5cdcc"
+    },
+    {
       "name": "Sci Fi Glyphs",
       "kind": "Alpha",
       "file": "alphas/SciFiGlyphs_Alpha.png",
@@ -375,11 +1005,25 @@
       "sha256": "5a6d0de140143244211d08114f3bfd736f53765fae303b216540632e5f9828dd"
     },
     {
+      "name": "Scratch Bundle Long",
+      "kind": "Alpha",
+      "file": "alphas/ScratchBundleLong_Alpha.png",
+      "bytes": 44050,
+      "sha256": "9e89599b8fd4deca4c8074b37afdadd2ffd5c67307b74fcb233ec0e08a372cac"
+    },
+    {
       "name": "Scratches",
       "kind": "Alpha",
       "file": "alphas/Scratches_Alpha.png",
       "bytes": 39581,
       "sha256": "79c11ec8bef498a6123268a0d932348e9a50ea345fce3cf601f6f6ed10caf896"
+    },
+    {
+      "name": "Snowflake Six",
+      "kind": "Alpha",
+      "file": "alphas/SnowflakeSix_Alpha.png",
+      "bytes": 49447,
+      "sha256": "b969ea5be7bfe5459a11060eface6e8d33c379f7aaa5c3a1cfb618520d5877a5"
     },
     {
       "name": "Soft Round",
@@ -394,6 +1038,27 @@
       "file": "alphas/Splatter_Alpha.png",
       "bytes": 50952,
       "sha256": "e426e6bd9b29faf4f44b390ece2b2eb31fa856400d8eaba9f1e680089b3fb7f1"
+    },
+    {
+      "name": "Sponge Stamp",
+      "kind": "Alpha",
+      "file": "alphas/SpongeStamp_Alpha.png",
+      "bytes": 204163,
+      "sha256": "0d875db7d6dbda146fa4ae7a62548de034de775a55d4508f641136839a9f504d"
+    },
+    {
+      "name": "Spray Paint Soft",
+      "kind": "Alpha",
+      "file": "alphas/SprayPaintSoft_Alpha.png",
+      "bytes": 133264,
+      "sha256": "baba1d1320994833aeb790b6cbb68403752477f431d72f4b8030a10b7b4fa712"
+    },
+    {
+      "name": "Star Burst",
+      "kind": "Alpha",
+      "file": "alphas/StarBurst_Alpha.png",
+      "bytes": 67311,
+      "sha256": "2756f595cec42cc2aca908879ea89113adb801f95b359713b70f7d2a9a5bd863"
     },
     {
       "name": "Stipple",
@@ -417,11 +1082,46 @@
       "sha256": "f5513d14ccfbf7a23b3e87d753a1ba95c25be115754d5e3671c9f5ed77cba85c"
     },
     {
+      "name": "Tree Branch Fractal",
+      "kind": "Alpha",
+      "file": "alphas/TreeBranchFractal_Alpha.png",
+      "bytes": 43520,
+      "sha256": "1747a428dc7e06016ae6901b1b684c2be8a905641bfcf1bb8796b06425f505e0"
+    },
+    {
       "name": "Vent Slots",
       "kind": "Alpha",
       "file": "alphas/VentSlots_Alpha.png",
       "bytes": 10936,
       "sha256": "2045cf5aa32aa1c20c10efb6305b3700e86e9138d68d8fbabddbc8fe635703b7"
+    },
+    {
+      "name": "Warning Chevron Stripes",
+      "kind": "Alpha",
+      "file": "alphas/WarningChevronStripes_Alpha.png",
+      "bytes": 45837,
+      "sha256": "094647880bb778dc81eddb84063aff12c53cb8e695916633ccb7d07f2e0046fa"
+    },
+    {
+      "name": "Watercolor Bleed",
+      "kind": "Alpha",
+      "file": "alphas/WatercolorBleed_Alpha.png",
+      "bytes": 112137,
+      "sha256": "037fa0c9d94cc463d65d17039dcc9bd2bf4d75f5c042c5c01865f4d4485c6762"
+    },
+    {
+      "name": "Water Droplets",
+      "kind": "Alpha",
+      "file": "alphas/WaterDroplets_Alpha.png",
+      "bytes": 76322,
+      "sha256": "80384129fd8b79279b0a8578082fbd72c21e8703378d98afe73f048c1a70074c"
+    },
+    {
+      "name": "Water Stain Ring",
+      "kind": "Alpha",
+      "file": "alphas/WaterStainRing_Alpha.png",
+      "bytes": 66207,
+      "sha256": "f304f0de47dff62d8fad62a82d7d9adf6f274561e54cd1caaada681c211131d3"
     }
   ]
 }

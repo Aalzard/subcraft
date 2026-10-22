@@ -7,8 +7,9 @@
 //!
 //! Maps: tangent-space normal (OpenGL / MikkTSpace frame of the low poly), world-space normal,
 //! position (normalized per axis to the low-poly bounds), ID (color per mesh element), ambient
-//! occlusion (cosine-weighted hemisphere rays), curvature (3D neighbourhood convexity, 0.5 flat)
-//! and thickness (rays into the surface; bright = thin). Gutters are padded from the nearest
+//! occlusion (cosine-weighted hemisphere rays), curvature (3D neighbourhood convexity, 0.5 flat),
+//! thickness (rays into the surface; bright = thin), height (signed distance to the high poly
+//! inside the cage, 0.5 flat) and bent normal (average open direction, tangent space). Gutters are padded from the nearest
 //! island texel.
 
 pub mod curvature;
@@ -79,6 +80,7 @@ pub struct Progress {
     done: AtomicUsize,
     total: AtomicUsize,
     cancel: AtomicBool,
+    current_map: AtomicUsize,
 }
 
 impl Progress {
@@ -95,12 +97,16 @@ impl Progress {
     pub fn is_cancelled(&self) -> bool {
         self.cancel.load(Ordering::Relaxed)
     }
+    pub fn current_map(&self) -> Option<MeshMapKind> {
+        self.current_map.load(Ordering::Relaxed).checked_sub(1).and_then(|i| MeshMapKind::ALL.get(i).copied())
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum BakeError {
     Cancelled,
     NoTexels,
+    NoProjection,
 }
 
 impl std::fmt::Display for BakeError {
@@ -108,6 +114,7 @@ impl std::fmt::Display for BakeError {
         match self {
             BakeError::Cancelled => f.write_str("bake cancelled"),
             BakeError::NoTexels => f.write_str("texture set has no UV-covered texels"),
+            BakeError::NoProjection => f.write_str("no high-poly surface was reached: align the low/high models in the same coordinates and increase Cage front / rear"),
         }
     }
 }
@@ -120,16 +127,30 @@ struct Detail {
     position: Vec3,
     normal: Vec3,
     /// Triangle in the detail mesh.
-    tri: u32,
+    tri: Option<u32>,
     /// Offset direction for ray origins (geometric normal).
     offset: Vec3,
+    /// Signed distance from the low-poly point to the detail surface along the cage normal
+    /// (positive = the detail stands above the low poly).
+    height: f32,
 }
 
 const CHUNK: usize = 2048;
 
 /// Bake the requested maps for one texture set.
 pub fn bake(input: &BakeInput, settings: &BakeSettings, progress: &Progress) -> Result<BTreeMap<MeshMapKind, TiledImage>, BakeError> {
+    bake_streamed(input, settings, progress, |_, _| {})
+}
+
+/// Publish each complete, padded map as soon as it is ready. The callback runs on the calling
+/// thread; synchronous callers keep the same exact output through [`bake`]. No partial map is
+/// published, including on cancellation. Cloning an image here only shares its immutable tiles.
+pub fn bake_streamed(
+    input: &BakeInput, settings: &BakeSettings, progress: &Progress,
+    mut completed: impl FnMut(MeshMapKind, &TiledImage),
+) -> Result<BTreeMap<MeshMapKind, TiledImage>, BakeError> {
     let size = settings.size;
+    progress.current_map.store(0, Ordering::Relaxed);
     let low = input.low.mesh;
     let samples = texels(low, input.material_slot, size);
     if samples.is_empty() {
@@ -149,10 +170,10 @@ pub fn bake(input: &BakeInput, settings: &BakeSettings, progress: &Progress) -> 
                 let sp = high.mesh.interpolate(hit.tri as usize, hit.u, hit.v);
                 let ng = sp.geometric_normal;
                 let normal = if sp.normal.dot(n) < 0.0 { -sp.normal } else { sp.normal };
-                return Detail { position: sp.position, normal, tri: hit.tri, offset: if ng.dot(n) < 0.0 { -ng } else { ng } };
+                return Detail { position: sp.position, normal, tri: Some(hit.tri), offset: if ng.dot(n) < 0.0 { -ng } else { ng }, height: front - hit.t };
             }
         }
-        Detail { position: t.position, normal: t.normal, tri: t.tri, offset: t.geometric_normal }
+        Detail { position: t.position, normal: t.normal, tri: input.high.is_none().then_some(t.tri), offset: t.geometric_normal, height: 0.0 }
     };
 
     let wanted = |k: MeshMapKind| settings.maps.contains(&k);
@@ -161,12 +182,16 @@ pub fn bake(input: &BakeInput, settings: &BakeSettings, progress: &Progress) -> 
     progress.done.store(0, Ordering::Relaxed);
 
     let details: Vec<Detail> = samples.par_iter().map(project).collect();
-    let elements = if wanted(MeshMapKind::Id) { Some(topology::mesh_elements(detail_geo.mesh)) } else { None };
+    if input.high.is_some() && details.iter().all(|d| d.tri.is_none()) {
+        return Err(BakeError::NoProjection);
+    }
+    let elements = if wanted(MeshMapKind::Id) || wanted(MeshMapKind::Curvature) { Some(topology::mesh_elements(detail_geo.mesh)) } else { None };
     let bounds = low.bounds;
     let extent = bounds.extent().max(Vec3::splat(1e-6));
 
     let mut out = BTreeMap::new();
     for &kind in &settings.maps {
+        progress.current_map.store(MeshMapKind::ALL.iter().position(|k| *k == kind).expect("known map") + 1, Ordering::Relaxed);
         let comps = kind.components();
         // Per-texel evaluation, chunked for cancellation and progress.
         let eval = |i: usize| -> [f32; 3] {
@@ -190,7 +215,8 @@ pub fn bake(input: &BakeInput, settings: &BakeSettings, progress: &Progress) -> 
                     [p.x, p.y, p.z]
                 }
                 MeshMapKind::Id => {
-                    let e = elements.as_ref().map_or(0, |e| e[d.tri as usize]);
+                    let Some(tri) = d.tri else { return kind.neutral_value()[..3].try_into().expect("RGB ID"); };
+                    let e = elements.as_ref().map_or(0, |e| e[tri as usize]);
                     let hue = (e as f32 * 0.618_034).fract();
                     hsv_to_rgb([hue, 0.65, 0.9])
                 }
@@ -212,6 +238,31 @@ pub fn bake(input: &BakeInput, settings: &BakeSettings, progress: &Progress) -> 
                     let ao = if counted == 0 { 1.0 } else { 1.0 - occluded as f32 / counted as f32 };
                     [ao; 3]
                 }
+                MeshMapKind::Height => {
+                    // Piecewise so the front and rear cage distances both span half the range.
+                    let reach = if d.height >= 0.0 { settings.cage_front } else { settings.cage_rear } * diag;
+                    let h = 0.5 + 0.5 * (d.height / reach.max(1e-9)).clamp(-1.0, 1.0);
+                    [h; 3]
+                }
+                MeshMapKind::BentNormal => {
+                    let n = t.normal.normalize_or(t.geometric_normal);
+                    let tan = (t.tangent.truncate() - n * n.dot(t.tangent.truncate())).normalize_or(n.any_orthonormal_vector());
+                    let bit = n.cross(tan) * if t.tangent.w < 0.0 { -1.0 } else { 1.0 };
+                    let mut dirs = Vec::with_capacity(settings.ao_samples as usize);
+                    cosine_directions(d.normal, settings.ao_samples.max(1), hash01(t.index, 3), &mut dirs);
+                    let origin = d.position + d.offset * bias;
+                    let dist = settings.ao_distance * diag;
+                    let mut sum = Vec3::ZERO;
+                    for dir in &dirs {
+                        if dir.dot(d.offset) > 0.0 && !detail_geo.bvh.occluded(origin, *dir, 0.0, dist) {
+                            sum += *dir;
+                        }
+                    }
+                    // Fully occluded texels keep the surface normal.
+                    let bent = sum.try_normalize().unwrap_or(d.normal);
+                    let ts = Vec3::new(bent.dot(tan), bent.dot(bit), bent.dot(n)).normalize_or(Vec3::Z);
+                    [ts.x * 0.5 + 0.5, ts.y * 0.5 + 0.5, ts.z * 0.5 + 0.5]
+                }
                 MeshMapKind::Thickness => {
                     let mut dirs = Vec::with_capacity(settings.thickness_samples as usize);
                     cosine_directions(-d.normal, settings.thickness_samples.max(1), hash01(t.index, 2), &mut dirs);
@@ -222,7 +273,8 @@ pub fn bake(input: &BakeInput, settings: &BakeSettings, progress: &Progress) -> 
                     [1.0 - avg; 3]
                 }
                 MeshMapKind::Curvature => {
-                    [curvature::curvature_at(detail_geo.mesh, detail_geo.bvh, d.position, d.normal, settings.curvature_radius * diag); 3]
+                    [curvature::curvature_on_surface(detail_geo.mesh, detail_geo.bvh, d.position, d.normal,
+                        settings.curvature_radius * diag, d.tri.zip(elements.as_deref())); 3]
                 }
             }
         };
@@ -247,8 +299,12 @@ pub fn bake(input: &BakeInput, settings: &BakeSettings, progress: &Progress) -> 
         dilate_infinite(size as usize, size as usize, comps, &mut dense, &covered);
         let mut fill = [0.0f32; 4];
         fill[..comps].copy_from_slice(&neutral[..comps]);
-        out.insert(kind, TiledImage::from_dense(size, size, comps, fill, &dense));
+        let image = TiledImage::from_dense(size, size, comps, fill, &dense);
+        if progress.is_cancelled() { return Err(BakeError::Cancelled); }
+        completed(kind, &image);
+        out.insert(kind, image);
     }
+    progress.current_map.store(0, Ordering::Relaxed);
     Ok(out)
 }
 

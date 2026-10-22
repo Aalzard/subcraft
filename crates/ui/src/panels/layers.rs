@@ -11,7 +11,7 @@ use subcraft_doc::{BlendMode, Layer};
 use crate::icons;
 use crate::state::UiState;
 use crate::theme::{self, ACCENT, PAD, TEXT_FAINT};
-use crate::widgets::{divider, empty_state, fill_width, icon_button, striped_list_row, prop_row, row_text};
+use crate::widgets::{divider, empty_state, fill_width, icon_button, striped_list_row_height, prop_row, row_text};
 
 // Folder drop zones and inline rename adapted from CalangoTech's Studio fork (bd6c064).
 #[derive(Clone, Copy)]
@@ -142,7 +142,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     rows(&ts.layers, 0, &mut list);
     // Default min height (64 px) would let rows spill past the panel when it is short; the list
     // must only use the space that is left (it scrolls).
-    let rows_height = ui.available_height().max(0.0);
+    let rows_height = (ui.available_height() - 44.0).max(0.0);
+    let preview_size = state.recovery.prefs.layer_preview_size.clamp(24, 64) as f32;
     egui::ScrollArea::vertical()
         .id_salt("layer_rows")
         .auto_shrink([false, false])
@@ -151,7 +152,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         .show(ui, |ui| {
         ui.spacing_mut().item_spacing.y = 1.0;
         fill_width(ui);
-        if egui::DragAndDrop::has_payload_of_type::<LayerDrag>(ui.ctx())
+        if (egui::DragAndDrop::has_payload_of_type::<LayerDrag>(ui.ctx())
+            || egui::DragAndDrop::has_payload_of_type::<subcraft_app::effect_stack::EffectAddress>(ui.ctx()))
             && let Some(pointer) = ui.input(|i| i.pointer.interact_pos())
         {
             let visible = ui.clip_rect();
@@ -166,9 +168,12 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             empty_state(ui, icons::STACK, "No layers yet. Add one above.");
         }
         for (index, (depth, l)) in list.iter().enumerate() {
+            // Reserve room for names and the blend/opacity column even in a narrow dock.
+            let thumb_size = preview_size.min(((ui.available_width() - 176.0 - *depth as f32 * 16.0) / 2.0).clamp(24.0, 64.0));
+            let row_height = (thumb_size + 12.0).max(44.0);
             let selected = sel == Some(l.id);
             let b = l.blend_for(active);
-            let resp = ui.push_id(l.id, |ui| striped_list_row(ui, index, selected, egui::Sense::click_and_drag(), |ui| {
+            let resp = ui.push_id(l.id, |ui| striped_list_row_height(ui, index, selected, row_height, egui::Sense::click_and_drag(), |ui| {
                 ui.add_space(*depth as f32 * 16.0);
                 if let subcraft_doc::LayerContent::Group(group) = &l.content {
                     let icon = if group.expanded { icons::CARET_DOWN } else { icons::CARET_RIGHT };
@@ -180,11 +185,11 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 if icon_button(ui, eye, tip).clicked() {
                     cmds.push(Command::SetVisible { layer: l.id, visible: !l.visible });
                 }
-                let thumb = state.layer_previews.image(ui, &state.session, PreviewKey { layer: l.id, channel: active, mask: false, size: 64 }, 26.0,
+                let thumb = state.layer_previews.image(ui, &state.session, PreviewKey { layer: l.id, channel: active, mask: false, effect: None, size: 64 }, thumb_size,
                     selected && selected_target == LayerTarget::Content).on_hover_text(format!("{:?} content · {} preview · click to edit", l.kind(), active.display_name()));
                 if thumb.clicked() { cmds.push(Command::SelectLayerTarget { layer: l.id, target: LayerTarget::Content }); }
                 if let Some(mask) = &l.mask {
-                    let thumb = state.layer_previews.image(ui, &state.session, PreviewKey { layer: l.id, channel: ChannelKind::BaseColor, mask: true, size: 64 }, 26.0,
+                    let thumb = state.layer_previews.image(ui, &state.session, PreviewKey { layer: l.id, channel: ChannelKind::BaseColor, mask: true, effect: None, size: 64 }, thumb_size,
                         selected && selected_target == LayerTarget::Mask).on_hover_text("Mask · click to edit · Alt+click: UV preview · Shift+click: enable/disable");
                     if !mask.enabled { ui.painter().line_segment([thumb.rect.left_bottom(), thumb.rect.right_top()], egui::Stroke::new(1.5, theme::WARNING)); }
                     if thumb.clicked() {
@@ -201,24 +206,35 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 if !l.visible {
                     text = text.color(TEXT_FAINT);
                 }
-                if let Some(edit) = rename.as_mut().filter(|edit| edit.layer == l.id) {
-                    let r = ui.add(egui::TextEdit::singleline(&mut edit.text).id_salt("inline_name").desired_width((ui.available_width() - 65.0).max(40.0)));
-                    if edit.focus { r.request_focus(); edit.focus = false; }
-                    else if r.lost_focus() || (r.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))) {
-                        finish_rename = Some((l.id, edit.text.trim().to_string()));
-                    }
-                } else { ui.add(egui::Label::new(text).truncate().selectable(false)); }
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let name_width = (ui.available_width() - 82.0).max(20.0);
+                ui.allocate_ui_with_layout(egui::vec2(name_width, 38.0), egui::Layout::top_down(egui::Align::Min), |ui| {
+                    ui.spacing_mut().item_spacing.y = 2.0;
+                    if let Some(edit) = rename.as_mut().filter(|edit| edit.layer == l.id) {
+                        let r = ui.add(egui::TextEdit::singleline(&mut edit.text).id_salt("inline_name").desired_width(name_width));
+                        if edit.focus { r.request_focus(); edit.focus = false; }
+                        else if r.lost_focus() || (r.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))) {
+                            finish_rename = Some((l.id, edit.text.trim().to_string()));
+                        }
+                    } else { ui.add(egui::Label::new(text).truncate().selectable(false)); }
+                    let effects = l.content_effects.len() + l.mask.as_ref().map_or(0, |m| m.effects.len());
+                    let kind = format!("{:?}", l.kind());
+                    let detail = if effects == 0 { kind } else { format!("{kind}  ·  {effects} fx") };
+                    ui.add(egui::Label::new(RichText::new(detail).font(theme::font(10.0)).color(TEXT_FAINT)).truncate())
+                        .on_hover_text(format!("{} content effects · {} mask effects", l.content_effects.len(), l.mask.as_ref().map_or(0, |m| m.effects.len())));
+                });
+                ui.allocate_ui_with_layout(egui::vec2(76.0, 40.0), egui::Layout::top_down(egui::Align::Max), |ui| {
+                    ui.spacing_mut().item_spacing.y = 1.0;
+                    ui.spacing_mut().interact_size.y = 18.0;
+                    ui.spacing_mut().button_padding = egui::vec2(3.0, 1.0);
+                    let inactive = &mut ui.visuals_mut().widgets.inactive;
+                    inactive.bg_fill = egui::Color32::TRANSPARENT;
+                    inactive.weak_bg_fill = egui::Color32::TRANSPARENT;
+                    inactive.bg_stroke = egui::Stroke::NONE;
                     let channel = active.display_name();
-                    let mut pct = b.opacity * 100.0;
-                    let opacity = egui::DragValue::new(&mut pct).range(0.0..=100.0).speed(0.5).suffix("%").max_decimals(0);
-                    if ui.add_sized([40.0, 20.0], opacity).on_hover_text(format!("{channel} opacity (drag)")).changed() {
-                        cmds.push(Command::SetBlendOpacity { layer: l.id, channel: active, opacity: pct / 100.0 });
-                    }
                     egui::ComboBox::from_id_salt(("row_blend", l.id))
-                        .width(70.0)
+                        .width(74.0)
                         .height(420.0)
-                        .selected_text(RichText::new(b.mode.short_label()).font(theme::font(11.0)))
+                        .selected_text(RichText::new(b.mode.short_label()).font(theme::font(10.5)).color(theme::TEXT_DIM))
                         .show_ui(ui, |ui| {
                             for m in BlendMode::available(active == ChannelKind::Normal, l.is_folder()) {
                                 if ui.selectable_label(b.mode == m, m.label()).clicked() {
@@ -228,6 +244,11 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         })
                         .response
                         .on_hover_text(format!("{channel} blend mode: {}", b.mode.label()));
+                    let mut pct = b.opacity * 100.0;
+                    let opacity = egui::DragValue::new(&mut pct).range(0.0..=100.0).speed(0.5).suffix("%").max_decimals(0);
+                    if ui.add_sized([40.0, 18.0], opacity).on_hover_text(format!("{channel} opacity (drag)")).changed() {
+                        cmds.push(Command::SetBlendOpacity { layer: l.id, channel: active, opacity: pct / 100.0 });
+                    }
                 });
             })).inner;
             if rename.as_ref().is_none_or(|edit| edit.layer != l.id) {
@@ -316,11 +337,12 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             resp.on_hover_text("Drag to reorder. Drop in a folder's center to move inside it; drop at Top level to move out. Double-click or F2 to rename.");
             if selected {
                 let channels: Vec<ChannelKind> = ts.channel_kinds().collect();
-                super::effects::rows(ui, l, *depth, selected_target, selected_effect, &channels, active, ts.resolution, &mut cmds);
+                super::effects::rows(ui, l, *depth, selected_target, selected_effect, &channels, active, ts.resolution, &mut state.layer_previews, &state.session, (preview_size * 0.55).round().clamp(18.0, 28.0), &mut cmds);
             }
         }
         root_drop(ui, ts, DropTarget::RootBottom, &mut cmds);
     });
+    crate::widgets::preview_size_footer(ui, &mut state.recovery.prefs.layer_preview_size, 24..=64);
     if cancel_rename { rename = None; }
     else if let Some((layer, name)) = finish_rename {
         if !name.is_empty() && ts.find(layer).is_some_and(|l| l.name != name) { cmds.push(Command::Rename { layer, name }); }

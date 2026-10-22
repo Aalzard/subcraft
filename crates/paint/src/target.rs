@@ -45,6 +45,8 @@ pub enum PaintError {
     NothingToPaint,
     /// The target image or geometry resolution differs from the texture set's.
     ResolutionMismatch,
+    /// Clone strokes need a source point (Ctrl+click on the model).
+    NoCloneSource,
 }
 
 impl std::fmt::Display for PaintError {
@@ -57,6 +59,7 @@ impl std::fmt::Display for PaintError {
             PaintError::NotAPaintEffect => "the selected effect is not a Paint effect",
             PaintError::NothingToPaint => "no enabled brush channel in this texture set",
             PaintError::ResolutionMismatch => "resolution mismatch",
+            PaintError::NoCloneSource => "set a clone source first: Ctrl+click the model",
         };
         f.write_str(s)
     }
@@ -165,13 +168,13 @@ impl TargetImage {
         for (i, (px, &c)) in buf.chunks_exact_mut(comps).zip(cov).enumerate() {
             let src = source.map_or([self.value[0], self.value[1], self.value[2], 1.0], |s| s[i]);
             // Erasing is independent of the current material image, just like flat-value erasing.
-            let texture_alpha = if mode == StrokeMode::Paint { src[3].clamp(0.0, 1.0) } else { 1.0 };
+            let texture_alpha = if matches!(mode, StrokeMode::Paint | StrokeMode::Clone) { src[3].clamp(0.0, 1.0) } else { 1.0 };
             let k = (c * opacity * texture_alpha).clamp(0.0, 1.0);
             if k <= 0.0 {
                 continue;
             }
             match (self.has_alpha, mode) {
-                (true, StrokeMode::Paint) => {
+                (true, StrokeMode::Paint | StrokeMode::Clone) => {
                     let a0 = px[n];
                     let a = a0 + k * (1.0 - a0);
                     let mut value = [src[0], src[1], src[2]];
@@ -190,9 +193,9 @@ impl TargetImage {
                     }
                     px[n] = a;
                 }
-                (true, StrokeMode::Erase) => px[n] *= 1.0 - k,
+                (true, StrokeMode::Erase | StrokeMode::Smudge) => px[n] *= 1.0 - k,
                 (false, mode) => {
-                    let to = if mode == StrokeMode::Paint { self.value[0] } else { fill[0] };
+                    let to = if matches!(mode, StrokeMode::Paint | StrokeMode::Clone) { src[0] } else { fill[0] };
                     px[0] += (to - px[0]) * k;
                 }
             }

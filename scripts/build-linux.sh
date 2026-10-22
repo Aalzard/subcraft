@@ -10,7 +10,7 @@ version="$(sed -n 's/^version *= *"\([^"]*\)".*/\1/p' Cargo.toml | head -n 1)"
 
 if [ "$1" != "--skip-build" ]; then
     echo "Building SubCraft $version (dist profile)..."
-    cargo build --profile dist -p subcraft
+    cargo build --locked --profile dist -p subcraft
 fi
 
 name="SubCraft-$version-linux-x86_64"
@@ -24,5 +24,6 @@ chmod +x "$stage/subcraft" "$stage/install.sh"
 cp README.md LICENSE-MIT LICENSE-APACHE "$stage/"
 cp crates/ui/assets/fonts/*-LICENSE.txt "$stage/third-party/"
 cp assets/starter-pack/CREDITS-CC0.txt "$stage/third-party/starter-pack-CC0.txt"
+cp assets/environments/CREDITS-CC0.txt "$stage/third-party/environments-CC0.txt"
 tar -C dist -czf "dist/$name.tar.gz" "$name"
 echo "Done: dist/$name.tar.gz ($(du -h "dist/$name.tar.gz" | cut -f1))"

@@ -69,6 +69,15 @@ impl FillChannel {
         Self { enabled: true, source, strength: 1.0 }
     }
 
+    /// What a fill layer gets when `kind` is added to it. Emission starts white at Intensity 3
+    /// (a visible glow from the default viewport glow); the rest use their usual paint value.
+    pub fn default_for(kind: ChannelKind) -> Self {
+        match kind {
+            ChannelKind::Emissive => Self { enabled: true, source: FillSource::uniform(subcraft_core::ChannelValue::rgb(1.0, 1.0, 1.0)), strength: 3.0 },
+            _ => Self::new(FillSource::uniform(kind.default_paint_value())),
+        }
+    }
+
     pub fn disabled(source: FillSource) -> Self {
         Self { enabled: false, source, strength: 1.0 }
     }
@@ -262,30 +271,34 @@ impl Layer {
     /// Replace every raster in this subtree (paint channels, mask base, mask and content paint
     /// effects) with `f(raster)`, e.g. to resample a saved smart material to another resolution.
     pub fn map_rasters(&mut self, f: &dyn Fn(&TiledImage) -> TiledImage) {
+        self.map_channel_rasters(&|_, image| f(image));
+    }
+
+    pub(crate) fn map_channel_rasters(&mut self, f: &dyn Fn(Option<ChannelKind>, &TiledImage) -> TiledImage) {
         for e in self.content_effects.iter_mut() {
             if let ContentEffectKind::Paint { channels } = &e.kind {
-                let channels = channels.iter().map(|(k, img)| (*k, f(img))).collect();
+                let channels = channels.iter().map(|(k, img)| (*k, f(Some(*k), img))).collect();
                 Arc::make_mut(e).kind = ContentEffectKind::Paint { channels };
             }
         }
         if let Some(m) = &mut self.mask {
-            m.base = f(&m.base);
+            m.base = f(None, &m.base);
             for e in m.effects.iter_mut() {
                 if let crate::mask::MaskEffectKind::Paint { image } = &e.kind {
-                    let image = f(image);
+                    let image = f(None, image);
                     Arc::make_mut(e).kind = crate::mask::MaskEffectKind::Paint { image };
                 }
             }
         }
         match &mut self.content {
             LayerContent::Paint(p) => {
-                for img in p.channels.values_mut() {
-                    *img = f(img);
+                for (kind, img) in &mut p.channels {
+                    *img = f(Some(*kind), img);
                 }
             }
             LayerContent::Group(g) => {
                 for c in g.children.iter_mut() {
-                    Arc::make_mut(c).map_rasters(f);
+                    Arc::make_mut(c).map_channel_rasters(f);
                 }
             }
             LayerContent::Fill(_) => {}

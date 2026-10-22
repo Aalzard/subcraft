@@ -88,12 +88,8 @@ fn os_name() -> Option<String> {
     Some(format!("macOS {}", String::from_utf8_lossy(&out.stdout).trim()))
 }
 
-#[cfg(target_arch = "wasm32")]
-fn os_name() -> Option<String> {
-    Some("Web browser".into())
-}
 
-#[cfg(not(any(windows, target_os = "linux", target_os = "macos", target_arch = "wasm32")))]
+#[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
 fn os_name() -> Option<String> {
     None
 }
@@ -342,7 +338,6 @@ pub fn crash_message(report_text: &str) -> &str {
 
 /// On a panic, write a crash report to `dir` (message, location, backtrace, last log lines),
 /// then run the previous hook (which prints the panic).
-#[cfg(not(target_arch = "wasm32"))]
 pub fn install_panic_hook(dir: PathBuf) {
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |p| {

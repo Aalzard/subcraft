@@ -6,6 +6,7 @@
 
 pub mod field;
 pub mod geometry;
+pub mod edge_distance;
 pub mod mesh_maps;
 pub mod projection;
 
@@ -38,6 +39,13 @@ pub fn eval_fill_tile(
     ctx: &SampleContext,
     out: &mut [[f32; 4]],
 ) {
+    eval_fill_tile_filtered(source, linearize, projection, geo, ctx, subcraft_image::TextureFilter::Bilinear, out);
+}
+
+pub fn eval_fill_tile_filtered(
+    source: &FillSource, linearize: bool, projection: &Projection, geo: &TileGeometry,
+    ctx: &SampleContext, filter: subcraft_image::TextureFilter, out: &mut [[f32; 4]],
+) {
     debug_assert_eq!(out.len(), TILE_TEXELS);
     match source {
         FillSource::Uniform { value } => {
@@ -50,7 +58,7 @@ pub fn eval_fill_tile(
             };
             for (i, o) in out.iter_mut().enumerate() {
                 *o = sample_projected(projection, geo.uv(i), geo.position(i), geo.normal(i), |p| {
-                    bmp.sample(p[0], p[1], Wrap::Repeat, linearize)
+                    bmp.sample_filtered(p[0], p[1], Wrap::Repeat, linearize, filter)
                 });
             }
         }
@@ -79,6 +87,10 @@ pub fn eval_fill_tile(
 /// [`eval_procedural`] for each texel, computed once per parameter set.
 pub fn procedural_tile(params: &ProceduralParams, projection: &Projection, geo: &TileGeometry) -> std::sync::Arc<field::Field> {
     geo.fields.get_or_compute(field::FieldKey::new(params, projection), || (0..TILE_TEXELS).map(|i| eval_procedural(params, projection, geo, i)).collect())
+}
+
+pub fn organic_tile(params: &ProceduralParams, geo: &TileGeometry) -> std::sync::Arc<field::Field> {
+    geo.fields.get_or_compute(field::FieldKey::organic(params), || (0..TILE_TEXELS).map(|i| crate::organic::eval(params, geo.position(i))).collect())
 }
 
 /// Grayscale procedural value of texel `i` through a projection.

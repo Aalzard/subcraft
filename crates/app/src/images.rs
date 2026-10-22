@@ -20,7 +20,7 @@ pub const MAX_IMAGE_SIDE: u32 = 16384;
 /// Channels a texture-set import adds to the texture set instead of skipping the map. AO stays out
 /// of the default template so baked AO keeps shading sets without their own, but an imported
 /// texture's AO map should survive into exports.
-const ADDED_ON_IMPORT: [ChannelKind; 1] = [ChannelKind::AmbientOcclusion];
+const ADDED_ON_IMPORT: [ChannelKind; 2] = [ChannelKind::AmbientOcclusion, ChannelKind::Emissive];
 
 impl Session {
     /// Import an image file (PNG, JPEG, TGA, TIFF, BMP, EXR, HDR) as a texture resource.
@@ -179,7 +179,7 @@ impl Session {
                 continue;
             }
             let resource = self.import_converted(path, m.conversion)?;
-            fill.channels.insert(m.channel, FillChannel::new(FillSource::Bitmap { resource }));
+            fill.channels.insert(m.channel, FillChannel { strength: if m.channel == ChannelKind::Emissive { 3.0 } else { 1.0 }, ..FillChannel::new(FillSource::Bitmap { resource }) });
             result.used.push((name, m.channel));
         }
         if result.used.is_empty() {

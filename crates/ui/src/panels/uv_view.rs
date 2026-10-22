@@ -56,6 +56,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     let img_rect = Rect::from_center_size(rect.center() + state.uv.offset, egui::vec2(side, side));
     crate::pen::uv_input(state, ui, &response, img_rect);
     let painter = ui.painter_at(rect);
+    let filter = if state.uv.source == PreviewSource::Channel(ChannelKind::BaseColor)
+        && state.session.selected_texture_set().albedo_filter == subcraft_image::TextureFilter::Nearest {
+        wgpu::FilterMode::Nearest
+    } else { wgpu::FilterMode::Linear };
     painter.rect_filled(rect, 0.0, crate::theme::BG_0);
 
     state.sync_gpu();
@@ -66,11 +70,11 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         let mut r = rs.renderer.write();
         let id = match state.uv.texture {
             Some(id) => {
-                r.update_egui_texture_from_wgpu_texture(&rs.device, view, wgpu::FilterMode::Linear, id);
+                r.update_egui_texture_from_wgpu_texture(&rs.device, view, filter, id);
                 id
             }
             None => {
-                let id = r.register_native_texture(&rs.device, view, wgpu::FilterMode::Linear);
+                let id = r.register_native_texture(&rs.device, view, filter);
                 state.uv.texture = Some(id);
                 id
             }

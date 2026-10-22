@@ -12,7 +12,7 @@ use subcraft_doc::{
 
 use crate::icons;
 use crate::state::UiState;
-use crate::theme::{self, ACCENT, BG_2, TEXT_DIM, TEXT_FAINT};
+use crate::theme::{self, ACCENT, TEXT_DIM, TEXT_FAINT};
 use crate::widgets::{channel_value, empty_state, fill_width, hint, icon_button, panel, primary_button, prop_row, secondary_button, section, section_with, segmented, slider_row};
 
 pub fn show(state: &mut UiState, ui: &mut Ui) {
@@ -164,15 +164,22 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 });
 
                 section(ui, "channels", "Channels", true, |ui| {
+                let states: Vec<_> = channels.iter().map(|k| (*k, f.channels.get(k).is_some_and(|c| c.enabled))).collect();
+                let addable: Vec<ChannelKind> = ADDABLE_CHANNELS.into_iter().filter(|k| !channels.contains(k)).collect();
+                match channel_chips(ui, &states, &addable) {
+                    Some(ChannelAction::Toggle(channel, solo)) => cmds.push(Command::ToggleFillChannel { layer: id, effect: None, channel, solo }),
+                    Some(ChannelAction::Add(channel)) => cmds.push(Command::AddFillChannel { layer: id, channel }),
+                    None => {}
+                }
                 hint(ui, "Tip: drag a texture from Shelf › Textures onto a channel below.");
                 for kind in &channels {
                     let mut ch = f.channels.get(kind).cloned().unwrap_or(FillChannel::disabled(FillSource::uniform(kind.default_paint_value())));
+                    if !ch.enabled { continue; }
                     let mut changed = false;
                     let mut pick_image = false;
-                    let row = egui::Frame::new().fill(BG_2).inner_margin(egui::Margin::symmetric(10, 8)).show(ui, |ui| {
+                    let row = crate::widgets::card(ui, theme::channel_accent(*kind), |ui| {
                     ui.horizontal(|ui| {
-                        let name = RichText::new(kind.display_name()).color(if ch.enabled { theme::TEXT } else { TEXT_FAINT });
-                        changed |= ui.checkbox(&mut ch.enabled, name).changed();
+                        ui.label(RichText::new(kind.display_name()).font(theme::font_strong(13.0)).color(theme::TEXT));
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             let current = match ch.source {
                                 FillSource::Uniform { .. } => 0,
@@ -208,6 +215,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                             }
                         });
                     });
+                    crate::widgets::card_header_rule(ui);
                     let (c, p) = source_controls(ui, state, *kind, &mut ch);
                     changed |= c;
                     pick_image |= p;
@@ -228,7 +236,6 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                             _=>{},
                         }
                     }
-                    ui.add_space(2.0);
                     if changed {
                         cmds.push(Command::SetFillChannel { layer: id, channel: *kind, fill: ch });
                     }
@@ -288,6 +295,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         );
                         add(ui, "Levels", MaskEffectKind::Levels(Levels::default()));
                         add(ui, "Invert", MaskEffectKind::Invert);
+                        super::effects::add_mask_filters(ui, id, &mut cmds);
                         if ui.add(egui::Button::new(RichText::new(format!("{}  Image", icons::PLUS)).font(theme::font(12.0))))
                             .on_hover_text("A black & white image or a logo with transparency")
                             .clicked()
@@ -327,7 +335,7 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
     let mut eff = (**e).clone();
     let default_name = eff.name == eff.kind.label();
     let mut changed = false;
-    egui::Frame::new().fill(BG_2).inner_margin(egui::Margin::symmetric(10, 8)).show(ui, |ui| {
+    crate::widgets::card(ui, theme::ACCENT_DIM, |ui| {
         ui.horizontal(|ui| {
             let (icon, tip) = if eff.visible { (icons::EYE, "Hide effect") } else { (icons::EYE_SLASH, "Show effect") };
             if icon_button(ui, icon, tip).clicked() {
@@ -358,9 +366,40 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
                             changed |= ui.selectable_value(&mut g.kind, kind, kind.label()).changed();
                         }
                     }));
-                    changed |= slider_row(ui, "Level", egui::Slider::new(&mut g.level, 0.0..=1.0)).changed();
+                    if g.kind == GeneratorKind::Edges {
+                        let mut natural = g.edge_spread.is_some();
+                        if ui.checkbox(&mut natural, "Natural edge wear").on_hover_text("Surface-constrained spread with an irregular boundary. Older projects retain their original wear until enabled.").changed() {
+                            g.edge_spread = natural.then(subcraft_doc::EdgeSpread::default); changed = true;
+                        }
+                        if let Some(spread) = &mut g.edge_spread {
+                            changed |= slider_row(ui, "Spread", egui::Slider::new(&mut spread.distance, 0.0..=12.5).suffix("%")).on_hover_text("How far wear can reach from an exposed edge along the surface, as a percentage of the model's longest dimension. Level decides how much of that reach is worn. Follows connected edges, not UV islands.").changed();
+                            changed |= slider_row(ui, "Variation", egui::Slider::new(&mut spread.variation, 0.0..=1.0)).on_hover_text("Irregular, chipped boundary, independent of Breakup. Zero gives a clean geometric band.").changed();
+                            if !spread.level_reach {
+                                prop_row(ui, "", |ui| {
+                                    if ui.checkbox(&mut spread.level_reach, "Level controls the amount").on_hover_text("This wear was made when Level only selected baked detail and Spread alone set the reach. Turn on to make Level the amount of wear within Spread.").changed() { changed = true; }
+                                });
+                            }
+                        }
+                    }
+                    changed |= slider_row(ui, "Level", egui::Slider::new(&mut g.level, 0.0..=1.0).max_decimals(3)).on_hover_text(
+                        if g.kind == GeneratorKind::Edges && g.edge_spread.is_some() {
+                            "Amount of wear: how much of the Spread reach is worn (0 = none, 1 = all of it), and which baked convex detail shows. Spread sets how far wear can reach."
+                        } else { "Threshold for the generator's source values." }).changed();
                     changed |= slider_row(ui, "Softness", egui::Slider::new(&mut g.softness, 0.0..=1.0)).changed();
                     changed |= slider_row(ui, "Breakup", egui::Slider::new(&mut g.noise_amount, 0.0..=1.0)).changed();
+                    let mut size = g.pattern_size();
+                    if slider_row(ui, "Pattern size", egui::Slider::new(&mut size, 1.0..=100.0).logarithmic(true).suffix("%")).changed() {
+                        g.set_pattern_size(size); changed = true;
+                    }
+                    prop_row(ui, "Seed", |ui| {
+                        changed |= ui.add(egui::DragValue::new(&mut g.noise.seed).speed(1.)).changed();
+                        if ui.small_button("Next").on_hover_text("Try the next deterministic pattern seed").clicked() {
+                            g.noise.seed = g.noise.seed.wrapping_add(1); changed = true;
+                        }
+                    });
+                    if g.kind != GeneratorKind::Edges || g.edge_spread.is_none() {
+                        changed |= ui.checkbox(&mut g.organic_breakup, "Reduce repetition").changed();
+                    }
                     prop_row(ui, "", |ui| changed |= ui.checkbox(&mut g.invert, "Invert").changed());
                     if g.kind == GeneratorKind::Directional {
                         prop_row(ui, "Direction", |ui| { for value in &mut g.direction {
@@ -392,6 +431,10 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
                     changed |= slider_row(ui, "Gamma", egui::Slider::new(&mut l.gamma, 0.1..=4.0)).changed();
                     changed |= slider_row(ui, "Out low", egui::Slider::new(&mut l.out_low, 0.0..=1.0)).changed();
                     changed |= slider_row(ui, "Out high", egui::Slider::new(&mut l.out_high, 0.0..=1.0)).changed();
+                }
+                MaskEffectKind::Filter(filter) => {
+                    changed |= super::filter::editor(ui, filter, None);
+                    hint(ui, "Filters the mask below this effect; opacity mixes the result with that input.");
                 }
                 MaskEffectKind::Image { resource, projection, invert } => {
                     if image_row(ui, state, *resource) {
@@ -476,6 +519,46 @@ pub(crate) fn source_controls(ui: &mut Ui, state: &mut UiState, kind: ChannelKin
     (changed, pick_image)
 }
 
+/// What a click on the channel chips asks for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ChannelAction {
+    /// Toggle a channel the texture set already has (`true`: Alt-click, solo).
+    Toggle(ChannelKind, bool),
+    /// Add a channel the texture set does not have yet, and turn it on for this layer.
+    Add(ChannelKind),
+}
+
+/// Channels a fill layer can gain even though the default texture set lacks them.
+pub(crate) const ADDABLE_CHANNELS: [ChannelKind; 2] = [ChannelKind::Emissive, ChannelKind::AmbientOcclusion];
+
+/// UI events only: the app owns independent/solo state changes and their undo transaction.
+pub(crate) fn channel_toggles(ui: &mut Ui, channels: &[(ChannelKind, bool)]) -> Option<(ChannelKind, bool)> {
+    match channel_chips(ui, channels, &[]) {
+        Some(ChannelAction::Toggle(kind, solo)) => Some((kind, solo)),
+        _ => None,
+    }
+}
+
+/// Chips for the set's channels plus "+ name" chips for `addable` channels it lacks.
+pub(crate) fn channel_chips(ui: &mut Ui, channels: &[(ChannelKind, bool)], addable: &[ChannelKind]) -> Option<ChannelAction> {
+    let mut clicked = None;
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing = egui::vec2(3., 4.);
+        for &(kind, on) in channels {
+            let response = ui.selectable_label(on, kind.short_name()).on_hover_text(format!("{} · Click: toggle · Alt+click: only this channel", kind.display_name()));
+            response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, on, kind.display_name()));
+            if response.clicked() { clicked = Some(ChannelAction::Toggle(kind, ui.input(|i| i.modifiers.alt))); }
+        }
+        for &kind in addable {
+            let label = format!("+ {}", kind.short_name());
+            let response = ui.selectable_label(false, label.clone()).on_hover_text(format!("Add the {} channel to this texture set and turn it on for this layer (one undo step)", kind.display_name()));
+            response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label.clone()));
+            if response.clicked() { clicked = Some(ChannelAction::Add(kind)); }
+        }
+    });
+    clicked
+}
+
 pub(crate) fn image_row(ui: &mut Ui, state: &mut UiState, resource: subcraft_core::ResourceId) -> bool {
     let Some(r) = state.session.resources().get(resource).cloned() else {
         ui.label(RichText::new(format!("{}  Image missing from the project", icons::WARNING)).color(theme::WARNING));
@@ -537,6 +620,7 @@ pub(crate) fn projection_editor(ui: &mut Ui, proj: &mut Projection) -> bool {
         }
     });
     ui.data_mut(|d| d.insert_temp(lock_id, locked));
+    changed |= slider_row(ui, "Rotation", egui::Slider::new(&mut proj.rotation_deg, -180.0..=180.0).suffix("°")).changed();
     prop_row(ui, "Offset", |ui| {
         fn offset(v: &mut f32) -> egui::DragValue<'_> {
             egui::DragValue::new(v).speed(0.005).range(-16.0..=16.0).max_decimals(3)
@@ -546,7 +630,6 @@ pub(crate) fn projection_editor(ui: &mut Ui, proj: &mut Projection) -> bool {
         ui.label(RichText::new("Y").color(TEXT_DIM));
         changed |= ui.add(offset(&mut proj.offset[1])).changed();
     });
-    changed |= slider_row(ui, "Rotation", egui::Slider::new(&mut proj.rotation_deg, -180.0..=180.0).suffix("°")).changed();
     if proj.mode == ProjectionMode::Triplanar {
         changed |= slider_row(ui, "Sharpness", egui::Slider::new(&mut proj.triplanar_sharpness, 1.0..=32.0)).changed();
     }
@@ -562,3 +645,60 @@ pub(crate) fn projection_editor(ui: &mut Ui, proj: &mut Projection) -> bool {
     }
     changed
 }
+
+#[cfg(test)]
+mod generator_tests {
+    use super::*;
+    #[test]
+    fn channel_buttons_solo_hide_rows_and_rotation_sits_directly_below_tiling() {
+        let ctx = egui::Context::default(); theme::apply(&ctx);
+        let mut state = UiState::new(subcraft_app::Session::new(subcraft_mesh::primitives::plane(2., 1), 128), None);
+        state.session.execute(Command::AddLayer(subcraft_app::NewLayer::Fill)).unwrap();
+        let layer = state.session.selection().layer.unwrap();
+        state.session.execute(Command::ToggleFillChannel { layer, effect: None, channel: ChannelKind::BaseColor, solo: true }).unwrap();
+        let draw = |state: &mut UiState, events, modifiers| {
+            let mut events: Vec<egui::Event> = events; events.insert(0, egui::Event::ModifiersChanged(modifiers));
+            let mut out = ctx.run_ui(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(430., 1100.))), events, ..Default::default() }, |ui| show(state, ui));
+            out.textures_delta.clear(); out
+        };
+        draw(&mut state, vec![], Default::default());
+        let out = draw(&mut state, vec![], Default::default());
+        let pos = |out: &egui::FullOutput, text: &str| out.shapes.iter().find_map(|s| match &s.shape { egui::Shape::Text(t) if t.galley.text() == text => Some(t.pos + t.galley.size()*0.5), _ => None });
+        assert!(pos(&out, "Base Color").is_some() && pos(&out, "Height").is_none());
+        assert!(pos(&out, "Tiling").unwrap().y < pos(&out, "Rotation").unwrap().y);
+        assert!(pos(&out, "Rotation").unwrap().y < pos(&out, "Offset").unwrap().y);
+        let p = pos(&out, "height").unwrap(); let modifiers = egui::Modifiers { alt: true, ..Default::default() };
+        let button = |pressed| egui::Event::PointerButton { pos: p, button: egui::PointerButton::Primary, pressed, modifiers };
+        draw(&mut state, vec![egui::Event::PointerMoved(p), button(true)], modifiers);
+        draw(&mut state, vec![button(false)], modifiers);
+        let out = draw(&mut state, vec![], Default::default());
+        assert!(pos(&out, "Height").is_some() && pos(&out, "Base Color").is_none());
+    }
+    #[test]
+    fn generator_next_seed_dispatches_a_undoable_edit_and_shows_pattern_size() {
+        let ctx = egui::Context::default(); theme::apply(&ctx);
+        let mut state = UiState::new(subcraft_app::Session::new(subcraft_mesh::primitives::plane(2., 1), 128), None);
+        let layer = state.session.selection().layer.unwrap();
+        state.session.execute(Command::AddMask { layer, white: false }).unwrap();
+        state.session.execute(Command::AddMaskEffect { layer, kind: MaskEffectKind::Generator(Generator::new(GeneratorKind::Edges)) }).unwrap();
+        let draw = |state: &mut UiState, events| {
+            let mut commands = Vec::new(); let effect = state.session.selected_layer().unwrap().mask.as_ref().unwrap().effects[0].clone();
+            let mut out = ctx.run_ui(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(420., 850.))), events, ..Default::default() }, |ui| effect_editor(ui, state, layer, &effect, &mut commands));
+            out.textures_delta.clear(); (out, commands)
+        };
+        let (out, _) = draw(&mut state, vec![]);
+        assert!(out.shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Text(t) if t.galley.text() == "Pattern size")));
+        for label in ["Natural edge wear", "Spread", "Variation"] {
+            assert!(out.shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Text(t) if t.galley.text() == label)));
+        }
+        let pos = out.shapes.iter().find_map(|s| match &s.shape { egui::Shape::Text(t) if t.galley.text() == "Next" => Some(t.pos + t.galley.size()*0.5), _ => None }).unwrap();
+        let button = |pressed| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+        draw(&mut state, vec![egui::Event::PointerMoved(pos), button(true)]);
+        let (_, commands) = draw(&mut state, vec![button(false)]);
+        assert_eq!(commands.len(), 1);
+        for command in commands { state.session.execute(command).unwrap(); }
+        let seed = |state: &UiState| match state.session.selected_layer().unwrap().mask.as_ref().unwrap().effects[0].kind { MaskEffectKind::Generator(g) => g.noise.seed, _ => panic!() };
+        assert_eq!(seed(&state), 2); state.session.execute(Command::Undo).unwrap(); assert_eq!(seed(&state), 1);
+    }
+}
+

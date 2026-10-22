@@ -9,6 +9,7 @@ fn library_contents_are_well_formed() {
     let lib = Library::builtin();
     assert!(lib.alphas.len() >= 6 && lib.materials.len() >= 12 && lib.smart_materials.len() >= 4 && lib.smart_masks.len() >= 4);
     assert!(lib.environments.len() >= 4);
+    assert_eq!((lib.smart_materials.len(), lib.smart_masks.len()), (20, 21), "5 + 15 smart materials, 5 + 16 smart masks");
     let mut ids: Vec<_> = lib.materials.iter().map(|m| m.id).chain(lib.alphas.iter().map(|a| a.id)).collect();
     let n = ids.len();
     ids.sort();
@@ -106,4 +107,42 @@ fn import_alpha_from_png() {
     assert_eq!((b.width, b.height, b.channels), (32, 32, 2));
     assert!(b.texel(2, 2, false)[0] > 0.99 && b.texel(30, 2, false)[0] < 0.01);
     std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn bundled_hdris_are_2_to_1_float_panoramas_with_real_dynamic_range() {
+    let lib = Library::builtin();
+    assert_eq!(lib.environments.len(), 5 + environment::BUNDLED_HDRIS.len());
+    let mut names: Vec<_> = lib.environments.iter().map(|e| e.name.clone()).collect();
+    names.sort();
+    names.dedup();
+    assert_eq!(names.len(), lib.environments.len(), "environment names are unique");
+    for (name, _, bytes) in environment::BUNDLED_HDRIS {
+        let bmp = subcraft_image::io::decode_bitmap(bytes, Some("x.hdr")).unwrap_or_else(|e| panic!("{name}: {e}"));
+        assert!(bmp.is_hdr(), "{name} keeps float data");
+        assert_eq!((bmp.width, bmp.height), (1024, 512), "{name} is a 2:1 1024x512 panorama");
+        assert!(bytes.len() < 2_500_000, "{name} stays small ({} bytes)", bytes.len());
+        let mut peak = 0.0f32;
+        let mut sum = 0.0f64;
+        for y in (0..bmp.height).step_by(4) {
+            for x in (0..bmp.width).step_by(4) {
+                let p = bmp.sample((x as f32 + 0.5) / bmp.width as f32, (y as f32 + 0.5) / bmp.height as f32, subcraft_image::Wrap::Repeat, false);
+                assert!(p[0].is_finite() && p[1].is_finite() && p[2].is_finite() && p[0] >= 0.0, "{name} has finite radiance");
+                peak = peak.max(p[0].max(p[1]).max(p[2]));
+                sum += p[1] as f64;
+            }
+        }
+        assert!(peak > 10.0, "{name} keeps bright light sources (peak {peak})");
+        assert!(sum > 0.0);
+    }
+}
+
+#[test]
+fn bundled_hdri_prefilters_on_first_use_with_a_sun_direction() {
+    let lib = Library::builtin();
+    let sky = lib.environments.iter().find(|e| e.name == "Salt Flats Twilight").expect("bundled sky");
+    let h = sky.source.hdri().expect("hdri");
+    assert_eq!(h.levels.len(), 6);
+    assert!(h.sun_direction.iter().all(|v| v.is_finite()));
+    assert!(lib.environments[0].source.hdri().is_none(), "procedural presets have no panorama");
 }

@@ -17,7 +17,16 @@ use uuid::Uuid;
 // 3: object metadata (mesh blob v2) and geometry-mask domains. Legacy projects still load.
 // 4: editable pen paths, with anchor UUIDs, UV handles, style and a derived raster cache.
 // 5: per-layer content effect stacks (`content_effects`; absent = none, so 1-4 load unchanged).
-pub const SCHEMA_VERSION: u32 = 5;
+// 6: texture-set albedo filtering; schemas 1–5 migrate to Bilinear.
+// 7: organic generator breakup; absent in schemas 1–6 means legacy projected noise.
+// 8: geometry-aware edge spread/variation; absent in schemas 1–7 retains legacy evaluation.
+// 9: local filter effects and folder adjustments. Schemas 1–8 retain their original stacks.
+// 10: neighborhood Blur/Sharpen filters; schemas 1–9 migrate unchanged.
+// 11: Directional Blur and Highpass; schemas 1-10 retain their previous stacks.
+// 12: Bevel and Mask Outline; schemas 1-11 migrate unchanged (no contour effects to default).
+// 13: UDIM tile per texture set and project settings (export choices, normal format); schemas
+//     1-12 migrate unchanged (no tile, default settings).
+pub const SCHEMA_VERSION: u32 = 13;
 pub const FORMAT_NAME: &str = "subcraft-project";
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -35,6 +44,13 @@ pub struct DocumentV1 {
     pub texture_sets: Vec<TextureSetV1>,
     #[serde(default)]
     pub resources: Vec<ResourceV1>,
+    /// Schema 13: saved with the project, outside the undo history. Omitted when default.
+    #[serde(default, skip_serializing_if = "is_default_settings")]
+    pub settings: subcraft_doc::ProjectSettings,
+}
+
+fn is_default_settings(s: &subcraft_doc::ProjectSettings) -> bool {
+    *s == subcraft_doc::ProjectSettings::default()
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -43,6 +59,12 @@ pub struct TextureSetV1 {
     pub name: String,
     pub material_slot: u32,
     pub resolution: u32,
+    /// Schema 6 migration: older files retain their original bilinear reconstruction.
+    #[serde(default)]
+    pub albedo_filter: subcraft_image::TextureFilter,
+    /// Schema 13: UDIM tile `[column, row]` this set paints (absent = ordinary set).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub udim_tile: Option<[i32; 2]>,
     pub channels: Vec<ChannelDefV1>,
     /// Bottom-to-top.
     pub layers: Vec<LayerV1>,
@@ -102,6 +124,7 @@ pub enum ContentEffectKindV5 {
     Paint { channels: Vec<PaintChannelV1> },
     Fill { projection: Projection, channels: Vec<FillChannelV1> },
     Levels { channel: ChannelKind, levels: Levels },
+    Filter { channel: ChannelKind, filter: subcraft_doc::Filter },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -190,6 +213,7 @@ pub enum MaskEffectKindV1 {
     Fill { value: f32, procedural: Option<ProceduralParams>, projection: Projection },
     Generator { generator: Generator },
     Levels { levels: Levels },
+    Filter { filter: subcraft_doc::Filter },
     Invert,
     /// Schema 2.
     Image { resource: Uuid, projection: Projection, invert: bool },

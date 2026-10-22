@@ -13,10 +13,15 @@ pub enum MeshMapKind {
     Curvature,
     Position,
     Thickness,
+    /// Signed distance from the low-poly surface to the high poly along the cage normal
+    /// (0.5 = on the surface, above 0.5 = high poly stands proud).
+    Height,
+    /// Average unoccluded direction, in the low poly's tangent space (like the Normal map).
+    BentNormal,
 }
 
 impl MeshMapKind {
-    pub const ALL: [MeshMapKind; 7] = [
+    pub const ALL: [MeshMapKind; 9] = [
         MeshMapKind::Normal,
         MeshMapKind::WorldSpaceNormal,
         MeshMapKind::Id,
@@ -24,6 +29,8 @@ impl MeshMapKind {
         MeshMapKind::Curvature,
         MeshMapKind::Position,
         MeshMapKind::Thickness,
+        MeshMapKind::Height,
+        MeshMapKind::BentNormal,
     ];
 
     pub fn display_name(self) -> &'static str {
@@ -35,6 +42,8 @@ impl MeshMapKind {
             MeshMapKind::Curvature => "Curvature",
             MeshMapKind::Position => "Position",
             MeshMapKind::Thickness => "Thickness",
+            MeshMapKind::Height => "Height",
+            MeshMapKind::BentNormal => "Bent Normal",
         }
     }
 
@@ -47,6 +56,8 @@ impl MeshMapKind {
             MeshMapKind::Curvature => "curvature",
             MeshMapKind::Position => "position",
             MeshMapKind::Thickness => "thickness",
+            MeshMapKind::Height => "height",
+            MeshMapKind::BentNormal => "bent_normal",
         }
     }
 
@@ -60,7 +71,8 @@ impl MeshMapKind {
             MeshMapKind::Normal
             | MeshMapKind::WorldSpaceNormal
             | MeshMapKind::Id
-            | MeshMapKind::Position => 3,
+            | MeshMapKind::Position
+            | MeshMapKind::BentNormal => 3,
             _ => 1,
         }
     }
@@ -75,6 +87,8 @@ impl MeshMapKind {
             MeshMapKind::Curvature => [0.5; 3],
             MeshMapKind::Position => [0.5; 3],
             MeshMapKind::Thickness => [0.0; 3],
+            MeshMapKind::Height => [0.5; 3],
+            MeshMapKind::BentNormal => [0.5, 0.5, 1.0],
         }
     }
 }

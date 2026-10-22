@@ -18,6 +18,31 @@ pub enum Tool {
     PolygonFill,
     Eyedropper,
     Pen,
+    /// Paints what lies at the clone source (Ctrl+click sets it).
+    Clone,
+    /// Drags the paint under the brush along the stroke.
+    Smudge,
+}
+
+/// Viewport acknowledgement of the brush chosen on the Shelf. It holds, then fades out.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BrushNotice {
+    pub name: String,
+    /// Tip in use, for the small thumbnail.
+    pub tip: String,
+    pub since: f64,
+}
+
+impl BrushNotice {
+    pub const HOLD: f64 = 1.4;
+    pub const FADE: f64 = 0.6;
+
+    /// Opacity at `now`: 1 while holding, then fading to 0; `None` once gone.
+    pub fn opacity(&self, now: f64) -> Option<f32> {
+        let age = (now - self.since).max(0.0);
+        if age >= Self::HOLD + Self::FADE { return None; }
+        Some(if age <= Self::HOLD { 1.0 } else { (1.0 - (age - Self::HOLD) / Self::FADE) as f32 })
+    }
 }
 
 pub struct UvView {
@@ -38,7 +63,6 @@ pub struct UiState {
     pub asset_preview: crate::asset_preview::AssetPreviewUi,
     pub welcome: crate::welcome::WelcomeUi,
 
-    #[cfg(not(target_arch = "wasm32"))]
     pub updater: Option<subcraft_app::updater::Updater>,
     /// The startup update check is running or found a release: show the callout at the update
     /// button until the user answers it.
@@ -63,6 +87,22 @@ pub struct UiState {
     /// Channel whose blend mode/opacity the layer stack shows.
     pub active_channel: ChannelKind,
     pub status: Option<(String, f64)>,
+    /// Brief acknowledgement in the 3D view's top-left corner after a Shelf brush click.
+    pub brush_notice: Option<BrushNotice>,
+    /// Shelf double-click: bring the Brush settings tab forward on the next frame.
+    pub open_brush_editor: bool,
+    /// Scripted capture only (`--select-brush`): Shelf brush to select before the screenshot.
+    pub capture_select_brush: Option<String>,
+    /// Scripted Clone/Smudge demonstration for native captures (`--capture-tool`).
+    pub capture_tool: Option<String>,
+    /// "Render quality" window open, its export settings, and a pending export request.
+    pub render_window: bool,
+    /// Scripted export waiting for the first finished frame.
+    pub pending_render_job: Option<crate::render_export::Job>,
+    pub render_export: crate::render_export::ExportSettings,
+    pub render_request: Option<crate::render_export::RenderRequest>,
+    /// Pixel size of the 3D view at its last draw (export keeps the aspect ratio).
+    pub last_view_size: [u32; 2],
     pub uv: UvView,
     pub painting: bool,
     /// Clicks in the 3D view show / hide the selected layer on mesh parts (Properties → Parts).
@@ -75,12 +115,14 @@ pub struct UiState {
     /// Viewport height-to-bump strength.
     pub height_scale: f32,
     pub export: crate::dialogs::ExportUi,
+    pub new_project: crate::new_project::NewProjectUi,
     /// Action waiting for the unsaved-changes prompt.
     pub confirm: Option<crate::dialogs::Pending>,
     /// The user already agreed to close without saving.
     pub allow_close: bool,
     pub last_title: String,
     pub bake: crate::dialogs::BakeUi,
+    pub symmetry_uploaded: Option<(usize, [bool; 3])>,
     pub uv_wireframe: bool,
     pub library: subcraft_app::assets::Library,
     pub shelf: crate::panels::shelf::ShelfUi,
@@ -125,7 +167,6 @@ impl UiState {
             asset_preview: Default::default(),
             welcome: Default::default(),
 
-            #[cfg(not(target_arch = "wasm32"))]
             updater: subcraft_app::updater::Updater::new().ok(),
             update_notice: false,
             update_button: None,
@@ -145,6 +186,16 @@ impl UiState {
             fill_mode: PolygonFillMode::UvIsland,
             active_channel: ChannelKind::BaseColor,
             status: None,
+            brush_notice: None,
+            open_brush_editor: false,
+            capture_select_brush: None,
+            capture_tool: None,
+            render_window: false,
+            pending_render_job: None,
+            render_export: Default::default(),
+            new_project: Default::default(),
+            render_request: None,
+            last_view_size: [1280, 720],
             uv: UvView { zoom: 1.0, offset: egui::Vec2::ZERO, source: PreviewSource::Channel(ChannelKind::BaseColor), texture: None },
             painting: false,
             picking_parts: false,
@@ -159,6 +210,7 @@ impl UiState {
             allow_close: false,
             last_title: String::new(),
             bake: Default::default(),
+            symmetry_uploaded: None,
             uv_wireframe: true,
             library: subcraft_app::assets::Library::builtin(),
             shelf: Default::default(),
@@ -268,6 +320,22 @@ impl UiState {
         self.recovery.autosaver.session_replaced();
     }
 
+    /// One Shelf click makes the brush usable at once: the app applies it, and Fill, Eyedropper
+    /// and Pen switch to the Brush (the Eraser keeps erasing with the new tip). The layer, mask
+    /// or Paint-effect destination is untouched. Only a brush that actually became active is
+    /// acknowledged in the viewport; a failed preset reports why in the status bar instead.
+    pub fn select_shelf_brush(&mut self, brush: subcraft_app::brush_preset::ShelfBrush, now: f64) {
+        match self.session.select_shelf_brush(brush, &self.library.alphas) {
+            Ok(selected) => {
+                if !matches!(self.tool, Tool::Brush | Tool::Eraser) { self.tool = Tool::Brush; }
+                self.picking_parts = false;
+                if let Some(warning) = &selected.warning { self.set_status(warning.clone(), now); }
+                self.brush_notice = Some(BrushNotice { name: selected.name, tip: selected.tip, since: now });
+            }
+            Err(e) => self.set_status(e, now),
+        }
+    }
+
     pub fn set_status(&mut self, msg: impl Into<String>, now: f64) {
         let msg = msg.into();
         log::info!("status: {msg}");
@@ -313,6 +381,7 @@ impl UiState {
         let updates = crate::edit_profile::time_tab("  sync: composite", || self.session.update_composites_within(Some(budget)));
         let upload_start = web_time::Instant::now();
         let session = &self.session;
+        for ts in &session.document().texture_sets { renderer.set_albedo_filter(ts.material_slot, ts.albedo_filter); }
         let upload = |renderer: &mut ViewportRenderer, ts: subcraft_core::TextureSetId, slot: u32, changed: Option<&subcraft_app::ChangedTiles>| {
             let Some(c) = session.composite(ts) else { return };
             for k in SHADED_CHANNELS {

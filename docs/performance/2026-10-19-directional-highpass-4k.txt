@@ -1,0 +1,25 @@
+Directional Blur / Highpass CPU profile - 2026-10-19
+Windows; CPU: 13th Gen Intel(R) Core(TM) i5-13400F
+Optimized dev; CARGO_INCREMENTAL=0; CARGO_PROFILE_DEV_DEBUG=line-tables-only; mimalloc.
+Profiles ran sequentially after tests/Clippy and native captures, with no concurrent build in this task.
+
+Workload: default crate Body + Trim, each 4096 x 4096. Clouds Base Color scale 24,
+other channels uniform. Eight edits at 16ms simulated frames; latest-snapshot worker.
+Timings include commands/publication/polling, EXCLUDE GPU rendering/upload and real strokes.
+
+Command: target/debug/examples/filters.exe --profile 4096 directional
+4096², two sets, cold composite 3673.7 ms
+CPU edit/poll p50 0.367, p95 1.071, max 9.492 ms; convergence 3538.7 ms; 203 frames. GPU/render/upload excluded.
+Cold radius 16 / angle 35; edits radius 8..15 / angle 0..70 in 10-degree increments.
+
+Command: target/debug/examples/filters.exe --profile 4096 highpass
+4096², two sets, cold composite 1893.8 ms
+CPU edit/poll p50 0.481, p95 1.351, max 2.303 ms; convergence 1316.2 ms; 77 frames. GPU/render/upload excluded.
+Cold radius 8 / amount 2; edits radius 4..11 / amount 1.
+
+Convergence measured from FIRST edit, including input frames, not from final edit.
+Single runs; different kernels/parameters from prior reports are not direct speedup comparisons.
+Directional sampling uses bounded previous-stage neighborhoods and four premultiplied bilinear
+corners per tap. Higher settlement time than Gaussian Blur is observable; further kernel/GPU
+optimization remains possible. These CPU polling values do not establish desktop FPS.
+Production-model full GPU/upload/frame pacing, long strokes and real tablet input remain pending.

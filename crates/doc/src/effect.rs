@@ -25,6 +25,7 @@ pub enum ContentEffectKind {
     /// Remaps one channel of the content below it. Adjusts values only: coverage is unchanged,
     /// so transparent paint stays transparent. Not valid on the Normal channel (vector data).
     Levels { channel: ChannelKind, levels: Levels },
+    Filter { channel: ChannelKind, filter: crate::Filter },
 }
 
 impl ContentEffectKind {
@@ -33,12 +34,13 @@ impl ContentEffectKind {
             ContentEffectKind::Paint { .. } => "Paint".into(),
             ContentEffectKind::Fill(_) => "Fill".into(),
             ContentEffectKind::Levels { channel, .. } => format!("Levels ({})", channel.display_name()),
+            ContentEffectKind::Filter { channel, filter } => format!("{} ({})", filter.label(), channel.display_name()),
         }
     }
 
     /// Adjustments transform the content below instead of adding new content on top of it.
     pub fn is_adjustment(&self) -> bool {
-        matches!(self, ContentEffectKind::Levels { .. })
+        matches!(self, ContentEffectKind::Levels { .. } | ContentEffectKind::Filter { .. })
     }
 
     /// Paint image for a channel, creating an empty (transparent) one on first use.

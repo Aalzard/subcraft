@@ -21,6 +21,21 @@ pub enum Wrap {
     Clamp,
 }
 
+/// Image reconstruction; independent of color-space decoding and address wrapping.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TextureFilter {
+    #[default]
+    Bilinear,
+    Nearest,
+}
+
+impl TextureFilter {
+    pub fn label(self) -> &'static str {
+        match self { Self::Bilinear => "Bilinear", Self::Nearest => "Nearest" }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Bitmap {
     pub width: u32,
@@ -115,6 +130,15 @@ impl Bitmap {
             out[c] = top + (bot - top) * fy;
         }
         out
+    }
+
+    pub fn sample_filtered(&self, u: f32, v: f32, wrap: Wrap, linearize: bool, filter: TextureFilter) -> [f32; 4] {
+        if filter == TextureFilter::Bilinear { return self.sample(u, v, wrap, linearize); }
+        let index = |v: f32, size: u32| {
+            let i = (v * size as f32).floor() as i64;
+            match wrap { Wrap::Repeat => i.rem_euclid(size as i64) as u32, Wrap::Clamp => i.clamp(0, size as i64 - 1) as u32 }
+        };
+        self.texel(index(u, self.width), index(v, self.height), linearize)
     }
 
     /// Copy with `f(component_index, value)` applied to the color components (never alpha).
@@ -221,5 +245,23 @@ mod tests {
         assert!((s[0] - 0.5).abs() < 1e-6);
         let s = b.sample(0.25, 0.5, Wrap::Clamp, false);
         assert!(s[0].abs() < 1e-6);
+    }
+
+    #[test]
+    fn nearest_preserves_texels_wraps_and_decodes_color_without_alpha_conversion() {
+        let b = Bitmap::new_u8(2, 1, 4, vec![128, 0, 0, 64, 0, 255, 0, 255]);
+        let sample = |u, wrap| b.sample_filtered(u, 0.5, wrap, true, TextureFilter::Nearest);
+        assert_eq!(sample(0.49, Wrap::Clamp), b.texel(0, 0, true));
+        assert_eq!(sample(0.50, Wrap::Clamp), b.texel(1, 0, true));
+        assert_eq!(sample(-0.01, Wrap::Repeat), b.texel(1, 0, true));
+        assert_eq!(sample(1., Wrap::Repeat), b.texel(0, 0, true));
+        assert_eq!(sample(-1., Wrap::Clamp), b.texel(0, 0, true));
+        assert_eq!(sample(1., Wrap::Clamp), b.texel(1, 0, true));
+        assert!((sample(0.1, Wrap::Clamp)[3] - 64. / 255.).abs() < 1e-6);
+        assert_eq!(b.sample_filtered(0.4, 0.5, Wrap::Repeat, true, TextureFilter::Bilinear), b.sample(0.4, 0.5, Wrap::Repeat, true));
+        let mut image = crate::TiledImage::new(2, 1, 1, [0.; 4]);
+        image.set(1, 0, [1.; 4]);
+        assert_eq!(image.resampled_filtered(4, 1, TextureFilter::Nearest).to_dense(), vec![0., 0., 1., 1.]);
+        assert_eq!(image.resampled(4, 1).to_dense(), vec![0., 0.25, 0.75, 1.]);
     }
 }

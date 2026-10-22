@@ -110,7 +110,6 @@ pub fn write_fragment<W: Write + Seek>(w: W, f: &Fragment) -> Result<W, ProjectE
 }
 
 /// Save atomically (temp file + rename).
-#[cfg(not(target_arch = "wasm32"))]
 pub fn save_fragment(path: &Path, f: &Fragment) -> Result<(), ProjectError> {
     let tmp = crate::temp_path(path);
     let result = (|| -> Result<(), ProjectError> {
@@ -126,14 +125,6 @@ pub fn save_fragment(path: &Path, f: &Fragment) -> Result<(), ProjectError> {
         let _ = std::fs::remove_file(&tmp);
     }
     result
-}
-
-/// Web build: encode in memory and hand the file to `vfs`.
-#[cfg(target_arch = "wasm32")]
-pub fn save_fragment(path: &Path, f: &Fragment) -> Result<(), ProjectError> {
-    let buf = write_fragment(std::io::Cursor::new(Vec::new()), f)?;
-    subcraft_core::vfs::write(path, &buf.into_inner())?;
-    Ok(())
 }
 
 pub fn read_fragment<R: Read + Seek>(r: R) -> Result<Fragment, ProjectError> {
@@ -157,10 +148,7 @@ pub fn read_fragment<R: Read + Seek>(r: R) -> Result<Fragment, ProjectError> {
 }
 
 pub fn load_fragment(path: &Path) -> Result<Fragment, ProjectError> {
-    #[cfg(not(target_arch = "wasm32"))]
     return read_fragment(std::io::BufReader::new(std::fs::File::open(path)?));
-    #[cfg(target_arch = "wasm32")]
-    return read_fragment(std::io::Cursor::new(subcraft_core::vfs::read(path)?));
 }
 
 #[cfg(test)]

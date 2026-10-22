@@ -291,12 +291,22 @@ impl MeshBuilder {
         self.tri_material.len()
     }
 
-    pub fn build(mut self) -> Result<Mesh, BuildError> {
+    pub fn build(self) -> Result<Mesh, BuildError> {
+        self.build_impl(true)
+    }
+
+    /// Ray-cast source geometry needs positions/normals, not a paintable UV atlas.
+    /// Missing UVs remain zero; this does not unwrap the mesh for painting.
+    pub fn build_for_baking(self) -> Result<Mesh, BuildError> {
+        self.build_impl(false)
+    }
+
+    fn build_impl(mut self, require_uvs: bool) -> Result<Mesh, BuildError> {
         let tri_count = self.tri_material.len();
         if tri_count == 0 {
             return Err(BuildError::NoTriangles);
         }
-        if self.stats.missing_uv_triangles == tri_count {
+        if require_uvs && self.stats.missing_uv_triangles == tri_count {
             return Err(BuildError::NoUvs);
         }
 

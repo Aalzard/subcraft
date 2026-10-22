@@ -1,0 +1,15 @@
+SubCraft bundled environments
+
+The 10 HDR environments bundled with SubCraft (Alpine Lake Blue Hour, Atelier Windows,
+Paint Booth, Ceramic Gallery, Neon Arcade, Glasshouse Morning, Orbital Atrium, Redwood
+Creek, Salt Flats Twilight, Library Hall) are AI-generated panoramas whose HDR radiance was
+synthesized from the generated images with artist-chosen lighting values. They are not
+photographs and not measured HDR captures. No downloaded or stock imagery was used.
+The bundled files are 1024 x 512 downscales of the 2048 x 1024 originals, which are
+available as the extra-environments download on the GitHub release page.
+
+These assets are dedicated to the public domain under CC0 1.0 Universal.
+https://creativecommons.org/publicdomain/zero/1.0/
+
+You may use, modify and redistribute them, including in commercial work.
+No attribution is required. Provided without warranty.

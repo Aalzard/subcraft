@@ -155,40 +155,12 @@ fn closest_weights(p: Vec2, q: [Vec2;3]) -> Option<Vec3> {
 }
 
 impl Stamp {
-    /// Brush strength (0..1) at surface point `p` / texel UV `uv`. With a brush `alpha`, the
-    /// footprint is the alpha image stretched over the square [-r, r]² (luminance × alpha);
-    /// otherwise a round falloff.
+    /// Brush strength (0..1) at surface point `p` (geometric normal `ng`) / texel UV `uv`. With
+    /// a brush `alpha`, the footprint is the alpha image stretched over the square [-r, r]²
+    /// (luminance × alpha); otherwise a round falloff.
     #[inline]
-    pub fn footprint(&self, alignment: Alignment, camera: &Camera, p: Vec3, uv: Vec2, alpha: Option<&Bitmap>) -> f32 {
-        let reach = reach(alpha.is_some());
-        let local = match alignment {
-            Alignment::TangentWrap => {
-                let w = p - self.center;
-                let dist = w.length();
-                if dist >= self.radius * reach {
-                    return 0.0;
-                }
-                let inplane = w - self.normal * w.dot(self.normal);
-                let l = inplane.length();
-                if l < 1e-12 {
-                    Vec2::ZERO
-                } else {
-                    Vec2::new(inplane.dot(self.tangent), inplane.dot(self.bitangent)) * (dist / (l * self.radius))
-                }
-            }
-            Alignment::TangentPlanar => {
-                let w = p - self.center;
-                if w.dot(self.normal).abs() >= self.radius * reach {
-                    return 0.0;
-                }
-                Vec2::new(w.dot(self.tangent), w.dot(self.bitangent)) / self.radius
-            }
-            Alignment::Camera => {
-                let Some(s) = camera.project(p) else { return 0.0 };
-                (Vec2::new(s.x, s.y) - self.screen) / self.radius_px.max(1e-6)
-            }
-            Alignment::Uv => (uv - self.uv) / self.radius_uv.max(1e-9),
-        };
+    pub fn footprint(&self, alignment: Alignment, camera: &Camera, p: Vec3, ng: Vec3, uv: Vec2, alpha: Option<&Bitmap>) -> f32 {
+        let Some(local) = self.local(alignment, camera, p, ng, uv, reach(alpha.is_some())) else { return 0.0 };
         let (s, c) = self.angle.sin_cos();
         let r = Vec2::new(local.x * c + local.y * s, -local.x * s + local.y * c);
         let r = Vec2::new(r.x, r.y / self.roundness.clamp(0.01, 1.0));
@@ -203,10 +175,145 @@ impl Stamp {
             }
         }
     }
+
+    /// Footprint coordinates in brush radii (before angle/roundness), or `None` outside reach.
+    pub fn local(&self, alignment: Alignment, camera: &Camera, p: Vec3, ng: Vec3, uv: Vec2, reach: f32) -> Option<Vec2> {
+        Some(match alignment {
+            Alignment::TangentWrap => {
+                let w = p - self.center;
+                if w.length() >= self.radius * reach {
+                    return None;
+                }
+                let flat = self.unfold(p, ng) - self.center;
+                Vec2::new(flat.dot(self.tangent), flat.dot(self.bitangent)) / self.radius
+            }
+            Alignment::TangentPlanar => {
+                let w = p - self.center;
+                if w.dot(self.normal).abs() >= self.radius * reach {
+                    return None;
+                }
+                Vec2::new(w.dot(self.tangent), w.dot(self.bitangent)) / self.radius
+            }
+            Alignment::Camera => {
+                let s = camera.project(p)?;
+                (Vec2::new(s.x, s.y) - self.screen) / self.radius_px.max(1e-6)
+            }
+            Alignment::Uv => (uv - self.uv) / self.radius_uv.max(1e-9),
+        })
+    }
+
+    /// Lay the plane of a surface point (geometric normal `ng`) flat onto the stamp's tangent
+    /// plane by rotating it about the line where both planes meet, like unfolding a box. Exact
+    /// for a fold between flat faces (distances along the surface are preserved, so a dab
+    /// wrapping over a hard edge keeps its size on the side face); within a few percent of the
+    /// surface distance on curved/beveled surfaces. The old radial 3D-distance mapping barely
+    /// grew just past an edge and smeared the tip down the side face.
+    fn unfold(&self, p: Vec3, ng: Vec3) -> Vec3 {
+        let n = self.normal;
+        let axis = ng.cross(n);
+        let s = axis.length();
+        if s < 1e-4 || !ng.is_finite() {
+            if ng.dot(n) >= 0.0 { return p - n * (p - self.center).dot(n); }
+            // Opposite-facing sheet (thin shell back): no fold line; keep the radial distance.
+            let w = p - self.center;
+            let inplane = w - n * w.dot(n);
+            let l = inplane.length();
+            return if l < 1e-12 { self.center } else { self.center + inplane * (w.length() / l) };
+        }
+        let a = axis / s;
+        // Slide p within its own plane, perpendicular to the fold line, onto the stamp plane;
+        // the rotation about that line sends ng to n, i.e. a×ng to a×n.
+        let lambda = n.dot(self.center - p) / s;
+        p + (a.cross(ng) - a.cross(n)) * lambda
+    }
 }
 
 /// How far (in radii) a footprint can reach: the corners of the alpha square.
 #[inline]
 pub fn reach(has_alpha: bool) -> f32 {
     if has_alpha { std::f32::consts::SQRT_2 } else { 1.0 }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn stamp(center: Vec3, normal: Vec3, tangent: Vec3, radius: f32) -> Stamp {
+        Stamp { camera: 0, screen: Vec2::ZERO, center, normal, uv: Vec2::ZERO, tri: 0, radius, radius_px: 1.0, radius_uv: 1.0,
+            flow: 1.0, angle: 0.0, roundness: 1.0, hardness: 1.0, tangent, bitangent: tangent.cross(normal) }
+    }
+
+    fn camera() -> Camera { Camera::orthographic(Vec3::Y * 5.0, Vec3::ZERO, -Vec3::Z, 2.0, 0.1, 20.0, [64, 64]) }
+
+    #[test]
+    fn wrapping_over_a_hard_edge_preserves_surface_distance_on_the_side_face() {
+        // Top face y=0 (z<0), hard 90° edge at z=0, side face z=0 below it (normal +Z).
+        let cam = camera();
+        for a in [0.0, 0.1, 0.3] {
+            let s = stamp(Vec3::new(0.0, 0.0, -a), Vec3::Y, Vec3::X, 1.0);
+            for (x, d) in [(0.0, 0.05), (0.2, 0.2), (-0.3, 0.4), (0.1, 0.01)] {
+                let local = s.local(Alignment::TangentWrap, &cam, Vec3::new(x, -d, 0.0), Vec3::Z, Vec2::ZERO, 2.0).unwrap();
+                // Unfolded: the side point lies a+d beyond the center along the stamp's +Z.
+                let expected = Vec2::new(x, (Vec3::Z * (a + d)).dot(s.bitangent));
+                assert!(local.distance(expected) < 1e-5, "a={a} x={x} d={d}: {local} != {expected}");
+            }
+        }
+    }
+
+    #[test]
+    fn folded_marks_join_across_convex_concave_and_oblique_edges() {
+        let cam = camera();
+        // Points on the fold line itself map identically from either face: no crack or jump.
+        for (ng, edge_dir) in [(Vec3::Z, Vec3::X), (-Vec3::Z, Vec3::X), (Vec3::new(0.0, 0.6, 0.8), Vec3::X), (Vec3::new(0.0, -0.6, 0.8), Vec3::X)] {
+            let s = stamp(Vec3::new(0.05, 0.0, -0.2), Vec3::Y, Vec3::X, 0.5);
+            for t in [-0.3, 0.0, 0.25] {
+                let p = edge_dir * t;
+                let top = s.local(Alignment::TangentWrap, &cam, p, Vec3::Y, Vec2::ZERO, 2.0).unwrap();
+                let side = s.local(Alignment::TangentWrap, &cam, p, ng, Vec2::ZERO, 2.0).unwrap();
+                assert!(top.distance(side) < 1e-5, "{ng:?} at {p:?}: {top} vs {side}");
+            }
+            // Away from the fold, the unfolded distance equals the distance along the surface.
+            let down = ng.cross(edge_dir).normalize();
+            let down = if down.y > 0.0 { -down } else { down };
+            let down = if ng.dot(Vec3::Z) < 0.0 { -down } else { down };
+            let p = down * 0.15;
+            let local = s.local(Alignment::TangentWrap, &cam, p, ng, Vec2::ZERO, 2.0).unwrap() * s.radius;
+            let along_surface = (s.center - Vec3::new(s.center.x, 0.0, 0.0)).length() + 0.15;
+            let lateral = s.center.x;
+            assert!((local.length() - (along_surface * along_surface + lateral * lateral).sqrt()).abs() < 1e-4,
+                "{ng:?}: {} vs surface {along_surface}", local.length());
+        }
+    }
+
+    #[test]
+    fn rounded_edges_stay_close_to_surface_distance_and_converge_between_facets() {
+        // A quarter-cylinder bevel of radius 0.2 between the top (y=0.2) and the side (z=0.2).
+        // Each facet unfolds about its own plane: never shorter than the arc. Adjacent facets
+        // disagree slightly (measured 0.13/0.08/0.045·rho), shrinking as tessellation refines;
+        // exact hard folds have no mismatch (see the join test above).
+        let cam = camera();
+        let rho = 0.2;
+        let s = stamp(Vec3::new(0.0, rho, -0.1), Vec3::Y, Vec3::X, 1.0);
+        let mut worst = Vec::new();
+        for segments in [8, 16, 32] {
+            let arc = |k: usize| { let th = std::f32::consts::FRAC_PI_2 * k as f32 / segments as f32; Vec3::new(0.0, rho * th.cos(), rho * th.sin()) };
+            let (mut previous_end, mut jump) = (None::<f32>, 0.0f32);
+            for k in 0..segments {
+                let (p0, p1) = (arc(k), arc(k + 1));
+                let ng = (p0 + p1).normalize();
+                let start = s.local(Alignment::TangentWrap, &cam, p0, ng, Vec2::ZERO, 2.0).unwrap().length();
+                let end = s.local(Alignment::TangentWrap, &cam, p1, ng, Vec2::ZERO, 2.0).unwrap().length();
+                if let Some(prev) = previous_end { jump = jump.max((prev - start).abs()); }
+                let theta = std::f32::consts::FRAC_PI_2 * (k + 1) as f32 / segments as f32;
+                let surface = 0.1 + rho * theta;
+                // Never compressed (the old smear); overshoot bounded by the tangent-fold model,
+                // rho·(2·tan(θ/2) − θ), i.e. at most 0.43·rho after a full 90° bevel.
+                let bound = rho * (2.0 * (theta * 0.5).tan() - theta);
+                assert!(end > surface - 1e-4 && end < surface + bound + rho * 0.02, "{segments} facets, {k}: {end} vs arc {surface} (+{bound})");
+                previous_end = Some(end);
+            }
+            worst.push(jump);
+        }
+        assert!(worst[0] < rho * 0.15 && worst[1] < worst[0] * 0.7 && worst[2] < worst[1] * 0.7, "facet mismatch {worst:?}");
+    }
 }

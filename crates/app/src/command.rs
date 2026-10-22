@@ -29,6 +29,7 @@ pub enum Command {
     /// Change a texture set's working resolution (one of `subcraft_doc::RESOLUTIONS`),
     /// resampling its painted rasters; `None` changes every texture set. One undo step.
     SetResolution { texture_set: Option<TextureSetId>, resolution: u32 },
+    SetAlbedoFilter { texture_set: TextureSetId, filter: subcraft_image::TextureFilter },
     SelectLayer(Option<LayerId>),
     SelectLayerTarget { layer: LayerId, target: crate::session::LayerTarget },
     /// Select an effect in the layer's content or mask stack (`None`: the domain itself). Tool
@@ -41,6 +42,8 @@ pub enum Command {
     SetContentEffect { layer: LayerId, effect: ContentEffect },
     /// Destination is a bottom-to-top index in the layer's content stack.
     MoveContentEffect { layer: LayerId, effect: EffectId, index: usize },
+    /// Same-stack visual reorder; resolve UUID anchors against the current document on release.
+    DropEffect { source: crate::effect_stack::EffectAddress, target: crate::effect_stack::EffectAddress, side: crate::effect_stack::DropSide },
     DuplicateContentEffect { layer: LayerId, effect: EffectId },
     /// Insert above the selected layer (or at the top) of the selected texture set and select it.
     AddLayer(NewLayer),
@@ -73,6 +76,12 @@ pub enum Command {
     SetBlendOpacity { layer: LayerId, channel: ChannelKind, opacity: f32 },
     /// Coalesces like opacity.
     SetFillChannel { layer: LayerId, channel: ChannelKind, fill: FillChannel },
+    /// Atomic independent toggle or solo (Alt-click), preserving every source and strength.
+    ToggleFillChannel { layer: LayerId, effect: Option<EffectId>, channel: ChannelKind, solo: bool },
+    ToggleBrushChannel { channel: ChannelKind, solo: bool },
+    /// Turn `channel` on for a fill layer. If the texture set lacks it, the channel is added to the
+    /// set (every layer gets its blend entry) in the same undo step.
+    AddFillChannel { layer: LayerId, channel: ChannelKind },
     SetFillProjection { layer: LayerId, projection: Projection },
     AddMask { layer: LayerId, white: bool },
     RemoveMask(LayerId),

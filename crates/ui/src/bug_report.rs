@@ -36,7 +36,6 @@ impl BugReportUi {
 pub fn record_gpu(render_state: Option<&egui_wgpu::RenderState>) {
     let Some(rs) = render_state else { return };
     let i = rs.adapter.get_info();
-    // Browsers hide the adapter name.
     let name = if i.name.trim().is_empty() { "unknown GPU" } else { i.name.as_str() };
     let mut gpu = format!("{name} ({:?}", i.backend);
     if !i.driver.is_empty() || !i.driver_info.is_empty() {
@@ -49,7 +48,6 @@ pub fn record_gpu(render_state: Option<&egui_wgpu::RenderState>) {
 fn log_hint() -> String {
     match diagnostics::log_file() {
         Some(p) => format!("Please attach the log file to the issue (drag it into the text box):\n{}", p.display()),
-        None if cfg!(target_arch = "wasm32") => "In the browser there is no log file: open the console (F12) and paste any red errors into the issue.".into(),
         None => "No log file is being written on this PC.".into(),
     }
 }

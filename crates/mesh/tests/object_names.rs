@@ -1,7 +1,6 @@
 //! A real GLB with two instances sharing the same mesh and display name.
 use subcraft_mesh::import_mesh;
 
-#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn fbx_keeps_the_node_name_with_uvs() {
     let path = std::env::temp_dir().join(format!("subcraft-objects-{}.fbx", subcraft_core::ObjectId::new()));

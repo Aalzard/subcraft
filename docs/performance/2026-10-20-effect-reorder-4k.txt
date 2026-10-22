@@ -1,0 +1,2 @@
+Effect drops plus stage thumbnails. Optimized dev, mimalloc; single run, CPU only. Full composite/GPU/render/upload excluded.
+4K two sets / 18 stage+layer+mask previews, 8 edit/drop revisions. CPU request/poll p50 0.074, p95 0.133, max 0.166 ms; settled 422.2 ms, 27 frames, cache 18 entries. GPU/render/upload and full composite excluded.

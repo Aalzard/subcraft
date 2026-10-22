@@ -11,6 +11,82 @@ fn session() -> Session {
 }
 
 #[test]
+fn fill_channel_toggles_are_independent_and_solo_is_one_undo_step() {
+    let mut s = session(); s.execute(Command::AddLayer(NewLayer::Fill)).unwrap();
+    let layer = s.selection().layer.unwrap();
+    let mut rough = FillChannel::new(FillSource::uniform(ChannelValue::scalar(0.72))); rough.strength = 0.42;
+    s.execute(Command::SetFillChannel { layer, channel: ChannelKind::Roughness, fill: rough.clone() }).unwrap();
+    s.execute(Command::Seal).unwrap(); let before = s.document().clone(); let count = s.history().entries().len();
+    s.execute(Command::ToggleFillChannel { layer, effect: None, channel: ChannelKind::Height, solo: true }).unwrap();
+    let LayerContent::Fill(fill) = &s.selected_layer().unwrap().content else { panic!() };
+    assert_eq!(fill.channels.values().filter(|c| c.enabled).count(), 1);
+    assert!(fill.channels[&ChannelKind::Height].enabled);
+    assert_eq!(fill.channels[&ChannelKind::Roughness].source, rough.source);
+    assert_eq!(fill.channels[&ChannelKind::Roughness].strength, rough.strength);
+    assert_eq!(s.history().entries().len(), count + 1);
+    s.execute(Command::Undo).unwrap(); assert_eq!(s.document(), &before);
+    s.execute(Command::Redo).unwrap();
+    s.execute(Command::ToggleFillChannel { layer, effect: None, channel: ChannelKind::Roughness, solo: false }).unwrap();
+    let LayerContent::Fill(fill) = &s.selected_layer().unwrap().content else { panic!() };
+    assert!(fill.channels[&ChannelKind::Height].enabled && fill.channels[&ChannelKind::Roughness].enabled);
+    let doc = s.document().clone();
+    s.execute(Command::ToggleBrushChannel { channel: ChannelKind::Normal, solo: true }).unwrap();
+    assert!(s.brush.material.channels[&ChannelKind::Normal].enabled);
+    assert_eq!(s.brush.material.channels.values().filter(|c| c.enabled).count(), 1);
+    assert_eq!(s.document(), &doc);
+}
+
+#[test]
+fn albedo_filter_is_undoable_invalidates_composites_and_preserves_exported_pixels() {
+    use std::sync::Arc;
+    use subcraft_doc::{Resource, ResourceKind, ResourceStore};
+    use subcraft_image::{Bitmap, TextureFilter, Wrap};
+    let dir = std::env::temp_dir().join(format!("subcraft-albedo-{}", subcraft_core::LayerId::new()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mesh = primitives::plane(2., 1);
+    let mut doc = Session::new(mesh.clone(), 128).document().clone();
+    let ts = &mut doc.texture_sets[0]; ts.layers.clear();
+    let bitmap = Bitmap::new_u8(2, 1, 3, vec![0, 0, 0, 255, 255, 255]);
+    let (bytes, _) = subcraft_image::encode_bitmap(&bitmap).unwrap();
+    let mut resources = ResourceStore::default(); let id = subcraft_core::ResourceId::new();
+    resources.insert(Resource { id, name: "pixels.png".into(), kind: ResourceKind::Texture, bitmap: Arc::new(bitmap), encoded: Some(Arc::new(bytes)), source_path: None });
+    let mut layer = subcraft_doc::Layer::new_fill("Pixels", ts);
+    if let LayerContent::Fill(fill) = &mut layer.content {
+        fill.channels.insert(ChannelKind::BaseColor, FillChannel::new(FillSource::Bitmap { resource: id }));
+        fill.channels.insert(ChannelKind::Roughness, FillChannel::new(FillSource::Bitmap { resource: id }));
+    }
+    ts.layers.push(Arc::new(layer)); let ts = ts.id;
+    let path = dir.join("pixels.subcraft");
+    subcraft_project::save_project(&path, &mesh, &doc, &resources, &Default::default()).unwrap();
+    let mut session = Session::open_project(&path).unwrap(); session.update_composites();
+    let linear = session.composite(ts).unwrap().clone();
+    session.execute(Command::SetAlbedoFilter { texture_set: ts, filter: TextureFilter::Nearest }).unwrap();
+    let updates = session.update_composites();
+    assert!(updates.iter().flat_map(|u| u.changed.keys()).all(|k| *k == ChannelKind::BaseColor), "filter changes must not re-upload unchanged PBR channels");
+    let nearest = session.composite(ts).unwrap().clone();
+    let base = nearest.channel(ChannelKind::BaseColor).unwrap();
+    assert!(base.to_dense().as_chunks::<4>().0.iter().all(|p| p[0] == 0. || p[0] == 1.));
+    assert_eq!(base.get(63, 64)[0], 0.); assert_eq!(base.get(64, 64)[0], 1.);
+    assert!(linear.channel(ChannelKind::BaseColor).unwrap().get(63, 64)[0] > 0.4, "bilinear edge should be blended");
+    assert_eq!(linear.channel(ChannelKind::Roughness), nearest.channel(ChannelKind::Roughness));
+    session.execute(Command::Undo).unwrap(); session.update_composites();
+    assert_eq!(session.composite(ts), Some(&linear));
+    session.execute(Command::Redo).unwrap(); session.update_composites();
+    assert_eq!(session.composite(ts), Some(&nearest));
+    session.save(None).unwrap(); let mut reopened = Session::open_project(&path).unwrap(); reopened.update_composites();
+    assert_eq!(reopened.selected_texture_set().albedo_filter, TextureFilter::Nearest);
+    assert_eq!(reopened.composite(ts), Some(&nearest));
+    let files = reopened.export_textures(&dir, &Default::default()).unwrap();
+    let image = subcraft_image::load_bitmap(files.iter().find(|p| p.to_string_lossy().ends_with("_BaseColor.png")).unwrap()).unwrap();
+    for y in 0..128 { for x in 0..128 {
+        let value = image.texel(x, y, false)[0];
+        assert!(value == 0. || value == 1., "export invented blended color {value}");
+    }}
+    assert_eq!(image.sample_filtered(0.49, 0.5, Wrap::Clamp, false, TextureFilter::Nearest)[0], 0.);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn browser_archive_matches_the_export_plan_for_all_texture_sets() {
     let mut s=session();let settings=subcraft_export::ExportSettings::default();let plan=s.export_plan(&settings);let result=s.export_archive(&settings).unwrap();assert_eq!(result.files,plan.len());let zip=zip::ZipArchive::new(std::io::Cursor::new(result.bytes)).unwrap();let names:Vec<_>=zip.file_names().map(|n|n.unwrap().into_owned()).collect();for (_,name) in plan {assert!(names.contains(&name));}
 }
@@ -222,6 +298,7 @@ fn background_bake_feeds_smart_mask_generators_and_survives_save() {
     .unwrap();
     s.execute(Command::AddMask { layer: fill, white: false }).unwrap();
     let mut g = Generator::new(GeneratorKind::Edges);
+    g.edge_spread = None; // This test exercises legacy baked-map dependency, not geometric wear.
     g.level = 0.6;
     g.softness = 0.05;
     s.execute(Command::AddMaskEffect { layer: fill, kind: MaskEffectKind::Generator(g) }).unwrap();
@@ -261,6 +338,96 @@ fn background_bake_feeds_smart_mask_generators_and_survives_save() {
     let reopened = Session::open_project(&path).unwrap();
     assert_eq!(reopened.mesh_maps(ts).unwrap().len(), 2, "baked maps saved in the project");
     std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn high_poly_without_uvs_bakes_visible_normals_rebakes_and_exports() {
+    use subcraft_app::{BakeRequest, BakeSettings, MeshMapKind};
+    use subcraft_compositor::{BlendTarget, blend_fn};
+    use subcraft_image::Wrap;
+    let dir = std::env::temp_dir().join(format!("subcraft-high-bake-{}", subcraft_core::LayerId::new()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("sculpt-no-uv.obj");
+    std::fs::write(&path, "v -1 0 -1\nv -1 0 1\nv 1 0.2 1\nv 1 0.2 -1\nf 1 2 3\nf 1 3 4\n").unwrap();
+    let mut s = Session::new(primitives::plane(2., 1), 128);
+    let ts = s.selection().texture_set;
+    // An existing material's flat normal must not hide the bake, or be modified by it.
+    s.execute(Command::AddLayer(NewLayer::Fill)).unwrap();
+    let original = s.selected_layer().unwrap().clone();
+    let selection = s.selection();
+    let request = BakeRequest { settings: BakeSettings { size: 128, maps: vec![MeshMapKind::Normal], cage_front: 0.15, ..Default::default() },
+        high_poly: Some(path), texture_sets: vec![(ts, 0)] };
+    let wait = |s: &mut Session, request| {
+        let mut job = s.start_bake(request);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+        loop {
+            if let Some(result) = job.poll(s) { return result; }
+            assert!(std::time::Instant::now() < deadline, "bake worker timed out");
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+    };
+    assert_eq!(wait(&mut s, request.clone()), Ok(1));
+    assert_eq!(s.selection(), selection);
+    assert_eq!(s.selected_layer().unwrap(), &original);
+    let count = s.selected_texture_set().layers.len();
+    assert_eq!(count, 3);
+    s.execute(Command::Undo).unwrap();
+    assert_eq!(s.selected_texture_set().layers.len(), 2, "the display layer is undoable");
+    s.execute(Command::Redo).unwrap();
+    assert_eq!(s.selected_texture_set().layers.len(), count);
+    s.update_composites();
+    let baked = s.mesh_maps(ts).unwrap().get(MeshMapKind::Normal).unwrap().get(64, 64);
+    let low = &s.scene().mesh;
+    let sp = low.interpolate(0, 0.25, 0.25);
+    let n = Vec3::new(-0.1, 1., 0.).normalize();
+    let tangent = sp.tangent.truncate();
+    let bitangent = sp.normal.cross(tangent) * sp.tangent.w;
+    let expected = Vec3::new(n.dot(tangent), n.dot(bitangent), n.dot(sp.normal)) * 0.5 + Vec3::splat(0.5);
+    for c in 0..3 { assert!((baked[c] - expected[c]).abs() < 0.001, "analytic slope: {baked:?}, {expected:?}"); }
+    let composite = s.composite(ts).unwrap().channel(ChannelKind::Normal).unwrap().get(64, 64);
+    for c in 0..3 { assert!((composite[c] - baked[c]).abs() < 0.001); }
+    assert!((composite[0] - 0.5).abs() + (composite[1] - 0.5).abs() > 0.04);
+    let settings = subcraft_export::ExportSettings { height_to_normal: 0., ..Default::default() };
+    let exports = s.export_textures(&dir, &settings).unwrap();
+    let normal_path = exports.iter().find(|p| p.file_name().unwrap().to_string_lossy().ends_with("_Normal.png")).unwrap();
+    let exported = subcraft_image::load_bitmap(normal_path).unwrap().sample(0.5, 0.5, Wrap::Clamp, false);
+    for c in 0..3 { assert!((exported[c] - composite[c]).abs() < 0.005); }
+    let project = dir.join("baked.subcraft");
+    s.save(Some(&project)).unwrap();
+    let mut reopened = Session::open_project(&project).unwrap();
+    reopened.update_composites();
+    assert_eq!(s.document(), reopened.document());
+    assert_eq!(s.composite(ts), reopened.composite(ts));
+    // Re-baking uses the existing live reference; no extra normal layer or selection change.
+    assert_eq!(wait(&mut s, request), Ok(1));
+    assert_eq!(s.selected_texture_set().layers.len(), count);
+    // Authored normal detail still combines with the bake, numerically matching production RNM.
+    let detail = ChannelValue::rgb(0.5, 0.6, 0.9899);
+    s.execute(Command::SetFillChannel { layer: original.id, channel: ChannelKind::Normal, fill: FillChannel::new(FillSource::uniform(detail)) }).unwrap();
+    s.update_composites();
+    let wanted = blend_fn(BlendMode::NormalMapInverseDetail, [detail.0[0], detail.0[1], detail.0[2]], [baked[0], baked[1], baked[2]], BlendTarget::for_channel(ChannelKind::Normal));
+    let got = s.composite(ts).unwrap().channel(ChannelKind::Normal).unwrap().get(64, 64);
+    for c in 0..3 { assert!((got[c] - wanted[c]).abs() < 0.002); }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn bake_reports_partial_failure_instead_of_silent_success() {
+    use subcraft_app::{BakeRequest, BakeSettings, MeshMapKind};
+    let mut s = Session::new(primitives::plane(2., 1), 128);
+    let ts = s.selection().texture_set;
+    let mut job = s.start_bake(BakeRequest { settings: BakeSettings { size: 128, maps: vec![MeshMapKind::Normal], ..Default::default() }, high_poly: None,
+        texture_sets: vec![(ts, 0), (ts, 999)] });
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let result = loop {
+        if let Some(result) = job.poll(&mut s) { break result; }
+        assert!(std::time::Instant::now() < deadline);
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    };
+    let error = result.unwrap_err();
+    assert!(error.contains("1 of 2 texture sets baked"));
+    assert!(error.contains("no UV-covered texels"));
+    assert!(s.mesh_maps(ts).unwrap().get(MeshMapKind::Normal).is_some());
 }
 
 #[test]

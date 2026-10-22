@@ -10,6 +10,73 @@ Performance prerequisite (session 70): desktop viewport compositing now runs on 
 snapshots in a worker; sparse texture initialization uploads allocated tiles only. This does
 not complete the remaining brush tools, general layer filters or GPU compositor roadmap.
 
+Session 94 adds incremental viewport material mipmaps to remove distance-dependent PBR
+grain. Nearest albedo retains its original pixel sampling; source/export data is unchanged.
+Native wood/metal captures and a bounded seven-channel 4K upload/render profile are recorded
+in progress.md. Full interactive stroke/frame pacing remains unverified; phase statuses below
+are unchanged by this rendering fix.
+
+Session 82 fixes baked curvature weakening at exact hard corners and UV rims (rebake Curvature
+to update existing assets). This completes a generator defect fix, not an additional brush
+phase or surface-aware edge-wear stroke tool. Surface spread and lower-layer normal inputs
+remain the next material-workflow milestone.
+
+Session 83 introduces optional natural geometric Edge Wear spread/variation (schema 8), with
+legacy generators retained on migration. This is a material mask operation, not the pending
+surface-aware brush stroke tool or lower-layer normal dependency work. See ADR-0027 and the
+material-workflow checklist for the distance approximation and remaining source types.
+
+Session 84 fixes baked contact cancellation even with Natural disabled, and separates Spread
+from Level (including 0.065/12.5%). This corrects those generator defects; no additional brush
+phase is complete. Stored Curvature maps need rebaking. See ADR-0028.
+
+Session 85: owner still rejects Edge Wear; see the Claude prompt and material-workflow roadmap.
+Local non-destructive filters/folder adjustments advance the layer roadmap (ADR-0029).
+Session 86 adds UV-space Blur/Sharpen on content/masks, including folder stages, bounded tile
+neighborhood evaluation and scaled previews (ADR-0030). This advances the layer roadmap.
+Session 87 extends the same layer stages with Directional Blur/Highpass (ADR-0031).
+Session 88 adds contour Bevel and Mask Outline on the same layer stages (ADR-0032).
+Session 89 adds per-effect stage thumbnails and correct folder preview inputs (ADR-0033).
+Session 90 adds effect drag reorder with one undo and independent domain selection (ADR-0034).
+Owner follow-up (session 91; Claude handoff, implementation pending):
+- [ ] Clean surface-wrapped painting across hard corners without stretched side-face dabs.
+- [ ] Immediate Shelf brush activation, fading top-left viewport selection notice and
+  double-click brush editor, preserving layer/mask/Paint-effect targeting.
+See PROMPT-claude-edge-wear.md for priority, source entry points and acceptance checks.
+The ordered brush-phase checklist below remains unchanged.
+
+Session 73 acceptance artwork: CORE-07 is a saved 4K cube with real high-to-low bakes, editable
+materials/masks/generators and a native screenshot. Its creation/reopen/export checks do not
+replace the pending interactive stroke/frame-pacing checks or complete additional brush phases.
+
+Session 74 refines that separate artwork with deeper rebaked relief, procedural roughness,
+localized scuffs/dust and steel-only rust. This adds asset acceptance coverage, not brush tools.
+
+Session 75 repairs high-poly baking: UV-less source import, a live normal display layer and
+persistent bake feedback. No additional brush phase is marked complete (ADR-0019).
+
+Session 76 adds document-level Bilinear/Nearest albedo filtering for pixel art (ADR-0020),
+including textured stroke sampling and exports. This does not complete another brush phase.
+
+Session 77 adds bake geometry inspection (blue high/red exposed low, front/rear cage) and
+map-by-map live bake display (ADR-0021). Full cage-error classification, custom cages, matching
+by name, Height baking and intra-map tile previews remain pending. No brush phase changes.
+
+The newer owner requests are tracked in **material-workflow-roadmap.md** (generators, channel
+controls, bake refresh, emission and viewport refinements). Complete those before resuming the
+older phases. Their control changes do not imply completion of unfinished brush phases.
+
+Session 79 follows the owner's visual reference: neutral charcoal palette, thin circular-handle
+sliders, larger layer/mask previews and compact collapsible nested effects (ADR-0024).
+This is a presentation refinement; no unfinished brush phase is marked complete.
+
+Session 80 fixes shelf wrapping in narrow docks and adds independent, remembered Shelf/Layer
+preview-size footers. These are display preferences; no additional brush phase is complete.
+
+Session 81 makes Shelf-left / bottom-center utility tabs the normal layout and adapts Texture
+Sets to a horizontal bottom strip. The next owner task is Dead Man reference texturing;
+unfinished brush phases remain unchanged.
+
 Build housekeeping (session 62): latest tested binary consolidated into
 `target/release/subcraft.exe`. Removing obsolete versions/caches remains blocked by automatic
 approval review; no artifacts were deleted. This does not change feature completion below.
@@ -23,7 +90,7 @@ fill edits target the selected fill, with numeric composite/undo and real dock i
   channels present in the texture set), retaining flat values when cleared.
 - [x] Paint whole material from named imported maps; unmatched channels disabled. Channels absent
   from the current texture set are reported/skipped, not implicitly added by a tool setting.
-- [~] Projection modes: UV, planar, triplanar complete; camera and per-stamp still required.
+- [~] Projection modes: UV, planar, triplanar complete; camera projection added (session 96, "Project from the view": the image is cast from the stroke's starting view); per-stamp still required.
 - [x] Scale, rotation, offset, tiling controls, using fill-layer projection sampling.
 - [x] Reuse gloss inversion and DirectX → OpenGL normal conversion.
 - [x] Replace / detail-combine normals on paint layers; shared RNM, normalized output.
@@ -59,7 +126,7 @@ fill edits target the selected fill, with numeric composite/undo and real dock i
 - [~] Brush outline (existing 3D cursor); surface-following outline and 2D outline still required.
 - [ ] Tip preview and live size/flow/opacity readout during hold-key drags.
 - [ ] Lazy-mouse string, straight-line / angle-snap guides with degrees, shape handles.
-- [ ] Symmetry planes / radial axis, stencil frame, clone source marker, active texture guides.
+- [ ] Symmetry planes / radial axis, stencil frame, active texture guides. (Clone source marker done in session 96.)
 - [ ] Active-tool hint line, per-tool don't-show-again, View toggles for every overlay/hint.
 - [ ] Mode-toggle toasts and warnings for masked layers, locked channels, fill selection,
   outside Parts selection.
@@ -101,7 +168,8 @@ fill edits target the selected fill, with numeric composite/undo and real dock i
 
 ## Phase 7 — Texture-editing brushes
 
-- [ ] Clone/source point; smudge; blur; sharpen; dodge/burn; heal/seam blend.
+- [x] Clone (Ctrl+click source, aligned offset kept across strokes) and Smudge (session 96); both work on content, Paint effects and masks, one undo per stroke.
+- [ ] Blur; sharpen; dodge/burn; heal/seam blend brush tools.
 - [~] Existing context-menu color/material eyedropper; all-channel brush workflow remains.
 - [ ] Channel locks; alpha lock; lasso limit; fill by color range / curvature.
 
@@ -123,6 +191,11 @@ fill edits target the selected fill, with numeric composite/undo and real dock i
 - [ ] Editable-strokes design ADR (pen-source ADR-0008 remains authoritative for existing paths).
 
 ## Requirements applying to every item
+
+Release infrastructure follow-up (2026-10-20, session 93): signing/scan/provenance gates and
+an offline Sandbox harness were prepared; no brush phase item was advanced. See
+[release verification](release-security.md) for pending publisher enrollment, vendor/CAPE
+analysis and isolated runtime testing. This work does not complete earlier native/4K checks.
 
 - [x] Keep paint/app independent of egui/wgpu; UI dispatches new material commands to app.
 - [x] One document undo entry per stroke; immutable sources captured at stroke begin.

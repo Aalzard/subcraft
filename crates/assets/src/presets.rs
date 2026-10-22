@@ -35,23 +35,23 @@ impl MaterialPreset {
     }
 }
 
-fn uni(v: f32) -> FillSource {
+pub(crate) fn uni(v: f32) -> FillSource {
     FillSource::uniform(ChannelValue::scalar(v))
 }
 
-fn rgb(r: f32, g: f32, b: f32) -> FillSource {
+pub(crate) fn rgb(r: f32, g: f32, b: f32) -> FillSource {
     FillSource::uniform(ChannelValue::rgb(r, g, b))
 }
 
-fn proc(kind: ProceduralKind, scale: f32, seed: u32, low: ChannelValue, high: ChannelValue) -> FillSource {
+pub(crate) fn proc(kind: ProceduralKind, scale: f32, seed: u32, low: ChannelValue, high: ChannelValue) -> FillSource {
     FillSource::Procedural { params: ProceduralParams { scale, seed, ..ProceduralParams::new(kind) }, low, high }
 }
 
-fn triplanar(scale: f32) -> Projection {
+pub(crate) fn triplanar(scale: f32) -> Projection {
     Projection { mode: ProjectionMode::Triplanar, scale: [scale, scale], ..Projection::default() }
 }
 
-fn preset(name: &str, category: &'static str, channels: Vec<(ChannelKind, FillSource)>, projection: Projection) -> MaterialPreset {
+pub(crate) fn preset(name: &str, category: &'static str, channels: Vec<(ChannelKind, FillSource)>, projection: Projection) -> MaterialPreset {
     MaterialPreset { id: AssetId::from_name(&format!("material/{name}")), name: name.into(), category, channels, projection }
 }
 
@@ -160,7 +160,7 @@ pub(crate) fn generator(kind: GeneratorKind, level: f32, softness: f32, noise: f
     MaskEffectKind::Generator(g)
 }
 
-fn mask(name: &str, effects: Vec<MaskEffectKind>) -> SmartMask {
+pub(crate) fn mask(name: &str, effects: Vec<MaskEffectKind>) -> SmartMask {
     SmartMask { id: AssetId::from_name(&format!("smart_mask/{name}")), name: name.into(), effects, resources: Vec::new(), user_file: None }
 }
 
@@ -180,4 +180,7 @@ pub fn smart_masks() -> Vec<SmartMask> {
             }],
         ),
     ]
+    .into_iter()
+    .chain(crate::smart_more::smart_masks())
+    .collect()
 }

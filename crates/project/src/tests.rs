@@ -18,6 +18,73 @@ fn legacy_paint_schema_defaults_to_raster_only() {
 }
 
 #[test]
+fn generator_defaults_and_schema_7_preserve_legacy_noise_and_roundtrip_new_controls() {
+    let mut g = Generator::new(GeneratorKind::Edges);
+    assert_eq!(g.noise_amount, 0.3);
+    assert!(g.organic_breakup);
+    g.set_pattern_size(25.); g.noise.seed = 47;
+    assert_eq!(g.noise.scale, 4.);
+    assert_eq!(g.pattern_size(), 25.);
+    let mut ts = TextureSet::new("Body", 0, 128);
+    let mut layer = Layer::new_fill("Edge wear", &ts);
+    let mut mask = Mask::new(128, false);
+    mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Generator(g))));
+    layer.mask = Some(mask); ts.insert_above(None, layer);
+    let doc = Document { texture_sets: vec![ts] };
+    let bytes = write_project(Cursor::new(Vec::new()), &primitives::cube(2.), &doc, &ResourceStore::default(), &MeshMapSet::new()).unwrap().into_inner();
+    assert_eq!(read_project(Cursor::new(bytes.clone())).unwrap().document, doc);
+    let mut zip = zip::ZipArchive::new(Cursor::new(bytes)).unwrap();
+    let mut out = zip::ZipWriter::new(Cursor::new(Vec::new()));
+    for i in 0..zip.len() {
+        let mut f = zip.by_index(i).unwrap(); let name = f.name().unwrap().to_string(); let mut data = Vec::new(); f.read_to_end(&mut data).unwrap();
+        if name == "manifest.json" {
+            let mut json: serde_json::Value = serde_json::from_slice(&data).unwrap(); json["schema_version"] = 6.into(); data = serde_json::to_vec(&json).unwrap();
+        } else if name == "document.json" {
+            let mut json: serde_json::Value = serde_json::from_slice(&data).unwrap();
+            json["texture_sets"][0]["layers"][0]["mask"]["effects"][0]["kind"]["generator"].as_object_mut().unwrap().remove("organic_breakup");
+            json["texture_sets"][0]["layers"][0]["mask"]["effects"][0]["kind"]["generator"].as_object_mut().unwrap().remove("edge_spread");
+            data = serde_json::to_vec(&json).unwrap();
+        }
+        out.start_file(name, SimpleFileOptions::default()).unwrap(); out.write_all(&data).unwrap();
+    }
+    let legacy = read_project(Cursor::new(out.finish().unwrap().into_inner())).unwrap();
+    let MaskEffectKind::Generator(back) = legacy.document.texture_sets[0].layers[0].mask.as_ref().unwrap().effects[0].kind else { panic!() };
+    assert!(!back.organic_breakup); assert_eq!((back.noise.scale, back.noise.seed, back.noise_amount), (4., 47, 0.3));
+    assert!(back.edge_spread.is_none());
+}
+
+#[test]
+fn schema_8_spread_roundtrips_and_schema_7_preserves_legacy_evaluation() {
+    let mut g = Generator::new(GeneratorKind::Edges);
+    g.edge_spread = Some(subcraft_doc::EdgeSpread { distance: 4.25, variation: 0.86, level_reach: false });
+    assert_eq!(serde_json::to_string(&g.edge_spread).unwrap(), r#"{"distance":4.25,"variation":0.86}"#);
+    let mut ts = TextureSet::new("Body", 0, 128);
+    let mut layer = Layer::new_fill("Spread", &ts);
+    layer.mask = Some(Mask::new(128, false));
+    layer.mask.as_mut().unwrap().effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Generator(g))));
+    ts.insert_above(None, layer);
+    let doc = Document { texture_sets: vec![ts] };
+    let bytes = write_project(Cursor::new(Vec::new()), &primitives::sample_crate(), &doc, &ResourceStore::default(), &MeshMapSet::new()).unwrap().into_inner();
+    assert_eq!(read_project(Cursor::new(bytes.clone())).unwrap().document, doc);
+    let mut zip = zip::ZipArchive::new(Cursor::new(bytes)).unwrap();
+    let mut out = zip::ZipWriter::new(Cursor::new(Vec::new()));
+    for i in 0..zip.len() {
+        let mut f = zip.by_index(i).unwrap(); let name = f.name().unwrap().to_string(); let mut data = Vec::new(); f.read_to_end(&mut data).unwrap();
+        if name == "manifest.json" {
+            let mut json: serde_json::Value = serde_json::from_slice(&data).unwrap(); json["schema_version"] = 7.into(); data = serde_json::to_vec(&json).unwrap();
+        } else if name == "document.json" {
+            let mut json: serde_json::Value = serde_json::from_slice(&data).unwrap();
+            json["texture_sets"][0]["layers"][0]["mask"]["effects"][0]["kind"]["generator"].as_object_mut().unwrap().remove("edge_spread");
+            data = serde_json::to_vec(&json).unwrap();
+        }
+        out.start_file(name, SimpleFileOptions::default()).unwrap(); out.write_all(&data).unwrap();
+    }
+    let old = read_project(Cursor::new(out.finish().unwrap().into_inner())).unwrap();
+    let MaskEffectKind::Generator(back) = old.document.texture_sets[0].layers[0].mask.as_ref().unwrap().effects[0].kind else { panic!() };
+    assert_eq!(back, Generator { edge_spread: None, ..g });
+}
+
+#[test]
 fn pen_schema_has_explicit_stable_fields_and_rejects_duplicate_anchors() {
     let id = uuid::Uuid::new_v4();
     let path = PenPathV4 { anchors: vec![PenAnchorV4 { id, position: [0.2, 0.3], incoming: [0.0, -0.1], outgoing: [0.0, 0.1] }], closed: false, radius: 0.02, hardness: 0.5, opacity: 1.0, values: vec![PenChannelV4 { channel: ChannelKind::BaseColor, value: [1.0, 0.0, 0.0] }] };
@@ -223,6 +290,34 @@ fn schema_1_projects_still_load() {
 }
 
 #[test]
+fn schema_6_albedo_filter_roundtrips_and_legacy_sets_migrate_to_bilinear() {
+    let mut doc = rich_document();
+    doc.texture_sets[0].albedo_filter = subcraft_image::TextureFilter::Nearest;
+    let mesh = primitives::sample_crate();
+    let bytes = write_project(Cursor::new(Vec::new()), &mesh, &doc, &ResourceStore::default(), &MeshMapSet::new()).unwrap().into_inner();
+    assert_eq!(read_project(Cursor::new(bytes.clone())).unwrap().document, doc);
+    let mut input = zip::ZipArchive::new(Cursor::new(bytes)).unwrap();
+    let mut output = zip::ZipWriter::new(Cursor::new(Vec::new()));
+    for i in 0..input.len() {
+        let mut file = input.by_index(i).unwrap();
+        let name = file.name().unwrap().to_string();
+        let mut data = Vec::new(); file.read_to_end(&mut data).unwrap();
+        if name == "document.json" {
+            let mut json: serde_json::Value = serde_json::from_slice(&data).unwrap();
+            for ts in json["texture_sets"].as_array_mut().unwrap() { ts.as_object_mut().unwrap().remove("albedo_filter"); }
+            data = serde_json::to_vec(&json).unwrap();
+        } else if name == "manifest.json" {
+            let mut json: serde_json::Value = serde_json::from_slice(&data).unwrap(); json["schema_version"] = 5.into();
+            data = serde_json::to_vec(&json).unwrap();
+        }
+        output.start_file(name, SimpleFileOptions::default()).unwrap(); output.write_all(&data).unwrap();
+    }
+    let migrated = read_project(Cursor::new(output.finish().unwrap().into_inner())).unwrap();
+    assert!(migrated.document.texture_sets.iter().all(|ts| ts.albedo_filter == subcraft_image::TextureFilter::Bilinear));
+    assert_eq!(serde_json::to_string(&subcraft_image::TextureFilter::Nearest).unwrap(), "\"nearest\"");
+}
+
+#[test]
 fn image_mask_effect_keeps_its_image() {
     use subcraft_core::ResourceId;
     use subcraft_doc::{Projection, Resource, ResourceKind};
@@ -296,7 +391,7 @@ fn content_effects_roundtrip_exactly_with_schema_5() {
     let mut json = String::new();
     zip.by_name("document.json").unwrap().read_to_string(&mut json).unwrap();
     assert!(json.contains("\"content_effects\"") && json.contains("\"type\": \"levels\""), "{json}");
-    assert_eq!(SCHEMA_VERSION, 5);
+    assert_eq!(SCHEMA_VERSION, 13);
     assert_eq!(read_project(Cursor::new(bytes)).unwrap().document, doc, "effect ids, order, blends, rasters survive");
 }
 
@@ -320,7 +415,7 @@ fn schema_4_layers_have_no_content_effects_and_bad_effects_are_rejected() {
     Arc::make_mut(&mut layer.content_effects[2]).kind =
         subcraft_doc::ContentEffectKind::Levels { channel: ChannelKind::Normal, levels: Levels::default() };
     assert!(matches!(read_project(Cursor::new(save(&doc))), Err(ProjectError::Invalid(_))));
-    // Folders cannot carry content effects yet.
+    // Folder source effects remain invalid (adjustments are supported in schema 9).
     let mut doc = effect_document();
     let effects = doc.texture_sets[0].layers[0].content_effects.clone();
     let tc = doc.texture_sets[0].clone();
@@ -339,4 +434,94 @@ fn content_effect_kinds_have_stable_json() {
     );
     let paint = ContentEffectKindV5::Paint { channels: vec![PaintChannelV1 { channel: ChannelKind::BaseColor, raster: "r".into() }] };
     assert_eq!(serde_json::to_string(&paint).unwrap(), r#"{"type":"paint","channels":[{"channel":"base_color","raster":"r"}]}"#);
+}
+
+#[test]
+fn schema_12_filters_and_folder_adjustments_roundtrip_and_older_projects_migrate_unchanged() {
+    use subcraft_doc::{ContentEffect, ContentEffectKind, Filter};
+    let mut ts=TextureSet::new("T",0,128); let tc=ts.clone();
+    let mut folder=Layer::new_folder("Filters",&tc);
+    for filter in Filter::ALL {
+        folder.content_effects.push(Arc::new(ContentEffect::new(ContentEffectKind::Filter {channel:ChannelKind::BaseColor,filter},&tc)));
+    }
+    let mut mask=Mask::new(128,false);
+    for filter in Filter::ALL.into_iter().filter(|f|f.supports_mask()) { mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Filter(filter)))); }
+    folder.mask=Some(mask); ts.insert_above(None,folder);
+    let doc=Document {texture_sets:vec![ts]}; let mesh=primitives::cube(2.0);
+    let save=|doc:&Document|write_project(Cursor::new(Vec::new()),&mesh,doc,&ResourceStore::default(),&MeshMapSet::new()).unwrap().into_inner();
+    let bytes=save(&doc); assert_eq!(read_project(Cursor::new(bytes)).unwrap().document,doc);
+    assert_eq!(serde_json::to_string(&ContentEffectKindV5::Filter {channel:ChannelKind::BaseColor,filter:Filter::Threshold {cutoff:0.4}}).unwrap(),
+        r#"{"type":"filter","channel":"base_color","filter":{"kind":"threshold","cutoff":0.4}}"#);
+    let old=effect_document(); let bytes=save(&old);
+    for schema in 5..=11 {
+        let migrated=with_manifest(bytes.clone(),|m|m.replace(&format!("\"schema_version\": {SCHEMA_VERSION}"),&format!("\"schema_version\": {schema}")));
+        assert_eq!(read_project(Cursor::new(migrated)).unwrap().document,old);
+    }
+    let fragment=crate::fragment::Fragment {kind:crate::fragment::FragmentKind::SmartMaterial,name:"Filters".into(),resolution:128,
+        layers:vec![doc.texture_sets[0].layers[0].as_ref().clone()],mask_effects:vec![],resources:ResourceStore::default()};
+    let bytes=crate::fragment::write_fragment(Cursor::new(Vec::new()),&fragment).unwrap().into_inner();
+    assert_eq!(crate::fragment::read_fragment(Cursor::new(bytes)).unwrap().layers,fragment.layers);
+}
+
+#[test]
+fn loader_rejects_filters_with_invalid_domains_or_parameters() {
+    use subcraft_doc::{ContentEffect, ContentEffectKind, Filter};
+    let mesh=primitives::cube(2.0);
+    for (channel,filter) in [(ChannelKind::Normal,Filter::Threshold {cutoff:0.5}),
+        (ChannelKind::Roughness,Filter::ALL[1]), (ChannelKind::BaseColor,Filter::Blur {radius:33.0}),
+        (ChannelKind::Height,Filter::Sharpen {radius:2.0,amount:-1.0}),
+        (ChannelKind::BaseColor,Filter::DirectionalBlur {radius:4.0,angle_deg:181.0}), (ChannelKind::Height,Filter::Highpass {radius:4.0,amount:5.0}),(ChannelKind::BaseColor,Filter::Clamp {low:0.8,high:0.2})] {
+        let mut ts=TextureSet::new("T",0,128); let mut layer=Layer::new_fill("F",&ts);
+        layer.content_effects.push(Arc::new(ContentEffect::new(ContentEffectKind::Filter {channel,filter},&ts)));
+        ts.insert_above(None,layer); let doc=Document {texture_sets:vec![ts]};
+        let bytes=write_project(Cursor::new(Vec::new()),&mesh,&doc,&ResourceStore::default(),&MeshMapSet::new()).unwrap().into_inner();
+        assert!(matches!(read_project(Cursor::new(bytes)),Err(ProjectError::Invalid(_))));
+    }
+    let mut ts=TextureSet::new("T",0,128); let mut layer=Layer::new_fill("F",&ts);
+    let mut mask=Mask::new(128,false);mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Filter(Filter::ALL[1]))));layer.mask=Some(mask);
+    ts.insert_above(None,layer);let doc=Document {texture_sets:vec![ts]};
+    let bytes=write_project(Cursor::new(Vec::new()),&mesh,&doc,&ResourceStore::default(),&MeshMapSet::new()).unwrap().into_inner();
+    assert!(matches!(read_project(Cursor::new(bytes)),Err(ProjectError::Invalid(_))));
+}
+
+#[test]
+fn neighborhood_filters_keep_their_original_json() {
+    use subcraft_doc::Filter;
+    assert_eq!(SCHEMA_VERSION,13);
+    assert_eq!(serde_json::to_string(&Filter::Blur {radius:4.0}).unwrap(),r#"{"kind":"blur","radius":4.0}"#);
+    assert_eq!(serde_json::to_string(&Filter::Sharpen {radius:2.0,amount:1.5}).unwrap(),r#"{"kind":"sharpen","radius":2.0,"amount":1.5}"#);
+}
+
+#[test]
+fn schema_10_neighborhood_stacks_migrate_and_new_filters_have_stable_json() {
+    use subcraft_doc::{ContentEffect,ContentEffectKind,Filter};
+    let mut ts=TextureSet::new("Legacy filters",0,128);let mut l=Layer::new_fill("F",&ts);
+    let mut mask=Mask::new(128,true);
+    for f in [Filter::Blur {radius:8.0},Filter::Sharpen {radius:3.0,amount:0.5}] {
+        l.content_effects.push(Arc::new(ContentEffect::new(ContentEffectKind::Filter {channel:ChannelKind::BaseColor,filter:f},&ts)));
+        mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Filter(f))));
+    }
+    l.mask=Some(mask);ts.insert_above(None,l);let doc=Document {texture_sets:vec![ts]};
+    let bytes=write_project(Cursor::new(Vec::new()),&primitives::cube(2.0),&doc,&ResourceStore::default(),&MeshMapSet::new()).unwrap().into_inner();
+    let old=with_manifest(bytes,|s|s.replace(&format!("\"schema_version\": {SCHEMA_VERSION}"),"\"schema_version\": 10"));
+    assert_eq!(read_project(Cursor::new(old)).unwrap().document,doc);
+    assert_eq!(serde_json::to_string(&Filter::DirectionalBlur {radius:8.0,angle_deg:45.0}).unwrap(),r#"{"kind":"directional_blur","radius":8.0,"angle_deg":45.0}"#);
+    assert_eq!(serde_json::to_string(&Filter::Highpass {radius:4.0,amount:1.5}).unwrap(),r#"{"kind":"highpass","radius":4.0,"amount":1.5}"#);
+}
+
+#[test]
+fn schema_11_directional_stacks_migrate_and_contours_have_stable_json() {
+    use subcraft_doc::{ContentEffect,ContentEffectKind,Filter,OutlinePosition};
+    let mut ts=TextureSet::new("Legacy",0,128);let mut l=Layer::new_fill("F",&ts);
+    let mut mask=Mask::new(128,true);
+    for f in [Filter::DirectionalBlur {radius:8.0,angle_deg:35.0},Filter::Highpass {radius:4.0,amount:0.5}] {
+        l.content_effects.push(Arc::new(ContentEffect::new(ContentEffectKind::Filter {channel:ChannelKind::BaseColor,filter:f},&ts)));
+        mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Filter(f))));
+    }
+    l.mask=Some(mask);ts.insert_above(None,l);let doc=Document {texture_sets:vec![ts]};
+    let bytes=write_project(Cursor::new(Vec::new()),&primitives::cube(2.0),&doc,&ResourceStore::default(),&MeshMapSet::new()).unwrap().into_inner();
+    let old=with_manifest(bytes,|s|s.replace(&format!("\"schema_version\": {SCHEMA_VERSION}"),"\"schema_version\": 11"));
+    assert_eq!(read_project(Cursor::new(old)).unwrap().document,doc);
+    assert_eq!(serde_json::to_string(&Filter::Bevel {radius:8.0,amount:-0.2,threshold:0.5}).unwrap(),r#"{"kind":"bevel","radius":8.0,"amount":-0.2,"threshold":0.5}"#);
+    assert_eq!(serde_json::to_string(&Filter::MaskOutline {radius:4.0,threshold:0.5,position:OutlinePosition::Outer}).unwrap(),r#"{"kind":"mask_outline","radius":4.0,"threshold":0.5,"position":"outer"}"#);
 }

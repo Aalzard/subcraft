@@ -23,6 +23,41 @@ impl Session {
             _ => MapConversion::None,
         };
         let resource = self.import_converted(path, conversion)?;
+        self.assign_brush_channel_resource(channel, resource)
+    }
+
+    /// Use an already decoded (and adjusted) image, such as a starter-pack texture, as the
+    /// brush's image for `channel`. Identical images share one resource.
+    pub fn set_brush_channel_bitmap(
+        &mut self,
+        channel: ChannelKind,
+        name: &str,
+        bitmap: subcraft_image::Bitmap,
+    ) -> Result<(), String> {
+        if !self.selected_texture_set().has_channel(channel) {
+            return Err("texture set has no such channel".into());
+        }
+        let (encoded, ext) = subcraft_image::encode_bitmap(&bitmap).map_err(|e| e.to_string())?;
+        let existing = self
+            .resources()
+            .iter()
+            .find(|r| r.kind == subcraft_doc::ResourceKind::Texture && r.encoded.as_deref().is_some_and(|e| *e == encoded))
+            .map(|r| r.id);
+        let id = existing.unwrap_or_else(subcraft_core::ResourceId::new);
+        if existing.is_none() {
+            self.resources_mut().insert(subcraft_doc::Resource {
+                id,
+                name: format!("{name}.{ext}"),
+                kind: subcraft_doc::ResourceKind::Texture,
+                bitmap: std::sync::Arc::new(bitmap),
+                source_path: None,
+                encoded: Some(std::sync::Arc::new(encoded)),
+            });
+        }
+        self.assign_brush_channel_resource(channel, id)
+    }
+
+    fn assign_brush_channel_resource(&mut self, channel: ChannelKind, resource: subcraft_core::ResourceId) -> Result<(), String> {
         let mut material = self.brush.material.clone();
         material.textures.insert(channel, resource);
         material

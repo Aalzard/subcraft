@@ -12,7 +12,9 @@
     .\scripts\build-windows.ps1 -SkipBuild    # package an existing dist build
 #>
 param(
-    [switch]$SkipBuild
+    [switch]$SkipBuild,
+    [string]$CertificateThumbprint,
+    [switch]$RequireSignature
 )
 
 $ErrorActionPreference = 'Stop'
@@ -27,7 +29,7 @@ try {
 
     if (-not $SkipBuild) {
         Write-Host "Building SubCraft $version (dist profile)..." -ForegroundColor Cyan
-        cargo build --profile dist -p subcraft --features windows-gui
+        cargo build --locked --profile dist -p subcraft --features windows-gui
         if ($LASTEXITCODE -ne 0) { throw "cargo build failed (exit code $LASTEXITCODE)" }
     }
 
@@ -52,6 +54,12 @@ try {
 
     $outExe = if ($onWindows) { 'SubCraft.exe' } else { 'SubCraft' }
     Copy-Item $exe (Join-Path $stage $outExe)
+    if ($CertificateThumbprint) {
+        & (Join-Path $PSScriptRoot 'sign-windows.ps1') -Path (Join-Path $stage $outExe) -CertificateThumbprint $CertificateThumbprint
+    }
+    if ($RequireSignature) {
+        & (Join-Path $PSScriptRoot 'sign-windows.ps1') -Path (Join-Path $stage $outExe) -VerifyOnly
+    }
     foreach ($f in 'README.md', 'LICENSE-MIT', 'LICENSE-APACHE') {
         Copy-Item $f $stage
     }
@@ -59,6 +67,7 @@ try {
     New-Item -ItemType Directory -Path $fonts | Out-Null
     Copy-Item 'crates\ui\assets\fonts\*-LICENSE.txt' $fonts
     Copy-Item 'assets\starter-pack\CREDITS-CC0.txt' (Join-Path $fonts 'starter-pack-CC0.txt')
+    Copy-Item 'assets\environments\CREDITS-CC0.txt' (Join-Path $fonts 'environments-CC0.txt')
 
     Compress-Archive -Path $stage -DestinationPath $zip
     $size = '{0:N1} MB' -f ((Get-Item $zip).Length / 1MB)

@@ -62,6 +62,8 @@ pub type MeshMapSet = BTreeMap<TextureSetId, BTreeMap<subcraft_core::MeshMapKind
 pub struct ProjectData {
     pub mesh: Mesh,
     pub document: Document,
+    /// Saved with the project, outside the undo history.
+    pub settings: subcraft_doc::ProjectSettings,
     pub resources: ResourceStore,
     pub mesh_maps: MeshMapSet,
 }
@@ -93,6 +95,7 @@ impl Writer {
                 }
                 MaskEffectKind::Generator(g) => MaskEffectKindV1::Generator { generator: *g },
                 MaskEffectKind::Levels(l) => MaskEffectKindV1::Levels { levels: *l },
+                MaskEffectKind::Filter(filter) => MaskEffectKindV1::Filter { filter: *filter },
                 MaskEffectKind::Invert => MaskEffectKindV1::Invert,
                 MaskEffectKind::Image { resource, projection, invert } => {
                     MaskEffectKindV1::Image { resource: resource.0, projection: *projection, invert: *invert }
@@ -115,6 +118,7 @@ impl Writer {
                 ContentEffectKind::Paint { channels } => ContentEffectKindV5::Paint { channels: self.paint_channels(channels) },
                 ContentEffectKind::Fill(f) => ContentEffectKindV5::Fill { projection: f.projection, channels: fill_channels(f) },
                 ContentEffectKind::Levels { channel, levels } => ContentEffectKindV5::Levels { channel: *channel, levels: *levels },
+                ContentEffectKind::Filter { channel, filter } => ContentEffectKindV5::Filter { channel: *channel, filter: *filter },
             },
         }
     }
@@ -177,6 +181,18 @@ pub fn write_project<W: Write + Seek>(
     resources: &ResourceStore,
     mesh_maps: &MeshMapSet,
 ) -> Result<W, ProjectError> {
+    write_project_with(w, mesh, doc, resources, mesh_maps, &subcraft_doc::ProjectSettings::default())
+}
+
+/// Like [`write_project`], with the project settings.
+pub fn write_project_with<W: Write + Seek>(
+    w: W,
+    mesh: &Mesh,
+    doc: &Document,
+    resources: &ResourceStore,
+    mesh_maps: &MeshMapSet,
+    settings: &subcraft_doc::ProjectSettings,
+) -> Result<W, ProjectError> {
     let mut writer = Writer { rasters: Vec::new() };
     let texture_sets = doc
         .texture_sets
@@ -186,6 +202,8 @@ pub fn write_project<W: Write + Seek>(
             name: ts.name.clone(),
             material_slot: ts.material_slot,
             resolution: ts.resolution,
+            albedo_filter: ts.albedo_filter,
+            udim_tile: ts.udim_tile,
             channels: ts.channels.iter().map(|c| ChannelDefV1 { kind: c.kind, format: c.format }).collect(),
             layers: ts.layers.iter().map(|l| writer.layer(l)).collect(),
             mesh_maps: mesh_maps
@@ -195,7 +213,7 @@ pub fn write_project<W: Write + Seek>(
         })
         .collect();
     let (res_entries, res_files) = pack_resources(&referenced_resources(doc), resources);
-    let document = DocumentV1 { texture_sets, resources: res_entries };
+    let document = DocumentV1 { texture_sets, resources: res_entries, settings: settings.clone() };
     let manifest = Manifest {
         format: FORMAT_NAME.into(),
         schema_version: SCHEMA_VERSION,
@@ -277,12 +295,16 @@ fn to_json<T: serde::Serialize>(v: &T) -> String {
 }
 
 /// Save atomically to `path` (temp file + rename).
-#[cfg(not(target_arch = "wasm32"))]
 pub fn save_project(path: &Path, mesh: &Mesh, doc: &Document, resources: &ResourceStore, mesh_maps: &MeshMapSet) -> Result<(), ProjectError> {
+    save_project_with(path, mesh, doc, resources, mesh_maps, &subcraft_doc::ProjectSettings::default())
+}
+
+/// Like [`save_project`], with the project settings.
+pub fn save_project_with(path: &Path, mesh: &Mesh, doc: &Document, resources: &ResourceStore, mesh_maps: &MeshMapSet, settings: &subcraft_doc::ProjectSettings) -> Result<(), ProjectError> {
     let tmp = temp_path(path);
     let result = (|| -> Result<(), ProjectError> {
         let file = std::fs::File::create(&tmp)?;
-        let buf = write_project(std::io::BufWriter::new(file), mesh, doc, resources, mesh_maps)?;
+        let buf = write_project_with(std::io::BufWriter::new(file), mesh, doc, resources, mesh_maps, settings)?;
         let file = buf.into_inner().map_err(|e| ProjectError::Io(e.into_error()))?;
         file.sync_all()?;
         drop(file);
@@ -295,15 +317,6 @@ pub fn save_project(path: &Path, mesh: &Mesh, doc: &Document, resources: &Resour
     result
 }
 
-/// Web build: encode in memory and hand the file to `vfs` (which offers it as a download).
-#[cfg(target_arch = "wasm32")]
-pub fn save_project(path: &Path, mesh: &Mesh, doc: &Document, resources: &ResourceStore, mesh_maps: &MeshMapSet) -> Result<(), ProjectError> {
-    let buf = write_project(std::io::Cursor::new(Vec::new()), mesh, doc, resources, mesh_maps)?;
-    subcraft_core::vfs::write(path, &buf.into_inner())?;
-    Ok(())
-}
-
-#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 fn temp_path(path: &Path) -> PathBuf {
     let mut name = path.file_name().map(|n| n.to_os_string()).unwrap_or_default();
     name.push(".saving");
@@ -345,6 +358,10 @@ impl<R: Read + Seek> Loader<'_, R> {
             }
             MaskEffectKindV1::Generator { generator } => MaskEffectKind::Generator(*generator),
             MaskEffectKindV1::Levels { levels } => MaskEffectKind::Levels(*levels),
+            MaskEffectKindV1::Filter { filter } => {
+                if !filter.valid() || !filter.supports_mask() { return Err(ProjectError::Invalid("invalid mask filter".into())); }
+                MaskEffectKind::Filter(*filter)
+            }
             MaskEffectKindV1::Invert => MaskEffectKind::Invert,
             MaskEffectKindV1::Image { resource, projection, invert } => {
                 MaskEffectKind::Image { resource: ResourceId(*resource), projection: *projection, invert: *invert }
@@ -369,6 +386,10 @@ impl<R: Read + Seek> Loader<'_, R> {
         let kind = match &e.kind {
             ContentEffectKindV5::Paint { channels } => ContentEffectKind::Paint { channels: self.paint_channels(channels, res)? },
             ContentEffectKindV5::Fill { projection, channels } => ContentEffectKind::Fill(read_fill(*projection, channels)),
+            ContentEffectKindV5::Filter { channel, filter } => {
+                if !filter.valid() || !filter.supports_channel(*channel) { return Err(ProjectError::Invalid("invalid content filter".into())); }
+                ContentEffectKind::Filter { channel: *channel, filter: *filter }
+            }
             ContentEffectKindV5::Levels { channel, levels } => {
                 if *channel == subcraft_core::ChannelKind::Normal {
                     return Err(ProjectError::Invalid("levels effect on the normal channel".into()));
@@ -417,8 +438,9 @@ impl<R: Read + Seek> Loader<'_, R> {
                 children: children.iter().map(|c| self.layer(c, res).map(Arc::new)).collect::<Result<_, _>>()?,
             }),
         };
-        if matches!(content, LayerContent::Group(_)) && !l.content_effects.is_empty() {
-            return Err(ProjectError::Invalid("content effects on a folder".into()));
+        if matches!(content, LayerContent::Group(_)) && l.content_effects.iter().any(|e|
+            !matches!(e.kind, ContentEffectKindV5::Filter { .. } | ContentEffectKindV5::Levels { .. })) {
+            return Err(ProjectError::Invalid("source effects on a folder".into()));
         }
         let content_effects = l.content_effects.iter().map(|e| self.content_effect(e, res).map(Arc::new)).collect::<Result<_, _>>()?;
         Ok(Layer {
@@ -464,6 +486,8 @@ pub fn read_project<R: Read + Seek>(r: R) -> Result<ProjectData, ProjectError> {
             name: t.name.clone(),
             material_slot: t.material_slot,
             resolution: t.resolution,
+            albedo_filter: t.albedo_filter,
+            udim_tile: t.udim_tile,
             channels: t.channels.iter().map(|c| ChannelDef { kind: c.kind, format: c.format }).collect(),
             layers: Vec::new(),
         };
@@ -484,14 +508,11 @@ pub fn read_project<R: Read + Seek>(r: R) -> Result<ProjectData, ProjectError> {
     }
 
     let resources = unpack_resources(&mut loader, &doc.resources)?;
-    Ok(ProjectData { mesh, document: Document { texture_sets }, resources, mesh_maps })
+    Ok(ProjectData { mesh, document: Document { texture_sets }, settings: doc.settings.clone(), resources, mesh_maps })
 }
 
 pub fn load_project(path: &Path) -> Result<ProjectData, ProjectError> {
-    #[cfg(not(target_arch = "wasm32"))]
     return read_project(std::io::BufReader::new(std::fs::File::open(path)?));
-    #[cfg(target_arch = "wasm32")]
-    return read_project(std::io::Cursor::new(subcraft_core::vfs::read(path)?));
 }
 
 #[cfg(test)]

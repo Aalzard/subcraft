@@ -1,0 +1,7 @@
+Bevel and Mask Outline, 4096 squared, two default-crate texture sets. Optimized dev, mimalloc. CPU only; excludes GPU/render/upload. Single runs.
+BEVEL
+4096², two sets, cold composite 628.8 ms
+CPU edit/poll p50 0.454, p95 0.926, max 4.938 ms; convergence 577.5 ms; 36 frames. GPU/render/upload excluded.
+OUTLINE
+4096², two sets, cold composite 1048.3 ms
+CPU edit/poll p50 0.507, p95 0.696, max 0.711 ms; convergence 642.1 ms; 39 frames. GPU/render/upload excluded.

@@ -113,7 +113,7 @@ fn parts_history_and_layers_render_full_width_bands_without_document_edits() {
         assert!(
             bands
                 .iter()
-                .all(|(r, _)| r.width() > 300.0 && r.height() == theme::ROW_HEIGHT)
+                .all(|(r, _)| r.width() > 300.0 && [theme::ROW_HEIGHT, theme::LAYER_ROW_HEIGHT].contains(&r.height()))
         );
         assert_eq!(state.session.document(), &before);
         assert_eq!(state.session.history().entries().len(), history);

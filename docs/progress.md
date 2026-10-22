@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-10-18 (sessions 70–71: background compositing, sparse GPU uploads, 0.1.7)
+Last updated: 2026-10-20 (session 94: stable minified PBR viewport textures)
 
 ## Decisions
 
@@ -1636,12 +1636,1182 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   release guide. Native profiling and screenshot above use the final local 0.1.7 executable.
   Publication status and artifact checks are recorded by the GitHub release and final handoff.
 
+### Session 72 — Codex: publish 0.1.7 (2026-10-19)
+
+* PR #50 merged as `71e49fde7e4e1dba188a6589c9e5a139d1e3d9d5` after Windows engine tests,
+  Linux workspace tests, browser compilation and both packaging jobs passed on `230798f`.
+* Published https://github.com/Aalzard/subcraft/releases/tag/v0.1.7 from that merge. Official
+  release workflow `39167622401` passed; all three assets are present with SHA-256 digests:
+  Windows installer (23,363,574 bytes), portable ZIP (25,179,889), Linux archive (26,783,685).
+  A stalled local Actions-artifact download was cancelled; packaging/upload ran on GitHub.
+* Owner reported everything functions well. Local test executable stays unchanged at
+  `target/release/subcraft.exe`; no mouse input, additional feature changes or build cleanup.
+  Hand-verification limits and remaining general filters are unchanged from session 70.
+### Session 73 — Codex: create CORE-07 in SubCraft's engine (2026-10-19)
+
+* Owner requested a realistic PBR sci-fi cube as an application test. Created
+  `artworks/CORE-07/CORE-07.subcraft`, a **4096²** project with **11 editable fill layers**:
+  brushed chassis, ceramic armor, service covers, recessed gaskets, fasteners, hazard stripes,
+  markings, actual emissive lenses, curvature edge wear and AO-driven grime. Masks remain
+  editable; wear/grime use real Generator + Levels effects. No production app code changed.
+* Reproducible creator: independent `artworks/CORE-07/source/` Cargo package, using existing
+  mesh/app/bake/image/render/export APIs. It makes a beveled **3,072-triangle** display cube
+  and a **442,368-triangle** detailed source, six separate square UV islands, and real caged
+  high-to-low baking of Normal, World Normal, AO, Curvature, Position, Thickness and ID.
+  AO: **64 rays/texel**; bake completed in **59.8 s**, full creation/export/render **124.2 s**.
+* Seven separate PBR exports plus four Unreal exports (packed ORM, DirectX normal), all checked
+  to be **4096×4096**. Raw bakes are PNG16; PBR normals are OpenGL. Neutral Height avoids
+  applying the baked geometry relief twice. The low OBJ's MTL references the separate maps.
+  Complete local bundle: `artworks/CORE-07/CORE-07-assets.zip` (~65.7 MiB), including project,
+  both models, bakes, exports, renders and source. Large generated files are locally ignored;
+  the reproducible source, validation and beauty renders are tracked. No upload/release.
+* Acceptance: **3 creator unit tests** for UV island mapping/gutters, mask landmarks/ranges,
+  finite beveled geometry/tangent frames. Generation checks every composite component for
+  finite values and requires non-flat normal relief; **354,770 / 2,263,204** sampled surface
+  texels carry detail, maximum decoded normal-length error **0.000802**. Save/reopen compares
+  the entire editable document and composites exactly. Report: `artworks/CORE-07/validation.json`.
+  **414 workspace tests pass**, 0 failed/ignored, plus those 3 separate creator tests;
+  workspace and creator Clippy exit 0 with warnings. No new engine tests or schema changes.
+* Real desktop verification: loaded the saved 4K project in the regular 0.1.7 executable and
+  inspected its complete viewport, material appearance, layers, thumbnails and Properties.
+  Screenshot: `screenshots/core-07-native.png`. Beauty and reverse images use SubCraft's actual
+  GPU PBR renderer on RTX 4060, not a third-party or AI render. Project creation used engine
+  APIs and app commands; **no mouse input**. Not verified: pointer painting/parameter gestures,
+  tablet input, imported rendering in Unreal/Unity, or interactive 4K frame pacing on this model.
+* No new architectural decision: this is an asset acceptance exercise using ADRs 0003/0005/0017.
+  Roadmap order below is unchanged; static artwork does not complete the pending complex-model
+  stroke-performance acceptance gate. User-facing instructions: the artwork README and
+  `getting-started.md` example section.
+
+### Session 74 — Codex: CORE-07 depth, reflections and restrained weathering (2026-10-19)
+
+* Owner requested deeper details, varied reflections/roughness and modest wear, dirt and rust.
+  Extended the independent creator `artworks/CORE-07/source/main.rs`; no application crates or
+  project schema changed. Original artwork preserved; new local project/bundle in
+  `artworks/CORE-07-Refined/`, with 14 editable material/mask layers at 4096².
+* High-poly panel/vent/hardware relief increased 35%; seven maps rebaked with 64-sample AO
+  and enlarged front/rear projection cages. Ceramic, ivory covers, steel and hazard enamel
+  now have separate procedural roughness ranges. Added deterministic broken edge scuffs,
+  localized settled dust and nonmetallic oxidation confined to steel hardware. Existing
+  curvature/AO Generator + Levels stacks remain editable; graphics/lenses resist edge scuffs.
+* Added two recipe tests: numeric depth landmarks plus complete sampled cage bounds, and
+  weathering determinism/ranges, protected graphics, steel-only rust and restrained coverage.
+  **5 independent creator tests pass**; **414 workspace tests pass, 0 failed/ignored**.
+  Workspace and creator Clippy exit 0 (existing warnings). Generation also checks finite
+  composite channels, non-flat near-unit normals and exact document/composite save/reopen.
+  Clean armor roughness spans **0.388–0.482** in the exported map (same sampled original region
+  was constant **0.478**); all 11 exports checked at 4096×4096. Real bake **65.4 s**; full recipe
+  **135.8 s**. Maximum decoded normal-length error **0.000778**; validation JSONs accompany it.
+* Standard PBR and Unreal exports, low/high meshes, bake maps and native GPU beauty images
+  accompany the project. User instructions: refined README and getting-started example.
+  Complete local bundle: `artworks/CORE-07-Refined/CORE-07-assets.zip` (78,101,902 bytes).
+  Native screenshot: `screenshots/core-07-refined-native.png`. No mouse input; generation
+  uses real app/engine APIs and the saved project is opened by the desktop executable.
+  Not verified: manual pointer/pen painting, interactive 4K frame pacing or external engine
+  import. No new engine architecture or ADR; brush phase completion is unchanged.
+
+### Session 75 — Codex: high-poly baking that appeared to do nothing (2026-10-19)
+
+* Owner reported choosing a high-poly object and pressing Bake produced no apparent result.
+  Found the paint importer rejected high-poly sources without UVs; completed baked normals
+  were not connected to material shading; failures only appeared in transient status text.
+* `mesh`: separate `import_mesh_for_baking` / `build_for_baking` accept UV-less ray-cast sources,
+  while normal paint-target imports continue requiring UVs. Shared OBJ/FBX/glTF import path.
+  `bake`: fully missed projections now explain alignment/cage correction. Partial projection
+  misses use neutral IDs instead of indexing high-poly elements with low-poly triangle IDs,
+  which could panic. Low-on-low maps retain their behavior.
+* `app`: background high-poly Normal bakes create an undoable normal-only **Baked normal ·
+  high poly** fill at the affected set's top. Live UV mesh-map source plus Inverse Detail RNM
+  preserves authored detail and other channels; existing links are reused. Selection is kept,
+  and applying results waits for active brush strokes. Partial failures and worker disconnects
+  report errors instead of silent success. Baked maps retain existing non-history storage.
+* `ui`: loading/bake progress plus completion/errors stay in the Bake window until the next
+  run. Added alignment/cage guidance. `--bake-high path --bake-size size` runs the same app job;
+  screenshots wait for baking/composite completion. Architecture: ADR-0019; no new schema.
+* Tests added: strict-low versus UV-less-high import and BVH; total/partial projection misses;
+  analytic sloped normals through material/composite, actual exported PNG, exact save/reopen,
+  rebake without duplicate layers, unchanged material/selection and layer undo/redo; partial
+  job failures; existing authored links; unexpected worker disconnect; headless real Bake-button
+  dispatch and persistent error text. **423 workspace tests pass, 0 failed/ignored** (9 added);
+  Clippy exits 0 with pre-existing warnings. Required no-incremental/line-tables-only environment
+  used. The first full run exposed an initial-sizing/unhandled-texture-delta mistake in the new
+  headless test helper; fixed it and reran both isolated UI cases and the entire workspace.
+  An existing async image-save test failed in that interrupted run but passed isolated and in
+  the subsequent full run; its iteration-based timing remains a possible test-only flake.
+* Real desktop: `target/debug/subcraft.exe`, low CORE-07 OBJ and **442,368-triangle** high OBJ
+  stripped of all UVs. Completed all seven maps at **1024²**; inspected visible baked detail,
+  live layer and persistent completion in `screenshots/high-poly-bake-no-uv.png`. A deliberately
+  misaligned UV-less source showed the alignment/cage error in the open dialog and left the
+  low cube unchanged: `screenshots/high-poly-bake-misaligned.png`. Used the real background job
+  and native UI with CLI initiation; **no mouse input**. Existing owner window was left alone.
+  Updated local test executable is in **target/debug/**; target/release and published 0.1.7
+  remain unchanged. Not verified: owner's exact source files (not provided), native pointer
+  Browse/Bake gestures, production FBX/GLB pairs, web runtime, or 4K interactive bake/frame pacing.
+
+### Session 76 — Codex: pixel-art albedo reconstruction and export (2026-10-19)
+
+* Owner requested Bilinear/Nearest beneath Resolution and explicitly confirmed preview **and
+  exported texture**. Added an undoable per-texture-set `albedo_filter` through an app command;
+  the 3D toolbar and Texture Sets controls share the document field. Narrow docks use View.
+  Bilinear remains default; explicit project **schema 6** field migration gives schemas 1–5
+  Bilinear. Existing files open; new saves require a reader supporting schema 6. ADR-0020.
+* `image` adds typed filtering and point bitmap/raster reconstruction with wrapping/clamping
+  and existing color/alpha rules. `materials/compositor` applies it only to imported Base Color
+  fills/content fills; cache and thumbnail snapshots invalidate on change. Cache reuse retains
+  unchanged PBR channels, avoiding unrelated GPU uploads. `paint` captures the choice for future
+  textured strokes; resolution changes preserve Base Color paint/content-effect pixels through
+  folders. Masks and other channels retain previous interpolation. Existing blurred rasters
+  are not regenerated, and intentional opacity/triplanar/soft-brush blends still mix colors.
+* `render` selects a persistent Base Color sampler per material slot in Material and Base Color
+  views; sampler toggles reuse textures/pipelines. 2D Base Color magnification shares the choice.
+  Export consumes the same complete CPU composite, so it preserves reconstructed pixels.
+  Game engines must still select their own nearest/point runtime sampler.
+* Added six tests: numeric sampler/address/color/alpha and raster resampling; channel-specific
+  resolution changes; schema-6 roundtrip and field-absent legacy migration; command/cache/undo,
+  save/reopen and actual exported PNG pixels; GPU nearest palette/bilinear interpolation,
+  material/data-channel isolation and per-slot switching; actual dropdown click/placement/undo.
+  Extended textured-stroke acceptance through both filters and all three supported projections.
+* Reproducible native/export fixture: `crates/app/examples/retro_albedo.rs`. Its 16² four-color
+  bitmap projects into a 128² working set. Actual exported Base Color PNGs contain **4 colors
+  with Nearest**, **180 with Bilinear**. Comparison projects/exports live in the temporary
+  `subcraft-albedo-native` folder, not protected root output/.
+* Final validation: **429 workspace tests pass, 0 failed/ignored**; workspace/all-target Clippy
+  exits 0 with warnings. Required no-incremental/line-tables-only environment used. Responsive
+  bar tests cover widths 200–1280 and the two-row Resolution/Albedo column. Fixed the previously
+  recorded async image-save test flake by replacing 2,000 busy frames with a bounded 10-second
+  wait/yield; its behavior assertions remain intact. No production image-save changes.
+* Ran the updated **target/debug/subcraft.exe** and inspected both Material modes and Nearest
+  2D: `screenshots/albedo-bilinear-3d.png`, `albedo-nearest-3d.png`, `albedo-nearest-2d.png`.
+  Nearest shows hard pixel boundaries; Bilinear visibly interpolates the same source. The
+  saved choice appears beneath Resolution on opening each project. Actual exported PNG palette
+  counts checked independently. Native startup used CLI/project loading; no mouse input.
+  Not hand-verified: physical dropdown/pen gestures, owner assets, external-engine imports,
+  browser runtime, or 4K long-stroke/frame pacing. Tests include both stroke filters and prior
+  high-poly bake regressions. Owner's open release window and published 0.1.7 are unchanged.
+
+### Session 77 — Codex: bake geometry inspection and live map display (2026-10-19)
+
+* **Geometry inspection:** `app::BakePreviewJob` imports high-poly sources asynchronously using
+  the existing UV-optional importer. Blue high-poly and red exposed low-poly surfaces share
+  their imported frame in a separate depth-tested `render::bake_preview` pass. Front/rear cage
+  lines use the baker's shading normals and diagonal scale; distance changes only update GPU
+  uniforms. Bake dialog controls toggle geometry, cage and live maps; Reload high poly refreshes
+  an edited sculpt. Cached import reuse checks path, length and modification time before baking.
+  Obsolete scene/path imports are discarded. No document/schema fields changed (still schema 6).
+* **Live maps:** `bake::bake_streamed` publishes each finished, padded image in request order;
+  the synchronous `bake` wrapper returns exactly the same result. The app installs one map per
+  poll and exposes the newest map/current computation stage. The 3D view follows those maps or
+  pins a completed map/Material, with independent raw RGB/grayscale bind groups. Pending sets
+  display neutral values. Closing Bake restores the saved viewport mode; 3D painting is
+  suppressed in bake mode while navigation remains available. Normal connects through the
+  existing live normal layer immediately; authored material channels are not overwritten.
+  Cancellation retains completed maps and discards the unfinished one. Dropping cancels jobs;
+  queued bake results cannot affect a different scene. ADR-0021 records these contracts.
+* Added seven tests across `bake`, `app`, `render`, `ui`: exact streamed/synchronous convergence,
+  padded flat-normal numeric values and ordered callbacks; cancellation between maps; separate
+  map installation/material isolation; scene rejection; UV-less preview import preserving its
+  exported offset plus source-cache invalidation; real-GPU depth colors/cage/RGB/scalar values,
+  material restoration and MSAA; transient UI scene/path invalidation. Existing bake/export,
+  inspector, undo/save and albedo reconstruction tests remain active.
+* Validation: **436 workspace tests pass, 0 failed/ignored** (seven added); workspace/all-target
+  Clippy exits 0 with existing warnings. CARGO_INCREMENTAL=0 and
+  CARGO_PROFILE_DEV_DEBUG=line-tables-only, -j 1. Built and ran `target/debug/subcraft.exe` on
+  NVIDIA RTX 4060 / DX12. Implementation commit **e5ae217**, branch unchanged.
+* Native evidence inspected: `screenshots/bake-high-low-overlay.png` shows the real 3,072-triangle
+  low model and 442,368-triangle UV-less high source together, with blue panels, red protruding
+  low surfaces and both cage bounds. `screenshots/bake-live-normal-4k.png` shows an actual
+  completed 4096² Normal map on the object while World Space Normal is computing (22% overall).
+  `screenshots/bake-live-ao.png` shows finished 1024² AO while Curvature computes (58%). Pinned
+  screenshot runs quit at those real worker/GPU milestones; they do not finish all seven maps.
+  `screenshots/bake-live-complete.png` runs all seven at 256² through successful completion and
+  automatic following to Thickness. CLI startup/screenshot controls only; no mouse input or
+  edits to the owner's work. Temporary fixtures/data are under `%TEMP%/subcraft-bake-preview-native`.
+  The 4K run took ~19.9 s to its Normal screenshot including startup/import, not a frame-time or
+  full-bake benchmark. Regular Material restoration is GPU-tested, not physically clicked here.
+* Limits: red/blue is a depth-visible surface comparison, not a complete cage/projection-error
+  heatmap. Blue high geometry beyond the front cage can still be missed by baking. No automatic
+  alignment, custom cage or matching-by-name feature is implied. Preview updates complete maps,
+  not partial texel tiles; Height mesh-map baking is not implemented. Physical UI gestures,
+  owner source files, production FBX/GLB, browser and long 4K navigation/frame pacing are not
+  hand-verified this session. No new brush phases, release or push.
+
+### Session 78 — Codex: organic breakup and material workflow controls (2026-10-19)
+
+* **Generator controls:** `doc/materials/compositor/ui/project` expose Pattern size (% of model
+  max extent), editable Seed/Next and Reduce repetition. New Edges/Cavity generators start at
+  **0.3** breakup; the Edge Wear smart mask retains 0.35. Organic noise is a continuous seeded
+  3D value field with four octaves and coarse domain variation, cached under a distinct field
+  key within the existing budget. UV seams share positions; opposite projected faces no longer
+  share a periodic field. Reused/overlapping UV texels necessarily still share their result.
+  Schema **7** migrates missing `organic_breakup` to false for schemas 1–6 and old recipes,
+  preserving their noise/seed/scale/amount. Cavity's display label is Dirt; no distance-aware
+  Dirt or automatic micro-normal evaluation is claimed. ADR-0022.
+* **Channel controls:** new app commands independently toggle or atomically solo fill-layer /
+  Fill-effect channels, preserving their source/strength and undoing solo in one step. Brush
+  buttons update existing tool state. Properties, Fill effects and Brush material show compact
+  channel buttons; disabled rows disappear, including Normal blend and inactive image projection.
+  Alt-click solos. Existing paint-layer channel visibility is not implemented by brush buttons.
+  Albedo filtering remains the same document/sampler state but appears only in Texture Sets;
+  both toolbar placements are removed. Shared Projection Rotation moved directly below Tiling.
+* **Baking:** Bake view polls high-poly source metadata at 250 ms intervals and asynchronously
+  replaces stale preview geometry; path changes start loading immediately. Imports reject
+  obsolete results; errors retry without requiring Reload. Active bakes retain their source
+  snapshot. Every successful bake resets both the live-map selector and 3D viewport to Material.
+* **Symmetry:** app caches exact low-mesh intersections with the same whole-model X/Y/Z planes
+  mirrored painting uses, plus a small plane outline. Renderer uploads when scene/axes change
+  and depth-tests red lines without changing textures. Popup Show symmetry guides preference
+  hides lines independently of painting symmetry (old preferences default true). Initial
+  intersection work is synchronous/cached once; high-triangle-count first-use latency remains
+  unprofiled. ADR-0023 records these control/display decisions.
+* Ten tests added: deterministic/nonperiodic/continuous volume fields; analytic mask coverage,
+  seed/size cache convergence and existing UV-seam acceptance extended; schema/default/migration
+  roundtrip; seed button undo; channel independent/solo source preservation and undo; actual
+  Alt-click/hidden rows and Projection ordering; automatic file replacement import; successful
+  bake Material reset; offset-mesh plane coordinates; GPU red line/depth/material restoration.
+  Existing inspector numeric/undo and brush image tests now use the new buttons. Render tests
+  serialize their DX12 devices after a parallel-device/readback stall was observed; no tests
+  were removed or skipped. Invalid LineList depth bias was replaced by shader clip-depth offset.
+* **446 workspace tests pass, 0 failed/ignored**; workspace/all-target Clippy exits 0 with
+  existing warnings. CARGO_INCREMENTAL=0, CARGO_PROFILE_DEV_DEBUG=line-tables-only; -j 1.
+  Implementation commit **8c0bd67**, branch `feature/brush-roadmap`; no push or release.
+* Native RTX 4060 / DX12, inspected: `screenshots/generator-organic-controls.png` (12.5%, seed 1,
+  breakup 0.3), `generator-organic-large.png` (30%), `generator-organic-seed-8.png`;
+  `material-channel-toggles-symmetry-x.png` (Base Color only, Rotation under Tiling, no toolbar
+  Albedo, red X plane), `material-symmetry-z.png`; `bake-complete-material.png` (all seven maps
+  baked at 256 square and both selectors back to Material). Test executable remains
+  `target/debug/subcraft.exe`. CLI fixture loading/screenshot controls only; no mouse input.
+* Reproduction: `crates/app/examples/generator_breakup.rs`, using the existing refined artwork
+  as source without modifying it. Small fixtures/data are under `%TEMP%/subcraft-material-workflow-native`.
+  4K run writes no project copies. Debug synchronous profile: first organic 13,981 ms; size
+  change 28,207 ms; seed change 27,936 ms; legacy 28,459 ms. Unchanged cached updates 0–0.65 ms.
+  These are exact full recomputes with ordinary process scheduling, not a release benchmark or
+  native frame/long-stroke profile; no responsiveness/speedup claim is made from them.
+* **Not completed:** real edge/dirt spread distance and edge intensity; increasing Level's new
+  edge-only spread semantics; lower-layer painted-normal dependencies and Disable Micro Effects;
+  per-paint-layer channel visibility/solo; Emission glow/glare/shine. Full scope/checklist is in
+  `material-workflow-roadmap.md`. Not hand-verified: physical gestures/popover toggles, file
+  hot-replacement in an interactive native window (tested with actual files in headless app),
+  Y/combinations in the native view, owner assets, browser, full 4K bake and long-frame profiling.
+  Installed/owner applications, protected files and original artwork were not changed.
+
+### Session 79 — Codex: charcoal workspace and clearer layer/effect hierarchy (2026-10-19)
+
+* Followed the owner's visual reference with neutral charcoal surfaces, warm gray text,
+  restrained amber accents and three-point slider rails with compact circular handles.
+  Buttons remain near-square. Primary/secondary text keeps at least 4.5:1 contrast on panel,
+  alternate-row and selected backgrounds. Parts/History/Layers keep alternating shades,
+  hover feedback and the accent selection edge (`ui::theme`, shared widgets; ADR-0024).
+* Layers now use 48-point rows and independent 36-point material/mask thumbnails; names have
+  a quieter type/effect-count subtitle, with blend/opacity stacked in the right column.
+  Nested effects use 26-point rows, smaller text and connecting lines. Content/Mask effects
+  headers collapse their own domain without modifying the document, selection or visibility.
+  Existing UUID command routing, async 64-pixel preview cache, undo and texel evaluation are
+  unchanged. This is UI presentation, not completion of pending generator/emission features.
+* Three tests added (449 total): neutral palette/readable text and slider style; sidebar
+  geometry at 280/340/480 points with both thumbnails and Levels/generator rows; fold/unfold
+  behavior without document/selection edits. Existing real-egui inspector, thumbnail targets,
+  per-row blend/opacity, dragging/folder/drop/autoscroll and band tests remain in the suite.
+  Old tests now locate two-line row controls and the topmost popup text; scrolling waits for
+  the actual bottom drop target rather than assuming the old shorter content height.
+  Selected channel/menu foreground contrast is checked separately: native inspection caught
+  amber-on-amber text, fixed with a dark selected foreground. Toolbar interaction height
+  remains 26 points to align its labels with fixed icons despite smaller body controls.
+* Validation: **449 workspace tests pass, 0 failed/ignored**; workspace/all-target Clippy
+  exits 0 with existing warnings. CARGO_INCREMENTAL=0, CARGO_PROFILE_DEV_DEBUG=line-tables-only,
+  -j 1. Implementation **08e28ea**, branch `feature/brush-roadmap`; no push or release.
+* Native screenshot: `screenshots/charcoal-layer-effects.png`, real baked CORE-07 fixture
+  with mask Levels and Generator, generated through `app/examples/layer_layout.rs`. Source
+  artwork was not modified. Native CLI screenshot only, no mouse driving. Inspected color,
+  spacing, larger previews, layer/effect hierarchy and generator slider presentation.
+  `screenshots/charcoal-brush-workspace.png` additionally shows the sample crate, brush
+  material/channel buttons and alternating Parts/History rows in the new palette.
+* Owner's running `target/debug/subcraft.exe` (PID 9712) prevented ordinary binary replacement.
+  Kept that session intact; current preview is **target/debug/latest/subcraft.exe**, built via
+  `cargo rustc -p subcraft --bin subcraft -- -o target/debug/latest/subcraft.exe` after workspace
+  tests. Installed/release binaries, protected files and owner preferences were not changed.
+* Not verified by hand: physical dragging, popups/folding, alternate DPI/monitor combinations,
+  browser and production 4K frame pacing. These UI-only changes add no compositing or texture
+  writes; prior incomplete material workflow and performance caveats remain below/in handoff.
+
+### Session 80 — Codex: shelf wrapping and preview-size footers (2026-10-19)
+
+* **Shelf:** constrained the asset area to its panel width and vertical scroll area. Narrow
+  headers use a category dropdown, with workflow hints behind an info icon. Search width
+  adapts, environment sliders get a known row width before wrapping, and names truncate to
+  one line instead of overlapping later rows. Disabled the dock's extra outer scrollbars
+  for Shelf/Layers: these panels already own vertical scrollers, and the outer scroll area
+  allowed the grid width to grow and the footer to move outside the visible panel.
+* **Preview size:** small fixed footers beneath Shelf and Layers. Independent UI preferences
+  default to 88/36 points (Shelf 48–160, Layers 24–64), load defaults from old preference files
+  and serialize with the existing UI preference storage. Layer content/mask previews grow
+  together, parent rows adapt and narrow docks cap the displayed size to retain blend/name
+  room. Effect rows stay compact. Existing 64-pixel layer and shelf preview caches are reused;
+  these controls do not change texture resolution, document data or undo history. ADR-0024.
+* Files: `ui::panels::{shelf,layers}`, shared footer widget, UI preferences, starter thumbnail
+  display and dock viewer; native `--shelf-panel` launch option creates a reproducible narrow
+  shelf beside Layers for validation. No app/paint/compositor/document semantics changed.
+* Five tests added (454 total): all six asset categories at four widths and three sizes;
+  actual size slider input at narrow/wide widths with independent values and no document/
+  history changes; old/default preference load and roundtrip; wheel scroll reaches the last
+  asset while the footer remains visible; actual dock integration with both pinned footers
+  and width-bounded assets. Existing layer target/drag/drop, brush material and band checks
+  remain in the suite. Test fixtures never drive the owner's mouse.
+* **454 workspace tests pass, 0 failed/ignored**; workspace/all-target Clippy exits 0 with
+  existing warnings. CARGO_INCREMENTAL=0, CARGO_PROFILE_DEV_DEBUG=line-tables-only; -j 1.
+  Built the native app with `cargo build --workspace --bins --examples -j 1`.
+  Implementation **db2ea03**, branch `feature/brush-roadmap`.
+* Native app inspected: `screenshots/shelf-layer-preview-controls.png`, real baked CORE-07
+  fixture in a narrow shelf layout. Assets wrap into visible columns, only the asset list
+  scrolls vertically, and both small size footers are visible within their panels. Reproduce
+  with `%TEMP%/subcraft-theme-native/Layer-layout.subcraft --generator-panel --shelf-panel
+  --screenshot ...`; isolated data/library under `%TEMP%/subcraft-preview-native`.
+  Current test executable: **target/debug/subcraft.exe**. Ordinary startup retains the saved
+  owner layout; the new CLI layout is optional validation support.
+* Not hand-verified: physical wheel/slider dragging, alternate DPI/monitors, browser and 4K
+  frame pacing. Automated pointer/wheel tests cover the gestures. No document texels changed;
+  no owner processes were closed, original artwork/preferences/protected files modified,
+  push or release. Older `target/debug/latest` and release executables were not rebuilt.
+
+### Session 81 — Codex: bottom utility tabs and horizontal Texture Sets (2026-10-19)
+
+* Normal workspace: Shelf left; Parts / Texture Sets / History share the bottom-center tab
+  node. Layers/Properties stay right. Dock storage moves to v5 once to apply the explicitly
+  requested arrangement; subsequent dock edits persist. Reset layout uses the same factory.
+  The native `--shelf-panel` validation option now selects Textures and the Texture Sets tab.
+* Texture Sets reuses shared selection/resolution/filter/bake helpers in both orientations.
+  Wide panels use three side-by-side regions instead of scrolling the complete vertical
+  form. Narrow panels retain the vertical form. Removed the extra outer dock scrollbars for
+  Texture Sets; only a long set list can scroll in its wide column. Resolution help moves to
+  a tooltip in compact mode; Bake and mesh statistics use shorter labels. ADR-0025.
+* Three tests added: default tab grouping/separation; horizontal geometry/clipping at three
+  shallow sizes and narrow-sidebar fallback; actual compact set selection and Bake button
+  input. The existing effect inspector test now uses a full-height inspector to exercise
+  every channel independently of workspace split heights and accepts equivalent numeric
+  precision chosen by egui for wider sliders. It retains edit/visibility/undo/paint-routing
+  assertions. No document schema or compositor changes.
+* **457 workspace tests pass, 0 failed/ignored**; workspace/all-target Clippy exits 0 with
+  existing warnings. CARGO_INCREMENTAL=0, CARGO_PROFILE_DEV_DEBUG=line-tables-only; -j 1.
+  Implementation **d23ddee**, branch `feature/brush-roadmap`; no push or release.
+* Native app verified through CLI capture: `screenshots/bottom-texture-sets-layout.png`.
+  Sample crate's Body/Trim list, Resolution/Albedo and bake/mesh controls fit beside one
+  another in the bottom dock. Shelf remains separate at left; Parts/Texture Sets/History
+  tabs share the bottom-center node. Command: `--demo --shelf-panel --screenshot ...`;
+  data/library isolated under `%TEMP%/subcraft-bottom-panel-native`. Latest executable is
+  **target/debug/latest/subcraft.exe**; the open owner's normal debug executable was left
+  untouched. No physical mouse, alternate DPI/monitor or browser verification was performed.
+* Cleanup: inventory found about 16.3 GB under target, including approximately 4.8 GB of old
+  release output and 1.15 GB incremental cache. Automatic approval review rejected the scoped,
+  path-checked recursive deletion with **"blocked by policy"**; no cache or executable was
+  deleted and no alternative deletion route was attempted. Six tracked, unreferenced old
+  screenshots were safely removed through Git (1,049,698 bytes, about 1 MiB; recoverable from
+  history). README/guide-linked images, source, artwork and protected assets were retained.
+* Next owner artwork request: source **C:/Users/Rayan/Downloads/dead_man.fbx** (2,679,420 bytes),
+  reference **C:/Users/Rayan/AppData/Local/Temp/codex-clipboard-22c6ae2d-0e9a-423f-b48d-65de2ab8a6df.png**.
+  User explicitly requested a separate texturing task after these layout fixes; create it
+  against the same local SubCraft project/branch. Import, inspect UVs, bake and author an
+  editable complete PBR material matching the reference. Preserve the source and open owner
+  app. The artwork itself is not completed by this layout session.
+
+### Session 82 — Connected Edge Wear corners (2026-10-19)
+
+* Reproduced a hard-corner curvature defect: the centroid fallback includes a component along
+  the crease, weakening exact vertex and clamped UV-rim samples according to triangulation.
+  One 90-degree cube corner measured 0.841 instead of nearly 1.0. The baker now removes that
+  along-crease component before measuring signed convexity. Ordinary samples, falloff, flat
+  surfaces and breakup semantics are retained. This is a baker correction, not UV dilation or
+  a completed surface-distance spread feature. Existing saved maps remain unchanged until rebake.
+* Files/crates: bake/src/curvature.rs and tests.rs; app/tests/edge_corners.rs; reproducible
+  app/examples/edge_corners.rs creates a 512-square editable project through Session commands.
+  No schema change. Three new tests cover all face/corner orientations and subdivisions 1/4/13,
+  baked atlas corner/rim coverage, inward/concave and flat checks over scales 0.002/2/2000, and
+  high-threshold Edges mask -> composite -> save/reopen exactness with flat faces preserved.
+* **460 workspace tests pass, 0 failed/ignored** (3 added); workspace/all-target Clippy exits 0
+  with existing warnings. Both run with CARGO_INCREMENTAL=0, dev debug=line-tables-only, -j 1.
+  The new corner regression was observed failing on the original implementation before the fix.
+* Native verification: regenerated the fixture, opened it in the rebuilt desktop app, selected
+  the real Edges mask generator and inspected **docs/screenshots/edge-wear-connected-corners.png**.
+  Gold wear joins the visible cube corners; the mask thumbnail and editable properties display.
+  CLI capture exited 0 with isolated temporary data/library; no physical mouse was driven.
+  Latest test binary: **target/debug/subcraft.exe**. The owner's running latest/subcraft.exe was
+  left open and unchanged. Nothing pushed/released; unrelated Dead Man working files preserved.
+* NOT verified: the owner's exact affected mesh/settings (not supplied), physical slider or
+  rebake gestures, production high-poly corner cases, alternate DPI/browser, long-stroke or 4K
+  frame pacing. This narrow fix does not complete wear/dirt surface spread, lower-layer normal
+  dependencies, filters or emission. ADR-0026 records the boundary rule and rebake behavior.
+
+### Session 83 — Natural Edge Wear spread on the actual default crate (2026-10-19)
+
+* Owner confirmed the stock crate still had corner gaps after session 82's bake correction.
+  The earlier isolated-cube acceptance was insufficient: overlapping posts/bands weaken the
+  body's baked convexity with concave contact contributions. Added a connected convex-crease
+  distance source so those contributions cannot erase geometric edge coverage. Seam matching
+  handles float-rounding splits, with tolerance capped by the shortest actual edge and object
+  identity/opposite-facing checks. No scene-space or UV-distance dilation.
+* New **Natural edge wear**, **Spread** and **Variation** controls in Edges Properties use the
+  existing undoable SetMaskEffect command. Spread is normalized model reach; Level grows it
+  locally. Variation changes the boundary even at Breakup 0; Breakup adds erosion/holes. The
+  clustered noise range is expanded so low-spread boundaries visibly vary. Pattern size/Seed
+  reuse the bounded volume-field cache. Geometric distance fields are parameter-independent,
+  share the same bounded tile cache, and topology is shared across sets/resolutions of a mesh.
+* Files/crates: doc::EdgeSpread, materials/sample/edge_distance.rs + geometry/field caches,
+  compositor/mask.rs evaluator, project schema **8**, UI Properties, app edge_spread example
+  and app/materials/compositor/project/UI acceptance. Missing edge_spread in schema 1–7/older
+  recipes selects the unchanged legacy evaluator. Existing masks must opt in; new Edges
+  generators enable natural wear. Project and smart recipe round trips retain the settings.
+* **468 workspace tests pass, 0 failed/ignored** (8 added); Clippy workspace/all-targets exits
+  0 with existing warnings. CARGO_INCREMENTAL=0, dev debug=line-tables-only, -j 1. Tests cover
+  actual crate contact gaps, exact planar distance over subdivisions/UV seams, thin and
+  disconnected geometry, numeric mask output across tiles, local monotonic growth, variation
+  at zero breakup, size/seed invalidation with reused distance cache, undo/save/reopen and
+  latest-edit worker convergence, schema 7 migration and real Properties opt-in/undo.
+* Native verification uses the actual sample_crate(), both Body/Trim, baked Curvature at 512,
+  editable mask generators and Breakup 0: **docs/screenshots/edge-wear-natural-crate.png**
+  (Spread 2.5%, Variation 0.85) and **edge-wear-natural-crate-wide.png** (4.5%, same variation).
+  Isolated desktop CLI captures exit 0; screenshots inspected for joined edges, irregular
+  boundaries and increased local reach. No physical mouse was driven. The first capture was
+  too uniform, prompting stronger boundary variation before the final capture/checks.
+* 4K CPU profile (both default-crate texture sets, geometric sources without baked maps):
+  cold full composite **2687.8 ms**; edit/poll **p50 0.398 / p95 0.541 / max 1.059 ms**;
+  edit-to-settle time **708.3 ms from the first edit**, 41 polled frames. Report:
+  **docs/performance/2026-10-19-natural-edge-spread-4k.txt**. The harness now matches the
+  desktop's mimalloc allocator (ADR-0018); a preliminary System-heap attempt was stopped and
+  excluded. These are optimized dev CPU measurements, not GPU upload/render frame times.
+* NOT hand-verified: physical gestures, tablet, other DPI/browser, production imported/high-poly
+  models or sustained 4K viewport/long-stroke frame pacing. Distance is exact on convex planar
+  patches and a conservative vertex-path approximation on curved/non-convex patches; baked
+  rounded/high-poly curvature contributes but its independent outward propagation, Dirt spread
+  and lower-layer painted-normal inputs remain pending. See ADR-0027 for the source contract.
+
+### Session 84 — Baked corner contacts and low-Level Spread (2026-10-19)
+
+* **Baked corners with Natural disabled:** the actual crate still lost convex curvature near
+  posts in the legacy mode. `bake::curvature_on_surface` now prefers intrinsic curvature of
+  the sampled connected component/object, falling back to contact curvature on flat surfaces.
+  Connectivity is computed once per bake and shared with the ID map; high-poly projection
+  uses the detail triangle. Stored maps are preserved until explicitly rebaked. No UV dilation.
+  Added a numeric crate bake regression (normal/absent object metadata and exposed high-poly
+  corners), and extended app acceptance to require covered body edges with Natural off/on.
+  Initial native inspection exposed additional periodic edge breaks. All neighboring directions
+  now remove along-crease displacement, with a centroid fallback for tiny perpendicular float
+  errors; true proximity still limits the radius. Acceptance now checks full Body/Trim rims,
+  rather than only the original top/front corners. Concavity and flat contacts remain tested.
+* **Independent Spread:** `compositor::mask::eval_edge_spread` no longer multiplies physical
+  reach by Level. At 0.065/12.5%, the radius is now 12.5% of model extent, rather than 1.625%.
+  Level selects baked positive detail; Variation/Breakup retain their roles. UI tooltips explain
+  the separation and Level permits three decimals. Added numeric full-image reach acceptance
+  and extended local-growth checks to the owner's values, exact Level independence without
+  baked detail, and distant-flat-face exclusion. The app fixture supports Level/legacy options.
+* No serialized fields changed: schema 8/migrations and existing authored settings remain.
+  Existing Natural masks at Level other than 0.5 intentionally change width; see ADR-0028.
+  Files: bake curvature/lib/tests, compositor evaluator/acceptance, doc field documentation,
+  UI Properties, app crate acceptance/example and user documentation.
+* **470 workspace tests pass, 0 failed/ignored** (2 added; existing acceptance strengthened).
+  Workspace/all-target Clippy exits 0 with warnings, including a test-only `useless_vec` in
+  the new fixed-size bounds buffer. CARGO_INCREMENTAL=0, dev debug=line-tables-only, -j 1.
+  Both final native CLI captures exit 0 and were inspected: **docs/screenshots/edge-wear-baked-natural-off.png**
+  (rebaked 512 Body/Trim, Natural off, Level 0.85, Breakup 0, continuous edges) and
+  **docs/screenshots/edge-wear-low-level-wide.png** (Natural on, Level 0.065, Spread 12.5%,
+  Variation 0.85, Breakup 0, broad irregular reach). Updated app: **target/debug/subcraft.exe**.
+* 4K CPU profile, both sets, geometric fields without baked maps: cold **2550.0/2607.5 ms**;
+  edit/poll p95 **0.811/0.821 ms**, max **1.676/1.342 ms**, convergence **1636.5/1986.3 ms**.
+  Both runs retained in **docs/performance/2026-10-19-independent-spread-4k.txt**. Polling is
+  short, but convergence was slower than session 83's 708.3 ms; this uncontrolled comparison
+  needs follow-up, not a performance-improvement claim. GPU/upload/render and long strokes
+  were not measured. No physical mouse driven; slider drags/tablet and production imported
+  high-poly assets were not hand-verified. Existing baked maps still require explicit rebaking.
+  Implementation commit **a22eb6f**; no push/release. Unrelated artwork/dependencies/protected
+  files retained. Distance approximation, baked-only spread, Dirt and lower-normal inputs
+  remain partial as recorded in ADR-0027/material-workflow-roadmap.md.
+
+### Session 85 — Local filters, adjustment folders and Claude wear handoff (2026-10-19)
+
+* **Owner steering:** owner still rejects Edge Wear after session 84. Marked its overall
+  result unresolved in the material roadmap; prior passing fixtures are not owner acceptance.
+  Wrote **docs/PROMPT-claude-edge-wear.md** for Claude to reproduce the actual defect, inspect
+  the running executable and investigate bake/generator/preview paths. No more wear kernel
+  changes this session. Owner requested the next app milestone; started non-destructive filters.
+* **Local filters:** typed `doc::Filter` and deterministic `materials::filter` kernels for
+  Contrast (gain/pivot), true perceptual HSL (hue/saturation/lightness), Threshold and Clamp.
+  Content filters select one supported channel and preserve paint coverage. Mask filters
+  transform the previous grayscale stage; HSL is excluded from masks/data, all four exclude
+  Normal vectors. Invalid parameters/domains reject atomically. Existing visibility, order,
+  duplicate/delete, blend/opacity, history, previews and worker evaluation are reused.
+* **Folder adjustments:** folders accept Levels/Filter adjustments. Isolated folders adjust
+  children before their own mask/blend/opacity; passthrough folders adjust the running lower
+  accumulation. Empty passthrough folders work as adjustment groups. Source Paint/Fill effects
+  remain rejected on folders. Shared UI controls live in panels/filter.rs; widgets dispatch
+  existing app commands. Filter menus appear beneath either content or mask rows.
+* **Persistence/architecture:** schema **9**, explicit filter variants; identity migration of
+  prior stacks, schema 5–8 and earlier fixture coverage; project and Smart Material round trips
+  include both domains. Smart Masks use the same mask schema. HSL returns encoded-space edits
+  to linear storage; signed Height contrast stays signed. Halo 0 only: neighborhood/GPU graph,
+  Blur/Sharpen, references and anchors remain pending. See ADR-0029 and Adobe reference there.
+* Files/crates: doc filter/effect/mask model, materials kernels, compositor tile/mask stages,
+  app validation and filter acceptance/example, project schema/loader/writer/acceptance,
+  UI filter controls/effect menus/Properties/tests and desktop --effect-panel capture option.
+* **482 workspace tests pass, 0 failed/ignored** (**12 added**), Clippy workspace/all-targets
+  exits 0 with existing warnings. CARGO_INCREMENTAL=0, dev debug=line-tables-only, -j 1.
+  Goldens cover HSL vs HSV lightness, linear/color-data rules, signed Height, gradient output
+  and alpha across tiles, mask order/opacity/disable, isolated/passthrough groups, local dirty
+  tiles through filter chains, invalid edits, duplicate/remove/undo, latest worker output,
+  exact reopen and export draining a pending color-filter edit. UI tests verify each inspector
+  and the real mask filter picker. Test-helper resolution/ZIP typing and egui texture-delta
+  cleanup/popup layout errors were repaired; no test disabled to pass the suite.
+* **Native app verified** on both texture sets of the real crate at 512 via isolated-data CLI
+  captures (all exit 0), inspected for output, selected effect controls, nested rows/thumbnails:
+  **docs/screenshots/filter-hsl.png**, **filter-contrast.png**, **filter-clamp.png**,
+  **filter-threshold.png** (mask) and **filter-folder.png** (passthrough adjustment).
+  Updated executable: **target/debug/subcraft.exe**. No physical mouse was driven. Manual
+  slider drags/tablet, browser/DPI, production imported models and real 4K GPU frame pacing
+  were not hand-verified. Nonidentity HSL clamps HDR input to its display-referred range.
+* **4K CPU profile**, both sets with procedural color + HSL: cold composite **1470.0 ms**;
+  edit/poll **p50 0.332 / p95 0.711 / max 3.675 ms**, settle **1003.1 ms from first edit**,
+  58 frames. Report: **docs/performance/2026-10-19-local-filters-4k.txt**. GPU/upload/render
+  and long strokes excluded; this different workload is not a wear performance comparison.
+  Implementation **1a84d31**; no push/release. Protected and unrelated artwork/dependency files
+  retained. Getting-started and full roadmaps updated; all remaining large milestones retained.
+
+### Session 86 - Neighborhood Blur and Sharpen (2026-10-19)
+
+* Added non-destructive **Gaussian Blur** (Radius 0-32 working pixels) and **Sharpen**
+  (Radius + Amount 0-4) to content and mask filter menus/Properties, including adjustment
+  folders. Blur softens premultiplied color and coverage without dark fringes; Sharpen retains
+  coverage and signed Height. Both exclude Normal vectors. Existing channel blend/opacity,
+  source data, effect ordering, visibility, duplicate/remove and undo commands are reused.
+* **Architecture:** immutable previous-stage DAG in compositor/stages.rs, separable Gaussian
+  weights in materials/filter.rs, shared existing point/generator kernels. Cross-tile sampling
+  reads previous-stage neighbors; global UV texture edges clamp. Per-set 64 MiB completed-stage
+  cache plus active dependency frontiers, parallel OnceLock sharing, eviction and batch trim.
+  Empty source channels retain the old Replace early-return semantics; uniform sources and
+  dependent stages share results between tiles, avoiding redundant default-channel buffers.
+  Raster edits expand dirty tiles by conservative chained support; snapshot changes invalidate
+  stages. The point-only fast path remains. Sync callers and the background worker share the
+  exact evaluator. Reduced/enlarged previews scale radius without changing document data.
+* **Persistence/UI:** schema **10**, Blur/Sharpen variants with identity migration from 1-9,
+  project and smart resource round trips, finite range/domain validation. UI uses existing app
+  commands. Updated executable **target/debug/subcraft.exe**; guide now points to this build.
+  Significant decision: **docs/adr/0030-neighborhood-filter-stages.md**.
+* Files/crates: doc filter parameters; materials Gaussian weights; compositor stages/tile/mask/
+  cache/lib and acceptance; app previews/tests/filter fixture/profile; project schema/tests;
+  UI shared filter controls/inspector hints/tests. Wear generator kernels were not changed.
+* Validation: **496 workspace tests pass, 0 failed/ignored (14 added)**; workspace/all-target
+  Clippy exits 0 with repository warnings, no new filter warnings. CARGO_INCREMENTAL=0,
+  dev debug=line-tables-only, -j 1. Goldens compare tiled Gaussian/unsharp to an independent
+  dense 2D reference across tile and image boundaries; check premultiplied coverage/opacity,
+  unchanged normal/signed Height, chained halos beyond one tile, all 32 blend modes, folder
+  domains and eviction under parallel requests. App checks scaled 64/256px previews, newest
+  worker edits, one-gesture undo, synchronous export draining a pending blur and exact reopen.
+* Native evidence: real crate, both 512px sets, isolated-data CLI runs, all exit 0.
+  Inspected **docs/screenshots/filter-blur.png**, **filter-sharpen.png** (3D material + Radius/
+  Amount), **filter-mask-blur.png** (separate grayscale mask + properties), **filter-blur-2d.png**
+  (UV texture + wireframe). No physical mouse was driven.
+* 4K CPU profile: both 4096px sets; Blur cold **2527.3 ms**, edit/poll p50 **0.480**,
+  p95 **0.892**, max **1.121 ms**, convergence **1182.9 ms** (72 frames); Sharpen cold **1469.3 ms**,
+  p95 **0.888**, max **1.390 ms**, convergence **718.0 ms** (45 frames). Before empty/uniform
+  stage sharing the same Blur workload took **8664.1 ms** to converge, poll p95 **7.189 ms**.
+  Single-run CPU results exclude GPU/render/upload/strokes; report:
+  **docs/performance/2026-10-19-neighborhood-filters-4k.txt**.
+* **Limits:** UV-space filtering can mix adjacent atlas islands and does not cross geometric
+  UV seams. Sharpen bounds non-Height values to 0-1, including HDR emission. No GPU filter
+  backend, Directional Blur/Highpass, references or normal-detail generator inputs added.
+  Manual control drags/tablet, production assets, browser/DPI, long strokes and complete 4K
+  GPU/upload/frame pacing were NOT verified by hand. Owner's rejected Edge Wear is unresolved.
+  Implementation 187e3ca; no push/release; unrelated/protected files retained.
+
+### Session 87 - Directional Blur and Highpass (2026-10-19)
+
+* **Directional Blur:** Gaussian UV line with Radius 0-32 working pixels and Angle -180..180
+  degrees. 0 is horizontal, 90 vertical, +45 down-right (ADR-0005 image frame); axis repeats
+  every 180 degrees. Bilinear sampling interpolates premultiplied color/alpha, then Gaussian
+  accumulation unpremultiplies; painted coverage softens without dark fringes. Radius zero
+  is exact identity under Normal effect blending. Available on content/masks/folder adjustments.
+* **Highpass:** Radius and Amount (0-4), neutral + amount*(source-Gaussian). Neutral is 0.5 for
+  bounded color/scalar/masks, zero for signed Height. Preserve original paint coverage; bound
+  non-Height results to 0-1, including HDR. Radius/Amount zero give neutral, not original input.
+  Guide explains Overlay for bounded color/masks and Signed Addition for Height.
+* **Architecture/persistence:** extend existing previous-stage DAG, not another stack. A
+  Directional node preloads a bounded tile rectangle once; no locks in bilinear tap loops.
+  Reuse 64 MiB completed-stage cache, conservative chained halos, scaled previews, app effect
+  commands/history, worker snapshots and exact sync export. Known uniform lowpass inputs bypass
+  convolution, ensuring exact neutral Highpass instead of floating residue. Schema **11**,
+  explicit parameters, finite validation and identity migration of versions 1-10. Kernels in
+  materials, stage sampling/composition in compositor; no egui/wgpu in logic crates.
+* Files/crates: doc filter model; materials taps/Highpass math; compositor stages and numeric
+  acceptance; app integration/preview tests and fixture/profile; project schema/goldens/legacy
+  migration; UI shared controls/hints/tests. Significant decision: **ADR-0031**.
+* Validation: **509 workspace tests pass, 0 failed/ignored (13 added)**; workspace/all-target
+  Clippy exits 0 with repository warnings and no new filter warnings. Flags: CARGO_INCREMENTAL=0,
+  dev debug=line-tables-only, -j 1. Independent dense double-precision bilinear line goldens
+  cover cardinal/diagonal/fractional values and image/tile boundaries. Other checks cover
+  colored premultiplied coverage/opacity, Highpass neutral/sign/alpha/blends, mask order,
+  isolated/passthrough folders, dirty halos, parallel tiny-cache eviction, atomic invalid edits,
+  newest worker angle, one-gesture undo, sync export, reopen, legacy schema-10 filters and
+  64/256px preview scaling. No tests disabled. Compile-check caught a preview-test variable
+  shadowing error, repaired before the workspace run.
+* Native evidence: real default crate, both 512px sets, isolated-data CLI captures all exit 0.
+  Inspected **docs/screenshots/filter-directional.png**, **filter-highpass.png** (material and
+  Radius/Angle/Amount), **filter-mask-directional.png**, **filter-mask-highpass.png** (separate
+  mask previews/properties), **filter-directional-2d.png** (UV result + wireframe).
+  Updated test executable: **target/debug/subcraft.exe**.
+* 4K CPU profile: both sets at 4096; Directional Blur cold **3673.7 ms**, edit/poll
+  p50 **0.367 / p95 1.071 / max 9.492 ms**, convergence **3538.7 ms**, 203 frames. Highpass cold
+  **1893.8 ms**, p50 **0.481 / p95 1.351 / max 2.303 ms**, convergence **1316.2 ms**, 77 frames.
+  Report **docs/performance/2026-10-19-directional-highpass-4k.txt**. Single runs, CPU only;
+  settlement is from first edit. Directional bilinear work is more expensive than the Gaussian
+  kernel; further optimization/GPU parity remains pending. These values do not establish FPS.
+* Limits: UV-space image clamping, not geometric seam/island-aware filtering; Normal vectors
+  remain excluded. GPU filters, Bevel/Mask Outline, effect thumbnails/drag reorder, lower-normal
+  generators and references remain pending. Manual slider drags/tablet, browser/DPI, production
+  meshes, long strokes and full 4K GPU/upload/frame pacing NOT hand-verified. No physical mouse
+  driven. Rejected Edge Wear remains unresolved; its generator kernels were not touched.
+  Implementation 3fc267d; no push/release, protected/unrelated files retained.
+
+### Session 88 - Bevel and Mask Outline (2026-10-19)
+
+* **Bevel:** non-destructive inward contour ramp on content, masks and folder adjustments.
+  Radius 0-32 working UV pixels, Threshold and Amount. Height supports negative Amount for
+  recessed relief; other channels/masks clamp to 0-1. Radius zero gives a hard plateau.
+  Use a small Amount on Height; on masks it creates an inset grayscale transition.
+* **Mask Outline:** thresholded contour border with Radius and Inner/Outer/Both position.
+  Both uses the radius on each side. One-pixel antialias transition; zero radius clears the
+  border. Content preserves original alpha: use a fill's mask for outward material borders.
+  Color inputs use linear luminance times coverage; scalar inputs use their raw value times
+  coverage. Transparent texels are outside. Normal vector channels remain excluded.
+* **Architecture:** new bounded Contour node reads only the preceding immutable stage. Shared
+  materials kernel computes exact squared Euclidean texel-center distances in two separable
+  linear-time passes over a tile-plus-halo scalar rectangle, not a full-layer dense RGBA image.
+  Contour position is nearest opposite center minus half a pixel (raster approximation).
+  Image borders do not invent contours. Uniform stages transform directly; full-white Bevel
+  reaches its plateau, Outline is empty. Conservative ceil(radius+0.5) supports chain through
+  existing dirty halos/cache/worker. Preview radius scales; exact sync export is retained.
+* **Persistence/UI:** append Filter variants, finite validation, schema **12**, identity
+  migration of 1-11. Actual schema-11 Directional Blur/Highpass stacks reopen unchanged.
+  Project and smart stacks round-trip. Shared Properties dispatch existing app commands;
+  independent content/mask selection, order, blend/opacity and coalesced Undo remain intact.
+* Files/crates: doc model; materials contour kernel; compositor stages/acceptance; app preview
+  and lifecycle tests plus native/profile fixture; project schema/goldens; UI controls/tests.
+  Significant design decision: **ADR-0032**. Implementation commit **62af124**.
+* Validation: **519 workspace tests pass, 0 failed/ignored (10 added)**; workspace/all-target
+  Clippy exits 0 with repository warnings and no new contour warnings. CARGO_INCREMENTAL=0,
+  dev debug=line-tables-only, -j 1. Independent exhaustive nearest-feature distance checks;
+  brute-force contour goldens across content/masks/folders, fractional/zero radii, tile/image
+  corners; signed/uniform Height, original alpha/effect opacity, multi-tile chained dirty
+  halos, parallel tiny-cache eviction, scaled 64/256px thumbnails, invalid atomic edits,
+  latest worker result, gesture Undo/Redo, sync export and reopen. No tests disabled.
+  Compile-check caught a missing exhaustive test match arm, fixed before workspace tests.
+* Native evidence: real default crate, both 512px sets, isolated data/library directories;
+  all CLI captures exit 0. Inspected **docs/screenshots/filter-bevel.png** (Height controls,
+  subtle checker relief), **filter-outline.png** (content border and Outer controls),
+  **filter-mask-bevel.png** (resolved mask ramp), **filter-mask-outline.png** (Both mask border),
+  **filter-outline-2d.png** (UV result/wireframe). Thumbnails and selected effect properties
+  visible. Updated executable **target/debug/subcraft.exe**. No physical mouse driven.
+* 4K CPU profile, two default-crate sets: Bevel cold **628.8 ms**, edit/poll p50 **0.454 /
+  p95 0.926 / max 4.938 ms**, converge **577.5 ms** (36 frames). Mask Outline cold **1048.3 ms**,
+  p50 **0.507 / p95 0.696 / max 0.711 ms**, converge **642.1 ms** (39 frames). Optimized dev,
+  mimalloc, single runs; **docs/performance/2026-10-19-bevel-outline-4k.txt**. CPU only, excluding
+  GPU/render/upload; convergence measured from first edit. These measurements do not establish
+  desktop FPS or long-stroke frame pacing.
+* Limits: texture-space contours can mix adjacent atlas islands; no mesh seam/geodesic handling,
+  analytic vector contours, Bevel Smooth/custom profiles or Normal-vector filtering. Manual
+  drags/tablet, browser/DPI, production assets and full 4K GPU/upload/long-stroke frame pacing
+  NOT verified by hand. GPU filter backend, per-effect thumbnails/drag reorder, references,
+  lower-normal generators and emission remain pending. Owner-rejected Edge Wear remains
+  unresolved; its generator kernels untouched. No push/release; protected/unrelated files retained.
+
+### Session 89 - Effect stage thumbnails (2026-10-20)
+
+* **Effect rows:** small live preview squares for each content/mask effect, inclusive of the
+  authored base and every preceding effect. Later effects never appear in an earlier square.
+  Paint/Fill use the Layers channel; Levels/Filter use their explicit target channel. Masks
+  stay grayscale, color content encodes linear-to-sRGB, data stays raw. Hidden effects show
+  the bypassed result with a diagonal mark. Clicking the square always selects the effect
+  through SelectEffect without editing history; original row/context-menu behavior remains.
+* **Layout/performance:** effect squares 18-28 UI points, proportional to the existing Layers
+  Preview size footer, with compact row heights and retained type icons. Only visible squares
+  request work; collapse removes them. Reuse immutable single-worker preview jobs, latest
+  snapshot/stale-result rejection and the shared 96-entry CPU/GPU cache. Requests include an
+  effect UUID and domain; removed effects return None and remove cached/queued entries.
+  Prefix truncation happens only on a worker-owned COW snapshot. No UI project logic, full
+  4K readbacks, new persistent fields or migration; project schema stays **12**.
+* **Folder correction:** passthrough folder previews now read their actual lower-layer input.
+  Ancestor isolation starts transparent; passthrough inherits lower accumulation. Exclude
+  later siblings and ancestor effects/masks. Ignore the target's own presentation mask,
+  opacity, parts and visibility, matching authored-content preview semantics. Snapshot root
+  Arc pointers invalidate on lower-layer edits. Non-folder content remains isolated.
+* Files/crates: app preview keys/snapshots/cache/evaluation, numeric/lifecycle/stroke tests and
+  native/profile example; compositor folder preview context; UI image presentation/effect rows,
+  layer sizing and hit-target tests. Design **ADR-0033**. Implementation **c88079a**.
+* Validation: **528 workspace tests pass, 0 failed/ignored (9 added)**; workspace/all-target
+  Clippy exits 0 with repository warnings and no new preview warnings. CARGO_INCREMENTAL=0,
+  dev debug=line-tables-only, -j 1. Numeric prefix values for Paint/Fill/Generator/Levels/
+  Invert/Filter, own-mask/visibility bypass, target-channel encoding, alpha, scaled Gaussian
+  stage support; nested isolation/input invalidation; latest edits, coalesced undo, reordering,
+  removed UUIDs, reopen, cache/queue bounds and a 160-sample 4K Paint-effect stroke (one undo).
+  Headless UI checks correct content/mask selection without history, repeated square clicks,
+  compact sizing/narrow sidebar and collapse. No tests disabled. Compile-check caught an
+  incorrect test accessor and example save return type, fixed before workspace tests.
+* Native evidence: actual default crate, both 512px texture sets, isolated data/library,
+  all CLI captures exit 0. Inspected **docs/screenshots/effect-thumbnails-content.png** (three
+  content stages with selected Contrast), **effect-thumbnails-mask.png** (Fill, Generator,
+  Levels and Blur grayscale stages), **effect-thumbnails-folder.png** (green lower-input HSL
+  preview instead of empty transparency). Current executable **target/debug/subcraft.exe**.
+  No physical mouse driven. Selection/collapse were exercised by headless UI input tests;
+  native click/drag/tablet, browser/DPI and production scenes NOT verified by hand.
+* 4K CPU preview profile: two default-crate sets, **18** stage/layer/mask previews and eight
+  parameter revisions: request/poll p50 **0.084 / p95 0.128 / max 0.202 ms**, final settlement
+  **424.5 ms**, 27 frames, cache 18 entries. Optimized dev + mimalloc, single run. Report
+  **docs/performance/2026-10-20-effect-thumbnails-4k.txt**. Excludes full composites, GPU,
+  render and uploads; not a desktop FPS measurement. Separate 160-sample 4K Paint-effect
+  stroke + thumbnail request (app unit test, default allocator): cold **5.456 ms**, warm
+  p95 **1.565 / max 1.643 ms**, numeric result and one undo pass. Also excludes composite/GPU/
+  render/upload; not full frame timing.
+* Limits: reduced 64px previews can omit fine details; independent prefixes currently repeat
+  evaluation instead of sharing stage results. Full-resolution/mip-aware previews, effect
+  drag reorder, GPU parity and full 4K desktop frame pacing remain pending. Edge Wear remains
+  owner-rejected and unresolved; its kernels untouched. No push/release; unrelated/protected
+  files retained. Existing mask inspection remains bounded at 256px.
+
+### Session 90 - Effect drag reordering (2026-10-20)
+
+* **Drag reorder:** effect names, row bodies and preview squares can move within their current
+  layer/domain. Upper/lower halves of a target row place the effect above/below it; a thin
+  amber line shows valid changed destinations. Existing edge scrolling now accepts effect
+  payloads. Escape cancels; outside/self/adjacent no-op drops leave data/history untouched.
+  Eye, thumbnail click selection, collapse, context-menu moves and layer/shelf drags remain.
+* **Controller/undo:** app::effect_stack owns typed UUID addresses and bottom-to-top insertion
+  after removal. DropEffect resolves current anchors on release, rejects a changed active
+  texture set, ignores invalid/stale/cross-layer/domain addresses and invokes the existing
+  MoveContentEffect/MoveMaskEffect once. Then SelectEffect keeps the moved effect in Properties
+  and routes Paint effects correctly. One non-coalesced undo entry, retained effect/raster
+  Arcs/settings/IDs, normal dirty/thumbnail refresh and exact sync export. No schema change:
+  order already serializes in schema **12**. UI maps coordinates and dispatches commands.
+* Files/crates: app address/index module, command/controller, exhaustive/numeric integration
+  tests and native/profile fixture; UI effect rows/typed drops, scrolling and gesture tests.
+  Significant decision **ADR-0034**. Implementation **a995822**.
+* Validation: **538 workspace tests pass, 0 failed/ignored (10 added)**; workspace/all-target
+  Clippy exits 0 with repository warnings and no new drag warnings. CARGO_INCREMENTAL=0,
+  dev debug=line-tables-only, -j 1. Exhaustive source/anchor/side pairs for 1-7 effects in both
+  domains; stale/foreign identities; non-commuting filter goldens over all 128px texels;
+  stage-thumbnail refresh, one undo/redo, exact sync export and reopen; Paint raster Arc identity,
+  brush routing and rejected stale-set command. Real egui pointer events cover name/square
+  drags, both directions/domains, live marker without edits, outside/Escape/self/adjacent
+  cancellation, shelf payload preservation, foreign domains and edge scrolling. No tests disabled.
+* Native evidence: actual default crate, both 512px sets, isolated data/library; CLI exits 0.
+  Inspected **docs/screenshots/effect-reorder-content.png** (HSL moved above Contrast/Highpass,
+  updated stage previews and HSL Properties), **effect-reorder-mask.png** (Fill moved above
+  Blur/Levels/Generator, regenerated resolved mask). Fixtures execute the same DropEffect
+  controller before saving. Native captures verify post-drop appearance, not physical dragging.
+  Gestures/insertion-line/cancellation were verified by headless UI input tests. No desktop
+  mouse driven; native mouse/tablet gestures, native mid-drag marker, browser/DPI, production
+  assets and full 4K GPU/render/upload frame pacing NOT verified by hand.
+* 4K CPU profile: **--profile-reorder**, two crate sets, 18 stage/layer/mask previews, eight
+  rounds of effect drops: request/poll p50 **0.074 / p95 0.133 / max 0.166 ms**, final settlement
+  **422.2 ms**, 27 frames, cache 18 entries. Single optimized-dev/mimalloc run. Report
+  **docs/performance/2026-10-20-effect-reorder-4k.txt**; excludes full composite, GPU, rendering
+  and uploads. This does not establish desktop FPS or complete stroke frame pacing.
+* Current build **target/debug/subcraft.exe**; guide, roadmaps and handoff updated. No partial
+  drag implementation remains. Cross-layer/domain transfer is outside this reorder scope.
+  Bevel Smooth/Height Adjust, GPU parity, references/lower-normal generators and emission
+  remain pending. Owner-rejected Edge Wear unresolved; kernels untouched. No push/release;
+  unrelated/protected files retained.
+
+### Session 91 - Claude repair/audit handoff (2026-10-20)
+
+* Documentation-only owner request: expanded **PROMPT-claude-edge-wear.md** with the current
+  repository/.git/executable paths, schema-12/538-test baseline, source entry points and ADRs.
+  Priority: unresolved Edge Wear, brush stretching around hard corners, immediate brush
+  selection with a fading viewport top-left notice/double-click editor, then a deep regression
+  audit/fix of all recent filters, folder adjustments, thumbnails and drag reorder.
+* Added explicit reproductions/acceptance expectations, preserve mask/Paint-effect targeting,
+  native-versus-headless evidence limits, protected files and required test/doc/commit workflow.
+  Updated handoff/ordered next steps/brush follow-up checklist. No feature code changed; these
+  repair/feedback requests remain unimplemented. No new tool or shortcut, so getting-started
+  and ADRs need no feature documentation in this session. Existing build/screenshots retained.
+* Baseline/checks: **538 workspace tests pass, 0 failed/ignored**, workspace/all-target Clippy
+  passes with existing warnings; no tests added. Same no-incremental/line-tables-only/-j 1 flags.
+  No new app run or visual feature claimed. No push/release or protected-file changes.
+
+### Session 92 - Claude: Edge Wear root cause, hard-edge brush wrap, one-click Shelf brushes (2026-10-20)
+
+* **Edge Wear (12c55a2):** root causes on the default crate: crease spans buried inside other
+  parts (body edges in posts, band corners) were Natural sources, and the baker read parts hidden
+  behind a surface as convex edges (detached dashes on posts, Natural off and on). Sources are now
+  exposed spans only (per-part inside test), the baker ignores foreign surfaces behind the tangent
+  plane, and a field 4x finer than Pattern size chips the boundary. Rebake needed for old maps.
+* **Brush wrap (89d9ae9):** Tangent|Wrap used radial 3D distance, smearing tips down side faces.
+  Texels are now unfolded about the fold line: exact on hard edges; on bevels never compressed,
+  small facet mismatch (0.13 rho at 8 facets) shrinking with tessellation.
+* **Shelf brushes (1420a6a):** one click activates (Fill/Eyedropper/Pen -> Brush, destination kept),
+  fading "Brush: name" plate in the 3D view top-left, double-click focuses Brush tab, no preview
+  popup on tip click. `--select-brush NAME` for scripted captures.
+* **552 workspace tests pass, 0 failed/ignored** (14 new); Clippy 68 warnings, same as baseline.
+* Native captures (Linux Xvfb + lavapipe, real app): edge-wear-exposed-low-level-wide.png,
+  edge-wear-exposed-natural-off.png, edge-wear-chipped-default.png, brush-select-notice.png.
+  CPU renders: brush-wrap-before/after-cpu.png. 4K CPU edit profile (4 cores): settle 3.1-3.3 s
+  vs 2.5-2.7 s before (extra chip field); cold 12.7-13.1 s vs 10.5-11.5 s. GPU frames not measured.
+* NOT done/verified: task 4 filter audit only partly done (code read of kernels, stages, cache,
+  tile paths; no bug found yet; randomized differential test not written). Not checked on
+  Windows build, physical mouse/tablet, production meshes. Tip thumbnail in the notice shows only
+  after the Shelf has rendered that tip.
+
+### Session 93 — Release verification and vendor review (2026-10-20)
+
+* Added release infrastructure only (no engine/UI behavior changed): locked Cargo builds,
+  pinned Rust 1.98/actions, requested-tag checkout/version checks, application-before-package
+  and installer-after-package signing, fail-closed signature/Defender checks, deterministic
+  SHA256SUMS, GitHub provenance and no replacement of published assets. Production requires
+  enrolled signing configuration and protected signing/publish environments. Server-side
+  environment protection has NOT been configured. See ADR-0035 and release-security.md.
+* Scripts: sign-windows.ps1, test-release-windows.ps1, write-release-checksums.ps1,
+  new-sandbox-check.ps1 and guarded sandbox-guest-check.ps1; existing build scripts/workflow
+  extended. Tests: 52 security/workflow assertions plus five black-box packaging scenarios;
+  YAML and actionlint 1.7.12 validation pass. Workspace: **538 passed, 0 failed/ignored**
+  (Rust total unchanged; release checks are additional PowerShell coverage). Workspace/all-target
+  Clippy exits 0 with existing warnings. CARGO_INCREMENTAL=0,
+  CARGO_PROFILE_DEV_DEBUG=line-tables-only, --locked, -j 1. Implementation: **3304c4f**.
+* Real release evidence: exact public 0.1.7 installer/ZIP hashes match GitHub. The new gate
+  scanned installer, ZIP and extracted executable using active Defender; all three exit 0,
+  no threats detected. Original files remain unsigned. Public machine-readable evidence:
+  security/0.1.7-static-scan.json. No installer/application was executed on the host.
+* Offline Sandbox installation/render/uninstall harness prepared and configuration/host guard
+  tested. Guest NOT run: Windows 11 Home, no Sandbox executable, virtualization reported
+  disabled. This is not malware API tracing; CAPE mitigation-policy/unhooking flags remain
+  unresolved. No false-positive verdict or absence-of-malware claim.
+* Sent three potential-false-positive review requests through the owner's connected Gmail:
+  Arctic Wolf, Trapmine and SecureAge support. Sent records verified; Arctic Wolf automatic
+  receipt acknowledged (required submission information was included), analysis pending.
+  No private repo files were uploaded. Owner requested
+  signing options; documented Microsoft, Certum and SSL.com eligibility/fees/restrictions.
+  No account purchase, identity submission, cloud roles or certificate provisioning.
+* Updated guide/changelog/brush-roadmap/handoff and ADR. No visible app feature changed, so
+  no native screenshot or hand-check claimed. No 4K performance claim. Protected files and
+  Claude's existing untracked subcraft-session92.patch left alone. No push/release.
+
+### Session 94 — Imported PBR viewport grain (2026-10-20)
+
+* Reproduced the owner's grainy surface using full PBR imports from D:/Textures:
+  Planks023A_4K-PNG and Metal006_4K-PNG on a UV plane. Material GPU textures had only mip
+  zero; MSAA could not resolve subpixel height/normal/color detail. Added render-owned GPU
+  area-average mip chains and trilinear sampling for material channels (ADR-0036).
+* Files/crates: render/src/material.rs, lib.rs, new mipmap.rs/mipmap.wgsl and headless
+  acceptance coverage. Sparse fill clears/allocated-tile uploads retained; partial uploads
+  regenerate only affected mip bounds. Views/bind groups/pipelines cached; no interactive GPU
+  readback or wait. Nearest albedo clamps to mip zero for retro pixels. CPU composites,
+  source textures, exported texels, projects and undo are unchanged.
+* Added **3 tests**, total **541 passed, 0 failed/ignored**, using cargo test --workspace
+  --locked -j 4, CARGO_INCREMENTAL=0, CARGO_PROFILE_DEV_DEBUG=line-tables-only. Numeric GPU
+  coverage: all channel formats, odd-sized area conservation, partial/full equality at every
+  mip, implicit-fill restoration and empty updates. Acceptance: minified checker stays at
+  its linear-space mean across camera offsets; Nearest retains only source palette values;
+  authoritative input unchanged. Workspace/all-target Clippy and desktop build checked.
+* Ran the real native app (RTX 4060/DX12) through its automated screenshot path, with isolated user/library
+  data and the real importer. Visually inspected matching before/after images:
+  screenshots/material-filtering-before.png and material-filtering-after.png (wood),
+  screenshots/material-metal-before.png and material-metal-after.png (metal). Fine noisy
+  grain is filtered at distance while material structure and reflections remain visible.
+  New ui/examples/material_viewport.rs makes fixture import/native capture reproducible.
+* Profile: new render/examples/perf_material_upload.rs, RTX 4060/Vulkan, 4096², 120 stroke-like
+  updates of seven channel tiles plus 640×480 rendering. CPU submission median/p95/max
+  **0.851/1.255/1.403 ms**; including GPU completion **0.923/1.338/1.480 ms**. Synthetic render
+  path only, excludes compositor/UI/input; this is not a desktop FPS or full long-stroke
+  guarantee. Mips cost approximately one third additional material GPU memory.
+* NOT hand-verified: the owner's unsaved scene, physical brush/orbit interaction, browser,
+  other GPUs, a full platform/backend matrix or production 4K frame pacing. No universal glossiness fix claimed:
+  authored roughness/height and lighting remain meaningful. Two other candidate imports
+  failed PNG decoding (Planks020 normalGL, Concrete044A displacement); originals left alone,
+  importer audit remains a follow-up. No physical mouse input, push or release. Protected
+  files and existing untracked subcraft-session92.patch preserved.
+
+### Session 95 - Claude: real-app check, filter audit, brush-slot drops, Level/Spread (2026-10-21)
+
+* **Real-app check (Windows debug build, RTX 4060/DX12, scripted --screenshot only):** Natural edge
+  wear matches the CPU render. Level 0.065 / Spread 12.5 covers most of the thin crate parts and the
+  top face; at Level 0.5 / Spread 4 the wear is joined along bands and posts with a chipped
+  boundary; Natural off at Level 0.85 gives thin connected lines, no dashes on posts. The Shelf
+  brush notice shows top-left. NOT hand-verified: painting across a hard edge with a checker tip,
+  double-click opening the Brush tab, mask target kept (need a mouse; only the earlier CPU wrap
+  renders exist). Captures: win-edge-wear-*.png, win-brush-select-notice.png, win-wear-*.png.
+* **Filter audit (afd8018):** crates/compositor/tests/differential.rs adds randomized point-vs-graph
+  and incremental-cache-vs-full tests (folders, masks, mask/content effects, all non-normal blend
+  modes; Blur/Sharpen/Directional/Highpass/Bevel/Mask Outline). 1500 seeds pass. Bug fixed: an
+  effect on one channel made a layer without content in another channel take part there (Replace
+  wiped what was below); now only effects that touch the channel count. Thumbnails and drag reorder
+  have only their existing tests, no new work. Physical native drag still not hand-checked.
+* **Issue 58 (8be56a4):** Shelf and starter-pack textures can be dropped on any Brush channel slot,
+  including switched-off channels (shown as targets while dragging); the app owns the assignment
+  (set_brush_channel_bitmap, Destination::capture_brush). Tests: app/tests/brush_channel_drop.rs,
+  ui/tests/brush_material.rs. Not tried with a physical drag.
+* **Level/Spread (bf7a428):** Before, with Natural on, Level changed nothing once Spread > 0
+  (wear-sheet-natural-before.png). EdgeSpread.level_reach (default on, not serialized when off):
+  Level uncovers level^0.4 of the Spread reach (0 = none, 1 = all); baked convex detail is still
+  keyed to Level. Projects saved earlier read back as level_reach=false and render as before; a
+  "Level controls the amount" checkbox upgrades them. Tests: app/tests/edge_level_spread.rs. The
+  old acceptance "Level 0.065 reaches broadly" now only holds for old-style wear.
+* **Task 4 / issue 53:** the viewport texture-limit fix is not on any local branch; skipped.
+* **Showcase:** docs/screenshots/showcase-*.png and docs/discord-post.md. No parts menu, pen path
+  or video capture (mouse needed). Examples added: edge_project, showcase_project, wear_sheet.
+* **564 workspace tests pass, 0 failed/ignored; Clippy exits 0 with 68 warnings (baseline).**
+  Test app: E:\Applications\ArtCraft\SubCraft\target\debug\subcraft.exe
+
+### Session 96 - Claude: Clone, Smudge and camera projection painting (2026-10-21)
+
+* **Clone tool:** Ctrl+click the model sets the source point; the first dab of the next stroke fixes a
+  screen offset that later strokes keep (aligned) until a new source is picked. Each texel copies the
+  pre-stroke paint found by ray-casting through the stroke-start camera at (texel screen + offset),
+  restricted to the painted texture set; alpha is kept, so an empty source never overwrites paint.
+  A cyan cross marks the source, a ring the current copy point. Symmetry is ignored while cloning.
+* **Smudge tool:** stamp by stamp the footprint-weighted mean (alpha-premultiplied) under the brush is
+  picked up and a carried value (85% persistence per stamp) is deposited with footprint x Flow;
+  works on enabled channels, Paint effects and mask rasters; normals are re-normalized. No
+  stencil. Flow is the strength; Opacity is not used.
+* **Camera projection:** BrushMaterial.camera_projection ("Project from the view" in the Brush panel)
+  casts the channel images from the stroke's starting camera, fitted to the shorter viewport side,
+  placed with the existing scale/rotation/offset; not a new ProjectionMode, so fill layers are untouched.
+  Per-stamp projection is still open.
+* **Files:** paint/stroke.rs (smudge_stamps, remap, clone sampling), kernel.rs (footprints),
+  settings.rs (StrokeMode::Smudge/Clone), target.rs, app/session.rs (clone source/offset, labels),
+  ui (Tool::Clone/Smudge, rail/bar icons, viewport input and marker, `--capture-tool clone|smudge|projection`
+  scripted captures). Tool icons reuse Copy and Drop: the bundled Phosphor font is a 53-glyph subset.
+  The viewport bar now needs 1094 px inner width to sit inline and 575 px for full controls; tiny
+  docks hide the two new icons unless active (tests updated).
+* Tests: 5 in app/tests/clone_smudge.rs (smudge drags paint, one undo, untouched texels exact,
+  deterministic, masks; clone copies and keeps offset, empty source harmless, missing source error;
+  camera projection differs from UV mapping on a rotated plane). **569 workspace tests pass, 0 failed/ignored;
+  Clippy exits 0 with 68 warnings (baseline).**
+* Real app (scripted, Windows debug, RTX 4060): docs/screenshots/tool-smudge.png, tool-clone.png,
+  brush-camera-projection.png. NOT verified: real mouse strokes, Ctrl+click in the viewport, symmetry,
+  tablet pressure, heavy-brush performance, clone across seams on production meshes; the clone
+  source is a point, not a rotated/scaled stamp; no heal/seam blending.
+
+### Session 97 - Claude: Shelf content, 15 smart materials, 16 smart masks, 5 dirt generators (2026-10-21)
+
+* **Generators:** five new procedural kinds (ProceduralKind, snake_case in saved files; older apps
+  cannot read projects that use them): Dirt, Cracks, Streaks (run along V), Speckles, Pores.
+  All tile at integer scale and are deterministic (materials/pattern.rs tests).
+* **Smart materials (assets/smart_more.rs, all original, built from our own fills/generators/masks):**
+  Worn Leather, Chipped Painted Metal, Mossy Stone, Brushed Steel, Dusty Concrete, Oxidized Copper,
+  Scratched Plastic, Cracked Clay, Frosted Ice, Rough Wood, Peeling Painted Wood, Hammered Brass,
+  Sandstone, Dry Mud, Worn Rubber (20 smart materials in total). Edges / Cavity layers need baked
+  Curvature / AO. Edge layers use the legacy (non-Natural) edge generator.
+* **Smart masks:** Edge Dirt, Top-Down Dust, Scratches, Moss in Crevices, Water Streaks, Drip Stains,
+  Chipped Edges, Cracks, Speckled Dirt, Rust Bleed, Bottom Splash, Sun Fade, Soot Crevices, Peeling
+  Edges, Pitting, Grime Blotches (21 smart masks in total). A smart mask is a list of bare effect
+  kinds laid over a black mask (a later Normal effect replaces an earlier one), so each recipe is a
+  single effect shaped by its own noise; combining effects with blend modes would need SmartMask to
+  store blends (not done).
+* Tests: app/tests/smart_content.rs (every smart material on the baked crate: in range, not flat,
+  mutually distinct, one undo step; every smart mask: selects part of the crate, deterministic).
+* Real app (Windows debug, scripted): shelf-smart-materials.png / shelf-smart-masks.png (new
+  `--shelf-tab NAME`), smart-materials-gallery.png (CPU base-colour contact sheet of all 20).
+  NOT verified: the look under real lighting for every material beyond the Shelf thumbnails, hand
+  painting with them, 4K bake time, metallic/roughness/height judged only numerically, a
+  mud/wet-darkening look (no wetness channel), and artist taste: values are a first pass.
+
+### Session 98 - Claude: viewport quality, engine export presets, Height / Bent Normal bakes, emission glow (2026-10-21)
+
+* **Viewport quality (render/post.rs, post.wgsl, offline.rs; ui/render_export.rs):** tone mapping choice
+  (ACES default, Filmic, Reinhard, Linear), exposure, bloom (bright pass + blur, half resolution),
+  screen-space ambient occlusion (depth prepass, Alchemy-style, blurred) and a "Render quality"
+  window (View menu / File menu). Bloom/AO run only when switched on (frames stay bit-identical to
+  before otherwise). Settings are viewport preferences (ViewportPrefs, old preference files load).
+  **Export:** File > Render image / turntable: still PNG at 1024-4096 px with optional 2x
+  supersampling (linear-light box filter), or a turntable of 24-120 numbered PNG frames
+  (`turntable_0001.png`...). No grid or guides. Scripted: `--render-image out.png`, `--turntable DIR`,
+  `--quality tone=filmic,bloom=0.6,threshold=0.6,ao=1,ao-radius=4,exposure=1,glow=0.8,glare=0.5,
+  glare-mode=star,glare-length=0.6`, `--render-window`. No GIF/MP4: the project has no encoder
+  (Cargo.lock is protected); import the PNG sequence elsewhere.
+* **Emission glow / glare (roadmap Emission):** an emission-only pass (HDR) feeds a soft glow (default
+  0.35, nonzero) and optional glare streaks (horizontal, vertical, both, starburst; length, strength).
+  Only models with an Emissive channel are affected; the effects are viewport-only and never reach
+  exported textures. The default texture set has no Emissive channel: Insert a fill layer with it (the
+  `emiss` toggle) as before. Streaks are smooth [1 2 1] stage chains at doubling strides at half
+  resolution; fine detail is soft by design.
+* **Export presets:** new Unity URP (MetallicSmoothness R=G=B metallic + A smoothness, Occlusion gray,
+  OpenGL normals, Height) and Godot 4 (ORM R occlusion G roughness B metallic, OpenGL normals,
+  Emissive, Height); Unreal renamed "ORM packed"; templates are appended so saved choices keep
+  their index. Tests export each template and check every packed channel value.
+* **Bakes:** new Height (signed distance to the high poly inside the cage, 0.5 flat; flat without a
+  high poly) and Bent Normal (average unoccluded direction, tangent space) mesh maps, in the Bake
+  dialog and 2D view; Height/Bent Normal also work as generator sources. Projects store maps by key.
+* Tests: render/tests/post.rs (tone map order, bloom, AO, flat plane, glow, glare directions; GPU,
+  skipped without an adapter), render/src/offline.rs, ui/tests/render_quality.rs, export and bake tests.
+  **592 workspace tests pass, 0 failed/ignored; Clippy exits 0 with 68 warnings (baseline).**
+* Real app (Windows debug, RTX 4060/DX12, scripted): viewport-quality-glow-glare.png, render-quality-window.png,
+  turntable-frames.png (36-frame turntable written by the app), export-presets-godot-urp.png (new
+  `--export-template N`), bake-height-bent-normal-dialog.png (native bake with the crate as its own
+  high poly). NOT verified: interactive slider use and frame cost in the live viewport, 4096 px
+  supersampled export on small GPUs (about 1 GB), OpenGL/WebGL backends for the HDR passes, AO on
+  very thin or huge models (radius is a percentage of the diagonal), engine import of the exported
+  textures in Unreal/Unity/Godot themselves, Height/Bent Normal on production high polys.
+
+### Session 99 - Claude: Emission in the UI, its defaults, and channel cards (2026-10-21)
+
+* **Emission can be switched on (Properties > Channels):** the texture set's channels show as chips as
+  before; channels the set lacks (Emission, AO) show as "+ emiss" / "+ ao". The chip dispatches the new
+  `Command::AddFillChannel { layer, channel }` (app crate): it adds the channel to the texture set if
+  missing, gives every layer in the set its blend entry (folders Passthrough, layers Normal; without an
+  entry a layer ignores the channel), and turns the channel on for the layer, all in one undo step.
+  Toggling a channel the set has but an older layer lacks now also adds that layer's blend entry
+  (before, such a layer silently contributed nothing). Texture-set import now also adds Emissive when
+  it finds an emissive map (ADDED_ON_IMPORT).
+* **Defaults for a new Emissive channel (FillChannel::default_for):** Intensity 3.0 and neutral white
+  (not orange). The viewport glow is a preference (Render quality > Emission, default 0.35, radius 1) so
+  glow shows without opening that window and a value the user set is never overwritten.
+* **Channel cards:** each channel block in Properties (and each mask effect) is a card: lighter fill,
+  visible border, a coloured accent bar per channel (theme::channel_accent), a bold header with a rule
+  and 8 px between cards (widgets::card).
+* Tests: app/tests/emission_channel.rs (defaults, one undo step, folder blends, composite, save/reopen,
+  older layer toggle, refused paint layer, import with an emissive map), ui/tests/emission_chip.rs
+  (chip click through real egui events). **597 workspace tests pass, 0 failed/ignored; Clippy exits 0
+  with 68 warnings (baseline).**
+* Real app (scripted, no mouse): emission-chip-white-edges-glow.png (new project, emission added by the
+  same command as the chip, white fill masked by Edges, glow with the default preference),
+  properties-channel-cards-before-after.png. New capture options: `--capture-tool emission|cards`,
+  `--properties-panel`. NOT verified: physical clicks on the chip, narrow-dock look of the cards,
+  Alt+click on the new chips (they follow the existing toggle rules), the AO chip in the viewport.
+
+### Session 100 - Claude: New Project window (2026-10-21)
+
+* **New Project (File > New project from a model, Welcome screen, `--new-project <model> [--new-project-high <hi>]`):**
+  pick a model (OBJ/FBX/glTF/GLB; browser: upload) and see what is inside before anything is created:
+  triangles, materials, objects, UV bounds, UDIM tiles, and warnings (no UVs, overlapping UVs,
+  triangles crossing a tile border, tile folding). Choices: template (PBR / Unreal ORM / Unity /
+  Godot / Stylized = which channels exist, normal format), resolution (per-set overrides under
+  Advanced), texture-set split (by material / by object / one set), UDIM option (one set per tile,
+  only shown for 2+ tiles), normal format OpenGL/DirectX, optional high-poly (UV-free allowed; the Bake
+  window opens with it). Last choices are remembered in the preferences. Tangent space is MikkTSpace
+  (informational line; no switch).
+* All logic is in `app::new_project` (`NewProjectSettings`, `summarize`, `plan_sets`,
+  `Session::from_mesh_with`); `ui::new_project` only draws and dispatches. `Mesh::regroup`
+  (mesh/regroup.rs) rebuilds material slots for a split rule and shifts UDIM tile UVs into 0..1 so
+  everything per set (paint, bake, export) works unchanged. `TextureSet.udim_tile`, and
+  `ProjectSettings` (normal format, export template, export maps off, UDIM folders) are saved in
+  project schema 13 (older files migrate unchanged).
+* Tests: mesh regroup, app/tests/new_project.rs + unit tests, ui/tests/new_project_window.rs (renders,
+  Enter creates with template/resolution, remembered choices, no-UV model refused). Real app
+  (scripted): `--new-project target/.../tiled_props.obj --new-project-high ...` screenshot with 3
+  UDIM tiles, 2 materials, 3 objects. NOT verified: physical clicks/typing in the window, browser
+  upload path, FBX/glTF models with several UV tiles. Exported normal maps do not apply the project
+  normal format yet (Part 2 of this session).
+
+### Session 101 - Claude: Export map checkboxes, Alt+click solo, UDIM end to end (2026-10-21)
+
+* **Export Textures lists every output map of the template per texture set with checkboxes**, plus
+  Select all / None / Invert, a per-set checkbox, and a live "N of M files" count. Only checked maps are
+  written (folder export, web ZIP and the plan all go through `export::plan_all` / `render_maps`); packed
+  maps are written only when their own checkbox is on. Nothing checked disables Export and shows a
+  hint. The selection is saved in the project (`ProjectSettings.export_maps_off`, entries
+  `"set/suffix"`, schema 13), together with the last template and the normal-map convention; merely
+  opening the window does not mark the project modified. The project's normal format (Template default /
+  OpenGL / DirectX, in the window and in New Project) is now actually applied to exported normal maps
+  (`ExportSettings.normal_directx`).
+* **Alt+click solo:** Alt+click a map checkbox/label keeps only that map; Alt+click it again restores the
+  previous selection (Alt+click another map while soloed moves the solo, the original selection is
+  still remembered; any ordinary change forgets it). Logic is `export::MapSelection` (selection.rs);
+  the window only forwards the click through `Session::edit_export_selection`. Tooltip explains it.
+* **UDIM** (ADR-0037 option 1, implemented): New Project / opening a multi-tile model gives one
+  texture set per tile (`Body.1001`, `Body.1002`...), each with its own layer stack; the stored mesh
+  has every tile shifted into 0..1 so paint, bakes, composites and export need no change. All tiles of
+  a material share one resolution (New Project > Advanced lists materials, not tiles). Opening a
+  multi-tile OBJ/FBX/glTF directly now splits it the same way and reports "The model uses N UDIM tiles".
+  Tiles outside the UDIM range (left of u = 0 or below v = 0) get their own sets numbered below 1001 and
+  a warning (before, they were silently merged into 1001: fixed). Export names:
+  `Name_Body_BaseColor.1001.png`; with "Export Each UDIM to a Separate Folder" (only shown with 2+ tiles,
+  saved in the project) files go to `1001/Name_Body_BaseColor.png`, `1002/...`; the web ZIP uses the
+  same folders.
+* Tests: export crate (selection, solo, packed maps, normal override, UDIM names/folders/archive),
+  app/tests/export_selection.rs, app/tests/udim_project.rs (3-tile synthetic mesh: independent layer
+  stacks, painting on tile 1002 leaves 1001/1011 untouched, export in both folder states, save/reopen,
+  multi-tile OBJ import), ui/tests/export_maps.rs (real egui clicks, Alt+click, hint, UDIM checkbox
+  visibility).
+* NOT done / not verified: no 2D-view tile picker and no "apply smart material to all tiles" command
+  (each tile set is selected in Texture Sets like any set); the 3D viewport shows each tile with its
+  own set's textures through the existing per-slot materials but this was checked only by tests and a
+  scripted screenshot, not by painting with a real mouse; mesh export keeps the shifted UVs; layer stacks
+  are per tile (not shared across the tiles of a material).
+
+### Session 102 - Claude: remove the browser version, asset packs, README rewrite (2026-10-22)
+
+* **Browser version removed (ADR-0038):** web/, scripts/build-web.sh, .github/workflows/web.yml,
+  .cargo/config.toml (wasm flags), every `target_arch = "wasm32"` path (vfs/task, file pickers, download
+  sink, wasm start, web backup reminder, wasm glTF reader), web-only dependencies, web docs and badge.
+  `Build (web)` was never a required check (ruleset requires Test (Linux) and Build + engine tests
+  (Windows)). Desktop behaviour unchanged. Old GitHub Pages site still has to be switched off by the owner.
+* **Starter pack 2:** +50 normals, +50 alphas from texture_pack_2 (checked: 1024x1024, unit-length
+  normals, no seams, alphas with black borders; none dropped). Lossless oxipng without colour-type changes;
+  pixel-for-pixel equal. Pack now **80 normals + 80 alphas = 160 images, 59.7 MB** (was 13 MB; embedded in
+  the executable), thumbnails 1.15 MB. Manifest, credits, starter.rs and the catalog test updated.
+* **Environments:** the 10 AI-generated HDRIs (hdri_pack_2) are bundled at 1024x512 (1.6-1.9 MB each,
+  16.5 MB total, RGBE RLE, peaks within 6%) as `EnvironmentSource::Embedded`, decoded and prefiltered on
+  first use (no startup cost). hdri_pack (20 procedural HDRIs) was not bundled by owner decision. Full-size
+  originals: dist/SubCraft-extra-environments.zip (not committed, 56 MB, for the release page). Credits say
+  plainly that these are AI-generated with synthesized radiance. Credits file is copied into packages.
+* Tests: 634 pass (2 new for the bundled HDRIs, smart material / mask counts 20 / 21). New scripted
+  captures: docs/screenshots/v018-*.png (overview, shelf textures / brushes / environments / smart
+  materials, New Project, Export).
+* NOT verified: a normal map / brush tip applied by hand, real mouse use of the new Shelf tiles, installer
+  size (see release notes), Linux build of the packaging changes.
+
 ## Next steps (in order)
+
+Owner checks imported PBRs in the refreshed target/debug/subcraft.exe, especially close-up
+wood and zoom/orbit transitions. Profile complete production strokes/UI frame pacing and
+GPU memory on a layered 4K asset; audit the two source PNG decode failures before claiming
+universal imported-material coverage. This viewport fix does not complete any brush phase.
+
+Before the next public release: resolve vendor/CAPE findings, obtain an eligible verified
+signing identity, activate protected release environments, then run exact signed artifacts
+in a compatible isolated Windows environment and review the results before publishing.
+
+0. Finish task 4 audit: randomized point-vs-graph and incremental-vs-full differential tests.
+
+
+1. Claude follows **PROMPT-claude-edge-wear.md**: reproduce/fix the still-rejected Edge Wear on
+   the baked default crate; inspect source/bake/sampling/build paths and all relevant modes.
+2. Fix clean surface brush wrapping across hard edges, then immediate brush activation,
+   fading top-left viewport feedback and double-click brush editing. Preserve mask targets.
+3. Deeply audit/fix all delivered filters/folder adjustments, stage previews and effect drag
+   reorder with numeric/native/performance gates. The prompt records current verification gaps.
+4. Resume Bevel Smooth/Height Adjust, measured GPU parity/full 4K desktop profiling, then
+   references/lower-normal Dirt/emission and remaining brush phases. Preserve exact sync export.
+
+Start the requested separate Dead Man texturing task after the panel fixes are checked.
+Major disk cleanup remains blocked by automatic approval review; source and current build
+are retained. Do not bypass that rejection using another deletion command.
+
+Owner checks vertical shelf browsing and both preview-size sliders in `target/debug/subcraft.exe`.
+Then continue the earlier material-workflow scope below. Preview sizing does not complete any
+unfinished brush/generator/emission feature.
+
+Owner reviews the charcoal workspace in `target/debug/latest/subcraft.exe`. After the earlier
+app is closed, a normal workspace build can refresh `target/debug/subcraft.exe` again. Keep
+ADR-0024's independent thumbnail targets and compact effects when refining presentation.
+
+The owner's latest scope is **material-workflow-roadmap.md**. Next complete a shared surface
+distance/stage contract for edge and dirt spread, then lower-layer normal dependencies with
+Disable Micro Effects, and emission glow/glare/shine. Do not model spread as a global Levels
+adjustment or read a completed composite containing the generator's own/future layers.
+
+Bake preview follow-up: owner checks blue/red overlap, front/rear distances and live map
+selection with their original source pair. Add a full projection-miss/cage-error heatmap,
+mesh-name matching and custom cages next; Height baking and intra-map tile updates are not
+implemented. Profile production 4K baking/navigation before making frame-pacing claims.
+
+Albedo follow-up: owner checks the updated build on their pixel-art assets and configures
+nearest/point runtime sampling in their game engine. Then continue the pending bake and layer
+workflow checks below; this sampler change does not complete any additional brush phase.
+
+High-poly bake follow-up: owner tests the patched app with the exact original model pair;
+hand-check production FBX/GLB sources, cage adjustments and a full 4K interactive bake workflow.
+
+Artwork follow-up: open `artworks/CORE-07-Refined/CORE-07.subcraft`; compare layers 12–14 and
+adjust their masks/materials to taste. Then profile real long strokes on this 4K layered asset;
+static artwork validation does not establish interactive frame pacing.
 
 Pending owner cleanup request: remove obsolete build artifacts only when the environment's
 deletion restriction permits it, retaining the verified `target/release/subcraft.exe` above.
 
-The new priority is **layer-system-roadmap.md**:
+After the newer material workflow request, resume **layer-system-roadmap.md**:
 0. Performance follow-ups (ADR-0018): first-use graphics/upload stalls and occasional later
    spikes; GPU field/blend kernels, staged accumulation caching and reduced-resolution drag
    previews. Background desktop compositing and sparse GPU initialization are done. Cold-field

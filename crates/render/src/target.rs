@@ -58,8 +58,8 @@ impl RenderTarget {
         if let Some(copy) = &self.display_copy { copy.encode(encoder); }
     }
 
-    /// Start copying the resolved image back to the CPU without waiting (works in the browser,
-    /// where the GPU can't be waited on). The target can be re-rendered right away.
+    /// Start copying the resolved image back to the CPU without waiting.
+    /// The target can be re-rendered right away.
     pub fn read_rgba8_async(&self, device: &wgpu::Device, queue: &wgpu::Queue) -> PendingReadback {
         let [w, h] = self.size;
         let row = w * 4;

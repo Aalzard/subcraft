@@ -1,7 +1,8 @@
 SubCraft starter pack
 
-30 normal maps and 30 brush alpha maps supplied by Aalzard for SubCraft.
-These 60 images are dedicated to the public domain under CC0 1.0 Universal.
+80 normal maps and 80 brush alpha maps (160 images) supplied by Aalzard for SubCraft:
+the original 30 + 30, and 50 + 50 procedurally generated in a second pack (texture_pack_2).
+These images are dedicated to the public domain under CC0 1.0 Universal.
 https://creativecommons.org/publicdomain/zero/1.0/
 
 You may use, modify and redistribute them, including in commercial work.

@@ -1,0 +1,6 @@
+4096² cold full composite: 2550.0 ms
+CPU edit/poll p50 0.531 / p95 0.811 / max 1.676 ms; convergence 1636.5 ms; 89 frames. GPU/render/upload excluded; no long-stroke claim.
+
+Repeat after final bake correction and native captures (same CPU-only workload):
+4096² cold full composite: 2607.5 ms
+CPU edit/poll p50 0.522 / p95 0.821 / max 1.342 ms; convergence 1986.3 ms; 103 frames. GPU/render/upload excluded; no long-stroke claim.

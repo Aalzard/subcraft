@@ -45,8 +45,39 @@ pub struct Generator {
     /// Procedural breakup applied to the threshold (0 = none).
     pub noise_amount: f32,
     pub noise: ProceduralParams,
+    /// Seamless object-space volume noise instead of repeating axis projections. Absent in
+    /// older projects/recipes: preserve their original pattern exactly.
+    #[serde(default)]
+    pub organic_breakup: bool,
+    /// Geometry-aware wear. Missing in older recipes: retain their exact threshold behavior.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edge_spread: Option<EdgeSpread>,
     /// World direction for `Directional` (normalized on use).
     pub direction: [f32; 3],
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct EdgeSpread {
+    /// Reach as percent of the mesh's longest dimension, independent of Level.
+    pub distance: f32,
+    /// Irregularity of the boundary, independent of holes from Breakup.
+    pub variation: f32,
+    /// Level is the amount of wear: it sets how far into the Spread reach the wear extends
+    /// (0 = none, 1 = the whole reach). False keeps the original behavior, where Level only
+    /// selected baked convex detail and Spread alone set the reach. Not written when false, so
+    /// older projects round-trip unchanged.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub level_reach: bool,
+}
+
+impl EdgeSpread {
+    /// Fraction of the reach that Level 0..1 uncovers: steep at first so low Levels still show
+    /// wear beyond the edge itself, smooth and strictly increasing, 0 at Level 0.
+    pub fn level_extent(level: f32) -> f32 { level.clamp(0.0, 1.0).powf(0.4) }
+}
+
+impl Default for EdgeSpread {
+    fn default() -> Self { Self { distance: 1.5, variation: 0.7, level_reach: true } }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -68,7 +99,7 @@ impl GeneratorKind {
     pub fn label(self) -> String {
         match self {
             GeneratorKind::Edges => "Edges".into(),
-            GeneratorKind::Cavity => "Cavity".into(),
+            GeneratorKind::Cavity => "Dirt".into(),
             GeneratorKind::Directional => "Directional".into(),
             GeneratorKind::PositionGradient => "Position Gradient".into(),
             GeneratorKind::MeshMap(m) => format!("Mesh Map: {}", m.display_name()),
@@ -85,10 +116,19 @@ impl Generator {
             level: 0.5,
             softness: 0.15,
             invert: false,
-            noise_amount: 0.0,
+            noise_amount: if matches!(kind, GeneratorKind::Edges | GeneratorKind::Cavity) { 0.3 } else { 0.0 },
             noise,
+            organic_breakup: matches!(kind, GeneratorKind::Edges | GeneratorKind::Cavity),
+            edge_spread: (kind == GeneratorKind::Edges).then(EdgeSpread::default),
             direction: [0.0, 1.0, 0.0],
         }
+    }
+
+    /// Approximate feature size as a percentage of the whole mesh's longest dimension.
+    pub fn pattern_size(&self) -> f32 { 100.0 / self.noise.scale.max(0.01) }
+
+    pub fn set_pattern_size(&mut self, percent: f32) {
+        if percent.is_finite() { self.noise.scale = 100.0 / percent.clamp(1.0, 100.0); }
     }
 }
 
@@ -100,6 +140,7 @@ pub enum MaskEffectKind {
     Fill { value: f32, procedural: Option<ProceduralParams>, projection: Projection },
     Generator(Generator),
     Levels(Levels),
+    Filter(crate::Filter),
     Invert,
     /// Grayscale from an imported image through a projection: the image's alpha if it has one
     /// (a logo on a transparent background), else its brightness.
@@ -113,6 +154,7 @@ impl MaskEffectKind {
             MaskEffectKind::Fill { .. } => "Fill".into(),
             MaskEffectKind::Generator(g) => format!("Generator ({})", g.kind.label()),
             MaskEffectKind::Levels(_) => "Levels".into(),
+            MaskEffectKind::Filter(filter) => filter.label().into(),
             MaskEffectKind::Invert => "Invert".into(),
             MaskEffectKind::Image { .. } => "Image".into(),
         }

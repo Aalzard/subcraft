@@ -23,6 +23,22 @@ pub struct ViewportPrefs {
     /// Display-only floor grid and axis guides. Old preference files receive these defaults.
     pub grid: bool,
     pub grid_axes: [bool; 3],
+    pub symmetry_guides: bool,
+    /// Index into [`subcraft_render::ToneMap::ALL`].
+    pub tone_map: usize,
+    pub exposure: f32,
+    pub bloom: f32,
+    pub bloom_threshold: f32,
+    pub ssao: f32,
+    /// Ambient-occlusion reach in percent of the model's size.
+    pub ssao_radius: f32,
+    /// Glow around emissive areas (0 = off) and its reach multiplier.
+    pub emission_glow: f32,
+    pub glow_radius: f32,
+    /// Streaks from bright emission (0 = off), index into [`subcraft_render::GlareMode::ALL`], length 0..1.
+    pub glare: f32,
+    pub glare_mode: usize,
+    pub glare_length: f32,
 }
 
 impl Default for ViewportPrefs {
@@ -34,6 +50,18 @@ impl Default for ViewportPrefs {
             view_mode: 0,
             grid: true,
             grid_axes: [true, false, true],
+            symmetry_guides: true,
+            tone_map: 0,
+            exposure: 1.0,
+            bloom: 0.0,
+            bloom_threshold: 0.8,
+            ssao: 0.0,
+            ssao_radius: 3.0,
+            emission_glow: 0.35,
+            glow_radius: 1.0,
+            glare: 0.0,
+            glare_mode: 0,
+            glare_length: 0.5,
         }
     }
 }
@@ -44,6 +72,26 @@ impl ViewportPrefs {
             .get(self.view_mode)
             .copied()
             .unwrap_or_default()
+    }
+
+    pub fn tone_map(&self) -> subcraft_render::ToneMap {
+        subcraft_render::ToneMap::ALL.get(self.tone_map).copied().unwrap_or_default()
+    }
+
+    /// Post-processing for a model of bounding-box `diagonal`.
+    pub fn post_params(&self, diagonal: f32) -> subcraft_render::PostParams {
+        subcraft_render::PostParams {
+            tone_map: self.tone_map(),
+            bloom: self.bloom.clamp(0.0, 4.0),
+            bloom_threshold: self.bloom_threshold.clamp(0.0, 4.0),
+            ssao: self.ssao.clamp(0.0, 1.0),
+            ssao_radius: (self.ssao_radius.clamp(0.1, 50.0) * 0.01 * diagonal).max(1e-4),
+            emission_glow: self.emission_glow.clamp(0.0, 4.0),
+            glow_radius: self.glow_radius.clamp(0.25, 8.0),
+            glare: self.glare.clamp(0.0, 4.0),
+            glare_mode: subcraft_render::GlareMode::ALL.get(self.glare_mode).copied().unwrap_or_default(),
+            glare_length: self.glare_length.clamp(0.0, 1.0),
+        }
     }
 
     /// Render-target size for a 3D view of `size` physical pixels; the image is stretched back
@@ -65,34 +113,36 @@ pub fn show(ui: &mut Ui, state: &mut crate::state::UiState) {
         .fill(BG_2)
         .inner_margin(egui::Margin::symmetric(8, 4))
         .show(ui, |ui| {
+            // Keep labels/combos aligned with the fixed 26-point tool/grid icons.
+            ui.spacing_mut().interact_size.y = 26.0;
             ui.set_min_width(ui.available_width());
             let width = ui.available_width();
-            let inline = width >= 1040.0;
+            let inline = width >= 1094.0; // five tool icons (Clone and Smudge joined the three paint tools)
             ui.spacing_mut().item_spacing = egui::vec2(7.0, 6.0);
             ui.horizontal(|ui| {
                 if width < 520.0 {
                     ui.menu_button("View", |ui| {
+                        ui.horizontal(|ui| resolution(ui, &mut state.recovery.prefs.viewport));
                         let prefs = &mut state.recovery.prefs.viewport;
-                        ui.horizontal(|ui| resolution(ui, prefs));
                         ui.checkbox(&mut prefs.antialias, "Anti-aliasing");
                         ui.checkbox(&mut prefs.orthographic, "Orthographic");
                         ui.horizontal(|ui| view_mode(ui, prefs));
                     });
                     grid_control(ui, &mut state.recovery.prefs.viewport);
                 } else {
-                    view_controls(ui, &mut state.recovery.prefs.viewport);
+                    view_controls(ui, state);
                 }
                 if painting && inline {
                     ui.add_space(5.0);
                     ui.separator();
                     ui.add_space(5.0);
-                    crate::brush_bar::show(ui, &mut state.tool, &mut settings, &mut options, width);
+                    crate::brush_bar::show(ui, &mut state.tool, &mut settings, &mut options, &mut state.recovery.prefs.viewport.symmetry_guides, width);
                 }
             });
             if painting && !inline {
                 ui.separator();
                 ui.horizontal(|ui| {
-                    crate::brush_bar::show(ui, &mut state.tool, &mut settings, &mut options, width)
+                    crate::brush_bar::show(ui, &mut state.tool, &mut settings, &mut options, &mut state.recovery.prefs.viewport.symmetry_guides, width)
                 });
             }
         });
@@ -121,8 +171,9 @@ pub fn show(ui: &mut Ui, state: &mut crate::state::UiState) {
     }
 }
 
-fn view_controls(ui: &mut Ui, prefs: &mut ViewportPrefs) {
-    resolution(ui, prefs);
+fn view_controls(ui: &mut Ui, state: &mut crate::state::UiState) {
+    resolution(ui, &mut state.recovery.prefs.viewport);
+    let prefs = &mut state.recovery.prefs.viewport;
     ui.separator();
     ui.checkbox(&mut prefs.antialias, "Anti-aliasing")
         .on_hover_text("Anti-aliasing · smooth edges (4x MSAA); off is faster");
@@ -131,6 +182,24 @@ fn view_controls(ui: &mut Ui, prefs: &mut ViewportPrefs) {
     ui.separator();
     view_mode(ui, prefs);
     grid_control(ui, prefs);
+}
+
+/// Per-set document state: shared by material evaluation, preview and export.
+pub fn albedo_filter(ui: &mut Ui, state: &mut crate::state::UiState) {
+    use subcraft_image::TextureFilter;
+    let ts = state.session.selected_texture_set();
+    let (id, original) = (ts.id, ts.albedo_filter);
+    let mut filter = original;
+    let label_width = 55.0;
+    ui.add_sized([label_width, ui.spacing().interact_size.y], egui::Label::new(RichText::new("Albedo").color(TEXT_DIM)));
+    egui::ComboBox::from_id_salt("albedo_filter").width(76.0).selected_text(filter.label()).show_ui(ui, |ui| {
+        ui.selectable_value(&mut filter, TextureFilter::Bilinear, "Bilinear");
+        ui.selectable_value(&mut filter, TextureFilter::Nearest, "Nearest");
+    }).response.on_hover_text("Base Color interpolation · Nearest preserves hard pixels in imported images, the viewport and exports");
+    if filter != original
+        && let Err(error) = state.session.execute(subcraft_app::Command::SetAlbedoFilter { texture_set: id, filter }) {
+        state.set_status(error.to_string(), ui.input(|i| i.time));
+    }
 }
 
 fn grid_control(ui: &mut Ui, prefs: &mut ViewportPrefs) {
@@ -171,10 +240,10 @@ fn grid_control(ui: &mut Ui, prefs: &mut ViewportPrefs) {
 }
 
 fn resolution(ui: &mut Ui, prefs: &mut ViewportPrefs) {
-    dim(ui, "Resolution");
+    ui.add_sized([55.0, ui.spacing().interact_size.y], egui::Label::new(RichText::new("Resolution").color(TEXT_DIM)));
     egui::ComboBox::from_id_salt("viewport_resolution")
         .selected_text(format!("{}%", prefs.scale_percent))
-        .width(62.0)
+        .width(76.0)
         .show_ui(ui, |ui| {
             for s in SCALES {
                 ui.selectable_value(&mut prefs.scale_percent, s, format!("{s}%"));
@@ -205,6 +274,33 @@ fn dim(ui: &mut Ui, text: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn texture_sets_albedo_dropdown_is_below_resolution_and_dispatches_an_undoable_edit() {
+        let ctx = egui::Context::default(); crate::theme::apply(&ctx);
+        let mut state = crate::state::UiState::new(subcraft_app::Session::new(subcraft_mesh::primitives::cube(2.), 128), None);
+        let initial = state.session.document().clone();
+        let draw = |state: &mut crate::state::UiState, events| {
+            let mut out = ctx.run_ui(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1600., 940.))), events, ..Default::default() }, |ui| {
+                egui::CentralPanel::default().show(ui, |ui| crate::panels::texture_sets::show(state, ui));
+            }); out.textures_delta.clear(); out
+        };
+        draw(&mut state, vec![]); let output = draw(&mut state, vec![]);
+        let text_position = |output: &egui::FullOutput, text: &str| output.shapes.iter().find_map(|s| match &s.shape {
+            egui::epaint::Shape::Text(t) if t.galley.job.text == text => Some(t.pos + t.galley.size() * 0.5), _ => None,
+        }).unwrap_or_else(|| panic!("missing {text}"));
+        assert!(text_position(&output, "Albedo").y > text_position(&output, "RESOLUTION").y);
+        let click = |state: &mut crate::state::UiState, pos| {
+            draw(state, vec![egui::Event::PointerMoved(pos), egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: true, modifiers: Default::default() }]);
+            draw(state, vec![egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: false, modifiers: Default::default() }])
+        };
+        click(&mut state, text_position(&output, "Bilinear"));
+        let menu = draw(&mut state, vec![]);
+        click(&mut state, text_position(&menu, "Nearest"));
+        assert_eq!(state.session.selected_texture_set().albedo_filter, subcraft_image::TextureFilter::Nearest);
+        state.session.execute(subcraft_app::Command::Undo).unwrap();
+        assert_eq!(state.session.document(), &initial);
+    }
 
     #[test]
     fn render_size_scales_and_never_reaches_zero() {

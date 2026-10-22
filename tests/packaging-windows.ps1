@@ -12,12 +12,13 @@ function Assert-Equal($actual, $expected, [string]$message) {
 try {
     New-Item -ItemType Directory -Path $testRoot | Out-Null
     $fixture = Join-Path $testRoot 'fixture'
-    foreach ($dir in 'scripts', 'crates/ui/assets/fonts', 'assets/starter-pack', 'target/dist', 'relative-build/dist') {
+    foreach ($dir in 'scripts', 'crates/ui/assets/fonts', 'assets/starter-pack', 'assets/environments', 'target/dist', 'relative-build/dist') {
         New-Item -ItemType Directory -Path (Join-Path $fixture $dir) -Force | Out-Null
     }
     Copy-Item -LiteralPath (Join-Path $repo 'scripts/build-windows.ps1') -Destination (Join-Path $fixture 'scripts/build-windows.ps1')
+    Copy-Item -LiteralPath (Join-Path $repo 'scripts/sign-windows.ps1') -Destination (Join-Path $fixture 'scripts/sign-windows.ps1')
     Set-Content -LiteralPath (Join-Path $fixture 'Cargo.toml') -Value 'version = "1.2.3"'
-    foreach ($file in 'README.md', 'LICENSE-MIT', 'LICENSE-APACHE', 'crates/ui/assets/fonts/test-LICENSE.txt', 'assets/starter-pack/CREDITS-CC0.txt') {
+    foreach ($file in 'README.md', 'LICENSE-MIT', 'LICENSE-APACHE', 'crates/ui/assets/fonts/test-LICENSE.txt', 'assets/starter-pack/CREDITS-CC0.txt', 'assets/environments/CREDITS-CC0.txt') {
         Set-Content -LiteralPath (Join-Path $fixture $file) -Value $file
     }
     $absoluteTarget = Join-Path $testRoot 'absolute-build'
@@ -46,12 +47,15 @@ try {
             try { Assert-Equal $reader.ReadToEnd().Trim() $case.Expected 'Wrong binary in zip' } finally { $reader.Dispose() }
         } finally { $zip.Dispose() }
     }
+    $failed = $false
+    try { & (Join-Path $fixture 'scripts/build-windows.ps1') -SkipBuild -RequireSignature | Out-Null } catch { $failed = $_.Exception.Message -like 'A trusted, timestamped signature is required*' }
+    if (-not $failed) { throw 'Unsigned staged application passed RequireSignature.' }
     # An invalid custom path must fail even when a default-target binary exists.
     $env:CARGO_TARGET_DIR = Join-Path $testRoot 'missing-build'
     $failed = $false
     try { & (Join-Path $fixture 'scripts/build-windows.ps1') -SkipBuild | Out-Null } catch { $failed = $_.Exception.Message -like 'Build output not found:*' }
     if (-not $failed) { throw 'Missing custom target did not fail' }
-    Write-Output 'Windows packaging tests passed: default, relative, absolute, and missing target; stage/zip contents and licenses.'
+    Write-Output 'Windows packaging tests passed: default, relative, absolute, missing target and unsigned rejection; stage/zip contents and licenses.'
 } finally {
     $env:CARGO_TARGET_DIR = $previousTarget
     $env:OS = $previousOs

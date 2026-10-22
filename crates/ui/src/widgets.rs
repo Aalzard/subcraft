@@ -276,11 +276,20 @@ pub fn list_row_sense(ui: &mut Ui, selected: bool, sense: Sense, content: impl F
 
 /// Full-width list row with stable visible-order striping. Selection/hover take priority.
 pub fn striped_list_row(ui: &mut Ui, index: usize, selected: bool, sense: Sense, content: impl FnOnce(&mut Ui)) -> Response {
-    list_row_background(ui, selected, sense, Some(theme::ROW_BANDS[index % 2]), content)
+    striped_list_row_height(ui, index, selected, ROW_HEIGHT, sense, content)
+}
+
+/// A shared selection/hover contract with heights suited to material and effect rows.
+pub fn striped_list_row_height(ui: &mut Ui, index: usize, selected: bool, height: f32, sense: Sense, content: impl FnOnce(&mut Ui)) -> Response {
+    list_row_sized(ui, selected, sense, Some(theme::ROW_BANDS[index % 2]), height, content)
 }
 
 fn list_row_background(ui: &mut Ui, selected: bool, sense: Sense, band: Option<Color32>, content: impl FnOnce(&mut Ui)) -> Response {
-    let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), ROW_HEIGHT), sense);
+    list_row_sized(ui, selected, sense, band, ROW_HEIGHT, content)
+}
+
+fn list_row_sized(ui: &mut Ui, selected: bool, sense: Sense, band: Option<Color32>, height: f32, content: impl FnOnce(&mut Ui)) -> Response {
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), height), sense);
     let painter = ui.painter();
     if selected {
         painter.rect_filled(rect, CornerRadius::ZERO, ACCENT_SOFT);
@@ -298,6 +307,21 @@ fn list_row_background(ui: &mut Ui, selected: bool, sense: Sense, band: Option<C
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
+/// Fixed footer beneath a scrollable asset/layer list. Size is a UI preference, not document data.
+pub fn preview_size_footer(ui: &mut Ui, value: &mut u32, range: std::ops::RangeInclusive<u32>) -> Response {
+    *value = (*value).clamp(*range.start(), *range.end());
+    divider(ui);
+    egui::Frame::new().inner_margin(egui::Margin::symmetric(8, 3)).show(ui, |ui| {
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("Preview size").font(theme::font(10.5)).color(TEXT_DIM));
+            ui.spacing_mut().slider_width = (ui.available_width() - 36.0).clamp(36.0, 110.0);
+            let response = ui.add(egui::Slider::new(value, range).show_value(false));
+            ui.label(RichText::new(format!("{}", *value)).small().color(TEXT_FAINT));
+            response.on_hover_text("Preview size in UI points; texture resolution stays unchanged")
+        }).inner
+    }).inner
+}
+
 /// Text that is dim unless `strong`.
 pub fn row_text(text: &str, strong: bool) -> RichText {
     if strong { RichText::new(text).color(TEXT) } else { RichText::new(text).color(TEXT_DIM) }
@@ -311,4 +335,29 @@ pub fn empty_state(ui: &mut Ui, icon: &str, text: &str) {
         ui.add_space(4.0);
         ui.label(RichText::new(text).color(TEXT_FAINT));
     });
+}
+
+/// A card for one stacked block (a channel, a mask effect): lighter than the panel, with a visible
+/// border and room above it. Returns the card's response; paint the accent with [`card_accent`].
+pub fn card<R>(ui: &mut Ui, accent: egui::Color32, add: impl FnOnce(&mut Ui) -> R) -> egui::InnerResponse<R> {
+    ui.add_space(8.0);
+    let response = egui::Frame::new()
+        .fill(crate::theme::CARD)
+        .stroke(egui::Stroke::new(1.0, crate::theme::CARD_BORDER))
+        .corner_radius(3)
+        .inner_margin(egui::Margin { left: 14, right: 10, top: 8, bottom: 10 })
+        .show(ui, add);
+    card_accent(ui, response.response.rect, accent);
+    response
+}
+
+/// The coloured bar on a card's left edge.
+pub fn card_accent(ui: &Ui, rect: egui::Rect, color: egui::Color32) {
+    let bar = egui::Rect::from_min_max(rect.min, egui::pos2(rect.min.x + 4.0, rect.max.y));
+    ui.painter().rect_filled(bar, egui::CornerRadius { nw: 3, sw: 3, ne: 0, se: 0 }, color);
+}
+
+/// Header line of a card: name on the left, a thin rule under it.
+pub fn card_header_rule(ui: &mut Ui) {
+    ui.add(egui::Separator::default().spacing(6.0));
 }

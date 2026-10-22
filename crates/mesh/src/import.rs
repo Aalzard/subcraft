@@ -31,6 +31,15 @@ pub struct ImportReport {
 pub const SUPPORTED_EXTENSIONS: [&str; 4] = ["obj", "gltf", "glb", "fbx"];
 
 pub fn import_mesh(path: &Path) -> Result<ImportReport, ImportError> {
+    import(path, false)
+}
+
+/// Import a high-poly ray-cast source, accepting meshes without UV coordinates.
+pub fn import_mesh_for_baking(path: &Path) -> Result<ImportReport, ImportError> {
+    import(path, true)
+}
+
+fn import(path: &Path, bake_source: bool) -> Result<ImportReport, ImportError> {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
     let name = path.file_stem().and_then(|s| s.to_str()).unwrap_or("Mesh").to_string();
     let mut b = MeshBuilder::new(name);
@@ -38,14 +47,11 @@ pub fn import_mesh(path: &Path) -> Result<ImportReport, ImportError> {
     match ext.as_str() {
         "obj" => load_obj(path, &mut b, &mut warnings)?,
         "gltf" | "glb" => load_gltf(path, &mut b, &mut warnings)?,
-        #[cfg(not(target_arch = "wasm32"))]
         "fbx" => load_fbx(path, &mut b, &mut warnings)?,
-        #[cfg(target_arch = "wasm32")]
-        "fbx" => return Err(ImportError::Fbx("FBX isn't available in the web version; export the model as glTF / GLB or OBJ".into())),
         other => return Err(ImportError::UnsupportedFormat(other.to_string())),
     }
     let stats_pre = b.stats;
-    let mesh = b.build()?;
+    let mesh = if bake_source { b.build_for_baking()? } else { b.build()? };
     let mut stats = stats_pre;
     stats.generated_normals |= mesh.normals.is_empty();
     if stats.degenerate_dropped > 0 {
@@ -66,7 +72,7 @@ pub fn import_mesh(path: &Path) -> Result<ImportReport, ImportError> {
 
 fn load_obj(path: &Path, b: &mut MeshBuilder, warnings: &mut Vec<String>) -> Result<(), ImportError> {
     let opts = tobj::LoadOptions { triangulate: true, single_index: true, ignore_points: true, ignore_lines: true };
-    // Read through `vfs` (works in the browser too); `.mtl` files resolve next to the OBJ.
+    // Read through `vfs`; `.mtl` files resolve next to the OBJ.
     let bytes = subcraft_core::vfs::read(path).map_err(|e| ImportError::Obj(format!("{}: {e}", path.display())))?;
     let base = path.parent().map(Path::to_path_buf).unwrap_or_default();
     let (models, materials) = tobj::load_obj_buf(&mut std::io::Cursor::new(bytes), &opts, |mtl| {
@@ -109,10 +115,7 @@ fn load_obj(path: &Path, b: &mut MeshBuilder, warnings: &mut Vec<String>) -> Res
 }
 
 fn load_gltf(path: &Path, b: &mut MeshBuilder, warnings: &mut Vec<String>) -> Result<(), ImportError> {
-    #[cfg(not(target_arch = "wasm32"))]
     let (doc, buffers, _images) = gltf::import(path).map_err(|e| ImportError::Gltf(e.to_string()))?;
-    #[cfg(target_arch = "wasm32")]
-    let (doc, buffers) = gltf_from_vfs(path)?;
     let scene = doc.default_scene().or_else(|| doc.scenes().next());
     let roots: Vec<gltf::Node> = match &scene {
         Some(s) => s.nodes().collect(),
@@ -174,38 +177,6 @@ fn load_gltf(path: &Path, b: &mut MeshBuilder, warnings: &mut Vec<String>) -> Re
     Ok(())
 }
 
-/// glTF / GLB from uploaded files (web build): external `.bin` buffers are read next to the
-/// `.gltf`; images are not needed (materials are not imported).
-#[cfg(target_arch = "wasm32")]
-fn gltf_from_vfs(path: &Path) -> Result<(gltf::Document, Vec<gltf::buffer::Data>), ImportError> {
-    let err = |e: String| ImportError::Gltf(e);
-    let bytes = subcraft_core::vfs::read(path).map_err(|e| err(format!("{}: {e}", path.display())))?;
-    let gltf::Gltf { document, mut blob } = gltf::Gltf::from_slice(&bytes).map_err(|e| err(e.to_string()))?;
-    let base = path.parent().map(Path::to_path_buf).unwrap_or_default();
-    let mut buffers = Vec::new();
-    for b in document.buffers() {
-        let mut data = match b.source() {
-            gltf::buffer::Source::Bin => blob.take().ok_or_else(|| err("GLB binary chunk missing".into()))?,
-            gltf::buffer::Source::Uri(uri) if uri.starts_with("data:") => {
-                return Err(err("embedded (base64) .gltf files aren't supported in the web version; export as .glb".into()));
-            }
-            gltf::buffer::Source::Uri(uri) => {
-                let file = base.join(uri.replace("%20", " "));
-                subcraft_core::vfs::read(&file).map_err(|_| err(format!("{uri} is missing: upload it together with the .gltf, or export a .glb")))?
-            }
-        };
-        if data.len() < b.length() {
-            return Err(err(format!("buffer {} is shorter than declared", b.index())));
-        }
-        while data.len() % 4 != 0 {
-            data.push(0);
-        }
-        buffers.push(gltf::buffer::Data(data));
-    }
-    Ok((document, buffers))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 fn load_fbx(path: &Path, b: &mut MeshBuilder, warnings: &mut Vec<String>) -> Result<(), ImportError> {
     let opts = ufbx::LoadOpts {
         target_axes: ufbx::CoordinateAxes::right_handed_y_up(),
@@ -307,6 +278,22 @@ mod tests {
         let d = std::env::temp_dir().join(format!("subcraft-import-{}-{name}", std::process::id()));
         std::fs::create_dir_all(&d).unwrap();
         d
+    }
+
+    #[test]
+    fn high_poly_import_accepts_no_uvs_but_paint_import_still_requires_them() {
+        let dir = tmp("high-no-uv");
+        let path = dir.join("high.obj");
+        std::fs::write(&path, "v -1 0 -1\nv -1 0 1\nv 1 0.2 -1\nf 1 2 3\n").unwrap();
+        assert!(matches!(import_mesh(&path), Err(ImportError::Build(BuildError::NoUvs))));
+        let high = import_mesh_for_baking(&path).unwrap();
+        assert_eq!(high.mesh.triangle_count(), 1);
+        assert_eq!(high.stats.missing_uv_triangles, 1);
+        assert!(high.mesh.validate().is_empty());
+        assert!(high.mesh.normals.iter().all(|n| n.is_finite() && (n.length() - 1.).abs() < 1e-5));
+        let bvh = crate::Bvh::build(&high.mesh);
+        assert!(bvh.intersect(Vec3::new(-0.5, 1., -0.5), -Vec3::Y, 0., 2.).is_some());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

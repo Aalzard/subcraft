@@ -1,0 +1,7 @@
+*.subcraft
+*.zip
+models/
+bakes/
+textures/
+source/
+renders/CORE-07-in-app.png

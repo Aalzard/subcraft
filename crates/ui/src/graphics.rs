@@ -13,7 +13,6 @@ pub struct GraphicsUi {
     pub environment_override: bool,
 }
 impl GraphicsUi {
-    #[cfg(not(target_arch = "wasm32"))]
     pub fn load() -> Self {
         let path = GraphicsSettings::path();
         let result = path.as_ref().map(|p| GraphicsSettings::load(p)).unwrap_or_else(|| Ok(Default::default()));
@@ -34,9 +33,6 @@ pub fn controls(graphics: &mut GraphicsUi, ui: &mut egui::Ui) {
     use egui::RichText;
     ui.label(RichText::new("Graphics").font(crate::theme::font_strong(12.5)));
     if !graphics.active.is_empty() { ui.label(format!("Active API: {}", graphics.active)); }
-    #[cfg(target_arch = "wasm32")]
-    ui.label("The browser chooses the graphics API. Desktop API switching is available in the desktop app.");
-    #[cfg(not(target_arch = "wasm32"))]
     {
         let mut choice = graphics.selected;
         egui::ComboBox::from_id_salt("graphics-api").selected_text(choice.label()).show_ui(ui, |ui| {

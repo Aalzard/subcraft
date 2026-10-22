@@ -1,108 +1,202 @@
 name: Release
-
-# Publishing a GitHub Release (e.g. tag v0.2.0) builds the Windows installer, the Windows portable
-# zip and the Linux tarball, and attaches all three. Pull requests that touch the packaging only
-# build them, as artifacts. "Run workflow" with a tag (re)builds and attaches them to that
-# existing release.
 on:
   release:
     types: [published]
   workflow_dispatch:
     inputs:
       tag:
-        description: "Existing release tag to attach the builds to (e.g. v0.1.0); empty = artifacts only"
+        description: 'Existing release tag; empty builds unsigned test artifacts only'
         required: false
-        default: ""
+        default: ''
   pull_request:
-    paths:
-      - .github/workflows/release.yml
-      - scripts/build-windows.ps1
-      - scripts/build-installer.ps1
-      - scripts/build-linux.sh
-      - installer/**
-      - packaging/**
-      - apps/subcraft/**
-      - Cargo.toml
-      - Cargo.lock
-      - tests/packaging-windows.ps1
-
+    paths: ['.github/workflows/release.yml', 'scripts/**', 'installer/**', 'packaging/**', 'apps/subcraft/**', 'Cargo.toml', 'Cargo.lock', 'tests/*release*', 'tests/packaging-windows.ps1']
 permissions:
   contents: read
-
 env:
   CARGO_TERM_COLOR: always
-
+  RUST_VERSION: 1.98.0
+  CARGO_INCREMENTAL: '0'
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
+  CARGO_TARGET_DIR: ${{ github.workspace }}/target
+  PUBLISH: ${{ github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.tag != '') }}
 jobs:
-  windows:
-    name: Package (Windows)
-    runs-on: windows-latest
+  checks:
+    runs-on: windows-2025
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      # Inno Setup 6 is preinstalled on the Windows Server 2025 image; install it if that changes.
-      - name: Ensure Inno Setup 6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Test release scripts
         shell: pwsh
         run: |
-          $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
-          if (Test-Path $iscc) {
-            Write-Host "Found $iscc"
-          } else {
-            choco install innosetup --no-progress -y
-            if (-not (Test-Path $iscc)) { throw "Inno Setup install failed" }
+          ./tests/packaging-windows.ps1
+          ./tests/release-security.ps1
+          ./tests/release-workflow.ps1
+  windows:
+    if: github.event_name != 'pull_request'
+    needs: checks
+    runs-on: windows-2025
+    environment: release-signing
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          persist-credentials: false
+      - name: Validate release configuration
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+          AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          SIGNING_ENDPOINT: ${{ vars.SIGNING_ENDPOINT }}
+          SIGNING_ACCOUNT: ${{ vars.SIGNING_ACCOUNT }}
+          SIGNING_PROFILE: ${{ vars.SIGNING_PROFILE }}
+        run: |
+          $version = (Select-String '^version\s*=\s*"([^"]+)"' Cargo.toml | Select-Object -First 1).Matches[0].Groups[1].Value
+          if ($env:PUBLISH -eq 'true') {
+            if ($env:RELEASE_TAG -ne "v$version") { throw 'Release tag must match Cargo.toml version.' }
+            foreach ($key in 'AZURE_CLIENT_ID','AZURE_TENANT_ID','AZURE_SUBSCRIPTION_ID','SIGNING_ENDPOINT','SIGNING_ACCOUNT','SIGNING_PROFILE') {
+              if (-not [Environment]::GetEnvironmentVariable($key)) { throw "Signing configuration missing: $key. Publishing is blocked." }
+            }
           }
-      - name: Test Windows packaging paths
+          "SUBCRAFT_VERSION=$version" >> $env:GITHUB_ENV
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          components: clippy
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - name: Test and lint
         shell: pwsh
-        run: ./tests/packaging-windows.ps1
-      - name: Build exe, zip and installer
+        run: |
+          cargo test --workspace --locked
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cargo clippy --workspace --all-targets --locked
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Compile application
         shell: pwsh
-        run: ./scripts/build-installer.ps1
-      - uses: actions/upload-artifact@v4
+        run: |
+          cargo build --locked --profile dist -p subcraft --features windows-gui
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Azure login for signing
+        if: env.PUBLISH == 'true'
+        uses: Azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Sign application before packaging
+        if: env.PUBLISH == 'true'
+        uses: Azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2
+        with:
+          endpoint: ${{ vars.SIGNING_ENDPOINT }}
+          signing-account-name: ${{ vars.SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.SIGNING_PROFILE }}
+          files: ${{ github.workspace }}\target\dist\subcraft.exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+      - name: Package signed application
+        shell: pwsh
+        run: ./scripts/build-installer.ps1 -SkipBuild
+      - name: Sign installer
+        if: env.PUBLISH == 'true'
+        uses: Azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2
+        with:
+          endpoint: ${{ vars.SIGNING_ENDPOINT }}
+          signing-account-name: ${{ vars.SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.SIGNING_PROFILE }}
+          files: ${{ github.workspace }}\dist\SubCraft-${{ env.SUBCRAFT_VERSION }}-setup.exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+      - name: Scan final artifacts and verify signatures
+        shell: pwsh
+        run: ./scripts/test-release-windows.ps1 -Directory dist -Version $env:SUBCRAFT_VERSION -Commit (git rev-parse HEAD) -RequireSignature:($env:PUBLISH -eq 'true')
+      - name: Attest final Windows artifacts
+        if: env.PUBLISH == 'true'
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: |
+            dist/*.exe
+            dist/*.zip
+            dist/*.json
+            dist/*.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: SubCraft-windows-x64
           path: |
+            dist/*.exe
             dist/*.zip
-            dist/*-setup.exe
+            dist/*.json
+            dist/*.txt
           if-no-files-found: error
-
   linux:
-    name: Package (Linux)
-    # Built on the oldest supported Ubuntu so the binary's glibc requirement runs on newer distros.
+    if: github.event_name != 'pull_request'
+    needs: checks
     runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       - name: Build and package
         run: ./scripts/build-linux.sh
-      - name: Check the package
+      - name: Check Linux package
         run: |
-          tar -tzf dist/*.tar.gz | sort
           tar -xzf dist/*.tar.gz -C "$RUNNER_TEMP"
-          file "$RUNNER_TEMP"/SubCraft-*/subcraft
           "$RUNNER_TEMP"/SubCraft-*/subcraft --help
-      - uses: actions/upload-artifact@v4
+      - name: Checksums
+        shell: pwsh
+        run: ./scripts/write-release-checksums.ps1 -Directory dist
+      - name: Attest final Linux artifacts
+        if: env.PUBLISH == 'true'
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: |
+            dist/*.tar.gz
+            dist/SHA256SUMS.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: SubCraft-linux-x86_64
-          path: dist/*.tar.gz
+          path: |
+            dist/*.tar.gz
+            dist/SHA256SUMS.txt
           if-no-files-found: error
-
   publish:
-    name: Attach to release
     if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.tag != '')
     needs: [windows, linux]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
+    environment: release-publish
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          ref: ${{ inputs.tag || github.ref }}
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: SubCraft-*
           path: dist
           merge-multiple: true
-      - name: Upload builds to the release
+      - name: Combined final checksums
+        shell: pwsh
+        run: ./scripts/write-release-checksums.ps1 -Directory dist
+      - name: Publish verified packages without replacing existing assets
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.event.release.tag_name || inputs.tag }}
-        run: |
-          ls -l dist
-          gh release upload "$TAG" dist/*-setup.exe dist/*.zip dist/*.tar.gz --clobber --repo "${{ github.repository }}"
+        run: gh release upload "$TAG" dist/*-setup.exe dist/*.zip dist/*.tar.gz dist/SHA256SUMS.txt dist/release-security-windows.json dist/*.defender.txt --repo "${{ github.repository }}"

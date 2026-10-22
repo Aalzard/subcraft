@@ -126,6 +126,77 @@ fn levels_adjusts_one_channel_and_keeps_coverage() {
     assert_eq!(composite_full(&ts, &fx.ctx()).channel(ChannelKind::Normal).cloned(), n0);
 }
 
+#[test]
+fn point_filters_match_gradient_goldens_across_tiles_and_preserve_paint_coverage() {
+    use subcraft_doc::Filter;
+    let fx = Fixture::plane(); let mut ts = TextureSet::new("T", 0, RES); let tc = ts.clone();
+    let mut layer = Layer::new_paint("Filter input", &tc);
+    let LayerContent::Paint(paint) = &mut layer.content else { unreachable!() };
+    for y in 0..RES/2 { for x in 0..RES {
+        paint.channel_mut(C, RES).set(x, y, [x as f32 / 128.0, 0.0, 0.0, 0.5]);
+    } }
+    let original = layer.content.clone(); let id = ts.insert_above(None, layer);
+    for filter in [Filter::Contrast { gain: 2.0, pivot: 0.5 }, Filter::Hsl { hue: 120.0, saturation: 1.0, lightness: 0.0 },
+        Filter::Threshold { cutoff: 0.1 }, Filter::Clamp { low: 0.1, high: 0.6 }] {
+        ts.find_mut(id).unwrap().content_effects = vec![Arc::new(ContentEffect::new(ContentEffectKind::Filter { channel: C, filter }, &tc))];
+        let image = composite_full(&ts, &fx.ctx());
+        for y in [10, 63, 64, 100] { for x in 0..RES {
+            let v = x as f32 / 128.0;
+            let transformed = match filter {
+                Filter::Contrast { .. } => [(2.0*v-0.5).clamp(0.0,1.0), 0.0, 0.0],
+                Filter::Hsl { .. } => [0.0, v, 0.0],
+                Filter::Threshold { .. } => [if v*0.2126 >= 0.1 {1.0} else {0.0}; 3],
+                Filter::Clamp { .. } => [v.clamp(0.1,0.6), 0.1, 0.1],
+                Filter::Blur { .. } | Filter::Sharpen { .. } | Filter::DirectionalBlur {..} | Filter::Highpass {..} | Filter::Bevel {..} | Filter::MaskOutline {..} => unreachable!("neighborhood goldens are in spatial.rs"),
+            };
+            let actual = image.channel(C).unwrap().get(x,y);
+            for k in 0..3 { let expected = if y < RES/2 { 0.25 + 0.5*transformed[k] } else { 0.5 };
+                assert!(close(actual[k], expected), "{filter:?} at {x},{y}: {actual:?} expected {expected}"); }
+            assert!(close(image.channel(R).unwrap().get(x,y)[0], 0.3));
+        } }
+        assert_eq!(ts.find(id).unwrap().content, original, "filters never rewrite the input raster");
+    }
+}
+
+#[test]
+fn mask_filters_consume_the_previous_stage_and_obey_order_opacity_and_disable() {
+    use subcraft_doc::Filter;
+    let fx = Fixture::plane(); let mut ts = TextureSet::new("T", 0, RES); let tc = ts.clone();
+    let mut layer = fill_layer(&tc, 1.0); let mut mask = Mask::new(RES, false);
+    mask.base.set(63, 10, [0.4; 4]); mask.base.set(64, 10, [0.6; 4]);
+    let base = mask.base.clone();
+    let mut contrast = MaskEffect::new(MaskEffectKind::Filter(Filter::Contrast { gain: 2.0, pivot: 0.5 }));
+    contrast.opacity = 0.5; mask.effects.push(Arc::new(contrast));
+    layer.mask = Some(mask); let id = ts.insert_above(None, layer);
+    assert!(close(get(&ts, &fx, R, 63,10)[0], 0.3+0.7*0.35));
+    assert!(close(get(&ts, &fx, R, 64,10)[0], 0.3+0.7*0.65));
+    let effect = Arc::new(MaskEffect::new(MaskEffectKind::Filter(Filter::Clamp { low: 0.2, high: 0.6 })));
+    let threshold = Arc::new(MaskEffect::new(MaskEffectKind::Filter(Filter::Threshold { cutoff: 0.65 })));
+    ts.find_mut(id).unwrap().mask.as_mut().unwrap().effects = vec![effect.clone(), threshold.clone()];
+    assert!(close(get(&ts,&fx,R,64,10)[0],0.3));
+    ts.find_mut(id).unwrap().mask.as_mut().unwrap().effects = vec![threshold, effect];
+    assert!(close(get(&ts,&fx,R,64,10)[0],0.3+0.7*0.2));
+    for e in &mut ts.find_mut(id).unwrap().mask.as_mut().unwrap().effects { Arc::make_mut(e).visible=false; }
+    assert!(close(get(&ts,&fx,R,64,10)[0],0.3+0.7*0.6));
+    assert_eq!(ts.find(id).unwrap().mask.as_ref().unwrap().base, base);
+}
+
+#[test]
+fn folder_filters_adjust_isolated_children_or_passthrough_accumulation_before_opacity() {
+    use subcraft_doc::Filter;
+    let fx = Fixture::plane(); let mut ts = TextureSet::new("T", 0, RES); let tc = ts.clone();
+    ts.insert_above(None, fill_layer(&tc,0.2));
+    let mut folder = Layer::new_folder("Adjustment", &tc);
+    folder.content_effects.push(Arc::new(ContentEffect::new(ContentEffectKind::Filter { channel:R,
+        filter:Filter::Contrast {gain:2.0,pivot:0.5} }, &tc)));
+    folder.blend.get_mut(&R).unwrap().opacity=0.5;
+    let id = ts.insert_above(None,folder);
+    assert!(close(get(&ts,&fx,R,10,10)[0],0.1), "empty passthrough folder adjusts the accumulation below");
+    ts.find_mut(id).unwrap().blend.get_mut(&R).unwrap().mode=BlendMode::Normal;
+    ts.insert(Some(id),0,fill_layer(&tc,0.4)).unwrap();
+    assert!(close(get(&ts,&fx,R,10,10)[0],0.25), "isolated child 0.4 -> 0.3, mixed halfway over 0.2");
+}
+
 /// Stack order is bottom to top: Fill then Levels differs from Levels then Fill.
 #[test]
 fn effect_order_is_bottom_to_top() {
@@ -156,6 +227,10 @@ fn effect_rasters_are_diffed_per_tile_and_undo_is_exact() {
     let l = ts.find_mut(id).unwrap();
     l.mask = Some(mask);
     l.content_effects.push(Arc::new(paint_effect(&tc, R, IRect::new(0, 0, 1, 1), [0.9; 3])));
+    l.content_effects.push(Arc::new(ContentEffect::new(ContentEffectKind::Filter { channel: R,
+        filter: subcraft_doc::Filter::Threshold { cutoff: 0.5 } }, &tc)));
+    l.mask.as_mut().unwrap().effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Filter(
+        subcraft_doc::Filter::Clamp { low: 0.0, high: 1.0 }))));
     let mut cache = CompositeCache::new();
     assert_eq!(cache.update(&ts, &fx.ctx()), vec![0, 1, 2, 3]);
     let before = ts.clone();
@@ -166,7 +241,7 @@ fn effect_rasters_are_diffed_per_tile_and_undo_is_exact() {
     let ContentEffectKind::Paint { channels } = &mut Arc::make_mut(&mut l.content_effects[0]).kind else { unreachable!() };
     rect(channels.get_mut(&R).unwrap(), R, IRect::new(70, 70, 72, 72), [0.9; 3], 1.0);
     assert_eq!(cache.update(&ts, &fx.ctx()), vec![3]);
-    assert!(close(cache.composite().unwrap().channel(R).unwrap().get(71, 71)[0], 0.9));
+    assert!(close(cache.composite().unwrap().channel(R).unwrap().get(71, 71)[0], 1.0));
 
     // First stroke into another channel of the effect is still incremental.
     let l = ts.find_mut(id).unwrap();
@@ -206,7 +281,7 @@ fn content_preview_includes_effects() {
     let layer = ts.find(id).unwrap().clone();
     let ctx = fx.ctx();
     let geo = ctx.geometry.tile(0);
-    let tile = TileContext { geo: &geo, set_geometry: ctx.geometry, sample: SampleContext { resources: ctx.resources, mesh_maps: ctx.mesh_maps } };
+    let tile = TileContext { albedo_filter: ts.albedo_filter, geo: &geo, set_geometry: ctx.geometry, sample: SampleContext { resources: ctx.resources, mesh_maps: ctx.mesh_maps } };
     let px = preview_content(&layer, R, &tile);
     assert!(px.iter().all(|p| close(p[0], 0.6) && close(p[3], 1.0)));
 }

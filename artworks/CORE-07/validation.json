@@ -1,0 +1,14 @@
+{
+  "all_channels_finite": true,
+  "ao_samples": 64,
+  "baked_maps": 7,
+  "elapsed_seconds": 124.19638061523438,
+  "high_triangles": 442368,
+  "layers": 11,
+  "low_triangles": 3072,
+  "max_normal_length_error": 0.0008016824722290039,
+  "normal_detail_samples": 354770,
+  "resolution": 4096,
+  "save_reopen": "exact document and texel equality",
+  "surface_samples": 2263204
+}

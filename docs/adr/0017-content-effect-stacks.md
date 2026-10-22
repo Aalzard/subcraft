@@ -42,6 +42,10 @@ must receive the brush — including on fill layers.
 
 ## Consequences
 
+Session 85 / ADR-0029 extends this contract: local Filter/Levels adjustments now work on folders,
+with explicit isolated/passthrough stages. Folder Paint/Fill sources remain rejected; neighborhood
+filters still require the general stage/halo graph. Persistence is now schema 9.
+
 * New content-effect kinds add a `ContentEffectKind` variant, its kernel in the compositor,
   its schema variant and its Properties editor. Kernels that need neighbors (blur, bevel…) must
   wait for the stage graph; they must not be faked inside one 64px tile.

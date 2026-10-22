@@ -72,9 +72,14 @@ pub struct TextureSet {
     /// Index of the mesh material slot this texture set paints.
     pub material_slot: u32,
     pub resolution: u32,
+    /// Base Color bitmap reconstruction, used for compositing, painting and display.
+    pub albedo_filter: subcraft_image::TextureFilter,
     pub channels: Vec<ChannelDef>,
     /// Bottom-to-top.
     pub layers: Vec<Arc<Layer>>,
+    /// The UDIM tile (`[column, row]` in stored UV space, see `subcraft_mesh::regroup`) this set
+    /// paints; `None` for an ordinary set. Its mesh slot was moved into the 0..1 square.
+    pub udim_tile: Option<[i32; 2]>,
 }
 
 impl TextureSet {
@@ -84,8 +89,23 @@ impl TextureSet {
             name: name.into(),
             material_slot,
             resolution,
+            albedo_filter: Default::default(),
             channels: ChannelKind::METAL_ROUGH.iter().map(|&k| ChannelDef::default_for(k)).collect(),
             layers: Vec::new(),
+            udim_tile: None,
+        }
+    }
+
+    /// The 1001-style UDIM number of this set's tile.
+    pub fn udim_number(&self) -> Option<u32> {
+        self.udim_tile.map(|[col, row]| (1001 + col - 10 * row).max(0) as u32)
+    }
+
+    /// The name without a trailing `.1002` tile suffix (what exported file names start with).
+    pub fn base_name(&self) -> &str {
+        match (self.udim_number(), self.name.rsplit_once('.')) {
+            (Some(_), Some((base, tail))) if tail.len() == 4 && tail.bytes().all(|b| b.is_ascii_digit()) => base,
+            _ => &self.name,
         }
     }
 
@@ -100,8 +120,10 @@ impl TextureSet {
             return;
         }
         self.resolution = resolution;
+        let filter = self.albedo_filter;
         for layer in &mut self.layers {
-            Arc::make_mut(layer).map_rasters(&|img| img.resampled(resolution, resolution));
+            Arc::make_mut(layer).map_channel_rasters(&|kind, img| img.resampled_filtered(resolution, resolution,
+                if kind == Some(ChannelKind::BaseColor) { filter } else { subcraft_image::TextureFilter::Bilinear }));
         }
     }
 
@@ -278,6 +300,25 @@ mod tests {
 
     fn ts() -> TextureSet {
         TextureSet::new("Body", 0, 256)
+    }
+
+    #[test]
+    fn nearest_resolution_changes_preserve_only_albedo_raster_edges() {
+        use crate::{Layer, LayerContent};
+        use subcraft_image::{TextureFilter, TiledImage};
+        let mut set = TextureSet::new("T", 0, 2);
+        set.albedo_filter = TextureFilter::Nearest;
+        let mut layer = Layer::new_paint("P", &set);
+        if let LayerContent::Paint(p) = &mut layer.content {
+            let mut base = TiledImage::new(2, 2, 4, [0., 0., 0., 1.]); base.set(1, 0, [1.; 4]); base.set(1, 1, [1.; 4]);
+            let mut rough = TiledImage::new(2, 2, 2, [0., 1., 0., 0.]); rough.set(1, 0, [1.; 4]); rough.set(1, 1, [1.; 4]);
+            p.channels.insert(ChannelKind::BaseColor, base); p.channels.insert(ChannelKind::Roughness, rough);
+        }
+        set.insert_above(None, layer); set.set_resolution(4);
+        let LayerContent::Paint(p) = &set.layers[0].content else { panic!() };
+        assert_eq!(p.channels[&ChannelKind::BaseColor].get(1, 1)[0], 0.);
+        assert_eq!(p.channels[&ChannelKind::BaseColor].get(2, 1)[0], 1.);
+        assert_eq!(p.channels[&ChannelKind::Roughness].get(1, 1)[0], 0.25);
     }
 
     #[test]

@@ -35,14 +35,11 @@ const LOCK_FILE: &str = "running.lock";
 const PREFIX: &str = "autosave-";
 
 /// SubCraft's per-user data folder: `$SUBCRAFT_DATA`, else the platform's local data folder
-/// (`%LOCALAPPDATA%\SubCraft` on Windows). `None` in the browser.
+/// (`%LOCALAPPDATA%\SubCraft` on Windows).
 pub fn data_dir() -> Option<PathBuf> {
     if let Some(v) = std::env::var_os(DATA_DIR_ENV).filter(|v| !v.is_empty()) {
         return Some(PathBuf::from(v));
     }
-    #[cfg(target_arch = "wasm32")]
-    return None;
-    #[cfg(not(target_arch = "wasm32"))]
     dirs::data_local_dir().map(|d| d.join("SubCraft"))
 }
 
@@ -85,7 +82,7 @@ impl RecoveryStore {
         Self { root: root.into() }
     }
 
-    /// `<data dir>/recovery`, or `None` when there is no data folder (web).
+    /// `<data dir>/recovery`, or `None` when there is no data folder.
     pub fn default_store() -> Option<Self> {
         data_dir().map(|d| Self::new(d.join("recovery")))
     }

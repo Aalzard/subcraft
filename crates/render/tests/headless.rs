@@ -9,10 +9,151 @@ use subcraft_render::{ViewMode, ViewParams, ViewportRenderer, headless};
 
 const SIZE: u32 = 192;
 
+// Concurrent DX12 device creation/readback can stall the driver. Keep CPU assertions and
+// production rendering unchanged; these tests each own a complete device until teardown.
+fn gpu_test() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+#[test]
+fn symmetry_surface_lines_are_red_and_hiding_them_restores_the_exact_material() {
+    let _gpu = gpu_test();
+    let Some((_, device, queue)) = headless::device() else { eprintln!("no adapter: skipping"); return };
+    let mut r = ViewportRenderer::new(&device, &queue);
+    r.set_mesh(&device, &primitives::cube(2.));
+    r.upload_channel(&device, &queue, 0, ChannelKind::BaseColor, &solid(4, [0.2, 0.2, 0.2, 1.]), None);
+    let mut p = params(); let baseline = r.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+    r.set_symmetry_guides(&device, &[[Vec3::new(0., -1., 1.), Vec3::new(0., 1., 1.)]]);
+    p.symmetry_guides = true;
+    let guides = r.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+    let red = guides.as_chunks::<4>().0.iter().zip(baseline.as_chunks::<4>().0).filter(|(a, b)| a[0] > a[1].saturating_add(50) && a != b).count();
+    assert!(red > 40, "visible red surface guide: {red}");
+    p.symmetry_guides = false;
+    assert_eq!(r.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue), baseline);
+    p.symmetry_guides = true; r.set_symmetry_guides(&device, &[]);
+    assert_eq!(r.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue), baseline);
+}
+
+#[test]
+fn bake_overlay_compares_depth_and_raw_maps_preserve_materials() {
+    let _gpu = gpu_test();
+    use subcraft_core::MeshMapKind;
+    let Some((_, device, queue)) = headless::device() else { eprintln!("no adapter: skipping"); return };
+    let low = primitives::cube(2.);
+    let mut renderer = ViewportRenderer::new(&device, &queue);
+    renderer.set_mesh(&device, &low);
+    renderer.upload_channel(&device, &queue, 0, ChannelKind::BaseColor, &solid(4, [0.1, 0.6, 0.1, 1.]), None);
+    let mut p = params(); p.antialias = false;
+    let material = renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+    p.bake_overlay = true; p.bake_cage = false;
+    for (size, blue) in [(2.2, true), (1.8, false), (2.2, true)] {
+        renderer.set_bake_preview(&device, Some((&low, &primitives::cube(size))));
+        let img = renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+        let c = px(&img, SIZE / 2, SIZE / 2);
+        assert!(if blue { c[2] > c[0] * 2 } else { c[0] > c[2] * 2 }, "depth comparison {size}: {c:?}");
+    }
+    p.bake_cage = true; p.bake_distances = [0.08, 0.02];
+    let cage = renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+    p.bake_cage = false;
+    let no_cage = renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+    assert!(diff(&cage, &no_cage) > 100, "front cage is visible above high poly");
+    p.bake_overlay = false;
+    assert_eq!(renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue), material);
+    for (kind, comps, value, expected) in [
+        (MeshMapKind::Normal, 3, [0.5, 0.25, 1., 0.], [128u8, 64, 255]),
+        (MeshMapKind::AmbientOcclusion, 1, [0.25; 4], [64u8; 3]),
+    ] {
+        renderer.upload_mesh_map(&device, &queue, 0, kind, &solid(comps, value));
+        p.bake_map = Some(kind);
+        let img = renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+        let c = px(&img, SIZE / 2, SIZE / 2);
+        for k in 0..3 { assert!(c[k].abs_diff(expected[k]) <= 1, "{kind:?}: {c:?}"); }
+    }
+    p.bake_map = None;
+    assert_eq!(renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue), material);
+    renderer.set_bake_preview(&device, None);
+    p.antialias = true; p.bake_overlay = true;
+    let blank = renderer.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+    assert_eq!(px(&blank, SIZE / 2, SIZE / 2), px(&blank, 2, 2));
+}
+
+#[test]
+fn albedo_filter_preserves_nearest_palette_and_bilinear_values_without_affecting_data() {
+    let _gpu = gpu_test();
+    use subcraft_image::TextureFilter;
+    let Some((_, device, queue)) = headless::device() else { eprintln!("no adapter: skipping"); return };
+    let mut r = ViewportRenderer::new(&device, &queue);
+    r.set_mesh(&device, &primitives::plane(2., 1));
+    let mut base = TiledImage::new(2, 2, 4, [0., 0., 0., 1.]);
+    base.set(1, 0, [1.; 4]);
+    base.set(1, 1, [1.; 4]);
+    r.upload_channel(&device, &queue, 0, ChannelKind::BaseColor, &base, None);
+    let mut p = ViewParams::new(Mat4::look_at_rh(Vec3::new(0., 3., 0.), Vec3::ZERO, Vec3::NEG_Z), Mat4::orthographic_rh(-1., 1., -1., 1., 0.1, 10.));
+    p.antialias = false; p.view_mode = ViewMode::BaseColor;
+    let bilinear = r.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+    r.set_albedo_filter(0, TextureFilter::Nearest);
+    let nearest = r.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+    for y in 8..SIZE - 8 { for x in 8..SIZE - 8 {
+        let value = px(&nearest, x, y)[0];
+        assert!(value <= 1 || value >= 254, "nearest invented a gray value at {x},{y}: {value}");
+    }}
+    assert_eq!(px(&nearest, 80, 96)[0], 0);
+    assert_eq!(px(&nearest, 112, 96)[0], 255);
+    let expected = (subcraft_core::color::linear_to_srgb((80.5 / SIZE as f32) * 2. - 0.5) * 255.).round() as u8;
+    assert!(px(&bilinear, 80, 96)[0].abs_diff(expected) <= 2, "bilinear must interpolate in linear color");
+    assert!(diff(&bilinear, &nearest) > 4000);
+    p.view_mode = ViewMode::Material;
+    let shaded_nearest = r.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+    r.set_albedo_filter(0, TextureFilter::Bilinear);
+    let shaded_linear = r.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+    assert!(diff(&shaded_linear, &shaded_nearest) > 4000, "material view honors the same filter");
+    p.view_mode = ViewMode::BaseColor;
+    assert_eq!(r.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue), bilinear);
+    for mode in [ViewMode::Normal, ViewMode::Roughness, ViewMode::Metallic, ViewMode::Height, ViewMode::AmbientOcclusion] {
+        p.view_mode = mode;
+        let linear = r.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+        r.set_albedo_filter(0, TextureFilter::Nearest);
+        assert_eq!(r.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue), linear, "{mode:?} changed");
+        r.set_albedo_filter(0, TextureFilter::Bilinear);
+    }
+    r.set_albedo_filter(1, TextureFilter::Nearest); p.view_mode = ViewMode::BaseColor;
+    assert_eq!(r.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue), bilinear, "sets have independent filters");
+}
+
 fn params() -> ViewParams {
     let view = Mat4::look_at_rh(Vec3::new(3.0, 2.5, 4.0), Vec3::ZERO, Vec3::Y);
     let proj = Mat4::perspective_rh(45f32.to_radians(), 1.0, 0.1, 100.0);
     ViewParams::new(view, proj)
+}
+
+#[test]
+fn minified_detail_averages_without_aliasing_and_nearest_keeps_original_pixels() {
+    let _gpu = gpu_test();
+    let Some((_, device, queue)) = headless::device() else { eprintln!("no adapter: skipping"); return; };
+    let mut r = ViewportRenderer::new(&device, &queue);
+    r.set_mesh(&device, &primitives::plane(2., 1));
+    let mut checker = TiledImage::new(1024, 1024, 4, [0., 0., 0., 1.]);
+    for y in 0..1024 { for x in 0..1024 { if (x + y) % 2 == 0 { checker.set(x, y, [1.; 4]); } } }
+    let before = checker.clone();
+    r.upload_channel(&device, &queue, 0, ChannelKind::BaseColor, &checker, None);
+    let mut p = ViewParams::new(Mat4::look_at_rh(Vec3::new(0., 3., 0.), Vec3::ZERO, Vec3::NEG_Z), Mat4::orthographic_rh(-1., 1., -1., 1., 0.1, 10.));
+    p.antialias = false; p.view_mode = ViewMode::BaseColor;
+    let expected = (subcraft_core::color::linear_to_srgb(0.5) * 255.).round() as u8;
+    for offset in [0., 0.0003, 0.0008] {
+        p.view = Mat4::look_at_rh(Vec3::new(offset, 3., 0.), Vec3::new(offset, 0., 0.), Vec3::NEG_Z);
+        let image = r.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+        for y in 8..SIZE-8 { for x in 8..SIZE-8 { assert!(px(&image, x, y)[0].abs_diff(expected) <= 1, "minified checker aliases at {x},{y}"); } }
+    }
+    r.set_albedo_filter(0, subcraft_image::TextureFilter::Nearest);
+    let image = r.render(&device, &queue, [SIZE, SIZE], &p).read_rgba8(&device, &queue);
+    let mut black = 0; let mut white = 0;
+    for y in 8..SIZE-8 { for x in 8..SIZE-8 {
+        let v = px(&image, x, y)[0]; assert!(v <= 1 || v >= 254, "nearest was mip-filtered: {v}");
+        if v <= 1 { black += 1; } else { white += 1; }
+    } }
+    assert!(black > 1000 && white > 1000);
+    assert_eq!(checker, before, "viewport filtering changed authoritative texels");
 }
 
 fn solid(comps: usize, v: [f32; 4]) -> TiledImage {
@@ -32,6 +173,7 @@ fn save(name: &str, img: &[u8]) {
 
 #[test]
 fn renders_textured_cube_and_partial_uploads_match_full() {
+    let _gpu = gpu_test();
     let Some((adapter, device, queue)) = headless::device() else {
         eprintln!("no wgpu adapter available: skipping");
         return;
@@ -78,6 +220,7 @@ fn renders_textured_cube_and_partial_uploads_match_full() {
 /// equal uploading every tile with the same texels.
 #[test]
 fn sparse_full_upload_matches_a_dense_one() {
+    let _gpu = gpu_test();
     let Some((_, device, queue)) = headless::device() else {
         eprintln!("no wgpu adapter available: skipping");
         return;
@@ -116,6 +259,7 @@ fn sparse_full_upload_matches_a_dense_one() {
 
 #[test]
 fn empty_scene_is_background_and_resizes() {
+    let _gpu = gpu_test();
     let Some((_, device, queue)) = headless::device() else {
         eprintln!("no wgpu adapter available: skipping");
         return;
@@ -144,6 +288,7 @@ fn diff(a: &[u8], b: &[u8]) -> usize {
 
 #[test]
 fn view_modes_show_one_channel_unlit_and_antialiasing_can_be_off() {
+    let _gpu = gpu_test();
     let Some((_, device, queue)) = headless::device() else {
         eprintln!("no wgpu adapter available: skipping");
         return;
@@ -173,6 +318,7 @@ fn view_modes_show_one_channel_unlit_and_antialiasing_can_be_off() {
 
 #[test]
 fn height_bumps_and_metallic_change_shading() {
+    let _gpu = gpu_test();
     let Some((_, device, queue)) = headless::device() else {
         eprintln!("no wgpu adapter available: skipping");
         return;
@@ -209,6 +355,7 @@ fn height_bumps_and_metallic_change_shading() {
 /// Visual check: a sphere whose roughness rises left→right (top half dielectric, bottom metal).
 #[test]
 fn roughness_gradient_sphere_shows_sharp_to_blurry_reflections() {
+    let _gpu = gpu_test();
     let Some((_, device, queue)) = headless::device() else {
         eprintln!("no wgpu adapter available: skipping");
         return;
@@ -241,6 +388,7 @@ fn roughness_gradient_sphere_shows_sharp_to_blurry_reflections() {
 
 #[test]
 fn every_mesh_map_layout_uploads_and_previews() {
+    let _gpu = gpu_test();
     let Some((_, device, queue)) = headless::device() else {
         eprintln!("no wgpu adapter available: skipping");
         return;
@@ -264,6 +412,7 @@ fn every_mesh_map_layout_uploads_and_previews() {
 
 #[test]
 fn hdri_environment_shows_in_reflections() {
+    let _gpu = gpu_test();
     let Some((_, device, queue)) = headless::device() else {
         eprintln!("no wgpu adapter available: skipping");
         return;

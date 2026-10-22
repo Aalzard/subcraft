@@ -8,11 +8,12 @@ pub mod starter;
 pub mod environment;
 pub mod presets;
 pub mod smart;
+mod smart_more;
 pub mod texture_maps;
 pub mod user_library;
 
 pub use alphas::BrushAlpha;
-pub use environment::{Environment, EnvironmentSource, HdriLevel, PrefilteredHdri, ProceduralEnv};
+pub use environment::{EmbeddedHdri, Environment, EnvironmentSource, HdriLevel, PrefilteredHdri, ProceduralEnv};
 pub use presets::{MaterialPreset, SmartMask};
 pub use smart::SmartMaterial;
 pub use user_library::{UserAssetKind, UserLibrary};

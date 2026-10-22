@@ -1,6 +1,7 @@
 pub mod brush;
 pub mod brush_material;
 pub mod effects;
+pub mod filter;
 pub mod history;
 pub mod layers;
 pub mod mask;

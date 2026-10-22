@@ -17,6 +17,8 @@ struct Globals {
     // x: environment rotation (radians), y: HDRI intensity, z: last prefiltered mip level,
     // w: view mode (0 material, 1 base color, 2 normal, 3 roughness, 4 metallic, 5 height, 6 AO)
     env_misc: vec4<f32>,
+    // x: tone map (0 ACES, 1 Filmic, 2 Reinhard, 3 Linear)
+    post: vec4<f32>,
     sh: array<vec4<f32>, 9>,
 };
 
@@ -31,6 +33,7 @@ struct Globals {
 @group(1) @binding(5) var t_emissive: texture_2d<f32>;
 @group(1) @binding(6) var t_height: texture_2d<f32>;
 @group(1) @binding(7) var t_ao: texture_2d<f32>;
+@group(1) @binding(8) var albedo_samp: sampler;
 
 struct VsIn {
     @location(0) pos: vec3<f32>,
@@ -161,6 +164,23 @@ fn aces(x: vec3<f32>) -> vec3<f32> {
     return clamp((x * (a * x + b)) / (x * (c * x + d) + e), vec3<f32>(0.0), vec3<f32>(1.0));
 }
 
+fn hable(x: vec3<f32>) -> vec3<f32> {
+    let a = 0.15; let b = 0.50; let c = 0.10; let d = 0.20; let e = 0.02; let f = 0.30;
+    return ((x * (a * x + c * b) + d * e) / (x * (a * x + b) + d * f)) - e / f;
+}
+
+fn tonemap(color: vec3<f32>, mode: i32) -> vec3<f32> {
+    switch mode {
+        case 1: {
+            let white = hable(vec3<f32>(11.2));
+            return clamp(hable(color * 2.0) / white, vec3<f32>(0.0), vec3<f32>(1.0));
+        }
+        case 2: { return clamp(color / (color + vec3<f32>(1.0)), vec3<f32>(0.0), vec3<f32>(1.0)); }
+        case 3: { return clamp(color, vec3<f32>(0.0), vec3<f32>(1.0)); }
+        default: { return aces(color); }
+    }
+}
+
 // Data value shown as stored: pre-linearized so the sRGB target encodes it back to `c`.
 fn as_stored(c: vec3<f32>) -> vec4<f32> {
     let v = clamp(c, vec3<f32>(0.0), vec3<f32>(1.0));
@@ -172,11 +192,13 @@ fn as_stored(c: vec3<f32>) -> vec4<f32> {
 // Single-channel view modes: the channel unlit, as the 2D view shows it.
 fn channel_view(mode: i32, uv: vec2<f32>) -> vec4<f32> {
     switch mode {
-        case 1: { return vec4<f32>(textureSample(t_base, samp, uv).rgb, 1.0); }
+        case 1: { return vec4<f32>(textureSample(t_base, albedo_samp, uv).rgb, 1.0); }
         case 2: { return as_stored(textureSample(t_normal, samp, uv).rgb); }
         case 3: { return as_stored(vec3<f32>(textureSample(t_rough, samp, uv).r)); }
         case 4: { return as_stored(vec3<f32>(textureSample(t_metal, samp, uv).r)); }
         case 5: { return as_stored(vec3<f32>(textureSample(t_height, samp, uv).r)); }
+        case 7: { return as_stored(textureSample(t_base, samp, uv).rgb); }
+        case 8: { return as_stored(vec3<f32>(textureSample(t_base, samp, uv).r)); }
         default: { return as_stored(vec3<f32>(textureSample(t_ao, samp, uv).r)); }
     }
 }
@@ -187,7 +209,7 @@ fn fs_main(in: VsOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f
     if (mode > 0) {
         return channel_view(mode, in.uv);
     }
-    let base = textureSample(t_base, samp, in.uv).rgb;
+    let base = textureSample(t_base, albedo_samp, in.uv).rgb;
     let rough = clamp(textureSample(t_rough, samp, in.uv).r, 0.04, 1.0);
     let metal = clamp(textureSample(t_metal, samp, in.uv).r, 0.0, 1.0);
     let ntex = textureSample(t_normal, samp, in.uv).rgb * 2.0 - 1.0;
@@ -245,5 +267,12 @@ fn fs_main(in: VsOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f
     let ambient = (diffuse * irradiance(n) + env_brdf(f0, rough, nov) * env_spec) * g.params.y * ao;
 
     let color = (direct + ambient + emissive) * g.params.x;
-    return vec4<f32>(aces(color), 1.0);
+    return vec4<f32>(tonemap(color, i32(round(g.post.x))), 1.0);
+}
+
+// Emission only, in linear HDR: feeds the glow and glare passes of the viewport.
+@fragment
+fn fs_emissive(in: VsOut) -> @location(0) vec4<f32> {
+    let e = textureSample(t_emissive, samp, in.uv).rgb * g.params.x;
+    return vec4<f32>(e, 1.0);
 }

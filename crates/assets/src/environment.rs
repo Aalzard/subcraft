@@ -67,10 +67,46 @@ pub struct PrefilteredHdri {
     pub sun_color: [f32; 3],
 }
 
+/// A bundled HDRI: the 1024x512 Radiance file is part of the binary and is decoded and
+/// prefiltered the first time the environment is shown or selected.
+pub struct EmbeddedHdri {
+    name: &'static str,
+    bytes: &'static [u8],
+    cell: std::sync::OnceLock<Arc<PrefilteredHdri>>,
+}
+
+impl EmbeddedHdri {
+    pub fn get(&self) -> &Arc<PrefilteredHdri> {
+        self.cell.get_or_init(|| {
+            let bmp = subcraft_image::io::decode_bitmap(self.bytes, Some("x.hdr")).unwrap_or_else(|e| panic!("bundled HDRI {} is corrupt: {e}", self.name));
+            Arc::new(prefilter(&bmp))
+        })
+    }
+}
+
+impl std::fmt::Debug for EmbeddedHdri {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EmbeddedHdri").field("name", &self.name).field("bytes", &self.bytes.len()).finish()
+    }
+}
+
 #[derive(Clone, Debug)]
 pub enum EnvironmentSource {
     Procedural(ProceduralEnv),
     Hdri(Arc<PrefilteredHdri>),
+    /// Bundled HDRI, prefiltered on first use.
+    Embedded(Arc<EmbeddedHdri>),
+}
+
+impl EnvironmentSource {
+    /// The prefiltered panorama for HDRI sources (decoding a bundled one on first use).
+    pub fn hdri(&self) -> Option<&PrefilteredHdri> {
+        match self {
+            EnvironmentSource::Procedural(_) => None,
+            EnvironmentSource::Hdri(h) => Some(h),
+            EnvironmentSource::Embedded(e) => Some(e.get()),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -86,7 +122,40 @@ fn env(name: &str, p: ProceduralEnv) -> Environment {
     Environment { id: AssetId::from_name(&format!("environment/{name}")), name: name.into(), source: EnvironmentSource::Procedural(p), user_file: None }
 }
 
+/// Bundled CC0 HDRIs (1024x512 downscales of the 2048x1024 extra-environments pack): display name, file stem, radiance data.
+macro_rules! bundled {
+    ($(($name:literal, $file:literal)),* $(,)?) => {
+        &[$(($name, $file, include_bytes!(concat!("../../../assets/environments/", $file, ".hdr")) as &[u8])),*]
+    };
+}
+
+pub const BUNDLED_HDRIS: &[(&str, &str, &[u8])] = bundled![
+    ("Paint Booth", "AutomotivePaintBooth"),
+    ("Ceramic Gallery", "CeramicGallery"),
+    ("Library Hall", "WarmLibraryHall"),
+    ("Atelier Windows", "AtelierNorthWindows"),
+    ("Redwood Creek", "RedwoodCreek"),
+    ("Alpine Lake Blue Hour", "AlpineLakeBlueHour"),
+    ("Salt Flats Twilight", "SaltFlatsTwilight"),
+    ("Glasshouse Morning", "GlasshouseMorning"),
+    ("Neon Arcade", "CoveredNeonArcade"),
+    ("Orbital Atrium", "OrbitalAtrium"),
+];
+
 pub fn builtin() -> Vec<Environment> {
+    let mut all = builtin_procedural();
+    for (name, file, bytes) in BUNDLED_HDRIS {
+        all.push(Environment {
+            id: AssetId::from_name(&format!("environment/{name}")),
+            name: (*name).into(),
+            source: EnvironmentSource::Embedded(Arc::new(EmbeddedHdri { name: file, bytes, cell: std::sync::OnceLock::new() })),
+            user_file: None,
+        });
+    }
+    all
+}
+
+fn builtin_procedural() -> Vec<Environment> {
     let studio = ProceduralEnv::studio();
     vec![
         env("Studio", studio),

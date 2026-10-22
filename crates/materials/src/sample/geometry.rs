@@ -99,6 +99,11 @@ impl TileGeometry {
         self.region(i, subcraft_core::PartKind::Connected)
     }
 
+    pub fn triangle(&self, i: usize) -> Option<usize> {
+        let t = self.texels.as_ref()?.part[i];
+        (t != NO_PART).then_some(t as usize)
+    }
+
     pub fn region(&self, i: usize, kind: subcraft_core::PartKind) -> Option<u32> {
         let triangle = self.texels.as_ref()?.part[i];
         if triangle == NO_PART { return None; }
@@ -127,6 +132,7 @@ pub struct TextureSetGeometry {
     tiles: Box<[OnceLock<Arc<TileGeometry>>]>,
     /// Mesh part per triangle (computed on first use).
     parts: OnceLock<Arc<RegionIds>>,
+    edges: Arc<OnceLock<super::edge_distance::SurfaceEdges>>,
 }
 
 impl std::fmt::Debug for TextureSetGeometry {
@@ -167,11 +173,21 @@ impl TextureSetGeometry {
             bins,
             tiles: (0..n).map(|_| OnceLock::new()).collect(),
             parts: OnceLock::new(),
+            edges: Arc::new(OnceLock::new()),
         }
     }
 
     pub fn mesh(&self) -> &Arc<Mesh> {
         &self.mesh
+    }
+
+    /// Parameter-independent distance field, shared with the bounded procedural tile cache.
+    pub fn edge_distance_tile(&self, geo: &TileGeometry) -> Arc<super::field::Field> {
+        geo.fields.get_or_compute(super::field::FieldKey::edge_distance(), || {
+            let edges = self.edges.get_or_init(|| super::edge_distance::SurfaceEdges::new(&self.mesh));
+            (0..TILE_TEXELS).map(|i| geo.triangle(i).map_or(f32::INFINITY, |t|
+                edges.distance(t, Vec3::from_array(geo.position(i))))).collect()
+        })
     }
 
     pub fn tile_count(&self) -> usize {
@@ -261,11 +277,12 @@ impl TextureSetGeometry {
 pub struct GeometryCache {
     mesh: Arc<Mesh>,
     sets: Mutex<HashMap<(u32, u32), Arc<TextureSetGeometry>>>,
+    edges: Arc<OnceLock<super::edge_distance::SurfaceEdges>>,
 }
 
 impl GeometryCache {
     pub fn new(mesh: Arc<Mesh>) -> Self {
-        Self { mesh, sets: Mutex::new(HashMap::new()) }
+        Self { mesh, sets: Mutex::new(HashMap::new()), edges: Arc::new(OnceLock::new()) }
     }
 
     pub fn mesh(&self) -> &Arc<Mesh> {
@@ -276,7 +293,11 @@ impl GeometryCache {
         self.sets
             .lock()
             .entry((material_slot, resolution))
-            .or_insert_with(|| Arc::new(TextureSetGeometry::new(self.mesh.clone(), material_slot, resolution)))
+            .or_insert_with(|| {
+                let mut set = TextureSetGeometry::new(self.mesh.clone(), material_slot, resolution);
+                set.edges = self.edges.clone();
+                Arc::new(set)
+            })
             .clone()
     }
 }

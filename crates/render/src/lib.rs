@@ -8,9 +8,13 @@
 
 pub mod gpu_mesh;
 pub mod grid;
+mod bake_preview;
 mod display;
 pub mod headless;
 pub mod material;
+mod mipmap;
+pub mod offline;
+pub mod post;
 pub mod preview;
 pub mod target;
 
@@ -29,6 +33,7 @@ pub use egui_wgpu::wgpu as wgpu_api;
 pub use gpu_mesh::GpuMesh;
 pub use grid::GridParams;
 pub use material::{ChannelTexture, GpuMaterial, SHADED_CHANNELS};
+pub use post::{GlareMode, PostParams, ToneMap};
 pub use preview::{PreviewPass, PreviewTarget};
 pub use target::{DISPLAY_FORMAT, OUTPUT_FORMAT, PendingReadback, RenderTarget};
 
@@ -104,6 +109,15 @@ pub struct ViewParams {
     pub view_mode: ViewMode,
     /// Display-only floor/axes. None for thumbnails, exports and callers that need no guides.
     pub grid: Option<GridParams>,
+    /// Display-only high/low comparison using meshes supplied by `set_bake_preview`.
+    pub bake_overlay: bool,
+    pub bake_cage: bool,
+    pub bake_distances: [f32; 2],
+    /// Show a raw baked map on the low-poly UVs without changing material textures.
+    pub bake_map: Option<MeshMapKind>,
+    pub symmetry_guides: bool,
+    /// Tone mapping, bloom and ambient occlusion (defaults leave the image as before).
+    pub post: PostParams,
 }
 
 /// What the 3D view shows on the model.
@@ -161,6 +175,8 @@ impl ViewParams {
             antialias: true,
             view_mode: ViewMode::Material,
             grid: None,
+            bake_overlay: false, bake_cage: true, bake_distances: [0.01; 2], bake_map: None, symmetry_guides: false,
+            post: PostParams::default(),
         }
     }
 }
@@ -180,6 +196,7 @@ struct Globals {
     irr_down: [f32; 4],
     lights: [f32; 4],
     env_misc: [f32; 4],
+    post: [f32; 4],
     sh: [[f32; 4]; 9],
 }
 
@@ -190,7 +207,11 @@ pub struct ViewportRenderer {
     pipeline: wgpu::RenderPipeline,
     /// Single-sample pipeline (anti-aliasing off).
     pipeline_no_aa: wgpu::RenderPipeline,
+    /// Emission-only pass feeding the glow and glare effects.
+    pipeline_emissive: wgpu::RenderPipeline,
     grid: grid::GridPass,
+    symmetry: Option<grid::GridPass>,
+    bake_preview: bake_preview::BakePreviewPass,
     globals: wgpu::Buffer,
     globals_layout: wgpu::BindGroupLayout,
     globals_bg: wgpu::BindGroup,
@@ -200,12 +221,15 @@ pub struct ViewportRenderer {
     env_sh: [[f32; 3]; 9],
     material_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
+    nearest_sampler: wgpu::Sampler,
+    mipmaps: mipmap::MipGenerator,
     defaults: HashMap<ChannelKind, ChannelTexture>,
     mesh: Option<GpuMesh>,
     materials: HashMap<u32, GpuMaterial>,
     target: Option<RenderTarget>,
     preview: PreviewPass,
     preview_target: Option<PreviewTarget>,
+    post: post::PostPass,
 }
 
 impl ViewportRenderer {
@@ -259,6 +283,10 @@ impl ViewportRenderer {
                 count: None,
             });
         }
+        entries.push(wgpu::BindGroupLayoutEntry {
+            binding: 8, visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering), count: None,
+        });
         let material_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { label: Some("material layout"), entries: &entries });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -293,6 +321,28 @@ impl ViewportRenderer {
             multiview_mask: None,
             cache: None,
         });
+        let pipeline_emissive = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("emission pipeline"),
+            layout: Some(&layout),
+            vertex: wgpu::VertexState { module: &shader, entry_point: Some("vs_main"), compilation_options: Default::default(), buffers: &[Some(gpu_mesh::Vertex::layout())] },
+            primitive: wgpu::PrimitiveState { cull_mode: None, ..Default::default() },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: target::DEPTH_FORMAT,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(wgpu::CompareFunction::Less),
+                stencil: Default::default(),
+                bias: Default::default(),
+            }),
+            multisample: Default::default(),
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_emissive"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState { format: post::HDR_FORMAT, blend: None, write_mask: wgpu::ColorWrites::ALL })],
+            }),
+            multiview_mask: None,
+            cache: None,
+        });
         let pipeline = make_pipeline(SAMPLE_COUNT);
         let pipeline_no_aa = make_pipeline(1);
         let globals = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -317,6 +367,7 @@ impl ViewportRenderer {
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
             ..Default::default()
         });
         let defaults = SHADED_CHANNELS
@@ -326,10 +377,20 @@ impl ViewportRenderer {
                 (k, ChannelTexture::constant(device, queue, [d[0], d[1], d[2], 1.0], composite_comps(k), k.key()))
             })
             .collect();
+        let nearest_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("nearest albedo"), address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge, mag_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Nearest, lod_max_clamp: 0.0, ..Default::default()
+        });
+        let post = post::PostPass::new(device, &globals_layout, &shader);
         Self {
+            post,
+            pipeline_emissive,
             pipeline,
             pipeline_no_aa,
             grid: grid::GridPass::new(device),
+            symmetry: None,
+            bake_preview: bake_preview::BakePreviewPass::new(device),
             globals,
             globals_layout,
             globals_bg,
@@ -337,7 +398,7 @@ impl ViewportRenderer {
             env_texture,
             env_levels: 1,
             env_sh: [[0.0; 3]; 9],
-            material_layout, sampler, defaults, mesh: None, materials: HashMap::new(), target: None, preview: PreviewPass::new(device), preview_target: None }
+            material_layout, sampler, nearest_sampler, mipmaps: mipmap::MipGenerator::new(device), defaults, mesh: None, materials: HashMap::new(), target: None, preview: PreviewPass::new(device), preview_target: None }
     }
 
     fn globals_bind_group(
@@ -406,6 +467,16 @@ impl ViewportRenderer {
         self.mesh.is_some()
     }
 
+    pub fn set_symmetry_guides(&mut self, device: &wgpu::Device, lines: &[[Vec3; 2]]) {
+        if lines.is_empty() { self.symmetry = None; return; }
+        self.symmetry.get_or_insert_with(|| grid::GridPass::new_guides(device)).set_lines(device, lines);
+    }
+
+    /// Cache display geometry once, independently of the project's mesh and material textures.
+    pub fn set_bake_preview(&mut self, device: &wgpu::Device, meshes: Option<(&Mesh, &Mesh)>) {
+        self.bake_preview.set_meshes(device, meshes);
+    }
+
     /// Upload `tiles` of a channel's composite (all tiles when `None`, or when the texture had
     /// to be (re)created because size or format changed).
     pub fn upload_channel(
@@ -420,7 +491,7 @@ impl ViewportRenderer {
         let mat = self.materials.entry(material_slot).or_default();
         let recreate = mat.channels.get(&kind).is_none_or(|t| t.size != image.width() || t.comps != image.comps());
         if recreate {
-            mat.channels.insert(kind, ChannelTexture::new(device, image.width(), image.comps(), kind.key()));
+            mat.channels.insert(kind, ChannelTexture::new_mipmapped(device, image.width(), image.comps(), kind.key(), &self.mipmaps.layout));
             mat.bind_group = None;
         }
         let tex = &mat.channels[&kind];
@@ -428,6 +499,7 @@ impl ViewportRenderer {
             Some(t) if !recreate => tex.upload(queue, image, t),
             _ => tex.upload_all(device, queue, image),
         }
+        self.mipmaps.update(device, queue, tex, image, if recreate { None } else { tiles });
     }
 
     /// View of an uploaded channel texture (UV view display).
@@ -441,6 +513,7 @@ impl ViewportRenderer {
         let tex = ChannelTexture::new(device, image.width(), image.comps(), kind.key());
         tex.upload(queue, image, &(0..image.tile_count()).collect::<Vec<_>>());
         mat.mesh_maps.insert(kind, tex);
+        mat.bake_bind_groups.remove(&kind);
     }
 
     /// Render a display preview (sRGB 8-bit, egui-ready `display_view`) of an uploaded channel or
@@ -459,12 +532,20 @@ impl ViewportRenderer {
         Some(dst)
     }
 
+    /// Change only Base Color reconstruction; reuse all channel textures and pipelines.
+    pub fn set_albedo_filter(&mut self, material_slot: u32, filter: subcraft_image::TextureFilter) {
+        let mat = self.materials.entry(material_slot).or_default();
+        if mat.albedo_filter != filter { mat.albedo_filter = filter; mat.bind_group = None; }
+    }
+
     fn ensure_bind_groups(&mut self, device: &wgpu::Device) {
         for mat in self.materials.values_mut() {
             if mat.bind_group.is_some() {
                 continue;
             }
             let mut entries = vec![wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::Sampler(&self.sampler) }];
+            let albedo_sampler = if mat.albedo_filter == subcraft_image::TextureFilter::Nearest { &self.nearest_sampler } else { &self.sampler };
+            entries.push(wgpu::BindGroupEntry { binding: 8, resource: wgpu::BindingResource::Sampler(albedo_sampler) });
             for (i, k) in SHADED_CHANNELS.iter().enumerate() {
                 let view = mat.channels.get(k).map_or(&self.defaults[k].view, |t| &t.view);
                 entries.push(wgpu::BindGroupEntry { binding: i as u32 + 1, resource: wgpu::BindingResource::TextureView(view) });
@@ -485,6 +566,26 @@ impl ViewportRenderer {
             self.target = Some(RenderTarget::new(device, size, samples));
         }
         self.ensure_bind_groups(device);
+        if let Some(kind) = params.bake_map {
+            for mat in self.materials.values_mut() {
+                if mat.bake_bind_groups.contains_key(&kind) { continue; }
+                let neutral = ChannelTexture::constant(device, queue, {
+                    let n = kind.neutral_value(); [n[0], n[1], n[2], 1.]
+                }, if kind.components() == 1 { 1 } else { 4 }, "pending bake neutral");
+                let tex = mat.mesh_maps.get(&kind).unwrap_or(&neutral);
+                let mut entries = vec![
+                    wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::Sampler(&self.sampler) },
+                    wgpu::BindGroupEntry { binding: 8, resource: wgpu::BindingResource::Sampler(&self.sampler) },
+                ];
+                for (i, k) in SHADED_CHANNELS.iter().enumerate() {
+                    let view = if i == 0 { &tex.view } else { &self.defaults[k].view };
+                    entries.push(wgpu::BindGroupEntry { binding: i as u32 + 1, resource: wgpu::BindingResource::TextureView(view) });
+                }
+                mat.bake_bind_groups.insert(kind, device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("bake map preview"), layout: &self.material_layout, entries: &entries,
+                }));
+            }
+        }
         let e = &params.environment;
         let v4 = |c: [f32; 3]| [c[0], c[1], c[2], 0.0];
         let mut sh = [[0.0f32; 4]; 9];
@@ -503,10 +604,16 @@ impl ViewportRenderer {
             irr_up: v4(e.irradiance_up),
             irr_down: v4(e.irradiance_down),
             lights: [e.panels, e.top, e.key_softbox, if e.use_hdri && self.env_levels > 1 { 1.0 } else { 0.0 }],
-            env_misc: [e.rotation, e.hdri_intensity, (self.env_levels - 1) as f32, params.view_mode as u32 as f32],
+            env_misc: [e.rotation, e.hdri_intensity, (self.env_levels - 1) as f32,
+                params.bake_map.map_or(params.view_mode as u32 as f32, |k| if k.components() == 1 { 8. } else { 7. })],
+            post: [params.post.tone_map.id(), 0.0, 0.0, 0.0],
             sh,
         };
         queue.write_buffer(&self.globals, 0, bytemuck::bytes_of(&globals));
+        if params.symmetry_guides && let Some(guides) = &self.symmetry { guides.prepare_lines(queue, params.proj * params.view); }
+        if params.bake_overlay {
+            self.bake_preview.prepare(queue, params.proj * params.view, params.bake_distances);
+        }
         if let Some(grid) = params.grid {
             self.grid.prepare(device, queue, params.proj * params.view, params.eye, grid);
         }
@@ -536,13 +643,17 @@ impl ViewportRenderer {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
-            if let Some(mesh) = &self.mesh {
+            if params.bake_overlay {
+                self.bake_preview.draw(&mut pass, params.antialias, params.bake_cage);
+            } else if let Some(mesh) = &self.mesh {
                 pass.set_pipeline(if samples > 1 { &self.pipeline } else { &self.pipeline_no_aa });
                 pass.set_bind_group(0, &self.globals_bg, &[]);
                 pass.set_vertex_buffer(0, mesh.vertices.slice(..));
                 pass.set_index_buffer(mesh.indices.slice(..), wgpu::IndexFormat::Uint32);
                 for r in &mesh.ranges {
-                    let Some(bg) = self.materials.get(&r.material_slot).and_then(|m| m.bind_group.as_ref()) else { continue };
+                    let Some(bg) = self.materials.get(&r.material_slot).and_then(|m| match params.bake_map {
+                        Some(k) => m.bake_bind_groups.get(&k), None => m.bind_group.as_ref(),
+                    }) else { continue };
                     pass.set_bind_group(1, bg, &[]);
                     pass.draw_indexed(r.first_index..r.first_index + r.index_count, 0, 0..1);
                 }
@@ -551,6 +662,14 @@ impl ViewportRenderer {
                 // The mesh depth rejects guides behind it; guides never modify depth or textures.
                 self.grid.draw(&mut pass, params.antialias);
             }
+            if params.symmetry_guides && let Some(guides) = &self.symmetry { guides.draw(&mut pass, params.antialias); }
+        }
+        // Glow and glare only exist where the model has an Emissive channel to draw.
+        let has_emission = self.materials.values().any(|m| m.channels.contains_key(&ChannelKind::Emissive));
+        let emission_on = has_emission && params.post.wants_emission() && params.bake_map.is_none();
+        if (params.post.active() || emission_on) && !params.bake_overlay {
+            let draw = self.mesh.as_ref().filter(|_| emission_on).map(|mesh| post::EmissionDraw { pipeline: &self.pipeline_emissive, mesh, materials: &self.materials });
+            self.post.run(device, queue, &mut encoder, target, &self.globals_bg, self.mesh.as_ref(), draw.as_ref(), params.proj, &params.post);
         }
         target.encode_display(&mut encoder);
         queue.submit([encoder.finish()]);

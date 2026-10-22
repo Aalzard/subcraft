@@ -2,6 +2,8 @@
 //! UV / triplanar / planar projection, shared by fill layers, mask fills and the brush material.
 
 pub mod noise;
+pub mod filter;
+pub mod organic;
 pub mod pattern;
 pub mod sample;
 
