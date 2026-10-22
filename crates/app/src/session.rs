@@ -375,8 +375,11 @@ impl Session {
         Self::new(primitives::sample_crate(), DEFAULT_RESOLUTION)
     }
 
-    /// New session from a mesh file (OBJ / glTF / FBX).
+    /// New session from a mesh file (OBJ / glTF / FBX / Substance Painter .spp).
     pub fn open_mesh(path: &Path, resolution: u32) -> Result<(Self, Vec<String>), String> {
+        if path.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("spp")) {
+            return Self::open_spp(path);
+        }
         let report = import_mesh(path).map_err(|e| e.to_string())?;
         if report.mesh.triangle_count() == 0 {
             return Err("mesh has no triangles".into());

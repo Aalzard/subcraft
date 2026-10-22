@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-10-20 (session 94: stable minified PBR viewport textures)
+Last updated: 2026-10-22 (session 103: Substance Painter .spp import)
 
 ## Decisions
 
@@ -2751,6 +2751,35 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   materials, New Project, Export).
 * NOT verified: a normal map / brush tip applied by hand, real mouse use of the new Shelf tiles, installer
   size (see release notes), Linux build of the packaging changes.
+
+### Session 103 - Claude: open Substance Painter .spp projects (2026-10-22)
+
+* **Open end to end:** `.spp` is in `SUPPORTED_EXTENSIONS`, so File > Open, drag and drop, the command line,
+  the welcome screen and recent files all route to `Session::open_mesh`, which now calls
+  `Session::open_spp` (`crates/app/src/spp_import.rs`). New Project with an `.spp` still only reads the
+  model (its warning says to open the file directly). Verified: `subcraft.exe chalice_.spp --screenshot`
+  shows the dark-steel chalice with its Painter textures, the "Painter project (flattened)" layer and an
+  empty "Layer 1" above it (screenshot only; no mouse driving).
+* **Reader (`crates/mesh/src/spp/`, no new dependency):** `document.rs` decodes `paint/document.bin`
+  completely (all 11 sample files parse to their last byte): texture sets, channels, layer tree with names,
+  visibility, masks, sources, blend ids. `jp2.rs` is a from-scratch JPEG 2000 decoder (lossless 5/3, RCT,
+  reduced-resolution decode) for the baked-map tiles, bit-exact against OpenJPEG on a real tile and on two
+  synthetic tiles. `lz4.rs` + `images.rs` read the texture cache (the flattened channel textures) and the
+  baked maps; `qt.rs` the Qt property headers. 4096 baked maps decode in 0.3-1.5 s; at 512 in ~30 ms.
+* **Imported:** model, texture set with Painter's channels/resolution, baked maps (normal, world normal,
+  ID/color, AO, curvature, position, thickness; gutter-dilated), flattened Base Color / Height / Roughness /
+  Metallic / Normal / AO / Emissive / Opacity as one paint layer, export normal format, and notes naming
+  the Painter layers. Verified on all 11 sample projects by the probe tool (maps and cache decode without
+  error; UV coverage matches the baked alpha 1.000).
+* **Not recoverable:** `.sbsar` procedural layers/filters/generators (no Substance engine), the editable
+  layer stack (blend-mode ids not mapped), brush strokes as strokes. See `docs/spp-research.md`.
+* **NOT verified:** DirectX vs OpenGL meaning of `normalMapSyscoord` 0 (assumed DirectX; G is flipped on
+  import), Height units, projects with several texture sets (model parts cannot be assigned to sets; all
+  go into the first), UV-tile projects, Painter versions other than 10.x. Not looked at on screen:
+  normal-mapped lighting on a heavily normal-mapped sample.
+* Tests: mesh 11 new (`tests/spp.rs`: JP2 exactness, RCT, reduced decode, HDF5 writer round trip,
+  document, baked maps, cache) + LZ4/half-float unit tests; app 3 new (`tests/spp_open.rs`). All built from
+  a synthetic project (`crates/mesh/tests/support/spp_fixture.rs`); no user file is stored.
 
 ## Next steps (in order)
 

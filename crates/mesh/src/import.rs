@@ -180,8 +180,8 @@ fn load_gltf(path: &Path, b: &mut MeshBuilder, warnings: &mut Vec<String>) -> Re
     Ok(())
 }
 
-/// The model of a Substance Painter project. Layers, painted pixels and baked maps are not read, so
-/// the result is the geometry with its UVs, one object per mesh in the project.
+/// The model of a Substance Painter project: the geometry with its UVs, one object per mesh in the
+/// project. Textures and baked maps are read by `Session::open_spp`.
 fn load_spp(path: &Path, b: &mut MeshBuilder, warnings: &mut Vec<String>) -> Result<(), ImportError> {
     let meshes = crate::spp::read_meshes(path).map_err(|e| ImportError::Spp(e.to_string()))?;
     let material = b.material("DefaultMaterial");
@@ -202,7 +202,7 @@ fn load_spp(path: &Path, b: &mut MeshBuilder, warnings: &mut Vec<String>) -> Res
             b.push_triangle(material, [corner(t[0]), corner(t[1]), corner(t[2])]);
         }
     }
-    warnings.push("Only the model was read from the Substance Painter project; its layers, painted textures and baked maps are not imported yet".into());
+    warnings.push("Only the model was read from the Substance Painter project. Open the .spp directly (File > Open) to also bring in its baked maps and painted textures".into());
     Ok(())
 }
 
