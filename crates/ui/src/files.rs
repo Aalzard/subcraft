@@ -1,10 +1,7 @@
-//! Picking files on desktop and on the web.
+//! Picking files with the native dialog.
 //!
-//! Callers say what the files are for ([`Purpose`]) instead of handling the answer inline: on
-//! desktop the native dialog answers at once, in the browser the upload finishes a moment later.
-//! Either way [`poll`] (once per frame) hands the chosen paths to [`handle`]. Browser uploads are
-//! put into [`subcraft_core::vfs`] under `/upload/<n>/`, so the engine reads them like files
-//! (a `.gltf` and its `.bin` picked together sit side by side).
+//! Callers say what the files are for ([`Purpose`]) instead of handling the answer inline.
+//! [`poll`] (once per frame) hands the chosen paths to [`handle`].
 
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -53,7 +50,6 @@ fn deliver(purpose: Purpose, paths: Vec<PathBuf>) {
 }
 
 /// Ask for one file (or several with `multiple`) for `purpose`.
-#[cfg(not(target_arch = "wasm32"))]
 pub fn pick(_ctx: &egui::Context, purpose: Purpose, filter: (&str, &[&str]), multiple: bool, title: Option<&str>) {
     let mut d = rfd::FileDialog::new().add_filter(filter.0, filter.1);
     if let Some(t) = title {
@@ -62,35 +58,6 @@ pub fn pick(_ctx: &egui::Context, purpose: Purpose, filter: (&str, &[&str]), mul
     let paths = if multiple { d.pick_files().unwrap_or_default() } else { d.pick_file().into_iter().collect() };
     deliver(purpose, paths);
 }
-
-/// Ask for one file (or several with `multiple`) for `purpose`: a browser upload, delivered once
-/// read.
-#[cfg(target_arch = "wasm32")]
-pub fn pick(ctx: &egui::Context, purpose: Purpose, filter: (&str, &[&str]), multiple: bool, title: Option<&str>) {
-    use std::sync::atomic::{AtomicU32, Ordering};
-    static UPLOADS: AtomicU32 = AtomicU32::new(0);
-    let mut d = rfd::AsyncFileDialog::new().add_filter(filter.0, filter.1);
-    if let Some(t) = title {
-        d = d.set_title(t);
-    }
-    let ctx = ctx.clone();
-    wasm_bindgen_futures::spawn_local(async move {
-        let handles = if multiple { d.pick_files().await.unwrap_or_default() } else { d.pick_file().await.into_iter().collect() };
-        let dir = PathBuf::from(format!("/upload/{}", UPLOADS.fetch_add(1, Ordering::Relaxed)));
-        let mut paths = Vec::new();
-        for h in handles {
-            let path = dir.join(h.file_name());
-            subcraft_core::vfs::insert(&path, h.read().await);
-            paths.push(path);
-        }
-        deliver(purpose, paths);
-        ctx.request_repaint();
-    });
-}
-
-/// Where projects and exports are written in the browser (each written file is downloaded).
-#[cfg(target_arch = "wasm32")]
-pub const DOWNLOADS: &str = "/download";
 
 /// Hand picked files to their handlers (call once per frame).
 pub fn poll(state: &mut UiState, now: f64) {

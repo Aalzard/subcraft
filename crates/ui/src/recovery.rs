@@ -1,5 +1,4 @@
-//! Autosave in the UI: the "didn't close properly" prompt, the Preferences window and, in the
-//! browser (no files to autosave to), a reminder to download a backup.
+//! Autosave in the UI: the "didn't close properly" prompt and the Preferences window.
 
 use std::time::Duration;
 
@@ -79,11 +78,6 @@ pub struct RecoveryUi {
     pub show_prefs: bool,
     /// Time of the last finished autosave (for the status bar).
     pub last_saved: Option<std::time::SystemTime>,
-    /// Web: when the backup reminder was last shown or dismissed (app time, seconds).
-    pub reminded_at: f64,
-    pub show_reminder: bool,
-    /// Web: last value written to `window.subcraftUnsaved`.
-    pub page_unsaved: Option<bool>,
 }
 
 impl RecoveryUi {
@@ -103,7 +97,7 @@ impl RecoveryUi {
             log::info!("recovery copies go to {}", l.dir().display());
         }
         let autosaver = Autosaver::new(live, interval.unwrap_or(prefs.interval()));
-        Self { autosaver, crashed, store, prefs, show_prefs: false, last_saved: None, reminded_at: 0.0, show_reminder: false, page_unsaved: None }
+        Self { autosaver, crashed, store, prefs, show_prefs: false, last_saved: None }
     }
 
     /// No autosave, no prompt (tests, scripted runs without a data folder).
@@ -115,9 +109,6 @@ impl RecoveryUi {
             prefs: Preferences::default(),
             show_prefs: false,
             last_saved: None,
-            reminded_at: 0.0,
-            show_reminder: false,
-            page_unsaved: None,
         }
     }
 }
@@ -139,7 +130,7 @@ pub fn recover(state: &mut UiState, crashed: CrashedSession, now: f64) {
     }
 }
 
-/// Per frame: autosave tick, status, and the web unsaved flag.
+/// Per frame: autosave tick and status.
 pub fn tick(state: &mut UiState, ctx: &egui::Context, now: f64) {
     let rec = &mut state.recovery;
     if let Some(event) = rec.autosaver.tick(&state.session, web_time::Instant::now()) {
@@ -161,67 +152,8 @@ pub fn tick(state: &mut UiState, ctx: &egui::Context, now: f64) {
         // Wake up now and then so the timer fires even while the user is idle.
         ctx.request_repaint_after(Duration::from_secs(15));
     }
-    web_backup_tick(state, ctx, now);
 }
 
-#[cfg(target_arch = "wasm32")]
-fn web_backup_tick(state: &mut UiState, ctx: &egui::Context, now: f64) {
-    let unsaved = state.session.is_modified() || state.pen.is_editing() || state.pen.is_pending() || state.asset_preview.is_applying();
-    let rec = &mut state.recovery;
-    if rec.page_unsaved != Some(unsaved) {
-        // Read by the page's `beforeunload` handler (web/index.html): closing the tab asks first.
-        if let Some(w) = web_sys::window() {
-            let _ = js_sys::Reflect::set(&w, &"subcraftUnsaved".into(), &unsaved.into());
-        }
-        rec.page_unsaved = Some(unsaved);
-    }
-    if !unsaved {
-        rec.reminded_at = now;
-        rec.show_reminder = false;
-        return;
-    }
-    let interval = rec.prefs.interval().as_secs_f64();
-    if interval > 0.0 && now - rec.reminded_at >= interval {
-        rec.show_reminder = true;
-    }
-    if rec.show_reminder {
-        ctx.request_repaint_after(Duration::from_secs(1));
-    } else if interval > 0.0 {
-        ctx.request_repaint_after(Duration::from_secs(15));
-    }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn web_backup_tick(_state: &mut UiState, _ctx: &egui::Context, _now: f64) {}
-
-/// Web: small window offering to download a backup of unsaved work.
-pub fn backup_reminder(state: &mut UiState, ctx: &egui::Context, now: f64) {
-    if !state.recovery.show_reminder {
-        return;
-    }
-    let mut download = false;
-    let mut later = false;
-    egui::Window::new(RichText::new("Unsaved work").font(theme::font_strong(14.0)))
-        .collapsible(false)
-        .resizable(false)
-        .anchor(egui::Align2::RIGHT_BOTTOM, [-16.0, -40.0])
-        .show(ctx, |ui| {
-            ui.set_width(300.0);
-            ui.label(RichText::new("The browser version can't autosave to disk. Download a backup of your project so a closed tab or a crash doesn't cost you your work.").color(TEXT_DIM));
-            ui.add_space(10.0);
-            ui.allocate_ui_with_layout(egui::vec2(ui.available_width(), 28.0), egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                download = primary_button(ui, "Download backup").clicked();
-                later = secondary_button(ui, "Later").clicked();
-            });
-        });
-    if download {
-        crate::dialogs::save(state, true, now);
-    }
-    if download || later {
-        state.recovery.show_reminder = false;
-        state.recovery.reminded_at = now;
-    }
-}
 
 /// "SubCraft didn't close properly" modal, one crashed session at a time.
 pub fn prompt(state: &mut UiState, ctx: &egui::Context, now: f64) {
@@ -325,29 +257,20 @@ pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
         ui.add_space(8.0);
         crate::graphics::controls(graphics, ui);
         ui.checkbox(&mut rec.prefs.show_welcome, "Show welcome screen on startup");
-        if !cfg!(target_arch = "wasm32") {
-            ui.checkbox(&mut rec.prefs.check_updates_on_start, "Check for updates when SubCraft starts")
-                .on_hover_text("Asks GitHub for the latest release in the background and points at the update button when there is a new one.");
-        }
+        ui.checkbox(&mut rec.prefs.check_updates_on_start, "Check for updates when SubCraft starts")
+            .on_hover_text("Asks GitHub for the latest release in the background and points at the update button when there is a new one.");
         ui.add_space(10.0);
         ui.label(RichText::new("Autosave").font(theme::font_strong(12.5)));
         ui.add_space(4.0);
-        let desc = if cfg!(target_arch = "wasm32") {
-            "The browser can't save in the background: SubCraft reminds you to download a backup instead."
-        } else {
-            "Recovery copies of the open project are written in the background to SubCraft's data folder, never over your own file."
-        };
-        ui.label(RichText::new(desc).color(TEXT_DIM));
+        ui.label(RichText::new("Recovery copies of the open project are written in the background to SubCraft's data folder, never over your own file.").color(TEXT_DIM));
         ui.add_space(8.0);
         egui::Grid::new("prefs_grid").num_columns(2).spacing([16.0, 8.0]).show(ui, |ui| {
-            ui.label(RichText::new(if cfg!(target_arch = "wasm32") { "Remind every" } else { "Every" }).color(TEXT_DIM));
+            ui.label(RichText::new("Every").color(TEXT_DIM));
             ui.add(egui::Slider::new(&mut rec.prefs.autosave_minutes, 0..=30).suffix(" min").custom_formatter(|v, _| if v == 0.0 { "off".into() } else { format!("{v}") }));
             ui.end_row();
-            if !cfg!(target_arch = "wasm32") {
-                ui.label(RichText::new("Keep").color(TEXT_DIM));
-                ui.add(egui::Slider::new(&mut rec.prefs.autosave_keep, 1..=10).suffix(" copies"));
-                ui.end_row();
-            }
+            ui.label(RichText::new("Keep").color(TEXT_DIM));
+            ui.add(egui::Slider::new(&mut rec.prefs.autosave_keep, 1..=10).suffix(" copies"));
+            ui.end_row();
         });
         rec.autosaver.interval = rec.prefs.interval();
         rec.autosaver.set_keep(rec.prefs.autosave_keep);

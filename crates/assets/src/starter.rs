@@ -1,4 +1,4 @@
-//! Built-in CC0 image pack. Only tiny thumbnails enter the web binary; full PNGs are fetched on demand.
+//! Built-in CC0 image pack.
 use subcraft_core::AssetId;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)] pub enum Kind { Normal, Alpha, Texture }
 #[derive(Debug)] pub struct Entry { pub name: &'static str, pub kind: Kind, pub file: &'static str, pub bytes: usize, pub thumb: &'static [u8] }
@@ -65,7 +65,6 @@ pub static ENTRIES: &[Entry] = &[
     Entry { name: "Tech Greebles", kind: Kind::Alpha, file: "alphas/TechGreebles_Alpha.png", bytes: 30011, thumb: include_bytes!("../../../assets/starter-pack/thumbnails/TechGreebles_Alpha.png") },
     Entry { name: "Vent Slots", kind: Kind::Alpha, file: "alphas/VentSlots_Alpha.png", bytes: 10936, thumb: include_bytes!("../../../assets/starter-pack/thumbnails/VentSlots_Alpha.png") },
 ];
-#[cfg(not(target_arch = "wasm32"))]
 pub fn encoded(index: usize) -> Option<&'static [u8]> { Some(match index {
     0 => include_bytes!("../../../assets/starter-pack/textures/BoltedArmor_Normal.png"),
     1 => include_bytes!("../../../assets/starter-pack/textures/Brick_Normal.png"),

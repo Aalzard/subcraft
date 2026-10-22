@@ -157,31 +157,7 @@ build may use `--features windows-gui,update-fixture`, `SUBCRAFT_UPDATE_FIXTURE_
 loopback HTTP server, and `--auto-update-fixture`. The feature restricts transport overrides
 to `http://127.0.0.1:<port>`; ordinary builds always use the official HTTPS endpoints.
 
-## 7. Build the web version
-
-The same code builds for the browser (WebAssembly + WebGPU). One-time setup:
-
-```sh
-rustup target add wasm32-unknown-unknown
-cargo install wasm-bindgen-cli --version <the wasm-bindgen version in Cargo.lock>
-```
-
-Then `bash scripts/build-web.sh` writes `dist/web` (`index.html`, `subcraft.js`, the `.wasm`
-module and the icon). Serve that folder with any static server, for example
-`python -m http.server -d dist/web 8765`, and open http://localhost:8765.
-
-What is different in the browser (all behind `cfg(target_arch = "wasm32")`):
-
-- File access goes through `subcraft_core::vfs`: uploads land in memory under `/upload/<n>/`,
-  writes become downloads. File pickers say what the files are for (`ui::files::Purpose`) and
-  are answered a few frames later.
-- No threads: `subcraft_core::task::spawn` runs the work right away; rayon runs on one thread.
-- FBX import (a C library) is left out; OBJ and glTF / GLB work.
-- GPU readbacks are asynchronous (`RenderTarget::read_rgba8_async`).
-
-`.github/workflows/web.yml` builds it on every pull request and publishes main to GitHub Pages.
-
-## 8. Working with Claude Code locally (optional)
+## 7. Working with Claude Code locally (optional)
 
 [Claude Code](https://code.claude.com/docs) can work in this folder on your PC the same way it
 does in the cloud. Start it inside the SubCraft folder: it reads [`CLAUDE.md`](../CLAUDE.md)

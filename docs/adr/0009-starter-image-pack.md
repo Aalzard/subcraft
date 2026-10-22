@@ -7,10 +7,8 @@ are losslessly optimized and accompanied by a manifest and 96px thumbnails. The 
 stable UUIDs derived from each pack filename. Desktop embeds compressed PNGs so portable
 updates need only replace the executable. Decoding happens only when an asset is selected.
 
-The wasm embeds the 340KB thumbnail catalog, excludes the full 12.9MB pack, and fetches individual
-PNGs relative to the hosted application. Hosting copies those assets beside the wasm. HTTP,
-length and dimension failures are visible and can be retried. Full decoded sources are retained
-for the active preview, rather than decoding 60 full images at startup.
+Full decoded sources are retained for the active preview, rather than decoding every image at
+startup. (The browser build that fetched images on demand was removed: ADR-0038.)
 
 `assets::preview` owns image adjustments and CPU examples. Normals are data, never gamma
 decoded; green flip, vector normalization, rotation and mirror derivatives preserve their

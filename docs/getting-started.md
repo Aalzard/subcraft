@@ -78,9 +78,8 @@ If you dock the panel in a narrow sidebar, the same controls switch back to a ve
 
 ## 1. Open a model
 
-Choose **New from a model…** on the welcome screen or **File → New from mesh…**. Desktop accepts
-OBJ, GLB/glTF and FBX. The browser accepts OBJ and GLB/glTF; upload a `.gltf` together with its
-`.bin` and any files it needs. A GLB is easier to share because those resources can be embedded.
+Choose **New from a model…** on the welcome screen or **File → New from mesh…**. SubCraft accepts
+OBJ, GLB/glTF and FBX. A `.gltf` needs its `.bin` and other files next to it; a GLB is easier to share because those resources are embedded.
 
 Your model needs UVs for painting and texture export. Separate material IDs become texture sets;
 switch sets in the **Texture Sets** panel. Imported object names appear in **Parts**.
@@ -436,14 +435,13 @@ briefly show a mixture of old and new tiles while the interface stays available;
 settings win and the full texture catches up after you stop dragging. Export waits for the
 complete result. Saving always stores your latest layer, mask and effect settings, including
 edits whose viewport preview is still catching up. There is no background-compositing toggle
-or new shortcut to learn. The browser retains the existing frame-budgeted compositor.
+or new shortcut to learn.
 
 Use **File → Save** (Ctrl+S) to save a `.subcraft` file containing the model, layers, imported
-images and baked maps. Desktop saves to the chosen location. The browser downloads the project;
-keep that download so you can reopen it next time.
+images and baked maps. SubCraft saves to the location you choose.
 
-Desktop autosave creates recovery copies in SubCraft's data folder. It does not overwrite your
-project file. Save your own project regularly; in the browser, download a backup when prompted.
+Autosave creates recovery copies in SubCraft's data folder. It does not overwrite your
+project file. Save your own project regularly.
 
 ## 6. Export textures
 
@@ -525,10 +523,7 @@ silhouette. For reproducible desktop checks, `subcraft low.obj --bake-high high.
 --bake-size 1024` opens this workflow; `--screenshot result.png` waits for completion.
 
 Click **Export** (Ctrl+Shift+E). Choose PBR metal/rough, Unreal, Unity HDRP or glTF to match your
-target application. Desktop writes to your chosen folder. The browser downloads one ZIP with
-all texture maps; extract it into a folder before using them in your engine.
-
-![Browser export downloads all maps in one ZIP](screenshots/browser-export-zip.jpg)
+target application. Maps are written to the folder you choose.
 
 The Unreal template packs ORM and uses DirectX normals; PBR/glTF use OpenGL normals. Choose the
 right template before judging the result under lighting.

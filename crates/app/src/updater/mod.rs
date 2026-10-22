@@ -1,5 +1,5 @@
 //! Desktop release checking, verified downloads and a separate update/restart helper.
-//! No UI/GPU dependencies. Web builds have no native updater or HTTP dependencies.
+//! No UI/GPU dependencies.
 mod apply;
 #[cfg(test)]
 mod tests;

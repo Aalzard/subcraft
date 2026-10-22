@@ -63,7 +63,6 @@ pub struct UiState {
     pub asset_preview: crate::asset_preview::AssetPreviewUi,
     pub welcome: crate::welcome::WelcomeUi,
 
-    #[cfg(not(target_arch = "wasm32"))]
     pub updater: Option<subcraft_app::updater::Updater>,
     /// The startup update check is running or found a release: show the callout at the update
     /// button until the user answers it.
@@ -168,7 +167,6 @@ impl UiState {
             asset_preview: Default::default(),
             welcome: Default::default(),
 
-            #[cfg(not(target_arch = "wasm32"))]
             updater: subcraft_app::updater::Updater::new().ok(),
             update_notice: false,
             update_button: None,

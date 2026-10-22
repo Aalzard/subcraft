@@ -70,7 +70,7 @@ pub const QUICK_START: [GuideStep; 6] = [
     GuideStep { title: "Drag a smart material", text: "In Shelf → Smart Materials, drag Worn Painted Metal onto the model or a layer. Adjust the fills and generator masks in Properties.", button: "Show smart materials", action: GuideAction::SmartMaterial },
     GuideStep { title: "Paint and use Parts", text: "Use a paint layer for brush strokes. Right-click a piece to fill it or paint only there; Parts also lists UV islands, objects and material IDs. I isolates, H hides and Esc restores.", button: "Show Parts", action: GuideAction::PaintParts },
     GuideStep { title: "Save your project", text: "Save a .subcraft project to keep layers, imported images, baked maps and the model together. Autosave recovery copies are a backup; keep your own project file too.", button: "Save project…", action: GuideAction::Save },
-    GuideStep { title: "Export textures", text: "Choose the PBR, Unreal, Unity or glTF template and an output folder. The browser downloads the files. Check the maps in the app or engine that will use them.", button: "Export textures…", action: GuideAction::Export },
+    GuideStep { title: "Export textures", text: "Choose the PBR, Unreal, Unity or glTF template and an output folder. Check the maps in the app or engine that will use them.", button: "Export textures…", action: GuideAction::Export },
 ];
 
 #[cfg(test)]

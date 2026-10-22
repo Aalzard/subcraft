@@ -139,10 +139,10 @@ pub fn window(state: &mut UiState, ctx: &Context) {
         }
     }
     if pick_model {
-        crate::files::pick(ctx, crate::files::Purpose::NewProjectModel, crate::files::MESHES, cfg!(target_arch = "wasm32"), Some("Choose a model"));
+        crate::files::pick(ctx, crate::files::Purpose::NewProjectModel, crate::files::MESHES, false, Some("Choose a model"));
     }
     if pick_high {
-        crate::files::pick(ctx, crate::files::Purpose::NewProjectHighPoly, crate::files::MESHES, cfg!(target_arch = "wasm32"), Some("Choose the high-poly model"));
+        crate::files::pick(ctx, crate::files::Purpose::NewProjectHighPoly, crate::files::MESHES, false, Some("Choose the high-poly model"));
     }
     if create {
         create_project(state, now);

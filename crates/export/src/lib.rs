@@ -269,7 +269,7 @@ pub fn export(mesh: &Mesh, mesh_name: &str, sets: &[ExportTextureSet], settings:
     Ok(written)
 }
 
-/// All rendered maps in one file. No virtual-file writes or per-map download side effects.
+/// All rendered maps in one file.
 pub struct TextureArchive {pub name: String,pub files: usize,pub bytes: Vec<u8>}
 
 pub fn archive(mesh: &Mesh, mesh_name: &str, sets: &[ExportTextureSet], settings: &ExportSettings) -> Result<TextureArchive,ExportError> {

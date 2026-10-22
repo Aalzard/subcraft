@@ -114,12 +114,8 @@ pub struct CompositeWorker {
 
 impl CompositeWorker {
     /// Start the worker, continuing from `caches` (composites evaluated so far; they move to the
-    /// worker on success). Fails where threads are unavailable (the web build composites on the
-    /// UI thread instead).
+    /// worker on success).
     pub fn spawn(caches: &mut HashMap<TextureSetId, CompositeCache>) -> std::io::Result<Self> {
-        if cfg!(target_arch = "wasm32") {
-            return Err(std::io::ErrorKind::Unsupported.into());
-        }
         let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).saturating_sub(1).max(1);
         let pool = rayon::ThreadPoolBuilder::new()
             .num_threads(threads)

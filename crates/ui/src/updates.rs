@@ -1,6 +1,5 @@
 //! Update controls only dispatch to app; no package/project logic in widgets.
 use crate::state::UiState;
-#[cfg(not(target_arch = "wasm32"))]
 use subcraft_app::updater::Phase;
 
 pub fn can_restart(state: &UiState) -> bool {
@@ -8,7 +7,6 @@ pub fn can_restart(state: &UiState) -> bool {
 }
 
 pub fn button(state: &mut UiState, ui: &mut egui::Ui) {
-    #[cfg(not(target_arch = "wasm32"))]
     if let Some(updater) = &mut state.updater {
         let text = match &updater.phase { Phase::Checking => "Checking…", Phase::Downloading { .. } => "Downloading…", Phase::Preparing | Phase::Exiting => "Restarting…", Phase::Available(_) | Phase::Prepared { .. } => "Update", _ => "Check / update" };
         let response = ui.add_enabled(!updater.busy(), egui::Button::new(egui::RichText::new(format!("{}  {text}", crate::icons::DOWNLOAD)).color(egui::Color32::WHITE)).fill(egui::Color32::from_rgb(35, 128, 67)));
@@ -19,11 +17,8 @@ pub fn button(state: &mut UiState, ui: &mut egui::Ui) {
             if !matches!(updater.phase, Phase::Available(_) | Phase::Prepared { .. }) { updater.request_update(); }
         }
     }
-    #[cfg(target_arch = "wasm32")]
-    let _ = (state, ui); // The web app is deployed by GitHub Pages, not a desktop installer.
 }
 pub fn tick(state: &mut UiState, ctx: &egui::Context) {
-    #[cfg(not(target_arch = "wasm32"))]
     {
         let can_restart = can_restart(state);
         let Some(updater) = &mut state.updater else { return }; updater.poll();
@@ -73,12 +68,9 @@ pub fn tick(state: &mut UiState, ctx: &egui::Context) {
         updater.open &= open;
         if !open { updater.auto_install = false; }
     }
-    #[cfg(target_arch = "wasm32")]
-    let _ = (state, ctx);
 }
 
 /// What the startup update callout does for the updater's current phase.
-#[cfg(not(target_arch = "wasm32"))]
 #[derive(Debug, PartialEq)]
 pub enum Notice {
     /// The check is still running.
@@ -89,7 +81,6 @@ pub enum Notice {
     Show(String),
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 pub fn startup_notice(phase: &Phase) -> Notice {
     match phase {
         Phase::Checking => Notice::Waiting,
@@ -100,7 +91,6 @@ pub fn startup_notice(phase: &Phase) -> Notice {
 
 /// Small window under the update button with an arrow pointing at it. Returns `Some(true)` for
 /// "Update now", `Some(false)` for "Later".
-#[cfg(not(target_arch = "wasm32"))]
 fn callout(ctx: &egui::Context, anchor: egui::Rect, version: &str) -> Option<bool> {
     use crate::theme::{self, ACCENT, BG_2, TEXT, TEXT_DIM};
     use egui::{Order, RichText, Stroke};
@@ -138,7 +128,7 @@ fn callout(ctx: &egui::Context, anchor: egui::Rect, version: &str) -> Option<boo
     choice
 }
 
-#[cfg(all(test, not(target_arch = "wasm32")))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use subcraft_app::updater::{Asset, PackageKind, Release};

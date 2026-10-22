@@ -75,7 +75,7 @@ pub struct LaunchOptions {
     pub resume_update: Option<PathBuf>,
     /// Check releases on startup (scripted verification / Help).
     pub check_updates: bool,
-    #[cfg(all(feature = "update-fixture", not(target_arch = "wasm32")))]
+    #[cfg(feature = "update-fixture")]
     pub auto_update_fixture: bool,
     /// Project (`.subcraft`) or mesh to open instead of the sample crate.
     pub mesh: Option<PathBuf>,
@@ -342,12 +342,9 @@ impl SubcraftApp {
         theme::apply(&cc.egui_ctx);
         let mut status = None;
         let is_project = |p: &std::path::Path| p.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case(subcraft_app::PROJECT_EXTENSION));
-        #[cfg(not(target_arch = "wasm32"))]
         let resumed = options.resume_update.as_ref().and_then(|path| match subcraft_app::updater::resume_session(path) {
             Ok(session) => Some(session), Err(e) => { status = Some(format!("Could not restore update snapshot: {e}")); None }
         });
-        #[cfg(target_arch = "wasm32")]
-        let resumed: Option<Session> = None;
         let session = if let Some(session) = resumed { session } else { match &options.mesh {
             Some(path) if is_project(path) => match Session::open_project(path) {
                 Ok(s) => s,
@@ -370,16 +367,13 @@ impl SubcraftApp {
             },
             None => Session::sample(),
         }};
-        #[cfg(not(target_arch = "wasm32"))]
         let restore_failed = status.is_some();
         let mut state = UiState::new(session, cc.wgpu_render_state.clone())
             .with_user_library(subcraft_app::assets::UserLibrary::default_root().map(subcraft_app::assets::UserLibrary::new));
-        #[cfg(not(target_arch = "wasm32"))]
         let opened_from_arg = !status.as_ref().is_some_and(|s| s.starts_with("Could not open"));
         if let Some(s) = status {
             state.set_status(s, 0.0);
         }
-        #[cfg(not(target_arch = "wasm32"))]
         {
             if !restore_failed && let Some(path) = &options.resume_update {
                 let result = std::fs::read_to_string(path.with_file_name("result.txt")).unwrap_or_else(|_| "Your workspace was restored after an update.".into());
@@ -406,7 +400,6 @@ impl SubcraftApp {
             })); }
             if let Some(kind) = options.bake_preview_map { state.bake.displayed_map = Some(kind); state.bake.follow_maps = false; }
         }
-        #[cfg(not(target_arch = "wasm32"))]
         {
             // Background release check; a newer version gets a callout at the update button.
             // Not for scripted screenshots or right after an update restart.
@@ -418,7 +411,6 @@ impl SubcraftApp {
                 state.update_notice = true;
             }
         }
-        #[cfg(not(target_arch = "wasm32"))]
         {
             state.welcome.recent = cc.storage.and_then(|s| s.get_string(crate::welcome::RECENTS_KEY))
                 .and_then(|j| serde_json::from_str(&j).ok()).unwrap_or_default();
@@ -502,7 +494,7 @@ impl SubcraftApp {
         state.welcome.guide = options.guide_step.map(|s| s.min(subcraft_app::launch::QUICK_START.len() - 1));
         if state.welcome.guide.is_some() { state.welcome.open = false; }
 
-        #[cfg(all(feature = "update-fixture", not(target_arch = "wasm32")))]
+        #[cfg(feature = "update-fixture")]
         if options.auto_update_fixture && let Some(updater) = &mut state.updater { updater.request_update(); }
         let dock = cc
             .storage
@@ -678,7 +670,7 @@ impl SubcraftApp {
             ui.add_space(10.0);
             self.menu(ui)
         }).inner;
-        // Keep long project names out of the menus/actions, including in a narrow browser panel.
+        // Keep long project names out of the menus/actions.
         let title_rect = egui::Rect::from_min_max(egui::pos2(left_edge + 8.0, bar.top()), egui::pos2(right_edge - 8.0, bar.bottom()));
         if title_rect.width() >= 80.0 {
             let title = dialogs::title(&self.state);
@@ -849,7 +841,6 @@ impl SubcraftApp {
                 if item(ui, icons::INFO, "About SubCraft…", "") { self.state.welcome.about = true; ui.close(); }
                 ui.separator();
 
-                #[cfg(not(target_arch = "wasm32"))]
                 if item(ui, icons::DOWNLOAD, "Check for updates…", "") { if let Some(updater) = &mut self.state.updater { updater.check(); } ui.close(); }
                 if item(ui, icons::KEYBOARD, "Keyboard shortcuts", "") {
                     self.state.show_shortcuts = true;
@@ -1162,7 +1153,6 @@ impl eframe::App for SubcraftApp {
         crate::recovery::tick(&mut self.state, &ctx, now);
         if let Some(p) = &mut self.profile { p.mark("recovery tick"); }
         crate::recovery::preferences_window(&mut self.state, &ctx);
-        crate::recovery::backup_reminder(&mut self.state, &ctx, now);
         crate::recovery::prompt(&mut self.state, &ctx, now);
         crate::bug_report::report_window(&mut self.state, &ctx);
         crate::bug_report::crash_window(&mut self.state, &ctx);
@@ -1233,7 +1223,6 @@ impl eframe::App for SubcraftApp {
         if let Ok(j) = serde_json::to_string(&self.state.recovery.prefs) {
             storage.set_string(crate::recovery::PREFS_KEY, j);
         }
-        #[cfg(not(target_arch = "wasm32"))]
         if let Ok(j) = serde_json::to_string(&self.state.welcome.recent) { storage.set_string(crate::welcome::RECENTS_KEY, j); }
     }
 

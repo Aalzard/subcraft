@@ -111,7 +111,6 @@ pub fn window(state: &mut UiState, ctx: &Context) {
             };
             *prefs = keep;
         }
-        #[cfg(not(target_arch = "wasm32"))]
         {
             ui.separator();
             ui.label(RichText::new("Export").color(TEXT_DIM));
@@ -152,7 +151,6 @@ pub enum RenderRequest {
 }
 
 /// Carry out a request made in the window (file pickers are blocking, desktop only).
-#[cfg(not(target_arch = "wasm32"))]
 pub fn handle_request(state: &mut UiState, now: f64) {
     let Some(request) = state.render_request.take() else { return };
     match request {
@@ -169,8 +167,6 @@ pub fn handle_request(state: &mut UiState, now: f64) {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
-pub fn handle_request(_state: &mut UiState, _now: f64) {}
 
 fn report(state: &mut UiState, now: f64, result: Result<String, String>) {
     match result {

@@ -21,7 +21,6 @@ A few things that are new or recently reworked:
 - **Filters on layers and masks:** blur, sharpen, directional blur, highpass, bevel and mask outline.
 
 Try it:
-- In your browser (needs a recent Chrome/Edge/Firefox/Safari): https://aalzard.github.io/subcraft/
 - Windows desktop download: https://github.com/Aalzard/subcraft/releases/latest
 
 It's still early, so please tell me what's missing or broken. What would stop you using it for a real project?

@@ -5,6 +5,10 @@ What changed in SubCraft, newest first. Download the latest build from the
 
 ## Unreleased
 
+### Removed
+- The browser version (WebAssembly build and its GitHub Pages site) is gone. SubCraft is a desktop
+  app for Windows and Linux; nothing changes for desktop users (ADR-0038).
+
 ### Rendering
 - Filter minified material textures with incremental GPU mipmaps, reducing fine PBR grain
   and shimmer at distance. Preserve sparse uploads, original/exported texels and the Nearest

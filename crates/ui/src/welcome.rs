@@ -14,7 +14,6 @@ pub struct WelcomeUi {
 impl WelcomeUi {
     pub fn refresh(&mut self) { self.items = self.recent.items(); }
     pub fn remember(&mut self, path: &std::path::Path) {
-        if cfg!(target_arch = "wasm32") { return; }
         self.recent.remember(path); self.refresh();
     }
 }
@@ -43,7 +42,6 @@ pub fn show(state: &mut UiState, ctx: &egui::Context) -> Option<WelcomeAction> {
                 if secondary_button(ui, "What's new").on_hover_text("See the latest features in this build").clicked() { state.welcome.whats_new = true; }
                 if secondary_button(ui, "Continue in workspace").clicked() { state.welcome.open = false; }
             });
-            #[cfg(not(target_arch = "wasm32"))]
             {
                 ui.add_space(14.0); ui.separator(); ui.label(RichText::new("Recent files").strong());
                 let mut remove = None;

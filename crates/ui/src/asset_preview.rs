@@ -39,21 +39,12 @@ impl AssetPreviewUi {
         self.builtin=match &source {Source::Builtin(i)=>Some(*i),_=>None};
         self.source=None;self.image=None;self.example=None;self.job=None;self.error=None;self.dirty=true;
         let (tx,rx)=channel();self.loader=Some(rx); let ctx=ctx.clone();
-        #[cfg(not(target_arch="wasm32"))]
         subcraft_core::task::spawn(move || {
             let result=match source {
                 Source::Builtin(i)=>subcraft_assets::starter::encoded(i).ok_or_else(||"Unknown starter image".to_string()).and_then(decode),
                 Source::File(p)=>load_file(&p),
                 Source::Bitmap(b)=>Ok(b),
             }; let _=tx.send(result);ctx.request_repaint();
-        });
-        #[cfg(target_arch="wasm32")]
-        wasm_bindgen_futures::spawn_local(async move {
-            let result=match source {
-                Source::Builtin(i)=>fetch(i).await.and_then(|b|decode(&b)),
-                Source::File(p)=>load_file(&p),
-                Source::Bitmap(b)=>Ok(b),
-            };let _=tx.send(result);ctx.request_repaint();
         });
     }
     pub fn apply_to(&mut self, session: &subcraft_app::Session, channel: Option<(subcraft_core::LayerId,subcraft_core::ChannelKind)>) {
@@ -176,18 +167,6 @@ fn load_file(path: &std::path::Path) -> Result<Arc<Bitmap>,String> {
     Ok(Arc::new(match conversion {MapConversion::None=>bitmap,MapConversion::Invert=>bitmap.map_color(|_,v|1.0-v),_=>bitmap.map_color(|c,v|if c==1 {1.0-v}else{v})}))
 }
 
-#[cfg(target_arch="wasm32")]
-async fn fetch(index: usize) -> Result<Vec<u8>,String> {
-    use wasm_bindgen::JsCast;
-    let entry=ENTRIES.get(index).ok_or("Unknown starter image")?;
-    let url=format!("starter-pack/{}",entry.file);
-    let response=wasm_bindgen_futures::JsFuture::from(web_sys::window().ok_or("Browser window unavailable")?.fetch_with_str(&url)).await.map_err(|_|"Starter image download failed; try selecting it again")?;
-    let response=response.dyn_into::<web_sys::Response>().map_err(|_|"Invalid image response")?;
-    if !response.ok() {return Err(format!("Image download returned HTTP {}",response.status()));}
-    let buffer=wasm_bindgen_futures::JsFuture::from(response.array_buffer().map_err(|_|"Cannot read image download")?).await.map_err(|_|"Cannot read image download")?;
-    let bytes=js_sys::Uint8Array::new(&buffer).to_vec();
-    if bytes.len()!=entry.bytes {return Err("Image download has an unexpected size; reload the page and retry".into());} Ok(bytes)
-}
 
 fn texture(ctx: &egui::Context, name: &str, bitmap: &Bitmap) -> egui::TextureHandle {
     let (w,h,rgba)=bitmap.preview_rgba8(4096);ctx.load_texture(name,egui::ColorImage::from_rgba_unmultiplied([w as usize,h as usize],&rgba),egui::TextureOptions::LINEAR)

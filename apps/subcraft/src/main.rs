@@ -1,4 +1,4 @@
-//! SubCraft application (desktop, and the web version built from the same code).
+//! SubCraft application (desktop).
 //!
 //! Desktop usage: `subcraft [project.subcraft|mesh.obj|.gltf|.glb|.fbx] [--demo] [--view-2d] [--screenshot out.png]`
 
@@ -8,25 +8,9 @@
 
 /// mimalloc instead of the system heap: compositing allocates per-tile buffers on every core,
 /// which the Windows heap serializes (ADR-0018).
-#[cfg(not(target_arch = "wasm32"))]
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-/// Web version: start in the page's `subcraft_canvas` (see `web/index.html`).
-#[cfg(target_arch = "wasm32")]
-fn main() {
-    let _ = eframe::WebLogger::init(log::LevelFilter::Info);
-    wasm_bindgen_futures::spawn_local(async {
-        if let Err(e) = subcraft_ui::start_web("subcraft_canvas").await {
-            log::error!("SubCraft failed to start: {e:?}");
-            if let Some(el) = web_sys::window().and_then(|w| w.document()).and_then(|d| d.get_element_by_id("loading")) {
-                el.set_inner_html("SubCraft could not start in this browser. It needs WebGPU: use a recent Chrome, Edge, Firefox or Safari.");
-            }
-        }
-    });
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 fn main() -> anyhow::Result<()> {
     let cli: Vec<_> = std::env::args_os().skip(1).collect();
     if cli.first().is_some_and(|a| a == "--apply-update") {

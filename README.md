@@ -1,7 +1,6 @@
 <img width="1254" height="1254" alt="Engraved Hand on Orange " src="https://github.com/user-attachments/assets/520d56f6-acd7-4ca3-9819-cffb4395b82e" />
 # SubCraft
 
-[![Try it in your browser](https://img.shields.io/badge/Try%20it-in%20your%20browser-ff7a1a?style=for-the-badge&logo=googlechrome&logoColor=white)](https://aalzard.github.io/subcraft/)
 [![Download for Windows](https://img.shields.io/badge/Download-Windows%20installer-ff7a1a?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/Aalzard/subcraft/releases/latest)
 [![Download for Linux](https://img.shields.io/badge/Download-Linux-ff7a1a?style=for-the-badge&logo=linux&logoColor=white)](https://github.com/Aalzard/subcraft/releases/latest)
 [![Latest release](https://img.shields.io/github/v/release/Aalzard/subcraft?style=for-the-badge&label=latest&color=2b2b2b)](https://github.com/Aalzard/subcraft/releases/latest)
@@ -117,21 +116,6 @@ screen and six-step in-app guide are available on desktop and in the browser.
   containing all texture maps; extract it into a folder.
 - **Mesh import**: OBJ, glTF / GLB and FBX.
 
-## Try it in your browser
-
-Open **https://aalzard.github.io/subcraft/** in a browser with WebGPU (recent Chrome, Edge,
-Firefox or Safari). Nothing to install. The web version is the same app with a few differences:
-
-- **Files**: *Open* uploads from your computer; *Save* and *Export* download the files.
-  Import OBJ, glTF or **GLB** (upload a `.gltf` together with its `.bin`). FBX is desktop only.
-- **Speed**: it runs on one CPU thread, so big fills, smart materials and baking take longer
-  than in the desktop app (the page pauses briefly while they compute).
-- **No library folder**: imported textures, brush tips and HDRIs last for the session only.
-- **No autosave**: the browser can't write files in the background, so SubCraft reminds you to
-  download a backup of unsaved work every few minutes, and asks before you close the tab.
-
-For real work, the desktop app below is faster.
-
 **v0.1.5 sizes** (decimal MB):
 
 | Download | Size |
@@ -139,12 +123,6 @@ For real work, the desktop app below is faster.
 | Windows installer | 23.22 MB |
 | Windows portable ZIP | 24.87 MB |
 | Linux x64 archive | 26.39 MB |
-| Browser WebAssembly module | 16.74 MB |
-
-The browser module includes the thumbnail catalog. A fresh public HTTPS fetch transferred
-5.60 MB in 3.00 seconds on the test connection; startup also compiles the module and sets up the
-GPU. The 12.93 MB of full starter PNGs are separate files fetched only when selected. Connection,
-cache, hardware and the selected images affect actual transfer size and loading time.
 
 ## Download (Windows)
 
@@ -169,7 +147,7 @@ packages finish uploading if the app says they are still being prepared.
 *Local installer update test: the original project and unsaved layer edits are restored.*
 
 The [latest release](https://github.com/Aalzard/subcraft/releases/latest) has the current desktop
-packages; the browser version updates separately when changes land on main. Features in open
+packages. Features in open
 pull requests are available after they are merged and released.
 
 ## Download (Linux)

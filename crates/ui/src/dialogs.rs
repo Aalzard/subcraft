@@ -38,9 +38,6 @@ pub struct ExportUi {
 
 impl Default for ExportUi {
     fn default() -> Self {
-        #[cfg(target_arch = "wasm32")]
-        let folder = PathBuf::from(crate::files::DOWNLOADS);
-        #[cfg(not(target_arch = "wasm32"))]
         let folder = std::env::current_dir().map(|d| d.join("exports")).unwrap_or_else(|_| PathBuf::from("exports"));
         Self { open: false, settings: ExportSettings::default(), template: 0, folder: folder.display().to_string(), known_template: String::new() }
     }
@@ -52,10 +49,6 @@ const PROJECT_FILTER: (&str, &[&str]) = ("SubCraft project", &[subcraft_app::PRO
 pub fn save(state: &mut UiState, save_as: bool, now: f64) -> bool {
     let path = if save_as || state.session.project_path().is_none() {
         let name = format!("{}.{}", state.session.export_name(), subcraft_app::PROJECT_EXTENSION);
-        // In the browser there is no save dialog: the project is downloaded under its name.
-        #[cfg(target_arch = "wasm32")]
-        let picked = Some(std::path::Path::new(crate::files::DOWNLOADS).join(name));
-        #[cfg(not(target_arch = "wasm32"))]
         let picked = rfd::FileDialog::new().add_filter(PROJECT_FILTER.0, PROJECT_FILTER.1).set_file_name(name).save_file();
         match picked {
             Some(mut p) => {
@@ -87,7 +80,6 @@ pub fn run_pending(state: &mut UiState, action: Pending, ctx: &egui::Context, _n
     match action {
         Pending::Close => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
         Pending::NewSample => state.set_session(Session::sample()),
-        // In the browser a .gltf can come with its .bin, so meshes allow several files.
         // The New Project window shows what is in the model and the project options.
         Pending::OpenMesh => state.new_project.show_window(&state.recovery.prefs.new_project.clone()),
         Pending::OpenProject => crate::files::pick(ctx, crate::files::Purpose::OpenProject, PROJECT_FILTER, false, None),
@@ -159,7 +151,6 @@ pub fn export_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
     egui::Window::new(window_title("Export Textures")).open(&mut open).collapsible(false).default_width(480.0).show(ctx, |ui| {
         let ex = &mut state.export;
         egui::Grid::new("export_grid").num_columns(2).spacing([16.0, 10.0]).show(ui, |ui| {
-            #[cfg(not(target_arch = "wasm32"))]
             {
                 ui.label(dim("Folder"));
                 ui.horizontal(|ui| {
@@ -170,12 +161,6 @@ pub fn export_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
                         ex.folder = p.display().to_string();
                     }
                 });
-                ui.end_row();
-            }
-            #[cfg(target_arch = "wasm32")]
-            {
-                ui.label(dim("Files"));
-                ui.label(dim("One ZIP download containing all texture maps."));
                 ui.end_row();
             }
             ui.label(dim("Template"));
@@ -223,7 +208,6 @@ pub fn export_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
         });
         ex.settings.template = templates[ex.template].clone();
         let settings = ex.settings.clone();
-        #[cfg(not(target_arch = "wasm32"))]
         let folder = PathBuf::from(&ex.folder);
         ui.add_space(6.0);
         divider(ui);
@@ -244,15 +228,9 @@ pub fn export_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
             ui.add_enabled_ui(plan_len > 0, |ui| primary_button(ui, format!("{}  Export", crate::icons::EXPORT))).inner.clicked()
         });
         if go.inner {
-            #[cfg(not(target_arch = "wasm32"))]
             match state.session.export_textures(&folder, &settings) {
                 Ok(files) => state.set_status(format!("Exported {} files to {}", files.len(), folder.display()), now),
                 Err(e) => state.set_status(format!("Export failed: {e}"), now),
-            }
-            #[cfg(target_arch = "wasm32")]
-            match state.session.export_archive(&settings) {
-                Ok(archive)=>if crate::web::download(&archive.name,&archive.bytes) {state.set_status(format!("Downloaded {} maps in {}",archive.files,archive.name),now);} else {state.set_status("Could not start the ZIP download; export again to retry",now);},
-                Err(e)=>state.set_status(format!("Export failed: {e}"),now),
             }
         }
     });
@@ -494,7 +472,7 @@ pub fn bake_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
                 ui.horizontal(|ui| {
                     ui.add(egui::TextEdit::singleline(&mut b.high_poly).hint_text("optional (none = low on low)").desired_width(220.0));
                     if ui.button("Browse…").clicked() {
-                        crate::files::pick(ui.ctx(), crate::files::Purpose::BakeHighPoly, crate::files::MESHES, cfg!(target_arch = "wasm32"), None);
+                        crate::files::pick(ui.ctx(), crate::files::Purpose::BakeHighPoly, crate::files::MESHES, false, None);
                     }
                     if !b.high_poly.is_empty() && crate::widgets::icon_button(ui, crate::icons::X, "Clear").clicked() {
                         b.high_poly.clear();

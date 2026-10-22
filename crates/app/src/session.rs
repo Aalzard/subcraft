@@ -113,7 +113,7 @@ pub struct Session {
     clone_source: Option<Vec3>,
     clone_offset: Option<Vec2>,
     /// Composite caches while compositing runs on the calling thread (until the first
-    /// interactive update starts the worker, and always on the web).
+    /// interactive update starts the worker).
     composites: HashMap<TextureSetId, CompositeCache>,
     /// Background compositing (desktop, from the first interactive update on): owns the caches.
     worker: Option<CompositeWorker>,
@@ -284,7 +284,6 @@ impl Session {
         self.recovered = true;
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn restore_after_update(&mut self, project_path: Option<PathBuf>, modified: bool) {
         self.project_path = project_path;
         self.recovered = modified;
@@ -1257,7 +1256,7 @@ impl Session {
     /// Interactive frames: never blocks on compositing. The document goes to the background
     /// worker (started on the first call) and whatever it finished since the last call is
     /// returned; [`Session::composites_pending`] says whether more is coming. Where no worker
-    /// thread can run (web), up to about `budget` worth of tiles is evaluated here instead.
+    /// thread is running, up to about `budget` worth of tiles is evaluated here instead.
     pub fn update_composites_within(&mut self, budget: Option<std::time::Duration>) -> Vec<CompositeUpdate> {
         if self.worker.is_none() && !self.inline_only {
             // An exact synchronous composite may already exist (for example after export).
@@ -1444,7 +1443,7 @@ impl Session {
         subcraft_export::export(&self.scene.mesh, &name, &sets, &settings, dir).map_err(|e| e.to_string())
     }
 
-    /// Export every map in one download without sending individual writes to the web sink.
+    /// Export every map as one in-memory ZIP archive.
     pub fn export_archive(&mut self, settings: &subcraft_export::ExportSettings) -> Result<subcraft_export::TextureArchive,String> {
         self.update_composites();let settings=self.effective_export_settings(settings);let name=self.export_name();let sets=self.export_sets();
         subcraft_export::archive(&self.scene.mesh,&name,&sets,&settings).map_err(|e|e.to_string())

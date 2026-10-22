@@ -40,10 +40,3 @@ pollster.workspace = true
 subcraft-mesh.workspace = true
 rayon.workspace = true
 mimalloc.workspace = true
-
-# Web build: browser canvas, uploads and downloads.
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-wasm-bindgen = "0.2.106"
-wasm-bindgen-futures = "0.4"
-js-sys = "0.3"
-web-sys = { version = "0.3", features = ["Window", "Document", "Element", "HtmlCanvasElement", "HtmlAnchorElement", "Blob", "BlobPropertyBag", "Url", "Response"] }
