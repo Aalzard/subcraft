@@ -272,6 +272,30 @@ fn empty_scene_is_background_and_resizes() {
     assert_eq!(b.len(), 100 * 70 * 4);
 }
 
+#[test]
+fn oversized_requests_are_scaled_to_the_device_texture_limit() {
+    use subcraft_render::wgpu_api as wgpu;
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
+    let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
+        eprintln!("no wgpu adapter available: skipping");
+        return;
+    };
+    let requested = wgpu::DeviceDescriptor {
+        label: Some("clamped targets"),
+        required_limits: wgpu::Limits { max_texture_dimension_2d: 1024, ..Default::default() },
+        ..Default::default()
+    };
+    let Ok((device, queue)) = pollster::block_on(adapter.request_device(&requested)) else {
+        eprintln!("adapter rejects a 1024-wide texture limit: skipping");
+        return;
+    };
+    let mut r = ViewportRenderer::new(&device, &queue);
+    // Wider than the device allows (e.g. before the first Wayland configure): shrink uniformly.
+    assert_eq!(r.render(&device, &queue, [4000, 2000], &params()).size, [1024, 512]);
+    // The clamped size must be stable, or the target would be recreated every frame.
+    assert_eq!(r.render(&device, &queue, [4000, 2000], &params()).size, [1024, 512]);
+}
+
 fn render_with(device: &subcraft_render::wgpu_api::Device, queue: &subcraft_render::wgpu_api::Queue, channels: &[(ChannelKind, TiledImage)], p: &ViewParams) -> Vec<u8> {
     let mut r = ViewportRenderer::new(device, queue);
     r.set_mesh(device, &primitives::cube(2.0));
