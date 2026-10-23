@@ -110,6 +110,32 @@ Evidence for the normal orientation: Painter's own material graphs expose a `nor
 project that stores it (CarInteriro, 19 tweaks) it is 0, and `normalMapSyscoord` is 0 in all eleven, so
 DirectX is now well supported, though still not proven for every file.
 
+## Rebuilt layer stack (session 104)
+`Session::open_spp` also rebuilds the Painter stack (`crates/app/src/spp_stack.rs`) as a folder
+"Painter stack (reconstructed)" between the flattened layer and an empty "Layer 1":
+* folders and layers with names and visibility; uniform fills (exact, per channel, UV or tri-planar);
+* masks as effect stacks: uniform fills, Levels (exact), `mg_dirt` / `mg_curvature` / edge wear /
+  `mg_ambient_occlusion` / `mg_position` as SubCraft generators (approximate), noise graphs as procedural
+  patterns (approximate), `blur` / `sharpen` / `clamp` filters (approximate, `clamp` exact), and grunge graphs
+  from the **JPEG embedded in the project's `.sbsar`** with Levels for balance/contrast/invert (approximate);
+* kept as named hidden placeholders: layers without a mappable fill (procedural materials, filter layers,
+  paint/eraser/decal-only layers); masks whose every effect is unmapped are left off; painted mask strokes,
+  decals and anchors are not rebuilt (counted in the notes);
+* **quality gate:** the rebuilt stack is composited alone (at no more than 512 texels) and compared with
+  Painter's flattened channels over the covered texels. Only if Base Color < 0.04, Roughness < 0.06 and
+  Metallic < 0.06 (mean absolute difference, 0..1) is it shown and the flattened layer hidden; otherwise it
+  is hidden and the notes list the differences. On the 11 sample projects none passes yet (Base Color
+  differences 0.015 to 0.57), mainly because Painter's blend-mode ids are unmapped (everything is Normal) and
+  procedural materials and painted strokes are missing.
+* Embedded images are read at import time into the user's project only; nothing is bundled.
+
+`.sbsar` files are 7z archives (LZMA, plain or LZMA-compressed header); `spp/sevenz.rs` reads them
+(LZMA only, no LZMA2) and `SppFile::embedded_jpegs` returns the JPEGs inside the compiled graph. All 134
+archives referenced by the samples unpack.
+
+Open time (release build, 4096 texture sets): about 14 s (baked maps 10 s, flattened channels 2.6 s, stack 1.6 s);
+the 8192-baked car interior took 94 s before the shared-gutter and parallel dilation changes.
+
 ## Cannot be recovered
 * Procedural layers (`.sbsar` fills, generators, filters): there is no Substance engine here; only their
   flattened result exists, in the cache.

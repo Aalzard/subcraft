@@ -24,6 +24,7 @@ pub mod pen;
 pub mod recovery;
 pub mod session;
 pub mod spp_import;
+pub mod spp_stack;
 pub mod thumbnails;
 pub mod layer_previews;
 pub mod updater;

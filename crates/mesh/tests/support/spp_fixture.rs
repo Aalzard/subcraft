@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 
 pub const GRAY16: &[u8] = include_bytes!("../data/gray16.jp2");
 pub const RGB8: &[u8] = include_bytes!("../data/rgb8.jp2");
+pub const EMBEDDED_7Z: &[u8] = include_bytes!("../data/embedded.7z");
 pub const W: usize = 136;
 pub const H: usize = 72;
 
@@ -409,6 +410,7 @@ pub fn project_file() -> Vec<u8> {
         ("resources.toc", toc),
         ("resources/aaaa", ao),
         ("resources/bbbb", position),
+        ("resources/dddd.sbsar", EMBEDDED_7Z.to_vec()),
         ("texture-cache/4242/1/128", cache_blob(4, 2, &pixels)),
         ("texture-cache/header", vec![0, 1, 2]),
     ])

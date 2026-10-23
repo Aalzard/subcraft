@@ -10,6 +10,21 @@ fn tree(layers: &[LayerInfo], depth: usize) {
     for l in layers.iter().rev() {
         let blends: Vec<String> = l.blends.iter().map(|(c, m, o)| format!("{m}@{o:.2}/{c:#x}")).collect();
         println!("{}{:?} '{}'{} mask={} strokes={} sources={} blends=[{}]", "  ".repeat(depth), l.kind, l.name, if l.visible { "" } else { " (hidden)" }, l.has_mask, l.strokes, l.sources.len(), blends.join(" "));
+        if std::env::var("SPP_ACTIONS").is_ok() {
+            for (label, list) in [("content", &l.content), ("mask", &l.mask)] {
+                for a in list {
+                    let what = match &a.kind {
+                        subcraft_mesh::spp::document::ActionKind::Fill { sources, projection } => format!("fill proj {projection} [{}]", sources.iter().map(|s| match s {
+                            subcraft_mesh::spp::SourceInfo::Uniform { channels, color } => format!("uniform {channels:#x} {color:.2?}"),
+                            subcraft_mesh::spp::SourceInfo::Bitmap { channels, .. } => format!("bitmap {channels:#x}"),
+                            subcraft_mesh::spp::SourceInfo::Procedural { channels, graph } => format!("{} {channels:#x} {:?}", graph.name(), graph.tweaks.iter().filter(|(n, _)| !n.starts_with('$')).take(4).collect::<Vec<_>>()),
+                        }).collect::<Vec<_>>().join("; ")),
+                        k => format!("{k:?}").chars().take(160).collect(),
+                    };
+                    println!("{}    {label}: {what} blends={:?}", "  ".repeat(depth), a.blends);
+                }
+            }
+        }
         tree(&l.children, depth + 1);
     }
 }
@@ -67,6 +82,37 @@ fn main() {
                 println!("  UV coverage vs baked alpha: as imported {:.3}, v flipped {:.3} ({total} texels)", hit as f32 / total as f32, hit_flipped as f32 / total as f32);
             }
         }
+        // Every procedural archive: does it unpack, and does it carry embedded images?
+        let mut urls = std::collections::BTreeSet::new();
+        subcraft_mesh::spp::document::walk_layers(&set.layers, &mut |l, _| {
+            for src in &l.sources {
+                if let subcraft_mesh::spp::SourceInfo::Procedural { graph, .. } = src {
+                    urls.insert(graph.url.clone());
+                }
+            }
+        }, 0);
+        let (mut ok, mut failed, mut with_jpeg) = (0, 0, 0);
+        for url in &urls {
+            let t = Instant::now();
+            match f.embedded_jpegs(url) {
+                Ok(j) => {
+                    ok += 1;
+                    with_jpeg += (!j.is_empty()) as usize;
+                    if !j.is_empty() && out_dir.is_some() {
+                        let name = url.split('?').next().unwrap_or(url).rsplit('/').next().unwrap_or("x");
+                        std::fs::write(Path::new(out_dir.as_ref().unwrap()).join(format!("{name}.jpg")), &j[0]).ok();
+                    }
+                    if t.elapsed().as_millis() > 500 {
+                        println!("  slow archive {url}: {:?}", t.elapsed());
+                    }
+                }
+                Err(e) => {
+                    failed += 1;
+                    println!("  archive {url}: ERROR {e}");
+                }
+            }
+        }
+        println!("  procedural archives: {} unpacked, {failed} failed, {with_jpeg} with embedded JPEG", ok);
         let procedural = subcraft_mesh::spp::document::procedural_resources(&set.layers);
         println!("  procedural resources: {}", procedural.len());
         for kind in f.baked_map_kinds(&set.name).unwrap() {

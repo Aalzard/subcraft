@@ -18,6 +18,7 @@ pub mod images;
 pub mod jp2;
 pub mod lz4;
 pub mod qt;
+pub mod sevenz;
 
 use std::fs::File;
 use std::io::{BufReader, Read, Seek};
@@ -37,6 +38,8 @@ pub enum SppError {
     Document(#[from] document::DocumentError),
     #[error(transparent)]
     Image(#[from] images::ImageError),
+    #[error(transparent)]
+    SevenZip(#[from] sevenz::SevenZipError),
     #[error(transparent)]
     Io(#[from] std::io::Error),
 }
@@ -109,4 +112,55 @@ impl<R: Read + Seek> SppFile<R> {
         }
         Ok(None)
     }
+
+    /// The files of a Substance archive (`.sbsar`, a 7z) stored in the project, found by the
+    /// `version=` key of a resource URL such as `resource://starter_assets/x/x?version=<sha1>.sbsar`.
+    pub fn sbsar_files(&mut self, url: &str) -> Result<Option<Vec<sevenz::Entry>>, SppError> {
+        let Some(key) = sbsar_key(url) else { return Ok(None) };
+        let path = format!("resources/{key}");
+        let Ok(info) = self.h5.dataset(&path) else { return Ok(None) };
+        let bytes = self.h5.read(&info)?;
+        Ok(Some(sevenz::read_all(&bytes)?))
+    }
+
+    /// The JPEG images embedded in a Substance archive's compiled graph (grunge maps, bitmap
+    /// materials, brush tips), as encoded bytes, in file order. Empty for purely procedural graphs.
+    pub fn embedded_jpegs(&mut self, url: &str) -> Result<Vec<Vec<u8>>, SppError> {
+        let Some(files) = self.sbsar_files(url)? else { return Ok(Vec::new()) };
+        let mut out = Vec::new();
+        for f in files.iter().filter(|f| f.name.ends_with(".sbsasm")) {
+            out.extend(find_jpegs(&f.data));
+        }
+        Ok(out)
+    }
+}
+
+/// `<sha1>.sbsar` from a resource URL.
+pub fn sbsar_key(url: &str) -> Option<&str> {
+    let (_, key) = url.split_once("?version=")?;
+    key.ends_with(".sbsar").then_some(key)
+}
+
+/// Encoded JPEG images inside a blob: each starts at an SOI marker followed by a known segment
+/// marker and runs to the next one (or the end).
+pub fn find_jpegs(data: &[u8]) -> Vec<Vec<u8>> {
+    let mut starts = Vec::new();
+    let mut i = 0;
+    while i + 4 <= data.len() {
+        if data[i] == 0xff && data[i + 1] == 0xd8 && data[i + 2] == 0xff && matches!(data[i + 3], 0xe0 | 0xe1 | 0xdb | 0xc0 | 0xc2 | 0xc4 | 0xee) {
+            starts.push(i);
+            i += 4;
+        } else {
+            i += 1;
+        }
+    }
+    let mut out = Vec::new();
+    for (k, s) in starts.iter().enumerate() {
+        let end = starts.get(k + 1).copied().unwrap_or(data.len());
+        // Trim to the last end-of-image marker so trailing data of the graph does not follow the picture.
+        let slice = &data[*s..end];
+        let cut = slice.windows(2).rposition(|w| w == [0xff, 0xd9]).map(|p| p + 2).unwrap_or(slice.len());
+        out.push(slice[..cut].to_vec());
+    }
+    out
 }

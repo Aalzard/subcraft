@@ -148,3 +148,39 @@ fn the_model_comes_from_the_dump() {
     assert_eq!(report.mesh.triangle_count(), 2);
     std::fs::remove_dir_all(&dir).ok();
 }
+
+#[test]
+fn sevenz_reads_lzma_and_copy_archives() {
+    let expected_b = {
+        // b.bin = 900 pseudo-random bytes + their first 300 + 100 bytes of text; compare structurally.
+        let t: Vec<u8> = b"The quick brown fox jumps over the lazy dog. ".iter().copied().cycle().take(100).collect();
+        t
+    };
+    for archive in [&include_bytes!("data/lzma.7z")[..], &include_bytes!("data/copy.7z")[..]] {
+        let files = spp::sevenz::read_all(archive).unwrap();
+        let names: Vec<&str> = files.iter().map(|f| f.name.as_str()).collect();
+        assert_eq!(names, ["a/hello.txt", "b.bin"]);
+        assert_eq!(files[0].data, b"The quick brown fox jumps over the lazy dog. ".repeat(40));
+        assert_eq!(files[1].data.len(), 1300);
+        assert_eq!(&files[1].data[900..1200], &files[1].data[..300], "the repeated part decoded identically");
+        assert_eq!(&files[1].data[1200..], &expected_b[..]);
+    }
+    assert!(matches!(spp::sevenz::read_all(b"PK not 7z at all, just long enough to pass the size check"), Err(spp::sevenz::SevenZipError::NotSevenZip)));
+    let mut cut = include_bytes!("data/lzma.7z").to_vec();
+    cut.truncate(cut.len() - 40);
+    assert!(spp::sevenz::read_all(&cut).is_err());
+}
+
+#[test]
+fn embedded_jpegs_are_found_inside_a_substance_archive() {
+    let mut f = SppFile::from_reader(Cursor::new(project_file())).unwrap();
+    let url = "resource://starter_assets/g/g?version=dddd.sbsar";
+    assert_eq!(spp::sbsar_key(url), Some("dddd.sbsar"));
+    let jpegs = f.embedded_jpegs(url).unwrap();
+    assert_eq!(jpegs.len(), 1);
+    assert!(jpegs[0].starts_with(&[0xff, 0xd8, 0xff]) && jpegs[0].ends_with(&[0xff, 0xd9]));
+    assert_eq!(jpegs[0].len(), 458);
+    // Unknown resources and URLs without a version are simply absent.
+    assert!(f.embedded_jpegs("resource://starter_assets/x/x?version=zzzz.sbsar").unwrap().is_empty());
+    assert!(f.embedded_jpegs("resource://tool/shape/shape").unwrap().is_empty());
+}

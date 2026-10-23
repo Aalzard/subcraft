@@ -25,8 +25,18 @@ fn a_painter_project_opens_with_its_flattened_channels_and_baked_maps() {
     let ts = &doc.texture_sets[0];
     assert_eq!((ts.name.as_str(), ts.resolution), ("Cube", 256));
     assert!(ts.has_channel(ChannelKind::BaseColor) && ts.has_channel(ChannelKind::Roughness));
-    // The flattened result below an empty layer to paint on.
-    assert_eq!(ts.layers.iter().map(|l| l.name.as_str()).collect::<Vec<_>>(), ["Painter project (flattened)", "Layer 1"]);
+    // The flattened result, the rebuilt Painter stack, and an empty layer to paint on.
+    assert_eq!(ts.layers.iter().map(|l| l.name.as_str()).collect::<Vec<_>>(), ["Painter project (flattened)", "Painter stack (reconstructed)", "Layer 1"]);
+    // The rebuilt stack here cannot match the flattened roughness, so it stays hidden.
+    assert!(ts.layers[0].visible && !ts.layers[1].visible);
+    let children: Vec<(&str, bool)> = ts.layers[1].children().iter().map(|l| (l.name.as_str(), l.visible)).collect();
+    assert_eq!(children, [("Rust", true), ("Dirt", false)]);
+    let dirt = &ts.layers[1].children()[1];
+    assert_eq!(dirt.children().iter().map(|l| (l.name.as_str(), l.visible)).collect::<Vec<_>>(), [("Scratches (not reconstructed)", false)]);
+    // The uniform fill keeps its Painter color on Base Color only.
+    let rust = &ts.layers[1].children()[0];
+    let LayerContent::Fill(fill) = &rust.content else { panic!("Rust is a fill layer") };
+    assert_eq!(fill.channels.keys().copied().collect::<Vec<_>>(), [ChannelKind::BaseColor]);
     let LayerContent::Paint(content) = &ts.layers[0].content else { panic!("flattened layer is a paint layer") };
     let rough = content.channels.get(&ChannelKind::Roughness).expect("roughness imported from the texture cache");
     assert_eq!((rough.width(), rough.height()), (256, 256));
@@ -41,7 +51,7 @@ fn a_painter_project_opens_with_its_flattened_channels_and_baked_maps() {
     assert!(maps.get(MeshMapKind::Curvature).is_none());
     assert_eq!(maps.get(MeshMapKind::Position).unwrap().comps(), 3);
     let text = notes.join("\n");
-    assert!(text.contains("Texture set 'Cube'") && text.contains("Rust") && text.contains("Dirt"), "{text}");
+    assert!(text.contains("Texture set 'Cube'") && text.contains("Rust") && text.contains("Dirt") && text.contains("Rebuilt stack"), "{text}");
     assert!(text.contains("Baked maps: Ambient Occlusion, Position") || text.contains("Baked maps:"), "{text}");
     std::fs::remove_dir_all(path.parent().unwrap()).ok();
 }

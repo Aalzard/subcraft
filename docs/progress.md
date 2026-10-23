@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-10-22 (session 103: Substance Painter .spp import)
+Last updated: 2026-10-23 (session 104: Painter stack rebuild)
 
 ## Decisions
 
@@ -2780,6 +2780,24 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
 * Tests: mesh 11 new (`tests/spp.rs`: JP2 exactness, RCT, reduced decode, HDF5 writer round trip,
   document, baked maps, cache) + LZ4/half-float unit tests; app 3 new (`tests/spp_open.rs`). All built from
   a synthetic project (`crates/mesh/tests/support/spp_fixture.rs`); no user file is stored.
+
+### Session 104 - Claude: rebuild Painter layer stacks, read .sbsar archives (2026-10-23)
+
+* **Stack rebuild:** `crates/app/src/spp_stack.rs` rebuilds the Painter layers as a folder (uniform fills,
+  mask effect stacks with generators, noise patterns, Levels, filters, grunge bitmaps) beside the flattened
+  layer, with hidden named placeholders for what has no counterpart, and a quality gate that composites
+  it at <= 512 texels and compares with Painter's flattened channels. On all 11 sample projects the
+  gate currently rejects the rebuild (it stays hidden, the flattened layer shows), so nothing looks worse
+  than before; the notes list the numbers and what was not rebuilt. Blend-mode ids are still unmapped.
+* **Archives:** `spp/sevenz.rs` (7z + LZMA, from scratch) reads every `.sbsar` in the samples (134/134);
+  embedded grunge / bitmap JPEGs are extracted at import time into the project only.
+* **Speed:** shared nearest-texel search for all baked maps of a set and parallel jump flooding
+  (`subcraft_image::dilate::nearest_covered`): a 4096 project opens in about 14 s instead of 80 s.
+* Document model now carries per-layer content and mask actions with graph names and tweaks.
+* Tests: 13 mesh (`tests/spp.rs`, incl. 7z readers built by an independent script, embedded JPEG
+  lookup), app `tests/spp_open.rs` updated for the rebuilt folder. NOT verified: what the reconstructed
+  stack looks like on screen when it passes the gate (no sample passes), blend ids, parameter scaling of
+  blur/sharpen/HSL/dirt/edge generators.
 
 ## Next steps (in order)
 

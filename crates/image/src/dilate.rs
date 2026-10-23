@@ -1,17 +1,18 @@
 //! UV padding (dilation): extend island texels into the gutter so that filtering and mipmapping
 //! never pull in undefined texels.
 
-/// Fill every uncovered texel with the value of the nearest covered texel (jump flooding,
-/// O(n log n)). `data` is row-major with `comps` interleaved components.
-pub fn dilate_infinite(width: usize, height: usize, comps: usize, data: &mut [f32], covered: &[bool]) {
+/// For every texel, the index of the nearest covered texel (jump flooding, O(n log n), rows in
+/// parallel); `u32::MAX` everywhere when nothing is covered. Use it to pad several images that share
+/// one coverage with [`apply_nearest`].
+pub fn nearest_covered(width: usize, height: usize, covered: &[bool]) -> Vec<u32> {
+    use rayon::prelude::*;
     let n = width * height;
     assert_eq!(covered.len(), n);
-    assert_eq!(data.len(), n * comps);
-    if !covered.iter().any(|&c| c) {
-        return;
-    }
     const NONE: u32 = u32::MAX;
     let mut seed: Vec<u32> = (0..n).map(|i| if covered[i] { i as u32 } else { NONE }).collect();
+    if !covered.iter().any(|&c| c) {
+        return seed;
+    }
     let mut next = seed.clone();
     let dist2 = |a: usize, b: u32| -> u64 {
         let (ax, ay) = ((a % width) as i64, (a / width) as i64);
@@ -20,10 +21,11 @@ pub fn dilate_infinite(width: usize, height: usize, comps: usize, data: &mut [f3
     };
     let mut step = (width.max(height).next_power_of_two() / 2).max(1);
     loop {
-        for y in 0..height {
-            for x in 0..width {
+        let src = &seed;
+        next.par_chunks_mut(width).enumerate().for_each(|(y, row)| {
+            for (x, out) in row.iter_mut().enumerate() {
                 let i = y * width + x;
-                let mut best = seed[i];
+                let mut best = src[i];
                 let mut best_d = if best == NONE { u64::MAX } else { dist2(i, best) };
                 for dy in [-1i64, 0, 1] {
                     for dx in [-1i64, 0, 1] {
@@ -32,7 +34,7 @@ pub fn dilate_infinite(width: usize, height: usize, comps: usize, data: &mut [f3
                         if nx < 0 || ny < 0 || nx >= width as i64 || ny >= height as i64 {
                             continue;
                         }
-                        let s = seed[ny as usize * width + nx as usize];
+                        let s = src[ny as usize * width + nx as usize];
                         if s != NONE {
                             let d = dist2(i, s);
                             if d < best_d {
@@ -42,23 +44,36 @@ pub fn dilate_infinite(width: usize, height: usize, comps: usize, data: &mut [f3
                         }
                     }
                 }
-                next[i] = best;
+                *out = best;
             }
-        }
+        });
         std::mem::swap(&mut seed, &mut next);
         if step == 1 {
             break;
         }
         step /= 2;
     }
-    for i in 0..n {
-        if !covered[i] && seed[i] != NONE {
-            let s = seed[i] as usize;
+    seed
+}
+
+/// Copy each uncovered texel's value from its nearest covered texel (see [`nearest_covered`]).
+pub fn apply_nearest(comps: usize, data: &mut [f32], covered: &[bool], nearest: &[u32]) {
+    for i in 0..covered.len() {
+        if !covered[i] && nearest[i] != u32::MAX {
+            let s = nearest[i] as usize;
             for c in 0..comps {
                 data[i * comps + c] = data[s * comps + c];
             }
         }
     }
+}
+
+/// Fill every uncovered texel with the value of the nearest covered texel (jump flooding,
+/// O(n log n)). `data` is row-major with `comps` interleaved components.
+pub fn dilate_infinite(width: usize, height: usize, comps: usize, data: &mut [f32], covered: &[bool]) {
+    assert_eq!(data.len(), width * height * comps);
+    let nearest = nearest_covered(width, height, covered);
+    apply_nearest(comps, data, covered, &nearest);
 }
 
 /// Grow covered regions by `width_px` texels; each new ring averages its covered neighbors.

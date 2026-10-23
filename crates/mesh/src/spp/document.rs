@@ -304,11 +304,79 @@ pub enum LayerKind {
     Empty,
 }
 
+/// A procedural graph (`.sbsar`) with the values Painter set on it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GraphRef {
+    /// Resource URL including `?version=<sha1>.sbsar`.
+    pub url: String,
+    /// Exposed inputs that were set: `(identifier, values)`; ints, floats and vectors all as floats.
+    pub tweaks: Vec<(String, Vec<f32>)>,
+}
+
+impl GraphRef {
+    /// The graph's name: the second to last path segment of its URL (`starter_assets/mg_dirt/mg_dirt` is `mg_dirt`).
+    pub fn name(&self) -> &str {
+        let path = self.url.split('?').next().unwrap_or(&self.url);
+        let mut parts = path.rsplit('/');
+        let last = parts.next().unwrap_or("");
+        parts.next().unwrap_or(last)
+    }
+
+    /// The first value of a tweak.
+    pub fn value(&self, identifier: &str) -> Option<f32> {
+        self.tweaks.iter().find(|(n, _)| n.eq_ignore_ascii_case(identifier)).and_then(|(_, v)| v.first().copied())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum SourceInfo {
     Uniform { channels: u64, color: [f32; 3] },
     Bitmap { channels: u64, url: String },
-    Procedural { channels: u64, url: String },
+    Procedural { channels: u64, graph: GraphRef },
+}
+
+impl SourceInfo {
+    pub fn channels(&self) -> u64 {
+        match self {
+            SourceInfo::Uniform { channels, .. } | SourceInfo::Bitmap { channels, .. } | SourceInfo::Procedural { channels, .. } => *channels,
+        }
+    }
+}
+
+/// Painter's per-channel Levels.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LevelsInfo {
+    pub clamp: bool,
+    pub gamma: [f32; 3],
+    pub in_min: [f32; 3],
+    pub in_max: [f32; 3],
+    pub out_min: [f32; 3],
+    pub out_max: [f32; 3],
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ActionKind {
+    Fill { sources: Vec<SourceInfo>, projection: i64 },
+    /// A procedural filter such as blur or sharpen.
+    Filter { graph: GraphRef },
+    Levels(LevelsInfo),
+    Paint { strokes: usize },
+    Eraser { strokes: usize },
+    Decal { hits: usize },
+    Anchor,
+    Other(String),
+}
+
+/// One step of a layer's content or mask stack.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ActionInfo {
+    pub kind: ActionKind,
+    pub enabled: bool,
+    pub label: String,
+    /// Channels the action applies to (flags; all bits set = every channel).
+    pub channels: u64,
+    /// Blending of the enclosing action group: `(channel flags, mode id, opacity)`.
+    pub blends: Vec<(u64, i32, f32)>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -321,6 +389,12 @@ pub struct LayerInfo {
     pub has_mask: bool,
     pub sources: Vec<SourceInfo>,
     pub strokes: usize,
+    /// Content actions, bottom to top.
+    pub content: Vec<ActionInfo>,
+    /// Mask actions, bottom to top; `mask_initial_white` is the mask's starting value.
+    pub mask: Vec<ActionInfo>,
+    pub mask_enabled: bool,
+    pub mask_initial_white: bool,
     pub children: Vec<LayerInfo>,
 }
 
@@ -351,19 +425,37 @@ fn blends_of(o: &Obj) -> Vec<(u64, i32, f32)> {
         .collect()
 }
 
-/// Flatten an action list (descending into action groups).
-fn collect_actions<'a>(stack: Option<&'a Obj>, out: &mut Vec<&'a Obj>, blends: &mut Vec<(u64, i32, f32)>) {
+/// Flatten an action list (descending into action groups); each action gets its group's blending.
+fn collect_actions<'a>(stack: Option<&'a Obj>, out: &mut Vec<(&'a Obj, Vec<(u64, i32, f32)>)>, blends: &mut Vec<(u64, i32, f32)>, group: &[(u64, i32, f32)]) {
     let Some(stack) = stack else { return };
     for a in stack.list("items") {
         if a.class == "DataActionGroup" {
+            let own = blends_of(a);
             if blends.is_empty() {
-                *blends = blends_of(a);
+                *blends = own.clone();
             }
-            collect_actions(a.obj("subStack"), out, blends);
+            collect_actions(a.obj("subStack"), out, blends, &own);
         } else {
-            out.push(a);
+            out.push((a, group.to_vec()));
         }
     }
+}
+
+fn graph_of(p: &Obj) -> Option<GraphRef> {
+    let url = p.str("urlToSbsRes")?.to_string();
+    let mut tweaks = Vec::new();
+    for t in p.list("tweaks") {
+        let Some(id) = t.str("identifier") else { continue };
+        let values = if let Some(f) = t.floats("value") {
+            f.to_vec()
+        } else if let Some(i) = t.int("value") {
+            vec![i as f32]
+        } else {
+            continue;
+        };
+        tweaks.push((id.to_string(), values));
+    }
+    Some(GraphRef { url, tweaks })
 }
 
 fn source_of(s: &Obj) -> Option<SourceInfo> {
@@ -374,20 +466,56 @@ fn source_of(s: &Obj) -> Option<SourceInfo> {
             Some(SourceInfo::Uniform { channels, color: [*c.first()?, *c.get(1)?, *c.get(2)?] })
         }
         "DataSourceBitmap" => Some(SourceInfo::Bitmap { channels, url: s.obj("bitmap")?.str("urlToBitmapRes")?.to_string() }),
-        "DataSourceProcedural" => Some(SourceInfo::Procedural { channels, url: s.obj("procedural")?.str("urlToSbsRes")?.to_string() }),
+        "DataSourceProcedural" => Some(SourceInfo::Procedural { channels, graph: graph_of(s.obj("procedural")?)? }),
         _ => None,
     }
+}
+
+fn vec3(o: &Obj, name: &str, default: f32) -> [f32; 3] {
+    match o.floats(name) {
+        Some(v) if v.len() >= 3 => [v[0], v[1], v[2]],
+        _ => [default; 3],
+    }
+}
+
+fn action_of(a: &Obj, blends: Vec<(u64, i32, f32)>) -> ActionInfo {
+    let kind = match a.class.as_str() {
+        "DataActionFill" => ActionKind::Fill { sources: a.list("sources").iter().filter_map(source_of).collect(), projection: a.int("projection").unwrap_or(0) },
+        "DataActionFilterProcedural" => match a.obj("procedural").and_then(graph_of) {
+            Some(graph) => ActionKind::Filter { graph },
+            None => ActionKind::Other(a.class.clone()),
+        },
+        "DataActionFilterLevels" => match a.obj("levels") {
+            Some(l) => ActionKind::Levels(LevelsInfo {
+                clamp: l.int("clamp").unwrap_or(0) != 0 || l.bool("clamp").unwrap_or(false),
+                gamma: vec3(l, "gamma", 1.0),
+                in_min: vec3(l, "inputMinimum", 0.0),
+                in_max: vec3(l, "inputMaximum", 1.0),
+                out_min: vec3(l, "outputMinimum", 0.0),
+                out_max: vec3(l, "outputMaximum", 1.0),
+            }),
+            None => ActionKind::Other(a.class.clone()),
+        },
+        "DataActionPaint" => ActionKind::Paint { strokes: a.count("strokes") + a.count("strokes3D") },
+        "DataActionEraser" => ActionKind::Eraser { strokes: a.count("strokes") + a.count("strokes3D") },
+        "DataActionDecal" => ActionKind::Decal { hits: a.count("hits") },
+        "DataActionAnchor" => ActionKind::Anchor,
+        other => ActionKind::Other(other.to_string()),
+    };
+    ActionInfo { kind, enabled: a.bool("enabled").unwrap_or(true), label: a.str("label").unwrap_or("").to_string(), channels: a.int("channelTypes").unwrap_or(-1) as u64, blends }
 }
 
 fn layer_of(l: &Obj) -> LayerInfo {
     let group = l.class == "DataLayerGroup";
     let mut actions = Vec::new();
     let mut group_blends = Vec::new();
-    collect_actions(l.obj("actions"), &mut actions, &mut group_blends);
+    collect_actions(l.obj("actions"), &mut actions, &mut group_blends, &[]);
+    let mut mask_actions = Vec::new();
+    collect_actions(l.obj("maskActions"), &mut mask_actions, &mut Vec::new(), &[]);
     let mut kind = if group { LayerKind::Group } else { LayerKind::Empty };
     let mut sources = Vec::new();
     let mut strokes = 0;
-    for a in &actions {
+    for (a, _) in &actions {
         match a.class.as_str() {
             "DataActionFill" => {
                 if kind == LayerKind::Empty {
@@ -405,8 +533,8 @@ fn layer_of(l: &Obj) -> LayerInfo {
                 if kind == LayerKind::Empty {
                     kind = LayerKind::Filter;
                 }
-                if let Some(p) = a.obj("procedural").and_then(|p| p.str("urlToSbsRes")) {
-                    sources.push(SourceInfo::Procedural { channels: a.int("channelTypes").unwrap_or(-1) as u64, url: p.to_string() });
+                if let Some(graph) = a.obj("procedural").and_then(graph_of) {
+                    sources.push(SourceInfo::Procedural { channels: a.int("channelTypes").unwrap_or(-1) as u64, graph });
                 }
             }
             _ => {}
@@ -425,6 +553,10 @@ fn layer_of(l: &Obj) -> LayerInfo {
         has_mask: l.obj("maskActions").is_some(),
         sources,
         strokes,
+        content: actions.into_iter().map(|(a, b)| action_of(a, b)).collect(),
+        mask: mask_actions.into_iter().map(|(a, b)| action_of(a, b)).collect(),
+        mask_enabled: l.bool("maskEnabled").unwrap_or(true),
+        mask_initial_white: l.int("maskInitial").unwrap_or(1) != 0,
         children,
     }
 }
@@ -467,8 +599,8 @@ pub fn procedural_resources(layers: &[LayerInfo]) -> HashSet<String> {
     let mut set = HashSet::new();
     walk_layers(layers, &mut |l, _| {
         for s in &l.sources {
-            if let SourceInfo::Procedural { url, .. } = s {
-                set.insert(url.split('?').next().unwrap_or(url).to_string());
+            if let SourceInfo::Procedural { graph, .. } = s {
+                set.insert(graph.url.split('?').next().unwrap_or(&graph.url).to_string());
             }
         }
     }, 0);

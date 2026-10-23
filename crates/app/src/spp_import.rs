@@ -14,11 +14,12 @@ use subcraft_core::{ChannelKind, MeshMapKind};
 use subcraft_core::color::srgb_to_linear;
 use subcraft_doc::{Document, Layer, LayerContent, NormalFormat, ProjectSettings, ResourceStore, TextureSet};
 use subcraft_image::TiledImage;
-use subcraft_image::dilate::dilate_infinite;
+use subcraft_image::dilate::{apply_nearest, dilate_infinite, nearest_covered};
 use subcraft_mesh::import_mesh;
 use subcraft_mesh::spp::{BakedKind, CacheFormat, CacheImage, LayerInfo, LayerKind, Plane, ProjectInfo, SppFile, TextureSetInfo, channel_bits};
 
 use crate::Session;
+use crate::spp_stack::Rebuilder;
 use crate::new_project::NewProjectSettings;
 
 /// Largest texture the importer produces (SubCraft's biggest texture-set resolution).
@@ -97,10 +98,25 @@ pub fn channel_image(img: &CacheImage, kind: ChannelKind, flip_green: bool, res:
     fit(TiledImage::from_dense(p.width, p.height, comps, fill, &dense), res)
 }
 
+/// The covered texels of a texture set's baked maps and, for each texel, its nearest covered texel.
+pub struct Gutter {
+    covered: Vec<bool>,
+    nearest: Vec<u32>,
+}
+
+impl Gutter {
+    /// From the alpha of a four-component baked map.
+    pub fn from_coverage(plane: &Plane) -> Self {
+        let covered: Vec<bool> = (0..(plane.width * plane.height) as usize).map(|i| plane.data[i * plane.components + 3] > 0.02).collect();
+        let nearest = nearest_covered(plane.width as usize, plane.height as usize, &covered);
+        Self { covered, nearest }
+    }
+}
+
 /// A baked mesh map as a SubCraft one: background texels hold the nearest covered value (the
 /// gutter other baked maps have), partially covered texels from the size reduction are
 /// un-premultiplied. `coverage` is the alpha of a four-component baked map of the same texture set.
-pub fn mesh_map_image(kind: MeshMapKind, plane: &Plane, coverage: Option<&Plane>, res: u32) -> TiledImage {
+pub fn mesh_map_image(kind: MeshMapKind, plane: &Plane, coverage: Option<&Plane>, gutter: Option<&Gutter>, res: u32) -> TiledImage {
     let comps = kind.components();
     let (w, h) = (plane.width as usize, plane.height as usize);
     let cov_plane = coverage.filter(|c| c.width == plane.width && c.height == plane.height);
@@ -119,7 +135,11 @@ pub fn mesh_map_image(kind: MeshMapKind, plane: &Plane, coverage: Option<&Plane>
             dense[i * comps + k] = (v * scale).clamp(0.0, 1.0);
         }
     }
-    dilate_infinite(w, h, comps, &mut dense, &covered);
+    match gutter.filter(|g| cov_plane.is_some() && g.covered.len() == w * h) {
+        // All maps of a set share one coverage, so the nearest-texel search is done once.
+        Some(g) => apply_nearest(comps, &mut dense, &g.covered, &g.nearest),
+        None => dilate_infinite(w, h, comps, &mut dense, &covered),
+    }
     let neutral = kind.neutral_value();
     let mut fill = [0.0f32; 4];
     fill[..comps].copy_from_slice(&neutral[..comps]);
@@ -158,7 +178,10 @@ impl Session {
     /// Open a Substance 3D Painter project: the model, the baked mesh maps and the flattened
     /// channel textures (see the module docs). Returns the session and import notes.
     pub fn open_spp(path: &Path) -> Result<(Self, Vec<String>), String> {
+        let timing = std::env::var_os("SUBCRAFT_SPP_TIMING").is_some();
+        let t0 = std::time::Instant::now();
         let mut report = import_mesh(path).map_err(|e| e.to_string())?;
+        let t_mesh = t0.elapsed();
         if report.mesh.triangle_count() == 0 {
             return Err("the project's model has no triangles".into());
         }
@@ -213,6 +236,7 @@ impl Session {
         drop(base);
 
         let mut maps: Vec<(subcraft_core::TextureSetId, BTreeMap<MeshMapKind, TiledImage>)> = Vec::new();
+        let mut resources = ResourceStore::default();
         for ts in &mut doc.texture_sets {
             let Some(info) = find_set(&project, &ts.name) else {
                 notes.push(format!("No Painter texture set matches '{}'; it starts empty.", ts.name));
@@ -220,7 +244,10 @@ impl Session {
             };
             let res = ts.resolution;
             notes.push(format!("Texture set '{}': {}x{}, {} Painter layers.", ts.name, 1u32 << info.width_log2, 1u32 << info.height_log2, count_layers(&info.layers)));
+            let t1 = std::time::Instant::now();
             import_channels(&mut spp, info, ts, project_normal_dx, &mut notes);
+            let t_channels = t1.elapsed();
+            let t2 = std::time::Instant::now();
             let mut found = BTreeMap::new();
             let mut baked: Vec<(BakedKind, Plane)> = Vec::new();
             for kind in spp.baked_map_kinds(&info.name).unwrap_or_default() {
@@ -231,27 +258,36 @@ impl Session {
                 }
             }
             let coverage = baked.iter().find(|(_, p)| p.components == 4).map(|(_, p)| p.clone());
+            let gutter = coverage.as_ref().map(Gutter::from_coverage);
             for (kind, plane) in &baked {
                 let k = mesh_map_kind(*kind);
-                found.insert(k, mesh_map_image(k, plane, coverage.as_ref(), res));
+                found.insert(k, mesh_map_image(k, plane, coverage.as_ref(), gutter.as_ref(), res));
             }
             if !found.is_empty() {
                 let names: Vec<&str> = found.keys().map(|k| k.display_name()).collect();
                 notes.push(format!("  Baked maps: {}.", names.join(", ")));
+            }
+            let t_maps = t2.elapsed();
+            let t3 = std::time::Instant::now();
+            rebuild_stack(&mut spp, info, ts, &mesh, &mut resources, &found, coverage.as_ref(), &mut notes);
+            if timing {
+                notes.push(format!("  timing: mesh {t_mesh:?}, channels {t_channels:?}, baked maps {t_maps:?}, stack {:?}", t3.elapsed()));
+            }
+            if !found.is_empty() {
                 maps.push((ts.id, found));
             }
             let procedural = subcraft_mesh::spp::document::procedural_resources(&info.layers);
             let mut layer_lines = Vec::new();
             let mut budget = 14;
             describe_layers(&info.layers, 0, &mut layer_lines, &mut budget);
-            notes.push("  Painter layers (top to bottom; the stack itself is not recreated, only its flattened result):".into());
+            notes.push("  Painter layers (top to bottom):".into());
             notes.extend(layer_lines);
             if !procedural.is_empty() {
-                notes.push(format!("  {} procedural Substance materials / filters in the stack cannot be re-evaluated; their look is part of the flattened layer.", procedural.len()));
+                notes.push(format!("  {} procedural Substance graphs are in the stack; only the ones SubCraft has a counterpart for are rebuilt, the rest is part of the flattened layer.", procedural.len()));
             }
         }
 
-        let mut session = Session::from_parts(mesh, Document { texture_sets: std::mem::take(&mut doc.texture_sets) }, ResourceStore::default(), "Open Painter project");
+        let mut session = Session::from_parts(mesh, Document { texture_sets: std::mem::take(&mut doc.texture_sets) }, resources, "Open Painter project");
         session.set_settings(ProjectSettings {
             normal_format: Some(if project_normal_dx { NormalFormat::DirectX } else { NormalFormat::OpenGl }),
             export_template: template_name,
@@ -301,4 +337,121 @@ fn import_channels(spp: &mut SppFile, info: &TextureSetInfo, ts: &mut TextureSet
     if !missing.is_empty() && !imported.is_empty() {
         notes.push(format!("  Not stored in the project (left at the default): {}.", missing.join(", ")));
     }
+}
+
+/// Texels of `a` and `b` (same channel) compared over `covered`: mean absolute difference of the value components.
+fn channel_error(a: &TiledImage, kind: ChannelKind, b: &TiledImage, coverage: Option<&Plane>) -> Option<f32> {
+    if a.width() != b.width() || a.height() != b.height() {
+        return None;
+    }
+    let comps = kind.components();
+    let step = (a.width() / 256).max(1);
+    let (mut sum, mut n) = (0.0f64, 0usize);
+    let mut y = 0;
+    while y < a.height() {
+        let mut x = 0;
+        while x < a.width() {
+            let inside = coverage.is_none_or(|c| {
+                let (cx, cy) = (x * c.width / a.width(), y * c.height / a.height());
+                c.pixel(cx.min(c.width - 1), cy.min(c.height - 1)).get(3).copied().unwrap_or(1.0) > 0.5
+            });
+            if inside {
+                let (pa, pb) = (a.get(x, y), b.get(x, y));
+                for k in 0..comps {
+                    sum += (pa[k] - pb[k]).abs() as f64;
+                    n += 1;
+                }
+            }
+            x += step;
+        }
+        y += step;
+    }
+    (n > 0).then(|| (sum / n as f64) as f32)
+}
+
+/// Rebuild the Painter layer stack as a folder above the flattened layer and decide, by comparing its
+/// composite with Painter's flattened textures, whether it can be shown instead of them.
+#[allow(clippy::too_many_arguments)]
+fn rebuild_stack(spp: &mut SppFile, info: &TextureSetInfo, ts: &mut TextureSet, mesh: &subcraft_mesh::Mesh, resources: &mut ResourceStore, maps: &BTreeMap<MeshMapKind, TiledImage>, coverage: Option<&Plane>, notes: &mut Vec<String>) {
+    if info.layers.is_empty() || ts.layers.len() != 2 {
+        return; // nothing to rebuild, or no flattened result to compare with
+    }
+    let view = ts.clone();
+    let mut rebuilder = Rebuilder::new(spp, &view, resources);
+    let layers = rebuilder.rebuild(&info.layers);
+    let stats = rebuilder.stats;
+    let mut folder = Layer::new_folder("Painter stack (reconstructed)", &view);
+    if let LayerContent::Group(g) = &mut folder.content {
+        g.children = layers.into_iter().map(std::sync::Arc::new).collect();
+        g.expanded = true;
+    }
+    folder.visible = true;
+    let flat = ts.layers[0].clone();
+    let flat_content: BTreeMap<ChannelKind, TiledImage> = match &flat.content {
+        LayerContent::Paint(p) => p.channels.clone(),
+        _ => return,
+    };
+    // Composite the reconstruction alone and compare it with the flattened channels. The check runs
+    // at no more than 512 texels so that it stays quick on 4K sets.
+    let gate_res = ts.resolution.min(512);
+    let (mut probe_set, probe_folder, probe_maps, flat_content) = if gate_res == ts.resolution {
+        (view.clone(), folder.clone(), maps.clone(), flat_content)
+    } else {
+        let mut small = view.clone();
+        small.resolution = gate_res;
+        let mut small_stats_resources = resources.clone();
+        let mut small_rebuilder = Rebuilder::new(spp, &small, &mut small_stats_resources);
+        let small_layers = small_rebuilder.rebuild(&info.layers);
+        let mut small_folder = Layer::new_folder("probe", &small);
+        if let LayerContent::Group(g) = &mut small_folder.content {
+            g.children = small_layers.into_iter().map(std::sync::Arc::new).collect();
+        }
+        *resources = small_stats_resources;
+        let small_maps: BTreeMap<MeshMapKind, TiledImage> = maps.iter().map(|(k, v)| (*k, v.resampled(gate_res, gate_res))).collect();
+        let small_flat = flat_content.iter().map(|(k, v)| (*k, v.resampled(gate_res, gate_res))).collect();
+        (small, small_folder, small_maps, small_flat)
+    };
+    probe_set.layers.clear();
+    probe_set.insert_above(None, probe_folder);
+    let mut probe = Session::from_parts(mesh.clone(), Document { texture_sets: vec![probe_set] }, resources.clone(), "probe");
+    let probe_id = probe.document().texture_sets[0].id;
+    probe.set_mesh_maps(probe_id, probe_maps.clone());
+    let geometry = probe.scene().geometry.get(probe.document().texture_sets[0].material_slot, gate_res);
+    let mesh_maps = subcraft_materials::MeshMaps::from_map(probe_maps);
+    let composite = subcraft_compositor::composite_full(&probe.document().texture_sets[0], &subcraft_compositor::EvalContext { geometry: &geometry, resources: probe.resources(), mesh_maps: &mesh_maps });
+    let mut errors: Vec<(ChannelKind, f32)> = Vec::new();
+    for (kind, flat_image) in &flat_content {
+        if let Some(c) = composite.channel(*kind) {
+            if let Some(e) = channel_error(c, *kind, flat_image, coverage) {
+                errors.push((*kind, e));
+            }
+        }
+    }
+    let err_of = |k: ChannelKind| errors.iter().find(|(c, _)| *c == k).map(|(_, e)| *e);
+    let good = err_of(ChannelKind::BaseColor).is_none_or(|e| e < 0.04) && err_of(ChannelKind::Roughness).is_none_or(|e| e < 0.06) && err_of(ChannelKind::Metallic).is_none_or(|e| e < 0.06);
+    let summary: Vec<String> = errors.iter().map(|(k, e)| format!("{} {:.3}", k.display_name(), e)).collect();
+    notes.push(format!(
+        "  Rebuilt stack: {} layers, {} folders; {} exact and {} approximated effects, {} layers kept as hidden placeholders. Difference to Painter's result (mean, 0..1): {}.",
+        stats.layers, stats.folders, stats.exact, stats.approximate, stats.placeholders, if summary.is_empty() { "n/a".into() } else { summary.join(", ") }
+    ));
+    for (what, n) in &stats.skipped {
+        notes.push(format!("    not rebuilt: {what} ({n})"));
+    }
+    if !stats.blend_ids.is_empty() {
+        let ids: Vec<String> = stats.blend_ids.iter().map(|(id, n)| format!("{id} x{n}")).collect();
+        notes.push(format!("    Painter blend modes are not mapped yet (ids {}); they were treated as Normal.", ids.join(", ")));
+    }
+    folder.visible = good;
+    let mut flat = (*flat).clone();
+    flat.visible = !good;
+    let top = ts.layers[1].clone();
+    ts.layers.clear();
+    ts.layers.push(std::sync::Arc::new(flat));
+    ts.layers.push(std::sync::Arc::new(folder));
+    ts.layers.push(top);
+    notes.push(if good {
+        "    The rebuilt stack is close to Painter's result, so it is shown and the flattened layer is hidden.".into()
+    } else {
+        "    The rebuilt stack differs too much from Painter's result to be trusted, so it is hidden and the flattened layer is shown. Switch them to compare or edit.".into()
+    });
 }
