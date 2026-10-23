@@ -3,7 +3,7 @@
 Inventory of everything procedural in the eleven sample projects (the owner's own files, read-only; one,
 DBAL-A2, is licensed for private research only and was only parsed). Nothing from them is stored here. Companion
 to `docs/spp-research.md` (container, `document.bin` format, what the importer already brings in). Scripts
-that produced the numbers: `tools/spp-inventory/` (Python; needs `h5py` and, for `.sbsar`, `py7zr`; used for
+that produced the numbers: `scripts/spp-inventory/` (Python; needs `h5py` and, for `.sbsar`, `py7zr`; used for
 research only, not part of the build).
 
 Counts are over the 11 files together unless stated. "Uses" counts a procedural source or filter once per
