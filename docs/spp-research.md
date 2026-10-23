@@ -105,6 +105,11 @@ layer "Painter project (flattened)" plus an empty "Layer 1" above, the export no
 listing the Painter layers by name. Base Color / Emissive are converted from sRGB to linear; the Normal
 channel is flipped to SubCraft's OpenGL storage under the DirectX assumption above.
 
+Evidence for the normal orientation: Painter's own material graphs expose a `normal_format` input tagged
+`$normal_map_format` (0 = DirectX, 1 = OpenGL) that Painter fills from the project setting. In the one
+project that stores it (CarInteriro, 19 tweaks) it is 0, and `normalMapSyscoord` is 0 in all eleven, so
+DirectX is now well supported, though still not proven for every file.
+
 ## Cannot be recovered
 * Procedural layers (`.sbsar` fills, generators, filters): there is no Substance engine here; only their
   flattened result exists, in the cache.
