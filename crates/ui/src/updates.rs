@@ -55,16 +55,16 @@ pub fn tick(state: &mut UiState, ctx: &egui::Context) {
                 Phase::Idle => { ui.label("Use the green button to check and update."); },
                 Phase::Checking => { ui.spinner(); ui.label("Checking GitHub releases…"); },
                 Phase::Current => { ui.label("You're up to date."); },
-                Phase::Available(release) => { ui.heading(format!("Version {} is available", release.version)); egui::ScrollArea::vertical().max_height(220.0).show(ui, |ui| { ui.label(&release.notes); }); if ui.button("Update and restart").clicked() { updater.auto_install = true; } },
+                Phase::Available(release) => { ui.heading(format!("Version {} is available", release.version)); egui::ScrollArea::vertical().max_height(220.0).show(ui, |ui| { ui.add(egui::Label::new(&release.notes).wrap()); }); if ui.button("Update and restart").clicked() { updater.auto_install = true; } },
                 Phase::Downloading { bytes, total } => { ui.label("Downloading update… You can keep working."); ui.add(egui::ProgressBar::new(*bytes as f32 / (*total).max(1) as f32).text(format!("{:.1} / {:.1} MiB", *bytes as f32 / 1048576.0, *total as f32 / 1048576.0))); if ui.button("Skip installation").clicked() { updater.auto_install = false; } },
                 Phase::Prepared { .. } => { ui.label(if !can_restart { "Waiting for your current work to finish…" } else { "Download verified. Ready to update and restart." }); if ui.button("Update and restart").clicked() { updater.auto_install = true; } },
                 Phase::Preparing => { ui.spinner(); ui.label("Preserving your project and preparing the restart…"); },
                 Phase::Exiting => { ui.label("Restarting SubCraft…"); },
-                Phase::Error(error) => { ui.label(egui::RichText::new(error).color(crate::theme::TEXT)); if ui.button("Try again").clicked() { updater.check(); } },
+                Phase::Error(error) => { ui.add(egui::Label::new(egui::RichText::new(error).color(crate::theme::TEXT)).wrap()); if ui.button("Try again").clicked() { updater.check(); } },
             }
         };
         if modal { egui::Modal::new(egui::Id::new("update-restart")).show(ctx, contents); }
-        else { egui::Window::new("SubCraft updates").open(&mut open).collapsible(false).resizable(false).show(ctx, contents); }
+        else { crate::widgets::window(ctx, "SubCraft updates").open(&mut open).collapsible(false).resizable(false).show(ctx, contents); }
         updater.open &= open;
         if !open { updater.auto_install = false; }
     }

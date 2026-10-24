@@ -84,6 +84,15 @@ fn main() -> anyhow::Result<()> {
                     .ok_or_else(|| anyhow::anyhow!("--bake-size expects 256, 512, 1024, 2048 or 4096"))?);
             }
             "--screenshot" => options.screenshot = args.next().map(Into::into),
+            "--reset-layout" => options.reset_layout = true,
+            "--window-size" => {
+                options.window_size = Some(args.next().and_then(|s| subcraft_ui::app::parse_size(&s))
+                    .ok_or_else(|| anyhow::anyhow!("--window-size expects WIDTHxHEIGHT, e.g. 1280x720"))?);
+            }
+            "--scale" => {
+                options.scale = Some(args.next().and_then(|s| s.parse::<f32>().ok()).filter(|s| (0.5..=4.0).contains(s))
+                    .ok_or_else(|| anyhow::anyhow!("--scale expects a number from 0.5 to 4"))?);
+            }
             "--recover" => options.recover = true,
             "--test-crash" => options.test_crash = true,
             "--profile-edits" => {
@@ -96,7 +105,7 @@ fn main() -> anyhow::Result<()> {
                 options.autosave_interval = args.next().and_then(|s| s.parse::<f64>().ok()).map(std::time::Duration::from_secs_f64);
             }
             "-h" | "--help" => {
-                println!("usage: subcraft [project.subcraft | mesh file] [--demo] [--view-2d] [--brush-panel] [--bake-high mesh] [--bake-preview] [--bake-preview-map map_key] [--bake-size 256|512|1024|2048|4096] [--screenshot out.png] [--welcome] [--quick-start] [--guide-step 1..6] [--recover] [--autosave-interval seconds]");
+                println!("usage: subcraft [project.subcraft | mesh file] [--demo] [--view-2d] [--brush-panel] [--bake-high mesh] [--bake-preview] [--bake-preview-map map_key] [--bake-size 256|512|1024|2048|4096] [--screenshot out.png] [--welcome] [--quick-start] [--guide-step 1..6] [--reset-layout] [--window-size WxH] [--scale 1.5] [--recover] [--autosave-interval seconds]");
                 return Ok(());
             }
             path => options.mesh = Some(path.into()),
