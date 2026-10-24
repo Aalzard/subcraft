@@ -129,6 +129,12 @@ pub struct LaunchOptions {
     pub autosave_interval: Option<std::time::Duration>,
     /// Panic a moment after start (tests the crash report).
     pub test_crash: bool,
+    /// Ignore the saved dock layout and window geometry for this run.
+    pub reset_layout: bool,
+    /// Initial inner window size in points (scripted layout checks).
+    pub window_size: Option<[f32; 2]>,
+    /// Force the display scale (pixels per point) for scripted layout checks.
+    pub scale: Option<f32>,
     /// Measure frames while a generator value changes every frame, write stats, quit.
     pub profile_edits: Option<(PathBuf, Option<u32>)>,
 }
@@ -153,9 +159,57 @@ pub fn default_layout() -> DockState<Tab> {
 // Apply the requested shelf-left / utility-tabs-bottom arrangement once, then retain edits.
 const DOCK_KEY: &str = "subcraft_dock_v5";
 
+/// A restored dock layout is only used when it still holds every panel exactly once, has no
+/// floating windows (they can be left off-screen after a monitor change) and no split is
+/// squeezed to nothing. Anything else falls back to the default layout.
+pub fn layout_is_valid(dock: &DockState<Tab>) -> bool {
+    use egui_dock::Node;
+    let mut seen = std::collections::HashMap::<Tab, usize>::new();
+    for (_, tab) in dock.iter_all_tabs() { *seen.entry(*tab).or_default() += 1; }
+    let all = [Tab::Viewport, Tab::UvView, Tab::Layers, Tab::Properties, Tab::Brush, Tab::TextureSets, Tab::Parts, Tab::History, Tab::Shelf];
+    if !all.iter().all(|t| seen.get(t) == Some(&1)) || seen.len() != all.len() { return false; }
+    if dock.iter_surfaces().count() != 1 { return false; }
+    dock.iter_all_nodes().all(|(_, node)| match node {
+        Node::Horizontal(split) | Node::Vertical(split) => split.fraction.is_finite() && (0.04..=0.96).contains(&split.fraction),
+        _ => true,
+    })
+}
+
+/// Parse `1280x720`.
+pub fn parse_size(text: &str) -> Option<[f32; 2]> {
+    let (w, h) = text.split_once(['x', 'X'])?;
+    let (w, h) = (w.trim().parse::<f32>().ok()?, h.trim().parse::<f32>().ok()?);
+    (w >= 320.0 && h >= 240.0 && w <= 16384.0 && h <= 16384.0).then_some([w, h])
+}
+
 #[cfg(test)]
 mod layout_tests {
     use super::*;
+    #[test]
+    fn default_layout_is_valid_and_broken_ones_are_rejected() {
+        assert!(layout_is_valid(&default_layout()));
+        let mut missing = default_layout();
+        let path = missing.find_tab(&Tab::Shelf).unwrap();
+        let _ = missing.remove_tab(path);
+        assert!(!layout_is_valid(&missing));
+        let mut squeezed = default_layout();
+        for (_, node) in squeezed.iter_all_nodes_mut() {
+            if let egui_dock::Node::Horizontal(s) | egui_dock::Node::Vertical(s) = node { s.fraction = 0.0; }
+        }
+        assert!(!layout_is_valid(&squeezed));
+        let mut floating = default_layout();
+        floating.add_window(vec![]);
+        assert!(!layout_is_valid(&floating));
+        let mut doubled = default_layout();
+        doubled.push_to_focused_leaf(Tab::Viewport);
+        assert!(!layout_is_valid(&doubled));
+    }
+    #[test]
+    fn window_size_parsing() {
+        assert_eq!(parse_size("1280x720"), Some([1280.0, 720.0]));
+        assert_eq!(parse_size("10x10"), None);
+        assert_eq!(parse_size("abc"), None);
+    }
     #[test]
     fn shelf_is_separate_and_utility_tabs_share_the_bottom_center_node() {
         let dock = default_layout();
@@ -340,6 +394,7 @@ pub struct SubcraftApp {
 impl SubcraftApp {
     pub fn new(cc: &eframe::CreationContext<'_>, options: LaunchOptions) -> Self {
         theme::apply(&cc.egui_ctx);
+        if let Some(scale) = options.scale { cc.egui_ctx.set_pixels_per_point(scale); }
         let mut status = None;
         let is_project = |p: &std::path::Path| p.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case(subcraft_app::PROJECT_EXTENSION));
         let resumed = options.resume_update.as_ref().and_then(|path| match subcraft_app::updater::resume_session(path) {
@@ -500,7 +555,11 @@ impl SubcraftApp {
             .storage
             .and_then(|s| s.get_string(DOCK_KEY))
             .and_then(|j| serde_json::from_str(&j).ok())
-            .filter(|_| options.screenshot.is_none())
+            .filter(|d: &DockState<Tab>| options.screenshot.is_none() && !options.reset_layout && {
+                let ok = layout_is_valid(d);
+                if !ok { log::warn!("Saved panel layout is invalid; using the default layout"); }
+                ok
+            })
             .unwrap_or_else(default_layout);
         let mut dock = dock;
         if options.properties_panel && let Some(path) = dock.find_tab(&Tab::Layers) { let _ = dock.remove_tab(path); }
@@ -909,12 +968,12 @@ impl SubcraftApp {
             } else { format!("Size {:.1}%", self.state.session.brush.settings.size) };
             ui.label(small(size, theme::TEXT_DIM));
             if let Some(l) = self.state.session.selected_layer() {
-                ui.label(small(format!("{}  {} / {}", icons::STACK, self.state.session.selected_texture_set().name, l.name), theme::TEXT_DIM));
+                ui.add(egui::Label::new(small(format!("{}  {} / {}", icons::STACK, self.state.session.selected_texture_set().name, l.name), theme::TEXT_DIM)).truncate());
             }
             if let Some((msg, t)) = &self.state.status
                 && now - t < 6.0
             {
-                ui.label(small(format!("{}  {msg}", icons::INFO), theme::WARNING));
+                ui.add(egui::Label::new(small(format!("{}  {msg}", icons::INFO), theme::WARNING)).truncate()).on_hover_text(msg.as_str());
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.label(small(format!("{:.1} ms", self.state.frame_time_ms), theme::TEXT_FAINT));
@@ -935,7 +994,7 @@ impl SubcraftApp {
 
     fn shortcuts_window(&mut self, ctx: &egui::Context) {
         let mut open = self.state.show_shortcuts;
-        egui::Window::new("Keyboard shortcuts").open(&mut open).resizable(false).collapsible(false).show(ctx, |ui| {
+        crate::widgets::window(ctx, "Keyboard shortcuts").open(&mut open).resizable(false).collapsible(false).show(ctx, |ui| {
             egui::Grid::new("shortcuts").num_columns(2).spacing([32.0, 8.0]).show(ui, |ui| {
                 let key = |t: String| RichText::new(t).monospace().color(theme::ACCENT);
                 for a in ACTIONS {

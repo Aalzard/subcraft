@@ -49,7 +49,7 @@ pub fn window(state: &mut UiState, ctx: &Context) {
         return;
     }
     let mut open = true;
-    egui::Window::new("Render quality").open(&mut open).resizable(false).default_width(330.0).show(ctx, |ui| {
+    crate::widgets::window(ctx, "Render quality").open(&mut open).resizable(false).default_width(330.0).show(ctx, |ui| {
         let prefs = &mut state.recovery.prefs.viewport;
         ui.label(RichText::new("Look").color(TEXT_DIM));
         egui::Grid::new("render_look").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {

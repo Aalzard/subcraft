@@ -173,7 +173,7 @@ pub fn prompt(state: &mut UiState, ctx: &egui::Context, now: f64) {
         egui::Grid::new("recover_grid").num_columns(2).spacing([16.0, 6.0]).show(ui, |ui| {
             let dim = |t: &str| RichText::new(t).color(theme::TEXT_FAINT);
             ui.label(dim("Project"));
-            ui.label(&crashed.info.name);
+            ui.add(egui::Label::new(&crashed.info.name).wrap());
             ui.end_row();
             if let Some(p) = &crashed.info.project_path {
                 ui.label(dim("File"));
@@ -239,7 +239,7 @@ pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
         return;
     }
     let mut open = true;
-    egui::Window::new(RichText::new("Preferences").font(theme::font_strong(14.0))).open(&mut open).collapsible(false).resizable(false).default_height(620.0).show(ctx, |ui| {
+    crate::widgets::window(ctx, RichText::new("Preferences").font(theme::font_strong(14.0))).open(&mut open).collapsible(false).resizable(false).default_height(620.0).show(ctx, |ui| {
         ui.set_width(380.0);
         egui::ScrollArea::vertical().max_height((ctx.content_rect().height() - 110.0).max(200.0)).show(ui, |ui| {
         ui.label(RichText::new("Interface").font(theme::font_strong(12.5)));

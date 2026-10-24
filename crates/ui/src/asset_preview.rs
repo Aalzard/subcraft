@@ -103,9 +103,9 @@ impl AssetPreviewUi {
     }
     fn window(&mut self, state: &UiState, ctx: &egui::Context) {
         if !self.open {return;} let mut open=self.open;
-        egui::Window::new("Texture / alpha preview").open(&mut open).default_width(690.0).default_height(620.0).vscroll(true).show(ctx,|ui| {
+        crate::widgets::window(ctx, "Texture / alpha preview").open(&mut open).default_width(690.0).default_height(620.0).vscroll(true).show(ctx,|ui| {
             ui.heading(&self.name);
-            if let Some(error)=&self.error {ui.colored_label(Color32::LIGHT_RED,error);}
+            if let Some(error)=&self.error {ui.add(egui::Label::new(egui::RichText::new(error).color(Color32::LIGHT_RED)).wrap());}
             if self.loader.is_some() {ui.spinner();ui.label("Loading full image…");}
             ui.horizontal(|ui| {
                 ui.label("Tiles");for n in 1..=3 {ui.selectable_value(&mut self.tiles,n,format!("{n}×{n}"));}

@@ -148,7 +148,7 @@ pub fn export_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
     }
     let mut open = true;
     let templates = ExportTemplate::builtin();
-    egui::Window::new(window_title("Export Textures")).open(&mut open).collapsible(false).default_width(480.0).show(ctx, |ui| {
+    crate::widgets::window(ctx, window_title("Export Textures")).open(&mut open).collapsible(false).default_width(480.0).show(ctx, |ui| {
         let ex = &mut state.export;
         egui::Grid::new("export_grid").num_columns(2).spacing([16.0, 10.0]).show(ui, |ui| {
             {
@@ -314,7 +314,7 @@ fn export_map_list(ui: &mut egui::Ui, state: &mut UiState, settings: &ExportSett
                     if r.clicked() {
                         click = Some(if ui.input(|i| i.modifiers.alt) { MapClick::Solo(f.set.clone(), f.suffix.clone()) } else { MapClick::Toggle(f.set.clone(), f.suffix.clone(), on) });
                     }
-                    ui.label(RichText::new(&f.path).monospace().small().color(if f.enabled { TEXT_DIM } else { theme::TEXT_DIM.gamma_multiply(0.5) }));
+                    ui.add(egui::Label::new(RichText::new(&f.path).monospace().small().color(if f.enabled { TEXT_DIM } else { theme::TEXT_DIM.gamma_multiply(0.5) })).truncate()).on_hover_text(&f.path);
                 });
             }
         });
@@ -448,7 +448,7 @@ pub fn bake_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
     let selected = state.session.selected_texture_set();
     let (sel_id, sel_slot, sel_name) = (selected.id, selected.material_slot, selected.name.clone());
     let all: Vec<(subcraft_core::TextureSetId, u32)> = state.session.document().texture_sets.iter().map(|t| (t.id, t.material_slot)).collect();
-    egui::Window::new(window_title("Bake Mesh Maps")).open(&mut open).collapsible(false).default_width(440.0)
+    crate::widgets::window(ctx, window_title("Bake Mesh Maps")).open(&mut open).collapsible(false).default_width(440.0)
         .default_pos(egui::pos2(32., 100.)).show(ctx, |ui| {
         let busy = state.bake.job.is_some();
         ui.add_enabled_ui(!busy, |ui| {
@@ -520,7 +520,7 @@ pub fn bake_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
             ui.checkbox(&mut state.bake.live_maps, "Live maps");
         });
         if state.bake.preview_pending() { ui.label(dim("Loading high-poly preview…")); }
-        if let Some(error) = &state.bake.preview_error { ui.colored_label(theme::WARNING, error); }
+        if let Some(error) = &state.bake.preview_error { ui.add(egui::Label::new(RichText::new(error).color(theme::WARNING)).wrap()); }
         if !busy && !state.bake.high_poly.trim().is_empty() && secondary_button(ui, "Reload high poly").clicked() {
             state.bake.preview_mesh = None; state.bake.preview_source = None; state.bake.preview_job = None;
             state.bake.preview_error = None; state.bake.preview_uploaded = false; state.bake.result = None;
@@ -549,7 +549,7 @@ pub fn bake_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
         if let Some(result) = &state.bake.result {
             match result {
                 Ok(n) => { ui.label(dim(&format!("Bake complete: {n} texture set(s). Inspect Baked normal in Layers or mesh maps in 2D View."))); }
-                Err(e) => { ui.colored_label(theme::WARNING, format!("Bake failed: {e}")); }
+                Err(e) => { ui.add(egui::Label::new(RichText::new(format!("Bake failed: {e}")).color(theme::WARNING)).wrap()); }
             }
             ui.add_space(6.0);
         }

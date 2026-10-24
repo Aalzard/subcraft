@@ -2825,6 +2825,34 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   4. then parameter scalings, measurable only on a project whose layers are all rebuildable (ask the
   owner for a small one made of fills, masks, generators and filters only).
 
+### Session 106 - UI robustness: overflowing dialogs, saved layout, startup failure (2026-10-24)
+
+* **Fixed:** New Project window grew thousands of px wide with many parts (plain joined label in a grid).
+  Material/object/tile lists now wrap and scroll in a bounded box; the error text, warnings and template
+  text wrap; set names truncate; the window scroll area leaves room on small screens.
+* **All windows:** `widgets::window()` caps every window's width and height to the screen (14 windows
+  use it). Long text in Export (file paths), Bake (errors), updates (release notes, errors), Preferences
+  (graphics warnings), recovery, asset preview and the status bar now wraps or truncates with a tooltip.
+* **Saved layout:** a restored dock layout is only used if every panel is present exactly once, there
+  are no floating windows and no split is squeezed (`layout_is_valid`); otherwise the default is used and
+  a warning is logged. New `--reset-layout` (also ignores the saved window position/size). View > Reset
+  layout already existed. eframe already clamps the saved window position/size to the monitors. Minimum
+  window size lowered from 900x560 to 640x420 (a 1366x768 screen at 150% is only 910x512 points).
+* **Startup failure:** if the chosen graphics API cannot start, Automatic then OpenGL are tried; if none
+  works a message window shows the errors, the log file path and the issues link (before, a packaged build
+  just vanished). `startup_attempts` and `startup_failure_message` are unit tested.
+* **New options:** `--window-size WxH`, `--scale S` (scripted layout checks), `--reset-layout`.
+* Tests: subcraft-ui 46, subcraft-app all pass. New: New Project with 40 long-named parts and a 2000-char
+  error at 1024x600, 1280x720@1.5, 960x540@2 and 1920x1080 stays inside the screen; layout validation;
+  startup order/message; size parsing. Scripted screenshot: docs/screenshots/new-project-many-parts-1024x600.png.
+* **Not verified:** real GPU/adapter failure, device/surface loss, a second window loop after a failed first
+  one (winit may refuse), multi-monitor and 4K at 150% (only scripted sizes), the viewport texture-limit
+  crash (issue #59) is fixed separately on fix/viewport-texture-limit and untouched here.
+* **Remaining (not fixed):** tall dialogs (Export, Bake, Render quality) are not scrollable on screens
+  shorter than their content; Painter .spp import notes have no UI in this branch; layer/effect names in
+  dock panels rely on the panel's own scrolling; text clipping at 200% beyond the New Project window was
+  not screenshotted.
+
 ## Next steps (in order)
 
 Owner checks imported PBRs in the refreshed target/debug/subcraft.exe, especially close-up
