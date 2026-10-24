@@ -312,5 +312,3 @@ additional terms or conditions.
 - The starter pack (80 normal maps, 80 brush alphas) is CC0:
   [credits](assets/starter-pack/CREDITS-CC0.txt). The bundled HDRIs are CC0:
   [credits](assets/environments/CREDITS-CC0.txt).
-- Contributions from [CalangoTech's SubCraft Studio fork](https://github.com/CalangoTech/subcraft)
-  (folder drop zones, inline rename, eyedropper) are credited where they appear above.
