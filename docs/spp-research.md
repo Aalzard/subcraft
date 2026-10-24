@@ -155,3 +155,12 @@ the 8192-baked car interior took 94 s before the shared-gutter and parallel dila
 * Projects with several texture sets, with UV tiles, with 8-bit/other JPEG 2000 variants (irreversible 9/7,
   code-block style flags, user precincts, several tiles per file are rejected with an error, never guessed).
 * Anything written by a Painter version other than the 10.x ones sampled.
+
+## Gate calibration (Session 105)
+
+All 11 samples still fail the gate. The dominant errors are missing content, not parameter scaling:
+Substance material fill graphs (metal_sandblasted, steel_003_bitmap, concrete_asphalt, metal_brushed), painted
+strokes, mask decals and unmapped blend ids. Use `SUBCRAFT_SPP_DEBUG=1` to print rebuilt vs Painter channel
+means. Per-sample numbers are in `docs/progress.md` Session 105. Blend ids stay unmapped until a one-layer-per-mode
+calibration project is available; parameter scalings (blur, sharpen, HSL, dirt, edge, grunge) need a project
+whose layers are all rebuildable to be measurable.

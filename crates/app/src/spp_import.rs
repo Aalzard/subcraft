@@ -369,6 +369,28 @@ fn channel_error(a: &TiledImage, kind: ChannelKind, b: &TiledImage, coverage: Op
     (n > 0).then(|| (sum / n as f64) as f32)
 }
 
+/// Mean of each component over the covered texels (debug aid for the quality gate).
+fn channel_mean(a: &TiledImage, comps: usize, coverage: Option<&Plane>) -> Vec<f32> {
+    let step = (a.width() / 256).max(1);
+    let (mut sum, mut n) = (vec![0.0f64; comps], 0usize);
+    for y in (0..a.height()).step_by(step as usize) {
+        for x in (0..a.width()).step_by(step as usize) {
+            let inside = coverage.is_none_or(|c| {
+                let (cx, cy) = (x * c.width / a.width(), y * c.height / a.height());
+                c.pixel(cx.min(c.width - 1), cy.min(c.height - 1)).get(3).copied().unwrap_or(1.0) > 0.5
+            });
+            if inside {
+                let p = a.get(x, y);
+                for k in 0..comps {
+                    sum[k] += p[k] as f64;
+                }
+                n += 1;
+            }
+        }
+    }
+    sum.iter().map(|s| (*s / n.max(1) as f64 * 1000.0).round() as f32 / 1000.0).collect()
+}
+
 /// Rebuild the Painter layer stack as a folder above the flattened layer and decide, by comparing its
 /// composite with Painter's flattened textures, whether it can be shown instead of them.
 #[allow(clippy::too_many_arguments)]
@@ -422,6 +444,9 @@ fn rebuild_stack(spp: &mut SppFile, info: &TextureSetInfo, ts: &mut TextureSet, 
     let mut errors: Vec<(ChannelKind, f32)> = Vec::new();
     for (kind, flat_image) in &flat_content {
         if let Some(c) = composite.channel(*kind) {
+            if std::env::var_os("SUBCRAFT_SPP_DEBUG").is_some() {
+                notes.push(format!("    debug {}: rebuilt mean {:?}, painter mean {:?}", kind.display_name(), channel_mean(c, kind.components(), coverage), channel_mean(flat_image, kind.components(), coverage)));
+            }
             if let Some(e) = channel_error(c, *kind, flat_image, coverage) {
                 errors.push((*kind, e));
             }

@@ -2799,6 +2799,32 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   stack looks like on screen when it passes the gate (no sample passes), blend ids, parameter scaling of
   blur/sharpen/HSL/dirt/edge generators.
 
+### Session 105 - Claude: .spp blend ids and parameter calibration (2026-10-24)
+
+* **Blend-mode table: not done.** No calibration project exists yet (searched Downloads, Desktop, Documents:
+  no `*blend*.spp`; the newest .spp files are the 11 known samples). Nothing was guessed; ids stay unmapped
+  (25 = Normal). When the file exists: read `LayerInfo.blends` + `channel_texture` per layer, solve the
+  id -> `BlendMode` table from the pixel values, then use it in `Rebuilder::apply_opacity`.
+* **Parameter calibration: no change kept.** New debug aid: `SUBCRAFT_SPP_DEBUG=1` adds the mean of the
+  rebuilt and of Painter's channel to the import notes. It shows that the gate failures are NOT parameter
+  scalings. Rebuilt vs Painter mean Base Color: CorridorFloor 0.013 vs 0.408, RoomFloor 0.001 vs 0.44,
+  RoomInteriorWall 0.029 vs 0.39, RoomEntranceDoor 0.002 vs 0.169, Chalice 0.485 vs 0.007 (metal 0 vs 0.82),
+  Walker 0.697 vs 0.151, Street_cyberpunk 1.0/0.22/0.76 vs 0.115 (a pink layer with a mask that cannot be
+  rebuilt). Causes: the base is a Substance material graph (`metal_sandblasted`, `steel_003_bitmap`,
+  `concrete_asphalt`, `metal_brushed`) that has no counterpart (the rebuilt layer is empty), 12-121 painted
+  mask strokes per project, mask decals, masks left off, unmapped blend ids. Every sample has several of
+  these, so blur/sharpen/HSL/dirt/edge scalings cannot be measured on any file: their effect is far below
+  the error. Changing them would be a guess, so they were left as they are.
+* **Gate results, all 11 (Base Color / Roughness / Metallic error, 0..1; gate wants < 0.04 / 0.06 / 0.06):**
+  chalice 0.383/0.159/0.820; RoomFloor 0.439/0.025/-; RoomInteriorWall 0.361/0.020/-; CorridorFloor 0.399/0.021/-;
+  RoomEntranceDoor 0.168/0.111/0.495; RoomEntranceWall 0.174/0.018/0.060; OxygenDeviceProvider 0.142/0.340/0.723;
+  Street_cyberpunk 0.564/0.149/0.000; TheWalker_ 0.574/0.234/0.312 (and its autosave, identical);
+  CarInteriro 0.015/0.487/0.008 (4096, 14.6 s). **0 of 11 pass**; all keep the flattened layer visible.
+* **What would move the numbers (in order):** 1. Substance material graphs as fill sources (needs an
+  engine or baked equivalents), 2. blend ids (calibration file), 3. painted strokes (not recoverable),
+  4. then parameter scalings, measurable only on a project whose layers are all rebuildable (ask the
+  owner for a small one made of fills, masks, generators and filters only).
+
 ## Next steps (in order)
 
 Owner checks imported PBRs in the refreshed target/debug/subcraft.exe, especially close-up
