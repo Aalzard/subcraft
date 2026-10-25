@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
-members = ["crates/*", "apps/*", "tools/*"]
+# `tools/*` would also pick up non-Rust dirs (e.g. the C++ SBSAR bake host under `native/`).
+members = ["crates/*", "apps/*", "tools/preview"]
 default-members = ["apps/subcraft"]
 
 [workspace.package]
@@ -23,6 +24,7 @@ subcraft-bake = { path = "crates/bake" }
 subcraft-project = { path = "crates/project" }
 subcraft-export = { path = "crates/export" }
 subcraft-assets = { path = "crates/assets" }
+subcraft-sbsar = { path = "crates/sbsar" }
 subcraft-render = { path = "crates/render" }
 subcraft-app = { path = "crates/app" }
 subcraft-ui = { path = "crates/ui" }

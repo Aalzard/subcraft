@@ -405,3 +405,27 @@ pub fn import_texture_set_dialog(ctx: &egui::Context) {
         Some("Import texture set: select the maps (base color, roughness, normal, …)"),
     );
 }
+
+/// Add `.sbsar` to Shelf → Materials (library folder); does not apply to the project yet.
+pub fn import_sbsar_to_library_dialog(state: &mut UiState, now: f64) {
+    let Some(files) = rfd::FileDialog::new()
+        .set_title("Import SBSAR into the Materials library")
+        .add_filter("Substance Archive", &["sbsar"])
+        .pick_files()
+    else {
+        return;
+    };
+    if files.is_empty() {
+        return;
+    }
+    let n = files.len();
+    state.remember_sbsar(&files);
+    state.shelf.tab = crate::panels::shelf::ShelfTab::Materials;
+    state.set_status(
+        format!(
+            "Added {n} SBSAR material{} to Shelf → Materials (click or drag to bake onto the model)",
+            if n == 1 { "" } else { "s" }
+        ),
+        now,
+    );
+}

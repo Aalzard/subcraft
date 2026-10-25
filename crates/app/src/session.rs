@@ -142,6 +142,10 @@ pub struct Session {
     maps_generation: u64,
     /// Opened from a recovery copy: unsaved until the user saves.
     recovered: bool,
+    /// Live Substance `.sbsar` graph parameters for imported SBSAR fill layers.
+    pub sbsar_layers: HashMap<LayerId, crate::sbsar::SbsarLayerParams>,
+    /// Live Substance `.sbsar` graph parameters for imported SBSAR content effects.
+    pub sbsar_effects: HashMap<(LayerId, EffectId), crate::sbsar::SbsarLayerParams>,
 }
 
 /// Everything a project file holds, captured cheaply (shared tiles and resources) so it can be
@@ -220,6 +224,8 @@ impl Session {
             maps_dirty: false,
             maps_generation: 0,
             recovered: false,
+            sbsar_layers: HashMap::new(),
+            sbsar_effects: HashMap::new(),
         }
     }
 

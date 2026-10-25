@@ -3555,6 +3555,7 @@ dependencies = [
  "subcraft-mesh",
  "subcraft-paint",
  "subcraft-project",
+ "subcraft-sbsar",
  "sysinfo",
  "tar",
  "ureq",
@@ -3765,6 +3766,16 @@ dependencies = [
  "subcraft-core",
  "subcraft-image",
  "subcraft-mesh",
+]
+
+[[package]]
+name = "subcraft-sbsar"
+version = "0.1.8"
+dependencies = [
+ "log",
+ "serde",
+ "serde_json",
+ "uuid",
 ]
 
 [[package]]

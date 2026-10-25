@@ -23,6 +23,8 @@ pub mod part_workflow;
 pub mod pen;
 pub mod recovery;
 pub mod session;
+pub mod sbsar;
+mod sbsar_fill;
 pub mod thumbnails;
 pub mod layer_previews;
 pub mod updater;
@@ -36,6 +38,10 @@ pub use part_workflow::{PartAction, PartInfo, PartKey, SurfaceTarget};
 pub use recovery::{AutosaveEvent, Autosaver, CrashedSession, RecoveryStore};
 pub use subcraft_compositor::ChangedTiles;
 pub use session::{BrushState, CompositeUpdate, DEFAULT_RESOLUTION, LayerTarget, Pick, ProjectSnapshot, Scene, Selection, Session};
+pub use sbsar::{
+    DEFAULT_BAKE_SIZE, MAX_BAKE_SIZE, MIN_BAKE_SIZE, PREVIEW_BAKE_SIZE, SbsarEnumValue, SbsarInput,
+    SbsarLayerParams, bake_sbsar, bake_sbsar_with_overrides, clamp_bake_size, ensure_preview_bake,
+};
 
 pub use subcraft_compositor::{Composite, composite_comps};
 pub use subcraft_assets as assets;

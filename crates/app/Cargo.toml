@@ -24,6 +24,8 @@ subcraft-bake.workspace = true
 subcraft-project.workspace = true
 subcraft-export.workspace = true
 subcraft-assets.workspace = true
+# Pure Rust host launcher; the Adobe Materials SDK is only needed to build `tools/sbsar-bake`.
+subcraft-sbsar.workspace = true
 glam.workspace = true
 serde.workspace = true
 serde_json.workspace = true

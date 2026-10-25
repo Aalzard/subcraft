@@ -22,6 +22,8 @@ pub enum UserAssetKind {
     BrushPreset,
     /// Image textures (base color, normal, roughness maps, ...).
     Texture,
+    /// Substance `.sbsar` archives (baked when applied from the shelf). Append-only for schema stability.
+    Sbsar,
 }
 
 impl UserAssetKind {
@@ -33,6 +35,7 @@ impl UserAssetKind {
             UserAssetKind::SmartMask => "smart-masks",
             UserAssetKind::BrushPreset => "brush-presets",
             UserAssetKind::Texture => "textures",
+            UserAssetKind::Sbsar => "sbsar",
         }
     }
 
@@ -44,6 +47,7 @@ impl UserAssetKind {
             UserAssetKind::SmartMask => &["scmask"],
             UserAssetKind::BrushPreset => &["scbrush"],
             UserAssetKind::Texture => &subcraft_image::IMAGE_EXTENSIONS,
+            UserAssetKind::Sbsar => &["sbsar"],
         }
     }
 }

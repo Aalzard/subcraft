@@ -812,6 +812,10 @@ impl SubcraftApp {
                     ui.close();
                     crate::panels::layers::import_texture_set_dialog(ui.ctx());
                 }
+                if item(ui, icons::SPARKLE, "Import SBSAR…", "") {
+                    ui.close();
+                    crate::panels::layers::import_sbsar_to_library_dialog(&mut self.state, now);
+                }
             });
             ui.menu_button("View", |ui| {
                 ui.set_min_width(240.0);
@@ -1118,6 +1122,7 @@ impl eframe::App for SubcraftApp {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
         self.state.poll_library();
+        self.state.sbsar_materials.poll(&ctx);
         self.state.layer_previews.poll(&ctx);
         self.state.textures.poll(&ctx);
         if let Some(p) = &mut self.profile { p.mark("sync+polls"); }
