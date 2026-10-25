@@ -335,6 +335,8 @@ pub struct SubcraftApp {
     inspector_selection: Option<InspectorSelection>,
     test_crash: bool,
     profile: Option<crate::edit_profile::EditProfile>,
+    /// Background Substance Painter `.spp` open (experimental).
+    spp_open: Option<subcraft_app::SppOpenJob>,
 }
 
 impl SubcraftApp {
@@ -342,6 +344,8 @@ impl SubcraftApp {
         theme::apply(&cc.egui_ctx);
         let mut status = None;
         let is_project = |p: &std::path::Path| p.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case(subcraft_app::PROJECT_EXTENSION));
+        let is_spp = |p: &std::path::Path| p.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("spp"));
+        let mut spp_open = None;
         let resumed = options.resume_update.as_ref().and_then(|path| match subcraft_app::updater::resume_session(path) {
             Ok(session) => Some(session), Err(e) => { status = Some(format!("Could not restore update snapshot: {e}")); None }
         });
@@ -353,6 +357,11 @@ impl SubcraftApp {
                     Session::sample()
                 }
             },
+            Some(path) if is_spp(path) => {
+                spp_open = Some(crate::spp_dialogs::start_spp_open(path.clone()));
+                status = Some(format!("Opening Substance project {}…", path.display()));
+                Session::sample()
+            }
             Some(path) => match Session::open_mesh(path, subcraft_app::DEFAULT_RESOLUTION) {
                 Ok((s, warnings)) => {
                     if !warnings.is_empty() {
@@ -532,6 +541,7 @@ impl SubcraftApp {
             active_tabs: HashSet::new(),
             test_crash: options.test_crash,
             profile: options.profile_edits.map(|(out, res)| crate::edit_profile::EditProfile::new(out, res)),
+            spp_open,
         }
     }
 
@@ -741,6 +751,16 @@ impl SubcraftApp {
                     ui.close();
                     self.request(Pending::OpenProject, now);
                 }
+                if item(ui, icons::FOLDER_OPEN, "Open Substance (.spp)…", "") {
+                    ui.close();
+                    if let Some(path) = rfd::FileDialog::new()
+                        .set_title("Open Substance Painter project")
+                        .add_filter("Substance Painter", &["spp"])
+                        .pick_file()
+                    {
+                        self.spp_open = Some(crate::spp_dialogs::start_spp_open(path));
+                    }
+                }
                 ui.separator();
                 if item(ui, icons::SAVE, "Save", "Ctrl+S") {
                     ui.close();
@@ -811,6 +831,18 @@ impl SubcraftApp {
                 if item(ui, icons::IMAGE, "Import texture set…", "") {
                     ui.close();
                     crate::panels::layers::import_texture_set_dialog(ui.ctx());
+                }
+                if item(ui, icons::SPARKLE, "Import SBSAR…", "") {
+                    ui.close();
+                    crate::panels::layers::import_sbsar_to_library_dialog(&mut self.state, now);
+                }
+                if item(ui, icons::SPARKLE, "Import Smart Material (.spsm)…", "") {
+                    ui.close();
+                    crate::panels::layers::import_smart_material_dialog(&mut self.state, now);
+                }
+                if item(ui, icons::MASK, "Import Smart Mask (.spmsk)…", "") {
+                    ui.close();
+                    crate::panels::layers::import_smart_mask_dialog(&mut self.state, now);
                 }
             });
             ui.menu_button("View", |ui| {
@@ -1118,6 +1150,14 @@ impl eframe::App for SubcraftApp {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
         self.state.poll_library();
+        self.state.sbsar_materials.poll(&ctx);
+        {
+            let now = ctx.input(|i| i.time);
+            crate::spp_dialogs::poll_spp_open(&mut self.state, &mut self.spp_open, now);
+            if self.spp_open.is_some() {
+                ctx.request_repaint_after(std::time::Duration::from_millis(200));
+            }
+        }
         self.state.layer_previews.poll(&ctx);
         self.state.textures.poll(&ctx);
         if let Some(p) = &mut self.profile { p.mark("sync+polls"); }

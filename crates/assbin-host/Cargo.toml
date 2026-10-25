@@ -1,0 +1,15 @@
+[package]
+name = "subcraft-assbin-host"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Load Painter scene.assbin via bundled Assimp DLL (runtime; no Adobe link)"
+
+[lints.rust]
+unsafe_code = "allow"
+
+[dependencies]
+libloading = "0.8"
+thiserror.workspace = true
+log.workspace = true

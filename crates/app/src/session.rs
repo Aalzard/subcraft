@@ -142,6 +142,17 @@ pub struct Session {
     maps_generation: u64,
     /// Opened from a recovery copy: unsaved until the user saves.
     recovered: bool,
+    /// Live Substance `.sbsar` graph parameters for imported SBSAR fill layers.
+    pub sbsar_layers: HashMap<LayerId, crate::sbsar::SbsarLayerParams>,
+    /// Live Substance `.sbsar` graph parameters for imported SBSAR content effects.
+    pub sbsar_effects: HashMap<(LayerId, EffectId), crate::sbsar::SbsarLayerParams>,
+}
+
+impl Session {
+    /// Remember the path a project was loaded from (`.subcraft` or experimental `.spp`).
+    pub(crate) fn set_loaded_path(&mut self, path: PathBuf) {
+        self.project_path = Some(path);
+    }
 }
 
 /// Everything a project file holds, captured cheaply (shared tiles and resources) so it can be
@@ -220,6 +231,8 @@ impl Session {
             maps_dirty: false,
             maps_generation: 0,
             recovered: false,
+            sbsar_layers: HashMap::new(),
+            sbsar_effects: HashMap::new(),
         }
     }
 
@@ -1459,6 +1472,13 @@ impl Session {
 
     /// Add a smart material (folder of masked layers) above the selection.
     pub fn add_smart_material(&mut self, smart: &subcraft_assets::SmartMaterial) -> Result<(), CommandError> {
+        // Painter `.spsm`: re-decode + bake real noise SBSAR masks on apply when the host is available.
+        if let Some(spsm) = smart.source_spsm() {
+            return self
+                .import_spsm(spsm)
+                .map(|_| ())
+                .map_err(CommandError::Invalid);
+        }
         for r in smart.resources() {
             self.resources.insert_shared(r.clone());
         }
@@ -1466,13 +1486,58 @@ impl Session {
         self.execute(Command::InsertLayer { layer: Box::new(layer), label: format!("Smart Material: {}", smart.name) })
     }
 
+    /// Import a Substance Painter `.spsm` Smart Material (bake Painter noise SBSAR when possible).
+    pub fn import_spsm(&mut self, path: &std::path::Path) -> Result<String, String> {
+        let node = subcraft_spp::decode_spsm(path)?;
+        let res = self.selected_texture_set().resolution;
+        let layer = self.spp_node_to_layer_baked(&node, res);
+        let name = layer.name.clone();
+        self.execute(Command::InsertLayer {
+            layer: Box::new(layer),
+            label: format!("Smart Material: {name}"),
+        })
+        .map_err(|e| e.to_string())?;
+        Ok(name)
+    }
+
     /// Apply a smart mask to the selected layer.
     pub fn apply_smart_mask(&mut self, mask: &subcraft_assets::SmartMask) -> Result<(), CommandError> {
+        if let Some(spmsk) = mask.source_spmsk.as_ref() {
+            return self
+                .import_spmsk(spmsk)
+                .map(|_| ())
+                .map_err(CommandError::Invalid);
+        }
         let layer = self.selection.layer.ok_or(CommandError::LayerNotFound)?;
         for r in &mask.resources {
             self.resources.insert_shared(r.clone());
         }
-        self.execute(Command::ApplyMaskEffects { layer, effects: mask.effects.clone(), label: format!("Smart Mask: {}", mask.name) })
+        let effects = mask.mask_effects();
+        self.execute(Command::ApplyMaskEffects {
+            layer,
+            effects: effects.into_iter().map(|e| e.kind).collect(),
+            label: format!("Smart Mask: {}", mask.name),
+        })
+    }
+
+    /// Import a Substance Painter `.spmsk` Smart Mask onto the selected layer.
+    pub fn import_spmsk(&mut self, path: &std::path::Path) -> Result<String, String> {
+        let layer = self.selection.layer.ok_or_else(|| "select a layer first".to_string())?;
+        let spp_fx = subcraft_spp::decode_spmsk(path)?;
+        let res = self.selected_texture_set().resolution;
+        let effects = self.spp_effects_to_mask_effects_baked(&spp_fx, res);
+        let name = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("Smart Mask")
+            .to_string();
+        self.execute(Command::ApplyMaskEffects {
+            layer,
+            effects: effects.into_iter().map(|e| e.kind).collect(),
+            label: format!("Smart Mask: {name}"),
+        })
+        .map_err(|e| e.to_string())?;
+        Ok(name)
     }
 
     /// Use a brush alpha for the next strokes.

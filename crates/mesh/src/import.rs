@@ -17,6 +17,8 @@ pub enum ImportError {
     Gltf(String),
     #[error("failed to read FBX: {0}")]
     Fbx(String),
+    #[error("assbin: {0}")]
+    Assbin(String),
     #[error(transparent)]
     Build(#[from] BuildError),
 }

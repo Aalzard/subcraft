@@ -138,6 +138,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "aho-corasick"
+version = "1.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c982642fa9e8606056828ee9a8505737230110bb1099153c79efe865c59d12ba"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
 name = "allocator-api2"
 version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1614,6 +1623,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "hdf5-core"
+version = "0.9.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ead172cd4849c50e80e990267b4c06f02e3a3eed58b987cfe8e4a77dec67d93f"
+dependencies = [
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "hdf5-reader"
+version = "0.9.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c50e22fc5c53e8e23edd603050ac342ea4cde1898b64bf86266d60f6a9cc3963"
+dependencies = [
+ "flate2",
+ "hdf5-core",
+ "libc",
+ "lru",
+ "memmap2",
+ "ndarray",
+ "parking_lot",
+ "smallvec",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "heck"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1868,6 +1903,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "jpeg2k"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "be2982db6b9f254c9df44d89bcfdc758924d538f576d9649f5b10008150f2a60"
+dependencies = [
+ "anyhow",
+ "log",
+ "openjpeg-sys",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "js-sys"
 version = "0.3.106"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2008,6 +2055,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
 
 [[package]]
+name = "lru"
+version = "0.16.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f66e8d5d03f609abc3a39e6f08e4164ebf1447a732906d39eb9b99b7919ef39"
+dependencies = [
+ "hashbrown 0.16.1",
+]
+
+[[package]]
 name = "matrixmultiply"
 version = "0.3.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2140,6 +2196,21 @@ dependencies = [
  "num-traits",
  "simba",
  "typenum",
+]
+
+[[package]]
+name = "ndarray"
+version = "0.17.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "520080814a7a6b4a6e9070823bb24b4531daac8c4627e08ba5de8c5ef2f2752d"
+dependencies = [
+ "matrixmultiply",
+ "num-complex 0.4.6",
+ "num-integer",
+ "num-traits",
+ "portable-atomic",
+ "portable-atomic-util",
+ "rawpointer",
 ]
 
 [[package]]
@@ -2596,6 +2667,16 @@ name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
+
+[[package]]
+name = "openjpeg-sys"
+version = "1.0.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "92682cb92e7b01e2c020cf8ec12f3374558924bb24621df1112d8a7c93d419ef"
+dependencies = [
+ "cc",
+ "libc",
+]
 
 [[package]]
 name = "option-ext"
@@ -3069,6 +3150,35 @@ dependencies = [
  "libredox",
  "thiserror 2.0.21",
 ]
+
+[[package]]
+name = "regex"
+version = "1.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f020237b6c8eed93db2e2cb53c00c60a8e1bc73da7d073199a1180401450218d"
+dependencies = [
+ "aho-corasick",
+ "memchr",
+ "regex-automata",
+ "regex-syntax",
+]
+
+[[package]]
+name = "regex-automata"
+version = "0.4.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ad8553b9b26413251cbf30e620595c7a41b3887f03da04579c0e6b0d6a06b4b2"
+dependencies = [
+ "aho-corasick",
+ "memchr",
+ "regex-syntax",
+]
+
+[[package]]
+name = "regex-syntax"
+version = "0.8.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "renderdoc-sys"
@@ -3555,6 +3665,8 @@ dependencies = [
  "subcraft-mesh",
  "subcraft-paint",
  "subcraft-project",
+ "subcraft-sbsar",
+ "subcraft-spp",
  "sysinfo",
  "tar",
  "ureq",
@@ -3562,6 +3674,15 @@ dependencies = [
  "web-time",
  "winreg",
  "zip",
+]
+
+[[package]]
+name = "subcraft-assbin-host"
+version = "0.1.8"
+dependencies = [
+ "libloading",
+ "log",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -3688,6 +3809,7 @@ name = "subcraft-mesh"
 version = "0.1.8"
 dependencies = [
  "bytemuck",
+ "byteorder",
  "glam",
  "gltf",
  "log",
@@ -3765,6 +3887,30 @@ dependencies = [
  "subcraft-core",
  "subcraft-image",
  "subcraft-mesh",
+]
+
+[[package]]
+name = "subcraft-sbsar"
+version = "0.1.8"
+dependencies = [
+ "log",
+ "serde",
+ "serde_json",
+ "uuid",
+]
+
+[[package]]
+name = "subcraft-spp"
+version = "0.1.8"
+dependencies = [
+ "hdf5-reader",
+ "jpeg2k",
+ "log",
+ "regex",
+ "serde",
+ "serde_json",
+ "subcraft-mesh",
+ "tempfile",
 ]
 
 [[package]]

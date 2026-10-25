@@ -89,12 +89,15 @@ fn smart_mask_from(f: Fragment, path: PathBuf) -> Result<SmartMask, String> {
     if f.kind != FragmentKind::SmartMask {
         return Err(format!("{}: not a smart mask", path.display()));
     }
+    let full_effects = f.mask_effects.clone();
     Ok(SmartMask {
         id: AssetId::from_name(&format!("smart_mask/user/{}", path.display())),
         name: display_name(&path, &f.name),
         resources: resources_of(&f),
         effects: f.mask_effects.into_iter().map(|e| e.kind).collect(),
+        full_effects,
         user_file: Some(path),
+        source_spmsk: None,
     })
 }
 
@@ -103,12 +106,68 @@ fn display_name(path: &Path, fallback: &str) -> String {
     path.file_stem().and_then(|s| s.to_str()).map(str::to_string).unwrap_or_else(|| fallback.to_string())
 }
 
+/// Load a single smart material file (`.scsmart` or Substance Painter `.spsm`).
+pub fn load_smart_material_file(path: &Path) -> Result<SmartMaterial, String> {
+    let is_spsm = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("spsm"));
+    if is_spsm {
+        let node = subcraft_spp::decode_spsm(path)?;
+        let resolution = 1024;
+        let layer = crate::spp_convert::spp_node_to_layer(&node, resolution);
+        let name = display_name(path, &layer.name);
+        Ok(SmartMaterial::saved(
+            name,
+            layer,
+            resolution,
+            Vec::new(),
+            Some(path.to_path_buf()),
+        )
+        .with_source_spsm(path.to_path_buf()))
+    } else {
+        load_fragment(path)
+            .map_err(|e| format!("{}: {e}", path.display()))
+            .and_then(|f| smart_material_from(f, path.to_path_buf()))
+    }
+}
+
+/// Load a single smart mask file (`.scmask` or Substance Painter `.spmsk`).
+pub fn load_smart_mask_file(path: &Path) -> Result<SmartMask, String> {
+    let is_spmsk = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("spmsk"));
+    if is_spmsk {
+        let spp_fx = subcraft_spp::decode_spmsk(path)?;
+        let full_effects = crate::spp_convert::spp_effects_to_mask_effects(&spp_fx);
+        if full_effects.is_empty() {
+            return Err(format!("{}: no decodable mask effects", path.display()));
+        }
+        let effects = full_effects.iter().map(|e| e.kind.clone()).collect();
+        let name = display_name(path, "Smart Mask");
+        Ok(SmartMask {
+            id: AssetId::from_name(&format!("smart_mask/user/{}", path.display())),
+            name,
+            effects,
+            full_effects,
+            resources: Vec::new(),
+            user_file: Some(path.to_path_buf()),
+            source_spmsk: Some(path.to_path_buf()),
+        })
+    } else {
+        load_fragment(path)
+            .map_err(|e| format!("{}: {e}", path.display()))
+            .and_then(|f| smart_mask_from(f, path.to_path_buf()))
+    }
+}
+
 /// All smart materials in the library; unreadable files are reported, not fatal.
 pub fn load_smart_materials(lib: &UserLibrary) -> (Vec<SmartMaterial>, Vec<String>) {
     let mut ok = Vec::new();
     let mut errors = Vec::new();
     for p in lib.list(UserAssetKind::SmartMaterial) {
-        match load_fragment(&p).map_err(|e| format!("{}: {e}", p.display())).and_then(|f| smart_material_from(f, p.clone())) {
+        match load_smart_material_file(&p) {
             Ok(m) => ok.push(m),
             Err(e) => errors.push(e),
         }
@@ -121,10 +180,81 @@ pub fn load_smart_masks(lib: &UserLibrary) -> (Vec<SmartMask>, Vec<String>) {
     let mut ok = Vec::new();
     let mut errors = Vec::new();
     for p in lib.list(UserAssetKind::SmartMask) {
-        match load_fragment(&p).map_err(|e| format!("{}: {e}", p.display())).and_then(|f| smart_mask_from(f, p.clone())) {
+        match load_smart_mask_file(&p) {
             Ok(m) => ok.push(m),
             Err(e) => errors.push(e),
         }
     }
     (ok, errors)
+}
+
+/// Default Substance 3D Painter starter `smart-materials` folder if installed on disk.
+pub fn painter_starter_smart_materials_dir() -> Option<PathBuf> {
+    let candidates = [
+        r"C:\Program Files\Adobe\Adobe Substance 3D Painter\resources\starter_assets\smart-materials",
+        r"C:\Program Files\Allegorithmic\Substance Painter\resources\shelf\allegorithmic\smart-materials",
+    ];
+    candidates
+        .into_iter()
+        .map(PathBuf::from)
+        .find(|p| p.is_dir())
+}
+
+/// Default Substance 3D Painter starter `smart-masks` folder if installed on disk.
+pub fn painter_starter_smart_masks_dir() -> Option<PathBuf> {
+    let candidates = [
+        r"C:\Program Files\Adobe\Adobe Substance 3D Painter\resources\starter_assets\smart-masks",
+        r"C:\Program Files\Allegorithmic\Substance Painter\resources\shelf\allegorithmic\smart-masks",
+    ];
+    candidates
+        .into_iter()
+        .map(PathBuf::from)
+        .find(|p| p.is_dir())
+}
+
+fn collect_files_recursive(dir: &Path, ext: &str, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let mut paths: Vec<PathBuf> = entries.filter_map(|e| e.ok().map(|e| e.path())).collect();
+    paths.sort();
+    for p in paths {
+        if p.is_dir() {
+            collect_files_recursive(&p, ext, out);
+        } else if p
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| e.eq_ignore_ascii_case(ext))
+        {
+            out.push(p);
+        }
+    }
+}
+
+/// Load all `.spsm` files from a folder tree (such as Painter's starter assets).
+pub fn load_spsm_directory(dir: &Path) -> Vec<SmartMaterial> {
+    let mut files = Vec::new();
+    collect_files_recursive(dir, "spsm", &mut files);
+    let mut out = Vec::new();
+    for f in files {
+        if let Ok(mut sm) = load_smart_material_file(&f) {
+            // Not inside UserLibrary, so don't mark as removable user_file unless copied
+            sm.user_file = None;
+            out.push(sm);
+        }
+    }
+    out
+}
+
+/// Load all `.spmsk` files from a folder tree (such as Painter's starter assets).
+pub fn load_spmsk_directory(dir: &Path) -> Vec<SmartMask> {
+    let mut files = Vec::new();
+    collect_files_recursive(dir, "spmsk", &mut files);
+    let mut out = Vec::new();
+    for f in files {
+        if let Ok(mut m) = load_smart_mask_file(&f) {
+            // Keep `source_spmsk` for bake-on-apply; only clear removable-library marking.
+            m.user_file = None;
+            out.push(m);
+        }
+    }
+    out
 }

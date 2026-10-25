@@ -19,11 +19,17 @@ use crate::theme;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ShelfDrag {
     Material(usize),
+    /// User library `.sbsar` (Materials tab).
+    Sbsar(usize),
     SmartMaterial(usize),
     SmartMask(usize),
     /// An image from Shelf → Textures (drop on a channel row to use it there).
     Texture(usize),
     Starter(usize),
+}
+
+pub(crate) fn shelf_thumb_ready(state: &UiState, id: &AssetId) -> bool {
+    state.shelf.thumbs.contains_key(id)
 }
 
 /// Apply a material / smart material (inserted above the selected layer of the selected
@@ -35,6 +41,7 @@ pub fn apply_shelf_item(s: &mut UiState, item: ShelfDrag, now: f64) {
             Some(m) => s.session.add_material(&m).map_err(|e| e.to_string()),
             None => Ok(()),
         },
+        ShelfDrag::Sbsar(i) => crate::panels::sbsar_materials::apply_shelf(s, i, now),
         ShelfDrag::SmartMaterial(i) => match s.library.smart_materials.get(i).cloned() {
             Some(m) => s.session.add_smart_material(&m).map_err(|e| e.to_string()),
             None => Ok(()),
@@ -214,7 +221,7 @@ pub(crate) fn tile(ui: &mut Ui, side: f32, thumb: Option<&egui::TextureHandle>, 
 }
 
 /// Right-click menu of an asset stored in the user library. Returns true if it was removed.
-fn library_menu(
+pub(crate) fn library_menu(
     resp: &egui::Response,
     lib: Option<&subcraft_app::assets::UserLibrary>,
     file: &std::path::Path,
@@ -356,14 +363,43 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 }
             }
             ShelfTab::SmartMasks => {
-                shelf_hint(ui, "Applies to the selected layer. Edges / Cavity need baked maps (Ctrl+B).");
+                if ui.button(format!("{}  Import Smart Mask (.spmsk)…", crate::icons::DOWNLOAD)).clicked() {
+                    crate::panels::layers::import_smart_mask_dialog(state, now);
+                }
+                if subcraft_app::library::painter_starter_smart_masks_dir().is_some()
+                    && ui.button(format!("{}  Load Painter Starter Masks", crate::icons::SPARKLE)).clicked()
+                {
+                    let dir = subcraft_app::library::painter_starter_smart_masks_dir().unwrap();
+                    let masks = subcraft_app::library::load_spmsk_directory(&dir);
+                    let n = masks.len();
+                    state.library.smart_masks.extend(masks);
+                    state.set_status(format!("Loaded {n} Painter starter smart masks"), now);
+                }
+                library_folder_button(ui, state, subcraft_app::assets::UserAssetKind::SmartMask);
+                shelf_hint(ui, "Applies to the selected layer. Edges / Cavity need baked maps (Ctrl+B). Import .spmsk from Painter or set SUBCRAFT_PAINTER_PROCEDURALS for noise bake.");
             }
             ShelfTab::SmartMaterials => {
-                shelf_hint(ui, "Wear and dirt follow baked curvature / AO (Ctrl+B).");
+                if ui.button(format!("{}  Import Smart Material (.spsm)…", crate::icons::DOWNLOAD)).clicked() {
+                    crate::panels::layers::import_smart_material_dialog(state, now);
+                }
+                if subcraft_app::library::painter_starter_smart_materials_dir().is_some()
+                    && ui.button(format!("{}  Load Painter Starter Smart Materials", crate::icons::SPARKLE)).clicked()
+                {
+                    let dir = subcraft_app::library::painter_starter_smart_materials_dir().unwrap();
+                    let mats = subcraft_app::library::load_spsm_directory(&dir);
+                    let n = mats.len();
+                    state.library.smart_materials.extend(mats);
+                    state.set_status(format!("Loaded {n} Painter starter smart materials"), now);
+                }
+                library_folder_button(ui, state, subcraft_app::assets::UserAssetKind::SmartMaterial);
+                shelf_hint(ui, "Wear and dirt follow baked curvature / AO (Ctrl+B). Import .spsm from Painter; noise fills bake via the SBSAR host when Painter procedurals are installed.");
             }
         }
     });
     });
+    if state.shelf.tab == ShelfTab::Materials {
+        crate::panels::sbsar_materials::materials_toolbar(ui, state, now);
+    }
     filter_row(state, ui);
     crate::widgets::divider(ui);
     generate_one_thumbnail(state, ui.ctx());
@@ -413,6 +449,16 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                             action = Some(Box::new(move |s: &mut UiState| apply_shelf_item(s, ShelfDrag::Material(i), now)));
                         }
                     }
+                    shown += crate::panels::sbsar_materials::paint_sbsar_grid(
+                        ui,
+                        thumbs,
+                        state,
+                        &filter,
+                        now,
+                        tile_size,
+                        &mut action,
+                        &mut lib_status,
+                    );
                 }
                 ShelfTab::SmartMaterials => {
                     for (i, m) in state.library.smart_materials.iter().enumerate() {
@@ -686,7 +732,7 @@ fn mask_preview_layer(ts: &subcraft_doc::TextureSet, effects: &[subcraft_doc::Ma
 }
 
 /// "Open library folder" (creates it on first use so the user can drop files in).
-fn library_folder_button(ui: &mut Ui, state: &UiState, kind: subcraft_app::assets::UserAssetKind) {
+pub(crate) fn library_folder_button(ui: &mut Ui, state: &UiState, kind: subcraft_app::assets::UserAssetKind) {
     let Some(lib) = &state.user_library else { return };
     let dir = lib.folder(kind);
     if ui

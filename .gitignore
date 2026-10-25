@@ -3,3 +3,7 @@
 /scratch
 /preview_out
 /dist
+# Local Adobe Substance Materials SDK and SBSAR bake host build (not shipped).
+/_sdk_extract/
+/build/sbsar-bake/
+/bin/sbsar-bake/

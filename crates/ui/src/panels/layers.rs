@@ -405,3 +405,140 @@ pub fn import_texture_set_dialog(ctx: &egui::Context) {
         Some("Import texture set: select the maps (base color, roughness, normal, …)"),
     );
 }
+
+/// Pick Substance Painter `.spsm` or SubCraft `.scsmart` Smart Material file(s), add to Shelf and apply the first.
+pub fn import_smart_material_dialog(state: &mut UiState, now: f64) {
+    let Some(files) = rfd::FileDialog::new()
+        .set_title("Import Smart Material (.spsm / .scsmart)")
+        .add_filter("Smart Material", &["spsm", "scsmart"])
+        .pick_files()
+    else {
+        return;
+    };
+    remember_smart_materials(state, &files, true, now);
+}
+
+/// Add `.spsm` / `.scsmart` to the library from the Materials toolbar without applying yet.
+pub fn import_smart_material_to_library_dialog(state: &mut UiState, now: f64) {
+    let Some(files) = rfd::FileDialog::new()
+        .set_title("Import Smart Material (.spsm / .scsmart)")
+        .add_filter("Smart Material", &["spsm", "scsmart"])
+        .pick_files()
+    else {
+        return;
+    };
+    remember_smart_materials(state, &files, false, now);
+}
+
+/// Pick Substance Painter `.spmsk` or SubCraft `.scmask` Smart Mask file(s).
+pub fn import_smart_mask_dialog(state: &mut UiState, now: f64) {
+    let Some(files) = rfd::FileDialog::new()
+        .set_title("Import Smart Mask (.spmsk / .scmask)")
+        .add_filter("Smart Mask", &["spmsk", "scmask"])
+        .pick_files()
+    else {
+        return;
+    };
+    remember_smart_masks(state, &files, true, now);
+}
+
+fn remember_smart_materials(state: &mut UiState, files: &[std::path::PathBuf], apply_first: bool, now: f64) {
+    let Some(lib) = state.user_library.clone() else {
+        state.set_status("No library folder (set SUBCRAFT_LIBRARY or use Documents)", now);
+        return;
+    };
+    let mut added = 0usize;
+    let mut first = None;
+    for path in files {
+        match subcraft_app::library::load_smart_material_file(path) {
+            Ok(mut m) => {
+                if let Ok(copied) = lib.add_file(
+                    if path.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("spsm")) {
+                        subcraft_app::assets::UserAssetKind::SmartMaterial
+                    } else {
+                        subcraft_app::assets::UserAssetKind::SmartMaterial
+                    },
+                    path,
+                ) {
+                    m.user_file = Some(copied);
+                }
+                if first.is_none() {
+                    first = Some(m.clone());
+                }
+                state.library.smart_materials.push(m);
+                added += 1;
+            }
+            Err(e) => state.set_status(format!("Smart material {}: {e}", path.display()), now),
+        }
+    }
+    if added > 0 {
+        state.shelf.tab = crate::panels::shelf::ShelfTab::SmartMaterials;
+        state.set_status(format!("Added {added} smart material(s) to the shelf"), now);
+        if apply_first {
+            if let Some(m) = first {
+                if let Err(e) = state.session.add_smart_material(&m) {
+                    state.set_status(format!("Apply smart material: {e}"), now);
+                }
+            }
+        }
+    }
+}
+
+fn remember_smart_masks(state: &mut UiState, files: &[std::path::PathBuf], apply_first: bool, now: f64) {
+    let Some(lib) = state.user_library.clone() else {
+        state.set_status("No library folder (set SUBCRAFT_LIBRARY or use Documents)", now);
+        return;
+    };
+    let mut added = 0usize;
+    let mut first = None;
+    for path in files {
+        match subcraft_app::library::load_smart_mask_file(path) {
+            Ok(mut m) => {
+                if let Ok(copied) = lib.add_file(subcraft_app::assets::UserAssetKind::SmartMask, path) {
+                    m.user_file = Some(copied);
+                }
+                if first.is_none() {
+                    first = Some(m.clone());
+                }
+                state.library.smart_masks.push(m);
+                added += 1;
+            }
+            Err(e) => state.set_status(format!("Smart mask {}: {e}", path.display()), now),
+        }
+    }
+    if added > 0 {
+        state.shelf.tab = crate::panels::shelf::ShelfTab::SmartMasks;
+        state.set_status(format!("Added {added} smart mask(s) to the shelf"), now);
+        if apply_first {
+            if let Some(m) = first {
+                if let Err(e) = state.session.apply_smart_mask(&m) {
+                    state.set_status(format!("Apply smart mask: {e}"), now);
+                }
+            }
+        }
+    }
+}
+
+/// Add `.sbsar` to Shelf → Materials (library folder); does not apply to the project yet.
+pub fn import_sbsar_to_library_dialog(state: &mut UiState, now: f64) {
+    let Some(files) = rfd::FileDialog::new()
+        .set_title("Import SBSAR into the Materials library")
+        .add_filter("Substance Archive", &["sbsar"])
+        .pick_files()
+    else {
+        return;
+    };
+    if files.is_empty() {
+        return;
+    }
+    let n = files.len();
+    state.remember_sbsar(&files);
+    state.shelf.tab = crate::panels::shelf::ShelfTab::Materials;
+    state.set_status(
+        format!(
+            "Added {n} SBSAR material{} to Shelf → Materials (click or drag to bake onto the model)",
+            if n == 1 { "" } else { "s" }
+        ),
+        now,
+    );
+}
