@@ -146,6 +146,10 @@ pub struct UiState {
     pub stencil_tex: Option<(usize, egui::TextureHandle)>,
     /// Image textures shown in Shelf → Textures (the library's `textures/` folder).
     pub textures: crate::panels::textures::TextureLibrary,
+    /// Substance archives in Shelf → Materials (`Library/sbsar/`).
+    pub sbsar_materials: crate::panels::sbsar_materials::SbsarMaterialLibrary,
+    /// Output size when applying an SBSAR to the project (power of two, up to 8192).
+    pub sbsar_bake_size: u32,
     /// Autosave, crash recovery and preferences.
     pub recovery: crate::recovery::RecoveryUi,
     /// Help → Report a bug and crash reports of earlier runs.
@@ -224,6 +228,8 @@ impl UiState {
             preset_name: String::new(),
             stencil_tex: None,
             textures: Default::default(),
+            sbsar_materials: Default::default(),
+            sbsar_bake_size: subcraft_app::DEFAULT_BAKE_SIZE,
             recovery: crate::recovery::RecoveryUi::disabled(),
             bug_report: Default::default(),
         }
@@ -253,9 +259,12 @@ impl UiState {
         }
         self.brush_presets = presets;
         self.textures = crate::panels::textures::TextureLibrary::load(&lib);
+        self.sbsar_materials = crate::panels::sbsar_materials::SbsarMaterialLibrary::load(&lib);
         if !self.textures.items.is_empty() {
             // Open the shelf on the user's own textures once there are some.
             self.shelf.tab = crate::panels::shelf::ShelfTab::Textures;
+        } else if !self.sbsar_materials.items.is_empty() {
+            self.shelf.tab = crate::panels::shelf::ShelfTab::Materials;
         }
         let files = lib.list(UserAssetKind::Environment);
         if !files.is_empty() {
@@ -280,6 +289,17 @@ impl UiState {
         let lib = self.user_library.clone();
         for e in self.textures.add_files(lib.as_ref(), paths) {
             log::warn!("texture not added to the library: {e}");
+        }
+    }
+
+    /// Copy `.sbsar` files into the library and list them under Shelf → Materials.
+    pub fn remember_sbsar(&mut self, paths: &[std::path::PathBuf]) {
+        let lib = self.user_library.clone();
+        for e in self.sbsar_materials.add_files(lib.as_ref(), paths) {
+            log::warn!("SBSAR not added to the library: {e}");
+        }
+        if !paths.is_empty() {
+            self.shelf.tab = crate::panels::shelf::ShelfTab::Materials;
         }
     }
 

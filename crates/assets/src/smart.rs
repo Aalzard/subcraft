@@ -15,6 +15,9 @@ pub struct SmartMaterial {
     source: SmartSource,
     /// File in the user library (`None` for built-in smart materials).
     pub user_file: Option<std::path::PathBuf>,
+    /// Original Substance Painter `.spsm` path (shelf / starter assets). When set, apply
+    /// re-decodes and bakes real noise SBSAR masks instead of the Pattern approximation.
+    pub source_spsm: Option<std::path::PathBuf>,
 }
 
 #[derive(Clone)]
@@ -45,7 +48,19 @@ impl SmartMaterial {
             name,
             source: SmartSource::Saved { layer: Arc::new(layer), resolution, resources },
             user_file,
+            source_spsm: None,
         }
+    }
+
+    /// Mark this smart material as coming from a Painter `.spsm` so apply can bake real SBSAR fills.
+    pub fn with_source_spsm(mut self, path: std::path::PathBuf) -> Self {
+        self.source_spsm = Some(path);
+        self
+    }
+
+    /// Painter `.spsm` path used for bake-on-apply, if any.
+    pub fn source_spsm(&self) -> Option<&std::path::Path> {
+        self.source_spsm.as_deref()
     }
 
     /// The layer for `ts`: fresh ids every time; saved rasters are resampled to the texture
@@ -70,6 +85,11 @@ impl SmartMaterial {
             SmartSource::Builtin(_) => &[],
             SmartSource::Saved { resources, .. } => resources,
         }
+    }
+
+    /// True when loaded from a `.spsm` or `.scsmart` file rather than a built-in preset.
+    pub fn is_saved(&self) -> bool {
+        matches!(self.source, SmartSource::Saved { .. })
     }
 }
 
@@ -120,7 +140,7 @@ pub(crate) fn folder(name: &str, ts: &TextureSet, children: Vec<Layer>) -> Layer
     let mut f = Layer::new_folder(name, ts);
     if let LayerContent::Group(g) = &mut f.content {
         g.children = children.into_iter().map(Arc::new).collect();
-        g.expanded = false;
+        g.expanded = true;
     }
     f
 }
@@ -157,7 +177,13 @@ fn tarnished_gold(ts: &TextureSet) -> Layer {
 }
 
 pub(crate) fn smart(name: &str, build: fn(&TextureSet) -> Layer) -> SmartMaterial {
-    SmartMaterial { id: AssetId::from_name(&format!("smart_material/{name}")), name: name.into(), source: SmartSource::Builtin(build), user_file: None }
+    SmartMaterial {
+        id: AssetId::from_name(&format!("smart_material/{name}")),
+        name: name.into(),
+        source: SmartSource::Builtin(build),
+        user_file: None,
+        source_spsm: None,
+    }
 }
 
 pub fn smart_materials() -> Vec<SmartMaterial> {

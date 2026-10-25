@@ -145,10 +145,24 @@ pub struct SmartMask {
     pub id: AssetId,
     pub name: String,
     pub effects: Vec<MaskEffectKind>,
+    /// Full mask effects preserving per-effect blend modes, opacities, and names (used by `.spmsk` and `.scmask`).
+    pub full_effects: Vec<subcraft_doc::MaskEffect>,
     /// Images used by image mask effects (saved smart masks).
     pub resources: Vec<std::sync::Arc<subcraft_doc::Resource>>,
     /// File in the user library (`None` for built-in smart masks).
     pub user_file: Option<std::path::PathBuf>,
+    /// Original Substance Painter `.spmsk` path for bake-on-apply of noise SBSAR fills.
+    pub source_spmsk: Option<std::path::PathBuf>,
+}
+
+impl SmartMask {
+    pub fn mask_effects(&self) -> Vec<subcraft_doc::MaskEffect> {
+        if !self.full_effects.is_empty() {
+            self.full_effects.clone()
+        } else {
+            self.effects.iter().cloned().map(subcraft_doc::MaskEffect::new).collect()
+        }
+    }
 }
 
 pub(crate) fn generator(kind: GeneratorKind, level: f32, softness: f32, noise: f32, invert: bool) -> MaskEffectKind {
@@ -161,14 +175,68 @@ pub(crate) fn generator(kind: GeneratorKind, level: f32, softness: f32, noise: f
 }
 
 pub(crate) fn mask(name: &str, effects: Vec<MaskEffectKind>) -> SmartMask {
-    SmartMask { id: AssetId::from_name(&format!("smart_mask/{name}")), name: name.into(), effects, resources: Vec::new(), user_file: None }
+    SmartMask {
+        id: AssetId::from_name(&format!("smart_mask/{name}")),
+        name: name.into(),
+        effects,
+        full_effects: Vec::new(),
+        resources: Vec::new(),
+        user_file: None,
+        source_spmsk: None,
+    }
+}
+
+pub(crate) fn full_mask(name: &str, full_effects: Vec<subcraft_doc::MaskEffect>) -> SmartMask {
+    SmartMask {
+        id: AssetId::from_name(&format!("smart_mask/{name}")),
+        name: name.into(),
+        effects: full_effects.iter().map(|e| e.kind.clone()).collect(),
+        full_effects,
+        resources: Vec::new(),
+        user_file: None,
+        source_spmsk: None,
+    }
 }
 
 /// Built-in smart masks. Edges / Cavity need baked curvature / AO.
 pub fn smart_masks() -> Vec<SmartMask> {
+    use subcraft_doc::{BlendMode, MaskEffect};
+    let mut grunge_mul = MaskEffect::new(MaskEffectKind::Fill {
+        value: 1.0,
+        procedural: Some(ProceduralParams { scale: 6.5, contrast: 0.45, ..ProceduralParams::new(ProceduralKind::Grunge) }),
+        projection: triplanar(2.0),
+    });
+    grunge_mul.name = "Grunge Breakup".into();
+    grunge_mul.blend = BlendMode::Multiply;
+    grunge_mul.opacity = 0.55;
+
+    let mut scratches_add = MaskEffect::new(MaskEffectKind::Fill {
+        value: 1.0,
+        procedural: Some(ProceduralParams { scale: 8.0, contrast: 0.7, ..ProceduralParams::new(ProceduralKind::Scratches) }),
+        projection: triplanar(2.0),
+    });
+    scratches_add.name = "Edge Scratches".into();
+    scratches_add.blend = BlendMode::LinearDodge;
+    scratches_add.opacity = 0.35;
+
     vec![
         mask("Edge Wear", vec![generator(GeneratorKind::Edges, 0.62, 0.08, 0.35, false)]),
+        full_mask(
+            "Edge Wear Heavy",
+            vec![
+                MaskEffect::new(generator(GeneratorKind::Edges, 0.56, 0.14, 0.45, false)),
+                grunge_mul.clone(),
+                scratches_add,
+            ],
+        ),
         mask("Cavity Dirt", vec![generator(GeneratorKind::Cavity, 0.25, 0.25, 0.3, false)]),
+        full_mask(
+            "Cavity Grime & Rust",
+            vec![
+                MaskEffect::new(generator(GeneratorKind::Cavity, 0.32, 0.28, 0.42, false)),
+                grunge_mul,
+            ],
+        ),
         mask("Top Dust", vec![generator(GeneratorKind::Directional, 0.72, 0.25, 0.4, false)]),
         mask("Bottom Grime", vec![generator(GeneratorKind::PositionGradient, 0.3, 0.35, 0.3, true)]),
         mask(
@@ -178,6 +246,17 @@ pub fn smart_masks() -> Vec<SmartMask> {
                 procedural: Some(ProceduralParams { scale: 6.0, contrast: 0.4, ..ProceduralParams::new(ProceduralKind::Grunge) }),
                 projection: triplanar(2.0),
             }],
+        ),
+        mask(
+            "Roughness Smudges",
+            vec![
+                MaskEffectKind::Fill {
+                    value: 1.0,
+                    procedural: Some(ProceduralParams { scale: 4.5, contrast: 0.35, ..ProceduralParams::new(ProceduralKind::Clouds) }),
+                    projection: triplanar(1.5),
+                },
+                MaskEffectKind::Levels(subcraft_doc::Levels { in_low: 0.18, in_high: 0.82, gamma: 1.15, out_low: 0.0, out_high: 1.0 }),
+            ],
         ),
     ]
     .into_iter()
