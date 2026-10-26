@@ -47,7 +47,7 @@ pub fn controls(graphics: &mut GraphicsUi, ui: &mut egui::Ui) {
             else { "Changes apply the next time SubCraft starts." }).color(crate::theme::TEXT_DIM));
         if graphics.environment_override { ui.label("WGPU_BACKEND overrides this preference for this run."); }
     }
-    for message in [graphics.warning.as_ref(), graphics.error.as_ref()].into_iter().flatten() { ui.label(RichText::new(message).color(crate::theme::ACCENT)); }
+    for message in [graphics.warning.as_ref(), graphics.error.as_ref()].into_iter().flatten() { ui.add(egui::Label::new(RichText::new(message).color(crate::theme::ACCENT)).wrap()); }
     ui.add_space(12.0);
 }
 

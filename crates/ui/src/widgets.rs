@@ -361,3 +361,16 @@ pub fn card_accent(ui: &Ui, rect: egui::Rect, color: egui::Color32) {
 pub fn card_header_rule(ui: &mut Ui) {
     ui.add(egui::Separator::default().spacing(6.0));
 }
+
+/// A window that can never grow past the screen: its width is capped (long text wraps) and its
+/// height is capped with a vertical scroll, so buttons and titles cannot end up off-screen.
+pub fn window<'a>(ctx: &egui::Context, title: impl Into<egui::WidgetText>) -> egui::Window<'a> {
+    let screen = ctx.content_rect();
+    let (max_w, max_h) = window_limits(screen.size());
+    egui::Window::new(title).max_width(max_w).max_height(max_h)
+}
+
+/// Largest window size for a screen of this size.
+pub fn window_limits(screen: Vec2) -> (f32, f32) {
+    ((screen.x - 24.0).max(280.0), (screen.y - 48.0).max(200.0))
+}

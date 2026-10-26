@@ -25,14 +25,14 @@ pub fn show(state: &mut UiState, ctx: &egui::Context) -> Option<WelcomeAction> {
     let mut action = None;
     if state.welcome.open && state.recovery.crashed.is_empty() && state.bug_report.crashes.is_empty() {
         let mut open = true;
-        egui::Window::new("Welcome to SubCraft").open(&mut open).collapsible(false).resizable(false)
+        crate::widgets::window(ctx, "Welcome to SubCraft").open(&mut open).collapsible(false).resizable(false)
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
             ui.set_width(560.0_f32.min((ctx.content_rect().width() - 32.0).max(220.0)));
             ui.heading("Start texturing");
             ui.label(RichText::new("Open a model, build materials and export PBR textures.").color(theme::TEXT_DIM));
             ui.add_space(12.0);
             ui.horizontal_wrapped(|ui| {
-                if primary_button(ui, "New from a model…").on_hover_text("OBJ, GLB/glTF or FBX with UVs").clicked() { action = Some(WelcomeAction::Pending(Pending::OpenMesh)); }
+                if primary_button(ui, "New from a model…").on_hover_text("OBJ, GLB/glTF, FBX or Substance Painter .spp with UVs").clicked() { action = Some(WelcomeAction::Pending(Pending::OpenMesh)); }
                 if secondary_button(ui, "Open project…").on_hover_text("Open a saved .subcraft project").clicked() { action = Some(WelcomeAction::Pending(Pending::OpenProject)); }
                 if secondary_button(ui, "Try the sample").on_hover_text("Open the built-in crate with UVs").clicked() { action = Some(WelcomeAction::Pending(Pending::NewSample)); }
             });
@@ -69,7 +69,7 @@ pub fn show(state: &mut UiState, ctx: &egui::Context) -> Option<WelcomeAction> {
     }
     if let Some(index) = state.welcome.guide {
         let index = index.min(QUICK_START.len() - 1); let step = &QUICK_START[index]; let mut open = true;
-        egui::Window::new("Quick start").open(&mut open).collapsible(false).resizable(false)
+        crate::widgets::window(ctx, "Quick start").open(&mut open).collapsible(false).resizable(false)
             .default_width(320.0).default_pos(egui::pos2(950.0, 120.0)).show(ctx, |ui| {
             ui.label(RichText::new(format!("Step {} of {}", index + 1, QUICK_START.len())).small().color(theme::ACCENT));
             ui.heading(step.title); ui.add_space(6.0); ui.label(step.text); ui.add_space(10.0);
@@ -85,7 +85,7 @@ pub fn show(state: &mut UiState, ctx: &egui::Context) -> Option<WelcomeAction> {
         if !open { state.welcome.guide = None; }
     }
     if state.welcome.about {
-        egui::Window::new("About SubCraft").open(&mut state.welcome.about).collapsible(false).resizable(false).show(ctx, |ui| {
+        crate::widgets::window(ctx, "About SubCraft").open(&mut state.welcome.about).collapsible(false).resizable(false).show(ctx, |ui| {
             ui.set_width(440.0_f32.min((ctx.content_rect().width() - 48.0).max(220.0)));
             ui.heading(format!("SubCraft {}", env!("CARGO_PKG_VERSION")));
             ui.label("An open-source 3D texture painting application.");
@@ -97,7 +97,7 @@ pub fn show(state: &mut UiState, ctx: &egui::Context) -> Option<WelcomeAction> {
         });
     }
     if state.welcome.whats_new {
-        egui::Window::new("What's new").open(&mut state.welcome.whats_new).collapsible(false).default_width(420.0).show(ctx, |ui| {
+        crate::widgets::window(ctx, "What's new").open(&mut state.welcome.whats_new).collapsible(false).default_width(420.0).show(ctx, |ui| {
             ui.heading(format!("SubCraft {}",env!("CARGO_PKG_VERSION")));
             for text in ["Import textures… turns a texture's maps into one material, ambient occlusion included.", "3D View toolbar: resolution, anti-aliasing, orthographic camera and single-channel views.", "Texture Sets → Resolution: paint at a lower size for speed, raise it before exporting.", "Blend mode and opacity right in each layer row.", "The brush keeps painting where it overlaps a model's edge; no more orange hover tint.", "SubCraft tells you when a new update is out (Edit → Preferences to turn it off).", "Projects saved in this version need SubCraft 0.1.5 or newer; older projects still open."] { ui.label(text); ui.add_space(6.0); }
             ui.hyperlink_to("Full changelog", "https://github.com/Aalzard/subcraft/blob/main/CHANGELOG.md");

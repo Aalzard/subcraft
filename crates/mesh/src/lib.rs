@@ -6,6 +6,7 @@ pub mod mesh;
 pub mod primitives;
 pub mod regroup;
 pub mod serialize;
+pub mod spp;
 pub mod tangent;
 pub mod topology;
 pub mod uv_raster;

@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-10-20 (session 94: stable minified PBR viewport textures)
+Last updated: 2026-10-23 (session 104: Painter stack rebuild)
 
 ## Decisions
 
@@ -2751,6 +2751,107 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   materials, New Project, Export).
 * NOT verified: a normal map / brush tip applied by hand, real mouse use of the new Shelf tiles, installer
   size (see release notes), Linux build of the packaging changes.
+
+### Session 103 - Claude: open Substance Painter .spp projects (2026-10-22)
+
+* **Open end to end:** `.spp` is in `SUPPORTED_EXTENSIONS`, so File > Open, drag and drop, the command line,
+  the welcome screen and recent files all route to `Session::open_mesh`, which now calls
+  `Session::open_spp` (`crates/app/src/spp_import.rs`). New Project with an `.spp` still only reads the
+  model (its warning says to open the file directly). Verified: `subcraft.exe chalice_.spp --screenshot`
+  shows the dark-steel chalice with its Painter textures, the "Painter project (flattened)" layer and an
+  empty "Layer 1" above it (screenshot only; no mouse driving).
+* **Reader (`crates/mesh/src/spp/`, no new dependency):** `document.rs` decodes `paint/document.bin`
+  completely (all 11 sample files parse to their last byte): texture sets, channels, layer tree with names,
+  visibility, masks, sources, blend ids. `jp2.rs` is a from-scratch JPEG 2000 decoder (lossless 5/3, RCT,
+  reduced-resolution decode) for the baked-map tiles, bit-exact against OpenJPEG on a real tile and on two
+  synthetic tiles. `lz4.rs` + `images.rs` read the texture cache (the flattened channel textures) and the
+  baked maps; `qt.rs` the Qt property headers. 4096 baked maps decode in 0.3-1.5 s; at 512 in ~30 ms.
+* **Imported:** model, texture set with Painter's channels/resolution, baked maps (normal, world normal,
+  ID/color, AO, curvature, position, thickness; gutter-dilated), flattened Base Color / Height / Roughness /
+  Metallic / Normal / AO / Emissive / Opacity as one paint layer, export normal format, and notes naming
+  the Painter layers. Verified on all 11 sample projects by the probe tool (maps and cache decode without
+  error; UV coverage matches the baked alpha 1.000).
+* **Not recoverable:** `.sbsar` procedural layers/filters/generators (no Substance engine), the editable
+  layer stack (blend-mode ids not mapped), brush strokes as strokes. See `docs/spp-research.md`.
+* **NOT verified:** DirectX vs OpenGL meaning of `normalMapSyscoord` 0 (assumed DirectX; G is flipped on
+  import), Height units, projects with several texture sets (model parts cannot be assigned to sets; all
+  go into the first), UV-tile projects, Painter versions other than 10.x. Not looked at on screen:
+  normal-mapped lighting on a heavily normal-mapped sample.
+* Tests: mesh 11 new (`tests/spp.rs`: JP2 exactness, RCT, reduced decode, HDF5 writer round trip,
+  document, baked maps, cache) + LZ4/half-float unit tests; app 3 new (`tests/spp_open.rs`). All built from
+  a synthetic project (`crates/mesh/tests/support/spp_fixture.rs`); no user file is stored.
+
+### Session 104 - Claude: rebuild Painter layer stacks, read .sbsar archives (2026-10-23)
+
+* **Stack rebuild:** `crates/app/src/spp_stack.rs` rebuilds the Painter layers as a folder (uniform fills,
+  mask effect stacks with generators, noise patterns, Levels, filters, grunge bitmaps) beside the flattened
+  layer, with hidden named placeholders for what has no counterpart, and a quality gate that composites
+  it at <= 512 texels and compares with Painter's flattened channels. On all 11 sample projects the
+  gate currently rejects the rebuild (it stays hidden, the flattened layer shows), so nothing looks worse
+  than before; the notes list the numbers and what was not rebuilt. Blend-mode ids are still unmapped.
+* **Archives:** `spp/sevenz.rs` (7z + LZMA, from scratch) reads every `.sbsar` in the samples (134/134);
+  embedded grunge / bitmap JPEGs are extracted at import time into the project only.
+* **Speed:** shared nearest-texel search for all baked maps of a set and parallel jump flooding
+  (`subcraft_image::dilate::nearest_covered`): a 4096 project opens in about 14 s instead of 80 s.
+* Document model now carries per-layer content and mask actions with graph names and tweaks.
+* Tests: 13 mesh (`tests/spp.rs`, incl. 7z readers built by an independent script, embedded JPEG
+  lookup), app `tests/spp_open.rs` updated for the rebuilt folder. NOT verified: what the reconstructed
+  stack looks like on screen when it passes the gate (no sample passes), blend ids, parameter scaling of
+  blur/sharpen/HSL/dirt/edge generators.
+
+### Session 105 - Claude: .spp blend ids and parameter calibration (2026-10-24)
+
+* **Blend-mode table: not done.** No calibration project exists yet (searched Downloads, Desktop, Documents:
+  no `*blend*.spp`; the newest .spp files are the 11 known samples). Nothing was guessed; ids stay unmapped
+  (25 = Normal). When the file exists: read `LayerInfo.blends` + `channel_texture` per layer, solve the
+  id -> `BlendMode` table from the pixel values, then use it in `Rebuilder::apply_opacity`.
+* **Parameter calibration: no change kept.** New debug aid: `SUBCRAFT_SPP_DEBUG=1` adds the mean of the
+  rebuilt and of Painter's channel to the import notes. It shows that the gate failures are NOT parameter
+  scalings. Rebuilt vs Painter mean Base Color: CorridorFloor 0.013 vs 0.408, RoomFloor 0.001 vs 0.44,
+  RoomInteriorWall 0.029 vs 0.39, RoomEntranceDoor 0.002 vs 0.169, Chalice 0.485 vs 0.007 (metal 0 vs 0.82),
+  Walker 0.697 vs 0.151, Street_cyberpunk 1.0/0.22/0.76 vs 0.115 (a pink layer with a mask that cannot be
+  rebuilt). Causes: the base is a Substance material graph (`metal_sandblasted`, `steel_003_bitmap`,
+  `concrete_asphalt`, `metal_brushed`) that has no counterpart (the rebuilt layer is empty), 12-121 painted
+  mask strokes per project, mask decals, masks left off, unmapped blend ids. Every sample has several of
+  these, so blur/sharpen/HSL/dirt/edge scalings cannot be measured on any file: their effect is far below
+  the error. Changing them would be a guess, so they were left as they are.
+* **Gate results, all 11 (Base Color / Roughness / Metallic error, 0..1; gate wants < 0.04 / 0.06 / 0.06):**
+  chalice 0.383/0.159/0.820; RoomFloor 0.439/0.025/-; RoomInteriorWall 0.361/0.020/-; CorridorFloor 0.399/0.021/-;
+  RoomEntranceDoor 0.168/0.111/0.495; RoomEntranceWall 0.174/0.018/0.060; OxygenDeviceProvider 0.142/0.340/0.723;
+  Street_cyberpunk 0.564/0.149/0.000; TheWalker_ 0.574/0.234/0.312 (and its autosave, identical);
+  CarInteriro 0.015/0.487/0.008 (4096, 14.6 s). **0 of 11 pass**; all keep the flattened layer visible.
+* **What would move the numbers (in order):** 1. Substance material graphs as fill sources (needs an
+  engine or baked equivalents), 2. blend ids (calibration file), 3. painted strokes (not recoverable),
+  4. then parameter scalings, measurable only on a project whose layers are all rebuildable (ask the
+  owner for a small one made of fills, masks, generators and filters only).
+
+### Session 106 - UI robustness: overflowing dialogs, saved layout, startup failure (2026-10-24)
+
+* **Fixed:** New Project window grew thousands of px wide with many parts (plain joined label in a grid).
+  Material/object/tile lists now wrap and scroll in a bounded box; the error text, warnings and template
+  text wrap; set names truncate; the window scroll area leaves room on small screens.
+* **All windows:** `widgets::window()` caps every window's width and height to the screen (14 windows
+  use it). Long text in Export (file paths), Bake (errors), updates (release notes, errors), Preferences
+  (graphics warnings), recovery, asset preview and the status bar now wraps or truncates with a tooltip.
+* **Saved layout:** a restored dock layout is only used if every panel is present exactly once, there
+  are no floating windows and no split is squeezed (`layout_is_valid`); otherwise the default is used and
+  a warning is logged. New `--reset-layout` (also ignores the saved window position/size). View > Reset
+  layout already existed. eframe already clamps the saved window position/size to the monitors. Minimum
+  window size lowered from 900x560 to 640x420 (a 1366x768 screen at 150% is only 910x512 points).
+* **Startup failure:** if the chosen graphics API cannot start, Automatic then OpenGL are tried; if none
+  works a message window shows the errors, the log file path and the issues link (before, a packaged build
+  just vanished). `startup_attempts` and `startup_failure_message` are unit tested.
+* **New options:** `--window-size WxH`, `--scale S` (scripted layout checks), `--reset-layout`.
+* Tests: subcraft-ui 46, subcraft-app all pass. New: New Project with 40 long-named parts and a 2000-char
+  error at 1024x600, 1280x720@1.5, 960x540@2 and 1920x1080 stays inside the screen; layout validation;
+  startup order/message; size parsing. Scripted screenshot: docs/screenshots/new-project-many-parts-1024x600.png.
+* **Not verified:** real GPU/adapter failure, device/surface loss, a second window loop after a failed first
+  one (winit may refuse), multi-monitor and 4K at 150% (only scripted sizes), the viewport texture-limit
+  crash (issue #59) is fixed separately on fix/viewport-texture-limit and untouched here.
+* **Remaining (not fixed):** tall dialogs (Export, Bake, Render quality) are not scrollable on screens
+  shorter than their content; Painter .spp import notes have no UI in this branch; layer/effect names in
+  dock panels rely on the panel's own scrolling; text clipping at 200% beyond the New Project window was
+  not screenshotted.
 
 ## Next steps (in order)
 

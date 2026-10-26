@@ -1,26 +1,33 @@
-# Discord post draft
+# Discord post draft (SubCraft 0.1.8)
 
-Every claim below was seen in the app or covered by a test in this repository. The captures are
-in `docs/screenshots/showcase-*.png`. Not covered here: the parts right-click menu and the pen
-path (they need mouse input, so use the older `layer-tree.png` / `pen-path.png` or record them
-live), and a workflow video, which has to be recorded by hand. Check the release notes before
-promising that anything below is in the downloadable build, since this work is on
-`feature/brush-roadmap` and has not been released.
+Fits Discord's 2000-character limit. Screenshots to attach are in `docs/screenshots/`:
+`v018-overview.png`, `v018-shelf-environments.png`, `v018-new-project.png`, `v018-export-window.png`,
+`tool-clone.png`, `viewport-quality-glow-glare.png`. Nothing here claims more than the release notes do.
 
 ---
 
-Hey everyone! I've been building SubCraft, a free 3D texture painter in the spirit of Substance Painter, and I'd love for you to try it and tell me what's missing.
+**SubCraft 0.1.8 is out!** Free, open-source 3D texture painter in the spirit of Substance Painter (Windows).
 
-A few things that are new or recently reworked:
+**Painting**
+- New **Clone** and **Smudge** tools, plus "project from the view" for brush images
+- **80 normal maps + 80 brush alphas** (CC0) in the starter pack, 50 + 50 of them new
 
-- **Edge wear that behaves.** The amount (Level) and how far it creeps in from the edge (Spread) now work together, so you can get a thin chipped rim or heavy worn paint just by moving two sliders. It only starts at edges you can actually see, and the boundary is chipped, not a straight stripe. (`showcase-edge-wear.png`, `showcase-edge-wear-sheet.png`)
-- **Smart materials.** Old Wood and Worn Painted Metal are on the crate in `showcase-finished-crate.png`, both from the built-in Shelf. One drag each.
-- **Starter pack.** 30 normal maps and 30 brush tips come with it, free to use. Drag a normal onto a brush slot or a layer channel. (`showcase-starter-pack-shelf.png`)
-- **Brushes you can pick in one click.** Click a brush on the Shelf and it's ready to paint, with a small "Brush: name" note in the corner of the 3D view. Double-click to edit it. (`showcase-brush-notice.png`)
-- **Layers with folders, masks and 32 blend modes.** (`showcase-layer-tree.png`)
-- **Filters on layers and masks:** blur, sharpen, directional blur, highpass, bevel and mask outline.
+**Materials**
+- **15 new smart materials** (20 total) and **16 new smart masks** (21 total), plus new Dirt, Cracks, Streaks, Speckles and Pores generators
+- **10 built-in HDRI environments** (interiors, forest, alpine lake, neon arcade, space atrium...). Full-size versions are an optional download on the release page
 
-Try it:
-- Windows desktop download: https://github.com/Aalzard/subcraft/releases/latest
+**Projects and export**
+- New **New Project window**: see triangles, materials, UV tiles and warnings before you create anything; choose template, resolution, split rule and normal format
+- **UDIM** support: one texture set per tile, `.1001` names or per-tile folders
+- **Export checkboxes** for every map, Select all / None / Invert, Alt+click to export just one
+- **Unity URP** and **Godot 4** presets, plus Height and Bent Normal bakes
 
-It's still early, so please tell me what's missing or broken. What would stop you using it for a real project?
+**Look and feel**
+- Tone mapping, bloom, ambient occlusion, emission glow and glare; render stills and PNG turntable frames
+- Refreshed charcoal UI: Shelf on the left, effect stage thumbnails, drag-to-reorder effects, channel cards
+- Edge wear and filters (blur, sharpen, bevel, highpass...) reworked
+
+Heads-up: this build isn't code-signed yet, so Windows SmartScreen may warn (More info > Run anyway). Turntable export is PNG frames only (no GIF/MP4), and there's no UDIM tile picker yet. The browser version is gone; SubCraft is desktop only now.
+
+Download: https://github.com/Aalzard/subcraft/releases/latest
+What would stop you using it for a real project?
