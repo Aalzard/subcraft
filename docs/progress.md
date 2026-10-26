@@ -2752,6 +2752,20 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
 * NOT verified: a normal map / brush tip applied by hand, real mouse use of the new Shelf tiles, installer
   size (see release notes), Linux build of the packaging changes.
 
+### Session 103 - Pen pressure, triage (2026-10-26)
+
+- Triage written to `docs/next-work.md`.
+- Issue #59 fix (viewport render targets clamped to the device texture limit) cherry-picked from
+  `fd894bd`; render headless tests and `brush_normal_scale` pass.
+- Issue #61, partly: brush strokes now follow pen pressure. New brush settings `pressure_size`
+  (default 1) and `pressure_flow` (default 0), both in the Symmetry & Lazy Mouse popup; old
+  presets load with those defaults. A mouse reports full pressure, so nothing changes for it.
+  Pressure comes from egui touch events (`force`), which winit sends for Windows pen input.
+  Tests: paint engine (size and flow scale with pressure, off at amount 0) and event handling
+  (`pen_pressure`). Stroke-wide Opacity is not pressure driven (it is a cap applied when tiles are
+  written). Not verified with a real pen; not possible on Linux/Wayland with winit 0.30, which
+  has no tablet protocol (needs a newer winit or a new dependency: owner decision).
+
 ## Next steps (in order)
 
 Owner checks imported PBRs in the refreshed target/debug/subcraft.exe, especially close-up

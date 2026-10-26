@@ -105,6 +105,8 @@ pub struct UiState {
     pub last_view_size: [u32; 2],
     pub uv: UvView,
     pub painting: bool,
+    /// Pen pressure of the current contact (1.0 for a mouse).
+    pub pen_pressure: f32,
     /// Clicks in the 3D view show / hide the selected layer on mesh parts (Properties → Parts).
     pub picking_parts: bool,
     pub last_stroke_point: Option<Vec2>,
@@ -200,6 +202,7 @@ impl UiState {
             painting: false,
             picking_parts: false,
             last_stroke_point: None,
+            pen_pressure: 1.0,
             uv_edges: HashMap::new(),
             rename: None,
             show_shortcuts: false,

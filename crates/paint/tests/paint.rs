@@ -521,3 +521,37 @@ fn wrapped_tip_on_the_side_face_matches_the_unfolded_top() {
         assert!(agree as f32 >= compared as f32 * 0.95, "subdivisions {subdivisions}: stripes on the side are stretched ({agree}/{compared})");
     }
 }
+
+fn dab_with_pressure(settings: BrushSettings, pressure: f32) -> (usize, f32) {
+    let cam = front_camera(6.0);
+    let mut sc = Scene::new(primitives::cube(2.0), 128);
+    let mut s = Stroke::begin(&sc.ts, sc.layer, PaintTarget::Content, StrokeMode::Paint, settings, StrokeOptions::default(), &red()).unwrap();
+    s.set_pressure(pressure);
+    let mut ts = sc.ts.clone();
+    s.add_point(&mut ts, &sc.ctx(&cam), cam.project(Vec3::new(0.0, 0.0, 1.0)).unwrap().truncate()).unwrap();
+    sc.ts = ts;
+    let img = sc.image(ChannelKind::BaseColor).expect("painted");
+    let res = sc.ts.resolution;
+    let alphas: Vec<f32> = (0..(res * res) as usize).map(|i| alpha(&img, i, res)).collect();
+    (alphas.iter().filter(|&&a| a > 0.01).count(), alphas.iter().cloned().fold(0.0, f32::max))
+}
+
+#[test]
+fn pen_pressure_scales_brush_size_and_flow_but_a_mouse_is_unchanged() {
+    let size_only = BrushSettings { size: 30.0, hardness: 1.0, pressure_size: 1.0, pressure_flow: 0.0, ..BrushSettings::default() };
+    let (full, _) = dab_with_pressure(size_only, 1.0);
+    let (half, _) = dab_with_pressure(size_only, 0.5);
+    assert!(full > 100, "full pressure paints ({full})");
+    let ratio = half as f32 / full as f32;
+    assert!((0.15..0.35).contains(&ratio), "half pressure = half radius = about a quarter of the area, got {ratio}");
+
+    // Pressure ignored (amount 0): same footprint at any pressure.
+    let off = BrushSettings { pressure_size: 0.0, ..size_only };
+    assert_eq!(dab_with_pressure(off, 0.2).0, full);
+
+    // Flow: lower pressure lowers the peak coverage of a single dab.
+    let flow = BrushSettings { size: 30.0, hardness: 1.0, pressure_size: 0.0, pressure_flow: 1.0, ..BrushSettings::default() };
+    let (_, hard) = dab_with_pressure(flow, 1.0);
+    let (_, soft) = dab_with_pressure(flow, 0.4);
+    assert!((hard - 1.0).abs() < 0.02 && (soft - 0.4).abs() < 0.05, "peak alpha {hard} vs {soft}");
+}

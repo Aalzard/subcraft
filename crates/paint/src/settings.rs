@@ -47,6 +47,10 @@ pub struct BrushSettings {
     pub angle_jitter_deg: f32,
     /// Random screen offset per stamp, in brush diameters.
     pub position_jitter: f32,
+    /// How much pen pressure shrinks the brush (0 = ignored, 1 = zero pressure gives a hairline).
+    pub pressure_size: f32,
+    /// How much pen pressure lowers the flow of each stamp (0 = ignored).
+    pub pressure_flow: f32,
     pub alignment: Alignment,
     pub backface_culling: bool,
     /// Surfaces turned further than this from the projection direction are not painted.
@@ -69,6 +73,8 @@ impl Default for BrushSettings {
             flow_jitter: 0.0,
             angle_jitter_deg: 0.0,
             position_jitter: 0.0,
+            pressure_size: 1.0,
+            pressure_flow: 0.0,
             alignment: Alignment::TangentWrap,
             backface_culling: true,
             backface_angle_deg: 90.0,
@@ -81,6 +87,21 @@ impl BrushSettings {
     /// World (object-space) radius for a mesh with bounding-box diagonal `diagonal`.
     pub fn radius(&self, diagonal: f32) -> f32 {
         self.size.max(0.0) * 0.01 * diagonal * 0.5
+    }
+}
+
+/// Smallest pressure factor, so a feather-light touch still leaves a mark.
+pub const MIN_PRESSURE: f32 = 0.02;
+
+impl BrushSettings {
+    /// Radius multiplier for a pen pressure in 0..1 (1 for a mouse).
+    pub fn pressure_size_factor(&self, pressure: f32) -> f32 {
+        1.0 - self.pressure_size.clamp(0.0, 1.0) * (1.0 - pressure.clamp(MIN_PRESSURE, 1.0))
+    }
+
+    /// Flow multiplier for a pen pressure in 0..1 (1 for a mouse).
+    pub fn pressure_flow_factor(&self, pressure: f32) -> f32 {
+        1.0 - self.pressure_flow.clamp(0.0, 1.0) * (1.0 - pressure.clamp(MIN_PRESSURE, 1.0))
     }
 }
 
