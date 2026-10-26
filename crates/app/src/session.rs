@@ -1154,6 +1154,13 @@ impl Session {
         Ok(())
     }
 
+    /// Pen pressure (0..1) for the following stroke points; a mouse never calls this (1.0).
+    pub fn set_stroke_pressure(&mut self, pressure: f32) {
+        if let Some(active) = self.stroke.as_mut() {
+            active.stroke.set_pressure(pressure);
+        }
+    }
+
     /// Continue the stroke to a screen position (`line`: straight segment, no lazy mouse).
     pub fn stroke_to(&mut self, camera: &Camera, screen: Vec2, line: bool) -> Result<Vec<usize>, PaintError> {
         let Some(active) = self.stroke.take() else { return Ok(Vec::new()) };

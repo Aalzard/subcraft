@@ -43,6 +43,8 @@ pub struct Stroke {
     coverage: HashMap<usize, Box<[f32]>>,
     path: ScreenPath,
     stamp_count: u32,
+    /// Pen pressure for the stamps placed next (1 for a mouse).
+    pressure: f32,
     last_depth: Option<f32>,
     alpha: Option<Arc<subcraft_image::Bitmap>>,
     stencil: Option<Arc<crate::stencil::Stencil>>,
@@ -102,6 +104,7 @@ impl Stroke {
             coverage: HashMap::new(),
             path: ScreenPath::new(),
             stamp_count: 0,
+            pressure: 1.0,
             last_depth: None,
             alpha: None,
             stencil: None,
@@ -160,6 +163,11 @@ impl Stroke {
     /// Stroke coverage of a tile (0..1 per texel), if the stroke touched it.
     pub fn coverage(&self, tile: usize) -> Option<&[f32]> {
         self.coverage.get(&tile).map(|c| &c[..])
+    }
+
+    /// Pen pressure (0..1) applied to the stamps of the following points.
+    pub fn set_pressure(&mut self, pressure: f32) {
+        self.pressure = pressure.clamp(0.0, 1.0);
     }
 
     /// Feed a cursor position; returns the tiles rewritten in `ts`.
@@ -228,8 +236,8 @@ impl Stroke {
         for sample in samples {
             let k = self.stamp_count;
             self.stamp_count += 1;
-            let radius = base_radius * (1.0 - s.size_jitter.clamp(0.0, 1.0) * rand01(s.seed, k, 0));
-            let flow = s.flow.clamp(0.0, 1.0) * (1.0 - s.flow_jitter.clamp(0.0, 1.0) * rand01(s.seed, k, 1));
+            let radius = base_radius * s.pressure_size_factor(self.pressure) * (1.0 - s.size_jitter.clamp(0.0, 1.0) * rand01(s.seed, k, 0));
+            let flow = s.flow.clamp(0.0, 1.0) * s.pressure_flow_factor(self.pressure) * (1.0 - s.flow_jitter.clamp(0.0, 1.0) * rand01(s.seed, k, 1));
             let mut angle = (s.angle_deg + s.angle_jitter_deg * (2.0 * rand01(s.seed, k, 2) - 1.0)).to_radians();
             if s.follow_path {
                 angle += sample.dir.y.atan2(sample.dir.x);

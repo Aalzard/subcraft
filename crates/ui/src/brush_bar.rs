@@ -49,7 +49,7 @@ pub(crate) fn show(
             }
         }
     });
-    stroke_options(ui, options, guides);
+    stroke_options(ui, options, guides, settings);
     let brush = *tool != Tool::PolygonFill;
     if width < 575.0 {
         let response = widgets::icon_button(ui, icons::SLIDERS, "Brush settings");
@@ -74,7 +74,7 @@ pub(crate) fn show(
     }
 }
 
-fn stroke_options(ui: &mut Ui, options: &mut StrokeOptions, guides: &mut bool) {
+fn stroke_options(ui: &mut Ui, options: &mut StrokeOptions, guides: &mut bool, settings: &mut BrushSettings) {
     let on = options.symmetry.iter().any(|&axis| axis) || options.lazy_distance_px > 0.0;
     let response = widgets::icon_toggle(
         ui,
@@ -112,6 +112,11 @@ fn stroke_options(ui: &mut Ui, options: &mut StrokeOptions, guides: &mut bool) {
                     .small()
                     .color(TEXT_DIM),
             );
+            ui.separator();
+            ui.label(RichText::new("Pen pressure").color(TEXT_DIM));
+            ui.horizontal(|ui| percent(ui, "Size", &mut settings.pressure_size));
+            ui.horizontal(|ui| percent(ui, "Flow", &mut settings.pressure_flow));
+            ui.label(RichText::new("Only affects a pen; a mouse is unchanged").small().color(TEXT_DIM));
         });
 }
 

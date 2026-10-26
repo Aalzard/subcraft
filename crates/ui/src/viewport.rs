@@ -145,6 +145,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     }
 
     // ----- painting ----------------------------------------------------------------------------
+    state.pen_pressure = pen_pressure(&ui.input(|i| i.events.clone()), state.pen_pressure);
     if !bake_mode && state.tool == Tool::Pen && !picking && !alt && !stencil_edit && !typing && let Some(p) = pointer {
             if primary_pressed && response.hovered() {
                 let hit = state.pen.preview(&state.session).and_then(|path| crate::pen::hit(path, state.pen.selected_anchor(), p, |uv| pen_position(state, &camera, rect, uv)));
@@ -185,6 +186,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     match state.session.begin_stroke() {
                         Ok(()) => {
                             state.painting = true;
+                            state.session.set_stroke_pressure(state.pen_pressure);
                             let line_from = if mods.shift { state.last_stroke_point } else { None };
                             if let Some(from) = line_from {
                                 let _ = state.session.stroke_to(&camera, from, true);
@@ -205,6 +207,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             && delta != egui::Vec2::ZERO
         {
             let sp = to_screen(p);
+            state.session.set_stroke_pressure(state.pen_pressure);
             let _ = state.session.stroke_to(&camera, sp, false);
             state.last_stroke_point = Some(sp);
         }
@@ -451,5 +454,58 @@ mod tests {
         assert!(text(&draw(&mut state, &ctx, 1.0 + BrushNotice::HOLD + BrushNotice::FADE * 0.5)).is_some(), "still fading");
         assert!(text(&draw(&mut state, &ctx, 1.0 + BrushNotice::HOLD + BrushNotice::FADE + 0.01)).is_none());
         assert!(state.brush_notice.is_none(), "expired notice is cleared");
+    }
+}
+
+
+/// Pen pressure after this frame's input events. egui forwards pen/finger contacts as touch
+/// events; a pen reports its force (0..1), a finger or a mouse none, which counts as full
+/// pressure. The value is kept between frames while the contact lasts and resets on release.
+pub(crate) fn pen_pressure(events: &[egui::Event], current: f32) -> f32 {
+    let mut pressure = current;
+    for event in events {
+        if let egui::Event::Touch { phase, force, .. } = event {
+            pressure = match phase {
+                egui::TouchPhase::End | egui::TouchPhase::Cancel => 1.0,
+                _ => force.map_or(1.0, |f| f.clamp(0.0, 1.0)),
+            };
+        }
+    }
+    pressure
+}
+
+#[cfg(test)]
+mod pressure_tests {
+    use super::pen_pressure;
+
+    fn touch(phase: egui::TouchPhase, force: Option<f32>) -> egui::Event {
+        egui::Event::Touch {
+            device_id: egui::TouchDeviceId(0),
+            id: egui::TouchId(1),
+            phase,
+            pos: egui::Pos2::ZERO,
+            force,
+        }
+    }
+
+    #[test]
+    fn mouse_stays_full_pressure() {
+        assert_eq!(pen_pressure(&[], 1.0), 1.0);
+    }
+
+    #[test]
+    fn pen_force_is_followed_and_reset_on_release() {
+        let p = pen_pressure(&[touch(egui::TouchPhase::Start, Some(0.25))], 1.0);
+        assert_eq!(p, 0.25);
+        let p = pen_pressure(&[], p);
+        assert_eq!(p, 0.25, "kept while the pen stays down");
+        let p = pen_pressure(&[touch(egui::TouchPhase::Move, Some(0.8))], p);
+        assert_eq!(p, 0.8);
+        assert_eq!(pen_pressure(&[touch(egui::TouchPhase::End, Some(0.0))], p), 1.0);
+    }
+
+    #[test]
+    fn finger_without_force_is_full_pressure() {
+        assert_eq!(pen_pressure(&[touch(egui::TouchPhase::Start, None)], 0.3), 1.0);
     }
 }
