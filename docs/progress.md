@@ -2917,7 +2917,13 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   thinned the streak mask (higher cavity Level = less coverage).
 * Weathered Brick is irregular Cells with a mortar layer (no brick-course pattern exists in the engine).
 * NOT verified: painting with the new brushes by hand, pen-pressure feel, and dedicated thumbnails
-  for brush presets (they reuse the tip's thumbnail). Screenshot results are listed below.
+  for brush presets (they reuse the tip's thumbnail, so Hard Round, Soft Airbrush, Ink Pen and Pencil look alike).
+* **Screenshots (real app, scripted, empty user library, demo crate):**
+  docs/screenshots/more-presets-smart-materials.png (category chips Metal / Plastic / Wood / Fabric /
+  Paint / Stone / Nature; sphere thumbnails render; the 14 new items are further down the scroll, only
+  the first 15 fit in the capture) and more-presets-brushes.png (the 13 new presets now come first, before
+  the CC0 starter tips; before this the starter tips were drawn first and buried them).
+  Note: `--shelf-panel` forces the Textures tab; use `--shelf-tab` alone to capture other tabs.
 
 ## Next steps (in order)
 

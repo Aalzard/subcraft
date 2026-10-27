@@ -379,7 +379,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         egui::Frame::new().inner_margin(egui::Margin::same(theme::PAD)).show(ui, |ui| ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing = egui::vec2(10.0, 10.0);
             ui.set_max_width((grid_width - 2.0 * f32::from(theme::PAD)).max(0.0));
-            shown += crate::asset_preview::shelf(state,ui,tile_size);
+            // Brushes: the built-in and user presets come first, the CC0 starter tips after them.
+            if state.shelf.tab != ShelfTab::Brushes { shown += crate::asset_preview::shelf(state,ui,tile_size); }
             let thumbs = &state.shelf.thumbs;
             match state.shelf.tab {
                 ShelfTab::Textures => {
@@ -540,6 +541,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     }
                 }
             }
+            if state.shelf.tab == ShelfTab::Brushes { shown += crate::asset_preview::shelf(state,ui,tile_size); }
             if shown == 0 {
                 let msg = if filter.is_active() { "No matches. Clear the search or pick another filter." } else { "Nothing here yet." };
                 ui.label(RichText::new(msg).color(theme::TEXT_FAINT));
