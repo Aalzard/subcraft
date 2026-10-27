@@ -2867,6 +2867,29 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   written). Not verified with a real pen; not possible on Linux/Wayland with winit 0.30, which
   has no tablet protocol (needs a newer winit or a new dependency: owner decision).
 
+### Session 107 - Painting audit: Edge Wear and hard-edge brush on the baked crate (2026-10-27)
+
+* Branch brought up to date with feature/brush-roadmap; pen pressure (4998acb) and the viewport
+  texture clamp (5ab050f) cherry-picked. paint / render / ui tests green before starting.
+* **Edge Wear:** re-checked on the real baked default crate with new numeric tests
+  (crates/app/tests/edge_crate_properties.rs). Convex top rim is fully covered, flat side panels
+  have zero wear, wear at coincident 3D points from different UV islands is identical (2292 pairs,
+  0 differences), and rim / inner-band / top-face coverage agree between 512 and 1024 texture-set
+  resolutions, Natural off and on. No defect was reproduced, so no generator code was changed.
+  Observations: Natural off is only about 0.014 world units wide at Level 0.85 (it is bounded by
+  the bake's curvature radius), and its profile is not meaningful at 256 because a texel there is
+  about 0.006 units. Natural on reaches about 0.05 units at Level 0.85.
+* **Brush across hard edges:** new test stroke_over_a_hard_edge_has_no_gap_and_keeps_its_width
+  (crates/paint/tests/paint.rs) drags a hard round brush over the top, across the front edge and
+  down the front of a cube, subdivided atlas boxes, a non-uniform box and the default crate. The
+  painted strip is one gap-free interval across the fold and as wide on the side as on the top.
+  No defect found; no paint code changed. Note: on the crate, trim bands stand proud of the body
+  front at 0.26-0.38 below the top, so a stroke there lands on the Trim set, not a gap.
+* NOT done / NOT verified: no new real-app screenshots (the demo scene has no edge wear mask; the
+  Session 95 win-edge-wear-* captures remain the real-app evidence); painting with a mouse or
+  tablet across an edge by hand; rounded edges and normal-texture brushes on the side face;
+  filter / folder adjustment and effect drag-reorder audit (item 3) not started.
+
 ## Next steps (in order)
 
 Owner checks imported PBRs in the refreshed target/debug/subcraft.exe, especially close-up
