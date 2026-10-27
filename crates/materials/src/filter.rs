@@ -12,6 +12,7 @@ pub fn apply(filter: Filter, input: [f32; 3], channel: ChannelKind) -> [f32; 3] 
             if channel.is_signed() { v } else { v.clamp(0.0, 1.0) }
         }),
         Filter::Blur { .. } | Filter::Sharpen { .. } | Filter::DirectionalBlur { .. } | Filter::Highpass { .. } | Filter::Bevel {..} | Filter::MaskOutline {..} => input, // Neighborhood evaluation is staged by compositor.
+        Filter::GradientMap { gradient, to_gray } => gradient_map(&gradient, to_gray, input, channel),
         Filter::Clamp { low, high } => input.map(|v| v.clamp(low, high)),
         Filter::Threshold { cutoff } => {
             let value = if channel.is_color() { input[0] * 0.2126 + input[1] * 0.7152 + input[2] * 0.0722 } else { input[0] };
@@ -40,6 +41,21 @@ pub fn apply(filter: Filter, input: [f32; 3], channel: ChannelKind) -> [f32; 3] 
     }
 }
 
+fn luminance(c: [f32; 3]) -> f32 { c[0] * 0.2126 + c[1] * 0.7152 + c[2] * 0.0722 }
+
+/// Color inputs are looked up by linear luminance, scalar inputs by their raw value (signed
+/// Height is remapped from -1..1 to 0..1 and the result mapped back). Scalar channels receive the
+/// gradient's luminance; color channels receive its RGB unless `to_gray`.
+fn gradient_map(g: &subcraft_doc::Gradient, to_gray: bool, input: [f32; 3], channel: ChannelKind) -> [f32; 3] {
+    let signed = channel.is_signed();
+    let v = if channel.is_color() { luminance(input) } else { input[0] };
+    let t = if signed { v * 0.5 + 0.5 } else { v }.clamp(0.0, 1.0);
+    let c = g.eval(t);
+    if channel.is_color() && !to_gray { return c; }
+    let l = luminance(c);
+    [if signed { l * 2.0 - 1.0 } else { l }; 3]
+}
+
 pub fn apply_mask(filter: Filter, value: f32) -> f32 {
     if filter.supports_mask() { apply(filter, [value; 3], ChannelKind::Roughness)[0] } else { value }
 }
@@ -60,6 +76,40 @@ mod tests {
         // Red's linear luminance is below 0.3; green's is above. Output is grayscale.
         assert_eq!(apply(Filter::Threshold { cutoff: 0.3 }, [1.0, 0.0, 0.0], ChannelKind::BaseColor), [0.0; 3]);
         assert_eq!(apply(Filter::Threshold { cutoff: 0.3 }, [0.0, 1.0, 0.0], ChannelKind::BaseColor), [1.0; 3]);
+    }
+
+    #[test]
+    fn gradient_map_interpolates_in_linear_space_and_picks_channel_output() {
+        use subcraft_doc::{Gradient, GradientStop};
+        let st = |position, color| GradientStop { position, color };
+        let g = Gradient::new(&[st(0.0, [0.0; 3]), st(0.5, [1.0, 0.0, 0.0]), st(1.0, [1.0; 3])]).unwrap();
+        let f = |to_gray| Filter::GradientMap { gradient: g, to_gray };
+        let close = |a: [f32; 3], b: [f32; 3]| assert!(a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-6), "{a:?} vs {b:?}");
+        // Color input: luminance 0.25 sits halfway between stop 0 and stop 1 (linear lerp).
+        let gray = |v: f32| [v; 3];
+        close(apply(f(false), gray(0.25), ChannelKind::BaseColor), [0.5, 0.0, 0.0]);
+        close(apply(f(false), gray(0.0), ChannelKind::BaseColor), [0.0; 3]);
+        close(apply(f(false), gray(5.0), ChannelKind::BaseColor), [1.0; 3]);
+        close(apply(f(false), gray(0.75), ChannelKind::BaseColor), [1.0, 0.5, 0.5]);
+        // to_gray: luminance of the looked-up color.
+        close(apply(f(true), gray(0.5), ChannelKind::BaseColor), [0.2126; 3]);
+        // Scalar channel and mask: gray luminance, raw value is the lookup.
+        close(apply(f(false), gray(0.5), ChannelKind::Roughness), [0.2126; 3]);
+        assert!((apply_mask(f(false), 1.0) - 1.0).abs() < 1e-6);
+        assert!(apply_mask(f(false), 0.0).abs() < 1e-6);
+        // Signed Height: -1..1 maps to the gradient, output returns to -1..1.
+        close(apply(f(false), gray(0.0), ChannelKind::Height), [0.2126 * 2.0 - 1.0; 3]);
+        close(apply(f(false), gray(-1.0), ChannelKind::Height), [-1.0; 3]);
+        // Hard step on equal positions, and a single-stop gradient is constant.
+        let step = Gradient::new(&[st(0.0, [0.0; 3]), st(0.5, [0.0; 3]), st(0.5, [1.0; 3]), st(1.0, [1.0; 3])]).unwrap();
+        let s = Filter::GradientMap { gradient: step, to_gray: true };
+        assert_eq!(apply_mask(s, 0.499), 0.0); assert_eq!(apply_mask(s, 0.5), 1.0);
+        let one = Gradient::new(&[st(0.3, [0.2, 0.4, 0.6])]).unwrap();
+        close(apply(Filter::GradientMap { gradient: one, to_gray: false }, gray(0.9), ChannelKind::BaseColor), [0.2, 0.4, 0.6]);
+        // Invalid gradients and Normal maps pass through.
+        let bad = Gradient::new(&[st(0.8, [0.0; 3]), st(0.2, [1.0; 3])]).unwrap();
+        close(apply(Filter::GradientMap { gradient: bad, to_gray: false }, gray(0.5), ChannelKind::BaseColor), gray(0.5));
+        close(apply(f(false), gray(0.5), ChannelKind::Normal), gray(0.5));
     }
 
     #[test]

@@ -51,9 +51,14 @@ fn spatial_filter(r: &mut Rng) -> Filter {
     }
 }
 fn point_filter(r: &mut Rng) -> Filter {
-    match r.below(3) {
+    match r.below(4) {
         0 => Filter::Contrast { gain: r.f() * 2.0, pivot: r.f() },
         1 => Filter::Threshold { cutoff: r.f() },
+        2 => {
+            let (a, b) = (r.f() * 0.5, 0.5 + r.f() * 0.5);
+            let st = |position, color| subcraft_doc::GradientStop { position, color };
+            Filter::GradientMap { gradient: subcraft_doc::Gradient::new(&[st(0.0, [r.f(), r.f(), r.f()]), st(a, [r.f(), 0.0, r.f()]), st(b, [0.0, r.f(), r.f()]), st(1.0, [r.f(); 3])]).unwrap(), to_gray: r.below(2) == 0 }
+        }
         _ => { let a = r.f() * 0.5; Filter::Clamp { low: a, high: a + 0.3 + r.f() * 0.2 } }
     }
 }

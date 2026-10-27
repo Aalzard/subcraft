@@ -26,7 +26,8 @@ use uuid::Uuid;
 // 12: Bevel and Mask Outline; schemas 1-11 migrate unchanged (no contour effects to default).
 // 13: UDIM tile per texture set and project settings (export choices, normal format); schemas
 //     1-12 migrate unchanged (no tile, default settings).
-pub const SCHEMA_VERSION: u32 = 13;
+// 14: Gradient Map (filter holding a stop list); schemas 1-13 migrate unchanged.
+pub const SCHEMA_VERSION: u32 = 14;
 pub const FORMAT_NAME: &str = "subcraft-project";
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

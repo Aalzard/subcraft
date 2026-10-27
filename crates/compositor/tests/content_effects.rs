@@ -137,7 +137,7 @@ fn point_filters_match_gradient_goldens_across_tiles_and_preserve_paint_coverage
     } }
     let original = layer.content.clone(); let id = ts.insert_above(None, layer);
     for filter in [Filter::Contrast { gain: 2.0, pivot: 0.5 }, Filter::Hsl { hue: 120.0, saturation: 1.0, lightness: 0.0 },
-        Filter::Threshold { cutoff: 0.1 }, Filter::Clamp { low: 0.1, high: 0.6 }] {
+        Filter::Threshold { cutoff: 0.1 }, Filter::Clamp { low: 0.1, high: 0.6 }, Filter::GradientMap { gradient: subcraft_doc::Gradient::black_white(), to_gray: false }] {
         ts.find_mut(id).unwrap().content_effects = vec![Arc::new(ContentEffect::new(ContentEffectKind::Filter { channel: C, filter }, &tc))];
         let image = composite_full(&ts, &fx.ctx());
         for y in [10, 63, 64, 100] { for x in 0..RES {
@@ -147,6 +147,7 @@ fn point_filters_match_gradient_goldens_across_tiles_and_preserve_paint_coverage
                 Filter::Hsl { .. } => [0.0, v, 0.0],
                 Filter::Threshold { .. } => [if v*0.2126 >= 0.1 {1.0} else {0.0}; 3],
                 Filter::Clamp { .. } => [v.clamp(0.1,0.6), 0.1, 0.1],
+                Filter::GradientMap { .. } => [v * 0.2126; 3],
                 Filter::Blur { .. } | Filter::Sharpen { .. } | Filter::DirectionalBlur {..} | Filter::Highpass {..} | Filter::Bevel {..} | Filter::MaskOutline {..} => unreachable!("neighborhood goldens are in spatial.rs"),
             };
             let actual = image.channel(C).unwrap().get(x,y);
