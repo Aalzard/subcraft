@@ -223,7 +223,7 @@ impl UiState {
             image_thumbs: HashMap::new(),
             user_library: None,
             env_loader: None,
-            brush_presets: Vec::new(),
+            brush_presets: subcraft_app::brush_builtin::builtin_brush_presets(),
             preset_name: String::new(),
             stencil_tex: None,
             textures: Default::default(),
@@ -254,7 +254,8 @@ impl UiState {
         for e in errors {
             log::warn!("library brush preset skipped: {e}");
         }
-        self.brush_presets = presets;
+        self.brush_presets = subcraft_app::brush_builtin::builtin_brush_presets();
+        self.brush_presets.extend(presets);
         self.textures = crate::panels::textures::TextureLibrary::load(&lib);
         if !self.textures.items.is_empty() {
             // Open the shelf on the user's own textures once there are some.

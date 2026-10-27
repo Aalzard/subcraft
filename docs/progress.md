@@ -2890,6 +2890,35 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   tablet across an edge by hand; rounded edges and normal-texture brushes on the side face;
   filter / folder adjustment and effect drag-reorder audit (item 3) not started.
 
+### Session 108 - More built-in content: 14 smart materials, 15 smart masks, 13 brush presets (2026-10-27)
+
+* **Smart materials (+14):** Rusted Painted Metal, Oily Metal, Painted Steel Edge Wear, Dirty Rubber,
+  Snow Covered Stone, Sandblasted Aluminium, Weathered Brick, Muddy Leather, Charred Wood,
+  Galvanized Steel, Grimy Ceramic, Weathered Plaster, Mossy Wood, Pitted Cast Iron
+  (crates/assets/src/smart_extra.rs). Each is a folder of fill layers with masks from
+  Edges / Cavity / Directional / PositionGradient generators plus procedural breakup. Uniform
+  albedos are in 0.01-0.92 linear; metals use metallic 1, dielectrics 0.
+* **Smart masks (+15):** Cavity Dust, Heavy Drips, Scratch Wear, Edge Chips, Rain Streaks, Smudges,
+  Burn Marks, Corner Wear, Moss on Top, Random Grime, Fine Dust Speckle, Oil Film, Bottom Mud,
+  Lichen Patches, Brushed Wear. A recipe is a single effect, so each is one generator or pattern.
+* **Brush presets (+13, built in):** Hard Round, Soft Airbrush, Chalk, Ink Pen, Charcoal, Scatter
+  Dots, Hatch Lines, Splatter, Dry Brush, Texture Stamp, Spray Paint, Chisel Marker, Pencil
+  (crates/app/src/brush_builtin.rs). They use only existing tips and settings, carry no material
+  (the current paint colour is kept) and show first in Shelf > Brushes ahead of the user's presets.
+* **Shelf:** smart materials and masks have a category (Metal, Paint, Stone, Wood, Fabric, Plastic,
+  Nature / Wear, Dirt, Dust, Water, Damage, Breakup) shown as filter chips, searchable, with a
+  one-line description in the tooltip (assets `smart_material_info` / `smart_mask_info`).
+* **Tests:** assets catalog / info / albedo-range tests; crates/app/tests/smart_content.rs now also
+  checks the new names, overall base colour / roughness / metallic of snow, char, rubber,
+  aluminium, oily metal, zinc and brick on the baked default crate, and a project save / load of
+  every new item; crates/app/tests/brush_builtin.rs checks the catalog, JSON round trip and a real
+  stroke per preset (coverage, airbrush more translucent than hard round, ink thinner than airbrush).
+  Tuning found by the test: Oily Metal first covered half the crate in oil; raised the cavity level and
+  thinned the streak mask (higher cavity Level = less coverage).
+* Weathered Brick is irregular Cells with a mortar layer (no brick-course pattern exists in the engine).
+* NOT verified: painting with the new brushes by hand, pen-pressure feel, and dedicated thumbnails
+  for brush presets (they reuse the tip's thumbnail). Screenshot results are listed below.
+
 ## Next steps (in order)
 
 Owner checks imported PBRs in the refreshed target/debug/subcraft.exe, especially close-up

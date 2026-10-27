@@ -25,6 +25,9 @@ as generally known. It is a planning list, not a promise. "Known" means we alrea
 - Generators: more bake-driven generators (Ambient Occlusion cavity variants, Thickness, World-space normal usage
   in more presets), Dirt/curvature presets beyond the new five.
 - Smart material export/import compatibility with Substance `.spsm` / `.sbsar` (not started).
+- Built-in content is now 34 smart materials, 36 smart masks and 13 brush presets. Still missing: a real brick-course
+  pattern (Weathered Brick uses irregular Cells), smart masks that combine several effects with blend modes (a recipe is
+  one effect), fingerprint / fabric-weave / rivet patterns, and shelf tags beyond one category per smart asset.
 
 ## Baking
 - GPU baking (CPU only now), Ray-traced AO with multiple samples/denoise, Bent normal on production meshes (not verified),
