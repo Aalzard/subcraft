@@ -555,3 +555,61 @@ fn pen_pressure_scales_brush_size_and_flow_but_a_mouse_is_unchanged() {
     let (_, soft) = dab_with_pressure(flow, 0.4);
     assert!((hard - 1.0).abs() < 0.02 && (soft - 0.4).abs() < 0.05, "peak alpha {hard} vs {soft}");
 }
+
+/// Drag a hard round brush over the top, across the front edge and down the front of a box
+/// (`hx`, `hy`, `hz` half extents) and measure the painted strip in the unfolded plane: along
+/// the stroke's center line the coverage is one gap-free interval across the fold, and the strip
+/// is as wide on the side as on the top (no pinching or smearing at the edge).
+fn assert_stroke_wraps_a_hard_edge(mesh: Mesh, hy: f32, hz: f32, res: u32, size: f32, down: f32, label: &str) {
+    let mut sc = Scene::new(mesh, res);
+    let cam = Camera::perspective(Vec3::new(0.0, hy * 3.0, hz * 3.5), Vec3::new(0.0, hy * 0.8, hz * 0.8), Vec3::Y, 30.0, 0.1, 100.0, [800, 800]);
+    let settings = BrushSettings { size, hardness: 1.0, spacing: 0.1, ..BrushSettings::default() };
+    sc.stroke(&cam, &[Vec3::new(0.0, hy, hz * 0.3), Vec3::new(0.0, hy, hz), Vec3::new(0.0, hy - down, hz)], settings, StrokeOptions::default(), &red());
+    let img = sc.image(ChannelKind::BaseColor).unwrap();
+    let surf = sc.surface();
+    // Unfolded coordinate u: negative on the top (distance to the edge), positive down the front.
+    let (bin, bins) = (hz.min(hy) * 0.01, 160usize); // +-0.8 min(hz, hy)
+    let mut line: Vec<(f32, u32)> = vec![(0.0, 0); bins];
+    let mut columns: std::collections::BTreeMap<i32, (f32, f32)> = Default::default();
+    for (i, p) in surf.position.iter().enumerate() {
+        if !surf.covered(i) { continue; }
+        let n = sc.mesh.geometric_normal(surf.triangle[i] as usize);
+        let u = if n.y > 0.99 && (p[1] - hy).abs() < 1e-3 { p[2] - hz } else if n.z > 0.99 && (p[2] - hz).abs() < 1e-3 { hy - p[1] } else { continue };
+        let a = alpha(&img, i, res);
+        let k = ((u / bin).floor() as i32 + bins as i32 / 2).clamp(0, bins as i32 - 1) as usize;
+        if p[0].abs() < bin * 1.5 { line[k].0 += a; line[k].1 += 1; }
+        if a > 0.5 {
+            let c = columns.entry((u / (bin * 4.0)).floor() as i32).or_insert((f32::MAX, f32::MIN));
+            c.0 = c.0.min(p[0]); c.1 = c.1.max(p[0]);
+        }
+    }
+    let painted: Vec<usize> = (0..bins).filter(|&k| line[k].1 > 0 && line[k].0 / line[k].1 as f32 > 0.5).collect();
+    let (first, last) = (*painted.first().expect("something painted"), *painted.last().unwrap());
+    let edge = bins / 2;
+    assert!(first < edge - 3 && last > edge + 3, "{label}: stroke must cover both sides of the fold ({first}..{last})");
+    for k in first..=last {
+        if line[k].1 == 0 { continue; }
+        assert!(line[k].0 / line[k].1 as f32 > 0.5, "{label}: gap in the stroke at unfolded bin {k} ({first}..{last})");
+    }
+    // Width perpendicular to the stroke: painted x extent per unfolded-distance column, on the top
+    // 0.15 before the edge and on the front 0.15 after it.
+    let width = |lo: f32, hi: f32| -> f32 {
+        let (mut s, mut n) = (0.0f32, 0.0f32);
+        for (&c, &(x0, x1)) in &columns {
+            let u = (c as f32 + 0.5) * bin * 4.0;
+            if u >= lo && u < hi { s += x1 - x0; n += 1.0; }
+        }
+        s / n.max(1.0)
+    };
+    let (w_top, w_side) = (width(-0.25 * down, -0.05 * down), width(0.05 * down, 0.25 * down));
+    assert!(w_top > 0.05 && w_side > 0.05, "{label}: widths {w_top} {w_side}");
+    assert!((w_top - w_side).abs() / w_top.max(w_side) < 0.35, "{label}: strip width changes across the edge ({w_top} vs {w_side} world units)");
+}
+
+#[test]
+fn stroke_over_a_hard_edge_has_no_gap_and_keeps_its_width() {
+    assert_stroke_wraps_a_hard_edge(primitives::cube(2.0), 1.0, 1.0, 512, 12.0, 0.8, "cube");
+    assert_stroke_wraps_a_hard_edge(primitives::atlas_box(Vec3::splat(2.0), 4, "Box"), 1.0, 1.0, 512, 12.0, 0.8, "atlas box subdiv 4");
+    assert_stroke_wraps_a_hard_edge(primitives::atlas_box(Vec3::new(2.0, 1.0, 3.0), 3, "Box"), 0.5, 1.5, 512, 12.0, 0.4, "atlas box non-uniform");
+    assert_stroke_wraps_a_hard_edge(primitives::sample_crate(), 0.5, 0.5, 1024, 4.0, 0.07, "default crate");
+}
