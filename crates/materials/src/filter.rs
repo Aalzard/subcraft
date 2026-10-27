@@ -3,6 +3,7 @@ use subcraft_core::{ChannelKind, color::{linear3_to_srgb, srgb3_to_linear}};
 use subcraft_doc::Filter;
 pub mod contour;
 pub mod median;
+pub mod warp;
 
 pub fn apply(filter: Filter, input: [f32; 3], channel: ChannelKind) -> [f32; 3] {
     if !filter.valid() || !filter.supports_channel(channel) { return input; }
@@ -12,7 +13,7 @@ pub fn apply(filter: Filter, input: [f32; 3], channel: ChannelKind) -> [f32; 3] 
             let v = pivot + (v - pivot) * gain;
             if channel.is_signed() { v } else { v.clamp(0.0, 1.0) }
         }),
-        Filter::Blur { .. } | Filter::Sharpen { .. } | Filter::DirectionalBlur { .. } | Filter::Highpass { .. } | Filter::Bevel {..} | Filter::MaskOutline {..} | Filter::Median { .. } => input, // Neighborhood evaluation is staged by compositor.
+        Filter::Blur { .. } | Filter::Sharpen { .. } | Filter::DirectionalBlur { .. } | Filter::Highpass { .. } | Filter::Bevel {..} | Filter::MaskOutline {..} | Filter::Median { .. } | Filter::Warp { .. } => input, // Neighborhood evaluation is staged by compositor.
         Filter::GradientMap { gradient, to_gray } => gradient_map(&gradient, to_gray, input, channel),
         Filter::HistogramScan { position, contrast, invert } => input.map(|v| histogram_scan(v, position, contrast, invert)),
         Filter::HistogramRange { position, range, softness, invert } => input.map(|v| histogram_range(v, position, range, softness, invert)),

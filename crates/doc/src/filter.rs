@@ -13,6 +13,8 @@ pub struct GradientStop { pub position: f32, pub color: [f32; 3] }
 pub const MAX_GRADIENT_STOPS: usize = 8;
 /// Median cost grows with the window, so it is capped below the Gaussian radii.
 pub const MAX_MEDIAN_RADIUS: f32 = 16.0;
+/// Warp noise cells across the texture.
+pub const MAX_WARP_SCALE: u32 = 64;
 
 /// Up to [`MAX_GRADIENT_STOPS`] stops in a fixed array so `Filter` stays `Copy`.
 /// Serialized as a plain list of stops; unused slots never reach the file.
@@ -116,6 +118,10 @@ pub enum Filter {
     /// Exact median over the square window `(2r + 1)^2`, r = radius rounded to whole pixels.
     /// Per channel; paint coverage (alpha) is kept as is. Edges clamp.
     Median { radius: f32 },
+    /// Noise-driven UV displacement: each texel reads the input up to `intensity` pixels away,
+    /// along a smooth periodic noise field with `scale` cells across the texture. Deterministic
+    /// for a given `seed`; resolution independent (noise is evaluated in UV space).
+    Warp { intensity: f32, scale: u32, seed: u32 },
     Contrast { gain: f32, pivot: f32 },
     /// Hue in degrees, saturation multiplier, additive HSL lightness. Color channels only.
     Hsl { hue: f32, saturation: f32, lightness: f32 },
@@ -136,18 +142,18 @@ pub enum Filter {
 }
 
 impl Filter {
-    pub const ALL: [Self; 14] = [Self::Contrast { gain: 1.0, pivot: 0.5 },
+    pub const ALL: [Self; 15] = [Self::Contrast { gain: 1.0, pivot: 0.5 },
         Self::Hsl { hue: 0.0, saturation: 1.0, lightness: 0.0 },
         Self::Threshold { cutoff: 0.5 }, Self::Clamp { low: 0.0, high: 1.0 }, Self::Blur { radius: 4.0 }, Self::Sharpen { radius: 2.0, amount: 1.0 }, Self::DirectionalBlur { radius: 8.0, angle_deg: 0.0 }, Self::Highpass { radius: 4.0, amount: 1.0 },
         Self::Bevel {radius:8.0,amount:1.0,threshold:0.5}, Self::MaskOutline {radius:4.0,threshold:0.5,position:OutlinePosition::Both},
         Self::GradientMap { gradient: Gradient::black_white(), to_gray: false },
         Self::HistogramScan { position: 0.5, contrast: 0.5, invert: false },
         Self::HistogramRange { position: 0.5, range: 0.2, softness: 0.5, invert: false },
-        Self::Median { radius: 2.0 }];
+        Self::Median { radius: 2.0 }, Self::Warp { intensity: 8.0, scale: 4, seed: 1 }];
 
     pub fn label(self) -> &'static str {
         match self { Self::Contrast { .. } => "Contrast", Self::Hsl { .. } => "HSL",
-            Self::Threshold { .. } => "Threshold", Self::Clamp { .. } => "Clamp", Self::Blur { .. } => "Blur", Self::Sharpen { .. } => "Sharpen", Self::DirectionalBlur { .. } => "Directional Blur", Self::Highpass { .. } => "Highpass", Self::Bevel {..} => "Bevel", Self::MaskOutline {..} => "Mask Outline", Self::GradientMap {..} => "Gradient Map", Self::HistogramScan {..} => "Histogram Scan", Self::HistogramRange {..} => "Histogram Range", Self::Median {..} => "Median" }
+            Self::Threshold { .. } => "Threshold", Self::Clamp { .. } => "Clamp", Self::Blur { .. } => "Blur", Self::Sharpen { .. } => "Sharpen", Self::DirectionalBlur { .. } => "Directional Blur", Self::Highpass { .. } => "Highpass", Self::Bevel {..} => "Bevel", Self::MaskOutline {..} => "Mask Outline", Self::GradientMap {..} => "Gradient Map", Self::HistogramScan {..} => "Histogram Scan", Self::HistogramRange {..} => "Histogram Range", Self::Median {..} => "Median", Self::Warp {..} => "Warp" }
     }
 
     pub fn supports_channel(self, channel: ChannelKind) -> bool {
@@ -157,7 +163,7 @@ impl Filter {
     pub fn supports_mask(self) -> bool { !matches!(self, Self::Hsl { .. }) }
 
     pub fn radius(self) -> Option<f32> {
-        match self { Self::Blur { radius } | Self::Sharpen { radius, .. } | Self::DirectionalBlur { radius, .. } | Self::Highpass { radius, .. } | Self::Median { radius } | Self::Bevel {radius,..} | Self::MaskOutline {radius,..} => Some(radius), _ => None }
+        match self { Self::Blur { radius } | Self::Sharpen { radius, .. } | Self::DirectionalBlur { radius, .. } | Self::Highpass { radius, .. } | Self::Median { radius } | Self::Warp { intensity: radius, .. } | Self::Bevel {radius,..} | Self::MaskOutline {radius,..} => Some(radius), _ => None }
     }
 
     pub fn is_contour(self) -> bool { matches!(self, Self::Bevel {..} | Self::MaskOutline {..}) }
@@ -167,12 +173,12 @@ impl Filter {
         (self.radius().unwrap_or(0.0) + if self.is_contour() {0.5} else {0.0}).ceil() as u32
     }
 
-    pub fn softens_coverage(self) -> bool { matches!(self, Self::Blur { .. } | Self::DirectionalBlur { .. }) }
+    pub fn softens_coverage(self) -> bool { matches!(self, Self::Blur { .. } | Self::DirectionalBlur { .. } | Self::Warp { .. }) }
 
     /// Highpass is deliberately excluded: radius/amount zero gives its neutral value.
     pub fn spatial_identity(self) -> bool {
         matches!(self, Self::Blur {radius:0.0} | Self::DirectionalBlur {radius:0.0,..}
-            | Self::Sharpen {radius:0.0,..} | Self::Sharpen {amount:0.0,..})
+            | Self::Sharpen {radius:0.0,..} | Self::Sharpen {amount:0.0,..} | Self::Warp {intensity:0.0,..})
             || matches!(self, Self::Median { radius } if radius < 0.5)
     }
 
@@ -183,6 +189,7 @@ impl Filter {
                 && saturation.is_finite() && (0.0..=2.0).contains(&saturation)
                 && lightness.is_finite() && (-1.0..=1.0).contains(&lightness),
             Self::Blur { radius } => radius.is_finite() && (0.0..=32.0).contains(&radius),
+            Self::Warp { intensity, scale, .. } => Self::Blur { radius: intensity }.valid() && (1..=MAX_WARP_SCALE).contains(&scale),
             Self::Median { radius } => radius.is_finite() && (0.0..=MAX_MEDIAN_RADIUS).contains(&radius),
             Self::DirectionalBlur { radius, angle_deg } => Self::Blur {radius}.valid() && angle_deg.is_finite() && (-180.0..=180.0).contains(&angle_deg),
             Self::Sharpen { radius, amount } | Self::Highpass { radius, amount } => Self::Blur { radius }.valid() && amount.is_finite() && (0.0..=4.0).contains(&amount),
@@ -215,6 +222,11 @@ mod tests {
         assert!(!Filter::Hsl { hue: 0.0, saturation: 1.0, lightness: 0.0 }.supports_mask());
         assert!(!Filter::Clamp { low: 0.8, high: 0.2 }.valid());
         assert!(!Filter::Threshold { cutoff: f32::NAN }.valid());
+        assert!(!Filter::Warp { intensity: 8.0, scale: 0, seed: 0 }.valid());
+        assert!(!Filter::Warp { intensity: 8.0, scale: 65, seed: 0 }.valid());
+        assert!(!Filter::Warp { intensity: 33.0, scale: 4, seed: 0 }.valid());
+        assert!(Filter::Warp { intensity: 0.0, scale: 4, seed: 9 }.spatial_identity());
+        assert_eq!(Filter::Warp { intensity: 8.2, scale: 4, seed: 9 }.support(), 9);
         assert!(!Filter::Median { radius: 16.5 }.valid());
         assert!(!Filter::Median { radius: f32::NAN }.valid());
         assert!(Filter::Median { radius: 0.4 }.spatial_identity());

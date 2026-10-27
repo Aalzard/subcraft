@@ -133,6 +133,13 @@ enum Node<'a> {
         input: usize,
         radius: usize,
     },
+    Warp {
+        input: usize,
+        intensity: f32,
+        scale: u32,
+        seed: u32,
+        support: u32,
+    },
     Contour {
         input: usize,
         filter: Filter,
@@ -153,6 +160,7 @@ impl Node<'_> {
             | Self::Gaussian { input, .. }
             | Self::Contour { input, .. }
             | Self::Median { input, .. }
+            | Self::Warp { input, .. }
             | Self::Directional { input, .. } => Some(*input),
             Self::Layer { below, .. } => Some(*below),
             _ => None,
@@ -207,6 +215,7 @@ impl<'a> Graph<'a> {
             Node::Gaussian { input, .. }
             | Node::Directional { input, .. }
             | Node::Median { input, .. }
+            | Node::Warp { input, .. }
             | Node::Contour { input, .. } => self.uniform[*input],
             Node::ContentEffect {
                 input,
@@ -271,6 +280,16 @@ impl<'a> Graph<'a> {
             )
         {
             return Some(input);
+        }
+        if let Filter::Warp { scale, seed, .. } = filter {
+            let intensity = radius * self.radius_scale;
+            return Some(self.push(Node::Warp {
+                input,
+                intensity,
+                scale,
+                seed,
+                support: intensity.ceil() as u32 + 1,
+            }));
         }
         if matches!(filter, Filter::Median { .. }) {
             let radius = subcraft_materials::filter::median::window_radius(radius * self.radius_scale);
@@ -678,6 +697,35 @@ impl<'a> Graph<'a> {
                 }
                 out
             }
+            Node::Warp {
+                input,
+                intensity,
+                scale,
+                seed,
+                support,
+            } => {
+                let grid = Neighborhood::new(self, *input, &geo, *support);
+                let res = self.ctx.geometry.resolution;
+                let mut out = vec![[0.0; 4]; TILE_TEXELS];
+                for (i, dst) in out.iter_mut().enumerate() {
+                    let (x, y) = geo.texel_xy(i);
+                    if x >= res || y >= res {
+                        continue;
+                    }
+                    let [dx, dy] = subcraft_materials::filter::warp::offset(
+                        x, y, res, *intensity, *scale, *seed,
+                    );
+                    let src = grid.premultiplied(x as f32 + dx, y as f32 + dy);
+                    *dst = src;
+                    if dst[3] > 1e-12 {
+                        let a = dst[3];
+                        for c in &mut dst[..3] {
+                            *c /= a;
+                        }
+                    }
+                }
+                out
+            }
             Node::Median { input, radius } => {
                 let r = *radius as u32;
                 let source = self.get(*input, tile);
@@ -889,7 +937,7 @@ fn spatial_value(
         | Filter::Sharpen { radius: 0.0, .. }
         | Filter::Sharpen { amount: 0.0, .. }
         | Filter::DirectionalBlur { radius: 0.0, .. } => source,
-        Filter::Blur { .. } | Filter::DirectionalBlur { .. } => blurred,
+        Filter::Blur { .. } | Filter::DirectionalBlur { .. } | Filter::Warp { .. } => blurred,
         Filter::Highpass { amount, .. } => {
             let mut out = source;
             let v = subcraft_materials::filter::highpass(

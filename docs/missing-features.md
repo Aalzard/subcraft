@@ -21,7 +21,7 @@ as generally known. It is a planning list, not a promise. "Known" means we alrea
 - Anchor point system and layer links across texture sets; shared layer stacks across UDIM tiles (known).
 - Apply-smart-material-to-all-tiles command and 2D UDIM tile picker (known).
 - Layer instances / linked layers, adjustment layers beyond Levels/Filter folders, per-channel blend mixing.
-- More filters: Warp, Non-uniform blur, Slope blur, Histogram scan/range, Gradient map, Color match, Median.
+- More filters: Non-uniform blur, Slope blur, Color match (Gradient Map, Histogram Scan / Range, Median and Warp were added in session 108). Warp has no image-driven intensity map yet; Gradient Map has no gradient-driven (curve) editor or import from Substance gradients.
 - Generators: more bake-driven generators (Ambient Occlusion cavity variants, Thickness, World-space normal usage
   in more presets), Dirt/curvature presets beyond the new five.
 - Smart material export/import compatibility with Substance `.spsm` / `.sbsar` (not started).

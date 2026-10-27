@@ -42,7 +42,8 @@ fn blend_modes(folder: bool) -> Vec<BlendMode> {
 
 fn spatial_filter(r: &mut Rng) -> Filter {
     let radius = (r.f() * 6.0).round();
-    match r.below(7) {
+    match r.below(8) {
+        7 => Filter::Warp { intensity: radius, scale: 1 + r.below(8) as u32, seed: r.below(100) as u32 },
         6 => Filter::Median { radius },
         0 => Filter::Blur { radius }, 1 => Filter::Sharpen { radius, amount: r.f() * 2.0 },
         2 => Filter::DirectionalBlur { radius, angle_deg: r.f() * 360.0 - 180.0 },

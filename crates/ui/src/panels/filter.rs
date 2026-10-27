@@ -46,6 +46,12 @@ pub fn editor(ui: &mut Ui, filter: &mut Filter, channel: Option<ChannelKind>) ->
             changed |= slider_row(ui, "Radius", egui::Slider::new(radius, 0.0..=subcraft_doc::MAX_MEDIAN_RADIUS).integer().suffix(" px")).changed();
             ui.weak("Exact median over the square window / removes speckle, keeps edges");
         }
+        Filter::Warp { intensity, scale, seed } => {
+            changed |= slider_row(ui, "Intensity", egui::Slider::new(intensity, 0.0..=32.0).suffix(" px")).changed();
+            changed |= slider_row(ui, "Scale", egui::Slider::new(scale, 1..=subcraft_doc::MAX_WARP_SCALE)).changed();
+            changed |= slider_row(ui, "Seed", egui::Slider::new(seed, 0..=9999)).changed();
+            ui.weak("Noise-driven displacement / Scale = cells across the texture");
+        }
         Filter::HistogramScan { position, contrast, invert } => {
             changed |= slider_row(ui, "Position", egui::Slider::new(position, lower..=1.0)).changed();
             changed |= slider_row(ui, "Contrast", egui::Slider::new(contrast, 0.0..=1.0)).changed();

@@ -566,3 +566,9 @@ fn median_filter_has_stable_json() {
     use subcraft_doc::Filter;
     assert_eq!(serde_json::to_string(&Filter::Median {radius:3.0}).unwrap(),r#"{"kind":"median","radius":3.0}"#);
 }
+
+#[test]
+fn warp_filter_has_stable_json() {
+    use subcraft_doc::Filter;
+    assert_eq!(serde_json::to_string(&Filter::Warp {intensity:8.0,scale:4,seed:7}).unwrap(),r#"{"kind":"warp","intensity":8.0,"scale":4,"seed":7}"#);
+}
