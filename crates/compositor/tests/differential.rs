@@ -51,9 +51,11 @@ fn spatial_filter(r: &mut Rng) -> Filter {
     }
 }
 fn point_filter(r: &mut Rng) -> Filter {
-    match r.below(4) {
+    match r.below(5) {
         0 => Filter::Contrast { gain: r.f() * 2.0, pivot: r.f() },
         1 => Filter::Threshold { cutoff: r.f() },
+        3 => Filter::HistogramScan { position: r.f(), contrast: r.f(), invert: r.below(2) == 0 },
+        4 => Filter::HistogramRange { position: r.f(), range: r.f(), softness: r.f(), invert: r.below(2) == 0 },
         2 => {
             let (a, b) = (r.f() * 0.5, 0.5 + r.f() * 0.5);
             let st = |position, color| subcraft_doc::GradientStop { position, color };

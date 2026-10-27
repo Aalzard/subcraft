@@ -105,6 +105,12 @@ pub enum Filter {
     /// Maps luminance (color) or the raw value (scalar; signed Height is remapped from -1..1)
     /// through the gradient. Scalar channels and masks receive the result's luminance.
     GradientMap { gradient: Gradient, to_gray: bool },
+    /// Soft threshold: a linear ramp centred on `position`, `1 - contrast` wide (contrast 1 is a
+    /// hard threshold). Evaluated per channel; `invert` returns 1 - result.
+    HistogramScan { position: f32, contrast: f32, invert: bool },
+    /// Band select: 1 inside `position +- range / 2`, 0 outside, with edge ramps that take up
+    /// `softness` of the half-range. Evaluated per channel; `invert` returns 1 - result.
+    HistogramRange { position: f32, range: f32, softness: f32, invert: bool },
     Contrast { gain: f32, pivot: f32 },
     /// Hue in degrees, saturation multiplier, additive HSL lightness. Color channels only.
     Hsl { hue: f32, saturation: f32, lightness: f32 },
@@ -125,15 +131,17 @@ pub enum Filter {
 }
 
 impl Filter {
-    pub const ALL: [Self; 11] = [Self::Contrast { gain: 1.0, pivot: 0.5 },
+    pub const ALL: [Self; 13] = [Self::Contrast { gain: 1.0, pivot: 0.5 },
         Self::Hsl { hue: 0.0, saturation: 1.0, lightness: 0.0 },
         Self::Threshold { cutoff: 0.5 }, Self::Clamp { low: 0.0, high: 1.0 }, Self::Blur { radius: 4.0 }, Self::Sharpen { radius: 2.0, amount: 1.0 }, Self::DirectionalBlur { radius: 8.0, angle_deg: 0.0 }, Self::Highpass { radius: 4.0, amount: 1.0 },
         Self::Bevel {radius:8.0,amount:1.0,threshold:0.5}, Self::MaskOutline {radius:4.0,threshold:0.5,position:OutlinePosition::Both},
-        Self::GradientMap { gradient: Gradient::black_white(), to_gray: false }];
+        Self::GradientMap { gradient: Gradient::black_white(), to_gray: false },
+        Self::HistogramScan { position: 0.5, contrast: 0.5, invert: false },
+        Self::HistogramRange { position: 0.5, range: 0.2, softness: 0.5, invert: false }];
 
     pub fn label(self) -> &'static str {
         match self { Self::Contrast { .. } => "Contrast", Self::Hsl { .. } => "HSL",
-            Self::Threshold { .. } => "Threshold", Self::Clamp { .. } => "Clamp", Self::Blur { .. } => "Blur", Self::Sharpen { .. } => "Sharpen", Self::DirectionalBlur { .. } => "Directional Blur", Self::Highpass { .. } => "Highpass", Self::Bevel {..} => "Bevel", Self::MaskOutline {..} => "Mask Outline", Self::GradientMap {..} => "Gradient Map" }
+            Self::Threshold { .. } => "Threshold", Self::Clamp { .. } => "Clamp", Self::Blur { .. } => "Blur", Self::Sharpen { .. } => "Sharpen", Self::DirectionalBlur { .. } => "Directional Blur", Self::Highpass { .. } => "Highpass", Self::Bevel {..} => "Bevel", Self::MaskOutline {..} => "Mask Outline", Self::GradientMap {..} => "Gradient Map", Self::HistogramScan {..} => "Histogram Scan", Self::HistogramRange {..} => "Histogram Range" }
     }
 
     pub fn supports_channel(self, channel: ChannelKind) -> bool {
@@ -173,6 +181,9 @@ impl Filter {
             Self::Bevel {radius,amount,threshold} => Self::Blur {radius}.valid() && amount.is_finite() && (-1.0..=1.0).contains(&amount) && threshold.is_finite() && (-1.0..=1.0).contains(&threshold),
             Self::MaskOutline {radius,threshold,..} => Self::Blur {radius}.valid() && threshold.is_finite() && (-1.0..=1.0).contains(&threshold),
             Self::GradientMap { gradient, .. } => gradient.valid(),
+            Self::HistogramScan { position, contrast, .. } => position.is_finite() && (-1.0..=1.0).contains(&position) && contrast.is_finite() && (0.0..=1.0).contains(&contrast),
+            Self::HistogramRange { position, range, softness, .. } => position.is_finite() && (-1.0..=1.0).contains(&position)
+                && range.is_finite() && (0.0..=2.0).contains(&range) && softness.is_finite() && (0.0..=1.0).contains(&softness),
             Self::Threshold { cutoff } => cutoff.is_finite(),
             Self::Clamp { low, high } => low.is_finite() && high.is_finite() && low <= high,
         }
@@ -196,6 +207,10 @@ mod tests {
         assert!(!Filter::Hsl { hue: 0.0, saturation: 1.0, lightness: 0.0 }.supports_mask());
         assert!(!Filter::Clamp { low: 0.8, high: 0.2 }.valid());
         assert!(!Filter::Threshold { cutoff: f32::NAN }.valid());
+        assert!(!Filter::HistogramScan { position: 1.5, contrast: 0.5, invert: false }.valid());
+        assert!(!Filter::HistogramScan { position: 0.5, contrast: f32::NAN, invert: false }.valid());
+        assert!(!Filter::HistogramRange { position: 0.5, range: -0.1, softness: 0.0, invert: true }.valid());
+        assert!(!Filter::HistogramRange { position: 0.5, range: 0.5, softness: 1.5, invert: true }.valid());
         assert!(!Filter::Contrast { gain: f32::INFINITY, pivot: 0.5 }.valid());
     }
 

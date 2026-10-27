@@ -553,3 +553,10 @@ fn schema_13_stacks_open_and_gradient_map_has_stable_json_and_survives_roundtrip
     let bytes=write_project(Cursor::new(Vec::new()),&primitives::cube(2.0),&doc,&ResourceStore::default(),&MeshMapSet::new()).unwrap().into_inner();
     assert_eq!(read_project(Cursor::new(bytes)).unwrap().document,doc);
 }
+
+#[test]
+fn histogram_filters_have_stable_json() {
+    use subcraft_doc::Filter;
+    assert_eq!(serde_json::to_string(&Filter::HistogramScan {position:0.5,contrast:0.25,invert:true}).unwrap(),r#"{"kind":"histogram_scan","position":0.5,"contrast":0.25,"invert":true}"#);
+    assert_eq!(serde_json::to_string(&Filter::HistogramRange {position:0.5,range:0.5,softness:0.0,invert:false}).unwrap(),r#"{"kind":"histogram_range","position":0.5,"range":0.5,"softness":0.0,"invert":false}"#);
+}

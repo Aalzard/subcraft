@@ -42,6 +42,19 @@ pub fn editor(ui: &mut Ui, filter: &mut Filter, channel: Option<ChannelKind>) ->
             });
             ui.weak(if channel.is_some_and(|c| c.is_color()) { "Looked up by luminance / Gray keeps only brightness" } else { "Looked up by value / result is its brightness" });
         }
+        Filter::HistogramScan { position, contrast, invert } => {
+            changed |= slider_row(ui, "Position", egui::Slider::new(position, lower..=1.0)).changed();
+            changed |= slider_row(ui, "Contrast", egui::Slider::new(contrast, 0.0..=1.0)).changed();
+            prop_row(ui, "Invert", |ui| { changed |= ui.checkbox(invert, "").changed(); });
+            ui.weak("Soft threshold / contrast 1 is a hard edge");
+        }
+        Filter::HistogramRange { position, range, softness, invert } => {
+            changed |= slider_row(ui, "Position", egui::Slider::new(position, lower..=1.0)).changed();
+            changed |= slider_row(ui, "Range", egui::Slider::new(range, 0.0..=if lower < 0.0 { 2.0 } else { 1.0 })).changed();
+            changed |= slider_row(ui, "Softness", egui::Slider::new(softness, 0.0..=1.0)).changed();
+            prop_row(ui, "Invert", |ui| { changed |= ui.checkbox(invert, "").changed(); });
+            ui.weak("Selects values near Position / outside the band is 0");
+        }
         Filter::Clamp { low, high } => {
             let lower = lower.min(*low).min(*high); let upper = 1.0f32.max(*low).max(*high);
             changed |= slider_row(ui, "Minimum", egui::Slider::new(low, lower..=*high)).changed();

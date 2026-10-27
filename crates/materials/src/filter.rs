@@ -13,6 +13,8 @@ pub fn apply(filter: Filter, input: [f32; 3], channel: ChannelKind) -> [f32; 3] 
         }),
         Filter::Blur { .. } | Filter::Sharpen { .. } | Filter::DirectionalBlur { .. } | Filter::Highpass { .. } | Filter::Bevel {..} | Filter::MaskOutline {..} => input, // Neighborhood evaluation is staged by compositor.
         Filter::GradientMap { gradient, to_gray } => gradient_map(&gradient, to_gray, input, channel),
+        Filter::HistogramScan { position, contrast, invert } => input.map(|v| histogram_scan(v, position, contrast, invert)),
+        Filter::HistogramRange { position, range, softness, invert } => input.map(|v| histogram_range(v, position, range, softness, invert)),
         Filter::Clamp { low, high } => input.map(|v| v.clamp(low, high)),
         Filter::Threshold { cutoff } => {
             let value = if channel.is_color() { input[0] * 0.2126 + input[1] * 0.7152 + input[2] * 0.0722 } else { input[0] };
@@ -39,6 +41,22 @@ pub fn apply(filter: Filter, input: [f32; 3], channel: ChannelKind) -> [f32; 3] 
             srgb3_to_linear(rgb.map(|v| v + l - chroma * 0.5))
         }
     }
+}
+
+/// Linear ramp from `position - w/2` to `position + w/2` with `w = 1 - contrast`; hard step at 1.
+pub fn histogram_scan(v: f32, position: f32, contrast: f32, invert: bool) -> f32 {
+    let width = 1.0 - contrast;
+    let out = if width <= 1e-6 { if v >= position { 1.0 } else { 0.0 } } else { ((v - (position - width * 0.5)) / width).clamp(0.0, 1.0) };
+    if invert { 1.0 - out } else { out }
+}
+
+/// 1 inside `position +- range / 2` (inclusive), 0 outside; each edge ramps over
+/// `softness * range / 2` toward the inside.
+pub fn histogram_range(v: f32, position: f32, range: f32, softness: f32, invert: bool) -> f32 {
+    let (lo, hi) = (position - range * 0.5, position + range * 0.5);
+    let ramp = softness * range * 0.5;
+    let out = if v < lo || v > hi { 0.0 } else if ramp <= 1e-6 { 1.0 } else { ((v - lo) / ramp).min((hi - v) / ramp).clamp(0.0, 1.0) };
+    if invert { 1.0 - out } else { out }
 }
 
 fn luminance(c: [f32; 3]) -> f32 { c[0] * 0.2126 + c[1] * 0.7152 + c[2] * 0.0722 }
@@ -110,6 +128,35 @@ mod tests {
         let bad = Gradient::new(&[st(0.8, [0.0; 3]), st(0.2, [1.0; 3])]).unwrap();
         close(apply(Filter::GradientMap { gradient: bad, to_gray: false }, gray(0.5), ChannelKind::BaseColor), gray(0.5));
         close(apply(f(false), gray(0.5), ChannelKind::Normal), gray(0.5));
+    }
+
+    #[test]
+    fn histogram_scan_and_range_match_hand_computed_values() {
+        let scan = |position, contrast, invert| Filter::HistogramScan { position, contrast, invert };
+        let range = |position, range, softness, invert| Filter::HistogramRange { position, range, softness, invert };
+        let m = apply_mask;
+        // Hard threshold at contrast 1 (inclusive at the position).
+        assert_eq!(m(scan(0.4, 1.0, false), 0.399), 0.0); assert_eq!(m(scan(0.4, 1.0, false), 0.4), 1.0);
+        // Contrast 0.5 -> ramp 0.25..0.75 around 0.5.
+        let s = scan(0.5, 0.5, false);
+        assert_eq!(m(s, 0.25), 0.0); assert_eq!(m(s, 0.75), 1.0); assert!((m(s, 0.5) - 0.5).abs() < 1e-6); assert!((m(s, 0.375) - 0.25).abs() < 1e-6);
+        // Contrast 0 -> ramp over the full 0..1 range when centred on 0.5 (identity).
+        for v in [0.0, 0.1, 0.5, 0.9, 1.0] { assert!((m(scan(0.5, 0.0, false), v) - v).abs() < 1e-6); }
+        // Invert is exactly one minus.
+        assert!((m(scan(0.5, 0.5, true), 0.375) - 0.75).abs() < 1e-6);
+        // Range: hard band 0.3..0.5 (inclusive both ends), outside is 0.
+        let r = range(0.4, 0.2, 0.0, false);
+        assert_eq!(m(r, 0.299), 0.0); assert_eq!(m(r, 0.3), 1.0); assert_eq!(m(r, 0.5), 1.0); assert_eq!(m(r, 0.501), 0.0);
+        // Softness 1: triangle peaking at the position, ramp = half-range = 0.1.
+        let t = range(0.4, 0.2, 1.0, false);
+        assert!((m(t, 0.35) - 0.5).abs() < 1e-5); assert!((m(t, 0.4) - 1.0).abs() < 1e-6); assert!((m(t, 0.45) - 0.5).abs() < 1e-5);
+        assert_eq!(m(range(0.4, 0.2, 0.0, true), 0.4), 0.0); assert_eq!(m(range(0.4, 0.2, 0.0, true), 0.9), 1.0);
+        // Color channels are processed per channel, signed Height keeps raw values in -1..1.
+        assert_eq!(apply(scan(0.5, 1.0, false), [0.2, 0.6, 0.5], ChannelKind::BaseColor), [0.0, 1.0, 1.0]);
+        assert_eq!(apply(range(-0.5, 0.2, 0.0, false), [-0.55, -0.7, 0.0], ChannelKind::Height), [1.0, 0.0, 0.0]);
+        // Invalid parameters and Normal maps pass through.
+        assert_eq!(apply(scan(0.5, 2.0, false), [0.3; 3], ChannelKind::Roughness), [0.3; 3]);
+        assert_eq!(apply(scan(0.5, 1.0, false), [0.3; 3], ChannelKind::Normal), [0.3; 3]);
     }
 
     #[test]
