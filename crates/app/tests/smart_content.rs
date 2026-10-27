@@ -108,3 +108,57 @@ fn every_smart_mask_selects_part_of_the_baked_crate_and_is_deterministic() {
         assert!(var > 0.0, "{}", m.name);
     }
 }
+
+const NEW_MATERIALS: [&str; 14] = ["Rusted Painted Metal", "Oily Metal", "Painted Steel Edge Wear", "Dirty Rubber", "Snow Covered Stone", "Sandblasted Aluminium", "Weathered Brick", "Muddy Leather", "Charred Wood", "Galvanized Steel", "Grimy Ceramic", "Weathered Plaster", "Mossy Wood", "Pitted Cast Iron"];
+const NEW_MASKS: [&str; 15] = ["Cavity Dust", "Heavy Drips", "Scratch Wear", "Edge Chips", "Rain Streaks", "Smudges", "Burn Marks", "Corner Wear", "Moss on Top", "Random Grime", "Fine Dust Speckle", "Oil Film", "Bottom Mud", "Lichen Patches", "Brushed Wear"];
+
+#[test]
+fn the_third_content_batch_is_in_the_library() {
+    let lib = Library::builtin();
+    for n in NEW_MATERIALS { assert!(lib.smart_materials.iter().any(|m| m.name == n), "missing smart material {n}"); }
+    for n in NEW_MASKS { assert!(lib.smart_masks.iter().any(|m| m.name == n), "missing smart mask {n}"); }
+}
+
+#[test]
+fn new_smart_materials_have_believable_overall_pbr_values_on_the_baked_crate() {
+    let lib = Library::builtin();
+    let look = |name: &str| {
+        let m = lib.smart_materials.iter().find(|m| m.name == name).unwrap();
+        let mut s = baked_crate();
+        s.add_smart_material(m).unwrap();
+        (stats(&mut s, ChannelKind::BaseColor).0, stats(&mut s, ChannelKind::Roughness).0, stats(&mut s, ChannelKind::Metallic).0)
+    };
+    let snow = look("Snow Covered Stone");
+    let char = look("Charred Wood");
+    let rubber = look("Dirty Rubber");
+    let alu = look("Sandblasted Aluminium");
+    let oily = look("Oily Metal");
+    let zinc = look("Galvanized Steel");
+    let brick = look("Weathered Brick");
+    assert!(snow.0 > char.0 + 0.03, "snow is brighter than char: {snow:?} {char:?}");
+    assert!(rubber.0 < 0.15 && rubber.1 > 0.75 && rubber.2 < 0.05, "rubber is dark, rough, non-metal: {rubber:?}");
+    assert!(alu.0 > 0.6 && alu.2 > 0.5 && (0.35..0.8).contains(&alu.1), "sandblasted aluminium is bright, metallic, semi-rough: {alu:?}");
+    assert!(oily.0 < alu.0 && oily.2 > 0.5, "oily metal is darker than aluminium and still metallic: {oily:?} {alu:?}");
+    assert!(zinc.2 > 0.4, "galvanized is metallic: {zinc:?}");
+    assert!(brick.2 < 0.05 && brick.1 > 0.7 && (0.2..0.5).contains(&brick.0), "brick is a rough non-metal of mid-dark red: {brick:?}");
+}
+
+#[test]
+fn new_smart_materials_and_masks_survive_a_project_save_and_load() {
+    let lib = Library::builtin();
+    let mut s = baked_crate();
+    for n in NEW_MATERIALS {
+        s.add_smart_material(lib.smart_materials.iter().find(|m| m.name == n).unwrap()).unwrap();
+    }
+    for n in NEW_MASKS {
+        s.execute(Command::AddLayer(NewLayer::Fill)).unwrap();
+        let layer = s.selection().layer.unwrap();
+        s.execute(Command::AddMask { layer, white: false }).unwrap();
+        s.apply_smart_mask(lib.smart_masks.iter().find(|m| m.name == n).unwrap()).unwrap();
+    }
+    let path = std::env::temp_dir().join(format!("subcraft-smart-content-{}.subcraft", std::process::id()));
+    subcraft_project::save_project(&path, &s.scene().mesh, s.document(), s.resources(), &Default::default()).unwrap();
+    let loaded = subcraft_project::load_project(&path).unwrap();
+    std::fs::remove_file(&path).ok();
+    assert_eq!(&loaded.document, s.document(), "the document with all new smart content round-trips exactly");
+}

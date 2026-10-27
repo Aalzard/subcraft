@@ -8,18 +8,18 @@ use subcraft_doc::{BlendMode, GeneratorKind, Layer, MaskEffectKind, ProceduralKi
 use crate::presets::{SmartMask, generator, mask, proc, rgb, triplanar, uni};
 use crate::smart::{SmartMaterial, coat, fx, fx_blend, folder, masked, smart};
 
-type V = ChannelValue;
+pub(crate) type V = ChannelValue;
 
-fn v(r: f32, g: f32, b: f32) -> V { ChannelValue::rgb(r, g, b) }
-fn s(x: f32) -> V { ChannelValue::scalar(x) }
+pub(crate) fn v(r: f32, g: f32, b: f32) -> V { ChannelValue::rgb(r, g, b) }
+pub(crate) fn s(x: f32) -> V { ChannelValue::scalar(x) }
 
 /// A fill layer with these channel sources.
-fn mat(ts: &TextureSet, name: &str, channels: Vec<(subcraft_core::ChannelKind, subcraft_doc::FillSource)>, projection: Projection) -> Layer {
+pub(crate) fn mat(ts: &TextureSet, name: &str, channels: Vec<(subcraft_core::ChannelKind, subcraft_doc::FillSource)>, projection: Projection) -> Layer {
     crate::presets::preset(name, "", channels, projection).build(ts)
 }
 
 /// A procedural mask fill: `contrast` / `balance` shape it, projected in 3D so it ignores UV seams.
-fn pattern(kind: ProceduralKind, scale: f32, seed: u32, balance: f32, contrast: f32) -> MaskEffectKind {
+pub(crate) fn pattern(kind: ProceduralKind, scale: f32, seed: u32, balance: f32, contrast: f32) -> MaskEffectKind {
     MaskEffectKind::Fill {
         value: 1.0,
         procedural: Some(ProceduralParams { scale, seed, balance, contrast, ..ProceduralParams::new(kind) }),
@@ -27,12 +27,12 @@ fn pattern(kind: ProceduralKind, scale: f32, seed: u32, balance: f32, contrast: 
     }
 }
 
-fn all_white() -> MaskEffectKind {
+pub(crate) fn all_white() -> MaskEffectKind {
     MaskEffectKind::Fill { value: 1.0, procedural: None, projection: Projection::default() }
 }
 
 /// Wear on edges: legacy threshold on baked curvature (no natural spread), so it stays a thin chip line.
-fn edges(level: f32, softness: f32, noise: f32) -> MaskEffectKind {
+pub(crate) fn edges(level: f32, softness: f32, noise: f32) -> MaskEffectKind {
     let mut g = match generator(GeneratorKind::Edges, level, softness, noise, false) {
         MaskEffectKind::Generator(g) => g,
         _ => unreachable!(),
@@ -41,8 +41,8 @@ fn edges(level: f32, softness: f32, noise: f32) -> MaskEffectKind {
     MaskEffectKind::Generator(g)
 }
 
-fn cavity(level: f32, softness: f32, noise: f32) -> MaskEffectKind { generator(GeneratorKind::Cavity, level, softness, noise, false) }
-fn top(level: f32, softness: f32, noise: f32) -> MaskEffectKind { generator(GeneratorKind::Directional, level, softness, noise, false) }
+pub(crate) fn cavity(level: f32, softness: f32, noise: f32) -> MaskEffectKind { generator(GeneratorKind::Cavity, level, softness, noise, false) }
+pub(crate) fn top(level: f32, softness: f32, noise: f32) -> MaskEffectKind { generator(GeneratorKind::Directional, level, softness, noise, false) }
 
 // ----- smart materials -----------------------------------------------------------------------
 

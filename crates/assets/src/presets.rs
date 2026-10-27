@@ -182,5 +182,6 @@ pub fn smart_masks() -> Vec<SmartMask> {
     ]
     .into_iter()
     .chain(crate::smart_more::smart_masks())
+    .chain(crate::smart_extra::smart_masks())
     .collect()
 }
