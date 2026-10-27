@@ -9,6 +9,7 @@ pub mod environment;
 pub mod presets;
 pub mod smart;
 mod smart_more;
+mod smart_extra;
 pub mod texture_maps;
 pub mod user_library;
 
@@ -16,6 +17,7 @@ pub use alphas::BrushAlpha;
 pub use environment::{EmbeddedHdri, Environment, EnvironmentSource, HdriLevel, PrefilteredHdri, ProceduralEnv};
 pub use presets::{MaterialPreset, SmartMask};
 pub use smart::SmartMaterial;
+pub use smart_extra::{AssetInfo, smart_mask_info, smart_material_info};
 pub use user_library::{UserAssetKind, UserLibrary};
 
 /// Everything the shelf offers.

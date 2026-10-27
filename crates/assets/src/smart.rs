@@ -170,5 +170,6 @@ pub fn smart_materials() -> Vec<SmartMaterial> {
     ]
     .into_iter()
     .chain(crate::smart_more::smart_materials())
+    .chain(crate::smart_extra::smart_materials())
     .collect()
 }
