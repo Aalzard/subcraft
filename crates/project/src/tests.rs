@@ -560,3 +560,9 @@ fn histogram_filters_have_stable_json() {
     assert_eq!(serde_json::to_string(&Filter::HistogramScan {position:0.5,contrast:0.25,invert:true}).unwrap(),r#"{"kind":"histogram_scan","position":0.5,"contrast":0.25,"invert":true}"#);
     assert_eq!(serde_json::to_string(&Filter::HistogramRange {position:0.5,range:0.5,softness:0.0,invert:false}).unwrap(),r#"{"kind":"histogram_range","position":0.5,"range":0.5,"softness":0.0,"invert":false}"#);
 }
+
+#[test]
+fn median_filter_has_stable_json() {
+    use subcraft_doc::Filter;
+    assert_eq!(serde_json::to_string(&Filter::Median {radius:3.0}).unwrap(),r#"{"kind":"median","radius":3.0}"#);
+}

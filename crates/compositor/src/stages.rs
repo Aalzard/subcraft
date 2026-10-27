@@ -129,6 +129,10 @@ enum Node<'a> {
         taps: Arc<Vec<[f32; 3]>>,
         support: u32,
     },
+    Median {
+        input: usize,
+        radius: usize,
+    },
     Contour {
         input: usize,
         filter: Filter,
@@ -148,6 +152,7 @@ impl Node<'_> {
             | Self::ContentEffect { input, .. }
             | Self::Gaussian { input, .. }
             | Self::Contour { input, .. }
+            | Self::Median { input, .. }
             | Self::Directional { input, .. } => Some(*input),
             Self::Layer { below, .. } => Some(*below),
             _ => None,
@@ -201,6 +206,7 @@ impl<'a> Graph<'a> {
             Node::Paint(image, _) | Node::MaskBase(image) => image.allocated_tiles() == 0,
             Node::Gaussian { input, .. }
             | Node::Directional { input, .. }
+            | Node::Median { input, .. }
             | Node::Contour { input, .. } => self.uniform[*input],
             Node::ContentEffect {
                 input,
@@ -265,6 +271,10 @@ impl<'a> Graph<'a> {
             )
         {
             return Some(input);
+        }
+        if matches!(filter, Filter::Median { .. }) {
+            let radius = subcraft_materials::filter::median::window_radius(radius * self.radius_scale);
+            return Some(if radius == 0 { input } else { self.push(Node::Median { input, radius }) });
         }
         if let Filter::DirectionalBlur { angle_deg, .. } = filter {
             let radius = radius * self.radius_scale;
@@ -668,6 +678,51 @@ impl<'a> Graph<'a> {
                 }
                 out
             }
+            Node::Median { input, radius } => {
+                let r = *radius as u32;
+                let source = self.get(*input, tile);
+                if self.uniform[*input] {
+                    return source.as_ref().clone();
+                }
+                let grid = Neighborhood::new(self, *input, &geo, r);
+                let res = self.ctx.geometry.resolution;
+                let x0 = geo.x0.saturating_sub(r);
+                let y0 = geo.y0.saturating_sub(r);
+                let x1 = (geo.x0 + TILE_SIZE + r).min(res);
+                let y1 = (geo.y0 + TILE_SIZE + r).min(res);
+                let (width, height) = ((x1 - x0) as usize, (y1 - y0) as usize);
+                let rect: Vec<[f32; 3]> = (y0..y1)
+                    .flat_map(|y| (x0..x1).map(move |x| (x, y)))
+                    .map(|(x, y)| {
+                        let p = grid.pixel(x, y);
+                        [p[0], p[1], p[2]]
+                    })
+                    .collect();
+                let (tw, th) = (
+                    (res - geo.x0).min(TILE_SIZE) as usize,
+                    (res - geo.y0).min(TILE_SIZE) as usize,
+                );
+                let med = subcraft_materials::filter::median::median_rect(
+                    &rect,
+                    width,
+                    height,
+                    (geo.x0 - x0) as usize,
+                    (geo.y0 - y0) as usize,
+                    tw,
+                    th,
+                    *radius,
+                );
+                let mut out = source.as_ref().clone();
+                for (i, p) in out.iter_mut().enumerate() {
+                    let (x, y) = geo.texel_xy(i);
+                    if x >= res || y >= res {
+                        continue;
+                    }
+                    let m = med[(y - geo.y0) as usize * tw + (x - geo.x0) as usize];
+                    p[..3].copy_from_slice(&m);
+                }
+                out
+            }
             Node::Directional {
                 input,
                 taps,
@@ -829,7 +884,7 @@ fn spatial_value(
     kind: ChannelKind,
 ) -> [f32; 4] {
     match filter {
-        Filter::Bevel { .. } | Filter::MaskOutline { .. } => blurred,
+        Filter::Bevel { .. } | Filter::MaskOutline { .. } | Filter::Median { .. } => blurred,
         Filter::Blur { radius: 0.0 }
         | Filter::Sharpen { radius: 0.0, .. }
         | Filter::Sharpen { amount: 0.0, .. }

@@ -42,6 +42,10 @@ pub fn editor(ui: &mut Ui, filter: &mut Filter, channel: Option<ChannelKind>) ->
             });
             ui.weak(if channel.is_some_and(|c| c.is_color()) { "Looked up by luminance / Gray keeps only brightness" } else { "Looked up by value / result is its brightness" });
         }
+        Filter::Median { radius } => {
+            changed |= slider_row(ui, "Radius", egui::Slider::new(radius, 0.0..=subcraft_doc::MAX_MEDIAN_RADIUS).integer().suffix(" px")).changed();
+            ui.weak("Exact median over the square window / removes speckle, keeps edges");
+        }
         Filter::HistogramScan { position, contrast, invert } => {
             changed |= slider_row(ui, "Position", egui::Slider::new(position, lower..=1.0)).changed();
             changed |= slider_row(ui, "Contrast", egui::Slider::new(contrast, 0.0..=1.0)).changed();
