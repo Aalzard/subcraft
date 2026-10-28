@@ -38,6 +38,7 @@ sha2 = "0.10"
 semver = "1"
 sysinfo = { version = "0.39", default-features = false, features = ["system"] }
 zip.workspace = true
+rayon.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55"
@@ -47,5 +48,4 @@ tar = "0.4"
 flate2 = "1"
 
 [dev-dependencies]
-rayon.workspace = true
 mimalloc.workspace = true

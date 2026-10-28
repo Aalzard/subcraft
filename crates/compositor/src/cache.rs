@@ -81,24 +81,8 @@ impl CompositeCache {
             && self.last.as_ref().is_some_and(|l| l.id == ts.id && l.channels == ts.channels);
         let dirty = match (&self.last, reusable) {
             (Some(last), true) if last.albedo_filter != ts.albedo_filter => Dirty::All,
-            (Some(last), true) => diff_lists(&last.layers, &ts.layers),
+            (Some(last), true) => diff_lists(&last.layers, &ts.layers, ts.resolution),
             _ => Dirty::All,
-        };
-        let dirty = match dirty {
-            Dirty::Tiles(set) if !set.is_empty() => {
-                let radius = crate::stages::halo(&ts.layers).max(self.last.as_ref().map_or(0,|last|crate::stages::halo(&last.layers)));
-                let n = ts.resolution.div_ceil(subcraft_image::TILE_SIZE) as usize;
-                let halo = radius.div_ceil(subcraft_image::TILE_SIZE).min(n as u32) as usize;
-                let mut expanded = BTreeSet::new();
-                for tile in set {
-                    let (x,y)=(tile%n,tile/n);
-                    for yy in y.saturating_sub(halo)..=(y+halo).min(n-1) {
-                        for xx in x.saturating_sub(halo)..=(x+halo).min(n-1) {expanded.insert(yy*n+xx);}
-                    }
-                }
-                Dirty::Tiles(expanded)
-            }
-            other => other,
         };
         if !matches!(&dirty,Dirty::Tiles(set) if set.is_empty()) { self.stages.clear(); }
         let composite = match (&mut self.composite, reusable) {
@@ -176,41 +160,82 @@ impl CompositeCache {
     }
 }
 
-fn diff_lists(old: &[Arc<Layer>], new: &[Arc<Layer>]) -> Dirty {
+fn diff_lists(old: &[Arc<Layer>], new: &[Arc<Layer>], resolution: u32) -> Dirty {
     let mut tiles = BTreeSet::new();
-    if collect_list(old, new, &mut tiles) { Dirty::Tiles(tiles) } else { Dirty::All }
+    let n = resolution.div_ceil(subcraft_image::TILE_SIZE) as usize;
+    if collect_list(old, new, &mut tiles, n, 0) { Dirty::Tiles(tiles) } else { Dirty::All }
 }
 
-/// Adds raster-changed tiles to `out`; returns false if the change is not raster-only.
-fn collect_list(old: &[Arc<Layer>], new: &[Arc<Layer>], out: &mut BTreeSet<usize>) -> bool {
+/// Add the tiles within `radius` texels of `tiles` to `out`.
+fn expand_into(tiles: &BTreeSet<usize>, radius: u32, n: usize, out: &mut BTreeSet<usize>) {
+    let halo = radius.div_ceil(subcraft_image::TILE_SIZE).min(n as u32) as usize;
+    if halo == 0 {
+        out.extend(tiles);
+        return;
+    }
+    for &tile in tiles {
+        let (x, y) = (tile % n, tile / n);
+        for yy in y.saturating_sub(halo)..=(y + halo).min(n - 1) {
+            for xx in x.saturating_sub(halo)..=(x + halo).min(n - 1) {
+                out.insert(yy * n + xx);
+            }
+        }
+    }
+}
+
+/// Adds raster-changed tiles (grown by the neighborhood filters that carry the change on) to
+/// `out`; returns false if the change is not raster-only.
+///
+/// A changed texel of layer L reaches the output through L's own filters, those of its parent
+/// folders, and those inside folders above it that let the accumulation pass through (their
+/// filters see everything below). Blending itself is per texel and filters of other layers act
+/// on those layers' own content, so they never spread L's change. `inherited` is the sum of the
+/// parent-side supports, in texels.
+fn collect_list(old: &[Arc<Layer>], new: &[Arc<Layer>], out: &mut BTreeSet<usize>, n: usize, inherited: u32) -> bool {
     if old.len() != new.len() {
         return false;
     }
-    for (a, b) in old.iter().zip(new) {
+    // Support of the folders above each layer (conservatively every visible one).
+    let mut above = vec![0u32; new.len()];
+    let mut running = 0u32;
+    for (i, l) in new.iter().enumerate().rev() {
+        above[i] = running;
+        if l.visible && l.is_folder() {
+            running = running.saturating_add(crate::stages::halo(std::slice::from_ref(l)));
+        }
+    }
+    for (i, (a, b)) in old.iter().zip(new).enumerate() {
         if Arc::ptr_eq(a, b) {
             continue;
         }
         if !a.same_parameters(b) {
             return false;
         }
+        let side = inherited.saturating_add(above[i]);
+        let mut own = BTreeSet::new();
         if let (Some(ma), Some(mb)) = (&a.mask, &b.mask) {
-            out.extend(ma.base.changed_tiles(&mb.base));
+            own.extend(ma.base.changed_tiles(&mb.base));
             // Same parameters, so the same effect list: only paint effects differ, in texels.
             for (ea, eb) in ma.effects.iter().zip(&mb.effects).filter(|(x, y)| !Arc::ptr_eq(x, y)) {
                 if let (MaskEffectKind::Paint { image: ia }, MaskEffectKind::Paint { image: ib }) = (&ea.kind, &eb.kind) {
-                    out.extend(ia.changed_tiles(ib));
+                    own.extend(ia.changed_tiles(ib));
                 }
             }
         }
         for (ea, eb) in a.content_effects.iter().zip(&b.content_effects).filter(|(x, y)| !Arc::ptr_eq(x, y)) {
             if let (ContentEffectKind::Paint { channels: ca }, ContentEffectKind::Paint { channels: cb }) = (&ea.kind, &eb.kind) {
-                changed_paint_tiles(ca, cb, out);
+                changed_paint_tiles(ca, cb, &mut own);
             }
         }
-        match (&a.content, &b.content) {
-            (LayerContent::Paint(pa), LayerContent::Paint(pb)) => changed_paint_tiles(&pa.channels, &pb.channels, out),
-            (LayerContent::Group(ga), LayerContent::Group(gb)) if !collect_list(&ga.children, &gb.children, out) => return false,
-            _ => {}
+        if let (LayerContent::Paint(pa), LayerContent::Paint(pb)) = (&a.content, &b.content) {
+            changed_paint_tiles(&pa.channels, &pb.channels, &mut own);
+        }
+        expand_into(&own, side.saturating_add(crate::stages::own_halo(b)), n, out);
+        if let (LayerContent::Group(ga), LayerContent::Group(gb)) = (&a.content, &b.content) {
+            let inner = side.saturating_add(crate::stages::own_halo(b));
+            if !collect_list(&ga.children, &gb.children, out, n, inner) {
+                return false;
+            }
         }
     }
     true

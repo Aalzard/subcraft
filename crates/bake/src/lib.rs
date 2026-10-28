@@ -181,13 +181,23 @@ pub fn bake_streamed(
     progress.total.store(work_items, Ordering::Relaxed);
     progress.done.store(0, Ordering::Relaxed);
 
-    let details: Vec<Detail> = samples.par_iter().map(project).collect();
-    if input.high.is_some() && details.iter().all(|d| d.tri.is_none()) {
+    // Low on low: the detail is the texel itself, so it is derived on the fly instead of holding
+    // a second 48-byte record per texel (800 MB at 4096) for the whole bake.
+    let details: Option<Vec<Detail>> = input.high.map(|_| samples.par_iter().map(project).collect());
+    if details.as_ref().is_some_and(|details| details.iter().all(|d| d.tri.is_none())) {
         return Err(BakeError::NoProjection);
     }
     let elements = if wanted(MeshMapKind::Id) || wanted(MeshMapKind::Curvature) { Some(topology::mesh_elements(detail_geo.mesh)) } else { None };
     let bounds = low.bounds;
     let extent = bounds.extent().max(Vec3::splat(1e-6));
+
+    // Every map shares the covered texels, so the nearest-texel search is done once.
+    let n = (size * size) as usize;
+    let mut covered = vec![false; n];
+    for t in &samples {
+        covered[t.index as usize] = true;
+    }
+    let nearest = subcraft_image::dilate::nearest_covered(size as usize, size as usize, &covered);
 
     let mut out = BTreeMap::new();
     for &kind in &settings.maps {
@@ -196,7 +206,7 @@ pub fn bake_streamed(
         // Per-texel evaluation, chunked for cancellation and progress.
         let eval = |i: usize| -> [f32; 3] {
             let t = &samples[i];
-            let d = &details[i];
+            let d = &details.as_ref().map_or_else(|| project(t), |details| details[i]);
             match kind {
                 MeshMapKind::Normal => {
                     let n = t.normal.normalize_or(t.geometric_normal);
@@ -287,16 +297,13 @@ pub fn bake_streamed(
             values.par_extend((start..end).into_par_iter().map(eval));
             progress.done.fetch_add(end - start, Ordering::Relaxed);
         }
-        let n = (size * size) as usize;
         let neutral = kind.neutral_value();
-        let mut dense: Vec<f32> = (0..n).flat_map(|_| neutral[..comps].to_vec()).collect();
-        let mut covered = vec![false; n];
+        let mut dense: Vec<f32> = neutral[..comps].iter().copied().cycle().take(n * comps).collect();
         for (t, v) in samples.iter().zip(&values) {
             let i = t.index as usize;
             dense[i * comps..(i + 1) * comps].copy_from_slice(&v[..comps]);
-            covered[i] = true;
         }
-        dilate_infinite(size as usize, size as usize, comps, &mut dense, &covered);
+        subcraft_image::dilate::apply_nearest(comps, &mut dense, &covered, &nearest);
         let mut fill = [0.0f32; 4];
         fill[..comps].copy_from_slice(&neutral[..comps]);
         let image = TiledImage::from_dense(size, size, comps, fill, &dense);

@@ -31,7 +31,11 @@ pub(crate) struct StageCache {
 }
 impl Default for StageCache {
     fn default() -> Self {
-        Self::new(1024)
+        // Neighboring tiles of a blur or median reuse each other's inputs while they stay cached.
+        // Each thread works on a block of tiles, so a few hundred 64 KiB tiles per thread (256 MiB
+        // for 16 threads) keeps most of them; more only trades memory for a few percent.
+        let threads = rayon::current_num_threads();
+        Self::new(std::env::var("SUBCRAFT_STAGE_CACHE").ok().and_then(|v| v.parse().ok()).unwrap_or((threads * 256).clamp(1024, 8192)))
     }
 }
 impl StageCache {
@@ -153,6 +157,27 @@ enum Node<'a> {
     },
 }
 impl Node<'_> {
+    /// Profile bucket name (`SUBCRAFT_COMPOSITE_PROFILE=1`).
+    fn label(&self) -> &'static str {
+        match self {
+            Self::Constant(_) => "constant",
+            Self::Paint(..) => "paint",
+            Self::Fill(..) => "fill",
+            Self::MaskBase(_) => "mask base",
+            Self::MaskEffect { effect, .. } => match &effect.kind {
+                MaskEffectKind::Generator(_) => "mask generator",
+                MaskEffectKind::Filter(_) => "mask filter",
+                _ => "mask effect",
+            },
+            Self::ContentEffect { .. } => "content effect",
+            Self::Layer { .. } => "layer blend",
+            Self::Directional { .. } => "directional blur",
+            Self::Median { .. } => "median",
+            Self::Warp { .. } => "warp",
+            Self::Contour { .. } => "contour",
+            Self::Gaussian { .. } => "gaussian pass",
+        }
+    }
     fn primary(&self) -> Option<usize> {
         match self {
             Self::MaskEffect { input, .. }
@@ -177,7 +202,32 @@ pub(crate) struct Graph<'a> {
     ctx: EvalContext<'a>,
     albedo: subcraft_image::TextureFilter,
     cache: &'a StageCache,
+    id: u64,
+    modes: OnceLock<Vec<Mode>>,
 }
+
+/// Where a node's per-tile result lives.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Mode {
+    /// Read by neighboring tiles (blur, median, ...) or tile independent: the shared [`StageCache`].
+    Shared,
+    /// Used more than once, always for its own tile: kept until the tile that needed it is done.
+    Tile,
+    /// Used exactly once: handed straight to its consumer, never stored.
+    Once,
+}
+
+/// Results of the current tile's [`Mode::Tile`] nodes and the in-flight chain, per thread (no
+/// locks). Tagged with the graph it belongs to; cleared when a root tile is finished.
+struct Scratch {
+    graph: u64,
+    pixels: HashMap<Key, Pixels>,
+}
+thread_local! {
+    static SCRATCH: std::cell::RefCell<Scratch> = std::cell::RefCell::new(Scratch { graph: 0, pixels: HashMap::new() });
+}
+static NEXT_GRAPH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
 impl<'a> Graph<'a> {
     fn empty(
         ctx: EvalContext<'a>,
@@ -193,6 +243,8 @@ impl<'a> Graph<'a> {
             ctx,
             albedo,
             cache,
+            id: NEXT_GRAPH.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            modes: OnceLock::new(),
         }
     }
     pub(crate) fn new(ts: &'a TextureSet, ctx: EvalContext<'a>, cache: &'a StageCache) -> Self {
@@ -424,15 +476,94 @@ impl<'a> Graph<'a> {
     fn key(&self, node: usize, tile: usize) -> Key {
         (node, if self.uniform[node] { usize::MAX } else { tile })
     }
+    /// Storage class of every node, from how often and from where it is read.
+    fn modes(&self) -> &[Mode] {
+        self.modes.get_or_init(|| {
+            let n = self.nodes.len();
+            let mut uses = vec![0u32; n];
+            let mut shared = vec![false; n];
+            for &(_, root) in &self.roots {
+                uses[root] += 1;
+            }
+            for node in &self.nodes {
+                let mut read = |i: usize| uses[i] += 1;
+                match node {
+                    Node::Constant(_) | Node::Paint(..) | Node::Fill(..) | Node::MaskBase(_) => {}
+                    Node::MaskEffect { input, filtered, .. } | Node::ContentEffect { input, filtered, .. } => {
+                        read(*input);
+                        if let Some(f) = filtered {
+                            read(*f);
+                        }
+                    }
+                    Node::Layer { below, input, mask, .. } => {
+                        read(*below);
+                        read(*input);
+                        if let Some(m) = mask {
+                            read(*m);
+                        }
+                    }
+                    Node::Directional { input, .. }
+                    | Node::Median { input, .. }
+                    | Node::Warp { input, .. }
+                    | Node::Contour { input, .. }
+                    | Node::Gaussian { input, .. } => {
+                        shared[*input] = true;
+                        uses[*input] += 2;
+                    }
+                }
+            }
+            (0..n)
+                .map(|i| {
+                    if shared[i] || self.uniform[i] {
+                        Mode::Shared
+                    } else if uses[i] > 1 {
+                        Mode::Tile
+                    } else {
+                        Mode::Once
+                    }
+                })
+                .collect()
+        })
+    }
+    fn lookup(&self, node: usize, tile: usize) -> Option<Pixels> {
+        let key = self.key(node, tile);
+        if self.modes()[node] == Mode::Shared {
+            return self.cache.ready(key);
+        }
+        SCRATCH.with(|s| {
+            let s = s.borrow();
+            if s.graph == self.id { s.pixels.get(&key).cloned() } else { None }
+        })
+    }
+    fn scratch_put(&self, key: Key, value: Pixels) {
+        SCRATCH.with(|s| {
+            let mut s = s.borrow_mut();
+            if s.graph != self.id {
+                s.graph = self.id;
+                s.pixels.clear();
+            }
+            s.pixels.insert(key, value);
+        });
+    }
+    fn scratch_clear(&self) {
+        SCRATCH.with(|s| {
+            let mut s = s.borrow_mut();
+            if s.graph == self.id {
+                s.pixels.clear();
+            }
+        });
+    }
     fn get(&self, node: usize, tile: usize) -> Pixels {
-        if let Some(p) = self.cache.ready(self.key(node, tile)) {
+        if let Some(p) = self.lookup(node, tile) {
             return p;
         }
+        // Walk down the primary inputs and evaluate bottom-up, so a 40-layer stack is a loop and
+        // not 40 nested calls.
         let mut chain = Vec::new();
         let mut at = node;
         let mut held = None;
         loop {
-            if let Some(ready) = self.cache.ready(self.key(at, tile)) {
+            if let Some(ready) = self.lookup(at, tile) {
                 held = Some(ready);
                 break;
             }
@@ -443,19 +574,50 @@ impl<'a> Graph<'a> {
             }
         }
         for &id in chain.iter().rev() {
-            let cell = self.cache.cell(self.key(id, tile));
-            let result = cell
-                .get_or_init(|| Arc::new(self.compute(id, tile)))
-                .clone();
+            let key = self.key(id, tile);
+            let result = match self.modes()[id] {
+                Mode::Shared => self.cache.cell(key).get_or_init(|| Arc::new(self.compute(id, tile))).clone(),
+                Mode::Tile => {
+                    let p = Arc::new(self.compute(id, tile));
+                    self.scratch_put(key, p.clone());
+                    p
+                }
+                Mode::Once => {
+                    let p = Arc::new(self.compute(id, tile));
+                    // Only a chain link has a reader waiting in the loop; the requested node does not.
+                    if id != node {
+                        self.scratch_put(key, p.clone());
+                    }
+                    p
+                }
+            };
+            // The primary of a node used once was read by this node alone.
+            if let Some(below) = self.nodes[id].primary().filter(|&b| self.modes()[b] == Mode::Once) {
+                SCRATCH.with(|s| {
+                    let mut s = s.borrow_mut();
+                    if s.graph == self.id {
+                        s.pixels.remove(&self.key(below, tile));
+                    }
+                });
+            }
             held = Some(result);
         }
-        held.unwrap_or_else(|| {
-            self.cache
-                .ready(self.key(node, tile))
-                .expect("completed graph node")
-        })
+        held.expect("chain evaluates at least the requested node")
+    }
+    /// Entry point for a whole tile: evaluate `node`, then free what only this tile needed.
+    pub(crate) fn root(&self, node: usize, tile: usize) -> Pixels {
+        let p = self.get(node, tile);
+        self.scratch_clear();
+        p
     }
     fn compute(&self, node: usize, tile: usize) -> Vec<[f32; 4]> {
+        if !crate::profile::enabled() {
+            return self.compute_node(node, tile);
+        }
+        let label = self.nodes[node].label();
+        crate::profile::timed(label, || self.compute_node(node, tile))
+    }
+    fn compute_node(&self, node: usize, tile: usize) -> Vec<[f32; 4]> {
         let geo = self.ctx.geometry.tile(tile);
         let tc = TileContext {
             albedo_filter: self.albedo,
@@ -855,10 +1017,13 @@ impl<'a> Graph<'a> {
         }
     }
     pub(crate) fn tile(&self, tile: usize) -> Vec<(ChannelKind, Pixels)> {
-        self.roots
+        let out = self
+            .roots
             .iter()
             .map(|&(k, n)| (k, self.get(n, tile)))
-            .collect()
+            .collect();
+        self.scratch_clear();
+        out
     }
 }
 
@@ -977,6 +1142,23 @@ pub(crate) fn has_spatial(layers: &[Arc<Layer>]) -> bool {
             || matches!(&l.content,LayerContent::Group(g) if has_spatial(&g.children))
     })
 }
+/// Supports of the filters in a layer's own content and mask effects (not its children).
+pub(crate) fn own_halo(l: &Layer) -> u32 {
+    let mut sum = 0u32;
+    for e in l.content_effects.iter().filter(|e| e.visible) {
+        if let ContentEffectKind::Filter { filter, .. } = e.kind {
+            sum = sum.saturating_add(filter.support());
+        }
+    }
+    if let Some(m) = l.mask.as_ref().filter(|m| m.enabled) {
+        for e in m.effects.iter().filter(|e| e.visible) {
+            if let MaskEffectKind::Filter(f) = e.kind {
+                sum = sum.saturating_add(f.support());
+            }
+        }
+    }
+    sum
+}
 /// Conservative sum of supports along any possible dependency path, including mask domains.
 pub(crate) fn halo(layers: &[Arc<Layer>]) -> u32 {
     let mut sum = 0u32;
@@ -1016,7 +1198,7 @@ pub(crate) fn mask_preview(mask: &Mask, tc: &TileContext, scale: f32) -> Vec<f32
     graph.radius_scale = scale;
     let root = graph.mask(mask);
     graph
-        .get(root, index(tc))
+        .root(root, index(tc))
         .iter()
         .map(|v| v[0].clamp(0.0, 1.0))
         .collect()
@@ -1032,7 +1214,7 @@ pub(crate) fn content_preview(
     graph.radius_scale = scale;
     let root = graph.push(Node::Constant([0.0; 4]));
     let root = graph.layer(layer, root, kind);
-    graph.get(root, index(tc)).as_ref().clone()
+    graph.root(root, index(tc)).as_ref().clone()
 }
 
 fn uniform_fill(fill: &subcraft_doc::FillContent, kind: ChannelKind) -> bool {
@@ -1093,7 +1275,7 @@ pub(crate) fn content_preview_in_stack(
         graph.push(Node::Constant([0.0; 4]))
     };
     let root = graph.layer(layer, below, kind);
-    graph.get(root, index(tc)).as_ref().clone()
+    graph.root(root, index(tc)).as_ref().clone()
 }
 
 #[cfg(test)]

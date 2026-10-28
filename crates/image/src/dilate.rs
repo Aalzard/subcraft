@@ -58,14 +58,15 @@ pub fn nearest_covered(width: usize, height: usize, covered: &[bool]) -> Vec<u32
 
 /// Copy each uncovered texel's value from its nearest covered texel (see [`nearest_covered`]).
 pub fn apply_nearest(comps: usize, data: &mut [f32], covered: &[bool], nearest: &[u32]) {
-    for i in 0..covered.len() {
+    use rayon::prelude::*;
+    // Covered texels are never written, so reading their values from a snapshot is exact.
+    let src = data.to_vec();
+    data.par_chunks_mut(comps).enumerate().for_each(|(i, dst)| {
         if !covered[i] && nearest[i] != u32::MAX {
             let s = nearest[i] as usize;
-            for c in 0..comps {
-                data[i * comps + c] = data[s * comps + c];
-            }
+            dst.copy_from_slice(&src[s * comps..(s + 1) * comps]);
         }
-    }
+    });
 }
 
 /// Fill every uncovered texel with the value of the nearest covered texel (jump flooding,
