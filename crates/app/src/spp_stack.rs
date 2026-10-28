@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::io::{Read, Seek};
 use std::sync::Arc;
 
-use subcraft_core::{ChannelKind, ChannelValue, ResourceId};
+use subcraft_core::{ChannelKind, ChannelValue, EffectId, LayerId, ResourceId};
 use subcraft_doc::{
     BlendMode, ChannelBlend, FillChannel, FillSource, Filter, Generator, GeneratorKind, Layer, LayerContent, Levels, Mask, MaskEffect, MaskEffectKind, ProceduralKind, ProceduralParams,
     Projection, ProjectionMode, Resource, ResourceKind, ResourceStore, TextureSet,
@@ -20,6 +20,9 @@ use subcraft_mesh::spp::document::{ActionKind, GraphRef, LayerInfo, LayerKind, L
 use subcraft_mesh::spp::SppFile;
 
 use crate::spp_import::channel_kind;
+use crate::spp_select::{self, Picker, RasterOp};
+use subcraft_image::TiledImage;
+use subcraft_materials::TextureSetGeometry;
 
 /// What the rebuild did, for the import notes.
 #[derive(Default, Debug, Clone)]
@@ -32,8 +35,10 @@ pub struct StackStats {
     pub approximate: usize,
     /// Reasons something was not reconstructed, with counts (strokes, decals, unmapped graphs...).
     pub skipped: BTreeMap<String, usize>,
-    /// Blend mode ids met (all treated as Normal).
+    /// Blend mode ids met that have no SubCraft mode yet (treated as the layer's default).
     pub blend_ids: BTreeMap<i32, usize>,
+    /// Time spent per rebuild step (strokes, polygon fills, anchors...).
+    pub timings: BTreeMap<&'static str, std::time::Duration>,
 }
 
 impl StackStats {
@@ -50,16 +55,105 @@ pub struct Rebuilder<'a, R: Read + Seek> {
     images: HashMap<String, Option<ResourceId>>,
     /// Allow reading embedded images out of the project's Substance archives.
     pub extract_embedded: bool,
+    /// Mesh access for replaying polygon fills; without it they are skipped.
+    pub picker: Option<&'a Picker>,
+    /// The set's geometry at its resolution (texel to triangle), with `picker`.
+    pub geometry: Option<Arc<TextureSetGeometry>>,
+    /// Painter blending mode id to SubCraft mode ([`painter_blend`] by default; experiments override it).
+    pub blend_map: BTreeMap<i32, BlendMode>,
+    /// Mask rasters to paint: (layer, its Paint effect, polygon fills and strokes in order).
+    rasters: Vec<(LayerId, EffectId, Vec<RasterOp>)>,
+    /// Baked mesh maps, for evaluating anchored masks (references are baked into rasters).
+    pub mesh_maps: Option<subcraft_materials::MeshMaps>,
+    /// Anchor uid -> (layer, number of its mask effects at the anchor).
+    anchors: HashMap<i64, (LayerId, usize)>,
+    /// Mask effects standing for an anchor reference: (layer, effect, anchor uid).
+    references: Vec<(LayerId, EffectId, i64)>,
 }
 
 impl<'a, R: Read + Seek> Rebuilder<'a, R> {
     pub fn new(spp: &'a mut SppFile<R>, ts: &'a TextureSet, resources: &'a mut ResourceStore) -> Self {
-        Self { spp, ts, resources, stats: StackStats::default(), images: HashMap::new(), extract_embedded: true }
+        Self { spp, ts, resources, stats: StackStats::default(), images: HashMap::new(), extract_embedded: true, picker: None, geometry: None, blend_map: (0..64).filter_map(|id| Some((id, painter_blend(id)?))).collect(), rasters: Vec::new(), mesh_maps: None, anchors: HashMap::new(), references: Vec::new() }
     }
 
     /// Layers bottom to top.
     pub fn rebuild(&mut self, infos: &[LayerInfo]) -> Vec<Layer> {
-        infos.iter().map(|i| self.layer(i)).collect()
+        let mut layers: Vec<Layer> = infos.iter().map(|i| self.layer(i)).collect();
+        self.paint_rasters(&mut layers);
+        self.resolve_references(&mut layers);
+        layers
+    }
+
+    /// Paint the polygon fills and strokes collected for the masks, one raster per thread.
+    fn paint_rasters(&mut self, layers: &mut [Layer]) {
+        use rayon::prelude::*;
+        let jobs = std::mem::take(&mut self.rasters);
+        let (Some(picker), Some(geometry)) = (self.picker, self.geometry.clone()) else { return };
+        let t = std::time::Instant::now();
+        let images: Vec<TiledImage> = jobs.par_iter().map(|(_, _, ops)| spp_select::paint_raster(picker, geometry.clone(), ops)).collect();
+        for ((layer_id, effect_id, _), image) in jobs.into_iter().zip(images) {
+            if let Some(m) = find_layer_mut(layers, layer_id).and_then(|l| l.mask.as_mut()) {
+                for e in &mut m.effects {
+                    if e.id == effect_id {
+                        Arc::make_mut(e).kind = MaskEffectKind::Paint { image: image.clone() };
+                    }
+                }
+            }
+        }
+        *self.stats.timings.entry("strokes and polygon fills").or_default() += t.elapsed();
+    }
+
+    /// Fill each anchor reference with the anchored layer's mask as it is at the anchor (evaluated
+    /// once and stored as a raster: the link itself is not live). References inside anchored masks
+    /// are resolved first; a reference whose anchor is missing stays empty.
+    fn resolve_references(&mut self, layers: &mut [Layer]) {
+        let (Some(geometry), Some(maps)) = (self.geometry.clone(), self.mesh_maps.clone()) else {
+            for _ in 0..self.references.len() {
+                self.stats.skip("anchor references in masks");
+            }
+            return;
+        };
+        let t = std::time::Instant::now();
+        let mut todo = std::mem::take(&mut self.references);
+        for _round in 0..8 {
+            let unresolved: Vec<EffectId> = todo.iter().map(|r| r.1).collect();
+            let mut left = Vec::new();
+            for (layer_id, effect_id, anchor) in todo {
+                let Some(&(anchor_layer, count)) = self.anchors.get(&anchor) else {
+                    self.stats.skip("anchor references to a missing anchor");
+                    continue;
+                };
+                let Some(mut mask) = find_layer(layers, anchor_layer).and_then(|l| l.mask.clone()) else {
+                    self.stats.skip("anchor references to a missing anchor");
+                    continue;
+                };
+                mask.effects.truncate(count);
+                if mask.effects.iter().any(|e| unresolved.contains(&e.id) && e.id != effect_id) {
+                    left.push((layer_id, effect_id, anchor));
+                    continue;
+                }
+                mask.enabled = true;
+                let image = eval_mask_image(&mask, self.ts, &geometry, self.resources, &maps);
+                if let Some(l) = find_layer_mut(layers, layer_id) {
+                    if let Some(m) = l.mask.as_mut() {
+                        for e in &mut m.effects {
+                            if e.id == effect_id {
+                                Arc::make_mut(e).kind = MaskEffectKind::Paint { image: image.clone() };
+                            }
+                        }
+                    }
+                }
+                self.stats.exact += 1;
+            }
+            if left.is_empty() {
+                *self.stats.timings.entry("anchor references").or_default() += t.elapsed();
+                return;
+            }
+            todo = left;
+        }
+        for _ in &todo {
+            self.stats.skip("anchor references in a cycle");
+        }
     }
 
     fn layer(&mut self, info: &LayerInfo) -> Layer {
@@ -86,17 +180,22 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
         layer
     }
 
-    /// Opacity per channel from the stored blending; unknown mode ids are counted and treated as Normal.
+    /// Mode and opacity per channel from the stored blending; unknown mode ids are counted and keep
+    /// the layer's default mode.
     fn apply_opacity(&mut self, layer: &mut Layer, info: &LayerInfo) {
-        for (flags, mode, opacity) in &info.blends {
-            if *mode != 25 {
-                *self.stats.blend_ids.entry(*mode).or_default() += 1;
+        for (flags, id, opacity) in &info.blends {
+            let mode = self.blend_map.get(id).copied();
+            if mode.is_none() {
+                *self.stats.blend_ids.entry(*id).or_default() += 1;
             }
             for c in &self.ts.channels {
                 if channel_bit(c.kind).is_some_and(|b| flags & b != 0) {
                     if let Some(blend) = layer.blend.get_mut(&c.kind) {
                         if blend.mode != BlendMode::Disable {
                             blend.opacity = *opacity;
+                            if let Some(m) = mode.filter(|m| *m != BlendMode::Normal || c.kind != ChannelKind::Normal) {
+                                blend.mode = m;
+                            }
                         }
                     }
                 }
@@ -110,12 +209,12 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
         for a in &info.content {
             match &a.kind {
                 ActionKind::Fill { .. } => {}
-                ActionKind::Paint { strokes } => self.stats.skip(format!("paint strokes on layer content ({strokes} in one action)")),
+                ActionKind::Paint { strokes, .. } => self.stats.skip(format!("paint strokes on layer content ({} in one action)", strokes.len())),
                 ActionKind::Eraser { .. } => self.stats.skip("eraser strokes on layer content"),
                 ActionKind::Filter { graph } => self.stats.skip(format!("filter layer '{}'", graph.name())),
                 ActionKind::Levels(_) => self.stats.skip("levels in layer content"),
                 ActionKind::Decal { .. } => self.stats.skip("decals"),
-                ActionKind::Anchor => self.stats.skip("anchor points"),
+                ActionKind::Anchor { .. } => self.stats.skip("anchor points"),
                 ActionKind::Other(c) => self.stats.skip(format!("unknown action {c}")),
             }
         }
@@ -149,6 +248,10 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
                             }
                             SourceInfo::Procedural { graph, .. } => {
                                 self.stats.skip(format!("procedural material '{}'", graph.name()));
+                                None
+                            }
+                            SourceInfo::Reference { .. } => {
+                                self.stats.skip("anchor references in layer content");
                                 None
                             }
                         };
@@ -187,9 +290,27 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
         let mut mask = Mask::new(res, info.mask_initial_white);
         mask.enabled = info.mask_enabled;
         let mut mapped = 0;
+        // Polygon fills, strokes and erasers of one action group are painted into one raster.
+        // They are painted later, all rasters in parallel (see `paint_rasters`).
+        let mut pending: Option<(usize, Vec<RasterOp>, (BlendMode, f32))> = None;
+        let layer_id = layer.id;
+        let flush = |pending: &mut Option<(usize, Vec<RasterOp>, (BlendMode, f32))>, mask: &mut Mask, jobs: &mut Vec<(LayerId, EffectId, Vec<RasterOp>)>| {
+            if let Some((_, ops, (mode, opacity))) = pending.take() {
+                let mut effect = MaskEffect::new(MaskEffectKind::Paint { image: TiledImage::new(res, res, 2, [0.0; 4]) });
+                effect.name = "Painted (Painter strokes and polygon fills)".into();
+                effect.blend = mode;
+                effect.opacity = opacity;
+                jobs.push((layer_id, effect.id, ops));
+                mask.effects.push(Arc::new(effect));
+            }
+        };
         for action in &info.mask {
             if !action.enabled {
                 continue;
+            }
+            let raster_action = matches!(action.kind, ActionKind::Decal { .. } | ActionKind::Paint { .. } | ActionKind::Eraser { .. });
+            if !raster_action || pending.as_ref().is_some_and(|p| p.0 != action.group) {
+                flush(&mut pending, &mut mask, &mut self.rasters);
             }
             match &action.kind {
                 ActionKind::Fill { sources, .. } => {
@@ -209,6 +330,13 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
                                 }
                             }
                             SourceInfo::Bitmap { .. } => self.stats.skip("bitmap in a mask"),
+                            SourceInfo::Reference { anchor, .. } => {
+                                let mut effect = MaskEffect::new(MaskEffectKind::Paint { image: TiledImage::new(res, res, 2, [0.0; 4]) });
+                                effect.name = "Anchor reference".into();
+                                self.references.push((layer.id, effect.id, *anchor));
+                                mask.effects.push(Arc::new(effect));
+                                mapped += 1;
+                            }
                         }
                     }
                 }
@@ -225,19 +353,43 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
                     }
                     _ => self.stats.skip(format!("mask filter '{}'", graph.name())),
                 },
+                ActionKind::Paint { strokes, brush: Some(brush), opacity } | ActionKind::Eraser { strokes, brush: Some(brush), opacity } if self.picker.is_some() && self.geometry.is_some() => {
+                    let erase = matches!(action.kind, ActionKind::Eraser { .. });
+                    let blend = self.group_blend(action);
+                    let op = RasterOp::Strokes { strokes: strokes.clone(), brush: brush.clone(), opacity: *opacity, erase };
+                    pending.get_or_insert_with(|| (action.group, Vec::new(), blend)).1.push(op);
+                    self.stats.approximate += 1;
+                    mapped += 1;
+                }
                 ActionKind::Paint { .. } => self.stats.skip("painted mask strokes"),
                 ActionKind::Eraser { .. } => self.stats.skip("erased mask strokes"),
-                ActionKind::Decal { .. } => self.stats.skip("mask decals"),
-                ActionKind::Anchor => self.stats.skip("anchor points"),
+                ActionKind::Decal { hits } => match (self.picker, self.geometry.as_ref()) {
+                    (Some(_), Some(_)) => {
+                        let blend = self.group_blend(action);
+                        pending.get_or_insert_with(|| (action.group, Vec::new(), blend)).1.push(RasterOp::Fill(hits.clone()));
+                        self.stats.exact += 1;
+                        mapped += 1;
+                    }
+                    _ => self.stats.skip("mask polygon fills"),
+                },
+                ActionKind::Anchor { uid } => {
+                    self.anchors.insert(*uid, (layer.id, mask.effects.len()));
+                }
                 ActionKind::Other(c) => self.stats.skip(format!("mask action {c}")),
             }
         }
+        flush(&mut pending, &mut mask, &mut self.rasters);
         if mapped == 0 {
             // Nothing could be rebuilt: a white mask would show the layer everywhere, a black one never.
             self.stats.skip("masks with no reconstructible effect (mask left off)");
             return;
         }
         layer.mask = Some(mask);
+    }
+
+    /// Blend mode and opacity of the action group around a mask action (Normal when unknown).
+    fn group_blend(&self, action: &subcraft_mesh::spp::document::ActionInfo) -> (BlendMode, f32) {
+        action.blends.first().map_or((BlendMode::Normal, 1.0), |(_, id, opacity)| (self.blend_map.get(id).copied().unwrap_or(BlendMode::Normal), *opacity))
     }
 
     /// SubCraft mask effects for a Painter procedural graph, by name; `None` when there is no counterpart.
@@ -311,6 +463,78 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
         self.images.insert(url.to_string(), id);
         id
     }
+}
+
+/// SubCraft blend mode for a Painter blending mode id; `None` for ids not identified yet.
+pub fn painter_blend(id: i32) -> Option<BlendMode> {
+    match id {
+        // Found by search against Painter's flattened result (DBAL-A2, see docs/spp-research.md).
+        4 => Some(BlendMode::Multiply),
+        25 => Some(BlendMode::Normal),
+        _ => None,
+    }
+}
+
+
+fn find_layer(layers: &[Layer], id: LayerId) -> Option<&Layer> {
+    layers.iter().find_map(|l| find_in(l, id))
+}
+
+fn find_in(l: &Layer, id: LayerId) -> Option<&Layer> {
+    if l.id == id {
+        return Some(l);
+    }
+    match &l.content {
+        LayerContent::Group(g) => g.children.iter().find_map(|c| find_in(c, id)),
+        _ => None,
+    }
+}
+
+fn find_layer_mut(layers: &mut [Layer], id: LayerId) -> Option<&mut Layer> {
+    layers.iter_mut().find_map(|l| find_in_mut(l, id))
+}
+
+fn find_in_mut(l: &mut Layer, id: LayerId) -> Option<&mut Layer> {
+    if l.id == id {
+        return Some(l);
+    }
+    match &mut l.content {
+        LayerContent::Group(g) => g.children.iter_mut().find_map(|c| find_in_mut(Arc::make_mut(c), id)),
+        _ => None,
+    }
+}
+
+/// A mask evaluated on its own as a (value, alpha = 1) raster at the set's resolution.
+fn eval_mask_image(mask: &Mask, view: &TextureSet, geometry: &TextureSetGeometry, resources: &ResourceStore, maps: &subcraft_materials::MeshMaps) -> TiledImage {
+    let mut set = TextureSet::new("anchor", view.material_slot, view.resolution);
+    set.channels.retain(|c| c.kind == ChannelKind::Roughness);
+    let tc = set.clone();
+    let uniform = |name: &str, v: f32| {
+        let mut l = Layer::new_fill(name, &tc);
+        if let LayerContent::Fill(f) = &mut l.content {
+            f.channels.insert(ChannelKind::Roughness, FillChannel::new(FillSource::uniform(ChannelValue::scalar(v))));
+        }
+        l
+    };
+    let low = uniform("0", 0.0);
+    let mut high = uniform("1", 1.0);
+    high.mask = Some(mask.clone());
+    set.layers = vec![Arc::new(low), Arc::new(high)];
+    let c = subcraft_compositor::composite_full(&set, &subcraft_compositor::EvalContext { geometry, resources, mesh_maps: maps });
+    let r = c.channel(ChannelKind::Roughness).expect("roughness");
+    let res = view.resolution;
+    let mut out = TiledImage::new(res, res, 2, [0.0, 1.0, 0.0, 0.0]);
+    let mut buf = vec![0.0f32; subcraft_image::TILE_TEXELS * r.comps()];
+    let mut dst = vec![0.0f32; subcraft_image::TILE_TEXELS * 2];
+    for t in 0..r.tile_count() {
+        r.read_tile(t, &mut buf);
+        for i in 0..subcraft_image::TILE_TEXELS {
+            dst[i * 2] = buf[i * r.comps()];
+            dst[i * 2 + 1] = 1.0;
+        }
+        out.write_tile(t, &dst);
+    }
+    out
 }
 
 fn channel_bit(kind: ChannelKind) -> Option<u64> {

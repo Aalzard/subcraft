@@ -772,3 +772,40 @@ fn scatter_particles_are_mirrored_by_symmetry() {
     assert!(wr > 30.0, "painted ({wr})");
     assert!((wl - wr).abs() / wr < 0.05, "{wl} vs {wr}");
 }
+
+/// A recorded stroke fed in one batch paints what feeding it point by point paints.
+#[test]
+fn batched_points_match_point_by_point() {
+    let res = 128;
+    let cam = Camera::orthographic(Vec3::new(0.0, 0.0, 5.0), Vec3::ZERO, Vec3::Y, 1.5, 0.1, 100.0, [256, 256]);
+    let settings = BrushSettings { size: 8.0, hardness: 0.2, flow: 0.6, ..BrushSettings::default() };
+    let points: Vec<Vec2> = (0..60).map(|i| Vec2::new(60.0 + i as f32 * 2.3, 100.0 + (i as f32 * 0.2).sin() * 30.0)).collect();
+    let run = |batched: bool| {
+        let mut sc = Scene::new(primitives::cube(2.0), res);
+        let mut s = Stroke::begin(&sc.ts, sc.layer, PaintTarget::Content, StrokeMode::Paint, settings, StrokeOptions::default(), &red()).unwrap();
+        let mut ts = sc.ts.clone();
+        if batched {
+            s.add_points(&mut ts, &sc.ctx(&cam), &points).unwrap();
+        } else {
+            for p in &points {
+                s.add_point(&mut ts, &sc.ctx(&cam), *p).unwrap();
+            }
+        }
+        sc.ts = ts;
+        (s.stamp_count(), sc.image(ChannelKind::BaseColor).unwrap())
+    };
+    let (na, a) = run(false);
+    let (nb, b) = run(true);
+    assert_eq!(na, nb);
+    assert!(na > 10, "the stroke must paint: {na} stamps");
+    let mut worst: f32 = 0.0;
+    for y in 0..res {
+        for x in 0..res {
+            let (pa, pb) = (a.get(x, y), b.get(x, y));
+            for c in 0..4 {
+                worst = worst.max((pa[c] - pb[c]).abs());
+            }
+        }
+    }
+    assert!(worst < 1e-3, "batched differs by {worst}");
+}

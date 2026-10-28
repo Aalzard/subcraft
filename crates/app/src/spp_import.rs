@@ -65,7 +65,14 @@ fn mesh_map_kind(kind: BakedKind) -> MeshMapKind {
 
 fn resolution_of(set: &TextureSetInfo) -> u32 {
     let log2 = set.width_log2.max(set.height_log2).clamp(7, 12) as u32;
-    (1u32 << log2).min(MAX_IMPORT_RESOLUTION)
+    (1u32 << log2).min(max_import_resolution())
+}
+
+/// [`MAX_IMPORT_RESOLUTION`], or less when `SUBCRAFT_SPP_MAX_RESOLUTION` asks for it (developer aid:
+/// quick experiments on 4K projects).
+fn max_import_resolution() -> u32 {
+    let cap = std::env::var("SUBCRAFT_SPP_MAX_RESOLUTION").ok().and_then(|v| v.parse::<u32>().ok()).filter(|v| v.is_power_of_two() && *v >= 128);
+    cap.map_or(MAX_IMPORT_RESOLUTION, |c| c.min(MAX_IMPORT_RESOLUTION))
 }
 
 fn fit(image: TiledImage, res: u32) -> TiledImage {
@@ -92,6 +99,8 @@ pub fn channel_image(img: &CacheImage, kind: ChannelKind, flip_green: bool, res:
                     dst[k] = if img.format == CacheFormat::Srgb8Alpha8 { srgb_to_linear(src[k]) } else { src[k] };
                 }
             }
+            // Texels no layer wrote a normal to are stored as (0, 0, 0): no perturbation, a flat normal.
+            ChannelKind::Normal if src[..3].iter().all(|v| v.abs() < 1e-3) => dst[..3].copy_from_slice(&[0.5, 0.5, 1.0]),
             ChannelKind::Normal => {
                 dst[0] = src[0];
                 dst[1] = if flip_green { 1.0 - src[1] } else { src[1] };
@@ -423,6 +432,26 @@ fn channel_mean(a: &TiledImage, comps: usize, coverage: Option<&Plane>) -> Vec<f
     sum.iter().map(|s| (*s / n.max(1) as f64 * 1000.0).round() as f32 / 1000.0).collect()
 }
 
+/// The Painter stack of `info` rebuilt as one SubCraft folder for the set `view` (its resolution
+/// decides the rasters'). `blend_map` overrides the Painter blending id table (experiments).
+pub fn rebuild_folder(spp: &mut SppFile, info: &TextureSetInfo, view: &TextureSet, picker: &crate::spp_select::Picker, resources: &mut ResourceStore, maps: &BTreeMap<MeshMapKind, TiledImage>, blend_map: Option<&BTreeMap<i32, subcraft_doc::BlendMode>>) -> (Layer, crate::spp_stack::StackStats) {
+    let mut rebuilder = Rebuilder::new(spp, view, resources);
+    rebuilder.mesh_maps = Some(subcraft_materials::MeshMaps::from_map(maps.iter().map(|(k, v)| (*k, if v.width() == view.resolution { v.clone() } else { v.resampled(view.resolution, view.resolution) })).collect()));
+    rebuilder.picker = Some(picker);
+    rebuilder.geometry = Some(std::sync::Arc::new(subcraft_materials::TextureSetGeometry::new(picker.mesh.clone(), view.material_slot, view.resolution)));
+    if let Some(map) = blend_map {
+        rebuilder.blend_map = map.clone();
+    }
+    let layers = rebuilder.rebuild(&info.layers);
+    let stats = rebuilder.stats;
+    let mut folder = Layer::new_folder("Painter stack (reconstructed)", view);
+    if let LayerContent::Group(g) = &mut folder.content {
+        g.children = layers.into_iter().map(std::sync::Arc::new).collect();
+        g.expanded = true;
+    }
+    (folder, stats)
+}
+
 /// Rebuild the Painter layer stack as a folder above the flattened layer and decide, by comparing its
 /// composite with Painter's flattened textures, whether it can be shown instead of them.
 #[allow(clippy::too_many_arguments)]
@@ -431,14 +460,8 @@ fn rebuild_stack(spp: &mut SppFile, info: &TextureSetInfo, ts: &mut TextureSet, 
         return; // nothing to rebuild, or no flattened result to compare with
     }
     let view = ts.clone();
-    let mut rebuilder = Rebuilder::new(spp, &view, resources);
-    let layers = rebuilder.rebuild(&info.layers);
-    let stats = rebuilder.stats;
-    let mut folder = Layer::new_folder("Painter stack (reconstructed)", &view);
-    if let LayerContent::Group(g) = &mut folder.content {
-        g.children = layers.into_iter().map(std::sync::Arc::new).collect();
-        g.expanded = true;
-    }
+    let picker = crate::spp_select::Picker::new(std::sync::Arc::new(mesh.clone()));
+    let (mut folder, stats) = rebuild_folder(spp, info, &view, &picker, resources, maps, None);
     folder.visible = true;
     let flat = ts.layers[0].clone();
     let flat_content: BTreeMap<ChannelKind, TiledImage> = match &flat.content {
@@ -454,12 +477,7 @@ fn rebuild_stack(spp: &mut SppFile, info: &TextureSetInfo, ts: &mut TextureSet, 
         let mut small = view.clone();
         small.resolution = gate_res;
         let mut small_stats_resources = resources.clone();
-        let mut small_rebuilder = Rebuilder::new(spp, &small, &mut small_stats_resources);
-        let small_layers = small_rebuilder.rebuild(&info.layers);
-        let mut small_folder = Layer::new_folder("probe", &small);
-        if let LayerContent::Group(g) = &mut small_folder.content {
-            g.children = small_layers.into_iter().map(std::sync::Arc::new).collect();
-        }
+        let (small_folder, _) = rebuild_folder(spp, info, &small, &picker, &mut small_stats_resources, maps, None);
         *resources = small_stats_resources;
         let small_maps: BTreeMap<MeshMapKind, TiledImage> = maps.iter().map(|(k, v)| (*k, v.resampled(gate_res, gate_res))).collect();
         let small_flat = flat_content.iter().map(|(k, v)| (*k, v.resampled(gate_res, gate_res))).collect();
@@ -491,6 +509,9 @@ fn rebuild_stack(spp: &mut SppFile, info: &TextureSetInfo, ts: &mut TextureSet, 
         "  Rebuilt stack: {} layers, {} folders; {} exact and {} approximated effects, {} layers kept as hidden placeholders. Difference to Painter's result (mean, 0..1): {}.",
         stats.layers, stats.folders, stats.exact, stats.approximate, stats.placeholders, if summary.is_empty() { "n/a".into() } else { summary.join(", ") }
     ));
+    if std::env::var_os("SUBCRAFT_SPP_TIMING").is_some() {
+        notes.push(format!("    rebuild timing: {:?}", stats.timings));
+    }
     for (what, n) in &stats.skipped {
         notes.push(format!("    not rebuilt: {what} ({n})"));
     }
@@ -527,5 +548,16 @@ mod tests {
         let out = channel_image(&img, ChannelKind::Roughness, false, 2);
         assert!((out.get(0, 0)[0] - 0.8).abs() < 1e-3, "{:?}", out.get(0, 0));
         assert!((out.get(0, 1)[0] - 0.2).abs() < 1e-3, "{:?}", out.get(0, 1));
+    }
+
+    /// Painter stores (0, 0, 0) where no layer wrote a normal; that is a flat normal, not (0, 1, 0)
+    /// after the DirectX flip (which shows as a green blob and wrong lighting).
+    #[test]
+    fn unwritten_cache_normals_are_flat() {
+        let img = CacheImage { format: CacheFormat::Rgba16f, plane: Plane { width: 2, height: 1, components: 4, data: vec![0.0, 0.0, 0.0, 0.0, 0.6, 0.3, 0.9, 1.0] } };
+        let out = channel_image(&img, ChannelKind::Normal, true, 2);
+        let (a, b) = (out.get(0, 0), out.get(1, 0));
+        assert_eq!(&a[..3], &[0.5, 0.5, 1.0]);
+        assert!((b[1] - 0.7).abs() < 1e-3 && (b[0] - 0.6).abs() < 1e-3, "{b:?}");
     }
 }

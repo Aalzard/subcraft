@@ -175,6 +175,19 @@ impl Stroke {
         self.paint_samples(ts, ctx, &samples)
     }
 
+    /// Feed many cursor positions at once (a recorded stroke), painted in one pass instead of one
+    /// pass per position. With an orthographic camera the stamps are those of calling
+    /// [`Stroke::add_point`] for each position; with a perspective one the stamp spacing uses the
+    /// depth known at the start of the batch.
+    pub fn add_points(&mut self, ts: &mut TextureSet, ctx: &PaintContext, cursors: &[Vec2]) -> Result<Vec<usize>, PaintError> {
+        let mut samples = Vec::new();
+        let spacing = self.spacing_px(ctx);
+        for &cursor in cursors {
+            self.path.push(cursor, spacing, self.options.lazy_distance_px, self.options.smoothing, &mut samples);
+        }
+        self.paint_samples(ts, ctx, &samples)
+    }
+
     /// End of stroke: with `catch_up` the brush glides to the last cursor position.
     pub fn finish(&mut self, ts: &mut TextureSet, ctx: &PaintContext) -> Result<Vec<usize>, PaintError> {
         if !self.options.catch_up {
