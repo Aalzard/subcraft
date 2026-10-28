@@ -12,9 +12,9 @@ as generally known. It is a planning list, not a promise. "Known" means we alrea
 ## Painting
 - Tablet pressure / tilt mapping (not verified with a real tablet).
 - Per-stamp camera projection; Clone with rotate/scale and heal/seam blending (known).
-- Particle brushes, physics/"paint with dynamics", smudge-with-material, liquify.
+- Physics/"paint with dynamics", liquify. (Done in session 109: scatter/particle brush with fall, smudge-with-material.) Smart/decal brushes still missing.
 - Paint through UV-space projection tools, Fill with symmetric tri-planar per-island controls.
-- Lazy "stroke stabilizer" curves and paint-through-mask tool variants (partly there: lazy mouse, stencils).
+- Stroke stabilizer: weighted-average smoothing + rope (lazy) + catch-up exist (session 109). Missing: post-smoothing, speed-adaptive smoothing, Shift-drag line lock/snapping, smoothing preset buttons. Paint-through-mask tool variants (partly there: stencils).
 - Anchor points / Bezier editing exists; no shape tools beyond polygon fill.
 
 ## Layers, masks, filters
