@@ -71,13 +71,14 @@ pub struct ProjectData {
 // ----- save ----------------------------------------------------------------------------------
 
 struct Writer {
-    rasters: Vec<(String, Vec<u8>)>,
+    /// Shared (copy-on-write) handles; encoded and compressed together in [`write_payload`].
+    rasters: Vec<(String, TiledImage)>,
 }
 
 impl Writer {
     fn raster(&mut self, img: &TiledImage) -> String {
         let name = format!("rasters/{:05}.tiles", self.rasters.len());
-        self.rasters.push((name.clone(), raster::encode(img)));
+        self.rasters.push((name.clone(), img.clone()));
         name
     }
 
@@ -255,15 +256,38 @@ fn pack_resources(ids: &[ResourceId], resources: &ResourceStore) -> (Vec<Resourc
 }
 
 /// Raster blobs (deflated) and resource files (stored: already compressed image formats).
+///
+/// Rasters are encoded and deflated on all cores, each into its own one-entry archive, and the
+/// finished entries are then merged in order: the file is the same as writing them one by one.
 fn write_payload<W: Write + Seek>(
     zip: &mut zip::ZipWriter<W>,
-    rasters: &[(String, Vec<u8>)],
+    rasters: &[(String, TiledImage)],
     resources: &[(String, Arc<Vec<u8>>)],
 ) -> Result<(), ProjectError> {
     let deflate = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
-    for (name, bytes) in rasters {
-        zip.start_file(name.as_str(), deflate)?;
-        zip.write_all(bytes)?;
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let done: Vec<std::sync::OnceLock<Result<Vec<u8>, ProjectError>>> = rasters.iter().map(|_| std::sync::OnceLock::new()).collect();
+    let compress = |(name, img): &(String, TiledImage)| -> Result<Vec<u8>, ProjectError> {
+        let mut one = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        one.start_file(name.as_str(), deflate)?;
+        one.write_all(&raster::encode(img))?;
+        Ok(one.finish()?.into_inner())
+    };
+    let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).min(rasters.len().max(1));
+    std::thread::scope(|scope| {
+        for _ in 0..threads {
+            scope.spawn(|| {
+                loop {
+                    let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    let Some(r) = rasters.get(i) else { break };
+                    let _ = done[i].set(compress(r));
+                }
+            });
+        }
+    });
+    for slot in done {
+        let bytes = slot.into_inner().expect("every raster was compressed")?;
+        zip.merge_archive(zip::ZipArchive::new(std::io::Cursor::new(bytes))?)?;
     }
     for (name, bytes) in resources {
         zip.start_file(name.as_str(), SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored))?;
