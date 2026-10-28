@@ -205,6 +205,16 @@ fn main() {
     let stages = args.next().unwrap_or_else(|| "abcdg".into());
     let has = |c: char| stages.contains(c);
     println!("== big_project_bench: {res}², {layers} layers, {} threads", rayon::current_num_threads());
+    // Cold-process open of a project written by a previous run (`SUBCRAFT_BENCH_KEEP=<path>`).
+    if let Some(path) = std::env::var_os("SUBCRAFT_BENCH_OPEN") {
+        let t = Instant::now();
+        let mut s = Session::open_project(std::path::Path::new(&path)).unwrap();
+        println!("(c) open_project: {:.0} ms", ms(t));
+        let t = Instant::now();
+        let ups = s.update_composites();
+        println!("    first composite: {:.0} ms, {} tiles; memory {:?} MB (peak, now)", ms(t), ups.iter().map(|u| u.tiles.len()).sum::<usize>(), memory());
+        return;
+    }
     let mesh = subcraft_mesh::primitives::uv_sphere(1.0, 224, 224);
     println!("mesh: {} triangles", mesh.indices.len() / 3);
     let mut s = Session::new(mesh, res);
@@ -243,7 +253,7 @@ fn main() {
     let t = Instant::now();
     let updates = s.update_composites();
     let tiles: usize = updates.iter().map(|u| u.tiles.len()).sum();
-    println!("(a) full composite: {:.0} ms, {tiles} tiles", ms(t));
+    println!("(a) full composite: {:.0} ms, {tiles} tiles; memory now {} MB", ms(t), memory().1);
     let t = Instant::now();
     let ups = s.update_composites();
     profile_dump("full composite");
@@ -266,6 +276,18 @@ fn main() {
         }
         profile_dump("stroke + opacity");
         println!("(b) stroke on a mask: p50 {:.0} ms, {} tiles evaluated (last)", percentile(times.iter().map(|t| t.0).collect(), 50), times.last().unwrap().1);
+        // The same stroke on the topmost paint layer's mask: nothing above it filters.
+        let top_paint = ids.iter().rev().copied().find(|id| s.document().texture_sets[0].find(*id).is_some_and(|l| matches!(l.content, subcraft_doc::LayerContent::Paint(_)) && l.mask.is_some())).unwrap();
+        let mut times = Vec::new();
+        for n in 0..6 {
+            run(&mut s, Command::SelectLayerTarget { layer: top_paint, target: LayerTarget::Mask });
+            s.brush.target = subcraft_paint::PaintTarget::MaskBase;
+            let t = Instant::now();
+            stroke(&mut s, 280.0 + 12.0 * n as f32);
+            let ups = s.update_composites();
+            times.push((ms(t), ups.iter().map(|u| u.tiles.len()).sum::<usize>()));
+        }
+        println!("    stroke on a mask near the top: p50 {:.0} ms, {} tiles evaluated (last)", percentile(times.iter().map(|t| t.0).collect(), 50), times.last().unwrap().1);
         // Opacity of the top layer.
         let mut v = Vec::new();
         let mut tiles = 0;
@@ -322,11 +344,14 @@ fn main() {
         let t = Instant::now();
         let ups = loaded.update_composites();
         println!("(c) first composite after open: {:.0} ms, {} tiles; open total {:.0} ms", ms(t), ups.iter().map(|u| u.tiles.len()).sum::<usize>(), ms(t) + 0.0);
-        std::fs::remove_file(&path).ok();
+        match std::env::var_os("SUBCRAFT_BENCH_KEEP") {
+            Some(keep) => { std::fs::copy(&path, keep).unwrap(); std::fs::remove_file(&path).ok(); }
+            None => { std::fs::remove_file(&path).ok(); }
+        }
     }
 
     if has('g') {
         let (peak, now) = memory();
-        println!("(g) memory: after stack {mem_stack} MB, now {now} MB, peak {peak} MB");
+        println!("(g) memory: after stack {mem_stack} MB, now {now} MB, peak {peak} MB (procedural field cache {} MB)", subcraft_materials::sample::field::cached_bytes() >> 20);
     }
 }
