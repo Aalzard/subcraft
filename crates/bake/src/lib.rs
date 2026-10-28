@@ -25,7 +25,6 @@ use rayon::prelude::*;
 use subcraft_core::MeshMapKind;
 use subcraft_core::color::hsv_to_rgb;
 use subcraft_image::TiledImage;
-use subcraft_image::dilate::dilate_infinite;
 use subcraft_mesh::ray_batch::{BatchControl, CurvatureSurface, CurvatureTexel, NO_GROUP, RayBatchBackend, RayBatchError, RayMode, RayTexel, ray_backend};
 use subcraft_mesh::{Bvh, Mesh, topology};
 
@@ -325,12 +324,15 @@ pub fn bake_streamed_with(
         let started = Instant::now();
         let mut backend = "CPU".to_string();
         let backend_gpu = if settings.use_gpu { gpu_backend } else { None };
+        // The GPU kernels need every texel's projection; low-on-low bakes derive it only now.
+        let derived: Option<Vec<Detail>> = (backend_gpu.is_some() && details.is_none()).then(|| samples.par_iter().map(project).collect());
+        let gpu_details = || details.as_deref().or(derived.as_deref()).unwrap_or(&[]);
         let gpu = match backend_gpu {
             Some(gpu) if kind == MeshMapKind::Curvature => {
                 let radius = settings.curvature_radius * diag;
-                gpu_curvature_map(gpu, detail_geo, elements.as_deref(), &details, radius, progress, &mut backend)?
+                gpu_curvature_map(gpu, detail_geo, elements.as_deref(), gpu_details(), radius, progress, &mut backend)?
             }
-            Some(gpu) => gpu_ray_map(gpu, kind, settings, detail_geo.bvh, &samples, &details, bias, diag, progress, &mut backend)?,
+            Some(gpu) => gpu_ray_map(gpu, kind, settings, detail_geo.bvh, &samples, gpu_details(), bias, diag, progress, &mut backend)?,
             None => None,
         };
         let values: Vec<[f32; 3]> = match gpu {
