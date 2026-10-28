@@ -2,6 +2,9 @@
 
 use glam::Vec2;
 
+/// Largest smoothing weight (1 would freeze the brush).
+pub const MAX_SMOOTHING: f32 = 0.95;
+
 /// One resampled stamp position.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PathSample {
@@ -18,12 +21,16 @@ pub struct ScreenPath {
     residual: f32,
     /// Lazy-mouse brush position.
     lazy: Option<Vec2>,
+    /// Weighted-average smoothed cursor.
+    smooth: Option<Vec2>,
+    /// Latest raw cursor, the target of the catch-up end.
+    cursor: Option<Vec2>,
     dir: Vec2,
 }
 
 impl Default for ScreenPath {
     fn default() -> Self {
-        Self { last: None, residual: 0.0, lazy: None, dir: Vec2::X }
+        Self { last: None, residual: 0.0, lazy: None, smooth: None, cursor: None, dir: Vec2::X }
     }
 }
 
@@ -32,9 +39,21 @@ impl ScreenPath {
         Self::default()
     }
 
-    /// Feed a cursor sample. With `lazy_px > 0` the brush trails the cursor by that distance
-    /// and only moves once the cursor pulls it.
-    pub fn push(&mut self, cursor: Vec2, spacing_px: f32, lazy_px: f32, out: &mut Vec<PathSample>) {
+    /// Feed a cursor sample. `smoothing` (0..1) is the weight of the running average of earlier
+    /// cursor samples (0 = off). With `lazy_px > 0` the brush hangs on a rope of that length: it
+    /// trails the (smoothed) cursor and only moves once the rope is taut.
+    pub fn push(&mut self, cursor: Vec2, spacing_px: f32, lazy_px: f32, smoothing: f32, out: &mut Vec<PathSample>) {
+        self.cursor = Some(cursor);
+        let w = smoothing.clamp(0.0, MAX_SMOOTHING);
+        let cursor = if w > 0.0 {
+            let avg = *self.smooth.get_or_insert(cursor);
+            let avg = avg + (cursor - avg) * (1.0 - w);
+            self.smooth = Some(avg);
+            avg
+        } else {
+            self.smooth = Some(cursor);
+            cursor
+        };
         let target = if lazy_px > 0.0 {
             let brush = *self.lazy.get_or_insert(cursor);
             let d = cursor - brush;
@@ -48,9 +67,21 @@ impl ScreenPath {
         self.walk(target, spacing_px, out);
     }
 
+    /// Catch-up end: the brush glides the rest of the way to the last cursor position, so a
+    /// smoothed or lazy stroke ends where the pen lifted.
+    pub fn finish(&mut self, spacing_px: f32, out: &mut Vec<PathSample>) {
+        if let Some(cursor) = self.cursor.take() {
+            self.lazy = Some(cursor);
+            self.smooth = Some(cursor);
+            self.walk(cursor, spacing_px, out);
+        }
+    }
+
     /// Straight segment from the current brush position (ignores lazy mouse).
     pub fn line_to(&mut self, to: Vec2, spacing_px: f32, out: &mut Vec<PathSample>) {
         self.lazy = Some(to);
+        self.smooth = Some(to);
+        self.cursor = Some(to);
         self.walk(to, spacing_px, out);
     }
 
@@ -101,7 +132,7 @@ mod tests {
         let mut p = ScreenPath::new();
         let mut out = Vec::new();
         for x in [0.0, 3.0, 7.5, 20.0, 21.0, 40.0] {
-            p.push(Vec2::new(x, 10.0), 5.0, 0.0, &mut out);
+            p.push(Vec2::new(x, 10.0), 5.0, 0.0, 0.0, &mut out);
         }
         let xs: Vec<f32> = out.iter().map(|s| s.pos.x).collect();
         assert_eq!(xs.len(), 9, "{xs:?}");
@@ -114,12 +145,37 @@ mod tests {
     fn lazy_mouse_trails_the_cursor() {
         let mut p = ScreenPath::new();
         let mut out = Vec::new();
-        p.push(Vec2::ZERO, 1.0, 10.0, &mut out);
-        p.push(Vec2::new(8.0, 0.0), 1.0, 10.0, &mut out);
+        p.push(Vec2::ZERO, 1.0, 10.0, 0.0, &mut out);
+        p.push(Vec2::new(8.0, 0.0), 1.0, 10.0, 0.0, &mut out);
         assert_eq!(out.len(), 1, "cursor within lazy radius: brush does not move");
-        p.push(Vec2::new(30.0, 0.0), 1.0, 10.0, &mut out);
+        p.push(Vec2::new(30.0, 0.0), 1.0, 10.0, 0.0, &mut out);
         let last = out.last().unwrap().pos.x;
         assert!((last - 20.0).abs() < 1e-4, "brush stops 10px behind the cursor, got {last}");
+    }
+
+    #[test]
+    fn smoothing_averages_and_catch_up_reaches_the_cursor() {
+        let run = |catch_up: bool| {
+            let mut p = ScreenPath::new();
+            let mut out = Vec::new();
+            for x in 0..=20 {
+                // zig-zag cursor along x
+                let y = if x % 2 == 0 { 4.0 } else { -4.0 };
+                p.push(Vec2::new(x as f32 * 3.0, y), 1.0, 0.0, 0.8, &mut out);
+            }
+            let before = out.len();
+            if catch_up { p.finish(1.0, &mut out); }
+            (out, before)
+        };
+        let (out, before) = run(false);
+        let max_y = out.iter().filter(|s| s.pos.x > 30.0).map(|s| s.pos.y.abs()).fold(0.0, f32::max);
+        assert!(max_y < 1.0, "zig-zag is damped, got {max_y}");
+        assert!(out.last().unwrap().pos.x < 59.0, "average trails the cursor");
+        let (out2, _) = run(true);
+        assert!(out2.len() > before);
+        let end = out2.last().unwrap().pos;
+        assert!((end - Vec2::new(60.0, 4.0)).length() < 1.0, "catch-up ends at the cursor, got {end}");
+        assert_eq!(run(true).0, out2, "deterministic");
     }
 
     #[test]

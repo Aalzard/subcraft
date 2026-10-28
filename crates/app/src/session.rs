@@ -92,6 +92,8 @@ struct ActiveStroke {
     stroke: Stroke,
     texture_set: TextureSetId,
     label: &'static str,
+    /// Last view camera, for the catch-up end of the stroke.
+    camera: Option<Camera>,
 }
 
 pub struct Session {
@@ -596,20 +598,35 @@ impl Session {
         }
         match cmd {
             Command::SetBrushSettings(mut settings) => {
-                if [settings.size, settings.flow, settings.stroke_opacity, settings.hardness].iter().any(|v| !v.is_finite()) {
+                if [settings.size, settings.flow, settings.stroke_opacity, settings.hardness, settings.scatter_radius, settings.scatter_size_random,
+                    settings.scatter_rotation_deg, settings.scatter_opacity_random, settings.scatter_fall,
+                    settings.smudge_strength, settings.smudge_carry, settings.smudge_falloff, settings.smudge_material].iter().any(|v| !v.is_finite()) {
                     return Err(CommandError::Invalid("brush values must be finite".into()));
                 }
                 settings.size = settings.size.clamp(0.1, 100.0);
                 settings.flow = settings.flow.clamp(0.0, 1.0);
                 settings.stroke_opacity = settings.stroke_opacity.clamp(0.0, 1.0);
                 settings.hardness = settings.hardness.clamp(0.0, 1.0);
+                settings.scatter_count = settings.scatter_count.min(subcraft_paint::MAX_SCATTER);
+                settings.scatter_radius = settings.scatter_radius.clamp(0.0, 10.0);
+                settings.scatter_size_random = settings.scatter_size_random.clamp(0.0, 1.0);
+                settings.scatter_opacity_random = settings.scatter_opacity_random.clamp(0.0, 1.0);
+                settings.scatter_fall = settings.scatter_fall.clamp(0.0, 20.0);
+                settings.smudge_strength = settings.smudge_strength.clamp(0.0, 1.0);
+                settings.smudge_carry = settings.smudge_carry.clamp(0.0, 0.99);
+                settings.smudge_falloff = settings.smudge_falloff.clamp(0.25, 8.0);
+                settings.smudge_material = settings.smudge_material.clamp(0.0, 1.0);
                 self.brush.settings = settings;
             }
             Command::SetStrokeOptions(mut options) => {
                 if !options.lazy_distance_px.is_finite() {
                     return Err(CommandError::Invalid("lazy mouse distance must be finite".into()));
                 }
+                if !options.smoothing.is_finite() {
+                    return Err(CommandError::Invalid("smoothing must be finite".into()));
+                }
                 options.lazy_distance_px = options.lazy_distance_px.clamp(0.0, 100.0);
+                options.smoothing = options.smoothing.clamp(0.0, subcraft_paint::MAX_SMOOTHING);
                 self.brush.options = options;
             }
             Command::SetBrushMaterial(material) => self.brush.material = material,
@@ -1150,7 +1167,7 @@ impl Session {
             (StrokeMode::Erase, PaintTarget::ContentEffect(_)) => "Erase Effect Stroke",
             (_, PaintTarget::MaskBase | PaintTarget::MaskEffect(_)) => "Mask Stroke",
         };
-        self.stroke = Some(ActiveStroke { stroke, texture_set: ts.id, label });
+        self.stroke = Some(ActiveStroke { stroke, texture_set: ts.id, label, camera: None });
         Ok(())
     }
 
@@ -1163,7 +1180,8 @@ impl Session {
 
     /// Continue the stroke to a screen position (`line`: straight segment, no lazy mouse).
     pub fn stroke_to(&mut self, camera: &Camera, screen: Vec2, line: bool) -> Result<Vec<usize>, PaintError> {
-        let Some(active) = self.stroke.take() else { return Ok(Vec::new()) };
+        let Some(mut active) = self.stroke.take() else { return Ok(Vec::new()) };
+        active.camera = Some(*camera);
         let result = self.with_stroke_context(active.texture_set, camera, |stroke, ts, ctx| {
             if line { stroke.line_to(ts, ctx, screen) } else { stroke.add_point(ts, ctx, screen) }
         }, active);
@@ -1234,6 +1252,16 @@ impl Session {
     /// Finish the stroke: the post-stroke document becomes one history entry (none if nothing
     /// was painted).
     pub fn end_stroke(&mut self) {
+        if let Some(active) = self.stroke.take() {
+            // Catch-up end: let the brush reach the last cursor position first.
+            if let Some(camera) = active.camera.filter(|_| self.brush.options.catch_up) {
+                if self.with_stroke_context(active.texture_set, &camera, |stroke, ts, ctx| stroke.finish(ts, ctx), active).is_ok_and(|t| !t.is_empty()) {
+                    self.revision += 1;
+                }
+            } else {
+                self.stroke = Some(active);
+            }
+        }
         let Some(active) = self.stroke.take() else { return };
         if self.doc != *self.history.current() {
             log::info!("action: {}", active.label);

@@ -1320,6 +1320,30 @@ fn scripted_tool_capture(state: &mut UiState, which: &str, now: f64) {
             stroke(s, StrokeMode::Smudge, &line(380.0, 215.0, 410.0, 420.0));
             stroke(s, StrokeMode::Smudge, &line(470.0, 215.0, 440.0, 420.0));
         }
+        "scatter" => {
+            // Scatter presets: dust, drips and flakes in three colours.
+            let presets = subcraft_app::brush_builtin::builtin_brush_presets();
+            let tips = subcraft_app::assets::alphas::builtin();
+            for (i, (name, c)) in [("Dust Scatter", [0.9, 0.75, 0.3]), ("Drips", [0.1, 0.35, 0.9]), ("Rust Flakes", [0.75, 0.25, 0.08])].into_iter().enumerate() {
+                if let Some(p) = presets.iter().find(|p| p.name == name) { s.apply_brush_preset(p, &tips); }
+                s.brush.settings.size = 7.0;
+                set(s, c);
+                stroke(s, StrokeMode::Paint, &line(300.0, 250.0 + 70.0 * i as f32, 600.0, 250.0 + 70.0 * i as f32));
+            }
+        }
+        "stabilizer" => {
+            // The same shaky cursor path three times: raw, smoothed, and smoothed with a rope.
+            let shaky = |y: f32| (0..=60).map(|i| (300.0 + 5.0 * i as f32, y + if i % 2 == 0 { 9.0 } else { -9.0 })).collect::<Vec<_>>();
+            set(s, [0.1, 0.1, 0.1]);
+            s.brush.settings.size = 3.0;
+            s.brush.settings.hardness = 1.0;
+            for (i, (smoothing, rope)) in [(0.0, 0.0), (0.8, 0.0), (0.7, 16.0)].into_iter().enumerate() {
+                s.brush.options.smoothing = smoothing;
+                s.brush.options.lazy_distance_px = rope;
+                s.brush.options.catch_up = true;
+                stroke(s, StrokeMode::Paint, &shaky(250.0 + 60.0 * i as f32));
+            }
+        }
         "clone" => {
             state.tool = Tool::Clone;
             set(s, [0.85, 0.1, 0.05]);

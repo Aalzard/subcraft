@@ -51,6 +51,26 @@ pub struct BrushSettings {
     pub pressure_size: f32,
     /// How much pen pressure lowers the flow of each stamp (0 = ignored).
     pub pressure_flow: f32,
+    /// Scatter mode: particles per path stamp (0 = off, a normal brush).
+    pub scatter_count: u32,
+    /// How far particles spread around the path, in brush diameters.
+    pub scatter_radius: f32,
+    /// Random size reduction per particle (0..1).
+    pub scatter_size_random: f32,
+    /// Random rotation per particle, ± degrees.
+    pub scatter_rotation_deg: f32,
+    /// Random opacity (flow) reduction per particle (0..1).
+    pub scatter_opacity_random: f32,
+    /// Particles fall down the screen by up to this many brush diameters (0 = no fall).
+    pub scatter_fall: f32,
+    /// Smudge: how much of the carried paint each stamp deposits (0..1).
+    pub smudge_strength: f32,
+    /// Smudge: how much of the carried paint survives each stamp (0 = blend only, near 1 = long smear).
+    pub smudge_carry: f32,
+    /// Smudge: footprint weight exponent (1 = brush falloff, higher = a tighter core).
+    pub smudge_falloff: f32,
+    /// Smudge: how much of the brush material mixes into the carried paint (0 = pure smudge).
+    pub smudge_material: f32,
     pub alignment: Alignment,
     pub backface_culling: bool,
     /// Surfaces turned further than this from the projection direction are not painted.
@@ -75,6 +95,16 @@ impl Default for BrushSettings {
             position_jitter: 0.0,
             pressure_size: 1.0,
             pressure_flow: 0.0,
+            scatter_count: 0,
+            scatter_radius: 1.0,
+            scatter_size_random: 0.5,
+            scatter_rotation_deg: 180.0,
+            scatter_opacity_random: 0.3,
+            scatter_fall: 0.0,
+            smudge_strength: 1.0,
+            smudge_carry: 0.85,
+            smudge_falloff: 1.0,
+            smudge_material: 0.0,
             alignment: Alignment::TangentWrap,
             backface_culling: true,
             backface_angle_deg: 90.0,
@@ -89,6 +119,9 @@ impl BrushSettings {
         self.size.max(0.0) * 0.01 * diagonal * 0.5
     }
 }
+
+/// Most particles one path stamp may scatter.
+pub const MAX_SCATTER: u32 = 64;
 
 /// Smallest pressure factor, so a feather-light touch still leaves a mark.
 pub const MIN_PRESSURE: f32 = 0.02;
@@ -192,6 +225,10 @@ impl BrushMaterial {
 pub struct StrokeOptions {
     /// Lazy mouse: the brush trails the cursor by this many pixels (0 = off).
     pub lazy_distance_px: f32,
+    /// Weighted-average smoothing of the cursor path (0 = off, up to 0.95); runs before the rope.
+    pub smoothing: f32,
+    /// When the stroke ends, glide the brush the rest of the way to the last cursor position.
+    pub catch_up: bool,
     /// Mirror planes (X, Y, Z) through the mesh bounds center.
     pub symmetry: [bool; 3],
 }
