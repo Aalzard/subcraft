@@ -60,10 +60,17 @@ No log file could be written."),
     text
 }
 
+/// Let the baker cast AO / thickness rays on the GPU (its own headless device, created on the
+/// first bake). Called once at start-up.
+pub fn register_gpu_baking() {
+    subcraft_mesh::ray_batch::register_ray_backend(subcraft_render::ray_bake::create_backend);
+}
+
 /// Open the main window. If the chosen graphics API cannot start, the others are tried in turn;
 /// if none works, a message window explains what to do (a packaged build has no console, so
 /// without it the app would simply vanish).
 pub fn run(options: LaunchOptions) -> eframe::Result {
+    register_gpu_baking();
     let graphics = graphics::GraphicsUi::load();
     let preferred = graphics.selected;
     let environment_override = graphics.environment_override;

@@ -29,6 +29,13 @@ pub struct RayHit {
     pub front_face: bool,
 }
 
+/// A [`Bvh`] as plain arrays, see [`Bvh::flatten`].
+#[derive(Clone, Debug, Default)]
+pub struct FlatBvh {
+    pub nodes: Vec<[u32; 8]>,
+    pub tris: Vec<[f32; 12]>,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Bvh {
     nodes: Vec<Node>,
@@ -157,6 +164,30 @@ impl Bvh {
             stack.push(left + 1);
         }
         bvh
+    }
+
+    /// Plain arrays for uploading the tree to a GPU. `nodes`: 8 words per node
+    /// (`min.xyz` as f32 bits, `left_first`, `max.xyz` as f32 bits, `count`; leaf when `count > 0`,
+    /// otherwise the right child is `left_first + 1`). `tris`: 12 floats per entry
+    /// (`v0.xyz, 0, e1.xyz, 0, e2.xyz, 0`), re-ordered into leaf order so a leaf covers
+    /// `tris[left_first..left_first + count]` directly.
+    pub fn flatten(&self) -> FlatBvh {
+        let nodes = self
+            .nodes
+            .iter()
+            .map(|n| {
+                [n.min.x.to_bits(), n.min.y.to_bits(), n.min.z.to_bits(), n.left_first, n.max.x.to_bits(), n.max.y.to_bits(), n.max.z.to_bits(), n.count]
+            })
+            .collect();
+        let tris = self
+            .tri_ids
+            .iter()
+            .map(|&t| {
+                let (v, a, b) = (self.v0[t as usize], self.e1[t as usize], self.e2[t as usize]);
+                [v.x, v.y, v.z, 0.0, a.x, a.y, a.z, 0.0, b.x, b.y, b.z, 0.0]
+            })
+            .collect();
+        FlatBvh { nodes, tris }
     }
 
     pub fn is_empty(&self) -> bool {

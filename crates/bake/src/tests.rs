@@ -431,3 +431,84 @@ fn bent_normal_leans_away_from_a_wall_and_equals_the_normal_in_the_open() {
     }
     assert!(count > 20 && tilt_away / count as f32 > 0.1, "texels beside the box lean: {}", tilt_away / count.max(1) as f32);
 }
+
+mod ray_backend {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use subcraft_mesh::ray_batch::{BatchControl, RayBatchBackend, RayBatchError, RayMode, RayTexel};
+
+    use super::*;
+    use crate::bake_streamed_with;
+
+    /// Answers every texel with a constant and reports how it was called.
+    struct Fake {
+        result: Result<f32, RayBatchError>,
+        calls: AtomicUsize,
+    }
+
+    impl RayBatchBackend for Fake {
+        fn description(&self) -> String {
+            "fake".into()
+        }
+        fn run(&self, _: &Bvh, count: usize, texel: &(dyn Fn(usize) -> RayTexel + Sync), rays: u32, _: RayMode, control: &dyn BatchControl)
+            -> Result<Vec<f32>, RayBatchError> {
+            self.calls.fetch_add(1, Ordering::Relaxed);
+            assert!(rays >= 1);
+            let first = texel(0);
+            assert!(first.axis.iter().all(|v| v.is_finite()));
+            control.progress(0.5);
+            self.result.clone().map(|v| vec![v; count])
+        }
+    }
+
+    fn run(backend: Option<&dyn RayBatchBackend>, use_gpu: bool, maps: &[MeshMapKind]) -> (BTreeMap<MeshMapKind, TiledImage>, Vec<crate::MapReport>) {
+        let mesh = primitives::cube(2.0);
+        let bvh = Bvh::build(&mesh);
+        let input = BakeInput { low: Geometry { mesh: &mesh, bvh: &bvh }, high: None, material_slot: 0 };
+        let progress = Progress::new();
+        let s = BakeSettings { use_gpu, ..settings(maps) };
+        let out = bake_streamed_with(&input, &s, &progress, backend, |_, _| {}).unwrap();
+        assert!((progress.fraction() - 1.0).abs() < 1e-6, "progress ends complete: {}", progress.fraction());
+        (out, progress.reports())
+    }
+
+    #[test]
+    fn a_backend_result_is_used_for_ao_and_thickness_only() {
+        let fake = Fake { result: Ok(0.25), calls: AtomicUsize::new(0) };
+        let (maps, reports) = run(Some(&fake), true, &[MeshMapKind::AmbientOcclusion, MeshMapKind::Thickness, MeshMapKind::Position]);
+        assert_eq!(fake.calls.load(Ordering::Relaxed), 2);
+        assert_eq!(maps[&MeshMapKind::AmbientOcclusion].get(10, 10)[0], 0.25);
+        assert_eq!(maps[&MeshMapKind::Thickness].get(10, 10)[0], 0.25);
+        let backends: Vec<_> = reports.iter().map(|r| (r.kind, r.backend.as_str())).collect();
+        assert_eq!(backends, [(MeshMapKind::AmbientOcclusion, "fake"), (MeshMapKind::Thickness, "fake"), (MeshMapKind::Position, "CPU")]);
+    }
+
+    #[test]
+    fn the_preference_off_never_calls_the_backend() {
+        let fake = Fake { result: Ok(0.25), calls: AtomicUsize::new(0) };
+        let (maps, reports) = run(Some(&fake), false, &[MeshMapKind::AmbientOcclusion]);
+        assert_eq!(fake.calls.load(Ordering::Relaxed), 0);
+        assert_ne!(maps[&MeshMapKind::AmbientOcclusion].get(10, 10)[0], 0.25);
+        assert_eq!(reports[0].backend, "CPU");
+    }
+
+    #[test]
+    fn a_failing_backend_falls_back_to_the_exact_cpu_result() {
+        let fake = Fake { result: Err(RayBatchError::Unsupported("device lost".into())), calls: AtomicUsize::new(0) };
+        let (gpu_failed, reports) = run(Some(&fake), true, &[MeshMapKind::AmbientOcclusion, MeshMapKind::Thickness]);
+        let (cpu, _) = run(None, true, &[MeshMapKind::AmbientOcclusion, MeshMapKind::Thickness]);
+        assert_eq!(fake.calls.load(Ordering::Relaxed), 2);
+        assert_eq!(gpu_failed, cpu);
+        assert!(reports.iter().all(|r| r.backend == "CPU (GPU failed: device lost)"), "{reports:?}");
+    }
+
+    #[test]
+    fn cancelling_inside_the_backend_cancels_the_bake() {
+        let fake = Fake { result: Err(RayBatchError::Cancelled), calls: AtomicUsize::new(0) };
+        let mesh = primitives::cube(2.0);
+        let bvh = Bvh::build(&mesh);
+        let input = BakeInput { low: Geometry { mesh: &mesh, bvh: &bvh }, high: None, material_slot: 0 };
+        let r = bake_streamed_with(&input, &settings(&[MeshMapKind::AmbientOcclusion]), &Progress::new(), Some(&fake), |_, _| {});
+        assert_eq!(r.unwrap_err(), BakeError::Cancelled);
+    }
+}

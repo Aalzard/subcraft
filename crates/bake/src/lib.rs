@@ -16,7 +16,9 @@ pub mod curvature;
 pub mod surface;
 
 use std::collections::BTreeMap;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::time::Instant;
 
 use glam::Vec3;
 use rayon::prelude::*;
@@ -24,6 +26,7 @@ use subcraft_core::MeshMapKind;
 use subcraft_core::color::hsv_to_rgb;
 use subcraft_image::TiledImage;
 use subcraft_image::dilate::dilate_infinite;
+use subcraft_mesh::ray_batch::{BatchControl, RayBatchBackend, RayBatchError, RayMode, RayTexel, ray_backend};
 use subcraft_mesh::{Bvh, Mesh, topology};
 
 use surface::{Texel, cosine_directions, hash01, texels};
@@ -43,6 +46,9 @@ pub struct BakeSettings {
     /// High-poly projection cage above / below the low poly, fractions of the diagonal.
     pub cage_front: f32,
     pub cage_rear: f32,
+    /// Cast AO and thickness rays on the GPU when a ray backend is registered (falls back to the
+    /// CPU on any error). The CPU result stays the reference.
+    pub use_gpu: bool,
 }
 
 impl Default for BakeSettings {
@@ -57,6 +63,7 @@ impl Default for BakeSettings {
             curvature_radius: 0.02,
             cage_front: 0.01,
             cage_rear: 0.01,
+            use_gpu: true,
         }
     }
 }
@@ -81,6 +88,16 @@ pub struct Progress {
     total: AtomicUsize,
     cancel: AtomicBool,
     current_map: AtomicUsize,
+    reports: Mutex<Vec<MapReport>>,
+}
+
+/// How one map was produced.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MapReport {
+    pub kind: MeshMapKind,
+    /// `CPU`, `GPU (adapter)` or `CPU (GPU failed: reason)`.
+    pub backend: String,
+    pub seconds: f32,
 }
 
 impl Progress {
@@ -96,6 +113,10 @@ impl Progress {
     }
     pub fn is_cancelled(&self) -> bool {
         self.cancel.load(Ordering::Relaxed)
+    }
+    /// Maps finished by the current / last bake, in order.
+    pub fn reports(&self) -> Vec<MapReport> {
+        self.reports.lock().map(|r| r.clone()).unwrap_or_default()
     }
     pub fn current_map(&self) -> Option<MeshMapKind> {
         self.current_map.load(Ordering::Relaxed).checked_sub(1).and_then(|i| MeshMapKind::ALL.get(i).copied())
@@ -147,10 +168,23 @@ pub fn bake(input: &BakeInput, settings: &BakeSettings, progress: &Progress) -> 
 /// published, including on cancellation. Cloning an image here only shares its immutable tiles.
 pub fn bake_streamed(
     input: &BakeInput, settings: &BakeSettings, progress: &Progress,
+    completed: impl FnMut(MeshMapKind, &TiledImage),
+) -> Result<BTreeMap<MeshMapKind, TiledImage>, BakeError> {
+    let wants_rays = settings.maps.iter().any(|k| matches!(k, MeshMapKind::AmbientOcclusion | MeshMapKind::Thickness));
+    let backend = if settings.use_gpu && wants_rays { ray_backend() } else { None };
+    bake_streamed_with(input, settings, progress, backend.as_deref(), completed)
+}
+
+/// [`bake_streamed`] with an explicit ray backend (`None` = CPU only).
+pub fn bake_streamed_with(
+    input: &BakeInput, settings: &BakeSettings, progress: &Progress, gpu_backend: Option<&dyn RayBatchBackend>,
     mut completed: impl FnMut(MeshMapKind, &TiledImage),
 ) -> Result<BTreeMap<MeshMapKind, TiledImage>, BakeError> {
     let size = settings.size;
     progress.current_map.store(0, Ordering::Relaxed);
+    if let Ok(mut r) = progress.reports.lock() {
+        r.clear();
+    }
     let low = input.low.mesh;
     let samples = texels(low, input.material_slot, size);
     if samples.is_empty() {
@@ -278,15 +312,28 @@ pub fn bake_streamed(
                 }
             }
         };
-        let mut values: Vec<[f32; 3]> = Vec::with_capacity(samples.len());
-        for start in (0..samples.len()).step_by(CHUNK) {
-            if progress.is_cancelled() {
-                return Err(BakeError::Cancelled);
+        let started = Instant::now();
+        let mut backend = "CPU".to_string();
+        let backend_gpu = if settings.use_gpu { gpu_backend } else { None };
+        let gpu = match backend_gpu {
+            Some(gpu) => gpu_ray_map(gpu, kind, settings, detail_geo.bvh, &samples, &details, bias, diag, progress, &mut backend)?,
+            None => None,
+        };
+        let values: Vec<[f32; 3]> = match gpu {
+            Some(v) => v.into_iter().map(|a| [a; 3]).collect(),
+            None => {
+                let mut values: Vec<[f32; 3]> = Vec::with_capacity(samples.len());
+                for start in (0..samples.len()).step_by(CHUNK) {
+                    if progress.is_cancelled() {
+                        return Err(BakeError::Cancelled);
+                    }
+                    let end = (start + CHUNK).min(samples.len());
+                    values.par_extend((start..end).into_par_iter().map(eval));
+                    progress.done.fetch_add(end - start, Ordering::Relaxed);
+                }
+                values
             }
-            let end = (start + CHUNK).min(samples.len());
-            values.par_extend((start..end).into_par_iter().map(eval));
-            progress.done.fetch_add(end - start, Ordering::Relaxed);
-        }
+        };
         let n = (size * size) as usize;
         let neutral = kind.neutral_value();
         let mut dense: Vec<f32> = (0..n).flat_map(|_| neutral[..comps].to_vec()).collect();
@@ -301,11 +348,65 @@ pub fn bake_streamed(
         fill[..comps].copy_from_slice(&neutral[..comps]);
         let image = TiledImage::from_dense(size, size, comps, fill, &dense);
         if progress.is_cancelled() { return Err(BakeError::Cancelled); }
+        if let Ok(mut r) = progress.reports.lock() {
+            r.push(MapReport { kind, backend, seconds: started.elapsed().as_secs_f32() });
+        }
         completed(kind, &image);
         out.insert(kind, image);
     }
     progress.current_map.store(0, Ordering::Relaxed);
     Ok(out)
+}
+
+struct GpuControl<'a> {
+    progress: &'a Progress,
+    base: usize,
+    count: usize,
+}
+
+impl BatchControl for GpuControl<'_> {
+    fn is_cancelled(&self) -> bool {
+        self.progress.is_cancelled()
+    }
+    fn progress(&self, fraction: f32) {
+        self.progress.done.store(self.base + (fraction.clamp(0.0, 1.0) * self.count as f32) as usize, Ordering::Relaxed);
+    }
+}
+
+/// AO and thickness values per sample from the registered ray backend, or `None` to use the CPU
+/// (not a ray map, no backend, or the backend refused: `backend` then says why).
+#[allow(clippy::too_many_arguments)]
+fn gpu_ray_map(
+    gpu: &dyn RayBatchBackend, kind: MeshMapKind, settings: &BakeSettings, bvh: &Bvh, samples: &[Texel], details: &[Detail], bias: f32, diag: f32,
+    progress: &Progress, backend: &mut String,
+) -> Result<Option<Vec<f32>>, BakeError> {
+    let (rays, mode, salt, sign) = match kind {
+        MeshMapKind::AmbientOcclusion => (settings.ao_samples.max(1), RayMode::Occlusion { distance: settings.ao_distance * diag }, 1, 1.0),
+        MeshMapKind::Thickness => (settings.thickness_samples.max(1), RayMode::MeanDistance { max: settings.thickness_distance * diag }, 2, -1.0),
+        _ => return Ok(None),
+    };
+    let texel = |i: usize| {
+        let (t, d) = (&samples[i], &details[i]);
+        // Same origins, axes and seeds as the CPU `eval`: occlusion starts above the surface,
+        // thickness just below it, looking inward.
+        let origin = d.position + d.offset * (bias * sign);
+        RayTexel { origin: origin.to_array(), rotation: hash01(t.index, salt), axis: (d.normal * sign).to_array(), offset: d.offset.to_array() }
+    };
+    let control = GpuControl { progress, base: progress.done.load(Ordering::Relaxed), count: samples.len() };
+    match gpu.run(bvh, samples.len(), &texel, rays, mode, &control) {
+        Ok(values) => {
+            progress.done.store(control.base + samples.len(), Ordering::Relaxed);
+            *backend = gpu.description();
+            Ok(Some(values))
+        }
+        Err(RayBatchError::Cancelled) => Err(BakeError::Cancelled),
+        Err(RayBatchError::Unsupported(why)) => {
+            log::warn!("GPU {} bake failed, using the CPU: {why}", kind.display_name());
+            progress.done.store(control.base, Ordering::Relaxed);
+            *backend = format!("CPU (GPU failed: {why})");
+            Ok(None)
+        }
+    }
 }
 
 #[cfg(test)]
