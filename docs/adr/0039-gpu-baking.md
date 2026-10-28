@@ -12,8 +12,8 @@ texel and are already cheap.
 
 ## Decision
 
-**Which maps.** First AO and thickness run on the GPU. Curvature follows only if the
-equivalence against the CPU result is good (it is a separate step). Everything else stays on the
+**Which maps.** AO and thickness run on the GPU. Curvature followed once its equivalence against
+the CPU result proved exact (same sphere query and weighting in WGSL, one thread per texel). Everything else stays on the
 CPU, as does the high-poly projection, UV rasterisation, gutter padding and the file writing.
 The CPU baker remains the reference and the fallback. Bent normal stays on the CPU for now.
 
@@ -59,5 +59,5 @@ device. The GPU is not bit-identical to the CPU and is not meant to be.
 
 Large meshes bake much faster where an adapter exists. CI (llvmpipe) runs the same shaders
 slowly but correctly; tests skip with "no adapter" if there is none. The shaders add no
-dependencies. Bent normal, curvature and the high-poly projection stay on the CPU until
+dependencies. Bent normal, height and the high-poly projection stay on the CPU until
 measurements justify moving them.

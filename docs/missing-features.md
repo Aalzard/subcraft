@@ -30,7 +30,7 @@ as generally known. It is a planning list, not a promise. "Known" means we alrea
   one effect), fingerprint / fabric-weave / rivet patterns, and shelf tags beyond one category per smart asset.
 
 ## Baking
-- GPU baking (CPU only now), Ray-traced AO with multiple samples/denoise, Bent normal on production meshes (not verified),
+- GPU baking for Bent normal, Height and the high-poly projection (AO, Thickness and Curvature run on the GPU since session 109; the rest and the UV rasterisation stay on the CPU), Ray-traced AO with multiple samples/denoise, Bent normal on production meshes (not verified),
   Position/World normal from high poly with multiple UV sets, bake by mesh name / match "_high/_low", multiple high polys,
   texture-set-wide baking queue with presets.
 
