@@ -366,8 +366,16 @@ fn advanced_section(ui: &mut Ui, np: &mut NewProjectUi) {
 fn create_project(state: &mut UiState, now: f64) {
     let Some(model) = state.new_project.model.take() else { return };
     let settings = state.new_project.settings.clone();
-    match subcraft_app::Session::from_mesh_with(model.mesh.clone(), &settings) {
-        Ok(session) => {
+    // A Painter project brings its own texture sets, baked maps and flattened textures: import
+    // those instead of building empty sets from the bare model.
+    let is_spp = model.path.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("spp"));
+    let created = if is_spp {
+        subcraft_app::Session::open_mesh(&model.path, settings.resolution).map(|(session, notes)| (session, notes.len(), notes.into_iter().next()))
+    } else {
+        subcraft_app::Session::from_mesh_with(model.mesh.clone(), &settings).map(|session| (session, 0, None))
+    };
+    match created {
+        Ok((session, warnings, first_warning)) => {
             state.set_session(session);
             state.welcome.remember(&model.path);
             state.recovery.prefs.new_project = NewProjectSettings { high_poly: None, resolution_overrides: Default::default(), ..settings.clone() };
@@ -376,7 +384,11 @@ fn create_project(state: &mut UiState, now: f64) {
                 state.bake.open = true;
             }
             let sets = state.session.document().texture_sets.len();
-            state.set_status(format!("Created {} ({} texture set{})", model.summary.name, sets, if sets == 1 { "" } else { "s" }), now);
+            let mut status = format!("Created {} ({} texture set{})", model.summary.name, sets, if sets == 1 { "" } else { "s" });
+            if let Some(first) = first_warning {
+                status = format!("Imported {} with {} note(s): {first}", model.summary.name, warnings);
+            }
+            state.set_status(status, now);
             state.new_project.open = false;
             state.new_project.error = None;
         }
@@ -388,8 +400,28 @@ fn create_project(state: &mut UiState, now: f64) {
 }
 
 #[cfg(test)]
+#[path = "../../mesh/tests/support/spp_fixture.rs"]
+mod spp_fixture;
+
+#[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Choosing a Painter project in the New Project dialog must bring its textures along, not
+    /// only the model (reported: "it imports the model, but no texturing at all").
+    #[test]
+    fn a_painter_project_created_from_the_dialog_keeps_its_textures() {
+        let dir = std::env::temp_dir().join(format!("subcraft-np-spp-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("Cube.spp");
+        std::fs::write(&path, crate::new_project::spp_fixture::project_file()).unwrap();
+        let mut state = UiState::new(subcraft_app::Session::new(subcraft_mesh::primitives::cube(2.0), 64), None);
+        state.new_project.load_model(&path);
+        assert!(state.new_project.error.is_none(), "{:?}", state.new_project.error);
+        create_project(&mut state, 0.0);
+        let ts = &state.session.document().texture_sets[0];
+        assert!(ts.layers.iter().any(|l| l.name == "Painter project (flattened)"), "the flattened Painter layer is missing");
+    }
 
     /// A model with dozens of long-named parts, shown on small screens at several scales: the
     /// window must stay inside the screen (the Discord report: thousands of pixels wide).
