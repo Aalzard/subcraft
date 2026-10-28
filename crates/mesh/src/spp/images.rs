@@ -229,8 +229,9 @@ pub struct CacheImage {
 /// Decode a `texture-cache/<uid>/<n>/<flag>` blob, reduced to at most `max_size`.
 /// Decode an imported image resource (`resources/<sha1>.image`: mesh maps baked elsewhere, bitmap
 /// fills, stencils): a property header, then either JPEG 2000 tiles as in the baked maps or one raw
-/// LZ4 block of `dataSizeLZ4` bytes holding `height` rows of `pitch` bytes (rows are stored
-/// bottom first, like the texture cache), then optional ICC data. Formats: BGRA8, RGBA8, RGBA16,
+/// LZ4 block of `dataSizeLZ4` bytes holding `height` rows of `pitch` bytes, top row first (unlike
+/// the texture cache: text in the stencils of a real project reads upright only this way), then
+/// optional ICC data. Formats: BGRA8, RGBA8, RGBA16,
 /// RGBA16F, L8, L16. Returned top row first, at most `max_size` on the longer side.
 pub fn decode_image_resource(blob: &[u8], max_size: u32) -> Result<Plane, ImageError> {
     let Some((props, pos)) = qt::read_properties(blob, 0) else { return corrupt("property header") };
@@ -259,7 +260,7 @@ pub fn decode_image_resource(blob: &[u8], max_size: u32) -> Result<Plane, ImageE
     let mut red = Reducer::new(width, height, components, max_size);
     let mut px = vec![0.0f32; components];
     for y in 0..height {
-        let row = &raw[(height - 1 - y) as usize * pitch as usize..][..width as usize * components * bytes];
+        let row = &raw[y as usize * pitch as usize..][..width as usize * components * bytes];
         for x in 0..width as usize {
             let b = &row[x * components * bytes..][..components * bytes];
             for (c, p) in px.iter_mut().enumerate() {
@@ -274,6 +275,11 @@ pub fn decode_image_resource(blob: &[u8], max_size: u32) -> Result<Plane, ImageE
         }
     }
     Ok(red.finish())
+}
+
+/// Whether an imported image resource stores 8-bit values (color data in them is sRGB encoded).
+pub fn image_resource_is_8bit(blob: &[u8]) -> bool {
+    qt::read_properties(blob, 0).and_then(|(p, _)| p.get("format").and_then(|v| v.as_str()).map(|f| f.ends_with('8'))).unwrap_or(false)
 }
 
 pub fn decode_cache_image(blob: &[u8], max_size: u32) -> Result<CacheImage, ImageError> {

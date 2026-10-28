@@ -188,6 +188,8 @@ pub struct StrokeReplay<'a> {
     pub viewport: u32,
     /// Painter alignment ids map to SubCraft's (same order); `None` keeps them, else forces one.
     pub alignment: Option<subcraft_paint::Alignment>,
+    /// Screen stencil of the strokes being replayed.
+    pub stencil: Option<Arc<subcraft_paint::Stencil>>,
 }
 
 impl<'a> StrokeReplay<'a> {
@@ -208,7 +210,7 @@ impl<'a> StrokeReplay<'a> {
             Ok("camera") => Some(subcraft_paint::Alignment::Camera),
             Ok("uv") => Some(subcraft_paint::Alignment::Uv),
             _ => None,
-        } }
+        }, stencil: None }
     }
 
     fn set_image(&mut self, image: TiledImage) {
@@ -262,7 +264,8 @@ impl<'a> StrokeReplay<'a> {
             let camera = self.camera(s);
             let ctx = subcraft_paint::PaintContext { mesh: &self.picker.mesh, bvh: &self.picker.bvh, geometry: &self.geometry, camera: &camera, depth: &self.depth };
             let settings = subcraft_paint::BrushSettings { seed: s.seed.wrapping_add(k as u32), ..settings };
-            let Ok(mut stroke) = subcraft_paint::Stroke::begin(&self.set, self.layer, target, mode, settings, subcraft_paint::StrokeOptions::default(), &material) else { continue };
+            let Ok(stroke) = subcraft_paint::Stroke::begin(&self.set, self.layer, target, mode, settings, subcraft_paint::StrokeOptions::default(), &material) else { continue };
+            let mut stroke = stroke.with_stencil(self.stencil.clone());
             let vp = self.viewport as f32;
             let screen: Vec<glam::Vec2> = s.points.iter().map(|p| glam::Vec2::new(p[0] * vp, (1.0 - p[1]) * vp)).collect();
             if s.pressure.is_empty() {
@@ -285,7 +288,26 @@ impl<'a> StrokeReplay<'a> {
 #[derive(Clone, Debug)]
 pub enum RasterOp {
     Fill(Vec<DecalHit>),
-    Strokes { strokes: Vec<StrokeInfo>, brush: BrushInfo, opacity: f32, erase: bool },
+    Strokes { strokes: Vec<StrokeInfo>, brush: BrushInfo, opacity: f32, erase: bool, stencil: Option<Arc<subcraft_paint::Stencil>> },
+}
+
+/// SubCraft's screen stencil for Painter's stencil matrix (clip-space screen position to stencil
+/// UV, v up), on the square replay viewport.
+pub fn stencil_of(bitmap: Arc<subcraft_image::Bitmap>, m: &[f32; 9]) -> subcraft_paint::Stencil {
+    // u = a·x + c·y + e and v = b·x + d·y + f for clip-space x, y.
+    let (a, b, c, d, e, f) = (m[0], m[1], m[3], m[4], m[6], m[7]);
+    let sx = (a * a + b * b).sqrt().max(1e-6);
+    let sy = (c * c + d * d).sqrt().max(1e-6);
+    // The image center (u, v) = (0.5, 0.5) in clip space, then in viewport fractions (y down).
+    let det = a * d - b * c;
+    let (cx, cy) = if det.abs() > 1e-9 { ((d * (0.5 - e) - c * (0.5 - f)) / det, (a * (0.5 - f) - b * (0.5 - e)) / det) } else { (0.0, 0.0) };
+    let mut st = subcraft_paint::Stencil::new(bitmap);
+    st.center = glam::Vec2::new(cx * 0.5 + 0.5, 0.5 - cy * 0.5);
+    // One UV unit spans 2/s clip units = 1/s viewport fractions.
+    st.scale = 1.0 / (2.0 * sy);
+    st.rotation = b.atan2(a);
+    let _ = sx;
+    st
 }
 
 /// Paint `ops` in order into a new (value, alpha) raster at the geometry's resolution.
@@ -296,8 +318,10 @@ pub fn paint_raster(picker: &Picker, geometry: Arc<TextureSetGeometry>, ops: &[R
     for op in ops {
         image = match op {
             RasterOp::Fill(hits) => raster_over(&geometry, &picker.triangle_values(hits), image),
-            RasterOp::Strokes { strokes, brush, opacity, erase } => {
-                replay.get_or_insert_with(|| StrokeReplay::new(picker, geometry.clone())).replay(image, strokes, brush, *opacity, *erase)
+            RasterOp::Strokes { strokes, brush, opacity, erase, stencil } => {
+                let r = replay.get_or_insert_with(|| StrokeReplay::new(picker, geometry.clone()));
+                r.stencil = stencil.clone();
+                r.replay(image, strokes, brush, *opacity, *erase)
             }
         };
     }
@@ -383,7 +407,7 @@ mod tests {
         let view = Mat4::look_at_rh(Vec3::new(0.0, 0.0, 5.0), Vec3::ZERO, Vec3::Y);
         let proj = Mat4::orthographic_rh_gl(-2.0, 2.0, -2.0, 2.0, 0.1, 20.0);
         let stroke = StrokeInfo { points: (0..20).map(|i| [0.3 + i as f32 * 0.02, 0.5]).collect(), pressure: Vec::new(), view: view.to_cols_array(), projection: proj.to_cols_array(), seed: 1 };
-        let brush = BrushInfo { size: 0.1, size_space: 1, flow: 1.0, spacing: 0.1, pressure_size: false, value: 1.0, hardness: Some(0.5), tip: "shape".into(), alignment: 0, culling: true };
+        let brush = BrushInfo { size: 0.1, size_space: 1, flow: 1.0, spacing: 0.1, pressure_size: false, value: 1.0, hardness: Some(0.5), tip: "shape".into(), alignment: 0, culling: true, stencil: None };
         let mut replay = StrokeReplay::new(&p, geometry.clone());
         let painted = replay.replay(TiledImage::new(64, 64, 2, [0.0; 4]), &[stroke], &brush, 1.0, false);
         let (mut on_front, mut elsewhere) = (0, 0);

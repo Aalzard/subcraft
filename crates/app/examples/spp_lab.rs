@@ -63,6 +63,10 @@ fn main() {
     let decals = args.get(3).is_some_and(|a| a == "decals");
     let blends = args.get(3).is_some_and(|a| a == "blends");
     std::fs::create_dir_all(dir).unwrap();
+    if args.get(3).is_some_and(|a| a == "images") {
+        dump_images(path, dir);
+        return;
+    }
     let t = std::time::Instant::now();
     let (session, notes) = subcraft_app::Session::open_mesh(Path::new(path), 1024).expect("open");
     for n in &notes {
@@ -141,6 +145,11 @@ fn main() {
             target = (*g.children[a.parse::<usize>().unwrap()]).clone();
         }
         dump_masks(&session, &target, dir, &mut index);
+    }
+    if args.get(3).is_some_and(|a| a == "tune") {
+        let flat_dense: Vec<(ChannelKind, Vec<f32>)> = flat.iter().map(|(k, i)| (*k, dense(i, k.components()))).collect();
+        tune(&session, path, &flat_dense, &cov);
+        return;
     }
     if blends {
         let flat_dense: Vec<(ChannelKind, Vec<f32>)> = flat.iter().map(|(k, i)| (*k, dense(i, k.components()))).collect();
@@ -235,19 +244,19 @@ pub fn blend_search(session: &subcraft_app::Session, path: &str, flat: &[(Channe
         for (_, id, _) in &l.blends {
             *ids.entry(*id).or_default() += 1;
         }
-        for a in &l.mask {
-            for (_, id, _) in &a.blends {
+        for a in l.mask.iter().chain(&l.content) {
+            for (_, id, _) in a.blends.iter().chain(&a.own_blends) {
                 *ids.entry(*id).or_default() += 1;
             }
         }
     }, 0);
     println!("ids: {ids:?}");
-    let mut map: BTreeMap<i32, BlendMode> = BTreeMap::new();
-    map.insert(25, BlendMode::Normal);
+    let mut map: BTreeMap<i32, BlendMode> = (0..64).filter_map(|id| Some((id, subcraft_app::spp_stack::painter_blend(id)?))).collect();
+    let cache = Arc::new(std::sync::Mutex::new(Vec::new()));
     let score = |map: &BTreeMap<i32, BlendMode>, spp: &mut subcraft_mesh::spp::SppFile<std::io::BufReader<std::fs::File>>| {
         let mut res = session.resources().clone();
         let maps: std::collections::BTreeMap<_, _> = session.mesh_maps(view.id).map(|m| m.iter().map(|(k, v)| (k, v.clone())).collect()).unwrap_or_default();
-        let (folder, _, fitted) = subcraft_app::spp_import::rebuild_folder(spp, info, &view, &picker, &mut res, &maps, Some(map));
+        let (folder, _, fitted) = subcraft_app::spp_import::rebuild_folder_cached(spp, info, &view, &picker, &mut res, &maps, Some(map), Some(cache.clone()));
         let mut set = view.clone();
         set.layers = vec![Arc::new(folder)];
         let flat_images: std::collections::BTreeMap<ChannelKind, TiledImage> = match &view.layers[0].content {
@@ -262,7 +271,7 @@ pub fn blend_search(session: &subcraft_app::Session, path: &str, flat: &[(Channe
     println!("start {base:.4} {e:?}");
     let todo: Vec<i32> = match ids_arg {
         Some(list) => list.split(',').filter_map(|v| v.parse().ok()).collect(),
-        None => ids.keys().copied().filter(|i| *i != 25).collect(),
+        None => ids.keys().copied().filter(|i| *i != 25 && *i != 1).collect(),
     };
     for pass in 0..2 {
         for &id in &todo {
@@ -358,4 +367,106 @@ pub fn dump_masks(session: &subcraft_app::Session, folder: &subcraft_doc::Layer,
         names += &format!("{i} {}\n", c.name);
     }
     std::fs::write(dir.join("masks.txt"), names).unwrap();
+}
+
+/// Experiment: every bitmap source and stencil of the stack decoded to PNG (`image_<n>.png`).
+pub fn dump_images(path: &str, dir: &Path) {
+    let mut spp = subcraft_mesh::spp::SppFile::open(Path::new(path)).unwrap();
+    let toc = std::fs::read(path).ok();
+    drop(toc);
+    let project = spp.project().unwrap();
+    let mut urls = std::collections::BTreeSet::new();
+    subcraft_mesh::spp::document::walk_layers(&project.texture_sets[0].layers, &mut |l, _| {
+        for a in l.content.iter().chain(&l.mask) {
+            if let subcraft_mesh::spp::document::ActionKind::Paint { brush: Some(b), .. } = &a.kind {
+                if let Some((url, _)) = &b.stencil {
+                    urls.insert(url.clone());
+                }
+            }
+            if let subcraft_mesh::spp::document::ActionKind::Fill { sources, .. } = &a.kind {
+                for s in sources {
+                    if let subcraft_mesh::spp::SourceInfo::Bitmap { url, .. } = s {
+                        urls.insert(url.clone());
+                    }
+                }
+            }
+        }
+    }, 0);
+    for (n, url) in urls.iter().enumerate() {
+        let Some(blob) = spp.image_resource_blob(url).unwrap() else { continue };
+        match subcraft_mesh::spp::images::decode_image_resource(&blob, 512) {
+            Ok(p) => {
+                let rgba: Vec<f32> = (0..(p.width * p.height) as usize).flat_map(|i| (0..4).map(move |c| if c < p.components { c } else if c == 3 { usize::MAX } else { 0 }).map(|c| if c == usize::MAX { 1.0 } else { p.data[i * p.components + c] }).collect::<Vec<_>>()).collect();
+                subcraft_image::io::save_image(&dir.join(format!("image_{n}.png")), p.width, p.height, 4, &rgba, subcraft_image::io::FileFormat::Png8).unwrap();
+                println!("image_{n}: {url} {}x{}x{}", p.width, p.height, p.components);
+            }
+            Err(e) => println!("image_{n}: {url} error {e}"),
+        }
+    }
+}
+
+/// Experiment: calibrate the generator mappings (`Tuning`) by coordinate descent on the total
+/// difference to Painter's result, with the fitted fills refitted for every trial.
+pub fn tune(session: &subcraft_app::Session, path: &str, flat: &[(ChannelKind, Vec<f32>)], cov: &[bool]) {
+    use subcraft_app::spp_stack::{GeneratorMap, Tuning};
+    let mut spp = subcraft_mesh::spp::SppFile::open(Path::new(path)).unwrap();
+    let project = spp.project().unwrap();
+    let info = &project.texture_sets[0];
+    let view = session.document().texture_sets[0].clone();
+    let picker = subcraft_app::spp_select::Picker::new(session.scene().mesh.clone());
+    let cache = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let maps: std::collections::BTreeMap<_, _> = session.mesh_maps(view.id).map(|m| m.iter().map(|(k, v)| (k, v.clone())).collect()).unwrap_or_default();
+    let flat_images: std::collections::BTreeMap<ChannelKind, TiledImage> = match &view.layers[0].content {
+        LayerContent::Paint(p) => p.channels.clone(),
+        _ => Default::default(),
+    };
+    let mut score = |t: Tuning| {
+        let mut res = session.resources().clone();
+        let (folder, _, fitted) = subcraft_app::spp_import::rebuild_folder_tuned(&mut spp, info, &view, &picker, &mut res, &maps, None, Some(cache.clone()), Some(t));
+        let mut set = view.clone();
+        set.layers = vec![Arc::new(folder)];
+        let (_, c) = subcraft_app::spp_import::fit_and_composite(&mut set, &fitted, &session.scene().mesh, &res, &maps, &flat_images, None);
+        let e: Vec<(ChannelKind, f64)> = flat.iter().filter_map(|(k, a)| Some((*k, error(a, &dense(c.channel(*k)?, k.components()), k.components(), cov)))).collect();
+        (e.iter().map(|(_, v)| *v).sum::<f64>(), e)
+    };
+    let mut best = Tuning::default();
+    let (mut best_s, e) = score(best);
+    println!("start {best_s:.4} {e:?}");
+    fn field(t: &mut Tuning, f: usize) -> &mut GeneratorMap {
+        match f {
+            0 => &mut t.dirt,
+            1 => &mut t.edge_wear,
+            2 => &mut t.curvature,
+            3 => &mut t.ambient_occlusion,
+            _ => &mut t.position,
+        }
+    }
+    let candidates: [&[f32]; 4] = [&[-0.5, -0.25, 0.0, 0.25, 0.5, 0.75, 1.0, 1.25], &[-1.5, -1.0, -0.5, 0.0, 0.5, 1.0, 1.5], &[0.01, 0.05, 0.1, 0.2, 0.35, 0.5], &[0.0, 0.2, 0.4, 0.6]];
+    for pass in 0..2 {
+        for f in 0..5 {
+            for p in 0..4 {
+                let mut results = Vec::new();
+                for &v in candidates[p] {
+                    let mut t = best;
+                    let m = field(&mut t, f);
+                    match p {
+                        0 => m.level[0] = v,
+                        1 => m.level[1] = v,
+                        2 => m.soft[0] = v,
+                        _ => m.soft[1] = v,
+                    }
+                    let (s, _) = score(t);
+                    results.push((s, v, t));
+                }
+                results.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+                if results[0].0 < best_s {
+                    best_s = results[0].0;
+                    best = results[0].2;
+                }
+                println!("pass {pass} family {f} param {p}: best {:.4} at {} ({:?})", results[0].0, results[0].1, results.iter().take(3).map(|r| (r.1, (r.0 * 1e4).round() / 1e4)).collect::<Vec<_>>());
+            }
+        }
+    }
+    let (s, e) = score(best);
+    println!("final {s:.4} {e:?}\ntuning {best:?}");
 }

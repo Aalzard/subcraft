@@ -186,11 +186,11 @@ fn embedded_jpegs_are_found_inside_a_substance_archive() {
 }
 
 #[test]
-fn imported_image_resources_are_decoded_bottom_row_first() {
-    // 2x2 BGRA8 with a padded pitch; the first stored row is the bottom one.
+fn imported_image_resources_are_decoded_top_row_first() {
+    // 2x2 BGRA8 with a padded pitch; the first stored row is the top one.
     let rows = [
-        10, 20, 30, 255, 40, 50, 60, 255, 0, 0, // bottom row, two padding bytes
-        200, 100, 0, 128, 0, 0, 255, 255, 0, 0, // top row
+        200, 100, 0, 128, 0, 0, 255, 255, 0, 0, // top row, two padding bytes
+        10, 20, 30, 255, 40, 50, 60, 255, 0, 0, // bottom row
     ];
     let blob = fixture::image_blob("BGRA8", 2, 2, 10, &rows);
     let p = subcraft_mesh::spp::images::decode_image_resource(&blob, 64).unwrap();
@@ -198,6 +198,6 @@ fn imported_image_resources_are_decoded_bottom_row_first() {
     let px = |x, y| p.pixel(x, y).iter().map(|v| (v * 255.0).round() as u8).collect::<Vec<_>>();
     assert_eq!(px(0, 0), vec![0, 100, 200, 128], "top-left, BGRA swizzled to RGBA");
     assert_eq!(px(1, 0), vec![255, 0, 0, 255]);
-    assert_eq!(px(0, 1), vec![30, 20, 10, 255], "the first stored row ends up at the bottom");
+    assert_eq!(px(0, 1), vec![30, 20, 10, 255], "the second stored row is the bottom one");
     assert!(subcraft_mesh::spp::images::decode_image_resource(&blob[..blob.len() - 12], 64).is_err(), "truncated data is an error");
 }

@@ -47,6 +47,42 @@ impl StackStats {
     }
 }
 
+/// How Painter's mesh-map generators map onto SubCraft's threshold generators: for each family the
+/// generator level is `level[0] + level[1] * p` (p = the graph's level/balance parameter) and its
+/// softness `soft[0] + soft[1] * (1 - c)` (c = its contrast). Calibrated against Painter's
+/// flattened result (docs/spp-research.md); the lab example searches them.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct GeneratorMap {
+    pub level: [f32; 2],
+    pub soft: [f32; 2],
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Tuning {
+    /// `mg_dirt` as Cavity (1 - ambient occlusion), from `dirt_level` / `dirt_contrast`.
+    pub dirt: GeneratorMap,
+    /// `mg_*edge_wear` as Edges (curvature), from `wear_level` / `wear_contrast`.
+    pub edge_wear: GeneratorMap,
+    /// `mg_curvature` as Edges, from `global_balance` / `global_contrast`.
+    pub curvature: GeneratorMap,
+    /// `mg_ambient_occlusion` as Cavity, from `global_balance` / `global_contrast`.
+    pub ambient_occlusion: GeneratorMap,
+    /// `mg_position` as a height gradient, from `global_balance` / `global_contrast`.
+    pub position: GeneratorMap,
+}
+
+impl Default for Tuning {
+    fn default() -> Self {
+        Self {
+            dirt: GeneratorMap { level: [0.0, 1.0], soft: [0.05, 0.4] },
+            edge_wear: GeneratorMap { level: [0.0, 1.5], soft: [0.15, 0.0] },
+            curvature: GeneratorMap { level: [0.0, 1.0], soft: [0.15, 0.0] },
+            ambient_occlusion: GeneratorMap { level: [0.0, 1.0], soft: [0.2, 0.0] },
+            position: GeneratorMap { level: [0.0, 1.0], soft: [0.2, 0.0] },
+        }
+    }
+}
+
 pub struct Rebuilder<'a, R: Read + Seek> {
     pub spp: &'a mut SppFile<R>,
     pub ts: &'a TextureSet,
@@ -73,11 +109,15 @@ pub struct Rebuilder<'a, R: Read + Seek> {
     /// counterpart: rebuilt as uniform values to be fitted against Painter's result
     /// ([`crate::spp_fit`]), in rebuild order (the same for any resolution).
     pub fitted: Vec<crate::spp_fit::Fitted>,
+    /// Rasters painted by an earlier rebuild of the same stack at the same resolution, in job
+    /// order (they do not depend on blending); filled on first use. For repeated experiments.
+    pub raster_cache: Option<Arc<std::sync::Mutex<Vec<TiledImage>>>>,
+    pub tuning: Tuning,
 }
 
 impl<'a, R: Read + Seek> Rebuilder<'a, R> {
     pub fn new(spp: &'a mut SppFile<R>, ts: &'a TextureSet, resources: &'a mut ResourceStore) -> Self {
-        Self { spp, ts, resources, stats: StackStats::default(), images: HashMap::new(), extract_embedded: true, picker: None, geometry: None, blend_map: (0..64).filter_map(|id| Some((id, painter_blend(id)?))).collect(), rasters: Vec::new(), mesh_maps: None, anchors: HashMap::new(), references: Vec::new(), fitted: Vec::new() }
+        Self { spp, ts, resources, stats: StackStats::default(), images: HashMap::new(), extract_embedded: true, picker: None, geometry: None, blend_map: (0..64).filter_map(|id| Some((id, painter_blend(id)?))).collect(), rasters: Vec::new(), mesh_maps: None, anchors: HashMap::new(), references: Vec::new(), fitted: Vec::new(), raster_cache: None, tuning: Tuning::default() }
     }
 
     /// Layers bottom to top.
@@ -94,7 +134,14 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
         let jobs = std::mem::take(&mut self.rasters);
         let (Some(picker), Some(geometry)) = (self.picker, self.geometry.clone()) else { return };
         let t = std::time::Instant::now();
-        let images: Vec<TiledImage> = jobs.par_iter().map(|(_, _, ops)| spp_select::paint_raster(picker, geometry.clone(), ops)).collect();
+        let cached = self.raster_cache.as_ref().map(|c| c.lock().unwrap_or_else(|p| p.into_inner()).clone()).filter(|c| c.len() == jobs.len());
+        let images: Vec<TiledImage> = match cached {
+            Some(c) => c,
+            None => jobs.par_iter().map(|(_, _, ops)| spp_select::paint_raster(picker, geometry.clone(), ops)).collect(),
+        };
+        if let Some(c) = &self.raster_cache {
+            *c.lock().unwrap_or_else(|p| p.into_inner()) = images.clone();
+        }
         for ((layer_id, effect_id, _), image) in jobs.into_iter().zip(images) {
             if let Some(m) = find_layer_mut(layers, layer_id).and_then(|l| l.mask.as_mut()) {
                 for e in &mut m.effects {
@@ -288,6 +335,13 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
                         }
                         let value = match source {
                             SourceInfo::Uniform { color, .. } => Some(uniform_value(c.kind, *color)),
+                            SourceInfo::Bitmap { url, .. } if c.kind != ChannelKind::Normal && !skip("content_bitmaps") && self.bitmap(url, true).is_some() => {
+                                let resource = self.bitmap(url, true).unwrap();
+                                fill.channels.insert(c.kind, FillChannel::new(FillSource::Bitmap { resource }));
+                                layer.blend.insert(c.kind, ChannelBlend::new(BlendMode::Normal));
+                                covered += 1;
+                                None
+                            }
                             // Fitted uniform values stand in for these (the normal detail is dropped).
                             SourceInfo::Bitmap { .. } | SourceInfo::Procedural { .. } if c.kind == ChannelKind::Normal => None,
                             SourceInfo::Bitmap { .. } | SourceInfo::Procedural { .. } => {
@@ -386,10 +440,16 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
                                     Vec::new()
                                 }
                             },
-                            SourceInfo::Bitmap { .. } => {
-                                self.stats.skip("bitmap in a mask");
-                                Vec::new()
-                            }
+                            SourceInfo::Bitmap { url, .. } => match self.bitmap(url, false).filter(|_| !skip("mask_bitmaps")) {
+                                Some(resource) => {
+                                    self.stats.exact += 1;
+                                    vec![MaskEffect::new(MaskEffectKind::Image { resource, projection, invert: false })]
+                                }
+                                None => {
+                                    self.stats.skip("bitmap in a mask");
+                                    Vec::new()
+                                }
+                            },
                             SourceInfo::Reference { anchor, levels, .. } => {
                                 let mut effect = MaskEffect::new(MaskEffectKind::Paint { image: TiledImage::new(res, res, 2, [0.0; 4]) });
                                 effect.name = "Anchor reference".into();
@@ -422,7 +482,13 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
                 ActionKind::Paint { strokes, brush: Some(brush), opacity } | ActionKind::Eraser { strokes, brush: Some(brush), opacity } if self.picker.is_some() && self.geometry.is_some() => {
                     let erase = matches!(action.kind, ActionKind::Eraser { .. });
                     let blend = self.group_blend(action);
-                    let op = RasterOp::Strokes { strokes: strokes.clone(), brush: brush.clone(), opacity: *opacity, erase };
+                    let stencil = brush.stencil.as_ref().and_then(|(url, m)| {
+                        // Kept with its alpha: the stencil lets paint through by brightness x alpha.
+                        let id = self.bitmap(url, true)?;
+                        let bitmap = self.resources.get(id)?.bitmap.clone();
+                        Some(Arc::new(spp_select::stencil_of(bitmap, m)))
+                    });
+                    let op = RasterOp::Strokes { strokes: strokes.clone(), brush: brush.clone(), opacity: *opacity, erase, stencil };
                     pending.get_or_insert_with(|| (action.group, Vec::new(), blend)).1.push(op);
                     self.stats.approximate += 1;
                     mapped += 1;
@@ -483,19 +549,23 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
             gen_.invert = invert;
             MaskEffect::new(MaskEffectKind::Generator(gen_))
         };
+        let t = self.tuning;
+        let mapped = |m: GeneratorMap, kind: GeneratorKind, level: f32, contrast: f32, invert: bool| generator(kind, m.level[0] + m.level[1] * level, m.soft[0] + m.soft[1] * (1.0 - contrast), invert);
         let effects = if name == "mg_dirt" {
             self.stats.approximate += 1;
-            vec![generator(GeneratorKind::Cavity, get(&["dirt_level"], 0.75), 0.4 * (1.0 - get(&["dirt_contrast"], 0.5)) + 0.05, flag("invert"))]
-        } else if name.contains("edge_wear") || name == "mg_curvature" {
+            vec![mapped(t.dirt, GeneratorKind::Cavity, get(&["dirt_level"], 0.75), get(&["dirt_contrast"], 0.5), flag("invert"))]
+        } else if name.contains("edge_wear") {
             self.stats.approximate += 1;
-            let level = if name == "mg_curvature" { get(&["global_balance"], 0.5) } else { get(&["wear_level"], 0.3) * 1.5 };
-            vec![generator(GeneratorKind::Edges, level, 0.15, flag("invert") || flag("global_invert"))]
+            vec![mapped(t.edge_wear, GeneratorKind::Edges, get(&["wear_level"], 0.3), get(&["wear_contrast"], 0.5), flag("invert"))]
+        } else if name == "mg_curvature" {
+            self.stats.approximate += 1;
+            vec![mapped(t.curvature, GeneratorKind::Edges, get(&["global_balance"], 0.5), get(&["global_contrast"], 0.0), flag("global_invert"))]
         } else if name == "mg_ambient_occlusion" {
             self.stats.approximate += 1;
-            vec![generator(GeneratorKind::Cavity, get(&["global_balance"], 0.5), 0.2, flag("global_invert"))]
+            vec![mapped(t.ambient_occlusion, GeneratorKind::Cavity, get(&["global_balance"], 0.5), get(&["global_contrast"], 0.0), flag("global_invert"))]
         } else if name == "mg_position" {
             self.stats.approximate += 1;
-            vec![generator(GeneratorKind::PositionGradient, get(&["global_balance"], 0.5), 0.2, flag("global_invert"))]
+            vec![mapped(t.position, GeneratorKind::PositionGradient, get(&["global_balance"], 0.5), get(&["global_contrast"], 0.0), flag("global_invert"))]
         } else if let Some(effects) = self.grunge_effects(g, &name, projection) {
             effects
         } else if let Some(kind) = noise_kind(&name) {
@@ -528,6 +598,39 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
         let id = self.embedded_image_leveled(&g.url, levels)?;
         self.stats.approximate += 1;
         Some(vec![MaskEffect::new(MaskEffectKind::Image { resource: id, projection, invert })])
+    }
+
+    /// An imported image of the project (`.image` resource) as a texture resource, decoded once.
+    /// `color` keeps it as stored (8-bit data is sRGB encoded, sampled as such for color
+    /// channels); otherwise it becomes a grayscale copy without alpha, as a mask reads it.
+    pub fn bitmap(&mut self, url: &str, color: bool) -> Option<ResourceId> {
+        let key = format!("{url}#{}", if color { "color" } else { "gray" });
+        if let Some(found) = self.images.get(&key) {
+            return *found;
+        }
+        let max = self.ts.resolution.max(256);
+        let decoded = self.spp.image_resource_blob(url).ok().flatten().and_then(|blob| {
+            let eight = subcraft_mesh::spp::images::image_resource_is_8bit(&blob);
+            let plane = subcraft_mesh::spp::images::decode_image_resource(&blob, max).ok()?;
+            Some((plane, eight))
+        });
+        let id = decoded.map(|(p, eight)| {
+            let n = (p.width * p.height) as usize;
+            let bitmap = if color {
+                if eight {
+                    subcraft_image::Bitmap::new_u8(p.width, p.height, p.components as u8, p.data.iter().map(|v| (v.clamp(0.0, 1.0) * 255.0).round() as u8).collect())
+                } else {
+                    subcraft_image::Bitmap::new_f32(p.width, p.height, p.components as u8, p.data.clone())
+                }
+            } else {
+                let gray: Vec<f32> = (0..n).map(|i| p.data[i * p.components]).collect();
+                subcraft_image::Bitmap::new_f32(p.width, p.height, 1, gray)
+            };
+            let name = url.split('?').next().unwrap_or(url).rsplit('/').next().unwrap_or("image").to_string();
+            self.resources.insert(Resource { id: ResourceId::new(), name, kind: ResourceKind::Texture, bitmap: Arc::new(bitmap), source_path: None, encoded: None })
+        });
+        self.images.insert(key, id);
+        id
     }
 
     /// [`Self::embedded_image`] with Levels applied to its values (one resource per graph and levels).
@@ -583,6 +686,11 @@ fn projection_of(id: i64, uv: Option<&subcraft_mesh::spp::document::UvTransform>
         p.offset = t.offset;
     }
     p
+}
+
+/// Developer switch for experiments: `SUBCRAFT_SPP_SKIP=a,b` leaves those rebuild steps out.
+fn skip(step: &str) -> bool {
+    std::env::var("SUBCRAFT_SPP_SKIP").is_ok_and(|v| v.split(',').any(|s| s == step))
 }
 
 fn find_layer(layers: &[Layer], id: LayerId) -> Option<&Layer> {

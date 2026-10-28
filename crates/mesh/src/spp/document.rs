@@ -410,6 +410,9 @@ pub struct BrushInfo {
     /// Painter's alignment id (0 tangent wrap, 1 tangent planar, 2 camera, 3 UV, as SubCraft's).
     pub alignment: i64,
     pub culling: bool,
+    /// Screen-space stencil: the image resource URL and the action's 3x3 `projMatrix` (column
+    /// major) taking clip-space screen positions (-1..1, y up) to stencil UV (v up).
+    pub stencil: Option<(String, [f32; 9])>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -610,6 +613,11 @@ fn brush_of(a: &Obj) -> Option<BrushInfo> {
         tip: tip.as_ref().map(|g| g.name().to_string()).unwrap_or_default(),
         alignment: b.int("alignment").unwrap_or(0),
         culling: b.int("cullingEnabled").map(|v| v != 0).or(b.bool("cullingEnabled")).unwrap_or(true),
+        stencil: a.obj("sourceStencil").filter(|s| s.class == "DataSourceBitmap").and_then(|s| {
+            let url = s.obj("bitmap")?.str("urlToBitmapRes")?.to_string();
+            let m: [f32; 9] = a.floats("projMatrix")?.try_into().ok()?;
+            Some((url, m))
+        }),
     })
 }
 
@@ -790,6 +798,7 @@ mod tests {
         assert_eq!(opacity, 0.25);
         assert_eq!((strokes.len(), strokes[0].points.clone(), strokes[0].seed), (1, vec![[0.1, 0.5], [0.2, 0.5]], 7));
         assert_eq!((b.size, b.flow, b.spacing, b.value, b.hardness, b.tip.as_str(), b.alignment, b.pressure_size), (0.04, 0.5, 0.2, 0.0, Some(0.3), "shape", 3, true));
+        assert_eq!(b.stencil, None);
 
         let reference = obj("DataSourceReference", vec![("channelTypes", Val::Int(0)), ("reference", Val::Obj(Some(Box::new(obj("DataReference", vec![("source", Val::Ints(vec![16_777_217, 0]))])))))]);
         assert_eq!(source_of(&reference), Some(SourceInfo::Reference { channels: 0, anchor: 16_777_217, levels: None }), "uids above 2^24 stay exact");

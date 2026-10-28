@@ -538,7 +538,23 @@ fn channel_mean(a: &TiledImage, comps: usize, coverage: Option<&Plane>) -> Vec<f
 /// The Painter stack of `info` rebuilt as one SubCraft folder for the set `view` (its resolution
 /// decides the rasters'). `blend_map` overrides the Painter blending id table (experiments).
 pub fn rebuild_folder(spp: &mut SppFile, info: &TextureSetInfo, view: &TextureSet, picker: &crate::spp_select::Picker, resources: &mut ResourceStore, maps: &BTreeMap<MeshMapKind, TiledImage>, blend_map: Option<&BTreeMap<i32, subcraft_doc::BlendMode>>) -> (Layer, crate::spp_stack::StackStats, Vec<crate::spp_fit::Fitted>) {
+    rebuild_folder_cached(spp, info, view, picker, resources, maps, blend_map, None)
+}
+
+/// [`rebuild_folder`] reusing the mask rasters of an earlier call with the same `cache`.
+#[allow(clippy::too_many_arguments)]
+pub fn rebuild_folder_cached(spp: &mut SppFile, info: &TextureSetInfo, view: &TextureSet, picker: &crate::spp_select::Picker, resources: &mut ResourceStore, maps: &BTreeMap<MeshMapKind, TiledImage>, blend_map: Option<&BTreeMap<i32, subcraft_doc::BlendMode>>, cache: Option<std::sync::Arc<std::sync::Mutex<Vec<TiledImage>>>>) -> (Layer, crate::spp_stack::StackStats, Vec<crate::spp_fit::Fitted>) {
+    rebuild_folder_tuned(spp, info, view, picker, resources, maps, blend_map, cache, None)
+}
+
+/// [`rebuild_folder_cached`] with generator mappings other than the calibrated ones (experiments).
+#[allow(clippy::too_many_arguments)]
+pub fn rebuild_folder_tuned(spp: &mut SppFile, info: &TextureSetInfo, view: &TextureSet, picker: &crate::spp_select::Picker, resources: &mut ResourceStore, maps: &BTreeMap<MeshMapKind, TiledImage>, blend_map: Option<&BTreeMap<i32, subcraft_doc::BlendMode>>, cache: Option<std::sync::Arc<std::sync::Mutex<Vec<TiledImage>>>>, tuning: Option<crate::spp_stack::Tuning>) -> (Layer, crate::spp_stack::StackStats, Vec<crate::spp_fit::Fitted>) {
     let mut rebuilder = Rebuilder::new(spp, view, resources);
+    rebuilder.raster_cache = cache;
+    if let Some(t) = tuning {
+        rebuilder.tuning = t;
+    }
     rebuilder.mesh_maps = Some(subcraft_materials::MeshMaps::from_map(maps.iter().map(|(k, v)| (*k, if v.width() == view.resolution { v.clone() } else { v.resampled(view.resolution, view.resolution) })).collect()));
     rebuilder.picker = Some(picker);
     rebuilder.geometry = Some(std::sync::Arc::new(subcraft_materials::TextureSetGeometry::new(picker.mesh.clone(), view.material_slot, view.resolution)));
