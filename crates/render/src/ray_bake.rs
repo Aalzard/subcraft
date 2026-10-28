@@ -183,6 +183,8 @@ impl RayBatchBackend for GpuRayBaker {
         });
         let max_groups = limits.max_compute_workgroups_per_dimension;
 
+        let run_started = Instant::now();
+        let (mut prep_time, mut gpu_time, mut passes) = (Duration::ZERO, Duration::ZERO, 0u32);
         let mut out = Vec::with_capacity(count);
         // Rays per dispatch, adapted from measured speed (starts tiny so a slow adapter is safe).
         let mut rays_per_pass = 1u32;
@@ -193,11 +195,13 @@ impl RayBatchBackend for GpuRayBaker {
             if control.is_cancelled() {
                 return Err(RayBatchError::Cancelled);
             }
+            let prep = Instant::now();
             records.clear();
             records.extend((first..first + part_len).map(texel).map(|t| {
                 [t.origin[0], t.origin[1], t.origin[2], t.rotation, t.axis[0], t.axis[1], t.axis[2], 0.0, t.offset[0], t.offset[1], t.offset[2], 0.0]
             }));
             self.queue.write_buffer(&texel_buf, 0, bytemuck::cast_slice(&records));
+            prep_time += prep.elapsed();
             let mut enc = self.device.create_command_encoder(&Default::default());
             enc.clear_buffer(&accum_buf, 0, None);
             self.queue.submit([enc.finish()]);
@@ -224,6 +228,8 @@ impl RayBatchBackend for GpuRayBaker {
                 self.queue.submit([enc.finish()]);
                 self.wait()?;
                 let took = started.elapsed();
+                gpu_time += took;
+                passes += 1;
                 let n = end - done;
                 done = end;
                 // Next pass: scale toward the target time (at most 4x growth; shrink at once).
@@ -247,6 +253,7 @@ impl RayBatchBackend for GpuRayBaker {
             }
             read_buf.unmap();
         }
+        log::info!("GPU ray bake: {count} texels x {rays} rays: total {:.2}s, records {:.2}s, dispatches {:.2}s in {passes} passes", run_started.elapsed().as_secs_f32(), prep_time.as_secs_f32(), gpu_time.as_secs_f32());
         Ok(out)
     }
 }
