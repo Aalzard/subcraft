@@ -78,8 +78,13 @@ pub fn channel_image(img: &CacheImage, kind: ChannelKind, flip_green: bool, res:
     let comps = kind.components() + 1;
     let n = (p.width * p.height) as usize;
     let mut dense = vec![1.0f32; n * comps];
+    let width = p.width as usize;
     for i in 0..n {
-        let src = &p.data[i * p.components..(i + 1) * p.components];
+        // The texture cache holds OpenGL buffers, bottom row first; the baked maps (and SubCraft)
+        // are top row first, so the rows are flipped to line up with the baked maps and the UVs.
+        let (x, y) = (i % width, i / width);
+        let s = ((p.height as usize - 1 - y) * width + x) * p.components;
+        let src = &p.data[s..s + p.components];
         let dst = &mut dense[i * comps..(i + 1) * comps];
         match kind {
             ChannelKind::BaseColor | ChannelKind::Emissive => {
@@ -506,4 +511,21 @@ fn rebuild_stack(spp: &mut SppFile, info: &TextureSetInfo, ts: &mut TextureSet, 
     } else {
         "    The rebuilt stack differs too much from Painter's result to be trusted, so it is hidden and the flattened layer is shown. Switch them to compare or edit.".into()
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use subcraft_mesh::spp::{CacheFormat, CacheImage, Plane};
+
+    /// Painter's texture cache is bottom row first, unlike its baked maps: the first cache row
+    /// must end up as the last (bottom) row of the layer, or the texture lands upside down on the
+    /// model ("the UVs are messed up").
+    #[test]
+    fn cache_textures_are_flipped_to_the_top_first_row_order() {
+        let img = CacheImage { format: CacheFormat::Rg8, plane: Plane { width: 1, height: 2, components: 2, data: vec![0.2, 1.0, 0.8, 1.0] } };
+        let out = channel_image(&img, ChannelKind::Roughness, false, 2);
+        assert!((out.get(0, 0)[0] - 0.8).abs() < 1e-3, "{:?}", out.get(0, 0));
+        assert!((out.get(0, 1)[0] - 0.2).abs() < 1e-3, "{:?}", out.get(0, 1));
+    }
 }
