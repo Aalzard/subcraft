@@ -613,3 +613,162 @@ fn stroke_over_a_hard_edge_has_no_gap_and_keeps_its_width() {
     assert_stroke_wraps_a_hard_edge(primitives::atlas_box(Vec3::new(2.0, 1.0, 3.0), 3, "Box"), 0.5, 1.5, 512, 12.0, 0.4, "atlas box non-uniform");
     assert_stroke_wraps_a_hard_edge(primitives::sample_crate(), 0.5, 0.5, 1024, 4.0, 0.07, "default crate");
 }
+
+/// Drag a zig-zagging cursor from `a` to `b` (screen) and optionally end with `finish`.
+fn zigzag_stroke(sc: &mut Scene, cam: &Camera, options: StrokeOptions, finish: bool) -> (Stroke, Vec2) {
+    let mut s = Stroke::begin(&sc.ts, sc.layer, PaintTarget::Content, StrokeMode::Paint, BrushSettings { size: 4.0, hardness: 1.0, ..BrushSettings::default() }, options, &red()).unwrap();
+    let a = cam.project(Vec3::new(-0.6, 0.0, 1.0)).unwrap().truncate();
+    let b = cam.project(Vec3::new(0.6, 0.0, 1.0)).unwrap().truncate();
+    let mut ts = sc.ts.clone();
+    for k in 0..=40 {
+        let p = a.lerp(b, k as f32 / 40.0) + Vec2::new(0.0, if k == 0 { 0.0 } else if k % 2 == 0 { 6.0 } else { -6.0 });
+        s.add_point(&mut ts, &sc.ctx(cam), p).unwrap();
+    }
+    if finish {
+        s.finish(&mut ts, &sc.ctx(cam)).unwrap();
+    }
+    sc.ts = ts;
+    (s, b)
+}
+
+fn painted_bounds(sc: &Scene, res: u32) -> (f32, f32, f32) {
+    let img = sc.image(ChannelKind::BaseColor).unwrap();
+    let surf = sc.surface();
+    let (mut min_x, mut max_x, mut max_ay) = (f32::MAX, f32::MIN, 0.0f32);
+    for i in 0..surf.triangle.len() {
+        if surf.covered(i) && alpha(&img, i, res) > 0.5 {
+            let p = Vec3::from_slice(&surf.position[i][..3]);
+            min_x = min_x.min(p.x);
+            max_x = max_x.max(p.x);
+            max_ay = max_ay.max(p.y.abs());
+        }
+    }
+    (min_x, max_x, max_ay)
+}
+
+#[test]
+fn smoothing_damps_a_shaky_cursor_and_catch_up_reaches_the_end() {
+    let res = 256;
+    let cam = front_camera(5.0);
+    let run = |options: StrokeOptions, finish: bool| {
+        let mut sc = Scene::new(primitives::cube(2.0), res);
+        zigzag_stroke(&mut sc, &cam, options, finish);
+        let bounds = painted_bounds(&sc, res);
+        (sc, bounds)
+    };
+    let (_, raw) = run(StrokeOptions::default(), false);
+    let smooth = StrokeOptions { smoothing: 0.8, ..StrokeOptions::default() };
+    let (sc_a, smoothed) = run(smooth, false);
+    assert!(smoothed.2 < raw.2 - 0.02, "smoothed stroke is flatter: {} vs {}", smoothed.2, raw.2);
+    assert!(smoothed.1 < raw.1 - 0.02, "average trails the cursor: {} vs {}", smoothed.1, raw.1);
+    let catch = StrokeOptions { catch_up: true, ..smooth };
+    let (sc_b, caught) = run(catch, true);
+    assert!(caught.1 > smoothed.1 + 0.02, "catch-up extends the stroke: {} vs {}", caught.1, smoothed.1);
+    assert!((caught.1 - raw.1).abs() < 0.08, "catch-up ends near the cursor: {} vs {}", caught.1, raw.1);
+    // Same input, same output, bit for bit.
+    let (sc_c, _) = run(catch, true);
+    assert_eq!(sc_b.image(ChannelKind::BaseColor), sc_c.image(ChannelKind::BaseColor));
+    assert_ne!(sc_a.image(ChannelKind::BaseColor), sc_b.image(ChannelKind::BaseColor));
+}
+
+#[test]
+fn smoothing_with_lazy_mouse_and_symmetry_stays_mirrored() {
+    let res = 256;
+    let cam = Camera::perspective(Vec3::new(0.0, 0.5, 5.0), Vec3::ZERO, Vec3::Y, 40.0, 0.1, 100.0, [512, 512]);
+    let mut sc = Scene::new(primitives::cube(2.0), res);
+    let options = StrokeOptions { smoothing: 0.6, lazy_distance_px: 10.0, catch_up: true, symmetry: [true, false, false], ..StrokeOptions::default() };
+    let mut s = Stroke::begin(&sc.ts, sc.layer, PaintTarget::Content, StrokeMode::Paint, BrushSettings { size: 8.0, ..BrushSettings::default() }, options, &red()).unwrap();
+    let a = cam.project(Vec3::new(0.2, 0.2, 1.0)).unwrap().truncate();
+    let b = cam.project(Vec3::new(0.7, 0.3, 1.0)).unwrap().truncate();
+    let mut ts = sc.ts.clone();
+    for k in 0..=30 {
+        s.add_point(&mut ts, &sc.ctx(&cam), a.lerp(b, k as f32 / 30.0)).unwrap();
+    }
+    s.finish(&mut ts, &sc.ctx(&cam)).unwrap();
+    sc.ts = ts;
+    let img = sc.image(ChannelKind::BaseColor).unwrap();
+    let surf = sc.surface();
+    let (mut wl, mut wr) = (0.0f32, 0.0f32);
+    for i in 0..surf.triangle.len() {
+        if surf.covered(i) {
+            if surf.position[i][0] > 0.0 { wr += alpha(&img, i, res) } else { wl += alpha(&img, i, res) }
+        }
+    }
+    assert!(wr > 30.0, "painted ({wr})");
+    assert!((wl - wr).abs() / wr < 0.05, "mirrored amount differs: {wl} vs {wr}");
+}
+
+/// Painted amount (summed alpha) and the lowest/highest object-space y reached.
+fn scatter_dab(settings: BrushSettings) -> (Scene, f32, f32, f32) {
+    let res = 256;
+    let cam = front_camera(5.0);
+    let mut sc = Scene::new(primitives::cube(2.0), res);
+    let mut s = Stroke::begin(&sc.ts, sc.layer, PaintTarget::Content, StrokeMode::Paint, settings, StrokeOptions::default(), &red()).unwrap();
+    let mut ts = sc.ts.clone();
+    s.add_point(&mut ts, &sc.ctx(&cam), cam.project(Vec3::new(0.0, 0.3, 1.0)).unwrap().truncate()).unwrap();
+    sc.ts = ts;
+    let img = sc.image(ChannelKind::BaseColor);
+    let (mut total, mut lo, mut hi) = (0.0f32, f32::MAX, f32::MIN);
+    if let Some(img) = img {
+        let surf = sc.surface();
+        for i in 0..surf.triangle.len() {
+            let a = if surf.covered(i) { alpha(&img, i, res) } else { 0.0 };
+            if a > 0.01 {
+                total += a;
+                let y = surf.position[i][1];
+                lo = lo.min(y);
+                hi = hi.max(y);
+            }
+        }
+    }
+    (sc, total, lo, hi)
+}
+
+#[test]
+fn scatter_spreads_particles_around_the_path_and_fall_drops_them() {
+    let base = BrushSettings { size: 4.0, hardness: 1.0, scatter_count: 12, scatter_radius: 2.0, scatter_size_random: 0.0, scatter_opacity_random: 0.0, ..BrushSettings::default() };
+    let (_, single, _, _) = scatter_dab(BrushSettings { scatter_count: 0, ..base });
+    let (sc_a, many, lo, hi) = scatter_dab(base);
+    assert!(many > single * 4.0, "scatter paints more: {many} vs {single}");
+    // 2 diameters of spread (diameter ~ 0.08 * diagonal) stays bounded around the click.
+    assert!(hi - lo < 1.2, "bounded spread {lo}..{hi}");
+    // Same seed: identical image; other seed: different.
+    let (sc_b, ..) = scatter_dab(base);
+    assert_eq!(sc_a.image(ChannelKind::BaseColor), sc_b.image(ChannelKind::BaseColor));
+    let (sc_c, ..) = scatter_dab(BrushSettings { seed: 9, ..base });
+    assert_ne!(sc_a.image(ChannelKind::BaseColor), sc_c.image(ChannelKind::BaseColor));
+    // Fall only moves paint downward.
+    let still = BrushSettings { scatter_radius: 0.0, ..base };
+    let (_, _, lo0, hi0) = scatter_dab(still);
+    let (_, _, lo1, hi1) = scatter_dab(BrushSettings { scatter_fall: 6.0, ..still });
+    assert!(lo1 < lo0 - 0.15, "paint falls: {lo1} vs {lo0}");
+    assert!(hi1 < hi0 + 0.03, "nothing moves up: {hi1} vs {hi0}");
+}
+
+#[test]
+fn scatter_respects_backface_and_depth_rules() {
+    let base = BrushSettings { size: 12.0, scatter_count: 6, scatter_radius: 0.5, ..BrushSettings::default() };
+    slab_back_untouched(base);
+    slab_back_untouched(BrushSettings { backface_culling: false, ..base });
+    slab_back_untouched(BrushSettings { alignment: Alignment::TangentPlanar, scatter_fall: 2.0, ..base });
+}
+
+#[test]
+fn scatter_particles_are_mirrored_by_symmetry() {
+    let res = 256;
+    let cam = Camera::perspective(Vec3::new(0.0, 0.5, 5.0), Vec3::ZERO, Vec3::Y, 40.0, 0.1, 100.0, [512, 512]);
+    let mut sc = Scene::new(primitives::cube(2.0), res);
+    let options = StrokeOptions { symmetry: [true, false, false], ..StrokeOptions::default() };
+    sc.stroke(&cam, &[Vec3::new(0.4, 0.2, 1.0), Vec3::new(0.7, 0.3, 1.0)],
+        BrushSettings { size: 6.0, scatter_count: 6, scatter_radius: 1.5, ..BrushSettings::default() }, options, &red());
+    let img = sc.image(ChannelKind::BaseColor).unwrap();
+    let surf = sc.surface();
+    let (mut wl, mut wr) = (0.0f32, 0.0f32);
+    for i in 0..surf.triangle.len() {
+        if surf.covered(i) {
+            if surf.position[i][0] > 0.0 { wr += alpha(&img, i, res) } else { wl += alpha(&img, i, res) }
+        }
+    }
+    assert!(wr > 30.0, "painted ({wr})");
+    assert!((wl - wr).abs() / wr < 0.05, "{wl} vs {wr}");
+}

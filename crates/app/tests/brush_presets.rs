@@ -77,3 +77,33 @@ fn old_presets_without_new_fields_still_load() {
     assert_eq!(errors.len(), 2, "{errors:?}");
     std::fs::remove_dir_all(&dir).ok();
 }
+
+#[test]
+fn stabilizer_and_scatter_settings_roundtrip_and_old_presets_load() {
+    let (dir, lib) = temp_lib("stab-scatter");
+    let tips = alphas::builtin();
+    let mut a = Session::new(primitives::cube(1.0), 128);
+    a.brush.options.smoothing = 0.7;
+    a.brush.options.catch_up = true;
+    a.brush.options.lazy_distance_px = 18.0;
+    a.brush.settings.scatter_count = 9;
+    a.brush.settings.scatter_radius = 1.75;
+    a.brush.settings.scatter_size_random = 0.4;
+    a.brush.settings.scatter_rotation_deg = 90.0;
+    a.brush.settings.scatter_opacity_random = 0.2;
+    a.brush.settings.scatter_fall = 3.0;
+    save_brush_preset(&lib, &a.brush_preset("Dust")).unwrap();
+    let (loaded, errors) = load_brush_presets(&lib);
+    assert!(errors.is_empty(), "{errors:?}");
+    let mut b = Session::new(primitives::cube(1.0), 128);
+    assert!(b.apply_brush_preset(&loaded[0], &tips).is_none());
+    assert_eq!(b.brush.settings, a.brush.settings);
+    assert_eq!(b.brush.options, a.brush.options);
+    // A preset written before these fields existed still loads, with them off.
+    let old = r#"{"format":"subcraft-brush","version":2,"name":"Old","tip":null,"settings":{"size":3.0},"options":{"lazy_distance_px":4.0}}"#;
+    let p: subcraft_app::brush_preset::BrushPreset = serde_json::from_str(old).unwrap();
+    assert_eq!(p.settings.scatter_count, 0);
+    assert_eq!(p.options.smoothing, 0.0);
+    assert!(!p.options.catch_up);
+    let _ = std::fs::remove_dir_all(dir);
+}

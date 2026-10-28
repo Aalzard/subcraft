@@ -71,9 +71,6 @@ struct CloneSource {
     offset: Option<Vec2>,
 }
 
-/// How much of the carried paint survives each smudge stamp.
-const SMUDGE_CARRY: f32 = 0.85;
-
 /// Per-tile texel remapping for the image sources (clone / camera projection).
 enum Remap {
     None,
@@ -174,7 +171,18 @@ impl Stroke {
     pub fn add_point(&mut self, ts: &mut TextureSet, ctx: &PaintContext, cursor: Vec2) -> Result<Vec<usize>, PaintError> {
         let mut samples = Vec::new();
         let spacing = self.spacing_px(ctx);
-        self.path.push(cursor, spacing, self.options.lazy_distance_px, &mut samples);
+        self.path.push(cursor, spacing, self.options.lazy_distance_px, self.options.smoothing, &mut samples);
+        self.paint_samples(ts, ctx, &samples)
+    }
+
+    /// End of stroke: with `catch_up` the brush glides to the last cursor position.
+    pub fn finish(&mut self, ts: &mut TextureSet, ctx: &PaintContext) -> Result<Vec<usize>, PaintError> {
+        if !self.options.catch_up {
+            return Ok(Vec::new());
+        }
+        let mut samples = Vec::new();
+        let spacing = self.spacing_px(ctx);
+        self.path.finish(spacing, &mut samples);
         self.paint_samples(ts, ctx, &samples)
     }
 
@@ -248,16 +256,37 @@ impl Stroke {
                 let (a, d) = (rand01(s.seed, k, 3) * std::f32::consts::TAU, rand01(s.seed, k, 4).sqrt());
                 screen += Vec2::new(a.cos(), a.sin()) * d * s.position_jitter * 2.0 * r_px;
             }
-            let dab = Dab { screen, radius, flow, angle, roundness: s.roundness, hardness: s.hardness };
-            for (ci, cam) in cameras.iter().enumerate() {
-                let parts = self.parts.as_ref().filter(|p| p.enabled);
-                let accept = |t: u32| ctx.mesh.tri_material[t as usize] == ctx.geometry.material_slot && parts.is_none_or(|p|
-                    ctx.geometry.triangle_region(t as usize, p.kind).is_some_and(|id| p.parts.contains(&id)));
-                if let Some(st) = resolve_overlap(&dab, ci, cam, ctx.mesh, ctx.bvh, s.alignment, self.alpha.is_some(), accept) {
-                    if ci == 0 {
-                        self.last_depth = Some(cam.view_depth(st.center).max(1e-3));
+            let mut dabs = vec![Dab { screen, radius, flow, angle, roundness: s.roundness, hardness: s.hardness }];
+            if s.scatter_count > 0 {
+                // Particles around the path point; each draws from its own random streams.
+                let diameter_px = 2.0 * radius * ctx.camera.pixels_per_unit(self.depth_hint(ctx));
+                dabs.clear();
+                for i in 0..s.scatter_count {
+                    let st = 16 + i * 8;
+                    let (a, d) = (rand01(s.seed, k, st) * std::f32::consts::TAU, rand01(s.seed, k, st + 1).sqrt());
+                    let mut at = screen + Vec2::new(a.cos(), a.sin()) * d * s.scatter_radius.max(0.0) * diameter_px;
+                    at.y += s.scatter_fall.max(0.0) * diameter_px * rand01(s.seed, k, st + 2);
+                    dabs.push(Dab {
+                        screen: at,
+                        radius: radius * (1.0 - s.scatter_size_random.clamp(0.0, 1.0) * rand01(s.seed, k, st + 3)),
+                        flow: flow * (1.0 - s.scatter_opacity_random.clamp(0.0, 1.0) * rand01(s.seed, k, st + 4)),
+                        angle: angle + (s.scatter_rotation_deg * (2.0 * rand01(s.seed, k, st + 5) - 1.0)).to_radians(),
+                        roundness: s.roundness,
+                        hardness: s.hardness,
+                    });
+                }
+            }
+            for dab in &dabs {
+                for (ci, cam) in cameras.iter().enumerate() {
+                    let parts = self.parts.as_ref().filter(|p| p.enabled);
+                    let accept = |t: u32| ctx.mesh.tri_material[t as usize] == ctx.geometry.material_slot && parts.is_none_or(|p|
+                        ctx.geometry.triangle_region(t as usize, p.kind).is_some_and(|id| p.parts.contains(&id)));
+                    if let Some(st) = resolve_overlap(dab, ci, cam, ctx.mesh, ctx.bvh, s.alignment, self.alpha.is_some(), accept) {
+                        if ci == 0 {
+                            self.last_depth = Some(cam.view_depth(st.center).max(1e-3));
+                        }
+                        stamps.push(st);
                     }
-                    stamps.push(st);
                 }
             }
         }
@@ -419,6 +448,8 @@ impl Stroke {
             alpha: self.alpha.as_deref(), stencil: None,
         };
         let mut changed = std::collections::BTreeSet::new();
+        let (carry, strength, material, falloff) = (self.settings.smudge_carry.clamp(0.0, 1.0), self.settings.smudge_strength.clamp(0.0, 1.0),
+            self.settings.smudge_material.clamp(0.0, 1.0), self.settings.smudge_falloff.clamp(0.25, 8.0));
         for st in stamps {
             let footprints: Vec<(usize, Vec<f32>)> = input
                 .bin(std::slice::from_ref(st))
@@ -427,6 +458,9 @@ impl Stroke {
                     let samples = input.rasterize_tile(t, w.tris.iter().copied());
                     let mut fp = input.footprints(&samples, st);
                     self.restrict_coverage(ctx.geometry, t, &mut fp);
+                    if falloff != 1.0 {
+                        fp.iter_mut().for_each(|v| *v = v.powf(falloff));
+                    }
                     (t, fp)
                 })
                 .filter(|(_, fp)| fp.iter().any(|&v| v > 0.0))
@@ -456,8 +490,15 @@ impl Stroke {
                 for v in p.iter_mut() { *v /= weight; }
                 self.carried[k] = Some(match self.carried[k] {
                     None => *p,
-                    Some(c) => std::array::from_fn(|j| c[j] * SMUDGE_CARRY + p[j] * (1.0 - SMUDGE_CARRY)),
+                    Some(c) => std::array::from_fn(|j| c[j] * carry + p[j] * (1.0 - carry)),
                 });
+                if material > 0.0 {
+                    // Smudge with material: the brush paint (opaque) mixes into what is carried.
+                    let c = self.carried[k].as_mut().expect("set above");
+                    let v = self.images[k].value;
+                    for j in 0..3 { c[j] += (v[j] - c[j]) * material; }
+                    c[3] += (1.0 - c[3]) * material;
+                }
             }
             // Deposit the carried paint, weighted by the footprint.
             let mut writes = Vec::new();
@@ -469,7 +510,7 @@ impl Stroke {
                     let mut buf = vec![0.0f32; TILE_TEXELS * comps];
                     self.work[k].read_tile(*t, &mut buf);
                     for (px, &w) in buf.chunks_exact_mut(comps).zip(fp) {
-                        let s = (w * st.flow).clamp(0.0, 1.0);
+                        let s = (w * st.flow * strength).clamp(0.0, 1.0);
                         if s <= 0.0 { continue; }
                         if img.has_alpha {
                             let a0 = px[n];

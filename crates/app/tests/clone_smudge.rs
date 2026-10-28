@@ -155,3 +155,60 @@ fn camera_projection_maps_the_image_from_the_view_not_through_the_uvs() {
     let (ua, ub) = (at(&uv_mode, a.0, a.1), at(&uv_mode, b.0, b.1));
     assert!((ua[0] - ub[0]).abs() < 0.05 && (ua[2] - ub[2]).abs() < 0.05, "UV mode ignores the view: {ua:?} {ub:?}");
 }
+
+/// Smudge a painted red strip rightwards with the given settings; returns the BaseColor raster.
+fn smudged(tweak: impl FnOnce(&mut Session)) -> TiledImage {
+    let mut s = session();
+    let cam = camera(Vec3::NEG_Z);
+    stroke(&mut s, &cam, &[(-0.8, 0.0), (-0.5, 0.0), (-0.2, 0.0)]);
+    s.brush.mode = StrokeMode::Smudge;
+    tweak(&mut s);
+    stroke(&mut s, &cam, &[(-0.4, 0.0), (-0.2, 0.0), (0.0, 0.0), (0.2, 0.0), (0.4, 0.0), (0.6, 0.0)]);
+    raster(&s, K::BaseColor)
+}
+
+#[test]
+fn smudge_strength_and_smear_length_shape_how_far_paint_travels() {
+    let default = smudged(|_| {});
+    let weak = smudged(|s| s.brush.settings.smudge_strength = 0.3);
+    let short = smudged(|s| s.brush.settings.smudge_carry = 0.2);
+    let long = smudged(|s| s.brush.settings.smudge_carry = 0.95);
+    let a = |img: &TiledImage, x: f32| at(img, x, 0.0)[3];
+    assert!(a(&weak, 0.3) < a(&default, 0.3), "strength lowers what is deposited: {} vs {}", a(&weak, 0.3), a(&default, 0.3));
+    assert!(a(&short, 0.45) < a(&long, 0.45), "short smear fades sooner: {} vs {}", a(&short, 0.45), a(&long, 0.45));
+    // The default settings are the pre-existing behaviour, bit for bit and deterministic.
+    assert_eq!(default, smudged(|_| {}));
+}
+
+#[test]
+fn smudge_with_material_mixes_the_brush_color_into_the_smear() {
+    let plain = smudged(|_| {});
+    let mixed = smudged(|s| {
+        s.brush.material = BrushMaterial::with(&[(K::BaseColor, ChannelValue::rgb(0.0, 0.0, 1.0))]);
+        s.brush.settings.smudge_material = 0.5;
+    });
+    let (p, m) = (at(&plain, 0.3, 0.0), at(&mixed, 0.3, 0.0));
+    assert!(p[2] < 0.05, "plain smudge stays red: {p:?}");
+    assert!(m[2] > 0.1 && m[0] < p[0], "blue mixed into the smear: {m:?} vs {p:?}");
+    // Material mixing only touches the enabled channel; far texels stay exact.
+    assert_eq!(at(&mixed, 0.0, 0.8), at(&plain, 0.0, 0.8));
+}
+
+#[test]
+fn smudge_keeps_normals_unit_length_and_height_in_range() {
+    let mut s = Session::new(primitives::plane(2.0, 1), RES);
+    s.brush.settings.size = 18.0;
+    s.brush.settings.hardness = 1.0;
+    s.brush.settings.smudge_material = 0.4;
+    s.brush.material = BrushMaterial::with(&[(K::Normal, ChannelValue::rgb(0.9, 0.5, 0.8)), (K::Height, ChannelValue::scalar(0.9))]);
+    let cam = camera(Vec3::NEG_Z);
+    stroke(&mut s, &cam, &[(-0.8, 0.0), (-0.5, 0.0)]);
+    s.brush.mode = StrokeMode::Smudge;
+    stroke(&mut s, &cam, &[(-0.6, 0.0), (-0.2, 0.0), (0.2, 0.0)]);
+    let n = at(&raster(&s, K::Normal), 0.0, 0.0);
+    assert!(n[3] > 0.02, "normal reached: {n:?}");
+    let v = subcraft_core::normal::decode([n[0], n[1], n[2]]);
+    assert!((glam::Vec3::from(v).length() - 1.0).abs() < 1e-3, "unit normal: {v:?}");
+    let h = at(&raster(&s, K::Height), 0.0, 0.0);
+    assert!(h[1] > 0.02 && (0.0..=1.0).contains(&h[0]), "height in range: {h:?}");
+}

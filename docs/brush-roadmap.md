@@ -134,8 +134,8 @@ fill edits target the selected fill, with numeric composite/undo and real dock i
 
 ## Phase 3 — Smooth and straight strokes
 
-- [~] Smoothing: existing lazy mouse; pulled string, catch-up, post smoothing, speed-adaptive,
-  finish-to-cursor and Off/Light/Medium/Heavy/Calligraphy presets remain.
+- [~] Smoothing: lazy mouse (rope), weighted-average smoothing and catch-up end done (session 109);
+  post smoothing, speed-adaptive and Off/Light/Medium/Heavy/Calligraphy buttons remain.
 - [~] Existing Shift+click lines; Shift-drag lock, chained polylines, 15/45/90° snapping,
   screen/UV axis locks remain.
 - [ ] Projected shapes: line with editable endpoints before commit, rectangle, ellipse,
@@ -176,7 +176,7 @@ fill edits target the selected fill, with numeric composite/undo and real dock i
 ## Phase 8 — Smart and automatic brushes
 
 - [ ] Multi-channel + generator smart brushes (rust/wear/dirt).
-- [ ] Particle drips/dust/scratches; gravity drips.
+- [~] Scatter/particle mode with fall (drips, dust) done (session 109); scratches and physics-based drips remain.
 - [ ] Decal placement/move/rotation/scale gizmo before commit.
 - [ ] Auto-fill closed loops; saved/tiled stencil library.
 

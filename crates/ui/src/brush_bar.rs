@@ -75,7 +75,7 @@ pub(crate) fn show(
 }
 
 fn stroke_options(ui: &mut Ui, options: &mut StrokeOptions, guides: &mut bool, settings: &mut BrushSettings) {
-    let on = options.symmetry.iter().any(|&axis| axis) || options.lazy_distance_px > 0.0;
+    let on = options.symmetry.iter().any(|&axis| axis) || options.lazy_distance_px > 0.0 || options.smoothing > 0.0;
     let response = widgets::icon_toggle(
         ui,
         icons::SYMMETRY,

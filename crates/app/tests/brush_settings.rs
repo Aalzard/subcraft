@@ -60,6 +60,8 @@ fn stroke_options_command_validates_shared_preset_state_without_history_or_mid_s
     let options = StrokeOptions {
         symmetry: [true, false, true],
         lazy_distance_px: 25.0,
+        smoothing: 0.5,
+        catch_up: true,
     };
     session.execute(Command::SetStrokeOptions(options)).unwrap();
     assert_eq!(session.brush.options, options);
