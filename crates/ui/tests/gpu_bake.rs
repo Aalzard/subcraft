@@ -184,3 +184,47 @@ fn gpu_refuses_a_mesh_that_does_not_fit_instead_of_panicking() {
     let thick = gpu.run(&bvh, 3, &record, 4, RayMode::MeanDistance { max: 1.0 }, &NoControl).unwrap();
     assert_eq!(thick, [0.0; 3]);
 }
+
+fn finished_summary(use_gpu: bool) -> (String, bool) {
+    let mut session = subcraft_app::Session::new(primitives::sample_crate(), 128);
+    let ts = session.selected_texture_set().clone();
+    let mut job = session.start_bake(subcraft_app::BakeRequest {
+        high_poly: None,
+        texture_sets: vec![(ts.id, ts.material_slot)],
+        settings: BakeSettings { size: 128, maps: vec![MeshMapKind::AmbientOcclusion, MeshMapKind::Normal], use_gpu, ..BakeSettings::default() },
+    });
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    loop {
+        if let Some(result) = job.poll(&mut session) {
+            assert_eq!(result, Ok(1));
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline, "bake timed out");
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+    (job.summary(), session.mesh_maps(ts.id).is_some_and(|m| m.get(MeshMapKind::AmbientOcclusion).is_some()))
+}
+
+#[test]
+fn a_bake_job_reports_the_path_and_time_and_the_preference_off_uses_the_cpu() {
+    let _g = gpu_test();
+    let have_gpu = backend().is_some();
+    subcraft_ui::register_gpu_baking();
+    let (summary, installed) = finished_summary(true);
+    assert!(installed);
+    assert!(summary.contains(" s total") && summary.contains("Ambient Occlusion"), "{summary}");
+    if have_gpu {
+        assert!(summary.contains("on GPU ("), "{summary}");
+        assert!(summary.contains("Normal ") && summary.contains("on CPU"), "{summary}");
+    }
+    let (summary, _) = finished_summary(false);
+    assert!(!summary.contains("GPU"), "{summary}");
+}
+
+#[test]
+fn old_preferences_without_the_gpu_switch_default_to_on() {
+    let prefs: subcraft_ui::recovery::Preferences = serde_json::from_str("{\"autosave_minutes\": 5}").unwrap();
+    assert!(prefs.use_gpu_baking);
+    let off: subcraft_ui::recovery::Preferences = serde_json::from_str("{\"use_gpu_baking\": false}").unwrap();
+    assert!(!off.use_gpu_baking);
+}

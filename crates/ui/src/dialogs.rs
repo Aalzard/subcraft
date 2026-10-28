@@ -354,6 +354,8 @@ pub struct BakeUi {
     pub job: Option<subcraft_app::BakeJob>,
     /// Kept in the dialog until another bake starts, including actionable failures.
     pub result: Option<Result<usize, String>>,
+    /// Which path baked each map and how long it took (from the last finished job).
+    pub report: String,
     pub preview: bool,
     pub cage: bool,
     pub live_maps: bool,
@@ -371,7 +373,7 @@ pub struct BakeUi {
 
 impl Default for BakeUi {
     fn default() -> Self {
-        Self { open: false, settings: subcraft_app::BakeSettings::default(), high_poly: String::new(), all_sets: true, job: None, result: None,
+        Self { open: false, settings: subcraft_app::BakeSettings::default(), high_poly: String::new(), all_sets: true, job: None, result: None, report: String::new(),
             preview: true, cage: true, live_maps: true, displayed_map: None, follow_maps: true, preview_mesh: None,
             preview_job: None, preview_source: None, preview_path: String::new(), preview_scene: None, preview_error: None, preview_uploaded: false, preview_checked_at: 0. }
     }
@@ -425,13 +427,16 @@ pub fn poll_bake(state: &mut UiState, ctx: &egui::Context, now: f64) {
     let result = job.poll(&mut state.session);
     if state.bake.follow_maps && let Some((_, kind)) = job.latest_map { state.bake.displayed_map = Some(kind); }
     if let Some(result) = result {
+        let summary = state.bake.job.as_ref().map(|j| j.summary()).unwrap_or_default();
         state.bake.job = None;
         match &result {
             Ok(n) => {
                 state.bake.displayed_map = None;
+                state.bake.report = summary;
                 state.bake.follow_maps = true;
                 state.recovery.prefs.viewport.view_mode = 0;
-                state.set_status(format!("Baked mesh maps for {n} texture set(s). See them in the 2D view."), now);
+                let detail = if state.bake.report.is_empty() { String::new() } else { format!(" ({})", state.bake.report) };
+                state.set_status(format!("Baked mesh maps for {n} texture set(s). See them in the 2D view.{detail}"), now);
                 state.recovery.autosaver.request_soon();
             }
             Err(e) => state.set_status(format!("Bake: {e}"), now),
@@ -548,7 +553,10 @@ pub fn bake_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
         ui.add_space(6.0);
         if let Some(result) = &state.bake.result {
             match result {
-                Ok(n) => { ui.label(dim(&format!("Bake complete: {n} texture set(s). Inspect Baked normal in Layers or mesh maps in 2D View."))); }
+                Ok(n) => {
+                    ui.label(dim(&format!("Bake complete: {n} texture set(s). Inspect Baked normal in Layers or mesh maps in 2D View.")));
+                    if !state.bake.report.is_empty() { ui.add(egui::Label::new(dim(&state.bake.report)).wrap()); }
+                }
                 Err(e) => { ui.add(egui::Label::new(RichText::new(format!("Bake failed: {e}")).color(theme::WARNING)).wrap()); }
             }
             ui.add_space(6.0);
@@ -574,6 +582,7 @@ pub fn bake_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
                     state.bake.follow_maps = true;
                     let mut settings = state.bake.settings.clone();
                     settings.maps.sort();
+                    settings.use_gpu = state.recovery.prefs.use_gpu_baking;
                     let request = subcraft_app::BakeRequest {
                         settings,
                         high_poly: (!state.bake.high_poly.trim().is_empty()).then(|| PathBuf::from(state.bake.high_poly.trim())),
