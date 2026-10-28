@@ -15,6 +15,7 @@ pub mod material;
 mod mipmap;
 pub mod offline;
 pub mod post;
+pub mod ray_bake;
 pub mod preview;
 pub mod target;
 
