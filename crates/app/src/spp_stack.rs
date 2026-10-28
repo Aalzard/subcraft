@@ -75,14 +75,50 @@ pub struct Tuning {
     pub noise: GeneratorMap,
 }
 
+impl Tuning {
+    /// The defaults, with `SUBCRAFT_SPP_TUNE="noise=l0,l1,s0,s1;dirt=..."` overriding families
+    /// (developer aid for cross-project checks).
+    pub fn from_env() -> Self {
+        let mut t = Self::default();
+        if let Ok(v) = std::env::var("SUBCRAFT_SPP_TUNE") {
+            for item in v.split(';') {
+                let Some((name, nums)) = item.split_once('=') else { continue };
+                let n: Vec<f32> = nums.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+                if n.len() != 4 {
+                    continue;
+                }
+                let m = GeneratorMap { level: [n[0], n[1]], soft: [n[2], n[3]] };
+                match name.trim() {
+                    "dirt" => t.dirt = m,
+                    "edge_wear" => t.edge_wear = m,
+                    "curvature" => t.curvature = m,
+                    "ambient_occlusion" => t.ambient_occlusion = m,
+                    "position" => t.position = m,
+                    "noise" => t.noise = m,
+                    _ => {}
+                }
+            }
+        }
+        t
+    }
+}
+
 impl Default for Tuning {
     fn default() -> Self {
         Self {
-            dirt: GeneratorMap { level: [0.0, 1.0], soft: [0.05, 0.4] },
-            edge_wear: GeneratorMap { level: [0.0, 1.5], soft: [0.15, 0.0] },
-            curvature: GeneratorMap { level: [0.0, 1.0], soft: [0.15, 0.0] },
+            // Calibrated on DBAL-A2 at 256 texels (coordinate descent, fills refitted per trial;
+            // docs/spp-research.md). Dirt: more dirt with a higher Dirt Level, as in Painter.
+            dirt: GeneratorMap { level: [0.75, -0.5], soft: [0.5, 0.6] },
+            edge_wear: GeneratorMap { level: [-0.25, 1.0], soft: [0.5, 1.0] },
+            // Curvature calibrates to an (almost) constant mask: SubCraft's curvature threshold does
+            // not line up with Painter's, so a constant is closer.
+            curvature: GeneratorMap { level: [-0.5, -1.5], soft: [0.15, 0.0] },
+            // Ambient occlusion: no measurable effect, kept. Position: 0.0001 on DBAL-A2 but
+            // CarInteriro's Base Color 0.030 -> 0.010 with it.
             ambient_occlusion: GeneratorMap { level: [0.0, 1.0], soft: [0.2, 0.0] },
-            position: GeneratorMap { level: [0.0, 1.0], soft: [0.2, 0.0] },
+            position: GeneratorMap { level: [1.0, 1.0], soft: [0.2, 0.0] },
+            // Noise: Substance's balance mirrored, contrast as is. The DBAL-A2 calibration (noise
+            // almost off) cost Street_cyberpunk 0.014 Roughness, so the plain mapping stays.
             noise: GeneratorMap { level: [1.0, -1.0], soft: [0.0, 1.0] },
         }
     }
@@ -122,7 +158,7 @@ pub struct Rebuilder<'a, R: Read + Seek> {
 
 impl<'a, R: Read + Seek> Rebuilder<'a, R> {
     pub fn new(spp: &'a mut SppFile<R>, ts: &'a TextureSet, resources: &'a mut ResourceStore) -> Self {
-        Self { spp, ts, resources, stats: StackStats::default(), images: HashMap::new(), extract_embedded: true, picker: None, geometry: None, blend_map: blend_table(), rasters: Vec::new(), mesh_maps: None, anchors: HashMap::new(), references: Vec::new(), fitted: Vec::new(), raster_cache: None, tuning: Tuning::default() }
+        Self { spp, ts, resources, stats: StackStats::default(), images: HashMap::new(), extract_embedded: true, picker: None, geometry: None, blend_map: blend_table(), rasters: Vec::new(), mesh_maps: None, anchors: HashMap::new(), references: Vec::new(), fitted: Vec::new(), raster_cache: None, tuning: Tuning::from_env() }
     }
 
     /// Layers bottom to top.
@@ -750,11 +786,13 @@ fn projection_of(id: i64, uv: Option<&subcraft_mesh::spp::document::UvTransform>
     p
 }
 
-/// How Painter's default blending ("Normal", id 25) composites a channel.
+/// How Painter's default blending ("Normal", id 25) composites a channel. Height adds up: on
+/// Street_cyberpunk the painted lines reach the sum of the stacked heights (1.2 = 0.65 + 0.55),
+/// and adding cuts its Height difference 0.088 -> 0.065 (no change on the other projects).
 fn default_mode(kind: ChannelKind) -> BlendMode {
     match kind {
         ChannelKind::Normal => BlendMode::NormalMapCombine,
-        ChannelKind::Height if std::env::var_os("SUBCRAFT_SPP_HEIGHT_ADD").is_some() => BlendMode::LinearDodge,
+        ChannelKind::Height => BlendMode::LinearDodge,
         _ => BlendMode::Normal,
     }
 }
