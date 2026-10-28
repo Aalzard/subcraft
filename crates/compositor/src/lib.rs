@@ -13,6 +13,7 @@ pub mod mask;
 pub mod tile;
 mod util;
 mod stages;
+pub mod profile;
 pub mod worker;
 
 use std::collections::BTreeMap;
@@ -113,7 +114,13 @@ impl Composite {
         }
         // Only the wanted tiles, one task each: filtering after rayon splits the whole index range
         // would hand a budgeted batch (consecutive tiles) to one or two threads.
-        let work: Vec<_> = per_tile.into_iter().enumerate().filter(|(t, _)| wanted[*t]).collect();
+        let mut work: Vec<_> = per_tile.into_iter().enumerate().filter(|(t, _)| wanted[*t]).collect();
+        // Neighborhood filters read the tiles around each tile. Rayon hands every thread a run of
+        // consecutive entries, so list them in square blocks: a thread's tiles then sit together
+        // and share their neighbors' intermediate results instead of recomputing them.
+        let n = (ctx.geometry.resolution.div_ceil(subcraft_image::TILE_SIZE)) as usize;
+        let block = block_edge();
+        work.sort_by_key(|(t, _)| ((t / n) / block, (t % n) / block, t / n, t % n));
         let changed: Vec<(usize, Vec<ChannelKind>)> = work
             .into_par_iter()
             .with_max_len(1)
@@ -154,8 +161,16 @@ impl Composite {
                 out.entry(kind).or_default().push(t);
             }
         }
+        for tiles in out.values_mut() {
+            tiles.sort_unstable();
+        }
         out
     }
+}
+
+/// Edge (in tiles) of the square blocks tiles are scheduled in.
+fn block_edge() -> usize {
+    std::env::var("SUBCRAFT_TILE_BLOCK").ok().and_then(|v| v.parse().ok()).filter(|&b| b >= 1).unwrap_or(8)
 }
 
 /// Evaluate every tile of a texture set.
