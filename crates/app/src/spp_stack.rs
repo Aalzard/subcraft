@@ -269,7 +269,9 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
                         if blend.mode != BlendMode::Disable {
                             blend.opacity = *opacity;
                             if let Some(m) = mode {
-                                blend.mode = if m == BlendMode::Normal { default_mode(c.kind) } else { m };
+                                // Id 2 is measured on color channels only; Normal keeps its default.
+                                let unmeasured = *id == 2 && c.kind == ChannelKind::Normal;
+                                blend.mode = if m == BlendMode::Normal || unmeasured { default_mode(c.kind) } else { m };
                             }
                         }
                     }
@@ -712,11 +714,13 @@ pub fn painter_blend(id: i32) -> Option<BlendMode> {
     match id {
         // Found by search against Painter's flattened result (DBAL-A2, see docs/spp-research.md):
         // each id tried with 18 modes, everything else fixed, fitted fills refitted every time.
-        // 4 and 10 tie with Darken / Linear burn on near-binary masks. 2 and 15 gave no clear
-        // winner and stay unmapped.
+        // 4 and 10 tie with Darken / Linear burn on near-binary masks; 15 ties with Overlay,
+        // Hard light, Color and Divide (all far better than Normal); 2 is Hard light by a small
+        // margin and is not applied to the Normal channel (see `apply_opacity`).
         4 | 10 => Some(BlendMode::Multiply),
+        2 => Some(BlendMode::HardLight),
         9 => Some(BlendMode::Color),
-        11 => Some(BlendMode::SoftLight),
+        11 | 15 => Some(BlendMode::SoftLight),
         25 => Some(BlendMode::Normal),
         29 => Some(BlendMode::Subtract),
         _ => None,

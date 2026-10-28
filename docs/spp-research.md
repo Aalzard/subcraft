@@ -206,6 +206,20 @@ Findings from rebuilding the stack of three projects against their flattened cha
   occlusion texels no layer wrote are 0 (47% of CarInteriro); not changed (not in the gate).
 
 ### Blending ids (search against the flattened result, DBAL-A2)
-Found by coordinate descent over SubCraft's modes with everything else fixed, refitting the fitted
-fills for every trial: 4 = Multiply (mask groups; ties with Darken/Linear burn on binary masks),
-25 = the channel's default, 11 = Multiply (0.639 -> 0.608 total). The rest: see progress.md.
+Found by coordinate descent over 18 SubCraft modes per id with everything else fixed, refitting the
+fitted fills for every trial (score: sum of the mean differences of all channels, DBAL-A2 at 256):
+
+| id | where | mode | evidence |
+|---:|---|---|---|
+| 25 | default entry of every action group, filter layers | the channel's default (Normal; normal-map combine on Normal) | |
+| 4 | mask action groups (polygon fills, strokes) | Multiply | 0.659 -> 0.594; Darken / Linear burn tie on binary masks |
+| 29 | mask fills (grunges over text / edge masks) | Subtract | Roughness 0.234 -> 0.095; every other mode worse by >= 0.007 |
+| 10 | mask fills (references), Height | Multiply | 0.245 -> 0.204; Linear burn 0.207, Darken 0.208 |
+| 11 | layer Roughness / Base Color variation layers | Soft light | 0.202 -> 0.172; Color 0.172 |
+| 9 | Base Color | Color | Darken 0.0004 worse |
+| 15 | white Base Color layers at 0.02-0.26 opacity | Soft light | vs Normal: Base Color 0.051 -> 0.024; ties with Overlay, Hard light, Color, Divide |
+| 2 | Normal (folders), Base Color at low opacity | Hard light on non-Normal channels | Base Color 0.024 -> 0.022 only; the Normal channel keeps normal-map combine (not measured) |
+| 1 | filters | (the filter replaces; ignored) | |
+
+Ids that coincide with one mode (4 and 10) may be different Painter modes that act alike on these
+masks; a one-layer-per-mode calibration project would settle it.
