@@ -88,29 +88,41 @@ impl<R: Read + Seek> SppFile<R> {
         Ok(kinds)
     }
 
-    /// One baked mesh map of a texture set, reduced to at most `max_size`.
-    pub fn baked_map(&mut self, set_name: &str, kind: BakedKind, max_size: u32) -> Result<Option<Plane>, SppError> {
+    /// The stored (still encoded) blob of one baked mesh map; decode it with
+    /// [`images::decode_resource_image`]. Reading is sequential, decoding is not: callers with
+    /// several maps read them all first and decode them on all cores.
+    pub fn baked_map_blob(&mut self, set_name: &str, kind: BakedKind) -> Result<Option<Vec<u8>>, SppError> {
         let toc = images::read_toc(&self.bytes("resources.toc")?);
         let Some(key) = toc.iter().find_map(|(n, k)| images::classify_baked(n).filter(|(bk, m)| *bk == kind && *m == set_name).map(|_| k.clone())) else {
             return Ok(None);
         };
-        let blob = self.bytes(&format!("resources/{key}"))?;
+        Ok(Some(self.bytes(&format!("resources/{key}"))?))
+    }
+
+    /// One baked mesh map of a texture set, reduced to at most `max_size`.
+    pub fn baked_map(&mut self, set_name: &str, kind: BakedKind, max_size: u32) -> Result<Option<Plane>, SppError> {
+        let Some(blob) = self.baked_map_blob(set_name, kind)? else { return Ok(None) };
         Ok(Some(images::decode_resource_image(&blob, max_size)?))
     }
 
-    /// The flattened texture of one channel (`bits` = [`channel_bits`] flag) of a texture set, if the
-    /// project's texture cache holds it.
-    pub fn channel_texture(&mut self, set: &TextureSetInfo, bits: u64, max_size: u32) -> Result<Option<CacheImage>, SppError> {
+    /// The stored (still encoded) flattened texture of one channel; see [`SppFile::channel_texture`].
+    pub fn channel_blob(&mut self, set: &TextureSetInfo, bits: u64) -> Result<Option<Vec<u8>>, SppError> {
         let dir = format!("texture-cache/{}", set.uid);
         let Ok(subs) = self.h5.list(&dir) else { return Ok(None) };
         for sub in subs {
             let path = format!("{dir}/{sub}/{bits}");
             if let Ok(info) = self.h5.dataset(&path) {
-                let blob = self.h5.read(&info)?;
-                return Ok(Some(images::decode_cache_image(&blob, max_size)?));
+                return Ok(Some(self.h5.read(&info)?));
             }
         }
         Ok(None)
+    }
+
+    /// The flattened texture of one channel (`bits` = [`channel_bits`] flag) of a texture set, if the
+    /// project's texture cache holds it.
+    pub fn channel_texture(&mut self, set: &TextureSetInfo, bits: u64, max_size: u32) -> Result<Option<CacheImage>, SppError> {
+        let Some(blob) = self.channel_blob(set, bits)? else { return Ok(None) };
+        Ok(Some(images::decode_cache_image(&blob, max_size)?))
     }
 
     /// The files of a Substance archive (`.sbsar`, a 7z) stored in the project, found by the

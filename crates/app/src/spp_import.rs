@@ -15,7 +15,9 @@ use subcraft_core::color::srgb_to_linear;
 use subcraft_doc::{Document, Layer, LayerContent, NormalFormat, ProjectSettings, ResourceStore, TextureSet};
 use subcraft_image::TiledImage;
 use subcraft_image::dilate::{apply_nearest, dilate_infinite, nearest_covered};
+use rayon::prelude::*;
 use subcraft_mesh::import_mesh;
+use subcraft_mesh::spp::images::{decode_cache_image, decode_resource_image};
 use subcraft_mesh::spp::{BakedKind, CacheFormat, CacheImage, LayerInfo, LayerKind, Plane, ProjectInfo, SppFile, TextureSetInfo, channel_bits};
 
 use crate::Session;
@@ -249,20 +251,31 @@ impl Session {
             let t_channels = t1.elapsed();
             let t2 = std::time::Instant::now();
             let mut found = BTreeMap::new();
-            let mut baked: Vec<(BakedKind, Plane)> = Vec::new();
+            // Read the blobs one after the other (one file), decode all maps at once.
+            let mut blobs = Vec::new();
             for kind in spp.baked_map_kinds(&info.name).unwrap_or_default() {
-                match spp.baked_map(&info.name, kind, res) {
-                    Ok(Some(plane)) => baked.push((kind, plane)),
+                match spp.baked_map_blob(&info.name, kind) {
+                    Ok(Some(blob)) => blobs.push((kind, blob)),
                     Ok(None) => {}
+                    Err(e) => notes.push(format!("{}: the baked {kind:?} map could not be read ({e}).", ts.name)),
+                }
+            }
+            let decoded: Vec<_> = blobs.par_iter().map(|(kind, blob)| (*kind, decode_resource_image(blob, res))).collect();
+            drop(blobs);
+            let mut baked: Vec<(BakedKind, Plane)> = Vec::new();
+            for (kind, plane) in decoded {
+                match plane {
+                    Ok(plane) => baked.push((kind, plane)),
                     Err(e) => notes.push(format!("{}: the baked {kind:?} map could not be read ({e}).", ts.name)),
                 }
             }
             let coverage = baked.iter().find(|(_, p)| p.components == 4).map(|(_, p)| p.clone());
             let gutter = coverage.as_ref().map(Gutter::from_coverage);
-            for (kind, plane) in &baked {
+            let images: Vec<_> = baked.par_iter().map(|(kind, plane)| {
                 let k = mesh_map_kind(*kind);
-                found.insert(k, mesh_map_image(k, plane, coverage.as_ref(), gutter.as_ref(), res));
-            }
+                (k, mesh_map_image(k, plane, coverage.as_ref(), gutter.as_ref(), res))
+            }).collect();
+            found.extend(images);
             if !found.is_empty() {
                 let names: Vec<&str> = found.keys().map(|k| k.display_name()).collect();
                 notes.push(format!("  Baked maps: {}.", names.join(", ")));
@@ -310,17 +323,31 @@ fn import_channels(spp: &mut SppFile, info: &TextureSetInfo, ts: &mut TextureSet
     let mut flat = Layer::new_paint("Painter project (flattened)", &tc);
     let mut imported = Vec::new();
     if let LayerContent::Paint(content) = &mut flat.content {
+        let mut blobs = Vec::new();
         for c in &info.channels {
             let Some(kind) = channel_kind(c.bits) else { continue };
             if !ts.has_channel(kind) {
                 continue;
             }
-            match spp.channel_texture(info, c.bits, res) {
-                Ok(Some(img)) => {
-                    content.channels.insert(kind, channel_image(&img, kind, project_normal_dx && kind == ChannelKind::Normal, res));
+            match spp.channel_blob(info, c.bits) {
+                Ok(Some(blob)) => blobs.push((kind, blob)),
+                Ok(None) => {}
+                Err(e) => notes.push(format!("{}: the {} texture could not be read ({e}).", ts.name, kind.display_name())),
+            }
+        }
+        let images: Vec<_> = blobs
+            .par_iter()
+            .map(|(kind, blob)| {
+                let image = decode_cache_image(blob, res).map(|img| channel_image(&img, *kind, project_normal_dx && *kind == ChannelKind::Normal, res));
+                (*kind, image)
+            })
+            .collect();
+        for (kind, image) in images {
+            match image {
+                Ok(image) => {
+                    content.channels.insert(kind, image);
                     imported.push(kind.display_name());
                 }
-                Ok(None) => {}
                 Err(e) => notes.push(format!("{}: the {} texture could not be read ({e}).", ts.name, kind.display_name())),
             }
         }
