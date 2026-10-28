@@ -18,7 +18,7 @@ fn tree(layers: &[LayerInfo], depth: usize) {
                             subcraft_mesh::spp::SourceInfo::Uniform { channels, color } => format!("uniform {channels:#x} {color:.2?}"),
                             subcraft_mesh::spp::SourceInfo::Bitmap { channels, .. } => format!("bitmap {channels:#x}"),
                             subcraft_mesh::spp::SourceInfo::Procedural { channels, graph } => format!("{} {channels:#x} {:?}", graph.name(), graph.tweaks.iter().filter(|(n, _)| !n.starts_with('$')).take(4).collect::<Vec<_>>()),
-                            subcraft_mesh::spp::SourceInfo::Reference { channels, anchor } => format!("anchor {anchor} {channels:#x}"),
+                            subcraft_mesh::spp::SourceInfo::Reference { channels, anchor, .. } => format!("anchor {anchor} {channels:#x}"),
                         }).collect::<Vec<_>>().join("; ")),
                         k => format!("{k:?}").chars().take(160).collect(),
                     };

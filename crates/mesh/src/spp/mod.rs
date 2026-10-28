@@ -105,6 +105,17 @@ impl<R: Read + Seek> SppFile<R> {
         Ok(Some(images::decode_resource_image(&blob, max_size)?))
     }
 
+    /// The stored blob of an imported image resource (`...?version=<sha1>.image` URL, as in bitmap
+    /// sources and baked map references); decode it with [`images::decode_image_resource`].
+    pub fn image_resource_blob(&mut self, url: &str) -> Result<Option<Vec<u8>>, SppError> {
+        let Some((_, key)) = url.split_once("?version=") else { return Ok(None) };
+        if !key.ends_with(".image") {
+            return Ok(None);
+        }
+        let Ok(info) = self.h5.dataset(&format!("resources/{key}")) else { return Ok(None) };
+        Ok(Some(self.h5.read(&info)?))
+    }
+
     /// The stored (still encoded) flattened texture of one channel; see [`SppFile::channel_texture`].
     pub fn channel_blob(&mut self, set: &TextureSetInfo, bits: u64) -> Result<Option<Vec<u8>>, SppError> {
         let dir = format!("texture-cache/{}", set.uid);

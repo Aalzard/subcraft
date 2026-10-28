@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use subcraft_core::{ChannelKind, ChannelValue, EffectId, LayerId, ResourceId};
 use subcraft_doc::{
-    BlendMode, ChannelBlend, FillChannel, FillSource, Filter, Generator, GeneratorKind, Layer, LayerContent, Levels, Mask, MaskEffect, MaskEffectKind, ProceduralKind, ProceduralParams,
+    BlendMode, ChannelBlend, ContentEffect, ContentEffectKind, FillChannel, FillSource, Filter, Generator, GeneratorKind, Layer, LayerContent, Levels, Mask, MaskEffect, MaskEffectKind, ProceduralKind, ProceduralParams,
     Projection, ProjectionMode, Resource, ResourceKind, ResourceStore, TextureSet,
 };
 use subcraft_mesh::spp::document::{ActionKind, GraphRef, LayerInfo, LayerKind, LevelsInfo, SourceInfo};
@@ -68,12 +68,16 @@ pub struct Rebuilder<'a, R: Read + Seek> {
     /// Anchor uid -> (layer, number of its mask effects at the anchor).
     anchors: HashMap<i64, (LayerId, usize)>,
     /// Mask effects standing for an anchor reference: (layer, effect, anchor uid).
-    references: Vec<(LayerId, EffectId, i64)>,
+    references: Vec<(LayerId, EffectId, i64, Option<LevelsInfo>)>,
+    /// Fill channels whose source (a procedural material or pattern, a bitmap) has no SubCraft
+    /// counterpart: rebuilt as uniform values to be fitted against Painter's result
+    /// ([`crate::spp_fit`]), in rebuild order (the same for any resolution).
+    pub fitted: Vec<crate::spp_fit::Fitted>,
 }
 
 impl<'a, R: Read + Seek> Rebuilder<'a, R> {
     pub fn new(spp: &'a mut SppFile<R>, ts: &'a TextureSet, resources: &'a mut ResourceStore) -> Self {
-        Self { spp, ts, resources, stats: StackStats::default(), images: HashMap::new(), extract_embedded: true, picker: None, geometry: None, blend_map: (0..64).filter_map(|id| Some((id, painter_blend(id)?))).collect(), rasters: Vec::new(), mesh_maps: None, anchors: HashMap::new(), references: Vec::new() }
+        Self { spp, ts, resources, stats: StackStats::default(), images: HashMap::new(), extract_embedded: true, picker: None, geometry: None, blend_map: (0..64).filter_map(|id| Some((id, painter_blend(id)?))).collect(), rasters: Vec::new(), mesh_maps: None, anchors: HashMap::new(), references: Vec::new(), fitted: Vec::new() }
     }
 
     /// Layers bottom to top.
@@ -118,7 +122,7 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
         for _round in 0..8 {
             let unresolved: Vec<EffectId> = todo.iter().map(|r| r.1).collect();
             let mut left = Vec::new();
-            for (layer_id, effect_id, anchor) in todo {
+            for (layer_id, effect_id, anchor, levels) in todo {
                 let Some(&(anchor_layer, count)) = self.anchors.get(&anchor) else {
                     self.stats.skip("anchor references to a missing anchor");
                     continue;
@@ -129,10 +133,13 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
                 };
                 mask.effects.truncate(count);
                 if mask.effects.iter().any(|e| unresolved.contains(&e.id) && e.id != effect_id) {
-                    left.push((layer_id, effect_id, anchor));
+                    left.push((layer_id, effect_id, anchor, levels));
                     continue;
                 }
                 mask.enabled = true;
+                if let Some(l) = &levels {
+                    mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Levels(levels_of(l)))));
+                }
                 let image = eval_mask_image(&mask, self.ts, &geometry, self.resources, &maps);
                 if let Some(l) = find_layer_mut(layers, layer_id) {
                     if let Some(m) = l.mask.as_mut() {
@@ -175,7 +182,15 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
         self.stats.layers += 1;
         let mut layer = self.content_layer(&name, info);
         layer.visible = info.visible && layer.visible;
+        let filter_layer = matches!(layer.content, LayerContent::Group(_));
         self.apply_opacity(&mut layer, info);
+        if filter_layer {
+            for b in layer.blend.values_mut() {
+                if b.mode == BlendMode::Normal {
+                    b.mode = BlendMode::Passthrough;
+                }
+            }
+        }
         self.attach_mask(&mut layer, info);
         layer
     }
@@ -206,19 +221,50 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
     fn content_layer(&mut self, name: &str, info: &LayerInfo) -> Layer {
         let ts = self.ts;
         let fills: Vec<(&Vec<SourceInfo>, i64)> = info.content.iter().filter_map(|a| if let ActionKind::Fill { sources, projection } = &a.kind { Some((sources, *projection)) } else { None }).collect();
+        // Filters and Levels in the content act on what is below them: the layer's own fill, or
+        // (in a layer that has no fill, Painter's filter layer) the stack below the layer.
+        let mut effects: Vec<ContentEffect> = Vec::new();
         for a in &info.content {
             match &a.kind {
                 ActionKind::Fill { .. } => {}
                 ActionKind::Paint { strokes, .. } => self.stats.skip(format!("paint strokes on layer content ({} in one action)", strokes.len())),
                 ActionKind::Eraser { .. } => self.stats.skip("eraser strokes on layer content"),
-                ActionKind::Filter { graph } => self.stats.skip(format!("filter layer '{}'", graph.name())),
-                ActionKind::Levels(_) => self.stats.skip("levels in layer content"),
+                ActionKind::Filter { graph } if a.enabled => match map_filter(graph, ts.resolution) {
+                    Some((filter, exact)) => {
+                        let before = effects.len();
+                        for c in &ts.channels {
+                            if channel_bit(c.kind).is_some_and(|b| a.channels & b != 0) && filter.supports_channel(c.kind) {
+                                effects.push(ContentEffect::new(ContentEffectKind::Filter { channel: c.kind, filter }, ts));
+                            }
+                        }
+                        if effects.len() > before {
+                            if exact { self.stats.exact += 1 } else { self.stats.approximate += 1 }
+                        }
+                    }
+                    None => self.stats.skip(format!("filter layer '{}'", graph.name())),
+                },
+                ActionKind::Filter { .. } => {}
+                ActionKind::Levels(l) if a.enabled => {
+                    for c in &ts.channels {
+                        if channel_bit(c.kind).is_some_and(|b| a.channels & b != 0) && c.kind != ChannelKind::Normal {
+                            effects.push(ContentEffect::new(ContentEffectKind::Levels { channel: c.kind, levels: levels_of(l) }, ts));
+                        }
+                    }
+                    self.stats.exact += 1;
+                }
+                ActionKind::Levels(_) => {}
                 ActionKind::Decal { .. } => self.stats.skip("decals"),
                 ActionKind::Anchor { .. } => self.stats.skip("anchor points"),
                 ActionKind::Other(c) => self.stats.skip(format!("unknown action {c}")),
             }
         }
         if fills.is_empty() {
+            if !effects.is_empty() && info.content.iter().all(|a| matches!(a.kind, ActionKind::Filter { .. } | ActionKind::Levels(_))) {
+                // An empty pass-through folder filters the stack below it, mixed in by its mask.
+                let mut folder = Layer::new_folder(name, ts);
+                folder.content_effects = effects.into_iter().map(Arc::new).collect();
+                return folder;
+            }
             return self.placeholder(name);
         }
         let mut layer = Layer::new_fill(name, ts);
@@ -227,12 +273,12 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
             blend.mode = BlendMode::Disable;
         }
         let mut covered = 0;
+        let mut fitted: Vec<ChannelKind> = Vec::new();
         if let LayerContent::Fill(fill) = &mut layer.content {
             fill.channels.clear();
             let (_, projection) = fills[0];
-            if projection == 2 {
-                fill.projection = Projection { mode: ProjectionMode::Triplanar, ..Projection::default() };
-            }
+            let uv = info.content.iter().find_map(|a| if matches!(a.kind, ActionKind::Fill { .. }) { a.uv } else { None });
+            fill.projection = projection_of(projection, uv.as_ref());
             for (sources, _) in &fills {
                 for source in sources.iter() {
                     for c in &ts.channels {
@@ -242,13 +288,16 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
                         }
                         let value = match source {
                             SourceInfo::Uniform { color, .. } => Some(uniform_value(c.kind, *color)),
-                            SourceInfo::Bitmap { .. } => {
-                                self.stats.skip("bitmap fill sources");
-                                None
-                            }
-                            SourceInfo::Procedural { graph, .. } => {
-                                self.stats.skip(format!("procedural material '{}'", graph.name()));
-                                None
+                            // Fitted uniform values stand in for these (the normal detail is dropped).
+                            SourceInfo::Bitmap { .. } | SourceInfo::Procedural { .. } if c.kind == ChannelKind::Normal => None,
+                            SourceInfo::Bitmap { .. } | SourceInfo::Procedural { .. } => {
+                                let what = match source {
+                                    SourceInfo::Procedural { graph, .. } => format!("procedural fill '{}' (fitted uniform values)", graph.name()),
+                                    _ => "bitmap fill (fitted uniform values)".to_string(),
+                                };
+                                self.stats.skip(what);
+                                fitted.push(c.kind);
+                                Some(c.kind.default_paint_value())
                             }
                             SourceInfo::Reference { .. } => {
                                 self.stats.skip("anchor references in layer content");
@@ -270,7 +319,15 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
             p.id = layer.id;
             return p;
         }
-        self.stats.exact += 1;
+        if fitted.is_empty() {
+            self.stats.exact += 1;
+        } else {
+            fitted.sort();
+            fitted.dedup();
+            self.fitted.push((layer.id, fitted));
+            self.stats.approximate += 1;
+        }
+        layer.content_effects = effects.into_iter().map(Arc::new).collect();
         layer
     }
 
@@ -313,31 +370,40 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
                 flush(&mut pending, &mut mask, &mut self.rasters);
             }
             match &action.kind {
-                ActionKind::Fill { sources, .. } => {
+                ActionKind::Fill { sources, projection: proj_id } => {
+                    let (mode, opacity) = self.action_blend(action);
+                    let projection = projection_of(*proj_id, action.uv.as_ref());
                     for source in sources {
-                        match source {
+                        let mut effects: Vec<MaskEffect> = match source {
                             SourceInfo::Uniform { color, .. } => {
-                                mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Fill { value: color[0], procedural: None, projection: Projection::default() })));
                                 self.stats.exact += 1;
-                                mapped += 1;
+                                vec![MaskEffect::new(MaskEffectKind::Fill { value: color[0], procedural: None, projection: Projection::default() })]
                             }
-                            SourceInfo::Procedural { graph, .. } => {
-                                if let Some(effects) = self.map_graph(graph) {
-                                    mapped += effects.len();
-                                    mask.effects.extend(effects.into_iter().map(Arc::new));
-                                } else {
+                            SourceInfo::Procedural { graph, .. } => match self.map_graph(graph, projection) {
+                                Some(effects) => effects,
+                                None => {
                                     self.stats.skip(format!("mask graph '{}'", graph.name()));
+                                    Vec::new()
                                 }
+                            },
+                            SourceInfo::Bitmap { .. } => {
+                                self.stats.skip("bitmap in a mask");
+                                Vec::new()
                             }
-                            SourceInfo::Bitmap { .. } => self.stats.skip("bitmap in a mask"),
-                            SourceInfo::Reference { anchor, .. } => {
+                            SourceInfo::Reference { anchor, levels, .. } => {
                                 let mut effect = MaskEffect::new(MaskEffectKind::Paint { image: TiledImage::new(res, res, 2, [0.0; 4]) });
                                 effect.name = "Anchor reference".into();
-                                self.references.push((layer.id, effect.id, *anchor));
-                                mask.effects.push(Arc::new(effect));
-                                mapped += 1;
+                                self.references.push((layer.id, effect.id, *anchor, levels.clone()));
+                                vec![effect]
                             }
+                        };
+                        // The fill's blending applies to its (single) result.
+                        if let Some(e) = effects.first_mut() {
+                            e.blend = mode;
+                            e.opacity = opacity;
                         }
+                        mapped += effects.len();
+                        mask.effects.extend(effects.into_iter().map(Arc::new));
                     }
                 }
                 ActionKind::Levels(l) => {
@@ -345,7 +411,7 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
                     self.stats.exact += 1;
                     mapped += 1;
                 }
-                ActionKind::Filter { graph } => match map_filter(graph) {
+                ActionKind::Filter { graph } => match map_filter(graph, res) {
                     Some((filter, exact)) if filter.supports_mask() => {
                         mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Filter(filter))));
                         if exact { self.stats.exact += 1 } else { self.stats.approximate += 1 }
@@ -392,8 +458,21 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
         action.blends.first().map_or((BlendMode::Normal, 1.0), |(_, id, opacity)| (self.blend_map.get(id).copied().unwrap_or(BlendMode::Normal), *opacity))
     }
 
+    /// A mask effect's own blending, else its group's (Normal when unknown).
+    fn action_blend(&mut self, action: &subcraft_mesh::spp::document::ActionInfo) -> (BlendMode, f32) {
+        match action.own_blends.first() {
+            Some((_, id, opacity)) => {
+                if !self.blend_map.contains_key(id) {
+                    *self.stats.blend_ids.entry(*id).or_default() += 1;
+                }
+                (self.blend_map.get(id).copied().unwrap_or(BlendMode::Normal), *opacity)
+            }
+            None => self.group_blend(action),
+        }
+    }
+
     /// SubCraft mask effects for a Painter procedural graph, by name; `None` when there is no counterpart.
-    fn map_graph(&mut self, g: &GraphRef) -> Option<Vec<MaskEffect>> {
+    fn map_graph(&mut self, g: &GraphRef, projection: Projection) -> Option<Vec<MaskEffect>> {
         let name = g.name().to_ascii_lowercase();
         let flag = |id: &str| g.value(id).is_some_and(|v| v >= 0.5);
         let get = |ids: &[&str], default: f32| ids.iter().find_map(|i| g.value(i)).unwrap_or(default);
@@ -417,7 +496,7 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
         } else if name == "mg_position" {
             self.stats.approximate += 1;
             vec![generator(GeneratorKind::PositionGradient, get(&["global_balance"], 0.5), 0.2, flag("global_invert"))]
-        } else if let Some(effects) = self.grunge_effects(g, &name) {
+        } else if let Some(effects) = self.grunge_effects(g, &name, projection) {
             effects
         } else if let Some(kind) = noise_kind(&name) {
             self.stats.approximate += 1;
@@ -426,7 +505,7 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
             p.balance = get(&["balance", "histogram_position"], 0.5).clamp(0.0, 1.0);
             p.contrast = (0.5 * (1.0 - get(&["contrast", "historgram_contrast"], 0.0))).clamp(0.02, 0.5);
             p.invert = flag("invert");
-            vec![MaskEffect::new(MaskEffectKind::Fill { value: 1.0, procedural: Some(p), projection: Projection::default() })]
+            vec![MaskEffect::new(MaskEffectKind::Fill { value: 1.0, procedural: Some(p), projection })]
         } else {
             return None;
         };
@@ -434,20 +513,35 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
     }
 
     /// Grunge graphs are a bitmap plus balance/contrast/invert: rebuild them from the embedded image.
-    fn grunge_effects(&mut self, g: &GraphRef, name: &str) -> Option<Vec<MaskEffect>> {
+    /// The balance and contrast are baked into a copy of the image, so the mask effect blends
+    /// the adjusted grunge (not a Levels of the whole mask built so far).
+    fn grunge_effects(&mut self, g: &GraphRef, name: &str, projection: Projection) -> Option<Vec<MaskEffect>> {
         if !self.extract_embedded || !(name.starts_with("grunge_") || name.starts_with("mg_") && name.contains("wear")) {
             return None;
         }
-        let id = self.embedded_image(&g.url)?;
         let balance = g.value("balance").unwrap_or(0.5);
         let contrast = g.value("contrast").unwrap_or(0.0);
         let invert = g.value("invert").is_some_and(|v| v >= 0.5);
         let width = (1.0 - contrast).max(0.02);
         let in_low = (1.0 - balance) - 0.5 * width;
-        let image = MaskEffect::new(MaskEffectKind::Image { resource: id, projection: Projection::default(), invert });
-        let levels = MaskEffect::new(MaskEffectKind::Levels(Levels { in_low, in_high: in_low + width, gamma: 1.0, out_low: 0.0, out_high: 1.0 }));
+        let levels = Levels { in_low, in_high: in_low + width, gamma: 1.0, out_low: 0.0, out_high: 1.0 };
+        let id = self.embedded_image_leveled(&g.url, levels)?;
         self.stats.approximate += 1;
-        Some(vec![image, levels])
+        Some(vec![MaskEffect::new(MaskEffectKind::Image { resource: id, projection, invert })])
+    }
+
+    /// [`Self::embedded_image`] with Levels applied to its values (one resource per graph and levels).
+    fn embedded_image_leveled(&mut self, url: &str, levels: Levels) -> Option<ResourceId> {
+        let key = format!("{url}#{:?}", levels);
+        if let Some(found) = self.images.get(&key) {
+            return *found;
+        }
+        let base = self.embedded_image(url)?;
+        let source = self.resources.get(base)?.clone();
+        let bitmap = source.bitmap.map_color(|_, v| levels.apply(v));
+        let id = Some(self.resources.insert(Resource { id: ResourceId::new(), name: format!("{} (levels)", source.name), kind: ResourceKind::Texture, bitmap: Arc::new(bitmap), source_path: None, encoded: None }));
+        self.images.insert(key, id);
+        id
     }
 
     /// The embedded JPEG of a Substance archive as a resource (decoded once per graph).
@@ -475,6 +569,21 @@ pub fn painter_blend(id: i32) -> Option<BlendMode> {
     }
 }
 
+
+/// SubCraft projection for a Painter fill projection id (0 UV, 2 tri-planar; the mesh-map driven
+/// generators' 6 has no tiling) and UV transformation.
+fn projection_of(id: i64, uv: Option<&subcraft_mesh::spp::document::UvTransform>) -> Projection {
+    let mut p = Projection::default();
+    if id == 2 {
+        p.mode = ProjectionMode::Triplanar;
+    }
+    if let Some(t) = uv {
+        p.scale = t.scale;
+        p.rotation_deg = t.rotation;
+        p.offset = t.offset;
+    }
+    p
+}
 
 fn find_layer(layers: &[Layer], id: LayerId) -> Option<&Layer> {
     layers.iter().find_map(|l| find_in(l, id))
@@ -505,7 +614,7 @@ fn find_in_mut(l: &mut Layer, id: LayerId) -> Option<&mut Layer> {
 }
 
 /// A mask evaluated on its own as a (value, alpha = 1) raster at the set's resolution.
-fn eval_mask_image(mask: &Mask, view: &TextureSet, geometry: &TextureSetGeometry, resources: &ResourceStore, maps: &subcraft_materials::MeshMaps) -> TiledImage {
+pub fn eval_mask_image(mask: &Mask, view: &TextureSet, geometry: &TextureSetGeometry, resources: &ResourceStore, maps: &subcraft_materials::MeshMaps) -> TiledImage {
     let mut set = TextureSet::new("anchor", view.material_slot, view.resolution);
     set.channels.retain(|c| c.kind == ChannelKind::Roughness);
     let tc = set.clone();
@@ -581,16 +690,49 @@ fn noise_kind(name: &str) -> Option<ProceduralKind> {
     })
 }
 
-/// SubCraft filter for a Painter procedural filter graph; the flag says whether the mapping is exact.
-pub fn map_filter(g: &GraphRef) -> Option<(Filter, bool)> {
+/// Texels per unit of a Substance filter's resolution-relative distance parameters, at `res`.
+/// Painter's filters scale with the texture, SubCraft's radii are in texels; both blur and warp are
+/// calibrated against Painter's result (see docs/spp-research.md).
+fn texels(res: u32, relative: f32) -> f32 {
+    relative * res as f32
+}
+
+/// SubCraft filter for a Painter procedural filter graph at texture resolution `res`; the flag
+/// says whether the mapping is exact.
+pub fn map_filter(g: &GraphRef, res: u32) -> Option<(Filter, bool)> {
     let name = g.name().to_ascii_lowercase();
     match name.as_str() {
-        "blur" => Some((Filter::Blur { radius: (g.value("intensity")? * 64.0).clamp(0.0, 32.0) }, false)),
-        "sharpen" | "fx_sharpen" => Some((Filter::Sharpen { radius: 2.0, amount: (g.value("intensity")? * 8.0).clamp(0.0, 4.0) }, false)),
+        "blur" => Some((Filter::Blur { radius: texels(res, g.value("intensity")? * BLUR_SCALE).clamp(0.0, 128.0) }, false)),
+        "sharpen" | "fx_sharpen" => Some((Filter::Sharpen { radius: texels(res, SHARPEN_RADIUS).max(0.5), amount: (g.value("intensity")? * SHARPEN_GAIN).clamp(0.0, 4.0) }, false)),
         "clamp" => Some((Filter::Clamp { low: g.value("min")?, high: g.value("max")? }, true)),
+        "warp" => {
+            let intensity = g.value("intensity").unwrap_or(0.005);
+            let scale = (g.value("noise_scale").unwrap_or(1.0) * WARP_CELLS).round().clamp(1.0, 256.0) as u32;
+            Some((Filter::Warp { intensity: texels(res, intensity * WARP_SCALE).clamp(0.0, 64.0), scale, seed: 0 }, false))
+        }
+        // Hue, saturation and luminosity are centred on 0.5 (no change).
+        "hsl_perceptive" | "hsl" => Some((
+            Filter::Hsl {
+                hue: (g.value("hue").unwrap_or(0.5) - 0.5) * 360.0,
+                saturation: (g.value("saturation").unwrap_or(0.5) * 2.0).max(0.0),
+                lightness: (g.value("luminosity").or(g.value("lightness")).unwrap_or(0.5) - 0.5) * HSL_LIGHTNESS,
+            },
+            false,
+        )),
         _ => None,
     }
 }
+
+/// Blur radius per unit of Painter's `blur.intensity`, as a fraction of the texture size.
+const BLUR_SCALE: f32 = 1.0 / 16.0;
+/// Sharpen radius as a fraction of the texture size, and gain per unit of `sharpen.intensity`.
+const SHARPEN_RADIUS: f32 = 1.0 / 1024.0;
+const SHARPEN_GAIN: f32 = 8.0;
+/// Warp displacement per unit of `warp.intensity` (fraction of the texture size) and noise cells per `noise_scale`.
+const WARP_SCALE: f32 = 1.0;
+const WARP_CELLS: f32 = 4.0;
+/// HSL lightness offset per unit of `luminosity` away from 0.5.
+const HSL_LIGHTNESS: f32 = 1.0;
 
 /// Shorthand used by the importer for a channel kind from Painter's flag.
 pub fn kind_of_flag(bits: u64) -> Option<ChannelKind> {

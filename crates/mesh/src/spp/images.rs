@@ -227,6 +227,55 @@ pub struct CacheImage {
 }
 
 /// Decode a `texture-cache/<uid>/<n>/<flag>` blob, reduced to at most `max_size`.
+/// Decode an imported image resource (`resources/<sha1>.image`: mesh maps baked elsewhere, bitmap
+/// fills, stencils): a property header, then either JPEG 2000 tiles as in the baked maps or one raw
+/// LZ4 block of `dataSizeLZ4` bytes holding `height` rows of `pitch` bytes (rows are stored
+/// bottom first, like the texture cache), then optional ICC data. Formats: BGRA8, RGBA8, RGBA16,
+/// RGBA16F, L8, L16. Returned top row first, at most `max_size` on the longer side.
+pub fn decode_image_resource(blob: &[u8], max_size: u32) -> Result<Plane, ImageError> {
+    let Some((props, pos)) = qt::read_properties(blob, 0) else { return corrupt("property header") };
+    match props.get("compression").and_then(|v| v.as_str()) {
+        Some("jp2") => return decode_resource_image(blob, max_size),
+        Some("lz4") => {}
+        other => return Err(ImageError::Unsupported(format!("image compression {other:?}"))),
+    }
+    let get = |k: &str| props.get(k).and_then(|v| v.as_u32());
+    let (Some(width), Some(height), Some(pitch), Some(raw_len), Some(lz4_len)) = (get("width"), get("height"), get("pitch"), get("dataSizeRaw"), get("dataSizeLZ4")) else {
+        return corrupt("image header");
+    };
+    let format = props.get("format").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let (components, bytes): (usize, usize) = match format.as_str() {
+        "BGRA8" | "RGBA8" => (4, 1),
+        "RGBA16" => (4, 2),
+        "RGBA16F" => (4, 2),
+        "L8" | "LUM8" => (1, 1),
+        "L16" | "LUM16" => (1, 2),
+        other => return Err(ImageError::Unsupported(format!("image format {other}"))),
+    };
+    if width == 0 || height == 0 || width > 16384 || height > 16384 || (pitch as usize) < width as usize * components * bytes || raw_len as usize != pitch as usize * height as usize {
+        return corrupt("image size");
+    }
+    let raw = lz4::decompress(blob.get(pos..pos + lz4_len as usize).ok_or(ImageError::Corrupt("image data"))?, raw_len as usize)?;
+    let mut red = Reducer::new(width, height, components, max_size);
+    let mut px = vec![0.0f32; components];
+    for y in 0..height {
+        let row = &raw[(height - 1 - y) as usize * pitch as usize..][..width as usize * components * bytes];
+        for x in 0..width as usize {
+            let b = &row[x * components * bytes..][..components * bytes];
+            for (c, p) in px.iter_mut().enumerate() {
+                *p = match (format.as_str(), bytes) {
+                    ("BGRA8", _) => b[[2, 1, 0, 3][c]] as f32 / 255.0,
+                    (_, 1) => b[c] as f32 / 255.0,
+                    ("RGBA16F", _) => half_to_f32(u16::from_le_bytes([b[c * 2], b[c * 2 + 1]])),
+                    _ => u16::from_le_bytes([b[c * 2], b[c * 2 + 1]]) as f32 / 65535.0,
+                };
+            }
+            red.add(x as u32, y, &px);
+        }
+    }
+    Ok(red.finish())
+}
+
 pub fn decode_cache_image(blob: &[u8], max_size: u32) -> Result<CacheImage, ImageError> {
     let Some((props, pos)) = qt::read_properties(blob, 0) else { return corrupt("property header") };
     if props.get("compression").and_then(|v| v.as_str()) != Some("lz4") {

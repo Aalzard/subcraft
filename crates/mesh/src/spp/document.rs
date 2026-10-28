@@ -341,8 +341,9 @@ pub enum SourceInfo {
     Uniform { channels: u64, color: [f32; 3] },
     Bitmap { channels: u64, url: String },
     Procedural { channels: u64, graph: GraphRef },
-    /// The mask (or channel) of the stack as it is at an anchor point (`ActionKind::Anchor` uid).
-    Reference { channels: u64, anchor: i64 },
+    /// The mask (or channel) of the stack as it is at an anchor point (`ActionKind::Anchor` uid),
+    /// through Levels when they are not the identity.
+    Reference { channels: u64, anchor: i64, levels: Option<LevelsInfo> },
 }
 
 impl SourceInfo {
@@ -437,6 +438,24 @@ pub struct ActionInfo {
     pub blends: Vec<(u64, i32, f32)>,
     /// Which action group encloses the action (0 = none; the same number for the whole group).
     pub group: usize,
+    /// The action's own blending (mask effects keep theirs here); empty = the default.
+    pub own_blends: Vec<(u64, i32, f32)>,
+    /// A fill's UV transformation: tiling scale, rotation (degrees as stored), offset.
+    pub uv: Option<UvTransform>,
+}
+
+/// `Data2DTransformation` of a fill.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct UvTransform {
+    pub scale: [f32; 2],
+    pub rotation: f32,
+    pub offset: [f32; 2],
+}
+
+impl LevelsInfo {
+    pub fn is_identity(&self) -> bool {
+        self.gamma == [1.0; 3] && self.in_min == [0.0; 3] && self.in_max == [1.0; 3] && self.out_min == [0.0; 3] && self.out_max == [1.0; 3]
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -531,7 +550,7 @@ fn source_of(s: &Obj) -> Option<SourceInfo> {
         }
         "DataSourceBitmap" => Some(SourceInfo::Bitmap { channels, url: s.obj("bitmap")?.str("urlToBitmapRes")?.to_string() }),
         "DataSourceProcedural" => Some(SourceInfo::Procedural { channels, graph: graph_of(s.obj("procedural")?)? }),
-        "DataSourceReference" => Some(SourceInfo::Reference { channels, anchor: *s.obj("reference")?.ints("source")?.first()? }),
+        "DataSourceReference" => Some(SourceInfo::Reference { channels, anchor: *s.obj("reference")?.ints("source")?.first()?, levels: s.obj("levels").map(levels_info).filter(|l| !l.is_identity()) }),
         _ => None,
     }
 }
@@ -594,6 +613,23 @@ fn brush_of(a: &Obj) -> Option<BrushInfo> {
     })
 }
 
+fn levels_info(l: &Obj) -> LevelsInfo {
+    LevelsInfo {
+        clamp: l.int("clamp").unwrap_or(0) != 0 || l.bool("clamp").unwrap_or(false),
+        gamma: vec3(l, "gamma", 1.0),
+        in_min: vec3(l, "inputMinimum", 0.0),
+        in_max: vec3(l, "inputMaximum", 1.0),
+        out_min: vec3(l, "outputMinimum", 0.0),
+        out_max: vec3(l, "outputMaximum", 1.0),
+    }
+}
+
+fn uv_of(a: &Obj) -> Option<UvTransform> {
+    let t = a.obj("uvTransformation")?;
+    let pair = |n: &str, d: f32| t.floats(n).filter(|v| v.len() >= 2).map_or([d, d], |v| [v[0], v[1]]);
+    Some(UvTransform { scale: pair("scaleFactors", 1.0), rotation: t.float("rotation").unwrap_or(0.0), offset: pair("translation", 0.0) })
+}
+
 fn action_of(a: &Obj, blends: Vec<(u64, i32, f32)>, group: usize) -> ActionInfo {
     let kind = match a.class.as_str() {
         "DataActionFill" => ActionKind::Fill { sources: a.list("sources").iter().filter_map(source_of).collect(), projection: a.int("projection").unwrap_or(0) },
@@ -602,14 +638,7 @@ fn action_of(a: &Obj, blends: Vec<(u64, i32, f32)>, group: usize) -> ActionInfo 
             None => ActionKind::Other(a.class.clone()),
         },
         "DataActionFilterLevels" => match a.obj("levels") {
-            Some(l) => ActionKind::Levels(LevelsInfo {
-                clamp: l.int("clamp").unwrap_or(0) != 0 || l.bool("clamp").unwrap_or(false),
-                gamma: vec3(l, "gamma", 1.0),
-                in_min: vec3(l, "inputMinimum", 0.0),
-                in_max: vec3(l, "inputMaximum", 1.0),
-                out_min: vec3(l, "outputMinimum", 0.0),
-                out_max: vec3(l, "outputMaximum", 1.0),
-            }),
+            Some(l) => ActionKind::Levels(levels_info(l)),
             None => ActionKind::Other(a.class.clone()),
         },
         "DataActionPaint" => ActionKind::Paint { strokes: strokes_of(a), brush: brush_of(a), opacity: a.float("opacity").unwrap_or(1.0) },
@@ -618,7 +647,7 @@ fn action_of(a: &Obj, blends: Vec<(u64, i32, f32)>, group: usize) -> ActionInfo 
         "DataActionAnchor" => ActionKind::Anchor { uid: a.int("uid").unwrap_or(0) },
         other => ActionKind::Other(other.to_string()),
     };
-    ActionInfo { kind, enabled: a.bool("enabled").unwrap_or(true), label: a.str("label").unwrap_or("").to_string(), channels: a.int("channelTypes").unwrap_or(-1) as u64, blends, group }
+    ActionInfo { kind, enabled: a.bool("enabled").unwrap_or(true), label: a.str("label").unwrap_or("").to_string(), channels: a.int("channelTypes").unwrap_or(-1) as u64, blends, group, own_blends: blends_of(a), uv: uv_of(a) }
 }
 
 fn layer_of(l: &Obj) -> LayerInfo {
@@ -763,7 +792,7 @@ mod tests {
         assert_eq!((b.size, b.flow, b.spacing, b.value, b.hardness, b.tip.as_str(), b.alignment, b.pressure_size), (0.04, 0.5, 0.2, 0.0, Some(0.3), "shape", 3, true));
 
         let reference = obj("DataSourceReference", vec![("channelTypes", Val::Int(0)), ("reference", Val::Obj(Some(Box::new(obj("DataReference", vec![("source", Val::Ints(vec![16_777_217, 0]))])))))]);
-        assert_eq!(source_of(&reference), Some(SourceInfo::Reference { channels: 0, anchor: 16_777_217 }), "uids above 2^24 stay exact");
+        assert_eq!(source_of(&reference), Some(SourceInfo::Reference { channels: 0, anchor: 16_777_217, levels: None }), "uids above 2^24 stay exact");
         let anchor = action_of(&obj("DataActionAnchor", vec![("uid", Val::Int(483613))]), Vec::new(), 0);
         assert_eq!(anchor.kind, ActionKind::Anchor { uid: 483613 });
     }

@@ -109,7 +109,13 @@ fn main() {
     let mut f = (*folder).clone();
     f.visible = true;
     alone.layers = vec![Arc::new(f.clone())];
+    let _ = subcraft_compositor::profile::take();
+    let t_c = std::time::Instant::now();
     let rebuilt = composite(&session, &alone);
+    println!("composite of the rebuilt stack: {:?}", t_c.elapsed());
+    for (label, n, ms) in subcraft_compositor::profile::take().iter().take(12) {
+        println!("  profile {label}: {n} evaluations, {ms:.0} ms");
+    }
     for (kind, img) in &flat {
         let comps = kind.components();
         let a = dense(img, comps);
@@ -126,6 +132,15 @@ fn main() {
         let kind = match args.get(6).map(|s| s.as_str()) { Some("r") => ChannelKind::Roughness, Some("m") => ChannelKind::Metallic, _ => ChannelKind::BaseColor };
         probe(&session, &f, x, y, kind);
         return;
+    }
+    if args.get(3).is_some_and(|a| a == "masks") {
+        // `masks [i [j ...]]`: the masks of the children of the folder at that path.
+        let mut target = f.clone();
+        for a in &args[4..] {
+            let LayerContent::Group(g) = &target.content else { break };
+            target = (*g.children[a.parse::<usize>().unwrap()]).clone();
+        }
+        dump_masks(&session, &target, dir, &mut index);
     }
     if blends {
         let flat_dense: Vec<(ChannelKind, Vec<f32>)> = flat.iter().map(|(k, i)| (*k, dense(i, k.components()))).collect();
@@ -232,8 +247,15 @@ pub fn blend_search(session: &subcraft_app::Session, path: &str, flat: &[(Channe
     let score = |map: &BTreeMap<i32, BlendMode>, spp: &mut subcraft_mesh::spp::SppFile<std::io::BufReader<std::fs::File>>| {
         let mut res = session.resources().clone();
         let maps: std::collections::BTreeMap<_, _> = session.mesh_maps(view.id).map(|m| m.iter().map(|(k, v)| (k, v.clone())).collect()).unwrap_or_default();
-        let (folder, _) = subcraft_app::spp_import::rebuild_folder(spp, info, &view, &picker, &mut res, &maps, Some(map));
-        let e = stack_error(session, folder, flat, cov);
+        let (folder, _, fitted) = subcraft_app::spp_import::rebuild_folder(spp, info, &view, &picker, &mut res, &maps, Some(map));
+        let mut set = view.clone();
+        set.layers = vec![Arc::new(folder)];
+        let flat_images: std::collections::BTreeMap<ChannelKind, TiledImage> = match &view.layers[0].content {
+            LayerContent::Paint(p) => p.channels.clone(),
+            _ => Default::default(),
+        };
+        let (_, c) = subcraft_app::spp_import::fit_and_composite(&mut set, &fitted, &session.scene().mesh, &res, &maps, &flat_images, None);
+        let e: Vec<(ChannelKind, f64)> = flat.iter().filter_map(|(k, a)| Some((*k, error(a, &dense(c.channel(*k)?, k.components()), k.components(), cov)))).collect();
         (e.iter().map(|(_, v)| *v).sum::<f64>(), e)
     };
     let (base, e) = score(&map, &mut spp);
@@ -319,4 +341,21 @@ pub fn probe(session: &subcraft_app::Session, folder: &subcraft_doc::Layer, x: u
         let v = value(k);
         println!("after {k} leaves (last '{}'): {:?}", if k > 0 { &list[k - 1].1 } else { "-" }, &v[..4]);
     }
+}
+
+/// Experiment: each top-level folder's mask as an image (`mask_<n>`), and their names in `masks.txt`.
+pub fn dump_masks(session: &subcraft_app::Session, folder: &subcraft_doc::Layer, dir: &Path, index: &mut std::fs::File) {
+    let ts = &session.document().texture_sets[0];
+    let geometry = session.scene().geometry.get(ts.material_slot, ts.resolution);
+    let empty = subcraft_materials::MeshMaps::default();
+    let maps = session.mesh_maps(ts.id).unwrap_or(&empty);
+    let LayerContent::Group(g) = &folder.content else { return };
+    let mut names = String::new();
+    for (i, c) in g.children.iter().enumerate() {
+        let Some(mask) = &c.mask else { continue };
+        let img = subcraft_app::spp_stack::eval_mask_image(mask, ts, &geometry, session.resources(), maps);
+        write_f32(dir, &format!("mask_{i}"), ts.resolution, ts.resolution, 1, &dense(&img, 1), index);
+        names += &format!("{i} {}\n", c.name);
+    }
+    std::fs::write(dir.join("masks.txt"), names).unwrap();
 }

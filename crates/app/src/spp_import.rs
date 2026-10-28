@@ -17,7 +17,7 @@ use subcraft_image::TiledImage;
 use subcraft_image::dilate::{apply_nearest, dilate_infinite, nearest_covered};
 use rayon::prelude::*;
 use subcraft_mesh::import_mesh;
-use subcraft_mesh::spp::images::{decode_cache_image, decode_resource_image};
+use subcraft_mesh::spp::images::{decode_cache_image, decode_image_resource, decode_resource_image};
 use subcraft_mesh::spp::{BakedKind, CacheFormat, CacheImage, LayerInfo, LayerKind, Plane, ProjectInfo, SppFile, TextureSetInfo, channel_bits};
 
 use crate::Session;
@@ -49,6 +49,20 @@ fn channel_label(bits: u64) -> String {
         0x40 => "Glossiness".into(),
         b => format!("channel {b:#x}"),
     }
+}
+
+/// Baked map kind of a texture set's `additionalMaps` usage id (the same in every sample project:
+/// 0 ID, 1 ambient occlusion, 2 curvature, 3 world-space normals, 4 position, 5 thickness).
+fn usage_kind(usage: i32) -> Option<BakedKind> {
+    Some(match usage {
+        0 => BakedKind::ColorId,
+        1 => BakedKind::AmbientOcclusion,
+        2 => BakedKind::Curvature,
+        3 => BakedKind::WorldNormal,
+        4 => BakedKind::Position,
+        5 => BakedKind::Thickness,
+        _ => return None,
+    })
 }
 
 fn mesh_map_kind(kind: BakedKind) -> MeshMapKind {
@@ -274,7 +288,22 @@ impl Session {
                     Err(e) => notes.push(format!("{}: the baked {kind:?} map could not be read ({e}).", ts.name)),
                 }
             }
-            let decoded: Vec<_> = blobs.par_iter().map(|(kind, blob)| (*kind, decode_resource_image(blob, res))).collect();
+            // Maps baked outside Painter and imported (`.image` resources), by their usage id; only
+            // for kinds the project has no baked map of.
+            let mut imported = Vec::new();
+            for (usage, url) in &info.mesh_maps {
+                let Some(kind) = usage_kind(*usage) else { continue };
+                if blobs.iter().any(|(k, _)| *k == kind) {
+                    continue;
+                }
+                match spp.image_resource_blob(url) {
+                    Ok(Some(blob)) => imported.push((kind, blob)),
+                    Ok(None) => {}
+                    Err(e) => notes.push(format!("{}: the imported {kind:?} map could not be read ({e}).", ts.name)),
+                }
+            }
+            let mut decoded: Vec<_> = blobs.par_iter().map(|(kind, blob)| (*kind, decode_resource_image(blob, res))).collect();
+            decoded.par_extend(imported.par_iter().map(|(kind, blob)| (*kind, decode_image_resource(blob, res))));
             drop(blobs);
             let mut baked: Vec<(BakedKind, Plane)> = Vec::new();
             for (kind, plane) in decoded {
@@ -410,6 +439,80 @@ fn channel_error(a: &TiledImage, kind: ChannelKind, b: &TiledImage, coverage: Op
     (n > 0).then(|| (sum / n as f64) as f32)
 }
 
+/// Fit the `fitted` layers of `set` (holding the rebuilt folder; at the resolution of `maps` and
+/// `flat`) against Painter's `flat` channels, leave the values in `set` and return them with the
+/// composite of the fitted set.
+pub fn fit_and_composite(set: &mut TextureSet, fitted: &[crate::spp_fit::Fitted], mesh: &subcraft_mesh::Mesh, resources: &ResourceStore, maps: &BTreeMap<MeshMapKind, TiledImage>, flat: &BTreeMap<ChannelKind, TiledImage>, coverage: Option<&Plane>) -> (Vec<Vec<(ChannelKind, subcraft_core::ChannelValue)>>, subcraft_compositor::Composite) {
+    let geometry = subcraft_materials::TextureSetGeometry::new(std::sync::Arc::new(mesh.clone()), set.material_slot, set.resolution);
+    let mesh_maps = subcraft_materials::MeshMaps::from_map(maps.clone());
+    let ctx = subcraft_compositor::EvalContext { geometry: &geometry, resources, mesh_maps: &mesh_maps };
+    let at = covered_texels(set.resolution, coverage, 160_000);
+    let regions = fit_regions(set, fitted, &at, &geometry, resources, &mesh_maps);
+    let values = crate::spp_fit::fit(set, fitted, flat, &at, Some(&regions), &|s| subcraft_compositor::composite_full(s, &ctx).channels);
+    let composite = subcraft_compositor::composite_full(set, &ctx);
+    (values, composite)
+}
+
+/// Fit regions from the rebuilt folder's top-level entries: a sample belongs to the only entry
+/// whose mask (or, without a mask, which) covers it. Polygon-filled part folders rarely overlap, so
+/// the layers of different parts are measured with the same composites.
+fn fit_regions(set: &TextureSet, fitted: &[crate::spp_fit::Fitted], at: &[(u32, u32)], geometry: &subcraft_materials::TextureSetGeometry, resources: &ResourceStore, maps: &subcraft_materials::MeshMaps) -> crate::spp_fit::Regions {
+    let children: Vec<std::sync::Arc<Layer>> = match set.layers.first().map(|f| &f.content) {
+        Some(LayerContent::Group(g)) => g.children.clone(),
+        _ => Vec::new(),
+    };
+    let contains = |l: &Layer, id: subcraft_core::LayerId| {
+        fn walk(l: &Layer, id: subcraft_core::LayerId) -> bool {
+            l.id == id || matches!(&l.content, LayerContent::Group(g) if g.children.iter().any(|c| walk(c, id)))
+        }
+        walk(l, id)
+    };
+    let group: Vec<usize> = fitted.iter().map(|(id, _)| children.iter().position(|c| contains(c, *id)).unwrap_or(usize::MAX)).collect();
+    // Coverage of each top-level entry that holds a fitted layer (everything for an entry without a mask).
+    let mut cover: BTreeMap<usize, Vec<bool>> = BTreeMap::new();
+    for &g in group.iter().filter(|g| **g != usize::MAX) {
+        if cover.contains_key(&g) {
+            continue;
+        }
+        let c = &children[g];
+        let v = match c.mask.as_ref().filter(|m| m.enabled && c.visible) {
+            Some(m) => {
+                let img = crate::spp_stack::eval_mask_image(m, set, geometry, resources, maps);
+                at.iter().map(|&(x, y)| img.get(x, y)[0] > 1e-3).collect()
+            }
+            None => vec![c.visible; at.len()],
+        };
+        cover.insert(g, v);
+    }
+    let mut owner = vec![None; at.len()];
+    for (t, o) in owner.iter_mut().enumerate() {
+        let mut found = cover.iter().filter(|(_, v)| v[t]).map(|(g, _)| *g);
+        if let (Some(g), None) = (found.next(), found.next()) {
+            *o = Some(g);
+        }
+    }
+    crate::spp_fit::Regions { group, owner }
+}
+
+/// Texels (x, y) at resolution `res` that the gate compares: covered by the baked maps (all of
+/// them without coverage), on a regular grid thinned to at most about `limit`.
+fn covered_texels(res: u32, coverage: Option<&Plane>, limit: usize) -> Vec<(u32, u32)> {
+    let step = ((res as usize * res as usize / limit.max(1)) as f64).sqrt().ceil().max(1.0) as u32;
+    let mut out = Vec::new();
+    for y in (0..res).step_by(step as usize) {
+        for x in (0..res).step_by(step as usize) {
+            let inside = coverage.is_none_or(|c| {
+                let (cx, cy) = (x * c.width / res, y * c.height / res);
+                c.pixel(cx.min(c.width - 1), cy.min(c.height - 1)).get(3).copied().unwrap_or(1.0) > 0.5
+            });
+            if inside {
+                out.push((x, y));
+            }
+        }
+    }
+    out
+}
+
 /// Mean of each component over the covered texels (debug aid for the quality gate).
 fn channel_mean(a: &TiledImage, comps: usize, coverage: Option<&Plane>) -> Vec<f32> {
     let step = (a.width() / 256).max(1);
@@ -434,7 +537,7 @@ fn channel_mean(a: &TiledImage, comps: usize, coverage: Option<&Plane>) -> Vec<f
 
 /// The Painter stack of `info` rebuilt as one SubCraft folder for the set `view` (its resolution
 /// decides the rasters'). `blend_map` overrides the Painter blending id table (experiments).
-pub fn rebuild_folder(spp: &mut SppFile, info: &TextureSetInfo, view: &TextureSet, picker: &crate::spp_select::Picker, resources: &mut ResourceStore, maps: &BTreeMap<MeshMapKind, TiledImage>, blend_map: Option<&BTreeMap<i32, subcraft_doc::BlendMode>>) -> (Layer, crate::spp_stack::StackStats) {
+pub fn rebuild_folder(spp: &mut SppFile, info: &TextureSetInfo, view: &TextureSet, picker: &crate::spp_select::Picker, resources: &mut ResourceStore, maps: &BTreeMap<MeshMapKind, TiledImage>, blend_map: Option<&BTreeMap<i32, subcraft_doc::BlendMode>>) -> (Layer, crate::spp_stack::StackStats, Vec<crate::spp_fit::Fitted>) {
     let mut rebuilder = Rebuilder::new(spp, view, resources);
     rebuilder.mesh_maps = Some(subcraft_materials::MeshMaps::from_map(maps.iter().map(|(k, v)| (*k, if v.width() == view.resolution { v.clone() } else { v.resampled(view.resolution, view.resolution) })).collect()));
     rebuilder.picker = Some(picker);
@@ -443,13 +546,14 @@ pub fn rebuild_folder(spp: &mut SppFile, info: &TextureSetInfo, view: &TextureSe
         rebuilder.blend_map = map.clone();
     }
     let layers = rebuilder.rebuild(&info.layers);
+    let fitted = std::mem::take(&mut rebuilder.fitted);
     let stats = rebuilder.stats;
     let mut folder = Layer::new_folder("Painter stack (reconstructed)", view);
     if let LayerContent::Group(g) = &mut folder.content {
         g.children = layers.into_iter().map(std::sync::Arc::new).collect();
         g.expanded = true;
     }
-    (folder, stats)
+    (folder, stats, fitted)
 }
 
 /// Rebuild the Painter layer stack as a folder above the flattened layer and decide, by comparing its
@@ -461,7 +565,7 @@ fn rebuild_stack(spp: &mut SppFile, info: &TextureSetInfo, ts: &mut TextureSet, 
     }
     let view = ts.clone();
     let picker = crate::spp_select::Picker::new(std::sync::Arc::new(mesh.clone()));
-    let (mut folder, stats) = rebuild_folder(spp, info, &view, &picker, resources, maps, None);
+    let (mut folder, stats, fitted_full) = rebuild_folder(spp, info, &view, &picker, resources, maps, None);
     folder.visible = true;
     let flat = ts.layers[0].clone();
     let flat_content: BTreeMap<ChannelKind, TiledImage> = match &flat.content {
@@ -471,26 +575,36 @@ fn rebuild_stack(spp: &mut SppFile, info: &TextureSetInfo, ts: &mut TextureSet, 
     // Composite the reconstruction alone and compare it with the flattened channels. The check runs
     // at no more than 512 texels so that it stays quick on 4K sets.
     let gate_res = ts.resolution.min(512);
-    let (mut probe_set, probe_folder, probe_maps, flat_content) = if gate_res == ts.resolution {
-        (view.clone(), folder.clone(), maps.clone(), flat_content)
+    let (mut probe_set, probe_folder, probe_maps, flat_content, fitted) = if gate_res == ts.resolution {
+        (view.clone(), folder.clone(), maps.clone(), flat_content, fitted_full.clone())
     } else {
         let mut small = view.clone();
         small.resolution = gate_res;
         let mut small_stats_resources = resources.clone();
-        let (small_folder, _) = rebuild_folder(spp, info, &small, &picker, &mut small_stats_resources, maps, None);
+        let (small_folder, _, fitted_small) = rebuild_folder(spp, info, &small, &picker, &mut small_stats_resources, maps, None);
         *resources = small_stats_resources;
         let small_maps: BTreeMap<MeshMapKind, TiledImage> = maps.iter().map(|(k, v)| (*k, v.resampled(gate_res, gate_res))).collect();
         let small_flat = flat_content.iter().map(|(k, v)| (*k, v.resampled(gate_res, gate_res))).collect();
-        (small, small_folder, small_maps, small_flat)
+        (small, small_folder, small_maps, small_flat, fitted_small)
     };
     probe_set.layers.clear();
     probe_set.insert_above(None, probe_folder);
-    let mut probe = Session::from_parts(mesh.clone(), Document { texture_sets: vec![probe_set] }, resources.clone(), "probe");
-    let probe_id = probe.document().texture_sets[0].id;
-    probe.set_mesh_maps(probe_id, probe_maps.clone());
-    let geometry = probe.scene().geometry.get(probe.document().texture_sets[0].material_slot, gate_res);
-    let mesh_maps = subcraft_materials::MeshMaps::from_map(probe_maps);
-    let composite = subcraft_compositor::composite_full(&probe.document().texture_sets[0], &subcraft_compositor::EvalContext { geometry: &geometry, resources: probe.resources(), mesh_maps: &mesh_maps });
+    // Uniform values for the fills that could not be rebuilt, fitted at the gate's resolution and
+    // applied to the full-resolution stack (both rebuilds list the same layers in the same order).
+    let t_fit = std::time::Instant::now();
+    // SUBCRAFT_SPP_NO_FIT leaves the provisional values (developer aid for faster experiments).
+    let fitted = if std::env::var_os("SUBCRAFT_SPP_NO_FIT").is_some() { Vec::new() } else { fitted };
+    let (values, composite) = fit_and_composite(&mut probe_set, &fitted, mesh, resources, &probe_maps, &flat_content, coverage);
+    if fitted.len() == fitted_full.len() && !fitted.is_empty() {
+        let mut top = vec![std::sync::Arc::new(folder)];
+        for ((id, _), vals) in fitted_full.iter().zip(&values) {
+            for (kind, v) in vals {
+                crate::spp_fit::set_uniform(&mut top, *id, *kind, *v);
+            }
+        }
+        folder = std::sync::Arc::try_unwrap(top.pop().unwrap()).unwrap_or_else(|a| (*a).clone());
+    }
+    let t_fit = t_fit.elapsed();
     let mut errors: Vec<(ChannelKind, f32)> = Vec::new();
     for (kind, flat_image) in &flat_content {
         if let Some(c) = composite.channel(*kind) {
@@ -510,7 +624,7 @@ fn rebuild_stack(spp: &mut SppFile, info: &TextureSetInfo, ts: &mut TextureSet, 
         stats.layers, stats.folders, stats.exact, stats.approximate, stats.placeholders, if summary.is_empty() { "n/a".into() } else { summary.join(", ") }
     ));
     if std::env::var_os("SUBCRAFT_SPP_TIMING").is_some() {
-        notes.push(format!("    rebuild timing: {:?}", stats.timings));
+        notes.push(format!("    rebuild timing: {:?}, fit of {} layers {t_fit:?}", stats.timings, fitted.len()));
     }
     for (what, n) in &stats.skipped {
         notes.push(format!("    not rebuilt: {what} ({n})"));

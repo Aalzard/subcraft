@@ -24,6 +24,7 @@ pub mod part_workflow;
 pub mod pen;
 pub mod recovery;
 pub mod session;
+pub mod spp_fit;
 pub mod spp_import;
 pub mod spp_select;
 pub mod spp_stack;

@@ -19,14 +19,15 @@ use subcraft_mesh::{Bvh, Mesh};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Granularity {
     Triangle,
-    MeshElement,
+    /// Painter's "mesh fill": the whole mesh object (the model file's object/sub-mesh).
+    Object,
     UvIsland,
 }
 
 impl Granularity {
     pub fn from_id(id: i64) -> Self {
         match id {
-            2 => Granularity::MeshElement,
+            2 => Granularity::Object,
             3 => Granularity::UvIsland,
             // 0 is a single triangle; 1 (polygon/quad) is treated as its triangle.
             _ => Granularity::Triangle,
@@ -38,16 +39,18 @@ impl Granularity {
 pub struct Picker {
     pub mesh: Arc<Mesh>,
     pub bvh: Bvh,
-    parts: Vec<u32>,
+    objects: Vec<u32>,
     islands: Vec<u32>,
 }
 
 impl Picker {
     pub fn new(mesh: Arc<Mesh>) -> Self {
         let bvh = Bvh::build(&mesh);
-        let parts = subcraft_mesh::topology::mesh_elements(&mesh);
+        // Triangles without an object fall back to their connected element (offset past the objects).
+        let elements = subcraft_mesh::topology::mesh_elements(&mesh);
+        let objects = (0..mesh.triangle_count()).map(|t| mesh.tri_object.get(t).copied().flatten().unwrap_or(1 << 30 | elements[t])).collect();
         let islands = subcraft_mesh::topology::uv_islands(&mesh);
-        Self { mesh, bvh, parts, islands }
+        Self { mesh, bvh, objects, islands }
     }
 
     /// World-space ray through a screen point (0..1, origin bottom-left) of a stored camera.
@@ -64,7 +67,7 @@ impl Picker {
     fn grow(&self, seeds: &[u32], g: Granularity) -> Vec<u32> {
         let ids = match g {
             Granularity::Triangle => return seeds.to_vec(),
-            Granularity::MeshElement => &self.parts,
+            Granularity::Object => &self.objects,
             Granularity::UvIsland => &self.islands,
         };
         let mut wanted: Vec<u32> = seeds.iter().map(|&t| ids[t as usize]).collect();
