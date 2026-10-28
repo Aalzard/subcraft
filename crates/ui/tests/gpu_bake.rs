@@ -18,6 +18,9 @@ use subcraft_render::ray_bake::create_backend;
 const SIZE: u32 = 256;
 const MEAN_TOL: f32 = 0.004;
 const P99_TOL: f32 = 0.08;
+// Curvature has hard thresholds (neighbour cut-offs), so a texel on one can flip.
+const CURV_MEAN_TOL: f32 = 0.01;
+const CURV_P99_TOL: f32 = 0.1;
 
 // Concurrent DX12 device creation can stall the driver: one GPU test at a time.
 fn gpu_test() -> std::sync::MutexGuard<'static, ()> {
@@ -34,7 +37,7 @@ fn backend() -> Option<Arc<dyn RayBatchBackend>> {
     b
 }
 
-const MAPS: [MeshMapKind; 2] = [MeshMapKind::AmbientOcclusion, MeshMapKind::Thickness];
+const MAPS: [MeshMapKind; 3] = [MeshMapKind::AmbientOcclusion, MeshMapKind::Thickness, MeshMapKind::Curvature];
 
 fn bake(mesh: &Mesh, gpu: Option<&dyn RayBatchBackend>, progress: &Progress) -> BTreeMap<MeshMapKind, TiledImage> {
     let bvh = Bvh::build(mesh);
@@ -84,10 +87,16 @@ fn gpu_matches_cpu_on_the_crate_and_primitives() {
         assert!(gpu_progress.reports().iter().all(|r| r.backend.starts_with("GPU")), "{name}: {:?}", gpu_progress.reports());
         assert!((gpu_progress.fraction() - 1.0).abs() < 1e-6);
         for kind in MAPS {
+            // The UV sphere's south pole is a fan of ~1e-7 wide sliver triangles (sin(pi) is not 0). Their
+            // curvature is numerical noise on the CPU as well, so the two paths cannot be compared there.
+            if kind == MeshMapKind::Curvature && name == "sphere" {
+                continue;
+            }
             let s = compare(&mesh, &cpu[&kind], &fast[&kind]);
             eprintln!("{name} {}: mean abs error {:.5}, p99 {:.5}", kind.display_name(), s.mean, s.p99);
-            assert!(s.mean <= MEAN_TOL, "{name} {}: mean error {}", kind.display_name(), s.mean);
-            assert!(s.p99 <= P99_TOL, "{name} {}: p99 error {}", kind.display_name(), s.p99);
+            let (mean_tol, p99_tol) = if kind == MeshMapKind::Curvature { (CURV_MEAN_TOL, CURV_P99_TOL) } else { (MEAN_TOL, P99_TOL) };
+            assert!(s.mean <= mean_tol, "{name} {}: mean error {}", kind.display_name(), s.mean);
+            assert!(s.p99 <= p99_tol, "{name} {}: p99 error {}", kind.display_name(), s.p99);
             // Gutters are padded from the same covered texels, so no pixel of the image may be NaN.
             for y in (0..SIZE).step_by(3) {
                 for x in (0..SIZE).step_by(3) {
@@ -227,4 +236,22 @@ fn old_preferences_without_the_gpu_switch_default_to_on() {
     assert!(prefs.use_gpu_baking);
     let off: subcraft_ui::recovery::Preferences = serde_json::from_str("{\"use_gpu_baking\": false}").unwrap();
     assert!(!off.use_gpu_baking);
+}
+
+#[test]
+fn gpu_curvature_matches_cpu_with_a_high_poly_source() {
+    let _g = gpu_test();
+    let Some(gpu) = backend() else { return };
+    let low = primitives::torus(1.0, 0.35, 32, 16);
+    let high = primitives::torus(1.0, 0.36, 96, 48);
+    let (low_bvh, high_bvh) = (Bvh::build(&low), Bvh::build(&high));
+    let input = BakeInput { low: Geometry { mesh: &low, bvh: &low_bvh }, high: Some(Geometry { mesh: &high, bvh: &high_bvh }), material_slot: 0 };
+    let settings = BakeSettings { size: SIZE, maps: vec![MeshMapKind::Curvature], cage_front: 0.1, cage_rear: 0.1, ..BakeSettings::default() };
+    let cpu = bake_streamed_with(&input, &settings, &Progress::new(), None, |_, _| {}).expect("cpu");
+    let progress = Progress::new();
+    let fast = bake_streamed_with(&input, &settings, &progress, Some(gpu.as_ref()), |_, _| {}).expect("gpu");
+    assert!(progress.reports()[0].backend.starts_with("GPU"), "{:?}", progress.reports());
+    let s = compare(&low, &cpu[&MeshMapKind::Curvature], &fast[&MeshMapKind::Curvature]);
+    eprintln!("high-poly curvature: mean abs error {:.5}, p99 {:.5}", s.mean, s.p99);
+    assert!(s.mean <= CURV_MEAN_TOL && s.p99 <= CURV_P99_TOL, "mean {} p99 {}", s.mean, s.p99);
 }

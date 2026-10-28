@@ -34,6 +34,8 @@ pub struct RayHit {
 pub struct FlatBvh {
     pub nodes: Vec<[u32; 8]>,
     pub tris: Vec<[f32; 12]>,
+    /// Mesh triangle index of each entry of `tris`.
+    pub tri_ids: Vec<u32>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -187,7 +189,7 @@ impl Bvh {
                 [v.x, v.y, v.z, 0.0, a.x, a.y, a.z, 0.0, b.x, b.y, b.z, 0.0]
             })
             .collect();
-        FlatBvh { nodes, tris }
+        FlatBvh { nodes, tris, tri_ids: self.tri_ids.clone() }
     }
 
     pub fn is_empty(&self) -> bool {

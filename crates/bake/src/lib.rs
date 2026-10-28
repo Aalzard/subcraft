@@ -26,7 +26,7 @@ use subcraft_core::MeshMapKind;
 use subcraft_core::color::hsv_to_rgb;
 use subcraft_image::TiledImage;
 use subcraft_image::dilate::dilate_infinite;
-use subcraft_mesh::ray_batch::{BatchControl, RayBatchBackend, RayBatchError, RayMode, RayTexel, ray_backend};
+use subcraft_mesh::ray_batch::{BatchControl, CurvatureSurface, CurvatureTexel, NO_GROUP, RayBatchBackend, RayBatchError, RayMode, RayTexel, ray_backend};
 use subcraft_mesh::{Bvh, Mesh, topology};
 
 use surface::{Texel, cosine_directions, hash01, texels};
@@ -170,7 +170,7 @@ pub fn bake_streamed(
     input: &BakeInput, settings: &BakeSettings, progress: &Progress,
     completed: impl FnMut(MeshMapKind, &TiledImage),
 ) -> Result<BTreeMap<MeshMapKind, TiledImage>, BakeError> {
-    let wants_rays = settings.maps.iter().any(|k| matches!(k, MeshMapKind::AmbientOcclusion | MeshMapKind::Thickness));
+    let wants_rays = settings.maps.iter().any(|k| matches!(k, MeshMapKind::AmbientOcclusion | MeshMapKind::Thickness | MeshMapKind::Curvature));
     let backend = if settings.use_gpu && wants_rays { ray_backend() } else { None };
     bake_streamed_with(input, settings, progress, backend.as_deref(), completed)
 }
@@ -316,6 +316,10 @@ pub fn bake_streamed_with(
         let mut backend = "CPU".to_string();
         let backend_gpu = if settings.use_gpu { gpu_backend } else { None };
         let gpu = match backend_gpu {
+            Some(gpu) if kind == MeshMapKind::Curvature => {
+                let radius = settings.curvature_radius * diag;
+                gpu_curvature_map(gpu, detail_geo, elements.as_deref(), &details, radius, progress, &mut backend)?
+            }
             Some(gpu) => gpu_ray_map(gpu, kind, settings, detail_geo.bvh, &samples, &details, bias, diag, progress, &mut backend)?,
             None => None,
         };
@@ -370,6 +374,48 @@ impl BatchControl for GpuControl<'_> {
     }
     fn progress(&self, fraction: f32) {
         self.progress.done.store(self.base + (fraction.clamp(0.0, 1.0) * self.count as f32) as usize, Ordering::Relaxed);
+    }
+}
+
+/// Curvature per sample from the backend, or `None` for the CPU.
+fn gpu_curvature_map(
+    gpu: &dyn RayBatchBackend, geo: Geometry, elements: Option<&[u32]>, details: &[Detail], radius: f32, progress: &Progress, backend: &mut String,
+) -> Result<Option<Vec<f32>>, BakeError> {
+    let Some(elements) = elements else { return Ok(None) };
+    let mesh = geo.mesh;
+    // Triangles of different connected elements or objects are "foreign" to each other.
+    let mut ids: std::collections::HashMap<(u32, Option<u32>), u32> = std::collections::HashMap::new();
+    let tri_group: Vec<u32> = (0..mesh.triangle_count())
+        .map(|t| {
+            let next = ids.len() as u32;
+            *ids.entry((elements[t], mesh.tri_object.get(t).copied().flatten())).or_insert(next)
+        })
+        .collect();
+    let tri_normals: Vec<[f32; 12]> = (0..mesh.triangle_count())
+        .map(|t| {
+            let [a, b, c] = mesh.tri(t).map(|i| mesh.normals[i as usize]);
+            [a.x, a.y, a.z, 0.0, b.x, b.y, b.z, 0.0, c.x, c.y, c.z, 0.0]
+        })
+        .collect();
+    let texel = |i: usize| {
+        let d = &details[i];
+        CurvatureTexel { position: d.position.to_array(), normal: d.normal.to_array(), group: d.tri.map_or(NO_GROUP, |t| tri_group[t as usize]) }
+    };
+    let control = GpuControl { progress, base: progress.done.load(Ordering::Relaxed), count: details.len() };
+    let surface = CurvatureSurface { tri_normals: &tri_normals, tri_group: &tri_group };
+    match gpu.curvature(geo.bvh, surface, details.len(), &texel, radius, &control) {
+        Ok(values) => {
+            progress.done.store(control.base + details.len(), Ordering::Relaxed);
+            *backend = gpu.description();
+            Ok(Some(values))
+        }
+        Err(RayBatchError::Cancelled) => Err(BakeError::Cancelled),
+        Err(RayBatchError::Unsupported(why)) => {
+            log::warn!("GPU curvature bake failed, using the CPU: {why}");
+            progress.done.store(control.base, Ordering::Relaxed);
+            *backend = format!("CPU (GPU failed: {why})");
+            Ok(None)
+        }
     }
 }
 

@@ -53,12 +53,41 @@ pub trait BatchControl: Sync {
     fn progress(&self, fraction: f32);
 }
 
+/// Per-triangle data (indexed by mesh triangle) the curvature pass needs besides the BVH.
+#[derive(Clone, Copy)]
+pub struct CurvatureSurface<'a> {
+    /// The three corner normals of each triangle: `n0.xyz, 0, n1.xyz, 0, n2.xyz, 0`.
+    pub tri_normals: &'a [[f32; 12]],
+    /// Connected element + object of each triangle, as one id: triangles with different ids are
+    /// "foreign" to each other.
+    pub tri_group: &'a [u32],
+}
+
+/// [`CurvatureTexel::group`] when the texel has no source triangle.
+pub const NO_GROUP: u32 = u32::MAX;
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CurvatureTexel {
+    pub position: [f32; 3],
+    pub normal: [f32; 3],
+    /// Group id of the triangle the texel was projected onto, or [`NO_GROUP`].
+    pub group: u32,
+}
+
 pub trait RayBatchBackend: Send + Sync {
     /// Short human description, e.g. the adapter name.
     fn description(&self) -> String;
     /// One result per texel `0..count`, in order; `texel(i)` describes texel `i` (called in
     /// order, in chunks, so no array of all records has to exist). Must return quickly between internal steps when
     /// `control.is_cancelled()`.
+    /// Curvature of each texel `0..count` (see [`CurvatureSurface`]). The default refuses, so the
+    /// caller uses the CPU.
+    fn curvature(
+        &self, _bvh: &Bvh, _surface: CurvatureSurface, _count: usize, _texel: &(dyn Fn(usize) -> CurvatureTexel + Sync), _radius: f32,
+        _control: &dyn BatchControl,
+    ) -> Result<Vec<f32>, RayBatchError> {
+        Err(RayBatchError::Unsupported("this backend has no curvature pass".into()))
+    }
     fn run(&self, bvh: &Bvh, count: usize, texel: &(dyn Fn(usize) -> RayTexel + Sync), rays: u32, mode: RayMode, control: &dyn BatchControl)
         -> Result<Vec<f32>, RayBatchError>;
 }
