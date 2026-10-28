@@ -164,3 +164,48 @@ strokes, mask decals and unmapped blend ids. Use `SUBCRAFT_SPP_DEBUG=1` to print
 means. Per-sample numbers are in `docs/progress.md` Session 105. Blend ids stay unmapped until a one-layer-per-mode
 calibration project is available; parameter scalings (blur, sharpen, HSL, dirt, edge, grunge) need a project
 whose layers are all rebuildable to be measurable.
+
+## Matching Painter's own result (Session 110)
+
+Findings from rebuilding the stack of three projects against their flattened channels (tools:
+`crates/app/examples/spp_lab.rs`, see its header). All were checked numerically on real files.
+
+### Data the earlier reader dropped
+* **Polygon fills** (`DataActionDecal` hits, `DataDecalHitPunctual` / `DataDecalHitRect`): every
+  top-level folder of a large project is masked by them. A hit stores the click (`position`, or
+  `position0`/`position1` for a rectangle) in screen units (0..1, origin **bottom-left**, normalized
+  by the viewport height so x can leave 0..1 on wide viewports), the **inverse view-projection**
+  (`projViewInvMatrix`, column major, OpenGL clip space), `granularity` (0 triangle, 2 mesh object,
+  3 UV island), `color[0]` (value written; 0 erases), `paintThrough`, `viewType` (0 = made in the 2D
+  view: positions are UVs) and symmetry copies (`duplicateCount`, `duplicateMatrix`, a mirror).
+  With this reading every click of DBAL-A2's folder masks lands on the mesh; the transposed or
+  y-flipped readings miss up to two thirds. "Mesh" granularity selects the model file's object.
+* **Strokes** (`DataActionPaint` / `DataActionEraser`): per stroke the screen positions, a view and
+  an OpenGL projection matrix (orthographic in the samples), `randomSeed`, `pressure` (empty in the
+  samples), `viewType` and symmetry copies. Brush: `brushSize` with `brushSizeSpace` 1 is a fraction
+  of the mesh bounding-box diagonal (SubCraft's brush size in percent), `flow`, emitter `spacing`,
+  `alignment` (0 wrap, 1 planar, 2 camera, 3 UV, SubCraft's order), action `opacity`, the mask value
+  in `sourceColor` (uniform), the tip in `sourceTransparent` (`shape` with `hardness`, or a brush
+  graph), a screen **stencil** in `sourceStencil` (bitmap) placed by the action's 3x3 `projMatrix`
+  (clip-space screen position to stencil UV). The labels of DBAL-A2 are such stencilled strokes.
+  2D-view strokes (`viewType` 0) are in UV; their size matches Painter best at 0.15 x `brushSize`
+  of the UV square (one project, Street_cyberpunk; the 2D view's zoom is not stored).
+* **Anchors**: `DataActionAnchor` (`uid`) in a mask; `DataSourceReference.reference.source[0]` is
+  the anchor uid (a u32 pair: read it exactly, uids exceed f32 precision), with its own Levels.
+* **Per-action blending**: every action has `perChannelBlending`. Mask fills carry their own mode
+  (ids 4, 29, 10, 11 seen), filters carry id 1. Fills carry `uvTransformation` (tiling up to 32x).
+* **Imported images** (`resources/<sha1>.image`): Qt properties, then either JPEG 2000 tiles (as the
+  baked maps) or one LZ4 block of `dataSizeLZ4` bytes, rows **top first** (unlike the texture
+  cache; stencil text reads upright only so), then `ICCdataSize` bytes of ICC profile. Formats
+  BGRA8, LUM8, RGBA16, RGBA16F. They hold bitmap fills, mask bitmaps, stencils, and mesh maps baked
+  outside Painter.
+* `additionalMaps` usage ids (the same in all three projects): 0 ID, 1 ambient occlusion, 2
+  curvature, 3 world-space normals, 4 position, 5 thickness. DBAL-A2's AO and curvature are
+  imported `.image` maps; the earlier importer left all mesh-map generators without them.
+* Texture cache: normal texels no layer wrote are (0, 0, 0) and are imported as flat. Ambient
+  occlusion texels no layer wrote are 0 (47% of CarInteriro); not changed (not in the gate).
+
+### Blending ids (search against the flattened result, DBAL-A2)
+Found by coordinate descent over SubCraft's modes with everything else fixed, refitting the fitted
+fills for every trial: 4 = Multiply (mask groups; ties with Darken/Linear burn on binary masks),
+25 = the channel's default, 11 = Multiply (0.639 -> 0.608 total). The rest: see progress.md.

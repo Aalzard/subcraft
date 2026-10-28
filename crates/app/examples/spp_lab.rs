@@ -63,6 +63,10 @@ fn main() {
     let decals = args.get(3).is_some_and(|a| a == "decals");
     let blends = args.get(3).is_some_and(|a| a == "blends");
     std::fs::create_dir_all(dir).unwrap();
+    if args.get(3).is_some_and(|a| a == "sbsar") {
+        sbsar_xml(path, &args[4]);
+        return;
+    }
     if args.get(3).is_some_and(|a| a == "images") {
         dump_images(path, dir);
         return;
@@ -72,7 +76,9 @@ fn main() {
     for n in &notes {
         println!("{n}");
     }
-    println!("opened in {:?}; uv per diagonal {:.4}", t.elapsed(), uv_per_diagonal(&session.scene().mesh));
+    let mesh = &session.scene().mesh;
+    let objs: std::collections::BTreeSet<_> = mesh.tri_object.iter().collect();
+    println!("opened in {:?}; uv per diagonal {:.4}; {} objects, {} distinct triangle objects, {} elements", t.elapsed(), uv_per_diagonal(mesh), mesh.objects.len(), objs.len(), subcraft_mesh::topology::mesh_elements(mesh).iter().max().map_or(0, |m| m + 1));
     if decals {
         decal_conventions(&session, path);
         return;
@@ -135,6 +141,13 @@ fn main() {
         let y: u32 = args[5].parse().unwrap();
         let kind = match args.get(6).map(|s| s.as_str()) { Some("r") => ChannelKind::Roughness, Some("m") => ChannelKind::Metallic, _ => ChannelKind::BaseColor };
         probe(&session, &f, x, y, kind);
+        return;
+    }
+    if args.get(3).is_some_and(|a| a == "trace") {
+        let x: u32 = args[4].parse().unwrap();
+        let y: u32 = args[5].parse().unwrap();
+        let kind = match args.get(6).map(|s| s.as_str()) { Some("r") => ChannelKind::Roughness, Some("m") => ChannelKind::Metallic, _ => ChannelKind::BaseColor };
+        trace(&session, &f, x, y, kind);
         return;
     }
     if args.get(3).is_some_and(|a| a == "masks") {
@@ -251,7 +264,7 @@ pub fn blend_search(session: &subcraft_app::Session, path: &str, flat: &[(Channe
         }
     }, 0);
     println!("ids: {ids:?}");
-    let mut map: BTreeMap<i32, BlendMode> = (0..64).filter_map(|id| Some((id, subcraft_app::spp_stack::painter_blend(id)?))).collect();
+    let mut map: BTreeMap<i32, BlendMode> = subcraft_app::spp_stack::blend_table();
     let cache = Arc::new(std::sync::Mutex::new(Vec::new()));
     let score = |map: &BTreeMap<i32, BlendMode>, spp: &mut subcraft_mesh::spp::SppFile<std::io::BufReader<std::fs::File>>| {
         let mut res = session.resources().clone();
@@ -436,12 +449,13 @@ pub fn tune(session: &subcraft_app::Session, path: &str, flat: &[(ChannelKind, V
             1 => &mut t.edge_wear,
             2 => &mut t.curvature,
             3 => &mut t.ambient_occlusion,
-            _ => &mut t.position,
+            4 => &mut t.position,
+            _ => &mut t.noise,
         }
     }
-    let candidates: [&[f32]; 4] = [&[-0.5, -0.25, 0.0, 0.25, 0.5, 0.75, 1.0, 1.25], &[-1.5, -1.0, -0.5, 0.0, 0.5, 1.0, 1.5], &[0.01, 0.05, 0.1, 0.2, 0.35, 0.5], &[0.0, 0.2, 0.4, 0.6]];
+    let candidates: [&[f32]; 4] = [&[-0.5, -0.25, 0.0, 0.25, 0.5, 0.75, 1.0, 1.25], &[-1.5, -1.0, -0.5, 0.0, 0.5, 1.0, 1.5], &[0.01, 0.05, 0.1, 0.2, 0.35, 0.5], &[0.0, 0.2, 0.4, 0.6, 0.8, 1.0]];
     for pass in 0..2 {
-        for f in 0..5 {
+        for f in [5, 0, 1, 2, 3, 4] {
             for p in 0..4 {
                 let mut results = Vec::new();
                 for &v in candidates[p] {
@@ -480,4 +494,62 @@ pub fn uv_per_diagonal(mesh: &subcraft_mesh::Mesh) -> f32 {
         uv += ((u[1] - u[0]).perp_dot(u[2] - u[0]).abs() * 0.5) as f64;
     }
     ((uv / world.max(1e-12)).sqrt() as f32) * mesh.bounds.diagonal()
+}
+
+/// Experiment: print the XML interface of the first `.sbsar` whose graph name contains `name`.
+pub fn sbsar_xml(path: &str, name: &str) {
+    let mut spp = subcraft_mesh::spp::SppFile::open(Path::new(path)).unwrap();
+    let project = spp.project().unwrap();
+    let mut url = None;
+    subcraft_mesh::spp::document::walk_layers(&project.texture_sets[0].layers, &mut |l, _| {
+        for a in l.content.iter().chain(&l.mask) {
+            let graphs: Vec<&subcraft_mesh::spp::document::GraphRef> = match &a.kind {
+                subcraft_mesh::spp::document::ActionKind::Fill { sources, .. } => sources.iter().filter_map(|s| if let subcraft_mesh::spp::SourceInfo::Procedural { graph, .. } = s { Some(graph) } else { None }).collect(),
+                subcraft_mesh::spp::document::ActionKind::Filter { graph } => vec![graph],
+                _ => Vec::new(),
+            };
+            for g in graphs {
+                if url.is_none() && g.name().to_ascii_lowercase().contains(name) {
+                    url = Some(g.url.clone());
+                }
+            }
+        }
+    }, 0);
+    let Some(url) = url else { println!("no graph {name}"); return };
+    println!("{url}");
+    for f in spp.sbsar_files(&url).unwrap().unwrap_or_default() {
+        if f.name.ends_with(".xml") {
+            println!("{}", String::from_utf8_lossy(&f.data));
+        } else {
+            println!("{} ({} bytes)", f.name, f.data.len());
+        }
+    }
+}
+
+/// Experiment: the value of `kind` at texel (x, y) after each leaf layer (only that texel's tile is
+/// composited), printing the leaves that change it.
+pub fn trace(session: &subcraft_app::Session, folder: &subcraft_doc::Layer, x: u32, y: u32, kind: ChannelKind) {
+    let mut list = Vec::new();
+    leaves(folder, Vec::new(), &mut list);
+    let ts = &session.document().texture_sets[0];
+    let geometry = session.scene().geometry.get(ts.material_slot, ts.resolution);
+    let empty = subcraft_materials::MeshMaps::default();
+    let maps = session.mesh_maps(ts.id).unwrap_or(&empty);
+    let ctx = subcraft_compositor::EvalContext { geometry: &geometry, resources: session.resources(), mesh_maps: maps };
+    let tile = (y / subcraft_image::TILE_SIZE * ts.resolution.div_ceil(subcraft_image::TILE_SIZE) + x / subcraft_image::TILE_SIZE) as usize;
+    let mut prev = [f32::NAN; 4];
+    for k in 0..=list.len() {
+        let mut f = folder.clone();
+        f.visible = true;
+        keep_first(&mut f, k, &mut 0);
+        let mut set = ts.clone();
+        set.layers = vec![Arc::new(f)];
+        let mut c = subcraft_compositor::Composite::new(&set);
+        c.evaluate_tiles(&set, &ctx, &[tile]);
+        let v = c.channel(kind).unwrap().get(x, y);
+        if (0..4).any(|i| (v[i] - prev[i]).abs() > 1e-3) {
+            println!("after {k:3} '{}': {:?}", if k > 0 { list[k - 1].1.as_str() } else { "-" }, &v[..kind.components() + 1]);
+        }
+        prev = v;
+    }
 }

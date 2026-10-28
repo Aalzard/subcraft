@@ -40,6 +40,45 @@ pub fn set_uniform(layers: &mut [Arc<Layer>], id: LayerId, kind: ChannelKind, va
     false
 }
 
+/// Replace channel `kind` of fill layer `id` by a bitmap source read through UV (the solved
+/// content is a texture of the set); returns false when the layer is not a fill.
+pub fn set_bitmap(layers: &mut [Arc<Layer>], id: LayerId, kind: ChannelKind, resource: subcraft_core::ResourceId) -> bool {
+    for l in layers.iter_mut() {
+        if l.id == id {
+            let l = Arc::make_mut(l);
+            if let LayerContent::Fill(f) = &mut l.content {
+                f.channels.insert(kind, FillChannel::new(FillSource::Bitmap { resource }));
+                f.projection = subcraft_doc::Projection::default();
+                return true;
+            }
+            return false;
+        }
+        if let LayerContent::Group(g) = &l.content {
+            if g.children.iter().any(|c| contains(c, id)) {
+                if let LayerContent::Group(g) = &mut Arc::make_mut(l).content {
+                    return set_bitmap(&mut g.children, id, kind, resource);
+                }
+            }
+        }
+    }
+    false
+}
+
+/// Whether every source of fill layer `id` is uniform (so reading its solved bitmaps through UV
+/// changes nothing else about it).
+pub fn only_uniform(layers: &[Arc<Layer>], id: LayerId) -> bool {
+    fn find(l: &Layer, id: LayerId) -> Option<&Layer> {
+        if l.id == id {
+            return Some(l);
+        }
+        match &l.content {
+            LayerContent::Group(g) => g.children.iter().find_map(|c| find(c, id)),
+            _ => None,
+        }
+    }
+    layers.iter().find_map(|l| find(l, id)).is_some_and(|l| matches!(&l.content, LayerContent::Fill(f) if f.channels.values().all(|c| matches!(c.source, FillSource::Uniform { .. }))))
+}
+
 fn contains(l: &Layer, id: LayerId) -> bool {
     l.id == id || matches!(&l.content, LayerContent::Group(g) if g.children.iter().any(|c| contains(c, id)))
 }
@@ -93,6 +132,17 @@ pub struct Regions {
     pub owner: Vec<Option<usize>>,
 }
 
+/// What [`fit`] found: per fitted layer the uniform value of each channel and, when asked for,
+/// the per-sample content that brings the stack to the target where the layer is visible.
+pub struct FitResult {
+    pub values: Vec<Vec<(ChannelKind, ChannelValue)>>,
+    /// Per fitted layer and channel, `components` values per sample of `at`.
+    pub detail: Vec<BTreeMap<ChannelKind, Vec<f32>>>,
+}
+
+/// Weight keeping solved detail near the fitted uniform value where a layer is barely visible.
+const DETAIL_RIDGE: f32 = 0.05;
+
 /// Fit the uniform values of `fitted` layers in `set` (whose layers hold the rebuilt stack) so its
 /// composite matches `target` over the texels `at`. `composite` evaluates a set. Returns, per
 /// fitted layer, the value of each of its channels, and leaves `set` holding them.
@@ -104,6 +154,22 @@ pub fn fit(
     regions: Option<&Regions>,
     composite: &dyn Fn(&TextureSet) -> BTreeMap<ChannelKind, TiledImage>,
 ) -> Vec<Vec<(ChannelKind, ChannelValue)>> {
+    fit_with_detail(set, fitted, target, at, regions, false, composite).values
+}
+
+/// [`fit`], and with `detail` also each fitted layer's content per sample: the uniform value plus
+/// its share of what is left between the (linearized) stack and the target, `J r / (sum J^2 + ridge)`
+/// per texel (`J` the layer's influence there, `r` the remaining difference): the minimum-change
+/// correction that closes the difference, split over the layers visible at the texel.
+pub fn fit_with_detail(
+    set: &mut TextureSet,
+    fitted: &[Fitted],
+    target: &BTreeMap<ChannelKind, TiledImage>,
+    at: &[(u32, u32)],
+    regions: Option<&Regions>,
+    detail: bool,
+    composite: &dyn Fn(&TextureSet) -> BTreeMap<ChannelKind, TiledImage>,
+) -> FitResult {
     let n = fitted.len();
     let set_all = |set: &mut TextureSet, values: &dyn Fn(usize, ChannelKind) -> [f32; 3]| {
         for (k, (id, kinds)) in fitted.iter().enumerate() {
@@ -113,7 +179,7 @@ pub fn fit(
         }
     };
     if n == 0 {
-        return Vec::new();
+        return FitResult { values: Vec::new(), detail: Vec::new() };
     }
     // Influence of each fitted value: composite with that layer at 1 and all others at 0.
     set_all(set, &|_, _| [0.0; 3]);
@@ -191,7 +257,39 @@ pub fn fit(
         }
     }
     set_all(set, &|k, kind| result[k].get(&kind).copied().unwrap_or([0.5; 3]));
-    fitted.iter().enumerate().map(|(k, (_, kinds))| kinds.iter().map(|&kind| (kind, value_of(kind, result[k].get(&kind).copied().unwrap_or([0.5; 3])))).collect()).collect()
+    let values = fitted.iter().enumerate().map(|(k, (_, kinds))| kinds.iter().map(|&kind| (kind, value_of(kind, result[k].get(&kind).copied().unwrap_or([0.5; 3])))).collect()).collect();
+    let mut details: Vec<BTreeMap<ChannelKind, Vec<f32>>> = vec![BTreeMap::new(); if detail { n } else { 0 }];
+    if detail {
+        for &kind in &channels {
+            let comps = kind.components();
+            let goal = sample(&target[&kind], comps, at);
+            let users: Vec<usize> = (0..n).filter(|k| influence[*k].contains_key(&kind)).collect();
+            let (lo, hi) = if kind.is_signed() { (-1.0, 1.0) } else { (0.0, 1.0) };
+            for &k in &users {
+                let u = result[k].get(&kind).copied().unwrap_or([0.5; 3]);
+                details[k].insert(kind, (0..at.len() * comps).map(|i| u[i % comps]).collect());
+            }
+            for i in 0..at.len() * comps {
+                let c = i % comps;
+                let mut predicted = base_s[&kind][i];
+                let mut norm = DETAIL_RIDGE;
+                for &k in &users {
+                    let j = influence[k][&kind][i];
+                    predicted += j * result[k].get(&kind).map_or(0.5, |v| v[c]);
+                    norm += j * j;
+                }
+                let r = goal[i] - predicted;
+                for &k in &users {
+                    let j = influence[k][&kind][i];
+                    if j != 0.0 {
+                        let d = details[k].get_mut(&kind).unwrap();
+                        d[i] = (d[i] + j * r / norm).clamp(lo, hi);
+                    }
+                }
+            }
+        }
+    }
+    FitResult { values, detail: details }
 }
 
 #[cfg(test)]

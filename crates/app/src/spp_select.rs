@@ -506,6 +506,47 @@ pub fn uv_paint(mut image: TiledImage, strokes: &[&StrokeInfo], brush: &BrushInf
     image
 }
 
+/// Where Painter samples a fill's image for texel UV `uv` (SubCraft's, origin top-left): its
+/// transformation scales and rotates around the centre of the UV square after shifting by the
+/// translation, in Painter's UV (origin bottom-left). Image coordinates are returned top-left.
+/// Verified on one placed sticker: the label lands where Painter shows it only with this order.
+pub fn painter_image_uv(t: &subcraft_mesh::spp::document::UvTransform, uv: glam::Vec2) -> glam::Vec2 {
+    let p = glam::Vec2::new(uv.x, 1.0 - uv.y);
+    let rotation = if std::env::var_os("SUBCRAFT_SPP_ROT_RADIANS").is_some() { t.rotation } else { t.rotation.to_radians() };
+    let (s, c) = rotation.sin_cos();
+    let d = (p - glam::Vec2::splat(0.5) + glam::Vec2::from(t.offset)) * glam::Vec2::from(t.scale);
+    let q = glam::Vec2::new(d.x * c - d.y * s, d.x * s + d.y * c) + glam::Vec2::splat(0.5);
+    glam::Vec2::new(q.x, 1.0 - q.y)
+}
+
+/// A bitmap placed once (not tiled) on the UV square, baked into a mask raster (value = image
+/// brightness, alpha 1 inside the image, transparent outside).
+pub fn placed_bitmap(geometry: &TextureSetGeometry, bitmap: &subcraft_image::Bitmap, t: &subcraft_mesh::spp::document::UvTransform) -> TiledImage {
+    let res = geometry.resolution;
+    let mut image = TiledImage::new(res, res, 2, [0.0; 4]);
+    for tile in 0..geometry.tile_count() {
+        let geo = geometry.tile(tile);
+        if geo.is_empty() {
+            continue;
+        }
+        let mut buf = vec![0.0f32; subcraft_image::TILE_TEXELS * 2];
+        let mut any = false;
+        for i in 0..subcraft_image::TILE_TEXELS {
+            let q = painter_image_uv(t, glam::Vec2::from(geo.uv(i)));
+            if (0.0..=1.0).contains(&q.x) && (0.0..=1.0).contains(&q.y) {
+                let px = bitmap.sample(q.x, q.y, subcraft_image::Wrap::Clamp, false);
+                buf[i * 2] = px[0];
+                buf[i * 2 + 1] = 1.0;
+                any = true;
+            }
+        }
+        if any {
+            image.write_tile(tile, &buf);
+        }
+    }
+    image
+}
+
 /// One step of a mask raster: a polygon fill or a stroke action.
 #[derive(Clone, Debug)]
 pub enum RasterOp {
@@ -667,5 +708,24 @@ mod tests {
         let geometry = TextureSetGeometry::new(p.mesh.clone(), 0, 64);
         let selected = p.triangle_values(&[island], Some(&geometry)).iter().filter(|v| v.is_some()).count();
         assert!(selected == 32 || selected == 0, "one cube face (or a gap between islands): {selected}");
+    }
+
+    #[test]
+    fn painter_uv_placement_matches_the_affine_projection() {
+        use subcraft_mesh::spp::document::UvTransform;
+        let id = UvTransform { scale: [1.0, 1.0], rotation: 0.0, offset: [0.0, 0.0], tiling: true };
+        let q = painter_image_uv(&id, glam::Vec2::new(0.3, 0.8));
+        assert!((q - glam::Vec2::new(0.3, 0.8)).length() < 1e-6, "identity: {q}");
+        // A sticker 1/10 of the square, shifted: its centre is at Painter UV 0.5 - translation.
+        let t = UvTransform { scale: [10.0, 10.0], rotation: 30.0, offset: [0.2, -0.1], tiling: false };
+        let centre = glam::Vec2::new(0.3, 1.0 - 0.6);
+        assert!((painter_image_uv(&t, centre) - glam::Vec2::splat(0.5)).length() < 1e-5);
+        // The same map as SubCraft's projection with the converted parameters.
+        let p = subcraft_doc::Projection { scale: t.scale, rotation_deg: -t.rotation, offset: painter_image_uv(&t, glam::Vec2::ZERO).into(), ..Default::default() };
+        for uv in [[0.1f32, 0.2], [0.7, 0.4], [0.9, 0.95]] {
+            let a = painter_image_uv(&t, glam::Vec2::from(uv));
+            let b = glam::Vec2::from(p.transform_2d(uv));
+            assert!((a - b).length() < 1e-4, "{a} vs {b}");
+        }
     }
 }

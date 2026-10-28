@@ -462,6 +462,8 @@ pub struct UvTransform {
     pub scale: [f32; 2],
     pub rotation: f32,
     pub offset: [f32; 2],
+    /// The fill repeats its image (`uvSamplingWrap` 3); 0 places it once.
+    pub tiling: bool,
 }
 
 impl LevelsInfo {
@@ -651,7 +653,7 @@ fn levels_info(l: &Obj) -> LevelsInfo {
 fn uv_of(a: &Obj) -> Option<UvTransform> {
     let t = a.obj("uvTransformation")?;
     let pair = |n: &str, d: f32| t.floats(n).filter(|v| v.len() >= 2).map_or([d, d], |v| [v[0], v[1]]);
-    Some(UvTransform { scale: pair("scaleFactors", 1.0), rotation: t.float("rotation").unwrap_or(0.0), offset: pair("translation", 0.0) })
+    Some(UvTransform { scale: pair("scaleFactors", 1.0), rotation: t.float("rotation").unwrap_or(0.0), offset: pair("translation", 0.0), tiling: a.int("uvSamplingWrap").unwrap_or(3) != 0 })
 }
 
 fn action_of(a: &Obj, blends: Vec<(u64, i32, f32)>, group: usize) -> ActionInfo {

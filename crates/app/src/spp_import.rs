@@ -443,14 +443,66 @@ fn channel_error(a: &TiledImage, kind: ChannelKind, b: &TiledImage, coverage: Op
 /// `flat`) against Painter's `flat` channels, leave the values in `set` and return them with the
 /// composite of the fitted set.
 pub fn fit_and_composite(set: &mut TextureSet, fitted: &[crate::spp_fit::Fitted], mesh: &subcraft_mesh::Mesh, resources: &ResourceStore, maps: &BTreeMap<MeshMapKind, TiledImage>, flat: &BTreeMap<ChannelKind, TiledImage>, coverage: Option<&Plane>) -> (Vec<Vec<(ChannelKind, subcraft_core::ChannelValue)>>, subcraft_compositor::Composite) {
+    let mut res = resources.clone();
+    let (values, _, composite) = fit_solve_composite(set, fitted, mesh, &mut res, maps, flat, coverage, false);
+    (values, composite)
+}
+
+/// Channel textures solved for a fitted layer: (layer, channel, resource holding the texture).
+pub type Solved = Vec<(subcraft_core::LayerId, ChannelKind, subcraft_core::ResourceId)>;
+
+/// [`fit_and_composite`]; with `detail`, the fitted layers whose sources are all uniform also get
+/// their content solved per texel ([`crate::spp_fit::fit_with_detail`]) as textures at the set's
+/// resolution, added to `resources` and used by the layers in `set`.
+#[allow(clippy::too_many_arguments)]
+pub fn fit_solve_composite(set: &mut TextureSet, fitted: &[crate::spp_fit::Fitted], mesh: &subcraft_mesh::Mesh, resources: &mut ResourceStore, maps: &BTreeMap<MeshMapKind, TiledImage>, flat: &BTreeMap<ChannelKind, TiledImage>, coverage: Option<&Plane>, detail: bool) -> (Vec<Vec<(ChannelKind, subcraft_core::ChannelValue)>>, Solved, subcraft_compositor::Composite) {
     let geometry = subcraft_materials::TextureSetGeometry::new(std::sync::Arc::new(mesh.clone()), set.material_slot, set.resolution);
     let mesh_maps = subcraft_materials::MeshMaps::from_map(maps.clone());
+    let res = set.resolution;
+    // Detail needs every covered texel; the uniform fit alone is fine with a thinned grid.
+    let at = covered_texels(res, coverage, if detail { usize::MAX } else { 160_000 });
+    let result = {
+        let ctx = subcraft_compositor::EvalContext { geometry: &geometry, resources, mesh_maps: &mesh_maps };
+        let regions = fit_regions(set, fitted, &at, &geometry, resources, &mesh_maps);
+        crate::spp_fit::fit_with_detail(set, fitted, flat, &at, Some(&regions), detail, &|s| subcraft_compositor::composite_full(s, &ctx).channels)
+    };
+    let mut solved = Solved::new();
+    for (k, channels) in result.detail.iter().enumerate() {
+        let (id, _) = fitted[k];
+        if !crate::spp_fit::only_uniform(&set.layers, id) {
+            continue;
+        }
+        let name = find_name(&set.layers, id).unwrap_or_default();
+        for (kind, samples) in channels {
+            let comps = kind.components();
+            let uniform = result.values[k].iter().find(|(c, _)| c == kind).map(|(_, v)| *v);
+            let base: Vec<f32> = (0..comps).map(|c| uniform.map_or(0.5, |v| v.0[c])).collect();
+            let mut data: Vec<f32> = (0..(res * res) as usize * comps).map(|i| base[i % comps]).collect();
+            for (t, &(x, y)) in at.iter().enumerate() {
+                let o = (y as usize * res as usize + x as usize) * comps;
+                data[o..o + comps].copy_from_slice(&samples[t * comps..(t + 1) * comps]);
+            }
+            let bitmap = subcraft_image::Bitmap::new_f32(res, res, comps as u8, data);
+            let id_res = resources.insert(subcraft_doc::Resource { id: subcraft_core::ResourceId::new(), name: format!("{name} {} (solved from Painter's result)", kind.display_name()), kind: subcraft_doc::ResourceKind::Texture, bitmap: std::sync::Arc::new(bitmap), source_path: None, encoded: None });
+            crate::spp_fit::set_bitmap(&mut set.layers, id, *kind, id_res);
+            solved.push((id, *kind, id_res));
+        }
+    }
     let ctx = subcraft_compositor::EvalContext { geometry: &geometry, resources, mesh_maps: &mesh_maps };
-    let at = covered_texels(set.resolution, coverage, 160_000);
-    let regions = fit_regions(set, fitted, &at, &geometry, resources, &mesh_maps);
-    let values = crate::spp_fit::fit(set, fitted, flat, &at, Some(&regions), &|s| subcraft_compositor::composite_full(s, &ctx).channels);
     let composite = subcraft_compositor::composite_full(set, &ctx);
-    (values, composite)
+    (result.values, solved, composite)
+}
+
+fn find_name(layers: &[std::sync::Arc<Layer>], id: subcraft_core::LayerId) -> Option<String> {
+    layers.iter().find_map(|l| {
+        if l.id == id {
+            return Some(l.name.clone());
+        }
+        match &l.content {
+            LayerContent::Group(g) => find_name(&g.children, id),
+            _ => None,
+        }
+    })
 }
 
 /// Fit regions from the rebuilt folder's top-level entries: a sample belongs to the only entry
@@ -610,12 +662,19 @@ fn rebuild_stack(spp: &mut SppFile, info: &TextureSetInfo, ts: &mut TextureSet, 
     let t_fit = std::time::Instant::now();
     // SUBCRAFT_SPP_NO_FIT leaves the provisional values (developer aid for faster experiments).
     let fitted = if std::env::var_os("SUBCRAFT_SPP_NO_FIT").is_some() { Vec::new() } else { fitted };
-    let (values, composite) = fit_and_composite(&mut probe_set, &fitted, mesh, resources, &probe_maps, &flat_content, coverage);
+    let detail = std::env::var_os("SUBCRAFT_SPP_DETAIL").is_some();
+    let (values, solved, composite) = fit_solve_composite(&mut probe_set, &fitted, mesh, resources, &probe_maps, &flat_content, coverage, detail);
     if fitted.len() == fitted_full.len() && !fitted.is_empty() {
         let mut top = vec![std::sync::Arc::new(folder)];
         for ((id, _), vals) in fitted_full.iter().zip(&values) {
             for (kind, v) in vals {
                 crate::spp_fit::set_uniform(&mut top, *id, *kind, *v);
+            }
+        }
+        // Solved textures: the same layer in the full-resolution stack (same rebuild order).
+        for (small_id, kind, resource) in &solved {
+            if let Some(k) = fitted.iter().position(|(id, _)| id == small_id) {
+                crate::spp_fit::set_bitmap(&mut top, fitted_full[k].0, *kind, *resource);
             }
         }
         folder = std::sync::Arc::try_unwrap(top.pop().unwrap()).unwrap_or_else(|a| (*a).clone());

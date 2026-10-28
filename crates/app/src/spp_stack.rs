@@ -69,6 +69,10 @@ pub struct Tuning {
     pub ambient_occlusion: GeneratorMap,
     /// `mg_position` as a height gradient, from `global_balance` / `global_contrast`.
     pub position: GeneratorMap,
+    /// Noise graphs as SubCraft patterns: pattern balance `level[0] + level[1] * balance` and
+    /// contrast `soft[0] + soft[1] * contrast` (Substance's balance brightens upwards, SubCraft's
+    /// pattern balance downwards).
+    pub noise: GeneratorMap,
 }
 
 impl Default for Tuning {
@@ -79,6 +83,7 @@ impl Default for Tuning {
             curvature: GeneratorMap { level: [0.0, 1.0], soft: [0.15, 0.0] },
             ambient_occlusion: GeneratorMap { level: [0.0, 1.0], soft: [0.2, 0.0] },
             position: GeneratorMap { level: [0.0, 1.0], soft: [0.2, 0.0] },
+            noise: GeneratorMap { level: [1.0, -1.0], soft: [0.0, 1.0] },
         }
     }
 }
@@ -117,7 +122,7 @@ pub struct Rebuilder<'a, R: Read + Seek> {
 
 impl<'a, R: Read + Seek> Rebuilder<'a, R> {
     pub fn new(spp: &'a mut SppFile<R>, ts: &'a TextureSet, resources: &'a mut ResourceStore) -> Self {
-        Self { spp, ts, resources, stats: StackStats::default(), images: HashMap::new(), extract_embedded: true, picker: None, geometry: None, blend_map: (0..64).filter_map(|id| Some((id, painter_blend(id)?))).collect(), rasters: Vec::new(), mesh_maps: None, anchors: HashMap::new(), references: Vec::new(), fitted: Vec::new(), raster_cache: None, tuning: Tuning::default() }
+        Self { spp, ts, resources, stats: StackStats::default(), images: HashMap::new(), extract_embedded: true, picker: None, geometry: None, blend_map: blend_table(), rasters: Vec::new(), mesh_maps: None, anchors: HashMap::new(), references: Vec::new(), fitted: Vec::new(), raster_cache: None, tuning: Tuning::default() }
     }
 
     /// Layers bottom to top.
@@ -255,8 +260,8 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
                     if let Some(blend) = layer.blend.get_mut(&c.kind) {
                         if blend.mode != BlendMode::Disable {
                             blend.opacity = *opacity;
-                            if let Some(m) = mode.filter(|m| *m != BlendMode::Normal || c.kind != ChannelKind::Normal) {
-                                blend.mode = m;
+                            if let Some(m) = mode {
+                                blend.mode = if m == BlendMode::Normal { default_mode(c.kind) } else { m };
                             }
                         }
                     }
@@ -360,7 +365,7 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
                         };
                         if let Some(v) = value {
                             fill.channels.insert(c.kind, FillChannel::new(FillSource::uniform(v)));
-                            let mode = if c.kind == ChannelKind::Normal { BlendMode::NormalMapCombine } else { BlendMode::Normal };
+                            let mode = default_mode(c.kind);
                             layer.blend.insert(c.kind, ChannelBlend::new(mode));
                             covered += 1;
                         }
@@ -448,6 +453,16 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
                                     Vec::new()
                                 }
                             },
+                            // Placed once (not tiled): baked into a raster with Painter's placement.
+                            SourceInfo::Bitmap { url, .. } if action.uv.is_some_and(|t| !t.tiling) && self.geometry.is_some() && self.bitmap(url, false).is_some() => {
+                                let id = self.bitmap(url, false).unwrap();
+                                let bitmap = self.resources.get(id).unwrap().bitmap.clone();
+                                let image = spp_select::placed_bitmap(self.geometry.as_ref().unwrap(), &bitmap, action.uv.as_ref().unwrap());
+                                self.stats.exact += 1;
+                                let mut e = MaskEffect::new(MaskEffectKind::Paint { image });
+                                e.name = "Placed image".into();
+                                vec![e]
+                            }
                             SourceInfo::Bitmap { url, .. } => match self.bitmap(url, false).filter(|_| !skip("mask_bitmaps")) {
                                 Some(resource) => {
                                     self.stats.exact += 1;
@@ -553,7 +568,7 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
         let generator = |kind: GeneratorKind, level: f32, softness: f32, invert: bool| {
             let mut gen_ = Generator::new(kind);
             gen_.level = level.clamp(0.0, 1.0);
-            gen_.softness = softness.clamp(0.01, 0.5);
+            gen_.softness = softness.clamp(0.01, 1.0);
             gen_.invert = invert;
             MaskEffect::new(MaskEffectKind::Generator(gen_))
         };
@@ -580,8 +595,8 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
             self.stats.approximate += 1;
             let mut p = ProceduralParams::new(kind);
             p.scale = get(&["scale"], 4.0).clamp(0.5, 64.0);
-            p.balance = get(&["balance", "histogram_position"], 0.5).clamp(0.0, 1.0);
-            p.contrast = (0.5 * (1.0 - get(&["contrast", "historgram_contrast"], 0.0))).clamp(0.02, 0.5);
+            p.balance = (t.noise.level[0] + t.noise.level[1] * get(&["balance", "histogram_position"], 0.5)).clamp(0.0, 1.0);
+            p.contrast = (t.noise.soft[0] + t.noise.soft[1] * get(&["contrast", "historgram_contrast"], 0.0)).clamp(0.0, 0.98);
             p.invert = flag("invert");
             vec![MaskEffect::new(MaskEffectKind::Fill { value: 1.0, procedural: Some(p), projection })]
         } else {
@@ -670,6 +685,20 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
     }
 }
 
+/// The id table: [`painter_blend`], with `SUBCRAFT_SPP_BLENDS="29=Subtract,10=LinearDodge"`
+/// overriding entries (developer aid for experiments).
+pub fn blend_table() -> BTreeMap<i32, BlendMode> {
+    let mut map: BTreeMap<i32, BlendMode> = (0..64).filter_map(|id| Some((id, painter_blend(id)?))).collect();
+    if let Ok(v) = std::env::var("SUBCRAFT_SPP_BLENDS") {
+        for item in v.split(',') {
+            let Some((id, name)) = item.split_once('=') else { continue };
+            let (Ok(id), Some(mode)) = (id.trim().parse::<i32>(), BlendMode::ALL.into_iter().find(|m| format!("{m:?}") == name.trim())) else { continue };
+            map.insert(id, mode);
+        }
+    }
+    map
+}
+
 /// SubCraft blend mode for a Painter blending mode id; `None` for ids not identified yet.
 pub fn painter_blend(id: i32) -> Option<BlendMode> {
     match id {
@@ -690,10 +719,26 @@ fn projection_of(id: i64, uv: Option<&subcraft_mesh::spp::document::UvTransform>
     }
     if let Some(t) = uv {
         p.scale = t.scale;
-        p.rotation_deg = t.rotation;
-        p.offset = t.offset;
+        if p.mode == ProjectionMode::Uv && !skip("uv_phase") {
+            // Painter's transform is affine in UV: the same map as SubCraft's scale, rotation
+            // (mirrored by the opposite V axes) and offset (where UV 0,0 lands).
+            p.rotation_deg = -t.rotation;
+            p.offset = spp_select::painter_image_uv(t, glam::Vec2::ZERO).into();
+        } else {
+            p.rotation_deg = t.rotation;
+            p.offset = t.offset;
+        }
     }
     p
+}
+
+/// How Painter's default blending ("Normal", id 25) composites a channel.
+fn default_mode(kind: ChannelKind) -> BlendMode {
+    match kind {
+        ChannelKind::Normal => BlendMode::NormalMapCombine,
+        ChannelKind::Height if std::env::var_os("SUBCRAFT_SPP_HEIGHT_ADD").is_some() => BlendMode::LinearDodge,
+        _ => BlendMode::Normal,
+    }
 }
 
 /// Developer switch for experiments: `SUBCRAFT_SPP_SKIP=a,b` leaves those rebuild steps out.
