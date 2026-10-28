@@ -394,10 +394,18 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
     }
 
     fn attach_mask(&mut self, layer: &mut Layer, info: &LayerInfo) {
-        if !info.has_mask || info.mask.is_empty() {
+        if !info.has_mask {
             return;
         }
         let res = self.ts.resolution;
+        if info.mask.iter().all(|a| !a.enabled) {
+            // An empty mask is its initial value: a black one hides the layer.
+            let mut mask = Mask::new(res, info.mask_initial_white);
+            mask.enabled = info.mask_enabled;
+            layer.mask = Some(mask);
+            self.stats.exact += 1;
+            return;
+        }
         let mut mask = Mask::new(res, info.mask_initial_white);
         mask.enabled = info.mask_enabled;
         let mut mapped = 0;

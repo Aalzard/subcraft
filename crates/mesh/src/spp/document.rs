@@ -380,16 +380,25 @@ pub struct DecalHit {
     pub proj_view_inv: [f32; 16],
     /// Paint-through: a click also selects what is hidden behind the first surface.
     pub through: bool,
+    /// Made in the 2D view: `points` are UV coordinates (origin bottom-left).
+    pub uv_space: bool,
+    /// Symmetry copies: the hit is also applied through `duplicate` (object or UV space).
+    pub duplicate: Option<[f32; 16]>,
 }
 
 /// One brush stroke as recorded: screen positions (0..1, origin top-left) and the camera.
 #[derive(Debug, Clone, PartialEq)]
 pub struct StrokeInfo {
+    /// Painted in Painter's 2D view: `points` are UV coordinates (origin bottom-left) and the
+    /// matrices are zero.
+    pub uv_space: bool,
     pub points: Vec<[f32; 2]>,
     pub pressure: Vec<f32>,
     pub view: [f32; 16],
     pub projection: [f32; 16],
     pub seed: u32,
+    /// Symmetry copy of the stroke: object-space (3D) or UV-space (2D view) transform.
+    pub duplicate: Option<[f32; 16]>,
 }
 
 /// The brush of a paint or eraser action.
@@ -569,13 +578,18 @@ fn mat16(o: &Obj, name: &str) -> Option<[f32; 16]> {
     o.floats(name)?.try_into().ok()
 }
 
+/// The symmetry transform of a stroke or hit with `duplicateCount` 1 (more copies are not seen).
+fn duplicate_of(o: &Obj) -> Option<[f32; 16]> {
+    (o.int("duplicateCount").unwrap_or(0) > 0).then(|| mat16(o, "duplicateMatrix")).flatten()
+}
+
 fn decal_hit_of(h: &Obj) -> Option<DecalHit> {
     let points = match h.class.as_str() {
         "DataDecalHitPunctual" => vec![h.floats("position")?.try_into().ok()?],
         "DataDecalHitRect" => vec![h.floats("position0")?.try_into().ok()?, h.floats("position1")?.try_into().ok()?],
         _ => return None,
     };
-    Some(DecalHit { value: h.floats("color").and_then(|c| c.first().copied()).unwrap_or(1.0), granularity: h.int("granularity").unwrap_or(2), points, proj_view_inv: mat16(h, "projViewInvMatrix")?, through: h.int("paintThrough").unwrap_or(0) != 0 || h.bool("paintThrough").unwrap_or(false) })
+    Some(DecalHit { value: h.floats("color").and_then(|c| c.first().copied()).unwrap_or(1.0), granularity: h.int("granularity").unwrap_or(2), points, proj_view_inv: mat16(h, "projViewInvMatrix")?, through: h.int("paintThrough").unwrap_or(0) != 0 || h.bool("paintThrough").unwrap_or(false), uv_space: h.int("viewType") == Some(0), duplicate: duplicate_of(h) })
 }
 
 fn strokes_of(a: &Obj) -> Vec<StrokeInfo> {
@@ -583,6 +597,7 @@ fn strokes_of(a: &Obj) -> Vec<StrokeInfo> {
         .iter()
         .filter_map(|s| {
             Some(StrokeInfo {
+                uv_space: s.int("viewType") == Some(0),
                 points: s.list("points").iter().filter_map(|k| k.floats("position")?.try_into().ok()).collect(),
                 pressure: match s.get("pressure") {
                     Some(Val::Float(v)) => v.clone(),
@@ -592,6 +607,7 @@ fn strokes_of(a: &Obj) -> Vec<StrokeInfo> {
                 view: mat16(s, "viewMatrix")?,
                 projection: mat16(s, "projectionMatrix")?,
                 seed: s.int("randomSeed").unwrap_or(0) as u32,
+                duplicate: duplicate_of(s),
             })
         })
         .collect()

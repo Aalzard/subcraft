@@ -72,7 +72,7 @@ fn main() {
     for n in &notes {
         println!("{n}");
     }
-    println!("opened in {:?}", t.elapsed());
+    println!("opened in {:?}; uv per diagonal {:.4}", t.elapsed(), uv_per_diagonal(&session.scene().mesh));
     if decals {
         decal_conventions(&session, path);
         return;
@@ -273,13 +273,11 @@ pub fn blend_search(session: &subcraft_app::Session, path: &str, flat: &[(Channe
         Some(list) => list.split(',').filter_map(|v| v.parse().ok()).collect(),
         None => ids.keys().copied().filter(|i| *i != 25 && *i != 1).collect(),
     };
-    for pass in 0..2 {
+    for pass in 0..1 {
         for &id in &todo {
             let mut results = Vec::new();
-            for mode in BlendMode::ALL {
-                if matches!(mode, BlendMode::Passthrough | BlendMode::Disable) {
-                    continue;
-                }
+            use BlendMode::*;
+            for mode in [Normal, Replace, Multiply, Divide, Darken, Lighten, LinearDodge, Subtract, Difference, SignedAddition, Overlay, Screen, LinearBurn, SoftLight, HardLight, LinearLight, Color, NormalMapDetail] {
                 let mut m = map.clone();
                 m.insert(id, mode);
                 let (s, _) = score(&m, &mut spp);
@@ -469,4 +467,17 @@ pub fn tune(session: &subcraft_app::Session, path: &str, flat: &[(ChannelKind, V
     }
     let (s, e) = score(best);
     println!("final {s:.4} {e:?}\ntuning {best:?}");
+}
+
+/// UV units per object unit over the whole mesh (sqrt of UV area / surface area) times the bbox
+/// diagonal: the UV length of a brush whose size is 1 (100%) in object space.
+pub fn uv_per_diagonal(mesh: &subcraft_mesh::Mesh) -> f32 {
+    let (mut uv, mut world) = (0.0f64, 0.0f64);
+    for t in 0..mesh.triangle_count() {
+        let p = mesh.tri_positions(t);
+        let u = mesh.tri_uvs(t);
+        world += ((p[1] - p[0]).cross(p[2] - p[0]).length() * 0.5) as f64;
+        uv += ((u[1] - u[0]).perp_dot(u[2] - u[0]).abs() * 0.5) as f64;
+    }
+    ((uv / world.max(1e-12)).sqrt() as f32) * mesh.bounds.diagonal()
 }

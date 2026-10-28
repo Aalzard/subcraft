@@ -107,6 +107,7 @@ impl Picker {
         let (x0, x1) = (a[0].min(b[0]), a[0].max(b[0]));
         let (y0, y1) = (a[1].min(b[1]), a[1].max(b[1]));
         let mut out = Vec::new();
+        let mut candidates = Vec::new();
         for t in 0..self.mesh.triangle_count() {
             let p = self.mesh.tri_positions(t);
             let c = (p[0] + p[1] + p[2]) / 3.0;
@@ -118,24 +119,157 @@ impl Picker {
             if sx < x0 || sx > x1 || sy < y0 || sy > y1 {
                 continue;
             }
-            // Visible: the ray through the centroid's screen point reaches this triangle first.
-            let (o, d) = Self::ray(inv, [sx, sy]);
-            if self.bvh.intersect(o, d, 0.0, f32::INFINITY).is_some_and(|h| h.tri as usize == t || (o + d * h.t - c).length() < 1e-4 * self.mesh.bounds.extent().max_element()) {
-                out.push(t as u32);
+            candidates.push((t as u32, sx, sy, clip.z / clip.w));
+        }
+        if candidates.is_empty() {
+            return out;
+        }
+        // Visible: not behind the nearest surface at the centroid's pixel (one z-buffer per hit).
+        let depth = ScreenDepth::render(&self.mesh, &view_proj, [x0, y0, x1, y1]);
+        for (t, sx, sy, z) in candidates {
+            if depth.visible(sx, sy, z) {
+                out.push(t);
             }
         }
         out
     }
 
-    /// Replay hits in order: the last hit that selects a triangle sets its value.
-    pub fn triangle_values(&self, hits: &[DecalHit]) -> Vec<Option<f32>> {
+    /// Triangles selected by a hit made in the 2D view: the triangle under a UV point, or those
+    /// whose UV centroid lies in a UV rectangle, grown by the granularity.
+    pub fn select_uv(&self, hit: &DecalHit, geometry: &TextureSetGeometry) -> Vec<u32> {
+        let g = Granularity::from_id(hit.granularity);
+        let uv = |p: [f32; 2]| glam::Vec2::new(p[0], 1.0 - p[1]);
+        let seeds: Vec<u32> = match hit.points.as_slice() {
+            [p] => {
+                let q = uv(*p);
+                let res = geometry.resolution;
+                let (x, y) = (((q.x * res as f32) as i64).clamp(0, res as i64 - 1) as u32, ((q.y * res as f32) as i64).clamp(0, res as i64 - 1) as u32);
+                let size = subcraft_image::TILE_SIZE;
+                let tile = geometry.tile((y / size * geometry.tiles_x + x / size) as usize);
+                tile.triangle(((y % size) * size + x % size) as usize).map(|t| vec![t as u32]).unwrap_or_default()
+            }
+            [a, b] => {
+                let (a, b) = (uv(*a), uv(*b));
+                let (lo, hi) = (a.min(b), a.max(b));
+                (0..self.mesh.triangle_count() as u32)
+                    .filter(|&t| {
+                        let u = self.mesh.tri_uvs(t as usize);
+                        let c = (u[0] + u[1] + u[2]) / 3.0;
+                        c.x >= lo.x && c.x <= hi.x && c.y >= lo.y && c.y <= hi.y
+                    })
+                    .collect()
+            }
+            _ => Vec::new(),
+        };
+        self.grow(&seeds, g)
+    }
+
+    /// Replay hits in order: the last hit that selects a triangle sets its value. Hits made in
+    /// the 2D view need `geometry`; symmetry copies of 3D hits go through the mirrored camera.
+    pub fn triangle_values(&self, hits: &[DecalHit], geometry: Option<&TextureSetGeometry>) -> Vec<Option<f32>> {
         let mut values = vec![None; self.mesh.triangle_count()];
         for hit in hits {
-            for t in self.select(hit, hit.through) {
-                values[t as usize] = Some(hit.value);
+            let mut all = vec![hit.clone()];
+            if let Some(d) = hit.duplicate {
+                let m = Mat4::from_cols_array(&d);
+                let mut c = hit.clone();
+                if hit.uv_space {
+                    c.points = hit.points.iter().map(|p| {
+                        let q = m.transform_point3(Vec3::new(p[0] * 2.0 - 1.0, p[1] * 2.0 - 1.0, 0.0));
+                        [q.x * 0.5 + 0.5, q.y * 0.5 + 0.5]
+                    }).collect();
+                } else {
+                    // World = M * world_mirrored: the mirrored camera's inverse is M * inverse.
+                    c.proj_view_inv = (m * Mat4::from_cols_array(&hit.proj_view_inv)).to_cols_array();
+                }
+                all.push(c);
+            }
+            for h in &all {
+                let tris = match (h.uv_space, geometry) {
+                    (true, Some(g)) => self.select_uv(h, g),
+                    (true, None) => Vec::new(),
+                    (false, _) => self.select(h, h.through),
+                };
+                for t in tris {
+                    values[t as usize] = Some(h.value);
+                }
             }
         }
         values
+    }
+}
+
+/// Nearest clip-space depth over a screen rectangle (0..1 screen units, y up), rasterized from
+/// every triangle; for the visibility of rectangle selections.
+struct ScreenDepth {
+    rect: [f32; 4],
+    size: usize,
+    depth: Vec<f32>,
+    /// Depth tolerance: 0.2% of the mesh diagonal in clip-space depth units.
+    tolerance: f32,
+}
+
+impl ScreenDepth {
+    const SIZE: usize = 512;
+
+    fn render(mesh: &Mesh, view_proj: &Mat4, rect: [f32; 4]) -> Self {
+        let size = Self::SIZE;
+        let mut depth = vec![f32::INFINITY; size * size];
+        let (w, h) = ((rect[2] - rect[0]).max(1e-6), (rect[3] - rect[1]).max(1e-6));
+        let to_px = |sx: f32, sy: f32| ((sx - rect[0]) / w * size as f32, (sy - rect[1]) / h * size as f32);
+        for t in 0..mesh.triangle_count() {
+            let clip = mesh.tri_positions(t).map(|p| *view_proj * p.extend(1.0));
+            if clip.iter().any(|c| c.w <= 1e-9) {
+                continue;
+            }
+            let v = clip.map(|c| {
+                let (x, y) = to_px(c.x / c.w * 0.5 + 0.5, c.y / c.w * 0.5 + 0.5);
+                Vec3::new(x, y, c.z / c.w)
+            });
+            let area = (v[1].x - v[0].x) * (v[2].y - v[0].y) - (v[2].x - v[0].x) * (v[1].y - v[0].y);
+            if area.abs() < 1e-12 {
+                continue;
+            }
+            let x0 = v.iter().map(|p| p.x).fold(f32::INFINITY, f32::min).floor().max(0.0) as usize;
+            let x1 = (v.iter().map(|p| p.x).fold(f32::NEG_INFINITY, f32::max).ceil() as i64).min(size as i64 - 1);
+            let y0 = v.iter().map(|p| p.y).fold(f32::INFINITY, f32::min).floor().max(0.0) as usize;
+            let y1 = (v.iter().map(|p| p.y).fold(f32::NEG_INFINITY, f32::max).ceil() as i64).min(size as i64 - 1);
+            if x1 < x0 as i64 || y1 < y0 as i64 {
+                continue;
+            }
+            for y in y0..=y1 as usize {
+                for x in x0..=x1 as usize {
+                    let (px, py) = (x as f32 + 0.5, y as f32 + 0.5);
+                    let b0 = ((v[1].x - px) * (v[2].y - py) - (v[2].x - px) * (v[1].y - py)) / area;
+                    let b1 = ((v[2].x - px) * (v[0].y - py) - (v[0].x - px) * (v[2].y - py)) / area;
+                    let b2 = 1.0 - b0 - b1;
+                    if b0 < 0.0 || b1 < 0.0 || b2 < 0.0 {
+                        continue;
+                    }
+                    let z = b0 * v[0].z + b1 * v[1].z + b2 * v[2].z;
+                    let d = &mut depth[y * size + x];
+                    if z < *d {
+                        *d = z;
+                    }
+                }
+            }
+        }
+        let dz = Vec3::new(view_proj.x_axis.z, view_proj.y_axis.z, view_proj.z_axis.z).length();
+        Self { rect, size, depth, tolerance: 2e-3 * mesh.bounds.diagonal() * dz }
+    }
+
+    fn visible(&self, sx: f32, sy: f32, z: f32) -> bool {
+        let (w, h) = ((self.rect[2] - self.rect[0]).max(1e-6), (self.rect[3] - self.rect[1]).max(1e-6));
+        let x = (((sx - self.rect[0]) / w * self.size as f32) as usize).min(self.size - 1);
+        let y = (((sy - self.rect[1]) / h * self.size as f32) as usize).min(self.size - 1);
+        // The nearest depth around the pixel (centroids sit inside their own triangle's coverage).
+        let mut nearest = f32::INFINITY;
+        for yy in y.saturating_sub(1)..=(y + 1).min(self.size - 1) {
+            for xx in x.saturating_sub(1)..=(x + 1).min(self.size - 1) {
+                nearest = nearest.min(self.depth[yy * self.size + xx]);
+            }
+        }
+        z <= nearest + self.tolerance
     }
 }
 
@@ -260,7 +394,30 @@ impl<'a> StrokeReplay<'a> {
         let material = subcraft_paint::BrushMaterial { mask_value: brush.value, ..subcraft_paint::BrushMaterial::default() };
         let mode = if erase { subcraft_paint::StrokeMode::Erase } else { subcraft_paint::StrokeMode::Paint };
         let target = subcraft_paint::PaintTarget::MaskEffect(self.effect);
-        for (k, s) in strokes.iter().enumerate() {
+        // Symmetry copies: a mirrored camera for 3D strokes (as SubCraft's own symmetry), the
+        // mirrored UV path (around the centre of the UV square) for 2D ones.
+        let mut copies: Vec<StrokeInfo> = Vec::new();
+        for s in strokes.iter().filter(|s| s.duplicate.is_some()) {
+            let m = Mat4::from_cols_array(&s.duplicate.unwrap());
+            let mut c = s.clone();
+            c.duplicate = None;
+            if s.uv_space {
+                c.points = s.points.iter().map(|p| {
+                    let q = m.transform_point3(Vec3::new(p[0] * 2.0 - 1.0, p[1] * 2.0 - 1.0, 0.0));
+                    [q.x * 0.5 + 0.5, q.y * 0.5 + 0.5]
+                }).collect();
+            } else {
+                c.view = (Mat4::from_cols_array(&s.view) * m).to_cols_array();
+            }
+            copies.push(c);
+        }
+        let all: Vec<&StrokeInfo> = strokes.iter().chain(copies.iter()).collect();
+        let uv_strokes: Vec<&StrokeInfo> = all.iter().copied().filter(|s| s.uv_space).collect();
+        if !uv_strokes.is_empty() {
+            let image = self.image();
+            self.set_image(uv_paint(image, &uv_strokes, brush, opacity, erase));
+        }
+        for (k, s) in all.iter().enumerate().filter(|(_, s)| !s.uv_space) {
             let camera = self.camera(s);
             let ctx = subcraft_paint::PaintContext { mesh: &self.picker.mesh, bvh: &self.picker.bvh, geometry: &self.geometry, camera: &camera, depth: &self.depth };
             let settings = subcraft_paint::BrushSettings { seed: s.seed.wrapping_add(k as u32), ..settings };
@@ -282,6 +439,71 @@ impl<'a> StrokeReplay<'a> {
         }
         self.image()
     }
+}
+
+/// Stroke diameter in UV units per unit of Painter's brush size, for strokes painted in the 2D view.
+pub fn uv_brush_scale() -> f32 {
+    std::env::var("SUBCRAFT_SPP_UV_BRUSH").ok().and_then(|v| v.parse().ok()).unwrap_or(UV_BRUSH_SCALE)
+}
+
+/// Calibrated on a project painted in the 2D view (Street_cyberpunk: line widths match best at
+/// 0.15; 1.0 doubles the Base Color difference). Painter seems to size 2D strokes by its 2D
+/// viewport, whose zoom is not stored.
+const UV_BRUSH_SCALE: f32 = 0.15;
+
+/// Strokes painted in Painter's 2D view, stamped straight into the (value, alpha) raster: round
+/// stamps along the UV path at the brush spacing, each adding `flow` with the brush falloff, the
+/// stroke's coverage capped at `opacity`.
+pub fn uv_paint(mut image: TiledImage, strokes: &[&StrokeInfo], brush: &BrushInfo, opacity: f32, erase: bool) -> TiledImage {
+    let res = image.width() as usize;
+    let radius = (brush.size * uv_brush_scale() * 0.5 * res as f32).max(0.5);
+    let spacing = (brush.spacing.max(0.02) * 2.0 * radius).max(0.5);
+    let hardness = brush.hardness.unwrap_or(0.0);
+    for s in strokes {
+        let pts: Vec<glam::Vec2> = s.points.iter().map(|p| glam::Vec2::new(p[0] * res as f32, (1.0 - p[1]) * res as f32)).collect();
+        let mut stamps = Vec::new();
+        if let Some(first) = pts.first() {
+            stamps.push(*first);
+            let mut carry = 0.0f32;
+            for w in pts.windows(2) {
+                let len = (w[1] - w[0]).length();
+                let mut d = spacing - carry;
+                while d <= len {
+                    stamps.push(w[0].lerp(w[1], d / len.max(1e-9)));
+                    d += spacing;
+                }
+                carry = (carry + len) % spacing;
+            }
+        }
+        let mut cov: std::collections::HashMap<(usize, usize), f32> = std::collections::HashMap::new();
+        for c in &stamps {
+            let (x0, x1) = ((c.x - radius).floor().max(0.0) as usize, ((c.x + radius).ceil() as usize).min(res - 1));
+            let (y0, y1) = ((c.y - radius).floor().max(0.0) as usize, ((c.y + radius).ceil() as usize).min(res - 1));
+            for y in y0..=y1 {
+                for x in x0..=x1 {
+                    let d = (glam::Vec2::new(x as f32 + 0.5, y as f32 + 0.5) - *c).length() / radius;
+                    let a = subcraft_paint::falloff(d, hardness) * brush.flow;
+                    if a > 0.0 {
+                        let e = cov.entry((x, y)).or_default();
+                        *e += (1.0 - *e) * a;
+                    }
+                }
+            }
+        }
+        for ((x, y), c) in cov {
+            let c = c.min(1.0) * opacity;
+            let p = image.get(x as u32, y as u32);
+            let (v, a) = (p[0], p[1]);
+            let px = if erase {
+                [v, a * (1.0 - c), 0.0, 0.0]
+            } else {
+                let na = c + a * (1.0 - c);
+                [if na > 1e-6 { (brush.value * c + v * a * (1.0 - c)) / na } else { 0.0 }, na, 0.0, 0.0]
+            };
+            image.set(x as u32, y as u32, px);
+        }
+    }
+    image
 }
 
 /// One step of a mask raster: a polygon fill or a stroke action.
@@ -317,7 +539,7 @@ pub fn paint_raster(picker: &Picker, geometry: Arc<TextureSetGeometry>, ops: &[R
     let mut replay: Option<StrokeReplay> = None;
     for op in ops {
         image = match op {
-            RasterOp::Fill(hits) => raster_over(&geometry, &picker.triangle_values(hits), image),
+            RasterOp::Fill(hits) => raster_over(&geometry, &picker.triangle_values(hits, Some(&geometry)), image),
             RasterOp::Strokes { strokes, brush, opacity, erase, stencil } => {
                 let r = replay.get_or_insert_with(|| StrokeReplay::new(picker, geometry.clone()));
                 r.stencil = stencil.clone();
@@ -339,7 +561,7 @@ mod tests {
     fn hit(points: Vec<[f32; 2]>, granularity: i64, value: f32) -> DecalHit {
         let view = Mat4::look_at_rh(Vec3::new(0.0, 0.0, 5.0), Vec3::ZERO, Vec3::Y);
         let proj = Mat4::orthographic_rh_gl(-2.0, 2.0, -2.0, 2.0, 0.1, 20.0);
-        DecalHit { value, granularity, points, proj_view_inv: (proj * view).inverse().to_cols_array(), through: false }
+        DecalHit { value, granularity, points, proj_view_inv: (proj * view).inverse().to_cols_array(), through: false, uv_space: false, duplicate: None }
     }
 
     fn cube_picker() -> Picker {
@@ -376,7 +598,7 @@ mod tests {
         let p = cube_picker();
         let all = p.select(&hit(vec![[0.0, 0.0], [1.0, 1.0]], 0, 1.0), false);
         assert_eq!(all.len(), 32, "only the front face is visible: {all:?}");
-        let values = p.triangle_values(&[hit(vec![[0.55, 0.6]], 2, 1.0), hit(vec![[0.55, 0.6]], 3, 0.0)]);
+        let values = p.triangle_values(&[hit(vec![[0.55, 0.6]], 2, 1.0), hit(vec![[0.55, 0.6]], 3, 0.0)], None);
         assert_eq!(values.iter().filter(|v| **v == Some(1.0)).count(), 160);
         assert_eq!(values.iter().filter(|v| **v == Some(0.0)).count(), 32);
     }
@@ -390,7 +612,7 @@ mod tests {
             let i = ((y % 64) * 64 + x % 64) as usize;
             tile.triangle(i).map(|t| p.mesh.geometric_normal(t).z > 0.9)
         };
-        let filled = raster(&geometry, &p.triangle_values(&[hit(vec![[0.55, 0.6]], 3, 1.0)]));
+        let filled = raster(&geometry, &p.triangle_values(&[hit(vec![[0.55, 0.6]], 3, 1.0)], None));
         let (mut inside, mut outside) = (0, 0);
         for y in 0..64 {
             for x in 0..64 {
@@ -406,7 +628,7 @@ mod tests {
         // A horizontal stroke across the front face, with a white mask brush.
         let view = Mat4::look_at_rh(Vec3::new(0.0, 0.0, 5.0), Vec3::ZERO, Vec3::Y);
         let proj = Mat4::orthographic_rh_gl(-2.0, 2.0, -2.0, 2.0, 0.1, 20.0);
-        let stroke = StrokeInfo { points: (0..20).map(|i| [0.3 + i as f32 * 0.02, 0.5]).collect(), pressure: Vec::new(), view: view.to_cols_array(), projection: proj.to_cols_array(), seed: 1 };
+        let stroke = StrokeInfo { uv_space: false, duplicate: None, points: (0..20).map(|i| [0.3 + i as f32 * 0.02, 0.5]).collect(), pressure: Vec::new(), view: view.to_cols_array(), projection: proj.to_cols_array(), seed: 1 };
         let brush = BrushInfo { size: 0.1, size_space: 1, flow: 1.0, spacing: 0.1, pressure_size: false, value: 1.0, hardness: Some(0.5), tip: "shape".into(), alignment: 0, culling: true, stencil: None };
         let mut replay = StrokeReplay::new(&p, geometry.clone());
         let painted = replay.replay(TiledImage::new(64, 64, 2, [0.0; 4]), &[stroke], &brush, 1.0, false);
@@ -422,8 +644,28 @@ mod tests {
         }
         assert!(on_front > 20, "{on_front}");
         assert_eq!(elsewhere, 0, "the stroke stays on the visible face");
-        let erased = replay.replay(painted, &[StrokeInfo { points: (0..20).map(|i| [0.3 + i as f32 * 0.02, 0.5]).collect(), pressure: Vec::new(), view: view.to_cols_array(), projection: proj.to_cols_array(), seed: 2 }], &brush, 1.0, true);
+        let erased = replay.replay(painted, &[StrokeInfo { uv_space: false, duplicate: None, points: (0..20).map(|i| [0.3 + i as f32 * 0.02, 0.5]).collect(), pressure: Vec::new(), view: view.to_cols_array(), projection: proj.to_cols_array(), seed: 2 }], &brush, 1.0, true);
         assert!((0..64).all(|y| (0..64).all(|x| erased.get(x, y)[1] < 0.5)), "erasing the same stroke clears it");
         let _ = Vec2::ZERO;
+    }
+
+    #[test]
+    fn strokes_from_the_2d_view_and_their_mirror_copies_paint_in_uv_space() {
+        let p = cube_picker();
+        let geometry = Arc::new(TextureSetGeometry::new(p.mesh.clone(), 0, 64));
+        // A vertical line at u = 0.25 (v from bottom to top), mirrored across the middle.
+        let mirror = Mat4::from_scale(Vec3::new(-1.0, 1.0, 1.0)).to_cols_array();
+        let stroke = StrokeInfo { uv_space: true, duplicate: Some(mirror), points: vec![[0.25, 0.1], [0.25, 0.9]], pressure: Vec::new(), view: [0.0; 16], projection: [0.0; 16], seed: 0 };
+        let brush = BrushInfo { size: 0.5, size_space: 1, flow: 1.0, spacing: 0.1, pressure_size: false, value: 1.0, hardness: Some(0.8), tip: "shape".into(), alignment: 3, culling: true, stencil: None };
+        let mut replay = StrokeReplay::new(&p, geometry);
+        let img = replay.replay(TiledImage::new(64, 64, 2, [0.0; 4]), &[stroke], &brush, 1.0, false);
+        let a = |u: f32, v: f32| img.get((u * 64.0) as u32, ((1.0 - v) * 64.0) as u32)[1];
+        assert!(a(0.25, 0.5) > 0.9 && a(0.75, 0.5) > 0.9, "the line and its mirror copy");
+        assert!(a(0.5, 0.5) < 0.01 && a(0.1, 0.5) < 0.01 && a(0.25, 0.97) < 0.01, "nothing beside or past the ends");
+        // UV polygon fill: the island under a UV point.
+        let island = DecalHit { value: 1.0, granularity: 3, points: vec![[0.5, 0.5]], proj_view_inv: [0.0; 16], through: false, uv_space: true, duplicate: None };
+        let geometry = TextureSetGeometry::new(p.mesh.clone(), 0, 64);
+        let selected = p.triangle_values(&[island], Some(&geometry)).iter().filter(|v| v.is_some()).count();
+        assert!(selected == 32 || selected == 0, "one cube face (or a gap between islands): {selected}");
     }
 }
