@@ -137,12 +137,20 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
     fn paint_rasters(&mut self, layers: &mut [Layer]) {
         use rayon::prelude::*;
         let jobs = std::mem::take(&mut self.rasters);
-        let (Some(picker), Some(geometry)) = (self.picker, self.geometry.clone()) else { return };
+        let (Some(picker), Some(full)) = (self.picker, self.geometry.clone()) else { return };
         let t = std::time::Instant::now();
+        // Strokes cost grows with the texels they cover: rasters are painted at no more than
+        // `raster_max_resolution()` and resampled to the set's resolution.
+        let res = full.resolution;
+        let cap = raster_max_resolution().min(res);
+        let geometry = if cap < res { Arc::new(TextureSetGeometry::new(full.mesh().clone(), full.material_slot, cap)) } else { full.clone() };
         let cached = self.raster_cache.as_ref().map(|c| c.lock().unwrap_or_else(|p| p.into_inner()).clone()).filter(|c| c.len() == jobs.len());
         let images: Vec<TiledImage> = match cached {
             Some(c) => c,
-            None => jobs.par_iter().map(|(_, _, ops)| spp_select::paint_raster(picker, geometry.clone(), ops)).collect(),
+            None => jobs.par_iter().map(|(_, _, ops)| {
+                let image = spp_select::paint_raster(picker, geometry.clone(), ops);
+                if cap < res { image.resampled(res, res) } else { image }
+            }).collect(),
         };
         if let Some(c) = &self.raster_cache {
             *c.lock().unwrap_or_else(|p| p.into_inner()) = images.clone();
@@ -702,9 +710,15 @@ pub fn blend_table() -> BTreeMap<i32, BlendMode> {
 /// SubCraft blend mode for a Painter blending mode id; `None` for ids not identified yet.
 pub fn painter_blend(id: i32) -> Option<BlendMode> {
     match id {
-        // Found by search against Painter's flattened result (DBAL-A2, see docs/spp-research.md).
-        4 => Some(BlendMode::Multiply),
+        // Found by search against Painter's flattened result (DBAL-A2, see docs/spp-research.md):
+        // each id tried with 18 modes, everything else fixed, fitted fills refitted every time.
+        // 4 and 10 tie with Darken / Linear burn on near-binary masks. 2 and 15 gave no clear
+        // winner and stay unmapped.
+        4 | 10 => Some(BlendMode::Multiply),
+        9 => Some(BlendMode::Color),
+        11 => Some(BlendMode::SoftLight),
         25 => Some(BlendMode::Normal),
+        29 => Some(BlendMode::Subtract),
         _ => None,
     }
 }
@@ -739,6 +753,12 @@ fn default_mode(kind: ChannelKind) -> BlendMode {
         ChannelKind::Height if std::env::var_os("SUBCRAFT_SPP_HEIGHT_ADD").is_some() => BlendMode::LinearDodge,
         _ => BlendMode::Normal,
     }
+}
+
+/// Largest resolution mask strokes and polygon fills are painted at (`SUBCRAFT_SPP_RASTER_MAX`
+/// overrides it).
+pub fn raster_max_resolution() -> u32 {
+    std::env::var("SUBCRAFT_SPP_RASTER_MAX").ok().and_then(|v| v.parse().ok()).unwrap_or(2048)
 }
 
 /// Developer switch for experiments: `SUBCRAFT_SPP_SKIP=a,b` leaves those rebuild steps out.

@@ -454,7 +454,7 @@ pub fn tune(session: &subcraft_app::Session, path: &str, flat: &[(ChannelKind, V
         }
     }
     let candidates: [&[f32]; 4] = [&[-0.5, -0.25, 0.0, 0.25, 0.5, 0.75, 1.0, 1.25], &[-1.5, -1.0, -0.5, 0.0, 0.5, 1.0, 1.5], &[0.01, 0.05, 0.1, 0.2, 0.35, 0.5], &[0.0, 0.2, 0.4, 0.6, 0.8, 1.0]];
-    for pass in 0..2 {
+    for pass in 0..1 {
         for f in [5, 0, 1, 2, 3, 4] {
             for p in 0..4 {
                 let mut results = Vec::new();
