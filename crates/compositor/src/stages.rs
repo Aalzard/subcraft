@@ -1142,6 +1142,23 @@ pub(crate) fn has_spatial(layers: &[Arc<Layer>]) -> bool {
             || matches!(&l.content,LayerContent::Group(g) if has_spatial(&g.children))
     })
 }
+/// Supports of the filters in a layer's own content and mask effects (not its children).
+pub(crate) fn own_halo(l: &Layer) -> u32 {
+    let mut sum = 0u32;
+    for e in l.content_effects.iter().filter(|e| e.visible) {
+        if let ContentEffectKind::Filter { filter, .. } = e.kind {
+            sum = sum.saturating_add(filter.support());
+        }
+    }
+    if let Some(m) = l.mask.as_ref().filter(|m| m.enabled) {
+        for e in m.effects.iter().filter(|e| e.visible) {
+            if let MaskEffectKind::Filter(f) = e.kind {
+                sum = sum.saturating_add(f.support());
+            }
+        }
+    }
+    sum
+}
 /// Conservative sum of supports along any possible dependency path, including mask domains.
 pub(crate) fn halo(layers: &[Arc<Layer>]) -> u32 {
     let mut sum = 0u32;
