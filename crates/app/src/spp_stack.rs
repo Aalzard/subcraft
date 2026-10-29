@@ -454,6 +454,9 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
         }
         let mut covered = 0;
         let mut fitted: Vec<ChannelKind> = Vec::new();
+        // A material's normal, solved from Painter's result at import (many layers put a material
+        // into Normal only: Rubber, Plastic, Iron on DBAL-A2).
+        let mut solved_normal = false;
         if let LayerContent::Fill(fill) = &mut layer.content {
             fill.channels.clear();
             let (_, projection) = fills[0];
@@ -475,8 +478,16 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
                                 covered += 1;
                                 None
                             }
-                            // Fitted uniform values stand in for these (the normal detail is dropped).
-                            SourceInfo::Bitmap { .. } | SourceInfo::Procedural { .. } if c.kind == ChannelKind::Normal => None,
+                            // Fitted uniform values stand in for these. The normal starts flat (a
+                            // no-op under normal-map combine) and is solved from Painter's result
+                            // with the other channels (`spp_import::fit_solve_composite`).
+                            SourceInfo::Bitmap { .. } | SourceInfo::Procedural { .. } if c.kind == ChannelKind::Normal => {
+                                fill.channels.insert(c.kind, FillChannel::new(FillSource::uniform(ChannelValue::rgb(0.5, 0.5, 1.0))));
+                                layer.blend.insert(c.kind, ChannelBlend::new(default_mode(c.kind)));
+                                covered += 1;
+                                solved_normal = true;
+                                None
+                            }
                             SourceInfo::Bitmap { .. } | SourceInfo::Procedural { .. } => {
                                 let what = match source {
                                     SourceInfo::Procedural { graph, .. } => format!("procedural fill '{}' (fitted uniform values)", graph.name()),
@@ -506,7 +517,7 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
             p.id = layer.id;
             return p;
         }
-        if fitted.is_empty() {
+        if fitted.is_empty() && !solved_normal {
             self.stats.exact += 1;
         } else {
             fitted.sort();

@@ -64,6 +64,21 @@ pub fn set_bitmap(layers: &mut [Arc<Layer>], id: LayerId, kind: ChannelKind, res
     false
 }
 
+/// Whether fill layer `id` has a uniform Normal channel (a material whose normal detail is to be
+/// solved from Painter's result).
+pub fn has_uniform_normal(layers: &[Arc<Layer>], id: LayerId) -> bool {
+    fn find(l: &Layer, id: LayerId) -> Option<&Layer> {
+        if l.id == id {
+            return Some(l);
+        }
+        match &l.content {
+            LayerContent::Group(g) => g.children.iter().find_map(|c| find(c, id)),
+            _ => None,
+        }
+    }
+    layers.iter().find_map(|l| find(l, id)).is_some_and(|l| matches!(&l.content, LayerContent::Fill(f) if f.channels.get(&ChannelKind::Normal).is_some_and(|c| matches!(c.source, FillSource::Uniform { .. }))))
+}
+
 /// Whether every source of fill layer `id` is uniform (so reading its solved bitmaps through UV
 /// changes nothing else about it).
 pub fn only_uniform(layers: &[Arc<Layer>], id: LayerId) -> bool {
