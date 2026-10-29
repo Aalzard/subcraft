@@ -229,6 +229,39 @@ pub fn cache_blob(width: u32, height: u32, pixels: &[u8]) -> Vec<u8> {
     out
 }
 
+/// An imported `.image` resource: properties, one LZ4 literal run of `rows` (stored as given),
+/// then trailing ICC data that must be ignored.
+pub fn image_blob(format: &'static str, width: u32, height: u32, pitch: u32, rows: &[u8]) -> Vec<u8> {
+    let mut block = Vec::new();
+    let n = rows.len();
+    if n < 15 {
+        block.push((n as u8) << 4);
+    } else {
+        block.push(0xf0);
+        let mut rest = n - 15;
+        while rest >= 255 {
+            block.push(255);
+            rest -= 255;
+        }
+        block.push(rest as u8);
+    }
+    block.extend(rows);
+    let mut out = properties(&[
+        ("width", Q::UInt(width)),
+        ("version", Q::Str("v2")),
+        ("pitch", Q::UInt(pitch)),
+        ("height", Q::UInt(height)),
+        ("format", Q::Str(format)),
+        ("dataSizeRaw", Q::UInt64(rows.len() as u64)),
+        ("dataSizeLZ4", Q::UInt64(block.len() as u64)),
+        ("compression", Q::Str("lz4")),
+        ("ICCdataSize", Q::UInt(4)),
+    ]);
+    out.extend(block);
+    out.extend([0, 0, 0, 4]);
+    out
+}
+
 pub fn resources_toc(entries: &[(&str, &str)]) -> Vec<u8> {
     let mut out = 1u32.to_be_bytes().to_vec();
     out.extend(qstring("Alg::ResourceImage"));

@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-10-23 (session 104: Painter stack rebuild)
+Last updated: 2026-10-29 (session 110: Painter stacks matched against Painter; DBAL-A2 passes)
 
 ## Decisions
 
@@ -3117,3 +3117,85 @@ Goal: faster and smoother on 4096 texture sets with dozens of layers, with ident
 * **Measured (RTX 4060, release):** at 4096 on a 500k-triangle mesh AO 139 s -> 11 s, Thickness 236 s -> 11 s, Curvature 440 s -> 11 s. What remains is CPU preparation (about 1 s at 2048, 5 to 8 s at 4096 per map).
 * **Not verified:** other GPUs and drivers (AMD, Intel, Apple), Linux/Vulkan and the CI software adapter (llvmpipe) for speed or equal results, meshes above the device buffer limits (the fallback is tested only with a fake backend and the empty-BVH path), real watchdog behaviour on a much slower GPU, running inside the full app by hand (only through `BakeJob`), a bake started while the viewport is rendering heavy frames. Bent Normal, Height and the high-poly projection are still CPU only.
 * **Known difference:** the GPU is not bit-identical to the CPU (AO and Thickness differ by about 0.002 on average; a texel whose ray grazes an edge can flip). Curvature on the UV sphere's south pole slivers differs because the CPU value there is noise too.
+
+### Session 110 - Painter stacks rebuilt to match Painter's own result (2026-10-28/29)
+
+Goal: the rebuilt Painter layer stack ("Painter stack (reconstructed)") should match Painter's flattened
+result closely enough to pass the quality gate, with real editable layers wherever possible. All work is
+driven by measurement: `crates/app/examples/spp_lab.rs` composites the rebuilt stack alone and compares it
+with Painter's flattened channels (per channel, per top-level folder, per texel trace, blend and generator
+searches); see its header. Format findings are in `docs/spp-research.md` ("Matching Painter's own result").
+
+* **Measured (mean absolute difference over the set's UV triangles, rebuilt stack alone vs Painter;
+  Base Color / Roughness / Metallic / Normal / Height; gate: < 0.04 / 0.06 / 0.06):**
+
+| project (4096) | before (13a1c5c) | after, full import (gate at 512) | gate |
+|---|---|---|---|
+| DBAL-A2 (337 layers) | 0.265 / 0.261 / 0.614 / 0.045 / 0.0065 | 0.017 / 0.048 / 0.057 / 0.004 / 0.001 | passes, rebuilt stack shown |
+| Street_cyberpunk (14 layers) | 0.657 / 0.051 / 0.000 / - / 0.601 (256) | 0.006 / 0.025 / 0.000 / - / 0.038 | passes, rebuilt stack shown |
+| CarInteriro (64 layers) | 0.015 / 0.050 / 0.005 / 0.004 / 0.013 (256) | 0.007 / 0.032 / 0.003 / 0.016 / 0.005 | passes, rebuilt stack shown |
+
+  "Before" for DBAL-A2 is at 512 texels with the same metric; the other two were first measured at 256
+  in this session. Without the per-texel solved detail (below, `SUBCRAFT_SPP_NO_DETAIL=1`) the 512 numbers
+  are DBAL-A2 0.019 / 0.044 / 0.063, Street_cyberpunk 0.014 / 0.057 / 0.000, CarInteriro 0.010 / 0.055 /
+  0.003 (all measured with this build before the brush-size calibration; the reconstruction alone,
+  i.e. everything except solved textures).
+* **What was rebuilt that was not before (largest effect first):** polygon-fill masks (`DataActionDecal`
+  hits replayed as rays with Painter's inverse view-projection; every part folder of DBAL-A2 is one);
+  mask-fill blend modes per action (id 29 Subtract took grunge off text/edge masks); painted and erased
+  mask strokes through SubCraft's brush engine (screen, 2D-view/UV, stencilled, symmetric copies);
+  anchor references (baked from the anchored mask, with their Levels); AO and curvature maps imported as
+  `.image` resources (the generators had no maps before); placed (non-tiling) images such as the sticker
+  that otherwise tiled over 72% of the model; bitmap fills and mask bitmaps; filter layers (HSL as a
+  pass-through folder; sharpen/blur ones rebuilt switched off, see below); filters and Levels in layer
+  content; Painter's UV transform; procedural material fills as uniform fills fitted by bounded least
+  squares; empty masks keep their initial black.
+* **Blend ids** (search, `docs/spp-research.md`): 4 and 10 Multiply, 9 Color, 11 and 15 Soft light,
+  29 Subtract, 25 the channel default (Height adds), 2 Hard light on color channels (weak evidence).
+* **Calibrated against Painter (numbers in the code comments):** blur radius (pixels at 256), brush size
+  (half of SubCraft's), 2D-view brush size (0.15), mg_dirt / edge wear / curvature / position mappings,
+  noise balance (mirrored), grunge balance as a midtone gamma with fixed black and white points (found
+  by ablation, hiding each layer in turn: a full-metal layer whose grunge mask feeds a Levels with input
+  max 0.21 covered far too much when the balance moved the levels window; DBAL-A2 Metallic 0.061 -> 0.057).
+  Calibrations that helped one project and hurt another were not kept (DBAL's
+  noise optimum, a per-layer opacity fit).
+* **Hybrid, stated honestly:** procedural Substance materials (Plastic, Rubber, Soil, steel, leather,
+  fabric...) cannot be run. Their layers are uniform fills with values fitted to Painter's result, and
+  where such a layer is visible its content is solved per texel from Painter's result into a texture
+  named "... (solved from Painter's result)" at the gate resolution (512), resampled to the set. The rest
+  of the stack is rebuilt content. Graphs with no counterpart (warp is approximate; blur_slope,
+  stripes, arrow_long, mg_uv_border_distance, mg_mask_editor, brick_generator, procedural materials used as
+  masks, anisotropic/fur noises) are listed in the import notes.
+* **Speed and memory:** mask rasters are painted at <= 2048 and anchored masks evaluated at <= 1024, then
+  resampled; constant tiles are shared; strokes are batched (`Stroke::add_points`) and rasters painted in
+  parallel; rectangle selections use one z-buffer per hit. DBAL-A2 4096 import: 109-160 s, 5.7-7 GB peak (was
+  14 s without a usable rebuild); Street_cyberpunk 12 s, CarInteriro 12 s. Sharpen/blur filter layers over
+  the whole stack made each composite re-evaluate the stack around every tile (350 s at 512): they are
+  rebuilt switched off; turning them on changes no measured difference.
+* **Gutter fill:** mask rasters (painted at <= 2048) get every texel outside the UV triangles copied from
+  the nearest texel inside one, as Painter's own textures are padded. Left empty, mipmapped 4K views blended
+  the padding (Base Color 0.5, Metallic 0) into every part's border: bright thin outlines along all part
+  edges. Measured at 1024 in a 3-texel band outside the islands: Base Color 0.447 -> 0.025, Roughness
+  0.054 -> 0.051, Metallic 0.354 -> 0.064; inside the islands unchanged. Viewport crop of the 4K screenshot
+  pair, mean 8-bit difference to the flattened shot: 3.53 -> 2.49.
+* **Gate:** unchanged thresholds; it now compares inside the set's UV triangles (the baked maps' alpha
+  counted padding the stack never covers, which made a matching DBAL-A2 stack read 0.083 instead of 0.019).
+* **Tests:** mesh `spp` (image resources top-first, decal hits / strokes / brush / references parsing,
+  exact uids), app `spp_select` (ray convention, granularity, rectangles, rasters, stroke replay and erase,
+  2D-view strokes with mirror copies, Painter UV transform = SubCraft projection), `spp_fit` (bounded
+  solve), `spp_import` (unwritten normals flat), `tests/spp_stack.rs` (empty mask, per-action blend,
+  filter layer folder, fitted procedural fill, gutter fill), paint `batched_points_match_point_by_point`.
+* **Screenshots (scripted, same default camera, `SUBCRAFT_SPP_SHOW=flattened|rebuilt`, sets imported at
+  1024 with `SUBCRAFT_SPP_MAX_RESOLUTION`; kept outside the repository because the projects are private):**
+  DBAL-A2's rebuild shows the same colors, label text and materials as the flattened layer; the front
+  rings and a slider on top read brighter / more metallic and the "LEAF" lettering is fainter. At the full
+  4096 import (1600x1000 window) the part-edge outlines are gone after the gutter fill; the slider plate
+  beside "LEAF" still shows light bare-metal patches and the right knob's centre is brighter.
+  Street_cyberpunk's rebuild has the road lines, but its centre dashes are shorter and more frequent and the
+  dark kerb with glowing pink lights becomes a grey textured strip with small pink dots.
+* **Not verified / open:** DBAL-A2's remaining Metallic difference (individual stroke and eraser
+  details, screws at Metallic 1 where Painter has 0.56, the slider plate); the solved textures are at 512 and blur on
+  4K sets; 2D-view brush size and several calibrations rest on one project each; blend ids 4/10 and 11/15
+  each tie with other modes; Painter's default normal blend and ids 0/1/8/23 are untested; Ambient
+  Occlusion and Emissive are not in the gate (the cache holds 0 where no layer wrote AO); only three
+  sample projects exist on this PC.
