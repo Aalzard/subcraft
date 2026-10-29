@@ -39,18 +39,6 @@ impl Granularity {
 /// Rectangles narrower or lower than this (screen units) are clicks.
 const MIN_RECT: f32 = 0.01;
 
-/// Barycentric weights of `q` in screen triangle `v` (x, y), when inside it.
-fn barycentric(v: &[Vec3; 3], q: glam::Vec2) -> Option<Vec3> {
-    let area = (v[1].x - v[0].x) * (v[2].y - v[0].y) - (v[2].x - v[0].x) * (v[1].y - v[0].y);
-    if area.abs() < 1e-12 {
-        return None;
-    }
-    let w0 = ((v[1].x - q.x) * (v[2].y - q.y) - (v[2].x - q.x) * (v[1].y - q.y)) / area;
-    let w1 = ((v[2].x - q.x) * (v[0].y - q.y) - (v[0].x - q.x) * (v[2].y - q.y)) / area;
-    let w = Vec3::new(w0, w1, 1.0 - w0 - w1);
-    (w.min_element() >= 0.0).then_some(w)
-}
-
 /// Per-triangle object ids where objects that share a connected element get one id (the smallest).
 /// Measured on DBAL-A2: a piece welded to another object's mesh is filled with it in Painter
 /// (Plane.003 with Plane_002.002: Base Color 0.40 -> 0.05 there), while an object made of separate
@@ -156,32 +144,22 @@ impl Picker {
         let view_proj = inv.inverse();
         let (x0, x1) = (a[0].min(b[0]), a[0].max(b[0]));
         let (y0, y1) = (a[1].min(b[1]), a[1].max(b[1]));
-        let inside = |q: glam::Vec2| q.x >= x0 && q.x <= x1 && q.y >= y0 && q.y <= y1;
         let mut out = Vec::new();
         let mut candidates = Vec::new();
+        // Triangles whose centre is in the rectangle. Taking every triangle the rectangle touches
+        // was measured and rejected: CarInteriro's Metallic 0.0067 -> 0.0142 at 512.
         for t in 0..self.mesh.triangle_count() {
-            let clip = self.mesh.tri_positions(t).map(|p| view_proj * p.extend(1.0));
-            if clip.iter().any(|c| c.w.abs() < 1e-12) {
+            let p = self.mesh.tri_positions(t);
+            let c = (p[0] + p[1] + p[2]) / 3.0;
+            let clip = view_proj * c.extend(1.0);
+            if clip.w.abs() < 1e-12 {
                 continue;
             }
-            let v = clip.map(|c| Vec3::new(c.x / c.w * 0.5 + 0.5, c.y / c.w * 0.5 + 0.5, c.z / c.w));
-            if v.iter().all(|p| p.x < x0) || v.iter().all(|p| p.x > x1) || v.iter().all(|p| p.y < y0) || v.iter().all(|p| p.y > y1) {
+            let (sx, sy) = (clip.x / clip.w * 0.5 + 0.5, clip.y / clip.w * 0.5 + 0.5);
+            if sx < x0 || sx > x1 || sy < y0 || sy > y1 {
                 continue;
             }
-            // A point of the triangle inside the rectangle (Painter takes the triangles the
-            // rectangle touches, not only those whose centre it holds: large faces were missed).
-            let c = (v[0] + v[1] + v[2]) / 3.0;
-            let corners = [glam::Vec2::new(x0, y0), glam::Vec2::new(x1, y0), glam::Vec2::new(x1, y1), glam::Vec2::new(x0, y1), glam::Vec2::new((x0 + x1) * 0.5, (y0 + y1) * 0.5)];
-            let at = if inside(c.truncate()) {
-                Some(c)
-            } else if let Some(p) = v.iter().find(|p| inside(p.truncate())) {
-                Some(*p + (c - *p) * 0.05)
-            } else {
-                corners.iter().find_map(|&q| barycentric(&v, q).map(|w| v[0] * w.x + v[1] * w.y + v[2] * w.z))
-            };
-            if let Some(q) = at {
-                candidates.push((t as u32, q.x, q.y, q.z));
-            }
+            candidates.push((t as u32, sx, sy, clip.z / clip.w));
         }
         if candidates.is_empty() {
             return out;
@@ -933,17 +911,13 @@ mod tests {
     }
 
     #[test]
-    fn small_rectangles_take_the_triangles_they_touch_and_drags_without_area_are_clicks() {
+    fn drags_without_area_are_clicks() {
         let p = cube_picker();
         let click = p.select(&hit(vec![[0.55, 0.6]], 0, 1.0), false);
         assert_eq!(click.len(), 1);
-        // A drag without height selects what a click at its centre selects.
+        // A drag without height (or width) selects what a click at its centre selects.
         assert_eq!(p.select(&hit(vec![[0.549, 0.6], [0.551, 0.6]], 0, 1.0), false), click);
-        // A rectangle inside one triangle, away from its centre (each triangle spans 1/8 of the
-        // view): that triangle, though its centre is outside the rectangle.
-        let inside = p.select(&hit(vec![[0.538, 0.592], [0.552, 0.6]], 0, 1.0), false);
-        assert!(!inside.is_empty() && inside.len() <= 2, "{inside:?}");
-        assert!(inside.iter().all(|&t| p.mesh.geometric_normal(t as usize).z > 0.9));
+        assert_eq!(p.select(&hit(vec![[0.55, 0.598], [0.55, 0.602]], 0, 1.0), false), click);
     }
 
     #[test]
