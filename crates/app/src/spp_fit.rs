@@ -64,6 +64,21 @@ pub fn set_bitmap(layers: &mut [Arc<Layer>], id: LayerId, kind: ChannelKind, res
     false
 }
 
+/// Whether fill layer `id` has a uniform Normal channel (a material whose normal detail is to be
+/// solved from Painter's result).
+pub fn has_uniform_normal(layers: &[Arc<Layer>], id: LayerId) -> bool {
+    fn find(l: &Layer, id: LayerId) -> Option<&Layer> {
+        if l.id == id {
+            return Some(l);
+        }
+        match &l.content {
+            LayerContent::Group(g) => g.children.iter().find_map(|c| find(c, id)),
+            _ => None,
+        }
+    }
+    layers.iter().find_map(|l| find(l, id)).is_some_and(|l| matches!(&l.content, LayerContent::Fill(f) if f.channels.get(&ChannelKind::Normal).is_some_and(|c| matches!(c.source, FillSource::Uniform { .. }))))
+}
+
 /// Whether every source of fill layer `id` is uniform (so reading its solved bitmaps through UV
 /// changes nothing else about it).
 pub fn only_uniform(layers: &[Arc<Layer>], id: LayerId) -> bool {
@@ -191,7 +206,8 @@ pub fn fit_with_detail(
         Some(r) => {
             let mut seen: BTreeMap<usize, usize> = BTreeMap::new();
             let mut rounds: Vec<Vec<usize>> = Vec::new();
-            for k in 0..n {
+            // Layers with no fitted channel (listed only for the normal solve) need no composite.
+            for k in (0..n).filter(|&k| !fitted[k].1.is_empty()) {
                 let i = seen.entry(r.group[k]).or_default();
                 if rounds.len() <= *i {
                     rounds.push(Vec::new());
@@ -201,7 +217,7 @@ pub fn fit_with_detail(
             }
             rounds
         }
-        None => (0..n).map(|k| vec![k]).collect(),
+        None => (0..n).filter(|&k| !fitted[k].1.is_empty()).map(|k| vec![k]).collect(),
     };
     let mut influence: Vec<BTreeMap<ChannelKind, Vec<f32>>> = vec![BTreeMap::new(); n];
     for round in &rounds {

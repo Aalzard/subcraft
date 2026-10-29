@@ -184,3 +184,26 @@ fn procedural_fields_are_cached_exactly_per_parameter_set() {
     assert_eq!(g.fields.len(), field::PER_TILE);
     assert!(!Arc::ptr_eq(&a, &procedural_tile(&params, &tri, &g)), "evicted, then recomputed");
 }
+
+#[test]
+fn colored_procedural_fills_draw_each_component_from_its_own_pattern() {
+    let geometry = TextureSetGeometry::new(Arc::new(subcraft_mesh::primitives::plane(2.0, 1)), 0, 64);
+    let geo = geometry.tile(0);
+    let ctx = SampleContext { resources: &ResourceStore::default(), mesh_maps: &MeshMaps::default() };
+    let params = ProceduralParams { scale: 16.0, ..ProceduralParams::new(ProceduralKind::Clouds) };
+    let (low, high) = (ChannelValue::rgb(0.25, 0.25, 0.25), ChannelValue::rgb(0.75, 0.75, 0.75));
+    let mut gray = vec![[0.0f32; 4]; TILE_TEXELS];
+    let mut colored = vec![[0.0f32; 4]; TILE_TEXELS];
+    eval_fill_tile(&FillSource::Procedural { params, low, high }, false, &Projection::default(), &geo, &ctx, &mut gray);
+    eval_fill_tile(&FillSource::Procedural { params: ProceduralParams { colored: true, ..params }, low, high }, false, &Projection::default(), &geo, &ctx, &mut colored);
+    let covered: Vec<usize> = (0..TILE_TEXELS).filter(|&i| geo.triangle(i).is_some()).collect();
+    assert!(covered.len() > 1000);
+    // Grayscale: equal components. Colored: the red component is the grayscale pattern (same seed),
+    // the others differ, all within low..high.
+    assert!(covered.iter().all(|&i| gray[i][0] == gray[i][1] && gray[i][1] == gray[i][2]));
+    assert!(covered.iter().all(|&i| colored[i][0] == gray[i][0]));
+    let differ = covered.iter().filter(|&&i| (colored[i][1] - colored[i][0]).abs() > 0.02 && (colored[i][2] - colored[i][1]).abs() > 0.02).count();
+    assert!(differ * 2 > covered.len(), "components should vary independently: {differ} of {}", covered.len());
+    assert!(covered.iter().all(|&i| (0..3).all(|c| (0.25..=0.75).contains(&colored[i][c]))));
+}
+

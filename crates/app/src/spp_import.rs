@@ -551,12 +551,14 @@ pub fn fit_solve_composite(set: &mut TextureSet, fitted: &[crate::spp_fit::Fitte
     let res = set.resolution;
     // Detail needs every covered texel; the uniform fit alone is fine with a thinned grid.
     let at = covered_texels(res, coverage, if detail { usize::MAX } else { 160_000 });
+    let regions = fit_regions(set, fitted, &at, &geometry, resources, &mesh_maps);
     let result = {
         let ctx = subcraft_compositor::EvalContext { geometry: &geometry, resources, mesh_maps: &mesh_maps };
-        let regions = fit_regions(set, fitted, &at, &geometry, resources, &mesh_maps);
         crate::spp_fit::fit_with_detail(set, fitted, flat, &at, Some(&regions), detail, &|s| subcraft_compositor::composite_full(s, &ctx).channels)
     };
     let mut solved = Solved::new();
+    // Checked before the solved textures replace the uniform sources below.
+    let normal_users: Vec<usize> = if detail { (0..fitted.len()).filter(|&k| crate::spp_fit::has_uniform_normal(&set.layers, fitted[k].0)).collect() } else { Vec::new() };
     for (k, channels) in result.detail.iter().enumerate() {
         let (id, _) = fitted[k];
         if !crate::spp_fit::only_uniform(&set.layers, id) {
@@ -578,9 +580,110 @@ pub fn fit_solve_composite(set: &mut TextureSet, fitted: &[crate::spp_fit::Fitte
             solved.push((id, *kind, id_res));
         }
     }
+    if std::env::var_os("SUBCRAFT_SPP_DEBUG").is_some() {
+        eprintln!("normal solve: {} users of {} fitted", normal_users.len(), fitted.len());
+    }
+    if let Some(goal) = flat.get(&ChannelKind::Normal).filter(|_| !normal_users.is_empty()) {
+        let t = std::time::Instant::now();
+        solve_normals(set, fitted, &normal_users, &regions, &at, goal, &geometry, &mesh_maps, resources, &mut solved);
+        if std::env::var_os("SUBCRAFT_SPP_TIMING").is_some() {
+            eprintln!("normal solve: {:?} for {} layers", t.elapsed(), normal_users.len());
+        }
+    }
     let ctx = subcraft_compositor::EvalContext { geometry: &geometry, resources, mesh_maps: &mesh_maps };
     let composite = subcraft_compositor::composite_full(set, &ctx);
     (result.values, solved, composite)
+}
+
+/// Painter's normal detail, solved into the Normal of the material layers it came from: each
+/// sample goes to the fitted layer with a (flat) Normal that shows most there (measured by tilting
+/// that layer's normal alone; at least 0.2), as a texture "... Normal (solved from Painter's
+/// result)". The rebuilt normal is flat elsewhere, so Painter's value is the start; two passes
+/// against the composite then correct for the layers' normal opacity and partial coverage.
+#[allow(clippy::too_many_arguments)]
+fn solve_normals(set: &mut TextureSet, fitted: &[crate::spp_fit::Fitted], users: &[usize], regions: &crate::spp_fit::Regions, at: &[(u32, u32)], goal: &TiledImage, geometry: &subcraft_materials::TextureSetGeometry, mesh_maps: &subcraft_materials::MeshMaps, resources: &mut ResourceStore, solved: &mut Solved) {
+    let res = set.resolution as usize;
+    // The probes and corrections composite the Normal channel only.
+    let mut nset = set.clone();
+    nset.channels.retain(|c| c.kind == ChannelKind::Normal);
+    let normal_of = |nset: &TextureSet, resources: &ResourceStore| {
+        let ctx = subcraft_compositor::EvalContext { geometry, resources, mesh_maps };
+        subcraft_compositor::composite_full(nset, &ctx).channels.remove(&ChannelKind::Normal)
+    };
+    // How much each candidate's normal shows: tilt it and read the composite's response. Layers of
+    // different top-level folders (which rarely overlap) are measured in the same composite, each
+    // over its own folder's samples, as the fit does; two layers of a folder share a composite,
+    // one tilted along x and read on x, the other along y.
+    let tilt = 0.4f32;
+    let z = 0.5 + (1.0 - (2.0 * tilt).powi(2)).sqrt() * 0.5;
+    let tilted = [subcraft_core::ChannelValue::rgb(0.5 + tilt, 0.5, z), subcraft_core::ChannelValue::rgb(0.5, 0.5 + tilt, z)];
+    let mut rounds: Vec<Vec<(usize, usize)>> = Vec::new();
+    let mut seen: BTreeMap<usize, usize> = BTreeMap::new();
+    for (u, &k) in users.iter().enumerate() {
+        let i = seen.entry(regions.group[k]).or_default();
+        if rounds.len() <= *i / 2 {
+            rounds.push(Vec::new());
+        }
+        rounds[*i / 2].push((u, *i % 2));
+        *i += 1;
+    }
+    let mut shows: Vec<Vec<f32>> = vec![Vec::new(); users.len()];
+    for round in &rounds {
+        for &(u, axis) in round {
+            crate::spp_fit::set_uniform(&mut nset.layers, fitted[users[u]].0, ChannelKind::Normal, tilted[axis]);
+        }
+        let normal = normal_of(&nset, resources);
+        let shared = round.iter().map(|&(u, _)| regions.group[users[u]]).collect::<std::collections::BTreeSet<_>>().len() > 1;
+        for &(u, axis) in round {
+            let k = users[u];
+            crate::spp_fit::set_uniform(&mut nset.layers, fitted[k].0, ChannelKind::Normal, subcraft_core::ChannelValue::rgb(0.5, 0.5, 1.0));
+            let mine = |t: usize| !shared || regions.owner[t] == Some(regions.group[k]);
+            shows[u] = normal.as_ref().map_or_else(|| vec![0.0; at.len()], |n| at.iter().enumerate().map(|(t, &(x, y))| if mine(t) { ((n.get(x, y)[axis] - 0.5) / tilt).clamp(0.0, 1.0) } else { 0.0 }).collect());
+        }
+    }
+    let owner: Vec<Option<usize>> = (0..at.len())
+        .map(|t| users.iter().enumerate().fold((0.2f32, None), |best, (u, &k)| if shows[u][t] >= best.0 { (shows[u][t], Some(k)) } else { best }).1)
+        .collect();
+    let flat_normal = [0.5f32, 0.5, 1.0];
+    let mut maps: BTreeMap<usize, (subcraft_core::ResourceId, Vec<f32>)> = BTreeMap::new();
+    for (t, &(x, y)) in at.iter().enumerate() {
+        let Some(k) = owner[t] else { continue };
+        let entry = maps.entry(k).or_insert_with(|| (subcraft_core::ResourceId::new(), (0..res * res * 3).map(|i| flat_normal[i % 3]).collect()));
+        let o = (y as usize * res + x as usize) * 3;
+        entry.1[o..o + 3].copy_from_slice(&goal.get(x, y)[..3]);
+    }
+    let publish = |set: &mut TextureSet, resources: &mut ResourceStore, maps: &BTreeMap<usize, (subcraft_core::ResourceId, Vec<f32>)>| {
+        for (&k, (rid, data)) in maps {
+            let (id, _) = fitted[k];
+            let name = find_name(&set.layers, id).unwrap_or_default();
+            let bitmap = subcraft_image::Bitmap::new_f32(res as u32, res as u32, 3, data.clone());
+            resources.insert(subcraft_doc::Resource { id: *rid, name: format!("{name} Normal (solved from Painter's result)"), kind: subcraft_doc::ResourceKind::Texture, bitmap: std::sync::Arc::new(bitmap), source_path: None, encoded: None });
+            crate::spp_fit::set_bitmap(&mut set.layers, id, ChannelKind::Normal, *rid);
+        }
+    };
+    if std::env::var_os("SUBCRAFT_SPP_DEBUG").is_some() {
+        eprintln!("normal solve: {} of {} samples owned by {} layers", owner.iter().filter(|o| o.is_some()).count(), at.len(), maps.len());
+    }
+    publish(&mut nset, resources, &maps);
+    for _ in 0..2 {
+        let current = normal_of(&nset, resources);
+        let Some(current) = current else { break };
+        for (t, &(x, y)) in at.iter().enumerate() {
+            let Some(k) = owner[t] else { continue };
+            let (g, c) = (goal.get(x, y), current.get(x, y));
+            let data = &mut maps.get_mut(&k).unwrap().1;
+            let o = (y as usize * res + x as usize) * 3;
+            let mut n = glam::Vec3::new(data[o], data[o + 1], data[o + 2]) * 2.0 - glam::Vec3::ONE;
+            n += (glam::Vec3::new(g[0], g[1], g[2]) - glam::Vec3::new(c[0], c[1], c[2])) * 2.0;
+            let n = if n.z > 0.05 { n.normalize() } else { glam::Vec3::Z };
+            data[o..o + 3].copy_from_slice(&(n * 0.5 + glam::Vec3::splat(0.5)).to_array());
+        }
+        publish(&mut nset, resources, &maps);
+    }
+    publish(set, resources, &maps);
+    for (&k, (rid, _)) in &maps {
+        solved.push((fitted[k].0, ChannelKind::Normal, *rid));
+    }
 }
 
 fn find_name(layers: &[std::sync::Arc<Layer>], id: subcraft_core::LayerId) -> Option<String> {

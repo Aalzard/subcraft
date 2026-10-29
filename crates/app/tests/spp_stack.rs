@@ -78,8 +78,70 @@ fn rebuild_rules() {
     let plastic = &layers[3];
     let LayerContent::Fill(fill) = &plastic.content else { panic!("a fill layer") };
     assert!(fill.channels.contains_key(&ChannelKind::BaseColor) && fill.channels.contains_key(&ChannelKind::Roughness));
-    assert!(!fill.channels.contains_key(&ChannelKind::Normal), "the material's normal detail is dropped");
+    // The material's normal starts flat (solved from Painter's result at import) and is not fitted.
+    assert!(matches!(fill.channels[&ChannelKind::Normal].source, subcraft_doc::FillSource::Uniform { .. }));
     assert_eq!(fitted, vec![(plastic.id, vec![ChannelKind::BaseColor, ChannelKind::Roughness])]);
+}
+
+#[test]
+fn a_material_normal_is_solved_from_painters_result_into_its_layer() {
+    use std::collections::BTreeMap;
+    use std::sync::Arc;
+    use subcraft_image::TiledImage;
+    let mut spp = SppFile::from_reader(Cursor::new(fixture::project_file())).unwrap();
+    let mut ts = TextureSet::new("T", 0, 32);
+    let mut resources = ResourceStore::default();
+    // A layer that puts a procedural material into Normal only (as Painter's Rubber / Plastic).
+    let rubber = layer("Rubber", vec![action(ActionKind::Fill { sources: vec![SourceInfo::Procedural { channels: channel_bits::NORMAL, graph: graph("Rubber - Synthetic", &[]) }], projection: 0 }, Vec::new())], None);
+    let (layers, fitted) = {
+        let mut r = Rebuilder::new(&mut spp, &ts, &mut resources);
+        let layers = r.rebuild(&[rubber]);
+        (layers, r.fitted.clone())
+    };
+    assert_eq!(fitted, vec![(layers[0].id, Vec::new())], "listed for the solve, with no fitted channel");
+    let mut folder = subcraft_doc::Layer::new_folder("Painter stack (reconstructed)", &ts);
+    if let LayerContent::Group(g) = &mut folder.content {
+        g.children = layers.into_iter().map(Arc::new).collect();
+    }
+    ts.layers = vec![Arc::new(folder)];
+    // Painter's normal: tilted along x everywhere.
+    let n = glam::Vec3::new(0.3, 0.0, 1.0).normalize() * 0.5 + glam::Vec3::splat(0.5);
+    let mut target = TiledImage::new(32, 32, 3, [0.5, 0.5, 1.0, 0.0]);
+    for y in 0..32 {
+        for x in 0..32 {
+            target.set(x, y, [n.x, n.y, n.z, 0.0]);
+        }
+    }
+    let flat = BTreeMap::from([(ChannelKind::Normal, target)]);
+    let mesh = subcraft_mesh::primitives::cube(2.0);
+    let (_, solved, composite) = subcraft_app::spp_import::fit_solve_composite(&mut ts, &fitted, &mesh, &mut resources, &BTreeMap::new(), &flat, None, true);
+    assert_eq!(solved.len(), 1);
+    assert_eq!(solved[0].1, ChannelKind::Normal);
+    assert!(resources.get(solved[0].2).unwrap().name.contains("solved from Painter's result"));
+    let got = composite.channel(ChannelKind::Normal).unwrap().get(16, 16);
+    assert!((got[0] - n.x).abs() < 0.02 && (got[2] - n.z).abs() < 0.02, "{got:?} vs {n}");
+}
+
+#[test]
+fn fractal_sums_stay_patterns_and_generators_take_painters_breakup() {
+    let mut spp = SppFile::from_reader(Cursor::new(fixture::project_file())).unwrap();
+    let ts = TextureSet::new("T", 0, 64);
+    let mut resources = ResourceStore::default();
+    let mut r = Rebuilder::new(&mut spp, &ts, &mut resources);
+    let grain = graph("fractal_sum_base_colored", &[("Min_Level", 9.0), ("Max_Level", 9.0), ("Position", 0.5)]);
+    let dirt = graph("mg_dirt", &[("dirt_level", 0.3), ("dirt_contrast", 0.5), ("grunge_amount", 0.12)]);
+    let infos = vec![
+        layer("Grain", vec![action(ActionKind::Fill { sources: vec![SourceInfo::Procedural { channels: channel_bits::BASE_COLOR, graph: grain }], projection: 2 }, Vec::new())], None),
+        layer("Dirt", vec![uniform(channel_bits::BASE_COLOR, 0.4)], Some((vec![action(ActionKind::Fill { sources: vec![SourceInfo::Procedural { channels: 0, graph: dirt }], projection: 0 }, Vec::new())], false))),
+    ];
+    let layers = r.rebuild(&infos);
+    assert!(r.fitted.is_empty(), "the fractal sum is drawn, not fitted: {:?}", r.fitted);
+    let LayerContent::Fill(fill) = &layers[0].content else { panic!("a fill") };
+    let subcraft_doc::FillSource::Procedural { params, .. } = &fill.channels[&ChannelKind::BaseColor].source else { panic!("a procedural source") };
+    assert!(params.colored && params.scale == 512.0, "{params:?}");
+    let mask = layers[1].mask.as_ref().unwrap();
+    let MaskEffectKind::Generator(g) = &mask.effects.last().unwrap().kind else { panic!("a generator") };
+    assert_eq!(g.noise_amount, 0.12, "Painter's grunge amount, not SubCraft's default breakup");
 }
 
 #[test]
