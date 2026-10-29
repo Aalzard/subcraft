@@ -80,3 +80,45 @@ fn rebuild_rules() {
     assert!(!fill.channels.contains_key(&ChannelKind::Normal), "the material's normal detail is dropped");
     assert_eq!(fitted, vec![(plastic.id, vec![ChannelKind::BaseColor, ChannelKind::Roughness])]);
 }
+
+#[test]
+fn gutter_fill_copies_the_nearest_island_texel_outside_the_islands_only() {
+    use std::sync::Arc;
+    use subcraft_image::TiledImage;
+    use subcraft_materials::TextureSetGeometry;
+    let geometry = TextureSetGeometry::new(Arc::new(subcraft_mesh::primitives::cube(2.0)), 0, 64);
+    let mut inside = vec![false; 64 * 64];
+    for t in 0..geometry.tile_count() {
+        let tile = geometry.tile(t);
+        for i in 0..subcraft_image::TILE_TEXELS {
+            let (x, y) = tile.texel_xy(i);
+            if x < 64 && y < 64 && tile.triangle(i).is_some() {
+                inside[(y * 64 + x) as usize] = true;
+            }
+        }
+    }
+    assert!(inside.iter().any(|&b| !b), "the cube's layout leaves a gutter");
+    // A mask painted on the islands only: value varies with x, alpha 1.
+    let mut img = TiledImage::new(64, 64, 2, [0.0; 4]);
+    for y in 0..64u32 {
+        for x in 0..64u32 {
+            if inside[(y * 64 + x) as usize] {
+                img.set(x, y, [x as f32 / 64.0, 1.0, 0.0, 0.0]);
+            }
+        }
+    }
+    let filled = subcraft_app::spp_stack::GutterFill::new(&geometry).fill(&img);
+    for y in 0..64u32 {
+        for x in 0..64u32 {
+            let (a, b) = (img.get(x, y), filled.get(x, y));
+            if inside[(y * 64 + x) as usize] {
+                assert_eq!((a[0], a[1]), (b[0], b[1]), "inside unchanged at {x},{y}");
+            } else {
+                assert_eq!(b[1], 1.0, "outside filled at {x},{y}");
+                // The copied value comes from an island texel close by (its column is near).
+                let near = (0..64u32).flat_map(|yy| (0..64u32).map(move |xx| (xx, yy))).filter(|&(xx, yy)| inside[(yy * 64 + xx) as usize]).map(|(xx, yy)| (xx as f32 - x as f32).powi(2) + (yy as f32 - y as f32).powi(2)).fold(f32::MAX, f32::min).sqrt();
+                assert!((b[0] * 64.0 - x as f32).abs() <= near + 1.0, "value from a near texel at {x},{y}");
+            }
+        }
+    }
+}

@@ -221,3 +221,12 @@ fitted fills for every trial (score: sum of the mean differences of all channels
 
 Ids that coincide with one mode (4 and 10) may be different Painter modes that act alike on these
 masks; a one-layer-per-mode calibration project would settle it.
+
+### Generators and padding
+* **Grunge balance** behaves as a midtone gamma with fixed black and white points, not as a shift of
+  the levels window: found by hiding each DBAL-A2 layer in turn (`spp_lab ablate`); a full-metal layer
+  whose grunge mask feeds a Levels with input max 0.21 covered far too much the other way
+  (Metallic 0.061 -> 0.057, the other channels within 0.002).
+* **Padding**: Painter's channel textures carry the nearest island's value outside the UV triangles.
+  Mask rasters rebuilt from strokes and polygon fills are padded the same way (nearest inside texel);
+  left empty, 4K views showed bright outlines along every part's edge.

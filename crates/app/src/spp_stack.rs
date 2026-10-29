@@ -180,13 +180,17 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
         let res = full.resolution;
         let cap = raster_max_resolution().min(res);
         let geometry = if cap < res { Arc::new(TextureSetGeometry::new(full.mesh().clone(), full.material_slot, cap)) } else { full.clone() };
+        let gutter = GutterFill::new(&geometry);
         let cached = self.raster_cache.as_ref().map(|c| c.lock().unwrap_or_else(|p| p.into_inner()).clone()).filter(|c| c.len() == jobs.len());
         let images: Vec<TiledImage> = match cached {
             Some(c) => c,
             None => {
                 let shared = std::sync::Mutex::new(HashMap::new());
                 jobs.par_iter().map(|(_, _, ops)| {
-                    let image = spp_select::paint_raster(picker, geometry.clone(), ops);
+                    // The padding outside the UV islands takes the nearest island texel's value, as
+                    // Painter's own textures do: left empty, mipmapped views blend it into every
+                    // part's border (bright outlines on 4K sets).
+                    let image = gutter.fill(&spp_select::paint_raster(picker, geometry.clone(), ops));
                     let mut image = if cap < res { image.resampled(res, res) } else { image };
                     share_constant_tiles(&mut image, &shared);
                     image
@@ -832,6 +836,58 @@ fn default_mode(kind: ChannelKind) -> BlendMode {
         ChannelKind::Normal => BlendMode::NormalMapCombine,
         ChannelKind::Height => BlendMode::LinearDodge,
         _ => BlendMode::Normal,
+    }
+}
+
+/// For every texel outside the set's UV triangles, the nearest texel inside one.
+pub struct GutterFill {
+    res: u32,
+    inside: Vec<bool>,
+    nearest: Vec<u32>,
+}
+
+impl GutterFill {
+    pub fn new(geometry: &TextureSetGeometry) -> Self {
+        let res = geometry.resolution;
+        let mut inside = vec![false; (res * res) as usize];
+        for t in 0..geometry.tile_count() {
+            let tile = geometry.tile(t);
+            if tile.is_empty() {
+                continue;
+            }
+            for i in 0..subcraft_image::TILE_TEXELS {
+                let (x, y) = tile.texel_xy(i);
+                if x < res && y < res && tile.triangle(i).is_some() {
+                    inside[(y * res + x) as usize] = true;
+                }
+            }
+        }
+        let nearest = subcraft_image::dilate::nearest_covered(res as usize, res as usize, &inside);
+        Self { res, inside, nearest }
+    }
+
+    /// `image` (at the geometry's resolution) with its outside texels copied from the nearest
+    /// inside texel; sparse images stay sparse where nothing is painted nearby.
+    pub fn fill(&self, image: &TiledImage) -> TiledImage {
+        if image.allocated_tiles() == 0 || image.width() != self.res {
+            return image.clone();
+        }
+        let comps = image.comps();
+        let res = self.res as usize;
+        let mut data = vec![0.0f32; res * res * comps];
+        let mut buf = vec![0.0f32; subcraft_image::TILE_TEXELS * comps];
+        for t in 0..image.tile_count() {
+            image.read_tile(t, &mut buf);
+            let r = image.tile_rect(t);
+            for y in r.y0..r.y1 {
+                let row = (y - r.y0) as usize * subcraft_image::TILE_SIZE as usize;
+                let src = &buf[row * comps..(row + (r.x1 - r.x0) as usize) * comps];
+                let o = (y as usize * res + r.x0 as usize) * comps;
+                data[o..o + src.len()].copy_from_slice(src);
+            }
+        }
+        subcraft_image::dilate::apply_nearest(comps, &mut data, &self.inside, &self.nearest);
+        TiledImage::from_dense(image.width(), image.height(), comps, image.fill(), &data)
     }
 }
 
