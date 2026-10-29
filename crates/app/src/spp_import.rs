@@ -161,26 +161,6 @@ pub fn baked_normal_layer(ts: &TextureSet) -> Layer {
     layer
 }
 
-/// DirectX to OpenGL tangent-space normals (or back): green inverted, everywhere.
-pub fn flip_green(image: &mut TiledImage) {
-    let comps = image.comps();
-    let mut fill = image.fill();
-    fill[1] = 1.0 - fill[1];
-    let mut flipped = TiledImage::new(image.width(), image.height(), comps, fill);
-    let mut buf = vec![0.0f32; subcraft_image::TILE_TEXELS * comps];
-    for t in 0..image.tile_count() {
-        if !image.is_allocated(t) {
-            continue;
-        }
-        image.read_tile(t, &mut buf);
-        for px in buf.chunks_mut(comps) {
-            px[1] = 1.0 - px[1];
-        }
-        flipped.write_tile(t, &buf);
-    }
-    *image = flipped;
-}
-
 pub fn mesh_map_image(kind: MeshMapKind, plane: &Plane, coverage: Option<&Plane>, gutter: Option<&Gutter>, res: u32) -> TiledImage {
     let comps = kind.components();
     let (w, h) = (plane.width as usize, plane.height as usize);
@@ -397,6 +377,12 @@ pub fn import_spp_cached(path: &Path, control: &Arc<ImportControl>, cache: Optio
             let mut baked: Vec<(BakedKind, Plane)> = Vec::new();
             for (kind, plane) in decoded {
                 match plane {
+                    // Tangent-space normals are stored as OpenGL, like the Normal channel.
+                    Ok(mut plane) if kind == BakedKind::Normal && project_normal_dx => {
+                        let c = plane.components;
+                        plane.data.chunks_mut(c).for_each(|px| px[1] = 1.0 - px[1]);
+                        baked.push((kind, plane));
+                    }
                     Ok(plane) => baked.push((kind, plane)),
                     Err(e) => notes.push(format!("{}: the baked {kind:?} map could not be read ({e}).", ts.name)),
                 }
@@ -405,12 +391,7 @@ pub fn import_spp_cached(path: &Path, control: &Arc<ImportControl>, cache: Optio
             let gutter = coverage.as_ref().map(Gutter::from_coverage);
             let images: Vec<_> = baked.par_iter().map(|(kind, plane)| {
                 let k = mesh_map_kind(*kind);
-                let mut image = mesh_map_image(k, plane, coverage.as_ref(), gutter.as_ref(), res);
-                // Tangent-space normals are stored as OpenGL, like the Normal channel.
-                if k == MeshMapKind::Normal && project_normal_dx {
-                    flip_green(&mut image);
-                }
-                (k, image)
+                (k, mesh_map_image(k, plane, coverage.as_ref(), gutter.as_ref(), res))
             }).collect();
             found.extend(images);
             if !found.is_empty() {
@@ -606,11 +587,20 @@ pub fn fit_solve_composite(set: &mut TextureSet, fitted: &[crate::spp_fit::Fitte
     let res = set.resolution;
     // Detail needs every covered texel; the uniform fit alone is fine with a thinned grid.
     let at = covered_texels(res, coverage, if detail { usize::MAX } else { 160_000 });
+    let timing = std::env::var_os("SUBCRAFT_SPP_TIMING").is_some();
+    let t0 = std::time::Instant::now();
     let regions = fit_regions(set, fitted, &at, &geometry, resources, &mesh_maps);
+    if timing {
+        eprintln!("fit regions: {:?}", t0.elapsed());
+    }
+    let t0 = std::time::Instant::now();
     let result = {
         let ctx = subcraft_compositor::EvalContext { geometry: &geometry, resources, mesh_maps: &mesh_maps };
         crate::spp_fit::fit_with_detail(set, fitted, flat, &at, Some(&regions), detail, &|s| subcraft_compositor::composite_full(s, &ctx).channels)
     };
+    if timing {
+        eprintln!("fit and detail: {:?}", t0.elapsed());
+    }
     let mut solved = Solved::new();
     // Checked before the solved textures replace the uniform sources below.
     let normal_users: Vec<usize> = if detail { (0..fitted.len()).filter(|&k| crate::spp_fit::has_uniform_normal(&set.layers, fitted[k].0)).collect() } else { Vec::new() };

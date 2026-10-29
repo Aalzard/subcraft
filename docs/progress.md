@@ -3322,3 +3322,38 @@ diagonals), applied whenever a model is framed.
   0.048 / 0.054 / 0.000 / 0.001, CarInteriro 0.008 / 0.032 / 0.003 / 0.002 / 0.004, Street_cyberpunk
   0.006 / 0.025 / 0.000, Height 0.037. All pass. DBAL-A2's import takes 228 s (was ~133 s: larger
   brushes in the mask replays and the normal solve). Tests: `cargo test --workspace` 755 passed.
+
+### Session 110d - Painter stacks: the set's normal map, Substance stencils, pen taps, dirt (2026-10-29)
+
+From the user's screenshots of the merged build (top plate, a wheel side, the QR code):
+* **Knurling missing:** the texture set's own normal map (`normalMapBitmap`, an imported `.image`)
+  was never read. Painter shades with it under the layers' normals; DBAL-A2's carries the high-poly
+  detail (knurled knobs and wheel, engraving bevels, the FIRE lens dots). It is the Normal mesh map
+  now (green flipped for DirectX projects) and a top layer "Baked normal (Painter's normal map)"
+  applies it, as after a high-poly bake. Painter's cached channels do not include it, so the gate does
+  not see it; the 2K screenshots show the knurling, lens dots and engraving edges.
+* **White blob:** stroke stencils can be Substance graphs, not only bitmaps. 349 of DBAL-A2's stencilled
+  stroke actions use graphs and were replayed with no stencil, painting solid dabs. A graph's embedded
+  image is used when it has one (drop_splatter, drop_small, brush_paint_irregular, grunge_cracked_deep);
+  the user's stencil sheets (Stencil_Utility_Tool 157, Weapon_Stencil_4 137, Weapon_Stencil_2 34) keep
+  their images inside the compiled graph (`.sbsasm`, 170-420 MB, not a format SubCraft reads), so those
+  strokes are left out and named in the notes. At 1024: Metallic 0.0528 -> 0.0463, Roughness 0.0453 ->
+  0.0448.
+* **QR code cut off:** three one-point strokes (pen taps) of size 0.29 beside it, with pressure-driven
+  size; Painter records no pressure. A tap now stamps at the brush's smallest size
+  (`pressureSizeMinimum`, 0.05): the QR is whole as in Painter (difference over it 0.053 -> 0.048).
+  Its placement and aspect were already right.
+* **Tan patches:** the dirt generator mapping is narrower (from Painter's recovered masks of the dirt
+  layers); the tan blotches in the plate slots are gone at the top-plate camera. Cost: CarInteriro's
+  one dirt layer (Base Color 0.0096 -> 0.0117 at 1024, gate 0.008 -> 0.009). Treating Painter's grunge
+  amount as added dirt instead of breakup does not explain CarInteriro (measured).
+* **Gate (full imports at 512, Base Color / Roughness / Metallic / Normal / Height):** DBAL-A2 0.016 /
+  0.046 / 0.046 / 0.000 / 0.001 (was 0.018 / 0.048 / 0.054), CarInteriro 0.009 / 0.032 / 0.003 / 0.002 /
+  0.004, Street_cyberpunk 0.006 / 0.025 / 0.000, Height 0.037. All pass.
+* **Import time:** DBAL-A2 230 s, CarInteriro 18 s, Street_cyberpunk 13 s (unchanged). The green flip of
+  a DirectX normal map is done on the decoded data: done on the tiled map afterwards, it made every
+  composite reading the set ten times slower (DBAL-A2 620 s), for a reason not yet understood.
+* **Tests:** `cargo test --workspace` 758 passed (new: procedural stencils parsed, the set's normal map
+  layer, a pen tap stamps at the smallest pressure size).
+* **Not fixed:** the user's stencil sheets (labels such as the knob numbers read "00" instead of "06");
+  the remaining roughness grain; CarInteriro's dirt.

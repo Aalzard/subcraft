@@ -219,6 +219,9 @@ pub fn fit_with_detail(
         }
         None => (0..n).filter(|&k| !fitted[k].1.is_empty()).map(|k| vec![k]).collect(),
     };
+    if std::env::var_os("SUBCRAFT_SPP_TIMING").is_some() {
+        eprintln!("fit: {} rounds for {} layers, {} samples", rounds.len(), n, at.len());
+    }
     let mut influence: Vec<BTreeMap<ChannelKind, Vec<f32>>> = vec![BTreeMap::new(); n];
     for round in &rounds {
         set_all(set, &|j, _| if round.contains(&j) { [1.0; 3] } else { [0.0; 3] });

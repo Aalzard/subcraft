@@ -228,18 +228,12 @@ fn gutter_fill_copies_the_nearest_island_texel_outside_the_islands_only() {
 }
 
 #[test]
-fn the_sets_normal_map_is_a_top_layer_and_directx_normals_flip() {
-    use subcraft_image::TiledImage;
+fn the_sets_normal_map_is_a_top_layer() {
     let ts = TextureSet::new("T", 0, 64);
     let layer = subcraft_app::spp_import::baked_normal_layer(&ts);
     let LayerContent::Fill(fill) = &layer.content else { panic!("a fill") };
     assert_eq!(fill.channels.len(), 1);
     assert!(matches!(fill.channels[&ChannelKind::Normal].source, subcraft_doc::FillSource::MeshMap { map: subcraft_core::MeshMapKind::Normal }));
     assert_eq!(layer.blend[&ChannelKind::Normal].mode, BlendMode::NormalMapInverseDetail);
-    let mut img = TiledImage::new(64, 64, 3, [0.5, 0.5, 1.0, 0.0]);
-    img.set(3, 4, [0.6, 0.2, 0.9, 0.0]);
-    subcraft_app::spp_import::flip_green(&mut img);
-    assert!((img.get(3, 4)[1] - 0.8).abs() < 2e-3 && (img.get(3, 4)[0] - 0.6).abs() < 2e-3, "{:?}", img.get(3, 4));
-    assert!((img.get(40, 40)[1] - 0.5).abs() < 2e-3, "untouched tiles keep the flat value");
 }
 

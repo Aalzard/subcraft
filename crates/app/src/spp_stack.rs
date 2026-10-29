@@ -107,8 +107,14 @@ impl Default for Tuning {
     fn default() -> Self {
         Self {
             // Calibrated on DBAL-A2 at 256 texels (coordinate descent, fills refitted per trial;
-            // docs/spp-research.md). Dirt: more dirt with a higher Dirt Level, as in Painter.
-            dirt: GeneratorMap { level: [0.75, -0.5], soft: [0.5, 0.6] },
+            // docs/spp-research.md). Dirt: more dirt with a higher Dirt Level, as in Painter;
+            // narrower than first calibrated, from Painter's own masks of DBAL-A2's dirt layers
+            // (recovered layer by layer: strong dirt on 0.6% of texels, crease dirt 0.04-0.07,
+            // where the first mapping gave 5% and 0.21, the tan blotches in the plate slots).
+            // DBAL-A2 at 1024: Base Color 0.0140 -> 0.0133, Roughness 0.0453 -> 0.0436; it costs
+            // CarInteriro's one dirt layer (Base Color 0.0096 -> 0.0117): mg_dirt depends on more
+            // than its level and contrast.
+            dirt: GeneratorMap { level: [0.85, -0.5], soft: [0.3, 0.4] },
             edge_wear: GeneratorMap { level: [-0.25, 1.0], soft: [0.5, 1.0] },
             // Curvature calibrates to an (almost) constant mask: SubCraft's curvature threshold does
             // not line up with Painter's, so a constant is closer.
