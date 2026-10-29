@@ -285,9 +285,12 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         }
                     });
                     if folders.is_empty() { ui.weak("No available folders"); }
-                    for (folder, label) in folders {
-                        if ui.button(label).clicked() { cmds.push(Command::DropLayer { texture_set: ts.id, layer: l.id, target: DropTarget::Inside(folder) }); ui.close(); }
-                    }
+                    // A big stack has many folders: scroll them so the submenu stays small and never covers this menu.
+                    egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
+                        for (folder, label) in folders {
+                            if ui.button(label).clicked() { cmds.push(Command::DropLayer { texture_set: ts.id, layer: l.id, target: DropTarget::Inside(folder) }); ui.close(); }
+                        }
+                    });
                 });
                 if ts.location(l.id).is_some_and(|loc| loc.parent.is_some()) && ui.button("Move to top level").clicked() {
                     cmds.push(Command::DropLayer { texture_set: ts.id, layer: l.id, target: DropTarget::RootTop }); ui.close();
