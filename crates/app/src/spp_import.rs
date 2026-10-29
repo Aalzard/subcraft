@@ -148,6 +148,39 @@ impl Gutter {
 /// A baked mesh map as a SubCraft one: background texels hold the nearest covered value (the
 /// gutter other baked maps have), partially covered texels from the size reduction are
 /// un-premultiplied. `coverage` is the alpha of a four-component baked map of the same texture set.
+/// A fill showing the set's normal mesh map as the base orientation, with the layers' normals
+/// beneath it as detail (as `Session::show_baked_normal` adds after a high-poly bake).
+pub fn baked_normal_layer(ts: &TextureSet) -> Layer {
+    use subcraft_doc::{BlendMode, ChannelBlend, FillChannel, FillSource};
+    let mut layer = Layer::new_fill("Baked normal (Painter's normal map)", ts);
+    if let LayerContent::Fill(fill) = &mut layer.content {
+        fill.channels.clear();
+        fill.channels.insert(ChannelKind::Normal, FillChannel::new(FillSource::MeshMap { map: MeshMapKind::Normal }));
+    }
+    layer.blend.insert(ChannelKind::Normal, ChannelBlend::new(BlendMode::NormalMapInverseDetail));
+    layer
+}
+
+/// DirectX to OpenGL tangent-space normals (or back): green inverted, everywhere.
+pub fn flip_green(image: &mut TiledImage) {
+    let comps = image.comps();
+    let mut fill = image.fill();
+    fill[1] = 1.0 - fill[1];
+    let mut flipped = TiledImage::new(image.width(), image.height(), comps, fill);
+    let mut buf = vec![0.0f32; subcraft_image::TILE_TEXELS * comps];
+    for t in 0..image.tile_count() {
+        if !image.is_allocated(t) {
+            continue;
+        }
+        image.read_tile(t, &mut buf);
+        for px in buf.chunks_mut(comps) {
+            px[1] = 1.0 - px[1];
+        }
+        flipped.write_tile(t, &buf);
+    }
+    *image = flipped;
+}
+
 pub fn mesh_map_image(kind: MeshMapKind, plane: &Plane, coverage: Option<&Plane>, gutter: Option<&Gutter>, res: u32) -> TiledImage {
     let comps = kind.components();
     let (w, h) = (plane.width as usize, plane.height as usize);
@@ -347,6 +380,17 @@ pub fn import_spp_cached(path: &Path, control: &Arc<ImportControl>, cache: Optio
                     Err(e) => notes.push(format!("{}: the imported {kind:?} map could not be read ({e}).", ts.name)),
                 }
             }
+            // The set's own normal map (Painter's "Normal" in the texture set settings): the base
+            // orientation under the layers' normals. DBAL-A2's carries its high-poly detail (the
+            // knurling of a wheel, among others), which the layers do not. Read last, so the
+            // coverage still comes from a baked map.
+            if let Some(url) = info.normal_map.as_ref().filter(|_| !blobs.iter().any(|(k, _)| *k == BakedKind::Normal)) {
+                match spp.image_resource_blob(url) {
+                    Ok(Some(blob)) => imported.push((BakedKind::Normal, blob)),
+                    Ok(None) => {}
+                    Err(e) => notes.push(format!("{}: the normal map could not be read ({e}).", ts.name)),
+                }
+            }
             let mut decoded: Vec<_> = blobs.par_iter().map(|(kind, blob)| (*kind, decode_resource_image(blob, res))).collect();
             decoded.par_extend(imported.par_iter().map(|(kind, blob)| (*kind, decode_image_resource(blob, res))));
             drop(blobs);
@@ -361,7 +405,12 @@ pub fn import_spp_cached(path: &Path, control: &Arc<ImportControl>, cache: Optio
             let gutter = coverage.as_ref().map(Gutter::from_coverage);
             let images: Vec<_> = baked.par_iter().map(|(kind, plane)| {
                 let k = mesh_map_kind(*kind);
-                (k, mesh_map_image(k, plane, coverage.as_ref(), gutter.as_ref(), res))
+                let mut image = mesh_map_image(k, plane, coverage.as_ref(), gutter.as_ref(), res);
+                // Tangent-space normals are stored as OpenGL, like the Normal channel.
+                if k == MeshMapKind::Normal && project_normal_dx {
+                    flip_green(&mut image);
+                }
+                (k, image)
             }).collect();
             found.extend(images);
             if !found.is_empty() {
@@ -374,6 +423,12 @@ pub fn import_spp_cached(path: &Path, control: &Arc<ImportControl>, cache: Optio
             }
             if let Some(index) = project.texture_sets.iter().position(|s| std::ptr::eq(s, info)) {
                 pending.push((index, ts.clone(), found.clone()));
+            }
+            // Painter shades with the set's normal map under the layers' normals: the same top layer
+            // a high-poly bake adds (after the rebuild's copy, which expects the two imported layers).
+            if found.contains_key(&MeshMapKind::Normal) {
+                ts.layers.push(std::sync::Arc::new(baked_normal_layer(ts)));
+                notes.push("  The set's normal map is applied by the top layer \"Baked normal (Painter's normal map)\".".into());
             }
             cancelled()?;
             if !found.is_empty() {

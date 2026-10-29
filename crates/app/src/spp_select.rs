@@ -526,6 +526,12 @@ impl<'a> StrokeReplay<'a> {
                 Some(k) => screen_brush_size(s, brush.size * k, &self.picker.mesh),
                 None => settings.size,
             };
+            // A one-point stroke with pressure-driven size is a pen tap: Painter records no
+            // pressure, and the tap stamps at the brush's smallest size. Measured on DBAL-A2: three
+            // taps of size 0.29 beside its QR code bit into it at full size; at the minimum (0.05)
+            // the QR stays whole as in Painter (difference over it 0.053 -> 0.048, Metallic 0.0463
+            // -> 0.0460; the other projects have none).
+            let size = if brush.pressure_size && s.points.len() == 1 { size * brush.pressure_size_min.clamp(0.0, 1.0) } else { size };
             let settings = subcraft_paint::BrushSettings { seed: s.seed.wrapping_add(k as u32), size, ..settings };
             let Ok(stroke) = subcraft_paint::Stroke::begin(&self.set, self.layer, target, mode, settings, subcraft_paint::StrokeOptions::default(), &material) else { continue };
             let mut stroke = stroke.with_stencil(self.stencil.clone());
@@ -914,7 +920,7 @@ mod tests {
         let view = Mat4::look_at_rh(Vec3::new(0.0, 0.0, 5.0), Vec3::ZERO, Vec3::Y);
         let proj = Mat4::orthographic_rh_gl(-2.0, 2.0, -2.0, 2.0, 0.1, 20.0);
         let stroke = |points: Vec<[f32; 2]>| StrokeInfo { uv_space: false, duplicate: None, points, pressure: Vec::new(), view: view.to_cols_array(), projection: proj.to_cols_array(), seed: 1 };
-        let brush = BrushInfo { size: 0.2, size_space: 1, flow: 1.0, spacing: 0.1, pressure_size: false, value: 1.0, hardness: Some(1.0), tip: "shape".into(), tip_text: None, alignment: 3, culling: true, stencil: None };
+        let brush = BrushInfo { size: 0.2, size_space: 1, flow: 1.0, spacing: 0.1, pressure_size: false, pressure_size_min: 1.0, value: 1.0, hardness: Some(1.0), tip: "shape".into(), tip_text: None, alignment: 3, culling: true, stencil: None };
         let replay = StrokeReplay::new(&p, geometry.clone());
         let painted = |img: &TiledImage| (0..64).flat_map(|y| (0..64).map(move |x| (x, y))).filter(|&(x, y)| img.get(x, y)[1] > 0.5).collect::<Vec<_>>();
         // Across the front face: texels of the front face's island only, around the path.
@@ -930,6 +936,25 @@ mod tests {
         // Over the background (the cube spans the middle half of the view): nothing at all.
         let off = replay.uv_aligned(TiledImage::new(64, 64, 2, [0.0; 4]), &stroke(vec![[0.05, 0.05], [0.1, 0.05]]), &brush, 1.0, false);
         assert!(painted(&off).is_empty());
+    }
+
+    #[test]
+    fn a_pen_tap_stamps_at_the_smallest_pressure_size() {
+        let p = cube_picker();
+        let geometry = Arc::new(TextureSetGeometry::new(p.mesh.clone(), 0, 64));
+        let view = Mat4::look_at_rh(Vec3::new(0.0, 0.0, 5.0), Vec3::ZERO, Vec3::Y);
+        let proj = Mat4::orthographic_rh_gl(-2.0, 2.0, -2.0, 2.0, 0.1, 20.0);
+        let tap = StrokeInfo { uv_space: false, duplicate: None, points: vec![[0.5, 0.5]], pressure: Vec::new(), view: view.to_cols_array(), projection: proj.to_cols_array(), seed: 1 };
+        let brush = |pressure_size: bool| BrushInfo { size: 0.1, size_space: 1, flow: 1.0, spacing: 0.1, pressure_size, pressure_size_min: 0.3, value: 1.0, hardness: Some(1.0), tip: "shape".into(), tip_text: None, alignment: 0, culling: true, stencil: None };
+        let area = |b: &BrushInfo| {
+            let mut r = StrokeReplay::new(&p, geometry.clone());
+            let img = r.replay(TiledImage::new(64, 64, 2, [0.0; 4]), &[tap.clone()], b, 1.0, false);
+            (0..64).flat_map(|y| (0..64).map(move |x| (x, y))).filter(|&(x, y)| img.get(x, y)[1] > 0.5).count() as f32
+        };
+        let (full, tapped) = (area(&brush(false)), area(&brush(true)));
+        assert!(full > 20.0);
+        // A third of the diameter: about a ninth of the area.
+        assert!(tapped < full * 0.25 && tapped > 0.0, "{tapped} of {full}");
     }
 
     #[test]
@@ -1004,7 +1029,7 @@ mod tests {
         let proj = Mat4::orthographic_rh_gl(-2.0, 2.0, -2.0, 2.0, 0.1, 20.0);
         let stroke = StrokeInfo { uv_space: false, duplicate: None, points: (0..20).map(|i| [0.3 + i as f32 * 0.02, 0.5]).collect(), pressure: Vec::new(), view: view.to_cols_array(), projection: proj.to_cols_array(), seed: 1 };
         // 0.05 of the 4-unit view x 1.5: 0.3 units across, inside the 2-unit face along the path.
-        let brush = BrushInfo { size: 0.05, size_space: 1, flow: 1.0, spacing: 0.1, pressure_size: false, value: 1.0, hardness: Some(0.5), tip: "shape".into(), tip_text: None, alignment: 0, culling: true, stencil: None };
+        let brush = BrushInfo { size: 0.05, size_space: 1, flow: 1.0, spacing: 0.1, pressure_size: false, pressure_size_min: 1.0, value: 1.0, hardness: Some(0.5), tip: "shape".into(), tip_text: None, alignment: 0, culling: true, stencil: None };
         let mut replay = StrokeReplay::new(&p, geometry.clone());
         let painted = replay.replay(TiledImage::new(64, 64, 2, [0.0; 4]), &[stroke], &brush, 1.0, false);
         let (mut on_front, mut elsewhere) = (0, 0);
@@ -1031,7 +1056,7 @@ mod tests {
         // A vertical line at u = 0.25 (v from bottom to top), mirrored across the middle.
         let mirror = Mat4::from_scale(Vec3::new(-1.0, 1.0, 1.0)).to_cols_array();
         let stroke = StrokeInfo { uv_space: true, duplicate: Some(mirror), points: vec![[0.25, 0.1], [0.25, 0.9]], pressure: Vec::new(), view: [0.0; 16], projection: [0.0; 16], seed: 0 };
-        let brush = BrushInfo { size: 0.5, size_space: 1, flow: 1.0, spacing: 0.1, pressure_size: false, value: 1.0, hardness: Some(0.8), tip: "shape".into(), tip_text: None, alignment: 3, culling: true, stencil: None };
+        let brush = BrushInfo { size: 0.5, size_space: 1, flow: 1.0, spacing: 0.1, pressure_size: false, pressure_size_min: 1.0, value: 1.0, hardness: Some(0.8), tip: "shape".into(), tip_text: None, alignment: 3, culling: true, stencil: None };
         let mut replay = StrokeReplay::new(&p, geometry);
         let img = replay.replay(TiledImage::new(64, 64, 2, [0.0; 4]), &[stroke], &brush, 1.0, false);
         let a = |u: f32, v: f32| img.get((u * 64.0) as u32, ((1.0 - v) * 64.0) as u32)[1];

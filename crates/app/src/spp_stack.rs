@@ -669,9 +669,17 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
                     let blend = self.group_blend(action);
                     let stencil_image = brush.stencil.as_ref().and_then(|(url, m)| {
                         // Kept with its alpha: the stencil lets paint through by brightness x alpha.
-                        let id = self.bitmap(url, true)?;
+                        // A Substance stencil (`.sbsar`) is its embedded image when it has one.
+                        let id = if url.contains(".sbsar") { self.embedded_image(url)? } else { self.bitmap(url, true)? };
                         Some((self.resources.get(id)?.bitmap.clone(), *m))
                     });
+                    // Without its stencil a stroke would paint its whole brush path (on DBAL-A2,
+                    // solid white blobs where Painter has splatter dots or stencilled marks): left out.
+                    if let (Some((url, _)), None) = (&brush.stencil, &stencil_image) {
+                        let name = url.split('?').next().unwrap_or(url).rsplit('/').next().unwrap_or(url);
+                        self.stats.skip(format!("stencilled strokes whose stencil could not be read ({name})"));
+                        continue;
+                    }
                     let stencil = stencil_image.as_ref().map(|(bitmap, m)| Arc::new(spp_select::stencil_of(bitmap.clone(), m)));
                     let uv_stencil = stencil_image.map(|(bitmap, matrix)| spp_select::UvStencil { bitmap, matrix });
                     let op = RasterOp::Strokes { strokes: strokes.clone(), brush: brush.clone(), opacity: *opacity, erase, stencil, uv_stencil };

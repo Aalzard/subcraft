@@ -410,6 +410,8 @@ pub struct BrushInfo {
     pub flow: f32,
     pub spacing: f32,
     pub pressure_size: bool,
+    /// Brush size at the lowest pen pressure, as a fraction (`pressureSizeMinimum`).
+    pub pressure_size_min: f32,
     /// Value painted into a mask (the first uniform color source), 1 when absent.
     pub value: f32,
     /// Hardness of the procedural `shape` tip when it is one.
@@ -510,6 +512,9 @@ pub struct TextureSetInfo {
     pub mesh_maps: Vec<(i32, String)>,
     /// The document's `normalMapSyscoord` (0 in every project seen; believed to mean DirectX normals).
     pub normal_syscoord: i64,
+    /// The texture set's own normal map (`normalMapBitmap`, an imported `.image`), which Painter
+    /// blends under the layers' normals; `None` when the set has none.
+    pub normal_map: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -632,14 +637,20 @@ fn brush_of(a: &Obj) -> Option<BrushInfo> {
         flow: b.float("flow").unwrap_or(1.0),
         spacing: emitter.and_then(|e| e.float("spacing")).unwrap_or(0.2),
         pressure_size: emitter.and_then(|e| e.bool("pressureSizeEnabled")).unwrap_or(false),
+        pressure_size_min: emitter.and_then(|e| e.float("pressureSizeMinimum")).unwrap_or(1.0),
         value,
         hardness: tip.as_ref().and_then(|g| g.value("hardness")),
         tip: tip.as_ref().map(|g| g.name().to_string()).unwrap_or_default(),
         tip_text: a.list("sourceTransparent").iter().filter_map(|s| s.obj("procedural")).flat_map(|p| p.list("tweaks")).find(|t| t.class == "DataTweakByteArray" && t.str("identifier") == Some("text")).and_then(|t| t.str("value")).map(str::to_string),
         alignment: b.int("alignment").unwrap_or(0),
         culling: b.int("cullingEnabled").map(|v| v != 0).or(b.bool("cullingEnabled")).unwrap_or(true),
-        stencil: a.obj("sourceStencil").filter(|s| s.class == "DataSourceBitmap").and_then(|s| {
-            let url = s.obj("bitmap")?.str("urlToBitmapRes")?.to_string();
+        // A bitmap (`.image`) or a Substance graph (`.sbsar`, e.g. a splatter or a stencil sheet).
+        stencil: a.obj("sourceStencil").and_then(|s| {
+            let url = match s.class.as_str() {
+                "DataSourceBitmap" => s.obj("bitmap")?.str("urlToBitmapRes")?.to_string(),
+                "DataSourceProcedural" => s.obj("procedural")?.str("urlToSbsRes")?.to_string(),
+                _ => return None,
+            };
             let m: [f32; 9] = a.floats("projMatrix")?.try_into().ok()?;
             Some((url, m))
         }),
@@ -761,6 +772,7 @@ pub fn project_info(root: &Obj) -> ProjectInfo {
             layers: stack.obj("stack").map(|s| s.list("items").iter().map(layer_of).collect()).unwrap_or_default(),
             mesh_maps: m.list("additionalMaps").iter().filter_map(|a| Some((a.int("usage")? as i32, a.str("urlToBitmapRes")?.to_string()))).collect(),
             normal_syscoord,
+            normal_map: m.obj("normalMapBitmap").and_then(|b| b.str("urlToBitmapRes")).map(str::to_string),
         });
     }
     ProjectInfo { texture_sets }
@@ -831,6 +843,17 @@ mod tests {
         assert_eq!(source_of(&reference), Some(SourceInfo::Reference { channels: 0, anchor: 16_777_217, levels: None }), "uids above 2^24 stay exact");
         let anchor = action_of(&obj("DataActionAnchor", vec![("uid", Val::Int(483613))]), Vec::new(), 0);
         assert_eq!(anchor.kind, ActionKind::Anchor { uid: 483613 });
+    }
+
+    #[test]
+    fn procedural_stencils_are_read_with_their_matrix() {
+        let graph = obj("DataProcedural", vec![("urlToSbsRes", Val::Str("resource://starter_assets/drop_splatter/drop_splatter?version=1.sbsar".into()))]);
+        let stencil = obj("DataSourceProcedural", vec![("procedural", Val::Obj(Some(Box::new(graph))))]);
+        let paint = obj("DataActionPaint", vec![("brush", Val::Obj(Some(Box::new(obj("DataBrush", vec![("brushSize", f(&[0.1]))]))))), ("sourceStencil", Val::Obj(Some(Box::new(stencil)))), ("projMatrix", f(&[1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.5, 0.5, 1.0]))]);
+        let b = brush_of(&paint).unwrap();
+        let (url, m) = b.stencil.unwrap();
+        assert!(url.contains("drop_splatter") && url.ends_with(".sbsar"));
+        assert_eq!(m[6], 0.5);
     }
 
     #[test]

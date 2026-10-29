@@ -83,10 +83,17 @@ fn main() {
                 }
             }
         }, 0);
+        // Extra URLs (one per line) from a file given after `jpegs`.
+        if let Some(list) = args.get(4) {
+            urls.extend(std::fs::read_to_string(list).unwrap_or_default().lines().map(|l| l.trim().to_string()).filter(|l| !l.is_empty()));
+        }
         for url in urls {
             let sizes: Vec<String> = spp.embedded_jpegs(&url).unwrap_or_default().iter().filter_map(|b| subcraft_image::io::decode_bitmap(b, Some("x.jpg")).ok()).map(|bm| format!("{}x{}", bm.width, bm.height)).collect();
             if !sizes.is_empty() {
                 println!("{} {:?}", url.split('?').next().unwrap_or(""), sizes);
+            } else if let Ok(Some(files)) = spp.sbsar_files(&url) {
+                let list: Vec<String> = files.iter().map(|f| format!("{} ({} bytes, png {})", f.name, f.data.len(), f.data.windows(8).filter(|w| *w == [0x89u8, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).count())).collect();
+                println!("{} no JPEG; files {:?}", url.split('?').next().unwrap_or(""), list);
             }
         }
         return;
