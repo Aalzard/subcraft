@@ -584,7 +584,11 @@ pub fn fit_solve_composite(set: &mut TextureSet, fitted: &[crate::spp_fit::Fitte
         eprintln!("normal solve: {} users of {} fitted", normal_users.len(), fitted.len());
     }
     if let Some(goal) = flat.get(&ChannelKind::Normal).filter(|_| !normal_users.is_empty()) {
+        let t = std::time::Instant::now();
         solve_normals(set, fitted, &normal_users, &regions, &at, goal, &geometry, &mesh_maps, resources, &mut solved);
+        if std::env::var_os("SUBCRAFT_SPP_TIMING").is_some() {
+            eprintln!("normal solve: {:?} for {} layers", t.elapsed(), normal_users.len());
+        }
     }
     let ctx = subcraft_compositor::EvalContext { geometry: &geometry, resources, mesh_maps: &mesh_maps };
     let composite = subcraft_compositor::composite_full(set, &ctx);

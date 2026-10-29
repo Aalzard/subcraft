@@ -206,7 +206,8 @@ pub fn fit_with_detail(
         Some(r) => {
             let mut seen: BTreeMap<usize, usize> = BTreeMap::new();
             let mut rounds: Vec<Vec<usize>> = Vec::new();
-            for k in 0..n {
+            // Layers with no fitted channel (listed only for the normal solve) need no composite.
+            for k in (0..n).filter(|&k| !fitted[k].1.is_empty()) {
                 let i = seen.entry(r.group[k]).or_default();
                 if rounds.len() <= *i {
                     rounds.push(Vec::new());
@@ -216,7 +217,7 @@ pub fn fit_with_detail(
             }
             rounds
         }
-        None => (0..n).map(|k| vec![k]).collect(),
+        None => (0..n).filter(|&k| !fitted[k].1.is_empty()).map(|k| vec![k]).collect(),
     };
     let mut influence: Vec<BTreeMap<ChannelKind, Vec<f32>>> = vec![BTreeMap::new(); n];
     for round in &rounds {

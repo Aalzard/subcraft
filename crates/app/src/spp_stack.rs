@@ -488,6 +488,21 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
                                 solved_normal = true;
                                 None
                             }
+                            // Painter's fractal sums are noise SubCraft can draw: kept as a pattern
+                            // (fitting them flattened their grain to one value).
+                            SourceInfo::Procedural { graph, .. } if fractal_sum(graph).is_some() && !skip("fractal") => {
+                                let params = fractal_sum(graph).unwrap();
+                                // Range calibrated on DBAL-A2's fine color variation (detail under 5
+                                // texels at 2K): the full 0..1 range gave twice Painter's.
+                                let k = std::env::var("SUBCRAFT_SPP_FRACTAL_RANGE").ok().and_then(|v| v.parse().ok()).unwrap_or(FRACTAL_RANGE);
+                                let (lo, hi) = (0.5 - 0.5 * k, 0.5 + 0.5 * k);
+                                let (low, high) = if c.kind.components() == 3 { (ChannelValue::rgb(lo, lo, lo), ChannelValue::rgb(hi, hi, hi)) } else { (ChannelValue::scalar(lo), ChannelValue::scalar(hi)) };
+                                fill.channels.insert(c.kind, FillChannel::new(FillSource::Procedural { params, low, high }));
+                                layer.blend.insert(c.kind, ChannelBlend::new(default_mode(c.kind)));
+                                covered += 1;
+                                self.stats.approximate += 1;
+                                None
+                            }
                             SourceInfo::Bitmap { .. } | SourceInfo::Procedural { .. } => {
                                 let what = match source {
                                     SourceInfo::Procedural { graph, .. } => format!("procedural fill '{}' (fitted uniform values)", graph.name()),
@@ -721,11 +736,22 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
         let name = g.name().to_ascii_lowercase();
         let flag = |id: &str| g.value(id).is_some_and(|v| v >= 0.5);
         let get = |ids: &[&str], default: f32| ids.iter().find_map(|i| g.value(i)).unwrap_or(default);
+        // Painter's own breakup ("Grunge Amount") instead of SubCraft's new-generator default (0.3).
+        // The geometric edge band stays: without it (curvature-map edges with the current
+        // mapping) DBAL-A2's Base Color went 0.0140 -> 0.0162 (SUBCRAFT_SPP_GEN=painter).
+        let breakup = get(&["grunge_amount"], 0.0);
+        let mode = std::env::var("SUBCRAFT_SPP_GEN").unwrap_or_else(|_| "spread".into());
         let generator = |kind: GeneratorKind, level: f32, softness: f32, invert: bool| {
             let mut gen_ = Generator::new(kind);
             gen_.level = level.clamp(0.0, 1.0);
             gen_.softness = softness.clamp(0.01, 1.0);
             gen_.invert = invert;
+            if mode != "subcraft" {
+                gen_.noise_amount = breakup.clamp(0.0, 1.0);
+                if mode != "spread" {
+                    gen_.edge_spread = None;
+                }
+            }
             MaskEffect::new(MaskEffectKind::Generator(gen_))
         };
         let t = self.tuning;
@@ -1123,6 +1149,26 @@ fn uniform_value(kind: ChannelKind, color: [f32; 3]) -> ChannelValue {
 fn levels_of(l: &LevelsInfo) -> Levels {
     let avg = |v: [f32; 3]| (v[0] + v[1] + v[2]) / 3.0;
     Levels { in_low: avg(l.in_min), in_high: avg(l.in_max), gamma: avg(l.gamma), out_low: avg(l.out_min), out_high: avg(l.out_max) }
+}
+
+/// Painter's `fractal_sum_base` / `fractal_sum_base_colored` as SubCraft fractal noise: its
+/// coarsest level `Min_Level` is 2^level cells per tile (DBAL-A2 uses 9: a grain of a few texels
+/// at 2K), `Position` is the balance and `Contrast` the contrast; the colored variant is colored
+/// noise (each component its own pattern).
+const FRACTAL_RANGE: f32 = 0.53;
+
+fn fractal_sum(g: &GraphRef) -> Option<ProceduralParams> {
+    let name = g.name().to_ascii_lowercase();
+    if !name.starts_with("fractal_sum") {
+        return None;
+    }
+    let mut p = ProceduralParams::new(ProceduralKind::Clouds);
+    p.scale = 2f32.powf(g.value("Min_Level").unwrap_or(3.0).clamp(0.0, 10.0));
+    p.balance = g.value("Position").unwrap_or(0.5);
+    p.contrast = g.value("Contrast").unwrap_or(0.0).clamp(0.0, 0.98);
+    p.invert = g.value("invert").is_some_and(|v| v >= 0.5);
+    p.colored = name.contains("colored");
+    Some(p)
 }
 
 /// SubCraft pattern for Painter's noise/pattern graphs (the look is similar, not the same).

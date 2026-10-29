@@ -123,6 +123,28 @@ fn a_material_normal_is_solved_from_painters_result_into_its_layer() {
 }
 
 #[test]
+fn fractal_sums_stay_patterns_and_generators_take_painters_breakup() {
+    let mut spp = SppFile::from_reader(Cursor::new(fixture::project_file())).unwrap();
+    let ts = TextureSet::new("T", 0, 64);
+    let mut resources = ResourceStore::default();
+    let mut r = Rebuilder::new(&mut spp, &ts, &mut resources);
+    let grain = graph("fractal_sum_base_colored", &[("Min_Level", 9.0), ("Max_Level", 9.0), ("Position", 0.5)]);
+    let dirt = graph("mg_dirt", &[("dirt_level", 0.3), ("dirt_contrast", 0.5), ("grunge_amount", 0.12)]);
+    let infos = vec![
+        layer("Grain", vec![action(ActionKind::Fill { sources: vec![SourceInfo::Procedural { channels: channel_bits::BASE_COLOR, graph: grain }], projection: 2 }, Vec::new())], None),
+        layer("Dirt", vec![uniform(channel_bits::BASE_COLOR, 0.4)], Some((vec![action(ActionKind::Fill { sources: vec![SourceInfo::Procedural { channels: 0, graph: dirt }], projection: 0 }, Vec::new())], false))),
+    ];
+    let layers = r.rebuild(&infos);
+    assert!(r.fitted.is_empty(), "the fractal sum is drawn, not fitted: {:?}", r.fitted);
+    let LayerContent::Fill(fill) = &layers[0].content else { panic!("a fill") };
+    let subcraft_doc::FillSource::Procedural { params, .. } = &fill.channels[&ChannelKind::BaseColor].source else { panic!("a procedural source") };
+    assert!(params.colored && params.scale == 512.0, "{params:?}");
+    let mask = layers[1].mask.as_ref().unwrap();
+    let MaskEffectKind::Generator(g) = &mask.effects.last().unwrap().kind else { panic!("a generator") };
+    assert_eq!(g.noise_amount, 0.12, "Painter's grunge amount, not SubCraft's default breakup");
+}
+
+#[test]
 fn painter_blending_ids() {
     use subcraft_app::spp_stack::painter_blend;
     let table: Vec<(i32, Option<BlendMode>)> = [2, 4, 9, 10, 11, 15, 25, 29, 3].iter().map(|&id| (id, painter_blend(id))).collect();

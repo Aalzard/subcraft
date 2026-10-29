@@ -320,3 +320,4 @@ mod tests {
         assert!((hull_area(&mut points) - 0.75).abs() > 0.01);
     }
 }
+

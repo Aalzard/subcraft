@@ -67,6 +67,30 @@ fn main() {
         sbsar_xml(path, &args[4]);
         return;
     }
+    if args.get(3).is_some_and(|a| a == "jpegs") {
+        // `jpegs`: the JPEGs embedded in each grunge/procedural archive the project uses, with sizes.
+        let mut spp = subcraft_mesh::spp::SppFile::open(Path::new(path)).unwrap();
+        let project = spp.project().unwrap();
+        let mut urls = std::collections::BTreeSet::new();
+        subcraft_mesh::spp::document::walk_layers(&project.texture_sets[0].layers, &mut |l, _| {
+            for a in l.content.iter().chain(&l.mask) {
+                if let subcraft_mesh::spp::document::ActionKind::Fill { sources, .. } = &a.kind {
+                    for s in sources {
+                        if let subcraft_mesh::spp::SourceInfo::Procedural { graph, .. } = s {
+                            urls.insert(graph.url.clone());
+                        }
+                    }
+                }
+            }
+        }, 0);
+        for url in urls {
+            let sizes: Vec<String> = spp.embedded_jpegs(&url).unwrap_or_default().iter().filter_map(|b| subcraft_image::io::decode_bitmap(b, Some("x.jpg")).ok()).map(|bm| format!("{}x{}", bm.width, bm.height)).collect();
+            if !sizes.is_empty() {
+                println!("{} {:?}", url.split('?').next().unwrap_or(""), sizes);
+            }
+        }
+        return;
+    }
     if args.get(3).is_some_and(|a| a == "images") {
         dump_images(path, dir);
         return;

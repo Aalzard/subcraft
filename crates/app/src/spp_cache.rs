@@ -17,7 +17,7 @@ use subcraft_image::{Bitmap, BitmapData};
 use crate::spp_job::{SppStack, SppStackUpdate};
 
 /// Bump whenever the rebuild (or the quality check) can produce a different stack.
-pub const IMPORTER_VERSION: u32 = 2;
+pub const IMPORTER_VERSION: u32 = 3;
 
 /// Entries kept; the least recently written ones go first.
 const KEEP: usize = 3;
