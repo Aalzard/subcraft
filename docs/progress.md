@@ -3284,3 +3284,41 @@ diagonals), applied whenever a model is framed.
   shows none); the FIRE lens is too bright; the sticker folder's mask is empty (its two anchor
   references combine with id 10, which erases both green labels under every intersection-like mode,
   while union-like modes are far worse overall); the knob numbers read "00" instead of "06".
+
+### Session 110c - Painter stacks: normals, grain, generator breakup (2026-10-29)
+
+* **Normal map:** the rebuilt Normal channel was flat. 32 DBAL-A2 layers put a material into Normal
+  only (Rubber - Synthetic, Plastic - Old Computer, Iron) and became hidden placeholders; materials'
+  normals were dropped. They now keep a flat Normal, and at import Painter's normal is solved into
+  the material layer that shows most at each sample (measured by tilting that layer's normal), as
+  textures "... Normal (solved from Painter's result)". DBAL-A2 at 1024: Normal 0.0042 -> 0.0010 (95th
+  percentile 0.0085 -> 0.0024), every part better; full gate Normal 0.004 -> 0.000, CarInteriro 0.016
+  -> 0.002.
+* **Fine color grain:** Painter's warm/cool grain comes from `fractal_sum_base_colored` fills (level
+  9, soft light on Base Color), which were fitted to one value. They are a SubCraft fractal at 2^level
+  cells per tile, drawn as colored noise (new optional `colored` procedural flag, not written when
+  false). At 2048, color detail under 5 texels: 0.00025 -> 0.00212 (Painter 0.00203). The per-texel
+  Base Color difference rises (1024, no solved detail: 0.0140 -> 0.0166; full gate 0.015 -> 0.018)
+  because the noise phases cannot match Painter's.
+* **Generator breakup:** generators rebuilt from Painter graphs take Painter's `grunge_amount`
+  (0 on 15 of DBAL-A2's 19 dirt masks) instead of SubCraft's new-generator default of 0.3, which
+  punched holes into the dirt.
+* **Measured, not changed:** a gentler dirt mapping matches DBAL-A2's recovered Soil masks (strong
+  dirt on 0.6% of texels like Painter, crease dirt 0.21 -> 0.025; DBAL-A2 Base Color / Roughness /
+  Metallic 0.0140 / 0.0453 / 0.0528 -> 0.0133 / 0.0436 / 0.0522) but CarInteriro's Base Color goes
+  0.0096 -> 0.0117 (its one dirt layer, dirt level 0.16, needs more dirt): mg_dirt depends on more than
+  level and contrast and is not modelled yet. Edge wear from the curvature map instead of SubCraft's
+  geometric band was worse with the current mapping (Base Color 0.0140 -> 0.0162). Finer mask noises
+  did not bring Painter's grain (it is in the fractal fills). Embedded grunge images are 2048, not
+  the cause of missing roughness grain.
+* **Roughness grain:** still half of Painter's at the finest scale (detail under 3 texels at 2K: 0.0037
+  vs 0.0124; on the knobs 0.011 vs 0.057). Source not found yet.
+* **Edge wear gaps (general, reported by the user):** a block standing on a plate, generator as a user
+  adds it, baked curvature and AO: both long straight rims are covered over 97% with no gaps at 512 and
+  1024 (`tests/edge_ledge.rs` keeps this). The reported gaps were not reproduced with box geometry; a
+  model with rounded bevels (creases under 20 degrees, which the geometric band ignores) is the next
+  candidate.
+* **Gate (full imports at 512, Base Color / Roughness / Metallic / Normal / Height):** DBAL-A2 0.018 /
+  0.048 / 0.054 / 0.000 / 0.001, CarInteriro 0.008 / 0.032 / 0.003 / 0.002 / 0.004, Street_cyberpunk
+  0.006 / 0.025 / 0.000, Height 0.037. All pass. DBAL-A2's import takes 228 s (was ~133 s: larger
+  brushes in the mask replays and the normal solve). Tests: `cargo test --workspace` 755 passed.
