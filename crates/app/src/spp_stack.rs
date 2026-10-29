@@ -183,10 +183,15 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
         let cached = self.raster_cache.as_ref().map(|c| c.lock().unwrap_or_else(|p| p.into_inner()).clone()).filter(|c| c.len() == jobs.len());
         let images: Vec<TiledImage> = match cached {
             Some(c) => c,
-            None => jobs.par_iter().map(|(_, _, ops)| {
-                let image = spp_select::paint_raster(picker, geometry.clone(), ops);
-                if cap < res { image.resampled(res, res) } else { image }
-            }).collect(),
+            None => {
+                let shared = std::sync::Mutex::new(HashMap::new());
+                jobs.par_iter().map(|(_, _, ops)| {
+                    let image = spp_select::paint_raster(picker, geometry.clone(), ops);
+                    let mut image = if cap < res { image.resampled(res, res) } else { image };
+                    share_constant_tiles(&mut image, &shared);
+                    image
+                }).collect()
+            }
         };
         if let Some(c) = &self.raster_cache {
             *c.lock().unwrap_or_else(|p| p.into_inner()) = images.clone();
@@ -214,6 +219,7 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
             return;
         };
         let t = std::time::Instant::now();
+        let shared = std::sync::Mutex::new(HashMap::new());
         let mut todo = std::mem::take(&mut self.references);
         for _round in 0..8 {
             let unresolved: Vec<EffectId> = todo.iter().map(|r| r.1).collect();
@@ -236,7 +242,8 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
                 if let Some(l) = &levels {
                     mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Levels(levels_of(l)))));
                 }
-                let image = eval_mask_image(&mask, self.ts, &geometry, self.resources, &maps);
+                let mut image = eval_mask_image(&mask, self.ts, &geometry, self.resources, &maps);
+                share_constant_tiles(&mut image, &shared);
                 if let Some(l) = find_layer_mut(layers, layer_id) {
                     if let Some(m) = l.mask.as_mut() {
                         for e in &mut m.effects {
@@ -357,10 +364,19 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
             }
         }
         if fills.is_empty() {
-            if !effects.is_empty() && info.content.iter().all(|a| matches!(a.kind, ActionKind::Filter { .. } | ActionKind::Levels(_))) {
+            if !effects.is_empty() && !skip("filter_layers") && info.content.iter().all(|a| matches!(a.kind, ActionKind::Filter { .. } | ActionKind::Levels(_))) {
                 // An empty pass-through folder filters the stack below it, mixed in by its mask.
-                let mut folder = Layer::new_folder(name, ts);
+                // A filter that reads neighbouring texels (sharpen, blur) of everything below makes
+                // each composite evaluate the whole stack around every tile, again for every such
+                // layer above: DBAL-A2 at 512 took 350 s instead of 9 s. They change none of the
+                // measured differences, so they are rebuilt switched off.
+                let neighbourhood = effects.iter().any(|e| matches!(e.kind, ContentEffectKind::Filter { filter, .. } if filter.radius().is_some()));
+                let mut folder = Layer::new_folder(if neighbourhood { format!("{name} (off: filters the whole stack below, slow)") } else { name.to_string() }, ts);
                 folder.content_effects = effects.into_iter().map(Arc::new).collect();
+                if neighbourhood {
+                    folder.visible = false;
+                    self.stats.skip("filter layers that sharpen or blur the stack below (rebuilt, switched off)");
+                }
                 return folder;
             }
             return self.placeholder(name);
@@ -797,6 +813,27 @@ fn default_mode(kind: ChannelKind) -> BlendMode {
     }
 }
 
+/// Replace tiles whose texels are all equal by one shared tile per value (polygon-fill masks are
+/// mostly constant inside the selected parts: hundreds of 4K masks would otherwise hold gigabytes).
+pub fn share_constant_tiles(image: &mut TiledImage, shared: &std::sync::Mutex<HashMap<(usize, Vec<u16>), Arc<subcraft_image::Tile>>>) {
+    let comps = image.comps();
+    for i in 0..image.tile_count() {
+        let Some(tile) = image.tile(i) else { continue };
+        let first: Vec<u16> = tile.data[..comps].iter().map(|v| v.to_bits()).collect();
+        if !tile.data.chunks_exact(comps).all(|px| px.iter().zip(&first).all(|(a, b)| a.to_bits() == *b)) {
+            continue;
+        }
+        let key = (comps, first);
+        let t = {
+            let mut map = shared.lock().unwrap_or_else(|p| p.into_inner());
+            map.entry(key).or_insert_with(|| tile.clone()).clone()
+        };
+        if !Arc::ptr_eq(&t, tile) {
+            image.set_slot(i, Some(t));
+        }
+    }
+}
+
 /// Largest resolution mask strokes and polygon fills are painted at (`SUBCRAFT_SPP_RASTER_MAX`
 /// overrides it).
 pub fn raster_max_resolution() -> u32 {
@@ -925,7 +962,7 @@ fn texels(res: u32, relative: f32) -> f32 {
 pub fn map_filter(g: &GraphRef, res: u32) -> Option<(Filter, bool)> {
     let name = g.name().to_ascii_lowercase();
     match name.as_str() {
-        "blur" => Some((Filter::Blur { radius: texels(res, g.value("intensity")? * BLUR_SCALE).clamp(0.0, 128.0) }, false)),
+        "blur" => Some((Filter::Blur { radius: texels(res, g.value("intensity")? * blur_scale()).clamp(0.0, 128.0) }, false)),
         "sharpen" | "fx_sharpen" => Some((Filter::Sharpen { radius: texels(res, SHARPEN_RADIUS).max(0.5), amount: (g.value("intensity")? * SHARPEN_GAIN).clamp(0.0, 4.0) }, false)),
         "clamp" => Some((Filter::Clamp { low: g.value("min")?, high: g.value("max")? }, true)),
         "warp" => {
@@ -946,8 +983,15 @@ pub fn map_filter(g: &GraphRef, res: u32) -> Option<(Filter, bool)> {
     }
 }
 
-/// Blur radius per unit of Painter's `blur.intensity`, as a fraction of the texture size.
-const BLUR_SCALE: f32 = 1.0 / 16.0;
+/// Blur radius per unit of Painter's `blur.intensity`, as a fraction of the texture size
+/// (`SUBCRAFT_SPP_BLUR_SCALE` overrides it for experiments).
+fn blur_scale() -> f32 {
+    std::env::var("SUBCRAFT_SPP_BLUR_SCALE").ok().and_then(|v| v.parse().ok()).unwrap_or(BLUR_SCALE)
+}
+/// Substance's convention, pixels at 256: 1/16 (the first guess) blurred far too much and made a
+/// 512-texel composite of DBAL-A2 take 442 s instead of seconds; 1/256 also matches Painter better
+/// on DBAL-A2 and Street_cyberpunk (CarInteriro's Roughness 0.058 -> 0.062).
+const BLUR_SCALE: f32 = 1.0 / 256.0;
 /// Sharpen radius as a fraction of the texture size, and gain per unit of `sharpen.intensity`.
 const SHARPEN_RADIUS: f32 = 1.0 / 1024.0;
 const SHARPEN_GAIN: f32 = 8.0;

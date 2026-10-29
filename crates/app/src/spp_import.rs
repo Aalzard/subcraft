@@ -325,7 +325,7 @@ impl Session {
             }
             let t_maps = t2.elapsed();
             let t3 = std::time::Instant::now();
-            rebuild_stack(&mut spp, info, ts, &mesh, &mut resources, &found, coverage.as_ref(), &mut notes);
+            rebuild_stack(&mut spp, info, ts, &mesh, &mut resources, &found, &mut notes);
             if timing {
                 notes.push(format!("  timing: mesh {t_mesh:?}, channels {t_channels:?}, baked maps {t_maps:?}, stack {:?}", t3.elapsed()));
             }
@@ -546,6 +546,25 @@ fn fit_regions(set: &TextureSet, fitted: &[crate::spp_fit::Fitted], at: &[(u32, 
     crate::spp_fit::Regions { group, owner }
 }
 
+/// A 4-component plane whose alpha is 1 on texels inside the set's UV triangles.
+fn geometry_coverage(mesh: &subcraft_mesh::Mesh, slot: u32, res: u32) -> Plane {
+    let geometry = subcraft_materials::TextureSetGeometry::new(std::sync::Arc::new(mesh.clone()), slot, res);
+    let mut data = vec![0.0f32; (res * res) as usize * 4];
+    for t in 0..geometry.tile_count() {
+        let tile = geometry.tile(t);
+        if tile.is_empty() {
+            continue;
+        }
+        for i in 0..subcraft_image::TILE_TEXELS {
+            let (x, y) = tile.texel_xy(i);
+            if x < res && y < res && tile.coverage(i) > 0.5 {
+                data[(y * res + x) as usize * 4 + 3] = 1.0;
+            }
+        }
+    }
+    Plane { width: res, height: res, components: 4, data }
+}
+
 /// Texels (x, y) at resolution `res` that the gate compares: covered by the baked maps (all of
 /// them without coverage), on a regular grid thinned to at most about `limit`.
 fn covered_texels(res: u32, coverage: Option<&Plane>, limit: usize) -> Vec<(u32, u32)> {
@@ -627,7 +646,7 @@ pub fn rebuild_folder_tuned(spp: &mut SppFile, info: &TextureSetInfo, view: &Tex
 /// Rebuild the Painter layer stack as a folder above the flattened layer and decide, by comparing its
 /// composite with Painter's flattened textures, whether it can be shown instead of them.
 #[allow(clippy::too_many_arguments)]
-fn rebuild_stack(spp: &mut SppFile, info: &TextureSetInfo, ts: &mut TextureSet, mesh: &subcraft_mesh::Mesh, resources: &mut ResourceStore, maps: &BTreeMap<MeshMapKind, TiledImage>, coverage: Option<&Plane>, notes: &mut Vec<String>) {
+fn rebuild_stack(spp: &mut SppFile, info: &TextureSetInfo, ts: &mut TextureSet, mesh: &subcraft_mesh::Mesh, resources: &mut ResourceStore, maps: &BTreeMap<MeshMapKind, TiledImage>, notes: &mut Vec<String>) {
     if info.layers.is_empty() || ts.layers.len() != 2 {
         return; // nothing to rebuild, or no flattened result to compare with
     }
@@ -657,6 +676,11 @@ fn rebuild_stack(spp: &mut SppFile, info: &TextureSetInfo, ts: &mut TextureSet, 
     };
     probe_set.layers.clear();
     probe_set.insert_above(None, probe_folder);
+    // Compared where the texture set has surface (inside its UV triangles): outside them the stack
+    // holds nothing while Painter's texture holds padding. (The baked maps' alpha counted part of
+    // that padding as covered, which made a matching stack look 4x worse.)
+    let surface = geometry_coverage(mesh, probe_set.material_slot, probe_set.resolution);
+    let coverage = Some(&surface);
     // Uniform values for the fills that could not be rebuilt, fitted at the gate's resolution and
     // applied to the full-resolution stack (both rebuilds list the same layers in the same order).
     let t_fit = std::time::Instant::now();
@@ -700,6 +724,9 @@ fn rebuild_stack(spp: &mut SppFile, info: &TextureSetInfo, ts: &mut TextureSet, 
     ));
     if std::env::var_os("SUBCRAFT_SPP_TIMING").is_some() {
         notes.push(format!("    rebuild timing: {:?}, fit of {} layers {t_fit:?}", stats.timings, fitted.len()));
+        for (label, n, ms) in subcraft_compositor::profile::take().iter().take(10) {
+            notes.push(format!("    composite profile {label}: {n} evaluations, {ms:.0} ms"));
+        }
     }
     for (what, n) in &stats.skipped {
         notes.push(format!("    not rebuilt: {what} ({n})"));
