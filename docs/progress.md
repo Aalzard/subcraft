@@ -3200,7 +3200,6 @@ searches); see its header. Format findings are in `docs/spp-research.md` ("Match
   Occlusion and Emissive are not in the gate (the cache holds 0 where no layer wrote AO); only three
   sample projects exist on this PC.
 
-<<<<<<< HEAD
 ### Session 111 - Opening big Painter projects without freezing (2026-10-29)
 
 Goal: opening a big `.spp` must never freeze the window and should get fast. Measured on the private DBAL-A2 (4096 set, 374 Painter layers; the file is not in the repository). Tool: `SUBCRAFT_SPP_TIMING=1 [SUBCRAFT_SPP_MEMLOG=1] cargo run --release -p subcraft-app --example spp_open -- file.spp` (prints the time until the first textured view and until the rebuilt stack is in; MEMLOG prints stage and working set every 2 s).
@@ -3224,7 +3223,7 @@ Goal: opening a big `.spp` must never freeze the window and should get fast. Mea
 * **Pre-existing bugs found (not fixed):** (a) the Painter importer builds filter parameters (blur radius > 32) that `read_project` rejects ("invalid mask filter"), so a Painter-imported project saved as `.subcraft` very likely cannot be reopened; (b) `pack_resources` skips every resource without original file bytes (log: "has no original file bytes; not saved"), which includes the solved and leveled textures of the rebuilt stack, so a saved project would lose them. Both only apply to saving a Painter-imported project; untested on the real file.
 * **Screenshot comparison** (scripted `subcraft --screenshot`, 1280x800, 3D view rows 40 to 770, all DBAL-A2 at 4096): a cold open (rebuild) versus a second cold open and versus a cache hit: 0 differing pixels. A cold open of the commit before this work was not rendered (that needs a second build of the old commit); the rebuild code and the gate numbers are unchanged.
 * **Verification:** new tests in `crates/app/tests/spp_open.rs` (background result equals the blocking open, cancel, other session drops the stack, edits keep working and undo), `crates/app/tests/spp_cache.rs` (hit gives equal layers, changed file misses), `spp_select` (placed bitmap), `crates/project` (trusted loader), `crates/ui` (New Project dialog with a Painter project); `cargo test --workspace`: 740 passed, 0 failed.
-=======
+
 ### Session 110b - Painter stacks: per-region accuracy on DBAL-A2, text investigation (2026-10-29)
 
 Driven by the user's 2K comparison of DBAL-A2's top plate (rebuilt vs flattened, same camera). The
@@ -3285,4 +3284,3 @@ diagonals), applied whenever a model is framed.
   shows none); the FIRE lens is too bright; the sticker folder's mask is empty (its two anchor
   references combine with id 10, which erases both green labels under every intersection-like mode,
   while union-like modes are far worse overall); the knob numbers read "00" instead of "06".
->>>>>>> claude/painter-accuracy-e3ea06
