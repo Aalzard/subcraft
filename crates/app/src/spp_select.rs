@@ -449,7 +449,11 @@ impl<'a> StrokeReplay<'a> {
         for (k, s) in all.iter().enumerate().filter(|(_, s)| !s.uv_space) {
             let camera = self.camera(s);
             let ctx = subcraft_paint::PaintContext { mesh: &self.picker.mesh, bvh: &self.picker.bvh, geometry: &self.geometry, camera: &camera, depth: &self.depth };
-            let settings = subcraft_paint::BrushSettings { seed: s.seed.wrapping_add(k as u32), ..settings };
+            let size = match screen_brush() {
+                Some(k) => screen_brush_size(s, brush.size * k, &self.picker.mesh),
+                None => settings.size,
+            };
+            let settings = subcraft_paint::BrushSettings { seed: s.seed.wrapping_add(k as u32), size, ..settings };
             let Ok(stroke) = subcraft_paint::Stroke::begin(&self.set, self.layer, target, mode, settings, subcraft_paint::StrokeOptions::default(), &material) else { continue };
             let mut stroke = stroke.with_stencil(self.stencil.clone());
             let vp = self.viewport as f32;
@@ -470,12 +474,41 @@ impl<'a> StrokeReplay<'a> {
     }
 }
 
-/// SubCraft brush size (percent of the bounding-box diagonal) per unit of Painter's `brushSize`
-/// x 100. Measured: 0.5 matches all three sample projects better than 1 (DBAL-A2 Metallic 0.070
-/// -> 0.067, Street_cyberpunk Base Color 0.007 -> 0.005); smaller gains under 0.001 more.
+/// With `SUBCRAFT_SPP_BRUSH_SPACE=object` only: SubCraft brush size (percent of the bounding-box
+/// diagonal) per unit of Painter's `brushSize` x 100. 0.5 matched best under that reading.
 /// `SUBCRAFT_SPP_BRUSH_SCALE` overrides it for experiments.
 fn brush_scale() -> f32 {
     std::env::var("SUBCRAFT_SPP_BRUSH_SCALE").ok().and_then(|v| v.parse::<f32>().ok()).unwrap_or(0.5)
+}
+
+/// 3D-view strokes' `brushSize` is the brush diameter as a fraction of the stroke's view height
+/// (`Some(1.0)`). Measured on DBAL-A2: read against the bounding-box diagonal instead, black mask
+/// strokes painted beside a stencilled label grew over it and cut "DBAL-A" to "RAL-A"; read
+/// against the view the whole label stays, Base Color 0.0149 -> 0.0144 at 1024 (Roughness 0.0450
+/// -> 0.0462 on one lens), CarInteriro and Street_cyberpunk equal or slightly better.
+/// `SUBCRAFT_SPP_BRUSH_SPACE=object` restores the diagonal reading (times [`brush_scale`]),
+/// `screen:k` scales the view reading.
+fn screen_brush() -> Option<f32> {
+    match std::env::var("SUBCRAFT_SPP_BRUSH_SPACE").ok().as_deref() {
+        Some("object") => None,
+        Some(v) => Some(v.strip_prefix("screen").and_then(|r| r.strip_prefix(':')).and_then(|k| k.parse().ok()).unwrap_or(1.0)),
+        None => Some(1.0),
+    }
+}
+
+/// SubCraft brush size (percent of the mesh's bounding-box diagonal) of a brush whose diameter is
+/// `fraction` of the stroke's view height, at the depth of the mesh centre for perspective views.
+pub fn screen_brush_size(s: &StrokeInfo, fraction: f32, mesh: &Mesh) -> f32 {
+    let proj = Mat4::from_cols_array(&s.projection);
+    let view = Mat4::from_cols_array(&s.view);
+    let orthographic = proj.w_axis.w.abs() > 0.5;
+    let height = if orthographic {
+        2.0 / proj.y_axis.y.abs().max(1e-6)
+    } else {
+        let depth = -view.transform_point3(mesh.bounds.center()).z;
+        2.0 * depth.max(1e-6) / proj.y_axis.y.abs().max(1e-6)
+    };
+    fraction * height / mesh.bounds.diagonal().max(1e-6) * 100.0
 }
 
 /// Stroke diameter in UV units per unit of Painter's brush size, for strokes painted in the 2D view.
@@ -672,6 +705,21 @@ mod tests {
     }
 
     #[test]
+    fn screen_brush_size_is_a_fraction_of_the_view_height() {
+        let mesh = subcraft_mesh::primitives::cube(2.0);
+        let diag = mesh.bounds.diagonal();
+        // Orthographic view 4 units tall (y scale 0.5): a 0.1 brush is 0.4 units across.
+        let ortho = Mat4::orthographic_rh_gl(-2.0, 2.0, -2.0, 2.0, 0.1, 100.0);
+        let view = Mat4::look_at_rh(Vec3::new(0.0, 0.0, 10.0), Vec3::ZERO, Vec3::Y);
+        let s = StrokeInfo { uv_space: false, points: Vec::new(), pressure: Vec::new(), view: view.to_cols_array(), projection: ortho.to_cols_array(), seed: 0, duplicate: None };
+        assert!((screen_brush_size(&s, 0.1, &mesh) - 0.4 / diag * 100.0).abs() < 1e-4);
+        // Perspective: the view height at the mesh centre (10 units away, 90 degrees: 20 units).
+        let persp = Mat4::perspective_rh_gl(90f32.to_radians(), 1.0, 0.1, 100.0);
+        let s = StrokeInfo { projection: persp.to_cols_array(), ..s };
+        assert!((screen_brush_size(&s, 0.1, &mesh) - 2.0 / diag * 100.0).abs() < 1e-3);
+    }
+
+    #[test]
     fn mesh_fill_joins_objects_that_share_connected_geometry() {
         // Objects 0 and 1 are welded through element 7; object 2 has two separate pieces.
         let objects = [0, 0, 1, 1, 2, 2, 3];
@@ -715,7 +763,7 @@ mod tests {
         let view = Mat4::look_at_rh(Vec3::new(0.0, 0.0, 5.0), Vec3::ZERO, Vec3::Y);
         let proj = Mat4::orthographic_rh_gl(-2.0, 2.0, -2.0, 2.0, 0.1, 20.0);
         let stroke = StrokeInfo { uv_space: false, duplicate: None, points: (0..20).map(|i| [0.3 + i as f32 * 0.02, 0.5]).collect(), pressure: Vec::new(), view: view.to_cols_array(), projection: proj.to_cols_array(), seed: 1 };
-        let brush = BrushInfo { size: 0.1, size_space: 1, flow: 1.0, spacing: 0.1, pressure_size: false, value: 1.0, hardness: Some(0.5), tip: "shape".into(), alignment: 0, culling: true, stencil: None };
+        let brush = BrushInfo { size: 0.1, size_space: 1, flow: 1.0, spacing: 0.1, pressure_size: false, value: 1.0, hardness: Some(0.5), tip: "shape".into(), tip_text: None, alignment: 0, culling: true, stencil: None };
         let mut replay = StrokeReplay::new(&p, geometry.clone());
         let painted = replay.replay(TiledImage::new(64, 64, 2, [0.0; 4]), &[stroke], &brush, 1.0, false);
         let (mut on_front, mut elsewhere) = (0, 0);
@@ -742,7 +790,7 @@ mod tests {
         // A vertical line at u = 0.25 (v from bottom to top), mirrored across the middle.
         let mirror = Mat4::from_scale(Vec3::new(-1.0, 1.0, 1.0)).to_cols_array();
         let stroke = StrokeInfo { uv_space: true, duplicate: Some(mirror), points: vec![[0.25, 0.1], [0.25, 0.9]], pressure: Vec::new(), view: [0.0; 16], projection: [0.0; 16], seed: 0 };
-        let brush = BrushInfo { size: 0.5, size_space: 1, flow: 1.0, spacing: 0.1, pressure_size: false, value: 1.0, hardness: Some(0.8), tip: "shape".into(), alignment: 3, culling: true, stencil: None };
+        let brush = BrushInfo { size: 0.5, size_space: 1, flow: 1.0, spacing: 0.1, pressure_size: false, value: 1.0, hardness: Some(0.8), tip: "shape".into(), tip_text: None, alignment: 3, culling: true, stencil: None };
         let mut replay = StrokeReplay::new(&p, geometry);
         let img = replay.replay(TiledImage::new(64, 64, 2, [0.0; 4]), &[stroke], &brush, 1.0, false);
         let a = |u: f32, v: f32| img.get((u * 64.0) as u32, ((1.0 - v) * 64.0) as u32)[1];

@@ -416,6 +416,9 @@ pub struct BrushInfo {
     pub hardness: Option<f32>,
     /// Name of the tip graph (`shape`, `brush_paint_*`...), empty for none.
     pub tip: String,
+    /// The string a text tip draws (Painter's font resources, e.g. `font_chathura`, have a
+    /// `text` tweak holding it); `None` for other tips.
+    pub tip_text: Option<String>,
     /// Painter's alignment id (0 tangent wrap, 1 tangent planar, 2 camera, 3 UV, as SubCraft's).
     pub alignment: i64,
     pub culling: bool,
@@ -632,6 +635,7 @@ fn brush_of(a: &Obj) -> Option<BrushInfo> {
         value,
         hardness: tip.as_ref().and_then(|g| g.value("hardness")),
         tip: tip.as_ref().map(|g| g.name().to_string()).unwrap_or_default(),
+        tip_text: a.list("sourceTransparent").iter().filter_map(|s| s.obj("procedural")).flat_map(|p| p.list("tweaks")).find(|t| t.class == "DataTweakByteArray" && t.str("identifier") == Some("text")).and_then(|t| t.str("value")).map(str::to_string),
         alignment: b.int("alignment").unwrap_or(0),
         culling: b.int("cullingEnabled").map(|v| v != 0).or(b.bool("cullingEnabled")).unwrap_or(true),
         stencil: a.obj("sourceStencil").filter(|s| s.class == "DataSourceBitmap").and_then(|s| {
@@ -827,6 +831,17 @@ mod tests {
         assert_eq!(source_of(&reference), Some(SourceInfo::Reference { channels: 0, anchor: 16_777_217, levels: None }), "uids above 2^24 stay exact");
         let anchor = action_of(&obj("DataActionAnchor", vec![("uid", Val::Int(483613))]), Vec::new(), 0);
         assert_eq!(anchor.kind, ActionKind::Anchor { uid: 483613 });
+    }
+
+    #[test]
+    fn text_tip_string_is_read() {
+        let text = obj("DataTweakByteArray", vec![("identifier", Val::Str("text".into())), ("value", Val::Str("2".into()))]);
+        let size = obj("DataTweakFloat", vec![("identifier", Val::Str("fontsize".into())), ("value", f(&[0.7]))]);
+        let font = obj("DataProcedural", vec![("urlToSbsRes", Val::Str("resource://starter_assets/font_chathura/font_chathura?version=1.sbsar".into())), ("tweaks", Val::List(vec![text, size]))]);
+        let source = obj("DataSourceProcedural", vec![("procedural", Val::Obj(Some(Box::new(font))))]);
+        let eraser = obj("DataActionEraser", vec![("brush", Val::Obj(Some(Box::new(obj("DataBrush", vec![("brushSize", f(&[0.16]))]))))), ("sourceTransparent", Val::List(vec![source]))]);
+        let b = brush_of(&eraser).unwrap();
+        assert_eq!((b.tip.as_str(), b.tip_text.as_deref()), ("font_chathura", Some("2")));
     }
 
     #[test]

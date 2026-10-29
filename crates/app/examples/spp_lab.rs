@@ -100,6 +100,7 @@ fn main() {
     let geometry = session.scene().geometry.get(ts.material_slot, ts.resolution);
     let mut cov = vec![false; (w * h) as usize];
     let mut tri = vec![-1.0f32; (w * h) as usize];
+    let mut pos = vec![0.0f32; (w * h) as usize * 3];
     for t in 0..geometry.tile_count() {
         let tile = geometry.tile(t);
         if tile.is_empty() {
@@ -110,11 +111,16 @@ fn main() {
             if x < w && y < h {
                 cov[(y * w + x) as usize] = tile.coverage(i) > 0.5;
                 tri[(y * w + x) as usize] = tile.triangle(i).map_or(-1.0, |t| t as f32);
+                let o = (y * w + x) as usize * 3;
+                let p = glam::Vec3::from(tile.position(i)) * geometry.max_extent + geometry.bounds.min;
+                pos[o..o + 3].copy_from_slice(&p.to_array());
             }
         }
     }
     write_f32(dir, "coverage", w, h, 1, &cov.iter().map(|c| *c as u8 as f32).collect::<Vec<_>>(), &mut index);
     write_f32(dir, "triangle", w, h, 1, &tri, &mut index);
+    // Object-space position of every covered texel (for projecting texels into Painter's views).
+    write_f32(dir, "position", w, h, 3, &pos, &mut index);
     // Regions: the mesh object and the connected element of every covered texel (-1 outside), with
     // the object names in `objects.txt`, for per-part errors.
     let elements = geometry.triangle_parts();
@@ -184,11 +190,15 @@ fn main() {
         return;
     }
     if args.get(3).is_some_and(|a| a == "masks") {
-        // `masks [i [j ...]]`: the masks of the children of the folder at that path.
+        // `masks [i [j ...]]`: the masks of the children of the folder at that path (indices or names).
         let mut target = f.clone();
         for a in &args[4..] {
             let LayerContent::Group(g) = &target.content else { break };
-            target = (*g.children[a.parse::<usize>().unwrap()]).clone();
+            // An index, or a child's name.
+            target = match a.parse::<usize>() {
+                Ok(i) => (*g.children[i]).clone(),
+                Err(_) => (**g.children.iter().find(|c| c.name.trim() == a.trim()).expect("no child of that name")).clone(),
+            };
         }
         dump_masks(&session, &target, dir, &mut index);
     }

@@ -16,7 +16,7 @@ use subcraft_doc::{
     BlendMode, ChannelBlend, ContentEffect, ContentEffectKind, FillChannel, FillSource, Filter, Generator, GeneratorKind, Layer, LayerContent, Levels, Mask, MaskEffect, MaskEffectKind, ProceduralKind, ProceduralParams,
     Projection, ProjectionMode, Resource, ResourceKind, ResourceStore, TextureSet,
 };
-use subcraft_mesh::spp::document::{ActionKind, GraphRef, LayerInfo, LayerKind, LevelsInfo, SourceInfo};
+use subcraft_mesh::spp::document::{ActionKind, BrushInfo, GraphRef, LayerInfo, LayerKind, LevelsInfo, SourceInfo};
 use subcraft_mesh::spp::SppFile;
 
 use crate::spp_import::channel_kind;
@@ -606,6 +606,12 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
                     }
                     _ => self.stats.skip(format!("mask filter '{}'", graph.name())),
                 },
+                // A text tip stamps glyphs of a font; SubCraft would stamp a disc of the whole tip
+                // size instead (on DBAL-A2 one "2" eraser stamp wiped most of a label), so these
+                // strokes are left out and named.
+                ActionKind::Paint { brush: Some(BrushInfo { tip_text: Some(text), tip, .. }), .. } | ActionKind::Eraser { brush: Some(BrushInfo { tip_text: Some(text), tip, .. }), .. } => {
+                    self.stats.skip(format!("text brush stamps (\"{text}\" in {tip})"));
+                }
                 ActionKind::Paint { strokes, brush: Some(brush), opacity } | ActionKind::Eraser { strokes, brush: Some(brush), opacity } if self.picker.is_some() && self.geometry.is_some() => {
                     let erase = matches!(action.kind, ActionKind::Eraser { .. });
                     let blend = self.group_blend(action);
