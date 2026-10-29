@@ -288,6 +288,24 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
         }
     }
 
+    /// Painter's geometry mask (the layer applies to some mesh objects only) as a part mask by
+    /// object, matched by name.
+    fn geometry_mask(&mut self, layer: &mut Layer, info: &LayerInfo) {
+        let Some((default_on, listed)) = &info.mesh_filter else { return };
+        let Some(geometry) = &self.geometry else { return };
+        let objects = &geometry.mesh().objects;
+        let ids = objects.iter().enumerate().filter(|(_, o)| *default_on != listed.contains(&o.name)).map(|(i, _)| i as u32);
+        layer.parts = Some(subcraft_doc::PartMask::for_kind(subcraft_core::PartKind::Object, ids));
+        if std::env::var_os("SUBCRAFT_SPP_DEBUG").is_some() {
+            eprintln!("geometry mask of '{}': {:?} -> {:?} of {} objects", info.name, info.mesh_filter, layer.parts.as_ref().map(|p| &p.parts), objects.len());
+        }
+        if listed.iter().any(|n| !objects.iter().any(|o| &o.name == n)) {
+            self.stats.skip("geometry mask naming a mesh the model does not have");
+        } else {
+            self.stats.exact += 1;
+        }
+    }
+
     fn layer(&mut self, info: &LayerInfo) -> Layer {
         let ts = self.ts;
         let name = if info.name.is_empty() { "Layer".to_string() } else { info.name.clone() };
@@ -302,6 +320,7 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
             }
             self.apply_opacity(&mut folder, info);
             self.attach_mask(&mut folder, info);
+            self.geometry_mask(&mut folder, info);
             return folder;
         }
         self.stats.layers += 1;
@@ -317,6 +336,7 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
             }
         }
         self.attach_mask(&mut layer, info);
+        self.geometry_mask(&mut layer, info);
         layer
     }
 

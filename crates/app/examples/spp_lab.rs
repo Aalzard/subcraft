@@ -115,6 +115,14 @@ fn main() {
     }
     write_f32(dir, "coverage", w, h, 1, &cov.iter().map(|c| *c as u8 as f32).collect::<Vec<_>>(), &mut index);
     write_f32(dir, "triangle", w, h, 1, &tri, &mut index);
+    // Regions: the mesh object and the connected element of every covered texel (-1 outside), with
+    // the object names in `objects.txt`, for per-part errors.
+    let elements = geometry.triangle_parts();
+    let region = |f: &dyn Fn(usize) -> Option<u32>| tri.iter().map(|&t| if t < 0.0 { -1.0 } else { f(t as usize).map_or(-1.0, |v| v as f32) }).collect::<Vec<f32>>();
+    write_f32(dir, "object", w, h, 1, &region(&|t| mesh.tri_object.get(t).copied().flatten()), &mut index);
+    write_f32(dir, "element", w, h, 1, &region(&|t| elements.get(t).copied()), &mut index);
+    std::fs::write(dir.join("objects.txt"), mesh.objects.iter().enumerate().map(|(i, o)| format!("{i} {}
+", o.name)).collect::<String>()).unwrap();
     let mut alone = ts.clone();
     let mut f = (*folder).clone();
     f.visible = true;
@@ -149,11 +157,30 @@ fn main() {
         ablate(&session, &f, &flat_dense, &cov, kind);
         return;
     }
-    if args.get(3).is_some_and(|a| a == "trace") {
-        let x: u32 = args[4].parse().unwrap();
-        let y: u32 = args[5].parse().unwrap();
+    if args.get(3).is_some_and(|a| a == "ablate_region") {
+        // `ablate_region object|element N [b|r|m]`: ablation inside one region only.
+        let by_object = args[4] == "object";
+        let n: u32 = args[5].parse().unwrap();
         let kind = match args.get(6).map(|s| s.as_str()) { Some("r") => ChannelKind::Roughness, Some("m") => ChannelKind::Metallic, _ => ChannelKind::BaseColor };
-        trace(&session, &f, x, y, kind);
+        let elements = geometry.triangle_parts();
+        let inside: Vec<bool> = tri.iter().zip(&cov).map(|(&t, &c)| c && t >= 0.0 && if by_object { mesh.tri_object.get(t as usize).copied().flatten() == Some(n) } else { elements.get(t as usize) == Some(&n) }).collect();
+        println!("region: {} texels", inside.iter().filter(|b| **b).count());
+        let flat_dense: Vec<(ChannelKind, Vec<f32>)> = flat.iter().map(|(k, i)| (*k, dense(i, k.components()))).collect();
+        ablate(&session, &f, &flat_dense, &inside, kind);
+        return;
+    }
+    if args.get(3).is_some_and(|a| a == "trace") {
+        // `trace x y [r|m]` or `trace x,y x,y ... [r|m]`.
+        let kind = match args.last().map(|s| s.as_str()) { Some("r") => ChannelKind::Roughness, Some("m") => ChannelKind::Metallic, _ => ChannelKind::BaseColor };
+        let points: Vec<(u32, u32)> = if args[4].contains(',') {
+            args[4..].iter().filter_map(|a| a.split_once(',').map(|(x, y)| (x.parse().unwrap(), y.parse().unwrap()))).collect()
+        } else {
+            vec![(args[4].parse().unwrap(), args[5].parse().unwrap())]
+        };
+        for (x, y) in points {
+            println!("== trace {x},{y} {kind:?}");
+            trace(&session, &f, x, y, kind);
+        }
         return;
     }
     if args.get(3).is_some_and(|a| a == "masks") {
@@ -324,6 +351,18 @@ fn leaves(l: &subcraft_doc::Layer, path: Vec<usize>, out: &mut Vec<(Vec<usize>, 
         }
         _ => out.push((path, l.name.clone())),
     }
+}
+
+/// "folder / sub / leaf" for an index path from [`leaves`].
+fn path_name(folder: &subcraft_doc::Layer, path: &[usize]) -> String {
+    let mut names = Vec::new();
+    let mut l = folder;
+    for &i in path {
+        let LayerContent::Group(g) = &l.content else { break };
+        l = &g.children[i];
+        names.push(l.name.clone());
+    }
+    names.join(" / ")
 }
 
 /// Hide every leaf after the first `k` (in compositing order).
@@ -554,7 +593,7 @@ pub fn trace(session: &subcraft_app::Session, folder: &subcraft_doc::Layer, x: u
         c.evaluate_tiles(&set, &ctx, &[tile]);
         let v = c.channel(kind).unwrap().get(x, y);
         if (0..4).any(|i| (v[i] - prev[i]).abs() > 1e-3) {
-            println!("after {k:3} '{}': {:?}", if k > 0 { list[k - 1].1.as_str() } else { "-" }, &v[..kind.components() + 1]);
+            println!("after {k:3} '{}': {:?}", if k > 0 { path_name(folder, &list[k - 1].0) } else { "-".into() }, &v[..kind.components() + 1]);
         }
         prev = v;
     }

@@ -19,7 +19,8 @@ use subcraft_mesh::{Bvh, Mesh};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Granularity {
     Triangle,
-    /// Painter's "mesh fill": the whole mesh object (the model file's object/sub-mesh).
+    /// Painter's "mesh fill": the whole mesh object (the model file's object/sub-mesh), joined
+    /// with every object it shares connected geometry with.
     Object,
     UvIsland,
 }
@@ -35,6 +36,33 @@ impl Granularity {
     }
 }
 
+/// Per-triangle object ids where objects that share a connected element get one id (the smallest).
+/// Measured on DBAL-A2: a piece welded to another object's mesh is filled with it in Painter
+/// (Plane.003 with Plane_002.002: Base Color 0.40 -> 0.05 there), while an object made of separate
+/// pieces is still filled whole (filling by connected piece alone tripled Metallic on one ring).
+pub fn join_connected(objects: &[u32], elements: &[u32]) -> Vec<u32> {
+    use std::collections::HashMap;
+    let mut parent: HashMap<u32, u32> = HashMap::new();
+    fn find(p: &mut HashMap<u32, u32>, x: u32) -> u32 {
+        let up = *p.get(&x).unwrap_or(&x);
+        if up == x {
+            return x;
+        }
+        let root = find(p, up);
+        p.insert(x, root);
+        root
+    }
+    let mut first: HashMap<u32, u32> = HashMap::new();
+    for (&o, &e) in objects.iter().zip(elements) {
+        let other = *first.entry(e).or_insert(o);
+        let (a, b) = (find(&mut parent, o), find(&mut parent, other));
+        if a != b {
+            parent.insert(a.max(b), a.min(b));
+        }
+    }
+    objects.iter().map(|&o| find(&mut parent, o)).collect()
+}
+
 /// Mesh, ray tracer and connectivity used to replay polygon fills.
 pub struct Picker {
     pub mesh: Arc<Mesh>,
@@ -48,7 +76,8 @@ impl Picker {
         let bvh = Bvh::build(&mesh);
         // Triangles without an object fall back to their connected element (offset past the objects).
         let elements = subcraft_mesh::topology::mesh_elements(&mesh);
-        let objects = (0..mesh.triangle_count()).map(|t| mesh.tri_object.get(t).copied().flatten().unwrap_or(1 << 30 | elements[t])).collect();
+        let objects: Vec<u32> = (0..mesh.triangle_count()).map(|t| mesh.tri_object.get(t).copied().flatten().unwrap_or(1 << 30 | elements[t])).collect();
+        let objects = join_connected(&objects, &elements);
         let islands = subcraft_mesh::topology::uv_islands(&mesh);
         Self { mesh, bvh, objects, islands }
     }
@@ -640,6 +669,14 @@ mod tests {
         assert!(p.select(&hit(vec![[0.5, 0.95]], 2, 1.0), false).is_empty(), "a click beside the cube selects nothing");
         let through = p.select(&hit(vec![[0.55, 0.6]], 3, 1.0), true);
         assert_eq!(through.len(), 64, "paint-through also takes the back face");
+    }
+
+    #[test]
+    fn mesh_fill_joins_objects_that_share_connected_geometry() {
+        // Objects 0 and 1 are welded through element 7; object 2 has two separate pieces.
+        let objects = [0, 0, 1, 1, 2, 2, 3];
+        let elements = [7, 7, 7, 8, 9, 10, 11];
+        assert_eq!(join_connected(&objects, &elements), vec![0, 0, 0, 0, 2, 2, 3]);
     }
 
     #[test]

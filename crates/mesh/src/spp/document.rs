@@ -488,6 +488,9 @@ pub struct LayerInfo {
     pub mask: Vec<ActionInfo>,
     pub mask_enabled: bool,
     pub mask_initial_white: bool,
+    /// Geometry mask (`geometryMaskType` 1): whether meshes are enabled by default, and the mesh
+    /// object names (`enabledMeshList`) that are the exception. `None`: the layer covers every mesh.
+    pub mesh_filter: Option<(bool, Vec<String>)>,
     pub children: Vec<LayerInfo>,
 }
 
@@ -728,6 +731,8 @@ fn layer_of(l: &Obj) -> LayerInfo {
         mask: mask_actions.into_iter().map(|(a, b, g)| action_of(a, b, g)).collect(),
         mask_enabled: l.bool("maskEnabled").unwrap_or(true),
         mask_initial_white: l.int("maskInitial").unwrap_or(1) != 0,
+        mesh_filter: (l.int("geometryMaskType").unwrap_or(0) != 0)
+            .then(|| (l.bool("enabledMeshDefault").or_else(|| l.int("enabledMeshDefault").map(|v| v != 0)).unwrap_or(true), l.list("enabledMeshList").iter().filter_map(|m| m.str("value").map(str::to_string)).collect())),
         children,
     }
 }
@@ -822,5 +827,14 @@ mod tests {
         assert_eq!(source_of(&reference), Some(SourceInfo::Reference { channels: 0, anchor: 16_777_217, levels: None }), "uids above 2^24 stay exact");
         let anchor = action_of(&obj("DataActionAnchor", vec![("uid", Val::Int(483613))]), Vec::new(), 0);
         assert_eq!(anchor.kind, ActionKind::Anchor { uid: 483613 });
+    }
+
+    #[test]
+    fn geometry_mask_is_read() {
+        let mesh = |n: &str| obj("DataByteArrayBox", vec![("value", Val::Str(n.into()))]);
+        let only = obj("DataLayerGroup", vec![("label", Val::Str("tape".into())), ("geometryMaskType", Val::Int(1)), ("enabledMeshDefault", Val::Bool(false)), ("enabledMeshList", Val::List(vec![mesh("2.002_low")]))]);
+        assert_eq!(layer_of(&only).mesh_filter, Some((false, vec!["2.002_low".to_string()])));
+        let all = obj("DataLayerColor", vec![("geometryMaskType", Val::Int(0)), ("enabledMeshDefault", Val::Int(255))]);
+        assert_eq!(layer_of(&all).mesh_filter, None);
     }
 }
