@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-10-29 (session 110: Painter stacks matched against Painter; DBAL-A2 passes)
+Last updated: 2026-10-29 (session 110b: per-region accuracy on DBAL-A2, text investigation)
 
 ## Decisions
 
@@ -3199,3 +3199,64 @@ searches); see its header. Format findings are in `docs/spp-research.md` ("Match
   each tie with other modes; Painter's default normal blend and ids 0/1/8/23 are untested; Ambient
   Occlusion and Emissive are not in the gate (the cache holds 0 where no layer wrote AO); only three
   sample projects exist on this PC.
+
+### Session 110b - Painter stacks: per-region accuracy on DBAL-A2, text investigation (2026-10-29)
+
+Driven by the user's 2K comparison of DBAL-A2's top plate (rebuilt vs flattened, same camera). The
+metric is now per region: `spp_lab` writes object and connected-element maps (`object`, `element`,
+`objects.txt`), an object-space `position` map, traces several texels with layer paths
+(`trace x,y x,y ... [r|m]`), ablates inside one region (`ablate_region object|element N`), and dumps
+masks by layer name (`masks frame text`). Scripted screenshots take a fixed view:
+`--camera yaw,pitch,zoom[,x,y,z]` (degrees, zoom on the framing distance, target offset in half
+diagonals), applied whenever a model is framed.
+
+* **Measured, DBAL-A2 at 1024 (Base Color sRGB / Roughness / Metallic, mean over the region's
+  covered texels), start of this pass -> now:**
+
+| region | before | after |
+|---|---|---|
+| whole set (linear Base Color) | 0.0156 / 0.0450 / 0.0561 | 0.0138 / 0.0453 / 0.0528 |
+| "DBAL-A2" label | 0.066 / 0.032 / 0.053 | 0.053 / 0.032 / 0.049 |
+| QR code and "CAGE / P/N / S/N" text | 0.069 / 0.039 / 0.081 | 0.049 / 0.038 / 0.051 |
+| Plane.003_low (white blotches, received no layer) | 0.396 / 0.039 / 0.636 | 0.055 / 0.034 / 0.076 |
+| plate slots, Circle.072_low part A | 0.183 / 0.077 / 0.205 | 0.120 / 0.093 / 0.147 |
+| plate slots, Circle.072_low part B | 0.062 / 0.119 / 0.083 | 0.099 / 0.189 / 0.159 |
+| round button (Circle.090_low) | 0.097 / 0.143 / 0.000 | 0.067 / 0.174 / 0.000 |
+| sticker / second green label | 0.051 / 0.052 / 0.486, 0.047 / 0.051 / 0.436 | unchanged |
+
+  Full 4096 imports, gate at 512 (Base Color / Roughness / Metallic / Normal / Height): DBAL-A2
+  0.015 / 0.048 / 0.054 / 0.004 / 0.001 (was 0.017 / 0.048 / 0.057), 133 s, 5.7 GB peak;
+  CarInteriro 0.008 / 0.032 / 0.003 / 0.016 / 0.004; Street_cyberpunk 0.006 / 0.025 / 0.000, Height
+  0.037. All pass and show the rebuilt stack. Top-plate screenshot at 2K (1600x1000, `--camera
+  20,65,1.8`), viewport mean 8-bit difference to the flattened shot 4.59 -> 4.17.
+* **Fixed (root causes, each measured):** layers' geometry masks (`enabledMeshDefault` is a bool;
+  four DBAL-A2 layers are limited to one mesh object) are part masks by object; Painter's mesh fill
+  takes the clicked object and every object welded to it (Plane.003 shares geometry with
+  Plane_002.002); 3D-view brush sizes scale with the stroke's view height (x 1.5, calibrated), which
+  keeps "DBAL-A" whole where the diagonal reading let black strokes cut it to "RAL-A"; brush tips that
+  are Painter fonts are not stamped as discs (one "2" eraser on the label, named in the notes);
+  placed images sit at 0.5 + translation with radian rotations (the QR code and the sticker landed
+  mirrored about the centre); 2D-view strokes use their stencil (the "CAGE" text was a grey blob);
+  blending id 10 is Linear burn (searched again: Metallic 0.0542 -> 0.0528); zero-area rectangle drags
+  are clicks (48 of 140 rectangles selected nothing).
+* **Measured and rejected:** filling by connected piece alone (Metallic on a ring 0.09 -> 0.27),
+  polygon (quad) fills for granularity 0 (no gain), rectangles taking every triangle they touch
+  (CarInteriro Metallic 0.003 -> 0.013), UV-unit dabs for UV-aligned strokes (DBAL-A2 better, the two
+  other projects worse; kept behind `SUBCRAFT_SPP_UV_DABS=1`), Lighten for id 10 (Metallic 0.079).
+* **Text:** DBAL-A2's labels are not text in the .spp: they are 328 stencilled strokes using three
+  imported stencil sheets (your_assets Stencil_Utility_Tool 157, Weapon_Stencil_4 137,
+  Weapon_Stencil_2 34); no string or font exists for them, so they stay bitmaps. The only text data is
+  one eraser stamp whose tip is Painter's font resource `font_chathura` with tweaks text "2",
+  fontsize 0.7, alignment 1, position (0, 0.05). CarInteriro and Street_cyberpunk have none. SubCraft
+  has no text layer; one would need a font rasterizer outside egui (a new direct dependency), so it
+  was not added; the decision is the user's.
+* **Tests:** `cargo test --workspace` 743 passed. mesh `geometry_mask_is_read`, `text_tip_string_is_read`; app `spp_select`
+  (mesh fill joins welded objects, view-height brush size, 2D-view stencil, UV-aligned dabs, drags
+  as clicks), `tests/spp_stack.rs` (geometry mask to part mask, blending id table); ui
+  `camera_view_from_the_command_line`.
+* **Still wrong (visible in the 2K pair):** tan dirt in the plate slots (the dirt layers' black
+  cleaning strokes need a larger brush than the QR's black stamps allow: no single brush size fits
+  both); a white patch at the bottom of a slot ("sighting bar / Fill layer 107" paints where Painter
+  shows none); the FIRE lens is too bright; the sticker folder's mask is empty (its two anchor
+  references combine with id 10, which erases both green labels under every intersection-like mode,
+  while union-like modes are far worse overall); the knob numbers read "00" instead of "06".

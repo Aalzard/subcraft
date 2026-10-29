@@ -230,3 +230,23 @@ masks; a one-layer-per-mode calibration project would settle it.
 * **Padding**: Painter's channel textures carry the nearest island's value outside the UV triangles.
   Mask rasters rebuilt from strokes and polygon fills are padded the same way (nearest inside texel);
   left empty, 4K views showed bright outlines along every part's edge.
+
+### Session 110b findings (per region, DBAL-A2)
+* **Geometry mask**: `geometryMaskType` 1, `enabledMeshDefault` (bool), `enabledMeshList` (mesh
+  object names as `DataByteArrayBox` values): the layer applies to the listed meshes only (or to all
+  but them when the default is on).
+* **Mesh fill** (granularity 2) takes the clicked object plus every object that shares connected
+  geometry with it.
+* **Brush size** of 3D-view strokes follows the stroke's view (orthographic height 2 / P[1][1]); the
+  factor (1.5 of `brushSize` x view height as the diameter) is calibrated on the three samples.
+  `DataStrokeKey` holds position, time and type only: no pressure is stored.
+* **UV transformation** of fills: the image's centre is at 0.5 + translation (Painter UV, v up),
+  `rotation` is in radians, scale and rotation act around that centre.
+* **2D-view stencils**: the action's `projMatrix` maps the stroke's UV directly to stencil UV.
+* **Rectangles** narrower than ~1% of the view are clicks; otherwise triangles are taken by centre.
+* **Text**: Painter's text is a brush tip from a font resource (`starter_assets/font_*`), with a
+  `DataTweakByteArray` "text" (the string), "fontsize", "alignment", "position", "flip". Labels in the
+  samples are stencil images, not text.
+* **Blending id 10** is Linear burn by search (Multiply close); one folder (DBAL-A2's sticker) behaves
+  like a union instead, unexplained.
+
