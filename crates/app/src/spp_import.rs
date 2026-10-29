@@ -686,7 +686,9 @@ fn rebuild_stack(spp: &mut SppFile, info: &TextureSetInfo, ts: &mut TextureSet, 
     let t_fit = std::time::Instant::now();
     // SUBCRAFT_SPP_NO_FIT leaves the provisional values (developer aid for faster experiments).
     let fitted = if std::env::var_os("SUBCRAFT_SPP_NO_FIT").is_some() { Vec::new() } else { fitted };
-    let detail = std::env::var_os("SUBCRAFT_SPP_DETAIL").is_some();
+    // Fitted layers whose sources are uniform get their content solved per texel from Painter's
+    // result (SUBCRAFT_SPP_NO_DETAIL keeps the plain fitted values, for comparisons).
+    let detail = std::env::var_os("SUBCRAFT_SPP_NO_DETAIL").is_none();
     let (values, solved, composite) = fit_solve_composite(&mut probe_set, &fitted, mesh, resources, &probe_maps, &flat_content, coverage, detail);
     if fitted.len() == fitted_full.len() && !fitted.is_empty() {
         let mut top = vec![std::sync::Arc::new(folder)];
@@ -723,7 +725,7 @@ fn rebuild_stack(spp: &mut SppFile, info: &TextureSetInfo, ts: &mut TextureSet, 
         stats.layers, stats.folders, stats.exact, stats.approximate, stats.placeholders, if summary.is_empty() { "n/a".into() } else { summary.join(", ") }
     ));
     if std::env::var_os("SUBCRAFT_SPP_TIMING").is_some() {
-        notes.push(format!("    rebuild timing: {:?}, fit of {} layers {t_fit:?}", stats.timings, fitted.len()));
+        notes.push(format!("    rebuild timing: {:?}, fit of {} layers {t_fit:?}, {} solved textures", stats.timings, fitted.len(), solved.len()));
         for (label, n, ms) in subcraft_compositor::profile::take().iter().take(10) {
             notes.push(format!("    composite profile {label}: {n} evaluations, {ms:.0} ms"));
         }

@@ -220,6 +220,19 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
         };
         let t = std::time::Instant::now();
         let shared = std::sync::Mutex::new(HashMap::new());
+        // Anchored masks are evaluated at no more than `raster_max_resolution() / 2` (each is a
+        // composite of the mask; at 4096 they took 4 minutes for one project) and resampled.
+        let res = self.ts.resolution;
+        let cap = (raster_max_resolution() / 2).min(res).max(64);
+        let (eval_view, eval_geometry, eval_maps) = if cap < res {
+            let mut view = self.ts.clone();
+            view.resolution = cap;
+            let g = Arc::new(TextureSetGeometry::new(geometry.mesh().clone(), geometry.material_slot, cap));
+            let m = subcraft_materials::MeshMaps::from_map(maps.iter().map(|(k, v)| (k, v.resampled(cap, cap))).collect());
+            (view, g, m)
+        } else {
+            (self.ts.clone(), geometry.clone(), maps.clone())
+        };
         let mut todo = std::mem::take(&mut self.references);
         for _round in 0..8 {
             let unresolved: Vec<EffectId> = todo.iter().map(|r| r.1).collect();
@@ -242,7 +255,12 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
                 if let Some(l) = &levels {
                     mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Levels(levels_of(l)))));
                 }
-                let mut image = eval_mask_image(&mask, self.ts, &geometry, self.resources, &maps);
+                let image = if cap < res {
+                    eval_mask_image(&scaled_mask(&mask, cap as f32 / res as f32, cap), &eval_view, &eval_geometry, self.resources, &eval_maps).resampled(res, res)
+                } else {
+                    eval_mask_image(&mask, &eval_view, &eval_geometry, self.resources, &eval_maps)
+                };
+                let mut image = image;
                 share_constant_tiles(&mut image, &shared);
                 if let Some(l) = find_layer_mut(layers, layer_id) {
                     if let Some(m) = l.mask.as_mut() {
@@ -653,7 +671,7 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
             vec![mapped(t.position, GeneratorKind::PositionGradient, get(&["global_balance"], 0.5), get(&["global_contrast"], 0.0), flag("global_invert"))]
         } else if let Some(effects) = self.grunge_effects(g, &name, projection) {
             effects
-        } else if let Some(kind) = noise_kind(&name) {
+        } else if let Some(kind) = noise_kind(&name).filter(|_| !skip("noise")) {
             self.stats.approximate += 1;
             let mut p = ProceduralParams::new(kind);
             p.scale = get(&["scale"], 4.0).clamp(0.5, 64.0);
@@ -873,6 +891,34 @@ fn find_in_mut(l: &mut Layer, id: LayerId) -> Option<&mut Layer> {
     }
 }
 
+/// `mask` for a texture `factor` times the size (`res` texels): rasters resampled, filter radii
+/// (in texels) scaled.
+fn scaled_mask(mask: &Mask, factor: f32, res: u32) -> Mask {
+    let mut m = mask.clone();
+    m.base = m.base.resampled(res, res);
+    for e in &mut m.effects {
+        let e = Arc::make_mut(e);
+        match &mut e.kind {
+            MaskEffectKind::Paint { image } => *image = image.resampled(res, res),
+            MaskEffectKind::Filter(f) => {
+                *f = match *f {
+                    Filter::Blur { radius } => Filter::Blur { radius: radius * factor },
+                    Filter::Sharpen { radius, amount } => Filter::Sharpen { radius: (radius * factor).max(0.5), amount },
+                    Filter::Median { radius } => Filter::Median { radius: radius * factor },
+                    Filter::Warp { intensity, scale, seed } => Filter::Warp { intensity: intensity * factor, scale, seed },
+                    Filter::DirectionalBlur { radius, angle_deg } => Filter::DirectionalBlur { radius: radius * factor, angle_deg },
+                    Filter::Highpass { radius, amount } => Filter::Highpass { radius: radius * factor, amount },
+                    Filter::Bevel { radius, amount, threshold } => Filter::Bevel { radius: radius * factor, amount, threshold },
+                    Filter::MaskOutline { radius, threshold, position } => Filter::MaskOutline { radius: radius * factor, threshold, position },
+                    other => other,
+                }
+            }
+            _ => {}
+        }
+    }
+    m
+}
+
 /// A mask evaluated on its own as a (value, alpha = 1) raster at the set's resolution.
 pub fn eval_mask_image(mask: &Mask, view: &TextureSet, geometry: &TextureSetGeometry, resources: &ResourceStore, maps: &subcraft_materials::MeshMaps) -> TiledImage {
     let mut set = TextureSet::new("anchor", view.material_slot, view.resolution);
@@ -942,7 +988,9 @@ fn noise_kind(name: &str) -> Option<ProceduralKind> {
     } else if n.contains("spots") || n.contains("speckle") {
         ProceduralKind::Speckles
     } else if n.contains("anisotropic") || n.contains("fur") || n.contains("brushed") {
-        ProceduralKind::Brushed
+        // SubCraft's Brushed pattern drew stripes where Painter's anisotropic noises leave the
+        // mask even (DBAL-A2 Metallic 0.076 -> 0.070 without it, no change elsewhere).
+        return None;
     } else if n.contains("scratches") {
         ProceduralKind::Scratches
     } else {

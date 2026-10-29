@@ -382,7 +382,7 @@ impl<'a> StrokeReplay<'a> {
             _ => subcraft_paint::Alignment::Uv,
         });
         let settings = subcraft_paint::BrushSettings {
-            size: brush.size * 100.0,
+            size: brush.size * 100.0 * brush_scale(),
             flow: brush.flow,
             stroke_opacity: opacity,
             spacing: brush.spacing.max(0.02),
@@ -439,6 +439,14 @@ impl<'a> StrokeReplay<'a> {
         }
         self.image()
     }
+}
+
+/// SubCraft brush size (percent of the bounding-box diagonal) per unit of Painter's `brushSize`
+/// x 100. Measured: 0.5 matches all three sample projects better than 1 (DBAL-A2 Metallic 0.070
+/// -> 0.067, Street_cyberpunk Base Color 0.007 -> 0.005); smaller gains under 0.001 more.
+/// `SUBCRAFT_SPP_BRUSH_SCALE` overrides it for experiments.
+fn brush_scale() -> f32 {
+    std::env::var("SUBCRAFT_SPP_BRUSH_SCALE").ok().and_then(|v| v.parse::<f32>().ok()).unwrap_or(0.5)
 }
 
 /// Stroke diameter in UV units per unit of Painter's brush size, for strokes painted in the 2D view.
