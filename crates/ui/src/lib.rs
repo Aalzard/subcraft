@@ -16,6 +16,7 @@ pub mod render_export;
 pub mod pen;
 pub mod panels;
 pub mod recovery;
+pub mod spp_import;
 pub mod state;
 pub mod layer_previews;
 pub mod edit_profile;

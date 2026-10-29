@@ -572,3 +572,19 @@ fn warp_filter_has_stable_json() {
     use subcraft_doc::Filter;
     assert_eq!(serde_json::to_string(&Filter::Warp {intensity:8.0,scale:4,seed:7}).unwrap(),r#"{"kind":"warp","intensity":8.0,"scale":4,"seed":7}"#);
 }
+
+#[test]
+fn the_trusted_loader_keeps_filter_parameters_the_checked_loader_rejects() {
+    use subcraft_doc::Filter;
+    let mesh = primitives::cube(2.0);
+    let mut ts = TextureSet::new("T", 0, 128);
+    let mut layer = Layer::new_fill("F", &ts);
+    let mut mask = Mask::new(128, false);
+    mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Filter(Filter::Blur { radius: 90.0 }))));
+    layer.mask = Some(mask);
+    ts.insert_above(None, layer);
+    let doc = Document { texture_sets: vec![ts] };
+    let bytes = write_project(Cursor::new(Vec::new()), &mesh, &doc, &ResourceStore::default(), &MeshMapSet::new()).unwrap().into_inner();
+    assert!(matches!(read_project(Cursor::new(bytes.clone())), Err(ProjectError::Invalid(_))));
+    assert_eq!(read_project_checked(Cursor::new(bytes), true).unwrap().document, doc);
+}

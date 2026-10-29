@@ -124,6 +124,8 @@ pub struct UiState {
     pub allow_close: bool,
     pub last_title: String,
     pub bake: crate::dialogs::BakeUi,
+    /// A Painter project being opened in the background.
+    pub spp_import: Option<crate::spp_import::SppImportUi>,
     pub symmetry_uploaded: Option<(usize, [bool; 3])>,
     pub uv_wireframe: bool,
     pub library: subcraft_app::assets::Library,
@@ -213,6 +215,7 @@ impl UiState {
             allow_close: false,
             last_title: String::new(),
             bake: Default::default(),
+            spp_import: None,
             symmetry_uploaded: None,
             uv_wireframe: true,
             library: subcraft_app::assets::Library::builtin(),

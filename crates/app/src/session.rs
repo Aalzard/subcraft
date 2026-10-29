@@ -322,6 +322,32 @@ impl Session {
         self.mesh_maps.get(&ts).filter(|m| !m.is_empty())
     }
 
+    /// Install a rebuilt Painter stack: per texture set the folder goes above the flattened layer
+    /// (which takes the visibility chosen by the quality check). Layers the user added meanwhile
+    /// stay where they are. While the project is still as opened, the result replaces the opened
+    /// state (so undo cannot go back to a half-imported project); otherwise it is one undo step.
+    /// Returns the stack's notes.
+    pub fn apply_spp_stack(&mut self, stack: crate::spp_job::SppStack) -> Vec<String> {
+        for r in stack.resources.iter() {
+            self.resources.insert_shared(r.clone());
+        }
+        let pristine = self.history.entries().len() == 1 && self.history.cursor() == 0;
+        for u in stack.updates {
+            let Some(ts) = self.doc.texture_set_mut(u.texture_set) else { continue };
+            let Some(pos) = ts.layers.iter().position(|l| l.id == u.flat.id) else { continue };
+            ts.layers[pos] = u.flat;
+            ts.layers.insert(pos + 1, u.folder);
+        }
+        if pristine {
+            self.history.reset(self.doc.clone(), "Open Painter project");
+            self.saved_doc = self.doc.clone();
+            self.revision += 1;
+        } else {
+            self.commit("Rebuild Painter stack", None);
+        }
+        stack.notes
+    }
+
     /// Install baked maps (merged over existing ones) and refresh that set's composite.
     pub fn set_mesh_maps(&mut self, ts: TextureSetId, maps: std::collections::BTreeMap<subcraft_core::MeshMapKind, subcraft_image::TiledImage>) {
         let entry = self.mesh_maps.entry(ts).or_default();

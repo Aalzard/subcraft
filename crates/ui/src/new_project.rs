@@ -369,11 +369,20 @@ fn create_project(state: &mut UiState, now: f64) {
     // A Painter project brings its own texture sets, baked maps and flattened textures: import
     // those instead of building empty sets from the bare model.
     let is_spp = model.path.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("spp"));
-    let created = if is_spp {
-        subcraft_app::Session::open_mesh(&model.path, settings.resolution).map(|(session, notes)| (session, notes.len(), notes.into_iter().next()))
-    } else {
-        subcraft_app::Session::from_mesh_with(model.mesh.clone(), &settings).map(|session| (session, 0, None))
-    };
+    if is_spp {
+        // Opens in the background; the session replaces the current one when the model and the
+        // flattened textures are read (the rebuilt layers follow).
+        crate::spp_import::start(state, &model.path);
+        state.recovery.prefs.new_project = NewProjectSettings { high_poly: None, resolution_overrides: Default::default(), ..settings.clone() };
+        if let Some(high) = state.new_project.high.take() {
+            state.bake.high_poly = high.path.display().to_string();
+            state.bake.open = true;
+        }
+        state.new_project.open = false;
+        state.new_project.error = None;
+        return;
+    }
+    let created = subcraft_app::Session::from_mesh_with(model.mesh.clone(), &settings).map(|session| (session, 0usize, None::<String>));
     match created {
         Ok((session, warnings, first_warning)) => {
             state.set_session(session);
@@ -419,6 +428,13 @@ mod tests {
         state.new_project.load_model(&path);
         assert!(state.new_project.error.is_none(), "{:?}", state.new_project.error);
         create_project(&mut state, 0.0);
+        let ctx = egui::Context::default();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+        while state.spp_import.is_some() {
+            crate::spp_import::poll(&mut state, &ctx, 0.0);
+            assert!(std::time::Instant::now() < deadline, "the import did not finish");
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
         let ts = &state.session.document().texture_sets[0];
         assert!(ts.layers.iter().any(|l| l.name == "Painter project (flattened)"), "the flattened Painter layer is missing");
     }

@@ -408,6 +408,8 @@ impl SubcraftApp {
                     Session::sample()
                 }
             },
+            // A Painter project opens in the background (started below): show the sample until then.
+            Some(path) if crate::spp_import::is_spp(path) => Session::sample(),
             Some(path) => match Session::open_mesh(path, subcraft_app::DEFAULT_RESOLUTION) {
                 Ok((s, warnings)) => {
                     if !warnings.is_empty() {
@@ -435,6 +437,9 @@ impl SubcraftApp {
                 state.set_status(result.clone(), 0.0);
                 if result.starts_with("Update failed") && let Some(updater) = &mut state.updater { updater.open = true; updater.phase = subcraft_app::updater::Phase::Error(result); }
             }
+        }
+        if !restore_failed && options.resume_update.is_none() && let Some(path) = options.mesh.as_ref().filter(|p| crate::spp_import::is_spp(p)) {
+            crate::spp_import::start(&mut state, path);
         }
         crate::bug_report::record_gpu(cc.wgpu_render_state.as_ref());
         state.bug_report = crate::bug_report::BugReportUi::load();
@@ -970,6 +975,14 @@ impl SubcraftApp {
             if let Some(l) = self.state.session.selected_layer() {
                 ui.add(egui::Label::new(small(format!("{}  {} / {}", icons::STACK, self.state.session.selected_texture_set().name, l.name), theme::TEXT_DIM)).truncate());
             }
+            if let Some(import) = &self.state.spp_import {
+                let (text, fraction) = import.progress();
+                ui.add(egui::Label::new(small(format!("{}  {text}", icons::INFO), theme::ACCENT)).truncate());
+                ui.add(egui::ProgressBar::new(fraction.unwrap_or(0.0)).desired_width(120.0).animate(fraction.is_none()));
+                if ui.small_button("Cancel").clicked() {
+                    import.cancel();
+                }
+            }
             if let Some((msg, t)) = &self.state.status
                 && now - t < 6.0
             {
@@ -1022,7 +1035,7 @@ impl SubcraftApp {
             self.state.session.mesh_maps(ts).and_then(|m| m.get(kind)).is_some_and(|image|
                 self.state.uploaded_maps.get(&(ts, kind)).is_some_and(|gpu| gpu.same_storage(image)))
         });
-        if !self.screenshot_requested && self.frames >= 20 && (pinned_ready || self.state.bake.job.is_none() && !self.state.session.composites_pending())
+        if !self.screenshot_requested && self.frames >= 20 && (pinned_ready || self.state.bake.job.is_none() && self.state.spp_import.is_none() && !self.state.session.composites_pending())
             && !self.state.bake.preview_pending() && (self.state.bake.preview_mesh.is_none() || self.state.bake.preview_uploaded)
         {
             if let Some(job) = self.state.pending_render_job.take() {
@@ -1244,6 +1257,7 @@ impl eframe::App for SubcraftApp {
         dialogs::export_window(&mut self.state, &ctx, now);
         dialogs::bake_window(&mut self.state, &ctx, now);
         dialogs::poll_bake(&mut self.state, &ctx, now);
+        crate::spp_import::poll(&mut self.state, &ctx, now);
         crate::files::poll(&mut self.state, now);
         if let Some(action) = dialogs::unsaved_prompt(&mut self.state, &ctx, now) {
             self.pending_now = Some(action);

@@ -352,6 +352,9 @@ fn temp_path(path: &Path) -> PathBuf {
 struct Loader<'a, R: Read + Seek> {
     zip: &'a mut zip::ZipArchive<R>,
     cache: BTreeMap<String, TiledImage>,
+    /// Skip the range checks of filter parameters: for files this program wrote itself that
+    /// hold what an importer produced (the import cache), which must come back unchanged.
+    trusted: bool,
 }
 
 impl<R: Read + Seek> Loader<'_, R> {
@@ -383,7 +386,7 @@ impl<R: Read + Seek> Loader<'_, R> {
             MaskEffectKindV1::Generator { generator } => MaskEffectKind::Generator(*generator),
             MaskEffectKindV1::Levels { levels } => MaskEffectKind::Levels(*levels),
             MaskEffectKindV1::Filter { filter } => {
-                if !filter.valid() || !filter.supports_mask() { return Err(ProjectError::Invalid("invalid mask filter".into())); }
+                if !self.trusted && (!filter.valid() || !filter.supports_mask()) { return Err(ProjectError::Invalid("invalid mask filter".into())); }
                 MaskEffectKind::Filter(*filter)
             }
             MaskEffectKindV1::Invert => MaskEffectKind::Invert,
@@ -411,7 +414,7 @@ impl<R: Read + Seek> Loader<'_, R> {
             ContentEffectKindV5::Paint { channels } => ContentEffectKind::Paint { channels: self.paint_channels(channels, res)? },
             ContentEffectKindV5::Fill { projection, channels } => ContentEffectKind::Fill(read_fill(*projection, channels)),
             ContentEffectKindV5::Filter { channel, filter } => {
-                if !filter.valid() || !filter.supports_channel(*channel) { return Err(ProjectError::Invalid("invalid content filter".into())); }
+                if !self.trusted && (!filter.valid() || !filter.supports_channel(*channel)) { return Err(ProjectError::Invalid("invalid content filter".into())); }
                 ContentEffectKind::Filter { channel: *channel, filter: *filter }
             }
             ContentEffectKindV5::Levels { channel, levels } => {
@@ -482,6 +485,16 @@ impl<R: Read + Seek> Loader<'_, R> {
 
 /// Read a project container.
 pub fn read_project<R: Read + Seek>(r: R) -> Result<ProjectData, ProjectError> {
+    read_project_checked(r, false)
+}
+
+/// [`read_project`] for a file this program wrote itself and must get back unchanged, whatever
+/// parameter values it holds (the Painter import cache).
+pub fn load_project_trusted(path: &Path) -> Result<ProjectData, ProjectError> {
+    read_project_checked(std::io::BufReader::new(std::fs::File::open(path)?), true)
+}
+
+fn read_project_checked<R: Read + Seek>(r: R, trusted: bool) -> Result<ProjectData, ProjectError> {
     let mut zip = zip::ZipArchive::new(r)?;
     let manifest: Manifest = {
         let mut f = zip.by_name("manifest.json").map_err(|_| ProjectError::NotAProject)?;
@@ -495,7 +508,7 @@ pub fn read_project<R: Read + Seek>(r: R) -> Result<ProjectData, ProjectError> {
     if manifest.schema_version > SCHEMA_VERSION || manifest.schema_version == 0 {
         return Err(ProjectError::UnsupportedVersion(manifest.schema_version));
     }
-    let mut loader = Loader { zip: &mut zip, cache: BTreeMap::new() };
+    let mut loader = Loader { zip: &mut zip, cache: BTreeMap::new(), trusted };
     let mesh = subcraft_mesh::serialize::decode(&loader.bytes(&manifest.mesh)?).map_err(|e| ProjectError::Invalid(format!("mesh: {e}")))?;
     let doc: DocumentV1 = serde_json::from_slice(&loader.bytes(&manifest.document)?).map_err(|e| ProjectError::Invalid(format!("document: {e}")))?;
 

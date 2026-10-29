@@ -519,9 +519,18 @@ pub fn uv_paint(mut image: TiledImage, strokes: &[&StrokeInfo], brush: &BrushInf
 /// translation, in Painter's UV (origin bottom-left). Image coordinates are returned top-left.
 /// Verified on one placed sticker: the label lands where Painter shows it only with this order.
 pub fn painter_image_uv(t: &subcraft_mesh::spp::document::UvTransform, uv: glam::Vec2) -> glam::Vec2 {
-    let p = glam::Vec2::new(uv.x, 1.0 - uv.y);
+    painter_image_uv_rotated(t, rotation_sin_cos(t), uv)
+}
+
+/// Sine and cosine of the transform's rotation (read from the environment once, not per texel).
+pub fn rotation_sin_cos(t: &subcraft_mesh::spp::document::UvTransform) -> (f32, f32) {
     let rotation = if std::env::var_os("SUBCRAFT_SPP_ROT_RADIANS").is_some() { t.rotation } else { t.rotation.to_radians() };
-    let (s, c) = rotation.sin_cos();
+    rotation.sin_cos()
+}
+
+/// [`painter_image_uv`] with the rotation's sine and cosine given ([`rotation_sin_cos`]).
+pub fn painter_image_uv_rotated(t: &subcraft_mesh::spp::document::UvTransform, (s, c): (f32, f32), uv: glam::Vec2) -> glam::Vec2 {
+    let p = glam::Vec2::new(uv.x, 1.0 - uv.y);
     let d = (p - glam::Vec2::splat(0.5) + glam::Vec2::from(t.offset)) * glam::Vec2::from(t.scale);
     let q = glam::Vec2::new(d.x * c - d.y * s, d.x * s + d.y * c) + glam::Vec2::splat(0.5);
     glam::Vec2::new(q.x, 1.0 - q.y)
@@ -532,23 +541,32 @@ pub fn painter_image_uv(t: &subcraft_mesh::spp::document::UvTransform, uv: glam:
 pub fn placed_bitmap(geometry: &TextureSetGeometry, bitmap: &subcraft_image::Bitmap, t: &subcraft_mesh::spp::document::UvTransform) -> TiledImage {
     let res = geometry.resolution;
     let mut image = TiledImage::new(res, res, 2, [0.0; 4]);
-    for tile in 0..geometry.tile_count() {
-        let geo = geometry.tile(tile);
-        if geo.is_empty() {
-            continue;
-        }
-        let mut buf = vec![0.0f32; subcraft_image::TILE_TEXELS * 2];
-        let mut any = false;
-        for i in 0..subcraft_image::TILE_TEXELS {
-            let q = painter_image_uv(t, glam::Vec2::from(geo.uv(i)));
-            if (0.0..=1.0).contains(&q.x) && (0.0..=1.0).contains(&q.y) {
-                let px = bitmap.sample(q.x, q.y, subcraft_image::Wrap::Clamp, false);
-                buf[i * 2] = px[0];
-                buf[i * 2 + 1] = 1.0;
-                any = true;
+    // Every tile is independent: sampled on all cores, written in order.
+    use rayon::prelude::*;
+    let rotation = rotation_sin_cos(t);
+    let tiles: Vec<Option<Vec<f32>>> = (0..geometry.tile_count())
+        .into_par_iter()
+        .map(|tile| {
+            let geo = geometry.tile(tile);
+            if geo.is_empty() {
+                return None;
             }
-        }
-        if any {
+            let mut buf = vec![0.0f32; subcraft_image::TILE_TEXELS * 2];
+            let mut any = false;
+            for i in 0..subcraft_image::TILE_TEXELS {
+                let q = painter_image_uv_rotated(t, rotation, glam::Vec2::from(geo.uv(i)));
+                if (0.0..=1.0).contains(&q.x) && (0.0..=1.0).contains(&q.y) {
+                    let px = bitmap.sample(q.x, q.y, subcraft_image::Wrap::Clamp, false);
+                    buf[i * 2] = px[0];
+                    buf[i * 2 + 1] = 1.0;
+                    any = true;
+                }
+            }
+            any.then_some(buf)
+        })
+        .collect();
+    for (tile, buf) in tiles.into_iter().enumerate() {
+        if let Some(buf) = buf {
             image.write_tile(tile, &buf);
         }
     }
@@ -604,6 +622,46 @@ mod tests {
     use super::*;
     use glam::Vec2;
     use subcraft_mesh::primitives;
+
+    /// The parallel placement samples every texel exactly as the per-texel definition says.
+    #[test]
+    fn placed_bitmap_matches_texel_by_texel_sampling() {
+        let geometry = TextureSetGeometry::new(Arc::new(primitives::cube(2.0)), 0, 128);
+        let px: Vec<u8> = (0..4 * 4 * 3).map(|i| (i * 5 % 256) as u8).collect();
+        let bitmap = subcraft_image::Bitmap::new_u8(4, 4, 3, px);
+        let t = subcraft_mesh::spp::document::UvTransform { scale: [0.8, 1.1], rotation: 25.0, offset: [0.1, -0.05], tiling: false };
+        let image = placed_bitmap(&geometry, &bitmap, &t);
+        // The serial definition: per texel uv, sample, store (the image stores half floats).
+        let mut reference = TiledImage::new(128, 128, 2, [0.0; 4]);
+        let (mut inside, mut checked) = (0, 0);
+        for tile in 0..geometry.tile_count() {
+            let geo = geometry.tile(tile);
+            if geo.is_empty() {
+                continue;
+            }
+            let mut buf = vec![0.0f32; subcraft_image::TILE_TEXELS * 2];
+            let mut any = false;
+            for i in 0..subcraft_image::TILE_TEXELS {
+                let q = painter_image_uv(&t, Vec2::from(geo.uv(i)));
+                checked += 1;
+                if (0.0..=1.0).contains(&q.x) && (0.0..=1.0).contains(&q.y) {
+                    buf[i * 2] = bitmap.sample(q.x, q.y, subcraft_image::Wrap::Clamp, false)[0];
+                    buf[i * 2 + 1] = 1.0;
+                    any = true;
+                    inside += 1;
+                }
+            }
+            if any {
+                reference.write_tile(tile, &buf);
+            }
+        }
+        for y in 0..128 {
+            for x in 0..128 {
+                assert_eq!(image.get(x, y), reference.get(x, y), "texel {x},{y}");
+            }
+        }
+        assert!(inside > 100 && inside < checked, "{inside} of {checked}");
+    }
 
     /// A Painter-style hit: an orthographic camera in front of the cube (+Z), clicked at `p`
     /// (0..1, origin bottom-left), stored as the inverse view-projection in OpenGL clip space.

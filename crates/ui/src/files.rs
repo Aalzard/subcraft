@@ -106,6 +106,7 @@ fn handle(state: &mut UiState, purpose: Purpose, paths: &[PathBuf], now: f64) {
         },
         Purpose::NewProjectModel => state.new_project.load_model(first),
         Purpose::NewProjectHighPoly => state.new_project.load_high_poly(first),
+        Purpose::OpenMesh if crate::spp_import::is_spp(first) => crate::spp_import::start(state, first),
         Purpose::OpenMesh => match subcraft_app::Session::open_mesh(first, subcraft_app::DEFAULT_RESOLUTION) {
             Ok((s, _)) => {
                 state.set_session(s);

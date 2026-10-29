@@ -21,7 +21,9 @@ use subcraft_mesh::spp::images::{decode_cache_image, decode_image_resource, deco
 use subcraft_mesh::spp::{BakedKind, CacheFormat, CacheImage, LayerInfo, LayerKind, Plane, ProjectInfo, SppFile, TextureSetInfo, channel_bits};
 
 use crate::Session;
+use crate::spp_job::{ImportControl, SppEvent, SppStack, SppStackUpdate};
 use crate::spp_stack::Rebuilder;
+use std::sync::Arc;
 use crate::new_project::NewProjectSettings;
 
 /// Largest texture the importer produces (SubCraft's biggest texture-set resolution).
@@ -208,9 +210,47 @@ impl Session {
     /// Open a Substance 3D Painter project: the model, the baked mesh maps and the flattened
     /// channel textures (see the module docs). Returns the session and import notes.
     pub fn open_spp(path: &Path) -> Result<(Self, Vec<String>), String> {
+        Self::open_spp_cached(path, crate::spp_cache::SppCache::default_location())
+    }
+
+    /// [`Session::open_spp`] with the import cache in `cache` (none: no caching).
+    pub fn open_spp_cached(path: &Path, cache: Option<crate::spp_cache::SppCache>) -> Result<(Self, Vec<String>), String> {
+        let control = ImportControl::new();
+        let mut opened: Option<(Session, Vec<String>)> = None;
+        import_spp_cached(path, &control, cache, &mut |event| match event {
+            SppEvent::Opened(session, notes) => opened = Some((*session, notes)),
+            SppEvent::Stack(stack) => {
+                if let Some((session, notes)) = &mut opened {
+                    notes.extend(session.apply_spp_stack(stack));
+                }
+            }
+        })?;
+        opened.ok_or_else(|| "the Painter import produced no project".to_string())
+    }
+}
+
+/// Import a Painter project in two phases, handing each to `emit`: [`SppEvent::Opened`] as soon as
+/// the model, the baked maps and the flattened channels are read, then [`SppEvent::Stack`] with the
+/// rebuilt layer stack (judged against the flattened result; the quality check decides which of the
+/// two is shown). `control` reports progress and can cancel (the result is then `Err`).
+pub fn import_spp(path: &Path, control: &Arc<ImportControl>, emit: &mut dyn FnMut(SppEvent)) -> Result<(), String> {
+    import_spp_cached(path, control, crate::spp_cache::SppCache::default_location(), emit)
+}
+
+/// [`import_spp`] with the import cache in `cache_dir` (none: no caching).
+pub fn import_spp_cached(path: &Path, control: &Arc<ImportControl>, cache: Option<crate::spp_cache::SppCache>, emit: &mut dyn FnMut(SppEvent)) -> Result<(), String> {
+    let cancelled = || if control.is_cancelled() { Err("cancelled".to_string()) } else { Ok(()) };
+    {
         let timing = std::env::var_os("SUBCRAFT_SPP_TIMING").is_some();
         let t0 = std::time::Instant::now();
+        control.set_stage("Reading the model");
+        // The file's hash (the cache key) is computed alongside the import.
+        let key_thread = cache.as_ref().map(|_| {
+            let p = path.to_path_buf();
+            std::thread::spawn(move || crate::spp_cache::file_key(&p).ok())
+        });
         let mut report = import_mesh(path).map_err(|e| e.to_string())?;
+        cancelled()?;
         let t_mesh = t0.elapsed();
         if report.mesh.triangle_count() == 0 {
             return Err("the project's model has no triangles".into());
@@ -223,11 +263,13 @@ impl Session {
             Ok(p) if !p.texture_sets.is_empty() => p,
             Ok(_) => {
                 notes.push("The Painter project has no texture set; only the model was imported.".into());
-                return Ok((Self::new(report.mesh, crate::DEFAULT_RESOLUTION), notes));
+                emit(SppEvent::Opened(Box::new(Session::new(report.mesh, crate::DEFAULT_RESOLUTION)), notes));
+                return Ok(());
             }
             Err(e) => {
                 notes.push(format!("The Painter project's layer data could not be read ({e}); only the model was imported."));
-                return Ok((Self::new(report.mesh, crate::DEFAULT_RESOLUTION), notes));
+                emit(SppEvent::Opened(Box::new(Session::new(report.mesh, crate::DEFAULT_RESOLUTION)), notes));
+                return Ok(());
             }
         };
         let mut mesh = report.mesh;
@@ -260,13 +302,15 @@ impl Session {
         let project_normal_dx = project.texture_sets.iter().all(|s| s.normal_syscoord == 0);
         settings.normal_format = if project_normal_dx { NormalFormat::DirectX } else { NormalFormat::OpenGl };
         let template_name = settings.template.export_template().to_string();
-        let base = Self::from_mesh_with(mesh, &settings)?;
+        let base = Session::from_mesh_with(mesh, &settings)?;
         let mut doc = base.document().clone();
         let mesh = base.scene().mesh.as_ref().clone();
         drop(base);
 
         let mut maps: Vec<(subcraft_core::TextureSetId, BTreeMap<MeshMapKind, TiledImage>)> = Vec::new();
-        let mut resources = ResourceStore::default();
+        let resources = ResourceStore::default();
+        // Per set with Painter layers: (index in `project.texture_sets`, the set as flattened, its baked maps).
+        let mut pending: Vec<(usize, TextureSet, BTreeMap<MeshMapKind, TiledImage>)> = Vec::new();
         for ts in &mut doc.texture_sets {
             let Some(info) = find_set(&project, &ts.name) else {
                 notes.push(format!("No Painter texture set matches '{}'; it starts empty.", ts.name));
@@ -278,6 +322,7 @@ impl Session {
             import_channels(&mut spp, info, ts, project_normal_dx, &mut notes);
             let t_channels = t1.elapsed();
             let t2 = std::time::Instant::now();
+            control.set_stage(format!("Reading the textures of '{}'", ts.name));
             let mut found = BTreeMap::new();
             // Read the blobs one after the other (one file), decode all maps at once.
             let mut blobs = Vec::new();
@@ -324,11 +369,13 @@ impl Session {
                 notes.push(format!("  Baked maps: {}.", names.join(", ")));
             }
             let t_maps = t2.elapsed();
-            let t3 = std::time::Instant::now();
-            rebuild_stack(&mut spp, info, ts, &mesh, &mut resources, &found, &mut notes);
             if timing {
-                notes.push(format!("  timing: mesh {t_mesh:?}, channels {t_channels:?}, baked maps {t_maps:?}, stack {:?}", t3.elapsed()));
+                notes.push(format!("  timing: mesh {t_mesh:?}, channels {t_channels:?}, baked maps {t_maps:?}"));
             }
+            if let Some(index) = project.texture_sets.iter().position(|s| std::ptr::eq(s, info)) {
+                pending.push((index, ts.clone(), found.clone()));
+            }
+            cancelled()?;
             if !found.is_empty() {
                 maps.push((ts.id, found));
             }
@@ -343,7 +390,8 @@ impl Session {
             }
         }
 
-        let mut session = Session::from_parts(mesh, Document { texture_sets: std::mem::take(&mut doc.texture_sets) }, resources, "Open Painter project");
+        let mesh_arc = std::sync::Arc::new(mesh);
+        let mut session = Session::from_parts(mesh_arc.as_ref().clone(), Document { texture_sets: std::mem::take(&mut doc.texture_sets) }, resources, "Open Painter project");
         session.set_settings(ProjectSettings {
             normal_format: Some(if project_normal_dx { NormalFormat::DirectX } else { NormalFormat::OpenGl }),
             export_template: template_name,
@@ -355,7 +403,49 @@ impl Session {
         if project_normal_dx {
             notes.push("Normal maps: Painter's default (DirectX, Y down) was assumed; the Normal channel was converted to SubCraft's OpenGL storage. If lighting on the normal detail looks inverted, this assumption is the reason.".into());
         }
-        Ok((session, notes))
+        emit(SppEvent::Opened(Box::new(session), notes));
+
+        // Second phase: rebuild the Painter stacks and judge them against the flattened result.
+        let key = key_thread.and_then(|t| t.join().ok().flatten());
+        let cache = cache.zip(key);
+        let sets: Vec<TextureSet> = pending.iter().map(|p| p.1.clone()).collect();
+        if let Some((cache, key)) = &cache {
+            control.set_stage("Reading the cached Painter stack");
+            match crate::spp_cache::load(&cache.dir, key, &sets) {
+                Ok(stack) => {
+                    emit(SppEvent::Stack(stack));
+                    return Ok(());
+                }
+                Err(why) => {
+                    log::info!("Painter import cache: not used ({why})");
+                    if timing {
+                        eprintln!("Painter import cache: not used ({why})");
+                    }
+                }
+            }
+        }
+        let rebuild_started = std::time::Instant::now();
+        let mut stack = SppStack { updates: Vec::new(), resources: ResourceStore::default(), notes: Vec::new() };
+        for (index, mut ts, found) in pending {
+            let info = &project.texture_sets[index];
+            let t3 = std::time::Instant::now();
+            rebuild_stack(&mut spp, info, &mut ts, &mesh_arc, &mut stack.resources, &found, &mut stack.notes, Some(control));
+            cancelled()?;
+            if ts.layers.len() == 3 {
+                stack.updates.push(SppStackUpdate { texture_set: ts.id, flat: ts.layers[0].clone(), folder: ts.layers[1].clone() });
+            }
+            if timing {
+                stack.notes.push(format!("  timing: stack {:?}", t3.elapsed()));
+            }
+        }
+        let rebuild_took = rebuild_started.elapsed();
+        let to_store = cache.as_ref().is_some_and(|(c, _)| rebuild_took >= c.min_rebuild).then(|| stack.clone());
+        emit(SppEvent::Stack(stack));
+        if let (Some((cache, key)), Some(stack)) = (&cache, &to_store) {
+            control.set_stage("Storing the rebuilt stack in the import cache");
+            crate::spp_cache::store(&cache.dir, key, stack, &sets);
+        }
+        Ok(())
     }
 }
 
@@ -621,7 +711,14 @@ pub fn rebuild_folder_cached(spp: &mut SppFile, info: &TextureSetInfo, view: &Te
 /// [`rebuild_folder_cached`] with generator mappings other than the calibrated ones (experiments).
 #[allow(clippy::too_many_arguments)]
 pub fn rebuild_folder_tuned(spp: &mut SppFile, info: &TextureSetInfo, view: &TextureSet, picker: &crate::spp_select::Picker, resources: &mut ResourceStore, maps: &BTreeMap<MeshMapKind, TiledImage>, blend_map: Option<&BTreeMap<i32, subcraft_doc::BlendMode>>, cache: Option<std::sync::Arc<std::sync::Mutex<Vec<TiledImage>>>>, tuning: Option<crate::spp_stack::Tuning>) -> (Layer, crate::spp_stack::StackStats, Vec<crate::spp_fit::Fitted>) {
+    rebuild_folder_controlled(spp, info, view, picker, resources, maps, blend_map, cache, tuning, None)
+}
+
+/// [`rebuild_folder_tuned`] reporting progress to (and stopping on) a background import's `control`.
+#[allow(clippy::too_many_arguments)]
+pub fn rebuild_folder_controlled(spp: &mut SppFile, info: &TextureSetInfo, view: &TextureSet, picker: &crate::spp_select::Picker, resources: &mut ResourceStore, maps: &BTreeMap<MeshMapKind, TiledImage>, blend_map: Option<&BTreeMap<i32, subcraft_doc::BlendMode>>, cache: Option<std::sync::Arc<std::sync::Mutex<Vec<TiledImage>>>>, tuning: Option<crate::spp_stack::Tuning>, control: Option<&Arc<ImportControl>>) -> (Layer, crate::spp_stack::StackStats, Vec<crate::spp_fit::Fitted>) {
     let mut rebuilder = Rebuilder::new(spp, view, resources);
+    rebuilder.control = control.cloned();
     rebuilder.raster_cache = cache;
     if let Some(t) = tuning {
         rebuilder.tuning = t;
@@ -646,13 +743,17 @@ pub fn rebuild_folder_tuned(spp: &mut SppFile, info: &TextureSetInfo, view: &Tex
 /// Rebuild the Painter layer stack as a folder above the flattened layer and decide, by comparing its
 /// composite with Painter's flattened textures, whether it can be shown instead of them.
 #[allow(clippy::too_many_arguments)]
-fn rebuild_stack(spp: &mut SppFile, info: &TextureSetInfo, ts: &mut TextureSet, mesh: &subcraft_mesh::Mesh, resources: &mut ResourceStore, maps: &BTreeMap<MeshMapKind, TiledImage>, notes: &mut Vec<String>) {
+fn rebuild_stack(spp: &mut SppFile, info: &TextureSetInfo, ts: &mut TextureSet, mesh: &subcraft_mesh::Mesh, resources: &mut ResourceStore, maps: &BTreeMap<MeshMapKind, TiledImage>, notes: &mut Vec<String>, control: Option<&Arc<ImportControl>>) {
     if info.layers.is_empty() || ts.layers.len() != 2 {
         return; // nothing to rebuild, or no flattened result to compare with
     }
     let view = ts.clone();
     let picker = crate::spp_select::Picker::new(std::sync::Arc::new(mesh.clone()));
-    let (mut folder, stats, fitted_full) = rebuild_folder(spp, info, &view, &picker, resources, maps, None);
+    let layer_count = count_layers(&info.layers);
+    if let Some(c) = control {
+        c.begin_layers(format!("Rebuilding the Painter stack of '{}'", ts.name), layer_count);
+    }
+    let (mut folder, stats, fitted_full) = rebuild_folder_controlled(spp, info, &view, &picker, resources, maps, None, None, None, control);
     folder.visible = true;
     let flat = ts.layers[0].clone();
     let flat_content: BTreeMap<ChannelKind, TiledImage> = match &flat.content {
@@ -668,7 +769,10 @@ fn rebuild_stack(spp: &mut SppFile, info: &TextureSetInfo, ts: &mut TextureSet, 
         let mut small = view.clone();
         small.resolution = gate_res;
         let mut small_stats_resources = resources.clone();
-        let (small_folder, _, fitted_small) = rebuild_folder(spp, info, &small, &picker, &mut small_stats_resources, maps, None);
+        if let Some(c) = control {
+            c.begin_layers("Checking the rebuilt stack against Painter's result", layer_count);
+        }
+        let (small_folder, _, fitted_small) = rebuild_folder_controlled(spp, info, &small, &picker, &mut small_stats_resources, maps, None, None, None, control);
         *resources = small_stats_resources;
         let small_maps: BTreeMap<MeshMapKind, TiledImage> = maps.iter().map(|(k, v)| (*k, v.resampled(gate_res, gate_res))).collect();
         let small_flat = flat_content.iter().map(|(k, v)| (*k, v.resampled(gate_res, gate_res))).collect();
@@ -683,6 +787,9 @@ fn rebuild_stack(spp: &mut SppFile, info: &TextureSetInfo, ts: &mut TextureSet, 
     let coverage = Some(&surface);
     // Uniform values for the fills that could not be rebuilt, fitted at the gate's resolution and
     // applied to the full-resolution stack (both rebuilds list the same layers in the same order).
+    if let Some(c) = control {
+        c.set_stage("Fitting the rebuilt layers to Painter's result");
+    }
     let t_fit = std::time::Instant::now();
     // SUBCRAFT_SPP_NO_FIT leaves the provisional values (developer aid for faster experiments).
     let fitted = if std::env::var_os("SUBCRAFT_SPP_NO_FIT").is_some() { Vec::new() } else { fitted };

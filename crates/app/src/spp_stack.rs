@@ -154,16 +154,20 @@ pub struct Rebuilder<'a, R: Read + Seek> {
     /// order (they do not depend on blending); filled on first use. For repeated experiments.
     pub raster_cache: Option<Arc<std::sync::Mutex<Vec<TiledImage>>>>,
     pub tuning: Tuning,
+    /// Progress and cancellation of a background import.
+    pub control: Option<Arc<crate::spp_job::ImportControl>>,
 }
 
 impl<'a, R: Read + Seek> Rebuilder<'a, R> {
     pub fn new(spp: &'a mut SppFile<R>, ts: &'a TextureSet, resources: &'a mut ResourceStore) -> Self {
-        Self { spp, ts, resources, stats: StackStats::default(), images: HashMap::new(), extract_embedded: true, picker: None, geometry: None, blend_map: blend_table(), rasters: Vec::new(), mesh_maps: None, anchors: HashMap::new(), references: Vec::new(), fitted: Vec::new(), raster_cache: None, tuning: Tuning::from_env() }
+        Self { spp, ts, resources, stats: StackStats::default(), images: HashMap::new(), extract_embedded: true, picker: None, geometry: None, blend_map: blend_table(), rasters: Vec::new(), mesh_maps: None, anchors: HashMap::new(), references: Vec::new(), fitted: Vec::new(), raster_cache: None, tuning: Tuning::from_env(), control: None }
     }
 
     /// Layers bottom to top.
     pub fn rebuild(&mut self, infos: &[LayerInfo]) -> Vec<Layer> {
+        let t = std::time::Instant::now();
         let mut layers: Vec<Layer> = infos.iter().map(|i| self.layer(i)).collect();
+        *self.stats.timings.entry("layer conversion").or_default() += t.elapsed();
         self.paint_rasters(&mut layers);
         self.resolve_references(&mut layers);
         layers
@@ -173,6 +177,9 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
     fn paint_rasters(&mut self, layers: &mut [Layer]) {
         use rayon::prelude::*;
         let jobs = std::mem::take(&mut self.rasters);
+        if self.cancelled() {
+            return;
+        }
         let (Some(picker), Some(full)) = (self.picker, self.geometry.clone()) else { return };
         let t = std::time::Instant::now();
         // Strokes cost grows with the texels they cover: rasters are painted at no more than
@@ -181,12 +188,16 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
         let cap = raster_max_resolution().min(res);
         let geometry = if cap < res { Arc::new(TextureSetGeometry::new(full.mesh().clone(), full.material_slot, cap)) } else { full.clone() };
         let gutter = GutterFill::new(&geometry);
+        let control = self.control.clone();
         let cached = self.raster_cache.as_ref().map(|c| c.lock().unwrap_or_else(|p| p.into_inner()).clone()).filter(|c| c.len() == jobs.len());
         let images: Vec<TiledImage> = match cached {
             Some(c) => c,
             None => {
                 let shared = std::sync::Mutex::new(HashMap::new());
                 jobs.par_iter().map(|(_, _, ops)| {
+                    if control.as_ref().is_some_and(|c| c.is_cancelled()) {
+                        return TiledImage::new(res, res, 2, [0.0; 4]);
+                    }
                     // The padding outside the UV islands takes the nearest island texel's value, as
                     // Painter's own textures do: left empty, mipmapped views blend it into every
                     // part's border (bright outlines on 4K sets).
@@ -242,6 +253,9 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
             let unresolved: Vec<EffectId> = todo.iter().map(|r| r.1).collect();
             let mut left = Vec::new();
             for (layer_id, effect_id, anchor, levels) in todo {
+                if self.cancelled() {
+                    return;
+                }
                 let Some(&(anchor_layer, count)) = self.anchors.get(&anchor) else {
                     self.stats.skip("anchor references to a missing anchor");
                     continue;
@@ -288,8 +302,18 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
         }
     }
 
+    fn cancelled(&self) -> bool {
+        self.control.as_ref().is_some_and(|c| c.is_cancelled())
+    }
+
     fn layer(&mut self, info: &LayerInfo) -> Layer {
         let ts = self.ts;
+        if let Some(c) = &self.control {
+            c.layer_done();
+            if c.is_cancelled() {
+                return Layer::new_folder("cancelled", ts);
+            }
+        }
         let name = if info.name.is_empty() { "Layer".to_string() } else { info.name.clone() };
         if info.kind == LayerKind::Group {
             self.stats.folders += 1;
@@ -541,7 +565,9 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
                             SourceInfo::Bitmap { url, .. } if action.uv.is_some_and(|t| !t.tiling) && self.geometry.is_some() && self.bitmap(url, false).is_some() => {
                                 let id = self.bitmap(url, false).unwrap();
                                 let bitmap = self.resources.get(id).unwrap().bitmap.clone();
+                                let t = std::time::Instant::now();
                                 let image = spp_select::placed_bitmap(self.geometry.as_ref().unwrap(), &bitmap, action.uv.as_ref().unwrap());
+                                *self.stats.timings.entry("placed bitmaps").or_default() += t.elapsed();
                                 self.stats.exact += 1;
                                 let mut e = MaskEffect::new(MaskEffectKind::Paint { image });
                                 e.name = "Placed image".into();
@@ -719,6 +745,7 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
         if let Some(found) = self.images.get(&key) {
             return *found;
         }
+        let t = std::time::Instant::now();
         let max = self.ts.resolution.max(256);
         let decoded = self.spp.image_resource_blob(url).ok().flatten().and_then(|blob| {
             let eight = subcraft_mesh::spp::images::image_resource_is_8bit(&blob);
@@ -741,6 +768,7 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
             self.resources.insert(Resource { id: ResourceId::new(), name, kind: ResourceKind::Texture, bitmap: Arc::new(bitmap), source_path: None, encoded: None })
         });
         self.images.insert(key, id);
+        *self.stats.timings.entry("bitmap decoding").or_default() += t.elapsed();
         id
     }
 

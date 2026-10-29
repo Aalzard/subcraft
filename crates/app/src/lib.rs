@@ -24,8 +24,10 @@ pub mod part_workflow;
 pub mod pen;
 pub mod recovery;
 pub mod session;
+pub mod spp_cache;
 pub mod spp_fit;
 pub mod spp_import;
+pub mod spp_job;
 pub mod spp_select;
 pub mod spp_stack;
 pub mod thumbnails;
@@ -34,6 +36,7 @@ pub mod updater;
 
 pub use actions::{ACTIONS, Action, ActionInfo, Key, Shortcut, action_for};
 pub use bake_job::{BakeJob, BakeRequest, BakePreviewJob};
+pub use spp_job::{ImportControl, SppImportJob, SppPoll};
 pub use command::{Command, CommandError, NewLayer};
 pub use images::TextureSetImport;
 pub use parts::MeshPart;

@@ -129,7 +129,7 @@ pub fn save_fragment(path: &Path, f: &Fragment) -> Result<(), ProjectError> {
 
 pub fn read_fragment<R: Read + Seek>(r: R) -> Result<Fragment, ProjectError> {
     let mut zip = zip::ZipArchive::new(r)?;
-    let mut loader = Loader { zip: &mut zip, cache: BTreeMap::new() };
+    let mut loader = Loader { zip: &mut zip, cache: BTreeMap::new(), trusted: false };
     let json = loader.bytes("fragment.json").map_err(|_| ProjectError::NotAProject)?;
     let file: FragmentFile = serde_json::from_slice(&json).map_err(|e| ProjectError::Invalid(format!("fragment.json: {e}")))?;
     if file.format != FRAGMENT_FORMAT {
