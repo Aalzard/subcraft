@@ -630,7 +630,15 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
                 ActionKind::Paint { .. } => self.stats.skip("painted mask strokes"),
                 ActionKind::Eraser { .. } => self.stats.skip("erased mask strokes"),
                 ActionKind::Decal { hits } => match (self.picker, self.geometry.as_ref()) {
-                    (Some(_), Some(_)) => {
+                    (Some(picker), Some(_)) => {
+                        if std::env::var_os("SUBCRAFT_SPP_DEBUG").is_some() {
+                            for h in hits {
+                                let mut objects: Vec<u32> = picker.select(h, h.through).iter().filter_map(|&t| picker.mesh.tri_object.get(t as usize).copied().flatten()).collect();
+                                objects.sort_unstable();
+                                objects.dedup();
+                                eprintln!("polygon fill in '{}': granularity {} value {} points {:?} -> objects {:?}", info.name, h.granularity, h.value, h.points, objects.iter().map(|&o| picker.mesh.objects[o as usize].name.as_str()).collect::<Vec<_>>());
+                            }
+                        }
                         let blend = self.group_blend(action);
                         pending.get_or_insert_with(|| (action.group, Vec::new(), blend)).1.push(RasterOp::Fill(hits.clone()));
                         self.stats.exact += 1;

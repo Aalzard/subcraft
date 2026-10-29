@@ -36,6 +36,21 @@ impl Granularity {
     }
 }
 
+/// Rectangles narrower or lower than this (screen units) are clicks.
+const MIN_RECT: f32 = 0.01;
+
+/// Barycentric weights of `q` in screen triangle `v` (x, y), when inside it.
+fn barycentric(v: &[Vec3; 3], q: glam::Vec2) -> Option<Vec3> {
+    let area = (v[1].x - v[0].x) * (v[2].y - v[0].y) - (v[2].x - v[0].x) * (v[1].y - v[0].y);
+    if area.abs() < 1e-12 {
+        return None;
+    }
+    let w0 = ((v[1].x - q.x) * (v[2].y - q.y) - (v[2].x - q.x) * (v[1].y - q.y)) / area;
+    let w1 = ((v[2].x - q.x) * (v[0].y - q.y) - (v[0].x - q.x) * (v[2].y - q.y)) / area;
+    let w = Vec3::new(w0, w1, 1.0 - w0 - w1);
+    (w.min_element() >= 0.0).then_some(w)
+}
+
 /// Per-triangle object ids where objects that share a connected element get one id (the smallest).
 /// Measured on DBAL-A2: a piece welded to another object's mesh is filled with it in Painter
 /// (Plane.003 with Plane_002.002: Base Color 0.40 -> 0.05 there), while an object made of separate
@@ -110,7 +125,13 @@ impl Picker {
     pub fn select(&self, hit: &DecalHit, through: bool) -> Vec<u32> {
         let inv = Mat4::from_cols_array(&hit.proj_view_inv);
         let g = Granularity::from_id(hit.granularity);
-        let seeds: Vec<u32> = match hit.points.as_slice() {
+        // A rectangle under ~1% of the view on a side is a click with the rectangle tool: Painter
+        // selects what is under it (48 of DBAL-A2's 140 rectangles, which selected nothing).
+        let points: Vec<[f32; 2]> = match hit.points.as_slice() {
+            [a, b] if (a[0] - b[0]).abs() < MIN_RECT || (a[1] - b[1]).abs() < MIN_RECT => vec![[(a[0] + b[0]) * 0.5, (a[1] + b[1]) * 0.5]],
+            p => p.to_vec(),
+        };
+        let seeds: Vec<u32> = match points.as_slice() {
             [p] => {
                 let (o, d) = Self::ray(&inv, *p);
                 let mut seeds = Vec::new();
@@ -135,20 +156,32 @@ impl Picker {
         let view_proj = inv.inverse();
         let (x0, x1) = (a[0].min(b[0]), a[0].max(b[0]));
         let (y0, y1) = (a[1].min(b[1]), a[1].max(b[1]));
+        let inside = |q: glam::Vec2| q.x >= x0 && q.x <= x1 && q.y >= y0 && q.y <= y1;
         let mut out = Vec::new();
         let mut candidates = Vec::new();
         for t in 0..self.mesh.triangle_count() {
-            let p = self.mesh.tri_positions(t);
-            let c = (p[0] + p[1] + p[2]) / 3.0;
-            let clip = view_proj * c.extend(1.0);
-            if clip.w.abs() < 1e-12 {
+            let clip = self.mesh.tri_positions(t).map(|p| view_proj * p.extend(1.0));
+            if clip.iter().any(|c| c.w.abs() < 1e-12) {
                 continue;
             }
-            let (sx, sy) = (clip.x / clip.w * 0.5 + 0.5, clip.y / clip.w * 0.5 + 0.5);
-            if sx < x0 || sx > x1 || sy < y0 || sy > y1 {
+            let v = clip.map(|c| Vec3::new(c.x / c.w * 0.5 + 0.5, c.y / c.w * 0.5 + 0.5, c.z / c.w));
+            if v.iter().all(|p| p.x < x0) || v.iter().all(|p| p.x > x1) || v.iter().all(|p| p.y < y0) || v.iter().all(|p| p.y > y1) {
                 continue;
             }
-            candidates.push((t as u32, sx, sy, clip.z / clip.w));
+            // A point of the triangle inside the rectangle (Painter takes the triangles the
+            // rectangle touches, not only those whose centre it holds: large faces were missed).
+            let c = (v[0] + v[1] + v[2]) / 3.0;
+            let corners = [glam::Vec2::new(x0, y0), glam::Vec2::new(x1, y0), glam::Vec2::new(x1, y1), glam::Vec2::new(x0, y1), glam::Vec2::new((x0 + x1) * 0.5, (y0 + y1) * 0.5)];
+            let at = if inside(c.truncate()) {
+                Some(c)
+            } else if let Some(p) = v.iter().find(|p| inside(p.truncate())) {
+                Some(*p + (c - *p) * 0.05)
+            } else {
+                corners.iter().find_map(|&q| barycentric(&v, q).map(|w| v[0] * w.x + v[1] * w.y + v[2] * w.z))
+            };
+            if let Some(q) = at {
+                candidates.push((t as u32, q.x, q.y, q.z));
+            }
         }
         if candidates.is_empty() {
             return out;
@@ -543,20 +576,24 @@ fn brush_scale() -> f32 {
     std::env::var("SUBCRAFT_SPP_BRUSH_SCALE").ok().and_then(|v| v.parse::<f32>().ok()).unwrap_or(0.5)
 }
 
-/// 3D-view strokes' `brushSize` is the brush diameter as a fraction of the stroke's view height
-/// (`Some(1.0)`). Measured on DBAL-A2: read against the bounding-box diagonal instead, black mask
-/// strokes painted beside a stencilled label grew over it and cut "DBAL-A" to "RAL-A"; read
-/// against the view the whole label stays, Base Color 0.0149 -> 0.0144 at 1024 (Roughness 0.0450
-/// -> 0.0462 on one lens), CarInteriro and Street_cyberpunk equal or slightly better.
-/// `SUBCRAFT_SPP_BRUSH_SPACE=object` restores the diagonal reading (times [`brush_scale`]),
-/// `screen:k` scales the view reading.
+/// 3D-view strokes' `brushSize` scales with the stroke's view height: the brush diameter is
+/// `SCREEN_BRUSH` x `brushSize` x the view height. Measured on DBAL-A2: read against the
+/// bounding-box diagonal instead, black mask strokes beside a stencilled label grew over it and
+/// cut "DBAL-A" to "RAL-A"; read against the view the label stays whole. The factor is
+/// calibrated, not derived: at 1024 without solved detail the sum of the Base Color, Roughness
+/// and Metallic differences over the three sample projects is 0.2529 at 1.5, 0.2535 at 1 and
+/// 0.2544 at 2. Larger brushes clean DBAL-A2's slot dirt as Painter does but cut into its QR code;
+/// no single factor fits both. `SUBCRAFT_SPP_BRUSH_SPACE=object` restores the diagonal reading
+/// (times [`brush_scale`]), `screen:k` sets the factor.
 fn screen_brush() -> Option<f32> {
     match std::env::var("SUBCRAFT_SPP_BRUSH_SPACE").ok().as_deref() {
         Some("object") => None,
-        Some(v) => Some(v.strip_prefix("screen").and_then(|r| r.strip_prefix(':')).and_then(|k| k.parse().ok()).unwrap_or(1.0)),
-        None => Some(1.0),
+        Some(v) => Some(v.strip_prefix("screen").and_then(|r| r.strip_prefix(':')).and_then(|k| k.parse().ok()).unwrap_or(SCREEN_BRUSH)),
+        None => Some(SCREEN_BRUSH),
     }
 }
+
+const SCREEN_BRUSH: f32 = 1.5;
 
 /// SubCraft brush size (percent of the mesh's bounding-box diagonal) of a brush whose diameter is
 /// `fraction` of the stroke's view height, at the depth of the mesh centre for perspective views.
@@ -896,6 +933,20 @@ mod tests {
     }
 
     #[test]
+    fn small_rectangles_take_the_triangles_they_touch_and_drags_without_area_are_clicks() {
+        let p = cube_picker();
+        let click = p.select(&hit(vec![[0.55, 0.6]], 0, 1.0), false);
+        assert_eq!(click.len(), 1);
+        // A drag without height selects what a click at its centre selects.
+        assert_eq!(p.select(&hit(vec![[0.549, 0.6], [0.551, 0.6]], 0, 1.0), false), click);
+        // A rectangle inside one triangle, away from its centre (each triangle spans 1/8 of the
+        // view): that triangle, though its centre is outside the rectangle.
+        let inside = p.select(&hit(vec![[0.538, 0.592], [0.552, 0.6]], 0, 1.0), false);
+        assert!(!inside.is_empty() && inside.len() <= 2, "{inside:?}");
+        assert!(inside.iter().all(|&t| p.mesh.geometric_normal(t as usize).z > 0.9));
+    }
+
+    #[test]
     fn raster_and_strokes_land_on_the_selected_texels() {
         let p = cube_picker();
         let geometry = Arc::new(TextureSetGeometry::new(p.mesh.clone(), 0, 64));
@@ -921,7 +972,8 @@ mod tests {
         let view = Mat4::look_at_rh(Vec3::new(0.0, 0.0, 5.0), Vec3::ZERO, Vec3::Y);
         let proj = Mat4::orthographic_rh_gl(-2.0, 2.0, -2.0, 2.0, 0.1, 20.0);
         let stroke = StrokeInfo { uv_space: false, duplicate: None, points: (0..20).map(|i| [0.3 + i as f32 * 0.02, 0.5]).collect(), pressure: Vec::new(), view: view.to_cols_array(), projection: proj.to_cols_array(), seed: 1 };
-        let brush = BrushInfo { size: 0.1, size_space: 1, flow: 1.0, spacing: 0.1, pressure_size: false, value: 1.0, hardness: Some(0.5), tip: "shape".into(), tip_text: None, alignment: 0, culling: true, stencil: None };
+        // 0.05 of the 4-unit view x 1.5: 0.3 units across, inside the 2-unit face along the path.
+        let brush = BrushInfo { size: 0.05, size_space: 1, flow: 1.0, spacing: 0.1, pressure_size: false, value: 1.0, hardness: Some(0.5), tip: "shape".into(), tip_text: None, alignment: 0, culling: true, stencil: None };
         let mut replay = StrokeReplay::new(&p, geometry.clone());
         let painted = replay.replay(TiledImage::new(64, 64, 2, [0.0; 4]), &[stroke], &brush, 1.0, false);
         let (mut on_front, mut elsewhere) = (0, 0);
