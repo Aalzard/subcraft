@@ -189,6 +189,68 @@ fn main() {
         }
         return;
     }
+    if args.get(3).is_some_and(|a| a == "layer_alpha") {
+        // `layer_alpha folder ... layer`: Painter's effective mask of one layer, recovered from its
+        // flattened Base Color between the stack without the layer and with its mask fully white
+        // (`painter_mask`, -1 where the two do not differ), next to the rebuilt mask (`our_mask`).
+        let names: Vec<&str> = args[4..].iter().map(|s| s.as_str()).collect();
+        let edit = |f: &mut subcraft_doc::Layer, how: &dyn Fn(&mut subcraft_doc::Layer)| {
+            fn walk(l: &mut subcraft_doc::Layer, names: &[&str], how: &dyn Fn(&mut subcraft_doc::Layer)) {
+                if names.is_empty() {
+                    how(l);
+                    return;
+                }
+                if let LayerContent::Group(g) = &mut l.content {
+                    if let Some(c) = g.children.iter_mut().find(|c| c.name.trim() == names[0].trim()) {
+                        walk(Arc::make_mut(c), &names[1..], how);
+                    }
+                }
+            }
+            walk(f, &names, how);
+        };
+        let mut target = f.clone();
+        let mut found: Option<subcraft_doc::Layer> = None;
+        {
+            fn get(l: &subcraft_doc::Layer, names: &[&str]) -> Option<subcraft_doc::Layer> {
+                if names.is_empty() {
+                    return Some(l.clone());
+                }
+                match &l.content {
+                    LayerContent::Group(g) => g.children.iter().find(|c| c.name.trim() == names[0].trim()).and_then(|c| get(c, &names[1..])),
+                    _ => None,
+                }
+            }
+            found = found.or(get(&target, &names));
+        }
+        let layer = found.expect("layer path");
+        let mut without = f.clone();
+        edit(&mut without, &|l| l.visible = false);
+        edit(&mut target, &|l| l.mask = None);
+        let below = stack_composite(&session, without);
+        let full = stack_composite(&session, target);
+        let flat_bc = dense(&flat[&ChannelKind::BaseColor], 3);
+        let (b, u) = (dense(below.channel(ChannelKind::BaseColor).unwrap(), 3), dense(full.channel(ChannelKind::BaseColor).unwrap(), 3));
+        let n = (w * h) as usize;
+        let mut pm = vec![-1.0f32; n];
+        for i in 0..n {
+            let (mut num, mut den) = (0.0f32, 0.0f32);
+            for c in 0..3 {
+                let d = u[i * 3 + c] - b[i * 3 + c];
+                num += (flat_bc[i * 3 + c] - b[i * 3 + c]) * d;
+                den += d * d;
+            }
+            if den > 0.02 * 0.02 * 3.0 {
+                pm[i] = (num / den).clamp(-0.5, 1.5);
+            }
+        }
+        write_f32(dir, "painter_mask", w, h, 1, &pm, &mut index);
+        if let Some(mask) = &layer.mask {
+            let empty = subcraft_materials::MeshMaps::default();
+            let img = subcraft_app::spp_stack::eval_mask_image(mask, ts, &geometry, session.resources(), session.mesh_maps(ts.id).unwrap_or(&empty));
+            write_f32(dir, "our_mask", w, h, 1, &dense(&img, 1), &mut index);
+        }
+        return;
+    }
     if args.get(3).is_some_and(|a| a == "masks") {
         // `masks [i [j ...]]`: the masks of the children of the folder at that path (indices or names).
         let mut target = f.clone();
@@ -273,6 +335,15 @@ pub fn decal_conventions(session: &subcraft_app::Session, path: &str) {
         }
         println!("{line}");
     }
+}
+
+/// The rebuilt stack (alone, with `folder` as given) composited.
+pub fn stack_composite(session: &subcraft_app::Session, folder: subcraft_doc::Layer) -> subcraft_compositor::Composite {
+    let mut set = session.document().texture_sets[0].clone();
+    let mut f = folder;
+    f.visible = true;
+    set.layers = vec![Arc::new(f)];
+    composite(session, &set)
 }
 
 /// Error of the rebuilt stack (alone) against the flattened channels, per channel.
