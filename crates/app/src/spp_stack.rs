@@ -16,7 +16,7 @@ use subcraft_doc::{
     BlendMode, ChannelBlend, ContentEffect, ContentEffectKind, FillChannel, FillSource, Filter, Generator, GeneratorKind, Layer, LayerContent, Levels, Mask, MaskEffect, MaskEffectKind, ProceduralKind, ProceduralParams,
     Projection, ProjectionMode, Resource, ResourceKind, ResourceStore, TextureSet,
 };
-use subcraft_mesh::spp::document::{ActionKind, GraphRef, LayerInfo, LayerKind, LevelsInfo, SourceInfo};
+use subcraft_mesh::spp::document::{ActionKind, BrushInfo, GraphRef, LayerInfo, LayerKind, LevelsInfo, SourceInfo};
 use subcraft_mesh::spp::SppFile;
 
 use crate::spp_import::channel_kind;
@@ -306,6 +306,24 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
         self.control.as_ref().is_some_and(|c| c.is_cancelled())
     }
 
+    /// Painter's geometry mask (the layer applies to some mesh objects only) as a part mask by
+    /// object, matched by name.
+    fn geometry_mask(&mut self, layer: &mut Layer, info: &LayerInfo) {
+        let Some((default_on, listed)) = &info.mesh_filter else { return };
+        let Some(geometry) = &self.geometry else { return };
+        let objects = &geometry.mesh().objects;
+        let ids = objects.iter().enumerate().filter(|(_, o)| *default_on != listed.contains(&o.name)).map(|(i, _)| i as u32);
+        layer.parts = Some(subcraft_doc::PartMask::for_kind(subcraft_core::PartKind::Object, ids));
+        if std::env::var_os("SUBCRAFT_SPP_DEBUG").is_some() {
+            eprintln!("geometry mask of '{}': {:?} -> {:?} of {} objects", info.name, info.mesh_filter, layer.parts.as_ref().map(|p| &p.parts), objects.len());
+        }
+        if listed.iter().any(|n| !objects.iter().any(|o| &o.name == n)) {
+            self.stats.skip("geometry mask naming a mesh the model does not have");
+        } else {
+            self.stats.exact += 1;
+        }
+    }
+
     fn layer(&mut self, info: &LayerInfo) -> Layer {
         let ts = self.ts;
         if let Some(c) = &self.control {
@@ -326,6 +344,7 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
             }
             self.apply_opacity(&mut folder, info);
             self.attach_mask(&mut folder, info);
+            self.geometry_mask(&mut folder, info);
             return folder;
         }
         self.stats.layers += 1;
@@ -341,6 +360,7 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
             }
         }
         self.attach_mask(&mut layer, info);
+        self.geometry_mask(&mut layer, info);
         layer
     }
 
@@ -612,16 +632,23 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
                     }
                     _ => self.stats.skip(format!("mask filter '{}'", graph.name())),
                 },
+                // A text tip stamps glyphs of a font; SubCraft would stamp a disc of the whole tip
+                // size instead (on DBAL-A2 one "2" eraser stamp wiped most of a label), so these
+                // strokes are left out and named.
+                ActionKind::Paint { brush: Some(BrushInfo { tip_text: Some(text), tip, .. }), .. } | ActionKind::Eraser { brush: Some(BrushInfo { tip_text: Some(text), tip, .. }), .. } => {
+                    self.stats.skip(format!("text brush stamps (\"{text}\" in {tip})"));
+                }
                 ActionKind::Paint { strokes, brush: Some(brush), opacity } | ActionKind::Eraser { strokes, brush: Some(brush), opacity } if self.picker.is_some() && self.geometry.is_some() => {
                     let erase = matches!(action.kind, ActionKind::Eraser { .. });
                     let blend = self.group_blend(action);
-                    let stencil = brush.stencil.as_ref().and_then(|(url, m)| {
+                    let stencil_image = brush.stencil.as_ref().and_then(|(url, m)| {
                         // Kept with its alpha: the stencil lets paint through by brightness x alpha.
                         let id = self.bitmap(url, true)?;
-                        let bitmap = self.resources.get(id)?.bitmap.clone();
-                        Some(Arc::new(spp_select::stencil_of(bitmap, m)))
+                        Some((self.resources.get(id)?.bitmap.clone(), *m))
                     });
-                    let op = RasterOp::Strokes { strokes: strokes.clone(), brush: brush.clone(), opacity: *opacity, erase, stencil };
+                    let stencil = stencil_image.as_ref().map(|(bitmap, m)| Arc::new(spp_select::stencil_of(bitmap.clone(), m)));
+                    let uv_stencil = stencil_image.map(|(bitmap, matrix)| spp_select::UvStencil { bitmap, matrix });
+                    let op = RasterOp::Strokes { strokes: strokes.clone(), brush: brush.clone(), opacity: *opacity, erase, stencil, uv_stencil };
                     pending.get_or_insert_with(|| (action.group, Vec::new(), blend)).1.push(op);
                     self.stats.approximate += 1;
                     mapped += 1;
@@ -629,7 +656,15 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
                 ActionKind::Paint { .. } => self.stats.skip("painted mask strokes"),
                 ActionKind::Eraser { .. } => self.stats.skip("erased mask strokes"),
                 ActionKind::Decal { hits } => match (self.picker, self.geometry.as_ref()) {
-                    (Some(_), Some(_)) => {
+                    (Some(picker), Some(_)) => {
+                        if std::env::var_os("SUBCRAFT_SPP_DEBUG").is_some() {
+                            for h in hits {
+                                let mut objects: Vec<u32> = picker.select(h, h.through).iter().filter_map(|&t| picker.mesh.tri_object.get(t as usize).copied().flatten()).collect();
+                                objects.sort_unstable();
+                                objects.dedup();
+                                eprintln!("polygon fill in '{}': granularity {} value {} points {:?} -> objects {:?}", info.name, h.granularity, h.value, h.points, objects.iter().map(|&o| picker.mesh.objects[o as usize].name.as_str()).collect::<Vec<_>>());
+                            }
+                        }
                         let blend = self.group_blend(action);
                         pending.get_or_insert_with(|| (action.group, Vec::new(), blend)).1.push(RasterOp::Fill(hits.clone()));
                         self.stats.exact += 1;
@@ -820,10 +855,13 @@ pub fn painter_blend(id: i32) -> Option<BlendMode> {
     match id {
         // Found by search against Painter's flattened result (DBAL-A2, see docs/spp-research.md):
         // each id tried with 18 modes, everything else fixed, fitted fills refitted every time.
-        // 4 and 10 tie with Darken / Linear burn on near-binary masks; 15 ties with Overlay,
-        // Hard light, Color and Divide (all far better than Normal); 2 is Hard light by a small
-        // margin and is not applied to the Normal channel (see `apply_opacity`).
-        4 | 10 => Some(BlendMode::Multiply),
+        // 4 ties with Darken / Linear burn on near-binary masks. 10 was Multiply too until the
+        // stencils, placed images and brush sizes were fixed; searched again then, Linear burn
+        // wins (DBAL-A2 at 1024: Metallic 0.0542 -> 0.0528, CarInteriro unchanged). 15 ties with
+        // Overlay, Hard light, Color and Divide (all far better than Normal); 2 is Hard light by
+        // a small margin and is not applied to the Normal channel (see `apply_opacity`).
+        4 => Some(BlendMode::Multiply),
+        10 => Some(BlendMode::LinearBurn),
         2 => Some(BlendMode::HardLight),
         9 => Some(BlendMode::Color),
         11 | 15 => Some(BlendMode::SoftLight),
@@ -846,10 +884,10 @@ fn projection_of(id: i64, uv: Option<&subcraft_mesh::spp::document::UvTransform>
         if p.mode == ProjectionMode::Uv && !skip("uv_phase") {
             // Painter's transform is affine in UV: the same map as SubCraft's scale, rotation
             // (mirrored by the opposite V axes) and offset (where UV 0,0 lands).
-            p.rotation_deg = -t.rotation;
+            p.rotation_deg = -(t.rotation * spp_select::rotation_sign()).to_degrees();
             p.offset = spp_select::painter_image_uv(t, glam::Vec2::ZERO).into();
         } else {
-            p.rotation_deg = t.rotation;
+            p.rotation_deg = t.rotation.to_degrees();
             p.offset = t.offset;
         }
     }

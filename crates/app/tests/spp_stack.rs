@@ -29,6 +29,7 @@ fn layer(name: &str, content: Vec<ActionInfo>, mask: Option<(Vec<ActionInfo>, bo
         mask: mask.as_ref().map(|m| m.0.clone()).unwrap_or_default(),
         mask_enabled: true,
         mask_initial_white: mask.is_some_and(|m| m.1),
+        mesh_filter: None,
         children: Vec::new(),
     }
 }
@@ -79,6 +80,47 @@ fn rebuild_rules() {
     assert!(fill.channels.contains_key(&ChannelKind::BaseColor) && fill.channels.contains_key(&ChannelKind::Roughness));
     assert!(!fill.channels.contains_key(&ChannelKind::Normal), "the material's normal detail is dropped");
     assert_eq!(fitted, vec![(plastic.id, vec![ChannelKind::BaseColor, ChannelKind::Roughness])]);
+}
+
+#[test]
+fn painter_blending_ids() {
+    use subcraft_app::spp_stack::painter_blend;
+    let table: Vec<(i32, Option<BlendMode>)> = [2, 4, 9, 10, 11, 15, 25, 29, 3].iter().map(|&id| (id, painter_blend(id))).collect();
+    assert_eq!(table, vec![
+        (2, Some(BlendMode::HardLight)),
+        (4, Some(BlendMode::Multiply)),
+        (9, Some(BlendMode::Color)),
+        (10, Some(BlendMode::LinearBurn)),
+        (11, Some(BlendMode::SoftLight)),
+        (15, Some(BlendMode::SoftLight)),
+        (25, Some(BlendMode::Normal)),
+        (29, Some(BlendMode::Subtract)),
+        (3, None),
+    ]);
+}
+
+#[test]
+fn geometry_mask_restricts_a_layer_to_its_mesh_objects() {
+    let mut spp = SppFile::from_reader(Cursor::new(fixture::project_file())).unwrap();
+    let mut mesh = subcraft_mesh::primitives::cube(2.0);
+    mesh.objects = vec![
+        subcraft_mesh::MeshObject { id: subcraft_core::ObjectId::new(), name: "Body".into() },
+        subcraft_mesh::MeshObject { id: subcraft_core::ObjectId::new(), name: "Lens".into() },
+        subcraft_mesh::MeshObject { id: subcraft_core::ObjectId::new(), name: "Strap".into() },
+    ];
+    let ts = TextureSet::new("T", 0, 64);
+    let mut resources = ResourceStore::default();
+    let mut r = Rebuilder::new(&mut spp, &ts, &mut resources);
+    r.geometry = Some(std::sync::Arc::new(subcraft_materials::TextureSetGeometry::new(std::sync::Arc::new(mesh), 0, 64)));
+    let mut only = layer("Only lens", vec![uniform(channel_bits::BASE_COLOR, 0.9)], None);
+    only.mesh_filter = Some((false, vec!["Lens".into()]));
+    let mut except = layer("All but strap", vec![uniform(channel_bits::BASE_COLOR, 0.9)], None);
+    except.mesh_filter = Some((true, vec!["Strap".into()]));
+    let layers = r.rebuild(&[only, except, layer("Everywhere", vec![uniform(channel_bits::BASE_COLOR, 0.9)], None)]);
+    let parts = |l: &subcraft_doc::Layer| l.parts.as_ref().map(|p| (p.kind, p.parts.iter().copied().collect::<Vec<_>>()));
+    assert_eq!(parts(&layers[0]), Some((subcraft_core::PartKind::Object, vec![1])));
+    assert_eq!(parts(&layers[1]), Some((subcraft_core::PartKind::Object, vec![0, 1])));
+    assert_eq!(parts(&layers[2]), None);
 }
 
 #[test]

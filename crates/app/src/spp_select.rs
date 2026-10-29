@@ -19,7 +19,8 @@ use subcraft_mesh::{Bvh, Mesh};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Granularity {
     Triangle,
-    /// Painter's "mesh fill": the whole mesh object (the model file's object/sub-mesh).
+    /// Painter's "mesh fill": the whole mesh object (the model file's object/sub-mesh), joined
+    /// with every object it shares connected geometry with.
     Object,
     UvIsland,
 }
@@ -35,6 +36,36 @@ impl Granularity {
     }
 }
 
+/// Rectangles narrower or lower than this (screen units) are clicks.
+const MIN_RECT: f32 = 0.01;
+
+/// Per-triangle object ids where objects that share a connected element get one id (the smallest).
+/// Measured on DBAL-A2: a piece welded to another object's mesh is filled with it in Painter
+/// (Plane.003 with Plane_002.002: Base Color 0.40 -> 0.05 there), while an object made of separate
+/// pieces is still filled whole (filling by connected piece alone tripled Metallic on one ring).
+pub fn join_connected(objects: &[u32], elements: &[u32]) -> Vec<u32> {
+    use std::collections::HashMap;
+    let mut parent: HashMap<u32, u32> = HashMap::new();
+    fn find(p: &mut HashMap<u32, u32>, x: u32) -> u32 {
+        let up = *p.get(&x).unwrap_or(&x);
+        if up == x {
+            return x;
+        }
+        let root = find(p, up);
+        p.insert(x, root);
+        root
+    }
+    let mut first: HashMap<u32, u32> = HashMap::new();
+    for (&o, &e) in objects.iter().zip(elements) {
+        let other = *first.entry(e).or_insert(o);
+        let (a, b) = (find(&mut parent, o), find(&mut parent, other));
+        if a != b {
+            parent.insert(a.max(b), a.min(b));
+        }
+    }
+    objects.iter().map(|&o| find(&mut parent, o)).collect()
+}
+
 /// Mesh, ray tracer and connectivity used to replay polygon fills.
 pub struct Picker {
     pub mesh: Arc<Mesh>,
@@ -48,7 +79,8 @@ impl Picker {
         let bvh = Bvh::build(&mesh);
         // Triangles without an object fall back to their connected element (offset past the objects).
         let elements = subcraft_mesh::topology::mesh_elements(&mesh);
-        let objects = (0..mesh.triangle_count()).map(|t| mesh.tri_object.get(t).copied().flatten().unwrap_or(1 << 30 | elements[t])).collect();
+        let objects: Vec<u32> = (0..mesh.triangle_count()).map(|t| mesh.tri_object.get(t).copied().flatten().unwrap_or(1 << 30 | elements[t])).collect();
+        let objects = join_connected(&objects, &elements);
         let islands = subcraft_mesh::topology::uv_islands(&mesh);
         Self { mesh, bvh, objects, islands }
     }
@@ -81,7 +113,13 @@ impl Picker {
     pub fn select(&self, hit: &DecalHit, through: bool) -> Vec<u32> {
         let inv = Mat4::from_cols_array(&hit.proj_view_inv);
         let g = Granularity::from_id(hit.granularity);
-        let seeds: Vec<u32> = match hit.points.as_slice() {
+        // A rectangle under ~1% of the view on a side is a click with the rectangle tool: Painter
+        // selects what is under it (48 of DBAL-A2's 140 rectangles, which selected nothing).
+        let points: Vec<[f32; 2]> = match hit.points.as_slice() {
+            [a, b] if (a[0] - b[0]).abs() < MIN_RECT || (a[1] - b[1]).abs() < MIN_RECT => vec![[(a[0] + b[0]) * 0.5, (a[1] + b[1]) * 0.5]],
+            p => p.to_vec(),
+        };
+        let seeds: Vec<u32> = match points.as_slice() {
             [p] => {
                 let (o, d) = Self::ray(&inv, *p);
                 let mut seeds = Vec::new();
@@ -108,6 +146,8 @@ impl Picker {
         let (y0, y1) = (a[1].min(b[1]), a[1].max(b[1]));
         let mut out = Vec::new();
         let mut candidates = Vec::new();
+        // Triangles whose centre is in the rectangle. Taking every triangle the rectangle touches
+        // was measured and rejected: CarInteriro's Metallic 0.0067 -> 0.0142 at 512.
         for t in 0..self.mesh.triangle_count() {
             let p = self.mesh.tri_positions(t);
             let c = (p[0] + p[1] + p[2]) / 3.0;
@@ -324,6 +364,8 @@ pub struct StrokeReplay<'a> {
     pub alignment: Option<subcraft_paint::Alignment>,
     /// Screen stencil of the strokes being replayed.
     pub stencil: Option<Arc<subcraft_paint::Stencil>>,
+    /// Stencil of the 2D-view strokes being replayed.
+    pub uv_stencil: Option<UvStencil>,
 }
 
 impl<'a> StrokeReplay<'a> {
@@ -344,7 +386,7 @@ impl<'a> StrokeReplay<'a> {
             Ok("camera") => Some(subcraft_paint::Alignment::Camera),
             Ok("uv") => Some(subcraft_paint::Alignment::Uv),
             _ => None,
-        }, stencil: None }
+        }, stencil: None, uv_stencil: None }
     }
 
     fn set_image(&mut self, image: TiledImage) {
@@ -370,6 +412,58 @@ impl<'a> StrokeReplay<'a> {
     fn camera(&self, s: &StrokeInfo) -> subcraft_paint::Camera {
         let gl_to_wgpu = Mat4::from_cols_array(&[1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.5, 0.0, 0.0, 0.0, 0.5, 1.0]);
         subcraft_paint::Camera { view: Mat4::from_cols_array(&s.view), proj: gl_to_wgpu * Mat4::from_cols_array(&s.projection), viewport: [self.viewport, self.viewport] }
+    }
+
+    /// A 3D-view stroke with Painter's UV alignment: each point is cast into the scene (the first
+    /// surface it meets, as Painter paints only what it sees) and its dab is stamped in UV around
+    /// that point, sized in UV like a 2D-view stroke. Points that meet another texture set or
+    /// nothing paint nothing here, and the path is cut where it changes UV island. The screen
+    /// stencil is read at each texel's position seen from the stroke's camera.
+    fn uv_aligned(&self, image: TiledImage, s: &StrokeInfo, brush: &BrushInfo, opacity: f32, erase: bool) -> TiledImage {
+        let proj_view = Mat4::from_cols_array(&s.projection) * Mat4::from_cols_array(&s.view);
+        let inv = proj_view.inverse();
+        let slot = self.geometry.material_slot;
+        let mut runs: Vec<Vec<[f32; 2]>> = Vec::new();
+        let mut last_island = None;
+        for p in &s.points {
+            let (o, d) = Picker::ray(&inv, *p);
+            let hit = self.picker.bvh.intersect(o, d, 0.0, f32::INFINITY).filter(|h| self.picker.mesh.tri_material.get(h.tri as usize) == Some(&slot));
+            let Some(h) = hit else {
+                last_island = None;
+                continue;
+            };
+            let uv = self.picker.mesh.tri_uvs(h.tri as usize);
+            let q = uv[0] * (1.0 - h.u - h.v) + uv[1] * h.u + uv[2] * h.v;
+            let island = self.picker.islands[h.tri as usize];
+            if last_island != Some(island) {
+                runs.push(Vec::new());
+            }
+            last_island = Some(island);
+            runs.last_mut().unwrap().push([q.x, 1.0 - q.y]);
+        }
+        if runs.is_empty() {
+            return image;
+        }
+        let paths: Vec<StrokeInfo> = runs.into_iter().map(|points| StrokeInfo { uv_space: true, points, pressure: Vec::new(), ..s.clone() }).collect();
+        let refs: Vec<&StrokeInfo> = paths.iter().collect();
+        let res = image.width();
+        let vp = self.viewport;
+        let stencil = self.stencil.clone();
+        let geometry = &self.geometry;
+        let stencil_at = |x: usize, y: usize| -> f32 {
+            let Some(st) = &stencil else { return 1.0 };
+            let (x, y) = (x as u32, y as u32);
+            let tile = geometry.tile(((y / subcraft_image::TILE_SIZE) * geometry.tiles_x + x / subcraft_image::TILE_SIZE) as usize);
+            let i = ((y % subcraft_image::TILE_SIZE) * subcraft_image::TILE_SIZE + x % subcraft_image::TILE_SIZE) as usize;
+            if tile.triangle(i).is_none() || x >= res || y >= res {
+                return 0.0;
+            }
+            let world = Vec3::from(tile.position(i)) * geometry.max_extent + geometry.bounds.min;
+            let c = proj_view * world.extend(1.0);
+            let ndc = c.truncate() / c.w;
+            st.value_at(glam::Vec2::new((ndc.x * 0.5 + 0.5) * vp as f32, (0.5 - ndc.y * 0.5) * vp as f32), [vp, vp])
+        };
+        uv_dabs(image, &refs, brush, opacity, erase, &stencil_at)
     }
 
     /// Paint (or erase) `strokes` with `brush` onto `image` (value, alpha) and return the result.
@@ -415,12 +509,24 @@ impl<'a> StrokeReplay<'a> {
         let uv_strokes: Vec<&StrokeInfo> = all.iter().copied().filter(|s| s.uv_space).collect();
         if !uv_strokes.is_empty() {
             let image = self.image();
-            self.set_image(uv_paint(image, &uv_strokes, brush, opacity, erase));
+            self.set_image(uv_paint(image, &uv_strokes, brush, opacity, erase, self.uv_stencil.as_ref()));
+        }
+        if brush.alignment == 3 && uv_dabs_enabled() {
+            for s in all.iter().filter(|s| !s.uv_space) {
+                let image = self.image();
+                let image = self.uv_aligned(image, s, brush, opacity, erase);
+                self.set_image(image);
+            }
+            return self.image();
         }
         for (k, s) in all.iter().enumerate().filter(|(_, s)| !s.uv_space) {
             let camera = self.camera(s);
             let ctx = subcraft_paint::PaintContext { mesh: &self.picker.mesh, bvh: &self.picker.bvh, geometry: &self.geometry, camera: &camera, depth: &self.depth };
-            let settings = subcraft_paint::BrushSettings { seed: s.seed.wrapping_add(k as u32), ..settings };
+            let size = match screen_brush() {
+                Some(k) => screen_brush_size(s, brush.size * k, &self.picker.mesh),
+                None => settings.size,
+            };
+            let settings = subcraft_paint::BrushSettings { seed: s.seed.wrapping_add(k as u32), size, ..settings };
             let Ok(stroke) = subcraft_paint::Stroke::begin(&self.set, self.layer, target, mode, settings, subcraft_paint::StrokeOptions::default(), &material) else { continue };
             let mut stroke = stroke.with_stencil(self.stencil.clone());
             let vp = self.viewport as f32;
@@ -441,12 +547,55 @@ impl<'a> StrokeReplay<'a> {
     }
 }
 
-/// SubCraft brush size (percent of the bounding-box diagonal) per unit of Painter's `brushSize`
-/// x 100. Measured: 0.5 matches all three sample projects better than 1 (DBAL-A2 Metallic 0.070
-/// -> 0.067, Street_cyberpunk Base Color 0.007 -> 0.005); smaller gains under 0.001 more.
+/// With `SUBCRAFT_SPP_BRUSH_SPACE=object` only: SubCraft brush size (percent of the bounding-box
+/// diagonal) per unit of Painter's `brushSize` x 100. 0.5 matched best under that reading.
 /// `SUBCRAFT_SPP_BRUSH_SCALE` overrides it for experiments.
 fn brush_scale() -> f32 {
     std::env::var("SUBCRAFT_SPP_BRUSH_SCALE").ok().and_then(|v| v.parse::<f32>().ok()).unwrap_or(0.5)
+}
+
+/// 3D-view strokes' `brushSize` scales with the stroke's view height: the brush diameter is
+/// `SCREEN_BRUSH` x `brushSize` x the view height. Measured on DBAL-A2: read against the
+/// bounding-box diagonal instead, black mask strokes beside a stencilled label grew over it and
+/// cut "DBAL-A" to "RAL-A"; read against the view the label stays whole. The factor is
+/// calibrated, not derived: at 1024 without solved detail the sum of the Base Color, Roughness
+/// and Metallic differences over the three sample projects is 0.2529 at 1.5, 0.2535 at 1 and
+/// 0.2544 at 2. Larger brushes clean DBAL-A2's slot dirt as Painter does but cut into its QR code;
+/// no single factor fits both. `SUBCRAFT_SPP_BRUSH_SPACE=object` restores the diagonal reading
+/// (times [`brush_scale`]), `screen:k` sets the factor.
+fn screen_brush() -> Option<f32> {
+    match std::env::var("SUBCRAFT_SPP_BRUSH_SPACE").ok().as_deref() {
+        Some("object") => None,
+        Some(v) => Some(v.strip_prefix("screen").and_then(|r| r.strip_prefix(':')).and_then(|k| k.parse().ok()).unwrap_or(SCREEN_BRUSH)),
+        None => Some(SCREEN_BRUSH),
+    }
+}
+
+const SCREEN_BRUSH: f32 = 1.5;
+
+/// SubCraft brush size (percent of the mesh's bounding-box diagonal) of a brush whose diameter is
+/// `fraction` of the stroke's view height, at the depth of the mesh centre for perspective views.
+pub fn screen_brush_size(s: &StrokeInfo, fraction: f32, mesh: &Mesh) -> f32 {
+    let proj = Mat4::from_cols_array(&s.projection);
+    let view = Mat4::from_cols_array(&s.view);
+    let orthographic = proj.w_axis.w.abs() > 0.5;
+    let height = if orthographic {
+        2.0 / proj.y_axis.y.abs().max(1e-6)
+    } else {
+        let depth = -view.transform_point3(mesh.bounds.center()).z;
+        2.0 * depth.max(1e-6) / proj.y_axis.y.abs().max(1e-6)
+    };
+    fraction * height / mesh.bounds.diagonal().max(1e-6) * 100.0
+}
+
+/// Experiment, off by default (`SUBCRAFT_SPP_UV_DABS=1`): stamp strokes with Painter's UV
+/// alignment in UV units like 2D-view strokes ([`StrokeReplay`]) instead of with SubCraft's 3D
+/// brush. It fits several DBAL-A2 details (a QR code beside large black stamps, dirt cleaned off a
+/// lens) and its Metallic (0.0542 -> 0.0532 at 1024), but CarInteriro's Roughness (0.0504 ->
+/// 0.0523) and Street_cyberpunk's Base Color (0.0180 -> 0.0186) get worse at every scale tried
+/// (0.08-0.3), and Painter documents alignment as the stamps' orientation only.
+fn uv_dabs_enabled() -> bool {
+    std::env::var("SUBCRAFT_SPP_UV_DABS").is_ok_and(|v| v == "1")
 }
 
 /// Stroke diameter in UV units per unit of Painter's brush size, for strokes painted in the 2D view.
@@ -462,7 +611,15 @@ const UV_BRUSH_SCALE: f32 = 0.15;
 /// Strokes painted in Painter's 2D view, stamped straight into the (value, alpha) raster: round
 /// stamps along the UV path at the brush spacing, each adding `flow` with the brush falloff, the
 /// stroke's coverage capped at `opacity`.
-pub fn uv_paint(mut image: TiledImage, strokes: &[&StrokeInfo], brush: &BrushInfo, opacity: f32, erase: bool) -> TiledImage {
+pub fn uv_paint(image: TiledImage, strokes: &[&StrokeInfo], brush: &BrushInfo, opacity: f32, erase: bool, stencil: Option<&UvStencil>) -> TiledImage {
+    let res = image.width() as f32;
+    let stencil_at = |x: usize, y: usize| stencil.map_or(1.0, |s| s.value_at(glam::Vec2::new((x as f32 + 0.5) / res, (y as f32 + 0.5) / res)));
+    uv_dabs(image, strokes, brush, opacity, erase, &stencil_at)
+}
+
+/// Stamps along UV paths (points in Painter's UV, v up) with a round tip `brush.size` x
+/// [`uv_brush_scale`] of the UV square across; `stencil_at(x, y)` scales each texel's paint.
+pub fn uv_dabs(mut image: TiledImage, strokes: &[&StrokeInfo], brush: &BrushInfo, opacity: f32, erase: bool, stencil_at: &dyn Fn(usize, usize) -> f32) -> TiledImage {
     let res = image.width() as usize;
     let radius = (brush.size * uv_brush_scale() * 0.5 * res as f32).max(0.5);
     let spacing = (brush.spacing.max(0.02) * 2.0 * radius).max(0.5);
@@ -499,7 +656,10 @@ pub fn uv_paint(mut image: TiledImage, strokes: &[&StrokeInfo], brush: &BrushInf
             }
         }
         for ((x, y), c) in cov {
-            let c = c.min(1.0) * opacity;
+            let c = c.min(1.0) * opacity * stencil_at(x, y);
+            if c <= 0.0 {
+                continue;
+            }
             let p = image.get(x as u32, y as u32);
             let (v, a) = (p[0], p[1]);
             let px = if erase {
@@ -514,26 +674,55 @@ pub fn uv_paint(mut image: TiledImage, strokes: &[&StrokeInfo], brush: &BrushInf
     image
 }
 
-/// Where Painter samples a fill's image for texel UV `uv` (SubCraft's, origin top-left): its
-/// transformation scales and rotates around the centre of the UV square after shifting by the
-/// translation, in Painter's UV (origin bottom-left). Image coordinates are returned top-left.
-/// Verified on one placed sticker: the label lands where Painter shows it only with this order.
+/// Stencil of a stroke made in Painter's 2D view: the action's 3x3 `projMatrix` (column major)
+/// takes the texel's UV (Painter's, v up) straight to stencil UV (v up), as the stroke points
+/// are UVs. On DBAL-A2 this puts the "CAGE / P/N / S/N" stencil text beside the QR code turned
+/// a quarter, as Painter shows it.
+#[derive(Clone, Debug)]
+pub struct UvStencil {
+    pub bitmap: Arc<subcraft_image::Bitmap>,
+    pub matrix: [f32; 9],
+}
+
+impl UvStencil {
+    /// Paint factor at SubCraft UV `uv` (origin top-left): image brightness x alpha, 0 outside.
+    pub fn value_at(&self, uv: glam::Vec2) -> f32 {
+        let m = &self.matrix;
+        let (x, y) = (uv.x, 1.0 - uv.y);
+        let (u, v) = (m[0] * x + m[3] * y + m[6], m[1] * x + m[4] * y + m[7]);
+        if !(0.0..=1.0).contains(&u) || !(0.0..=1.0).contains(&v) {
+            return 0.0;
+        }
+        let t = self.bitmap.sample(u, 1.0 - v, subcraft_image::Wrap::Clamp, false);
+        ((0.2126 * t[0] + 0.7152 * t[1] + 0.0722 * t[2]) * t[3]).clamp(0.0, 1.0)
+    }
+}
+
+/// Where Painter samples a fill's image for texel UV `uv` (SubCraft's, origin top-left): in
+/// Painter's UV (origin bottom-left) the image's centre sits at 0.5 + translation, and the image
+/// is scaled and rotated (radians) around it. Image coordinates are returned top-left. Measured
+/// on DBAL-A2's placed images: the QR code (no rotation) is centred at (0.352, 0.266) and the
+/// sticker (rotation 4.74) at (0.592, 0.736), both 0.5 + translation within a texel at 1024.
 pub fn painter_image_uv(t: &subcraft_mesh::spp::document::UvTransform, uv: glam::Vec2) -> glam::Vec2 {
     painter_image_uv_rotated(t, rotation_sin_cos(t), uv)
 }
 
 /// Sine and cosine of the transform's rotation (read from the environment once, not per texel).
 pub fn rotation_sin_cos(t: &subcraft_mesh::spp::document::UvTransform) -> (f32, f32) {
-    let rotation = if std::env::var_os("SUBCRAFT_SPP_ROT_RADIANS").is_some() { t.rotation } else { t.rotation.to_radians() };
-    rotation.sin_cos()
+    (t.rotation * rotation_sign()).sin_cos()
 }
 
 /// [`painter_image_uv`] with the rotation's sine and cosine given ([`rotation_sin_cos`]).
 pub fn painter_image_uv_rotated(t: &subcraft_mesh::spp::document::UvTransform, (s, c): (f32, f32), uv: glam::Vec2) -> glam::Vec2 {
     let p = glam::Vec2::new(uv.x, 1.0 - uv.y);
-    let d = (p - glam::Vec2::splat(0.5) + glam::Vec2::from(t.offset)) * glam::Vec2::from(t.scale);
+    let d = (p - glam::Vec2::splat(0.5) - glam::Vec2::from(t.offset)) * glam::Vec2::from(t.scale);
     let q = glam::Vec2::new(d.x * c - d.y * s, d.x * s + d.y * c) + glam::Vec2::splat(0.5);
     glam::Vec2::new(q.x, 1.0 - q.y)
+}
+
+/// Experiment: `SUBCRAFT_SPP_ROT_SIGN=-1` turns Painter's UV rotation the other way.
+pub fn rotation_sign() -> f32 {
+    if std::env::var("SUBCRAFT_SPP_ROT_SIGN").is_ok_and(|v| v == "-1") { -1.0 } else { 1.0 }
 }
 
 /// A bitmap placed once (not tiled) on the UV square, baked into a mask raster (value = image
@@ -577,7 +766,9 @@ pub fn placed_bitmap(geometry: &TextureSetGeometry, bitmap: &subcraft_image::Bit
 #[derive(Clone, Debug)]
 pub enum RasterOp {
     Fill(Vec<DecalHit>),
-    Strokes { strokes: Vec<StrokeInfo>, brush: BrushInfo, opacity: f32, erase: bool, stencil: Option<Arc<subcraft_paint::Stencil>> },
+    /// `stencil` masks strokes made in the 3D view; `uv_stencil` (the image and Painter's matrix)
+    /// those made in the 2D view.
+    Strokes { strokes: Vec<StrokeInfo>, brush: BrushInfo, opacity: f32, erase: bool, stencil: Option<Arc<subcraft_paint::Stencil>>, uv_stencil: Option<UvStencil> },
 }
 
 /// SubCraft's screen stencil for Painter's stencil matrix (clip-space screen position to stencil
@@ -607,9 +798,10 @@ pub fn paint_raster(picker: &Picker, geometry: Arc<TextureSetGeometry>, ops: &[R
     for op in ops {
         image = match op {
             RasterOp::Fill(hits) => raster_over(&geometry, &picker.triangle_values(hits, Some(&geometry)), image),
-            RasterOp::Strokes { strokes, brush, opacity, erase, stencil } => {
+            RasterOp::Strokes { strokes, brush, opacity, erase, stencil, uv_stencil } => {
                 let r = replay.get_or_insert_with(|| StrokeReplay::new(picker, geometry.clone()));
                 r.stencil = stencil.clone();
+                r.uv_stencil = uv_stencil.clone();
                 r.replay(image, strokes, brush, *opacity, *erase)
             }
         };
@@ -701,6 +893,71 @@ mod tests {
     }
 
     #[test]
+    fn screen_brush_size_is_a_fraction_of_the_view_height() {
+        let mesh = subcraft_mesh::primitives::cube(2.0);
+        let diag = mesh.bounds.diagonal();
+        // Orthographic view 4 units tall (y scale 0.5): a 0.1 brush is 0.4 units across.
+        let ortho = Mat4::orthographic_rh_gl(-2.0, 2.0, -2.0, 2.0, 0.1, 100.0);
+        let view = Mat4::look_at_rh(Vec3::new(0.0, 0.0, 10.0), Vec3::ZERO, Vec3::Y);
+        let s = StrokeInfo { uv_space: false, points: Vec::new(), pressure: Vec::new(), view: view.to_cols_array(), projection: ortho.to_cols_array(), seed: 0, duplicate: None };
+        assert!((screen_brush_size(&s, 0.1, &mesh) - 0.4 / diag * 100.0).abs() < 1e-4);
+        // Perspective: the view height at the mesh centre (10 units away, 90 degrees: 20 units).
+        let persp = Mat4::perspective_rh_gl(90f32.to_radians(), 1.0, 0.1, 100.0);
+        let s = StrokeInfo { projection: persp.to_cols_array(), ..s };
+        assert!((screen_brush_size(&s, 0.1, &mesh) - 2.0 / diag * 100.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn uv_aligned_strokes_stamp_only_where_they_meet_the_set() {
+        let p = cube_picker();
+        let geometry = Arc::new(TextureSetGeometry::new(p.mesh.clone(), 0, 64));
+        let view = Mat4::look_at_rh(Vec3::new(0.0, 0.0, 5.0), Vec3::ZERO, Vec3::Y);
+        let proj = Mat4::orthographic_rh_gl(-2.0, 2.0, -2.0, 2.0, 0.1, 20.0);
+        let stroke = |points: Vec<[f32; 2]>| StrokeInfo { uv_space: false, duplicate: None, points, pressure: Vec::new(), view: view.to_cols_array(), projection: proj.to_cols_array(), seed: 1 };
+        let brush = BrushInfo { size: 0.2, size_space: 1, flow: 1.0, spacing: 0.1, pressure_size: false, value: 1.0, hardness: Some(1.0), tip: "shape".into(), tip_text: None, alignment: 3, culling: true, stencil: None };
+        let replay = StrokeReplay::new(&p, geometry.clone());
+        let painted = |img: &TiledImage| (0..64).flat_map(|y| (0..64).map(move |x| (x, y))).filter(|&(x, y)| img.get(x, y)[1] > 0.5).collect::<Vec<_>>();
+        // Across the front face: texels of the front face's island only, around the path.
+        let on = replay.uv_aligned(TiledImage::new(64, 64, 2, [0.0; 4]), &stroke((0..10).map(|i| [0.4 + i as f32 * 0.02, 0.5]).collect()), &brush, 1.0, false);
+        let texels = painted(&on);
+        assert!(!texels.is_empty());
+        let island_of = |x: u32, y: u32| {
+            let tile = geometry.tile(geometry.tiles_x as usize * (y / 64) as usize + (x / 64) as usize);
+            tile.triangle(((y % 64) * 64 + x % 64) as usize).map(|t| p.islands[t])
+        };
+        let front = p.islands[p.select(&hit(vec![[0.5, 0.5]], 0, 1.0), false)[0] as usize];
+        assert!(texels.iter().all(|&(x, y)| island_of(x, y).is_none_or(|i| i == front)), "stays on the front island in UV");
+        // Over the background (the cube spans the middle half of the view): nothing at all.
+        let off = replay.uv_aligned(TiledImage::new(64, 64, 2, [0.0; 4]), &stroke(vec![[0.05, 0.05], [0.1, 0.05]]), &brush, 1.0, false);
+        assert!(painted(&off).is_empty());
+    }
+
+    #[test]
+    fn uv_stencil_maps_painter_uv_to_the_image() {
+        // White left half, black right half; RGBA with full alpha.
+        let bitmap = Arc::new(subcraft_image::Bitmap::new_u8(2, 1, 4, vec![255, 255, 255, 255, 0, 0, 0, 255]));
+        let identity = UvStencil { bitmap: bitmap.clone(), matrix: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0] };
+        assert!(identity.value_at(glam::Vec2::new(0.1, 0.5)) > 0.99);
+        assert!(identity.value_at(glam::Vec2::new(0.9, 0.5)) < 0.01);
+        // A quarter turn (u = 1 - y, v = x): Painter's v (up) picks the image column. The top of
+        // the texture (Painter v 0.9) reads the white left half, the bottom the black right half.
+        let turned = UvStencil { bitmap: bitmap.clone(), matrix: [0.0, 1.0, 0.0, -1.0, 0.0, 0.0, 1.0, 0.0, 1.0] };
+        assert!(turned.value_at(glam::Vec2::new(0.5, 0.1)) > 0.99);
+        assert!(turned.value_at(glam::Vec2::new(0.5, 0.9)) < 0.01);
+        // Outside the image: nothing.
+        let small = UvStencil { bitmap, matrix: [4.0, 0.0, 0.0, 0.0, 4.0, 0.0, 0.0, 0.0, 1.0] };
+        assert_eq!(small.value_at(glam::Vec2::new(0.8, 0.2)), 0.0);
+    }
+
+    #[test]
+    fn mesh_fill_joins_objects_that_share_connected_geometry() {
+        // Objects 0 and 1 are welded through element 7; object 2 has two separate pieces.
+        let objects = [0, 0, 1, 1, 2, 2, 3];
+        let elements = [7, 7, 7, 8, 9, 10, 11];
+        assert_eq!(join_connected(&objects, &elements), vec![0, 0, 0, 0, 2, 2, 3]);
+    }
+
+    #[test]
     fn rectangles_take_visible_triangles_and_later_hits_win() {
         let p = cube_picker();
         let all = p.select(&hit(vec![[0.0, 0.0], [1.0, 1.0]], 0, 1.0), false);
@@ -708,6 +965,16 @@ mod tests {
         let values = p.triangle_values(&[hit(vec![[0.55, 0.6]], 2, 1.0), hit(vec![[0.55, 0.6]], 3, 0.0)], None);
         assert_eq!(values.iter().filter(|v| **v == Some(1.0)).count(), 160);
         assert_eq!(values.iter().filter(|v| **v == Some(0.0)).count(), 32);
+    }
+
+    #[test]
+    fn drags_without_area_are_clicks() {
+        let p = cube_picker();
+        let click = p.select(&hit(vec![[0.55, 0.6]], 0, 1.0), false);
+        assert_eq!(click.len(), 1);
+        // A drag without height (or width) selects what a click at its centre selects.
+        assert_eq!(p.select(&hit(vec![[0.549, 0.6], [0.551, 0.6]], 0, 1.0), false), click);
+        assert_eq!(p.select(&hit(vec![[0.55, 0.598], [0.55, 0.602]], 0, 1.0), false), click);
     }
 
     #[test]
@@ -736,7 +1003,8 @@ mod tests {
         let view = Mat4::look_at_rh(Vec3::new(0.0, 0.0, 5.0), Vec3::ZERO, Vec3::Y);
         let proj = Mat4::orthographic_rh_gl(-2.0, 2.0, -2.0, 2.0, 0.1, 20.0);
         let stroke = StrokeInfo { uv_space: false, duplicate: None, points: (0..20).map(|i| [0.3 + i as f32 * 0.02, 0.5]).collect(), pressure: Vec::new(), view: view.to_cols_array(), projection: proj.to_cols_array(), seed: 1 };
-        let brush = BrushInfo { size: 0.1, size_space: 1, flow: 1.0, spacing: 0.1, pressure_size: false, value: 1.0, hardness: Some(0.5), tip: "shape".into(), alignment: 0, culling: true, stencil: None };
+        // 0.05 of the 4-unit view x 1.5: 0.3 units across, inside the 2-unit face along the path.
+        let brush = BrushInfo { size: 0.05, size_space: 1, flow: 1.0, spacing: 0.1, pressure_size: false, value: 1.0, hardness: Some(0.5), tip: "shape".into(), tip_text: None, alignment: 0, culling: true, stencil: None };
         let mut replay = StrokeReplay::new(&p, geometry.clone());
         let painted = replay.replay(TiledImage::new(64, 64, 2, [0.0; 4]), &[stroke], &brush, 1.0, false);
         let (mut on_front, mut elsewhere) = (0, 0);
@@ -763,7 +1031,7 @@ mod tests {
         // A vertical line at u = 0.25 (v from bottom to top), mirrored across the middle.
         let mirror = Mat4::from_scale(Vec3::new(-1.0, 1.0, 1.0)).to_cols_array();
         let stroke = StrokeInfo { uv_space: true, duplicate: Some(mirror), points: vec![[0.25, 0.1], [0.25, 0.9]], pressure: Vec::new(), view: [0.0; 16], projection: [0.0; 16], seed: 0 };
-        let brush = BrushInfo { size: 0.5, size_space: 1, flow: 1.0, spacing: 0.1, pressure_size: false, value: 1.0, hardness: Some(0.8), tip: "shape".into(), alignment: 3, culling: true, stencil: None };
+        let brush = BrushInfo { size: 0.5, size_space: 1, flow: 1.0, spacing: 0.1, pressure_size: false, value: 1.0, hardness: Some(0.8), tip: "shape".into(), tip_text: None, alignment: 3, culling: true, stencil: None };
         let mut replay = StrokeReplay::new(&p, geometry);
         let img = replay.replay(TiledImage::new(64, 64, 2, [0.0; 4]), &[stroke], &brush, 1.0, false);
         let a = |u: f32, v: f32| img.get((u * 64.0) as u32, ((1.0 - v) * 64.0) as u32)[1];
@@ -782,12 +1050,16 @@ mod tests {
         let id = UvTransform { scale: [1.0, 1.0], rotation: 0.0, offset: [0.0, 0.0], tiling: true };
         let q = painter_image_uv(&id, glam::Vec2::new(0.3, 0.8));
         assert!((q - glam::Vec2::new(0.3, 0.8)).length() < 1e-6, "identity: {q}");
-        // A sticker 1/10 of the square, shifted: its centre is at Painter UV 0.5 - translation.
-        let t = UvTransform { scale: [10.0, 10.0], rotation: 30.0, offset: [0.2, -0.1], tiling: false };
-        let centre = glam::Vec2::new(0.3, 1.0 - 0.6);
+        // A sticker 1/10 of the square, shifted, rotated (radians): its centre is at Painter UV
+        // 0.5 + translation, i.e. SubCraft UV (0.7, 1 - 0.4).
+        let t = UvTransform { scale: [10.0, 10.0], rotation: 0.5, offset: [0.2, -0.1], tiling: false };
+        let centre = glam::Vec2::new(0.7, 1.0 - 0.4);
         assert!((painter_image_uv(&t, centre) - glam::Vec2::splat(0.5)).length() < 1e-5);
+        // One image width to the right of the centre (Painter U) reaches the image's edge, turned.
+        let edge = painter_image_uv(&t, centre + glam::Vec2::new(0.05, 0.0));
+        assert!(((edge - glam::Vec2::splat(0.5)).length() - 0.5).abs() < 1e-4, "{edge}");
         // The same map as SubCraft's projection with the converted parameters.
-        let p = subcraft_doc::Projection { scale: t.scale, rotation_deg: -t.rotation, offset: painter_image_uv(&t, glam::Vec2::ZERO).into(), ..Default::default() };
+        let p = subcraft_doc::Projection { scale: t.scale, rotation_deg: -t.rotation.to_degrees(), offset: painter_image_uv(&t, glam::Vec2::ZERO).into(), ..Default::default() };
         for uv in [[0.1f32, 0.2], [0.7, 0.4], [0.9, 0.95]] {
             let a = painter_image_uv(&t, glam::Vec2::from(uv));
             let b = glam::Vec2::from(p.transform_2d(uv));
