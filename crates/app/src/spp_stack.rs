@@ -615,13 +615,14 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
                 ActionKind::Paint { strokes, brush: Some(brush), opacity } | ActionKind::Eraser { strokes, brush: Some(brush), opacity } if self.picker.is_some() && self.geometry.is_some() => {
                     let erase = matches!(action.kind, ActionKind::Eraser { .. });
                     let blend = self.group_blend(action);
-                    let stencil = brush.stencil.as_ref().and_then(|(url, m)| {
+                    let stencil_image = brush.stencil.as_ref().and_then(|(url, m)| {
                         // Kept with its alpha: the stencil lets paint through by brightness x alpha.
                         let id = self.bitmap(url, true)?;
-                        let bitmap = self.resources.get(id)?.bitmap.clone();
-                        Some(Arc::new(spp_select::stencil_of(bitmap, m)))
+                        Some((self.resources.get(id)?.bitmap.clone(), *m))
                     });
-                    let op = RasterOp::Strokes { strokes: strokes.clone(), brush: brush.clone(), opacity: *opacity, erase, stencil };
+                    let stencil = stencil_image.as_ref().map(|(bitmap, m)| Arc::new(spp_select::stencil_of(bitmap.clone(), m)));
+                    let uv_stencil = stencil_image.map(|(bitmap, matrix)| spp_select::UvStencil { bitmap, matrix });
+                    let op = RasterOp::Strokes { strokes: strokes.clone(), brush: brush.clone(), opacity: *opacity, erase, stencil, uv_stencil };
                     pending.get_or_insert_with(|| (action.group, Vec::new(), blend)).1.push(op);
                     self.stats.approximate += 1;
                     mapped += 1;
@@ -844,10 +845,10 @@ fn projection_of(id: i64, uv: Option<&subcraft_mesh::spp::document::UvTransform>
         if p.mode == ProjectionMode::Uv && !skip("uv_phase") {
             // Painter's transform is affine in UV: the same map as SubCraft's scale, rotation
             // (mirrored by the opposite V axes) and offset (where UV 0,0 lands).
-            p.rotation_deg = -t.rotation;
+            p.rotation_deg = -(t.rotation * spp_select::rotation_sign()).to_degrees();
             p.offset = spp_select::painter_image_uv(t, glam::Vec2::ZERO).into();
         } else {
-            p.rotation_deg = t.rotation;
+            p.rotation_deg = t.rotation.to_degrees();
             p.offset = t.offset;
         }
     }
