@@ -67,6 +67,7 @@ fn main() -> anyhow::Result<()> {
             "--properties-panel" => options.properties_panel = true,
             "--export-template" => options.export_template = args.next().and_then(|s| s.parse().ok()),
             "--render-window" => options.render_window = true,
+            "--camera" => options.camera = Some(args.next().and_then(|s| subcraft_ui::orbit::CameraView::parse(&s)).ok_or_else(|| anyhow::anyhow!("--camera expects yaw,pitch,zoom[,x,y,z] (degrees, zoom factor, target offset)"))?),
             "--symmetry" => {
                 let axes = args.next().ok_or_else(|| anyhow::anyhow!("--symmetry expects x, y, z or a combination"))?.to_ascii_lowercase();
                 if axes.is_empty() || !axes.chars().all(|c| "xyz".contains(c)) { anyhow::bail!("--symmetry expects x, y, z or a combination"); }
@@ -105,7 +106,7 @@ fn main() -> anyhow::Result<()> {
                 options.autosave_interval = args.next().and_then(|s| s.parse::<f64>().ok()).map(std::time::Duration::from_secs_f64);
             }
             "-h" | "--help" => {
-                println!("usage: subcraft [project.subcraft | mesh file] [--demo] [--view-2d] [--brush-panel] [--bake-high mesh] [--bake-preview] [--bake-preview-map map_key] [--bake-size 256|512|1024|2048|4096] [--screenshot out.png] [--welcome] [--quick-start] [--guide-step 1..6] [--reset-layout] [--window-size WxH] [--scale 1.5] [--recover] [--autosave-interval seconds]");
+                println!("usage: subcraft [project.subcraft | mesh file] [--demo] [--view-2d] [--brush-panel] [--bake-high mesh] [--bake-preview] [--bake-preview-map map_key] [--bake-size 256|512|1024|2048|4096] [--screenshot out.png] [--welcome] [--quick-start] [--guide-step 1..6] [--reset-layout] [--window-size WxH] [--camera yaw,pitch,zoom[,x,y,z]] [--scale 1.5] [--recover] [--autosave-interval seconds]");
                 return Ok(());
             }
             path => options.mesh = Some(path.into()),

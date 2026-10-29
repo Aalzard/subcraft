@@ -116,6 +116,8 @@ pub struct LaunchOptions {
     pub quality: Option<String>,
     pub effect_panel: bool,
     pub symmetry_axes: Option<[bool; 3]>,
+    /// Fixed camera for scripted screenshots (`--camera yaw,pitch,zoom[,x,y,z]`).
+    pub camera: Option<crate::orbit::CameraView>,
     /// Start a real high-to-low bake and show its dialog (also usable with --screenshot).
     pub bake_high_poly: Option<PathBuf>,
     pub bake_size: Option<u32>,
@@ -483,6 +485,10 @@ impl SubcraftApp {
             let _ = state.session.execute(Command::SetResolution { texture_set: None, resolution });
         }
         state.welcome.open = options.shows_welcome(state.recovery.prefs.show_welcome, state.session.is_recovered());
+        if let Some(view) = options.camera {
+            state.camera_view = Some(view);
+            state.camera = crate::orbit::OrbitCamera::framing_with(&state.session.scene().mesh.bounds, Some(&view));
+        }
         if let Some(symmetry) = options.symmetry_axes {
             let stroke = subcraft_paint::StrokeOptions { symmetry, ..state.session.brush.options };
             let _ = state.session.execute(Command::SetStrokeOptions(stroke));

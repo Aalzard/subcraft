@@ -75,6 +75,8 @@ pub struct UiState {
     uploaded_composite_generation: u64,
     pub session: Session,
     pub camera: OrbitCamera,
+    /// Scripted view used whenever a model is framed (`--camera`).
+    pub camera_view: Option<crate::orbit::CameraView>,
     pub render_state: Option<egui_wgpu::RenderState>,
     pub renderer: Option<ViewportRenderer>,
     pub viewport_texture: Option<egui::TextureId>,
@@ -177,6 +179,7 @@ impl UiState {
             uploaded_view_revision: u64::MAX,
             uploaded_composite_generation: 0,
             camera: OrbitCamera::framing(&session.scene().mesh.bounds),
+            camera_view: None,
             session,
             render_state,
             renderer,
@@ -311,7 +314,7 @@ impl UiState {
         self.pen_after = None;
         if session.selected_layer().is_some_and(|l| l.kind() == subcraft_doc::LayerKind::Path) { self.tool = Tool::Pen; }
         session.brush.material = self.session.brush.material.clone();
-        self.camera = OrbitCamera::framing(&session.scene().mesh.bounds);
+        self.camera = OrbitCamera::framing_with(&session.scene().mesh.bounds, self.camera_view.as_ref());
         self.session = session;
         self.welcome.open = false;
         self.context_part = None;
