@@ -695,9 +695,13 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
         let balance = g.value("balance").unwrap_or(0.5);
         let contrast = g.value("contrast").unwrap_or(0.0);
         let invert = g.value("invert").is_some_and(|v| v >= 0.5);
+        // Grunge balance/contrast as Levels on the image: the window centre moves by
+        // `shift + slope * (0.5 - balance)` from 0.5, its width is `1 - contrast`.
+        let (shift, slope, gamma_k) = grunge_mapping();
         let width = (1.0 - contrast).max(0.02);
-        let in_low = (1.0 - balance) - 0.5 * width;
-        let levels = Levels { in_low, in_high: in_low + width, gamma: 1.0, out_low: 0.0, out_high: 1.0 };
+        let in_low = 0.5 + shift + slope * (0.5 - balance) - 0.5 * width;
+        let gamma = 2f32.powf(gamma_k * (balance - 0.5));
+        let levels = Levels { in_low, in_high: in_low + width, gamma, out_low: 0.0, out_high: 1.0 };
         let id = self.embedded_image_leveled(&g.url, levels)?;
         self.stats.approximate += 1;
         Some(vec![MaskEffect::new(MaskEffectKind::Image { resource: id, projection, invert })])
@@ -856,6 +860,18 @@ pub fn share_constant_tiles(image: &mut TiledImage, shared: &std::sync::Mutex<Ha
 /// overrides it).
 pub fn raster_max_resolution() -> u32 {
     std::env::var("SUBCRAFT_SPP_RASTER_MAX").ok().and_then(|v| v.parse().ok()).unwrap_or(2048)
+}
+
+/// Grunge balance mapping (`shift`, `slope`, `gamma_k`), see `grunge_effects`;
+/// `SUBCRAFT_SPP_GRUNGE="shift,slope,gamma_k"` overrides it for experiments. Measured on DBAL-A2:
+/// moving the levels window with the balance (0, 1, 0: the first mapping) made masks that feed
+/// thresholding Levels far too full (Metallic 0.067); balance as a midtone gamma with the window
+/// fixed (0, 0, 2) gives Metallic 0.062 and the lowest total of the variants tried.
+fn grunge_mapping() -> (f32, f32, f32) {
+    std::env::var("SUBCRAFT_SPP_GRUNGE").ok().and_then(|v| {
+        let n: Vec<f32> = v.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+        (n.len() == 3).then(|| (n[0], n[1], n[2]))
+    }).unwrap_or((0.0, 0.0, 2.0))
 }
 
 /// Developer switch for experiments: `SUBCRAFT_SPP_SKIP=a,b` leaves those rebuild steps out.

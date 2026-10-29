@@ -143,6 +143,12 @@ fn main() {
         probe(&session, &f, x, y, kind);
         return;
     }
+    if args.get(3).is_some_and(|a| a == "ablate") {
+        let kind = match args.get(4).map(|s| s.as_str()) { Some("r") => ChannelKind::Roughness, Some("m") => ChannelKind::Metallic, _ => ChannelKind::BaseColor };
+        let flat_dense: Vec<(ChannelKind, Vec<f32>)> = flat.iter().map(|(k, i)| (*k, dense(i, k.components()))).collect();
+        ablate(&session, &f, &flat_dense, &cov, kind);
+        return;
+    }
     if args.get(3).is_some_and(|a| a == "trace") {
         let x: u32 = args[4].parse().unwrap();
         let y: u32 = args[5].parse().unwrap();
@@ -551,5 +557,58 @@ pub fn trace(session: &subcraft_app::Session, folder: &subcraft_doc::Layer, x: u
             println!("after {k:3} '{}': {:?}", if k > 0 { list[k - 1].1.as_str() } else { "-" }, &v[..kind.components() + 1]);
         }
         prev = v;
+    }
+}
+
+/// Hide the leaf at position `k` (compositing order).
+fn hide_leaf(l: &mut subcraft_doc::Layer, k: usize, seen: &mut usize) {
+    match &mut l.content {
+        LayerContent::Group(g) if !g.children.is_empty() => {
+            for c in g.children.iter_mut() {
+                hide_leaf(Arc::make_mut(c), k, seen);
+            }
+        }
+        _ => {
+            if *seen == k {
+                l.visible = false;
+            }
+            *seen += 1;
+        }
+    }
+}
+
+/// Experiment: the change of each channel's difference when one visible leaf layer is hidden
+/// (negative = the stack is closer to Painter without it), the 25 largest gains by `kind`.
+pub fn ablate(session: &subcraft_app::Session, folder: &subcraft_doc::Layer, flat: &[(ChannelKind, Vec<f32>)], cov: &[bool], kind: ChannelKind) {
+    let mut list = Vec::new();
+    leaves(folder, Vec::new(), &mut list);
+    let visible: Vec<bool> = {
+        let mut v = Vec::new();
+        fn walk(l: &subcraft_doc::Layer, parent: bool, out: &mut Vec<bool>) {
+            match &l.content {
+                LayerContent::Group(g) if !g.children.is_empty() => g.children.iter().for_each(|c| walk(c, parent && l.visible, out)),
+                _ => out.push(parent && l.visible),
+            }
+        }
+        walk(folder, true, &mut v);
+        v
+    };
+    let base = stack_error(session, folder.clone(), flat, cov);
+    let of = |e: &[(ChannelKind, f64)], k: ChannelKind| e.iter().find(|(c, _)| *c == k).map_or(0.0, |(_, v)| *v);
+    println!("base {base:?}");
+    let mut rows = Vec::new();
+    for k in 0..list.len() {
+        if !visible[k] {
+            continue;
+        }
+        let mut f = folder.clone();
+        hide_leaf(&mut f, k, &mut 0);
+        let e = stack_error(session, f, flat, cov);
+        rows.push((of(&e, kind) - of(&base, kind), k, list[k].1.clone(), e));
+    }
+    rows.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+    for (d, k, name, e) in rows.iter().take(25) {
+        let others: Vec<String> = e.iter().map(|(c, v)| format!("{c:?} {:+.4}", v - of(&base, *c))).collect();
+        println!("{d:+.4} leaf {k:3} '{name}': {}", others.join(", "));
     }
 }
