@@ -139,12 +139,10 @@ the 8192-baked car interior took 94 s before the shared-gutter and parallel dila
 ## Cannot be recovered
 * Procedural layers (`.sbsar` fills, generators, filters): there is no Substance engine here; only their
   flattened result exists, in the cache.
-* The layer structure with masks, blend modes and opacities as editable SubCraft layers: the data is in the
-  document (and parsed into `LayerInfo`), but Painter's blend-mode ids are not mapped and most layers are
-  procedural, so recreating the stack would be wrong more often than right. Fill layers with uniform colors
-  and bitmap sources would be the first candidates.
-* Brush strokes as strokes (the stamps, dynamics and projections are not reproduced); their painted result is
-  in the flattened texture.
+* (Superseded in session 110: the layer structure is now rebuilt and matched against Painter's result;
+  see "Matching Painter's own result" below. Procedural materials remain the part that cannot be run.)
+* Brush strokes are replayed through SubCraft's brush engine since session 110 (round tips; Painter's brush
+  tips, dynamics and jitter are not reproduced).
 * Multi-texture-set assignment of model parts (see above), UV tile projects (not seen), anchor points,
   environment/viewer settings, export presets.
 

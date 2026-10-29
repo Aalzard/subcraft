@@ -737,9 +737,15 @@ fn rebuild_stack(spp: &mut SppFile, info: &TextureSetInfo, ts: &mut TextureSet, 
         let ids: Vec<String> = stats.blend_ids.iter().map(|(id, n)| format!("{id} x{n}")).collect();
         notes.push(format!("    Painter blend modes are not mapped yet (ids {}); they were treated as Normal.", ids.join(", ")));
     }
-    folder.visible = good;
+    // SUBCRAFT_SPP_SHOW=rebuilt|flattened overrides the choice (developer aid for comparisons).
+    let show_rebuilt = match std::env::var("SUBCRAFT_SPP_SHOW").as_deref() {
+        Ok("rebuilt") => true,
+        Ok("flattened") => false,
+        _ => good,
+    };
+    folder.visible = show_rebuilt;
     let mut flat = (*flat).clone();
-    flat.visible = !good;
+    flat.visible = !show_rebuilt;
     let top = ts.layers[1].clone();
     ts.layers.clear();
     ts.layers.push(std::sync::Arc::new(flat));
