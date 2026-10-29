@@ -83,6 +83,23 @@ fn rebuild_rules() {
 }
 
 #[test]
+fn painter_blending_ids() {
+    use subcraft_app::spp_stack::painter_blend;
+    let table: Vec<(i32, Option<BlendMode>)> = [2, 4, 9, 10, 11, 15, 25, 29, 3].iter().map(|&id| (id, painter_blend(id))).collect();
+    assert_eq!(table, vec![
+        (2, Some(BlendMode::HardLight)),
+        (4, Some(BlendMode::Multiply)),
+        (9, Some(BlendMode::Color)),
+        (10, Some(BlendMode::LinearBurn)),
+        (11, Some(BlendMode::SoftLight)),
+        (15, Some(BlendMode::SoftLight)),
+        (25, Some(BlendMode::Normal)),
+        (29, Some(BlendMode::Subtract)),
+        (3, None),
+    ]);
+}
+
+#[test]
 fn geometry_mask_restricts_a_layer_to_its_mesh_objects() {
     let mut spp = SppFile::from_reader(Cursor::new(fixture::project_file())).unwrap();
     let mut mesh = subcraft_mesh::primitives::cube(2.0);

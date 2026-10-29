@@ -819,10 +819,13 @@ pub fn painter_blend(id: i32) -> Option<BlendMode> {
     match id {
         // Found by search against Painter's flattened result (DBAL-A2, see docs/spp-research.md):
         // each id tried with 18 modes, everything else fixed, fitted fills refitted every time.
-        // 4 and 10 tie with Darken / Linear burn on near-binary masks; 15 ties with Overlay,
-        // Hard light, Color and Divide (all far better than Normal); 2 is Hard light by a small
-        // margin and is not applied to the Normal channel (see `apply_opacity`).
-        4 | 10 => Some(BlendMode::Multiply),
+        // 4 ties with Darken / Linear burn on near-binary masks. 10 was Multiply too until the
+        // stencils, placed images and brush sizes were fixed; searched again then, Linear burn
+        // wins (DBAL-A2 at 1024: Metallic 0.0542 -> 0.0528, CarInteriro unchanged). 15 ties with
+        // Overlay, Hard light, Color and Divide (all far better than Normal); 2 is Hard light by
+        // a small margin and is not applied to the Normal channel (see `apply_opacity`).
+        4 => Some(BlendMode::Multiply),
+        10 => Some(BlendMode::LinearBurn),
         2 => Some(BlendMode::HardLight),
         9 => Some(BlendMode::Color),
         11 | 15 => Some(BlendMode::SoftLight),
