@@ -32,7 +32,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     let can_save = state.user_library.is_some();
                     if ui
                         .add_enabled(can_save, egui::Button::new(format!("{}  Save preset", crate::icons::SAVE)))
-                        .on_hover_text("Save size, flow, tip, jitter, symmetry and material to your library")
+                        .on_hover_text("Save size, flow, tip, jitter, pen pressure, symmetry and material to your library")
                         .clicked()
                     {
                         let name = if state.preset_name.trim().is_empty() { state.session.brush.alpha_name.clone() } else { state.preset_name.clone() };
@@ -126,6 +126,27 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 slider_row(ui, "Flow", egui::Slider::new(&mut s.flow_jitter, 0.0..=1.0));
                 slider_row(ui, "Angle", egui::Slider::new(&mut s.angle_jitter_deg, 0.0..=180.0));
                 slider_row(ui, "Position", egui::Slider::new(&mut s.position_jitter, 0.0..=2.0));
+            });
+
+            let stylus = state.stylus;
+            section(ui, "pressure", "Pen Pressure", false, |ui| {
+                let p = &mut state.session.brush.settings.pressure;
+                hint(ui, "With a pen tablet, pressure scales the checked settings: Minimum is the value at the lightest touch, Curve > 1 needs a firmer press. A mouse always paints at full pressure.");
+                for (label, curve) in [("Size", &mut p.size), ("Flow", &mut p.flow), ("Opacity", &mut p.opacity), ("Hardness", &mut p.hardness)] {
+                    prop_row(ui, "", |ui| ui.checkbox(&mut curve.enabled, label));
+                    if curve.enabled {
+                        ui.push_id(label, |ui| {
+                            slider_row(ui, "Minimum", egui::Slider::new(&mut curve.min, 0.0..=1.0));
+                            slider_row(ui, "Curve", egui::Slider::new(&mut curve.gamma, subcraft_paint::PressureCurve::GAMMA_RANGE).logarithmic(true));
+                        });
+                    }
+                }
+                let reading = match (stylus.reading(), stylus.seen) {
+                    (Some(v), _) => format!("Pen pressure: {:.0}%", v * 100.0),
+                    (None, true) => "Pen detected (lifted)".to_string(),
+                    (None, false) => "No pen pressure received yet (Windows Ink pen input)".to_string(),
+                };
+                ui.label(RichText::new(reading).font(theme::font(11.0)).color(TEXT_FAINT));
             });
 
 

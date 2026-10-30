@@ -150,8 +150,11 @@ fill edits target the selected fill, with numeric composite/undo and real dock i
 - [x] Tip follows stroke direction (existing).
 - [~] Size/angle/scatter/flow jitter and seed exist; roundness/opacity/HSV jitter,
   per-stamp vs per-stroke control, spray count and seed lock UI remain.
-- [ ] Pressure/tilt/rotation mapping with curves to size, flow, opacity, hardness, angle, height;
-  speed dynamics and simulated mouse pressure.
+- [~] Pressure/tilt/rotation mapping with curves to size, flow, opacity, hardness, angle, height;
+  speed dynamics and simulated mouse pressure. Pen pressure (Windows Ink via winit touch force)
+  drives size, flow, opacity and hardness with per-parameter enable + minimum + gamma curve,
+  saved in presets (session 105). Tilt/rotation, angle/height targets, multi-point curves, speed
+  dynamics and simulated mouse pressure remain.
 
 ## Phase 5 — Symmetry and repetition
 

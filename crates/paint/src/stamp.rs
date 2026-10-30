@@ -23,6 +23,8 @@ pub struct Stamp {
     pub radius_px: f32,
     pub radius_uv: f32,
     pub flow: f32,
+    /// Coverage ceiling this stamp builds toward (0..1, relative to the stroke opacity).
+    pub opacity: f32,
     pub angle: f32,
     pub roundness: f32,
     pub hardness: f32,
@@ -37,6 +39,8 @@ pub struct Dab {
     pub screen: Vec2,
     pub radius: f32,
     pub flow: f32,
+    /// Coverage ceiling (0..1, relative to the stroke opacity); 1.0 without pen pressure.
+    pub opacity: f32,
     pub angle: f32,
     pub roundness: f32,
     pub hardness: f32,
@@ -83,6 +87,7 @@ fn from_surface(dab: &Dab, camera_index: usize, camera: &Camera, mesh: &Mesh, tr
         radius_px: dab.radius * camera.pixels_per_unit(depth),
         radius_uv: dab.radius * uv_per_unit,
         flow: dab.flow,
+        opacity: dab.opacity,
         angle: dab.angle,
         roundness: dab.roundness,
         hardness: dab.hardness,
@@ -240,7 +245,7 @@ mod tests {
 
     fn stamp(center: Vec3, normal: Vec3, tangent: Vec3, radius: f32) -> Stamp {
         Stamp { camera: 0, screen: Vec2::ZERO, center, normal, uv: Vec2::ZERO, tri: 0, radius, radius_px: 1.0, radius_uv: 1.0,
-            flow: 1.0, angle: 0.0, roundness: 1.0, hardness: 1.0, tangent, bitangent: tangent.cross(normal) }
+            flow: 1.0, opacity: 1.0, angle: 0.0, roundness: 1.0, hardness: 1.0, tangent, bitangent: tangent.cross(normal) }
     }
 
     fn camera() -> Camera { Camera::orthographic(Vec3::Y * 5.0, Vec3::ZERO, -Vec3::Z, 2.0, 0.1, 20.0, [64, 64]) }

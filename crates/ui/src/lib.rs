@@ -17,6 +17,7 @@ pub mod pen;
 pub mod panels;
 pub mod recovery;
 pub mod state;
+pub mod stylus;
 pub mod layer_previews;
 pub mod edit_profile;
 pub mod theme;

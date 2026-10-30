@@ -8,12 +8,16 @@ pub struct PathSample {
     pub pos: Vec2,
     /// Unit screen direction of travel (for follow-path angles).
     pub dir: Vec2,
+    /// Pen pressure (0..1) at this stamp, interpolated between input samples; 1.0 for a mouse.
+    pub pressure: f32,
 }
 
 #[derive(Clone, Debug)]
 pub struct ScreenPath {
     /// Position of the last path vertex (where the brush is).
     last: Option<Vec2>,
+    /// Pressure at the last path vertex.
+    last_pressure: f32,
     /// Distance travelled since the last emitted stamp.
     residual: f32,
     /// Lazy-mouse brush position.
@@ -23,8 +27,14 @@ pub struct ScreenPath {
 
 impl Default for ScreenPath {
     fn default() -> Self {
-        Self { last: None, residual: 0.0, lazy: None, dir: Vec2::X }
+        Self { last: None, last_pressure: 1.0, residual: 0.0, lazy: None, dir: Vec2::X }
     }
+}
+
+/// Clamp a device pressure to 0..1; missing / invalid readings count as full pressure.
+#[inline]
+pub fn sanitize_pressure(p: f32) -> f32 {
+    if p.is_finite() { p.clamp(0.0, 1.0) } else { 1.0 }
 }
 
 impl ScreenPath {
@@ -32,9 +42,15 @@ impl ScreenPath {
         Self::default()
     }
 
-    /// Feed a cursor sample. With `lazy_px > 0` the brush trails the cursor by that distance
-    /// and only moves once the cursor pulls it.
+    /// Feed a cursor sample at full pressure (mouse input).
     pub fn push(&mut self, cursor: Vec2, spacing_px: f32, lazy_px: f32, out: &mut Vec<PathSample>) {
+        self.push_pressure(cursor, 1.0, spacing_px, lazy_px, out);
+    }
+
+    /// Feed a cursor sample with pen pressure. With `lazy_px > 0` the brush trails the cursor by
+    /// that distance and only moves once the cursor pulls it (it takes the cursor's pressure).
+    /// Stamps between two samples get linearly interpolated pressure.
+    pub fn push_pressure(&mut self, cursor: Vec2, pressure: f32, spacing_px: f32, lazy_px: f32, out: &mut Vec<PathSample>) {
         let target = if lazy_px > 0.0 {
             let brush = *self.lazy.get_or_insert(cursor);
             let d = cursor - brush;
@@ -45,39 +61,51 @@ impl ScreenPath {
         } else {
             cursor
         };
-        self.walk(target, spacing_px, out);
+        self.walk(target, sanitize_pressure(pressure), spacing_px, out);
     }
 
-    /// Straight segment from the current brush position (ignores lazy mouse).
+    /// Straight segment from the current brush position (ignores lazy mouse), full pressure.
     pub fn line_to(&mut self, to: Vec2, spacing_px: f32, out: &mut Vec<PathSample>) {
-        self.lazy = Some(to);
-        self.walk(to, spacing_px, out);
+        self.line_to_pressure(to, 1.0, spacing_px, out);
     }
 
-    fn walk(&mut self, to: Vec2, spacing_px: f32, out: &mut Vec<PathSample>) {
+    /// Straight segment ending at `pressure` (interpolated from the brush's current pressure).
+    pub fn line_to_pressure(&mut self, to: Vec2, pressure: f32, spacing_px: f32, out: &mut Vec<PathSample>) {
+        self.lazy = Some(to);
+        self.walk(to, sanitize_pressure(pressure), spacing_px, out);
+    }
+
+    fn walk(&mut self, to: Vec2, pressure: f32, spacing_px: f32, out: &mut Vec<PathSample>) {
         let spacing = spacing_px.max(0.5);
         let Some(from) = self.last else {
-            out.push(PathSample { pos: to, dir: self.dir });
+            out.push(PathSample { pos: to, dir: self.dir, pressure });
             self.last = Some(to);
+            self.last_pressure = pressure;
             self.residual = 0.0;
             return;
         };
         let seg = to - from;
         let len = seg.length();
         if len < 1e-6 {
+            // The pen may press harder without moving: the next stamp starts from this pressure.
+            self.last_pressure = pressure;
             return;
         }
         let dir = seg / len;
         self.dir = dir;
+        let p0 = self.last_pressure;
         let mut t = spacing - self.residual;
         let mut last_emit = -self.residual;
         while t <= len {
-            out.push(PathSample { pos: from + dir * t, dir });
+            // Constant pressure (always the case for a mouse) is passed through exactly.
+            let p = if p0 == pressure { pressure } else { p0 + (pressure - p0) * (t / len) };
+            out.push(PathSample { pos: from + dir * t, dir, pressure: p });
             last_emit = t;
             t += spacing;
         }
         self.residual = len - last_emit;
         self.last = Some(to);
+        self.last_pressure = pressure;
     }
 }
 
@@ -131,6 +159,35 @@ mod tests {
         assert_eq!(out.len(), 6);
         assert!(out.iter().all(|s| s.pos.x == 0.0));
         assert_eq!(out[3].dir, Vec2::Y);
+    }
+
+    #[test]
+    fn pressure_is_interpolated_between_samples() {
+        let mut p = ScreenPath::new();
+        let mut out = Vec::new();
+        p.push_pressure(Vec2::ZERO, 0.0, 1.0, 0.0, &mut out);
+        p.push_pressure(Vec2::new(10.0, 0.0), 1.0, 1.0, 0.0, &mut out);
+        assert_eq!(out.len(), 11);
+        for (i, s) in out.iter().enumerate() {
+            assert!((s.pressure - i as f32 / 10.0).abs() < 1e-5, "{i}: {}", s.pressure);
+        }
+        // Pressing harder in place takes effect from the next segment; out-of-range input clamps.
+        p.push_pressure(Vec2::new(10.0, 0.0), 0.5, 1.0, 0.0, &mut out);
+        p.push_pressure(Vec2::new(12.0, 0.0), 7.0, 1.0, 0.0, &mut out);
+        let tail: Vec<f32> = out[11..].iter().map(|s| s.pressure).collect();
+        assert_eq!(tail, vec![0.75, 1.0]);
+        p.line_to_pressure(Vec2::new(14.0, 0.0), f32::NAN, 1.0, &mut out);
+        assert!(out[13..].iter().all(|s| s.pressure == 1.0));
+    }
+
+    #[test]
+    fn mouse_samples_have_full_pressure() {
+        let mut p = ScreenPath::new();
+        let mut out = Vec::new();
+        for x in [0.0, 4.0, 9.0] {
+            p.push(Vec2::new(x, 0.0), 1.0, 0.0, &mut out);
+        }
+        assert!(out.iter().all(|s| s.pressure == 1.0));
     }
 
     #[test]

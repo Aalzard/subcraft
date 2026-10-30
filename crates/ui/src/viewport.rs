@@ -187,10 +187,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                             state.painting = true;
                             let line_from = if mods.shift { state.last_stroke_point } else { None };
                             if let Some(from) = line_from {
-                                let _ = state.session.stroke_to(&camera, from, true);
-                                let _ = state.session.stroke_to(&camera, sp, true);
+                                let _ = state.session.stroke_to_pressure(&camera, from, true, state.stylus.pressure());
+                                let _ = state.session.stroke_to_pressure(&camera, sp, true, state.stylus.pressure());
                             } else {
-                                let _ = state.session.stroke_to(&camera, sp, false);
+                                let _ = state.session.stroke_to_pressure(&camera, sp, false, state.stylus.pressure());
                             }
                             state.last_stroke_point = Some(sp);
                         }
@@ -205,7 +205,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             && delta != egui::Vec2::ZERO
         {
             let sp = to_screen(p);
-            let _ = state.session.stroke_to(&camera, sp, false);
+            let _ = state.session.stroke_to_pressure(&camera, sp, false, state.stylus.pressure());
             state.last_stroke_point = Some(sp);
         }
     } else if state.painting && !primary_down {

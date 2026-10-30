@@ -2752,6 +2752,34 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
 * NOT verified: a normal map / brush tip applied by hand, real mouse use of the new Shelf tiles, installer
   size (see release notes), Linux build of the packaging changes.
 
+### Session 105 - Claude: pen pressure (2026-10-30)
+
+* **Input:** winit 0.30 on Windows turns Windows Ink `WM_POINTER*` pen/touch messages into touch events
+  (force = pressure / 1024); egui-winit 0.36 forwards them as `Event::Touch { force }` and emulates the
+  primary button. `ui::stylus::Stylus` keeps the contact pressure (last reading per frame; lift = reset;
+  missing reading mid-contact keeps the last one); mouse input has no touch events = pressure 1.0.
+  WinTab-only tablets (Windows Ink off in the driver) arrive as mouse input and paint at full pressure.
+* **Paint:** `PathSample.pressure`, linearly interpolated between input samples by `ScreenPath`
+  (constant pressure passes through exactly). `BrushSettings.pressure: PressureDynamics` with
+  `size / flow / opacity / hardness: PressureCurve { enabled, min, gamma }`,
+  `factor = min + (1 - min) * p^gamma`, exactly 1.0 when off. Opacity is a per-stamp coverage ceiling
+  (`Stamp.opacity`): stamps pull coverage toward their ceiling and never lower it; stroke opacity still
+  caps the stroke. `Stroke::add_point_pressure / line_to_pressure`, `Session::stroke_to_pressure`
+  (`stroke_to` = pressure 1.0). `SetBrushSettings` rejects non-finite curves, clamps min 0..1, gamma 0.2..5.
+* **Presets:** curves persist in `settings.pressure` (`serde(default)`); old presets load with pressure off.
+* **UI:** Brush panel "Pen Pressure" section under Jitter: checkbox per parameter, Minimum + Curve
+  sliders when enabled, live reading ("Pen pressure: 60%" / no pen seen yet).
+* Tests: 646 pass (+12: paint curve/JSON/path units, `tests/pressure.rs` 4 numeric: pressure-off ==
+  mouse bit-exact, ramp grows footprint per quarter band > 2x, single-dab coverage strictly grows with
+  pressure for all four parameters, opacity 0.4 caps overlapping stamps at 0.35..0.41; app preset round
+  trip + old preset, session stroke + validation; ui stylus unit + real-event panel test).
+  Golden: a temporary test (not committed) painting Paint + Smudge (lazy, X symmetry) + Erase with all
+  jitters gave identical BaseColor/Roughness FNV digests with origin/main's and this branch's paint sources.
+* Ran the app (`--demo --brush-panel --screenshot`): starts, demo strokes paint as before.
+* NOT verified: a real pen/tablet (none available), hand painting with a mouse in the app (covered only
+  by the bit-exact tests). Remaining roadmap: tilt/rotation, angle/height targets, multi-point curves,
+  speed dynamics, simulated mouse pressure.
+
 ## Next steps (in order)
 
 Owner checks imported PBRs in the refreshed target/debug/subcraft.exe, especially close-up

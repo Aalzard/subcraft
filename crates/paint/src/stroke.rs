@@ -164,17 +164,28 @@ impl Stroke {
 
     /// Feed a cursor position; returns the tiles rewritten in `ts`.
     pub fn add_point(&mut self, ts: &mut TextureSet, ctx: &PaintContext, cursor: Vec2) -> Result<Vec<usize>, PaintError> {
+        self.add_point_pressure(ts, ctx, cursor, 1.0)
+    }
+
+    /// Feed a cursor position with pen pressure (0..1; mouse input is 1.0). Stamps between
+    /// samples interpolate the pressure; `BrushSettings::pressure` decides what it drives.
+    pub fn add_point_pressure(&mut self, ts: &mut TextureSet, ctx: &PaintContext, cursor: Vec2, pressure: f32) -> Result<Vec<usize>, PaintError> {
         let mut samples = Vec::new();
         let spacing = self.spacing_px(ctx);
-        self.path.push(cursor, spacing, self.options.lazy_distance_px, &mut samples);
+        self.path.push_pressure(cursor, pressure, spacing, self.options.lazy_distance_px, &mut samples);
         self.paint_samples(ts, ctx, &samples)
     }
 
     /// Straight segment from the brush position to `to` (the first call just places the brush).
     pub fn line_to(&mut self, ts: &mut TextureSet, ctx: &PaintContext, to: Vec2) -> Result<Vec<usize>, PaintError> {
+        self.line_to_pressure(ts, ctx, to, 1.0)
+    }
+
+    /// Straight segment ending at `pressure` (interpolated from the current brush pressure).
+    pub fn line_to_pressure(&mut self, ts: &mut TextureSet, ctx: &PaintContext, to: Vec2, pressure: f32) -> Result<Vec<usize>, PaintError> {
         let mut samples = Vec::new();
         let spacing = self.spacing_px(ctx);
-        self.path.line_to(to, spacing, &mut samples);
+        self.path.line_to_pressure(to, pressure, spacing, &mut samples);
         self.paint_samples(ts, ctx, &samples)
     }
 
@@ -228,8 +239,13 @@ impl Stroke {
         for sample in samples {
             let k = self.stamp_count;
             self.stamp_count += 1;
-            let radius = base_radius * (1.0 - s.size_jitter.clamp(0.0, 1.0) * rand01(s.seed, k, 0));
-            let flow = s.flow.clamp(0.0, 1.0) * (1.0 - s.flow_jitter.clamp(0.0, 1.0) * rand01(s.seed, k, 1));
+            // Pressure factors are exactly 1.0 when a curve is off, so the products below are
+            // bit-identical to a brush without dynamics.
+            let pr = &s.pressure;
+            let radius = base_radius * (1.0 - s.size_jitter.clamp(0.0, 1.0) * rand01(s.seed, k, 0)) * pr.size.factor(sample.pressure);
+            let flow = s.flow.clamp(0.0, 1.0) * (1.0 - s.flow_jitter.clamp(0.0, 1.0) * rand01(s.seed, k, 1)) * pr.flow.factor(sample.pressure);
+            let opacity = pr.opacity.factor(sample.pressure);
+            let hardness = s.hardness * pr.hardness.factor(sample.pressure);
             let mut angle = (s.angle_deg + s.angle_jitter_deg * (2.0 * rand01(s.seed, k, 2) - 1.0)).to_radians();
             if s.follow_path {
                 angle += sample.dir.y.atan2(sample.dir.x);
@@ -240,7 +256,7 @@ impl Stroke {
                 let (a, d) = (rand01(s.seed, k, 3) * std::f32::consts::TAU, rand01(s.seed, k, 4).sqrt());
                 screen += Vec2::new(a.cos(), a.sin()) * d * s.position_jitter * 2.0 * r_px;
             }
-            let dab = Dab { screen, radius, flow, angle, roundness: s.roundness, hardness: s.hardness };
+            let dab = Dab { screen, radius, flow, opacity, angle, roundness: s.roundness, hardness };
             for (ci, cam) in cameras.iter().enumerate() {
                 let parts = self.parts.as_ref().filter(|p| p.enabled);
                 let accept = |t: u32| ctx.mesh.tri_material[t as usize] == ctx.geometry.material_slot && parts.is_none_or(|p|
@@ -461,7 +477,7 @@ impl Stroke {
                     let mut buf = vec![0.0f32; TILE_TEXELS * comps];
                     self.work[k].read_tile(*t, &mut buf);
                     for (px, &w) in buf.chunks_exact_mut(comps).zip(fp) {
-                        let s = (w * st.flow).clamp(0.0, 1.0);
+                        let s = (w * st.flow * st.opacity).clamp(0.0, 1.0);
                         if s <= 0.0 { continue; }
                         if img.has_alpha {
                             let a0 = px[n];

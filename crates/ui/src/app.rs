@@ -1083,6 +1083,7 @@ impl eframe::App for SubcraftApp {
             p.ui_begin();
         }
         self.state.recovery.prefs.apply_ui_size(&ctx);
+        ctx.input(|i| self.state.stylus.update(&i.events));
         self.frames += 1;
         if self.frames == 15 && let Some(name) = self.state.capture_select_brush.take() {
             let now = ctx.input(|i| i.time);

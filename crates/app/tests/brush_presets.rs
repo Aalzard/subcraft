@@ -77,3 +77,36 @@ fn old_presets_without_new_fields_still_load() {
     assert_eq!(errors.len(), 2, "{errors:?}");
     std::fs::remove_dir_all(&dir).ok();
 }
+
+#[test]
+fn pressure_dynamics_round_trip_and_old_presets_load_with_pressure_off() {
+    use subcraft_paint::{PressureCurve, PressureDynamics};
+    let (dir, lib) = temp_lib("pressure");
+    let tips = alphas::builtin();
+    let mut a = Session::new(primitives::cube(1.0), 128);
+    a.brush.settings.pressure.size = PressureCurve { enabled: true, min: 0.15, gamma: 1.8 };
+    a.brush.settings.pressure.opacity = PressureCurve { enabled: true, min: 0.3, gamma: 0.6 };
+    let saved = save_brush_preset(&lib, &a.brush_preset("Pen")).unwrap();
+    let text = std::fs::read_to_string(saved.user_file.as_ref().unwrap()).unwrap();
+    assert!(text.contains("\"pressure\""), "pressure is persisted: {text}");
+    let (loaded, errors) = load_brush_presets(&lib);
+    assert!(errors.is_empty(), "{errors:?}");
+    let mut b = Session::new(primitives::cube(1.0), 128);
+    b.apply_brush_preset(&loaded[0], &tips);
+    assert_eq!(b.brush.settings.pressure, a.brush.settings.pressure);
+    assert!(!b.brush.settings.pressure.flow.enabled);
+
+    // A preset written before pressure existed turns pressure off, even over a pressure brush.
+    let folder = lib.folder(UserAssetKind::BrushPreset);
+    std::fs::write(
+        folder.join("Old.scbrush"),
+        r#"{"format":"subcraft-brush","version":2,"name":"Old","tip":null,"settings":{"size":9.0,"flow":0.5,"spacing":0.1}}"#,
+    )
+    .unwrap();
+    let (loaded, _) = load_brush_presets(&lib);
+    let old = loaded.iter().find(|p| p.name == "Old").unwrap();
+    assert_eq!(old.settings.pressure, PressureDynamics::default());
+    b.apply_brush_preset(old, &tips);
+    assert!(!b.brush.settings.pressure.any_enabled());
+    std::fs::remove_dir_all(&dir).ok();
+}

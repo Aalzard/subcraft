@@ -600,6 +600,14 @@ impl Session {
                 settings.flow = settings.flow.clamp(0.0, 1.0);
                 settings.stroke_opacity = settings.stroke_opacity.clamp(0.0, 1.0);
                 settings.hardness = settings.hardness.clamp(0.0, 1.0);
+                let p = &mut settings.pressure;
+                for c in [&mut p.size, &mut p.flow, &mut p.opacity, &mut p.hardness] {
+                    if !c.min.is_finite() || !c.gamma.is_finite() {
+                        return Err(CommandError::Invalid("pressure curve values must be finite".into()));
+                    }
+                    c.min = c.min.clamp(0.0, 1.0);
+                    c.gamma = c.gamma.clamp(*subcraft_paint::PressureCurve::GAMMA_RANGE.start(), *subcraft_paint::PressureCurve::GAMMA_RANGE.end());
+                }
                 self.brush.settings = settings;
             }
             Command::SetStrokeOptions(mut options) => {
@@ -1153,9 +1161,15 @@ impl Session {
 
     /// Continue the stroke to a screen position (`line`: straight segment, no lazy mouse).
     pub fn stroke_to(&mut self, camera: &Camera, screen: Vec2, line: bool) -> Result<Vec<usize>, PaintError> {
+        self.stroke_to_pressure(camera, screen, line, 1.0)
+    }
+
+    /// [`Session::stroke_to`] with pen pressure (0..1; mouse input is 1.0). What pressure
+    /// changes is set by `brush.settings.pressure`.
+    pub fn stroke_to_pressure(&mut self, camera: &Camera, screen: Vec2, line: bool, pressure: f32) -> Result<Vec<usize>, PaintError> {
         let Some(active) = self.stroke.take() else { return Ok(Vec::new()) };
         let result = self.with_stroke_context(active.texture_set, camera, |stroke, ts, ctx| {
-            if line { stroke.line_to(ts, ctx, screen) } else { stroke.add_point(ts, ctx, screen) }
+            if line { stroke.line_to_pressure(ts, ctx, screen, pressure) } else { stroke.add_point_pressure(ts, ctx, screen, pressure) }
         }, active);
         if result.as_ref().is_ok_and(|t| !t.is_empty()) {
             self.revision += 1;

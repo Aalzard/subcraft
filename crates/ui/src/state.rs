@@ -108,6 +108,8 @@ pub struct UiState {
     /// Clicks in the 3D view show / hide the selected layer on mesh parts (Properties → Parts).
     pub picking_parts: bool,
     pub last_stroke_point: Option<Vec2>,
+    /// Pen pressure from touch events (1.0 for mouse input).
+    pub stylus: crate::stylus::Stylus,
     pub uv_edges: HashMap<u32, Vec<[Vec2; 2]>>,
     pub rename: Option<(subcraft_core::LayerId, String)>,
     pub show_shortcuts: bool,
@@ -200,6 +202,7 @@ impl UiState {
             painting: false,
             picking_parts: false,
             last_stroke_point: None,
+            stylus: crate::stylus::Stylus::default(),
             uv_edges: HashMap::new(),
             rename: None,
             show_shortcuts: false,

@@ -52,6 +52,8 @@ pub struct BrushSettings {
     /// Surfaces turned further than this from the projection direction are not painted.
     pub backface_angle_deg: f32,
     pub seed: u32,
+    /// Pen pressure dynamics (all off by default, so mouse strokes and old presets are unchanged).
+    pub pressure: PressureDynamics,
 }
 
 impl Default for BrushSettings {
@@ -73,6 +75,7 @@ impl Default for BrushSettings {
             backface_culling: true,
             backface_angle_deg: 90.0,
             seed: 1,
+            pressure: PressureDynamics::default(),
         }
     }
 }
@@ -81,6 +84,57 @@ impl BrushSettings {
     /// World (object-space) radius for a mesh with bounding-box diagonal `diagonal`.
     pub fn radius(&self, diagonal: f32) -> f32 {
         self.size.max(0.0) * 0.01 * diagonal * 0.5
+    }
+}
+
+/// Response of one brush parameter to pen pressure: `factor(p) = min + (1 - min) * p^gamma`.
+/// The factor multiplies the parameter, so full pressure always gives the slider value.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PressureCurve {
+    pub enabled: bool,
+    /// Factor at zero pressure (0..1).
+    pub min: f32,
+    /// Curve exponent: < 1 reacts early (light touch), > 1 needs a firm press.
+    pub gamma: f32,
+}
+
+impl Default for PressureCurve {
+    fn default() -> Self {
+        Self { enabled: false, min: 0.0, gamma: 1.0 }
+    }
+}
+
+impl PressureCurve {
+    pub const GAMMA_RANGE: std::ops::RangeInclusive<f32> = 0.2..=5.0;
+
+    /// Multiplier for pressure `p` (0..1). Exactly 1.0 when disabled, so a pressure-off brush
+    /// paints bit-identically to one without dynamics.
+    pub fn factor(&self, pressure: f32) -> f32 {
+        if !self.enabled {
+            return 1.0;
+        }
+        let p = if pressure.is_finite() { pressure.clamp(0.0, 1.0) } else { 1.0 };
+        let min = if self.min.is_finite() { self.min.clamp(0.0, 1.0) } else { 0.0 };
+        let gamma = if self.gamma.is_finite() { self.gamma.clamp(*Self::GAMMA_RANGE.start(), *Self::GAMMA_RANGE.end()) } else { 1.0 };
+        min + (1.0 - min) * p.powf(gamma)
+    }
+}
+
+/// Which brush parameters follow pen pressure. Mouse input reports pressure 1.0.
+#[derive(Clone, Copy, Debug, PartialEq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PressureDynamics {
+    pub size: PressureCurve,
+    pub flow: PressureCurve,
+    /// Caps how opaque each stamp can make the stroke (relative to the stroke opacity).
+    pub opacity: PressureCurve,
+    pub hardness: PressureCurve,
+}
+
+impl PressureDynamics {
+    pub fn any_enabled(&self) -> bool {
+        self.size.enabled || self.flow.enabled || self.opacity.enabled || self.hardness.enabled
     }
 }
 
@@ -234,5 +288,40 @@ mod tests {
             assert!(v <= prev + 1e-6);
             prev = v;
         }
+    }
+
+    #[test]
+    fn pressure_curve_response() {
+        let off = PressureCurve::default();
+        assert_eq!(off.factor(0.0), 1.0);
+        assert_eq!(off.factor(0.3), 1.0);
+        let linear = PressureCurve { enabled: true, min: 0.2, gamma: 1.0 };
+        assert_eq!(linear.factor(0.0), 0.2);
+        assert_eq!(linear.factor(1.0), 1.0);
+        assert!((linear.factor(0.5) - 0.6).abs() < 1e-6);
+        let firm = PressureCurve { enabled: true, min: 0.0, gamma: 2.0 };
+        assert!((firm.factor(0.5) - 0.25).abs() < 1e-6);
+        let light = PressureCurve { enabled: true, min: 0.0, gamma: 0.5 };
+        assert!(light.factor(0.25) > 0.49);
+        let broken = PressureCurve { enabled: true, min: f32::NAN, gamma: f32::NAN };
+        assert_eq!(broken.factor(f32::NAN), 1.0);
+        assert!(broken.factor(0.5).is_finite());
+        let mut prev = 0.0;
+        for i in 0..=20 {
+            let v = PressureCurve { enabled: true, min: 0.1, gamma: 1.7 }.factor(i as f32 / 20.0);
+            assert!(v >= prev);
+            prev = v;
+        }
+    }
+
+    #[test]
+    fn settings_without_pressure_deserialize_with_pressure_off() {
+        let s: BrushSettings = serde_json::from_str(r#"{"size":12.0,"flow":0.5}"#).unwrap();
+        assert_eq!(s.pressure, PressureDynamics::default());
+        assert!(!s.pressure.any_enabled());
+        let partial: BrushSettings = serde_json::from_str(r#"{"pressure":{"size":{"enabled":true}}}"#).unwrap();
+        assert!(partial.pressure.size.enabled);
+        assert_eq!(partial.pressure.size.gamma, 1.0);
+        assert!(!partial.pressure.flow.enabled);
     }
 }

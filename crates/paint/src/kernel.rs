@@ -268,10 +268,17 @@ impl KernelInput<'_> {
                     *slot = a;
                 }
             }
+            // Each stamp pulls coverage toward its own ceiling (pen-pressure opacity); a lighter
+            // stamp never lowers what earlier stamps reached.
+            let ceiling = st.opacity;
             for (c, &a) in cov.iter_mut().zip(&stamp_a) {
                 let a = a * st.flow;
                 if a > 0.0 {
-                    *c += a * (1.0 - *c);
+                    if ceiling >= 1.0 {
+                        *c += a * (1.0 - *c);
+                    } else if *c < ceiling {
+                        *c += a * (ceiling - *c);
+                    }
                 }
             }
         }
