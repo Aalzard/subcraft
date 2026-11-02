@@ -25,6 +25,8 @@ pub enum Action {
     OpenProject,
     Export,
     Bake,
+    /// Switch the 3D view between the raster viewport and the path-traced Rendering mode.
+    TogglePathTracing,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -45,6 +47,7 @@ pub enum Key {
     OpenBracket,
     CloseBracket,
     Home,
+    F10,
 }
 
 impl Key {
@@ -66,6 +69,7 @@ impl Key {
             Key::OpenBracket => "[",
             Key::CloseBracket => "]",
             Key::Home => "Home",
+            Key::F10 => "F10",
         }
     }
 }
@@ -133,6 +137,7 @@ pub const ACTIONS: &[ActionInfo] = &[
     ActionInfo { action: Action::OpenProject, label: "Open Project", shortcuts: &[Shortcut::ctrl(Key::O)] },
     ActionInfo { action: Action::Export, label: "Export Textures", shortcuts: &[Shortcut::ctrl_shift(Key::E)] },
     ActionInfo { action: Action::Bake, label: "Bake Mesh Maps", shortcuts: &[Shortcut::ctrl(Key::B)] },
+    ActionInfo { action: Action::TogglePathTracing, label: "Rendering Mode (path tracing)", shortcuts: &[Shortcut::key(Key::F10)] },
 ];
 
 pub fn info(action: Action) -> &'static ActionInfo {
@@ -154,6 +159,7 @@ mod tests {
         assert_eq!(action_for(Shortcut::ctrl_shift(Key::Z)), Some(Action::Redo));
         assert_eq!(action_for(Shortcut::key(Key::CloseBracket)), Some(Action::BrushLarger));
         assert_eq!(action_for(Shortcut::key(Key::Z)), None, "modifiers must match exactly");
+        assert_eq!(action_for(Shortcut::key(Key::F10)), Some(Action::TogglePathTracing));
         let mut seen = std::collections::HashSet::new();
         for a in ACTIONS {
             for s in a.shortcuts {

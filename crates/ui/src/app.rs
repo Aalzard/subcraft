@@ -112,6 +112,8 @@ pub struct LaunchOptions {
     pub render_window: bool,
     /// Render a still or a turntable from the loaded project, then quit (scripted export).
     pub render_job: Option<crate::render_export::Job>,
+    /// Start in Rendering mode; a scripted screenshot waits for this many samples per pixel.
+    pub path_trace: Option<u32>,
     /// Look overrides for scripted renders, e.g. `tone=filmic,bloom=0.8,ao=0.7,exposure=1.2`.
     pub quality: Option<String>,
     pub effect_panel: bool,
@@ -530,6 +532,10 @@ impl SubcraftApp {
         }
         state.capture_select_brush = options.select_brush.clone();
         state.capture_tool = options.capture_tool.clone();
+        if let Some(samples) = options.path_trace {
+            state.recovery.prefs.viewport.path_tracing = true;
+            state.pt_capture_samples = Some(samples);
+        }
         if let Some(spec) = options.quality.as_deref() {
             let prefs = &mut state.recovery.prefs.viewport;
             for part in spec.split(',') {
@@ -725,6 +731,10 @@ impl SubcraftApp {
             }
             Action::OpenProject => self.request(Pending::OpenProject, now),
             Action::Bake => self.state.bake.open = true,
+            Action::TogglePathTracing => {
+                let prefs = &mut self.state.recovery.prefs.viewport;
+                prefs.path_tracing = !prefs.path_tracing;
+            }
             Action::Export => {
                 self.state.export.open = true;
                 self.state.export.settings.height_to_normal = self.state.height_scale;
@@ -943,6 +953,11 @@ impl SubcraftApp {
                     self.state.render_window = true;
                     ui.close();
                 }
+                let rendering = self.state.recovery.prefs.viewport.path_tracing;
+                if item(ui, icons::SUN, if rendering { "Leave Rendering mode" } else { "Rendering mode (path tracing)" }, "F10") {
+                    self.perform(Action::TogglePathTracing, now);
+                    ui.close();
+                }
                 ui.separator();
                 ui.horizontal(|ui| {
                     ui.label("Height bump");
@@ -1077,6 +1092,21 @@ impl SubcraftApp {
         self.state.show_shortcuts = open;
     }
 
+    /// A scripted Rendering-mode capture waits for its samples (or for the mode to give up).
+    fn path_trace_capture_ready(&self) -> bool {
+        let Some(wanted) = self.state.pt_capture_samples else { return true };
+        if !self.state.recovery.prefs.viewport.path_tracing {
+            return true;
+        }
+        let Some(s) = self.state.pt_status else { return false };
+        let wanted = if s.max_samples == 0 { wanted } else { wanted.min(s.max_samples) };
+        let ready = s.samples >= wanted;
+        if ready && !self.screenshot_requested {
+            log::info!("path tracing: {} samples per pixel, {:.1} samples/s at {}x{} view pixels", s.samples, s.samples_per_second, self.state.last_view_size[0], self.state.last_view_size[1]);
+        }
+        ready
+    }
+
     fn handle_screenshot(&mut self, ctx: &egui::Context) {
         let Some(path) = self.screenshot.clone() else { return };
         ctx.request_repaint();
@@ -1089,6 +1119,7 @@ impl SubcraftApp {
         });
         if !self.screenshot_requested && self.frames >= 20 && !self.state.mesh_reload.busy() && (pinned_ready || self.state.bake.job.is_none() && self.state.spp_import.is_none() && !self.state.session.composites_pending())
             && !self.state.bake.preview_pending() && (self.state.bake.preview_mesh.is_none() || self.state.bake.preview_uploaded)
+            && self.path_trace_capture_ready()
         {
             if let Some(job) = self.state.pending_render_job.take() {
                 match crate::render_export::run(&mut self.state, &job) {
@@ -1140,6 +1171,7 @@ fn map_key(k: egui::Key) -> Option<Key> {
         egui::Key::OpenBracket => Key::OpenBracket,
         egui::Key::CloseBracket => Key::CloseBracket,
         egui::Key::Home => Key::Home,
+        egui::Key::F10 => Key::F10,
         _ => return None,
     })
 }

@@ -266,6 +266,11 @@ pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
         ui.checkbox(&mut rec.prefs.use_gpu_baking, "Use GPU for baking")
             .on_hover_text("Bakes ambient occlusion and thickness on the graphics card, much faster on big meshes. If it is off or fails, the processor bakes them instead. The Bake window shows which one ran.");
         ui.add_space(10.0);
+        ui.label(RichText::new("Rendering mode").font(theme::font_strong(12.5)));
+        ui.add_space(4.0);
+        ui.label(RichText::new("Path-traced preview of the 3D view (F10 or Render in its toolbar).").color(TEXT_DIM));
+        crate::viewport_bar::rendering_settings(ui, &mut rec.prefs.viewport);
+        ui.add_space(10.0);
         ui.label(RichText::new("Autosave").font(theme::font_strong(12.5)));
         ui.add_space(4.0);
         ui.label(RichText::new("Recovery copies of the open project are written in the background to SubCraft's data folder, never over your own file.").color(TEXT_DIM));

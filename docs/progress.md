@@ -3718,3 +3718,37 @@ window state) should start, or run with scaling at 100%. If 0.1.9 still fails, p
 * Tests (10, in `alembic.rs`, fixtures produced by a small Ogawa writer in the test module): triangulation, UV range, normals, object names, transform accumulation / non-inheriting / rotation, vertex-scope indexed UVs, multiple meshes, missing UVs, camera note, truncated files at every length and single-byte corruption (no panic), HDF5 message, bad indices.
 * **Not verified against a real Alembic file**: no real `.abc` was available (downloads need approval), so the reader follows Alembic's published Ogawa layout; the fixtures are written by the same understanding. Open a file exported from Blender or Maya to confirm; the first things to check are transform order and winding.
 * `cargo test --workspace`: 768 passed, 0 failed.
+### Session 113 - Rendering mode: GPU path tracing in the 3D view (2026-11-02)
+
+* **What it is:** an optional path-traced preview in the 3D view. Turn it on with F10, the **Render** button in the 3D view's bottom-right corner, or View → Rendering mode. The button sits in the corner rather than the toolbar so the toolbar's tested layout widths are unchanged. Right-click Render, or open Preferences → Rendering mode, for Bounces (default 4), Max samples (default 1024, 0 = unlimited), Denoise and Ground shadow. While it is on, **Pause** keeps the current image, and a pill at the top right shows samples, samples/s and "F10 exit". The raster viewport is unchanged and stays the default. The on/off state is never saved, so every start is raster. Turning the mode off frees the tracer's GPU memory, and the next frame is raster.
+* **Engine** (`crates/render/src/pathtrace.rs`, `pathtrace.wgsl`, `pathtrace_pack.wgsl`, `denoise.wgsl`, `pathtrace_display.wgsl`):
+  * wgpu compute, one camera path per pixel per pass, over the session's existing SAH `Bvh` flattened as for the GPU baker (`Bvh::flatten`, same node/triangle layout and stack traversal, plus barycentrics). The BVH is uploaded only when the geometry key (mesh `Arc` + triangle count) changes.
+  * Materials: each material slot's channels are packed by a compute pass into three `rgba16float` texture arrays (base + roughness, normal + metallic, emission + height), at most 2048² within a 768 MB budget. A channel upload re-packs only that slot. Painting refreshes the traced image with no BVH work.
+  * Shading: GGX metal/roughness with VNDF sampling, height-correlated Smith, Schlick Fresnel, Lambert weighted by (1 − F), one-sample lobe mixture pdf. The normal map and height bump use the raster shader's tangent convention, and emission is included.
+  * Lighting: the viewport environment (HDRI at mip 0, or the procedural sky), the key light as a directional light with shadow rays, and an optional 0.18 gray ground disc whose rim fades into the background. Russian roulette after bounce 2; indirect samples are clamped at luminance 20.
+  * Accumulation restarts when the camera, lights, environment, height scale, size, bounces, ground, geometry or packed textures change. Exposure, tone map and the denoise toggle are display-only and do not restart it.
+  * Time-boxing: each frame dispatches as many one-sample passes as fit a 20 ms budget (measured by waiting on the queue, at most 64 per frame, growing at most 2× per frame), so the window never freezes. Nothing is dispatched once converged or paused.
+  * Denoiser: SVGF-lite à-trous (5 passes, strides 1–16, B3 kernel) on albedo-demodulated light. Edge stops use the normal (cos⁶⁴), relative depth, and luminance against the per-pixel variance (temporal from 4 samples, spatial 3×3 before that). It fades out as the variance falls. Guides come from an unjittered primary ray on sample 0.
+  * Fallback: `check_support` checks the limits (7 storage buffers, 3 storage textures, 8×8 workgroups, 2 bind groups with 6 textures). Pipeline creation and every traced frame run inside wgpu validation and out-of-memory error scopes. Any error turns the mode off, shows the message in the status bar and falls back to raster for that frame. The trace resolution is scaled down (aspect kept, image stretched) when its per-pixel buffers would exceed the adapter's buffer limit.
+* **Tests** (`crates/render/tests/pathtrace.rs`, GPU, skipped without an adapter):
+  * Furnace: a white diffuse sphere under a uniform environment of radiance 1 converges to **0.972** after 319 samples. The rest is the single-scatter loss of the dielectric GGX coat at roughness 1. A 0.5 gray sphere gives about 0.5.
+  * The traced silhouette matches the raster viewport, and a red cube stays red.
+  * Ground: the floor in the cube's shadow is darker than the lit floor.
+  * Accumulation stops at max samples and does no work after that. Exposure does not restart it; a texture upload restarts it and the new paint is traced; a camera move restarts it; pause holds the count. The raster image is byte-identical before and after `release_path_tracer`.
+  * Denoiser: a flat image stays flat (< 1e-4), noise drops by more than half, the mean is kept, and a normal edge is kept.
+  * Unit tests: tree depth, the trace-size fit, the settings round trip (the mode always starts off, values clamp), and the F10 shortcut.
+* **Verified in the real app** (release, RTX 4060, `--demo --reset-layout --window-size 1600x900 --camera 35,20,1.0` with and without `--path-trace 256 --screenshot`): `docs/screenshots/rendering-mode-raster.png` vs `rendering-mode-path-traced.png`. Same framing and textures. The traced crate shows the ground contact shadow, darker crate interior and slat gaps, and soft key-light shading. The progress pill read 324 / 1024 samples at 1034 samples/s, with a 19.6 ms frame time in the status bar; Pause and Render sit in the view corner.
+  * The first scripted run crashed: an early frame asked for a 712 MB accumulation buffer, above the adapter's 256 MB limit. Fixed by fitting the trace size to the buffer limit and by the error scopes above (unit test added).
+* The workspace run caught the first toolbar placement of the Render button (it pushed the brush bar past its 1115 px inline width). It moved to the view corner.
+* **Performance** (RTX 4060, 1920×1080, denoise on, `path_trace_speed_at_1080p`, an ignored test): sample crate 315 samples/s at 1 bounce and 229 at 4 bounces; 262k-triangle sphere 180 at 1 bounce and 130 at 4 bounces. Frames stayed at 15–18 ms with the 20 ms budget. In the app's 858×552 view: about 900 samples/s, so 256 samples take under a second.
+* **Known gaps:**
+  * No environment importance sampling: small bright HDRI suns are noisy, which the firefly clamp and denoiser hide.
+  * The procedural studio panels are shown only to glossy (specular-sampled) rays, matching the raster look rather than being physically lit.
+  * The baked AO channel is ignored, since the tracer computes occlusion itself.
+  * The Albedo "Nearest" filter is not honored (bilinear only).
+  * Textures are sampled at one level (mip 0 of the packed array) with no ray differentials.
+  * No transmission, opacity or SSS.
+  * Bloom, glow, glare and SSAO post effects are not applied to the traced image.
+  * One sample pass on a very slow GPU at a large size can exceed the 20 ms budget (the pass is not tiled).
+  * The ground disc is fixed at 1.5× the model diagonal.
+  * F10 was exercised through the shortcut table and its test, not with a physical key press. On Windows, F10 can also be claimed by the system menu key handling.

@@ -268,6 +268,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     // ----- render --------------------------------------------------------------------------------
     state.sync_gpu();
     let painter = ui.painter_at(rect);
+    let tracing = state.recovery.prefs.viewport.path_tracing && !bake_mode;
+    let mut pt_error = None;
     match (&state.render_state, &mut state.renderer) {
         (Some(rs), Some(renderer)) => {
             let t0 = web_time::Instant::now();
@@ -317,7 +319,31 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 &rs.device,
                 &rs.queue,
             );
-            let target = renderer.render(&rs.device, &rs.queue, render_size, &params);
+            // Rendering mode: path trace instead of rasterizing; any failure falls back to raster.
+            let pt_settings = view.path_trace_settings(state.pt_paused);
+            if !tracing && state.pt_active {
+                renderer.release_path_tracer();
+                state.pt_active = false;
+                state.pt_status = None;
+            }
+            let mut traced = false;
+            if tracing {
+                let scene = state.session.scene();
+                let key = std::sync::Arc::as_ptr(&scene.mesh) as usize as u64 ^ ((scene.mesh.triangle_count() as u64) << 40);
+                let pt_scene = subcraft_render::PathTraceScene { mesh: &scene.mesh, bvh: &scene.bvh, key };
+                match renderer.render_path_traced(&rs.device, &rs.queue, render_size, &params, &pt_scene, &pt_settings) {
+                    Ok((_, status)) => {
+                        traced = true;
+                        state.pt_active = true;
+                        state.pt_status = Some(status);
+                    }
+                    Err(e) => pt_error = Some(e),
+                }
+            }
+            if !traced {
+                renderer.render(&rs.device, &rs.queue, render_size, &params);
+            }
+            let target = if traced { renderer.path_target() } else { renderer.target() }.expect("rendered above");
             let mut egui_renderer = rs.renderer.write();
             let id = match state.viewport_texture {
                 Some(id) => {
@@ -337,6 +363,13 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             painter.rect_filled(rect, 0.0, theme::BG_0);
             painter.text(rect.center(), egui::Align2::CENTER_CENTER, "No GPU renderer available", theme::font(15.0), theme::TEXT_FAINT);
         }
+    }
+
+    if let Some(e) = pt_error {
+        log::warn!("{e}");
+        state.recovery.prefs.viewport.path_tracing = false;
+        state.pt_status = None;
+        state.set_status(e, now);
     }
 
     // ----- overlays ------------------------------------------------------------------------------
@@ -394,6 +427,15 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         let r = pill(&painter, right, egui::Align2::RIGHT_TOP, &format!("{}  Symmetry {axes}", icons::SYMMETRY), ACCENT);
         right.x = r.left() - 6.0;
     }
+    if tracing && let Some(s) = state.pt_status {
+        let progress = if s.max_samples > 0 { format!("{} / {} samples", s.samples, s.max_samples) } else { format!("{} samples", s.samples) };
+        let what = if state.pt_paused { "paused".to_string() } else if s.converged() { "done".to_string() } else { format!("{:.0} samples/s", s.samples_per_second) };
+        let r = pill(&painter, right, egui::Align2::RIGHT_TOP, &format!("{}  Rendering · {progress} · {what}  ·  F10 exit", icons::SUN), ACCENT);
+        right.x = r.left() - 6.0;
+        if !state.pt_paused && !s.converged() {
+            ui.ctx().request_repaint();
+        }
+    }
     if picking {
         let shown = state.session.selected_layer().and_then(|l| l.parts.as_ref()).filter(|p| p.enabled).map(|p| p.parts.contains(&hovered_part.unwrap_or(u32::MAX)));
         let what = match (hovered_part, shown) {
@@ -411,9 +453,42 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         subcraft_paint::PaintTarget::Content => {}
     }
     brush_notice(state, ui, &painter, rect, now);
+    rendering_toggle(state, ui, rect, bake_mode);
     if state.painting || response.dragged() {
         ui.ctx().request_repaint();
     }
+}
+
+/// Rendering mode (path tracing) toggle in the 3D view's bottom-right corner (F10 and the View
+/// menu do the same); right-click for its settings, Pause while it is on.
+fn rendering_toggle(state: &mut UiState, ui: &Ui, rect: Rect, bake_mode: bool) {
+    if bake_mode {
+        return;
+    }
+    egui::Area::new(ui.id().with("rendering_toggle"))
+        .pivot(egui::Align2::RIGHT_BOTTOM)
+        .fixed_pos(rect.right_bottom() + egui::vec2(-10.0, -10.0))
+        .constrain_to(rect)
+        .show(ui.ctx(), |ui| {
+            ui.horizontal(|ui| {
+                let prefs = &mut state.recovery.prefs.viewport;
+                if prefs.path_tracing {
+                    let label = if state.pt_paused { "Resume" } else { "Pause" };
+                    let tip = if state.pt_paused { "Resume sampling" } else { "Pause sampling (keeps the current image)" };
+                    if ui.button(label).on_hover_text(tip).clicked() {
+                        state.pt_paused = !state.pt_paused;
+                    }
+                }
+                let response = ui.selectable_label(prefs.path_tracing, format!("{}  Render", icons::SUN))
+                    .on_hover_text("Rendering mode (F10) · path-traced preview: real shadows, reflections and bounce light. Samples add up while the camera is still. Right-click for settings");
+                if response.clicked() {
+                    prefs.path_tracing = !prefs.path_tracing;
+                }
+                egui::Popup::context_menu(&response)
+                    .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+                    .show(|ui| crate::viewport_bar::rendering_settings(ui, prefs));
+            });
+        });
 }
 
 /// "Brush: name" with its tip thumbnail, anchored inside the 3D view's top-left corner (below
