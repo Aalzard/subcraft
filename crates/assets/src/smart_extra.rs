@@ -324,6 +324,12 @@ pub fn smart_material_info(name: &str) -> Option<AssetInfo> {
         "Weathered Plaster" => info("Stone", "Off-white plaster with damp stains and flaking to brick"),
         "Mossy Wood" => info("Wood", "Old planks with moss in cracks and on top"),
         "Pitted Cast Iron" => info("Metal", "Dark pitted iron with surface rust and polished edges"),
+        // Open pack: built on its scanned image materials.
+        "Painted Steel Plates" => info("Paint", "Scanned metal plates with green paint on the edges and dirt"),
+        "Rusted Steel" => info("Metal", "Scanned stained steel with rust in the cavities"),
+        "Worn Brown Leather" => info("Fabric", "Scanned brown leather with worn edges and grime"),
+        "Mossy Bricks" => info("Stone", "Scanned bricks with grime in the joints and moss on top"),
+        "Dusty Smooth Concrete" => info("Stone", "Scanned concrete with stains from below and dust on top"),
         _ => None,
     }
 }
@@ -331,6 +337,10 @@ pub fn smart_material_info(name: &str) -> Option<AssetInfo> {
 pub fn smart_mask_info(name: &str) -> Option<AssetInfo> {
     match name {
         "Edge Wear" | "Edge Dirt" | "Chipped Edges" | "Peeling Edges" | "Edge Chips" | "Corner Wear" => info("Wear", "Selects the convex edges (needs a curvature bake)"),
+        "Heavy Edge Wear" => info("Wear", "Wide selection of the convex edges (needs a curvature bake)"),
+        "Soft Cavity Dirt" => info("Dirt", "Soft, wide selection of crevices (needs an ambient-occlusion bake)"),
+        "Rising Damp" => info("Water", "Fades up from the bottom of the model like rising damp"),
+        "Cloudy Variation" => info("Breakup", "Large soft clouds to vary a flat layer"),
         "Cavity Dirt" | "Soot Crevices" | "Rust Bleed" | "Moss in Crevices" | "Cavity Dust" => info("Dirt", "Selects crevices (needs an ambient-occlusion bake)"),
         "Top Dust" | "Top-Down Dust" | "Sun Fade" | "Moss on Top" => info("Dust", "Selects faces turned upward"),
         "Bottom Grime" | "Bottom Splash" | "Bottom Mud" => info("Dirt", "Selects the lower part of the model"),
