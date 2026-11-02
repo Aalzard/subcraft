@@ -3771,3 +3771,55 @@ window state) should start, or run with scaling at 100%. If 0.1.9 still fails, p
   `READ-ME-FIRST.txt` inside the dmg). Notarization needs a paid Apple Developer account.
 * **Not run anywhere:** the macOS, Linux aarch64 and Windows arm64 binaries (no hardware here), and the new
   workflow itself (no GitHub access from this session). See the README for the user-facing list.
+
+### Session 114 - Painter import: roughness grain, edge wear check, stencil sheets (2026-11-02)
+
+Branch `claude/compassionate-turing-bfa0e8`, local. Measured on the user's DBAL-A2, CarInteriro and Street_cyberpunk
+(`C:\Users\Rayan\Downloads`), lab runs at 512 / 1024 / 2048 (`spp_lab`, rebuilt stack alone against Painter's flattened
+channels, mean abs difference over the UV triangles).
+
+* **Roughness grain: improved, not matched at 2K.** The "half of Painter's contrast" is real only above 512. Robust texel-to-texel
+  sigma of Painter's roughness on DBAL-A2 grows with the texture (0.0073 at 512, 0.0083 at 1024, 0.0138 at 2048); the rebuilt
+  stack's stays near 0.005-0.006 (no fractal fill writes Roughness: 235 uniform and 19 bitmap fills, the grain Painter shows is in
+  masks and graphs SubCraft cannot rebuild). New top layer "Roughness grain (approximate)": a roughness-only, signed-addition,
+  sub-texel fractal (scale 1999, not a power of two: at 256..2048 texel centres sit on the noise lattice, where it is flat, which
+  the first version hit), amount 0.025 (`SUBCRAFT_SPP_GRAIN`, 0 = off). Importer cache version 7.
+
+  | DBAL-A2 roughness sigma, rebuilt / Painter | before | after |
+  |---|---|---|
+  | 512 | 0.74 | 1.07 |
+  | 1024 | 0.58 | 0.87 |
+  | 2048 | 0.43 | 0.58 |
+  | CarInteriro 512 | 0.69 | 0.92 |
+
+  Cost (a random grain cannot share Painter's phases): roughness difference DBAL-A2 512 0.0419 -> 0.0421, 1024 0.0430 -> 0.0432,
+  2048 0.0446 -> 0.0448, CarInteriro 512 0.0319 -> 0.0326. Base Color and Metallic unchanged to 4 digits (DBAL-A2 0.0145 / 0.0455 at
+  512, CarInteriro 0.0093 / 0.0026, Street_cyberpunk 0.0049 / 0.0238 / 0, no change). The grain cannot grow with the size
+  as Painter's does (a fixed tile-space field), so 2048 stays at 58%.
+* **Edge wear gaps: not reproduced, and not found missing.** Painter's `mg_metal_edge_wear` exists in DBAL-A2 only (79 layers
+  with an Edges generator; CarInteriro and Street_cyberpunk have none). Against Painter's flattened channels at 1024, on convex
+  edges (baked curvature > 0.65 / > 0.8): Metallic correlation 0.981 / 0.982, and the Metallic histogram on edge texels matches
+  (share of texels at 0-0.1: 39.3% vs 39.4%; at 0.6-0.7: 14.4% vs 11.5%); mean difference 0.025 there, against 0.051
+  on flat surface. Base Color and Roughness at edges correlate worse (0.43-0.58 and 0.37-0.48) but their means are close
+  (Base Color 0.059 vs 0.045 linear at the sharpest edges). The remaining Metallic / Roughness error sits in creases (curvature
+  < 0.45: Metallic +0.07, Roughness -0.05), which is the dirt / cavity side, not wear. Rounded bevels are not the cause
+  (the baked curvature map is what the generator reads). One real finding: texels outside the UV islands are 0.5 in the rebuilt
+  Base Color where Painter pads them, which draws thin bright outlines along island borders in the channel images (outside the
+  gate; the 3D view samples them only at seams). Nothing was changed for edge wear; `spp_lab edges` lists the layers.
+* **Stencil sheets: readable, but replaying them makes the result worse, so it is off.** The stencil packs are compiled graphs
+  (`.sbsasm`, 168-420 MB). Their alpha sheets are raw, uncompressed 8-bit pictures after a 52-byte header (found by dumping the
+  assembly): Weapon_Stencil_4 is ten 4096x4096 sheets, Stencil_Utility_Tool one 4096x4096 then six 8192x8192, picked by
+  `switch_stencil` / `choose_stencil` (the stroke's graph tweaks, now parsed into `BrushInfo::stencil_tweaks`). New
+  `mesh::spp::sheets` recovers the layout (sheet count from the graph's XML, sizes from the data length and the row stride, squares
+  preferred) and `SppFile::stencil_sheets` returns them; Weapon_Stencil_2 does not resolve (most of its data has no row stride at
+  any size, only a few blocks show 6144), so its 34 strokes stay skipped. With `SUBCRAFT_SPP_SHEETS=1` the 294 strokes of the other
+  two are replayed with their sheet, but inside their footprint (0.6-1.8% of texels) the difference to Painter rises (1024 Base Color
+  0.027 -> 0.047, Metallic 0.060 -> 0.130, better in only 19-23% of texels) and DBAL-A2 Metallic goes 0.0453 -> 0.0466 (512: 0.0455
+  -> 0.0472); no mirror of the sheet or inversion helps (flips: 0.0465-0.0472, inverted 0.0514). The sheets also show no text:
+  they are metal wear and grunge collages, so the DBAL-A2 labels (and the "00" vs "06" knobs) do not come from them. The
+  fallback "use Painter's flattened region" was not built (the flattened layer cannot be separated per stroke). Default behaviour
+  is unchanged.
+* **Tools:** `spp_lab sources r|m|b` (what each leaf puts in a channel), `edges`, `stencils` (+ `STENCIL_XML`, `STENCIL_DUMP`),
+  `sheets file.sbsasm count`.
+* **Tests:** `cargo test --workspace --lib --bins --tests --no-fail-fast`: 865 passed, 0 failed (new: grain statistics at 256-2048,
+  sheet layout, picker range, stencil tweaks; `spp_open` now expects the grain layer).

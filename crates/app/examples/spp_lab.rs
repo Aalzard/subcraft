@@ -67,6 +67,69 @@ fn main() {
         sbsar_xml(path, &args[4]);
         return;
     }
+    if args.get(3).is_some_and(|a| a == "sheets") {
+        // `sheets file.sbsasm count`: the layout found for a dumped assembly (sizes before reduction).
+        let asm = std::fs::read(&args[4]).unwrap();
+        let t = std::time::Instant::now();
+        let found = subcraft_mesh::spp::sheets::read_sheets(&asm, args[5].parse().unwrap());
+        println!("{:?} in {:?}", found.map(|v| v.iter().map(|s| (s.width, s.height)).collect::<Vec<_>>()), t.elapsed());
+        return;
+    }
+    if args.get(3).is_some_and(|a| a == "stencils") {
+        // `stencils`: every Substance-graph stencil of the strokes (url, stroke count) and what the
+        // archive holds: file sizes and the image signatures found inside the compiled graph.
+        let mut spp = subcraft_mesh::spp::SppFile::open(Path::new(path)).unwrap();
+        let project = spp.project().unwrap();
+        let mut urls: std::collections::BTreeMap<String, usize> = Default::default();
+        for ts in &project.texture_sets {
+            subcraft_mesh::spp::document::walk_layers(&ts.layers, &mut |l, _| {
+                for a in l.content.iter().chain(&l.mask) {
+                    if let subcraft_mesh::spp::document::ActionKind::Paint { brush: Some(b), strokes, .. } | subcraft_mesh::spp::document::ActionKind::Eraser { brush: Some(b), strokes, .. } = &a.kind {
+                        if let Some((url, _)) = &b.stencil {
+                            if url.contains(".sbsar") {
+                                *urls.entry(url.clone()).or_default() += strokes.len();
+                                if url.contains("your_assets") {
+                                    println!("tweaks {} brushsize {:.3} points {} {:?}", url.rsplit('/').next().unwrap_or("").split('?').next().unwrap_or(""), b.size, strokes.iter().map(|s| s.points.len()).sum::<usize>(), b.stencil_tweaks);
+                                }
+                            }
+                        }
+                    }
+                }
+            }, 0);
+        }
+        let sigs: [(&str, &[u8]); 8] = [("png", &[0x89, 0x50, 0x4e, 0x47]), ("jpeg", &[0xff, 0xd8, 0xff]), ("dds", b"DDS "), ("zlib78", &[0x78, 0x9c]), ("zlib78da", &[0x78, 0xda]), ("lz4frame", &[0x04, 0x22, 0x4d, 0x18]), ("zstd", &[0x28, 0xb5, 0x2f, 0xfd]), ("ktx", &[0xab, 0x4b, 0x54, 0x58])];
+        for (url, n) in urls {
+            println!("{} strokes={n}", url.split('?').next().unwrap_or(""));
+            let Ok(Some(files)) = spp.sbsar_files(&url) else { println!("  no archive"); continue };
+            for f in files.iter().filter(|_| std::env::var_os("STENCIL_XML").is_some()) {
+                if f.name.ends_with(".xml") && url.contains("your_assets") {
+                    println!("{}", String::from_utf8_lossy(&f.data));
+                }
+            }
+            if url.contains("your_assets") {
+                let t = std::time::Instant::now();
+                match spp.stencil_sheets(&url, 4096) {
+                    Ok(Some(sheets)) => println!("  sheets: {:?} in {:?}", sheets.iter().map(|s| (s.width, s.height)).collect::<Vec<_>>(), t.elapsed()),
+                    other => println!("  sheets: none ({:?})", other.map(|o| o.is_some())),
+                }
+            }
+            if let Ok(dump) = std::env::var("STENCIL_DUMP") {
+                for f in files.iter().filter(|f| f.name.ends_with(".sbsasm")) {
+                    let key = url.split('?').next().unwrap_or("").rsplit('/').next().unwrap_or("x").to_string();
+                    std::fs::write(Path::new(&dump).join(format!("{key}.sbsasm")), &f.data).unwrap();
+                }
+            }
+            for f in &files {
+                let counts: Vec<String> = sigs.iter().map(|(nm, sg)| format!("{nm}={}", f.data.windows(sg.len()).filter(|w| w == sg).count())).collect();
+                let mut hist = [0usize; 256];
+                for b in f.data.iter().step_by(97) { hist[*b as usize] += 1; }
+                let tot: usize = hist.iter().sum();
+                let ent: f64 = hist.iter().filter(|c| **c > 0).map(|c| { let p = *c as f64 / tot as f64; -p * p.log2() }).sum();
+                println!("  {} {} bytes entropy {:.2} bits/byte; {}; head {:02x?}", f.name, f.data.len(), ent, counts.join(" "), &f.data[..f.data.len().min(48)]);
+            }
+        }
+        return;
+    }
     if args.get(3).is_some_and(|a| a == "jpegs") {
         // `jpegs`: the JPEGs embedded in each grunge/procedural archive the project uses, with sizes.
         let mut spp = subcraft_mesh::spp::SppFile::open(Path::new(path)).unwrap();
@@ -204,6 +267,57 @@ fn main() {
         println!("region: {} texels", inside.iter().filter(|b| **b).count());
         let flat_dense: Vec<(ChannelKind, Vec<f32>)> = flat.iter().map(|(k, i)| (*k, dense(i, k.components()))).collect();
         ablate(&session, &f, &flat_dense, &inside, kind);
+        return;
+    }
+    if args.get(3).is_some_and(|a| a == "sources") {
+        // `sources [r|m|b]`: what every leaf layer puts into one channel (kind of fill source).
+        let kind = match args.get(4).map(|s| s.as_str()) { Some("r") => ChannelKind::Roughness, Some("m") => ChannelKind::Metallic, _ => ChannelKind::BaseColor };
+        let mut list = Vec::new();
+        leaves(&f, Vec::new(), &mut list);
+        let mut counts: std::collections::BTreeMap<String, usize> = Default::default();
+        for (p, name) in &list {
+            let mut l = &f;
+            for &i in p {
+                if let LayerContent::Group(g) = &l.content {
+                    l = &g.children[i];
+                }
+            }
+            if let LayerContent::Fill(fc) = &l.content {
+                if let Some(c) = fc.channels.get(&kind) {
+                    let d = format!("{:?}", c.source);
+                    let d: String = d.chars().take(160).collect();
+                    println!("{} | {name} | {d}", path_name(&f, p));
+                    *counts.entry(d.split(|c: char| c == '{' || c == '(').next().unwrap_or("").to_string()).or_default() += 1;
+                }
+            }
+        }
+        println!("{counts:?}");
+        return;
+    }
+    if args.get(3).is_some_and(|a| a == "edges") {
+        // Layers whose mask holds an Edges generator (the rebuilt edge-wear / curvature masks).
+        fn walk(l: &subcraft_doc::Layer, path: &mut Vec<String>, n: &mut usize) {
+            path.push(l.name.clone());
+            if let Some(m) = &l.mask {
+                for e in &m.effects {
+                    if let subcraft_doc::MaskEffectKind::Generator(g) = &e.kind {
+                        if g.kind == subcraft_doc::GeneratorKind::Edges {
+                            println!("{} | level {:.3} soft {:.3} invert {} noise {:.2} spread {:?}", path.join(" / "), g.level, g.softness, g.invert, g.noise_amount, g.edge_spread);
+                            *n += 1;
+                        }
+                    }
+                }
+            }
+            if let LayerContent::Group(g) = &l.content {
+                for c in &g.children {
+                    walk(c, path, n);
+                }
+            }
+            path.pop();
+        }
+        let mut n = 0;
+        walk(&f, &mut Vec::new(), &mut n);
+        println!("{n} layers with Edges generators");
         return;
     }
     if args.get(3).is_some_and(|a| a == "trace") {

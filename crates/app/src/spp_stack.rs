@@ -136,6 +136,8 @@ pub struct Rebuilder<'a, R: Read + Seek> {
     pub resources: &'a mut ResourceStore,
     pub stats: StackStats,
     images: HashMap<String, Option<ResourceId>>,
+    /// The alpha sheets of stencil-pack archives by graph URL (read once, see `stencil_sheet`).
+    sheets: HashMap<String, Option<Vec<Arc<subcraft_image::Bitmap>>>>,
     /// Allow reading embedded images out of the project's Substance archives.
     pub extract_embedded: bool,
     /// Mesh access for replaying polygon fills; without it they are skipped.
@@ -166,7 +168,7 @@ pub struct Rebuilder<'a, R: Read + Seek> {
 
 impl<'a, R: Read + Seek> Rebuilder<'a, R> {
     pub fn new(spp: &'a mut SppFile<R>, ts: &'a TextureSet, resources: &'a mut ResourceStore) -> Self {
-        Self { spp, ts, resources, stats: StackStats::default(), images: HashMap::new(), extract_embedded: true, picker: None, geometry: None, blend_map: blend_table(), rasters: Vec::new(), mesh_maps: None, anchors: HashMap::new(), references: Vec::new(), fitted: Vec::new(), raster_cache: None, tuning: Tuning::from_env(), control: None }
+        Self { spp, ts, resources, stats: StackStats::default(), images: HashMap::new(), sheets: HashMap::new(), extract_embedded: true, picker: None, geometry: None, blend_map: blend_table(), rasters: Vec::new(), mesh_maps: None, anchors: HashMap::new(), references: Vec::new(), fitted: Vec::new(), raster_cache: None, tuning: Tuning::from_env(), control: None }
     }
 
     /// Layers bottom to top.
@@ -675,8 +677,15 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
                     let blend = self.group_blend(action);
                     let stencil_image = brush.stencil.as_ref().and_then(|(url, m)| {
                         // Kept with its alpha: the stencil lets paint through by brightness x alpha.
-                        // A Substance stencil (`.sbsar`) is its embedded image when it has one.
-                        let id = if url.contains(".sbsar") { self.embedded_image(url)? } else { self.bitmap(url, true)? };
+                        // A Substance stencil (`.sbsar`) is its embedded image when it has one,
+                        // else the sheet its picker names (the user's stencil packs).
+                        if url.contains(".sbsar") {
+                            if let Some(id) = self.embedded_image(url) {
+                                return Some((self.resources.get(id)?.bitmap.clone(), *m));
+                            }
+                            return self.stencil_sheet(url, &brush.stencil_tweaks).map(|b| (b, *m));
+                        }
+                        let id = self.bitmap(url, true)?;
                         Some((self.resources.get(id)?.bitmap.clone(), *m))
                     });
                     // Without its stencil a stroke would paint its whole brush path (on DBAL-A2,
@@ -870,6 +879,45 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
         let id = Some(self.resources.insert(Resource { id: ResourceId::new(), name: format!("{} (levels)", source.name), kind: ResourceKind::Texture, bitmap: Arc::new(bitmap), source_path: None, encoded: None }));
         self.images.insert(key, id);
         id
+    }
+
+    /// The sheet a stencil-pack graph's picker names (`switch_stencil`, `choose_stencil`,
+    /// `Switch_Alpha`, from 1), as a gray bitmap of at most 4096 texels a side; `invert` is applied.
+    /// Blur, sharpen, contrast and warp tweaks of the pack are not applied. The archive's sheets are
+    /// read once. Off unless `SUBCRAFT_SPP_SHEETS=1`: replayed with the sheets, DBAL-A2's 294 strokes
+    /// fit Painter's result worse (see docs/progress.md), so they stay left out and named.
+    fn stencil_sheet(&mut self, url: &str, tweaks: &[(String, Vec<f32>)]) -> Option<Arc<subcraft_image::Bitmap>> {
+        if !self.sheets.contains_key(url) {
+            let t = std::time::Instant::now();
+            let off = std::env::var("SUBCRAFT_SPP_SHEETS").map_or(true, |v| v != "1");
+            let all = self.spp.stencil_sheets(url, 4096).ok().flatten().filter(|_| !off).map(|v| v.into_iter().map(|s| Arc::new(subcraft_image::Bitmap::new_u8(s.width, s.height, 1, s.data))).collect());
+            *self.stats.timings.entry("stencil sheets").or_default() += t.elapsed();
+            self.sheets.insert(url.to_string(), all);
+        }
+        let all = self.sheets.get(url)?.as_ref()?;
+        let value = |names: &[&str]| tweaks.iter().find(|(n, _)| names.iter().any(|m| n.eq_ignore_ascii_case(m))).and_then(|(_, v)| v.first().copied());
+        let index = value(&["switch_stencil", "choose_stencil", "switch_alpha"]).unwrap_or(1.0).round().max(1.0) as usize;
+        let sheet = all.get((index - 1).min(all.len() - 1))?.clone();
+        if value(&["invert"]).is_some_and(|v| v >= 0.5) {
+            let subcraft_image::BitmapData::U8(d) = &sheet.data else { return Some(sheet) };
+            return Some(Arc::new(subcraft_image::Bitmap::new_u8(sheet.width, sheet.height, 1, d.iter().map(|v| 255 - v).collect())));
+        }
+        // Developer aid: SUBCRAFT_SPP_SHEET_FLIP=1 mirrors x, 2 mirrors y (orientation checks).
+        let flip: u32 = std::env::var("SUBCRAFT_SPP_SHEET_FLIP").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
+        if flip != 0 {
+            if let subcraft_image::BitmapData::U8(d) = &sheet.data {
+                let (w, h) = (sheet.width as usize, sheet.height as usize);
+                let mut out = vec![0u8; d.len()];
+                for y in 0..h {
+                    for x in 0..w {
+                        let (sx, sy) = (if flip & 1 != 0 { w - 1 - x } else { x }, if flip & 2 != 0 { h - 1 - y } else { y });
+                        out[y * w + x] = if flip & 4 != 0 { 255 - d[sy * w + sx] } else { d[sy * w + sx] };
+                    }
+                }
+                return Some(Arc::new(subcraft_image::Bitmap::new_u8(sheet.width, sheet.height, 1, out)));
+            }
+        }
+        Some(sheet)
     }
 
     /// The embedded JPEG of a Substance archive as a resource (decoded once per graph).

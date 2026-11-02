@@ -427,6 +427,9 @@ pub struct BrushInfo {
     /// Screen-space stencil: the image resource URL and the action's 3x3 `projMatrix` (column
     /// major) taking clip-space screen positions (-1..1, y up) to stencil UV (v up).
     pub stencil: Option<(String, [f32; 9])>,
+    /// The set tweaks of a Substance-graph stencil (`switch_stencil`, `Switch_Alpha`... pick the
+    /// sheet's image); empty for a bitmap stencil.
+    pub stencil_tweaks: Vec<(String, Vec<f32>)>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -654,6 +657,7 @@ fn brush_of(a: &Obj) -> Option<BrushInfo> {
             let m: [f32; 9] = a.floats("projMatrix")?.try_into().ok()?;
             Some((url, m))
         }),
+        stencil_tweaks: a.obj("sourceStencil").filter(|s| s.class == "DataSourceProcedural").and_then(|s| s.obj("procedural")).and_then(graph_of).map(|g| g.tweaks).unwrap_or_default(),
     })
 }
 
@@ -847,13 +851,15 @@ mod tests {
 
     #[test]
     fn procedural_stencils_are_read_with_their_matrix() {
-        let graph = obj("DataProcedural", vec![("urlToSbsRes", Val::Str("resource://starter_assets/drop_splatter/drop_splatter?version=1.sbsar".into()))]);
+        let pick = obj("DataTweakFloat", vec![("identifier", Val::Str("switch_stencil".into())), ("value", f(&[4.0]))]);
+        let graph = obj("DataProcedural", vec![("urlToSbsRes", Val::Str("resource://starter_assets/drop_splatter/drop_splatter?version=1.sbsar".into())), ("tweaks", Val::List(vec![pick]))]);
         let stencil = obj("DataSourceProcedural", vec![("procedural", Val::Obj(Some(Box::new(graph))))]);
         let paint = obj("DataActionPaint", vec![("brush", Val::Obj(Some(Box::new(obj("DataBrush", vec![("brushSize", f(&[0.1]))]))))), ("sourceStencil", Val::Obj(Some(Box::new(stencil)))), ("projMatrix", f(&[1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.5, 0.5, 1.0]))]);
         let b = brush_of(&paint).unwrap();
         let (url, m) = b.stencil.unwrap();
         assert!(url.contains("drop_splatter") && url.ends_with(".sbsar"));
         assert_eq!(m[6], 0.5);
+        assert_eq!(b.stencil_tweaks, vec![("switch_stencil".to_string(), vec![4.0])]);
     }
 
     #[test]

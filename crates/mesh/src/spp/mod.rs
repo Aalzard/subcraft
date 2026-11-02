@@ -19,6 +19,7 @@ pub mod jp2;
 pub mod lz4;
 pub mod qt;
 pub mod sevenz;
+pub mod sheets;
 
 use std::fs::File;
 use std::io::{BufReader, Read, Seek};
@@ -144,6 +145,16 @@ impl<R: Read + Seek> SppFile<R> {
         let Ok(info) = self.h5.dataset(&path) else { return Ok(None) };
         let bytes = self.h5.read(&info)?;
         Ok(Some(sevenz::read_all(&bytes)?))
+    }
+
+    /// The raw alpha sheets of a stencil-pack archive (see [`sheets`]), one per picker value, each
+    /// reduced to at most `max_size` texels a side. `None` when the archive holds none or its
+    /// layout cannot be recovered.
+    pub fn stencil_sheets(&mut self, url: &str, max_size: u32) -> Result<Option<Vec<sheets::Sheet>>, SppError> {
+        let Some(files) = self.sbsar_files(url)? else { return Ok(None) };
+        let count = files.iter().find(|f| f.name.ends_with(".xml")).and_then(|f| sheets::sheet_count(&String::from_utf8_lossy(&f.data)));
+        let (Some(count), Some(asm)) = (count, files.iter().find(|f| f.name.ends_with(".sbsasm"))) else { return Ok(None) };
+        Ok(sheets::read_sheets(&asm.data, count).map(|all| all.iter().map(|s| sheets::reduced(s, max_size)).collect()))
     }
 
     /// The JPEG images embedded in a Substance archive's compiled graph (grunge maps, bitmap
