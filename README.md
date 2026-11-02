@@ -22,7 +22,18 @@ or endorsed by ArtCraft.**
 New here? Follow the [illustrated getting-started guide](docs/getting-started.md). A welcome
 screen and a six-step in-app guide are included.
 
-## What's new in 0.1.8
+## What's new in 0.2.0
+
+- **Open Substance Painter `.spp` projects** and rebuild their layer stacks; read `.sbsar`.
+- **USD and Alembic import**, and a **path-traced Rendering mode**.
+- **GPU baking** and faster big projects.
+- **Brush upgrades** (smoothing, scatter, smudge strength) and **Gradient Map, Histogram,
+  Median and Warp** filters.
+- Community additions: 2D-view painting, Layers folder tree, radial symmetry, mesh reload,
+  ID Color Mask, Edit in PhotoCraft.
+- macOS and Linux/Windows arm64 packaging (untested on that hardware).
+
+## What was new in 0.1.8
 
 - **Clone and Smudge** tools, plus camera projection for brush images.
 - **New Project window**: inspect a model (triangles, materials, objects, UDIM tiles, warnings)
