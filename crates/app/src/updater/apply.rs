@@ -32,18 +32,18 @@ pub fn extract_binary(release: &Release, package: &Path, output: &Path) -> Resul
     verify_file(package, &release.asset)?;
     match release.kind {
         PackageKind::WindowsInstaller { .. } => { return Ok(()); }
-        PackageKind::WindowsPortable => {
+        PackageKind::WindowsPortable | PackageKind::WindowsPortableArm64 => {
             let mut zip = zip::ZipArchive::new(fs::File::open(package).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
-            let expected = format!("SubCraft-{}-windows-x64/SubCraft.exe", release.version);
+            let expected = format!("{}/SubCraft.exe", release.kind.folder(&release.version));
             let entry = zip.by_name(&expected).map_err(|_| "Update archive is missing SubCraft.exe")?;
             if entry.is_symlink() || entry.size() > MAX_PACKAGE || entry.size() < 64 { return Err("Invalid executable in update archive".into()); }
             let mut dest = fs::File::create(output).map_err(|e| e.to_string())?;
             std::io::copy(&mut entry.take(MAX_PACKAGE + 1), &mut dest).map_err(|e| e.to_string())?; dest.sync_all().map_err(|e| e.to_string())?;
         }
-        PackageKind::LinuxPortable => {
+        PackageKind::LinuxPortable | PackageKind::LinuxPortableArm64 => {
             #[cfg(target_os = "linux")] {
                 let decoder = flate2::read::GzDecoder::new(fs::File::open(package).map_err(|e| e.to_string())?);
-                let mut tar = tar::Archive::new(decoder); let expected = PathBuf::from(format!("SubCraft-{}-linux-x86_64/subcraft", release.version)); let mut found = false;
+                let mut tar = tar::Archive::new(decoder); let expected = PathBuf::from(format!("{}/subcraft", release.kind.folder(&release.version))); let mut found = false;
                 for entry in tar.entries().map_err(|e| e.to_string())? { let entry = entry.map_err(|e| e.to_string())?;
                     if entry.path().map_err(|e| e.to_string())?.as_ref() != expected { continue; }
                     if !entry.header().entry_type().is_file() || entry.size() > MAX_PACKAGE || entry.size() < 64 { return Err("Invalid Linux executable".into()); }
@@ -55,7 +55,7 @@ pub fn extract_binary(release: &Release, package: &Path, output: &Path) -> Resul
         }
     }
     let mut magic = [0; 4]; fs::File::open(output).and_then(|mut f| f.read_exact(&mut magic)).map_err(|e| e.to_string())?;
-    let valid = match release.kind { PackageKind::WindowsPortable => magic[..2] == *b"MZ", _ => magic == *b"\x7fELF" };
+    let valid = match release.kind { PackageKind::WindowsPortable | PackageKind::WindowsPortableArm64 => magic[..2] == *b"MZ", _ => magic == *b"\x7fELF" };
     if !valid { return Err("Update executable has an invalid header".into()); } Ok(())
 }
 pub fn start_helper(snapshot: ProjectSnapshot, original_project: Option<PathBuf>, modified: bool, selection: crate::Selection,

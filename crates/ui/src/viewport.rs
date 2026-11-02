@@ -167,7 +167,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 }
                 Tool::Clone if mods.command => {
                     if state.session.set_clone_source(&camera, sp) { state.set_status("Clone source set: now paint where the copy should go", now); }
-                    else { state.set_status("Ctrl+click the model to set the clone source", now); }
+                    else { state.set_status(crate::keys::native("Ctrl+click the model to set the clone source"), now); }
                 }
                 Tool::PolygonFill => {
                     state.session.brush.mode = StrokeMode::Paint;
@@ -196,7 +196,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                             }
                             state.last_stroke_point = Some(sp);
                         }
-                        Err(subcraft_paint::PaintError::NoCloneSource) => state.set_status("Ctrl+click the model to set the clone source first", now),
+                        Err(subcraft_paint::PaintError::NoCloneSource) => state.set_status(crate::keys::native("Ctrl+click the model to set the clone source first"), now),
                         Err(e) => state.set_status(format!("Can't paint here: {e} (select a paint layer)"), now),
                     }
                 }
@@ -329,7 +329,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         if state.bake.overlay_active() { "Blue: high poly · Red: exposed low poly · Pale: cage · RMB orbit · Wheel zoom" }
         else { bake_hint.as_deref().unwrap_or("Baking mesh maps · RMB orbit · Wheel zoom") }
     } else if state.tool == Tool::Pen { "Click points · drag for curves · edit in 2D View · Enter finish · Esc cancel" }
-        else if state.tool == Tool::Clone { "Ctrl+click: set the source · LMB paint to copy it · RMB orbit" }
+        else if state.tool == Tool::Clone { crate::keys::native("Ctrl+click: set the source · LMB paint to copy it · RMB orbit") }
         else if state.tool == Tool::Smudge { "LMB drag to smudge the paint under the brush · RMB orbit" }
         else { "LMB paint · RMB menu / drag orbit · I isolate · H hide · Esc show all · Wheel zoom" };
     pill(&painter, rect.left_bottom() + egui::vec2(10.0, -10.0), egui::Align2::LEFT_BOTTOM, hint, theme::TEXT_FAINT);

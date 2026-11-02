@@ -492,7 +492,7 @@ pub(crate) fn source_controls(ui: &mut Ui, state: &mut UiState, kind: ChannelKin
                         }
                     });
                 });
-                hint(ui, "Uses the baked map (Ctrl+B); neutral until baked.");
+                hint(ui, crate::keys::native("Uses the baked map (Ctrl+B); neutral until baked."));
             }
             FillSource::Bitmap { resource } => {
                 pick_image |= image_row(ui, state, *resource);

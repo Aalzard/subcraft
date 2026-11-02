@@ -710,23 +710,23 @@ impl SubcraftApp {
         let bar = ui.max_rect();
         // Right side first so the left side can't push it out of the bar.
         let right_edge = ui.scope_builder(egui::UiBuilder::new().max_rect(bar).layout(egui::Layout::right_to_left(egui::Align::Center)), |ui| {
-            if primary_button(ui, format!("{}  Export", icons::EXPORT)).on_hover_text("Export textures (Ctrl+Shift+E)").clicked() {
+            if primary_button(ui, format!("{}  Export", icons::EXPORT)).on_hover_text(crate::keys::native("Export textures (Ctrl+Shift+E)")).clicked() {
                 self.perform(Action::Export, now);
             }
-            if secondary_button(ui, format!("{}  Bake", icons::MAGIC_WAND)).on_hover_text("Bake mesh maps (Ctrl+B)").clicked() {
+            if secondary_button(ui, format!("{}  Bake", icons::MAGIC_WAND)).on_hover_text(crate::keys::native("Bake mesh maps (Ctrl+B)")).clicked() {
                 self.perform(Action::Bake, now);
             }
             crate::updates::button(&mut self.state, ui);
-            if icon_button(ui, icons::SAVE, "Save (Ctrl+S)").clicked() {
+            if icon_button(ui, icons::SAVE, crate::keys::native("Save (Ctrl+S)")).clicked() {
                 self.perform(Action::Save, now);
             }
             ui.add_space(6.0);
             let h = self.state.session.history();
             let (can_undo, can_redo) = (h.can_undo(), h.can_redo());
-            if ui.add_enabled_ui(can_redo, |ui| icon_button(ui, icons::REDO, "Redo (Ctrl+Y)")).inner.clicked() {
+            if ui.add_enabled_ui(can_redo, |ui| icon_button(ui, icons::REDO, crate::keys::native("Redo (Ctrl+Y)"))).inner.clicked() {
                 self.perform(Action::Redo, now);
             }
-            if ui.add_enabled_ui(can_undo, |ui| icon_button(ui, icons::UNDO, "Undo (Ctrl+Z)")).inner.clicked() {
+            if ui.add_enabled_ui(can_undo, |ui| icon_button(ui, icons::UNDO, crate::keys::native("Undo (Ctrl+Z)"))).inner.clicked() {
                 self.perform(Action::Undo, now);
             }
             ui.cursor().right()
@@ -760,7 +760,7 @@ impl SubcraftApp {
                 (Tool::Brush, icons::PAINT_BRUSH, "Brush (B)"),
                 (Tool::Eraser, icons::ERASER, "Eraser (E)"),
                 (Tool::PolygonFill, icons::PAINT_BUCKET, "Polygon fill"),
-                (Tool::Clone, icons::COPY, "Clone: Ctrl+click the model to set the source, then paint to copy it"),
+                (Tool::Clone, icons::COPY, crate::keys::native("Clone: Ctrl+click the model to set the source, then paint to copy it")),
                 (Tool::Smudge, icons::DROP, "Smudge: drag the paint under the brush along the stroke"),
                 (Tool::Eyedropper, icons::CURSOR, "Eyedropper (Shift+click picks material)"),
                 (Tool::Pen, icons::CURVE, "Pen paths (P): click points, drag for curves; edit anchors and handles in 2D View"),
@@ -807,21 +807,21 @@ impl SubcraftApp {
                     ui.close();
                     self.request(Pending::OpenMesh, now);
                 }
-                if item(ui, icons::FOLDER_OPEN, "Open project…", "Ctrl+O") {
+                if item(ui, icons::FOLDER_OPEN, "Open project…", crate::keys::native("Ctrl+O")) {
                     ui.close();
                     self.request(Pending::OpenProject, now);
                 }
                 ui.separator();
-                if item(ui, icons::SAVE, "Save", "Ctrl+S") {
+                if item(ui, icons::SAVE, "Save", crate::keys::native("Ctrl+S")) {
                     ui.close();
                     self.perform(Action::Save, now);
                 }
-                if item(ui, icons::SAVE, "Save as…", "Ctrl+Shift+S") {
+                if item(ui, icons::SAVE, "Save as…", crate::keys::native("Ctrl+Shift+S")) {
                     ui.close();
                     self.perform(Action::SaveAs, now);
                 }
                 ui.separator();
-                if item(ui, icons::EXPORT, "Export textures…", "Ctrl+Shift+E") {
+                if item(ui, icons::EXPORT, "Export textures…", crate::keys::native("Ctrl+Shift+E")) {
                     ui.close();
                     self.perform(Action::Export, now);
                 }
@@ -829,7 +829,7 @@ impl SubcraftApp {
                     ui.close();
                     self.state.render_window = true;
                 }
-                if item(ui, icons::MAGIC_WAND, "Bake mesh maps…", "Ctrl+B") {
+                if item(ui, icons::MAGIC_WAND, "Bake mesh maps…", crate::keys::native("Ctrl+B")) {
                     ui.close();
                     self.perform(Action::Bake, now);
                 }
@@ -849,10 +849,10 @@ impl SubcraftApp {
                 let undo = h.undo_label().map(|l| format!("Undo {l}")).unwrap_or("Undo".into());
                 let redo = h.redo_label().map(|l| format!("Redo {l}")).unwrap_or("Redo".into());
                 let (can_undo, can_redo) = (h.can_undo(), h.can_redo());
-                if ui.add_enabled(can_undo, egui::Button::new(format!("{}   {undo}", icons::UNDO)).shortcut_text("Ctrl+Z")).clicked() {
+                if ui.add_enabled(can_undo, egui::Button::new(format!("{}   {undo}", icons::UNDO)).shortcut_text(crate::keys::native("Ctrl+Z"))).clicked() {
                     self.perform(Action::Undo, now);
                 }
-                if ui.add_enabled(can_redo, egui::Button::new(format!("{}   {redo}", icons::REDO)).shortcut_text("Ctrl+Y")).clicked() {
+                if ui.add_enabled(can_redo, egui::Button::new(format!("{}   {redo}", icons::REDO)).shortcut_text(crate::keys::native("Ctrl+Y"))).clicked() {
                     self.perform(Action::Redo, now);
                 }
                 ui.separator();

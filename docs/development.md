@@ -142,6 +142,11 @@ enter the tag (e.g. `v0.1.0`) and run it.
 
 The Linux package can also be built on a Linux machine with `./scripts/build-linux.sh`.
 
+Publishing the release also starts the **Release (experimental platforms)** workflow, which adds the macOS
+disk image, `SubCraft-<version>-linux-aarch64.tar.gz` and `SubCraft-<version>-windows-arm64.zip`. Approve its
+`release-publish` environment prompt like the main one. Re-run it for an existing tag with **Actions →
+Release (experimental platforms) → Run workflow**.
+
 ### Desktop update contract
 
 Starting with the release that includes the green **Check / update** button, desktop users

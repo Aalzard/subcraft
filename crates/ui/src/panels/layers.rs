@@ -83,13 +83,13 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     egui::Frame::new().inner_margin(pad).show(ui, |ui| {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 2.0;
-            if icon_button(ui, icons::PAINT_BRUSH, "New paint layer (Ctrl+Shift+N)").clicked() {
+            if icon_button(ui, icons::PAINT_BRUSH, crate::keys::native("New paint layer (Ctrl+Shift+N)")).clicked() {
                 cmds.push(Command::AddLayer(NewLayer::Paint));
             }
-            if icon_button(ui, icons::PAINT_BUCKET, "New fill layer (Ctrl+Shift+F)").clicked() {
+            if icon_button(ui, icons::PAINT_BUCKET, crate::keys::native("New fill layer (Ctrl+Shift+F)")).clicked() {
                 cmds.push(Command::AddLayer(NewLayer::Fill));
             }
-            if icon_button(ui, icons::FOLDER, "New folder (Ctrl+G)").clicked() {
+            if icon_button(ui, icons::FOLDER, crate::keys::native("New folder (Ctrl+G)")).clicked() {
                 cmds.push(Command::AddLayer(NewLayer::Folder));
             }
             if icon_button(ui, icons::IMAGE, "Import texture set as a fill layer…").clicked() {
@@ -101,7 +101,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     if icon_button(ui, icons::TRASH, "Delete (Del)").clicked() {
                         cmds.push(Command::DeleteLayer(id));
                     }
-                    if icon_button(ui, icons::COPY, "Duplicate (Ctrl+D)").clicked() {
+                    if icon_button(ui, icons::COPY, crate::keys::native("Duplicate (Ctrl+D)")).clicked() {
                         cmds.push(Command::DuplicateLayer(id));
                     }
                     if icon_button(ui, icons::ARROW_DOWN, "Move down").clicked() {
