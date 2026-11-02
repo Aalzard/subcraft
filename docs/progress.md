@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-10-29 (session 110b: per-region accuracy on DBAL-A2, text investigation)
+Last updated: 2026-11-02 (session 113: community pull requests by Rafael Mendes merged locally)
 
 ## Decisions
 
@@ -3604,3 +3604,53 @@ From the user's screenshots of the merged build (top plate, a wheel side, the QR
 * `cargo test --workspace`: 758 passed, 0 failed (release build `.build-claude-spp/release/subcraft.exe`).
 * The user opened DBAL-A2 in that build and reported it better than before.
 * Still open: labels from the user's own Substance stencil sheets (compiled `.sbsasm`, not readable), roughness grain (about half of Painter's), edge-wear gaps not reproduced, DBAL-A2 rebuild about 230 s, CarInteriro Base Color slightly worse (0.0096 to 0.0117 at 1024).
+
+### Session 113 - Community pull requests by Rafael Mendes merged locally (2026-11-02)
+
+Local branch `claude/merge-rafael-prs-3a1508`, cut from `feature/brush-roadmap` (ab9a52d); nothing
+pushed, nothing changed on GitHub. Each PR was fetched as `pr-<N>` and joined with a real
+`git merge --no-ff` (his commit and authorship kept), then `cargo test --workspace` was run before the
+next one. His fork has exactly these 10 PR branches: there is no retouch-brushes, layer-reference,
+extended-channels or filters-warp-histogram branch or PR, so the Retouch tool, Reference mask effect,
+Coat / Sheen / Anisotropy / Transmission channels and his Warp / Histogram filters are not included
+(this branch already has its own Warp and Histogram Scan / Range filters, session 108).
+
+| PR | Result | Notes |
+| --- | --- | --- |
+| #65 Layers panel folder hierarchy and generators | merged | no code conflict |
+| #73 Bake Match by Name | merged | kept next to GPU baking: with name matching on, AO and Thickness bake on the CPU (the GPU ray kernels cannot filter hits by part); curvature still uses the GPU. The bake summary and the unmatched-name notices are both shown. `bake_match` is an optional project setting (no schema bump) |
+| #52 Painter-style Baking window (10 bakers) | skipped | a parallel rewrite of the baker this branch already reworked (streamed maps, Height / Bent Normal, live previews, GPU baking, and #73's name matching): 14 files conflict, 14 hunks in `bake/src/lib.rs`, and it would add a second name-matching module. Genuinely new and worth porting later: the Opacity map, ID by mesh name / material, merging several high-poly files, the Painter-style window layout |
+| #54 Paint in the 2D view, channel switches | merged | new to this branch. The 2D-view stroke passes our stroke smoothing to the path, and the 2D brush strip gets the symmetry-guides toggle like the 3D one |
+| #56 CC0 open pack | merged with changes | keeps our embedded HDRI loader (extended to decode `.exr` by file name), our built-in brush preset list and `--shelf-tab`; adds his 10 ambientCG image materials, 5 textured smart materials, 4 smart masks, 4 Poly Haven HDRIs and the 5 brush presets whose names are new (his Soft Airbrush / Spray Paint duplicates are left out). Renamed to keep names unique: Worn Brown Leather, Dusty Smooth Concrete; his Scratches and Moss on Top masks are dropped (ours exist). Shelf descriptions added for his assets. About 13.6 MB more in the binary. His `--shelf tab/query` flag is not wired (ours is `--shelf-tab`); `--environment name` is |
+| #66 Edit in PhotoCraft (PSD round trip) | merged | ADR renumbered 0039 -> **0040**. Adds the `photocraft-psd` git dependency (github.com/storytold/photocraft, pinned rev) |
+| #68 ID Color Mask | merged | project **schema 15** (14 in the PR; 14 is this branch's Gradient Map / Histogram / Median filters). Schema 13 and 14 files load unchanged (test `schema_15_id_color_mask_...`); ADR renumbered 0040 -> **0041** |
+| #69 Pen pressure curves | skipped | a second pen-pressure model next to ours (`pressure_size` / `pressure_flow` with `ui/pen.rs`): 10 files conflict and both would drive the same brush values. New and worth porting into our model later: opacity and hardness pressure, per-parameter minimum and gamma curves, interpolated pressure between samples |
+| #70 Mesh reload | merged | ADR renumbered 0041 -> **0042**. `mesh_source` and `stale_mesh_maps` are optional project settings (no schema bump). The New Project window keeps our `.spp` path and records the model as the mesh source |
+| #72 Radial symmetry | merged | ADR renumbered 0042 -> **0043**. Combined with our stroke smoothing (both clamped in `SetStrokeOptions`) and scatter |
+
+Merge fix-ups on this branch (separate from his commits): name collisions in the open pack, its shelf
+descriptions, the library count tests, the schema-version pins in `project/src/tests.rs`.
+
+Other authors' open PRs (not merged, as asked):
+* #51 (David Sawick, MCP engine hooks: tool-assisted layer placement, resource import, headless
+  snapshot) - 6 files, small; new to us; 2 files would conflict (`session.rs`, `render/lib.rs`).
+* #55 (Christopher Burns, clamp viewport targets to the device texture limit) - already covered here:
+  `fit_target_size` with `max_texture_dimension_2d` in `render/lib.rs`; 1 conflicting file.
+* #62 (iceteabln, optional `.sbsar` bake through a native C++ host + shelf Materials UI) - new to us,
+  needs a native build; 4 conflicting files.
+* #63 (iceteabln, Painter `.spsm` / `.spmsk` import, SBSAR noise bake) - overlaps our Painter work
+  (it carries its own `spp` crate); the smart material / mask formats themselves are new; 6 files conflict.
+* #64 (iceteabln, experimental `.spp` open) - duplicates our `.spp` import (sessions 103-112), which
+  goes further (rebuilt layer stacks, background job); 8 files conflict.
+
+Behaviour changes the user will notice: painting in the 2D view; folders and generators drawn as a
+tree in the Layers panel; Bake window "Match by mesh name" (AO / Thickness then bake on the CPU);
+Layer menu "Edit in PhotoCraft"; ID Color mask effect; File > Reload mesh; radial symmetry in the
+brush strip; more materials, smart materials, masks, HDRIs and brush presets on the Shelf.
+Projects saved by this build are schema 15 and do not open in builds before it.
+
+* **Tests:** `cargo test --workspace` 831 passed, 0 failed (758 before; after each merge: #65 761,
+  #73 770, #54 781, #56 789, #66 802, #68 811, #70 821, #72 831). Build dir moved to
+  `C:/subcraft-build/rafael-prs` (E: ran out of space during the run).
+* **Not verified:** none of the merged features was tried in the running app in this session (tests
+  only); the PhotoCraft round trip needs PhotoCraft installed; pen and 2D-view painting by hand.
