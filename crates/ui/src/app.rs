@@ -129,6 +129,10 @@ pub struct LaunchOptions {
     pub bake_preview_map: Option<subcraft_core::MeshMapKind>,
     /// Light the viewport with the environment of this name.
     pub environment: Option<String>,
+    /// Reload the project's mesh from this model on start (File > Reload mesh, scripted).
+    pub reload_mesh: Option<PathBuf>,
+    /// Mode for `reload_mesh`; `None` opens the window with the suggested mode for review.
+    pub reload_mode: Option<subcraft_app::ReloadMode>,
     /// Recover the newest crashed session without asking.
     pub recover: bool,
     /// Autosave interval instead of the preference (testing).
@@ -547,6 +551,12 @@ impl SubcraftApp {
             }
         }
         state.pending_render_job = options.render_job.clone();
+        if let Some(model) = &options.reload_mesh {
+            state.mesh_reload.path = model.display().to_string();
+            state.mesh_reload.auto = options.reload_mode;
+            crate::mesh_reload::open(&mut state);
+            state.welcome.open = false;
+        }
         if let Some(model) = &options.new_project_model {
             state.new_project.show_window(&state.recovery.prefs.new_project.clone());
             state.new_project.load_model(model);
@@ -823,6 +833,10 @@ impl SubcraftApp {
                     ui.close();
                     self.request(Pending::OpenMesh, now);
                 }
+                if item(ui, icons::CUBE_WIRE, "Reload mesh…", "") {
+                    ui.close();
+                    crate::mesh_reload::open(&mut self.state);
+                }
                 if item(ui, icons::FOLDER_OPEN, "Open project…", "Ctrl+O") {
                     ui.close();
                     self.request(Pending::OpenProject, now);
@@ -1066,7 +1080,7 @@ impl SubcraftApp {
             self.state.session.mesh_maps(ts).and_then(|m| m.get(kind)).is_some_and(|image|
                 self.state.uploaded_maps.get(&(ts, kind)).is_some_and(|gpu| gpu.same_storage(image)))
         });
-        if !self.screenshot_requested && self.frames >= 20 && (pinned_ready || self.state.bake.job.is_none() && self.state.spp_import.is_none() && !self.state.session.composites_pending())
+        if !self.screenshot_requested && self.frames >= 20 && !self.state.mesh_reload.busy() && (pinned_ready || self.state.bake.job.is_none() && self.state.spp_import.is_none() && !self.state.session.composites_pending())
             && !self.state.bake.preview_pending() && (self.state.bake.preview_mesh.is_none() || self.state.bake.preview_uploaded)
         {
             if let Some(job) = self.state.pending_render_job.take() {
@@ -1291,6 +1305,7 @@ impl eframe::App for SubcraftApp {
         }
         dialogs::export_window(&mut self.state, &ctx, now);
         dialogs::bake_window(&mut self.state, &ctx, now);
+        crate::mesh_reload::window(&mut self.state, &ctx, now);
         dialogs::poll_bake(&mut self.state, &ctx, now);
         crate::spp_import::poll(&mut self.state, &ctx, now);
         crate::files::poll(&mut self.state, now);

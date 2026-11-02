@@ -3099,6 +3099,42 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   unselected: `docs/screenshots/id-color-mask.png`.
 * NOT verified: clicking "Pick from model" / "Mask by ID color" with the real mouse in the desktop window
   (covered through the app API and egui-input tests only).
+### Session 107 - Claude: Mesh reload (2026-10-30)
+
+* **File > Reload mesh…** (ADR-0042; 0041 in the PR) swaps the model under an existing project. A window shows the
+  path (default: the last model file, saved as `ProjectSettings.mesh_source`), Browse / Check, the
+  set matches, the two modes and a warning that undo history is cleared, then a progress bar with
+  Cancel. Both steps run in the background (`crates/app/src/mesh_reload.rs`).
+  * **Check:** imports the file, groups it by material, object or single set (whichever matches the
+    most current set names; UDIM tiles get their own sets), matches by name and measures how far
+    each layout moved (64² probe, more than 2% moved texels suggests Reproject).
+  * **Keep UVs:** the layers are reused unchanged (shared, bit-exact).
+  * **Reproject:** each new texel finds its 3D point, the closest point on the old surface within the
+    matched old set (new filtered closest-point BVH query) and the old UV there
+    (`mesh::transfer`). Paint channels, paint effects, mask paint, mask paint effects and baked mesh
+    maps are resampled; samples outside old islands are skipped so seams take no gutter colour; only
+    tiles that receive paint are allocated. Pen paths become paint layers; reprojected baked maps
+    are flagged stale (`ProjectSettings.stale_mesh_maps`, cleared by a bake).
+  * New materials get an empty set; unmatched old sets are kept on an empty extra slot and reported.
+    Part visibility is reset; layers using part visibility are counted in the report.
+  * Finishing is refused if the project changed while the reload was prepared. The project is marked
+    modified. Both new settings are optional, so the schema did not change.
+* Scripted run: `subcraft <project|--demo> --reload-mesh v2.obj --reload-mode keep|reproject
+  --screenshot out.png` (screenshots wait for the reload).
+* Tests: **644 pass** (`cargo test --workspace`). New: mesh closest-point vs brute force,
+  correspondence identity / mirrored / coverage; app/tests/mesh_reload.rs (6): cube to a cube with
+  90°-rotated UVs through a real OBJ (colours within 0.03 at 7 points per triangle incl. next to every
+  seam, mask too), sparse tile allocation, Keep UVs bit-exact, material-name matching on the sample
+  crate with a renamed material and reordered sets, save/reopen keeps the stale flag and model path,
+  stale reload refused. Clippy: no warnings in the new or changed code.
+* App check (release build, scripted): `--demo` crate, then `--reload-mesh` with the same crate
+  written as OBJ (`crate_obj` example) with every UV rotated 90° about (0.5, 0.5). Reproject: status
+  "2 texture set(s) matched, 4 raster(s) reprojected"; the red strokes and the masked moss top are in
+  the same place on the model as before the reload (docs/screenshots/mesh-reload.png); undo is
+  greyed out. Keep UVs on the same file moves the strokes to the rotated layout, as expected. The
+  UV-projected wood fill pattern follows the new UVs in both modes (fills are not rasters).
+* NOT done / limits: painted Normal-channel values are copied, not re-oriented when an island
+  rotates; no undo across a reload; the window was not driven with a real mouse.
 
 ## Next steps (in order)
 

@@ -128,6 +128,7 @@ pub struct UiState {
     pub height_scale: f32,
     pub export: crate::dialogs::ExportUi,
     pub new_project: crate::new_project::NewProjectUi,
+    pub mesh_reload: crate::mesh_reload::MeshReloadUi,
     /// Action waiting for the unsaved-changes prompt.
     pub confirm: Option<crate::dialogs::Pending>,
     /// The user already agreed to close without saving.
@@ -211,6 +212,7 @@ impl UiState {
             pending_render_job: None,
             render_export: Default::default(),
             new_project: Default::default(),
+            mesh_reload: Default::default(),
             render_request: None,
             last_view_size: [1280, 720],
             uv: UvView { zoom: 1.0, offset: egui::Vec2::ZERO, source: PreviewSource::Channel(ChannelKind::BaseColor), texture: None, painting: false, last_point: None },
@@ -379,6 +381,22 @@ impl UiState {
         self.painting = false;
         self.last_stroke_point = None;
         self.recovery.autosaver.session_replaced();
+    }
+
+    /// The session's mesh was replaced in place (File > Reload mesh): drop everything derived
+    /// from the old geometry and upload the new one. The camera stays put for comparison.
+    pub fn mesh_reloaded(&mut self) {
+        self.layer_previews = Default::default();
+        self.asset_preview.cancel_apply();
+        self.pen = Default::default();
+        self.pen_after = None;
+        self.context_part = None;
+        self.uploaded_view_revision = u64::MAX;
+        self.gpu_dirty = true;
+        self.uv_edges.clear();
+        self.uploaded_maps.clear();
+        self.painting = false;
+        self.last_stroke_point = None;
     }
 
     /// One Shelf click makes the brush usable at once: the app applies it, and Fill, Eyedropper

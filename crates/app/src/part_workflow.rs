@@ -48,6 +48,14 @@ pub(crate) struct PartView {
     visible: [OnceLock<BTreeSet<u32>>; 4],
 }
 
+impl PartView {
+    /// Forget hidden / isolated parts of the previous mesh; the bumped revision makes viewers
+    /// upload the new geometry.
+    pub(crate) fn reset_for_new_mesh(&mut self) {
+        *self = PartView { revision: self.revision + 1, ..Default::default() };
+    }
+}
+
 impl Session {
     pub fn layer_action(&mut self, layer: subcraft_core::LayerId, action: LayerAction) -> Result<(), CommandError> {
         if self.selected_texture_set().find(layer).is_none() { return Err(CommandError::LayerNotFound); }

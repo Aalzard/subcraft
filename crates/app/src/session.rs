@@ -144,6 +144,8 @@ pub struct Session {
     maps_generation: u64,
     /// Opened from a recovery copy: unsaved until the user saves.
     recovered: bool,
+    /// The mesh was reloaded since the last save.
+    mesh_dirty: bool,
 }
 
 /// Everything a project file holds, captured cheaply (shared tiles and resources) so it can be
@@ -222,6 +224,7 @@ impl Session {
             maps_dirty: false,
             maps_generation: 0,
             recovered: false,
+            mesh_dirty: false,
         }
     }
 
@@ -261,6 +264,7 @@ impl Session {
         self.saved_settings = self.settings.clone();
         self.maps_dirty = false;
         self.recovered = false;
+        self.mesh_dirty = false;
         Ok(path)
     }
 
@@ -302,7 +306,7 @@ impl Session {
 
     /// True if the document differs from the last save / load.
     pub fn is_modified(&self) -> bool {
-        self.maps_dirty || self.recovered || self.doc != self.saved_doc || self.settings != self.saved_settings
+        self.maps_dirty || self.mesh_dirty || self.recovered || self.doc != self.saved_doc || self.settings != self.saved_settings
     }
 
     /// Project-wide settings (export choices, normal format), saved with the project.
@@ -350,6 +354,7 @@ impl Session {
 
     /// Install baked maps (merged over existing ones) and refresh that set's composite.
     pub fn set_mesh_maps(&mut self, ts: TextureSetId, maps: std::collections::BTreeMap<subcraft_core::MeshMapKind, subcraft_image::TiledImage>) {
+        self.settings.stale_mesh_maps.retain(|id| *id != ts);
         let entry = self.mesh_maps.entry(ts).or_default();
         let mut merged = entry.as_map().clone();
         merged.extend(maps);
@@ -414,14 +419,122 @@ impl Session {
         }
         let mut warnings = report.warnings;
         let tiles = report.mesh.udim_tiles(None).len();
-        if tiles > 1 {
+        let mut session = if tiles > 1 {
             // Folding the tiles onto one would make their islands paint over each other.
             let settings = crate::new_project::NewProjectSettings { resolution, ..Default::default() };
-            let session = Self::from_mesh_with(report.mesh, &settings)?;
             warnings.push(format!("The model uses {tiles} UDIM tiles; each tile became its own texture set (use File > New project to choose differently)."));
-            return Ok((session, warnings));
+            Self::from_mesh_with(report.mesh, &settings)?
+        } else {
+            Self::new(report.mesh, resolution)
+        };
+        session.set_mesh_source(path);
+        Ok((session, warnings))
+    }
+
+    /// Remember the model file the mesh came from (default for File > Reload mesh). Not an
+    /// edit: does not mark the project modified.
+    pub fn set_mesh_source(&mut self, path: &Path) {
+        let source = Some(path.display().to_string());
+        let unchanged = self.settings == self.saved_settings;
+        self.settings.mesh_source = source.clone();
+        if unchanged {
+            self.saved_settings.mesh_source = source;
         }
-        Ok((Self::new(report.mesh, resolution), warnings))
+    }
+
+    /// The model file the mesh was imported or last reloaded from, if known.
+    pub fn mesh_source(&self) -> Option<&Path> {
+        self.settings.mesh_source.as_deref().map(Path::new)
+    }
+
+    /// Whether a texture set's baked maps were made for an earlier version of the mesh.
+    pub fn mesh_maps_stale(&self, ts: TextureSetId) -> bool {
+        self.settings.stale_mesh_maps.contains(&ts)
+    }
+
+    // ----- mesh reload ---------------------------------------------------------------------------
+
+    /// Step 1 of File > Reload mesh, in the background: import `path` and match it to the
+    /// texture sets (see [`crate::mesh_reload`]).
+    pub fn start_mesh_reload_check(&self, path: &Path) -> crate::mesh_reload::MeshReloadJob<crate::mesh_reload::PreparedReload> {
+        let (path, mesh, bvh, doc) = (path.to_path_buf(), self.scene.mesh.clone(), self.scene.bvh.clone(), self.history.current().clone());
+        crate::mesh_reload::MeshReloadJob::spawn(move |p| crate::mesh_reload::prepare(&path, mesh, &bvh, &doc, p))
+    }
+
+    /// [`Session::start_mesh_reload_check`] for an already imported mesh (tests, scripts).
+    pub fn check_mesh_reload(&self, path: &Path, mesh: Mesh) -> Result<crate::mesh_reload::PreparedReload, String> {
+        let progress = crate::mesh_reload::ReloadProgress::default();
+        crate::mesh_reload::prepare_mesh(path, mesh, Vec::new(), self.scene.mesh.clone(), &self.scene.bvh, self.history.current(), &progress)
+    }
+
+    /// Step 2, in the background: build the reloaded document with `mode`.
+    pub fn start_mesh_reload(&self, prepared: Arc<crate::mesh_reload::PreparedReload>, mode: crate::mesh_reload::ReloadMode) -> crate::mesh_reload::MeshReloadJob<crate::mesh_reload::ReloadOutput> {
+        let (bvh, doc, maps) = (self.scene.bvh.clone(), self.history.current().clone(), self.mesh_map_set());
+        crate::mesh_reload::MeshReloadJob::spawn(move |p| crate::mesh_reload::transfer(&prepared, mode, &bvh, &doc, &maps, p))
+    }
+
+    /// Both steps on the calling thread for an already prepared reload (tests, scripts).
+    pub fn apply_mesh_reload(&mut self, prepared: Arc<crate::mesh_reload::PreparedReload>, mode: crate::mesh_reload::ReloadMode) -> Result<crate::mesh_reload::MeshReloadReport, String> {
+        let output = self.start_mesh_reload(prepared, mode).wait()?;
+        self.finish_mesh_reload(output)
+    }
+
+    /// Import `path` and reload it with `mode`, waiting for the result.
+    pub fn reload_mesh(&mut self, path: &Path, mode: crate::mesh_reload::ReloadMode) -> Result<crate::mesh_reload::MeshReloadReport, String> {
+        let prepared = Arc::new(self.start_mesh_reload_check(path).wait()?);
+        self.apply_mesh_reload(prepared, mode)
+    }
+
+    fn mesh_map_set(&self) -> crate::mesh_reload::MapSet {
+        self.mesh_maps.iter().map(|(id, m)| (*id, m.as_map().clone())).collect()
+    }
+
+    /// Install a finished reload: new mesh, texture sets and maps. Not undoable: the history is
+    /// cleared (the mesh is not part of it, ADR-0042). Fails if the project changed meanwhile.
+    pub fn finish_mesh_reload(&mut self, output: crate::mesh_reload::ReloadOutput) -> Result<crate::mesh_reload::MeshReloadReport, String> {
+        if self.stroke.is_some() {
+            return Err("finish the stroke before reloading the mesh".into());
+        }
+        if !Arc::ptr_eq(&output.base_mesh, &self.scene.mesh) || output.base_doc != *self.history.current() || self.doc != *self.history.current() {
+            return Err("the project changed while the new mesh was being prepared; reload it again".into());
+        }
+        if output.document.texture_sets.is_empty() {
+            return Err("the reloaded mesh has no texture sets".into());
+        }
+        log::info!("action: Reload Mesh ({})", output.source.display());
+        // Compositing restarts from scratch on the new geometry.
+        self.worker = None;
+        self.composites.clear();
+        self.shown.clear();
+        self.submitted = None;
+        self.invalidated.clear();
+        self.scene = Scene::new(output.mesh);
+        self.part_view.reset_for_new_mesh();
+        self.doc = output.document;
+        self.history.reset(self.doc.clone(), "Reload Mesh");
+        self.mesh_maps = output.maps.into_iter().map(|(id, m)| (id, MeshMaps::from_map(m))).collect();
+        let doc = &self.doc;
+        self.settings.stale_mesh_maps.retain(|id| doc.texture_set(*id).is_some());
+        for id in output.stale {
+            if !self.settings.stale_mesh_maps.contains(&id) {
+                self.settings.stale_mesh_maps.push(id);
+            }
+        }
+        self.settings.mesh_source = Some(output.source.display().to_string());
+        if self.doc.texture_set(self.selection.texture_set).is_none() {
+            self.selection.texture_set = self.doc.texture_sets[0].id;
+            self.selection.layer = None;
+        }
+        if self.selection.layer.is_none_or(|l| self.selected_texture_set().find(l).is_none()) {
+            self.selection.layer = self.selected_texture_set().layers.last().map(|l| l.id);
+        }
+        self.clone_source = None;
+        self.clone_offset = None;
+        self.normalize_target();
+        self.mesh_dirty = true;
+        self.maps_generation += 1;
+        self.revision += 1;
+        Ok(output.report)
     }
 
     // ----- queries -------------------------------------------------------------------------------

@@ -374,6 +374,50 @@ impl Bvh {
         out
     }
 
+    /// Closest surface point to `p` within `max_distance`, over triangles for which
+    /// `accept(tri)` is true (nearest-first traversal with box-distance pruning).
+    pub fn closest_point(&self, p: Vec3, max_distance: f32, accept: impl Fn(u32) -> bool) -> Option<ClosestPoint> {
+        if self.nodes.is_empty() {
+            return None;
+        }
+        let box_d2 = |n: &Node| (p.clamp(n.min, n.max) - p).length_squared();
+        let mut best: Option<ClosestPoint> = None;
+        let mut best_d2 = if max_distance.is_finite() { max_distance * max_distance } else { f32::INFINITY };
+        let mut stack: Vec<(u32, f32)> = vec![(0, box_d2(&self.nodes[0]))];
+        while let Some((ni, d2)) = stack.pop() {
+            if d2 > best_d2 {
+                continue;
+            }
+            let node = &self.nodes[ni as usize];
+            if node.count > 0 {
+                for &t in &self.tri_ids[node.left_first as usize..(node.left_first + node.count) as usize] {
+                    if !accept(t) {
+                        continue;
+                    }
+                    let ti = t as usize;
+                    let (u, v, q) = closest_on_triangle(p, self.v0[ti], self.e1[ti], self.e2[ti]);
+                    let dd = (q - p).length_squared();
+                    if dd <= best_d2 {
+                        best_d2 = dd;
+                        best = Some(ClosestPoint { tri: t, u, v, distance: dd.sqrt() });
+                    }
+                }
+            } else {
+                let (l, r) = (node.left_first, node.left_first + 1);
+                let (dl, dr) = (box_d2(&self.nodes[l as usize]), box_d2(&self.nodes[r as usize]));
+                // Nearer child on top of the stack: it is searched first and tightens the bound.
+                if dl < dr {
+                    stack.push((r, dr));
+                    stack.push((l, dl));
+                } else {
+                    stack.push((l, dl));
+                    stack.push((r, dr));
+                }
+            }
+        }
+        best
+    }
+
     #[inline]
     fn tri_hit(&self, t: u32, origin: Vec3, dir: Vec3, t_min: f32, t_max: f32) -> Option<RayHit> {
         let ti = t as usize;
@@ -400,6 +444,55 @@ impl Bvh {
         }
         Some(RayHit { tri: t, t: dist, u, v, front_face: det > 0.0 })
     }
+}
+
+/// Result of [`Bvh::closest_point`]: the triangle and barycentrics of the nearest point.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ClosestPoint {
+    pub tri: u32,
+    /// Barycentric weight of vertex 1.
+    pub u: f32,
+    /// Barycentric weight of vertex 2.
+    pub v: f32,
+    pub distance: f32,
+}
+
+/// Closest point on triangle `(a, a + e1, a + e2)` to `p`: barycentrics of vertices 1 and 2,
+/// and the point (region tests after Ericson, Real-Time Collision Detection 5.1.5).
+pub fn closest_on_triangle(p: Vec3, a: Vec3, e1: Vec3, e2: Vec3) -> (f32, f32, Vec3) {
+    let ap = p - a;
+    let (d1, d2) = (e1.dot(ap), e2.dot(ap));
+    if d1 <= 0.0 && d2 <= 0.0 {
+        return (0.0, 0.0, a);
+    }
+    let bp = ap - e1;
+    let (d3, d4) = (e1.dot(bp), e2.dot(bp));
+    if d3 >= 0.0 && d4 <= d3 {
+        return (1.0, 0.0, a + e1);
+    }
+    let vc = d1 * d4 - d3 * d2;
+    if vc <= 0.0 && d1 >= 0.0 && d3 <= 0.0 {
+        let t = d1 / (d1 - d3);
+        return (t, 0.0, a + e1 * t);
+    }
+    let cp = ap - e2;
+    let (d5, d6) = (e1.dot(cp), e2.dot(cp));
+    if d6 >= 0.0 && d5 <= d6 {
+        return (0.0, 1.0, a + e2);
+    }
+    let vb = d5 * d2 - d1 * d6;
+    if vb <= 0.0 && d2 >= 0.0 && d6 <= 0.0 {
+        let t = d2 / (d2 - d6);
+        return (0.0, t, a + e2 * t);
+    }
+    let va = d3 * d6 - d5 * d4;
+    if va <= 0.0 && (d4 - d3) >= 0.0 && (d5 - d6) >= 0.0 {
+        let t = (d4 - d3) / ((d4 - d3) + (d5 - d6));
+        return (1.0 - t, t, a + e1 + (e2 - e1) * t);
+    }
+    let denom = 1.0 / (va + vb + vc);
+    let (u, v) = (vb * denom, vc * denom);
+    (u, v, a + e1 * u + e2 * v)
 }
 
 /// Ray/box slab test; returns entry distance if the box is hit before `t_max`.
@@ -454,6 +547,40 @@ mod tests {
                 other => panic!("mismatch {other:?}"),
             }
         }
+    }
+
+    #[test]
+    fn closest_point_matches_brute_force() {
+        let mesh = primitives::uv_sphere(1.0, 24, 12);
+        let tris: Vec<[Vec3; 3]> = (0..mesh.triangle_count()).map(|t| mesh.tri_positions(t)).collect();
+        let bvh = Bvh::from_triangles(&tris);
+        let mut seed = 777u32;
+        let mut rnd = || {
+            seed ^= seed << 13;
+            seed ^= seed >> 17;
+            seed ^= seed << 5;
+            (seed as f32 / u32::MAX as f32) * 2.0 - 1.0
+        };
+        for i in 0..300 {
+            let p = Vec3::new(rnd(), rnd(), rnd()) * 2.0;
+            // Every other query only accepts the upper half, exercising the filter.
+            let accept = |t: u32| i % 2 == 0 || tris[t as usize].iter().all(|v| v.y >= 0.0);
+            let hit = bvh.closest_point(p, f32::INFINITY, accept).unwrap();
+            let brute = (0..tris.len() as u32)
+                .filter(|&t| accept(t) && bvh.e1[t as usize].cross(bvh.e2[t as usize]).length_squared() > 0.0)
+                .map(|t| {
+                    let ti = t as usize;
+                    let (_, _, q) = closest_on_triangle(p, bvh.v0[ti], bvh.e1[ti], bvh.e2[ti]);
+                    q.distance(p)
+                })
+                .fold(f32::INFINITY, f32::min);
+            assert!((hit.distance - brute).abs() < 1e-5, "{} vs {brute}", hit.distance);
+            // The barycentrics reproduce the reported point.
+            let [a, b, c] = tris[hit.tri as usize];
+            let q = a * (1.0 - hit.u - hit.v) + b * hit.u + c * hit.v;
+            assert!((q.distance(p) - hit.distance).abs() < 1e-4);
+        }
+        assert!(bvh.closest_point(Vec3::new(0.0, 5.0, 0.0), 1.0, |_| true).is_none(), "outside max distance");
     }
 
     #[test]
