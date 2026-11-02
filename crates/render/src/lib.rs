@@ -14,6 +14,7 @@ pub mod headless;
 pub mod material;
 mod mipmap;
 pub mod offline;
+pub mod pathtrace;
 pub mod post;
 pub mod ray_bake;
 pub mod preview;
@@ -34,6 +35,7 @@ pub use egui_wgpu::wgpu as wgpu_api;
 pub use gpu_mesh::GpuMesh;
 pub use grid::GridParams;
 pub use material::{ChannelTexture, GpuMaterial, SHADED_CHANNELS};
+pub use pathtrace::{Denoiser, PathTraceScene, PathTraceSettings, PathTraceStatus};
 pub use post::{GlareMode, PostParams, ToneMap};
 pub use preview::{PreviewPass, PreviewTarget};
 pub use target::{DISPLAY_FORMAT, OUTPUT_FORMAT, PendingReadback, RenderTarget};
@@ -231,6 +233,10 @@ pub struct ViewportRenderer {
     preview: PreviewPass,
     preview_target: Option<PreviewTarget>,
     post: post::PostPass,
+    /// Rendering mode (created on first use), its single-sample target, and why it is unavailable.
+    path_tracer: Option<pathtrace::PathTracer>,
+    path_target: Option<RenderTarget>,
+    path_support: Option<Result<(), String>>,
 }
 
 impl ViewportRenderer {
@@ -399,7 +405,8 @@ impl ViewportRenderer {
             env_texture,
             env_levels: 1,
             env_sh: [[0.0; 3]; 9],
-            material_layout, sampler, nearest_sampler, mipmaps: mipmap::MipGenerator::new(device), defaults, mesh: None, materials: HashMap::new(), target: None, preview: PreviewPass::new(device), preview_target: None }
+            material_layout, sampler, nearest_sampler, mipmaps: mipmap::MipGenerator::new(device), defaults, mesh: None, materials: HashMap::new(), target: None, preview: PreviewPass::new(device), preview_target: None,
+            path_tracer: None, path_target: None, path_support: None }
     }
 
     fn globals_bind_group(
@@ -456,12 +463,14 @@ impl ViewportRenderer {
             }
         }
         self.globals_bg = Self::globals_bind_group(device, &self.globals_layout, &self.globals, &self.env_texture, &self.env_sampler);
+        if let Some(pt) = &mut self.path_tracer { pt.environment_changed(); }
     }
 
     /// Replace the mesh (drops all material textures).
     pub fn set_mesh(&mut self, device: &wgpu::Device, mesh: &Mesh) {
         self.mesh = Some(GpuMesh::new(device, mesh));
         self.materials.clear();
+        if let Some(pt) = &mut self.path_tracer { pt.mark_all(); }
     }
 
     pub fn has_mesh(&self) -> bool {
@@ -501,6 +510,7 @@ impl ViewportRenderer {
             _ => tex.upload_all(device, queue, image),
         }
         self.mipmaps.update(device, queue, tex, image, if recreate { None } else { tiles });
+        if let Some(pt) = &mut self.path_tracer { pt.mark_slot(material_slot); }
     }
 
     /// View of an uploaded channel texture (UV view display).
@@ -680,6 +690,72 @@ impl ViewportRenderer {
 
     pub fn target(&self) -> Option<&RenderTarget> {
         self.target.as_ref()
+    }
+
+    /// Rendering mode: progressively path trace the model (see [`pathtrace`]) into a
+    /// single-sample target of `size`. `Err` carries a message for the user when this adapter
+    /// or model cannot be path traced; the raster [`Self::render`] is unaffected either way.
+    pub fn render_path_traced(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        size: [u32; 2],
+        params: &ViewParams,
+        scene: &PathTraceScene,
+        settings: &PathTraceSettings,
+    ) -> Result<(&RenderTarget, PathTraceStatus), String> {
+        self.path_support.get_or_insert_with(|| pathtrace::check_support(device)).clone()?;
+        let limits = device.limits();
+        let max_buffer = (limits.max_storage_buffer_binding_size as u64).min(limits.max_buffer_size);
+        let size = pathtrace::fit_trace_size(fit_target_size(size, limits.max_texture_dimension_2d), max_buffer);
+        if self.path_target.as_ref().is_none_or(|t| t.size != size) {
+            self.path_target = Some(RenderTarget::new(device, size, 1));
+        }
+        if self.path_tracer.is_none() {
+            let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+            let pt = pathtrace::PathTracer::new(device);
+            if let Some(error) = pollster::block_on(scope.pop()) {
+                let message = format!("Path tracing is unavailable on this GPU: {error}");
+                self.path_support = Some(Err(message.clone()));
+                return Err(message);
+            }
+            self.path_tracer = Some(pt);
+        }
+        let hdri = params.environment.use_hdri && self.env_levels > 1;
+        let target = self.path_target.as_ref().expect("created above");
+        let pt = self.path_tracer.as_mut().expect("created above");
+        // Any GPU error (a buffer the adapter cannot allocate, a lost resource) ends the mode
+        // with a message instead of the default fatal error handler.
+        let memory = device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
+        let validation = device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let result = pt.render(device, queue, target, params, scene, settings, &self.materials, &self.defaults, (&self.env_texture, &self.env_sampler, hdri));
+        let errors = [pollster::block_on(validation.pop()), pollster::block_on(memory.pop())];
+        if let Some(error) = errors.into_iter().flatten().next() {
+            self.path_tracer = None;
+            return Err(format!("Path tracing stopped: {error}"));
+        }
+        Ok((target, result?))
+    }
+
+    /// The Rendering mode's last image (after [`Self::render_path_traced`] succeeded).
+    pub fn path_target(&self) -> Option<&RenderTarget> {
+        self.path_target.as_ref()
+    }
+
+    /// Linear mean of the path-traced samples so far (diagnostics and tests).
+    pub fn path_traced_linear(&self, device: &wgpu::Device, queue: &wgpu::Queue) -> Option<Vec<[f32; 4]>> {
+        self.path_tracer.as_ref()?.read_mean(device, queue)
+    }
+
+    /// Linear denoised path-traced image of the last frame that denoised.
+    pub fn path_traced_denoised(&self, device: &wgpu::Device, queue: &wgpu::Queue) -> Option<Vec<[f32; 4]>> {
+        self.path_tracer.as_ref()?.read_denoised(device, queue)
+    }
+
+    /// Drop the path tracer's GPU memory (Rendering mode switched off).
+    pub fn release_path_tracer(&mut self) {
+        self.path_tracer = None;
+        self.path_target = None;
     }
 }
 

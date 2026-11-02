@@ -60,6 +60,10 @@ fn main() -> anyhow::Result<()> {
                 options.render_job = Some(subcraft_ui::render_export::Job::Turntable(dir));
                 options.screenshot.get_or_insert_with(|| std::env::temp_dir().join("subcraft-render-window.png"));
             }
+            "--path-trace" => {
+                let samples = args.next_if(|s| s.parse::<u32>().is_ok()).and_then(|s| s.parse::<u32>().ok()).unwrap_or(256);
+                options.path_trace = Some(samples);
+            }
             "--quality" => options.quality = Some(args.next().ok_or_else(|| anyhow::anyhow!("--quality expects tone=..,bloom=..,ao=.."))?),
             "--export-window" => options.export_window = true,
             "--new-project" => options.new_project_model = args.next().map(Into::into),
@@ -106,7 +110,7 @@ fn main() -> anyhow::Result<()> {
                 options.autosave_interval = args.next().and_then(|s| s.parse::<f64>().ok()).map(std::time::Duration::from_secs_f64);
             }
             "-h" | "--help" => {
-                println!("usage: subcraft [project.subcraft | mesh file] [--demo] [--view-2d] [--brush-panel] [--bake-high mesh] [--bake-preview] [--bake-preview-map map_key] [--bake-size 256|512|1024|2048|4096] [--screenshot out.png] [--welcome] [--quick-start] [--guide-step 1..6] [--reset-layout] [--window-size WxH] [--camera yaw,pitch,zoom[,x,y,z]] [--scale 1.5] [--recover] [--autosave-interval seconds]");
+                println!("usage: subcraft [project.subcraft | mesh file] [--demo] [--view-2d] [--brush-panel] [--bake-high mesh] [--bake-preview] [--bake-preview-map map_key] [--bake-size 256|512|1024|2048|4096] [--screenshot out.png] [--path-trace [samples]] [--welcome] [--quick-start] [--guide-step 1..6] [--reset-layout] [--window-size WxH] [--camera yaw,pitch,zoom[,x,y,z]] [--scale 1.5] [--recover] [--autosave-interval seconds]");
                 return Ok(());
             }
             path => options.mesh = Some(path.into()),

@@ -116,6 +116,13 @@ pub struct UiState {
     pub rename: Option<(subcraft_core::LayerId, String)>,
     pub show_shortcuts: bool,
     pub frame_time_ms: f32,
+    /// Rendering mode: sampling paused, last frame's progress, and whether the path tracer
+    /// was used last frame (its GPU memory is released when the mode turns off).
+    pub pt_paused: bool,
+    pub pt_status: Option<subcraft_render::PathTraceStatus>,
+    pub pt_active: bool,
+    /// `--path-trace N`: samples a scripted screenshot waits for.
+    pub pt_capture_samples: Option<u32>,
     /// Viewport height-to-bump strength.
     pub height_scale: f32,
     pub export: crate::dialogs::ExportUi,
@@ -212,6 +219,10 @@ impl UiState {
             rename: None,
             show_shortcuts: false,
             frame_time_ms: 0.0,
+            pt_paused: false,
+            pt_status: None,
+            pt_active: false,
+            pt_capture_samples: None,
             height_scale: 0.02,
             export: Default::default(),
             confirm: None,
