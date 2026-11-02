@@ -127,6 +127,8 @@ pub struct LaunchOptions {
     pub bake_preview_only: bool,
     /// Pin a completed map for reproducible native screenshot validation.
     pub bake_preview_map: Option<subcraft_core::MeshMapKind>,
+    /// Light the viewport with the environment of this name.
+    pub environment: Option<String>,
     /// Recover the newest crashed session without asking.
     pub recover: bool,
     /// Autosave interval instead of the preference (testing).
@@ -586,6 +588,12 @@ impl SubcraftApp {
             dock = default_layout();
             state.shelf.tab = crate::panels::shelf::ShelfTab::Textures;
             if let Some(path) = dock.find_tab(&Tab::TextureSets) { let _ = dock.set_active_tab(path); }
+        }
+        if let Some(name) = options.environment.as_deref() {
+            match state.library.environments.iter().position(|e| e.name == name) {
+                Some(i) => state.env.index = i,
+                None => log::warn!("no environment named {name}"),
+            }
         }
         if options.view_2d
             && let Some(path) = dock.find_tab(&Tab::UvView)

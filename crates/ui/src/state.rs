@@ -236,7 +236,7 @@ impl UiState {
             image_thumbs: HashMap::new(),
             user_library: None,
             env_loader: None,
-            brush_presets: subcraft_app::brush_builtin::builtin_brush_presets(),
+            brush_presets: builtin_brush_presets(),
             preset_name: String::new(),
             stencil_tex: None,
             textures: Default::default(),
@@ -267,7 +267,7 @@ impl UiState {
         for e in errors {
             log::warn!("library brush preset skipped: {e}");
         }
-        self.brush_presets = subcraft_app::brush_builtin::builtin_brush_presets();
+        self.brush_presets = builtin_brush_presets();
         self.brush_presets.extend(presets);
         self.textures = crate::panels::textures::TextureLibrary::load(&lib);
         if !self.textures.items.is_empty() {
@@ -441,4 +441,16 @@ impl UiState {
             }
         }
     }
+}
+
+/// Built-in brush presets: ours first, then the open-pack channel presets whose names are not
+/// already taken.
+fn builtin_brush_presets() -> Vec<subcraft_app::brush_preset::BrushPreset> {
+    let mut all = subcraft_app::brush_builtin::builtin_brush_presets();
+    for p in subcraft_app::brush_preset::builtin() {
+        if !all.iter().any(|q| q.name == p.name) {
+            all.push(p);
+        }
+    }
+    all
 }

@@ -1,0 +1,27 @@
+SubCraft open pack
+
+PBR materials and HDRI environments released under CC0 1.0 Universal (public domain).
+https://creativecommons.org/publicdomain/zero/1.0/
+
+You may use, modify and redistribute them, including in commercial work. No attribution is
+required; the sources are listed here as a courtesy. SubCraft code keeps its own MIT/Apache-2.0
+licenses.
+
+Materials — ambientCG (https://ambientcg.com), CC0. The 1K-JPG downloads were reduced to the
+Color, Roughness, NormalGL, Metalness and Displacement maps and re-encoded as JPEG.
+  materials/PaintedMetal004  https://ambientcg.com/view?id=PaintedMetal004
+  materials/Metal063         https://ambientcg.com/view?id=Metal063
+  materials/MetalPlates006   https://ambientcg.com/view?id=MetalPlates006
+  materials/Leather037       https://ambientcg.com/view?id=Leather037
+  materials/Fabric085        https://ambientcg.com/view?id=Fabric085
+  materials/Concrete034      https://ambientcg.com/view?id=Concrete034
+  materials/Wood096          https://ambientcg.com/view?id=Wood096
+  materials/Bricks105        https://ambientcg.com/view?id=Bricks105
+  materials/Plastic010       https://ambientcg.com/view?id=Plastic010
+  materials/Marble012        https://ambientcg.com/view?id=Marble012
+
+Environments — Poly Haven (https://polyhaven.com), CC0, 1K versions, unmodified.
+  environments/studio_small_09_1k.exr                       Studio Small 09 — Sergej Majboroda
+  environments/brown_photostudio_02_1k.exr                  Brown Photostudio 02 — Sergej Majboroda
+  environments/kloofendal_48d_partly_cloudy_puresky_1k.hdr  Kloofendal 48d Partly Cloudy (Pure Sky) — Greg Zaal, Jarod Guest
+  environments/spruit_sunrise_1k.exr                        Spruit Sunrise — Greg Zaal

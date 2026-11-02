@@ -83,6 +83,8 @@ pub struct ShelfUi {
     renderer: Option<(ViewportRenderer, Option<SceneKind>)>,
     /// Thumbnail whose pixels are on their way back from the GPU.
     pending: Option<(AssetId, subcraft_render::PendingReadback)>,
+    /// Thumbnails of the visible tab are still being rendered (scripted screenshots wait).
+    pub busy: bool,
 }
 
 impl Default for ShelfUi {
@@ -96,7 +98,17 @@ impl Default for ShelfUi {
             baked_sphere: None,
             renderer: None,
             pending: None,
+            busy: false,
         }
+    }
+}
+
+impl ShelfUi {
+    /// Show `tab` with a search query (launch options; tab switches otherwise reset the search).
+    pub fn open(&mut self, tab: ShelfTab, query: &str) {
+        self.tab = tab;
+        self.filter_tab = tab;
+        self.filter = crate::panels::shelf_filter::ShelfFilter { query: query.into(), ..Default::default() };
     }
 }
 
@@ -579,6 +591,7 @@ fn alpha_image(b: &subcraft_image::Bitmap) -> egui::ColorImage {
 /// Render one missing thumbnail of the visible tab per frame (keeps the UI responsive).
 fn generate_one_thumbnail(state: &mut UiState, ctx: &egui::Context) {
     // Finish the thumbnail in flight first (the GPU copy is never waited on).
+    state.shelf.busy = state.shelf.pending.is_some();
     if let Some((id, pending)) = &state.shelf.pending {
         let Some(rs) = state.render_state.clone() else { return };
         match pending.try_take(&rs.device) {
@@ -610,12 +623,14 @@ fn generate_one_thumbnail(state: &mut UiState, ctx: &egui::Context) {
         ShelfTab::Brushes => lib.alphas.iter().position(|a| missing(&a.id)).map(Job::Alpha),
         ShelfTab::Materials => lib.materials.iter().find(|m| missing(&m.id)).map(|m| {
             let m = m.clone();
-            Job::Layer(m.id, SceneKind::Sphere, Box::new(move |ts| m.build(ts)), Vec::new())
+            let (ids, images) = subcraft_assets::presets::decode_images(&m.images);
+            Job::Layer(m.id, SceneKind::Sphere, Box::new(move |ts| m.build_with(ts, &ids)), images)
         }),
         ShelfTab::SmartMaterials => lib.smart_materials.iter().find(|m| missing(&m.id)).map(|m| {
             let m = m.clone();
-            let images = m.resources().to_vec();
-            Job::Layer(m.id, SceneKind::BakedSphere, Box::new(move |ts| m.build(ts)), images)
+            let (ids, decoded) = subcraft_assets::presets::decode_images(m.images());
+            let images = m.resources().iter().cloned().chain(decoded).collect();
+            Job::Layer(m.id, SceneKind::BakedSphere, Box::new(move |ts| m.build_with(ts, &ids)), images)
         }),
         ShelfTab::SmartMasks => lib.smart_masks.iter().find(|m| missing(&m.id)).map(|m| {
             let m = m.clone();
@@ -623,6 +638,7 @@ fn generate_one_thumbnail(state: &mut UiState, ctx: &egui::Context) {
         }),
         ShelfTab::Environments => lib.environments.iter().position(|e| missing(&e.id)).map(Job::Environment),
     };
+    state.shelf.busy |= job.is_some();
     let Some(job) = job else { return };
     if let Job::Alpha(i) = job {
         let a = &state.library.alphas[i];
