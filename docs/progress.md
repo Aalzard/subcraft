@@ -3394,3 +3394,7 @@ From the user's screenshots of the merged build (top plate, a wheel side, the QR
   usda == usdc == usdz (positions, UVs), UV-less, broken/empty/out-of-range files, invisible prims.
   Fixtures are usda text written by the tests; usdc/usdz are produced with the library's own writers.
   No real-world exports (Blender, Maya, Omniverse) were available to try; that is untested.
+* **Result:** `cargo test --workspace --lib --bins --tests` 766 passed, 0 failed (758 before + 8 USD). A plain
+  `cargo test --workspace` stops on a rustc 1.98 internal compiler error (module_children of `naga::back`) while
+  compiling the `subcraft-ui` example `dead_man`; it is in the example's dependency metadata, not in this change,
+  and reproduced with and without incremental compilation. Examples were therefore not built in this run.
