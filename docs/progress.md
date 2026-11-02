@@ -3357,3 +3357,10 @@ From the user's screenshots of the merged build (top plate, a wheel side, the QR
   layer, a pen tap stamps at the smallest pressure size).
 * **Not fixed:** the user's stencil sheets (labels such as the knob numbers read "00" instead of "06");
   the remaining roughness grain; CarInteriro's dirt.
+
+### Session 112 - Painter import: merged and tested by the user (2026-11-02)
+
+* Merged into `feature/brush-roadmap` (local, not pushed): the background `.spp` import (session 111) and the accuracy rounds 110b to 110d (per-region fixes, the set's normal map, Substance stencils, pen taps, narrower dirt, fractal grain, normal solve), plus the scrolling "Move into folder" menu.
+* `cargo test --workspace`: 758 passed, 0 failed (release build `.build-claude-spp/release/subcraft.exe`).
+* The user opened DBAL-A2 in that build and reported it better than before.
+* Still open: labels from the user's own Substance stencil sheets (compiled `.sbsasm`, not readable), roughness grain (about half of Painter's), edge-wear gaps not reproduced, DBAL-A2 rebuild about 230 s, CarInteriro Base Color slightly worse (0.0096 to 0.0117 at 1024).
