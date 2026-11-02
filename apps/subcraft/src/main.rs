@@ -1,10 +1,6 @@
 //! SubCraft application (desktop).
 //!
-<<<<<<< HEAD
-//! Desktop usage: `subcraft [project.subcraft|mesh.obj|.gltf|.glb|.fbx|.usd|.usda|.usdc|.usdz|.spp] [--demo] [--view-2d] [--screenshot out.png]`
-=======
-//! Desktop usage: `subcraft [project.subcraft|mesh.obj|.gltf|.glb|.fbx|.abc|.spp] [--demo] [--view-2d] [--screenshot out.png]`
->>>>>>> claude/alembic-import-312ac3
+//! Desktop usage: `subcraft [project.subcraft|mesh.obj|.gltf|.glb|.fbx|.abc|.usd|.usda|.usdc|.usdz|.spp] [--demo] [--view-2d] [--screenshot out.png]`
 
 // Packaged Windows builds open without a console window (logs then go nowhere; run a normal
 // build from a terminal to see them).
