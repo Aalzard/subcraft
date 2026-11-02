@@ -8,7 +8,7 @@ fn json(version: &str, kind: PackageKind) -> String {
 }
 #[test]
 fn release_selection_uses_semver_and_the_install_type() {
-    for kind in [PackageKind::WindowsPortable, PackageKind::WindowsInstaller { admin: false }, PackageKind::WindowsInstaller { admin: true }, PackageKind::LinuxPortable] {
+    for kind in [PackageKind::WindowsPortable, PackageKind::WindowsInstaller { admin: false }, PackageKind::WindowsInstaller { admin: true }, PackageKind::LinuxPortable, PackageKind::WindowsPortableArm64, PackageKind::LinuxPortableArm64] {
         let data = json("0.1.10", kind); let release = parse_release(&data,"0.1.9",kind).unwrap().unwrap(); assert_eq!(release.kind,kind);
         assert!(parse_release(&data,"0.1.10",kind).unwrap().is_none()); assert!(parse_release(&data,"0.2.0",kind).unwrap().is_none());
         assert!(parse_release(&data,"0.1.10-beta.1",kind).unwrap().is_some()); assert!(parse_release(&data,"0.1.10+build.2",kind).unwrap().is_none());
@@ -94,4 +94,29 @@ fn linux_tar_extracts_only_the_expected_regular_executable() {
     tar.append_data(&mut header,"SubCraft-0.1.4-linux-x86_64/subcraft",binary.as_slice()).unwrap(); tar.into_inner().unwrap().finish().unwrap();
     let bytes=std::fs::read(&path).unwrap(); let mut release=parse_release(&json("0.1.4",PackageKind::LinuxPortable),"0.1.3",PackageKind::LinuxPortable).unwrap().unwrap(); release.asset.size=bytes.len() as u64; release.asset.digest=format!("sha256:{:x}",Sha256::digest(&bytes));
     let out=root.join("new-app"); extract_binary(&release,&path,&out).unwrap(); assert_eq!(std::fs::read(out).unwrap(),binary); std::fs::remove_dir_all(root).unwrap();
+}
+#[test]
+fn each_platform_picks_only_its_own_asset() {
+    let kinds=[PackageKind::WindowsInstaller{admin:false},PackageKind::WindowsPortable,PackageKind::LinuxPortable,PackageKind::WindowsPortableArm64,PackageKind::LinuxPortableArm64];
+    let names:Vec<String>=kinds.iter().map(|k|k.name("1.2.3")).collect();
+    assert_eq!(names,["SubCraft-1.2.3-setup.exe","SubCraft-1.2.3-windows-x64.zip","SubCraft-1.2.3-linux-x86_64.tar.gz","SubCraft-1.2.3-windows-arm64.zip","SubCraft-1.2.3-linux-aarch64.tar.gz"]);
+    // A release that carries every package: each kind must select exactly its own one.
+    let assets:Vec<_>=names.iter().map(|n|serde_json::json!({"name":n,"browser_download_url":format!("https://github.com/Aalzard/subcraft/releases/download/v1.2.3/{n}"),"size":4,"digest":format!("sha256:{:x}",Sha256::digest(b"test"))})).collect();
+    let mut all=assets.clone(); all.push(serde_json::json!({"name":"SubCraft-1.2.3-macos-arm64.dmg","browser_download_url":"https://github.com/Aalzard/subcraft/releases/download/v1.2.3/SubCraft-1.2.3-macos-arm64.dmg","size":4,"digest":format!("sha256:{:x}",Sha256::digest(b"test"))}));
+    let data=serde_json::json!({"tag_name":"v1.2.3","assets":all}).to_string();
+    for (kind,name) in kinds.iter().zip(&names) { assert_eq!(&parse_release(&data,"1.0.0",*kind).unwrap().unwrap().asset.name,name); }
+    // An arm64 machine must not be offered the x64 package when only that one exists.
+    let only_x64=serde_json::json!({"tag_name":"v1.2.3","assets":[assets[1].clone(),assets[2].clone()]}).to_string();
+    assert!(parse_release(&only_x64,"1.0.0",PackageKind::WindowsPortableArm64).is_err());
+    assert!(parse_release(&only_x64,"1.0.0",PackageKind::LinuxPortableArm64).is_err());
+}
+#[test]
+fn arm64_archives_use_their_own_folder_and_header_checks() {
+    let root=dir(); let path=root.join("package.zip"); let mut zip=zip::ZipWriter::new(std::fs::File::create(&path).unwrap()); let options=zip::write::SimpleFileOptions::default();
+    zip.start_file("SubCraft-0.1.4-windows-x64/SubCraft.exe",options).unwrap(); zip.write_all(&[b'M',b'Z',0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]).unwrap();
+    zip.finish().unwrap();
+    let bytes=std::fs::read(&path).unwrap(); let mut a=asset(&bytes); a.name=PackageKind::WindowsPortableArm64.name("0.1.4");
+    let release=Release {version:"0.1.4".into(),notes:String::new(),kind:PackageKind::WindowsPortableArm64,asset:a};
+    // Only the x64 folder is in the archive, so an arm64 update must refuse it.
+    assert!(extract_binary(&release,&path,&root.join("new-app")).is_err()); std::fs::remove_dir_all(root).unwrap();
 }

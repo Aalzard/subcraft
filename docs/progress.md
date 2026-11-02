@@ -3752,3 +3752,22 @@ window state) should start, or run with scaling at 100%. If 0.1.9 still fails, p
   * One sample pass on a very slow GPU at a large size can exceed the 20 ms budget (the pass is not tiled).
   * The ground disc is fixed at 1.5× the model diagonal.
   * F10 was exercised through the shortcut table and its test, not with a physical key press. On Windows, F10 can also be claimed by the system menu key handling.
+### Session 113 - macOS, Linux aarch64 and Windows arm64 builds (2026-11-02)
+
+* **Updater:** `PackageKind` gained `WindowsPortableArm64` and `LinuxPortableArm64`; asset and archive
+  folder names come from `PackageKind::platform()` (`windows-x64`, `windows-arm64`, `linux-x86_64`,
+  `linux-aarch64`), so an Arm machine can only pick its own package and refuses an x64 archive.
+  macOS has no self-update (`detect_kind` returns an explanatory error): the bundle is unsigned.
+  Tests: `each_platform_picks_only_its_own_asset`, `arm64_archives_use_their_own_folder_and_header_checks`.
+* **Mac wording:** `ui::keys::native` shows "Cmd+" instead of "Ctrl+" in tooltips and menus on macOS
+  (egui already maps `Modifiers::command` to Cmd). Metal is picked by wgpu's default backends.
+* **Packaging:** `scripts/build-macos.sh` (universal `lipo`, `Info.plist` from `packaging/macos`, `.icns`,
+  ad-hoc `codesign`, `.dmg` + `.zip`, asset `SubCraft-<v>-macos-universal-experimental.*`),
+  `scripts/build-linux.sh` names the tarball after `uname -m`, `scripts/build-windows.ps1 -Arch arm64`.
+  New workflow `.github/workflows/release-platforms.yml` (runners `macos-15`, `ubuntu-22.04-arm`,
+  `windows-11-arm`) attaches them to the release, with their own `SHA256SUMS-*.txt`, and adds an
+  "Experimental platforms" paragraph to the release notes. `release.yml` is unchanged.
+* **Gatekeeper:** no Apple Developer ID or notarization; users approve the app once (README, and
+  `READ-ME-FIRST.txt` inside the dmg). Notarization needs a paid Apple Developer account.
+* **Not run anywhere:** the macOS, Linux aarch64 and Windows arm64 binaries (no hardware here), and the new
+  workflow itself (no GitHub access from this session). See the README for the user-facing list.

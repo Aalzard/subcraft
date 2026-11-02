@@ -13,6 +13,8 @@
 #>
 param(
     [switch]$SkipBuild,
+    # 'arm64' packages a build made on a Windows on ARM machine (experimental).
+    [ValidateSet('x64', 'arm64')][string]$Arch = 'x64',
     [string]$CertificateThumbprint,
     [switch]$RequireSignature
 )
@@ -37,7 +39,7 @@ try {
     $exe = Join-Path (Join-Path $targetDir 'dist') $exeName
     if (-not (Test-Path $exe)) { throw "Build output not found: $exe" }
 
-    $name = "SubCraft-$version-windows-x64"
+    $name = "SubCraft-$version-windows-$Arch"
     $dist = Join-Path $root 'dist'
     $stage = Join-Path $dist $name
     $zip = Join-Path $dist "$name.zip"

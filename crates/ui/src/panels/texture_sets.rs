@@ -68,7 +68,7 @@ fn resolution(state: &mut UiState, ui: &mut Ui, cmds: &mut Vec<Command>, compact
             .selected_text(format!("{current} × {current}"))
             .show_ui(ui, |ui| {
                 for r in subcraft_doc::RESOLUTIONS { ui.selectable_value(&mut picked, r, format!("{r} × {r}")); }
-            }).response.on_hover_text("Working resolution. Painted strokes are resampled; Ctrl+Z restores them.");
+            }).response.on_hover_text(crate::keys::native("Working resolution. Painted strokes are resampled; Ctrl+Z restores them."));
         let all_same = state.session.document().texture_sets.iter().all(|ts| ts.resolution == current);
         if ui.add_enabled(!all_same, egui::Button::new("Apply to all")).on_hover_text("Use this resolution for every texture set").clicked() {
             cmds.push(Command::SetResolution { texture_set: None, resolution: current });
@@ -89,11 +89,11 @@ fn maps_and_mesh(state: &mut UiState, ui: &mut Ui, compact: bool) {
     if compact {
         ui.horizontal(|ui| {
             ui.label(status);
-            if ui.button(format!("{} Bake…", icons::MAGIC_WAND)).on_hover_text("Bake mesh maps (Ctrl+B)").clicked() { state.bake.open = true; }
+            if ui.button(format!("{} Bake…", icons::MAGIC_WAND)).on_hover_text(crate::keys::native("Bake mesh maps (Ctrl+B)")).clicked() { state.bake.open = true; }
         });
     } else {
         ui.label(status);
-        if ui.add_sized([ui.available_width(), 28.0], egui::Button::new(format!("{}  Bake mesh maps…", icons::MAGIC_WAND))).on_hover_text("Ctrl+B").clicked() { state.bake.open = true; }
+        if ui.add_sized([ui.available_width(), 28.0], egui::Button::new(format!("{}  Bake mesh maps…", icons::MAGIC_WAND))).on_hover_text(crate::keys::native("Ctrl+B")).clicked() { state.bake.open = true; }
     }
     if let Some(job) = &state.bake.job { ui.add(egui::ProgressBar::new(job.fraction()).show_percentage().fill(ACCENT)); }
     let mesh = &state.session.scene().mesh;

@@ -29,7 +29,7 @@ pub(crate) fn show(
             (Tool::Brush, icons::PAINT_BRUSH, "Brush (B)"),
             (Tool::Eraser, icons::ERASER, "Eraser (E)"),
             (Tool::PolygonFill, icons::PAINT_BUCKET, "Polygon Fill"),
-            (Tool::Clone, icons::COPY, "Clone (Ctrl+click sets the source)"),
+            (Tool::Clone, icons::COPY, crate::keys::native("Clone (Ctrl+click sets the source)")),
             (Tool::Smudge, icons::DROP, "Smudge"),
         ] {
             // Tiny docks keep the three core tools; Clone and Smudge stay reachable from the

@@ -1,5 +1,6 @@
 #!/bin/sh
-# Build SubCraft for Linux and package dist/SubCraft-<version>-linux-x86_64.tar.gz
+# Build SubCraft for Linux and package dist/SubCraft-<version>-linux-<x86_64|aarch64>.tar.gz
+# (the architecture of the machine running this script)
 # (program, launcher, icon, install.sh, README and licenses).
 # Usage: ./scripts/build-linux.sh [--skip-build]
 set -e
@@ -13,7 +14,12 @@ if [ "$1" != "--skip-build" ]; then
     cargo build --locked --profile dist -p subcraft
 fi
 
-name="SubCraft-$version-linux-x86_64"
+case "$(uname -m)" in
+    x86_64|amd64) arch=x86_64 ;;
+    aarch64|arm64) arch=aarch64 ;;
+    *) echo "unsupported architecture: $(uname -m)" >&2; exit 1 ;;
+esac
+name="SubCraft-$version-linux-$arch"
 stage="dist/$name"
 rm -rf "$stage" "dist/$name.tar.gz"
 mkdir -p "$stage/third-party"

@@ -214,6 +214,33 @@ says they are still being prepared.
 Needs a Vulkan driver (Mesa or your GPU vendor's) and X11 or Wayland. Built on Ubuntu 22.04, so it
 runs on that and newer distributions.
 
+### Other platforms (experimental)
+
+| Platform | Package | Status |
+|---|---|---|
+| Windows x64 | `SubCraft-<version>-setup.exe`, `...-windows-x64.zip` | Supported, signed, in-app updates |
+| Linux x86_64 | `SubCraft-<version>-linux-x86_64.tar.gz` | Supported, in-app updates |
+| macOS, Apple Silicon and Intel | `SubCraft-<version>-macos-universal-experimental.dmg` (or `.zip`) | Experimental, not notarized, no in-app updates |
+| Linux aarch64 (Arm64) | `SubCraft-<version>-linux-aarch64.tar.gz` | Experimental, in-app updates |
+| Windows on Arm | `SubCraft-<version>-windows-arm64.zip` | Experimental, in-app updates |
+
+The experimental packages are built automatically by GitHub Actions (`release-platforms.yml`) and
+have only been compile-checked by the maintainers so far; please report what works and what does not.
+
+**macOS.** Open the disk image and drag `SubCraft.app` to Applications. The app is not signed with an
+Apple Developer ID and not notarized, so the first launch is blocked by Gatekeeper: open **System
+Settings → Privacy & Security** and click **Open Anyway**, or run
+`xattr -dr com.apple.quarantine /Applications/SubCraft.app`. The build runs natively on Apple Silicon
+and Intel (macOS 11 or newer) and uses Metal. Shortcuts use **Cmd** instead of Ctrl. To update, download the
+new disk image.
+
+**Linux aarch64** installs like the x86_64 package (`tar -xzf`, then `./install.sh`). It needs a
+Vulkan driver for your GPU (Mesa panvk/freedreno/asahi/v3dv or a vendor driver) or, failing that,
+OpenGL ES; on machines with only a software rasterizer (llvmpipe) it works but slowly.
+
+**Windows on Arm** unzip and run `SubCraft.exe`. It uses Direct3D 12 and is a native Arm64 build.
+There is no installer for Arm yet.
+
 ## Building from source
 
 You need a recent stable [Rust toolchain](https://rustup.rs) (1.95 or newer) and a GPU with
@@ -233,6 +260,20 @@ Step-by-step Windows setup, the daily workflow and building the `.exe` yourself:
 
 On Linux you may need the usual windowing libraries (for example on Debian / Ubuntu:
 `libxkbcommon-x11-0 libegl1`) and a Vulkan driver.
+
+**macOS (Apple Silicon or Intel).** Install the Xcode command line tools (`xcode-select --install`)
+and [rustup](https://rustup.rs), then `cargo run --release` as above. To make the universal app bundle
+and disk image yourself: `./scripts/build-macos.sh` (output in `dist/`).
+
+**Linux aarch64 / Windows on Arm.** The same `cargo run --release` works natively on those machines
+(on Windows on Arm install the Visual Studio Build Tools with the "ARM64 build tools" component).
+`./scripts/build-linux.sh` packages the tarball for the machine it runs on; on Windows on Arm use
+`./scripts/build-windows.ps1 -Arch arm64`.
+
+**Not verified yet:** nothing in the macOS, Linux aarch64 or Windows on Arm packages has been run on real
+hardware by the maintainers: Metal rendering and the 4x MSAA viewport on Apple GPUs, Retina scaling,
+graphics-tablet pressure on macOS, the native file dialogs, and Gatekeeper on the downloaded
+bundle. Issues with logs from **Help → Report a problem** are very welcome.
 
 ### Controls
 

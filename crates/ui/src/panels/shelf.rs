@@ -368,10 +368,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 }
             }
             ShelfTab::SmartMasks => {
-                shelf_hint(ui, "Applies to the selected layer. Edges / Cavity need baked maps (Ctrl+B).");
+                shelf_hint(ui, crate::keys::native("Applies to the selected layer. Edges / Cavity need baked maps (Ctrl+B)."));
             }
             ShelfTab::SmartMaterials => {
-                shelf_hint(ui, "Wear and dirt follow baked curvature / AO (Ctrl+B).");
+                shelf_hint(ui, crate::keys::native("Wear and dirt follow baked curvature / AO (Ctrl+B)."));
             }
         }
     });

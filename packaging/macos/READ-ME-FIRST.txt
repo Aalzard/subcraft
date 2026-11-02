@@ -1,0 +1,19 @@
+SubCraft for macOS (experimental)
+=================================
+
+This build is not signed with an Apple Developer ID and is not notarized, so macOS
+Gatekeeper blocks the first launch ("SubCraft cannot be opened because the developer cannot
+be verified" or "SubCraft is damaged"). The app is safe to open if you downloaded it from
+the official SubCraft releases page. To run it:
+
+1. Drag SubCraft.app to your Applications folder.
+2. Try to open it once (it will be refused), then open System Settings > Privacy & Security,
+   scroll to the Security section and click "Open Anyway" next to SubCraft.
+   (macOS 14 and older: right-click SubCraft.app > Open > Open.)
+3. If macOS says the app is "damaged", remove the download quarantine flag in Terminal:
+
+       xattr -dr com.apple.quarantine /Applications/SubCraft.app
+
+The build is universal: it runs natively on Apple Silicon and on Intel Macs (macOS 11 or newer).
+There is no automatic updater on macOS; download the new disk image from the releases page.
+Please report problems at https://github.com/Aalzard/subcraft/issues
