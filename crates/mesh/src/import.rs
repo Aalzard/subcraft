@@ -9,7 +9,7 @@ use crate::mesh::{BuildError, BuildStats, Corner, Mesh, MeshBuilder};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ImportError {
-    #[error("unsupported mesh format '.{0}' (supported: obj, gltf, glb, fbx, spp)")]
+    #[error("unsupported mesh format '.{0}' (supported: obj, gltf, glb, fbx, usd, usda, usdc, usdz, spp)")]
     UnsupportedFormat(String),
     #[error("failed to read OBJ: {0}")]
     Obj(String),
@@ -17,6 +17,8 @@ pub enum ImportError {
     Gltf(String),
     #[error("failed to read FBX: {0}")]
     Fbx(String),
+    #[error("failed to read USD: {0}")]
+    Usd(String),
     #[error("failed to read Substance Painter project: {0}")]
     Spp(String),
     #[error(transparent)]
@@ -30,7 +32,7 @@ pub struct ImportReport {
     pub warnings: Vec<String>,
 }
 
-pub const SUPPORTED_EXTENSIONS: [&str; 5] = ["obj", "gltf", "glb", "fbx", "spp"];
+pub const SUPPORTED_EXTENSIONS: [&str; 9] = ["obj", "gltf", "glb", "fbx", "usd", "usda", "usdc", "usdz", "spp"];
 
 pub fn import_mesh(path: &Path) -> Result<ImportReport, ImportError> {
     import(path, false)
@@ -50,6 +52,7 @@ fn import(path: &Path, bake_source: bool) -> Result<ImportReport, ImportError> {
         "obj" => load_obj(path, &mut b, &mut warnings)?,
         "gltf" | "glb" => load_gltf(path, &mut b, &mut warnings)?,
         "fbx" => load_fbx(path, &mut b, &mut warnings)?,
+        "usd" | "usda" | "usdc" | "usdz" => crate::usd_import::load_usd(path, &mut b, &mut warnings)?,
         "spp" => load_spp(path, &mut b, &mut warnings)?,
         other => return Err(ImportError::UnsupportedFormat(other.to_string())),
     }

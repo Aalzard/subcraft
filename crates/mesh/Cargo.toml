@@ -22,3 +22,5 @@ log.workspace = true
 uuid.workspace = true
 
 ufbx.workspace = true
+openusd.workspace = true
+openusd-schemas.workspace = true

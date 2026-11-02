@@ -32,7 +32,7 @@ pub fn show(state: &mut UiState, ctx: &egui::Context) -> Option<WelcomeAction> {
             ui.label(RichText::new("Open a model, build materials and export PBR textures.").color(theme::TEXT_DIM));
             ui.add_space(12.0);
             ui.horizontal_wrapped(|ui| {
-                if primary_button(ui, "New from a model…").on_hover_text("OBJ, GLB/glTF, FBX or Substance Painter .spp with UVs").clicked() { action = Some(WelcomeAction::Pending(Pending::OpenMesh)); }
+                if primary_button(ui, "New from a model…").on_hover_text("OBJ, GLB/glTF, FBX, USD or Substance Painter .spp with UVs").clicked() { action = Some(WelcomeAction::Pending(Pending::OpenMesh)); }
                 if secondary_button(ui, "Open project…").on_hover_text("Open a saved .subcraft project").clicked() { action = Some(WelcomeAction::Pending(Pending::OpenProject)); }
                 if secondary_button(ui, "Try the sample").on_hover_text("Open the built-in crate with UVs").clicked() { action = Some(WelcomeAction::Pending(Pending::NewSample)); }
             });

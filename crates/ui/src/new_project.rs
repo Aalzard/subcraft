@@ -159,7 +159,7 @@ fn model_section(ui: &mut Ui, np: &mut NewProjectUi, pick: &mut bool) {
             let text = np.model.as_ref().map_or("No model chosen".to_string(), |m| m.path.display().to_string());
             ui.add(egui::Label::new(RichText::new(text).color(if np.model.is_some() { theme::TEXT } else { TEXT_DIM })).truncate());
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button(if np.model.is_some() { "Change…" } else { "Choose model…" }).on_hover_text("OBJ, FBX, glTF, GLB or Substance Painter .spp").clicked() {
+                if ui.button(if np.model.is_some() { "Change…" } else { "Choose model…" }).on_hover_text("OBJ, FBX, glTF, GLB, USD or Substance Painter .spp").clicked() {
                     *pick = true;
                 }
             });
@@ -168,7 +168,7 @@ fn model_section(ui: &mut Ui, np: &mut NewProjectUi, pick: &mut bool) {
             summary_block(ui, &model.summary);
         } else {
             ui.add_space(4.0);
-            ui.label(RichText::new("OBJ, FBX, glTF, GLB or Substance Painter .spp with UVs. You will see what is inside before anything is created.").color(TEXT_DIM));
+            ui.label(RichText::new("OBJ, FBX, glTF, GLB, USD or Substance Painter .spp with UVs. You will see what is inside before anything is created.").color(TEXT_DIM));
         }
     });
 }

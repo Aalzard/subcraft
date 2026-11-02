@@ -149,7 +149,7 @@ The 2048 x 1024 originals of the 10 HDRIs are an optional download
 - **Updates**: the green Check / update button downloads, verifies and installs the latest stable
   release and restarts with your unsaved project restored.
 - **Bug reports**: Help > Report a bug opens a GitHub issue with version, OS and GPU filled in.
-- Mesh import: OBJ, glTF / GLB and FBX. Project files are `.subcraft`.
+- Mesh import: OBJ, glTF / GLB, FBX and USD (usd, usda, usdc, usdz). Project files are `.subcraft`.
 
 ### Export
 

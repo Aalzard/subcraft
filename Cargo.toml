@@ -51,6 +51,8 @@ mimalloc = { version = "0.1", default-features = false }
 gltf = { version = "1.4", default-features = false, features = ["import", "utils", "names", "KHR_materials_pbrSpecularGlossiness"] }
 tobj = "4"
 ufbx = "0.11"
+openusd = { version = "0.8", default-features = false }
+openusd-schemas = { version = "0.8", default-features = false, features = ["geom"] }
 mikktspace = "0.3"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "tga", "tiff", "hdr", "exr", "bmp"] }
 zip = { version = "9", default-features = false, features = ["deflate"] }
