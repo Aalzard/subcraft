@@ -3364,3 +3364,33 @@ From the user's screenshots of the merged build (top plate, a wheel side, the QR
 * `cargo test --workspace`: 758 passed, 0 failed (release build `.build-claude-spp/release/subcraft.exe`).
 * The user opened DBAL-A2 in that build and reported it better than before.
 * Still open: labels from the user's own Substance stencil sheets (compiled `.sbsasm`, not readable), roughness grain (about half of Painter's), edge-wear gaps not reproduced, DBAL-A2 rebuild about 230 s, CarInteriro Base Color slightly worse (0.0096 to 0.0117 at 1024).
+
+### Session 113 - USD mesh import (2026-11-02)
+
+* **Formats:** `.usd`, `.usda`, `.usdc`, `.usdz` through the same paths as OBJ/FBX/glTF (File > Open model,
+  New Project dialog, drag and drop all take `subcraft_mesh::SUPPORTED_EXTENSIONS`). Importer:
+  `crates/mesh/src/usd_import.rs`, one match arm in `import.rs`; no egui/wgpu.
+* **Dependency:** `openusd` 0.8.0 + `openusd-schemas` 0.8.0 (feature `geom`, used only for `XformCache`
+  xformOp evaluation), both MIT, pure Rust, no C++/cmake. Pulls in logos, lz4_flex, strum, derive_more,
+  regex-lite, half and `zip` 8 (the workspace already uses zip 9, so two zip majors are built); `openusd-build`
+  runs as a build script to generate schema code. Crate sizes: openusd 1.36 MB, openusd-schemas 0.28 MB
+  (source); a clean `cargo check -p subcraft-mesh` went from ~1 min to ~4 min on this machine. Both
+  require rustc 1.96 (workspace says 1.95; the toolchain here is 1.98).
+* **Supported:** Mesh prims (points, faceVertexCounts/Indices, normals, `primvars:st`/`st0`/`uv`/first
+  Vec2 primvar incl. indexed and constant/uniform/vertex/faceVarying), n-gons fan-triangulated, full
+  composition (references, payloads, sublayers, variants, instanceable prims via proxies), world
+  transform from xformOps, `upAxis` Z -> Y, `metersPerUnit` (only when authored in the root layer),
+  `orientation = leftHanded` and mirrored transforms flip winding, one object per Mesh prim (names made unique),
+  material names from `material:binding` (inherited from ancestors) and per-face `GeomSubset` bindings,
+  usdc binary and usdz (zip) packages. V is flipped (USD st origin is bottom-left).
+* **Not supported / reported:** animation (the earliest time sample is used), skinning, point instancers
+  (skipped, reported), invisible and guide/proxy prims (skipped, reported), subdivision (the base cage is
+  imported), curves/volumes/nurbs, materials beyond names (a note says so), concave n-gons (fan
+  triangulation), `metersPerUnit` authored only in a sublayer. A broken file gives an `Usd` import error; a file
+  with no meshes or inconsistent topology gives the usual "no triangles" error; UV-less meshes get the usual
+  `NoUvs` error (accepted as a bake source, with a "has no UVs" note).
+* **Tests:** `crates/mesh/tests/usd_import.rs` (8): quad counts/UV range/normals/names, Z-up + cm + nested
+  transform, indexed UVs + subset materials + pentagon + two objects, reference and sublayer composition,
+  usda == usdc == usdz (positions, UVs), UV-less, broken/empty/out-of-range files, invisible prims.
+  Fixtures are usda text written by the tests; usdc/usdz are produced with the library's own writers.
+  No real-world exports (Blender, Maya, Omniverse) were available to try; that is untested.

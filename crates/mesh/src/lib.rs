@@ -11,6 +11,7 @@ pub mod spp;
 pub mod tangent;
 pub mod topology;
 pub mod uv_raster;
+mod usd_import;
 
 pub use bvh::{Bvh, FlatBvh, RayHit};
 pub use import::{ImportError, ImportReport, SUPPORTED_EXTENSIONS, import_mesh, import_mesh_for_baking};
