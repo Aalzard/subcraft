@@ -75,7 +75,7 @@ pub(crate) fn show(
 }
 
 fn stroke_options(ui: &mut Ui, options: &mut StrokeOptions, guides: &mut bool, settings: &mut BrushSettings) {
-    let on = options.symmetry.iter().any(|&axis| axis) || options.lazy_distance_px > 0.0 || options.smoothing > 0.0;
+    let on = options.has_symmetry() || options.lazy_distance_px > 0.0 || options.smoothing > 0.0;
     let response = widgets::icon_toggle(
         ui,
         icons::SYMMETRY,
@@ -102,6 +102,8 @@ fn stroke_options(ui: &mut Ui, options: &mut StrokeOptions, guides: &mut bool, s
                     }
                 }
             });
+            ui.add_space(4.0);
+            radial_options(ui, options);
             ui.checkbox(guides, "Show symmetry guides");
             ui.separator();
             ui.label(RichText::new("Lazy Mouse").color(TEXT_DIM));
@@ -118,6 +120,53 @@ fn stroke_options(ui: &mut Ui, options: &mut StrokeOptions, guides: &mut bool, s
             ui.horizontal(|ui| percent(ui, "Flow", &mut settings.pressure_flow));
             ui.label(RichText::new("Only affects a pen; a mouse is unchanged").small().color(TEXT_DIM));
         });
+}
+
+/// Radial symmetry: on/off, axis, copy count and an optional axis offset from the model center.
+fn radial_options(ui: &mut Ui, options: &mut StrokeOptions) {
+    let radial = &mut options.radial;
+    ui.horizontal(|ui| {
+        ui.label(RichText::new("Radial symmetry").color(TEXT_DIM));
+        ui.checkbox(&mut radial.enabled, "")
+            .on_hover_text("Repeat the stroke around an axis through the model center");
+    });
+    ui.add_enabled_ui(radial.enabled, |ui| {
+        ui.horizontal(|ui| {
+            ui.label("Axis");
+            for (i, axis) in ["X", "Y", "Z"].into_iter().enumerate() {
+                if ui
+                    .selectable_label(radial.axis as usize == i, axis)
+                    .on_hover_text(format!("Rotate copies around {axis}"))
+                    .clicked()
+                {
+                    radial.axis = i as u8;
+                }
+            }
+        });
+        ui.spacing_mut().slider_width = 130.0;
+        ui.add(
+            egui::Slider::new(&mut radial.count, 2..=subcraft_paint::MAX_SYMMETRY_COPIES)
+                .text("copies"),
+        );
+        ui.horizontal(|ui| {
+            ui.label("Offset");
+            for v in &mut radial.center_offset {
+                ui.add(egui::DragValue::new(v).speed(0.01).max_decimals(3));
+            }
+        })
+        .response
+        .on_hover_text("Move the axis away from the model center (object units)");
+    });
+    let mirrors = options.symmetry.iter().filter(|&&m| m).count();
+    let effective = options.radial.effective_count(mirrors);
+    if options.radial.enabled && mirrors > 0 {
+        let text = if effective < options.radial.count {
+            format!("{} copies with mirror (capped at {})", options.copies(), subcraft_paint::MAX_SYMMETRY_COPIES)
+        } else {
+            format!("{} copies with mirror", options.copies())
+        };
+        ui.label(RichText::new(text).small().color(TEXT_DIM));
+    }
 }
 
 fn menu_controls(ui: &mut Ui, s: &mut BrushSettings, brush: bool) {

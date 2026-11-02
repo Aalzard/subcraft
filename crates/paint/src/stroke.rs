@@ -285,10 +285,21 @@ impl Stroke {
         Ok(())
     }
 
-    /// View camera followed by every symmetry mirror (all combinations of enabled planes).
+    /// View camera, its radial copies, then every symmetry mirror of those (all combinations of
+    /// enabled planes). Without radial symmetry the list is exactly the mirror list (ADR 0043).
     fn cameras(&self, ctx: &PaintContext) -> Vec<Camera> {
         let center = ctx.mesh.bounds.center();
         let mut cams = vec![*ctx.camera];
+        let mirrors = self.options.symmetry.iter().filter(|&&m| m).count();
+        let radial = &self.options.radial;
+        let n = radial.effective_count(mirrors);
+        if n > 1 {
+            let pivot = center + Vec3::from_array(radial.center_offset);
+            for k in 1..n {
+                let angle = std::f32::consts::TAU * k as f32 / n as f32;
+                cams.push(ctx.camera.rotated(radial.axis_dir(), pivot, angle));
+            }
+        }
         for axis in 0..3 {
             if self.options.symmetry[axis] {
                 let mirrored: Vec<Camera> = cams.iter().map(|c| c.mirrored(axis, center[axis])).collect();
@@ -385,7 +396,7 @@ impl Stroke {
             return Ok(Vec::new());
         }
         let depth: Vec<Arc<DepthMap>> =
-            if alignment == Alignment::Uv { Vec::new() } else { cameras.iter().map(|c| ctx.depth.get(ctx.mesh, c)).collect() };
+            if alignment == Alignment::Uv { Vec::new() } else { ctx.depth.get_all(ctx.mesh, cameras) };
         let backface_cos = self.settings.backface_culling.then(|| self.settings.backface_angle_deg.to_radians().cos());
         let input = KernelInput {
             mesh: ctx.mesh,
@@ -524,7 +535,7 @@ impl Stroke {
         }
         let alignment = self.settings.alignment;
         let depth: Vec<Arc<DepthMap>> =
-            if alignment == Alignment::Uv { Vec::new() } else { cameras.iter().map(|c| ctx.depth.get(ctx.mesh, c)).collect() };
+            if alignment == Alignment::Uv { Vec::new() } else { ctx.depth.get_all(ctx.mesh, cameras) };
         let backface_cos = self.settings.backface_culling.then(|| self.settings.backface_angle_deg.to_radians().cos());
         let input = KernelInput {
             mesh: ctx.mesh, bvh: ctx.bvh, geometry: ctx.geometry, alignment, cameras, depth: &depth, backface_cos,

@@ -1,5 +1,5 @@
 //! Paint-engine acceptance tests (seams, visibility, channel isolation, opacity cap, undo,
-//! symmetry, polygon fill).
+//! symmetry incl. radial, polygon fill).
 
 use std::sync::Arc;
 
@@ -11,8 +11,8 @@ use subcraft_materials::TextureSetGeometry;
 use subcraft_mesh::uv_raster::{SurfaceTexels, rasterize_surface};
 use subcraft_mesh::{Bvh, Mesh, primitives, topology};
 use subcraft_paint::{
-    Alignment, BrushMaterial, BrushSettings, Camera, DepthCache, PaintContext, PaintTarget, PolygonFillMode, Stroke, StrokeMode,
-    StrokeOptions,
+    Alignment, BrushMaterial, BrushSettings, Camera, DepthCache, PaintContext, PaintTarget, PolygonFillMode, RadialSymmetry, Stroke,
+    StrokeMode, StrokeOptions,
 };
 
 struct Scene {
@@ -319,6 +319,106 @@ fn symmetry_produces_mirrored_coverage() {
     let (cl, cr) = (cl / wl, cr / wr);
     let mirrored = Vec3::new(-cr.x, cr.y, cr.z);
     assert!(cl.distance(mirrored) < 0.02, "centroids {cl} vs mirror of {cr}");
+}
+
+/// Front-face stroke used by the radial symmetry tests (away from x = 0 and the cube edges).
+fn radial_scene(options: StrokeOptions) -> (Scene, TiledImage) {
+    let res = 256;
+    let mut sc = Scene::new(primitives::cube(2.0), res);
+    let cam = front_camera(5.0);
+    sc.stroke(&cam, &[Vec3::new(0.25, 0.1, 1.0), Vec3::new(0.5, 0.3, 1.0)], BrushSettings { size: 10.0, ..BrushSettings::default() }, options, &red());
+    let img = sc.image(ChannelKind::BaseColor).unwrap();
+    (sc, img)
+}
+
+fn radial(axis: u8, count: u32) -> RadialSymmetry {
+    RadialSymmetry { enabled: true, axis, count, ..RadialSymmetry::default() }
+}
+
+/// Coverage mass and centroid per group; `group` maps a texel position to its group or `None`.
+fn groups(sc: &Scene, img: &TiledImage, n: usize, group: impl Fn(Vec3) -> Option<usize>) -> Vec<(f32, Vec3)> {
+    let surf = sc.surface();
+    let mut out = vec![(0.0f32, Vec3::ZERO); n];
+    for i in 0..surf.triangle.len() {
+        if !surf.covered(i) { continue; }
+        let a = alpha(img, i, sc.ts.resolution);
+        if a <= 0.0 { continue; }
+        let p = Vec3::from_slice(&surf.position[i][..3]);
+        if let Some(g) = group(p) { out[g].0 += a; out[g].1 += p * a; }
+    }
+    out.into_iter().map(|(m, c)| (m, if m > 0.0 { c / m } else { c })).collect()
+}
+
+/// Cube side faces in rotation order around +Y: +Z, +X, -Z, -X.
+fn side_face(p: Vec3) -> Option<usize> {
+    if p.y.abs() > 0.999 { return None; }
+    let k = [p.z, p.x, -p.z, -p.x].iter().enumerate().max_by(|a, b| a.1.total_cmp(b.1)).unwrap().0;
+    Some(k)
+}
+
+fn rot_y(k: usize) -> glam::Quat {
+    glam::Quat::from_rotation_y(std::f32::consts::FRAC_PI_2 * k as f32)
+}
+
+#[test]
+fn radial_four_around_y_paints_four_blobs_rotated_by_ninety_degrees() {
+    let (sc, img) = radial_scene(StrokeOptions { radial: radial(1, 4), ..StrokeOptions::default() });
+    let g = groups(&sc, &img, 4, side_face);
+    let (m0, c0) = g[0];
+    assert!(m0 > 50.0, "painted ({m0})");
+    for (k, &(m, c)) in g.iter().enumerate() {
+        let expected = rot_y(k) * c0;
+        assert!((m - m0).abs() / m0 < 0.05, "copy {k} mass {m} vs {m0}");
+        assert!(c.distance(expected) < 0.02, "copy {k} centroid {c} vs {expected}");
+    }
+    // Nothing on the caps.
+    let caps = groups(&sc, &img, 1, |p| (p.y.abs() > 0.999).then_some(0));
+    assert_eq!(caps[0].0, 0.0);
+}
+
+#[test]
+fn radial_off_or_one_copy_is_bit_exact_with_plain_and_mirror_strokes() {
+    for symmetry in [[false; 3], [true, false, false]] {
+        let base = StrokeOptions { symmetry, ..StrokeOptions::default() };
+        let (_, reference) = radial_scene(base);
+        let disabled = RadialSymmetry { enabled: false, axis: 2, count: 12, center_offset: [0.3, 0.0, 0.0] };
+        for r in [disabled, radial(1, 1), radial(0, 0)] {
+            let (_, img) = radial_scene(StrokeOptions { radial: r, ..base });
+            assert_eq!(img.to_dense(), reference.to_dense(), "{r:?} with mirror {symmetry:?}");
+        }
+    }
+}
+
+#[test]
+fn radial_combines_with_mirror_into_twice_the_copies() {
+    let options = StrokeOptions { symmetry: [true, false, false], radial: radial(1, 4), ..StrokeOptions::default() };
+    let (sc, img) = radial_scene(options);
+    assert_eq!(options.copies(), 8);
+    let (_, single) = radial_scene(StrokeOptions::default());
+    let one = groups(&sc, &single, 1, |p| (p.z > 0.999 && p.x > 0.0).then_some(0))[0];
+    // Group by face and by the side of the face, measured in the front face's frame.
+    let g = groups(&sc, &img, 8, |p| side_face(p).map(|k| 2 * k + usize::from((rot_y(k).inverse() * p).x < 0.0)));
+    let mirror = Vec3::new(-one.1.x, one.1.y, one.1.z);
+    for (i, &(m, c)) in g.iter().enumerate() {
+        let back = rot_y(i / 2).inverse() * c;
+        assert!((m - one.0).abs() / one.0 < 0.05, "group {i} mass {m} vs {}", one.0);
+        assert!(back.distance(one.1).min(back.distance(mirror)) < 0.02, "group {i} centroid {back} vs {} / {mirror}", one.1);
+    }
+}
+
+#[test]
+fn radial_center_offset_moves_the_axis() {
+    // A half turn around Z through the moved pivot is a point reflection of the front-face
+    // stroke about the pivot: twice the mass, and the union's centroid lands on the pivot.
+    let r = RadialSymmetry { center_offset: [0.375, -0.2, 0.0], ..radial(2, 2) };
+    let (sc, img) = radial_scene(StrokeOptions { radial: r, ..StrokeOptions::default() });
+    let (_, single) = radial_scene(StrokeOptions::default());
+    let front = |p: Vec3| (p.z > 0.999).then_some(0);
+    let one = groups(&sc, &single, 1, front)[0];
+    let all = groups(&sc, &img, 1, front)[0];
+    assert!((all.0 - 2.0 * one.0).abs() / one.0 < 0.1, "{} vs 2 x {}", all.0, one.0);
+    let pivot = Vec2::new(0.375, -0.2);
+    assert!(Vec2::new(all.1.x, all.1.y).distance(pivot) < 0.02, "centroid {} vs pivot {pivot}", all.1);
 }
 
 #[test]

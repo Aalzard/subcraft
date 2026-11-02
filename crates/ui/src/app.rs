@@ -118,6 +118,8 @@ pub struct LaunchOptions {
     pub symmetry_axes: Option<[bool; 3]>,
     /// Fixed camera for scripted screenshots (`--camera yaw,pitch,zoom[,x,y,z]`).
     pub camera: Option<crate::orbit::CameraView>,
+    /// Radial symmetry for scripted runs: axis (0..3) and copy count.
+    pub radial_symmetry: Option<(u8, u32)>,
     /// Start a real high-to-low bake and show its dialog (also usable with --screenshot).
     pub bake_high_poly: Option<PathBuf>,
     pub bake_size: Option<u32>,
@@ -510,6 +512,11 @@ impl SubcraftApp {
         }
         if let Some(symmetry) = options.symmetry_axes {
             let stroke = subcraft_paint::StrokeOptions { symmetry, ..state.session.brush.options };
+            let _ = state.session.execute(Command::SetStrokeOptions(stroke));
+        }
+        if let Some((axis, count)) = options.radial_symmetry {
+            let radial = subcraft_paint::RadialSymmetry { enabled: true, axis, count, ..state.session.brush.options.radial };
+            let stroke = subcraft_paint::StrokeOptions { radial, ..state.session.brush.options };
             let _ = state.session.execute(Command::SetStrokeOptions(stroke));
         }
         if options.effect_panel && let Some(layer) = state.session.selected_layer() {
@@ -1459,6 +1466,19 @@ fn scripted_tool_capture(state: &mut UiState, which: &str, now: f64) {
                 let _ = s.execute(Command::SelectEffect { layer, target: subcraft_app::LayerTarget::Content, effect: None });
             }
         }
+        "radial" => {
+            // Radial symmetry (Y x 8 unless --radial chose another): a few strokes, each repeated
+            // around the axis by the same session calls a mouse stroke makes.
+            if !s.brush.options.radial.enabled {
+                let radial = subcraft_paint::RadialSymmetry { enabled: true, axis: 1, count: 8, ..s.brush.options.radial };
+                let _ = s.execute(Command::SetStrokeOptions(subcraft_paint::StrokeOptions { radial, ..s.brush.options }));
+            }
+            s.brush.settings.size = 4.0;
+            set(s, [0.9, 0.15, 0.05]);
+            stroke(s, StrokeMode::Paint, &line(450.0, 300.0, 560.0, 250.0));
+            set(s, [0.95, 0.8, 0.1]);
+            stroke(s, StrokeMode::Paint, &line(380.0, 380.0, 520.0, 420.0));
+        }
         "cards" => {
             // A fill layer with every channel on, Properties showing its channel blocks.
             use subcraft_core::ChannelKind;
@@ -1468,7 +1488,7 @@ fn scripted_tool_capture(state: &mut UiState, which: &str, now: f64) {
                 let _ = s.execute(Command::SelectEffect { layer, target: subcraft_app::LayerTarget::Content, effect: None });
             }
         }
-        _ => state.set_status(format!("--capture-tool expects clone, smudge, projection, emission or cards, not {which}"), now),
+        _ => state.set_status(format!("--capture-tool expects clone, smudge, projection, emission, radial or cards, not {which}"), now),
     }
 }
 

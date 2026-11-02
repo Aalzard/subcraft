@@ -247,9 +247,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             params.exposure = view.exposure;
             params.post = view.post_params(state.session.scene().mesh.bounds.diagonal());
             params.view_mode = view.view_mode();
-            params.symmetry_guides = view.symmetry_guides && state.session.brush.options.symmetry.contains(&true) && !bake_mode;
+            params.symmetry_guides = view.symmetry_guides && state.session.brush.options.has_symmetry() && !bake_mode;
             if params.symmetry_guides {
-                let key = (std::sync::Arc::as_ptr(&state.session.scene().mesh) as usize, state.session.brush.options.symmetry);
+                let key = (std::sync::Arc::as_ptr(&state.session.scene().mesh) as usize, state.session.brush.options.symmetry, state.session.brush.options.radial);
                 if state.symmetry_uploaded != Some(key) {
                     renderer.set_symmetry_guides(&rs.device, &state.session.symmetry_guide_segments());
                     state.symmetry_uploaded = Some(key);
@@ -352,8 +352,14 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         else { "LMB paint · RMB menu / drag orbit · I isolate · H hide · Esc show all · Wheel zoom" };
     pill(&painter, rect.left_bottom() + egui::vec2(10.0, -10.0), egui::Align2::LEFT_BOTTOM, hint, theme::TEXT_FAINT);
     let mut right = rect.right_top() + egui::vec2(-10.0, 10.0);
-    if state.tool != Tool::Pen && state.session.brush.options.symmetry.iter().any(|&s| s) {
-        let axes: String = ["X", "Y", "Z"].iter().zip(state.session.brush.options.symmetry).filter(|(_, on)| *on).map(|(a, _)| *a).collect();
+    if state.tool != Tool::Pen && state.session.brush.options.has_symmetry() {
+        let options = &state.session.brush.options;
+        let mut axes: String = ["X", "Y", "Z"].iter().zip(options.symmetry).filter(|(_, on)| *on).map(|(a, _)| *a).collect();
+        let n = options.radial.effective_count(options.symmetry.iter().filter(|&&m| m).count());
+        if n > 1 {
+            if !axes.is_empty() { axes.push_str(" + "); }
+            axes.push_str(&format!("Radial {}×{n}", ["X", "Y", "Z"][(options.radial.axis as usize).min(2)]));
+        }
         let r = pill(&painter, right, egui::Align2::RIGHT_TOP, &format!("{}  Symmetry {axes}", icons::SYMMETRY), ACCENT);
         right.x = r.left() - 6.0;
     }

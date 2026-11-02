@@ -133,6 +133,36 @@ impl DepthCache {
         map
     }
 
+    /// Depth maps for every camera of a stroke (view + symmetry copies). Missing maps render in
+    /// parallel; the cache grows to hold all of them so radial copies stay cached for the whole
+    /// stroke, and shrinks back to the default size on the next smaller request.
+    pub fn get_all(&self, mesh: &Mesh, cameras: &[Camera]) -> Vec<Arc<DepthMap>> {
+        use rayon::prelude::*;
+        let capacity = CACHE_ENTRIES.max(cameras.len());
+        let missing: Vec<Camera> = {
+            let e = self.entries.lock();
+            let mut m: Vec<Camera> = Vec::new();
+            for c in cameras {
+                if !e.iter().any(|(k, _)| k == c) && !m.contains(c) { m.push(*c); }
+            }
+            m
+        };
+        let rendered: Vec<(Camera, Arc<DepthMap>)> = missing.par_iter().map(|c| (*c, Arc::new(DepthMap::render(mesh, c)))).collect();
+        let mut e = self.entries.lock();
+        e.extend(rendered);
+        // Most recently requested last, in request order.
+        for c in cameras {
+            if let Some(pos) = e.iter().rposition(|(k, _)| k == c) {
+                let entry = e.remove(pos);
+                e.push(entry);
+            }
+        }
+        while e.len() > capacity {
+            e.remove(0);
+        }
+        cameras.iter().map(|c| e.iter().rfind(|(k, _)| k == c).map(|(_, m)| m.clone()).expect("rendered above")).collect()
+    }
+
     pub fn len(&self) -> usize {
         self.entries.lock().len()
     }
@@ -174,5 +204,23 @@ mod tests {
         let b = Camera { viewport: [64, 32], ..a };
         assert!(!Arc::ptr_eq(&m1, &cache.get(&mesh, &b)));
         assert_eq!(cache.len(), 2);
+    }
+
+    #[test]
+    fn get_all_keeps_every_radial_copy_cached_and_shrinks_back() {
+        let mesh = primitives::cube(2.0);
+        let cache = DepthCache::new();
+        let view = Camera::perspective(Vec3::new(0.0, 0.5, 5.0), Vec3::ZERO, Vec3::Y, 40.0, 0.1, 50.0, [48, 48]);
+        let cams: Vec<Camera> = (0..12).map(|k| view.rotated(Vec3::Y, Vec3::ZERO, k as f32 * 0.5)).collect();
+        let first = cache.get_all(&mesh, &cams);
+        assert_eq!(cache.len(), 12, "all copies cached, beyond the default size");
+        let again = cache.get_all(&mesh, &cams);
+        assert!(first.iter().zip(&again).all(|(a, b)| Arc::ptr_eq(a, b)), "second dab reuses every map");
+        for (c, m) in cams.iter().zip(&first) {
+            assert_eq!(m.depth, DepthMap::render(&mesh, c).depth, "parallel render matches the serial one");
+        }
+        let view_map = cache.get_all(&mesh, &cams[..1]);
+        assert!(Arc::ptr_eq(&view_map[0], &first[0]));
+        assert_eq!(cache.len(), CACHE_ENTRIES);
     }
 }

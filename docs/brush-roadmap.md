@@ -156,7 +156,7 @@ fill edits target the selected fill, with numeric composite/undo and real dock i
 ## Phase 5 — Symmetry and repetition
 
 - [x] Multi-axis X/Y/Z mirror through bounds center (existing combinations).
-- [ ] Radial symmetry 2–64 around any axis; custom plane/point gizmo.
+- [~] Radial symmetry 2–64 around X/Y/Z through the center (+ offset), combinable with mirror (session 109, ADR-0043); custom plane/point gizmo remains.
 - [ ] Topological symmetry; UV tiling; array stamping; kaleidoscope.
 
 ## Phase 6 — Surface-aware painting

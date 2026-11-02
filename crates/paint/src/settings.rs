@@ -255,6 +255,63 @@ pub struct StrokeOptions {
     pub catch_up: bool,
     /// Mirror planes (X, Y, Z) through the mesh bounds center.
     pub symmetry: [bool; 3],
+    /// Copies rotated around an axis (combines with the mirror planes; ADR 0043).
+    pub radial: RadialSymmetry,
+}
+
+/// Most stroke copies (view + mirrors + radial) one stroke paints; each needs a view-sized
+/// depth map, so the radial count shrinks when mirror planes multiply it (ADR 0043).
+pub const MAX_SYMMETRY_COPIES: u32 = 64;
+
+/// Radial symmetry: the stroke repeated `count` times around an axis line, copy `k` rotated by
+/// `k * 360 / count` degrees.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RadialSymmetry {
+    pub enabled: bool,
+    /// Rotation axis: 0 = X, 1 = Y, 2 = Z.
+    pub axis: u8,
+    /// Total copies around the axis, including the original (2..=64 when enabled).
+    pub count: u32,
+    /// Offset of the axis line from the mesh bounds center (object units).
+    pub center_offset: [f32; 3],
+}
+
+impl Default for RadialSymmetry {
+    fn default() -> Self {
+        Self { enabled: false, axis: 1, count: 4, center_offset: [0.0; 3] }
+    }
+}
+
+impl RadialSymmetry {
+    /// Copies actually painted around the axis (1 = off) next to `mirror_planes` enabled
+    /// mirror planes: clamped to 1..=64 and so that `count * 2^mirror_planes` stays within
+    /// [`MAX_SYMMETRY_COPIES`].
+    pub fn effective_count(&self, mirror_planes: usize) -> u32 {
+        if !self.enabled { return 1; }
+        let limit = (MAX_SYMMETRY_COPIES >> mirror_planes.min(6)).max(1);
+        self.count.clamp(1, MAX_SYMMETRY_COPIES).min(limit)
+    }
+
+    /// Unit vector of the rotation axis.
+    pub fn axis_dir(&self) -> glam::Vec3 {
+        let mut d = glam::Vec3::ZERO;
+        d[(self.axis as usize).min(2)] = 1.0;
+        d
+    }
+}
+
+impl StrokeOptions {
+    /// Number of copies (including the original) every stamp of the stroke produces.
+    pub fn copies(&self) -> u32 {
+        let mirrors = self.symmetry.iter().filter(|&&m| m).count();
+        self.radial.effective_count(mirrors) << mirrors
+    }
+
+    /// Whether any symmetry (mirror or radial) is active.
+    pub fn has_symmetry(&self) -> bool {
+        self.copies() > 1
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
@@ -321,6 +378,21 @@ mod tests {
         assert_eq!(m.channels[&BaseColor].value, ChannelValue::rgb(1.0, 0.0, 0.0));
     }
 
+    #[test]
+    fn radial_copies_are_clamped_by_mirror_planes() {
+        let r = RadialSymmetry { enabled: true, count: 64, ..RadialSymmetry::default() };
+        assert_eq!(r.effective_count(0), 64);
+        assert_eq!(r.effective_count(1), 32);
+        assert_eq!(r.effective_count(3), 8);
+        assert_eq!(RadialSymmetry { count: 0, ..r }.effective_count(0), 1);
+        assert_eq!(RadialSymmetry { count: 500, ..r }.effective_count(0), 64);
+        assert_eq!(RadialSymmetry { enabled: false, ..r }.effective_count(0), 1);
+        let all = StrokeOptions { symmetry: [true; 3], radial: r, ..StrokeOptions::default() };
+        assert_eq!(all.copies(), MAX_SYMMETRY_COPIES);
+        assert_eq!(StrokeOptions { radial: RadialSymmetry { count: 6, ..r }, ..StrokeOptions::default() }.copies(), 6);
+        assert!(!StrokeOptions::default().has_symmetry());
+        assert_eq!(RadialSymmetry { axis: 9, ..r }.axis_dir(), glam::Vec3::Z);
+    }
     #[test]
     fn falloff_shape() {
         assert_eq!(falloff(0.0, 0.5), 1.0);

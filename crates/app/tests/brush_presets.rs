@@ -27,6 +27,7 @@ fn preset_roundtrip_restores_the_whole_brush() {
     a.brush.settings.alignment = Alignment::Camera;
     a.brush.settings.size_jitter = 0.4;
     a.brush.options.symmetry = [true, false, false];
+    a.brush.options.radial = subcraft_paint::RadialSymmetry { enabled: true, axis: 0, count: 6, center_offset: [0.0, 0.25, 0.0] };
     a.brush.options.lazy_distance_px = 30.0;
     a.brush.material.set(ChannelKind::BaseColor, ChannelValue::rgb(0.1, 0.6, 0.2));
     let saved = save_brush_preset(&lib, &a.brush_preset("Green Splatter")).unwrap();
@@ -106,4 +107,21 @@ fn stabilizer_and_scatter_settings_roundtrip_and_old_presets_load() {
     assert_eq!(p.options.smoothing, 0.0);
     assert!(!p.options.catch_up);
     let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn presets_saved_before_radial_symmetry_load_with_radial_off() {
+    let (dir, lib) = temp_lib("pre-radial");
+    std::fs::create_dir_all(lib.folder(UserAssetKind::BrushPreset)).unwrap();
+    let path = lib.folder(UserAssetKind::BrushPreset).join("Old.scbrush");
+    // A version-2 preset written before radial symmetry existed: `options` has no `radial` key.
+    let mut json: serde_json::Value = serde_json::to_value(Session::new(primitives::cube(1.0), 64).brush_preset("Old")).unwrap();
+    json["options"] = serde_json::json!({ "lazy_distance_px": 10.0, "symmetry": [false, true, false] });
+    std::fs::write(&path, serde_json::to_string(&json).unwrap()).unwrap();
+    let preset = subcraft_app::brush_preset::load_brush_preset(&path).unwrap();
+    assert_eq!(preset.options.symmetry, [false, true, false]);
+    assert_eq!(preset.options.radial, subcraft_paint::RadialSymmetry::default());
+    assert!(!preset.options.radial.enabled);
+    assert_eq!(preset.options.copies(), 2);
+    std::fs::remove_dir_all(&dir).ok();
 }

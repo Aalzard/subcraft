@@ -73,6 +73,13 @@ fn main() -> anyhow::Result<()> {
                 if axes.is_empty() || !axes.chars().all(|c| "xyz".contains(c)) { anyhow::bail!("--symmetry expects x, y, z or a combination"); }
                 options.symmetry_axes = Some(['x', 'y', 'z'].map(|axis| axes.contains(axis)));
             }
+            "--radial" => {
+                let spec = args.next().ok_or_else(|| anyhow::anyhow!("--radial expects an axis and a count, e.g. y8"))?.to_ascii_lowercase();
+                let axis = spec.chars().next().and_then(|c| "xyz".find(c)).ok_or_else(|| anyhow::anyhow!("--radial expects an axis and a count, e.g. y8"))?;
+                let count: u32 = spec[1..].parse().map_err(|_| anyhow::anyhow!("--radial expects an axis and a count, e.g. y8"))?;
+                if !(2..=64).contains(&count) { anyhow::bail!("--radial count must be 2..=64"); }
+                options.radial_symmetry = Some((axis as u8, count));
+            }
             "--bake-high" => options.bake_high_poly = Some(args.next().ok_or_else(|| anyhow::anyhow!("--bake-high expects a high-poly mesh path"))?.into()),
             "--bake-preview" => options.bake_preview_only = true,
             "--bake-match" => {
@@ -122,7 +129,7 @@ fn main() -> anyhow::Result<()> {
                 options.autosave_interval = args.next().and_then(|s| s.parse::<f64>().ok()).map(std::time::Duration::from_secs_f64);
             }
             "-h" | "--help" => {
-                println!("usage: subcraft [project.subcraft | mesh file] [--demo] [--view-2d] [--brush-panel] [--bake-high mesh] [--bake-preview] [--bake-preview-map map_key] [--bake-match always|name] [--environment name] [--bake-size 256|512|1024|2048|4096] [--screenshot out.png] [--welcome] [--quick-start] [--guide-step 1..6] [--reset-layout] [--window-size WxH] [--camera yaw,pitch,zoom[,x,y,z]] [--scale 1.5] [--recover] [--autosave-interval seconds]");
+                println!("usage: subcraft [project.subcraft | mesh file] [--demo] [--view-2d] [--brush-panel] [--bake-high mesh] [--bake-preview] [--bake-preview-map map_key] [--bake-match always|name] [--environment name] [--bake-size 256|512|1024|2048|4096] [--symmetry xyz] [--radial y8] [--screenshot out.png] [--welcome] [--quick-start] [--guide-step 1..6] [--reset-layout] [--window-size WxH] [--camera yaw,pitch,zoom[,x,y,z]] [--scale 1.5] [--recover] [--autosave-interval seconds]");
                 return Ok(());
             }
             path => options.mesh = Some(path.into()),

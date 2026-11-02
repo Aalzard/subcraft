@@ -139,7 +139,7 @@ pub struct UiState {
     pub spp_import: Option<crate::spp_import::SppImportUi>,
     /// Running Edit in PhotoCraft exchange (ADR-0040).
     pub photocraft: Option<subcraft_app::photocraft::Exchange>,
-    pub symmetry_uploaded: Option<(usize, [bool; 3])>,
+    pub symmetry_uploaded: Option<(usize, [bool; 3], subcraft_paint::RadialSymmetry)>,
     pub uv_wireframe: bool,
     pub library: subcraft_app::assets::Library,
     pub shelf: crate::panels::shelf::ShelfUi,

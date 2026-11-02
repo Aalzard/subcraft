@@ -62,6 +62,7 @@ fn stroke_options_command_validates_shared_preset_state_without_history_or_mid_s
         lazy_distance_px: 25.0,
         smoothing: 0.5,
         catch_up: true,
+        radial: subcraft_paint::RadialSymmetry { enabled: true, axis: 2, count: 12, center_offset: [0.1, 0.0, -0.2] },
     };
     session.execute(Command::SetStrokeOptions(options)).unwrap();
     assert_eq!(session.brush.options, options);
@@ -84,6 +85,13 @@ fn stroke_options_command_validates_shared_preset_state_without_history_or_mid_s
         }))
         .unwrap();
     assert_eq!(session.brush.options.lazy_distance_px, 100.0);
+    // Radial: count and axis are clamped to what painting supports; a non-finite center is refused.
+    let wild = subcraft_paint::RadialSymmetry { enabled: true, axis: 7, count: 500, center_offset: [0.0; 3] };
+    session.execute(Command::SetStrokeOptions(StrokeOptions { radial: wild, ..options })).unwrap();
+    assert_eq!((session.brush.options.radial.axis, session.brush.options.radial.count), (2, 64));
+    let bad = subcraft_paint::RadialSymmetry { center_offset: [f32::INFINITY, 0.0, 0.0], ..wild };
+    assert!(session.execute(Command::SetStrokeOptions(StrokeOptions { radial: bad, ..options })).is_err());
+    assert_eq!(session.brush.options.radial.count, 64);
     session.begin_stroke().unwrap();
     assert_eq!(
         session.execute(Command::SetStrokeOptions(StrokeOptions::default())),

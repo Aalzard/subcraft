@@ -543,10 +543,19 @@ impl Session {
         &self.scene
     }
 
+    /// Guide lines for the active symmetry: mirror-plane sections, then the radial axis with
+    /// one spoke per copy (same center and copy count the stroke paints with).
     pub fn symmetry_guide_segments(&self) -> Vec<[Vec3; 2]> {
-        if !self.brush.options.symmetry.contains(&true) { return Vec::new(); }
-        let sections = self.scene.symmetry_sections.get_or_init(|| crate::guides::symmetry_sections(&self.scene.mesh));
-        sections.iter().zip(self.brush.options.symmetry).filter(|(_, enabled)| *enabled).flat_map(|(lines, _)| lines.iter().copied()).collect()
+        let options = &self.brush.options;
+        if !options.has_symmetry() { return Vec::new(); }
+        let mut lines: Vec<[Vec3; 2]> = Vec::new();
+        if options.symmetry.contains(&true) {
+            let sections = self.scene.symmetry_sections.get_or_init(|| crate::guides::symmetry_sections(&self.scene.mesh));
+            lines.extend(sections.iter().zip(options.symmetry).filter(|(_, enabled)| *enabled).flat_map(|(lines, _)| lines.iter().copied()));
+        }
+        let mirrors = options.symmetry.iter().filter(|&&m| m).count();
+        lines.extend(crate::guides::radial_guides(&self.scene.mesh, &options.radial, options.radial.effective_count(mirrors)));
+        lines
     }
     pub fn document(&self) -> &Document {
         &self.doc
@@ -761,11 +770,16 @@ impl Session {
                 if !options.lazy_distance_px.is_finite() {
                     return Err(CommandError::Invalid("lazy mouse distance must be finite".into()));
                 }
+                if !options.radial.center_offset.iter().all(|v| v.is_finite()) {
+                    return Err(CommandError::Invalid("radial symmetry center must be finite".into()));
+                }
                 if !options.smoothing.is_finite() {
                     return Err(CommandError::Invalid("smoothing must be finite".into()));
                 }
                 options.lazy_distance_px = options.lazy_distance_px.clamp(0.0, 100.0);
                 options.smoothing = options.smoothing.clamp(0.0, subcraft_paint::MAX_SMOOTHING);
+                options.radial.axis = options.radial.axis.min(2);
+                options.radial.count = options.radial.count.clamp(2, subcraft_paint::MAX_SYMMETRY_COPIES);
                 self.brush.options = options;
             }
             Command::SetBrushMaterial(material) => self.brush.material = material,

@@ -3135,6 +3135,35 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   UV-projected wood fill pattern follows the new UVs in both modes (fills are not rasters).
 * NOT done / limits: painted Normal-channel values are copied, not re-oriented when an island
   rotates; no undo across a reload; the window was not driven with a real mouse.
+### Session 109 - Claude: radial symmetry (2026-10-30)
+
+* **Radial symmetry (ADR-0043; 0042 in the PR):** `StrokeOptions::radial` (`RadialSymmetry { enabled, axis, count,
+  center_offset }`). The stroke repeats N = 2..64 times around X/Y/Z through the bounds center (plus an
+  optional offset). Copy k is painted through `Camera::rotated` (the view rotated by k·360/N), the same way
+  mirroring already works. Radial and mirror **combine**: view, then its rotations, then the mirror expansion,
+  for N·2^m copies, capped at 64 (`effective_count` lowers N when mirrors are on, because each copy needs a
+  viewport-sized depth map). With radial off or N = 1 the camera list is unchanged, so output is bit-exact.
+* `DepthCache::get_all` renders missing depth maps in parallel, keeps every copy of the stroke cached, and
+  shrinks back to 8 entries on the next smaller request.
+* Presets: the setting is saved in brush presets through `StrokeOptions` (`serde(default)`). Older presets
+  load with radial off, and the format version stays 2. `SetStrokeOptions` clamps the count to 2..=64 and
+  the axis to 0..=2, and rejects a non-finite offset.
+* UI: the Symmetry & Lazy Mouse popover has a Radial section (on/off, axis X/Y/Z, copies slider, offset,
+  copy count when combined with mirror). The viewport pill reads e.g. "Symmetry X + Radial Y×8". The red
+  guide pass draws the radial axis and one spoke per copy (`guides::radial_guides`). New CLI options
+  `--radial y8` and `--capture-tool radial`.
+* Tests: 644 pass in the workspace, 0 fail (new: 4 paint acceptance tests (4 blobs rotated by 90° with mass
+  within 5% and centroids < 0.02; off / N=1 bit-exact with plain and mirror strokes; radial 4 + mirror X =
+  8 groups; center offset), the copy-count clamp, the rotated-camera projection, depth `get_all`, the
+  radial guide geometry, a preset round trip with radial plus loading a pre-radial preset, command clamping,
+  and one undo step per radial stroke). Mutation check: changing the rotation angle by 10% makes 3 of the 4
+  paint tests fail.
+* Verified in the release app: `subcraft --capture-tool radial` (sample crate, Y×8, scripted strokes
+  through `Session::stroke_to`) paints rotated copies on the top and sides, and shows the axis and spokes
+  plus the pill. Saved as docs/screenshots/radial-symmetry.png.
+* NOT verified: the popover controls with a real mouse, a 64-copy stroke at 1080p (memory and first-dab
+  time), or strokes on meshes that are not rotationally symmetric (copies land wherever the rotated rays
+  hit, the same as mirroring).
 
 ## Next steps (in order)
 
