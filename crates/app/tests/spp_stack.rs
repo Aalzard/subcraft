@@ -237,3 +237,32 @@ fn the_sets_normal_map_is_a_top_layer() {
     assert_eq!(layer.blend[&ChannelKind::Normal].mode, BlendMode::NormalMapInverseDetail);
 }
 
+
+#[test]
+fn roughness_grain_has_painters_texel_scale_spread_at_every_size() {
+    use subcraft_doc::FillSource;
+    let ts = TextureSet::new("T", 0, 64);
+    let layer = subcraft_app::spp_import::roughness_grain_layer(&ts).expect("grain layer");
+    let LayerContent::Fill(fill) = &layer.content else { panic!("a fill") };
+    assert_eq!(fill.channels.len(), 1, "roughness only");
+    assert_eq!(layer.blend[&ChannelKind::Roughness].mode, BlendMode::SignedAddition);
+    let FillSource::Procedural { params, low, high } = &fill.channels[&ChannelKind::Roughness].source else { panic!("procedural") };
+    // Painter's robust texel-to-texel sigma on DBAL-A2 (0.0073 at 512, 0.0138 at 2048) minus what the
+    // rebuilt layers already carry (about 0.005) asks for 0.005..0.012; the same field must give it on
+    // every grid (the first version sat on the noise lattice at power-of-two sizes and was flat).
+    for size in [256u32, 512, 1024, 2048] {
+        let mut values = Vec::new();
+        for y in (0..size).step_by((size / 128) as usize) {
+            for x in (0..size).step_by((size / 128) as usize) {
+                let p = glam::Vec2::new((x as f32 + 0.5) / size as f32, (y as f32 + 0.5) / size as f32);
+                let t = subcraft_materials::pattern::eval(params, p);
+                values.push(2.0 * (low.0[0] + (high.0[0] - low.0[0]) * t) - 1.0);
+            }
+        }
+        let n = values.len() as f32;
+        let mean = values.iter().sum::<f32>() / n;
+        let sigma = (values.iter().map(|v| (v - mean).powi(2)).sum::<f32>() / n).sqrt();
+        assert!(mean.abs() < 0.004, "{size}: mean shift {mean}");
+        assert!((0.003..0.012).contains(&sigma), "{size}: sigma {sigma}");
+    }
+}

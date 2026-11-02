@@ -30,7 +30,8 @@ fn a_painter_project_opens_with_its_flattened_channels_and_baked_maps() {
     // The rebuilt stack here cannot match the flattened roughness, so it stays hidden.
     assert!(ts.layers[0].visible && !ts.layers[1].visible);
     let children: Vec<(&str, bool)> = ts.layers[1].children().iter().map(|l| (l.name.as_str(), l.visible)).collect();
-    assert_eq!(children, [("Rust", true), ("Dirt", false)]);
+    // The layers of the project, then the roughness micro grain the importer adds on top.
+    assert_eq!(children, [("Rust", true), ("Dirt", false), ("Roughness grain (approximate)", true)]);
     let dirt = &ts.layers[1].children()[1];
     assert_eq!(dirt.children().iter().map(|l| (l.name.as_str(), l.visible)).collect::<Vec<_>>(), [("Scratches (not reconstructed)", false)]);
     // The uniform fill keeps its Painter color on Base Color only.

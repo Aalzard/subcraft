@@ -161,6 +161,35 @@ pub fn baked_normal_layer(ts: &TextureSet) -> Layer {
     layer
 }
 
+/// Half range of the roughness micro grain (the noise spans `0.5 +- k/2`, added as a signed
+/// value, so the roughness moves by up to `+- k`). Calibrated against DBAL-A2, see docs/progress.md.
+const ROUGHNESS_GRAIN: f32 = 0.025;
+
+/// Painter's roughness carries a texel-scale grain that grows with the texture size (its
+/// robust high-frequency sigma on DBAL-A2: 0.0073 at 512, 0.0083 at 1024, 0.0138 at 2048); the
+/// rebuilt layers' own detail stays near 0.005 and does not grow. This layer adds the missing
+/// grain as a sub-texel fractal (a statistical stand-in: the grains' phases cannot match).
+/// `SUBCRAFT_SPP_GRAIN` overrides the amount, 0 leaves it out.
+pub fn roughness_grain_layer(ts: &TextureSet) -> Option<Layer> {
+    use subcraft_core::ChannelValue;
+    use subcraft_doc::{BlendMode, ChannelBlend, FillChannel, FillSource, ProceduralKind, ProceduralParams};
+    let k = std::env::var("SUBCRAFT_SPP_GRAIN").ok().and_then(|v| v.parse().ok()).unwrap_or(ROUGHNESS_GRAIN);
+    if k <= 0.0 || !ts.channels.iter().any(|c| c.kind == ChannelKind::Roughness) {
+        return None;
+    }
+    let mut layer = Layer::new_fill("Roughness grain (approximate)", ts);
+    if let LayerContent::Fill(fill) = &mut layer.content {
+        fill.channels.clear();
+        let mut params = ProceduralParams::new(ProceduralKind::Clouds);
+        params.scale = 1999.0; // not a power of two: texel centres would sit on the noise lattice, where it is flat
+        params.seed = 77;
+        let (low, high) = (ChannelValue::scalar(0.5 - 0.5 * k), ChannelValue::scalar(0.5 + 0.5 * k));
+        fill.channels.insert(ChannelKind::Roughness, FillChannel::new(FillSource::Procedural { params, low, high }));
+    }
+    layer.blend.insert(ChannelKind::Roughness, ChannelBlend::new(BlendMode::SignedAddition));
+    Some(layer)
+}
+
 pub fn mesh_map_image(kind: MeshMapKind, plane: &Plane, coverage: Option<&Plane>, gutter: Option<&Gutter>, res: u32) -> TiledImage {
     let comps = kind.components();
     let (w, h) = (plane.width as usize, plane.height as usize);
@@ -883,6 +912,9 @@ pub fn rebuild_folder_controlled(spp: &mut SppFile, info: &TextureSetInfo, view:
     let mut folder = Layer::new_folder("Painter stack (reconstructed)", view);
     if let LayerContent::Group(g) = &mut folder.content {
         g.children = layers.into_iter().map(std::sync::Arc::new).collect();
+        if let Some(grain) = roughness_grain_layer(view) {
+            g.children.push(std::sync::Arc::new(grain));
+        }
         g.expanded = true;
     }
     (folder, stats, fitted)
