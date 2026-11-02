@@ -782,3 +782,135 @@ fn flat_signed_highpass_is_exactly_zero_without_rounding_residue() {
         }
     }
 }
+
+fn noisy_field() -> (TextureSet, Layer, Vec<f32>) {
+    let ts = TextureSet::new("T", 0, N);
+    let mut l = Layer::new_paint("P", &ts);
+    let LayerContent::Paint(p) = &mut l.content else { unreachable!() };
+    let image = p.channel_mut(C::Roughness, N);
+    let mut data = Vec::new();
+    let mut s = 12345u32;
+    for y in 0..N {
+        for x in 0..N {
+            s = s.wrapping_mul(1664525).wrapping_add(1013904223);
+            // Smooth ramp plus speckle with ties.
+            let v = (x as f32 / N as f32) * 0.5 + ((s >> 24) % 5) as f32 * 0.1;
+            image.set(x, y, [v, 1.0, 0.0, 0.0]);
+            data.push(v);
+        }
+    }
+    (ts, l, data)
+}
+fn median_reference(input: &[f32], r: i32) -> Vec<f32> {
+    let n = N as i32;
+    (0..n).flat_map(|y| (0..n).map(move |x| (x, y))).map(|(x, y)| {
+        let mut w: Vec<f32> = (-r..=r).flat_map(|dy| (-r..=r).map(move |dx| (dx, dy)))
+            .map(|(dx, dy)| input[((y + dy).clamp(0, n - 1) * n + (x + dx).clamp(0, n - 1)) as usize]).collect();
+        w.sort_by(f32::total_cmp);
+        w[w.len() / 2]
+    }).collect()
+}
+#[test]
+fn median_matches_dense_reference_across_tile_borders_texture_edges_and_chained_stages() {
+    let fx = Fixture::new();
+    let (mut ts, mut l, data) = noisy_field();
+    add(&mut l, &ts, C::Roughness, Filter::Median { radius: 3.0 });
+    let id = ts.insert_above(None, l);
+    let m3 = median_reference(&data, 3);
+    assert_image(&ts, &fx, &m3);
+    // Fractional radii round to whole pixels; zero is the identity.
+    let set = |ts: &mut TextureSet, radius: f32| {
+        let e = Arc::make_mut(&mut ts.find_mut(id).unwrap().content_effects[0]);
+        e.kind = ContentEffectKind::Filter { channel: C::Roughness, filter: Filter::Median { radius } };
+    };
+    set(&mut ts, 1.6);
+    assert_image(&ts, &fx, &median_reference(&data, 2));
+    set(&mut ts, 0.0);
+    assert_image(&ts, &fx, &data);
+    // Two median stages read the previous stage (support adds up across tile borders).
+    let shape = ts.clone();
+    ts.find_mut(id).unwrap().content_effects = vec![
+        Arc::new(ContentEffect::new(ContentEffectKind::Filter { channel: C::Roughness, filter: Filter::Median { radius: 2.0 } }, &shape)),
+        Arc::new(ContentEffect::new(ContentEffectKind::Filter { channel: C::Roughness, filter: Filter::Median { radius: 3.0 } }, &shape)),
+    ];
+    assert_image(&ts, &fx, &median_reference(&median_reference(&data, 2), 3));
+}
+#[test]
+fn median_works_as_a_mask_effect_and_keeps_paint_coverage() {
+    let fx = Fixture::new();
+    let (mut ts, mut l, _) = field();
+    let LayerContent::Paint(p) = &mut l.content else { unreachable!() };
+    p.channel_mut(C::BaseColor, N).set(63, 63, [0.8, 0.2, 0.1, 0.5]);
+    add(&mut l, &ts, C::BaseColor, Filter::Median { radius: 2.0 });
+    let id = ts.insert_above(None, l);
+    let tc = ts.clone();
+    let geo = fx.geo.tile(0);
+    let ctx = TileContext { albedo_filter: tc.albedo_filter, geo: &geo, set_geometry: &fx.geo, sample: SampleContext { resources: &fx.res, mesh_maps: &fx.maps } };
+    let px = preview_content(ts.find(id).unwrap(), C::BaseColor, &ctx);
+    assert_eq!(px[63 * 64 + 63][3], 0.5, "coverage is untouched");
+    assert_eq!(px[0][3], 0.0);
+    // A speckled mask: the median removes isolated white pixels.
+    let mut layer = Layer::new_fill("M", &ts);
+    let mut mask = Mask::new(N, false);
+    mask.base.set(30, 30, [1.0; 4]);
+    mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Filter(Filter::Median { radius: 1.0 }))));
+    layer.mask = Some(mask);
+    let mut ts2 = TextureSet::new("T2", 0, N);
+    ts2.insert_above(None, layer);
+    let c = composite_full(&ts2, &fx.ctx());
+    let r = c.channel(C::Roughness).unwrap();
+    assert_eq!(r.get(30, 30)[0], r.get(5, 5)[0], "the isolated mask pixel is gone");
+}
+
+fn warp_reference(input: &[f32], intensity: f32, scale: u32, seed: u32) -> Vec<f32> {
+    let n = N as i32;
+    let at = |x: i32, y: i32| input[(y.clamp(0, n - 1) * n + x.clamp(0, n - 1)) as usize];
+    (0..N).flat_map(|y| (0..N).map(move |x| (x, y))).map(|(x, y)| {
+        let [dx, dy] = subcraft_materials::filter::warp::offset(x, y, N, intensity, scale, seed);
+        let (sx, sy) = ((x as f32 + dx).clamp(0.0, (N - 1) as f32), (y as f32 + dy).clamp(0.0, (N - 1) as f32));
+        let (x0, y0) = (sx.floor() as i32, sy.floor() as i32);
+        let (fx, fy) = (sx - x0 as f32, sy - y0 as f32);
+        let top = at(x0, y0) * (1.0 - fx) + at(x0 + 1, y0) * fx;
+        let bottom = at(x0, y0 + 1) * (1.0 - fx) + at(x0 + 1, y0 + 1) * fx;
+        top * (1.0 - fy) + bottom * fy
+    }).collect()
+}
+#[test]
+fn warp_matches_dense_bilinear_reference_across_tiles_and_is_deterministic() {
+    let fx = Fixture::new();
+    let (mut ts, mut l, data) = noisy_field();
+    add(&mut l, &ts, C::Roughness, Filter::Warp { intensity: 6.0, scale: 3, seed: 5 });
+    let id = ts.insert_above(None, l);
+    let expected = warp_reference(&data, 6.0, 3, 5);
+    assert_image(&ts, &fx, &expected);
+    // The result moved real texels (otherwise the comparison proves nothing).
+    assert!(expected.iter().zip(&data).filter(|(a, b)| (**a - **b).abs() > 0.02).count() > 2000);
+    // Same settings, same result; another seed, another result; intensity 0 is the identity.
+    let a = composite_full(&ts, &fx.ctx());
+    let b = composite_full(&ts, &fx.ctx());
+    assert_eq!(a.channel(C::Roughness).unwrap().get(77, 31), b.channel(C::Roughness).unwrap().get(77, 31));
+    let set = |ts: &mut TextureSet, filter: Filter| {
+        Arc::make_mut(&mut ts.find_mut(id).unwrap().content_effects[0]).kind = ContentEffectKind::Filter { channel: C::Roughness, filter };
+    };
+    set(&mut ts, Filter::Warp { intensity: 6.0, scale: 3, seed: 6 });
+    assert_image(&ts, &fx, &warp_reference(&data, 6.0, 3, 6));
+    set(&mut ts, Filter::Warp { intensity: 0.0, scale: 3, seed: 5 });
+    assert_image(&ts, &fx, &data);
+}
+#[test]
+fn warp_moves_paint_coverage_with_the_pixels() {
+    let fx = Fixture::new();
+    let mut ts = TextureSet::new("T", 0, N);
+    let mut l = Layer::new_paint("P", &ts);
+    let LayerContent::Paint(p) = &mut l.content else { unreachable!() };
+    for y in 0..N { for x in 0..N / 4 { p.channel_mut(C::BaseColor, N).set(x, y, [0.8, 0.2, 0.1, 1.0]); } }
+    add(&mut l, &ts, C::BaseColor, Filter::Warp { intensity: 10.0, scale: 2, seed: 1 });
+    let id = ts.insert_above(None, l);
+    let geo = fx.geo.tile(0);
+    let ctx = TileContext { albedo_filter: ts.albedo_filter, geo: &geo, set_geometry: &fx.geo, sample: SampleContext { resources: &fx.res, mesh_maps: &fx.maps } };
+    let px = preview_content(ts.find(id).unwrap(), C::BaseColor, &ctx);
+    // Colour stays the paint colour wherever there is coverage; the straight edge becomes ragged.
+    let mut partial = 0;
+    for p in &px { if p[3] > 0.01 { assert!((p[0] - 0.8).abs() < 1e-3 && (p[1] - 0.2).abs() < 1e-3, "{p:?}"); } if p[3] > 0.01 && p[3] < 0.99 { partial += 1; } }
+    assert!(partial > 0, "the warped edge has partial coverage");
+}

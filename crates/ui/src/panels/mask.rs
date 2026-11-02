@@ -84,6 +84,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     ("Fill", subcraft_doc::MaskEffectKind::Fill { value: 1.0, procedural: None, projection: Default::default() }),
                     ("Generator", subcraft_doc::MaskEffectKind::Generator(subcraft_doc::Generator::new(subcraft_doc::GeneratorKind::Edges))),
                     ("Levels", subcraft_doc::MaskEffectKind::Levels(Default::default())),
+                    ("ID Color", subcraft_doc::MaskEffectKind::IdColor(Default::default())),
                 ] { if secondary_button(ui, label).clicked() { cmds.push(Command::AddMaskEffect { layer: layer.id, kind }); } }
             });
             for (index, effect) in mask.effects.iter().enumerate().rev() {

@@ -4,6 +4,7 @@
 //! the GPU, file formats or the document model. It defines identifiers, the texture-channel and
 //! mesh-map vocabulary shared by every subsystem, color-space math and small geometry helpers.
 
+pub mod bake_match;
 pub mod channel;
 pub mod color;
 pub mod ids;
@@ -17,6 +18,7 @@ pub mod vfs;
 pub use glam;
 pub use half::f16;
 
+pub use bake_match::{BakeMatch, BakeMatchMode};
 pub use channel::{ChannelKind, ChannelValue};
 pub use ids::*;
 pub use meshmap::MeshMapKind;

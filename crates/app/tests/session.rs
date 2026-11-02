@@ -656,3 +656,131 @@ fn save_and_export_use_newest_document_while_worker_is_busy() {
         assert_eq!(s.composite(ts.id), reopened.composite(ts.id));
     }
 }
+
+#[test]
+fn bake_match_by_name_isolates_parts_reports_unmatched_ones_and_saves_with_the_project() {
+    use subcraft_app::{BakeRequest, BakeSettings, MeshMapKind};
+    use subcraft_core::{BakeMatch, BakeMatchMode};
+    use subcraft_mesh::{Corner, MeshBuilder};
+    // Low: Panel_low (x < 0, left UV half) and Clip_low (x > 0, right half), no high part named Clip.
+    let mut b = MeshBuilder::new("parts");
+    let m = b.material("Parts");
+    for (name, x0, u0) in [("Panel_low", -1.0f32, 0.02f32), ("Clip_low", 0.0, 0.52)] {
+        b.object(name);
+        let c = |x: f32, z: f32| Corner { position: Vec3::new(x, 0., z), normal: None,
+            uv: Some(Vec2::new(u0 + 0.46 * (x - x0), 0.02 + 0.96 * (z + 1.) / 2.)) };
+        b.push_triangle(m, [c(x0, -1.), c(x0, 1.), c(x0 + 1., 1.)]);
+        b.push_triangle(m, [c(x0, -1.), c(x0 + 1., 1.), c(x0 + 1., -1.)]);
+    }
+    let mut s = Session::new(b.build().unwrap(), 128);
+    let ts = s.selection().texture_set;
+    // High: Panel_high flat under the panel, and an unrelated sloped Shelf_high above both parts.
+    let dir = std::env::temp_dir().join(format!("subcraft-bake-match-{}", subcraft_core::LayerId::new()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let high = dir.join("parts_high.obj");
+    std::fs::write(&high, "o Panel_high\nv -1 0 -1\nv -1 0 1\nv 0 0 1\nv 0 0 -1\nf 1 2 3\nf 1 3 4\n\
+        o Shelf_high\nv -0.9 0.05 -0.9\nv -0.9 0.05 0.9\nv 0.9 0.15 0.9\nv 0.9 0.15 -0.9\nf 5 6 7\nf 5 7 8\n").unwrap();
+    let bake = |s: &mut Session, name_match: BakeMatch| {
+        let settings = BakeSettings { size: 128, maps: vec![MeshMapKind::Normal], cage_front: 0.1, name_match, ..Default::default() };
+        let mut job = s.start_bake(BakeRequest { settings, high_poly: Some(high.clone()), texture_sets: vec![(ts, 0)] });
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+        let result = loop {
+            if let Some(result) = job.poll(s) { break result; }
+            assert!(std::time::Instant::now() < deadline, "bake worker timed out");
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        };
+        assert_eq!(result, Ok(1));
+        let normal = s.mesh_maps(ts).unwrap().get(MeshMapKind::Normal).unwrap().clone();
+        (normal.get(32, 64), normal.get(96, 64), job.notices().to_vec())
+    };
+    let tilted = |n: [f32; 4]| (n[0] - 0.5).abs() + (n[1] - 0.5).abs() > 0.02;
+    let (panel, clip, notices) = bake(&mut s, BakeMatch::default());
+    assert!(tilted(panel) && tilted(clip), "Always: the shelf covers both parts {panel:?} {clip:?}");
+    assert!(notices.is_empty());
+    let (panel, clip, notices) = bake(&mut s, BakeMatch::by_name());
+    for c in 0..3 { assert!((panel[c] - [0.5, 0.5, 1.][c]).abs() < 1e-3, "By name: the panel sees only Panel_high {panel:?}"); }
+    assert!(tilted(clip), "Clip_low has no high part: it falls back to Always {clip:?}");
+    assert_eq!(notices.len(), 1);
+    assert!(notices[0].contains("Clip_low") && !notices[0].contains("Panel_low"), "{}", notices[0]);
+
+    // The dialog choice is a project setting: optional in the file, kept across save / reopen.
+    let mut settings = s.settings().clone();
+    settings.bake_match = BakeMatch { mode: BakeMatchMode::ByName, low_suffix: "_lp".into(), high_suffix: "_hp".into() };
+    s.set_settings(settings.clone());
+    assert!(s.is_modified());
+    let project = dir.join("match.subcraft");
+    s.save(Some(&project)).unwrap();
+    let reopened = Session::open_project(&project).unwrap();
+    assert_eq!(reopened.settings().bake_match, settings.bake_match);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn add_channel_enables_it_on_the_brush_and_undoes_in_one_step() {
+    let mut s = session();
+    let ts = s.selection().texture_set;
+    assert!(!s.selected_texture_set().has_channel(ChannelKind::AmbientOcclusion));
+    s.execute(Command::AddChannel { texture_set: ts, kind: ChannelKind::AmbientOcclusion }).unwrap();
+    assert!(s.selected_texture_set().has_channel(ChannelKind::AmbientOcclusion));
+    assert!(s.brush.material.is_enabled(ChannelKind::AmbientOcclusion));
+    let entries = s.history().entries().len();
+    s.execute(Command::AddChannel { texture_set: ts, kind: ChannelKind::AmbientOcclusion }).unwrap();
+    assert_eq!(s.history().entries().len(), entries, "adding an existing channel is a no-op");
+    s.execute(Command::Undo).unwrap();
+    assert!(!s.selected_texture_set().has_channel(ChannelKind::AmbientOcclusion));
+}
+
+#[test]
+fn strokes_from_the_2d_view_paint_the_selected_layer_as_one_undo_step() {
+    let mut s = session();
+    let channels = s.channels();
+    let mut material = s.brush.material.clone();
+    material.set(ChannelKind::Metallic, ChannelValue::scalar(1.0));
+    material.solo(ChannelKind::Metallic, &channels);
+    s.execute(Command::SetBrushMaterial(material)).unwrap();
+    // Centroid of a triangle of the selected texture set, in its UV tile.
+    let slot = s.selected_texture_set().material_slot;
+    let mesh = s.scene().mesh.clone();
+    let t = mesh.material_triangles(slot).next().unwrap();
+    let (q, _) = subcraft_mesh::uv_raster::wrap_to_tile(mesh.tri_uvs(t));
+    let uv = (q[0] + q[1] + q[2]) / 3.0;
+    s.begin_stroke().unwrap();
+    let tiles = s.stroke_to_uv(uv, false, 1.0).unwrap();
+    assert!(!tiles.is_empty());
+    s.end_stroke();
+    assert!(s.history().can_undo());
+    let layer = s.selected_layer().unwrap();
+    let LayerContent::Paint(p) = &layer.content else { panic!() };
+    assert!(p.channels[&ChannelKind::Metallic].allocated_tiles() > 0);
+    assert!(!p.channels.contains_key(&ChannelKind::BaseColor), "only the soloed channel is painted");
+    s.execute(Command::Undo).unwrap();
+    let LayerContent::Paint(p) = &s.selected_layer().unwrap().content else { panic!() };
+    assert!(p.channels.get(&ChannelKind::Metallic).is_none_or(|i| i.allocated_tiles() == 0));
+
+    assert!(!s.polygon_fill_uv(uv, subcraft_paint::PolygonFillMode::UvIsland).unwrap().is_empty());
+}
+
+#[test]
+fn a_radial_symmetry_stroke_is_one_undo_step_that_restores_the_document_exactly() {
+    let mut s = session();
+    let cam = camera();
+    let before = s.document().clone();
+    let entries = s.history().entries().len();
+    let mut options = s.brush.options;
+    options.radial = subcraft_paint::RadialSymmetry { enabled: true, axis: 1, count: 6, ..options.radial };
+    s.execute(Command::SetStrokeOptions(options)).unwrap();
+    let center = cam.project(Vec3::new(0.15, 0.1, 0.5)).unwrap().truncate();
+    s.begin_stroke().unwrap();
+    let mut painted = 0;
+    for k in 0..10 {
+        painted += s.stroke_to(&cam, center + Vec2::new(k as f32 * 6.0, 0.0), false).unwrap().len();
+    }
+    s.end_stroke();
+    assert!(painted > 0);
+    assert_eq!(s.history().entries().len(), entries + 1, "one history entry for all copies");
+    assert_ne!(s.document(), &before);
+    s.perform(Action::Undo).unwrap();
+    assert_eq!(s.document(), &before);
+    s.perform(Action::Redo).unwrap();
+    assert_ne!(s.document(), &before);
+}

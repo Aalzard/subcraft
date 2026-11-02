@@ -43,6 +43,8 @@ pub struct Stroke {
     coverage: HashMap<usize, Box<[f32]>>,
     path: ScreenPath,
     stamp_count: u32,
+    /// Pen pressure for the stamps placed next (1 for a mouse).
+    pressure: f32,
     last_depth: Option<f32>,
     alpha: Option<Arc<subcraft_image::Bitmap>>,
     stencil: Option<Arc<crate::stencil::Stencil>>,
@@ -59,6 +61,8 @@ pub struct Stroke {
     /// carried along (premultiplied value, alpha) per image.
     work: Vec<TiledImage>,
     carried: Vec<Option<[f32; 4]>>,
+    /// Average UV units per object unit of the painted texture set (2D-view strokes).
+    uv_per_unit: Option<f32>,
 }
 
 /// Where a clone stroke copies from: an object-space surface point, and the screen offset from
@@ -68,9 +72,6 @@ struct CloneSource {
     point: Vec3,
     offset: Option<Vec2>,
 }
-
-/// How much of the carried paint survives each smudge stamp.
-const SMUDGE_CARRY: f32 = 0.85;
 
 /// Per-tile texel remapping for the image sources (clone / camera projection).
 enum Remap {
@@ -102,6 +103,7 @@ impl Stroke {
             coverage: HashMap::new(),
             path: ScreenPath::new(),
             stamp_count: 0,
+            pressure: 1.0,
             last_depth: None,
             alpha: None,
             stencil: None,
@@ -115,6 +117,7 @@ impl Stroke {
             clone: None,
             work: Vec::new(),
             carried: Vec::new(),
+            uv_per_unit: None,
         })
     }
 
@@ -162,11 +165,40 @@ impl Stroke {
         self.coverage.get(&tile).map(|c| &c[..])
     }
 
+    /// Pen pressure (0..1) applied to the stamps of the following points.
+    pub fn set_pressure(&mut self, pressure: f32) {
+        self.pressure = pressure.clamp(0.0, 1.0);
+    }
+
     /// Feed a cursor position; returns the tiles rewritten in `ts`.
     pub fn add_point(&mut self, ts: &mut TextureSet, ctx: &PaintContext, cursor: Vec2) -> Result<Vec<usize>, PaintError> {
         let mut samples = Vec::new();
         let spacing = self.spacing_px(ctx);
-        self.path.push(cursor, spacing, self.options.lazy_distance_px, &mut samples);
+        self.path.push(cursor, spacing, self.options.lazy_distance_px, self.options.smoothing, &mut samples);
+        self.paint_samples(ts, ctx, &samples)
+    }
+
+    /// Feed many cursor positions at once (a recorded stroke), painted in one pass instead of one
+    /// pass per position. With an orthographic camera the stamps are those of calling
+    /// [`Stroke::add_point`] for each position; with a perspective one the stamp spacing uses the
+    /// depth known at the start of the batch.
+    pub fn add_points(&mut self, ts: &mut TextureSet, ctx: &PaintContext, cursors: &[Vec2]) -> Result<Vec<usize>, PaintError> {
+        let mut samples = Vec::new();
+        let spacing = self.spacing_px(ctx);
+        for &cursor in cursors {
+            self.path.push(cursor, spacing, self.options.lazy_distance_px, self.options.smoothing, &mut samples);
+        }
+        self.paint_samples(ts, ctx, &samples)
+    }
+
+    /// End of stroke: with `catch_up` the brush glides to the last cursor position.
+    pub fn finish(&mut self, ts: &mut TextureSet, ctx: &PaintContext) -> Result<Vec<usize>, PaintError> {
+        if !self.options.catch_up {
+            return Ok(Vec::new());
+        }
+        let mut samples = Vec::new();
+        let spacing = self.spacing_px(ctx);
+        self.path.finish(spacing, &mut samples);
         self.paint_samples(ts, ctx, &samples)
     }
 
@@ -178,6 +210,74 @@ impl Stroke {
         self.paint_samples(ts, ctx, &samples)
     }
 
+    /// Feed a 2D-view cursor position in texture UV (0..1, origin top-left; `line`: straight
+    /// segment). Stamps are UV discs ([`Alignment::Uv`]) with no 3D visibility test, so
+    /// hidden and back faces are reachable. Symmetry and stencils belong to the 3D view and do
+    /// not apply. `texels_per_px` converts the lazy-mouse distance from view pixels to texels.
+    pub fn add_uv_point(&mut self, ts: &mut TextureSet, ctx: &PaintContext, uv: Vec2, line: bool, texels_per_px: f32) -> Result<Vec<usize>, PaintError> {
+        self.check(ts, ctx)?;
+        let res = ctx.geometry.resolution as f32;
+        let radius_uv = self.uv_radius(ctx);
+        let spacing = (self.settings.spacing * 2.0 * radius_uv * res).max(0.5);
+        let mut samples = Vec::new();
+        if line {
+            self.path.line_to(uv * res, spacing, &mut samples);
+        } else {
+            self.path.push(uv * res, spacing, self.options.lazy_distance_px * texels_per_px.max(0.0), self.options.smoothing, &mut samples);
+        }
+        self.paint_uv_samples(ts, ctx, &samples, radius_uv)
+    }
+
+    /// Brush radius in UV units: the 3D brush size at the texture set's average texel density,
+    /// so a stroke covers the same texels in both views.
+    fn uv_radius(&mut self, ctx: &PaintContext) -> f32 {
+        let upu = *self.uv_per_unit.get_or_insert_with(|| uv_per_unit(ctx.mesh, ctx.geometry.material_slot));
+        self.settings.radius(ctx.mesh.bounds.diagonal()) * upu
+    }
+
+    fn paint_uv_samples(&mut self, ts: &mut TextureSet, ctx: &PaintContext, samples: &[PathSample], radius_uv: f32) -> Result<Vec<usize>, PaintError> {
+        if samples.is_empty() || radius_uv <= 0.0 || !radius_uv.is_finite() {
+            return Ok(Vec::new());
+        }
+        let s = self.settings;
+        let res = ctx.geometry.resolution as f32;
+        let radius = s.radius(ctx.mesh.bounds.diagonal());
+        let mut stamps = Vec::with_capacity(samples.len());
+        for sample in samples {
+            let k = self.stamp_count;
+            self.stamp_count += 1;
+            let scale = 1.0 - s.size_jitter.clamp(0.0, 1.0) * rand01(s.seed, k, 0);
+            let flow = s.flow.clamp(0.0, 1.0) * (1.0 - s.flow_jitter.clamp(0.0, 1.0) * rand01(s.seed, k, 1));
+            let mut angle = (s.angle_deg + s.angle_jitter_deg * (2.0 * rand01(s.seed, k, 2) - 1.0)).to_radians();
+            if s.follow_path {
+                angle += sample.dir.y.atan2(sample.dir.x);
+            }
+            let mut pos = sample.pos;
+            if s.position_jitter > 0.0 {
+                let (a, d) = (rand01(s.seed, k, 3) * std::f32::consts::TAU, rand01(s.seed, k, 4).sqrt());
+                pos += Vec2::new(a.cos(), a.sin()) * d * s.position_jitter * 2.0 * radius_uv * scale * res;
+            }
+            stamps.push(Stamp {
+                camera: 0,
+                screen: pos,
+                center: Vec3::ZERO,
+                normal: Vec3::Z,
+                uv: pos / res,
+                tri: 0,
+                radius: radius * scale,
+                radius_px: 0.0,
+                radius_uv: radius_uv * scale,
+                flow,
+                angle,
+                roundness: s.roundness,
+                hardness: s.hardness,
+                tangent: Vec3::X,
+                bitangent: Vec3::Y,
+            });
+        }
+        self.apply_stamps(ts, ctx, std::slice::from_ref(ctx.camera), &stamps, Alignment::Uv, false)
+    }
+
     fn check(&self, ts: &TextureSet, ctx: &PaintContext) -> Result<(), PaintError> {
         if ctx.geometry.resolution != ts.resolution || ts.material_slot != ctx.geometry.material_slot {
             return Err(PaintError::ResolutionMismatch);
@@ -185,10 +285,21 @@ impl Stroke {
         Ok(())
     }
 
-    /// View camera followed by every symmetry mirror (all combinations of enabled planes).
+    /// View camera, its radial copies, then every symmetry mirror of those (all combinations of
+    /// enabled planes). Without radial symmetry the list is exactly the mirror list (ADR 0043).
     fn cameras(&self, ctx: &PaintContext) -> Vec<Camera> {
         let center = ctx.mesh.bounds.center();
         let mut cams = vec![*ctx.camera];
+        let mirrors = self.options.symmetry.iter().filter(|&&m| m).count();
+        let radial = &self.options.radial;
+        let n = radial.effective_count(mirrors);
+        if n > 1 {
+            let pivot = center + Vec3::from_array(radial.center_offset);
+            for k in 1..n {
+                let angle = std::f32::consts::TAU * k as f32 / n as f32;
+                cams.push(ctx.camera.rotated(radial.axis_dir(), pivot, angle));
+            }
+        }
         for axis in 0..3 {
             if self.options.symmetry[axis] {
                 let mirrored: Vec<Camera> = cams.iter().map(|c| c.mirrored(axis, center[axis])).collect();
@@ -228,8 +339,8 @@ impl Stroke {
         for sample in samples {
             let k = self.stamp_count;
             self.stamp_count += 1;
-            let radius = base_radius * (1.0 - s.size_jitter.clamp(0.0, 1.0) * rand01(s.seed, k, 0));
-            let flow = s.flow.clamp(0.0, 1.0) * (1.0 - s.flow_jitter.clamp(0.0, 1.0) * rand01(s.seed, k, 1));
+            let radius = base_radius * s.pressure_size_factor(self.pressure) * (1.0 - s.size_jitter.clamp(0.0, 1.0) * rand01(s.seed, k, 0));
+            let flow = s.flow.clamp(0.0, 1.0) * s.pressure_flow_factor(self.pressure) * (1.0 - s.flow_jitter.clamp(0.0, 1.0) * rand01(s.seed, k, 1));
             let mut angle = (s.angle_deg + s.angle_jitter_deg * (2.0 * rand01(s.seed, k, 2) - 1.0)).to_radians();
             if s.follow_path {
                 angle += sample.dir.y.atan2(sample.dir.x);
@@ -240,32 +351,52 @@ impl Stroke {
                 let (a, d) = (rand01(s.seed, k, 3) * std::f32::consts::TAU, rand01(s.seed, k, 4).sqrt());
                 screen += Vec2::new(a.cos(), a.sin()) * d * s.position_jitter * 2.0 * r_px;
             }
-            let dab = Dab { screen, radius, flow, angle, roundness: s.roundness, hardness: s.hardness };
-            for (ci, cam) in cameras.iter().enumerate() {
-                let parts = self.parts.as_ref().filter(|p| p.enabled);
-                let accept = |t: u32| ctx.mesh.tri_material[t as usize] == ctx.geometry.material_slot && parts.is_none_or(|p|
-                    ctx.geometry.triangle_region(t as usize, p.kind).is_some_and(|id| p.parts.contains(&id)));
-                if let Some(st) = resolve_overlap(&dab, ci, cam, ctx.mesh, ctx.bvh, s.alignment, self.alpha.is_some(), accept) {
-                    if ci == 0 {
-                        self.last_depth = Some(cam.view_depth(st.center).max(1e-3));
+            let mut dabs = vec![Dab { screen, radius, flow, angle, roundness: s.roundness, hardness: s.hardness }];
+            if s.scatter_count > 0 {
+                // Particles around the path point; each draws from its own random streams.
+                let diameter_px = 2.0 * radius * ctx.camera.pixels_per_unit(self.depth_hint(ctx));
+                dabs.clear();
+                for i in 0..s.scatter_count {
+                    let st = 16 + i * 8;
+                    let (a, d) = (rand01(s.seed, k, st) * std::f32::consts::TAU, rand01(s.seed, k, st + 1).sqrt());
+                    let mut at = screen + Vec2::new(a.cos(), a.sin()) * d * s.scatter_radius.max(0.0) * diameter_px;
+                    at.y += s.scatter_fall.max(0.0) * diameter_px * rand01(s.seed, k, st + 2);
+                    dabs.push(Dab {
+                        screen: at,
+                        radius: radius * (1.0 - s.scatter_size_random.clamp(0.0, 1.0) * rand01(s.seed, k, st + 3)),
+                        flow: flow * (1.0 - s.scatter_opacity_random.clamp(0.0, 1.0) * rand01(s.seed, k, st + 4)),
+                        angle: angle + (s.scatter_rotation_deg * (2.0 * rand01(s.seed, k, st + 5) - 1.0)).to_radians(),
+                        roundness: s.roundness,
+                        hardness: s.hardness,
+                    });
+                }
+            }
+            for dab in &dabs {
+                for (ci, cam) in cameras.iter().enumerate() {
+                    let parts = self.parts.as_ref().filter(|p| p.enabled);
+                    let accept = |t: u32| ctx.mesh.tri_material[t as usize] == ctx.geometry.material_slot && parts.is_none_or(|p|
+                        ctx.geometry.triangle_region(t as usize, p.kind).is_some_and(|id| p.parts.contains(&id)));
+                    if let Some(st) = resolve_overlap(dab, ci, cam, ctx.mesh, ctx.bvh, s.alignment, self.alpha.is_some(), accept) {
+                        if ci == 0 {
+                            self.last_depth = Some(cam.view_depth(st.center).max(1e-3));
+                        }
+                        stamps.push(st);
                     }
-                    stamps.push(st);
                 }
             }
         }
         if self.mode == StrokeMode::Smudge {
             return self.smudge_stamps(ts, ctx, &cameras, &stamps);
         }
-        self.apply_stamps(ts, ctx, &cameras, &stamps)
+        self.apply_stamps(ts, ctx, &cameras, &stamps, self.settings.alignment, true)
     }
 
-    fn apply_stamps(&mut self, ts: &mut TextureSet, ctx: &PaintContext, cameras: &[Camera], stamps: &[Stamp]) -> Result<Vec<usize>, PaintError> {
+    fn apply_stamps(&mut self, ts: &mut TextureSet, ctx: &PaintContext, cameras: &[Camera], stamps: &[Stamp], alignment: Alignment, stencil: bool) -> Result<Vec<usize>, PaintError> {
         if stamps.is_empty() {
             return Ok(Vec::new());
         }
-        let alignment = self.settings.alignment;
         let depth: Vec<Arc<DepthMap>> =
-            if alignment == Alignment::Uv { Vec::new() } else { cameras.iter().map(|c| ctx.depth.get(ctx.mesh, c)).collect() };
+            if alignment == Alignment::Uv { Vec::new() } else { ctx.depth.get_all(ctx.mesh, cameras) };
         let backface_cos = self.settings.backface_culling.then(|| self.settings.backface_angle_deg.to_radians().cos());
         let input = KernelInput {
             mesh: ctx.mesh,
@@ -276,7 +407,7 @@ impl Stroke {
             depth: &depth,
             backface_cos,
             alpha: self.alpha.as_deref(),
-            stencil: self.stencil.as_deref(),
+            stencil: self.stencil.as_deref().filter(|_| stencil),
         };
         let bins = input.bin(stamps);
         let work: Vec<(usize, TileWork, Box<[f32]>)> = bins
@@ -404,13 +535,15 @@ impl Stroke {
         }
         let alignment = self.settings.alignment;
         let depth: Vec<Arc<DepthMap>> =
-            if alignment == Alignment::Uv { Vec::new() } else { cameras.iter().map(|c| ctx.depth.get(ctx.mesh, c)).collect() };
+            if alignment == Alignment::Uv { Vec::new() } else { ctx.depth.get_all(ctx.mesh, cameras) };
         let backface_cos = self.settings.backface_culling.then(|| self.settings.backface_angle_deg.to_radians().cos());
         let input = KernelInput {
             mesh: ctx.mesh, bvh: ctx.bvh, geometry: ctx.geometry, alignment, cameras, depth: &depth, backface_cos,
             alpha: self.alpha.as_deref(), stencil: None,
         };
         let mut changed = std::collections::BTreeSet::new();
+        let (carry, strength, material, falloff) = (self.settings.smudge_carry.clamp(0.0, 1.0), self.settings.smudge_strength.clamp(0.0, 1.0),
+            self.settings.smudge_material.clamp(0.0, 1.0), self.settings.smudge_falloff.clamp(0.25, 8.0));
         for st in stamps {
             let footprints: Vec<(usize, Vec<f32>)> = input
                 .bin(std::slice::from_ref(st))
@@ -419,6 +552,9 @@ impl Stroke {
                     let samples = input.rasterize_tile(t, w.tris.iter().copied());
                     let mut fp = input.footprints(&samples, st);
                     self.restrict_coverage(ctx.geometry, t, &mut fp);
+                    if falloff != 1.0 {
+                        fp.iter_mut().for_each(|v| *v = v.powf(falloff));
+                    }
                     (t, fp)
                 })
                 .filter(|(_, fp)| fp.iter().any(|&v| v > 0.0))
@@ -448,8 +584,15 @@ impl Stroke {
                 for v in p.iter_mut() { *v /= weight; }
                 self.carried[k] = Some(match self.carried[k] {
                     None => *p,
-                    Some(c) => std::array::from_fn(|j| c[j] * SMUDGE_CARRY + p[j] * (1.0 - SMUDGE_CARRY)),
+                    Some(c) => std::array::from_fn(|j| c[j] * carry + p[j] * (1.0 - carry)),
                 });
+                if material > 0.0 {
+                    // Smudge with material: the brush paint (opaque) mixes into what is carried.
+                    let c = self.carried[k].as_mut().expect("set above");
+                    let v = self.images[k].value;
+                    for j in 0..3 { c[j] += (v[j] - c[j]) * material; }
+                    c[3] += (1.0 - c[3]) * material;
+                }
             }
             // Deposit the carried paint, weighted by the footprint.
             let mut writes = Vec::new();
@@ -461,7 +604,7 @@ impl Stroke {
                     let mut buf = vec![0.0f32; TILE_TEXELS * comps];
                     self.work[k].read_tile(*t, &mut buf);
                     for (px, &w) in buf.chunks_exact_mut(comps).zip(fp) {
-                        let s = (w * st.flow).clamp(0.0, 1.0);
+                        let s = (w * st.flow * strength).clamp(0.0, 1.0);
                         if s <= 0.0 { continue; }
                         if img.has_alpha {
                             let a0 = px[n];
@@ -494,9 +637,22 @@ impl Stroke {
         self.check(ts, ctx)?;
         let (o, d) = ctx.camera.ray(screen);
         let Some(hit) = ctx.bvh.intersect(o, d, 0.0, f32::INFINITY) else { return Ok(Vec::new()) };
+        self.fill_from(ts, ctx, hit.tri, mode)
+    }
+
+    /// [`Stroke::polygon_fill`] from the 2D view: the triangle whose UV footprint contains `uv`.
+    pub fn polygon_fill_uv(&mut self, ts: &mut TextureSet, ctx: &PaintContext, uv: Vec2, mode: PolygonFillMode) -> Result<Vec<usize>, PaintError> {
+        self.check(ts, ctx)?;
+        match triangle_at_uv(ctx.mesh, ctx.geometry, uv) {
+            Some(tri) => self.fill_from(ts, ctx, tri, mode),
+            None => Ok(Vec::new()),
+        }
+    }
+
+    fn fill_from(&mut self, ts: &mut TextureSet, ctx: &PaintContext, hit_tri: u32, mode: PolygonFillMode) -> Result<Vec<usize>, PaintError> {
         let mesh = ctx.mesh;
         let slot = ctx.geometry.material_slot;
-        if mesh.tri_material[hit.tri as usize] != slot {
+        if mesh.tri_material[hit_tri as usize] != slot {
             return Ok(Vec::new());
         }
         let group = match mode {
@@ -505,9 +661,9 @@ impl Stroke {
             PolygonFillMode::UvIsland => Some(ctx.geometry.triangle_islands()),
         };
         let tris: Vec<u32> = match &group {
-            None => vec![hit.tri],
+            None => vec![hit_tri],
             Some(g) => {
-                let id = g[hit.tri as usize];
+                let id = g[hit_tri as usize];
                 mesh.material_triangles(slot).filter(|&t| g[t] == id).map(|t| t as u32).collect()
             }
         };
@@ -582,4 +738,50 @@ fn sample_image(img: &TargetImage, uv: [f32; 2]) -> [f32; 4] {
 /// Source colors for a clone stroke: the pre-stroke paint at each texel's source point.
 fn clone_source_tile(img: &TargetImage, uvs: &[Option<[f32; 2]>]) -> Vec<[f32; 4]> {
     uvs.iter().map(|uv| uv.map_or([0.0; 4], |uv| sample_image(img, uv))).collect()
+}
+
+/// Average UV units per object unit over a material slot's triangles (square root of the UV to
+/// surface area ratio). Falls back to one texture width per bounding-box diagonal.
+pub fn uv_per_unit(mesh: &Mesh, slot: u32) -> f32 {
+    let (mut world, mut uv) = (0.0f64, 0.0f64);
+    for t in mesh.material_triangles(slot) {
+        let p = mesh.tri_positions(t);
+        let q = mesh.tri_uvs(t);
+        world += (p[1] - p[0]).cross(p[2] - p[0]).length() as f64;
+        uv += (q[1] - q[0]).perp_dot(q[2] - q[0]).abs() as f64;
+    }
+    if world > 1e-20 && uv > 1e-20 {
+        (uv / world).sqrt() as f32
+    } else {
+        1.0 / mesh.bounds.diagonal().max(1e-6)
+    }
+}
+
+/// Triangle of the geometry's material slot whose (tile-wrapped) UV triangle contains `uv`.
+pub fn triangle_at_uv(mesh: &Mesh, geometry: &TextureSetGeometry, uv: Vec2) -> Option<u32> {
+    if !uv.is_finite() || uv.min_element() < 0.0 || uv.max_element() >= 1.0 {
+        return None;
+    }
+    let texel = (uv * geometry.resolution as f32).as_uvec2();
+    let tile = (texel.y / TILE_SIZE * geometry.tiles_x + texel.x / TILE_SIZE) as usize;
+    let mut best: Option<(f32, u32)> = None;
+    for &t in geometry.tile_triangles(tile) {
+        if mesh.tri_material[t as usize] != geometry.material_slot {
+            continue;
+        }
+        let (q, _) = subcraft_mesh::uv_raster::wrap_to_tile(mesh.tri_uvs(t as usize));
+        let (e0, e1, w) = (q[1] - q[0], q[2] - q[0], uv - q[0]);
+        let d = e0.perp_dot(e1);
+        if d.abs() < 1e-14 {
+            continue;
+        }
+        let (b1, b2) = (w.perp_dot(e1) / d, e0.perp_dot(w) / d);
+        // Distance outside the triangle in barycentric units (0 = inside); the nearest wins so
+        // clicks on a shared edge still pick a triangle.
+        let outside = (-b1).max(0.0) + (-b2).max(0.0) + (b1 + b2 - 1.0).max(0.0);
+        if outside < 1e-4 && best.is_none_or(|b| outside < b.0) {
+            best = Some((outside, t));
+        }
+    }
+    best.map(|b| b.1)
 }

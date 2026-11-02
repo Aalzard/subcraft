@@ -148,7 +148,7 @@ pub fn export_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
     }
     let mut open = true;
     let templates = ExportTemplate::builtin();
-    egui::Window::new(window_title("Export Textures")).open(&mut open).collapsible(false).default_width(480.0).show(ctx, |ui| {
+    crate::widgets::window(ctx, window_title("Export Textures")).open(&mut open).collapsible(false).default_width(480.0).show(ctx, |ui| {
         let ex = &mut state.export;
         egui::Grid::new("export_grid").num_columns(2).spacing([16.0, 10.0]).show(ui, |ui| {
             {
@@ -314,7 +314,7 @@ fn export_map_list(ui: &mut egui::Ui, state: &mut UiState, settings: &ExportSett
                     if r.clicked() {
                         click = Some(if ui.input(|i| i.modifiers.alt) { MapClick::Solo(f.set.clone(), f.suffix.clone()) } else { MapClick::Toggle(f.set.clone(), f.suffix.clone(), on) });
                     }
-                    ui.label(RichText::new(&f.path).monospace().small().color(if f.enabled { TEXT_DIM } else { theme::TEXT_DIM.gamma_multiply(0.5) }));
+                    ui.add(egui::Label::new(RichText::new(&f.path).monospace().small().color(if f.enabled { TEXT_DIM } else { theme::TEXT_DIM.gamma_multiply(0.5) })).truncate()).on_hover_text(&f.path);
                 });
             }
         });
@@ -354,6 +354,10 @@ pub struct BakeUi {
     pub job: Option<subcraft_app::BakeJob>,
     /// Kept in the dialog until another bake starts, including actionable failures.
     pub result: Option<Result<usize, String>>,
+    /// Which path baked each map and how long it took (from the last finished job).
+    pub report: String,
+    /// Non-fatal notes of the last bake (low parts without a high part of the same name).
+    pub notices: Vec<String>,
     pub preview: bool,
     pub cage: bool,
     pub live_maps: bool,
@@ -371,7 +375,7 @@ pub struct BakeUi {
 
 impl Default for BakeUi {
     fn default() -> Self {
-        Self { open: false, settings: subcraft_app::BakeSettings::default(), high_poly: String::new(), all_sets: true, job: None, result: None,
+        Self { open: false, settings: subcraft_app::BakeSettings::default(), high_poly: String::new(), all_sets: true, job: None, result: None, report: String::new(), notices: Vec::new(),
             preview: true, cage: true, live_maps: true, displayed_map: None, follow_maps: true, preview_mesh: None,
             preview_job: None, preview_source: None, preview_path: String::new(), preview_scene: None, preview_error: None, preview_uploaded: false, preview_checked_at: 0. }
     }
@@ -424,14 +428,19 @@ pub fn poll_bake(state: &mut UiState, ctx: &egui::Context, now: f64) {
     ctx.request_repaint_after(std::time::Duration::from_millis(100));
     let result = job.poll(&mut state.session);
     if state.bake.follow_maps && let Some((_, kind)) = job.latest_map { state.bake.displayed_map = Some(kind); }
+    state.bake.notices = job.notices().to_vec();
     if let Some(result) = result {
+        let summary = state.bake.job.as_ref().map(|j| j.summary()).unwrap_or_default();
         state.bake.job = None;
+        let note = if state.bake.notices.is_empty() { "" } else { " Some low-poly parts had no high-poly match by name (see the Bake window)." };
         match &result {
             Ok(n) => {
                 state.bake.displayed_map = None;
+                state.bake.report = summary;
                 state.bake.follow_maps = true;
                 state.recovery.prefs.viewport.view_mode = 0;
-                state.set_status(format!("Baked mesh maps for {n} texture set(s). See them in the 2D view."), now);
+                let detail = if state.bake.report.is_empty() { String::new() } else { format!(" ({})", state.bake.report) };
+                state.set_status(format!("Baked mesh maps for {n} texture set(s). See them in the 2D view.{detail}{note}"), now);
                 state.recovery.autosaver.request_soon();
             }
             Err(e) => state.set_status(format!("Bake: {e}"), now),
@@ -448,7 +457,9 @@ pub fn bake_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
     let selected = state.session.selected_texture_set();
     let (sel_id, sel_slot, sel_name) = (selected.id, selected.material_slot, selected.name.clone());
     let all: Vec<(subcraft_core::TextureSetId, u32)> = state.session.document().texture_sets.iter().map(|t| (t.id, t.material_slot)).collect();
-    egui::Window::new(window_title("Bake Mesh Maps")).open(&mut open).collapsible(false).default_width(440.0)
+    // Part matching is a project setting (saved with the project), edited here.
+    let mut bake_match = state.session.settings().bake_match.clone();
+    crate::widgets::window(ctx, window_title("Bake Mesh Maps")).open(&mut open).collapsible(false).default_width(440.0)
         .default_pos(egui::pos2(32., 100.)).show(ctx, |ui| {
         let busy = state.bake.job.is_some();
         ui.add_enabled_ui(!busy, |ui| {
@@ -486,6 +497,7 @@ pub fn bake_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
                         ui.add(egui::DragValue::new(&mut b.settings.cage_rear).speed(0.001).range(0.0..=0.5));
                     });
                     ui.end_row();
+                    bake_match_rows(ui, &mut bake_match);
                 }
                 ui.label(dim("AO samples"));
                 ui.add(egui::Slider::new(&mut b.settings.ao_samples, 4..=256).logarithmic(true));
@@ -520,11 +532,16 @@ pub fn bake_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
             ui.checkbox(&mut state.bake.live_maps, "Live maps");
         });
         if state.bake.preview_pending() { ui.label(dim("Loading high-poly preview…")); }
-        if let Some(error) = &state.bake.preview_error { ui.colored_label(theme::WARNING, error); }
+        if let Some(error) = &state.bake.preview_error { ui.add(egui::Label::new(RichText::new(error).color(theme::WARNING)).wrap()); }
         if !busy && !state.bake.high_poly.trim().is_empty() && secondary_button(ui, "Reload high poly").clicked() {
             state.bake.preview_mesh = None; state.bake.preview_source = None; state.bake.preview_job = None;
             state.bake.preview_error = None; state.bake.preview_uploaded = false; state.bake.result = None;
             state.bake.displayed_map = None;
+        }
+        if bake_match != state.session.settings().bake_match {
+            let mut project = state.session.settings().clone();
+            project.bake_match = bake_match.clone();
+            state.session.set_settings(project);
         }
         hint(ui, "Blue: high poly · Red: exposed low poly · Pale lines: front/rear cage. Orbit to inspect. Imported transforms are preserved.");
         if state.session.mesh_maps(sel_id).is_some() {
@@ -548,9 +565,16 @@ pub fn bake_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
         ui.add_space(6.0);
         if let Some(result) = &state.bake.result {
             match result {
-                Ok(n) => { ui.label(dim(&format!("Bake complete: {n} texture set(s). Inspect Baked normal in Layers or mesh maps in 2D View."))); }
-                Err(e) => { ui.colored_label(theme::WARNING, format!("Bake failed: {e}")); }
+                Ok(n) => {
+                    ui.label(dim(&format!("Bake complete: {n} texture set(s). Inspect Baked normal in Layers or mesh maps in 2D View.")));
+                    if !state.bake.report.is_empty() { ui.add(egui::Label::new(dim(&state.bake.report)).wrap()); }
+                }
+                Err(e) => { ui.add(egui::Label::new(RichText::new(format!("Bake failed: {e}")).color(theme::WARNING)).wrap()); }
             }
+            ui.add_space(6.0);
+        }
+        for note in &state.bake.notices {
+            ui.colored_label(theme::WARNING, note);
             ui.add_space(6.0);
         }
         match &state.bake.job {
@@ -570,10 +594,13 @@ pub fn bake_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
                 });
                 if go.inner {
                     state.bake.result = None;
+                    state.bake.notices.clear();
                     state.bake.displayed_map = None;
                     state.bake.follow_maps = true;
                     let mut settings = state.bake.settings.clone();
                     settings.maps.sort();
+                    settings.use_gpu = state.recovery.prefs.use_gpu_baking;
+                    settings.name_match = state.session.settings().bake_match.clone();
                     let request = subcraft_app::BakeRequest {
                         settings,
                         high_poly: (!state.bake.high_poly.trim().is_empty()).then(|| PathBuf::from(state.bake.high_poly.trim())),
@@ -589,6 +616,25 @@ pub fn bake_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
         }
     });
     state.bake.open = open;
+}
+
+/// "Match" choice and, for By mesh name, the low / high suffix fields.
+fn bake_match_rows(ui: &mut egui::Ui, m: &mut subcraft_core::BakeMatch) {
+    use subcraft_core::BakeMatchMode;
+    ui.label(dim("Match"));
+    let options: Vec<(BakeMatchMode, &str)> = BakeMatchMode::ALL.iter().map(|&k| (k, k.label())).collect();
+    segmented(ui, &mut m.mode, &options);
+    ui.end_row();
+    if m.mode == BakeMatchMode::ByName {
+        ui.label(dim("Low / high suffix"));
+        ui.horizontal(|ui| {
+            ui.add(egui::TextEdit::singleline(&mut m.low_suffix).desired_width(70.0).hint_text("_low"))
+                .on_hover_text("Low-poly part names end with this (case-insensitive; _lo also works)");
+            ui.add(egui::TextEdit::singleline(&mut m.high_suffix).desired_width(70.0).hint_text("_high"))
+                .on_hover_text("High-poly part names end with this (case-insensitive; _hi also works)");
+        });
+        ui.end_row();
+    }
 }
 
 #[cfg(test)]
@@ -707,5 +753,39 @@ mod bake_tests {
             let output = draw(&mut state, &ctx, vec![]);
             assert!(output.shapes.iter().any(|s| matches!(&s.shape, egui::epaint::Shape::Text(t) if t.galley.job.text.contains("Bake failed: align models"))));
         }
+    }
+
+    fn text_pos(output: &egui::FullOutput, text: &str) -> Option<egui::Pos2> {
+        output.shapes.iter().find_map(|s| match &s.shape {
+            egui::epaint::Shape::Text(t) if t.galley.job.text == text => Some(t.pos + t.galley.size() * 0.5),
+            _ => None,
+        })
+    }
+
+    #[test]
+    fn match_by_name_is_a_project_setting_with_suffix_fields_and_unmatched_notes_show() {
+        use subcraft_core::BakeMatchMode;
+        let ctx = egui::Context::default(); theme::apply(&ctx);
+        let mut state = UiState::new(Session::new(subcraft_mesh::primitives::plane(2., 1), 128), None);
+        state.bake.open = true;
+        state.bake.preview = false;
+        draw(&mut state, &ctx, vec![]);
+        let output = draw(&mut state, &ctx, vec![]);
+        assert!(text_pos(&output, "Match").is_none(), "matching only applies with a high poly");
+        state.bake.high_poly = "parts_high.fbx".into();
+        draw(&mut state, &ctx, vec![]);
+        let output = draw(&mut state, &ctx, vec![]);
+        assert!(text_pos(&output, "Low / high suffix").is_none());
+        let pos = text_pos(&output, "By mesh name").expect("Match choice");
+        let button = |pressed| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::default() };
+        draw(&mut state, &ctx, vec![egui::Event::PointerMoved(pos), button(true)]);
+        draw(&mut state, &ctx, vec![button(false)]);
+        assert_eq!(state.session.settings().bake_match.mode, BakeMatchMode::ByName);
+        assert!(state.session.is_modified(), "saved with the project");
+        let output = draw(&mut state, &ctx, vec![]);
+        assert!(text_pos(&output, "Low / high suffix").is_some());
+        state.bake.notices = vec!["Match by name: 1 low-poly part(s) have no matching high-poly part: Clip_low".into()];
+        let output = draw(&mut state, &ctx, vec![]);
+        assert!(output.shapes.iter().any(|s| matches!(&s.shape, egui::epaint::Shape::Text(t) if t.galley.job.text.contains("Clip_low"))));
     }
 }

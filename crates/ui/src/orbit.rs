@@ -20,7 +20,37 @@ pub struct OrbitCamera {
     pub orthographic: bool,
 }
 
+/// A fixed view for scripted screenshots (`--camera yaw,pitch,zoom[,x,y,z]`): angles in degrees,
+/// zoom divides the framing distance, the target moves by (x, y, z) times the box's half diagonal.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CameraView {
+    pub yaw_deg: f32,
+    pub pitch_deg: f32,
+    pub zoom: f32,
+    pub offset: Vec3,
+}
+
+impl CameraView {
+    pub fn parse(s: &str) -> Option<Self> {
+        let v: Vec<f32> = s.split(',').map(|p| p.trim().parse().ok()).collect::<Option<_>>()?;
+        let at = |i: usize| v.get(i).copied().unwrap_or(0.0);
+        (v.len() == 3 || v.len() == 6).then(|| Self { yaw_deg: v[0], pitch_deg: v[1], zoom: v[2].max(1e-3), offset: Vec3::new(at(3), at(4), at(5)) })
+    }
+}
+
 impl OrbitCamera {
+    /// [`OrbitCamera::framing`], then `view` applied when given.
+    pub fn framing_with(bounds: &Aabb, view: Option<&CameraView>) -> Self {
+        let mut c = Self::framing(bounds);
+        if let Some(v) = view {
+            c.yaw = v.yaw_deg.to_radians();
+            c.pitch = v.pitch_deg.to_radians().clamp(-1.55, 1.55);
+            c.distance /= v.zoom;
+            c.target += v.offset * c.scene_radius;
+        }
+        c
+    }
+
     /// Frame a bounding box from a three-quarter view.
     pub fn framing(bounds: &Aabb) -> Self {
         let radius = (bounds.diagonal() * 0.5).max(1e-3);
@@ -115,6 +145,19 @@ mod tests {
         }
         let vp = cam.view_params([800, 600]);
         assert_eq!(vp.proj * vp.view, pc.view_proj());
+    }
+
+    #[test]
+    fn camera_view_from_the_command_line() {
+        let b = Aabb { min: Vec3::splat(-1.0), max: Vec3::splat(1.0) };
+        let v = CameraView::parse("90, 60, 2, 0.5, 0, 0").unwrap();
+        let cam = OrbitCamera::framing_with(&b, Some(&v));
+        let plain = OrbitCamera::framing(&b);
+        assert!((cam.yaw - 90f32.to_radians()).abs() < 1e-6 && (cam.pitch - 60f32.to_radians()).abs() < 1e-6);
+        assert!((cam.distance * 2.0 - plain.distance).abs() < 1e-5);
+        assert!((cam.target - Vec3::new(0.5 * plain.scene_radius, 0.0, 0.0)).length() < 1e-6);
+        assert_eq!(OrbitCamera::framing_with(&b, None), plain);
+        assert!(CameraView::parse("1,2").is_none() && CameraView::parse("a,b,c").is_none());
     }
 
     #[test]

@@ -1,0 +1,156 @@
+name: Release (experimental platforms)
+# macOS (universal: Apple Silicon + Intel), Linux aarch64 and Windows arm64 packages. These are built
+# by GitHub-hosted runners with no signing or notarization and are published as experimental.
+# The main Release workflow (release.yml) still owns Windows x64 and Linux x86_64.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing release tag to attach the experimental packages to; empty only builds and uploads workflow artifacts'
+        required: false
+        default: ''
+  pull_request:
+    paths: ['.github/workflows/release-platforms.yml', 'scripts/build-macos.sh', 'scripts/build-linux.sh', 'scripts/build-windows.ps1', 'packaging/**']
+permissions:
+  contents: read
+env:
+  CARGO_TERM_COLOR: always
+  RUST_VERSION: 1.98.0
+  CARGO_INCREMENTAL: '0'
+  PUBLISH: ${{ github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.tag != '') }}
+jobs:
+  macos:
+    name: macOS universal (experimental)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          key: macos-universal
+      - name: Build and package
+        run: ./scripts/build-macos.sh
+      - name: Check the bundle
+        run: |
+          app=$(ls -d dist/SubCraft-*/SubCraft.app)
+          lipo -archs "$app/Contents/MacOS/subcraft"
+          plutil -lint "$app/Contents/Info.plist"
+          codesign --verify --deep --strict "$app"
+          "$app/Contents/MacOS/subcraft" --help
+      - name: Checksums
+        run: |
+          cd dist
+          shasum -a 256 SubCraft-*-macos-universal-experimental.dmg SubCraft-*-macos-universal-experimental.zip > SHA256SUMS-macos.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: SubCraft-experimental-macos-universal
+          path: |
+            dist/*.dmg
+            dist/*.zip
+            dist/SHA256SUMS-macos.txt
+          if-no-files-found: error
+  linux-arm64:
+    name: Linux aarch64 (experimental)
+    runs-on: ubuntu-22.04-arm
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          key: linux-aarch64
+      - name: Build and package
+        run: ./scripts/build-linux.sh
+      - name: Check Linux package
+        run: |
+          tar -xzf dist/*.tar.gz -C "$RUNNER_TEMP"
+          "$RUNNER_TEMP"/SubCraft-*/subcraft --help
+      - name: Checksums
+        run: |
+          cd dist
+          sha256sum SubCraft-*-linux-aarch64.tar.gz > SHA256SUMS-linux-aarch64.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: SubCraft-experimental-linux-aarch64
+          path: |
+            dist/*.tar.gz
+            dist/SHA256SUMS-linux-aarch64.txt
+          if-no-files-found: error
+  windows-arm64:
+    name: Windows arm64 (experimental)
+    runs-on: windows-11-arm
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          key: windows-arm64
+      - name: Build and package
+        shell: pwsh
+        run: ./scripts/build-windows.ps1 -Arch arm64
+      - name: Check the package
+        shell: pwsh
+        run: |
+          $zip = Get-ChildItem dist/SubCraft-*-windows-arm64.zip
+          Expand-Archive $zip.FullName -DestinationPath "$env:RUNNER_TEMP/arm64"
+          $exe = Get-ChildItem "$env:RUNNER_TEMP/arm64" -Recurse -Filter SubCraft.exe | Select-Object -First 1
+          # PE machine field 0xAA64 = ARM64
+          $bytes = [IO.File]::ReadAllBytes($exe.FullName)
+          $pe = [BitConverter]::ToInt32($bytes, 0x3C)
+          $machine = [BitConverter]::ToUInt16($bytes, $pe + 4)
+          if ($machine -ne 0xAA64) { throw ('SubCraft.exe is not an ARM64 binary (machine 0x{0:X})' -f $machine) }
+      - name: Checksums
+        shell: pwsh
+        run: |
+          Get-ChildItem dist/SubCraft-*-windows-arm64.zip | ForEach-Object {
+            '{0}  {1}' -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant(), $_.Name
+          } | Set-Content -Encoding ascii dist/SHA256SUMS-windows-arm64.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: SubCraft-experimental-windows-arm64
+          path: |
+            dist/*.zip
+            dist/SHA256SUMS-windows-arm64.txt
+          if-no-files-found: error
+  publish:
+    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.tag != '')
+    needs: [macos, linux-arm64, windows-arm64]
+    runs-on: ubuntu-22.04
+    environment: release-publish
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: SubCraft-experimental-*
+          path: dist
+          merge-multiple: true
+      - name: Attach to the release without replacing existing assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          gh release upload "$TAG" dist/*.dmg dist/*.zip dist/*.tar.gz dist/SHA256SUMS-*.txt --repo "${{ github.repository }}"
+          # Mark the new packages as experimental in the release notes (once).
+          notes="$(gh release view "$TAG" --repo "${{ github.repository }}" --json body --jq .body)"
+          case "$notes" in *"Experimental platforms"*) ;; *)
+            printf '%s\n\n## Experimental platforms\n\nThese packages are built automatically, unsigned and untested on real hardware by the maintainers: `macos-universal-experimental` (Apple Silicon + Intel; not notarized, see READ-ME-FIRST.txt inside), `linux-aarch64` and `windows-arm64`. Please report problems in the issue tracker.\n' "$notes" > "$RUNNER_TEMP/notes.md"
+            gh release edit "$TAG" --repo "${{ github.repository }}" --notes-file "$RUNNER_TEMP/notes.md" ;;
+          esac

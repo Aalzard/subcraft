@@ -11,11 +11,25 @@ use sha2::{Digest, Sha256};
 pub const RELEASE_API: &str = "https://api.github.com/repos/Aalzard/subcraft/releases/latest";
 pub const MAX_PACKAGE: u64 = 512 * 1024 * 1024;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum PackageKind { WindowsInstaller { admin: bool }, WindowsPortable, LinuxPortable }
+pub enum PackageKind { WindowsInstaller { admin: bool }, WindowsPortable, LinuxPortable, WindowsPortableArm64, LinuxPortableArm64 }
 impl PackageKind {
-    pub fn name(self, version: &str) -> String {
-        match self { Self::WindowsInstaller { .. } => format!("SubCraft-{version}-setup.exe"), Self::WindowsPortable => format!("SubCraft-{version}-windows-x64.zip"), Self::LinuxPortable => format!("SubCraft-{version}-linux-x86_64.tar.gz") }
+    /// Platform part of the release asset and archive folder names ("windows-x64", "linux-aarch64"...).
+    /// The installer is x64 only and has no tag.
+    pub fn platform(self) -> Option<&'static str> {
+        match self { Self::WindowsInstaller { .. } => None, Self::WindowsPortable => Some("windows-x64"), Self::LinuxPortable => Some("linux-x86_64"),
+            Self::WindowsPortableArm64 => Some("windows-arm64"), Self::LinuxPortableArm64 => Some("linux-aarch64") }
     }
+    pub fn is_windows(self) -> bool { matches!(self, Self::WindowsInstaller { .. } | Self::WindowsPortable | Self::WindowsPortableArm64) }
+    /// Release asset file name.
+    pub fn name(self, version: &str) -> String {
+        match self.platform() {
+            None => format!("SubCraft-{version}-setup.exe"),
+            Some(p) if self.is_windows() => format!("SubCraft-{version}-{p}.zip"),
+            Some(p) => format!("SubCraft-{version}-{p}.tar.gz"),
+        }
+    }
+    /// Name of the single top-level folder inside the archive.
+    pub fn folder(self, version: &str) -> String { format!("SubCraft-{version}-{}", self.platform().unwrap_or("windows-x64")) }
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Release { pub version: String, pub notes: String, pub kind: PackageKind, pub asset: Asset }
@@ -159,7 +173,11 @@ pub fn compact_finished_cache(root: &Path) {
     }
 }
 pub fn detect_kind(target: &Path) -> Result<PackageKind, String> {
-    if !cfg!(target_arch = "x86_64") { return Err("Automatic updates currently require an x64 desktop build".into()); }
+    // Only x86_64 and aarch64 Windows/Linux builds are published as self-updating packages.
+    // macOS builds are updated by downloading the new disk image: the app bundle is unsigned.
+    #[cfg(all(windows, target_arch = "aarch64"))] { let _ = target; return Ok(PackageKind::WindowsPortableArm64); }
+    #[cfg(all(target_os = "linux", target_arch = "aarch64"))] { let _ = target; return Ok(PackageKind::LinuxPortableArm64); }
+    #[cfg(all(any(windows, target_os = "linux"), target_arch = "x86_64"))] {
     #[cfg(windows)] {
         use winreg::{RegKey, enums::*};
         let app_id = "2E7545F0-1CE8-4FCD-B26D-AC623D9B17A6".to_owned();
@@ -173,5 +191,7 @@ pub fn detect_kind(target: &Path) -> Result<PackageKind, String> {
         } Ok(PackageKind::WindowsPortable)
     }
     #[cfg(target_os = "linux")] { let _ = target; Ok(PackageKind::LinuxPortable) }
-    #[cfg(not(any(windows, target_os = "linux")))] { let _ = target; Err("Automatic updates are available on Windows and Linux".into()) }
+    }
+    #[cfg(not(all(any(windows, target_os = "linux"), any(target_arch = "x86_64", target_arch = "aarch64"))))]
+    { let _ = target; Err("Automatic updates are available on Windows and Linux (x86_64 and arm64). Download the new version from the GitHub releases page.".into()) }
 }

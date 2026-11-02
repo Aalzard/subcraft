@@ -49,7 +49,7 @@ pub fn window(state: &mut UiState, ctx: &Context) {
         return;
     }
     let mut open = true;
-    egui::Window::new("Render quality").open(&mut open).resizable(false).default_width(330.0).show(ctx, |ui| {
+    crate::widgets::window(ctx, "Render quality").open(&mut open).resizable(false).default_width(330.0).show(ctx, |ui| {
         let prefs = &mut state.recovery.prefs.viewport;
         ui.label(RichText::new("Look").color(TEXT_DIM));
         egui::Grid::new("render_look").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
@@ -180,7 +180,12 @@ pub fn render_frame(state: &mut UiState, camera: crate::orbit::OrbitCamera, pict
     let rs = state.render_state.clone().ok_or("no GPU renderer is available")?;
     state.sync_gpu();
     let mut renderer = state.renderer.take().ok_or("no GPU renderer is available")?;
-    let factor = if supersample { 2 } else { 1 };
+    let limit = rs.device.limits().max_texture_dimension_2d;
+    if picture.iter().any(|&p| p > limit) {
+        return Err(format!("{}x{} is larger than this graphics card can render ({limit} px per side)", picture[0], picture[1]));
+    }
+    // Supersampling needs twice the size; drop it rather than fail when that does not fit.
+    let factor = if supersample && picture.iter().all(|&p| p * 2 <= limit) { 2 } else { 1 };
     let big = [picture[0] * factor, picture[1] * factor];
     let prefs = &state.recovery.prefs.viewport;
     let mut params = camera.view_params(big);

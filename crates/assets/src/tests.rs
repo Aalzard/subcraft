@@ -1,4 +1,5 @@
 use glam::Vec3;
+use subcraft_core::ChannelKind;
 use subcraft_doc::{LayerContent, TextureSet};
 use subcraft_image::Bitmap;
 
@@ -9,7 +10,7 @@ fn library_contents_are_well_formed() {
     let lib = Library::builtin();
     assert!(lib.alphas.len() >= 6 && lib.materials.len() >= 12 && lib.smart_materials.len() >= 4 && lib.smart_masks.len() >= 4);
     assert!(lib.environments.len() >= 4);
-    assert_eq!((lib.smart_materials.len(), lib.smart_masks.len()), (20, 21), "5 + 15 smart materials, 5 + 16 smart masks");
+    assert_eq!((lib.smart_materials.len(), lib.smart_masks.len()), (39, 40), "5 + 15 + 14 + 5 open-pack smart materials, 5 + 16 + 15 + 4 open-pack smart masks");
     let mut ids: Vec<_> = lib.materials.iter().map(|m| m.id).chain(lib.alphas.iter().map(|a| a.id)).collect();
     let n = ids.len();
     ids.sort();
@@ -37,11 +38,13 @@ fn presets_build_for_a_texture_set() {
     let lib = Library::builtin();
     let ts = TextureSet::new("T", 0, 256);
     for m in &lib.materials {
-        let layer = m.build(&ts);
+        let (ids, _) = presets::decode_images(&m.images);
+        let layer = m.build_with(&ts, &ids);
         let LayerContent::Fill(f) = &layer.content else { panic!("{} is a fill", m.name) };
         let enabled: Vec<_> = f.channels.iter().filter(|(_, c)| c.enabled).map(|(k, _)| *k).collect();
         assert!(!enabled.is_empty(), "{}", m.name);
-        assert!(enabled.iter().all(|k| m.channels.iter().any(|(pk, _)| pk == k)), "{}: only preset channels enabled", m.name);
+        let in_preset = |k: &ChannelKind| m.channels.iter().any(|(pk, _)| pk == k) || m.images.iter().any(|i| i.channel == *k);
+        assert!(enabled.iter().all(in_preset), "{}: only preset channels enabled", m.name);
     }
     for s in &lib.smart_materials {
         let layer = s.build(&ts);
@@ -112,7 +115,7 @@ fn import_alpha_from_png() {
 #[test]
 fn bundled_hdris_are_2_to_1_float_panoramas_with_real_dynamic_range() {
     let lib = Library::builtin();
-    assert_eq!(lib.environments.len(), 5 + environment::BUNDLED_HDRIS.len());
+    assert_eq!(lib.environments.len(), 5 + environment::BUNDLED_HDRIS.len() + open_pack::environments().len());
     let mut names: Vec<_> = lib.environments.iter().map(|e| e.name.clone()).collect();
     names.sort();
     names.dedup();
@@ -145,4 +148,40 @@ fn bundled_hdri_prefilters_on_first_use_with_a_sun_direction() {
     assert_eq!(h.levels.len(), 6);
     assert!(h.sun_direction.iter().all(|v| v.is_finite()));
     assert!(lib.environments[0].source.hdri().is_none(), "procedural presets have no panorama");
+}
+
+#[test]
+fn every_smart_asset_has_a_category_and_description() {
+    let lib = Library::builtin();
+    for m in &lib.smart_materials {
+        let i = smart_material_info(&m.name).unwrap_or_else(|| panic!("{} has no shelf info", m.name));
+        assert!(!i.category.is_empty() && i.description.len() > 15, "{}", m.name);
+    }
+    for m in &lib.smart_masks {
+        let i = smart_mask_info(&m.name).unwrap_or_else(|| panic!("{} has no shelf info", m.name));
+        assert!(!i.category.is_empty() && i.description.len() > 15, "{}", m.name);
+    }
+}
+
+#[test]
+fn new_smart_materials_are_folders_of_fill_layers_with_masks_and_measured_pbr_values() {
+    use subcraft_doc::FillSource;
+    let ts = TextureSet::new("T", 0, 128);
+    for name in ["Rusted Painted Metal", "Oily Metal", "Painted Steel Edge Wear", "Dirty Rubber", "Snow Covered Stone", "Sandblasted Aluminium", "Weathered Brick", "Muddy Leather", "Charred Wood", "Galvanized Steel", "Grimy Ceramic", "Weathered Plaster", "Mossy Wood", "Pitted Cast Iron"] {
+        let lib = Library::builtin();
+        let m = lib.smart_materials.iter().find(|m| m.name == name).unwrap_or_else(|| panic!("missing {name}"));
+        let layer = m.build(&ts);
+        assert!(layer.is_folder() && layer.children().len() >= 2, "{name}");
+        assert!(layer.children().iter().filter(|c| c.mask.is_some()).count() >= 1, "{name} has masked layers");
+        for c in layer.children() {
+            let LayerContent::Fill(f) = &c.content else { panic!("{name}/{} is a fill", c.name) };
+            for (kind, ch) in f.channels.iter().filter(|(_, c)| c.enabled) {
+                // Uniform base colours stay in a physically plausible albedo range (0.012..0.92 linear).
+                if let (subcraft_core::ChannelKind::BaseColor, FillSource::Uniform { value }) = (kind, &ch.source) {
+                    let v = value.0;
+                    assert!(v.iter().all(|x| (0.01..=0.92).contains(x)), "{name}/{}: albedo {v:?}", c.name);
+                }
+            }
+        }
+    }
 }

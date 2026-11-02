@@ -137,7 +137,8 @@ fn point_filters_match_gradient_goldens_across_tiles_and_preserve_paint_coverage
     } }
     let original = layer.content.clone(); let id = ts.insert_above(None, layer);
     for filter in [Filter::Contrast { gain: 2.0, pivot: 0.5 }, Filter::Hsl { hue: 120.0, saturation: 1.0, lightness: 0.0 },
-        Filter::Threshold { cutoff: 0.1 }, Filter::Clamp { low: 0.1, high: 0.6 }] {
+        Filter::Threshold { cutoff: 0.1 }, Filter::Clamp { low: 0.1, high: 0.6 }, Filter::GradientMap { gradient: subcraft_doc::Gradient::black_white(), to_gray: false },
+        Filter::HistogramScan { position: 0.3, contrast: 0.5, invert: false }, Filter::HistogramRange { position: 0.3, range: 0.2, softness: 0.0, invert: true }] {
         ts.find_mut(id).unwrap().content_effects = vec![Arc::new(ContentEffect::new(ContentEffectKind::Filter { channel: C, filter }, &tc))];
         let image = composite_full(&ts, &fx.ctx());
         for y in [10, 63, 64, 100] { for x in 0..RES {
@@ -147,7 +148,10 @@ fn point_filters_match_gradient_goldens_across_tiles_and_preserve_paint_coverage
                 Filter::Hsl { .. } => [0.0, v, 0.0],
                 Filter::Threshold { .. } => [if v*0.2126 >= 0.1 {1.0} else {0.0}; 3],
                 Filter::Clamp { .. } => [v.clamp(0.1,0.6), 0.1, 0.1],
-                Filter::Blur { .. } | Filter::Sharpen { .. } | Filter::DirectionalBlur {..} | Filter::Highpass {..} | Filter::Bevel {..} | Filter::MaskOutline {..} => unreachable!("neighborhood goldens are in spatial.rs"),
+                Filter::GradientMap { .. } => [v * 0.2126; 3],
+                Filter::HistogramScan { .. } => [((v - 0.05) / 0.5).clamp(0.0, 1.0), 0.0, 0.0],
+                Filter::HistogramRange { .. } => [if (0.2..=0.4).contains(&v) { 0.0 } else { 1.0 }, 1.0, 1.0],
+                Filter::Blur { .. } | Filter::Sharpen { .. } | Filter::DirectionalBlur {..} | Filter::Highpass {..} | Filter::Bevel {..} | Filter::MaskOutline {..} | Filter::Median {..} | Filter::Warp {..} => unreachable!("neighborhood goldens are in spatial.rs"),
             };
             let actual = image.channel(C).unwrap().get(x,y);
             for k in 0..3 { let expected = if y < RES/2 { 0.25 + 0.5*transformed[k] } else { 0.5 };

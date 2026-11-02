@@ -19,6 +19,8 @@ pub enum Purpose {
     /// The optional high-poly model of the New Project window.
     NewProjectHighPoly,
     OpenProject,
+    /// The updated model for File > Reload mesh.
+    ReloadMesh,
     BakeHighPoly,
     Stencil,
     TextureSet,
@@ -106,6 +108,7 @@ fn handle(state: &mut UiState, purpose: Purpose, paths: &[PathBuf], now: f64) {
         },
         Purpose::NewProjectModel => state.new_project.load_model(first),
         Purpose::NewProjectHighPoly => state.new_project.load_high_poly(first),
+        Purpose::OpenMesh if crate::spp_import::is_spp(first) => crate::spp_import::start(state, first),
         Purpose::OpenMesh => match subcraft_app::Session::open_mesh(first, subcraft_app::DEFAULT_RESOLUTION) {
             Ok((s, _)) => {
                 state.set_session(s);
@@ -115,6 +118,10 @@ fn handle(state: &mut UiState, purpose: Purpose, paths: &[PathBuf], now: f64) {
             Err(e) => state.set_status(format!("Could not open mesh: {e}"), now),
         },
         Purpose::OpenProject => crate::dialogs::open_project(state, first, now),
+        Purpose::ReloadMesh => {
+            state.mesh_reload.path = first.display().to_string();
+            crate::mesh_reload::start_check(state);
+        }
         Purpose::BakeHighPoly => state.bake.high_poly = first.display().to_string(),
         Purpose::Stencil => match subcraft_image::load_bitmap(first) {
             Ok(bmp) => state.session.brush.stencil = Some(std::sync::Arc::new(subcraft_paint::Stencil::new(std::sync::Arc::new(bmp)))),

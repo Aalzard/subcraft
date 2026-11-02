@@ -36,4 +36,20 @@ pub struct ProjectSettings {
     pub export_solo_previous: Option<Vec<String>>,
     /// Put each UDIM tile's files in its own sub-folder (`1001/`, `1002/`...).
     pub udim_folders: bool,
+    /// High-poly bake part matching (Always / By mesh name + suffixes). Optional in the file:
+    /// absent = Always with `_low` / `_high`, so no schema bump is needed.
+    #[serde(skip_serializing_if = "is_default_match")]
+    pub bake_match: subcraft_core::BakeMatch,
+    /// Model file the project's mesh was last imported or reloaded from (default for
+    /// File > Reload mesh). A hint only: the project never depends on the file existing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mesh_source: Option<String>,
+    /// Texture sets whose baked mesh maps were made for an earlier version of the mesh (after a
+    /// mesh reload) and should be baked again. Cleared per set by its next bake.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub stale_mesh_maps: Vec<subcraft_core::TextureSetId>,
+}
+
+fn is_default_match(m: &subcraft_core::BakeMatch) -> bool {
+    *m == subcraft_core::BakeMatch::default()
 }

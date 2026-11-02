@@ -19,12 +19,43 @@ fn pill(painter: &egui::Painter, pos: Pos2, align: egui::Align2, text: &str, col
     rect
 }
 
+/// Physical pixels of a view `points` large at `ppp` pixels per point; never zero.
+pub fn physical_size(points: [f32; 2], ppp: f32) -> [u32; 2] {
+    points.map(|p| (p * ppp).round().max(1.0) as u32)
+}
+
+#[cfg(test)]
+mod size_tests {
+    use super::physical_size;
+    use subcraft_render::fit_target_size;
+
+    /// Issue #74: a 2880x1920 panel at every common scale; the viewport texture must stay
+    /// within an 8192 device limit, and nothing changes at 100%.
+    #[test]
+    fn viewport_target_fits_the_device_limit_at_every_scale() {
+        for scale in [1.0f32, 1.25, 1.5, 1.75, 2.0, 3.0] {
+            let points = [2880.0 / scale, 1920.0 / scale];
+            let physical = physical_size(points, scale);
+            assert!(physical[0].abs_diff(2880) <= 1 && physical[1].abs_diff(1920) <= 1, "{scale}: {physical:?}");
+            let fitted = fit_target_size(physical, 8192);
+            assert_eq!(fitted, physical, "normal sizes are untouched at {scale}");
+            // a window restored at physical-size-in-points (the reported 9375 px case)
+            let wide = physical_size([6250.0 * scale / 1.5, 1920.0 / scale], scale);
+            let fitted = fit_target_size(wide, 8192);
+            assert!(fitted.iter().all(|&s| (1..=8192).contains(&s)), "{scale}: {fitted:?}");
+        }
+        assert_eq!(fit_target_size([9375, 1200], 8192), [8192, 1200]);
+        assert_eq!(fit_target_size([8272, 1200], 8192), [8192, 1200]);
+        assert_eq!(physical_size([0.0, 0.2], 1.5), [1, 1]);
+    }
+}
+
 pub fn show(state: &mut UiState, ui: &mut Ui) {
     crate::viewport_bar::show(ui, state);
     state.camera.orthographic = state.recovery.prefs.viewport.orthographic;
     let (rect, response) = ui.allocate_exact_size(ui.available_size(), Sense::click_and_drag());
     let ppp = ui.ctx().pixels_per_point();
-    let size = [(rect.width() * ppp).round().max(1.0) as u32, (rect.height() * ppp).round().max(1.0) as u32];
+    let size = physical_size([rect.width(), rect.height()], ppp);
     if size[0] < 8 || size[1] < 8 {
         return;
     }
@@ -127,12 +158,30 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
 
     // ----- part picking: clicks show / hide the selected layer on mesh parts ----------------------
     let bake_mode = state.bake.open || state.bake.job.is_some();
-    let picking = !bake_mode && state.picking_parts && state.session.selected_layer().is_some() && !state.painting;
+    let parts_picking = !bake_mode && state.picking_parts && state.session.selected_layer().is_some() && !state.painting;
+    // ----- ID Color Mask eyedropper: clicks add the ID map color under the cursor ------------
+    let id_picking = !bake_mode && !state.painting
+        && state.picking_id_color.is_some_and(|(layer, _)| state.session.selected_texture_set().find(layer).is_some());
+    if state.picking_id_color.is_some() && (!id_picking || ui.input(|i| i.key_pressed(egui::Key::Escape))) {
+        state.picking_id_color = None;
+    }
+    if id_picking && primary_pressed && response.hovered() && !alt && !stencil_edit
+        && let (Some((layer, effect)), Some(p)) = (state.picking_id_color, pointer)
+    {
+        match state.session.pick_id_color(layer, effect, &camera, to_screen(p)) {
+            Ok(Some(_)) => state.set_status("ID color added. Click more parts, Esc when done.", now),
+            Ok(None) if !state.session.has_id_map(state.session.selection().texture_set) => state.set_status("No ID map baked for this texture set: bake one in Bake Mesh Maps.", now),
+            Ok(None) => state.set_status("Nothing added: missed the model or that ID color is already picked.", now),
+            Err(e) => state.set_status(format!("ID Color Mask: {e}"), now),
+        }
+    }
+    if id_picking && response.hovered() { ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair); }
+    let picking = parts_picking || id_picking;
     if state.picking_parts && (!picking || ui.input(|i| i.key_pressed(egui::Key::Escape))) {
         state.picking_parts = false;
     }
-    let hovered_part = if picking { pointer.and_then(|p| state.session.part_at(&camera, to_screen(p))) } else { None };
-    if picking && primary_pressed && response.hovered() && !alt && !stencil_edit {
+    let hovered_part = if parts_picking { pointer.and_then(|p| state.session.part_at(&camera, to_screen(p))) } else { None };
+    if parts_picking && primary_pressed && response.hovered() && !alt && !stencil_edit {
         let layer = state.session.selected_layer().map(|l| l.id);
         match (layer, hovered_part) {
             (Some(layer), Some(part)) => {
@@ -145,6 +194,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     }
 
     // ----- painting ----------------------------------------------------------------------------
+    state.pen_pressure = pen_pressure(&ui.input(|i| i.events.clone()), state.pen_pressure);
     if !bake_mode && state.tool == Tool::Pen && !picking && !alt && !stencil_edit && !typing && let Some(p) = pointer {
             if primary_pressed && response.hovered() {
                 let hit = state.pen.preview(&state.session).and_then(|path| crate::pen::hit(path, state.pen.selected_anchor(), p, |uv| pen_position(state, &camera, rect, uv)));
@@ -166,7 +216,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 }
                 Tool::Clone if mods.command => {
                     if state.session.set_clone_source(&camera, sp) { state.set_status("Clone source set: now paint where the copy should go", now); }
-                    else { state.set_status("Ctrl+click the model to set the clone source", now); }
+                    else { state.set_status(crate::keys::native("Ctrl+click the model to set the clone source"), now); }
                 }
                 Tool::PolygonFill => {
                     state.session.brush.mode = StrokeMode::Paint;
@@ -185,6 +235,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     match state.session.begin_stroke() {
                         Ok(()) => {
                             state.painting = true;
+                            state.session.set_stroke_pressure(state.pen_pressure);
                             let line_from = if mods.shift { state.last_stroke_point } else { None };
                             if let Some(from) = line_from {
                                 let _ = state.session.stroke_to(&camera, from, true);
@@ -194,7 +245,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                             }
                             state.last_stroke_point = Some(sp);
                         }
-                        Err(subcraft_paint::PaintError::NoCloneSource) => state.set_status("Ctrl+click the model to set the clone source first", now),
+                        Err(subcraft_paint::PaintError::NoCloneSource) => state.set_status(crate::keys::native("Ctrl+click the model to set the clone source first"), now),
                         Err(e) => state.set_status(format!("Can't paint here: {e} (select a paint layer)"), now),
                     }
                 }
@@ -205,6 +256,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             && delta != egui::Vec2::ZERO
         {
             let sp = to_screen(p);
+            state.session.set_stroke_pressure(state.pen_pressure);
             let _ = state.session.stroke_to(&camera, sp, false);
             state.last_stroke_point = Some(sp);
         }
@@ -216,6 +268,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     // ----- render --------------------------------------------------------------------------------
     state.sync_gpu();
     let painter = ui.painter_at(rect);
+    let tracing = state.recovery.prefs.viewport.path_tracing && !bake_mode;
+    let mut pt_error = None;
     match (&state.render_state, &mut state.renderer) {
         (Some(rs), Some(renderer)) => {
             let t0 = web_time::Instant::now();
@@ -226,9 +280,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             params.exposure = view.exposure;
             params.post = view.post_params(state.session.scene().mesh.bounds.diagonal());
             params.view_mode = view.view_mode();
-            params.symmetry_guides = view.symmetry_guides && state.session.brush.options.symmetry.contains(&true) && !bake_mode;
+            params.symmetry_guides = view.symmetry_guides && state.session.brush.options.has_symmetry() && !bake_mode;
             if params.symmetry_guides {
-                let key = (std::sync::Arc::as_ptr(&state.session.scene().mesh) as usize, state.session.brush.options.symmetry);
+                let key = (std::sync::Arc::as_ptr(&state.session.scene().mesh) as usize, state.session.brush.options.symmetry, state.session.brush.options.radial);
                 if state.symmetry_uploaded != Some(key) {
                     renderer.set_symmetry_guides(&rs.device, &state.session.symmetry_guide_segments());
                     state.symmetry_uploaded = Some(key);
@@ -265,7 +319,31 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 &rs.device,
                 &rs.queue,
             );
-            let target = renderer.render(&rs.device, &rs.queue, render_size, &params);
+            // Rendering mode: path trace instead of rasterizing; any failure falls back to raster.
+            let pt_settings = view.path_trace_settings(state.pt_paused);
+            if !tracing && state.pt_active {
+                renderer.release_path_tracer();
+                state.pt_active = false;
+                state.pt_status = None;
+            }
+            let mut traced = false;
+            if tracing {
+                let scene = state.session.scene();
+                let key = std::sync::Arc::as_ptr(&scene.mesh) as usize as u64 ^ ((scene.mesh.triangle_count() as u64) << 40);
+                let pt_scene = subcraft_render::PathTraceScene { mesh: &scene.mesh, bvh: &scene.bvh, key };
+                match renderer.render_path_traced(&rs.device, &rs.queue, render_size, &params, &pt_scene, &pt_settings) {
+                    Ok((_, status)) => {
+                        traced = true;
+                        state.pt_active = true;
+                        state.pt_status = Some(status);
+                    }
+                    Err(e) => pt_error = Some(e),
+                }
+            }
+            if !traced {
+                renderer.render(&rs.device, &rs.queue, render_size, &params);
+            }
+            let target = if traced { renderer.path_target() } else { renderer.target() }.expect("rendered above");
             let mut egui_renderer = rs.renderer.write();
             let id = match state.viewport_texture {
                 Some(id) => {
@@ -285,6 +363,13 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             painter.rect_filled(rect, 0.0, theme::BG_0);
             painter.text(rect.center(), egui::Align2::CENTER_CENTER, "No GPU renderer available", theme::font(15.0), theme::TEXT_FAINT);
         }
+    }
+
+    if let Some(e) = pt_error {
+        log::warn!("{e}");
+        state.recovery.prefs.viewport.path_tracing = false;
+        state.pt_status = None;
+        state.set_status(e, now);
     }
 
     // ----- overlays ------------------------------------------------------------------------------
@@ -326,15 +411,30 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         if state.bake.overlay_active() { "Blue: high poly · Red: exposed low poly · Pale: cage · RMB orbit · Wheel zoom" }
         else { bake_hint.as_deref().unwrap_or("Baking mesh maps · RMB orbit · Wheel zoom") }
     } else if state.tool == Tool::Pen { "Click points · drag for curves · edit in 2D View · Enter finish · Esc cancel" }
-        else if state.tool == Tool::Clone { "Ctrl+click: set the source · LMB paint to copy it · RMB orbit" }
+        else if state.tool == Tool::Clone { crate::keys::native("Ctrl+click: set the source · LMB paint to copy it · RMB orbit") }
         else if state.tool == Tool::Smudge { "LMB drag to smudge the paint under the brush · RMB orbit" }
         else { "LMB paint · RMB menu / drag orbit · I isolate · H hide · Esc show all · Wheel zoom" };
     pill(&painter, rect.left_bottom() + egui::vec2(10.0, -10.0), egui::Align2::LEFT_BOTTOM, hint, theme::TEXT_FAINT);
     let mut right = rect.right_top() + egui::vec2(-10.0, 10.0);
-    if state.tool != Tool::Pen && state.session.brush.options.symmetry.iter().any(|&s| s) {
-        let axes: String = ["X", "Y", "Z"].iter().zip(state.session.brush.options.symmetry).filter(|(_, on)| *on).map(|(a, _)| *a).collect();
+    if state.tool != Tool::Pen && state.session.brush.options.has_symmetry() {
+        let options = &state.session.brush.options;
+        let mut axes: String = ["X", "Y", "Z"].iter().zip(options.symmetry).filter(|(_, on)| *on).map(|(a, _)| *a).collect();
+        let n = options.radial.effective_count(options.symmetry.iter().filter(|&&m| m).count());
+        if n > 1 {
+            if !axes.is_empty() { axes.push_str(" + "); }
+            axes.push_str(&format!("Radial {}×{n}", ["X", "Y", "Z"][(options.radial.axis as usize).min(2)]));
+        }
         let r = pill(&painter, right, egui::Align2::RIGHT_TOP, &format!("{}  Symmetry {axes}", icons::SYMMETRY), ACCENT);
         right.x = r.left() - 6.0;
+    }
+    if tracing && let Some(s) = state.pt_status {
+        let progress = if s.max_samples > 0 { format!("{} / {} samples", s.samples, s.max_samples) } else { format!("{} samples", s.samples) };
+        let what = if state.pt_paused { "paused".to_string() } else if s.converged() { "done".to_string() } else { format!("{:.0} samples/s", s.samples_per_second) };
+        let r = pill(&painter, right, egui::Align2::RIGHT_TOP, &format!("{}  Rendering · {progress} · {what}  ·  F10 exit", icons::SUN), ACCENT);
+        right.x = r.left() - 6.0;
+        if !state.pt_paused && !s.converged() {
+            ui.ctx().request_repaint();
+        }
     }
     if picking {
         let shown = state.session.selected_layer().and_then(|l| l.parts.as_ref()).filter(|p| p.enabled).map(|p| p.parts.contains(&hovered_part.unwrap_or(u32::MAX)));
@@ -353,9 +453,42 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         subcraft_paint::PaintTarget::Content => {}
     }
     brush_notice(state, ui, &painter, rect, now);
+    rendering_toggle(state, ui, rect, bake_mode);
     if state.painting || response.dragged() {
         ui.ctx().request_repaint();
     }
+}
+
+/// Rendering mode (path tracing) toggle in the 3D view's bottom-right corner (F10 and the View
+/// menu do the same); right-click for its settings, Pause while it is on.
+fn rendering_toggle(state: &mut UiState, ui: &Ui, rect: Rect, bake_mode: bool) {
+    if bake_mode {
+        return;
+    }
+    egui::Area::new(ui.id().with("rendering_toggle"))
+        .pivot(egui::Align2::RIGHT_BOTTOM)
+        .fixed_pos(rect.right_bottom() + egui::vec2(-10.0, -10.0))
+        .constrain_to(rect)
+        .show(ui.ctx(), |ui| {
+            ui.horizontal(|ui| {
+                let prefs = &mut state.recovery.prefs.viewport;
+                if prefs.path_tracing {
+                    let label = if state.pt_paused { "Resume" } else { "Pause" };
+                    let tip = if state.pt_paused { "Resume sampling" } else { "Pause sampling (keeps the current image)" };
+                    if ui.button(label).on_hover_text(tip).clicked() {
+                        state.pt_paused = !state.pt_paused;
+                    }
+                }
+                let response = ui.selectable_label(prefs.path_tracing, format!("{}  Render", icons::SUN))
+                    .on_hover_text("Rendering mode (F10) · path-traced preview: real shadows, reflections and bounce light. Samples add up while the camera is still. Right-click for settings");
+                if response.clicked() {
+                    prefs.path_tracing = !prefs.path_tracing;
+                }
+                egui::Popup::context_menu(&response)
+                    .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+                    .show(|ui| crate::viewport_bar::rendering_settings(ui, prefs));
+            });
+        });
 }
 
 /// "Brush: name" with its tip thumbnail, anchored inside the 3D view's top-left corner (below
@@ -451,5 +584,58 @@ mod tests {
         assert!(text(&draw(&mut state, &ctx, 1.0 + BrushNotice::HOLD + BrushNotice::FADE * 0.5)).is_some(), "still fading");
         assert!(text(&draw(&mut state, &ctx, 1.0 + BrushNotice::HOLD + BrushNotice::FADE + 0.01)).is_none());
         assert!(state.brush_notice.is_none(), "expired notice is cleared");
+    }
+}
+
+
+/// Pen pressure after this frame's input events. egui forwards pen/finger contacts as touch
+/// events; a pen reports its force (0..1), a finger or a mouse none, which counts as full
+/// pressure. The value is kept between frames while the contact lasts and resets on release.
+pub(crate) fn pen_pressure(events: &[egui::Event], current: f32) -> f32 {
+    let mut pressure = current;
+    for event in events {
+        if let egui::Event::Touch { phase, force, .. } = event {
+            pressure = match phase {
+                egui::TouchPhase::End | egui::TouchPhase::Cancel => 1.0,
+                _ => force.map_or(1.0, |f| f.clamp(0.0, 1.0)),
+            };
+        }
+    }
+    pressure
+}
+
+#[cfg(test)]
+mod pressure_tests {
+    use super::pen_pressure;
+
+    fn touch(phase: egui::TouchPhase, force: Option<f32>) -> egui::Event {
+        egui::Event::Touch {
+            device_id: egui::TouchDeviceId(0),
+            id: egui::TouchId(1),
+            phase,
+            pos: egui::Pos2::ZERO,
+            force,
+        }
+    }
+
+    #[test]
+    fn mouse_stays_full_pressure() {
+        assert_eq!(pen_pressure(&[], 1.0), 1.0);
+    }
+
+    #[test]
+    fn pen_force_is_followed_and_reset_on_release() {
+        let p = pen_pressure(&[touch(egui::TouchPhase::Start, Some(0.25))], 1.0);
+        assert_eq!(p, 0.25);
+        let p = pen_pressure(&[], p);
+        assert_eq!(p, 0.25, "kept while the pen stays down");
+        let p = pen_pressure(&[touch(egui::TouchPhase::Move, Some(0.8))], p);
+        assert_eq!(p, 0.8);
+        assert_eq!(pen_pressure(&[touch(egui::TouchPhase::End, Some(0.0))], p), 1.0);
+    }
+
+    #[test]
+    fn finger_without_force_is_full_pressure() {
+        assert_eq!(pen_pressure(&[touch(egui::TouchPhase::Start, None)], 0.3), 1.0);
     }
 }

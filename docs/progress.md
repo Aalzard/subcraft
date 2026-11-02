@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-10-20 (session 94: stable minified PBR viewport textures)
+Last updated: 2026-11-02 (session 113: community pull requests by Rafael Mendes merged locally)
 
 ## Decisions
 
@@ -2752,6 +2752,419 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
 * NOT verified: a normal map / brush tip applied by hand, real mouse use of the new Shelf tiles, installer
   size (see release notes), Linux build of the packaging changes.
 
+### Session 103 - Claude: open Substance Painter .spp projects (2026-10-22)
+
+* **Open end to end:** `.spp` is in `SUPPORTED_EXTENSIONS`, so File > Open, drag and drop, the command line,
+  the welcome screen and recent files all route to `Session::open_mesh`, which now calls
+  `Session::open_spp` (`crates/app/src/spp_import.rs`). New Project with an `.spp` still only reads the
+  model (its warning says to open the file directly). Verified: `subcraft.exe chalice_.spp --screenshot`
+  shows the dark-steel chalice with its Painter textures, the "Painter project (flattened)" layer and an
+  empty "Layer 1" above it (screenshot only; no mouse driving).
+* **Reader (`crates/mesh/src/spp/`, no new dependency):** `document.rs` decodes `paint/document.bin`
+  completely (all 11 sample files parse to their last byte): texture sets, channels, layer tree with names,
+  visibility, masks, sources, blend ids. `jp2.rs` is a from-scratch JPEG 2000 decoder (lossless 5/3, RCT,
+  reduced-resolution decode) for the baked-map tiles, bit-exact against OpenJPEG on a real tile and on two
+  synthetic tiles. `lz4.rs` + `images.rs` read the texture cache (the flattened channel textures) and the
+  baked maps; `qt.rs` the Qt property headers. 4096 baked maps decode in 0.3-1.5 s; at 512 in ~30 ms.
+* **Imported:** model, texture set with Painter's channels/resolution, baked maps (normal, world normal,
+  ID/color, AO, curvature, position, thickness; gutter-dilated), flattened Base Color / Height / Roughness /
+  Metallic / Normal / AO / Emissive / Opacity as one paint layer, export normal format, and notes naming
+  the Painter layers. Verified on all 11 sample projects by the probe tool (maps and cache decode without
+  error; UV coverage matches the baked alpha 1.000).
+* **Not recoverable:** `.sbsar` procedural layers/filters/generators (no Substance engine), the editable
+  layer stack (blend-mode ids not mapped), brush strokes as strokes. See `docs/spp-research.md`.
+* **NOT verified:** DirectX vs OpenGL meaning of `normalMapSyscoord` 0 (assumed DirectX; G is flipped on
+  import), Height units, projects with several texture sets (model parts cannot be assigned to sets; all
+  go into the first), UV-tile projects, Painter versions other than 10.x. Not looked at on screen:
+  normal-mapped lighting on a heavily normal-mapped sample.
+* Tests: mesh 11 new (`tests/spp.rs`: JP2 exactness, RCT, reduced decode, HDF5 writer round trip,
+  document, baked maps, cache) + LZ4/half-float unit tests; app 3 new (`tests/spp_open.rs`). All built from
+  a synthetic project (`crates/mesh/tests/support/spp_fixture.rs`); no user file is stored.
+
+### Session 104 - Claude: rebuild Painter layer stacks, read .sbsar archives (2026-10-23)
+
+* **Stack rebuild:** `crates/app/src/spp_stack.rs` rebuilds the Painter layers as a folder (uniform fills,
+  mask effect stacks with generators, noise patterns, Levels, filters, grunge bitmaps) beside the flattened
+  layer, with hidden named placeholders for what has no counterpart, and a quality gate that composites
+  it at <= 512 texels and compares with Painter's flattened channels. On all 11 sample projects the
+  gate currently rejects the rebuild (it stays hidden, the flattened layer shows), so nothing looks worse
+  than before; the notes list the numbers and what was not rebuilt. Blend-mode ids are still unmapped.
+* **Archives:** `spp/sevenz.rs` (7z + LZMA, from scratch) reads every `.sbsar` in the samples (134/134);
+  embedded grunge / bitmap JPEGs are extracted at import time into the project only.
+* **Speed:** shared nearest-texel search for all baked maps of a set and parallel jump flooding
+  (`subcraft_image::dilate::nearest_covered`): a 4096 project opens in about 14 s instead of 80 s.
+* Document model now carries per-layer content and mask actions with graph names and tweaks.
+* Tests: 13 mesh (`tests/spp.rs`, incl. 7z readers built by an independent script, embedded JPEG
+  lookup), app `tests/spp_open.rs` updated for the rebuilt folder. NOT verified: what the reconstructed
+  stack looks like on screen when it passes the gate (no sample passes), blend ids, parameter scaling of
+  blur/sharpen/HSL/dirt/edge generators.
+
+### Session 105 - Claude: .spp blend ids and parameter calibration (2026-10-24)
+
+* **Blend-mode table: not done.** No calibration project exists yet (searched Downloads, Desktop, Documents:
+  no `*blend*.spp`; the newest .spp files are the 11 known samples). Nothing was guessed; ids stay unmapped
+  (25 = Normal). When the file exists: read `LayerInfo.blends` + `channel_texture` per layer, solve the
+  id -> `BlendMode` table from the pixel values, then use it in `Rebuilder::apply_opacity`.
+* **Parameter calibration: no change kept.** New debug aid: `SUBCRAFT_SPP_DEBUG=1` adds the mean of the
+  rebuilt and of Painter's channel to the import notes. It shows that the gate failures are NOT parameter
+  scalings. Rebuilt vs Painter mean Base Color: CorridorFloor 0.013 vs 0.408, RoomFloor 0.001 vs 0.44,
+  RoomInteriorWall 0.029 vs 0.39, RoomEntranceDoor 0.002 vs 0.169, Chalice 0.485 vs 0.007 (metal 0 vs 0.82),
+  Walker 0.697 vs 0.151, Street_cyberpunk 1.0/0.22/0.76 vs 0.115 (a pink layer with a mask that cannot be
+  rebuilt). Causes: the base is a Substance material graph (`metal_sandblasted`, `steel_003_bitmap`,
+  `concrete_asphalt`, `metal_brushed`) that has no counterpart (the rebuilt layer is empty), 12-121 painted
+  mask strokes per project, mask decals, masks left off, unmapped blend ids. Every sample has several of
+  these, so blur/sharpen/HSL/dirt/edge scalings cannot be measured on any file: their effect is far below
+  the error. Changing them would be a guess, so they were left as they are.
+* **Gate results, all 11 (Base Color / Roughness / Metallic error, 0..1; gate wants < 0.04 / 0.06 / 0.06):**
+  chalice 0.383/0.159/0.820; RoomFloor 0.439/0.025/-; RoomInteriorWall 0.361/0.020/-; CorridorFloor 0.399/0.021/-;
+  RoomEntranceDoor 0.168/0.111/0.495; RoomEntranceWall 0.174/0.018/0.060; OxygenDeviceProvider 0.142/0.340/0.723;
+  Street_cyberpunk 0.564/0.149/0.000; TheWalker_ 0.574/0.234/0.312 (and its autosave, identical);
+  CarInteriro 0.015/0.487/0.008 (4096, 14.6 s). **0 of 11 pass**; all keep the flattened layer visible.
+* **What would move the numbers (in order):** 1. Substance material graphs as fill sources (needs an
+  engine or baked equivalents), 2. blend ids (calibration file), 3. painted strokes (not recoverable),
+  4. then parameter scalings, measurable only on a project whose layers are all rebuildable (ask the
+  owner for a small one made of fills, masks, generators and filters only).
+
+### Session 106 - UI robustness: overflowing dialogs, saved layout, startup failure (2026-10-24)
+
+* **Fixed:** New Project window grew thousands of px wide with many parts (plain joined label in a grid).
+  Material/object/tile lists now wrap and scroll in a bounded box; the error text, warnings and template
+  text wrap; set names truncate; the window scroll area leaves room on small screens.
+* **All windows:** `widgets::window()` caps every window's width and height to the screen (14 windows
+  use it). Long text in Export (file paths), Bake (errors), updates (release notes, errors), Preferences
+  (graphics warnings), recovery, asset preview and the status bar now wraps or truncates with a tooltip.
+* **Saved layout:** a restored dock layout is only used if every panel is present exactly once, there
+  are no floating windows and no split is squeezed (`layout_is_valid`); otherwise the default is used and
+  a warning is logged. New `--reset-layout` (also ignores the saved window position/size). View > Reset
+  layout already existed. eframe already clamps the saved window position/size to the monitors. Minimum
+  window size lowered from 900x560 to 640x420 (a 1366x768 screen at 150% is only 910x512 points).
+* **Startup failure:** if the chosen graphics API cannot start, Automatic then OpenGL are tried; if none
+  works a message window shows the errors, the log file path and the issues link (before, a packaged build
+  just vanished). `startup_attempts` and `startup_failure_message` are unit tested.
+* **New options:** `--window-size WxH`, `--scale S` (scripted layout checks), `--reset-layout`.
+* Tests: subcraft-ui 46, subcraft-app all pass. New: New Project with 40 long-named parts and a 2000-char
+  error at 1024x600, 1280x720@1.5, 960x540@2 and 1920x1080 stays inside the screen; layout validation;
+  startup order/message; size parsing. Scripted screenshot: docs/screenshots/new-project-many-parts-1024x600.png.
+* **Not verified:** real GPU/adapter failure, device/surface loss, a second window loop after a failed first
+  one (winit may refuse), multi-monitor and 4K at 150% (only scripted sizes), the viewport texture-limit
+  crash (issue #59) is fixed separately on fix/viewport-texture-limit and untouched here.
+* **Remaining (not fixed):** tall dialogs (Export, Bake, Render quality) are not scrollable on screens
+  shorter than their content; Painter .spp import notes have no UI in this branch; layer/effect names in
+  dock panels rely on the panel's own scrolling; text clipping at 200% beyond the New Project window was
+  not screenshotted.
+
+### Session 103 - Pen pressure, triage (2026-10-26)
+
+- Triage written to `docs/next-work.md`.
+- Issue #59 fix (viewport render targets clamped to the device texture limit) cherry-picked from
+  `fd894bd`; render headless tests and `brush_normal_scale` pass.
+- Issue #61, partly: brush strokes now follow pen pressure. New brush settings `pressure_size`
+  (default 1) and `pressure_flow` (default 0), both in the Symmetry & Lazy Mouse popup; old
+  presets load with those defaults. A mouse reports full pressure, so nothing changes for it.
+  Pressure comes from egui touch events (`force`), which winit sends for Windows pen input.
+  Tests: paint engine (size and flow scale with pressure, off at amount 0) and event handling
+  (`pen_pressure`). Stroke-wide Opacity is not pressure driven (it is a cap applied when tiles are
+  written). Not verified with a real pen; not possible on Linux/Wayland with winit 0.30, which
+  has no tablet protocol (needs a newer winit or a new dependency: owner decision).
+
+### Session 107 - Painting audit: Edge Wear and hard-edge brush on the baked crate (2026-10-27)
+
+* Branch brought up to date with feature/brush-roadmap; pen pressure (4998acb) and the viewport
+  texture clamp (5ab050f) cherry-picked. paint / render / ui tests green before starting.
+* **Edge Wear:** re-checked on the real baked default crate with new numeric tests
+  (crates/app/tests/edge_crate_properties.rs). Convex top rim is fully covered, flat side panels
+  have zero wear, wear at coincident 3D points from different UV islands is identical (2292 pairs,
+  0 differences), and rim / inner-band / top-face coverage agree between 512 and 1024 texture-set
+  resolutions, Natural off and on. No defect was reproduced, so no generator code was changed.
+  Observations: Natural off is only about 0.014 world units wide at Level 0.85 (it is bounded by
+  the bake's curvature radius), and its profile is not meaningful at 256 because a texel there is
+  about 0.006 units. Natural on reaches about 0.05 units at Level 0.85.
+* **Brush across hard edges:** new test stroke_over_a_hard_edge_has_no_gap_and_keeps_its_width
+  (crates/paint/tests/paint.rs) drags a hard round brush over the top, across the front edge and
+  down the front of a cube, subdivided atlas boxes, a non-uniform box and the default crate. The
+  painted strip is one gap-free interval across the fold and as wide on the side as on the top.
+  No defect found; no paint code changed. Note: on the crate, trim bands stand proud of the body
+  front at 0.26-0.38 below the top, so a stroke there lands on the Trim set, not a gap.
+* NOT done / NOT verified: no new real-app screenshots (the demo scene has no edge wear mask; the
+  Session 95 win-edge-wear-* captures remain the real-app evidence); painting with a mouse or
+  tablet across an edge by hand; rounded edges and normal-texture brushes on the side face;
+  filter / folder adjustment and effect drag-reorder audit (item 3) not started.
+
+### Session 108 - More built-in content: 14 smart materials, 15 smart masks, 13 brush presets (2026-10-27)
+
+* **Smart materials (+14):** Rusted Painted Metal, Oily Metal, Painted Steel Edge Wear, Dirty Rubber,
+  Snow Covered Stone, Sandblasted Aluminium, Weathered Brick, Muddy Leather, Charred Wood,
+  Galvanized Steel, Grimy Ceramic, Weathered Plaster, Mossy Wood, Pitted Cast Iron
+  (crates/assets/src/smart_extra.rs). Each is a folder of fill layers with masks from
+  Edges / Cavity / Directional / PositionGradient generators plus procedural breakup. Uniform
+  albedos are in 0.01-0.92 linear; metals use metallic 1, dielectrics 0.
+* **Smart masks (+15):** Cavity Dust, Heavy Drips, Scratch Wear, Edge Chips, Rain Streaks, Smudges,
+  Burn Marks, Corner Wear, Moss on Top, Random Grime, Fine Dust Speckle, Oil Film, Bottom Mud,
+  Lichen Patches, Brushed Wear. A recipe is a single effect, so each is one generator or pattern.
+* **Brush presets (+13, built in):** Hard Round, Soft Airbrush, Chalk, Ink Pen, Charcoal, Scatter
+  Dots, Hatch Lines, Splatter, Dry Brush, Texture Stamp, Spray Paint, Chisel Marker, Pencil
+  (crates/app/src/brush_builtin.rs). They use only existing tips and settings, carry no material
+  (the current paint colour is kept) and show first in Shelf > Brushes ahead of the user's presets.
+* **Shelf:** smart materials and masks have a category (Metal, Paint, Stone, Wood, Fabric, Plastic,
+  Nature / Wear, Dirt, Dust, Water, Damage, Breakup) shown as filter chips, searchable, with a
+  one-line description in the tooltip (assets `smart_material_info` / `smart_mask_info`).
+* **Tests:** assets catalog / info / albedo-range tests; crates/app/tests/smart_content.rs now also
+  checks the new names, overall base colour / roughness / metallic of snow, char, rubber,
+  aluminium, oily metal, zinc and brick on the baked default crate, and a project save / load of
+  every new item; crates/app/tests/brush_builtin.rs checks the catalog, JSON round trip and a real
+  stroke per preset (coverage, airbrush more translucent than hard round, ink thinner than airbrush).
+  Tuning found by the test: Oily Metal first covered half the crate in oil; raised the cavity level and
+  thinned the streak mask (higher cavity Level = less coverage).
+* Weathered Brick is irregular Cells with a mortar layer (no brick-course pattern exists in the engine).
+* NOT verified: painting with the new brushes by hand, pen-pressure feel, and dedicated thumbnails
+  for brush presets (they reuse the tip's thumbnail, so Hard Round, Soft Airbrush, Ink Pen and Pencil look alike).
+* **Screenshots (real app, scripted, empty user library, demo crate):**
+  docs/screenshots/more-presets-smart-materials.png (category chips Metal / Plastic / Wood / Fabric /
+  Paint / Stone / Nature; sphere thumbnails render; the 14 new items are further down the scroll, only
+  the first 15 fit in the capture) and more-presets-brushes.png (the 13 new presets now come first, before
+  the CC0 starter tips; before this the starter tips were drawn first and buried them).
+  Note: `--shelf-panel` forces the Textures tab; use `--shelf-tab` alone to capture other tabs.
+### Session 103 - Claude: Layers panel folder hierarchy and generators (2026-10-29)
+
+* User request: make folders in the Layers tab more visual, including the hierarchy, and include
+  the generators there.
+* Folders: open/closed folder icon, a badge with the number of layers inside (all descendants,
+  also when collapsed), bold name and a warm row band (`theme::FOLDER`, `FOLDER_BAND`).
+  Hierarchy guides (`theme::TREE_LINE`): each expanded folder draws a vertical line from its
+  caret to its last child, and every child a tick to it; nested folders draw their own.
+* Generators: every layer lists its mask generators as compact rows under it (wand icon, name,
+  eye), top of the stack first. Clicking a row selects the layer's mask and opens the generator
+  in Properties; the eye hides it (one undo step). The selected layer's mask stack shows them
+  itself, so they are not listed twice. A toolbar wand menu adds a generator (Edge wear, Dirt,
+  Directional, Position gradient, Mesh map AO / Curvature / Thickness) to the selected layer —
+  adding a black mask if needed — and opens it; the row context menu uses the same list.
+* Tests (`ui/tests/layer_tree.rs`): folder icon, counts and guide lines (5 for two nested
+  folders, none when collapsed); toolbar menu adds a Cavity generator and opens it; its row
+  under a non-selected layer reselects it on the mask; the row eye hides it with one undo
+  entry. `cargo test -p subcraft-ui` passes.
+* Ran the release build on a project with a smart material and nested folders:
+  `docs/screenshots/layers-folders-generators.png`.
+* Rebased onto `origin/main` (session 102): rows use the new variable `row_height`
+  (thumbnail-sized) for folder rows too; `tree_row` uses the upstream `list_row_sized` argument order.
+* Cavity's label is now "Dirt" upstream, so the test clicks "Generator (Dirt)".
+* Verified after the rebase (2026-10-29): `cargo test --workspace --no-fail-fast` **637 pass, 0
+  failed/ignored**; `cargo build --release` clean. Screenshot regenerated with the 0.1.8 release
+  executable (`--screenshot`) on a cube project with nested folders and Dirt / Edges / Directional
+  generators built through `Session` commands: `docs/screenshots/layers-folders-generators.png`.
+  Not verified: real mouse clicks on the toolbar wand menu (covered by the egui event tests only).
+### Session 108 - Claude: Bake Match by Name (2026-10-30)
+
+* **Match: Always / By mesh name** in the Bake window, shown when a high poly is set, with
+  **Low / high suffix** fields (defaults `_low` / `_high`; case-insensitive; `_lo` / `_hi` always
+  accepted; a trailing `.001` counter is ignored). Stored as `ProjectSettings.bake_match`, which is an
+  optional field: it is left out of the file when it is default, so **no schema bump** (stays 13).
+  Data type `subcraft_core::BakeMatch`; `--bake-match always|name` for scripted runs.
+* `subcraft_bake::name_match::PartMatch`: part = object name (the mesh name when the file has no
+  objects). Equal base names form a group. The baker keeps the **one shared high-poly BVH** and
+  traverses it with a triangle filter (`intersect_filtered`, new `Bvh::occluded_filtered`).
+  Projection (Normal, World Normal, Height, ID), AO, Bent Normal and Thickness rays from a low part
+  only accept high triangles from its group. Position is sampled on the low poly, so it is
+  unaffected. Curvature keeps its existing element filter. Low parts without a group fall back to
+  Always. The job logs them and sends a notice, and the Bake window and status bar show it.
+* Tests: 643 pass (+9). Bake: a high-B plate overhanging low-A bleeds into A's Normal / World
+  Normal / Height / Thickness with Always, and By name gives exact flat values (normal 0.5,0.5,1 ±1e-3,
+  height 0.5, AO 1.0). A plate above the cage occludes A only with Always. An unmatched part gives
+  output identical to Always and is reported. Also covered: suffix parsing, mesh-name fallback,
+  filtered BVH queries. App: a real OBJ high poly through `BakeJob` gives an isolated panel, the
+  fallback part and its notice, and the setting survives save / reopen. UI: Match appears only with
+  a high poly, clicking By mesh name sets the project setting and shows the suffix fields, and
+  notices are drawn.
+* Native (release build, scripted 2-part OBJ scene, `--bake-match always|name --bake-size 512
+  --bake-preview-map normal_base --screenshot`): with Always, B's ridged plate shows as bands
+  on part A's baked normal. With By mesh name, A is flat. The dialog shows Match and the suffix
+  fields. I compared the screenshots by eye only (no pixel statistics).
+* NOT verified: typing in the suffix fields with a real mouse and keyboard, and a production
+  multi-part FBX/GLB with real object names.
+### Session 73 — painting in the 2D view and per-channel paint switches (2026-10-19)
+
+* User request: brush / textures / layer editing in the 2D view like Painter, and painting a
+  single PBR channel (only roughness, only metallic, …).
+* `paint`: `Stroke::add_uv_point` paints UV-space stamps (`Alignment::Uv` footprint, no 3D
+  visibility test, so faces hidden from the 3D camera are reachable). Brush size = the 3D size
+  at the texture set's average texel density (`stroke::uv_per_unit`), so strokes cover the same
+  texels in both views. Spacing, jitter, follow-path, lazy mouse (view px → texels), Shift+click
+  lines, brush alphas, brush images, parts restriction and mask / Paint-effect targets all go
+  through the existing kernel; symmetry and stencils stay 3D-only. `Stroke::polygon_fill_uv`
+  picks the triangle under the UV (`stroke::triangle_at_uv`) and reuses the 3D fill.
+* `BrushMaterial::{is_enabled, toggle, solo}`; `app`: `Session::stroke_to_uv`,
+  `polygon_fill_uv`, `brush_radius_uv`, and `Command::AddChannel` (adds AO / Emissive / Opacity /
+  Specular / … to a texture set and enables it on the brush; one undo step).
+* UI: the 2D view header has the brush bar (Brush / Eraser / Polygon Fill, size, flow,
+  opacity, hardness, symmetry/lazy popover) and channel switches; LMB paints, Alt+LMB / MMB pan,
+  wheel zooms; brush cursor sized in UV. A crosshair button next to "Show" paints only the shown
+  channel. The same channel switches sit under the 3D view's brush bar: click = on/off,
+  Shift+click = paint only that channel (again = all), "+" adds a missing PBR channel.
+* Tests: `paint/tests/uv_paint.rs` (disc footprint ≈ πr² with nothing beyond the radius on a
+  back face, only enabled channels written, gap-free UV line, UV polygon fill bit-identical to
+  the 3D fill of the same triangle in Triangle and UV-island modes, UV picking of every
+  triangle centroid); `settings` toggle/solo unit test; `app/tests/session.rs` (2D stroke =
+  one undo step painting only the soloed channel, AddChannel + undo); `ui/tests/uv_paint.rs`
+  (real egui drags in the 2D view: stroke without panning, Alt+drag pans, Shift+click
+  "Rough" then paint touches only roughness, polygon fill). `cargo test --workspace`: all pass.
+* Ran the release build (`--demo --view-2d --screenshot`): toolbar and switches render,
+  `docs/screenshots/uv-view-painting.png`. Not done: hand-painting with a real mouse/pen in
+  the running app on Windows (the egui-input tests drive the same code paths).
+### Session 74 — CC0 open pack: materials, HDRIs, smart materials, masks, brush presets (2026-10-19)
+
+* User request: import free-licensed smart materials, masks, filters, brushes, alphas, textures and
+  environments as styling options. Nothing was taken from Adobe Substance 3D Painter (its bundled
+  content is Adobe-licensed); everything below is CC0 or written for SubCraft.
+* `assets/open-pack` (credits in `CREDITS-CC0.txt`, shipped by the Windows/Linux packages):
+  10 ambientCG PBR materials (Color, Roughness, NormalGL, Height, Metalness when present; the
+  1K-JPG downloads re-encoded, gray maps as 1-channel JPEG, 7.9 MB) and 4 Poly Haven 1K HDRIs
+  (5.3 MB). Desktop embeds them; the web build leaves the pack out.
+* `assets::open_pack`: materials are `MaterialPreset`s with `PresetImage`s, decoded only when
+  applied or previewed; `build_with(ts, ids)` fills image channels (UV projection — tangent
+  normal maps need the mesh frame; 2:1 maps tile twice as often vertically; height strength
+  0.08). Environments use the new `EnvironmentSource::Embedded`, prefiltered once on first use.
+* 5 textured smart materials (Painted Steel Plates, Rusted Steel, Worn Leather, Mossy Bricks,
+  Dusty Concrete), 6 smart masks (Heavy Edge Wear, Soft Cavity Dirt, Moss on Top, Rising Damp,
+  Scratches, Cloudy Variation) and 7 built-in brush presets on the built-in tips (Soft Airbrush,
+  Dirt Grunge, Rust Spatter, Bare Metal Scratches, Spray Paint, Engraved Line, Raised Rivet).
+  `Session::add_material` / `add_smart_material` import the images (deduplicated by bytes) so the
+  project stays portable; one undo step.
+* Not added: filters (blur/sharpen need the neighborhood evaluator, roadmap step 3) and new
+  alphas/textures (the starter pack's 30 CC0 alphas and 30 normals already cover them).
+* Launch options `--shelf <tab>[/search]` and `--environment <name>`; a screenshot waits until the
+  shelf's thumbnails are rendered. Used for `docs/screenshots/open-pack-*.png`.
+* Tests: `assets/tests/open_pack.rs` (every image decodes at 1024 wide with square texels, gray
+  data maps, image channels only with ids, dielectric default, all HDRIs prefilter once with
+  ambient light, library ids unique, textured smart material structure), `app/tests/asset_apply.rs`
+  (material imports images once and composites image detail, smart material one undo step,
+  presets find their tips), Windows packaging test (open-pack credits). Workspace tests all pass.
+* Ran the release build: Materials / Smart Materials / Environments / Brushes thumbnails render
+  from the pack, and the viewport lights with each HDRI. "Weathered Steel" was renamed "Stained
+  Steel" after measuring its maps (mean roughness 0.13: polished, not weathered).
+### Session 104 - Claude: Edit in PhotoCraft (2026-10-29)
+
+* Owner request: edit the layers in PhotoCraft (sibling ArtCraft image editor) and bring them back.
+  Owner choices: whole layer stack, paint layers only, use the local PhotoCraft checkout.
+  Decision record: ADR-0040 (numbered 0039 in the PR; renumbered when merged after GPU baking).
+* `export::psd`: one 16-bit PSD per channel of the selected texture set through PhotoCraft's own
+  `photocraft-psd` crate (git dependency pinned to `c5352f2`; a local uncommitted
+  `.cargo/config.toml` `[patch]` builds it from `../photocraft`). Folders become groups, paint layers
+  raster layers with their painted mask; fill layers and effects stay out. sRGB for color channels,
+  raw data channels, Height `h * 0.5 + 0.5`. Each record's `lyid` maps back to the layer UUID.
+  The return trip writes only tiles whose hash differs from what was written (color under zero
+  alpha ignored), so untouched texels stay bit-exact; names/visibility apply when changed in the
+  file; unknown raster layers become paint layers above their nearest known neighbor; deletions
+  are reported, not applied; a resized canvas or changed color mode is refused.
+* `app::photocraft::Exchange`: writes the files into a temp session folder, launches PhotoCraft
+  (`SUBCRAFT_PHOTOCRAFT`, `PATH`, or a sibling `photocraft/target/{release,debug}` build), polls
+  file stamps twice a second and applies a save once two checks agree, as one undo step via the new
+  `Command::ReplaceTextureSetLayers` ("Edit in PhotoCraft (<channel>)").
+* `ui`: Layer menu › Edit in PhotoCraft… / Stop editing; Layers panel banner with Stop; status line
+  reports repainted tiles, added layers, renames, kept deletions and errors.
+* Tests: 8 PSD tests (hierarchy and ids, encodings, unedited file is a no-op with bit-exact texels,
+  one edited texel rewrites one tile, transparent recolor ignored, names/visibility/masks, added
+  layer placed and not duplicated on re-save, deletions/resized canvas/wrong mode), 4 app tests
+  (files out, settled save = one undo step and undo, broken file / removed set, no paint layers),
+  1 UI test (banner and Stop). `cargo test --workspace --no-fail-fast` **647 pass, 0 failed**.
+* Real PhotoCraft (local release build of `c5352f2`): `photocraft-cli run <Base Color PSD>
+  --cmd image.adjustments.invert --cmd layer.duplicate --in-place` on an exported cube project; the
+  exchange applied "8 tile(s) repainted, 1 layer(s) added": inverted Top kept its UUID (lyid kept by
+  PhotoCraft), "Top copy" became a paint layer above it, a transparent texel stayed bit-exact; a
+  second save repainted 4 tiles without duplicating the copy. The PhotoCraft GUI opened the exported
+  PSD with both layers (RGB/16): `docs/screenshots/photocraft-roundtrip.png` (via its control
+  channel screenshot). Not verified: clicking the SubCraft menu item in the desktop app (the launch
+  path finder and banner are covered only by code and the headless UI test), PSDs from other
+  editors, 4K stacks' memory/time.
+### Session 106 - Claude: ID Color Mask (2026-10-30)
+
+* **ID Color Mask (ADR-0041):** new mask effect `MaskEffectKind::IdColor` (picked colors, tolerance,
+  softness, invert) selecting texels of the baked ID map by Euclidean RGB distance on raw values.
+  Chosen over a `GeneratorKind` variant (Generator is `Copy`, its level/noise fields don't apply).
+  Per-tile local compositor kernel; without a baked ID map the effect is opaque black (also inverted)
+  and Properties shows a "No ID map baked" hint.
+* app: `Command::SetIdColors` (never coalesces: one undo step per pick/removal), `Session::pick_id_color`
+  (ray pick + point-sampled ID map at the hit UV), `remove_id_color`, `has_id_map`, `id_map_color`,
+  `mask_selected_by_id_color`; `LayerAction::IdColorMask`, `PartAction::MaskByIdColor`.
+* ui: Properties editor with swatches + remove buttons, "Pick from model" toggle (crosshair in the 3D
+  view, Esc stops, painting suppressed while picking), Tolerance/Softness/Invert; added to the Properties,
+  mask panel and effect-stack add menus, layer context menu "Add ID color mask", 3D-view context menu
+  "Mask by ID color".
+* Project **schema 15** (`id_color` mask effect; 14 in the PR, renumbered after our schema 14 filters); schemas 1-14 load unchanged (tested); Smart Mask
+  fragments carry it.
+* Tests: `cargo test --workspace --no-fail-fast` 642 pass (new: compositor id_color 4 with exact texel and
+  dirty-tile counts, doc 1, project 1, app id_color 2, ui id_color 1). `ui --test parts_view` flaked once
+  under the parallel run, passes alone.
+* Real app (release, RX 9060 XT / Dx12): `cargo run -p subcraft-app --example id_color_project` bakes the ID
+  map of the sample crate trim set and picks 3 colors through `pick_id_color` (657,598 / 1,048,576 texels
+  selected); `subcraft id.subcraft --screenshot` shows the orange fill only on the trim bands, posts and caps
+  unselected: `docs/screenshots/id-color-mask.png`.
+* NOT verified: clicking "Pick from model" / "Mask by ID color" with the real mouse in the desktop window
+  (covered through the app API and egui-input tests only).
+### Session 107 - Claude: Mesh reload (2026-10-30)
+
+* **File > Reload mesh…** (ADR-0042; 0041 in the PR) swaps the model under an existing project. A window shows the
+  path (default: the last model file, saved as `ProjectSettings.mesh_source`), Browse / Check, the
+  set matches, the two modes and a warning that undo history is cleared, then a progress bar with
+  Cancel. Both steps run in the background (`crates/app/src/mesh_reload.rs`).
+  * **Check:** imports the file, groups it by material, object or single set (whichever matches the
+    most current set names; UDIM tiles get their own sets), matches by name and measures how far
+    each layout moved (64² probe, more than 2% moved texels suggests Reproject).
+  * **Keep UVs:** the layers are reused unchanged (shared, bit-exact).
+  * **Reproject:** each new texel finds its 3D point, the closest point on the old surface within the
+    matched old set (new filtered closest-point BVH query) and the old UV there
+    (`mesh::transfer`). Paint channels, paint effects, mask paint, mask paint effects and baked mesh
+    maps are resampled; samples outside old islands are skipped so seams take no gutter colour; only
+    tiles that receive paint are allocated. Pen paths become paint layers; reprojected baked maps
+    are flagged stale (`ProjectSettings.stale_mesh_maps`, cleared by a bake).
+  * New materials get an empty set; unmatched old sets are kept on an empty extra slot and reported.
+    Part visibility is reset; layers using part visibility are counted in the report.
+  * Finishing is refused if the project changed while the reload was prepared. The project is marked
+    modified. Both new settings are optional, so the schema did not change.
+* Scripted run: `subcraft <project|--demo> --reload-mesh v2.obj --reload-mode keep|reproject
+  --screenshot out.png` (screenshots wait for the reload).
+* Tests: **644 pass** (`cargo test --workspace`). New: mesh closest-point vs brute force,
+  correspondence identity / mirrored / coverage; app/tests/mesh_reload.rs (6): cube to a cube with
+  90°-rotated UVs through a real OBJ (colours within 0.03 at 7 points per triangle incl. next to every
+  seam, mask too), sparse tile allocation, Keep UVs bit-exact, material-name matching on the sample
+  crate with a renamed material and reordered sets, save/reopen keeps the stale flag and model path,
+  stale reload refused. Clippy: no warnings in the new or changed code.
+* App check (release build, scripted): `--demo` crate, then `--reload-mesh` with the same crate
+  written as OBJ (`crate_obj` example) with every UV rotated 90° about (0.5, 0.5). Reproject: status
+  "2 texture set(s) matched, 4 raster(s) reprojected"; the red strokes and the masked moss top are in
+  the same place on the model as before the reload (docs/screenshots/mesh-reload.png); undo is
+  greyed out. Keep UVs on the same file moves the strokes to the rotated layout, as expected. The
+  UV-projected wood fill pattern follows the new UVs in both modes (fills are not rasters).
+* NOT done / limits: painted Normal-channel values are copied, not re-oriented when an island
+  rotates; no undo across a reload; the window was not driven with a real mouse.
+### Session 109 - Claude: radial symmetry (2026-10-30)
+
+* **Radial symmetry (ADR-0043; 0042 in the PR):** `StrokeOptions::radial` (`RadialSymmetry { enabled, axis, count,
+  center_offset }`). The stroke repeats N = 2..64 times around X/Y/Z through the bounds center (plus an
+  optional offset). Copy k is painted through `Camera::rotated` (the view rotated by k·360/N), the same way
+  mirroring already works. Radial and mirror **combine**: view, then its rotations, then the mirror expansion,
+  for N·2^m copies, capped at 64 (`effective_count` lowers N when mirrors are on, because each copy needs a
+  viewport-sized depth map). With radial off or N = 1 the camera list is unchanged, so output is bit-exact.
+* `DepthCache::get_all` renders missing depth maps in parallel, keeps every copy of the stroke cached, and
+  shrinks back to 8 entries on the next smaller request.
+* Presets: the setting is saved in brush presets through `StrokeOptions` (`serde(default)`). Older presets
+  load with radial off, and the format version stays 2. `SetStrokeOptions` clamps the count to 2..=64 and
+  the axis to 0..=2, and rejects a non-finite offset.
+* UI: the Symmetry & Lazy Mouse popover has a Radial section (on/off, axis X/Y/Z, copies slider, offset,
+  copy count when combined with mirror). The viewport pill reads e.g. "Symmetry X + Radial Y×8". The red
+  guide pass draws the radial axis and one spoke per copy (`guides::radial_guides`). New CLI options
+  `--radial y8` and `--capture-tool radial`.
+* Tests: 644 pass in the workspace, 0 fail (new: 4 paint acceptance tests (4 blobs rotated by 90° with mass
+  within 5% and centroids < 0.02; off / N=1 bit-exact with plain and mirror strokes; radial 4 + mirror X =
+  8 groups; center offset), the copy-count clamp, the rotated-camera projection, depth `get_all`, the
+  radial guide geometry, a preset round trip with radial plus loading a pre-radial preset, command clamping,
+  and one undo step per radial stroke). Mutation check: changing the rotation angle by 10% makes 3 of the 4
+  paint tests fail.
+* Verified in the release app: `subcraft --capture-tool radial` (sample crate, Y×8, scripted strokes
+  through `Session::stroke_to`) paints rotated copies on the top and sides, and shows the axis and spokes
+  plus the pill. Saved as docs/screenshots/radial-symmetry.png.
+* NOT verified: the popover controls with a real mouse, a 64-copy stroke at 1080p (memory and first-dab
+  time), or strokes on meshes that are not rotationally symmetric (copies land wherever the rotated rays
+  hit, the same as mirroring).
+
 ## Next steps (in order)
 
 Owner checks imported PBRs in the refreshed target/debug/subcraft.exe, especially close-up
@@ -2859,13 +3272,554 @@ Earlier roadmap details (historical; the brush phase order above takes precedenc
    materials / masks~~ (session 16); ~~shelf search and categories~~ (session 17);
    ~~brush presets~~ (session 18), ~~drag-and-drop from shelf~~ (session 19).
 3. Stencils / projection painting with an image; clone tool; smudge / blur filter layers.
-4. Bake follow-ups: per-material high-poly matching by name, cage mesh support, anti-aliased
+4. Bake follow-ups: ~~high-poly matching by name~~ (session 108), cage mesh support, anti-aliased
    (supersampled) bakes, GPU baking for large meshes.
 5. ~~Autosave~~ (session 28) + recent files; export presets saved per project; custom export templates editor.
-6. UI follow-ups: drag-and-drop layer reordering, inline rename, eyedropper, painting in the
-   2D view, texture-set resolution change, camera FOV / ortho toggle, texture mipmaps.
+6. UI follow-ups: drag-and-drop layer reordering, inline rename, eyedropper, ~~painting in the
+   2D view~~ (session 73; follow-ups: UV-space symmetry, 2D stencils, eyedropper in 2D), texture-set resolution change, camera FOV / ortho toggle, texture mipmaps.
 7. Engine follow-ups: incremental dirty tracking inside mask paint effects; near-plane
    clipping in the depth rasterizer; f16 tile geometry; renormalize normals after opacity
    lerp; GPU compositor behind the same interface.
 
 All workspace crates now have real implementations.
+
+## Startup crash on very wide windows (0.1.7, reported on GitHub)
+- Cause: the viewport targets were created at panel size x pixels_per_point with no clamp, and egui-wgpu requests `max_texture_dimension_2d: 8192`. A window restored wider than that (saved in `%APPDATA%\SubCraft\data\app.ron`, so every start) panicked in `create_texture` ("viewport msaa", 10147 > 8192).
+- Fix: `ViewportRenderer::render` clamps the target to the device limit; the device now requests the adapter's real 2D texture limit; offline renders refuse sizes over the limit and drop supersampling when 2x does not fit.
+- Verified: `oversized_viewport_is_clamped_to_the_device_limit_instead_of_panicking` fails with the exact reported panic without the clamp and passes with it. Not verified on the reporter's PC.
+- Brush "Image projection" Scale is a repeat count (4 = four times as many repeats, smaller pattern), checked numerically in `crates/app/tests/brush_normal_scale.rs`.
+
+### Session 108 - New filters: Gradient Map, Histogram Scan / Range, Median, Warp (2026-10-28)
+
+* **Design:** `Filter` stays `Copy`. Gradient stops live in a fixed array of 8 inside `Gradient` (`crates/doc/src/filter.rs`), serialized as a plain list of `{position, color}` (1 to 8 stops, linear RGB; empty or more than 8 is a load error). No caller needed migrating. Project schema is now **14**; schemas 1-13 open unchanged (test `schema_13_stacks_open_and_gradient_map_has_stable_json_and_survives_roundtrip`). One bump covers all five filters, so a project using them will not open in an older SubCraft.
+* **Gradient Map:** linear interpolation between stops in linear space; equal positions make a hard step. Color channels are looked up by linear luminance and give RGB (or only its brightness with "Gray"); scalar channels and masks look up by value and receive the gradient's luminance; signed Height is remapped -1..1 to 0..1 and back. 6 presets (Black to White, Heat, Rust, Sepia, Sky, Terrain; defined in sRGB, stored linear). UI: preset list, gradient bar, color + position + remove per stop, "Add stop" (max 8).
+* **Histogram Scan:** position, contrast, invert: a linear ramp `1 - contrast` wide centered on position (contrast 1 = hard threshold, contrast 0 at position 0.5 = identity). **Histogram Range:** position, range, softness, invert: a band that is 1 inside `position +- range/2`, 0 outside, with edge ramps. Both run per channel and also work on masks. Decision: Scan and Range are two parameterizations of the Substance filters (ramp vs. band), not a pixel-exact copy of Painter.
+* **Median:** exact median over the square window `(2r+1)^2`, per channel, r = radius rounded (0 to 16). Paint coverage is kept (not softened). Kernel `crates/materials/src/filter/median.rs`: ranks per tile rectangle plus a sliding two-level histogram, so cost per pixel hardly grows with radius. Tiles read a margin of r pixels like Blur. Measured single thread, release, colour: 4096x4096 takes about 2.5 s at r=2, 6.6 s at r=8, 13.5 s at r=16 (`cargo test --release -p subcraft-materials median_speed -- --ignored --nocapture`); tiles run in parallel in the app.
+* **Warp:** noise-driven displacement: intensity (0 to 32 px, also the tile margin), scale (1 to 64 noise cells across the texture, periodic so the border is seamless), seed. Two decorrelated 2-octave fbm fields in UV space (resolution independent); bilinear read of the input, so paint coverage moves with the pixels.
+* **Tests (all pass, `cargo test --workspace`):** hand-computed goldens for Gradient Map, Scan and Range (`crates/materials/src/filter.rs`); median against a sorted-window brute force with ties and edge clamp (`median.rs`); compositor tests against dense references across the 64 px tile borders and texture edges for Median (including two chained stages and as a mask effect) and Warp (determinism, other seed, zero identity, coverage moves); random-stack differential tests now include all new filters; JSON golden strings and old-project opening in `crates/project`; validation tests in `crates/doc`.
+* **Screenshot:** `docs/screenshots/filter-gradient-map-properties.png` (scripted `--effect-panel --screenshot` on a project written by `cargo run --example gradient_map_project`).
+* NOT verified / decisions for the owner: no comparison against real Substance Painter output for any of these filters (parameter meanings follow its documentation from memory); Warp has no intensity-map input and Gradient Map no curve-style editor; Non-uniform blur and Slope blur were not attempted (they need a second input image, which the filter stack does not have); no hand test with the real mouse of the new Properties controls; the 4K timing is the kernel on one thread, not a full-app profile.
+
+### Session 109 - Speed on big projects (2026-10-28)
+
+Goal: faster and smoother on 4096 texture sets with dozens of layers, with identical results. Measure first, then fix the biggest costs.
+
+* **Benchmark:** `cargo run --release -p subcraft-app --example big_project_bench -- 4096 40 [stages]` builds a 4096 set on a 100k-triangle sphere with 40 layers (fills with procedural patterns, 4 folders, masks with Edges / Cavity / Directional generators and blur filters, paint layers with strokes on content and masks, blur / sharpen / gradient-map / median content filters) and times: (a) full composite, (b) incremental recomposite after a stroke / an opacity change / a generator change / a pattern change, (c) opening a project, (d) saving and loading, (f) baking all 9 mesh maps, (g) memory. `SUBCRAFT_COMPOSITE_PROFILE=1` prints how often each kind of graph node ran and its time (summed over threads); `SUBCRAFT_BENCH_HASH=1` prints a hash of every texel bit of the composite; `SUBCRAFT_BENCH_BAKE=<size>` bakes at another size for quick runs; `SUBCRAFT_BENCH_KEEP` / `SUBCRAFT_BENCH_OPEN` save a project and open it in a cold process. The Painter import is timed with `SUBCRAFT_SPP_TIMING=1 cargo run --release -p subcraft-app --example spp_open -- file.spp`.
+* **Machine:** 16 threads, release build, mimalloc. Numbers are wall clock on this PC, one run each (composite numbers repeat within about 5%).
+
+| 4096², 40 layers | before | after |
+|---|---|---|
+| (a) full composite from scratch | 44.0 s | 24.1 s |
+| (b) stroke on a mask, layer in the middle (tiles evaluated) | 11.7 s (958) | 5.7 s (830) |
+| (b) stroke on a mask near the top (tiles evaluated) | not measured | 5.4 s (709) |
+| (b) opacity / generator level / pattern change (all tiles) | 45 s | 24.5 s |
+| (c) open a saved project (file read) | 1.3 s | 0.6 s |
+| (c) first composite after opening, cold process | not measured (82 s in-process) | 24.8 s |
+| (d) save a 158 MB project | 8.2 s | 3.7 s |
+| (e) open `CarInteriro.spp` (4096, 722 MB) | 25.8 s | 14.9 s |
+| (f) bake of 9 mesh maps, 100k triangles | 106 s | 104 s (no real change) |
+| (g) peak working set during the bake | 2879 MB | 2206 MB |
+| (g) peak working set: bake + 40 layers + composite | 5463 MB | 5996 MB (see below) |
+
+* **What the profile showed:** the graph cache was one FIFO of 1024 tiles for the whole process. With 16 threads it threw mask nodes out before the other channels of the same tile used them and neighbor inputs out before the next tile read them: mask generators ran 4.5x and fills 2.5x as often as needed per tile (at 2048: 158k fill evaluations for 1024 tiles, where 44 per tile is the minimum).
+* **Fixes (one commit each, see `git log`):**
+  1. Compositor graph (`crates/compositor/src/stages.rs`, `lib.rs`): each node is stored by how it is used. Used once: handed to its consumer, never stored. Used by several channels: kept per thread until its tile is done. Read by neighbors (blur, median, warp, contour inputs): the shared cache, now 256 tiles per thread (4096 cells = 256 MiB for 16 threads) instead of 1024 cells. Tiles are scheduled in 8x8 blocks so a thread's tiles share neighbors (`SUBCRAFT_TILE_BLOCK` and `SUBCRAFT_STAGE_CACHE` override both for experiments). At 2048 the cache size was the main lever: 1024 cells 9.9 s, 4096 cells 5.9 s, 16384 cells 4.5 s (+1.3 GB), so 256 per thread is the compromise.
+  2. Dirty tiles after a raster edit (`crates/compositor/src/cache.rs`): the refresh used to grow by the summed support of every filter in the stack. A changed texel only spreads through its own layer's filters, its parent folders', and the filters inside folders above it that pass the accumulation through (blending is per texel, and other layers' filters read their own content). It now grows by exactly that. In this stress stack every layer carries filters, so the gain is modest; where only some layers filter it gains much more (a dab on a top layer without filters refreshes exactly one tile, tested).
+  3. Project save (`crates/project/src/lib.rs`): rasters are encoded and deflated on all cores into one-entry archives and merged in order (same file layout, `std::thread::scope`, no new dependency); the 2 GB of encoded copies are no longer built up front.
+  4. Painter import (`crates/app/src/spp_import.rs`, `crates/mesh/src/spp/mod.rs`): blobs are read one after the other, baked maps and channel textures are decoded and padded at once (channels 3.6 -> 0.95 s, baked maps 20.0 -> 11.5 s). `rayon` moved from dev-dependencies to dependencies of `subcraft-app` (already in `Cargo.lock`, which is unchanged).
+  5. Bake (`crates/bake/src/lib.rs`, `crates/image/src/dilate.rs`): the per-texel detail copy (800 MB at 4096) is derived on the fly when there is no high poly, the nearest-texel search runs once for all maps, `apply_nearest` runs in parallel.
+* **Exactness:** a hash of every texel bit of all channels of the 1024² benchmark project (full composite, and after strokes, opacity, generator and pattern edits) is identical between the build before this session and the build after (`8374dfba36ab5faf`, `e22b694f85067faf`). The existing differential tests now run on 256² (16 tiles) with filters reaching 30 texels (`crates/compositor/tests/differential.rs`); with a zero halo they fail, so they do guard the dirty-tile rule. New test `refresh_grows_only_by_filters_that_carry_the_change_and_stays_exact`.
+* **Tried, no gain (reverted):** fixed-size stacks instead of heap `Vec` stacks in the BVH `occluded` / `query` (bake 106 s -> 112 s, within noise; mimalloc already makes the allocation cheap).
+* **What is still slow, and why:**
+  * A full recomposite is still 24 s at 4096 with 40 layers because every parameter change recomputes every tile of every layer. About 60% of the CPU time is procedural pattern evaluation (fractal noise per texel). It is cached per tile, but the cache holds 8 fields per tile and 512 MB overall, and this stack needs about 60 per tile; keeping them all would cost about 1 GB more at 4096. A real fix is checkpointing the accumulation below the layer being edited (about 2 GB at 4096 in exact f32) or a GPU compositor; neither fits "same results, no big memory", so it is not done.
+  * Bake time is dominated by ray queries (ambient occlusion 17 s, curvature 33 s, thickness 29 s, bent normal 18 s) on a mesh that covers the whole UV square; a real model with 50% coverage takes about half.
+  * Memory: the 4096 set holds about 600 MB of composite, 540 MB of tile geometry, 512 MB of pattern fields, 256 MB of stage cache and 640 MB of baked maps. The Windows working set also keeps what the allocator did not give back after the bake (2.2 GB), so the after-composite figure with a real bake (6.0 GB, was 5.5 GB: +256 MB stage cache) overstates what a freshly opened project needs (2.7 GB for the same stack with tiny baked maps, measured with a 256² bake).
+* **Not measured:** real GPU frame times and upload cost (no GPU run, `crates/render` untouched); the app's own UI-thread frame times while painting (the benchmark calls `update_composites`, the app uses the budgeted worker); thumbnail generation; anything on another PC.
+* **Open questions for the owner:** (1) Tiles with no UV coverage are evaluated like any other (they hold the padding texels the 2D view and exports can show); skipping them would be roughly 2x on models that use half the UV space, but changes what those texels contain, so it was left alone. (2) Is 256 MB more memory for about 35% faster blurred stacks acceptable by default? (3) Worth building the prefix checkpoint (above) for stroke latency on large stacks?
+
+### Session 109 - Brush upgrades: stabilizer, scatter, smudge with material (2026-10-28)
+
+* **Stroke stabilizer** (`crates/paint/src/path.rs`, `StrokeOptions`): new `smoothing` (0 to 0.95, weight of a running average of cursor positions) and `catch_up` (when the stroke ends the brush glides on to the last cursor position). Order per cursor sample: average, then the existing rope (`lazy_distance_px`), then resampling at the brush spacing. Shift+click straight lines ignore smoothing (as they ignored lazy mouse). Symmetry works because mirroring happens after the path. The end of a stroke calls `Stroke::finish` from `Session::end_stroke` with the last camera. Decision: the average runs per input event, so how strong it feels depends on how often the OS sends mouse moves; this is the same trade-off as the rope. Brush bar: Smoothing "Average" number and "Catch up at the end" in the symmetry/lazy popover.
+* **Scatter / particle mode** (`BrushSettings.scatter_*`, `Stroke::paint_samples`): each path stamp becomes `scatter_count` (0 = off, max 64) particles inside `scatter_radius` brush diameters, each with random size, rotation and opacity, plus `scatter_fall`: particles drop down the screen by up to that many diameters. All randomness comes from the stroke seed (stamp index and particle index), so a fixed seed repeats exactly. Particles go through the same kernel as normal stamps: all tips, channels, stencils, parts, symmetry, depth map and back-face rules apply. Panel: Brush > Scatter.
+* **Smudge** (`smudge_strength`, `smudge_carry`, `smudge_falloff`, `smudge_material`): strength scales what is deposited, carry replaces the fixed 0.85 (low = soft blend, high = long smear), falloff is an exponent on the footprint, material mixes the brush colour/value (opaque) into the carried paint. Defaults reproduce the old behaviour exactly. Normals are renormalised after deposit; heights and masks stay in range (tested). Panel: Brush > Smudge.
+* **Presets:** 9 new built-in brushes: Smooth Ink, Steady Liner, Dust Scatter, Drips, Rust Flakes, Sparkle Spray, Soft Blend, Wet Smear, Paint Smear (the last three are for the Smudge tool). They appear in Shelf > Brushes. Old presets and old settings JSON still load (new fields default off).
+* **Tests:** `crates/paint` (path unit test; smoothing damping, catch-up end, determinism, symmetry with smoothing + rope; scatter spread/determinism/seed/fall; scatter on thin slab keeps the back untouched; symmetry mirrors scatter), `crates/app/tests/clone_smudge.rs` (strength, carry, material mix, normal/height), `brush_presets.rs` (round trip, old file loads), `brush_builtin.rs` (new presets).
+* **Screenshots:** `docs/screenshots/brush-scatter-presets.png`, `docs/screenshots/brush-stabilizer.png` (scripted `--capture-tool scatter|stabilizer --screenshot`).
+* NOT verified: no real pen or mouse, so the feel of smoothing at real event rates, pressure with the new modes and the new panel controls by hand are untested. Not done: Shift-drag line lock and 15/45/90 snapping, post-smoothing and speed-adaptive smoothing, per-particle colour variation, smart/decal brushes. Open questions for the owner: should smoothing have Light/Medium/Heavy buttons; should scatter ignore pressure size.
+
+### Session 109 - GPU baking: AO, Thickness and Curvature (2026-10-28)
+
+* **What:** AO, Thickness and Curvature bake on the GPU (WGSL compute, no new dependencies); the CPU baker is still the reference and the fallback. Design: `docs/adr/0039-gpu-baking.md`. Numbers: `docs/performance/2026-10-28-gpu-bake.md`.
+* **Layout:** `subcraft_mesh::ray_batch` defines the `RayBatchBackend` trait (no GPU types) and a registry; `crates/render/src/ray_bake.rs` implements it on its own headless wgpu device (shaders `ray_common.wgsl`, `ray_bake.wgsl`, `curvature.wgsl`); `Bvh::flatten()` exports the SAH BVH as plain arrays (triangles in leaf order). `bake_streamed` asks the backend per map when `BakeSettings::use_gpu` is set, and uses the CPU for that map on any `Unsupported` error (buffer limits, deep tree, lost device). The UI registers the backend at start-up (`subcraft_ui::register_gpu_baking`). The CPU still prepares the per-texel samples (same rasterisation, projection and seeds), so coverage and gutters are identical.
+* **Chunking:** 65,536 texels per upload; each dispatch is submitted and awaited alone and sized from the measured time (target 100 ms, shrink above 250 ms, growth capped at 4x per step; the first dispatch is one ray / one texel), so a slow GPU cannot hit the Windows watchdog. Cancel and progress are handled between dispatches. Mesh buffers larger than `max_storage_buffer_binding_size`, or a BVH deeper than the 64-entry shader stack, fall back to the CPU.
+* **UI:** Preferences has "Use GPU for baking" (default on, old preference files read as on). The Bake window and the status text show total time and, per map, the time and path (`GPU (NVIDIA GeForce RTX 4060)`, `CPU`, or `CPU (GPU failed: reason)`).
+* **Tests:** `crates/ui/tests/gpu_bake.rs` (GPU vs CPU on the crate, torus, sphere, slab; curvature with a high poly; repeatability; cancel and monotonic progress; empty BVH; BakeJob summary; preference default) skips with "no adapter" without a GPU; `crates/bake/src/tests.rs` `ray_backend` module uses fake backends (result used for AO/thickness only, preference off never calls it, failure falls back to the exact CPU image, cancel). Numeric result and tolerance: see the performance doc. All of `cargo test -p subcraft-app -p subcraft-ui -p subcraft-bake -p subcraft-mesh -p subcraft-render` passes on this PC.
+* **Measured (RTX 4060, release):** at 4096 on a 500k-triangle mesh AO 139 s -> 11 s, Thickness 236 s -> 11 s, Curvature 440 s -> 11 s. What remains is CPU preparation (about 1 s at 2048, 5 to 8 s at 4096 per map).
+* **Not verified:** other GPUs and drivers (AMD, Intel, Apple), Linux/Vulkan and the CI software adapter (llvmpipe) for speed or equal results, meshes above the device buffer limits (the fallback is tested only with a fake backend and the empty-BVH path), real watchdog behaviour on a much slower GPU, running inside the full app by hand (only through `BakeJob`), a bake started while the viewport is rendering heavy frames. Bent Normal, Height and the high-poly projection are still CPU only.
+* **Known difference:** the GPU is not bit-identical to the CPU (AO and Thickness differ by about 0.002 on average; a texel whose ray grazes an edge can flip). Curvature on the UV sphere's south pole slivers differs because the CPU value there is noise too.
+
+### Session 110 - Painter stacks rebuilt to match Painter's own result (2026-10-28/29)
+
+Goal: the rebuilt Painter layer stack ("Painter stack (reconstructed)") should match Painter's flattened
+result closely enough to pass the quality gate, with real editable layers wherever possible. All work is
+driven by measurement: `crates/app/examples/spp_lab.rs` composites the rebuilt stack alone and compares it
+with Painter's flattened channels (per channel, per top-level folder, per texel trace, blend and generator
+searches); see its header. Format findings are in `docs/spp-research.md` ("Matching Painter's own result").
+
+* **Measured (mean absolute difference over the set's UV triangles, rebuilt stack alone vs Painter;
+  Base Color / Roughness / Metallic / Normal / Height; gate: < 0.04 / 0.06 / 0.06):**
+
+| project (4096) | before (13a1c5c) | after, full import (gate at 512) | gate |
+|---|---|---|---|
+| DBAL-A2 (337 layers) | 0.265 / 0.261 / 0.614 / 0.045 / 0.0065 | 0.017 / 0.048 / 0.057 / 0.004 / 0.001 | passes, rebuilt stack shown |
+| Street_cyberpunk (14 layers) | 0.657 / 0.051 / 0.000 / - / 0.601 (256) | 0.006 / 0.025 / 0.000 / - / 0.038 | passes, rebuilt stack shown |
+| CarInteriro (64 layers) | 0.015 / 0.050 / 0.005 / 0.004 / 0.013 (256) | 0.007 / 0.032 / 0.003 / 0.016 / 0.005 | passes, rebuilt stack shown |
+
+  "Before" for DBAL-A2 is at 512 texels with the same metric; the other two were first measured at 256
+  in this session. Without the per-texel solved detail (below, `SUBCRAFT_SPP_NO_DETAIL=1`) the 512 numbers
+  are DBAL-A2 0.019 / 0.044 / 0.063, Street_cyberpunk 0.014 / 0.057 / 0.000, CarInteriro 0.010 / 0.055 /
+  0.003 (all measured with this build before the brush-size calibration; the reconstruction alone,
+  i.e. everything except solved textures).
+* **What was rebuilt that was not before (largest effect first):** polygon-fill masks (`DataActionDecal`
+  hits replayed as rays with Painter's inverse view-projection; every part folder of DBAL-A2 is one);
+  mask-fill blend modes per action (id 29 Subtract took grunge off text/edge masks); painted and erased
+  mask strokes through SubCraft's brush engine (screen, 2D-view/UV, stencilled, symmetric copies);
+  anchor references (baked from the anchored mask, with their Levels); AO and curvature maps imported as
+  `.image` resources (the generators had no maps before); placed (non-tiling) images such as the sticker
+  that otherwise tiled over 72% of the model; bitmap fills and mask bitmaps; filter layers (HSL as a
+  pass-through folder; sharpen/blur ones rebuilt switched off, see below); filters and Levels in layer
+  content; Painter's UV transform; procedural material fills as uniform fills fitted by bounded least
+  squares; empty masks keep their initial black.
+* **Blend ids** (search, `docs/spp-research.md`): 4 and 10 Multiply, 9 Color, 11 and 15 Soft light,
+  29 Subtract, 25 the channel default (Height adds), 2 Hard light on color channels (weak evidence).
+* **Calibrated against Painter (numbers in the code comments):** blur radius (pixels at 256), brush size
+  (half of SubCraft's), 2D-view brush size (0.15), mg_dirt / edge wear / curvature / position mappings,
+  noise balance (mirrored), grunge balance as a midtone gamma with fixed black and white points (found
+  by ablation, hiding each layer in turn: a full-metal layer whose grunge mask feeds a Levels with input
+  max 0.21 covered far too much when the balance moved the levels window; DBAL-A2 Metallic 0.061 -> 0.057).
+  Calibrations that helped one project and hurt another were not kept (DBAL's
+  noise optimum, a per-layer opacity fit).
+* **Hybrid, stated honestly:** procedural Substance materials (Plastic, Rubber, Soil, steel, leather,
+  fabric...) cannot be run. Their layers are uniform fills with values fitted to Painter's result, and
+  where such a layer is visible its content is solved per texel from Painter's result into a texture
+  named "... (solved from Painter's result)" at the gate resolution (512), resampled to the set. The rest
+  of the stack is rebuilt content. Graphs with no counterpart (warp is approximate; blur_slope,
+  stripes, arrow_long, mg_uv_border_distance, mg_mask_editor, brick_generator, procedural materials used as
+  masks, anisotropic/fur noises) are listed in the import notes.
+* **Speed and memory:** mask rasters are painted at <= 2048 and anchored masks evaluated at <= 1024, then
+  resampled; constant tiles are shared; strokes are batched (`Stroke::add_points`) and rasters painted in
+  parallel; rectangle selections use one z-buffer per hit. DBAL-A2 4096 import: 109-160 s, 5.7-7 GB peak (was
+  14 s without a usable rebuild); Street_cyberpunk 12 s, CarInteriro 12 s. Sharpen/blur filter layers over
+  the whole stack made each composite re-evaluate the stack around every tile (350 s at 512): they are
+  rebuilt switched off; turning them on changes no measured difference.
+* **Gutter fill:** mask rasters (painted at <= 2048) get every texel outside the UV triangles copied from
+  the nearest texel inside one, as Painter's own textures are padded. Left empty, mipmapped 4K views blended
+  the padding (Base Color 0.5, Metallic 0) into every part's border: bright thin outlines along all part
+  edges. Measured at 1024 in a 3-texel band outside the islands: Base Color 0.447 -> 0.025, Roughness
+  0.054 -> 0.051, Metallic 0.354 -> 0.064; inside the islands unchanged. Viewport crop of the 4K screenshot
+  pair, mean 8-bit difference to the flattened shot: 3.53 -> 2.49.
+* **Gate:** unchanged thresholds; it now compares inside the set's UV triangles (the baked maps' alpha
+  counted padding the stack never covers, which made a matching DBAL-A2 stack read 0.083 instead of 0.019).
+* **Tests:** mesh `spp` (image resources top-first, decal hits / strokes / brush / references parsing,
+  exact uids), app `spp_select` (ray convention, granularity, rectangles, rasters, stroke replay and erase,
+  2D-view strokes with mirror copies, Painter UV transform = SubCraft projection), `spp_fit` (bounded
+  solve), `spp_import` (unwritten normals flat), `tests/spp_stack.rs` (empty mask, per-action blend,
+  filter layer folder, fitted procedural fill, gutter fill), paint `batched_points_match_point_by_point`.
+* **Screenshots (scripted, same default camera, `SUBCRAFT_SPP_SHOW=flattened|rebuilt`, sets imported at
+  1024 with `SUBCRAFT_SPP_MAX_RESOLUTION`; kept outside the repository because the projects are private):**
+  DBAL-A2's rebuild shows the same colors, label text and materials as the flattened layer; the front
+  rings and a slider on top read brighter / more metallic and the "LEAF" lettering is fainter. At the full
+  4096 import (1600x1000 window) the part-edge outlines are gone after the gutter fill; the slider plate
+  beside "LEAF" still shows light bare-metal patches and the right knob's centre is brighter.
+  Street_cyberpunk's rebuild has the road lines, but its centre dashes are shorter and more frequent and the
+  dark kerb with glowing pink lights becomes a grey textured strip with small pink dots.
+* **Not verified / open:** DBAL-A2's remaining Metallic difference (individual stroke and eraser
+  details, screws at Metallic 1 where Painter has 0.56, the slider plate); the solved textures are at 512 and blur on
+  4K sets; 2D-view brush size and several calibrations rest on one project each; blend ids 4/10 and 11/15
+  each tie with other modes; Painter's default normal blend and ids 0/1/8/23 are untested; Ambient
+  Occlusion and Emissive are not in the gate (the cache holds 0 where no layer wrote AO); only three
+  sample projects exist on this PC.
+
+### Session 111 - Opening big Painter projects without freezing (2026-10-29)
+
+Goal: opening a big `.spp` must never freeze the window and should get fast. Measured on the private DBAL-A2 (4096 set, 374 Painter layers; the file is not in the repository). Tool: `SUBCRAFT_SPP_TIMING=1 [SUBCRAFT_SPP_MEMLOG=1] cargo run --release -p subcraft-app --example spp_open -- file.spp` (prints the time until the first textured view and until the rebuilt stack is in; MEMLOG prints stage and working set every 2 s).
+
+* **(1) Background import** (`crates/app/src/spp_job.rs`, `spp_import::import_spp`): `Session::open_spp` is now `import_spp` plus applying its two results, so the blocking and the background path run the same code. `SppImportJob` (shape of `BakeJob`: thread, `ImportControl` for stage text, "n of N layers" and cancel, `poll(&mut Session)`) hands out `Opened(session, notes)` and then `Stack`. The UI (`crates/ui/src/spp_import.rs`) starts it for File > Open model, the New Project dialog and the command-line path; the status bar shows the stage, a progress bar and Cancel. A project replaced meanwhile drops the late stack; a running stroke defers it. Cancelling stops between layers / rasters / anchor masks (a stage in progress finishes first); before the first result the old session stays.
+* **(2) Flattened first, stack later:** `Opened` carries the model, baked maps and flattened channels (a paint layer plus an empty "Layer 1"). The rebuilt folder arrives as `Stack`: `Session::apply_spp_stack` puts it above the flattened layer and sets which of the two is visible with the unchanged quality check (`good` in `rebuild_stack`, thresholds untouched). While nothing was edited it replaces the opened state (no undo entry back to a half-imported project); after edits it is one undo step "Rebuild Painter stack" and the user's layers are kept.
+* **(3) Cache** (`spp_cache.rs`): the rebuilt stack (folder, solved textures, notes, which layer is shown) is stored with the project writer under `%LOCALAPPDATA%\SubCraft\spp-cache` (`$SUBCRAFT_DATA` honoured), keyed by the SHA-256 of the file plus `IMPORTER_VERSION` (bump it whenever the rebuild or the check can change a result), newest 3 kept, only for rebuilds that took 10 s or more, off when any `SUBCRAFT_SPP_*` experiment switch is set. The file hash is computed on another thread during the import. Two things the project format cannot hold are handled by the cache itself: the stack is read with `load_project_trusted` (the importer produces filter parameters, for example blur radii above 32, that the normal loader rejects as "invalid mask filter"), and every texture goes into a separate `.res` archive as raw samples (the project writer drops resources without original file bytes, which is every solved and leveled texture the importer makes). A first version without the second part was visibly wrong (26,309 pixels of the 3D view differed from the cold open); the version here is pixel-identical.
+* **(4) Work:** `placed_bitmap` (mask bitmaps placed once) read an environment variable per texel and ran on one thread: 27 s of 31 s layer conversion at 4096; now the rotation is read once and the tiles run in parallel (about 7 s on a loaded machine; test compares with the per-texel definition). Anchor masks, strokes and the fit are unchanged.
+
+| DBAL-A2, release, 16 threads | before | after |
+|---|---|---|
+| window responsive during the import | no (not responding) | yes |
+| until the first textured view (model, flattened channels, baked maps) | whole import (115 s best, 334 s when the machine was busy) | 4.5 to 7.7 s |
+| until the rebuilt stack is in | same | 131 s best, 219 s busy (back-to-back with the before run: 115 s) |
+| second open of the same file (cache hit) | same as the first | 10.5 s total, first view 5.6 s, 41 s CPU |
+| peak working set | 6.8 to 7.0 GB | 4.4 GB on a cache hit; 4.6 to 5.6 GB on a rebuild |
+| gate (mean difference, Base Color / Roughness / Metallic / Normal / Height) | 0.017 / 0.048 / 0.057 / 0.004 / 0.001 | identical on every run, also from the cache |
+
+* **Measurement caveat:** wall times on this PC swing by 3x between runs minutes apart (the same old binary took 120 s, 334 s and 115 s; other programs were running). CPU seconds (about 510 to 550 for a rebuild) and back-to-back pairs are the trustworthy numbers; the 4.6 to 5.6 GB vs 6.8 to 7.0 GB peak difference was seen in every run but is not explained by a change of mine beyond not holding a second copy of the mesh.
+* **Where the rest of a cold rebuild goes (DBAL-A2, one run):** anchor references 28 s, fit of 21 layers 37 s, strokes and polygon fills 17 s, layer conversion 32 s before the `placed_bitmap` fix, gate-size rebuild and composites the rest. Not done: lower-resolution rasters until needed and skipping layers (both would change the numbers or need the gate re-validated), parallel anchor evaluation, cutting the 2 GB of rasters of the full-size folder.
+* **Pre-existing bugs found (not fixed):** (a) the Painter importer builds filter parameters (blur radius > 32) that `read_project` rejects ("invalid mask filter"), so a Painter-imported project saved as `.subcraft` very likely cannot be reopened; (b) `pack_resources` skips every resource without original file bytes (log: "has no original file bytes; not saved"), which includes the solved and leveled textures of the rebuilt stack, so a saved project would lose them. Both only apply to saving a Painter-imported project; untested on the real file.
+* **Screenshot comparison** (scripted `subcraft --screenshot`, 1280x800, 3D view rows 40 to 770, all DBAL-A2 at 4096): a cold open (rebuild) versus a second cold open and versus a cache hit: 0 differing pixels. A cold open of the commit before this work was not rendered (that needs a second build of the old commit); the rebuild code and the gate numbers are unchanged.
+* **Verification:** new tests in `crates/app/tests/spp_open.rs` (background result equals the blocking open, cancel, other session drops the stack, edits keep working and undo), `crates/app/tests/spp_cache.rs` (hit gives equal layers, changed file misses), `spp_select` (placed bitmap), `crates/project` (trusted loader), `crates/ui` (New Project dialog with a Painter project); `cargo test --workspace`: 740 passed, 0 failed.
+
+### Session 110b - Painter stacks: per-region accuracy on DBAL-A2, text investigation (2026-10-29)
+
+Driven by the user's 2K comparison of DBAL-A2's top plate (rebuilt vs flattened, same camera). The
+metric is now per region: `spp_lab` writes object and connected-element maps (`object`, `element`,
+`objects.txt`), an object-space `position` map, traces several texels with layer paths
+(`trace x,y x,y ... [r|m]`), ablates inside one region (`ablate_region object|element N`), and dumps
+masks by layer name (`masks frame text`). Scripted screenshots take a fixed view:
+`--camera yaw,pitch,zoom[,x,y,z]` (degrees, zoom on the framing distance, target offset in half
+diagonals), applied whenever a model is framed.
+
+* **Measured, DBAL-A2 at 1024 (Base Color sRGB / Roughness / Metallic, mean over the region's
+  covered texels), start of this pass -> now:**
+
+| region | before | after |
+|---|---|---|
+| whole set (linear Base Color) | 0.0156 / 0.0450 / 0.0561 | 0.0138 / 0.0453 / 0.0528 |
+| "DBAL-A2" label | 0.066 / 0.032 / 0.053 | 0.053 / 0.032 / 0.049 |
+| QR code and "CAGE / P/N / S/N" text | 0.069 / 0.039 / 0.081 | 0.049 / 0.038 / 0.051 |
+| Plane.003_low (white blotches, received no layer) | 0.396 / 0.039 / 0.636 | 0.055 / 0.034 / 0.076 |
+| plate slots, Circle.072_low part A | 0.183 / 0.077 / 0.205 | 0.120 / 0.093 / 0.147 |
+| plate slots, Circle.072_low part B | 0.062 / 0.119 / 0.083 | 0.099 / 0.189 / 0.159 |
+| round button (Circle.090_low) | 0.097 / 0.143 / 0.000 | 0.067 / 0.174 / 0.000 |
+| sticker / second green label | 0.051 / 0.052 / 0.486, 0.047 / 0.051 / 0.436 | unchanged |
+
+  Full 4096 imports, gate at 512 (Base Color / Roughness / Metallic / Normal / Height): DBAL-A2
+  0.015 / 0.048 / 0.054 / 0.004 / 0.001 (was 0.017 / 0.048 / 0.057), 133 s, 5.7 GB peak;
+  CarInteriro 0.008 / 0.032 / 0.003 / 0.016 / 0.004; Street_cyberpunk 0.006 / 0.025 / 0.000, Height
+  0.037. All pass and show the rebuilt stack. Top-plate screenshot at 2K (1600x1000, `--camera
+  20,65,1.8`), viewport mean 8-bit difference to the flattened shot 4.59 -> 4.17.
+* **Fixed (root causes, each measured):** layers' geometry masks (`enabledMeshDefault` is a bool;
+  four DBAL-A2 layers are limited to one mesh object) are part masks by object; Painter's mesh fill
+  takes the clicked object and every object welded to it (Plane.003 shares geometry with
+  Plane_002.002); 3D-view brush sizes scale with the stroke's view height (x 1.5, calibrated), which
+  keeps "DBAL-A" whole where the diagonal reading let black strokes cut it to "RAL-A"; brush tips that
+  are Painter fonts are not stamped as discs (one "2" eraser on the label, named in the notes);
+  placed images sit at 0.5 + translation with radian rotations (the QR code and the sticker landed
+  mirrored about the centre); 2D-view strokes use their stencil (the "CAGE" text was a grey blob);
+  blending id 10 is Linear burn (searched again: Metallic 0.0542 -> 0.0528); zero-area rectangle drags
+  are clicks (48 of 140 rectangles selected nothing).
+* **Measured and rejected:** filling by connected piece alone (Metallic on a ring 0.09 -> 0.27),
+  polygon (quad) fills for granularity 0 (no gain), rectangles taking every triangle they touch
+  (CarInteriro Metallic 0.003 -> 0.013), UV-unit dabs for UV-aligned strokes (DBAL-A2 better, the two
+  other projects worse; kept behind `SUBCRAFT_SPP_UV_DABS=1`), Lighten for id 10 (Metallic 0.079).
+* **Text:** DBAL-A2's labels are not text in the .spp: they are 328 stencilled strokes using three
+  imported stencil sheets (your_assets Stencil_Utility_Tool 157, Weapon_Stencil_4 137,
+  Weapon_Stencil_2 34); no string or font exists for them, so they stay bitmaps. The only text data is
+  one eraser stamp whose tip is Painter's font resource `font_chathura` with tweaks text "2",
+  fontsize 0.7, alignment 1, position (0, 0.05). CarInteriro and Street_cyberpunk have none. SubCraft
+  has no text layer; one would need a font rasterizer outside egui (a new direct dependency), so it
+  was not added; the decision is the user's.
+* **Tests:** `cargo test --workspace` 743 passed. mesh `geometry_mask_is_read`, `text_tip_string_is_read`; app `spp_select`
+  (mesh fill joins welded objects, view-height brush size, 2D-view stencil, UV-aligned dabs, drags
+  as clicks), `tests/spp_stack.rs` (geometry mask to part mask, blending id table); ui
+  `camera_view_from_the_command_line`.
+* **Still wrong (visible in the 2K pair):** tan dirt in the plate slots (the dirt layers' black
+  cleaning strokes need a larger brush than the QR's black stamps allow: no single brush size fits
+  both); a white patch at the bottom of a slot ("sighting bar / Fill layer 107" paints where Painter
+  shows none); the FIRE lens is too bright; the sticker folder's mask is empty (its two anchor
+  references combine with id 10, which erases both green labels under every intersection-like mode,
+  while union-like modes are far worse overall); the knob numbers read "00" instead of "06".
+
+### Session 110c - Painter stacks: normals, grain, generator breakup (2026-10-29)
+
+* **Normal map:** the rebuilt Normal channel was flat. 32 DBAL-A2 layers put a material into Normal
+  only (Rubber - Synthetic, Plastic - Old Computer, Iron) and became hidden placeholders; materials'
+  normals were dropped. They now keep a flat Normal, and at import Painter's normal is solved into
+  the material layer that shows most at each sample (measured by tilting that layer's normal), as
+  textures "... Normal (solved from Painter's result)". DBAL-A2 at 1024: Normal 0.0042 -> 0.0010 (95th
+  percentile 0.0085 -> 0.0024), every part better; full gate Normal 0.004 -> 0.000, CarInteriro 0.016
+  -> 0.002.
+* **Fine color grain:** Painter's warm/cool grain comes from `fractal_sum_base_colored` fills (level
+  9, soft light on Base Color), which were fitted to one value. They are a SubCraft fractal at 2^level
+  cells per tile, drawn as colored noise (new optional `colored` procedural flag, not written when
+  false). At 2048, color detail under 5 texels: 0.00025 -> 0.00212 (Painter 0.00203). The per-texel
+  Base Color difference rises (1024, no solved detail: 0.0140 -> 0.0166; full gate 0.015 -> 0.018)
+  because the noise phases cannot match Painter's.
+* **Generator breakup:** generators rebuilt from Painter graphs take Painter's `grunge_amount`
+  (0 on 15 of DBAL-A2's 19 dirt masks) instead of SubCraft's new-generator default of 0.3, which
+  punched holes into the dirt.
+* **Measured, not changed:** a gentler dirt mapping matches DBAL-A2's recovered Soil masks (strong
+  dirt on 0.6% of texels like Painter, crease dirt 0.21 -> 0.025; DBAL-A2 Base Color / Roughness /
+  Metallic 0.0140 / 0.0453 / 0.0528 -> 0.0133 / 0.0436 / 0.0522) but CarInteriro's Base Color goes
+  0.0096 -> 0.0117 (its one dirt layer, dirt level 0.16, needs more dirt): mg_dirt depends on more than
+  level and contrast and is not modelled yet. Edge wear from the curvature map instead of SubCraft's
+  geometric band was worse with the current mapping (Base Color 0.0140 -> 0.0162). Finer mask noises
+  did not bring Painter's grain (it is in the fractal fills). Embedded grunge images are 2048, not
+  the cause of missing roughness grain.
+* **Roughness grain:** still half of Painter's at the finest scale (detail under 3 texels at 2K: 0.0037
+  vs 0.0124; on the knobs 0.011 vs 0.057). Source not found yet.
+* **Edge wear gaps (general, reported by the user):** a block standing on a plate, generator as a user
+  adds it, baked curvature and AO: both long straight rims are covered over 97% with no gaps at 512 and
+  1024 (`tests/edge_ledge.rs` keeps this). The reported gaps were not reproduced with box geometry; a
+  model with rounded bevels (creases under 20 degrees, which the geometric band ignores) is the next
+  candidate.
+* **Gate (full imports at 512, Base Color / Roughness / Metallic / Normal / Height):** DBAL-A2 0.018 /
+  0.048 / 0.054 / 0.000 / 0.001, CarInteriro 0.008 / 0.032 / 0.003 / 0.002 / 0.004, Street_cyberpunk
+  0.006 / 0.025 / 0.000, Height 0.037. All pass. DBAL-A2's import takes 228 s (was ~133 s: larger
+  brushes in the mask replays and the normal solve). Tests: `cargo test --workspace` 755 passed.
+
+### Session 110d - Painter stacks: the set's normal map, Substance stencils, pen taps, dirt (2026-10-29)
+
+From the user's screenshots of the merged build (top plate, a wheel side, the QR code):
+* **Knurling missing:** the texture set's own normal map (`normalMapBitmap`, an imported `.image`)
+  was never read. Painter shades with it under the layers' normals; DBAL-A2's carries the high-poly
+  detail (knurled knobs and wheel, engraving bevels, the FIRE lens dots). It is the Normal mesh map
+  now (green flipped for DirectX projects) and a top layer "Baked normal (Painter's normal map)"
+  applies it, as after a high-poly bake. Painter's cached channels do not include it, so the gate does
+  not see it; the 2K screenshots show the knurling, lens dots and engraving edges.
+* **White blob:** stroke stencils can be Substance graphs, not only bitmaps. 349 of DBAL-A2's stencilled
+  stroke actions use graphs and were replayed with no stencil, painting solid dabs. A graph's embedded
+  image is used when it has one (drop_splatter, drop_small, brush_paint_irregular, grunge_cracked_deep);
+  the user's stencil sheets (Stencil_Utility_Tool 157, Weapon_Stencil_4 137, Weapon_Stencil_2 34) keep
+  their images inside the compiled graph (`.sbsasm`, 170-420 MB, not a format SubCraft reads), so those
+  strokes are left out and named in the notes. At 1024: Metallic 0.0528 -> 0.0463, Roughness 0.0453 ->
+  0.0448.
+* **QR code cut off:** three one-point strokes (pen taps) of size 0.29 beside it, with pressure-driven
+  size; Painter records no pressure. A tap now stamps at the brush's smallest size
+  (`pressureSizeMinimum`, 0.05): the QR is whole as in Painter (difference over it 0.053 -> 0.048).
+  Its placement and aspect were already right.
+* **Tan patches:** the dirt generator mapping is narrower (from Painter's recovered masks of the dirt
+  layers); the tan blotches in the plate slots are gone at the top-plate camera. Cost: CarInteriro's
+  one dirt layer (Base Color 0.0096 -> 0.0117 at 1024, gate 0.008 -> 0.009). Treating Painter's grunge
+  amount as added dirt instead of breakup does not explain CarInteriro (measured).
+* **Gate (full imports at 512, Base Color / Roughness / Metallic / Normal / Height):** DBAL-A2 0.016 /
+  0.046 / 0.046 / 0.000 / 0.001 (was 0.018 / 0.048 / 0.054), CarInteriro 0.009 / 0.032 / 0.003 / 0.002 /
+  0.004, Street_cyberpunk 0.006 / 0.025 / 0.000, Height 0.037. All pass.
+* **Import time:** DBAL-A2 230 s, CarInteriro 18 s, Street_cyberpunk 13 s (unchanged). The green flip of
+  a DirectX normal map is done on the decoded data: done on the tiled map afterwards, it made every
+  composite reading the set ten times slower (DBAL-A2 620 s), for a reason not yet understood.
+* **Tests:** `cargo test --workspace` 758 passed (new: procedural stencils parsed, the set's normal map
+  layer, a pen tap stamps at the smallest pressure size).
+* **Not fixed:** the user's stencil sheets (labels such as the knob numbers read "00" instead of "06");
+  the remaining roughness grain; CarInteriro's dirt.
+
+### Session 112 - Painter import: merged and tested by the user (2026-11-02)
+
+* Merged into `feature/brush-roadmap` (local, not pushed): the background `.spp` import (session 111) and the accuracy rounds 110b to 110d (per-region fixes, the set's normal map, Substance stencils, pen taps, narrower dirt, fractal grain, normal solve), plus the scrolling "Move into folder" menu.
+* `cargo test --workspace`: 758 passed, 0 failed (release build `.build-claude-spp/release/subcraft.exe`).
+* The user opened DBAL-A2 in that build and reported it better than before.
+* Still open: labels from the user's own Substance stencil sheets (compiled `.sbsasm`, not readable), roughness grain (about half of Painter's), edge-wear gaps not reproduced, DBAL-A2 rebuild about 230 s, CarInteriro Base Color slightly worse (0.0096 to 0.0117 at 1024).
+
+### Session 113 - Community pull requests by Rafael Mendes merged locally (2026-11-02)
+
+Local branch `claude/merge-rafael-prs-3a1508`, cut from `feature/brush-roadmap` (ab9a52d); nothing
+pushed, nothing changed on GitHub. Each PR was fetched as `pr-<N>` and joined with a real
+`git merge --no-ff` (his commit and authorship kept), then `cargo test --workspace` was run before the
+next one. His fork has exactly these 10 PR branches: there is no retouch-brushes, layer-reference,
+extended-channels or filters-warp-histogram branch or PR, so the Retouch tool, Reference mask effect,
+Coat / Sheen / Anisotropy / Transmission channels and his Warp / Histogram filters are not included
+(this branch already has its own Warp and Histogram Scan / Range filters, session 108).
+
+| PR | Result | Notes |
+| --- | --- | --- |
+| #65 Layers panel folder hierarchy and generators | merged | no code conflict |
+| #73 Bake Match by Name | merged | kept next to GPU baking: with name matching on, AO and Thickness bake on the CPU (the GPU ray kernels cannot filter hits by part); curvature still uses the GPU. The bake summary and the unmatched-name notices are both shown. `bake_match` is an optional project setting (no schema bump) |
+| #52 Painter-style Baking window (10 bakers) | skipped | a parallel rewrite of the baker this branch already reworked (streamed maps, Height / Bent Normal, live previews, GPU baking, and #73's name matching): 14 files conflict, 14 hunks in `bake/src/lib.rs`, and it would add a second name-matching module. Genuinely new and worth porting later: the Opacity map, ID by mesh name / material, merging several high-poly files, the Painter-style window layout |
+| #54 Paint in the 2D view, channel switches | merged | new to this branch. The 2D-view stroke passes our stroke smoothing to the path, and the 2D brush strip gets the symmetry-guides toggle like the 3D one |
+| #56 CC0 open pack | merged with changes | keeps our embedded HDRI loader (extended to decode `.exr` by file name), our built-in brush preset list and `--shelf-tab`; adds his 10 ambientCG image materials, 5 textured smart materials, 4 smart masks, 4 Poly Haven HDRIs and the 5 brush presets whose names are new (his Soft Airbrush / Spray Paint duplicates are left out). Renamed to keep names unique: Worn Brown Leather, Dusty Smooth Concrete; his Scratches and Moss on Top masks are dropped (ours exist). Shelf descriptions added for his assets. About 13.6 MB more in the binary. His `--shelf tab/query` flag is not wired (ours is `--shelf-tab`); `--environment name` is |
+| #66 Edit in PhotoCraft (PSD round trip) | merged | ADR renumbered 0039 -> **0040**. Adds the `photocraft-psd` git dependency (github.com/storytold/photocraft, pinned rev) |
+| #68 ID Color Mask | merged | project **schema 15** (14 in the PR; 14 is this branch's Gradient Map / Histogram / Median filters). Schema 13 and 14 files load unchanged (test `schema_15_id_color_mask_...`); ADR renumbered 0040 -> **0041** |
+| #69 Pen pressure curves | skipped | a second pen-pressure model next to ours (`pressure_size` / `pressure_flow` with `ui/pen.rs`): 10 files conflict and both would drive the same brush values. New and worth porting into our model later: opacity and hardness pressure, per-parameter minimum and gamma curves, interpolated pressure between samples |
+| #70 Mesh reload | merged | ADR renumbered 0041 -> **0042**. `mesh_source` and `stale_mesh_maps` are optional project settings (no schema bump). The New Project window keeps our `.spp` path and records the model as the mesh source |
+| #72 Radial symmetry | merged | ADR renumbered 0042 -> **0043**. Combined with our stroke smoothing (both clamped in `SetStrokeOptions`) and scatter |
+
+Merge fix-ups on this branch (separate from his commits): name collisions in the open pack, its shelf
+descriptions, the library count tests, the schema-version pins in `project/src/tests.rs`.
+
+Other authors' open PRs (not merged, as asked):
+* #51 (David Sawick, MCP engine hooks: tool-assisted layer placement, resource import, headless
+  snapshot) - 6 files, small; new to us; 2 files would conflict (`session.rs`, `render/lib.rs`).
+* #55 (Christopher Burns, clamp viewport targets to the device texture limit) - already covered here:
+  `fit_target_size` with `max_texture_dimension_2d` in `render/lib.rs`; 1 conflicting file.
+* #62 (iceteabln, optional `.sbsar` bake through a native C++ host + shelf Materials UI) - new to us,
+  needs a native build; 4 conflicting files.
+* #63 (iceteabln, Painter `.spsm` / `.spmsk` import, SBSAR noise bake) - overlaps our Painter work
+  (it carries its own `spp` crate); the smart material / mask formats themselves are new; 6 files conflict.
+* #64 (iceteabln, experimental `.spp` open) - duplicates our `.spp` import (sessions 103-112), which
+  goes further (rebuilt layer stacks, background job); 8 files conflict.
+
+Behaviour changes the user will notice: painting in the 2D view; folders and generators drawn as a
+tree in the Layers panel; Bake window "Match by mesh name" (AO / Thickness then bake on the CPU);
+Layer menu "Edit in PhotoCraft"; ID Color mask effect; File > Reload mesh; radial symmetry in the
+brush strip; more materials, smart materials, masks, HDRIs and brush presets on the Shelf.
+Projects saved by this build are schema 15 and do not open in builds before it.
+
+* **Tests:** `cargo test --workspace` 831 passed, 0 failed (758 before; after each merge: #65 761,
+  #73 770, #54 781, #56 789, #66 802, #68 811, #70 821, #72 831). Build dir moved to
+  `C:/subcraft-build/rafael-prs` (E: ran out of space during the run).
+* **Not verified:** none of the merged features was tried in the running app in this session (tests
+  only); the PhotoCraft round trip needs PhotoCraft installed; pen and 2D-view painting by hand.
+## Issue #74: crash at launch on Wayland with scaling above 100% (2026-11-02)
+
+**Certain (from the six attached crash logs, 0.1.8, CachyOS, RADV 890M, Mesa 26.2.5):** every
+crash is `Device::create_texture, label = 'viewport msaa'`, `Dimension X value 9375 exceeds the
+limit of 8192` (five logs) or `8272 exceeds ... 8192` (one). It is the same family as the 0.1.7
+startup crash: the viewport render target was wider than the 8192 px device limit.
+**e6df477 (target clamp + device requests the adapter's own limit) and d5a5de9 (window-size cap, layout
+validation) are NOT in the v0.1.8 tag**; both are on this branch, so the fix ships with the next release.
+**Hypothesis (not verified, no Wayland machine):** the viewport rect was ~9375 physical px wide at
+the first frames, i.e. a logical width of ~6250 pt at 1.5x. Plausibly Wayland reports a window size or
+scale late and a restored window size in physical pixels is read as points; the panel is not
+2880 px wide. e6df477 clamps whatever the cause, so the crash cannot recur, but the layout at that
+first frame may still look odd until the compositor sends the real size.
+**Done here:** `viewport::physical_size` factored out of the viewport code and a test over a 2880x1920
+panel at scales 1.0/1.25/1.5/1.75/2.0/3.0 (identical results at normal sizes, 9375 and 8272 clamp to
+8192, never zero). Not done: a retry-with-MSAA-off safety net for validation errors (wgpu errors are
+fatal by default in egui-wgpu; needs an error scope around target creation, a larger change).
+
+Draft reply for #74: "Thanks for the logs, they pinpoint it: the 'viewport msaa' texture was created
+9375 px wide, above your GPU's 8192 limit, so 0.1.8 aborts. This was already fixed after 0.1.8
+(render targets are clamped to the device limit and the window size is capped); it will be in the next
+release (0.1.9). Until then, `subcraft --window-size 1600x900` (and `--reset-layout` to ignore the saved
+window state) should start, or run with scaling at 100%. If 0.1.9 still fails, please attach the new crash log."
+### Session 113 - USD mesh import (2026-11-02)
+
+* **Formats:** `.usd`, `.usda`, `.usdc`, `.usdz` through the same paths as OBJ/FBX/glTF (File > Open model,
+  New Project dialog, drag and drop all take `subcraft_mesh::SUPPORTED_EXTENSIONS`). Importer:
+  `crates/mesh/src/usd_import.rs`, one match arm in `import.rs`; no egui/wgpu.
+* **Dependency:** `openusd` 0.8.0 + `openusd-schemas` 0.8.0 (feature `geom`, used only for `XformCache`
+  xformOp evaluation), both MIT, pure Rust, no C++/cmake. Pulls in logos, lz4_flex, strum, derive_more,
+  regex-lite, half and `zip` 8 (the workspace already uses zip 9, so two zip majors are built); `openusd-build`
+  runs as a build script to generate schema code. Crate sizes: openusd 1.36 MB, openusd-schemas 0.28 MB
+  (source); a clean `cargo check -p subcraft-mesh` went from ~1 min to ~4 min on this machine. Both
+  require rustc 1.96 (workspace says 1.95; the toolchain here is 1.98).
+* **Supported:** Mesh prims (points, faceVertexCounts/Indices, normals, `primvars:st`/`st0`/`uv`/first
+  Vec2 primvar incl. indexed and constant/uniform/vertex/faceVarying), n-gons fan-triangulated, full
+  composition (references, payloads, sublayers, variants, instanceable prims via proxies), world
+  transform from xformOps, `upAxis` Z -> Y, `metersPerUnit` (only when authored in the root layer),
+  `orientation = leftHanded` and mirrored transforms flip winding, one object per Mesh prim (names made unique),
+  material names from `material:binding` (inherited from ancestors) and per-face `GeomSubset` bindings,
+  usdc binary and usdz (zip) packages. V is flipped (USD st origin is bottom-left).
+* **Not supported / reported:** animation (the earliest time sample is used), skinning, point instancers
+  (skipped, reported), invisible and guide/proxy prims (skipped, reported), subdivision (the base cage is
+  imported), curves/volumes/nurbs, materials beyond names (a note says so), concave n-gons (fan
+  triangulation), `metersPerUnit` authored only in a sublayer. A broken file gives an `Usd` import error; a file
+  with no meshes or inconsistent topology gives the usual "no triangles" error; UV-less meshes get the usual
+  `NoUvs` error (accepted as a bake source, with a "has no UVs" note).
+* **Tests:** `crates/mesh/tests/usd_import.rs` (8): quad counts/UV range/normals/names, Z-up + cm + nested
+  transform, indexed UVs + subset materials + pentagon + two objects, reference and sublayer composition,
+  usda == usdc == usdz (positions, UVs), UV-less, broken/empty/out-of-range files, invisible prims.
+  Fixtures are usda text written by the tests; usdc/usdz are produced with the library's own writers.
+  No real-world exports (Blender, Maya, Omniverse) were available to try; that is untested.
+* **Result:** `cargo test --workspace --lib --bins --tests` 766 passed, 0 failed (758 before + 8 USD). A plain
+  `cargo test --workspace` stops on a rustc 1.98 internal compiler error (module_children of `naga::back`) while
+  compiling the `subcraft-ui` example `dead_man`; it is in the example's dependency metadata, not in this change,
+  and reproduced with and without incremental compilation. Examples were therefore not built in this run.
+### Alembic (.abc) mesh import (session alembic-import)
+
+* New `crates/mesh/src/alembic.rs`: hand-written Ogawa reader, no new dependency. Wired as a mesh extension (`SUPPORTED_EXTENSIONS` now includes `abc`), so File > Open model, the New Project dialog, drag and drop and the launch argument accept it with no UI changes.
+* Supported: Ogawa container; object hierarchy; `IXform` ops (scale, translate, rotate axis-angle, matrix, rotateX/Y/Z, `.inherits`) accumulated into world matrices; `IPolyMesh` and `ISubD` (read as polygon meshes) with `P`, `.faceIndices`, `.faceCounts`, `N` and `uv` geometry parameters (indexed or not; faceVarying, vertex/varying, uniform, constant scopes); n-gons fan-triangulated; one SubCraft object per mesh, named after the Alembic object; UV V flipped (Alembic origin is bottom-left); face winding reversed (Alembic is clockwise); mirrored transforms flip winding. Float32 and float64 data.
+* Not supported: the older HDF5 container (detected, clear message asking for an Ogawa re-save), animation (first sample used, with a note), curves, points, NURBS, cameras, lights (listed as notes), face sets / materials (one `DefaultMaterial`), instanced objects (`ISubD` creases, layers). Meshes without UVs follow the existing behaviour (`NoUvs` message).
+* Tests (10, in `alembic.rs`, fixtures produced by a small Ogawa writer in the test module): triangulation, UV range, normals, object names, transform accumulation / non-inheriting / rotation, vertex-scope indexed UVs, multiple meshes, missing UVs, camera note, truncated files at every length and single-byte corruption (no panic), HDF5 message, bad indices.
+* **Not verified against a real Alembic file**: no real `.abc` was available (downloads need approval), so the reader follows Alembic's published Ogawa layout; the fixtures are written by the same understanding. Open a file exported from Blender or Maya to confirm; the first things to check are transform order and winding.
+* `cargo test --workspace`: 768 passed, 0 failed.
+### Session 113 - Rendering mode: GPU path tracing in the 3D view (2026-11-02)
+
+* **What it is:** an optional path-traced preview in the 3D view. Turn it on with F10, the **Render** button in the 3D view's bottom-right corner, or View → Rendering mode. The button sits in the corner rather than the toolbar so the toolbar's tested layout widths are unchanged. Right-click Render, or open Preferences → Rendering mode, for Bounces (default 4), Max samples (default 1024, 0 = unlimited), Denoise and Ground shadow. While it is on, **Pause** keeps the current image, and a pill at the top right shows samples, samples/s and "F10 exit". The raster viewport is unchanged and stays the default. The on/off state is never saved, so every start is raster. Turning the mode off frees the tracer's GPU memory, and the next frame is raster.
+* **Engine** (`crates/render/src/pathtrace.rs`, `pathtrace.wgsl`, `pathtrace_pack.wgsl`, `denoise.wgsl`, `pathtrace_display.wgsl`):
+  * wgpu compute, one camera path per pixel per pass, over the session's existing SAH `Bvh` flattened as for the GPU baker (`Bvh::flatten`, same node/triangle layout and stack traversal, plus barycentrics). The BVH is uploaded only when the geometry key (mesh `Arc` + triangle count) changes.
+  * Materials: each material slot's channels are packed by a compute pass into three `rgba16float` texture arrays (base + roughness, normal + metallic, emission + height), at most 2048² within a 768 MB budget. A channel upload re-packs only that slot. Painting refreshes the traced image with no BVH work.
+  * Shading: GGX metal/roughness with VNDF sampling, height-correlated Smith, Schlick Fresnel, Lambert weighted by (1 − F), one-sample lobe mixture pdf. The normal map and height bump use the raster shader's tangent convention, and emission is included.
+  * Lighting: the viewport environment (HDRI at mip 0, or the procedural sky), the key light as a directional light with shadow rays, and an optional 0.18 gray ground disc whose rim fades into the background. Russian roulette after bounce 2; indirect samples are clamped at luminance 20.
+  * Accumulation restarts when the camera, lights, environment, height scale, size, bounces, ground, geometry or packed textures change. Exposure, tone map and the denoise toggle are display-only and do not restart it.
+  * Time-boxing: each frame dispatches as many one-sample passes as fit a 20 ms budget (measured by waiting on the queue, at most 64 per frame, growing at most 2× per frame), so the window never freezes. Nothing is dispatched once converged or paused.
+  * Denoiser: SVGF-lite à-trous (5 passes, strides 1–16, B3 kernel) on albedo-demodulated light. Edge stops use the normal (cos⁶⁴), relative depth, and luminance against the per-pixel variance (temporal from 4 samples, spatial 3×3 before that). It fades out as the variance falls. Guides come from an unjittered primary ray on sample 0.
+  * Fallback: `check_support` checks the limits (7 storage buffers, 3 storage textures, 8×8 workgroups, 2 bind groups with 6 textures). Pipeline creation and every traced frame run inside wgpu validation and out-of-memory error scopes. Any error turns the mode off, shows the message in the status bar and falls back to raster for that frame. The trace resolution is scaled down (aspect kept, image stretched) when its per-pixel buffers would exceed the adapter's buffer limit.
+* **Tests** (`crates/render/tests/pathtrace.rs`, GPU, skipped without an adapter):
+  * Furnace: a white diffuse sphere under a uniform environment of radiance 1 converges to **0.972** after 319 samples. The rest is the single-scatter loss of the dielectric GGX coat at roughness 1. A 0.5 gray sphere gives about 0.5.
+  * The traced silhouette matches the raster viewport, and a red cube stays red.
+  * Ground: the floor in the cube's shadow is darker than the lit floor.
+  * Accumulation stops at max samples and does no work after that. Exposure does not restart it; a texture upload restarts it and the new paint is traced; a camera move restarts it; pause holds the count. The raster image is byte-identical before and after `release_path_tracer`.
+  * Denoiser: a flat image stays flat (< 1e-4), noise drops by more than half, the mean is kept, and a normal edge is kept.
+  * Unit tests: tree depth, the trace-size fit, the settings round trip (the mode always starts off, values clamp), and the F10 shortcut.
+* **Verified in the real app** (release, RTX 4060, `--demo --reset-layout --window-size 1600x900 --camera 35,20,1.0` with and without `--path-trace 256 --screenshot`): `docs/screenshots/rendering-mode-raster.png` vs `rendering-mode-path-traced.png`. Same framing and textures. The traced crate shows the ground contact shadow, darker crate interior and slat gaps, and soft key-light shading. The progress pill read 324 / 1024 samples at 1034 samples/s, with a 19.6 ms frame time in the status bar; Pause and Render sit in the view corner.
+  * The first scripted run crashed: an early frame asked for a 712 MB accumulation buffer, above the adapter's 256 MB limit. Fixed by fitting the trace size to the buffer limit and by the error scopes above (unit test added).
+* The workspace run caught the first toolbar placement of the Render button (it pushed the brush bar past its 1115 px inline width). It moved to the view corner.
+* **Performance** (RTX 4060, 1920×1080, denoise on, `path_trace_speed_at_1080p`, an ignored test): sample crate 315 samples/s at 1 bounce and 229 at 4 bounces; 262k-triangle sphere 180 at 1 bounce and 130 at 4 bounces. Frames stayed at 15–18 ms with the 20 ms budget. In the app's 858×552 view: about 900 samples/s, so 256 samples take under a second.
+* **Known gaps:**
+  * No environment importance sampling: small bright HDRI suns are noisy, which the firefly clamp and denoiser hide.
+  * The procedural studio panels are shown only to glossy (specular-sampled) rays, matching the raster look rather than being physically lit.
+  * The baked AO channel is ignored, since the tracer computes occlusion itself.
+  * The Albedo "Nearest" filter is not honored (bilinear only).
+  * Textures are sampled at one level (mip 0 of the packed array) with no ray differentials.
+  * No transmission, opacity or SSS.
+  * Bloom, glow, glare and SSAO post effects are not applied to the traced image.
+  * One sample pass on a very slow GPU at a large size can exceed the 20 ms budget (the pass is not tiled).
+  * The ground disc is fixed at 1.5× the model diagonal.
+  * F10 was exercised through the shortcut table and its test, not with a physical key press. On Windows, F10 can also be claimed by the system menu key handling.
+### Session 113 - macOS, Linux aarch64 and Windows arm64 builds (2026-11-02)
+
+* **Updater:** `PackageKind` gained `WindowsPortableArm64` and `LinuxPortableArm64`; asset and archive
+  folder names come from `PackageKind::platform()` (`windows-x64`, `windows-arm64`, `linux-x86_64`,
+  `linux-aarch64`), so an Arm machine can only pick its own package and refuses an x64 archive.
+  macOS has no self-update (`detect_kind` returns an explanatory error): the bundle is unsigned.
+  Tests: `each_platform_picks_only_its_own_asset`, `arm64_archives_use_their_own_folder_and_header_checks`.
+* **Mac wording:** `ui::keys::native` shows "Cmd+" instead of "Ctrl+" in tooltips and menus on macOS
+  (egui already maps `Modifiers::command` to Cmd). Metal is picked by wgpu's default backends.
+* **Packaging:** `scripts/build-macos.sh` (universal `lipo`, `Info.plist` from `packaging/macos`, `.icns`,
+  ad-hoc `codesign`, `.dmg` + `.zip`, asset `SubCraft-<v>-macos-universal-experimental.*`),
+  `scripts/build-linux.sh` names the tarball after `uname -m`, `scripts/build-windows.ps1 -Arch arm64`.
+  New workflow `.github/workflows/release-platforms.yml` (runners `macos-15`, `ubuntu-22.04-arm`,
+  `windows-11-arm`) attaches them to the release, with their own `SHA256SUMS-*.txt`, and adds an
+  "Experimental platforms" paragraph to the release notes. `release.yml` is unchanged.
+* **Gatekeeper:** no Apple Developer ID or notarization; users approve the app once (README, and
+  `READ-ME-FIRST.txt` inside the dmg). Notarization needs a paid Apple Developer account.
+* **Not run anywhere:** the macOS, Linux aarch64 and Windows arm64 binaries (no hardware here), and the new
+  workflow itself (no GitHub access from this session). See the README for the user-facing list.
+
+### Session 114 - Painter import: roughness grain, edge wear check, stencil sheets (2026-11-02)
+
+Branch `claude/compassionate-turing-bfa0e8`, local. Measured on the user's DBAL-A2, CarInteriro and Street_cyberpunk
+(`C:\Users\Rayan\Downloads`), lab runs at 512 / 1024 / 2048 (`spp_lab`, rebuilt stack alone against Painter's flattened
+channels, mean abs difference over the UV triangles).
+
+* **Roughness grain: improved, not matched at 2K.** The "half of Painter's contrast" is real only above 512. Robust texel-to-texel
+  sigma of Painter's roughness on DBAL-A2 grows with the texture (0.0073 at 512, 0.0083 at 1024, 0.0138 at 2048); the rebuilt
+  stack's stays near 0.005-0.006 (no fractal fill writes Roughness: 235 uniform and 19 bitmap fills, the grain Painter shows is in
+  masks and graphs SubCraft cannot rebuild). New top layer "Roughness grain (approximate)": a roughness-only, signed-addition,
+  sub-texel fractal (scale 1999, not a power of two: at 256..2048 texel centres sit on the noise lattice, where it is flat, which
+  the first version hit), amount 0.025 (`SUBCRAFT_SPP_GRAIN`, 0 = off). Importer cache version 7.
+
+  | DBAL-A2 roughness sigma, rebuilt / Painter | before | after |
+  |---|---|---|
+  | 512 | 0.74 | 1.07 |
+  | 1024 | 0.58 | 0.87 |
+  | 2048 | 0.43 | 0.58 |
+  | CarInteriro 512 | 0.69 | 0.92 |
+
+  Cost (a random grain cannot share Painter's phases): roughness difference DBAL-A2 512 0.0419 -> 0.0421, 1024 0.0430 -> 0.0432,
+  2048 0.0446 -> 0.0448, CarInteriro 512 0.0319 -> 0.0326. Base Color and Metallic unchanged to 4 digits (DBAL-A2 0.0145 / 0.0455 at
+  512, CarInteriro 0.0093 / 0.0026, Street_cyberpunk 0.0049 / 0.0238 / 0, no change). The grain cannot grow with the size
+  as Painter's does (a fixed tile-space field), so 2048 stays at 58%.
+* **Edge wear gaps: not reproduced, and not found missing.** Painter's `mg_metal_edge_wear` exists in DBAL-A2 only (79 layers
+  with an Edges generator; CarInteriro and Street_cyberpunk have none). Against Painter's flattened channels at 1024, on convex
+  edges (baked curvature > 0.65 / > 0.8): Metallic correlation 0.981 / 0.982, and the Metallic histogram on edge texels matches
+  (share of texels at 0-0.1: 39.3% vs 39.4%; at 0.6-0.7: 14.4% vs 11.5%); mean difference 0.025 there, against 0.051
+  on flat surface. Base Color and Roughness at edges correlate worse (0.43-0.58 and 0.37-0.48) but their means are close
+  (Base Color 0.059 vs 0.045 linear at the sharpest edges). The remaining Metallic / Roughness error sits in creases (curvature
+  < 0.45: Metallic +0.07, Roughness -0.05), which is the dirt / cavity side, not wear. Rounded bevels are not the cause
+  (the baked curvature map is what the generator reads). One real finding: texels outside the UV islands are 0.5 in the rebuilt
+  Base Color where Painter pads them, which draws thin bright outlines along island borders in the channel images (outside the
+  gate; the 3D view samples them only at seams). Nothing was changed for edge wear; `spp_lab edges` lists the layers.
+* **Stencil sheets: readable, but replaying them makes the result worse, so it is off.** The stencil packs are compiled graphs
+  (`.sbsasm`, 168-420 MB). Their alpha sheets are raw, uncompressed 8-bit pictures after a 52-byte header (found by dumping the
+  assembly): Weapon_Stencil_4 is ten 4096x4096 sheets, Stencil_Utility_Tool one 4096x4096 then six 8192x8192, picked by
+  `switch_stencil` / `choose_stencil` (the stroke's graph tweaks, now parsed into `BrushInfo::stencil_tweaks`). New
+  `mesh::spp::sheets` recovers the layout (sheet count from the graph's XML, sizes from the data length and the row stride, squares
+  preferred) and `SppFile::stencil_sheets` returns them; Weapon_Stencil_2 does not resolve (most of its data has no row stride at
+  any size, only a few blocks show 6144), so its 34 strokes stay skipped. With `SUBCRAFT_SPP_SHEETS=1` the 294 strokes of the other
+  two are replayed with their sheet, but inside their footprint (0.6-1.8% of texels) the difference to Painter rises (1024 Base Color
+  0.027 -> 0.047, Metallic 0.060 -> 0.130, better in only 19-23% of texels) and DBAL-A2 Metallic goes 0.0453 -> 0.0466 (512: 0.0455
+  -> 0.0472); no mirror of the sheet or inversion helps (flips: 0.0465-0.0472, inverted 0.0514). The sheets also show no text:
+  they are metal wear and grunge collages, so the DBAL-A2 labels (and the "00" vs "06" knobs) do not come from them. The
+  fallback "use Painter's flattened region" was not built (the flattened layer cannot be separated per stroke). Default behaviour
+  is unchanged.
+* **Tools:** `spp_lab sources r|m|b` (what each leaf puts in a channel), `edges`, `stencils` (+ `STENCIL_XML`, `STENCIL_DUMP`),
+  `sheets file.sbsasm count`.
+* **Tests:** `cargo test --workspace --lib --bins --tests --no-fail-fast`: 865 passed, 0 failed (new: grain statistics at 256-2048,
+  sheet layout, picker range, stencil tweaks; `spp_open` now expects the grain layer).

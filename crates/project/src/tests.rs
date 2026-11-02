@@ -391,7 +391,7 @@ fn content_effects_roundtrip_exactly_with_schema_5() {
     let mut json = String::new();
     zip.by_name("document.json").unwrap().read_to_string(&mut json).unwrap();
     assert!(json.contains("\"content_effects\"") && json.contains("\"type\": \"levels\""), "{json}");
-    assert_eq!(SCHEMA_VERSION, 13);
+    assert_eq!(SCHEMA_VERSION, 15);
     assert_eq!(read_project(Cursor::new(bytes)).unwrap().document, doc, "effect ids, order, blends, rasters survive");
 }
 
@@ -487,7 +487,7 @@ fn loader_rejects_filters_with_invalid_domains_or_parameters() {
 #[test]
 fn neighborhood_filters_keep_their_original_json() {
     use subcraft_doc::Filter;
-    assert_eq!(SCHEMA_VERSION,13);
+    assert_eq!(SCHEMA_VERSION,15);
     assert_eq!(serde_json::to_string(&Filter::Blur {radius:4.0}).unwrap(),r#"{"kind":"blur","radius":4.0}"#);
     assert_eq!(serde_json::to_string(&Filter::Sharpen {radius:2.0,amount:1.5}).unwrap(),r#"{"kind":"sharpen","radius":2.0,"amount":1.5}"#);
 }
@@ -524,4 +524,109 @@ fn schema_11_directional_stacks_migrate_and_contours_have_stable_json() {
     assert_eq!(read_project(Cursor::new(old)).unwrap().document,doc);
     assert_eq!(serde_json::to_string(&Filter::Bevel {radius:8.0,amount:-0.2,threshold:0.5}).unwrap(),r#"{"kind":"bevel","radius":8.0,"amount":-0.2,"threshold":0.5}"#);
     assert_eq!(serde_json::to_string(&Filter::MaskOutline {radius:4.0,threshold:0.5,position:OutlinePosition::Outer}).unwrap(),r#"{"kind":"mask_outline","radius":4.0,"threshold":0.5,"position":"outer"}"#);
+}
+
+#[test]
+fn schema_13_stacks_open_and_gradient_map_has_stable_json_and_survives_roundtrip() {
+    use subcraft_doc::{ContentEffect,ContentEffectKind,Filter,Gradient,GradientStop};
+    let st=|position,color|GradientStop {position,color};
+    let gradient=Gradient::new(&[st(0.0,[0.0,0.0,0.0]),st(0.25,[0.5,0.0,0.0]),st(1.0,[1.0,1.0,0.5])]).unwrap();
+    let new=Filter::GradientMap {gradient,to_gray:false};
+    let mut ts=TextureSet::new("Gradients",0,128);let mut l=Layer::new_fill("F",&ts);
+    // A pre-14 stack: only filters that existed in schema 13.
+    l.content_effects.push(Arc::new(ContentEffect::new(ContentEffectKind::Filter {channel:ChannelKind::BaseColor,filter:Filter::Blur {radius:4.0}},&ts)));
+    ts.insert_above(None,l);let old_doc=Document {texture_sets:vec![ts.clone()]};
+    let bytes=write_project(Cursor::new(Vec::new()),&primitives::cube(2.0),&old_doc,&ResourceStore::default(),&MeshMapSet::new()).unwrap().into_inner();
+    let old=with_manifest(bytes,|s|s.replace(&format!("\"schema_version\": {SCHEMA_VERSION}"),"\"schema_version\": 13"));
+    assert_eq!(read_project(Cursor::new(old)).unwrap().document,old_doc);
+    // New: the stop list serializes as a plain array, unused slots are never written.
+    assert_eq!(serde_json::to_string(&new).unwrap(),r#"{"kind":"gradient_map","gradient":[{"position":0.0,"color":[0.0,0.0,0.0]},{"position":0.25,"color":[0.5,0.0,0.0]},{"position":1.0,"color":[1.0,1.0,0.5]}],"to_gray":false}"#);
+    assert_eq!(serde_json::from_str::<Filter>(&serde_json::to_string(&new).unwrap()).unwrap(),new);
+    assert!(serde_json::from_str::<Filter>(r#"{"kind":"gradient_map","gradient":[],"to_gray":true}"#).is_err());
+    let nine=(0..9).map(|i|format!(r#"{{"position":{},"color":[0,0,0]}}"#,i as f32/10.0)).collect::<Vec<_>>().join(",");
+    assert!(serde_json::from_str::<Filter>(&format!(r#"{{"kind":"gradient_map","gradient":[{nine}],"to_gray":true}}"#)).is_err());
+    // Full project round trip as a content effect and as a mask effect.
+    let mut ts=TextureSet::new("Gradients",0,128);let mut l=Layer::new_fill("F",&ts);
+    l.content_effects.push(Arc::new(ContentEffect::new(ContentEffectKind::Filter {channel:ChannelKind::BaseColor,filter:new},&ts)));
+    let mut mask=Mask::new(128,true);mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Filter(Filter::GradientMap {gradient:Gradient::preset(1).unwrap(),to_gray:true}))));
+    l.mask=Some(mask);ts.insert_above(None,l);let doc=Document {texture_sets:vec![ts]};
+    let bytes=write_project(Cursor::new(Vec::new()),&primitives::cube(2.0),&doc,&ResourceStore::default(),&MeshMapSet::new()).unwrap().into_inner();
+    assert_eq!(read_project(Cursor::new(bytes)).unwrap().document,doc);
+}
+
+#[test]
+fn histogram_filters_have_stable_json() {
+    use subcraft_doc::Filter;
+    assert_eq!(serde_json::to_string(&Filter::HistogramScan {position:0.5,contrast:0.25,invert:true}).unwrap(),r#"{"kind":"histogram_scan","position":0.5,"contrast":0.25,"invert":true}"#);
+    assert_eq!(serde_json::to_string(&Filter::HistogramRange {position:0.5,range:0.5,softness:0.0,invert:false}).unwrap(),r#"{"kind":"histogram_range","position":0.5,"range":0.5,"softness":0.0,"invert":false}"#);
+}
+
+#[test]
+fn median_filter_has_stable_json() {
+    use subcraft_doc::Filter;
+    assert_eq!(serde_json::to_string(&Filter::Median {radius:3.0}).unwrap(),r#"{"kind":"median","radius":3.0}"#);
+}
+
+#[test]
+fn warp_filter_has_stable_json() {
+    use subcraft_doc::Filter;
+    assert_eq!(serde_json::to_string(&Filter::Warp {intensity:8.0,scale:4,seed:7}).unwrap(),r#"{"kind":"warp","intensity":8.0,"scale":4,"seed":7}"#);
+}
+
+#[test]
+fn the_trusted_loader_keeps_filter_parameters_the_checked_loader_rejects() {
+    use subcraft_doc::Filter;
+    let mesh = primitives::cube(2.0);
+    let mut ts = TextureSet::new("T", 0, 128);
+    let mut layer = Layer::new_fill("F", &ts);
+    let mut mask = Mask::new(128, false);
+    mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Filter(Filter::Blur { radius: 90.0 }))));
+    layer.mask = Some(mask);
+    ts.insert_above(None, layer);
+    let doc = Document { texture_sets: vec![ts] };
+    let bytes = write_project(Cursor::new(Vec::new()), &mesh, &doc, &ResourceStore::default(), &MeshMapSet::new()).unwrap().into_inner();
+    assert!(matches!(read_project(Cursor::new(bytes.clone())), Err(ProjectError::Invalid(_))));
+    assert_eq!(read_project_checked(Cursor::new(bytes), true).unwrap().document, doc);
+}
+
+#[test]
+fn schema_15_id_color_mask_roundtrips_has_stable_json_and_older_projects_migrate() {
+    use subcraft_doc::IdColorMask;
+    let id = IdColorMask { colors: vec![[0.9, 0.3, 0.25], [0.25, 0.5, 0.9]], tolerance: 0.08, softness: 0.02, invert: true };
+    assert_eq!(
+        serde_json::to_string(&MaskEffectKindV1::IdColor { id_color: id.clone() }).unwrap(),
+        r#"{"type":"id_color","id_color":{"colors":[[0.9,0.3,0.25],[0.25,0.5,0.9]],"tolerance":0.08,"softness":0.02,"invert":true}}"#
+    );
+    let mesh = primitives::cube(2.0);
+    let save = |doc: &Document| write_project(Cursor::new(Vec::new()), &mesh, doc, &ResourceStore::default(), &MeshMapSet::new()).unwrap().into_inner();
+    let with_mask = |kind: MaskEffectKind| {
+        let mut ts = TextureSet::new("T", 0, 128);
+        let mut layer = Layer::new_fill("F", &ts);
+        let mut mask = Mask::new(128, false);
+        let mut effect = MaskEffect::new(kind);
+        effect.opacity = 0.75;
+        mask.effects.push(Arc::new(effect));
+        layer.mask = Some(mask);
+        ts.insert_above(None, layer);
+        Document { texture_sets: vec![ts] }
+    };
+    let doc = with_mask(MaskEffectKind::IdColor(id.clone()));
+    assert_eq!(read_project(Cursor::new(save(&doc))).unwrap().document, doc, "colors, tolerance, softness, invert survive");
+
+    // A Smart Mask fragment carries it too.
+    let fragment = crate::fragment::Fragment { kind: crate::fragment::FragmentKind::SmartMask, name: "ID".into(), resolution: 128,
+        layers: vec![], mask_effects: vec![MaskEffect::new(MaskEffectKind::IdColor(id.clone()))], resources: ResourceStore::default() };
+    let bytes = crate::fragment::write_fragment(Cursor::new(Vec::new()), &fragment).unwrap().into_inner();
+    assert_eq!(crate::fragment::read_fragment(Cursor::new(bytes)).unwrap().mask_effects, fragment.mask_effects);
+
+    // Out-of-range parameters are invalid data.
+    let bad = with_mask(MaskEffectKind::IdColor(IdColorMask { tolerance: 3.0, ..id }));
+    assert!(matches!(read_project(Cursor::new(save(&bad))), Err(ProjectError::Invalid(_))));
+
+    // Schema 13 and 14 projects (no ID color masks) load unchanged.
+    let old = effect_document();
+    for version in [13, 14] {
+        let bytes = with_manifest(save(&old), |m| m.replace(&format!("\"schema_version\": {SCHEMA_VERSION}"), &format!("\"schema_version\": {version}")));
+        assert_eq!(read_project(Cursor::new(bytes)).unwrap().document, old, "schema {version}");
+    }
 }

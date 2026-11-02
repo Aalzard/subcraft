@@ -112,23 +112,43 @@ pub struct LaunchOptions {
     pub render_window: bool,
     /// Render a still or a turntable from the loaded project, then quit (scripted export).
     pub render_job: Option<crate::render_export::Job>,
+    /// Start in Rendering mode; a scripted screenshot waits for this many samples per pixel.
+    pub path_trace: Option<u32>,
     /// Look overrides for scripted renders, e.g. `tone=filmic,bloom=0.8,ao=0.7,exposure=1.2`.
     pub quality: Option<String>,
     pub effect_panel: bool,
     pub symmetry_axes: Option<[bool; 3]>,
+    /// Fixed camera for scripted screenshots (`--camera yaw,pitch,zoom[,x,y,z]`).
+    pub camera: Option<crate::orbit::CameraView>,
+    /// Radial symmetry for scripted runs: axis (0..3) and copy count.
+    pub radial_symmetry: Option<(u8, u32)>,
     /// Start a real high-to-low bake and show its dialog (also usable with --screenshot).
     pub bake_high_poly: Option<PathBuf>,
     pub bake_size: Option<u32>,
+    /// Bake part matching for this run (stored in the project settings like the dialog choice).
+    pub bake_match: Option<subcraft_core::BakeMatchMode>,
     /// Inspect the real high/low geometry before baking, without starting the bake.
     pub bake_preview_only: bool,
     /// Pin a completed map for reproducible native screenshot validation.
     pub bake_preview_map: Option<subcraft_core::MeshMapKind>,
+    /// Light the viewport with the environment of this name.
+    pub environment: Option<String>,
+    /// Reload the project's mesh from this model on start (File > Reload mesh, scripted).
+    pub reload_mesh: Option<PathBuf>,
+    /// Mode for `reload_mesh`; `None` opens the window with the suggested mode for review.
+    pub reload_mode: Option<subcraft_app::ReloadMode>,
     /// Recover the newest crashed session without asking.
     pub recover: bool,
     /// Autosave interval instead of the preference (testing).
     pub autosave_interval: Option<std::time::Duration>,
     /// Panic a moment after start (tests the crash report).
     pub test_crash: bool,
+    /// Ignore the saved dock layout and window geometry for this run.
+    pub reset_layout: bool,
+    /// Initial inner window size in points (scripted layout checks).
+    pub window_size: Option<[f32; 2]>,
+    /// Force the display scale (pixels per point) for scripted layout checks.
+    pub scale: Option<f32>,
     /// Measure frames while a generator value changes every frame, write stats, quit.
     pub profile_edits: Option<(PathBuf, Option<u32>)>,
 }
@@ -153,9 +173,57 @@ pub fn default_layout() -> DockState<Tab> {
 // Apply the requested shelf-left / utility-tabs-bottom arrangement once, then retain edits.
 const DOCK_KEY: &str = "subcraft_dock_v5";
 
+/// A restored dock layout is only used when it still holds every panel exactly once, has no
+/// floating windows (they can be left off-screen after a monitor change) and no split is
+/// squeezed to nothing. Anything else falls back to the default layout.
+pub fn layout_is_valid(dock: &DockState<Tab>) -> bool {
+    use egui_dock::Node;
+    let mut seen = std::collections::HashMap::<Tab, usize>::new();
+    for (_, tab) in dock.iter_all_tabs() { *seen.entry(*tab).or_default() += 1; }
+    let all = [Tab::Viewport, Tab::UvView, Tab::Layers, Tab::Properties, Tab::Brush, Tab::TextureSets, Tab::Parts, Tab::History, Tab::Shelf];
+    if !all.iter().all(|t| seen.get(t) == Some(&1)) || seen.len() != all.len() { return false; }
+    if dock.iter_surfaces().count() != 1 { return false; }
+    dock.iter_all_nodes().all(|(_, node)| match node {
+        Node::Horizontal(split) | Node::Vertical(split) => split.fraction.is_finite() && (0.04..=0.96).contains(&split.fraction),
+        _ => true,
+    })
+}
+
+/// Parse `1280x720`.
+pub fn parse_size(text: &str) -> Option<[f32; 2]> {
+    let (w, h) = text.split_once(['x', 'X'])?;
+    let (w, h) = (w.trim().parse::<f32>().ok()?, h.trim().parse::<f32>().ok()?);
+    (w >= 320.0 && h >= 240.0 && w <= 16384.0 && h <= 16384.0).then_some([w, h])
+}
+
 #[cfg(test)]
 mod layout_tests {
     use super::*;
+    #[test]
+    fn default_layout_is_valid_and_broken_ones_are_rejected() {
+        assert!(layout_is_valid(&default_layout()));
+        let mut missing = default_layout();
+        let path = missing.find_tab(&Tab::Shelf).unwrap();
+        let _ = missing.remove_tab(path);
+        assert!(!layout_is_valid(&missing));
+        let mut squeezed = default_layout();
+        for (_, node) in squeezed.iter_all_nodes_mut() {
+            if let egui_dock::Node::Horizontal(s) | egui_dock::Node::Vertical(s) = node { s.fraction = 0.0; }
+        }
+        assert!(!layout_is_valid(&squeezed));
+        let mut floating = default_layout();
+        floating.add_window(vec![]);
+        assert!(!layout_is_valid(&floating));
+        let mut doubled = default_layout();
+        doubled.push_to_focused_leaf(Tab::Viewport);
+        assert!(!layout_is_valid(&doubled));
+    }
+    #[test]
+    fn window_size_parsing() {
+        assert_eq!(parse_size("1280x720"), Some([1280.0, 720.0]));
+        assert_eq!(parse_size("10x10"), None);
+        assert_eq!(parse_size("abc"), None);
+    }
     #[test]
     fn shelf_is_separate_and_utility_tabs_share_the_bottom_center_node() {
         let dock = default_layout();
@@ -340,6 +408,7 @@ pub struct SubcraftApp {
 impl SubcraftApp {
     pub fn new(cc: &eframe::CreationContext<'_>, options: LaunchOptions) -> Self {
         theme::apply(&cc.egui_ctx);
+        if let Some(scale) = options.scale { cc.egui_ctx.set_pixels_per_point(scale); }
         let mut status = None;
         let is_project = |p: &std::path::Path| p.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case(subcraft_app::PROJECT_EXTENSION));
         let resumed = options.resume_update.as_ref().and_then(|path| match subcraft_app::updater::resume_session(path) {
@@ -353,6 +422,8 @@ impl SubcraftApp {
                     Session::sample()
                 }
             },
+            // A Painter project opens in the background (started below): show the sample until then.
+            Some(path) if crate::spp_import::is_spp(path) => Session::sample(),
             Some(path) => match Session::open_mesh(path, subcraft_app::DEFAULT_RESOLUTION) {
                 Ok((s, warnings)) => {
                     if !warnings.is_empty() {
@@ -381,6 +452,9 @@ impl SubcraftApp {
                 if result.starts_with("Update failed") && let Some(updater) = &mut state.updater { updater.open = true; updater.phase = subcraft_app::updater::Phase::Error(result); }
             }
         }
+        if !restore_failed && options.resume_update.is_none() && let Some(path) = options.mesh.as_ref().filter(|p| crate::spp_import::is_spp(p)) {
+            crate::spp_import::start(&mut state, path);
+        }
         crate::bug_report::record_gpu(cc.wgpu_render_state.as_ref());
         state.bug_report = crate::bug_report::BugReportUi::load();
         if let Some(graphics) = options.graphics_startup.clone() {
@@ -394,6 +468,12 @@ impl SubcraftApp {
             state.bake.open = true;
             state.bake.high_poly = high.display().to_string();
             if let Some(size) = options.bake_size { state.bake.settings.size = size; }
+            if let Some(mode) = options.bake_match {
+                let mut project = state.session.settings().clone();
+                project.bake_match.mode = mode;
+                state.session.set_settings(project);
+            }
+            state.bake.settings.name_match = state.session.settings().bake_match.clone();
             let texture_sets = state.session.document().texture_sets.iter().map(|t| (t.id, t.material_slot)).collect();
             if !options.bake_preview_only { state.bake.job = Some(state.session.start_bake(subcraft_app::BakeRequest {
                 settings: state.bake.settings.clone(), high_poly: Some(high.clone()), texture_sets,
@@ -428,8 +508,17 @@ impl SubcraftApp {
             let _ = state.session.execute(Command::SetResolution { texture_set: None, resolution });
         }
         state.welcome.open = options.shows_welcome(state.recovery.prefs.show_welcome, state.session.is_recovered());
+        if let Some(view) = options.camera {
+            state.camera_view = Some(view);
+            state.camera = crate::orbit::OrbitCamera::framing_with(&state.session.scene().mesh.bounds, Some(&view));
+        }
         if let Some(symmetry) = options.symmetry_axes {
             let stroke = subcraft_paint::StrokeOptions { symmetry, ..state.session.brush.options };
+            let _ = state.session.execute(Command::SetStrokeOptions(stroke));
+        }
+        if let Some((axis, count)) = options.radial_symmetry {
+            let radial = subcraft_paint::RadialSymmetry { enabled: true, axis, count, ..state.session.brush.options.radial };
+            let stroke = subcraft_paint::StrokeOptions { radial, ..state.session.brush.options };
             let _ = state.session.execute(Command::SetStrokeOptions(stroke));
         }
         if options.effect_panel && let Some(layer) = state.session.selected_layer() {
@@ -443,6 +532,10 @@ impl SubcraftApp {
         }
         state.capture_select_brush = options.select_brush.clone();
         state.capture_tool = options.capture_tool.clone();
+        if let Some(samples) = options.path_trace {
+            state.recovery.prefs.viewport.path_tracing = true;
+            state.pt_capture_samples = Some(samples);
+        }
         if let Some(spec) = options.quality.as_deref() {
             let prefs = &mut state.recovery.prefs.viewport;
             for part in spec.split(',') {
@@ -471,6 +564,12 @@ impl SubcraftApp {
             }
         }
         state.pending_render_job = options.render_job.clone();
+        if let Some(model) = &options.reload_mesh {
+            state.mesh_reload.path = model.display().to_string();
+            state.mesh_reload.auto = options.reload_mode;
+            crate::mesh_reload::open(&mut state);
+            state.welcome.open = false;
+        }
         if let Some(model) = &options.new_project_model {
             state.new_project.show_window(&state.recovery.prefs.new_project.clone());
             state.new_project.load_model(model);
@@ -500,7 +599,11 @@ impl SubcraftApp {
             .storage
             .and_then(|s| s.get_string(DOCK_KEY))
             .and_then(|j| serde_json::from_str(&j).ok())
-            .filter(|_| options.screenshot.is_none())
+            .filter(|d: &DockState<Tab>| options.screenshot.is_none() && !options.reset_layout && {
+                let ok = layout_is_valid(d);
+                if !ok { log::warn!("Saved panel layout is invalid; using the default layout"); }
+                ok
+            })
             .unwrap_or_else(default_layout);
         let mut dock = dock;
         if options.properties_panel && let Some(path) = dock.find_tab(&Tab::Layers) { let _ = dock.remove_tab(path); }
@@ -508,6 +611,12 @@ impl SubcraftApp {
             dock = default_layout();
             state.shelf.tab = crate::panels::shelf::ShelfTab::Textures;
             if let Some(path) = dock.find_tab(&Tab::TextureSets) { let _ = dock.set_active_tab(path); }
+        }
+        if let Some(name) = options.environment.as_deref() {
+            match state.library.environments.iter().position(|e| e.name == name) {
+                Some(i) => state.env.index = i,
+                None => log::warn!("no environment named {name}"),
+            }
         }
         if options.view_2d
             && let Some(path) = dock.find_tab(&Tab::UvView)
@@ -622,6 +731,10 @@ impl SubcraftApp {
             }
             Action::OpenProject => self.request(Pending::OpenProject, now),
             Action::Bake => self.state.bake.open = true,
+            Action::TogglePathTracing => {
+                let prefs = &mut self.state.recovery.prefs.viewport;
+                prefs.path_tracing = !prefs.path_tracing;
+            }
             Action::Export => {
                 self.state.export.open = true;
                 self.state.export.settings.height_to_normal = self.state.height_scale;
@@ -640,23 +753,23 @@ impl SubcraftApp {
         let bar = ui.max_rect();
         // Right side first so the left side can't push it out of the bar.
         let right_edge = ui.scope_builder(egui::UiBuilder::new().max_rect(bar).layout(egui::Layout::right_to_left(egui::Align::Center)), |ui| {
-            if primary_button(ui, format!("{}  Export", icons::EXPORT)).on_hover_text("Export textures (Ctrl+Shift+E)").clicked() {
+            if primary_button(ui, format!("{}  Export", icons::EXPORT)).on_hover_text(crate::keys::native("Export textures (Ctrl+Shift+E)")).clicked() {
                 self.perform(Action::Export, now);
             }
-            if secondary_button(ui, format!("{}  Bake", icons::MAGIC_WAND)).on_hover_text("Bake mesh maps (Ctrl+B)").clicked() {
+            if secondary_button(ui, format!("{}  Bake", icons::MAGIC_WAND)).on_hover_text(crate::keys::native("Bake mesh maps (Ctrl+B)")).clicked() {
                 self.perform(Action::Bake, now);
             }
             crate::updates::button(&mut self.state, ui);
-            if icon_button(ui, icons::SAVE, "Save (Ctrl+S)").clicked() {
+            if icon_button(ui, icons::SAVE, crate::keys::native("Save (Ctrl+S)")).clicked() {
                 self.perform(Action::Save, now);
             }
             ui.add_space(6.0);
             let h = self.state.session.history();
             let (can_undo, can_redo) = (h.can_undo(), h.can_redo());
-            if ui.add_enabled_ui(can_redo, |ui| icon_button(ui, icons::REDO, "Redo (Ctrl+Y)")).inner.clicked() {
+            if ui.add_enabled_ui(can_redo, |ui| icon_button(ui, icons::REDO, crate::keys::native("Redo (Ctrl+Y)"))).inner.clicked() {
                 self.perform(Action::Redo, now);
             }
-            if ui.add_enabled_ui(can_undo, |ui| icon_button(ui, icons::UNDO, "Undo (Ctrl+Z)")).inner.clicked() {
+            if ui.add_enabled_ui(can_undo, |ui| icon_button(ui, icons::UNDO, crate::keys::native("Undo (Ctrl+Z)"))).inner.clicked() {
                 self.perform(Action::Undo, now);
             }
             ui.cursor().right()
@@ -690,7 +803,7 @@ impl SubcraftApp {
                 (Tool::Brush, icons::PAINT_BRUSH, "Brush (B)"),
                 (Tool::Eraser, icons::ERASER, "Eraser (E)"),
                 (Tool::PolygonFill, icons::PAINT_BUCKET, "Polygon fill"),
-                (Tool::Clone, icons::COPY, "Clone: Ctrl+click the model to set the source, then paint to copy it"),
+                (Tool::Clone, icons::COPY, crate::keys::native("Clone: Ctrl+click the model to set the source, then paint to copy it")),
                 (Tool::Smudge, icons::DROP, "Smudge: drag the paint under the brush along the stroke"),
                 (Tool::Eyedropper, icons::CURSOR, "Eyedropper (Shift+click picks material)"),
                 (Tool::Pen, icons::CURVE, "Pen paths (P): click points, drag for curves; edit anchors and handles in 2D View"),
@@ -737,21 +850,25 @@ impl SubcraftApp {
                     ui.close();
                     self.request(Pending::OpenMesh, now);
                 }
-                if item(ui, icons::FOLDER_OPEN, "Open project…", "Ctrl+O") {
+                if item(ui, icons::CUBE_WIRE, "Reload mesh…", "") {
+                    ui.close();
+                    crate::mesh_reload::open(&mut self.state);
+                }
+                if item(ui, icons::FOLDER_OPEN, "Open project…", crate::keys::native("Ctrl+O")) {
                     ui.close();
                     self.request(Pending::OpenProject, now);
                 }
                 ui.separator();
-                if item(ui, icons::SAVE, "Save", "Ctrl+S") {
+                if item(ui, icons::SAVE, "Save", crate::keys::native("Ctrl+S")) {
                     ui.close();
                     self.perform(Action::Save, now);
                 }
-                if item(ui, icons::SAVE, "Save as…", "Ctrl+Shift+S") {
+                if item(ui, icons::SAVE, "Save as…", crate::keys::native("Ctrl+Shift+S")) {
                     ui.close();
                     self.perform(Action::SaveAs, now);
                 }
                 ui.separator();
-                if item(ui, icons::EXPORT, "Export textures…", "Ctrl+Shift+E") {
+                if item(ui, icons::EXPORT, "Export textures…", crate::keys::native("Ctrl+Shift+E")) {
                     ui.close();
                     self.perform(Action::Export, now);
                 }
@@ -759,7 +876,7 @@ impl SubcraftApp {
                     ui.close();
                     self.state.render_window = true;
                 }
-                if item(ui, icons::MAGIC_WAND, "Bake mesh maps…", "Ctrl+B") {
+                if item(ui, icons::MAGIC_WAND, "Bake mesh maps…", crate::keys::native("Ctrl+B")) {
                     ui.close();
                     self.perform(Action::Bake, now);
                 }
@@ -779,10 +896,10 @@ impl SubcraftApp {
                 let undo = h.undo_label().map(|l| format!("Undo {l}")).unwrap_or("Undo".into());
                 let redo = h.redo_label().map(|l| format!("Redo {l}")).unwrap_or("Redo".into());
                 let (can_undo, can_redo) = (h.can_undo(), h.can_redo());
-                if ui.add_enabled(can_undo, egui::Button::new(format!("{}   {undo}", icons::UNDO)).shortcut_text("Ctrl+Z")).clicked() {
+                if ui.add_enabled(can_undo, egui::Button::new(format!("{}   {undo}", icons::UNDO)).shortcut_text(crate::keys::native("Ctrl+Z"))).clicked() {
                     self.perform(Action::Undo, now);
                 }
-                if ui.add_enabled(can_redo, egui::Button::new(format!("{}   {redo}", icons::REDO)).shortcut_text("Ctrl+Y")).clicked() {
+                if ui.add_enabled(can_redo, egui::Button::new(format!("{}   {redo}", icons::REDO)).shortcut_text(crate::keys::native("Ctrl+Y"))).clicked() {
                     self.perform(Action::Redo, now);
                 }
                 ui.separator();
@@ -812,6 +929,15 @@ impl SubcraftApp {
                     ui.close();
                     crate::panels::layers::import_texture_set_dialog(ui.ctx());
                 }
+                if self.state.photocraft.is_some() {
+                    if item(ui, icons::X, "Stop editing in PhotoCraft", "") {
+                        self.state.stop_photocraft(now);
+                        ui.close();
+                    }
+                } else if item(ui, icons::EXPORT, "Edit in PhotoCraft…", "") {
+                    self.state.start_photocraft(now);
+                    ui.close();
+                }
             });
             ui.menu_button("View", |ui| {
                 ui.set_min_width(240.0);
@@ -825,6 +951,11 @@ impl SubcraftApp {
                 }
                 if item(ui, icons::SUN, "Render quality…", "") {
                     self.state.render_window = true;
+                    ui.close();
+                }
+                let rendering = self.state.recovery.prefs.viewport.path_tracing;
+                if item(ui, icons::SUN, if rendering { "Leave Rendering mode" } else { "Rendering mode (path tracing)" }, "F10") {
+                    self.perform(Action::TogglePathTracing, now);
                     ui.close();
                 }
                 ui.separator();
@@ -909,12 +1040,20 @@ impl SubcraftApp {
             } else { format!("Size {:.1}%", self.state.session.brush.settings.size) };
             ui.label(small(size, theme::TEXT_DIM));
             if let Some(l) = self.state.session.selected_layer() {
-                ui.label(small(format!("{}  {} / {}", icons::STACK, self.state.session.selected_texture_set().name, l.name), theme::TEXT_DIM));
+                ui.add(egui::Label::new(small(format!("{}  {} / {}", icons::STACK, self.state.session.selected_texture_set().name, l.name), theme::TEXT_DIM)).truncate());
+            }
+            if let Some(import) = &self.state.spp_import {
+                let (text, fraction) = import.progress();
+                ui.add(egui::Label::new(small(format!("{}  {text}", icons::INFO), theme::ACCENT)).truncate());
+                ui.add(egui::ProgressBar::new(fraction.unwrap_or(0.0)).desired_width(120.0).animate(fraction.is_none()));
+                if ui.small_button("Cancel").clicked() {
+                    import.cancel();
+                }
             }
             if let Some((msg, t)) = &self.state.status
                 && now - t < 6.0
             {
-                ui.label(small(format!("{}  {msg}", icons::INFO), theme::WARNING));
+                ui.add(egui::Label::new(small(format!("{}  {msg}", icons::INFO), theme::WARNING)).truncate()).on_hover_text(msg.as_str());
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.label(small(format!("{:.1} ms", self.state.frame_time_ms), theme::TEXT_FAINT));
@@ -935,7 +1074,7 @@ impl SubcraftApp {
 
     fn shortcuts_window(&mut self, ctx: &egui::Context) {
         let mut open = self.state.show_shortcuts;
-        egui::Window::new("Keyboard shortcuts").open(&mut open).resizable(false).collapsible(false).show(ctx, |ui| {
+        crate::widgets::window(ctx, "Keyboard shortcuts").open(&mut open).resizable(false).collapsible(false).show(ctx, |ui| {
             egui::Grid::new("shortcuts").num_columns(2).spacing([32.0, 8.0]).show(ui, |ui| {
                 let key = |t: String| RichText::new(t).monospace().color(theme::ACCENT);
                 for a in ACTIONS {
@@ -953,6 +1092,21 @@ impl SubcraftApp {
         self.state.show_shortcuts = open;
     }
 
+    /// A scripted Rendering-mode capture waits for its samples (or for the mode to give up).
+    fn path_trace_capture_ready(&self) -> bool {
+        let Some(wanted) = self.state.pt_capture_samples else { return true };
+        if !self.state.recovery.prefs.viewport.path_tracing {
+            return true;
+        }
+        let Some(s) = self.state.pt_status else { return false };
+        let wanted = if s.max_samples == 0 { wanted } else { wanted.min(s.max_samples) };
+        let ready = s.samples >= wanted;
+        if ready && !self.screenshot_requested {
+            log::info!("path tracing: {} samples per pixel, {:.1} samples/s at {}x{} view pixels", s.samples, s.samples_per_second, self.state.last_view_size[0], self.state.last_view_size[1]);
+        }
+        ready
+    }
+
     fn handle_screenshot(&mut self, ctx: &egui::Context) {
         let Some(path) = self.screenshot.clone() else { return };
         ctx.request_repaint();
@@ -963,8 +1117,9 @@ impl SubcraftApp {
             self.state.session.mesh_maps(ts).and_then(|m| m.get(kind)).is_some_and(|image|
                 self.state.uploaded_maps.get(&(ts, kind)).is_some_and(|gpu| gpu.same_storage(image)))
         });
-        if !self.screenshot_requested && self.frames >= 20 && (pinned_ready || self.state.bake.job.is_none() && !self.state.session.composites_pending())
+        if !self.screenshot_requested && self.frames >= 20 && !self.state.mesh_reload.busy() && (pinned_ready || self.state.bake.job.is_none() && self.state.spp_import.is_none() && !self.state.session.composites_pending())
             && !self.state.bake.preview_pending() && (self.state.bake.preview_mesh.is_none() || self.state.bake.preview_uploaded)
+            && self.path_trace_capture_ready()
         {
             if let Some(job) = self.state.pending_render_job.take() {
                 match crate::render_export::run(&mut self.state, &job) {
@@ -1016,6 +1171,7 @@ fn map_key(k: egui::Key) -> Option<Key> {
         egui::Key::OpenBracket => Key::OpenBracket,
         egui::Key::CloseBracket => Key::CloseBracket,
         egui::Key::Home => Key::Home,
+        egui::Key::F10 => Key::F10,
         _ => return None,
     })
 }
@@ -1118,6 +1274,10 @@ impl eframe::App for SubcraftApp {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
         self.state.poll_library();
+        self.state.poll_photocraft(ctx.input(|i| i.time));
+        if self.state.photocraft.is_some() {
+            ctx.request_repaint_after(std::time::Duration::from_secs_f64(subcraft_app::photocraft::POLL_INTERVAL));
+        }
         self.state.layer_previews.poll(&ctx);
         self.state.textures.poll(&ctx);
         if let Some(p) = &mut self.profile { p.mark("sync+polls"); }
@@ -1184,7 +1344,9 @@ impl eframe::App for SubcraftApp {
         }
         dialogs::export_window(&mut self.state, &ctx, now);
         dialogs::bake_window(&mut self.state, &ctx, now);
+        crate::mesh_reload::window(&mut self.state, &ctx, now);
         dialogs::poll_bake(&mut self.state, &ctx, now);
+        crate::spp_import::poll(&mut self.state, &ctx, now);
         crate::files::poll(&mut self.state, now);
         if let Some(action) = dialogs::unsaved_prompt(&mut self.state, &ctx, now) {
             self.pending_now = Some(action);
@@ -1261,6 +1423,30 @@ fn scripted_tool_capture(state: &mut UiState, which: &str, now: f64) {
             stroke(s, StrokeMode::Smudge, &line(380.0, 215.0, 410.0, 420.0));
             stroke(s, StrokeMode::Smudge, &line(470.0, 215.0, 440.0, 420.0));
         }
+        "scatter" => {
+            // Scatter presets: dust, drips and flakes in three colours.
+            let presets = subcraft_app::brush_builtin::builtin_brush_presets();
+            let tips = subcraft_app::assets::alphas::builtin();
+            for (i, (name, c)) in [("Dust Scatter", [0.9, 0.75, 0.3]), ("Drips", [0.1, 0.35, 0.9]), ("Rust Flakes", [0.75, 0.25, 0.08])].into_iter().enumerate() {
+                if let Some(p) = presets.iter().find(|p| p.name == name) { s.apply_brush_preset(p, &tips); }
+                s.brush.settings.size = 7.0;
+                set(s, c);
+                stroke(s, StrokeMode::Paint, &line(300.0, 250.0 + 70.0 * i as f32, 600.0, 250.0 + 70.0 * i as f32));
+            }
+        }
+        "stabilizer" => {
+            // The same shaky cursor path three times: raw, smoothed, and smoothed with a rope.
+            let shaky = |y: f32| (0..=60).map(|i| (300.0 + 5.0 * i as f32, y + if i % 2 == 0 { 9.0 } else { -9.0 })).collect::<Vec<_>>();
+            set(s, [0.1, 0.1, 0.1]);
+            s.brush.settings.size = 3.0;
+            s.brush.settings.hardness = 1.0;
+            for (i, (smoothing, rope)) in [(0.0, 0.0), (0.8, 0.0), (0.7, 16.0)].into_iter().enumerate() {
+                s.brush.options.smoothing = smoothing;
+                s.brush.options.lazy_distance_px = rope;
+                s.brush.options.catch_up = true;
+                stroke(s, StrokeMode::Paint, &shaky(250.0 + 60.0 * i as f32));
+            }
+        }
         "clone" => {
             state.tool = Tool::Clone;
             set(s, [0.85, 0.1, 0.05]);
@@ -1312,6 +1498,19 @@ fn scripted_tool_capture(state: &mut UiState, which: &str, now: f64) {
                 let _ = s.execute(Command::SelectEffect { layer, target: subcraft_app::LayerTarget::Content, effect: None });
             }
         }
+        "radial" => {
+            // Radial symmetry (Y x 8 unless --radial chose another): a few strokes, each repeated
+            // around the axis by the same session calls a mouse stroke makes.
+            if !s.brush.options.radial.enabled {
+                let radial = subcraft_paint::RadialSymmetry { enabled: true, axis: 1, count: 8, ..s.brush.options.radial };
+                let _ = s.execute(Command::SetStrokeOptions(subcraft_paint::StrokeOptions { radial, ..s.brush.options }));
+            }
+            s.brush.settings.size = 4.0;
+            set(s, [0.9, 0.15, 0.05]);
+            stroke(s, StrokeMode::Paint, &line(450.0, 300.0, 560.0, 250.0));
+            set(s, [0.95, 0.8, 0.1]);
+            stroke(s, StrokeMode::Paint, &line(380.0, 380.0, 520.0, 420.0));
+        }
         "cards" => {
             // A fill layer with every channel on, Properties showing its channel blocks.
             use subcraft_core::ChannelKind;
@@ -1321,7 +1520,7 @@ fn scripted_tool_capture(state: &mut UiState, which: &str, now: f64) {
                 let _ = s.execute(Command::SelectEffect { layer, target: subcraft_app::LayerTarget::Content, effect: None });
             }
         }
-        _ => state.set_status(format!("--capture-tool expects clone, smudge, projection, emission or cards, not {which}"), now),
+        _ => state.set_status(format!("--capture-tool expects clone, smudge, projection, emission, radial or cards, not {which}"), now),
     }
 }
 

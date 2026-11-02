@@ -83,6 +83,8 @@ pub struct ShelfUi {
     renderer: Option<(ViewportRenderer, Option<SceneKind>)>,
     /// Thumbnail whose pixels are on their way back from the GPU.
     pending: Option<(AssetId, subcraft_render::PendingReadback)>,
+    /// Thumbnails of the visible tab are still being rendered (scripted screenshots wait).
+    pub busy: bool,
 }
 
 impl Default for ShelfUi {
@@ -96,7 +98,17 @@ impl Default for ShelfUi {
             baked_sphere: None,
             renderer: None,
             pending: None,
+            busy: false,
         }
+    }
+}
+
+impl ShelfUi {
+    /// Show `tab` with a search query (launch options; tab switches otherwise reset the search).
+    pub fn open(&mut self, tab: ShelfTab, query: &str) {
+        self.tab = tab;
+        self.filter_tab = tab;
+        self.filter = crate::panels::shelf_filter::ShelfFilter { query: query.into(), ..Default::default() };
     }
 }
 
@@ -356,10 +368,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 }
             }
             ShelfTab::SmartMasks => {
-                shelf_hint(ui, "Applies to the selected layer. Edges / Cavity need baked maps (Ctrl+B).");
+                shelf_hint(ui, crate::keys::native("Applies to the selected layer. Edges / Cavity need baked maps (Ctrl+B)."));
             }
             ShelfTab::SmartMaterials => {
-                shelf_hint(ui, "Wear and dirt follow baked curvature / AO (Ctrl+B).");
+                shelf_hint(ui, crate::keys::native("Wear and dirt follow baked curvature / AO (Ctrl+B)."));
             }
         }
     });
@@ -379,7 +391,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         egui::Frame::new().inner_margin(egui::Margin::same(theme::PAD)).show(ui, |ui| ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing = egui::vec2(10.0, 10.0);
             ui.set_max_width((grid_width - 2.0 * f32::from(theme::PAD)).max(0.0));
-            shown += crate::asset_preview::shelf(state,ui,tile_size);
+            // Brushes: the built-in and user presets come first, the CC0 starter tips after them.
+            if state.shelf.tab != ShelfTab::Brushes { shown += crate::asset_preview::shelf(state,ui,tile_size); }
             let thumbs = &state.shelf.thumbs;
             match state.shelf.tab {
                 ShelfTab::Textures => {
@@ -416,11 +429,16 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 }
                 ShelfTab::SmartMaterials => {
                     for (i, m) in state.library.smart_materials.iter().enumerate() {
-                        if !filter.matches(&m.name, None, m.user_file.is_some()) {
+                        let info = subcraft_app::assets::smart_material_info(&m.name);
+                        if !filter.matches(&m.name, info.map(|i| i.category), m.user_file.is_some()) {
                             continue;
                         }
                         shown += 1;
-                        let resp = tile(ui, tile_size, thumbs.get(&m.id), &m.name, false, &format!("{}: click or drag onto the model / a layer", m.name));
+                        let tip = match info {
+                            Some(i) => format!("{} ({}): {}. Click or drag onto the model / a layer", m.name, i.category, i.description),
+                            None => format!("{}: click or drag onto the model / a layer", m.name),
+                        };
+                        let resp = tile(ui, tile_size, thumbs.get(&m.id), &m.name, false, &tip);
                         resp.dnd_set_drag_payload(ShelfDrag::SmartMaterial(i));
                         if let Some(file) = &m.user_file
                             && library_menu(&resp, state.user_library.as_ref(), file, &mut lib_status)
@@ -436,11 +454,16 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 }
                 ShelfTab::SmartMasks => {
                     for (i, m) in state.library.smart_masks.iter().enumerate() {
-                        if !filter.matches(&m.name, None, m.user_file.is_some()) {
+                        let info = subcraft_app::assets::smart_mask_info(&m.name);
+                        if !filter.matches(&m.name, info.map(|i| i.category), m.user_file.is_some()) {
                             continue;
                         }
                         shown += 1;
-                        let resp = tile(ui, tile_size, thumbs.get(&m.id), &m.name, false, &format!("{}: click to mask the selected layer, or drag onto a layer", m.name));
+                        let tip = match info {
+                            Some(i) => format!("{} ({}): {}. Click to mask the selected layer, or drag onto a layer", m.name, i.category, i.description),
+                            None => format!("{}: click to mask the selected layer, or drag onto a layer", m.name),
+                        };
+                        let resp = tile(ui, tile_size, thumbs.get(&m.id), &m.name, false, &tip);
                         resp.dnd_set_drag_payload(ShelfDrag::SmartMask(i));
                         if let Some(file) = &m.user_file
                             && library_menu(&resp, state.user_library.as_ref(), file, &mut lib_status)
@@ -462,7 +485,11 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         shown += 1;
                         let tip_id = state.library.alphas.iter().find(|a| Some(&a.name) == p.tip.as_ref() || (p.tip.is_none() && a.bitmap.is_none())).map(|a| a.id);
                         let thumb = tip_id.and_then(|id| thumbs.get(&id));
-                        let resp = tile(ui, tile_size, thumb, &p.name, false, "Brush preset: tip, size, flow, jitter and material (right-click for options)");
+                        let tip = match subcraft_app::brush_builtin::describe(&p.name).filter(|_| p.user_file.is_none()) {
+                            Some(d) => format!("{}: {d}", p.name),
+                            None => "Brush preset: tip, size, flow, jitter and material (right-click for options)".to_string(),
+                        };
+                        let resp = tile(ui, tile_size, thumb, &p.name, false, &tip);
                         if let Some(file) = &p.user_file
                             && library_menu(&resp, state.user_library.as_ref(), file, &mut lib_status)
                         {
@@ -526,6 +553,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     }
                 }
             }
+            if state.shelf.tab == ShelfTab::Brushes { shown += crate::asset_preview::shelf(state,ui,tile_size); }
             if shown == 0 {
                 let msg = if filter.is_active() { "No matches. Clear the search or pick another filter." } else { "Nothing here yet." };
                 ui.label(RichText::new(msg).color(theme::TEXT_FAINT));
@@ -563,6 +591,7 @@ fn alpha_image(b: &subcraft_image::Bitmap) -> egui::ColorImage {
 /// Render one missing thumbnail of the visible tab per frame (keeps the UI responsive).
 fn generate_one_thumbnail(state: &mut UiState, ctx: &egui::Context) {
     // Finish the thumbnail in flight first (the GPU copy is never waited on).
+    state.shelf.busy = state.shelf.pending.is_some();
     if let Some((id, pending)) = &state.shelf.pending {
         let Some(rs) = state.render_state.clone() else { return };
         match pending.try_take(&rs.device) {
@@ -594,12 +623,14 @@ fn generate_one_thumbnail(state: &mut UiState, ctx: &egui::Context) {
         ShelfTab::Brushes => lib.alphas.iter().position(|a| missing(&a.id)).map(Job::Alpha),
         ShelfTab::Materials => lib.materials.iter().find(|m| missing(&m.id)).map(|m| {
             let m = m.clone();
-            Job::Layer(m.id, SceneKind::Sphere, Box::new(move |ts| m.build(ts)), Vec::new())
+            let (ids, images) = subcraft_assets::presets::decode_images(&m.images);
+            Job::Layer(m.id, SceneKind::Sphere, Box::new(move |ts| m.build_with(ts, &ids)), images)
         }),
         ShelfTab::SmartMaterials => lib.smart_materials.iter().find(|m| missing(&m.id)).map(|m| {
             let m = m.clone();
-            let images = m.resources().to_vec();
-            Job::Layer(m.id, SceneKind::BakedSphere, Box::new(move |ts| m.build(ts)), images)
+            let (ids, decoded) = subcraft_assets::presets::decode_images(m.images());
+            let images = m.resources().iter().cloned().chain(decoded).collect();
+            Job::Layer(m.id, SceneKind::BakedSphere, Box::new(move |ts| m.build_with(ts, &ids)), images)
         }),
         ShelfTab::SmartMasks => lib.smart_masks.iter().find(|m| missing(&m.id)).map(|m| {
             let m = m.clone();
@@ -607,6 +638,7 @@ fn generate_one_thumbnail(state: &mut UiState, ctx: &egui::Context) {
         }),
         ShelfTab::Environments => lib.environments.iter().position(|e| missing(&e.id)).map(Job::Environment),
     };
+    state.shelf.busy |= job.is_some();
     let Some(job) = job else { return };
     if let Job::Alpha(i) = job {
         let a = &state.library.alphas[i];
@@ -711,6 +743,16 @@ fn filter_row(state: &mut UiState, ui: &mut Ui) {
     let mut chips = vec![(Chip::All, "All".to_string()), (Chip::Mine, "Mine".to_string())];
     if state.shelf.tab == ShelfTab::Materials {
         for c in categories(state.library.materials.iter().map(|m| m.category)) {
+            chips.push((Chip::Category(c.clone()), c));
+        }
+    }
+    if state.shelf.tab == ShelfTab::SmartMaterials {
+        for c in categories(state.library.smart_materials.iter().filter_map(|m| subcraft_app::assets::smart_material_info(&m.name)).map(|i| i.category)) {
+            chips.push((Chip::Category(c.clone()), c));
+        }
+    }
+    if state.shelf.tab == ShelfTab::SmartMasks {
+        for c in categories(state.library.smart_masks.iter().filter_map(|m| subcraft_app::assets::smart_mask_info(&m.name)).map(|i| i.category)) {
             chips.push((Chip::Category(c.clone()), c));
         }
     }

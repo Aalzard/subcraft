@@ -146,11 +146,15 @@ pub struct ProceduralParams {
     pub balance: f32,
     pub contrast: f32,
     pub invert: bool,
+    /// Each color component is its own pattern (seeds `seed`, `seed + 1`, `seed + 2`), mapped
+    /// `low`..`high` per component: colored noise. Not written when false.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub colored: bool,
 }
 
 impl ProceduralParams {
     pub fn new(kind: ProceduralKind) -> Self {
-        Self { kind, scale: 4.0, seed: 1, balance: 0.5, contrast: 0.0, invert: false }
+        Self { kind, scale: 4.0, seed: 1, balance: 0.5, contrast: 0.0, invert: false, colored: false }
     }
 }
 

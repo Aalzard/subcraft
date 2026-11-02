@@ -10,7 +10,8 @@ use subcraft_doc::{
 };
 use subcraft_materials::{MeshMaps, TextureSetGeometry};
 
-const N: u32 = 128;
+/// 16 tiles, so supports of 30 texels reach into neighboring tiles from every direction.
+const N: u32 = 256;
 const CHANNELS: [C; 3] = [C::BaseColor, C::Roughness, C::Metallic];
 
 struct Rng(u64);
@@ -41,8 +42,11 @@ fn blend_modes(folder: bool) -> Vec<BlendMode> {
 }
 
 fn spatial_filter(r: &mut Rng) -> Filter {
-    let radius = (r.f() * 6.0).round();
-    match r.below(6) {
+    // Mostly small, sometimes reaching across a whole neighboring tile.
+    let radius = (r.f() * r.pick(&[6.0, 6.0, 30.0])).round();
+    match r.below(8) {
+        7 => Filter::Warp { intensity: radius, scale: 1 + r.below(8) as u32, seed: r.below(100) as u32 },
+        6 => Filter::Median { radius },
         0 => Filter::Blur { radius }, 1 => Filter::Sharpen { radius, amount: r.f() * 2.0 },
         2 => Filter::DirectionalBlur { radius, angle_deg: r.f() * 360.0 - 180.0 },
         3 => Filter::Highpass { radius, amount: r.f() * 2.0 },
@@ -51,9 +55,16 @@ fn spatial_filter(r: &mut Rng) -> Filter {
     }
 }
 fn point_filter(r: &mut Rng) -> Filter {
-    match r.below(3) {
+    match r.below(5) {
         0 => Filter::Contrast { gain: r.f() * 2.0, pivot: r.f() },
         1 => Filter::Threshold { cutoff: r.f() },
+        3 => Filter::HistogramScan { position: r.f(), contrast: r.f(), invert: r.below(2) == 0 },
+        4 => Filter::HistogramRange { position: r.f(), range: r.f(), softness: r.f(), invert: r.below(2) == 0 },
+        2 => {
+            let (a, b) = (r.f() * 0.5, 0.5 + r.f() * 0.5);
+            let st = |position, color| subcraft_doc::GradientStop { position, color };
+            Filter::GradientMap { gradient: subcraft_doc::Gradient::new(&[st(0.0, [r.f(), r.f(), r.f()]), st(a, [r.f(), 0.0, r.f()]), st(b, [0.0, r.f(), r.f()]), st(1.0, [r.f(); 3])]).unwrap(), to_gray: r.below(2) == 0 }
+        }
         _ => { let a = r.f() * 0.5; Filter::Clamp { low: a, high: a + 0.3 + r.f() * 0.2 } }
     }
 }
@@ -221,6 +232,66 @@ fn random_stacks_incremental_cache_matches_full_evaluation_after_paint_edits() {
             }
         }
     }
+}
+
+fn blur(ts: &TextureSet, radius: f32) -> Arc<ContentEffect> {
+    Arc::new(ContentEffect::new(ContentEffectKind::Filter { channel: C::Roughness, filter: Filter::Blur { radius } }, ts))
+}
+
+fn painted(ts: &TextureSet, name: &str, seed: u64) -> Layer {
+    let mut l = Layer::new_paint(name, ts);
+    random_raster(&mut l, &mut Rng(seed));
+    let LayerContent::Paint(p) = &mut l.content else { unreachable!() };
+    p.channel_mut(C::Roughness, N).set(0, 0, [0.5, 1.0, 0.0, 0.0]); // make sure Roughness exists
+    l
+}
+
+fn dab(ts: &mut TextureSet, id: subcraft_core::LayerId, x: u32, y: u32) {
+    let LayerContent::Paint(p) = &mut ts.find_mut(id).unwrap().content else { unreachable!() };
+    p.channel_mut(C::Roughness, N).set(x, y, [0.9, 1.0, 0.0, 0.0]);
+}
+
+/// A change only travels through the filters that act on the changed layer's own pixels (its
+/// effects, its folders', and folders above that let the accumulation through). Filters of other
+/// layers act on those layers' content, so they must not widen the refresh: this is what keeps a
+/// brush stroke on a big stack from re-evaluating a neighborhood of every dirty tile.
+#[test]
+fn refresh_grows_only_by_filters_that_carry_the_change_and_stays_exact() {
+    let fx = Fixture::new();
+    let mut ts = TextureSet::new("T", 0, N);
+    let mut under = painted(&ts, "blurred below", 1);
+    under.content_effects.push(blur(&ts, 30.0));
+    under.content_effects.push(blur(&ts, 30.0));
+    ts.insert_above(None, under);
+    let top = ts.insert_above(None, painted(&ts, "top", 2));
+    let blurred_id = ts.layers[0].id;
+    let mut cache = CompositeCache::new();
+    cache.update(&ts, &fx.ctx());
+
+    // (x, y) = (130, 130) is the middle of tile (2, 2) of 4x4; nothing above the layer filters.
+    dab(&mut ts, top, 130, 130);
+    let tiles = cache.update(&ts, &fx.ctx());
+    assert_eq!(tiles, vec![2 * 4 + 2], "a dab on the top layer refreshes its own tile only");
+    assert_eq!(cache.composite().unwrap(), &composite_full(&ts, &fx.ctx()));
+
+    // The blurred layer's own filters carry its change into the neighbors.
+    dab(&mut ts, blurred_id, 130, 130);
+    let tiles = cache.update(&ts, &fx.ctx());
+    assert!(tiles.len() >= 9, "blurred layer: {tiles:?}");
+    assert_eq!(cache.composite().unwrap(), &composite_full(&ts, &fx.ctx()));
+
+    // A passthrough folder above sees (and blurs) everything below it, so its filter counts.
+    let mut folder = Layer::new_folder("above", &ts);
+    folder.content_effects.push(blur(&ts, 30.0));
+    for b in folder.blend.values_mut() { b.mode = BlendMode::Passthrough; }
+    let child = painted(&ts, "child", 3);
+    if let LayerContent::Group(g) = &mut folder.content { g.children = vec![Arc::new(child)]; }
+    ts.insert_above(None, folder);
+    cache.update(&ts, &fx.ctx());
+    dab(&mut ts, top, 70, 70);
+    let tiles = cache.update(&ts, &fx.ctx());
+    assert!(tiles.len() >= 9, "passthrough folder above: {tiles:?}");
+    assert_eq!(cache.composite().unwrap(), &composite_full(&ts, &fx.ctx()));
 }
 
 /// 40 seeds by default; `DIFF_SEEDS=2000` hunts harder.

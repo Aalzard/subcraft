@@ -47,7 +47,7 @@ pub fn controls(graphics: &mut GraphicsUi, ui: &mut egui::Ui) {
             else { "Changes apply the next time SubCraft starts." }).color(crate::theme::TEXT_DIM));
         if graphics.environment_override { ui.label("WGPU_BACKEND overrides this preference for this run."); }
     }
-    for message in [graphics.warning.as_ref(), graphics.error.as_ref()].into_iter().flatten() { ui.label(RichText::new(message).color(crate::theme::ACCENT)); }
+    for message in [graphics.warning.as_ref(), graphics.error.as_ref()].into_iter().flatten() { ui.add(egui::Label::new(RichText::new(message).color(crate::theme::ACCENT)).wrap()); }
     ui.add_space(12.0);
 }
 
@@ -65,6 +65,12 @@ pub fn wgpu_options(api: GraphicsApi, environment_override: bool) -> egui_wgpu::
         let dx12 = pollster::block_on(wgpu::Instance::new(desc).enumerate_adapters(wgpu::Backends::DX12));
         setup.instance_descriptor.backends = if dx12.is_empty() { wgpu::Backends::VULKAN | wgpu::Backends::GL } else { wgpu::Backends::DX12 };
     }
+    let egui_default = setup.device_descriptor.clone();
+    setup.device_descriptor = std::sync::Arc::new(move |adapter| {
+        let mut desc = egui_default(adapter);
+        desc.required_limits.max_texture_dimension_2d = adapter.limits().max_texture_dimension_2d;
+        desc
+    });
     egui_wgpu::WgpuConfiguration { wgpu_setup: setup.into(), ..Default::default() }
 }
 

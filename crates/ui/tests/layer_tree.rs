@@ -186,3 +186,70 @@ fn blend_mode_and_opacity_are_edited_in_the_layer_row() {
     let after: Vec<_> = state.session.selected_texture_set().layers.iter().map(|l| l.id).collect();
     assert_eq!(after, order, "dragging the number doesn't move the layer");
 }
+
+fn line_count(output: &egui::FullOutput, color: egui::Color32) -> usize {
+    output.shapes.iter().filter(|s| matches!(&s.shape, egui::epaint::Shape::LineSegment { stroke, .. } if stroke.color == color)).count()
+}
+
+#[test]
+fn folders_show_icon_count_and_hierarchy_guides() {
+    let (mut state, ctx, [_, middle, top]) = setup();
+    state.session.execute(Command::GroupLayer(top)).unwrap();
+    let folder = state.session.selected_texture_set().location(top).unwrap().parent.unwrap();
+    state.session.execute(Command::Rename { layer: folder, name: "Outer".into() }).unwrap();
+    state.session.execute(Command::DropLayer { texture_set: state.session.selection().texture_set, layer: middle, target: subcraft_app::layer_tree::DropTarget::Inside(folder) }).unwrap();
+    state.session.execute(Command::GroupLayer(top)).unwrap();
+    let output = layout(&mut state, &ctx);
+    for text in [subcraft_ui::icons::FOLDER_OPEN, "3", "1", "Top", "Middle"] { text_position(&output, text); }
+    // Outer: vertical guide + ticks for its folder and Middle; inner folder: vertical + tick for Top.
+    assert_eq!(line_count(&output, subcraft_ui::theme::TREE_LINE), 5);
+    // Collapsed: closed icon, children and guides hidden, count kept.
+    state.session.execute(Command::SetFolderExpanded { layer: folder, expanded: false }).unwrap();
+    let output = layout(&mut state, &ctx);
+    text_position(&output, subcraft_ui::icons::FOLDER); text_position(&output, "3");
+    assert_eq!(line_count(&output, subcraft_ui::theme::TREE_LINE), 0);
+    assert!(!output.shapes.iter().any(|s| matches!(&s.shape, egui::epaint::Shape::Text(t) if t.galley.text() == "Middle")));
+}
+
+fn click(state: &mut UiState, ctx: &egui::Context, text: &str) {
+    let output = layout(state, ctx); let pos = text_position(&output, text);
+    frame(state, ctx, vec![egui::Event::PointerMoved(pos), button(pos, true)]);
+    frame(state, ctx, vec![button(pos, false)]);
+}
+
+#[test]
+fn toolbar_adds_generators_listed_under_their_layer_and_clicking_one_edits_it() {
+    let (mut state, ctx, [bottom, _, top]) = setup();
+    state.session.execute(Command::SelectLayer(Some(bottom))).unwrap();
+    click(&mut state, &ctx, subcraft_ui::icons::MAGIC_WAND);
+    click(&mut state, &ctx, &format!("{}  Dirt (cavity)", subcraft_ui::icons::MAGIC_WAND));
+    let mask = state.session.selected_texture_set().find(bottom).unwrap().mask.clone().expect("generator adds a mask");
+    assert!(matches!(&mask.effects[0].kind, subcraft_doc::MaskEffectKind::Generator(g) if g.kind == subcraft_doc::GeneratorKind::Cavity));
+    let effect = mask.effects[0].id;
+    // Opens in Properties.
+    assert_eq!(state.session.selected_effect(), Some(effect));
+    // Selecting another layer keeps the generator visible under Bottom; clicking it reopens it.
+    state.session.execute(Command::SelectLayer(Some(top))).unwrap();
+    click(&mut state, &ctx, "Generator (Dirt)");
+    assert_eq!(state.session.selection().layer, Some(bottom));
+    assert_eq!(state.session.layer_target(), subcraft_app::LayerTarget::Mask);
+    assert_eq!(state.session.selected_effect(), Some(effect));
+}
+
+#[test]
+fn generator_row_eye_hides_the_generator_with_one_undo_step() {
+    let (mut state, ctx, [bottom, _, top]) = setup();
+    state.session.layer_action(bottom, subcraft_app::part_workflow::LayerAction::Generator(subcraft_doc::GeneratorKind::Edges)).unwrap();
+    state.session.execute(Command::SelectLayer(Some(top))).unwrap();
+    let count = state.session.history().entries().len();
+    let output = layout(&mut state, &ctx);
+    let name = text_position(&output, "Generator (Edges)");
+    // The eye is the first eye icon left of the generator name on its row.
+    let eye = output.shapes.iter().filter_map(|s| match &s.shape {
+        egui::epaint::Shape::Text(t) if t.galley.text() == subcraft_ui::icons::EYE => Some(t.pos + t.galley.size() * 0.5), _ => None,
+    }).find(|p| (p.y - name.y).abs() < 6.0 && p.x < name.x).expect("generator eye");
+    frame(&mut state, &ctx, vec![egui::Event::PointerMoved(eye), button(eye, true)]);
+    frame(&mut state, &ctx, vec![button(eye, false)]);
+    assert!(!state.session.selected_texture_set().find(bottom).unwrap().mask.as_ref().unwrap().effects[0].visible);
+    assert_eq!(state.session.history().entries().len(), count + 1);
+}

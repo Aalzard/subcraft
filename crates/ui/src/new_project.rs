@@ -99,7 +99,7 @@ pub fn window(state: &mut UiState, ctx: &Context) {
         .show(ctx, |ui| {
             ui.set_width(640.0_f32.min((screen_width - 32.0).max(260.0)));
             let np = &mut state.new_project;
-            egui::ScrollArea::vertical().max_height((ctx.content_rect().height() - 150.0).max(240.0)).show(ui, |ui| {
+            egui::ScrollArea::vertical().max_height((ctx.content_rect().height() - 210.0).max(80.0)).show(ui, |ui| {
                 model_section(ui, np, &mut pick_model);
                 ui.add_space(8.0);
                 project_section(ui, np);
@@ -110,7 +110,9 @@ pub fn window(state: &mut UiState, ctx: &Context) {
             });
             if let Some(error) = &np.error {
                 ui.add_space(6.0);
-                ui.colored_label(egui::Color32::from_rgb(232, 120, 110), error);
+                egui::ScrollArea::vertical().id_salt("np_error").max_height(48.0).auto_shrink([false, true]).show(ui, |ui| {
+                    ui.add(egui::Label::new(RichText::new(error).color(egui::Color32::from_rgb(232, 120, 110))).wrap());
+                });
             }
             ui.add_space(8.0);
             ui.horizontal(|ui| {
@@ -123,7 +125,7 @@ pub fn window(state: &mut UiState, ctx: &Context) {
                     np.open = false;
                 }
                 if !ready {
-                    ui.label(RichText::new(hint).color(TEXT_DIM));
+                    ui.add(egui::Label::new(RichText::new(hint).color(TEXT_DIM)).wrap());
                 }
             });
         });
@@ -157,7 +159,7 @@ fn model_section(ui: &mut Ui, np: &mut NewProjectUi, pick: &mut bool) {
             let text = np.model.as_ref().map_or("No model chosen".to_string(), |m| m.path.display().to_string());
             ui.add(egui::Label::new(RichText::new(text).color(if np.model.is_some() { theme::TEXT } else { TEXT_DIM })).truncate());
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button(if np.model.is_some() { "Change…" } else { "Choose model…" }).on_hover_text("OBJ, FBX, glTF or GLB").clicked() {
+                if ui.button(if np.model.is_some() { "Change…" } else { "Choose model…" }).on_hover_text("OBJ, FBX, glTF, GLB, USD or Substance Painter .spp").clicked() {
                     *pick = true;
                 }
             });
@@ -166,22 +168,22 @@ fn model_section(ui: &mut Ui, np: &mut NewProjectUi, pick: &mut bool) {
             summary_block(ui, &model.summary);
         } else {
             ui.add_space(4.0);
-            ui.label(RichText::new("OBJ, FBX, glTF or GLB with UVs. You will see what is inside before anything is created.").color(TEXT_DIM));
+            ui.label(RichText::new("OBJ, FBX, glTF, GLB, USD or Substance Painter .spp with UVs. You will see what is inside before anything is created.").color(TEXT_DIM));
         }
     });
 }
 
 fn summary_block(ui: &mut Ui, s: &MeshSummary) {
     ui.add_space(6.0);
-    ui.label(RichText::new(format!("{}  ·  {} triangles", s.name, group_digits(s.triangles))).font(theme::font_strong(15.0)));
+    ui.add(egui::Label::new(RichText::new(format!("{}  ·  {} triangles", s.name, group_digits(s.triangles))).font(theme::font_strong(15.0))).wrap());
     egui::Grid::new("np_summary").num_columns(2).spacing([14.0, 3.0]).show(ui, |ui| {
         let materials = s.materials.iter().map(|(n, t)| format!("{n} ({})", group_digits(*t))).collect::<Vec<_>>().join(", ");
         ui.label(RichText::new("Materials").color(TEXT_DIM));
-        ui.label(format!("{}: {}", s.materials.len(), materials));
+        name_list(ui, "np_materials", s.materials.len(), &materials);
         ui.end_row();
         let objects = s.objects.iter().map(|(n, t)| format!("{n} ({})", group_digits(*t))).collect::<Vec<_>>().join(", ");
         ui.label(RichText::new("Objects").color(TEXT_DIM));
-        ui.label(format!("{}: {}", s.objects.len(), objects));
+        name_list(ui, "np_objects", s.objects.len(), &objects);
         ui.end_row();
         ui.label(RichText::new("UV space").color(TEXT_DIM));
         ui.label(match s.uv_bounds {
@@ -191,7 +193,8 @@ fn summary_block(ui: &mut Ui, s: &MeshSummary) {
         ui.end_row();
         if s.uses_udim() {
             ui.label(RichText::new("UDIM tiles").color(TEXT_DIM));
-            ui.label(s.tiles.iter().map(|t| format!("{} ({})", t.number, group_digits(t.triangles))).collect::<Vec<_>>().join(", "));
+            let tiles = s.tiles.iter().map(|t| format!("{} ({})", t.number, group_digits(t.triangles))).collect::<Vec<_>>().join(", ");
+            name_list(ui, "np_tiles", s.tiles.len(), &tiles);
             ui.end_row();
         }
     });
@@ -202,6 +205,22 @@ fn summary_block(ui: &mut Ui, s: &MeshSummary) {
             ui.add(egui::Label::new(RichText::new(w).color(WARNING)).wrap());
         });
     }
+}
+
+/// A count plus a long joined list of user names: wrapped, and in a bounded scroll area when long,
+/// so a model with dozens of parts cannot widen the window.
+fn name_list(ui: &mut Ui, id: &str, count: usize, joined: &str) {
+    let text = format!("{count}: {joined}");
+    ui.vertical(|ui| {
+        ui.set_max_width(ui.available_width());
+        if text.len() <= 160 {
+            ui.add(egui::Label::new(text).wrap());
+        } else {
+            egui::ScrollArea::vertical().id_salt(id).max_height(64.0).auto_shrink([false, true]).show(ui, |ui| {
+                ui.add(egui::Label::new(text).wrap());
+            });
+        }
+    });
 }
 
 fn group_digits(n: usize) -> String {
@@ -235,7 +254,7 @@ fn project_section(ui: &mut Ui, np: &mut NewProjectUi) {
             }
             ui.end_row();
             ui.label("");
-            ui.label(RichText::new(np.settings.template.description()).small().color(TEXT_DIM));
+            ui.add(egui::Label::new(RichText::new(np.settings.template.description()).small().color(TEXT_DIM)).wrap());
             ui.end_row();
             ui.label("Resolution");
             egui::ComboBox::from_id_salt("np_resolution").selected_text(format!("{0} x {0}", np.settings.resolution)).show_ui(ui, |ui| {
@@ -269,7 +288,7 @@ fn project_section(ui: &mut Ui, np: &mut NewProjectUi) {
             ui.add_space(6.0);
             ui.label(RichText::new("Texture sets that will be created").color(TEXT_DIM));
             for set in plan_sets(&model.mesh, &np.settings) {
-                ui.label(format!("{}  ·  {} triangles  ·  {} px", set.name, group_digits(set.triangles), np.settings.resolution_for(&set.base)));
+                ui.add(egui::Label::new(format!("{}  ·  {} triangles  ·  {} px", set.name, group_digits(set.triangles), np.settings.resolution_for(&set.base))).truncate());
             }
         }
     });
@@ -295,9 +314,9 @@ fn high_poly_section(ui: &mut Ui, np: &mut NewProjectUi, pick: &mut bool) {
         if let Some(high) = &np.high {
             ui.label(RichText::new(format!("{} triangles", group_digits(high.summary.triangles))).color(TEXT_DIM));
             if !high.summary.has_uvs {
-                ui.label(RichText::new("No UVs: fine for baking, the high poly only needs its shape.").color(TEXT_DIM));
+                ui.add(egui::Label::new(RichText::new("No UVs: fine for baking, the high poly only needs its shape.").color(TEXT_DIM)).wrap());
             }
-            ui.label(RichText::new("The Bake window opens with this model after the project is created.").color(TEXT_DIM));
+            ui.add(egui::Label::new(RichText::new("The Bake window opens with this model after the project is created.").color(TEXT_DIM)).wrap());
         }
     });
 }
@@ -325,7 +344,7 @@ fn advanced_section(ui: &mut Ui, np: &mut NewProjectUi) {
         }
         for base in bases {
             ui.horizontal(|ui| {
-                ui.label(&base);
+                ui.add(egui::Label::new(&base).truncate());
                 let mut current = np.settings.resolution_for(&base);
                 egui::ComboBox::from_id_salt(("np_set_res", base.clone())).selected_text(format!("{current}")).show_ui(ui, |ui| {
                     for r in PROJECT_RESOLUTIONS {
@@ -347,8 +366,26 @@ fn advanced_section(ui: &mut Ui, np: &mut NewProjectUi) {
 fn create_project(state: &mut UiState, now: f64) {
     let Some(model) = state.new_project.model.take() else { return };
     let settings = state.new_project.settings.clone();
-    match subcraft_app::Session::from_mesh_with(model.mesh.clone(), &settings) {
-        Ok(session) => {
+    // A Painter project brings its own texture sets, baked maps and flattened textures: import
+    // those instead of building empty sets from the bare model.
+    let is_spp = model.path.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("spp"));
+    if is_spp {
+        // Opens in the background; the session replaces the current one when the model and the
+        // flattened textures are read (the rebuilt layers follow).
+        crate::spp_import::start(state, &model.path);
+        state.recovery.prefs.new_project = NewProjectSettings { high_poly: None, resolution_overrides: Default::default(), ..settings.clone() };
+        if let Some(high) = state.new_project.high.take() {
+            state.bake.high_poly = high.path.display().to_string();
+            state.bake.open = true;
+        }
+        state.new_project.open = false;
+        state.new_project.error = None;
+        return;
+    }
+    let created = subcraft_app::Session::from_mesh_with(model.mesh.clone(), &settings).map(|session| (session, 0usize, None::<String>));
+    match created {
+        Ok((mut session, warnings, first_warning)) => {
+            session.set_mesh_source(&model.path);
             state.set_session(session);
             state.welcome.remember(&model.path);
             state.recovery.prefs.new_project = NewProjectSettings { high_poly: None, resolution_overrides: Default::default(), ..settings.clone() };
@@ -357,13 +394,85 @@ fn create_project(state: &mut UiState, now: f64) {
                 state.bake.open = true;
             }
             let sets = state.session.document().texture_sets.len();
-            state.set_status(format!("Created {} ({} texture set{})", model.summary.name, sets, if sets == 1 { "" } else { "s" }), now);
+            let mut status = format!("Created {} ({} texture set{})", model.summary.name, sets, if sets == 1 { "" } else { "s" });
+            if let Some(first) = first_warning {
+                status = format!("Imported {} with {} note(s): {first}", model.summary.name, warnings);
+            }
+            state.set_status(status, now);
             state.new_project.open = false;
             state.new_project.error = None;
         }
         Err(e) => {
             state.new_project.error = Some(e);
             state.new_project.model = Some(model);
+        }
+    }
+}
+
+#[cfg(test)]
+#[path = "../../mesh/tests/support/spp_fixture.rs"]
+mod spp_fixture;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Choosing a Painter project in the New Project dialog must bring its textures along, not
+    /// only the model (reported: "it imports the model, but no texturing at all").
+    #[test]
+    fn a_painter_project_created_from_the_dialog_keeps_its_textures() {
+        let dir = std::env::temp_dir().join(format!("subcraft-np-spp-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("Cube.spp");
+        std::fs::write(&path, crate::new_project::spp_fixture::project_file()).unwrap();
+        let mut state = UiState::new(subcraft_app::Session::new(subcraft_mesh::primitives::cube(2.0), 64), None);
+        state.new_project.load_model(&path);
+        assert!(state.new_project.error.is_none(), "{:?}", state.new_project.error);
+        create_project(&mut state, 0.0);
+        let ctx = egui::Context::default();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+        while state.spp_import.is_some() {
+            crate::spp_import::poll(&mut state, &ctx, 0.0);
+            assert!(std::time::Instant::now() < deadline, "the import did not finish");
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        let ts = &state.session.document().texture_sets[0];
+        assert!(ts.layers.iter().any(|l| l.name == "Painter project (flattened)"), "the flattened Painter layer is missing");
+    }
+
+    /// A model with dozens of long-named parts, shown on small screens at several scales: the
+    /// window must stay inside the screen (the Discord report: thousands of pixels wide).
+    #[test]
+    fn many_long_named_parts_do_not_widen_the_window() {
+        let long = |i: usize| format!("fur_character_body_part_with_a_very_long_object_name_{i:03}");
+        let summary = MeshSummary {
+            name: "character_with_a_really_long_model_name_that_keeps_going.fbx".into(),
+            triangles: 250_000,
+            objects: (0..40).map(|i| (long(i), 1000 + i)).collect(),
+            materials: (0..40).map(|i| (format!("mat_{}", long(i)), 900 + i)).collect(),
+            has_uvs: true,
+            warnings: vec!["a very long warning ".repeat(40)],
+            ..Default::default()
+        };
+        for (w, h, ppp) in [(1024.0, 600.0, 1.0), (1280.0, 720.0, 1.5), (960.0, 540.0, 2.0), (1920.0, 1080.0, 1.0)] {
+            let ctx = egui::Context::default();
+            crate::theme::apply(&ctx);
+            let mut state = UiState::new(subcraft_app::Session::new(subcraft_mesh::primitives::cube(2.0), 64), None);
+            state.new_project.open = true;
+            state.new_project.error = Some("could not read ".to_string() + &"x".repeat(2000));
+            state.new_project.model = Some(LoadedModel { path: PathBuf::from("C:/models/".to_string() + &"folder/".repeat(30) + "char.fbx"), mesh: subcraft_mesh::primitives::cube(2.0), summary: summary.clone() });
+            let mut raw = egui::RawInput::default();
+            raw.screen_rect = Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(w / ppp, h / ppp)));
+            let screen = raw.screen_rect.unwrap();
+            let mut used = egui::Rect::NOTHING;
+            for _ in 0..3 {
+                let mut out = ctx.run_ui(raw.clone(), |ui| {
+                    window(&mut state, ui.ctx());
+                    used = ctx.globally_used_rect();
+                });
+                out.textures_delta.clear();
+            }
+            assert!(used.width() <= screen.width() + 16.0 && used.height() <= screen.height() + 16.0, "New Project used {used:?} on a {screen:?} screen at {ppp}x");
         }
     }
 }

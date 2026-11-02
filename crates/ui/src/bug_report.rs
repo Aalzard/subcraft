@@ -60,7 +60,7 @@ pub fn report_window(state: &mut UiState, ctx: &egui::Context) {
     let info = SystemInfo::current();
     let mut open = true;
     let mut go = false;
-    egui::Window::new(RichText::new("Report a bug").font(theme::font_strong(14.0))).open(&mut open).collapsible(false).resizable(false).show(ctx, |ui| {
+    crate::widgets::window(ctx, RichText::new("Report a bug").font(theme::font_strong(14.0))).open(&mut open).collapsible(false).resizable(false).show(ctx, |ui| {
         ui.set_width(420.0);
         ui.label(RichText::new("This opens a new issue on GitHub in your browser with the details below already filled in. Nothing is sent until you submit it there.").color(TEXT_DIM));
         ui.add_space(10.0);
@@ -102,7 +102,7 @@ pub fn crash_window(state: &mut UiState, ctx: &egui::Context) {
     let count = state.bug_report.crashes.len();
     let mut close = false;
     let mut report = false;
-    egui::Window::new(RichText::new("SubCraft crashed last time").font(theme::font_strong(14.0)))
+    crate::widgets::window(ctx, RichText::new("SubCraft crashed last time").font(theme::font_strong(14.0)))
         .collapsible(false)
         .resizable(false)
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])

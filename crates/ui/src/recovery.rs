@@ -33,6 +33,9 @@ pub struct Preferences {
     /// Desktop: look for a newer release in the background at startup and point at the update
     /// button when there is one.
     pub check_updates_on_start: bool,
+    /// Bake ambient occlusion and thickness on the graphics card when one is available (the
+    /// processor is the fallback and the reference).
+    pub use_gpu_baking: bool,
     /// 3D view toolbar settings.
     pub viewport: crate::viewport_bar::ViewportPrefs,
     /// The choices made in the New Project window last time.
@@ -49,6 +52,7 @@ impl Default for Preferences {
             autosave_keep: recovery::DEFAULT_KEEP,
             show_welcome: true,
             check_updates_on_start: true,
+            use_gpu_baking: true,
             viewport: Default::default(),
             new_project: Default::default(),
         }
@@ -173,7 +177,7 @@ pub fn prompt(state: &mut UiState, ctx: &egui::Context, now: f64) {
         egui::Grid::new("recover_grid").num_columns(2).spacing([16.0, 6.0]).show(ui, |ui| {
             let dim = |t: &str| RichText::new(t).color(theme::TEXT_FAINT);
             ui.label(dim("Project"));
-            ui.label(&crashed.info.name);
+            ui.add(egui::Label::new(&crashed.info.name).wrap());
             ui.end_row();
             if let Some(p) = &crashed.info.project_path {
                 ui.label(dim("File"));
@@ -239,7 +243,7 @@ pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
         return;
     }
     let mut open = true;
-    egui::Window::new(RichText::new("Preferences").font(theme::font_strong(14.0))).open(&mut open).collapsible(false).resizable(false).default_height(620.0).show(ctx, |ui| {
+    crate::widgets::window(ctx, RichText::new("Preferences").font(theme::font_strong(14.0))).open(&mut open).collapsible(false).resizable(false).default_height(620.0).show(ctx, |ui| {
         ui.set_width(380.0);
         egui::ScrollArea::vertical().max_height((ctx.content_rect().height() - 110.0).max(200.0)).show(ui, |ui| {
         ui.label(RichText::new("Interface").font(theme::font_strong(12.5)));
@@ -259,6 +263,13 @@ pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
         ui.checkbox(&mut rec.prefs.show_welcome, "Show welcome screen on startup");
         ui.checkbox(&mut rec.prefs.check_updates_on_start, "Check for updates when SubCraft starts")
             .on_hover_text("Asks GitHub for the latest release in the background and points at the update button when there is a new one.");
+        ui.checkbox(&mut rec.prefs.use_gpu_baking, "Use GPU for baking")
+            .on_hover_text("Bakes ambient occlusion and thickness on the graphics card, much faster on big meshes. If it is off or fails, the processor bakes them instead. The Bake window shows which one ran.");
+        ui.add_space(10.0);
+        ui.label(RichText::new("Rendering mode").font(theme::font_strong(12.5)));
+        ui.add_space(4.0);
+        ui.label(RichText::new("Path-traced preview of the 3D view (F10 or Render in its toolbar).").color(TEXT_DIM));
+        crate::viewport_bar::rendering_settings(ui, &mut rec.prefs.viewport);
         ui.add_space(10.0);
         ui.label(RichText::new("Autosave").font(theme::font_strong(12.5)));
         ui.add_space(4.0);

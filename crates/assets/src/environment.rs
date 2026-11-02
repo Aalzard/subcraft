@@ -76,9 +76,16 @@ pub struct EmbeddedHdri {
 }
 
 impl EmbeddedHdri {
+    /// `name` is a file stem (decoded as Radiance) or a file name whose extension picks the
+    /// decoder (`.hdr`, `.exr`).
+    pub fn new(name: &'static str, bytes: &'static [u8]) -> Self {
+        Self { name, bytes, cell: std::sync::OnceLock::new() }
+    }
+
     pub fn get(&self) -> &Arc<PrefilteredHdri> {
         self.cell.get_or_init(|| {
-            let bmp = subcraft_image::io::decode_bitmap(self.bytes, Some("x.hdr")).unwrap_or_else(|e| panic!("bundled HDRI {} is corrupt: {e}", self.name));
+            let hint = if self.name.contains('.') { self.name } else { "x.hdr" };
+            let bmp = subcraft_image::io::decode_bitmap(self.bytes, Some(hint)).unwrap_or_else(|e| panic!("bundled HDRI {} is corrupt: {e}", self.name));
             Arc::new(prefilter(&bmp))
         })
     }
@@ -206,6 +213,9 @@ fn builtin_procedural() -> Vec<Environment> {
             },
         ),
     ]
+    .into_iter()
+    .chain(crate::open_pack::environments())
+    .collect()
 }
 
 /// Direction for equirect texel coordinates (0..1).

@@ -3,6 +3,36 @@
 What changed in SubCraft, newest first. Download the latest build from the
 [Releases page](https://github.com/Aalzard/subcraft/releases/latest).
 
+## 0.2.0 — 2026-11-02
+
+### New
+- **Open Substance Painter `.spp` projects**: model, baked maps and channel textures, and the
+  layer stack rebuilt as SubCraft layers behind a quality gate (background job with progress and
+  cancel). Roughness micro grain, normals, masks, placed images and 2D-view strokes are rebuilt.
+  `.sbsar` archives can be read. Text labels and stencil sheets are not rebuilt (stencil
+  sheets are readable but off by default).
+- **USD import** (`.usd`, `.usda`, `.usdc`, `.usdz`) and **Alembic import** (`.abc`, Ogawa).
+- **Path-traced Rendering mode** in the 3D view (GPU), plus `--path-trace [samples]`.
+- **GPU baking** (ambient occlusion, thickness, curvature) behind a "Use GPU for baking"
+  preference, and much faster big projects: parallel save, compositor and bake speedups.
+- **Brush upgrades**: stroke smoothing with catch-up, scatter/particle mode, smudge strength,
+  smear and material, 22 built-in brush presets.
+- **New filters**: Gradient Map, Histogram Scan, Histogram Range, Median, Warp.
+- **14 more smart materials and 15 more smart masks**, with shelf categories and descriptions.
+- **Community pull requests**: painting in the 2D view with per-channel brush switching, folder
+  hierarchy in the Layers panel, radial symmetry (2-64 copies), mesh reload (keep UVs or
+  reproject paint), ID Color Mask, Edit in PhotoCraft (PSD round trip), pen pressure.
+- **Platform builds**: macOS universal, Linux aarch64 and Windows arm64 packaging, an
+  architecture-aware updater and Cmd shortcut hints on macOS (not yet tested on that hardware).
+
+### Fixed
+- Viewport render targets are clamped to the device texture limit (crash on very large windows
+  with Mesa/RADV).
+- Bake Match by Name: rays from a low part only hit its own high part.
+- Long lists in New Project wrap; saved window layout is validated; start-up falls back to an
+  error window instead of closing.
+- Painting a stroke across a hard edge stays gap-free and keeps its width.
+
 ## 0.1.8 — 2026-10-22
 
 ### New

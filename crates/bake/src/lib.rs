@@ -11,21 +11,29 @@
 //! thickness (rays into the surface; bright = thin), height (signed distance to the high poly
 //! inside the cage, 0.5 flat) and bent normal (average open direction, tangent space). Gutters are padded from the nearest
 //! island texel.
+//!
+//! With [`subcraft_core::BakeMatchMode::ByName`], every ray against the high poly (projection,
+//! occlusion, bent normal, thickness) only accepts high triangles whose part matches the low
+//! part by name ([`name_match`]); the shared high-poly BVH is traversed with a triangle filter.
 
 pub mod curvature;
+pub mod name_match;
 pub mod surface;
 
 use std::collections::BTreeMap;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::time::Instant;
 
 use glam::Vec3;
 use rayon::prelude::*;
 use subcraft_core::MeshMapKind;
 use subcraft_core::color::hsv_to_rgb;
 use subcraft_image::TiledImage;
-use subcraft_image::dilate::dilate_infinite;
+use subcraft_mesh::ray_batch::{BatchControl, CurvatureSurface, CurvatureTexel, NO_GROUP, RayBatchBackend, RayBatchError, RayMode, RayTexel, ray_backend};
 use subcraft_mesh::{Bvh, Mesh, topology};
 
+use name_match::PartMatch;
 use surface::{Texel, cosine_directions, hash01, texels};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -43,6 +51,11 @@ pub struct BakeSettings {
     /// High-poly projection cage above / below the low poly, fractions of the diagonal.
     pub cage_front: f32,
     pub cage_rear: f32,
+    /// Cast AO and thickness rays on the GPU when a ray backend is registered (falls back to the
+    /// CPU on any error). The CPU result stays the reference.
+    pub use_gpu: bool,
+    /// Which high-poly parts rays from each low-poly part may hit (see [`name_match`]).
+    pub name_match: subcraft_core::BakeMatch,
 }
 
 impl Default for BakeSettings {
@@ -57,6 +70,8 @@ impl Default for BakeSettings {
             curvature_radius: 0.02,
             cage_front: 0.01,
             cage_rear: 0.01,
+            use_gpu: true,
+            name_match: subcraft_core::BakeMatch::default(),
         }
     }
 }
@@ -81,6 +96,16 @@ pub struct Progress {
     total: AtomicUsize,
     cancel: AtomicBool,
     current_map: AtomicUsize,
+    reports: Mutex<Vec<MapReport>>,
+}
+
+/// How one map was produced.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MapReport {
+    pub kind: MeshMapKind,
+    /// `CPU`, `GPU (adapter)` or `CPU (GPU failed: reason)`.
+    pub backend: String,
+    pub seconds: f32,
 }
 
 impl Progress {
@@ -96,6 +121,10 @@ impl Progress {
     }
     pub fn is_cancelled(&self) -> bool {
         self.cancel.load(Ordering::Relaxed)
+    }
+    /// Maps finished by the current / last bake, in order.
+    pub fn reports(&self) -> Vec<MapReport> {
+        self.reports.lock().map(|r| r.clone()).unwrap_or_default()
     }
     pub fn current_map(&self) -> Option<MeshMapKind> {
         self.current_map.load(Ordering::Relaxed).checked_sub(1).and_then(|i| MeshMapKind::ALL.get(i).copied())
@@ -133,6 +162,8 @@ struct Detail {
     /// Signed distance from the low-poly point to the detail surface along the cage normal
     /// (positive = the detail stands above the low poly).
     height: f32,
+    /// Name-match group of the low part ([`NO_GROUP`]: rays hit every high part).
+    group: u32,
 }
 
 const CHUNK: usize = 2048;
@@ -147,10 +178,23 @@ pub fn bake(input: &BakeInput, settings: &BakeSettings, progress: &Progress) -> 
 /// published, including on cancellation. Cloning an image here only shares its immutable tiles.
 pub fn bake_streamed(
     input: &BakeInput, settings: &BakeSettings, progress: &Progress,
+    completed: impl FnMut(MeshMapKind, &TiledImage),
+) -> Result<BTreeMap<MeshMapKind, TiledImage>, BakeError> {
+    let wants_rays = settings.maps.iter().any(|k| matches!(k, MeshMapKind::AmbientOcclusion | MeshMapKind::Thickness | MeshMapKind::Curvature));
+    let backend = if settings.use_gpu && wants_rays { ray_backend() } else { None };
+    bake_streamed_with(input, settings, progress, backend.as_deref(), completed)
+}
+
+/// [`bake_streamed`] with an explicit ray backend (`None` = CPU only).
+pub fn bake_streamed_with(
+    input: &BakeInput, settings: &BakeSettings, progress: &Progress, gpu_backend: Option<&dyn RayBatchBackend>,
     mut completed: impl FnMut(MeshMapKind, &TiledImage),
 ) -> Result<BTreeMap<MeshMapKind, TiledImage>, BakeError> {
     let size = settings.size;
     progress.current_map.store(0, Ordering::Relaxed);
+    if let Ok(mut r) = progress.reports.lock() {
+        r.clear();
+    }
     let low = input.low.mesh;
     let samples = texels(low, input.material_slot, size);
     if samples.is_empty() {
@@ -159,21 +203,25 @@ pub fn bake_streamed(
     let detail_geo = input.high.unwrap_or(input.low);
     let diag = low.bounds.diagonal().max(detail_geo.mesh.bounds.diagonal()).max(1e-6);
     let bias = diag * 2e-4;
+    // By mesh name: rays from a low part only hit high triangles of its group.
+    let matching = input.high.and_then(|high| PartMatch::new(low, high.mesh, &settings.name_match));
+    let accepts = |group: u32, tri: u32| matching.as_ref().is_none_or(|m| m.accepts(group, tri));
 
     // Project onto the detail surface.
     let project = |t: &Texel| -> Detail {
+        let group = matching.as_ref().map_or(NO_GROUP, |m| m.low_group(t.tri));
         if let Some(high) = input.high {
             let front = settings.cage_front * diag;
             let rear = settings.cage_rear * diag;
             let n = t.normal.normalize_or(t.geometric_normal);
-            if let Some(hit) = high.bvh.intersect(t.position + n * front, -n, 0.0, front + rear) {
+            if let Some(hit) = high.bvh.intersect_filtered(t.position + n * front, -n, 0.0, front + rear, |tri| accepts(group, tri)) {
                 let sp = high.mesh.interpolate(hit.tri as usize, hit.u, hit.v);
                 let ng = sp.geometric_normal;
                 let normal = if sp.normal.dot(n) < 0.0 { -sp.normal } else { sp.normal };
-                return Detail { position: sp.position, normal, tri: Some(hit.tri), offset: if ng.dot(n) < 0.0 { -ng } else { ng }, height: front - hit.t };
+                return Detail { position: sp.position, normal, tri: Some(hit.tri), offset: if ng.dot(n) < 0.0 { -ng } else { ng }, height: front - hit.t, group };
             }
         }
-        Detail { position: t.position, normal: t.normal, tri: input.high.is_none().then_some(t.tri), offset: t.geometric_normal, height: 0.0 }
+        Detail { position: t.position, normal: t.normal, tri: input.high.is_none().then_some(t.tri), offset: t.geometric_normal, height: 0.0, group }
     };
 
     let wanted = |k: MeshMapKind| settings.maps.contains(&k);
@@ -181,13 +229,23 @@ pub fn bake_streamed(
     progress.total.store(work_items, Ordering::Relaxed);
     progress.done.store(0, Ordering::Relaxed);
 
-    let details: Vec<Detail> = samples.par_iter().map(project).collect();
-    if input.high.is_some() && details.iter().all(|d| d.tri.is_none()) {
+    // Low on low: the detail is the texel itself, so it is derived on the fly instead of holding
+    // a second 48-byte record per texel (800 MB at 4096) for the whole bake.
+    let details: Option<Vec<Detail>> = input.high.map(|_| samples.par_iter().map(project).collect());
+    if details.as_ref().is_some_and(|details| details.iter().all(|d| d.tri.is_none())) {
         return Err(BakeError::NoProjection);
     }
     let elements = if wanted(MeshMapKind::Id) || wanted(MeshMapKind::Curvature) { Some(topology::mesh_elements(detail_geo.mesh)) } else { None };
     let bounds = low.bounds;
     let extent = bounds.extent().max(Vec3::splat(1e-6));
+
+    // Every map shares the covered texels, so the nearest-texel search is done once.
+    let n = (size * size) as usize;
+    let mut covered = vec![false; n];
+    for t in &samples {
+        covered[t.index as usize] = true;
+    }
+    let nearest = subcraft_image::dilate::nearest_covered(size as usize, size as usize, &covered);
 
     let mut out = BTreeMap::new();
     for &kind in &settings.maps {
@@ -196,7 +254,7 @@ pub fn bake_streamed(
         // Per-texel evaluation, chunked for cancellation and progress.
         let eval = |i: usize| -> [f32; 3] {
             let t = &samples[i];
-            let d = &details[i];
+            let d = &details.as_ref().map_or_else(|| project(t), |details| details[i]);
             match kind {
                 MeshMapKind::Normal => {
                     let n = t.normal.normalize_or(t.geometric_normal);
@@ -231,7 +289,7 @@ pub fn bake_streamed(
                             continue;
                         }
                         counted += 1;
-                        if detail_geo.bvh.occluded(origin, *dir, 0.0, dist) {
+                        if detail_geo.bvh.occluded_filtered(origin, *dir, 0.0, dist, |tri| accepts(d.group, tri)) {
                             occluded += 1;
                         }
                     }
@@ -254,7 +312,7 @@ pub fn bake_streamed(
                     let dist = settings.ao_distance * diag;
                     let mut sum = Vec3::ZERO;
                     for dir in &dirs {
-                        if dir.dot(d.offset) > 0.0 && !detail_geo.bvh.occluded(origin, *dir, 0.0, dist) {
+                        if dir.dot(d.offset) > 0.0 && !detail_geo.bvh.occluded_filtered(origin, *dir, 0.0, dist, |tri| accepts(d.group, tri)) {
                             sum += *dir;
                         }
                     }
@@ -268,7 +326,7 @@ pub fn bake_streamed(
                     cosine_directions(-d.normal, settings.thickness_samples.max(1), hash01(t.index, 2), &mut dirs);
                     let origin = d.position - d.offset * bias;
                     let max = settings.thickness_distance * diag;
-                    let total: f32 = dirs.iter().map(|dir| detail_geo.bvh.intersect(origin, *dir, 0.0, max).map_or(max, |h| h.t)).sum();
+                    let total: f32 = dirs.iter().map(|dir| detail_geo.bvh.intersect_filtered(origin, *dir, 0.0, max, |tri| accepts(d.group, tri)).map_or(max, |h| h.t)).sum();
                     let avg = total / dirs.len() as f32 / max;
                     [1.0 - avg; 3]
                 }
@@ -278,29 +336,50 @@ pub fn bake_streamed(
                 }
             }
         };
-        let mut values: Vec<[f32; 3]> = Vec::with_capacity(samples.len());
-        for start in (0..samples.len()).step_by(CHUNK) {
-            if progress.is_cancelled() {
-                return Err(BakeError::Cancelled);
+        let started = Instant::now();
+        let mut backend = "CPU".to_string();
+        // The GPU ray kernels cannot filter hits by part, so name matching bakes AO and thickness on the CPU.
+        let backend_gpu = if settings.use_gpu && (matching.is_none() || kind == MeshMapKind::Curvature) { gpu_backend } else { None };
+        // The GPU kernels need every texel's projection; low-on-low bakes derive it only now.
+        let derived: Option<Vec<Detail>> = (backend_gpu.is_some() && details.is_none()).then(|| samples.par_iter().map(project).collect());
+        let gpu_details = || details.as_deref().or(derived.as_deref()).unwrap_or(&[]);
+        let gpu = match backend_gpu {
+            Some(gpu) if kind == MeshMapKind::Curvature => {
+                let radius = settings.curvature_radius * diag;
+                gpu_curvature_map(gpu, detail_geo, elements.as_deref(), gpu_details(), radius, progress, &mut backend)?
             }
-            let end = (start + CHUNK).min(samples.len());
-            values.par_extend((start..end).into_par_iter().map(eval));
-            progress.done.fetch_add(end - start, Ordering::Relaxed);
-        }
-        let n = (size * size) as usize;
+            Some(gpu) => gpu_ray_map(gpu, kind, settings, detail_geo.bvh, &samples, gpu_details(), bias, diag, progress, &mut backend)?,
+            None => None,
+        };
+        let values: Vec<[f32; 3]> = match gpu {
+            Some(v) => v.into_iter().map(|a| [a; 3]).collect(),
+            None => {
+                let mut values: Vec<[f32; 3]> = Vec::with_capacity(samples.len());
+                for start in (0..samples.len()).step_by(CHUNK) {
+                    if progress.is_cancelled() {
+                        return Err(BakeError::Cancelled);
+                    }
+                    let end = (start + CHUNK).min(samples.len());
+                    values.par_extend((start..end).into_par_iter().map(eval));
+                    progress.done.fetch_add(end - start, Ordering::Relaxed);
+                }
+                values
+            }
+        };
         let neutral = kind.neutral_value();
-        let mut dense: Vec<f32> = (0..n).flat_map(|_| neutral[..comps].to_vec()).collect();
-        let mut covered = vec![false; n];
+        let mut dense: Vec<f32> = neutral[..comps].iter().copied().cycle().take(n * comps).collect();
         for (t, v) in samples.iter().zip(&values) {
             let i = t.index as usize;
             dense[i * comps..(i + 1) * comps].copy_from_slice(&v[..comps]);
-            covered[i] = true;
         }
-        dilate_infinite(size as usize, size as usize, comps, &mut dense, &covered);
+        subcraft_image::dilate::apply_nearest(comps, &mut dense, &covered, &nearest);
         let mut fill = [0.0f32; 4];
         fill[..comps].copy_from_slice(&neutral[..comps]);
         let image = TiledImage::from_dense(size, size, comps, fill, &dense);
         if progress.is_cancelled() { return Err(BakeError::Cancelled); }
+        if let Ok(mut r) = progress.reports.lock() {
+            r.push(MapReport { kind, backend, seconds: started.elapsed().as_secs_f32() });
+        }
         completed(kind, &image);
         out.insert(kind, image);
     }
@@ -308,5 +387,100 @@ pub fn bake_streamed(
     Ok(out)
 }
 
+struct GpuControl<'a> {
+    progress: &'a Progress,
+    base: usize,
+    count: usize,
+}
+
+impl BatchControl for GpuControl<'_> {
+    fn is_cancelled(&self) -> bool {
+        self.progress.is_cancelled()
+    }
+    fn progress(&self, fraction: f32) {
+        self.progress.done.store(self.base + (fraction.clamp(0.0, 1.0) * self.count as f32) as usize, Ordering::Relaxed);
+    }
+}
+
+/// Curvature per sample from the backend, or `None` for the CPU.
+fn gpu_curvature_map(
+    gpu: &dyn RayBatchBackend, geo: Geometry, elements: Option<&[u32]>, details: &[Detail], radius: f32, progress: &Progress, backend: &mut String,
+) -> Result<Option<Vec<f32>>, BakeError> {
+    let Some(elements) = elements else { return Ok(None) };
+    let mesh = geo.mesh;
+    // Triangles of different connected elements or objects are "foreign" to each other.
+    let mut ids: std::collections::HashMap<(u32, Option<u32>), u32> = std::collections::HashMap::new();
+    let tri_group: Vec<u32> = (0..mesh.triangle_count())
+        .map(|t| {
+            let next = ids.len() as u32;
+            *ids.entry((elements[t], mesh.tri_object.get(t).copied().flatten())).or_insert(next)
+        })
+        .collect();
+    let tri_normals: Vec<[f32; 12]> = (0..mesh.triangle_count())
+        .map(|t| {
+            let [a, b, c] = mesh.tri(t).map(|i| mesh.normals[i as usize]);
+            [a.x, a.y, a.z, 0.0, b.x, b.y, b.z, 0.0, c.x, c.y, c.z, 0.0]
+        })
+        .collect();
+    let texel = |i: usize| {
+        let d = &details[i];
+        CurvatureTexel { position: d.position.to_array(), normal: d.normal.to_array(), group: d.tri.map_or(NO_GROUP, |t| tri_group[t as usize]) }
+    };
+    let control = GpuControl { progress, base: progress.done.load(Ordering::Relaxed), count: details.len() };
+    let surface = CurvatureSurface { tri_normals: &tri_normals, tri_group: &tri_group };
+    match gpu.curvature(geo.bvh, surface, details.len(), &texel, radius, &control) {
+        Ok(values) => {
+            progress.done.store(control.base + details.len(), Ordering::Relaxed);
+            *backend = gpu.description();
+            Ok(Some(values))
+        }
+        Err(RayBatchError::Cancelled) => Err(BakeError::Cancelled),
+        Err(RayBatchError::Unsupported(why)) => {
+            log::warn!("GPU curvature bake failed, using the CPU: {why}");
+            progress.done.store(control.base, Ordering::Relaxed);
+            *backend = format!("CPU (GPU failed: {why})");
+            Ok(None)
+        }
+    }
+}
+
+/// AO and thickness values per sample from the registered ray backend, or `None` to use the CPU
+/// (not a ray map, no backend, or the backend refused: `backend` then says why).
+#[allow(clippy::too_many_arguments)]
+fn gpu_ray_map(
+    gpu: &dyn RayBatchBackend, kind: MeshMapKind, settings: &BakeSettings, bvh: &Bvh, samples: &[Texel], details: &[Detail], bias: f32, diag: f32,
+    progress: &Progress, backend: &mut String,
+) -> Result<Option<Vec<f32>>, BakeError> {
+    let (rays, mode, salt, sign) = match kind {
+        MeshMapKind::AmbientOcclusion => (settings.ao_samples.max(1), RayMode::Occlusion { distance: settings.ao_distance * diag }, 1, 1.0),
+        MeshMapKind::Thickness => (settings.thickness_samples.max(1), RayMode::MeanDistance { max: settings.thickness_distance * diag }, 2, -1.0),
+        _ => return Ok(None),
+    };
+    let texel = |i: usize| {
+        let (t, d) = (&samples[i], &details[i]);
+        // Same origins, axes and seeds as the CPU `eval`: occlusion starts above the surface,
+        // thickness just below it, looking inward.
+        let origin = d.position + d.offset * (bias * sign);
+        RayTexel { origin: origin.to_array(), rotation: hash01(t.index, salt), axis: (d.normal * sign).to_array(), offset: d.offset.to_array() }
+    };
+    let control = GpuControl { progress, base: progress.done.load(Ordering::Relaxed), count: samples.len() };
+    match gpu.run(bvh, samples.len(), &texel, rays, mode, &control) {
+        Ok(values) => {
+            progress.done.store(control.base + samples.len(), Ordering::Relaxed);
+            *backend = gpu.description();
+            Ok(Some(values))
+        }
+        Err(RayBatchError::Cancelled) => Err(BakeError::Cancelled),
+        Err(RayBatchError::Unsupported(why)) => {
+            log::warn!("GPU {} bake failed, using the CPU: {why}", kind.display_name());
+            progress.done.store(control.base, Ordering::Relaxed);
+            *backend = format!("CPU (GPU failed: {why})");
+            Ok(None)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod match_tests;

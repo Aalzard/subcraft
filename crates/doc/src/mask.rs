@@ -132,6 +132,74 @@ impl Generator {
     }
 }
 
+/// ID Color Mask: selects the texels whose baked ID map color (`MeshMapKind::Id`) lies within
+/// `tolerance` (Euclidean RGB distance) of any picked color. See ADR-0041.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct IdColorMask {
+    /// Picked ID colors, as stored in the baked map (raw values, never color-transformed).
+    pub colors: Vec<[f32; 3]>,
+    /// Maximum RGB distance still counted as a full match.
+    pub tolerance: f32,
+    /// Width of the falloff beyond `tolerance` (0 = hard edge).
+    pub softness: f32,
+    pub invert: bool,
+}
+
+impl Default for IdColorMask {
+    fn default() -> Self { Self { colors: Vec::new(), tolerance: Self::DEFAULT_TOLERANCE, softness: 0.0, invert: false } }
+}
+
+impl IdColorMask {
+    pub const DEFAULT_TOLERANCE: f32 = 0.05;
+    /// Upper bound on picked colors (keeps per-texel cost and file contents bounded).
+    pub const MAX_COLORS: usize = 64;
+
+    /// Parameters a project file may contain.
+    pub fn valid(&self) -> bool {
+        self.colors.len() <= Self::MAX_COLORS
+            && self.colors.iter().flatten().all(|c| c.is_finite())
+            && (0.0..=1.0).contains(&self.tolerance)
+            && (0.0..=1.0).contains(&self.softness)
+    }
+
+    /// Adds a color unless an identical one is already picked. Returns whether it was added.
+    pub fn add_color(&mut self, color: [f32; 3]) -> bool {
+        if self.colors.len() >= Self::MAX_COLORS || self.colors.contains(&color) || color.iter().any(|c| !c.is_finite()) {
+            return false;
+        }
+        self.colors.push(color);
+        true
+    }
+
+    /// Mask value 0..1 for one ID map texel (before `invert`): 1 within `tolerance` of the
+    /// nearest picked color, falling smoothly to 0 over `softness`. No colors selects nothing.
+    pub fn match_value(&self, rgb: [f32; 3]) -> f32 {
+        let d2 = self
+            .colors
+            .iter()
+            .map(|c| (c[0] - rgb[0]).powi(2) + (c[1] - rgb[1]).powi(2) + (c[2] - rgb[2]).powi(2))
+            .fold(f32::INFINITY, f32::min);
+        if !d2.is_finite() {
+            return 0.0;
+        }
+        let d = d2.sqrt();
+        if d <= self.tolerance {
+            1.0
+        } else if self.softness > 0.0 {
+            let t = ((d - self.tolerance) / self.softness).clamp(0.0, 1.0);
+            1.0 - t * t * (3.0 - 2.0 * t)
+        } else {
+            0.0
+        }
+    }
+
+    /// Final value including `invert`.
+    pub fn value(&self, rgb: [f32; 3]) -> f32 {
+        let v = self.match_value(rgb);
+        if self.invert { 1.0 - v } else { v }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum MaskEffectKind {
     /// Additional paint raster (2 comps: value, alpha).
@@ -145,6 +213,8 @@ pub enum MaskEffectKind {
     /// Grayscale from an imported image through a projection: the image's alpha if it has one
     /// (a logo on a transparent background), else its brightness.
     Image { resource: subcraft_core::ResourceId, projection: Projection, invert: bool },
+    /// Selection by baked ID map color (ADR-0041). Without a baked ID map it is black.
+    IdColor(IdColorMask),
 }
 
 impl MaskEffectKind {
@@ -157,6 +227,7 @@ impl MaskEffectKind {
             MaskEffectKind::Filter(filter) => filter.label().into(),
             MaskEffectKind::Invert => "Invert".into(),
             MaskEffectKind::Image { .. } => "Image".into(),
+            MaskEffectKind::IdColor(_) => "ID Color Mask".into(),
         }
     }
 }
@@ -198,5 +269,30 @@ impl Mask {
     pub fn new(resolution: u32, white: bool) -> Self {
         let v = if white { 1.0 } else { 0.0 };
         Self { enabled: true, base: TiledImage::new(resolution, resolution, 1, [v; 4]), effects: Vec::new() }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn id_color_match_respects_tolerance_softness_and_invert() {
+        let mut m = IdColorMask::default();
+        assert_eq!(m.value([0.5, 0.5, 0.5]), 0.0, "no picked colors selects nothing");
+        assert!(m.add_color([0.9, 0.3, 0.3]));
+        assert!(!m.add_color([0.9, 0.3, 0.3]), "duplicates are ignored");
+        assert_eq!(m.value([0.9, 0.3, 0.3]), 1.0);
+        assert_eq!(m.value([0.9, 0.34, 0.3]), 1.0, "0.04 is within the default 0.05 tolerance");
+        assert_eq!(m.value([0.9, 0.36, 0.3]), 0.0, "0.06 is outside, hard edge");
+        m.softness = 0.1;
+        let half = m.value([0.9, 0.4, 0.3]); // d = 0.1: halfway through the falloff
+        assert!((half - 0.5).abs() < 1e-4, "{half}");
+        assert_eq!(m.value([0.9, 0.46, 0.3]), 0.0);
+        m.invert = true;
+        assert_eq!(m.value([0.9, 0.3, 0.3]), 0.0);
+        assert!(m.valid());
+        m.tolerance = 2.0;
+        assert!(!m.valid());
     }
 }

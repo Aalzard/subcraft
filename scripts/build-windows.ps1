@@ -13,6 +13,8 @@
 #>
 param(
     [switch]$SkipBuild,
+    # 'arm64' packages a build made on a Windows on ARM machine (experimental).
+    [ValidateSet('x64', 'arm64')][string]$Arch = 'x64',
     [string]$CertificateThumbprint,
     [switch]$RequireSignature
 )
@@ -37,7 +39,7 @@ try {
     $exe = Join-Path (Join-Path $targetDir 'dist') $exeName
     if (-not (Test-Path $exe)) { throw "Build output not found: $exe" }
 
-    $name = "SubCraft-$version-windows-x64"
+    $name = "SubCraft-$version-windows-$Arch"
     $dist = Join-Path $root 'dist'
     $stage = Join-Path $dist $name
     $zip = Join-Path $dist "$name.zip"
@@ -68,6 +70,7 @@ try {
     Copy-Item 'crates\ui\assets\fonts\*-LICENSE.txt' $fonts
     Copy-Item 'assets\starter-pack\CREDITS-CC0.txt' (Join-Path $fonts 'starter-pack-CC0.txt')
     Copy-Item 'assets\environments\CREDITS-CC0.txt' (Join-Path $fonts 'environments-CC0.txt')
+    Copy-Item 'assets\open-pack\CREDITS-CC0.txt' (Join-Path $fonts 'open-pack-CC0.txt')
 
     Compress-Archive -Path $stage -DestinationPath $zip
     $size = '{0:N1} MB' -f ((Get-Item $zip).Length / 1MB)

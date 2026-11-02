@@ -50,6 +50,10 @@ pub struct UvView {
     pub offset: egui::Vec2,
     pub source: PreviewSource,
     pub texture: Option<egui::TextureId>,
+    /// A stroke started in the 2D view is in progress.
+    pub painting: bool,
+    /// UV of the last 2D stroke point (Shift+click draws a line from it).
+    pub last_point: Option<Vec2>,
 }
 
 /// Compositing time spent per frame before the remaining dirty tiles wait for the next frame.
@@ -75,6 +79,8 @@ pub struct UiState {
     uploaded_composite_generation: u64,
     pub session: Session,
     pub camera: OrbitCamera,
+    /// Scripted view used whenever a model is framed (`--camera`).
+    pub camera_view: Option<crate::orbit::CameraView>,
     pub render_state: Option<egui_wgpu::RenderState>,
     pub renderer: Option<ViewportRenderer>,
     pub viewport_texture: Option<egui::TextureId>,
@@ -105,24 +111,42 @@ pub struct UiState {
     pub last_view_size: [u32; 2],
     pub uv: UvView,
     pub painting: bool,
+    /// Pen pressure of the current contact (1.0 for a mouse).
+    pub pen_pressure: f32,
     /// Clicks in the 3D view show / hide the selected layer on mesh parts (Properties → Parts).
     pub picking_parts: bool,
+    /// Clicks in the 3D view add the ID map color under the cursor to this ID Color Mask effect.
+    pub picking_id_color: Option<(subcraft_core::LayerId, subcraft_core::EffectId)>,
     pub last_stroke_point: Option<Vec2>,
     pub uv_edges: HashMap<u32, Vec<[Vec2; 2]>>,
+    /// UV units per object unit of each material slot (2D brush cursor size).
+    pub uv_density: HashMap<u32, f32>,
     pub rename: Option<(subcraft_core::LayerId, String)>,
     pub show_shortcuts: bool,
     pub frame_time_ms: f32,
+    /// Rendering mode: sampling paused, last frame's progress, and whether the path tracer
+    /// was used last frame (its GPU memory is released when the mode turns off).
+    pub pt_paused: bool,
+    pub pt_status: Option<subcraft_render::PathTraceStatus>,
+    pub pt_active: bool,
+    /// `--path-trace N`: samples a scripted screenshot waits for.
+    pub pt_capture_samples: Option<u32>,
     /// Viewport height-to-bump strength.
     pub height_scale: f32,
     pub export: crate::dialogs::ExportUi,
     pub new_project: crate::new_project::NewProjectUi,
+    pub mesh_reload: crate::mesh_reload::MeshReloadUi,
     /// Action waiting for the unsaved-changes prompt.
     pub confirm: Option<crate::dialogs::Pending>,
     /// The user already agreed to close without saving.
     pub allow_close: bool,
     pub last_title: String,
     pub bake: crate::dialogs::BakeUi,
-    pub symmetry_uploaded: Option<(usize, [bool; 3])>,
+    /// A Painter project being opened in the background.
+    pub spp_import: Option<crate::spp_import::SppImportUi>,
+    /// Running Edit in PhotoCraft exchange (ADR-0040).
+    pub photocraft: Option<subcraft_app::photocraft::Exchange>,
+    pub symmetry_uploaded: Option<(usize, [bool; 3], subcraft_paint::RadialSymmetry)>,
     pub uv_wireframe: bool,
     pub library: subcraft_app::assets::Library,
     pub shelf: crate::panels::shelf::ShelfUi,
@@ -175,6 +199,7 @@ impl UiState {
             uploaded_view_revision: u64::MAX,
             uploaded_composite_generation: 0,
             camera: OrbitCamera::framing(&session.scene().mesh.bounds),
+            camera_view: None,
             session,
             render_state,
             renderer,
@@ -194,22 +219,32 @@ impl UiState {
             pending_render_job: None,
             render_export: Default::default(),
             new_project: Default::default(),
+            mesh_reload: Default::default(),
             render_request: None,
             last_view_size: [1280, 720],
-            uv: UvView { zoom: 1.0, offset: egui::Vec2::ZERO, source: PreviewSource::Channel(ChannelKind::BaseColor), texture: None },
+            uv: UvView { zoom: 1.0, offset: egui::Vec2::ZERO, source: PreviewSource::Channel(ChannelKind::BaseColor), texture: None, painting: false, last_point: None },
             painting: false,
             picking_parts: false,
+            picking_id_color: None,
             last_stroke_point: None,
+            pen_pressure: 1.0,
             uv_edges: HashMap::new(),
+            uv_density: HashMap::new(),
             rename: None,
             show_shortcuts: false,
             frame_time_ms: 0.0,
+            pt_paused: false,
+            pt_status: None,
+            pt_active: false,
+            pt_capture_samples: None,
             height_scale: 0.02,
             export: Default::default(),
             confirm: None,
             allow_close: false,
             last_title: String::new(),
             bake: Default::default(),
+            spp_import: None,
+            photocraft: None,
             symmetry_uploaded: None,
             uv_wireframe: true,
             library: subcraft_app::assets::Library::builtin(),
@@ -220,7 +255,7 @@ impl UiState {
             image_thumbs: HashMap::new(),
             user_library: None,
             env_loader: None,
-            brush_presets: Vec::new(),
+            brush_presets: builtin_brush_presets(),
             preset_name: String::new(),
             stencil_tex: None,
             textures: Default::default(),
@@ -251,7 +286,8 @@ impl UiState {
         for e in errors {
             log::warn!("library brush preset skipped: {e}");
         }
-        self.brush_presets = presets;
+        self.brush_presets = builtin_brush_presets();
+        self.brush_presets.extend(presets);
         self.textures = crate::panels::textures::TextureLibrary::load(&lib);
         if !self.textures.items.is_empty() {
             // Open the shelf on the user's own textures once there are some.
@@ -283,6 +319,41 @@ impl UiState {
         }
     }
 
+    /// Edit in PhotoCraft: write the selected texture set's layers as PSDs and open them.
+    pub fn start_photocraft(&mut self, now: f64) {
+        let dir = subcraft_app::photocraft::exchange_dir(self.session.selection().texture_set);
+        match subcraft_app::photocraft::Exchange::start(&self.session, &dir, subcraft_app::photocraft::launch) {
+            Ok(ex) => {
+                self.set_status(format!("Editing {} in PhotoCraft: saves there come back here automatically", ex.set_name()), now);
+                self.photocraft = Some(ex);
+            }
+            Err(e) => self.set_status(format!("Edit in PhotoCraft: {e}"), now),
+        }
+    }
+
+    /// Stop bringing PhotoCraft saves back (PhotoCraft itself stays open).
+    pub fn stop_photocraft(&mut self, now: f64) {
+        if let Some(ex) = self.photocraft.take() {
+            self.set_status(format!("Stopped editing {} in PhotoCraft", ex.set_name()), now);
+        }
+    }
+
+    /// Apply settled PhotoCraft saves (call once per frame; checks the disk twice a second).
+    pub fn poll_photocraft(&mut self, now: f64) {
+        let Some(ex) = &mut self.photocraft else { return };
+        for event in ex.poll(&mut self.session, now) {
+            use subcraft_app::photocraft::PollEvent;
+            match event {
+                PollEvent::Applied(text) | PollEvent::Failed(text) => self.set_status(text, now),
+                PollEvent::Ended(text) => {
+                    self.photocraft = None;
+                    self.set_status(text, now);
+                    return;
+                }
+            }
+        }
+    }
+
     /// Pick up HDRIs finished by the background loader (call once per frame).
     pub fn poll_library(&mut self) {
         let Some(rx) = &self.env_loader else { return };
@@ -307,9 +378,29 @@ impl UiState {
         self.pen_after = None;
         if session.selected_layer().is_some_and(|l| l.kind() == subcraft_doc::LayerKind::Path) { self.tool = Tool::Pen; }
         session.brush.material = self.session.brush.material.clone();
-        self.camera = OrbitCamera::framing(&session.scene().mesh.bounds);
+        self.camera = OrbitCamera::framing_with(&session.scene().mesh.bounds, self.camera_view.as_ref());
         self.session = session;
         self.welcome.open = false;
+        self.context_part = None;
+        self.uploaded_view_revision = u64::MAX;
+        self.gpu_dirty = true;
+        self.uv_edges.clear();
+        self.uv_density.clear();
+        self.uv.painting = false;
+        self.uv.last_point = None;
+        self.uploaded_maps.clear();
+        self.painting = false;
+        self.last_stroke_point = None;
+        self.recovery.autosaver.session_replaced();
+    }
+
+    /// The session's mesh was replaced in place (File > Reload mesh): drop everything derived
+    /// from the old geometry and upload the new one. The camera stays put for comparison.
+    pub fn mesh_reloaded(&mut self) {
+        self.layer_previews = Default::default();
+        self.asset_preview.cancel_apply();
+        self.pen = Default::default();
+        self.pen_after = None;
         self.context_part = None;
         self.uploaded_view_revision = u64::MAX;
         self.gpu_dirty = true;
@@ -317,7 +408,6 @@ impl UiState {
         self.uploaded_maps.clear();
         self.painting = false;
         self.last_stroke_point = None;
-        self.recovery.autosaver.session_replaced();
     }
 
     /// One Shelf click makes the brush usable at once: the app applies it, and Fill, Eyedropper
@@ -421,4 +511,16 @@ impl UiState {
             }
         }
     }
+}
+
+/// Built-in brush presets: ours first, then the open-pack channel presets whose names are not
+/// already taken.
+fn builtin_brush_presets() -> Vec<subcraft_app::brush_preset::BrushPreset> {
+    let mut all = subcraft_app::brush_builtin::builtin_brush_presets();
+    for p in subcraft_app::brush_preset::builtin() {
+        if !all.iter().any(|q| q.name == p.name) {
+            all.push(p);
+        }
+    }
+    all
 }

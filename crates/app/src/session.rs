@@ -92,6 +92,8 @@ struct ActiveStroke {
     stroke: Stroke,
     texture_set: TextureSetId,
     label: &'static str,
+    /// Last view camera, for the catch-up end of the stroke.
+    camera: Option<Camera>,
 }
 
 pub struct Session {
@@ -142,6 +144,8 @@ pub struct Session {
     maps_generation: u64,
     /// Opened from a recovery copy: unsaved until the user saves.
     recovered: bool,
+    /// The mesh was reloaded since the last save.
+    mesh_dirty: bool,
 }
 
 /// Everything a project file holds, captured cheaply (shared tiles and resources) so it can be
@@ -220,6 +224,7 @@ impl Session {
             maps_dirty: false,
             maps_generation: 0,
             recovered: false,
+            mesh_dirty: false,
         }
     }
 
@@ -259,6 +264,7 @@ impl Session {
         self.saved_settings = self.settings.clone();
         self.maps_dirty = false;
         self.recovered = false;
+        self.mesh_dirty = false;
         Ok(path)
     }
 
@@ -300,7 +306,7 @@ impl Session {
 
     /// True if the document differs from the last save / load.
     pub fn is_modified(&self) -> bool {
-        self.maps_dirty || self.recovered || self.doc != self.saved_doc || self.settings != self.saved_settings
+        self.maps_dirty || self.mesh_dirty || self.recovered || self.doc != self.saved_doc || self.settings != self.saved_settings
     }
 
     /// Project-wide settings (export choices, normal format), saved with the project.
@@ -320,8 +326,35 @@ impl Session {
         self.mesh_maps.get(&ts).filter(|m| !m.is_empty())
     }
 
+    /// Install a rebuilt Painter stack: per texture set the folder goes above the flattened layer
+    /// (which takes the visibility chosen by the quality check). Layers the user added meanwhile
+    /// stay where they are. While the project is still as opened, the result replaces the opened
+    /// state (so undo cannot go back to a half-imported project); otherwise it is one undo step.
+    /// Returns the stack's notes.
+    pub fn apply_spp_stack(&mut self, stack: crate::spp_job::SppStack) -> Vec<String> {
+        for r in stack.resources.iter() {
+            self.resources.insert_shared(r.clone());
+        }
+        let pristine = self.history.entries().len() == 1 && self.history.cursor() == 0;
+        for u in stack.updates {
+            let Some(ts) = self.doc.texture_set_mut(u.texture_set) else { continue };
+            let Some(pos) = ts.layers.iter().position(|l| l.id == u.flat.id) else { continue };
+            ts.layers[pos] = u.flat;
+            ts.layers.insert(pos + 1, u.folder);
+        }
+        if pristine {
+            self.history.reset(self.doc.clone(), "Open Painter project");
+            self.saved_doc = self.doc.clone();
+            self.revision += 1;
+        } else {
+            self.commit("Rebuild Painter stack", None);
+        }
+        stack.notes
+    }
+
     /// Install baked maps (merged over existing ones) and refresh that set's composite.
     pub fn set_mesh_maps(&mut self, ts: TextureSetId, maps: std::collections::BTreeMap<subcraft_core::MeshMapKind, subcraft_image::TiledImage>) {
+        self.settings.stale_mesh_maps.retain(|id| *id != ts);
         let entry = self.mesh_maps.entry(ts).or_default();
         let mut merged = entry.as_map().clone();
         merged.extend(maps);
@@ -375,22 +408,133 @@ impl Session {
         Self::new(primitives::sample_crate(), DEFAULT_RESOLUTION)
     }
 
-    /// New session from a mesh file (OBJ / glTF / FBX).
+    /// New session from a mesh file (OBJ / glTF / FBX / Substance Painter .spp).
     pub fn open_mesh(path: &Path, resolution: u32) -> Result<(Self, Vec<String>), String> {
+        if path.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("spp")) {
+            return Self::open_spp(path);
+        }
         let report = import_mesh(path).map_err(|e| e.to_string())?;
         if report.mesh.triangle_count() == 0 {
             return Err("mesh has no triangles".into());
         }
         let mut warnings = report.warnings;
         let tiles = report.mesh.udim_tiles(None).len();
-        if tiles > 1 {
+        let mut session = if tiles > 1 {
             // Folding the tiles onto one would make their islands paint over each other.
             let settings = crate::new_project::NewProjectSettings { resolution, ..Default::default() };
-            let session = Self::from_mesh_with(report.mesh, &settings)?;
             warnings.push(format!("The model uses {tiles} UDIM tiles; each tile became its own texture set (use File > New project to choose differently)."));
-            return Ok((session, warnings));
+            Self::from_mesh_with(report.mesh, &settings)?
+        } else {
+            Self::new(report.mesh, resolution)
+        };
+        session.set_mesh_source(path);
+        Ok((session, warnings))
+    }
+
+    /// Remember the model file the mesh came from (default for File > Reload mesh). Not an
+    /// edit: does not mark the project modified.
+    pub fn set_mesh_source(&mut self, path: &Path) {
+        let source = Some(path.display().to_string());
+        let unchanged = self.settings == self.saved_settings;
+        self.settings.mesh_source = source.clone();
+        if unchanged {
+            self.saved_settings.mesh_source = source;
         }
-        Ok((Self::new(report.mesh, resolution), warnings))
+    }
+
+    /// The model file the mesh was imported or last reloaded from, if known.
+    pub fn mesh_source(&self) -> Option<&Path> {
+        self.settings.mesh_source.as_deref().map(Path::new)
+    }
+
+    /// Whether a texture set's baked maps were made for an earlier version of the mesh.
+    pub fn mesh_maps_stale(&self, ts: TextureSetId) -> bool {
+        self.settings.stale_mesh_maps.contains(&ts)
+    }
+
+    // ----- mesh reload ---------------------------------------------------------------------------
+
+    /// Step 1 of File > Reload mesh, in the background: import `path` and match it to the
+    /// texture sets (see [`crate::mesh_reload`]).
+    pub fn start_mesh_reload_check(&self, path: &Path) -> crate::mesh_reload::MeshReloadJob<crate::mesh_reload::PreparedReload> {
+        let (path, mesh, bvh, doc) = (path.to_path_buf(), self.scene.mesh.clone(), self.scene.bvh.clone(), self.history.current().clone());
+        crate::mesh_reload::MeshReloadJob::spawn(move |p| crate::mesh_reload::prepare(&path, mesh, &bvh, &doc, p))
+    }
+
+    /// [`Session::start_mesh_reload_check`] for an already imported mesh (tests, scripts).
+    pub fn check_mesh_reload(&self, path: &Path, mesh: Mesh) -> Result<crate::mesh_reload::PreparedReload, String> {
+        let progress = crate::mesh_reload::ReloadProgress::default();
+        crate::mesh_reload::prepare_mesh(path, mesh, Vec::new(), self.scene.mesh.clone(), &self.scene.bvh, self.history.current(), &progress)
+    }
+
+    /// Step 2, in the background: build the reloaded document with `mode`.
+    pub fn start_mesh_reload(&self, prepared: Arc<crate::mesh_reload::PreparedReload>, mode: crate::mesh_reload::ReloadMode) -> crate::mesh_reload::MeshReloadJob<crate::mesh_reload::ReloadOutput> {
+        let (bvh, doc, maps) = (self.scene.bvh.clone(), self.history.current().clone(), self.mesh_map_set());
+        crate::mesh_reload::MeshReloadJob::spawn(move |p| crate::mesh_reload::transfer(&prepared, mode, &bvh, &doc, &maps, p))
+    }
+
+    /// Both steps on the calling thread for an already prepared reload (tests, scripts).
+    pub fn apply_mesh_reload(&mut self, prepared: Arc<crate::mesh_reload::PreparedReload>, mode: crate::mesh_reload::ReloadMode) -> Result<crate::mesh_reload::MeshReloadReport, String> {
+        let output = self.start_mesh_reload(prepared, mode).wait()?;
+        self.finish_mesh_reload(output)
+    }
+
+    /// Import `path` and reload it with `mode`, waiting for the result.
+    pub fn reload_mesh(&mut self, path: &Path, mode: crate::mesh_reload::ReloadMode) -> Result<crate::mesh_reload::MeshReloadReport, String> {
+        let prepared = Arc::new(self.start_mesh_reload_check(path).wait()?);
+        self.apply_mesh_reload(prepared, mode)
+    }
+
+    fn mesh_map_set(&self) -> crate::mesh_reload::MapSet {
+        self.mesh_maps.iter().map(|(id, m)| (*id, m.as_map().clone())).collect()
+    }
+
+    /// Install a finished reload: new mesh, texture sets and maps. Not undoable: the history is
+    /// cleared (the mesh is not part of it, ADR-0042). Fails if the project changed meanwhile.
+    pub fn finish_mesh_reload(&mut self, output: crate::mesh_reload::ReloadOutput) -> Result<crate::mesh_reload::MeshReloadReport, String> {
+        if self.stroke.is_some() {
+            return Err("finish the stroke before reloading the mesh".into());
+        }
+        if !Arc::ptr_eq(&output.base_mesh, &self.scene.mesh) || output.base_doc != *self.history.current() || self.doc != *self.history.current() {
+            return Err("the project changed while the new mesh was being prepared; reload it again".into());
+        }
+        if output.document.texture_sets.is_empty() {
+            return Err("the reloaded mesh has no texture sets".into());
+        }
+        log::info!("action: Reload Mesh ({})", output.source.display());
+        // Compositing restarts from scratch on the new geometry.
+        self.worker = None;
+        self.composites.clear();
+        self.shown.clear();
+        self.submitted = None;
+        self.invalidated.clear();
+        self.scene = Scene::new(output.mesh);
+        self.part_view.reset_for_new_mesh();
+        self.doc = output.document;
+        self.history.reset(self.doc.clone(), "Reload Mesh");
+        self.mesh_maps = output.maps.into_iter().map(|(id, m)| (id, MeshMaps::from_map(m))).collect();
+        let doc = &self.doc;
+        self.settings.stale_mesh_maps.retain(|id| doc.texture_set(*id).is_some());
+        for id in output.stale {
+            if !self.settings.stale_mesh_maps.contains(&id) {
+                self.settings.stale_mesh_maps.push(id);
+            }
+        }
+        self.settings.mesh_source = Some(output.source.display().to_string());
+        if self.doc.texture_set(self.selection.texture_set).is_none() {
+            self.selection.texture_set = self.doc.texture_sets[0].id;
+            self.selection.layer = None;
+        }
+        if self.selection.layer.is_none_or(|l| self.selected_texture_set().find(l).is_none()) {
+            self.selection.layer = self.selected_texture_set().layers.last().map(|l| l.id);
+        }
+        self.clone_source = None;
+        self.clone_offset = None;
+        self.normalize_target();
+        self.mesh_dirty = true;
+        self.maps_generation += 1;
+        self.revision += 1;
+        Ok(output.report)
     }
 
     // ----- queries -------------------------------------------------------------------------------
@@ -399,10 +543,19 @@ impl Session {
         &self.scene
     }
 
+    /// Guide lines for the active symmetry: mirror-plane sections, then the radial axis with
+    /// one spoke per copy (same center and copy count the stroke paints with).
     pub fn symmetry_guide_segments(&self) -> Vec<[Vec3; 2]> {
-        if !self.brush.options.symmetry.contains(&true) { return Vec::new(); }
-        let sections = self.scene.symmetry_sections.get_or_init(|| crate::guides::symmetry_sections(&self.scene.mesh));
-        sections.iter().zip(self.brush.options.symmetry).filter(|(_, enabled)| *enabled).flat_map(|(lines, _)| lines.iter().copied()).collect()
+        let options = &self.brush.options;
+        if !options.has_symmetry() { return Vec::new(); }
+        let mut lines: Vec<[Vec3; 2]> = Vec::new();
+        if options.symmetry.contains(&true) {
+            let sections = self.scene.symmetry_sections.get_or_init(|| crate::guides::symmetry_sections(&self.scene.mesh));
+            lines.extend(sections.iter().zip(options.symmetry).filter(|(_, enabled)| *enabled).flat_map(|(lines, _)| lines.iter().copied()));
+        }
+        let mirrors = options.symmetry.iter().filter(|&&m| m).count();
+        lines.extend(crate::guides::radial_guides(&self.scene.mesh, &options.radial, options.radial.effective_count(mirrors)));
+        lines
     }
     pub fn document(&self) -> &Document {
         &self.doc
@@ -593,20 +746,40 @@ impl Session {
         }
         match cmd {
             Command::SetBrushSettings(mut settings) => {
-                if [settings.size, settings.flow, settings.stroke_opacity, settings.hardness].iter().any(|v| !v.is_finite()) {
+                if [settings.size, settings.flow, settings.stroke_opacity, settings.hardness, settings.scatter_radius, settings.scatter_size_random,
+                    settings.scatter_rotation_deg, settings.scatter_opacity_random, settings.scatter_fall,
+                    settings.smudge_strength, settings.smudge_carry, settings.smudge_falloff, settings.smudge_material].iter().any(|v| !v.is_finite()) {
                     return Err(CommandError::Invalid("brush values must be finite".into()));
                 }
                 settings.size = settings.size.clamp(0.1, 100.0);
                 settings.flow = settings.flow.clamp(0.0, 1.0);
                 settings.stroke_opacity = settings.stroke_opacity.clamp(0.0, 1.0);
                 settings.hardness = settings.hardness.clamp(0.0, 1.0);
+                settings.scatter_count = settings.scatter_count.min(subcraft_paint::MAX_SCATTER);
+                settings.scatter_radius = settings.scatter_radius.clamp(0.0, 10.0);
+                settings.scatter_size_random = settings.scatter_size_random.clamp(0.0, 1.0);
+                settings.scatter_opacity_random = settings.scatter_opacity_random.clamp(0.0, 1.0);
+                settings.scatter_fall = settings.scatter_fall.clamp(0.0, 20.0);
+                settings.smudge_strength = settings.smudge_strength.clamp(0.0, 1.0);
+                settings.smudge_carry = settings.smudge_carry.clamp(0.0, 0.99);
+                settings.smudge_falloff = settings.smudge_falloff.clamp(0.25, 8.0);
+                settings.smudge_material = settings.smudge_material.clamp(0.0, 1.0);
                 self.brush.settings = settings;
             }
             Command::SetStrokeOptions(mut options) => {
                 if !options.lazy_distance_px.is_finite() {
                     return Err(CommandError::Invalid("lazy mouse distance must be finite".into()));
                 }
+                if !options.radial.center_offset.iter().all(|v| v.is_finite()) {
+                    return Err(CommandError::Invalid("radial symmetry center must be finite".into()));
+                }
+                if !options.smoothing.is_finite() {
+                    return Err(CommandError::Invalid("smoothing must be finite".into()));
+                }
                 options.lazy_distance_px = options.lazy_distance_px.clamp(0.0, 100.0);
+                options.smoothing = options.smoothing.clamp(0.0, subcraft_paint::MAX_SMOOTHING);
+                options.radial.axis = options.radial.axis.min(2);
+                options.radial.count = options.radial.count.clamp(2, subcraft_paint::MAX_SYMMETRY_COPIES);
                 self.brush.options = options;
             }
             Command::SetBrushMaterial(material) => self.brush.material = material,
@@ -620,6 +793,16 @@ impl Session {
                     if id == self.selection.texture_set { self.selection.layer = Some(inserted); }
                 }
                 self.doc = doc; self.commit(&label, None);
+            }
+            Command::ReplaceTextureSetLayers { texture_set, layers, label } => {
+                let mut doc = self.doc.clone();
+                doc.texture_set_mut(texture_set).ok_or(CommandError::TextureSetNotFound)?.layers = layers;
+                self.doc = doc;
+                if self.selection.texture_set == texture_set && self.selection.layer.is_some_and(|l| self.doc.texture_set(texture_set).and_then(|ts| ts.find(l)).is_none()) {
+                    self.selection.layer = None;
+                    self.effect = None;
+                }
+                self.commit(&label, None);
             }
             Command::ReplaceLayer { layer, replacement, label } => {
                 if layer != replacement.id { return Err(CommandError::Invalid("replacement must keep layer UUID".into())); }
@@ -793,6 +976,15 @@ impl Session {
                 if changed {
                     self.commit(&format!("Resolution {resolution}"), None);
                 }
+            }
+            Command::AddChannel { texture_set, kind } => {
+                let ts = self.doc.texture_set_mut(texture_set).ok_or(CommandError::TextureSetNotFound)?;
+                if ts.has_channel(kind) {
+                    return Ok(());
+                }
+                ts.channels.push(ChannelDef::default_for(kind));
+                self.brush.material.set(kind, kind.default_paint_value());
+                self.commit(&format!("Add {} Channel", kind.display_name()), None);
             }
             Command::InsertLayerWithChannels { layer, channels, label } => {
                 let ts = self.doc.texture_set_mut(self.selection.texture_set).ok_or(CommandError::TextureSetNotFound)?;
@@ -1034,6 +1226,19 @@ impl Session {
                     Ok(())
                 })?;
             }
+            Command::SetIdColors { layer, effect, colors } => {
+                self.edit_layer_set(layer, "ID Color", None, |ts| {
+                    let mask = Self::layer_mut(ts, layer)?.mask.as_mut().ok_or(CommandError::NoMask)?;
+                    let slot = mask.effects.iter_mut().find(|e| e.id == effect).ok_or(CommandError::Invalid("no such effect".into()))?;
+                    let subcraft_doc::MaskEffectKind::IdColor(id) = &mut Arc::make_mut(slot).kind else {
+                        return Err(CommandError::Invalid("not an ID Color Mask".into()));
+                    };
+                    let candidate = subcraft_doc::IdColorMask { colors, ..id.clone() };
+                    if !candidate.valid() { return Err(CommandError::Invalid("invalid ID colors".into())); }
+                    *id = candidate;
+                    Ok(())
+                })?;
+            }
             Command::MoveMaskEffect { layer, effect, index } => {
                 self.edit_layer_set(layer, "Move Mask Effect", None, |ts| {
                     let mask = Self::layer_mut(ts, layer)?.mask.as_mut().ok_or(CommandError::NoMask)?;
@@ -1076,6 +1281,9 @@ impl Session {
             && (!filter.valid() || !filter.supports_mask()) {
             return Err(CommandError::Invalid("Filter parameters or mask target are invalid".into()));
         }
+        if let subcraft_doc::MaskEffectKind::IdColor(id) = kind && !id.valid() {
+            return Err(CommandError::Invalid("ID Color Mask parameters are invalid".into()));
+        }
         Ok(())
     }
 
@@ -1114,7 +1322,7 @@ impl Session {
             Action::BrushSmaller => self.brush.settings.size = (self.brush.settings.size / 1.15).max(0.1),
             Action::BrushLarger => self.brush.settings.size = (self.brush.settings.size * 1.15).min(100.0),
             Action::ToggleSymmetryX => self.brush.options.symmetry[0] = !self.brush.options.symmetry[0],
-            Action::PenTool | Action::ResetCamera | Action::Save | Action::SaveAs | Action::OpenProject | Action::Export | Action::Bake => return Ok(false),
+            Action::PenTool | Action::ResetCamera | Action::Save | Action::SaveAs | Action::OpenProject | Action::Export | Action::Bake | Action::TogglePathTracing => return Ok(false),
         }
         Ok(true)
     }
@@ -1147,13 +1355,21 @@ impl Session {
             (StrokeMode::Erase, PaintTarget::ContentEffect(_)) => "Erase Effect Stroke",
             (_, PaintTarget::MaskBase | PaintTarget::MaskEffect(_)) => "Mask Stroke",
         };
-        self.stroke = Some(ActiveStroke { stroke, texture_set: ts.id, label });
+        self.stroke = Some(ActiveStroke { stroke, texture_set: ts.id, label, camera: None });
         Ok(())
+    }
+
+    /// Pen pressure (0..1) for the following stroke points; a mouse never calls this (1.0).
+    pub fn set_stroke_pressure(&mut self, pressure: f32) {
+        if let Some(active) = self.stroke.as_mut() {
+            active.stroke.set_pressure(pressure);
+        }
     }
 
     /// Continue the stroke to a screen position (`line`: straight segment, no lazy mouse).
     pub fn stroke_to(&mut self, camera: &Camera, screen: Vec2, line: bool) -> Result<Vec<usize>, PaintError> {
-        let Some(active) = self.stroke.take() else { return Ok(Vec::new()) };
+        let Some(mut active) = self.stroke.take() else { return Ok(Vec::new()) };
+        active.camera = Some(*camera);
         let result = self.with_stroke_context(active.texture_set, camera, |stroke, ts, ctx| {
             if line { stroke.line_to(ts, ctx, screen) } else { stroke.add_point(ts, ctx, screen) }
         }, active);
@@ -1183,6 +1399,40 @@ impl Session {
     /// Screen offset from the stroke position to the clone source, once a stroke fixed it.
     pub fn clone_offset(&self) -> Option<Vec2> {
         self.clone_offset
+    }
+
+    /// Continue the stroke at a 2D-view texture position (UV 0..1, origin top-left). The stroke
+    /// paints UV discs on the texels of the selected layer, without a 3D visibility test.
+    /// `texels_per_px` scales the lazy-mouse distance from view pixels to texels.
+    pub fn stroke_to_uv(&mut self, uv: Vec2, line: bool, texels_per_px: f32) -> Result<Vec<usize>, PaintError> {
+        let Some(active) = self.stroke.take() else { return Ok(Vec::new()) };
+        let result = self.with_stroke_context(active.texture_set, &uv_camera(), |stroke, ts, ctx| {
+            stroke.add_uv_point(ts, ctx, uv, line, texels_per_px)
+        }, active);
+        if result.as_ref().is_ok_and(|t| !t.is_empty()) {
+            self.revision += 1;
+        }
+        result
+    }
+
+    /// Polygon fill from the 2D view: the triangle / element / UV island at `uv` (one history entry).
+    pub fn polygon_fill_uv(&mut self, uv: Vec2, mode: PolygonFillMode) -> Result<Vec<usize>, PaintError> {
+        if self.stroke.is_some() {
+            return Ok(Vec::new());
+        }
+        self.begin_stroke()?;
+        let active = self.stroke.take().expect("just begun");
+        let tiles = self.with_stroke_context(active.texture_set, &uv_camera(), |stroke, ts, ctx| stroke.polygon_fill_uv(ts, ctx, uv, mode), active)?;
+        if let Some(a) = self.stroke.as_mut() {
+            a.label = "Polygon Fill";
+        }
+        self.end_stroke();
+        Ok(tiles)
+    }
+
+    /// Brush radius in UV units for the selected texture set (matches [`Session::stroke_to_uv`]).
+    pub fn brush_radius_uv(&self, uv_per_unit: f32) -> f32 {
+        self.brush_radius() * uv_per_unit
     }
 
     /// Polygon fill on the selected layer at a screen position (one history entry).
@@ -1224,6 +1474,16 @@ impl Session {
     /// Finish the stroke: the post-stroke document becomes one history entry (none if nothing
     /// was painted).
     pub fn end_stroke(&mut self) {
+        if let Some(active) = self.stroke.take() {
+            // Catch-up end: let the brush reach the last cursor position first.
+            if let Some(camera) = active.camera.filter(|_| self.brush.options.catch_up) {
+                if self.with_stroke_context(active.texture_set, &camera, |stroke, ts, ctx| stroke.finish(ts, ctx), active).is_ok_and(|t| !t.is_empty()) {
+                    self.revision += 1;
+                }
+            } else {
+                self.stroke = Some(active);
+            }
+        }
         let Some(active) = self.stroke.take() else { return };
         if self.doc != *self.history.current() {
             log::info!("action: {}", active.label);
@@ -1453,7 +1713,8 @@ impl Session {
 
     /// Add a material preset as a fill layer above the selection.
     pub fn add_material(&mut self, preset: &subcraft_assets::MaterialPreset) -> Result<(), CommandError> {
-        let layer = preset.build(self.selected_texture_set());
+        let ids = self.import_preset_images(&preset.images)?;
+        let layer = preset.build_with(self.selected_texture_set(), &ids);
         self.execute(Command::InsertLayer { layer: Box::new(layer), label: format!("Material: {}", preset.name) })
     }
 
@@ -1462,8 +1723,20 @@ impl Session {
         for r in smart.resources() {
             self.resources.insert_shared(r.clone());
         }
-        let layer = smart.build(self.selected_texture_set());
+        let ids = self.import_preset_images(smart.images())?;
+        let layer = smart.build_with(self.selected_texture_set(), &ids);
         self.execute(Command::InsertLayer { layer: Box::new(layer), label: format!("Smart Material: {}", smart.name) })
+    }
+
+    /// Import a built-in preset's embedded images (reusing identical ones already in the project),
+    /// so the layer's image fills resolve and saving embeds them.
+    fn import_preset_images(&mut self, images: &[subcraft_assets::PresetImage]) -> Result<subcraft_assets::ImageIds, CommandError> {
+        let mut ids = subcraft_assets::ImageIds::new();
+        for img in images {
+            let id = self.import_image_bytes(img.name, img.bytes.to_vec()).map_err(CommandError::Invalid)?;
+            ids.insert(img.name, id);
+        }
+        Ok(ids)
     }
 
     /// Apply a smart mask to the selected layer.
@@ -1488,6 +1761,11 @@ impl Session {
 }
 
 /// Two texture sets composite identically (names aside): same tiling, channels and layers.
+/// Placeholder camera for 2D-view strokes: UV stamps never project through it.
+fn uv_camera() -> Camera {
+    Camera { view: glam::Mat4::IDENTITY, proj: glam::Mat4::IDENTITY, viewport: [1, 1] }
+}
+
 fn same_composite_inputs(a: &TextureSet, b: &TextureSet) -> bool {
     a.id == b.id
         && a.material_slot == b.material_slot

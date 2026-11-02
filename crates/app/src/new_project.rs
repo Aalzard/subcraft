@@ -340,6 +340,23 @@ fn grouping(mesh: &Mesh, settings: &NewProjectSettings) -> Grouping {
     (slot_of_tri, shifts, plans, names)
 }
 
+/// Rebuild `mesh` so each texture set of `settings` is one material slot (UDIM tiles moved into
+/// 0..1). Returns the mesh and the plan of each of its slots, in slot order. The mesh is only
+/// rebuilt when the grouping differs from its own.
+pub(crate) fn group_mesh(mesh: Mesh, settings: &NewProjectSettings) -> (Mesh, Vec<SetPlan>) {
+    let (slot_of_tri, shifts, plans, names) = grouping(&mesh, settings);
+    let identity = !plans.iter().any(|p| p.tile.is_some())
+        && plans.len() == mesh.materials.len()
+        && slot_of_tri.iter().zip(&mesh.tri_material).all(|(a, b)| a == b)
+        && plans.iter().zip(&mesh.materials).all(|(p, m)| p.name == m.name);
+    if identity {
+        return (mesh, plans);
+    }
+    let (mesh, kept) = mesh.regroup(&names, &slot_of_tri, &shifts);
+    let plans = kept.iter().map(|&i| plans[i as usize].clone()).collect();
+    (mesh, plans)
+}
+
 fn unique_names(mut names: Vec<String>) -> Vec<String> {
     let mut seen: BTreeMap<String, usize> = BTreeMap::new();
     for name in &mut names {
@@ -366,15 +383,9 @@ impl Session {
         if settings.channels.is_empty() {
             return Err("choose at least one channel".into());
         }
-        let (slot_of_tri, shifts, plans, names) = grouping(&mesh, settings);
-        let identity = !plans.iter().any(|p| p.tile.is_some())
-            && plans.len() == mesh.materials.len()
-            && slot_of_tri.iter().zip(&mesh.tri_material).all(|(a, b)| a == b)
-            && plans.iter().zip(&mesh.materials).all(|(p, m)| p.name == m.name);
-        let (mesh, kept) = if identity { (mesh, (0..plans.len() as u32).collect()) } else { mesh.regroup(&names, &slot_of_tri, &shifts) };
+        let (mesh, plans) = group_mesh(mesh, settings);
         let mut sets = Vec::new();
-        for (slot, &plan_index) in kept.iter().enumerate() {
-            let plan = &plans[plan_index as usize];
+        for (slot, plan) in plans.iter().enumerate() {
             let resolution = NewProjectSettings::valid_resolution(settings.resolution_for(&plan.base));
             let mut ts = TextureSet::new(plan.name.clone(), slot as u32, resolution);
             ts.channels = settings.channels.iter().map(|&k| ChannelDef::default_for(k)).collect();

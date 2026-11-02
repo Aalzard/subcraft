@@ -49,11 +49,18 @@ pub enum Command {
     AddLayer(NewLayer),
     /// Insert a ready-made layer (material preset, smart material) like [`Command::AddLayer`].
     InsertLayer { layer: Box<Layer>, label: String },
+    /// Add a material channel (Ambient Occlusion, Emissive, Opacity…) to a texture set and
+    /// enable it on the brush. No-op when the set already has it.
+    AddChannel { texture_set: TextureSetId, kind: ChannelKind },
     /// [`Command::InsertLayer`] that first adds these channels to the selected texture set when it
     /// lacks them (an imported texture set brings an Ambient Occlusion map). One undo step.
     InsertLayerWithChannels { layer: Box<Layer>, channels: Vec<ChannelKind>, label: String },
     /// One part can span texture sets; insert all its layers atomically.
     InsertPartLayers { layers: Vec<(TextureSetId, Box<Layer>)>, label: String },
+    /// Swap a texture set's whole layer list (bottom-to-top) in one history entry; used when an
+    /// external editor's changes come back (Edit in PhotoCraft). Selection keeps its layer if it
+    /// still exists.
+    ReplaceTextureSetLayers { texture_set: TextureSetId, layers: Vec<std::sync::Arc<Layer>>, label: String },
     /// Atomic combined edit, retaining the node's UUID.
     ReplaceLayer { layer: LayerId, replacement: Box<Layer>, label: String },
     /// Give the layer a black mask (if it has none) and append these effects (smart mask).
@@ -98,6 +105,9 @@ pub enum Command {
     RemoveMaskEffect { layer: LayerId, effect: EffectId },
     /// Replace an effect (matched by id); coalesces while dragging.
     SetMaskEffect { layer: LayerId, effect: MaskEffect },
+    /// Replace the picked colors of an ID Color Mask effect. Never coalesces: every pick or
+    /// removal is its own undo step (ADR-0041).
+    SetIdColors { layer: LayerId, effect: EffectId, colors: Vec<[f32; 3]> },
     /// Show the layer only on these mesh parts (`None` = everywhere).
     SetParts { layer: LayerId, parts: Option<PartMask> },
 }

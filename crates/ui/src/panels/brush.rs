@@ -128,7 +128,35 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 slider_row(ui, "Position", egui::Slider::new(&mut s.position_jitter, 0.0..=2.0));
             });
 
+            section(ui, "smudge", "Smudge", false, |ui| {
+                let s = &mut b.settings;
+                slider_row(ui, "Strength", egui::Slider::new(&mut s.smudge_strength, 0.0..=1.0));
+                slider_row(ui, "Smear length", egui::Slider::new(&mut s.smudge_carry, 0.0..=0.99));
+                slider_row(ui, "Falloff", egui::Slider::new(&mut s.smudge_falloff, 0.25..=8.0).logarithmic(true));
+                slider_row(ui, "Material", egui::Slider::new(&mut s.smudge_material, 0.0..=1.0));
+                hint(ui, "Used by the Smudge tool. Low smear length blends softly; high drags paint far. Material mixes the brush paint into the smear.");
+            });
+
+            section(ui, "scatter", "Scatter", s_open(&b.settings), |ui| {
+                let s = &mut b.settings;
+                let mut count = s.scatter_count;
+                slider_row(ui, "Count", egui::Slider::new(&mut count, 0..=subcraft_paint::MAX_SCATTER));
+                s.scatter_count = count;
+                ui.add_enabled_ui(count > 0, |ui| {
+                    slider_row(ui, "Radius", egui::Slider::new(&mut s.scatter_radius, 0.0..=4.0));
+                    slider_row(ui, "Size random", egui::Slider::new(&mut s.scatter_size_random, 0.0..=1.0));
+                    slider_row(ui, "Rotation", egui::Slider::new(&mut s.scatter_rotation_deg, 0.0..=180.0).suffix("°"));
+                    slider_row(ui, "Opacity random", egui::Slider::new(&mut s.scatter_opacity_random, 0.0..=1.0));
+                    slider_row(ui, "Fall", egui::Slider::new(&mut s.scatter_fall, 0.0..=8.0));
+                });
+                hint(ui, "0 = normal brush. Particles scatter around each stamp; Fall pulls them down the screen (drips, dust). Raise Spacing for sparse scatter.");
+            });
+
 
         });
     });
+}
+
+fn s_open(s: &subcraft_paint::BrushSettings) -> bool {
+    s.scatter_count > 0
 }

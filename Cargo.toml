@@ -4,7 +4,7 @@ members = ["crates/*", "apps/*", "tools/*"]
 default-members = ["apps/subcraft"]
 
 [workspace.package]
-version = "0.1.8"
+version = "0.2.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 rust-version = "1.95"
@@ -36,6 +36,9 @@ serde_json = { version = "1", features = ["float_roundtrip"] }
 web-time = "1.1"
 uuid = { version = "1", features = ["v4", "v5", "serde"] }
 thiserror = "2"
+# PSD reader/writer from the sibling PhotoCraft app (ADR-0040). Pinned for CI; a local checkout
+# can override it with a [patch] in an uncommitted .cargo/config.toml.
+photocraft-psd = { git = "https://github.com/storytold/photocraft", rev = "c5352f204ece80268e5ca1661297378e9581eecc" }
 anyhow = "1"
 log = "0.4"
 rayon = "1"
@@ -48,6 +51,8 @@ mimalloc = { version = "0.1", default-features = false }
 gltf = { version = "1.4", default-features = false, features = ["import", "utils", "names", "KHR_materials_pbrSpecularGlossiness"] }
 tobj = "4"
 ufbx = "0.11"
+openusd = { version = "0.8", default-features = false }
+openusd-schemas = { version = "0.8", default-features = false, features = ["geom"] }
 mikktspace = "0.3"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "tga", "tiff", "hdr", "exr", "bmp"] }
 zip = { version = "9", default-features = false, features = ["deflate"] }

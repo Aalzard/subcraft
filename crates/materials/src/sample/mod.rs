@@ -62,6 +62,15 @@ pub fn eval_fill_tile_filtered(
                 });
             }
         }
+        FillSource::Procedural { params, low, high } if params.colored => {
+            let fields: [_; 3] = std::array::from_fn(|c| procedural_tile(&ProceduralParams { seed: params.seed.wrapping_add(c as u32), colored: false, ..*params }, projection, geo));
+            for (i, o) in out.iter_mut().enumerate() {
+                for c in 0..3 {
+                    o[c] = low.0[c] + (high.0[c] - low.0[c]) * fields[c][i];
+                }
+                o[3] = 1.0;
+            }
+        }
         FillSource::Procedural { params, low, high } => {
             let field = procedural_tile(params, projection, geo);
             for (o, &t) in out.iter_mut().zip(field.iter()) {

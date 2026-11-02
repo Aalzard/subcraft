@@ -1,5 +1,5 @@
 //! Paint-engine acceptance tests (seams, visibility, channel isolation, opacity cap, undo,
-//! symmetry, polygon fill).
+//! symmetry incl. radial, polygon fill).
 
 use std::sync::Arc;
 
@@ -11,8 +11,8 @@ use subcraft_materials::TextureSetGeometry;
 use subcraft_mesh::uv_raster::{SurfaceTexels, rasterize_surface};
 use subcraft_mesh::{Bvh, Mesh, primitives, topology};
 use subcraft_paint::{
-    Alignment, BrushMaterial, BrushSettings, Camera, DepthCache, PaintContext, PaintTarget, PolygonFillMode, Stroke, StrokeMode,
-    StrokeOptions,
+    Alignment, BrushMaterial, BrushSettings, Camera, DepthCache, PaintContext, PaintTarget, PolygonFillMode, RadialSymmetry, Stroke,
+    StrokeMode, StrokeOptions,
 };
 
 struct Scene {
@@ -321,6 +321,106 @@ fn symmetry_produces_mirrored_coverage() {
     assert!(cl.distance(mirrored) < 0.02, "centroids {cl} vs mirror of {cr}");
 }
 
+/// Front-face stroke used by the radial symmetry tests (away from x = 0 and the cube edges).
+fn radial_scene(options: StrokeOptions) -> (Scene, TiledImage) {
+    let res = 256;
+    let mut sc = Scene::new(primitives::cube(2.0), res);
+    let cam = front_camera(5.0);
+    sc.stroke(&cam, &[Vec3::new(0.25, 0.1, 1.0), Vec3::new(0.5, 0.3, 1.0)], BrushSettings { size: 10.0, ..BrushSettings::default() }, options, &red());
+    let img = sc.image(ChannelKind::BaseColor).unwrap();
+    (sc, img)
+}
+
+fn radial(axis: u8, count: u32) -> RadialSymmetry {
+    RadialSymmetry { enabled: true, axis, count, ..RadialSymmetry::default() }
+}
+
+/// Coverage mass and centroid per group; `group` maps a texel position to its group or `None`.
+fn groups(sc: &Scene, img: &TiledImage, n: usize, group: impl Fn(Vec3) -> Option<usize>) -> Vec<(f32, Vec3)> {
+    let surf = sc.surface();
+    let mut out = vec![(0.0f32, Vec3::ZERO); n];
+    for i in 0..surf.triangle.len() {
+        if !surf.covered(i) { continue; }
+        let a = alpha(img, i, sc.ts.resolution);
+        if a <= 0.0 { continue; }
+        let p = Vec3::from_slice(&surf.position[i][..3]);
+        if let Some(g) = group(p) { out[g].0 += a; out[g].1 += p * a; }
+    }
+    out.into_iter().map(|(m, c)| (m, if m > 0.0 { c / m } else { c })).collect()
+}
+
+/// Cube side faces in rotation order around +Y: +Z, +X, -Z, -X.
+fn side_face(p: Vec3) -> Option<usize> {
+    if p.y.abs() > 0.999 { return None; }
+    let k = [p.z, p.x, -p.z, -p.x].iter().enumerate().max_by(|a, b| a.1.total_cmp(b.1)).unwrap().0;
+    Some(k)
+}
+
+fn rot_y(k: usize) -> glam::Quat {
+    glam::Quat::from_rotation_y(std::f32::consts::FRAC_PI_2 * k as f32)
+}
+
+#[test]
+fn radial_four_around_y_paints_four_blobs_rotated_by_ninety_degrees() {
+    let (sc, img) = radial_scene(StrokeOptions { radial: radial(1, 4), ..StrokeOptions::default() });
+    let g = groups(&sc, &img, 4, side_face);
+    let (m0, c0) = g[0];
+    assert!(m0 > 50.0, "painted ({m0})");
+    for (k, &(m, c)) in g.iter().enumerate() {
+        let expected = rot_y(k) * c0;
+        assert!((m - m0).abs() / m0 < 0.05, "copy {k} mass {m} vs {m0}");
+        assert!(c.distance(expected) < 0.02, "copy {k} centroid {c} vs {expected}");
+    }
+    // Nothing on the caps.
+    let caps = groups(&sc, &img, 1, |p| (p.y.abs() > 0.999).then_some(0));
+    assert_eq!(caps[0].0, 0.0);
+}
+
+#[test]
+fn radial_off_or_one_copy_is_bit_exact_with_plain_and_mirror_strokes() {
+    for symmetry in [[false; 3], [true, false, false]] {
+        let base = StrokeOptions { symmetry, ..StrokeOptions::default() };
+        let (_, reference) = radial_scene(base);
+        let disabled = RadialSymmetry { enabled: false, axis: 2, count: 12, center_offset: [0.3, 0.0, 0.0] };
+        for r in [disabled, radial(1, 1), radial(0, 0)] {
+            let (_, img) = radial_scene(StrokeOptions { radial: r, ..base });
+            assert_eq!(img.to_dense(), reference.to_dense(), "{r:?} with mirror {symmetry:?}");
+        }
+    }
+}
+
+#[test]
+fn radial_combines_with_mirror_into_twice_the_copies() {
+    let options = StrokeOptions { symmetry: [true, false, false], radial: radial(1, 4), ..StrokeOptions::default() };
+    let (sc, img) = radial_scene(options);
+    assert_eq!(options.copies(), 8);
+    let (_, single) = radial_scene(StrokeOptions::default());
+    let one = groups(&sc, &single, 1, |p| (p.z > 0.999 && p.x > 0.0).then_some(0))[0];
+    // Group by face and by the side of the face, measured in the front face's frame.
+    let g = groups(&sc, &img, 8, |p| side_face(p).map(|k| 2 * k + usize::from((rot_y(k).inverse() * p).x < 0.0)));
+    let mirror = Vec3::new(-one.1.x, one.1.y, one.1.z);
+    for (i, &(m, c)) in g.iter().enumerate() {
+        let back = rot_y(i / 2).inverse() * c;
+        assert!((m - one.0).abs() / one.0 < 0.05, "group {i} mass {m} vs {}", one.0);
+        assert!(back.distance(one.1).min(back.distance(mirror)) < 0.02, "group {i} centroid {back} vs {} / {mirror}", one.1);
+    }
+}
+
+#[test]
+fn radial_center_offset_moves_the_axis() {
+    // A half turn around Z through the moved pivot is a point reflection of the front-face
+    // stroke about the pivot: twice the mass, and the union's centroid lands on the pivot.
+    let r = RadialSymmetry { center_offset: [0.375, -0.2, 0.0], ..radial(2, 2) };
+    let (sc, img) = radial_scene(StrokeOptions { radial: r, ..StrokeOptions::default() });
+    let (_, single) = radial_scene(StrokeOptions::default());
+    let front = |p: Vec3| (p.z > 0.999).then_some(0);
+    let one = groups(&sc, &single, 1, front)[0];
+    let all = groups(&sc, &img, 1, front)[0];
+    assert!((all.0 - 2.0 * one.0).abs() / one.0 < 0.1, "{} vs 2 x {}", all.0, one.0);
+    let pivot = Vec2::new(0.375, -0.2);
+    assert!(Vec2::new(all.1.x, all.1.y).distance(pivot) < 0.02, "centroid {} vs pivot {pivot}", all.1);
+}
+
 #[test]
 fn polygon_fill_of_one_uv_island_touches_no_other_island() {
     let res = 256;
@@ -520,4 +620,292 @@ fn wrapped_tip_on_the_side_face_matches_the_unfolded_top() {
         assert!(painted_side > 10 && compared > 30, "subdivisions {subdivisions}: side {painted_side}, compared {compared}");
         assert!(agree as f32 >= compared as f32 * 0.95, "subdivisions {subdivisions}: stripes on the side are stretched ({agree}/{compared})");
     }
+}
+
+fn dab_with_pressure(settings: BrushSettings, pressure: f32) -> (usize, f32) {
+    let cam = front_camera(6.0);
+    let mut sc = Scene::new(primitives::cube(2.0), 128);
+    let mut s = Stroke::begin(&sc.ts, sc.layer, PaintTarget::Content, StrokeMode::Paint, settings, StrokeOptions::default(), &red()).unwrap();
+    s.set_pressure(pressure);
+    let mut ts = sc.ts.clone();
+    s.add_point(&mut ts, &sc.ctx(&cam), cam.project(Vec3::new(0.0, 0.0, 1.0)).unwrap().truncate()).unwrap();
+    sc.ts = ts;
+    let img = sc.image(ChannelKind::BaseColor).expect("painted");
+    let res = sc.ts.resolution;
+    let alphas: Vec<f32> = (0..(res * res) as usize).map(|i| alpha(&img, i, res)).collect();
+    (alphas.iter().filter(|&&a| a > 0.01).count(), alphas.iter().cloned().fold(0.0, f32::max))
+}
+
+#[test]
+fn pen_pressure_scales_brush_size_and_flow_but_a_mouse_is_unchanged() {
+    let size_only = BrushSettings { size: 30.0, hardness: 1.0, pressure_size: 1.0, pressure_flow: 0.0, ..BrushSettings::default() };
+    let (full, _) = dab_with_pressure(size_only, 1.0);
+    let (half, _) = dab_with_pressure(size_only, 0.5);
+    assert!(full > 100, "full pressure paints ({full})");
+    let ratio = half as f32 / full as f32;
+    assert!((0.15..0.35).contains(&ratio), "half pressure = half radius = about a quarter of the area, got {ratio}");
+
+    // Pressure ignored (amount 0): same footprint at any pressure.
+    let off = BrushSettings { pressure_size: 0.0, ..size_only };
+    assert_eq!(dab_with_pressure(off, 0.2).0, full);
+
+    // Flow: lower pressure lowers the peak coverage of a single dab.
+    let flow = BrushSettings { size: 30.0, hardness: 1.0, pressure_size: 0.0, pressure_flow: 1.0, ..BrushSettings::default() };
+    let (_, hard) = dab_with_pressure(flow, 1.0);
+    let (_, soft) = dab_with_pressure(flow, 0.4);
+    assert!((hard - 1.0).abs() < 0.02 && (soft - 0.4).abs() < 0.05, "peak alpha {hard} vs {soft}");
+}
+
+/// Drag a hard round brush over the top, across the front edge and down the front of a box
+/// (`hx`, `hy`, `hz` half extents) and measure the painted strip in the unfolded plane: along
+/// the stroke's center line the coverage is one gap-free interval across the fold, and the strip
+/// is as wide on the side as on the top (no pinching or smearing at the edge).
+fn assert_stroke_wraps_a_hard_edge(mesh: Mesh, hy: f32, hz: f32, res: u32, size: f32, down: f32, label: &str) {
+    let mut sc = Scene::new(mesh, res);
+    let cam = Camera::perspective(Vec3::new(0.0, hy * 3.0, hz * 3.5), Vec3::new(0.0, hy * 0.8, hz * 0.8), Vec3::Y, 30.0, 0.1, 100.0, [800, 800]);
+    let settings = BrushSettings { size, hardness: 1.0, spacing: 0.1, ..BrushSettings::default() };
+    sc.stroke(&cam, &[Vec3::new(0.0, hy, hz * 0.3), Vec3::new(0.0, hy, hz), Vec3::new(0.0, hy - down, hz)], settings, StrokeOptions::default(), &red());
+    let img = sc.image(ChannelKind::BaseColor).unwrap();
+    let surf = sc.surface();
+    // Unfolded coordinate u: negative on the top (distance to the edge), positive down the front.
+    let (bin, bins) = (hz.min(hy) * 0.01, 160usize); // +-0.8 min(hz, hy)
+    let mut line: Vec<(f32, u32)> = vec![(0.0, 0); bins];
+    let mut columns: std::collections::BTreeMap<i32, (f32, f32)> = Default::default();
+    for (i, p) in surf.position.iter().enumerate() {
+        if !surf.covered(i) { continue; }
+        let n = sc.mesh.geometric_normal(surf.triangle[i] as usize);
+        let u = if n.y > 0.99 && (p[1] - hy).abs() < 1e-3 { p[2] - hz } else if n.z > 0.99 && (p[2] - hz).abs() < 1e-3 { hy - p[1] } else { continue };
+        let a = alpha(&img, i, res);
+        let k = ((u / bin).floor() as i32 + bins as i32 / 2).clamp(0, bins as i32 - 1) as usize;
+        if p[0].abs() < bin * 1.5 { line[k].0 += a; line[k].1 += 1; }
+        if a > 0.5 {
+            let c = columns.entry((u / (bin * 4.0)).floor() as i32).or_insert((f32::MAX, f32::MIN));
+            c.0 = c.0.min(p[0]); c.1 = c.1.max(p[0]);
+        }
+    }
+    let painted: Vec<usize> = (0..bins).filter(|&k| line[k].1 > 0 && line[k].0 / line[k].1 as f32 > 0.5).collect();
+    let (first, last) = (*painted.first().expect("something painted"), *painted.last().unwrap());
+    let edge = bins / 2;
+    assert!(first < edge - 3 && last > edge + 3, "{label}: stroke must cover both sides of the fold ({first}..{last})");
+    for k in first..=last {
+        if line[k].1 == 0 { continue; }
+        assert!(line[k].0 / line[k].1 as f32 > 0.5, "{label}: gap in the stroke at unfolded bin {k} ({first}..{last})");
+    }
+    // Width perpendicular to the stroke: painted x extent per unfolded-distance column, on the top
+    // 0.15 before the edge and on the front 0.15 after it.
+    let width = |lo: f32, hi: f32| -> f32 {
+        let (mut s, mut n) = (0.0f32, 0.0f32);
+        for (&c, &(x0, x1)) in &columns {
+            let u = (c as f32 + 0.5) * bin * 4.0;
+            if u >= lo && u < hi { s += x1 - x0; n += 1.0; }
+        }
+        s / n.max(1.0)
+    };
+    let (w_top, w_side) = (width(-0.25 * down, -0.05 * down), width(0.05 * down, 0.25 * down));
+    assert!(w_top > 0.05 && w_side > 0.05, "{label}: widths {w_top} {w_side}");
+    assert!((w_top - w_side).abs() / w_top.max(w_side) < 0.35, "{label}: strip width changes across the edge ({w_top} vs {w_side} world units)");
+}
+
+#[test]
+fn stroke_over_a_hard_edge_has_no_gap_and_keeps_its_width() {
+    assert_stroke_wraps_a_hard_edge(primitives::cube(2.0), 1.0, 1.0, 512, 12.0, 0.8, "cube");
+    assert_stroke_wraps_a_hard_edge(primitives::atlas_box(Vec3::splat(2.0), 4, "Box"), 1.0, 1.0, 512, 12.0, 0.8, "atlas box subdiv 4");
+    assert_stroke_wraps_a_hard_edge(primitives::atlas_box(Vec3::new(2.0, 1.0, 3.0), 3, "Box"), 0.5, 1.5, 512, 12.0, 0.4, "atlas box non-uniform");
+    assert_stroke_wraps_a_hard_edge(primitives::sample_crate(), 0.5, 0.5, 1024, 4.0, 0.07, "default crate");
+}
+
+/// Drag a zig-zagging cursor from `a` to `b` (screen) and optionally end with `finish`.
+fn zigzag_stroke(sc: &mut Scene, cam: &Camera, options: StrokeOptions, finish: bool) -> (Stroke, Vec2) {
+    let mut s = Stroke::begin(&sc.ts, sc.layer, PaintTarget::Content, StrokeMode::Paint, BrushSettings { size: 4.0, hardness: 1.0, ..BrushSettings::default() }, options, &red()).unwrap();
+    let a = cam.project(Vec3::new(-0.6, 0.0, 1.0)).unwrap().truncate();
+    let b = cam.project(Vec3::new(0.6, 0.0, 1.0)).unwrap().truncate();
+    let mut ts = sc.ts.clone();
+    for k in 0..=40 {
+        let p = a.lerp(b, k as f32 / 40.0) + Vec2::new(0.0, if k == 0 { 0.0 } else if k % 2 == 0 { 6.0 } else { -6.0 });
+        s.add_point(&mut ts, &sc.ctx(cam), p).unwrap();
+    }
+    if finish {
+        s.finish(&mut ts, &sc.ctx(cam)).unwrap();
+    }
+    sc.ts = ts;
+    (s, b)
+}
+
+fn painted_bounds(sc: &Scene, res: u32) -> (f32, f32, f32) {
+    let img = sc.image(ChannelKind::BaseColor).unwrap();
+    let surf = sc.surface();
+    let (mut min_x, mut max_x, mut max_ay) = (f32::MAX, f32::MIN, 0.0f32);
+    for i in 0..surf.triangle.len() {
+        if surf.covered(i) && alpha(&img, i, res) > 0.5 {
+            let p = Vec3::from_slice(&surf.position[i][..3]);
+            min_x = min_x.min(p.x);
+            max_x = max_x.max(p.x);
+            max_ay = max_ay.max(p.y.abs());
+        }
+    }
+    (min_x, max_x, max_ay)
+}
+
+#[test]
+fn smoothing_damps_a_shaky_cursor_and_catch_up_reaches_the_end() {
+    let res = 256;
+    let cam = front_camera(5.0);
+    let run = |options: StrokeOptions, finish: bool| {
+        let mut sc = Scene::new(primitives::cube(2.0), res);
+        zigzag_stroke(&mut sc, &cam, options, finish);
+        let bounds = painted_bounds(&sc, res);
+        (sc, bounds)
+    };
+    let (_, raw) = run(StrokeOptions::default(), false);
+    let smooth = StrokeOptions { smoothing: 0.8, ..StrokeOptions::default() };
+    let (sc_a, smoothed) = run(smooth, false);
+    assert!(smoothed.2 < raw.2 - 0.02, "smoothed stroke is flatter: {} vs {}", smoothed.2, raw.2);
+    assert!(smoothed.1 < raw.1 - 0.02, "average trails the cursor: {} vs {}", smoothed.1, raw.1);
+    let catch = StrokeOptions { catch_up: true, ..smooth };
+    let (sc_b, caught) = run(catch, true);
+    assert!(caught.1 > smoothed.1 + 0.02, "catch-up extends the stroke: {} vs {}", caught.1, smoothed.1);
+    assert!((caught.1 - raw.1).abs() < 0.08, "catch-up ends near the cursor: {} vs {}", caught.1, raw.1);
+    // Same input, same output, bit for bit.
+    let (sc_c, _) = run(catch, true);
+    assert_eq!(sc_b.image(ChannelKind::BaseColor), sc_c.image(ChannelKind::BaseColor));
+    assert_ne!(sc_a.image(ChannelKind::BaseColor), sc_b.image(ChannelKind::BaseColor));
+}
+
+#[test]
+fn smoothing_with_lazy_mouse_and_symmetry_stays_mirrored() {
+    let res = 256;
+    let cam = Camera::perspective(Vec3::new(0.0, 0.5, 5.0), Vec3::ZERO, Vec3::Y, 40.0, 0.1, 100.0, [512, 512]);
+    let mut sc = Scene::new(primitives::cube(2.0), res);
+    let options = StrokeOptions { smoothing: 0.6, lazy_distance_px: 10.0, catch_up: true, symmetry: [true, false, false], ..StrokeOptions::default() };
+    let mut s = Stroke::begin(&sc.ts, sc.layer, PaintTarget::Content, StrokeMode::Paint, BrushSettings { size: 8.0, ..BrushSettings::default() }, options, &red()).unwrap();
+    let a = cam.project(Vec3::new(0.2, 0.2, 1.0)).unwrap().truncate();
+    let b = cam.project(Vec3::new(0.7, 0.3, 1.0)).unwrap().truncate();
+    let mut ts = sc.ts.clone();
+    for k in 0..=30 {
+        s.add_point(&mut ts, &sc.ctx(&cam), a.lerp(b, k as f32 / 30.0)).unwrap();
+    }
+    s.finish(&mut ts, &sc.ctx(&cam)).unwrap();
+    sc.ts = ts;
+    let img = sc.image(ChannelKind::BaseColor).unwrap();
+    let surf = sc.surface();
+    let (mut wl, mut wr) = (0.0f32, 0.0f32);
+    for i in 0..surf.triangle.len() {
+        if surf.covered(i) {
+            if surf.position[i][0] > 0.0 { wr += alpha(&img, i, res) } else { wl += alpha(&img, i, res) }
+        }
+    }
+    assert!(wr > 30.0, "painted ({wr})");
+    assert!((wl - wr).abs() / wr < 0.05, "mirrored amount differs: {wl} vs {wr}");
+}
+
+/// Painted amount (summed alpha) and the lowest/highest object-space y reached.
+fn scatter_dab(settings: BrushSettings) -> (Scene, f32, f32, f32) {
+    let res = 256;
+    let cam = front_camera(5.0);
+    let mut sc = Scene::new(primitives::cube(2.0), res);
+    let mut s = Stroke::begin(&sc.ts, sc.layer, PaintTarget::Content, StrokeMode::Paint, settings, StrokeOptions::default(), &red()).unwrap();
+    let mut ts = sc.ts.clone();
+    s.add_point(&mut ts, &sc.ctx(&cam), cam.project(Vec3::new(0.0, 0.3, 1.0)).unwrap().truncate()).unwrap();
+    sc.ts = ts;
+    let img = sc.image(ChannelKind::BaseColor);
+    let (mut total, mut lo, mut hi) = (0.0f32, f32::MAX, f32::MIN);
+    if let Some(img) = img {
+        let surf = sc.surface();
+        for i in 0..surf.triangle.len() {
+            let a = if surf.covered(i) { alpha(&img, i, res) } else { 0.0 };
+            if a > 0.01 {
+                total += a;
+                let y = surf.position[i][1];
+                lo = lo.min(y);
+                hi = hi.max(y);
+            }
+        }
+    }
+    (sc, total, lo, hi)
+}
+
+#[test]
+fn scatter_spreads_particles_around_the_path_and_fall_drops_them() {
+    let base = BrushSettings { size: 4.0, hardness: 1.0, scatter_count: 12, scatter_radius: 2.0, scatter_size_random: 0.0, scatter_opacity_random: 0.0, ..BrushSettings::default() };
+    let (_, single, _, _) = scatter_dab(BrushSettings { scatter_count: 0, ..base });
+    let (sc_a, many, lo, hi) = scatter_dab(base);
+    assert!(many > single * 4.0, "scatter paints more: {many} vs {single}");
+    // 2 diameters of spread (diameter ~ 0.08 * diagonal) stays bounded around the click.
+    assert!(hi - lo < 1.2, "bounded spread {lo}..{hi}");
+    // Same seed: identical image; other seed: different.
+    let (sc_b, ..) = scatter_dab(base);
+    assert_eq!(sc_a.image(ChannelKind::BaseColor), sc_b.image(ChannelKind::BaseColor));
+    let (sc_c, ..) = scatter_dab(BrushSettings { seed: 9, ..base });
+    assert_ne!(sc_a.image(ChannelKind::BaseColor), sc_c.image(ChannelKind::BaseColor));
+    // Fall only moves paint downward.
+    let still = BrushSettings { scatter_radius: 0.0, ..base };
+    let (_, _, lo0, hi0) = scatter_dab(still);
+    let (_, _, lo1, hi1) = scatter_dab(BrushSettings { scatter_fall: 6.0, ..still });
+    assert!(lo1 < lo0 - 0.15, "paint falls: {lo1} vs {lo0}");
+    assert!(hi1 < hi0 + 0.03, "nothing moves up: {hi1} vs {hi0}");
+}
+
+#[test]
+fn scatter_respects_backface_and_depth_rules() {
+    let base = BrushSettings { size: 12.0, scatter_count: 6, scatter_radius: 0.5, ..BrushSettings::default() };
+    slab_back_untouched(base);
+    slab_back_untouched(BrushSettings { backface_culling: false, ..base });
+    slab_back_untouched(BrushSettings { alignment: Alignment::TangentPlanar, scatter_fall: 2.0, ..base });
+}
+
+#[test]
+fn scatter_particles_are_mirrored_by_symmetry() {
+    let res = 256;
+    let cam = Camera::perspective(Vec3::new(0.0, 0.5, 5.0), Vec3::ZERO, Vec3::Y, 40.0, 0.1, 100.0, [512, 512]);
+    let mut sc = Scene::new(primitives::cube(2.0), res);
+    let options = StrokeOptions { symmetry: [true, false, false], ..StrokeOptions::default() };
+    sc.stroke(&cam, &[Vec3::new(0.4, 0.2, 1.0), Vec3::new(0.7, 0.3, 1.0)],
+        BrushSettings { size: 6.0, scatter_count: 6, scatter_radius: 1.5, ..BrushSettings::default() }, options, &red());
+    let img = sc.image(ChannelKind::BaseColor).unwrap();
+    let surf = sc.surface();
+    let (mut wl, mut wr) = (0.0f32, 0.0f32);
+    for i in 0..surf.triangle.len() {
+        if surf.covered(i) {
+            if surf.position[i][0] > 0.0 { wr += alpha(&img, i, res) } else { wl += alpha(&img, i, res) }
+        }
+    }
+    assert!(wr > 30.0, "painted ({wr})");
+    assert!((wl - wr).abs() / wr < 0.05, "{wl} vs {wr}");
+}
+
+/// A recorded stroke fed in one batch paints what feeding it point by point paints.
+#[test]
+fn batched_points_match_point_by_point() {
+    let res = 128;
+    let cam = Camera::orthographic(Vec3::new(0.0, 0.0, 5.0), Vec3::ZERO, Vec3::Y, 1.5, 0.1, 100.0, [256, 256]);
+    let settings = BrushSettings { size: 8.0, hardness: 0.2, flow: 0.6, ..BrushSettings::default() };
+    let points: Vec<Vec2> = (0..60).map(|i| Vec2::new(60.0 + i as f32 * 2.3, 100.0 + (i as f32 * 0.2).sin() * 30.0)).collect();
+    let run = |batched: bool| {
+        let mut sc = Scene::new(primitives::cube(2.0), res);
+        let mut s = Stroke::begin(&sc.ts, sc.layer, PaintTarget::Content, StrokeMode::Paint, settings, StrokeOptions::default(), &red()).unwrap();
+        let mut ts = sc.ts.clone();
+        if batched {
+            s.add_points(&mut ts, &sc.ctx(&cam), &points).unwrap();
+        } else {
+            for p in &points {
+                s.add_point(&mut ts, &sc.ctx(&cam), *p).unwrap();
+            }
+        }
+        sc.ts = ts;
+        (s.stamp_count(), sc.image(ChannelKind::BaseColor).unwrap())
+    };
+    let (na, a) = run(false);
+    let (nb, b) = run(true);
+    assert_eq!(na, nb);
+    assert!(na > 10, "the stroke must paint: {na} stamps");
+    let mut worst: f32 = 0.0;
+    for y in 0..res {
+        for x in 0..res {
+            let (pa, pb) = (a.get(x, y), b.get(x, y));
+            for c in 0..4 {
+                worst = worst.max((pa[c] - pb[c]).abs());
+            }
+        }
+    }
+    assert!(worst < 1e-3, "batched differs by {worst}");
 }

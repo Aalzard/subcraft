@@ -15,6 +15,9 @@ pub fn menu(ui: &mut Ui, target: SurfaceTarget, has_layer: bool) -> Option<PartA
     }
     ui.add_enabled_ui(has_layer, |ui| {
         if ui.button(format!("Mask selected layer to this {label}")).clicked() { action = Some(PartAction::MaskLayer); ui.close(); }
+        if ui.button("Mask by ID color").on_hover_text("Mask the selected layer to the baked ID map color under the cursor").clicked() {
+            action = Some(PartAction::MaskByIdColor); ui.close();
+        }
         ui.menu_button("Add generator as mask", |ui| {
             for (label, kind) in [("Edge wear", GeneratorKind::Edges), ("Dirt", GeneratorKind::Cavity), ("Directional", GeneratorKind::Directional), ("Position gradient", GeneratorKind::PositionGradient)] {
                 if ui.button(label).clicked() { action = Some(PartAction::Generator(kind)); ui.close(); }

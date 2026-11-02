@@ -71,13 +71,14 @@ pub struct ProjectData {
 // ----- save ----------------------------------------------------------------------------------
 
 struct Writer {
-    rasters: Vec<(String, Vec<u8>)>,
+    /// Shared (copy-on-write) handles; encoded and compressed together in [`write_payload`].
+    rasters: Vec<(String, TiledImage)>,
 }
 
 impl Writer {
     fn raster(&mut self, img: &TiledImage) -> String {
         let name = format!("rasters/{:05}.tiles", self.rasters.len());
-        self.rasters.push((name.clone(), raster::encode(img)));
+        self.rasters.push((name.clone(), img.clone()));
         name
     }
 
@@ -100,6 +101,7 @@ impl Writer {
                 MaskEffectKind::Image { resource, projection, invert } => {
                     MaskEffectKindV1::Image { resource: resource.0, projection: *projection, invert: *invert }
                 }
+                MaskEffectKind::IdColor(id) => MaskEffectKindV1::IdColor { id_color: id.clone() },
             },
         }
     }
@@ -255,15 +257,38 @@ fn pack_resources(ids: &[ResourceId], resources: &ResourceStore) -> (Vec<Resourc
 }
 
 /// Raster blobs (deflated) and resource files (stored: already compressed image formats).
+///
+/// Rasters are encoded and deflated on all cores, each into its own one-entry archive, and the
+/// finished entries are then merged in order: the file is the same as writing them one by one.
 fn write_payload<W: Write + Seek>(
     zip: &mut zip::ZipWriter<W>,
-    rasters: &[(String, Vec<u8>)],
+    rasters: &[(String, TiledImage)],
     resources: &[(String, Arc<Vec<u8>>)],
 ) -> Result<(), ProjectError> {
     let deflate = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
-    for (name, bytes) in rasters {
-        zip.start_file(name.as_str(), deflate)?;
-        zip.write_all(bytes)?;
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let done: Vec<std::sync::OnceLock<Result<Vec<u8>, ProjectError>>> = rasters.iter().map(|_| std::sync::OnceLock::new()).collect();
+    let compress = |(name, img): &(String, TiledImage)| -> Result<Vec<u8>, ProjectError> {
+        let mut one = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        one.start_file(name.as_str(), deflate)?;
+        one.write_all(&raster::encode(img))?;
+        Ok(one.finish()?.into_inner())
+    };
+    let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).min(rasters.len().max(1));
+    std::thread::scope(|scope| {
+        for _ in 0..threads {
+            scope.spawn(|| {
+                loop {
+                    let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    let Some(r) = rasters.get(i) else { break };
+                    let _ = done[i].set(compress(r));
+                }
+            });
+        }
+    });
+    for slot in done {
+        let bytes = slot.into_inner().expect("every raster was compressed")?;
+        zip.merge_archive(zip::ZipArchive::new(std::io::Cursor::new(bytes))?)?;
     }
     for (name, bytes) in resources {
         zip.start_file(name.as_str(), SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored))?;
@@ -328,6 +353,9 @@ fn temp_path(path: &Path) -> PathBuf {
 struct Loader<'a, R: Read + Seek> {
     zip: &'a mut zip::ZipArchive<R>,
     cache: BTreeMap<String, TiledImage>,
+    /// Skip the range checks of filter parameters: for files this program wrote itself that
+    /// hold what an importer produced (the import cache), which must come back unchanged.
+    trusted: bool,
 }
 
 impl<R: Read + Seek> Loader<'_, R> {
@@ -359,12 +387,16 @@ impl<R: Read + Seek> Loader<'_, R> {
             MaskEffectKindV1::Generator { generator } => MaskEffectKind::Generator(*generator),
             MaskEffectKindV1::Levels { levels } => MaskEffectKind::Levels(*levels),
             MaskEffectKindV1::Filter { filter } => {
-                if !filter.valid() || !filter.supports_mask() { return Err(ProjectError::Invalid("invalid mask filter".into())); }
+                if !self.trusted && (!filter.valid() || !filter.supports_mask()) { return Err(ProjectError::Invalid("invalid mask filter".into())); }
                 MaskEffectKind::Filter(*filter)
             }
             MaskEffectKindV1::Invert => MaskEffectKind::Invert,
             MaskEffectKindV1::Image { resource, projection, invert } => {
                 MaskEffectKind::Image { resource: ResourceId(*resource), projection: *projection, invert: *invert }
+            }
+            MaskEffectKindV1::IdColor { id_color } => {
+                if !id_color.valid() { return Err(ProjectError::Invalid("invalid ID color mask".into())); }
+                MaskEffectKind::IdColor(id_color.clone())
             }
         };
         Ok(MaskEffect { id: EffectId(e.id), name: e.name.clone(), visible: e.visible, blend: e.blend, opacity: e.opacity, kind })
@@ -387,7 +419,7 @@ impl<R: Read + Seek> Loader<'_, R> {
             ContentEffectKindV5::Paint { channels } => ContentEffectKind::Paint { channels: self.paint_channels(channels, res)? },
             ContentEffectKindV5::Fill { projection, channels } => ContentEffectKind::Fill(read_fill(*projection, channels)),
             ContentEffectKindV5::Filter { channel, filter } => {
-                if !filter.valid() || !filter.supports_channel(*channel) { return Err(ProjectError::Invalid("invalid content filter".into())); }
+                if !self.trusted && (!filter.valid() || !filter.supports_channel(*channel)) { return Err(ProjectError::Invalid("invalid content filter".into())); }
                 ContentEffectKind::Filter { channel: *channel, filter: *filter }
             }
             ContentEffectKindV5::Levels { channel, levels } => {
@@ -458,6 +490,16 @@ impl<R: Read + Seek> Loader<'_, R> {
 
 /// Read a project container.
 pub fn read_project<R: Read + Seek>(r: R) -> Result<ProjectData, ProjectError> {
+    read_project_checked(r, false)
+}
+
+/// [`read_project`] for a file this program wrote itself and must get back unchanged, whatever
+/// parameter values it holds (the Painter import cache).
+pub fn load_project_trusted(path: &Path) -> Result<ProjectData, ProjectError> {
+    read_project_checked(std::io::BufReader::new(std::fs::File::open(path)?), true)
+}
+
+fn read_project_checked<R: Read + Seek>(r: R, trusted: bool) -> Result<ProjectData, ProjectError> {
     let mut zip = zip::ZipArchive::new(r)?;
     let manifest: Manifest = {
         let mut f = zip.by_name("manifest.json").map_err(|_| ProjectError::NotAProject)?;
@@ -471,7 +513,7 @@ pub fn read_project<R: Read + Seek>(r: R) -> Result<ProjectData, ProjectError> {
     if manifest.schema_version > SCHEMA_VERSION || manifest.schema_version == 0 {
         return Err(ProjectError::UnsupportedVersion(manifest.schema_version));
     }
-    let mut loader = Loader { zip: &mut zip, cache: BTreeMap::new() };
+    let mut loader = Loader { zip: &mut zip, cache: BTreeMap::new(), trusted };
     let mesh = subcraft_mesh::serialize::decode(&loader.bytes(&manifest.mesh)?).map_err(|e| ProjectError::Invalid(format!("mesh: {e}")))?;
     let doc: DocumentV1 = serde_json::from_slice(&loader.bytes(&manifest.document)?).map_err(|e| ProjectError::Invalid(format!("document: {e}")))?;
 

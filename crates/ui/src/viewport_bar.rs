@@ -39,6 +39,15 @@ pub struct ViewportPrefs {
     pub glare: f32,
     pub glare_mode: usize,
     pub glare_length: f32,
+    /// Rendering mode (path tracing) on. Never saved: the raster viewport is the default.
+    #[serde(skip)]
+    pub path_tracing: bool,
+    /// Rendering mode settings, kept between runs.
+    pub pt_bounces: u32,
+    /// Stop accumulating at this many samples per pixel (0 = never).
+    pub pt_max_samples: u32,
+    pub pt_denoise: bool,
+    pub pt_ground: bool,
 }
 
 impl Default for ViewportPrefs {
@@ -62,6 +71,11 @@ impl Default for ViewportPrefs {
             glare: 0.0,
             glare_mode: 0,
             glare_length: 0.5,
+            path_tracing: false,
+            pt_bounces: 4,
+            pt_max_samples: 1024,
+            pt_denoise: true,
+            pt_ground: true,
         }
     }
 }
@@ -91,6 +105,18 @@ impl ViewportPrefs {
             glare: self.glare.clamp(0.0, 4.0),
             glare_mode: subcraft_render::GlareMode::ALL.get(self.glare_mode).copied().unwrap_or_default(),
             glare_length: self.glare_length.clamp(0.0, 1.0),
+        }
+    }
+
+    /// Path tracer settings from these preferences (clamped to sane ranges).
+    pub fn path_trace_settings(&self, paused: bool) -> subcraft_render::PathTraceSettings {
+        subcraft_render::PathTraceSettings {
+            max_bounces: self.pt_bounces.clamp(1, 16),
+            max_samples: self.pt_max_samples.min(1 << 16),
+            denoise: self.pt_denoise,
+            ground: self.pt_ground,
+            paused,
+            ..Default::default()
         }
     }
 
@@ -145,6 +171,9 @@ pub fn show(ui: &mut Ui, state: &mut crate::state::UiState) {
                     crate::brush_bar::show(ui, &mut state.tool, &mut settings, &mut options, &mut state.recovery.prefs.viewport.symmetry_guides, width)
                 });
             }
+            if painting {
+                crate::brush_bar::channel_switches(ui, state);
+            }
         });
     ui.painter().hline(
         frame.response.rect.x_range(),
@@ -182,6 +211,22 @@ fn view_controls(ui: &mut Ui, state: &mut crate::state::UiState) {
     ui.separator();
     view_mode(ui, prefs);
     grid_control(ui, prefs);
+}
+
+/// Rendering mode settings (the 3D view's Render button menu and Preferences).
+pub fn rendering_settings(ui: &mut Ui, prefs: &mut ViewportPrefs) {
+    ui.label(RichText::new("Rendering mode").color(TEXT_DIM));
+    egui::Grid::new("pt_settings").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
+        ui.label("Bounces");
+        ui.add(egui::Slider::new(&mut prefs.pt_bounces, 1..=16)).on_hover_text("Light bounces after the first hit; more is slower and brighter in enclosed areas");
+        ui.end_row();
+        ui.label("Max samples");
+        ui.add(egui::Slider::new(&mut prefs.pt_max_samples, 0..=8192).logarithmic(true).custom_formatter(|v, _| if v == 0.0 { "unlimited".into() } else { format!("{v}") }))
+            .on_hover_text("Stop refining at this many samples per pixel");
+        ui.end_row();
+    });
+    ui.checkbox(&mut prefs.pt_denoise, "Denoise").on_hover_text("Edge-aware filter for a clean preview while samples are few");
+    ui.checkbox(&mut prefs.pt_ground, "Ground shadow").on_hover_text("A gray floor under the model that catches its shadow");
 }
 
 /// Per-set document state: shared by material evaluation, preview and export.
@@ -300,6 +345,19 @@ mod tests {
         assert_eq!(state.session.selected_texture_set().albedo_filter, subcraft_image::TextureFilter::Nearest);
         state.session.execute(subcraft_app::Command::Undo).unwrap();
         assert_eq!(state.session.document(), &initial);
+    }
+
+    #[test]
+    fn rendering_mode_settings_round_trip_but_the_mode_always_starts_off() {
+        let old: ViewportPrefs = serde_json::from_str("{}").unwrap();
+        assert_eq!((old.path_tracing, old.pt_bounces, old.pt_max_samples, old.pt_denoise, old.pt_ground), (false, 4, 1024, true, true));
+        let p = ViewportPrefs { path_tracing: true, pt_bounces: 7, pt_max_samples: 300, pt_denoise: false, pt_ground: false, ..Default::default() };
+        let restored: ViewportPrefs = serde_json::from_str(&serde_json::to_string(&p).unwrap()).unwrap();
+        assert_eq!(restored, ViewportPrefs { path_tracing: false, ..p.clone() }, "everything but the on/off state is kept");
+        let s = restored.path_trace_settings(true);
+        assert_eq!((s.max_bounces, s.max_samples, s.denoise, s.ground, s.paused), (7, 300, false, false, true));
+        let wild = ViewportPrefs { pt_bounces: 0, pt_max_samples: u32::MAX, ..Default::default() }.path_trace_settings(false);
+        assert_eq!((wild.max_bounces, wild.max_samples), (1, 1 << 16));
     }
 
     #[test]

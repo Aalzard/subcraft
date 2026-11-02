@@ -295,6 +295,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         );
                         add(ui, "Levels", MaskEffectKind::Levels(Levels::default()));
                         add(ui, "Invert", MaskEffectKind::Invert);
+                        add(ui, "ID Color", MaskEffectKind::IdColor(Default::default()));
                         super::effects::add_mask_filters(ui, id, &mut cmds);
                         if ui.add(egui::Button::new(RichText::new(format!("{}  Image", icons::PLUS)).font(theme::font(12.0))))
                             .on_hover_text("A black & white image or a logo with transparency")
@@ -444,6 +445,7 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
                     changed |= projection_editor(ui, projection);
                     hint(ui, "Uses the image's transparency if it has any, otherwise its brightness.");
                 }
+                MaskEffectKind::IdColor(id) => changed |= id_color_editor(ui, state, layer, e.id, id, cmds),
                 _ => {}
             }
         }
@@ -453,6 +455,44 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
         if default_name { eff.name = eff.kind.label(); }
         cmds.push(Command::SetMaskEffect { layer, effect: eff });
     }
+}
+
+/// ID Color Mask (ADR-0041): picked swatches with remove buttons, a 3D-view eyedropper,
+/// tolerance/softness/invert. Swatch edits are their own undo steps (`SetIdColors`).
+fn id_color_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_core::LayerId, effect: subcraft_core::EffectId, id: &mut subcraft_doc::IdColorMask, cmds: &mut Vec<Command>) -> bool {
+    let mut changed = false;
+    let texture_set = state.session.selection().texture_set;
+    if !state.session.has_id_map(texture_set) {
+        hint(ui, "No ID map baked: this mask stays black. Bake an ID map in Bake Mesh Maps.");
+    }
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
+        for (i, c) in id.colors.iter().enumerate() {
+            let byte = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
+            let fill = egui::Color32::from_rgb(byte(c[0]), byte(c[1]), byte(c[2]));
+            let (rect, _) = ui.allocate_exact_size(egui::vec2(18.0, 18.0), egui::Sense::hover());
+            ui.painter().rect_filled(rect, 3.0, fill);
+            if icon_button(ui, icons::X, "Remove this ID color").clicked() {
+                let mut colors = id.colors.clone();
+                colors.remove(i);
+                cmds.push(Command::SetIdColors { layer, effect, colors });
+            }
+        }
+        if id.colors.is_empty() { ui.label(RichText::new("No colors picked").font(theme::font(12.0)).color(TEXT_FAINT)); }
+    });
+    let active = state.picking_id_color == Some((layer, effect));
+    let label = if active { "Picking: click the model (Esc to stop)" } else { "Pick from model" };
+    if ui.add(egui::Button::new(RichText::new(format!("{}  {label}", icons::CROSSHAIR)).font(theme::font(12.0))).selected(active))
+        .on_hover_text("Click parts in the 3D view to add their ID color")
+        .clicked()
+    {
+        state.picking_id_color = if active { None } else { Some((layer, effect)) };
+        if !active { state.picking_parts = false; }
+    }
+    changed |= slider_row(ui, "Tolerance", egui::Slider::new(&mut id.tolerance, 0.0..=1.0).max_decimals(3)).on_hover_text("Largest RGB distance from a picked color that still counts as a full match").changed();
+    changed |= slider_row(ui, "Softness", egui::Slider::new(&mut id.softness, 0.0..=1.0).max_decimals(3)).on_hover_text("Smooth falloff beyond the tolerance (0 = hard edge)").changed();
+    prop_row(ui, "", |ui| changed |= ui.checkbox(&mut id.invert, "Invert").changed());
+    changed
 }
 
 /// Thumbnail, name and size of an image resource, with a Replace button. True if clicked.
@@ -492,7 +532,7 @@ pub(crate) fn source_controls(ui: &mut Ui, state: &mut UiState, kind: ChannelKin
                         }
                     });
                 });
-                hint(ui, "Uses the baked map (Ctrl+B); neutral until baked.");
+                hint(ui, crate::keys::native("Uses the baked map (Ctrl+B); neutral until baked."));
             }
             FillSource::Bitmap { resource } => {
                 pick_image |= image_row(ui, state, *resource);

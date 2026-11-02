@@ -29,7 +29,7 @@ pub(crate) fn show(
             (Tool::Brush, icons::PAINT_BRUSH, "Brush (B)"),
             (Tool::Eraser, icons::ERASER, "Eraser (E)"),
             (Tool::PolygonFill, icons::PAINT_BUCKET, "Polygon Fill"),
-            (Tool::Clone, icons::COPY, "Clone (Ctrl+click sets the source)"),
+            (Tool::Clone, icons::COPY, crate::keys::native("Clone (Ctrl+click sets the source)")),
             (Tool::Smudge, icons::DROP, "Smudge"),
         ] {
             // Tiny docks keep the three core tools; Clone and Smudge stay reachable from the
@@ -49,7 +49,7 @@ pub(crate) fn show(
             }
         }
     });
-    stroke_options(ui, options, guides);
+    stroke_options(ui, options, guides, settings);
     let brush = *tool != Tool::PolygonFill;
     if width < 575.0 {
         let response = widgets::icon_button(ui, icons::SLIDERS, "Brush settings");
@@ -74,8 +74,8 @@ pub(crate) fn show(
     }
 }
 
-fn stroke_options(ui: &mut Ui, options: &mut StrokeOptions, guides: &mut bool) {
-    let on = options.symmetry.iter().any(|&axis| axis) || options.lazy_distance_px > 0.0;
+fn stroke_options(ui: &mut Ui, options: &mut StrokeOptions, guides: &mut bool, settings: &mut BrushSettings) {
+    let on = options.has_symmetry() || options.lazy_distance_px > 0.0 || options.smoothing > 0.0;
     let response = widgets::icon_toggle(
         ui,
         icons::SYMMETRY,
@@ -102,6 +102,8 @@ fn stroke_options(ui: &mut Ui, options: &mut StrokeOptions, guides: &mut bool) {
                     }
                 }
             });
+            ui.add_space(4.0);
+            radial_options(ui, options);
             ui.checkbox(guides, "Show symmetry guides");
             ui.separator();
             ui.label(RichText::new("Lazy Mouse").color(TEXT_DIM));
@@ -112,7 +114,59 @@ fn stroke_options(ui: &mut Ui, options: &mut StrokeOptions, guides: &mut bool) {
                     .small()
                     .color(TEXT_DIM),
             );
+            ui.separator();
+            ui.label(RichText::new("Pen pressure").color(TEXT_DIM));
+            ui.horizontal(|ui| percent(ui, "Size", &mut settings.pressure_size));
+            ui.horizontal(|ui| percent(ui, "Flow", &mut settings.pressure_flow));
+            ui.label(RichText::new("Only affects a pen; a mouse is unchanged").small().color(TEXT_DIM));
         });
+}
+
+/// Radial symmetry: on/off, axis, copy count and an optional axis offset from the model center.
+fn radial_options(ui: &mut Ui, options: &mut StrokeOptions) {
+    let radial = &mut options.radial;
+    ui.horizontal(|ui| {
+        ui.label(RichText::new("Radial symmetry").color(TEXT_DIM));
+        ui.checkbox(&mut radial.enabled, "")
+            .on_hover_text("Repeat the stroke around an axis through the model center");
+    });
+    ui.add_enabled_ui(radial.enabled, |ui| {
+        ui.horizontal(|ui| {
+            ui.label("Axis");
+            for (i, axis) in ["X", "Y", "Z"].into_iter().enumerate() {
+                if ui
+                    .selectable_label(radial.axis as usize == i, axis)
+                    .on_hover_text(format!("Rotate copies around {axis}"))
+                    .clicked()
+                {
+                    radial.axis = i as u8;
+                }
+            }
+        });
+        ui.spacing_mut().slider_width = 130.0;
+        ui.add(
+            egui::Slider::new(&mut radial.count, 2..=subcraft_paint::MAX_SYMMETRY_COPIES)
+                .text("copies"),
+        );
+        ui.horizontal(|ui| {
+            ui.label("Offset");
+            for v in &mut radial.center_offset {
+                ui.add(egui::DragValue::new(v).speed(0.01).max_decimals(3));
+            }
+        })
+        .response
+        .on_hover_text("Move the axis away from the model center (object units)");
+    });
+    let mirrors = options.symmetry.iter().filter(|&&m| m).count();
+    let effective = options.radial.effective_count(mirrors);
+    if options.radial.enabled && mirrors > 0 {
+        let text = if effective < options.radial.count {
+            format!("{} copies with mirror (capped at {})", options.copies(), subcraft_paint::MAX_SYMMETRY_COPIES)
+        } else {
+            format!("{} copies with mirror", options.copies())
+        };
+        ui.label(RichText::new(text).small().color(TEXT_DIM));
+    }
 }
 
 fn menu_controls(ui: &mut Ui, s: &mut BrushSettings, brush: bool) {
@@ -254,4 +308,81 @@ fn popup_percent(ui: &mut Ui, name: &str, value: &mut f32, help: &str, tip: bool
                 }
             });
     });
+}
+
+/// Material channels a texture set can add from the channel switches' "+" menu.
+const ADDABLE: [subcraft_core::ChannelKind; 9] = {
+    use subcraft_core::ChannelKind::*;
+    [BaseColor, Height, Roughness, Metallic, Normal, AmbientOcclusion, Emissive, Opacity, Specular]
+};
+
+fn channel_label(kind: subcraft_core::ChannelKind) -> &'static str {
+    use subcraft_core::ChannelKind::*;
+    match kind {
+        BaseColor => "Color",
+        Height => "Height",
+        Roughness => "Rough",
+        Metallic => "Metal",
+        Normal => "Normal",
+        AmbientOcclusion => "AO",
+        Emissive => "Emissive",
+        Opacity => "Opacity",
+        Specular => "Spec",
+        other => other.short_name(),
+    }
+}
+
+/// Which material channels the brush paints: click switches one on or off, Shift+click paints
+/// only that channel (again: all channels). "+" adds a missing PBR channel to the texture set.
+pub(crate) fn channel_switches(ui: &mut Ui, state: &mut crate::state::UiState) {
+    let channels = state.session.channels();
+    let mut material = state.session.brush.material.clone();
+    let original = material.clone();
+    let shift = ui.input(|i| i.modifiers.shift);
+    let mask = state.session.brush.target.is_mask();
+    let mut add = None;
+    ui.add_enabled_ui(!mask, |ui| {
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing.x = 2.0;
+            for &kind in &channels {
+                let on = material.is_enabled(kind);
+                let text = RichText::new(channel_label(kind)).font(theme::font(11.5)).color(if on { TEXT } else { TEXT_DIM });
+                let help = if mask {
+                    "Painting a mask: channels don't apply".to_string()
+                } else {
+                    format!("{} · click: paint on/off · Shift+click: paint only this channel", kind.display_name())
+                };
+                if ui.selectable_label(on, text).on_hover_text(help).clicked() {
+                    if shift { material.solo(kind, &channels) } else { material.toggle(kind) }
+                }
+            }
+            let missing: Vec<_> = ADDABLE.into_iter().filter(|k| !channels.contains(k)).collect();
+            if !missing.is_empty() {
+                let response = widgets::icon_button(ui, icons::PLUS, "Add a material channel to this texture set");
+                egui::Popup::menu(&response).show(|ui| {
+                    for kind in missing {
+                        if ui.button(kind.display_name()).clicked() {
+                            add = Some(kind);
+                        }
+                    }
+                });
+            }
+        });
+    });
+    let now = ui.input(|i| i.time);
+    if material != original
+        && let Err(e) = state.session.execute(subcraft_app::Command::SetBrushMaterial(material))
+    {
+        state.set_status(e.to_string(), now);
+    }
+    if let Some(kind) = add {
+        let texture_set = state.session.selection().texture_set;
+        match state.session.execute(subcraft_app::Command::AddChannel { texture_set, kind }) {
+            Ok(()) => {
+                state.gpu_dirty = true;
+                state.set_status(format!("{} channel added", kind.display_name()), now);
+            }
+            Err(e) => state.set_status(e.to_string(), now),
+        }
+    }
 }

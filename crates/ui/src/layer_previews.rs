@@ -151,7 +151,7 @@ pub fn inspection_window(state: &mut crate::state::UiState, ctx: &egui::Context)
     };
     let title = format!("Mask preview · {}", found.name);
     let mut open = true;
-    egui::Window::new(title).id(egui::Id::new("mask_uv_preview")).open(&mut open).resizable(true).show(ctx, |ui| {
+    crate::widgets::window(ctx, title).id(egui::Id::new("mask_uv_preview")).open(&mut open).resizable(true).show(ctx, |ui| {
         ui.label(egui::RichText::new("Evaluated mask · UV space").color(theme::TEXT_DIM));
         let side = ui.available_width().clamp(192.0, 512.0);
         state.layer_previews.image(ui, &state.session, PreviewKey { layer, channel: ChannelKind::BaseColor, mask: true, effect: None, size: 256 }, side, false);

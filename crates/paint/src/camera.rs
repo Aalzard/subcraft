@@ -109,6 +109,14 @@ impl Camera {
         r.w_axis[axis] = 2.0 * center;
         Camera { view: self.view * r, ..*self }
     }
+
+    /// The camera rotated by `angle` radians around the line through `center` along `axis`
+    /// (object space). Painting through it with the same screen positions yields stamps rotated
+    /// by `angle` around that line.
+    pub fn rotated(&self, axis: Vec3, center: Vec3, angle: f32) -> Camera {
+        let inverse = Mat4::from_translation(center) * Mat4::from_axis_angle(axis.normalize(), -angle) * Mat4::from_translation(-center);
+        Camera { view: self.view * inverse, ..*self }
+    }
 }
 
 #[cfg(test)]
@@ -137,6 +145,19 @@ mod tests {
         let (a, b) = (cam.project(p).unwrap(), m.project(mp).unwrap());
         assert!(a.distance(b) < 1e-3, "{a} vs {b}");
         assert!((m.eye() - Vec3::new(0.5 - 1.0, 2.0, 5.0)).length() < 1e-4);
+    }
+
+    #[test]
+    fn rotated_camera_sees_rotated_points_at_the_same_pixel() {
+        let cam = Camera::perspective(Vec3::new(1.0, 2.0, 5.0), Vec3::ZERO, Vec3::Y, 45.0, 0.1, 100.0, [640, 480]);
+        let center = Vec3::new(0.2, -0.1, 0.3);
+        let angle = 1.1f32;
+        let r = cam.rotated(Vec3::Y, center, angle);
+        let p = Vec3::new(0.9, 0.3, -0.4);
+        let rp = center + glam::Quat::from_rotation_y(angle) * (p - center);
+        let (a, b) = (cam.project(p).unwrap(), r.project(rp).unwrap());
+        assert!(a.distance(b) < 1e-3, "{a} vs {b}");
+        assert_eq!(cam.rotated(Vec3::Y, center, 0.0).view, cam.view * Mat4::IDENTITY);
     }
 
     #[test]

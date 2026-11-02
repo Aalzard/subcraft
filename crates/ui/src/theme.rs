@@ -51,6 +51,11 @@ pub const ACCENT_DIM: Color32 = Color32::from_rgb(113, 81, 40);
 
 pub const WARNING: Color32 = Color32::from_rgb(240, 196, 110);
 
+// Layer tree: folder icons and badges, folder row band, hierarchy guide lines.
+pub const FOLDER: Color32 = Color32::from_rgb(226, 184, 98);
+pub const FOLDER_BAND: Color32 = Color32::from_rgb(38, 35, 31);
+pub const TREE_LINE: Color32 = Color32::from_rgb(104, 90, 64);
+
 /// Panel content padding.
 pub const PAD: i8 = 12;
 /// Height of rows in lists (layers, history, texture sets).
