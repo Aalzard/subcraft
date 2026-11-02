@@ -246,9 +246,7 @@ pub fn smart_masks() -> Vec<SmartMask> {
         ),
         mask("Heavy Edge Wear", vec![generator(GeneratorKind::Edges, 0.45, 0.15, 0.6, false)]),
         mask("Soft Cavity Dirt", vec![generator(GeneratorKind::Cavity, 0.4, 0.45, 0.25, false)]),
-        mask("Moss on Top", vec![generator(GeneratorKind::Directional, 0.55, 0.3, 0.7, false)]),
         mask("Rising Damp", vec![generator(GeneratorKind::PositionGradient, 0.18, 0.2, 0.6, true)]),
-        mask("Scratches", vec![procedural_mask(ProceduralKind::Scratches, 3.0, 0.5)]),
         mask("Cloudy Variation", vec![procedural_mask(ProceduralKind::Clouds, 4.0, 0.2)]),
     ]
     .into_iter()

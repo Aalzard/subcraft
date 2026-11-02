@@ -235,9 +235,9 @@ pub fn smart_materials() -> Vec<SmartMaterial> {
     let textured = [
         textured("Painted Steel Plates", "Metal Plates", painted_plates),
         textured("Rusted Steel", "Stained Steel", rusted_steel),
-        textured("Worn Leather", "Brown Leather", worn_leather),
+        textured("Worn Brown Leather", "Brown Leather", worn_leather),
         textured("Mossy Bricks", "Bricks", mossy_bricks),
-        textured("Dusty Concrete", "Smooth Concrete", dusty_concrete),
+        textured("Dusty Smooth Concrete", "Smooth Concrete", dusty_concrete),
     ];
     vec![
         smart("Worn Painted Metal", worn_painted_metal),
