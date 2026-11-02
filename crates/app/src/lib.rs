@@ -22,6 +22,7 @@ pub mod effect_stack;
 pub mod parts;
 pub mod part_workflow;
 pub mod pen;
+pub mod photocraft;
 pub mod recovery;
 pub mod session;
 pub mod spp_cache;

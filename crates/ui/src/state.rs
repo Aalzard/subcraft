@@ -134,6 +134,8 @@ pub struct UiState {
     pub bake: crate::dialogs::BakeUi,
     /// A Painter project being opened in the background.
     pub spp_import: Option<crate::spp_import::SppImportUi>,
+    /// Running Edit in PhotoCraft exchange (ADR-0040).
+    pub photocraft: Option<subcraft_app::photocraft::Exchange>,
     pub symmetry_uploaded: Option<(usize, [bool; 3])>,
     pub uv_wireframe: bool,
     pub library: subcraft_app::assets::Library,
@@ -226,6 +228,7 @@ impl UiState {
             last_title: String::new(),
             bake: Default::default(),
             spp_import: None,
+            photocraft: None,
             symmetry_uploaded: None,
             uv_wireframe: true,
             library: subcraft_app::assets::Library::builtin(),
@@ -297,6 +300,41 @@ impl UiState {
         let lib = self.user_library.clone();
         for e in self.textures.add_files(lib.as_ref(), paths) {
             log::warn!("texture not added to the library: {e}");
+        }
+    }
+
+    /// Edit in PhotoCraft: write the selected texture set's layers as PSDs and open them.
+    pub fn start_photocraft(&mut self, now: f64) {
+        let dir = subcraft_app::photocraft::exchange_dir(self.session.selection().texture_set);
+        match subcraft_app::photocraft::Exchange::start(&self.session, &dir, subcraft_app::photocraft::launch) {
+            Ok(ex) => {
+                self.set_status(format!("Editing {} in PhotoCraft: saves there come back here automatically", ex.set_name()), now);
+                self.photocraft = Some(ex);
+            }
+            Err(e) => self.set_status(format!("Edit in PhotoCraft: {e}"), now),
+        }
+    }
+
+    /// Stop bringing PhotoCraft saves back (PhotoCraft itself stays open).
+    pub fn stop_photocraft(&mut self, now: f64) {
+        if let Some(ex) = self.photocraft.take() {
+            self.set_status(format!("Stopped editing {} in PhotoCraft", ex.set_name()), now);
+        }
+    }
+
+    /// Apply settled PhotoCraft saves (call once per frame; checks the disk twice a second).
+    pub fn poll_photocraft(&mut self, now: f64) {
+        let Some(ex) = &mut self.photocraft else { return };
+        for event in ex.poll(&mut self.session, now) {
+            use subcraft_app::photocraft::PollEvent;
+            match event {
+                PollEvent::Applied(text) | PollEvent::Failed(text) => self.set_status(text, now),
+                PollEvent::Ended(text) => {
+                    self.photocraft = None;
+                    self.set_status(text, now);
+                    return;
+                }
+            }
         }
     }
 

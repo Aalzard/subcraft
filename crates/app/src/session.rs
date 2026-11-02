@@ -667,6 +667,16 @@ impl Session {
                 }
                 self.doc = doc; self.commit(&label, None);
             }
+            Command::ReplaceTextureSetLayers { texture_set, layers, label } => {
+                let mut doc = self.doc.clone();
+                doc.texture_set_mut(texture_set).ok_or(CommandError::TextureSetNotFound)?.layers = layers;
+                self.doc = doc;
+                if self.selection.texture_set == texture_set && self.selection.layer.is_some_and(|l| self.doc.texture_set(texture_set).and_then(|ts| ts.find(l)).is_none()) {
+                    self.selection.layer = None;
+                    self.effect = None;
+                }
+                self.commit(&label, None);
+            }
             Command::ReplaceLayer { layer, replacement, label } => {
                 if layer != replacement.id { return Err(CommandError::Invalid("replacement must keep layer UUID".into())); }
                 self.edit_layer_set(layer, &label, None, |ts| { *Self::layer_mut(ts, layer)? = *replacement; Ok(()) })?;

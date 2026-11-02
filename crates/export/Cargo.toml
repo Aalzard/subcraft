@@ -22,3 +22,4 @@ serde_json.workspace = true
 thiserror.workspace = true
 log.workspace = true
 zip.workspace = true
+photocraft-psd.workspace = true

@@ -2730,6 +2730,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "photocraft-psd"
+version = "0.17.0"
+source = "git+https://github.com/storytold/photocraft?rev=c5352f204ece80268e5ca1661297378e9581eecc#c5352f204ece80268e5ca1661297378e9581eecc"
+dependencies = [
+ "flate2",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "pin-project"
 version = "1.1.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3539,6 +3548,7 @@ dependencies = [
  "log",
  "mimalloc",
  "parking_lot",
+ "photocraft-psd",
  "rayon",
  "semver",
  "serde",
@@ -3645,6 +3655,7 @@ dependencies = [
  "half",
  "image",
  "log",
+ "photocraft-psd",
  "rayon",
  "serde",
  "serde_json",

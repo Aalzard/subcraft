@@ -48,4 +48,5 @@ tar = "0.4"
 flate2 = "1"
 
 [dev-dependencies]
+photocraft-psd.workspace = true
 mimalloc.workspace = true

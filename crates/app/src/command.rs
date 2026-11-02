@@ -57,6 +57,10 @@ pub enum Command {
     InsertLayerWithChannels { layer: Box<Layer>, channels: Vec<ChannelKind>, label: String },
     /// One part can span texture sets; insert all its layers atomically.
     InsertPartLayers { layers: Vec<(TextureSetId, Box<Layer>)>, label: String },
+    /// Swap a texture set's whole layer list (bottom-to-top) in one history entry; used when an
+    /// external editor's changes come back (Edit in PhotoCraft). Selection keeps its layer if it
+    /// still exists.
+    ReplaceTextureSetLayers { texture_set: TextureSetId, layers: Vec<std::sync::Arc<Layer>>, label: String },
     /// Atomic combined edit, retaining the node's UUID.
     ReplaceLayer { layer: LayerId, replacement: Box<Layer>, label: String },
     /// Give the layer a black mask (if it has none) and append these effects (smart mask).

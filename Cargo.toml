@@ -36,6 +36,9 @@ serde_json = { version = "1", features = ["float_roundtrip"] }
 web-time = "1.1"
 uuid = { version = "1", features = ["v4", "v5", "serde"] }
 thiserror = "2"
+# PSD reader/writer from the sibling PhotoCraft app (ADR-0040). Pinned for CI; a local checkout
+# can override it with a [patch] in an uncommitted .cargo/config.toml.
+photocraft-psd = { git = "https://github.com/storytold/photocraft", rev = "c5352f204ece80268e5ca1661297378e9581eecc" }
 anyhow = "1"
 log = "0.4"
 rayon = "1"

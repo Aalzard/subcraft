@@ -128,6 +128,25 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     let mut layer_action = None;
     let cancel_rename = rename.is_some() && ui.input(|i| i.key_pressed(egui::Key::Escape));
 
+    // Edit in PhotoCraft is running for this texture set: say so and offer to stop.
+    if let Some(ex) = &state.photocraft
+        && ex.texture_set() == state.session.selection().texture_set
+    {
+        let mut stop = false;
+        egui::Frame::new().fill(theme::ACCENT_SOFT).inner_margin(egui::Margin::symmetric(PAD, 6)).show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(icons::EXPORT).color(ACCENT));
+                ui.label(RichText::new("Editing in PhotoCraft").strong())
+                    .on_hover_text(format!("Saves in PhotoCraft come back as one undo step each.
+Files: {}", ex.dir().display()));
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    stop = ui.small_button("Stop").on_hover_text("Stop bringing PhotoCraft saves back (PhotoCraft stays open)").clicked();
+                });
+            });
+        });
+        if stop { state.stop_photocraft(now); }
+    }
+
     // Toolbar: create on the left, arrange on the right.
     egui::Frame::new().inner_margin(pad).show(ui, |ui| {
         ui.horizontal(|ui| {

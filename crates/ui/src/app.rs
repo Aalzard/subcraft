@@ -898,6 +898,15 @@ impl SubcraftApp {
                     ui.close();
                     crate::panels::layers::import_texture_set_dialog(ui.ctx());
                 }
+                if self.state.photocraft.is_some() {
+                    if item(ui, icons::X, "Stop editing in PhotoCraft", "") {
+                        self.state.stop_photocraft(now);
+                        ui.close();
+                    }
+                } else if item(ui, icons::EXPORT, "Edit in PhotoCraft…", "") {
+                    self.state.start_photocraft(now);
+                    ui.close();
+                }
             });
             ui.menu_button("View", |ui| {
                 ui.set_min_width(240.0);
@@ -1212,6 +1221,10 @@ impl eframe::App for SubcraftApp {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
         self.state.poll_library();
+        self.state.poll_photocraft(ctx.input(|i| i.time));
+        if self.state.photocraft.is_some() {
+            ctx.request_repaint_after(std::time::Duration::from_secs_f64(subcraft_app::photocraft::POLL_INTERVAL));
+        }
         self.state.layer_previews.poll(&ctx);
         self.state.textures.poll(&ctx);
         if let Some(p) = &mut self.profile { p.mark("sync+polls"); }
