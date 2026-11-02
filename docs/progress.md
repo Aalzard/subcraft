@@ -3364,3 +3364,27 @@ From the user's screenshots of the merged build (top plate, a wheel side, the QR
 * `cargo test --workspace`: 758 passed, 0 failed (release build `.build-claude-spp/release/subcraft.exe`).
 * The user opened DBAL-A2 in that build and reported it better than before.
 * Still open: labels from the user's own Substance stencil sheets (compiled `.sbsasm`, not readable), roughness grain (about half of Painter's), edge-wear gaps not reproduced, DBAL-A2 rebuild about 230 s, CarInteriro Base Color slightly worse (0.0096 to 0.0117 at 1024).
+
+## Issue #74: crash at launch on Wayland with scaling above 100% (2026-11-02)
+
+**Certain (from the six attached crash logs, 0.1.8, CachyOS, RADV 890M, Mesa 26.2.5):** every
+crash is `Device::create_texture, label = 'viewport msaa'`, `Dimension X value 9375 exceeds the
+limit of 8192` (five logs) or `8272 exceeds ... 8192` (one). It is the same family as the 0.1.7
+startup crash: the viewport render target was wider than the 8192 px device limit.
+**e6df477 (target clamp + device requests the adapter's own limit) and d5a5de9 (window-size cap, layout
+validation) are NOT in the v0.1.8 tag**; both are on this branch, so the fix ships with the next release.
+**Hypothesis (not verified, no Wayland machine):** the viewport rect was ~9375 physical px wide at
+the first frames, i.e. a logical width of ~6250 pt at 1.5x. Plausibly Wayland reports a window size or
+scale late and a restored window size in physical pixels is read as points; the panel is not
+2880 px wide. e6df477 clamps whatever the cause, so the crash cannot recur, but the layout at that
+first frame may still look odd until the compositor sends the real size.
+**Done here:** `viewport::physical_size` factored out of the viewport code and a test over a 2880x1920
+panel at scales 1.0/1.25/1.5/1.75/2.0/3.0 (identical results at normal sizes, 9375 and 8272 clamp to
+8192, never zero). Not done: a retry-with-MSAA-off safety net for validation errors (wgpu errors are
+fatal by default in egui-wgpu; needs an error scope around target creation, a larger change).
+
+Draft reply for #74: "Thanks for the logs, they pinpoint it: the 'viewport msaa' texture was created
+9375 px wide, above your GPU's 8192 limit, so 0.1.8 aborts. This was already fixed after 0.1.8
+(render targets are clamped to the device limit and the window size is capped); it will be in the next
+release (0.1.9). Until then, `subcraft --window-size 1600x900` (and `--reset-layout` to ignore the saved
+window state) should start, or run with scaling at 100%. If 0.1.9 still fails, please attach the new crash log."

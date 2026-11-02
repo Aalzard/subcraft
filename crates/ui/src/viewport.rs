@@ -19,12 +19,43 @@ fn pill(painter: &egui::Painter, pos: Pos2, align: egui::Align2, text: &str, col
     rect
 }
 
+/// Physical pixels of a view `points` large at `ppp` pixels per point; never zero.
+pub fn physical_size(points: [f32; 2], ppp: f32) -> [u32; 2] {
+    points.map(|p| (p * ppp).round().max(1.0) as u32)
+}
+
+#[cfg(test)]
+mod size_tests {
+    use super::physical_size;
+    use subcraft_render::fit_target_size;
+
+    /// Issue #74: a 2880x1920 panel at every common scale; the viewport texture must stay
+    /// within an 8192 device limit, and nothing changes at 100%.
+    #[test]
+    fn viewport_target_fits_the_device_limit_at_every_scale() {
+        for scale in [1.0f32, 1.25, 1.5, 1.75, 2.0, 3.0] {
+            let points = [2880.0 / scale, 1920.0 / scale];
+            let physical = physical_size(points, scale);
+            assert!(physical[0].abs_diff(2880) <= 1 && physical[1].abs_diff(1920) <= 1, "{scale}: {physical:?}");
+            let fitted = fit_target_size(physical, 8192);
+            assert_eq!(fitted, physical, "normal sizes are untouched at {scale}");
+            // a window restored at physical-size-in-points (the reported 9375 px case)
+            let wide = physical_size([6250.0 * scale / 1.5, 1920.0 / scale], scale);
+            let fitted = fit_target_size(wide, 8192);
+            assert!(fitted.iter().all(|&s| (1..=8192).contains(&s)), "{scale}: {fitted:?}");
+        }
+        assert_eq!(fit_target_size([9375, 1200], 8192), [8192, 1200]);
+        assert_eq!(fit_target_size([8272, 1200], 8192), [8192, 1200]);
+        assert_eq!(physical_size([0.0, 0.2], 1.5), [1, 1]);
+    }
+}
+
 pub fn show(state: &mut UiState, ui: &mut Ui) {
     crate::viewport_bar::show(ui, state);
     state.camera.orthographic = state.recovery.prefs.viewport.orthographic;
     let (rect, response) = ui.allocate_exact_size(ui.available_size(), Sense::click_and_drag());
     let ppp = ui.ctx().pixels_per_point();
-    let size = [(rect.width() * ppp).round().max(1.0) as u32, (rect.height() * ppp).round().max(1.0) as u32];
+    let size = physical_size([rect.width(), rect.height()], ppp);
     if size[0] < 8 || size[1] < 8 {
         return;
     }
