@@ -1,5 +1,6 @@
 //! Mesh processing: canonical mesh, importers, tangent space, BVH, topology, primitives.
 
+mod alembic;
 pub mod bvh;
 pub mod ray_batch;
 pub mod import;

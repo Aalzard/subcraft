@@ -9,7 +9,11 @@ use crate::mesh::{BuildError, BuildStats, Corner, Mesh, MeshBuilder};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ImportError {
+<<<<<<< HEAD
     #[error("unsupported mesh format '.{0}' (supported: obj, gltf, glb, fbx, usd, usda, usdc, usdz, spp)")]
+=======
+    #[error("unsupported mesh format '.{0}' (supported: obj, gltf, glb, fbx, abc, spp)")]
+>>>>>>> claude/alembic-import-312ac3
     UnsupportedFormat(String),
     #[error("failed to read OBJ: {0}")]
     Obj(String),
@@ -17,8 +21,13 @@ pub enum ImportError {
     Gltf(String),
     #[error("failed to read FBX: {0}")]
     Fbx(String),
+<<<<<<< HEAD
     #[error("failed to read USD: {0}")]
     Usd(String),
+=======
+    #[error("failed to read Alembic: {0}")]
+    Alembic(String),
+>>>>>>> claude/alembic-import-312ac3
     #[error("failed to read Substance Painter project: {0}")]
     Spp(String),
     #[error(transparent)]
@@ -32,7 +41,11 @@ pub struct ImportReport {
     pub warnings: Vec<String>,
 }
 
+<<<<<<< HEAD
 pub const SUPPORTED_EXTENSIONS: [&str; 9] = ["obj", "gltf", "glb", "fbx", "usd", "usda", "usdc", "usdz", "spp"];
+=======
+pub const SUPPORTED_EXTENSIONS: [&str; 6] = ["obj", "gltf", "glb", "fbx", "abc", "spp"];
+>>>>>>> claude/alembic-import-312ac3
 
 pub fn import_mesh(path: &Path) -> Result<ImportReport, ImportError> {
     import(path, false)
@@ -52,7 +65,14 @@ fn import(path: &Path, bake_source: bool) -> Result<ImportReport, ImportError> {
         "obj" => load_obj(path, &mut b, &mut warnings)?,
         "gltf" | "glb" => load_gltf(path, &mut b, &mut warnings)?,
         "fbx" => load_fbx(path, &mut b, &mut warnings)?,
+<<<<<<< HEAD
         "usd" | "usda" | "usdc" | "usdz" => crate::usd_import::load_usd(path, &mut b, &mut warnings)?,
+=======
+        "abc" => {
+            let bytes = subcraft_core::vfs::read(path).map_err(|e| ImportError::Alembic(format!("{}: {e}", path.display())))?;
+            crate::alembic::load(&bytes, &mut b, &mut warnings).map_err(ImportError::Alembic)?
+        }
+>>>>>>> claude/alembic-import-312ac3
         "spp" => load_spp(path, &mut b, &mut warnings)?,
         other => return Err(ImportError::UnsupportedFormat(other.to_string())),
     }
