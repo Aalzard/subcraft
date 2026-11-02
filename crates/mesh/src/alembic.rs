@@ -966,4 +966,19 @@ mod tests {
         spec.counts = vec![5];
         assert!(load(&single_mesh_file(&spec), &mut b, &mut Vec::new()).is_err());
     }
+
+    /// `SUBCRAFT_ABC_OUT=cube.abc cargo test -p subcraft-mesh write_cube_fixture -- --ignored` writes a UV'd cube.
+    #[test]
+    #[ignore]
+    fn write_cube_fixture() {
+        let Ok(out) = std::env::var("SUBCRAFT_ABC_OUT") else { return };
+        let p: Vec<f32> = (0..8).flat_map(|i| [(i & 1) as f32 - 0.5, ((i >> 1) & 1) as f32 - 0.5, ((i >> 2) & 1) as f32 - 0.5]).collect();
+        // Quads wound clockwise seen from outside, as Alembic stores them.
+        let faces: [[i32; 4]; 6] = [[0, 1, 3, 2], [4, 6, 7, 5], [0, 4, 5, 1], [2, 3, 7, 6], [0, 2, 6, 4], [1, 5, 7, 3]];
+        let idx: Vec<i32> = faces.iter().flatten().copied().collect();
+        let quad_uv = [0., 0., 0., 1., 1., 1., 1., 0.];
+        let uv: Vec<f32> = (0..6).flat_map(|_| quad_uv).collect();
+        let spec = MeshSpec { p, counts: vec![4; 6], idx, uv: Some((uv, None, "fvr")), n: None };
+        std::fs::write(out, single_mesh_file(&spec)).unwrap();
+    }
 }
