@@ -1,4 +1,5 @@
 //! Layer stack: tree with visibility, selection, creation/reorder buttons and per-channel blending.
+//! Folders show their hierarchy with guide lines; mask generators are listed under their layer.
 
 use std::sync::Arc;
 
@@ -6,12 +7,59 @@ use egui::{RichText, Ui};
 use subcraft_app::{Command, NewLayer, LayerTarget, layer_previews::PreviewKey};
 use subcraft_core::{ChannelKind, LayerId, TextureSetId};
 use subcraft_app::layer_tree::{DropTarget, drop_destination};
-use subcraft_doc::{BlendMode, Layer};
+use subcraft_core::MeshMapKind;
+use subcraft_doc::{BlendMode, GeneratorKind, Layer, LayerContent, MaskEffectKind};
 
 use crate::icons;
 use crate::state::UiState;
-use crate::theme::{self, ACCENT, PAD, TEXT_FAINT};
-use crate::widgets::{divider, empty_state, fill_width, icon_button, striped_list_row_height, prop_row, row_text};
+use crate::theme::{self, ACCENT, FOLDER, FOLDER_BAND, PAD, TEXT_DIM, TEXT_FAINT, TREE_LINE};
+use crate::widgets::{badge, divider, empty_state, fill_width, icon_button, striped_list_row_height, prop_row, row_text, tree_row};
+
+/// Horizontal indent per tree level.
+const INDENT: f32 = 16.0;
+/// Height of the generator rows listed under a layer.
+const GENERATOR_ROW_HEIGHT: f32 = 24.0;
+
+/// Generators offered by the toolbar and the row menu.
+const GENERATORS: [(&str, GeneratorKind); 4] = [
+    ("Edge wear", GeneratorKind::Edges),
+    ("Dirt (cavity)", GeneratorKind::Cavity),
+    ("Directional", GeneratorKind::Directional),
+    ("Position gradient", GeneratorKind::PositionGradient),
+];
+const MESH_MAP_GENERATORS: [MeshMapKind; 3] = [MeshMapKind::AmbientOcclusion, MeshMapKind::Curvature, MeshMapKind::Thickness];
+
+fn generator_menu(ui: &mut Ui, picked: &mut Option<GeneratorKind>) {
+    for (label, kind) in GENERATORS {
+        if ui.button(format!("{}  {label}", icons::MAGIC_WAND)).clicked() { *picked = Some(kind); ui.close(); }
+    }
+    ui.menu_button("Mesh map", |ui| {
+        for m in MESH_MAP_GENERATORS {
+            if ui.button(m.display_name()).clicked() { *picked = Some(GeneratorKind::MeshMap(m)); ui.close(); }
+        }
+    });
+}
+
+/// Guide x of a tree level: the center of its disclosure caret (rows pad their content by 8).
+fn guide_x(row_left: f32, depth: usize) -> f32 {
+    row_left + 8.0 + depth as f32 * INDENT + 7.0
+}
+
+/// Expanded folder whose vertical guide is still being drawn.
+struct OpenFolder { depth: usize, x: f32, top: f32, last_child: Option<f32> }
+
+fn close_folder(ui: &Ui, folder: OpenFolder) {
+    if let Some(bottom) = folder.last_child {
+        ui.painter().line_segment([egui::pos2(folder.x, folder.top), egui::pos2(folder.x, bottom)], egui::Stroke::new(1.0, TREE_LINE));
+    }
+}
+
+fn descendants(layer: &Layer) -> usize {
+    match &layer.content {
+        LayerContent::Group(g) => g.children.iter().map(|c| 1 + descendants(c)).sum(),
+        _ => 0,
+    }
+}
 
 // Folder drop zones and inline rename adapted from CalangoTech's Studio fork (bd6c064).
 #[derive(Clone, Copy)]
@@ -77,6 +125,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         && let Some(layer) = state.session.selected_layer()
     { rename = Some(InlineRename { layer: layer.id, text: layer.name.clone(), focus: true }); }
     let mut finish_rename = None;
+    let mut layer_action = None;
     let cancel_rename = rename.is_some() && ui.input(|i| i.key_pressed(egui::Key::Escape));
 
     // Toolbar: create on the left, arrange on the right.
@@ -92,6 +141,13 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             if icon_button(ui, icons::FOLDER, "New folder (Ctrl+G)").clicked() {
                 cmds.push(Command::AddLayer(NewLayer::Folder));
             }
+            ui.add_enabled_ui(sel.is_some(), |ui| {
+                let mut picked = None;
+                ui.menu_button(RichText::new(icons::MAGIC_WAND).font(theme::font(16.0)), |ui| generator_menu(ui, &mut picked))
+                    .response
+                    .on_hover_text("Add a generator to the selected layer's mask (adds a black mask if it has none)");
+                if let (Some(kind), Some(id)) = (picked, sel) { layer_action = Some((id, subcraft_app::part_workflow::LayerAction::Generator(kind))); }
+            });
             if icon_button(ui, icons::IMAGE, "Import texture set as a fill layer…").clicked() {
                 import_texture_set_dialog(ui.ctx());
             }
@@ -137,7 +193,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     let ts = state.session.selected_texture_set();
     let mut save_request: Option<(subcraft_core::LayerId, bool)> = None;
     let mut drop_request: Option<(subcraft_core::LayerId, crate::panels::shelf::ShelfDrag)> = None;
-    let mut layer_action = None;
+    let mut open: Vec<OpenFolder> = Vec::new();
     let mut list = Vec::new();
     rows(&ts.layers, 0, &mut list);
     // Default min height (64 px) would let rows spill past the panel when it is short; the list
@@ -169,13 +225,15 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         }
         for (index, (depth, l)) in list.iter().enumerate() {
             // Reserve room for names and the blend/opacity column even in a narrow dock.
-            let thumb_size = preview_size.min(((ui.available_width() - 176.0 - *depth as f32 * 16.0) / 2.0).clamp(24.0, 64.0));
+            let thumb_size = preview_size.min(((ui.available_width() - 176.0 - *depth as f32 * INDENT) / 2.0).clamp(24.0, 64.0));
             let row_height = (thumb_size + 12.0).max(44.0);
             let selected = sel == Some(l.id);
             let b = l.blend_for(active);
-            let resp = ui.push_id(l.id, |ui| striped_list_row_height(ui, index, selected, row_height, egui::Sense::click_and_drag(), |ui| {
-                ui.add_space(*depth as f32 * 16.0);
-                if let subcraft_doc::LayerContent::Group(group) = &l.content {
+            let folder = match &l.content { LayerContent::Group(g) => Some(g.expanded), _ => None };
+            let resp = ui.push_id(l.id, |ui| {
+                let content = |ui: &mut Ui| {
+                ui.add_space(*depth as f32 * INDENT);
+                if let LayerContent::Group(group) = &l.content {
                     let icon = if group.expanded { icons::CARET_DOWN } else { icons::CARET_RIGHT };
                     if ui.add_sized([14.0, 26.0], egui::Button::new(icon).frame(false)).on_hover_text(if group.expanded { "Collapse folder" } else { "Expand folder" }).clicked() {
                         cmds.push(Command::SetFolderExpanded { layer: l.id, expanded: !group.expanded });
@@ -202,7 +260,15 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     }
                     thumb.context_menu(|ui| super::mask::actions(ui, l.id, mask.enabled, can_paste_mask, &mut cmds));
                 }
+                if let Some(expanded) = folder {
+                    let icon = if expanded { icons::FOLDER_OPEN } else { icons::FOLDER };
+                    let color = if l.visible { FOLDER } else { TEXT_FAINT };
+                    ui.label(RichText::new(icon).font(theme::font(16.0)).color(color));
+                    let count = descendants(l);
+                    badge(ui, &count.to_string(), color).on_hover_text(format!("{count} layer(s) inside"));
+                }
                 let mut text = row_text(&l.name, selected || l.visible);
+                if folder.is_some() { text = text.strong(); }
                 if !l.visible {
                     text = text.color(TEXT_FAINT);
                 }
@@ -250,7 +316,22 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         cmds.push(Command::SetBlendOpacity { layer: l.id, channel: active, opacity: pct / 100.0 });
                     }
                 });
-            })).inner;
+                };
+                match folder {
+                    Some(_) => tree_row(ui, row_height, Some(FOLDER_BAND), selected, egui::Sense::click_and_drag(), content),
+                    None => striped_list_row_height(ui, index, selected, row_height, egui::Sense::click_and_drag(), content),
+                }
+            }).inner;
+            // Hierarchy guides: close folders this row is outside of, tick to the parent's guide.
+            while open.last().is_some_and(|f| f.depth >= *depth) { close_folder(ui, open.pop().unwrap()); }
+            let center = resp.rect.center().y;
+            if let Some(parent) = open.last_mut() {
+                parent.last_child = Some(center);
+                ui.painter().line_segment([egui::pos2(parent.x, center), egui::pos2(parent.x + 10.0, center)], egui::Stroke::new(1.0, TREE_LINE));
+            }
+            if folder == Some(true) {
+                open.push(OpenFolder { depth: *depth, x: guide_x(resp.rect.left(), *depth), top: center + 8.0, last_child: None });
+            }
             if rename.as_ref().is_none_or(|edit| edit.layer != l.id) {
                 resp.dnd_set_drag_payload(LayerDrag { texture_set: ts.id, layer: l.id });
             }
@@ -311,9 +392,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     cmds.push(Command::PasteMask(l.id)); ui.close();
                 }
                 ui.menu_button("Add generator", |ui| {
-                    for (label, kind) in [("Edge wear", subcraft_doc::GeneratorKind::Edges), ("Dirt", subcraft_doc::GeneratorKind::Cavity), ("Directional", subcraft_doc::GeneratorKind::Directional), ("Position gradient", subcraft_doc::GeneratorKind::PositionGradient)] {
-                        if ui.button(label).clicked() { layer_action = Some((l.id, LayerAction::Generator(kind))); ui.close(); }
-                    }
+                    let mut picked = None;
+                    generator_menu(ui, &mut picked);
+                    if let Some(kind) = picked { layer_action = Some((l.id, LayerAction::Generator(kind))); }
                 });
                 for (label, action) in [("Add fill mask effect", LayerAction::MaskFill), ("Add paint mask effect", LayerAction::MaskPaint)] {
                     if ui.button(label).clicked() { layer_action = Some((l.id, action)); ui.close(); }
@@ -338,11 +419,16 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 }
             });
             resp.on_hover_text("Drag to reorder. Drop in a folder's center to move inside it; drop at Top level to move out. Double-click or F2 to rename.");
+            // The selected layer's mask stack lists its generators itself.
+            if let Some(mask) = &l.mask && !(selected && selected_target == LayerTarget::Mask) {
+                generator_rows(ui, l, mask, *depth, &mut cmds);
+            }
             if selected {
                 let channels: Vec<ChannelKind> = ts.channel_kinds().collect();
                 super::effects::rows(ui, l, *depth, selected_target, selected_effect, &channels, active, ts.resolution, &mut state.layer_previews, &state.session, (preview_size * 0.55).round().clamp(18.0, 28.0), &mut cmds);
             }
         }
+        while let Some(f) = open.pop() { close_folder(ui, f); }
         root_drop(ui, ts, DropTarget::RootBottom, &mut cmds);
     });
     crate::widgets::preview_size_footer(ui, &mut state.recovery.prefs.layer_preview_size, 24..=64);
@@ -357,9 +443,15 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     });
     state.run(cmds, now);
     if let Some((layer, action)) = layer_action {
-        let mask_added = matches!(action, subcraft_app::part_workflow::LayerAction::WhiteMask | subcraft_app::part_workflow::LayerAction::BlackMask);
+        use subcraft_app::part_workflow::LayerAction;
+        let mask_added = matches!(action, LayerAction::WhiteMask | LayerAction::BlackMask);
         if let Err(e) = state.session.layer_action(layer, action) { state.set_status(format!("Layer: {e}"), now); }
         else if mask_added { state.run(vec![Command::SelectLayerTarget { layer, target: LayerTarget::Mask }], now); }
+        else if matches!(action, LayerAction::Generator(_)) {
+            // Open the new generator in Properties.
+            let effect = state.session.selected_texture_set().find(layer).and_then(|l| l.mask.as_ref()).and_then(|m| m.effects.last()).map(|e| e.id);
+            if effect.is_some() { state.run(vec![Command::SelectEffect { layer, target: LayerTarget::Mask, effect }], now); }
+        }
     }
     if let Some((layer, item)) = drop_request {
         state.run(vec![Command::SelectLayer(Some(layer))], now);
@@ -367,6 +459,37 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     }
     if let Some((layer, mask)) = save_request {
         save_to_library(state, layer, mask, now);
+    }
+}
+
+/// Compact rows under a layer for the generators in its mask, top of the stack first. Clicking
+/// one opens it in Properties; the eye toggles it.
+fn generator_rows(ui: &mut Ui, layer: &Layer, mask: &subcraft_doc::Mask, depth: usize, cmds: &mut Vec<Command>) {
+    let indent = depth as f32 * INDENT + 30.0;
+    for e in mask.effects.iter().rev() {
+        let MaskEffectKind::Generator(g) = &e.kind else { continue };
+        let lit = e.visible && mask.enabled && layer.visible;
+        let resp = ui.push_id(("generator_row", e.id), |ui| tree_row(ui, GENERATOR_ROW_HEIGHT, None, false, egui::Sense::click(), |ui| {
+            ui.add_space(indent);
+            let (eye, tip) = if e.visible { (icons::EYE, "Hide generator") } else { (icons::EYE_SLASH, "Show generator") };
+            if ui.add(egui::Button::new(RichText::new(eye).font(theme::font(13.0)).color(TEXT_DIM)).frame(false)).on_hover_text(tip).clicked() {
+                let mut e = (**e).clone();
+                e.visible = !e.visible;
+                cmds.push(Command::SetMaskEffect { layer: layer.id, effect: e });
+            }
+            ui.label(RichText::new(icons::MAGIC_WAND).font(theme::font(13.0)).color(if lit { ACCENT } else { TEXT_FAINT }));
+            ui.add(egui::Label::new(RichText::new(&e.name).font(theme::font(11.5)).color(if lit { TEXT_DIM } else { TEXT_FAINT })).truncate().selectable(false));
+            let kind = g.kind.label();
+            if !e.name.contains(&kind) {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.label(RichText::new(kind).font(theme::font(10.0)).color(TEXT_FAINT));
+                });
+            }
+        })).inner;
+        if resp.clicked() {
+            cmds.push(Command::SelectEffect { layer: layer.id, target: LayerTarget::Mask, effect: Some(e.id) });
+        }
+        resp.on_hover_text(format!("Generator in {}'s mask · click to edit in Properties", layer.name));
     }
 }
 

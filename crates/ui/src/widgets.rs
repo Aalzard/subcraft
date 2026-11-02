@@ -284,6 +284,11 @@ pub fn striped_list_row_height(ui: &mut Ui, index: usize, selected: bool, height
     list_row_sized(ui, selected, sense, Some(theme::ROW_BANDS[index % 2]), height, content)
 }
 
+/// A list row with its own band color and height (folder rows, compact sub-rows).
+pub fn tree_row(ui: &mut Ui, height: f32, band: Option<Color32>, selected: bool, sense: Sense, content: impl FnOnce(&mut Ui)) -> Response {
+    list_row_sized(ui, selected, sense, band, height, content)
+}
+
 fn list_row_background(ui: &mut Ui, selected: bool, sense: Sense, band: Option<Color32>, content: impl FnOnce(&mut Ui)) -> Response {
     list_row_sized(ui, selected, sense, band, ROW_HEIGHT, content)
 }
