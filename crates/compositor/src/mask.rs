@@ -159,6 +159,20 @@ fn eval_image(resource: subcraft_core::ResourceId, projection: &Projection, inve
     }
 }
 
+/// ID Color Mask: the baked ID map compared against the picked colors. Without a baked ID map
+/// the effect is opaque black (not inverted: nothing can be selected), and the UI says so.
+fn eval_id_color(id: &subcraft_doc::IdColorMask, tc: &TileContext, e: &mut [[f32; 4]]) {
+    if tc.sample.mesh_maps.get(MeshMapKind::Id).is_none() {
+        e.fill([0.0, 1.0, 0.0, 0.0]);
+        return;
+    }
+    let mut map = vec![[0.0f32; 3]; TILE_TEXELS];
+    tc.sample.mesh_maps.read_tile(MeshMapKind::Id, tc.geo, &mut map);
+    for (o, rgb) in e.iter_mut().zip(&map) {
+        *o = [id.value(*rgb), 1.0, 0.0, 0.0];
+    }
+}
+
 pub(crate) fn evaluate_effect(kind: &MaskEffectKind, tc: &TileContext, m: &[f32], e: &mut [[f32; 4]]) {
         match kind {
             MaskEffectKind::Paint { image } => {
@@ -189,5 +203,6 @@ pub(crate) fn evaluate_effect(kind: &MaskEffectKind, tc: &TileContext, m: &[f32]
                 }
             }
             MaskEffectKind::Image { resource, projection, invert } => eval_image(*resource, projection, *invert, tc, e),
+            MaskEffectKind::IdColor(id) => eval_id_color(id, tc, e),
         }
 }

@@ -105,6 +105,9 @@ pub enum Command {
     RemoveMaskEffect { layer: LayerId, effect: EffectId },
     /// Replace an effect (matched by id); coalesces while dragging.
     SetMaskEffect { layer: LayerId, effect: MaskEffect },
+    /// Replace the picked colors of an ID Color Mask effect. Never coalesces: every pick or
+    /// removal is its own undo step (ADR-0041).
+    SetIdColors { layer: LayerId, effect: EffectId, colors: Vec<[f32; 3]> },
     /// Show the layer only on these mesh parts (`None` = everywhere).
     SetParts { layer: LayerId, parts: Option<PartMask> },
 }

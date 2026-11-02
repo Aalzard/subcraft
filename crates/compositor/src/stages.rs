@@ -289,7 +289,7 @@ impl<'a> Graph<'a> {
                     && match &effect.kind {
                         MaskEffectKind::Paint { image } => image.allocated_tiles() == 0,
                         MaskEffectKind::Fill { procedural, .. } => procedural.is_none(),
-                        MaskEffectKind::Generator(_) | MaskEffectKind::Image { .. } => false,
+                        MaskEffectKind::Generator(_) | MaskEffectKind::Image { .. } | MaskEffectKind::IdColor(_) => false,
                         _ => true,
                     }
             }

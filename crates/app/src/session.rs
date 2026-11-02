@@ -1099,6 +1099,19 @@ impl Session {
                     Ok(())
                 })?;
             }
+            Command::SetIdColors { layer, effect, colors } => {
+                self.edit_layer_set(layer, "ID Color", None, |ts| {
+                    let mask = Self::layer_mut(ts, layer)?.mask.as_mut().ok_or(CommandError::NoMask)?;
+                    let slot = mask.effects.iter_mut().find(|e| e.id == effect).ok_or(CommandError::Invalid("no such effect".into()))?;
+                    let subcraft_doc::MaskEffectKind::IdColor(id) = &mut Arc::make_mut(slot).kind else {
+                        return Err(CommandError::Invalid("not an ID Color Mask".into()));
+                    };
+                    let candidate = subcraft_doc::IdColorMask { colors, ..id.clone() };
+                    if !candidate.valid() { return Err(CommandError::Invalid("invalid ID colors".into())); }
+                    *id = candidate;
+                    Ok(())
+                })?;
+            }
             Command::MoveMaskEffect { layer, effect, index } => {
                 self.edit_layer_set(layer, "Move Mask Effect", None, |ts| {
                     let mask = Self::layer_mut(ts, layer)?.mask.as_mut().ok_or(CommandError::NoMask)?;
@@ -1140,6 +1153,9 @@ impl Session {
         if let subcraft_doc::MaskEffectKind::Filter(filter) = kind
             && (!filter.valid() || !filter.supports_mask()) {
             return Err(CommandError::Invalid("Filter parameters or mask target are invalid".into()));
+        }
+        if let subcraft_doc::MaskEffectKind::IdColor(id) = kind && !id.valid() {
+            return Err(CommandError::Invalid("ID Color Mask parameters are invalid".into()));
         }
         Ok(())
     }

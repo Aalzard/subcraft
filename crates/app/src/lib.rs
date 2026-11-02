@@ -12,6 +12,7 @@ pub mod brush_preset;
 pub mod brush_textures;
 pub mod command;
 pub mod diagnostics;
+pub mod id_color;
 pub mod images;
 pub mod graphics;
 pub mod library;

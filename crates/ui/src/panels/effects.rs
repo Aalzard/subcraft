@@ -42,6 +42,7 @@ fn mask_icon(kind: &MaskEffectKind) -> &'static str {
         MaskEffectKind::Levels(_) | MaskEffectKind::Filter(_) => icons::SLIDERS,
         MaskEffectKind::Invert => icons::INTERSECT,
         MaskEffectKind::Image { .. } => icons::IMAGE,
+        MaskEffectKind::IdColor(_) => icons::SELECTION,
     }
 }
 
@@ -101,6 +102,7 @@ fn add_mask_menu(ui: &mut Ui, layer: &Layer, resolution: u32, cmds: &mut Vec<Com
         ("Generator", MaskEffectKind::Generator(Generator::new(GeneratorKind::Edges))),
         ("Levels", MaskEffectKind::Levels(Levels::default())),
         ("Invert", MaskEffectKind::Invert),
+        ("ID Color Mask", MaskEffectKind::IdColor(Default::default())),
     ];
     for (label, kind) in options {
         if ui.button(label).clicked() {

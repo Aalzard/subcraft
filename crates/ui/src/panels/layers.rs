@@ -415,7 +415,7 @@ Files: {}", ex.dir().display()));
                     generator_menu(ui, &mut picked);
                     if let Some(kind) = picked { layer_action = Some((l.id, LayerAction::Generator(kind))); }
                 });
-                for (label, action) in [("Add fill mask effect", LayerAction::MaskFill), ("Add paint mask effect", LayerAction::MaskPaint)] {
+                for (label, action) in [("Add fill mask effect", LayerAction::MaskFill), ("Add paint mask effect", LayerAction::MaskPaint), ("Add ID color mask", LayerAction::IdColorMask)] {
                     if ui.button(label).clicked() { layer_action = Some((l.id, action)); ui.close(); }
                 }
                 ui.separator();

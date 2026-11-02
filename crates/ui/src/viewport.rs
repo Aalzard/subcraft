@@ -127,12 +127,30 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
 
     // ----- part picking: clicks show / hide the selected layer on mesh parts ----------------------
     let bake_mode = state.bake.open || state.bake.job.is_some();
-    let picking = !bake_mode && state.picking_parts && state.session.selected_layer().is_some() && !state.painting;
+    let parts_picking = !bake_mode && state.picking_parts && state.session.selected_layer().is_some() && !state.painting;
+    // ----- ID Color Mask eyedropper: clicks add the ID map color under the cursor ------------
+    let id_picking = !bake_mode && !state.painting
+        && state.picking_id_color.is_some_and(|(layer, _)| state.session.selected_texture_set().find(layer).is_some());
+    if state.picking_id_color.is_some() && (!id_picking || ui.input(|i| i.key_pressed(egui::Key::Escape))) {
+        state.picking_id_color = None;
+    }
+    if id_picking && primary_pressed && response.hovered() && !alt && !stencil_edit
+        && let (Some((layer, effect)), Some(p)) = (state.picking_id_color, pointer)
+    {
+        match state.session.pick_id_color(layer, effect, &camera, to_screen(p)) {
+            Ok(Some(_)) => state.set_status("ID color added. Click more parts, Esc when done.", now),
+            Ok(None) if !state.session.has_id_map(state.session.selection().texture_set) => state.set_status("No ID map baked for this texture set: bake one in Bake Mesh Maps.", now),
+            Ok(None) => state.set_status("Nothing added: missed the model or that ID color is already picked.", now),
+            Err(e) => state.set_status(format!("ID Color Mask: {e}"), now),
+        }
+    }
+    if id_picking && response.hovered() { ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair); }
+    let picking = parts_picking || id_picking;
     if state.picking_parts && (!picking || ui.input(|i| i.key_pressed(egui::Key::Escape))) {
         state.picking_parts = false;
     }
-    let hovered_part = if picking { pointer.and_then(|p| state.session.part_at(&camera, to_screen(p))) } else { None };
-    if picking && primary_pressed && response.hovered() && !alt && !stencil_edit {
+    let hovered_part = if parts_picking { pointer.and_then(|p| state.session.part_at(&camera, to_screen(p))) } else { None };
+    if parts_picking && primary_pressed && response.hovered() && !alt && !stencil_edit {
         let layer = state.session.selected_layer().map(|l| l.id);
         match (layer, hovered_part) {
             (Some(layer), Some(part)) => {

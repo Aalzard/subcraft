@@ -23,7 +23,7 @@ pub use fill::{FillSource, ProceduralKind, ProceduralParams, Projection, Project
 pub use filter::{Filter, Gradient, GradientStop, MAX_GRADIENT_STOPS, MAX_MEDIAN_RADIUS, MAX_WARP_SCALE, GRADIENT_PRESETS, OutlinePosition};
 pub use history::{History, HistoryEntry};
 pub use layer::{ChannelBlend, FillChannel, FillContent, GroupContent, Layer, LayerContent, LayerKind, PaintContent, PartMask, changed_paint_tiles, empty_paint_image, same_paint_layout};
-pub use mask::{EdgeSpread, Generator, GeneratorKind, Levels, Mask, MaskEffect, MaskEffectKind};
+pub use mask::{EdgeSpread, Generator, GeneratorKind, IdColorMask, Levels, Mask, MaskEffect, MaskEffectKind};
 pub use pen::{PenAnchor, PenPath};
 pub use resources::{Resource, ResourceKind, ResourceStore};
 pub use settings::{NormalFormat, ProjectSettings};

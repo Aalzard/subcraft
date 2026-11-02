@@ -23,13 +23,14 @@ pub struct SurfaceTarget {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum PartAction { Fill, PaintOnly, MaskLayer, Generator(GeneratorKind), PickColor, PickMaterial, Hide, Isolate }
+pub enum PartAction { Fill, PaintOnly, MaskLayer, Generator(GeneratorKind), MaskByIdColor, PickColor, PickMaterial, Hide, Isolate }
 
 impl PartAction {
     pub fn label(self) -> &'static str {
         match self {
             Self::Fill => "Filled part", Self::PaintOnly => "Paint only on this part",
             Self::MaskLayer => "Layer masked to part", Self::Generator(_) => "Added generator mask",
+            Self::MaskByIdColor => "Masked by ID color",
             Self::PickColor => "Picked color", Self::PickMaterial => "Picked material",
             Self::Hide => "Part visibility changed", Self::Isolate => "Part isolation changed",
         }
@@ -37,7 +38,7 @@ impl PartAction {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub enum LayerAction { AddPaint, AddFill, WhiteMask, BlackMask, Generator(GeneratorKind), MaskFill, MaskPaint }
+pub enum LayerAction { AddPaint, AddFill, WhiteMask, BlackMask, Generator(GeneratorKind), IdColorMask, MaskFill, MaskPaint }
 
 #[derive(Default)]
 pub(crate) struct PartView {
@@ -58,6 +59,7 @@ impl Session {
             _ => {
                 let kind = match action {
                     LayerAction::Generator(kind) => MaskEffectKind::Generator(Generator::new(kind)),
+                    LayerAction::IdColorMask => MaskEffectKind::IdColor(Default::default()),
                     LayerAction::MaskFill => MaskEffectKind::Fill { value: 1.0, procedural: None, projection: Default::default() },
                     LayerAction::MaskPaint => MaskEffectKind::Paint { image: subcraft_image::TiledImage::new(self.selected_texture_set().resolution, self.selected_texture_set().resolution, 2, [0.0; 4]) },
                     _ => unreachable!(),
@@ -167,6 +169,7 @@ impl Session {
             PartAction::PickColor | PartAction::PickMaterial => {
                 self.sample_material_at(target.texture_set, target.uv, action == PartAction::PickMaterial); return Ok(());
             }
+            PartAction::MaskByIdColor => return self.mask_selected_by_id_color(target.texture_set, target.uv),
             _ => {}
         }
         if matches!(action, PartAction::MaskLayer | PartAction::Generator(_)) && self.selection().texture_set != target.texture_set {

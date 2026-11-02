@@ -3074,6 +3074,31 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   channel screenshot). Not verified: clicking the SubCraft menu item in the desktop app (the launch
   path finder and banner are covered only by code and the headless UI test), PSDs from other
   editors, 4K stacks' memory/time.
+### Session 106 - Claude: ID Color Mask (2026-10-30)
+
+* **ID Color Mask (ADR-0041):** new mask effect `MaskEffectKind::IdColor` (picked colors, tolerance,
+  softness, invert) selecting texels of the baked ID map by Euclidean RGB distance on raw values.
+  Chosen over a `GeneratorKind` variant (Generator is `Copy`, its level/noise fields don't apply).
+  Per-tile local compositor kernel; without a baked ID map the effect is opaque black (also inverted)
+  and Properties shows a "No ID map baked" hint.
+* app: `Command::SetIdColors` (never coalesces: one undo step per pick/removal), `Session::pick_id_color`
+  (ray pick + point-sampled ID map at the hit UV), `remove_id_color`, `has_id_map`, `id_map_color`,
+  `mask_selected_by_id_color`; `LayerAction::IdColorMask`, `PartAction::MaskByIdColor`.
+* ui: Properties editor with swatches + remove buttons, "Pick from model" toggle (crosshair in the 3D
+  view, Esc stops, painting suppressed while picking), Tolerance/Softness/Invert; added to the Properties,
+  mask panel and effect-stack add menus, layer context menu "Add ID color mask", 3D-view context menu
+  "Mask by ID color".
+* Project **schema 15** (`id_color` mask effect; 14 in the PR, renumbered after our schema 14 filters); schemas 1-14 load unchanged (tested); Smart Mask
+  fragments carry it.
+* Tests: `cargo test --workspace --no-fail-fast` 642 pass (new: compositor id_color 4 with exact texel and
+  dirty-tile counts, doc 1, project 1, app id_color 2, ui id_color 1). `ui --test parts_view` flaked once
+  under the parallel run, passes alone.
+* Real app (release, RX 9060 XT / Dx12): `cargo run -p subcraft-app --example id_color_project` bakes the ID
+  map of the sample crate trim set and picks 3 colors through `pick_id_color` (657,598 / 1,048,576 texels
+  selected); `subcraft id.subcraft --screenshot` shows the orange fill only on the trim bands, posts and caps
+  unselected: `docs/screenshots/id-color-mask.png`.
+* NOT verified: clicking "Pick from model" / "Mask by ID color" with the real mouse in the desktop window
+  (covered through the app API and egui-input tests only).
 
 ## Next steps (in order)
 

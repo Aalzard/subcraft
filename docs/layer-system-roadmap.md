@@ -69,6 +69,9 @@ audit and official Adobe workflow references: ADR-0016. Completion below is upda
   tiling and projection parameters. Existing reusable Smart Materials and Smart Masks.
 - [~] Masks combine base painting and existing paint/fill/generator/levels/image/invert effects;
   Blur/Sharpen/Directional Blur/Highpass/Bevel/Mask Outline work in the same stack; remaining operations pending.
+- [x] ID Color Mask (ADR-0041): mask effect selecting baked ID map colors with tolerance/softness/
+  invert, 3D-view eyedropper (one undo step per pick), "Mask by ID color" context-menu shortcut,
+  black output + hint without an ID map, schema 14.
 - [ ] Compare Mask with current content/mask/lower-stack/constant inputs and tolerance controls.
 - [ ] Anchor stage outputs, reference picker/dependents, cycle/order validation and copy remapping.
 - [~] Schema-12 smart filter stacks round-trip; reference compatibility remains pending.

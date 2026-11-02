@@ -101,6 +101,7 @@ impl Writer {
                 MaskEffectKind::Image { resource, projection, invert } => {
                     MaskEffectKindV1::Image { resource: resource.0, projection: *projection, invert: *invert }
                 }
+                MaskEffectKind::IdColor(id) => MaskEffectKindV1::IdColor { id_color: id.clone() },
             },
         }
     }
@@ -392,6 +393,10 @@ impl<R: Read + Seek> Loader<'_, R> {
             MaskEffectKindV1::Invert => MaskEffectKind::Invert,
             MaskEffectKindV1::Image { resource, projection, invert } => {
                 MaskEffectKind::Image { resource: ResourceId(*resource), projection: *projection, invert: *invert }
+            }
+            MaskEffectKindV1::IdColor { id_color } => {
+                if !id_color.valid() { return Err(ProjectError::Invalid("invalid ID color mask".into())); }
+                MaskEffectKind::IdColor(id_color.clone())
             }
         };
         Ok(MaskEffect { id: EffectId(e.id), name: e.name.clone(), visible: e.visible, blend: e.blend, opacity: e.opacity, kind })
