@@ -302,6 +302,11 @@ impl Bvh {
 
     /// True if anything is hit in `(t_min, t_max)`.
     pub fn occluded(&self, origin: Vec3, dir: Vec3, t_min: f32, t_max: f32) -> bool {
+        self.occluded_filtered(origin, dir, t_min, t_max, |_| true)
+    }
+
+    /// True if a triangle accepted by `accept(tri)` is hit in `(t_min, t_max)`.
+    pub fn occluded_filtered(&self, origin: Vec3, dir: Vec3, t_min: f32, t_max: f32, accept: impl Fn(u32) -> bool) -> bool {
         if self.nodes.is_empty() {
             return false;
         }
@@ -314,7 +319,7 @@ impl Bvh {
             }
             if node.count > 0 {
                 for &t in &self.tri_ids[node.left_first as usize..(node.left_first + node.count) as usize] {
-                    if self.tri_hit(t, origin, dir, t_min, t_max).is_some() {
+                    if accept(t) && self.tri_hit(t, origin, dir, t_min, t_max).is_some() {
                         return true;
                     }
                 }
@@ -487,5 +492,18 @@ mod tests {
         let empty = Bvh::from_triangles(&tris[..10000]);
         assert!(empty.query_sphere(Vec3::ZERO, 1.0).is_empty());
         assert!(empty.intersect(Vec3::Z, -Vec3::Z, 0.0, 10.0).is_none());
+    }
+
+    #[test]
+    fn filtered_queries_skip_rejected_triangles_behind_them() {
+        // Two stacked triangles under a downward ray: 0 at z = 1 (closer), 1 at z = 0.
+        let tri = |z: f32| [Vec3::new(-1.0, -1.0, z), Vec3::new(1.0, -1.0, z), Vec3::new(0.0, 1.0, z)];
+        let bvh = Bvh::from_triangles(&[tri(1.0), tri(0.0)]);
+        let (o, d) = (Vec3::new(0.0, 0.0, 5.0), -Vec3::Z);
+        assert_eq!(bvh.intersect(o, d, 0.0, 10.0).unwrap().tri, 0);
+        assert_eq!(bvh.intersect_filtered(o, d, 0.0, 10.0, |t| t == 1).unwrap().tri, 1);
+        assert!(bvh.occluded_filtered(o, d, 0.0, 10.0, |t| t == 1));
+        assert!(!bvh.occluded_filtered(o, d, 0.0, 10.0, |_| false));
+        assert!(!bvh.occluded_filtered(o, d, 0.0, 4.5, |t| t == 1), "accepted triangle is beyond t_max");
     }
 }

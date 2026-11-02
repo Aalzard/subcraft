@@ -107,6 +107,10 @@ Turn off **Show this screen on startup** here or in **Edit → Preferences** if 
 Click **Bake** in the top bar (Ctrl+B). Start with curvature and ambient occlusion at 512 pixels;
 increase resolution and sample count once the material looks right. Wear and dirt masks use
 these maps. A normal bake from a high-poly model also needs a low-poly model with UVs.
+If parts of the model sit close together, set **Match** to **By mesh name** and name the parts
+`bolt_low` / `bolt_high` (suffixes are editable, case-insensitive; `_lo` / `_hi` also work), so a
+part only picks up detail from its own high-poly part. Parts without a match are listed in the
+Bake window and bake against the whole high poly.
 
 Inspect the results in **2D View**, using its map selector. Baking saves the maps in your project.
 

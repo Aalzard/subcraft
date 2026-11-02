@@ -75,6 +75,13 @@ fn main() -> anyhow::Result<()> {
             }
             "--bake-high" => options.bake_high_poly = Some(args.next().ok_or_else(|| anyhow::anyhow!("--bake-high expects a high-poly mesh path"))?.into()),
             "--bake-preview" => options.bake_preview_only = true,
+            "--bake-match" => {
+                options.bake_match = Some(match args.next().as_deref() {
+                    Some("always") => subcraft_app::BakeMatchMode::Always,
+                    Some("name") => subcraft_app::BakeMatchMode::ByName,
+                    _ => anyhow::bail!("--bake-match expects always or name"),
+                });
+            }
             "--bake-preview-map" => {
                 let name = args.next().ok_or_else(|| anyhow::anyhow!("--bake-preview-map expects a mesh-map key"))?;
                 options.bake_preview_map = Some(subcraft_app::MeshMapKind::ALL.into_iter().find(|k| k.key() == name)
@@ -106,7 +113,7 @@ fn main() -> anyhow::Result<()> {
                 options.autosave_interval = args.next().and_then(|s| s.parse::<f64>().ok()).map(std::time::Duration::from_secs_f64);
             }
             "-h" | "--help" => {
-                println!("usage: subcraft [project.subcraft | mesh file] [--demo] [--view-2d] [--brush-panel] [--bake-high mesh] [--bake-preview] [--bake-preview-map map_key] [--bake-size 256|512|1024|2048|4096] [--screenshot out.png] [--welcome] [--quick-start] [--guide-step 1..6] [--reset-layout] [--window-size WxH] [--camera yaw,pitch,zoom[,x,y,z]] [--scale 1.5] [--recover] [--autosave-interval seconds]");
+                println!("usage: subcraft [project.subcraft | mesh file] [--demo] [--view-2d] [--brush-panel] [--bake-high mesh] [--bake-preview] [--bake-preview-map map_key] [--bake-match always|name] [--bake-size 256|512|1024|2048|4096] [--screenshot out.png] [--welcome] [--quick-start] [--guide-step 1..6] [--reset-layout] [--window-size WxH] [--camera yaw,pitch,zoom[,x,y,z]] [--scale 1.5] [--recover] [--autosave-interval seconds]");
                 return Ok(());
             }
             path => options.mesh = Some(path.into()),

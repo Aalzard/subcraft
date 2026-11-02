@@ -48,7 +48,7 @@ pub use session::{BrushState, CompositeUpdate, DEFAULT_RESOLUTION, LayerTarget, 
 pub use subcraft_compositor::{Composite, composite_comps};
 pub use subcraft_assets as assets;
 pub use subcraft_bake::BakeSettings;
-pub use subcraft_core::MeshMapKind;
+pub use subcraft_core::{BakeMatch, BakeMatchMode, MeshMapKind};
 pub use subcraft_export::{ExportSettings, ExportTemplate, Padding};
 pub use subcraft_image::FileFormat;
 pub use subcraft_project::EXTENSION as PROJECT_EXTENSION;

@@ -36,4 +36,12 @@ pub struct ProjectSettings {
     pub export_solo_previous: Option<Vec<String>>,
     /// Put each UDIM tile's files in its own sub-folder (`1001/`, `1002/`...).
     pub udim_folders: bool,
+    /// High-poly bake part matching (Always / By mesh name + suffixes). Optional in the file:
+    /// absent = Always with `_low` / `_high`, so no schema bump is needed.
+    #[serde(skip_serializing_if = "is_default_match")]
+    pub bake_match: subcraft_core::BakeMatch,
+}
+
+fn is_default_match(m: &subcraft_core::BakeMatch) -> bool {
+    *m == subcraft_core::BakeMatch::default()
 }

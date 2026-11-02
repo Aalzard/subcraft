@@ -2952,6 +2952,34 @@ CPU engine tests only: `cargo test -p subcraft-core -p subcraft-image -p subcraf
   executable (`--screenshot`) on a cube project with nested folders and Dirt / Edges / Directional
   generators built through `Session` commands: `docs/screenshots/layers-folders-generators.png`.
   Not verified: real mouse clicks on the toolbar wand menu (covered by the egui event tests only).
+### Session 108 - Claude: Bake Match by Name (2026-10-30)
+
+* **Match: Always / By mesh name** in the Bake window, shown when a high poly is set, with
+  **Low / high suffix** fields (defaults `_low` / `_high`; case-insensitive; `_lo` / `_hi` always
+  accepted; a trailing `.001` counter is ignored). Stored as `ProjectSettings.bake_match`, which is an
+  optional field: it is left out of the file when it is default, so **no schema bump** (stays 13).
+  Data type `subcraft_core::BakeMatch`; `--bake-match always|name` for scripted runs.
+* `subcraft_bake::name_match::PartMatch`: part = object name (the mesh name when the file has no
+  objects). Equal base names form a group. The baker keeps the **one shared high-poly BVH** and
+  traverses it with a triangle filter (`intersect_filtered`, new `Bvh::occluded_filtered`).
+  Projection (Normal, World Normal, Height, ID), AO, Bent Normal and Thickness rays from a low part
+  only accept high triangles from its group. Position is sampled on the low poly, so it is
+  unaffected. Curvature keeps its existing element filter. Low parts without a group fall back to
+  Always. The job logs them and sends a notice, and the Bake window and status bar show it.
+* Tests: 643 pass (+9). Bake: a high-B plate overhanging low-A bleeds into A's Normal / World
+  Normal / Height / Thickness with Always, and By name gives exact flat values (normal 0.5,0.5,1 ±1e-3,
+  height 0.5, AO 1.0). A plate above the cage occludes A only with Always. An unmatched part gives
+  output identical to Always and is reported. Also covered: suffix parsing, mesh-name fallback,
+  filtered BVH queries. App: a real OBJ high poly through `BakeJob` gives an isolated panel, the
+  fallback part and its notice, and the setting survives save / reopen. UI: Match appears only with
+  a high poly, clicking By mesh name sets the project setting and shows the suffix fields, and
+  notices are drawn.
+* Native (release build, scripted 2-part OBJ scene, `--bake-match always|name --bake-size 512
+  --bake-preview-map normal_base --screenshot`): with Always, B's ridged plate shows as bands
+  on part A's baked normal. With By mesh name, A is flat. The dialog shows Match and the suffix
+  fields. I compared the screenshots by eye only (no pixel statistics).
+* NOT verified: typing in the suffix fields with a real mouse and keyboard, and a production
+  multi-part FBX/GLB with real object names.
 
 ## Next steps (in order)
 
@@ -3060,7 +3088,7 @@ Earlier roadmap details (historical; the brush phase order above takes precedenc
    materials / masks~~ (session 16); ~~shelf search and categories~~ (session 17);
    ~~brush presets~~ (session 18), ~~drag-and-drop from shelf~~ (session 19).
 3. Stencils / projection painting with an image; clone tool; smudge / blur filter layers.
-4. Bake follow-ups: per-material high-poly matching by name, cage mesh support, anti-aliased
+4. Bake follow-ups: ~~high-poly matching by name~~ (session 108), cage mesh support, anti-aliased
    (supersampled) bakes, GPU baking for large meshes.
 5. ~~Autosave~~ (session 28) + recent files; export presets saved per project; custom export templates editor.
 6. UI follow-ups: drag-and-drop layer reordering, inline rename, eyedropper, painting in the

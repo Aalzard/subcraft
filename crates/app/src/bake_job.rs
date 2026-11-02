@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, TryRecvError, channel};
 use std::sync::{Arc, Mutex};
 
+use subcraft_bake::name_match::PartMatch;
 use subcraft_bake::{BakeInput, BakeSettings, Geometry, MapReport, Progress, bake_streamed};
 use subcraft_core::{MeshMapKind, TextureSetId};
 use subcraft_image::TiledImage;
@@ -28,6 +29,8 @@ enum Message {
     Map(TextureSetId, MeshMapKind, TiledImage),
     Baked,
     Reports(Vec<MapReport>),
+    /// Something the owner should know that does not fail the bake (unmatched part names).
+    Notice(String),
     Failed(String),
     Finished,
 }
@@ -47,6 +50,7 @@ pub struct BakeJob {
     reports: Vec<MapReport>,
     /// Most recently installed complete map, for a transient viewport preview.
     pub latest_map: Option<(TextureSetId, MeshMapKind)>,
+    notices: Vec<String>,
 }
 
 impl Drop for BakeJob {
@@ -88,6 +92,13 @@ impl BakeJob {
             if p.is_cancelled() { let _ = tx.send(Message::Failed("bake cancelled".into())); let _ = tx.send(Message::Finished); return; }
             *st.lock().expect("stage lock") = "Building high-poly BVH".into();
             let high = high_mesh.map(|mesh| { let bvh = Bvh::build(&mesh); (mesh, bvh) });
+            if let Some((mesh, _)) = &high && let Some(parts) = PartMatch::new(&low, mesh, &request.settings.name_match) {
+                log::info!("bake match by name: {} group(s) {:?}; unmatched high parts {:?}", parts.groups.len(), parts.groups, parts.unmatched_high);
+                if let Some(report) = parts.report() {
+                    log::warn!("{report}");
+                    let _ = tx.send(Message::Notice(report));
+                }
+            }
             for (i, (ts, slot)) in request.texture_sets.iter().enumerate() {
                 *st.lock().expect("stage lock") = format!("Baking texture set {}/{}", i + 1, request.texture_sets.len());
                 let input = BakeInput {
@@ -113,7 +124,7 @@ impl BakeJob {
             }
             let _ = tx.send(Message::Finished);
         });
-        Self { progress, sets_done, sets_total, stage, rx, applied: 0, error: None, high_poly, low: scene, started: std::time::Instant::now(), elapsed: None, reports: Vec::new(), latest_map: None }
+        Self { progress, sets_done, sets_total, stage, rx, applied: 0, error: None, high_poly, low: scene, started: std::time::Instant::now(), elapsed: None, reports: Vec::new(), latest_map: None, notices: Vec::new() }
     }
 
     /// Overall progress 0..1.
@@ -142,6 +153,11 @@ impl BakeJob {
         if maps.is_empty() { String::new() } else { format!("{:.1} s total. {}", total.as_secs_f32(), maps.join("; ")) }
     }
 
+    /// Non-fatal notes received so far (e.g. low parts that found no high part by name).
+    pub fn notices(&self) -> &[String] {
+        &self.notices
+    }
+
     /// Apply finished texture sets to the session. Returns `Some(result)` once the job is over:
     /// the number of texture sets baked, or the first error.
     pub fn poll(&mut self, session: &mut Session) -> Option<Result<usize, String>> {
@@ -162,6 +178,7 @@ impl BakeJob {
                 }
                 Ok(Message::Baked) => self.applied += 1,
                 Ok(Message::Reports(r)) => self.reports.extend(r),
+                Ok(Message::Notice(note)) => self.notices.push(note),
                 Ok(Message::Failed(e)) => {
                     self.error.get_or_insert(e);
                 }
@@ -188,7 +205,7 @@ mod tests {
     fn queued_job(session: &Session, rx: Receiver<Message>) -> BakeJob {
         BakeJob { progress: Arc::new(Progress::new()), sets_done: Arc::new(AtomicUsize::new(0)),
             sets_total: 1, stage: Arc::new(Mutex::new(String::new())), rx, applied: 0, error: None, high_poly: false,
-            low: session.scene().mesh.clone(), started: std::time::Instant::now(), elapsed: None, reports: Vec::new(), latest_map: None }
+            low: session.scene().mesh.clone(), started: std::time::Instant::now(), elapsed: None, reports: Vec::new(), latest_map: None, notices: Vec::new() }
     }
 
     #[test]
@@ -267,7 +284,7 @@ mod tests {
         drop(tx);
         let mut job = BakeJob { progress: Arc::new(Progress::new()), sets_done: Arc::new(AtomicUsize::new(0)),
             sets_total: 1, stage: Arc::new(Mutex::new(String::new())), rx, applied: 0, error: None, high_poly: true,
-            low: session.scene().mesh.clone(), started: std::time::Instant::now(), elapsed: None, reports: Vec::new(), latest_map: None };
+            low: session.scene().mesh.clone(), started: std::time::Instant::now(), elapsed: None, reports: Vec::new(), latest_map: None, notices: Vec::new() };
         assert!(job.poll(&mut session).unwrap().unwrap_err().contains("stopped unexpectedly"));
     }
 }

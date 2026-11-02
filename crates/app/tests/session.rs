@@ -656,3 +656,61 @@ fn save_and_export_use_newest_document_while_worker_is_busy() {
         assert_eq!(s.composite(ts.id), reopened.composite(ts.id));
     }
 }
+
+#[test]
+fn bake_match_by_name_isolates_parts_reports_unmatched_ones_and_saves_with_the_project() {
+    use subcraft_app::{BakeRequest, BakeSettings, MeshMapKind};
+    use subcraft_core::{BakeMatch, BakeMatchMode};
+    use subcraft_mesh::{Corner, MeshBuilder};
+    // Low: Panel_low (x < 0, left UV half) and Clip_low (x > 0, right half), no high part named Clip.
+    let mut b = MeshBuilder::new("parts");
+    let m = b.material("Parts");
+    for (name, x0, u0) in [("Panel_low", -1.0f32, 0.02f32), ("Clip_low", 0.0, 0.52)] {
+        b.object(name);
+        let c = |x: f32, z: f32| Corner { position: Vec3::new(x, 0., z), normal: None,
+            uv: Some(Vec2::new(u0 + 0.46 * (x - x0), 0.02 + 0.96 * (z + 1.) / 2.)) };
+        b.push_triangle(m, [c(x0, -1.), c(x0, 1.), c(x0 + 1., 1.)]);
+        b.push_triangle(m, [c(x0, -1.), c(x0 + 1., 1.), c(x0 + 1., -1.)]);
+    }
+    let mut s = Session::new(b.build().unwrap(), 128);
+    let ts = s.selection().texture_set;
+    // High: Panel_high flat under the panel, and an unrelated sloped Shelf_high above both parts.
+    let dir = std::env::temp_dir().join(format!("subcraft-bake-match-{}", subcraft_core::LayerId::new()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let high = dir.join("parts_high.obj");
+    std::fs::write(&high, "o Panel_high\nv -1 0 -1\nv -1 0 1\nv 0 0 1\nv 0 0 -1\nf 1 2 3\nf 1 3 4\n\
+        o Shelf_high\nv -0.9 0.05 -0.9\nv -0.9 0.05 0.9\nv 0.9 0.15 0.9\nv 0.9 0.15 -0.9\nf 5 6 7\nf 5 7 8\n").unwrap();
+    let bake = |s: &mut Session, name_match: BakeMatch| {
+        let settings = BakeSettings { size: 128, maps: vec![MeshMapKind::Normal], cage_front: 0.1, name_match, ..Default::default() };
+        let mut job = s.start_bake(BakeRequest { settings, high_poly: Some(high.clone()), texture_sets: vec![(ts, 0)] });
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+        let result = loop {
+            if let Some(result) = job.poll(s) { break result; }
+            assert!(std::time::Instant::now() < deadline, "bake worker timed out");
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        };
+        assert_eq!(result, Ok(1));
+        let normal = s.mesh_maps(ts).unwrap().get(MeshMapKind::Normal).unwrap().clone();
+        (normal.get(32, 64), normal.get(96, 64), job.notices().to_vec())
+    };
+    let tilted = |n: [f32; 4]| (n[0] - 0.5).abs() + (n[1] - 0.5).abs() > 0.02;
+    let (panel, clip, notices) = bake(&mut s, BakeMatch::default());
+    assert!(tilted(panel) && tilted(clip), "Always: the shelf covers both parts {panel:?} {clip:?}");
+    assert!(notices.is_empty());
+    let (panel, clip, notices) = bake(&mut s, BakeMatch::by_name());
+    for c in 0..3 { assert!((panel[c] - [0.5, 0.5, 1.][c]).abs() < 1e-3, "By name: the panel sees only Panel_high {panel:?}"); }
+    assert!(tilted(clip), "Clip_low has no high part: it falls back to Always {clip:?}");
+    assert_eq!(notices.len(), 1);
+    assert!(notices[0].contains("Clip_low") && !notices[0].contains("Panel_low"), "{}", notices[0]);
+
+    // The dialog choice is a project setting: optional in the file, kept across save / reopen.
+    let mut settings = s.settings().clone();
+    settings.bake_match = BakeMatch { mode: BakeMatchMode::ByName, low_suffix: "_lp".into(), high_suffix: "_hp".into() };
+    s.set_settings(settings.clone());
+    assert!(s.is_modified());
+    let project = dir.join("match.subcraft");
+    s.save(Some(&project)).unwrap();
+    let reopened = Session::open_project(&project).unwrap();
+    assert_eq!(reopened.settings().bake_match, settings.bake_match);
+    std::fs::remove_dir_all(dir).unwrap();
+}

@@ -51,3 +51,12 @@ fully missed cages, partial-miss IDs, visible composite/export values, live reba
 undo/redo, exact save/reopen and partial failures. Headless UI tests exercise the actual Bake
 button and persistent error text. Native screenshots and manual verification limits are in
 progress.md. Mesh-name matching, custom cages and automatic alignment remain future work.
+
+Update (session 108): **Match by mesh name** is implemented. `ProjectSettings.bake_match`
+(optional field, absent = Always with `_low` / `_high`; no schema bump) selects Always or By mesh
+name plus the two suffixes. Part names (object, else mesh name) lose case, a trailing `.NNN`
+counter and the low/high suffix (`_lo` / `_hi` always accepted). Equal base names form a group;
+the baker traverses the one shared high-poly BVH with a triangle filter, so projection (Normal,
+World Normal, Height, ID) and occlusion/thickness/bent-normal rays from a low part only reach its
+group. Position is sampled on the low poly and is unaffected; Curvature keeps its element filter.
+Low parts with no high group fall back to Always and are reported in the log and Bake window.

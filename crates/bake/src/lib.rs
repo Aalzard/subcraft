@@ -11,8 +11,13 @@
 //! thickness (rays into the surface; bright = thin), height (signed distance to the high poly
 //! inside the cage, 0.5 flat) and bent normal (average open direction, tangent space). Gutters are padded from the nearest
 //! island texel.
+//!
+//! With [`subcraft_core::BakeMatchMode::ByName`], every ray against the high poly (projection,
+//! occlusion, bent normal, thickness) only accepts high triangles whose part matches the low
+//! part by name ([`name_match`]); the shared high-poly BVH is traversed with a triangle filter.
 
 pub mod curvature;
+pub mod name_match;
 pub mod surface;
 
 use std::collections::BTreeMap;
@@ -28,6 +33,7 @@ use subcraft_image::TiledImage;
 use subcraft_mesh::ray_batch::{BatchControl, CurvatureSurface, CurvatureTexel, NO_GROUP, RayBatchBackend, RayBatchError, RayMode, RayTexel, ray_backend};
 use subcraft_mesh::{Bvh, Mesh, topology};
 
+use name_match::PartMatch;
 use surface::{Texel, cosine_directions, hash01, texels};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -48,6 +54,8 @@ pub struct BakeSettings {
     /// Cast AO and thickness rays on the GPU when a ray backend is registered (falls back to the
     /// CPU on any error). The CPU result stays the reference.
     pub use_gpu: bool,
+    /// Which high-poly parts rays from each low-poly part may hit (see [`name_match`]).
+    pub name_match: subcraft_core::BakeMatch,
 }
 
 impl Default for BakeSettings {
@@ -63,6 +71,7 @@ impl Default for BakeSettings {
             cage_front: 0.01,
             cage_rear: 0.01,
             use_gpu: true,
+            name_match: subcraft_core::BakeMatch::default(),
         }
     }
 }
@@ -153,6 +162,8 @@ struct Detail {
     /// Signed distance from the low-poly point to the detail surface along the cage normal
     /// (positive = the detail stands above the low poly).
     height: f32,
+    /// Name-match group of the low part ([`NO_GROUP`]: rays hit every high part).
+    group: u32,
 }
 
 const CHUNK: usize = 2048;
@@ -192,21 +203,25 @@ pub fn bake_streamed_with(
     let detail_geo = input.high.unwrap_or(input.low);
     let diag = low.bounds.diagonal().max(detail_geo.mesh.bounds.diagonal()).max(1e-6);
     let bias = diag * 2e-4;
+    // By mesh name: rays from a low part only hit high triangles of its group.
+    let matching = input.high.and_then(|high| PartMatch::new(low, high.mesh, &settings.name_match));
+    let accepts = |group: u32, tri: u32| matching.as_ref().is_none_or(|m| m.accepts(group, tri));
 
     // Project onto the detail surface.
     let project = |t: &Texel| -> Detail {
+        let group = matching.as_ref().map_or(NO_GROUP, |m| m.low_group(t.tri));
         if let Some(high) = input.high {
             let front = settings.cage_front * diag;
             let rear = settings.cage_rear * diag;
             let n = t.normal.normalize_or(t.geometric_normal);
-            if let Some(hit) = high.bvh.intersect(t.position + n * front, -n, 0.0, front + rear) {
+            if let Some(hit) = high.bvh.intersect_filtered(t.position + n * front, -n, 0.0, front + rear, |tri| accepts(group, tri)) {
                 let sp = high.mesh.interpolate(hit.tri as usize, hit.u, hit.v);
                 let ng = sp.geometric_normal;
                 let normal = if sp.normal.dot(n) < 0.0 { -sp.normal } else { sp.normal };
-                return Detail { position: sp.position, normal, tri: Some(hit.tri), offset: if ng.dot(n) < 0.0 { -ng } else { ng }, height: front - hit.t };
+                return Detail { position: sp.position, normal, tri: Some(hit.tri), offset: if ng.dot(n) < 0.0 { -ng } else { ng }, height: front - hit.t, group };
             }
         }
-        Detail { position: t.position, normal: t.normal, tri: input.high.is_none().then_some(t.tri), offset: t.geometric_normal, height: 0.0 }
+        Detail { position: t.position, normal: t.normal, tri: input.high.is_none().then_some(t.tri), offset: t.geometric_normal, height: 0.0, group }
     };
 
     let wanted = |k: MeshMapKind| settings.maps.contains(&k);
@@ -274,7 +289,7 @@ pub fn bake_streamed_with(
                             continue;
                         }
                         counted += 1;
-                        if detail_geo.bvh.occluded(origin, *dir, 0.0, dist) {
+                        if detail_geo.bvh.occluded_filtered(origin, *dir, 0.0, dist, |tri| accepts(d.group, tri)) {
                             occluded += 1;
                         }
                     }
@@ -297,7 +312,7 @@ pub fn bake_streamed_with(
                     let dist = settings.ao_distance * diag;
                     let mut sum = Vec3::ZERO;
                     for dir in &dirs {
-                        if dir.dot(d.offset) > 0.0 && !detail_geo.bvh.occluded(origin, *dir, 0.0, dist) {
+                        if dir.dot(d.offset) > 0.0 && !detail_geo.bvh.occluded_filtered(origin, *dir, 0.0, dist, |tri| accepts(d.group, tri)) {
                             sum += *dir;
                         }
                     }
@@ -311,7 +326,7 @@ pub fn bake_streamed_with(
                     cosine_directions(-d.normal, settings.thickness_samples.max(1), hash01(t.index, 2), &mut dirs);
                     let origin = d.position - d.offset * bias;
                     let max = settings.thickness_distance * diag;
-                    let total: f32 = dirs.iter().map(|dir| detail_geo.bvh.intersect(origin, *dir, 0.0, max).map_or(max, |h| h.t)).sum();
+                    let total: f32 = dirs.iter().map(|dir| detail_geo.bvh.intersect_filtered(origin, *dir, 0.0, max, |tri| accepts(d.group, tri)).map_or(max, |h| h.t)).sum();
                     let avg = total / dirs.len() as f32 / max;
                     [1.0 - avg; 3]
                 }
@@ -323,7 +338,8 @@ pub fn bake_streamed_with(
         };
         let started = Instant::now();
         let mut backend = "CPU".to_string();
-        let backend_gpu = if settings.use_gpu { gpu_backend } else { None };
+        // The GPU ray kernels cannot filter hits by part, so name matching bakes AO and thickness on the CPU.
+        let backend_gpu = if settings.use_gpu && (matching.is_none() || kind == MeshMapKind::Curvature) { gpu_backend } else { None };
         // The GPU kernels need every texel's projection; low-on-low bakes derive it only now.
         let derived: Option<Vec<Detail>> = (backend_gpu.is_some() && details.is_none()).then(|| samples.par_iter().map(project).collect());
         let gpu_details = || details.as_deref().or(derived.as_deref()).unwrap_or(&[]);
@@ -466,3 +482,5 @@ fn gpu_ray_map(
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod match_tests;

@@ -121,6 +121,8 @@ pub struct LaunchOptions {
     /// Start a real high-to-low bake and show its dialog (also usable with --screenshot).
     pub bake_high_poly: Option<PathBuf>,
     pub bake_size: Option<u32>,
+    /// Bake part matching for this run (stored in the project settings like the dialog choice).
+    pub bake_match: Option<subcraft_core::BakeMatchMode>,
     /// Inspect the real high/low geometry before baking, without starting the bake.
     pub bake_preview_only: bool,
     /// Pin a completed map for reproducible native screenshot validation.
@@ -456,6 +458,12 @@ impl SubcraftApp {
             state.bake.open = true;
             state.bake.high_poly = high.display().to_string();
             if let Some(size) = options.bake_size { state.bake.settings.size = size; }
+            if let Some(mode) = options.bake_match {
+                let mut project = state.session.settings().clone();
+                project.bake_match.mode = mode;
+                state.session.set_settings(project);
+            }
+            state.bake.settings.name_match = state.session.settings().bake_match.clone();
             let texture_sets = state.session.document().texture_sets.iter().map(|t| (t.id, t.material_slot)).collect();
             if !options.bake_preview_only { state.bake.job = Some(state.session.start_bake(subcraft_app::BakeRequest {
                 settings: state.bake.settings.clone(), high_poly: Some(high.clone()), texture_sets,
