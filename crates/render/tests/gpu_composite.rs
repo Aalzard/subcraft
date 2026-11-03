@@ -9,7 +9,7 @@
 use std::sync::Arc;
 
 use subcraft_compositor::gpu::{self, take_gpu_stats};
-use subcraft_compositor::{Composite, EvalContext, composite_full};
+use subcraft_compositor::{Composite, CompositeCache, EvalContext, composite_full};
 use subcraft_core::{ChannelKind, ChannelValue, IRect};
 use subcraft_doc::{
     BlendMode, ContentEffect, ContentEffectKind, FillChannel, FillSource, Filter, Layer, LayerContent, Levels, Mask, MaskEffect,
@@ -296,4 +296,58 @@ fn gpu_results_are_repeatable_and_cache_hits_on_a_second_run() {
     let s2 = take_gpu_stats();
     assert_eq!(first, second, "same device, same input: identical output");
     assert!(s2.timing.cache_hits > 0 && s2.timing.cache_misses == 0, "second run should hit the tile cache: {s1:?} {s2:?}");
+}
+
+/// The interactive cache keeps CPU-evaluated blocks (procedural fill, mask with effects) on the GPU:
+/// an edit elsewhere re-blends them without evaluating them again, an edit of their own layer
+/// replaces them, and invalidation drops them. Every result must match the CPU reference.
+#[test]
+fn kept_blocks_follow_edits_and_invalidation() {
+    let _turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
+    if !adapter_ok() {
+        return;
+    }
+    let fx = Fixture { geo: TextureSetGeometry::new(Arc::new(primitives::plane(2.0, 2)), 0, RES), res: ResourceStore::default(), maps: MeshMaps::new() };
+    let ctx = EvalContext { geometry: &fx.geo, resources: &fx.res, mesh_maps: &fx.maps };
+    let check = |ts: &TextureSet, cache: &CompositeCache, what: &str| {
+        let cpu = run(ts, &fx, false);
+        let (worst, over, total) = compare(&cpu, cache.composite().unwrap());
+        println!("{what}: worst {worst:.2} units, {over}/{total} beyond");
+        assert!(worst <= 8.0, "{what}: worst error {worst} tolerance units");
+        assert!(over * 1000 <= total, "{what}: {over} of {total} beyond tolerance");
+    };
+    gpu::set_gpu_compositing_enabled(true);
+    let mut ts = rich_set();
+    let mut cache = CompositeCache::new();
+    let _ = take_gpu_stats();
+    cache.update(&ts, &ctx);
+    let s1 = take_gpu_stats();
+    assert!(s1.tiles > 0 && s1.timing.resident_hits == 0, "first update: {s1:?}");
+    check(&ts, &cache, "first update");
+
+    // Hide the bottom fill: the procedural layer and the effect mask are re-blended, not re-evaluated.
+    let bottom = ts.layers[0].id;
+    ts.find_mut(bottom).unwrap().visible = false;
+    cache.update(&ts, &ctx);
+    let s2 = take_gpu_stats();
+    assert!(s2.tiles > 0 && s2.timing.resident_hits > 0, "edit elsewhere should reuse kept blocks: {s2:?}");
+    check(&ts, &cache, "bottom layer hidden");
+
+    // Edit the procedural layer itself: its blocks are evaluated again (new layer, new identity).
+    let proc = ts.layers.iter().find(|l| l.name == "Proc").unwrap().id;
+    if let LayerContent::Fill(f) = &mut ts.find_mut(proc).unwrap().content {
+        if let Some(FillSource::Procedural { params, .. }) = f.channels.get_mut(&ChannelKind::BaseColor).map(|c| &mut c.source) {
+            params.scale = 11.0;
+        }
+    }
+    cache.update(&ts, &ctx);
+    let _ = take_gpu_stats();
+    check(&ts, &cache, "procedural layer edited");
+
+    // Invalidation (resources, mesh maps or geometry changed): nothing kept is used.
+    cache.invalidate();
+    cache.update(&ts, &ctx);
+    let s3 = take_gpu_stats();
+    assert!(s3.tiles > 0 && s3.timing.resident_hits == 0, "after invalidation: {s3:?}");
+    check(&ts, &cache, "after invalidation");
 }

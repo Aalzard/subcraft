@@ -155,9 +155,9 @@ fn describe(r: &Run) -> String {
         return format!("{:>8.0} ms, {} tiles (CPU)", r.total, r.tiles);
     }
     format!(
-        "{:>8.0} ms, {} tiles ({} on GPU): prep {:.0} + upload {:.0} + gpu {:.0} (kernels {:.0}) + readback {:.0} + store {:.0}; uploaded {} MB, cache {}/{} hit",
+        "{:>8.0} ms, {} tiles ({} on GPU): prep {:.0} + upload {:.0} + gpu {:.0} (kernels {:.0}) + readback {:.0} + store {:.0}; uploaded {} MB, cache {}/{} hit, {} kept blocks reused",
         r.total, r.tiles, s.tiles, s.prep_ms, s.timing.upload_ms, s.timing.gpu_ms, s.timing.kernel_ms, s.timing.readback_ms, s.apply_ms,
-        s.timing.uploaded_bytes >> 20, s.timing.cache_hits, s.timing.cache_hits + s.timing.cache_misses
+        s.timing.uploaded_bytes >> 20, s.timing.cache_hits, s.timing.cache_hits + s.timing.cache_misses, s.timing.resident_hits
     )
 }
 
@@ -228,6 +228,12 @@ fn main() {
     let mut s = subcraft_app::Session::new(mesh, res);
     let ids = scenes::build_stack(&mut s, layers);
     let ts = s.document().texture_sets[0].clone();
+    // `SUBCRAFT_BENCH_PAINT_ONLY=1` runs only the paint scene (quick re-measurement).
+    if std::env::var_os("SUBCRAFT_BENCH_PAINT_ONLY").is_some() {
+        drop(s);
+        bench_scene(&paint_stack(res, layers), res, reps);
+        return;
+    }
     let scene = Scene { name: "big_project_bench stack as shipped", top: *ids.last().unwrap(), mid: ids[ids.len() / 2], ts: ts.clone() };
     bench_scene(&scene, res, reps);
     let mut stripped = ts;

@@ -86,7 +86,7 @@ fn f16_at(slot: u32, e: u32) -> f32 {
     return select(v.x, v.y, (e & 1u) == 1u);
 }
 
-fn load_px(r: u32, texel: u32) -> vec4<f32> {
+fn load_px(r: u32, hi: u32, texel: u32) -> vec4<f32> {
     let k = r >> 28u;
     let idx = r & 0xFFFFFFu;
     let comps = (r >> 24u) & 15u;
@@ -105,6 +105,16 @@ fn load_px(r: u32, texel: u32) -> vec4<f32> {
     if k == 3u {
         return dyn_px[idx * TEXELS + texel];
     }
+    if k == 4u {
+        // Kept f32 block: texels 0..2047 in slot `idx`, 2048..4095 in slot `hi`.
+        let slot = select(idx, hi, texel >= TEXELS / 2u);
+        let w = (texel & (TEXELS / 2u - 1u)) * 4u;
+        return vec4<f32>(
+            bitcast<f32>(pool_word(slot, w)),
+            bitcast<f32>(pool_word(slot, w + 1u)),
+            bitcast<f32>(pool_word(slot, w + 2u)),
+            bitcast<f32>(pool_word(slot, w + 3u)));
+    }
     return vec4<f32>(0.0);
 }
 
@@ -120,6 +130,9 @@ fn load_mask(r: u32, texel: u32) -> f32 {
     }
     if k == 3u {
         return dyn_mask[idx * TEXELS + texel];
+    }
+    if k == 5u {
+        return bitcast<f32>(pool_word(idx, texel));
     }
     return 1.0;
 }
@@ -409,7 +422,7 @@ fn main(@builtin(workgroup_id) wg: vec3<u32>, @builtin(local_invocation_id) lid:
     var acc = P.default_value;
     var stack: array<vec4<f32>, 4>;
     var sp = 0u;
-    let rbase = P.refs_off + tile * P.nops * 2u;
+    let rbase = P.refs_off + tile * P.nops * 3u;
     for (var i = 0u; i < P.nops; i++) {
         let o = P.ops_off + i * 4u;
         let w0 = prog[o];
@@ -420,9 +433,9 @@ fn main(@builtin(workgroup_id) wg: vec3<u32>, @builtin(local_invocation_id) lid:
         let ef = prog[o + 2u];
         let en = prog[o + 3u];
         if kind == 0u {
-            var px = load_px(refs[rbase + i * 2u], texel);
+            var px = load_px(refs[rbase + i * 3u], refs[rbase + i * 3u + 2u], texel);
             px = run_effects(px, ef, en);
-            let m = load_mask(refs[rbase + i * 2u + 1u], texel);
+            let m = load_mask(refs[rbase + i * 3u + 1u], texel);
             let a = select(px.w, 1.0, mode == M_REPLACE) * opacity * m;
             acc = composite(acc, px.xyz, a, mode);
         } else if kind == 1u {
@@ -433,7 +446,7 @@ fn main(@builtin(workgroup_id) wg: vec3<u32>, @builtin(local_invocation_id) lid:
             sp -= 1u;
             let base = stack[sp];
             let inner = run_effects(acc, ef, en);
-            let m = load_mask(refs[rbase + i * 2u + 1u], texel);
+            let m = load_mask(refs[rbase + i * 3u + 1u], texel);
             if passthrough {
                 let f = clamp(opacity * m, 0.0, 1.0);
                 acc = base + (inner - base) * f;

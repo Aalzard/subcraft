@@ -95,6 +95,7 @@ impl CompositeCache {
     /// Force a full re-evaluation on the next update (resources, mesh maps or geometry changed).
     pub fn invalidate(&mut self) {
         self.force_all = true;
+        crate::gpu::forget_gpu_content();
     }
 
     /// Whether a budgeted update left tiles to evaluate (call again next frame).
@@ -125,6 +126,9 @@ impl CompositeCache {
             Dirty::All => crate::prefix::Change::Parameters,
             Dirty::Tiles(set) => crate::prefix::Change::Tiles(set),
         };
+        if matches!(change, crate::prefix::Change::Everything) {
+            crate::gpu::forget_gpu_content();
+        }
         self.prefix.sync(&ts.layers, graph_path, change);
         self.plan = self.prefix.plan(ts.layers.len(), ts.resolution.div_ceil(subcraft_image::TILE_SIZE).pow(2) as usize, &ts.channel_kinds().collect::<Vec<_>>());
         let composite = match (&mut self.composite, reusable) {

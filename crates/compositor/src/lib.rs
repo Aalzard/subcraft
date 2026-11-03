@@ -115,7 +115,7 @@ impl Composite {
             }
             _ => (tiles.to_vec(), Vec::new()),
         };
-        let (mut changed, left) = gpu::evaluate_tiles(self, ts, ctx, &gpu_tiles);
+        let (mut changed, left) = gpu::evaluate_tiles(self, ts, ctx, &gpu_tiles, prefix.is_some());
         cpu_tiles.extend(left);
         if cpu_tiles.is_empty() {
             return changed;
