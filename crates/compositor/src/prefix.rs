@@ -219,6 +219,12 @@ impl PrefixCache {
         (0..fit.min(boundaries)).filter_map(|m| (boundaries - 1).checked_sub(m * spacing)).collect()
     }
 
+    /// Whether some planned boundary holds every channel of `tile` (a resumable prefix).
+    pub(crate) fn covers(&self, kinds: &[ChannelKind], plan: &[usize], tile: usize) -> bool {
+        let i = self.lock();
+        plan.iter().any(|&j| kinds.iter().all(|&k| i.entries.contains_key(&key(k, j, tile))))
+    }
+
     pub(crate) fn get(&self, kind: ChannelKind, j: usize, tile: usize) -> Option<Arc<Packed>> {
         let mut i = self.lock();
         let k = key(kind, j, tile);

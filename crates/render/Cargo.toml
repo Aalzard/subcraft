@@ -12,6 +12,8 @@ workspace = true
 subcraft-core.workspace = true
 subcraft-image.workspace = true
 subcraft-mesh.workspace = true
+subcraft-doc.workspace = true
+subcraft-compositor.workspace = true
 glam.workspace = true
 half.workspace = true
 bytemuck.workspace = true
@@ -19,3 +21,10 @@ rayon.workspace = true
 egui-wgpu.workspace = true
 log.workspace = true
 pollster.workspace = true
+
+[dev-dependencies]
+subcraft-materials.workspace = true
+subcraft-app.workspace = true
+subcraft-paint.workspace = true
+subcraft-bake.workspace = true
+mimalloc.workspace = true

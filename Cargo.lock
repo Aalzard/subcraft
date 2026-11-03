@@ -4009,11 +4009,18 @@ dependencies = [
  "glam",
  "half",
  "log",
+ "mimalloc",
  "pollster 0.4.0",
  "rayon",
+ "subcraft-app",
+ "subcraft-bake",
+ "subcraft-compositor",
  "subcraft-core",
+ "subcraft-doc",
  "subcraft-image",
+ "subcraft-materials",
  "subcraft-mesh",
+ "subcraft-paint",
 ]
 
 [[package]]
@@ -4052,6 +4059,7 @@ dependencies = [
  "subcraft-app",
  "subcraft-assets",
  "subcraft-bake",
+ "subcraft-compositor",
  "subcraft-core",
  "subcraft-doc",
  "subcraft-export",

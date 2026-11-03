@@ -6,6 +6,7 @@
 //! procedural sky environment (analytic irradiance + split-sum approximation); ACES tone map;
 //! sRGB output.
 
+pub mod gpu_composite;
 pub mod gpu_mesh;
 pub mod grid;
 mod bake_preview;

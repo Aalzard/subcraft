@@ -8,6 +8,7 @@
 
 pub mod blend;
 pub mod cache;
+pub mod gpu;
 pub mod prefix;
 pub mod strength;
 pub mod mask;
@@ -105,7 +106,26 @@ impl Composite {
         cache: &stages::StageCache,
         prefix: Option<(&PrefixCache, &[usize])>,
     ) -> ChangedTiles {
-        self.evaluate_tiles_inner(ts, ctx, tiles, cache, prefix, 1.0, None)
+        // Optional GPU backend (ADR-0044): blends what it supports, the CPU evaluates the rest.
+        // A tile with a cached layer prefix is cheaper to resume on the CPU than to re-blend whole.
+        let (gpu_tiles, mut cpu_tiles): (Vec<usize>, Vec<usize>) = match prefix {
+            Some((p, plan)) if !plan.is_empty() => {
+                let kinds: Vec<ChannelKind> = ts.channel_kinds().collect();
+                tiles.iter().partition(|&&t| !p.covers(&kinds, plan, t))
+            }
+            _ => (tiles.to_vec(), Vec::new()),
+        };
+        let (mut changed, left) = gpu::evaluate_tiles(self, ts, ctx, &gpu_tiles);
+        cpu_tiles.extend(left);
+        if cpu_tiles.is_empty() {
+            return changed;
+        }
+        for (kind, tiles) in self.evaluate_tiles_inner(ts, ctx, &cpu_tiles, cache, prefix, 1.0, None) {
+            let entry = changed.entry(kind).or_default();
+            entry.extend(tiles);
+            entry.sort_unstable();
+        }
+        changed
     }
 
     /// Quick preview of `full` at `ts.resolution` (a fraction of the authored one): layers are

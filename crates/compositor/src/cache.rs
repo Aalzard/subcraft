@@ -175,7 +175,7 @@ impl CompositeCache {
                     batches += 1;
                     // Whole multiples of the thread count, at least one round per call.
                     let fit = if self.tile_ms > 0.0 { (left / self.tile_ms) as usize } else { threads };
-                    let n = fit.max(threads).div_ceil(threads) * threads;
+                    let n = fit.max(threads).max(crate::gpu::preferred_batch()).div_ceil(threads) * threads;
                     let batch: Vec<usize> =
                         self.pending.range(self.cursor..).chain(self.pending.range(..self.cursor)).copied().take(n).collect();
                     for t in &batch {
