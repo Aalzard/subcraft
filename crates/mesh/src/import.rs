@@ -1,4 +1,4 @@
-//! Mesh importers (OBJ, glTF/GLB, FBX, and the model inside a Substance Painter .spp). Each normalizes into [`MeshBuilder`] corners using the
+//! Mesh importers (OBJ, glTF/GLB, FBX, PLY, STL, and the model inside a Substance Painter .spp). Each normalizes into [`MeshBuilder`] corners using the
 //! canonical conventions; importer data structures never escape this module.
 
 use std::path::Path;
@@ -9,7 +9,7 @@ use crate::mesh::{BuildError, BuildStats, Corner, Mesh, MeshBuilder};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ImportError {
-    #[error("unsupported mesh format '.{0}' (supported: obj, gltf, glb, fbx, usd, usda, usdc, usdz, abc, spp)")]
+    #[error("unsupported mesh format '.{0}' (supported: obj, gltf, glb, fbx, usd, usda, usdc, usdz, abc, ply, stl, spp)")]
     UnsupportedFormat(String),
     #[error("failed to read OBJ: {0}")]
     Obj(String),
@@ -21,6 +21,10 @@ pub enum ImportError {
     Usd(String),
     #[error("failed to read Alembic: {0}")]
     Alembic(String),
+    #[error("failed to read PLY: {0}")]
+    Ply(String),
+    #[error("failed to read STL: {0}")]
+    Stl(String),
     #[error("failed to read Substance Painter project: {0}")]
     Spp(String),
     #[error(transparent)]
@@ -34,7 +38,7 @@ pub struct ImportReport {
     pub warnings: Vec<String>,
 }
 
-pub const SUPPORTED_EXTENSIONS: [&str; 10] = ["obj", "gltf", "glb", "fbx", "usd", "usda", "usdc", "usdz", "abc", "spp"];
+pub const SUPPORTED_EXTENSIONS: [&str; 12] = ["obj", "gltf", "glb", "fbx", "usd", "usda", "usdc", "usdz", "abc", "ply", "stl", "spp"];
 
 pub fn import_mesh(path: &Path) -> Result<ImportReport, ImportError> {
     import(path, false)
@@ -59,6 +63,8 @@ fn import(path: &Path, bake_source: bool) -> Result<ImportReport, ImportError> {
             let bytes = subcraft_core::vfs::read(path).map_err(|e| ImportError::Alembic(format!("{}: {e}", path.display())))?;
             crate::alembic::load(&bytes, &mut b, &mut warnings).map_err(ImportError::Alembic)?
         }
+        "ply" => crate::ply_stl::load_ply(path, &mut b, &mut warnings).map_err(ImportError::Ply)?,
+        "stl" => crate::ply_stl::load_stl(path, &mut b, &mut warnings).map_err(ImportError::Stl)?,
         "spp" => load_spp(path, &mut b, &mut warnings)?,
         other => return Err(ImportError::UnsupportedFormat(other.to_string())),
     }
@@ -389,7 +395,7 @@ mod tests {
 
     #[test]
     fn unsupported_extension() {
-        assert!(matches!(import_mesh(Path::new("x.stl")), Err(ImportError::UnsupportedFormat(_))));
+        assert!(matches!(import_mesh(Path::new("x.xyz")), Err(ImportError::UnsupportedFormat(_))));
     }
 
     fn base64_encode(data: &[u8]) -> String {

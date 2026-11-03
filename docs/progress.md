@@ -3823,3 +3823,13 @@ channels, mean abs difference over the UV triangles).
   `sheets file.sbsasm count`.
 * **Tests:** `cargo test --workspace --lib --bins --tests --no-fail-fast`: 865 passed, 0 failed (new: grain statistics at 256-2048,
   sheet layout, picker range, stencil tweaks; `spp_open` now expects the grain layer).
+
+### Session 115 - PLY and STL import (2026-11-03)
+
+Branch `claude/ply-stl-3ccf7a`, local. New hand-written readers in `crates/mesh/src/ply_stl.rs`, wired into `import.rs`, `SUPPORTED_EXTENSIONS` (now 12, so the file dialogs, New Project window and launch-argument classification pick them up), and the UI / CLI / README text.
+
+* **PLY:** ascii, binary little and big endian; any scalar types; x/y/z, normals, s/t or u/v UVs (v flipped like OBJ), per-face `texcoord` lists; quads and n-gons fan-triangulated; unknown elements skipped. List counts and element counts are checked against the bytes left, so truncated or hostile files return `ImportError::Ply`, never panic or over-allocate. Vertex colors are parsed but SubCraft meshes do not store them, so a warning says they are ignored.
+* **STL:** ascii and binary (a binary file whose header starts with "solid" is detected by size). Vertices are welded by exact position; corner normals average the neighbouring faces within 60 degrees, so scans are smooth and a CAD cube keeps hard edges (facet normals in the file are ignored). Truncated files, lying triangle counts and bad numbers are errors.
+* **No UVs:** both formats add the warning "no UVs, use auto unwrap or provide UVs". `import_mesh_for_baking` succeeds with it; the normal paint import still returns the existing `NoUvs` error (same behaviour as USD / Alembic), because the importer cannot unwrap yet. The warning is therefore only visible on the bake-source path until auto UV lands and relaxes that rule.
+* **Tests:** `crates/mesh/tests/ply_stl_import.rs` (8 tests: cube in ascii / LE / BE, UV flip, kept normals, n-gon with face texcoords, no-UV cases, pyramid and cube STL in both encodings, every truncation point of PLY and STL files, absurd counts, bad index). `cargo test -p subcraft-mesh --lib --tests`: all pass.
+* **Real app:** debug build, `subcraft.exe pyramid.ply --screenshot out.png` on an ascii PLY pyramid with UVs (quad base + 4 triangles): window opens with the mesh, status bar "6 tris", part "pyramid · Piece 1". Not run through the app: STL, binary PLY (covered by the tests above).
