@@ -137,6 +137,8 @@ pub struct LaunchOptions {
     pub reload_mesh: Option<PathBuf>,
     /// Mode for `reload_mesh`; `None` opens the window with the suggested mode for review.
     pub reload_mode: Option<subcraft_app::ReloadMode>,
+    /// Open Auto UV unwrap and run it with the default settings on start (scripted).
+    pub auto_uv: bool,
     /// Recover the newest crashed session without asking.
     pub recover: bool,
     /// Autosave interval instead of the preference (testing).
@@ -571,6 +573,11 @@ impl SubcraftApp {
             crate::mesh_reload::open(&mut state);
             state.welcome.open = false;
         }
+        if options.auto_uv {
+            state.auto_uv.auto = true;
+            crate::auto_uv::open(&mut state);
+            state.welcome.open = false;
+        }
         if let Some(model) = &options.new_project_model {
             state.new_project.show_window(&state.recovery.prefs.new_project.clone());
             state.new_project.load_model(model);
@@ -854,6 +861,10 @@ impl SubcraftApp {
                 if item(ui, icons::CUBE_WIRE, "Reload mesh…", "") {
                     ui.close();
                     crate::mesh_reload::open(&mut self.state);
+                }
+                if item(ui, icons::CUBE_WIRE, "Auto UV unwrap…", "") {
+                    ui.close();
+                    crate::auto_uv::open(&mut self.state);
                 }
                 if item(ui, icons::FOLDER_OPEN, "Open project…", crate::keys::native("Ctrl+O")) {
                     ui.close();
@@ -1346,6 +1357,7 @@ impl eframe::App for SubcraftApp {
         dialogs::export_window(&mut self.state, &ctx, now);
         dialogs::bake_window(&mut self.state, &ctx, now);
         crate::mesh_reload::window(&mut self.state, &ctx, now);
+        crate::auto_uv::window(&mut self.state, &ctx, now);
         dialogs::poll_bake(&mut self.state, &ctx, now);
         crate::spp_import::poll(&mut self.state, &ctx, now);
         crate::files::poll(&mut self.state, now);

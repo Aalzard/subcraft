@@ -21,14 +21,19 @@ pub struct LoadedModel {
 }
 
 impl LoadedModel {
-    pub fn load(path: &Path) -> Result<Self, String> {
+    pub fn load(path: &Path, unwrap_missing: bool) -> Result<Self, String> {
         // Accept models without UVs here so the dialog can explain; creating a project refuses them.
         let report = subcraft_mesh::import_mesh_for_baking(path).map_err(|e| e.to_string())?;
         if report.mesh.triangle_count() == 0 {
             return Err("the file has no triangles".into());
         }
-        let summary = summarize(&report.mesh, &report.warnings);
-        Ok(Self { path: path.to_path_buf(), mesh: report.mesh, summary })
+        let (mut mesh, mut warnings) = (report.mesh, report.warnings);
+        // A model without UVs is unwrapped here (Mesh > Auto UV unwrap redoes it with other settings).
+        if unwrap_missing {
+            mesh = subcraft_mesh::unwrap::unwrap_if_missing(mesh, &mut warnings);
+        }
+        let summary = summarize(&mesh, &warnings);
+        Ok(Self { path: path.to_path_buf(), mesh, summary })
     }
 }
 
@@ -53,7 +58,7 @@ impl NewProjectUi {
     }
 
     pub fn load_model(&mut self, path: &Path) {
-        match LoadedModel::load(path) {
+        match LoadedModel::load(path, true) {
             Ok(model) => {
                 self.error = None;
                 self.settings.resolution_overrides.clear();
@@ -64,7 +69,7 @@ impl NewProjectUi {
     }
 
     pub fn load_high_poly(&mut self, path: &Path) {
-        match LoadedModel::load(path) {
+        match LoadedModel::load(path, false) {
             Ok(model) => {
                 self.settings.high_poly = Some(path.to_path_buf());
                 self.high = Some(model);
@@ -159,7 +164,7 @@ fn model_section(ui: &mut Ui, np: &mut NewProjectUi, pick: &mut bool) {
             let text = np.model.as_ref().map_or("No model chosen".to_string(), |m| m.path.display().to_string());
             ui.add(egui::Label::new(RichText::new(text).color(if np.model.is_some() { theme::TEXT } else { TEXT_DIM })).truncate());
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button(if np.model.is_some() { "Change…" } else { "Choose model…" }).on_hover_text("OBJ, FBX, glTF, GLB, USD or Substance Painter .spp").clicked() {
+                if ui.button(if np.model.is_some() { "Change…" } else { "Choose model…" }).on_hover_text("OBJ, FBX, glTF, GLB, USD, PLY, STL or Substance Painter .spp").clicked() {
                     *pick = true;
                 }
             });
@@ -168,7 +173,7 @@ fn model_section(ui: &mut Ui, np: &mut NewProjectUi, pick: &mut bool) {
             summary_block(ui, &model.summary);
         } else {
             ui.add_space(4.0);
-            ui.label(RichText::new("OBJ, FBX, glTF, GLB, USD or Substance Painter .spp with UVs. You will see what is inside before anything is created.").color(TEXT_DIM));
+            ui.label(RichText::new("OBJ, FBX, glTF, GLB, USD, PLY, STL or Substance Painter .spp with UVs. You will see what is inside before anything is created.").color(TEXT_DIM));
         }
     });
 }

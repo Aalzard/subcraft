@@ -115,7 +115,7 @@ pub fn window(state: &mut UiState, ctx: &egui::Context, now: f64) {
         ui.add_enabled_ui(!busy, |ui| {
             ui.horizontal(|ui| {
                 ui.label(dim("Model"));
-                let edit = ui.add(egui::TextEdit::singleline(&mut r.path).hint_text("OBJ, FBX, glTF or GLB").desired_width(270.0));
+                let edit = ui.add(egui::TextEdit::singleline(&mut r.path).hint_text("OBJ, FBX, glTF, GLB, PLY or STL").desired_width(270.0));
                 if edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                     check = true;
                 }

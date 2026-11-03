@@ -48,6 +48,29 @@ fn error(a: &[f32], b: &[f32], comps: usize, cov: &[bool]) -> f64 {
     s / n.max(1) as f64
 }
 
+/// Texels not covered but within `r` texels (Chebyshev) of a covered one.
+fn outside_band(cov: &[bool], w: u32, h: u32, r: i32) -> Vec<bool> {
+    let (w, h) = (w as i32, h as i32);
+    let mut out = vec![false; cov.len()];
+    for y in 0..h {
+        for x in 0..w {
+            if cov[(y * w + x) as usize] {
+                continue;
+            }
+            'n: for dy in -r..=r {
+                for dx in -r..=r {
+                    let (nx, ny) = (x + dx, y + dy);
+                    if nx >= 0 && ny >= 0 && nx < w && ny < h && cov[(ny * w + nx) as usize] {
+                        out[(y * w + x) as usize] = true;
+                        break 'n;
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
 fn composite(session: &subcraft_app::Session, ts: &TextureSet) -> subcraft_compositor::Composite {
     let geometry = session.scene().geometry.get(ts.material_slot, ts.resolution);
     let empty = subcraft_materials::MeshMaps::default();
@@ -242,6 +265,65 @@ fn main() {
             let b = dense(r, comps);
             write_f32(dir, &format!("rebuilt_{kind:?}"), w, h, comps, &b, &mut index);
             println!("{kind:?}: mean abs difference {:.4}", error(&a, &b, comps, &cov));
+            // The padding: texels 1..=4 outside the islands (Chebyshev), where Painter's textures are dilated.
+            let band = outside_band(&cov, w, h, 4);
+            println!("{kind:?}: outside band (4 texels) {:.4} over {} texels", error(&a, &b, comps, &band), band.iter().filter(|v| **v).count());
+            // Per distance ring (1, 2..4 texels) and the means on both sides, to see what kind of gap it is.
+            let mean = |v: &[f32]| {
+                let (mut s, mut n) = (0.0f64, 0usize);
+                for (i, c) in band.iter().enumerate() {
+                    if *c {
+                        s += v[i * comps] as f64;
+                        n += 1;
+                    }
+                }
+                s / n.max(1) as f64
+            };
+            {
+                // The band split by distance to the islands: the rim the geometry keeps evaluated around
+                // islands is a few texels wide, and beyond it procedural layers have no surface position.
+                let mut inner = cov.clone();
+                let mut rings = Vec::new();
+                for d in 1..=4 {
+                    let grown = outside_band(&cov, w, h, d);
+                    let ring: Vec<bool> = grown.iter().zip(&inner).map(|(g, i)| *g && !*i).collect();
+                    for (i, g) in grown.iter().enumerate() {
+                        inner[i] = inner[i] || *g;
+                    }
+                    rings.push(format!("{d}: {:.4}", error(&a, &b, comps, &ring)));
+                }
+                println!("{kind:?}: band error by distance (texels) {}", rings.join(", "));
+            }
+            {
+                // References: how far Painter's own band is from a nearest-texel padding of its inside, and
+                // how far the rebuilt band is from a nearest-texel padding of the rebuilt inside.
+                let nearest = subcraft_image::dilate::nearest_covered(w as usize, h as usize, &cov);
+                let (mut pa, mut pb) = (a.clone(), b.clone());
+                subcraft_image::dilate::apply_nearest(comps, &mut pa, &cov, &nearest);
+                subcraft_image::dilate::apply_nearest(comps, &mut pb, &cov, &nearest);
+                println!("{kind:?}: band, Painter vs its inside padded {:.4}; rebuilt vs rebuilt inside padded {:.4}; rebuilt padded vs Painter {:.4}", error(&a, &pa, comps, &band), error(&b, &pb, comps, &band), error(&a, &pb, comps, &band));
+            }
+            if std::env::var_os("SUBCRAFT_LAB_WORST").is_some() {
+                // Where the band error sits: share of the band's error per 128x128 block, largest first.
+                let bs = 128usize;
+                let nb = (w as usize).div_ceil(bs);
+                let mut blocks = vec![(0.0f64, 0usize); nb * nb];
+                for (i, c) in band.iter().enumerate() {
+                    if *c {
+                        let (x, y) = (i % w as usize, i / w as usize);
+                        let e = (0..comps).map(|k| (a[i * comps + k] - b[i * comps + k]).abs() as f64).sum::<f64>() / comps as f64;
+                        let blk = &mut blocks[y / bs * nb + x / bs];
+                        blk.0 += e;
+                        blk.1 += 1;
+                    }
+                }
+                let mut order: Vec<usize> = (0..blocks.len()).filter(|&k| blocks[k].1 > 0).collect();
+                order.sort_by(|&p, &q| blocks[q].0.total_cmp(&blocks[p].0));
+                for &k in order.iter().take(4) {
+                    println!("  {kind:?} block x {} y {}: mean {:.3} over {} texels", k % nb * bs, k / nb * bs, blocks[k].0 / blocks[k].1 as f64, blocks[k].1);
+                }
+            }
+            println!("{kind:?}: band mean flattened {:.4} rebuilt {:.4}", mean(&a), mean(&b));
         }
     }
     if args.get(3).is_some_and(|a| a == "probe") {

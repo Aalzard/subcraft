@@ -1,6 +1,6 @@
 //! SubCraft application (desktop).
 //!
-//! Desktop usage: `subcraft [project.subcraft|mesh.obj|.gltf|.glb|.fbx|.abc|.usd|.usda|.usdc|.usdz|.spp] [--demo] [--view-2d] [--screenshot out.png]`
+//! Desktop usage: `subcraft [project.subcraft|mesh.obj|.gltf|.glb|.fbx|.abc|.usd|.usda|.usdc|.usdz|.ply|.stl|.spp] [--demo] [--view-2d] [--screenshot out.png]`
 
 // Packaged Windows builds open without a console window (logs then go nowhere; run a normal
 // build from a terminal to see them).
@@ -122,6 +122,7 @@ fn main() -> anyhow::Result<()> {
                     _ => anyhow::bail!("--reload-mode expects keep or reproject"),
                 })
             }
+            "--auto-uv" => options.auto_uv = true,
             "--test-crash" => options.test_crash = true,
             "--profile-edits" => {
                 let out = args.next().ok_or_else(|| anyhow::anyhow!("--profile-edits expects an output file"))?;

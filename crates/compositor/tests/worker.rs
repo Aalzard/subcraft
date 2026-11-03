@@ -56,7 +56,7 @@ fn with_level(ts: &TextureSet, moss: LayerId, level: f32) -> TextureSet {
 
 fn snapshot(ts: &TextureSet, geo: &Arc<TextureSetGeometry>) -> Snapshot {
     Snapshot {
-        sets: vec![SetSnapshot { texture_set: ts.clone(), geometry: geo.clone(), mesh_maps: MeshMaps::new() }],
+        sets: vec![SetSnapshot { texture_set: ts.clone(), geometry: geo.clone(), mesh_maps: MeshMaps::new(), preview_geometry: None }],
         resources: ResourceStore::default(),
         invalidate: BTreeSet::new(),
     }
@@ -192,4 +192,38 @@ fn resolution_and_channel_changes_replace_pending_tile_layouts() {
     w.submit(Snapshot::default());
     w.finish();
     assert!(w.idle());
+}
+
+#[test]
+fn quick_preview_precedes_and_exact_result_replaces_it() {
+    let mesh = Arc::new(primitives::cube(2.0));
+    let geo = Arc::new(TextureSetGeometry::new(mesh.clone(), 0, 1024));
+    let low = Arc::new(TextureSetGeometry::new(mesh, 0, 512));
+    let (ts, moss) = stack(1024);
+    let with_preview = |ts: &TextureSet| {
+        let mut s = snapshot(ts, &geo);
+        s.sets[0].preview_geometry = Some(low.clone());
+        s
+    };
+    assert_eq!(subcraft_compositor::preview_resolution(1024), Some(512));
+    assert_eq!(subcraft_compositor::preview_resolution(4096), Some(512));
+    assert_eq!(subcraft_compositor::preview_resolution(512), None);
+
+    let w = worker();
+    let a = with_level(&ts, moss, 0.3);
+    w.submit(with_preview(&a));
+    w.finish();
+    assert!(w.previews_published() >= 1, "the first composite starts with a quick preview");
+    let first = published(&w, ts.id);
+    assert_eq!(first.composite, full(&a, &geo), "the final composite is the exact one");
+    assert_eq!(uploaded(&Composite::new(&a), &first), first.composite, "every previewed tile is reported for upload");
+
+    let b = with_level(&ts, moss, 0.7);
+    w.submit(with_preview(&b));
+    w.finish();
+    assert!(w.previews_published() >= 2);
+    let second = published(&w, ts.id);
+    assert_eq!(second.composite, full(&b, &geo));
+    assert_eq!(uploaded(&first.composite, &second), second.composite);
+    assert!(w.idle() && !w.has_published());
 }

@@ -6,7 +6,9 @@
 //!
 //! `stages` is a list of letters (default `abcdg`): `a` full composite, `b` incremental edits,
 //! `c` open project, `d` save + load, `f` bake of the 7 mesh maps (always first when present),
-//! `g` memory. Set `SUBCRAFT_BENCH_BAKE=<size>` to bake the maps at another size than the set.
+//! `g` memory, `h` layer edits (visibility, opacity, blend mode, filter parameter at the bottom / middle /
+//! top of the stack; `SUBCRAFT_BENCH_REPS` repeats per case, default 2), `i` interactive feedback
+//! through the background worker (time until every stale tile was shown once, and until exact). Set `SUBCRAFT_BENCH_BAKE=<size>` to bake the maps at another size than the set.
 #![allow(unsafe_code)]
 use std::time::Instant;
 
@@ -192,6 +194,87 @@ fn composite_hash(s: &Session) -> u64 {
     h
 }
 
+/// Layer edits at three stack positions; each case alternates between two states so every
+/// repetition changes the document. Timings include `update_composites`.
+fn layer_edit_cases(s: &mut Session, ids: &[LayerId]) {
+    let reps: usize = std::env::var("SUBCRAFT_BENCH_REPS").ok().and_then(|v| v.parse().ok()).unwrap_or(2);
+    let top_level: Vec<LayerId> = s.document().texture_sets[0].layers.iter().map(|l| l.id).collect();
+    println!("(h) layer edits ({} top-level layers, {reps} reps per case; ms per edit):", top_level.len());
+    let places = [("bottom", 0), ("middle", top_level.len() / 2), ("top", top_level.len() - 1)];
+    let has_filter = |s: &Session, id: LayerId| {
+        s.document().texture_sets[0].find(id).is_some_and(|l| l.content_effects.iter().any(|e| matches!(e.kind, ContentEffectKind::Filter { filter: Filter::Blur { .. } | Filter::Sharpen { .. }, .. })))
+    };
+    let mut total = Vec::new();
+    for (place, at) in places {
+        let id = top_level[at];
+        // The nearest layer with a blur / sharpen content effect (the layer itself, or one in its folder).
+        let filter_layer = ids.iter().copied().filter(|l| has_filter(s, *l)).min_by_key(|l| {
+            let pos = top_level.iter().position(|t| *t == *l).or_else(|| ids.iter().position(|x| x == l).map(|p| p * top_level.len() / ids.len())).unwrap_or(0);
+            pos.abs_diff(at)
+        });
+        let mut line = |name: &str, f: &mut dyn FnMut(&mut Session, usize)| {
+            let mut v = Vec::new();
+            let mut tiles = 0;
+            for i in 0..reps {
+                let t = Instant::now();
+                f(s, i);
+                tiles = s.update_composites().iter().map(|u| u.tiles.len()).sum::<usize>();
+                v.push(ms(t));
+            }
+            let list: Vec<String> = v.iter().map(|x| format!("{x:.0}")).collect();
+            println!("    {place:<6} {name:<14} {} ms  ({tiles} tiles)", list.join(" / "));
+            total.push((place, name.to_string(), v));
+        };
+        line("visibility", &mut |s, i| run(s, Command::SetVisible { layer: id, visible: i % 2 == 1 }));
+        line("opacity", &mut |s, i| run(s, Command::SetBlendOpacity { layer: id, channel: ChannelKind::BaseColor, opacity: if i % 2 == 0 { 0.6 } else { 0.9 } }));
+        line("blend mode", &mut |s, i| run(s, Command::SetBlendMode { layer: id, channel: ChannelKind::BaseColor, mode: if i % 2 == 0 { BlendMode::Screen } else { BlendMode::Multiply } }));
+        if let Some(f) = filter_layer {
+            line("filter param", &mut |s, i| {
+                let layer = s.document().texture_sets[0].find(f).unwrap();
+                let eff = layer.content_effects.iter().find(|e| matches!(e.kind, ContentEffectKind::Filter { filter: Filter::Blur { .. } | Filter::Sharpen { .. }, .. })).unwrap();
+                let mut e = (**eff).clone();
+                if let ContentEffectKind::Filter { filter, .. } = &mut e.kind {
+                    match filter {
+                        Filter::Blur { radius } | Filter::Sharpen { radius, .. } => *radius = 4.5 + 2.0 * (i % 2) as f32,
+                        _ => {}
+                    }
+                }
+                run(s, Command::SetContentEffect { layer: f, effect: e });
+            });
+        }
+    }
+}
+
+/// Opacity edits through the background worker, as the UI drives it: time until every stale tile
+/// has been shown at least once (a quick preview counts), and until the exact result is done.
+fn interactive_feedback(s: &mut Session, ids: &[LayerId]) {
+    let top_level: Vec<LayerId> = s.document().texture_sets[0].layers.iter().map(|l| l.id).collect();
+    println!("(i) interactive feedback through the background worker (ms; first = whole image shown once, exact = idle):");
+    // Let the worker take over (it evaluates the pending state first).
+    s.update_composites_within(Some(std::time::Duration::from_millis(1)));
+    while s.composites_pending() { std::thread::sleep(std::time::Duration::from_millis(5)); s.update_composites_within(Some(std::time::Duration::from_millis(1))); }
+    let _ = ids;
+    for (place, at) in [("bottom", 0), ("middle", top_level.len() / 2), ("top", top_level.len() - 1)] {
+        let id = top_level[at];
+        let mut cases = Vec::new();
+        for i in 0..2 {
+            let t = Instant::now();
+            run(s, Command::SetBlendOpacity { layer: id, channel: ChannelKind::BaseColor, opacity: if i % 2 == 0 { 0.55 } else { 0.85 } });
+            let mut seen = std::collections::BTreeSet::new();
+            let mut first = None;
+            loop {
+                let ups = s.update_composites_within(Some(std::time::Duration::from_millis(1)));
+                for u in &ups { seen.extend(u.tiles.iter().copied()); }
+                if first.is_none() && seen.len() >= (s.document().texture_sets[0].resolution as usize / 64).pow(2) { first = Some(ms(t)); }
+                if !s.composites_pending() { break; }
+                std::thread::sleep(std::time::Duration::from_millis(2));
+            }
+            cases.push(format!("first {:.0} / exact {:.0}", first.unwrap_or(f64::NAN), ms(t)));
+        }
+        println!("    {place:<6} opacity  {}", cases.join("  |  "));
+    }
+}
+
 fn percentile(mut v: Vec<f64>, p: usize) -> f64 {
     v.sort_by(f64::total_cmp);
     v[(v.len() * p / 100).min(v.len() - 1)]
@@ -328,6 +411,15 @@ fn main() {
         }
         println!("    bottom-layer pattern change: p50 {:.0} ms, {tiles} tiles", percentile(v, 50));
         if std::env::var_os("SUBCRAFT_BENCH_HASH").is_some() { println!("    composite hash after edits {:016x}", composite_hash(&s)); }
+    }
+
+    if has('h') {
+        layer_edit_cases(&mut s, &ids);
+        let st = s.layer_cache_stats();
+        println!("    layer cache: {} entries, {} MB, {} hits / {} misses", st.entries, st.bytes >> 20, st.hits, st.misses);
+    }
+    if has('i') {
+        interactive_feedback(&mut s, &ids);
     }
 
     // (d)/(c) save, load.
