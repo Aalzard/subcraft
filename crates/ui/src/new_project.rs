@@ -21,14 +21,19 @@ pub struct LoadedModel {
 }
 
 impl LoadedModel {
-    pub fn load(path: &Path) -> Result<Self, String> {
+    pub fn load(path: &Path, unwrap_missing: bool) -> Result<Self, String> {
         // Accept models without UVs here so the dialog can explain; creating a project refuses them.
         let report = subcraft_mesh::import_mesh_for_baking(path).map_err(|e| e.to_string())?;
         if report.mesh.triangle_count() == 0 {
             return Err("the file has no triangles".into());
         }
-        let summary = summarize(&report.mesh, &report.warnings);
-        Ok(Self { path: path.to_path_buf(), mesh: report.mesh, summary })
+        let (mut mesh, mut warnings) = (report.mesh, report.warnings);
+        // A model without UVs is unwrapped here (Mesh > Auto UV unwrap redoes it with other settings).
+        if unwrap_missing {
+            mesh = subcraft_mesh::unwrap::unwrap_if_missing(mesh, &mut warnings);
+        }
+        let summary = summarize(&mesh, &warnings);
+        Ok(Self { path: path.to_path_buf(), mesh, summary })
     }
 }
 
@@ -53,7 +58,7 @@ impl NewProjectUi {
     }
 
     pub fn load_model(&mut self, path: &Path) {
-        match LoadedModel::load(path) {
+        match LoadedModel::load(path, true) {
             Ok(model) => {
                 self.error = None;
                 self.settings.resolution_overrides.clear();
@@ -64,7 +69,7 @@ impl NewProjectUi {
     }
 
     pub fn load_high_poly(&mut self, path: &Path) {
-        match LoadedModel::load(path) {
+        match LoadedModel::load(path, false) {
             Ok(model) => {
                 self.settings.high_poly = Some(path.to_path_buf());
                 self.high = Some(model);

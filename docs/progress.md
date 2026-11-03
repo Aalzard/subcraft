@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-11-02 (session 113: community pull requests by Rafael Mendes merged locally)
+Last updated: 2026-11-03 (automatic UV unwrapping)
 
 ## Decisions
 
@@ -3823,3 +3823,45 @@ channels, mean abs difference over the UV triangles).
   `sheets file.sbsasm count`.
 * **Tests:** `cargo test --workspace --lib --bins --tests --no-fail-fast`: 865 passed, 0 failed (new: grain statistics at 256-2048,
   sheet layout, picker range, stencil tweaks; `spp_open` now expects the grain layer).
+
+## Automatic UV unwrapping (2026-11-03)
+
+New `subcraft_mesh::unwrap` (hand-written, no new dependencies), used for models without UVs or with bad ones.
+
+* **Seams / charts:** triangles are welded by position; per material slot, charts grow from the lowest free triangle by a
+  priority queue (smallest normal deviation first). A triangle joins when its normal is within the *seam angle* (default 66 deg)
+  of the chart's average normal and of its neighbour. Non-manifold edges and edges whose two triangles disagree on winding are
+  always seams.
+* **Flattening:** least-squares conformal maps (two pinned vertices at the most distant pair, Jacobi-preconditioned conjugate
+  gradients, planar initial guess). A chart whose layout has a flipped triangle, a triangle stretched more than 4:1, or any
+  UV overlap is split in two (farthest-seed growing) and flattened again; one triangle is laid out isometrically, so it always
+  terminates. Optional *balance density* gives every chart the same UV area per surface area.
+* **Packing:** each chart is rotated to its minimum-area rectangle; rectangles plus the island margin are packed into 0..1 by
+  bisecting the largest uniform scale. Quality: Fast = shelf, Balanced = skyline, Best = skyline + quarter turns + three orders
+  and a finer scale search (above 3000 charts everything falls back to shelf). Each material slot is packed on its own
+  (separate texture sets). Margin is in texels of a chosen texture size (half of it also to the 0..1 border); with very many
+  charts it is reduced and the effective value is reported.
+* **Output:** same triangles, normals, materials, objects; vertices split along chart borders, MikkTSpace tangents recomputed.
+  Deterministic. `analyze_uvs` reports overlap, flipped, collapsed, outside 0..1 and stretch of any mesh.
+* **App / UI:** `Session::start_auto_uv` / `finish_auto_uv` / `auto_uv_unwrap` unwrap in the background and then run the mesh
+  reload *Reproject* transfer (ADR-0042), so paint layers, masks and baked maps follow the surface; the history is cleared
+  (mesh is not undoable) and the remembered model file stays the original. UI: File > Auto UV unwrap... (seam angle, island
+  margin, texture size, pack quality, balance density; shows the quality of the current UVs). A model with no UVs at all opens
+  already unwrapped with default settings (`Session::open_mesh`, New project dialog) and says so. `--auto-uv` runs the command
+  at start for scripted screenshots.
+* **Tests (new, all pass):** 12 unit tests (cube -> 6 charts, stretch 1.0; sphere, torus at all pack qualities, open tube,
+  several materials, margin/border respected, smaller angle -> more charts, determinism, degenerate + non-manifold + repeated
+  vertex + isolated triangle mesh without panic, NaN / empty input, analysis flags overlap) check zero overlap, all UVs in 0..1,
+  no flipped triangles, stretch <= 4; 2 app tests (painted cube unwrapped: color error < 0.05 at 3 points per triangle,
+  ids kept; UV-less OBJ opens unwrapped).
+* **Real app:** `subcraft torus_nouv.obj --view-2d --screenshot` (2304-triangle torus with a bulge, no vt/vn) opens unwrapped;
+  `--auto-uv` on it reports "9 chart(s), 2304 triangle(s), coverage 40%, stretch mean 1.03 / max 1.26 (before: 0 overlapping, 0
+  flipped, 0 collapsed, 0 outside 0..1)". Screenshots: `auto-uv-after.png`, `auto-uv-3d.png` in the shared notes folder.
+* **Limits:** packing is by bounding rectangles, so coverage is modest for ring-shaped charts (40% on that torus, above 60% on the cube);
+  no island-in-island fill. Charts are not merged afterwards, so noisy meshes give many small charts. LSCM is conformal: area
+  (texel density) varies inside a chart unless split; max stretch is bounded by the 4:1 split rule only. Hard-edge/sharp creases
+  below the seam angle are not cut. Sliver triangles (area < 1e-4 of mean) are ignored by the quality checks. Seams follow the
+  angle rule, not user-marked edges. The UV sphere primitive's own UVs run mirrored relative to the box/plane/torus convention
+  that the unwrapper follows (textures unmirrored seen from outside). A UV-less file is only auto-unwrapped through Session::open_mesh
+  and New project; File > Reload mesh still refuses it (unwrap the project instead).
+* **Run:** `cargo test --workspace --lib --bins --tests --no-fail-fast`: 879 passed, 0 failed (107 suites, includes the 14 new tests).

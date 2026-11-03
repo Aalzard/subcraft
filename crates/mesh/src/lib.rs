@@ -12,6 +12,7 @@ pub mod spp;
 pub mod tangent;
 pub mod topology;
 pub mod transfer;
+pub mod unwrap;
 pub mod uv_raster;
 mod usd_import;
 

@@ -98,11 +98,11 @@ struct ActiveStroke {
 
 pub struct Session {
     pub(crate) part_view: crate::part_workflow::PartView,
-    scene: Scene,
+    pub(crate) scene: Scene,
     resources: ResourceStore,
     mesh_maps: HashMap<TextureSetId, MeshMaps>,
     no_maps: MeshMaps,
-    history: History,
+    pub(crate) history: History,
     /// Live document: equals the current history entry except while a stroke is in progress.
     doc: Document,
     selection: Selection,
@@ -136,7 +136,7 @@ pub struct Session {
     /// Document as of the last save / load / new (for the unsaved-changes indicator).
     saved_doc: Document,
     /// Saved with the project but outside the undo history (export choices, normal format).
-    settings: subcraft_doc::ProjectSettings,
+    pub(crate) settings: subcraft_doc::ProjectSettings,
     saved_settings: subcraft_doc::ProjectSettings,
     /// Mesh maps changed (baked) since the last save.
     maps_dirty: bool,
@@ -413,10 +413,14 @@ impl Session {
         if path.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("spp")) {
             return Self::open_spp(path);
         }
-        let report = import_mesh(path).map_err(|e| e.to_string())?;
+        let mut report = match import_mesh(path) {
+            Err(subcraft_mesh::ImportError::Build(subcraft_mesh::mesh::BuildError::NoUvs)) => subcraft_mesh::import_mesh_for_baking(path).map_err(|e| e.to_string())?,
+            other => other.map_err(|e| e.to_string())?,
+        };
         if report.mesh.triangle_count() == 0 {
             return Err("mesh has no triangles".into());
         }
+        report.mesh = subcraft_mesh::unwrap::unwrap_if_missing(std::mem::take(&mut report.mesh), &mut report.warnings);
         let mut warnings = report.warnings;
         let tiles = report.mesh.udim_tiles(None).len();
         let mut session = if tiles > 1 {
@@ -485,7 +489,7 @@ impl Session {
         self.apply_mesh_reload(prepared, mode)
     }
 
-    fn mesh_map_set(&self) -> crate::mesh_reload::MapSet {
+    pub(crate) fn mesh_map_set(&self) -> crate::mesh_reload::MapSet {
         self.mesh_maps.iter().map(|(id, m)| (*id, m.as_map().clone())).collect()
     }
 

@@ -136,6 +136,7 @@ pub struct UiState {
     pub export: crate::dialogs::ExportUi,
     pub new_project: crate::new_project::NewProjectUi,
     pub mesh_reload: crate::mesh_reload::MeshReloadUi,
+    pub auto_uv: crate::auto_uv::AutoUvUi,
     /// Action waiting for the unsaved-changes prompt.
     pub confirm: Option<crate::dialogs::Pending>,
     /// The user already agreed to close without saving.
@@ -220,6 +221,7 @@ impl UiState {
             render_export: Default::default(),
             new_project: Default::default(),
             mesh_reload: Default::default(),
+            auto_uv: Default::default(),
             render_request: None,
             last_view_size: [1280, 720],
             uv: UvView { zoom: 1.0, offset: egui::Vec2::ZERO, source: PreviewSource::Channel(ChannelKind::BaseColor), texture: None, painting: false, last_point: None },
