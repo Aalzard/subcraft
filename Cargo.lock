@@ -3892,6 +3892,7 @@ dependencies = [
  "openusd-schemas",
  "rayon",
  "serde",
+ "serde_json",
  "subcraft-core",
  "thiserror 2.0.21",
  "tobj",

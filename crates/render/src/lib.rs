@@ -119,6 +119,8 @@ pub struct ViewParams {
     /// Show a raw baked map on the low-poly UVs without changing material textures.
     pub bake_map: Option<MeshMapKind>,
     pub symmetry_guides: bool,
+    /// Draw the polygon wireframe uploaded with `set_wireframe` over the model.
+    pub wireframe: bool,
     /// Tone mapping, bloom and ambient occlusion (defaults leave the image as before).
     pub post: PostParams,
 }
@@ -135,10 +137,15 @@ pub enum ViewMode {
     Metallic,
     Height,
     AmbientOcclusion,
+    /// Full shading, but the normal input is the baked tangent-space normal map instead of the
+    /// painted Normal channel (a flat normal until a bake exists).
+    BakedNormal,
+    /// The baked tangent-space normal map itself, unlit, on the model.
+    BakedNormalMap,
 }
 
 impl ViewMode {
-    pub const ALL: [ViewMode; 7] = [
+    pub const ALL: [ViewMode; 9] = [
         ViewMode::Material,
         ViewMode::BaseColor,
         ViewMode::Normal,
@@ -146,7 +153,19 @@ impl ViewMode {
         ViewMode::Metallic,
         ViewMode::Height,
         ViewMode::AmbientOcclusion,
+        ViewMode::BakedNormal,
+        ViewMode::BakedNormalMap,
     ];
+
+    /// Value of the shader's view-mode switch (0 = full shading). The baked-normal modes are
+    /// handled by the renderer: one shades normally with another bind group, the other previews
+    /// the baked map through the bake-map shader modes.
+    fn shader_mode(self) -> u32 {
+        match self {
+            ViewMode::BakedNormal | ViewMode::BakedNormalMap => 0,
+            m => m as u32,
+        }
+    }
 
     pub fn label(self) -> &'static str {
         match self {
@@ -157,6 +176,8 @@ impl ViewMode {
             ViewMode::Metallic => "Metallic",
             ViewMode::Height => "Height",
             ViewMode::AmbientOcclusion => "Ambient Occlusion",
+            ViewMode::BakedNormal => "Baked Normal (shaded)",
+            ViewMode::BakedNormalMap => "Baked Normal Map",
         }
     }
 }
@@ -178,7 +199,7 @@ impl ViewParams {
             antialias: true,
             view_mode: ViewMode::Material,
             grid: None,
-            bake_overlay: false, bake_cage: true, bake_distances: [0.01; 2], bake_map: None, symmetry_guides: false,
+            bake_overlay: false, bake_cage: true, bake_distances: [0.01; 2], bake_map: None, symmetry_guides: false, wireframe: false,
             post: PostParams::default(),
         }
     }
@@ -214,6 +235,7 @@ pub struct ViewportRenderer {
     pipeline_emissive: wgpu::RenderPipeline,
     grid: grid::GridPass,
     symmetry: Option<grid::GridPass>,
+    wireframe: Option<grid::GridPass>,
     bake_preview: bake_preview::BakePreviewPass,
     globals: wgpu::Buffer,
     globals_layout: wgpu::BindGroupLayout,
@@ -397,6 +419,7 @@ impl ViewportRenderer {
             pipeline_no_aa,
             grid: grid::GridPass::new(device),
             symmetry: None,
+            wireframe: None,
             bake_preview: bake_preview::BakePreviewPass::new(device),
             globals,
             globals_layout,
@@ -480,6 +503,14 @@ impl ViewportRenderer {
     pub fn set_symmetry_guides(&mut self, device: &wgpu::Device, lines: &[[Vec3; 2]]) {
         if lines.is_empty() { self.symmetry = None; return; }
         self.symmetry.get_or_insert_with(|| grid::GridPass::new_guides(device)).set_lines(device, lines);
+    }
+
+    /// Upload the wireframe lines (world space) with their linear color and opacity. Call again
+    /// when the lines, color or opacity change; an empty list removes the overlay.
+    pub fn set_wireframe(&mut self, device: &wgpu::Device, lines: &[[Vec3; 2]], color: [f32; 3], opacity: f32) {
+        if lines.is_empty() { self.wireframe = None; return; }
+        let rgba = [color[0], color[1], color[2], opacity.clamp(0.0, 1.0)];
+        self.wireframe.get_or_insert_with(|| grid::GridPass::new_guides(device)).set_lines_colored(device, lines, rgba);
     }
 
     /// Cache display geometry once, independently of the project's mesh and material textures.
@@ -578,7 +609,29 @@ impl ViewportRenderer {
             self.target = Some(RenderTarget::new(device, size, samples));
         }
         self.ensure_bind_groups(device);
-        if let Some(kind) = params.bake_map {
+        // "Baked Normal Map" is the bake-map preview of the Normal map.
+        let bake_map = params.bake_map.or((params.view_mode == ViewMode::BakedNormalMap).then_some(MeshMapKind::Normal));
+        // "Baked Normal (shaded)": the material's own bind group with the Normal slot swapped.
+        let mut baked_normal_groups: std::collections::HashMap<u32, wgpu::BindGroup> = Default::default();
+        if params.view_mode == ViewMode::BakedNormal && bake_map.is_none() {
+            for (slot, mat) in &self.materials {
+                let albedo_sampler = if mat.albedo_filter == subcraft_image::TextureFilter::Nearest { &self.nearest_sampler } else { &self.sampler };
+                let mut entries = vec![
+                    wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::Sampler(&self.sampler) },
+                    wgpu::BindGroupEntry { binding: 8, resource: wgpu::BindingResource::Sampler(albedo_sampler) },
+                ];
+                for (i, k) in SHADED_CHANNELS.iter().enumerate() {
+                    let view = if *k == ChannelKind::Normal {
+                        mat.mesh_maps.get(&MeshMapKind::Normal).map_or(&self.defaults[k].view, |t| &t.view)
+                    } else {
+                        mat.channels.get(k).map_or(&self.defaults[k].view, |t| &t.view)
+                    };
+                    entries.push(wgpu::BindGroupEntry { binding: i as u32 + 1, resource: wgpu::BindingResource::TextureView(view) });
+                }
+                baked_normal_groups.insert(*slot, device.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("baked normal material"), layout: &self.material_layout, entries: &entries }));
+            }
+        }
+        if let Some(kind) = bake_map {
             for mat in self.materials.values_mut() {
                 if mat.bake_bind_groups.contains_key(&kind) { continue; }
                 let neutral = ChannelTexture::constant(device, queue, {
@@ -617,12 +670,13 @@ impl ViewportRenderer {
             irr_down: v4(e.irradiance_down),
             lights: [e.panels, e.top, e.key_softbox, if e.use_hdri && self.env_levels > 1 { 1.0 } else { 0.0 }],
             env_misc: [e.rotation, e.hdri_intensity, (self.env_levels - 1) as f32,
-                params.bake_map.map_or(params.view_mode as u32 as f32, |k| if k.components() == 1 { 8. } else { 7. })],
+                bake_map.map_or(params.view_mode.shader_mode() as f32, |k| if k.components() == 1 { 8. } else { 7. })],
             post: [params.post.tone_map.id(), 0.0, 0.0, 0.0],
             sh,
         };
         queue.write_buffer(&self.globals, 0, bytemuck::bytes_of(&globals));
         if params.symmetry_guides && let Some(guides) = &self.symmetry { guides.prepare_lines(queue, params.proj * params.view); }
+        if params.wireframe && let Some(wire) = &self.wireframe { wire.prepare_lines(queue, params.proj * params.view); }
         if params.bake_overlay {
             self.bake_preview.prepare(queue, params.proj * params.view, params.bake_distances);
         }
@@ -663,8 +717,9 @@ impl ViewportRenderer {
                 pass.set_vertex_buffer(0, mesh.vertices.slice(..));
                 pass.set_index_buffer(mesh.indices.slice(..), wgpu::IndexFormat::Uint32);
                 for r in &mesh.ranges {
-                    let Some(bg) = self.materials.get(&r.material_slot).and_then(|m| match params.bake_map {
-                        Some(k) => m.bake_bind_groups.get(&k), None => m.bind_group.as_ref(),
+                    let Some(bg) = self.materials.get(&r.material_slot).and_then(|m| match bake_map {
+                        Some(k) => m.bake_bind_groups.get(&k),
+                        None => baked_normal_groups.get(&r.material_slot).or(m.bind_group.as_ref()),
                     }) else { continue };
                     pass.set_bind_group(1, bg, &[]);
                     pass.draw_indexed(r.first_index..r.first_index + r.index_count, 0, 0..1);
@@ -675,6 +730,7 @@ impl ViewportRenderer {
                 self.grid.draw(&mut pass, params.antialias);
             }
             if params.symmetry_guides && let Some(guides) = &self.symmetry { guides.draw(&mut pass, params.antialias); }
+            if params.wireframe && let Some(wire) = &self.wireframe { wire.draw(&mut pass, params.antialias); }
         }
         // Glow and glare only exist where the model has an Emissive channel to draw.
         let has_emission = self.materials.values().any(|m| m.channels.contains_key(&ChannelKind::Emissive));
