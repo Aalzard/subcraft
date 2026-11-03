@@ -427,13 +427,13 @@ pub fn transfer(prepared: &PreparedReload, mode: ReloadMode, old_bvh: &Bvh, old_
     })
 }
 
-/// Turn pen-path layers into ordinary paint layers (their anchors are UVs of the old layout;
+/// Turn pen-path and text layers into ordinary paint layers (their anchors are UVs of the old layout;
 /// the transferred raster is kept).
 fn drop_pen_paths(layers: &mut [Arc<Layer>]) -> usize {
     let mut n = 0;
     for layer in layers {
         let has = match &layer.content {
-            LayerContent::Paint(p) => p.path.is_some(),
+            LayerContent::Paint(p) => p.path.is_some() || p.text.is_some(),
             LayerContent::Group(g) => !g.children.is_empty(),
             LayerContent::Fill(_) => false,
         };
@@ -444,6 +444,7 @@ fn drop_pen_paths(layers: &mut [Arc<Layer>]) -> usize {
         match &mut l.content {
             LayerContent::Paint(p) => {
                 p.path = None;
+                p.text = None; // text decals are placed in the old UV layout: keep the raster only
                 n += 1;
             }
             LayerContent::Group(g) => n += drop_pen_paths(&mut g.children),

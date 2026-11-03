@@ -29,6 +29,7 @@ pub mod photocraft;
 pub mod recovery;
 pub mod session;
 pub mod spp_cache;
+pub mod text;
 pub mod spp_fit;
 pub mod spp_import;
 pub mod spp_job;

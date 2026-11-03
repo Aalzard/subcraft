@@ -24,6 +24,7 @@ subcraft-bake.workspace = true
 subcraft-project.workspace = true
 subcraft-export.workspace = true
 subcraft-assets.workspace = true
+subcraft-text.workspace = true
 glam.workspace = true
 serde.workspace = true
 serde_json.workspace = true

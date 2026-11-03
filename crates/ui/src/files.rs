@@ -23,6 +23,8 @@ pub enum Purpose {
     ReloadMesh,
     BakeHighPoly,
     Stencil,
+    /// A `.ttf` / `.otf` font for the text tool.
+    Font,
     TextureSet,
     /// `.scsmart` files and texture images to import as smart materials.
     SmartMaterials,
@@ -45,6 +47,7 @@ pub const SMART_MATERIALS: (&str, &[&str]) = ("Smart materials and textures", &[
 pub const IMAGES: (&str, &[&str]) = ("Images", &subcraft_image::IMAGE_EXTENSIONS);
 pub const MESHES: (&str, &[&str]) = ("Meshes", &subcraft_mesh::SUPPORTED_EXTENSIONS);
 pub const PROJECTS: (&str, &[&str]) = ("SubCraft project", &[subcraft_app::PROJECT_EXTENSION]);
+pub const FONTS: (&str, &[&str]) = ("Fonts", &["ttf", "otf", "ttc"]);
 pub const ALPHAS: (&str, &[&str]) = ("Images", &["png", "jpg", "jpeg", "tga", "tif", "tiff", "exr"]);
 pub const PANORAMAS: (&str, &[&str]) = ("Panoramas", &["hdr", "exr", "png", "jpg", "jpeg"]);
 
@@ -178,6 +181,19 @@ fn handle(state: &mut UiState, purpose: Purpose, paths: &[PathBuf], now: f64) {
         Purpose::Stencil => match subcraft_image::load_bitmap(first) {
             Ok(bmp) => state.session.brush.stencil = Some(std::sync::Arc::new(subcraft_paint::Stencil::new(std::sync::Arc::new(bmp)))),
             Err(e) => state.set_status(format!("Stencil: {e}"), now),
+        },
+        Purpose::Font => match state.session.import_font(first) {
+            Ok(font) => {
+                if let Some(d) = state.text.edit.as_mut() { d.font = font.clone(); }
+                if let Some(d) = state.text.draft.as_mut() { d.font = font.clone(); }
+                // Editing a text layer: apply the new font straight away.
+                if let Some(d) = state.text.edit.clone() && state.session.selected_text().is_some() {
+                    if let Err(e) = state.session.update_selected_text(d) { state.set_status(format!("Text: {e}"), now); }
+                } else {
+                    state.set_status("Font added to the project", now);
+                }
+            }
+            Err(e) => state.set_status(format!("Font: {e}"), now),
         },
         Purpose::TextureSet => match state.session.import_texture_set(paths) {
             Ok(r) => {

@@ -20,6 +20,7 @@ pub mod orbit;
 pub mod render_export;
 pub mod pen;
 pub mod pen_input;
+pub mod text_panel;
 pub mod panels;
 pub mod recovery;
 pub mod spp_import;

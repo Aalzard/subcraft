@@ -90,6 +90,7 @@ pub struct UiState {
     pub gpu_dirty: bool,
     pub tool: Tool,
     pub pen: subcraft_app::pen::PenEditor,
+    pub text: crate::text_panel::TextUi,
     pub pen_after: Option<crate::pen::After>,
     pub fill_mode: PolygonFillMode,
     /// Channel whose blend mode/opacity the layer stack shows.
@@ -221,6 +222,7 @@ impl UiState {
             gpu_dirty: true,
             tool,
             pen: Default::default(),
+            text: Default::default(),
             pen_after: None,
             fill_mode: PolygonFillMode::UvIsland,
             active_channel: ChannelKind::BaseColor,

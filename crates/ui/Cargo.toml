@@ -22,6 +22,7 @@ subcraft-paint.workspace = true
 subcraft-bake.workspace = true
 subcraft-export.workspace = true
 subcraft-assets.workspace = true
+subcraft-text.workspace = true
 subcraft-render.workspace = true
 subcraft-app.workspace = true
 glam.workspace = true

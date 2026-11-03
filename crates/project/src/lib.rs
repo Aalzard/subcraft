@@ -143,6 +143,11 @@ impl Writer {
                     closed: path.closed, radius: path.radius, hardness: path.hardness, opacity: path.opacity,
                     values: path.values.iter().map(|(&channel, value)| PenChannelV4 { channel, value: value.0 }).collect(),
                 }),
+                text: p.text.as_ref().map(|t| TextLayerV16 {
+                    text: t.style.text.clone(), font: t.font.clone(), letter_spacing: t.style.letter_spacing, line_spacing: t.style.line_spacing,
+                    align: t.style.align, direction: t.style.direction, center: t.center.to_array(), size: t.size, rotation: t.rotation, opacity: t.opacity,
+                    values: t.values.iter().map(|(&channel, value)| PenChannelV4 { channel, value: value.0 }).collect(),
+                }),
             },
             LayerContent::Fill(f) => ContentV1::Fill { projection: f.projection, channels: fill_channels(f) },
             LayerContent::Group(g) => ContentV1::Folder { expanded: g.expanded, children: g.children.iter().map(|c| self.layer(c)).collect() },
@@ -251,7 +256,7 @@ fn pack_resources(ids: &[ResourceId], resources: &ResourceStore) -> (Vec<Resourc
         };
         // By content, so re-saving a loaded project keeps the extension (TGA falls back to the name).
         let hint = r.source_path.as_deref().and_then(|p| p.to_str()).unwrap_or(&r.name);
-        let ext = subcraft_image::guess_extension(bytes, Some(hint));
+        let ext = if r.kind == subcraft_doc::ResourceKind::Font { font_extension(bytes).to_string() } else { subcraft_image::guess_extension(bytes, Some(hint)) };
         let file = format!("resources/{}.{ext}", id.0);
         entries.push(ResourceV1 { id: id.0, name: r.name.clone(), kind: r.kind, file: file.clone() });
         files.push((file, bytes.clone()));
@@ -300,12 +305,24 @@ fn write_payload<W: Write + Seek>(
     Ok(())
 }
 
+fn font_extension(bytes: &[u8]) -> &'static str {
+    match bytes.get(..4) {
+        Some(b"OTTO") => "otf",
+        Some(b"ttcf") => "ttc",
+        _ => "ttf",
+    }
+}
+
 fn unpack_resources<R: Read + Seek>(loader: &mut Loader<'_, R>, entries: &[ResourceV1]) -> Result<ResourceStore, ProjectError> {
     let mut resources = ResourceStore::default();
     for r in entries {
         let bytes = loader.bytes(&r.file)?;
-        let bitmap = subcraft_image::io::decode_bitmap(&bytes, Some(&r.file))
-            .map_err(|e| ProjectError::Invalid(format!("resource {}: {e}", r.name)))?;
+        let bitmap = if r.kind == subcraft_doc::ResourceKind::Font {
+            subcraft_text::Font::from_bytes(Arc::new(bytes.clone()), 0).map_err(|e| ProjectError::Invalid(format!("font {}: {e}", r.name)))?;
+            subcraft_image::Bitmap::new_f32(1, 1, 1, vec![0.0])
+        } else {
+            subcraft_image::io::decode_bitmap(&bytes, Some(&r.file)).map_err(|e| ProjectError::Invalid(format!("resource {}: {e}", r.name)))?
+        };
         resources.insert(Resource {
             id: ResourceId(r.id),
             name: r.name.clone(),
@@ -460,8 +477,19 @@ impl<R: Read + Seek> Loader<'_, R> {
             }
         };
         let content = match &l.content {
-            ContentV1::Paint { channels, path } => {
+            ContentV1::Paint { channels, path, text } => {
                 let mut p = PaintContent::default();
+                if let Some(t) = text {
+                    if path.is_some() { return Err(ProjectError::Invalid("a layer cannot be both a pen path and text".into())); }
+                    let decal = subcraft_doc::TextDecal {
+                        style: subcraft_text::TextStyle { text: t.text.clone(), letter_spacing: t.letter_spacing, line_spacing: t.line_spacing, align: t.align, direction: t.direction },
+                        font: t.font.clone(), center: t.center.into(), size: t.size, rotation: t.rotation, opacity: t.opacity,
+                        values: t.values.iter().map(|v| (v.channel, subcraft_core::ChannelValue(v.value))).collect(),
+                    };
+                    decal.validate().map_err(|e| ProjectError::Invalid(e.into()))?;
+                    if decal.values.len() != t.values.len() { return Err(ProjectError::Invalid("duplicate text channels".into())); }
+                    p.text = Some(decal);
+                }
                 if let Some(path) = path {
                     let source = subcraft_doc::PenPath {
                         anchors: path.anchors.iter().map(|a| subcraft_doc::PenAnchor { id: subcraft_core::AnchorId(a.id), position: a.position.into(), incoming: a.incoming.into(), outgoing: a.outgoing.into() }).collect(),

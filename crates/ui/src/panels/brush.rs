@@ -52,6 +52,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 hint(ui, "Saved presets appear first in Shelf › Brushes.");
             });
 
+            let now = ui.input(|i| i.time);
+            crate::text_panel::show(state, ui, now);
+
             section(ui, "stencil", "Stencil", false, |ui| {
                 ui.horizontal(|ui| {
                     if ui.button(format!("{}  Choose image…", crate::icons::IMAGE)).clicked() {

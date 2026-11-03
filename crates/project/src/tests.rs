@@ -391,7 +391,7 @@ fn content_effects_roundtrip_exactly_with_schema_5() {
     let mut json = String::new();
     zip.by_name("document.json").unwrap().read_to_string(&mut json).unwrap();
     assert!(json.contains("\"content_effects\"") && json.contains("\"type\": \"levels\""), "{json}");
-    assert_eq!(SCHEMA_VERSION, 15);
+    assert_eq!(SCHEMA_VERSION, 16);
     assert_eq!(read_project(Cursor::new(bytes)).unwrap().document, doc, "effect ids, order, blends, rasters survive");
 }
 
@@ -487,7 +487,7 @@ fn loader_rejects_filters_with_invalid_domains_or_parameters() {
 #[test]
 fn neighborhood_filters_keep_their_original_json() {
     use subcraft_doc::Filter;
-    assert_eq!(SCHEMA_VERSION,15);
+    assert_eq!(SCHEMA_VERSION,16);
     assert_eq!(serde_json::to_string(&Filter::Blur {radius:4.0}).unwrap(),r#"{"kind":"blur","radius":4.0}"#);
     assert_eq!(serde_json::to_string(&Filter::Sharpen {radius:2.0,amount:1.5}).unwrap(),r#"{"kind":"sharpen","radius":2.0,"amount":1.5}"#);
 }
@@ -678,4 +678,60 @@ fn generator_axis_and_concave_kind_round_trip_and_old_files_default_to_y() {
     let c = Generator::new(GeneratorKind::Concave);
     assert_eq!(serde_json::to_value(c).unwrap()["kind"], "concave");
     assert_eq!(serde_json::from_value::<Generator>(serde_json::to_value(c).unwrap()).unwrap(), c);
+}
+
+#[test]
+fn text_layers_roundtrip_with_embedded_font_and_old_schemas_have_none() {
+    use subcraft_doc::{Resource, ResourceKind, TextDecal};
+    use subcraft_text::{Align, Direction, FontRef};
+    let mut ts = TextureSet::new("Body", 0, 128);
+    let mut layer = Layer::new_paint("Text: Hello", &ts);
+    let font_id = subcraft_core::ResourceId::new();
+    let mut resources = ResourceStore::default();
+    let bytes = Arc::new(subcraft_text::BUNDLED_FONTS[2].1.to_vec());
+    resources.insert(Resource { id: font_id, name: "DejaVu Serif (x.ttf)".into(), kind: ResourceKind::Font, bitmap: Arc::new(subcraft_image::Bitmap::new_f32(1, 1, 1, vec![0.0])), source_path: None, encoded: Some(bytes.clone()) });
+    let mut decal = TextDecal::new("Hello\nمرحبا", glam::Vec2::new(0.3, 0.6), [(ChannelKind::BaseColor, ChannelValue::rgb(0.1, 0.2, 0.3))].into());
+    decal.font = FontRef::Embedded { resource: font_id };
+    decal.style.align = Align::Center;
+    decal.style.direction = Direction::Rtl;
+    decal.style.letter_spacing = 0.1;
+    decal.size = 0.2; decal.rotation = 0.5; decal.opacity = 0.75;
+    if let LayerContent::Paint(p) = &mut layer.content { p.text = Some(decal.clone()); }
+    ts.insert_above(None, layer);
+    let doc = Document { texture_sets: vec![ts] };
+    let bytes_out = write_project(Cursor::new(Vec::new()), &primitives::cube(2.), &doc, &resources, &MeshMapSet::new()).unwrap().into_inner();
+    let loaded = read_project(Cursor::new(bytes_out.clone())).unwrap();
+    assert_eq!(loaded.document, doc);
+    let font = loaded.resources.get(font_id).expect("font resource saved");
+    assert_eq!((font.kind, font.encoded.as_deref()), (ResourceKind::Font, Some(&*bytes)));
+    // The container stores the font as a normal file entry.
+    let zip = zip::ZipArchive::new(Cursor::new(bytes_out)).unwrap();
+    assert!(zip.file_names().any(|n| n.is_ok_and(|n| n == format!("resources/{}.ttf", font_id.0).as_str())));
+    // JSON from schemas without text has no text layers; unknown future fields are not required.
+    let paint: ContentV1 = serde_json::from_str(r#"{"type":"paint","channels":[],"path":null}"#).unwrap();
+    assert!(matches!(paint, ContentV1::Paint { text: None, .. }));
+}
+
+#[test]
+fn text_layer_schema_is_pinned_and_rejects_bad_values() {
+    use subcraft_text::{Align, Direction, FontRef};
+    let t = TextLayerV16 {
+        text: "Hi".into(), font: FontRef::Bundled { name: "DejaVu Sans".into() }, letter_spacing: 0.0, line_spacing: 1.0,
+        align: Align::Left, direction: Direction::Auto, center: [0.5, 0.5], size: 0.1, rotation: 0.0, opacity: 1.0,
+        values: vec![PenChannelV4 { channel: ChannelKind::BaseColor, value: [1.0, 1.0, 1.0] }],
+    };
+    let json = serde_json::to_string(&t).unwrap();
+    assert!(json.contains(r#""font":{"type":"bundled","name":"DejaVu Sans"}"#), "{json}");
+    assert!(json.contains(r#""align":"left""#) && json.contains(r#""direction":"auto""#), "{json}");
+    assert_eq!(serde_json::from_str::<TextLayerV16>(&json).unwrap(), t);
+    let embedded = serde_json::to_string(&FontRef::System { family: "Arial".into(), bold: true, italic: false }).unwrap();
+    assert_eq!(embedded, r#"{"type":"system","family":"Arial","bold":true,"italic":false}"#);
+    // Bad parameters are rejected by validation, which the loader runs on every text layer.
+    let mut decal = subcraft_doc::TextDecal::new("x", glam::Vec2::splat(0.5), [(ChannelKind::BaseColor, ChannelValue::rgb(1.0, 1.0, 1.0))].into());
+    assert!(decal.validate().is_ok());
+    decal.size = 9.0;
+    assert!(decal.validate().is_err());
+    decal.size = 0.1;
+    decal.opacity = f32::NAN;
+    assert!(decal.validate().is_err());
 }

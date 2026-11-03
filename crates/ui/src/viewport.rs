@@ -200,7 +200,29 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         }
     }
     if id_picking && response.hovered() { ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair); }
-    let picking = parts_picking || id_picking;
+    // ----- text tool: the next click places the selected text layer or stamps the draft text ------
+    let text_armed = !bake_mode && !state.painting && state.text.armed.is_some();
+    if text_armed && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+        state.text.armed = None;
+    } else if text_armed {
+        if response.hovered() { ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair); }
+        if primary_pressed && response.hovered() && !alt && let Some(p) = pointer {
+            let sp = to_screen(p);
+            let result = match state.text.armed {
+                Some(crate::text_panel::Armed::PlaceDecal) => state.session.place_selected_text_at(&camera, sp),
+                Some(crate::text_panel::Armed::StampProjected) => match state.text.draft.clone() {
+                    Some(d) => state.session.stamp_text_projected(&camera, sp, &d.font, &d.style, state.text.stamp_size, state.text.stamp_angle),
+                    None => Ok(()),
+                },
+                None => Ok(()),
+            };
+            match result {
+                Ok(()) => { state.gpu_dirty = true; state.text.armed = None; }
+                Err(e) => state.set_status(format!("Text: {e}"), now),
+            }
+        }
+    }
+    let picking = parts_picking || id_picking || text_armed;
     if state.picking_parts && (!picking || ui.input(|i| i.key_pressed(egui::Key::Escape))) {
         state.picking_parts = false;
     }
