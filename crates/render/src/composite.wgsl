@@ -10,7 +10,7 @@ struct Params {
     flags: u32, // bit0 signed, bit1 normal, bit2 color
     tiles: u32,
     eff_off: u32,
-    pad1: u32,
+    spb: u32, // slots per pool buffer
     default_value: vec4<f32>,
 }
 
@@ -18,7 +18,10 @@ struct Params {
 @group(0) @binding(1) var<storage, read> prog: array<u32>;
 @group(0) @binding(2) var<storage, read> refs: array<u32>;
 @group(0) @binding(3) var<storage, read> consts: array<vec4<f32>>;
-@group(0) @binding(4) var<storage, read> pool: array<u32>;
+@group(0) @binding(4) var<storage, read> pool0: array<u32>;
+@group(0) @binding(8) var<storage, read> pool1: array<u32>;
+@group(0) @binding(9) var<storage, read> pool2: array<u32>;
+@group(0) @binding(10) var<storage, read> pool3: array<u32>;
 @group(0) @binding(5) var<storage, read> dyn_px: array<vec4<f32>>;
 @group(0) @binding(6) var<storage, read> dyn_mask: array<f32>;
 @group(0) @binding(7) var<storage, read_write> outbuf: array<u32>;
@@ -66,8 +69,20 @@ fn is_color() -> bool { return (P.flags & 4u) != 0u; }
 
 // ---- sources ------------------------------------------------------------------------------
 
-fn f16_at(base: u32, e: u32) -> f32 {
-    let v = unpack2x16float(pool[base + (e >> 1u)]);
+// Word `w` of pool slot `slot` (the pool is split over four bindings).
+fn pool_word(slot: u32, w: u32) -> u32 {
+    let b = slot / P.spb;
+    let i = (slot - b * P.spb) * SLOT_WORDS + w;
+    switch b {
+        case 0u: { return pool0[i]; }
+        case 1u: { return pool1[i]; }
+        case 2u: { return pool2[i]; }
+        default: { return pool3[i]; }
+    }
+}
+
+fn f16_at(slot: u32, e: u32) -> f32 {
+    let v = unpack2x16float(pool_word(slot, e >> 1u));
     return select(v.x, v.y, (e & 1u) == 1u);
 }
 
@@ -79,13 +94,12 @@ fn load_px(r: u32, texel: u32) -> vec4<f32> {
         return consts[idx];
     }
     if k == 2u {
-        let base = idx * SLOT_WORDS;
         if comps == 2u {
-            let va = unpack2x16float(pool[base + texel]);
+            let va = unpack2x16float(pool_word(idx, texel));
             return vec4<f32>(va.x, va.x, va.x, va.y);
         }
-        let a = unpack2x16float(pool[base + texel * 2u]);
-        let b = unpack2x16float(pool[base + texel * 2u + 1u]);
+        let a = unpack2x16float(pool_word(idx, texel * 2u));
+        let b = unpack2x16float(pool_word(idx, texel * 2u + 1u));
         return vec4<f32>(a.x, a.y, b.x, b.y);
     }
     if k == 3u {
@@ -102,7 +116,7 @@ fn load_mask(r: u32, texel: u32) -> f32 {
         return consts[idx].x;
     }
     if k == 2u {
-        return clamp(f16_at(idx * SLOT_WORDS, texel * comps), 0.0, 1.0);
+        return clamp(f16_at(idx, texel * comps), 0.0, 1.0);
     }
     if k == 3u {
         return dyn_mask[idx * TEXELS + texel];

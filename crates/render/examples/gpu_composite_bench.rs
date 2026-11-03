@@ -155,8 +155,8 @@ fn describe(r: &Run) -> String {
         return format!("{:>8.0} ms, {} tiles (CPU)", r.total, r.tiles);
     }
     format!(
-        "{:>8.0} ms, {} tiles ({} on GPU): prep {:.0} + upload {:.0} + gpu {:.0} + readback {:.0} + store {:.0}; uploaded {} MB, cache {}/{} hit",
-        r.total, r.tiles, s.tiles, s.prep_ms, s.timing.upload_ms, s.timing.gpu_ms, s.timing.readback_ms, s.apply_ms,
+        "{:>8.0} ms, {} tiles ({} on GPU): prep {:.0} + upload {:.0} + gpu {:.0} (kernels {:.0}) + readback {:.0} + store {:.0}; uploaded {} MB, cache {}/{} hit",
+        r.total, r.tiles, s.tiles, s.prep_ms, s.timing.upload_ms, s.timing.gpu_ms, s.timing.kernel_ms, s.timing.readback_ms, s.apply_ms,
         s.timing.uploaded_bytes >> 20, s.timing.cache_hits, s.timing.cache_hits + s.timing.cache_misses
     )
 }

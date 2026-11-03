@@ -126,7 +126,10 @@ pub struct GpuTile {
 #[derive(Clone, Copy, Debug, Default)]
 pub struct GpuTiming {
     pub upload_ms: f64,
+    /// Submit to results ready (transfers and kernels).
     pub gpu_ms: f64,
+    /// Kernel time from GPU timestamps (0 when the device has none).
+    pub kernel_ms: f64,
     pub readback_ms: f64,
     pub uploaded_bytes: u64,
     pub cache_hits: u64,
@@ -229,7 +232,7 @@ impl GpuStats {
             errors: 0,
             prep_ms: 0.0,
             apply_ms: 0.0,
-            timing: GpuTiming { upload_ms: 0.0, gpu_ms: 0.0, readback_ms: 0.0, uploaded_bytes: 0, cache_hits: 0, cache_misses: 0 },
+            timing: GpuTiming { upload_ms: 0.0, gpu_ms: 0.0, kernel_ms: 0.0, readback_ms: 0.0, uploaded_bytes: 0, cache_hits: 0, cache_misses: 0 },
         }
     }
 }
@@ -619,6 +622,7 @@ pub(crate) fn evaluate_tiles(composite: &mut Composite, ts: &TextureSet, ctx: &E
                 let (a, b) = (&mut s.timing, out.timing);
                 a.upload_ms += b.upload_ms;
                 a.gpu_ms += b.gpu_ms;
+                a.kernel_ms += b.kernel_ms;
                 a.readback_ms += b.readback_ms;
                 a.uploaded_bytes += b.uploaded_bytes;
                 a.cache_hits += b.cache_hits;

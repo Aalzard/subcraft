@@ -2,11 +2,13 @@
 //! with one WGSL compute pass per channel on a headless device of its own, so the viewport device
 //! is never stalled.
 //!
-//! Paint and mask tiles are uploaded once into a pool buffer (32 KiB slots, f16, exactly the
-//! stored texels) and found again by the identity of the `Arc<Tile>` (the cache holds a clone, so
-//! copy-on-write guarantees an edited tile has a new key). Tiles the pool cannot hold at once
-//! make the batch report `TooLarge`, and the compositor splits it. CPU-evaluated content travels
-//! as f32 blocks for the batch only. The pool is a derived cache; nothing stored depends on it.
+//! Paint and mask tiles are uploaded once into a pool (32 KiB slots, f16, exactly the stored
+//! texels) and found again by the identity of the `Arc<Tile>` (the cache holds a clone, so
+//! copy-on-write guarantees an edited tile has a new key): between edits only new or edited tiles
+//! travel. The pool is up to four storage buffers (one binding is limited by the device), grown on
+//! demand. Tiles the pool cannot hold at once make the batch report `TooLarge`, and the compositor
+//! splits it. CPU-evaluated content travels as f32 blocks for the batch only. Scratch buffers
+//! are kept and reused between batches. The pool is a derived cache; nothing stored depends on it.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -38,9 +40,13 @@ struct Params {
     flags: u32,
     tiles: u32,
     eff_off: u32,
-    pad: u32,
+    /// Slots per pool buffer.
+    spb: u32,
     default_value: [f32; 4],
 }
+
+/// Pool buffers the shader binds (`pool0` .. `pool3`).
+const POOL_BUFFERS: usize = 4;
 
 struct Entry {
     _tile: Arc<Tile>,
@@ -49,11 +55,26 @@ struct Entry {
 }
 
 struct Pool {
-    buffer: wgpu::Buffer,
-    slots: u32,
+    buffers: Vec<wgpu::Buffer>,
+    /// Slots per buffer.
+    per_buffer: u32,
+    /// Buffers the pool may grow to.
+    max_buffers: usize,
     map: HashMap<usize, Entry>,
     free: Vec<u32>,
     stamp: u64,
+}
+
+impl Pool {
+    fn capacity(&self) -> usize {
+        self.per_buffer as usize * self.max_buffers
+    }
+}
+
+/// Buffers reused between batches (grown, never shrunk).
+#[derive(Default)]
+struct Scratch {
+    bufs: HashMap<&'static str, wgpu::Buffer>,
 }
 
 pub struct GpuCompositor {
@@ -63,6 +84,9 @@ pub struct GpuCompositor {
     pipeline: wgpu::ComputePipeline,
     layout: wgpu::BindGroupLayout,
     pool: Mutex<Pool>,
+    scratch: Mutex<Scratch>,
+    dummy: wgpu::Buffer,
+    timestamps: bool,
     max_binding: u64,
 }
 
@@ -89,13 +113,20 @@ fn create(allow_software: bool) -> Option<GpuCompositor> {
     let mut limits = wgpu::Limits::default();
     limits.max_storage_buffer_binding_size = big.max(limits.max_storage_buffer_binding_size);
     limits.max_buffer_size = big.max(limits.max_buffer_size);
+    // prog, refs, consts, four pool buffers, CPU content, CPU masks, output.
+    if supported.max_storage_buffers_per_shader_stage < 10 {
+        return None;
+    }
+    limits.max_storage_buffers_per_shader_stage = limits.max_storage_buffers_per_shader_stage.max(10);
+    let timestamps = adapter.features().contains(wgpu::Features::TIMESTAMP_QUERY);
     let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
         label: Some("subcraft gpu composite"),
         required_limits: limits,
+        required_features: if timestamps { wgpu::Features::TIMESTAMP_QUERY } else { wgpu::Features::empty() },
         ..Default::default()
     }))
     .ok()?;
-    Some(GpuCompositor::new(&adapter, device, queue))
+    Some(GpuCompositor::new(&adapter, device, queue, timestamps))
 }
 
 fn storage(binding: u32, read_only: bool) -> wgpu::BindGroupLayoutEntry {
@@ -108,7 +139,7 @@ fn storage(binding: u32, read_only: bool) -> wgpu::BindGroupLayoutEntry {
 }
 
 impl GpuCompositor {
-    fn new(adapter: &wgpu::Adapter, device: wgpu::Device, queue: wgpu::Queue) -> Self {
+    fn new(adapter: &wgpu::Adapter, device: wgpu::Device, queue: wgpu::Queue, timestamps: bool) -> Self {
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("composite"),
             source: wgpu::ShaderSource::Wgsl(include_str!("composite.wgsl").into()),
@@ -121,6 +152,7 @@ impl GpuCompositor {
         }];
         entries.extend((1..=6).map(|b| storage(b, true)));
         entries.push(storage(7, false));
+        entries.extend((8..=10).map(|b| storage(b, true)));
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { label: Some("composite"), entries: &entries });
         let pl = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("composite"),
@@ -137,28 +169,67 @@ impl GpuCompositor {
         });
         let limits = device.limits();
         let max_binding = (limits.max_storage_buffer_binding_size as u64).min(limits.max_buffer_size);
-        let pool_mb: u64 = std::env::var("SUBCRAFT_GPU_POOL_MB").ok().and_then(|v| v.parse().ok()).unwrap_or(1024);
-        let slots = ((pool_mb << 20).min(max_binding) / SLOT_BYTES).clamp(64, 1 << 20) as u32;
-        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("composite tile pool"),
-            size: slots as u64 * SLOT_BYTES,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        let pool_mb: u64 = std::env::var("SUBCRAFT_GPU_POOL_MB").ok().and_then(|v| v.parse().ok()).unwrap_or(2048);
+        let per_buffer = (max_binding.min(512 << 20) / SLOT_BYTES).clamp(64, 1 << 20) as u32;
+        let max_buffers = ((pool_mb << 20).div_ceil(per_buffer as u64 * SLOT_BYTES) as usize).clamp(1, POOL_BUFFERS);
+        let pool = Pool { buffers: Vec::new(), per_buffer, max_buffers, map: HashMap::new(), free: Vec::new(), stamp: 0 };
+        let dummy = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("composite pool placeholder"),
+            size: 256,
+            usage: wgpu::BufferUsages::STORAGE,
             mapped_at_creation: false,
         });
-        let pool = Pool { buffer, slots, map: HashMap::new(), free: (0..slots).rev().collect(), stamp: 0 };
-        Self { device, queue, adapter_name: adapter.get_info().name, pipeline, layout, pool: Mutex::new(pool), max_binding }
+        Self {
+            device,
+            queue,
+            adapter_name: adapter.get_info().name,
+            pipeline,
+            layout,
+            pool: Mutex::new(pool),
+            scratch: Mutex::default(),
+            dummy,
+            timestamps,
+            max_binding,
+        }
     }
 
     fn buffer(&self, label: &str, size: u64, usage: wgpu::BufferUsages) -> wgpu::Buffer {
         self.device.create_buffer(&wgpu::BufferDescriptor { label: Some(label), size: size.max(16), usage, mapped_at_creation: false })
     }
 
-    fn upload(&self, label: &str, data: &[u8]) -> wgpu::Buffer {
-        let buf = self.buffer(label, data.len() as u64, wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST);
+    /// A kept buffer of at least `size` bytes (grown by half again when too small).
+    fn kept(&self, scratch: &mut Scratch, label: &'static str, size: u64, usage: wgpu::BufferUsages) -> wgpu::Buffer {
+        let size = size.max(16).next_multiple_of(256);
+        if let Some(b) = scratch.bufs.get(label).filter(|b| b.size() >= size) {
+            return b.clone();
+        }
+        let b = self.buffer(label, (size + size / 2).min(self.max_binding.max(size)), usage);
+        scratch.bufs.insert(label, b.clone());
+        b
+    }
+
+    fn upload(&self, scratch: &mut Scratch, label: &'static str, data: &[u8]) -> wgpu::Buffer {
+        let buf = self.kept(scratch, label, data.len() as u64, wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST);
         if !data.is_empty() {
             self.queue.write_buffer(&buf, 0, data);
         }
         buf
+    }
+
+    /// Add one pool buffer; its slots become free (lowest first).
+    fn grow(&self, pool: &mut Pool) -> bool {
+        if pool.buffers.len() >= pool.max_buffers {
+            return false;
+        }
+        let first = pool.buffers.len() as u32 * pool.per_buffer;
+        pool.buffers.push(self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("composite tile pool"),
+            size: pool.per_buffer as u64 * SLOT_BYTES,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        }));
+        pool.free.extend((first..first + pool.per_buffer).rev());
+        true
     }
 
     /// Pool slots for every stored tile the batch reads; uploads the ones not resident.
@@ -189,9 +260,10 @@ impl GpuCompositor {
                 }
             }
         }
-        if slots.len() > pool.slots as usize {
+        if slots.len() > pool.capacity() {
             return Err(GpuError::TooLarge);
         }
+        while misses.len() > pool.free.len() && self.grow(pool) {}
         // Evict least recently used entries (never ones this batch needs).
         let need = misses.len().saturating_sub(pool.free.len());
         if need > 0 {
@@ -217,8 +289,9 @@ impl GpuCompositor {
         let mut next = 0u32;
         for (slot, tile) in placed.iter() {
             let bits = tile.data.reinterpret_cast();
-            if !staging.is_empty() && (*slot != next || staging.len() >= (64 << 20)) {
-                self.queue.write_buffer(&pool.buffer, run_start as u64 * SLOT_BYTES, &staging);
+            let new_buffer = slot % pool.per_buffer == 0;
+            if !staging.is_empty() && (*slot != next || new_buffer || staging.len() >= (64 << 20)) {
+                self.write_slots(pool, run_start, &staging);
                 staging.clear();
             }
             if staging.is_empty() {
@@ -234,9 +307,14 @@ impl GpuCompositor {
             next = slot + 1;
         }
         if !staging.is_empty() {
-            self.queue.write_buffer(&pool.buffer, run_start as u64 * SLOT_BYTES, &staging);
+            self.write_slots(pool, run_start, &staging);
         }
         Ok(slots)
+    }
+
+    fn write_slots(&self, pool: &Pool, first: u32, data: &[u8]) {
+        let (b, local) = (first / pool.per_buffer, first % pool.per_buffer);
+        self.queue.write_buffer(&pool.buffers[b as usize], local as u64 * SLOT_BYTES, data);
     }
 }
 
@@ -374,18 +452,28 @@ impl GpuCompositeBackend for GpuCompositor {
             }
         }
 
-        let prog_buf = self.upload("composite program", bytemuck::cast_slice(&prog));
-        let refs_buf = self.upload("composite refs", bytemuck::cast_slice(&refs));
-        let consts_buf = self.upload("composite consts", bytemuck::cast_slice(&consts));
-        let px_buf = self.upload("composite cpu content", bytemuck::cast_slice(&dyn_px));
-        let mask_buf = self.upload("composite cpu masks", bytemuck::cast_slice(&dyn_mask));
+        let mut scratch = self.scratch.lock().unwrap();
+        let scratch = &mut *scratch;
+        let prog_buf = self.upload(scratch, "composite program", bytemuck::cast_slice(&prog));
+        let refs_buf = self.upload(scratch, "composite refs", bytemuck::cast_slice(&refs));
+        let consts_buf = self.upload(scratch, "composite consts", bytemuck::cast_slice(&consts));
+        let px_buf = self.upload(scratch, "composite cpu content", bytemuck::cast_slice(&dyn_px));
+        let mask_buf = self.upload(scratch, "composite cpu masks", bytemuck::cast_slice(&dyn_mask));
         let channel_words = (n * TILE_TEXELS * 2) as u64;
         let out_bytes = channel_words * 4 * program.channels.len() as u64;
         if out_bytes > self.max_binding {
             return Err(GpuError::TooLarge);
         }
-        let out_buf = self.buffer("composite out", out_bytes, wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC);
-        let read_buf = self.buffer("composite readback", out_bytes, wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ);
+        let out_buf = self.kept(scratch, "composite out", out_bytes, wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC);
+        let read_buf = self.kept(scratch, "composite readback", out_bytes, wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ);
+        let nch = program.channels.len() as u32;
+        let queries = self.timestamps.then(|| {
+            let set = self.device.create_query_set(&wgpu::QuerySetDescriptor { label: Some("composite timing"), ty: wgpu::QueryType::Timestamp, count: nch * 2 });
+            let resolve = self.buffer("composite timing", nch as u64 * 16, wgpu::BufferUsages::QUERY_RESOLVE | wgpu::BufferUsages::COPY_SRC);
+            let read = self.buffer("composite timing read", nch as u64 * 16, wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ);
+            (set, resolve, read)
+        });
+        let pool_buf = |i: usize| pool.buffers.get(i).unwrap_or(&self.dummy).as_entire_binding();
 
         let mut enc = self.device.create_command_encoder(&Default::default());
         let mut keep = Vec::new();
@@ -398,7 +486,7 @@ impl GpuCompositeBackend for GpuCompositor {
                 flags: u32::from(ch.target.signed) | (u32::from(ch.target.normal) << 1) | (u32::from(ch.color) << 2),
                 tiles: n as u32,
                 eff_off: eff_offsets[ci],
-                pad: 0,
+                spb: pool.per_buffer,
                 default_value: ch.default,
             };
             let ubuf = self.buffer("composite params", std::mem::size_of::<Params>() as u64, wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST);
@@ -411,13 +499,21 @@ impl GpuCompositeBackend for GpuCompositor {
                     wgpu::BindGroupEntry { binding: 1, resource: prog_buf.as_entire_binding() },
                     wgpu::BindGroupEntry { binding: 2, resource: refs_buf.as_entire_binding() },
                     wgpu::BindGroupEntry { binding: 3, resource: consts_buf.as_entire_binding() },
-                    wgpu::BindGroupEntry { binding: 4, resource: pool.buffer.as_entire_binding() },
+                    wgpu::BindGroupEntry { binding: 4, resource: pool_buf(0) },
+                    wgpu::BindGroupEntry { binding: 8, resource: pool_buf(1) },
+                    wgpu::BindGroupEntry { binding: 9, resource: pool_buf(2) },
+                    wgpu::BindGroupEntry { binding: 10, resource: pool_buf(3) },
                     wgpu::BindGroupEntry { binding: 5, resource: px_buf.as_entire_binding() },
                     wgpu::BindGroupEntry { binding: 6, resource: mask_buf.as_entire_binding() },
                     wgpu::BindGroupEntry { binding: 7, resource: out_buf.as_entire_binding() },
                 ],
             });
-            let mut pass = enc.begin_compute_pass(&Default::default());
+            let timestamp_writes = queries.as_ref().map(|(set, _, _)| wgpu::ComputePassTimestampWrites {
+                query_set: set,
+                beginning_of_pass_write_index: Some(ci as u32 * 2),
+                end_of_pass_write_index: Some(ci as u32 * 2 + 1),
+            });
+            let mut pass = enc.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("composite"), timestamp_writes });
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &group, &[]);
             pass.dispatch_workgroups((TILE_TEXELS / 64) as u32, n as u32, 1);
@@ -425,13 +521,29 @@ impl GpuCompositeBackend for GpuCompositor {
             keep.push((ubuf, group));
         }
         enc.copy_buffer_to_buffer(&out_buf, 0, &read_buf, 0, out_bytes);
+        if let Some((set, resolve, read)) = &queries {
+            enc.resolve_query_set(set, 0..nch * 2, resolve, 0);
+            enc.copy_buffer_to_buffer(resolve, 0, read, 0, nch as u64 * 16);
+        }
         timing.upload_ms = start.elapsed().as_secs_f64() * 1e3;
         let t_gpu = Instant::now();
         self.queue.submit([enc.finish()]);
-        let slice = read_buf.slice(..);
+        let slice = read_buf.slice(..out_bytes);
         slice.map_async(wgpu::MapMode::Read, |r| r.expect("map composite output"));
+        if let Some((_, _, read)) = &queries {
+            read.slice(..).map_async(wgpu::MapMode::Read, |r| r.expect("map composite timing"));
+        }
         self.device.poll(wgpu::PollType::wait_indefinitely()).map_err(|e| GpuError::Failed(format!("GPU wait failed: {e}")))?;
         timing.gpu_ms = t_gpu.elapsed().as_secs_f64() * 1e3;
+        if let Some((_, _, read)) = &queries {
+            {
+                let data = read.slice(..).get_mapped_range().map_err(|e| GpuError::Failed(format!("GPU timing readback failed: {e}")))?;
+                let ticks: &[u64] = bytemuck::cast_slice(&data);
+                let period = f64::from(self.queue.get_timestamp_period());
+                timing.kernel_ms = ticks.chunks(2).map(|p| p[1].saturating_sub(p[0]) as f64 * period * 1e-6).sum();
+            }
+            read.unmap();
+        }
         let t_read = Instant::now();
         let mut channels = Vec::with_capacity(program.channels.len());
         {
