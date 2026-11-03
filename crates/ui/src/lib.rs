@@ -106,7 +106,7 @@ pub fn run(options: LaunchOptions) -> eframe::Result {
 }
 
 fn run_with_graphics(mut options: LaunchOptions, graphics: graphics::GraphicsUi, api: subcraft_app::graphics::GraphicsApi) -> eframe::Result {
-    let wgpu_options = graphics::wgpu_options(api, graphics.environment_override);
+    let wgpu_options = graphics::wgpu_options(api, graphics.environment_override, graphics.gpu.clone());
     options.graphics_startup = Some(graphics);
     let native = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()

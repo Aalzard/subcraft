@@ -4049,3 +4049,54 @@ If the log shows only `PointerMoved` while pressing the pen (no `PointerButton`,
   window mid-drag (we skip frames with no pointer position), and Painter's Alt-release during
   Alt+LMB orbit (navigation ends; continuing LMB does not start a stroke because strokes begin on
   press, but that path is untested by hand).
+### GPU adapter selection and fallback (session: cloud/gpu-adapter, issue #83)
+
+**Problem:** on a Windows 11 laptop with an Intel iGPU *and* a discrete card (reporter: UHD Graphics +
+RTX 2080 Super, SubCraft 0.2.0) the app did not open unless the Intel GPU was disabled in Device
+Manager. `crates/ui/src/graphics.rs::wgpu_options` only picked a *backend*; adapter choice was left to
+egui-wgpu's default, so startup could land on the iGPU (or an adapter that cannot present to the
+window) and die with no second attempt.
+
+**Policy (pure, in `subcraft_app::graphics`, no wgpu types):**
+* `AdapterDesc { name, class }` with `AdapterClass` = Discrete / Integrated / Virtual / Other / Software.
+* `order_adapters(&[AdapterDesc], &GpuChoice, env)` → candidate indices. An explicit name match comes
+  first (`SUBCRAFT_GPU` wins over the saved preference), then discrete, integrated, virtual, other,
+  software; enumeration order breaks ties. Every adapter appears exactly once, so a preference naming a
+  GPU that is gone can never leave the app with no candidate.
+* `first_working(order, attempt)` → `(chosen, skipped)` or all failures; the fallback loop itself is
+  testable without a GPU.
+* `gpu_env_override()` reads `SUBCRAFT_GPU=<substring of adapter name>` (case-insensitive, trimmed).
+
+**Startup (`crates/ui/src/graphics.rs`):** `wgpu_options` now sets `power_preference = HighPerformance`
+and a `native_adapter_selector` that logs every enumerated adapter (name, device type, backend, driver),
+then walks `order_adapters` and takes the first adapter that both supports the window surface
+(`is_surface_supported`) and can create a device; skipped adapters are logged as warnings and the chosen
+one as info, in the existing log (`logs/subcraft.log`, so it is in bug reports too). If none works the
+error names each adapter and reason, and the existing per-API retry (DX12 → Automatic → OpenGL) still
+applies on top.
+
+**Preference:** Preferences > Graphics now has `GPU: Automatic / High performance / <named adapter>`
+(shown as "Automatic (fastest GPU)" so it does not read the same as the API combo; the named entries are the adapters seen at this run's startup; a saved name that is no longer present
+is still listed so it is not silently lost). Persisted through `GraphicsSettings` as schema 2 with a
+string `gpu` field (`automatic`, `high_performance`, `name:<adapter>`); a schema-1 file loads with
+`gpu = Automatic`, and an unknown or non-string value degrades to Automatic instead of failing the load.
+Takes effect on restart, like the API choice.
+
+**Tests:** `subcraft-app` lib (6 in `graphics`): default ordering, explicit choice / env precedence /
+unknown name, fallback skipping, settings round-trip incl. schema-1 and garbage values.
+`crates/ui/tests/graphics.rs` (4): GPU choice persists next to the API and asks for a restart, and the
+real GPU combo is driven by clicks (this caught the API combo test breaking when both combos said
+""Automatic"").
+`cargo test -p subcraft-app -p subcraft-ui --lib` passing.
+
+**Known cost:** the selector probes an adapter by creating a device and dropping it again, so the chosen
+adapter has a device created twice (once to probe, once by egui-wgpu). wgpu allows this; if a driver is
+ever found that does not, the probe would have to be replaced by returning the device from the selector,
+which egui-wgpu 0.36 does not support.
+
+**Not verified:** no access to the reporter's hardware (Intel UHD + RTX 2080 Super on Windows 11) and no
+multi-GPU machine at all in this cloud container, which has a single software adapter (llvmpipe). The
+ordering, the fallback loop and the settings schema are covered by unit tests with synthetic adapter
+lists; that the real driver combination now starts is **unconfirmed** and needs the reporter (or any
+Optimus laptop) to run a build and attach `logs/subcraft.log` — the log now contains the full adapter
+list and the chosen adapter, which is what to check.
