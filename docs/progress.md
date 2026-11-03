@@ -3823,3 +3823,85 @@ channels, mean abs difference over the UV triangles).
   `sheets file.sbsasm count`.
 * **Tests:** `cargo test --workspace --lib --bins --tests --no-fail-fast`: 865 passed, 0 failed (new: grain statistics at 256-2048,
   sheet layout, picker range, stencil tweaks; `spp_open` now expects the grain layer).
+
+## Faster layer edits: per-layer result cache and quick preview (CPU path)
+
+Task: make toggling / editing layers fast on the CPU compositor without touching stored data. Stored data is unchanged: project
+files, rasters and `TiledImage` storage are not read differently or written differently; the new cache is derived, lives inside
+`CompositeCache` and is never serialized.
+
+**Measured with** `big_project_bench` (`cargo run --release -p subcraft-app --example big_project_bench -- 4096 40 fahi`):
+4096 set, 40 layers (26 top-level, the rest in four folders), 100k-triangle sphere, 16 threads, 9 baked maps. The machine was shared
+with other sessions, so single timings move by +-15% (the same baseline stage measured 37.4 s in one run and 24.9 s in a quieter
+one); every case was run twice and both repetitions are listed. Every edit changes the document, and the timings include
+`update_composites`. Composite hash of the full result (all channels, all texel bits) is `ae74bae14b3e1faf` before and after.
+
+| Case (ms per edit) | Before (rep 1 / rep 2) | After (rep 1 / rep 2) | Result |
+|---|---|---|---|
+| full composite from scratch | 37366 (24875 in a quiet run) | 26297 | not faster: the same work plus packing the stored boundaries (about 0 to +5%) |
+| bottom: visibility | 35198 / 29594 | 29125 / 28014 | no change (nothing below to reuse) |
+| bottom: opacity | 30873 / 29740 | 23891 / 22951 | no change (noise) |
+| bottom: blend mode | 31599 / 35072 | 23947 / 24521 | no change (noise) |
+| bottom: filter parameter | 38147 / 41139 | 26663 / 28199 | no change (noise) |
+| middle: visibility | 43418 / 32666 | 28983 / 12934 | 2.5x after the first edit |
+| middle: opacity | 41105 / 36811 | 13220 / 12935 | about 3x |
+| middle: blend mode | 40602 / 30457 | 13717 / 13098 | about 2.7x |
+| middle: filter parameter | (0, no-op) / 27286 | 11722 / 10821 | about 2.5x |
+| top: visibility | 26270 / 31784 | 10976 / 2273 | 14x on the second edit; the first edit after a bottom-stack edit rebuilt boundaries |
+| top: opacity | 35378 / 37970 | 538 / 571 | about 65x |
+| top: blend mode | 39921 / 35866 | 527 / 468 | about 80x |
+| top: filter parameter | 28717 / 32132 | 5265 / 5585 | about 5.5x (the nearest filter layer sits several layers below the top) |
+
+Before this change every edit re-evaluated every tile of the whole stack (about 30 s at 4096 wherever the layer was). Now the cost
+follows how many layers sit above the nearest stored boundary below the edited one.
+
+Interactive feedback through the background worker (`i` stage; "first" = every stale tile has been shown once, "exact" = the
+final result finished), opacity change of one layer:
+
+| Layer | Before first / exact | After first / exact |
+|---|---|---|
+| bottom | 26018 / 26018, 25825 / 25825 | 777 / 33501, 637 / 42702 |
+| middle | 25644 / 25644, 24478 / 24478 | 513 / 9870, 473 / 10758 |
+| top | 24665 / 24665, 25585 / 25585 | 419 / 2046, 415 / 953 |
+
+So the image reacts after about 0.4-0.8 s instead of 25 s in every case. A bottom edit still takes as long as before to become
+exact (here 33-43 s against 26 s; probably the preview, the boundary packing and other sessions on the machine, not measured
+separately; this case did not improve).
+
+Memory: the cache budget is `SUBCRAFT_LAYER_CACHE_MB` (default 2048, 0 turns it off). At 4096 with 40 layers the bench stored
+177k tile entries in 2047 MB (a boundary costs about 500 MB, so about four boundaries fit); the working set after the first
+composite rose from 3228 MB to 4056 MB (the cache fills up over the first edits). Smaller sets keep proportionally more
+boundaries (a boundary of a 2048 set is about a quarter of that).
+
+What changed:
+
+* `compositor::prefix::PrefixCache` (new): for chosen top-level boundaries (accumulation after layers 0..=j, per channel and tile)
+  it keeps lossless packed copies (constant and duplicate planes are shared), LRU-evicted under a byte budget. Which boundaries
+  are stored is planned from the budget, evenly spaced from the top (the topmost result is the composite itself and is never
+  copied). The plan uses a conservative size estimate first and the measured average entry size afterwards.
+* Invalidation is by layer identity: `sync` drops boundaries at or above the first top-level layer whose `Arc` changed; for a
+  raster-only edit (stroke) only the tiles the existing incremental diff reports dirty. A change of resolution, channels, albedo
+  filter, an explicit `invalidate()` (resources, mesh maps, geometry), or a switch between the local and the neighborhood-graph
+  evaluator clears everything. The graph evaluator (`stages.rs`) reads and writes the boundaries as marked nodes; the local
+  evaluator resumes from the highest cached boundary that holds every channel of the tile.
+* Quick preview (`Composite::preview`, `overlay_preview`, worker): when a snapshot makes at least 128 tiles stale, the worker first
+  evaluates the whole set at 512 px (layers are point-sampled by UV, spatial radii scale with the resolution), stretches it over
+  the stale tiles and publishes it, then refines tile by tile to the exact result. Tiles that showed a preview are reported as
+  changed even if the exact result equals the earlier texels, so a GPU copy always ends exact. A newer snapshot cancels a preview
+  that is still being computed (checked per tile); the exact slices already used newest-snapshot-wins. Sets of 512 px or less skip
+  previews. `Session` supplies the 512 px geometry (`SetSnapshot::preview_geometry`).
+* Bench: `big_project_bench` stages `h` (layer edit cases) and `i` (worker feedback); `Session::layer_cache_stats`.
+
+**Tests** (`crates/compositor/tests/layer_cache.rs`, `tests/worker.rs`): after visibility, opacity, blend mode (bottom, middle, top),
+a filter parameter, raster edits, layer removal and an explicit invalidation the cached composite equals `composite_full`
+bit for bit, on both evaluators, with a roomy budget, a tight budget (eviction and sparse boundaries) and the cache disabled;
+edits above a stored boundary register cache hits; the stored bytes never exceed the budget; the worker test checks that a preview
+is published first, the final composite is exact and every previewed tile is reported for upload. Mutation check: replacing the
+parameter-change invalidation by "keep everything" made 3 of the 5 `layer_cache` tests fail (the two that only count hits or run
+with the cache off still passed, as expected); reverted.
+`cargo test --workspace --lib --bins --tests`: 871 passed, 0 failed.
+
+Known limits: a bottom-of-stack edit is not faster (nothing below it to reuse), and while the exact refinement of a bottom edit
+runs the preview work and boundary packing slow it down; more RAM budget buys more boundaries; the preview of generator-based masks
+uses the 512 px geometry and baked maps sampled by UV, so it is only a rough look until the exact tiles arrive; the GPU
+compositor work from other sessions is not part of this.

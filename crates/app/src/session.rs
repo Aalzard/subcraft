@@ -651,6 +651,20 @@ impl Session {
         }
     }
 
+    /// Size and hit counters of the per-layer result caches (inline compositing; with the
+    /// background worker the caches live on its thread and this is empty).
+    pub fn layer_cache_stats(&self) -> subcraft_compositor::PrefixStats {
+        let mut total = subcraft_compositor::PrefixStats::default();
+        for c in self.composites.values() {
+            let s = c.layer_cache_stats();
+            total.entries += s.entries;
+            total.bytes += s.bytes;
+            total.hits += s.hits;
+            total.misses += s.misses;
+        }
+        total
+    }
+
     /// Publication generation, so consumers can detect results installed by another caller
     /// (for example export or the eyedropper) even if it consumed the tile notifications.
     pub fn composite_generation(&self) -> u64 {
@@ -1594,6 +1608,7 @@ impl Session {
                 texture_set: ts.clone(),
                 geometry: self.scene.geometry.get(ts.material_slot, ts.resolution),
                 mesh_maps: self.mesh_maps.get(&ts.id).cloned().unwrap_or_default(),
+                preview_geometry: subcraft_compositor::preview_resolution(ts.resolution).map(|r| self.scene.geometry.get(ts.material_slot, r)),
             })
             .collect();
         let snapshot = Snapshot { sets, resources: self.resources.clone(), invalidate: std::mem::take(&mut self.invalidated) };
