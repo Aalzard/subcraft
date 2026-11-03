@@ -115,6 +115,8 @@ pub struct UiState {
     pub painting: bool,
     /// Pen pressure of the current contact (1.0 for a mouse).
     pub pen_pressure: f32,
+    /// Pen / touch contact to primary-button mapping applied to raw input.
+    pub pen_input: crate::pen_input::PenInputFixer,
     /// Clicks in the 3D view show / hide the selected layer on mesh parts (Properties → Parts).
     pub picking_parts: bool,
     /// Clicks in the 3D view add the ID map color under the cursor to this ID Color Mask effect.
@@ -233,6 +235,7 @@ impl UiState {
             picking_id_color: None,
             last_stroke_point: None,
             pen_pressure: 1.0,
+            pen_input: Default::default(),
             uv_edges: HashMap::new(),
             uv_density: HashMap::new(),
             rename: None,

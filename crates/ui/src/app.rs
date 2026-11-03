@@ -1257,6 +1257,20 @@ impl egui_dock::TabViewer for Viewer<'_> {
 }
 
 impl eframe::App for SubcraftApp {
+    fn raw_input_hook(&mut self, _ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        let log = crate::pen_input::input_log_enabled();
+        if log {
+            for e in raw_input.events.iter().filter_map(crate::pen_input::describe) {
+                log::info!(target: "subcraft::input", "in: {e}");
+            }
+        }
+        let before = self.state.pen_input.synthesized;
+        self.state.pen_input.fix(&mut raw_input.events);
+        if log && self.state.pen_input.synthesized != before {
+            log::info!(target: "subcraft::input", "pen fixer added pointer events for a touch contact egui-winit did not translate");
+        }
+    }
+
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         if let Some(p) = &mut self.profile {
