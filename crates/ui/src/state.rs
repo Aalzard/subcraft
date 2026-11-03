@@ -149,6 +149,8 @@ pub struct UiState {
     pub spp_import: Option<crate::spp_import::SppImportUi>,
     /// Running Edit in PhotoCraft exchange (ADR-0040).
     pub photocraft: Option<subcraft_app::photocraft::Exchange>,
+    /// Key of the polygon wireframe currently uploaded to the renderer.
+    pub wire_uploaded: Option<crate::view_extras::WireKey>,
     pub symmetry_uploaded: Option<(usize, [bool; 3], subcraft_paint::RadialSymmetry)>,
     pub uv_wireframe: bool,
     pub library: subcraft_app::assets::Library,
@@ -250,6 +252,7 @@ impl UiState {
             bake: Default::default(),
             spp_import: None,
             photocraft: None,
+            wire_uploaded: None,
             symmetry_uploaded: None,
             uv_wireframe: true,
             library: subcraft_app::assets::Library::builtin(),
