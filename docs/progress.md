@@ -4019,3 +4019,24 @@ Request (a YouTube commenter): bring smart materials in from outside the app, in
 Tests (materials, 6): determinism and seed dependence, tiling for every preset (value one tile over, border jump), resolution independence (mean coverage 128 vs 512 within 8 percent), coverage strictly increasing with density, direction/spread anisotropy, wear weight; project: old scratches params serialize/deserialize unchanged.
 Example: cargo run --example scratch_presets -p subcraft-app -- <dir> [--crate] writes one project per preset for screenshots.
 Verified in the real app (release binary, sphere, 1024 px, Height + Base Color channels): all five presets render and show as expected - docs/screenshots/scratch-{fine-hairlines,heavy-gouges,brushed-metal,scuffed-plastic,cracked}.png. Test runs: materials 38, doc 14, project 33, app lib 67, all passing (cargo -j 2). Not done: wear bias in mask Fill effects, a crate/bake wear screenshot, and the Properties panel itself was not driven interactively. Build note: the first target dir got corrupted by interrupted builds (rustc metadata panics); a fresh target dir fixed it.
+
+## Render / export parity pass (cloud/render-export)
+
+Audit against the TextureCraft 0.3.0 feature names (implemented independently):
+
+| Item | Status |
+|---|---|
+| Godot 4 ORM, Unity HDRP mask map, Unity URP, Unreal packed ORM, glTF ORM, PBR metal/rough presets | already present |
+| Roblox SurfaceAppearance, Sketchfab (separate maps) presets | **added** (`template.rs`) |
+| OBJ with a textured MTL (`map_Kd/Ke/Pr/Pm/Ka`, `norm`) | **added** (`export::scene`); the old `mesh::write_obj` had untextured materials only |
+| glTF 2.0 (`.gltf` + `.bin` + PNGs) and GLB (textures embedded), PBR metallic-roughness + normal + occlusion + emissive | **added** |
+| USD export (USDA, one `Mesh` per material, `UsdPreviewSurface` + `UsdUVTexture`, ORM read through r/g/b) | **added**; USDC/USDZ not written |
+| Turntable, supersampled still | already present |
+| Resolution multiplier (1x–4x) and transparent background (black/white difference matte, `offline::matte_from_black_white`) for image + turntable | **added** |
+| UI: "Export model + textures" in the Export window; Multiplier / Transparent in Render quality | **added** |
+
+Tests run: `cargo test -p subcraft-export` (34 pass: each scene format is written then re-read with
+the real importers / the `gltf` crate; packing values for HDRP, URP, Unreal, Godot, Roblox,
+Sketchfab are checked numerically); matte unit tests in `subcraft-render`.
+Not verified here: the transparent render on a real GPU (the matte math is unit tested only),
+opening the files in Unity / Unreal / Roblox / usdview.

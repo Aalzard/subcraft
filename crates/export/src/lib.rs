@@ -7,6 +7,7 @@
 //! EXR. Data channels are never color-transformed.
 
 pub mod psd;
+pub mod scene;
 pub mod selection;
 pub mod template;
 
@@ -118,7 +119,7 @@ fn base_name<'a>(set: &'a ExportTextureSet) -> &'a str {
     }
 }
 
-fn output_path(mesh_name: &str, set: &ExportTextureSet, suffix: &str, ext: &str, settings: &ExportSettings) -> String {
+pub(crate) fn output_path(mesh_name: &str, set: &ExportTextureSet, suffix: &str, ext: &str, settings: &ExportSettings) -> String {
     let (mesh, base) = (sanitize(mesh_name), sanitize(base_name(set)));
     match set.udim {
         None => format!("{mesh}_{}_{suffix}.{ext}", sanitize(set.name)),
@@ -288,7 +289,7 @@ pub fn archive(mesh: &Mesh, mesh_name: &str, sets: &[ExportTextureSet], settings
 }
 
 /// Directory and archive exports share rendering, encoding, templates and padding.
-fn render_maps(mesh: &Mesh, mesh_name: &str, sets: &[ExportTextureSet], settings: &ExportSettings, mut write: impl FnMut(&str,&[u8])->Result<(),ExportError>) -> Result<usize,ExportError> {
+pub(crate) fn render_maps(mesh: &Mesh, mesh_name: &str, sets: &[ExportTextureSet], settings: &ExportSettings, mut write: impl FnMut(&str,&[u8])->Result<(),ExportError>) -> Result<usize,ExportError> {
     let mut count=0;
     for set in sets {
         let Some(size) = set.channels.values().next().map(|i| i.width()) else { continue };

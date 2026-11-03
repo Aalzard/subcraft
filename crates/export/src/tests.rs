@@ -265,7 +265,7 @@ fn godot_and_gltf_pack_orm_with_opengl_normals() {
 #[test]
 fn builtin_templates_are_listed_once_with_unique_names_and_safe_suffixes() {
     let all = ExportTemplate::builtin();
-    assert_eq!(all.len(), 6);
+    assert_eq!(all.len(), 8);
     let mut names: Vec<_> = all.iter().map(|t| t.name.clone()).collect();
     names.sort();
     names.dedup();
@@ -278,3 +278,4 @@ fn builtin_templates_are_listed_once_with_unique_names_and_safe_suffixes() {
         assert_eq!(suffixes.len(), t.maps.len(), "{}: suffixes are unique", t.name);
     }
 }
+mod scene;

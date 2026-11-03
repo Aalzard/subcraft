@@ -1722,6 +1722,15 @@ impl Session {
         subcraft_export::export(&self.scene.mesh, &name, &sets, &settings, dir).map_err(|e| e.to_string())
     }
 
+    /// Export textures plus a scene file (OBJ+MTL, glTF, GLB or USDA) into `dir`.
+    pub fn export_scene(&mut self, dir: &Path, settings: &subcraft_export::ExportSettings, format: subcraft_export::scene::SceneFormat) -> Result<Vec<PathBuf>, String> {
+        self.update_composites();
+        let settings = self.effective_export_settings(settings);
+        let name = self.export_name();
+        let sets = self.export_sets();
+        subcraft_export::scene::export_scene(&self.scene.mesh, &name, &sets, &settings, format, dir).map_err(|e| e.to_string())
+    }
+
     /// Export every map as one in-memory ZIP archive.
     pub fn export_archive(&mut self, settings: &subcraft_export::ExportSettings) -> Result<subcraft_export::TextureArchive,String> {
         self.update_composites();let settings=self.effective_export_settings(settings);let name=self.export_name();let sets=self.export_sets();

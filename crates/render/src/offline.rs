@@ -60,6 +60,29 @@ pub fn downsample_rgba8(src: &[u8], size: [u32; 2], factor: u32) -> (Vec<u8>, [u
     (dst, out)
 }
 
+/// Recover transparency from two renders of the same view over a black and a white background
+/// (sRGB RGBA8, same size). Background pixels differ by the most, covered pixels not at all, so
+/// alpha = 1 - diff / max_diff; color is un-premultiplied. Returns RGBA8 with the new alpha.
+/// If the two renders never differ (a sky or HDRI hides the background) alpha stays 1.
+pub fn matte_from_black_white(black: &[u8], white: &[u8]) -> Vec<u8> {
+    let n = black.len().min(white.len()) / 4;
+    let diff = |i: usize| -> f32 { (0..3).map(|c| white[i * 4 + c] as f32 - black[i * 4 + c] as f32).sum::<f32>() / 3.0 };
+    let max = (0..n).map(diff).fold(0.0f32, f32::max);
+    let mut out = black[..n * 4].to_vec();
+    if max < 8.0 {
+        return out;
+    }
+    for i in 0..n {
+        let a = (1.0 - diff(i) / max).clamp(0.0, 1.0);
+        for c in 0..3 {
+            let v = black[i * 4 + c] as f32;
+            out[i * 4 + c] = if a > 1e-3 { (v / a).min(255.0).round() as u8 } else { 0 };
+        }
+        out[i * 4 + 3] = (a * 255.0).round() as u8;
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -100,5 +123,28 @@ mod tests {
         // Factor 1 is the identity; odd sizes drop the last row/column.
         assert_eq!(downsample_rgba8(&flat, [4, 4], 1).0, flat);
         assert_eq!(downsample_rgba8(&[255u8; 5 * 5 * 4], [5, 5], 2).1, [2, 2]);
+    }
+}
+
+#[cfg(test)]
+mod matte_tests {
+    use super::*;
+
+    #[test]
+    fn matte_recovers_alpha_and_color() {
+        // 3 pixels: background, opaque red, 50% white over the background.
+        let black = [0, 0, 0, 255, 200, 0, 0, 255, 100, 100, 100, 255];
+        let white = [255, 255, 255, 255, 200, 0, 0, 255, 100 + 127, 100 + 127, 100 + 127, 255];
+        let out = matte_from_black_white(&black, &white);
+        assert_eq!(out[3], 0, "background is clear");
+        assert_eq!(&out[4..8], &[200, 0, 0, 255], "opaque pixel unchanged");
+        assert!((out[11] as i32 - 128).abs() <= 1, "half alpha: {}", out[11]);
+        assert!((out[8] as i32 - 200).abs() <= 2, "un-premultiplied color: {}", out[8]);
+    }
+
+    #[test]
+    fn matte_keeps_everything_opaque_when_background_is_hidden() {
+        let img = [10u8, 20, 30, 255, 40, 50, 60, 255];
+        assert_eq!(matte_from_black_white(&img, &img), img.to_vec());
     }
 }

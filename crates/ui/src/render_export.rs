@@ -11,6 +11,8 @@ use crate::viewport_bar::ViewportPrefs;
 
 /// Output sizes offered for stills and turntables (square-ish; the view's aspect is kept).
 pub const SIZES: [u32; 4] = [1024, 1536, 2048, 4096];
+/// Resolution multipliers applied to the chosen size.
+pub const SCALES: [u32; 4] = [1, 2, 3, 4];
 pub const FRAME_COUNTS: [u32; 4] = [24, 36, 72, 120];
 
 #[derive(Clone, Debug, PartialEq)]
@@ -20,11 +22,15 @@ pub struct ExportSettings {
     /// Render at twice the size and filter down (smoother edges).
     pub supersample: bool,
     pub frames: u32,
+    /// Multiplies `size` (1x..4x).
+    pub scale: u32,
+    /// Alpha channel instead of the background color (two renders over black and white).
+    pub transparent: bool,
 }
 
 impl Default for ExportSettings {
     fn default() -> Self {
-        Self { size: 2048, supersample: true, frames: 36 }
+        Self { size: 2048, supersample: true, frames: 36, scale: 1, transparent: false }
     }
 }
 
@@ -32,7 +38,7 @@ impl ExportSettings {
     /// Pixel size of a picture of the view's aspect ratio with this long side.
     pub fn picture(&self, view: [u32; 2]) -> [u32; 2] {
         let (w, h) = (view[0].max(1) as f32, view[1].max(1) as f32);
-        let k = self.size as f32 / w.max(h);
+        let k = (self.size * self.scale.max(1)) as f32 / w.max(h);
         [((w * k).round() as u32).max(1), ((h * k).round() as u32).max(1)]
     }
 }
@@ -121,6 +127,14 @@ pub fn window(state: &mut UiState, ctx: &Context) {
                     for s in SIZES { ui.selectable_value(&mut settings.size, s, format!("{s} px")); }
                 });
                 ui.end_row();
+                ui.label("Multiplier");
+                egui::ComboBox::from_id_salt("render_scale").selected_text(format!("{}x", settings.scale)).show_ui(ui, |ui| {
+                    for s in SCALES { ui.selectable_value(&mut settings.scale, s, format!("{s}x")); }
+                });
+                ui.end_row();
+                ui.label("Background");
+                ui.checkbox(&mut settings.transparent, "Transparent").on_hover_text("Save with an alpha channel (the model alone). Needs two renders, so it takes twice as long.");
+                ui.end_row();
                 ui.label("Smoothing");
                 ui.checkbox(&mut settings.supersample, "2x supersampling").on_hover_text("Render at double size and filter down: cleaner edges, slower");
                 ui.end_row();
@@ -176,7 +190,7 @@ fn report(state: &mut UiState, now: f64, result: Result<String, String>) {
 }
 
 /// Render one frame of `camera` at `picture` pixels (times 2 when supersampling), as sRGB RGBA8.
-pub fn render_frame(state: &mut UiState, camera: crate::orbit::OrbitCamera, picture: [u32; 2], supersample: bool) -> Result<(Vec<u8>, [u32; 2]), String> {
+pub fn render_frame(state: &mut UiState, camera: crate::orbit::OrbitCamera, picture: [u32; 2], supersample: bool, transparent: bool) -> Result<(Vec<u8>, [u32; 2]), String> {
     let rs = state.render_state.clone().ok_or("no GPU renderer is available")?;
     state.sync_gpu();
     let mut renderer = state.renderer.take().ok_or("no GPU renderer is available")?;
@@ -195,7 +209,18 @@ pub fn render_frame(state: &mut UiState, camera: crate::orbit::OrbitCamera, pict
     params.post = prefs.post_params(state.session.scene().mesh.bounds.diagonal());
     crate::panels::shelf::apply_environment(&state.library, state.env.index, state.env.rotation_deg, state.env.intensity,
         &mut params, &mut renderer, &mut state.env.uploaded, &rs.device, &rs.queue);
-    let pixels = renderer.render(&rs.device, &rs.queue, big, &params).read_rgba8(&rs.device, &rs.queue);
+    let mut pixels = if transparent {
+        params.background = [0.0; 3];
+        let black = renderer.render(&rs.device, &rs.queue, big, &params).read_rgba8(&rs.device, &rs.queue);
+        params.background = [1.0; 3];
+        let white = renderer.render(&rs.device, &rs.queue, big, &params).read_rgba8(&rs.device, &rs.queue);
+        offline::matte_from_black_white(&black, &white)
+    } else {
+        renderer.render(&rs.device, &rs.queue, big, &params).read_rgba8(&rs.device, &rs.queue)
+    };
+    if !transparent {
+        for a in pixels.iter_mut().skip(3).step_by(4) { *a = 255; }
+    }
     state.renderer = Some(renderer);
     Ok(offline::downsample_rgba8(&pixels, big, factor))
 }
@@ -210,10 +235,11 @@ pub fn run(state: &mut UiState, job: &Job) -> Result<String, String> {
     let view = state.last_view_size;
     let picture = state.render_export.picture(view);
     let supersample = state.render_export.supersample;
+    let transparent = state.render_export.transparent;
     let camera = state.camera;
     match job {
         Job::Image(path) => {
-            let (pixels, size) = render_frame(state, camera, picture, supersample)?;
+            let (pixels, size) = render_frame(state, camera, picture, supersample, transparent)?;
             save_png(path, &pixels, size)?;
             Ok(format!("Saved {} ({} x {})", path.display(), size[0], size[1]))
         }
@@ -221,7 +247,7 @@ pub fn run(state: &mut UiState, job: &Job) -> Result<String, String> {
             std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
             let frames = state.render_export.frames;
             for (i, yaw) in offline::turntable_yaws(camera.yaw, frames).into_iter().enumerate() {
-                let (pixels, size) = render_frame(state, crate::orbit::OrbitCamera { yaw, ..camera }, picture, supersample)?;
+                let (pixels, size) = render_frame(state, crate::orbit::OrbitCamera { yaw, ..camera }, picture, supersample, transparent)?;
                 save_png(&dir.join(offline::turntable_file_name(i as u32)), &pixels, size)?;
             }
             Ok(format!("Saved {frames} turntable frames to {}", dir.display()))

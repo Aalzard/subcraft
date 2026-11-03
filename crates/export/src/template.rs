@@ -192,7 +192,40 @@ impl ExportTemplate {
         }
     }
 
+    /// Roblox SurfaceAppearance: ColorMap, NormalMap, MetalnessMap, RoughnessMap, EmissiveMask,
+    /// all separate 8-bit files (Roblox has no packed map). Switch the normal convention in the
+    /// export settings if your Roblox version expects the other one.
+    pub fn roblox() -> Self {
+        use ChannelKind::*;
+        Self {
+            name: "Roblox (SurfaceAppearance)".into(),
+            maps: vec![
+                OutputMap::new("ColorMap", FileFormat::Png8, rgb(BaseColor), true),
+                OutputMap::new("NormalMap", FileFormat::Png8, normal(false), false),
+                OutputMap::new("MetalnessMap", FileFormat::Png8, vec![Source::ch(Metallic, 0)], false),
+                OutputMap::new("RoughnessMap", FileFormat::Png8, vec![Source::ch(Roughness, 0)], false),
+                OutputMap::new("EmissiveMask", FileFormat::Png8, rgb(Emissive), false),
+            ],
+        }
+    }
+
+    /// Sketchfab / web viewers: separate base color, normal, roughness, metalness, AO and emission.
+    pub fn sketchfab() -> Self {
+        use ChannelKind::*;
+        Self {
+            name: "Sketchfab (separate maps)".into(),
+            maps: vec![
+                OutputMap::new("BaseColor", FileFormat::Png8, rgb(BaseColor), true),
+                OutputMap::new("Normal", FileFormat::Png8, normal(false), false),
+                OutputMap::new("Roughness", FileFormat::Png8, vec![Source::ch(Roughness, 0)], false),
+                OutputMap::new("Metalness", FileFormat::Png8, vec![Source::ch(Metallic, 0)], false),
+                OutputMap::new("AO", FileFormat::Png8, vec![Source::ch(AmbientOcclusion, 0)], false),
+                OutputMap::new("Emission", FileFormat::Png8, rgb(Emissive), true),
+            ],
+        }
+    }
+
     pub fn builtin() -> Vec<ExportTemplate> {
-        vec![Self::pbr_metal_rough(), Self::unreal(), Self::unity_hdrp(), Self::gltf(), Self::unity_urp(), Self::godot()]
+        vec![Self::pbr_metal_rough(), Self::unreal(), Self::unity_hdrp(), Self::gltf(), Self::unity_urp(), Self::godot(), Self::roblox(), Self::sketchfab()]
     }
 }

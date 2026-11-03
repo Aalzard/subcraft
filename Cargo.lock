@@ -3837,6 +3837,7 @@ name = "subcraft-export"
 version = "0.2.0"
 dependencies = [
  "glam",
+ "gltf",
  "half",
  "image",
  "log",
