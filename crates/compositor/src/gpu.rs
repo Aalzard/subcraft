@@ -152,6 +152,9 @@ static STATS: Mutex<GpuStats> = Mutex::new(GpuStats::new());
 /// Edits touching fewer tiles than this stay on the CPU (a brush stroke is a handful of tiles
 /// and the CPU answers sooner than a round trip to the GPU).
 pub const DEFAULT_MIN_TILES: usize = 64;
+
+/// Above this share of CPU-evaluated sources the CPU keeps the whole set (see `evaluate_tiles`).
+const MAX_DYNAMIC_SHARE: f64 = 0.25;
 /// Tiles per GPU batch before the memory-based cap.
 const MAX_BATCH: usize = 256;
 
@@ -576,10 +579,32 @@ pub(crate) fn evaluate_tiles(composite: &mut Composite, ts: &TextureSet, ctx: &E
     let mut left = Vec::new();
     let mut work: Vec<&[usize]> = tiles.chunks(batch).collect();
     work.reverse();
+    let mut first = true;
     while let Some(chunk) = work.pop() {
         let t0 = Instant::now();
         let prepared: Vec<GpuTile> = chunk.par_iter().map(|&t| prepare_tile(&plan, ts, ctx, t)).collect();
         let prep = t0.elapsed().as_secs_f64() * 1e3;
+        if first {
+            first = false;
+            // When most leaves need CPU-evaluated blocks (procedural fills, generator masks), the
+            // CPU work is the cost and the GPU only adds upload and readback: leave the rest of
+            // the set to the CPU (the batch in hand is still blended on the GPU).
+            let (mut dynamic, mut leaves) = (0usize, 0usize);
+            for op in prepared.iter().flat_map(|t| t.ops.iter().flatten()) {
+                if let GpuSrc::Dyn(_) = op.src {
+                    dynamic += 1;
+                }
+                if !matches!(op.src, GpuSrc::None) {
+                    leaves += 1;
+                }
+            }
+            if leaves > 0 && dynamic as f64 > MAX_DYNAMIC_SHARE * leaves as f64 {
+                log::debug!("GPU compositing: {dynamic}/{leaves} sources are CPU-evaluated; the rest of the set uses the CPU");
+                while let Some(rest) = work.pop() {
+                    left.extend_from_slice(rest);
+                }
+            }
+        }
         match backend.composite(&plan.program, &prepared) {
             Ok(out) => {
                 let t1 = Instant::now();

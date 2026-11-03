@@ -56,7 +56,7 @@ impl Default for Preferences {
             show_welcome: true,
             check_updates_on_start: true,
             use_gpu_baking: true,
-            use_gpu_compositing: true,
+            use_gpu_compositing: false,
             viewport: Default::default(),
             new_project: Default::default(),
         }

@@ -17,7 +17,7 @@ masks, blur-type filters) are not blends.
 `GpuCompositeBackend` and a process-wide registry (`register_gpu_compositor`), the same pattern as
 GPU baking (ADR-0039). `crates/render` implements it with one WGSL compute pass per channel on a
 headless device of its own. The UI registers it at start-up. The preference "Use GPU for
-compositing" (`set_gpu_compositing_enabled`, default on) switches it. Software adapters
+compositing" (`set_gpu_compositing_enabled`, **default off**: measured no faster than the CPU path for the shipped stacks) switches it. Software adapters
 (llvmpipe, WARP) are refused unless `SUBCRAFT_GPU_COMPOSITE_SOFTWARE` is set, because the CPU
 path beats them. Any error, a missing adapter or a lost device sends the affected tiles to the
 CPU path; stored data is never touched by the GPU path except through the same
@@ -34,12 +34,12 @@ raster or a plain mask raster becomes a reference to the stored tile; everything
 bitmap and mesh-map fills, generator / image / levels mask stacks, part masks, paint or fill
 effects, gradient maps, HSL, differently sized rasters) is evaluated by the existing CPU code and
 passed as an f32 block. Texture sets that contain neighborhood filters (blur, sharpen, median,
-warp, ...) are not supported (they read other tiles) and use the CPU for the whole set. Edits
+warp, ...) are not supported (they read other tiles) and use the CPU for the whole set. Tiles with a resumable CPU layer-cache prefix stay on the CPU, and when more than 25 % of the sources of the first batch are CPU-evaluated blocks the rest of the set goes to the CPU. Edits
 touching fewer than 64 tiles (a brush stroke) stay on the CPU, which answers sooner than a GPU
 round trip.
 
 **Memory.** No dense per-layer GPU textures. Paint and mask tiles are uploaded as the stored f16
-tiles into a pool buffer of 32 KiB slots (default 256 MB, `SUBCRAFT_GPU_POOL_MB`), found again by
+tiles into a pool buffer of 32 KiB slots (default 1 GiB, `SUBCRAFT_GPU_POOL_MB`), found again by
 the identity of the `Arc<Tile>` the cache holds; copy-on-write makes an edited tile a new key, so
 a stale tile can never be read. Least recently used slots are evicted. Work is cut into batches of
 at most 256 tiles and a CPU-data budget (about 192 MB of f32 blocks); a batch the GPU cannot hold
@@ -50,7 +50,7 @@ reported dirty.
 **Equivalence.** Both paths compute in f32 and round to f16. The GPU is not bit-identical (fused
 multiply-add, pow / sqrt / division rounding), so tests accept `|gpu - cpu| <= 2^-9 * max(1,
 |value|)` (about two f16 steps near 1.0) with no more than 0.1 % of values beyond one such unit,
-no NaN, and exact repeatability on the same device. Measured values are in `docs/progress.md`.
+no NaN, and exact repeatability on the same device. Measured values, including CPU vs GPU timings, are in `docs/progress.md`.
 
 ## Consequences
 

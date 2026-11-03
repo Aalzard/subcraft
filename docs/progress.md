@@ -3976,3 +3976,43 @@ Known limits: a bottom-of-stack edit is not faster (nothing below it to reuse), 
 runs the preview work and boundary packing slow it down; more RAM budget buys more boundaries; the preview of generator-based masks
 uses the 512 px geometry and baked maps sampled by UV, so it is only a rough look until the exact tiles arrive; the GPU
 compositor work from other sessions is not part of this.
+
+## GPU compositing backend (2026-11-03) — opt-in, not faster for the shipped stacks
+
+What exists (ADR-0044): `compositor::gpu` (trait `GpuCompositeBackend`, planner, driver, registry), `render::gpu_composite`
+(WGSL compute, one headless wgpu device, 32 KiB tile pool), preference "Use GPU for compositing", **off by default**.
+The CPU compositor stays the reference; the GPU takes whole-set edits of at least 64 tiles on sets without neighborhood
+filters, only for tiles that have no resumable layer-cache prefix (`PrefixCache::covers`), and gives the rest of a set back to the
+CPU when more than 25 % of the first batch's sources are CPU-evaluated blocks (procedural fills, generator masks). Any GPU
+error sends the tiles to the CPU. Stored data (`TiledImage`, project files) is unchanged; GPU memory is a bounded tile pool
+(default 1 GiB, `SUBCRAFT_GPU_POOL_MB`), batches of at most 256 tiles, nothing dense per layer.
+
+**Equivalence** (`crates/render/tests/gpu_composite.rs`, NVIDIA RTX 4060, 4 tests passing): all 32 blend modes on four channel kinds
+(base color, roughness, normal, height): worst error 0.12 tolerance units, 0 values beyond; a rich stack (folders, masks,
+effects, mixed fills): worst 0.25 units, 0 of 720896 beyond; unsupported sets fall back and are bit-identical to the CPU;
+repeat runs are identical and hit the tile pool. Tolerance: `|gpu - cpu| <= 2^-9 * max(1,|v|)` (about two f16 steps).
+Merged with `integration/next` (layer cache): `cargo test --release -p subcraft-compositor --lib --tests` all passing.
+
+**Measured** (`cargo run --release -p subcraft-render --example gpu_composite_bench -- <res> <layers> 3`, RTX 4060, 16 threads,
+medians; the machine was busy with other builds, so absolute times vary by about 2x between runs, the CPU rows were measured in the same run as the GPU rows):
+
+| scene (res, layers) | op | CPU | GPU path |
+|---|---|---|---|
+| paint + uniform fills + folder, 1024² | cold / toggle mid / opacity | 45 / 16 / 18 ms | 45 / 31 / 31 ms |
+| same, 2048² | cold / toggle mid / opacity mid | 315 / 99 / 98 ms | 483 / 136 / 72 ms |
+| same, 4096² (33 layers) | cold / toggle mid / opacity mid | 1668 / 1564 / 1497 ms | 2968 / 2237 / 1550 ms |
+| big_project stack, no spatial filters, 1024² / 2048² / 4096² | toggle mid | 262 / 1169 / 11779 ms | 313 / 1163 / 15806 ms (GPU gives back to CPU) |
+| big_project stack as shipped (blur etc.) | any | n/a | whole set on CPU (same time as CPU) |
+
+Breakdown of the 4096² paint scene on the GPU (cold): prep 204 + upload 1139 + GPU 1190 + readback 223 + store 207 ms; 618 MB
+uploaded. At 4096² the tile pool did not hold the working set, so every pass re-uploaded (0 cache hits); at 1024² and 2048² the
+pool hits 100 % on the second pass and upload drops to about 0.
+
+**Verdict.** With the CPU per-layer cache and 16 threads the CPU path is already 1–2 s for paint-only 4096² stacks, and for stacks
+with procedural fills the cost is the CPU evaluation of those fills, which the GPU cannot remove (the gate therefore returns such sets to the CPU). The
+GPU is faster only for one measured case, the cold composite of a 2048² procedural stack (2.4 s vs 6.2 s, which is the first
+GPU batch plus warm CPU caches, not a clean GPU win) and for top-layer opacity at 2048² paint (72 vs 118 ms). Everywhere else it is equal or slower, so
+the preference stays off by default. Not done, in order of likely payoff: a pool that holds a 4096² working set (the single storage
+binding is limited by the device's `maxStorageBufferBindingSize`; needs several pool buffers), a faster kernel (0.6–1.2 s GPU time
+for 33 layers at 4096² is far from memory bandwidth), keeping CPU-evaluated blocks resident on the GPU between edits, and
+a neighborhood-aware path for blur-type filters.

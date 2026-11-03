@@ -137,7 +137,7 @@ impl GpuCompositor {
         });
         let limits = device.limits();
         let max_binding = (limits.max_storage_buffer_binding_size as u64).min(limits.max_buffer_size);
-        let pool_mb: u64 = std::env::var("SUBCRAFT_GPU_POOL_MB").ok().and_then(|v| v.parse().ok()).unwrap_or(256);
+        let pool_mb: u64 = std::env::var("SUBCRAFT_GPU_POOL_MB").ok().and_then(|v| v.parse().ok()).unwrap_or(1024);
         let slots = ((pool_mb << 20).min(max_binding) / SLOT_BYTES).clamp(64, 1 << 20) as u32;
         let buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("composite tile pool"),
@@ -202,13 +202,39 @@ impl GpuCompositor {
                 pool.free.push(e.slot);
             }
         }
+        let mut placed: Vec<(u32, Arc<Tile>)> = Vec::with_capacity(misses.len());
         for (key, tile) in misses {
             let slot = pool.free.pop().ok_or(GpuError::TooLarge)?;
-            let bits = tile.data.reinterpret_cast();
-            self.queue.write_buffer(&pool.buffer, slot as u64 * SLOT_BYTES, bytemuck::cast_slice(bits));
-            timing.uploaded_bytes += (bits.len() * 2) as u64;
             slots.insert(key, slot);
-            pool.map.insert(key, Entry { _tile: tile, slot, used: stamp });
+            pool.map.insert(key, Entry { _tile: tile.clone(), slot, used: stamp });
+            placed.push((slot, tile));
+        }
+        // One write per run of neighboring slots instead of one per 32 KiB tile: far fewer
+        // queue submissions and staging allocations.
+        placed.sort_unstable_by_key(|p| p.0);
+        let mut staging: Vec<u8> = Vec::new();
+        let mut run_start = 0u32;
+        let mut next = 0u32;
+        for (slot, tile) in placed.iter() {
+            let bits = tile.data.reinterpret_cast();
+            if !staging.is_empty() && (*slot != next || staging.len() >= (64 << 20)) {
+                self.queue.write_buffer(&pool.buffer, run_start as u64 * SLOT_BYTES, &staging);
+                staging.clear();
+            }
+            if staging.is_empty() {
+                run_start = *slot;
+            }
+            let bytes: &[u8] = bytemuck::cast_slice(bits);
+            debug_assert!(bytes.len() <= SLOT_BYTES as usize);
+            staging.extend_from_slice(bytes);
+            // Tiles with fewer components than a full slot leave the rest of the slot unread.
+            let pad = SLOT_BYTES as usize - bytes.len();
+            staging.resize(staging.len() + pad, 0);
+            timing.uploaded_bytes += bytes.len() as u64;
+            next = slot + 1;
+        }
+        if !staging.is_empty() {
+            self.queue.write_buffer(&pool.buffer, run_start as u64 * SLOT_BYTES, &staging);
         }
         Ok(slots)
     }
