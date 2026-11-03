@@ -4212,3 +4212,24 @@ independent SubCraft code, nothing copied). There is no separate "filters crate"
   uses a default cube whose composite is uniform, so varied pixels are covered only by the export
   crate tests. The panel's zoom/pan and UV wireframe overlay are not part of the export (Painter
   exports the texture, not the overlay).
+## Render / export parity pass (cloud/render-export)
+
+Audit against the TextureCraft 0.3.0 feature names (implemented independently):
+
+| Item | Status |
+|---|---|
+| Godot 4 ORM, Unity HDRP mask map, Unity URP, Unreal packed ORM, glTF ORM, PBR metal/rough presets | already present |
+| Roblox SurfaceAppearance, Sketchfab (separate maps) presets | **added** (`template.rs`) |
+| OBJ with a textured MTL (`map_Kd/Ke/Pr/Pm/Ka`, `norm`) | **added** (`export::scene`); the old `mesh::write_obj` had untextured materials only |
+| glTF 2.0 (`.gltf` + `.bin` + PNGs) and GLB (textures embedded), PBR metallic-roughness + normal + occlusion + emissive | **added** |
+| USD export (USDA, one `Mesh` per material, `UsdPreviewSurface` + `UsdUVTexture`, ORM read through r/g/b) | **added**; USDC/USDZ not written |
+| Turntable, supersampled still | already present |
+| Resolution multiplier (1x–4x) and transparent background (black/white difference matte, `offline::matte_from_black_white`) for image + turntable | **added** |
+| UI: "Export model + textures" in the Export window; Multiplier / Transparent in Render quality | **added** |
+
+Tests run: `cargo test -p subcraft-export` (34 pass: each scene format is written then re-read with
+the real importers / the `gltf` crate; packing values for HDRP, URP, Unreal, Godot, Roblox,
+Sketchfab are checked numerically); matte unit tests in `subcraft-render`.
+UI crate: lib builds, `render_quality` + `export_maps` tests pass; the full `subcraft-ui` test suite was not run (container disk filled during linking).
+Not verified here: the transparent render on a real GPU (the matte math is unit tested only),
+opening the files in Unity / Unreal / Roblox / usdview.

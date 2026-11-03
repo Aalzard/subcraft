@@ -36,12 +36,13 @@ pub struct ExportUi {
     pub known_template: String,
     /// Opened from File > Export 2D view: write only what the 2D panel shows.
     pub view_2d_only: bool,
+    pub scene_format: usize,
 }
 
 impl Default for ExportUi {
     fn default() -> Self {
         let folder = std::env::current_dir().map(|d| d.join("exports")).unwrap_or_else(|_| PathBuf::from("exports"));
-        Self { open: false, settings: ExportSettings::default(), template: 0, folder: folder.display().to_string(), known_template: String::new(), view_2d_only: false }
+        Self { open: false, settings: ExportSettings::default(), template: 0, folder: folder.display().to_string(), known_template: String::new(), view_2d_only: false, scene_format: 0 }
     }
 }
 
@@ -255,6 +256,22 @@ pub fn export_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
             }
             ui.add_enabled_ui(plan_len > 0, |ui| primary_button(ui, format!("{}  Export", crate::icons::EXPORT))).inner.clicked()
         });
+        ui.separator();
+        let formats = subcraft_export::scene::SceneFormat::ALL;
+        let mut scene_go = false;
+        ui.horizontal(|ui| {
+            egui::ComboBox::from_id_salt("scene_format").selected_text(formats[state.export.scene_format.min(formats.len() - 1)].label()).show_ui(ui, |ui| {
+                for (i, f) in formats.iter().enumerate() { ui.selectable_value(&mut state.export.scene_format, i, f.label()); }
+            });
+            scene_go = ui.button("Export model + textures").on_hover_text("Writes the mesh with a textured PBR material (glTF PBR, USD preview surface, or OBJ with separate maps) into the folder").clicked();
+        });
+        if scene_go {
+            let format = formats[state.export.scene_format.min(formats.len() - 1)];
+            match state.session.export_scene(&folder, &settings, format) {
+                Ok(files) => state.set_status(format!("Exported {} files to {}", files.len(), folder.display()), now),
+                Err(e) => state.set_status(format!("Export failed: {e}"), now),
+            }
+        }
         if go.inner {
             match state.session.export_textures(&folder, &settings) {
                 Ok(files) => state.set_status(format!("Exported {} files to {}", files.len(), folder.display()), now),

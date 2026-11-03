@@ -23,3 +23,6 @@ thiserror.workspace = true
 log.workspace = true
 zip.workspace = true
 photocraft-psd.workspace = true
+
+[dev-dependencies]
+gltf.workspace = true
