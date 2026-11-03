@@ -98,6 +98,8 @@ pub struct LaunchOptions {
     pub capture_tool: Option<String>,
     /// Open this Shelf tab (textures, materials, smart-materials, smart-masks, brushes, environments).
     pub shelf_tab: Option<String>,
+    /// Import these smart material files / folders at startup (scripted captures and tests).
+    pub import_smart: Vec<PathBuf>,
     /// Open the Export Textures window (scripted captures).
     pub export_window: bool,
     /// Open the New Project window with this model loaded (scripted captures).
@@ -579,6 +581,9 @@ impl SubcraftApp {
         state.export.open = options.export_window || options.export_template.is_some();
         if let Some(i) = options.export_template { state.export.template = i.min(subcraft_export::ExportTemplate::builtin().len() - 1); }
         state.render_window = options.render_window;
+        if !options.import_smart.is_empty() {
+            crate::files::import_smart_materials(&mut state, &options.import_smart, 0.0);
+        }
         if let Some(tab) = options.shelf_tab.as_deref() {
             use crate::panels::shelf::ShelfTab;
             state.shelf.tab = match tab {
@@ -928,6 +933,14 @@ impl SubcraftApp {
                 if item(ui, icons::IMAGE, "Import texture set…", "") {
                     ui.close();
                     crate::panels::layers::import_texture_set_dialog(ui.ctx());
+                }
+                if item(ui, icons::SPARKLE, "Import smart material(s)…", "") {
+                    ui.close();
+                    crate::panels::shelf::import_smart_dialog(ui.ctx());
+                }
+                if item(ui, icons::FOLDER_OPEN, "Import smart material folder…", "") {
+                    ui.close();
+                    crate::panels::shelf::import_smart_folder_dialog(ui.ctx());
                 }
                 if self.state.photocraft.is_some() {
                     if item(ui, icons::X, "Stop editing in PhotoCraft", "") {
@@ -1348,6 +1361,7 @@ impl eframe::App for SubcraftApp {
         dialogs::poll_bake(&mut self.state, &ctx, now);
         crate::spp_import::poll(&mut self.state, &ctx, now);
         crate::files::poll(&mut self.state, now);
+        crate::files::import_report_window(&mut self.state, &ctx);
         if let Some(action) = dialogs::unsaved_prompt(&mut self.state, &ctx, now) {
             self.pending_now = Some(action);
         }

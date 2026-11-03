@@ -75,7 +75,7 @@ fn resources_of(f: &Fragment) -> Vec<Arc<subcraft_doc::Resource>> {
     f.referenced_resources().into_iter().filter_map(|id| f.resources.get(id).cloned()).collect()
 }
 
-fn smart_material_from(f: Fragment, path: PathBuf) -> Result<SmartMaterial, String> {
+pub(crate) fn smart_material_from(f: Fragment, path: PathBuf) -> Result<SmartMaterial, String> {
     if f.kind != FragmentKind::SmartMaterial || f.layers.len() != 1 {
         return Err(format!("{}: not a smart material", path.display()));
     }

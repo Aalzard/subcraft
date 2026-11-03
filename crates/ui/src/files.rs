@@ -24,6 +24,10 @@ pub enum Purpose {
     BakeHighPoly,
     Stencil,
     TextureSet,
+    /// `.scsmart` files and texture images to import as smart materials.
+    SmartMaterials,
+    /// A folder to search for smart materials and PBR texture sets.
+    SmartMaterialFolder,
     BrushTextureSet,
     BrushChannel { channel: ChannelKind },
     ShelfTextures,
@@ -37,6 +41,7 @@ pub enum Purpose {
     MaskImage { layer: LayerId, effect: EffectId },
 }
 
+pub const SMART_MATERIALS: (&str, &[&str]) = ("Smart materials and textures", &["scsmart", "png", "jpg", "jpeg", "tga", "tif", "tiff", "exr", "bmp"]);
 pub const IMAGES: (&str, &[&str]) = ("Images", &subcraft_image::IMAGE_EXTENSIONS);
 pub const MESHES: (&str, &[&str]) = ("Meshes", &subcraft_mesh::SUPPORTED_EXTENSIONS);
 pub const PROJECTS: (&str, &[&str]) = ("SubCraft project", &[subcraft_app::PROJECT_EXTENSION]);
@@ -61,6 +66,12 @@ pub fn pick(_ctx: &egui::Context, purpose: Purpose, filter: (&str, &[&str]), mul
     deliver(purpose, paths);
 }
 
+/// Ask for a folder for `purpose`.
+pub fn pick_folder(_ctx: &egui::Context, purpose: Purpose, title: &str) {
+    let paths: Vec<PathBuf> = rfd::FileDialog::new().set_title(title).pick_folder().into_iter().collect();
+    deliver(purpose, paths);
+}
+
 /// Hand picked files to their handlers (call once per frame).
 pub fn poll(state: &mut UiState, now: f64) {
     let picked = std::mem::take(&mut *PICKED.lock().expect("picked files"));
@@ -71,6 +82,47 @@ pub fn poll(state: &mut UiState, now: f64) {
 
 fn file_name(p: &std::path::Path) -> String {
     p.file_name().and_then(|n| n.to_str()).unwrap_or("file").to_string()
+}
+
+/// Import smart materials (`.scsmart` files, folders of them, folders / images of PBR texture
+/// sets) into the user library and the shelf. Problems are listed in the log; the status line
+/// gives the outcome.
+pub fn import_smart_materials(state: &mut UiState, paths: &[PathBuf], now: f64) {
+    let Some(lib) = state.user_library.clone() else {
+        state.set_status("No library folder (Documents not found; set SUBCRAFT_LIBRARY)", now);
+        return;
+    };
+    let report = subcraft_app::smart_import::import_smart_materials(paths, &lib, &state.library.smart_materials);
+    for line in report.lines() {
+        log::info!("import smart materials: {line}");
+    }
+    if !report.imported.is_empty() || !report.already_present.is_empty() {
+        state.shelf.tab = crate::panels::shelf::ShelfTab::SmartMaterials;
+    }
+    let msg = report.summary();
+    let lines = report.lines();
+    state.library.smart_materials.extend(report.imported);
+    // Only problems open the list; a clean import just says so in the status line.
+    state.import_report = if report.errors.is_empty() { Vec::new() } else { lines };
+    state.set_status(msg, now);
+}
+
+/// The list of problems of the last smart-material import.
+pub fn import_report_window(state: &mut UiState, ctx: &egui::Context) {
+    if state.import_report.is_empty() {
+        return;
+    }
+    let mut open = true;
+    egui::Window::new("Smart material import").open(&mut open).default_width(520.0).show(ctx, |ui| {
+        egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
+            for line in &state.import_report {
+                ui.add(egui::Label::new(line).wrap());
+            }
+        });
+    });
+    if !open {
+        state.import_report.clear();
+    }
 }
 
 /// Shelf → Import textures: keep the files in Shelf → Textures and, when their names say which
@@ -137,6 +189,7 @@ fn handle(state: &mut UiState, purpose: Purpose, paths: &[PathBuf], now: f64) {
             }
             Err(e) => state.set_status(format!("Import texture set: {e}"), now),
         },
+        Purpose::SmartMaterials | Purpose::SmartMaterialFolder => import_smart_materials(state, paths, now),
         Purpose::ShelfTextures => import_shelf_textures(state, paths, now),
         Purpose::Alpha => {
             // Copied into the library so it is still there next time.

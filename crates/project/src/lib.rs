@@ -34,6 +34,9 @@ use schema::*;
 
 pub const EXTENSION: &str = "subcraft";
 
+/// Largest single (uncompressed) entry read from a project / fragment container.
+pub const MAX_ENTRY_BYTES: u64 = 1 << 30;
+
 #[derive(Debug, thiserror::Error)]
 pub enum ProjectError {
     #[error("i/o error: {0}")]
@@ -360,9 +363,17 @@ struct Loader<'a, R: Read + Seek> {
 
 impl<R: Read + Seek> Loader<'_, R> {
     fn bytes(&mut self, name: &str) -> Result<Vec<u8>, ProjectError> {
-        let mut f = self.zip.by_name(name).map_err(|_| ProjectError::Invalid(format!("missing entry {name}")))?;
+        let f = self.zip.by_name(name).map_err(|_| ProjectError::Invalid(format!("missing entry {name}")))?;
+        // The declared size is attacker-controlled in a downloaded file: cap the allocation and
+        // the bytes actually inflated.
+        if f.size() > MAX_ENTRY_BYTES {
+            return Err(ProjectError::Invalid(format!("{name}: {} MB is larger than the {} MB entry limit", f.size() >> 20, MAX_ENTRY_BYTES >> 20)));
+        }
         let mut v = Vec::with_capacity(f.size() as usize);
-        f.read_to_end(&mut v)?;
+        f.take(MAX_ENTRY_BYTES + 1).read_to_end(&mut v)?;
+        if v.len() as u64 > MAX_ENTRY_BYTES {
+            return Err(ProjectError::Invalid(format!("{name}: larger than the {} MB entry limit", MAX_ENTRY_BYTES >> 20)));
+        }
         Ok(v)
     }
 

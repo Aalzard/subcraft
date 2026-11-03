@@ -1725,7 +1725,14 @@ impl Session {
         }
         let ids = self.import_preset_images(smart.images())?;
         let layer = smart.build_with(self.selected_texture_set(), &ids);
-        self.execute(Command::InsertLayer { layer: Box::new(layer), label: format!("Smart Material: {}", smart.name) })
+        let label = format!("Smart Material: {}", smart.name);
+        // Imported texture materials may bring AO / emissive / opacity maps the set lacks.
+        let missing: Vec<_> = crate::smart_import::channels_to_add(&layer).into_iter().filter(|&k| !self.selected_texture_set().has_channel(k)).collect();
+        if missing.is_empty() {
+            self.execute(Command::InsertLayer { layer: Box::new(layer), label })
+        } else {
+            self.execute(Command::InsertLayerWithChannels { layer: Box::new(layer), channels: missing, label })
+        }
     }
 
     /// Import a built-in preset's embedded images (reusing identical ones already in the project),

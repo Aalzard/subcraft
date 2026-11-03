@@ -3823,3 +3823,38 @@ channels, mean abs difference over the UV triangles).
   `sheets file.sbsasm count`.
 * **Tests:** `cargo test --workspace --lib --bins --tests --no-fail-fast`: 865 passed, 0 failed (new: grain statistics at 256-2048,
   sheet layout, picker range, stencil tweaks; `spp_open` now expects the grain layer).
+
+## Smart material import and export (2026-11-03)
+
+Request (a YouTube commenter): bring smart materials in from outside the app, including plain PBR texture packs such as ambientCG.
+
+* **Entry points:** File > Import smart material(s)… and File > Import smart material folder…, the Import / Import folder buttons on
+  the shelf's Smart Materials tab, drag and drop of files or folders onto the shelf, and `subcraft --import-smart PATH` (repeatable).
+  Export: right-click a smart material on the shelf > Export smart material… (a `.scsmart` zip anyone can import). All of it goes
+  through `subcraft_app::smart_import`; the UI only picks paths and shows the result. A finished import switches to the Smart
+  Materials tab, adds the new entries and shows a report window when anything went wrong (every line is also logged).
+* **What is accepted:** `.scsmart` files (fragment of kind smart material; schema newer than this build is refused with a clear
+  message), image files (png jpg jpeg tga bmp tif tiff exr hdr webp) and folders of them. Image files are grouped per material by the
+  filename prefix before the map word (`Bricks059_2K-PNG_Color.png` and `Bricks059_2K-PNG_Roughness.png` are one material named
+  `Bricks059`; resolution/format words like 2K, PNG, JPG are dropped from the name); files without a prefix use the folder name.
+  Map assignment reuses `texture_maps::classify` (Color/Albedo/BaseColor, Roughness, Metalness/Metallic, AmbientOcclusion, Height/
+  Displacement, Opacity, Normal). `NormalDX` is flipped in green; when both NormalGL and NormalDX exist the OpenGL one is used and the
+  other is listed as skipped. Each material becomes a fill layer with the found channels (the layer adds missing channels to the
+  texture set when applied) and is saved to the user's library folder. Unrelated files are listed, never fatal.
+* **Name collisions:** an identical existing file or identical images is reported as "already present"; a different material with an
+  existing name is saved as `Name (2)`. The bundled assets are never written, the library folder only.
+* **Safety limits:** nothing from a zip is extracted (entries are looked up by name, so no path traversal; a `../` entry is just a
+  missing entry); entries are capped at 1 GiB (`project::MAX_ENTRY_BYTES`, also enforced on read so a lying header cannot allocate
+  more); smart files 1 GiB, texture files 256 MiB, texture side 8192, 500 materials, 20,000 files scanned, folder depth 8; symlinks in
+  dropped folders are not followed. Corrupt, empty, truncated, future-version, wrong-kind (smart mask) and traversal inputs each give
+  one error line and leave the library unchanged; nothing panics.
+* **Tests:** `crates/app/tests/smart_import.rs` (5: ambientCG folder to one material per set with channel check, dropped files and nested
+  folders, export/import round trip with pixel equality, nine kinds of bad input, nothing recognizable) and
+  `crates/assets/tests/split_map_name.rs` (2). All fixtures are generated in the temp dir.
+  `cargo test --workspace --lib --bins --tests`: 872 passed, 0 failed.
+* **Real run:** built binary, `SUBCRAFT_LIBRARY=D:/smi-run/lib subcraft --import-smart D:/smi-run/Downloads --shelf-tab smart-materials`
+  on a generated folder with `Bricks059_2K-PNG` (Color, Roughness, NormalGL, NormalDX, Displacement, AmbientOcclusion), `Planks012_2K-PNG`
+  (Color, Roughness, NormalDX), a readme and a garbage `bad.scsmart`: status "Imported 2 smart materials; 1 problem(s)", the report window
+  listed the zip error, the skipped NormalDX and both channel mappings, and the library folder held `Bricks059.scsmart` and `Planks012.scsmart`.
+* **Not done:** drag and drop (`handle_drops` in the shelf) has no automated test and was not tried with a real OS drag (no mouse driving),
+  only the same import function it calls was run; Windows-only manual run so far.
