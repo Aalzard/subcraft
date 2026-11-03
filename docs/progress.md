@@ -4019,3 +4019,31 @@ Request (a YouTube commenter): bring smart materials in from outside the app, in
 Tests (materials, 6): determinism and seed dependence, tiling for every preset (value one tile over, border jump), resolution independence (mean coverage 128 vs 512 within 8 percent), coverage strictly increasing with density, direction/spread anisotropy, wear weight; project: old scratches params serialize/deserialize unchanged.
 Example: cargo run --example scratch_presets -p subcraft-app -- <dir> [--crate] writes one project per preset for screenshots.
 Verified in the real app (release binary, sphere, 1024 px, Height + Base Color channels): all five presets render and show as expected - docs/screenshots/scratch-{fine-hairlines,heavy-gouges,brushed-metal,scuffed-plastic,cracked}.png. Test runs: materials 38, doc 14, project 33, app lib 67, all passing (cargo -j 2). Not done: wear bias in mask Fill effects, a crate/bake wear screenshot, and the Properties panel itself was not driven interactively. Build note: the first target dir got corrupted by interrupted builds (rustc metadata panics); a fresh target dir fixed it.
+
+### Session 116 - Export the 2D view as a texture, issue #84 (2026-11-03)
+
+* **What:** Painter 2018.3-style "2D View" export. The file is what the 2D (UV) panel shows for its
+  current "Show" choice (a channel or a baked mesh map), written with the normal export settings
+  (file format, bit depth, padding).
+* **Export crate:** new `View2d` (channel or mesh map), `ExportSettings::view_2d`, and a template
+  source `Source::View2d { component }`, so any custom preset can use it. New built-in template
+  "2D View" (one RGB map, suffix `View2D`). Pixels follow the panel's preview shader
+  (`render/src/preview.wgsl`): one-component sources show as gray, values clamp to 0..1, color
+  channels are sRGB-encoded for integer formats (EXR stays linear), data channels are never
+  color-transformed. Maps using it are skipped when no view is set or the set lacks that source.
+* **App:** `Session::export_view_2d(dir, view, settings)` writes the selected texture set only.
+* **UI:** File > "Export 2D view…" opens the export window in 2D-view mode (folder, format, padding;
+  the image shown is the panel's current source). The normal Export Textures window can also pick
+  the "2D View" template. The UI only maps `PreviewSource` → `View2d`; the logic is in export/app.
+* **Tests:** `crates/export/src/tests/view2d.rs` (7: sRGB color pixels, gray scalar + untouched
+  normal, 16-bit keeps precision 8-bit can't, EXR linear, padding fills black gutter texels with the
+  island color while `None` leaves them, baked mesh map view + missing source writes nothing,
+  preset is built in and serde round-trips) and `crates/app/tests/export_view_2d.rs` (2: exported
+  pixels equal the displayed composite at 8 and 16 bit for Base Color and Roughness, missing bake
+  writes nothing and other templates never plan `View2D`). `cargo test -p subcraft-export`: 35
+  passed; `cargo test -p subcraft-app --test export_view_2d`: 2 passed. Built-in template count
+  test updated 6 → 7.
+* **Not done:** not driven in the real app (no display in this cloud session); the app-level test
+  uses a default cube whose composite is uniform, so varied pixels are covered only by the export
+  crate tests. The panel's zoom/pan and UV wireframe overlay are not part of the export (Painter
+  exports the texture, not the overlay).
