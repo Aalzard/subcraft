@@ -4038,5 +4038,6 @@ Audit against the TextureCraft 0.3.0 feature names (implemented independently):
 Tests run: `cargo test -p subcraft-export` (34 pass: each scene format is written then re-read with
 the real importers / the `gltf` crate; packing values for HDRP, URP, Unreal, Godot, Roblox,
 Sketchfab are checked numerically); matte unit tests in `subcraft-render`.
+UI crate: lib builds, `render_quality` + `export_maps` tests pass; the full `subcraft-ui` test suite was not run (container disk filled during linking).
 Not verified here: the transparent render on a real GPU (the matte math is unit tested only),
 opening the files in Unity / Unreal / Roblox / usdview.
