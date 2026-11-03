@@ -48,6 +48,14 @@ pub struct ViewportPrefs {
     pub pt_max_samples: u32,
     pub pt_denoise: bool,
     pub pt_ground: bool,
+    /// Polygon wireframe over the model: on/off, sRGB color, opacity and the largest angle (degrees)
+    /// between two triangles that still count as one polygon.
+    pub wireframe: bool,
+    pub wire_color: [f32; 3],
+    pub wire_opacity: f32,
+    pub wire_angle: f32,
+    /// Saved and imported camera viewpoints.
+    pub camera_bookmarks: Vec<crate::view_extras::CameraBookmark>,
 }
 
 impl Default for ViewportPrefs {
@@ -76,6 +84,11 @@ impl Default for ViewportPrefs {
             pt_max_samples: 1024,
             pt_denoise: true,
             pt_ground: true,
+            wireframe: false,
+            wire_color: [0.85, 0.88, 0.95],
+            wire_opacity: 0.6,
+            wire_angle: 30.0,
+            camera_bookmarks: Vec::new(),
         }
     }
 }
@@ -155,6 +168,8 @@ pub fn show(ui: &mut Ui, state: &mut crate::state::UiState) {
                         ui.horizontal(|ui| view_mode(ui, prefs));
                     });
                     grid_control(ui, &mut state.recovery.prefs.viewport);
+                    crate::view_extras::wireframe_control(ui, &mut state.recovery.prefs.viewport);
+                    crate::view_extras::camera_menu(ui, state);
                 } else {
                     view_controls(ui, state);
                 }
@@ -211,6 +226,8 @@ fn view_controls(ui: &mut Ui, state: &mut crate::state::UiState) {
     ui.separator();
     view_mode(ui, prefs);
     grid_control(ui, prefs);
+    crate::view_extras::wireframe_control(ui, prefs);
+    crate::view_extras::camera_menu(ui, state);
 }
 
 /// Rendering mode settings (the 3D view's Render button menu and Preferences).
@@ -302,7 +319,7 @@ fn view_mode(ui: &mut Ui, prefs: &mut ViewportPrefs) {
     dim(ui, "View");
     let mut mode = prefs.view_mode();
     egui::ComboBox::from_id_salt("viewport_view_mode")
-        .width(92.0)
+        .width(150.0)
         .selected_text(mode.label())
         .show_ui(ui, |ui| {
             for m in ViewMode::ALL {

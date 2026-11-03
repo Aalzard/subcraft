@@ -312,6 +312,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     state.symmetry_uploaded = Some(key);
                 }
             }
+            params.wireframe = view.wireframe && !bake_mode;
+            if params.wireframe {
+                crate::view_extras::sync_wireframe(renderer, &rs.device, view, &state.session.scene().mesh, &mut state.wire_uploaded);
+            }
             if let Some(high) = &state.bake.preview_mesh {
                 if !state.bake.preview_uploaded {
                     renderer.set_bake_preview(&rs.device, Some((&state.session.scene().mesh, high)));

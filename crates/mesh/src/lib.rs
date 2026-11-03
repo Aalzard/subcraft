@@ -2,6 +2,7 @@
 
 mod alembic;
 pub mod bvh;
+pub mod camera;
 pub mod ray_batch;
 pub mod import;
 pub mod mesh;

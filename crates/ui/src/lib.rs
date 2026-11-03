@@ -29,6 +29,7 @@ pub mod edit_profile;
 pub mod theme;
 pub mod viewport;
 pub mod viewport_bar;
+pub mod view_extras;
 pub mod widgets;
 pub mod welcome;
 
