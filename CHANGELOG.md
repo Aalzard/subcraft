@@ -3,6 +3,42 @@
 What changed in SubCraft, newest first. Download the latest build from the
 [Releases page](https://github.com/Aalzard/subcraft/releases/latest).
 
+## 0.2.1 — 2026-11-04
+
+### New
+- **Blender-style 3D navigation** (Preferences, "3D navigation"): orbit, pan and zoom like
+  Blender, with continuous mouse takeover while navigating. The Painter scheme stays the default.
+- **Export the current 2D view** as a texture ("2D View" export template).
+- **Scene export** (OBJ + MTL, glTF, GLB, USDA), Roblox and Sketchfab export presets, a render
+  size multiplier and a transparent-background option.
+- **Text tool**: text layers with bidirectional text and shaping, embedded fonts and
+  resolution-independent rasterization; mesh reload keeps them.
+- **Automatic UV unwrapping** (File, Auto UV unwrap) for models without UVs, and **PLY and STL
+  mesh import**.
+- **GPU layer compositing** (Preferences, "Use GPU for compositing"): on by default for texture
+  sets of 2048 x 2048 and larger. On a 4096 x 4096 paint stack a layer toggle took 0.5 s instead
+  of 1.8 s and an opacity edit 0.5 s instead of 1.1 s (RTX 4060). Smaller sets, sets with
+  blur-type filters, procedural-heavy stacks and small edits stay on the processor, which is also
+  the fallback if the graphics card fails.
+- **3D view**: wireframe overlay with color and opacity, baked normal view modes, camera import
+  and bookmarks.
+- **Layers**: copy and paste layers and effects, multi-select, texture set rename and hide,
+  a per-layer result cache for faster edits, and a safer unsaved-changes prompt.
+- **Eleven more filters** (Grayscale, Invert, Posterize, Histogram Shift, Color Balance, Replace
+  Color, Normal Invert, Edge Detect, Glow, Directional Warp, Mosaic), a procedural scratch
+  generator, and four more smart masks.
+- **Smart materials**: import and export `.scsmart` files and PBR texture folders.
+
+### Fixed
+- Start-up on machines with more than one graphics card: SubCraft now probes adapters in a
+  separate process, remembers what worked, falls back to another adapter and writes a start-up log
+  (issue #83; not yet confirmed by the reporter).
+- Pen and touch contact is mapped to a primary press before reaching the interface, with
+  `SUBCRAFT_INPUT_LOG=1` for diagnostics (issue #82; tablet clicks on Linux Wayland not yet
+  confirmed on real hardware).
+- The top bar no longer overflows in narrow windows.
+- Painter import pads solved textures outside the UV islands from the nearest island texel.
+
 ## 0.2.0 — 2026-11-02
 
 ### New

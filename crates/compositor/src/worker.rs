@@ -11,6 +11,10 @@
 //! * [`CompositeWorker::finish`] blocks until the newest snapshot is completely evaluated
 //!   (export, bake, save and tests need the exact full composite).
 //!
+//! * Quick previews: when a snapshot dirties many tiles, a low-resolution composite of it is
+//!   published first (stretched over the dirty tiles) and then refined tile by tile to the exact
+//!   result; a newer snapshot cancels a preview still being computed.
+//!
 //! Evaluation runs on the worker's own rayon pool (one thread fewer than the machine has), so
 //! parallel work started by the UI thread (brush stamps) never queues behind composite tiles.
 
@@ -35,7 +39,24 @@ pub struct SetSnapshot {
     pub texture_set: TextureSet,
     pub geometry: Arc<TextureSetGeometry>,
     pub mesh_maps: MeshMaps,
+    /// The same geometry at [`preview_resolution`] of this set (`None`: no quick previews).
+    pub preview_geometry: Option<Arc<TextureSetGeometry>>,
 }
+
+/// Resolution of the quick preview for a texture set of `resolution` texels, if one is worth it:
+/// a power-of-two fraction that lands on 512.
+pub fn preview_resolution(resolution: u32) -> Option<u32> {
+    let mut low = resolution;
+    while low > PREVIEW_EDGE && low % 2 == 0 {
+        low /= 2;
+    }
+    (low == PREVIEW_EDGE && low < resolution).then_some(low)
+}
+
+/// Edge of the quick preview.
+const PREVIEW_EDGE: u32 = 512;
+/// A preview is made when at least this many tiles are stale.
+const PREVIEW_MIN_TILES: usize = 128;
 
 /// The inputs of every texture set at one document state.
 #[derive(Clone, Default)]
@@ -93,6 +114,8 @@ struct State {
     shutdown: bool,
     /// The worker thread panicked.
     failed: bool,
+    /// Quick previews published so far.
+    previews: u64,
 }
 
 struct Shared {
@@ -166,6 +189,11 @@ impl CompositeWorker {
         self.lock().started
     }
 
+    /// Quick previews published so far (diagnostics and tests).
+    pub fn previews_published(&self) -> u64 {
+        self.lock().previews
+    }
+
     /// Block until the newest submitted snapshot is completely evaluated.
     pub fn finish(&self) {
         let mut st = self.lock();
@@ -217,6 +245,9 @@ fn run(shared: &Shared, pool: &rayon::ThreadPool) {
     let mut current: Option<(u64, Snapshot)> = None;
     let mut geometry: HashMap<TextureSetId, Arc<TextureSetGeometry>> = HashMap::new();
     let mut working = false;
+    // What is shown while previews are pending: the exact composite with preview tiles on top.
+    let mut displays: HashMap<TextureSetId, Composite> = HashMap::new();
+    let mut previewed: HashMap<TextureSetId, BTreeSet<usize>> = HashMap::new();
     loop {
         let fresh = {
             let mut st = shared.lock();
@@ -250,16 +281,82 @@ fn run(shared: &Shared, pool: &rayon::ThreadPool) {
                 geometry.insert(id, set.geometry.clone());
             }
         }
+        displays.retain(|id, _| caches.contains_key(id));
+        previewed.retain(|id, _| caches.contains_key(id));
         let mut out = Vec::new();
+        if fresh {
+            for set in &snap.sets {
+                let (id, ts) = (set.texture_set.id, &set.texture_set);
+                let Some(low_geo) = set.preview_geometry.as_ref().filter(|g| Some(g.resolution) == preview_resolution(ts.resolution)) else { continue };
+                let cache = caches.get(&id).expect("inserted for every set");
+                let stale = cache.stale_tiles(ts);
+                if stale.len() < PREVIEW_MIN_TILES {
+                    continue;
+                }
+                let mut low = ts.clone();
+                low.resolution = low_geo.resolution;
+                let ctx = EvalContext { geometry: low_geo, resources: &snap.resources, mesh_maps: &set.mesh_maps };
+                let cancel = || {
+                    let st = shared.lock();
+                    st.next.is_some() || st.shutdown
+                };
+                let Some(quick) = pool.install(|| Composite::preview(&low, &ctx, ts.resolution, &cancel)) else { continue };
+                let mut display = match displays.remove(&id) {
+                    Some(d) if d.resolution == ts.resolution => d,
+                    _ => {
+                        previewed.remove(&id);
+                        cache.composite().filter(|c| c.resolution == ts.resolution).cloned().unwrap_or_else(|| Composite::new(ts))
+                    }
+                };
+                display.overlay_preview(&quick, &stale);
+                let changed: ChangedTiles = display.channels.keys().map(|k| (*k, stale.clone())).collect();
+                previewed.entry(id).or_default().extend(stale.iter().copied());
+                out.push((id, Published { composite: display.clone(), tiles: stale, changed }));
+                displays.insert(id, display);
+                shared.lock().previews += 1;
+            }
+        }
         pool.install(|| {
             for set in &snap.sets {
-                let cache = caches.get_mut(&set.texture_set.id).expect("inserted for every set");
+                let id = set.texture_set.id;
+                let cache = caches.get_mut(&id).expect("inserted for every set");
                 let ctx = EvalContext { geometry: &set.geometry, resources: &snap.resources, mesh_maps: &set.mesh_maps };
                 let tiles = cache.update_within(&set.texture_set, &ctx, Some(SLICE));
-                if !tiles.is_empty() {
-                    let composite = cache.composite().expect("updated").clone();
-                    out.push((set.texture_set.id, Published { composite, tiles, changed: cache.last_changed().clone() }));
+                if tiles.is_empty() {
+                    continue;
                 }
+                let exact = cache.composite().expect("updated");
+                let mut changed = cache.last_changed().clone();
+                let composite = match displays.get_mut(&id) {
+                    Some(display) if display.resolution == exact.resolution => {
+                        display.copy_tiles_from(exact, &tiles);
+                        // Tiles showing a preview must be uploaded even when the exact result
+                        // equals the one before the edit.
+                        let pending = previewed.entry(id).or_default();
+                        for t in &tiles {
+                            if pending.remove(t) {
+                                for kind in exact.channels.keys() {
+                                    changed.entry(*kind).or_default().push(*t);
+                                }
+                            }
+                        }
+                        for list in changed.values_mut() {
+                            list.sort_unstable();
+                            list.dedup();
+                        }
+                        let shown = display.clone();
+                        if pending.is_empty() {
+                            displays.remove(&id);
+                        }
+                        shown
+                    }
+                    _ => {
+                        displays.remove(&id);
+                        previewed.remove(&id);
+                        exact.clone()
+                    }
+                };
+                out.push((id, Published { composite, tiles, changed }));
             }
         });
         working = caches.values().any(CompositeCache::has_pending);

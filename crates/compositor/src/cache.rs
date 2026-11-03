@@ -35,6 +35,10 @@ pub struct CompositeCache {
     /// Smoothed wall time per tile of a parallel batch (ms), for batch sizing.
     tile_ms: f64,
     stages: crate::stages::StageCache,
+    /// Accumulations after chosen top-level layers (derived data, never saved).
+    prefix: crate::PrefixCache,
+    /// Top-level boundaries the prefix cache stores this update.
+    plan: Vec<usize>,
 }
 
 /// Result of diffing two layer trees.
@@ -56,6 +60,36 @@ impl CompositeCache {
     /// subset of the re-evaluated tiles: identical results are not reported).
     pub fn last_changed(&self) -> &crate::ChangedTiles {
         &self.changed
+    }
+
+    /// Replace the layer-result cache (budget in bytes; 0 disables it).
+    pub fn set_layer_cache_budget(&mut self, bytes: usize) {
+        self.prefix = crate::PrefixCache::new(bytes);
+        self.plan.clear();
+    }
+
+    /// Statistics of the per-layer result cache.
+    pub fn layer_cache_stats(&self) -> crate::PrefixStats {
+        self.prefix.stats()
+    }
+
+    /// Tiles the next update of `ts` would evaluate (no side effects): everything not yet
+    /// evaluated against the document, plus what the edit since the last update dirties.
+    pub fn stale_tiles(&self, ts: &TextureSet) -> Vec<usize> {
+        let n = ts.resolution.div_ceil(subcraft_image::TILE_SIZE) as usize;
+        let reusable = !self.force_all
+            && self.composite.as_ref().is_some_and(|c| c.resolution == ts.resolution)
+            && self.last.as_ref().is_some_and(|l| l.id == ts.id && l.channels == ts.channels);
+        match (&self.last, reusable) {
+            (Some(last), true) if last.albedo_filter == ts.albedo_filter => match diff_lists(&last.layers, &ts.layers, ts.resolution) {
+                Dirty::Tiles(mut set) => {
+                    set.extend(self.pending.iter().copied());
+                    set.into_iter().collect()
+                }
+                Dirty::All => (0..n * n).collect(),
+            },
+            _ => (0..n * n).collect(),
+        }
     }
 
     /// Force a full re-evaluation on the next update (resources, mesh maps or geometry changed).
@@ -85,6 +119,14 @@ impl CompositeCache {
             _ => Dirty::All,
         };
         if !matches!(&dirty,Dirty::Tiles(set) if set.is_empty()) { self.stages.clear(); }
+        let graph_path = crate::stages::has_spatial(&ts.layers);
+        let change = match &dirty {
+            _ if !reusable || self.last.as_ref().is_some_and(|l| l.albedo_filter != ts.albedo_filter) => crate::prefix::Change::Everything,
+            Dirty::All => crate::prefix::Change::Parameters,
+            Dirty::Tiles(set) => crate::prefix::Change::Tiles(set),
+        };
+        self.prefix.sync(&ts.layers, graph_path, change);
+        self.plan = self.prefix.plan(ts.layers.len(), ts.resolution.div_ceil(subcraft_image::TILE_SIZE).pow(2) as usize, &ts.channel_kinds().collect::<Vec<_>>());
         let composite = match (&mut self.composite, reusable) {
             (Some(c), true) => c,
             (slot, _) => slot.insert(Composite::new(ts)),
@@ -115,7 +157,7 @@ impl CompositeCache {
         let mut evaluated = Vec::new();
         let mut batches = 0;
         if !fresh.is_empty() {
-            for (kind, tiles) in composite.evaluate_tiles_with_stages(ts, ctx, &fresh, &self.stages) {
+            for (kind, tiles) in composite.evaluate_tiles_with_stages(ts, ctx, &fresh, &self.stages, Some((&self.prefix, &self.plan))) {
                 self.changed.entry(kind).or_default().extend(tiles);
             }
             evaluated.extend(fresh);
@@ -133,7 +175,7 @@ impl CompositeCache {
                     batches += 1;
                     // Whole multiples of the thread count, at least one round per call.
                     let fit = if self.tile_ms > 0.0 { (left / self.tile_ms) as usize } else { threads };
-                    let n = fit.max(threads).div_ceil(threads) * threads;
+                    let n = fit.max(threads).max(crate::gpu::preferred_batch()).div_ceil(threads) * threads;
                     let batch: Vec<usize> =
                         self.pending.range(self.cursor..).chain(self.pending.range(..self.cursor)).copied().take(n).collect();
                     for t in &batch {
@@ -144,7 +186,7 @@ impl CompositeCache {
                 }
             };
             let t0 = Instant::now();
-            let changed = composite.evaluate_tiles_with_stages(ts, ctx, &batch, &self.stages);
+            let changed = composite.evaluate_tiles_with_stages(ts, ctx, &batch, &self.stages, Some((&self.prefix, &self.plan)));
             let per_tile = t0.elapsed().as_secs_f64() * 1e3 / batch.len() as f64;
             self.tile_ms = if self.tile_ms > 0.0 { self.tile_ms * 0.7 + per_tile * 0.3 } else { per_tile };
             for (kind, tiles) in changed {

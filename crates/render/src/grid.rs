@@ -279,7 +279,11 @@ impl GridPass {
     }
 
     pub fn set_lines(&mut self, device: &wgpu::Device, lines: &[[Vec3; 2]]) {
-        let vertices: Vec<_> = lines.iter().flat_map(|line| line.iter()).map(|p| Vertex { position: p.to_array(), color: [0.7, 0.015, 0.01, 0.85], kind: 4 }).collect();
+        self.set_lines_colored(device, lines, [0.7, 0.015, 0.01, 0.85]);
+    }
+    /// Unlit, depth-nudged lines of one linear RGBA color.
+    pub fn set_lines_colored(&mut self, device: &wgpu::Device, lines: &[[Vec3; 2]], color: [f32; 4]) {
+        let vertices: Vec<_> = lines.iter().flat_map(|line| line.iter()).map(|p| Vertex { position: p.to_array(), color, kind: 4 }).collect();
         self.count = vertices.len() as u32;
         self.vertices = (!vertices.is_empty()).then(|| device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("symmetry guides"), contents: bytemuck::cast_slice(&vertices), usage: wgpu::BufferUsages::VERTEX,

@@ -4,6 +4,7 @@ use subcraft_doc::Filter;
 pub mod contour;
 pub mod median;
 pub mod warp;
+pub mod pixelwise;
 
 pub fn apply(filter: Filter, input: [f32; 3], channel: ChannelKind) -> [f32; 3] {
     if !filter.valid() || !filter.supports_channel(channel) { return input; }
@@ -13,7 +14,22 @@ pub fn apply(filter: Filter, input: [f32; 3], channel: ChannelKind) -> [f32; 3] 
             let v = pivot + (v - pivot) * gain;
             if channel.is_signed() { v } else { v.clamp(0.0, 1.0) }
         }),
-        Filter::Blur { .. } | Filter::Sharpen { .. } | Filter::DirectionalBlur { .. } | Filter::Highpass { .. } | Filter::Bevel {..} | Filter::MaskOutline {..} | Filter::Median { .. } | Filter::Warp { .. } => input, // Neighborhood evaluation is staged by compositor.
+        Filter::Blur { .. } | Filter::Sharpen { .. } | Filter::DirectionalBlur { .. } | Filter::Highpass { .. } | Filter::Bevel {..} | Filter::MaskOutline {..} | Filter::Median { .. } | Filter::Warp { .. }
+            | Filter::EdgeDetect { .. } | Filter::Glow { .. } | Filter::DirectionalWarp { .. } | Filter::Mosaic { .. } => input, // Neighborhood evaluation is staged by compositor.
+        Filter::Grayscale => [luminance(input); 3],
+        Filter::Invert => input.map(|v| if channel.is_signed() { -v } else { 1.0 - v }),
+        Filter::Posterize { levels } => input.map(|v| posterize(v, levels, channel)),
+        Filter::HistogramShift { shift } => input.map(|v| {
+            let v = v + shift;
+            if channel.is_signed() { v.clamp(-1.0, 1.0) } else { v.clamp(0.0, 1.0) }
+        }),
+        Filter::ColorBalance { shadows, midtones, highlights } => color_balance(input, shadows, midtones, highlights),
+        Filter::ReplaceColor { from, to, tolerance, softness } => replace_color(input, from, to, tolerance, softness),
+        Filter::NormalInvert { flip_x, flip_y, flip_z } => {
+            let mut out = input;
+            for (i, flip) in [flip_x, flip_y, flip_z].into_iter().enumerate() { if flip { out[i] = 1.0 - out[i]; } }
+            out
+        }
         Filter::GradientMap { gradient, to_gray } => gradient_map(&gradient, to_gray, input, channel),
         Filter::HistogramScan { position, contrast, invert } => input.map(|v| histogram_scan(v, position, contrast, invert)),
         Filter::HistogramRange { position, range, softness, invert } => input.map(|v| histogram_range(v, position, range, softness, invert)),
@@ -59,6 +75,35 @@ pub fn histogram_range(v: f32, position: f32, range: f32, softness: f32, invert:
     let ramp = softness * range * 0.5;
     let out = if v < lo || v > hi { 0.0 } else if ramp <= 1e-6 { 1.0 } else { ((v - lo) / ramp).min((hi - v) / ramp).clamp(0.0, 1.0) };
     if invert { 1.0 - out } else { out }
+}
+
+/// Rounds `v` to `levels` evenly spaced steps over the channel range (0..1, or -1..1 for signed).
+pub fn posterize(v: f32, levels: u32, channel: ChannelKind) -> f32 {
+    let steps = (levels.max(2) - 1) as f32;
+    let (lo, hi) = if channel.is_signed() { (-1.0, 1.0) } else { (0.0, 1.0) };
+    let t = ((v - lo) / (hi - lo)).clamp(0.0, 1.0);
+    lo + (t * steps).round() / steps * (hi - lo)
+}
+
+/// Tonal weights of a linear luminance: shadows fall from 1 at 0 to 0 at 0.5, highlights rise from
+/// 0 at 0.5 to 1 at 1, midtones take the rest, so the three always sum to 1.
+pub fn tonal_weights(lum: f32) -> [f32; 3] {
+    let l = lum.clamp(0.0, 1.0);
+    let sh = (1.0 - 2.0 * l).max(0.0);
+    let hi = (2.0 * l - 1.0).max(0.0);
+    [sh, 1.0 - sh - hi, hi]
+}
+
+pub fn color_balance(c: [f32; 3], shadows: [f32; 3], midtones: [f32; 3], highlights: [f32; 3]) -> [f32; 3] {
+    let w = tonal_weights(luminance(c));
+    std::array::from_fn(|i| (c[i] + w[0] * shadows[i] + w[1] * midtones[i] + w[2] * highlights[i]).clamp(0.0, 1.0))
+}
+
+/// Weight 1 within `tolerance` of `from`, falling linearly to 0 over `softness` more distance.
+pub fn replace_color(c: [f32; 3], from: [f32; 3], to: [f32; 3], tolerance: f32, softness: f32) -> [f32; 3] {
+    let d = ((c[0] - from[0]).powi(2) + (c[1] - from[1]).powi(2) + (c[2] - from[2]).powi(2)).sqrt();
+    let w = if d <= tolerance { 1.0 } else if softness <= 0.0 { 0.0 } else { (1.0 - (d - tolerance) / softness).clamp(0.0, 1.0) };
+    std::array::from_fn(|i| (c[i] + w * (to[i] - from[i])).max(0.0))
 }
 
 fn luminance(c: [f32; 3]) -> f32 { c[0] * 0.2126 + c[1] * 0.7152 + c[2] * 0.0722 }
@@ -241,5 +286,64 @@ mod directional_highpass_tests {
         assert_eq!(highpass([-0.5;3],[0.25;3],2.0,ChannelKind::Height),[-1.5;3]);
         assert_eq!(highpass([0.9;3],[0.1;3],0.0,k),[0.5;3]);
         assert_eq!(highpass([0.9;3],[0.1;3],0.0,ChannelKind::Height),[0.0;3]);
+    }
+}
+
+#[cfg(test)]
+mod parity_tests {
+    use super::*;
+    use ChannelKind as K;
+    fn close(a: [f32; 3], b: [f32; 3]) { assert!(a.iter().zip(&b).all(|(x, y)| (x - y).abs() < 1e-5), "{a:?} vs {b:?}"); }
+
+    #[test]
+    fn grayscale_invert_shift_posterize_goldens() {
+        close(apply(Filter::Grayscale, [1.0, 0.0, 0.0], K::BaseColor), [0.2126; 3]);
+        assert_eq!(apply(Filter::Grayscale, [1.0, 0.0, 0.0], K::Roughness), [1.0, 0.0, 0.0], "scalar channels are untouched");
+        close(apply(Filter::Invert, [0.25, 0.5, 1.0], K::BaseColor), [0.75, 0.5, 0.0]);
+        close(apply(Filter::Invert, [0.25; 3], K::Height), [-0.25; 3]);
+        close(apply(Filter::HistogramShift { shift: 0.3 }, [0.5, 0.9, 0.0], K::Roughness), [0.8, 1.0, 0.3]);
+        close(apply(Filter::HistogramShift { shift: -0.3 }, [0.5; 3], K::Height), [0.2; 3]);
+        close(apply(Filter::HistogramShift { shift: 0.9 }, [0.5; 3], K::Height), [1.0; 3]);
+        // 3 levels: 0, 0.5, 1.
+        for (v, e) in [(0.2, 0.0), (0.3, 0.5), (0.74, 0.5), (0.76, 1.0), (1.0, 1.0)] {
+            assert_eq!(posterize(v, 3, K::Roughness), e, "{v}");
+        }
+        assert_eq!(posterize(-0.3, 3, K::Height), 0.0, "signed 3 levels: -1, 0, 1");
+        assert_eq!(posterize(0.6, 3, K::Height), 1.0);
+        assert_eq!(posterize(0.4, 2, K::Roughness), 0.0);
+    }
+
+    #[test]
+    fn normal_invert_flips_selected_axes() {
+        let f = Filter::NormalInvert { flip_x: false, flip_y: true, flip_z: false };
+        close(apply(f, [0.7, 0.2, 0.9], K::Normal), [0.7, 0.8, 0.9]);
+        // Twice is the identity, and a flat normal (0.5, 0.5, 1) only changes in the flipped axes.
+        close(apply(f, apply(f, [0.7, 0.2, 0.9], K::Normal), K::Normal), [0.7, 0.2, 0.9]);
+        close(apply(f, [0.5, 0.5, 1.0], K::Normal), [0.5, 0.5, 1.0]);
+        assert_eq!(apply(f, [0.7, 0.2, 0.9], K::BaseColor), [0.7, 0.2, 0.9], "wrong channel is a no-op");
+    }
+
+    #[test]
+    fn color_balance_weights_and_goldens() {
+        for l in [0.0, 0.1, 0.25, 0.5, 0.8, 1.0] { assert!((tonal_weights(l).iter().sum::<f32>() - 1.0).abs() < 1e-6); }
+        assert_eq!(tonal_weights(0.0), [1.0, 0.0, 0.0]);
+        assert_eq!(tonal_weights(0.5), [0.0, 1.0, 0.0]);
+        assert_eq!(tonal_weights(1.0), [0.0, 0.0, 1.0]);
+        let (s, m, h) = ([0.2, 0.0, 0.0], [0.0, 0.1, 0.0], [0.0, 0.0, -0.4]);
+        close(color_balance([0.0; 3], s, m, h), [0.2, 0.0, 0.0]);
+        close(color_balance([0.5; 3], s, m, h), [0.5, 0.6, 0.5]);
+        close(color_balance([1.0; 3], s, m, h), [1.0, 1.0, 0.6]);
+        close(color_balance([0.4; 3], [0.0; 3], [0.0; 3], [0.0; 3]), [0.4; 3]);
+    }
+
+    #[test]
+    fn replace_color_tolerance_and_softness() {
+        let (from, to) = ([1.0, 0.0, 0.0], [0.0, 0.0, 1.0]);
+        close(replace_color(from, from, to, 0.1, 0.2), to);
+        close(replace_color([0.95, 0.0, 0.0], from, to, 0.1, 0.2), [0.95 - 1.0, 0.0, 1.0].map(|v: f32| v.max(0.0)));
+        // Distance 0.2 with tolerance 0.1 and softness 0.2: weight 0.5.
+        close(replace_color([0.8, 0.0, 0.0], from, to, 0.1, 0.2), [0.3, 0.0, 0.5]);
+        close(replace_color([0.0, 1.0, 0.0], from, to, 0.1, 0.2), [0.0, 1.0, 0.0]);
+        close(replace_color([0.8, 0.0, 0.0], from, to, 0.1, 0.0), [0.8, 0.0, 0.0]);
     }
 }

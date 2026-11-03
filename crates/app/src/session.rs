@@ -98,15 +98,16 @@ struct ActiveStroke {
 
 pub struct Session {
     pub(crate) part_view: crate::part_workflow::PartView,
-    scene: Scene,
+    pub(crate) scene: Scene,
     resources: ResourceStore,
     mesh_maps: HashMap<TextureSetId, MeshMaps>,
     no_maps: MeshMaps,
-    history: History,
+    pub(crate) history: History,
     /// Live document: equals the current history entry except while a stroke is in progress.
     doc: Document,
     selection: Selection,
     mask_clipboard: Option<Mask>,
+    hidden_sets: std::collections::BTreeSet<TextureSetId>,
     /// Selected effect of the selected layer's current domain (see [`Session::selected_effect`]).
     effect: Option<EffectId>,
     pub brush: BrushState,
@@ -136,7 +137,7 @@ pub struct Session {
     /// Document as of the last save / load / new (for the unsaved-changes indicator).
     saved_doc: Document,
     /// Saved with the project but outside the undo history (export choices, normal format).
-    settings: subcraft_doc::ProjectSettings,
+    pub(crate) settings: subcraft_doc::ProjectSettings,
     saved_settings: subcraft_doc::ProjectSettings,
     /// Mesh maps changed (baked) since the last save.
     maps_dirty: bool,
@@ -196,6 +197,7 @@ impl Session {
             doc,
             selection,
             mask_clipboard: None,
+            hidden_sets: Default::default(),
             effect: None,
             brush: BrushState {
                 alpha: None,
@@ -306,7 +308,13 @@ impl Session {
 
     /// True if the document differs from the last save / load.
     pub fn is_modified(&self) -> bool {
-        self.maps_dirty || self.mesh_dirty || self.recovered || self.doc != self.saved_doc || self.settings != self.saved_settings
+        crate::unsaved::is_dirty(crate::unsaved::DirtyInputs {
+            document_changed: self.doc != self.saved_doc,
+            settings_changed: self.settings != self.saved_settings,
+            maps_changed: self.maps_dirty,
+            mesh_changed: self.mesh_dirty,
+            from_recovery: self.recovered,
+        })
     }
 
     /// Project-wide settings (export choices, normal format), saved with the project.
@@ -413,10 +421,14 @@ impl Session {
         if path.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("spp")) {
             return Self::open_spp(path);
         }
-        let report = import_mesh(path).map_err(|e| e.to_string())?;
+        let mut report = match import_mesh(path) {
+            Err(subcraft_mesh::ImportError::Build(subcraft_mesh::mesh::BuildError::NoUvs)) => subcraft_mesh::import_mesh_for_baking(path).map_err(|e| e.to_string())?,
+            other => other.map_err(|e| e.to_string())?,
+        };
         if report.mesh.triangle_count() == 0 {
             return Err("mesh has no triangles".into());
         }
+        report.mesh = subcraft_mesh::unwrap::unwrap_if_missing(std::mem::take(&mut report.mesh), &mut report.warnings);
         let mut warnings = report.warnings;
         let tiles = report.mesh.udim_tiles(None).len();
         let mut session = if tiles > 1 {
@@ -485,7 +497,7 @@ impl Session {
         self.apply_mesh_reload(prepared, mode)
     }
 
-    fn mesh_map_set(&self) -> crate::mesh_reload::MapSet {
+    pub(crate) fn mesh_map_set(&self) -> crate::mesh_reload::MapSet {
         self.mesh_maps.iter().map(|(id, m)| (*id, m.as_map().clone())).collect()
     }
 
@@ -623,6 +635,36 @@ impl Session {
         self.brush.target = target;
     }
     pub fn can_paste_mask(&self) -> bool { self.mask_clipboard.is_some() }
+
+    /// Texture sets hidden in the viewport (view state).
+    pub fn is_set_hidden(&self, ts: TextureSetId) -> bool { self.hidden_sets.contains(&ts) }
+
+    /// Copy layers of the selected texture set into a clip for the in-app clipboard.
+    pub fn copy_layers(&self, layers: &[LayerId]) -> Result<crate::clipboard::LayerClip, CommandError> {
+        let first = *layers.first().ok_or(CommandError::LayerNotFound)?;
+        let ts = self.doc.texture_set(self.texture_set_of(first).ok_or(CommandError::LayerNotFound)?).ok_or(CommandError::TextureSetNotFound)?;
+        crate::clipboard::LayerClip::capture(ts, layers, &self.resources, crate::clipboard::mesh_signature(&self.scene.mesh)).ok_or(CommandError::LayerNotFound)
+    }
+
+    /// Copy effects of one layer's content stack (`LayerTarget::Content`) or mask stack.
+    pub fn copy_effects(&self, layer: LayerId, target: LayerTarget, effects: &[EffectId]) -> Result<crate::clipboard::EffectClip, CommandError> {
+        let ts = self.doc.texture_set(self.texture_set_of(layer).ok_or(CommandError::LayerNotFound)?).ok_or(CommandError::TextureSetNotFound)?;
+        let clip = match target {
+            LayerTarget::Content => crate::clipboard::EffectClip::capture_content(ts, layer, effects, &self.resources),
+            LayerTarget::Mask => crate::clipboard::EffectClip::capture_mask(ts, layer, effects, &self.resources),
+        };
+        clip.ok_or_else(|| CommandError::Invalid("Select an effect to copy".into()))
+    }
+
+    /// Sets the layers of a multi-select operation live in; all must share one.
+    fn common_set(&self, layers: &[LayerId]) -> Result<TextureSetId, CommandError> {
+        let first = *layers.first().ok_or(CommandError::LayerNotFound)?;
+        let set = self.texture_set_of(first).ok_or(CommandError::LayerNotFound)?;
+        if layers.iter().any(|&l| self.texture_set_of(l) != Some(set)) {
+            return Err(CommandError::Invalid("The selected layers are in different texture sets".into()));
+        }
+        Ok(set)
+    }
     pub fn resources(&self) -> &ResourceStore {
         &self.resources
     }
@@ -649,6 +691,20 @@ impl Session {
             Some(_) => self.shown.get(&ts),
             None => self.composites.get(&ts).and_then(|c| c.composite()),
         }
+    }
+
+    /// Size and hit counters of the per-layer result caches (inline compositing; with the
+    /// background worker the caches live on its thread and this is empty).
+    pub fn layer_cache_stats(&self) -> subcraft_compositor::PrefixStats {
+        let mut total = subcraft_compositor::PrefixStats::default();
+        for c in self.composites.values() {
+            let s = c.layer_cache_stats();
+            total.entries += s.entries;
+            total.bytes += s.bytes;
+            total.hits += s.hits;
+            total.misses += s.misses;
+        }
+        total
     }
 
     /// Publication generation, so consumers can detect results installed by another caller
@@ -969,10 +1025,14 @@ impl Session {
                     return Err(CommandError::TextureSetNotFound);
                 }
                 let mut changed = false;
+                let mut resized = Vec::new();
                 for ts in self.doc.texture_sets.iter_mut().filter(|ts| texture_set.is_none_or(|id| ts.id == id)) {
+                    if ts.resolution != resolution { resized.push(ts.id); }
                     changed |= ts.resolution != resolution;
                     ts.set_resolution(resolution);
                 }
+                // Text layers are re-rendered from their outlines instead of resampled.
+                crate::text::refresh_text_rasters(&mut self.doc, &self.resources, &resized);
                 if changed {
                     self.commit(&format!("Resolution {resolution}"), None);
                 }
@@ -1019,6 +1079,93 @@ impl Session {
             Command::DuplicateLayer(id) => {
                 let copy = self.edit_layer_set(id, "Duplicate Layer", None, |ts| ts.duplicate(id).map_err(|_| CommandError::LayerNotFound))?;
                 self.selection.layer = Some(copy);
+            }
+            Command::DeleteLayers(layers) => {
+                let set = self.common_set(&layers)?;
+                let ts = self.doc.texture_set_mut(set).ok_or(CommandError::TextureSetNotFound)?;
+                for id in crate::clipboard::top_level_in_order(ts, &layers) {
+                    ts.remove(id).map_err(|_| CommandError::LayerNotFound)?;
+                }
+                self.commit("Delete Layers", None);
+                if self.selection.layer.is_none_or(|l| self.selected_texture_set().find(l).is_none()) {
+                    self.selection.layer = self.selected_texture_set().layers.last().map(|l| l.id);
+                }
+            }
+            Command::DuplicateLayers(layers) => {
+                let set = self.common_set(&layers)?;
+                let ts = self.doc.texture_set_mut(set).ok_or(CommandError::TextureSetNotFound)?;
+                let mut last = None;
+                for id in crate::clipboard::top_level_in_order(ts, &layers) {
+                    last = Some(ts.duplicate(id).map_err(|_| CommandError::LayerNotFound)?);
+                }
+                self.commit("Duplicate Layers", None);
+                self.selection.layer = last.or(self.selection.layer);
+            }
+            Command::SetLayersVisible { layers, visible } => {
+                let set = self.common_set(&layers)?;
+                let ts = self.doc.texture_set_mut(set).ok_or(CommandError::TextureSetNotFound)?;
+                let mut changed = false;
+                for id in layers {
+                    let l = ts.find_mut(id).ok_or(CommandError::LayerNotFound)?;
+                    changed |= l.visible != visible;
+                    l.visible = visible;
+                }
+                if changed { self.commit(if visible { "Show Layers" } else { "Hide Layers" }, None); }
+            }
+            Command::PasteLayers(clip) => {
+                let ts_id = self.selection.texture_set;
+                let reference = self.selection.layer;
+                let mesh = crate::clipboard::mesh_signature(&self.scene.mesh);
+                let ts = self.doc.texture_set_mut(ts_id).ok_or(CommandError::TextureSetNotFound)?;
+                for kind in clip.missing_channels(ts) {
+                    ts.channels.push(ChannelDef::default_for(kind));
+                }
+                let mut at = reference;
+                for layer in clip.instantiate(ts, mesh) {
+                    at = Some(ts.insert_above(at, layer));
+                }
+                self.selection.layer = at;
+                for r in &clip.resources {
+                    self.resources.insert_shared(r.clone());
+                }
+                self.commit("Paste Layers", None);
+            }
+            Command::PasteEffects { layer, clip } => {
+                for e in &clip.content { Self::check_content_effect(&e.kind)?; }
+                for e in &clip.mask { Self::check_mask_effect(&e.kind)?; }
+                let (content, mask) = (!clip.content.is_empty(), !clip.mask.is_empty());
+                self.edit_layer_set(layer, "Paste Effects", None, |ts| {
+                    let res = ts.resolution;
+                    let l = Self::layer_mut(ts, layer)?;
+                    if content {
+                        if l.is_folder() && clip.content.iter().any(|e| !e.kind.is_adjustment()) {
+                            return Err(CommandError::Invalid("Folders support adjustment effects only".into()));
+                        }
+                        l.content_effects.extend(clip.instantiate_content(res).into_iter().map(Arc::new));
+                    }
+                    if mask {
+                        let m = l.mask.get_or_insert_with(|| Mask::new(res, true));
+                        m.effects.extend(clip.instantiate_mask(res).into_iter().map(Arc::new));
+                    }
+                    Ok(())
+                })?;
+                for r in &clip.resources {
+                    self.resources.insert_shared(r.clone());
+                }
+            }
+            Command::RenameTextureSet { texture_set, name } => {
+                let name = name.trim().to_string();
+                if name.is_empty() { return Err(CommandError::Invalid("A texture set needs a name".into())); }
+                let ts = self.doc.texture_set_mut(texture_set).ok_or(CommandError::TextureSetNotFound)?;
+                if ts.name != name {
+                    ts.name = name;
+                    self.commit("Rename Texture Set", None);
+                }
+            }
+            Command::SetTextureSetHidden { texture_set, hidden } => {
+                if self.doc.texture_set(texture_set).is_none() { return Err(CommandError::TextureSetNotFound); }
+                let changed = if hidden { self.hidden_sets.insert(texture_set) } else { self.hidden_sets.remove(&texture_set) };
+                if changed { self.revision += 1; }
             }
             Command::GroupLayer(id) => {
                 self.edit_layer_set(id, "Group Layer", None, |ts| ts.group(id, "Folder").map_err(|_| CommandError::LayerNotFound))?;
@@ -1594,6 +1741,7 @@ impl Session {
                 texture_set: ts.clone(),
                 geometry: self.scene.geometry.get(ts.material_slot, ts.resolution),
                 mesh_maps: self.mesh_maps.get(&ts.id).cloned().unwrap_or_default(),
+                preview_geometry: subcraft_compositor::preview_resolution(ts.resolution).map(|r| self.scene.geometry.get(ts.material_slot, r)),
             })
             .collect();
         let snapshot = Snapshot { sets, resources: self.resources.clone(), invalidate: std::mem::take(&mut self.invalidated) };
@@ -1703,6 +1851,28 @@ impl Session {
         subcraft_export::export(&self.scene.mesh, &name, &sets, &settings, dir).map_err(|e| e.to_string())
     }
 
+    /// Export what the 2D view shows (`view`) for the selected texture set as one image, using
+    /// the normal export settings (file format, padding). Returns the written file.
+    pub fn export_view_2d(&mut self, dir: &Path, view: subcraft_export::View2d, settings: &subcraft_export::ExportSettings) -> Result<Vec<PathBuf>, String> {
+        self.update_composites();
+        let mut settings = self.effective_export_settings(settings);
+        settings.template = subcraft_export::ExportTemplate::view_2d();
+        settings.view_2d = Some(view);
+        settings.selection = subcraft_export::MapSelection::default();
+        let (name, selected) = (self.export_name(), self.selected_texture_set().name.clone());
+        let sets: Vec<_> = self.export_sets().into_iter().filter(|s| s.name == selected).collect();
+        subcraft_export::export(&self.scene.mesh, &name, &sets, &settings, dir).map_err(|e| e.to_string())
+    }
+
+    /// Export textures plus a scene file (OBJ+MTL, glTF, GLB or USDA) into `dir`.
+    pub fn export_scene(&mut self, dir: &Path, settings: &subcraft_export::ExportSettings, format: subcraft_export::scene::SceneFormat) -> Result<Vec<PathBuf>, String> {
+        self.update_composites();
+        let settings = self.effective_export_settings(settings);
+        let name = self.export_name();
+        let sets = self.export_sets();
+        subcraft_export::scene::export_scene(&self.scene.mesh, &name, &sets, &settings, format, dir).map_err(|e| e.to_string())
+    }
+
     /// Export every map as one in-memory ZIP archive.
     pub fn export_archive(&mut self, settings: &subcraft_export::ExportSettings) -> Result<subcraft_export::TextureArchive,String> {
         self.update_composites();let settings=self.effective_export_settings(settings);let name=self.export_name();let sets=self.export_sets();
@@ -1725,7 +1895,14 @@ impl Session {
         }
         let ids = self.import_preset_images(smart.images())?;
         let layer = smart.build_with(self.selected_texture_set(), &ids);
-        self.execute(Command::InsertLayer { layer: Box::new(layer), label: format!("Smart Material: {}", smart.name) })
+        let label = format!("Smart Material: {}", smart.name);
+        // Imported texture materials may bring AO / emissive / opacity maps the set lacks.
+        let missing: Vec<_> = crate::smart_import::channels_to_add(&layer).into_iter().filter(|&k| !self.selected_texture_set().has_channel(k)).collect();
+        if missing.is_empty() {
+            self.execute(Command::InsertLayer { layer: Box::new(layer), label })
+        } else {
+            self.execute(Command::InsertLayerWithChannels { layer: Box::new(layer), channels: missing, label })
+        }
     }
 
     /// Import a built-in preset's embedded images (reusing identical ones already in the project),

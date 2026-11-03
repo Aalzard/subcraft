@@ -79,6 +79,8 @@ pub struct UiState {
     uploaded_composite_generation: u64,
     pub session: Session,
     pub camera: OrbitCamera,
+    /// Navigation drag in progress (mode + rebased origin; see `nav`).
+    pub nav_drag: Option<crate::nav::NavDrag>,
     /// Scripted view used whenever a model is framed (`--camera`).
     pub camera_view: Option<crate::orbit::CameraView>,
     pub render_state: Option<egui_wgpu::RenderState>,
@@ -88,11 +90,14 @@ pub struct UiState {
     pub gpu_dirty: bool,
     pub tool: Tool,
     pub pen: subcraft_app::pen::PenEditor,
+    pub text: crate::text_panel::TextUi,
     pub pen_after: Option<crate::pen::After>,
     pub fill_mode: PolygonFillMode,
     /// Channel whose blend mode/opacity the layer stack shows.
     pub active_channel: ChannelKind,
     pub status: Option<(String, f64)>,
+    /// Problems and notes of the last smart-material import (shown in a window until closed).
+    pub import_report: Vec<String>,
     /// Brief acknowledgement in the 3D view's top-left corner after a Shelf brush click.
     pub brush_notice: Option<BrushNotice>,
     /// Shelf double-click: bring the Brush settings tab forward on the next frame.
@@ -113,6 +118,8 @@ pub struct UiState {
     pub painting: bool,
     /// Pen pressure of the current contact (1.0 for a mouse).
     pub pen_pressure: f32,
+    /// Pen / touch contact to primary-button mapping applied to raw input.
+    pub pen_input: crate::pen_input::PenInputFixer,
     /// Clicks in the 3D view show / hide the selected layer on mesh parts (Properties → Parts).
     pub picking_parts: bool,
     /// Clicks in the 3D view add the ID map color under the cursor to this ID Color Mask effect.
@@ -136,6 +143,11 @@ pub struct UiState {
     pub export: crate::dialogs::ExportUi,
     pub new_project: crate::new_project::NewProjectUi,
     pub mesh_reload: crate::mesh_reload::MeshReloadUi,
+    pub auto_uv: crate::auto_uv::AutoUvUi,
+    /// Layers selected together (Ctrl / Shift click) in the Layers panel.
+    pub multi: subcraft_app::multi_select::MultiSelect,
+    /// In-app clipboard for layers and effects; outlives the session.
+    pub clips: crate::clipboard::Clips,
     /// Action waiting for the unsaved-changes prompt.
     pub confirm: Option<crate::dialogs::Pending>,
     /// The user already agreed to close without saving.
@@ -146,6 +158,8 @@ pub struct UiState {
     pub spp_import: Option<crate::spp_import::SppImportUi>,
     /// Running Edit in PhotoCraft exchange (ADR-0040).
     pub photocraft: Option<subcraft_app::photocraft::Exchange>,
+    /// Key of the polygon wireframe currently uploaded to the renderer.
+    pub wire_uploaded: Option<crate::view_extras::WireKey>,
     pub symmetry_uploaded: Option<(usize, [bool; 3], subcraft_paint::RadialSymmetry)>,
     pub uv_wireframe: bool,
     pub library: subcraft_app::assets::Library,
@@ -184,6 +198,7 @@ impl UiState {
         let renderer = render_state.as_ref().map(|rs| ViewportRenderer::new(&rs.device, &rs.queue));
         let mut graphics = crate::graphics::GraphicsUi::default();
         if let Some(rs) = &render_state { graphics.record_active(rs.adapter.get_info().backend); }
+        subcraft_app::startup_probe::step(&format!("{} (adapter: {})", subcraft_app::startup_probe::COMPLETE_MARKER, render_state.as_ref().map(|rs| rs.adapter.get_info().name).unwrap_or_else(|| "none".into())));
         Self {
             composite_deadline: None,
             layer_previews: Default::default(),
@@ -199,6 +214,7 @@ impl UiState {
             uploaded_view_revision: u64::MAX,
             uploaded_composite_generation: 0,
             camera: OrbitCamera::framing(&session.scene().mesh.bounds),
+            nav_drag: None,
             camera_view: None,
             session,
             render_state,
@@ -207,10 +223,12 @@ impl UiState {
             gpu_dirty: true,
             tool,
             pen: Default::default(),
+            text: Default::default(),
             pen_after: None,
             fill_mode: PolygonFillMode::UvIsland,
             active_channel: ChannelKind::BaseColor,
             status: None,
+            import_report: Vec::new(),
             brush_notice: None,
             open_brush_editor: false,
             capture_select_brush: None,
@@ -220,6 +238,7 @@ impl UiState {
             render_export: Default::default(),
             new_project: Default::default(),
             mesh_reload: Default::default(),
+            auto_uv: Default::default(),
             render_request: None,
             last_view_size: [1280, 720],
             uv: UvView { zoom: 1.0, offset: egui::Vec2::ZERO, source: PreviewSource::Channel(ChannelKind::BaseColor), texture: None, painting: false, last_point: None },
@@ -228,6 +247,7 @@ impl UiState {
             picking_id_color: None,
             last_stroke_point: None,
             pen_pressure: 1.0,
+            pen_input: Default::default(),
             uv_edges: HashMap::new(),
             uv_density: HashMap::new(),
             rename: None,
@@ -240,11 +260,14 @@ impl UiState {
             height_scale: 0.02,
             export: Default::default(),
             confirm: None,
+            multi: Default::default(),
+            clips: Default::default(),
             allow_close: false,
             last_title: String::new(),
             bake: Default::default(),
             spp_import: None,
             photocraft: None,
+            wire_uploaded: None,
             symmetry_uploaded: None,
             uv_wireframe: true,
             library: subcraft_app::assets::Library::builtin(),
@@ -372,6 +395,7 @@ impl UiState {
 
     /// Replace the session (new project / opened mesh).
     pub fn set_session(&mut self, mut session: Session) {
+        self.multi.clear();
         self.layer_previews = Default::default();
         self.asset_preview.cancel_apply();
         self.pen = Default::default();
@@ -472,6 +496,7 @@ impl UiState {
         let upload_start = web_time::Instant::now();
         let session = &self.session;
         for ts in &session.document().texture_sets { renderer.set_albedo_filter(ts.material_slot, ts.albedo_filter); }
+        renderer.set_hidden_slots(session.document().texture_sets.iter().filter(|ts| session.is_set_hidden(ts.id)).map(|ts| ts.material_slot));
         let upload = |renderer: &mut ViewportRenderer, ts: subcraft_core::TextureSetId, slot: u32, changed: Option<&subcraft_app::ChangedTiles>| {
             let Some(c) = session.composite(ts) else { return };
             for k in SHADED_CHANNELS {

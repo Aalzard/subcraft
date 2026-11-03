@@ -36,6 +36,11 @@ pub struct Preferences {
     /// Bake ambient occlusion and thickness on the graphics card when one is available (the
     /// processor is the fallback and the reference).
     pub use_gpu_baking: bool,
+    /// Mouse navigation of the 3D view.
+    pub nav_scheme: crate::nav::NavScheme,
+    /// Blend layers on the graphics card when one is available and the edit is big (the
+    /// processor is the fallback and the reference).
+    pub use_gpu_compositing: bool,
     /// 3D view toolbar settings.
     pub viewport: crate::viewport_bar::ViewportPrefs,
     /// The choices made in the New Project window last time.
@@ -53,6 +58,8 @@ impl Default for Preferences {
             show_welcome: true,
             check_updates_on_start: true,
             use_gpu_baking: true,
+            nav_scheme: Default::default(),
+            use_gpu_compositing: true,
             viewport: Default::default(),
             new_project: Default::default(),
         }
@@ -265,6 +272,23 @@ pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
             .on_hover_text("Asks GitHub for the latest release in the background and points at the update button when there is a new one.");
         ui.checkbox(&mut rec.prefs.use_gpu_baking, "Use GPU for baking")
             .on_hover_text("Bakes ambient occlusion and thickness on the graphics card, much faster on big meshes. If it is off or fails, the processor bakes them instead. The Bake window shows which one ran.");
+        ui.horizontal(|ui| {
+            ui.label("3D navigation");
+            egui::ComboBox::from_id_salt("nav_scheme").selected_text(rec.prefs.nav_scheme.label()).show_ui(ui, |ui| {
+                for scheme in crate::nav::NavScheme::ALL {
+                    ui.selectable_value(&mut rec.prefs.nav_scheme, scheme, scheme.label());
+                }
+            });
+        });
+        for (what, how) in rec.prefs.nav_scheme.help() {
+            ui.label(RichText::new(format!("{what}: {how}")).small().color(TEXT_DIM));
+        }
+        if ui.checkbox(&mut rec.prefs.use_gpu_compositing, "Use GPU for compositing")
+            .on_hover_text("Blends layers on the graphics card for big edits (opening a project, changing a layer under many others) on texture sets of 2048 and larger. Procedural fills, generator masks and blur-type filters are still computed by the processor, and sets with blur-type filters use the processor entirely. Small edits such as brush strokes always use the processor.")
+            .changed()
+        {
+            subcraft_compositor::gpu::set_gpu_compositing_enabled(rec.prefs.use_gpu_compositing);
+        }
         ui.add_space(10.0);
         ui.label(RichText::new("Rendering mode").font(theme::font_strong(12.5)));
         ui.add_space(4.0);

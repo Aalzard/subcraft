@@ -98,6 +98,8 @@ pub struct LaunchOptions {
     pub capture_tool: Option<String>,
     /// Open this Shelf tab (textures, materials, smart-materials, smart-masks, brushes, environments).
     pub shelf_tab: Option<String>,
+    /// Import these smart material files / folders at startup (scripted captures and tests).
+    pub import_smart: Vec<PathBuf>,
     /// Open the Export Textures window (scripted captures).
     pub export_window: bool,
     /// Open the New Project window with this model loaded (scripted captures).
@@ -137,6 +139,8 @@ pub struct LaunchOptions {
     pub reload_mesh: Option<PathBuf>,
     /// Mode for `reload_mesh`; `None` opens the window with the suggested mode for review.
     pub reload_mode: Option<subcraft_app::ReloadMode>,
+    /// Open Auto UV unwrap and run it with the default settings on start (scripted).
+    pub auto_uv: bool,
     /// Recover the newest crashed session without asking.
     pub recover: bool,
     /// Autosave interval instead of the preference (testing).
@@ -463,6 +467,7 @@ impl SubcraftApp {
         let prefs = cc.storage.and_then(|s| s.get_string(crate::recovery::PREFS_KEY)).and_then(|j| serde_json::from_str(&j).ok()).unwrap_or_default();
         state.recovery = crate::recovery::RecoveryUi::start(&state.session, prefs, options.autosave_interval);
         state.recovery.prefs.apply_ui_size(&cc.egui_ctx);
+        subcraft_compositor::gpu::set_gpu_compositing_enabled(state.recovery.prefs.use_gpu_compositing);
         state.recovery.show_prefs = options.preferences;
         if let Some(high) = &options.bake_high_poly {
             state.bake.open = true;
@@ -570,6 +575,11 @@ impl SubcraftApp {
             crate::mesh_reload::open(&mut state);
             state.welcome.open = false;
         }
+        if options.auto_uv {
+            state.auto_uv.auto = true;
+            crate::auto_uv::open(&mut state);
+            state.welcome.open = false;
+        }
         if let Some(model) = &options.new_project_model {
             state.new_project.show_window(&state.recovery.prefs.new_project.clone());
             state.new_project.load_model(model);
@@ -579,6 +589,9 @@ impl SubcraftApp {
         state.export.open = options.export_window || options.export_template.is_some();
         if let Some(i) = options.export_template { state.export.template = i.min(subcraft_export::ExportTemplate::builtin().len() - 1); }
         state.render_window = options.render_window;
+        if !options.import_smart.is_empty() {
+            crate::files::import_smart_materials(&mut state, &options.import_smart, 0.0);
+        }
         if let Some(tab) = options.shelf_tab.as_deref() {
             use crate::panels::shelf::ShelfTab;
             state.shelf.tab = match tab {
@@ -737,6 +750,7 @@ impl SubcraftApp {
             }
             Action::Export => {
                 self.state.export.open = true;
+                self.state.export.view_2d_only = false;
                 self.state.export.settings.height_to_normal = self.state.height_scale;
             }
             _ => {
@@ -854,6 +868,10 @@ impl SubcraftApp {
                     ui.close();
                     crate::mesh_reload::open(&mut self.state);
                 }
+                if item(ui, icons::CUBE_WIRE, "Auto UV unwrap…", "") {
+                    ui.close();
+                    crate::auto_uv::open(&mut self.state);
+                }
                 if item(ui, icons::FOLDER_OPEN, "Open project…", crate::keys::native("Ctrl+O")) {
                     ui.close();
                     self.request(Pending::OpenProject, now);
@@ -872,6 +890,11 @@ impl SubcraftApp {
                     ui.close();
                     self.perform(Action::Export, now);
                 }
+                if item(ui, icons::EXPORT, "Export 2D view…", "") {
+                    ui.close();
+                    self.perform(Action::Export, now);
+                    self.state.export.view_2d_only = true;
+                }
                 if item(ui, icons::CAMERA, "Render image / turntable…", "") {
                     ui.close();
                     self.state.render_window = true;
@@ -887,7 +910,8 @@ impl SubcraftApp {
                 }
                 ui.separator();
                 if item(ui, icons::X, "Quit", "") {
-                    ui.send_viewport_cmd(egui::ViewportCommand::Close);
+                    self.request(Pending::Close, now);
+                    ui.close();
                 }
             });
             ui.menu_button("Edit", |ui| {
@@ -925,9 +949,31 @@ impl SubcraftApp {
                     }
                 }
                 ui.separator();
+                let have_clip = self.state.clips.layers.is_some();
+                if item(ui, icons::COPY, "Copy Layer(s)", "Ctrl+C") {
+                    crate::clipboard::request(ui.ctx(), crate::clipboard::Request::CopyLayers { cut: false });
+                    ui.close();
+                }
+                if item(ui, icons::COPY, "Cut Layer(s)", "Ctrl+X") {
+                    crate::clipboard::request(ui.ctx(), crate::clipboard::Request::CopyLayers { cut: true });
+                    ui.close();
+                }
+                if have_clip && item(ui, icons::COPY, "Paste Layer(s)", "Ctrl+V") {
+                    crate::clipboard::request(ui.ctx(), crate::clipboard::Request::PasteLayers);
+                    ui.close();
+                }
+                ui.separator();
                 if item(ui, icons::IMAGE, "Import texture set…", "") {
                     ui.close();
                     crate::panels::layers::import_texture_set_dialog(ui.ctx());
+                }
+                if item(ui, icons::SPARKLE, "Import smart material(s)…", "") {
+                    ui.close();
+                    crate::panels::shelf::import_smart_dialog(ui.ctx());
+                }
+                if item(ui, icons::FOLDER_OPEN, "Import smart material folder…", "") {
+                    ui.close();
+                    crate::panels::shelf::import_smart_folder_dialog(ui.ctx());
                 }
                 if self.state.photocraft.is_some() {
                     if item(ui, icons::X, "Stop editing in PhotoCraft", "") {
@@ -1001,7 +1047,8 @@ impl SubcraftApp {
                 self.state.pen_after = Some(crate::pen::After::Request(action)); return;
             }
         }
-        if self.state.session.is_modified() && self.screenshot.is_none() {
+        let busy = self.state.pen.is_editing() || self.state.pen.is_pending() || self.state.asset_preview.is_applying();
+        if subcraft_app::unsaved::guard(self.state.session.is_modified(), busy, self.screenshot.is_some()) == subcraft_app::unsaved::Guard::AskToSave {
             self.state.confirm = Some(action);
         } else {
             self.pending_now = Some(action);
@@ -1082,7 +1129,8 @@ impl SubcraftApp {
                     ui.label(key(a.shortcuts.iter().map(|s| s.label()).collect::<Vec<_>>().join(" / ")));
                     ui.end_row();
                 }
-                for (what, how) in [("Orbit", "Alt+LMB or RMB drag"), ("Pan", "MMB drag"), ("Zoom", "Wheel or Alt+RMB drag"), ("Straight line", "Shift+click"), ("Part actions", "RMB click"), ("Isolate / hide part", "I / H in the 3D view"), ("Restore all parts", "Esc in the 3D view"), ("Pick material", "Shift+click with eyedropper")] {
+                let nav_help = self.state.recovery.prefs.nav_scheme.help();
+                for (what, how) in nav_help.into_iter().chain([("Straight line", "Shift+click"), ("Part actions", "RMB click"), ("Isolate / hide part", "I / H in the 3D view"), ("Restore all parts", "Esc in the 3D view"), ("Pick material", "Shift+click with eyedropper")]) {
                     ui.label(RichText::new(what).color(theme::TEXT_DIM));
                     ui.label(key(how.to_string()));
                     ui.end_row();
@@ -1233,6 +1281,20 @@ impl egui_dock::TabViewer for Viewer<'_> {
 }
 
 impl eframe::App for SubcraftApp {
+    fn raw_input_hook(&mut self, _ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        let log = crate::pen_input::input_log_enabled();
+        if log {
+            for e in raw_input.events.iter().filter_map(crate::pen_input::describe) {
+                log::info!(target: "subcraft::input", "in: {e}");
+            }
+        }
+        let before = self.state.pen_input.synthesized;
+        self.state.pen_input.fix(&mut raw_input.events);
+        if log && self.state.pen_input.synthesized != before {
+            log::info!(target: "subcraft::input", "pen fixer added pointer events for a touch contact egui-winit did not translate");
+        }
+    }
+
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         if let Some(p) = &mut self.profile {
@@ -1345,9 +1407,13 @@ impl eframe::App for SubcraftApp {
         dialogs::export_window(&mut self.state, &ctx, now);
         dialogs::bake_window(&mut self.state, &ctx, now);
         crate::mesh_reload::window(&mut self.state, &ctx, now);
+        crate::auto_uv::window(&mut self.state, &ctx, now);
         dialogs::poll_bake(&mut self.state, &ctx, now);
         crate::spp_import::poll(&mut self.state, &ctx, now);
         crate::files::poll(&mut self.state, now);
+        crate::files::import_report_window(&mut self.state, &ctx);
+        crate::clipboard::shortcut_requests(&ctx);
+        crate::clipboard::process(&mut self.state, &ctx, now);
         if let Some(action) = dialogs::unsaved_prompt(&mut self.state, &ctx, now) {
             self.pending_now = Some(action);
         }

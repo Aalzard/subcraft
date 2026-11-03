@@ -54,6 +54,21 @@ pub struct Generator {
     pub edge_spread: Option<EdgeSpread>,
     /// World direction for `Directional` (normalized on use).
     pub direction: [f32; 3],
+    /// World axis for `PositionGradient`. Absent in older projects: Y, their original behavior.
+    #[serde(default, skip_serializing_if = "GradientAxis::is_y")]
+    pub axis: GradientAxis,
+}
+
+/// World axis a position gradient runs along (0 at the mesh minimum, 1 at its maximum).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GradientAxis { X, #[default] Y, Z }
+
+impl GradientAxis {
+    pub const ALL: [Self; 3] = [Self::X, Self::Y, Self::Z];
+    pub fn is_y(&self) -> bool { *self == Self::Y }
+    pub fn index(self) -> usize { match self { Self::X => 0, Self::Y => 1, Self::Z => 2 } }
+    pub fn label(self) -> &'static str { match self { Self::X => "X", Self::Y => "Y", Self::Z => "Z" } }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
@@ -89,8 +104,10 @@ pub enum GeneratorKind {
     Cavity,
     /// Upward-facing surfaces (world normal · direction).
     Directional,
-    /// Gradient along world Y within the mesh bounds.
+    /// Gradient along a world axis (`Generator::axis`, default Y) within the mesh bounds.
     PositionGradient,
+    /// Concave creases and crevices from the curvature map (the counterpart of `Edges`).
+    Concave,
     /// Raw mesh map value.
     MeshMap(MeshMapKind),
 }
@@ -102,6 +119,7 @@ impl GeneratorKind {
             GeneratorKind::Cavity => "Dirt".into(),
             GeneratorKind::Directional => "Directional".into(),
             GeneratorKind::PositionGradient => "Position Gradient".into(),
+            GeneratorKind::Concave => "Concave Curvature".into(),
             GeneratorKind::MeshMap(m) => format!("Mesh Map: {}", m.display_name()),
         }
     }
@@ -116,11 +134,12 @@ impl Generator {
             level: 0.5,
             softness: 0.15,
             invert: false,
-            noise_amount: if matches!(kind, GeneratorKind::Edges | GeneratorKind::Cavity) { 0.3 } else { 0.0 },
+            noise_amount: if matches!(kind, GeneratorKind::Edges | GeneratorKind::Cavity | GeneratorKind::Concave) { 0.3 } else { 0.0 },
             noise,
-            organic_breakup: matches!(kind, GeneratorKind::Edges | GeneratorKind::Cavity),
+            organic_breakup: matches!(kind, GeneratorKind::Edges | GeneratorKind::Cavity | GeneratorKind::Concave),
             edge_spread: (kind == GeneratorKind::Edges).then(EdgeSpread::default),
             direction: [0.0, 1.0, 0.0],
+            axis: GradientAxis::Y,
         }
     }
 

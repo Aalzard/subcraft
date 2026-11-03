@@ -32,7 +32,7 @@ pub fn cached_bytes() -> usize {
 
 /// Exact identity of a procedural field: every parameter bit that changes its values.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct FieldKey([u32; 14]);
+pub struct FieldKey([u32; 15]);
 
 impl FieldKey {
     pub fn edge_distance() -> Self {
@@ -62,8 +62,20 @@ impl FieldKey {
             p.offset[1].to_bits(),
             p.triplanar_sharpness.to_bits(),
             p.planar_axis as u32,
+            scratch_bits(&params.scratch),
         ])
     }
+}
+
+/// Hash of every scratch setting (0 for the defaults, so other kinds share keys).
+fn scratch_bits(s: &subcraft_doc::ScratchParams) -> u32 {
+    if s.is_default() {
+        return 0;
+    }
+    [s.angle_deg, s.spread_deg, s.length, s.length_var, s.width, s.width_var, s.density, s.curvature, s.depth_falloff, s.cluster]
+        .iter()
+        .fold(0x811c_9dc5u32, |h, v| (h ^ v.to_bits()).wrapping_mul(0x0100_0193).rotate_left(5))
+        | 1
 }
 
 /// One tile's evaluated field (`TILE_TEXELS` values). Its bytes count against the budget.

@@ -1,7 +1,7 @@
 //! Procedural pattern evaluation (grayscale 0..1).
 
 use glam::Vec2;
-use subcraft_doc::{ProceduralKind, ProceduralParams};
+use subcraft_doc::{ProceduralKind, ProceduralParams, ScratchParams};
 
 use crate::noise::{fbm, hash_f, value_xy, worley};
 
@@ -23,6 +23,7 @@ pub fn raw(kind: ProceduralKind, p: Vec2, scale: f32, seed: u32) -> f32 {
             smooth((v - 0.42) / 0.18)
         }
         ProceduralKind::Scratches => scratches(q, period, seed),
+        ProceduralKind::Scratch => crate::scratch::eval(q, period, seed, &ScratchParams::default()),
         ProceduralKind::WoodRings => {
             let warp = fbm(q * 0.5, (period / 2).max(1), 4, seed) - 0.5;
             let r = (q.y * 0.35 + warp * 2.5) * 6.0;
@@ -73,7 +74,12 @@ pub fn raw(kind: ProceduralKind, p: Vec2, scale: f32, seed: u32) -> f32 {
 
 /// Pattern value after balance/contrast/invert.
 pub fn eval(params: &ProceduralParams, p: Vec2) -> f32 {
-    let v = raw(params.kind, p, params.scale, params.seed);
+    let v = if params.kind == ProceduralKind::Scratch {
+        let period = params.scale.round().max(1.0) as i32;
+        crate::scratch::eval(p * period as f32, period, params.seed, &params.scratch)
+    } else {
+        raw(params.kind, p, params.scale, params.seed)
+    };
     let v = remap(v, params.balance, params.contrast);
     if params.invert { 1.0 - v } else { v }
 }

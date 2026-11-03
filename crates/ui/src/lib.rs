@@ -5,17 +5,23 @@
 
 pub mod app;
 pub mod bug_report;
+pub mod clipboard;
 mod brush_bar;
 pub mod keys;
 pub mod dialogs;
 pub mod files;
 pub mod graphics;
+pub mod gpu_probe;
 pub mod icons;
+pub mod auto_uv;
 pub mod mesh_reload;
 pub mod new_project;
+pub mod nav;
 pub mod orbit;
 pub mod render_export;
 pub mod pen;
+pub mod pen_input;
+pub mod text_panel;
 pub mod panels;
 pub mod recovery;
 pub mod spp_import;
@@ -25,6 +31,7 @@ pub mod edit_profile;
 pub mod theme;
 pub mod viewport;
 pub mod viewport_bar;
+pub mod view_extras;
 pub mod widgets;
 pub mod welcome;
 
@@ -67,6 +74,7 @@ No log file could be written."),
 /// first bake). Called once at start-up.
 pub fn register_gpu_baking() {
     subcraft_mesh::ray_batch::register_ray_backend(subcraft_render::ray_bake::create_backend);
+    subcraft_compositor::gpu::register_gpu_compositor(subcraft_render::gpu_composite::create_backend);
 }
 
 /// Open the main window. If the chosen graphics API cannot start, the others are tried in turn;
@@ -86,6 +94,15 @@ pub fn run(options: LaunchOptions) -> eframe::Result {
             graphics.warning = Some(format!("{} could not start. {} is being used for this run. Choose another API here if needed.", preferred.label(), api.label()));
             options.preferences = true;
         }
+        match gpu_probe::prepare(api, environment_override, subcraft_app::startup_probe::previous_log()) {
+            subcraft_app::startup_probe::ProbeResult::AllFailed { report } => {
+                for line in report { errors.push((api.label().to_string(), line)); }
+                if api == subcraft_app::graphics::GraphicsApi::Automatic { break; } // already covered every backend
+                continue;
+            }
+            subcraft_app::startup_probe::ProbeResult::Verified { adapter, .. } => subcraft_app::startup_probe::step(&format!("opening window with {} / {}", adapter.backend.label(), adapter.name)),
+            subcraft_app::startup_probe::ProbeResult::NotUsed => subcraft_app::startup_probe::step(&format!("opening window with {} (no probe)", api.label())),
+        }
         match run_with_graphics(options, graphics, api) {
             Ok(()) => return Ok(()),
             Err(error) => {
@@ -96,14 +113,19 @@ pub fn run(options: LaunchOptions) -> eframe::Result {
         }
     }
     let log = subcraft_app::diagnostics::log_file();
-    let text = startup_failure_message(&errors, log.as_deref());
+    let probe_failed = last.is_none();
+    let text = if probe_failed {
+        let lines: Vec<String> = errors.iter().map(|(api, e)| format!("{api}: {e}")).collect();
+        subcraft_app::startup_probe::failure_text(&lines, subcraft_app::startup_probe::startup_log_path().as_deref())
+    } else { startup_failure_message(&errors, log.as_deref()) };
+    subcraft_app::startup_probe::step(&format!("startup failed: {}", text.replace('\n', " | ")));
     log::error!("{text}");
     rfd::MessageDialog::new().set_level(rfd::MessageLevel::Error).set_title("SubCraft cannot start").set_description(text).set_buttons(rfd::MessageButtons::Ok).show();
-    Err(last.expect("at least one startup attempt"))
+    Err(last.unwrap_or_else(|| eframe::Error::AppCreation("no graphics adapter passed the startup probe".into())))
 }
 
 fn run_with_graphics(mut options: LaunchOptions, graphics: graphics::GraphicsUi, api: subcraft_app::graphics::GraphicsApi) -> eframe::Result {
-    let wgpu_options = graphics::wgpu_options(api, graphics.environment_override);
+    let wgpu_options = graphics::wgpu_options(api, graphics.environment_override, graphics.gpu.clone());
     options.graphics_startup = Some(graphics);
     let native = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()

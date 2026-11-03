@@ -144,6 +144,14 @@ enum Node<'a> {
         seed: u32,
         support: u32,
     },
+    /// Edge Detect / Directional Warp / Mosaic: direct per-texel pixel reads (filter already
+    /// scaled to this texture's resolution).
+    Pixelwise {
+        input: usize,
+        filter: Filter,
+        kind: ChannelKind,
+        support: u32,
+    },
     Contour {
         input: usize,
         filter: Filter,
@@ -174,6 +182,7 @@ impl Node<'_> {
             Self::Directional { .. } => "directional blur",
             Self::Median { .. } => "median",
             Self::Warp { .. } => "warp",
+            Self::Pixelwise { .. } => "pixelwise filter",
             Self::Contour { .. } => "contour",
             Self::Gaussian { .. } => "gaussian pass",
         }
@@ -186,6 +195,7 @@ impl Node<'_> {
             | Self::Contour { input, .. }
             | Self::Median { input, .. }
             | Self::Warp { input, .. }
+            | Self::Pixelwise { input, .. }
             | Self::Directional { input, .. } => Some(*input),
             Self::Layer { below, .. } => Some(*below),
             _ => None,
@@ -204,6 +214,17 @@ pub(crate) struct Graph<'a> {
     cache: &'a StageCache,
     id: u64,
     modes: OnceLock<Vec<Mode>>,
+    /// Per channel and top-level layer index: the layer index that produced the accumulation
+    /// after it and that accumulation's node (`None` while still the channel's base value).
+    tops: Vec<(ChannelKind, Vec<Option<(usize, usize)>>)>,
+    prefix: Option<Prefix<'a>>,
+}
+
+/// Cached accumulations at chosen top-level boundaries (see [`crate::prefix`]).
+struct Prefix<'a> {
+    cache: &'a crate::prefix::PrefixCache,
+    /// Node -> (channel, boundary layer index) for the planned boundaries.
+    marks: HashMap<usize, (ChannelKind, usize)>,
 }
 
 /// Where a node's per-tile result lives.
@@ -245,17 +266,55 @@ impl<'a> Graph<'a> {
             cache,
             id: NEXT_GRAPH.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             modes: OnceLock::new(),
+            tops: Vec::new(),
+            prefix: None,
         }
     }
     pub(crate) fn new(ts: &'a TextureSet, ctx: EvalContext<'a>, cache: &'a StageCache) -> Self {
+        Self::new_scaled(ts, ctx, cache, 1.0)
+    }
+    /// A graph evaluated at `scale` times the authored resolution (quick previews): spatial
+    /// radii shrink with it.
+    pub(crate) fn new_scaled(ts: &'a TextureSet, ctx: EvalContext<'a>, cache: &'a StageCache, scale: f32) -> Self {
         let mut g = Self::empty(ctx, ts.albedo_filter, cache);
+        g.radius_scale = scale;
         for kind in ts.channel_kinds() {
             let d = kind.default_value().0;
             let root = g.push(Node::Constant([d[0], d[1], d[2], 1.0]));
-            let root = g.stack(&ts.layers, root, kind);
-            g.roots.push((kind, root));
+            let mut below = root;
+            let mut tops = Vec::with_capacity(ts.layers.len());
+            let mut last = None;
+            for (j, layer) in ts.layers.iter().enumerate() {
+                let next = g.layer(layer, below, kind);
+                if next != below {
+                    last = Some((j, next));
+                }
+                below = next;
+                tops.push(last);
+            }
+            g.tops.push((kind, tops));
+            g.roots.push((kind, below));
         }
         g
+    }
+    /// Read and write the accumulations after the top-level layers `plan` (indices) through `cache`.
+    pub(crate) fn with_prefix(mut self, cache: &'a crate::prefix::PrefixCache, plan: &[usize]) -> Self {
+        let mut marks = HashMap::new();
+        for (kind, tops) in &self.tops {
+            // The topmost result is the composite itself: never worth a copy here.
+            let top = self.roots.iter().find(|(k, _)| k == kind).map(|r| r.1);
+            for &j in plan {
+                if let Some(Some((at, node))) = tops.get(j) {
+                    if Some(*node) != top && !self.uniform[*node] {
+                        marks.insert(*node, (*kind, *at));
+                    }
+                }
+            }
+        }
+        if !marks.is_empty() {
+            self.prefix = Some(Prefix { cache, marks });
+        }
+        self
     }
     fn push(&mut self, node: Node<'a>) -> usize {
         // Tile-independent stages share one result. Most default material channels are uniform;
@@ -268,6 +327,7 @@ impl<'a> Graph<'a> {
             | Node::Directional { input, .. }
             | Node::Median { input, .. }
             | Node::Warp { input, .. }
+            | Node::Pixelwise { input, .. }
             | Node::Contour { input, .. } => self.uniform[*input],
             Node::ContentEffect {
                 input,
@@ -332,6 +392,10 @@ impl<'a> Graph<'a> {
             )
         {
             return Some(input);
+        }
+        if filter.is_pixelwise() {
+            let filter = filter.scaled(self.radius_scale);
+            return Some(self.push(Node::Pixelwise { input, filter, kind, support: filter.support() }));
         }
         if let Filter::Warp { scale, seed, .. } = filter {
             let intensity = radius * self.radius_scale;
@@ -505,6 +569,7 @@ impl<'a> Graph<'a> {
                     Node::Directional { input, .. }
                     | Node::Median { input, .. }
                     | Node::Warp { input, .. }
+                    | Node::Pixelwise { input, .. }
                     | Node::Contour { input, .. }
                     | Node::Gaussian { input, .. } => {
                         shared[*input] = true;
@@ -527,12 +592,18 @@ impl<'a> Graph<'a> {
     }
     fn lookup(&self, node: usize, tile: usize) -> Option<Pixels> {
         let key = self.key(node, tile);
-        if self.modes()[node] == Mode::Shared {
-            return self.cache.ready(key);
-        }
-        SCRATCH.with(|s| {
-            let s = s.borrow();
-            if s.graph == self.id { s.pixels.get(&key).cloned() } else { None }
+        let hit = if self.modes()[node] == Mode::Shared {
+            self.cache.ready(key)
+        } else {
+            SCRATCH.with(|s| {
+                let s = s.borrow();
+                if s.graph == self.id { s.pixels.get(&key).cloned() } else { None }
+            })
+        };
+        hit.or_else(|| {
+            let p = self.prefix.as_ref()?;
+            let &(kind, j) = p.marks.get(&node)?;
+            p.cache.get(kind, j, tile).map(|packed| Arc::new(packed.unpack()))
         })
     }
     fn scratch_put(&self, key: Key, value: Pixels) {
@@ -591,6 +662,11 @@ impl<'a> Graph<'a> {
                     p
                 }
             };
+            if let Some(p) = &self.prefix {
+                if let Some(&(kind, j)) = p.marks.get(&id) {
+                    p.cache.put(kind, j, tile, &result);
+                }
+            }
             // The primary of a node used once was read by this node alone.
             if let Some(below) = self.nodes[id].primary().filter(|&b| self.modes()[b] == Mode::Once) {
                 SCRATCH.with(|s| {
@@ -888,6 +964,52 @@ impl<'a> Graph<'a> {
                 }
                 out
             }
+            Node::Pixelwise {
+                input,
+                filter,
+                kind,
+                support,
+            } => {
+                use subcraft_materials::filter::pixelwise as pw;
+                let grid = Neighborhood::new(self, *input, &geo, *support);
+                let res = self.ctx.geometry.resolution;
+                let mut out = vec![[0.0; 4]; TILE_TEXELS];
+                for (i, dst) in out.iter_mut().enumerate() {
+                    let (x, y) = geo.texel_xy(i);
+                    if x >= res || y >= res {
+                        continue;
+                    }
+                    let here = grid.pixel(x, y);
+                    *dst = match *filter {
+                        Filter::EdgeDetect { radius, strength } => {
+                            let read = |dx: i32, dy: i32| {
+                                let px = (x as i32 + dx).clamp(0, res as i32 - 1) as u32;
+                                let py = (y as i32 + dy).clamp(0, res as i32 - 1) as u32;
+                                pw::scalar(grid.pixel(px, py), *kind)
+                            };
+                            let v = pw::edge_detect(read, radius, strength);
+                            [v, v, v, here[3]]
+                        }
+                        Filter::DirectionalWarp { intensity, angle_deg } => {
+                            let [dx, dy] = pw::directional_offset(pw::scalar(here, *kind), intensity, angle_deg, *kind);
+                            let mut p = grid.premultiplied(x as f32 + dx, y as f32 + dy);
+                            if p[3] > 1e-12 {
+                                let a = p[3];
+                                for c in &mut p[..3] {
+                                    *c /= a;
+                                }
+                            }
+                            p
+                        }
+                        Filter::Mosaic { size } => {
+                            let (sx, sy) = pw::mosaic_source(x, y, size, res);
+                            grid.pixel(sx, sy)
+                        }
+                        _ => here,
+                    };
+                }
+                out
+            }
             Node::Median { input, radius } => {
                 let r = *radius as u32;
                 let source = self.get(*input, tile);
@@ -1102,7 +1224,18 @@ fn spatial_value(
         | Filter::Sharpen { radius: 0.0, .. }
         | Filter::Sharpen { amount: 0.0, .. }
         | Filter::DirectionalBlur { radius: 0.0, .. } => source,
-        Filter::Blur { .. } | Filter::DirectionalBlur { .. } | Filter::Warp { .. } => blurred,
+        Filter::Blur { .. } | Filter::DirectionalBlur { .. } | Filter::Warp { .. }
+        | Filter::EdgeDetect { .. } | Filter::DirectionalWarp { .. } | Filter::Mosaic { .. } => blurred,
+        Filter::Glow { radius: 0.0, .. } | Filter::Glow { amount: 0.0, .. } => source,
+        Filter::Glow { amount, threshold, .. } => {
+            let mut out = source;
+            for c in 0..3 {
+                let add = amount * (blurred[c] - threshold).max(0.0) / (1.0 - threshold);
+                let v = source[c] + add;
+                out[c] = if kind.is_signed() { v.clamp(-1.0, 1.0) } else { v.clamp(0.0, 1.0) };
+            }
+            out
+        }
         Filter::Highpass { amount, .. } => {
             let mut out = source;
             let v = subcraft_materials::filter::highpass(

@@ -152,6 +152,7 @@ fn point_filters_match_gradient_goldens_across_tiles_and_preserve_paint_coverage
                 Filter::HistogramScan { .. } => [((v - 0.05) / 0.5).clamp(0.0, 1.0), 0.0, 0.0],
                 Filter::HistogramRange { .. } => [if (0.2..=0.4).contains(&v) { 0.0 } else { 1.0 }, 1.0, 1.0],
                 Filter::Blur { .. } | Filter::Sharpen { .. } | Filter::DirectionalBlur {..} | Filter::Highpass {..} | Filter::Bevel {..} | Filter::MaskOutline {..} | Filter::Median {..} | Filter::Warp {..} => unreachable!("neighborhood goldens are in spatial.rs"),
+                _ => unreachable!("not in this list; the new filters have goldens in spatial.rs and subcraft-materials"),
             };
             let actual = image.channel(C).unwrap().get(x,y);
             for k in 0..3 { let expected = if y < RES/2 { 0.25 + 0.5*transformed[k] } else { 0.5 };

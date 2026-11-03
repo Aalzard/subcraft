@@ -22,7 +22,18 @@ or endorsed by ArtCraft.**
 New here? Follow the [illustrated getting-started guide](docs/getting-started.md). A welcome
 screen and a six-step in-app guide are included.
 
-## What's new in 0.2.0
+## What's new in 0.2.1
+
+- **Blender-style 3D navigation**, **2D View export**, scene export (OBJ, glTF, GLB, USDA) and
+  Roblox / Sketchfab presets.
+- **Text tool**, **automatic UV unwrapping**, PLY and STL import.
+- **GPU layer compositing** for big texture sets (2048 and larger), with the processor as fallback.
+- Eleven more filters, a scratch generator, layer copy/paste and multi-select, wireframe and
+  camera bookmarks in the 3D view.
+- Start-up now survives graphics-adapter problems on machines with two GPUs, and tablet/pen
+  contact is mapped to clicks (both awaiting confirmation on real hardware).
+
+## What was new in 0.2.0
 
 - **Open Substance Painter `.spp` projects** and rebuild their layer stacks; read `.sbsar`.
 - **USD and Alembic import**, and a **path-traced Rendering mode**.
@@ -160,7 +171,7 @@ The 2048 x 1024 originals of the 10 HDRIs are an optional download
 - **Updates**: the green Check / update button downloads, verifies and installs the latest stable
   release and restarts with your unsaved project restored.
 - **Bug reports**: Help > Report a bug opens a GitHub issue with version, OS and GPU filled in.
-- Mesh import: OBJ, glTF / GLB, FBX and USD (usd, usda, usdc, usdz). Project files are `.subcraft`.
+- Mesh import: OBJ, glTF / GLB, FBX, USD (usd, usda, usdc, usdz), PLY and STL. Project files are `.subcraft`.
 
 ### Export
 

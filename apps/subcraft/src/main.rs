@@ -1,6 +1,6 @@
 //! SubCraft application (desktop).
 //!
-//! Desktop usage: `subcraft [project.subcraft|mesh.obj|.gltf|.glb|.fbx|.abc|.usd|.usda|.usdc|.usdz|.spp] [--demo] [--view-2d] [--screenshot out.png]`
+//! Desktop usage: `subcraft [project.subcraft|mesh.obj|.gltf|.glb|.fbx|.abc|.usd|.usda|.usdc|.usdz|.ply|.stl|.spp] [--demo] [--view-2d] [--screenshot out.png]`
 
 // Packaged Windows builds open without a console window (logs then go nowhere; run a normal
 // build from a terminal to see them).
@@ -17,6 +17,13 @@ fn main() -> anyhow::Result<()> {
         let path = cli.get(1).ok_or_else(|| anyhow::anyhow!("Missing update job"))?;
         return subcraft_app::updater::apply_job(std::path::Path::new(path)).map_err(|e| anyhow::anyhow!("{e}"));
     }
+    // Crash-safe startup (issue #83): the GPU probe child, then the breadcrumb log, before any
+    // graphics call. A driver crash in the probe kills only the child.
+    if cli.first().is_some_and(|a| a == "--gpu-probe") {
+        let rest: Vec<String> = cli.iter().skip(1).map(|a| a.to_string_lossy().into_owned()).collect();
+        std::process::exit(subcraft_ui::gpu_probe::child_main(&rest));
+    }
+    subcraft_app::startup_probe::begin(subcraft_app::startup_probe::startup_log_path().as_deref());
     // Logs go to the data folder (and to the console of non-packaged builds); panics leave a
     // crash report there that the next start shows.
     let data = subcraft_app::recovery::data_dir();
@@ -49,6 +56,7 @@ fn main() -> anyhow::Result<()> {
             "--effect-panel" => options.effect_panel = true,
             "--select-brush" => options.select_brush = Some(args.next().ok_or_else(|| anyhow::anyhow!("--select-brush expects a Shelf brush name"))?),
             "--capture-tool" => options.capture_tool = Some(args.next().ok_or_else(|| anyhow::anyhow!("--capture-tool expects clone or smudge"))?),
+            "--import-smart" => options.import_smart.push(args.next().ok_or_else(|| anyhow::anyhow!("--import-smart expects a .scsmart file or a folder"))?.into()),
             "--shelf-tab" => options.shelf_tab = Some(args.next().ok_or_else(|| anyhow::anyhow!("--shelf-tab expects a Shelf tab name"))?),
             "--render-image" => {
                 let path: std::path::PathBuf = args.next().ok_or_else(|| anyhow::anyhow!("--render-image expects an output .png"))?.into();
@@ -122,6 +130,7 @@ fn main() -> anyhow::Result<()> {
                     _ => anyhow::bail!("--reload-mode expects keep or reproject"),
                 })
             }
+            "--auto-uv" => options.auto_uv = true,
             "--test-crash" => options.test_crash = true,
             "--profile-edits" => {
                 let out = args.next().ok_or_else(|| anyhow::anyhow!("--profile-edits expects an output file"))?;

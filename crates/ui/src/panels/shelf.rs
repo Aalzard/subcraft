@@ -238,6 +238,18 @@ fn library_menu(
             show_in_folder(file);
             ui.close();
         }
+        if file.extension().is_some_and(|e| e.eq_ignore_ascii_case("scsmart"))
+            && ui.button(format!("{}  Export smart material…", crate::icons::EXPORT)).clicked()
+        {
+            let stem = file.file_stem().and_then(|s| s.to_str()).unwrap_or("smart material");
+            if let Some(dest) = rfd::FileDialog::new().add_filter("SubCraft smart material", &["scsmart"]).set_file_name(format!("{stem}.scsmart")).save_file() {
+                *status = Some(match subcraft_app::smart_import::export_smart_file(file, stem, &dest) {
+                    Ok(()) => format!("Exported smart material to {}", dest.display()),
+                    Err(e) => format!("Export smart material: {e}"),
+                });
+            }
+            ui.close();
+        }
         if ui.button(format!("{}  Remove from library", crate::icons::TRASH)).clicked() {
             match lib.map(|l| l.remove(file)) {
                 Some(Ok(())) => removed = true,
@@ -248,6 +260,38 @@ fn library_menu(
         }
     });
     removed
+}
+
+/// File > Import smart material(s)…: `.scsmart` files and/or PBR texture images.
+pub fn import_smart_dialog(ctx: &egui::Context) {
+    crate::files::pick(ctx, crate::files::Purpose::SmartMaterials, crate::files::SMART_MATERIALS, true, Some("Import smart materials (.scsmart) or PBR texture maps"));
+}
+
+/// File > Import smart material folder…: a folder of `.scsmart` files or of PBR texture sets.
+pub fn import_smart_folder_dialog(ctx: &egui::Context) {
+    crate::files::pick_folder(ctx, crate::files::Purpose::SmartMaterialFolder, "Import smart materials from a folder (.scsmart files or PBR texture sets)");
+}
+
+/// Files dropped on the shelf: smart materials (`.scsmart`, folders) on any tab, textures too on
+/// the Smart Materials tab. Draws a hint while files hover over it.
+fn handle_drops(state: &mut UiState, ui: &Ui, now: f64) {
+    let rect = ui.max_rect();
+    let over = ui.ctx().input(|i| i.pointer.latest_pos()).is_some_and(|p| rect.contains(p));
+    if over && ui.ctx().input(|i| !i.raw.hovered_files.is_empty()) {
+        ui.painter().rect_stroke(rect.shrink(2.0), 4.0, egui::Stroke::new(2.0, theme::ACCENT), egui::StrokeKind::Inside);
+    }
+    let dropped: Vec<std::path::PathBuf> = ui.ctx().input(|i| i.raw.dropped_files.iter().map(|f| f.path().to_path_buf()).collect());
+    if !over || dropped.is_empty() {
+        return;
+    }
+    let smart_tab = state.shelf.tab == ShelfTab::SmartMaterials;
+    let paths: Vec<std::path::PathBuf> = dropped
+        .into_iter()
+        .filter(|p| smart_tab || p.is_dir() || p.extension().is_some_and(|e| e.eq_ignore_ascii_case("scsmart")))
+        .collect();
+    if !paths.is_empty() {
+        crate::files::import_smart_materials(state, &paths, now);
+    }
 }
 
 /// Open the system file browser at `path` (selecting it when it is a file).
@@ -309,6 +353,7 @@ fn shelf_hint(ui: &mut Ui, text: &str) {
 
 pub fn show(state: &mut UiState, ui: &mut Ui) {
     let now = ui.input(|i| i.time);
+    handle_drops(state, ui, now);
     egui::Frame::new().inner_margin(egui::Margin { left: 6, right: theme::PAD, top: 0, bottom: 0 }).show(ui, |ui| {
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing.x = 0.0;
@@ -371,7 +416,13 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 shelf_hint(ui, crate::keys::native("Applies to the selected layer. Edges / Cavity need baked maps (Ctrl+B)."));
             }
             ShelfTab::SmartMaterials => {
-                shelf_hint(ui, crate::keys::native("Wear and dirt follow baked curvature / AO (Ctrl+B)."));
+                shelf_hint(ui, crate::keys::native("Wear and dirt follow baked curvature / AO (Ctrl+B). Drop .scsmart files or texture folders here to import."));
+                if ui.button(format!("{}  Import", crate::icons::DOWNLOAD)).on_hover_text("Import smart materials (.scsmart) or PBR texture sets (Color, NormalGL, Roughness…)").clicked() {
+                    import_smart_dialog(ui.ctx());
+                }
+                if ui.button(format!("{}  Import folder", crate::icons::FOLDER_OPEN)).on_hover_text("Import a folder of .scsmart files or PBR texture sets").clicked() {
+                    import_smart_folder_dialog(ui.ctx());
+                }
             }
         }
     });

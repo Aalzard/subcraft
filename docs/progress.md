@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-11-02 (session 113: community pull requests by Rafael Mendes merged locally)
+Last updated: 2026-11-03 (automatic UV unwrapping)
 
 ## Decisions
 
@@ -3823,3 +3823,535 @@ channels, mean abs difference over the UV triangles).
   `sheets file.sbsasm count`.
 * **Tests:** `cargo test --workspace --lib --bins --tests --no-fail-fast`: 865 passed, 0 failed (new: grain statistics at 256-2048,
   sheet layout, picker range, stencil tweaks; `spp_open` now expects the grain layer).
+
+### Session 115 - PLY and STL import (2026-11-03)
+
+Branch `claude/ply-stl-3ccf7a`, local. New hand-written readers in `crates/mesh/src/ply_stl.rs`, wired into `import.rs`, `SUPPORTED_EXTENSIONS` (now 12, so the file dialogs, New Project window and launch-argument classification pick them up), and the UI / CLI / README text.
+
+* **PLY:** ascii, binary little and big endian; any scalar types; x/y/z, normals, s/t or u/v UVs (v flipped like OBJ), per-face `texcoord` lists; quads and n-gons fan-triangulated; unknown elements skipped. List counts and element counts are checked against the bytes left, so truncated or hostile files return `ImportError::Ply`, never panic or over-allocate. Vertex colors are parsed but SubCraft meshes do not store them, so a warning says they are ignored.
+* **STL:** ascii and binary (a binary file whose header starts with "solid" is detected by size). Vertices are welded by exact position; corner normals average the neighbouring faces within 60 degrees, so scans are smooth and a CAD cube keeps hard edges (facet normals in the file are ignored). Truncated files, lying triangle counts and bad numbers are errors.
+* **No UVs:** both formats add the warning "no UVs, use auto unwrap or provide UVs". `import_mesh_for_baking` succeeds with it; the normal paint import still returns the existing `NoUvs` error (same behaviour as USD / Alembic), because the importer cannot unwrap yet. The warning is therefore only visible on the bake-source path until auto UV lands and relaxes that rule.
+* **Tests:** `crates/mesh/tests/ply_stl_import.rs` (8 tests: cube in ascii / LE / BE, UV flip, kept normals, n-gon with face texcoords, no-UV cases, pyramid and cube STL in both encodings, every truncation point of PLY and STL files, absurd counts, bad index). `cargo test -p subcraft-mesh --lib --tests`: all pass.
+* **Real app:** debug build, `subcraft.exe pyramid.ply --screenshot out.png` on an ascii PLY pyramid with UVs (quad base + 4 triangles): window opens with the mesh, status bar "6 tris", part "pyramid · Piece 1". Not run through the app: STL, binary PLY (covered by the tests above).
+## Automatic UV unwrapping (2026-11-03)
+
+New `subcraft_mesh::unwrap` (hand-written, no new dependencies), used for models without UVs or with bad ones.
+
+* **Seams / charts:** triangles are welded by position; per material slot, charts grow from the lowest free triangle by a
+  priority queue (smallest normal deviation first). A triangle joins when its normal is within the *seam angle* (default 66 deg)
+  of the chart's average normal and of its neighbour. Non-manifold edges and edges whose two triangles disagree on winding are
+  always seams.
+* **Flattening:** least-squares conformal maps (two pinned vertices at the most distant pair, Jacobi-preconditioned conjugate
+  gradients, planar initial guess). A chart whose layout has a flipped triangle, a triangle stretched more than 4:1, or any
+  UV overlap is split in two (farthest-seed growing) and flattened again; one triangle is laid out isometrically, so it always
+  terminates. Optional *balance density* gives every chart the same UV area per surface area.
+* **Packing:** each chart is rotated to its minimum-area rectangle; rectangles plus the island margin are packed into 0..1 by
+  bisecting the largest uniform scale. Quality: Fast = shelf, Balanced = skyline, Best = skyline + quarter turns + three orders
+  and a finer scale search (above 3000 charts everything falls back to shelf). Each material slot is packed on its own
+  (separate texture sets). Margin is in texels of a chosen texture size (half of it also to the 0..1 border); with very many
+  charts it is reduced and the effective value is reported.
+* **Output:** same triangles, normals, materials, objects; vertices split along chart borders, MikkTSpace tangents recomputed.
+  Deterministic. `analyze_uvs` reports overlap, flipped, collapsed, outside 0..1 and stretch of any mesh.
+* **App / UI:** `Session::start_auto_uv` / `finish_auto_uv` / `auto_uv_unwrap` unwrap in the background and then run the mesh
+  reload *Reproject* transfer (ADR-0042), so paint layers, masks and baked maps follow the surface; the history is cleared
+  (mesh is not undoable) and the remembered model file stays the original. UI: File > Auto UV unwrap... (seam angle, island
+  margin, texture size, pack quality, balance density; shows the quality of the current UVs). A model with no UVs at all opens
+  already unwrapped with default settings (`Session::open_mesh`, New project dialog) and says so. `--auto-uv` runs the command
+  at start for scripted screenshots.
+* **Tests (new, all pass):** 12 unit tests (cube -> 6 charts, stretch 1.0; sphere, torus at all pack qualities, open tube,
+  several materials, margin/border respected, smaller angle -> more charts, determinism, degenerate + non-manifold + repeated
+  vertex + isolated triangle mesh without panic, NaN / empty input, analysis flags overlap) check zero overlap, all UVs in 0..1,
+  no flipped triangles, stretch <= 4; 2 app tests (painted cube unwrapped: color error < 0.05 at 3 points per triangle,
+  ids kept; UV-less OBJ opens unwrapped).
+* **Real app:** `subcraft torus_nouv.obj --view-2d --screenshot` (2304-triangle torus with a bulge, no vt/vn) opens unwrapped;
+  `--auto-uv` on it reports "9 chart(s), 2304 triangle(s), coverage 40%, stretch mean 1.03 / max 1.26 (before: 0 overlapping, 0
+  flipped, 0 collapsed, 0 outside 0..1)". Screenshots: `auto-uv-after.png`, `auto-uv-3d.png` in the shared notes folder.
+* **Limits:** packing is by bounding rectangles, so coverage is modest for ring-shaped charts (40% on that torus, above 60% on the cube);
+  no island-in-island fill. Charts are not merged afterwards, so noisy meshes give many small charts. LSCM is conformal: area
+  (texel density) varies inside a chart unless split; max stretch is bounded by the 4:1 split rule only. Hard-edge/sharp creases
+  below the seam angle are not cut. Sliver triangles (area < 1e-4 of mean) are ignored by the quality checks. Seams follow the
+  angle rule, not user-marked edges. The UV sphere primitive's own UVs run mirrored relative to the box/plane/torus convention
+  that the unwrapper follows (textures unmirrored seen from outside). A UV-less file is only auto-unwrapped through Session::open_mesh
+  and New project; File > Reload mesh still refuses it (unwrap the project instead).
+* **Run:** `cargo test --workspace --lib --bins --tests --no-fail-fast`: 879 passed, 0 failed (107 suites, includes the 14 new tests).
+### Session 115 - Painter import: padding outside the islands, text labels (2026-11-03)
+
+Branch `claude/spp-gaps-eaaadc`, local. Lab runs at 1024 (`spp_lab`, rebuilt stack alone against Painter's flattened channels), on the user's CarInteriro and DBAL-A2 (`C:\Users\Rayan\Downloads`, read-only).
+
+* **New lab measurement:** per channel, the mean absolute difference in a band of 1-4 texels outside the UV islands (Chebyshev), the band means on both sides, the error by distance, and two references (Painter's band against a nearest-texel padding of Painter's inside; the rebuilt band against a padding of the rebuilt inside). `SUBCRAFT_LAB_WORST=1` adds the worst 128x128 blocks. Switch `SUBCRAFT_SPP_NO_PAD=1` turns the fix below off for A/B runs.
+* **Where the flat fill came from:** the textures solved from Painter's result (`... (solved from Painter's result)`, Base Color / Roughness / Metallic / Height / Normal of the fitted material layers) were written only at the set's covered texels; every other texel kept the layer's uniform fitted value (the Normal ones stayed flat). Mask rasters were already padded (session 110), baked maps too. Fix: `spp_import::pad_outside` copies the nearest covered sample into the rest of each solved texture (jump flooding, `nearest_covered` / `apply_nearest`) before it becomes a resource; texels inside the islands are untouched. Importer cache version 8.
+
+| band error (4 texels outside), mean abs | before | after | inside the islands |
+|---|---|---|---|
+| CarInteriro Base Color | 0.0195 | 0.0183 | 0.0100 |
+| CarInteriro Roughness | 0.0950 | 0.0665 | 0.0370 |
+| CarInteriro Normal | 0.0097 | 0.0086 | 0.0061 |
+| CarInteriro Ambient Occlusion (not gated) | 0.664 | 0.603 | 0.437 |
+| CarInteriro Height / Metallic | 0.0168 / 0.0135 | unchanged | 0.0034 / 0.0022 |
+| DBAL-A2 Base Color / Roughness / Metallic | 0.0278 / 0.0488 / 0.0485 | unchanged | 0.0144 / 0.0432 / 0.0453 |
+| DBAL-A2 Normal | 0.0099 | 0.0091 | 0.0010 |
+
+  Inside-island numbers are identical with and without the padding (CarInteriro 0.0100 / 0.0034 / 0.0371 / 0.0022 / 0.0061; DBAL-A2 unchanged), as the padding only writes outside.
+* **What stays unsolved:** the rebuilt band is not a nearest-texel padding of the rebuilt inside (DBAL-A2 Base Color band against its own padded inside: 0.0188; Painter's own band against its padded inside: 0.0032), so other layer types still differ outside the islands. The error by distance is flat (DBAL-A2 Base Color 0.0265 / 0.0280 / 0.0310 / 0.0278 at 1-4 texels; Roughness 0.048-0.050), so it is not a rim or reach limit; procedural layers (noises, generators, fractal fills) have no surface position beyond the evaluated rim and the composite does not pad. Padding the final composite from its inside would bring the band to the inside-error floor (a lab estimate: DBAL-A2 Base Color 0.0278 -> 0.0181, Roughness 0.0488 -> 0.0468, CarInteriro Roughness 0.0665 -> 0.0642); that would be a compositor/export change and was not made. The gate (inside the islands) and the 3D view (islands only, bands at seams) are unchanged by this work; the visible effect is on the channel images and mipmapped reads near borders. No screenshots were taken.
+* **Text labels:** no new experiment; the finding of sessions 110b and 114 stands and is not contradicted by anything seen here. The labels (DBAL-A2's "DBAL-A2", QR / "CAGE" text, knob numbers) are 328 stencilled brush strokes whose stencils are alpha sheets inside compiled stencil packs (collages of wear and grunge, no glyphs); the only text in the file is one eraser stamp with the font resource `font_chathura` and the string "2". Replaying the readable sheets made the result worse in their footprint (Base Color 0.027 -> 0.047, Metallic 0.060 -> 0.130, whole-set Metallic 0.0453 -> 0.0466), one pack (Weapon_Stencil_2) does not resolve, and the flattened layer cannot be separated per stroke. So `SUBCRAFT_SPP_SHEETS` stays off by default and the labels stay in the flattened layer / as the strokes that can be replayed. Not reproduced: the "00" vs "06" knob numbers.
+* **Tests:** `padding_copies_the_nearest_sample_outside_and_keeps_the_samples` (spp_import). `cargo test --workspace --lib --bins --tests --no-fail-fast`: 866 passed, 0 failed (865 before).
+## Faster layer edits: per-layer result cache and quick preview (CPU path)
+
+Task: make toggling / editing layers fast on the CPU compositor without touching stored data. Stored data is unchanged: project
+files, rasters and `TiledImage` storage are not read differently or written differently; the new cache is derived, lives inside
+`CompositeCache` and is never serialized.
+
+**Measured with** `big_project_bench` (`cargo run --release -p subcraft-app --example big_project_bench -- 4096 40 fahi`):
+4096 set, 40 layers (26 top-level, the rest in four folders), 100k-triangle sphere, 16 threads, 9 baked maps. The machine was shared
+with other sessions, so single timings move by +-15% (the same baseline stage measured 37.4 s in one run and 24.9 s in a quieter
+one); every case was run twice and both repetitions are listed. Every edit changes the document, and the timings include
+`update_composites`. Composite hash of the full result (all channels, all texel bits) is `ae74bae14b3e1faf` before and after.
+
+| Case (ms per edit) | Before (rep 1 / rep 2) | After (rep 1 / rep 2) | Result |
+|---|---|---|---|
+| full composite from scratch | 37366 (24875 in a quiet run) | 26297 | not faster: the same work plus packing the stored boundaries (about 0 to +5%) |
+| bottom: visibility | 35198 / 29594 | 29125 / 28014 | no change (nothing below to reuse) |
+| bottom: opacity | 30873 / 29740 | 23891 / 22951 | no change (noise) |
+| bottom: blend mode | 31599 / 35072 | 23947 / 24521 | no change (noise) |
+| bottom: filter parameter | 38147 / 41139 | 26663 / 28199 | no change (noise) |
+| middle: visibility | 43418 / 32666 | 28983 / 12934 | 2.5x after the first edit |
+| middle: opacity | 41105 / 36811 | 13220 / 12935 | about 3x |
+| middle: blend mode | 40602 / 30457 | 13717 / 13098 | about 2.7x |
+| middle: filter parameter | (0, no-op) / 27286 | 11722 / 10821 | about 2.5x |
+| top: visibility | 26270 / 31784 | 10976 / 2273 | 14x on the second edit; the first edit after a bottom-stack edit rebuilt boundaries |
+| top: opacity | 35378 / 37970 | 538 / 571 | about 65x |
+| top: blend mode | 39921 / 35866 | 527 / 468 | about 80x |
+| top: filter parameter | 28717 / 32132 | 5265 / 5585 | about 5.5x (the nearest filter layer sits several layers below the top) |
+
+Before this change every edit re-evaluated every tile of the whole stack (about 30 s at 4096 wherever the layer was). Now the cost
+follows how many layers sit above the nearest stored boundary below the edited one.
+
+Interactive feedback through the background worker (`i` stage; "first" = every stale tile has been shown once, "exact" = the
+final result finished), opacity change of one layer:
+
+| Layer | Before first / exact | After first / exact |
+|---|---|---|
+| bottom | 26018 / 26018, 25825 / 25825 | 777 / 33501, 637 / 42702 |
+| middle | 25644 / 25644, 24478 / 24478 | 513 / 9870, 473 / 10758 |
+| top | 24665 / 24665, 25585 / 25585 | 419 / 2046, 415 / 953 |
+
+So the image reacts after about 0.4-0.8 s instead of 25 s in every case. A bottom edit still takes as long as before to become
+exact (here 33-43 s against 26 s; probably the preview, the boundary packing and other sessions on the machine, not measured
+separately; this case did not improve).
+
+Memory: the cache budget is `SUBCRAFT_LAYER_CACHE_MB` (default 2048, 0 turns it off). At 4096 with 40 layers the bench stored
+177k tile entries in 2047 MB (a boundary costs about 500 MB, so about four boundaries fit); the working set after the first
+composite rose from 3228 MB to 4056 MB (the cache fills up over the first edits). Smaller sets keep proportionally more
+boundaries (a boundary of a 2048 set is about a quarter of that).
+
+What changed:
+
+* `compositor::prefix::PrefixCache` (new): for chosen top-level boundaries (accumulation after layers 0..=j, per channel and tile)
+  it keeps lossless packed copies (constant and duplicate planes are shared), LRU-evicted under a byte budget. Which boundaries
+  are stored is planned from the budget, evenly spaced from the top (the topmost result is the composite itself and is never
+  copied). The plan uses a conservative size estimate first and the measured average entry size afterwards.
+* Invalidation is by layer identity: `sync` drops boundaries at or above the first top-level layer whose `Arc` changed; for a
+  raster-only edit (stroke) only the tiles the existing incremental diff reports dirty. A change of resolution, channels, albedo
+  filter, an explicit `invalidate()` (resources, mesh maps, geometry), or a switch between the local and the neighborhood-graph
+  evaluator clears everything. The graph evaluator (`stages.rs`) reads and writes the boundaries as marked nodes; the local
+  evaluator resumes from the highest cached boundary that holds every channel of the tile.
+* Quick preview (`Composite::preview`, `overlay_preview`, worker): when a snapshot makes at least 128 tiles stale, the worker first
+  evaluates the whole set at 512 px (layers are point-sampled by UV, spatial radii scale with the resolution), stretches it over
+  the stale tiles and publishes it, then refines tile by tile to the exact result. Tiles that showed a preview are reported as
+  changed even if the exact result equals the earlier texels, so a GPU copy always ends exact. A newer snapshot cancels a preview
+  that is still being computed (checked per tile); the exact slices already used newest-snapshot-wins. Sets of 512 px or less skip
+  previews. `Session` supplies the 512 px geometry (`SetSnapshot::preview_geometry`).
+* Bench: `big_project_bench` stages `h` (layer edit cases) and `i` (worker feedback); `Session::layer_cache_stats`.
+
+**Tests** (`crates/compositor/tests/layer_cache.rs`, `tests/worker.rs`): after visibility, opacity, blend mode (bottom, middle, top),
+a filter parameter, raster edits, layer removal and an explicit invalidation the cached composite equals `composite_full`
+bit for bit, on both evaluators, with a roomy budget, a tight budget (eviction and sparse boundaries) and the cache disabled;
+edits above a stored boundary register cache hits; the stored bytes never exceed the budget; the worker test checks that a preview
+is published first, the final composite is exact and every previewed tile is reported for upload. Mutation check: replacing the
+parameter-change invalidation by "keep everything" made 3 of the 5 `layer_cache` tests fail (the two that only count hits or run
+with the cache off still passed, as expected); reverted.
+`cargo test --workspace --lib --bins --tests`: 871 passed, 0 failed.
+
+Known limits: a bottom-of-stack edit is not faster (nothing below it to reuse), and while the exact refinement of a bottom edit
+runs the preview work and boundary packing slow it down; more RAM budget buys more boundaries; the preview of generator-based masks
+uses the 512 px geometry and baked maps sampled by UV, so it is only a rough look until the exact tiles arrive; the GPU
+compositor work from other sessions is not part of this.
+## Smart material import and export (2026-11-03)
+
+Request (a YouTube commenter): bring smart materials in from outside the app, including plain PBR texture packs such as ambientCG.
+
+* **Entry points:** File > Import smart material(s)… and File > Import smart material folder…, the Import / Import folder buttons on
+  the shelf's Smart Materials tab, drag and drop of files or folders onto the shelf, and `subcraft --import-smart PATH` (repeatable).
+  Export: right-click a smart material on the shelf > Export smart material… (a `.scsmart` zip anyone can import). All of it goes
+  through `subcraft_app::smart_import`; the UI only picks paths and shows the result. A finished import switches to the Smart
+  Materials tab, adds the new entries and shows a report window when anything went wrong (every line is also logged).
+* **What is accepted:** `.scsmart` files (fragment of kind smart material; schema newer than this build is refused with a clear
+  message), image files (png jpg jpeg tga bmp tif tiff exr hdr webp) and folders of them. Image files are grouped per material by the
+  filename prefix before the map word (`Bricks059_2K-PNG_Color.png` and `Bricks059_2K-PNG_Roughness.png` are one material named
+  `Bricks059`; resolution/format words like 2K, PNG, JPG are dropped from the name); files without a prefix use the folder name.
+  Map assignment reuses `texture_maps::classify` (Color/Albedo/BaseColor, Roughness, Metalness/Metallic, AmbientOcclusion, Height/
+  Displacement, Opacity, Normal). `NormalDX` is flipped in green; when both NormalGL and NormalDX exist the OpenGL one is used and the
+  other is listed as skipped. Each material becomes a fill layer with the found channels (the layer adds missing channels to the
+  texture set when applied) and is saved to the user's library folder. Unrelated files are listed, never fatal.
+* **Name collisions:** an identical existing file or identical images is reported as "already present"; a different material with an
+  existing name is saved as `Name (2)`. The bundled assets are never written, the library folder only.
+* **Safety limits:** nothing from a zip is extracted (entries are looked up by name, so no path traversal; a `../` entry is just a
+  missing entry); entries are capped at 1 GiB (`project::MAX_ENTRY_BYTES`, also enforced on read so a lying header cannot allocate
+  more); smart files 1 GiB, texture files 256 MiB, texture side 8192, 500 materials, 20,000 files scanned, folder depth 8; symlinks in
+  dropped folders are not followed. Corrupt, empty, truncated, future-version, wrong-kind (smart mask) and traversal inputs each give
+  one error line and leave the library unchanged; nothing panics.
+* **Tests:** `crates/app/tests/smart_import.rs` (5: ambientCG folder to one material per set with channel check, dropped files and nested
+  folders, export/import round trip with pixel equality, nine kinds of bad input, nothing recognizable) and
+  `crates/assets/tests/split_map_name.rs` (2). All fixtures are generated in the temp dir.
+  `cargo test --workspace --lib --bins --tests`: 872 passed, 0 failed.
+* **Real run:** built binary, `SUBCRAFT_LIBRARY=D:/smi-run/lib subcraft --import-smart D:/smi-run/Downloads --shelf-tab smart-materials`
+  on a generated folder with `Bricks059_2K-PNG` (Color, Roughness, NormalGL, NormalDX, Displacement, AmbientOcclusion), `Planks012_2K-PNG`
+  (Color, Roughness, NormalDX), a readme and a garbage `bad.scsmart`: status "Imported 2 smart materials; 1 problem(s)", the report window
+  listed the zip error, the skipped NormalDX and both channel mappings, and the library folder held `Bricks059.scsmart` and `Planks012.scsmart`.
+* **Not done:** drag and drop (`handle_drops` in the shelf) has no automated test and was not tried with a real OS drag (no mouse driving),
+  only the same import function it calls was run; Windows-only manual run so far.
+### Scratch generator (session: scratch-gen)
+
+**Existing Scratches pattern (unchanged, old projects load identically):** per lattice cell 3 line segments at a random angle (0..180 deg), length 0.3-1.2 cells, half-width 0.012-0.022 cells, linear falloff across the line and a quartic fade to both ends. Weaknesses: no parameters beyond scale/seed/balance/contrast, so no direction or spread control (always isotropic), lengths capped at about one cell, no curved scratches, no depth variation per scratch, no density or clustering control (a fixed 3 per cell), no edge-wear bias, and widths are not independent of the scale.
+
+**New Scratch Generator kind (ProceduralKind::Scratch, additive):** crates/materials/src/scratch.rs, settings in ProceduralParams::scratch (ScratchParams, omitted from project files while at defaults, so existing files round-trip byte-identically). Each cell owns up to 6 candidates that exist when a hash is below the local probability (raising density only adds scratches); each is a parabolic arc with direction = mean +- spread, length, width and depth variation, pointed ends (depth falloff), a coarse periodic noise gate for clustering, and tileable lookups through wrapped cell coordinates. Lengths and widths are in cells, so the result is resolution independent (sub-texel widths simply alias or vanish at low resolutions). Edge wear multiplies the cached field by a weight from the baked Curvature map in the fill sampler (only when a bake exists; not applied to mask fills). Properties panel: Preset (Fine hairlines, Heavy gouges, Brushed metal, Scuffed plastic, Cracked), Direction, Spread, Length, Length var., Width, Width var., Density, Curvature, Depth falloff, Clustering, Edge wear; available for fill channels and mask Fill effects.
+
+Tests (materials, 6): determinism and seed dependence, tiling for every preset (value one tile over, border jump), resolution independence (mean coverage 128 vs 512 within 8 percent), coverage strictly increasing with density, direction/spread anisotropy, wear weight; project: old scratches params serialize/deserialize unchanged.
+Example: cargo run --example scratch_presets -p subcraft-app -- <dir> [--crate] writes one project per preset for screenshots.
+Verified in the real app (release binary, sphere, 1024 px, Height + Base Color channels): all five presets render and show as expected - docs/screenshots/scratch-{fine-hairlines,heavy-gouges,brushed-metal,scuffed-plastic,cracked}.png. Test runs: materials 38, doc 14, project 33, app lib 67, all passing (cargo -j 2). Not done: wear bias in mask Fill effects, a crate/bake wear screenshot, and the Properties panel itself was not driven interactively. Build note: the first target dir got corrupted by interrupted builds (rustc metadata panics); a fresh target dir fixed it.
+
+### Pen taps not registered on Linux (issue #82, session: pen-click)
+
+**Not reproduced; no tablet hardware here (Windows dev box). The fix below is untested against a real Wacom / Wayland setup.**
+Findings: the earlier pen-pressure change (4998acb) only reads `Event::Touch` force, it does not consume events. egui-winit 0.36 turns a winit Touch into pointer events itself, but for ONE touch id at a time (`pointer_touch_id`); a touch whose `Ended` is never delivered blocks every later touch id. winit 0.30 has no Wayland tablet-v2 support, so on Niri a pen reaches us either as plain pointer motion without a button (compositor pointer emulation: cursor moves, tip contact is not a click; this is the reported symptom and is NOT fixable inside this layer) or as touch events.
+Change: `crates/ui/src/pen_input.rs` (`PenInputFixer`, applied in `SubcraftApp::raw_input_hook`) adds the missing PointerMoved / primary press / release when a Touch sequence arrives without them, releases a stuck press on End/Cancel, lets a new pen contact (has force) replace a contact whose End was lost, ignores a second finger, and leaves mouse events untouched. 7 unit tests with synthetic touch sequences; `cargo test -p subcraft-ui --lib -j 2`: 61 passed.
+Diagnostics: run with `SUBCRAFT_INPUT_LOG=1` to log every pointer / touch event (and a line when the fixer had to add events) to stderr and `subcraft.log`.
+If the log shows only `PointerMoved` while pressing the pen (no `PointerButton`, no `Touch`), the compositor/winit never delivers tip contact and real tablet-v2 support (wayland tablet protocol) is needed: not done.
+## Navigation schemes and continuous takeover (issues #80, #81, 2026-11-03)
+
+* `crates/ui/src/nav.rs` (pure, no egui): `NavScheme` (Painter default, Blender), `mode_for(scheme,
+  input) -> NavMode` and `NavDrag`, which tracks the drag origin and rebases it to the current
+  pointer position whenever the mode changes, so the new mode starts with a zero delta (no camera
+  jump). Maya was skipped: it is Alt+LMB/MMB/RMB, almost identical to Painter.
+* Painter: Alt+RMB zoom > MMB pan > RMB or Alt+LMB orbit. Blender: MMB orbit, Shift+MMB pan,
+  Ctrl+MMB zoom (Ctrl wins over Shift; Cmd counts as Ctrl). Wheel zooms in both.
+* Preferences: `nav_scheme` field with `#[serde(default)]`, so old `subcraft_prefs_v1` blobs load as
+  Painter (tested). Combo box + live help lines in the Preferences window; the Keyboard shortcuts
+  window and the 3D view hint pill follow the active scheme. In Blender mode Alt no longer
+  suppresses painting / the RMB menu.
+* Viewport: navigation now reads held buttons from raw pointer state instead of
+  `response.dragged_by`, starting only on a press over the 3D view. This is what lets a second
+  button (e.g. MMB added during an RMB orbit) take over without releasing.
+* Tests: 8 in `nav::tests` (both mappings, delta per frame, pan→zoom→pan takeover, Painter
+  orbit→zoom→orbit→pan across buttons, drag end, prefs back-compat, help text).
+* **Not tried with a real mouse** (cloud container, no display): feel of the takeover, whether
+  egui reports `middle_down` reliably on every platform, what happens when the pointer leaves the
+  window mid-drag (we skip frames with no pointer position), and Painter's Alt-release during
+  Alt+LMB orbit (navigation ends; continuing LMB does not start a stroke because strokes begin on
+  press, but that path is untested by hand).
+### GPU adapter selection and fallback (session: cloud/gpu-adapter, issue #83)
+
+**Problem:** on a Windows 11 laptop with an Intel iGPU *and* a discrete card (reporter: UHD Graphics +
+RTX 2080 Super, SubCraft 0.2.0) the app did not open unless the Intel GPU was disabled in Device
+Manager. `crates/ui/src/graphics.rs::wgpu_options` only picked a *backend*; adapter choice was left to
+egui-wgpu's default, so startup could land on the iGPU (or an adapter that cannot present to the
+window) and die with no second attempt.
+
+**Policy (pure, in `subcraft_app::graphics`, no wgpu types):**
+* `AdapterDesc { name, class }` with `AdapterClass` = Discrete / Integrated / Virtual / Other / Software.
+* `order_adapters(&[AdapterDesc], &GpuChoice, env)` → candidate indices. An explicit name match comes
+  first (`SUBCRAFT_GPU` wins over the saved preference), then discrete, integrated, virtual, other,
+  software; enumeration order breaks ties. Every adapter appears exactly once, so a preference naming a
+  GPU that is gone can never leave the app with no candidate.
+* `first_working(order, attempt)` → `(chosen, skipped)` or all failures; the fallback loop itself is
+  testable without a GPU.
+* `gpu_env_override()` reads `SUBCRAFT_GPU=<substring of adapter name>` (case-insensitive, trimmed).
+
+**Startup (`crates/ui/src/graphics.rs`):** `wgpu_options` now sets `power_preference = HighPerformance`
+and a `native_adapter_selector` that logs every enumerated adapter (name, device type, backend, driver),
+then walks `order_adapters` and takes the first adapter that both supports the window surface
+(`is_surface_supported`) and can create a device; skipped adapters are logged as warnings and the chosen
+one as info, in the existing log (`logs/subcraft.log`, so it is in bug reports too). If none works the
+error names each adapter and reason, and the existing per-API retry (DX12 → Automatic → OpenGL) still
+applies on top.
+
+**Preference:** Preferences > Graphics now has `GPU: Automatic / High performance / <named adapter>`
+(shown as "Automatic (fastest GPU)" so it does not read the same as the API combo; the named entries are the adapters seen at this run's startup; a saved name that is no longer present
+is still listed so it is not silently lost). Persisted through `GraphicsSettings` as schema 2 with a
+string `gpu` field (`automatic`, `high_performance`, `name:<adapter>`); a schema-1 file loads with
+`gpu = Automatic`, and an unknown or non-string value degrades to Automatic instead of failing the load.
+Takes effect on restart, like the API choice.
+
+**Tests:** `subcraft-app` lib (6 in `graphics`): default ordering, explicit choice / env precedence /
+unknown name, fallback skipping, settings round-trip incl. schema-1 and garbage values.
+`crates/ui/tests/graphics.rs` (4): GPU choice persists next to the API and asks for a restart, and the
+real GPU combo is driven by clicks (this caught the API combo test breaking when both combos said
+""Automatic"").
+`cargo test -p subcraft-app -p subcraft-ui --lib` passing.
+
+**Known cost:** the selector probes an adapter by creating a device and dropping it again, so the chosen
+adapter has a device created twice (once to probe, once by egui-wgpu). wgpu allows this; if a driver is
+ever found that does not, the probe would have to be replaced by returning the device from the selector,
+which egui-wgpu 0.36 does not support.
+
+**Not verified:** no access to the reporter's hardware (Intel UHD + RTX 2080 Super on Windows 11) and no
+multi-GPU machine at all in this cloud container, which has a single software adapter (llvmpipe). The
+ordering, the fallback loop and the settings schema are covered by unit tests with synthetic adapter
+lists; that the real driver combination now starts is **unconfirmed** and needs the reporter (or any
+Optimus laptop) to run a build and attach `logs/subcraft.log` — the log now contains the full adapter
+list and the chosen adapter, which is what to check.
+## Layers clipboard, multi-select, safety audit, texture sets list (2026-11-03)
+
+Branch `cloud/layers-safety` (from `integration/next`). Audit first, then only the gaps.
+
+### Already existed (not rebuilt)
+
+* Layers: `DuplicateLayer` (Ctrl+D, toolbar, context menu), `DuplicateContentEffect`,
+  `DuplicateMaskEffect`, mask copy / paste (`CopyMask` / `PasteMask`, clipboard inside the session),
+  move / group / drag-drop, per-layer undo.
+* Safety: `Session::is_modified`; the "Unsaved changes" modal (Save / Don't save / Cancel) for
+  Close, New (sample), New from model, Open project, Open recent (`Pending` + `UiApp::request`);
+  window-close interception; autosave + crash-recovery prompt at startup (`recovery.rs`).
+* Texture sets panel: list with select, layer count, resolution combo for the selected set,
+  "Apply to all", albedo filter, bake status.
+
+### Added
+
+* `app::clipboard` (`LayerClip`, `EffectClip`): in-app clipboard that lives in `UiState`, so it
+  survives opening another project. Paste creates new UUIDs, resamples rasters to the target
+  set's resolution, copies the image resources the layers use, adds channels the layers blend that
+  the target lacks, drops part masks when the mesh differs. Commands `PasteLayers`, `PasteEffects`
+  (content or mask stack; folders still adjustment-only), one undo step each.
+* Multi-select: `app::multi_select` (Ctrl/Cmd toggle, Shift range, pure); commands `DeleteLayers`,
+  `DuplicateLayers`, `SetLayersVisible` (one undo step; a layer inside another selected folder is
+  not processed twice; layers must share a texture set). Cut = copy + `DeleteLayers`.
+* UI: Ctrl+C / Ctrl+X / Ctrl+V (egui copy/cut/paste events), Layer menu and row context menu,
+  "Copy effect" / "Paste effect" in the effect context menus, multi-aware toolbar delete/duplicate.
+* Safety: `app::unsaved` pure functions (`is_dirty`, `guard`, `resolve`, `should_offer_recovery`),
+  used by `Session::is_modified`, `UiApp::request` and the prompt. Quit now goes through the same
+  prompt as the window close button. A cancelled/failed Save keeps the question open.
+* Texture sets: double-click / context menu rename (`RenameTextureSet`, undoable), eye toggle to
+  hide a set in the 3D view (`SetTextureSetHidden`, view state: not saved, no undo; the raster
+  viewport skips that material slot), per-set resolution from the row's context menu.
+
+### Tests run
+
+`cargo test -p subcraft-app` (new: `tests/layers_clipboard.rs` 10 tests, `unsaved` 4, `multi_select` 2),
+`cargo test -p subcraft-ui` (new: 2 clipboard-state tests). See the final results in the session summary.
+
+### Not exercised in the real UI
+
+* No window was opened: the context menus, Ctrl+C/X/V events, Shift/Ctrl row clicks, the
+  inline rename of texture sets and the modal buttons are compiled and covered only through the
+  state / command tests. Hidden-set rendering was not checked on screen.
+* Hidden texture sets: the path tracer ignores the hide flag; the ambient-occlusion depth pass still
+  includes hidden geometry; painting onto a hidden set is not blocked.
+* Multi-select works inside the selected texture set only; copy of effects takes one effect.
+### Session — TextureCraft 0.3.0 filter / generator parity (branch cloud/filters)
+
+Audit against the filter list in the public TextureCraft 0.3.0 feature page (names only; all code is
+independent SubCraft code, nothing copied). There is no separate "filters crate": parameters live in
+`doc::Filter`, kernels in `materials::filter`, neighbourhood staging in `compositor::stages`.
+
+* **Already present:** HSL, Contrast, Clamp, Threshold, Gradient Map, Histogram Scan / Range, Blur,
+  Directional Blur, Sharpen, High Pass, Bevel, Warp (noise), Median, Mask Outline; Levels (own effect,
+  not a filter); mask generators Edge wear, Dirt, Directional (any direction), Position gradient (Y),
+  raw Mesh Map generators (curvature, AO, thickness = thin areas, position, ...), ID color mask; 40 smart masks.
+* **Added filters (11):** Grayscale, Invert, Posterize, Histogram Shift, Color Balance (shadows / midtones /
+  highlights RGB offsets), Replace Color, Normal Invert (the first filter that targets the Normal channel;
+  flips X / Y / Z, so Y converts OpenGL <-> DirectX), Edge Detect (Sobel), Glow, Directional Warp (self-driven
+  by brightness), Mosaic. Point filters live in `materials::filter::apply`; Edge Detect / Directional Warp /
+  Mosaic are `compositor` `Node::Pixelwise` (direct pixel reads, tile margin = `Filter::support()`); Glow reuses
+  the Gaussian stage. All appear in the Properties filter menu with controls (`ui/src/panels/filter.rs`);
+  channel rules: Grayscale / Color Balance / Replace Color colour only, Normal Invert Normal only (no mask).
+  Serialisation: new explicit `kind` variants in the existing filter JSON (no schema bump needed; old files
+  load unchanged), golden JSON test in `project`.
+* **Added generators:** Position gradient now has an axis (X / Y / Z; `Generator::axis`, absent = Y so old
+  files are byte-identical), new Concave Curvature generator (crevices from the curvature map). Four new smart
+  masks: Crevice Grime, Thin Areas, Left Side Fade, Front Side Fade (library now 44 smart masks).
+* **Not done (reasons):** Slope Blur (needs a second input image the stack does not have), Baked Lighting
+  (needs mesh lighting data inside the filter stage), the four "material finish" filters (not named in the
+  public list), a Brightness / luminosity filter and Levels-with-histogram parity (Levels already exists as an effect).
+* **Tests run (all pass):** `cargo test -p subcraft-compositor -p subcraft-materials -p subcraft-project`
+  (materials 45, project 35, compositor all binaries incl. spatial 27, differential 5): hand goldens for
+  Grayscale / Invert / Posterize / Shift / Color Balance / Replace Color / Normal Invert, Sobel, Mosaic and
+  directional offset kernels; compositor goldens against independent dense references across the 64 px tile
+  borders for Edge Detect, Glow, Mosaic, Directional Warp; incremental-cache == full-evaluation test for the new
+  neighbourhood filters (also as mask effects); generator axis / concave test; JSON goldens.
+* **Found, not fixed:** widening the random filter pick in `differential.rs` exposes a pre-existing
+  incremental-vs-full mismatch (seed 27 step 1, Metallic, 0.026 at (31,61)) in a stack of MaskOutline / Contrast / masks
+  that does not involve the new filters (it reproduces with all four swapped for Blur). The original random test is
+  kept unchanged and the new filters have their own deterministic incremental test. Worth its own investigation.
+* Not verified: no visual check in the running app of the new controls; no comparison against TextureCraft output.
+### Session 116 - Export the 2D view as a texture, issue #84 (2026-11-03)
+
+* **What:** Painter 2018.3-style "2D View" export. The file is what the 2D (UV) panel shows for its
+  current "Show" choice (a channel or a baked mesh map), written with the normal export settings
+  (file format, bit depth, padding).
+* **Export crate:** new `View2d` (channel or mesh map), `ExportSettings::view_2d`, and a template
+  source `Source::View2d { component }`, so any custom preset can use it. New built-in template
+  "2D View" (one RGB map, suffix `View2D`). Pixels follow the panel's preview shader
+  (`render/src/preview.wgsl`): one-component sources show as gray, values clamp to 0..1, color
+  channels are sRGB-encoded for integer formats (EXR stays linear), data channels are never
+  color-transformed. Maps using it are skipped when no view is set or the set lacks that source.
+* **App:** `Session::export_view_2d(dir, view, settings)` writes the selected texture set only.
+* **UI:** File > "Export 2D view…" opens the export window in 2D-view mode (folder, format, padding;
+  the image shown is the panel's current source). The normal Export Textures window can also pick
+  the "2D View" template. The UI only maps `PreviewSource` → `View2d`; the logic is in export/app.
+* **Tests:** `crates/export/src/tests/view2d.rs` (7: sRGB color pixels, gray scalar + untouched
+  normal, 16-bit keeps precision 8-bit can't, EXR linear, padding fills black gutter texels with the
+  island color while `None` leaves them, baked mesh map view + missing source writes nothing,
+  preset is built in and serde round-trips) and `crates/app/tests/export_view_2d.rs` (2: exported
+  pixels equal the displayed composite at 8 and 16 bit for Base Color and Roughness, missing bake
+  writes nothing and other templates never plan `View2D`). `cargo test -p subcraft-export`: 35
+  passed; `cargo test -p subcraft-app --test export_view_2d --test export_selection --test images`:
+  15 passed; `cargo test -p subcraft-ui --lib`: 54 passed. Built-in template count test updated
+  6 → 7. The UI integration test binaries (`crates/ui/tests/*`) were not run: linking them all
+  filled the cloud disk; the UI crate itself builds without warnings.
+* **Not done:** not driven in the real app (no display in this cloud session); the app-level test
+  uses a default cube whose composite is uniform, so varied pixels are covered only by the export
+  crate tests. The panel's zoom/pan and UV wireframe overlay are not part of the export (Painter
+  exports the texture, not the overlay).
+## Render / export parity pass (cloud/render-export)
+
+Audit against the TextureCraft 0.3.0 feature names (implemented independently):
+
+| Item | Status |
+|---|---|
+| Godot 4 ORM, Unity HDRP mask map, Unity URP, Unreal packed ORM, glTF ORM, PBR metal/rough presets | already present |
+| Roblox SurfaceAppearance, Sketchfab (separate maps) presets | **added** (`template.rs`) |
+| OBJ with a textured MTL (`map_Kd/Ke/Pr/Pm/Ka`, `norm`) | **added** (`export::scene`); the old `mesh::write_obj` had untextured materials only |
+| glTF 2.0 (`.gltf` + `.bin` + PNGs) and GLB (textures embedded), PBR metallic-roughness + normal + occlusion + emissive | **added** |
+| USD export (USDA, one `Mesh` per material, `UsdPreviewSurface` + `UsdUVTexture`, ORM read through r/g/b) | **added**; USDC/USDZ not written |
+| Turntable, supersampled still | already present |
+| Resolution multiplier (1x–4x) and transparent background (black/white difference matte, `offline::matte_from_black_white`) for image + turntable | **added** |
+| UI: "Export model + textures" in the Export window; Multiplier / Transparent in Render quality | **added** |
+
+Tests run: `cargo test -p subcraft-export` (34 pass: each scene format is written then re-read with
+the real importers / the `gltf` crate; packing values for HDRP, URP, Unreal, Godot, Roblox,
+Sketchfab are checked numerically); matte unit tests in `subcraft-render`.
+UI crate: lib builds, `render_quality` + `export_maps` tests pass; the full `subcraft-ui` test suite was not run (container disk filled during linking).
+Not verified here: the transparent render on a real GPU (the matte math is unit tested only),
+opening the files in Unity / Unreal / Roblox / usdview.
+### 3D view: wireframe, baked normal modes, camera import (branch cloud/view-3d)
+
+**Audit before this work.** Existing: view modes Material / Base Color / Normal (the *painted* Normal channel, unlit) / Roughness / Metallic / Height / AO; floor grid; symmetry guides; baked-map preview while the Bake dialog is open (`ViewParams::bake_map`); high/low bake overlay with cage wireframe; orthographic toggle; scripted `--camera yaw,pitch,zoom` for screenshots. Missing: any mesh wireframe in the 3D view, any view that shades with the baked normal map, camera import, camera bookmarks.
+
+* **Polygon wireframe.** `mesh::topology::polygon_edges(mesh, max_angle_deg)`: the mesh stores only triangles, so quads / n-gons are recovered: consecutive triangles of one material and object that share an edge, with normals within the angle, are one polygon and the shared diagonal is dropped (chains only continue as fans, so cell borders in a flat grid survive). Limitation: the file does not say which flat triangle pairs were authored as quads; a flat region written as two consecutive triangles looks like a quad. `render`: `ViewportRenderer::set_wireframe(lines, linear color, opacity)` + `ViewParams::wireframe`, drawn depth-tested over the model with the guide-line pass. UI: wire-cube button in the 3D view bar (click = show/hide, right-click = color, opacity, merge angle); settings are in `ViewportPrefs` (saved with preferences). Lines are rebuilt only when the mesh, angle, color or opacity changes.
+* **Baked normal.** Two new View modes. *Baked Normal (shaded)*: normal shading with the baked tangent-space map (`MeshMapKind::Normal`) replacing the painted Normal channel (flat normal until a bake exists); *Baked Normal Map*: the map itself, unlit, on the model (works without the Bake dialog open).
+* **Camera import + bookmarks.** `mesh::camera`: `parse_json` (one camera, an array, or `{"cameras":[...]}`; `position` + one of `rotation` quaternion / `euler_deg` / `target`; `fov` vertical degrees, default 40), `parse_gltf` (bytes; node transforms applied, yfov to degrees, no buffers needed) and `parse_any` (detects glTF by content). UI: Camera menu (camera icon) with Import camera... (glTF / GLB / JSON; every camera in the file becomes a bookmark, the first is applied), Save current view, and a list of bookmarks (click to apply, trash to delete). The orbit camera has no roll, so a rolled camera is imported level; the target is placed on the camera axis at the model's distance so the eye is exactly the file's position. Bookmarks are stored in the global viewport preferences, not in the project file (a project-level list needs a schema change, left alone).
+* **Deviation:** these are viewport display settings, so they live in `ViewportPrefs` like the grid and view mode, not in `app` commands (nothing here changes the document).
+* **Tests run.** `cargo test -p subcraft-mesh --lib` 81 passed (new: quad = 4 edges, pentagon fan = 5, creased pair keeps its edge, unrelated triangles, cube primitive loses exactly its 96 cell diagonals, camera JSON / quaternion vs euler / error cases / look-down rotation / glTF parent transforms + fov). `cargo test -p subcraft-render` all pass on lavapipe (software Vulkan, installed with `apt-get install mesa-vulkan-drivers`; without an adapter these tests silently skip), including new `render/tests/view3d.rs`: wireframe color, half opacity strictly between background and full, off / removal restores the exact image; baked-normal shading ignores the painted Normal, follows re-bakes, equals the material view when the maps match; raw map view shows the encoded color (128, 64, 255).
+* **UI tests run.** `cargo test -p subcraft-ui --lib`: 59 passed (5 new in `view_extras`: imported camera eye == file position and target at screen center, camera looking away / rolled, bookmark JSON round trip, bad bookmarks ignored, old prefs files get defaults). The ui integration tests (`tests/*`) were NOT re-run: the container disk filled during the full ui build and only the lib tests were rerun afterwards.
+* **Not tried in the real UI:** the wire-cube button, its right-click popover, the Camera menu, the file dialog (rfd needs a desktop portal) and the two new View entries were never clicked or screenshotted; no app run under Xvfb. Only the code paths behind them are tested. Not checked: wireframe cost on a very large mesh (`polygon_edges` runs on the UI thread once per change), the combo's width with the longer mode names, orthographic imports from glTF (the orthographic size is not read, only the flag).
+### Text tool (branch `cloud/text-tool`, ADR 0044)
+
+* New crate `text` (core-only deps; `rustybuzz` + `unicode-bidi` + `ab_glyph_rasterizer` + `fontdb`, all MIT / Apache): bidi runs, HarfBuzz-style shaping (Arabic joins and RTL order tested), `\n` lines, align, letter / line spacing, `rasterize()` of the outlines under any affine transform at the target resolution, clipped by our own edge clipper (the rasterizer crate panics on out-of-buffer geometry). Fonts: bundled DejaVu Sans / Bold / Serif / Mono, installed fonts (`fontdb`), `.ttf` / `.otf` files embedded in the project as `ResourceKind::Font`.
+* `doc`: `PaintContent::text` (`TextDecal`, UV-space, resolution-independent units) + `LayerKind::Text`. `paint::text_decal`: `rasterize_decal` (sparse tiles) and `text_tip` (square alpha tip). `project`: schema 16 (`text`, `font` resources); schemas 1-15 load unchanged. `app::text`: add / edit / place text layers (one undo step each), font import, text brush tip, projected stamp (camera-aligned dab, one undo step), re-render on resolution change; mesh reload turns text layers into plain paint layers.
+* `ui`: "Text" section in the Brush panel (font picker incl. installed fonts and file picker, size, spacing, align, direction, rotation, position, opacity, colours; Add text layer / Use as brush tip / Stamp on model / Place by clicking).
+* Tests: text 14 (outline-area golden within 1 %, scale x4 area, exact 90° transpose, crop = clipped render, alignment, Arabic shaping / order / no spacing in cursive, missing glyphs), paint 8, project 2 new, app 8 (undo / redo exact, resolution re-render equals fresh render, embedded font survives save -> delete file -> open, brush tip stroke, projected stamp restores brush, click placement).
+* **Not tried in the real UI** (no display session was run): the Text panel layout and widgets, the viewport click handling for "Place" / "Stamp" (Esc cancel, cursor), the native font file dialog, the installed-fonts scan on a real desktop, any screenshot. Slider edits on a text layer apply on release, not live. Not done: font fallback chain (missing characters draw `.notdef`), decals across UV seams, viewport drag handles / gizmo for transforming a decal, saved text brush presets, vertical text, OpenType feature toggles, a stroke-following text-on-path mode.
+### Crash-safe GPU startup (issue #83, branch cloud/startup-probe)
+
+Report: Windows 11, Intel UHD + RTX 2080 Super, 0.2.0: double-click shows nothing and the process never appears; works only with the Intel GPU disabled. Suspected cause (not confirmed): a native fault in a graphics driver during adapter enumeration, which no Rust panic hook can catch.
+
+* **Breadcrumb log** (`app::startup_probe`): `<data dir>/startup.log` is opened first thing in `main`, before logging and before any graphics call; every step is flushed and synced; the last runs are kept (about 64 KiB). A panic hook writes to it too. The run ends with a `startup complete` line once the window and device exist, so a log without it means the start died.
+* **Probe in a child process**: the app re-runs itself as `subcraft --gpu-probe <backend>` (list adapters) and `--gpu-probe <backend> <index>` (create a device), `std::process` only, output piped, killed after 20 s / 30 s, no console window and no Windows crash dialog in the child. A crash, hang or non-zero exit marks that backend or adapter unusable. Order: discrete before integrated before software, NVIDIA then AMD, then DX12 -> Vulkan -> GL. Only the verified adapter is then used in-process (`gpu_probe::apply` sets the backend and an adapter selector in `graphics::wgpu_options`; the old in-process DX12 enumeration is no longer reached when the probe ran).
+* **Cache**: `gpu-probe.json` next to `graphics.json` (a separate file, to keep `graphics.json` and its code untouched). Trusted only for the same app version and when the previous start finished; a driver update changes the adapter's driver text, so it is a different adapter. After an unfinished start the previously chosen adapter is tried last. `SUBCRAFT_GPU_REPROBE=1` forces a new probe. Limitation: a GPU change is only noticed after a probe, because telling would need enumeration in the parent, which is the risky step.
+* **All probes fail**: a message box names `startup.log` and the issue link, and the app exits with an error.
+* **Switches**: `SUBCRAFT_SKIP_GPU_PROBE=1` skips the probe (old behaviour); `WGPU_BACKEND` set also skips it. The probe runs on Windows only unless `SUBCRAFT_FORCE_GPU_PROBE=1`.
+* **Tests** (app lib 11 new): ordering, avoid list, protocol parsing, cache invalidation and file round trip, unfinished-start detection, and real child processes (exit code, signal death, hang killed on timeout, spawn failure; a fake backend where DX12 crashes and the best GPU hangs, so the probe settles on the next one; cache reuse without probing).
+* **Run here**: release-style debug binary built; `--gpu-probe` prints `DONE` with no adapters (this container has no GPU or software Vulkan, and installing one was not possible); the full startup with the probe forced wrote the expected `startup.log` steps and the failure message. 
+* **Not verified**: anything on real Windows hardware or with a real driver crash; the success path with a real adapter (the `ui` child test skips without an adapter); that the probe fixes the reporter's problem. The probe checks device creation, not window/swapchain creation, so a crash there is still possible, but then `startup.log` ends at `opening window with ...` and the next start tries another adapter.
+
+## GPU compositing backend (2026-11-03) — on by default for 2048² and larger, CPU fallback
+
+What exists (ADR-0044): `compositor::gpu` (trait `GpuCompositeBackend`, planner, driver, registry), `render::gpu_composite`
+(WGSL compute, one headless wgpu device, 32 KiB tile pool), preference "Use GPU for compositing" (round 2: off by default;
+round 3 below: on by default, texture sets of 2048² and larger only).
+The CPU compositor stays the reference; the GPU takes whole-set edits of at least 64 tiles on sets without neighborhood
+filters, only for tiles that have no resumable layer-cache prefix (`PrefixCache::covers`), and gives the rest of a set back to the
+CPU when more than 25 % of the first batch's sources are CPU-evaluated blocks (procedural fills, generator masks). Any GPU
+error sends the tiles to the CPU. Stored data (`TiledImage`, project files) is unchanged; GPU memory is a bounded tile pool
+(default 1 GiB, `SUBCRAFT_GPU_POOL_MB`), batches of at most 256 tiles, nothing dense per layer.
+
+**Equivalence** (`crates/render/tests/gpu_composite.rs`, NVIDIA RTX 4060, 4 tests passing): all 32 blend modes on four channel kinds
+(base color, roughness, normal, height): worst error 0.12 tolerance units, 0 values beyond; a rich stack (folders, masks,
+effects, mixed fills): worst 0.25 units, 0 of 720896 beyond; unsupported sets fall back and are bit-identical to the CPU;
+repeat runs are identical and hit the tile pool. Tolerance: `|gpu - cpu| <= 2^-9 * max(1,|v|)` (about two f16 steps).
+Merged with `integration/next` (layer cache): `cargo test --release -p subcraft-compositor --lib --tests` all passing.
+
+**Measured** (`cargo run --release -p subcraft-render --example gpu_composite_bench -- <res> <layers> 3`, RTX 4060, 16 threads,
+medians; the machine was busy with other builds, so absolute times vary by about 2x between runs, the CPU rows were measured in the same run as the GPU rows):
+
+| scene (res, layers) | op | CPU | GPU path |
+|---|---|---|---|
+| paint + uniform fills + folder, 1024² | cold / toggle mid / opacity | 45 / 16 / 18 ms | 45 / 31 / 31 ms |
+| same, 2048² | cold / toggle mid / opacity mid | 315 / 99 / 98 ms | 483 / 136 / 72 ms |
+| same, 4096² (33 layers) | cold / toggle mid / opacity mid | 1668 / 1564 / 1497 ms | 2968 / 2237 / 1550 ms |
+| big_project stack, no spatial filters, 1024² / 2048² / 4096² | toggle mid | 262 / 1169 / 11779 ms | 313 / 1163 / 15806 ms (GPU gives back to CPU) |
+| big_project stack as shipped (blur etc.) | any | n/a | whole set on CPU (same time as CPU) |
+
+Breakdown of the 4096² paint scene on the GPU (cold): prep 204 + upload 1139 + GPU 1190 + readback 223 + store 207 ms; 618 MB
+uploaded. At 4096² the tile pool did not hold the working set, so every pass re-uploaded (0 cache hits); at 1024² and 2048² the
+pool hits 100 % on the second pass and upload drops to about 0.
+
+**Verdict.** With the CPU per-layer cache and 16 threads the CPU path is already 1–2 s for paint-only 4096² stacks, and for stacks
+with procedural fills the cost is the CPU evaluation of those fills, which the GPU cannot remove (the gate therefore returns such sets to the CPU). The
+GPU is faster only for one measured case, the cold composite of a 2048² procedural stack (2.4 s vs 6.2 s, which is the first
+GPU batch plus warm CPU caches, not a clean GPU win) and for top-layer opacity at 2048² paint (72 vs 118 ms). Everywhere else it is equal or slower, so
+the preference stays off by default. Not done, in order of likely payoff: a pool that holds a 4096² working set (the single storage
+binding is limited by the device's `maxStorageBufferBindingSize`; needs several pool buffers), a faster kernel (0.6–1.2 s GPU time
+for 33 layers at 4096² is far from memory bandwidth), keeping CPU-evaluated blocks resident on the GPU between edits, and
+a neighborhood-aware path for blur-type filters.
+
+### Round 3 (2026-11-03): resident pool, kernel time, kept CPU blocks; default decision
+
+- **(a) Multi-buffer pool** (eaf2a09): the tile pool is up to four storage buffers (bindings 4, 8, 9, 10; each
+  `min(maxStorageBufferBindingSize, 512 MiB)`), 2 GiB by default (`SUBCRAFT_GPU_POOL_MB`), grown on demand, LRU
+  eviction, coalesced writes per run of contiguous slots, reused scratch buffers, timestamp queries for kernel time.
+  The 4096² paint working set (618 MB) now stays resident: the second pass uploads 0 MB with 38238/38238 hits.
+- **(b) Kernel**: with timestamps the kernels take 72–91 ms for 33 layers at 4096² (10 ms at 2048²), already well
+  under the 300 ms target; the earlier 0.6–1.2 s "GPU" figure was mostly uploads and queue waits. No shader rewrite
+  was needed; the remaining cost is CPU preparation (~165 ms), queue/wait (~200 ms), readback (~55 ms) and store (~90 ms).
+- **(c) Keeping CPU-evaluated blocks resident** (6fe6f27, **reverted** in 23587e9): procedural fills and generator
+  masks were kept on the GPU between edits so a toggle elsewhere only re-blends them. Correct (equivalence test
+  passed, 1120 blocks reused at 4096²), but slower: it sends the procedural sets to the GPU, where every tile is
+  re-blended and the CPU per-layer prefix cache is not used. Measured on the no-filter big_project stack at 4096²
+  (machine shared with another project's build): toggle mid 45.7 s vs 17.5 s CPU, top-layer opacity 45.3 s vs
+  0.53 s CPU. Those sets keep going to the CPU (25 % dynamic-share gate).
+
+**Measured** (`gpu_composite_bench`, RTX 4060, 16 threads, medians of 5, quiet machine, `SUBCRAFT_BENCH_PAINT_ONLY=1`;
+paint + uniform fills + folder stack):
+
+| res (layers) | op | CPU | GPU path | GPU breakdown (prep + upload + gpu (kernels) + readback + store) |
+|---|---|---|---|---|
+| 2048² (13) | cold full | 323 ms | 403 ms | 20 + 99 + 232 (37) + 36 + 15, 82 MB uploaded |
+| 2048² | toggle mid | 96 ms | **81 ms** | 19 + 3 + 28 (10) + 19 + 11 |
+| 2048² | opacity top | 112 ms | **75 ms** | 19 + 3 + 28 (10) + 14 + 11 |
+| 2048² | opacity mid | 95 ms | **82 ms** | 21 + 3 + 29 (10) + 16 + 12 |
+| 4096² (33) | cold full | 1888 ms | **1329 ms** | 195 + 450 + 362 (72) + 197 + 120, 618 MB uploaded |
+| 4096² | toggle mid | 1775 ms | **493 ms** | 161 + 23 + 181 (84) + 53 + 89 |
+| 4096² | opacity top | 1102 ms | **495 ms** | 169 + 24 + 229 (91) + 59 + 90 |
+| 4096² | opacity mid | 1904 ms | **472 ms** | 158 + 23 + 213 (75) + 55 + 89 |
+
+big_project stack as shipped (blur / sharpen / median) and without the filters: the GPU path declines the set or
+gives it back to the CPU, so its edits run on the CPU as before (the full run, made while another project was
+compiling, showed CPU and GPU-path rows within the run-to-run noise except where (c) was active).
+
+**Decision.** The GPU path beats the CPU on toggle and opacity edits at 2048² (1.2–1.5x) and 4096² (2.2–4x), so
+"Use GPU for compositing" is **on by default**, limited to texture sets of 2048² and larger
+(`DEFAULT_MIN_RESOLUTION`; at 1024² the CPU wins, 16 vs 31 ms). Everything else keeps the CPU fallback: no adapter or
+a software adapter, sets with neighborhood filters, sets where more than 25 % of the sources are CPU-evaluated, edits
+under 64 tiles, tiles with a resumable layer-cache prefix, and any GPU error. The 2048² cold composite is 80 ms
+slower on the GPU (upload of 82 MB); it happens once per open.
+
+Tests: `cargo test --release -p subcraft-compositor --lib --tests` all passing; `cargo test --release -p
+subcraft-render --test gpu_composite` 5 passing (new `small_sets_stay_on_the_cpu_by_default`); `cargo check -p
+subcraft-ui` clean. Not done: a neighborhood-aware GPU path for blur-type filters, GPU procedural patterns (the
+real cost of the big_project stack), and letting GPU-composited tiles fill the CPU prefix cache so mixed edits can resume.
+## 2026-11-03 — Linux fix for top-bar overflow on integration/next
+
+* **Cause**: the wireframe/camera feature added two buttons and widened the View combo (92 -> 150), but `viewport_bar.rs` kept hard-coded breakpoints. At 1125 px the bar needed 1228 px (`brush_bar` tests `bar_fits_wide_wrapped_and_tiny_docks_and_hides_for_non_paint_tools` and `flow_and_hardness_open_independent_sliders_and_edit_shared_values` failed on Linux); at 600 px it needed 666 px.
+* **Fix**: wide View combo only from 660 px, wireframe/camera buttons only from 600 px (not reachable from the bar below that), inline brush bar from 1214 px (was 1094). Test's inline breakpoint changed to 1230 (stale assumption); overflow thresholds untouched. Effect: at 1125 px the brush controls now wrap under the view controls.
+* **Run here (Linux)**: `cargo test -p subcraft-ui --test brush_bar` 8/8; `cargo test --workspace` 172 result lines ok, 1135 passed, 0 failed, 2 ignored. Not run: Windows, a visual check of the app.

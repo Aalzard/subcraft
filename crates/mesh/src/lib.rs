@@ -2,6 +2,7 @@
 
 mod alembic;
 pub mod bvh;
+pub mod camera;
 pub mod ray_batch;
 pub mod import;
 pub mod mesh;
@@ -12,8 +13,10 @@ pub mod spp;
 pub mod tangent;
 pub mod topology;
 pub mod transfer;
+pub mod unwrap;
 pub mod uv_raster;
 mod usd_import;
+mod ply_stl;
 
 pub use bvh::{Bvh, ClosestPoint, FlatBvh, RayHit};
 pub use import::{ImportError, ImportReport, SUPPORTED_EXTENSIONS, import_mesh, import_mesh_for_baking};

@@ -50,9 +50,44 @@ pub fn evaluate_tile(ts: &TextureSet, tc: &TileContext) -> Vec<(ChannelKind, Vec
 }
 
 pub(crate) fn evaluate_tile_local(ts: &TextureSet, tc: &TileContext) -> Vec<(ChannelKind, Vec<[f32; 4]>)> {
+    evaluate_tile_local_cached(ts, tc, 0, None)
+}
+
+/// Like [`evaluate_tile_local`], resuming from the highest cached boundary of `plan` that holds
+/// every channel of `tile` and storing the planned boundaries it passes.
+pub(crate) fn evaluate_tile_local_cached(
+    ts: &TextureSet,
+    tc: &TileContext,
+    tile: usize,
+    prefix: Option<(&crate::PrefixCache, &[usize])>,
+) -> Vec<(ChannelKind, Vec<[f32; 4]>)> {
     let mut accs: Vec<Acc> = ts.channel_kinds().map(Acc::root).collect();
     let active = vec![true; accs.len()];
-    apply_stack(&ts.layers, &mut accs, &active, tc);
+    let Some((cache, plan)) = prefix else {
+        apply_stack(&ts.layers, &mut accs, &active, tc);
+        return accs.into_iter().map(|a| (a.kind, a.px)).collect();
+    };
+    let mut start = 0;
+    let mut resume: Vec<usize> = plan.to_vec();
+    resume.sort_unstable_by(|a, b| b.cmp(a));
+    for &j in &resume {
+        let hits: Vec<_> = accs.iter().map(|a| cache.get(a.kind, j, tile)).collect();
+        if hits.iter().all(Option::is_some) {
+            for (a, h) in accs.iter_mut().zip(hits) {
+                a.px = h.expect("checked").unpack();
+            }
+            start = j + 1;
+            break;
+        }
+    }
+    for (j, layer) in ts.layers.iter().enumerate().skip(start) {
+        apply_layer(layer, &mut accs, &active, tc);
+        if plan.contains(&j) {
+            for a in &accs {
+                cache.put(a.kind, j, tile, &a.px);
+            }
+        }
+    }
     accs.into_iter().map(|a| (a.kind, a.px)).collect()
 }
 

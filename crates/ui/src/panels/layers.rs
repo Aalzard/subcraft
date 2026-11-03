@@ -21,9 +21,10 @@ const INDENT: f32 = 16.0;
 const GENERATOR_ROW_HEIGHT: f32 = 24.0;
 
 /// Generators offered by the toolbar and the row menu.
-const GENERATORS: [(&str, GeneratorKind); 4] = [
+const GENERATORS: [(&str, GeneratorKind); 5] = [
     ("Edge wear", GeneratorKind::Edges),
     ("Dirt (cavity)", GeneratorKind::Cavity),
+    ("Crevices (concave)", GeneratorKind::Concave),
     ("Directional", GeneratorKind::Directional),
     ("Position gradient", GeneratorKind::PositionGradient),
 ];
@@ -117,6 +118,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     let now = ui.input(|i| i.time);
     let mut cmds = Vec::new();
     let sel = state.session.selection().layer;
+    let multi_selected = state.multi.is_multi();
+    let have_layer_clip = state.clips.layers.is_some();
+    let multi_ids = state.multi.ids.clone();
     let pad = egui::Margin::symmetric(PAD, 8);
     let rename_id = egui::Id::new(("layer_inline_rename", state.session.selection().texture_set));
     let mut rename = ui.ctx().data_mut(|data| data.get_temp::<InlineRename>(rename_id));
@@ -173,11 +177,11 @@ Files: {}", ex.dir().display()));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.add_enabled_ui(sel.is_some(), |ui| {
                     let id = sel.unwrap_or_default();
-                    if icon_button(ui, icons::TRASH, "Delete (Del)").clicked() {
-                        cmds.push(Command::DeleteLayer(id));
+                    if icon_button(ui, icons::TRASH, if multi_selected { "Delete selected layers (Del)" } else { "Delete (Del)" }).clicked() {
+                        cmds.push(if multi_selected { Command::DeleteLayers(state.multi.ids.clone()) } else { Command::DeleteLayer(id) });
                     }
-                    if icon_button(ui, icons::COPY, crate::keys::native("Duplicate (Ctrl+D)")).clicked() {
-                        cmds.push(Command::DuplicateLayer(id));
+                    if icon_button(ui, icons::COPY, crate::keys::native(if multi_selected { "Duplicate selected layers (Ctrl+D)" } else { "Duplicate (Ctrl+D)" })).clicked() {
+                        cmds.push(if multi_selected { Command::DuplicateLayers(state.multi.ids.clone()) } else { Command::DuplicateLayer(id) });
                     }
                     if icon_button(ui, icons::ARROW_DOWN, "Move down").clicked() {
                         cmds.push(Command::MoveDown(id));
@@ -215,6 +219,8 @@ Files: {}", ex.dir().display()));
     let mut open: Vec<OpenFolder> = Vec::new();
     let mut list = Vec::new();
     rows(&ts.layers, 0, &mut list);
+    let order: Vec<LayerId> = list.iter().map(|(_, l)| l.id).collect();
+    state.multi.retain_existing(&order);
     // Default min height (64 px) would let rows spill past the panel when it is short; the list
     // must only use the space that is left (it scrolls).
     let rows_height = (ui.available_height() - 44.0).max(0.0);
@@ -247,6 +253,7 @@ Files: {}", ex.dir().display()));
             let thumb_size = preview_size.min(((ui.available_width() - 176.0 - *depth as f32 * INDENT) / 2.0).clamp(24.0, 64.0));
             let row_height = (thumb_size + 12.0).max(44.0);
             let selected = sel == Some(l.id);
+            let row_selected = selected || (state.multi.is_multi() && state.multi.contains(l.id));
             let b = l.blend_for(active);
             let folder = match &l.content { LayerContent::Group(g) => Some(g.expanded), _ => None };
             let resp = ui.push_id(l.id, |ui| {
@@ -337,8 +344,8 @@ Files: {}", ex.dir().display()));
                 });
                 };
                 match folder {
-                    Some(_) => tree_row(ui, row_height, Some(FOLDER_BAND), selected, egui::Sense::click_and_drag(), content),
-                    None => striped_list_row_height(ui, index, selected, row_height, egui::Sense::click_and_drag(), content),
+                    Some(_) => tree_row(ui, row_height, Some(FOLDER_BAND), row_selected, egui::Sense::click_and_drag(), content),
+                    None => striped_list_row_height(ui, index, row_selected, row_height, egui::Sense::click_and_drag(), content),
                 }
             }).inner;
             // Hierarchy guides: close folders this row is outside of, tick to the parent's guide.
@@ -355,6 +362,8 @@ Files: {}", ex.dir().display()));
                 resp.dnd_set_drag_payload(LayerDrag { texture_set: ts.id, layer: l.id });
             }
             if resp.clicked() {
+                let mods = ui.input(|i| subcraft_app::multi_select::ClickMods { toggle: i.modifiers.command, range: i.modifiers.shift });
+                state.multi.click(&order, l.id, mods);
                 cmds.push(Command::SelectLayer(Some(l.id)));
             }
             if resp.double_clicked() { rename = Some(InlineRename { layer: l.id, text: l.name.clone(), focus: true }); }
@@ -428,12 +437,30 @@ Files: {}", ex.dir().display()));
                     ui.close();
                 }
                 ui.separator();
-                if ui.button(format!("{}  Duplicate", icons::COPY)).clicked() {
-                    cmds.push(Command::DuplicateLayer(l.id));
+                let in_multi = multi_selected && multi_ids.contains(&l.id);
+                let n = if in_multi { multi_ids.len() } else { 1 };
+                let suffix = if n > 1 { format!(" {n} layers") } else { String::new() };
+                // Acting on a row outside the multi-selection selects it first.
+                let aim = |cmds: &mut Vec<Command>| if !in_multi { cmds.push(Command::SelectLayer(Some(l.id))); };
+                if ui.add(egui::Button::new(format!("{}  Copy{suffix}", icons::COPY)).shortcut_text(crate::keys::native("Ctrl+C"))).clicked() {
+                    aim(&mut cmds); crate::clipboard::request(ui.ctx(), crate::clipboard::Request::CopyLayers { cut: false }); ui.close();
+                }
+                if ui.add(egui::Button::new(format!("Cut{suffix}")).shortcut_text(crate::keys::native("Ctrl+X"))).clicked() {
+                    aim(&mut cmds); crate::clipboard::request(ui.ctx(), crate::clipboard::Request::CopyLayers { cut: true }); ui.close();
+                }
+                if ui.add_enabled(have_layer_clip, egui::Button::new("Paste above").shortcut_text(crate::keys::native("Ctrl+V"))).clicked() {
+                    aim(&mut cmds); crate::clipboard::request(ui.ctx(), crate::clipboard::Request::PasteLayers); ui.close();
+                }
+                if ui.button(format!("Duplicate{suffix}")).clicked() {
+                    cmds.push(if in_multi { Command::DuplicateLayers(multi_ids.clone()) } else { Command::DuplicateLayer(l.id) });
                     ui.close();
                 }
-                if ui.button(format!("{}  Delete", icons::TRASH)).clicked() {
-                    cmds.push(Command::DeleteLayer(l.id));
+                if in_multi {
+                    if ui.button(format!("Hide{suffix}")).clicked() { cmds.push(Command::SetLayersVisible { layers: multi_ids.clone(), visible: false }); ui.close(); }
+                    if ui.button(format!("Show{suffix}")).clicked() { cmds.push(Command::SetLayersVisible { layers: multi_ids.clone(), visible: true }); ui.close(); }
+                }
+                if ui.button(format!("{}  Delete{suffix}", icons::TRASH)).clicked() {
+                    cmds.push(if in_multi { Command::DeleteLayers(multi_ids.clone()) } else { Command::DeleteLayer(l.id) });
                     ui.close();
                 }
             });

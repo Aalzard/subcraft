@@ -4,7 +4,7 @@ members = ["crates/*", "apps/*", "tools/*"]
 default-members = ["apps/subcraft"]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 rust-version = "1.95"
@@ -14,6 +14,7 @@ authors = ["SubCraft contributors"]
 # internal crates
 subcraft-core = { path = "crates/core" }
 subcraft-image = { path = "crates/image" }
+subcraft-text = { path = "crates/text" }
 subcraft-mesh = { path = "crates/mesh" }
 subcraft-doc = { path = "crates/doc" }
 subcraft-materials = { path = "crates/materials" }
