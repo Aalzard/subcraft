@@ -17,6 +17,13 @@ fn main() -> anyhow::Result<()> {
         let path = cli.get(1).ok_or_else(|| anyhow::anyhow!("Missing update job"))?;
         return subcraft_app::updater::apply_job(std::path::Path::new(path)).map_err(|e| anyhow::anyhow!("{e}"));
     }
+    // Crash-safe startup (issue #83): the GPU probe child, then the breadcrumb log, before any
+    // graphics call. A driver crash in the probe kills only the child.
+    if cli.first().is_some_and(|a| a == "--gpu-probe") {
+        let rest: Vec<String> = cli.iter().skip(1).map(|a| a.to_string_lossy().into_owned()).collect();
+        std::process::exit(subcraft_ui::gpu_probe::child_main(&rest));
+    }
+    subcraft_app::startup_probe::begin(subcraft_app::startup_probe::startup_log_path().as_deref());
     // Logs go to the data folder (and to the console of non-packaged builds); panics leave a
     // crash report there that the next start shows.
     let data = subcraft_app::recovery::data_dir();

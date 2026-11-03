@@ -27,6 +27,7 @@ pub mod part_workflow;
 pub mod pen;
 pub mod photocraft;
 pub mod recovery;
+pub mod startup_probe;
 pub mod session;
 pub mod spp_cache;
 pub mod spp_fit;
