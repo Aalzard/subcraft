@@ -441,7 +441,7 @@ fn schema_12_filters_and_folder_adjustments_roundtrip_and_older_projects_migrate
     use subcraft_doc::{ContentEffect, ContentEffectKind, Filter};
     let mut ts=TextureSet::new("T",0,128); let tc=ts.clone();
     let mut folder=Layer::new_folder("Filters",&tc);
-    for filter in Filter::ALL {
+    for filter in Filter::ALL.into_iter().filter(|f|f.supports_channel(ChannelKind::BaseColor)) {
         folder.content_effects.push(Arc::new(ContentEffect::new(ContentEffectKind::Filter {channel:ChannelKind::BaseColor,filter},&tc)));
     }
     let mut mask=Mask::new(128,false);
@@ -642,4 +642,40 @@ fn procedural_params_without_scratch_settings_round_trip_unchanged() {
     let mut g = ProceduralParams::new(ProceduralKind::Scratch);
     ScratchPreset::Cracked.apply(&mut g);
     assert_eq!(serde_json::from_str::<ProceduralParams>(&serde_json::to_string(&g).unwrap()).unwrap(), g);
+}
+
+#[test]
+fn texturecraft_parity_filters_have_stable_json() {
+    use subcraft_doc::Filter;
+    let json = |f: Filter| serde_json::to_string(&f).unwrap();
+    assert_eq!(json(Filter::Grayscale), r#"{"kind":"grayscale"}"#);
+    assert_eq!(json(Filter::Invert), r#"{"kind":"invert"}"#);
+    assert_eq!(json(Filter::Posterize {levels:4}), r#"{"kind":"posterize","levels":4}"#);
+    assert_eq!(json(Filter::HistogramShift {shift:0.25}), r#"{"kind":"histogram_shift","shift":0.25}"#);
+    assert_eq!(json(Filter::ColorBalance {shadows:[0.0,0.0,0.5],midtones:[0.0;3],highlights:[0.25,0.0,0.0]}),
+        r#"{"kind":"color_balance","shadows":[0.0,0.0,0.5],"midtones":[0.0,0.0,0.0],"highlights":[0.25,0.0,0.0]}"#);
+    assert_eq!(json(Filter::ReplaceColor {from:[1.0,0.0,0.0],to:[0.0,1.0,0.0],tolerance:0.25,softness:0.5}),
+        r#"{"kind":"replace_color","from":[1.0,0.0,0.0],"to":[0.0,1.0,0.0],"tolerance":0.25,"softness":0.5}"#);
+    assert_eq!(json(Filter::NormalInvert {flip_x:false,flip_y:true,flip_z:false}), r#"{"kind":"normal_invert","flip_x":false,"flip_y":true,"flip_z":false}"#);
+    assert_eq!(json(Filter::EdgeDetect {radius:1.0,strength:2.0}), r#"{"kind":"edge_detect","radius":1.0,"strength":2.0}"#);
+    assert_eq!(json(Filter::Glow {radius:8.0,amount:1.0,threshold:0.5}), r#"{"kind":"glow","radius":8.0,"amount":1.0,"threshold":0.5}"#);
+    assert_eq!(json(Filter::DirectionalWarp {intensity:8.0,angle_deg:45.0}), r#"{"kind":"directional_warp","intensity":8.0,"angle_deg":45.0}"#);
+    assert_eq!(json(Filter::Mosaic {size:8}), r#"{"kind":"mosaic","size":8}"#);
+    for f in Filter::ALL { assert_eq!(serde_json::from_str::<Filter>(&json(f)).unwrap(), f); }
+}
+
+#[test]
+fn generator_axis_and_concave_kind_round_trip_and_old_files_default_to_y() {
+    use subcraft_doc::{Generator, GeneratorKind, GradientAxis};
+    let mut g = Generator::new(GeneratorKind::PositionGradient);
+    let y = serde_json::to_value(g).unwrap();
+    assert!(y.get("axis").is_none(), "Y is the default and is not written");
+    assert_eq!(serde_json::from_value::<Generator>(y).unwrap().axis, GradientAxis::Y);
+    g.axis = GradientAxis::Z;
+    let z = serde_json::to_value(g).unwrap();
+    assert_eq!(z["axis"], "z");
+    assert_eq!(serde_json::from_value::<Generator>(z).unwrap(), g);
+    let c = Generator::new(GeneratorKind::Concave);
+    assert_eq!(serde_json::to_value(c).unwrap()["kind"], "concave");
+    assert_eq!(serde_json::from_value::<Generator>(serde_json::to_value(c).unwrap()).unwrap(), c);
 }

@@ -81,7 +81,9 @@ fn reference(input: &[f32], radius: f32) -> Vec<f32> {
     }
     out
 }
-fn assert_image(ts: &TextureSet, fx: &Fixture, expected: &[f32]) {
+fn assert_image(ts: &TextureSet, fx: &Fixture, expected: &[f32]) { assert_image_tol(ts, fx, expected, 0.0006) }
+/// Neighbourhood stages store f16 tiles, so chains of stages round a little more than one.
+fn assert_image_tol(ts: &TextureSet, fx: &Fixture, expected: &[f32], tol: f32) {
     let c = composite_full(ts, &fx.ctx());
     let img = c.channel(C::Roughness).unwrap();
     for y in 0..N {
@@ -89,7 +91,7 @@ fn assert_image(ts: &TextureSet, fx: &Fixture, expected: &[f32]) {
             let actual = img.get(x, y)[0];
             let wanted = expected[(y * N + x) as usize];
             assert!(
-                (actual - wanted).abs() < 0.0006,
+                (actual - wanted).abs() < tol,
                 "at {x},{y}: {actual} vs {wanted}"
             );
         }
@@ -913,4 +915,144 @@ fn warp_moves_paint_coverage_with_the_pixels() {
     let mut partial = 0;
     for p in &px { if p[3] > 0.01 { assert!((p[0] - 0.8).abs() < 1e-3 && (p[1] - 0.2).abs() < 1e-3, "{p:?}"); } if p[3] > 0.01 && p[3] < 0.99 { partial += 1; } }
     assert!(partial > 0, "the warped edge has partial coverage");
+}
+
+// ---- Grayscale / Invert / Posterize / Histogram Shift / Edge Detect / Glow / Mosaic / Directional
+// Warp / Normal Invert (independent dense references; tiles are 64 px so 128 px crosses borders).
+fn roughness_stack(filters: &[Filter]) -> (TextureSet, Vec<f32>) {
+    let (mut ts, mut l, data) = noisy_field();
+    for f in filters { add(&mut l, &ts, C::Roughness, *f); }
+    ts.insert_above(None, l);
+    (ts, data)
+}
+#[test]
+fn invert_posterize_and_shift_chain_matches_hand_math() {
+    let fx = Fixture::new();
+    let (ts, data) = roughness_stack(&[Filter::Invert, Filter::Posterize { levels: 3 }, Filter::HistogramShift { shift: 0.25 }]);
+    let expected: Vec<f32> = data.iter().map(|v| {
+        let inv = 1.0 - v.clamp(0.0, 1.0); // paint stores the raw value, composite clamps 0..1
+        ((inv * 2.0).round() / 2.0 + 0.25).clamp(0.0, 1.0)
+    }).collect();
+    assert_image(&ts, &fx, &expected);
+}
+#[test]
+fn edge_detect_matches_dense_sobel_reference_across_tiles() {
+    let fx = Fixture::new();
+    for (radius, strength) in [(1.0f32, 1.5f32), (3.0, 0.7)] {
+        let (ts, data) = roughness_stack(&[Filter::EdgeDetect { radius, strength }]);
+        let n = N as i32;
+        let d = radius.round().max(1.0) as i32;
+        let at = |x: i32, y: i32| data[(y.clamp(0, n - 1) * n + x.clamp(0, n - 1)) as usize];
+        let expected: Vec<f32> = (0..n).flat_map(|y| (0..n).map(move |x| (x, y))).map(|(x, y)| {
+            let p = |i: i32, j: i32| at(x + i * d, y + j * d);
+            let gx = p(1, -1) + 2.0 * p(1, 0) + p(1, 1) - p(-1, -1) - 2.0 * p(-1, 0) - p(-1, 1);
+            let gy = p(-1, 1) + 2.0 * p(0, 1) + p(1, 1) - p(-1, -1) - 2.0 * p(0, -1) - p(1, -1);
+            ((gx * gx + gy * gy).sqrt() / 4.0 * strength).clamp(0.0, 1.0)
+        }).collect();
+        assert!(expected.iter().filter(|v| **v > 0.1).count() > 1000, "the field must contain edges");
+        assert_image_tol(&ts, &fx, &expected, 0.002);
+    }
+}
+#[test]
+fn glow_adds_blurred_highlights_like_a_dense_reference() {
+    let fx = Fixture::new();
+    let (ts, data) = roughness_stack(&[Filter::Glow { radius: 3.0, amount: 1.5, threshold: 0.4 }]);
+    let blurred = reference(&data, 3.0);
+    let expected: Vec<f32> = data.iter().zip(&blurred).map(|(s, b)| (s + 1.5 * (b - 0.4).max(0.0) / 0.6).clamp(0.0, 1.0)).collect();
+    assert!(expected.iter().zip(&data).filter(|(a, b)| (**a - **b).abs() > 0.05).count() > 1000);
+    assert_image_tol(&ts, &fx, &expected, 0.002);
+}
+#[test]
+fn mosaic_takes_the_block_centre_pixel() {
+    let fx = Fixture::new();
+    let (ts, data) = roughness_stack(&[Filter::Mosaic { size: 10 }]);
+    let n = N as usize;
+    let expected: Vec<f32> = (0..n).flat_map(|y| (0..n).map(move |x| (x, y))).map(|(x, y)| {
+        let at = |v: usize| (v / 10 * 10 + 5).min(n - 1);
+        data[at(y) * n + at(x)]
+    }).collect();
+    assert_image(&ts, &fx, &expected);
+    // Block of 10 does not divide 128: the last partial block (120..128) still shares one value.
+    let c = composite_full(&ts, &fx.ctx());
+    let img = c.channel(C::Roughness).unwrap();
+    assert_eq!(img.get(121, 3)[0], img.get(127, 3)[0]);
+}
+#[test]
+fn directional_warp_matches_dense_bilinear_reference() {
+    let fx = Fixture::new();
+    let (ts, data) = roughness_stack(&[Filter::DirectionalWarp { intensity: 6.0, angle_deg: 30.0 }]);
+    let n = N as i32;
+    let at = |x: i32, y: i32| data[(y.clamp(0, n - 1) * n + x.clamp(0, n - 1)) as usize];
+    let expected: Vec<f32> = (0..n).flat_map(|y| (0..n).map(move |x| (x, y))).map(|(x, y)| {
+        let k = (2.0 * at(x, y).clamp(0.0, 1.0) - 1.0) * 6.0;
+        let a = 30.0f32.to_radians();
+        let (sx, sy) = ((x as f32 + a.cos() * k).clamp(0.0, (n - 1) as f32), (y as f32 + a.sin() * k).clamp(0.0, (n - 1) as f32));
+        let (x0, y0) = (sx.floor() as i32, sy.floor() as i32);
+        let (fx, fy) = (sx - x0 as f32, sy - y0 as f32);
+        let top = at(x0, y0) * (1.0 - fx) + at(x0 + 1, y0) * fx;
+        let bottom = at(x0, y0 + 1) * (1.0 - fx) + at(x0 + 1, y0 + 1) * fx;
+        top * (1.0 - fy) + bottom * fy
+    }).collect();
+    assert!(expected.iter().zip(&data).filter(|(a, b)| (**a - **b).abs() > 0.02).count() > 2000);
+    assert_image_tol(&ts, &fx, &expected, 0.002);
+}
+#[test]
+fn grayscale_and_normal_invert_apply_to_their_channels_only() {
+    let fx = Fixture::new();
+    let mut ts = TextureSet::new("T", 0, N);
+    let mut l = Layer::new_paint("P", &ts);
+    let LayerContent::Paint(p) = &mut l.content else { unreachable!() };
+    for y in 0..N { for x in 0..N {
+        p.channel_mut(C::BaseColor, N).set(x, y, [0.8, 0.2, 0.1, 1.0]);
+        p.channel_mut(C::Normal, N).set(x, y, [0.7, 0.2, 0.9, 1.0]);
+    } }
+    add(&mut l, &ts, C::BaseColor, Filter::Grayscale);
+    add(&mut l, &ts, C::Normal, Filter::NormalInvert { flip_x: true, flip_y: false, flip_z: true });
+    ts.insert_above(None, l);
+    let c = composite_full(&ts, &fx.ctx());
+    let lum = 0.8 * 0.2126 + 0.2 * 0.7152 + 0.1 * 0.0722;
+    let b = c.channel(C::BaseColor).unwrap().get(70, 70);
+    assert!(b[..3].iter().all(|v| (v - lum).abs() < 2e-3), "{b:?} vs {lum}");
+    let n = c.channel(C::Normal).unwrap().get(70, 70);
+    // Flipped X and Z of (0.4, -0.6, 0.8) is (-0.4, -0.6, -0.8); the composite renormalises normals.
+    let len = (0.4f32 * 0.4 + 0.6 * 0.6 + 0.8 * 0.8).sqrt();
+    let want = [-0.4 / len * 0.5 + 0.5, -0.6 / len * 0.5 + 0.5, -0.8 / len * 0.5 + 0.5];
+    assert!(n[..3].iter().zip(want).all(|(a, b)| (a - b).abs() < 2e-3), "{n:?} vs {want:?}");
+}
+
+// ---- Mask generators: position gradient axes and concave curvature.
+#[test]
+fn position_gradient_runs_along_the_chosen_axis_and_concave_inverts_curvature() {
+    use subcraft_doc::{Generator, GeneratorKind, GradientAxis};
+    let fx = Fixture::new();
+    let run = |g: Generator, curvature: Option<f32>| {
+        let mut maps = MeshMaps::new();
+        if let Some(c) = curvature { maps.insert(subcraft_core::MeshMapKind::Curvature, subcraft_image::TiledImage::new(N, N, 1, [c; 4])); }
+        let mut ts = TextureSet::new("T", 0, N);
+        let mut l = Layer::new_paint("P", &ts);
+        let LayerContent::Paint(p) = &mut l.content else { unreachable!() };
+        for y in 0..N { for x in 0..N { p.channel_mut(C::Roughness, N).set(x, y, [1.0, 1.0, 0.0, 0.0]); } }
+        let mut mask = Mask::new(N, false);
+        mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Generator(g))));
+        l.mask = Some(mask);
+        ts.insert_above(None, l);
+        let ctx = EvalContext { geometry: &fx.geo, resources: &fx.res, mesh_maps: &maps };
+        composite_full(&ts, &ctx).channel(C::Roughness).unwrap().to_dense()
+    };
+    // The plane lies in XZ (Y is constant), so a Y gradient is flat while X and Z vary.
+    let mut g = Generator::new(GeneratorKind::PositionGradient);
+    g.noise_amount = 0.0; g.softness = 1.0; g.level = 0.5;
+    let spread = |v: &[f32]| v.iter().cloned().fold(f32::MIN, f32::max) - v.iter().cloned().fold(f32::MAX, f32::min);
+    let y = run(g, None);
+    g.axis = GradientAxis::X; let x = run(g, None);
+    g.axis = GradientAxis::Z; let z = run(g, None);
+    assert!(spread(&y) < 1e-3, "Y gradient on a flat plane is constant: {}", spread(&y));
+    assert!(spread(&x) > 0.3 && spread(&z) > 0.3, "X and Z gradients span the plane: {} {}", spread(&x), spread(&z));
+    assert_ne!(x, z, "axes are independent");
+    // Concave: curvature 0.2 (concave side) gives more coverage than 0.8 (convex).
+    let mut c = Generator::new(GeneratorKind::Concave);
+    c.noise_amount = 0.0; c.softness = 0.2; c.level = 0.5;
+    let (concave, convex) = (run(c, Some(0.2)), run(c, Some(0.8)));
+    // Roughness below the mask is the 0.3 default: coverage 1 gives 1.0, coverage 0 leaves 0.3.
+    assert!(concave.iter().all(|v| *v > 0.99) && convex.iter().all(|v| (*v - 0.3).abs() < 0.01), "{} {}", concave[N as usize * 5 + 5], convex[N as usize * 5 + 5]);
 }

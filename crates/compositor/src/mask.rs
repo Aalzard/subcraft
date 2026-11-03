@@ -58,7 +58,7 @@ fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]]) {
     let geo = tc.geo;
     let mut map = vec![[0.0f32; 3]; TILE_TEXELS];
     let map_kind = match g.kind {
-        GeneratorKind::Edges => Some(MeshMapKind::Curvature),
+        GeneratorKind::Edges | GeneratorKind::Concave => Some(MeshMapKind::Curvature),
         GeneratorKind::Cavity => Some(MeshMapKind::AmbientOcclusion),
         GeneratorKind::MeshMap(k) => Some(k),
         GeneratorKind::Directional | GeneratorKind::PositionGradient => None,
@@ -68,7 +68,8 @@ fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]]) {
     }
     let dir = Vec3::from_array(g.direction).normalize_or(Vec3::Y);
     let set = tc.set_geometry;
-    let ext_y = set.bounds.extent().y.max(1e-12);
+    let axis = g.axis.index();
+    let ext_axis = set.bounds.extent()[axis].max(1e-12);
     let half = g.softness.max(1e-4) * 0.5;
     // Breakup noise is projected in 3D (triplanar on object position), never in UV: UV noise
     // jumps at every seam and would make wear follow the islands instead of the shape.
@@ -81,7 +82,8 @@ fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]]) {
             GeneratorKind::Edges | GeneratorKind::MeshMap(_) => map[i][0],
             GeneratorKind::Cavity => 1.0 - map[i][0],
             GeneratorKind::Directional => Vec3::from_array(geo.normal(i)).dot(dir) * 0.5 + 0.5,
-            GeneratorKind::PositionGradient => (geo.position(i)[1] * set.max_extent / ext_y).clamp(0.0, 1.0),
+            GeneratorKind::Concave => 1.0 - map[i][0],
+            GeneratorKind::PositionGradient => (geo.position(i)[axis] * set.max_extent / ext_axis).clamp(0.0, 1.0),
         };
         let level = if let Some(noise) = &noise {
             g.level + (noise[i] - 0.5) * g.noise_amount

@@ -3,7 +3,7 @@
 //! procedural patterns and generators. Edges / Cavity read baked curvature / AO, so bake first.
 
 use subcraft_core::ChannelKind::*;
-use subcraft_doc::{BlendMode, GeneratorKind, Layer, MaskEffectKind, ProceduralKind, ProceduralParams, TextureSet};
+use subcraft_doc::{BlendMode, GeneratorKind, GradientAxis, Layer, MaskEffectKind, ProceduralKind, ProceduralParams, TextureSet};
 
 use crate::presets::{SmartMask, generator, mask, proc, rgb, triplanar, uni};
 use crate::smart::{SmartMaterial, coat, fx, fx_blend, folder, masked, smart};
@@ -257,6 +257,12 @@ pub fn smart_materials() -> Vec<SmartMaterial> {
     ]
 }
 
+fn axis_gradient(axis: GradientAxis, level: f32, softness: f32) -> MaskEffectKind {
+    let MaskEffectKind::Generator(mut g) = generator(GeneratorKind::PositionGradient, level, softness, 0.2, false) else { unreachable!() };
+    g.axis = axis;
+    MaskEffectKind::Generator(g)
+}
+
 pub fn smart_masks() -> Vec<SmartMask> {
     vec![
         mask("Cavity Dust", vec![cavity(0.45, 0.4, 0.5)]),
@@ -274,6 +280,10 @@ pub fn smart_masks() -> Vec<SmartMask> {
         mask("Bottom Mud", vec![generator(GeneratorKind::PositionGradient, 0.2, 0.3, 0.6, true)]),
         mask("Lichen Patches", vec![pattern(ProceduralKind::Cells, 10.0, 609, 0.5, 0.2)]),
         mask("Brushed Wear", vec![pattern(ProceduralKind::Brushed, 8.0, 610, 0.5, 0.5)]),
+        mask("Crevice Grime", vec![generator(GeneratorKind::Concave, 0.55, 0.3, 0.35, false)]),
+        mask("Thin Areas", vec![generator(GeneratorKind::MeshMap(subcraft_core::MeshMapKind::Thickness), 0.6, 0.3, 0.2, false)]),
+        mask("Left Side Fade", vec![axis_gradient(GradientAxis::X, 0.5, 0.5)]),
+        mask("Front Side Fade", vec![axis_gradient(GradientAxis::Z, 0.5, 0.5)]),
     ]
 }
 
@@ -347,6 +357,9 @@ pub fn smart_mask_info(name: &str) -> Option<AssetInfo> {
         "Water Streaks" | "Drip Stains" | "Heavy Drips" | "Rain Streaks" => info("Water", "Vertical streaks like running water"),
         "Scratches" | "Scratch Wear" | "Brushed Wear" => info("Wear", "Fine scratch marks across the surface"),
         "Cracks" | "Pitting" | "Burn Marks" => info("Damage", "Cracks, pits or scorch patches"),
+        "Crevice Grime" => info("Dirt", "Selects concave creases (needs a curvature bake)"),
+        "Thin Areas" => info("Wear", "Selects thin parts of the model (needs a thickness bake)"),
+        "Left Side Fade" | "Front Side Fade" => info("Breakup", "Fades across the model along the X or Z axis"),
         "Grunge Breakup" | "Speckled Dirt" | "Grime Blotches" | "Random Grime" | "Smudges" | "Fine Dust Speckle" | "Oil Film" | "Lichen Patches" => info("Breakup", "Irregular blotches to break up a flat layer"),
         _ => None,
     }

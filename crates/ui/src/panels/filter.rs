@@ -31,6 +31,56 @@ pub fn editor(ui: &mut Ui, filter: &mut Filter, channel: Option<ChannelKind>) ->
         Filter::Threshold { cutoff } => {
             changed |= slider_row(ui, "Cutoff", egui::Slider::new(cutoff, lower..=1.0)).changed();
         }
+        Filter::Grayscale => { ui.weak("Luminance to gray / color channels only"); }
+        Filter::Invert => { ui.weak("1 - value / signed Height flips its sign"); }
+        Filter::Posterize { levels } => {
+            changed |= slider_row(ui, "Levels", egui::Slider::new(levels, 2..=subcraft_doc::MAX_POSTERIZE_LEVELS)).changed();
+        }
+        Filter::HistogramShift { shift } => {
+            changed |= slider_row(ui, "Shift", egui::Slider::new(shift, -1.0..=1.0)).changed();
+        }
+        Filter::ColorBalance { shadows, midtones, highlights } => {
+            for (name, range) in [("Shadows", shadows), ("Midtones", midtones), ("Highlights", highlights)] {
+                for (axis, v) in ["R", "G", "B"].into_iter().zip(range.iter_mut()) {
+                    changed |= slider_row(ui, &format!("{name} {axis}"), egui::Slider::new(v, -1.0..=1.0)).changed();
+                }
+            }
+            ui.weak("Offsets per tonal range (linear RGB)");
+        }
+        Filter::ReplaceColor { from, to, tolerance, softness } => {
+            for (name, c) in [("From", from), ("To", to)] {
+                prop_row(ui, name, |ui| {
+                    let mut srgb = linear3_to_srgb(*c);
+                    if ui.color_edit_button_rgb(&mut srgb).changed() { *c = srgb3_to_linear(srgb); changed = true; }
+                });
+            }
+            changed |= slider_row(ui, "Tolerance", egui::Slider::new(tolerance, 0.0..=2.0)).changed();
+            changed |= slider_row(ui, "Softness", egui::Slider::new(softness, 0.0..=2.0)).changed();
+        }
+        Filter::NormalInvert { flip_x, flip_y, flip_z } => {
+            prop_row(ui, "Flip X (red)", |ui| { changed |= ui.checkbox(flip_x, "").changed(); });
+            prop_row(ui, "Flip Y (green)", |ui| { changed |= ui.checkbox(flip_y, "").changed(); });
+            prop_row(ui, "Flip Z (blue)", |ui| { changed |= ui.checkbox(flip_z, "").changed(); });
+            ui.weak("Flip Y converts OpenGL and DirectX normal maps");
+        }
+        Filter::EdgeDetect { radius, strength } => {
+            changed |= slider_row(ui, "Width", egui::Slider::new(radius, 0.0..=32.0).suffix(" px")).changed();
+            changed |= slider_row(ui, "Strength", egui::Slider::new(strength, 0.0..=8.0)).changed();
+            ui.weak("Sobel edges of the brightness / grayscale result");
+        }
+        Filter::Glow { radius, amount, threshold } => {
+            changed |= slider_row(ui, "Radius", egui::Slider::new(radius, 0.0..=32.0).suffix(" px")).changed();
+            changed |= slider_row(ui, "Amount", egui::Slider::new(amount, 0.0..=4.0)).changed();
+            changed |= slider_row(ui, "Threshold", egui::Slider::new(threshold, 0.0..=0.99)).changed();
+        }
+        Filter::DirectionalWarp { intensity, angle_deg } => {
+            changed |= slider_row(ui, "Intensity", egui::Slider::new(intensity, 0.0..=32.0).suffix(" px")).changed();
+            changed |= slider_row(ui, "Angle", egui::Slider::new(angle_deg, -180.0..=180.0).suffix("\u{00b0}")).changed();
+            ui.weak("Pushes pixels along the angle by their own brightness");
+        }
+        Filter::Mosaic { size } => {
+            changed |= slider_row(ui, "Block size", egui::Slider::new(size, 1..=subcraft_doc::MAX_MOSAIC_SIZE).suffix(" px")).changed();
+        }
         Filter::Blur { radius } | Filter::Sharpen { radius, .. } | Filter::DirectionalBlur {radius,..} | Filter::Highpass {radius,..} | Filter::Bevel {radius,..} | Filter::MaskOutline {radius,..} => {
             changed |= slider_row(ui, "Radius", egui::Slider::new(radius, 0.0..=32.0).suffix(" px")).changed();
         }
