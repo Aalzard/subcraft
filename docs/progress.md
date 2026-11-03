@@ -4041,8 +4041,10 @@ Verified in the real app (release binary, sphere, 1024 px, Height + Base Color c
   preset is built in and serde round-trips) and `crates/app/tests/export_view_2d.rs` (2: exported
   pixels equal the displayed composite at 8 and 16 bit for Base Color and Roughness, missing bake
   writes nothing and other templates never plan `View2D`). `cargo test -p subcraft-export`: 35
-  passed; `cargo test -p subcraft-app --test export_view_2d`: 2 passed. Built-in template count
-  test updated 6 → 7.
+  passed; `cargo test -p subcraft-app --test export_view_2d --test export_selection --test images`:
+  15 passed; `cargo test -p subcraft-ui --lib`: 54 passed. Built-in template count test updated
+  6 → 7. The UI integration test binaries (`crates/ui/tests/*`) were not run: linking them all
+  filled the cloud disk; the UI crate itself builds without warnings.
 * **Not done:** not driven in the real app (no display in this cloud session); the app-level test
   uses a default cube whose composite is uniform, so varied pixels are covered only by the export
   crate tests. The panel's zoom/pan and UV wireframe overlay are not part of the export (Painter
