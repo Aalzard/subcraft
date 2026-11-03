@@ -603,6 +603,24 @@ pub fn fit_and_composite(set: &mut TextureSet, fitted: &[crate::spp_fit::Fitted]
     (values, composite)
 }
 
+/// Texels outside the samples `at` (the set's covered texels) take the value of the nearest sample,
+/// as Painter pads its own textures; without it a solved texture is a flat fill outside the
+/// islands and every filtered or mipmapped read near an island border blends that fill in.
+fn pad_outside(res: u32, comps: usize, data: &mut [f32], at: &[(u32, u32)]) {
+    let n = (res as usize) * (res as usize);
+    if at.is_empty() || data.len() != n * comps || std::env::var_os("SUBCRAFT_SPP_NO_PAD").is_some() {
+        return;
+    }
+    let mut covered = vec![false; n];
+    for &(x, y) in at {
+        if x < res && y < res {
+            covered[y as usize * res as usize + x as usize] = true;
+        }
+    }
+    let nearest = nearest_covered(res as usize, res as usize, &covered);
+    apply_nearest(comps, data, &covered, &nearest);
+}
+
 /// Channel textures solved for a fitted layer: (layer, channel, resource holding the texture).
 pub type Solved = Vec<(subcraft_core::LayerId, ChannelKind, subcraft_core::ResourceId)>;
 
@@ -648,6 +666,7 @@ pub fn fit_solve_composite(set: &mut TextureSet, fitted: &[crate::spp_fit::Fitte
                 let o = (y as usize * res as usize + x as usize) * comps;
                 data[o..o + comps].copy_from_slice(&samples[t * comps..(t + 1) * comps]);
             }
+            pad_outside(res, comps, &mut data, &at);
             let bitmap = subcraft_image::Bitmap::new_f32(res, res, comps as u8, data);
             let id_res = resources.insert(subcraft_doc::Resource { id: subcraft_core::ResourceId::new(), name: format!("{name} {} (solved from Painter's result)", kind.display_name()), kind: subcraft_doc::ResourceKind::Texture, bitmap: std::sync::Arc::new(bitmap), source_path: None, encoded: None });
             crate::spp_fit::set_bitmap(&mut set.layers, id, *kind, id_res);
@@ -730,7 +749,9 @@ fn solve_normals(set: &mut TextureSet, fitted: &[crate::spp_fit::Fitted], users:
         for (&k, (rid, data)) in maps {
             let (id, _) = fitted[k];
             let name = find_name(&set.layers, id).unwrap_or_default();
-            let bitmap = subcraft_image::Bitmap::new_f32(res as u32, res as u32, 3, data.clone());
+            let mut data = data.clone();
+            pad_outside(res as u32, 3, &mut data, at);
+            let bitmap = subcraft_image::Bitmap::new_f32(res as u32, res as u32, 3, data);
             resources.insert(subcraft_doc::Resource { id: *rid, name: format!("{name} Normal (solved from Painter's result)"), kind: subcraft_doc::ResourceKind::Texture, bitmap: std::sync::Arc::new(bitmap), source_path: None, encoded: None });
             crate::spp_fit::set_bitmap(&mut set.layers, id, ChannelKind::Normal, *rid);
         }
@@ -1049,6 +1070,27 @@ fn rebuild_stack(spp: &mut SppFile, info: &TextureSetInfo, ts: &mut TextureSet, 
 mod tests {
     use super::*;
     use subcraft_mesh::spp::{CacheFormat, CacheImage, Plane};
+
+    /// A solved texture is a flat fill outside the samples; padding copies the nearest sample there
+    /// and never touches the samples themselves.
+    #[test]
+    fn padding_copies_the_nearest_sample_outside_and_keeps_the_samples() {
+        let res = 8u32;
+        let at: Vec<(u32, u32)> = vec![(1, 1), (2, 1), (5, 5)];
+        let mut data = vec![0.5f32; 64];
+        data[8 + 1] = 0.1;
+        data[8 + 2] = 0.2;
+        data[5 * 8 + 5] = 0.9;
+        pad_outside(res, 1, &mut data, &at);
+        assert_eq!((data[9], data[10], data[45]), (0.1, 0.2, 0.9));
+        assert_eq!(data[0], 0.1, "corner takes (1,1)");
+        assert_eq!(data[3 * 8 + 2], 0.2, "below (2,1)");
+        assert_eq!(data[7 * 8 + 7], 0.9, "far corner takes (5,5)");
+        assert!(data.iter().all(|v| [0.1, 0.2, 0.9].contains(v)));
+        let mut empty = vec![0.5f32; 64];
+        pad_outside(res, 1, &mut empty, &[]);
+        assert!(empty.iter().all(|v| *v == 0.5), "no samples: unchanged, no panic");
+    }
 
     /// Painter's texture cache is bottom row first, unlike its baked maps: the first cache row
     /// must end up as the last (bottom) row of the layer, or the texture lands upside down on the

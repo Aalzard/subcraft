@@ -3823,3 +3823,25 @@ channels, mean abs difference over the UV triangles).
   `sheets file.sbsasm count`.
 * **Tests:** `cargo test --workspace --lib --bins --tests --no-fail-fast`: 865 passed, 0 failed (new: grain statistics at 256-2048,
   sheet layout, picker range, stencil tweaks; `spp_open` now expects the grain layer).
+
+### Session 115 - Painter import: padding outside the islands, text labels (2026-11-03)
+
+Branch `claude/spp-gaps-eaaadc`, local. Lab runs at 1024 (`spp_lab`, rebuilt stack alone against Painter's flattened channels), on the user's CarInteriro and DBAL-A2 (`C:\Users\Rayan\Downloads`, read-only).
+
+* **New lab measurement:** per channel, the mean absolute difference in a band of 1-4 texels outside the UV islands (Chebyshev), the band means on both sides, the error by distance, and two references (Painter's band against a nearest-texel padding of Painter's inside; the rebuilt band against a padding of the rebuilt inside). `SUBCRAFT_LAB_WORST=1` adds the worst 128x128 blocks. Switch `SUBCRAFT_SPP_NO_PAD=1` turns the fix below off for A/B runs.
+* **Where the flat fill came from:** the textures solved from Painter's result (`... (solved from Painter's result)`, Base Color / Roughness / Metallic / Height / Normal of the fitted material layers) were written only at the set's covered texels; every other texel kept the layer's uniform fitted value (the Normal ones stayed flat). Mask rasters were already padded (session 110), baked maps too. Fix: `spp_import::pad_outside` copies the nearest covered sample into the rest of each solved texture (jump flooding, `nearest_covered` / `apply_nearest`) before it becomes a resource; texels inside the islands are untouched. Importer cache version 8.
+
+| band error (4 texels outside), mean abs | before | after | inside the islands |
+|---|---|---|---|
+| CarInteriro Base Color | 0.0195 | 0.0183 | 0.0100 |
+| CarInteriro Roughness | 0.0950 | 0.0665 | 0.0370 |
+| CarInteriro Normal | 0.0097 | 0.0086 | 0.0061 |
+| CarInteriro Ambient Occlusion (not gated) | 0.664 | 0.603 | 0.437 |
+| CarInteriro Height / Metallic | 0.0168 / 0.0135 | unchanged | 0.0034 / 0.0022 |
+| DBAL-A2 Base Color / Roughness / Metallic | 0.0278 / 0.0488 / 0.0485 | unchanged | 0.0144 / 0.0432 / 0.0453 |
+| DBAL-A2 Normal | 0.0099 | 0.0091 | 0.0010 |
+
+  Inside-island numbers are identical with and without the padding (CarInteriro 0.0100 / 0.0034 / 0.0371 / 0.0022 / 0.0061; DBAL-A2 unchanged), as the padding only writes outside.
+* **What stays unsolved:** the rebuilt band is not a nearest-texel padding of the rebuilt inside (DBAL-A2 Base Color band against its own padded inside: 0.0188; Painter's own band against its padded inside: 0.0032), so other layer types still differ outside the islands. The error by distance is flat (DBAL-A2 Base Color 0.0265 / 0.0280 / 0.0310 / 0.0278 at 1-4 texels; Roughness 0.048-0.050), so it is not a rim or reach limit; procedural layers (noises, generators, fractal fills) have no surface position beyond the evaluated rim and the composite does not pad. Padding the final composite from its inside would bring the band to the inside-error floor (a lab estimate: DBAL-A2 Base Color 0.0278 -> 0.0181, Roughness 0.0488 -> 0.0468, CarInteriro Roughness 0.0665 -> 0.0642); that would be a compositor/export change and was not made. The gate (inside the islands) and the 3D view (islands only, bands at seams) are unchanged by this work; the visible effect is on the channel images and mipmapped reads near borders. No screenshots were taken.
+* **Text labels:** no new experiment; the finding of sessions 110b and 114 stands and is not contradicted by anything seen here. The labels (DBAL-A2's "DBAL-A2", QR / "CAGE" text, knob numbers) are 328 stencilled brush strokes whose stencils are alpha sheets inside compiled stencil packs (collages of wear and grunge, no glyphs); the only text in the file is one eraser stamp with the font resource `font_chathura` and the string "2". Replaying the readable sheets made the result worse in their footprint (Base Color 0.027 -> 0.047, Metallic 0.060 -> 0.130, whole-set Metallic 0.0453 -> 0.0466), one pack (Weapon_Stencil_2) does not resolve, and the flattened layer cannot be separated per stroke. So `SUBCRAFT_SPP_SHEETS` stays off by default and the labels stay in the flattened layer / as the strokes that can be replayed. Not reproduced: the "00" vs "06" knob numbers.
+* **Tests:** `padding_copies_the_nearest_sample_outside_and_keeps_the_samples` (spp_import). `cargo test --workspace --lib --bins --tests --no-fail-fast`: 866 passed, 0 failed (865 before).
