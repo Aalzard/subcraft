@@ -93,22 +93,65 @@ pub fn words(stem: &str) -> Vec<String> {
     out
 }
 
-/// Classify one file name. Words are scanned from the end, where libraries put the map type
-/// (`metal_plate_roughness` is a roughness map, not a metallic one).
-pub fn classify(file_name: &str) -> Classified {
-    let stem = Path::new(file_name).file_stem().and_then(|s| s.to_str()).unwrap_or(file_name);
-    let w = words(stem);
+/// Like [`words`], with the byte offset where each word starts in `stem`.
+fn word_spans(stem: &str) -> Vec<(usize, String)> {
+    let mut out = Vec::new();
+    let mut cur = String::new();
+    let mut start = 0;
+    let mut prev_lower = false;
+    for (i, ch) in stem.char_indices() {
+        if !ch.is_ascii_alphanumeric() {
+            if !cur.is_empty() {
+                out.push((start, std::mem::take(&mut cur)));
+            }
+            prev_lower = false;
+            continue;
+        }
+        if ch.is_ascii_uppercase() && prev_lower && !cur.is_empty() {
+            out.push((start, std::mem::take(&mut cur)));
+        }
+        if cur.is_empty() {
+            start = i;
+        }
+        prev_lower = ch.is_ascii_lowercase();
+        cur.push(ch.to_ascii_lowercase());
+    }
+    if !cur.is_empty() {
+        out.push((start, cur));
+    }
+    out
+}
+
+fn classify_words(w: &[String]) -> Option<(usize, Classified)> {
     for i in (0..w.len()).rev() {
         if i > 0
             && let Some(c) = classify_pair(&w[i - 1], &w[i])
         {
-            return c;
+            return Some((i - 1, c));
         }
         if let Some(c) = classify_word(&w[i]) {
-            return c;
+            return Some((i, c));
         }
     }
-    Classified::Unknown
+    None
+}
+
+/// Split a file name into the text before the map-type words and what they say:
+/// `Bricks059_2K-JPG_NormalGL.jpg` -> (`Bricks059_2K-JPG_`, normal). `None` when no map type is
+/// recognized. Used to group the maps of several materials living in one folder.
+pub fn split_map_name(file_name: &str) -> Option<(String, Classified)> {
+    let stem = Path::new(file_name).file_stem().and_then(|s| s.to_str()).unwrap_or(file_name);
+    let spans = word_spans(stem);
+    let words: Vec<String> = spans.iter().map(|(_, w)| w.clone()).collect();
+    let (i, c) = classify_words(&words)?;
+    Some((stem[..spans[i].0].to_string(), c))
+}
+
+/// Classify one file name. Words are scanned from the end, where libraries put the map type
+/// (`metal_plate_roughness` is a roughness map, not a metallic one).
+pub fn classify(file_name: &str) -> Classified {
+    let stem = Path::new(file_name).file_stem().and_then(|s| s.to_str()).unwrap_or(file_name);
+    classify_words(&words(stem)).map_or(Classified::Unknown, |(_, c)| c)
 }
 
 /// Which file goes to which channel, and why other files were left out.

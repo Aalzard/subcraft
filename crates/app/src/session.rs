@@ -98,11 +98,11 @@ struct ActiveStroke {
 
 pub struct Session {
     pub(crate) part_view: crate::part_workflow::PartView,
-    scene: Scene,
+    pub(crate) scene: Scene,
     resources: ResourceStore,
     mesh_maps: HashMap<TextureSetId, MeshMaps>,
     no_maps: MeshMaps,
-    history: History,
+    pub(crate) history: History,
     /// Live document: equals the current history entry except while a stroke is in progress.
     doc: Document,
     selection: Selection,
@@ -136,7 +136,7 @@ pub struct Session {
     /// Document as of the last save / load / new (for the unsaved-changes indicator).
     saved_doc: Document,
     /// Saved with the project but outside the undo history (export choices, normal format).
-    settings: subcraft_doc::ProjectSettings,
+    pub(crate) settings: subcraft_doc::ProjectSettings,
     saved_settings: subcraft_doc::ProjectSettings,
     /// Mesh maps changed (baked) since the last save.
     maps_dirty: bool,
@@ -413,10 +413,14 @@ impl Session {
         if path.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("spp")) {
             return Self::open_spp(path);
         }
-        let report = import_mesh(path).map_err(|e| e.to_string())?;
+        let mut report = match import_mesh(path) {
+            Err(subcraft_mesh::ImportError::Build(subcraft_mesh::mesh::BuildError::NoUvs)) => subcraft_mesh::import_mesh_for_baking(path).map_err(|e| e.to_string())?,
+            other => other.map_err(|e| e.to_string())?,
+        };
         if report.mesh.triangle_count() == 0 {
             return Err("mesh has no triangles".into());
         }
+        report.mesh = subcraft_mesh::unwrap::unwrap_if_missing(std::mem::take(&mut report.mesh), &mut report.warnings);
         let mut warnings = report.warnings;
         let tiles = report.mesh.udim_tiles(None).len();
         let mut session = if tiles > 1 {
@@ -485,7 +489,7 @@ impl Session {
         self.apply_mesh_reload(prepared, mode)
     }
 
-    fn mesh_map_set(&self) -> crate::mesh_reload::MapSet {
+    pub(crate) fn mesh_map_set(&self) -> crate::mesh_reload::MapSet {
         self.mesh_maps.iter().map(|(id, m)| (*id, m.as_map().clone())).collect()
     }
 
@@ -649,6 +653,20 @@ impl Session {
             Some(_) => self.shown.get(&ts),
             None => self.composites.get(&ts).and_then(|c| c.composite()),
         }
+    }
+
+    /// Size and hit counters of the per-layer result caches (inline compositing; with the
+    /// background worker the caches live on its thread and this is empty).
+    pub fn layer_cache_stats(&self) -> subcraft_compositor::PrefixStats {
+        let mut total = subcraft_compositor::PrefixStats::default();
+        for c in self.composites.values() {
+            let s = c.layer_cache_stats();
+            total.entries += s.entries;
+            total.bytes += s.bytes;
+            total.hits += s.hits;
+            total.misses += s.misses;
+        }
+        total
     }
 
     /// Publication generation, so consumers can detect results installed by another caller
@@ -1594,6 +1612,7 @@ impl Session {
                 texture_set: ts.clone(),
                 geometry: self.scene.geometry.get(ts.material_slot, ts.resolution),
                 mesh_maps: self.mesh_maps.get(&ts.id).cloned().unwrap_or_default(),
+                preview_geometry: subcraft_compositor::preview_resolution(ts.resolution).map(|r| self.scene.geometry.get(ts.material_slot, r)),
             })
             .collect();
         let snapshot = Snapshot { sets, resources: self.resources.clone(), invalidate: std::mem::take(&mut self.invalidated) };
@@ -1725,7 +1744,14 @@ impl Session {
         }
         let ids = self.import_preset_images(smart.images())?;
         let layer = smart.build_with(self.selected_texture_set(), &ids);
-        self.execute(Command::InsertLayer { layer: Box::new(layer), label: format!("Smart Material: {}", smart.name) })
+        let label = format!("Smart Material: {}", smart.name);
+        // Imported texture materials may bring AO / emissive / opacity maps the set lacks.
+        let missing: Vec<_> = crate::smart_import::channels_to_add(&layer).into_iter().filter(|&k| !self.selected_texture_set().has_channel(k)).collect();
+        if missing.is_empty() {
+            self.execute(Command::InsertLayer { layer: Box::new(layer), label })
+        } else {
+            self.execute(Command::InsertLayerWithChannels { layer: Box::new(layer), channels: missing, label })
+        }
     }
 
     /// Import a built-in preset's embedded images (reusing identical ones already in the project),

@@ -8,6 +8,7 @@
 
 pub mod blend;
 pub mod cache;
+pub mod prefix;
 pub mod strength;
 pub mod mask;
 pub mod tile;
@@ -28,8 +29,9 @@ use subcraft_materials::{MeshMaps, SampleContext, TextureSetGeometry, TileGeomet
 
 pub use blend::{BlendTarget, blend_fn, composite};
 pub use cache::CompositeCache;
+pub use prefix::{PrefixCache, PrefixStats};
 pub use tile::evaluate_tile;
-pub use worker::{CompositeWorker, Published, SetSnapshot, Snapshot};
+pub use worker::{CompositeWorker, Published, SetSnapshot, Snapshot, preview_resolution};
 
 /// Everything outside the [`TextureSet`] that evaluation reads.
 #[derive(Clone, Copy)]
@@ -92,11 +94,95 @@ impl Composite {
     /// Returns, per channel, the tiles whose stored texels actually changed (sorted): a tile that
     /// re-evaluates to identical bits keeps its storage, so callers upload only real changes.
     pub fn evaluate_tiles(&mut self, ts: &TextureSet, ctx: &EvalContext, tiles: &[usize]) -> ChangedTiles {
-        self.evaluate_tiles_with_stages(ts, ctx, tiles, &stages::StageCache::default())
+        self.evaluate_tiles_with_stages(ts, ctx, tiles, &stages::StageCache::default(), None)
     }
 
-    pub(crate) fn evaluate_tiles_with_stages(&mut self, ts: &TextureSet, ctx: &EvalContext, tiles: &[usize], cache: &stages::StageCache) -> ChangedTiles {
-        let graph = stages::has_spatial(&ts.layers).then(|| stages::Graph::new(ts, *ctx, cache));
+    pub(crate) fn evaluate_tiles_with_stages(
+        &mut self,
+        ts: &TextureSet,
+        ctx: &EvalContext,
+        tiles: &[usize],
+        cache: &stages::StageCache,
+        prefix: Option<(&PrefixCache, &[usize])>,
+    ) -> ChangedTiles {
+        self.evaluate_tiles_inner(ts, ctx, tiles, cache, prefix, 1.0, None)
+    }
+
+    /// Quick preview of `full` at `ts.resolution` (a fraction of the authored one): layers are
+    /// sampled by UV, spatial radii shrink with the resolution. Returns `None` when `cancel`
+    /// fired (the partial result is dropped). Never touches the caches of the full evaluation.
+    pub fn preview(ts: &TextureSet, ctx: &EvalContext, full_resolution: u32, cancel: &(dyn Fn() -> bool + Sync)) -> Option<Composite> {
+        let mut c = Composite::new(ts);
+        let all: Vec<usize> = (0..c.tile_count()).collect();
+        let scale = ts.resolution as f32 / full_resolution as f32;
+        c.evaluate_tiles_inner(ts, ctx, &all, &stages::StageCache::default(), None, scale, Some(cancel));
+        (!cancel()).then_some(c)
+    }
+
+    /// Overwrite `tiles` of this (full resolution) composite with `low` stretched to fit (nearest
+    /// texel), for a preview shown until the exact tiles arrive.
+    pub fn overlay_preview(&mut self, low: &Composite, tiles: &[usize]) {
+        let n = self.resolution.div_ceil(subcraft_image::TILE_SIZE) as usize;
+        let ratio = self.resolution as f32 / low.resolution as f32;
+        for (&kind, img) in self.channels.iter_mut() {
+            let Some(src) = low.channels.get(&kind) else { continue };
+            let slots = img.slots_mut();
+            let (comps, fill) = (slots.comps, slots.fill);
+            let tiles_per_row = n;
+            let rows: Vec<(usize, Vec<f16>)> = tiles
+                .par_iter()
+                .map(|&t| {
+                    let (x0, y0) = ((t % tiles_per_row) as u32 * subcraft_image::TILE_SIZE, (t / tiles_per_row) as u32 * subcraft_image::TILE_SIZE);
+                    let mut data = vec![f16::ZERO; TILE_TEXELS * comps];
+                    for ty in 0..subcraft_image::TILE_SIZE {
+                        for tx in 0..subcraft_image::TILE_SIZE {
+                            let sx = (((x0 + tx) as f32 + 0.5) / ratio) as u32;
+                            let sy = (((y0 + ty) as f32 + 0.5) / ratio) as u32;
+                            let v = src.get(sx.min(low.resolution - 1), sy.min(low.resolution - 1));
+                            let at = (ty * subcraft_image::TILE_SIZE + tx) as usize * comps;
+                            for c in 0..comps {
+                                data[at + c] = f16::from_f32(v[c]);
+                            }
+                        }
+                    }
+                    (t, data)
+                })
+                .collect();
+            for (t, data) in rows {
+                slot_data_mut(&mut slots.slots[t], comps, &fill).copy_from_slice(&data);
+            }
+        }
+    }
+
+    /// Copy the listed tiles of every channel from `other` (same resolution).
+    pub fn copy_tiles_from(&mut self, other: &Composite, tiles: &[usize]) {
+        for (kind, img) in self.channels.iter_mut() {
+            if let Some(src) = other.channels.get(kind) {
+                for &t in tiles {
+                    img.set_slot(t, src.slot(t).clone());
+                }
+            }
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn evaluate_tiles_inner(
+        &mut self,
+        ts: &TextureSet,
+        ctx: &EvalContext,
+        tiles: &[usize],
+        cache: &stages::StageCache,
+        prefix: Option<(&PrefixCache, &[usize])>,
+        scale: f32,
+        cancel: Option<&(dyn Fn() -> bool + Sync)>,
+    ) -> ChangedTiles {
+        let graph = stages::has_spatial(&ts.layers).then(|| {
+            let g = stages::Graph::new_scaled(ts, *ctx, cache, scale);
+            match prefix {
+                Some((p, plan)) => g.with_prefix(p, plan),
+                None => g,
+            }
+        });
         assert_eq!(ctx.geometry.resolution, ts.resolution, "geometry resolution must match the texture set");
         let count = self.tile_count();
         let mut wanted = vec![false; count];
@@ -125,6 +211,9 @@ impl Composite {
             .into_par_iter()
             .with_max_len(1)
             .map(|(t, mut slots)| {
+                if cancel.is_some_and(|c| c()) {
+                    return (t, Vec::new());
+                }
                 let geo = ctx.geometry.tile(t);
                 let tc = TileContext {
                     albedo_filter: ts.albedo_filter,
@@ -136,7 +225,7 @@ impl Composite {
                 let mut encoded = vec![f16::ZERO; TILE_TEXELS * 4];
                 let mut changed = Vec::new();
                 let values = if let Some(graph) = &graph { graph.tile(t) } else {
-                    tile::evaluate_tile_local(ts, &tc).into_iter().map(|(k,p)|(k,std::sync::Arc::new(p))).collect()
+                    tile::evaluate_tile_local_cached(ts, &tc, t, prefix).into_iter().map(|(k,p)|(k,std::sync::Arc::new(p))).collect()
                 };
                 for (kind, px) in values {
                     let Some((_, comps, fill, slot)) = slots.iter_mut().find(|s| s.0 == kind) else { continue };

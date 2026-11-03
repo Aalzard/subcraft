@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-11-02 (session 113: community pull requests by Rafael Mendes merged locally)
+Last updated: 2026-11-03 (automatic UV unwrapping)
 
 ## Decisions
 
@@ -3823,3 +3823,190 @@ channels, mean abs difference over the UV triangles).
   `sheets file.sbsasm count`.
 * **Tests:** `cargo test --workspace --lib --bins --tests --no-fail-fast`: 865 passed, 0 failed (new: grain statistics at 256-2048,
   sheet layout, picker range, stencil tweaks; `spp_open` now expects the grain layer).
+
+### Session 115 - PLY and STL import (2026-11-03)
+
+Branch `claude/ply-stl-3ccf7a`, local. New hand-written readers in `crates/mesh/src/ply_stl.rs`, wired into `import.rs`, `SUPPORTED_EXTENSIONS` (now 12, so the file dialogs, New Project window and launch-argument classification pick them up), and the UI / CLI / README text.
+
+* **PLY:** ascii, binary little and big endian; any scalar types; x/y/z, normals, s/t or u/v UVs (v flipped like OBJ), per-face `texcoord` lists; quads and n-gons fan-triangulated; unknown elements skipped. List counts and element counts are checked against the bytes left, so truncated or hostile files return `ImportError::Ply`, never panic or over-allocate. Vertex colors are parsed but SubCraft meshes do not store them, so a warning says they are ignored.
+* **STL:** ascii and binary (a binary file whose header starts with "solid" is detected by size). Vertices are welded by exact position; corner normals average the neighbouring faces within 60 degrees, so scans are smooth and a CAD cube keeps hard edges (facet normals in the file are ignored). Truncated files, lying triangle counts and bad numbers are errors.
+* **No UVs:** both formats add the warning "no UVs, use auto unwrap or provide UVs". `import_mesh_for_baking` succeeds with it; the normal paint import still returns the existing `NoUvs` error (same behaviour as USD / Alembic), because the importer cannot unwrap yet. The warning is therefore only visible on the bake-source path until auto UV lands and relaxes that rule.
+* **Tests:** `crates/mesh/tests/ply_stl_import.rs` (8 tests: cube in ascii / LE / BE, UV flip, kept normals, n-gon with face texcoords, no-UV cases, pyramid and cube STL in both encodings, every truncation point of PLY and STL files, absurd counts, bad index). `cargo test -p subcraft-mesh --lib --tests`: all pass.
+* **Real app:** debug build, `subcraft.exe pyramid.ply --screenshot out.png` on an ascii PLY pyramid with UVs (quad base + 4 triangles): window opens with the mesh, status bar "6 tris", part "pyramid · Piece 1". Not run through the app: STL, binary PLY (covered by the tests above).
+## Automatic UV unwrapping (2026-11-03)
+
+New `subcraft_mesh::unwrap` (hand-written, no new dependencies), used for models without UVs or with bad ones.
+
+* **Seams / charts:** triangles are welded by position; per material slot, charts grow from the lowest free triangle by a
+  priority queue (smallest normal deviation first). A triangle joins when its normal is within the *seam angle* (default 66 deg)
+  of the chart's average normal and of its neighbour. Non-manifold edges and edges whose two triangles disagree on winding are
+  always seams.
+* **Flattening:** least-squares conformal maps (two pinned vertices at the most distant pair, Jacobi-preconditioned conjugate
+  gradients, planar initial guess). A chart whose layout has a flipped triangle, a triangle stretched more than 4:1, or any
+  UV overlap is split in two (farthest-seed growing) and flattened again; one triangle is laid out isometrically, so it always
+  terminates. Optional *balance density* gives every chart the same UV area per surface area.
+* **Packing:** each chart is rotated to its minimum-area rectangle; rectangles plus the island margin are packed into 0..1 by
+  bisecting the largest uniform scale. Quality: Fast = shelf, Balanced = skyline, Best = skyline + quarter turns + three orders
+  and a finer scale search (above 3000 charts everything falls back to shelf). Each material slot is packed on its own
+  (separate texture sets). Margin is in texels of a chosen texture size (half of it also to the 0..1 border); with very many
+  charts it is reduced and the effective value is reported.
+* **Output:** same triangles, normals, materials, objects; vertices split along chart borders, MikkTSpace tangents recomputed.
+  Deterministic. `analyze_uvs` reports overlap, flipped, collapsed, outside 0..1 and stretch of any mesh.
+* **App / UI:** `Session::start_auto_uv` / `finish_auto_uv` / `auto_uv_unwrap` unwrap in the background and then run the mesh
+  reload *Reproject* transfer (ADR-0042), so paint layers, masks and baked maps follow the surface; the history is cleared
+  (mesh is not undoable) and the remembered model file stays the original. UI: File > Auto UV unwrap... (seam angle, island
+  margin, texture size, pack quality, balance density; shows the quality of the current UVs). A model with no UVs at all opens
+  already unwrapped with default settings (`Session::open_mesh`, New project dialog) and says so. `--auto-uv` runs the command
+  at start for scripted screenshots.
+* **Tests (new, all pass):** 12 unit tests (cube -> 6 charts, stretch 1.0; sphere, torus at all pack qualities, open tube,
+  several materials, margin/border respected, smaller angle -> more charts, determinism, degenerate + non-manifold + repeated
+  vertex + isolated triangle mesh without panic, NaN / empty input, analysis flags overlap) check zero overlap, all UVs in 0..1,
+  no flipped triangles, stretch <= 4; 2 app tests (painted cube unwrapped: color error < 0.05 at 3 points per triangle,
+  ids kept; UV-less OBJ opens unwrapped).
+* **Real app:** `subcraft torus_nouv.obj --view-2d --screenshot` (2304-triangle torus with a bulge, no vt/vn) opens unwrapped;
+  `--auto-uv` on it reports "9 chart(s), 2304 triangle(s), coverage 40%, stretch mean 1.03 / max 1.26 (before: 0 overlapping, 0
+  flipped, 0 collapsed, 0 outside 0..1)". Screenshots: `auto-uv-after.png`, `auto-uv-3d.png` in the shared notes folder.
+* **Limits:** packing is by bounding rectangles, so coverage is modest for ring-shaped charts (40% on that torus, above 60% on the cube);
+  no island-in-island fill. Charts are not merged afterwards, so noisy meshes give many small charts. LSCM is conformal: area
+  (texel density) varies inside a chart unless split; max stretch is bounded by the 4:1 split rule only. Hard-edge/sharp creases
+  below the seam angle are not cut. Sliver triangles (area < 1e-4 of mean) are ignored by the quality checks. Seams follow the
+  angle rule, not user-marked edges. The UV sphere primitive's own UVs run mirrored relative to the box/plane/torus convention
+  that the unwrapper follows (textures unmirrored seen from outside). A UV-less file is only auto-unwrapped through Session::open_mesh
+  and New project; File > Reload mesh still refuses it (unwrap the project instead).
+* **Run:** `cargo test --workspace --lib --bins --tests --no-fail-fast`: 879 passed, 0 failed (107 suites, includes the 14 new tests).
+### Session 115 - Painter import: padding outside the islands, text labels (2026-11-03)
+
+Branch `claude/spp-gaps-eaaadc`, local. Lab runs at 1024 (`spp_lab`, rebuilt stack alone against Painter's flattened channels), on the user's CarInteriro and DBAL-A2 (`C:\Users\Rayan\Downloads`, read-only).
+
+* **New lab measurement:** per channel, the mean absolute difference in a band of 1-4 texels outside the UV islands (Chebyshev), the band means on both sides, the error by distance, and two references (Painter's band against a nearest-texel padding of Painter's inside; the rebuilt band against a padding of the rebuilt inside). `SUBCRAFT_LAB_WORST=1` adds the worst 128x128 blocks. Switch `SUBCRAFT_SPP_NO_PAD=1` turns the fix below off for A/B runs.
+* **Where the flat fill came from:** the textures solved from Painter's result (`... (solved from Painter's result)`, Base Color / Roughness / Metallic / Height / Normal of the fitted material layers) were written only at the set's covered texels; every other texel kept the layer's uniform fitted value (the Normal ones stayed flat). Mask rasters were already padded (session 110), baked maps too. Fix: `spp_import::pad_outside` copies the nearest covered sample into the rest of each solved texture (jump flooding, `nearest_covered` / `apply_nearest`) before it becomes a resource; texels inside the islands are untouched. Importer cache version 8.
+
+| band error (4 texels outside), mean abs | before | after | inside the islands |
+|---|---|---|---|
+| CarInteriro Base Color | 0.0195 | 0.0183 | 0.0100 |
+| CarInteriro Roughness | 0.0950 | 0.0665 | 0.0370 |
+| CarInteriro Normal | 0.0097 | 0.0086 | 0.0061 |
+| CarInteriro Ambient Occlusion (not gated) | 0.664 | 0.603 | 0.437 |
+| CarInteriro Height / Metallic | 0.0168 / 0.0135 | unchanged | 0.0034 / 0.0022 |
+| DBAL-A2 Base Color / Roughness / Metallic | 0.0278 / 0.0488 / 0.0485 | unchanged | 0.0144 / 0.0432 / 0.0453 |
+| DBAL-A2 Normal | 0.0099 | 0.0091 | 0.0010 |
+
+  Inside-island numbers are identical with and without the padding (CarInteriro 0.0100 / 0.0034 / 0.0371 / 0.0022 / 0.0061; DBAL-A2 unchanged), as the padding only writes outside.
+* **What stays unsolved:** the rebuilt band is not a nearest-texel padding of the rebuilt inside (DBAL-A2 Base Color band against its own padded inside: 0.0188; Painter's own band against its padded inside: 0.0032), so other layer types still differ outside the islands. The error by distance is flat (DBAL-A2 Base Color 0.0265 / 0.0280 / 0.0310 / 0.0278 at 1-4 texels; Roughness 0.048-0.050), so it is not a rim or reach limit; procedural layers (noises, generators, fractal fills) have no surface position beyond the evaluated rim and the composite does not pad. Padding the final composite from its inside would bring the band to the inside-error floor (a lab estimate: DBAL-A2 Base Color 0.0278 -> 0.0181, Roughness 0.0488 -> 0.0468, CarInteriro Roughness 0.0665 -> 0.0642); that would be a compositor/export change and was not made. The gate (inside the islands) and the 3D view (islands only, bands at seams) are unchanged by this work; the visible effect is on the channel images and mipmapped reads near borders. No screenshots were taken.
+* **Text labels:** no new experiment; the finding of sessions 110b and 114 stands and is not contradicted by anything seen here. The labels (DBAL-A2's "DBAL-A2", QR / "CAGE" text, knob numbers) are 328 stencilled brush strokes whose stencils are alpha sheets inside compiled stencil packs (collages of wear and grunge, no glyphs); the only text in the file is one eraser stamp with the font resource `font_chathura` and the string "2". Replaying the readable sheets made the result worse in their footprint (Base Color 0.027 -> 0.047, Metallic 0.060 -> 0.130, whole-set Metallic 0.0453 -> 0.0466), one pack (Weapon_Stencil_2) does not resolve, and the flattened layer cannot be separated per stroke. So `SUBCRAFT_SPP_SHEETS` stays off by default and the labels stay in the flattened layer / as the strokes that can be replayed. Not reproduced: the "00" vs "06" knob numbers.
+* **Tests:** `padding_copies_the_nearest_sample_outside_and_keeps_the_samples` (spp_import). `cargo test --workspace --lib --bins --tests --no-fail-fast`: 866 passed, 0 failed (865 before).
+## Faster layer edits: per-layer result cache and quick preview (CPU path)
+
+Task: make toggling / editing layers fast on the CPU compositor without touching stored data. Stored data is unchanged: project
+files, rasters and `TiledImage` storage are not read differently or written differently; the new cache is derived, lives inside
+`CompositeCache` and is never serialized.
+
+**Measured with** `big_project_bench` (`cargo run --release -p subcraft-app --example big_project_bench -- 4096 40 fahi`):
+4096 set, 40 layers (26 top-level, the rest in four folders), 100k-triangle sphere, 16 threads, 9 baked maps. The machine was shared
+with other sessions, so single timings move by +-15% (the same baseline stage measured 37.4 s in one run and 24.9 s in a quieter
+one); every case was run twice and both repetitions are listed. Every edit changes the document, and the timings include
+`update_composites`. Composite hash of the full result (all channels, all texel bits) is `ae74bae14b3e1faf` before and after.
+
+| Case (ms per edit) | Before (rep 1 / rep 2) | After (rep 1 / rep 2) | Result |
+|---|---|---|---|
+| full composite from scratch | 37366 (24875 in a quiet run) | 26297 | not faster: the same work plus packing the stored boundaries (about 0 to +5%) |
+| bottom: visibility | 35198 / 29594 | 29125 / 28014 | no change (nothing below to reuse) |
+| bottom: opacity | 30873 / 29740 | 23891 / 22951 | no change (noise) |
+| bottom: blend mode | 31599 / 35072 | 23947 / 24521 | no change (noise) |
+| bottom: filter parameter | 38147 / 41139 | 26663 / 28199 | no change (noise) |
+| middle: visibility | 43418 / 32666 | 28983 / 12934 | 2.5x after the first edit |
+| middle: opacity | 41105 / 36811 | 13220 / 12935 | about 3x |
+| middle: blend mode | 40602 / 30457 | 13717 / 13098 | about 2.7x |
+| middle: filter parameter | (0, no-op) / 27286 | 11722 / 10821 | about 2.5x |
+| top: visibility | 26270 / 31784 | 10976 / 2273 | 14x on the second edit; the first edit after a bottom-stack edit rebuilt boundaries |
+| top: opacity | 35378 / 37970 | 538 / 571 | about 65x |
+| top: blend mode | 39921 / 35866 | 527 / 468 | about 80x |
+| top: filter parameter | 28717 / 32132 | 5265 / 5585 | about 5.5x (the nearest filter layer sits several layers below the top) |
+
+Before this change every edit re-evaluated every tile of the whole stack (about 30 s at 4096 wherever the layer was). Now the cost
+follows how many layers sit above the nearest stored boundary below the edited one.
+
+Interactive feedback through the background worker (`i` stage; "first" = every stale tile has been shown once, "exact" = the
+final result finished), opacity change of one layer:
+
+| Layer | Before first / exact | After first / exact |
+|---|---|---|
+| bottom | 26018 / 26018, 25825 / 25825 | 777 / 33501, 637 / 42702 |
+| middle | 25644 / 25644, 24478 / 24478 | 513 / 9870, 473 / 10758 |
+| top | 24665 / 24665, 25585 / 25585 | 419 / 2046, 415 / 953 |
+
+So the image reacts after about 0.4-0.8 s instead of 25 s in every case. A bottom edit still takes as long as before to become
+exact (here 33-43 s against 26 s; probably the preview, the boundary packing and other sessions on the machine, not measured
+separately; this case did not improve).
+
+Memory: the cache budget is `SUBCRAFT_LAYER_CACHE_MB` (default 2048, 0 turns it off). At 4096 with 40 layers the bench stored
+177k tile entries in 2047 MB (a boundary costs about 500 MB, so about four boundaries fit); the working set after the first
+composite rose from 3228 MB to 4056 MB (the cache fills up over the first edits). Smaller sets keep proportionally more
+boundaries (a boundary of a 2048 set is about a quarter of that).
+
+What changed:
+
+* `compositor::prefix::PrefixCache` (new): for chosen top-level boundaries (accumulation after layers 0..=j, per channel and tile)
+  it keeps lossless packed copies (constant and duplicate planes are shared), LRU-evicted under a byte budget. Which boundaries
+  are stored is planned from the budget, evenly spaced from the top (the topmost result is the composite itself and is never
+  copied). The plan uses a conservative size estimate first and the measured average entry size afterwards.
+* Invalidation is by layer identity: `sync` drops boundaries at or above the first top-level layer whose `Arc` changed; for a
+  raster-only edit (stroke) only the tiles the existing incremental diff reports dirty. A change of resolution, channels, albedo
+  filter, an explicit `invalidate()` (resources, mesh maps, geometry), or a switch between the local and the neighborhood-graph
+  evaluator clears everything. The graph evaluator (`stages.rs`) reads and writes the boundaries as marked nodes; the local
+  evaluator resumes from the highest cached boundary that holds every channel of the tile.
+* Quick preview (`Composite::preview`, `overlay_preview`, worker): when a snapshot makes at least 128 tiles stale, the worker first
+  evaluates the whole set at 512 px (layers are point-sampled by UV, spatial radii scale with the resolution), stretches it over
+  the stale tiles and publishes it, then refines tile by tile to the exact result. Tiles that showed a preview are reported as
+  changed even if the exact result equals the earlier texels, so a GPU copy always ends exact. A newer snapshot cancels a preview
+  that is still being computed (checked per tile); the exact slices already used newest-snapshot-wins. Sets of 512 px or less skip
+  previews. `Session` supplies the 512 px geometry (`SetSnapshot::preview_geometry`).
+* Bench: `big_project_bench` stages `h` (layer edit cases) and `i` (worker feedback); `Session::layer_cache_stats`.
+
+**Tests** (`crates/compositor/tests/layer_cache.rs`, `tests/worker.rs`): after visibility, opacity, blend mode (bottom, middle, top),
+a filter parameter, raster edits, layer removal and an explicit invalidation the cached composite equals `composite_full`
+bit for bit, on both evaluators, with a roomy budget, a tight budget (eviction and sparse boundaries) and the cache disabled;
+edits above a stored boundary register cache hits; the stored bytes never exceed the budget; the worker test checks that a preview
+is published first, the final composite is exact and every previewed tile is reported for upload. Mutation check: replacing the
+parameter-change invalidation by "keep everything" made 3 of the 5 `layer_cache` tests fail (the two that only count hits or run
+with the cache off still passed, as expected); reverted.
+`cargo test --workspace --lib --bins --tests`: 871 passed, 0 failed.
+
+Known limits: a bottom-of-stack edit is not faster (nothing below it to reuse), and while the exact refinement of a bottom edit
+runs the preview work and boundary packing slow it down; more RAM budget buys more boundaries; the preview of generator-based masks
+uses the 512 px geometry and baked maps sampled by UV, so it is only a rough look until the exact tiles arrive; the GPU
+compositor work from other sessions is not part of this.
+## Smart material import and export (2026-11-03)
+
+Request (a YouTube commenter): bring smart materials in from outside the app, including plain PBR texture packs such as ambientCG.
+
+* **Entry points:** File > Import smart material(s)… and File > Import smart material folder…, the Import / Import folder buttons on
+  the shelf's Smart Materials tab, drag and drop of files or folders onto the shelf, and `subcraft --import-smart PATH` (repeatable).
+  Export: right-click a smart material on the shelf > Export smart material… (a `.scsmart` zip anyone can import). All of it goes
+  through `subcraft_app::smart_import`; the UI only picks paths and shows the result. A finished import switches to the Smart
+  Materials tab, adds the new entries and shows a report window when anything went wrong (every line is also logged).
+* **What is accepted:** `.scsmart` files (fragment of kind smart material; schema newer than this build is refused with a clear
+  message), image files (png jpg jpeg tga bmp tif tiff exr hdr webp) and folders of them. Image files are grouped per material by the
+  filename prefix before the map word (`Bricks059_2K-PNG_Color.png` and `Bricks059_2K-PNG_Roughness.png` are one material named
+  `Bricks059`; resolution/format words like 2K, PNG, JPG are dropped from the name); files without a prefix use the folder name.
+  Map assignment reuses `texture_maps::classify` (Color/Albedo/BaseColor, Roughness, Metalness/Metallic, AmbientOcclusion, Height/
+  Displacement, Opacity, Normal). `NormalDX` is flipped in green; when both NormalGL and NormalDX exist the OpenGL one is used and the
+  other is listed as skipped. Each material becomes a fill layer with the found channels (the layer adds missing channels to the
+  texture set when applied) and is saved to the user's library folder. Unrelated files are listed, never fatal.
+* **Name collisions:** an identical existing file or identical images is reported as "already present"; a different material with an
+  existing name is saved as `Name (2)`. The bundled assets are never written, the library folder only.
+* **Safety limits:** nothing from a zip is extracted (entries are looked up by name, so no path traversal; a `../` entry is just a
+  missing entry); entries are capped at 1 GiB (`project::MAX_ENTRY_BYTES`, also enforced on read so a lying header cannot allocate
+  more); smart files 1 GiB, texture files 256 MiB, texture side 8192, 500 materials, 20,000 files scanned, folder depth 8; symlinks in
+  dropped folders are not followed. Corrupt, empty, truncated, future-version, wrong-kind (smart mask) and traversal inputs each give
+  one error line and leave the library unchanged; nothing panics.
+* **Tests:** `crates/app/tests/smart_import.rs` (5: ambientCG folder to one material per set with channel check, dropped files and nested
+  folders, export/import round trip with pixel equality, nine kinds of bad input, nothing recognizable) and
+  `crates/assets/tests/split_map_name.rs` (2). All fixtures are generated in the temp dir.
+  `cargo test --workspace --lib --bins --tests`: 872 passed, 0 failed.
+* **Real run:** built binary, `SUBCRAFT_LIBRARY=D:/smi-run/lib subcraft --import-smart D:/smi-run/Downloads --shelf-tab smart-materials`
+  on a generated folder with `Bricks059_2K-PNG` (Color, Roughness, NormalGL, NormalDX, Displacement, AmbientOcclusion), `Planks012_2K-PNG`
+  (Color, Roughness, NormalDX), a readme and a garbage `bad.scsmart`: status "Imported 2 smart materials; 1 problem(s)", the report window
+  listed the zip error, the skipped NormalDX and both channel mappings, and the library folder held `Bricks059.scsmart` and `Planks012.scsmart`.
+* **Not done:** drag and drop (`handle_drops` in the shelf) has no automated test and was not tried with a real OS drag (no mouse driving),
+  only the same import function it calls was run; Windows-only manual run so far.

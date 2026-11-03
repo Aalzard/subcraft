@@ -5,6 +5,7 @@
 
 pub mod actions;
 pub mod asset_apply;
+pub mod auto_uv;
 pub mod bake_job;
 mod guides;
 pub mod brush_builtin;
@@ -31,6 +32,7 @@ pub mod spp_cache;
 pub mod spp_fit;
 pub mod spp_import;
 pub mod spp_job;
+pub mod smart_import;
 pub mod spp_select;
 pub mod spp_stack;
 pub mod thumbnails;
@@ -43,6 +45,7 @@ pub use spp_job::{ImportControl, SppImportJob, SppPoll};
 pub use command::{Command, CommandError, NewLayer};
 pub use images::TextureSetImport;
 pub use mesh_reload::{MeshReloadJob, MeshReloadReport, PreparedReload, ReloadMode, ReloadOutput};
+pub use auto_uv::AutoUvOutput;
 pub use parts::MeshPart;
 pub use part_workflow::{PartAction, PartInfo, PartKey, SurfaceTarget};
 pub use recovery::{AutosaveEvent, Autosaver, CrashedSession, RecoveryStore};

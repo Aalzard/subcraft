@@ -93,6 +93,8 @@ pub struct UiState {
     /// Channel whose blend mode/opacity the layer stack shows.
     pub active_channel: ChannelKind,
     pub status: Option<(String, f64)>,
+    /// Problems and notes of the last smart-material import (shown in a window until closed).
+    pub import_report: Vec<String>,
     /// Brief acknowledgement in the 3D view's top-left corner after a Shelf brush click.
     pub brush_notice: Option<BrushNotice>,
     /// Shelf double-click: bring the Brush settings tab forward on the next frame.
@@ -136,6 +138,7 @@ pub struct UiState {
     pub export: crate::dialogs::ExportUi,
     pub new_project: crate::new_project::NewProjectUi,
     pub mesh_reload: crate::mesh_reload::MeshReloadUi,
+    pub auto_uv: crate::auto_uv::AutoUvUi,
     /// Action waiting for the unsaved-changes prompt.
     pub confirm: Option<crate::dialogs::Pending>,
     /// The user already agreed to close without saving.
@@ -211,6 +214,7 @@ impl UiState {
             fill_mode: PolygonFillMode::UvIsland,
             active_channel: ChannelKind::BaseColor,
             status: None,
+            import_report: Vec::new(),
             brush_notice: None,
             open_brush_editor: false,
             capture_select_brush: None,
@@ -220,6 +224,7 @@ impl UiState {
             render_export: Default::default(),
             new_project: Default::default(),
             mesh_reload: Default::default(),
+            auto_uv: Default::default(),
             render_request: None,
             last_view_size: [1280, 720],
             uv: UvView { zoom: 1.0, offset: egui::Vec2::ZERO, source: PreviewSource::Channel(ChannelKind::BaseColor), texture: None, painting: false, last_point: None },
