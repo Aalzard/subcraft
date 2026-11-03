@@ -67,6 +67,19 @@ pub enum Command {
     ApplyMaskEffects { layer: LayerId, effects: Vec<MaskEffectKind>, label: String },
     DeleteLayer(LayerId),
     DuplicateLayer(LayerId),
+    /// Multi-select operations: one undo step each. All layers must be in the same texture set;
+    /// a layer inside another selected layer is covered by it.
+    DeleteLayers(Vec<LayerId>),
+    DuplicateLayers(Vec<LayerId>),
+    SetLayersVisible { layers: Vec<LayerId>, visible: bool },
+    /// Paste copied layers above the selected layer of the selected texture set (any project).
+    PasteLayers(std::sync::Arc<crate::clipboard::LayerClip>),
+    /// Paste copied effects onto the end of this layer's matching stack.
+    PasteEffects { layer: LayerId, clip: std::sync::Arc<crate::clipboard::EffectClip> },
+    RenameTextureSet { texture_set: TextureSetId, name: String },
+    /// Show or hide a texture set's part of the model in the viewport. View state only: not saved,
+    /// no undo step.
+    SetTextureSetHidden { texture_set: TextureSetId, hidden: bool },
     /// Wrap the layer into a new folder.
     GroupLayer(LayerId),
     MoveLayer { layer: LayerId, parent: Option<LayerId>, index: usize },
