@@ -11,6 +11,7 @@ pub mod dialogs;
 pub mod files;
 pub mod graphics;
 pub mod icons;
+pub mod auto_uv;
 pub mod mesh_reload;
 pub mod new_project;
 pub mod orbit;

@@ -122,6 +122,7 @@ fn main() -> anyhow::Result<()> {
                     _ => anyhow::bail!("--reload-mode expects keep or reproject"),
                 })
             }
+            "--auto-uv" => options.auto_uv = true,
             "--test-crash" => options.test_crash = true,
             "--profile-edits" => {
                 let out = args.next().ok_or_else(|| anyhow::anyhow!("--profile-edits expects an output file"))?;
