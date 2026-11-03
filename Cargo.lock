@@ -3873,6 +3873,7 @@ dependencies = [
  "serde",
  "subcraft-core",
  "subcraft-image",
+ "subcraft-text",
  "uuid",
  "web-time",
 ]
@@ -3959,6 +3960,7 @@ dependencies = [
  "subcraft-image",
  "subcraft-materials",
  "subcraft-mesh",
+ "subcraft-text",
 ]
 
 [[package]]

@@ -28,7 +28,9 @@ use uuid::Uuid;
 //     1-12 migrate unchanged (no tile, default settings).
 // 14: Gradient Map (stop list), Histogram Scan / Range, Median; schemas 1-13 migrate unchanged.
 // 15: ID Color Mask effect (`id_color`); schemas 1-14 migrate unchanged (they cannot contain it).
-pub const SCHEMA_VERSION: u32 = 15;
+// 16: editable text decals on paint layers (`text`) and font resources; schemas 1-15 migrate
+//     unchanged (no text layers). Font files are stored like images, kind `font`.
+pub const SCHEMA_VERSION: u32 = 16;
 pub const FORMAT_NAME: &str = "subcraft-project";
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -165,9 +167,29 @@ pub enum ContentV1 {
         channels: Vec<PaintChannelV1>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         path: Option<PenPathV4>,
+        /// Schema 16.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        text: Option<TextLayerV16>,
     },
     Fill { projection: Projection, channels: Vec<FillChannelV1> },
     Folder { expanded: bool, children: Vec<LayerV1> },
+}
+
+/// Schema 16: an editable text decal. Lengths are fractions of the texture width (em), so the
+/// raster cache is always re-derivable at any resolution.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TextLayerV16 {
+    pub text: String,
+    pub font: subcraft_text::FontRef,
+    pub letter_spacing: f32,
+    pub line_spacing: f32,
+    pub align: subcraft_text::Align,
+    pub direction: subcraft_text::Direction,
+    pub center: [f32; 2],
+    pub size: f32,
+    pub rotation: f32,
+    pub opacity: f32,
+    pub values: Vec<PenChannelV4>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

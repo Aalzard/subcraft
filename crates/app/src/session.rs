@@ -987,10 +987,14 @@ impl Session {
                     return Err(CommandError::TextureSetNotFound);
                 }
                 let mut changed = false;
+                let mut resized = Vec::new();
                 for ts in self.doc.texture_sets.iter_mut().filter(|ts| texture_set.is_none_or(|id| ts.id == id)) {
+                    if ts.resolution != resolution { resized.push(ts.id); }
                     changed |= ts.resolution != resolution;
                     ts.set_resolution(resolution);
                 }
+                // Text layers are re-rendered from their outlines instead of resampled.
+                crate::text::refresh_text_rasters(&mut self.doc, &self.resources, &resized);
                 if changed {
                     self.commit(&format!("Resolution {resolution}"), None);
                 }

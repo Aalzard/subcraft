@@ -14,6 +14,7 @@ pub mod mask;
 pub mod pen;
 pub mod resources;
 pub mod settings;
+pub mod text;
 pub mod texture_set;
 
 pub use blend::BlendMode;
@@ -26,5 +27,6 @@ pub use layer::{ChannelBlend, FillChannel, FillContent, GroupContent, Layer, Lay
 pub use mask::{EdgeSpread, Generator, GeneratorKind, IdColorMask, Levels, Mask, MaskEffect, MaskEffectKind};
 pub use pen::{PenAnchor, PenPath};
 pub use resources::{Resource, ResourceKind, ResourceStore};
+pub use text::TextDecal;
 pub use settings::{NormalFormat, ProjectSettings};
 pub use texture_set::{ChannelDef, ChannelFormat, LayerLocation, LayerOpError, RESOLUTIONS, TextureSet};

@@ -16,3 +16,4 @@ serde.workspace = true
 uuid.workspace = true
 log.workspace = true
 web-time.workspace = true
+subcraft-text.workspace = true

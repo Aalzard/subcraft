@@ -37,6 +37,8 @@ pub struct PaintContent {
     pub channels: BTreeMap<ChannelKind, TiledImage>,
     /// Editable pen source; channel rasters are its derived, tiled cache.
     pub path: Option<crate::pen::PenPath>,
+    /// Editable text decal; channel rasters are its derived cache (exclusive with `path`).
+    pub text: Option<crate::text::TextDecal>,
 }
 
 impl PaintContent {
@@ -107,6 +109,7 @@ pub enum LayerContent {
 pub enum LayerKind {
     Paint,
     Path,
+    Text,
     Fill,
     Folder,
 }
@@ -216,6 +219,7 @@ impl Layer {
     pub fn kind(&self) -> LayerKind {
         match &self.content {
             LayerContent::Paint(p) if p.path.is_some() => LayerKind::Path,
+            LayerContent::Paint(p) if p.text.is_some() => LayerKind::Text,
             LayerContent::Paint(_) => LayerKind::Paint,
             LayerContent::Fill(_) => LayerKind::Fill,
             LayerContent::Group(_) => LayerKind::Folder,
@@ -320,6 +324,9 @@ impl Layer {
                 }
             }
         }
+        if let LayerContent::Paint(p) = &self.content && let Some(r) = p.text.as_ref().and_then(|t| t.resource()) {
+            add(r);
+        }
         for e in &self.content_effects {
             if let ContentEffectKind::Fill(f) = &e.kind {
                 for c in f.channels.values() {
@@ -366,7 +373,7 @@ impl Layer {
         match (&self.content, &other.content) {
             // A channel image present on one side only is a raster change (absent = transparent,
             // e.g. created lazily by the first stroke) as long as it has the paint-image layout.
-            (LayerContent::Paint(a), LayerContent::Paint(b)) => same_paint_layout(&a.channels, &b.channels),
+            (LayerContent::Paint(a), LayerContent::Paint(b)) => a.text == b.text && same_paint_layout(&a.channels, &b.channels),
             (LayerContent::Fill(a), LayerContent::Fill(b)) => a == b,
             (LayerContent::Group(a), LayerContent::Group(b)) => {
                 a.children.len() == b.children.len() && a.children.iter().zip(&b.children).all(|(x, y)| x.id == y.id)

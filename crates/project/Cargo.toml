@@ -22,3 +22,4 @@ uuid.workspace = true
 zip.workspace = true
 thiserror.workspace = true
 log.workspace = true
+subcraft-text.workspace = true

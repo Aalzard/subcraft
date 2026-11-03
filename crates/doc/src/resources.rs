@@ -17,6 +17,9 @@ pub enum ResourceKind {
     Texture,
     Alpha,
     Environment,
+    /// A `.ttf` / `.otf` font file (text layers). The bitmap is a 1x1 placeholder; the font is
+    /// the `encoded` bytes.
+    Font,
 }
 
 #[derive(Debug)]
