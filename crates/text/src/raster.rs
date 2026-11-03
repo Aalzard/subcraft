@@ -173,7 +173,8 @@ pub fn rasterize(font: &Font, layout: &TextLayout, xf: Affine2, width: u32, heig
     })
     .ok_or(TextError::BadFont)?;
     let mut data = vec![0.0; (width * height) as usize];
-    raster.for_each_pixel(|i, a| data[i] = a.clamp(0.0, 1.0));
+    // Accumulated float residue (~1e-7) outside the shapes is snapped to exactly zero.
+    raster.for_each_pixel(|i, a| data[i] = if a < 1e-4 { 0.0 } else { a.min(1.0) });
     Ok(Coverage { width, height, data })
 }
 

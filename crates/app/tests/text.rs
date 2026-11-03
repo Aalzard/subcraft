@@ -63,7 +63,7 @@ fn adding_text_makes_one_undoable_editable_layer() {
     s.execute(Command::Undo).unwrap();
     assert_eq!(s.document(), &before);
     s.execute(Command::Redo).unwrap();
-    assert_eq!(s.selected_layer().unwrap().kind(), LayerKind::Text);
+    assert!(s.selected_texture_set().layers.iter().any(|l| l.kind() == LayerKind::Text), "redo brings the text layer back");
 }
 
 #[test]

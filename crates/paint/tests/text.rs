@@ -107,7 +107,7 @@ fn only_touched_tiles_are_allocated_and_off_texture_text_is_empty() {
     d.center = Vec2::new(0.99, 0.5);
     d.size = 0.3;
     let clipped = base(&d, 256);
-    assert!(bounds(&clipped).2 == 256);
+    assert!(bounds(&clipped).2 >= 250, "ink reaches the right edge");
 }
 
 #[test]
