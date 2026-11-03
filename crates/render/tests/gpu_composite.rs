@@ -30,6 +30,7 @@ fn adapter_ok() -> bool {
     }
     gpu::register_gpu_compositor(|| subcraft_render::gpu_composite::create_any_backend().map(|b| b as Arc<dyn gpu::GpuCompositeBackend>));
     gpu::set_gpu_min_tiles(1);
+    gpu::set_gpu_min_resolution(0);
     true
 }
 
@@ -278,6 +279,27 @@ fn unsupported_sets_use_the_cpu_and_stay_identical() {
     let _ = take_gpu_stats();
     let gpu_c = run(&ts, &fx, true);
     assert_eq!(take_gpu_stats().tiles, 0, "a set with neighborhood filters must not use the GPU");
+    assert_eq!(cpu, gpu_c);
+}
+
+/// With the default thresholds a set below 2048² stays on the CPU (the GPU loses there).
+#[test]
+fn small_sets_stay_on_the_cpu_by_default() {
+    let _turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
+    if !adapter_ok() {
+        return;
+    }
+    gpu::set_gpu_min_tiles(gpu::DEFAULT_MIN_TILES);
+    gpu::set_gpu_min_resolution(gpu::DEFAULT_MIN_RESOLUTION);
+    let fx = Fixture { geo: TextureSetGeometry::new(Arc::new(primitives::plane(2.0, 2)), 0, RES), res: ResourceStore::default(), maps: MeshMaps::new() };
+    let ts = rich_set();
+    let cpu = run(&ts, &fx, false);
+    let _ = take_gpu_stats();
+    let gpu_c = run(&ts, &fx, true);
+    let stats = take_gpu_stats();
+    gpu::set_gpu_min_tiles(1);
+    gpu::set_gpu_min_resolution(0);
+    assert_eq!(stats.tiles, 0, "a {RES}² set must stay on the CPU by default");
     assert_eq!(cpu, gpu_c);
 }
 

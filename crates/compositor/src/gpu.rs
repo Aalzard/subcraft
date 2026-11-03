@@ -13,7 +13,7 @@
 //! Stored data is untouched: paint tiles are uploaded to a GPU-side cache keyed by tile identity
 //! (an `Arc<Tile>` the cache holds, so copy-on-write guarantees an edited tile has a new key).
 
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Instant;
 
@@ -150,11 +150,16 @@ static FACTORY: Mutex<Option<Factory>> = Mutex::new(None);
 static BACKEND: OnceLock<Option<Arc<dyn GpuCompositeBackend>>> = OnceLock::new();
 static ENABLED: AtomicBool = AtomicBool::new(true);
 static MIN_TILES: AtomicUsize = AtomicUsize::new(DEFAULT_MIN_TILES);
+static MIN_RESOLUTION: AtomicU32 = AtomicU32::new(DEFAULT_MIN_RESOLUTION);
 static STATS: Mutex<GpuStats> = Mutex::new(GpuStats::new());
 
 /// Edits touching fewer tiles than this stay on the CPU (a brush stroke is a handful of tiles
 /// and the CPU answers sooner than a round trip to the GPU).
 pub const DEFAULT_MIN_TILES: usize = 64;
+
+/// Texture sets below this resolution stay on the CPU: measured (docs/progress.md) the GPU path
+/// wins whole-set edits at 2048² and 4096² but loses at 1024², where the CPU needs only ~16 ms.
+pub const DEFAULT_MIN_RESOLUTION: u32 = 2048;
 
 /// Above this share of CPU-evaluated sources the CPU keeps the whole set (see `evaluate_tiles`).
 const MAX_DYNAMIC_SHARE: f64 = 0.25;
@@ -178,6 +183,11 @@ pub fn gpu_compositing_enabled() -> bool {
 /// Smallest number of tiles worth a GPU round trip (tests lower it).
 pub fn set_gpu_min_tiles(n: usize) {
     MIN_TILES.store(n, Ordering::Relaxed);
+}
+
+/// Smallest texture set resolution that uses the GPU (tests lower it).
+pub fn set_gpu_min_resolution(res: u32) {
+    MIN_RESOLUTION.store(res, Ordering::Relaxed);
 }
 
 /// Whether a backend is registered and the preference is on (the device is created lazily).
@@ -566,7 +576,7 @@ fn dyn_bytes_per_tile(plan: &Plan) -> usize {
 /// what changed plus the tiles the caller must still evaluate on the CPU.
 pub(crate) fn evaluate_tiles(composite: &mut Composite, ts: &TextureSet, ctx: &EvalContext, tiles: &[usize]) -> (ChangedTiles, Vec<usize>) {
     let none = |t: &[usize]| (ChangedTiles::new(), t.to_vec());
-    if !gpu_compositing_enabled() || tiles.len() < MIN_TILES.load(Ordering::Relaxed) {
+    if !gpu_compositing_enabled() || tiles.len() < MIN_TILES.load(Ordering::Relaxed) || ts.resolution < MIN_RESOLUTION.load(Ordering::Relaxed) {
         return none(tiles);
     }
     let Some(backend) = backend() else { return none(tiles) };

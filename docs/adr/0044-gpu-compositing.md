@@ -17,7 +17,9 @@ masks, blur-type filters) are not blends.
 `GpuCompositeBackend` and a process-wide registry (`register_gpu_compositor`), the same pattern as
 GPU baking (ADR-0039). `crates/render` implements it with one WGSL compute pass per channel on a
 headless device of its own. The UI registers it at start-up. The preference "Use GPU for
-compositing" (`set_gpu_compositing_enabled`, **default off**: measured no faster than the CPU path for the shipped stacks) switches it. Software adapters
+compositing" (`set_gpu_compositing_enabled`) switches it; it is **on by default** and applies to texture sets of
+2048² and larger (`DEFAULT_MIN_RESOLUTION`), where it measured faster than the CPU for whole-set edits; at 1024² the
+CPU wins. Software adapters
 (llvmpipe, WARP) are refused unless `SUBCRAFT_GPU_COMPOSITE_SOFTWARE` is set, because the CPU
 path beats them. Any error, a missing adapter or a lost device sends the affected tiles to the
 CPU path; stored data is never touched by the GPU path except through the same
@@ -39,7 +41,9 @@ touching fewer than 64 tiles (a brush stroke) stay on the CPU, which answers soo
 round trip.
 
 **Memory.** No dense per-layer GPU textures. Paint and mask tiles are uploaded as the stored f16
-tiles into a pool buffer of 32 KiB slots (default 1 GiB, `SUBCRAFT_GPU_POOL_MB`), found again by
+tiles into a pool of 32 KiB slots spread over up to four storage buffers (each at most the device's
+`maxStorageBufferBindingSize` and 512 MiB; 2 GiB in total by default, `SUBCRAFT_GPU_POOL_MB`, grown on demand), so a
+4096² working set stays resident between edits. Slots are found again by
 the identity of the `Arc<Tile>` the cache holds; copy-on-write makes an edited tile a new key, so
 a stale tile can never be read. Least recently used slots are evicted. Work is cut into batches of
 at most 256 tiles and a CPU-data budget (about 192 MB of f32 blocks); a batch the GPU cannot hold
@@ -57,7 +61,11 @@ no NaN, and exact repeatability on the same device. Measured values, including C
 Whole-set edits of paint-, uniform-fill- and mask-raster-heavy stacks no longer evaluate every
 texel on the CPU. Stacks dominated by procedural fills or generator masks gain little, since that
 work is still CPU work (it is only not repeated for the blend). Sets with blur-type filters are
-unchanged. Upload and readback cost is real and is reported by `gpu_composite_bench`. Later
-steps, if measurements justify them: caching CPU-evaluated blocks per layer on the GPU (this
-interacts with the CPU per-layer cache), GPU procedural patterns, and a neighborhood-aware path
+unchanged. Upload and readback cost is real and is reported by `gpu_composite_bench`.
+
+Keeping CPU-evaluated blocks (procedural fills, generator masks) resident on the GPU between edits
+was implemented and measured, then reverted: it sends procedural sets to the GPU, which then
+re-blends every tile instead of resuming from the CPU per-layer prefix cache, and was several times
+slower (45.7 s vs 17.5 s for a 4096² toggle). Later steps, if measurements justify them: GPU
+procedural patterns, letting GPU results fill the CPU prefix cache, and a neighborhood-aware path
 for blur-type filters.

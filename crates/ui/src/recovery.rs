@@ -56,7 +56,7 @@ impl Default for Preferences {
             show_welcome: true,
             check_updates_on_start: true,
             use_gpu_baking: true,
-            use_gpu_compositing: false,
+            use_gpu_compositing: true,
             viewport: Default::default(),
             new_project: Default::default(),
         }
@@ -270,7 +270,7 @@ pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
         ui.checkbox(&mut rec.prefs.use_gpu_baking, "Use GPU for baking")
             .on_hover_text("Bakes ambient occlusion and thickness on the graphics card, much faster on big meshes. If it is off or fails, the processor bakes them instead. The Bake window shows which one ran.");
         if ui.checkbox(&mut rec.prefs.use_gpu_compositing, "Use GPU for compositing")
-            .on_hover_text("Blends layers on the graphics card for big edits (opening a project, changing a layer under many others). Procedural fills, generator masks and blur-type filters are still computed by the processor, and sets with blur-type filters use the processor entirely. Small edits such as brush strokes always use the processor.")
+            .on_hover_text("Blends layers on the graphics card for big edits (opening a project, changing a layer under many others) on texture sets of 2048 and larger. Procedural fills, generator masks and blur-type filters are still computed by the processor, and sets with blur-type filters use the processor entirely. Small edits such as brush strokes always use the processor.")
             .changed()
         {
             subcraft_compositor::gpu::set_gpu_compositing_enabled(rec.prefs.use_gpu_compositing);

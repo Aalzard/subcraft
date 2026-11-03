@@ -3977,10 +3977,11 @@ runs the preview work and boundary packing slow it down; more RAM budget buys mo
 uses the 512 px geometry and baked maps sampled by UV, so it is only a rough look until the exact tiles arrive; the GPU
 compositor work from other sessions is not part of this.
 
-## GPU compositing backend (2026-11-03) — opt-in, not faster for the shipped stacks
+## GPU compositing backend (2026-11-03) — on by default for 2048² and larger, CPU fallback
 
 What exists (ADR-0044): `compositor::gpu` (trait `GpuCompositeBackend`, planner, driver, registry), `render::gpu_composite`
-(WGSL compute, one headless wgpu device, 32 KiB tile pool), preference "Use GPU for compositing", **off by default**.
+(WGSL compute, one headless wgpu device, 32 KiB tile pool), preference "Use GPU for compositing" (round 2: off by default;
+round 3 below: on by default, texture sets of 2048² and larger only).
 The CPU compositor stays the reference; the GPU takes whole-set edits of at least 64 tiles on sets without neighborhood
 filters, only for tiles that have no resumable layer-cache prefix (`PrefixCache::covers`), and gives the rest of a set back to the
 CPU when more than 25 % of the first batch's sources are CPU-evaluated blocks (procedural fills, generator masks). Any GPU
@@ -4016,3 +4017,49 @@ the preference stays off by default. Not done, in order of likely payoff: a pool
 binding is limited by the device's `maxStorageBufferBindingSize`; needs several pool buffers), a faster kernel (0.6–1.2 s GPU time
 for 33 layers at 4096² is far from memory bandwidth), keeping CPU-evaluated blocks resident on the GPU between edits, and
 a neighborhood-aware path for blur-type filters.
+
+### Round 3 (2026-11-03): resident pool, kernel time, kept CPU blocks; default decision
+
+- **(a) Multi-buffer pool** (eaf2a09): the tile pool is up to four storage buffers (bindings 4, 8, 9, 10; each
+  `min(maxStorageBufferBindingSize, 512 MiB)`), 2 GiB by default (`SUBCRAFT_GPU_POOL_MB`), grown on demand, LRU
+  eviction, coalesced writes per run of contiguous slots, reused scratch buffers, timestamp queries for kernel time.
+  The 4096² paint working set (618 MB) now stays resident: the second pass uploads 0 MB with 38238/38238 hits.
+- **(b) Kernel**: with timestamps the kernels take 72–91 ms for 33 layers at 4096² (10 ms at 2048²), already well
+  under the 300 ms target; the earlier 0.6–1.2 s "GPU" figure was mostly uploads and queue waits. No shader rewrite
+  was needed; the remaining cost is CPU preparation (~165 ms), queue/wait (~200 ms), readback (~55 ms) and store (~90 ms).
+- **(c) Keeping CPU-evaluated blocks resident** (6fe6f27, **reverted** in 23587e9): procedural fills and generator
+  masks were kept on the GPU between edits so a toggle elsewhere only re-blends them. Correct (equivalence test
+  passed, 1120 blocks reused at 4096²), but slower: it sends the procedural sets to the GPU, where every tile is
+  re-blended and the CPU per-layer prefix cache is not used. Measured on the no-filter big_project stack at 4096²
+  (machine shared with another project's build): toggle mid 45.7 s vs 17.5 s CPU, top-layer opacity 45.3 s vs
+  0.53 s CPU. Those sets keep going to the CPU (25 % dynamic-share gate).
+
+**Measured** (`gpu_composite_bench`, RTX 4060, 16 threads, medians of 5, quiet machine, `SUBCRAFT_BENCH_PAINT_ONLY=1`;
+paint + uniform fills + folder stack):
+
+| res (layers) | op | CPU | GPU path | GPU breakdown (prep + upload + gpu (kernels) + readback + store) |
+|---|---|---|---|---|
+| 2048² (13) | cold full | 323 ms | 403 ms | 20 + 99 + 232 (37) + 36 + 15, 82 MB uploaded |
+| 2048² | toggle mid | 96 ms | **81 ms** | 19 + 3 + 28 (10) + 19 + 11 |
+| 2048² | opacity top | 112 ms | **75 ms** | 19 + 3 + 28 (10) + 14 + 11 |
+| 2048² | opacity mid | 95 ms | **82 ms** | 21 + 3 + 29 (10) + 16 + 12 |
+| 4096² (33) | cold full | 1888 ms | **1329 ms** | 195 + 450 + 362 (72) + 197 + 120, 618 MB uploaded |
+| 4096² | toggle mid | 1775 ms | **493 ms** | 161 + 23 + 181 (84) + 53 + 89 |
+| 4096² | opacity top | 1102 ms | **495 ms** | 169 + 24 + 229 (91) + 59 + 90 |
+| 4096² | opacity mid | 1904 ms | **472 ms** | 158 + 23 + 213 (75) + 55 + 89 |
+
+big_project stack as shipped (blur / sharpen / median) and without the filters: the GPU path declines the set or
+gives it back to the CPU, so its edits run on the CPU as before (the full run, made while another project was
+compiling, showed CPU and GPU-path rows within the run-to-run noise except where (c) was active).
+
+**Decision.** The GPU path beats the CPU on toggle and opacity edits at 2048² (1.2–1.5x) and 4096² (2.2–4x), so
+"Use GPU for compositing" is **on by default**, limited to texture sets of 2048² and larger
+(`DEFAULT_MIN_RESOLUTION`; at 1024² the CPU wins, 16 vs 31 ms). Everything else keeps the CPU fallback: no adapter or
+a software adapter, sets with neighborhood filters, sets where more than 25 % of the sources are CPU-evaluated, edits
+under 64 tiles, tiles with a resumable layer-cache prefix, and any GPU error. The 2048² cold composite is 80 ms
+slower on the GPU (upload of 82 MB); it happens once per open.
+
+Tests: `cargo test --release -p subcraft-compositor --lib --tests` all passing; `cargo test --release -p
+subcraft-render --test gpu_composite` 5 passing (new `small_sets_stay_on_the_cpu_by_default`); `cargo check -p
+subcraft-ui` clean. Not done: a neighborhood-aware GPU path for blur-type filters, GPU procedural patterns (the
+real cost of the big_project stack), and letting GPU-composited tiles fill the CPU prefix cache so mixed edits can resume.
