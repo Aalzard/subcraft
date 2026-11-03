@@ -4100,3 +4100,50 @@ ordering, the fallback loop and the settings schema are covered by unit tests wi
 lists; that the real driver combination now starts is **unconfirmed** and needs the reporter (or any
 Optimus laptop) to run a build and attach `logs/subcraft.log` — the log now contains the full adapter
 list and the chosen adapter, which is what to check.
+## Layers clipboard, multi-select, safety audit, texture sets list (2026-11-03)
+
+Branch `cloud/layers-safety` (from `integration/next`). Audit first, then only the gaps.
+
+### Already existed (not rebuilt)
+
+* Layers: `DuplicateLayer` (Ctrl+D, toolbar, context menu), `DuplicateContentEffect`,
+  `DuplicateMaskEffect`, mask copy / paste (`CopyMask` / `PasteMask`, clipboard inside the session),
+  move / group / drag-drop, per-layer undo.
+* Safety: `Session::is_modified`; the "Unsaved changes" modal (Save / Don't save / Cancel) for
+  Close, New (sample), New from model, Open project, Open recent (`Pending` + `UiApp::request`);
+  window-close interception; autosave + crash-recovery prompt at startup (`recovery.rs`).
+* Texture sets panel: list with select, layer count, resolution combo for the selected set,
+  "Apply to all", albedo filter, bake status.
+
+### Added
+
+* `app::clipboard` (`LayerClip`, `EffectClip`): in-app clipboard that lives in `UiState`, so it
+  survives opening another project. Paste creates new UUIDs, resamples rasters to the target
+  set's resolution, copies the image resources the layers use, adds channels the layers blend that
+  the target lacks, drops part masks when the mesh differs. Commands `PasteLayers`, `PasteEffects`
+  (content or mask stack; folders still adjustment-only), one undo step each.
+* Multi-select: `app::multi_select` (Ctrl/Cmd toggle, Shift range, pure); commands `DeleteLayers`,
+  `DuplicateLayers`, `SetLayersVisible` (one undo step; a layer inside another selected folder is
+  not processed twice; layers must share a texture set). Cut = copy + `DeleteLayers`.
+* UI: Ctrl+C / Ctrl+X / Ctrl+V (egui copy/cut/paste events), Layer menu and row context menu,
+  "Copy effect" / "Paste effect" in the effect context menus, multi-aware toolbar delete/duplicate.
+* Safety: `app::unsaved` pure functions (`is_dirty`, `guard`, `resolve`, `should_offer_recovery`),
+  used by `Session::is_modified`, `UiApp::request` and the prompt. Quit now goes through the same
+  prompt as the window close button. A cancelled/failed Save keeps the question open.
+* Texture sets: double-click / context menu rename (`RenameTextureSet`, undoable), eye toggle to
+  hide a set in the 3D view (`SetTextureSetHidden`, view state: not saved, no undo; the raster
+  viewport skips that material slot), per-set resolution from the row's context menu.
+
+### Tests run
+
+`cargo test -p subcraft-app` (new: `tests/layers_clipboard.rs` 10 tests, `unsaved` 4, `multi_select` 2),
+`cargo test -p subcraft-ui` (new: 2 clipboard-state tests). See the final results in the session summary.
+
+### Not exercised in the real UI
+
+* No window was opened: the context menus, Ctrl+C/X/V events, Shift/Ctrl row clicks, the
+  inline rename of texture sets and the modal buttons are compiled and covered only through the
+  state / command tests. Hidden-set rendering was not checked on screen.
+* Hidden texture sets: the path tracer ignores the hide flag; the ambient-occlusion depth pass still
+  includes hidden geometry; painting onto a hidden set is not blocked.
+* Multi-select works inside the selected texture set only; copy of effects takes one effect.

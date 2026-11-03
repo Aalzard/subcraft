@@ -143,6 +143,10 @@ pub struct UiState {
     pub new_project: crate::new_project::NewProjectUi,
     pub mesh_reload: crate::mesh_reload::MeshReloadUi,
     pub auto_uv: crate::auto_uv::AutoUvUi,
+    /// Layers selected together (Ctrl / Shift click) in the Layers panel.
+    pub multi: subcraft_app::multi_select::MultiSelect,
+    /// In-app clipboard for layers and effects; outlives the session.
+    pub clips: crate::clipboard::Clips,
     /// Action waiting for the unsaved-changes prompt.
     pub confirm: Option<crate::dialogs::Pending>,
     /// The user already agreed to close without saving.
@@ -251,6 +255,8 @@ impl UiState {
             height_scale: 0.02,
             export: Default::default(),
             confirm: None,
+            multi: Default::default(),
+            clips: Default::default(),
             allow_close: false,
             last_title: String::new(),
             bake: Default::default(),
@@ -383,6 +389,7 @@ impl UiState {
 
     /// Replace the session (new project / opened mesh).
     pub fn set_session(&mut self, mut session: Session) {
+        self.multi.clear();
         self.layer_previews = Default::default();
         self.asset_preview.cancel_apply();
         self.pen = Default::default();
@@ -483,6 +490,7 @@ impl UiState {
         let upload_start = web_time::Instant::now();
         let session = &self.session;
         for ts in &session.document().texture_sets { renderer.set_albedo_filter(ts.material_slot, ts.albedo_filter); }
+        renderer.set_hidden_slots(session.document().texture_sets.iter().filter(|ts| session.is_set_hidden(ts.id)).map(|ts| ts.material_slot));
         let upload = |renderer: &mut ViewportRenderer, ts: subcraft_core::TextureSetId, slot: u32, changed: Option<&subcraft_app::ChangedTiles>| {
             let Some(c) = session.composite(ts) else { return };
             for k in SHADED_CHANNELS {

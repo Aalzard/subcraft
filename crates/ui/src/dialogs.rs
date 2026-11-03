@@ -119,14 +119,17 @@ pub fn unsaved_prompt(state: &mut UiState, ctx: &egui::Context, now: f64) -> Opt
         ui.label(dim("Save your changes before continuing?"));
         ui.add_space(14.0);
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if primary_button(ui, "Save").clicked() && save(state, false, now) {
-                decided = Some(Some(pending));
-            }
-            if secondary_button(ui, "Don't save").clicked() {
-                decided = Some(Some(pending));
-            }
-            if secondary_button(ui, "Cancel").clicked() {
-                decided = Some(None);
+            use subcraft_app::unsaved::{Answer, Outcome, resolve};
+            let answer = if primary_button(ui, "Save").clicked() { Some(Answer::Save) }
+                else if secondary_button(ui, "Don't save").clicked() { Some(Answer::DontSave) }
+                else if secondary_button(ui, "Cancel").clicked() { Some(Answer::Cancel) }
+                else { None };
+            if let Some(answer) = answer {
+                let saved = answer == Answer::Save && save(state, false, now);
+                // A cancelled file dialog or failed save keeps the question open; nothing is discarded.
+                if answer != Answer::Save || saved {
+                    decided = Some(if resolve(answer, saved) == Outcome::Run { Some(pending) } else { None });
+                }
             }
         });
     });

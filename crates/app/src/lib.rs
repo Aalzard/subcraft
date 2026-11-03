@@ -38,11 +38,15 @@ pub mod spp_stack;
 pub mod thumbnails;
 pub mod layer_previews;
 pub mod updater;
+pub mod unsaved;
+pub mod clipboard;
+pub mod multi_select;
 
 pub use actions::{ACTIONS, Action, ActionInfo, Key, Shortcut, action_for};
 pub use bake_job::{BakeJob, BakeRequest, BakePreviewJob};
 pub use spp_job::{ImportControl, SppImportJob, SppPoll};
 pub use command::{Command, CommandError, NewLayer};
+pub use clipboard::{EffectClip, LayerClip};
 pub use images::TextureSetImport;
 pub use mesh_reload::{MeshReloadJob, MeshReloadReport, PreparedReload, ReloadMode, ReloadOutput};
 pub use auto_uv::AutoUvOutput;

@@ -903,7 +903,8 @@ impl SubcraftApp {
                 }
                 ui.separator();
                 if item(ui, icons::X, "Quit", "") {
-                    ui.send_viewport_cmd(egui::ViewportCommand::Close);
+                    self.request(Pending::Close, now);
+                    ui.close();
                 }
             });
             ui.menu_button("Edit", |ui| {
@@ -939,6 +940,20 @@ impl SubcraftApp {
                         self.perform(a, now);
                         ui.close();
                     }
+                }
+                ui.separator();
+                let have_clip = self.state.clips.layers.is_some();
+                if item(ui, icons::COPY, "Copy Layer(s)", "Ctrl+C") {
+                    crate::clipboard::request(ui.ctx(), crate::clipboard::Request::CopyLayers { cut: false });
+                    ui.close();
+                }
+                if item(ui, icons::COPY, "Cut Layer(s)", "Ctrl+X") {
+                    crate::clipboard::request(ui.ctx(), crate::clipboard::Request::CopyLayers { cut: true });
+                    ui.close();
+                }
+                if have_clip && item(ui, icons::COPY, "Paste Layer(s)", "Ctrl+V") {
+                    crate::clipboard::request(ui.ctx(), crate::clipboard::Request::PasteLayers);
+                    ui.close();
                 }
                 ui.separator();
                 if item(ui, icons::IMAGE, "Import texture set…", "") {
@@ -1025,7 +1040,8 @@ impl SubcraftApp {
                 self.state.pen_after = Some(crate::pen::After::Request(action)); return;
             }
         }
-        if self.state.session.is_modified() && self.screenshot.is_none() {
+        let busy = self.state.pen.is_editing() || self.state.pen.is_pending() || self.state.asset_preview.is_applying();
+        if subcraft_app::unsaved::guard(self.state.session.is_modified(), busy, self.screenshot.is_some()) == subcraft_app::unsaved::Guard::AskToSave {
             self.state.confirm = Some(action);
         } else {
             self.pending_now = Some(action);
@@ -1389,6 +1405,8 @@ impl eframe::App for SubcraftApp {
         crate::spp_import::poll(&mut self.state, &ctx, now);
         crate::files::poll(&mut self.state, now);
         crate::files::import_report_window(&mut self.state, &ctx);
+        crate::clipboard::shortcut_requests(&ctx);
+        crate::clipboard::process(&mut self.state, &ctx, now);
         if let Some(action) = dialogs::unsaved_prompt(&mut self.state, &ctx, now) {
             self.pending_now = Some(action);
         }

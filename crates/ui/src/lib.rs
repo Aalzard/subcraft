@@ -5,6 +5,7 @@
 
 pub mod app;
 pub mod bug_report;
+pub mod clipboard;
 mod brush_bar;
 pub mod keys;
 pub mod dialogs;
