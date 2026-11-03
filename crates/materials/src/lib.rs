@@ -5,6 +5,7 @@ pub mod noise;
 pub mod filter;
 pub mod organic;
 pub mod pattern;
+pub mod scratch;
 pub mod sample;
 
 pub use sample::{GeometryCache, MeshMaps, SampleContext, TextureSetGeometry, TileGeometry, eval_fill_tile};

@@ -630,3 +630,16 @@ fn schema_15_id_color_mask_roundtrips_has_stable_json_and_older_projects_migrate
         assert_eq!(read_project(Cursor::new(bytes)).unwrap().document, old, "schema {version}");
     }
 }
+
+#[test]
+fn procedural_params_without_scratch_settings_round_trip_unchanged() {
+    use subcraft_doc::{ProceduralKind, ProceduralParams, ScratchPreset};
+    let a = ProceduralParams::new(ProceduralKind::Scratches);
+    let json = serde_json::to_string(&a).unwrap();
+    assert!(!json.contains("scratch\""), "{json}");
+    let old = r#"{"kind":"scratches","scale":4.0,"seed":1,"balance":0.5,"contrast":0.0,"invert":false}"#;
+    assert_eq!(serde_json::from_str::<ProceduralParams>(old).unwrap(), a);
+    let mut g = ProceduralParams::new(ProceduralKind::Scratch);
+    ScratchPreset::Cracked.apply(&mut g);
+    assert_eq!(serde_json::from_str::<ProceduralParams>(&serde_json::to_string(&g).unwrap()).unwrap(), g);
+}

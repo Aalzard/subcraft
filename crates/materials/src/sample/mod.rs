@@ -73,7 +73,9 @@ pub fn eval_fill_tile_filtered(
         }
         FillSource::Procedural { params, low, high } => {
             let field = procedural_tile(params, projection, geo);
-            for (o, &t) in out.iter_mut().zip(field.iter()) {
+            let wear = scratch_wear(params, geo, ctx);
+            for (i, (o, &t)) in out.iter_mut().zip(field.iter()).enumerate() {
+                let t = wear.as_ref().map_or(t, |w| t * w[i]);
                 let mut v = [0.0; 4];
                 for c in 0..3 {
                     v[c] = low.0[c] + (high.0[c] - low.0[c]) * t;
@@ -90,6 +92,17 @@ pub fn eval_fill_tile_filtered(
             }
         }
     }
+}
+
+/// Per-texel scratch weights from the baked curvature map; `None` when the pattern is not a
+/// wear-biased scratch generator or the map is not baked yet.
+fn scratch_wear(params: &ProceduralParams, geo: &TileGeometry, ctx: &SampleContext) -> Option<Vec<f32>> {
+    if params.kind != subcraft_doc::ProceduralKind::Scratch || params.scratch.wear <= 0.0 || ctx.mesh_maps.get(subcraft_core::MeshMapKind::Curvature).is_none() {
+        return None;
+    }
+    let mut buf = vec![[0.0f32; 3]; TILE_TEXELS];
+    ctx.mesh_maps.read_tile(subcraft_core::MeshMapKind::Curvature, geo, &mut buf);
+    Some(buf.iter().map(|c| crate::scratch::wear_weight(c[0], params.scratch.wear)).collect())
 }
 
 /// Grayscale procedural values of every texel of a tile, cached on the tile geometry: exactly

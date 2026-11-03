@@ -96,10 +96,13 @@ pub enum ProceduralKind {
     Speckles,
     /// Small pits: one dot per cell.
     Pores,
+    /// Scratch generator: long hairlines and gouges with direction, length, width, depth,
+    /// curvature, density, clustering and curvature-driven wear (`ProceduralParams::scratch`).
+    Scratch,
 }
 
 impl ProceduralKind {
-    pub const ALL: [ProceduralKind; 14] = [
+    pub const ALL: [ProceduralKind; 15] = [
         ProceduralKind::Clouds,
         ProceduralKind::Cells,
         ProceduralKind::Grunge,
@@ -114,6 +117,7 @@ impl ProceduralKind {
         ProceduralKind::Streaks,
         ProceduralKind::Speckles,
         ProceduralKind::Pores,
+        ProceduralKind::Scratch,
     ];
 
     pub fn label(self) -> &'static str {
@@ -132,6 +136,7 @@ impl ProceduralKind {
             ProceduralKind::Streaks => "Streaks",
             ProceduralKind::Speckles => "Speckles",
             ProceduralKind::Pores => "Pores",
+            ProceduralKind::Scratch => "Scratch Generator",
         }
     }
 }
@@ -150,11 +155,102 @@ pub struct ProceduralParams {
     /// `low`..`high` per component: colored noise. Not written when false.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub colored: bool,
+    /// Settings of [`ProceduralKind::Scratch`]; ignored by every other kind and not written
+    /// while at its defaults, so older projects serialize unchanged.
+    #[serde(default, skip_serializing_if = "ScratchParams::is_default")]
+    pub scratch: ScratchParams,
 }
 
 impl ProceduralParams {
     pub fn new(kind: ProceduralKind) -> Self {
-        Self { kind, scale: 4.0, seed: 1, balance: 0.5, contrast: 0.0, invert: false, colored: false }
+        Self { kind, scale: 4.0, seed: 1, balance: 0.5, contrast: 0.0, invert: false, colored: false, scratch: ScratchParams::default() }
+    }
+}
+
+/// Scratch generator settings. Lengths and widths are in lattice cells (`ProceduralParams::scale`
+/// cells per tile), so the pattern is the same at every resolution and tiles when `scale` is
+/// an integer.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ScratchParams {
+    /// Mean direction, degrees (0 = along U, 90 = along V).
+    pub angle_deg: f32,
+    /// Random deviation from the mean direction, +- degrees (90 = any direction).
+    pub spread_deg: f32,
+    /// Mean length in cells.
+    pub length: f32,
+    /// Random length variation 0..1.
+    pub length_var: f32,
+    /// Mean half-width in cells.
+    pub width: f32,
+    /// Random width variation 0..1.
+    pub width_var: f32,
+    /// Probability that a candidate scratch exists (up to 6 per cell), 0..1.
+    pub density: f32,
+    /// Sideways bend 0..1.
+    pub curvature: f32,
+    /// 0 = full depth along the whole scratch, 1 = pointed ends and shallow/deep variation.
+    pub depth_falloff: f32,
+    /// 0 = even distribution, 1 = scratches gather in patches.
+    pub cluster: f32,
+    /// 0 = ignore the baked curvature map, 1 = scratches only on edges (needs a bake).
+    pub wear: f32,
+}
+
+impl Default for ScratchParams {
+    fn default() -> Self {
+        Self { angle_deg: 0.0, spread_deg: 90.0, length: 1.0, length_var: 0.5, width: 0.012, width_var: 0.5, density: 0.35, curvature: 0.1, depth_falloff: 0.6, cluster: 0.0, wear: 0.0 }
+    }
+}
+
+impl ScratchParams {
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+/// Named starting points for the scratch generator.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ScratchPreset {
+    FineHairlines,
+    HeavyGouges,
+    BrushedMetal,
+    ScuffedPlastic,
+    Cracked,
+}
+
+impl ScratchPreset {
+    pub const ALL: [ScratchPreset; 5] =
+        [ScratchPreset::FineHairlines, ScratchPreset::HeavyGouges, ScratchPreset::BrushedMetal, ScratchPreset::ScuffedPlastic, ScratchPreset::Cracked];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            ScratchPreset::FineHairlines => "Fine hairlines",
+            ScratchPreset::HeavyGouges => "Heavy gouges",
+            ScratchPreset::BrushedMetal => "Brushed metal",
+            ScratchPreset::ScuffedPlastic => "Scuffed plastic",
+            ScratchPreset::Cracked => "Cracked",
+        }
+    }
+
+    /// Scratch settings and cell scale of the preset.
+    pub fn params(self) -> (f32, ScratchParams) {
+        let d = ScratchParams::default();
+        match self {
+            ScratchPreset::FineHairlines => (6.0, ScratchParams { spread_deg: 90.0, length: 1.6, length_var: 0.6, width: 0.004, width_var: 0.4, density: 0.5, curvature: 0.15, depth_falloff: 0.8, cluster: 0.4, ..d }),
+            ScratchPreset::HeavyGouges => (3.0, ScratchParams { angle_deg: 35.0, spread_deg: 40.0, length: 1.2, length_var: 0.7, width: 0.04, width_var: 0.6, density: 0.12, curvature: 0.05, depth_falloff: 0.5, cluster: 0.3, ..d }),
+            ScratchPreset::BrushedMetal => (10.0, ScratchParams { angle_deg: 0.0, spread_deg: 3.0, length: 2.0, length_var: 0.6, width: 0.005, width_var: 0.5, density: 0.9, curvature: 0.0, depth_falloff: 0.3, cluster: 0.0, ..d }),
+            ScratchPreset::ScuffedPlastic => (5.0, ScratchParams { angle_deg: 20.0, spread_deg: 60.0, length: 0.6, length_var: 0.8, width: 0.02, width_var: 0.8, density: 0.45, curvature: 0.5, depth_falloff: 1.0, cluster: 0.8, ..d }),
+            ScratchPreset::Cracked => (3.0, ScratchParams { spread_deg: 90.0, length: 1.5, length_var: 0.5, width: 0.01, width_var: 0.3, density: 0.3, curvature: 0.7, depth_falloff: 0.9, cluster: 0.2, ..d }),
+        }
+    }
+
+    /// Set the scale and scratch settings of `params` (kind becomes Scratch; seed is kept).
+    pub fn apply(self, params: &mut ProceduralParams) {
+        let (scale, scratch) = self.params();
+        params.kind = ProceduralKind::Scratch;
+        params.scale = scale;
+        params.scratch = scratch;
     }
 }
 

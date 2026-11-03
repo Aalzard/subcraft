@@ -423,6 +423,7 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
                         changed |= slider_row(ui, "Contrast", egui::Slider::new(&mut p.contrast, 0.0..=1.0)).changed();
                         prop_row(ui, "Seed", |ui| changed |= ui.add(egui::DragValue::new(&mut p.seed)).changed());
                         changed |= ui.checkbox(&mut p.invert, "Invert pattern").changed();
+                        changed |= scratch_controls(ui, p, ("mask_scratch", 0));
                     } else { changed |= slider_row(ui, "Value", egui::Slider::new(value, 0.0..=1.0)).changed(); }
                     changed |= projection_editor(ui, projection);
                 }
@@ -495,6 +496,39 @@ fn id_color_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_core::Layer
     changed
 }
 
+/// Controls of the scratch generator (shown only for that pattern): presets, then one slider
+/// per setting with ranges that stay sensible. True if anything changed.
+fn scratch_controls(ui: &mut Ui, params: &mut ProceduralParams, id: (&str, u32)) -> bool {
+    if params.kind != ProceduralKind::Scratch {
+        return false;
+    }
+    let mut changed = false;
+    prop_row(ui, "Preset", |ui| {
+        egui::ComboBox::from_id_salt(id).selected_text("Choose…").show_ui(ui, |ui| {
+            for preset in subcraft_doc::ScratchPreset::ALL {
+                if ui.selectable_label(false, preset.label()).clicked() {
+                    preset.apply(params);
+                    changed = true;
+                }
+            }
+        });
+    });
+    let s = &mut params.scratch;
+    changed |= slider_row(ui, "Direction", egui::Slider::new(&mut s.angle_deg, 0.0..=180.0).suffix("°")).changed();
+    changed |= slider_row(ui, "Spread", egui::Slider::new(&mut s.spread_deg, 0.0..=90.0).suffix("°")).changed();
+    changed |= slider_row(ui, "Length", egui::Slider::new(&mut s.length, 0.1..=2.0)).changed();
+    changed |= slider_row(ui, "Length var.", egui::Slider::new(&mut s.length_var, 0.0..=1.0)).changed();
+    changed |= slider_row(ui, "Width", egui::Slider::new(&mut s.width, 0.001..=0.06).logarithmic(true)).changed();
+    changed |= slider_row(ui, "Width var.", egui::Slider::new(&mut s.width_var, 0.0..=1.0)).changed();
+    changed |= slider_row(ui, "Density", egui::Slider::new(&mut s.density, 0.0..=1.0)).changed();
+    changed |= slider_row(ui, "Curvature", egui::Slider::new(&mut s.curvature, 0.0..=1.0)).changed();
+    changed |= slider_row(ui, "Depth falloff", egui::Slider::new(&mut s.depth_falloff, 0.0..=1.0)).changed();
+    changed |= slider_row(ui, "Clustering", egui::Slider::new(&mut s.cluster, 0.0..=1.0)).changed();
+    changed |= slider_row(ui, "Edge wear", egui::Slider::new(&mut s.wear, 0.0..=1.0)).changed();
+    hint(ui, "Edge wear keeps scratches near edges and grooves; it needs baked mesh maps (Ctrl+B).");
+    changed
+}
+
 /// Thumbnail, name and size of an image resource, with a Replace button. True if clicked.
 /// Value controls of an enabled fill channel (source parameters, then strength). Returns
 /// (changed, image picker requested). Shared by fill layers and Fill content effects.
@@ -520,6 +554,7 @@ pub(crate) fn source_controls(ui: &mut Ui, state: &mut UiState, kind: ChannelKin
                 changed |= slider_row(ui, "Balance", egui::Slider::new(&mut params.balance, 0.0..=1.0)).changed();
                 changed |= slider_row(ui, "Contrast", egui::Slider::new(&mut params.contrast, 0.0..=1.0)).changed();
                 prop_row(ui, "Seed", |ui| changed |= ui.add(egui::DragValue::new(&mut params.seed)).changed());
+                changed |= scratch_controls(ui, params, ("fill_scratch", *kind as u32));
                 prop_row(ui, "Low", |ui| changed |= channel_value(ui, *kind, low).changed);
                 prop_row(ui, "High", |ui| changed |= channel_value(ui, *kind, high).changed);
                 prop_row(ui, "", |ui| changed |= ui.checkbox(&mut params.invert, "Invert").changed());
