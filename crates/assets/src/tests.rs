@@ -10,7 +10,7 @@ fn library_contents_are_well_formed() {
     let lib = Library::builtin();
     assert!(lib.alphas.len() >= 6 && lib.materials.len() >= 12 && lib.smart_materials.len() >= 4 && lib.smart_masks.len() >= 4);
     assert!(lib.environments.len() >= 4);
-    assert_eq!((lib.smart_materials.len(), lib.smart_masks.len()), (39, 40), "5 + 15 + 14 + 5 open-pack smart materials, 5 + 16 + 15 + 4 open-pack smart masks");
+    assert_eq!((lib.smart_materials.len(), lib.smart_masks.len()), (39, 44), "5 + 15 + 14 + 5 open-pack smart materials, 5 + 16 + 15 + 4 open-pack smart masks + 4 generator masks (concave, thin, X and Z gradients)");
     let mut ids: Vec<_> = lib.materials.iter().map(|m| m.id).chain(lib.alphas.iter().map(|a| a.id)).collect();
     let n = ids.len();
     ids.sort();

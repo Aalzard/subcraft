@@ -362,11 +362,16 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
             match &mut eff.kind {
                 MaskEffectKind::Generator(g) => {
                     prop_row(ui, "Generator", |ui| egui::ComboBox::from_id_salt("generator_kind").selected_text(g.kind.label()).show_ui(ui, |ui| {
-                        for kind in [GeneratorKind::Edges, GeneratorKind::Cavity, GeneratorKind::Directional, GeneratorKind::PositionGradient]
+                        for kind in [GeneratorKind::Edges, GeneratorKind::Cavity, GeneratorKind::Concave, GeneratorKind::Directional, GeneratorKind::PositionGradient]
                             .into_iter().chain(MeshMapKind::ALL.into_iter().map(GeneratorKind::MeshMap)) {
                             changed |= ui.selectable_value(&mut g.kind, kind, kind.label()).changed();
                         }
                     }));
+                    if g.kind == GeneratorKind::PositionGradient {
+                        prop_row(ui, "Axis", |ui| for axis in subcraft_doc::GradientAxis::ALL {
+                            changed |= ui.selectable_value(&mut g.axis, axis, axis.label()).changed();
+                        });
+                    }
                     if g.kind == GeneratorKind::Edges {
                         let mut natural = g.edge_spread.is_some();
                         if ui.checkbox(&mut natural, "Natural edge wear").on_hover_text("Surface-constrained spread with an irregular boundary. Older projects retain their original wear until enabled.").changed() {

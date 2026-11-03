@@ -326,3 +326,36 @@ fn an_effect_on_another_channel_does_not_make_an_empty_channel_replace_what_is_b
         assert_eq!(after, before, "Base Color below must survive (graph path: {spatial})");
     }
 }
+
+/// The new neighbourhood filters (Edge Detect, Glow, Directional Warp, Mosaic), chained on one
+/// paint layer and also as a mask effect, refresh exactly the tiles a dab reaches: the
+/// incremental cache must equal a full evaluation after every edit, near tile borders too.
+#[test]
+fn new_neighbourhood_filters_refresh_incrementally_and_match_full_evaluation() {
+    let fx = Fixture::new();
+    let mut ts = TextureSet::new("T", 0, N);
+    let mut l = painted(&ts, "filtered", 4);
+    for filter in [Filter::EdgeDetect { radius: 3.0, strength: 1.5 }, Filter::Glow { radius: 4.0, amount: 1.0, threshold: 0.3 },
+        Filter::DirectionalWarp { intensity: 5.0, angle_deg: 40.0 }, Filter::Mosaic { size: 9 }] {
+        l.content_effects.push(Arc::new(ContentEffect::new(ContentEffectKind::Filter { channel: C::Roughness, filter }, &ts)));
+    }
+    let mut mask = Mask::new(N, true);
+    for (i, filter) in [Filter::Mosaic { size: 5 }, Filter::DirectionalWarp { intensity: 3.0, angle_deg: -20.0 }, Filter::EdgeDetect { radius: 2.0, strength: 1.0 }].into_iter().enumerate() {
+        mask.base.set(30 + i as u32 * 20, 60, [0.2, 0.0, 0.0, 0.0]);
+        mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Filter(filter))));
+    }
+    l.mask = Some(mask);
+    let id = ts.insert_above(None, l);
+    let mut cache = CompositeCache::new();
+    cache.update(&ts, &fx.ctx());
+    assert_eq!(cache.composite().unwrap(), &composite_full(&ts, &fx.ctx()));
+    for (x, y) in [(63, 63), (64, 10), (10, 64), (127, 127), (0, 0), (100, 70)] {
+        dab(&mut ts, id, x, y);
+        let tiles = cache.update(&ts, &fx.ctx());
+        assert!(!tiles.is_empty());
+        let full = composite_full(&ts, &fx.ctx());
+        if let Some((k, px, py, d)) = max_diff(cache.composite().unwrap(), &full) {
+            panic!("dab at ({x},{y}): incremental differs from full in {k:?} at ({px},{py}) by {d}");
+        }
+    }
+}

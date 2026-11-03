@@ -21,9 +21,10 @@ const INDENT: f32 = 16.0;
 const GENERATOR_ROW_HEIGHT: f32 = 24.0;
 
 /// Generators offered by the toolbar and the row menu.
-const GENERATORS: [(&str, GeneratorKind); 4] = [
+const GENERATORS: [(&str, GeneratorKind); 5] = [
     ("Edge wear", GeneratorKind::Edges),
     ("Dirt (cavity)", GeneratorKind::Cavity),
+    ("Crevices (concave)", GeneratorKind::Concave),
     ("Directional", GeneratorKind::Directional),
     ("Position gradient", GeneratorKind::PositionGradient),
 ];

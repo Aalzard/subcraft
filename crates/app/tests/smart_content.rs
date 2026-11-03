@@ -17,7 +17,7 @@ fn baked_crate() -> Session {
     for (ts, slot) in sets {
         s.execute(Command::SelectTextureSet(ts)).unwrap();
         let maps = bake(&BakeInput { low: Geometry { mesh: &mesh, bvh: &bvh }, high: None, material_slot: slot },
-            &BakeSettings { size: SIZE, maps: vec![MeshMapKind::Curvature, MeshMapKind::AmbientOcclusion], ..Default::default() }, &Progress::new()).unwrap();
+            &BakeSettings { size: SIZE, maps: vec![MeshMapKind::Curvature, MeshMapKind::AmbientOcclusion, MeshMapKind::Thickness], ..Default::default() }, &Progress::new()).unwrap();
         s.set_mesh_maps(ts, maps);
     }
     let first = s.document().texture_sets[0].id;

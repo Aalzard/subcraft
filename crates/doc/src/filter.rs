@@ -15,6 +15,10 @@ pub const MAX_GRADIENT_STOPS: usize = 8;
 pub const MAX_MEDIAN_RADIUS: f32 = 16.0;
 /// Warp noise cells across the texture.
 pub const MAX_WARP_SCALE: u32 = 64;
+/// Largest Mosaic block edge in pixels (also bounds its tile margin).
+pub const MAX_MOSAIC_SIZE: u32 = 64;
+/// Posterize steps: 2 is a binary split, 64 is nearly continuous.
+pub const MAX_POSTERIZE_LEVELS: u32 = 64;
 
 /// Up to [`MAX_GRADIENT_STOPS`] stops in a fixed array so `Filter` stays `Copy`.
 /// Serialized as a plain list of stops; unused slots never reach the file.
@@ -139,46 +143,109 @@ pub enum Filter {
     Bevel { radius: f32, amount: f32, threshold: f32 },
     /// Euclidean border of a thresholded contour, in UV pixels on each chosen side.
     MaskOutline { radius: f32, threshold: f32, position: OutlinePosition },
+    /// Rec.709 luminance copied to all three components. Color channels only.
+    Grayscale,
+    /// `1 - v` (signed Height: `-v`). Any channel except Normal; use Normal Invert there.
+    Invert,
+    /// Quantises every component to `levels` evenly spaced steps (round to nearest).
+    Posterize { levels: u32 },
+    /// Adds `shift` to every value (signed Height keeps its sign), then clamps to the channel range.
+    HistogramShift { shift: f32 },
+    /// Per tonal range (shadows, midtones, highlights) additive offset of R, G, B in -1..=1.
+    /// Weights follow luminance; the three weights always sum to 1. Color channels only.
+    ColorBalance { shadows: [f32; 3], midtones: [f32; 3], highlights: [f32; 3] },
+    /// Colours within `tolerance` (linear RGB distance) of `from` move toward `to`, fading out over
+    /// `softness` extra distance; the pixel keeps its offset from `from`. Color channels only.
+    ReplaceColor { from: [f32; 3], to: [f32; 3], tolerance: f32, softness: f32 },
+    /// Flips selected axes of an encoded tangent-space normal (v -> 1 - v). Normal channel only.
+    NormalInvert { flip_x: bool, flip_y: bool, flip_z: bool },
+    /// Sobel gradient magnitude of the luminance (scalars: the value), sampled `radius` pixels
+    /// apart, times `strength`, clamped to 0..=1. Grayscale result.
+    EdgeDetect { radius: f32, strength: f32 },
+    /// Adds blurred highlights: `amount * max(blur(v) - threshold, 0) / (1 - threshold)`.
+    Glow { radius: f32, amount: f32, threshold: f32 },
+    /// Self-driven displacement along `angle_deg`: each texel reads from `intensity * (2v - 1)`
+    /// pixels away (v = luminance or raw scalar; signed Height uses `v` directly).
+    DirectionalWarp { intensity: f32, angle_deg: f32 },
+    /// Every `size` x `size` pixel block takes the value at its centre pixel.
+    Mosaic { size: u32 },
 }
 
 impl Filter {
-    pub const ALL: [Self; 15] = [Self::Contrast { gain: 1.0, pivot: 0.5 },
+    pub const ALL: [Self; 26] = [Self::Contrast { gain: 1.0, pivot: 0.5 },
         Self::Hsl { hue: 0.0, saturation: 1.0, lightness: 0.0 },
         Self::Threshold { cutoff: 0.5 }, Self::Clamp { low: 0.0, high: 1.0 }, Self::Blur { radius: 4.0 }, Self::Sharpen { radius: 2.0, amount: 1.0 }, Self::DirectionalBlur { radius: 8.0, angle_deg: 0.0 }, Self::Highpass { radius: 4.0, amount: 1.0 },
         Self::Bevel {radius:8.0,amount:1.0,threshold:0.5}, Self::MaskOutline {radius:4.0,threshold:0.5,position:OutlinePosition::Both},
         Self::GradientMap { gradient: Gradient::black_white(), to_gray: false },
         Self::HistogramScan { position: 0.5, contrast: 0.5, invert: false },
         Self::HistogramRange { position: 0.5, range: 0.2, softness: 0.5, invert: false },
-        Self::Median { radius: 2.0 }, Self::Warp { intensity: 8.0, scale: 4, seed: 1 }];
+        Self::Median { radius: 2.0 }, Self::Warp { intensity: 8.0, scale: 4, seed: 1 },
+        Self::Grayscale, Self::Invert, Self::Posterize { levels: 4 }, Self::HistogramShift { shift: 0.1 },
+        Self::ColorBalance { shadows: [0.0; 3], midtones: [0.0; 3], highlights: [0.0; 3] },
+        Self::ReplaceColor { from: [0.5; 3], to: [0.5; 3], tolerance: 0.2, softness: 0.2 },
+        Self::NormalInvert { flip_x: false, flip_y: true, flip_z: false },
+        Self::EdgeDetect { radius: 1.0, strength: 1.0 }, Self::Glow { radius: 8.0, amount: 1.0, threshold: 0.6 },
+        Self::DirectionalWarp { intensity: 8.0, angle_deg: 0.0 }, Self::Mosaic { size: 8 }];
 
     pub fn label(self) -> &'static str {
         match self { Self::Contrast { .. } => "Contrast", Self::Hsl { .. } => "HSL",
-            Self::Threshold { .. } => "Threshold", Self::Clamp { .. } => "Clamp", Self::Blur { .. } => "Blur", Self::Sharpen { .. } => "Sharpen", Self::DirectionalBlur { .. } => "Directional Blur", Self::Highpass { .. } => "Highpass", Self::Bevel {..} => "Bevel", Self::MaskOutline {..} => "Mask Outline", Self::GradientMap {..} => "Gradient Map", Self::HistogramScan {..} => "Histogram Scan", Self::HistogramRange {..} => "Histogram Range", Self::Median {..} => "Median", Self::Warp {..} => "Warp" }
+            Self::Threshold { .. } => "Threshold", Self::Clamp { .. } => "Clamp", Self::Blur { .. } => "Blur", Self::Sharpen { .. } => "Sharpen", Self::DirectionalBlur { .. } => "Directional Blur", Self::Highpass { .. } => "Highpass", Self::Bevel {..} => "Bevel", Self::MaskOutline {..} => "Mask Outline", Self::GradientMap {..} => "Gradient Map", Self::HistogramScan {..} => "Histogram Scan", Self::HistogramRange {..} => "Histogram Range", Self::Median {..} => "Median", Self::Warp {..} => "Warp",
+            Self::Grayscale => "Grayscale", Self::Invert => "Invert", Self::Posterize {..} => "Posterize", Self::HistogramShift {..} => "Histogram Shift",
+            Self::ColorBalance {..} => "Color Balance", Self::ReplaceColor {..} => "Replace Color", Self::NormalInvert {..} => "Normal Invert",
+            Self::EdgeDetect {..} => "Edge Detect", Self::Glow {..} => "Glow", Self::DirectionalWarp {..} => "Directional Warp", Self::Mosaic {..} => "Mosaic" }
     }
 
     pub fn supports_channel(self, channel: ChannelKind) -> bool {
-        channel != ChannelKind::Normal && (!matches!(self, Self::Hsl { .. }) || channel.is_color())
+        if matches!(self, Self::NormalInvert { .. }) { return channel == ChannelKind::Normal; }
+        channel != ChannelKind::Normal && (!self.color_only() || channel.is_color())
     }
 
-    pub fn supports_mask(self) -> bool { !matches!(self, Self::Hsl { .. }) }
+    /// Filters that only make sense on RGB colour data.
+    fn color_only(self) -> bool {
+        matches!(self, Self::Hsl { .. } | Self::Grayscale | Self::ColorBalance { .. } | Self::ReplaceColor { .. })
+    }
+
+    pub fn supports_mask(self) -> bool { !self.color_only() && !matches!(self, Self::NormalInvert { .. }) }
+
+    /// Copy with pixel-based parameters multiplied by `factor` (texture resolution ratio).
+    pub fn scaled(self, factor: f32) -> Self {
+        match self {
+            Self::EdgeDetect { radius, strength } => Self::EdgeDetect { radius: radius * factor, strength },
+            Self::Glow { radius, amount, threshold } => Self::Glow { radius: radius * factor, amount, threshold },
+            Self::DirectionalWarp { intensity, angle_deg } => Self::DirectionalWarp { intensity: intensity * factor, angle_deg },
+            Self::Mosaic { size } => Self::Mosaic { size: ((size as f32 * factor).round() as u32).clamp(1, MAX_MOSAIC_SIZE) },
+            other => other,
+        }
+    }
+
+    /// Neighbourhood filters evaluated per texel by the compositor with direct pixel reads
+    /// (no Gaussian staging). The node output is the final value.
+    pub fn is_pixelwise(self) -> bool {
+        matches!(self, Self::EdgeDetect { .. } | Self::DirectionalWarp { .. } | Self::Mosaic { .. })
+    }
 
     pub fn radius(self) -> Option<f32> {
-        match self { Self::Blur { radius } | Self::Sharpen { radius, .. } | Self::DirectionalBlur { radius, .. } | Self::Highpass { radius, .. } | Self::Median { radius } | Self::Warp { intensity: radius, .. } | Self::Bevel {radius,..} | Self::MaskOutline {radius,..} => Some(radius), _ => None }
+        match self { Self::Blur { radius } | Self::Sharpen { radius, .. } | Self::DirectionalBlur { radius, .. } | Self::Highpass { radius, .. } | Self::Median { radius } | Self::Warp { intensity: radius, .. } | Self::Bevel {radius,..} | Self::MaskOutline {radius,..} | Self::EdgeDetect { radius, .. } | Self::Glow { radius, .. } | Self::DirectionalWarp { intensity: radius, .. } => Some(radius),
+            Self::Mosaic { size } => Some(size as f32), _ => None }
     }
 
     pub fn is_contour(self) -> bool { matches!(self, Self::Bevel {..} | Self::MaskOutline {..}) }
 
     /// Contours need a half-pixel antialias band beyond their nominal radius.
     pub fn support(self) -> u32 {
-        (self.radius().unwrap_or(0.0) + if self.is_contour() {0.5} else {0.0}).ceil() as u32
+        if let Self::Mosaic { size } = self { return size / 2 + 1; }
+        // Edge Detect also reads one sample beyond its offset; Directional Warp interpolates.
+        (self.radius().unwrap_or(0.0) + if self.is_contour() {0.5} else {0.0}
+            + if matches!(self, Self::DirectionalWarp { .. } | Self::EdgeDetect { .. }) {1.0} else {0.0}).ceil() as u32
     }
 
-    pub fn softens_coverage(self) -> bool { matches!(self, Self::Blur { .. } | Self::DirectionalBlur { .. } | Self::Warp { .. }) }
+    pub fn softens_coverage(self) -> bool { matches!(self, Self::Blur { .. } | Self::DirectionalBlur { .. } | Self::Warp { .. } | Self::DirectionalWarp { .. } | Self::Mosaic { .. }) }
 
     /// Highpass is deliberately excluded: radius/amount zero gives its neutral value.
     pub fn spatial_identity(self) -> bool {
         matches!(self, Self::Blur {radius:0.0} | Self::DirectionalBlur {radius:0.0,..}
-            | Self::Sharpen {radius:0.0,..} | Self::Sharpen {amount:0.0,..} | Self::Warp {intensity:0.0,..})
+            | Self::Sharpen {radius:0.0,..} | Self::Sharpen {amount:0.0,..} | Self::Warp {intensity:0.0,..}
+            | Self::DirectionalWarp {intensity:0.0,..} | Self::Mosaic {size:1} | Self::Glow {radius:0.0,..} | Self::Glow {amount:0.0,..})
             || matches!(self, Self::Median { radius } if radius < 0.5)
     }
 
@@ -200,6 +267,16 @@ impl Filter {
             Self::HistogramRange { position, range, softness, .. } => position.is_finite() && (-1.0..=1.0).contains(&position)
                 && range.is_finite() && (0.0..=2.0).contains(&range) && softness.is_finite() && (0.0..=1.0).contains(&softness),
             Self::Threshold { cutoff } => cutoff.is_finite(),
+            Self::Grayscale | Self::Invert | Self::NormalInvert { .. } => true,
+            Self::Posterize { levels } => (2..=MAX_POSTERIZE_LEVELS).contains(&levels),
+            Self::HistogramShift { shift } => shift.is_finite() && (-1.0..=1.0).contains(&shift),
+            Self::ColorBalance { shadows, midtones, highlights } => [shadows, midtones, highlights].iter().all(|r| r.iter().all(|v| v.is_finite() && (-1.0..=1.0).contains(v))),
+            Self::ReplaceColor { from, to, tolerance, softness } => from.iter().chain(&to).all(|v| v.is_finite() && *v >= 0.0)
+                && tolerance.is_finite() && (0.0..=2.0).contains(&tolerance) && softness.is_finite() && (0.0..=2.0).contains(&softness),
+            Self::EdgeDetect { radius, strength } => Self::Blur { radius }.valid() && strength.is_finite() && (0.0..=8.0).contains(&strength),
+            Self::Glow { radius, amount, threshold } => Self::Blur { radius }.valid() && amount.is_finite() && (0.0..=4.0).contains(&amount) && threshold.is_finite() && (0.0..1.0).contains(&threshold),
+            Self::DirectionalWarp { intensity, angle_deg } => Self::Blur { radius: intensity }.valid() && angle_deg.is_finite() && (-180.0..=180.0).contains(&angle_deg),
+            Self::Mosaic { size } => (1..=MAX_MOSAIC_SIZE).contains(&size),
             Self::Clamp { low, high } => low.is_finite() && high.is_finite() && low <= high,
         }
     }
@@ -212,7 +289,7 @@ mod tests {
     fn filter_parameters_and_domains_are_checked() {
         assert!(!Filter::Bevel {radius:2.0,amount:1.01,threshold:0.5}.valid());
         assert!(!Filter::MaskOutline {radius:2.0,threshold:f32::NAN,position:OutlinePosition::Both}.valid());
-        for f in Filter::ALL { assert!(f.valid()); assert!(!f.supports_channel(ChannelKind::Normal)); }
+        for f in Filter::ALL { assert!(f.valid()); assert_eq!(f.supports_channel(ChannelKind::Normal), matches!(f, Filter::NormalInvert {..})); }
         assert!(!Filter::DirectionalBlur {radius:2.0,angle_deg:181.0}.valid());
         assert!(!Filter::Highpass {radius:2.0,amount:f32::INFINITY}.valid());
         assert!(!Filter::Highpass {radius:0.0,amount:0.0}.spatial_identity());
@@ -237,6 +314,30 @@ mod tests {
         assert!(!Filter::HistogramRange { position: 0.5, range: -0.1, softness: 0.0, invert: true }.valid());
         assert!(!Filter::HistogramRange { position: 0.5, range: 0.5, softness: 1.5, invert: true }.valid());
         assert!(!Filter::Contrast { gain: f32::INFINITY, pivot: 0.5 }.valid());
+    }
+
+    #[test]
+    fn new_filters_have_checked_domains_and_channel_rules() {
+        assert!(!Filter::Posterize { levels: 1 }.valid() && !Filter::Posterize { levels: 65 }.valid());
+        assert!(!Filter::HistogramShift { shift: 1.5 }.valid());
+        assert!(!Filter::ColorBalance { shadows: [0.0, f32::NAN, 0.0], midtones: [0.0; 3], highlights: [0.0; 3] }.valid());
+        assert!(!Filter::ReplaceColor { from: [0.0; 3], to: [-0.1, 0.0, 0.0], tolerance: 0.1, softness: 0.1 }.valid());
+        assert!(!Filter::Glow { radius: 4.0, amount: 1.0, threshold: 1.0 }.valid());
+        assert!(!Filter::EdgeDetect { radius: 1.0, strength: 9.0 }.valid());
+        assert!(!Filter::Mosaic { size: 0 }.valid() && !Filter::Mosaic { size: 65 }.valid());
+        assert!(!Filter::DirectionalWarp { intensity: 4.0, angle_deg: 200.0 }.valid());
+        for (f, color_only) in [(Filter::Grayscale, true), (Filter::ALL[19], true), (Filter::ALL[20], true)] {
+            assert_eq!(f.supports_channel(ChannelKind::BaseColor), true);
+            assert_eq!(f.supports_channel(ChannelKind::Roughness), !color_only, "{f:?}");
+            assert!(!f.supports_mask());
+        }
+        let ni = Filter::NormalInvert { flip_x: true, flip_y: false, flip_z: false };
+        assert!(ni.supports_channel(ChannelKind::Normal) && !ni.supports_channel(ChannelKind::BaseColor) && !ni.supports_mask());
+        assert!(Filter::Invert.supports_mask() && Filter::Invert.supports_channel(ChannelKind::Height));
+        assert_eq!(Filter::Mosaic { size: 8 }.support(), 5);
+        assert_eq!(Filter::EdgeDetect { radius: 2.0, strength: 1.0 }.support(), 3);
+        assert!(Filter::Mosaic { size: 1 }.spatial_identity() && Filter::Glow { radius: 0.0, amount: 1.0, threshold: 0.5 }.spatial_identity());
+        assert_eq!(Filter::Mosaic { size: 8 }.scaled(2.0), Filter::Mosaic { size: 16 });
     }
 
     #[test]

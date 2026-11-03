@@ -1147,7 +1147,7 @@ fn scaled_mask(mask: &Mask, factor: f32, res: u32) -> Mask {
                     Filter::Highpass { radius, amount } => Filter::Highpass { radius: radius * factor, amount },
                     Filter::Bevel { radius, amount, threshold } => Filter::Bevel { radius: radius * factor, amount, threshold },
                     Filter::MaskOutline { radius, threshold, position } => Filter::MaskOutline { radius: radius * factor, threshold, position },
-                    other => other,
+                    other => other.scaled(factor),
                 }
             }
             _ => {}

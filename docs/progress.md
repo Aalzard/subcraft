@@ -4019,3 +4019,40 @@ Request (a YouTube commenter): bring smart materials in from outside the app, in
 Tests (materials, 6): determinism and seed dependence, tiling for every preset (value one tile over, border jump), resolution independence (mean coverage 128 vs 512 within 8 percent), coverage strictly increasing with density, direction/spread anisotropy, wear weight; project: old scratches params serialize/deserialize unchanged.
 Example: cargo run --example scratch_presets -p subcraft-app -- <dir> [--crate] writes one project per preset for screenshots.
 Verified in the real app (release binary, sphere, 1024 px, Height + Base Color channels): all five presets render and show as expected - docs/screenshots/scratch-{fine-hairlines,heavy-gouges,brushed-metal,scuffed-plastic,cracked}.png. Test runs: materials 38, doc 14, project 33, app lib 67, all passing (cargo -j 2). Not done: wear bias in mask Fill effects, a crate/bake wear screenshot, and the Properties panel itself was not driven interactively. Build note: the first target dir got corrupted by interrupted builds (rustc metadata panics); a fresh target dir fixed it.
+
+### Session — TextureCraft 0.3.0 filter / generator parity (branch cloud/filters)
+
+Audit against the filter list in the public TextureCraft 0.3.0 feature page (names only; all code is
+independent SubCraft code, nothing copied). There is no separate "filters crate": parameters live in
+`doc::Filter`, kernels in `materials::filter`, neighbourhood staging in `compositor::stages`.
+
+* **Already present:** HSL, Contrast, Clamp, Threshold, Gradient Map, Histogram Scan / Range, Blur,
+  Directional Blur, Sharpen, High Pass, Bevel, Warp (noise), Median, Mask Outline; Levels (own effect,
+  not a filter); mask generators Edge wear, Dirt, Directional (any direction), Position gradient (Y),
+  raw Mesh Map generators (curvature, AO, thickness = thin areas, position, ...), ID color mask; 40 smart masks.
+* **Added filters (11):** Grayscale, Invert, Posterize, Histogram Shift, Color Balance (shadows / midtones /
+  highlights RGB offsets), Replace Color, Normal Invert (the first filter that targets the Normal channel;
+  flips X / Y / Z, so Y converts OpenGL <-> DirectX), Edge Detect (Sobel), Glow, Directional Warp (self-driven
+  by brightness), Mosaic. Point filters live in `materials::filter::apply`; Edge Detect / Directional Warp /
+  Mosaic are `compositor` `Node::Pixelwise` (direct pixel reads, tile margin = `Filter::support()`); Glow reuses
+  the Gaussian stage. All appear in the Properties filter menu with controls (`ui/src/panels/filter.rs`);
+  channel rules: Grayscale / Color Balance / Replace Color colour only, Normal Invert Normal only (no mask).
+  Serialisation: new explicit `kind` variants in the existing filter JSON (no schema bump needed; old files
+  load unchanged), golden JSON test in `project`.
+* **Added generators:** Position gradient now has an axis (X / Y / Z; `Generator::axis`, absent = Y so old
+  files are byte-identical), new Concave Curvature generator (crevices from the curvature map). Four new smart
+  masks: Crevice Grime, Thin Areas, Left Side Fade, Front Side Fade (library now 44 smart masks).
+* **Not done (reasons):** Slope Blur (needs a second input image the stack does not have), Baked Lighting
+  (needs mesh lighting data inside the filter stage), the four "material finish" filters (not named in the
+  public list), a Brightness / luminosity filter and Levels-with-histogram parity (Levels already exists as an effect).
+* **Tests run (all pass):** `cargo test -p subcraft-compositor -p subcraft-materials -p subcraft-project`
+  (materials 45, project 35, compositor all binaries incl. spatial 27, differential 5): hand goldens for
+  Grayscale / Invert / Posterize / Shift / Color Balance / Replace Color / Normal Invert, Sobel, Mosaic and
+  directional offset kernels; compositor goldens against independent dense references across the 64 px tile
+  borders for Edge Detect, Glow, Mosaic, Directional Warp; incremental-cache == full-evaluation test for the new
+  neighbourhood filters (also as mask effects); generator axis / concave test; JSON goldens.
+* **Found, not fixed:** widening the random filter pick in `differential.rs` exposes a pre-existing
+  incremental-vs-full mismatch (seed 27 step 1, Metallic, 0.026 at (31,61)) in a stack of MaskOutline / Contrast / masks
+  that does not involve the new filters (it reproduces with all four swapped for Blur). The original random test is
+  kept unchanged and the new filters have their own deterministic incremental test. Worth its own investigation.
+* Not verified: no visual check in the running app of the new controls; no comparison against TextureCraft output.
