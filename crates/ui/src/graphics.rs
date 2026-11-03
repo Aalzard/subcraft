@@ -100,7 +100,8 @@ fn requested_backends(api: GraphicsApi, environment_override: bool) -> Option<wg
 
 pub fn wgpu_options(api: GraphicsApi, environment_override: bool, gpu: GpuChoice) -> egui_wgpu::WgpuConfiguration {
     let mut setup = egui_wgpu::WgpuSetupCreateNew::without_display_handle();
-    if let Some(backends) = requested_backends(api, environment_override) { setup.instance_descriptor.backends = backends; }
+    if crate::gpu_probe::apply(&mut setup) {} // verified in a child process (issue #83)
+    else if let Some(backends) = requested_backends(api, environment_override) { setup.instance_descriptor.backends = backends; }
     else if cfg!(windows) && !environment_override {
         // Avoid loading the Vulkan driver when DX12 is available (older Intel driver crashes).
         let desc = wgpu::InstanceDescriptor { backends: wgpu::Backends::DX12, ..wgpu::InstanceDescriptor::new_without_display_handle() };

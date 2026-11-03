@@ -198,6 +198,7 @@ impl UiState {
         let renderer = render_state.as_ref().map(|rs| ViewportRenderer::new(&rs.device, &rs.queue));
         let mut graphics = crate::graphics::GraphicsUi::default();
         if let Some(rs) = &render_state { graphics.record_active(rs.adapter.get_info().backend); }
+        subcraft_app::startup_probe::step(&format!("{} (adapter: {})", subcraft_app::startup_probe::COMPLETE_MARKER, render_state.as_ref().map(|rs| rs.adapter.get_info().name).unwrap_or_else(|| "none".into())));
         Self {
             composite_deadline: None,
             layer_previews: Default::default(),
