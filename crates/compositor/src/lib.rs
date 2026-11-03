@@ -8,6 +8,7 @@
 
 pub mod blend;
 pub mod cache;
+pub mod gpu;
 pub mod strength;
 pub mod mask;
 pub mod tile;
@@ -96,6 +97,20 @@ impl Composite {
     }
 
     pub(crate) fn evaluate_tiles_with_stages(&mut self, ts: &TextureSet, ctx: &EvalContext, tiles: &[usize], cache: &stages::StageCache) -> ChangedTiles {
+        // Optional GPU backend (ADR-0044): blends what it supports, the CPU evaluates the rest.
+        let (mut changed, left) = gpu::evaluate_tiles(self, ts, ctx, tiles);
+        if left.is_empty() {
+            return changed;
+        }
+        for (kind, tiles) in self.evaluate_tiles_cpu(ts, ctx, &left, cache) {
+            let entry = changed.entry(kind).or_default();
+            entry.extend(tiles);
+            entry.sort_unstable();
+        }
+        changed
+    }
+
+    fn evaluate_tiles_cpu(&mut self, ts: &TextureSet, ctx: &EvalContext, tiles: &[usize], cache: &stages::StageCache) -> ChangedTiles {
         let graph = stages::has_spatial(&ts.layers).then(|| stages::Graph::new(ts, *ctx, cache));
         assert_eq!(ctx.geometry.resolution, ts.resolution, "geometry resolution must match the texture set");
         let count = self.tile_count();

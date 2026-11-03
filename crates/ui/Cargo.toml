@@ -23,6 +23,7 @@ subcraft-bake.workspace = true
 subcraft-export.workspace = true
 subcraft-assets.workspace = true
 subcraft-render.workspace = true
+subcraft-compositor.workspace = true
 subcraft-app.workspace = true
 glam.workspace = true
 egui.workspace = true

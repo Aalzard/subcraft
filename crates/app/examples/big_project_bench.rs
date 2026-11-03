@@ -84,7 +84,7 @@ const KINDS: [ProceduralKind; 7] = [
 ];
 
 /// Layers added bottom to top; returns every layer id in creation order.
-fn build_stack(s: &mut Session, layers: usize) -> Vec<LayerId> {
+pub fn build_stack(s: &mut Session, layers: usize) -> Vec<LayerId> {
     let mut ids = Vec::new();
     let mut folder: Option<(LayerId, usize)> = None; // (folder, children still to add)
     for i in 0..layers {
