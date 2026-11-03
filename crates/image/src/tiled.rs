@@ -240,6 +240,11 @@ impl TiledImage {
         }
     }
 
+    /// The slot of tile `index` (shared storage: cloning it is cheap).
+    pub fn slot(&self, index: usize) -> &TileSlot {
+        &self.tiles[index]
+    }
+
     /// Replace a tile slot wholesale (used by undo-free loaders and tests).
     pub fn set_slot(&mut self, index: usize, slot: TileSlot) {
         Arc::make_mut(&mut self.tiles)[index] = slot;
