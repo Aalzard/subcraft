@@ -378,8 +378,12 @@ pub fn enabled(environment_backend_override: bool) -> bool {
 
 /// Text for the message box when nothing works.
 pub fn failure_text(report: &[String], log: Option<&Path>) -> String {
-    let mut t = String::from("SubCraft could not find a working graphics adapter.\n\nEvery graphics option was tried in a safe test process and each one crashed, hung or failed:\n");
-    for line in report.iter().take(8) { t.push_str(&format!("  - {line}\n")); }
+    let mut t = String::from("SubCraft could not find a working graphics adapter.\n\n");
+    if report.is_empty() { t.push_str("Windows reported no graphics adapters that SubCraft can use.\n"); }
+    else {
+        t.push_str("Every graphics option was tried in a safe test process and each one crashed, hung or failed:\n");
+        for line in report.iter().take(8) { t.push_str(&format!("  - {line}\n")); }
+    }
     match log {
         Some(p) => t.push_str(&format!("\nThe startup log is here:\n{}\n", p.display())),
         None => t.push_str("\nThe startup log could not be written.\n"),
