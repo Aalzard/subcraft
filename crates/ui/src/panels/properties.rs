@@ -504,7 +504,7 @@ fn scratch_controls(ui: &mut Ui, params: &mut ProceduralParams, id: (&str, u32))
     }
     let mut changed = false;
     prop_row(ui, "Preset", |ui| {
-        egui::ComboBox::from_id_salt(id).selected_text("Choose…").show_ui(ui, |ui| {
+        egui::ComboBox::from_id_salt(id).selected_text("Chooseâ€¦").show_ui(ui, |ui| {
             for preset in subcraft_doc::ScratchPreset::ALL {
                 if ui.selectable_label(false, preset.label()).clicked() {
                     preset.apply(params);
@@ -514,8 +514,8 @@ fn scratch_controls(ui: &mut Ui, params: &mut ProceduralParams, id: (&str, u32))
         });
     });
     let s = &mut params.scratch;
-    changed |= slider_row(ui, "Direction", egui::Slider::new(&mut s.angle_deg, 0.0..=180.0).suffix("°")).changed();
-    changed |= slider_row(ui, "Spread", egui::Slider::new(&mut s.spread_deg, 0.0..=90.0).suffix("°")).changed();
+    changed |= slider_row(ui, "Direction", egui::Slider::new(&mut s.angle_deg, 0.0..=180.0).suffix("Â°")).changed();
+    changed |= slider_row(ui, "Spread", egui::Slider::new(&mut s.spread_deg, 0.0..=90.0).suffix("Â°")).changed();
     changed |= slider_row(ui, "Length", egui::Slider::new(&mut s.length, 0.1..=2.0)).changed();
     changed |= slider_row(ui, "Length var.", egui::Slider::new(&mut s.length_var, 0.0..=1.0)).changed();
     changed |= slider_row(ui, "Width", egui::Slider::new(&mut s.width, 0.001..=0.06).logarithmic(true)).changed();
