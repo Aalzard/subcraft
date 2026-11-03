@@ -93,6 +93,8 @@ pub struct UiState {
     /// Channel whose blend mode/opacity the layer stack shows.
     pub active_channel: ChannelKind,
     pub status: Option<(String, f64)>,
+    /// Problems and notes of the last smart-material import (shown in a window until closed).
+    pub import_report: Vec<String>,
     /// Brief acknowledgement in the 3D view's top-left corner after a Shelf brush click.
     pub brush_notice: Option<BrushNotice>,
     /// Shelf double-click: bring the Brush settings tab forward on the next frame.
@@ -212,6 +214,7 @@ impl UiState {
             fill_mode: PolygonFillMode::UvIsland,
             active_channel: ChannelKind::BaseColor,
             status: None,
+            import_report: Vec::new(),
             brush_notice: None,
             open_brush_editor: false,
             capture_select_brush: None,

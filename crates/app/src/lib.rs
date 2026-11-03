@@ -32,6 +32,7 @@ pub mod spp_cache;
 pub mod spp_fit;
 pub mod spp_import;
 pub mod spp_job;
+pub mod smart_import;
 pub mod spp_select;
 pub mod spp_stack;
 pub mod thumbnails;

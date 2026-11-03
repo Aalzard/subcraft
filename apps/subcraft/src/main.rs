@@ -49,6 +49,7 @@ fn main() -> anyhow::Result<()> {
             "--effect-panel" => options.effect_panel = true,
             "--select-brush" => options.select_brush = Some(args.next().ok_or_else(|| anyhow::anyhow!("--select-brush expects a Shelf brush name"))?),
             "--capture-tool" => options.capture_tool = Some(args.next().ok_or_else(|| anyhow::anyhow!("--capture-tool expects clone or smudge"))?),
+            "--import-smart" => options.import_smart.push(args.next().ok_or_else(|| anyhow::anyhow!("--import-smart expects a .scsmart file or a folder"))?.into()),
             "--shelf-tab" => options.shelf_tab = Some(args.next().ok_or_else(|| anyhow::anyhow!("--shelf-tab expects a Shelf tab name"))?),
             "--render-image" => {
                 let path: std::path::PathBuf = args.next().ok_or_else(|| anyhow::anyhow!("--render-image expects an output .png"))?.into();
