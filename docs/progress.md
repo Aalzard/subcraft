@@ -4027,3 +4027,25 @@ Findings: the earlier pen-pressure change (4998acb) only reads `Event::Touch` fo
 Change: `crates/ui/src/pen_input.rs` (`PenInputFixer`, applied in `SubcraftApp::raw_input_hook`) adds the missing PointerMoved / primary press / release when a Touch sequence arrives without them, releases a stuck press on End/Cancel, lets a new pen contact (has force) replace a contact whose End was lost, ignores a second finger, and leaves mouse events untouched. 7 unit tests with synthetic touch sequences; `cargo test -p subcraft-ui --lib -j 2`: 61 passed.
 Diagnostics: run with `SUBCRAFT_INPUT_LOG=1` to log every pointer / touch event (and a line when the fixer had to add events) to stderr and `subcraft.log`.
 If the log shows only `PointerMoved` while pressing the pen (no `PointerButton`, no `Touch`), the compositor/winit never delivers tip contact and real tablet-v2 support (wayland tablet protocol) is needed: not done.
+## Navigation schemes and continuous takeover (issues #80, #81, 2026-11-03)
+
+* `crates/ui/src/nav.rs` (pure, no egui): `NavScheme` (Painter default, Blender), `mode_for(scheme,
+  input) -> NavMode` and `NavDrag`, which tracks the drag origin and rebases it to the current
+  pointer position whenever the mode changes, so the new mode starts with a zero delta (no camera
+  jump). Maya was skipped: it is Alt+LMB/MMB/RMB, almost identical to Painter.
+* Painter: Alt+RMB zoom > MMB pan > RMB or Alt+LMB orbit. Blender: MMB orbit, Shift+MMB pan,
+  Ctrl+MMB zoom (Ctrl wins over Shift; Cmd counts as Ctrl). Wheel zooms in both.
+* Preferences: `nav_scheme` field with `#[serde(default)]`, so old `subcraft_prefs_v1` blobs load as
+  Painter (tested). Combo box + live help lines in the Preferences window; the Keyboard shortcuts
+  window and the 3D view hint pill follow the active scheme. In Blender mode Alt no longer
+  suppresses painting / the RMB menu.
+* Viewport: navigation now reads held buttons from raw pointer state instead of
+  `response.dragged_by`, starting only on a press over the 3D view. This is what lets a second
+  button (e.g. MMB added during an RMB orbit) take over without releasing.
+* Tests: 8 in `nav::tests` (both mappings, delta per frame, pan→zoom→pan takeover, Painter
+  orbit→zoom→orbit→pan across buttons, drag end, prefs back-compat, help text).
+* **Not tried with a real mouse** (cloud container, no display): feel of the takeover, whether
+  egui reports `middle_down` reliably on every platform, what happens when the pointer leaves the
+  window mid-drag (we skip frames with no pointer position), and Painter's Alt-release during
+  Alt+LMB orbit (navigation ends; continuing LMB does not start a stroke because strokes begin on
+  press, but that path is untested by hand).

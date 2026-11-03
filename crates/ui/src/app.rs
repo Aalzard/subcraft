@@ -1106,7 +1106,8 @@ impl SubcraftApp {
                     ui.label(key(a.shortcuts.iter().map(|s| s.label()).collect::<Vec<_>>().join(" / ")));
                     ui.end_row();
                 }
-                for (what, how) in [("Orbit", "Alt+LMB or RMB drag"), ("Pan", "MMB drag"), ("Zoom", "Wheel or Alt+RMB drag"), ("Straight line", "Shift+click"), ("Part actions", "RMB click"), ("Isolate / hide part", "I / H in the 3D view"), ("Restore all parts", "Esc in the 3D view"), ("Pick material", "Shift+click with eyedropper")] {
+                let nav_help = self.state.recovery.prefs.nav_scheme.help();
+                for (what, how) in nav_help.into_iter().chain([("Straight line", "Shift+click"), ("Part actions", "RMB click"), ("Isolate / hide part", "I / H in the 3D view"), ("Restore all parts", "Esc in the 3D view"), ("Pick material", "Shift+click with eyedropper")]) {
                     ui.label(RichText::new(what).color(theme::TEXT_DIM));
                     ui.label(key(how.to_string()));
                     ui.end_row();

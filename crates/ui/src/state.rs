@@ -79,6 +79,8 @@ pub struct UiState {
     uploaded_composite_generation: u64,
     pub session: Session,
     pub camera: OrbitCamera,
+    /// Navigation drag in progress (mode + rebased origin; see `nav`).
+    pub nav_drag: Option<crate::nav::NavDrag>,
     /// Scripted view used whenever a model is framed (`--camera`).
     pub camera_view: Option<crate::orbit::CameraView>,
     pub render_state: Option<egui_wgpu::RenderState>,
@@ -204,6 +206,7 @@ impl UiState {
             uploaded_view_revision: u64::MAX,
             uploaded_composite_generation: 0,
             camera: OrbitCamera::framing(&session.scene().mesh.bounds),
+            nav_drag: None,
             camera_view: None,
             session,
             render_state,
