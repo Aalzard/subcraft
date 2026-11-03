@@ -4019,3 +4019,53 @@ Request (a YouTube commenter): bring smart materials in from outside the app, in
 Tests (materials, 6): determinism and seed dependence, tiling for every preset (value one tile over, border jump), resolution independence (mean coverage 128 vs 512 within 8 percent), coverage strictly increasing with density, direction/spread anisotropy, wear weight; project: old scratches params serialize/deserialize unchanged.
 Example: cargo run --example scratch_presets -p subcraft-app -- <dir> [--crate] writes one project per preset for screenshots.
 Verified in the real app (release binary, sphere, 1024 px, Height + Base Color channels): all five presets render and show as expected - docs/screenshots/scratch-{fine-hairlines,heavy-gouges,brushed-metal,scuffed-plastic,cracked}.png. Test runs: materials 38, doc 14, project 33, app lib 67, all passing (cargo -j 2). Not done: wear bias in mask Fill effects, a crate/bake wear screenshot, and the Properties panel itself was not driven interactively. Build note: the first target dir got corrupted by interrupted builds (rustc metadata panics); a fresh target dir fixed it.
+
+### GPU adapter selection and fallback (session: cloud/gpu-adapter, issue #83)
+
+**Problem:** on a Windows 11 laptop with an Intel iGPU *and* a discrete card (reporter: UHD Graphics +
+RTX 2080 Super, SubCraft 0.2.0) the app did not open unless the Intel GPU was disabled in Device
+Manager. `crates/ui/src/graphics.rs::wgpu_options` only picked a *backend*; adapter choice was left to
+egui-wgpu's default, so startup could land on the iGPU (or an adapter that cannot present to the
+window) and die with no second attempt.
+
+**Policy (pure, in `subcraft_app::graphics`, no wgpu types):**
+* `AdapterDesc { name, class }` with `AdapterClass` = Discrete / Integrated / Virtual / Other / Software.
+* `order_adapters(&[AdapterDesc], &GpuChoice, env)` → candidate indices. An explicit name match comes
+  first (`SUBCRAFT_GPU` wins over the saved preference), then discrete, integrated, virtual, other,
+  software; enumeration order breaks ties. Every adapter appears exactly once, so a preference naming a
+  GPU that is gone can never leave the app with no candidate.
+* `first_working(order, attempt)` → `(chosen, skipped)` or all failures; the fallback loop itself is
+  testable without a GPU.
+* `gpu_env_override()` reads `SUBCRAFT_GPU=<substring of adapter name>` (case-insensitive, trimmed).
+
+**Startup (`crates/ui/src/graphics.rs`):** `wgpu_options` now sets `power_preference = HighPerformance`
+and a `native_adapter_selector` that logs every enumerated adapter (name, device type, backend, driver),
+then walks `order_adapters` and takes the first adapter that both supports the window surface
+(`is_surface_supported`) and can create a device; skipped adapters are logged as warnings and the chosen
+one as info, in the existing log (`logs/subcraft.log`, so it is in bug reports too). If none works the
+error names each adapter and reason, and the existing per-API retry (DX12 → Automatic → OpenGL) still
+applies on top.
+
+**Preference:** Preferences > Graphics now has `GPU: Automatic / High performance / <named adapter>`
+(the named entries are the adapters seen at this run's startup; a saved name that is no longer present
+is still listed so it is not silently lost). Persisted through `GraphicsSettings` as schema 2 with a
+string `gpu` field (`automatic`, `high_performance`, `name:<adapter>`); a schema-1 file loads with
+`gpu = Automatic`, and an unknown or non-string value degrades to Automatic instead of failing the load.
+Takes effect on restart, like the API choice.
+
+**Tests:** `subcraft-app` lib (6 in `graphics`): default ordering, explicit choice / env precedence /
+unknown name, fallback skipping, settings round-trip incl. schema-1 and garbage values.
+`crates/ui/tests/graphics.rs`: GPU choice persists next to the API and asks for a restart.
+`cargo test -p subcraft-app -p subcraft-ui --lib` passing.
+
+**Known cost:** the selector probes an adapter by creating a device and dropping it again, so the chosen
+adapter has a device created twice (once to probe, once by egui-wgpu). wgpu allows this; if a driver is
+ever found that does not, the probe would have to be replaced by returning the device from the selector,
+which egui-wgpu 0.36 does not support.
+
+**Not verified:** no access to the reporter's hardware (Intel UHD + RTX 2080 Super on Windows 11) and no
+multi-GPU machine at all in this cloud container, which has a single software adapter (llvmpipe). The
+ordering, the fallback loop and the settings schema are covered by unit tests with synthetic adapter
+lists; that the real driver combination now starts is **unconfirmed** and needs the reporter (or any
+Optimus laptop) to run a build and attach `logs/subcraft.log` — the log now contains the full adapter
+list and the chosen adapter, which is what to check.

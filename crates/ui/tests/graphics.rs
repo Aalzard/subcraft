@@ -35,3 +35,18 @@ fn failed_save_keeps_the_running_selection_and_reports_the_error() {
     let mut g = GraphicsUi::default(); g.select(GraphicsApi::OpenGl);
     assert_eq!(g.selected, GraphicsApi::Automatic); assert!(!g.restart_required()); assert!(g.error.is_some());
 }
+#[test]
+fn gpu_choice_persists_with_the_api_and_requests_restart() {
+    use subcraft_app::graphics::GpuChoice;
+    let root = std::env::temp_dir().join(format!("subcraft-graphics-gpu-{}", subcraft_core::ObjectId::new()));
+    let path = root.join("graphics.json");
+    let mut g = GraphicsUi { path: Some(path.clone()), ..Default::default() };
+    g.select(GraphicsApi::OpenGl);
+    g.select_gpu(GpuChoice::Named("NVIDIA GeForce RTX 2080 Super".into()));
+    let saved = GraphicsSettings::load(&path).unwrap();
+    assert_eq!((saved.api, saved.gpu), (GraphicsApi::OpenGl, GpuChoice::Named("NVIDIA GeForce RTX 2080 Super".into())));
+    assert!(g.restart_required());
+    g.select(GraphicsApi::Automatic); g.select_gpu(GpuChoice::Automatic);
+    assert!(!g.restart_required());
+    std::fs::remove_dir_all(root).unwrap();
+}
