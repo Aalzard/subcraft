@@ -4350,3 +4350,8 @@ Tests: `cargo test --release -p subcraft-compositor --lib --tests` all passing; 
 subcraft-render --test gpu_composite` 5 passing (new `small_sets_stay_on_the_cpu_by_default`); `cargo check -p
 subcraft-ui` clean. Not done: a neighborhood-aware GPU path for blur-type filters, GPU procedural patterns (the
 real cost of the big_project stack), and letting GPU-composited tiles fill the CPU prefix cache so mixed edits can resume.
+## 2026-11-03 — Linux fix for top-bar overflow on integration/next
+
+* **Cause**: the wireframe/camera feature added two buttons and widened the View combo (92 -> 150), but `viewport_bar.rs` kept hard-coded breakpoints. At 1125 px the bar needed 1228 px (`brush_bar` tests `bar_fits_wide_wrapped_and_tiny_docks_and_hides_for_non_paint_tools` and `flow_and_hardness_open_independent_sliders_and_edit_shared_values` failed on Linux); at 600 px it needed 666 px.
+* **Fix**: wide View combo only from 660 px, wireframe/camera buttons only from 600 px (not reachable from the bar below that), inline brush bar from 1214 px (was 1094). Test's inline breakpoint changed to 1230 (stale assumption); overflow thresholds untouched. Effect: at 1125 px the brush controls now wrap under the view controls.
+* **Run here (Linux)**: `cargo test -p subcraft-ui --test brush_bar` 8/8; `cargo test --workspace` 172 result lines ok, 1135 passed, 0 failed, 2 ignored. Not run: Windows, a visual check of the app.

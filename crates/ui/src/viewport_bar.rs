@@ -141,6 +141,17 @@ impl ViewportPrefs {
     }
 }
 
+/// Narrowest dock where the brush bar sits beside the view controls. Measured: the inline row is
+/// 1228.3 wide incl. 16 of frame margin (view combo 150, wireframe + camera buttons, five tool icons); the brush_bar test
+/// fails if this drifts below the real content width.
+const INLINE_MIN_WIDTH: f32 = 1214.0;
+
+/// Narrowest dock width (inside the bar's margins) that fits the wireframe and camera buttons
+/// beside the 92-wide View combo, and the one that also fits the 150-wide combo that shows
+/// "Baked Normal Map" in full. Measured by the brush_bar test.
+const EXTRAS_MIN_WIDTH: f32 = 600.0;
+const WIDE_VIEW_COMBO_MIN_WIDTH: f32 = 660.0;
+
 /// View and brush settings share the top strip. Narrow docks use a second row, then menus.
 pub fn show(ui: &mut Ui, state: &mut crate::state::UiState) {
     let mut settings = state.session.brush.settings;
@@ -156,7 +167,7 @@ pub fn show(ui: &mut Ui, state: &mut crate::state::UiState) {
             ui.spacing_mut().interact_size.y = 26.0;
             ui.set_min_width(ui.available_width());
             let width = ui.available_width();
-            let inline = width >= 1094.0; // five tool icons (Clone and Smudge joined the three paint tools)
+            let inline = width >= INLINE_MIN_WIDTH;
             ui.spacing_mut().item_spacing = egui::vec2(7.0, 6.0);
             ui.horizontal(|ui| {
                 if width < 520.0 {
@@ -165,13 +176,13 @@ pub fn show(ui: &mut Ui, state: &mut crate::state::UiState) {
                         let prefs = &mut state.recovery.prefs.viewport;
                         ui.checkbox(&mut prefs.antialias, "Anti-aliasing");
                         ui.checkbox(&mut prefs.orthographic, "Orthographic");
-                        ui.horizontal(|ui| view_mode(ui, prefs));
+                        ui.horizontal(|ui| view_mode(ui, prefs, false));
                     });
                     grid_control(ui, &mut state.recovery.prefs.viewport);
                     crate::view_extras::wireframe_control(ui, &mut state.recovery.prefs.viewport);
                     crate::view_extras::camera_menu(ui, state);
                 } else {
-                    view_controls(ui, state);
+                    view_controls(ui, state, width);
                 }
                 if painting && inline {
                     ui.add_space(5.0);
@@ -215,7 +226,7 @@ pub fn show(ui: &mut Ui, state: &mut crate::state::UiState) {
     }
 }
 
-fn view_controls(ui: &mut Ui, state: &mut crate::state::UiState) {
+fn view_controls(ui: &mut Ui, state: &mut crate::state::UiState, width: f32) {
     resolution(ui, &mut state.recovery.prefs.viewport);
     let prefs = &mut state.recovery.prefs.viewport;
     ui.separator();
@@ -224,10 +235,13 @@ fn view_controls(ui: &mut Ui, state: &mut crate::state::UiState) {
     ui.checkbox(&mut prefs.orthographic, "Ortho")
         .on_hover_text("Orthographic · no perspective: parallel lines stay parallel");
     ui.separator();
-    view_mode(ui, prefs);
+    view_mode(ui, prefs, width >= WIDE_VIEW_COMBO_MIN_WIDTH);
     grid_control(ui, prefs);
-    crate::view_extras::wireframe_control(ui, prefs);
-    crate::view_extras::camera_menu(ui, state);
+    // Wireframe and camera buttons would push the row past a narrow dock's edge.
+    if width >= EXTRAS_MIN_WIDTH {
+        crate::view_extras::wireframe_control(ui, prefs);
+        crate::view_extras::camera_menu(ui, state);
+    }
 }
 
 /// Rendering mode settings (the 3D view's Render button menu and Preferences).
@@ -315,11 +329,11 @@ fn resolution(ui: &mut Ui, prefs: &mut ViewportPrefs) {
         .on_hover_text("Render the 3D view at a lower resolution to make it faster");
 }
 
-fn view_mode(ui: &mut Ui, prefs: &mut ViewportPrefs) {
+fn view_mode(ui: &mut Ui, prefs: &mut ViewportPrefs, wide: bool) {
     dim(ui, "View");
     let mut mode = prefs.view_mode();
     egui::ComboBox::from_id_salt("viewport_view_mode")
-        .width(150.0)
+        .width(if wide { 150.0 } else { 92.0 })
         .selected_text(mode.label())
         .show_ui(ui, |ui| {
             for m in ViewMode::ALL {
