@@ -12,15 +12,8 @@
 //!
 //! Stored data is untouched: paint tiles are uploaded to a GPU-side cache keyed by tile identity
 //! (an `Arc<Tile>` the cache holds, so copy-on-write guarantees an edited tile has a new key).
-//!
-//! On the interactive path ([`crate::CompositeCache`]) CPU-evaluated blocks are kept on the GPU
-//! too, keyed by the layer (whose `Arc` the backend holds, and copy-on-write replaces on any
-//! edit), channel, tile and evaluation context, so an edit elsewhere in the stack re-blends them
-//! without evaluating them again. [`forget_gpu_content`] drops them all; the cache calls it when
-//! resources, mesh maps, geometry, resolution or filtering change.
 
-use std::hash::{Hash, Hasher};
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Instant;
 
@@ -42,8 +35,6 @@ pub const MAX_GROUP_DEPTH: usize = 4;
 pub enum GpuError {
     /// The batch needs more GPU memory than the backend has; the caller splits it.
     TooLarge,
-    /// A [`GpuSrc::Resident`] block is no longer held; the caller prepares the batch again.
-    Missing,
     Failed(String),
 }
 
@@ -52,14 +43,6 @@ pub trait GpuCompositeBackend: Send + Sync {
     /// Blend `tiles` with `program`. The output holds, per program channel, the f16 texels
     /// `rgb + alpha` of every tile in order.
     fn composite(&self, program: &GpuProgram, tiles: &[GpuTile]) -> Result<GpuOutput, GpuError>;
-    /// Whether the block kept under `id` (see [`GpuOpData::src_keep`]) is still held.
-    fn holds(&self, _id: u64) -> bool {
-        false
-    }
-    /// Bytes the backend can keep between calls (tiles and blocks).
-    fn capacity_bytes(&self) -> u64 {
-        0
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -122,26 +105,12 @@ pub enum GpuSrc {
     Tile { tile: Arc<Tile>, comps: u8 },
     /// Block `n` of the tile's `dyn_px` (content) or `dyn_mask` (mask).
     Dyn(u32),
-    /// A block evaluated by an earlier call and kept by the backend under this id.
-    Resident(u64),
-}
-
-/// Lets the backend keep a [`GpuSrc::Dyn`] block between calls.
-#[derive(Clone)]
-pub struct Resident {
-    pub id: u64,
-    /// The layer the block belongs to: held with the block, so its address (part of `id`) is not
-    /// reused while the block is kept.
-    pub owner: Arc<Layer>,
 }
 
 #[derive(Clone)]
 pub struct GpuOpData {
     pub src: GpuSrc,
     pub mask: GpuSrc,
-    /// When `src` / `mask` is a `Dyn` block, the backend may keep it under this identity.
-    pub src_keep: Option<Resident>,
-    pub mask_keep: Option<Resident>,
 }
 
 /// Everything the GPU needs for one tile. `ops[channel][op]` matches the program.
@@ -165,8 +134,6 @@ pub struct GpuTiming {
     pub uploaded_bytes: u64,
     pub cache_hits: u64,
     pub cache_misses: u64,
-    /// CPU-evaluated blocks found on the GPU (not evaluated again).
-    pub resident_hits: u64,
 }
 
 pub struct GpuOutput {
@@ -184,7 +151,6 @@ static BACKEND: OnceLock<Option<Arc<dyn GpuCompositeBackend>>> = OnceLock::new()
 static ENABLED: AtomicBool = AtomicBool::new(true);
 static MIN_TILES: AtomicUsize = AtomicUsize::new(DEFAULT_MIN_TILES);
 static STATS: Mutex<GpuStats> = Mutex::new(GpuStats::new());
-static GENERATION: AtomicU64 = AtomicU64::new(0);
 
 /// Edits touching fewer tiles than this stay on the CPU (a brush stroke is a handful of tiles
 /// and the CPU answers sooner than a round trip to the GPU).
@@ -194,11 +160,6 @@ pub const DEFAULT_MIN_TILES: usize = 64;
 const MAX_DYNAMIC_SHARE: f64 = 0.25;
 /// Tiles per GPU batch before the memory-based cap.
 const MAX_BATCH: usize = 256;
-
-/// Forget every CPU-evaluated block kept on the GPU (their inputs outside the layers changed).
-pub fn forget_gpu_content() {
-    GENERATION.fetch_add(1, Ordering::Relaxed);
-}
 
 /// Register the backend constructor (called once at start-up by the UI).
 pub fn register_gpu_compositor(factory: Factory) {
@@ -271,7 +232,7 @@ impl GpuStats {
             errors: 0,
             prep_ms: 0.0,
             apply_ms: 0.0,
-            timing: GpuTiming { upload_ms: 0.0, gpu_ms: 0.0, kernel_ms: 0.0, readback_ms: 0.0, uploaded_bytes: 0, cache_hits: 0, cache_misses: 0, resident_hits: 0 },
+            timing: GpuTiming { upload_ms: 0.0, gpu_ms: 0.0, kernel_ms: 0.0, readback_ms: 0.0, uploaded_bytes: 0, cache_hits: 0, cache_misses: 0 },
         }
     }
 }
@@ -560,24 +521,7 @@ fn content_source(layer: &Layer, kind: ChannelKind, leaf: Leaf, cpu_effects: boo
     }
 }
 
-/// Identity of a CPU-evaluated block: evaluation context, layer, role (content of a channel or
-/// the layer's mask) and tile.
-fn block_id(context: u64, layer: &Arc<Layer>, role: u64, tile: usize) -> u64 {
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    (context, Arc::as_ptr(layer) as usize, role, tile).hash(&mut h);
-    h.finish()
-}
-
-const MASK_ROLE: u64 = u64::MAX;
-
-fn content_role(kind: ChannelKind, leaf: Leaf, cpu_effects: bool) -> u64 {
-    (kind as u64) << 8 | (leaf as u64) << 1 | u64::from(cpu_effects)
-}
-
-/// The backend to look kept blocks up in, and the evaluation-context hash they are keyed with.
-type Residency<'a> = Option<(&'a dyn GpuCompositeBackend, u64)>;
-
-fn prepare_tile(plan: &Plan, ts: &TextureSet, ctx: &EvalContext, t: usize, resident: Residency) -> GpuTile {
+fn prepare_tile(plan: &Plan, ts: &TextureSet, ctx: &EvalContext, t: usize) -> GpuTile {
     let geo = ctx.geometry.tile(t);
     let tc = TileContext {
         albedo_filter: ts.albedo_filter,
@@ -587,37 +531,22 @@ fn prepare_tile(plan: &Plan, ts: &TextureSet, ctx: &EvalContext, t: usize, resid
     };
     let mut dyn_px = Vec::new();
     let mut dyn_mask = Vec::new();
-    // A kept block is used as is; otherwise the source is evaluated, and a `Dyn` result is
-    // offered to the backend to keep.
-    let lookup = |layer: &Arc<Layer>, role: u64, eval: &mut dyn FnMut() -> GpuSrc| -> (GpuSrc, Option<Resident>) {
-        let Some((backend, context)) = resident else { return (eval(), None) };
-        let id = block_id(context, layer, role, t);
-        if backend.holds(id) {
-            return (GpuSrc::Resident(id), None);
-        }
-        let src = eval();
-        let keep = matches!(src, GpuSrc::Dyn(_)).then(|| Resident { id, owner: layer.clone() });
-        (src, keep)
-    };
-    let mut masks: Vec<Option<(GpuSrc, Option<Resident>)>> = vec![None; plan.layers.len()];
+    let mut masks: Vec<Option<GpuSrc>> = vec![None; plan.layers.len()];
     let mut ops = Vec::with_capacity(plan.ops.len());
     for (ch, list) in plan.program.channels.iter().zip(&plan.ops) {
         let mut out = Vec::with_capacity(list.len());
         for (op, gop) in list.iter().zip(&ch.ops) {
-            let layer = &plan.layers[op.layer];
-            let (mask, mask_keep) = match gop.kind {
-                OpKind::Begin => (GpuSrc::None, None),
-                _ => masks[op.layer]
-                    .get_or_insert_with(|| lookup(layer, MASK_ROLE, &mut || mask_source(layer, &tc, plan.resolution, &mut dyn_mask)))
-                    .clone(),
+            let layer = &*plan.layers[op.layer];
+            let mask = match gop.kind {
+                OpKind::Begin => GpuSrc::None,
+                _ => masks[op.layer].get_or_insert_with(|| mask_source(layer, &tc, plan.resolution, &mut dyn_mask)).clone(),
             };
-            let (src, src_keep) = if gop.kind == OpKind::Leaf {
-                let role = content_role(ch.kind, op.leaf, op.cpu_effects);
-                lookup(layer, role, &mut || content_source(layer, ch.kind, op.leaf, op.cpu_effects, plan.resolution, &tc, &mut dyn_px))
+            let src = if gop.kind == OpKind::Leaf {
+                content_source(layer, ch.kind, op.leaf, op.cpu_effects, plan.resolution, &tc, &mut dyn_px)
             } else {
-                (GpuSrc::None, None)
+                GpuSrc::None
             };
-            out.push(GpuOpData { src, mask, src_keep, mask_keep });
+            out.push(GpuOpData { src, mask });
         }
         ops.push(out);
     }
@@ -633,37 +562,9 @@ fn dyn_bytes_per_tile(plan: &Plan) -> usize {
 // ---------------------------------------------------------------------------------------------
 // Driver.
 
-/// Hash of everything outside the layers that CPU-evaluated blocks depend on.
-fn context_hash(ts: &TextureSet, ctx: &EvalContext) -> u64 {
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    GENERATION.load(Ordering::Relaxed).hash(&mut h);
-    (std::ptr::from_ref(ctx.geometry).addr(), std::ptr::from_ref(ctx.resources).addr(), std::ptr::from_ref(ctx.mesh_maps).addr()).hash(&mut h);
-    ts.resolution.hash(&mut h);
-    format!("{:?}", ts.albedo_filter).hash(&mut h);
-    h.finish()
-}
-
-/// Bytes a prepared tile occupies in the backend's pool if everything in it is kept.
-fn kept_bytes(t: &GpuTile) -> u64 {
-    let mut bytes = 0;
-    for op in t.ops.iter().flatten() {
-        bytes += match (&op.src, &op.src_keep) {
-            (GpuSrc::Tile { .. }, _) => 32 << 10,
-            (GpuSrc::Dyn(_), Some(_)) | (GpuSrc::Resident(_), _) => 64 << 10,
-            _ => 0,
-        };
-        bytes += match (&op.mask, &op.mask_keep) {
-            (GpuSrc::Tile { .. }, _) | (GpuSrc::Dyn(_), Some(_)) | (GpuSrc::Resident(_), _) => 32 << 10,
-            _ => 0,
-        };
-    }
-    bytes
-}
-
 /// Evaluate as many of `tiles` as possible on the GPU and store them in `composite`. Returns
-/// what changed plus the tiles the caller must still evaluate on the CPU. With `keep_blocks`
-/// (the interactive cache) CPU-evaluated blocks stay on the GPU for later calls.
-pub(crate) fn evaluate_tiles(composite: &mut Composite, ts: &TextureSet, ctx: &EvalContext, tiles: &[usize], keep_blocks: bool) -> (ChangedTiles, Vec<usize>) {
+/// what changed plus the tiles the caller must still evaluate on the CPU.
+pub(crate) fn evaluate_tiles(composite: &mut Composite, ts: &TextureSet, ctx: &EvalContext, tiles: &[usize]) -> (ChangedTiles, Vec<usize>) {
     let none = |t: &[usize]| (ChangedTiles::new(), t.to_vec());
     if !gpu_compositing_enabled() || tiles.len() < MIN_TILES.load(Ordering::Relaxed) {
         return none(tiles);
@@ -682,23 +583,15 @@ pub(crate) fn evaluate_tiles(composite: &mut Composite, ts: &TextureSet, ctx: &E
     let mut work: Vec<&[usize]> = tiles.chunks(batch).collect();
     work.reverse();
     let mut first = true;
-    let mut residency: Residency = keep_blocks.then(|| (&*backend as &dyn GpuCompositeBackend, context_hash(ts, ctx)));
     while let Some(chunk) = work.pop() {
         let t0 = Instant::now();
-        let mut prepared: Vec<GpuTile> = chunk.par_iter().map(|&t| prepare_tile(&plan, ts, ctx, t, residency)).collect();
-        let mut prep = t0.elapsed().as_secs_f64() * 1e3;
+        let prepared: Vec<GpuTile> = chunk.par_iter().map(|&t| prepare_tile(&plan, ts, ctx, t)).collect();
+        let prep = t0.elapsed().as_secs_f64() * 1e3;
         if first {
             first = false;
-            // Blocks the GPU keeps are evaluated once and re-blended by later edits, as long as the
-            // whole set fits in the backend's pool. Otherwise, when most leaves need CPU-evaluated
-            // blocks (procedural fills, generator masks), the CPU work is the cost and the GPU only
-            // adds upload and readback: leave the rest of the set to the CPU (the batch in hand is
-            // still blended on the GPU).
-            let need = prepared.iter().map(kept_bytes).sum::<u64>() / prepared.len().max(1) as u64 * composite.tile_count() as u64;
-            let fits = residency.is_some() && need <= backend.capacity_bytes() / 10 * 8;
-            if residency.is_some() && !fits {
-                residency = None;
-            }
+            // When most leaves need CPU-evaluated blocks (procedural fills, generator masks), the
+            // CPU work is the cost and the GPU only adds upload and readback: leave the rest of
+            // the set to the CPU (the batch in hand is still blended on the GPU).
             let (mut dynamic, mut leaves) = (0usize, 0usize);
             for op in prepared.iter().flat_map(|t| t.ops.iter().flatten()) {
                 if let GpuSrc::Dyn(_) = op.src {
@@ -708,22 +601,14 @@ pub(crate) fn evaluate_tiles(composite: &mut Composite, ts: &TextureSet, ctx: &E
                     leaves += 1;
                 }
             }
-            if !fits && leaves > 0 && dynamic as f64 > MAX_DYNAMIC_SHARE * leaves as f64 {
+            if leaves > 0 && dynamic as f64 > MAX_DYNAMIC_SHARE * leaves as f64 {
                 log::debug!("GPU compositing: {dynamic}/{leaves} sources are CPU-evaluated; the rest of the set uses the CPU");
                 while let Some(rest) = work.pop() {
                     left.extend_from_slice(rest);
                 }
             }
         }
-        let mut result = backend.composite(&plan.program, &prepared);
-        if let Err(GpuError::Missing) = result {
-            // Another caller evicted a kept block between preparation and blending.
-            let t0 = Instant::now();
-            prepared = chunk.par_iter().map(|&t| prepare_tile(&plan, ts, ctx, t, None)).collect();
-            prep += t0.elapsed().as_secs_f64() * 1e3;
-            result = backend.composite(&plan.program, &prepared);
-        }
-        match result {
+        match backend.composite(&plan.program, &prepared) {
             Ok(out) => {
                 let t1 = Instant::now();
                 for (kind, t) in apply(composite, &plan.program, chunk, &out) {
@@ -742,7 +627,6 @@ pub(crate) fn evaluate_tiles(composite: &mut Composite, ts: &TextureSet, ctx: &E
                 a.uploaded_bytes += b.uploaded_bytes;
                 a.cache_hits += b.cache_hits;
                 a.cache_misses += b.cache_misses;
-                a.resident_hits += b.resident_hits;
             }
             Err(GpuError::TooLarge) if chunk.len() > 1 => {
                 let (a, b) = chunk.split_at(chunk.len() / 2);

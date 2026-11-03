@@ -7,13 +7,11 @@
 //! copy-on-write guarantees an edited tile has a new key): between edits only new or edited tiles
 //! travel. The pool is up to four storage buffers (one binding is limited by the device), grown on
 //! demand. Tiles the pool cannot hold at once make the batch report `TooLarge`, and the compositor
-//! splits it. CPU-evaluated content travels as f32 blocks: for the batch only, or kept in the pool
-//! (a content block takes two slots, a mask one) when the compositor offers an identity for it.
-//! Scratch buffers are kept and reused between batches. The pool is a derived cache; nothing
-//! stored depends on it.
+//! splits it. CPU-evaluated content travels as f32 blocks for the batch only. Scratch buffers
+//! are kept and reused between batches. The pool is a derived cache; nothing stored depends on it.
 
-use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex, RwLock};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use bytemuck::{Pod, Zeroable};
@@ -23,7 +21,7 @@ use half::slice::HalfFloatSliceExt;
 use subcraft_compositor::gpu::{
     EffectKind, GpuCompositeBackend, GpuError, GpuOutput, GpuProgram, GpuSrc, GpuTile, GpuTiming, OpKind,
 };
-use subcraft_doc::{BlendMode, Layer};
+use subcraft_doc::BlendMode;
 use subcraft_image::{TILE_TEXELS, Tile};
 
 const SLOT_BYTES: u64 = 32 * 1024;
@@ -31,13 +29,6 @@ const REF_NONE: u32 = 0;
 const REF_CONST: u32 = 1 << 28;
 const REF_TILE: u32 = 2 << 28;
 const REF_DYN: u32 = 3 << 28;
-/// A kept f32 content block: low half of the texels in the slot of this word, high half in the
-/// slot named by the op's third ref word.
-const REF_KEPT_PX: u32 = 4 << 28;
-/// A kept f32 mask block in one slot.
-const REF_KEPT_MASK: u32 = 5 << 28;
-/// Ref words per op: content, mask, second slot of a kept content block.
-const REF_WORDS: usize = 3;
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -57,38 +48,10 @@ struct Params {
 /// Pool buffers the shader binds (`pool0` .. `pool3`).
 const POOL_BUFFERS: usize = 4;
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-enum Key {
-    /// A stored tile, by the address of its `Arc` (held by the entry).
-    Tile(usize),
-    /// A CPU-evaluated block, by the compositor's identity.
-    Block(u64),
-}
-
-/// What an entry keeps alive so its key cannot be reused for other data.
-enum Keep {
-    Tile(Arc<Tile>),
-    Layer(Arc<Layer>),
-}
-
 struct Entry {
-    _keep: Keep,
-    slots: [u32; 2],
-    count: u8,
+    _tile: Arc<Tile>,
+    slot: u32,
     used: u64,
-}
-
-/// Where a missing entry's texels come from.
-enum Data<'a> {
-    Tile(&'a Arc<Tile>),
-    Px(&'a [[f32; 4]]),
-    Mask(&'a [f32]),
-}
-
-impl Data<'_> {
-    fn slots(&self) -> usize {
-        if matches!(self, Data::Px(_)) { 2 } else { 1 }
-    }
 }
 
 struct Pool {
@@ -97,7 +60,7 @@ struct Pool {
     per_buffer: u32,
     /// Buffers the pool may grow to.
     max_buffers: usize,
-    map: HashMap<Key, Entry>,
+    map: HashMap<usize, Entry>,
     free: Vec<u32>,
     stamp: u64,
 }
@@ -122,8 +85,6 @@ pub struct GpuCompositor {
     layout: wgpu::BindGroupLayout,
     pool: Mutex<Pool>,
     scratch: Mutex<Scratch>,
-    /// Ids of the kept blocks (read by `holds` while the pool may be locked by a batch).
-    held: RwLock<HashSet<u64>>,
     dummy: wgpu::Buffer,
     timestamps: bool,
     max_binding: u64,
@@ -226,7 +187,6 @@ impl GpuCompositor {
             layout,
             pool: Mutex::new(pool),
             scratch: Mutex::default(),
-            held: RwLock::default(),
             dummy,
             timestamps,
             max_binding,
@@ -272,114 +232,77 @@ impl GpuCompositor {
         true
     }
 
-    /// Pool slots for every stored tile and kept block the batch reads; uploads the ones the pool
-    /// does not hold yet. `Missing` when a block the compositor expected to be kept is gone.
-    fn resolve_tiles(&self, pool: &mut Pool, tiles: &[GpuTile], timing: &mut GpuTiming) -> Result<HashMap<Key, [u32; 2]>, GpuError> {
+    /// Pool slots for every stored tile the batch reads; uploads the ones not resident.
+    fn resolve_tiles(&self, pool: &mut Pool, tiles: &[GpuTile], timing: &mut GpuTiming) -> Result<HashMap<usize, u32>, GpuError> {
         pool.stamp += 1;
         let stamp = pool.stamp;
-        let mut slots: HashMap<Key, [u32; 2]> = HashMap::new();
-        let mut misses: Vec<(Key, Keep, Data)> = Vec::new();
-        let (mut batch_slots, mut needed) = (0usize, 0usize);
+        let mut slots: HashMap<usize, u32> = HashMap::new();
+        let mut misses: Vec<(usize, Arc<Tile>)> = Vec::new();
         for t in tiles {
-            for op in t.ops.iter().flatten() {
-                for (src, keep, is_mask) in [(&op.src, &op.src_keep, false), (&op.mask, &op.mask_keep, true)] {
-                    let (key, data) = match (src, keep) {
-                        (GpuSrc::Tile { tile, .. }, _) => (Key::Tile(Arc::as_ptr(tile) as usize), Some((Keep::Tile(tile.clone()), Data::Tile(tile)))),
-                        (GpuSrc::Resident(id), _) => (Key::Block(*id), None),
-                        (GpuSrc::Dyn(b), Some(r)) => {
-                            let b = *b as usize * TILE_TEXELS;
-                            let data = if is_mask { Data::Mask(&t.dyn_mask[b..b + TILE_TEXELS]) } else { Data::Px(&t.dyn_px[b..b + TILE_TEXELS]) };
-                            (Key::Block(r.id), Some((Keep::Layer(r.owner.clone()), data)))
+            for ch in &t.ops {
+                for op in ch {
+                    for src in [&op.src, &op.mask] {
+                        let GpuSrc::Tile { tile, .. } = src else { continue };
+                        let key = Arc::as_ptr(tile) as usize;
+                        if slots.contains_key(&key) {
+                            continue;
                         }
-                        _ => continue,
-                    };
-                    if slots.contains_key(&key) {
-                        continue;
-                    }
-                    if let Some(e) = pool.map.get_mut(&key) {
-                        e.used = stamp;
-                        slots.insert(key, e.slots);
-                        batch_slots += e.count as usize;
-                        match key {
-                            Key::Tile(_) => timing.cache_hits += 1,
-                            Key::Block(_) => timing.resident_hits += 1,
+                        if let Some(e) = pool.map.get_mut(&key) {
+                            e.used = stamp;
+                            slots.insert(key, e.slot);
+                            timing.cache_hits += 1;
+                        } else {
+                            slots.insert(key, u32::MAX);
+                            misses.push((key, tile.clone()));
+                            timing.cache_misses += 1;
                         }
-                        continue;
                     }
-                    let Some((keep, data)) = data else { return Err(GpuError::Missing) };
-                    if let Key::Tile(_) = key {
-                        timing.cache_misses += 1;
-                    }
-                    slots.insert(key, [u32::MAX; 2]);
-                    batch_slots += data.slots();
-                    needed += data.slots();
-                    misses.push((key, keep, data));
                 }
             }
         }
-        if batch_slots > pool.capacity() {
+        if slots.len() > pool.capacity() {
             return Err(GpuError::TooLarge);
         }
-        while needed > pool.free.len() && self.grow(pool) {}
+        while misses.len() > pool.free.len() && self.grow(pool) {}
         // Evict least recently used entries (never ones this batch needs).
-        if needed > pool.free.len() {
-            let mut old: Vec<(u64, Key)> = pool.map.iter().filter(|(_, e)| e.used < stamp).map(|(k, e)| (e.used, *k)).collect();
-            old.sort_unstable_by_key(|o| o.0);
-            let mut held = self.held.write().unwrap();
-            for (_, key) in old {
-                if needed <= pool.free.len() {
-                    break;
-                }
+        let need = misses.len().saturating_sub(pool.free.len());
+        if need > 0 {
+            let mut old: Vec<(u64, usize)> = pool.map.iter().filter(|(_, e)| e.used < stamp).map(|(k, e)| (e.used, *k)).collect();
+            old.sort_unstable();
+            for (_, key) in old.into_iter().take(need) {
                 let e = pool.map.remove(&key).expect("listed");
-                pool.free.extend_from_slice(&e.slots[..e.count as usize]);
-                if let Key::Block(id) = key {
-                    held.remove(&id);
-                }
+                pool.free.push(e.slot);
             }
         }
-        let mut placed: Vec<(u32, &[u8])> = Vec::with_capacity(needed);
-        {
-            let mut held = self.held.write().unwrap();
-            for (key, keep, data) in misses {
-                let mut s = [u32::MAX; 2];
-                for slot in s.iter_mut().take(data.slots()) {
-                    *slot = pool.free.pop().ok_or(GpuError::TooLarge)?;
-                }
-                match data {
-                    Data::Tile(tile) => placed.push((s[0], bytemuck::cast_slice(tile.data.reinterpret_cast()))),
-                    Data::Px(px) => {
-                        let (lo, hi) = px.split_at(TILE_TEXELS / 2);
-                        placed.push((s[0], bytemuck::cast_slice(lo)));
-                        placed.push((s[1], bytemuck::cast_slice(hi)));
-                    }
-                    Data::Mask(m) => placed.push((s[0], bytemuck::cast_slice(m))),
-                }
-                slots.insert(key, s);
-                if let Key::Block(id) = key {
-                    held.insert(id);
-                }
-                pool.map.insert(key, Entry { _keep: keep, slots: s, count: data.slots() as u8, used: stamp });
-            }
+        let mut placed: Vec<(u32, Arc<Tile>)> = Vec::with_capacity(misses.len());
+        for (key, tile) in misses {
+            let slot = pool.free.pop().ok_or(GpuError::TooLarge)?;
+            slots.insert(key, slot);
+            pool.map.insert(key, Entry { _tile: tile.clone(), slot, used: stamp });
+            placed.push((slot, tile));
         }
-        // One write per run of neighboring slots instead of one per 32 KiB slot: far fewer
+        // One write per run of neighboring slots instead of one per 32 KiB tile: far fewer
         // queue submissions and staging allocations.
         placed.sort_unstable_by_key(|p| p.0);
         let mut staging: Vec<u8> = Vec::new();
         let mut run_start = 0u32;
         let mut next = 0u32;
-        for &(slot, bytes) in &placed {
+        for (slot, tile) in placed.iter() {
+            let bits = tile.data.reinterpret_cast();
             let new_buffer = slot % pool.per_buffer == 0;
-            if !staging.is_empty() && (slot != next || new_buffer || staging.len() >= (64 << 20)) {
+            if !staging.is_empty() && (*slot != next || new_buffer || staging.len() >= (64 << 20)) {
                 self.write_slots(pool, run_start, &staging);
                 staging.clear();
             }
             if staging.is_empty() {
-                run_start = slot;
+                run_start = *slot;
             }
+            let bytes: &[u8] = bytemuck::cast_slice(bits);
             debug_assert!(bytes.len() <= SLOT_BYTES as usize);
             staging.extend_from_slice(bytes);
-            // Data shorter than a slot leaves the rest of the slot unread.
-            staging.resize(staging.len() + SLOT_BYTES as usize - bytes.len(), 0);
+            // Tiles with fewer components than a full slot leave the rest of the slot unread.
+            let pad = SLOT_BYTES as usize - bytes.len();
+            staging.resize(staging.len() + pad, 0);
             timing.uploaded_bytes += bytes.len() as u64;
             next = slot + 1;
         }
@@ -442,14 +365,6 @@ impl GpuCompositeBackend for GpuCompositor {
         format!("wgpu compute on {}", self.adapter_name)
     }
 
-    fn holds(&self, id: u64) -> bool {
-        self.held.read().unwrap().contains(&id)
-    }
-
-    fn capacity_bytes(&self) -> u64 {
-        self.pool.lock().unwrap().capacity() as u64 * SLOT_BYTES
-    }
-
     fn composite(&self, program: &GpuProgram, tiles: &[GpuTile]) -> Result<GpuOutput, GpuError> {
         let start = Instant::now();
         let mut timing = GpuTiming::default();
@@ -495,33 +410,17 @@ impl GpuCompositeBackend for GpuCompositor {
             }
         }
 
-        // CPU-evaluated blocks used for this batch only, packed (kept blocks live in the pool).
+        // Per-tile bases into the shared CPU-evaluated blocks.
         let mut dyn_px: Vec<[f32; 4]> = Vec::new();
         let mut dyn_mask: Vec<f32> = Vec::new();
-        let mut remap: Vec<(Vec<u32>, Vec<u32>)> = Vec::with_capacity(n);
+        let mut bases = Vec::with_capacity(n);
         for t in tiles {
-            let mut px_map = vec![u32::MAX; t.dyn_px.len() / TILE_TEXELS];
-            let mut mask_map = vec![u32::MAX; t.dyn_mask.len() / TILE_TEXELS];
-            for op in t.ops.iter().flatten() {
-                if let (GpuSrc::Dyn(b), None) = (&op.src, &op.src_keep) {
-                    let b = *b as usize;
-                    if px_map[b] == u32::MAX {
-                        px_map[b] = (dyn_px.len() / TILE_TEXELS) as u32;
-                        dyn_px.extend_from_slice(&t.dyn_px[b * TILE_TEXELS..][..TILE_TEXELS]);
-                    }
-                }
-                if let (GpuSrc::Dyn(b), None) = (&op.mask, &op.mask_keep) {
-                    let b = *b as usize;
-                    if mask_map[b] == u32::MAX {
-                        mask_map[b] = (dyn_mask.len() / TILE_TEXELS) as u32;
-                        dyn_mask.extend_from_slice(&t.dyn_mask[b * TILE_TEXELS..][..TILE_TEXELS]);
-                    }
-                }
-            }
+            bases.push(((dyn_px.len() / TILE_TEXELS) as u32, (dyn_mask.len() / TILE_TEXELS) as u32));
+            dyn_px.extend_from_slice(&t.dyn_px);
+            dyn_mask.extend_from_slice(&t.dyn_mask);
             if (dyn_px.len() * 16) as u64 > self.max_binding || (dyn_mask.len() * 4) as u64 > self.max_binding {
                 return Err(GpuError::TooLarge);
             }
-            remap.push((px_map, mask_map));
         }
         let mut consts: Vec<[f32; 4]> = vec![[0.0; 4]];
         let mut refs: Vec<u32> = Vec::new();
@@ -531,36 +430,24 @@ impl GpuCompositeBackend for GpuCompositor {
             for (t, tile) in tiles.iter().enumerate() {
                 debug_assert_eq!(tile.ops[ci].len(), ch.ops.len());
                 for op in &tile.ops[ci] {
-                    let mut words = [REF_NONE; REF_WORDS];
-                    for (src, keep, is_mask) in [(&op.src, &op.src_keep, false), (&op.mask, &op.mask_keep, true)] {
-                        let kept = |id: u64| slots[&Key::Block(id)];
-                        let word = match (src, keep) {
-                            (GpuSrc::None, _) => REF_NONE,
-                            (GpuSrc::Const(v), _) => {
+                    for (src, is_mask) in [(&op.src, false), (&op.mask, true)] {
+                        let word = match src {
+                            GpuSrc::None => REF_NONE,
+                            GpuSrc::Const(v) => {
                                 consts.push(*v);
                                 REF_CONST | limit_err(u32::try_from(consts.len() - 1).ok().filter(|&i| i < 1 << 24))?
                             }
-                            (GpuSrc::Tile { tile, comps }, _) => {
-                                let slot = slots[&Key::Tile(Arc::as_ptr(tile) as usize)][0];
+                            GpuSrc::Tile { tile, comps } => {
+                                let slot = slots[&(Arc::as_ptr(tile) as usize)];
                                 REF_TILE | (u32::from(*comps) << 24) | slot
                             }
-                            (GpuSrc::Resident(id), _) | (GpuSrc::Dyn(_), Some(subcraft_compositor::gpu::Resident { id, .. })) => {
-                                let s = kept(*id);
-                                if is_mask {
-                                    REF_KEPT_MASK | s[0]
-                                } else {
-                                    words[2] = s[1];
-                                    REF_KEPT_PX | s[0]
-                                }
-                            }
-                            (GpuSrc::Dyn(block), None) => {
-                                let block = if is_mask { remap[t].1[*block as usize] } else { remap[t].0[*block as usize] };
-                                REF_DYN | limit_err(Some(block).filter(|&i| i < 1 << 24))?
+                            GpuSrc::Dyn(block) => {
+                                let base = if is_mask { bases[t].1 } else { bases[t].0 };
+                                REF_DYN | limit_err(Some(base + block).filter(|&i| i < 1 << 24))?
                             }
                         };
-                        words[usize::from(is_mask)] = word;
+                        refs.push(word);
                     }
-                    refs.extend_from_slice(&words);
                 }
             }
         }
