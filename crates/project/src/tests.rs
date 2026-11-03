@@ -670,7 +670,7 @@ fn text_layers_roundtrip_with_embedded_font_and_old_schemas_have_none() {
     assert_eq!((font.kind, font.encoded.as_deref()), (ResourceKind::Font, Some(&*bytes)));
     // The container stores the font as a normal file entry.
     let zip = zip::ZipArchive::new(Cursor::new(bytes_out)).unwrap();
-    assert!(zip.file_names().any(|n| n == format!("resources/{}.ttf", font_id.0)));
+    assert!(zip.file_names().any(|n| n.is_ok_and(|n| n == format!("resources/{}.ttf", font_id.0).as_str())));
     // JSON from schemas without text has no text layers; unknown future fields are not required.
     let paint: ContentV1 = serde_json::from_str(r#"{"type":"paint","channels":[],"path":null}"#).unwrap();
     assert!(matches!(paint, ContentV1::Paint { text: None, .. }));

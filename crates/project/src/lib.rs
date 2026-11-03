@@ -256,7 +256,7 @@ fn pack_resources(ids: &[ResourceId], resources: &ResourceStore) -> (Vec<Resourc
         };
         // By content, so re-saving a loaded project keeps the extension (TGA falls back to the name).
         let hint = r.source_path.as_deref().and_then(|p| p.to_str()).unwrap_or(&r.name);
-        let ext = if r.kind == subcraft_doc::ResourceKind::Font { font_extension(bytes) } else { subcraft_image::guess_extension(bytes, Some(hint)) };
+        let ext = if r.kind == subcraft_doc::ResourceKind::Font { font_extension(bytes).to_string() } else { subcraft_image::guess_extension(bytes, Some(hint)) };
         let file = format!("resources/{}.{ext}", id.0);
         entries.push(ResourceV1 { id: id.0, name: r.name.clone(), kind: r.kind, file: file.clone() });
         files.push((file, bytes.clone()));

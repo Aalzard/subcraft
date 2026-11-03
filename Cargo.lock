@@ -4058,6 +4058,7 @@ dependencies = [
  "subcraft-mesh",
  "subcraft-paint",
  "subcraft-render",
+ "subcraft-text",
  "web-time",
 ]
 

@@ -148,7 +148,7 @@ fn imported_font_files_are_embedded_deduplicated_and_survive_save_and_open() {
     let mut reopened = Session::open_project(&project).unwrap();
     assert_eq!(reopened.embedded_fonts().len(), 1);
     let layer = reopened.selected_layer().map(|l| l.id).or_else(|| reopened.selected_texture_set().layers.first().map(|l| l.id)).unwrap();
-    reopened.execute(Command::SelectLayer(layer)).unwrap();
+    reopened.execute(Command::SelectLayer(Some(layer))).unwrap();
     assert_eq!(reopened.selected_text(), Some(&d), "text stays editable after reopening");
     assert_eq!(&paint(&reopened).channels, &raster_before);
     // And it can be edited with the reloaded font.
