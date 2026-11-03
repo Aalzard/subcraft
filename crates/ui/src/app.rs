@@ -749,6 +749,7 @@ impl SubcraftApp {
             }
             Action::Export => {
                 self.state.export.open = true;
+                self.state.export.view_2d_only = false;
                 self.state.export.settings.height_to_normal = self.state.height_scale;
             }
             _ => {
@@ -887,6 +888,11 @@ impl SubcraftApp {
                 if item(ui, icons::EXPORT, "Export textures…", crate::keys::native("Ctrl+Shift+E")) {
                     ui.close();
                     self.perform(Action::Export, now);
+                }
+                if item(ui, icons::EXPORT, "Export 2D view…", "") {
+                    ui.close();
+                    self.perform(Action::Export, now);
+                    self.state.export.view_2d_only = true;
                 }
                 if item(ui, icons::CAMERA, "Render image / turntable…", "") {
                     ui.close();

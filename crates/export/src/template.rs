@@ -15,6 +15,9 @@ pub enum Source {
     /// Height remapped for integer formats: `h · 0.5 + 0.5` (float formats store raw height).
     Height,
     Constant { value: f32 },
+    /// Component of whatever the 2D view shows (`ExportSettings::view_2d`): single-component
+    /// sources read as gray, values clamped to 0..1, color channels sRGB-encoded like the display.
+    View2d { component: u8 },
 }
 
 impl Source {
@@ -28,7 +31,7 @@ impl Source {
             Source::Channel { kind, .. } => Some(*kind),
             Source::Normal { .. } => Some(ChannelKind::Normal),
             Source::Height => Some(ChannelKind::Height),
-            Source::Constant { .. } => None,
+            Source::Constant { .. } | Source::View2d { .. } => None,
         }
     }
 }
@@ -192,7 +195,12 @@ impl ExportTemplate {
         }
     }
 
+    /// The current 2D view as one RGB texture per texture set (Painter's "2D View" export).
+    pub fn view_2d() -> Self {
+        Self { name: "2D View".into(), maps: vec![OutputMap::new("View2D", FileFormat::Png8, (0..3).map(|component| Source::View2d { component }).collect(), true)] }
+    }
+
     pub fn builtin() -> Vec<ExportTemplate> {
-        vec![Self::pbr_metal_rough(), Self::unreal(), Self::unity_hdrp(), Self::gltf(), Self::unity_urp(), Self::godot()]
+        vec![Self::pbr_metal_rough(), Self::unreal(), Self::unity_hdrp(), Self::gltf(), Self::unity_urp(), Self::godot(), Self::view_2d()]
     }
 }

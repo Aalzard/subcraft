@@ -1847,6 +1847,19 @@ impl Session {
         subcraft_export::export(&self.scene.mesh, &name, &sets, &settings, dir).map_err(|e| e.to_string())
     }
 
+    /// Export what the 2D view shows (`view`) for the selected texture set as one image, using
+    /// the normal export settings (file format, padding). Returns the written file.
+    pub fn export_view_2d(&mut self, dir: &Path, view: subcraft_export::View2d, settings: &subcraft_export::ExportSettings) -> Result<Vec<PathBuf>, String> {
+        self.update_composites();
+        let mut settings = self.effective_export_settings(settings);
+        settings.template = subcraft_export::ExportTemplate::view_2d();
+        settings.view_2d = Some(view);
+        settings.selection = subcraft_export::MapSelection::default();
+        let (name, selected) = (self.export_name(), self.selected_texture_set().name.clone());
+        let sets: Vec<_> = self.export_sets().into_iter().filter(|s| s.name == selected).collect();
+        subcraft_export::export(&self.scene.mesh, &name, &sets, &settings, dir).map_err(|e| e.to_string())
+    }
+
     /// Export every map as one in-memory ZIP archive.
     pub fn export_archive(&mut self, settings: &subcraft_export::ExportSettings) -> Result<subcraft_export::TextureArchive,String> {
         self.update_composites();let settings=self.effective_export_settings(settings);let name=self.export_name();let sets=self.export_sets();

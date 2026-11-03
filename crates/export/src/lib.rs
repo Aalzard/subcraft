@@ -35,8 +35,18 @@ pub enum Padding {
     Infinite,
 }
 
+/// What the 2D view shows: a composite channel or a baked mesh map.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum View2d {
+    Channel(ChannelKind),
+    MeshMap(MeshMapKind),
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct ExportSettings {
+    /// Source of `Source::View2d` components (the 2D panel's current view). Maps using it are
+    /// skipped when `None` or when a texture set lacks that source.
+    pub view_2d: Option<View2d>,
     pub template: ExportTemplate,
     pub padding: Padding,
     /// Height-to-normal strength baked into exported normals (same units as the viewport's
@@ -54,7 +64,7 @@ pub struct ExportSettings {
 
 impl Default for ExportSettings {
     fn default() -> Self {
-        Self { template: ExportTemplate::pbr_metal_rough(), padding: Padding::Infinite, height_to_normal: 0.02, format_override: None, selection: MapSelection::default(), normal_directx: None, udim_folders: false }
+        Self { view_2d: None, template: ExportTemplate::pbr_metal_rough(), padding: Padding::Infinite, height_to_normal: 0.02, format_override: None, selection: MapSelection::default(), normal_directx: None, udim_folders: false }
     }
 }
 
@@ -71,6 +81,13 @@ pub struct ExportTextureSet<'a> {
 
 impl ExportTextureSet<'_> {
     /// Image providing `kind`: the channel composite, or the baked AO for the AO channel.
+    fn view_source(&self, view: View2d) -> Option<&TiledImage> {
+        match view {
+            View2d::Channel(k) => self.source(k),
+            View2d::MeshMap(k) => self.mesh_maps.and_then(|m| m.get(&k)),
+        }
+    }
+
     fn source(&self, kind: ChannelKind) -> Option<&TiledImage> {
         self.channels.get(&kind).or_else(|| match kind {
             ChannelKind::AmbientOcclusion => self.mesh_maps.and_then(|m| m.get(&MeshMapKind::AmbientOcclusion)),
@@ -95,7 +112,10 @@ pub fn sanitize(s: &str) -> String {
     if t.is_empty() { "untitled".into() } else { t }
 }
 
-fn map_applies(map: &OutputMap, set: &ExportTextureSet) -> bool {
+fn map_applies(map: &OutputMap, set: &ExportTextureSet, settings: &ExportSettings) -> bool {
+    if map.components.iter().any(|s| matches!(s, Source::View2d { .. })) {
+        return settings.view_2d.is_some_and(|v| set.view_source(v).is_some());
+    }
     map.components.iter().filter_map(|s| s.channel()).any(|k| set.source(k).is_some())
         || map.components.iter().any(|s| matches!(s, Source::Normal { .. })) && set.channels.contains_key(&ChannelKind::Height)
 }
@@ -131,7 +151,7 @@ fn output_path(mesh_name: &str, set: &ExportTextureSet, suffix: &str, ext: &str,
 pub fn plan_all(mesh_name: &str, sets: &[ExportTextureSet], settings: &ExportSettings) -> Vec<PlannedFile> {
     let mut out = Vec::new();
     for set in sets {
-        for map in settings.template.maps.iter().filter(|m| map_applies(m, set)) {
+        for map in settings.template.maps.iter().filter(|m| map_applies(m, set, settings)) {
             let fmt = settings.format_override.unwrap_or(map.format);
             out.push(PlannedFile {
                 set: set.name.to_string(),
@@ -155,9 +175,29 @@ struct Dense<'a> {
     size: u32,
     cache: HashMap<ChannelKind, (usize, Vec<f32>)>,
     normal: Option<Vec<f32>>,
+    view: Option<(usize, Vec<f32>)>,
 }
 
 impl<'a> Dense<'a> {
+    /// The 2D view's source at export size (nearest resample when baked at another size).
+    fn view(&mut self, v: View2d) -> &(usize, Vec<f32>) {
+        let (size, set) = (self.size, self.set);
+        self.view.get_or_insert_with(|| {
+            let img = set.view_source(v).expect("map_applies checked the source");
+            let c = img.comps();
+            if img.width() == size {
+                return (c, img.to_dense());
+            }
+            let mut out = Vec::with_capacity((size * size) as usize * c);
+            for y in 0..size {
+                for x in 0..size {
+                    out.extend_from_slice(&img.get(x * img.width() / size, y * img.height() / size)[..c]);
+                }
+            }
+            (c, out)
+        })
+    }
+
     fn channel(&mut self, kind: ChannelKind) -> &(usize, Vec<f32>) {
         let size = self.size;
         let set = self.set;
@@ -239,6 +279,18 @@ fn evaluate_map(map: &OutputMap, dense: &mut Dense, settings: &ExportSettings, f
                     out[i * comps + ci] = if directx && c == 1 { 1.0 - v } else { v };
                 }
             }
+            Source::View2d { component } => {
+                let Some(view) = settings.view_2d else { continue };
+                let encode = map.srgb && matches!(view, View2d::Channel(k) if k.is_color()) && !format.is_float();
+                let (cc, data) = dense.view(view);
+                // Same as the panel: one component shows as gray, otherwise RGB; display clamps to 0..1.
+                let c = if *cc == 1 { 0 } else { (component as usize).min(*cc - 1).min(2) };
+                for i in 0..n {
+                    let v = data[i * cc + c];
+                    let v = if format.is_float() { v } else { v.clamp(0.0, 1.0) };
+                    out[i * comps + ci] = if encode { linear_to_srgb(v.clamp(0.0, 1.0)) } else { v };
+                }
+            }
             Source::Height => {
                 let (cc, data) = dense.channel(ChannelKind::Height);
                 for i in 0..n {
@@ -293,8 +345,8 @@ fn render_maps(mesh: &Mesh, mesh_name: &str, sets: &[ExportTextureSet], settings
     for set in sets {
         let Some(size) = set.channels.values().next().map(|i| i.width()) else { continue };
         let covered = if settings.padding == Padding::None { Vec::new() } else { coverage(mesh, set.material_slot, size) };
-        let mut dense = Dense { set, size, cache: HashMap::new(), normal: None };
-        for map in settings.template.maps.iter().filter(|m| map_applies(m, set) && settings.selection.is_on(set.name, &m.suffix)) {
+        let mut dense = Dense { set, size, cache: HashMap::new(), normal: None, view: None };
+        for map in settings.template.maps.iter().filter(|m| map_applies(m, set, settings) && settings.selection.is_on(set.name, &m.suffix)) {
             if map.suffix.contains(['/', '\\']) || map.suffix.contains("..") {
                 return Err(ExportError::Archive(format!("invalid map suffix: {}", map.suffix)));
             }

@@ -34,12 +34,14 @@ pub struct ExportUi {
     pub folder: String,
     /// Template name last stored in / read from the project settings.
     pub known_template: String,
+    /// Opened from File > Export 2D view: write only what the 2D panel shows.
+    pub view_2d_only: bool,
 }
 
 impl Default for ExportUi {
     fn default() -> Self {
         let folder = std::env::current_dir().map(|d| d.join("exports")).unwrap_or_else(|_| PathBuf::from("exports"));
-        Self { open: false, settings: ExportSettings::default(), template: 0, folder: folder.display().to_string(), known_template: String::new() }
+        Self { open: false, settings: ExportSettings::default(), template: 0, folder: folder.display().to_string(), known_template: String::new(), view_2d_only: false }
     }
 }
 
@@ -151,7 +153,13 @@ pub fn export_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
     }
     let mut open = true;
     let templates = ExportTemplate::builtin();
-    crate::widgets::window(ctx, window_title("Export Textures")).open(&mut open).collapsible(false).default_width(480.0).show(ctx, |ui| {
+    // Every export knows what the 2D panel shows, so the "2D View" template (and custom
+    // presets using `Source::View2d`) write it.
+    let view = crate::panels::uv_view::export_view(state.uv.source);
+    state.export.settings.view_2d = Some(view);
+    let view_only = state.export.view_2d_only;
+    let title = if view_only { "Export 2D View" } else { "Export Textures" };
+    crate::widgets::window(ctx, window_title(title)).open(&mut open).collapsible(false).default_width(480.0).show(ctx, |ui| {
         let ex = &mut state.export;
         egui::Grid::new("export_grid").num_columns(2).spacing([16.0, 10.0]).show(ui, |ui| {
             {
@@ -166,12 +174,17 @@ pub fn export_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
                 });
                 ui.end_row();
             }
-            ui.label(dim("Template"));
-            egui::ComboBox::from_id_salt("template").selected_text(&templates[ex.template].name).show_ui(ui, |ui| {
-                for (i, t) in templates.iter().enumerate() {
-                    ui.selectable_value(&mut ex.template, i, &t.name);
-                }
-            });
+            if view_only {
+                ui.label(dim("Image"));
+                ui.label(format!("{} (as shown in the 2D view)", crate::panels::uv_view::label(state.uv.source)));
+            } else {
+                ui.label(dim("Template"));
+                egui::ComboBox::from_id_salt("template").selected_text(&templates[ex.template].name).show_ui(ui, |ui| {
+                    for (i, t) in templates.iter().enumerate() {
+                        ui.selectable_value(&mut ex.template, i, &t.name);
+                    }
+                });
+            }
             ui.end_row();
             ui.label(dim("File format"));
             let fmt_text = ex.settings.format_override.map_or("Template default", |f| f.label());
@@ -212,6 +225,18 @@ pub fn export_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
         ex.settings.template = templates[ex.template].clone();
         let settings = ex.settings.clone();
         let folder = PathBuf::from(&ex.folder);
+        if view_only {
+            ui.add_space(6.0);
+            let go = ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| primary_button(ui, format!("{}  Export", crate::icons::EXPORT)).clicked());
+            if go.inner {
+                match state.session.export_view_2d(&folder, view, &settings) {
+                    Ok(files) if files.is_empty() => state.set_status("Nothing to export: the 2D view's source is missing", now),
+                    Ok(files) => state.set_status(format!("Exported {}", files[0].display()), now),
+                    Err(e) => state.set_status(format!("Export failed: {e}"), now),
+                }
+            }
+            return;
+        }
         ui.add_space(6.0);
         divider(ui);
         ui.add_space(4.0);

@@ -10,7 +10,15 @@ use subcraft_render::{PreviewSource, wgpu_api as wgpu};
 
 use crate::state::{Tool, UiState};
 
-fn label(s: PreviewSource) -> String {
+/// The export crate's name for what the 2D view shows.
+pub fn export_view(s: PreviewSource) -> subcraft_export::View2d {
+    match s {
+        PreviewSource::Channel(k) => subcraft_export::View2d::Channel(k),
+        PreviewSource::MeshMap(k) => subcraft_export::View2d::MeshMap(k),
+    }
+}
+
+pub fn label(s: PreviewSource) -> String {
     match s {
         PreviewSource::Channel(k) => k.display_name().to_string(),
         PreviewSource::MeshMap(k) => format!("Baked {}", k.display_name()),
