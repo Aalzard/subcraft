@@ -4019,3 +4019,26 @@ Request (a YouTube commenter): bring smart materials in from outside the app, in
 Tests (materials, 6): determinism and seed dependence, tiling for every preset (value one tile over, border jump), resolution independence (mean coverage 128 vs 512 within 8 percent), coverage strictly increasing with density, direction/spread anisotropy, wear weight; project: old scratches params serialize/deserialize unchanged.
 Example: cargo run --example scratch_presets -p subcraft-app -- <dir> [--crate] writes one project per preset for screenshots.
 Verified in the real app (release binary, sphere, 1024 px, Height + Base Color channels): all five presets render and show as expected - docs/screenshots/scratch-{fine-hairlines,heavy-gouges,brushed-metal,scuffed-plastic,cracked}.png. Test runs: materials 38, doc 14, project 33, app lib 67, all passing (cargo -j 2). Not done: wear bias in mask Fill effects, a crate/bake wear screenshot, and the Properties panel itself was not driven interactively. Build note: the first target dir got corrupted by interrupted builds (rustc metadata panics); a fresh target dir fixed it.
+
+## Navigation schemes and continuous takeover (issues #80, #81, 2026-11-03)
+
+* `crates/ui/src/nav.rs` (pure, no egui): `NavScheme` (Painter default, Blender), `mode_for(scheme,
+  input) -> NavMode` and `NavDrag`, which tracks the drag origin and rebases it to the current
+  pointer position whenever the mode changes, so the new mode starts with a zero delta (no camera
+  jump). Maya was skipped: it is Alt+LMB/MMB/RMB, almost identical to Painter.
+* Painter: Alt+RMB zoom > MMB pan > RMB or Alt+LMB orbit. Blender: MMB orbit, Shift+MMB pan,
+  Ctrl+MMB zoom (Ctrl wins over Shift; Cmd counts as Ctrl). Wheel zooms in both.
+* Preferences: `nav_scheme` field with `#[serde(default)]`, so old `subcraft_prefs_v1` blobs load as
+  Painter (tested). Combo box + live help lines in the Preferences window; the Keyboard shortcuts
+  window and the 3D view hint pill follow the active scheme. In Blender mode Alt no longer
+  suppresses painting / the RMB menu.
+* Viewport: navigation now reads held buttons from raw pointer state instead of
+  `response.dragged_by`, starting only on a press over the 3D view. This is what lets a second
+  button (e.g. MMB added during an RMB orbit) take over without releasing.
+* Tests: 8 in `nav::tests` (both mappings, delta per frame, pan→zoom→pan takeover, Painter
+  orbit→zoom→orbit→pan across buttons, drag end, prefs back-compat, help text).
+* **Not tried with a real mouse** (cloud container, no display): feel of the takeover, whether
+  egui reports `middle_down` reliably on every platform, what happens when the pointer leaves the
+  window mid-drag (we skip frames with no pointer position), and Painter's Alt-release during
+  Alt+LMB orbit (navigation ends; continuing LMB does not start a stroke because strokes begin on
+  press, but that path is untested by hand).

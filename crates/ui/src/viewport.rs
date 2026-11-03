@@ -50,6 +50,10 @@ mod size_tests {
     }
 }
 
+fn primary_or_other_pressed(ui: &Ui) -> bool {
+    ui.input(|i| i.pointer.any_pressed())
+}
+
 pub fn show(state: &mut UiState, ui: &mut Ui) {
     crate::viewport_bar::show(ui, state);
     state.camera.orthographic = state.recovery.prefs.viewport.orthographic;
@@ -95,20 +99,40 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         ui.ctx().set_cursor_icon(egui::CursorIcon::AllScroll);
     }
 
-    // ----- navigation (Painter-style: Alt+LMB orbit, Alt+MMB / MMB pan, Alt+RMB zoom; RMB orbit) --
+    // ----- navigation: scheme from Preferences; mode changes mid-drag take over seamlessly -----
+    use crate::nav::{NavDrag, NavInput, NavMode};
+    let scheme = state.recovery.prefs.nav_scheme;
     if response.hovered() && scroll != 0.0 {
         state.camera.zoom((-scroll * 0.0015).exp());
     }
-    let alt = mods.alt;
+    let alt = mods.alt && scheme.alt_navigates();
+    let nav_input = ui.input(|i| NavInput {
+        primary: i.pointer.primary_down(),
+        middle: i.pointer.middle_down(),
+        secondary: i.pointer.secondary_down(),
+        shift: i.modifiers.shift,
+        ctrl: i.modifiers.ctrl || i.modifiers.command,
+        alt: i.modifiers.alt,
+    });
     if stencil_edit {
-        // Drags belong to the stencil.
-    } else if response.dragged_by(PointerButton::Secondary) && alt {
-        state.camera.zoom((delta.y * 0.01).exp());
-    } else if response.dragged_by(PointerButton::Secondary) || (response.dragged_by(PointerButton::Primary) && alt) {
-        state.camera.orbit(delta.x, delta.y);
-    }
-    if response.dragged_by(PointerButton::Middle) && !stencil_edit {
-        state.camera.pan(delta.x * pixel_scale.x, delta.y * pixel_scale.y, size[1] as f32);
+        state.nav_drag = None; // Drags belong to the stencil.
+    } else if let Some(p) = pointer {
+        let pos = Vec2::new(p.x, p.y);
+        if state.nav_drag.is_none() && primary_or_other_pressed(ui) && response.hovered() {
+            state.nav_drag = NavDrag::begin(scheme, nav_input, pos);
+        } else if let Some(drag) = state.nav_drag.as_mut() {
+            match drag.step(scheme, nav_input, pos) {
+                Some((mode, d)) => {
+                    match mode {
+                        NavMode::Orbit => state.camera.orbit(d.x, d.y),
+                        NavMode::Pan => state.camera.pan(d.x * pixel_scale.x, d.y * pixel_scale.y, size[1] as f32),
+                        NavMode::Zoom => state.camera.zoom((d.y * 0.01).exp()),
+                        NavMode::None => {}
+                    }
+                }
+                None => state.nav_drag = None,
+            }
+        }
     }
 
     let camera = state.camera.paint_camera(size);
@@ -407,14 +431,16 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         painter.rect_stroke(rect.shrink(1.0), 0.0, Stroke::new(2.0, ACCENT), egui::StrokeKind::Inside);
     }
     let bake_hint = state.bake.displayed_map.map(|k| format!("Bake preview · {} · close Bake Mesh Maps to return to material", k.display_name()));
-    let hint = if bake_mode {
-        if state.bake.overlay_active() { "Blue: high poly · Red: exposed low poly · Pale: cage · RMB orbit · Wheel zoom" }
-        else { bake_hint.as_deref().unwrap_or("Baking mesh maps · RMB orbit · Wheel zoom") }
-    } else if state.tool == Tool::Pen { "Click points · drag for curves · edit in 2D View · Enter finish · Esc cancel" }
-        else if state.tool == Tool::Clone { crate::keys::native("Ctrl+click: set the source · LMB paint to copy it · RMB orbit") }
-        else if state.tool == Tool::Smudge { "LMB drag to smudge the paint under the brush · RMB orbit" }
-        else { "LMB paint · RMB menu / drag orbit · I isolate · H hide · Esc show all · Wheel zoom" };
-    pill(&painter, rect.left_bottom() + egui::vec2(10.0, -10.0), egui::Align2::LEFT_BOTTOM, hint, theme::TEXT_FAINT);
+    let orbit = scheme.orbit_hint();
+    let hint: String = if bake_mode {
+        if state.bake.overlay_active() { format!("Blue: high poly · Red: exposed low poly · Pale: cage · {orbit} · Wheel zoom") }
+        else { bake_hint.clone().unwrap_or_else(|| format!("Baking mesh maps · {orbit} · Wheel zoom")) }
+    } else if state.tool == Tool::Pen { "Click points · drag for curves · edit in 2D View · Enter finish · Esc cancel".into() }
+        else if state.tool == Tool::Clone { format!("{} · {orbit}", crate::keys::native("Ctrl+click: set the source · LMB paint to copy it")) }
+        else if state.tool == Tool::Smudge { format!("LMB drag to smudge the paint under the brush · {orbit}") }
+        else if scheme.alt_navigates() { "LMB paint · RMB menu / drag orbit · I isolate · H hide · Esc show all · Wheel zoom".into() }
+        else { format!("LMB paint · RMB menu · {orbit} · I isolate · H hide · Esc show all · Wheel zoom") };
+    pill(&painter, rect.left_bottom() + egui::vec2(10.0, -10.0), egui::Align2::LEFT_BOTTOM, &hint, theme::TEXT_FAINT);
     let mut right = rect.right_top() + egui::vec2(-10.0, 10.0);
     if state.tool != Tool::Pen && state.session.brush.options.has_symmetry() {
         let options = &state.session.brush.options;

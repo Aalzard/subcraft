@@ -14,6 +14,7 @@ pub mod icons;
 pub mod auto_uv;
 pub mod mesh_reload;
 pub mod new_project;
+pub mod nav;
 pub mod orbit;
 pub mod render_export;
 pub mod pen;
