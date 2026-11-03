@@ -50,3 +50,16 @@ fn gpu_choice_persists_with_the_api_and_requests_restart() {
     assert!(!g.restart_required());
     std::fs::remove_dir_all(root).unwrap();
 }
+#[test]
+fn choosing_high_performance_in_the_real_gpu_combo_persists() {
+    use subcraft_app::graphics::GpuChoice;
+    let root = std::env::temp_dir().join(format!("subcraft-graphics-gpu-ui-{}", subcraft_core::ObjectId::new()));
+    let path = root.join("graphics.json");
+    let mut g = GraphicsUi { path: Some(path.clone()), ..Default::default() };
+    let ctx = egui::Context::default(); subcraft_ui::theme::apply(&ctx);
+    click(&mut g, &ctx, "Automatic (fastest GPU)"); click(&mut g, &ctx, "High performance");
+    assert_eq!(g.gpu, GpuChoice::HighPerformance);
+    assert_eq!(GraphicsSettings::load(&path).unwrap().gpu, GpuChoice::HighPerformance);
+    assert!(g.restart_required());
+    std::fs::remove_dir_all(root).unwrap();
+}

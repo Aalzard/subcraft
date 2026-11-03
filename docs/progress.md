@@ -4047,7 +4047,7 @@ error names each adapter and reason, and the existing per-API retry (DX12 → Au
 applies on top.
 
 **Preference:** Preferences > Graphics now has `GPU: Automatic / High performance / <named adapter>`
-(the named entries are the adapters seen at this run's startup; a saved name that is no longer present
+(shown as "Automatic (fastest GPU)" so it does not read the same as the API combo; the named entries are the adapters seen at this run's startup; a saved name that is no longer present
 is still listed so it is not silently lost). Persisted through `GraphicsSettings` as schema 2 with a
 string `gpu` field (`automatic`, `high_performance`, `name:<adapter>`); a schema-1 file loads with
 `gpu = Automatic`, and an unknown or non-string value degrades to Automatic instead of failing the load.
@@ -4055,7 +4055,9 @@ Takes effect on restart, like the API choice.
 
 **Tests:** `subcraft-app` lib (6 in `graphics`): default ordering, explicit choice / env precedence /
 unknown name, fallback skipping, settings round-trip incl. schema-1 and garbage values.
-`crates/ui/tests/graphics.rs`: GPU choice persists next to the API and asks for a restart.
+`crates/ui/tests/graphics.rs` (4): GPU choice persists next to the API and asks for a restart, and the
+real GPU combo is driven by clicks (this caught the API combo test breaking when both combos said
+""Automatic"").
 `cargo test -p subcraft-app -p subcraft-ui --lib` passing.
 
 **Known cost:** the selector probes an adapter by creating a device and dropping it again, so the chosen

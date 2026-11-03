@@ -71,13 +71,18 @@ pub fn controls(graphics: &mut GraphicsUi, ui: &mut egui::Ui) {
     ui.add_space(12.0);
 }
 
+/// Combo wording. "Automatic" alone would read the same as the API combo's entry.
+fn gpu_label(choice: &GpuChoice) -> String {
+    match choice { GpuChoice::Automatic => "Automatic (fastest GPU)".into(), other => other.label() }
+}
+
 fn gpu_control(graphics: &mut GraphicsUi, ui: &mut egui::Ui) {
     let mut choice = graphics.gpu.clone();
     ui.horizontal(|ui| {
         ui.label("GPU");
-        egui::ComboBox::from_id_salt("graphics-gpu").selected_text(choice.label()).show_ui(ui, |ui| {
-            ui.selectable_value(&mut choice, GpuChoice::Automatic, "Automatic");
-            ui.selectable_value(&mut choice, GpuChoice::HighPerformance, "High performance");
+        egui::ComboBox::from_id_salt("graphics-gpu").selected_text(gpu_label(&choice)).show_ui(ui, |ui| {
+            ui.selectable_value(&mut choice, GpuChoice::Automatic, gpu_label(&GpuChoice::Automatic));
+            ui.selectable_value(&mut choice, GpuChoice::HighPerformance, gpu_label(&GpuChoice::HighPerformance));
             let mut names = known_adapters();
             if let GpuChoice::Named(n) = &graphics.gpu && !names.contains(n) { names.push(n.clone()); }
             for name in names { ui.selectable_value(&mut choice, GpuChoice::Named(name.clone()), name); }
