@@ -254,6 +254,16 @@ fn actions(ui: &mut Ui, layer: LayerId, mask: bool, effect: EffectId, index: usi
     if ui.button(format!("{}  Duplicate", icons::COPY)).clicked() {
         push(if mask { Command::DuplicateMaskEffect { layer, effect } } else { Command::DuplicateContentEffect { layer, effect } }, ui);
     }
+    let target = if mask { subcraft_app::LayerTarget::Mask } else { subcraft_app::LayerTarget::Content };
+    if ui.button("Copy effect").clicked() {
+        crate::clipboard::request(ui.ctx(), crate::clipboard::Request::CopyEffect { layer, target, effect });
+        ui.close();
+    }
+    let have_clip = ui.ctx().data(|d| d.get_temp::<bool>(egui::Id::new("effect_clip_present"))).unwrap_or(false);
+    if ui.add_enabled(have_clip, egui::Button::new("Paste effect")).on_hover_text("Adds the copied effect(s) on top of this layer's matching stack").clicked() {
+        crate::clipboard::request(ui.ctx(), crate::clipboard::Request::PasteEffects { layer });
+        ui.close();
+    }
     if ui.button(format!("{}  Delete", icons::TRASH)).clicked() {
         push(if mask { Command::RemoveMaskEffect { layer, effect } } else { Command::RemoveContentEffect { layer, effect } }, ui);
     }

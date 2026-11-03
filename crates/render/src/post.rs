@@ -185,6 +185,7 @@ pub(crate) struct EmissionDraw<'a> {
     pub pipeline: &'a wgpu::RenderPipeline,
     pub mesh: &'a gpu_mesh::GpuMesh,
     pub materials: &'a HashMap<u32, crate::GpuMaterial>,
+    pub hidden: &'a std::collections::HashSet<u32>,
 }
 
 pub(crate) struct PostPass {
@@ -549,6 +550,7 @@ impl PostPass {
                 pass.set_vertex_buffer(0, draw.mesh.vertices.slice(..));
                 pass.set_index_buffer(draw.mesh.indices.slice(..), wgpu::IndexFormat::Uint32);
                 for r in &draw.mesh.ranges {
+                    if draw.hidden.contains(&r.material_slot) { continue; }
                     let Some(bg) = draw.materials.get(&r.material_slot).and_then(|m| m.bind_group.as_ref()) else { continue };
                     pass.set_bind_group(1, bg, &[]);
                     pass.draw_indexed(r.first_index..r.first_index + r.index_count, 0, 0..1);

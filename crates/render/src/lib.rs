@@ -235,6 +235,8 @@ pub struct ViewportRenderer {
     post: post::PostPass,
     /// Rendering mode (created on first use), its single-sample target, and why it is unavailable.
     path_tracer: Option<pathtrace::PathTracer>,
+    /// Material slots not drawn (hidden texture sets). The path tracer ignores this.
+    hidden_slots: std::collections::HashSet<u32>,
     path_target: Option<RenderTarget>,
     path_support: Option<Result<(), String>>,
 }
@@ -406,7 +408,7 @@ impl ViewportRenderer {
             env_levels: 1,
             env_sh: [[0.0; 3]; 9],
             material_layout, sampler, nearest_sampler, mipmaps: mipmap::MipGenerator::new(device), defaults, mesh: None, materials: HashMap::new(), target: None, preview: PreviewPass::new(device), preview_target: None,
-            path_tracer: None, path_target: None, path_support: None }
+            path_tracer: None, hidden_slots: Default::default(), path_target: None, path_support: None }
     }
 
     fn globals_bind_group(
@@ -471,6 +473,11 @@ impl ViewportRenderer {
         self.mesh = Some(GpuMesh::new(device, mesh));
         self.materials.clear();
         if let Some(pt) = &mut self.path_tracer { pt.mark_all(); }
+    }
+
+    /// Hide the geometry of these material slots in the raster viewport.
+    pub fn set_hidden_slots(&mut self, slots: impl IntoIterator<Item = u32>) {
+        self.hidden_slots = slots.into_iter().collect();
     }
 
     pub fn has_mesh(&self) -> bool {
@@ -663,6 +670,7 @@ impl ViewportRenderer {
                 pass.set_vertex_buffer(0, mesh.vertices.slice(..));
                 pass.set_index_buffer(mesh.indices.slice(..), wgpu::IndexFormat::Uint32);
                 for r in &mesh.ranges {
+                    if self.hidden_slots.contains(&r.material_slot) { continue; }
                     let Some(bg) = self.materials.get(&r.material_slot).and_then(|m| match params.bake_map {
                         Some(k) => m.bake_bind_groups.get(&k), None => m.bind_group.as_ref(),
                     }) else { continue };
@@ -680,7 +688,7 @@ impl ViewportRenderer {
         let has_emission = self.materials.values().any(|m| m.channels.contains_key(&ChannelKind::Emissive));
         let emission_on = has_emission && params.post.wants_emission() && params.bake_map.is_none();
         if (params.post.active() || emission_on) && !params.bake_overlay {
-            let draw = self.mesh.as_ref().filter(|_| emission_on).map(|mesh| post::EmissionDraw { pipeline: &self.pipeline_emissive, mesh, materials: &self.materials });
+            let draw = self.mesh.as_ref().filter(|_| emission_on).map(|mesh| post::EmissionDraw { pipeline: &self.pipeline_emissive, mesh, materials: &self.materials, hidden: &self.hidden_slots });
             self.post.run(device, queue, &mut encoder, target, &self.globals_bg, self.mesh.as_ref(), draw.as_ref(), params.proj, &params.post);
         }
         target.encode_display(&mut encoder);
