@@ -64,7 +64,7 @@ pub fn shaded(gpu: &mut Gpu, session: &mut Session, library: &Library, shot: &Sh
     if shot.wireframe {
         let mesh = &session.viewport_scene().mesh;
         let mut lines = Vec::with_capacity(mesh.indices.len());
-        for t in mesh.indices.chunks_exact(3) {
+        for t in mesh.indices.as_chunks::<3>().0 {
             let p = |i: u32| mesh.positions[i as usize];
             lines.push([p(t[0]), p(t[1])]);
             lines.push([p(t[1]), p(t[2])]);

@@ -123,7 +123,13 @@ pub fn apply_brush(server: &mut Server, a: &Args) -> Res<()> {
             "paint" | "brush" => StrokeMode::Paint,
             "erase" | "eraser" => StrokeMode::Erase,
             "smudge" => StrokeMode::Smudge,
-            other => return Err(format!("mode must be paint, erase or smudge, got `{other}`")),
+            "clone" => {
+                if session.clone_source().is_none() {
+                    return Err("set a clone source first with clone_source".into());
+                }
+                StrokeMode::Clone
+            }
+            other => return Err(format!("mode must be paint, erase, smudge or clone, got `{other}`")),
         };
     }
     if let Some(tip) = a.str("tip")? {
@@ -183,10 +189,36 @@ fn prepare(server: &mut Server, args: &Args) -> Res<(subcraft_core::TextureSetId
     Ok((ts, id, mask))
 }
 
+/// Run `f` with the call's `brush` arguments applied, then restore the brush: a per-call brush
+/// does not leak into later calls (brush_set is the persistent way).
+fn with_call_brush(server: &mut Server, args: &Args, f: impl FnOnce(&mut Server, &Args) -> Res<Reply>) -> Res<Reply> {
+    let saved = server.session.as_ref().map(|s| s.brush.clone());
+    let out = f(server, args);
+    if let (Some(b), Some(s)) = (saved, server.session.as_mut())
+        && args.get("brush").is_some() {
+            s.brush = b;
+        }
+    out
+}
+
 pub fn stroke(server: &mut Server, args: &Args) -> Res<Reply> {
+    with_call_brush(server, args, stroke_inner)
+}
+
+pub fn fill(server: &mut Server, args: &Args) -> Res<Reply> {
+    with_call_brush(server, args, fill_inner)
+}
+
+fn stroke_inner(server: &mut Server, args: &Args) -> Res<Reply> {
     let (ts, id, mask) = prepare(server, args)?;
     let session = server.session()?;
     let space = space(session, args)?;
+    if matches!(space, Space::Uv) && session.brush.mode == StrokeMode::Clone {
+        return Err("the clone tool works in space \"view\" (the source offset is on screen)".into());
+    }
+    if matches!(space, Space::Uv) && session.brush.stencil.is_some() {
+        eprintln!("[subcraft-mcp] note: the stencil only applies to view-space strokes");
+    }
     let mut strokes: Vec<&Vec<Value>> = Vec::new();
     if let Some(p) = args.array("points")? {
         strokes.push(p);
@@ -203,14 +235,19 @@ pub fn stroke(server: &mut Server, args: &Args) -> Res<Reply> {
     let mut tiles = 0usize;
     let head = |s: &Session| s.history().entries().get(s.history().cursor()).map(|e| e.time);
     let head_before = head(session);
+    let resolution = server::ts_ref(session, ts)?.resolution as f32;
+    let mut entries = 0usize;
     for pts in strokes.iter().filter(|s| !s.is_empty()) {
+        let mut parsed = pts.iter().map(point).collect::<Res<Vec<_>>>()?;
+        if parsed.len() == 1 {
+            // A dab: the stroke path only stamps once the brush moves, so nudge it by half a texel/pixel.
+            let nudge = match space { Space::Uv => 0.5 / resolution, Space::View(_) => 0.5 };
+            parsed.push((parsed[0].0 + Vec2::new(nudge, 0.0), parsed[0].1));
+        }
+        let before = head(session);
         session.begin_stroke().map_err(|e| e.to_string())?;
         let mut result = Ok(());
-        for v in pts.iter() {
-            let (p, pressure) = match point(v) {
-                Ok(x) => x,
-                Err(e) => { result = Err(e); break; }
-            };
+        for (p, pressure) in parsed {
             session.set_stroke_pressure(pressure.unwrap_or(1.0));
             let r = match &space {
                 Space::Uv => session.stroke_to_uv(p, false, 1.0),
@@ -226,7 +263,18 @@ pub fn stroke(server: &mut Server, args: &Args) -> Res<Reply> {
             return Err(e);
         }
         session.end_stroke();
+        if head(session) != before {
+            entries += 1;
+        }
         painted += 1;
+    }
+    // Several strokes in one call become one undo step.
+    if entries > 1 {
+        let layers = server::ts_ref(session, ts)?.layers.clone();
+        for _ in 0..entries {
+            exec(session, Command::Undo)?;
+        }
+        exec(session, Command::ReplaceTextureSetLayers { texture_set: ts, layers, label: format!("Paint {entries} strokes") })?;
     }
     let layer = server::layer_ref(session, ts, id)?.name.clone();
     let changed = head(session) != head_before;
@@ -240,7 +288,7 @@ pub fn stroke(server: &mut Server, args: &Args) -> Res<Reply> {
     Ok(Reply::json(json!({ "strokes": painted, "layer": layer, "target": if mask { "mask" } else { "content" }, "tiles_touched": tiles, "changed": changed, "note": note })))
 }
 
-pub fn fill(server: &mut Server, args: &Args) -> Res<Reply> {
+fn fill_inner(server: &mut Server, args: &Args) -> Res<Reply> {
     let (ts, id, _) = prepare(server, args)?;
     let session = server.session()?;
     let mode: PolygonFillMode = enum_from("fill mode", args.str("mode")?.unwrap_or("mesh_element"), &names(&[PolygonFillMode::Triangle, PolygonFillMode::MeshElement, PolygonFillMode::UvIsland]))?;

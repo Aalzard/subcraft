@@ -5,6 +5,7 @@ use serde_json::{Value, json};
 use crate::params::{Args, Res};
 use crate::server::{Reply, Server};
 
+mod extra;
 mod layers;
 mod output;
 mod paint;
@@ -44,11 +45,19 @@ pub fn dispatch(server: &mut Server, name: &str, args: &Args) -> Res<Reply> {
         "apply_material" => layers::apply_material(server, args),
         "apply_smart_mask" => layers::apply_smart_mask(server, args),
         "import_textures" => layers::import_textures(server, args),
+        "save_to_library" => layers::save_to_library(server, args),
 
         "brush_set" => paint::brush_set(server, args),
         "paint_stroke" => paint::stroke(server, args),
         "paint_fill" => paint::fill(server, args),
         "pick" => paint::pick(server, args),
+        "pen_path" => extra::pen_path(server, args),
+        "text_add" => extra::text_add(server, args),
+        "text_update" => extra::text_update(server, args),
+        "fonts_list" => extra::fonts(server),
+        "stencil_set" => extra::stencil_set(server, args),
+        "clone_source" => extra::clone_source(server, args),
+        "open_in_app" => extra::open_in_app(server, args),
 
         "bake_mesh_maps" => output::bake(server, args),
         "export_templates" => output::templates(),
@@ -93,7 +102,7 @@ fn with(mut base: Value, extra: Value) -> Value {
 }
 
 pub fn definitions() -> Vec<Value> {
-    let fill_spec = "Per channel (base_color, roughness, metallic, height, normal, emissive, ambient_occlusion, opacity, specular): a value \
+    let fill_spec = "Per channel (base_color, roughness, metallic, height (0 = neutral, positive raises, negative carves), normal, emissive, ambient_occlusion (1 = unoccluded), opacity, specular): a value \
 (number, '#rrggbb', or [r,g,b] in sRGB for color channels), false to switch the channel off, or an object \
 {value, enabled, strength, linear, procedural: {kind: clouds|cells|grunge|scratches|wood_rings|brushed|checker|gradient_u|gradient_v|dirt|cracks|streaks|speckles|pores|scratch, scale, seed, balance, contrast, invert, ...}, low, high, image: '<file path>', mesh_map: curvature|ambient_occlusion|...}. A procedural/mesh map blends from `low` (0) to `high` (1).";
     vec![
@@ -176,7 +185,7 @@ pub fn definitions() -> Vec<Value> {
                 "layer": { "type": "string", "description": LAYER }, "texture_set": { "type": "string" },
                 "channels": { "type": "object", "description": fill_spec },
                 "exclusive": { "type": "boolean", "description": "Switch off every channel not listed in `channels`." },
-                "projection": { "type": "object", "description": "{mode: uv|triplanar|planar, scale: [u,v], rotation_deg, offset: [u,v], triplanar_sharpness, planar_axis (0 X, 1 Y, 2 Z)}" },
+                "projection": { "type": "object", "description": "{mode: uv|triplanar|planar, scale: [u,v], rotation_deg, offset: [u,v], triplanar_sharpness 1..32, planar_axis (0 X, 1 Y, 2 Z)}. scale is repeats across the 0..1 UV square (uv) or across the model's size (triplanar/planar), so 4 means four repeats over the model whatever its units." },
             }), &["layer"], false),
         tool("parts_list", "List mesh parts", "Parts of the model: connected pieces, UV islands, imported objects or material slots, with ids for layer_set_parts.",
             json!({ "kind": { "type": "string", "enum": ["connected", "uv_island", "object", "material"], "description": "Default object when the model has objects, else connected." } }), &[], true),
@@ -192,15 +201,16 @@ pub fn definitions() -> Vec<Value> {
             json!({ "layer": { "type": "string", "description": LAYER }, "texture_set": { "type": "string" }, "color": { "type": "string", "enum": ["white", "black"] }, "smart_mask": { "type": "string", "description": "Smart mask name from shelf_list." } }), &["layer"], false),
         tool("mask_remove", "Remove mask", "Delete a layer's mask.", json!({ "layer": { "type": "string", "description": LAYER }, "texture_set": { "type": "string" } }), &["layer"], false),
         tool("mask_add_effect", "Add mask effect", "Add an effect on top of a layer's mask (a black mask is created when there is none). effect.type: \
-generator {kind: edges|cavity|concave|directional|position_gradient|{mesh_map: curvature}, level, softness, invert, noise_amount, direction:[x,y,z], axis: x|y|z, organic_breakup, edge_spread:{distance,variation}} (edges/cavity need bake_mesh_maps); \
+generator {kind: edges|cavity|concave|directional|position_gradient|{mesh_map: curvature}, level, softness, invert, noise_amount, direction:[x,y,z], axis: x|y|z, organic_breakup, edge_spread:{distance,variation}} (edges/cavity need bake_mesh_maps; position_gradient: 0 = bottom of the model along `axis`, default y, 1 = top; it selects above `level`, so invert: true with level 0.2-0.3 gives grime rising from the bottom; directional: selects faces whose normal points along `direction`, default up); \
 fill {value 0..1, procedural:{kind,...}, projection}; levels {in_low,in_high,gamma,out_low,out_high}; \
-filter {kind: blur|sharpen|contrast|threshold|clamp|levels-like histogram_scan|histogram_range|median|warp|bevel|mask_outline|invert|posterize|..., params}; invert; image {image: path, invert, projection}.",
+filter {kind, ...fields at the top level, see content_add_effect for every filter and its ranges}; invert; image {image: path, invert, projection}. \
+Check the result with render_texture {layer, mask: true}.",
             json!({
                 "layer": { "type": "string", "description": LAYER }, "texture_set": { "type": "string" },
                 "effect": { "type": "object", "description": "{type, ...parameters}" },
                 "name": { "type": "string" }, "opacity": { "type": "number" }, "blend": { "type": "string", "description": "normal, multiply, screen, subtract, ..." },
             }), &["layer", "effect"], false),
-        tool("content_add_effect", "Add content effect", "Add an effect to a layer's content stack: filter {channel, kind, ...} (blur, sharpen, hsl {hue, saturation, lightness}, contrast, gradient_map, warp, ...), levels {channel, ...}, fill {channels: like fill_set, projection} or paint (a raster to paint into, also on fill layers).",
+        tool("content_add_effect", "Add content effect", &format!("Add an effect to a layer's content stack: filter {{type: filter, channel, kind, ...fields at the top level}}, levels {{channel, in_low, in_high, gamma, out_low, out_high}}, fill {{channels: like fill_set, projection}} or paint (a raster to paint into, also on fill layers). Filters and their allowed values: {}", layers::FILTER_RANGES),
             json!({
                 "layer": { "type": "string", "description": LAYER }, "texture_set": { "type": "string" },
                 "effect": { "type": "object", "description": "{type: filter|levels|fill|paint, channel, ...}" },
@@ -222,6 +232,8 @@ filter {kind: blur|sharpen|contrast|threshold|clamp|levels-like histogram_scan|h
             json!({ "name": { "type": "string" }, "texture_set": { "type": "string", "description": TS }, "above": { "type": "string" }, "layer_name": { "type": "string" } }), &["name"], false),
         tool("import_textures", "Import a texture set", "Add a fill layer from image files (e.g. Wood_BaseColor.png, Wood_Roughness.png, Wood_Normal.png): each file goes to the channel its name names; gloss maps are inverted and DirectX normals flipped. Packed ORM/ARM maps are skipped.",
             json!({ "paths": { "type": "array", "items": { "type": "string" } }, "texture_set": { "type": "string", "description": TS }, "above": { "type": "string" }, "layer_name": { "type": "string" } }), &["paths"], false),
+        tool("save_to_library", "Save to shelf", "Save a layer (usually a folder of masked layers) as a reusable smart material, or a layer's mask as a smart mask, in the user library shared with the desktop app.",
+            json!({ "layer": { "type": "string", "description": LAYER }, "texture_set": { "type": "string" }, "kind": { "type": "string", "enum": ["smart_material", "smart_mask"] }, "name": { "type": "string", "description": "Rename the layer first; the asset takes its name." } }), &["layer"], false),
         tool("apply_smart_mask", "Apply smart mask", "Put a shelf smart mask on a layer (adds a black mask if it has none).",
             json!({ "layer": { "type": "string", "description": LAYER }, "texture_set": { "type": "string" }, "name": { "type": "string" } }), &["layer", "name"], false),
 
@@ -231,7 +243,7 @@ filter {kind: blur|sharpen|contrast|threshold|clamp|levels-like histogram_scan|h
                 "size": { "type": "number", "description": "Diameter in % of the model's bounding-box diagonal (default 5)." },
                 "flow": { "type": "number", "description": "0..1 per stamp." }, "opacity": { "type": "number", "description": "0..1 stroke maximum." },
                 "hardness": { "type": "number" }, "spacing": { "type": "number" }, "angle": { "type": "number" },
-                "mode": { "type": "string", "enum": ["paint", "erase", "smudge"] },
+                "mode": { "type": "string", "enum": ["paint", "erase", "smudge", "clone"], "description": "clone needs clone_source first and view-space strokes." },
                 "tip": { "type": "string", "description": "Brush tip name from shelf_list brushes (\"Round\" default)." },
                 "channels": { "type": "object" }, "exclusive": { "type": "boolean" },
                 "mask_value": { "type": "number", "description": "Gray painted into masks (0..1, default 1)." },
@@ -249,7 +261,7 @@ space \"view\": points are [x, y] pixels in the render_preview image taken with 
                 "space": { "type": "string", "enum": ["uv", "view"] },
                 "points": { "type": "array", "items": { "type": "array", "items": { "type": "number" } }, "description": "One stroke: [[u,v], ...] or [[x,y], ...]; a third number is pen pressure 0..1." },
                 "strokes": { "type": "array", "items": { "type": "array" }, "description": "Several strokes, each a list of points." },
-                "brush": { "type": "object", "description": "brush_set arguments applied first." },
+                "brush": { "type": "object", "description": "brush_set arguments for this call only (the brush is restored afterwards; brush_set changes it for good)." },
             })), &["layer"], false),
         tool("paint_fill", "Polygon fill", "Fill the triangle, connected mesh piece or UV island at a point on a paint layer (or its mask) with the brush channels.",
             with(camera_props(), json!({
@@ -262,6 +274,54 @@ space \"view\": points are [x, y] pixels in the render_preview image taken with 
         tool("pick", "What is at a pixel", &format!("For pixel positions in a render_preview image: the surface UV, 3D position, normal, texture set and part under each. {CAMERA}"),
             with(camera_props(), json!({ "points": { "type": "array", "items": { "type": "array", "items": { "type": "number" } }, "description": "[[x, y], ...] pixels." } })), &["points"], true),
 
+        tool("pen_path", "Pen path", "Draw an editable Bezier path as its own layer (a clean line, outline, seam or stripe). `points` are smoothed automatically (smooth: false for straight segments); `anchors` give exact handles. Pass `layer` to edit an existing pen path layer.",
+            with(camera_props(), json!({
+                "layer": { "type": "string", "description": "Existing pen path layer to edit (omit to create one)." },
+                "texture_set": { "type": "string", "description": TS }, "above": { "type": "string" }, "name": { "type": "string" },
+                "space": { "type": "string", "enum": ["uv", "view"], "description": "uv (default): [u,v] 0..1, origin top-left; view: [x,y] pixels of render_preview with the same camera." },
+                "points": { "type": "array", "items": { "type": "array", "items": { "type": "number" } } },
+                "anchors": { "type": "array", "items": { "type": "object" }, "description": "[{position: [u,v], in: [du,dv], out: [du,dv]}] (UV space)." },
+                "smooth": { "type": "boolean" }, "closed": { "type": "boolean" },
+                "width": { "type": "number", "description": "Line width as a fraction of the texture width (e.g. 0.01)." },
+                "hardness": { "type": "number" }, "opacity": { "type": "number" },
+                "channels": { "type": "object", "description": "Values the line paints, e.g. {\"base_color\": \"#ffcc00\", \"roughness\": 0.3} (default: the brush's)." },
+            })), &[], false),
+        tool("text_add", "Add text", "Add an editable text decal as its own layer: labels, serial numbers, warnings, logos in type. Place it at a UV `position` (default the texture centre) or, with space view, at a `point` in a render_preview image.",
+            with(camera_props(), json!({
+                "text": { "type": "string" }, "texture_set": { "type": "string", "description": TS }, "above": { "type": "string" }, "name": { "type": "string" },
+                "position": { "type": "array", "items": { "type": "number" }, "description": "[u, v] centre, 0..1, origin top-left." },
+                "space": { "type": "string", "enum": ["uv", "view"] }, "point": { "type": "array", "items": { "type": "number" } },
+                "size": { "type": "number", "description": "Letter height (1 em) as a fraction of the texture width (default 0.1)." },
+                "rotation_deg": { "type": "number", "description": "Clockwise in UV space." }, "opacity": { "type": "number" },
+                "channels": { "type": "object", "description": "e.g. {\"base_color\": \"#ffffff\", \"height\": 0.3, \"roughness\": 0.2}" },
+                "font": { "type": "string", "description": "Bundled (DejaVu Sans, DejaVu Sans Bold, DejaVu Serif, DejaVu Sans Mono) or an installed family (fonts_list)." },
+                "font_file": { "type": "string", "description": ".ttf/.otf file to embed, e.g. C:\\Windows\\Fonts\\impact.ttf" },
+                "bold": { "type": "boolean" }, "italic": { "type": "boolean" },
+                "letter_spacing": { "type": "number" }, "line_spacing": { "type": "number" }, "align": { "type": "string", "enum": ["left", "center", "right"] },
+            })), &["text"], false),
+        tool("text_update", "Edit text", "Change a text layer: text, position (or a view point), size, rotation, opacity, channels, font, spacing, alignment. Re-renders crisply.",
+            with(camera_props(), json!({
+                "layer": { "type": "string", "description": LAYER }, "texture_set": { "type": "string" },
+                "text": { "type": "string" }, "position": { "type": "array", "items": { "type": "number" } },
+                "space": { "type": "string", "enum": ["uv", "view"] }, "point": { "type": "array", "items": { "type": "number" } },
+                "size": { "type": "number" }, "rotation_deg": { "type": "number" }, "opacity": { "type": "number" },
+                "channels": { "type": "object" }, "font": { "type": "string" }, "font_file": { "type": "string" },
+                "bold": { "type": "boolean" }, "italic": { "type": "boolean" },
+                "letter_spacing": { "type": "number" }, "line_spacing": { "type": "number" }, "align": { "type": "string", "enum": ["left", "center", "right"] },
+            })), &["layer"], false),
+        tool("fonts_list", "List fonts", "Fonts for text_add: bundled, installed and embedded in the project.", json!({}), &[], true),
+        tool("stencil_set", "Stencil", "Lay a grayscale image over the view as a stencil for view-space strokes (white paints, black blocks): a pattern, logo or grunge to paint through. image \"none\" removes it.",
+            json!({
+                "image": { "type": "string", "description": "Image file, or \"none\"." },
+                "center": { "type": "array", "items": { "type": "number" }, "description": "[x, y] as fractions of the view (default [0.5, 0.5])." },
+                "scale": { "type": "number", "description": "Image height as a fraction of the view height (default 0.8)." },
+                "rotation_deg": { "type": "number" }, "tiling": { "type": "boolean" },
+            }), &[], false),
+        tool("clone_source", "Clone source", &format!("Set the clone tool's source to the surface under a pixel and switch the brush to clone. Then paint_stroke in space view copies from there. {CAMERA}"),
+            with(camera_props(), json!({ "point": { "type": "array", "items": { "type": "number" }, "description": "[x, y] pixels." } })), &["point"], false),
+        tool("open_in_app", "Open in SubCraft", "Save the project (to `path`, or over its file) and open it in the SubCraft desktop app, so the user can look at it and keep working by hand. The app works on its own copy: re-open the file here with project_open to pick up their changes.",
+            json!({ "path": { "type": "string", "description": "Where to save first (.subcraft); default the project's file." } }), &[], false),
+
         // ----- bake, export, render
         tool("bake_mesh_maps", "Bake mesh maps", "Bake mesh maps (normal, world_space_normal, id, ambient_occlusion, curvature, position, thickness, height, bent_normal) for smart materials, generators and export. Optional high-poly model. Runs on the CPU and can take minutes at high resolution.",
             json!({
@@ -272,6 +332,7 @@ space \"view\": points are [x, y] pixels in the render_preview image taken with 
                 "ao_samples": { "type": "integer" }, "ao_distance": { "type": "number" },
                 "curvature_radius": { "type": "number" }, "cage_front": { "type": "number" }, "cage_rear": { "type": "number" },
                 "match_by_name": { "type": "boolean", "description": "High-poly rays only hit parts with matching names (_low/_high)." },
+                "ao_layer": { "type": "boolean", "description": "Add a bottom 'Baked AO' fill layer so the baked AO reaches the ambient_occlusion channel and exports (default true; only for texture sets with that channel)." },
             }), &[], false),
         tool("export_templates", "Export presets", "Export templates and the maps each writes.", json!({}), &[], true),
         tool("export_textures", "Export textures", "Write the texture maps for every texture set into a folder with an export template (default: the project's).",
@@ -303,8 +364,10 @@ space \"view\": points are [x, y] pixels in the render_preview image taken with 
                 "wireframe": { "type": "boolean" },
                 "save_path": { "type": "string", "description": "Also save the PNG here (with several views, _front, _back... are appended)." },
             })), &[], true),
-        tool("render_texture", "Show a texture", "Return a channel of a texture set's final composite (or a baked mesh map) as a flat UV-space image, origin top-left, as exported.",
+        tool("render_texture", "Show a texture", "Return a channel of a texture set's final composite (or a baked mesh map) as a flat UV-space image, origin top-left, as exported. With `layer`: that layer alone, or with mask: true its mask (white = where the layer shows), to check masks and generators directly.",
             json!({
+                "layer": { "type": "string", "description": "Show only this layer (or its mask)." },
+                "mask": { "type": "boolean", "description": "With `layer`: show its mask (including mesh-part restriction) as white on black." },
                 "texture_set": { "type": "string", "description": TS },
                 "channel": { "type": "string", "description": "base_color, roughness, metallic, height, normal, emissive, ... (default base_color)" },
                 "mesh_map": { "type": "string", "description": "Show a baked map instead (curvature, ambient_occlusion, normal, id, ...)." },

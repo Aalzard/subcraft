@@ -8,7 +8,7 @@ previews so the agent can see what it made.
 
 It speaks MCP over stdio (one JSON-RPC message per line) and holds one open project at a time.
 
-## Tools (41)
+## Tools (49)
 
 | Area | Tools |
 | --- | --- |
@@ -17,9 +17,11 @@ It speaks MCP over stdio (one JSON-RPC message per line) and holds one open proj
 | Fills | `fill_set`: uniform values (`"#rrggbb"` sRGB or numbers), 15 procedurals with low/high, images, baked mesh maps, projection (UV/tri-planar/planar) |
 | Masks and effects | `mask_add`, `mask_remove`, `mask_add_effect` (generators: edges, cavity, concave, directional, position gradient; fill, levels, 26 filters, invert, image), `content_add_effect`, `effect_update`, `effect_remove` |
 | Parts | `parts_list`, `layer_set_parts` (connected pieces, UV islands, objects, materials) |
-| Shelf | `shelf_list`, `apply_material`, `apply_smart_mask`, `import_textures` (a texture set from files) |
-| Painting | `brush_set`, `paint_stroke` (in UV space, or in the pixels of a `render_preview` image), `paint_fill` (triangle / mesh piece / UV island), `pick` |
-| Output | `bake_mesh_maps` (9 maps, optional high poly), `export_templates`, `export_textures`, `export_scene` (OBJ, glTF, GLB, USDA), `render_preview` (any angle, named views, channel views, environments), `render_texture` (a channel or baked map as a flat image) |
+| Shelf | `shelf_list`, `apply_material`, `apply_smart_mask`, `import_textures` (a texture set from files), `save_to_library` (a layer as a smart material or smart mask, shared with the app) |
+| Painting | `brush_set` (paint, erase, smudge, clone), `paint_stroke` (in UV space, or in the pixels of a `render_preview` image), `paint_fill` (triangle / mesh piece / UV island), `pick`, `stencil_set` (paint through an image), `clone_source` |
+| Pen and text | `pen_path` (editable Bezier lines as layers, from points or exact anchors), `text_add`, `text_update` (editable text decals with bundled, installed or embedded `.ttf`/`.otf` fonts), `fonts_list` |
+| Output | `bake_mesh_maps` (9 maps, optional high poly, streams MCP progress notifications), `export_templates`, `export_textures`, `export_scene` (OBJ, glTF, GLB, USDA), `render_preview` (any angle, named views, channel views, environments), `render_texture` (a channel or baked map as a flat image) |
+| Desktop app | `open_in_app`: save and open the project in the SubCraft app for the user to look at or keep working on; `project_open` picks their saved changes up again |
 
 Layers and texture sets can be named by id or by exact name. Every edit is an undo step.
 
@@ -60,6 +62,11 @@ On Linux or macOS, build natively and register `target/release/subcraft-mcp` dir
 
 - One project at a time; `project_new` / `project_open` refuse to drop unsaved changes unless
   `discard_unsaved` is set.
+- No live link to an open app window: the server and the app each work on their own copy and
+  exchange it through the `.subcraft` file (`open_in_app`, `project_open`).
 - Baking runs on the CPU (GPU ray baking is not used headlessly).
-- Not exposed yet: pen paths, text decals, stencils, clone tool, UDIM tile picking, editing ID
-  color masks by picking, path-traced renders.
+- In WSL, previews render with llvmpipe. That is fast enough (0.2-0.3 s for 1024 px on a 32-thread
+  CPU); the GPU routes WSL offers do not work: Ubuntu's Mesa has no Vulkan-on-D3D12 (dozen) driver,
+  and wgpu's GL backend on Mesa's d3d12 driver rejects SubCraft's shaders ("an image was used with
+  multiple samplers").
+- Not exposed yet: UDIM tile picking, editing ID color masks by picking, path-traced renders.

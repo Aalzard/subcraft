@@ -47,7 +47,7 @@ fn all_layer_ids(session: &Session, ts: TextureSetId) -> BTreeSet<LayerId> {
 }
 
 /// Run something that adds layer(s) to `ts`, and return the new top-level-most one.
-fn added_layer(session: &mut Session, ts: TextureSetId, f: impl FnOnce(&mut Session) -> Res<()>) -> Res<LayerId> {
+pub(crate) fn added_layer(session: &mut Session, ts: TextureSetId, f: impl FnOnce(&mut Session) -> Res<()>) -> Res<LayerId> {
     let before = all_layer_ids(session, ts);
     f(session)?;
     let after = all_layer_ids(session, ts);
@@ -61,7 +61,7 @@ fn added_layer(session: &mut Session, ts: TextureSetId, f: impl FnOnce(&mut Sess
         .ok_or_else(|| "the layer was not added".to_string())
 }
 
-fn select_insertion(session: &mut Session, ts: TextureSetId, above: Option<LayerId>) -> Res<()> {
+pub(crate) fn select_insertion(session: &mut Session, ts: TextureSetId, above: Option<LayerId>) -> Res<()> {
     exec(session, Command::SelectTextureSet(ts))?;
     exec(session, Command::SelectLayer(above))
 }
@@ -74,10 +74,10 @@ fn siblings_len(session: &Session, ts: TextureSetId, parent: Option<LayerId>) ->
     })
 }
 
-fn summary(session: &Session, ts: TextureSetId, id: LayerId) -> Res<Value> {
+pub(crate) fn summary(session: &Session, ts: TextureSetId, id: LayerId) -> Res<Value> {
     let t = server::ts_ref(session, ts)?;
     let l = t.find(id).ok_or("layer not found")?;
-    Ok(describe::layer(session, t, l))
+    Ok(describe::brief(session, t, l))
 }
 
 // ----- add / edit / delete / move ------------------------------------------------------------------
@@ -96,11 +96,10 @@ pub fn add(server: &mut Server, args: &Args) -> Res<Reply> {
     if (args.obj("fill")?.is_some() || args.obj("projection")?.is_some()) && kind != NewLayer::Fill {
         return Err("`fill` and `projection` need type fill".into());
     }
-    if let Some(p) = parent {
-        if !server::layer_ref(session, ts, p)?.is_folder() {
+    if let Some(p) = parent
+        && !server::layer_ref(session, ts, p)?.is_folder() {
             return Err("`parent` must be a folder layer".into());
         }
-    }
     if let Some(chs) = args.obj("fill")? {
         ensure_channels(session, ts, chs)?;
     }
@@ -160,23 +159,35 @@ pub fn blend_mode(s: &str) -> Res<BlendMode> {
 pub fn update(server: &mut Server, args: &Args) -> Res<Reply> {
     let session = server.session()?;
     let (ts, id) = server::layer_arg(session, args, "layer")?;
+    // Every change is applied to a copy and committed as one undo step.
+    let mut layer = server::layer_ref(session, ts, id)?.clone();
+    let mut what = Vec::new();
     if let Some(name) = args.str("name")? {
-        exec(session, Command::Rename { layer: id, name: name.to_string() })?;
+        layer.name = name.to_string();
+        what.push("name");
     }
     if let Some(v) = args.bool("visible")? {
-        exec(session, Command::SetVisible { layer: id, visible: v })?;
+        layer.visible = v;
+        what.push(if v { "show" } else { "hide" });
     }
     let channels: Vec<ChannelKind> = server::ts_ref(session, ts)?.channel_kinds().collect();
+    let set_blend = |layer: &mut subcraft_doc::Layer, k: ChannelKind, mode: Option<BlendMode>, opacity: Option<f32>| {
+        let b = layer.blend.entry(k).or_insert_with(|| subcraft_doc::ChannelBlend::new(BlendMode::Normal));
+        if let Some(m) = mode { b.mode = m; }
+        if let Some(o) = opacity { b.opacity = o.clamp(0.0, 1.0); }
+    };
     if let Some(mode) = args.str("blend_mode")? {
         let mode = blend_mode(mode)?;
         for &k in channels.iter().filter(|k| **k != ChannelKind::Normal || mode == BlendMode::Disable || mode == BlendMode::Passthrough) {
-            exec(session, Command::SetBlendMode { layer: id, channel: k, mode })?;
+            set_blend(&mut layer, k, Some(mode), None);
         }
+        what.push("blend mode");
     }
     if let Some(o) = args.f32("opacity")? {
         for &k in &channels {
-            exec(session, Command::SetBlendOpacity { layer: id, channel: k, opacity: o.clamp(0.0, 1.0) })?;
+            set_blend(&mut layer, k, None, Some(o));
         }
+        what.push("opacity");
     }
     if let Some(per) = args.obj("channels")? {
         for (name, spec) in per {
@@ -185,21 +196,22 @@ pub fn update(server: &mut Server, args: &Args) -> Res<Reply> {
                 return Err(format!("texture set has no {} channel", k.display_name()));
             }
             let spec = Args(spec.as_object().ok_or_else(|| format!("channels.{name} must be {{mode, opacity}}"))?);
-            if let Some(m) = spec.str("mode")? {
-                exec(session, Command::SetBlendMode { layer: id, channel: k, mode: blend_mode(m)? })?;
-            }
-            if let Some(o) = spec.f32("opacity")? {
-                exec(session, Command::Seal)?;
-                exec(session, Command::SetBlendOpacity { layer: id, channel: k, opacity: o.clamp(0.0, 1.0) })?;
-            }
+            let mode = spec.str("mode")?.map(blend_mode).transpose()?;
+            set_blend(&mut layer, k, mode, spec.f32("opacity")?);
         }
+        what.push("channel blending");
     }
     if let Some(e) = args.bool("mask_enabled")? {
-        exec(session, Command::SetMaskEnabled { layer: id, enabled: e })?;
+        layer.mask.as_mut().ok_or("the layer has no mask")?.enabled = e;
+        what.push("mask");
     }
-    if let Some(e) = args.bool("expanded")? {
-        exec(session, Command::SetFolderExpanded { layer: id, expanded: e })?;
+    if let Some(e) = args.bool("expanded")?
+        && let LayerContent::Group(g) = &mut layer.content { g.expanded = e; }
+    if what.is_empty() && args.get("expanded").is_none() {
+        return Err("nothing to change: pass name, visible, blend_mode, opacity, channels, mask_enabled or expanded".into());
     }
+    let label = format!("Layer {}: {}", what.join(", "), layer.name);
+    exec(session, Command::ReplaceLayer { layer: id, replacement: Box::new(layer), label })?;
     Ok(Reply::json(json!({ "updated": summary(session, ts, id)? })))
 }
 
@@ -259,7 +271,7 @@ pub fn move_layer(server: &mut Server, args: &Args) -> Res<Reply> {
         exec(session, Command::MoveLayer { layer: id, parent, index })?;
     }
     let t = server::ts_ref(session, ts)?;
-    Ok(Reply::json(json!({ "moved": t.find(id).map(|l| l.name.clone()), "layers": describe::tree(session, t) })))
+    Ok(Reply::json(json!({ "moved": t.find(id).map(|l| l.name.clone()), "stack_top_first": describe::outline(t) })))
 }
 
 pub fn group(server: &mut Server, args: &Args) -> Res<Reply> {
@@ -522,7 +534,17 @@ fn without_type(v: &Value) -> Value {
     v
 }
 
+/// Allowed values, from `Filter::valid`, for error messages and the tool description.
+pub const FILTER_RANGES: &str = "contrast {gain 0..4, pivot}; hsl {hue -180..180 degrees, saturation 0..2 (multiplier, 1 = unchanged, 0 = gray), lightness -1..1 (added)}; \
+blur {radius 0..32 texels}; sharpen / highpass {radius 0..32, amount 0..4}; directional_blur {radius 0..32, angle_deg -180..180}; median {radius}; \
+warp {intensity 0..32, scale, seed}; bevel {radius, amount -1..1, threshold -1..1}; mask_outline {radius, threshold -1..1, position inner|outer|both}; \
+histogram_scan {position -1..1, contrast 0..1, invert}; histogram_range {position -1..1, range 0..2, softness 0..1, invert}; threshold {cutoff}; clamp {low, high}; \
+posterize {levels}; histogram_shift {shift}; color_balance {shadows, midtones, highlights: [r,g,b]}; replace_color {from, to, tolerance, softness}; \
+normal_invert {flip_x, flip_y, flip_z}; edge_detect {radius, strength}; glow {radius, amount, threshold}; directional_warp {intensity, angle_deg}; mosaic {size}; \
+gradient_map {gradient, to_gray}; grayscale; invert";
+
 pub fn filter(spec: &Value, current: Option<&Filter>) -> Res<Filter> {
+    let spec = &crate::params::unwrap_params(spec, &["params", "filter", "settings", "parameters"]);
     let kind = spec.get("kind").and_then(Value::as_str).map(crate::params::snake);
     let defaults: Vec<Value> = Filter::ALL.iter().filter_map(|f| serde_json::to_value(f).ok()).collect();
     let mut base = match (&kind, current) {
@@ -535,11 +557,30 @@ pub fn filter(spec: &Value, current: Option<&Filter>) -> Res<Filter> {
         }
     };
     let mut patch = without_type(spec);
-    if let (Some(o), Some(k)) = (patch.as_object_mut(), &kind) {
-        o.insert("kind".into(), Value::String(k.clone()));
+    if let Some(o) = patch.as_object_mut() {
+        let snaked: serde_json::Map<String, Value> = std::mem::take(o).into_iter().map(|(k, v)| (crate::params::snake(&k), v)).collect();
+        *o = snaked;
+        o.remove("name");
+        o.remove("opacity");
+        o.remove("visible");
+        o.remove("blend");
+        if let Some(k) = &kind {
+            o.insert("kind".into(), Value::String(k.clone()));
+        }
+    }
+    let known: Vec<String> = base.as_object().map(|o| o.keys().cloned().collect()).unwrap_or_default();
+    if let Some(p) = patch.as_object() {
+        let unknown: Vec<&String> = p.keys().filter(|k| !known.contains(k)).collect();
+        if !unknown.is_empty() {
+            return Err(format!("unknown field(s) {unknown:?} for filter `{}`; it takes: {}", base["kind"].as_str().unwrap_or("?"), known.join(", ")));
+        }
     }
     crate::params::merge(&mut base, &patch);
-    serde_json::from_value(base).map_err(|e| format!("invalid filter: {e}"))
+    let f: Filter = serde_json::from_value(base).map_err(|e| format!("invalid filter: {e}"))?;
+    if !f.valid() {
+        return Err(format!("filter values out of range: {}. Allowed: {FILTER_RANGES}", serde_json::to_string(&f).unwrap_or_default()));
+    }
+    Ok(f)
 }
 
 fn generator(spec: &Value, current: Option<&Generator>) -> Res<Generator> {
@@ -846,6 +887,41 @@ pub fn apply_material(server: &mut Server, args: &Args) -> Res<Reply> {
         out["warning"] = json!("no baked mesh maps yet: edge wear and cavity dirt in smart materials need bake_mesh_maps");
     }
     Ok(Reply::json(out))
+}
+
+pub fn save_to_library(server: &mut Server, args: &Args) -> Res<Reply> {
+    let root = subcraft_app::assets::UserLibrary::default_root().ok_or("no user library folder (set SUBCRAFT_LIBRARY)")?;
+    let lib = subcraft_app::assets::UserLibrary::new(root.clone());
+    let (library, session) = server.library_mut_and_session()?;
+    let (ts, id) = server::layer_arg(session, args, "layer")?;
+    if let Some(n) = args.str("name")? {
+        exec(session, Command::Rename { layer: id, name: n.to_string() })?;
+    }
+    let name = server::layer_ref(session, ts, id)?.name.clone();
+    exec(session, Command::SelectTextureSet(ts))?;
+    exec(session, Command::SelectLayer(Some(id)))?;
+    let kind = args.str("kind")?.unwrap_or("smart_material");
+    let file = match crate::params::snake(kind).as_str() {
+        "smart_material" | "material" => {
+            let m = session.save_smart_material(id, &lib)?;
+            let f = m.user_file.clone();
+            library.smart_materials.retain(|x| x.user_file != f || f.is_none());
+            library.smart_materials.push(m);
+            f
+        }
+        "smart_mask" | "mask" => {
+            let m = session.save_smart_mask(id, &lib)?;
+            let f = m.user_file.clone();
+            library.smart_masks.retain(|x| x.user_file != f || f.is_none());
+            library.smart_masks.push(m);
+            f
+        }
+        other => return Err(format!("kind must be smart_material or smart_mask, got `{other}`")),
+    };
+    Ok(Reply::json(json!({
+        "saved": name, "kind": kind, "file": file.as_deref().map(paths::output), "library": paths::output(&root),
+        "note": "it is on the shelf now (apply_material / apply_smart_mask by name) and in the desktop app's shelf after its next start",
+    })))
 }
 
 pub fn import_textures(server: &mut Server, args: &Args) -> Res<Reply> {

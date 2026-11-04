@@ -41,11 +41,10 @@ pub fn output(path: &Path) -> String {
     if in_wsl() {
         if let Some(rest) = s.strip_prefix("/mnt/") {
             let mut parts = rest.splitn(2, '/');
-            if let (Some(drive), tail) = (parts.next(), parts.next()) {
-                if drive.len() == 1 && drive.as_bytes()[0].is_ascii_alphabetic() {
+            if let (Some(drive), tail) = (parts.next(), parts.next())
+                && drive.len() == 1 && drive.as_bytes()[0].is_ascii_alphabetic() {
                     return format!("{}:\\{}", drive.to_ascii_uppercase(), tail.unwrap_or("").replace('/', "\\"));
                 }
-            }
         }
         if s.starts_with('/') {
             let distro = std::env::var("WSL_DISTRO_NAME").unwrap_or_else(|_| "Ubuntu".into());
