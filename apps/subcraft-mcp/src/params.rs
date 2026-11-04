@@ -151,13 +151,38 @@ pub fn merge(base: &mut Value, patch: &Value) {
     }
 }
 
-/// `default` with the fields of `patch` laid over it.
+/// Agents often wrap settings (`{"params": {...}}`, `{"filter": {...}}`, `{"settings": {...}}`):
+/// lift a single wrapper object's fields to the top level.
+pub fn unwrap_params(patch: &Value, wrappers: &[&str]) -> Value {
+    let mut out = patch.clone();
+    if let Some(o) = out.as_object_mut() {
+        for w in wrappers {
+            if let Some(Value::Object(inner)) = o.remove(*w) {
+                for (k, v) in inner {
+                    o.entry(k).or_insert(v);
+                }
+            }
+        }
+    }
+    out
+}
+
+/// `default` with the fields of `patch` laid over it. Unknown field names are an error that
+/// lists the valid ones (serde would otherwise ignore them silently).
 pub fn with_defaults<T: Serialize + DeserializeOwned>(what: &str, default: &T, patch: &Value) -> Res<T> {
     let mut v = serde_json::to_value(default).map_err(|e| e.to_string())?;
-    let mut patch = patch.clone();
+    let mut patch = unwrap_params(patch, &["params", "settings", "parameters"]);
     snake_keys(&mut patch);
+    let known: Vec<String> = v.as_object().map(|o| o.keys().cloned().collect()).unwrap_or_default();
     merge(&mut v, &patch);
-    serde_json::from_value(v).map_err(|e| format!("invalid {what}: {e}"))
+    let result: T = serde_json::from_value(v).map_err(|e| format!("invalid {what}: {e}"))?;
+    if let (Some(p), Ok(Value::Object(r))) = (patch.as_object(), serde_json::to_value(&result)) {
+        let unknown: Vec<&String> = p.keys().filter(|k| !known.contains(k) && !r.contains_key(k.as_str())).collect();
+        if !unknown.is_empty() && !known.is_empty() {
+            return Err(format!("unknown {what} field(s) {unknown:?}; valid: {}", known.join(", ")));
+        }
+    }
+    Ok(result)
 }
 
 /// Object keys to snake_case (agents write `noiseAmount` as often as `noise_amount`).

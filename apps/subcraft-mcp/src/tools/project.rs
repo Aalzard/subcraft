@@ -70,11 +70,10 @@ pub fn inspect_model(args: &Args) -> Res<Reply> {
 }
 
 fn guard_unsaved(server: &Server, args: &Args) -> Res<()> {
-    if let Some(s) = &server.session {
-        if s.is_modified() && !args.bool("discard_unsaved")?.unwrap_or(false) {
+    if let Some(s) = &server.session
+        && s.is_modified() && !args.bool("discard_unsaved")?.unwrap_or(false) {
             return Err("the open project has unsaved changes: project_save first, or pass discard_unsaved: true".into());
         }
-    }
     Ok(())
 }
 

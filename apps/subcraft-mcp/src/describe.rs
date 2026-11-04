@@ -118,6 +118,80 @@ fn node(res: &ResourceStore, ts: &TextureSet, l: &Layer, index: usize, detail: b
     v
 }
 
+/// A short fill source: `0.45`, `"#8a6f5a"`, `"procedural clouds (#5a4030..#a08060)"`, ...
+fn short_source(res: &ResourceStore, kind: ChannelKind, s: &FillSource) -> Value {
+    match s {
+        FillSource::Uniform { value } => show_value(kind, *value),
+        FillSource::Bitmap { resource } => json!(format!("image {}", res.get(*resource).map(|r| r.name.as_str()).unwrap_or("?"))),
+        FillSource::Procedural { params, low, high } => json!(format!("procedural {} ({}..{})", name_of(&params.kind), show_value(kind, *low), show_value(kind, *high)).replace('"', "")),
+        FillSource::MeshMap { map } => json!(format!("mesh map {}", name_of(map))),
+    }
+}
+
+/// What an edit tool returns: enough to confirm the change, without every parameter
+/// (`layer_get` has those). Folders list their children by name only.
+pub fn brief(session: &Session, ts: &TextureSet, l: &Layer) -> Value {
+    let res = session.resources();
+    let index = ts.location(l.id).map(|loc| loc.index).unwrap_or(0);
+    let mut v = json!({ "id": l.id.to_string(), "name": l.name, "type": kind_name(l), "visible": l.visible, "index": index });
+    let o = v.as_object_mut().expect("object");
+    let b = blend(ts, &l.blend);
+    let default_blend = b.get("mode").and_then(Value::as_str).is_some_and(|m| m == "normal" || m == "passthrough") && b.get("opacity").and_then(Value::as_f64) == Some(1.0);
+    if !default_blend {
+        o.insert("blend".into(), b);
+    }
+    if let Some(m) = &l.mask {
+        o.insert("mask".into(), json!({
+            "enabled": m.enabled,
+            "base": if m.base.fill()[0] >= 0.5 { "white" } else { "black" },
+            "effects": m.effects.iter().rev().map(|e| format!("{} [{}]", e.name, e.id)).collect::<Vec<_>>(),
+        }));
+    }
+    if !l.content_effects.is_empty() {
+        o.insert("content_effects".into(), json!(l.content_effects.iter().rev().map(|e| format!("{} [{}]", e.name, e.id)).collect::<Vec<_>>()));
+    }
+    match &l.content {
+        LayerContent::Fill(f) => {
+            let channels: serde_json::Map<String, Value> = f.channels.iter().filter(|(_, c)| c.enabled).map(|(k, c)| {
+                let mut s = short_source(res, *k, &c.source);
+                if c.strength != 1.0 {
+                    s = json!(format!("{} x{}", s.to_string().trim_matches('"'), round(c.strength)));
+                }
+                (name_of(k), s)
+            }).collect();
+            o.insert("fill".into(), Value::Object(channels));
+            if f.projection != subcraft_doc::Projection::default() {
+                o.insert("projection".into(), json!(f.projection));
+            }
+        }
+        LayerContent::Paint(p) => {
+            let painted: Vec<String> = p.channels.iter().filter(|(_, img)| img.allocated_tiles() > 0).map(|(k, _)| name_of(k)).collect();
+            o.insert("painted_channels".into(), json!(painted));
+            if p.path.is_some() { o.insert("pen_path".into(), json!(true)); }
+            if let Some(t) = &p.text { o.insert("text".into(), json!(t.style.text)); }
+        }
+        LayerContent::Group(g) => {
+            o.insert("children".into(), json!(g.children.iter().rev().map(|c| format!("{} ({}) [{}]", c.name, kind_name(c), c.id)).collect::<Vec<_>>()));
+        }
+    }
+    v
+}
+
+/// Names-only tree, top first: `["Grime (fill)", "Details (folder)", ["Blood (paint)"], ...]`.
+pub fn outline(ts: &TextureSet) -> Value {
+    fn walk(layers: &[Arc<Layer>]) -> Vec<Value> {
+        let mut out = Vec::new();
+        for l in layers.iter().rev() {
+            out.push(json!(format!("{} ({}){}", l.name, kind_name(l), if l.visible { "" } else { ", hidden" })));
+            if l.is_folder() {
+                out.push(Value::Array(walk(l.children())));
+            }
+        }
+        out
+    }
+    Value::Array(walk(&ts.layers))
+}
+
 /// One layer with every parameter (mask effect settings, fill sources, content effects).
 pub fn layer(session: &Session, ts: &TextureSet, l: &Layer) -> Value {
     let index = ts.location(l.id).map(|loc| loc.index).unwrap_or(0);
@@ -129,15 +203,14 @@ pub fn layer(session: &Session, ts: &TextureSet, l: &Layer) -> Value {
 fn blend(ts: &TextureSet, blend: &std::collections::BTreeMap<ChannelKind, ChannelBlend>) -> Value {
     let entries: Vec<(ChannelKind, &ChannelBlend)> = ts.channel_kinds().filter_map(|k| blend.get(&k).map(|b| (k, b))).collect();
     let same = |b: &&ChannelBlend| entries.iter().filter(|(k, _)| *k != ChannelKind::Normal).all(|(_, o)| o.mode == b.mode && o.opacity == b.opacity);
-    if let Some((_, first)) = entries.iter().find(|(k, _)| *k != ChannelKind::Normal) {
-        if same(first) {
+    if let Some((_, first)) = entries.iter().find(|(k, _)| *k != ChannelKind::Normal)
+        && same(first) {
             let mut v = json!({ "mode": name_of(&first.mode), "opacity": round(first.opacity) });
             if let Some((_, n)) = entries.iter().find(|(k, _)| *k == ChannelKind::Normal) {
                 v["normal"] = json!({ "mode": name_of(&n.mode), "opacity": round(n.opacity) });
             }
             return v;
         }
-    }
     let per: serde_json::Map<String, Value> = entries.iter().map(|(k, b)| (name_of(k), json!({ "mode": name_of(&b.mode), "opacity": round(b.opacity) }))).collect();
     json!({ "per_channel": per })
 }

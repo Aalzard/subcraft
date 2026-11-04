@@ -133,6 +133,12 @@ impl Server {
         self.gpu.as_ref().map(|g| g.adapter.as_str())
     }
 
+    pub fn library_mut_and_session(&mut self) -> Res<(&mut Library, &mut Session)> {
+        self.library();
+        let session = self.session.as_mut().ok_or("no project is open: use project_new or project_open first")?;
+        Ok((self.library.as_mut().expect("loaded above"), session))
+    }
+
     pub fn library_and_session(&mut self) -> Res<(&Library, &mut Session)> {
         self.library();
         let session = self.session.as_mut().ok_or("no project is open: use project_new or project_open first")?;
@@ -154,11 +160,10 @@ fn same(a: &str, b: &str) -> bool {
 pub fn texture_set(session: &Session, key: Option<&str>) -> Res<TextureSetId> {
     let Some(key) = key else { return Ok(session.selection().texture_set) };
     let sets = &session.document().texture_sets;
-    if let Ok(u) = uuid::Uuid::parse_str(key.trim()) {
-        if let Some(ts) = sets.iter().find(|t| t.id.0 == u) {
+    if let Ok(u) = uuid::Uuid::parse_str(key.trim())
+        && let Some(ts) = sets.iter().find(|t| t.id.0 == u) {
             return Ok(ts.id);
         }
-    }
     let hits: Vec<&TextureSet> = sets.iter().filter(|t| same(&t.name, key)).collect();
     match hits.as_slice() {
         [one] => Ok(one.id),
