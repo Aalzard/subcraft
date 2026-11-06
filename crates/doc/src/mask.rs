@@ -57,7 +57,14 @@ pub struct Generator {
     /// World axis for `PositionGradient`. Absent in older projects: Y, their original behavior.
     #[serde(default, skip_serializing_if = "GradientAxis::is_y")]
     pub axis: GradientAxis,
+    /// Moves the breakup noise through the model (object space, in units of the model's longest
+    /// dimension; the editor shows percent), so a pattern can be slid without changing its seed.
+    /// Absent in older projects: no offset, their original pattern.
+    #[serde(default, skip_serializing_if = "is_zero_offset")]
+    pub offset: [f32; 3],
 }
+
+fn is_zero_offset(offset: &[f32; 3]) -> bool { *offset == [0.0; 3] }
 
 /// World axis a position gradient runs along (0 at the mesh minimum, 1 at its maximum).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -140,6 +147,7 @@ impl Generator {
             edge_spread: (kind == GeneratorKind::Edges).then(EdgeSpread::default),
             direction: [0.0, 1.0, 0.0],
             axis: GradientAxis::Y,
+            offset: [0.0; 3],
         }
     }
 

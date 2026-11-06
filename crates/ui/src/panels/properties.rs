@@ -403,6 +403,13 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
                             g.noise.seed = g.noise.seed.wrapping_add(1); changed = true;
                         }
                     });
+                    for (axis, name) in ["X", "Y", "Z"].into_iter().enumerate() {
+                        let mut percent = g.offset[axis] * 100.0;
+                        if slider_row(ui, &format!("Offset {name}"), egui::Slider::new(&mut percent, -100.0..=100.0).suffix("%").max_decimals(1))
+                            .on_hover_text("Slides the breakup pattern through the model along this axis, as a percentage of the model's longest dimension. The seed and pattern size stay the same.").changed() {
+                            g.offset[axis] = percent / 100.0; changed = true;
+                        }
+                    }
                     if g.kind != GeneratorKind::Edges || g.edge_spread.is_none() {
                         changed |= ui.checkbox(&mut g.organic_breakup, "Reduce repetition").changed();
                     }

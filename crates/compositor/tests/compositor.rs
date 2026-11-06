@@ -699,3 +699,52 @@ fn fill_channel_strength_reaches_the_composite() {
     assert_scalar(&c, ChannelKind::Roughness, 10, 10, 0.75);
     assert_scalar(&c, ChannelKind::Height, 10, 10, 0.6);
 }
+
+fn offset_mask_composite(fx: &Fixture, g: Generator) -> Composite {
+    let mut ts = texture_set(); let tc = ts.clone();
+    let mut layer = fill_layer(&tc, &[(ChannelKind::Roughness, ChannelValue::scalar(1.0))]);
+    let mut mask = Mask::new(RES, false);
+    mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Generator(g)))); layer.mask = Some(mask);
+    ts.insert_above(None, layer);
+    composite_full(&ts, &fx.ctx())
+}
+
+#[test]
+fn generator_offset_slides_the_breakup_noise_through_the_model() {
+    let fx = Fixture::with_mesh(primitives::cube(2.0));
+    // Directional along X reads exactly 0.5 on the faces parallel to X, so there the noise alone
+    // sets the mask: smoothstep(level - half, level + half, 0.5) with level = 0.5 + (noise - 0.5) * amount.
+    let mut g = Generator::new(GeneratorKind::Directional);
+    g.direction = [1.0, 0.0, 0.0]; g.level = 0.5; g.softness = 0.1; g.noise_amount = 0.8; g.organic_breakup = true;
+    assert_eq!(g.offset, [0.0; 3], "no offset by default");
+    let base = offset_mask_composite(&fx, g);
+    let offset = [0.13, -0.07, 0.21];
+    let moved = offset_mask_composite(&fx, Generator { offset, ..g });
+    let smooth = |a: f32, b: f32, x: f32| { let t = ((x - a) / (b - a)).clamp(0.0, 1.0); t * t * (3.0 - 2.0 * t) };
+    let (mut checked, mut changed) = (0, 0);
+    for t in 0..fx.geo.tile_count() {
+        let geo = fx.geo.tile(t);
+        for i in (0..4096).step_by(13) {
+            if geo.coverage(i) < 1.0 || geo.normal(i)[0].abs() > 0.05 { continue; }
+            let p = geo.position(i);
+            let noise = subcraft_materials::organic::eval(&g.noise, [p[0] + offset[0], p[1] + offset[1], p[2] + offset[2]]);
+            let level = 0.5 + (noise - 0.5) * 0.8;
+            let mask = smooth(level - 0.05, level + 0.05, 0.5);
+            let (x, y) = geo.texel_xy(i);
+            // Roughness = the 0.3 default under a black base mask -> the fill's 1.0 where the mask is 1.
+            let want = 0.3 + 0.7 * mask;
+            let got = px(&moved, ChannelKind::Roughness, x, y)[0];
+            assert!((got - want).abs() < 2e-3, "texel {x},{y}: {got} vs {want}");
+            if (px(&base, ChannelKind::Roughness, x, y)[0] - got).abs() > 1e-3 { changed += 1; }
+            checked += 1;
+        }
+    }
+    assert!(checked > 100 && changed > checked / 10, "{checked} checked, {changed} differ from the unmoved pattern");
+    // The non-organic (triplanar) breakup moves too, and a zero offset is bit-identical to the old behaviour.
+    let flat = Generator { organic_breakup: false, ..g };
+    let flat_moved = offset_mask_composite(&fx, Generator { offset, ..flat });
+    let (a, b, c) = (offset_mask_composite(&fx, flat), offset_mask_composite(&fx, Generator { offset: [0.0, -0.0, 0.0], ..flat }), flat_moved);
+    let sample = |c: &Composite| (0..RES).step_by(7).flat_map(|x| (0..RES).step_by(7).map(move |y| (x, y))).map(|(x, y)| px(c, ChannelKind::Roughness, x, y)[0]).collect::<Vec<_>>();
+    assert_eq!(sample(&a), sample(&b));
+    assert_ne!(sample(&a), sample(&c));
+}

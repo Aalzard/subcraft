@@ -74,9 +74,10 @@ fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]]) {
     // Breakup noise is projected in 3D (triplanar on object position), never in UV: UV noise
     // jumps at every seam and would make wear follow the islands instead of the shape.
     let noise_proj = Projection { mode: ProjectionMode::Triplanar, triplanar_sharpness: 4.0, ..Projection::default() };
+    let offset = noise_offset(g);
     let noise = (g.noise_amount > 0.0).then(|| if g.organic_breakup {
-        subcraft_materials::sample::organic_tile(&g.noise, geo)
-    } else { procedural_tile(&g.noise, &noise_proj, geo) });
+        subcraft_materials::sample::organic_tile_at(&g.noise, offset, geo)
+    } else { subcraft_materials::sample::procedural_tile_at(&g.noise, &noise_proj, offset, geo) });
     for (i, o) in out.iter_mut().enumerate() {
         let raw = match g.kind {
             GeneratorKind::Edges | GeneratorKind::MeshMap(_) => map[i][0],
@@ -95,11 +96,17 @@ fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]]) {
     }
 }
 
+/// The generator's noise offset, with anything non-finite (a damaged file) ignored.
+fn noise_offset(g: &Generator) -> [f32; 3] {
+    if g.offset.iter().all(|v| v.is_finite()) { g.offset } else { [0.0; 3] }
+}
+
 fn eval_edge_spread(g: &Generator, spread: subcraft_doc::EdgeSpread, tc: &TileContext, out: &mut [[f32; 4]]) {
     let distances = tc.set_geometry.edge_distance_tile(tc.geo);
     // Variation changes the boundary even at zero Breakup. Breakup additionally erodes patches;
     // both share one cached non-periodic volume field and the existing Pattern size/Seed.
-    let noise = subcraft_materials::sample::organic_tile(&g.noise, tc.geo);
+    let offset = noise_offset(g);
+    let noise = subcraft_materials::sample::organic_tile_at(&g.noise, offset, tc.geo);
     let mut curvature = vec![[0.0; 3]; TILE_TEXELS];
     tc.sample.mesh_maps.read_tile(MeshMapKind::Curvature, tc.geo, &mut curvature);
     // Spread is a physical reach, independent of the baked-detail threshold. Multiplying by
@@ -117,7 +124,7 @@ fn eval_edge_spread(g: &Generator, spread: subcraft_doc::EdgeSpread, tc: &TileCo
         let mut p = g.noise;
         p.scale = (g.noise.scale * 4.0).clamp(0.01, 256.0);
         p.seed = p.seed.wrapping_add(0x5bd1);
-        subcraft_materials::sample::organic_tile(&p, tc.geo)
+        subcraft_materials::sample::organic_tile_at(&p, offset, tc.geo)
     });
     let breakup = g.noise_amount.clamp(0.0, 1.0);
     let softness = g.softness.clamp(0.02, 1.0);
