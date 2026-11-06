@@ -144,6 +144,35 @@ pub fn import_shelf_textures(state: &mut UiState, paths: &[PathBuf], now: f64) {
     }
 }
 
+/// Import a Painter smart material (`.spsm`) onto the selected texture set (one undo step).
+pub fn import_painter_smart_material(state: &mut UiState, path: &std::path::Path, now: f64) {
+    match state.session.import_painter_smart_material(path) {
+        Ok((name, count)) => state.set_status(format!("Smart material \"{name}\" added ({count} layers)"), now),
+        Err(e) => state.set_status(format!("Smart material: {e}"), now),
+    }
+}
+
+/// What a file dropped anywhere on the window (outside the Shelf) does: a model starts a New
+/// Project with it (after the unsaved-changes question), a `.subcraft` project opens, a Painter
+/// smart material (`.spsm`) is added to the selected texture set.
+pub enum WindowDrop {
+    Model(PathBuf),
+    Project(PathBuf),
+    SmartMaterial(PathBuf),
+}
+
+/// Classify dropped files (unknown types are ignored).
+pub fn window_drops(paths: &[PathBuf]) -> Vec<WindowDrop> {
+    let ext = |p: &PathBuf| p.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).unwrap_or_default();
+    paths.iter().filter_map(|p| {
+        let e = ext(p);
+        if e == "spsm" { Some(WindowDrop::SmartMaterial(p.clone())) }
+        else if e == subcraft_app::PROJECT_EXTENSION { Some(WindowDrop::Project(p.clone())) }
+        else if subcraft_mesh::SUPPORTED_EXTENSIONS.contains(&e.as_str()) { Some(WindowDrop::Model(p.clone())) }
+        else { None }
+    }).collect()
+}
+
 fn handle(state: &mut UiState, purpose: Purpose, paths: &[PathBuf], now: f64) {
     let Some(first) = paths.first() else { return };
     match purpose {
@@ -271,5 +300,18 @@ fn handle(state: &mut UiState, purpose: Purpose, paths: &[PathBuf], now: f64) {
             }
             Err(e) => state.set_status(format!("Import image: {e}"), now),
         },
+    }
+}
+
+#[cfg(test)]
+mod window_drop_tests {
+    use super::{WindowDrop, window_drops};
+    use std::path::PathBuf;
+
+    #[test]
+    fn models_projects_and_smart_materials_are_recognised_by_extension() {
+        let paths: Vec<PathBuf> = ["tank.FBX", "crate.obj", "scene.glb", "old.subcraft", "Leather.spsm", "notes.txt", "photo.png"].iter().map(PathBuf::from).collect();
+        let kinds: Vec<&str> = window_drops(&paths).iter().map(|d| match d { WindowDrop::Model(_) => "model", WindowDrop::Project(_) => "project", WindowDrop::SmartMaterial(_) => "smart" }).collect();
+        assert_eq!(kinds, ["model", "model", "model", "project", "smart"], "unknown types are ignored");
     }
 }

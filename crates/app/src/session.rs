@@ -1476,6 +1476,20 @@ impl Session {
 
     // ----- painting ------------------------------------------------------------------------------
 
+    /// Before a paint stroke on layer content: if the selection cannot take paint (a fill layer,
+    /// a folder, or nothing selected), add a paint layer above it and select it, so the brush
+    /// always draws (a fill layer's material stays as it is). Mask strokes, erasing and layers
+    /// that already take paint are left alone. Returns the new layer's name when one was added.
+    pub fn ensure_paint_layer(&mut self) -> Option<String> {
+        if self.brush.target != PaintTarget::Content || self.brush.mode == StrokeMode::Erase {
+            return None;
+        }
+        let paintable = self.selected_layer().is_some_and(|l| matches!(&l.content, subcraft_doc::LayerContent::Paint(p) if p.path.is_none()));
+        if paintable { return None; }
+        self.execute(Command::AddLayer(NewLayer::Paint)).ok()?;
+        self.selected_layer().map(|l| l.name.clone())
+    }
+
     /// Start a stroke on the selected layer with the current brush.
     pub fn begin_stroke(&mut self) -> Result<(), PaintError> {
         if self.stroke.is_some() {
@@ -1914,6 +1928,42 @@ impl Session {
             ids.insert(img.name, id);
         }
         Ok(ids)
+    }
+
+    /// Import a Painter smart material file (`.spsm`) as a folder above the selection, rebuilt for
+    /// the selected texture set like a Painter project's layer stack (fills, masks, generators and
+    /// levels; procedural Painter graphs are approximated or kept as hidden placeholders). One
+    /// history entry. Returns the folder's name and how many layers it holds.
+    pub fn import_painter_smart_material(&mut self, path: &Path) -> Result<(String, usize), String> {
+        let fallback = path.file_stem().and_then(|s| s.to_str()).unwrap_or("Smart Material").to_string();
+        let mut spp = subcraft_mesh::spp::SppFile::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let info = spp.smart_material(&fallback).map_err(|e| format!("{}: {e}", path.display()))?
+            .ok_or_else(|| format!("{} is not a smart material", path.display()))?;
+        let ts = self.selected_texture_set().clone();
+        let geometry = self.scene.geometry.get(ts.material_slot, ts.resolution);
+        let maps = self.mesh_maps.get(&ts.id).cloned().unwrap_or_default();
+        let mut resources = std::mem::take(&mut self.resources);
+        let layers = {
+            let mut rebuilder = crate::spp_stack::Rebuilder::new(&mut spp, &ts, &mut resources);
+            rebuilder.mesh_maps = Some(maps);
+            rebuilder.geometry = Some(geometry);
+            rebuilder.rebuild(std::slice::from_ref(&info))
+        };
+        self.resources = resources;
+        let mut layer = layers.into_iter().next().ok_or_else(|| format!("{} holds no layers", path.display()))?;
+        if layer.name.trim().is_empty() { layer.name = fallback; }
+        fn count(l: &Layer) -> usize { 1 + l.children().iter().map(|c| count(c)).sum::<usize>() }
+        let count = count(&layer) - 1;
+        let name = layer.name.clone();
+        let missing: Vec<_> = crate::smart_import::channels_to_add(&layer).into_iter().filter(|&k| !self.selected_texture_set().has_channel(k)).collect();
+        let label = format!("Smart Material: {name}");
+        let result = if missing.is_empty() {
+            self.execute(Command::InsertLayer { layer: Box::new(layer), label })
+        } else {
+            self.execute(Command::InsertLayerWithChannels { layer: Box::new(layer), channels: missing, label })
+        };
+        result.map_err(|e| e.to_string())?;
+        Ok((name, count))
     }
 
     /// Apply a smart mask to the selected layer.

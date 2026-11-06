@@ -756,6 +756,21 @@ fn layer_of(l: &Obj) -> LayerInfo {
     }
 }
 
+/// The layer of a smart material preset (`.spsm`): its `DataLayersPreset.layerGroup`, a folder
+/// holding the material's layers. Named after `fallback` when the preset has no label.
+pub fn smart_material_layer(root: &Obj, fallback: &str) -> Option<LayerInfo> {
+    let group = match root.class.as_str() {
+        "DataLayersPreset" => root.obj("layerGroup")?,
+        "DataLayerGroup" => root,
+        _ => return None,
+    };
+    let mut layer = layer_of(group);
+    if layer.name.trim().is_empty() {
+        layer.name = fallback.to_string();
+    }
+    Some(layer)
+}
+
 /// Extract the texture sets from a parsed document.
 pub fn project_info(root: &Obj) -> ProjectInfo {
     let normal_syscoord = root.int("normalMapSyscoord").unwrap_or(0);
