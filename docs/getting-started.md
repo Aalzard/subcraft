@@ -626,3 +626,7 @@ the selected fill layer's material (name, blending and mask are kept); Alt+click
 channel of the selected fill layer; Alt+click an alpha uses it in the selected layer's mask. Where Alt has no
 meaning (smart materials, non-fill layers) a message in the status bar says why. In the 3D view Alt+left-drag
 still orbits the camera; that is navigation, not a drop modifier.
+
+### Moving placed text
+
+Select a text layer and a handle appears on the model at the text's centre. Drag it to move the text along the surface; drag the corner square to scale, the circle above it (or Shift+drag the centre) to rotate. One drag is one undo step. "Place by clicking the model" still works.

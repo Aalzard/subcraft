@@ -181,6 +181,7 @@ fn edit_body(state: &mut UiState, ui: &mut Ui, now: f64, embedded: &[(subcraft_c
         state.gpu_dirty = true;
     }
     state.text.edit = Some(d);
+    hint(ui, "Drag the handle to move the text (corner square scales, top circle rotates, Shift+drag the centre rotates).");
     if ui.button("Place by clicking the model").clicked() { state.text.armed = Some(Armed::PlaceDecal); }
     hint(ui, "Changes apply when you release a slider or leave the text box. Undo (Ctrl+Z) steps back one edit.");
     true
@@ -205,6 +206,9 @@ fn add_layer(state: &mut UiState, d: &TextDecal, place: bool, now: f64) -> bool 
     }
 }
 
+/// Width of the floating text window in points (the dialog can never stretch past it).
+pub const WINDOW_WIDTH: f32 = 460.0;
+
 /// The floating text window: "new text" (type, font, size, colour, alignment, then place) or the
 /// editor of the selected text layer.
 pub fn window(state: &mut UiState, ctx: &egui::Context, now: f64) {
@@ -215,7 +219,15 @@ pub fn window(state: &mut UiState, ctx: &egui::Context, now: f64) {
     let mut open = true;
     let mut close = false;
     let title = if mode == Window::New { "New text" } else { "Edit text" };
-    egui::Window::new(title).id(egui::Id::new("text_window")).open(&mut open).collapsible(false).resizable(false).default_width(340.0).show(ctx, |ui| {
+    let screen = ctx.content_rect();
+    let width = WINDOW_WIDTH.min((screen.width() - 32.0).max(280.0));
+    egui::Window::new(title).id(egui::Id::new("text_window")).open(&mut open).collapsible(false).resizable(false)
+        .default_width(width).max_width(width)
+        .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, -40.0))
+        .show(ctx, |ui| {
+        // Fixed content width: sliders and the text box fill the dialog, never the screen.
+        ui.set_width(width - 24.0);
+        ui.spacing_mut().item_spacing.y = 4.0;
         match mode {
             Window::New => {
                 let first = state.text.compose.is_none();

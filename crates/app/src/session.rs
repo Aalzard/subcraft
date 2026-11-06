@@ -765,7 +765,7 @@ impl Session {
     }
 
     /// Apply `f` to the texture set containing `layer`, then record history.
-    fn edit_layer_set<R>(
+    pub(crate) fn edit_layer_set<R>(
         &mut self,
         layer: LayerId,
         label: &str,
@@ -779,7 +779,7 @@ impl Session {
         Ok(r)
     }
 
-    fn layer_mut(ts: &mut TextureSet, id: LayerId) -> Result<&mut Layer, CommandError> {
+    pub(crate) fn layer_mut(ts: &mut TextureSet, id: LayerId) -> Result<&mut Layer, CommandError> {
         ts.find_mut(id).ok_or(CommandError::LayerNotFound)
     }
 

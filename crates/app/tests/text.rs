@@ -260,3 +260,33 @@ fn projected_text_stamp_follows_mirror_and_radial_symmetry_like_a_brush_stroke()
     assert!(mirrored as f32 > 1.6 * single as f32, "a mirror plane doubles the decal: {single} -> {mirrored}");
     assert!(radial > mirrored, "four radial copies paint more than one mirror: {single} / {mirrored} / {radial}");
 }
+
+#[test]
+fn dragging_the_text_handle_is_one_undo_step() {
+    let mut s = session();
+    let mut d = s.new_text_decal("Drag");
+    d.size = 0.1;
+    s.add_text_layer(d).unwrap();
+    let before = s.document().clone();
+    let cam = camera();
+    let history_len = s.history().entries().len();
+    for (x, y) in [(0.3, 0.3), (0.4, 0.4), (0.5, 0.5)] {
+        let screen = cam.project(Vec3::new(x, y, 1.0)).unwrap().truncate();
+        s.drag_selected_text_to(&cam, screen).unwrap();
+    }
+    let mut big = s.selected_text().unwrap().clone();
+    big.size = 0.2;
+    big.rotation = 0.5;
+    s.update_selected_text_live(big).unwrap();
+    s.end_text_gesture();
+    assert_eq!(s.history().entries().len(), history_len + 1, "the whole drag is one history entry");
+    assert_eq!(s.selected_text().unwrap().size, 0.2);
+    s.execute(Command::Undo).unwrap();
+    assert_eq!(s.document(), &before, "one undo restores the pre-drag state");
+    // The next edit after the gesture is its own step.
+    let screen = cam.project(Vec3::new(0.5, 0.5, 1.0)).unwrap().truncate();
+    s.drag_selected_text_to(&cam, screen).unwrap();
+    s.end_text_gesture();
+    s.drag_selected_text_to(&cam, screen).unwrap();
+    s.end_text_gesture();
+}
