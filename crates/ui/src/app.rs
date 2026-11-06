@@ -1662,6 +1662,17 @@ impl eframe::App for SubcraftApp {
         crate::files::import_report_window(&mut self.state, &ctx);
         crate::clipboard::shortcut_requests(&ctx);
         crate::clipboard::process(&mut self.state, &ctx, now);
+        // Files dropped anywhere else on the window (the Shelf handles its own).
+        let dropped: Vec<std::path::PathBuf> = ctx.input(|i| i.raw.dropped_files.iter().map(|f| f.path().to_path_buf()).filter(|p| !p.as_os_str().is_empty()).collect());
+        if !std::mem::take(&mut self.state.drops_taken) {
+            for drop in crate::files::window_drops(&dropped) {
+                match drop {
+                    crate::files::WindowDrop::SmartMaterial(p) => crate::files::import_painter_smart_material(&mut self.state, &p, now),
+                    crate::files::WindowDrop::Model(p) => { self.state.dropped_model = Some(p); self.request(Pending::OpenMesh, now); }
+                    crate::files::WindowDrop::Project(p) => { self.state.welcome.pending_recent = Some(p); self.request(Pending::OpenRecent, now); }
+                }
+            }
+        }
         if let Some(action) = dialogs::unsaved_prompt(&mut self.state, &ctx, now) {
             self.pending_now = Some(action);
         }

@@ -157,6 +157,10 @@ pub struct UiState {
     pub clips: crate::clipboard::Clips,
     /// Action waiting for the unsaved-changes prompt.
     pub confirm: Option<crate::dialogs::Pending>,
+    /// A model dropped on the window: preloaded into the New Project window once it opens.
+    pub dropped_model: Option<std::path::PathBuf>,
+    /// The Shelf took this frame's dropped files (the window-wide drop handler skips them).
+    pub drops_taken: bool,
     /// The user already agreed to close without saving.
     pub allow_close: bool,
     pub last_title: String,
@@ -280,6 +284,8 @@ impl UiState {
             height_scale: 0.02,
             export: Default::default(),
             confirm: None,
+            dropped_model: None,
+            drops_taken: false,
             multi: Default::default(),
             clips: Default::default(),
             allow_close: false,

@@ -362,13 +362,21 @@ fn handle_drops(state: &mut UiState, ui: &Ui, now: f64) {
     if !over || dropped.is_empty() {
         return;
     }
+    state.drops_taken = true;
     let smart_tab = state.shelf.tab == ShelfTab::SmartMaterials;
     let paths: Vec<std::path::PathBuf> = dropped
         .into_iter()
         .filter(|p| smart_tab || p.is_dir() || p.extension().is_some_and(|e| e.eq_ignore_ascii_case("scsmart")))
+        .filter(|p| !p.extension().is_some_and(|e| e.eq_ignore_ascii_case("spsm")))
         .collect();
     if !paths.is_empty() {
         crate::files::import_smart_materials(state, &paths, now);
+    }
+    // Painter smart materials go onto the selected texture set, as when dropped on the viewport.
+    for path in ui.ctx().input(|i| i.raw.dropped_files.iter().map(|f| f.path().to_path_buf()).collect::<Vec<_>>()) {
+        if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("spsm")) {
+            crate::files::import_painter_smart_material(state, &path, now);
+        }
     }
 }
 

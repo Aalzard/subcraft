@@ -85,7 +85,10 @@ pub fn run_pending(state: &mut UiState, action: Pending, ctx: &egui::Context, _n
         Pending::Close => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
         Pending::NewSample => state.set_session(Session::default_model()),
         // The New Project window shows what is in the model and the project options.
-        Pending::OpenMesh => state.new_project.show_window(&state.recovery.prefs.new_project.clone()),
+        Pending::OpenMesh => {
+            state.new_project.show_window(&state.recovery.prefs.new_project.clone());
+            if let Some(model) = state.dropped_model.take() { state.new_project.load_model(&model); }
+        }
         Pending::OpenProject => crate::files::pick(ctx, crate::files::Purpose::OpenProject, PROJECT_FILTER, false, None),
         Pending::OpenRecent => {
             if let Some(path) = state.welcome.pending_recent.take() {
