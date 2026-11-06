@@ -201,6 +201,7 @@ pub fn materials() -> Vec<MaterialPreset> {
     ]
     .into_iter()
     .chain(crate::open_pack::materials())
+    .chain(crate::pbr_pack::materials())
     .collect()
 }
 
