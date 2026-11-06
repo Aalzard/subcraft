@@ -64,7 +64,12 @@ pub enum ShelfTab {
     Environments,
 }
 
+/// Size of the grayscale alpha thumbnails.
 const THUMB: u32 = 96;
+/// Size of the rendered material / environment thumbnails (the composite behind them is
+/// `subcraft_app::thumbnails::THUMB_RESOLUTION` square; both are sized to stay sharp in the
+/// largest shelf tile, 160 points, without costing a visible frame: see `generate_one_thumbnail`).
+const RENDER_THUMB: u32 = 160;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum SceneKind {
@@ -78,14 +83,27 @@ pub struct ShelfUi {
     pub filter: crate::panels::shelf_filter::ShelfFilter,
     filter_tab: ShelfTab,
     thumbs: HashMap<AssetId, egui::TextureHandle>,
-    sphere: Option<PreviewScene>,
-    baked_sphere: Option<PreviewScene>,
+    sphere: Option<Arc<PreviewScene>>,
+    baked_sphere: Option<Arc<PreviewScene>>,
+    /// Thumbnail being composited on a worker thread (the composite is far longer than a frame).
+    compositing: Option<Compositing>,
     renderer: Option<(ViewportRenderer, Option<SceneKind>)>,
     /// Thumbnail whose pixels are on their way back from the GPU.
     pending: Option<(AssetId, subcraft_render::PendingReadback)>,
     /// Thumbnails of the visible tab are still being rendered (scripted screenshots wait).
     pub busy: bool,
 }
+
+/// A thumbnail composite running off the UI thread. The worker also builds the preview scene on
+/// first use (its mesh bakes take a good fraction of a second at thumbnail resolution).
+struct Compositing {
+    id: AssetId,
+    kind: SceneKind,
+    env_index: Option<usize>,
+    rx: std::sync::mpsc::Receiver<(Arc<PreviewScene>, subcraft_compositor::Composite)>,
+}
+
+type LayerBuilder = Box<dyn Fn(&subcraft_doc::TextureSet) -> Layer + Send>;
 
 impl Default for ShelfUi {
     fn default() -> Self {
@@ -96,6 +114,7 @@ impl Default for ShelfUi {
             thumbs: HashMap::new(),
             sphere: None,
             baked_sphere: None,
+            compositing: None,
             renderer: None,
             pending: None,
             busy: false,
@@ -642,7 +661,7 @@ fn alpha_image(b: &subcraft_image::Bitmap) -> egui::ColorImage {
 /// Render one missing thumbnail of the visible tab per frame (keeps the UI responsive).
 fn generate_one_thumbnail(state: &mut UiState, ctx: &egui::Context) {
     // Finish the thumbnail in flight first (the GPU copy is never waited on).
-    state.shelf.busy = state.shelf.pending.is_some();
+    state.shelf.busy = state.shelf.pending.is_some() || state.shelf.compositing.is_some();
     if let Some((id, pending)) = &state.shelf.pending {
         let Some(rs) = state.render_state.clone() else { return };
         match pending.try_take(&rs.device) {
@@ -652,7 +671,7 @@ fn generate_one_thumbnail(state: &mut UiState, ctx: &egui::Context) {
             }
             Some(bytes) => {
                 if let Some(bytes) = bytes {
-                    let img = egui::ColorImage::from_rgba_unmultiplied([THUMB as usize, THUMB as usize], &bytes);
+                    let img = egui::ColorImage::from_rgba_unmultiplied([RENDER_THUMB as usize, RENDER_THUMB as usize], &bytes);
                     let tex = ctx.load_texture(format!("thumb-{id}"), img, egui::TextureOptions::LINEAR);
                     state.shelf.thumbs.insert(*id, tex);
                 }
@@ -660,12 +679,34 @@ fn generate_one_thumbnail(state: &mut UiState, ctx: &egui::Context) {
             }
         }
     }
+    // A composite finished on the worker: draw it. At most one step of work per frame.
+    if state.shelf.compositing.is_some() {
+        let Some(rs) = state.render_state.clone() else { return };
+        let message = state.shelf.compositing.as_ref().map(|c| c.rx.try_recv());
+        match message {
+            Some(Ok((scene, composite))) => {
+                if let Some(done) = state.shelf.compositing.take() {
+                    render_composited(state, ctx, &rs, done, scene, composite);
+                }
+            }
+            Some(Err(std::sync::mpsc::TryRecvError::Empty)) => ctx.request_repaint_after(std::time::Duration::from_millis(8)),
+            _ => {
+                // The worker died without a result: show an empty tile instead of retrying forever.
+                if let Some(done) = state.shelf.compositing.take() {
+                    log::warn!("shelf thumbnail worker failed for {}", done.id);
+                    let blank = egui::ColorImage::new([1, 1], vec![Color32::TRANSPARENT]);
+                    state.shelf.thumbs.insert(done.id, ctx.load_texture(format!("thumb-{}", done.id), blank, egui::TextureOptions::LINEAR));
+                }
+            }
+        }
+        return;
+    }
     let lib = &state.library;
     let missing = |id: &AssetId| !state.shelf.thumbs.contains_key(id);
     enum Job {
         Alpha(usize),
         /// The layer builder and the images the layer uses.
-        Layer(AssetId, SceneKind, Box<dyn Fn(&subcraft_doc::TextureSet) -> Layer>, Vec<std::sync::Arc<subcraft_doc::Resource>>),
+        Layer(AssetId, SceneKind, LayerBuilder, Vec<std::sync::Arc<subcraft_doc::Resource>>),
         Environment(usize),
     }
     let job = match state.shelf.tab {
@@ -675,13 +716,13 @@ fn generate_one_thumbnail(state: &mut UiState, ctx: &egui::Context) {
         ShelfTab::Materials => lib.materials.iter().find(|m| missing(&m.id)).map(|m| {
             let m = m.clone();
             let (ids, images) = subcraft_assets::presets::decode_images(&m.images);
-            Job::Layer(m.id, SceneKind::Sphere, Box::new(move |ts| m.build_with(ts, &ids)), images)
+            Job::Layer(m.id, SceneKind::Sphere, Box::new(move |ts| preview_layer(m.build_with(ts, &ids))), images)
         }),
         ShelfTab::SmartMaterials => lib.smart_materials.iter().find(|m| missing(&m.id)).map(|m| {
             let m = m.clone();
             let (ids, decoded) = subcraft_assets::presets::decode_images(m.images());
             let images = m.resources().iter().cloned().chain(decoded).collect();
-            Job::Layer(m.id, SceneKind::BakedSphere, Box::new(move |ts| m.build_with(ts, &ids)), images)
+            Job::Layer(m.id, SceneKind::BakedSphere, Box::new(move |ts| preview_layer(m.build_with(ts, &ids))), images)
         }),
         ShelfTab::SmartMasks => lib.smart_masks.iter().find(|m| missing(&m.id)).map(|m| {
             let m = m.clone();
@@ -704,31 +745,52 @@ fn generate_one_thumbnail(state: &mut UiState, ctx: &egui::Context) {
         state.shelf.thumbs.insert(a.id, tex);
         return;
     }
-    let Some(rs) = state.render_state.clone() else { return };
+    if state.render_state.is_none() { return; }
     let (id, kind, layer_fn, images, env_index) = match job {
         Job::Layer(id, k, f, images) => (id, k, Some(f), images, None),
         Job::Environment(i) => (state.library.environments[i].id, SceneKind::Sphere, None, Vec::new(), Some(i)),
         Job::Alpha(_) => unreachable!(),
     };
-    let scene = match kind {
-        SceneKind::Sphere => state.shelf.sphere.get_or_insert_with(PreviewScene::sphere),
-        SceneKind::BakedSphere => state.shelf.baked_sphere.get_or_insert_with(PreviewScene::baked_sphere),
+    // Composite on a worker thread: at thumbnail resolution it takes 10-90 ms, several frames.
+    let existing = match kind {
+        SceneKind::Sphere => state.shelf.sphere.clone(),
+        SceneKind::BakedSphere => state.shelf.baked_sphere.clone(),
     };
-    let composite = match &layer_fn {
-        Some(f) => scene.composite_with(f(scene.texture_set()), &images),
-        None => {
-            // Environment preview: a glossy metal sphere.
-            let ts = scene.texture_set();
-            let mut l = Layer::new_fill("Chrome", ts);
-            if let LayerContent::Fill(f) = &mut l.content {
-                let set = |k| FillChannel::new(FillSource::uniform(k));
-                f.channels.insert(ChannelKind::BaseColor, set(ChannelValue::rgb(0.9, 0.9, 0.9)));
-                f.channels.insert(ChannelKind::Metallic, set(ChannelValue::scalar(1.0)));
-                f.channels.insert(ChannelKind::Roughness, set(ChannelValue::scalar(0.12)));
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let scene = existing.unwrap_or_else(|| Arc::new(match kind {
+            SceneKind::Sphere => PreviewScene::sphere(),
+            SceneKind::BakedSphere => PreviewScene::baked_sphere(),
+        }));
+        let composite = match &layer_fn {
+            Some(f) => scene.composite_with(f(scene.texture_set()), &images),
+            None => {
+                // Environment preview: a glossy metal sphere.
+                let ts = scene.texture_set();
+                let mut l = Layer::new_fill("Chrome", ts);
+                if let LayerContent::Fill(f) = &mut l.content {
+                    let set = |k| FillChannel::new(FillSource::uniform(k));
+                    f.channels.insert(ChannelKind::BaseColor, set(ChannelValue::rgb(0.9, 0.9, 0.9)));
+                    f.channels.insert(ChannelKind::Metallic, set(ChannelValue::scalar(1.0)));
+                    f.channels.insert(ChannelKind::Roughness, set(ChannelValue::scalar(0.12)));
+                }
+                scene.composite(l)
             }
-            scene.composite(l)
-        }
-    };
+        };
+        let _ = tx.send((scene, composite));
+    });
+    state.shelf.compositing = Some(Compositing { id, kind, env_index, rx });
+    state.shelf.busy = true;
+    ctx.request_repaint_after(std::time::Duration::from_millis(8));
+}
+
+/// Second half of a thumbnail: the composite is ready, draw it (the GPU copy is never waited on).
+fn render_composited(state: &mut UiState, ctx: &egui::Context, rs: &subcraft_render::egui_wgpu::RenderState, done: Compositing, scene: Arc<PreviewScene>, composite: subcraft_compositor::Composite) {
+    let Compositing { id, kind, env_index, .. } = done;
+    match kind {
+        SceneKind::Sphere => state.shelf.sphere = Some(scene.clone()),
+        SceneKind::BakedSphere => state.shelf.baked_sphere = Some(scene.clone()),
+    }
     let mesh = scene.mesh.clone();
     let (renderer, current) = state.shelf.renderer.get_or_insert_with(|| (ViewportRenderer::new(&rs.device, &rs.queue), None));
     if *current != Some(kind) {
@@ -748,9 +810,16 @@ fn generate_one_thumbnail(state: &mut UiState, ctx: &egui::Context) {
         let mut uploaded = None;
         apply_environment(&state.library, i, 0.0, 1.0, &mut params, renderer, &mut uploaded, &rs.device, &rs.queue);
     }
-    let pending = renderer.render(&rs.device, &rs.queue, [THUMB, THUMB], &params).read_rgba8_async(&rs.device, &rs.queue);
+    let pending = renderer.render(&rs.device, &rs.queue, [RENDER_THUMB, RENDER_THUMB], &params).read_rgba8_async(&rs.device, &rs.queue);
     state.shelf.pending = Some((id, pending));
     ctx.request_repaint();
+}
+
+/// A material as the shelf thumbnail shows it: same layer, tiling boosted for the small sphere
+/// (the saved asset is not changed).
+fn preview_layer(mut layer: Layer) -> Layer {
+    subcraft_app::thumbnails::zoom_out_tiling(&mut layer);
+    layer
 }
 
 /// White paint shown through a smart mask (for mask thumbnails).
