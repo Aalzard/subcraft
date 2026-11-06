@@ -189,7 +189,9 @@ fn as_stored(c: vec3<f32>) -> vec4<f32> {
     return vec4<f32>(select(hi, lo, v <= vec3<f32>(0.04045)), 1.0);
 }
 
-// Single-channel view modes: the channel unlit, as the 2D view shows it.
+// Single-channel view modes: the channel unlit, as the 2D view shows it. `t_base` is always read
+// with `albedo_samp`: OpenGL allows one sampler per texture, and the viewport pipeline fails there
+// if a texture is sampled with two (issue #91).
 fn channel_view(mode: i32, uv: vec2<f32>) -> vec4<f32> {
     switch mode {
         case 1: { return vec4<f32>(textureSample(t_base, albedo_samp, uv).rgb, 1.0); }
@@ -197,8 +199,8 @@ fn channel_view(mode: i32, uv: vec2<f32>) -> vec4<f32> {
         case 3: { return as_stored(vec3<f32>(textureSample(t_rough, samp, uv).r)); }
         case 4: { return as_stored(vec3<f32>(textureSample(t_metal, samp, uv).r)); }
         case 5: { return as_stored(vec3<f32>(textureSample(t_height, samp, uv).r)); }
-        case 7: { return as_stored(textureSample(t_base, samp, uv).rgb); }
-        case 8: { return as_stored(vec3<f32>(textureSample(t_base, samp, uv).r)); }
+        case 7: { return as_stored(textureSample(t_base, albedo_samp, uv).rgb); }
+        case 8: { return as_stored(vec3<f32>(textureSample(t_base, albedo_samp, uv).r)); }
         default: { return as_stored(vec3<f32>(textureSample(t_ao, samp, uv).r)); }
     }
 }
