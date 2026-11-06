@@ -4355,3 +4355,10 @@ real cost of the big_project stack), and letting GPU-composited tiles fill the C
 * **Cause**: the wireframe/camera feature added two buttons and widened the View combo (92 -> 150), but `viewport_bar.rs` kept hard-coded breakpoints. At 1125 px the bar needed 1228 px (`brush_bar` tests `bar_fits_wide_wrapped_and_tiny_docks_and_hides_for_non_paint_tools` and `flow_and_hardness_open_independent_sliders_and_edit_shared_values` failed on Linux); at 600 px it needed 666 px.
 * **Fix**: wide View combo only from 660 px, wireframe/camera buttons only from 600 px (not reachable from the bar below that), inline brush bar from 1214 px (was 1094). Test's inline breakpoint changed to 1230 (stale assumption); overflow thresholds untouched. Effect: at 1125 px the brush controls now wrap under the view controls.
 * **Run here (Linux)**: `cargo test -p subcraft-ui --test brush_bar` 8/8; `cargo test --workspace` 172 result lines ok, 1135 passed, 0 failed, 2 ignored. Not run: Windows, a visual check of the app.
+
+## 2026-11-06 — Substance Painter shortcuts + viewport hints (branch `painter-shortcuts`)
+
+* Keymap data in `crates/app/src/actions.rs`: 33 actions, two key sets (`KeymapPreset::SubCraft` default / `Painter`, Preferences → Keyboard shortcuts, `keymap` pref), `PAINTER_REFERENCE` (89 rows of Painter's documented list with status). Details and full table: `docs/painter-shortcuts.md`.
+* New gestures: Ctrl+Alt+LMB pan, Ctrl+RMB drag size/hardness, Ctrl+LMB drag flow/angle, V+click clone source. Menus/tooltips show the active key set; Help → Keyboard shortcuts is a searchable sheet.
+* Viewport hint overlay (`crates/ui/src/viewport_hints.rs`): context-sensitive (tool, Alt/Ctrl/Shift, hidden parts, stencil, mask, Rendering mode), keys from the active key set, rows cached until the context changes, View → Viewport hints toggle (pref `viewport.hints`).
+* Run: `cargo test -p subcraft-ui --lib` 88 passed, `cargo test -p subcraft-app --lib` 91 passed, `cargo check --workspace --tests` clean. NOT run: ui integration tests (disk on E: nearly full, link failed LNK1180), nothing exercised by hand in the running app (no mouse/keyboard driving).

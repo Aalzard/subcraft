@@ -124,9 +124,11 @@ pub fn build(c: &HintContext) -> Vec<Hint> {
     if c.text_armed {
         out.push(h("LMB", "Place text"));
         out.push(h("Esc", "Cancel"));
+        return out;
     } else if c.picking_parts {
         out.push(h("LMB", "Show / hide the layer on a part"));
         out.push(h("Esc", "Done"));
+        return out;
     } else {
         match c.tool {
             Tool::Pen => {
@@ -166,12 +168,10 @@ pub fn build(c: &HintContext) -> Vec<Hint> {
             }
         }
     }
-    if !c.text_armed && !c.picking_parts {
-        out.push(h("RMB", "Part menu"));
-        out.push(h("I / H", "Isolate / hide part"));
-        if c.hidden_parts {
-            out.push(h("Esc", "Show all parts"));
-        }
+    out.push(h("RMB", "Part menu"));
+    out.push(h("I / H", "Isolate / hide part"));
+    if c.hidden_parts {
+        out.push(h("Esc", "Show all parts"));
     }
     camera(c, &mut out);
     if let Some(k) = key(c, Action::NextChannel) {

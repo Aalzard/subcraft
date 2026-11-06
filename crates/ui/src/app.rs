@@ -790,16 +790,16 @@ impl SubcraftApp {
                 self.perform(Action::Bake, now);
             }
             crate::updates::button(&mut self.state, ui);
-            if icon_button(ui, icons::SAVE, tip(km, "Save", Action::Save)).clicked() {
+            if icon_button(ui, icons::SAVE, &tip(km, "Save", Action::Save)).clicked() {
                 self.perform(Action::Save, now);
             }
             ui.add_space(6.0);
             let h = self.state.session.history();
             let (can_undo, can_redo) = (h.can_undo(), h.can_redo());
-            if ui.add_enabled_ui(can_redo, |ui| icon_button(ui, icons::REDO, tip(km, "Redo", Action::Redo))).inner.clicked() {
+            if ui.add_enabled_ui(can_redo, |ui| icon_button(ui, icons::REDO, &tip(km, "Redo", Action::Redo))).inner.clicked() {
                 self.perform(Action::Redo, now);
             }
-            if ui.add_enabled_ui(can_undo, |ui| icon_button(ui, icons::UNDO, tip(km, "Undo", Action::Undo))).inner.clicked() {
+            if ui.add_enabled_ui(can_undo, |ui| icon_button(ui, icons::UNDO, &tip(km, "Undo", Action::Undo))).inner.clicked() {
                 self.perform(Action::Undo, now);
             }
             ui.cursor().right()
@@ -839,7 +839,7 @@ impl SubcraftApp {
                 (Tool::Eyedropper, icons::CURSOR, tip(km, "Eyedropper (Shift+click picks material)", Action::EyedropperTool)),
                 (Tool::Pen, icons::CURVE, tip(km, "Pen paths: click points, drag for curves; edit anchors and handles in 2D View", Action::PenTool)),
             ] {
-                if tool_button(ui, icon, *tool == t, tip).clicked() {
+                if tool_button(ui, icon, *tool == t, &tip).clicked() {
                     *tool = t;
                     if t == Tool::Pen { self.state.picking_parts = false; }
                 }
@@ -855,7 +855,7 @@ impl SubcraftApp {
             ui.add_space(6.0);
             rail_divider(ui);
             ui.add_space(6.0);
-            if tool_button(ui, icons::CAMERA, false, tip(km, "Reset camera", Action::ResetCamera)).clicked() {
+            if tool_button(ui, icons::CAMERA, false, &tip(km, "Reset camera", Action::ResetCamera)).clicked() {
                 self.perform(Action::ResetCamera, ui.input(|i| i.time));
             }
             ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
