@@ -4355,3 +4355,15 @@ real cost of the big_project stack), and letting GPU-composited tiles fill the C
 * **Cause**: the wireframe/camera feature added two buttons and widened the View combo (92 -> 150), but `viewport_bar.rs` kept hard-coded breakpoints. At 1125 px the bar needed 1228 px (`brush_bar` tests `bar_fits_wide_wrapped_and_tiny_docks_and_hides_for_non_paint_tools` and `flow_and_hardness_open_independent_sliders_and_edit_shared_values` failed on Linux); at 600 px it needed 666 px.
 * **Fix**: wide View combo only from 660 px, wireframe/camera buttons only from 600 px (not reachable from the bar below that), inline brush bar from 1214 px (was 1094). Test's inline breakpoint changed to 1230 (stale assumption); overflow thresholds untouched. Effect: at 1125 px the brush controls now wrap under the view controls.
 * **Run here (Linux)**: `cargo test -p subcraft-ui --test brush_bar` 8/8; `cargo test --workspace` 172 result lines ok, 1135 passed, 0 failed, 2 ignored. Not run: Windows, a visual check of the app.
+
+### Session 114 - Mesh-map generators: Painter's own controls (2026-11-06, branch `generators-painter-accuracy`)
+
+Goal was Dirt / Edge Wear behaving like Painter's. Findings, not a full rebuild:
+* The graphs in the user's projects expose more controls than the importer used. `mg_dirt`: `dirt_level`, `dirt_contrast`, `grunge_amount`, `Grunge_Scale`, `edges_masking`. `mg_metal_edge_wear`: `Wear_Level`, `Wear_Contrast`, `Grunge_Amount`, `grunge_scale`, `Edges_Smoothness`, `Ambient_Occlusion_Masking`, `Curvature_Weight`. Only the level/contrast/grunge amount were read. The `Micro_Details_*` controls are all at their defaults in these projects.
+* `Generator.painter: Option<PainterControls>` (edges masking, AO masking, curvature weight, smoothness, grunge scale). `None` / neutral values leave a generator exactly as before; not written to project files when absent (test).
+* The importer sets them from the tweaks; strengths are `Tuning.painter` (`SUBCRAFT_SPP_PAINTER="em,am,sm,gs"`), defaults 0 / 2 / 0 / 2, chosen by gate sweeps (edges masking made CarInteriro worse, smoothness had no measurable effect).
+* Lab: `gens` (every mesh-map generator's tweaks and mask chain) and `genfit` (Painter's effective mask per generator-only layer).
+* Per-layer recovery of Painter's masks did not work on these projects: DBAL-A2's generator-only layers are all overridden by layers above them (0 valid texels), CarInteriro's one dirt layer is ambiguous (bimodal at fixed AO). So the level/contrast response curves are still the earlier calibrated remapping, NOT Painter's.
+* Gate at 512 (Base Color / Roughness / Metallic), before -> after: CarInteriro 0.0093 / 0.0326 / 0.0026 -> 0.0092 / 0.0326 / 0.0026; DBAL-A2 0.0145 / 0.0421 / 0.0455 -> 0.0145 / 0.0414 / 0.0455; Street_cyberpunk unchanged (no such generators). Gains are within a few percent: effectively unchanged.
+* Tests: doc/project/compositor new tests pass; `subcraft-app` lib, spp_stack, spp_open, edge_corners pass. Full workspace run not done (E: was out of space for a while).
+* Not verified by eye in the app. No UI controls for the new fields yet.
