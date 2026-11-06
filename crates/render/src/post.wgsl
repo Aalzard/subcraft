@@ -14,7 +14,9 @@ struct Post {
 @group(0) @binding(1) var src: texture_2d<f32>;
 @group(0) @binding(2) var samp: sampler;
 @group(0) @binding(3) var aux: texture_2d<f32>;
-@group(0) @binding(4) var depth_tex: texture_depth_2d;
+// The depth buffer, bound as an unfilterable float texture: GLSL cannot `textureLoad` a depth
+// texture, so the OpenGL backend would fail to build this pipeline (issue #91).
+@group(0) @binding(4) var depth_tex: texture_2d<f32>;
 @group(0) @binding(5) var ao_tex: texture_2d<f32>;
 
 @vertex
@@ -32,7 +34,7 @@ fn view_pos(px: vec2<i32>, depth: f32) -> vec3<f32> {
 
 fn load_depth(px: vec2<i32>) -> f32 {
     let dims = vec2<i32>(textureDimensions(depth_tex));
-    return textureLoad(depth_tex, clamp(px, vec2<i32>(0), dims - vec2<i32>(1)), 0);
+    return textureLoad(depth_tex, clamp(px, vec2<i32>(0), dims - vec2<i32>(1)), 0).r;
 }
 
 fn gradient_noise(px: vec2<f32>) -> f32 {
