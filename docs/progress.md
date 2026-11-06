@@ -4375,3 +4375,8 @@ real cost of the big_project stack), and letting GPU-composited tiles fill the C
 * **Icon**: the bundled Phosphor font is a 53-glyph subset without a bumpy-surface glyph, so the tab's icon is drawn in code (`draw_bumps`: rounded tile with a wavy relief line, 1.5 px stroke like the font icons). The narrow-panel category combo lists the tab too; `--shelf-tab normal-maps` selects it.
 * **Compatibility**: the active shelf tab and its filter are not saved anywhere, so no stored preference changes; saved dock layouts are unaffected.
 * **Tests**: `preview_layout` (wrapping/overflow for every tab incl. Normal Maps; Textures is empty on a fresh install, so it asserts no starter normals there), footer/scroll fixtures moved to the Normal Maps tab, `inspector_tests` dock fixture likewise.
+## 2026-11-06 — Default panel layout: tab groups (branch `ui-tabs-default`)
+
+* **Check first**: `default_layout()` already put the 2D view in the 3D view's tab group (3D first/active) and Parts in the group with Texture Sets and History; only the visible tab of the bottom group was Parts (first tab). The default now activates Texture Sets there; 3D stays active in the main group. Tab order and the group structure are unchanged.
+* **Old layouts**: `DOCK_KEY` (`subcraft_dock_v5`) and `layout_is_valid` are untouched, so saved layouts load exactly as before (the change affects only a fresh/reset layout and `--shelf-panel`).
+* **Test**: `app::layout_tests::default_layout_groups_2d_with_3d_and_parts_with_texture_sets_with_the_main_views_visible` (same node + visible tab for both pairs). Not verified: nothing was looked at in the running app; if the user sees 2D beside 3D, that is an older saved layout (View > reset layout / `--reset-layout`).
