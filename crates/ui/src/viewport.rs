@@ -135,6 +135,22 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         }
     }
 
+    // ----- Painter-style brush gestures: Ctrl+RMB drag = size / hardness, Ctrl+LMB drag = flow / angle -----
+    let gesture_ok = mods.command && !mods.alt && !stencil_edit && !typing && !(state.bake.open || state.bake.job.is_some());
+    let brush_tool = matches!(state.tool, Tool::Brush | Tool::Eraser | Tool::Smudge | Tool::Clone);
+    let lmb_adjust = gesture_ok && matches!(state.tool, Tool::Brush | Tool::Eraser | Tool::Smudge);
+    if gesture_ok && brush_tool && !state.painting {
+        let s = &mut state.session.brush.settings;
+        if response.dragged_by(PointerButton::Secondary) {
+            s.size = (s.size * (delta.x * 0.01).exp()).clamp(0.1, 100.0);
+            s.hardness = (s.hardness - delta.y * 0.005).clamp(0.0, 1.0);
+        } else if lmb_adjust && response.dragged_by(PointerButton::Primary) {
+            s.flow = (s.flow + delta.x * 0.003).clamp(0.01, 1.0);
+            s.angle_deg = (s.angle_deg + delta.y * 0.5).rem_euclid(360.0);
+        }
+    }
+    let v_down = ui.input(|i| i.key_down(egui::Key::V)) && !typing && !mods.any();
+
     let camera = state.camera.paint_camera(size);
 
     if response.secondary_clicked() && !alt && !stencil_edit {
@@ -250,7 +266,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             }
     }
     let paint_tool = !bake_mode && matches!(state.tool, Tool::Brush | Tool::Eraser | Tool::Clone | Tool::Smudge) && !picking;
-    if !bake_mode && primary_pressed && response.hovered() && !alt && !stencil_edit && !picking && state.tool != Tool::Pen {
+    if !bake_mode && primary_pressed && response.hovered() && !alt && !stencil_edit && !picking && state.tool != Tool::Pen && !lmb_adjust {
         if let Some(p) = pointer {
             let sp = to_screen(p);
             match state.tool {
@@ -260,7 +276,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         state.set_status(if mods.shift { "Picked material" } else { "Picked color" }, now);
                     }
                 }
-                Tool::Clone if mods.command => {
+                Tool::Clone if mods.command || v_down => {
                     if state.session.set_clone_source(&camera, sp) { state.set_status("Clone source set: now paint where the copy should go", now); }
                     else { state.set_status(crate::keys::native("Ctrl+click the model to set the clone source"), now); }
                 }
@@ -461,12 +477,26 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     let hint: String = if bake_mode {
         if state.bake.overlay_active() { format!("Blue: high poly · Red: exposed low poly · Pale: cage · {orbit} · Wheel zoom") }
         else { bake_hint.clone().unwrap_or_else(|| format!("Baking mesh maps · {orbit} · Wheel zoom")) }
-    } else if state.tool == Tool::Pen { "Click points · drag for curves · edit in 2D View · Enter finish · Esc cancel".into() }
-        else if state.tool == Tool::Clone { format!("{} · {orbit}", crate::keys::native("Ctrl+click: set the source · LMB paint to copy it")) }
-        else if state.tool == Tool::Smudge { format!("LMB drag to smudge the paint under the brush · {orbit}") }
-        else if scheme.alt_navigates() { "LMB paint · RMB menu / drag orbit · I isolate · H hide · Esc show all · Wheel zoom".into() }
-        else { format!("LMB paint · RMB menu · {orbit} · I isolate · H hide · Esc show all · Wheel zoom") };
-    pill(&painter, rect.left_bottom() + egui::vec2(10.0, -10.0), egui::Align2::LEFT_BOTTOM, &hint, theme::TEXT_FAINT);
+    } else { String::new() };
+    if bake_mode {
+        pill(&painter, rect.left_bottom() + egui::vec2(10.0, -10.0), egui::Align2::LEFT_BOTTOM, &hint, theme::TEXT_FAINT);
+    } else if state.recovery.prefs.viewport.hints {
+        let c = crate::viewport_hints::HintContext {
+            tool: state.tool,
+            nav: scheme,
+            keymap: state.recovery.prefs.keymap,
+            ctrl: mods.command || mods.ctrl,
+            shift: mods.shift,
+            alt: mods.alt,
+            tracing,
+            hidden_parts: state.session.has_hidden_parts(),
+            stencil: state.session.brush.stencil.is_some(),
+            mask: state.session.brush.target.is_mask(),
+            picking_parts: parts_picking,
+            text_armed,
+        };
+        crate::viewport_hints::draw(&painter, rect, &crate::viewport_hints::cached(ui.ctx(), c));
+    }
     let mut right = rect.right_top() + egui::vec2(-10.0, 10.0);
     if state.tool != Tool::Pen && state.session.brush.options.has_symmetry() {
         let options = &state.session.brush.options;

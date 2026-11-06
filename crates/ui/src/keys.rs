@@ -13,6 +13,11 @@ fn mac_cached(text: &'static str) -> &'static str {
     cache.entry(text).or_insert_with(|| Box::leak(for_mac(text).into_boxed_str()))
 }
 
+/// [`native`] for text built at run time.
+pub fn native_string(text: String) -> String {
+    if cfg!(target_os = "macos") { for_mac(&text) } else { text }
+}
+
 pub(crate) fn for_mac(text: &str) -> String { text.replace("Ctrl+", "Cmd+") }
 
 #[cfg(test)]

@@ -317,7 +317,8 @@ bundle. Issues with logs from **Help → Report a problem** are very welcome.
 | Export textures | Ctrl + Shift + E |
 | Undo / redo | Ctrl + Z / Ctrl + Y |
 
-Help → Keyboard shortcuts lists all of them.
+Help → Keyboard shortcuts lists all of them (searchable, with the Substance Painter equivalent of each). Coming from
+Painter? Choose **Substance Painter** under Preferences → Keyboard shortcuts; see [docs/painter-shortcuts.md](docs/painter-shortcuts.md).
 
 <img src="docs/screenshots/parts-workflow.png" alt="Imported object names in Parts, with a fill restricted to the crate body" width="760">
 
