@@ -29,8 +29,25 @@ pub enum ShelfDrag {
     Alpha(usize),
 }
 
+/// A Shelf click: a material swaps the material of the selected fill layer (or adds one when
+/// no fill layer is selected); everything else does what a drop does.
+pub fn click_shelf_item(s: &mut UiState, item: ShelfDrag, now: f64) {
+    if let ShelfDrag::Material(i) = item {
+        let Some(m) = s.library.materials.get(i).cloned() else { return };
+        match s.session.apply_material(&m) {
+            Ok(swapped) => {
+                if swapped { s.set_status(format!("Material swapped to {} (drag it onto the Layers panel to add a new layer)", m.name), now); }
+                s.recovery.autosaver.request_soon();
+            }
+            Err(e) => s.set_status(e.to_string(), now),
+        }
+        return;
+    }
+    apply_shelf_item(s, item, now);
+}
+
 /// Apply a material / smart material (inserted above the selected layer of the selected
-/// texture set) or a smart mask (on the selected layer). Shared by clicks and drops.
+/// texture set) or a smart mask (on the selected layer). Used by drops.
 pub fn apply_shelf_item(s: &mut UiState, item: ShelfDrag, now: f64) {
     apply_shelf_item_with(s, item, false, now);
 }
@@ -515,7 +532,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         let resp = tile(ui, tile_size, thumbs.get(&m.id), &m.name, false, &format!("{} ({}): click or drag onto the model / a layer (adds a layer). Alt+click: replace the selected fill layer's material", m.name, m.category));
                         resp.dnd_set_drag_payload(ShelfDrag::Material(i));
                         if resp.clicked() {
-                            action = Some(Box::new(move |s: &mut UiState| apply_shelf_item_with(s, ShelfDrag::Material(i), alt, now)));
+                            action = Some(Box::new(move |s: &mut UiState| if alt { apply_shelf_item_with(s, ShelfDrag::Material(i), alt, now) } else { click_shelf_item(s, ShelfDrag::Material(i), now) }));
                         }
                     }
                 }
