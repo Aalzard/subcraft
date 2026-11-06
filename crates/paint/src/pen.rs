@@ -86,5 +86,79 @@ impl PenRasterizer {
         }
     }
 
+    /// Rasterize every remaining tile now, in parallel (the same pixels as stepping). A path's
+    /// whole raster takes milliseconds this way, where stepping by a small per-frame budget made
+    /// a pen edit wait for hundreds of frames.
+    pub fn run(&mut self) {
+        use rayon::prelude::*;
+        if self.pixel != 0 || self.segment != 0 {
+            // Finish the tile a step left half done, so the rest starts on a tile boundary.
+            let current = self.tile;
+            while self.tile == current && !self.is_done() { self.step(TILE_TEXELS * self.bins[self.tiles[current]].len().max(1)); }
+        }
+        let across = self.resolution.div_ceil(TILE_SIZE);
+        let (radius, hardness, opacity, res) = (self.path.radius * self.resolution as f32, self.path.hardness, self.path.opacity, self.resolution);
+        let (points, bins) = (&self.points, &self.bins);
+        let done: Vec<(usize, Vec<f32>)> = self.tiles[self.tile..].par_iter().map(|&tile| {
+            let mut coverage = vec![0.0f32; TILE_TEXELS];
+            for (pixel, out) in coverage.iter_mut().enumerate() {
+                let x = (tile as u32 % across) * TILE_SIZE + pixel as u32 % TILE_SIZE;
+                let y = (tile as u32 / across) * TILE_SIZE + pixel as u32 / TILE_SIZE;
+                if x >= res || y >= res { continue; }
+                let p = Vec2::new(x as f32 + 0.5, y as f32 + 0.5);
+                let mut distance = f32::INFINITY;
+                for &i in &bins[tile] {
+                    let a = points[i]; let d = points[i + 1] - a;
+                    let t = if d.length_squared() > 1e-12 { ((p - a).dot(d) / d.length_squared()).clamp(0.0, 1.0) } else { 0.0 };
+                    distance = distance.min(p.distance(a + d * t));
+                }
+                let edge = (radius + 0.5 - distance).clamp(0.0, 1.0);
+                *out = crate::falloff((distance - 0.5).max(0.0) / radius, hardness).min(edge) * opacity;
+            }
+            (tile, coverage)
+        }).collect();
+        for (tile, coverage) in done {
+            if !coverage.iter().any(|&a| a > 0.0) { continue; }
+            for (&kind, image) in &mut self.images {
+                let n = kind.components(); let comps = n + 1; let value = self.path.values[&kind].0;
+                let mut data = vec![0.0; TILE_TEXELS * comps];
+                for (pixel, &alpha) in data.chunks_exact_mut(comps).zip(&coverage) {
+                    pixel[..n].copy_from_slice(&value[..n]); pixel[n] = alpha;
+                }
+                image.write_tile(tile, &data);
+            }
+        }
+        self.tile = self.tiles.len(); self.pixel = 0; self.segment = 0; self.distance = f32::INFINITY; self.coverage.fill(0.0);
+    }
+
     pub fn finish(self) -> Option<BTreeMap<ChannelKind, TiledImage>> { self.is_done().then_some(self.images) }
+}
+
+#[cfg(test)]
+mod run_tests {
+    use super::*;
+    use subcraft_core::ChannelValue;
+    use subcraft_doc::{PenAnchor, PenPath};
+
+    fn path() -> PenPath {
+        let anchors = [(0.1, 0.2), (0.5, 0.8), (0.9, 0.3), (0.6, 0.1)].into_iter().map(|(x, y)| PenAnchor::new(Vec2::new(x, y))).collect();
+        let values = [(ChannelKind::BaseColor, ChannelValue::rgb(1.0, 0.5, 0.0))].into_iter().collect();
+        PenPath { anchors, closed: false, radius: 0.02, hardness: 0.5, opacity: 1.0, values }
+    }
+
+    #[test]
+    fn running_in_parallel_gives_the_stepped_pixels_and_is_fast() {
+        let mut stepped = PenRasterizer::new(&path(), 1024).unwrap();
+        while !stepped.is_done() { stepped.step(16384); }
+        let mut ran = PenRasterizer::new(&path(), 1024).unwrap();
+        ran.step(5000); // half a tile first: run() must finish it
+        let t = std::time::Instant::now();
+        ran.run();
+        let elapsed = t.elapsed();
+        assert!(ran.is_done());
+        let (a, b) = (stepped.finish().unwrap(), ran.finish().unwrap());
+        assert_eq!(a[&ChannelKind::BaseColor], b[&ChannelKind::BaseColor], "identical raster");
+        println!("1024² path raster in {elapsed:?}");
+        assert!(elapsed.as_millis() < 1000, "a path raster takes well under a second ({elapsed:?})");
+    }
 }
