@@ -13,6 +13,7 @@ pub mod dialogs;
 pub mod files;
 pub mod graphics;
 pub mod gpu_probe;
+pub mod i18n;
 pub mod icons;
 pub mod auto_uv;
 pub mod mesh_reload;

@@ -98,7 +98,7 @@ pub fn font_strong(size: f32) -> FontId {
     FontId::new(size, semibold())
 }
 
-fn fonts() -> FontDefinitions {
+pub(crate) fn fonts() -> FontDefinitions {
     let mut f = FontDefinitions::default();
     let add = |f: &mut FontDefinitions, name: &str, bytes: &'static [u8]| {
         f.font_data.insert(name.into(), Arc::new(FontData::from_static(bytes)));

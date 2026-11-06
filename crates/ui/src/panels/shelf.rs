@@ -1,6 +1,7 @@
 //! Shelf: materials, smart materials, smart masks, brush alphas and environments, with rendered
 //! thumbnails. Clicking applies the asset through the session (undoable where it edits layers).
 
+use crate::i18n::tr;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -268,7 +269,7 @@ pub(crate) fn tile(ui: &mut Ui, side: f32, thumb: Option<&egui::TextureHandle>, 
             .show(ui.ctx(), |ui| {
                 egui::Frame::popup(ui.style()).show(ui, |ui| {
                     ui.label(RichText::new(format!("{}  {name}", crate::icons::PLUS)).color(theme::TEXT));
-                    ui.label(RichText::new("Drop on the model or a layer").small().color(theme::TEXT_FAINT));
+                    ui.label(RichText::new(tr("Drop on the model or a layer")).small().color(theme::TEXT_FAINT));
                 });
             });
         ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
@@ -453,20 +454,20 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         let narrow = ui.available_width() < 720.0;
         let tab = &mut state.shelf.tab;
         if narrow {
-            let label = match tab { ShelfTab::Textures => "Textures", ShelfTab::NormalMaps => "Normal Maps", ShelfTab::Materials => "Materials", ShelfTab::SmartMaterials => "Smart Materials", ShelfTab::SmartMasks => "Smart Masks", ShelfTab::Brushes => "Brushes", ShelfTab::Environments => "Environments" };
+            let label = match tab { ShelfTab::Textures => tr("Textures"), ShelfTab::NormalMaps => tr("Normal Maps"), ShelfTab::Materials => tr("Materials"), ShelfTab::SmartMaterials => tr("Smart Materials"), ShelfTab::SmartMasks => tr("Smart Masks"), ShelfTab::Brushes => tr("Brushes"), ShelfTab::Environments => tr("Environments") };
             egui::ComboBox::from_id_salt("shelf_category").selected_text(label).width(144.0).show_ui(ui, |ui| {
-                for (kind, name) in [(ShelfTab::Textures,"Textures"),(ShelfTab::NormalMaps,"Normal Maps"),(ShelfTab::Materials,"Materials"),(ShelfTab::SmartMaterials,"Smart Materials"),(ShelfTab::SmartMasks,"Smart Masks"),(ShelfTab::Brushes,"Brushes"),(ShelfTab::Environments,"Environments")] {
+                for (kind, name) in [(ShelfTab::Textures,tr("Textures")),(ShelfTab::NormalMaps,tr("Normal Maps")),(ShelfTab::Materials,tr("Materials")),(ShelfTab::SmartMaterials,tr("Smart Materials")),(ShelfTab::SmartMasks,tr("Smart Masks")),(ShelfTab::Brushes,tr("Brushes")),(ShelfTab::Environments,tr("Environments"))] {
                     ui.selectable_value(tab, kind, name);
                 }
             });
         } else {
-        shelf_tab(ui, tab, ShelfTab::Textures, crate::icons::IMAGE, "Textures");
-        shelf_tab(ui, tab, ShelfTab::NormalMaps, BUMPS, "Normal Maps");
-        shelf_tab(ui, tab, ShelfTab::Materials, crate::icons::DROP, "Materials");
-        shelf_tab(ui, tab, ShelfTab::SmartMaterials, crate::icons::SPARKLE, "Smart Materials");
-        shelf_tab(ui, tab, ShelfTab::SmartMasks, crate::icons::MASK, "Smart Masks");
-        shelf_tab(ui, tab, ShelfTab::Brushes, crate::icons::PAINT_BRUSH, "Brushes");
-        shelf_tab(ui, tab, ShelfTab::Environments, crate::icons::SUN, "Environments");
+        shelf_tab(ui, tab, ShelfTab::Textures, crate::icons::IMAGE, tr("Textures"));
+        shelf_tab(ui, tab, ShelfTab::NormalMaps, BUMPS, tr("Normal Maps"));
+        shelf_tab(ui, tab, ShelfTab::Materials, crate::icons::DROP, tr("Materials"));
+        shelf_tab(ui, tab, ShelfTab::SmartMaterials, crate::icons::SPARKLE, tr("Smart Materials"));
+        shelf_tab(ui, tab, ShelfTab::SmartMasks, crate::icons::MASK, tr("Smart Masks"));
+        shelf_tab(ui, tab, ShelfTab::Brushes, crate::icons::PAINT_BRUSH, tr("Brushes"));
+        shelf_tab(ui, tab, ShelfTab::Environments, crate::icons::SUN, tr("Environments"));
         }
         ui.spacing_mut().item_spacing.x = 8.0;
         ui.add_space(16.0);
@@ -489,7 +490,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 if ui.button(format!("{}  Import texture set…", crate::icons::DOWNLOAD)).clicked() {
                     crate::panels::layers::import_texture_set_dialog(ui.ctx());
                 }
-                shelf_hint(ui, "Select a texture's maps (color, roughness, normal…) to make one fill layer.");
+                shelf_hint(ui, tr("Select a texture's maps (color, roughness, normal…) to make one fill layer."));
             }
             ShelfTab::Brushes => {
                 if ui.button(format!("{}  Import alpha…", crate::icons::DOWNLOAD)).clicked() {
@@ -518,10 +519,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             }
             ShelfTab::SmartMaterials => {
                 shelf_hint(ui, crate::keys::native("Wear and dirt follow baked curvature / AO (Ctrl+B). Drop .scsmart files or texture folders here to import."));
-                if ui.button(format!("{}  Import", crate::icons::DOWNLOAD)).on_hover_text("Import smart materials (.scsmart) or PBR texture sets (Color, NormalGL, Roughness…)").clicked() {
+                if ui.button(format!("{}  Import", crate::icons::DOWNLOAD)).on_hover_text(tr("Import smart materials (.scsmart) or PBR texture sets (Color, NormalGL, Roughness…)")).clicked() {
                     import_smart_dialog(ui.ctx());
                 }
-                if ui.button(format!("{}  Import folder", crate::icons::FOLDER_OPEN)).on_hover_text("Import a folder of .scsmart files or PBR texture sets").clicked() {
+                if ui.button(format!("{}  Import folder", crate::icons::FOLDER_OPEN)).on_hover_text(tr("Import a folder of .scsmart files or PBR texture sets")).clicked() {
                     import_smart_folder_dialog(ui.ctx());
                 }
             }
@@ -977,7 +978,7 @@ fn filter_row(state: &mut UiState, ui: &mut Ui) {
     egui::Frame::new().inner_margin(egui::Margin { left: theme::PAD, right: theme::PAD, top: 4, bottom: 6 }).show(ui, |ui| {
         ui.horizontal_wrapped(|ui| {
             let filter = &mut state.shelf.filter;
-            ui.add(egui::TextEdit::singleline(&mut filter.query).hint_text("Search…").desired_width(ui.available_width().min(180.0)));
+            ui.add(egui::TextEdit::singleline(&mut filter.query).hint_text(tr("Search…")).desired_width(ui.available_width().min(180.0)));
             if !filter.query.is_empty() && crate::widgets::icon_button(ui, crate::icons::X, "Clear search").clicked() {
                 filter.query.clear();
             }

@@ -1,4 +1,5 @@
 //! Welcome hub and six-step guide. File/project operations use existing app/dialog controllers.
+use crate::i18n::tr;
 use std::path::PathBuf;
 use egui::RichText;
 use subcraft_app::launch::{GuideAction, RecentFiles, RecentItem, QUICK_START};
@@ -28,24 +29,24 @@ pub fn show(state: &mut UiState, ctx: &egui::Context) -> Option<WelcomeAction> {
         crate::widgets::window(ctx, "Welcome to SubCraft").open(&mut open).collapsible(false).resizable(false)
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
             ui.set_width(560.0_f32.min((ctx.content_rect().width() - 32.0).max(220.0)));
-            ui.heading("Start texturing");
-            ui.label(RichText::new("Open a model, build materials and export PBR textures.").color(theme::TEXT_DIM));
+            ui.heading(tr("Start texturing"));
+            ui.label(RichText::new(tr("Open a model, build materials and export PBR textures.")).color(theme::TEXT_DIM));
             ui.add_space(12.0);
             ui.horizontal_wrapped(|ui| {
-                if primary_button(ui, "New from a model…").on_hover_text("OBJ, GLB/glTF, FBX, USD, PLY, STL or Substance Painter .spp with UVs").clicked() { action = Some(WelcomeAction::Pending(Pending::OpenMesh)); }
-                if secondary_button(ui, "Open project…").on_hover_text("Open a saved .subcraft project").clicked() { action = Some(WelcomeAction::Pending(Pending::OpenProject)); }
-                if secondary_button(ui, "Try the sample").on_hover_text("Open the built-in crate with UVs").clicked() { action = Some(WelcomeAction::Pending(Pending::NewSample)); }
+                if primary_button(ui, tr("New from a model…")).on_hover_text(tr("OBJ, GLB/glTF, FBX, USD, PLY, STL or Substance Painter .spp with UVs")).clicked() { action = Some(WelcomeAction::Pending(Pending::OpenMesh)); }
+                if secondary_button(ui, tr("Open project…")).on_hover_text(tr("Open a saved .subcraft project")).clicked() { action = Some(WelcomeAction::Pending(Pending::OpenProject)); }
+                if secondary_button(ui, tr("Try the sample")).on_hover_text(tr("Open the built-in crate with UVs")).clicked() { action = Some(WelcomeAction::Pending(Pending::NewSample)); }
             });
             ui.add_space(10.0);
             ui.horizontal_wrapped(|ui| {
-                if secondary_button(ui, "Quick start").on_hover_text("Six steps from a model to exported textures").clicked() { state.welcome.open = false; state.welcome.guide = Some(0); }
-                if secondary_button(ui, "What's new").on_hover_text("See the latest features in this build").clicked() { state.welcome.whats_new = true; }
-                if secondary_button(ui, "Continue in workspace").clicked() { state.welcome.open = false; }
+                if secondary_button(ui, tr("Quick start")).on_hover_text(tr("Six steps from a model to exported textures")).clicked() { state.welcome.open = false; state.welcome.guide = Some(0); }
+                if secondary_button(ui, tr("What's new")).on_hover_text(tr("See the latest features in this build")).clicked() { state.welcome.whats_new = true; }
+                if secondary_button(ui, tr("Continue in workspace")).clicked() { state.welcome.open = false; }
             });
             {
-                ui.add_space(14.0); ui.separator(); ui.label(RichText::new("Recent files").strong());
+                ui.add_space(14.0); ui.separator(); ui.label(RichText::new(tr("Recent files")).strong());
                 let mut remove = None;
-                if state.welcome.items.is_empty() { ui.label(RichText::new("Projects and models you open or save appear here.").small().color(theme::TEXT_FAINT)); }
+                if state.welcome.items.is_empty() { ui.label(RichText::new(tr("Projects and models you open or save appear here.")).small().color(theme::TEXT_FAINT)); }
                 egui::ScrollArea::vertical().id_salt("welcome-recents").max_height(160.0).min_scrolled_height(0.0).show(ui, |ui| {
                     for item in &state.welcome.items {
                         ui.horizontal(|ui| {
@@ -53,15 +54,15 @@ pub fn show(state: &mut UiState, ctx: &egui::Context) -> Option<WelcomeAction> {
                             if ui.add_enabled(item.available, egui::Button::new(label)).on_hover_text(item.path.display().to_string()).clicked() {
                                 state.welcome.pending_recent = Some(item.path.clone()); action = Some(WelcomeAction::Pending(Pending::OpenRecent));
                             }
-                            if ui.small_button("Remove").clicked() { remove = Some(item.path.clone()); }
+                            if ui.small_button(tr("Remove")).clicked() { remove = Some(item.path.clone()); }
                         });
                     }
                 });
                 if let Some(path) = remove { state.welcome.recent.remove(&path); state.welcome.refresh(); }
             }
             ui.add_space(14.0); ui.separator();
-            ui.checkbox(&mut state.recovery.prefs.show_welcome, "Show this screen on startup");
-            ui.label(RichText::new("You can reopen it from Help at any time.").small().color(theme::TEXT_FAINT));
+            ui.checkbox(&mut state.recovery.prefs.show_welcome, tr("Show this screen on startup"));
+            ui.label(RichText::new(tr("You can reopen it from Help at any time.")).small().color(theme::TEXT_FAINT));
             ui.add_space(8.0); ui.separator();
             ui.label(RichText::new(subcraft_app::launch::INDEPENDENCE_NOTICE).small().color(theme::TEXT_DIM));
         });
@@ -88,11 +89,11 @@ pub fn show(state: &mut UiState, ctx: &egui::Context) -> Option<WelcomeAction> {
         crate::widgets::window(ctx, "About SubCraft").open(&mut state.welcome.about).collapsible(false).resizable(false).show(ctx, |ui| {
             ui.set_width(440.0_f32.min((ctx.content_rect().width() - 48.0).max(220.0)));
             ui.heading(format!("SubCraft {}", env!("CARGO_PKG_VERSION")));
-            ui.label("An open-source 3D texture painting application.");
+            ui.label(tr("An open-source 3D texture painting application."));
             ui.add_space(12.0);
             ui.label(subcraft_app::launch::INDEPENDENCE_NOTICE);
             ui.add_space(12.0);
-            ui.label(RichText::new("Licensed under MIT or Apache-2.0.").color(theme::TEXT_DIM));
+            ui.label(RichText::new(tr("Licensed under MIT or Apache-2.0.")).color(theme::TEXT_DIM));
             ui.hyperlink_to("SubCraft on GitHub", "https://github.com/Aalzard/subcraft");
         });
     }
