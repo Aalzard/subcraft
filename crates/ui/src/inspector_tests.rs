@@ -148,6 +148,7 @@ fn clicking_paint_fill_and_another_fill_reveals_the_selected_layers_controls() {
     click_text(&mut app, &ctx, "Blue fill");
     assert_eq!(app.state.session.selection().layer, Some(blue));
     assert!(active(&app, Tab::Properties));
+    settle(&mut app, &ctx); // Properties may be drawn before Layers: it follows next frame.
     assert_eq!(app.state.rename.as_ref().map(|(id, _)| *id), Some(blue));
     click_text(&mut app, &ctx, "Layer 1");
     assert_eq!(app.state.session.selection().layer, Some(paint));

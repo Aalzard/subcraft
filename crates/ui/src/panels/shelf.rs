@@ -199,6 +199,11 @@ pub fn apply_environment(
 
 /// Thumbnail tile: square image with a hairline frame (accent when hovered / selected), name below.
 pub(crate) fn tile(ui: &mut Ui, side: f32, thumb: Option<&egui::TextureHandle>, name: &str, selected: bool, tooltip: &str) -> egui::Response {
+    tile_with(ui, side, thumb, crate::icons::IMAGE, name, selected, tooltip)
+}
+
+/// [`tile`] with `icon` shown when there is no thumbnail.
+pub(crate) fn tile_with(ui: &mut Ui, side: f32, thumb: Option<&egui::TextureHandle>, icon: &str, name: &str, selected: bool, tooltip: &str) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(side, side + 22.0), egui::Sense::click_and_drag());
     if resp.dragged()
         && egui::DragAndDrop::has_payload_of_type::<ShelfDrag>(ui.ctx())
@@ -224,7 +229,8 @@ pub(crate) fn tile(ui: &mut Ui, side: f32, thumb: Option<&egui::TextureHandle>, 
             painter.image(t.id(), img.shrink(1.0), egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), Color32::WHITE);
         }
         None => {
-            painter.text(img.center(), egui::Align2::CENTER_CENTER, crate::icons::IMAGE, theme::font(20.0), theme::TEXT_FAINT);
+            let c = if icon == crate::icons::IMAGE { theme::TEXT_FAINT } else { theme::ACCENT };
+            painter.text(img.center(), egui::Align2::CENTER_CENTER, icon, theme::font(if icon == crate::icons::IMAGE { 20.0 } else { 28.0 }), c);
         }
     }
     let stroke = if selected {
@@ -620,7 +626,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         shown += 1;
                         let fits = state.session.shelf_filter_command(f).is_some();
                         let tip = if fits { "Click: add to the selected layer, or swap the selected filter to this one" } else { "Select a layer first (some filters work on color channels or masks only)" };
-                        let resp = tile(ui, tile_size, None, label, selected.as_deref() == Some(label), tip);
+                        let resp = tile_with(ui, tile_size, None, crate::icons::SLIDERS, label, selected.as_deref() == Some(label), tip);
                         if resp.clicked() && fits {
                             action = Some(Box::new(move |s: &mut UiState| {
                                 if let Some(cmd) = s.session.shelf_filter_command(f) {

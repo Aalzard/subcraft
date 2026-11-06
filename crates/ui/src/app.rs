@@ -169,18 +169,22 @@ impl LaunchOptions {
     }
 }
 
+/// The painter workspace: 3D and 2D views side by side in the centre, the Shelf (with Parts and
+/// History) along the bottom, and on the right the Texture Set list over Layers over
+/// Properties / Brush / Channels.
 pub fn default_layout() -> DockState<Tab> {
-    let mut dock = DockState::new(vec![Tab::Viewport, Tab::UvView]);
+    let mut dock = DockState::new(vec![Tab::Viewport]);
     let surface = dock.main_surface_mut();
-    let [center, right] = surface.split_right(NodeIndex::root(), 0.77, vec![Tab::Layers]);
-    surface.split_below(right, 0.48, vec![Tab::Properties, Tab::Brush, Tab::Channels]);
-    let [center, _] = surface.split_left(center, 0.28, vec![Tab::Shelf]);
-    surface.split_below(center, 0.82, vec![Tab::Parts, Tab::TextureSets, Tab::History]);
+    let [center, right] = surface.split_right(NodeIndex::root(), 0.75, vec![Tab::Layers]);
+    let [layers, _] = surface.split_below(right, 0.6, vec![Tab::Properties, Tab::Brush, Tab::Channels]);
+    surface.split_above(layers, 0.2, vec![Tab::TextureSets]);
+    let [view, _] = surface.split_below(center, 0.66, vec![Tab::Shelf, Tab::Parts, Tab::History]);
+    surface.split_right(view, 0.58, vec![Tab::UvView]);
     dock
 }
 
-// Apply the requested shelf-left / utility-tabs-bottom arrangement once, then retain edits.
-const DOCK_KEY: &str = "subcraft_dock_v6";
+// Apply the painter arrangement once (older saved layouts are replaced), then retain edits.
+const DOCK_KEY: &str = "subcraft_dock_v7";
 
 /// A restored dock layout is only used when it still holds every panel exactly once, has no
 /// floating windows (they can be left off-screen after a monitor change) and no split is
@@ -234,14 +238,25 @@ mod layout_tests {
         assert_eq!(parse_size("abc"), None);
     }
     #[test]
-    fn shelf_is_separate_and_utility_tabs_share_the_bottom_center_node() {
+    fn painter_layout_shelf_bottom_texture_sets_layers_properties_right() {
         let dock = default_layout();
-        let parts = dock.find_tab(&Tab::Parts).unwrap();
-        for tab in [Tab::TextureSets,Tab::History] {
-            let path = dock.find_tab(&tab).unwrap(); assert_eq!((path.surface,path.node),(parts.surface,parts.node));
+        let node = |t: Tab| dock.find_tab(&t).unwrap().node;
+        assert_eq!(node(Tab::Shelf), node(Tab::Parts), "Parts and History share the bottom Shelf node");
+        assert_eq!(node(Tab::Shelf), node(Tab::History));
+        assert_eq!(node(Tab::Properties), node(Tab::Channels));
+        assert_eq!(node(Tab::Properties), node(Tab::Brush));
+        let all = [Tab::Viewport, Tab::UvView, Tab::Shelf, Tab::TextureSets, Tab::Layers, Tab::Properties];
+        for (i, a) in all.iter().enumerate() {
+            for b in &all[i + 1..] {
+                assert_ne!(node(*a), node(*b), "{a:?} and {b:?} are separate panels");
+            }
         }
-        for tab in [Tab::Shelf,Tab::Viewport,Tab::Layers] {assert_ne!(dock.find_tab(&tab).unwrap().node,parts.node);}
-        assert_ne!(dock.find_tab(&Tab::Shelf).unwrap().node,dock.find_tab(&Tab::Viewport).unwrap().node);
+        // The shown tab of each panel: 3D, 2D, Shelf, Texture Sets, Layers, Properties.
+        for t in [Tab::Viewport, Tab::UvView, Tab::Shelf, Tab::TextureSets, Tab::Layers, Tab::Properties] {
+            let path = dock.find_tab(&t).unwrap();
+            let leaf = dock.leaf(path.node_path()).unwrap();
+            assert_eq!(leaf.tabs()[leaf.active.0], t);
+        }
     }
 }
 
