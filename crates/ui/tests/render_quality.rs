@@ -71,7 +71,7 @@ fn the_window_changes_the_tone_map_and_reset_restores_the_default_look() {
 #[test]
 fn prefs_map_to_render_settings_and_old_files_get_defaults() {
     let defaults = ViewportPrefs::default().post_params(2.0);
-    assert_eq!(defaults, PostParams { ssao_radius: defaults.ssao_radius, ..PostParams::default() });
+    assert_eq!(defaults, PostParams { ssao_radius: defaults.ssao_radius, dof_range: defaults.dof_range, ..PostParams::default() });
     assert!((defaults.ssao_radius - 0.03 * 2.0).abs() < 1e-6, "3% of a model with diagonal 2");
     let old: ViewportPrefs = serde_json::from_str(r#"{"grid":false}"#).unwrap();
     assert_eq!((old.tone_map(), old.bloom, old.ssao, old.exposure, old.emission_glow), (ToneMap::Aces, 0.0, 0.0, 1.0, 0.35));
