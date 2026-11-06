@@ -41,11 +41,12 @@ pub use app::{LaunchOptions, SubcraftApp, Tab};
 
 /// Graphics APIs to try, in order, after `preferred` failed to start. A `WGPU_BACKEND`
 /// override is never second-guessed. OpenGL is the last resort (it also covers drivers where
-/// DirectX 12 and Vulkan are missing).
-pub fn startup_attempts(preferred: subcraft_app::graphics::GraphicsApi, environment_override: bool) -> Vec<subcraft_app::graphics::GraphicsApi> {
+/// DirectX 12 and Vulkan are missing). When the previous run died during startup with a chosen
+/// API, Automatic goes first, so a choice that crashes the app cannot lock the user out (#91).
+pub fn startup_attempts(preferred: subcraft_app::graphics::GraphicsApi, environment_override: bool, previous_start_crashed: bool) -> Vec<subcraft_app::graphics::GraphicsApi> {
     use subcraft_app::graphics::GraphicsApi::*;
     if environment_override { return vec![preferred]; }
-    let mut order = vec![preferred];
+    let mut order = if previous_start_crashed && preferred != Automatic { vec![Automatic, preferred] } else { vec![preferred] };
     for api in [Automatic, OpenGl] {
         if !order.contains(&api) { order.push(api); }
     }
@@ -87,11 +88,13 @@ pub fn run(options: LaunchOptions) -> eframe::Result {
     let environment_override = graphics.environment_override;
     let mut errors: Vec<(String, String)> = Vec::new();
     let mut last = None;
-    for (n, api) in startup_attempts(preferred, environment_override).into_iter().enumerate() {
+    let previous_start_crashed = subcraft_app::startup_probe::previous_run_incomplete(subcraft_app::startup_probe::previous_log());
+    for api in startup_attempts(preferred, environment_override, previous_start_crashed) {
         let mut graphics = graphics.clone();
         let mut options = options.clone();
-        if n > 0 {
-            graphics.warning = Some(format!("{} could not start. {} is being used for this run. Choose another API here if needed.", preferred.label(), api.label()));
+        if api != preferred {
+            let why = if previous_start_crashed { "stopped SubCraft during the last start" } else { "could not start" };
+            graphics.warning = Some(format!("{} {why}. {} is being used for this run. Choose another API here if needed.", preferred.label(), api.label()));
             options.preferences = true;
         }
         match gpu_probe::prepare(api, environment_override, subcraft_app::startup_probe::previous_log()) {
@@ -156,10 +159,17 @@ mod startup_tests {
     use subcraft_app::graphics::GraphicsApi::*;
     #[test]
     fn every_api_is_tried_once_and_environment_override_is_final() {
-        assert_eq!(startup_attempts(Automatic, false), vec![Automatic, OpenGl]);
-        assert_eq!(startup_attempts(DirectX12, false), vec![DirectX12, Automatic, OpenGl]);
-        assert_eq!(startup_attempts(OpenGl, false), vec![OpenGl, Automatic]);
-        assert_eq!(startup_attempts(DirectX12, true), vec![DirectX12]);
+        assert_eq!(startup_attempts(Automatic, false, false), vec![Automatic, OpenGl]);
+        assert_eq!(startup_attempts(DirectX12, false, false), vec![DirectX12, Automatic, OpenGl]);
+        assert_eq!(startup_attempts(OpenGl, false, false), vec![OpenGl, Automatic]);
+        assert_eq!(startup_attempts(DirectX12, true, false), vec![DirectX12]);
+    }
+    #[test]
+    fn a_choice_that_crashed_the_last_start_goes_after_automatic() {
+        assert_eq!(startup_attempts(OpenGl, false, true), vec![Automatic, OpenGl]);
+        assert_eq!(startup_attempts(DirectX12, false, true), vec![Automatic, DirectX12, OpenGl]);
+        assert_eq!(startup_attempts(Automatic, false, true), vec![Automatic, OpenGl], "nothing to fall back from");
+        assert_eq!(startup_attempts(OpenGl, true, true), vec![OpenGl], "WGPU_BACKEND is still final");
     }
     #[test]
     fn failure_message_names_errors_and_log() {
