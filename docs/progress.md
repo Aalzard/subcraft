@@ -4434,3 +4434,21 @@ real cost of the big_project stack), and letting GPU-composited tiles fill the C
 * **Brush tab**: no longer in the default layout. `Properties` is context-sensitive (`properties::shows_brush`): paint layer / paint effect target -> brush settings; anything else -> that layer's properties. View > Brush settings and a Shelf double-click pin the brush view until the selection changes. Saved layouts with a Brush tab stay valid (`layout_is_valid` allows 0 or 1) and the tab is dropped on restore (`migrate_layout`); `legacy_layout()` keeps the old arrangement for tests.
 * **Tests changed on purpose**: `panel_bands` (sections/property rows are intentionally unbanded now; asserts spacing and the stacked label), `theme` (rail 3 -> 4), `material_layout` (button radius 2 -> `RADIUS`; section titles are no longer upper-case), `inspector_tests`/`brush_bar` (title-case section names, legacy layout for the Brush-tab routing), New Project window keeps its old 7 px row gap (height budget). New: `properties_polish` (context switch; no text spills out at 260/320/420/600 px wide, 100 % and 150 % scale, fill and paint layer), layout-migration and View-menu pin tests.
 * **Run**: `cargo test -p subcraft-ui` all passing (Windows). Not verified: actual look in the running app (no pixel snapshots exist; only geometry/contract tests), light theme (there is none), Linux.
+### Text discoverability + drag and drop (branch `text-ux-and-drop`)
+
+* Before: text lived only in Brush panel › Text (a collapsed section). Steps: open the Brush panel, expand
+  Text, type, *Add text layer (decal)*, then *Place by clicking the model*, then click the model.
+* Now: **Aa** button in Layers next to Paint/Fill/Folder, Layer menu + Ctrl+Shift+T (`Action::NewTextLayer`),
+  row context menu *Add text layer…* / *Edit text…*, double-click a text layer to edit. New-text window
+  (`text_panel::window`) → *Add and place on model* arms click-to-place. No control-protocol command changed
+  (there is none for text; `Action::NewTextLayer` is a new action).
+* Drops: drop targets now say what will happen (row, mask thumbnail, top zone, viewport pill); alphas are
+  draggable (`ShelfDrag::Alpha`) and go into a mask as an Image effect (`Session::apply_alpha_to_mask`).
+* Alt: `apply_shelf_item_with(.., alt, ..)` — Alt+click/drop material = `Session::apply_material_to_layer`
+  (fill layers), texture = active channel, alpha = mask; unsupported combinations toast the reason.
+* Tests: `crates/app/tests/shelf_apply.rs`, `crates/ui/tests/text_and_alt.rs`, actions shortcut test.
+* Not verified by eye in the real app; drag-to-place with a move/rotate/scale gizmo is not done (click places;
+  rotation/size/position are sliders in the editor).
+* Results (headless, run): `subcraft-app` shelf_apply 3/3, text 8/8, actions unit tests; `subcraft-ui` text_and_alt 6/6,
+  layer_tree 10/10, shelf_drop 3/3, shelf_brush 4/4. Note: worktrees sharing one cargo target dir can link a stale
+  `subcraft-app` rlib from another worktree (same relative paths); touching sources forces a rebuild.

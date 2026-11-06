@@ -37,6 +37,8 @@ pub enum Action {
     NewPaintLayer,
     NewFillLayer,
     NewFolder,
+    /// A text layer: the UI opens the text composer; the engine adds a "Text" layer.
+    NewTextLayer,
     DeleteLayer,
     DuplicateLayer,
     BrushTool,
@@ -188,6 +190,7 @@ pub const ACTIONS: &[ActionInfo] = &[
     a(Action::NewPaintLayer, "New Paint Layer", &[Shortcut::ctrl_shift(Key::N)]),
     a(Action::NewFillLayer, "New Fill Layer", &[Shortcut::ctrl_shift(Key::F)]),
     a(Action::NewFolder, "New Folder", &[Shortcut::ctrl(Key::G)]),
+    a(Action::NewTextLayer, "New Text Layer", &[Shortcut::ctrl_shift(Key::T)]),
     a(Action::DeleteLayer, "Delete Layer", &[Shortcut::key(Key::Delete)]),
     a(Action::DuplicateLayer, "Duplicate Layer", &[Shortcut::ctrl(Key::D)]),
     a(Action::BrushTool, "Brush", &[Shortcut::key(Key::B), Shortcut::key(Key::Num1)]),
@@ -391,6 +394,7 @@ mod tests {
         assert_eq!(action_for(sc, Shortcut::key(Key::CloseBracket)), Some(Action::BrushLarger));
         assert_eq!(action_for(sc, Shortcut::key(Key::Z)), None, "modifiers must match exactly");
         assert_eq!(action_for(sc, Shortcut::key(Key::F10)), Some(Action::TogglePathTracing));
+        assert_eq!(action_for(sc, Shortcut::ctrl_shift(Key::T)), Some(Action::NewTextLayer));
         assert_eq!(Shortcut::ctrl_shift(Key::N).label(), "Ctrl+Shift+N");
         assert_eq!(info(Action::Redo).label, "Redo");
     }

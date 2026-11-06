@@ -1454,6 +1454,7 @@ impl Session {
             Action::NewPaintLayer => self.execute(Command::AddLayer(NewLayer::Paint))?,
             Action::NewFillLayer => self.execute(Command::AddLayer(NewLayer::Fill))?,
             Action::NewFolder => self.execute(Command::AddLayer(NewLayer::Folder))?,
+            Action::NewTextLayer => { let d = self.new_text_decal("Text"); self.add_text_layer(d)? }
             Action::DeleteLayer => {
                 if let Some(l) = sel {
                     self.execute(Command::DeleteLayer(l))?;
@@ -1914,7 +1915,7 @@ impl Session {
 
     /// Import a built-in preset's embedded images (reusing identical ones already in the project),
     /// so the layer's image fills resolve and saving embeds them.
-    fn import_preset_images(&mut self, images: &[subcraft_assets::PresetImage]) -> Result<subcraft_assets::ImageIds, CommandError> {
+    pub(crate) fn import_preset_images(&mut self, images: &[subcraft_assets::PresetImage]) -> Result<subcraft_assets::ImageIds, CommandError> {
         let mut ids = subcraft_assets::ImageIds::new();
         for img in images {
             let id = self.import_image_bytes(img.name, img.bytes.to_vec()).map_err(CommandError::Invalid)?;

@@ -833,6 +833,7 @@ impl SubcraftApp {
             Action::NewProject => self.request(Pending::OpenMesh, now),
             Action::Quit => self.request(Pending::Close, now),
             Action::PenTool => { self.state.tool = Tool::Pen; self.state.picking_parts = false; }
+            Action::NewTextLayer => self.state.text.open_new(),
             Action::Save => {
                 dialogs::save(&mut self.state, false, now);
             }
@@ -1038,6 +1039,7 @@ impl SubcraftApp {
                     (Action::NewPaintLayer, icons::PAINT_BRUSH),
                     (Action::NewFillLayer, icons::PAINT_BUCKET),
                     (Action::NewFolder, icons::FOLDER),
+                    (Action::NewTextLayer, "Aa"),
                     (Action::DuplicateLayer, icons::COPY),
                     (Action::DeleteLayer, icons::TRASH),
                 ] {
@@ -1493,6 +1495,7 @@ impl eframe::App for SubcraftApp {
         if let Some(p) = &mut self.profile { p.mark("recovery tick"); }
         crate::recovery::preferences_window(&mut self.state, &ctx);
         crate::recovery::prompt(&mut self.state, &ctx, now);
+        crate::text_panel::window(&mut self.state, &ctx, now);
         crate::bug_report::report_window(&mut self.state, &ctx);
         crate::bug_report::crash_window(&mut self.state, &ctx);
         if let Some(action) = crate::welcome::show(&mut self.state, &ctx) {

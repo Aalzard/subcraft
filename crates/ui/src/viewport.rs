@@ -192,9 +192,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         {
             let _ = state.session.execute(subcraft_app::Command::SelectTextureSet(ts));
         }
-        crate::panels::shelf::apply_shelf_item(state, *item, now);
+        // Alt: apply in place to the selected layer (alphas: brush tip unless Alt).
+        crate::panels::shelf::apply_shelf_item_with(state, *item, mods.alt, now);
     }
-    let drop_hover = response.dnd_hover_payload::<crate::panels::shelf::ShelfDrag>().is_some();
+    let drop_hover = response.dnd_hover_payload::<crate::panels::shelf::ShelfDrag>().map(|d| *d);
 
     // ----- part picking: clicks show / hide the selected layer on mesh parts ----------------------
     let bake_mode = state.bake.open || state.bake.job.is_some();
@@ -483,8 +484,11 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         }
     }
     draw_stencil(state, ui, &painter, rect, size);
-    if drop_hover {
+    if let Some(item) = drop_hover {
         painter.rect_stroke(rect.shrink(1.0), 0.0, Stroke::new(2.0, ACCENT), egui::StrokeKind::Inside);
+        let target = state.session.selected_layer().map(|l| l.name.clone());
+        let what = crate::panels::shelf::drop_label(item, mods.alt, target.as_deref().filter(|_| mods.alt), false);
+        pill(&painter, rect.center_top() + egui::vec2(0.0, 14.0), egui::Align2::CENTER_TOP, &format!("Release to: {what}"), theme::TEXT);
     }
     let bake_hint = state.bake.displayed_map.map(|k| format!("Bake preview · {} · close Bake Mesh Maps to return to material", k.display_name()));
     let orbit = scheme.orbit_hint();
