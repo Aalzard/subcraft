@@ -4355,3 +4355,19 @@ real cost of the big_project stack), and letting GPU-composited tiles fill the C
 * **Cause**: the wireframe/camera feature added two buttons and widened the View combo (92 -> 150), but `viewport_bar.rs` kept hard-coded breakpoints. At 1125 px the bar needed 1228 px (`brush_bar` tests `bar_fits_wide_wrapped_and_tiny_docks_and_hides_for_non_paint_tools` and `flow_and_hardness_open_independent_sliders_and_edit_shared_values` failed on Linux); at 600 px it needed 666 px.
 * **Fix**: wide View combo only from 660 px, wireframe/camera buttons only from 600 px (not reachable from the bar below that), inline brush bar from 1214 px (was 1094). Test's inline breakpoint changed to 1230 (stale assumption); overflow thresholds untouched. Effect: at 1125 px the brush controls now wrap under the view controls.
 * **Run here (Linux)**: `cargo test -p subcraft-ui --test brush_bar` 8/8; `cargo test --workspace` 172 result lines ok, 1135 passed, 0 failed, 2 ignored. Not run: Windows, a visual check of the app.
+
+### Text discoverability + drag and drop (branch `text-ux-and-drop`)
+
+* Before: text lived only in Brush panel › Text (a collapsed section). Steps: open the Brush panel, expand
+  Text, type, *Add text layer (decal)*, then *Place by clicking the model*, then click the model.
+* Now: **Aa** button in Layers next to Paint/Fill/Folder, Layer menu + Ctrl+Shift+T (`Action::NewTextLayer`),
+  row context menu *Add text layer…* / *Edit text…*, double-click a text layer to edit. New-text window
+  (`text_panel::window`) → *Add and place on model* arms click-to-place. No control-protocol command changed
+  (there is none for text; `Action::NewTextLayer` is a new action).
+* Drops: drop targets now say what will happen (row, mask thumbnail, top zone, viewport pill); alphas are
+  draggable (`ShelfDrag::Alpha`) and go into a mask as an Image effect (`Session::apply_alpha_to_mask`).
+* Alt: `apply_shelf_item_with(.., alt, ..)` — Alt+click/drop material = `Session::apply_material_to_layer`
+  (fill layers), texture = active channel, alpha = mask; unsupported combinations toast the reason.
+* Tests: `crates/app/tests/shelf_apply.rs`, `crates/ui/tests/text_and_alt.rs`, actions shortcut test.
+* Not verified by eye in the real app; drag-to-place with a move/rotate/scale gizmo is not done (click places;
+  rotation/size/position are sliders in the editor).

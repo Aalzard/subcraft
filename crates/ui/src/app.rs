@@ -736,6 +736,7 @@ impl SubcraftApp {
             Action::BrushTool => self.state.tool = Tool::Brush,
             Action::EraserTool => self.state.tool = Tool::Eraser,
             Action::PenTool => { self.state.tool = Tool::Pen; self.state.picking_parts = false; }
+            Action::NewTextLayer => self.state.text.open_new(),
             Action::Save => {
                 dialogs::save(&mut self.state, false, now);
             }
@@ -938,6 +939,7 @@ impl SubcraftApp {
                     (Action::NewPaintLayer, icons::PAINT_BRUSH),
                     (Action::NewFillLayer, icons::PAINT_BUCKET),
                     (Action::NewFolder, icons::FOLDER),
+                    (Action::NewTextLayer, "Aa"),
                     (Action::DuplicateLayer, icons::COPY),
                     (Action::DeleteLayer, icons::TRASH),
                 ] {
@@ -1212,6 +1214,7 @@ fn map_key(k: egui::Key) -> Option<Key> {
         egui::Key::O => Key::O,
         egui::Key::P => Key::P,
         egui::Key::S => Key::S,
+        egui::Key::T => Key::T,
         egui::Key::X => Key::X,
         egui::Key::Y => Key::Y,
         egui::Key::Z => Key::Z,
@@ -1376,6 +1379,7 @@ impl eframe::App for SubcraftApp {
         if let Some(p) = &mut self.profile { p.mark("recovery tick"); }
         crate::recovery::preferences_window(&mut self.state, &ctx);
         crate::recovery::prompt(&mut self.state, &ctx, now);
+        crate::text_panel::window(&mut self.state, &ctx, now);
         crate::bug_report::report_window(&mut self.state, &ctx);
         crate::bug_report::crash_window(&mut self.state, &ctx);
         if let Some(action) = crate::welcome::show(&mut self.state, &ctx) {

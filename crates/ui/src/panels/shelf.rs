@@ -24,17 +24,56 @@ pub enum ShelfDrag {
     /// An image from Shelf → Textures (drop on a channel row to use it there).
     Texture(usize),
     Starter(usize),
+    /// A brush alpha (Shelf → Brushes): onto a mask it becomes the mask shape.
+    Alpha(usize),
 }
 
 /// Apply a material / smart material (inserted above the selected layer of the selected
 /// texture set) or a smart mask (on the selected layer). Shared by clicks and drops.
 pub fn apply_shelf_item(s: &mut UiState, item: ShelfDrag, now: f64) {
+    apply_shelf_item_with(s, item, false, now);
+}
+
+/// What dropping `item` will do, for the drop-target highlight. `target` names the layer under
+/// the cursor; `on_mask` is true over a mask thumbnail.
+pub fn drop_label(item: ShelfDrag, alt: bool, target: Option<&str>, on_mask: bool) -> String {
+    let t = target.map_or(String::new(), |n| format!(" \"{n}\""));
+    match item {
+        ShelfDrag::Material(_) if alt => format!("Replace the material of{t}"),
+        ShelfDrag::Material(_) => format!("Add material layer above{t}"),
+        ShelfDrag::SmartMaterial(_) if alt => "Smart materials are added as a folder: release Alt".to_string(),
+        ShelfDrag::SmartMaterial(_) => format!("Add smart material above{t}"),
+        ShelfDrag::SmartMask(_) => format!("Apply mask to{t}"),
+        ShelfDrag::Texture(_) | ShelfDrag::Starter(_) if alt => format!("Use this image in the active channel of{t}"),
+        ShelfDrag::Texture(_) | ShelfDrag::Starter(_) => format!("Add texture layer above{t}"),
+        ShelfDrag::Alpha(_) if on_mask || target.is_some() => format!("Use this alpha in the mask of{t}"),
+        ShelfDrag::Alpha(_) => "Set as brush tip".to_string(),
+    }
+}
+
+/// `apply_shelf_item` with the Alt reading (Substance-Painter style): Alt applies the item
+/// *in place* to the selected layer instead of creating a layer.
+/// * Material: replaces the selected fill layer's channels (name, blending and mask are kept).
+/// * Texture: sets the active channel of the selected fill layer.
+/// * Alpha: becomes an image effect of the selected layer's mask (adds the mask); without Alt it
+///   is the brush tip.
+/// * Smart material: no in-place form; says so instead of doing nothing.
+/// * Smart mask: always applies to the selected layer.
+pub fn apply_shelf_item_with(s: &mut UiState, item: ShelfDrag, alt: bool, now: f64) {
+    let layer = s.session.selection().layer;
+    let selected_fill = s.session.selected_layer().is_some_and(|l| matches!(l.content, LayerContent::Fill(_)));
     let result = match item {
         ShelfDrag::Starter(i) => {s.asset_preview.queue(&s.session,i,None);Ok(())},
+        ShelfDrag::Material(i) if alt => match (s.library.materials.get(i).cloned(), layer) {
+            (Some(m), Some(l)) if selected_fill => s.session.apply_material_to_layer(l, &m).map_err(|e| e.to_string()),
+            (Some(_), _) => Err("Alt+click replaces a fill layer's material: select a fill layer first (a click without Alt adds a new layer)".to_string()),
+            (None, _) => Ok(()),
+        },
         ShelfDrag::Material(i) => match s.library.materials.get(i).cloned() {
             Some(m) => s.session.add_material(&m).map_err(|e| e.to_string()),
             None => Ok(()),
         },
+        ShelfDrag::SmartMaterial(_) if alt => Err("A smart material is a folder of layers, so Alt cannot apply it in place: click without Alt to add it".to_string()),
         ShelfDrag::SmartMaterial(i) => match s.library.smart_materials.get(i).cloned() {
             Some(m) => s.session.add_smart_material(&m).map_err(|e| e.to_string()),
             None => Ok(()),
@@ -43,8 +82,24 @@ pub fn apply_shelf_item(s: &mut UiState, item: ShelfDrag, now: f64) {
             Some(m) => s.session.apply_smart_mask(&m).map_err(|e| format!("{e} (select a layer first)")),
             None => Ok(()),
         },
+        ShelfDrag::Texture(i) if alt => match (s.textures.items.get(i).map(|t| t.path.clone()), layer) {
+            (Some(p), Some(l)) if selected_fill => {
+                let channel = s.active_channel;
+                s.session.set_fill_channel_image(l, channel, &p).map(|()| s.set_status(format!("Set {} from the image", channel.display_name()), now))
+            }
+            (Some(_), _) => Err("Alt+click puts the image in the active channel of the selected fill layer: select a fill layer first".to_string()),
+            (None, _) => Ok(()),
+        },
         ShelfDrag::Texture(i) => match s.textures.items.get(i).map(|t| t.path.clone()) {
             Some(p) => s.session.add_texture_layer(&p).map(|name| s.set_status(format!("Added \"{name}\" as a fill layer"), now)),
+            None => Ok(()),
+        },
+        ShelfDrag::Alpha(i) => match s.library.alphas.get(i).cloned() {
+            Some(a) if alt => match layer {
+                Some(l) => s.session.apply_alpha_to_mask(l, &a).map(|()| s.set_status(format!("Using \"{}\" in the mask (Properties: projection)", a.name), now)).map_err(|e| e.to_string()),
+                None => Err("Select a layer first: the alpha goes into its mask".to_string()),
+            },
+            Some(a) => { s.session.set_brush_alpha(&a); s.set_status(format!("Brush tip: {} (Alt+click or drag it onto a mask to use it there)", a.name), now); Ok(()) }
             None => Ok(()),
         },
     };
@@ -434,6 +489,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     let mut lib_status: Option<String> = None;
     let filter = state.shelf.filter.clone();
     let mut shown = 0usize;
+    // Alt at the moment of the click: apply in place to the selected layer instead of adding one.
+    let alt = ui.input(|i| i.modifiers.alt);
     let grid_width = ui.available_width();
     let tile_size = (state.recovery.prefs.shelf_preview_size.clamp(48, 160) as f32).min((grid_width - 2.0 * f32::from(theme::PAD)).max(1.0));
     let grid_height = (ui.available_height() - 44.0).max(0.0);
@@ -452,13 +509,15 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                             continue;
                         }
                         shown += 1;
-                        let resp = tile(ui, tile_size, t.thumb.as_ref(), &t.name, false, &format!("{} ({}): drag onto a channel, the model or a layer", t.name, t.category));
+                        let resp = tile(ui, tile_size, t.thumb.as_ref(), &t.name, false, &format!("{} ({}): drag onto a channel, the model or a layer. Alt+click: use it in the active channel of the selected fill layer", t.name, t.category));
                         resp.dnd_set_drag_payload(ShelfDrag::Texture(i));
                         if library_menu(&resp, state.user_library.as_ref(), &t.path, &mut lib_status) {
                             let path = t.path.clone();
                             action = Some(Box::new(move |s: &mut UiState| s.textures.remove(&path)));
                         }
-                        if resp.clicked() {
+                        if resp.clicked() && alt {
+                            action = Some(Box::new(move |s: &mut UiState| apply_shelf_item_with(s, ShelfDrag::Texture(i), true, now)));
+                        } else if resp.clicked() {
                             let name=t.name.clone();let path=t.path.clone();let ctx=ui.ctx().clone();
                             let kind=if t.category=="Normal" {subcraft_assets::starter::Kind::Normal} else {subcraft_assets::starter::Kind::Texture};
                             action = Some(Box::new(move |s: &mut UiState| s.asset_preview.start(&ctx,name,kind,crate::asset_preview::Source::File(path),true)));
@@ -471,10 +530,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                             continue;
                         }
                         shown += 1;
-                        let resp = tile(ui, tile_size, thumbs.get(&m.id), &m.name, false, &format!("{} ({}): click or drag onto the model / a layer", m.name, m.category));
+                        let resp = tile(ui, tile_size, thumbs.get(&m.id), &m.name, false, &format!("{} ({}): click or drag onto the model / a layer (adds a layer). Alt+click: replace the selected fill layer's material", m.name, m.category));
                         resp.dnd_set_drag_payload(ShelfDrag::Material(i));
                         if resp.clicked() {
-                            action = Some(Box::new(move |s: &mut UiState| apply_shelf_item(s, ShelfDrag::Material(i), now)));
+                            action = Some(Box::new(move |s: &mut UiState| apply_shelf_item_with(s, ShelfDrag::Material(i), alt, now)));
                         }
                     }
                 }
@@ -499,7 +558,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                             }));
                         }
                         if resp.clicked() {
-                            action = Some(Box::new(move |s: &mut UiState| apply_shelf_item(s, ShelfDrag::SmartMaterial(i), now)));
+                            action = Some(Box::new(move |s: &mut UiState| apply_shelf_item_with(s, ShelfDrag::SmartMaterial(i), alt, now)));
                         }
                     }
                 }
@@ -562,8 +621,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                             continue;
                         }
                         shown += 1;
-                        let tip = if a.user_file.is_some() { "Brush tip (your library: right-click for options)" } else { "Brush tip" };
+                        let tip = if a.user_file.is_some() { "Brush tip (your library: right-click for options). Drag onto a layer's mask, or Alt+click, to use it as the mask shape" } else { "Brush tip. Drag onto a layer's mask, or Alt+click, to use it as the mask shape" };
                         let resp = tile(ui, tile_size, thumbs.get(&a.id), &a.name, a.name == current, tip);
+                        if a.bitmap.is_some() { resp.dnd_set_drag_payload(ShelfDrag::Alpha(i)); }
                         if let Some(file) = &a.user_file
                             && library_menu(&resp, state.user_library.as_ref(), file, &mut lib_status)
                         {
@@ -571,7 +631,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                                 s.library.alphas.remove(i);
                             }));
                         }
-                        if let Some(a) = brush_click(&resp, ui.ctx(), move |s: &mut UiState| {
+                        if alt && resp.clicked() {
+                            action = Some(Box::new(move |s: &mut UiState| apply_shelf_item_with(s, ShelfDrag::Alpha(i), true, now)));
+                        } else if let Some(a) = brush_click(&resp, ui.ctx(), move |s: &mut UiState| {
                             let a = s.library.alphas[i].clone();
                             s.select_shelf_brush(subcraft_app::brush_preset::ShelfBrush::Tip(&a), now);
                         }) {

@@ -602,3 +602,27 @@ The images are [CC0](../assets/starter-pack/CREDITS-CC0.txt), including for comm
 
 For more detail, see the [README](../README.md), [changelog](../CHANGELOG.md) and
 [development notes](development.md).
+
+## Text and drag and drop
+
+**Add text:** click **Aa** next to Paint / Fill / Folder in the Layers panel, use *Layer → New Text Layer*
+(Ctrl+Shift+T), or right-click a layer → *Add text layer…*. A small window asks for the text, font, size,
+alignment and colour. *Add and place on model* creates the layer and then waits for one click on the model
+(Esc keeps it centered); *Add centered* just adds it. **Double-click a text layer** to edit it later
+(rename with F2). Text layers are decals in UV space; Brush panel › Text still has the brush-tip and
+projected-stamp variants.
+
+**Drop targets** (they highlight and say what will happen):
+
+| Drag from the shelf | Onto a layer row | Onto a mask thumbnail | Top of the stack | Viewport |
+|---|---|---|---|---|
+| Material / texture | new layer above it | – | new layer on top | new layer above the selection |
+| Smart material | folder above it | – | folder on top | same |
+| Smart mask | mask applied to that layer | same | – | the selected layer |
+| Alpha (Brushes) | alpha becomes that layer's mask shape | same | – | brush tip |
+
+**Alt** applies a shelf item *in place* instead of creating a layer: Alt+click (or Alt+drop) a material replaces
+the selected fill layer's material (name, blending and mask are kept); Alt+click a texture sets the active
+channel of the selected fill layer; Alt+click an alpha uses it in the selected layer's mask. Where Alt has no
+meaning (smart materials, non-fill layers) a message in the status bar says why. In the 3D view Alt+left-drag
+still orbits the camera; that is navigation, not a drop modifier.

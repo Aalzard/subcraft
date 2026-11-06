@@ -11,6 +11,8 @@ pub enum Action {
     NewPaintLayer,
     NewFillLayer,
     NewFolder,
+    /// A text layer: the UI opens the text composer; the engine adds a "Text" layer.
+    NewTextLayer,
     DeleteLayer,
     DuplicateLayer,
     BrushTool,
@@ -40,6 +42,7 @@ pub enum Key {
     O,
     P,
     S,
+    T,
     X,
     Y,
     Z,
@@ -62,6 +65,7 @@ impl Key {
             Key::O => "O",
             Key::P => "P",
             Key::S => "S",
+            Key::T => "T",
             Key::X => "X",
             Key::Y => "Y",
             Key::Z => "Z",
@@ -123,6 +127,7 @@ pub const ACTIONS: &[ActionInfo] = &[
     ActionInfo { action: Action::NewPaintLayer, label: "New Paint Layer", shortcuts: &[Shortcut::ctrl_shift(Key::N)] },
     ActionInfo { action: Action::NewFillLayer, label: "New Fill Layer", shortcuts: &[Shortcut::ctrl_shift(Key::F)] },
     ActionInfo { action: Action::NewFolder, label: "New Folder", shortcuts: &[Shortcut::ctrl(Key::G)] },
+    ActionInfo { action: Action::NewTextLayer, label: "New Text Layer", shortcuts: &[Shortcut::ctrl_shift(Key::T)] },
     ActionInfo { action: Action::DeleteLayer, label: "Delete Layer", shortcuts: &[Shortcut::key(Key::Delete)] },
     ActionInfo { action: Action::DuplicateLayer, label: "Duplicate Layer", shortcuts: &[Shortcut::ctrl(Key::D)] },
     ActionInfo { action: Action::BrushTool, label: "Brush", shortcuts: &[Shortcut::key(Key::B)] },
@@ -166,6 +171,7 @@ mod tests {
                 assert!(seen.insert(*s), "duplicate shortcut {}", s.label());
             }
         }
+        assert_eq!(action_for(Shortcut::ctrl_shift(Key::T)), Some(Action::NewTextLayer));
         assert_eq!(Shortcut::ctrl_shift(Key::N).label(), "Ctrl+Shift+N");
         assert_eq!(info(Action::Redo).label, "Redo");
     }

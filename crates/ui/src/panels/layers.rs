@@ -11,6 +11,7 @@ use subcraft_core::MeshMapKind;
 use subcraft_doc::{BlendMode, GeneratorKind, Layer, LayerContent, MaskEffectKind};
 
 use crate::icons;
+use crate::panels::shelf::{self, ShelfDrag};
 use crate::state::UiState;
 use crate::theme::{self, ACCENT, FOLDER, FOLDER_BAND, PAD, TEXT_DIM, TEXT_FAINT, TREE_LINE};
 use crate::widgets::{badge, divider, empty_state, fill_width, icon_button, striped_list_row_height, prop_row, row_text, tree_row};
@@ -96,11 +97,12 @@ fn layer_drop(ui: &Ui, resp: &egui::Response, ts: &subcraft_doc::TextureSet, tar
     { cmds.push(Command::DropLayer { texture_set: drag.texture_set, layer: drag.layer, target }); }
 }
 
-fn root_drop(ui: &mut Ui, ts: &subcraft_doc::TextureSet, target: DropTarget, cmds: &mut Vec<Command>) {
+fn root_drop(ui: &mut Ui, ts: &subcraft_doc::TextureSet, target: DropTarget, cmds: &mut Vec<Command>) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 24.0), egui::Sense::hover());
     let label = if target == DropTarget::RootTop { "Top level — top" } else { "Top level — bottom" };
     ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, label, theme::font(10.0), TEXT_FAINT);
     layer_drop(ui, &resp, ts, target, cmds);
+    resp
 }
 
 fn rows<'a>(list: &'a [Arc<Layer>], depth: usize, out: &mut Vec<(usize, &'a Layer)>) {
@@ -164,6 +166,9 @@ Files: {}", ex.dir().display()));
             if icon_button(ui, icons::FOLDER, crate::keys::native("New folder (Ctrl+G)")).clicked() {
                 cmds.push(Command::AddLayer(NewLayer::Folder));
             }
+            if icon_button(ui, "Aa", crate::keys::native("New text layer (Ctrl+Shift+T): type text, pick font and colour, then click the model to place it")).clicked() {
+                state.text.open_new();
+            }
             ui.add_enabled_ui(sel.is_some(), |ui| {
                 let mut picked = None;
                 ui.menu_button(RichText::new(icons::MAGIC_WAND).font(theme::font(16.0)), |ui| generator_menu(ui, &mut picked))
@@ -215,7 +220,9 @@ Files: {}", ex.dir().display()));
 
     let ts = state.session.selected_texture_set();
     let mut save_request: Option<(subcraft_core::LayerId, bool)> = None;
-    let mut drop_request: Option<(subcraft_core::LayerId, crate::panels::shelf::ShelfDrag)> = None;
+    let mut drop_request: Option<(subcraft_core::LayerId, ShelfDrag, bool)> = None;
+    let mut open_text: Option<(subcraft_core::LayerId, crate::text_panel::Window)> = None;
+    let alt = ui.input(|i| i.modifiers.alt);
     let mut open: Vec<OpenFolder> = Vec::new();
     let mut list = Vec::new();
     rows(&ts.layers, 0, &mut list);
@@ -244,7 +251,16 @@ Files: {}", ex.dir().display()));
                 if speed != 0.0 { ui.ctx().request_repaint(); }
             }
         }
-        root_drop(ui, ts, DropTarget::RootTop, &mut cmds);
+        let top_zone = root_drop(ui, ts, DropTarget::RootTop, &mut cmds);
+        if let Some(item) = top_zone.dnd_hover_payload::<ShelfDrag>() {
+            ui.painter().rect_stroke(top_zone.rect, 0.0, egui::Stroke::new(2.0, ACCENT), egui::StrokeKind::Inside);
+            ui.painter().text(top_zone.rect.center(), egui::Align2::CENTER_CENTER, shelf::drop_label(*item, alt, Some("the top layer"), false), theme::font(11.0), ACCENT);
+        }
+        if let Some(item) = top_zone.dnd_release_payload::<ShelfDrag>() {
+            // Above everything: aim at the top layer, so the item lands above it.
+            if let Some((_, top)) = list.iter().find(|(d, _)| *d == 0) { drop_request = Some((top.id, *item, alt)); }
+            else { drop_request = Some((LayerId::default(), *item, alt)); }
+        }
         if list.is_empty() {
             empty_state(ui, icons::STACK, "No layers yet. Add one above.");
         }
@@ -255,6 +271,8 @@ Files: {}", ex.dir().display()));
             let selected = sel == Some(l.id);
             let row_selected = selected || (state.multi.is_multi() && state.multi.contains(l.id));
             let b = l.blend_for(active);
+            let mut over_mask: Option<String> = None;
+            let is_text = matches!(&l.content, LayerContent::Paint(p) if p.text.is_some());
             let folder = match &l.content { LayerContent::Group(g) => Some(g.expanded), _ => None };
             let resp = ui.push_id(l.id, |ui| {
                 let content = |ui: &mut Ui| {
@@ -275,6 +293,12 @@ Files: {}", ex.dir().display()));
                 if let Some(mask) = &l.mask {
                     let thumb = state.layer_previews.image(ui, &state.session, PreviewKey { layer: l.id, channel: ChannelKind::BaseColor, mask: true, effect: None, size: 64 }, thumb_size,
                         selected && selected_target == LayerTarget::Mask).on_hover_text("Mask · click to edit · Alt+click: UV preview · Shift+click: enable/disable");
+                    if let Some(item) = thumb.dnd_hover_payload::<ShelfDrag>() {
+                        ui.painter().rect_stroke(thumb.rect, 0.0, egui::Stroke::new(2.0, ACCENT), egui::StrokeKind::Inside);
+                        over_mask = Some(shelf::drop_label(*item, alt, Some(&l.name), true));
+                    }
+                    if egui::DragAndDrop::has_payload_of_type::<ShelfDrag>(ui.ctx())
+                        && let Some(item) = thumb.dnd_release_payload::<ShelfDrag>() { drop_request = Some((l.id, *item, true)); }
                     if !mask.enabled { ui.painter().line_segment([thumb.rect.left_bottom(), thumb.rect.right_top()], egui::Stroke::new(1.5, theme::WARNING)); }
                     if thumb.clicked() {
                         if ui.input(|i| i.modifiers.shift) { cmds.push(Command::SetMaskEnabled { layer: l.id, enabled: !mask.enabled }); }
@@ -366,18 +390,27 @@ Files: {}", ex.dir().display()));
                 state.multi.click(&order, l.id, mods);
                 cmds.push(Command::SelectLayer(Some(l.id)));
             }
-            if resp.double_clicked() { rename = Some(InlineRename { layer: l.id, text: l.name.clone(), focus: true }); }
+            if resp.double_clicked() {
+                // Text layers open their editor; every other layer renames inline (F2 renames text too).
+                if is_text { cmds.push(Command::SelectLayer(Some(l.id))); open_text = Some((l.id, crate::text_panel::Window::Edit)); }
+                else { rename = Some(InlineRename { layer: l.id, text: l.name.clone(), focus: true }); }
+            }
             if let Some(pointer) = ui.input(|i| i.pointer.interact_pos()) {
                 layer_drop(ui, &resp, ts, row_target(resp.rect, pointer, l), &mut cmds);
             }
-            if egui::DragAndDrop::has_payload_of_type::<crate::panels::shelf::ShelfDrag>(ui.ctx())
-                && let Some(item) = resp.dnd_release_payload::<crate::panels::shelf::ShelfDrag>() {
-                drop_request = Some((l.id, *item));
+            if egui::DragAndDrop::has_payload_of_type::<ShelfDrag>(ui.ctx())
+                && let Some(item) = resp.dnd_release_payload::<ShelfDrag>() {
+                // A drop on a layer row: alphas go into its mask, everything else per Alt.
+                drop_request = Some((l.id, *item, alt || matches!(*item, ShelfDrag::Alpha(_))));
             }
-            if resp.dnd_hover_payload::<crate::panels::shelf::ShelfDrag>().is_some() {
-                // Materials land above the row; smart masks go onto the row's layer.
+            if let Some(item) = resp.dnd_hover_payload::<ShelfDrag>() {
                 let r = resp.rect;
                 ui.painter().rect_stroke(r, 0.0, egui::Stroke::new(1.5, ACCENT), egui::StrokeKind::Inside);
+                let text = over_mask.clone().unwrap_or_else(|| shelf::drop_label(*item, alt, Some(&l.name), false));
+                let galley = ui.painter().layout_no_wrap(text, theme::font(11.0), theme::TEXT);
+                let pill = egui::Rect::from_min_size(egui::pos2(r.right() - galley.size().x - 14.0, r.top() + 2.0), galley.size() + egui::vec2(8.0, 4.0));
+                ui.painter().rect_filled(pill, 3.0, theme::ACCENT_SOFT);
+                ui.painter().galley(pill.min + egui::vec2(4.0, 2.0), galley, theme::TEXT);
             }
             let has_effects = l.mask.as_ref().is_some_and(|m| !m.effects.is_empty());
             resp.context_menu(|ui| {
@@ -409,6 +442,8 @@ Files: {}", ex.dir().display()));
                 for (label, action) in [("Add paint layer", LayerAction::AddPaint), ("Add fill layer", LayerAction::AddFill)] {
                     if ui.button(label).clicked() { layer_action = Some((l.id, action)); ui.close(); }
                 }
+                if ui.button("Add text layer…").clicked() { open_text = Some((l.id, crate::text_panel::Window::New)); ui.close(); }
+                if is_text && ui.button("Edit text…").clicked() { open_text = Some((l.id, crate::text_panel::Window::Edit)); ui.close(); }
                 ui.menu_button("Add mask", |ui| {
                     for (label, action) in [("White mask", LayerAction::WhiteMask), ("Black mask", LayerAction::BlackMask)] {
                         if ui.button(label).clicked() { layer_action = Some((l.id, action)); ui.close(); }
@@ -464,7 +499,7 @@ Files: {}", ex.dir().display()));
                     ui.close();
                 }
             });
-            resp.on_hover_text("Drag to reorder. Drop in a folder's center to move inside it; drop at Top level to move out. Double-click or F2 to rename.");
+            resp.on_hover_text("Drag to reorder. Drop in a folder's center to move inside it; drop at Top level to move out. Double-click renames (text layers: opens the text editor); F2 renames.");
             // The selected layer's mask stack lists its generators itself.
             if let Some(mask) = &l.mask && !(selected && selected_target == LayerTarget::Mask) {
                 generator_rows(ui, l, mask, *depth, &mut cmds);
@@ -475,7 +510,7 @@ Files: {}", ex.dir().display()));
             }
         }
         while let Some(f) = open.pop() { close_folder(ui, f); }
-        root_drop(ui, ts, DropTarget::RootBottom, &mut cmds);
+        let _ = root_drop(ui, ts, DropTarget::RootBottom, &mut cmds);
     });
     crate::widgets::preview_size_footer(ui, &mut state.recovery.prefs.layer_preview_size, 24..=64);
     if cancel_rename { rename = None; }
@@ -499,9 +534,13 @@ Files: {}", ex.dir().display()));
             if effect.is_some() { state.run(vec![Command::SelectEffect { layer, target: LayerTarget::Mask, effect }], now); }
         }
     }
-    if let Some((layer, item)) = drop_request {
+    if let Some((layer, item, alt)) = drop_request {
+        if layer != LayerId::default() { state.run(vec![Command::SelectLayer(Some(layer))], now); }
+        shelf::apply_shelf_item_with(state, item, alt, now);
+    }
+    if let Some((layer, window)) = open_text {
         state.run(vec![Command::SelectLayer(Some(layer))], now);
-        crate::panels::shelf::apply_shelf_item(state, item, now);
+        match window { crate::text_panel::Window::New => state.text.open_new(), crate::text_panel::Window::Edit => state.text.open_edit() }
     }
     if let Some((layer, mask)) = save_request {
         save_to_library(state, layer, mask, now);

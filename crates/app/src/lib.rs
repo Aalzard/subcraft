@@ -29,6 +29,7 @@ pub mod photocraft;
 pub mod recovery;
 pub mod startup_probe;
 pub mod session;
+pub mod shelf_apply;
 pub mod spp_cache;
 pub mod text;
 pub mod spp_fit;
