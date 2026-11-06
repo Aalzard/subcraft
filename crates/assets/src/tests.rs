@@ -186,3 +186,12 @@ fn new_smart_materials_are_folders_of_fill_layers_with_masks_and_measured_pbr_va
     }
 }
 
+
+#[test]
+fn smart_material_names_are_unique() {
+    let lib = Library::builtin();
+    let mut seen = std::collections::HashSet::new();
+    for m in &lib.smart_materials {
+        assert!(seen.insert(m.name.clone()), "two smart materials are called {}", m.name);
+    }
+}

@@ -258,7 +258,7 @@ pub fn smart_materials() -> Vec<SmartMaterial> {
 /// layers masked by generators (Edges / Cavity / Directional read baked maps, so bake first).
 /// Names that a built-in smart material already uses get a " PBR" suffix.
 fn pbr_pack_smart_materials() -> Vec<SmartMaterial> {
-    let taken = ["Mossy Stone", "Oxidized Copper", "Dry Mud", "Worn Leather"];
+    let taken = ["Mossy Stone", "Oxidized Copper", "Dry Mud", "Worn Leather", "Galvanized Steel"];
     crate::pbr_pack::materials()
         .into_iter()
         .map(|material| {

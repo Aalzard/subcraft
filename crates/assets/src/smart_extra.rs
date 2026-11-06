@@ -204,7 +204,7 @@ pub fn smart_material_info(name: &str) -> Option<AssetInfo> {
         "Industrial Rubber" => info("Plastic", "Textured rubber with scuffed edges and dirt in the grooves"),
         "Brushed Aluminum" => info("Metal", "Brushed aluminium with polished edges and dirt in recesses"),
         "Oxidized Copper PBR" => info("Metal", "Green-patinated copper, polished on edges, dirty in recesses"),
-        "Galvanized Steel" => info("Metal", "Spangled galvanized steel with bright edges and dirt in recesses"),
+        "Galvanized Steel PBR" => info("Metal", "Spangled galvanized steel with bright edges and dirt in recesses"),
         "Hex Armor" => info("Metal", "Hexagonal armour plating with polished edges and dirt in the seams"),
         "Worn Painted Metal" => info("Metal", "Blue paint worn through to steel on edges, dirt in crevices"),
         "Rusty Iron" => info("Metal", "Rough iron with rust gathering in the cavities"),

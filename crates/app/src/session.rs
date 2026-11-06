@@ -1081,6 +1081,26 @@ impl Session {
                 self.brush.material.set(kind, kind.default_paint_value());
                 self.commit(&format!("Add {} Channel", kind.display_name()), None);
             }
+            Command::RemoveChannel { texture_set, kind } => {
+                let ts = self.doc.texture_set_mut(texture_set).ok_or(CommandError::TextureSetNotFound)?;
+                if !ts.has_channel(kind) {
+                    return Ok(());
+                }
+                if ts.channels.len() == 1 {
+                    return Err(CommandError::Invalid("a texture set needs at least one channel".into()));
+                }
+                ts.channels.retain(|c| c.kind != kind);
+                self.commit(&format!("Remove {} Channel", kind.display_name()), None);
+            }
+            Command::SetChannelFormat { texture_set, kind, format } => {
+                let ts = self.doc.texture_set_mut(texture_set).ok_or(CommandError::TextureSetNotFound)?;
+                let Some(def) = ts.channels.iter_mut().find(|c| c.kind == kind) else { return Err(CommandError::Invalid(format!("no {} channel", kind.display_name()))) };
+                if def.format == format {
+                    return Ok(());
+                }
+                def.format = format;
+                self.commit(&format!("{} Format", kind.display_name()), None);
+            }
             Command::InsertLayerWithChannels { layer, channels, label } => {
                 let ts = self.doc.texture_set_mut(self.selection.texture_set).ok_or(CommandError::TextureSetNotFound)?;
                 for kind in channels {
