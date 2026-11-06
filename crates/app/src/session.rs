@@ -1476,6 +1476,20 @@ impl Session {
 
     // ----- painting ------------------------------------------------------------------------------
 
+    /// Before a paint stroke on layer content: if the selection cannot take paint (a fill layer,
+    /// a folder, or nothing selected), add a paint layer above it and select it, so the brush
+    /// always draws (a fill layer's material stays as it is). Mask strokes, erasing and layers
+    /// that already take paint are left alone. Returns the new layer's name when one was added.
+    pub fn ensure_paint_layer(&mut self) -> Option<String> {
+        if self.brush.target != PaintTarget::Content || self.brush.mode == StrokeMode::Erase {
+            return None;
+        }
+        let paintable = self.selected_layer().is_some_and(|l| matches!(&l.content, subcraft_doc::LayerContent::Paint(p) if p.path.is_none()));
+        if paintable { return None; }
+        self.execute(Command::AddLayer(NewLayer::Paint)).ok()?;
+        self.selected_layer().map(|l| l.name.clone())
+    }
+
     /// Start a stroke on the selected layer with the current brush.
     pub fn begin_stroke(&mut self) -> Result<(), PaintError> {
         if self.stroke.is_some() {

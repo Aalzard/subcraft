@@ -278,6 +278,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         Tool::Smudge => StrokeMode::Smudge,
                         _ => StrokeMode::Paint,
                     };
+                    if let Some(name) = state.session.ensure_paint_layer() {
+                        state.gpu_dirty = true;
+                        state.set_status(format!("Painting on a new paint layer, \"{name}\" (the selected layer was not a paint layer)"), now);
+                    }
                     match state.session.begin_stroke() {
                         Ok(()) => {
                             state.painting = true;
