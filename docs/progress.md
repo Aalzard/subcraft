@@ -4526,3 +4526,6 @@ limited by background compositing throughput (a stroke dirties ~30 tiles per fra
 finishes ~5), not by stamping. Not reproducible without the streamer's hardware: tablet driver
 behaviour (Wacom Windows Ink vs WinTab, events delivered per frame), OS, DPI scaling, GPU upload and
 frame pacing. Mouse/pen pressure per sample inside a frame is still the last value of the frame.
+## 2026-11-07 — Default texture resolution is 2048
+
+* New projects already defaulted to 2048 (`NewProjectSettings`); `DEFAULT_RESOLUTION` (sample crate, models opened without the New Project window, SPP import, mesh reload fallback) was 1024 and is now 2048. Saved projects store each set's resolution explicitly, so existing files keep their size. 256-4096 (and 128 in the Texture Sets panel) stay in every resolution list. Unchanged: the Bake window size default (1024), UV unwrap packing resolution, example binaries.
