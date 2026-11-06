@@ -230,7 +230,7 @@ impl PostPass {
             binding,
             visibility: wgpu::ShaderStages::FRAGMENT,
             ty: wgpu::BindingType::Texture {
-                sample_type: if depth { wgpu::TextureSampleType::Depth } else { wgpu::TextureSampleType::Float { filterable: true } },
+                sample_type: if depth { wgpu::TextureSampleType::Float { filterable: false } } else { wgpu::TextureSampleType::Float { filterable: true } },
                 view_dimension: wgpu::TextureViewDimension::D2,
                 multisampled: false,
             },
