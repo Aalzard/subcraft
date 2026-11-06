@@ -1895,6 +1895,23 @@ impl Session {
 
     // ----- assets --------------------------------------------------------------------------------
 
+    /// A material clicked on the Shelf: on a selected fill layer it swaps that layer's material
+    /// (channels and name; its mask, parts, opacity and blend modes stay), otherwise it adds a new
+    /// fill layer above the selection. One undo step either way. Returns true when it swapped.
+    pub fn apply_material(&mut self, preset: &subcraft_assets::MaterialPreset) -> Result<bool, CommandError> {
+        let Some(old) = self.selected_layer().filter(|l| matches!(l.content, subcraft_doc::LayerContent::Fill(_))).cloned() else {
+            self.add_material(preset)?;
+            return Ok(false);
+        };
+        let ids = self.import_preset_images(&preset.images)?;
+        let fresh = preset.build_with(self.selected_texture_set(), &ids);
+        let mut replacement = old.clone();
+        replacement.content = fresh.content;
+        replacement.name = fresh.name;
+        self.execute(Command::ReplaceLayer { layer: old.id, replacement: Box::new(replacement), label: format!("Swap Material: {}", preset.name) })?;
+        Ok(true)
+    }
+
     /// Add a material preset as a fill layer above the selection.
     pub fn add_material(&mut self, preset: &subcraft_assets::MaterialPreset) -> Result<(), CommandError> {
         let ids = self.import_preset_images(&preset.images)?;
