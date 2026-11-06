@@ -7,6 +7,7 @@ pub mod layers;
 pub mod mask;
 pub mod parts;
 pub mod properties;
+pub mod channels;
 pub mod shelf;
 pub mod shelf_filter;
 pub mod texture_sets;

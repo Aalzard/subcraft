@@ -25,6 +25,7 @@ pub enum Tab {
     Properties,
     Brush,
     TextureSets,
+    Channels,
     Parts,
     History,
     Shelf,
@@ -39,6 +40,7 @@ impl Tab {
             Tab::Properties => "Properties",
             Tab::Brush => "Brush",
             Tab::TextureSets => "Texture Sets",
+            Tab::Channels => "Channels",
             Tab::Parts => "Parts",
             Tab::History => "History",
             Tab::Shelf => "Shelf",
@@ -53,6 +55,7 @@ impl Tab {
             Tab::Properties => icons::SLIDERS,
             Tab::Brush => icons::PAINT_BRUSH,
             Tab::TextureSets => icons::CUBE_WIRE,
+            Tab::Channels => icons::STACK,
             Tab::Parts => icons::CUBE_WIRE,
             Tab::History => icons::HISTORY,
             Tab::Shelf => icons::SQUARES,
@@ -170,14 +173,14 @@ pub fn default_layout() -> DockState<Tab> {
     let mut dock = DockState::new(vec![Tab::Viewport, Tab::UvView]);
     let surface = dock.main_surface_mut();
     let [center, right] = surface.split_right(NodeIndex::root(), 0.77, vec![Tab::Layers]);
-    surface.split_below(right, 0.48, vec![Tab::Properties, Tab::Brush]);
+    surface.split_below(right, 0.48, vec![Tab::Properties, Tab::Brush, Tab::Channels]);
     let [center, _] = surface.split_left(center, 0.28, vec![Tab::Shelf]);
     surface.split_below(center, 0.82, vec![Tab::Parts, Tab::TextureSets, Tab::History]);
     dock
 }
 
 // Apply the requested shelf-left / utility-tabs-bottom arrangement once, then retain edits.
-const DOCK_KEY: &str = "subcraft_dock_v5";
+const DOCK_KEY: &str = "subcraft_dock_v6";
 
 /// A restored dock layout is only used when it still holds every panel exactly once, has no
 /// floating windows (they can be left off-screen after a monitor change) and no split is
@@ -186,7 +189,7 @@ pub fn layout_is_valid(dock: &DockState<Tab>) -> bool {
     use egui_dock::Node;
     let mut seen = std::collections::HashMap::<Tab, usize>::new();
     for (_, tab) in dock.iter_all_tabs() { *seen.entry(*tab).or_default() += 1; }
-    let all = [Tab::Viewport, Tab::UvView, Tab::Layers, Tab::Properties, Tab::Brush, Tab::TextureSets, Tab::Parts, Tab::History, Tab::Shelf];
+    let all = [Tab::Viewport, Tab::UvView, Tab::Layers, Tab::Properties, Tab::Brush, Tab::TextureSets, Tab::Channels, Tab::Parts, Tab::History, Tab::Shelf];
     if !all.iter().all(|t| seen.get(t) == Some(&1)) || seen.len() != all.len() { return false; }
     if dock.iter_surfaces().count() != 1 { return false; }
     dock.iter_all_nodes().all(|(_, node)| match node {
@@ -1276,6 +1279,7 @@ impl egui_dock::TabViewer for Viewer<'_> {
             Tab::Properties => crate::edit_profile::time_tab("  tab Properties", || panels::properties::show(self.state, ui)),
             Tab::Brush => crate::edit_profile::time_tab("  tab Brush", || panels::brush::show(self.state, ui)),
             Tab::TextureSets => crate::edit_profile::time_tab("  tab Texture sets", || panels::texture_sets::show(self.state, ui)),
+            Tab::Channels => panels::channels::show(self.state, ui),
             Tab::Parts => crate::edit_profile::time_tab("  tab Parts", || panels::parts::show(self.state, ui)),
             Tab::History => crate::edit_profile::time_tab("  tab History", || panels::history::show(self.state, ui)),
             Tab::Shelf => crate::edit_profile::time_tab("  tab Shelf", || panels::shelf::show(self.state, ui)),
