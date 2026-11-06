@@ -23,7 +23,10 @@ jobs:
       - name: Install Mesa Vulkan driver
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers
       - name: Test
-        run: cargo test --workspace
+        run: cargo test --workspace --exclude subcraft-render
+      # One GPU test at a time: lavapipe can crash (SIGSEGV) when several tests create devices at once.
+      - name: Test rendering (one GPU test at a time)
+        run: cargo test -p subcraft-render -- --test-threads=1
 
   windows:
     name: Build + engine tests (Windows)
