@@ -185,7 +185,7 @@ pub fn open(state: &mut UiState, ctx: &egui::Context, index: usize, apply: bool,
 
 pub fn shelf(state: &mut UiState, ui: &mut egui::Ui, side: f32) -> usize {
     use crate::panels::shelf::{ShelfTab,ShelfDrag};
-    let kind=match state.shelf.tab {ShelfTab::Textures=>Kind::Normal,ShelfTab::Brushes=>Kind::Alpha,_=>return 0};
+    let kind=match state.shelf.tab {ShelfTab::NormalMaps=>Kind::Normal,ShelfTab::Textures=>Kind::Texture,ShelfTab::Brushes=>Kind::Alpha,_=>return 0};
     let mut shown=0;let mut clicked=None;
     for (i,e) in ENTRIES.iter().enumerate() {
         if e.kind!=kind||!state.shelf.filter.matches_tagged(e.name,Some("Starter pack"),false,e.tileable()) {continue;}

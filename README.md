@@ -55,7 +55,7 @@ screen and a six-step in-app guide are included.
 - **Render quality**: tone mapping, bloom, ambient occlusion, emission glow and glare; render
   stills and PNG turntable frames.
 - **15 new smart materials and 16 new smart masks**, five new generators.
-- **80 normal maps + 80 brush alphas** (CC0) and **10 built-in HDRI environments**.
+- **110 normal maps + 84 brush alphas** (CC0) and **10 built-in HDRI environments**.
 
 Full list: [CHANGELOG.md](CHANGELOG.md).
 
@@ -372,6 +372,6 @@ additional terms or conditions.
 - Bundled third-party assets keep their own licenses: the [Inter](https://rsms.me/inter/) font
   (SIL Open Font License 1.1) and [Phosphor Icons](https://phosphoricons.com) (MIT), both in
   `crates/ui/assets/fonts` with their license files.
-- The starter pack (80 normal maps, 80 brush alphas) is CC0:
+- The starter pack (110 normal maps, 84 brush alphas) is CC0:
   [credits](assets/starter-pack/CREDITS-CC0.txt). The bundled HDRIs are CC0:
   [credits](assets/environments/CREDITS-CC0.txt).

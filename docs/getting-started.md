@@ -590,7 +590,7 @@ brightness/contrast, invert and a sample stroke. Both offer scale, rotation, wra
 **Make seamless** edge blending. Inspect the repeated result; blending softens boundary details.
 **Add adjusted fill layer** bakes the adjustments into a new image copy. The original files stay
 unchanged, and normal-map resources travel inside saved projects. Width/height are 1024px for
-all pack images. Full images load only when selected; desktop needs no network connection.
+all pack normal maps and the older alphas (the 4 alphas added in 2026-11 are 512px). Full images load only when selected; desktop needs no network connection.
 
 ![The 60 included images](screenshots/starter-pack-overview.jpg)
 

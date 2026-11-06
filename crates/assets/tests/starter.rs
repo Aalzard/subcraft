@@ -5,15 +5,15 @@ use subcraft_image::{Bitmap,BitmapData};
 fn finish(b: Bitmap,k: Kind,s: Settings,side: u32,budget: usize)->Bitmap {let mut j=ImageJob::new(Arc::new(b),k,s,side).unwrap();j.step(0);assert_eq!(j.progress(),0.0);while !j.is_done(){j.step(budget);}j.finish().unwrap()}
 
 #[test]
-fn catalog_has_160_unique_small_thumbnails_and_lossless_full_size_pngs() {
-    assert_eq!(starter::ENTRIES.len(),160);let mut ids=BTreeSet::new();let mut normals=0;let mut bytes=0;let mut thumbs=0;
+fn catalog_has_194_unique_small_thumbnails_and_lossless_full_size_pngs() {
+    assert_eq!(starter::ENTRIES.len(),194);let mut ids=BTreeSet::new();let mut normals=0;let mut small=0;let mut bytes=0;let mut thumbs=0;
     for (i,e) in starter::ENTRIES.iter().enumerate() {
         assert!(ids.insert(e.id()));let full=starter::encoded(i).unwrap();assert_eq!(e.bytes,full.len());bytes+=full.len();thumbs+=e.thumb.len();
-        let b=subcraft_image::io::decode_bitmap(full,Some(e.file)).unwrap();assert_eq!((b.width,b.height),(1024,1024));
+        let b=subcraft_image::io::decode_bitmap(full,Some(e.file)).unwrap();if (b.width,b.height)==(512,512) {small+=1;assert_eq!(e.kind,Kind::Alpha);} else {assert_eq!((b.width,b.height),(1024,1024));}
         let t=subcraft_image::io::decode_bitmap(e.thumb,Some("thumb.png")).unwrap();assert_eq!((t.width,t.height),(96,96));
         if e.kind==Kind::Normal {normals+=1;assert_eq!(b.channels,3);assert!(e.tileable());}else{assert_eq!(b.channels,1);assert!(!e.tileable());}
     }
-    assert_eq!(normals,80);assert_eq!(bytes,59_691_322);assert!(thumbs<1_200_000);assert!(starter::encoded(160).is_none());
+    assert_eq!((normals,small),(110,4));assert_eq!(bytes,92_194_344);assert!(thumbs<1_600_000);assert!(starter::encoded(194).is_none());
 }
 #[test]
 fn neutral_normal_and_zero_strength_are_linear_unit_vectors() {
@@ -52,4 +52,24 @@ fn raster_work_is_budget_independent_and_seamless_edges_match() {
 #[test]
 fn sample_stroke_and_lit_normal_preview_contain_image_detail() {
     for kind in [Kind::Alpha,Kind::Normal] {let b=Bitmap::new_u8(1,1,3,if kind==Kind::Normal{vec![128,128,255]}else{vec![255;3]});let p=example(&b,kind);let BitmapData::U8(v)=p.data else {panic!()};assert!(v.iter().max().unwrap()-v.iter().min().unwrap()>40);}
+}
+#[test]
+fn imported_generator_batch_normals_read_as_tangent_space_data_and_alphas_as_gray_masks() {
+    // Entries 160..190 are normal maps (flat areas are (0.5, 0.5, 1)); 190..194 are alpha brushes.
+    let mut seen = 0;
+    for (i, e) in starter::ENTRIES.iter().enumerate().skip(160) {
+        let b = subcraft_image::io::decode_bitmap(starter::encoded(i).unwrap(), Some(e.file)).unwrap();
+        let (mut sum, mut n) = ([0.0f32; 3], 0.0f32);
+        for y in (0..b.height).step_by(8) { for x in (0..b.width).step_by(8) { let t = b.texel(x, y, false); for c in 0..3 { sum[c] += t[c]; } n += 1.0; } }
+        let m = [sum[0] / n, sum[1] / n, sum[2] / n];
+        if i < 190 {
+            assert_eq!((e.kind, b.channels), (Kind::Normal, 3), "{}", e.name);
+            assert!((m[0] - 0.5).abs() < 0.12 && (m[1] - 0.5).abs() < 0.12 && m[2] > 0.7, "{} mean {m:?} is not a tangent-space normal map", e.name);
+        } else {
+            assert_eq!((e.kind, b.channels, b.width), (Kind::Alpha, 1, 512), "{}", e.name);
+            assert!(m[0] > 0.1 && m[0] < 0.9, "{} mean {m:?}", e.name);
+        }
+        seen += 1;
+    }
+    assert_eq!(seen, 34);
 }
