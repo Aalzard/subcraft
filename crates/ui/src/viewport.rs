@@ -127,6 +127,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         NavMode::Orbit => state.camera.orbit(d.x, d.y),
                         NavMode::Pan => state.camera.pan(d.x * pixel_scale.x, d.y * pixel_scale.y, size[1] as f32),
                         NavMode::Zoom => state.camera.zoom((d.y * 0.01).exp()),
+                        NavMode::Light => state.light_yaw = (state.light_yaw + d.x * 0.01).rem_euclid(std::f32::consts::TAU),
+                        NavMode::Environment => state.env.rotation_deg = (state.env.rotation_deg + d.x * 0.5).rem_euclid(360.0),
                         NavMode::None => {}
                     }
                 }
@@ -375,6 +377,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 &rs.device,
                 &rs.queue,
             );
+            // Shift+RMB turns the key light around the model (on top of following the camera).
+            if state.light_yaw != 0.0 {
+                params.light_dir = glam::Quat::from_rotation_y(state.light_yaw) * params.light_dir;
+            }
             // Rendering mode: path trace instead of rasterizing; any failure falls back to raster.
             let pt_settings = view.path_trace_settings(state.pt_paused);
             if !tracing && state.pt_active {

@@ -152,6 +152,8 @@ pub struct UiState {
     pub confirm: Option<crate::dialogs::Pending>,
     /// A model dropped on the window: preloaded into the New Project window once it opens.
     pub dropped_model: Option<std::path::PathBuf>,
+    /// Key light rotation around the model (radians), set with Shift+RMB drag.
+    pub light_yaw: f32,
     /// The Shelf took this frame's dropped files (the window-wide drop handler skips them).
     pub drops_taken: bool,
     /// The user already agreed to close without saving.
@@ -265,6 +267,7 @@ impl UiState {
             export: Default::default(),
             confirm: None,
             dropped_model: None,
+            light_yaw: 0.0,
             drops_taken: false,
             multi: Default::default(),
             clips: Default::default(),
