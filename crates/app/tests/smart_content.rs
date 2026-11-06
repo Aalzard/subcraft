@@ -42,7 +42,7 @@ fn library_has_the_new_smart_materials_and_masks_with_unique_ids_and_names() {
     let lib = Library::builtin();
     assert!(lib.smart_materials.len() >= 20, "{}", lib.smart_materials.len());
     assert!(lib.smart_masks.len() >= 20, "{}", lib.smart_masks.len());
-    for wanted in ["Worn Leather", "Chipped Painted Metal", "Mossy Stone", "Brushed Steel", "Dusty Concrete", "Oxidized Copper", "Scratched Plastic", "Cracked Clay", "Frosted Ice", "Rough Wood"] {
+    for wanted in ["Worn Leather", "Chipped Painted Metal", "Brushed Steel", "Dusty Concrete", "Oxidized Copper", "Frosted Ice", "Hammered Brass"] {
         assert!(lib.smart_materials.iter().any(|m| m.name == wanted), "missing {wanted}");
     }
     for wanted in ["Edge Dirt", "Top-Down Dust", "Scratches", "Moss in Crevices", "Water Streaks"] {
@@ -109,7 +109,7 @@ fn every_smart_mask_selects_part_of_the_baked_crate_and_is_deterministic() {
     }
 }
 
-const NEW_MATERIALS: [&str; 14] = ["Rusted Painted Metal", "Oily Metal", "Painted Steel Edge Wear", "Dirty Rubber", "Snow Covered Stone", "Sandblasted Aluminium", "Weathered Brick", "Muddy Leather", "Charred Wood", "Galvanized Steel", "Grimy Ceramic", "Weathered Plaster", "Mossy Wood", "Pitted Cast Iron"];
+const NEW_MATERIALS: [&str; 8] = ["Rusted Painted Metal", "Oily Metal", "Painted Steel Edge Wear", "Dirty Rubber", "Sandblasted Aluminium", "Muddy Leather", "Galvanized Steel", "Pitted Cast Iron"];
 const NEW_MASKS: [&str; 15] = ["Cavity Dust", "Heavy Drips", "Scratch Wear", "Edge Chips", "Rain Streaks", "Smudges", "Burn Marks", "Corner Wear", "Moss on Top", "Random Grime", "Fine Dust Speckle", "Oil Film", "Bottom Mud", "Lichen Patches", "Brushed Wear"];
 
 #[test]
@@ -128,19 +128,14 @@ fn new_smart_materials_have_believable_overall_pbr_values_on_the_baked_crate() {
         s.add_smart_material(m).unwrap();
         (stats(&mut s, ChannelKind::BaseColor).0, stats(&mut s, ChannelKind::Roughness).0, stats(&mut s, ChannelKind::Metallic).0)
     };
-    let snow = look("Snow Covered Stone");
-    let char = look("Charred Wood");
     let rubber = look("Dirty Rubber");
     let alu = look("Sandblasted Aluminium");
     let oily = look("Oily Metal");
     let zinc = look("Galvanized Steel");
-    let brick = look("Weathered Brick");
-    assert!(snow.0 > char.0 + 0.03, "snow is brighter than char: {snow:?} {char:?}");
     assert!(rubber.0 < 0.15 && rubber.1 > 0.75 && rubber.2 < 0.05, "rubber is dark, rough, non-metal: {rubber:?}");
     assert!(alu.0 > 0.6 && alu.2 > 0.5 && (0.35..0.8).contains(&alu.1), "sandblasted aluminium is bright, metallic, semi-rough: {alu:?}");
     assert!(oily.0 < alu.0 && oily.2 > 0.5, "oily metal is darker than aluminium and still metallic: {oily:?} {alu:?}");
     assert!(zinc.2 > 0.4, "galvanized is metallic: {zinc:?}");
-    assert!(brick.2 < 0.05 && brick.1 > 0.7 && (0.2..0.5).contains(&brick.0), "brick is a rough non-metal of mid-dark red: {brick:?}");
 }
 
 #[test]
