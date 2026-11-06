@@ -45,7 +45,7 @@ pub mod clipboard;
 pub mod multi_select;
 
 pub use actions::{ACTIONS, Action, ActionInfo, Key, Shortcut, action_for};
-pub use bake_job::{BakeJob, BakeRequest, BakePreviewJob};
+pub use bake_job::{BakeJob, BakeLogLevel, BakeLogLine, BakePreviewJob, BakeRequest, log_text as bake_log_text};
 pub use spp_job::{ImportControl, SppImportJob, SppPoll};
 pub use command::{Command, CommandError, NewLayer};
 pub use clipboard::{EffectClip, LayerClip};
