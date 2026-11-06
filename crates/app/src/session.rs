@@ -1190,6 +1190,25 @@ impl Session {
             Command::GroupLayer(id) => {
                 self.edit_layer_set(id, "Group Layer", None, |ts| ts.group(id, "Folder").map_err(|_| CommandError::LayerNotFound))?;
             }
+            Command::GroupLayers(ids) => {
+                let Some(&first) = ids.first() else { return Ok(()) };
+                if ids.len() == 1 { return self.execute(Command::GroupLayer(first)); }
+                self.edit_layer_set(first, "Group Layers", None, |ts| {
+                    // Stack order (bottom to top, folders before their children).
+                    let mut order = Vec::new();
+                    ts.walk(|l, _| order.push(l.id));
+                    let mut chosen: Vec<LayerId> = order.iter().copied().filter(|id| ids.contains(id)).collect();
+                    // A layer inside another chosen folder travels with that folder.
+                    let all = chosen.clone();
+                    chosen.retain(|&id| !all.iter().any(|&other| other != id && ts.is_descendant_or_self(id, other)));
+                    let Some(&top) = chosen.last() else { return Err(CommandError::LayerNotFound) };
+                    let folder = ts.group(top, "Folder").map_err(|_| CommandError::LayerNotFound)?;
+                    for (index, &id) in chosen[..chosen.len() - 1].iter().enumerate() {
+                        ts.move_to(id, Some(folder), index).map_err(|e| CommandError::Invalid(format!("{e:?}")))?;
+                    }
+                    Ok(())
+                })?;
+            }
             Command::MoveLayer { layer, parent, index } => {
                 self.edit_layer_set(layer, "Move Layer", None, |ts| {
                     ts.move_to(layer, parent, index).map_err(|e| CommandError::Invalid(format!("{e:?}")))
@@ -1489,7 +1508,35 @@ impl Session {
             Action::BrushSmaller => self.brush.settings.size = (self.brush.settings.size / 1.15).max(0.1),
             Action::BrushLarger => self.brush.settings.size = (self.brush.settings.size * 1.15).min(100.0),
             Action::ToggleSymmetryX => self.brush.options.symmetry[0] = !self.brush.options.symmetry[0],
-            Action::PenTool | Action::ResetCamera | Action::Save | Action::SaveAs | Action::OpenProject | Action::Export | Action::Bake | Action::TogglePathTracing | Action::SelectAllLayers => return Ok(false),
+            Action::SmudgeTool => self.brush.mode = StrokeMode::Smudge,
+            Action::CloneTool => self.brush.mode = StrokeMode::Clone,
+            Action::GroupLayers => {
+                if let Some(l) = sel {
+                    self.execute(Command::GroupLayers(vec![l]))?;
+                }
+            }
+            // Handled by the UI (tools, views, files, the layer list).
+            Action::PenTool
+            | Action::PolygonFillTool
+            | Action::EyedropperTool
+            | Action::RenameLayer
+            | Action::FrameModel
+            | Action::ResetCamera
+            | Action::ViewMaterial
+            | Action::CycleChannel
+            | Action::CycleMeshMap
+            | Action::View2D
+            | Action::View3D
+            | Action::ViewSplit
+            | Action::ReimportMesh
+            | Action::NewProject
+            | Action::Save
+            | Action::SaveAs
+            | Action::OpenProject
+            | Action::Export
+            | Action::Bake
+            | Action::TogglePathTracing
+            | Action::SelectAllLayers => return Ok(false),
         }
         Ok(true)
     }

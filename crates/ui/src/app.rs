@@ -7,7 +7,7 @@ use std::collections::HashSet;
 use egui::{RichText, Ui};
 use egui_dock::{DockArea, DockState, NodeIndex};
 use serde::{Deserialize, Serialize};
-use subcraft_app::{ACTIONS, Action, Command, Key, NewLayer, Session, Shortcut, action_for};
+use subcraft_app::{Action, Command, Key, NewLayer, Session, Shortcut};
 use subcraft_core::{ChannelKind, ChannelValue};
 use subcraft_doc::{FillChannel, FillSource, Generator, GeneratorKind, LayerContent, MaskEffectKind, ProceduralKind, ProceduralParams};
 
@@ -703,7 +703,7 @@ impl SubcraftApp {
     }
 
     fn shortcuts(&mut self, ctx: &egui::Context) {
-        if ctx.egui_wants_keyboard_input() {
+        if ctx.egui_wants_keyboard_input() && self.state.capturing_shortcut.is_none() {
             return;
         }
         let pressed: Vec<Shortcut> = ctx.input(|i| {
@@ -720,8 +720,23 @@ impl SubcraftApp {
                 })
                 .collect()
         });
+        // The shortcut settings take the next key for the action being rebound.
+        if let Some(action) = self.state.capturing_shortcut {
+            if let Some(&s) = pressed.first() {
+                self.state.recovery.prefs.keymap.set(action, vec![s]);
+                self.state.capturing_shortcut = None;
+            }
+            return;
+        }
         for s in pressed {
-            if let Some(a) = action_for(s) {
+            let actions = self.state.recovery.prefs.keymap.actions_for(s);
+            // A key bound twice (F2: rename / 3D view) renames over the Layers panel.
+            let pick = if actions.len() > 1 {
+                actions.iter().copied().find(|&a| (a == Action::RenameLayer) == self.state.layers_hovered).or(actions.first().copied())
+            } else {
+                actions.first().copied()
+            };
+            if let Some(a) = pick {
                 self.perform(a, ctx.input(|i| i.time));
             }
         }
@@ -752,8 +767,40 @@ impl SubcraftApp {
                 self.state.multi.select_all(&rows);
             }
             Action::ResetCamera => self.state.camera = OrbitCamera::framing(&self.state.session.scene().mesh.bounds),
-            Action::BrushTool => self.state.tool = Tool::Brush,
-            Action::EraserTool => self.state.tool = Tool::Eraser,
+            Action::FrameModel => {
+                // Keep the viewing direction; fit the whole model.
+                let (yaw, pitch) = (self.state.camera.yaw, self.state.camera.pitch);
+                self.state.camera = OrbitCamera::framing(&self.state.session.scene().mesh.bounds);
+                self.state.camera.yaw = yaw;
+                self.state.camera.pitch = pitch;
+            }
+            Action::BrushTool => { self.state.tool = Tool::Brush; let _ = self.state.session.perform(action); }
+            Action::EraserTool => { self.state.tool = Tool::Eraser; let _ = self.state.session.perform(action); }
+            Action::SmudgeTool => { self.state.tool = Tool::Smudge; let _ = self.state.session.perform(action); }
+            Action::CloneTool => { self.state.tool = Tool::Clone; let _ = self.state.session.perform(action); }
+            Action::PolygonFillTool => self.state.tool = Tool::PolygonFill,
+            Action::EyedropperTool => self.state.tool = Tool::Eyedropper,
+            Action::RenameLayer => self.state.rename_request = true,
+            Action::GroupLayers => {
+                let ids: Vec<_> = if self.state.multi.is_multi() { self.state.multi.ids.clone() } else { self.state.session.selection().layer.into_iter().collect() };
+                if !ids.is_empty() {
+                    self.state.run(vec![Command::GroupLayers(ids)], now);
+                }
+            }
+            Action::ViewMaterial => {
+                let prefs = &mut self.state.recovery.prefs.viewport;
+                prefs.mesh_map = None;
+                prefs.view_mode = 0;
+            }
+            Action::CycleChannel => {
+                let prefs = &mut self.state.recovery.prefs.viewport;
+                prefs.mesh_map = None;
+                prefs.view_mode = (prefs.view_mode + 1) % subcraft_render::ViewMode::ALL.len();
+            }
+            Action::CycleMeshMap => crate::viewport_bar::cycle_mesh_map(&mut self.state.recovery.prefs.viewport),
+            Action::ViewSplit | Action::View3D | Action::View2D => set_view_layout(&mut self.dock, action),
+            Action::ReimportMesh => crate::mesh_reload::open(&mut self.state),
+            Action::NewProject => self.request(Pending::OpenMesh, now),
             Action::PenTool => { self.state.tool = Tool::Pen; self.state.picking_parts = false; }
             Action::Save => {
                 dialogs::save(&mut self.state, false, now);
@@ -879,11 +926,11 @@ impl SubcraftApp {
                     self.request(Pending::NewSample, now);
                     ui.close();
                 }
-                if item(ui, icons::CUBE, "New project from a model…", "") {
+                if item(ui, icons::CUBE, "New project from a model…", crate::keys::native("Ctrl+N")) {
                     ui.close();
                     self.request(Pending::OpenMesh, now);
                 }
-                if item(ui, icons::CUBE_WIRE, "Reload mesh…", "") {
+                if item(ui, icons::CUBE_WIRE, "Reload mesh…", crate::keys::native("Ctrl+Shift+R")) {
                     ui.close();
                     crate::mesh_reload::open(&mut self.state);
                 }
@@ -1139,24 +1186,7 @@ impl SubcraftApp {
     }
 
     fn shortcuts_window(&mut self, ctx: &egui::Context) {
-        let mut open = self.state.show_shortcuts;
-        crate::widgets::window(ctx, "Keyboard shortcuts").open(&mut open).resizable(false).collapsible(false).show(ctx, |ui| {
-            egui::Grid::new("shortcuts").num_columns(2).spacing([32.0, 8.0]).show(ui, |ui| {
-                let key = |t: String| RichText::new(t).monospace().color(theme::ACCENT);
-                for a in ACTIONS {
-                    ui.label(RichText::new(a.label).color(theme::TEXT_DIM));
-                    ui.label(key(a.shortcuts.iter().map(|s| s.label()).collect::<Vec<_>>().join(" / ")));
-                    ui.end_row();
-                }
-                let nav_help = self.state.recovery.prefs.nav_scheme.help();
-                for (what, how) in nav_help.into_iter().chain([("Straight line", "Shift+click"), ("Part actions", "RMB click"), ("Isolate / hide part", "I / H in the 3D view"), ("Restore all parts", "Esc in the 3D view"), ("Pick material", "Shift+click with eyedropper")]) {
-                    ui.label(RichText::new(what).color(theme::TEXT_DIM));
-                    ui.label(key(how.to_string()));
-                    ui.end_row();
-                }
-            });
-        });
-        self.state.show_shortcuts = open;
+        crate::shortcuts::window(&mut self.state, ctx);
     }
 
     /// A scripted Rendering-mode capture waits for its samples (or for the mode to give up).
@@ -1221,27 +1251,51 @@ fn rail_divider(ui: &mut Ui) {
 }
 
 fn map_key(k: egui::Key) -> Option<Key> {
+    use egui::Key as E;
     Some(match k {
-        egui::Key::A => Key::A,
-        egui::Key::B => Key::B,
-        egui::Key::D => Key::D,
-        egui::Key::E => Key::E,
-        egui::Key::F => Key::F,
-        egui::Key::G => Key::G,
-        egui::Key::N => Key::N,
-        egui::Key::O => Key::O,
-        egui::Key::P => Key::P,
-        egui::Key::S => Key::S,
-        egui::Key::X => Key::X,
-        egui::Key::Y => Key::Y,
-        egui::Key::Z => Key::Z,
-        egui::Key::Delete => Key::Delete,
-        egui::Key::OpenBracket => Key::OpenBracket,
-        egui::Key::CloseBracket => Key::CloseBracket,
-        egui::Key::Home => Key::Home,
-        egui::Key::F10 => Key::F10,
+        E::A => Key::A, E::B => Key::B, E::C => Key::C, E::D => Key::D, E::E => Key::E, E::F => Key::F, E::G => Key::G,
+        E::H => Key::H, E::I => Key::I, E::J => Key::J, E::K => Key::K, E::L => Key::L, E::M => Key::M, E::N => Key::N,
+        E::O => Key::O, E::P => Key::P, E::Q => Key::Q, E::R => Key::R, E::S => Key::S, E::T => Key::T, E::U => Key::U,
+        E::V => Key::V, E::W => Key::W, E::X => Key::X, E::Y => Key::Y, E::Z => Key::Z,
+        E::Num0 => Key::Num0, E::Num1 => Key::Num1, E::Num2 => Key::Num2, E::Num3 => Key::Num3, E::Num4 => Key::Num4,
+        E::Num5 => Key::Num5, E::Num6 => Key::Num6, E::Num7 => Key::Num7, E::Num8 => Key::Num8, E::Num9 => Key::Num9,
+        E::F1 => Key::F1, E::F2 => Key::F2, E::F3 => Key::F3, E::F4 => Key::F4, E::F5 => Key::F5, E::F6 => Key::F6,
+        E::F7 => Key::F7, E::F8 => Key::F8, E::F9 => Key::F9, E::F10 => Key::F10, E::F11 => Key::F11, E::F12 => Key::F12,
+        E::Delete => Key::Delete, E::Backspace => Key::Backspace, E::Space => Key::Space, E::Tab => Key::Tab,
+        E::OpenBracket => Key::OpenBracket, E::CloseBracket => Key::CloseBracket, E::Comma => Key::Comma, E::Period => Key::Period,
+        E::Home => Key::Home,
         _ => return None,
     })
+}
+
+/// F1 / F2 / F3: the 3D and 2D views side by side (`ViewSplit`), or one of them alone.
+pub fn set_view_layout(dock: &mut DockState<Tab>, action: Action) {
+    use egui_dock::{Split, TabDestination, TabInsert};
+    let (Some(vp), Some(uv)) = (dock.find_tab(&Tab::Viewport), dock.find_tab(&Tab::UvView)) else { return };
+    let together = vp.node_path() == uv.node_path();
+    match action {
+        Action::ViewSplit => {
+            if together {
+                dock.move_tab(uv, TabDestination::Node(vp.node_path(), TabInsert::Split(Split::Right)));
+            }
+        }
+        Action::View3D | Action::View2D => {
+            if !together {
+                dock.remove_tab(uv);
+                if let Some(vp) = dock.find_tab(&Tab::Viewport)
+                    && let Ok(leaf) = dock.leaf_mut(vp.node_path())
+                {
+                    leaf.append_tab(Tab::UvView);
+                }
+            }
+            let shown = if action == Action::View3D { Tab::Viewport } else { Tab::UvView };
+            if let Some(path) = dock.find_tab(&shown) {
+                let _ = dock.set_active_tab(path);
+                dock.set_focused_node_and_surface(path.node_path());
+            }
+        }
+        _ => {}
+    }
 }
 
 struct Viewer<'a> {

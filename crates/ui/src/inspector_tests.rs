@@ -534,3 +534,103 @@ fn effect_rows_add_select_edit_and_route_paint_effects_to_the_brush() {
     assert!(active(&app, Tab::Brush));
     assert_eq!(app.state.session.history().entries().len(), history + 3);
 }
+
+/// One frame with key presses going through the real shortcut dispatch.
+fn keys_frame(app: &mut SubcraftApp, ctx: &egui::Context, events: Vec<Event>) -> egui::FullOutput {
+    let out_keys = events.clone();
+    let mut out = ctx.run_ui(
+        egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(1600.0, 1100.0))), events, ..Default::default() },
+        |ui| {
+            app.shortcuts(ui.ctx());
+            app.workspace(ui);
+        },
+    );
+    // Release the keys (a second press without a release counts as a repeat).
+    let ups = events_up(&out_keys);
+    let _ = ctx.run_ui(egui::RawInput { events: ups, ..Default::default() }, |_| {});
+    out.textures_delta.clear();
+    out
+}
+
+fn events_up(events: &[Event]) -> Vec<Event> {
+    events.iter().filter_map(|e| match e {
+        Event::Key { key, modifiers, .. } => Some(Event::Key { key: *key, physical_key: None, pressed: false, repeat: false, modifiers: *modifiers }),
+        _ => None,
+    }).collect()
+}
+
+fn key(k: egui::Key, modifiers: egui::Modifiers) -> Event {
+    Event::Key { key: k, physical_key: None, pressed: true, repeat: false, modifiers }
+}
+
+fn split_views(dock: &DockState<Tab>) -> bool {
+    let (vp, uv) = (dock.find_tab(&Tab::Viewport).unwrap(), dock.find_tab(&Tab::UvView).unwrap());
+    vp.node_path() != uv.node_path()
+}
+
+#[test]
+fn f1_f2_f3_switch_view_layouts_and_keep_every_panel() {
+    let mut dock = default_layout();
+    set_view_layout(&mut dock, Action::ViewSplit);
+    assert!(split_views(&dock), "F1 puts 3D and 2D side by side");
+    assert!(layout_is_valid(&dock));
+    set_view_layout(&mut dock, Action::ViewSplit);
+    assert!(split_views(&dock), "again is a no-op");
+    set_view_layout(&mut dock, Action::View2D);
+    assert!(!split_views(&dock), "F3 shows one view");
+    assert!(layout_is_valid(&dock));
+    let uv = dock.find_tab(&Tab::UvView).unwrap();
+    let leaf = dock.leaf(uv.node_path()).unwrap();
+    assert_eq!(leaf.tabs()[leaf.active.0], Tab::UvView, "the 2D view is in front");
+    set_view_layout(&mut dock, Action::View3D);
+    let vp = dock.find_tab(&Tab::Viewport).unwrap();
+    let leaf = dock.leaf(vp.node_path()).unwrap();
+    assert_eq!(leaf.tabs()[leaf.active.0], Tab::Viewport, "F2 brings the 3D view to the front");
+}
+
+#[test]
+fn painter_keys_reach_tools_views_and_layers() {
+    let (mut app, ctx, ids) = setup();
+    settle(&mut app, &ctx);
+    let none = egui::Modifiers::NONE;
+    keys_frame(&mut app, &ctx, vec![key(egui::Key::Num2, none)]);
+    assert_eq!(app.state.tool, Tool::Eraser);
+    keys_frame(&mut app, &ctx, vec![key(egui::Key::Num5, none)]);
+    assert_eq!(app.state.tool, Tool::Smudge);
+    assert_eq!(app.state.session.brush.mode, subcraft_paint::StrokeMode::Smudge);
+    keys_frame(&mut app, &ctx, vec![key(egui::Key::Num1, none)]);
+    assert_eq!(app.state.tool, Tool::Brush);
+    keys_frame(&mut app, &ctx, vec![key(egui::Key::C, none)]);
+    assert_eq!(app.state.recovery.prefs.viewport.view_mode, 1, "C shows the next channel");
+    keys_frame(&mut app, &ctx, vec![key(egui::Key::M, none)]);
+    assert_eq!(app.state.recovery.prefs.viewport.view_mode, 0, "M is the material view");
+    keys_frame(&mut app, &ctx, vec![key(egui::Key::B, none)]);
+    assert!(app.state.recovery.prefs.viewport.mesh_map.is_some(), "B shows a mesh map");
+    keys_frame(&mut app, &ctx, vec![key(egui::Key::F1, none)]);
+    assert!(split_views(&app.dock));
+    keys_frame(&mut app, &ctx, vec![key(egui::Key::F3, none)]);
+    assert!(!split_views(&app.dock));
+
+    // F2 away from the Layers panel is the 3D view, not a rename.
+    app.state.layers_hovered = false;
+    keys_frame(&mut app, &ctx, vec![key(egui::Key::F2, none)]);
+    assert!(!app.state.rename_request);
+    // Over the Layers panel it renames.
+    app.state.layers_hovered = true;
+    let _ = ctx.run_ui(egui::RawInput { events: vec![key(egui::Key::F2, none)], ..Default::default() }, |ui| app.shortcuts(ui.ctx()));
+    assert!(app.state.rename_request);
+    app.state.rename_request = false;
+
+    // Ctrl+G groups the selection into a folder (one undo step).
+    let ts = app.state.session.selected_texture_set().layers.len();
+    app.state.session.execute(Command::SelectLayer(Some(ids[0]))).unwrap();
+    keys_frame(&mut app, &ctx, vec![key(egui::Key::G, egui::Modifiers::COMMAND)]);
+    assert_eq!(app.state.session.selected_texture_set().layers.len(), ts, "the folder takes the layer's place");
+    let folder = app.state.session.selected_texture_set().layers.iter().find(|l| l.children().iter().any(|c| c.id == ids[0]));
+    assert!(folder.is_some(), "the layer is inside a new folder");
+
+    // A rebound key works and the old one is free.
+    app.state.recovery.prefs.keymap.set(Action::PenTool, vec![Shortcut::key(Key::Num1)]);
+    keys_frame(&mut app, &ctx, vec![key(egui::Key::Num1, none)]);
+    assert_eq!(app.state.tool, Tool::Pen);
+}

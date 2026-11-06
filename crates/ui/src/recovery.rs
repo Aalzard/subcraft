@@ -45,6 +45,8 @@ pub struct Preferences {
     pub viewport: crate::viewport_bar::ViewportPrefs,
     /// The choices made in the New Project window last time.
     pub new_project: subcraft_app::new_project::NewProjectSettings,
+    /// Keyboard shortcuts the user changed (the rest keep their defaults).
+    pub keymap: subcraft_app::Keymap,
 }
 
 impl Default for Preferences {
@@ -62,6 +64,7 @@ impl Default for Preferences {
             use_gpu_compositing: true,
             viewport: Default::default(),
             new_project: Default::default(),
+            keymap: Default::default(),
         }
     }
 }
@@ -245,6 +248,7 @@ fn ago(t: std::time::SystemTime) -> String {
 /// File / Edit → Preferences. UI size is the first setting and applies without a restart.
 pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
     let graphics = &mut state.graphics;
+    let show_shortcuts = &mut state.show_shortcuts;
     let rec = &mut state.recovery;
     if !rec.show_prefs {
         return;
@@ -283,6 +287,16 @@ pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
         for (what, how) in rec.prefs.nav_scheme.help() {
             ui.label(RichText::new(format!("{what}: {how}")).small().color(TEXT_DIM));
         }
+        ui.horizontal(|ui| {
+            ui.label("Keyboard shortcuts");
+            if secondary_button(ui, "Edit shortcuts…").on_hover_text("See every shortcut and bind your own keys").clicked() {
+                *show_shortcuts = true;
+            }
+            let changed = rec.prefs.keymap.custom.len();
+            if changed > 0 {
+                ui.label(RichText::new(format!("{changed} changed")).small().color(TEXT_DIM));
+            }
+        });
         if ui.checkbox(&mut rec.prefs.use_gpu_compositing, "Use GPU for compositing")
             .on_hover_text("Blends layers on the graphics card for big edits (opening a project, changing a layer under many others) on texture sets of 2048 and larger. Procedural fills, generator masks and blur-type filters are still computed by the processor, and sets with blur-type filters use the processor entirely. Small edits such as brush strokes always use the processor.")
             .changed()

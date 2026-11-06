@@ -56,6 +56,8 @@ pub enum NavMode {
     Light,
     /// Turn the environment (HDRI / sky) around the model.
     Environment,
+    /// Brush size (left / right) and hardness (up / down).
+    BrushSize,
 }
 
 /// Held mouse buttons and modifiers.
@@ -73,7 +75,9 @@ pub struct NavInput {
 pub fn mode_for(scheme: NavScheme, i: NavInput) -> NavMode {
     match scheme {
         NavScheme::Painter => {
-            if i.shift && i.secondary {
+            if i.ctrl && i.secondary {
+                NavMode::BrushSize
+            } else if i.shift && i.secondary {
                 NavMode::Light
             } else if i.shift && i.middle {
                 NavMode::Environment
@@ -154,6 +158,7 @@ mod tests {
         assert_eq!(mode_for(p, inp(false, true, false, false, false, true)), NavMode::Pan);
         assert_eq!(mode_for(p, inp(false, false, true, false, false, true)), NavMode::Zoom);
         assert_eq!(mode_for(p, inp(false, false, true, true, false, false)), NavMode::Light, "Shift+RMB turns the light");
+        assert_eq!(mode_for(p, NavInput { secondary: true, ctrl: true, ..Default::default() }), NavMode::BrushSize, "Ctrl+RMB sizes the brush");
         assert_eq!(mode_for(p, inp(false, true, false, true, false, false)), NavMode::Environment, "Shift+MMB turns the environment");
     }
 

@@ -129,6 +129,11 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         NavMode::Zoom => state.camera.zoom((d.y * 0.01).exp()),
                         NavMode::Light => state.light_yaw = (state.light_yaw + d.x * 0.01).rem_euclid(std::f32::consts::TAU),
                         NavMode::Environment => state.env.rotation_deg = (state.env.rotation_deg + d.x * 0.5).rem_euclid(360.0),
+                        NavMode::BrushSize => {
+                            let b = &mut state.session.brush.settings;
+                            b.size = (b.size * (d.x * 0.01).exp()).clamp(0.1, 100.0);
+                            b.hardness = (b.hardness - d.y * 0.005).clamp(0.0, 1.0);
+                        }
                         NavMode::None => {}
                     }
                 }

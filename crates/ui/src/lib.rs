@@ -25,6 +25,7 @@ pub mod text_panel;
 pub mod panels;
 pub mod recovery;
 pub mod spp_import;
+pub mod shortcuts;
 pub mod state;
 pub mod layer_previews;
 pub mod edit_profile;
