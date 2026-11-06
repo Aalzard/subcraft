@@ -31,6 +31,24 @@ fn new_text_window_opens_empty_and_adds_nothing_until_confirmed() {
 }
 
 #[test]
+fn new_text_window_keeps_a_fixed_width_on_a_wide_screen() {
+    let mut s = state();
+    let ctx = egui::Context::default();
+    subcraft_ui::theme::apply(&ctx);
+    s.text.open_new();
+    for _ in 0..4 {
+        let mut out = ctx.run_ui(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(2400.0, 1200.0))), ..Default::default() }, |ui| {
+            let now = ui.input(|i| i.time);
+            subcraft_ui::text_panel::window(&mut s, ui.ctx(), now);
+        });
+        out.textures_delta.clear();
+    }
+    let rect = ctx.memory(|m| m.area_rect(egui::Id::new("text_window"))).expect("window laid out");
+    assert!(rect.width() <= subcraft_ui::text_panel::WINDOW_WIDTH + 20.0, "window width {} must not stretch", rect.width());
+    assert!(rect.width() >= 300.0, "window width {} too narrow", rect.width());
+}
+
+#[test]
 fn edit_window_closes_when_no_text_layer_is_selected() {
     let mut s = state();
     let ctx = egui::Context::default();

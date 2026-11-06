@@ -26,7 +26,7 @@ impl Edit {
 pub fn fill_width(ui: &mut Ui) {
     let w = ui.available_width();
     let s = ui.spacing_mut();
-    s.slider_width = (w - 64.0).max(60.0);
+    s.slider_width = (w - 116.0).max(60.0);
     s.combo_width = w.max(60.0);
     s.text_edit_width = w.max(60.0);
 }
