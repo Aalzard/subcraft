@@ -1864,6 +1864,31 @@ impl Session {
         subcraft_export::export(&self.scene.mesh, &name, &sets, &settings, dir).map_err(|e| e.to_string())
     }
 
+    /// Export raw baked mesh maps (issue #93): every map in `kinds` of every texture set that has
+    /// it baked (only the selected set when `selected_only`), one file each named
+    /// `<mesh>_<set>_baked_<map>`, using the export settings' padding and file format override.
+    /// Maps a set has not baked are skipped.
+    pub fn export_baked_maps(&mut self, dir: &Path, kinds: &[subcraft_core::MeshMapKind], selected_only: bool, settings: &subcraft_export::ExportSettings) -> Result<Vec<PathBuf>, String> {
+        // Export sets are listed from the composites, so they must exist (the maps themselves are raw).
+        self.update_composites();
+        let mut settings = self.effective_export_settings(settings);
+        settings.selection = subcraft_export::MapSelection::default();
+        let (name, selected) = (self.export_name(), self.selected_texture_set().name.clone());
+        let sets: Vec<_> = self.export_sets().into_iter().filter(|s| !selected_only || s.name == selected).collect();
+        let mut written = Vec::new();
+        for &kind in kinds {
+            settings.template = subcraft_export::ExportTemplate::baked_map(kind);
+            settings.view_2d = Some(subcraft_export::View2d::MeshMap(kind));
+            written.extend(subcraft_export::export(&self.scene.mesh, &name, &sets, &settings, dir).map_err(|e| e.to_string())?);
+        }
+        Ok(written)
+    }
+
+    /// Baked mesh maps available for export: those at least one texture set has baked.
+    pub fn baked_map_kinds(&self) -> Vec<subcraft_core::MeshMapKind> {
+        subcraft_core::MeshMapKind::ALL.into_iter().filter(|k| self.document().texture_sets.iter().any(|ts| self.mesh_maps(ts.id).is_some_and(|m| m.get(*k).is_some()))).collect()
+    }
+
     /// Export textures plus a scene file (OBJ+MTL, glTF, GLB or USDA) into `dir`.
     pub fn export_scene(&mut self, dir: &Path, settings: &subcraft_export::ExportSettings, format: subcraft_export::scene::SceneFormat) -> Result<Vec<PathBuf>, String> {
         self.update_composites();
