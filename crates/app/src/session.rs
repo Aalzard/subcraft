@@ -1537,6 +1537,26 @@ impl Session {
         result
     }
 
+    /// Continue the stroke through every position of a frame's input events at once (a pen
+    /// reports hundreds per second): one stamping pass, one tile rewrite, stamps spaced along the
+    /// polyline whatever the event rate. A single position is exactly [`Session::stroke_to`].
+    pub fn stroke_to_many(&mut self, camera: &Camera, screens: &[Vec2]) -> Result<Vec<usize>, PaintError> {
+        let Some(mut active) = self.stroke.take() else { return Ok(Vec::new()) };
+        if screens.is_empty() {
+            self.stroke = Some(active);
+            return Ok(Vec::new());
+        }
+        active.camera = Some(*camera);
+        let result = self.with_stroke_context(active.texture_set, camera, |stroke, ts, ctx| stroke.add_points(ts, ctx, screens), active);
+        if result.as_ref().is_ok_and(|t| !t.is_empty()) {
+            self.revision += 1;
+        }
+        if let Some(offset) = self.stroke.as_ref().and_then(|a| a.stroke.clone_offset()) {
+            self.clone_offset = Some(offset);
+        }
+        result
+    }
+
     /// Clone tool: use the surface point under `screen` as the source (a new offset is fixed by
     /// the next stroke's first dab). Returns false when the cursor is not over the model.
     pub fn set_clone_source(&mut self, camera: &Camera, screen: Vec2) -> bool {

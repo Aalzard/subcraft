@@ -17,7 +17,7 @@ use subcraft_mesh::{Bvh, Mesh};
 
 use crate::camera::Camera;
 use crate::depth::{DepthCache, DepthMap};
-use crate::kernel::{KernelInput, TileWork};
+use crate::kernel::{KernelInput, TexelSample, TileWork};
 use crate::path::{PathSample, ScreenPath, rand01};
 use crate::settings::{Alignment, BrushMaterial, BrushSettings, PaintTarget, PolygonFillMode, StrokeMode, StrokeOptions};
 use crate::stamp::{Dab, Stamp, resolve_overlap};
@@ -63,7 +63,25 @@ pub struct Stroke {
     carried: Vec<Option<[f32; 4]>>,
     /// Average UV units per object unit of the painted texture set (2D-view strokes).
     uv_per_unit: Option<f32>,
+    raster: RasterCache,
 }
+
+/// The visible texel samples of every tile the stroke touched, per camera: later stamps on the
+/// same tile skip rasterizing and the visibility test (a pen stroke stamps the same tiles again
+/// and again). Dropped when the cameras, mesh or visibility settings change, and when it grows
+/// past [`RASTER_CACHE_SAMPLES`].
+#[derive(Clone)]
+struct RasterCache {
+    enabled: bool,
+    key: Option<RasterKey>,
+    tiles: HashMap<(usize, usize), Arc<[TexelSample]>>,
+    samples: usize,
+}
+
+type RasterKey = (Vec<Camera>, Alignment, Option<u32>, u32, u32, usize);
+
+/// About 120 MB of cached samples.
+const RASTER_CACHE_SAMPLES: usize = 3_000_000;
 
 /// Where a clone stroke copies from: an object-space surface point, and the screen offset from
 /// the stroke's own position to it (fixed by the first dab, then kept so later strokes align).
@@ -118,7 +136,16 @@ impl Stroke {
             work: Vec::new(),
             carried: Vec::new(),
             uv_per_unit: None,
+            raster: RasterCache { enabled: std::env::var_os("SUBCRAFT_NO_RASTER_CACHE").is_none(), key: None, tiles: HashMap::new(), samples: 0 },
         })
+    }
+
+    /// The original stamping path: rasterize and visibility-test every touched tile again for each
+    /// stamp and rewrite all of them (used to
+    /// check that the per-stroke sample cache and the unchanged-tile skip change nothing).
+    pub fn without_raster_cache(mut self) -> Self {
+        self.raster.enabled = false;
+        self
     }
 
     /// Clone from `point` (object space). `offset` is the screen offset kept from an earlier
@@ -410,6 +437,31 @@ impl Stroke {
             stencil: self.stencil.as_deref().filter(|_| stencil),
         };
         let bins = input.bin(stamps);
+        let cached = self.raster.enabled;
+        if cached {
+            let key: RasterKey = (cameras.to_vec(), alignment, backface_cos.map(f32::to_bits), ctx.geometry.resolution, ctx.geometry.material_slot, ctx.mesh as *const Mesh as usize);
+            if self.raster.key.as_ref() != Some(&key) || self.raster.samples > RASTER_CACHE_SAMPLES {
+                self.raster.tiles.clear();
+                self.raster.samples = 0;
+            }
+            self.raster.key = Some(key);
+            let mut missing = std::collections::BTreeSet::new();
+            for (&t, w) in &bins {
+                for &si in &w.stamps {
+                    let c = stamps[si as usize].camera;
+                    if !self.raster.tiles.contains_key(&(t, c)) {
+                        missing.insert((t, c));
+                    }
+                }
+            }
+            let built: Vec<((usize, usize), Arc<[TexelSample]>)> =
+                missing.into_par_iter().map(|(t, c)| ((t, c), Arc::from(input.tile_samples(t, c)))).collect();
+            for (k, samples) in built {
+                self.raster.samples += samples.len();
+                self.raster.tiles.insert(k, samples);
+            }
+        }
+        let raster = &self.raster.tiles;
         let work: Vec<(usize, TileWork, Box<[f32]>)> = bins
             .into_iter()
             .map(|(t, w)| {
@@ -417,17 +469,26 @@ impl Stroke {
                 (t, w, cov)
             })
             .collect();
-        let done: Vec<(usize, Box<[f32]>)> = work
+        let done: Vec<(usize, Box<[f32]>, bool)> = work
             .into_par_iter()
             .map(|(t, w, mut cov)| {
-                let samples = input.rasterize_tile(t, w.tris.iter().copied());
-                input.accumulate(&samples, stamps, &w.stamps, &mut cov);
+                // A stamp's bounding region covers whole triangles, so many touched tiles gain
+                // nothing; those need no rewrite, no re-composite and no GPU upload.
+                let before = cached.then(|| cov.clone());
+                if cached {
+                    let per_camera: Vec<Option<&[TexelSample]>> = (0..cameras.len()).map(|c| raster.get(&(t, c)).map(|s| &s[..])).collect();
+                    input.accumulate_visible(&per_camera, stamps, &w.stamps, &mut cov);
+                } else {
+                    let samples = input.rasterize_tile(t, w.tris.iter().copied());
+                    input.accumulate(&samples, stamps, &w.stamps, &mut cov);
+                }
                 self.restrict_coverage(ctx.geometry, t, &mut cov);
-                (t, cov)
+                let changed = before.is_none_or(|b| b != cov);
+                (t, cov, changed)
             })
             .collect();
-        let tiles: Vec<usize> = done.iter().map(|(t, _)| *t).collect();
-        self.coverage.extend(done);
+        let tiles: Vec<usize> = done.iter().filter(|d| d.2).map(|d| d.0).collect();
+        self.coverage.extend(done.into_iter().map(|(t, cov, _)| (t, cov)));
         self.write(ts, ctx, &tiles)
     }
 
