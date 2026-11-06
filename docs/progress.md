@@ -4422,3 +4422,9 @@ real cost of the big_project stack), and letting GPU-composited tiles fill the C
 * **Measured** (RTX 4060, Vulkan, 1920x1080 sample crate, best of 4 rounds of 20 frames, incl. readback; `cargo test --release -p subcraft-render --test post dof_cost -- --ignored --nocapture`): plain 3.04 ms, SSAO 3.66 ms (+0.62), DoF 5.81 ms (+2.77). A 32-tap version cost +3.98 ms; 20 taps chosen, a bit noisier bokeh.
 * **Not verified**: by eye in the real app (no screenshots taken, mouse not driven); the focus picker click and the new settings widgets were not exercised; `cargo test -p subcraft-ui --test render_quality --test brush_bar` 12 passed (E: ran out of space once mid-run; a stale render artifact in the shared target dir needed a touch to rebuild).
 
+## 2026-11-06 — Substance Painter shortcuts + viewport hints (branch `painter-shortcuts`)
+
+* Keymap data in `crates/app/src/actions.rs`: 33 actions, two key sets (`KeymapPreset::SubCraft` default / `Painter`, Preferences → Keyboard shortcuts, `keymap` pref), `PAINTER_REFERENCE` (89 rows of Painter's documented list with status). Details and full table: `docs/painter-shortcuts.md`.
+* New gestures: Ctrl+Alt+LMB pan, Ctrl+RMB drag size/hardness, Ctrl+LMB drag flow/angle, V+click clone source. Menus/tooltips show the active key set; Help → Keyboard shortcuts is a searchable sheet.
+* Viewport hint overlay (`crates/ui/src/viewport_hints.rs`): context-sensitive (tool, Alt/Ctrl/Shift, hidden parts, stencil, mask, Rendering mode), keys from the active key set, rows cached until the context changes, View → Viewport hints toggle (pref `viewport.hints`).
+* Run: `cargo test -p subcraft-ui --lib` 88 passed, `cargo test -p subcraft-app --lib` 91 passed, `cargo check --workspace --tests` clean. NOT run: ui integration tests (disk on E: nearly full, link failed LNK1180), nothing exercised by hand in the running app (no mouse/keyboard driving).

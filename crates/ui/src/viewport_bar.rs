@@ -24,6 +24,8 @@ pub struct ViewportPrefs {
     pub grid: bool,
     pub grid_axes: [bool; 3],
     pub symmetry_guides: bool,
+    /// Bottom-left list of the mouse / key actions that apply now.
+    pub hints: bool,
     /// Index into [`subcraft_render::ToneMap::ALL`].
     pub tone_map: usize,
     pub exposure: f32,
@@ -74,6 +76,7 @@ impl Default for ViewportPrefs {
             grid: true,
             grid_axes: [true, false, true],
             symmetry_guides: true,
+            hints: true,
             tone_map: 0,
             exposure: 1.0,
             bloom: 0.0,
