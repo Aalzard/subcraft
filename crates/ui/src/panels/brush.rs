@@ -26,6 +26,15 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 });
             });
 
+            section(ui, "material", "Material", true, |ui| {
+                if state.session.brush.target.is_mask() {
+                    let mut material = state.session.brush.material.clone();
+                    if slider_row(ui, "Mask value", egui::Slider::new(&mut material.mask_value, 0.0..=1.0)).changed() {
+                        let _ = state.session.execute(subcraft_app::Command::SetBrushMaterial(material));
+                    }
+                } else { super::brush_material::show(state, ui); }
+            });
+
             section(ui, "presets", "Presets", true, |ui| {
                 ui.horizontal(|ui| {
                     ui.add(egui::TextEdit::singleline(&mut state.preset_name).hint_text("Preset name").desired_width(150.0));
@@ -79,15 +88,6 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     }
                 }
                 hint(ui, "White paints, black blocks. In the 3D view hold S and drag: left = rotate, middle = move, right = scale. Hold N to paint without it.");
-            });
-
-            section(ui, "material", "Material", true, |ui| {
-                if state.session.brush.target.is_mask() {
-                    let mut material = state.session.brush.material.clone();
-                    if slider_row(ui, "Mask value", egui::Slider::new(&mut material.mask_value, 0.0..=1.0)).changed() {
-                        let _ = state.session.execute(subcraft_app::Command::SetBrushMaterial(material));
-                    }
-                } else { super::brush_material::show(state, ui); }
             });
 
             let b = &mut state.session.brush;

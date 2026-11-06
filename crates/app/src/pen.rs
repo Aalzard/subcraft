@@ -194,7 +194,10 @@ impl PenEditor {
     pub fn poll(&mut self, session: &mut Session, budget: usize) -> Result<bool, CommandError> {
         let Some(mut pending) = self.pending.pop_front() else { return Ok(false); };
         if !pending.edit.valid(session) { self.cancel(); return Err(error("path changed; pending pen edit canceled")); }
-        pending.raster.step(budget);
+        // The whole raster at once, in parallel: milliseconds, so a pen edit shows on release
+        // (the old per-frame budget made edits trickle in over a second or more).
+        let _ = budget;
+        pending.raster.run();
         if !pending.raster.is_done() { self.pending.push_front(pending); return Ok(true); }
         let Edit { mut layer, path, new, label, selection, .. } = pending.edit;
         let current = session.selection();

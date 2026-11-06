@@ -68,9 +68,6 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             }
         });
         ui.horizontal_wrapped(|ui| brush_controls(state, ui));
-        if painting_tool {
-            crate::brush_bar::channel_switches(ui, state);
-        }
     });
     let (rect, response) = ui.allocate_exact_size(ui.available_size(), Sense::click_and_drag());
     if response.hovered() {
@@ -205,6 +202,9 @@ fn paint_input(state: &mut UiState, ui: &Ui, response: &egui::Response, image: R
         return;
     }
     state.session.brush.mode = if state.tool == Tool::Eraser { StrokeMode::Erase } else { StrokeMode::Paint };
+    if let Some(name) = state.session.ensure_paint_layer() {
+        state.set_status(format!("Painting on a new paint layer, \"{name}\" (the selected layer was not a paint layer)"), now);
+    }
     match state.session.begin_stroke() {
         Ok(()) => {
             state.uv.painting = true;

@@ -300,6 +300,25 @@ const fn info(category: &'static str, description: &'static str) -> Option<Asset
 
 pub fn smart_material_info(name: &str) -> Option<AssetInfo> {
     match name {
+        // PBR pack (textured, with wear and dirt layers)
+        "Black Basalt" => info("Stone", "Dark volcanic basalt with dirt in the pores and dust on top"),
+        "Travertine" => info("Stone", "Pale pitted travertine with dirt in the holes and settled dust"),
+        "Terrazzo" => info("Stone", "Polished terrazzo chips with grime in the gaps and dust on top"),
+        "Cobblestone" => info("Stone", "Rounded cobbles with dirt between the stones and dust on top"),
+        "Cracked Asphalt" => info("Stone", "Weathered asphalt with dirt in the cracks and road dust"),
+        "Dry Mud PBR" => info("Nature", "Cracked dry mud, darker in the fissures, dusty on top"),
+        "Desert Sand" => info("Nature", "Fine rippled sand with darker hollows and a dusty crust"),
+        "Mossy Stone PBR" => info("Nature", "Stone with moss, dark in the crevices and dusty on top"),
+        "Tree Bark" => info("Wood", "Deep ridged bark with worn ridges and grime in the furrows"),
+        "Cork" => info("Wood", "Granular cork board with worn edges and grime in the pores"),
+        "Bamboo Flooring" => info("Wood", "Bamboo strips with worn edges and dirt in the seams"),
+        "Woven Linen" => info("Fabric", "Woven linen cloth, rubbed pale on edges, grimy in the folds"),
+        "Worn Leather PBR" => info("Fabric", "Creased leather, pale on worn edges and dark in the creases"),
+        "Industrial Rubber" => info("Plastic", "Textured rubber with scuffed edges and dirt in the grooves"),
+        "Brushed Aluminum" => info("Metal", "Brushed aluminium with polished edges and dirt in recesses"),
+        "Oxidized Copper PBR" => info("Metal", "Green-patinated copper, polished on edges, dirty in recesses"),
+        "Galvanized Steel PBR" => info("Metal", "Spangled galvanized steel with bright edges and dirt in recesses"),
+        "Hex Armor" => info("Metal", "Hexagonal armour plating with polished edges and dirt in the seams"),
         "Worn Painted Metal" => info("Metal", "Blue paint worn through to steel on edges, dirt in crevices"),
         "Rusty Iron" => info("Metal", "Rough iron with rust gathering in the cavities"),
         "Dusty Plastic" => info("Plastic", "Glossy red plastic with dust settling on upward faces"),

@@ -20,6 +20,10 @@ pub struct ViewportPrefs {
     pub orthographic: bool,
     /// Index into [`ViewMode::ALL`].
     pub view_mode: usize,
+    /// A baked mesh map shown raw on the model instead of the view mode (the mesh map viewer;
+    /// not remembered between runs).
+    #[serde(skip)]
+    pub mesh_map: Option<subcraft_core::MeshMapKind>,
     /// Display-only floor grid and axis guides. Old preference files receive these defaults.
     pub grid: bool,
     pub grid_axes: [bool; 3],
@@ -65,6 +69,7 @@ impl Default for ViewportPrefs {
             antialias: true,
             orthographic: false,
             view_mode: 0,
+            mesh_map: None,
             grid: true,
             grid_axes: [true, false, true],
             symmetry_guides: true,
@@ -196,9 +201,6 @@ pub fn show(ui: &mut Ui, state: &mut crate::state::UiState) {
                 ui.horizontal(|ui| {
                     crate::brush_bar::show(ui, &mut state.tool, &mut settings, &mut options, &mut state.recovery.prefs.viewport.symmetry_guides, width)
                 });
-            }
-            if painting {
-                crate::brush_bar::channel_switches(ui, state);
             }
         });
     ui.painter().hline(
@@ -332,15 +334,35 @@ fn resolution(ui: &mut Ui, prefs: &mut ViewportPrefs) {
 fn view_mode(ui: &mut Ui, prefs: &mut ViewportPrefs, wide: bool) {
     dim(ui, "View");
     let mut mode = prefs.view_mode();
+    let shown = match prefs.mesh_map { Some(k) => format!("Mesh map: {}", k.display_name()), None => mode.label().to_string() };
     egui::ComboBox::from_id_salt("viewport_view_mode")
         .width(if wide { 150.0 } else { 92.0 })
-        .selected_text(mode.label())
+        .selected_text(shown)
         .show_ui(ui, |ui| {
             for m in ViewMode::ALL {
-                ui.selectable_value(&mut mode, m, m.label());
+                if ui.selectable_label(prefs.mesh_map.is_none() && mode == m, m.label()).clicked() {
+                    mode = m;
+                    prefs.mesh_map = None;
+                }
+            }
+            ui.separator();
+            ui.label(RichText::new("Mesh maps (baked)").color(TEXT_DIM));
+            for k in subcraft_core::MeshMapKind::ALL {
+                if ui.selectable_label(prefs.mesh_map == Some(k), k.display_name()).clicked() {
+                    prefs.mesh_map = Some(k);
+                }
             }
         });
     prefs.view_mode = ViewMode::ALL.iter().position(|m| *m == mode).unwrap_or(0);
+}
+
+/// Cycle the mesh map viewer through the baked maps (B), starting from the material view.
+pub fn cycle_mesh_map(prefs: &mut ViewportPrefs) {
+    let all = subcraft_core::MeshMapKind::ALL;
+    prefs.mesh_map = match prefs.mesh_map {
+        None => Some(all[0]),
+        Some(k) => all.iter().position(|&m| m == k).and_then(|i| all.get(i + 1)).copied(),
+    };
 }
 
 fn dim(ui: &mut Ui, text: &str) {
@@ -352,20 +374,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn texture_sets_albedo_dropdown_is_below_resolution_and_dispatches_an_undoable_edit() {
+    fn texture_set_settings_albedo_dropdown_dispatches_an_undoable_edit() {
         let ctx = egui::Context::default(); crate::theme::apply(&ctx);
         let mut state = crate::state::UiState::new(subcraft_app::Session::new(subcraft_mesh::primitives::cube(2.), 128), None);
         let initial = state.session.document().clone();
         let draw = |state: &mut crate::state::UiState, events| {
             let mut out = ctx.run_ui(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1600., 940.))), events, ..Default::default() }, |ui| {
-                egui::CentralPanel::default().show(ui, |ui| crate::panels::texture_sets::show(state, ui));
+                egui::CentralPanel::default().show(ui, |ui| crate::panels::channels::show(state, ui));
             }); out.textures_delta.clear(); out
         };
         draw(&mut state, vec![]); let output = draw(&mut state, vec![]);
         let text_position = |output: &egui::FullOutput, text: &str| output.shapes.iter().find_map(|s| match &s.shape {
             egui::epaint::Shape::Text(t) if t.galley.job.text == text => Some(t.pos + t.galley.size() * 0.5), _ => None,
         }).unwrap_or_else(|| panic!("missing {text}"));
-        assert!(text_position(&output, "Albedo").y > text_position(&output, "RESOLUTION").y);
+        assert!(text_position(&output, "Albedo").y > text_position(&output, "MESH MAPS").y, "under the mesh maps, in Display");
         let click = |state: &mut crate::state::UiState, pos| {
             draw(state, vec![egui::Event::PointerMoved(pos), egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: true, modifiers: Default::default() }]);
             draw(state, vec![egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: false, modifiers: Default::default() }])

@@ -13,7 +13,9 @@ use crate::widgets::{primary_button, secondary_button};
 
 /// eframe storage key of [`Preferences`].
 pub const PREFS_KEY: &str = "subcraft_prefs_v1";
-pub const DEFAULT_UI_SIZE: u32 = 95;
+pub const DEFAULT_UI_SIZE: u32 = 85;
+/// The default before 85%: preferences still on it move to the new default once.
+const OLD_DEFAULT_UI_SIZE: u32 = 95;
 pub const UI_SIZE_RANGE: std::ops::RangeInclusive<u32> = 75..=150;
 
 /// User settings kept between runs.
@@ -45,6 +47,12 @@ pub struct Preferences {
     pub viewport: crate::viewport_bar::ViewportPrefs,
     /// The choices made in the New Project window last time.
     pub new_project: subcraft_app::new_project::NewProjectSettings,
+    /// Keyboard shortcuts the user changed (the rest keep their defaults).
+    pub keymap: subcraft_app::Keymap,
+    /// The 85% default has been applied (preferences saved before it were on 95%; they load
+    /// with this false).
+    #[serde(default)]
+    pub ui_size_85: bool,
 }
 
 impl Default for Preferences {
@@ -62,12 +70,20 @@ impl Default for Preferences {
             use_gpu_compositing: true,
             viewport: Default::default(),
             new_project: Default::default(),
+            keymap: Default::default(),
+            ui_size_85: true,
         }
     }
 }
 
 impl Preferences {
     pub fn apply_ui_size(&mut self, ctx: &egui::Context) {
+        if !self.ui_size_85 {
+            if self.ui_size_percent == OLD_DEFAULT_UI_SIZE {
+                self.ui_size_percent = DEFAULT_UI_SIZE;
+            }
+            self.ui_size_85 = true;
+        }
         self.ui_size_percent = self.ui_size_percent.clamp(*UI_SIZE_RANGE.start(), *UI_SIZE_RANGE.end());
         let zoom = self.ui_size_percent as f32 / 100.0;
         if (ctx.zoom_factor() - zoom).abs() > 0.0001 {
@@ -245,6 +261,7 @@ fn ago(t: std::time::SystemTime) -> String {
 /// File / Edit → Preferences. UI size is the first setting and applies without a restart.
 pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
     let graphics = &mut state.graphics;
+    let show_shortcuts = &mut state.show_shortcuts;
     let rec = &mut state.recovery;
     if !rec.show_prefs {
         return;
@@ -258,11 +275,11 @@ pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
             ui.label("UI size");
             ui.spacing_mut().slider_width = 155.0;
             ui.add(egui::Slider::new(&mut rec.prefs.ui_size_percent, UI_SIZE_RANGE).step_by(5.0).suffix("%"));
-            if secondary_button(ui, "Reset").on_hover_text("Reset UI size to 95%").clicked() {
+            if secondary_button(ui, "Reset").on_hover_text("Reset UI size to 85%").clicked() {
                 rec.prefs.ui_size_percent = DEFAULT_UI_SIZE;
             }
         });
-        ui.label(RichText::new("Scale text, icons and controls together. Default: 95%.").small().color(TEXT_DIM));
+        ui.label(RichText::new("Scale text, icons and controls together. Default: 85%.").small().color(TEXT_DIM));
         ui.add_space(12.0);
         ui.separator();
         ui.add_space(8.0);
@@ -283,6 +300,16 @@ pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
         for (what, how) in rec.prefs.nav_scheme.help() {
             ui.label(RichText::new(format!("{what}: {how}")).small().color(TEXT_DIM));
         }
+        ui.horizontal(|ui| {
+            ui.label("Keyboard shortcuts");
+            if secondary_button(ui, "Edit shortcuts…").on_hover_text("See every shortcut and bind your own keys").clicked() {
+                *show_shortcuts = true;
+            }
+            let changed = rec.prefs.keymap.custom.len();
+            if changed > 0 {
+                ui.label(RichText::new(format!("{changed} changed")).small().color(TEXT_DIM));
+            }
+        });
         if ui.checkbox(&mut rec.prefs.use_gpu_compositing, "Use GPU for compositing")
             .on_hover_text("Blends layers on the graphics card for big edits (opening a project, changing a layer under many others) on texture sets of 2048 and larger. Procedural fills, generator masks and blur-type filters are still computed by the processor, and sets with blur-type filters use the processor entirely. Small edits such as brush strokes always use the processor.")
             .changed()
@@ -320,4 +347,25 @@ pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
     });
     rec.prefs.apply_ui_size(ctx);
     rec.show_prefs = open;
+}
+
+#[cfg(test)]
+mod ui_size_tests {
+    use super::*;
+
+    #[test]
+    fn old_default_moves_to_85_once_and_chosen_sizes_stay() {
+        assert_eq!(Preferences::default().ui_size_percent, 85);
+        let ctx = egui::Context::default();
+        let mut old: Preferences = serde_json::from_str(r#"{"ui_size_percent":95}"#).unwrap();
+        assert!(!old.ui_size_85);
+        old.apply_ui_size(&ctx);
+        assert_eq!(old.ui_size_percent, 85, "the old default follows the new one");
+        old.ui_size_percent = 95;
+        old.apply_ui_size(&ctx);
+        assert_eq!(old.ui_size_percent, 95, "a size picked afterwards is kept");
+        let mut chosen: Preferences = serde_json::from_str(r#"{"ui_size_percent":110}"#).unwrap();
+        chosen.apply_ui_size(&ctx);
+        assert_eq!(chosen.ui_size_percent, 110, "a size the user chose is kept");
+    }
 }

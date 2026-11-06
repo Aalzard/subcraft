@@ -250,5 +250,48 @@ pub fn smart_materials() -> Vec<SmartMaterial> {
     .chain(crate::smart_more::smart_materials())
     .chain(crate::smart_extra::smart_materials())
     .chain(textured.into_iter().flatten())
+    .chain(pbr_pack_smart_materials())
     .collect()
+}
+
+/// The PBR pack's materials as smart materials: a folder with the textured base plus wear and dirt
+/// layers masked by generators (Edges / Cavity / Directional read baked maps, so bake first).
+/// Names that a built-in smart material already uses get a " PBR" suffix.
+fn pbr_pack_smart_materials() -> Vec<SmartMaterial> {
+    let taken = ["Mossy Stone", "Oxidized Copper", "Dry Mud", "Worn Leather", "Galvanized Steel"];
+    crate::pbr_pack::materials()
+        .into_iter()
+        .map(|material| {
+            let name = if taken.contains(&material.name.as_str()) { format!("{} PBR", material.name) } else { material.name.clone() };
+            let images = material.images.clone();
+            let folder_name = name.clone();
+            let category = material.category;
+            SmartMaterial {
+                id: AssetId::from_name(&format!("smart_material/pbr-pack/{name}")),
+                name,
+                source: SmartSource::Builtin(Arc::new(move |ts, ids| folder(&folder_name, ts, pbr_pack_layers(ts, material.build_with(ts, ids), category)))),
+                images,
+                user_file: None,
+            }
+        })
+        .collect()
+}
+
+/// The base material plus two masked layers that suit its kind of surface.
+fn pbr_pack_layers(ts: &TextureSet, base: Layer, category: &str) -> Vec<Layer> {
+    let dirt = || masked(coat(ts, "Dirt", [0.05, 0.04, 0.03], 0.92, 0.0), ts, vec![fx(generator(GeneratorKind::Cavity, 0.3, 0.3, 0.35, false))]);
+    match category {
+        "Metal" => {
+            let edges = masked(coat(ts, "Polished Edges", [0.78, 0.77, 0.75], 0.25, 1.0), ts, vec![fx(generator(GeneratorKind::Edges, 0.6, 0.1, 0.5, false))]);
+            vec![base, edges, dirt()]
+        }
+        "Stone" | "Nature" => {
+            let dust = masked(coat(ts, "Dust", [0.55, 0.52, 0.47], 0.97, 0.0), ts, vec![fx(generator(GeneratorKind::Directional, 0.7, 0.3, 0.5, false))]);
+            vec![base, dirt(), dust]
+        }
+        _ => {
+            let worn = masked(coat(ts, "Worn Edges", [0.42, 0.36, 0.3], 0.6, 0.0), ts, vec![fx(generator(GeneratorKind::Edges, 0.62, 0.12, 0.45, false))]);
+            vec![base, worn, dirt()]
+        }
+    }
 }

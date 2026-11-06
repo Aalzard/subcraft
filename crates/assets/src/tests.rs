@@ -10,7 +10,7 @@ fn library_contents_are_well_formed() {
     let lib = Library::builtin();
     assert!(lib.alphas.len() >= 6 && lib.materials.len() >= 12 && lib.smart_materials.len() >= 4 && lib.smart_masks.len() >= 4);
     assert!(lib.environments.len() >= 4);
-    assert_eq!((lib.smart_materials.len(), lib.smart_masks.len()), (39, 44), "5 + 15 + 14 + 5 open-pack smart materials, 5 + 16 + 15 + 4 open-pack smart masks + 4 generator masks (concave, thin, X and Z gradients)");
+    assert_eq!((lib.smart_materials.len(), lib.smart_masks.len()), (57, 44), "5 + 15 + 14 + 5 open-pack + 18 PBR-pack smart materials, 5 + 16 + 15 + 4 open-pack smart masks + 4 generator masks (concave, thin, X and Z gradients)");
     let mut ids: Vec<_> = lib.materials.iter().map(|m| m.id).chain(lib.alphas.iter().map(|a| a.id)).collect();
     let n = ids.len();
     ids.sort();
@@ -183,5 +183,15 @@ fn new_smart_materials_are_folders_of_fill_layers_with_masks_and_measured_pbr_va
                 }
             }
         }
+    }
+}
+
+
+#[test]
+fn smart_material_names_are_unique() {
+    let lib = Library::builtin();
+    let mut seen = std::collections::HashSet::new();
+    for m in &lib.smart_materials {
+        assert!(seen.insert(m.name.clone()), "two smart materials are called {}", m.name);
     }
 }

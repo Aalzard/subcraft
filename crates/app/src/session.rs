@@ -1046,6 +1046,26 @@ impl Session {
                 self.brush.material.set(kind, kind.default_paint_value());
                 self.commit(&format!("Add {} Channel", kind.display_name()), None);
             }
+            Command::RemoveChannel { texture_set, kind } => {
+                let ts = self.doc.texture_set_mut(texture_set).ok_or(CommandError::TextureSetNotFound)?;
+                if !ts.has_channel(kind) {
+                    return Ok(());
+                }
+                if ts.channels.len() == 1 {
+                    return Err(CommandError::Invalid("a texture set needs at least one channel".into()));
+                }
+                ts.channels.retain(|c| c.kind != kind);
+                self.commit(&format!("Remove {} Channel", kind.display_name()), None);
+            }
+            Command::SetChannelFormat { texture_set, kind, format } => {
+                let ts = self.doc.texture_set_mut(texture_set).ok_or(CommandError::TextureSetNotFound)?;
+                let Some(def) = ts.channels.iter_mut().find(|c| c.kind == kind) else { return Err(CommandError::Invalid(format!("no {} channel", kind.display_name()))) };
+                if def.format == format {
+                    return Ok(());
+                }
+                def.format = format;
+                self.commit(&format!("{} Format", kind.display_name()), None);
+            }
             Command::InsertLayerWithChannels { layer, channels, label } => {
                 let ts = self.doc.texture_set_mut(self.selection.texture_set).ok_or(CommandError::TextureSetNotFound)?;
                 for kind in channels {
@@ -1169,6 +1189,25 @@ impl Session {
             }
             Command::GroupLayer(id) => {
                 self.edit_layer_set(id, "Group Layer", None, |ts| ts.group(id, "Folder").map_err(|_| CommandError::LayerNotFound))?;
+            }
+            Command::GroupLayers(ids) => {
+                let Some(&first) = ids.first() else { return Ok(()) };
+                if ids.len() == 1 { return self.execute(Command::GroupLayer(first)); }
+                self.edit_layer_set(first, "Group Layers", None, |ts| {
+                    // Stack order (bottom to top, folders before their children).
+                    let mut order = Vec::new();
+                    ts.walk(|l, _| order.push(l.id));
+                    let mut chosen: Vec<LayerId> = order.iter().copied().filter(|id| ids.contains(id)).collect();
+                    // A layer inside another chosen folder travels with that folder.
+                    let all = chosen.clone();
+                    chosen.retain(|&id| !all.iter().any(|&other| other != id && ts.is_descendant_or_self(id, other)));
+                    let Some(&top) = chosen.last() else { return Err(CommandError::LayerNotFound) };
+                    let folder = ts.group(top, "Folder").map_err(|_| CommandError::LayerNotFound)?;
+                    for (index, &id) in chosen[..chosen.len() - 1].iter().enumerate() {
+                        ts.move_to(id, Some(folder), index).map_err(|e| CommandError::Invalid(format!("{e:?}")))?;
+                    }
+                    Ok(())
+                })?;
             }
             Command::MoveLayer { layer, parent, index } => {
                 self.edit_layer_set(layer, "Move Layer", None, |ts| {
@@ -1469,12 +1508,54 @@ impl Session {
             Action::BrushSmaller => self.brush.settings.size = (self.brush.settings.size / 1.15).max(0.1),
             Action::BrushLarger => self.brush.settings.size = (self.brush.settings.size * 1.15).min(100.0),
             Action::ToggleSymmetryX => self.brush.options.symmetry[0] = !self.brush.options.symmetry[0],
-            Action::PenTool | Action::ResetCamera | Action::Save | Action::SaveAs | Action::OpenProject | Action::Export | Action::Bake | Action::TogglePathTracing => return Ok(false),
+            Action::SmudgeTool => self.brush.mode = StrokeMode::Smudge,
+            Action::CloneTool => self.brush.mode = StrokeMode::Clone,
+            Action::GroupLayers => {
+                if let Some(l) = sel {
+                    self.execute(Command::GroupLayers(vec![l]))?;
+                }
+            }
+            // Handled by the UI (tools, views, files, the layer list).
+            Action::PenTool
+            | Action::PolygonFillTool
+            | Action::EyedropperTool
+            | Action::RenameLayer
+            | Action::FrameModel
+            | Action::ResetCamera
+            | Action::ViewMaterial
+            | Action::CycleChannel
+            | Action::CycleMeshMap
+            | Action::View2D
+            | Action::View3D
+            | Action::ViewSplit
+            | Action::ReimportMesh
+            | Action::NewProject
+            | Action::Save
+            | Action::SaveAs
+            | Action::OpenProject
+            | Action::Export
+            | Action::Bake
+            | Action::TogglePathTracing
+            | Action::SelectAllLayers => return Ok(false),
         }
         Ok(true)
     }
 
     // ----- painting ------------------------------------------------------------------------------
+
+    /// Before a paint stroke on layer content: if the selection cannot take paint (a fill layer,
+    /// a folder, or nothing selected), add a paint layer above it and select it, so the brush
+    /// always draws (a fill layer's material stays as it is). Mask strokes, erasing and layers
+    /// that already take paint are left alone. Returns the new layer's name when one was added.
+    pub fn ensure_paint_layer(&mut self) -> Option<String> {
+        if self.brush.target != PaintTarget::Content || self.brush.mode == StrokeMode::Erase {
+            return None;
+        }
+        let paintable = self.selected_layer().is_some_and(|l| matches!(&l.content, subcraft_doc::LayerContent::Paint(p) if p.path.is_none()));
+        if paintable { return None; }
+        self.execute(Command::AddLayer(NewLayer::Paint)).ok()?;
+        self.selected_layer().map(|l| l.name.clone())
+    }
 
     /// Start a stroke on the selected layer with the current brush.
     pub fn begin_stroke(&mut self) -> Result<(), PaintError> {
@@ -1881,6 +1962,23 @@ impl Session {
 
     // ----- assets --------------------------------------------------------------------------------
 
+    /// A material clicked on the Shelf: on a selected fill layer it swaps that layer's material
+    /// (channels and name; its mask, parts, opacity and blend modes stay), otherwise it adds a new
+    /// fill layer above the selection. One undo step either way. Returns true when it swapped.
+    pub fn apply_material(&mut self, preset: &subcraft_assets::MaterialPreset) -> Result<bool, CommandError> {
+        let Some(old) = self.selected_layer().filter(|l| matches!(l.content, subcraft_doc::LayerContent::Fill(_))).cloned() else {
+            self.add_material(preset)?;
+            return Ok(false);
+        };
+        let ids = self.import_preset_images(&preset.images)?;
+        let fresh = preset.build_with(self.selected_texture_set(), &ids);
+        let mut replacement = old.clone();
+        replacement.content = fresh.content;
+        replacement.name = fresh.name;
+        self.execute(Command::ReplaceLayer { layer: old.id, replacement: Box::new(replacement), label: format!("Swap Material: {}", preset.name) })?;
+        Ok(true)
+    }
+
     /// Add a material preset as a fill layer above the selection.
     pub fn add_material(&mut self, preset: &subcraft_assets::MaterialPreset) -> Result<(), CommandError> {
         let ids = self.import_preset_images(&preset.images)?;
@@ -1914,6 +2012,42 @@ impl Session {
             ids.insert(img.name, id);
         }
         Ok(ids)
+    }
+
+    /// Import a Painter smart material file (`.spsm`) as a folder above the selection, rebuilt for
+    /// the selected texture set like a Painter project's layer stack (fills, masks, generators and
+    /// levels; procedural Painter graphs are approximated or kept as hidden placeholders). One
+    /// history entry. Returns the folder's name and how many layers it holds.
+    pub fn import_painter_smart_material(&mut self, path: &Path) -> Result<(String, usize), String> {
+        let fallback = path.file_stem().and_then(|s| s.to_str()).unwrap_or("Smart Material").to_string();
+        let mut spp = subcraft_mesh::spp::SppFile::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let info = spp.smart_material(&fallback).map_err(|e| format!("{}: {e}", path.display()))?
+            .ok_or_else(|| format!("{} is not a smart material", path.display()))?;
+        let ts = self.selected_texture_set().clone();
+        let geometry = self.scene.geometry.get(ts.material_slot, ts.resolution);
+        let maps = self.mesh_maps.get(&ts.id).cloned().unwrap_or_default();
+        let mut resources = std::mem::take(&mut self.resources);
+        let layers = {
+            let mut rebuilder = crate::spp_stack::Rebuilder::new(&mut spp, &ts, &mut resources);
+            rebuilder.mesh_maps = Some(maps);
+            rebuilder.geometry = Some(geometry);
+            rebuilder.rebuild(std::slice::from_ref(&info))
+        };
+        self.resources = resources;
+        let mut layer = layers.into_iter().next().ok_or_else(|| format!("{} holds no layers", path.display()))?;
+        if layer.name.trim().is_empty() { layer.name = fallback; }
+        fn count(l: &Layer) -> usize { 1 + l.children().iter().map(|c| count(c)).sum::<usize>() }
+        let count = count(&layer) - 1;
+        let name = layer.name.clone();
+        let missing: Vec<_> = crate::smart_import::channels_to_add(&layer).into_iter().filter(|&k| !self.selected_texture_set().has_channel(k)).collect();
+        let label = format!("Smart Material: {name}");
+        let result = if missing.is_empty() {
+            self.execute(Command::InsertLayer { layer: Box::new(layer), label })
+        } else {
+            self.execute(Command::InsertLayerWithChannels { layer: Box::new(layer), channels: missing, label })
+        };
+        result.map_err(|e| e.to_string())?;
+        Ok((name, count))
     }
 
     /// Apply a smart mask to the selected layer.

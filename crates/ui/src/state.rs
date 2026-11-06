@@ -150,6 +150,20 @@ pub struct UiState {
     pub clips: crate::clipboard::Clips,
     /// Action waiting for the unsaved-changes prompt.
     pub confirm: Option<crate::dialogs::Pending>,
+    /// A model dropped on the window: preloaded into the New Project window once it opens.
+    pub dropped_model: Option<std::path::PathBuf>,
+    /// Key light rotation around the model (radians), set with Shift+RMB drag.
+    pub light_yaw: f32,
+    /// The pointer was over the Layers panel last frame (F2 renames there, shows the 3D view elsewhere).
+    pub layers_hovered: bool,
+    /// Start renaming the selected layer in the Layers panel (F2 over it).
+    pub rename_request: bool,
+    /// The shortcut settings are waiting for a key for this action.
+    pub capturing_shortcut: Option<subcraft_app::Action>,
+    /// Startup logo overlay (launches only, not scripted screenshots or tests).
+    pub intro: Option<crate::intro::Intro>,
+    /// The Shelf took this frame's dropped files (the window-wide drop handler skips them).
+    pub drops_taken: bool,
     /// The user already agreed to close without saving.
     pub allow_close: bool,
     pub last_title: String,
@@ -260,6 +274,13 @@ impl UiState {
             height_scale: 0.02,
             export: Default::default(),
             confirm: None,
+            dropped_model: None,
+            light_yaw: 0.0,
+            layers_hovered: false,
+            rename_request: false,
+            capturing_shortcut: None,
+            intro: None,
+            drops_taken: false,
             multi: Default::default(),
             clips: Default::default(),
             allow_close: false,

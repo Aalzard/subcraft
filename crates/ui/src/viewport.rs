@@ -127,6 +127,13 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         NavMode::Orbit => state.camera.orbit(d.x, d.y),
                         NavMode::Pan => state.camera.pan(d.x * pixel_scale.x, d.y * pixel_scale.y, size[1] as f32),
                         NavMode::Zoom => state.camera.zoom((d.y * 0.01).exp()),
+                        NavMode::Light => state.light_yaw = (state.light_yaw + d.x * 0.01).rem_euclid(std::f32::consts::TAU),
+                        NavMode::Environment => state.env.rotation_deg = (state.env.rotation_deg + d.x * 0.5).rem_euclid(360.0),
+                        NavMode::BrushSize => {
+                            let b = &mut state.session.brush.settings;
+                            b.size = (b.size * (d.x * 0.01).exp()).clamp(0.1, 100.0);
+                            b.hardness = (b.hardness - d.y * 0.005).clamp(0.0, 1.0);
+                        }
                         NavMode::None => {}
                     }
                 }
@@ -278,6 +285,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         Tool::Smudge => StrokeMode::Smudge,
                         _ => StrokeMode::Paint,
                     };
+                    if let Some(name) = state.session.ensure_paint_layer() {
+                        state.gpu_dirty = true;
+                        state.set_status(format!("Painting on a new paint layer, \"{name}\" (the selected layer was not a paint layer)"), now);
+                    }
                     match state.session.begin_stroke() {
                         Ok(()) => {
                             state.painting = true;
@@ -350,8 +361,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             params.bake_overlay = state.bake.overlay_active();
             params.bake_cage = state.bake.cage;
             params.bake_distances = [state.bake.settings.cage_front, state.bake.settings.cage_rear];
+            // The mesh map viewer (View > Mesh maps, B): a baked map raw on the model.
+            if !bake_mode { params.bake_map = state.recovery.prefs.viewport.mesh_map; }
             if state.bake.open && state.bake.live_maps && !params.bake_overlay {
-                params.bake_map = state.bake.displayed_map;
+                params.bake_map = state.bake.displayed_map.or(state.recovery.prefs.viewport.mesh_map);
             }
             params.grid = view.grid.then_some(subcraft_render::GridParams {
                 bounds: state.session.scene().mesh.bounds,
@@ -369,6 +382,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 &rs.device,
                 &rs.queue,
             );
+            // Shift+RMB turns the key light around the model (on top of following the camera).
+            if state.light_yaw != 0.0 {
+                params.light_dir = glam::Quat::from_rotation_y(state.light_yaw) * params.light_dir;
+            }
             // Rendering mode: path trace instead of rasterizing; any failure falls back to raster.
             let pt_settings = view.path_trace_settings(state.pt_paused);
             if !tracing && state.pt_active {

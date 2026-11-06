@@ -223,3 +223,37 @@ fn effect_reordering_duplication_and_errors_preserve_evaluation_and_identity() {
     assert_eq!(s.document(), &before);
     assert_eq!(s.history().entries().len(), history);
 }
+
+/// The eraser on a mask hides (paints black), whether the mask started white or black.
+#[test]
+fn erasing_a_mask_paints_it_black() {
+    use glam::{Vec2, Vec3};
+    use subcraft_app::Camera;
+    use subcraft_paint::StrokeMode;
+    for white in [true, false] {
+        let mut s = Session::new(subcraft_mesh::primitives::plane(2.0, 1), 64);
+        s.execute(Command::AddLayer(NewLayer::Fill)).unwrap();
+        let layer = s.selection().layer.unwrap();
+        s.execute(Command::AddMask { layer, white }).unwrap();
+        s.execute(Command::SelectLayerTarget { layer, target: LayerTarget::Mask }).unwrap();
+        s.brush.settings.size = 10.0;
+        let cam = Camera::perspective(Vec3::new(0.0, 3.0, 0.0), Vec3::ZERO, Vec3::NEG_Z, 40.0, 0.1, 100.0, [512, 512]);
+        let at = |x: f32| -> Vec2 { cam.project(Vec3::new(x, 0.0, 0.0)).unwrap().truncate() };
+        let stroke = |s: &mut Session, mode| {
+            s.brush.mode = mode;
+            s.begin_stroke().unwrap();
+            for i in 0..=10 { s.stroke_to(&cam, at(-0.5 + i as f32 / 10.0), false).unwrap(); }
+            s.end_stroke();
+        };
+        // On a black mask, paint white first so there is something to erase.
+        if !white {
+            s.brush.material.mask_value = 1.0;
+            stroke(&mut s, StrokeMode::Paint);
+        }
+        stroke(&mut s, StrokeMode::Erase);
+        let mask = &s.selected_layer().unwrap().mask.as_ref().unwrap().base;
+        let centre = mask.get(32, 32)[0];
+        assert!(centre < 0.05, "white={white}: the erased centre is black ({centre})");
+        assert!(mask.get(2, 2)[0] == if white { 1.0 } else { 0.0 }, "white={white}: untouched texels keep the mask's start value");
+    }
+}
