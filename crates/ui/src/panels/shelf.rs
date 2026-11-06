@@ -135,6 +135,8 @@ pub enum ShelfTab {
     Materials,
     SmartMaterials,
     SmartMasks,
+    /// Filters: click adds one to the selected layer, or swaps the selected filter's type.
+    Filters,
     Brushes,
     Environments,
 }
@@ -640,6 +642,26 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         }
                     }
                 }
+                ShelfTab::Filters => {
+                    let selected = selected_filter(&state.session);
+                    for f in subcraft_doc::Filter::ALL {
+                        let label = f.label();
+                        if !filter.matches(label, None, false) {
+                            continue;
+                        }
+                        shown += 1;
+                        let fits = state.session.shelf_filter_command(f).is_some();
+                        let tip = if fits { "Click: add to the selected layer, or swap the selected filter to this one" } else { "Select a layer first (some filters work on color channels or masks only)" };
+                        let resp = tile(ui, tile_size, None, label, selected.as_deref() == Some(label), tip);
+                        if resp.clicked() && fits {
+                            action = Some(Box::new(move |s: &mut UiState| {
+                                if let Some(cmd) = s.session.shelf_filter_command(f) {
+                                    s.run(vec![cmd], now);
+                                }
+                            }));
+                        }
+                    }
+                }
                 ShelfTab::Environments => {
                     for (i, e) in state.library.environments.iter().enumerate() {
                         if !filter.matches(&e.name, None, e.user_file.is_some()) {
@@ -687,10 +709,11 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
 
 /// Painter's category icon row, in its order. The shelf has no filter, generator or text assets
 /// (those are made from the layer menus), so those categories are not listed.
-const CATEGORIES: [(ShelfTab, &str, &str); 7] = [
+const CATEGORIES: [(ShelfTab, &str, &str); 8] = [
     (ShelfTab::Materials, crate::icons::DROP, "Materials"),
     (ShelfTab::SmartMaterials, crate::icons::SPARKLE, "Smart Materials"),
     (ShelfTab::SmartMasks, crate::icons::MASK, "Smart Masks"),
+    (ShelfTab::Filters, crate::icons::SLIDERS, "Filters"),
     (ShelfTab::Brushes, crate::icons::PAINT_BRUSH, "Brushes"),
     (ShelfTab::Textures, crate::icons::IMAGE, "Textures"),
     (ShelfTab::NormalMaps, BUMPS, "Normal Maps"),
@@ -709,6 +732,7 @@ fn category_name(tab: ShelfTab) -> &'static str {
         ShelfTab::Materials => tr("Materials"),
         ShelfTab::SmartMaterials => tr("Smart Materials"),
         ShelfTab::SmartMasks => tr("Smart Masks"),
+        ShelfTab::Filters => tr("Filters"),
         ShelfTab::Brushes => tr("Brushes"),
         ShelfTab::Textures => tr("Textures"),
         ShelfTab::NormalMaps => tr("Normal Maps"),
@@ -892,7 +916,7 @@ fn generate_one_thumbnail(state: &mut UiState, ctx: &egui::Context) {
     }
     let job = match state.shelf.tab {
         // Texture thumbnails come from their own background loader.
-        ShelfTab::Textures | ShelfTab::NormalMaps => None,
+        ShelfTab::Textures | ShelfTab::NormalMaps | ShelfTab::Filters => None,
         ShelfTab::Brushes => lib.alphas.iter().position(|a| missing(&a.id)).map(Job::Alpha),
         ShelfTab::Materials => lib.materials.iter().find(|m| missing(&m.id)).map(|m| {
             let m = m.clone();
@@ -1079,4 +1103,20 @@ fn filter_row(state: &mut UiState, ui: &mut Ui) {
             }
         });
     });
+}
+
+/// Label of the selected filter effect (content or mask), to highlight its Shelf tile.
+fn selected_filter(session: &subcraft_app::Session) -> Option<String> {
+    let layer = session.selected_layer()?;
+    let id = session.selected_effect()?;
+    if let Some(e) = layer.content_effects.iter().find(|e| e.id == id)
+        && let subcraft_doc::ContentEffectKind::Filter { filter, .. } = &e.kind
+    {
+        return Some(filter.label().to_string());
+    }
+    let e = layer.mask.as_ref()?.effects.iter().find(|e| e.id == id)?;
+    match &e.kind {
+        subcraft_doc::MaskEffectKind::Filter(f) => Some(f.label().to_string()),
+        _ => None,
+    }
 }
