@@ -4452,3 +4452,22 @@ real cost of the big_project stack), and letting GPU-composited tiles fill the C
 * Results (headless, run): `subcraft-app` shelf_apply 3/3, text 8/8, actions unit tests; `subcraft-ui` text_and_alt 6/6,
   layer_tree 10/10, shelf_drop 3/3, shelf_brush 4/4. Note: worktrees sharing one cargo target dir can link a stale
   `subcraft-app` rlib from another worktree (same relative paths); touching sources forces a rebuild.
+### Session 114 - Mesh-map generators: Painter's own controls (2026-11-06, branch `generators-painter-accuracy`)
+
+Goal was Dirt / Edge Wear behaving like Painter's. Findings, not a full rebuild:
+* The graphs in the user's projects expose more controls than the importer used. `mg_dirt`: `dirt_level`, `dirt_contrast`, `grunge_amount`, `Grunge_Scale`, `edges_masking`. `mg_metal_edge_wear`: `Wear_Level`, `Wear_Contrast`, `Grunge_Amount`, `grunge_scale`, `Edges_Smoothness`, `Ambient_Occlusion_Masking`, `Curvature_Weight`. Only the level/contrast/grunge amount were read. The `Micro_Details_*` controls are all at their defaults in these projects.
+* `Generator.painter: Option<PainterControls>` (edges masking, AO masking, curvature weight, smoothness, grunge scale). `None` / neutral values leave a generator exactly as before; not written to project files when absent (test).
+* The importer sets them from the tweaks; strengths are `Tuning.painter` (`SUBCRAFT_SPP_PAINTER="em,am,sm,gs"`), defaults 0 / 2 / 0 / 2, chosen by gate sweeps (edges masking made CarInteriro worse, smoothness had no measurable effect).
+* Lab: `gens` (every mesh-map generator's tweaks and mask chain) and `genfit` (Painter's effective mask per generator-only layer).
+* Per-layer recovery of Painter's masks did not work on these projects: DBAL-A2's generator-only layers are all overridden by layers above them (0 valid texels), CarInteriro's one dirt layer is ambiguous (bimodal at fixed AO). So the level/contrast response curves are still the earlier calibrated remapping, NOT Painter's.
+* Gate at 512 (Base Color / Roughness / Metallic), before -> after: CarInteriro 0.0093 / 0.0326 / 0.0026 -> 0.0092 / 0.0326 / 0.0026; DBAL-A2 0.0145 / 0.0421 / 0.0455 -> 0.0145 / 0.0414 / 0.0455; Street_cyberpunk unchanged (no such generators). Gains are within a few percent: effectively unchanged.
+* Tests: doc/project/compositor new tests pass; `subcraft-app` lib, spp_stack, spp_open, edge_corners pass. Full workspace run not done (E: was out of space for a while).
+* Not verified by eye in the app. No UI controls for the new fields yet.
+
+### Session 114b - Dirt matched against Painter's own mask (2026-11-06)
+
+* Reference: CarInteriro's one `mg_dirt` layer (dirt_level 0.16, dirt_contrast 0.42, grunge_amount 0.61). Painter's effective mask recovered with `spp_lab genfit` (now also writes our mask, `our_<k>.f32`), over the two objects (5, 6) where nothing else masks the layer; the other objects carry an object-wide mask from folders/layers above, so they were left out.
+* Mean mask value by baked-AO bin (0.0, 0.1, ... 0.9), Painter vs ours: 0.98/0.73/0.41/0.24/0.14/0.10/0.10/0.10/0.11/0.09 vs 0.93/0.69/0.40/0.24/0.12/0.08/0.09/0.07/0.07/0.07. 10th/90th percentile per bin agree within about 0.05 below AO 0.4 and the tail's within about 0.06. Share of texels above 0.5: 0.268 vs 0.263. Mean absolute mask error 0.069 -> 0.061.
+* The existing level/contrast mapping (`dirt: level [0.85, -0.5], soft [0.3, 0.4]`) already reproduced Painter's transfer curve for this layer (a single parameter point: level 0.16 / contrast 0.42); what was missing was the grunge tail over unoccluded surfaces. `PainterControls.grunge_floor` (strength 0.23 x `grunge_amount`, contrast-stretched breakup noise, never above 1) adds it.
+* Gate at 512 (Base Color / Roughness / Metallic / Normal / Height): CarInteriro 0.0093 / 0.0326 / 0.0026 / 0.0024 / 0.0040 -> 0.0086 / 0.0326 / 0.0026 / 0.0024 / 0.0040; DBAL-A2 0.0145 / 0.0421 / 0.0455 / 0.0014 / 0.0010 -> 0.0145 / 0.0414 / 0.0455 / 0.0014 / 0.0009; Street_cyberpunk unchanged.
+* Not matched: the level and contrast response is verified at one parameter point only (the project's other dirt layers are overridden or masked, so no per-layer reference); Metal Edge Wear has no usable reference mask at all (DBAL-A2's generator-only wear layers have no texels where they are visible), so edge wear is unchanged apart from the AO masking constant; Painter's grunge texture itself is not reproduced (distribution only).

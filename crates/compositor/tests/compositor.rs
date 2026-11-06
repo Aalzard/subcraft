@@ -748,3 +748,68 @@ fn generator_offset_slides_the_breakup_noise_through_the_model() {
     assert_eq!(sample(&a), sample(&b));
     assert_ne!(sample(&a), sample(&c));
 }
+
+/// Mean roughness of a plane whose roughness fill (0.3 base, 1.0 fill) is masked by `generator`
+/// over uniform ambient occlusion `ao` and curvature `curv` maps.
+fn generator_mean_roughness(generator: Generator, ao: f32, curv: f32) -> f32 {
+    use subcraft_core::MeshMapKind;
+    let mut fx = Fixture::plane();
+    fx.maps.insert(MeshMapKind::AmbientOcclusion, subcraft_image::TiledImage::new(RES, RES, 1, [ao; 4]));
+    fx.maps.insert(MeshMapKind::Curvature, subcraft_image::TiledImage::new(RES, RES, 1, [curv; 4]));
+    let mut ts = texture_set(); let tc = ts.clone();
+    let mut layer = fill_layer(&tc, &[(ChannelKind::Roughness, ChannelValue::scalar(1.))]);
+    let mut mask = Mask::new(RES, false);
+    mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Generator(generator))));
+    layer.mask = Some(mask); ts.insert_above(None, layer);
+    let c = composite_full(&ts, &fx.ctx());
+    let v = c.channel(ChannelKind::Roughness).unwrap().to_dense();
+    v.iter().sum::<f32>() / v.len() as f32
+}
+
+#[test]
+fn painter_controls_neutral_values_change_nothing_and_masking_removes_dirt_from_convex_edges() {
+    let mut dirt = Generator::new(GeneratorKind::Cavity); dirt.noise_amount = 0.0; dirt.softness = 0.05;
+    let plain = generator_mean_roughness(dirt, 0.2, 0.9);
+    dirt.painter = Some(subcraft_doc::PainterControls::default());
+    assert_eq!(generator_mean_roughness(dirt, 0.2, 0.9), plain, "default controls are neutral");
+    dirt.painter = Some(subcraft_doc::PainterControls { edges_masking: 1.0, ..Default::default() });
+    let masked = generator_mean_roughness(dirt, 0.2, 0.9);
+    assert!(masked < plain - 0.05, "convex texels lose their dirt: {plain} -> {masked}");
+    // Flat texels (curvature 0.5) are not touched by edges masking.
+    let flat = generator_mean_roughness(dirt, 0.2, 0.5);
+    dirt.painter = None;
+    assert_eq!(flat, generator_mean_roughness(dirt, 0.2, 0.5));
+}
+
+#[test]
+fn painter_wear_controls_ao_masking_and_curvature_weight_reduce_wear() {
+    let mut wear = Generator::new(GeneratorKind::Edges); wear.noise_amount = 0.0; wear.level = 0.8;
+    let plain = generator_mean_roughness(wear, 0.2, 0.9);
+    wear.painter = Some(subcraft_doc::PainterControls::default());
+    assert_eq!(generator_mean_roughness(wear, 0.2, 0.9), plain, "default controls are neutral");
+    wear.painter = Some(subcraft_doc::PainterControls { ao_masking: 1.0, ..Default::default() });
+    let occluded = generator_mean_roughness(wear, 0.2, 0.9);
+    assert!(occluded < plain - 0.02, "occluded wear is masked: {plain} -> {occluded}");
+    // Unoccluded surfaces (AO 1) keep all of their wear.
+    assert_eq!(generator_mean_roughness(wear, 1.0, 0.9), { wear.painter = None; generator_mean_roughness(wear, 1.0, 0.9) });
+    wear.painter = Some(subcraft_doc::PainterControls { curvature_weight: 0.0, ..Default::default() });
+    let weightless = generator_mean_roughness(wear, 0.2, 0.9);
+    assert!(weightless < plain, "no curvature weight drops the baked detail: {plain} -> {weightless}");
+}
+
+#[test]
+fn painter_grunge_floor_adds_a_soft_tail_over_unoccluded_surfaces_and_never_exceeds_one() {
+    let mut dirt = Generator::new(GeneratorKind::Cavity); dirt.noise_amount = 0.3; dirt.softness = 0.05;
+    // Unoccluded (AO 1): no dirt from the threshold, so roughness stays at its 0.3 base.
+    let bare = generator_mean_roughness(dirt, 1.0, 0.5);
+    assert!((bare - 0.3).abs() < 1e-3, "{bare}");
+    dirt.painter = Some(subcraft_doc::PainterControls { grunge_floor: 0.3, ..Default::default() });
+    let tail = generator_mean_roughness(dirt, 1.0, 0.5);
+    // Mask = floor * noise (about 0.5 on average): roughness 0.3 + 0.7 * ~0.15.
+    assert!(tail > bare + 0.05 && tail < bare + 0.7 * 0.3, "{bare} -> {tail}");
+    // Fully occluded: already 1, the tail cannot add to it.
+    dirt.painter = None;
+    let full = generator_mean_roughness(dirt, 0.0, 0.5);
+    dirt.painter = Some(subcraft_doc::PainterControls { grunge_floor: 1.0, ..Default::default() });
+    assert!((generator_mean_roughness(dirt, 0.0, 0.5) - full).abs() < 1e-4);
+}
