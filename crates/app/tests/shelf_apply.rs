@@ -1,7 +1,7 @@
 //! In-place shelf application (Alt readings) and the New Text Layer action.
 
 use std::sync::Arc;
-use subcraft_app::actions::{Action, Key, Shortcut, action_for};
+use subcraft_app::actions::{Action, Key, Shortcut, action_for, KeymapPreset};
 use subcraft_app::{Command, NewLayer, Session};
 use subcraft_assets::BrushAlpha;
 use subcraft_core::AssetId;
@@ -20,7 +20,7 @@ fn new_text_layer_action_adds_one_text_layer_and_has_a_shortcut() {
     s.perform(Action::NewTextLayer).unwrap();
     assert_eq!(s.selected_texture_set().layers.len(), n + 1);
     assert!(s.selected_text().is_some(), "the new layer is a text layer");
-    assert_eq!(action_for(Shortcut::ctrl_shift(Key::T)), Some(Action::NewTextLayer));
+    assert_eq!(action_for(KeymapPreset::SubCraft, Shortcut::ctrl_shift(Key::T)), Some(Action::NewTextLayer));
     s.execute(Command::Undo).unwrap();
     assert_eq!(s.selected_texture_set().layers.len(), n);
 }
