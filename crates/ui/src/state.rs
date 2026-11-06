@@ -160,6 +160,8 @@ pub struct UiState {
     pub rename_request: bool,
     /// The shortcut settings are waiting for a key for this action.
     pub capturing_shortcut: Option<subcraft_app::Action>,
+    /// Startup logo overlay (launches only, not scripted screenshots or tests).
+    pub intro: Option<crate::intro::Intro>,
     /// The Shelf took this frame's dropped files (the window-wide drop handler skips them).
     pub drops_taken: bool,
     /// The user already agreed to close without saving.
@@ -277,6 +279,7 @@ impl UiState {
             layers_hovered: false,
             rename_request: false,
             capturing_shortcut: None,
+            intro: None,
             drops_taken: false,
             multi: Default::default(),
             clips: Default::default(),

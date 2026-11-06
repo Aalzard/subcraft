@@ -51,6 +51,7 @@ fn main() -> anyhow::Result<()> {
             "--demo" => options.demo = true,
             "--view-2d" => options.view_2d = true,
             "--brush-panel" => options.brush_panel = true,
+            "--tab" => options.tab = args.next(),
             "--shelf-panel" => options.shelf_panel = true,
             "--generator-panel" => options.generator_panel = true,
             "--effect-panel" => options.effect_panel = true,

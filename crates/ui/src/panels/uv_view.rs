@@ -68,9 +68,6 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             }
         });
         ui.horizontal_wrapped(|ui| brush_controls(state, ui));
-        if painting_tool {
-            crate::brush_bar::channel_switches(ui, state);
-        }
     });
     let (rect, response) = ui.allocate_exact_size(ui.available_size(), Sense::click_and_drag());
     if response.hovered() {

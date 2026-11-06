@@ -40,7 +40,7 @@ impl Tab {
             Tab::Properties => "Properties",
             Tab::Brush => "Brush",
             Tab::TextureSets => "Texture Sets",
-            Tab::Channels => "Channels",
+            Tab::Channels => "Texture Set Settings",
             Tab::Parts => "Parts",
             Tab::History => "History",
             Tab::Shelf => "Shelf",
@@ -90,6 +90,8 @@ pub struct LaunchOptions {
     pub view_2d: bool,
     /// Start with Brush settings in front (also useful for native screenshot verification).
     pub brush_panel: bool,
+    /// Bring this panel tab to the front at launch (`--tab texture-set-settings`, `history`…).
+    pub tab: Option<String>,
     /// Start with a narrow vertical texture shelf (native layout validation).
     pub shelf_panel: bool,
     /// Open the selected layer's first mask generator for native validation.
@@ -169,22 +171,22 @@ impl LaunchOptions {
     }
 }
 
-/// The painter workspace: 3D and 2D views side by side in the centre, the Shelf (with Parts and
-/// History) along the bottom, and on the right the Texture Set list over Layers over
-/// Properties / Brush / Channels.
+/// The painter workspace: Shelf and History on the left, the 3D and 2D views side by side in
+/// the centre, and on the right the Texture Set list over Layers / Texture Set Settings over
+/// Properties / Brush / Parts.
 pub fn default_layout() -> DockState<Tab> {
     let mut dock = DockState::new(vec![Tab::Viewport]);
     let surface = dock.main_surface_mut();
-    let [center, right] = surface.split_right(NodeIndex::root(), 0.75, vec![Tab::Layers]);
-    let [layers, _] = surface.split_below(right, 0.6, vec![Tab::Properties, Tab::Brush, Tab::Channels]);
-    surface.split_above(layers, 0.2, vec![Tab::TextureSets]);
-    let [view, _] = surface.split_below(center, 0.66, vec![Tab::Shelf, Tab::Parts, Tab::History]);
-    surface.split_right(view, 0.58, vec![Tab::UvView]);
+    let [center, right] = surface.split_right(NodeIndex::root(), 0.76, vec![Tab::Layers, Tab::Channels]);
+    let [layers, _] = surface.split_below(right, 0.6, vec![Tab::Properties, Tab::Brush, Tab::Parts]);
+    surface.split_above(layers, 0.15, vec![Tab::TextureSets]);
+    let [view, _] = surface.split_left(center, 0.22, vec![Tab::Shelf, Tab::History]);
+    surface.split_right(view, 0.56, vec![Tab::UvView]);
     dock
 }
 
 // Apply the painter arrangement once (older saved layouts are replaced), then retain edits.
-const DOCK_KEY: &str = "subcraft_dock_v7";
+const DOCK_KEY: &str = "subcraft_dock_v8";
 
 /// A restored dock layout is only used when it still holds every panel exactly once, has no
 /// floating windows (they can be left off-screen after a monitor change) and no split is
@@ -238,24 +240,23 @@ mod layout_tests {
         assert_eq!(parse_size("abc"), None);
     }
     #[test]
-    fn painter_layout_shelf_bottom_texture_sets_layers_properties_right() {
+    fn painter_layout_shelf_left_texture_sets_layers_properties_right() {
         let dock = default_layout();
         let node = |t: Tab| dock.find_tab(&t).unwrap().node;
-        assert_eq!(node(Tab::Shelf), node(Tab::Parts), "Parts and History share the bottom Shelf node");
-        assert_eq!(node(Tab::Shelf), node(Tab::History));
-        assert_eq!(node(Tab::Properties), node(Tab::Channels));
+        assert_eq!(node(Tab::Shelf), node(Tab::History), "History shares the Shelf panel");
+        assert_eq!(node(Tab::Layers), node(Tab::Channels), "Texture Set Settings sits beside Layers");
         assert_eq!(node(Tab::Properties), node(Tab::Brush));
+        assert_eq!(node(Tab::Properties), node(Tab::Parts));
         let all = [Tab::Viewport, Tab::UvView, Tab::Shelf, Tab::TextureSets, Tab::Layers, Tab::Properties];
         for (i, a) in all.iter().enumerate() {
             for b in &all[i + 1..] {
                 assert_ne!(node(*a), node(*b), "{a:?} and {b:?} are separate panels");
             }
         }
-        // The shown tab of each panel: 3D, 2D, Shelf, Texture Sets, Layers, Properties.
-        for t in [Tab::Viewport, Tab::UvView, Tab::Shelf, Tab::TextureSets, Tab::Layers, Tab::Properties] {
+        for t in all {
             let path = dock.find_tab(&t).unwrap();
             let leaf = dock.leaf(path.node_path()).unwrap();
-            assert_eq!(leaf.tabs()[leaf.active.0], t);
+            assert_eq!(leaf.tabs()[leaf.active.0], t, "{t:?} is the shown tab of its panel");
         }
     }
 }
@@ -658,12 +659,24 @@ impl SubcraftApp {
         {
             let _ = dock.set_active_tab(path);
         }
+        if let Some(name) = options.tab.as_deref()
+            && let Some(tab) = [Tab::Viewport, Tab::UvView, Tab::Layers, Tab::Properties, Tab::Brush, Tab::TextureSets, Tab::Channels, Tab::Parts, Tab::History, Tab::Shelf]
+                .into_iter()
+                .find(|t| t.title().to_lowercase().replace(' ', "-") == name)
+            && let Some(path) = dock.find_tab(&tab)
+        {
+            let _ = dock.set_active_tab(path);
+        }
         if options.brush_panel && let Some(path) = dock.find_tab(&Tab::Brush) {
             let _ = dock.set_active_tab(path);
         } else if state.session.selected_layer().is_some_and(|layer| layer.kind() != subcraft_doc::LayerKind::Paint)
             && let Some(path) = dock.find_tab(&Tab::Properties)
         {
             let _ = dock.set_active_tab(path);
+        }
+        let mut state = state;
+        if options.screenshot.is_none() {
+            state.intro = Some(crate::intro::Intro::default());
         }
         Self {
             inspector_selection: Some(InspectorSelection::current(&state.session)),
@@ -1406,6 +1419,7 @@ impl eframe::App for SubcraftApp {
         if self.frames == 16 && let Some(which) = self.state.capture_tool.take() {
             scripted_tool_capture(&mut self.state, &which, ctx.input(|i| i.time));
         }
+        crate::intro::show(&ctx, &mut self.state.intro);
         crate::pen::keyboard(&mut self.state, &ctx, ctx.input(|i| i.time));
         self.shortcuts(&ctx);
         if ctx.input(|i| i.pointer.any_released()) {

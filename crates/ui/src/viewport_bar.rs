@@ -202,9 +202,6 @@ pub fn show(ui: &mut Ui, state: &mut crate::state::UiState) {
                     crate::brush_bar::show(ui, &mut state.tool, &mut settings, &mut options, &mut state.recovery.prefs.viewport.symmetry_guides, width)
                 });
             }
-            if painting {
-                crate::brush_bar::channel_switches(ui, state);
-            }
         });
     ui.painter().hline(
         frame.response.rect.x_range(),
@@ -377,20 +374,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn texture_sets_albedo_dropdown_is_below_resolution_and_dispatches_an_undoable_edit() {
+    fn texture_set_settings_albedo_dropdown_dispatches_an_undoable_edit() {
         let ctx = egui::Context::default(); crate::theme::apply(&ctx);
         let mut state = crate::state::UiState::new(subcraft_app::Session::new(subcraft_mesh::primitives::cube(2.), 128), None);
         let initial = state.session.document().clone();
         let draw = |state: &mut crate::state::UiState, events| {
             let mut out = ctx.run_ui(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1600., 940.))), events, ..Default::default() }, |ui| {
-                egui::CentralPanel::default().show(ui, |ui| crate::panels::texture_sets::show(state, ui));
+                egui::CentralPanel::default().show(ui, |ui| crate::panels::channels::show(state, ui));
             }); out.textures_delta.clear(); out
         };
         draw(&mut state, vec![]); let output = draw(&mut state, vec![]);
         let text_position = |output: &egui::FullOutput, text: &str| output.shapes.iter().find_map(|s| match &s.shape {
             egui::epaint::Shape::Text(t) if t.galley.job.text == text => Some(t.pos + t.galley.size() * 0.5), _ => None,
         }).unwrap_or_else(|| panic!("missing {text}"));
-        assert!(text_position(&output, "Albedo").y > text_position(&output, "RESOLUTION").y);
+        assert!(text_position(&output, "Albedo").y > text_position(&output, "MESH MAPS").y, "under the mesh maps, in Display");
         let click = |state: &mut crate::state::UiState, pos| {
             draw(state, vec![egui::Event::PointerMoved(pos), egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: true, modifiers: Default::default() }]);
             draw(state, vec![egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: false, modifiers: Default::default() }])
