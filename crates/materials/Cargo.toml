@@ -17,3 +17,4 @@ glam.workspace = true
 serde.workspace = true
 uuid.workspace = true
 parking_lot.workspace = true
+rayon.workspace = true

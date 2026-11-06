@@ -38,6 +38,7 @@ pub mod smart_import;
 pub mod spp_select;
 pub mod spp_stack;
 pub mod thumbnails;
+pub mod world_blur;
 pub mod layer_previews;
 pub mod updater;
 pub mod unsaved;

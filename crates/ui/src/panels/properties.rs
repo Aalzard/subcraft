@@ -147,6 +147,22 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                             }
                         });
                     }
+                    if !p.channels.is_empty() && p.text.is_none() {
+                        let size = state.session.scene().mesh.bounds.extent().max_element().max(1e-6);
+                        let key = ui.id().with("world_blur_radius");
+                        let mut radius = ui.data_mut(|d| *d.get_temp_mut_or(key, size * 0.05));
+                        prop_row(ui, "World blur", |ui| {
+                            ui.add(egui::DragValue::new(&mut radius).range(size * 0.001..=size * 0.5).speed(size * 0.002).max_decimals(3))
+                                .on_hover_text("Blur radius in model units over the surface, so it is even where the UVs stretch. Does not cross hard edges.");
+                            if ui.button("Blur").on_hover_text("Blur this layer's painted channels in world space (one undo step; Normal paint is left alone)").clicked() {
+                                match state.session.world_blur_layer(id, radius) {
+                                    Ok(()) => state.set_status("World-space blur applied", now),
+                                    Err(e) => state.set_status(format!("World-space blur: {e}"), now),
+                                }
+                            }
+                        });
+                        ui.data_mut(|d| d.insert_temp(key, radius));
+                    }
                 });
             }
             LayerContent::Group(g) => {

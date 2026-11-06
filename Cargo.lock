@@ -3919,6 +3919,7 @@ version = "0.2.1"
 dependencies = [
  "glam",
  "parking_lot",
+ "rayon",
  "serde",
  "subcraft-core",
  "subcraft-doc",
