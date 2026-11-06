@@ -1,5 +1,6 @@
 //! The eframe application: menu bar, dockable panels, status bar and keyboard shortcuts.
 
+use crate::i18n::tr;
 use std::path::PathBuf;
 
 use std::collections::HashSet;
@@ -33,15 +34,15 @@ pub enum Tab {
 impl Tab {
     fn title(self) -> &'static str {
         match self {
-            Tab::Viewport => "3D View",
-            Tab::UvView => "2D View",
-            Tab::Layers => "Layers",
-            Tab::Properties => "Properties",
-            Tab::Brush => "Brush",
-            Tab::TextureSets => "Texture Sets",
-            Tab::Parts => "Parts",
-            Tab::History => "History",
-            Tab::Shelf => "Shelf",
+            Tab::Viewport => tr("3D View"),
+            Tab::UvView => tr("2D View"),
+            Tab::Layers => tr("Layers"),
+            Tab::Properties => tr("Properties"),
+            Tab::Brush => tr("Brush"),
+            Tab::TextureSets => tr("Texture Sets"),
+            Tab::Parts => tr("Parts"),
+            Tab::History => tr("History"),
+            Tab::Shelf => tr("Shelf"),
         }
     }
 
@@ -467,6 +468,7 @@ impl SubcraftApp {
         let prefs = cc.storage.and_then(|s| s.get_string(crate::recovery::PREFS_KEY)).and_then(|j| serde_json::from_str(&j).ok()).unwrap_or_default();
         state.recovery = crate::recovery::RecoveryUi::start(&state.session, prefs, options.autosave_interval);
         state.recovery.prefs.apply_ui_size(&cc.egui_ctx);
+        crate::i18n::sync(&cc.egui_ctx, state.recovery.prefs.language);
         subcraft_compositor::gpu::set_gpu_compositing_enabled(state.recovery.prefs.use_gpu_compositing);
         state.recovery.show_prefs = options.preferences;
         if let Some(high) = &options.bake_high_poly {
@@ -793,7 +795,7 @@ impl SubcraftApp {
             let (r, _) = ui.allocate_exact_size(egui::vec2(18.0, 18.0), egui::Sense::hover());
             ui.painter().rect_filled(r, 0.0, theme::ACCENT);
             ui.painter().rect_filled(egui::Rect::from_min_size(r.min + egui::vec2(5.0, 5.0), egui::vec2(8.0, 8.0)), 0.0, theme::BG_2);
-            ui.label(RichText::new("SubCraft").font(theme::font_strong(14.0)).color(theme::TEXT));
+            ui.label(RichText::new(tr("SubCraft")).font(theme::font_strong(14.0)).color(theme::TEXT));
             ui.add_space(10.0);
             self.menu(ui)
         }).inner;
@@ -854,67 +856,67 @@ impl SubcraftApp {
         let now = ui.input(|i| i.time);
         egui::MenuBar::new().ui(ui, |ui| {
             let item = |ui: &mut Ui, icon: &str, label: &str, sc: &str| ui.add(egui::Button::new(format!("{icon}   {label}")).shortcut_text(sc)).clicked();
-            ui.menu_button("File", |ui| {
+            ui.menu_button(tr("File"), |ui| {
                 ui.set_min_width(240.0);
-                if item(ui, icons::FILE_PLUS, "New (sample crate)", "") {
+                if item(ui, icons::FILE_PLUS, tr("New (sample crate)"), "") {
                     self.request(Pending::NewSample, now);
                     ui.close();
                 }
-                if item(ui, icons::CUBE, "New project from a model…", "") {
+                if item(ui, icons::CUBE, tr("New project from a model…"), "") {
                     ui.close();
                     self.request(Pending::OpenMesh, now);
                 }
-                if item(ui, icons::CUBE_WIRE, "Reload mesh…", "") {
+                if item(ui, icons::CUBE_WIRE, tr("Reload mesh…"), "") {
                     ui.close();
                     crate::mesh_reload::open(&mut self.state);
                 }
-                if item(ui, icons::CUBE_WIRE, "Auto UV unwrap…", "") {
+                if item(ui, icons::CUBE_WIRE, tr("Auto UV unwrap…"), "") {
                     ui.close();
                     crate::auto_uv::open(&mut self.state);
                 }
-                if item(ui, icons::FOLDER_OPEN, "Open project…", crate::keys::native("Ctrl+O")) {
+                if item(ui, icons::FOLDER_OPEN, tr("Open project…"), crate::keys::native("Ctrl+O")) {
                     ui.close();
                     self.request(Pending::OpenProject, now);
                 }
                 ui.separator();
-                if item(ui, icons::SAVE, "Save", crate::keys::native("Ctrl+S")) {
+                if item(ui, icons::SAVE, tr("Save"), crate::keys::native("Ctrl+S")) {
                     ui.close();
                     self.perform(Action::Save, now);
                 }
-                if item(ui, icons::SAVE, "Save as…", crate::keys::native("Ctrl+Shift+S")) {
+                if item(ui, icons::SAVE, tr("Save as…"), crate::keys::native("Ctrl+Shift+S")) {
                     ui.close();
                     self.perform(Action::SaveAs, now);
                 }
                 ui.separator();
-                if item(ui, icons::EXPORT, "Export textures…", crate::keys::native("Ctrl+Shift+E")) {
+                if item(ui, icons::EXPORT, tr("Export textures…"), crate::keys::native("Ctrl+Shift+E")) {
                     ui.close();
                     self.perform(Action::Export, now);
                 }
-                if item(ui, icons::EXPORT, "Export 2D view…", "") {
+                if item(ui, icons::EXPORT, tr("Export 2D view…"), "") {
                     ui.close();
                     self.perform(Action::Export, now);
                     self.state.export.view_2d_only = true;
                 }
-                if item(ui, icons::CAMERA, "Render image / turntable…", "") {
+                if item(ui, icons::CAMERA, tr("Render image / turntable…"), "") {
                     ui.close();
                     self.state.render_window = true;
                 }
-                if item(ui, icons::MAGIC_WAND, "Bake mesh maps…", crate::keys::native("Ctrl+B")) {
+                if item(ui, icons::MAGIC_WAND, tr("Bake mesh maps…"), crate::keys::native("Ctrl+B")) {
                     ui.close();
                     self.perform(Action::Bake, now);
                 }
                 ui.separator();
-                if item(ui, icons::SLIDERS, "Preferences…", "") {
+                if item(ui, icons::SLIDERS, tr("Preferences…"), "") {
                     self.state.recovery.show_prefs = true;
                     ui.close();
                 }
                 ui.separator();
-                if item(ui, icons::X, "Quit", "") {
+                if item(ui, icons::X, tr("Quit"), "") {
                     self.request(Pending::Close, now);
                     ui.close();
                 }
             });
-            ui.menu_button("Edit", |ui| {
+            ui.menu_button(tr("Edit"), |ui| {
                 ui.set_min_width(240.0);
                 let h = self.state.session.history();
                 let undo = h.undo_label().map(|l| format!("Undo {l}")).unwrap_or("Undo".into());
@@ -927,12 +929,12 @@ impl SubcraftApp {
                     self.perform(Action::Redo, now);
                 }
                 ui.separator();
-                if item(ui, icons::SLIDERS, "Preferences…", "") {
+                if item(ui, icons::SLIDERS, tr("Preferences…"), "") {
                     self.state.recovery.show_prefs = true;
                     ui.close();
                 }
             });
-            ui.menu_button("Layer", |ui| {
+            ui.menu_button(tr("Layer"), |ui| {
                 ui.set_min_width(240.0);
                 for (a, icon) in [
                     (Action::NewPaintLayer, icons::PAINT_BRUSH),
@@ -950,52 +952,52 @@ impl SubcraftApp {
                 }
                 ui.separator();
                 let have_clip = self.state.clips.layers.is_some();
-                if item(ui, icons::COPY, "Copy Layer(s)", "Ctrl+C") {
+                if item(ui, icons::COPY, tr("Copy Layer(s)"), "Ctrl+C") {
                     crate::clipboard::request(ui.ctx(), crate::clipboard::Request::CopyLayers { cut: false });
                     ui.close();
                 }
-                if item(ui, icons::COPY, "Cut Layer(s)", "Ctrl+X") {
+                if item(ui, icons::COPY, tr("Cut Layer(s)"), "Ctrl+X") {
                     crate::clipboard::request(ui.ctx(), crate::clipboard::Request::CopyLayers { cut: true });
                     ui.close();
                 }
-                if have_clip && item(ui, icons::COPY, "Paste Layer(s)", "Ctrl+V") {
+                if have_clip && item(ui, icons::COPY, tr("Paste Layer(s)"), "Ctrl+V") {
                     crate::clipboard::request(ui.ctx(), crate::clipboard::Request::PasteLayers);
                     ui.close();
                 }
                 ui.separator();
-                if item(ui, icons::IMAGE, "Import texture set…", "") {
+                if item(ui, icons::IMAGE, tr("Import texture set…"), "") {
                     ui.close();
                     crate::panels::layers::import_texture_set_dialog(ui.ctx());
                 }
-                if item(ui, icons::SPARKLE, "Import smart material(s)…", "") {
+                if item(ui, icons::SPARKLE, tr("Import smart material(s)…"), "") {
                     ui.close();
                     crate::panels::shelf::import_smart_dialog(ui.ctx());
                 }
-                if item(ui, icons::FOLDER_OPEN, "Import smart material folder…", "") {
+                if item(ui, icons::FOLDER_OPEN, tr("Import smart material folder…"), "") {
                     ui.close();
                     crate::panels::shelf::import_smart_folder_dialog(ui.ctx());
                 }
                 if self.state.photocraft.is_some() {
-                    if item(ui, icons::X, "Stop editing in PhotoCraft", "") {
+                    if item(ui, icons::X, tr("Stop editing in PhotoCraft"), "") {
                         self.state.stop_photocraft(now);
                         ui.close();
                     }
-                } else if item(ui, icons::EXPORT, "Edit in PhotoCraft…", "") {
+                } else if item(ui, icons::EXPORT, tr("Edit in PhotoCraft…"), "") {
                     self.state.start_photocraft(now);
                     ui.close();
                 }
             });
-            ui.menu_button("View", |ui| {
+            ui.menu_button(tr("View"), |ui| {
                 ui.set_min_width(240.0);
-                if item(ui, icons::CAMERA, "Reset camera", "Home") {
+                if item(ui, icons::CAMERA, tr("Reset camera"), "Home") {
                     self.perform(Action::ResetCamera, now);
                     ui.close();
                 }
-                if item(ui, icons::SQUARES, "Reset layout", "") {
+                if item(ui, icons::SQUARES, tr("Reset layout"), "") {
                     self.dock = default_layout();
                     ui.close();
                 }
-                if item(ui, icons::SUN, "Render quality…", "") {
+                if item(ui, icons::SUN, tr("Render quality…"), "") {
                     self.state.render_window = true;
                     ui.close();
                 }
@@ -1006,30 +1008,30 @@ impl SubcraftApp {
                 }
                 ui.separator();
                 ui.horizontal(|ui| {
-                    ui.label("Height bump");
+                    ui.label(tr("Height bump"));
                     ui.add(egui::Slider::new(&mut self.state.height_scale, 0.0..=0.1));
                 });
             });
-            ui.menu_button("Help", |ui| {
+            ui.menu_button(tr("Help"), |ui| {
                 ui.set_min_width(240.0);
-                if item(ui, icons::CUBE, "Welcome screen", "") { self.state.welcome.open = true; ui.close(); }
-                if item(ui, icons::CURSOR, "Quick start", "") { self.state.welcome.guide = Some(0); self.state.welcome.open = false; ui.close(); }
-                if item(ui, icons::INFO, "What's new", "") { self.state.welcome.whats_new = true; ui.close(); }
-                if item(ui, icons::INFO, "About SubCraft…", "") { self.state.welcome.about = true; ui.close(); }
+                if item(ui, icons::CUBE, tr("Welcome screen"), "") { self.state.welcome.open = true; ui.close(); }
+                if item(ui, icons::CURSOR, tr("Quick start"), "") { self.state.welcome.guide = Some(0); self.state.welcome.open = false; ui.close(); }
+                if item(ui, icons::INFO, tr("What's new"), "") { self.state.welcome.whats_new = true; ui.close(); }
+                if item(ui, icons::INFO, tr("About SubCraft…"), "") { self.state.welcome.about = true; ui.close(); }
                 ui.separator();
 
-                if item(ui, icons::DOWNLOAD, "Check for updates…", "") { if let Some(updater) = &mut self.state.updater { updater.check(); } ui.close(); }
-                if item(ui, icons::KEYBOARD, "Keyboard shortcuts", "") {
+                if item(ui, icons::DOWNLOAD, tr("Check for updates…"), "") { if let Some(updater) = &mut self.state.updater { updater.check(); } ui.close(); }
+                if item(ui, icons::KEYBOARD, tr("Keyboard shortcuts"), "") {
                     self.state.show_shortcuts = true;
                     ui.close();
                 }
                 ui.separator();
-                if item(ui, icons::INFO, "Report a bug…", "") {
+                if item(ui, icons::INFO, tr("Report a bug…"), "") {
                     self.state.bug_report.open = true;
                     ui.close();
                 }
                 if let Some(log) = subcraft_app::diagnostics::log_file()
-                    && item(ui, icons::FOLDER_OPEN, "Show log files", "")
+                    && item(ui, icons::FOLDER_OPEN, tr("Show log files"), "")
                 {
                     crate::panels::shelf::show_in_folder(&log);
                     ui.close();
@@ -1093,7 +1095,7 @@ impl SubcraftApp {
                 let (text, fraction) = import.progress();
                 ui.add(egui::Label::new(small(format!("{}  {text}", icons::INFO), theme::ACCENT)).truncate());
                 ui.add(egui::ProgressBar::new(fraction.unwrap_or(0.0)).desired_width(120.0).animate(fraction.is_none()));
-                if ui.small_button("Cancel").clicked() {
+                if ui.small_button(tr("Cancel")).clicked() {
                     import.cancel();
                 }
             }
@@ -1301,6 +1303,7 @@ impl eframe::App for SubcraftApp {
             p.ui_begin();
         }
         self.state.recovery.prefs.apply_ui_size(&ctx);
+        crate::i18n::sync(&ctx, self.state.recovery.prefs.language);
         self.frames += 1;
         if self.frames == 15 && let Some(name) = self.state.capture_select_brush.take() {
             let now = ctx.input(|i| i.time);

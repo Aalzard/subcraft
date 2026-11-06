@@ -1,4 +1,5 @@
 //! Responsive texture-set list, resolution/filter controls, bake status and mesh info.
+use crate::i18n::tr;
 use egui::{RichText, Ui};
 use subcraft_app::Command;
 use crate::{icons, state::UiState, theme::{self, ACCENT, PAD, TEXT_DIM, TEXT_FAINT}};
@@ -64,17 +65,17 @@ fn set_list(state: &UiState, ui: &mut Ui, cmds: &mut Vec<Command>, bounded: bool
                     ui.add_sized([name_width, 18.0], egui::Label::new(text).truncate().selectable(false)).on_hover_text(&ts.name);
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(RichText::new(format!("{}² · {}", ts.resolution, ts.layer_count())).font(theme::font(10.0)).color(TEXT_FAINT)).on_hover_text("Resolution · layers");
+                    ui.label(RichText::new(format!("{}² · {}", ts.resolution, ts.layer_count())).font(theme::font(10.0)).color(TEXT_FAINT)).on_hover_text(tr("Resolution · layers"));
                 });
             });
             if resp.clicked() && !selected { cmds.push(Command::SelectTextureSet(ts.id)); }
             if resp.double_clicked() { rename = Some((ts.id, ts.name.clone(), true)); }
             resp.context_menu(|ui| {
-                if ui.button("Rename").clicked() { rename = Some((ts.id, ts.name.clone(), true)); ui.close(); }
+                if ui.button(tr("Rename")).clicked() { rename = Some((ts.id, ts.name.clone(), true)); ui.close(); }
                 if ui.button(if hidden { "Show in 3D view" } else { "Hide in 3D view" }).clicked() {
                     cmds.push(Command::SetTextureSetHidden { texture_set: ts.id, hidden: !hidden }); ui.close();
                 }
-                ui.menu_button("Resolution", |ui| {
+                ui.menu_button(tr("Resolution"), |ui| {
                     for r in subcraft_doc::RESOLUTIONS {
                         if ui.selectable_label(ts.resolution == r, format!("{r} × {r}")).clicked() {
                             cmds.push(Command::SetResolution { texture_set: Some(ts.id), resolution: r }); ui.close();
@@ -103,7 +104,7 @@ fn resolution(state: &mut UiState, ui: &mut Ui, cmds: &mut Vec<Command>, compact
                 for r in subcraft_doc::RESOLUTIONS { ui.selectable_value(&mut picked, r, format!("{r} × {r}")); }
             }).response.on_hover_text(crate::keys::native("Working resolution. Painted strokes are resampled; Ctrl+Z restores them."));
         let all_same = state.session.document().texture_sets.iter().all(|ts| ts.resolution == current);
-        if ui.add_enabled(!all_same, egui::Button::new("Apply to all")).on_hover_text("Use this resolution for every texture set").clicked() {
+        if ui.add_enabled(!all_same, egui::Button::new("Apply to all")).on_hover_text(tr("Use this resolution for every texture set")).clicked() {
             cmds.push(Command::SetResolution { texture_set: None, resolution: current });
         }
     });
@@ -131,7 +132,7 @@ fn maps_and_mesh(state: &mut UiState, ui: &mut Ui, compact: bool) {
     if let Some(job) = &state.bake.job { ui.add(egui::ProgressBar::new(job.fraction()).show_percentage().fill(ACCENT)); }
     let mesh = &state.session.scene().mesh;
     if compact {
-        ui.add(egui::Label::new(RichText::new(&mesh.name).color(TEXT_DIM)).truncate()).on_hover_text("Mesh name");
+        ui.add(egui::Label::new(RichText::new(&mesh.name).color(TEXT_DIM)).truncate()).on_hover_text(tr("Mesh name"));
         ui.label(RichText::new(format!("{} tris · {} verts", mesh.triangle_count(), mesh.vertex_count())).small().color(TEXT_FAINT));
     } else {
         ui.add_space(6.0);

@@ -1,6 +1,7 @@
 //! Layer stack: tree with visibility, selection, creation/reorder buttons and per-channel blending.
 //! Folders show their hierarchy with guide lines; mask generators are listed under their layer.
 
+use crate::i18n::tr;
 use std::sync::Arc;
 
 use egui::{RichText, Ui};
@@ -34,7 +35,7 @@ fn generator_menu(ui: &mut Ui, picked: &mut Option<GeneratorKind>) {
     for (label, kind) in GENERATORS {
         if ui.button(format!("{}  {label}", icons::MAGIC_WAND)).clicked() { *picked = Some(kind); ui.close(); }
     }
-    ui.menu_button("Mesh map", |ui| {
+    ui.menu_button(tr("Mesh map"), |ui| {
         for m in MESH_MAP_GENERATORS {
             if ui.button(m.display_name()).clicked() { *picked = Some(GeneratorKind::MeshMap(m)); ui.close(); }
         }
@@ -140,11 +141,11 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         egui::Frame::new().fill(theme::ACCENT_SOFT).inner_margin(egui::Margin::symmetric(PAD, 6)).show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.label(RichText::new(icons::EXPORT).color(ACCENT));
-                ui.label(RichText::new("Editing in PhotoCraft").strong())
+                ui.label(RichText::new(tr("Editing in PhotoCraft")).strong())
                     .on_hover_text(format!("Saves in PhotoCraft come back as one undo step each.
 Files: {}", ex.dir().display()));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    stop = ui.small_button("Stop").on_hover_text("Stop bringing PhotoCraft saves back (PhotoCraft stays open)").clicked();
+                    stop = ui.small_button(tr("Stop")).on_hover_text(tr("Stop bringing PhotoCraft saves back (PhotoCraft stays open)")).clicked();
                 });
             });
         });
@@ -168,7 +169,7 @@ Files: {}", ex.dir().display()));
                 let mut picked = None;
                 ui.menu_button(RichText::new(icons::MAGIC_WAND).font(theme::font(16.0)), |ui| generator_menu(ui, &mut picked))
                     .response
-                    .on_hover_text("Add a generator to the selected layer's mask (adds a black mask if it has none)");
+                    .on_hover_text(tr("Add a generator to the selected layer's mask (adds a black mask if it has none)"));
                 if let (Some(kind), Some(id)) = (picked, sel) { layer_action = Some((id, subcraft_app::part_workflow::LayerAction::Generator(kind))); }
             });
             if icon_button(ui, icons::IMAGE, "Import texture set as a fill layer…").clicked() {
@@ -197,7 +198,7 @@ Files: {}", ex.dir().display()));
             state.active_channel = channels.first().copied().unwrap_or(ChannelKind::BaseColor);
         }
         ui.add_space(4.0);
-        prop_row(ui, "Channel", |ui| {
+        prop_row(ui, tr("Channel"), |ui| {
             egui::ComboBox::from_id_salt("active_channel").selected_text(state.active_channel.display_name()).show_ui(ui, |ui| {
                 for k in &channels {
                     ui.selectable_value(&mut state.active_channel, *k, k.display_name());
@@ -274,7 +275,7 @@ Files: {}", ex.dir().display()));
                 if thumb.clicked() { cmds.push(Command::SelectLayerTarget { layer: l.id, target: LayerTarget::Content }); }
                 if let Some(mask) = &l.mask {
                     let thumb = state.layer_previews.image(ui, &state.session, PreviewKey { layer: l.id, channel: ChannelKind::BaseColor, mask: true, effect: None, size: 64 }, thumb_size,
-                        selected && selected_target == LayerTarget::Mask).on_hover_text("Mask · click to edit · Alt+click: UV preview · Shift+click: enable/disable");
+                        selected && selected_target == LayerTarget::Mask).on_hover_text(tr("Mask · click to edit · Alt+click: UV preview · Shift+click: enable/disable"));
                     if !mask.enabled { ui.painter().line_segment([thumb.rect.left_bottom(), thumb.rect.right_top()], egui::Stroke::new(1.5, theme::WARNING)); }
                     if thumb.clicked() {
                         if ui.input(|i| i.modifiers.shift) { cmds.push(Command::SetMaskEnabled { layer: l.id, enabled: !mask.enabled }); }
@@ -385,8 +386,8 @@ Files: {}", ex.dir().display()));
                     rename = Some(InlineRename { layer: l.id, text: l.name.clone(), focus: true });
                     cmds.push(Command::SelectLayer(Some(l.id))); ui.close();
                 }
-                if ui.button("Group in new folder").clicked() { cmds.push(Command::GroupLayer(l.id)); ui.close(); }
-                ui.menu_button("Move into folder", |ui| {
+                if ui.button(tr("Group in new folder")).clicked() { cmds.push(Command::GroupLayer(l.id)); ui.close(); }
+                ui.menu_button(tr("Move into folder"), |ui| {
                     let mut folders = Vec::new();
                     ts.walk(|folder, depth| {
                         if folder.is_folder() && drop_destination(ts, l.id, DropTarget::Inside(folder.id)).is_some() {
@@ -401,7 +402,7 @@ Files: {}", ex.dir().display()));
                         }
                     });
                 });
-                if ts.location(l.id).is_some_and(|loc| loc.parent.is_some()) && ui.button("Move to top level").clicked() {
+                if ts.location(l.id).is_some_and(|loc| loc.parent.is_some()) && ui.button(tr("Move to top level")).clicked() {
                     cmds.push(Command::DropLayer { texture_set: ts.id, layer: l.id, target: DropTarget::RootTop }); ui.close();
                 }
                 ui.separator();
@@ -409,17 +410,17 @@ Files: {}", ex.dir().display()));
                 for (label, action) in [("Add paint layer", LayerAction::AddPaint), ("Add fill layer", LayerAction::AddFill)] {
                     if ui.button(label).clicked() { layer_action = Some((l.id, action)); ui.close(); }
                 }
-                ui.menu_button("Add mask", |ui| {
+                ui.menu_button(tr("Add mask"), |ui| {
                     for (label, action) in [("White mask", LayerAction::WhiteMask), ("Black mask", LayerAction::BlackMask)] {
                         if ui.button(label).clicked() { layer_action = Some((l.id, action)); ui.close(); }
                     }
                 });
                 if let Some(mask) = &l.mask {
-                    ui.menu_button("Mask actions", |ui| super::mask::actions(ui, l.id, mask.enabled, can_paste_mask, &mut cmds));
+                    ui.menu_button(tr("Mask actions"), |ui| super::mask::actions(ui, l.id, mask.enabled, can_paste_mask, &mut cmds));
                 } else if ui.add_enabled(can_paste_mask, egui::Button::new("Paste mask")).clicked() {
                     cmds.push(Command::PasteMask(l.id)); ui.close();
                 }
-                ui.menu_button("Add generator", |ui| {
+                ui.menu_button(tr("Add generator"), |ui| {
                     let mut picked = None;
                     generator_menu(ui, &mut picked);
                     if let Some(kind) = picked { layer_action = Some((l.id, LayerAction::Generator(kind))); }
@@ -464,7 +465,7 @@ Files: {}", ex.dir().display()));
                     ui.close();
                 }
             });
-            resp.on_hover_text("Drag to reorder. Drop in a folder's center to move inside it; drop at Top level to move out. Double-click or F2 to rename.");
+            resp.on_hover_text(tr("Drag to reorder. Drop in a folder's center to move inside it; drop at Top level to move out. Double-click or F2 to rename."));
             // The selected layer's mask stack lists its generators itself.
             if let Some(mask) = &l.mask && !(selected && selected_target == LayerTarget::Mask) {
                 generator_rows(ui, l, mask, *depth, &mut cmds);
