@@ -235,3 +235,28 @@ fn text_decal_can_be_placed_on_the_surface_by_clicking() {
     assert!((center - pick.uv).length() < 1e-4 || (center - pick.uv).abs().max_element() >= 0.99, "{center:?} vs {:?}", pick.uv);
     assert!(s.place_selected_text_at(&cam, Vec2::new(-5.0, -5.0)).is_err());
 }
+
+#[test]
+fn projected_text_stamp_follows_mirror_and_radial_symmetry_like_a_brush_stroke() {
+    let coverage = |symmetry: [bool; 3], radial: Option<(u8, u32)>| {
+        let mut s = session();
+        s.execute(Command::AddLayer(subcraft_app::NewLayer::Paint)).unwrap();
+        s.brush.options.symmetry = symmetry;
+        if let Some((axis, count)) = radial {
+            s.brush.options.radial = subcraft_paint::RadialSymmetry { enabled: true, axis, count, center_offset: [0.0; 3] };
+        }
+        let cam = camera();
+        // Off the mirror plane (x = 0.5 of the model), facing the camera.
+        let screen = cam.project(Vec3::new(0.5, 0.0, 1.0)).unwrap().truncate();
+        s.stamp_text_projected(&cam, screen, &FontRef::default(), &subcraft_text::TextStyle::new("DECAL"), 30.0, 0.0).unwrap();
+        let img = &paint(&s).channels[&ChannelKind::BaseColor];
+        let c = img.comps();
+        img.to_dense().chunks_exact(c).filter(|p| p[c - 1] > 0.5).count()
+    };
+    let single = coverage([false; 3], None);
+    let mirrored = coverage([true, false, false], None);
+    let radial = coverage([false; 3], Some((1, 4)));
+    assert!(single > 50, "the stamp paints something: {single}");
+    assert!(mirrored as f32 > 1.6 * single as f32, "a mirror plane doubles the decal: {single} -> {mirrored}");
+    assert!(radial > mirrored, "four radial copies paint more than one mirror: {single} / {mirrored} / {radial}");
+}
