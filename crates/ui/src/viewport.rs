@@ -303,7 +303,12 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         {
             let sp = to_screen(p);
             state.session.set_stroke_pressure(state.pen_pressure);
-            let _ = state.session.stroke_to(&camera, sp, false);
+            // Every pointer position of this frame, not just the last: a pen reports several
+            // hundred per second, and stamping along all of them follows a fast curve instead
+            // of cutting it into one chord per frame (at no extra stamping cost).
+            let mut path: Vec<Vec2> = ui.input(|i| i.events.iter().filter_map(|e| if let egui::Event::PointerMoved(q) = e { Some(to_screen(*q)) } else { None }).collect());
+            if path.last() != Some(&sp) { path.push(sp); }
+            let _ = state.session.stroke_to_many(&camera, &path);
             state.last_stroke_point = Some(sp);
         }
     } else if state.painting && !primary_down {

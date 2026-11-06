@@ -6,7 +6,7 @@
 //! `cargo run --release -p subcraft-app --example pen_stroke_bench -- [res] [layers] [brush_px] [textured:0|1] [mode] [place]`
 //!
 //! `mode`: `frame` (default; the viewport's behaviour: one point per 60 Hz frame, the last event of
-//! the frame), `event` (one `stroke_to` per 500 Hz event), `batch` (all events of a frame at once).
+//! the frame), `event` (one `stroke_to` per 500 Hz event), `batch` (all events of a frame in one `stroke_to_many`: what the viewport does now).
 //! `place`: `mid` (paint layer in the middle of the stack, default) or `top`.
 //! Env: `PEN_HZ` (500), `PEN_FPS` (60), `PEN_MS` (stroke duration, 800).
 #![allow(unsafe_code)]
@@ -156,6 +156,13 @@ fn main() {
                     touched.extend(s.stroke_to(&cam, e.pos, false).unwrap());
                     gen_calls += 1;
                 },
+                "batch" => {
+                    let e = batch.last().unwrap();
+                    let path: Vec<Vec2> = batch.iter().map(|e| e.pos).collect();
+                    s.set_stroke_pressure(e.pressure);
+                    touched.extend(s.stroke_to_many(&cam, &path).unwrap());
+                    gen_calls += 1;
+                }
                 _ => {
                     let e = batch.last().unwrap();
                     s.set_stroke_pressure(e.pressure);

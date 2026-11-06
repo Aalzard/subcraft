@@ -4355,3 +4355,51 @@ real cost of the big_project stack), and letting GPU-composited tiles fill the C
 * **Cause**: the wireframe/camera feature added two buttons and widened the View combo (92 -> 150), but `viewport_bar.rs` kept hard-coded breakpoints. At 1125 px the bar needed 1228 px (`brush_bar` tests `bar_fits_wide_wrapped_and_tiny_docks_and_hides_for_non_paint_tools` and `flow_and_hardness_open_independent_sliders_and_edit_shared_values` failed on Linux); at 600 px it needed 666 px.
 * **Fix**: wide View combo only from 660 px, wireframe/camera buttons only from 600 px (not reachable from the bar below that), inline brush bar from 1214 px (was 1094). Test's inline breakpoint changed to 1230 (stale assumption); overflow thresholds untouched. Effect: at 1125 px the brush controls now wrap under the view controls.
 * **Run here (Linux)**: `cargo test -p subcraft-ui --test brush_bar` 8/8; `cargo test --workspace` 172 result lines ok, 1135 passed, 0 failed, 2 ignored. Not run: Windows, a visual check of the app.
+
+## Pen stroke latency (2026-11-06, branch `pen-stroke-latency`)
+
+Report: painting with a pen on a graphics tablet was "really slow". No hardware, OS or file was
+available, so this is measured with a synthetic pen stream (`cargo run --release -p subcraft-app
+--example pen_stroke_bench -- [res] [layers] [brush_px] [textured 0|1] [frame|event|batch] [mid|top]`:
+500 Hz events, pressure 0.15..1 driving size and flow, S-curve over 800 ms, 60 fps frames, the
+calls the viewport makes, headless: GPU upload is not measured, only the tiles it would upload).
+
+Findings (read + measured):
+* Cost does not scale with the event rate. The viewport fed one `stroke_to` per frame (the last
+  pointer position); stamps are spaced by distance, so a frame at 60 fps places 0..2 stamps.
+  Per-event calling (`event` mode) is about the same total cost.
+* Cost scales with brush footprint x texture size: one 300 px soft stamp touches 40-110 tiles
+  (2048² / 4096²) and every stamp re-rasterized those tiles' triangles and re-tested visibility.
+  Thread-sum split on a 4096² stamp: rasterize ~60 %, footprint ~35 %, tile rewrite the rest.
+* Every touched tile was rewritten, re-composited and re-uploaded, even when the stamp added no
+  coverage there (the stamp region covers whole triangles).
+* Session overhead (document clone, geometry lookup, store) is ~0 ms; sync + upload bookkeeping
+  per frame < 0.5 ms. The 40-layer case is bound by background compositing (see below).
+
+Fixes (output unchanged: `raster_cache_gives_identical_strokes` compares texel-for-texel against the
+original path, incl. symmetry and a tip image; `crates/app/tests/stroke_many.rs`):
+* `Stroke` keeps the visible texel samples of each tile per camera for the life of the stroke
+  (bounded at 3M samples, dropped when cameras / mesh / visibility settings change).
+  `SUBCRAFT_NO_RASTER_CACHE=1` or `Stroke::without_raster_cache` selects the original path.
+* Tiles whose coverage did not change are not rewritten and not reported as changed.
+* The viewport now stamps along every pointer position of a frame (`Session::stroke_to_many`,
+  one pass) instead of only the last one: a fast pen curve is no longer cut into one chord per frame;
+  cost equals the single-point path. Mouse at one position per frame is bit-identical.
+
+Numbers (this PC, other builds running in the background, so only the pairs measured back to back
+are comparable; ms per `stroke_to` call, p50 frame in brackets; 10 layers, paint layer mid-stack):
+| case | before | after |
+|---|---|---|
+| 1024², 1 layer, 300 px soft | 3.0 (3.3) | 1.9 (1.3) |
+| 2048², 300 px soft | 4.6 (5.0) | 2.9 (3.1) |
+| 2048², 300 px textured tip | 9.6 (9.4) | 3.6 (3.7) |
+| 4096², 300 px soft | 26.3 (18.9; p95 80) | 17.4 (16.1; p95 60) |
+| 4096², 40 layers | 33.7 (17.7) | 26.7 (12.3), tiles reach the screen ~0.8 s late either way |
+
+Not fixed / not verified: at 4096² a 300 px soft brush is still ~17 ms per stamp on the CPU (first
+touch of a tile pays rasterization; footprint evaluation over every sample of every touched tile),
+so 60 fps needs GPU stamping or culling stamp-vs-tile before evaluating; with 40 layers the stroke is
+limited by background compositing throughput (a stroke dirties ~30 tiles per frame, the worker
+finishes ~5), not by stamping. Not reproducible without the streamer's hardware: tablet driver
+behaviour (Wacom Windows Ink vs WinTab, events delivered per frame), OS, DPI scaling, GPU upload and
+frame pacing. Mouse/pen pressure per sample inside a frame is still the last value of the frame.
