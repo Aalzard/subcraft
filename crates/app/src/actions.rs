@@ -27,10 +27,13 @@ pub enum Action {
     Bake,
     /// Switch the 3D view between the raster viewport and the path-traced Rendering mode.
     TogglePathTracing,
+    /// Select every layer of the texture set (then Delete, Duplicate... act on all of them).
+    SelectAllLayers,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Key {
+    A,
     B,
     D,
     E,
@@ -53,6 +56,7 @@ pub enum Key {
 impl Key {
     pub fn label(self) -> &'static str {
         match self {
+            Key::A => "A",
             Key::B => "B",
             Key::D => "D",
             Key::E => "E",
@@ -137,6 +141,7 @@ pub const ACTIONS: &[ActionInfo] = &[
     ActionInfo { action: Action::OpenProject, label: "Open Project", shortcuts: &[Shortcut::ctrl(Key::O)] },
     ActionInfo { action: Action::Export, label: "Export Textures", shortcuts: &[Shortcut::ctrl_shift(Key::E)] },
     ActionInfo { action: Action::Bake, label: "Bake Mesh Maps", shortcuts: &[Shortcut::ctrl(Key::B)] },
+    ActionInfo { action: Action::SelectAllLayers, label: "Select All Layers", shortcuts: &[Shortcut::ctrl(Key::A)] },
     ActionInfo { action: Action::TogglePathTracing, label: "Rendering Mode (path tracing)", shortcuts: &[Shortcut::key(Key::F10)] },
 ];
 
@@ -160,6 +165,7 @@ mod tests {
         assert_eq!(action_for(Shortcut::key(Key::CloseBracket)), Some(Action::BrushLarger));
         assert_eq!(action_for(Shortcut::key(Key::Z)), None, "modifiers must match exactly");
         assert_eq!(action_for(Shortcut::key(Key::F10)), Some(Action::TogglePathTracing));
+        assert_eq!(action_for(Shortcut::ctrl(Key::A)), Some(Action::SelectAllLayers));
         let mut seen = std::collections::HashSet::new();
         for a in ACTIONS {
             for s in a.shortcuts {

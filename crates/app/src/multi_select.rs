@@ -48,6 +48,12 @@ impl MultiSelect {
     }
 
     /// Forget ids that no longer exist in `rows`.
+    /// Select every row (Ctrl+A in the layer list); the first one anchors range clicks.
+    pub fn select_all(&mut self, rows: &[LayerId]) {
+        self.ids = rows.to_vec();
+        self.anchor = rows.first().copied();
+    }
+
     pub fn retain_existing(&mut self, rows: &[LayerId]) {
         self.ids.retain(|i| rows.contains(i));
         if self.anchor.is_some_and(|a| !rows.contains(&a)) {
