@@ -9,7 +9,8 @@ use serde::{Deserialize, Serialize};
 /// Which mouse/modifier combinations navigate the 3D view. The wheel always zooms.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum NavScheme {
-    /// Alt+LMB or RMB orbit, MMB or Ctrl+Alt+LMB pan, Alt+RMB zoom.
+    /// Alt+LMB or RMB orbit, MMB or Ctrl+Alt+LMB pan, Alt+RMB zoom; Shift+RMB rotates the light,
+    /// Shift+MMB the environment.
     #[default]
     Painter,
     /// MMB orbit, Shift+MMB pan, Ctrl+MMB zoom.
@@ -51,6 +52,10 @@ pub enum NavMode {
     Orbit,
     Pan,
     Zoom,
+    /// Turn the key light around the model.
+    Light,
+    /// Turn the environment (HDRI / sky) around the model.
+    Environment,
 }
 
 /// Held mouse buttons and modifiers.
@@ -68,7 +73,11 @@ pub struct NavInput {
 pub fn mode_for(scheme: NavScheme, i: NavInput) -> NavMode {
     match scheme {
         NavScheme::Painter => {
-            if i.secondary && i.alt {
+            if i.shift && i.secondary {
+                NavMode::Light
+            } else if i.shift && i.middle {
+                NavMode::Environment
+            } else if i.secondary && i.alt {
                 NavMode::Zoom
             } else if i.middle || (i.primary && i.alt && i.ctrl) {
                 NavMode::Pan
@@ -145,6 +154,8 @@ mod tests {
         assert_eq!(mode_for(p, inp(false, true, false, false, false, false)), NavMode::Pan);
         assert_eq!(mode_for(p, inp(false, true, false, false, false, true)), NavMode::Pan);
         assert_eq!(mode_for(p, inp(false, false, true, false, false, true)), NavMode::Zoom);
+        assert_eq!(mode_for(p, inp(false, false, true, true, false, false)), NavMode::Light, "Shift+RMB turns the light");
+        assert_eq!(mode_for(p, inp(false, true, false, true, false, false)), NavMode::Environment, "Shift+MMB turns the environment");
     }
 
     #[test]
