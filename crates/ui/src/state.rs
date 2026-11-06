@@ -102,6 +102,11 @@ pub struct UiState {
     pub brush_notice: Option<BrushNotice>,
     /// Shelf double-click: bring the Brush settings tab forward on the next frame.
     pub open_brush_editor: bool,
+    /// Properties shows the brush settings regardless of the selected layer (View menu, Shelf
+    /// double-click) until the selection changes.
+    pub brush_pinned: bool,
+    /// No separate Brush tab is docked, so the Properties panel hosts the brush settings.
+    pub properties_hosts_brush: bool,
     /// Scripted capture only (`--select-brush`): Shelf brush to select before the screenshot.
     pub capture_select_brush: Option<String>,
     /// Scripted Clone/Smudge demonstration for native captures (`--capture-tool`).
@@ -233,6 +238,8 @@ impl UiState {
             import_report: Vec::new(),
             brush_notice: None,
             open_brush_editor: false,
+            brush_pinned: false,
+            properties_hosts_brush: true,
             capture_select_brush: None,
             capture_tool: None,
             render_window: false,

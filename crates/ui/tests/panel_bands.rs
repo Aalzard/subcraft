@@ -14,62 +14,45 @@ fn colors(output: &egui::FullOutput, palette: &[Color32]) -> Vec<(Rect, Color32)
         .collect()
 }
 
+/// Property rows and section headers no longer alternate background bands (they competed with
+/// the controls); they are separated by spacing and a soft hairline instead. List rows keep bands.
 #[test]
-fn panel_headers_and_properties_alternate_independently_and_reset_each_frame() {
+fn sections_and_property_rows_are_unbanded_and_spaced_on_the_scale() {
     let ctx = egui::Context::default();
     theme::apply(&ctx);
+    let mut rows: Vec<Rect> = Vec::new();
+    let mut slider_labels: Vec<Rect> = Vec::new();
     for _ in 0..3 {
+        rows.clear();
+        slider_labels.clear();
         let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
             widgets::panel(ui, |ui| {
                 widgets::section(ui, "one", "One", true, |ui| {
-                    widgets::prop_row(ui, "A", |ui| {
-                        ui.label("A value");
-                    });
-                    ui.add_enabled_ui(false, |ui| {
-                        widgets::prop_row(ui, "B", |ui| {
-                            ui.label("B value");
-                        })
-                    });
-                    widgets::prop_row(ui, "C", |ui| {
-                        ui.label("C value");
-                    });
+                    let mut a = 0.25_f32;
+                    let mut b = 0.5_f32;
+                    rows.push(ui.scope(|ui| widgets::prop_row(ui, "A", |ui| { ui.label("A value"); })).response.rect);
+                    rows.push(ui.scope(|ui| widgets::slider_row(ui, "B", egui::Slider::new(&mut a, 0.0..=1.0))).response.rect);
+                    rows.push(ui.scope(|ui| widgets::slider_row(ui, "C", egui::Slider::new(&mut b, 0.0..=1.0))).response.rect);
                 });
                 widgets::section(ui, "two", "Two", false, |_| {});
-                widgets::section(ui, "three", "Three", false, |_| {});
             });
         });
         out.textures_delta.clear();
-        let heads = colors(&out, &theme::SECTION_BANDS);
-        assert_eq!(
-            heads.iter().map(|(_, c)| *c).collect::<Vec<_>>(),
-            [
-                theme::SECTION_BANDS[0],
-                theme::SECTION_BANDS[1],
-                theme::SECTION_BANDS[0]
-            ]
-        );
-        assert!(heads.iter().all(|(r, _)| r.height() >= 32.0));
-        // Disabled UI may fade its band, but it must still advance the alternating index.
-        let props = colors(&out, &theme::ROW_BANDS);
-        assert!(
-            props
-                .iter()
-                .filter(|(_, c)| *c == theme::ROW_BANDS[0])
-                .count()
-                >= 2
-        );
-        assert!(props.iter().all(|(r, _)| r.height() >= 28.0));
+        for s in &out.shapes {
+            if let egui::Shape::Text(t) = &s.shape && t.galley.text() == "B" { slider_labels.push(Rect::from_min_size(t.pos, t.galley.size())); }
+        }
+        let banded = colors(&out, &theme::ROW_BANDS).into_iter().chain(colors(&out, &theme::SECTION_BANDS)).count();
+        assert_eq!(banded, 0, "no alternating bands behind sections or property rows");
+        assert!(rows[0].height() >= theme::CONTROL_H);
+        // The label sits on its own line above the slider, which is at least CONTROL_H tall.
+        assert!(rows[1].height() >= theme::CONTROL_H + 12.0, "stacked label + control: {:?}", rows[1]);
+        // One row step between rows (item spacing is on the 4/8/12/16 scale).
+        let gap = rows[2].top() - rows[1].bottom();
+        assert!((gap - theme::SP_S).abs() < 0.6, "row gap {gap}");
     }
-    for (a, b) in theme::ROW_BANDS[0]
-        .to_array()
-        .into_iter()
-        .zip(theme::ROW_BANDS[1].to_array())
-        .take(3)
-    {
-        assert!(
-            (10..=14).contains(&a.abs_diff(b)),
-            "visible but restrained band contrast"
-        );
+    assert_eq!(slider_labels.len(), 1);
+    for (a, b) in theme::ROW_BANDS[0].to_array().into_iter().zip(theme::ROW_BANDS[1].to_array()).take(3) {
+        assert!((10..=14).contains(&a.abs_diff(b)), "list bands stay visible but restrained");
     }
 }
 

@@ -168,7 +168,8 @@ pub fn default_layout() -> DockState<Tab> {
     let mut dock = DockState::new(vec![Tab::Viewport, Tab::UvView]);
     let surface = dock.main_surface_mut();
     let [center, right] = surface.split_right(NodeIndex::root(), 0.77, vec![Tab::Layers]);
-    surface.split_below(right, 0.48, vec![Tab::Properties, Tab::Brush]);
+    // Brush settings live inside the context-sensitive Properties panel (no separate tab).
+    surface.split_below(right, 0.48, vec![Tab::Properties]);
     let [center, _] = surface.split_left(center, 0.28, vec![Tab::Shelf]);
     surface.split_below(center, 0.82, vec![Tab::Parts, Tab::TextureSets, Tab::History]);
     // One group per pair: the 2D view is a tab behind the 3D view (3D visible) and Parts is a tab
@@ -177,6 +178,23 @@ pub fn default_layout() -> DockState<Tab> {
         if let Some(path) = dock.find_tab(&visible) { let _ = dock.set_active_tab(path); }
     }
     dock
+}
+
+/// The layout before Brush settings were folded into Properties: a separate Brush tab beside it.
+/// Saved layouts like this still load; the Brush tab is removed when they are restored.
+pub fn legacy_layout() -> DockState<Tab> {
+    let mut dock = default_layout();
+    let path = dock.find_tab(&Tab::Properties).expect("default layout has Properties");
+    dock.set_focused_node_and_surface(path.node_path());
+    dock.push_to_focused_leaf(Tab::Brush);
+    dock
+}
+
+/// Old saved layouts have a Brush tab: drop it, Properties now shows the brush settings.
+fn migrate_layout(dock: &mut DockState<Tab>) {
+    if let Some(path) = dock.find_tab(&Tab::Brush) {
+        let _ = dock.remove_tab(path);
+    }
 }
 
 // Apply the requested shelf-left / utility-tabs-bottom arrangement once, then retain edits.
@@ -189,8 +207,10 @@ pub fn layout_is_valid(dock: &DockState<Tab>) -> bool {
     use egui_dock::Node;
     let mut seen = std::collections::HashMap::<Tab, usize>::new();
     for (_, tab) in dock.iter_all_tabs() { *seen.entry(*tab).or_default() += 1; }
-    let all = [Tab::Viewport, Tab::UvView, Tab::Layers, Tab::Properties, Tab::Brush, Tab::TextureSets, Tab::Parts, Tab::History, Tab::Shelf];
-    if !all.iter().all(|t| seen.get(t) == Some(&1)) || seen.len() != all.len() { return false; }
+    // Brush is optional: layouts saved before the Brush settings moved into Properties still have it.
+    let all = [Tab::Viewport, Tab::UvView, Tab::Layers, Tab::Properties, Tab::TextureSets, Tab::Parts, Tab::History, Tab::Shelf];
+    let brush = seen.get(&Tab::Brush).copied().unwrap_or(0);
+    if !all.iter().all(|t| seen.get(t) == Some(&1)) || brush > 1 || seen.len() != all.len() + brush { return false; }
     if dock.iter_surfaces().count() != 1 { return false; }
     dock.iter_all_nodes().all(|(_, node)| match node {
         Node::Horizontal(split) | Node::Vertical(split) => split.fraction.is_finite() && (0.04..=0.96).contains(&split.fraction),
@@ -236,6 +256,39 @@ mod layout_tests {
         let (sp, np, vp) = visible(Tab::Parts); let (st, nt, vt) = visible(Tab::TextureSets);
         assert_eq!((sp, np), (st, nt), "Parts and Texture Sets share one tab group"); assert!(vt && !vp, "Texture Sets is the visible tab");
         assert_ne!(n3, nt);
+    }
+    #[test]
+    fn brush_settings_live_in_properties_and_old_layouts_with_a_brush_tab_still_load() {
+        assert!(default_layout().find_tab(&Tab::Brush).is_none(), "no separate Brush tab by default");
+        let mut old = legacy_layout();
+        assert!(old.find_tab(&Tab::Brush).is_some() && layout_is_valid(&old), "a saved layout with the Brush tab is still valid");
+        let mut restored = old.clone();
+        migrate_layout(&mut restored);
+        assert!(restored.find_tab(&Tab::Brush).is_none() && layout_is_valid(&restored));
+        assert!(restored.find_tab(&Tab::Properties).is_some());
+        let mut doubled = legacy_layout();
+        doubled.push_to_focused_leaf(Tab::Brush);
+        assert!(!layout_is_valid(&doubled), "two Brush tabs are rejected");
+        migrate_layout(&mut old);
+        assert!(layout_is_valid(&old));
+    }
+    #[test]
+    fn view_menu_request_pins_brush_settings_in_properties_until_the_selection_changes() {
+        let mut app = SubcraftApp {
+            state: UiState::new(Session::new(subcraft_mesh::primitives::cube(2.0), 64), None),
+            dock: default_layout(), frames: 0, screenshot: None, screenshot_requested: false,
+            pending_now: None, active_tabs: HashSet::new(), inspector_selection: None, test_crash: false, profile: None,
+        };
+        app.state.session.execute(Command::AddLayer(NewLayer::Fill)).unwrap();
+        app.follow_layer_selection();
+        assert!(!panels::properties::shows_brush(&app.state), "a fill layer shows its own properties");
+        app.state.open_brush_editor = true;
+        app.open_requested_brush_editor();
+        assert!(panels::properties::shows_brush(&app.state));
+        assert_eq!(app.dock.find_active_focused().map(|(_, t)| *t), Some(Tab::Properties));
+        app.state.session.execute(Command::AddLayer(NewLayer::Fill)).unwrap();
+        app.follow_layer_selection();
+        assert!(!app.state.brush_pinned && !panels::properties::shows_brush(&app.state));
     }
     #[test]
     fn window_size_parsing() {
@@ -308,7 +361,7 @@ mod launch_tests {
     fn shelf_double_click_request_brings_the_brush_settings_forward_once() {
         let mut app = SubcraftApp {
             state: UiState::new(Session::new(subcraft_mesh::primitives::cube(2.0), 64), None),
-            dock: default_layout(), frames: 0, screenshot: None, screenshot_requested: false,
+            dock: legacy_layout(), frames: 0, screenshot: None, screenshot_requested: false,
             pending_now: None, active_tabs: HashSet::new(), inspector_selection: None, test_crash: false, profile: None,
         };
         let brush = app.dock.find_tab(&Tab::Brush).unwrap();
@@ -639,6 +692,7 @@ impl SubcraftApp {
             })
             .unwrap_or_else(default_layout);
         let mut dock = dock;
+        migrate_layout(&mut dock);
         if options.properties_panel && let Some(path) = dock.find_tab(&Tab::Layers) { let _ = dock.remove_tab(path); }
         if options.shelf_panel {
             dock = default_layout();
@@ -684,13 +738,20 @@ impl SubcraftApp {
         }
         // Paint layers and content Paint effects open the brush; everything else its Properties.
         let paint_content = selection.1 == Some(subcraft_doc::LayerKind::Paint) && selection.2 == subcraft_app::LayerTarget::Content && selection.3.is_none();
-        let tab = if paint_content || selection.4 { Tab::Brush } else { Tab::Properties };
+        // A pinned Brush view (View menu, tool click) lasts until the selection changes again.
+        self.state.brush_pinned = false;
+        let tab = if (paint_content || selection.4) && self.dock.find_tab(&Tab::Brush).is_some() { Tab::Brush } else { Tab::Properties };
         self.dock.find_tab(&tab).is_some_and(|path| self.dock.set_active_tab(path).is_ok())
     }
 
     /// A Shelf double-click asks for the Brush settings: bring that tab forward and focus it.
     fn open_requested_brush_editor(&mut self) {
-        if std::mem::take(&mut self.state.open_brush_editor) && let Some(path) = self.dock.find_tab(&Tab::Brush) {
+        if !std::mem::take(&mut self.state.open_brush_editor) {
+            return;
+        }
+        // Legacy layouts have their own Brush tab; otherwise Properties switches to the brush settings.
+        let tab = if self.dock.find_tab(&Tab::Brush).is_some() { Tab::Brush } else { self.state.brush_pinned = true; Tab::Properties };
+        if let Some(path) = self.dock.find_tab(&tab) {
             let _ = self.dock.set_active_tab(path);
             self.dock.set_focused_node_and_surface(path.node_path());
         }
@@ -699,6 +760,7 @@ impl SubcraftApp {
     /// Resolve selection before drawing (shortcuts/imports) and after drawing (layer clicks).
     fn workspace(&mut self, ui: &mut Ui) {
         let ctx = ui.ctx().clone();
+        self.state.properties_hosts_brush = self.dock.find_tab(&Tab::Brush).is_none();
         self.follow_layer_selection();
         self.open_requested_brush_editor();
         let style = theme::dock_style(ui.style());
@@ -1027,6 +1089,10 @@ impl SubcraftApp {
                 ui.set_min_width(240.0);
                 if item(ui, icons::CAMERA, "Reset camera", &sc(km, Action::ResetCamera)) {
                     self.perform(Action::ResetCamera, now);
+                    ui.close();
+                }
+                if item(ui, icons::PAINT_BRUSH, "Brush settings", "") {
+                    self.state.open_brush_editor = true;
                     ui.close();
                 }
                 if item(ui, icons::SQUARES, "Reset layout", "") {

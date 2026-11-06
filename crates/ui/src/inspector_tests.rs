@@ -33,7 +33,7 @@ fn setup() -> (SubcraftApp, egui::Context, [LayerId; 3]) {
     }
     session.execute(Command::SelectLayer(Some(paint))).unwrap();
     session.execute(Command::Seal).unwrap();
-    let mut dock = default_layout();
+    let mut dock = legacy_layout();
     dock.set_active_tab(dock.find_tab(&Tab::Brush).unwrap())
         .unwrap();
     let app = SubcraftApp {
@@ -143,7 +143,7 @@ fn clicking_paint_fill_and_another_fill_reveals_the_selected_layers_controls() {
     assert_eq!(app.state.session.selection().layer, Some(red));
     assert!(active(&app, Tab::Properties));
     let out = settle(&mut app, &ctx);
-    assert!(text(&out, "PROJECTION").is_some());
+    assert!(text(&out, "Projection").is_some());
     assert!(text(&out, "Paint whole material…").is_none());
     click_text(&mut app, &ctx, "Blue fill");
     assert_eq!(app.state.session.selection().layer, Some(blue));
@@ -153,8 +153,8 @@ fn clicking_paint_fill_and_another_fill_reveals_the_selected_layers_controls() {
     assert_eq!(app.state.session.selection().layer, Some(paint));
     assert!(active(&app, Tab::Brush));
     let out = settle(&mut app, &ctx);
-    assert!(text(&out, "PAINT TARGET").is_some());
-    assert!(text(&out, "PROJECTION").is_none());
+    assert!(text(&out, "Paint target").is_some());
+    assert!(text(&out, "Projection").is_none());
     assert_eq!(app.state.session.document(), &before);
     assert_eq!(app.state.session.history().entries().len(), history);
 }
@@ -377,7 +377,7 @@ fn adjacent_thumbnails_select_distinct_domains_and_paint_masks_open_their_own_in
         assert!(active(&app, Tab::Properties));
         let out = settle(&mut app, &ctx);
         assert!(text(&out, "Paint value").is_some());
-        assert!(text(&out, "PROJECTION").is_none());
+        assert!(text(&out, "Projection").is_none());
         let content = thumbnail(&mut app, &ctx, name, false);
         click_at(&mut app, &ctx, content);
         assert_eq!(
@@ -509,8 +509,8 @@ fn effect_rows_add_select_edit_and_route_paint_effects_to_the_brush() {
     // The effect's own Properties replace the fill material controls.
     assert!(active(&app, Tab::Properties));
     let out = settle(&mut app, &ctx);
-    assert!(text(&out, "BLENDING PER CHANNEL").is_some());
-    assert!(text(&out, "PROJECTION").is_none());
+    assert!(text(&out, "Blending per channel").is_some());
+    assert!(text(&out, "Projection").is_none());
     assert!(text(&out, "Levels (Base Color)").is_some(), "nested row under the layer");
     // Per-channel opacity sliders and their values fit inside the inspector (not past the edge).
     // egui picks numeric precision from slider width (1.00 / 1.000 are the same value).
@@ -523,7 +523,7 @@ fn effect_rows_add_select_edit_and_route_paint_effects_to_the_brush() {
     // Back to the layer, then select the effect again from its row.
     click_text(&mut app, &ctx, "Back to layer");
     assert_eq!(app.state.session.selected_effect(), None);
-    assert!(text(&settle(&mut app, &ctx), "PROJECTION").is_some());
+    assert!(text(&settle(&mut app, &ctx), "Projection").is_some());
     click_text(&mut app, &ctx, "Levels (Base Color)");
     assert_eq!(app.state.session.selected_effect(), Some(levels));
     // A Paint effect takes the brush, even on a fill layer.

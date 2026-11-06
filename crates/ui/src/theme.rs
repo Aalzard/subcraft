@@ -18,8 +18,8 @@ pub const SECTION_BANDS: [Color32; 2] = [BG_2, Color32::from_rgb(45, 45, 45)];
 pub const FIELD: Color32 = Color32::from_rgb(29, 29, 29); // text fields, slider rails
 
 /// Stacked blocks in Properties (one channel, one mask effect): clearly lighter than the panel.
-pub const CARD: Color32 = Color32::from_rgb(56, 56, 55);
-pub const CARD_BORDER: Color32 = Color32::from_rgb(86, 86, 83);
+pub const CARD: Color32 = Color32::from_rgb(45, 45, 44);
+pub const CARD_BORDER: Color32 = Color32::from_rgb(60, 60, 58);
 
 /// Colour of the left accent bar of a channel card (muted, so the set reads as a family).
 pub fn channel_accent(kind: subcraft_core::ChannelKind) -> Color32 {
@@ -36,6 +36,10 @@ pub fn channel_accent(kind: subcraft_core::ChannelKind) -> Color32 {
     }
 }
 
+/// Slider rail / value-field fill: darker than the panel so the control reads as an inset track.
+pub const RAIL: Color32 = Color32::from_rgb(30, 30, 30);
+/// Soft separators and control outlines (low contrast on `BG_1`).
+pub const BORDER_SOFT: Color32 = Color32::from_rgb(46, 46, 46);
 pub const BORDER: Color32 = Color32::from_rgb(52, 52, 52);
 pub const BORDER_STRONG: Color32 = Color32::from_rgb(72, 72, 70);
 
@@ -64,8 +68,22 @@ pub const ROW_HEIGHT: f32 = 34.0;
 pub const LAYER_ROW_HEIGHT: f32 = 48.0;
 pub const LAYER_THUMB_SIZE: f32 = 36.0;
 pub const EFFECT_ROW_HEIGHT: f32 = 26.0;
-/// Width of the label column in property rows.
-pub const LABEL_WIDTH: f32 = 84.0;
+/// Width of the label column in property rows (the maximum; narrow panels shrink it).
+pub const LABEL_WIDTH: f32 = 92.0;
+
+// Spacing scale. Rows are one step apart, groups two, sections three.
+pub const SP_XS: f32 = 4.0;
+pub const SP_S: f32 = 8.0;
+pub const SP_M: f32 = 12.0;
+pub const SP_L: f32 = 16.0;
+/// Height of every editable control in a property row (slider, combo, field, button).
+pub const CONTROL_H: f32 = 24.0;
+/// Width of the quiet numeric field to the right of a slider.
+pub const VALUE_W: f32 = 54.0;
+/// Corner radius of controls, chips and cards.
+pub const RADIUS: u8 = 4;
+/// Small dimmed row label.
+pub const LABEL_SIZE: f32 = 12.0;
 
 /// Font family for headings / emphasis.
 pub fn semibold() -> FontFamily {
@@ -137,14 +155,15 @@ pub fn apply(ctx: &egui::Context) {
     w.noninteractive.bg_stroke = Stroke::new(1.0, BORDER);
     w.noninteractive.fg_stroke = Stroke::new(1.0, TEXT_DIM);
 
-    w.inactive.bg_fill = BG_3;
+    // `bg_fill` paints slider rails, handles and checkbox boxes; `weak_bg_fill` buttons and value fields.
+    w.inactive.bg_fill = RAIL;
     w.inactive.weak_bg_fill = BG_3;
-    w.inactive.bg_stroke = Stroke::new(1.0, BORDER);
+    w.inactive.bg_stroke = Stroke::new(1.0, BORDER_SOFT);
     w.inactive.fg_stroke = Stroke::new(1.0, TEXT);
 
     w.hovered.bg_fill = BG_4;
     w.hovered.weak_bg_fill = BG_4;
-    w.hovered.bg_stroke = Stroke::new(1.0, BORDER_STRONG);
+    w.hovered.bg_stroke = Stroke::new(1.0, BORDER);
     w.hovered.fg_stroke = Stroke::new(1.5, TEXT);
     w.hovered.expansion = 0.0;
 
@@ -160,7 +179,7 @@ pub fn apply(ctx: &egui::Context) {
     w.open.fg_stroke = Stroke::new(1.0, TEXT);
 
     for s in [&mut w.noninteractive, &mut w.inactive, &mut w.hovered, &mut w.active, &mut w.open] {
-        s.corner_radius = CornerRadius::same(2);
+        s.corner_radius = CornerRadius::same(RADIUS);
     }
     ctx.set_visuals(v);
 
@@ -174,7 +193,7 @@ pub fn apply(ctx: &egui::Context) {
         ]
         .into();
         let sp = &mut s.spacing;
-        sp.item_spacing = egui::vec2(8.0, 7.0);
+        sp.item_spacing = egui::vec2(SP_S, SP_S);
         sp.button_padding = egui::vec2(10.0, 5.0);
         // Sliders derive their circular handle radius from this height; padding and explicit
         // button sizes retain the larger hit targets used elsewhere.
@@ -183,7 +202,7 @@ pub fn apply(ctx: &egui::Context) {
         sp.menu_margin = Margin::same(6);
         sp.indent = 16.0;
         sp.slider_width = 150.0;
-        sp.slider_rail_height = 3.0;
+        sp.slider_rail_height = 4.0;
         sp.combo_width = 150.0;
         sp.icon_width = 16.0;
         sp.icon_width_inner = 9.0;
