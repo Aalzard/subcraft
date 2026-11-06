@@ -137,6 +137,11 @@ fn run_app() -> anyhow::Result<()> {
                 options.bake_preview_map = Some(subcraft_app::MeshMapKind::ALL.into_iter().find(|k| k.key() == name)
                     .ok_or_else(|| anyhow::anyhow!("unknown bake map {name}"))?);
             }
+            "--mesh-map" => {
+                let name = args.next().ok_or_else(|| anyhow::anyhow!("--mesh-map expects a mesh-map key"))?;
+                options.mesh_map = Some(subcraft_app::MeshMapKind::ALL.into_iter().find(|k| k.key() == name)
+                    .ok_or_else(|| anyhow::anyhow!("unknown mesh map {name}"))?);
+            }
             "--bake-size" => {
                 options.bake_size = Some(args.next().and_then(|s| s.parse::<u32>().ok()).filter(|s| [256, 512, 1024, 2048, 4096].contains(s))
                     .ok_or_else(|| anyhow::anyhow!("--bake-size expects 256, 512, 1024, 2048 or 4096"))?);
