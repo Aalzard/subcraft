@@ -4355,3 +4355,9 @@ real cost of the big_project stack), and letting GPU-composited tiles fill the C
 * **Cause**: the wireframe/camera feature added two buttons and widened the View combo (92 -> 150), but `viewport_bar.rs` kept hard-coded breakpoints. At 1125 px the bar needed 1228 px (`brush_bar` tests `bar_fits_wide_wrapped_and_tiny_docks_and_hides_for_non_paint_tools` and `flow_and_hardness_open_independent_sliders_and_edit_shared_values` failed on Linux); at 600 px it needed 666 px.
 * **Fix**: wide View combo only from 660 px, wireframe/camera buttons only from 600 px (not reachable from the bar below that), inline brush bar from 1214 px (was 1094). Test's inline breakpoint changed to 1230 (stale assumption); overflow thresholds untouched. Effect: at 1125 px the brush controls now wrap under the view controls.
 * **Run here (Linux)**: `cargo test -p subcraft-ui --test brush_bar` 8/8; `cargo test --workspace` 172 result lines ok, 1135 passed, 0 failed, 2 ignored. Not run: Windows, a visual check of the app.
+
+## 2026-11-06 — Default panel layout: tab groups (branch `ui-tabs-default`)
+
+* **Check first**: `default_layout()` already put the 2D view in the 3D view's tab group (3D first/active) and Parts in the group with Texture Sets and History; only the visible tab of the bottom group was Parts (first tab). The default now activates Texture Sets there; 3D stays active in the main group. Tab order and the group structure are unchanged.
+* **Old layouts**: `DOCK_KEY` (`subcraft_dock_v5`) and `layout_is_valid` are untouched, so saved layouts load exactly as before (the change affects only a fresh/reset layout and `--shelf-panel`).
+* **Test**: `app::layout_tests::default_layout_groups_2d_with_3d_and_parts_with_texture_sets_with_the_main_views_visible` (same node + visible tab for both pairs). Not verified: nothing was looked at in the running app; if the user sees 2D beside 3D, that is an older saved layout (View > reset layout / `--reset-layout`).

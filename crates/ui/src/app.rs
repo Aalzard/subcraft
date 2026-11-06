@@ -171,6 +171,11 @@ pub fn default_layout() -> DockState<Tab> {
     surface.split_below(right, 0.48, vec![Tab::Properties, Tab::Brush]);
     let [center, _] = surface.split_left(center, 0.28, vec![Tab::Shelf]);
     surface.split_below(center, 0.82, vec![Tab::Parts, Tab::TextureSets, Tab::History]);
+    // One group per pair: the 2D view is a tab behind the 3D view (3D visible) and Parts is a tab
+    // beside Texture Sets (Texture Sets visible). Saved layouts are untouched by this.
+    for visible in [Tab::TextureSets, Tab::Viewport] {
+        if let Some(path) = dock.find_tab(&visible) { let _ = dock.set_active_tab(path); }
+    }
     dock
 }
 
@@ -221,6 +226,16 @@ mod layout_tests {
         let mut doubled = default_layout();
         doubled.push_to_focused_leaf(Tab::Viewport);
         assert!(!layout_is_valid(&doubled));
+    }
+    #[test]
+    fn default_layout_groups_2d_with_3d_and_parts_with_texture_sets_with_the_main_views_visible() {
+        let dock = default_layout();
+        let visible = |tab: Tab| { let p = dock.find_tab(&tab).unwrap(); (p.surface, p.node, dock[p.surface][p.node].get_leaf().unwrap().active == p.tab) };
+        let (s3, n3, v3) = visible(Tab::Viewport); let (s2, n2, v2) = visible(Tab::UvView);
+        assert_eq!((s3, n3), (s2, n2), "2D and 3D share one tab group"); assert!(v3 && !v2, "3D is the visible tab");
+        let (sp, np, vp) = visible(Tab::Parts); let (st, nt, vt) = visible(Tab::TextureSets);
+        assert_eq!((sp, np), (st, nt), "Parts and Texture Sets share one tab group"); assert!(vt && !vp, "Texture Sets is the visible tab");
+        assert_ne!(n3, nt);
     }
     #[test]
     fn window_size_parsing() {
