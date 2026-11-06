@@ -181,6 +181,7 @@ fn edit_body(state: &mut UiState, ui: &mut Ui, now: f64, embedded: &[(subcraft_c
         state.gpu_dirty = true;
     }
     state.text.edit = Some(d);
+    hint(ui, "Drag the handle to move the text (corner square scales, top circle rotates, Shift+drag the centre rotates).");
     if ui.button("Place by clicking the model").clicked() { state.text.armed = Some(Armed::PlaceDecal); }
     hint(ui, "Changes apply when you release a slider or leave the text box. Undo (Ctrl+Z) steps back one edit.");
     true

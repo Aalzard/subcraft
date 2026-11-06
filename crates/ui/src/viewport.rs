@@ -223,7 +223,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             }
         }
     }
-    let picking = parts_picking || id_picking || text_armed;
+    let gizmo_busy = !bake_mode && !state.painting && !text_armed && text_gizmo(state, ui, &camera, rect, size_scale(rect, &camera), now);
+    let picking = parts_picking || id_picking || text_armed || gizmo_busy;
     if state.picking_parts && (!picking || ui.input(|i| i.key_pressed(egui::Key::Escape))) {
         state.picking_parts = false;
     }
@@ -694,4 +695,68 @@ mod pressure_tests {
     fn finger_without_force_is_full_pressure() {
         assert_eq!(pen_pressure(&[touch(egui::TouchPhase::Start, None)], 0.3), 1.0);
     }
+}
+
+fn size_scale(rect: Rect, camera: &subcraft_app::Camera) -> Vec2 {
+    Vec2::new(camera.viewport[0] as f32 / rect.width(), camera.viewport[1] as f32 / rect.height())
+}
+
+/// On-model handles for the selected text layer: centre = move (Shift+drag rotates), square corner =
+/// scale, top circle = rotate. Drags coalesce into one undo step. Returns true while the pointer is
+/// over a handle or dragging one, so the brush does not paint under it.
+fn text_gizmo(state: &mut UiState, ui: &mut Ui, camera: &subcraft_app::Camera, rect: Rect, pixel_scale: Vec2, now: f64) -> bool {
+    let Some(decal) = state.session.selected_text().cloned() else { return false };
+    let Some(c) = pen_position(state, camera, rect, decal.center) else { return false };
+    let painter = ui.painter_at(rect);
+    let accent = theme::ACCENT;
+    let corner = c + egui::vec2(36.0, 36.0);
+    let top = c + egui::vec2(0.0, -40.0);
+    let handles = [
+        ("text_gizmo_move", c, 9.0),
+        ("text_gizmo_scale", corner, 7.0),
+        ("text_gizmo_rotate", top, 7.0),
+    ];
+    painter.line_segment([c, top], egui::Stroke::new(1.0, accent));
+    painter.rect_stroke(Rect::from_two_pos(c, corner), 0.0, egui::Stroke::new(1.0, accent), egui::StrokeKind::Middle);
+    let mut busy = false;
+    let mut ended = false;
+    let mut moved: Option<(&str, Vec2, Option<Pos2>)> = None;
+    for (id, pos, r) in handles {
+        let resp = ui.interact(Rect::from_center_size(pos, egui::vec2(r * 2.0 + 6.0, r * 2.0 + 6.0)), egui::Id::new(id), egui::Sense::click_and_drag());
+        busy |= resp.hovered() || resp.dragged();
+        let fill = if resp.hovered() || resp.dragged() { accent } else { theme::BG_0 };
+        match id {
+            "text_gizmo_move" => { painter.circle_filled(pos, r, fill); painter.circle_stroke(pos, r, egui::Stroke::new(1.5, accent)); }
+            "text_gizmo_scale" => { painter.rect_filled(Rect::from_center_size(pos, egui::vec2(r * 2.0, r * 2.0)), 1.0, fill); }
+            _ => { painter.circle_filled(pos, r, fill); painter.circle_stroke(pos, r, egui::Stroke::new(1.5, accent)); }
+        }
+        if resp.hovered() || resp.dragged() {
+            ui.ctx().set_cursor_icon(if id == "text_gizmo_move" { egui::CursorIcon::Grab } else { egui::CursorIcon::ResizeNeSw });
+            resp.clone().on_hover_text(match id { "text_gizmo_move" => "Drag to move the text on the surface (Shift+drag rotates)", "text_gizmo_scale" => "Drag to scale", _ => "Drag left or right to rotate" });
+        }
+        if resp.dragged() { moved = Some((id, Vec2::new(resp.drag_delta().x, resp.drag_delta().y), resp.interact_pointer_pos())); }
+        if resp.drag_stopped() { ended = true; }
+    }
+    if let Some((id, delta, ptr)) = moved {
+        let shift = ui.input(|i| i.modifiers.shift);
+        let result = match (id, shift) {
+            ("text_gizmo_move", false) => match ptr {
+                Some(p) => state.session.drag_selected_text_to(camera, Vec2::new((p.x - rect.min.x) * pixel_scale.x, (p.y - rect.min.y) * pixel_scale.y)),
+                None => Ok(()),
+            },
+            ("text_gizmo_scale", _) => {
+                let mut d = decal.clone();
+                d.size = (d.size * (1.0 + delta.x / 120.0)).clamp(subcraft_doc::TextDecal::MIN_SIZE, subcraft_doc::TextDecal::MAX_SIZE);
+                state.session.update_selected_text_live(d)
+            }
+            _ => {
+                let mut d = decal.clone();
+                d.rotation += delta.x * 0.5f32.to_radians();
+                state.session.update_selected_text_live(d)
+            }
+        };
+        match result { Ok(()) => state.gpu_dirty = true, Err(e) => state.set_status(format!("Text: {e}"), now) }
+    }
+    if ended { state.session.end_text_gesture(); }
+    busy
 }
