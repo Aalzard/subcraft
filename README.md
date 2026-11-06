@@ -1,26 +1,38 @@
-<img width="1254" height="1254" alt="Engraved Hand on Orange " src="https://github.com/user-attachments/assets/520d56f6-acd7-4ca3-9819-cffb4395b82e" />
-# SubCraft
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/520d56f6-acd7-4ca3-9819-cffb4395b82e" width="120" alt="SubCraft logo">
+</p>
 
-[![Download for Windows](https://img.shields.io/badge/Download-Windows%20installer%20%2F%20zip-ff7a1a?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/Aalzard/subcraft/releases/latest)
-[![Download for Linux](https://img.shields.io/badge/Download-Linux-ff7a1a?style=for-the-badge&logo=linux&logoColor=white)](https://github.com/Aalzard/subcraft/releases/latest)
-[![Latest release](https://img.shields.io/github/v/release/Aalzard/subcraft?style=for-the-badge&label=latest&color=2b2b2b)](https://github.com/Aalzard/subcraft/releases/latest)
+<h1 align="center">SubCraft</h1>
 
-An independent, open-source 3D texture painting application in the spirit of Substance Painter,
-written in Rust. Paint directly on 3D models with layered PBR materials, masks, generators and
-smart materials, bake mesh maps, and export game-ready textures. Desktop app for Windows and Linux.
+<p align="center">
+  <a href="https://github.com/Aalzard/subcraft/releases/latest"><img src="https://img.shields.io/badge/Download-Windows-ff7a1a?style=for-the-badge&logo=windows&logoColor=white" alt="Download for Windows"></a>
+  <a href="https://github.com/Aalzard/subcraft/releases/latest"><img src="https://img.shields.io/badge/Download-Linux-ff7a1a?style=for-the-badge&logo=linux&logoColor=white" alt="Download for Linux"></a>
+  <a href="https://github.com/Aalzard/subcraft/releases/latest"><img src="https://img.shields.io/github/v/release/Aalzard/subcraft?style=for-the-badge&label=latest&color=2b2b2b" alt="Latest release"></a>
+  <a href="https://www.paypal.com/donate/?hosted_button_id=UFCVX9QYCB8F8"><img src="https://img.shields.io/badge/Support%20me-PayPal-0070ba?style=for-the-badge&logo=paypal&logoColor=white" alt="Support me on PayPal"></a>
+</p>
+
+<p align="center"><b>Free, open-source 3D texture painting, written in Rust.</b></p>
+
+Paint straight onto your 3D models with layered PBR materials, masks, generators and smart
+materials, bake mesh maps on the GPU, and export game-ready textures for Unreal, Unity, Godot,
+Roblox, Sketchfab and more. If you know professional texture painters, the layout, layer stack and
+mask workflow will feel familiar. SubCraft runs on Windows and Linux, with experimental macOS and
+Arm builds.
 
 **SubCraft is an independent project. It is not officially developed by, affiliated with,
 or endorsed by ArtCraft.**
 
-![SubCraft painting a crate](docs/screenshots/v018-overview.png)
+![SubCraft painting the sample crate](docs/screenshots/v021-overview.png)
 
-> **Status: early but usable.** The core engine, painting, baking, smart materials, save/load and
-> export all work and are covered by tests. Expect rough edges, missing features and breaking
-> changes to the project file format. See [`docs/progress.md`](docs/progress.md) for what is done
-> and what comes next.
+> **Status: early but usable.** Painting, layers and masks, baking, smart materials, save/load and
+> export all work and are covered by tests. Expect rough edges and missing features, and the
+> project file format may still change. [`docs/progress.md`](docs/progress.md) lists what is done
+> and what comes next, and [issues](https://github.com/Aalzard/subcraft/issues) are very welcome.
 
-New here? Follow the [illustrated getting-started guide](docs/getting-started.md). A welcome
-screen and a six-step in-app guide are included.
+New here? Follow the [illustrated getting-started guide](docs/getting-started.md). The app also
+opens with a welcome screen and a six-step guide.
+
+If SubCraft is useful to you, you can [support its development on PayPal](https://www.paypal.com/donate/?hosted_button_id=UFCVX9QYCB8F8).
 
 ## What's new in 0.2.1
 
@@ -44,20 +56,8 @@ screen and a six-step in-app guide are included.
   ID Color Mask, Edit in PhotoCraft.
 - macOS and Linux/Windows arm64 packaging (untested on that hardware).
 
-## What was new in 0.1.8
+Older versions: see the [CHANGELOG](CHANGELOG.md).
 
-- **Clone and Smudge** tools, plus camera projection for brush images.
-- **New Project window**: inspect a model (triangles, materials, objects, UDIM tiles, warnings)
-  and choose template, resolution, texture-set split, UDIM, normal format and high poly first.
-- **UDIM** tiles become one texture set each; export with `.1001` names or per-tile folders.
-- **Export checkboxes** for every map, Select all / None / Invert, Alt+click to export one map.
-- **Engine presets** for Unity URP and Godot 4; **Height** and **Bent Normal** bakes.
-- **Render quality**: tone mapping, bloom, ambient occlusion, emission glow and glare; render
-  stills and PNG turntable frames.
-- **15 new smart materials and 16 new smart masks**, five new generators.
-- **80 normal maps + 80 brush alphas** (CC0) and **10 built-in HDRI environments**.
-
-Full list: [CHANGELOG.md](CHANGELOG.md).
 
 ## Features
 
@@ -103,11 +103,11 @@ Full list: [CHANGELOG.md](CHANGELOG.md).
 
 ### Materials and Shelf
 
-![Smart materials on the Shelf](docs/screenshots/v018-shelf-smart-materials.png)
+![Smart materials on the Shelf](docs/screenshots/v021-shelf-smart-materials.png)
 
 *Smart materials: 20 in the Shelf, with 21 smart masks.*
 
-- **Smart materials and masks**: 20 smart materials (15 new in 0.1.8) and 21 smart masks (16 new).
+- **Smart materials and masks**: 20 smart materials and 21 smart masks, applied in one click.
   Edge and cavity layers need baked Curvature / AO.
 - **Your own textures**: any image (PNG, JPG, TGA, TIF, EXR...) in a fill layer with UV,
   tri-planar or planar projection, or import a whole texture set (matched by file name, glossiness and
@@ -115,15 +115,15 @@ Full list: [CHANGELOG.md](CHANGELOG.md).
 - **Your library** in `Documents\SubCraft\Library`: imported tips and HDRIs, saved smart materials,
   smart masks and brush presets come back every time you start SubCraft.
 
-![Starter pack normals](docs/screenshots/v018-shelf-textures.png)
+![Starter pack normals](docs/screenshots/v021-shelf-textures.png)
 
 *Textures: 80 CC0 starter normals (Textures > Starter pack); click one to preview tiles and adjust it.*
 
-![Starter pack brush alphas](docs/screenshots/v018-shelf-brushes.png)
+![Brushes on the Shelf](docs/screenshots/v021-shelf-brushes.png)
 
 *Brushes: 80 CC0 starter alphas. See the [CC0 credits](assets/starter-pack/CREDITS-CC0.txt).*
 
-![Built-in environments](docs/screenshots/v018-shelf-environments.png)
+![Built-in environments](docs/screenshots/v021-shelf-environments.png)
 
 *Environments: five studio/sky presets and 10 bundled HDRIs (AI-generated, CC0; HDR lighting is synthesized, not measured). Import your own HDRI too.*
 
@@ -157,7 +157,7 @@ The 2048 x 1024 originals of the 10 HDRIs are an optional download
 
 ### Projects
 
-![New Project window](docs/screenshots/v018-new-project.png)
+![New Project window](docs/screenshots/v021-new-project.png)
 
 *New Project: model summary with warnings, template, resolution, split rule, UDIM and normal format.*
 
@@ -175,7 +175,7 @@ The 2048 x 1024 originals of the 10 HDRIs are an optional download
 
 ### Export
 
-![Export Textures window](docs/screenshots/v018-export-window.png)
+![Export Textures window](docs/screenshots/v021-export-window.png)
 
 *Export: every map listed per texture set with checkboxes and a live file count.*
 
