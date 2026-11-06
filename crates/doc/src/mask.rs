@@ -57,6 +57,34 @@ pub struct Generator {
     /// World axis for `PositionGradient`. Absent in older projects: Y, their original behavior.
     #[serde(default, skip_serializing_if = "GradientAxis::is_y")]
     pub axis: GradientAxis,
+    /// Substance Painter's extra generator controls (edges masking, wear's AO masking, curvature
+    /// weight, smoothness). Absent in older projects and in generators made in SubCraft: they keep
+    /// their exact behavior.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub painter: Option<PainterControls>,
+}
+
+/// Controls of Painter's `Dirt` and `Metal Edge Wear` generators that a plain threshold generator
+/// lacks. Every field is a strength 0..1 whose neutral value (`Default`) changes nothing.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PainterControls {
+    /// Dirt: fraction of convex edges removed from the dirt (Painter `edges_masking`; 0 = none).
+    pub edges_masking: f32,
+    /// Wear: fraction of the wear removed where the surface is occluded (Painter
+    /// `Ambient_Occlusion_Masking`; 0 = none).
+    pub ao_masking: f32,
+    /// Wear: strength of the baked curvature detail next to the geometric edge band
+    /// (Painter `Curvature_Weight`; 1 = as before).
+    pub curvature_weight: f32,
+    /// Wear: extra softening of the band edge (Painter `Edges_Smoothness`; 0 = none).
+    pub smoothness: f32,
+    /// Multiplier of the breakup noise's pattern scale (Painter `Grunge_Scale` relative to the
+    /// default; 1 = as before).
+    pub grunge_scale: f32,
+}
+
+impl Default for PainterControls {
+    fn default() -> Self { Self { edges_masking: 0.0, ao_masking: 0.0, curvature_weight: 1.0, smoothness: 0.0, grunge_scale: 1.0 } }
 }
 
 /// World axis a position gradient runs along (0 at the mesh minimum, 1 at its maximum).
@@ -140,6 +168,7 @@ impl Generator {
             edge_spread: (kind == GeneratorKind::Edges).then(EdgeSpread::default),
             direction: [0.0, 1.0, 0.0],
             axis: GradientAxis::Y,
+            painter: None,
         }
     }
 
