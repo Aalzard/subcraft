@@ -27,8 +27,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             });
 
             section(ui, "presets", "Presets", true, |ui| {
-                ui.horizontal(|ui| {
-                    ui.add(egui::TextEdit::singleline(&mut state.preset_name).hint_text("Preset name").desired_width(150.0));
+                ui.vertical(|ui| {
+                    ui.add(egui::TextEdit::singleline(&mut state.preset_name).hint_text("Preset name").desired_width(f32::INFINITY).margin(egui::vec2(8.0, 5.0)));
                     let can_save = state.user_library.is_some();
                     if ui
                         .add_enabled(can_save, egui::Button::new(format!("{}  Save preset", crate::icons::SAVE)))

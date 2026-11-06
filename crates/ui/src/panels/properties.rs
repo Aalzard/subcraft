@@ -15,7 +15,26 @@ use crate::state::UiState;
 use crate::theme::{self, ACCENT, TEXT_DIM, TEXT_FAINT};
 use crate::widgets::{channel_value, empty_state, fill_width, hint, icon_button, panel, primary_button, prop_row, secondary_button, section, section_with, segmented, slider_row};
 
+/// Properties is context-sensitive like Substance Painter's: while a paint layer (or a paint
+/// effect) is the target, or the brush settings were asked for, it shows the brush settings; any
+/// other layer shows its own properties.
+pub fn shows_brush(state: &UiState) -> bool {
+    if !state.properties_hosts_brush {
+        return false;
+    }
+    let session = &state.session;
+    let paints_effect = matches!(session.brush.target, subcraft_paint::PaintTarget::ContentEffect(_));
+    let paint_content = session.selected_layer().is_some_and(|l| l.kind() == subcraft_doc::LayerKind::Paint)
+        && session.layer_target() == subcraft_app::LayerTarget::Content
+        && session.selected_effect().is_none();
+    state.brush_pinned || paint_content || paints_effect
+}
+
 pub fn show(state: &mut UiState, ui: &mut Ui) {
+    if shows_brush(state) {
+        super::brush::show(state, ui);
+        return;
+    }
     if super::effects::properties(state, ui) {
         return;
     }
@@ -623,15 +642,15 @@ pub(crate) fn channel_toggles(ui: &mut Ui, channels: &[(ChannelKind, bool)]) -> 
 pub(crate) fn channel_chips(ui: &mut Ui, channels: &[(ChannelKind, bool)], addable: &[ChannelKind]) -> Option<ChannelAction> {
     let mut clicked = None;
     ui.horizontal_wrapped(|ui| {
-        ui.spacing_mut().item_spacing = egui::vec2(3., 4.);
+        ui.spacing_mut().item_spacing = egui::vec2(4., 6.);
         for &(kind, on) in channels {
-            let response = ui.selectable_label(on, kind.short_name()).on_hover_text(format!("{} · Click: toggle · Alt+click: only this channel", kind.display_name()));
+            let response = crate::widgets::chip(ui, kind.short_name(), on).on_hover_text(format!("{} · Click: toggle · Alt+click: only this channel", kind.display_name()));
             response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, on, kind.display_name()));
             if response.clicked() { clicked = Some(ChannelAction::Toggle(kind, ui.input(|i| i.modifiers.alt))); }
         }
         for &kind in addable {
             let label = format!("+ {}", kind.short_name());
-            let response = ui.selectable_label(false, label.clone()).on_hover_text(format!("Add the {} channel to this texture set and turn it on for this layer (one undo step)", kind.display_name()));
+            let response = crate::widgets::chip(ui, &label, false).on_hover_text(format!("Add the {} channel to this texture set and turn it on for this layer (one undo step)", kind.display_name()));
             response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label.clone()));
             if response.clicked() { clicked = Some(ChannelAction::Add(kind)); }
         }

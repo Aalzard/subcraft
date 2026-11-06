@@ -103,6 +103,7 @@ pub fn window(state: &mut UiState, ctx: &Context) {
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
         .show(ctx, |ui| {
             ui.set_width(640.0_f32.min((screen_width - 32.0).max(260.0)));
+            ui.spacing_mut().item_spacing.y = 7.0; // this dialog is height-budgeted; keep its original rhythm
             let np = &mut state.new_project;
             egui::ScrollArea::vertical().max_height((ctx.content_rect().height() - 210.0).max(80.0)).show(ui, |ui| {
                 model_section(ui, np, &mut pick_model);

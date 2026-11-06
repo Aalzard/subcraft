@@ -43,7 +43,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         let _ = state.session.execute(Command::ToggleBrushChannel { channel, solo });
         material = state.session.brush.material.clone();
     }
-    for (index, kind) in state.session.channels().into_iter().enumerate() {
+    for kind in state.session.channels() {
         ui.push_id(kind, |ui| {
             let entry = material.channels.entry(kind).or_insert(BrushChannel {
                 enabled: false,
@@ -52,15 +52,17 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             let mut pick = false;
             let enabled = entry.enabled;
             if !enabled && !dragging_texture { return; }
+            ui.add_space(theme::SP_XS);
             let has_image = material.textures.contains_key(&kind);
             let row = egui::Frame::new()
-                .fill(theme::ROW_BANDS[index % 2])
-                .inner_margin(egui::Margin::same(8))
-                .corner_radius(2)
+                .fill(theme::BG_2)
+                .stroke(egui::Stroke::new(1.0, theme::BORDER_SOFT))
+                .inner_margin(egui::Margin::same(theme::SP_M as i8))
+                .corner_radius(6)
                 .show(ui, |ui| {
                     ui.set_min_width(ui.available_width());
                     ui.horizontal(|ui| {
-                        ui.label(kind.display_name());
+                        ui.label(egui::RichText::new(kind.display_name()).font(theme::font_strong(12.5)).color(theme::TEXT));
                         if !enabled {
                             ui.weak("drop the image here to use it");
                         } else if !has_image {
