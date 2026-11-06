@@ -108,17 +108,37 @@ fn scratch_wear(params: &ProceduralParams, geo: &TileGeometry, ctx: &SampleConte
 /// Grayscale procedural values of every texel of a tile, cached on the tile geometry: exactly
 /// [`eval_procedural`] for each texel, computed once per parameter set.
 pub fn procedural_tile(params: &ProceduralParams, projection: &Projection, geo: &TileGeometry) -> std::sync::Arc<field::Field> {
-    geo.fields.get_or_compute(field::FieldKey::new(params, projection), || (0..TILE_TEXELS).map(|i| eval_procedural(params, projection, geo, i)).collect())
+    procedural_tile_at(params, projection, [0.0; 3], geo)
+}
+
+/// [`procedural_tile`] with the pattern moved by `offset` in object space (units of the model's
+/// longest dimension). Only projections that read the position (triplanar, planar) move.
+pub fn procedural_tile_at(params: &ProceduralParams, projection: &Projection, offset: [f32; 3], geo: &TileGeometry) -> std::sync::Arc<field::Field> {
+    geo.fields.get_or_compute(field::FieldKey::new(params, projection).at(offset), || (0..TILE_TEXELS).map(|i| eval_procedural_at(params, projection, offset, geo, i)).collect())
 }
 
 pub fn organic_tile(params: &ProceduralParams, geo: &TileGeometry) -> std::sync::Arc<field::Field> {
-    geo.fields.get_or_compute(field::FieldKey::organic(params), || (0..TILE_TEXELS).map(|i| crate::organic::eval(params, geo.position(i))).collect())
+    organic_tile_at(params, [0.0; 3], geo)
+}
+
+/// [`organic_tile`] with the volume noise moved by `offset` (same units as [`procedural_tile_at`]).
+pub fn organic_tile_at(params: &ProceduralParams, offset: [f32; 3], geo: &TileGeometry) -> std::sync::Arc<field::Field> {
+    geo.fields.get_or_compute(field::FieldKey::organic(params).at(offset), || (0..TILE_TEXELS).map(|i| {
+        let p = geo.position(i);
+        crate::organic::eval(params, [p[0] + offset[0], p[1] + offset[1], p[2] + offset[2]])
+    }).collect())
 }
 
 /// Grayscale procedural value of texel `i` through a projection.
 #[inline]
 pub fn eval_procedural(params: &ProceduralParams, projection: &Projection, geo: &TileGeometry, i: usize) -> f32 {
-    sample_projected(projection, geo.uv(i), geo.position(i), geo.normal(i), |p| {
+    eval_procedural_at(params, projection, [0.0; 3], geo, i)
+}
+
+#[inline]
+fn eval_procedural_at(params: &ProceduralParams, projection: &Projection, offset: [f32; 3], geo: &TileGeometry, i: usize) -> f32 {
+    let p = geo.position(i);
+    sample_projected(projection, geo.uv(i), [p[0] + offset[0], p[1] + offset[1], p[2] + offset[2]], geo.normal(i), |p| {
         [pattern::eval(params, Vec2::new(p[0], p[1])), 0.0, 0.0, 0.0]
     })[0]
 }

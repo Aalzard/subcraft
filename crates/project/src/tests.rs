@@ -735,3 +735,16 @@ fn text_layer_schema_is_pinned_and_rejects_bad_values() {
     decal.opacity = f32::NAN;
     assert!(decal.validate().is_err());
 }
+
+#[test]
+fn generator_offset_round_trips_and_old_files_have_none() {
+    use subcraft_doc::{Generator, GeneratorKind};
+    let mut g = Generator::new(GeneratorKind::Edges);
+    let none = serde_json::to_value(g).unwrap();
+    assert!(none.get("offset").is_none(), "a zero offset is not written, so older readers and files are unchanged");
+    assert_eq!(serde_json::from_value::<Generator>(none).unwrap().offset, [0.0; 3]);
+    g.offset = [0.25, 0.0, -0.5];
+    let moved = serde_json::to_value(g).unwrap();
+    assert_eq!(moved["offset"], serde_json::json!([0.25, 0.0, -0.5]));
+    assert_eq!(serde_json::from_value::<Generator>(moved).unwrap(), g);
+}
