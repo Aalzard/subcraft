@@ -71,7 +71,7 @@ fn narrow_shelf_and_layer_footers_fit_the_real_dock_without_outer_scrolling() {
     let (mut app, ctx, _) = setup();
     app.dock = DockState::new(vec![Tab::Shelf]);
     app.dock.main_surface_mut().split_right(NodeIndex::root(), 0.25, vec![Tab::Layers]);
-    app.state.shelf.tab = crate::panels::shelf::ShelfTab::Textures;
+    app.state.shelf.tab = crate::panels::shelf::ShelfTab::NormalMaps;
     let out = settle(&mut app, &ctx);
     let footers: Vec<_> = out.shapes.iter().filter_map(|s| match &s.shape {
         egui::Shape::Text(t) if t.galley.text() == "Preview size" => Some((s.clip_rect, Rect::from_min_size(t.pos, t.galley.size()))),

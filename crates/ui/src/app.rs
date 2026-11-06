@@ -595,6 +595,7 @@ impl SubcraftApp {
         if let Some(tab) = options.shelf_tab.as_deref() {
             use crate::panels::shelf::ShelfTab;
             state.shelf.tab = match tab {
+                "normal-maps" => ShelfTab::NormalMaps,
                 "materials" => ShelfTab::Materials,
                 "smart-materials" => ShelfTab::SmartMaterials,
                 "smart-masks" => ShelfTab::SmartMasks,

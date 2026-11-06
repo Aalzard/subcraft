@@ -140,7 +140,7 @@ pub fn import_shelf_textures(state: &mut UiState, paths: &[PathBuf], now: f64) {
             }
             state.set_status(r.summary(), now);
         }
-        Err(_) => state.set_status(format!("Added {} texture(s) to Shelf › Textures", paths.len()), now),
+        Err(_) => state.set_status(format!("Added {} texture(s) to Shelf › Textures (normal maps appear under Normal Maps)", paths.len()), now),
     }
 }
 

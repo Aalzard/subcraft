@@ -57,6 +57,8 @@ pub fn apply_shelf_item(s: &mut UiState, item: ShelfDrag, now: f64) {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ShelfTab {
     Textures,
+    /// Tangent-space normal maps (the starter pack's and the user's), apart from color textures.
+    NormalMaps,
     Materials,
     SmartMaterials,
     SmartMasks,
@@ -331,14 +333,31 @@ pub(crate) fn tip_thumbnail(state: &UiState, tip: &str) -> Option<egui::TextureI
 }
 
 /// Underlined text tab.
+/// Icon of the Normal Maps tab. The icon font has no bumpy-surface glyph, so it is drawn: a
+/// rounded tile with a wavy relief line, in the weight of the font icons.
+const BUMPS: &str = "bumps-icon";
+
+fn draw_bumps(painter: &egui::Painter, center: egui::Pos2, color: Color32) {
+    let stroke = egui::Stroke::new(1.5, color);
+    painter.rect_stroke(egui::Rect::from_center_size(center, egui::vec2(14.0, 14.0)), 3.0, stroke, egui::StrokeKind::Inside);
+    let wave: Vec<egui::Pos2> = (0..=10).map(|i| {
+        let t = i as f32 / 10.0;
+        egui::pos2(center.x - 5.0 + 10.0 * t, center.y + 2.0 * (t * std::f32::consts::TAU * 1.5).sin())
+    }).collect();
+    painter.add(egui::Shape::line(wave, stroke));
+}
+
 fn shelf_tab(ui: &mut Ui, current: &mut ShelfTab, value: ShelfTab, icon: &str, label: &str) {
     let selected = *current == value;
-    let text = format!("{icon}  {label}");
+    let drawn = icon == BUMPS;
+    let text = if drawn { format!("      {label}") } else { format!("{icon}  {label}") };
     let color = if selected { theme::TEXT } else { theme::TEXT_FAINT };
     let galley = ui.painter().layout_no_wrap(text, theme::font_strong(12.0), color);
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(galley.size().x + 16.0, 34.0), egui::Sense::click());
     let color = if resp.hovered() && !selected { theme::TEXT_DIM } else { color };
-    ui.painter().galley_with_override_text_color(rect.center() - galley.size() / 2.0, galley, color);
+    let text_pos = rect.center() - galley.size() / 2.0;
+    if drawn { draw_bumps(ui.painter(), egui::pos2(text_pos.x + 7.0, rect.center().y), color); }
+    ui.painter().galley_with_override_text_color(text_pos, galley, color);
     if selected {
         ui.painter().rect_filled(egui::Rect::from_min_max(egui::pos2(rect.left(), rect.bottom() - 2.0), rect.right_bottom()), 0.0, theme::ACCENT);
     }
@@ -360,14 +379,15 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         let narrow = ui.available_width() < 720.0;
         let tab = &mut state.shelf.tab;
         if narrow {
-            let label = match tab { ShelfTab::Textures => "Textures", ShelfTab::Materials => "Materials", ShelfTab::SmartMaterials => "Smart Materials", ShelfTab::SmartMasks => "Smart Masks", ShelfTab::Brushes => "Brushes", ShelfTab::Environments => "Environments" };
+            let label = match tab { ShelfTab::Textures => "Textures", ShelfTab::NormalMaps => "Normal Maps", ShelfTab::Materials => "Materials", ShelfTab::SmartMaterials => "Smart Materials", ShelfTab::SmartMasks => "Smart Masks", ShelfTab::Brushes => "Brushes", ShelfTab::Environments => "Environments" };
             egui::ComboBox::from_id_salt("shelf_category").selected_text(label).width(144.0).show_ui(ui, |ui| {
-                for (kind, name) in [(ShelfTab::Textures,"Textures"),(ShelfTab::Materials,"Materials"),(ShelfTab::SmartMaterials,"Smart Materials"),(ShelfTab::SmartMasks,"Smart Masks"),(ShelfTab::Brushes,"Brushes"),(ShelfTab::Environments,"Environments")] {
+                for (kind, name) in [(ShelfTab::Textures,"Textures"),(ShelfTab::NormalMaps,"Normal Maps"),(ShelfTab::Materials,"Materials"),(ShelfTab::SmartMaterials,"Smart Materials"),(ShelfTab::SmartMasks,"Smart Masks"),(ShelfTab::Brushes,"Brushes"),(ShelfTab::Environments,"Environments")] {
                     ui.selectable_value(tab, kind, name);
                 }
             });
         } else {
         shelf_tab(ui, tab, ShelfTab::Textures, crate::icons::IMAGE, "Textures");
+        shelf_tab(ui, tab, ShelfTab::NormalMaps, BUMPS, "Normal Maps");
         shelf_tab(ui, tab, ShelfTab::Materials, crate::icons::DROP, "Materials");
         shelf_tab(ui, tab, ShelfTab::SmartMaterials, crate::icons::SPARKLE, "Smart Materials");
         shelf_tab(ui, tab, ShelfTab::SmartMasks, crate::icons::MASK, "Smart Masks");
@@ -377,6 +397,13 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         ui.spacing_mut().item_spacing.x = 8.0;
         ui.add_space(16.0);
         match state.shelf.tab {
+            ShelfTab::NormalMaps => {
+                if ui.button(format!("{}  Import normal maps…", crate::icons::DOWNLOAD)).clicked() {
+                    crate::files::pick(ui.ctx(), crate::files::Purpose::ShelfTextures, crate::files::IMAGES, true, None);
+                }
+                library_folder_button(ui, state, subcraft_app::assets::UserAssetKind::Texture);
+                shelf_hint(ui, "Tangent-space normal maps. Drag one onto a Normal channel in Properties, or onto the model / a layer for a new fill layer; click to preview and adjust.");
+            }
             ShelfTab::Textures => {
                 if ui.button(format!("{}  Import textures…", crate::icons::DOWNLOAD)).clicked() {
                     crate::files::pick(ui.ctx(), crate::files::Purpose::ShelfTextures, crate::files::IMAGES, true, None);
@@ -446,9 +473,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             if state.shelf.tab != ShelfTab::Brushes { shown += crate::asset_preview::shelf(state,ui,tile_size); }
             let thumbs = &state.shelf.thumbs;
             match state.shelf.tab {
-                ShelfTab::Textures => {
+                ShelfTab::Textures | ShelfTab::NormalMaps => {
+                    let normals = state.shelf.tab == ShelfTab::NormalMaps;
                     for (i, t) in state.textures.items.iter().enumerate() {
-                        if !filter.matches(&t.name, Some(t.category), true) {
+                        if (t.category == "Normal") != normals || !filter.matches(&t.name, Some(t.category), true) {
                             continue;
                         }
                         shown += 1;
@@ -670,7 +698,7 @@ fn generate_one_thumbnail(state: &mut UiState, ctx: &egui::Context) {
     }
     let job = match state.shelf.tab {
         // Texture thumbnails come from their own background loader.
-        ShelfTab::Textures => None,
+        ShelfTab::Textures | ShelfTab::NormalMaps => None,
         ShelfTab::Brushes => lib.alphas.iter().position(|a| missing(&a.id)).map(Job::Alpha),
         ShelfTab::Materials => lib.materials.iter().find(|m| missing(&m.id)).map(|m| {
             let m = m.clone();
@@ -807,13 +835,14 @@ fn filter_row(state: &mut UiState, ui: &mut Ui) {
             chips.push((Chip::Category(c.clone()), c));
         }
     }
-    if state.shelf.tab == ShelfTab::Textures {
+    if matches!(state.shelf.tab, ShelfTab::Textures | ShelfTab::NormalMaps) {
         chips.push((Chip::Tileable,"Tileable".into()));
-        for c in categories(state.textures.items.iter().map(|t| t.category)) {
+        let normals = state.shelf.tab == ShelfTab::NormalMaps;
+        for c in categories(state.textures.items.iter().filter(|t| (t.category == "Normal") == normals).map(|t| t.category)) {
             chips.push((Chip::Category(c.clone()), c));
         }
     }
-    if matches!(state.shelf.tab,ShelfTab::Textures|ShelfTab::Brushes) {chips.push((Chip::Category("Starter pack".into()),"Starter pack".into()));}
+    if matches!(state.shelf.tab,ShelfTab::NormalMaps|ShelfTab::Brushes) {chips.push((Chip::Category("Starter pack".into()),"Starter pack".into()));}
     egui::Frame::new().inner_margin(egui::Margin { left: theme::PAD, right: theme::PAD, top: 4, bottom: 6 }).show(ui, |ui| {
         ui.horizontal_wrapped(|ui| {
             let filter = &mut state.shelf.filter;
