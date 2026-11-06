@@ -604,6 +604,7 @@ impl SubcraftApp {
                 "materials" => ShelfTab::Materials,
                 "smart-materials" => ShelfTab::SmartMaterials,
                 "smart-masks" => ShelfTab::SmartMasks,
+                "filters" => ShelfTab::Filters,
                 "brushes" => ShelfTab::Brushes,
                 "environments" => ShelfTab::Environments,
                 _ => ShelfTab::Textures,

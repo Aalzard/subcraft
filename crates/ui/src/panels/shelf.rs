@@ -77,6 +77,8 @@ pub enum ShelfTab {
     Materials,
     SmartMaterials,
     SmartMasks,
+    /// Filters: click adds one to the selected layer, or swaps the selected filter's type.
+    Filters,
     Brushes,
     Environments,
 }
@@ -385,9 +387,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         let narrow = ui.available_width() < 720.0;
         let tab = &mut state.shelf.tab;
         if narrow {
-            let label = match tab { ShelfTab::Textures => "Textures", ShelfTab::Materials => "Materials", ShelfTab::SmartMaterials => "Smart Materials", ShelfTab::SmartMasks => "Smart Masks", ShelfTab::Brushes => "Brushes", ShelfTab::Environments => "Environments" };
+            let label = match tab { ShelfTab::Textures => "Textures", ShelfTab::Materials => "Materials", ShelfTab::SmartMaterials => "Smart Materials", ShelfTab::SmartMasks => "Smart Masks", ShelfTab::Filters => "Filters", ShelfTab::Brushes => "Brushes", ShelfTab::Environments => "Environments" };
             egui::ComboBox::from_id_salt("shelf_category").selected_text(label).width(144.0).show_ui(ui, |ui| {
-                for (kind, name) in [(ShelfTab::Textures,"Textures"),(ShelfTab::Materials,"Materials"),(ShelfTab::SmartMaterials,"Smart Materials"),(ShelfTab::SmartMasks,"Smart Masks"),(ShelfTab::Brushes,"Brushes"),(ShelfTab::Environments,"Environments")] {
+                for (kind, name) in [(ShelfTab::Textures,"Textures"),(ShelfTab::Materials,"Materials"),(ShelfTab::SmartMaterials,"Smart Materials"),(ShelfTab::SmartMasks,"Smart Masks"),(ShelfTab::Filters,"Filters"),(ShelfTab::Brushes,"Brushes"),(ShelfTab::Environments,"Environments")] {
                     ui.selectable_value(tab, kind, name);
                 }
             });
@@ -396,6 +398,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         shelf_tab(ui, tab, ShelfTab::Materials, crate::icons::DROP, "Materials");
         shelf_tab(ui, tab, ShelfTab::SmartMaterials, crate::icons::SPARKLE, "Smart Materials");
         shelf_tab(ui, tab, ShelfTab::SmartMasks, crate::icons::MASK, "Smart Masks");
+        shelf_tab(ui, tab, ShelfTab::Filters, crate::icons::SLIDERS, "Filters");
         shelf_tab(ui, tab, ShelfTab::Brushes, crate::icons::PAINT_BRUSH, "Brushes");
         shelf_tab(ui, tab, ShelfTab::Environments, crate::icons::SUN, "Environments");
         }
@@ -439,6 +442,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             }
             ShelfTab::SmartMasks => {
                 shelf_hint(ui, crate::keys::native("Applies to the selected layer. Edges / Cavity need baked maps (Ctrl+B)."));
+            }
+            ShelfTab::Filters => {
+                shelf_hint(ui, "Click to add to the selected layer (to its mask when the mask is selected). With a filter selected, a click swaps its type.");
             }
             ShelfTab::SmartMaterials => {
                 shelf_hint(ui, crate::keys::native("Wear and dirt follow baked curvature / AO (Ctrl+B). Drop .scsmart files or texture folders here to import."));
@@ -604,6 +610,26 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         }
                     }
                 }
+                ShelfTab::Filters => {
+                    let selected = selected_filter(&state.session);
+                    for f in subcraft_doc::Filter::ALL {
+                        let label = f.label();
+                        if !filter.matches(label, None, false) {
+                            continue;
+                        }
+                        shown += 1;
+                        let fits = state.session.shelf_filter_command(f).is_some();
+                        let tip = if fits { "Click: add to the selected layer, or swap the selected filter to this one" } else { "Select a layer first (some filters work on color channels or masks only)" };
+                        let resp = tile(ui, tile_size, None, label, selected.as_deref() == Some(label), tip);
+                        if resp.clicked() && fits {
+                            action = Some(Box::new(move |s: &mut UiState| {
+                                if let Some(cmd) = s.session.shelf_filter_command(f) {
+                                    s.run(vec![cmd], now);
+                                }
+                            }));
+                        }
+                    }
+                }
                 ShelfTab::Environments => {
                     for (i, e) in state.library.environments.iter().enumerate() {
                         if !filter.matches(&e.name, None, e.user_file.is_some()) {
@@ -695,7 +721,7 @@ fn generate_one_thumbnail(state: &mut UiState, ctx: &egui::Context) {
     }
     let job = match state.shelf.tab {
         // Texture thumbnails come from their own background loader.
-        ShelfTab::Textures => None,
+        ShelfTab::Textures | ShelfTab::Filters => None,
         ShelfTab::Brushes => lib.alphas.iter().position(|a| missing(&a.id)).map(Job::Alpha),
         ShelfTab::Materials => lib.materials.iter().find(|m| missing(&m.id)).map(|m| {
             let m = m.clone();
@@ -858,4 +884,20 @@ fn filter_row(state: &mut UiState, ui: &mut Ui) {
             }
         });
     });
+}
+
+/// Label of the selected filter effect (content or mask), to highlight its Shelf tile.
+fn selected_filter(session: &subcraft_app::Session) -> Option<String> {
+    let layer = session.selected_layer()?;
+    let id = session.selected_effect()?;
+    if let Some(e) = layer.content_effects.iter().find(|e| e.id == id)
+        && let subcraft_doc::ContentEffectKind::Filter { filter, .. } = &e.kind
+    {
+        return Some(filter.label().to_string());
+    }
+    let e = layer.mask.as_ref()?.effects.iter().find(|e| e.id == id)?;
+    match &e.kind {
+        subcraft_doc::MaskEffectKind::Filter(f) => Some(f.label().to_string()),
+        _ => None,
+    }
 }

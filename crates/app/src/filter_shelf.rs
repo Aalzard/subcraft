@@ -23,7 +23,7 @@ impl Session {
                 if let Some(e) = effect.and_then(|id| mask.effects.iter().find(|e| e.id == id))
                     && let MaskEffectKind::Filter(old) = &e.kind
                 {
-                    let mut e = e.clone();
+                    let mut e = subcraft_doc::MaskEffect::clone(e);
                     if e.name == old.label() {
                         e.name = filter.label().into();
                     }
@@ -37,7 +37,7 @@ impl Session {
                     && let ContentEffectKind::Filter { channel, filter: old } = &e.kind
                     && filter.supports_channel(*channel)
                 {
-                    let mut e = e.clone();
+                    let mut e = subcraft_doc::ContentEffect::clone(e);
                     let channel = *channel;
                     if e.name == old.label() || e.name == e.kind.label() {
                         e.name = ContentEffectKind::Filter { channel, filter }.label();
