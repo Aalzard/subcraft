@@ -206,6 +206,16 @@ impl KernelInput<'_> {
         out
     }
 
+    /// Every texel sample of a tile that `camera` can see: the rasterized triangles of the tile
+    /// (the geometry's tile bin) minus back-facing and occluded texels. For a fixed camera, mesh
+    /// and depth map this never changes, so a stroke keeps it for all of its stamps.
+    pub fn tile_samples(&self, tile: usize, camera: usize) -> Vec<TexelSample> {
+        let tris = self.geometry.tile_triangles(tile).iter().copied().filter(|&t| self.in_set(t));
+        let mut samples = self.rasterize_tile(tile, tris);
+        samples.retain(|s| self.visible(camera, s));
+        samples
+    }
+
     pub(crate) fn visible(&self, camera: usize, s: &TexelSample) -> bool {
         if self.alignment == Alignment::Uv {
             return true;
@@ -261,6 +271,44 @@ impl KernelInput<'_> {
                 }
                 let mut a = st.footprint(self.alignment, cam, s.p, s.ng, s.uv, self.alpha);
                 if let Some(f) = &stencil {
+                    a *= f[k];
+                }
+                let slot = &mut stamp_a[s.idx as usize];
+                if a > *slot {
+                    *slot = a;
+                }
+            }
+            for (c, &a) in cov.iter_mut().zip(&stamp_a) {
+                let a = a * st.flow;
+                if a > 0.0 {
+                    *c += a * (1.0 - *c);
+                }
+            }
+        }
+    }
+
+    /// [`KernelInput::accumulate`] on pre-filtered samples: `per_camera[c]` holds the visible
+    /// samples of the tile for camera `c` ([`KernelInput::tile_samples`]), `None` if no stamp
+    /// of that camera touches it. Same coverage as `accumulate`, without rasterizing or testing
+    /// visibility again.
+    pub fn accumulate_visible(&self, per_camera: &[Option<&[TexelSample]>], stamps: &[Stamp], tile_stamps: &BTreeSet<u32>, cov: &mut [f32]) {
+        debug_assert_eq!(cov.len(), TILE_TEXELS);
+        let mut stamp_a = vec![0.0f32; TILE_TEXELS];
+        let mut stencil: Vec<Option<Vec<f32>>> = vec![None; per_camera.len()];
+        for &si in tile_stamps {
+            let st = &stamps[si as usize];
+            let Some(samples) = per_camera[st.camera] else { continue };
+            let cam = &self.cameras[st.camera];
+            let factors = match (self.stencil, self.cameras.first()) {
+                (Some(sten), Some(main)) => Some(stencil[st.camera].get_or_insert_with(|| {
+                    samples.iter().map(|s| main.project(s.p).map_or(0.0, |q| sten.value_at(q.truncate(), main.viewport))).collect()
+                })),
+                _ => None,
+            };
+            stamp_a.fill(0.0);
+            for (k, s) in samples.iter().enumerate() {
+                let mut a = st.footprint(self.alignment, cam, s.p, s.ng, s.uv, self.alpha);
+                if let Some(f) = &factors {
                     a *= f[k];
                 }
                 let slot = &mut stamp_a[s.idx as usize];
