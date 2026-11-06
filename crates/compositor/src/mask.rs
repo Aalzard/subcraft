@@ -85,6 +85,7 @@ fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]]) {
         curvature = vec![[0.0f32; 3]; TILE_TEXELS];
         tc.sample.mesh_maps.read_tile(MeshMapKind::Curvature, geo, &mut curvature);
     }
+    let floor = g.painter.map_or(0.0, |p| p.grunge_floor.clamp(0.0, 1.0));
     for (i, o) in out.iter_mut().enumerate() {
         let raw = match g.kind {
             GeneratorKind::Edges | GeneratorKind::MeshMap(_) => map[i][0],
@@ -99,7 +100,11 @@ fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]]) {
         } else {
             g.level
         };
-        let v = smoothstep(level - half, level + half, raw);
+        let mut v = smoothstep(level - half, level + half, raw);
+        if floor > 0.0 && let Some(noise) = &noise {
+            // Contrast-stretched around the mean: Painter's tail spans 0.02 to 0.18, not a narrow band.
+            v += (1.0 - v) * floor * ((noise[i] - 0.5) * 3.0 + 0.5).clamp(0.0, 1.0);
+        }
         *o = [if g.invert { 1.0 - v } else { v }, 1.0, 0.0, 0.0];
     }
 }

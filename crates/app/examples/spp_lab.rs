@@ -526,6 +526,20 @@ fn main() {
                     pm[i] = (num / den).clamp(-0.5, 1.5);
                 }
             }
+            {
+                fn at(l: &subcraft_doc::Layer, path: &[usize]) -> subcraft_doc::Layer {
+                    match (path.first(), &l.content) {
+                        (Some(i), LayerContent::Group(g)) => at(&g.children[*i], &path[1..]),
+                        _ => l.clone(),
+                    }
+                }
+                let layer = at(&folder, path);
+                if let Some(mask) = &layer.mask {
+                    let empty = subcraft_materials::MeshMaps::default();
+                    let img = subcraft_app::spp_stack::eval_mask_image(mask, ts, &geometry, session.resources(), session.mesh_maps(ts.id).unwrap_or(&empty));
+                    std::fs::write(dir.join(format!("our_{k}.f32")), dense(&img, 1).iter().flat_map(|v| v.to_le_bytes()).collect::<Vec<u8>>()).unwrap();
+                }
+            }
             let valid = pm.iter().filter(|v| **v >= 0.0).count();
             std::fs::write(dir.join(format!("pm_{k}.f32")), pm.iter().flat_map(|v| v.to_le_bytes()).collect::<Vec<u8>>()).unwrap();
             writeln!(meta, "{k}	{}	{}	{valid}	{:?}	{:?}", tname.trim(), graph.name(), graph.tweaks, g).unwrap();

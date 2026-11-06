@@ -74,9 +74,9 @@ pub struct Tuning {
     /// pattern balance downwards).
     pub noise: GeneratorMap,
     /// Strength of Painter's extra generator controls: `edges_masking`, `Ambient_Occlusion_Masking`,
-    /// `Edges_Smoothness` are multiplied by these; the grunge scale is `Grunge_Scale * k` (the
-    /// breakup pattern scale relative to SubCraft's default). `SUBCRAFT_SPP_PAINTER="em,am,sm,gs"`.
-    pub painter: [f32; 4],
+    /// `Edges_Smoothness` are multiplied by these (`gf`: the dirt's `grunge_amount` to its grunge floor); the grunge scale is `Grunge_Scale * k` (the
+    /// breakup pattern scale relative to SubCraft's default). `SUBCRAFT_SPP_PAINTER="em,am,sm,gs,gf"`.
+    pub painter: [f32; 5],
 }
 
 impl Tuning {
@@ -86,8 +86,8 @@ impl Tuning {
         let mut t = Self::default();
         if let Ok(v) = std::env::var("SUBCRAFT_SPP_PAINTER") {
             let n: Vec<f32> = v.split(',').filter_map(|x| x.trim().parse().ok()).collect();
-            if n.len() == 4 {
-                t.painter = [n[0], n[1], n[2], n[3]];
+            if n.len() == 5 {
+                t.painter = [n[0], n[1], n[2], n[3], n[4]];
             }
         }
         if let Ok(v) = std::env::var("SUBCRAFT_SPP_TUNE") {
@@ -136,7 +136,7 @@ impl Default for Tuning {
             // Noise: Substance's balance mirrored, contrast as is. The DBAL-A2 calibration (noise
             // almost off) cost Street_cyberpunk 0.014 Roughness, so the plain mapping stays.
             noise: GeneratorMap { level: [1.0, -1.0], soft: [0.0, 1.0] },
-            painter: [0.0, 2.0, 0.0, 2.0],
+            painter: [0.0, 2.0, 0.0, 2.0, 0.23],
         }
     }
 }
@@ -784,6 +784,7 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
                 curvature_weight: if dirt { 1.0 } else { default(&["Curvature_Weight"], 1.0) },
                 smoothness: if dirt { 0.0 } else { pt[2] * default(&["Edges_Smoothness"], 1.0) },
                 grunge_scale: pt[3] * default(&["Grunge_Scale"], 1.0),
+                grunge_floor: if dirt { pt[4] * default(&["grunge_amount"], 0.0) } else { 0.0 },
             };
             (c != subcraft_doc::PainterControls::default()).then_some(c)
         };

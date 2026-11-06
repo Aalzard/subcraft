@@ -747,3 +747,20 @@ fn painter_wear_controls_ao_masking_and_curvature_weight_reduce_wear() {
     let weightless = generator_mean_roughness(wear, 0.2, 0.9);
     assert!(weightless < plain, "no curvature weight drops the baked detail: {plain} -> {weightless}");
 }
+
+#[test]
+fn painter_grunge_floor_adds_a_soft_tail_over_unoccluded_surfaces_and_never_exceeds_one() {
+    let mut dirt = Generator::new(GeneratorKind::Cavity); dirt.noise_amount = 0.3; dirt.softness = 0.05;
+    // Unoccluded (AO 1): no dirt from the threshold, so roughness stays at its 0.3 base.
+    let bare = generator_mean_roughness(dirt, 1.0, 0.5);
+    assert!((bare - 0.3).abs() < 1e-3, "{bare}");
+    dirt.painter = Some(subcraft_doc::PainterControls { grunge_floor: 0.3, ..Default::default() });
+    let tail = generator_mean_roughness(dirt, 1.0, 0.5);
+    // Mask = floor * noise (about 0.5 on average): roughness 0.3 + 0.7 * ~0.15.
+    assert!(tail > bare + 0.05 && tail < bare + 0.7 * 0.3, "{bare} -> {tail}");
+    // Fully occluded: already 1, the tail cannot add to it.
+    dirt.painter = None;
+    let full = generator_mean_roughness(dirt, 0.0, 0.5);
+    dirt.painter = Some(subcraft_doc::PainterControls { grunge_floor: 1.0, ..Default::default() });
+    assert!((generator_mean_roughness(dirt, 0.0, 0.5) - full).abs() < 1e-4);
+}

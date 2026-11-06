@@ -81,10 +81,15 @@ pub struct PainterControls {
     /// Multiplier of the breakup noise's pattern scale (Painter `Grunge_Scale` relative to the
     /// default; 1 = as before).
     pub grunge_scale: f32,
+    /// Painter's grunge also leaves a soft low-level tail where the threshold would give none (its
+    /// dirt reads 0.05 to 0.15 over unoccluded surfaces at Grunge Amount 0.61): the breakup noise
+    /// times this is added to the mask, which never exceeds 1 (0 = no tail).
+    #[serde(default)]
+    pub grunge_floor: f32,
 }
 
 impl Default for PainterControls {
-    fn default() -> Self { Self { edges_masking: 0.0, ao_masking: 0.0, curvature_weight: 1.0, smoothness: 0.0, grunge_scale: 1.0 } }
+    fn default() -> Self { Self { edges_masking: 0.0, ao_masking: 0.0, curvature_weight: 1.0, smoothness: 0.0, grunge_scale: 1.0, grunge_floor: 0.0 } }
 }
 
 /// World axis a position gradient runs along (0 at the mesh minimum, 1 at its maximum).
