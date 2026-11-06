@@ -373,7 +373,7 @@ impl StrokeOptions {
 pub enum StrokeMode {
     #[default]
     Paint,
-    /// Reduces paint alpha; on a mask raster, returns texels toward the mask's untouched value.
+    /// Reduces paint alpha; on a mask raster, paints black (hides), like erasing a mask in other painters.
     Erase,
     /// Drags the paint under the brush along the stroke (enabled channels only).
     Smudge,

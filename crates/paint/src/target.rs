@@ -203,7 +203,13 @@ impl TargetImage {
                 }
                 (true, StrokeMode::Erase | StrokeMode::Smudge) => px[n] *= 1.0 - k,
                 (false, mode) => {
-                    let to = if matches!(mode, StrokeMode::Paint | StrokeMode::Clone) { src[0] } else { fill[0] };
+                    // A mask has no alpha: painting moves it to the brush's mask value, erasing to
+                    // black (hidden), as painters expect; smudge settles back to the background.
+                    let to = match mode {
+                        StrokeMode::Paint | StrokeMode::Clone => src[0],
+                        StrokeMode::Erase => 0.0,
+                        StrokeMode::Smudge => fill[0],
+                    };
                     px[0] += (to - px[0]) * k;
                 }
             }
