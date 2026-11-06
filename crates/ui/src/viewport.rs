@@ -354,8 +354,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             params.bake_overlay = state.bake.overlay_active();
             params.bake_cage = state.bake.cage;
             params.bake_distances = [state.bake.settings.cage_front, state.bake.settings.cage_rear];
+            // The mesh map viewer (View > Mesh maps, B): a baked map raw on the model.
+            if !bake_mode { params.bake_map = state.recovery.prefs.viewport.mesh_map; }
             if state.bake.open && state.bake.live_maps && !params.bake_overlay {
-                params.bake_map = state.bake.displayed_map;
+                params.bake_map = state.bake.displayed_map.or(state.recovery.prefs.viewport.mesh_map);
             }
             params.grid = view.grid.then_some(subcraft_render::GridParams {
                 bounds: state.session.scene().mesh.bounds,

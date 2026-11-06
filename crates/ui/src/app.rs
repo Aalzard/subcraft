@@ -133,6 +133,8 @@ pub struct LaunchOptions {
     pub bake_preview_only: bool,
     /// Pin a completed map for reproducible native screenshot validation.
     pub bake_preview_map: Option<subcraft_core::MeshMapKind>,
+    /// Start with the 3D view showing this baked mesh map (the mesh map viewer).
+    pub mesh_map: Option<subcraft_core::MeshMapKind>,
     /// Light the viewport with the environment of this name.
     pub environment: Option<String>,
     /// Reload the project's mesh from this model on start (File > Reload mesh, scripted).
@@ -485,6 +487,7 @@ impl SubcraftApp {
             })); }
             if let Some(kind) = options.bake_preview_map { state.bake.displayed_map = Some(kind); state.bake.follow_maps = false; }
         }
+        if options.mesh_map.is_some() { state.recovery.prefs.viewport.mesh_map = options.mesh_map; }
         {
             // Background release check; a newer version gets a callout at the update button.
             // Not for scripted screenshots or right after an update restart.
