@@ -71,6 +71,8 @@ pub enum Action {
     Bake,
     /// Switch the 3D view between the raster viewport and the path-traced Rendering mode.
     TogglePathTracing,
+    /// Select every layer of the texture set (then Delete, Duplicate... act on all of them).
+    SelectAllLayers,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -218,6 +220,7 @@ pub const ACTIONS: &[ActionInfo] = &[
     a(Action::Export, "Export Textures", &[Shortcut::ctrl_shift(Key::E)]),
     a(Action::Bake, "Bake Mesh Maps", &[Shortcut::ctrl(Key::B), Shortcut::key(Key::F8), Shortcut::ctrl_shift(Key::B)]),
     a(Action::TogglePathTracing, "Rendering Mode (path tracing)", &[Shortcut::key(Key::F10)]),
+    a(Action::SelectAllLayers, "Select All Layers", &[Shortcut::ctrl(Key::A)]),
 ];
 
 pub fn info(action: Action) -> &'static ActionInfo {
@@ -395,6 +398,7 @@ mod tests {
         assert_eq!(action_for(sc, Shortcut::key(Key::Z)), None, "modifiers must match exactly");
         assert_eq!(action_for(sc, Shortcut::key(Key::F10)), Some(Action::TogglePathTracing));
         assert_eq!(action_for(sc, Shortcut::ctrl_shift(Key::T)), Some(Action::NewTextLayer));
+        assert_eq!(action_for(sc, Shortcut::ctrl(Key::A)), Some(Action::SelectAllLayers));
         assert_eq!(Shortcut::ctrl_shift(Key::N).label(), "Ctrl+Shift+N");
         assert_eq!(info(Action::Redo).label, "Redo");
     }

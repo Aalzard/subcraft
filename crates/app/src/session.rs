@@ -1521,7 +1521,7 @@ impl Session {
             Action::PenTool | Action::PolygonFillTool | Action::SmudgeTool | Action::CloneTool | Action::EyedropperTool | Action::ResetCamera
             | Action::PerspectiveCamera | Action::OrthographicCamera | Action::NextChannel | Action::PrevChannel | Action::DisplayMaterial
             | Action::NewProject | Action::Quit | Action::Save | Action::SaveAs | Action::OpenProject | Action::Export | Action::Bake
-            | Action::TogglePathTracing => return Ok(false),
+            | Action::TogglePathTracing | Action::SelectAllLayers => return Ok(false),
         }
         Ok(true)
     }

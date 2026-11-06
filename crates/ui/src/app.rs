@@ -917,7 +917,20 @@ impl SubcraftApp {
                 }
             }
         }
+        // Delete / Duplicate act on every selected layer when several are selected.
+        if self.state.multi.is_multi() && matches!(action, Action::DeleteLayer | Action::DuplicateLayer) {
+            let ids = self.state.multi.ids.clone();
+            let cmd = if action == Action::DeleteLayer { subcraft_app::Command::DeleteLayers(ids) } else { subcraft_app::Command::DuplicateLayers(ids) };
+            self.state.run(vec![cmd], now);
+            return;
+        }
         match action {
+            Action::SelectAllLayers => {
+                let mut rows = Vec::new();
+                self.state.session.selected_texture_set().walk(|l, _| rows.push(l.id));
+                rows.reverse();
+                self.state.multi.select_all(&rows);
+            }
             Action::ResetCamera => self.state.camera = OrbitCamera::framing(&self.state.session.scene().mesh.bounds),
             Action::BrushTool => self.state.tool = Tool::Brush,
             Action::EraserTool => self.state.tool = Tool::Eraser,
