@@ -4371,3 +4371,6 @@ real cost of the big_project stack), and letting GPU-composited tiles fill the C
 * Tests: `crates/app/tests/shelf_apply.rs`, `crates/ui/tests/text_and_alt.rs`, actions shortcut test.
 * Not verified by eye in the real app; drag-to-place with a move/rotate/scale gizmo is not done (click places;
   rotation/size/position are sliders in the editor).
+* Results (headless, run): `subcraft-app` shelf_apply 3/3, text 8/8, actions unit tests; `subcraft-ui` text_and_alt 6/6,
+  layer_tree 10/10, shelf_drop 3/3, shelf_brush 4/4. Note: worktrees sharing one cargo target dir can link a stale
+  `subcraft-app` rlib from another worktree (same relative paths); touching sources forces a rebuild.
