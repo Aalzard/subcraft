@@ -52,7 +52,7 @@ screen and a six-step in-app guide are included.
 - **UDIM** tiles become one texture set each; export with `.1001` names or per-tile folders.
 - **Export checkboxes** for every map, Select all / None / Invert, Alt+click to export one map.
 - **Engine presets** for Unity URP and Godot 4; **Height** and **Bent Normal** bakes.
-- **Render quality**: tone mapping, bloom, ambient occlusion, emission glow and glare; render
+- **Render quality**: tone mapping, bloom, ambient occlusion, depth of field, emission glow and glare; render
   stills and PNG turntable frames.
 - **15 new smart materials and 16 new smart masks**, five new generators.
 - **80 normal maps + 80 brush alphas** (CC0) and **10 built-in HDRI environments**.
@@ -149,7 +149,7 @@ The 2048 x 1024 originals of the 10 HDRIs are an optional download
 
 - Real-time PBR viewport with studio or HDRI lighting and a 2D UV view of every channel and baked map.
 - **Render quality**: tone mapping (ACES, Filmic, Reinhard, Linear), exposure, bloom, ambient
-  occlusion, emission glow and glare. These are display-only; exported textures are never affected.
+  occlusion, depth of field (off by default; focus distance, range, blur amount, click to pick the focus), emission glow and glare. These are display-only; exported textures are never affected.
 - **File > Render image** (1024-4096 px, optional 2x supersampling) and **Turntable** (24-120
   numbered PNG frames). There is no GIF or MP4 encoder.
 - GPU mipmaps keep distant PBR textures from shimmering. Graphics API choice (Automatic,

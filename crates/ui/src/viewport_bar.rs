@@ -39,6 +39,12 @@ pub struct ViewportPrefs {
     pub glare: f32,
     pub glare_mode: usize,
     pub glare_length: f32,
+    /// Depth of field (off by default): blur amount 0..1, focus distance as a multiple of the
+    /// orbit distance (1 = the point the camera orbits), sharp band in percent of the model size.
+    pub dof: bool,
+    pub dof_amount: f32,
+    pub dof_focus: f32,
+    pub dof_range: f32,
     /// Rendering mode (path tracing) on. Never saved: the raster viewport is the default.
     #[serde(skip)]
     pub path_tracing: bool,
@@ -79,6 +85,10 @@ impl Default for ViewportPrefs {
             glare: 0.0,
             glare_mode: 0,
             glare_length: 0.5,
+            dof: false,
+            dof_amount: 0.5,
+            dof_focus: 1.0,
+            dof_range: 10.0,
             path_tracing: false,
             pt_bounces: 4,
             pt_max_samples: 1024,
@@ -107,7 +117,16 @@ impl ViewportPrefs {
 
     /// Post-processing for a model of bounding-box `diagonal`.
     pub fn post_params(&self, diagonal: f32) -> subcraft_render::PostParams {
+        self.post_params_at(diagonal, 1.0)
+    }
+
+    /// Like [`post_params`](Self::post_params) with the camera's orbit distance, which scales the
+    /// focus distance.
+    pub fn post_params_at(&self, diagonal: f32, orbit_distance: f32) -> subcraft_render::PostParams {
         subcraft_render::PostParams {
+            dof: if self.dof { self.dof_amount.clamp(0.0, 1.0) } else { 0.0 },
+            dof_focus: (self.dof_focus.clamp(0.05, 4.0) * orbit_distance).max(1e-4),
+            dof_range: self.dof_range.clamp(0.0, 100.0) * 0.01 * diagonal,
             tone_map: self.tone_map(),
             bloom: self.bloom.clamp(0.0, 4.0),
             bloom_threshold: self.bloom_threshold.clamp(0.0, 4.0),

@@ -105,6 +105,13 @@ pub struct PostParams {
     pub glare_mode: GlareMode,
     /// Streak length, 0..1 (fraction of the longest reach).
     pub glare_length: f32,
+    /// Depth of field: largest blur radius as a share of the maximum (0 = off; 1 = a radius of 5% of
+    /// the image height, about 54 px at 1080p). Needs a model in view.
+    pub dof: f32,
+    /// Distance from the camera (view space, scene units) that stays sharp.
+    pub dof_focus: f32,
+    /// Depth of the sharp band around the focus distance, in scene units.
+    pub dof_range: f32,
 }
 
 impl Default for PostParams {
@@ -120,6 +127,9 @@ impl Default for PostParams {
             glare: 0.0,
             glare_mode: GlareMode::Horizontal,
             glare_length: 0.5,
+            dof: 0.0,
+            dof_focus: 1.0,
+            dof_range: 0.2,
         }
     }
 }
@@ -127,7 +137,7 @@ impl Default for PostParams {
 impl PostParams {
     /// Whether bloom or AO needs extra passes.
     pub fn active(&self) -> bool {
-        self.bloom > 0.0 || self.ssao > 0.0
+        self.bloom > 0.0 || self.ssao > 0.0 || self.dof > 0.0
     }
 
     /// Whether the emission glow / glare passes would add anything for a model with emission.
@@ -163,6 +173,7 @@ const U_FX_BLOOM: usize = 10;
 const U_FX_GLOW: usize = 11;
 const U_FX_GLARE: usize = 12;
 const U_FX_GLARE_ADD: usize = 13;
+const U_DOF: usize = 14;
 /// Streak stages: `U_STREAK + direction * STAGES + stage` (four directions, six stages).
 const U_STREAK: usize = 16;
 const STAGES: usize = 6;
@@ -172,6 +183,7 @@ struct Targets {
     depth: wgpu::Texture,
     ao: [wgpu::Texture; 2],
     scene: wgpu::Texture,
+    dof: wgpu::Texture,
     bloom: [wgpu::Texture; 2],
     emit: wgpu::Texture,
     glow: [wgpu::Texture; 2],
@@ -199,6 +211,7 @@ pub(crate) struct PostPass {
     bright_pipeline: wgpu::RenderPipeline,
     blur_pipeline: wgpu::RenderPipeline,
     composite_pipeline: wgpu::RenderPipeline,
+    dof_pipeline: wgpu::RenderPipeline,
     hdr_copy_pipeline: wgpu::RenderPipeline,
     hdr_blur_pipeline: wgpu::RenderPipeline,
     tent_pipeline: wgpu::RenderPipeline,
@@ -340,6 +353,7 @@ impl PostPass {
             bright_pipeline: fullscreen("fs_bright", target::OUTPUT_FORMAT),
             blur_pipeline: fullscreen("fs_blur", target::OUTPUT_FORMAT),
             composite_pipeline: fullscreen("fs_composite", target::OUTPUT_FORMAT),
+            dof_pipeline: fullscreen("fs_dof", target::OUTPUT_FORMAT),
             hdr_copy_pipeline: fullscreen("fs_copy", HDR_FORMAT),
             hdr_blur_pipeline: fullscreen("fs_blur", HDR_FORMAT),
             tent_pipeline: fullscreen("fs_tent", HDR_FORMAT),
@@ -365,6 +379,7 @@ impl PostPass {
             depth: texture(device, "post depth", size, target::DEPTH_FORMAT, rt),
             ao: [0, 1].map(|_| texture(device, "post ao", size, AO_FORMAT, rt)),
             scene: texture(device, "post scene copy", size, target::OUTPUT_FORMAT, wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING),
+            dof: texture(device, "post depth of field", size, target::OUTPUT_FORMAT, rt),
             bloom: [0, 1].map(|_| texture(device, "post bloom", half, target::OUTPUT_FORMAT, rt)),
             emit: texture(device, "post emission", size, HDR_FORMAT, rt),
             glow: [0, 1].map(|_| texture(device, "post glow", half, HDR_FORMAT, rt)),
@@ -455,10 +470,8 @@ impl PostPass {
         let half = [size[0].div_ceil(2), size[1].div_ceil(2)];
         let (ao_a, ao_b, depth) = (view(&t.ao[0]), view(&t.ao[1]), view(&t.depth));
         let ssao = params.ssao > 0.0 && mesh.is_some();
-        if let (true, Some(mesh)) = (ssao, mesh) {
-            write(U_AO, size, [params.ssao_radius.max(1e-4), params.ssao, 0.0, ortho], [0.0, 0.0, 0.0, focal]);
-            write(U_AO_H, size, [0.0; 4], [1.0, 0.0, 0.0, focal]);
-            write(U_AO_V, size, [0.0; 4], [0.0, 1.0, 0.0, focal]);
+        let dof = params.dof > 0.0 && mesh.is_some();
+        if let (true, Some(mesh)) = (ssao || dof, mesh) {
             {
                 let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("post depth prepass"),
@@ -480,16 +493,29 @@ impl PostPass {
                     pass.draw_indexed(r.first_index..r.first_index + r.index_count, 0, 0..1);
                 }
             }
+            if ssao {
+            write(U_AO, size, [params.ssao_radius.max(1e-4), params.ssao, 0.0, ortho], [0.0, 0.0, 0.0, focal]);
+            write(U_AO_H, size, [0.0; 4], [1.0, 0.0, 0.0, focal]);
+            write(U_AO_V, size, [0.0; 4], [0.0, 1.0, 0.0, focal]);
             Self::fullscreen(encoder, &self.ao_pipeline, &self.bind(device, U_AO, None, None, Some(&depth), None), &ao_a);
             Self::fullscreen(encoder, &self.ao_blur_pipeline, &self.bind(device, U_AO_H, Some(&ao_a), None, None, None), &ao_b);
             Self::fullscreen(encoder, &self.ao_blur_pipeline, &self.bind(device, U_AO_V, Some(&ao_b), None, None, None), &ao_a);
+            }
         }
         encoder.copy_texture_to_texture(
             output.output.as_image_copy(),
             t.scene.as_image_copy(),
             wgpu::Extent3d { width: size[0], height: size[1], depth_or_array_layers: 1 },
         );
-        let scene = view(&t.scene);
+        let scene_sharp = view(&t.scene);
+        let dof_view = view(&t.dof);
+        if dof {
+            let radius = params.dof.clamp(0.0, 1.0) * 0.05 * size[1] as f32;
+            write(U_DOF, size, [params.dof_focus.max(1e-4), params.dof_range.max(0.0), radius.max(1.0), ortho], [0.0, 0.0, 0.0, focal]);
+            Self::fullscreen(encoder, &self.dof_pipeline, &self.bind(device, U_DOF, Some(&scene_sharp), None, Some(&depth), None), &dof_view);
+        }
+        // Everything after depth of field (AO, glow) lands on the blurred picture.
+        let scene = if dof { dof_view } else { scene_sharp };
         let (bloom_a, bloom_b) = (view(&t.bloom[0]), view(&t.bloom[1]));
         let fx = view(&t.fx);
         let glow_wanted = emission.is_some() && params.emission_glow > 0.0;

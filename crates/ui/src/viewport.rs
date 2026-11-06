@@ -222,7 +222,21 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             }
         }
     }
-    let picking = parts_picking || id_picking || text_armed;
+    // ----- depth of field focus picker: the next click on the model sets the focus distance --------
+    let focus_picking = !bake_mode && !state.painting && state.picking_focus && state.recovery.prefs.viewport.dof;
+    if focus_picking && primary_pressed && response.hovered() && let Some(p) = pointer {
+        if let Some(hit) = state.session.pick(&camera, to_screen(p)) {
+            let orbit = state.camera.eye_distance().max(1e-4);
+            state.recovery.prefs.viewport.dof_focus = (hit.depth / orbit).clamp(0.2, 3.0);
+            state.set_status("Focus set", now);
+        } else {
+            state.set_status("Click the model to set the focus", now);
+        }
+        state.picking_focus = false;
+    } else if state.picking_focus && (!focus_picking || ui.input(|i| i.key_pressed(egui::Key::Escape))) {
+        state.picking_focus = false;
+    }
+    let picking = parts_picking || id_picking || text_armed || focus_picking;
     if state.picking_parts && (!picking || ui.input(|i| i.key_pressed(egui::Key::Escape))) {
         state.picking_parts = false;
     }
@@ -324,7 +338,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             let view = &state.recovery.prefs.viewport;
             params.antialias = view.antialias;
             params.exposure = view.exposure;
-            params.post = view.post_params(state.session.scene().mesh.bounds.diagonal());
+            params.post = view.post_params_at(state.session.scene().mesh.bounds.diagonal(), state.camera.eye_distance());
             params.view_mode = view.view_mode();
             params.symmetry_guides = view.symmetry_guides && state.session.brush.options.has_symmetry() && !bake_mode;
             if params.symmetry_guides {

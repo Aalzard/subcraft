@@ -84,6 +84,26 @@ pub fn window(state: &mut UiState, ctx: &Context) {
             ui.add_enabled(prefs.ssao > 0.0, egui::Slider::new(&mut prefs.ssao_radius, 0.5..=10.0).suffix("%")).on_hover_text("How far occlusion reaches, in percent of the model size");
             ui.end_row();
         });
+        ui.label(RichText::new("Depth of field").color(TEXT_DIM));
+        egui::Grid::new("render_dof").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
+            ui.label("Enable");
+            ui.checkbox(&mut prefs.dof, "").on_hover_text("Blur what is nearer or farther than the focus distance, from the view's depth. Off by default.");
+            ui.end_row();
+            ui.label("Blur amount");
+            ui.add_enabled(prefs.dof, egui::Slider::new(&mut prefs.dof_amount, 0.0..=1.0)).on_hover_text("Strength of the blur (the aperture)");
+            ui.end_row();
+            ui.label("Focus distance");
+            ui.add_enabled(prefs.dof, egui::Slider::new(&mut prefs.dof_focus, 0.2..=3.0).logarithmic(true)).on_hover_text("1 is the point the camera orbits around; it follows zooming");
+            ui.end_row();
+            ui.label("Focus range");
+            ui.add_enabled(prefs.dof, egui::Slider::new(&mut prefs.dof_range, 0.0..=50.0).suffix("%")).on_hover_text("Depth that stays sharp around the focus distance, in percent of the model size");
+            ui.end_row();
+            ui.label("Focus point");
+            if ui.add_enabled(prefs.dof, egui::Button::new("Pick in 3D view")).on_hover_text("Click the model in the 3D view to focus on that spot").clicked() {
+                state.picking_focus = true;
+            }
+            ui.end_row();
+        });
         ui.label(RichText::new("Emission").color(TEXT_DIM));
         egui::Grid::new("render_emission").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
             ui.label("Glow");
@@ -113,6 +133,7 @@ pub fn window(state: &mut UiState, ctx: &Context) {
             let keep = ViewportPrefs {
                 tone_map: 0, exposure: 1.0, bloom: 0.0, bloom_threshold: 0.8, ssao: 0.0, ssao_radius: 3.0,
                 emission_glow: 0.35, glow_radius: 1.0, glare: 0.0, glare_mode: 0, glare_length: 0.5,
+                dof: false, dof_amount: 0.5, dof_focus: 1.0, dof_range: 10.0,
                 ..prefs.clone()
             };
             *prefs = keep;
@@ -206,7 +227,7 @@ pub fn render_frame(state: &mut UiState, camera: crate::orbit::OrbitCamera, pict
     params.height_scale = state.height_scale;
     params.antialias = true;
     params.exposure = prefs.exposure;
-    params.post = prefs.post_params(state.session.scene().mesh.bounds.diagonal());
+    params.post = prefs.post_params_at(state.session.scene().mesh.bounds.diagonal(), camera.eye_distance());
     crate::panels::shelf::apply_environment(&state.library, state.env.index, state.env.rotation_deg, state.env.intensity,
         &mut params, &mut renderer, &mut state.env.uploaded, &rs.device, &rs.queue);
     let mut pixels = if transparent {

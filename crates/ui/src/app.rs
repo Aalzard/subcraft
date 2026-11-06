@@ -554,6 +554,10 @@ impl SubcraftApp {
                     ("exposure", Some(v)) => prefs.exposure = v,
                     ("glow", Some(v)) => prefs.emission_glow = v,
                     ("glow-radius", Some(v)) => prefs.glow_radius = v,
+                    ("dof", Some(v)) => prefs.dof = v > 0.0,
+                    ("dof-amount", Some(v)) => { prefs.dof = true; prefs.dof_amount = v }
+                    ("dof-focus", Some(v)) => prefs.dof_focus = v,
+                    ("dof-range", Some(v)) => prefs.dof_range = v,
                     ("glare", Some(v)) => prefs.glare = v,
                     ("glare-length", Some(v)) => prefs.glare_length = v,
                     ("glare-mode", _) => {

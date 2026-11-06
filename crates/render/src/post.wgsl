@@ -153,3 +153,54 @@ fn fs_tent(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
     let b = textureSample(src, samp, uv - o).rgb * 0.25;
     return vec4<f32>(c + a + b, 1.0);
 }
+
+// ---- depth of field ---------------------------------------------------------------------------
+// params: x focus distance, y in-focus depth band, z maximum blur radius (px), w 1 = orthographic.
+
+fn view_dist(px: vec2<i32>) -> f32 {
+    let d = load_depth(px);
+    // Only the z and w rows of the inverse projection matter for a point on the view axis.
+    let vz = p.inv_proj[2][2] * d + p.inv_proj[3][2];
+    let vw = p.inv_proj[2][3] * d + p.inv_proj[3][3];
+    return max(-(vz / vw), 1e-4);
+}
+
+// Circle of confusion in pixels for a view distance: zero inside the band around the focus
+// distance, growing with the relative distance from it (so far away saturates, near saturates fast).
+fn coc_of(dist: f32) -> f32 {
+    let off = max(abs(dist - p.params.x) - 0.5 * p.params.y, 0.0);
+    return p.params.z * clamp(2.0 * off / max(dist, 1e-4), 0.0, 1.0);
+}
+
+// Single-pass gather with a fixed 20-tap golden-angle disk. A tap only counts when its own circle of
+// confusion reaches the centre pixel, and taps behind the centre are limited to the centre's own
+// circle: sharp foreground edges stay sharp (no background halo) while blurry foreground still
+// spreads over what is behind it.
+@fragment
+fn fs_dof(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
+    let px = vec2<i32>(frag.xy);
+    let uv = frag.xy * p.size.zw;
+    let center = textureSampleLevel(src, samp, uv, 0.0).rgb;
+    let radius = p.params.z;
+    let cd = view_dist(px);
+    let c_coc = coc_of(cd);
+    var acc = center;
+    var wsum = 1.0;
+    let rot = gradient_noise(frag.xy) * 6.2831853;
+    let count = 20;
+    for (var i = 0; i < count; i = i + 1) {
+        let t = (f32(i) + 0.5) / f32(count);
+        let r = radius * sqrt(t);
+        let a = rot + f32(i) * 2.3999632;
+        let off = vec2<f32>(cos(a), sin(a)) * r;
+        let tpx = px + vec2<i32>(round(off));
+        let td = view_dist(tpx);
+        var reach = coc_of(td);
+        if (td > cd) { reach = min(reach, c_coc); }
+        // One pixel of soft edge on the disk; a tap with no blur of its own never spreads.
+        let w = clamp(reach - r + 1.0, 0.0, 1.0) * select(0.0, 1.0, reach > 0.5);
+        acc = acc + textureSampleLevel(src, samp, uv + off * p.size.zw, 0.0).rgb * w;
+        wsum = wsum + w;
+    }
+    return vec4<f32>(acc / wsum, 1.0);
+}

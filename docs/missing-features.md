@@ -35,7 +35,7 @@ as generally known. It is a planning list, not a promise. "Known" means we alrea
   texture-set-wide baking queue with presets.
 
 ## Viewport and rendering
-- Real path-traced / Iray-style rendering and render settings; depth of field, motion blur, SSS, refraction,
+- Real path-traced / Iray-style rendering and render settings; motion blur, SSS, refraction,
   anisotropy, clear coat and sheen layers in the viewport shader.
 - Environment: custom environment blur/rotation lock, background modes and lights (point/spot/area), shadows.
 - Turntable as GIF/MP4 (PNG frames only), scene camera bookmarks.

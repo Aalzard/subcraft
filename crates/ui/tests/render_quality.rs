@@ -93,3 +93,24 @@ fn export_pictures_keep_the_view_aspect_with_the_chosen_long_side() {
     assert!(s.picture([0, 0])[0] >= 1);
     assert!(s.supersample && render_export::FRAME_COUNTS.contains(&s.frames));
 }
+
+#[test]
+fn depth_of_field_defaults_off_round_trips_and_maps_to_the_renderer() {
+    let defaults = ViewportPrefs::default();
+    assert!(!defaults.dof, "off by default");
+    assert_eq!(defaults.post_params(2.0).dof, 0.0);
+    // Old preference files have no depth of field keys: they load with the defaults.
+    let old: ViewportPrefs = serde_json::from_str(r#"{"bloom":0.5}"#).unwrap();
+    assert!(!old.dof && old.dof_amount == 0.5 && old.dof_focus == 1.0 && old.dof_range == 10.0);
+    // Round trip.
+    let set = ViewportPrefs { dof: true, dof_amount: 0.8, dof_focus: 1.7, dof_range: 25.0, ..Default::default() };
+    let back: ViewportPrefs = serde_json::from_str(&serde_json::to_string(&set).unwrap()).unwrap();
+    assert_eq!(back, set);
+    // Focus follows the orbit distance; the sharp band is a share of the model size.
+    let p = set.post_params_at(4.0, 10.0);
+    assert_eq!((p.dof, p.dof_focus, p.dof_range), (0.8, 17.0, 1.0));
+    // Out-of-range values are clamped, and "off" wins over any amount.
+    let wild = ViewportPrefs { dof: true, dof_amount: 9.0, dof_focus: -3.0, dof_range: 1e6, ..Default::default() }.post_params_at(1.0, 1.0);
+    assert_eq!((wild.dof, wild.dof_focus, wild.dof_range), (1.0, 0.05, 1.0));
+    assert_eq!(ViewportPrefs { dof: false, dof_amount: 1.0, ..Default::default() }.post_params(1.0).dof, 0.0);
+}
