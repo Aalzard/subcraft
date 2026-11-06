@@ -25,7 +25,32 @@ pub struct BakeRequest {
     pub texture_sets: Vec<(TextureSetId, u32)>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BakeLogLevel { Info, Warning, Error }
+
+/// One line of a bake's log: seconds since the bake started, a level and the text.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BakeLogLine {
+    pub at: f32,
+    pub level: BakeLogLevel,
+    pub text: String,
+}
+
+impl BakeLogLine {
+    /// `[  1.2 s] warning: ...`, the form copied to the clipboard.
+    pub fn plain(&self) -> String {
+        let level = match self.level { BakeLogLevel::Info => "info", BakeLogLevel::Warning => "warning", BakeLogLevel::Error => "error" };
+        format!("[{:6.1} s] {level}: {}", self.at, self.text)
+    }
+}
+
+/// The whole log as plain text (for Copy).
+pub fn log_text(lines: &[BakeLogLine]) -> String {
+    lines.iter().map(BakeLogLine::plain).collect::<Vec<_>>().join("\n")
+}
+
 enum Message {
+    Log(BakeLogLine),
     Map(TextureSetId, MeshMapKind, TiledImage),
     Baked,
     Reports(Vec<MapReport>),
@@ -51,6 +76,7 @@ pub struct BakeJob {
     /// Most recently installed complete map, for a transient viewport preview.
     pub latest_map: Option<(TextureSetId, MeshMapKind)>,
     notices: Vec<String>,
+    log: Vec<BakeLogLine>,
 }
 
 impl Drop for BakeJob {
@@ -71,7 +97,26 @@ impl BakeJob {
         let stage = Arc::new(Mutex::new("Starting".to_string()));
         let (p, done, st) = (progress.clone(), sets_done.clone(), stage.clone());
         let scene = low.clone();
+        let started = std::time::Instant::now();
         subcraft_core::task::spawn(move || {
+            // Every line goes to the Bake window's log and to the application log file.
+            let say = |level: BakeLogLevel, text: String| {
+                match level {
+                    BakeLogLevel::Info => log::info!("bake: {text}"),
+                    BakeLogLevel::Warning => log::warn!("bake: {text}"),
+                    BakeLogLevel::Error => log::error!("bake: {text}"),
+                }
+                let _ = tx.send(Message::Log(BakeLogLine { at: started.elapsed().as_secs_f32(), level, text }));
+            };
+            {
+                let s = &request.settings;
+                let maps: Vec<_> = s.maps.iter().map(|k| k.display_name()).collect();
+                say(BakeLogLevel::Info, format!("Baking {} texture set(s) at {} px: {}. GPU {}.", request.texture_sets.len(), s.size, maps.join(", "), if s.use_gpu { "requested" } else { "off (CPU)" }));
+                match &request.high_poly {
+                    Some(path) => say(BakeLogLevel::Info, format!("High poly: {}", path.display())),
+                    None => say(BakeLogLevel::Info, "No high poly: the low poly bakes onto itself.".into()),
+                }
+            }
             let high_mesh = match &request.high_poly {
                 Some(path) => {
                     *st.lock().expect("stage lock") = format!("Loading high poly {}", path.display());
@@ -81,6 +126,7 @@ impl BakeJob {
                             Some(r)
                         }
                         Err(e) => {
+                            say(BakeLogLevel::Error, format!("High poly could not be loaded: {e}"));
                             let _ = tx.send(Message::Failed(format!("high poly: {e}")));
                             let _ = tx.send(Message::Finished);
                             return;
@@ -89,18 +135,20 @@ impl BakeJob {
                 }
                 None => None,
             };
-            if p.is_cancelled() { let _ = tx.send(Message::Failed("bake cancelled".into())); let _ = tx.send(Message::Finished); return; }
+            if p.is_cancelled() { say(BakeLogLevel::Warning, "Bake cancelled.".into()); let _ = tx.send(Message::Failed("bake cancelled".into())); let _ = tx.send(Message::Finished); return; }
             *st.lock().expect("stage lock") = "Building high-poly BVH".into();
             let high = high_mesh.map(|mesh| { let bvh = Bvh::build(&mesh); (mesh, bvh) });
             if let Some((mesh, _)) = &high && let Some(parts) = PartMatch::new(&low, mesh, &request.settings.name_match) {
                 log::info!("bake match by name: {} group(s) {:?}; unmatched high parts {:?}", parts.groups.len(), parts.groups, parts.unmatched_high);
                 if let Some(report) = parts.report() {
-                    log::warn!("{report}");
+                    say(BakeLogLevel::Warning, report.clone());
                     let _ = tx.send(Message::Notice(report));
                 }
             }
             for (i, (ts, slot)) in request.texture_sets.iter().enumerate() {
                 *st.lock().expect("stage lock") = format!("Baking texture set {}/{}", i + 1, request.texture_sets.len());
+                say(BakeLogLevel::Info, format!("Texture set {}/{} (material slot {slot}) started.", i + 1, request.texture_sets.len()));
+                let set_started = std::time::Instant::now();
                 let input = BakeInput {
                     low: Geometry { mesh: &low, bvh: &low_bvh },
                     high: high.as_ref().map(|(m, b)| Geometry { mesh: m, bvh: b }),
@@ -110,10 +158,24 @@ impl BakeJob {
                     let _ = tx.send(Message::Map(*ts, kind, image.clone()));
                 }) {
                     Ok(_) => {
-                        let _ = tx.send(Message::Reports(p.reports()));
+                        let reports = p.reports();
+                        for r in &reports {
+                            // `CPU`, `GPU (adapter)` or `CPU (GPU failed: reason)`.
+                            let level = if r.backend.contains("failed") { BakeLogLevel::Warning } else { BakeLogLevel::Info };
+                            say(level, format!("{}: {:.2} s on {}", r.kind.display_name(), r.seconds, r.backend));
+                        }
+                        for w in p.warnings() { say(BakeLogLevel::Warning, w); }
+                        say(BakeLogLevel::Info, format!("Texture set {}/{} done in {:.1} s.", i + 1, request.texture_sets.len(), set_started.elapsed().as_secs_f32()));
+                        let _ = tx.send(Message::Reports(reports));
                         let _ = tx.send(Message::Baked);
                     }
                     Err(e) => {
+                        for w in p.warnings() { say(BakeLogLevel::Warning, w); }
+                        if matches!(e, subcraft_bake::BakeError::NoTexels) {
+                            say(BakeLogLevel::Warning, format!("Texture set {}/{} (material slot {slot}) skipped: {e}.", i + 1, request.texture_sets.len()));
+                        } else {
+                            say(BakeLogLevel::Error, format!("Texture set {}/{} (material slot {slot}) failed: {e}", i + 1, request.texture_sets.len()));
+                        }
                         let _ = tx.send(Message::Failed(e.to_string()));
                         if p.is_cancelled() {
                             break;
@@ -122,9 +184,10 @@ impl BakeJob {
                 }
                 done.fetch_add(1, Ordering::Relaxed);
             }
+            say(BakeLogLevel::Info, format!("Finished in {:.1} s.", started.elapsed().as_secs_f32()));
             let _ = tx.send(Message::Finished);
         });
-        Self { progress, sets_done, sets_total, stage, rx, applied: 0, error: None, high_poly, low: scene, started: std::time::Instant::now(), elapsed: None, reports: Vec::new(), latest_map: None, notices: Vec::new() }
+        Self { progress, sets_done, sets_total, stage, rx, applied: 0, error: None, high_poly, low: scene, started: std::time::Instant::now(), elapsed: None, reports: Vec::new(), latest_map: None, notices: Vec::new(), log: Vec::new() }
     }
 
     /// Overall progress 0..1.
@@ -153,6 +216,12 @@ impl BakeJob {
         if maps.is_empty() { String::new() } else { format!("{:.1} s total. {}", total.as_secs_f32(), maps.join("; ")) }
     }
 
+    /// The bake's log so far: what ran where and for how long, and every warning (cage misses,
+    /// GPU fallbacks, unmatched parts, skipped texture sets) and error, in order.
+    pub fn log(&self) -> &[BakeLogLine] {
+        &self.log
+    }
+
     /// Non-fatal notes received so far (e.g. low parts that found no high part by name).
     pub fn notices(&self) -> &[String] {
         &self.notices
@@ -177,6 +246,7 @@ impl BakeJob {
                     return None;
                 }
                 Ok(Message::Baked) => self.applied += 1,
+                Ok(Message::Log(line)) => self.log.push(line),
                 Ok(Message::Reports(r)) => self.reports.extend(r),
                 Ok(Message::Notice(note)) => self.notices.push(note),
                 Ok(Message::Failed(e)) => {
@@ -205,7 +275,7 @@ mod tests {
     fn queued_job(session: &Session, rx: Receiver<Message>) -> BakeJob {
         BakeJob { progress: Arc::new(Progress::new()), sets_done: Arc::new(AtomicUsize::new(0)),
             sets_total: 1, stage: Arc::new(Mutex::new(String::new())), rx, applied: 0, error: None, high_poly: false,
-            low: session.scene().mesh.clone(), started: std::time::Instant::now(), elapsed: None, reports: Vec::new(), latest_map: None, notices: Vec::new() }
+            low: session.scene().mesh.clone(), started: std::time::Instant::now(), elapsed: None, reports: Vec::new(), latest_map: None, notices: Vec::new(), log: Vec::new() }
     }
 
     #[test]
@@ -284,7 +354,7 @@ mod tests {
         drop(tx);
         let mut job = BakeJob { progress: Arc::new(Progress::new()), sets_done: Arc::new(AtomicUsize::new(0)),
             sets_total: 1, stage: Arc::new(Mutex::new(String::new())), rx, applied: 0, error: None, high_poly: true,
-            low: session.scene().mesh.clone(), started: std::time::Instant::now(), elapsed: None, reports: Vec::new(), latest_map: None, notices: Vec::new() };
+            low: session.scene().mesh.clone(), started: std::time::Instant::now(), elapsed: None, reports: Vec::new(), latest_map: None, notices: Vec::new(), log: Vec::new() };
         assert!(job.poll(&mut session).unwrap().unwrap_err().contains("stopped unexpectedly"));
     }
 }

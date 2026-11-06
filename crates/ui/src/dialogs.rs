@@ -403,6 +403,8 @@ pub struct BakeUi {
     pub report: String,
     /// Non-fatal notes of the last bake (low parts without a high part of the same name).
     pub notices: Vec<String>,
+    /// Log of the running or last bake: per-map timing and path (CPU / GPU), warnings, errors.
+    pub log: Vec<subcraft_app::BakeLogLine>,
     pub preview: bool,
     pub cage: bool,
     pub live_maps: bool,
@@ -420,7 +422,7 @@ pub struct BakeUi {
 
 impl Default for BakeUi {
     fn default() -> Self {
-        Self { open: false, settings: subcraft_app::BakeSettings::default(), high_poly: String::new(), all_sets: true, job: None, result: None, report: String::new(), notices: Vec::new(),
+        Self { open: false, settings: subcraft_app::BakeSettings::default(), high_poly: String::new(), all_sets: true, job: None, result: None, report: String::new(), notices: Vec::new(), log: Vec::new(),
             preview: true, cage: true, live_maps: true, displayed_map: None, follow_maps: true, preview_mesh: None,
             preview_job: None, preview_source: None, preview_path: String::new(), preview_scene: None, preview_error: None, preview_uploaded: false, preview_checked_at: 0. }
     }
@@ -474,6 +476,7 @@ pub fn poll_bake(state: &mut UiState, ctx: &egui::Context, now: f64) {
     let result = job.poll(&mut state.session);
     if state.bake.follow_maps && let Some((_, kind)) = job.latest_map { state.bake.displayed_map = Some(kind); }
     state.bake.notices = job.notices().to_vec();
+    if state.bake.log.len() != job.log().len() { state.bake.log = job.log().to_vec(); }
     if let Some(result) = result {
         let summary = state.bake.job.as_ref().map(|j| j.summary()).unwrap_or_default();
         state.bake.job = None;
@@ -622,6 +625,7 @@ pub fn bake_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
             ui.colored_label(theme::WARNING, note);
             ui.add_space(6.0);
         }
+        bake_log_section(ui, &state.bake.log);
         match &state.bake.job {
             Some(job) => {
                 ui.label(dim(&job.stage()));
@@ -640,6 +644,7 @@ pub fn bake_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
                 if go.inner {
                     state.bake.result = None;
                     state.bake.notices.clear();
+                    state.bake.log.clear();
                     state.bake.displayed_map = None;
                     state.bake.follow_maps = true;
                     let mut settings = state.bake.settings.clone();
@@ -664,6 +669,31 @@ pub fn bake_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
 }
 
 /// "Match" choice and, for By mesh name, the low / high suffix fields.
+/// The bake log: what ran where and for how long, warnings in amber, errors in red, with a Copy button.
+fn bake_log_section(ui: &mut egui::Ui, lines: &[subcraft_app::BakeLogLine]) {
+    use subcraft_app::BakeLogLevel;
+    if lines.is_empty() { return; }
+    let problems = lines.iter().filter(|l| l.level != BakeLogLevel::Info).count();
+    let title = if problems == 0 { "Bake log".to_string() } else { format!("Bake log ({problems} warning(s) or error(s))") };
+    egui::CollapsingHeader::new(title).id_salt("bake_log").default_open(problems > 0).show(ui, |ui| {
+        if ui.small_button("Copy log").on_hover_text("Copies the whole log as plain text").clicked() {
+            ui.ctx().copy_text(subcraft_app::bake_log_text(lines));
+        }
+        egui::ScrollArea::vertical().id_salt("bake_log_scroll").max_height(160.0).auto_shrink([false, true]).show(ui, |ui| {
+            for line in lines {
+                let text = RichText::new(line.plain()).monospace().size(11.0);
+                let text = match line.level {
+                    BakeLogLevel::Info => text.color(theme::TEXT_DIM),
+                    BakeLogLevel::Warning => text.color(theme::WARNING),
+                    BakeLogLevel::Error => text.color(egui::Color32::from_rgb(235, 100, 100)),
+                };
+                ui.add(egui::Label::new(text).wrap());
+            }
+        });
+    });
+    ui.add_space(6.0);
+}
+
 fn bake_match_rows(ui: &mut egui::Ui, m: &mut subcraft_core::BakeMatch) {
     use subcraft_core::BakeMatchMode;
     ui.label(dim("Match"));
@@ -832,5 +862,32 @@ mod bake_tests {
         state.bake.notices = vec!["Match by name: 1 low-poly part(s) have no matching high-poly part: Clip_low".into()];
         let output = draw(&mut state, &ctx, vec![]);
         assert!(output.shapes.iter().any(|s| matches!(&s.shape, egui::epaint::Shape::Text(t) if t.galley.job.text.contains("Clip_low"))));
+    }
+}
+
+#[cfg(test)]
+mod bake_log_tests {
+    use super::*;
+    use subcraft_app::{BakeLogLevel, BakeLogLine, Session};
+
+    #[test]
+    fn the_bake_window_shows_the_log_and_marks_problems() {
+        let ctx = egui::Context::default(); theme::apply(&ctx);
+        let mut state = UiState::new(Session::new(subcraft_mesh::primitives::plane(2., 1), 128), None);
+        state.bake.open = true; state.bake.preview = false;
+        state.bake.log = vec![
+            BakeLogLine { at: 0.0, level: BakeLogLevel::Info, text: "Baking 1 texture set(s)".into() },
+            BakeLogLine { at: 1.2, level: BakeLogLevel::Warning, text: "Cage: 12 of 100 texels missed".into() },
+        ];
+        let frame = |state: &mut UiState| {
+            let mut out = ctx.run_ui(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1100.0, 900.0))), ..Default::default() }, |ui| bake_window(state, ui.ctx(), 0.0));
+            out.textures_delta.clear(); out
+        };
+        frame(&mut state); frame(&mut state);
+        let out = frame(&mut state);
+        let has = |needle: &str| out.shapes.iter().any(|s| matches!(&s.shape, egui::epaint::Shape::Text(t) if t.galley.job.text.contains(needle)));
+        assert!(has("Bake log (1 warning(s) or error(s))"), "problems open the section and are counted");
+        assert!(has("warning: Cage: 12 of 100 texels missed") && has("[   1.2 s]"), "lines are shown in their copyable form");
+        assert!(has("Copy log"));
     }
 }

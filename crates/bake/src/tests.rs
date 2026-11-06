@@ -512,3 +512,24 @@ mod ray_backend {
         assert_eq!(r.unwrap_err(), BakeError::Cancelled);
     }
 }
+
+#[test]
+fn partial_cage_misses_and_name_matching_on_the_cpu_are_warned_about() {
+    let low = primitives::plane(2., 8);
+    let mut high = MeshBuilder::new("partial");
+    let mat = high.material("high");
+    high.push_triangle(mat, [corner(Vec3::new(-1., 0.01, -1.), Vec2::ZERO),
+        corner(Vec3::new(-1., 0.01, 1.), Vec2::Y), corner(Vec3::new(1., 0.01, -1.), Vec2::X)]);
+    let high = high.build().unwrap();
+    let (lb, hb) = (Bvh::build(&low), Bvh::build(&high));
+    let input = BakeInput { low: Geometry { mesh: &low, bvh: &lb }, high: Some(Geometry { mesh: &high, bvh: &hb }), material_slot: 0 };
+    let progress = Progress::new();
+    bake(&input, &settings(&[MeshMapKind::Id]), &progress).unwrap();
+    let warnings = progress.warnings();
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert!(warnings[0].starts_with("Cage:") && warnings[0].contains("Cage front / rear") && warnings[0].contains('%'), "{warnings:?}");
+    // Low on low never warns, and the list is reset by every bake.
+    let flat = BakeInput { low: Geometry { mesh: &low, bvh: &lb }, high: None, material_slot: 0 };
+    bake(&flat, &settings(&[MeshMapKind::Id]), &progress).unwrap();
+    assert!(progress.warnings().is_empty());
+}

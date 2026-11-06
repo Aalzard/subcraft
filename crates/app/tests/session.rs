@@ -812,3 +812,37 @@ fn thumbnail_tiling_boost_repeats_fills_in_the_preview_only_and_leaves_the_asset
     assert_ne!(plain.channel(ChannelKind::BaseColor).unwrap().get(100, 100), tiled.channel(ChannelKind::BaseColor).unwrap().get(100, 100));
     assert_eq!(scales(&original), before, "the source layer is unchanged");
 }
+
+#[test]
+fn bake_log_records_timing_path_skipped_sets_and_a_missing_high_poly() {
+    use subcraft_app::{BakeLogLevel, BakeRequest, BakeSettings, MeshMapKind, bake_log_text};
+    let mut s = Session::new(primitives::plane(2., 1), 128);
+    let ts = s.selection().texture_set;
+    let run = |s: &mut Session, request: BakeRequest| {
+        let mut job = s.start_bake(request);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        let result = loop {
+            if let Some(result) = job.poll(s) { break result; }
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        };
+        (result, job.log().to_vec())
+    };
+    let settings = BakeSettings { size: 64, maps: vec![MeshMapKind::Normal, MeshMapKind::AmbientOcclusion], ao_samples: 4, use_gpu: false, ..Default::default() };
+    // One good set and one without texels (skipped, with a warning).
+    let (result, log) = run(&mut s, BakeRequest { settings: settings.clone(), high_poly: None, texture_sets: vec![(ts, 0), (ts, 999)] });
+    assert!(result.is_err(), "the skipped set still fails the job as before");
+    let text = bake_log_text(&log);
+    assert!(log[0].text.contains("2 texture set(s) at 64 px") && log[0].text.contains("Ambient Occlusion") && log[0].text.contains("GPU off"), "{text}");
+    assert!(text.contains("No high poly"), "{text}");
+    assert!(text.contains("Normal:") && text.contains("Ambient Occlusion:") && text.contains(" s on CPU"), "per-map timing and path: {text}");
+    let skipped = log.iter().find(|l| l.text.contains("(material slot 999) skipped")).expect("skipped set is logged");
+    assert_eq!(skipped.level, BakeLogLevel::Warning);
+    assert!(log.last().unwrap().text.starts_with("Finished in"), "{text}");
+    assert!(log.windows(2).all(|w| w[0].at <= w[1].at), "timestamps never go back");
+    assert!(text.lines().next().unwrap().starts_with("[   0."), "plain text form: {text}");
+    // A high-poly file that is not there is an error line, and nothing is baked.
+    let (result, log) = run(&mut s, BakeRequest { settings, high_poly: Some("definitely-missing-high.obj".into()), texture_sets: vec![(ts, 0)] });
+    assert!(result.unwrap_err().contains("high poly"));
+    assert!(log.iter().any(|l| l.level == BakeLogLevel::Error && l.text.contains("High poly could not be loaded")), "{}", bake_log_text(&log));
+}
