@@ -4355,3 +4355,7 @@ real cost of the big_project stack), and letting GPU-composited tiles fill the C
 * **Cause**: the wireframe/camera feature added two buttons and widened the View combo (92 -> 150), but `viewport_bar.rs` kept hard-coded breakpoints. At 1125 px the bar needed 1228 px (`brush_bar` tests `bar_fits_wide_wrapped_and_tiny_docks_and_hides_for_non_paint_tools` and `flow_and_hardness_open_independent_sliders_and_edit_shared_values` failed on Linux); at 600 px it needed 666 px.
 * **Fix**: wide View combo only from 660 px, wireframe/camera buttons only from 600 px (not reachable from the bar below that), inline brush bar from 1214 px (was 1094). Test's inline breakpoint changed to 1230 (stale assumption); overflow thresholds untouched. Effect: at 1125 px the brush controls now wrap under the view controls.
 * **Run here (Linux)**: `cargo test -p subcraft-ui --test brush_bar` 8/8; `cargo test --workspace` 172 result lines ok, 1135 passed, 0 failed, 2 ignored. Not run: Windows, a visual check of the app.
+
+## 2026-11-07 — Default texture resolution is 2048
+
+* New projects already defaulted to 2048 (`NewProjectSettings`); `DEFAULT_RESOLUTION` (sample crate, models opened without the New Project window, SPP import, mesh reload fallback) was 1024 and is now 2048. Saved projects store each set's resolution explicitly, so existing files keep their size. 256-4096 (and 128 in the Texture Sets panel) stay in every resolution list. Unchanged: the Bake window size default (1024), UV unwrap packing resolution, example binaries.

@@ -106,6 +106,16 @@ fn channels_can_be_edited_but_base_color_stays_and_emission_can_start_enabled() 
 }
 
 #[test]
+fn new_sessions_and_projects_default_to_2048_and_1024_stays_selectable() {
+    assert_eq!(subcraft_app::DEFAULT_RESOLUTION, 2048);
+    assert_eq!(NewProjectSettings::default().resolution, 2048);
+    assert!(subcraft_app::new_project::PROJECT_RESOLUTIONS.contains(&1024));
+    assert!(subcraft_doc::RESOLUTIONS.contains(&1024));
+    let s = Session::sample();
+    assert!(s.document().texture_sets.iter().all(|t| t.resolution == 2048));
+}
+
+#[test]
 fn resolution_is_per_project_with_per_set_overrides_snapped_to_supported_sizes() {
     let mut settings = NewProjectSettings { resolution: 1024, ..Default::default() };
     settings.resolution_overrides.insert("Glass".into(), 512);

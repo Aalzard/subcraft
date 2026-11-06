@@ -20,7 +20,7 @@ use crate::actions::Action;
 use crate::command::{Command, CommandError, NewLayer};
 
 /// Default texture-set resolution for new sessions.
-pub const DEFAULT_RESOLUTION: u32 = 1024;
+pub const DEFAULT_RESOLUTION: u32 = 2048;
 
 /// Immutable geometry of the session and everything derived from it.
 pub struct Scene {
