@@ -4,6 +4,7 @@
 
 pub mod alphas;
 pub mod open_pack;
+pub mod pbr_pack;
 pub mod preview;
 pub mod starter;
 pub mod environment;
