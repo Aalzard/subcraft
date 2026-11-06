@@ -245,9 +245,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         if let Some(hit) = state.session.pick(&camera, to_screen(p)) {
             let orbit = state.camera.eye_distance().max(1e-4);
             state.recovery.prefs.viewport.dof_focus = (hit.depth / orbit).clamp(0.2, 3.0);
-            state.set_status("Focus set", now);
+            state.set_status(crate::i18n::tr("Focus set"), now);
         } else {
-            state.set_status("Click the model to set the focus", now);
+            state.set_status(crate::i18n::tr("Click the model to set the focus"), now);
         }
         state.picking_focus = false;
     } else if state.picking_focus && (!focus_picking || ui.input(|i| i.key_pressed(egui::Key::Escape))) {
