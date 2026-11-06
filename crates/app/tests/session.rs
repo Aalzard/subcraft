@@ -784,3 +784,31 @@ fn a_radial_symmetry_stroke_is_one_undo_step_that_restores_the_document_exactly(
     s.perform(Action::Redo).unwrap();
     assert_ne!(s.document(), &before);
 }
+
+#[test]
+fn thumbnail_tiling_boost_repeats_fills_in_the_preview_only_and_leaves_the_asset_alone() {
+    use subcraft_app::assets::Library;
+    use subcraft_app::thumbnails::{PREVIEW_PROJECTED_BOOST, PREVIEW_UV_BOOST, PreviewScene, zoom_out_tiling};
+    use subcraft_doc::ProjectionMode;
+    let lib = Library::builtin();
+    let scene = PreviewScene::sphere();
+    let ts = scene.texture_set();
+    let m = lib.smart_materials.iter().find(|m| m.name == "Brushed Steel").unwrap();
+    let original = m.build(ts);
+    let mut boosted = original.clone();
+    zoom_out_tiling(&mut boosted);
+    let scales = |l: &subcraft_doc::Layer| -> Vec<(ProjectionMode, [f32; 2])> {
+        l.children().iter().filter_map(|c| match &c.content { LayerContent::Fill(f) => Some((f.projection.mode, f.projection.scale)), _ => None }).collect()
+    };
+    let (before, after) = (scales(&original), scales(&boosted));
+    assert!(!before.is_empty() && before.len() == after.len(), "the folder's fills are visited");
+    for ((mode, a), (_, b)) in before.iter().zip(&after) {
+        let k = if *mode == ProjectionMode::Uv { PREVIEW_UV_BOOST } else { PREVIEW_PROJECTED_BOOST };
+        assert!((b[0] - a[0] * k).abs() < 1e-5 && (b[1] - a[1] * k).abs() < 1e-5, "{mode:?}: {a:?} -> {b:?}");
+    }
+    // The boosted preview still composites, and a procedural tiled more often is not the same image.
+    let plain = scene.composite(original.clone());
+    let tiled = scene.composite(boosted);
+    assert_ne!(plain.channel(ChannelKind::BaseColor).unwrap().get(100, 100), tiled.channel(ChannelKind::BaseColor).unwrap().get(100, 100));
+    assert_eq!(scales(&original), before, "the source layer is unchanged");
+}
