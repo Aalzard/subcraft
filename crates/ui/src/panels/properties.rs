@@ -215,6 +215,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     let mut pick_image = false;
                     let row = crate::widgets::card(ui, theme::channel_accent(*kind), |ui| {
                     ui.horizontal(|ui| {
+                        // The channel's image slot: its texture, or an empty "+" box to click or drop on.
+                        let bitmap = match ch.source { FillSource::Bitmap { resource } => Some(resource), _ => None };
+                        if map_slot(ui, state, bitmap, *kind).clicked() { pick_image = true; }
                         ui.label(RichText::new(kind.display_name()).font(theme::font_strong(13.0)).color(theme::TEXT));
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             let current = match ch.source {
@@ -264,6 +267,15 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     let is_texture = |d: &crate::panels::shelf::ShelfDrag| matches!(d, crate::panels::shelf::ShelfDrag::Texture(_)|crate::panels::shelf::ShelfDrag::Starter(_));
                     if row.response.dnd_hover_payload::<crate::panels::shelf::ShelfDrag>().is_some_and(|d| is_texture(&d)) {
                         ui.painter().rect_stroke(row.response.rect, 0.0, egui::Stroke::new(1.5, ACCENT), egui::StrokeKind::Inside);
+                    }
+                    // A file dragged in from the system file browser onto this channel's row.
+                    let over_row = ui.ctx().input(|i| i.pointer.latest_pos()).is_some_and(|p| row.response.rect.contains(p));
+                    if over_row && ui.ctx().input(|i| !i.raw.hovered_files.is_empty()) {
+                        ui.painter().rect_stroke(row.response.rect, 0.0, egui::Stroke::new(1.5, ACCENT), egui::StrokeKind::Inside);
+                    }
+                    if over_row && let Some(path) = ui.ctx().input(|i| i.raw.dropped_files.first().map(|f| f.path().to_path_buf())).filter(|p| !p.as_os_str().is_empty()) {
+                        state.drops_taken = true;
+                        texture_drop = Some((*kind, path));
                     }
                     if let Some(d) = row.response.dnd_release_payload::<crate::panels::shelf::ShelfDrag>() {
                         match *d {
@@ -694,6 +706,47 @@ pub(crate) fn channel_chips(ui: &mut Ui, channels: &[(ChannelKind, bool)], addab
         }
     });
     clicked
+}
+
+/// A fill channel's map slot, as in other painters: the channel's image as a small thumbnail, or a
+/// dashed "+" box when it has none. Click to choose an image; Shelf textures and files from the
+/// system file browser can be dropped on the channel's row.
+fn map_slot(ui: &mut Ui, state: &mut UiState, resource: Option<subcraft_core::ResourceId>, kind: ChannelKind) -> egui::Response {
+    let side = 30.0;
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(side, side), egui::Sense::click());
+    let painter = ui.painter_at(rect);
+    let thumb = resource.and_then(|id| {
+        let r = state.session.resources().get(id).cloned()?;
+        Some(state.image_thumbs.entry(id).or_insert_with(|| {
+            let (w, h, rgba) = r.bitmap.preview_rgba8(96);
+            let img = egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &rgba);
+            ui.ctx().load_texture(format!("image-{}", id.0), img, egui::TextureOptions::LINEAR)
+        }).clone())
+    });
+    let hovered = response.hovered();
+    match thumb {
+        Some(tex) => {
+            painter.image(tex.id(), rect, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
+            painter.rect_stroke(rect, 3.0, egui::Stroke::new(1.0, if hovered { ACCENT } else { theme::BORDER_STRONG }), egui::StrokeKind::Inside);
+        }
+        None => {
+            let color = if hovered { ACCENT } else { TEXT_DIM };
+            let r = rect.shrink(1.0);
+            // Dashed outline: four dashes per side.
+            for (a, b) in [(r.left_top(), r.right_top()), (r.right_top(), r.right_bottom()), (r.right_bottom(), r.left_bottom()), (r.left_bottom(), r.left_top())] {
+                for k in 0..4 {
+                    let t0 = k as f32 / 4.0 + 0.04;
+                    let t1 = t0 + 0.14;
+                    painter.line_segment([a.lerp(b, t0), a.lerp(b, t1)], egui::Stroke::new(1.0, color));
+                }
+            }
+            painter.text(rect.center(), egui::Align2::CENTER_CENTER, "+", theme::font_strong(16.0), color);
+        }
+    }
+    let tip = if resource.is_some() { format!("{} image · Click to replace, or drop a texture on this row", kind.display_name()) }
+        else { format!("No {} image · Click to choose one, or drop a texture (from the Shelf or your files) on this row", kind.display_name()) };
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, format!("{} map", kind.display_name())));
+    response.on_hover_text(tip)
 }
 
 pub(crate) fn image_row(ui: &mut Ui, state: &mut UiState, resource: subcraft_core::ResourceId) -> bool {
