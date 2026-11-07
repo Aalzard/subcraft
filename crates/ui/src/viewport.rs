@@ -386,6 +386,11 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             }
             params.bake_overlay = state.bake.overlay_active();
             params.bake_cage = state.bake.cage;
+            if let Some(high) = &state.bake.preview_mesh {
+                let low = state.session.scene().mesh.bounds;
+                params.bake_high_transform = state.session.settings().bake_placement.matrix((low.min, low.max), (high.bounds.min, high.bounds.max));
+            }
+            params.bake_high_opacity = state.bake.high_opacity;
             params.bake_distances = [state.bake.settings.cage_front, state.bake.settings.cage_rear];
             if state.bake.open && state.bake.live_maps && !params.bake_overlay {
                 params.bake_map = state.bake.displayed_map;

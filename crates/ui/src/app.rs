@@ -136,6 +136,9 @@ pub struct LaunchOptions {
     pub bake_size: Option<u32>,
     /// Bake part matching for this run (stored in the project settings like the dialog choice).
     pub bake_match: Option<subcraft_core::BakeMatchMode>,
+    /// High-poly placement for this run: comma list of `auto`, `center`, `origin`, `offset=x:y:z`,
+    /// `scale=s`, `rot=x:y:z` (scripted screenshots; stored in the project settings).
+    pub bake_place: Option<String>,
     /// Inspect the real high/low geometry before baking, without starting the bake.
     pub bake_preview_only: bool,
     /// Bake every mesh map of the low poly onto itself at start (scripted captures of the Mesh Maps rows).
@@ -630,7 +633,16 @@ impl SubcraftApp {
                 project.bake_match.mode = mode;
                 state.session.set_settings(project);
             }
+            if let Some(spec) = &options.bake_place {
+                let mut project = state.session.settings().clone();
+                match crate::placement::parse_place_spec(spec, &state.session.scene().mesh, high) {
+                    Ok(p) => project.bake_placement = p,
+                    Err(e) => log::error!("--bake-place: {e}"),
+                }
+                state.session.set_settings(project);
+            }
             state.bake.settings.name_match = state.session.settings().bake_match.clone();
+            state.bake.settings.placement = state.session.settings().bake_placement.clone();
             let texture_sets = state.session.document().texture_sets.iter().map(|t| (t.id, t.material_slot)).collect();
             if !options.bake_preview_only { state.bake.job = Some(state.session.start_bake(subcraft_app::BakeRequest {
                 settings: state.bake.settings.clone(), high_poly: Some(high.clone()), texture_sets,
