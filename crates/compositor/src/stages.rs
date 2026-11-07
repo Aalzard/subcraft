@@ -964,9 +964,11 @@ impl<'a> Graph<'a> {
                     if m <= 0.0 {
                         continue;
                     }
-                    // Fine grain pits the surface: 0.55..1 of the full change.
-                    let g = grain.as_ref().map_or(1.0, |f| 0.55 + 0.45 * ((f[i] - 0.5) * 2.5 + 0.5).clamp(0.0, 1.0));
-                    let d = amount * m * g;
+                    // Fine grain pits the surface: 0.7..1 of the full change.
+                    let g = grain.as_ref().map_or(1.0, |f| 0.7 + 0.3 * ((f[i] - 0.5) * 2.5 + 0.5).clamp(0.0, 1.0));
+                    // Soft knee: the faint tail of a mask (Dirt's grunge floor) leaves no relief.
+                    let t = ((m - 0.1) / 0.5).clamp(0.0, 1.0);
+                    let d = amount * (t * t * (3.0 - 2.0 * t)) * g;
                     *o = [d, d, d, 1.0];
                 }
                 out
@@ -1421,7 +1423,7 @@ pub(crate) fn mask_spatial(mask: &Mask) -> bool {
 }
 /// Slope per UV unit per (height unit per texel x resolution): how strongly a micro height change
 /// leans the normal.
-const MICRO_NORMAL_GAIN: f32 = 0.35;
+const MICRO_NORMAL_GAIN: f32 = 0.25;
 /// Whether the layer's mask holds a generator whose micro effect is on.
 pub(crate) fn micro_layer(l: &Layer) -> bool {
     l.mask.as_ref().filter(|m| m.enabled).is_some_and(|m| {

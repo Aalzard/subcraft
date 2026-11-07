@@ -255,6 +255,17 @@ Brush buttons choose channels for future strokes; they do not hide existing pain
 Projection **Rotation** sits directly below **Tiling**, and changes orientation independently
 of scale. These controls are shared by the supported texture projections.
 
+### Generator micro effect (Normal / Height)
+
+Every generator (Edges, Dirt, Concave, Directional, Gradient, mesh-map generators) has a **Micro effect
+(Normal / Height)** checkbox in its Properties, off by default. When on, the generator's mask (breakup and grain
+included) is also written into the **Normal** and **Height** of the layers below it, so wear chips the surface and dirt
+fills it, visible in lighting and in a Height export. **Micro amount** sets the height change, **Micro direction**
+chooses Raise or Carve (Edges start on Carve, everything else on Raise), and **Grain follows generator** pits the
+surface with the generator's fine grain. Only channels that already hold a normal or height map change: with a
+Normal but no Height only the Normal changes, with neither nothing is added. Turning it on uses the CPU compositor.
+Images: `docs/generators/micro-effect/`.
+
 ### Content and mask effects
 
 **Filters:** click a layer's content square, then **+ Add → Filter** beneath its row. Choose

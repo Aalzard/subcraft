@@ -117,9 +117,9 @@ fn on_changes_height_and_normal_only_where_the_mask_is() {
         for x in 0..RES {
             let i = idx(x, y);
             if red(&off, x, y) {
-                // Carve: lower by 0.55..1 of amount * MAX_HEIGHT (f16 storage tolerance).
+                // Carve: lower by 0.7..1 of amount * MAX_HEIGHT (f16 storage tolerance).
                 let d = hn[i][0] - ho[i][0];
-                assert!(d < -0.8 * 0.1 * 0.55 + 2e-3 && d > -0.8 * 0.1 - 2e-3, "height delta {d} at ({x},{y})");
+                assert!(d < -0.8 * 0.1 * 0.7 + 2e-3 && d > -0.8 * 0.1 - 2e-3, "height delta {d} at ({x},{y})");
                 lowered += 1;
             } else if !(0..9).any(|k| {
                 // Not on the mask edge ring either: the normal reads one texel around.
