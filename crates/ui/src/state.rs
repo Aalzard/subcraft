@@ -102,6 +102,11 @@ pub struct UiState {
     pub brush_notice: Option<BrushNotice>,
     /// Shelf double-click: bring the Brush settings tab forward on the next frame.
     pub open_brush_editor: bool,
+    /// Properties shows the brush settings regardless of the selected layer (View menu, Shelf
+    /// double-click) until the selection changes.
+    pub brush_pinned: bool,
+    /// No separate Brush tab is docked, so the Properties panel hosts the brush settings.
+    pub properties_hosts_brush: bool,
     /// Scripted capture only (`--select-brush`): Shelf brush to select before the screenshot.
     pub capture_select_brush: Option<String>,
     /// Scripted Clone/Smudge demonstration for native captures (`--capture-tool`).
@@ -122,6 +127,8 @@ pub struct UiState {
     pub pen_input: crate::pen_input::PenInputFixer,
     /// Clicks in the 3D view show / hide the selected layer on mesh parts (Properties → Parts).
     pub picking_parts: bool,
+    /// Depth of field: the next click on the model sets the focus distance.
+    pub picking_focus: bool,
     /// Clicks in the 3D view add the ID map color under the cursor to this ID Color Mask effect.
     pub picking_id_color: Option<(subcraft_core::LayerId, subcraft_core::EffectId)>,
     pub last_stroke_point: Option<Vec2>,
@@ -195,10 +202,18 @@ impl UiState {
         let tool = if session.selected_layer().is_some_and(|l| l.kind() == subcraft_doc::LayerKind::Path) { Tool::Pen } else { Tool::Brush };
         // A brush color that stands out on the default gray material.
         session.brush.material.set(ChannelKind::BaseColor, subcraft_core::ChannelValue::rgb(0.85, 0.32, 0.06));
+        if let Some(rs) = &render_state {
+            // Probe optional capabilities before any pipeline is built, and keep wgpu errors from panicking.
+            let caps = subcraft_render::caps::GpuCaps::from_adapter(&rs.adapter);
+            subcraft_app::startup_probe::step(&format!("adapter caps: {}", caps.report().replace('\n', " | ")));
+            for problem in [caps.msaa_problem(), caps.compute_problem()].into_iter().flatten() { log::warn!("{problem}"); subcraft_app::startup_probe::step(&problem); }
+            subcraft_render::caps::set(caps);
+            subcraft_render::caps::install_error_handlers(&rs.device);
+        }
         let renderer = render_state.as_ref().map(|rs| ViewportRenderer::new(&rs.device, &rs.queue));
         let mut graphics = crate::graphics::GraphicsUi::default();
         if let Some(rs) = &render_state { graphics.record_active(rs.adapter.get_info().backend); }
-        subcraft_app::startup_probe::step(&format!("{} (adapter: {})", subcraft_app::startup_probe::COMPLETE_MARKER, render_state.as_ref().map(|rs| rs.adapter.get_info().name).unwrap_or_else(|| "none".into())));
+        subcraft_app::startup_probe::step(&format!("renderer created (adapter: {})", render_state.as_ref().map(|rs| rs.adapter.get_info().name).unwrap_or_else(|| "none".into())));
         Self {
             composite_deadline: None,
             layer_previews: Default::default(),
@@ -231,6 +246,8 @@ impl UiState {
             import_report: Vec::new(),
             brush_notice: None,
             open_brush_editor: false,
+            brush_pinned: false,
+            properties_hosts_brush: true,
             capture_select_brush: None,
             capture_tool: None,
             render_window: false,
@@ -244,6 +261,7 @@ impl UiState {
             uv: UvView { zoom: 1.0, offset: egui::Vec2::ZERO, source: PreviewSource::Channel(ChannelKind::BaseColor), texture: None, painting: false, last_point: None },
             painting: false,
             picking_parts: false,
+            picking_focus: false,
             picking_id_color: None,
             last_stroke_point: None,
             pen_pressure: 1.0,

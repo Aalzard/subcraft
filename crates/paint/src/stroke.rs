@@ -17,7 +17,7 @@ use subcraft_mesh::{Bvh, Mesh};
 
 use crate::camera::Camera;
 use crate::depth::{DepthCache, DepthMap};
-use crate::kernel::{KernelInput, TileWork};
+use crate::kernel::{KernelInput, TexelSample, TileWork};
 use crate::path::{PathSample, ScreenPath, rand01};
 use crate::settings::{Alignment, BrushMaterial, BrushSettings, PaintTarget, PolygonFillMode, StrokeMode, StrokeOptions};
 use crate::stamp::{Dab, Stamp, resolve_overlap};
@@ -63,7 +63,43 @@ pub struct Stroke {
     carried: Vec<Option<[f32; 4]>>,
     /// Average UV units per object unit of the painted texture set (2D-view strokes).
     uv_per_unit: Option<f32>,
+    raster: RasterCache,
+    preview: LivePreview,
 }
+
+/// Live preview of expensive strokes: while the brush touches more than `tiles` tiles per stamp,
+/// only every `stride`-th stamp is applied to the layer as the pen moves; the others wait in
+/// `deferred` and are applied in one batched pass when the stroke ends. Coverage accumulates as
+/// `1 - prod(1 - a_i)`, which does not depend on stamp order, so the final texels equal the exact
+/// stroke up to float rounding.
+#[derive(Clone)]
+struct LivePreview {
+    /// Tiles per stamp above which stamps are thinned out; 0 disables the preview.
+    tiles: usize,
+    /// Tiles the last applied batch touched (the cost estimate).
+    last_tiles: usize,
+    deferred: Vec<Stamp>,
+}
+
+/// At most this many stamps are skipped between two applied ones.
+const PREVIEW_MAX_STRIDE: usize = 3;
+
+/// The visible texel samples of every tile the stroke touched, per camera: later stamps on the
+/// same tile skip rasterizing and the visibility test (a pen stroke stamps the same tiles again
+/// and again). Dropped when the cameras, mesh or visibility settings change, and when it grows
+/// past [`RASTER_CACHE_SAMPLES`].
+#[derive(Clone)]
+struct RasterCache {
+    enabled: bool,
+    key: Option<RasterKey>,
+    tiles: HashMap<(usize, usize), Arc<[TexelSample]>>,
+    samples: usize,
+}
+
+type RasterKey = (Vec<Camera>, Alignment, Option<u32>, u32, u32, usize);
+
+/// About 120 MB of cached samples.
+const RASTER_CACHE_SAMPLES: usize = 3_000_000;
 
 /// Where a clone stroke copies from: an object-space surface point, and the screen offset from
 /// the stroke's own position to it (fixed by the first dab, then kept so later strokes align).
@@ -118,7 +154,36 @@ impl Stroke {
             work: Vec::new(),
             carried: Vec::new(),
             uv_per_unit: None,
+            raster: RasterCache { enabled: std::env::var_os("SUBCRAFT_NO_RASTER_CACHE").is_none(), key: None, tiles: HashMap::new(), samples: 0 },
+            preview: LivePreview { tiles: if std::env::var_os("SUBCRAFT_NO_STROKE_PREVIEW").is_some() { 0 } else { 32 }, last_tiles: 0, deferred: Vec::new() },
         })
+    }
+
+    /// The original stamping path: rasterize and visibility-test every touched tile again for each
+    /// stamp and rewrite all of them (used to
+    /// check that the per-stroke sample cache and the unchanged-tile skip change nothing).
+    pub fn without_raster_cache(mut self) -> Self {
+        self.raster.enabled = false;
+        self
+    }
+
+    /// Thin out the stamps applied while drawing once a stamp touches more than `tiles` tiles
+    /// (`0`: never); the skipped ones are applied by [`Stroke::flush_deferred`].
+    pub fn with_live_preview(mut self, tiles: usize) -> Self {
+        self.preview.tiles = tiles;
+        self
+    }
+
+    /// Apply the stamps the live preview skipped (call at the end of the stroke, after `finish`).
+    pub fn flush_deferred(&mut self, ts: &mut TextureSet, ctx: &PaintContext) -> Result<Vec<usize>, PaintError> {
+        if self.preview.deferred.is_empty() {
+            return Ok(Vec::new());
+        }
+        self.check(ts, ctx)?;
+        let stamps = std::mem::take(&mut self.preview.deferred);
+        let cameras = self.cameras(ctx);
+        let alignment = self.settings.alignment;
+        self.apply_stamps(ts, ctx, &cameras, &stamps, alignment, true)
     }
 
     /// Clone from `point` (object space). `offset` is the screen offset kept from an earlier
@@ -336,6 +401,7 @@ impl Stroke {
         let s = &self.settings;
         let base_radius = s.radius(ctx.mesh.bounds.diagonal());
         let mut stamps = Vec::new();
+        let mut stamp_k: Vec<u32> = Vec::new();
         for sample in samples {
             let k = self.stamp_count;
             self.stamp_count += 1;
@@ -381,12 +447,23 @@ impl Stroke {
                             self.last_depth = Some(cam.view_depth(st.center).max(1e-3));
                         }
                         stamps.push(st);
+                        stamp_k.push(k);
                     }
                 }
             }
         }
         if self.mode == StrokeMode::Smudge {
             return self.smudge_stamps(ts, ctx, &cameras, &stamps);
+        }
+        if self.preview.tiles > 0 && matches!(self.mode, StrokeMode::Paint | StrokeMode::Erase) {
+            let stride = (self.preview.last_tiles / self.preview.tiles).clamp(1, PREVIEW_MAX_STRIDE) as u32;
+            if stride > 1 {
+                let mut live = Vec::with_capacity(stamps.len() / stride as usize + 1);
+                for (st, k) in stamps.into_iter().zip(stamp_k) {
+                    if k % stride == 0 { live.push(st) } else { self.preview.deferred.push(st) }
+                }
+                stamps = live;
+            }
         }
         self.apply_stamps(ts, ctx, &cameras, &stamps, self.settings.alignment, true)
     }
@@ -409,7 +486,41 @@ impl Stroke {
             alpha: self.alpha.as_deref(),
             stencil: self.stencil.as_deref().filter(|_| stencil),
         };
+        let t_bin = std::time::Instant::now();
         let bins = input.bin(stamps);
+        profile::add(profile::BIN, t_bin);
+        if alignment != Alignment::Uv {
+            // Cost estimate for the live preview: the tiles a batch touches per stamp.
+            let n = stamps.len().max(1);
+            self.preview.last_tiles = bins.len() / ((n as f32).sqrt().ceil() as usize);
+        }
+        let cached = self.raster.enabled;
+        if cached {
+            let key: RasterKey = (cameras.to_vec(), alignment, backface_cos.map(f32::to_bits), ctx.geometry.resolution, ctx.geometry.material_slot, ctx.mesh as *const Mesh as usize);
+            if self.raster.key.as_ref() != Some(&key) || self.raster.samples > RASTER_CACHE_SAMPLES {
+                self.raster.tiles.clear();
+                self.raster.samples = 0;
+            }
+            self.raster.key = Some(key);
+            let t_ras = std::time::Instant::now();
+            let mut missing = std::collections::BTreeSet::new();
+            for (&t, w) in &bins {
+                for &si in &w.stamps {
+                    let c = stamps[si as usize].camera;
+                    if !self.raster.tiles.contains_key(&(t, c)) {
+                        missing.insert((t, c));
+                    }
+                }
+            }
+            let built: Vec<((usize, usize), Arc<[TexelSample]>)> =
+                missing.into_par_iter().map(|(t, c)| ((t, c), Arc::from(input.tile_samples(t, c)))).collect();
+            for (k, samples) in built {
+                self.raster.samples += samples.len();
+                self.raster.tiles.insert(k, samples);
+            }
+            profile::add(profile::RASTER, t_ras);
+        }
+        let raster = &self.raster.tiles;
         let work: Vec<(usize, TileWork, Box<[f32]>)> = bins
             .into_iter()
             .map(|(t, w)| {
@@ -417,18 +528,32 @@ impl Stroke {
                 (t, w, cov)
             })
             .collect();
-        let done: Vec<(usize, Box<[f32]>)> = work
+        let t_acc = std::time::Instant::now();
+        let done: Vec<(usize, Box<[f32]>, bool)> = work
             .into_par_iter()
             .map(|(t, w, mut cov)| {
-                let samples = input.rasterize_tile(t, w.tris.iter().copied());
-                input.accumulate(&samples, stamps, &w.stamps, &mut cov);
+                // A stamp's bounding region covers whole triangles, so many touched tiles gain
+                // nothing; those need no rewrite, no re-composite and no GPU upload.
+                let before = cached.then(|| cov.clone());
+                if cached {
+                    let per_camera: Vec<Option<&[TexelSample]>> = (0..cameras.len()).map(|c| raster.get(&(t, c)).map(|s| &s[..])).collect();
+                    input.accumulate_visible(&per_camera, stamps, &w.stamps, &mut cov);
+                } else {
+                    let samples = input.rasterize_tile(t, w.tris.iter().copied());
+                    input.accumulate(&samples, stamps, &w.stamps, &mut cov);
+                }
                 self.restrict_coverage(ctx.geometry, t, &mut cov);
-                (t, cov)
+                let changed = before.is_none_or(|b| b != cov);
+                (t, cov, changed)
             })
             .collect();
-        let tiles: Vec<usize> = done.iter().map(|(t, _)| *t).collect();
-        self.coverage.extend(done);
-        self.write(ts, ctx, &tiles)
+        profile::add(profile::ACCUM, t_acc);
+        let tiles: Vec<usize> = done.iter().filter(|d| d.2).map(|d| d.0).collect();
+        self.coverage.extend(done.into_iter().map(|(t, cov, _)| (t, cov)));
+        let t_wr = std::time::Instant::now();
+        let r = self.write(ts, ctx, &tiles);
+        profile::add(profile::WRITE, t_wr);
+        r
     }
 
     /// Recompute `tiles` of every target image from snapshot + coverage and store them.
@@ -784,4 +909,24 @@ pub fn triangle_at_uv(mesh: &Mesh, geometry: &TextureSetGeometry, uv: Vec2) -> O
         }
     }
     best.map(|b| b.1)
+}
+
+/// Wall-clock nanoseconds spent in each stage of the stamp pipeline since the last
+/// [`profile::take`]; read by the benchmarks. Costs one `Instant::now` per stage per call.
+pub mod profile {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::Instant;
+    pub const BIN: usize = 0;
+    pub const RASTER: usize = 1;
+    pub const ACCUM: usize = 2;
+    pub const WRITE: usize = 3;
+    pub const NAMES: [&str; 4] = ["bin", "raster", "accumulate", "write"];
+    static NS: [AtomicU64; 4] = [AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0)];
+    pub(super) fn add(stage: usize, since: Instant) {
+        NS[stage].fetch_add(since.elapsed().as_nanos() as u64, Ordering::Relaxed);
+    }
+    /// Milliseconds per stage, resetting the counters.
+    pub fn take() -> [f64; 4] {
+        std::array::from_fn(|i| NS[i].swap(0, Ordering::Relaxed) as f64 / 1e6)
+    }
 }

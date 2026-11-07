@@ -74,12 +74,26 @@ fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]]) {
     // Breakup noise is projected in 3D (triplanar on object position), never in UV: UV noise
     // jumps at every seam and would make wear follow the islands instead of the shape.
     let noise_proj = Projection { mode: ProjectionMode::Triplanar, triplanar_sharpness: 4.0, ..Projection::default() };
+    let offset = noise_offset(g);
+    let noise_params = scaled_noise(g);
     let noise = (g.noise_amount > 0.0).then(|| if g.organic_breakup {
-        subcraft_materials::sample::organic_tile(&g.noise, geo)
-    } else { procedural_tile(&g.noise, &noise_proj, geo) });
+        subcraft_materials::sample::organic_tile_at(&noise_params, offset, geo)
+    } else { subcraft_materials::sample::procedural_tile_at(&noise_params, &noise_proj, offset, geo) });
+    // Painter's dirt: convex edges are kept clear of dirt by `edges_masking`.
+    let edges_masking = g.painter.map_or(0.0, |p| p.edges_masking.clamp(0.0, 1.0));
+    let mut curvature = Vec::new();
+    if edges_masking > 0.0 && g.kind == GeneratorKind::Cavity {
+        curvature = vec![[0.0f32; 3]; TILE_TEXELS];
+        tc.sample.mesh_maps.read_tile(MeshMapKind::Curvature, geo, &mut curvature);
+    }
+    let floor = g.painter.map_or(0.0, |p| p.grunge_floor.clamp(0.0, 1.0));
+    // Grain speckles dirt's threshold; the plain Edges threshold (no spread model) keeps its exact look.
+    let grain = if g.kind == GeneratorKind::Edges { 0.0 } else { g.painter.map_or(0.0, |p| p.grain.clamp(0.0, 1.0)) };
+    let fine = (grain > 0.0).then(|| fine_noise(g, geo));
     for (i, o) in out.iter_mut().enumerate() {
         let raw = match g.kind {
             GeneratorKind::Edges | GeneratorKind::MeshMap(_) => map[i][0],
+            GeneratorKind::Cavity if !curvature.is_empty() => (1.0 - map[i][0]) * (1.0 - edges_masking * ((curvature[i][0] - 0.5) * 2.0).clamp(0.0, 1.0)),
             GeneratorKind::Cavity => 1.0 - map[i][0],
             GeneratorKind::Directional => Vec3::from_array(geo.normal(i)).dot(dir) * 0.5 + 0.5,
             GeneratorKind::Concave => 1.0 - map[i][0],
@@ -90,16 +104,56 @@ fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]]) {
         } else {
             g.level
         };
-        let v = smoothstep(level - half, level + half, raw);
+        let level = match &fine {
+            Some(f) => level + ((f[i] - 0.5) * 3.0).clamp(-0.5, 0.5) * grain * 0.5,
+            None => level,
+        };
+        let mut v = smoothstep(level - half, level + half, raw);
+        if floor > 0.0 && let Some(noise) = &noise {
+            // Contrast-stretched around the mean: Painter's tail spans 0.02 to 0.18, not a narrow band.
+            v += (1.0 - v) * floor * ((noise[i] - 0.5) * 3.0 + 0.5).clamp(0.0, 1.0);
+        }
         *o = [if g.invert { 1.0 - v } else { v }, 1.0, 0.0, 0.0];
     }
+}
+
+/// The generator's noise offset, with anything non-finite (a damaged file) ignored.
+fn noise_offset(g: &Generator) -> [f32; 3] {
+    if g.offset.iter().all(|v| v.is_finite()) { g.offset } else { [0.0; 3] }
+}
+
+/// The breakup noise's parameters with Painter's grunge scale applied (unchanged without it).
+fn scaled_noise(g: &Generator) -> subcraft_doc::ProceduralParams {
+    let mut p = g.noise;
+    if let Some(pc) = g.painter {
+        p.scale = (p.scale * pc.grunge_scale.clamp(0.05, 64.0)).clamp(0.01, 256.0);
+    }
+    p
+}
+
+/// Noise six times finer than the breakup pattern (same seed family), in object space.
+fn fine_noise(g: &Generator, geo: &subcraft_materials::sample::TileGeometry) -> std::sync::Arc<subcraft_materials::sample::field::Field> {
+    let mut p = scaled_noise(g);
+    p.scale = (p.scale * 6.0).clamp(0.01, 256.0);
+    p.seed = p.seed.wrapping_add(0x9e37);
+    subcraft_materials::sample::organic_tile(&p, geo)
 }
 
 fn eval_edge_spread(g: &Generator, spread: subcraft_doc::EdgeSpread, tc: &TileContext, out: &mut [[f32; 4]]) {
     let distances = tc.set_geometry.edge_distance_tile(tc.geo);
     // Variation changes the boundary even at zero Breakup. Breakup additionally erodes patches;
     // both share one cached non-periodic volume field and the existing Pattern size/Seed.
-    let noise = subcraft_materials::sample::organic_tile(&g.noise, tc.geo);
+    let offset = noise_offset(g);
+    let noise_params = scaled_noise(g);
+    let noise = subcraft_materials::sample::organic_tile_at(&noise_params, offset, tc.geo);
+    let painter = g.painter;
+    let mut ao_map = Vec::new();
+    if painter.is_some_and(|p| p.ao_masking > 0.0) {
+        ao_map = vec![[0.0; 3]; TILE_TEXELS];
+        tc.sample.mesh_maps.read_tile(MeshMapKind::AmbientOcclusion, tc.geo, &mut ao_map);
+    }
+    let curvature_weight = painter.map_or(1.0, |p| p.curvature_weight.clamp(0.0, 2.0));
+    let ao_masking = painter.map_or(0.0, |p| p.ao_masking.clamp(0.0, 1.0));
     let mut curvature = vec![[0.0; 3]; TILE_TEXELS];
     tc.sample.mesh_maps.read_tile(MeshMapKind::Curvature, tc.geo, &mut curvature);
     // Spread is a physical reach, independent of the baked-detail threshold. Multiplying by
@@ -114,13 +168,15 @@ fn eval_edge_spread(g: &Generator, spread: subcraft_doc::EdgeSpread, tc: &TileCo
     // reach skip it. Variation zero keeps the clean geometric band.
     let widest = radius * (1.0 + variation * 0.9);
     let chips = (variation > 0.0 && radius > 0.0 && distances.iter().any(|&d| d < widest)).then(|| {
-        let mut p = g.noise;
-        p.scale = (g.noise.scale * 4.0).clamp(0.01, 256.0);
+        let mut p = noise_params;
+        p.scale = (noise_params.scale * 4.0).clamp(0.01, 256.0);
         p.seed = p.seed.wrapping_add(0x5bd1);
-        subcraft_materials::sample::organic_tile(&p, tc.geo)
+        subcraft_materials::sample::organic_tile_at(&p, offset, tc.geo)
     });
     let breakup = g.noise_amount.clamp(0.0, 1.0);
-    let softness = g.softness.clamp(0.02, 1.0);
+    let grain = painter.map_or(0.0, |p| p.grain.clamp(0.0, 1.0));
+    let fine = (grain > 0.0).then(|| fine_noise(g, tc.geo));
+    let softness = (g.softness + painter.map_or(0.0, |p| p.smoothness.clamp(0.0, 1.0))).clamp(0.02, 1.0);
     for (i, o) in out.iter_mut().enumerate() {
         let n = noise[i];
         // Fractal volume values cluster near 0.5. Expand their useful range so Variation has
@@ -129,17 +185,22 @@ fn eval_edge_spread(g: &Generator, spread: subcraft_doc::EdgeSpread, tc: &TileCo
         let boundary = chips.as_ref().map_or(coarse, |c| coarse * 0.5 + ((c[i] - 0.5) * 4.0).clamp(-0.5, 0.5) * 0.5);
         let reach = radius * (1.0 + variation * boundary * 1.8) * (1.0 - breakup * 0.7 * (1.0 - n));
         let reach = reach * extent;
+        // Fine grain erodes the band edge into chips and specks.
+        let reach = match &fine { Some(f) => reach * (1.0 - grain * 0.65 * (1.0 - ((f[i] - 0.5) * 2.5 + 0.5).clamp(0.0, 1.0))), None => reach };
         let geometric = if reach > 0.0 { 1.0 - smoothstep(reach * (1.0 - softness), reach, distances[i]) } else { 0.0 };
         // Keep baked rounded/high-poly detail, but explicitly exclude the neutral flat baseline.
         // Geometric sources are independent of contact curvature from other crate components.
-        let convex = ((curvature[i][0] - 0.5) * 2.0).clamp(0.0, 1.0);
+        let convex = (((curvature[i][0] - 0.5) * 2.0) * curvature_weight).clamp(0.0, 1.0);
         // Coarse only: chips are skipped on tiles out of reach, and must not seam baked detail.
         let threshold = 1.0 - g.level + (n - 0.5) * breakup + coarse * variation * 0.5;
         let baked = if convex > 1e-4 && g.level > 0.0 {
             smoothstep(threshold - softness * 0.5, threshold + softness * 0.5, convex)
         } else { 0.0 };
         let holes = if breakup > 0.0 { smoothstep(breakup * 0.65 - 0.2, breakup * 0.65, n) } else { 1.0 };
-        let v = geometric.max(baked) * holes;
+        let mut v = geometric.max(baked) * holes;
+        if ao_masking > 0.0 {
+            v *= 1.0 - ao_masking * (1.0 - ao_map[i][0]);
+        }
         *o = [if g.invert { 1.0 - v } else { v }, 1.0, 0.0, 0.0];
     }
 }

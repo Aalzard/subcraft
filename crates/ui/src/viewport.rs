@@ -135,6 +135,22 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         }
     }
 
+    // ----- Painter-style brush gestures: Ctrl+RMB drag = size / hardness, Ctrl+LMB drag = flow / angle -----
+    let gesture_ok = mods.command && !mods.alt && !stencil_edit && !typing && !(state.bake.open || state.bake.job.is_some());
+    let brush_tool = matches!(state.tool, Tool::Brush | Tool::Eraser | Tool::Smudge | Tool::Clone);
+    let lmb_adjust = gesture_ok && matches!(state.tool, Tool::Brush | Tool::Eraser | Tool::Smudge);
+    if gesture_ok && brush_tool && !state.painting {
+        let s = &mut state.session.brush.settings;
+        if response.dragged_by(PointerButton::Secondary) {
+            s.size = (s.size * (delta.x * 0.01).exp()).clamp(0.1, 100.0);
+            s.hardness = (s.hardness - delta.y * 0.005).clamp(0.0, 1.0);
+        } else if lmb_adjust && response.dragged_by(PointerButton::Primary) {
+            s.flow = (s.flow + delta.x * 0.003).clamp(0.01, 1.0);
+            s.angle_deg = (s.angle_deg + delta.y * 0.5).rem_euclid(360.0);
+        }
+    }
+    let v_down = ui.input(|i| i.key_down(egui::Key::V)) && !typing && !mods.any();
+
     let camera = state.camera.paint_camera(size);
 
     if response.secondary_clicked() && !alt && !stencil_edit {
@@ -176,9 +192,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         {
             let _ = state.session.execute(subcraft_app::Command::SelectTextureSet(ts));
         }
-        crate::panels::shelf::apply_shelf_item(state, *item, now);
+        // Alt: apply in place to the selected layer (alphas: brush tip unless Alt).
+        crate::panels::shelf::apply_shelf_item_with(state, *item, mods.alt, now);
     }
-    let drop_hover = response.dnd_hover_payload::<crate::panels::shelf::ShelfDrag>().is_some();
+    let drop_hover = response.dnd_hover_payload::<crate::panels::shelf::ShelfDrag>().map(|d| *d);
 
     // ----- part picking: clicks show / hide the selected layer on mesh parts ----------------------
     let bake_mode = state.bake.open || state.bake.job.is_some();
@@ -222,7 +239,22 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             }
         }
     }
-    let picking = parts_picking || id_picking || text_armed;
+    // ----- depth of field focus picker: the next click on the model sets the focus distance --------
+    let focus_picking = !bake_mode && !state.painting && state.picking_focus && state.recovery.prefs.viewport.dof;
+    if focus_picking && primary_pressed && response.hovered() && let Some(p) = pointer {
+        if let Some(hit) = state.session.pick(&camera, to_screen(p)) {
+            let orbit = state.camera.eye_distance().max(1e-4);
+            state.recovery.prefs.viewport.dof_focus = (hit.depth / orbit).clamp(0.2, 3.0);
+            state.set_status(crate::i18n::tr("Focus set"), now);
+        } else {
+            state.set_status(crate::i18n::tr("Click the model to set the focus"), now);
+        }
+        state.picking_focus = false;
+    } else if state.picking_focus && (!focus_picking || ui.input(|i| i.key_pressed(egui::Key::Escape))) {
+        state.picking_focus = false;
+    }
+    let gizmo_busy = !bake_mode && !state.painting && !text_armed && text_gizmo(state, ui, &camera, rect, size_scale(rect, &camera), now);
+    let picking = parts_picking || id_picking || text_armed || focus_picking || gizmo_busy;
     if state.picking_parts && (!picking || ui.input(|i| i.key_pressed(egui::Key::Escape))) {
         state.picking_parts = false;
     }
@@ -250,7 +282,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             }
     }
     let paint_tool = !bake_mode && matches!(state.tool, Tool::Brush | Tool::Eraser | Tool::Clone | Tool::Smudge) && !picking;
-    if !bake_mode && primary_pressed && response.hovered() && !alt && !stencil_edit && !picking && state.tool != Tool::Pen {
+    if !bake_mode && primary_pressed && response.hovered() && !alt && !stencil_edit && !picking && state.tool != Tool::Pen && !lmb_adjust {
         if let Some(p) = pointer {
             let sp = to_screen(p);
             match state.tool {
@@ -260,7 +292,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         state.set_status(if mods.shift { "Picked material" } else { "Picked color" }, now);
                     }
                 }
-                Tool::Clone if mods.command => {
+                Tool::Clone if mods.command || v_down => {
                     if state.session.set_clone_source(&camera, sp) { state.set_status("Clone source set: now paint where the copy should go", now); }
                     else { state.set_status(crate::keys::native("Ctrl+click the model to set the clone source"), now); }
                 }
@@ -303,7 +335,12 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         {
             let sp = to_screen(p);
             state.session.set_stroke_pressure(state.pen_pressure);
-            let _ = state.session.stroke_to(&camera, sp, false);
+            // Every pointer position of this frame, not just the last: a pen reports several
+            // hundred per second, and stamping along all of them follows a fast curve instead
+            // of cutting it into one chord per frame (at no extra stamping cost).
+            let mut path: Vec<Vec2> = ui.input(|i| i.events.iter().filter_map(|e| if let egui::Event::PointerMoved(q) = e { Some(to_screen(*q)) } else { None }).collect());
+            if path.last() != Some(&sp) { path.push(sp); }
+            let _ = state.session.stroke_to_many(&camera, &path);
             state.last_stroke_point = Some(sp);
         }
     } else if state.painting && !primary_down {
@@ -324,7 +361,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             let view = &state.recovery.prefs.viewport;
             params.antialias = view.antialias;
             params.exposure = view.exposure;
-            params.post = view.post_params(state.session.scene().mesh.bounds.diagonal());
+            params.post = view.post_params_at(state.session.scene().mesh.bounds.diagonal(), state.camera.eye_distance());
             params.view_mode = view.view_mode();
             params.symmetry_guides = view.symmetry_guides && state.session.brush.options.has_symmetry() && !bake_mode;
             if params.symmetry_guides {
@@ -453,20 +490,37 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         }
     }
     draw_stencil(state, ui, &painter, rect, size);
-    if drop_hover {
+    if let Some(item) = drop_hover {
         painter.rect_stroke(rect.shrink(1.0), 0.0, Stroke::new(2.0, ACCENT), egui::StrokeKind::Inside);
+        let target = state.session.selected_layer().map(|l| l.name.clone());
+        let what = crate::panels::shelf::drop_label(item, mods.alt, target.as_deref().filter(|_| mods.alt), false);
+        pill(&painter, rect.center_top() + egui::vec2(0.0, 14.0), egui::Align2::CENTER_TOP, &format!("Release to: {what}"), theme::TEXT);
     }
     let bake_hint = state.bake.displayed_map.map(|k| format!("Bake preview · {} · close Bake Mesh Maps to return to material", k.display_name()));
     let orbit = scheme.orbit_hint();
     let hint: String = if bake_mode {
         if state.bake.overlay_active() { format!("Blue: high poly · Red: exposed low poly · Pale: cage · {orbit} · Wheel zoom") }
         else { bake_hint.clone().unwrap_or_else(|| format!("Baking mesh maps · {orbit} · Wheel zoom")) }
-    } else if state.tool == Tool::Pen { "Click points · drag for curves · edit in 2D View · Enter finish · Esc cancel".into() }
-        else if state.tool == Tool::Clone { format!("{} · {orbit}", crate::keys::native("Ctrl+click: set the source · LMB paint to copy it")) }
-        else if state.tool == Tool::Smudge { format!("LMB drag to smudge the paint under the brush · {orbit}") }
-        else if scheme.alt_navigates() { "LMB paint · RMB menu / drag orbit · I isolate · H hide · Esc show all · Wheel zoom".into() }
-        else { format!("LMB paint · RMB menu · {orbit} · I isolate · H hide · Esc show all · Wheel zoom") };
-    pill(&painter, rect.left_bottom() + egui::vec2(10.0, -10.0), egui::Align2::LEFT_BOTTOM, &hint, theme::TEXT_FAINT);
+    } else { String::new() };
+    if bake_mode {
+        pill(&painter, rect.left_bottom() + egui::vec2(10.0, -10.0), egui::Align2::LEFT_BOTTOM, &hint, theme::TEXT_FAINT);
+    } else if state.recovery.prefs.viewport.hints {
+        let c = crate::viewport_hints::HintContext {
+            tool: state.tool,
+            nav: scheme,
+            keymap: state.recovery.prefs.keymap,
+            ctrl: mods.command || mods.ctrl,
+            shift: mods.shift,
+            alt: mods.alt,
+            tracing,
+            hidden_parts: state.session.has_hidden_parts(),
+            stencil: state.session.brush.stencil.is_some(),
+            mask: state.session.brush.target.is_mask(),
+            picking_parts: parts_picking,
+            text_armed,
+        };
+        crate::viewport_hints::draw(&painter, rect, &crate::viewport_hints::cached(ui.ctx(), c));
+    }
     let mut right = rect.right_top() + egui::vec2(-10.0, 10.0);
     if state.tool != Tool::Pen && state.session.brush.options.has_symmetry() {
         let options = &state.session.brush.options;
@@ -690,4 +744,68 @@ mod pressure_tests {
     fn finger_without_force_is_full_pressure() {
         assert_eq!(pen_pressure(&[touch(egui::TouchPhase::Start, None)], 0.3), 1.0);
     }
+}
+
+fn size_scale(rect: Rect, camera: &subcraft_app::Camera) -> Vec2 {
+    Vec2::new(camera.viewport[0] as f32 / rect.width(), camera.viewport[1] as f32 / rect.height())
+}
+
+/// On-model handles for the selected text layer: centre = move (Shift+drag rotates), square corner =
+/// scale, top circle = rotate. Drags coalesce into one undo step. Returns true while the pointer is
+/// over a handle or dragging one, so the brush does not paint under it.
+fn text_gizmo(state: &mut UiState, ui: &mut Ui, camera: &subcraft_app::Camera, rect: Rect, pixel_scale: Vec2, now: f64) -> bool {
+    let Some(decal) = state.session.selected_text().cloned() else { return false };
+    let Some(c) = pen_position(state, camera, rect, decal.center) else { return false };
+    let painter = ui.painter_at(rect);
+    let accent = theme::ACCENT;
+    let corner = c + egui::vec2(36.0, 36.0);
+    let top = c + egui::vec2(0.0, -40.0);
+    let handles = [
+        ("text_gizmo_move", c, 9.0),
+        ("text_gizmo_scale", corner, 7.0),
+        ("text_gizmo_rotate", top, 7.0),
+    ];
+    painter.line_segment([c, top], egui::Stroke::new(1.0, accent));
+    painter.rect_stroke(Rect::from_two_pos(c, corner), 0.0, egui::Stroke::new(1.0, accent), egui::StrokeKind::Middle);
+    let mut busy = false;
+    let mut ended = false;
+    let mut moved: Option<(&str, Vec2, Option<Pos2>)> = None;
+    for (id, pos, r) in handles {
+        let resp = ui.interact(Rect::from_center_size(pos, egui::vec2(r * 2.0 + 6.0, r * 2.0 + 6.0)), egui::Id::new(id), egui::Sense::click_and_drag());
+        busy |= resp.hovered() || resp.dragged();
+        let fill = if resp.hovered() || resp.dragged() { accent } else { theme::BG_0 };
+        match id {
+            "text_gizmo_move" => { painter.circle_filled(pos, r, fill); painter.circle_stroke(pos, r, egui::Stroke::new(1.5, accent)); }
+            "text_gizmo_scale" => { painter.rect_filled(Rect::from_center_size(pos, egui::vec2(r * 2.0, r * 2.0)), 1.0, fill); }
+            _ => { painter.circle_filled(pos, r, fill); painter.circle_stroke(pos, r, egui::Stroke::new(1.5, accent)); }
+        }
+        if resp.hovered() || resp.dragged() {
+            ui.ctx().set_cursor_icon(if id == "text_gizmo_move" { egui::CursorIcon::Grab } else { egui::CursorIcon::ResizeNeSw });
+            resp.clone().on_hover_text(match id { "text_gizmo_move" => "Drag to move the text on the surface (Shift+drag rotates)", "text_gizmo_scale" => "Drag to scale", _ => "Drag left or right to rotate" });
+        }
+        if resp.dragged() { moved = Some((id, Vec2::new(resp.drag_delta().x, resp.drag_delta().y), resp.interact_pointer_pos())); }
+        if resp.drag_stopped() { ended = true; }
+    }
+    if let Some((id, delta, ptr)) = moved {
+        let shift = ui.input(|i| i.modifiers.shift);
+        let result = match (id, shift) {
+            ("text_gizmo_move", false) => match ptr {
+                Some(p) => state.session.drag_selected_text_to(camera, Vec2::new((p.x - rect.min.x) * pixel_scale.x, (p.y - rect.min.y) * pixel_scale.y)),
+                None => Ok(()),
+            },
+            ("text_gizmo_scale", _) => {
+                let mut d = decal.clone();
+                d.size = (d.size * (1.0 + delta.x / 120.0)).clamp(subcraft_doc::TextDecal::MIN_SIZE, subcraft_doc::TextDecal::MAX_SIZE);
+                state.session.update_selected_text_live(d)
+            }
+            _ => {
+                let mut d = decal.clone();
+                d.rotation += delta.x * 0.5f32.to_radians();
+                state.session.update_selected_text_live(d)
+            }
+        };
+        match result { Ok(()) => state.gpu_dirty = true, Err(e) => state.set_status(format!("Text: {e}"), now) }
+    }
+    if ended { state.session.end_text_gesture(); }
+    busy
 }

@@ -16,6 +16,7 @@ pub struct BugReportUi {
     pub open: bool,
     /// Crash reports from earlier runs not shown yet: (file, text).
     pub crashes: Vec<(PathBuf, String)>,
+    pub safe_notice_dismissed: bool,
 }
 
 impl BugReportUi {
@@ -28,12 +29,19 @@ impl BugReportUi {
             .into_iter()
             .filter_map(|p| std::fs::read_to_string(&p).ok().map(|t| (p, t)))
             .collect();
-        Self { open: false, crashes }
+        Self { open: false, crashes, safe_notice_dismissed: false }
     }
 }
 
 /// Record the GPU from the renderer for logs and reports.
 pub fn record_gpu(render_state: Option<&egui_wgpu::RenderState>) {
+    subcraft_render::caps::set_device_lost_hook(|text| {
+        subcraft_app::startup_probe::step(&format!("GPU device lost: {text}"));
+        let text = format!("The graphics device stopped responding ({text}).
+
+This is usually a driver reset or a GPU that was removed or ran out of memory. SubCraft cannot continue drawing. Your work is kept in the automatic recovery copy: start SubCraft again and choose Restore. If it keeps happening, start with the --safe-mode option and see the log in the SubCraft data folder.");
+        std::thread::spawn(move || { rfd::MessageDialog::new().set_level(rfd::MessageLevel::Error).set_title("SubCraft: graphics device lost").set_description(text).set_buttons(rfd::MessageButtons::Ok).show(); });
+    });
     let Some(rs) = render_state else { return };
     let i = rs.adapter.get_info();
     let name = if i.name.trim().is_empty() { "unknown GPU" } else { i.name.as_str() };
@@ -52,6 +60,24 @@ fn log_hint() -> String {
     }
 }
 
+/// Plain-text diagnostic report: app-level facts plus adapter limits, display scale and window.
+pub fn collect_diagnostics(ctx: &egui::Context) -> String {
+    let screen = ctx.content_rect();
+    let display = format!("pixels_per_point: {:.2} (native {:?})
+screen (points): {:.0} x {:.0}
+zoom factor: {:.2}", ctx.pixels_per_point(), ctx.native_pixels_per_point(), screen.width(), screen.height(), ctx.zoom_factor());
+    let mut gpu = subcraft_render::caps::get().report();
+    if subcraft_render::caps::is_probed() { } else { gpu = "GPU capabilities were not probed.".into(); }
+    if let Some(l) = subcraft_render::caps::device_lost() { gpu.push_str(&format!("
+DEVICE LOST: {l}")); }
+    let errors = subcraft_render::caps::recent_errors();
+    if !errors.is_empty() { gpu.push_str(&format!("
+GPU errors:
+{}", errors.join("
+"))); }
+    diagnostics::diagnostic_report(&[("GPU", gpu), ("Display", display)])
+}
+
 /// Help → Report a bug… window.
 pub fn report_window(state: &mut UiState, ctx: &egui::Context) {
     if !state.bug_report.open {
@@ -61,7 +87,7 @@ pub fn report_window(state: &mut UiState, ctx: &egui::Context) {
     let mut open = true;
     let mut go = false;
     crate::widgets::window(ctx, RichText::new("Report a bug").font(theme::font_strong(14.0))).open(&mut open).collapsible(false).resizable(false).show(ctx, |ui| {
-        ui.set_width(420.0);
+        ui.set_width(460.0);
         ui.label(RichText::new("This opens a new issue on GitHub in your browser with the details below already filled in. Nothing is sent until you submit it there.").color(TEXT_DIM));
         ui.add_space(10.0);
         egui::Grid::new("bug_info").num_columns(2).spacing([16.0, 6.0]).show(ui, |ui| {
@@ -76,6 +102,10 @@ pub fn report_window(state: &mut UiState, ctx: &egui::Context) {
         ui.add_space(12.0);
         ui.allocate_ui_with_layout(egui::vec2(ui.available_width(), 28.0), egui::Layout::right_to_left(egui::Align::Center), |ui| {
             go = primary_button(ui, "Open GitHub issue").clicked();
+            if secondary_button(ui, "Copy diagnostic info").on_hover_text("Copies version, OS, GPU, limits, display scale and the log tail to the clipboard").clicked() {
+                let text = collect_diagnostics(ctx);
+                ctx.copy_text(text);
+            }
             if let Some(p) = diagnostics::log_file()
                 && secondary_button(ui, "Show log file").clicked()
             {
@@ -89,6 +119,35 @@ pub fn report_window(state: &mut UiState, ctx: &egui::Context) {
         ctx.open_url(egui::OpenUrl::new_tab(url));
     }
     state.bug_report.open = open && !go;
+}
+
+/// Notice shown while safe mode is on, with the way back to normal mode.
+pub fn safe_mode_window(state: &mut UiState, ctx: &egui::Context) {
+    let Some(reason) = subcraft_app::safe_mode::active() else { return };
+    if state.bug_report.safe_notice_dismissed || !state.bug_report.crashes.is_empty() { return; }
+    let (mut dismiss, mut retry, mut copy) = (false, false, false);
+    crate::widgets::window(ctx, RichText::new("Safe mode").font(theme::font_strong(14.0))).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
+        ui.set_width(460.0);
+        ui.label(reason.text());
+        ui.add_space(6.0);
+        ui.label(RichText::new("Off for this run: GPU compositing, GPU baking, anti-aliasing, path tracing and the remembered window position. Painting, layers and export still work, only slower.").color(TEXT_DIM));
+        ui.add_space(6.0);
+        ui.label(RichText::new("The next start is normal again automatically once this one runs fine. If it keeps failing, copy the diagnostic info into a bug report.").color(TEXT_DIM));
+        ui.add_space(12.0);
+        ui.allocate_ui_with_layout(egui::vec2(ui.available_width(), 28.0), egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            retry = primary_button(ui, "Restart normally").clicked();
+            copy = secondary_button(ui, "Copy diagnostic info").clicked();
+            dismiss = secondary_button(ui, "Continue in safe mode").clicked();
+        });
+    });
+    if copy { ctx.copy_text(collect_diagnostics(ctx)); }
+    if retry {
+        match std::env::current_exe().and_then(|exe| std::process::Command::new(exe).arg("--normal-mode").spawn()) {
+            Ok(_) => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
+            Err(e) => { state.set_status(format!("Could not restart: {e}"), 0.0); }
+        }
+    }
+    if dismiss { state.bug_report.safe_notice_dismissed = true; }
 }
 
 /// "SubCraft crashed last time" window for crash reports of earlier runs.

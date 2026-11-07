@@ -20,7 +20,7 @@ use crate::actions::Action;
 use crate::command::{Command, CommandError, NewLayer};
 
 /// Default texture-set resolution for new sessions.
-pub const DEFAULT_RESOLUTION: u32 = 1024;
+pub const DEFAULT_RESOLUTION: u32 = 2048;
 
 /// Immutable geometry of the session and everything derived from it.
 pub struct Scene {
@@ -411,7 +411,20 @@ impl Session {
         self.commit("Show baked normal", None);
     }
 
-    /// The built-in two-material sample crate.
+    /// The model SubCraft starts with and the "sample model" action opens: the bundled
+    /// `SubCraft_base.fbx` (see `subcraft_assets::default_model`). Falls back to
+    /// [`Session::sample`] if the bundled file ever fails to import.
+    pub fn default_model() -> Self {
+        match subcraft_mesh::import_fbx_bytes(subcraft_assets::default_model::FBX, subcraft_assets::default_model::NAME) {
+            Ok(report) if report.mesh.triangle_count() > 0 => Self::new(report.mesh, DEFAULT_RESOLUTION),
+            other => {
+                log::error!("bundled default model failed to import ({:?}); using the sample crate", other.err());
+                Self::sample()
+            }
+        }
+    }
+
+    /// The built-in two-material sample crate (kept as a small fixture for tests and examples).
     pub fn sample() -> Self {
         Self::new(primitives::sample_crate(), DEFAULT_RESOLUTION)
     }
@@ -765,7 +778,7 @@ impl Session {
     }
 
     /// Apply `f` to the texture set containing `layer`, then record history.
-    fn edit_layer_set<R>(
+    pub(crate) fn edit_layer_set<R>(
         &mut self,
         layer: LayerId,
         label: &str,
@@ -779,7 +792,7 @@ impl Session {
         Ok(r)
     }
 
-    fn layer_mut(ts: &mut TextureSet, id: LayerId) -> Result<&mut Layer, CommandError> {
+    pub(crate) fn layer_mut(ts: &mut TextureSet, id: LayerId) -> Result<&mut Layer, CommandError> {
         ts.find_mut(id).ok_or(CommandError::LayerNotFound)
     }
 
@@ -1454,6 +1467,7 @@ impl Session {
             Action::NewPaintLayer => self.execute(Command::AddLayer(NewLayer::Paint))?,
             Action::NewFillLayer => self.execute(Command::AddLayer(NewLayer::Fill))?,
             Action::NewFolder => self.execute(Command::AddLayer(NewLayer::Folder))?,
+            Action::NewTextLayer => { let d = self.new_text_decal("Text"); self.add_text_layer(d)? }
             Action::DeleteLayer => {
                 if let Some(l) = sel {
                     self.execute(Command::DeleteLayer(l))?;
@@ -1469,7 +1483,14 @@ impl Session {
             Action::BrushSmaller => self.brush.settings.size = (self.brush.settings.size / 1.15).max(0.1),
             Action::BrushLarger => self.brush.settings.size = (self.brush.settings.size * 1.15).min(100.0),
             Action::ToggleSymmetryX => self.brush.options.symmetry[0] = !self.brush.options.symmetry[0],
-            Action::PenTool | Action::ResetCamera | Action::Save | Action::SaveAs | Action::OpenProject | Action::Export | Action::Bake | Action::TogglePathTracing => return Ok(false),
+            Action::ToggleLazyMouse => {
+                let o = &mut self.brush.options;
+                o.lazy_distance_px = if o.lazy_distance_px > 0.0 { 0.0 } else { 20.0 };
+            }
+            Action::PenTool | Action::PolygonFillTool | Action::SmudgeTool | Action::CloneTool | Action::EyedropperTool | Action::ResetCamera
+            | Action::PerspectiveCamera | Action::OrthographicCamera | Action::NextChannel | Action::PrevChannel | Action::DisplayMaterial
+            | Action::NewProject | Action::Quit | Action::Save | Action::SaveAs | Action::OpenProject | Action::Export | Action::Bake
+            | Action::TogglePathTracing => return Ok(false),
         }
         Ok(true)
     }
@@ -1520,6 +1541,26 @@ impl Session {
         let result = self.with_stroke_context(active.texture_set, camera, |stroke, ts, ctx| {
             if line { stroke.line_to(ts, ctx, screen) } else { stroke.add_point(ts, ctx, screen) }
         }, active);
+        if result.as_ref().is_ok_and(|t| !t.is_empty()) {
+            self.revision += 1;
+        }
+        if let Some(offset) = self.stroke.as_ref().and_then(|a| a.stroke.clone_offset()) {
+            self.clone_offset = Some(offset);
+        }
+        result
+    }
+
+    /// Continue the stroke through every position of a frame's input events at once (a pen
+    /// reports hundreds per second): one stamping pass, one tile rewrite, stamps spaced along the
+    /// polyline whatever the event rate. A single position is exactly [`Session::stroke_to`].
+    pub fn stroke_to_many(&mut self, camera: &Camera, screens: &[Vec2]) -> Result<Vec<usize>, PaintError> {
+        let Some(mut active) = self.stroke.take() else { return Ok(Vec::new()) };
+        if screens.is_empty() {
+            self.stroke = Some(active);
+            return Ok(Vec::new());
+        }
+        active.camera = Some(*camera);
+        let result = self.with_stroke_context(active.texture_set, camera, |stroke, ts, ctx| stroke.add_points(ts, ctx, screens), active);
         if result.as_ref().is_ok_and(|t| !t.is_empty()) {
             self.revision += 1;
         }
@@ -1622,9 +1663,16 @@ impl Session {
     /// was painted).
     pub fn end_stroke(&mut self) {
         if let Some(active) = self.stroke.take() {
-            // Catch-up end: let the brush reach the last cursor position first.
-            if let Some(camera) = active.camera.filter(|_| self.brush.options.catch_up) {
-                if self.with_stroke_context(active.texture_set, &camera, |stroke, ts, ctx| stroke.finish(ts, ctx), active).is_ok_and(|t| !t.is_empty()) {
+            // Catch-up end: let the brush reach the last cursor position first; then apply the
+            // stamps the live preview thinned out (one batched pass).
+            if let Some(camera) = active.camera {
+                let catch_up = self.brush.options.catch_up;
+                let run = |stroke: &mut Stroke, ts: &mut TextureSet, ctx: &PaintContext| -> Result<Vec<usize>, PaintError> {
+                    let mut tiles = if catch_up { stroke.finish(ts, ctx)? } else { Vec::new() };
+                    tiles.extend(stroke.flush_deferred(ts, ctx)?);
+                    Ok(tiles)
+                };
+                if self.with_stroke_context(active.texture_set, &camera, run, active).is_ok_and(|t| !t.is_empty()) {
                     self.revision += 1;
                 }
             } else {
@@ -1907,7 +1955,7 @@ impl Session {
 
     /// Import a built-in preset's embedded images (reusing identical ones already in the project),
     /// so the layer's image fills resolve and saving embeds them.
-    fn import_preset_images(&mut self, images: &[subcraft_assets::PresetImage]) -> Result<subcraft_assets::ImageIds, CommandError> {
+    pub(crate) fn import_preset_images(&mut self, images: &[subcraft_assets::PresetImage]) -> Result<subcraft_assets::ImageIds, CommandError> {
         let mut ids = subcraft_assets::ImageIds::new();
         for img in images {
             let id = self.import_image_bytes(img.name, img.bytes.to_vec()).map_err(CommandError::Invalid)?;

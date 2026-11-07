@@ -68,7 +68,7 @@ impl OrbitCamera {
 
     /// Distance from the target to the eye. Orthographic views keep the eye outside the scene
     /// so zooming in never clips the model.
-    fn eye_distance(&self) -> f32 {
+    pub fn eye_distance(&self) -> f32 {
         if self.orthographic { self.distance + self.scene_radius * 3.0 } else { self.distance }
     }
 

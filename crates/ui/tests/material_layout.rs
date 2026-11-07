@@ -32,7 +32,7 @@ fn expanded_material_action_never_overlaps_its_header_at_sidebar_widths() {
             .collect::<Vec<_>>();
         let heading = texts
             .iter()
-            .find(|t| t.galley.text() == "MATERIAL")
+            .find(|t| t.galley.text() == "Material")
             .unwrap();
         let action = texts
             .iter()
@@ -73,7 +73,7 @@ fn quiet_actions_have_soft_corners_muted_text_and_a_readable_hit_target() {
         .unwrap();
     assert_eq!(background.fill, theme::BG_2);
     assert_eq!(background.stroke.width, 0.0);
-    assert_eq!(background.corner_radius.nw, 2, "almost-square controls");
+    assert_eq!(background.corner_radius.nw, theme::RADIUS, "soft control corners (was 2, now the shared RADIUS token)");
     assert!(out.shapes.iter().any(|s| {
         match &s.shape {
             egui::Shape::Text(t) => t

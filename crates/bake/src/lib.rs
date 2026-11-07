@@ -97,6 +97,7 @@ pub struct Progress {
     cancel: AtomicBool,
     current_map: AtomicUsize,
     reports: Mutex<Vec<MapReport>>,
+    warnings: Mutex<Vec<String>>,
 }
 
 /// How one map was produced.
@@ -125,6 +126,15 @@ impl Progress {
     /// Maps finished by the current / last bake, in order.
     pub fn reports(&self) -> Vec<MapReport> {
         self.reports.lock().map(|r| r.clone()).unwrap_or_default()
+    }
+    /// Things the current / last bake did not do as asked (cage misses, CPU fallbacks), in order.
+    pub fn warnings(&self) -> Vec<String> {
+        self.warnings.lock().map(|w| w.clone()).unwrap_or_default()
+    }
+    fn warn(&self, text: String) {
+        if let Ok(mut w) = self.warnings.lock() {
+            w.push(text);
+        }
     }
     pub fn current_map(&self) -> Option<MeshMapKind> {
         self.current_map.load(Ordering::Relaxed).checked_sub(1).and_then(|i| MeshMapKind::ALL.get(i).copied())
@@ -195,6 +205,9 @@ pub fn bake_streamed_with(
     if let Ok(mut r) = progress.reports.lock() {
         r.clear();
     }
+    if let Ok(mut w) = progress.warnings.lock() {
+        w.clear();
+    }
     let low = input.low.mesh;
     let samples = texels(low, input.material_slot, size);
     if samples.is_empty() {
@@ -234,6 +247,17 @@ pub fn bake_streamed_with(
     let details: Option<Vec<Detail>> = input.high.map(|_| samples.par_iter().map(project).collect());
     if details.as_ref().is_some_and(|details| details.iter().all(|d| d.tri.is_none())) {
         return Err(BakeError::NoProjection);
+    }
+    if let Some(details) = &details {
+        let missed = details.iter().filter(|d| d.tri.is_none()).count();
+        if missed > 0 {
+            progress.warn(format!(
+                "Cage: {missed} of {} texels ({:.1}%) reached no high-poly surface and keep the low poly's own surface. Increase Cage front / rear or align the meshes.",
+                details.len(), 100.0 * missed as f32 / details.len() as f32));
+        }
+    }
+    if settings.use_gpu && matching.is_some() && gpu_backend.is_some() && settings.maps.iter().any(|k| matches!(k, MeshMapKind::AmbientOcclusion | MeshMapKind::Thickness)) {
+        progress.warn("Ambient occlusion and thickness run on the CPU because matching parts by name is on (the GPU kernels cannot filter hits by part).".into());
     }
     let elements = if wanted(MeshMapKind::Id) || wanted(MeshMapKind::Curvature) { Some(topology::mesh_elements(detail_geo.mesh)) } else { None };
     let bounds = low.bounds;

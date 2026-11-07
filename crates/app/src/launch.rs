@@ -65,7 +65,7 @@ impl Session {
 pub enum GuideAction { OpenModel, Bake, SmartMaterial, PaintParts, Save, Export }
 pub struct GuideStep { pub title: &'static str, pub text: &'static str, pub button: &'static str, pub action: GuideAction }
 pub const QUICK_START: [GuideStep; 6] = [
-    GuideStep { title: "Open a model", text: "Start with an OBJ, GLB/glTF, FBX, USD, PLY, STL or Substance Painter (.spp) model with UVs. The sample crate is ready to use if you want to learn first. FBX is desktop only.", button: "Open model…", action: GuideAction::OpenModel },
+    GuideStep { title: "Open a model", text: "Start with an OBJ, GLB/glTF, FBX, USD, PLY, STL or Substance Painter (.spp) model with UVs. The built-in base model is ready to use if you want to learn first. FBX is desktop only.", button: "Open model…", action: GuideAction::OpenModel },
     GuideStep { title: "Bake mesh maps", text: "Bake curvature and ambient occlusion before using wear and dirt generators. Start at 512 pixels, then increase quality for your final textures.", button: "Bake mesh maps…", action: GuideAction::Bake },
     GuideStep { title: "Drag a smart material", text: "In Shelf → Smart Materials, drag Worn Painted Metal onto the model or a layer. Adjust the fills and generator masks in Properties.", button: "Show smart materials", action: GuideAction::SmartMaterial },
     GuideStep { title: "Paint and use Parts", text: "Use a paint layer for brush strokes. Right-click a piece to fill it or paint only there; Parts also lists UV islands, objects and material IDs. I isolates, H hides and Esc restores.", button: "Show Parts", action: GuideAction::PaintParts },

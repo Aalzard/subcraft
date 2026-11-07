@@ -33,12 +33,16 @@ pub fn startup_log_path() -> Option<PathBuf> { crate::recovery::data_dir().map(|
 pub fn begin(path: Option<&Path>) {
     let previous = path.and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default();
     let keep = trim_log(&previous, 64 * 1024);
-    let file = path.and_then(|p| {
+    let open = |p: &Path| {
         std::fs::create_dir_all(p.parent()?).ok()?;
-        std::fs::write(p, keep).ok()?;
-        std::fs::OpenOptions::new().append(true).open(p).ok()
-    });
-    let _ = LOG.set(Mutex::new(file.map(|f| (f, path.map(Path::to_path_buf).unwrap_or_default()))));
+        std::fs::write(p, &keep).ok()?;
+        std::fs::OpenOptions::new().append(true).open(p).ok().map(|f| (f, p.to_path_buf()))
+    };
+    // A read-only or unavailable data folder (locked-down PC, broken profile redirect) must not
+    // mean "no log": fall back to the temp folder so there is always a startup.log somewhere.
+    let fallback = std::env::temp_dir().join("SubCraft-startup.log");
+    let file = path.and_then(open).or_else(|| open(&fallback));
+    let _ = LOG.set(Mutex::new(file));
     let _ = PREVIOUS.set(previous);
     step(&format!("{START_MARKER} {} pid {} ===", env!("CARGO_PKG_VERSION"), std::process::id()));
     let previous_hook = std::panic::take_hook();

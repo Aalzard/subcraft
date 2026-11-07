@@ -19,5 +19,5 @@ mod usd_import;
 mod ply_stl;
 
 pub use bvh::{Bvh, ClosestPoint, FlatBvh, RayHit};
-pub use import::{ImportError, ImportReport, SUPPORTED_EXTENSIONS, import_mesh, import_mesh_for_baking};
+pub use import::{ImportError, ImportReport, SUPPORTED_EXTENSIONS, import_fbx_bytes, import_mesh, import_mesh_for_baking};
 pub use mesh::{Aabb, BuildError, Corner, MaterialSlot, Mesh, MeshBuilder, MeshObject, Submesh, SurfacePoint};

@@ -171,9 +171,8 @@ impl Session {
         self.execute(Command::ReplaceLayer { layer: id, replacement: Box::new(layer), label: "Edit Text".into() })
     }
 
-    /// Move the selected text layer to the surface point under `screen` (same texture set only).
-    pub fn place_selected_text_at(&mut self, camera: &Camera, screen: Vec2) -> Result<(), CommandError> {
-        let mut decal = self.selected_text().ok_or_else(|| invalid("select a text layer"))?.clone();
+    /// UV (inside its own tile) of the surface point under `screen`, on the selected texture set.
+    fn text_uv_at(&self, camera: &Camera, screen: Vec2) -> Result<Vec2, CommandError> {
         let pick = self.pick(camera, screen).ok_or_else(|| invalid("click the model to place the text"))?;
         if pick.material_slot != self.selected_texture_set().material_slot {
             return Err(invalid("that point belongs to another texture set; select it first"));
@@ -181,9 +180,38 @@ impl Session {
         let mesh = &self.scene().mesh;
         let i = &mesh.indices[pick.triangle as usize * 3..][..3];
         let (_, offset) = subcraft_mesh::uv_raster::wrap_to_tile([mesh.uvs[i[0] as usize], mesh.uvs[i[1] as usize], mesh.uvs[i[2] as usize]]);
-        decal.center = pick.uv - Vec2::new(offset[0] as f32, offset[1] as f32);
+        Ok(pick.uv - Vec2::new(offset[0] as f32, offset[1] as f32))
+    }
+
+    /// Move the selected text layer to the surface point under `screen` (same texture set only).
+    pub fn place_selected_text_at(&mut self, camera: &Camera, screen: Vec2) -> Result<(), CommandError> {
+        let mut decal = self.selected_text().ok_or_else(|| invalid("select a text layer"))?.clone();
+        decal.center = self.text_uv_at(camera, screen)?;
         self.update_selected_text(decal)
     }
+
+    /// Like [`Self::update_selected_text`], but consecutive calls coalesce into one undo step until
+    /// [`Self::end_text_gesture`]: used while dragging the on-model handle.
+    pub fn update_selected_text_live(&mut self, decal: TextDecal) -> Result<(), CommandError> {
+        if self.is_stroking() { return Err(CommandError::StrokeInProgress); }
+        let current = self.selected_layer().filter(|l| matches!(&l.content, LayerContent::Paint(p) if p.text.is_some())).ok_or_else(|| invalid("select a text layer"))?.clone();
+        let layer = self.text_layer(&decal, current)?;
+        let id = layer.id;
+        self.edit_layer_set(id, "Move Text", Some(format!("text-gesture:{id:?}")), |ts| {
+            *Self::layer_mut(ts, id)? = layer;
+            Ok(())
+        })
+    }
+
+    /// Move the selected text to the surface point under `screen` as part of a drag (coalesced).
+    pub fn drag_selected_text_to(&mut self, camera: &Camera, screen: Vec2) -> Result<(), CommandError> {
+        let mut decal = self.selected_text().ok_or_else(|| invalid("select a text layer"))?.clone();
+        decal.center = self.text_uv_at(camera, screen)?;
+        self.update_selected_text_live(decal)
+    }
+
+    /// End a drag: the next edit starts a new undo step.
+    pub fn end_text_gesture(&mut self) { let _ = self.execute(Command::Seal); }
 
     /// Use the text as the brush tip: strokes then paint the text along the path.
     pub fn set_text_brush_tip(&mut self, font: &FontRef, style: &TextStyle) -> Result<(), CommandError> {

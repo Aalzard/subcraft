@@ -1,5 +1,6 @@
 //! Whole-model parts catalogue. All geometry and editing logic lives in app.
 
+use crate::i18n::tr;
 use egui::{RichText, Ui};
 use subcraft_app::{PartAction, SurfaceTarget};
 use subcraft_core::PartKind;
@@ -15,10 +16,10 @@ pub fn menu(ui: &mut Ui, target: SurfaceTarget, has_layer: bool) -> Option<PartA
     }
     ui.add_enabled_ui(has_layer, |ui| {
         if ui.button(format!("Mask selected layer to this {label}")).clicked() { action = Some(PartAction::MaskLayer); ui.close(); }
-        if ui.button("Mask by ID color").on_hover_text("Mask the selected layer to the baked ID map color under the cursor").clicked() {
+        if ui.button(tr("Mask by ID color")).on_hover_text(tr("Mask the selected layer to the baked ID map color under the cursor")).clicked() {
             action = Some(PartAction::MaskByIdColor); ui.close();
         }
-        ui.menu_button("Add generator as mask", |ui| {
+        ui.menu_button(tr("Add generator as mask"), |ui| {
             for (label, kind) in [("Edge wear", GeneratorKind::Edges), ("Dirt", GeneratorKind::Cavity), ("Directional", GeneratorKind::Directional), ("Position gradient", GeneratorKind::PositionGradient)] {
                 if ui.button(label).clicked() { action = Some(PartAction::Generator(kind)); ui.close(); }
             }
@@ -46,16 +47,16 @@ pub fn apply(state: &mut UiState, target: SurfaceTarget, action: PartAction, now
 pub fn show(state: &mut UiState, ui: &mut Ui) {
     let now = ui.input(|i| i.time);
     egui::Frame::new().inner_margin(egui::Margin::same(10)).show(ui, |ui| {
-        ui.label(RichText::new("Parts").strong());
+        ui.label(RichText::new(tr("Parts")).strong());
         egui::ComboBox::from_id_salt("parts-kind").selected_text(state.parts_kind.label()).show_ui(ui, |ui| {
             for kind in PartKind::ALL { ui.selectable_value(&mut state.parts_kind, kind, kind.label()); }
         });
-        if state.session.has_hidden_parts() && ui.button("Show all parts").clicked() { state.session.show_all_parts(); }
-        ui.label(RichText::new("Right-click a part to texture it. I isolates, H hides the part under the cursor.").small().color(theme::TEXT_FAINT));
+        if state.session.has_hidden_parts() && ui.button(tr("Show all parts")).clicked() { state.session.show_all_parts(); }
+        ui.label(RichText::new(tr("Right-click a part to texture it. I isolates, H hides the part under the cursor.")).small().color(theme::TEXT_FAINT));
         let parts = state.session.parts(state.parts_kind);
         let mut request = None;
         egui::ScrollArea::vertical().id_salt("model-parts-list").max_height(230.0).min_scrolled_height(0.0).show(ui, |ui| {
-            if parts.is_empty() { ui.label("No imported object names. Try connected pieces or UV islands."); }
+            if parts.is_empty() { ui.label(tr("No imported object names. Try connected pieces or UV islands.")); }
             ui.spacing_mut().item_spacing.y = 1.0;
             for (index, part) in parts.into_iter().enumerate() {
                 let key = part.key();

@@ -24,7 +24,7 @@ fn tiles(out: &egui::FullOutput, size: f32) -> Vec<Rect> {
 fn shelf_wraps_all_categories_downward_without_horizontal_overflow() {
     for width in [240.0, 320.0, 700.0, 1100.0] {
         for size in [48, 88, 160] {
-            for tab in [ShelfTab::Textures, ShelfTab::Materials, ShelfTab::SmartMaterials, ShelfTab::SmartMasks, ShelfTab::Brushes, ShelfTab::Environments] {
+            for tab in [ShelfTab::Textures, ShelfTab::NormalMaps, ShelfTab::Materials, ShelfTab::SmartMaterials, ShelfTab::SmartMasks, ShelfTab::Brushes, ShelfTab::Environments] {
                 let ctx = egui::Context::default(); theme::apply(&ctx);
                 let mut s = state(); s.shelf.tab = tab; s.recovery.prefs.shelf_preview_size = size;
                 let mut result = frame(&ctx, &mut s, true, width, vec![]);
@@ -33,6 +33,8 @@ fn shelf_wraps_all_categories_downward_without_horizontal_overflow() {
                 assert!(bounds.right() <= width + 0.5, "panel grew horizontally: {tab:?}, {width}, {size}: {bounds:?}");
                 assert!(bounds.bottom() <= 600.5, "footer pushed below panel: {tab:?}, {width}, {size}");
                 let tiles = tiles(&out, size as f32);
+                // Textures holds only the user's own color images; a fresh install has none.
+                if tab == ShelfTab::Textures { assert!(tiles.is_empty(), "no starter normal maps under Textures"); continue; }
                 assert!(!tiles.is_empty(), "expected assets in {tab:?}");
                 for rect in &tiles { assert!(rect.left() >= 0.0 && rect.right() <= width, "tile off right edge at {width}, {size}: {rect:?}"); }
                 if tiles.len() * (size as usize + 10) > width as usize {
@@ -48,7 +50,7 @@ fn footer_sliders_resize_previews_independently_without_document_edits() {
     for shelf in [true, false] {
       for width in [280.0, 520.0] {
         let ctx = egui::Context::default(); theme::apply(&ctx);
-        let mut s = state(); s.shelf.tab = ShelfTab::Textures;
+        let mut s = state(); s.shelf.tab = ShelfTab::NormalMaps;
         let layer = s.session.selection().layer.unwrap(); s.session.execute(Command::AddMask { layer, white: true }).unwrap();
         let before = s.session.document().clone(); let history = s.session.history().entries().len();
         let mut out = frame(&ctx, &mut s, shelf, width, vec![]).0;
@@ -87,7 +89,7 @@ fn preview_preferences_load_old_defaults_and_roundtrip_independently() {
 #[test]
 fn shelf_scroll_reaches_last_asset_while_size_footer_stays_visible() {
     let ctx = egui::Context::default(); theme::apply(&ctx);
-    let mut s = state(); s.shelf.tab = ShelfTab::Textures;
+    let mut s = state(); s.shelf.tab = ShelfTab::NormalMaps;
     for _ in 0..3 { frame(&ctx, &mut s, true, 320.0, vec![]); }
     let before = frame(&ctx, &mut s, true, 320.0, vec![]).0;
     let last_before = *tiles(&before, 88.0).last().unwrap();

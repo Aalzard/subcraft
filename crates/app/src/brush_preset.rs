@@ -49,7 +49,7 @@ impl Session {
             let path=lib.new_file_path(UserAssetKind::Alpha,&self.brush.alpha_name);
             std::fs::create_dir_all(lib.folder(UserAssetKind::Alpha)).map_err(|e|e.to_string())?;
             let (bytes,_)=subcraft_image::encode_bitmap(&bitmap).map_err(|e|e.to_string())?;
-            std::fs::write(&path,bytes).map_err(|e|e.to_string())?;
+            subcraft_core::vfs::write(&path,&bytes).map_err(|e|e.to_string())?;
             let alpha=BrushAlpha {id:subcraft_core::AssetId::from_name(&format!("alpha/user/{}",path.file_name().and_then(|n|n.to_str()).unwrap_or("tip.png"))),name:display_name(&path,&self.brush.alpha_name),bitmap:Some(bitmap),user_file:Some(path)};
             self.set_brush_alpha(&alpha);saved_tip=Some(alpha);
         }
@@ -160,7 +160,7 @@ pub fn save_brush_preset(lib: &UserLibrary, preset: &BrushPreset) -> Result<Brus
     let dir = lib.folder(UserAssetKind::BrushPreset);
     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let json = serde_json::to_string_pretty(preset).map_err(|e| e.to_string())?;
-    std::fs::write(&path, json).map_err(|e| format!("{}: {e}", path.display()))?;
+    subcraft_core::vfs::write(&path, json.as_bytes()).map_err(|e| format!("{}: {e}", path.display()))?;
     let mut stored = preset.clone();
     stored.name = display_name(&path, name);
     stored.user_file = Some(path);

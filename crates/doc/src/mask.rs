@@ -57,7 +57,51 @@ pub struct Generator {
     /// World axis for `PositionGradient`. Absent in older projects: Y, their original behavior.
     #[serde(default, skip_serializing_if = "GradientAxis::is_y")]
     pub axis: GradientAxis,
+    /// Moves the breakup noise through the model (object space, in units of the model's longest
+    /// dimension; the editor shows percent), so a pattern can be slid without changing its seed.
+    /// Absent in older projects: no offset, their original pattern.
+    #[serde(default, skip_serializing_if = "is_zero_offset")]
+    pub offset: [f32; 3],
+    /// Substance Painter's extra generator controls (edges masking, wear's AO masking, curvature
+    /// weight, smoothness). Absent in older projects and in generators made in SubCraft: they keep
+    /// their exact behavior.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub painter: Option<PainterControls>,
 }
+
+/// Controls of Painter's `Dirt` and `Metal Edge Wear` generators that a plain threshold generator
+/// lacks. Every field is a strength 0..1 whose neutral value (`Default`) changes nothing.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PainterControls {
+    /// Dirt: fraction of convex edges removed from the dirt (Painter `edges_masking`; 0 = none).
+    pub edges_masking: f32,
+    /// Wear: fraction of the wear removed where the surface is occluded (Painter
+    /// `Ambient_Occlusion_Masking`; 0 = none).
+    pub ao_masking: f32,
+    /// Wear: strength of the baked curvature detail next to the geometric edge band
+    /// (Painter `Curvature_Weight`; 1 = as before).
+    pub curvature_weight: f32,
+    /// Wear: extra softening of the band edge (Painter `Edges_Smoothness`; 0 = none).
+    pub smoothness: f32,
+    /// Multiplier of the breakup noise's pattern scale (Painter `Grunge_Scale` relative to the
+    /// default; 1 = as before).
+    pub grunge_scale: f32,
+    /// Painter's grunge also leaves a soft low-level tail where the threshold would give none (its
+    /// dirt reads 0.05 to 0.15 over unoccluded surfaces at Grunge Amount 0.61): the breakup noise
+    /// times this is added to the mask, which never exceeds 1 (0 = no tail).
+    #[serde(default)]
+    pub grunge_floor: f32,
+    /// Fine grain (a noise six times finer than the breakup) that speckles the threshold, so wear
+    /// edges chip and dirt falls off in grains instead of smooth bands (0 = none).
+    #[serde(default)]
+    pub grain: f32,
+}
+
+impl Default for PainterControls {
+    fn default() -> Self { Self { edges_masking: 0.0, ao_masking: 0.0, curvature_weight: 1.0, smoothness: 0.0, grunge_scale: 1.0, grunge_floor: 0.0, grain: 0.0 } }
+}
+
+fn is_zero_offset(offset: &[f32; 3]) -> bool { *offset == [0.0; 3] }
 
 /// World axis a position gradient runs along (0 at the mesh minimum, 1 at its maximum).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -92,7 +136,7 @@ impl EdgeSpread {
 }
 
 impl Default for EdgeSpread {
-    fn default() -> Self { Self { distance: 1.5, variation: 0.7, level_reach: true } }
+    fn default() -> Self { Self { distance: 2.5, variation: 0.8, level_reach: true } }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -140,6 +184,14 @@ impl Generator {
             edge_spread: (kind == GeneratorKind::Edges).then(EdgeSpread::default),
             direction: [0.0, 1.0, 0.0],
             axis: GradientAxis::Y,
+            offset: [0.0; 3],
+            // New Dirt/Edges generators get fine grain so they chip and speckle; older projects keep None.
+            painter: matches!(kind, GeneratorKind::Edges | GeneratorKind::Cavity).then(|| PainterControls {
+                grain: 0.7,
+                edges_masking: if kind == GeneratorKind::Cavity { 0.5 } else { 0.0 },
+                grunge_floor: if kind == GeneratorKind::Cavity { 0.1 } else { 0.0 },
+                ..PainterControls::default()
+            }),
         }
     }
 

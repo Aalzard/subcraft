@@ -79,9 +79,20 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Compile application
         shell: pwsh
+        env:
+          # Static C runtime: a clean Windows 10 without the Visual C++ redistributable must
+          # still start (docs/compatibility.md, issue #98).
+          RUSTFLAGS: -C target-feature=+crt-static
         run: |
           cargo build --locked --profile dist -p subcraft --features windows-gui
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          # Fail the release if the exe still imports the redistributable DLLs.
+          $dumpbin = Get-ChildItem "${env:ProgramFiles(x86)}\Microsoft Visual Studio" -Recurse -Filter dumpbin.exe -ErrorAction SilentlyContinue | Where-Object FullName -like '*Hostx64\x64*' | Select-Object -First 1
+          if ($dumpbin) {
+            $deps = & $dumpbin.FullName /dependents target\dist\subcraft.exe | Out-String
+            Write-Host $deps
+            if ($deps -match '(?i)vcruntime|msvcp|concrt') { Write-Error 'subcraft.exe depends on the VC++ redistributable'; exit 1 }
+          } else { Write-Warning 'dumpbin not found; dependency check skipped' }
       - name: Azure login for signing
         if: env.PUBLISH == 'true'
         uses: Azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3

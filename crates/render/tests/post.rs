@@ -187,3 +187,142 @@ fn glare_streaks_follow_the_chosen_direction() {
     let short = s.frame(PostParams { glare: 1.5, glare_mode: subcraft_render::GlareMode::Horizontal, glare_length: 0.0, ..base });
     assert!(total(&h) > total(&short));
 }
+
+fn checker_scene(eye: Vec3) -> Option<Scene> {
+    let mesh = primitives::plane(8.0, 2);
+    let mut s = scene(&mesh, eye, false)?;
+    let mut tex = TiledImage::new(64, 64, 4, [0.9, 0.9, 0.9, 1.0]);
+    for y in 0..64 {
+        for x in 0..64 {
+            if (x / 4 + y / 4) % 2 == 0 {
+                tex.set(x, y, [0.05, 0.05, 0.05, 1.0]);
+            }
+        }
+    }
+    s.renderer.upload_channel(&s.device, &s.queue, 0, ChannelKind::BaseColor, &tex, None);
+    Some(s)
+}
+
+/// Mean squared horizontal luma gradient over the rows `rows`: blur lowers it (a plain absolute
+/// gradient would not, since a blurred edge keeps its total step).
+fn sharpness(image: &[u8], rows: std::ops::Range<usize>) -> f32 {
+    let l = luma(image);
+    let n = N as usize;
+    let (mut sum, mut count) = (0.0, 0);
+    for y in rows {
+        for x in 1..n {
+            let d = l[y * n + x] - l[y * n + x - 1];
+            sum += d * d;
+            count += 1;
+        }
+    }
+    sum / count as f32
+}
+
+#[test]
+fn depth_of_field_is_off_by_default_and_blurs_only_away_from_the_focus() {
+    let Some(mut s) = checker_scene(Vec3::new(0.0, 3.0, 4.0)) else { return };
+    let plain = s.frame(PostParams::default());
+    assert_eq!(plain, s.frame(PostParams { dof: 0.0, dof_focus: 2.0, dof_range: 0.1, ..PostParams::default() }), "amount 0 leaves the frame untouched");
+    // The plane recedes from the bottom (near) to the top (far) of the picture: view depth of an image row.
+    let row_depth = |y: f32| {
+        let delta = ((96.0 - y - 0.5) / 96.0 * 20f32.to_radians().tan()).atan();
+        3.0 / (0.6435f32 + (-delta)).sin().max(1e-3) * delta.cos()
+    };
+    let (near_rows, far_rows) = (158..178usize, 50..62usize);
+    let (near_d, far_d) = (row_depth(168.0), row_depth(56.0));
+    println!("band depths: near {near_d:.2}, far {far_d:.2}");
+    let (near0, far0) = (sharpness(&plain, near_rows.clone()), sharpness(&plain, far_rows.clone()));
+    assert!(near0 > 4.0 && far0 > 2.0, "the checker is visible in both bands ({near0}, {far0})");
+    let on_near = s.frame(PostParams { dof: 1.0, dof_focus: near_d, dof_range: 1.0, ..PostParams::default() });
+    let (nn, nf) = (sharpness(&on_near, near_rows.clone()) / near0, sharpness(&on_near, far_rows.clone()) / far0);
+    println!("focus near: near {nn:.3} far {nf:.3}");
+    assert!(nn > 0.9, "focused region keeps its detail: {nn}");
+    assert!(nf < 0.6, "far region is blurred: {nf}");
+    let on_far = s.frame(PostParams { dof: 1.0, dof_focus: far_d, dof_range: 1.0, ..PostParams::default() });
+    let (fn_, ff) = (sharpness(&on_far, near_rows.clone()) / near0, sharpness(&on_far, far_rows.clone()) / far0);
+    println!("focus far: near {fn_:.3} far {ff:.3}");
+    assert!(fn_ < 0.6, "near region is blurred when focusing far: {fn_}");
+    assert!(ff > 0.85, "far region sharp when focused: {ff}");
+    // More blur amount blurs more; a wide sharp band keeps everything sharp.
+    let weak = s.frame(PostParams { dof: 0.2, dof_focus: near_d, dof_range: 1.0, ..PostParams::default() });
+    assert!(sharpness(&weak, far_rows.clone()) > sharpness(&on_near, far_rows.clone()), "less amount, less blur");
+    let wide = s.frame(PostParams { dof: 1.0, dof_focus: 5.0, dof_range: 20.0, ..PostParams::default() });
+    assert!(sharpness(&wide, far_rows) / far0 > 0.97 && sharpness(&wide, near_rows) / near0 > 0.97, "everything inside the band stays sharp");
+}
+
+#[test]
+fn a_focused_object_gets_no_halo_from_the_blurred_background() {
+    let mesh = primitives::cube(2.0);
+    let Some(mut s) = scene(&mesh, Vec3::new(0.0, 0.0, 7.0), false) else { return };
+    let plain = s.frame(PostParams::default());
+    // Everything of the cube sits inside the band (depth 6..8); only the background is out of focus.
+    let dof = s.frame(PostParams { dof: 1.0, dof_focus: 7.0, dof_range: 3.0, ..PostParams::default() });
+    let (a, b) = (luma(&plain), luma(&dof));
+    let n = N as usize;
+    let bg = a[0];
+    let mut worst = 0.0f32;
+    let mut inside = 0;
+    for y in 4..n - 4 {
+        for x in 4..n - 4 {
+            // A cube pixel one to three texels in from the silhouette.
+            let is_cube = |dx: i32, dy: i32| (a[(y as i32 + dy) as usize * n + (x as i32 + dx) as usize] - bg).abs() > 8.0;
+            if is_cube(0, 0) && is_cube(-3, 0) && is_cube(3, 0) && is_cube(0, -3) && is_cube(0, 3) && !(is_cube(-5, 0) && is_cube(5, 0) && is_cube(0, -5) && is_cube(0, 5)) {
+                worst = worst.max((a[y * n + x] - b[y * n + x]).abs());
+                inside += 1;
+            }
+        }
+    }
+    assert!(inside > 100, "found silhouette pixels: {inside}");
+    assert!(worst < 4.0, "background must not bleed into the sharp cube edge (max change {worst})");
+    // The out-of-focus background itself is untouched too (it is a flat colour), so just check the
+    // blur machinery really ran by focusing on the background instead.
+    let far = s.frame(PostParams { dof: 1.0, dof_focus: 40.0, dof_range: 1.0, ..PostParams::default() });
+    assert_ne!(plain, far);
+}
+
+#[test]
+fn depth_of_field_works_in_orthographic_views() {
+    let mesh = primitives::cube(2.0);
+    let Some(mut s) = scene(&mesh, Vec3::new(3.0, 2.5, 4.0), true) else { return };
+    let plain = s.frame(PostParams::default());
+    let blurred = s.frame(PostParams { dof: 1.0, dof_focus: 1.0, dof_range: 0.1, ..PostParams::default() });
+    assert_ne!(plain, blurred, "orthographic views blur by depth as well");
+    assert!(luma(&blurred).iter().all(|v| v.is_finite()));
+}
+
+/// Frame-time cost of depth of field at 1920x1080 (`cargo test --release -p subcraft-render --test post dof_cost -- --ignored --nocapture`).
+#[test]
+#[ignore]
+fn dof_cost() {
+    let mesh = primitives::sample_crate();
+    let Some((info, device, queue)) = headless::device() else { return };
+    println!("adapter: {:?}", info.get_info());
+    let mut renderer = ViewportRenderer::new(&device, &queue);
+    renderer.set_mesh(&device, &mesh);
+    for slot in 0..mesh.materials.len() as u32 {
+        renderer.upload_channel(&device, &queue, slot, ChannelKind::BaseColor, &TiledImage::new(64, 64, 4, [0.8, 0.8, 0.8, 1.0]), None);
+    }
+    let view = Mat4::look_at_rh(Vec3::new(2.3, 1.6, 2.6), Vec3::ZERO, Vec3::Y);
+    let mut params = ViewParams::new(view, Mat4::perspective_rh(40f32.to_radians(), 16.0 / 9.0, 0.1, 100.0));
+    let size = [1920, 1080];
+    let mut run = |label: &str, post: PostParams| {
+        params.post = post;
+        for _ in 0..3 { renderer.render(&device, &queue, size, &params).read_rgba8(&device, &queue); }
+        let n = 20;
+        let t = std::time::Instant::now();
+        for _ in 0..n { renderer.render(&device, &queue, size, &params).read_rgba8(&device, &queue); }
+        let ms = t.elapsed().as_secs_f64() * 1000.0 / n as f64;
+        println!("{label}: {ms:.2} ms/frame (incl. readback)");
+        ms
+    };
+    // Interleave and keep the best of several rounds so other load on the machine shows up less.
+    let (mut off, mut ao, mut dof) = (f64::MAX, f64::MAX, f64::MAX);
+    for _ in 0..4 {
+        off = off.min(run("plain", PostParams::default()));
+        ao = ao.min(run("ssao", PostParams { ssao: 1.0, ssao_radius: 0.12, ..PostParams::default() }));
+        dof = dof.min(run("dof", PostParams { dof: 1.0, dof_focus: 4.0, dof_range: 0.5, ..PostParams::default() }));
+    }
+    println!("best: plain {off:.2} ms, ssao {ao:.2} ms, dof {dof:.2} ms");
+    println!("dof cost {:.2} ms, ssao cost {:.2} ms", dof - off, ao - off);
+}

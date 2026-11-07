@@ -1,5 +1,6 @@
 //! Properties of the selected layer: name, fill channels + projection, mask and its effects.
 
+use crate::i18n::tr;
 use std::sync::Arc;
 
 use egui::{RichText, Ui};
@@ -15,7 +16,26 @@ use crate::state::UiState;
 use crate::theme::{self, ACCENT, TEXT_DIM, TEXT_FAINT};
 use crate::widgets::{channel_value, empty_state, fill_width, hint, icon_button, panel, primary_button, prop_row, secondary_button, section, section_with, segmented, slider_row};
 
+/// Properties is context-sensitive like Substance Painter's: while a paint layer (or a paint
+/// effect) is the target, or the brush settings were asked for, it shows the brush settings; any
+/// other layer shows its own properties.
+pub fn shows_brush(state: &UiState) -> bool {
+    if !state.properties_hosts_brush {
+        return false;
+    }
+    let session = &state.session;
+    let paints_effect = matches!(session.brush.target, subcraft_paint::PaintTarget::ContentEffect(_));
+    let paint_content = session.selected_layer().is_some_and(|l| l.kind() == subcraft_doc::LayerKind::Paint)
+        && session.layer_target() == subcraft_app::LayerTarget::Content
+        && session.selected_effect().is_none();
+    state.brush_pinned || paint_content || paints_effect
+}
+
 pub fn show(state: &mut UiState, ui: &mut Ui) {
+    if shows_brush(state) {
+        super::brush::show(state, ui);
+        return;
+    }
     if super::effects::properties(state, ui) {
         return;
     }
@@ -88,20 +108,20 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     picking = !picking;
                 }
                 match &layer.parts {
-                    None => hint(ui, "Show this layer only on some pieces of the model (a blade, a handle…): pick them, then paint or fill as usual."),
+                    None => hint(ui, tr("Show this layer only on some pieces of the model (a blade, a handle…): pick them, then paint or fill as usual.")),
                     Some(p) => {
                         let shown = mesh_parts.iter().filter(|m| p.parts.contains(&m.id)).count();
                         let state_text = if p.enabled { format!("Visible on {shown} of {} parts.", mesh_parts.len()) } else { "Off: the layer shows everywhere.".into() };
                         hint(ui, &state_text);
                         ui.horizontal(|ui| {
                             let all: std::collections::BTreeSet<u32> = mesh_parts.iter().map(|m| m.id).collect();
-                            if ui.small_button("All").clicked() {
+                            if ui.small_button(tr("All")).clicked() {
                                 part_cmds.push(Command::SetParts { layer: id, parts: Some(PartMask::for_kind(part_kind, all.clone())) });
                             }
-                            if ui.small_button("None").clicked() {
+                            if ui.small_button(tr("None")).clicked() {
                                 part_cmds.push(Command::SetParts { layer: id, parts: Some(PartMask::for_kind(part_kind, [])) });
                             }
-                            if ui.small_button("Invert").clicked() {
+                            if ui.small_button(tr("Invert")).clicked() {
                                 let inv = all.difference(&p.parts).copied();
                                 part_cmds.push(Command::SetParts { layer: id, parts: Some(PartMask::for_kind(part_kind, inv)) });
                             }
@@ -124,7 +144,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     }
                 }
                 if mesh_parts.len() == 1 && part_kind == subcraft_core::PartKind::Connected {
-                    hint(ui, "This texture set has one connected piece. Use UV islands in Parts for smaller regions.");
+                    hint(ui, tr("This texture set has one connected piece. Use UV islands in Parts for smaller regions."));
                 }
             },
         );
@@ -134,12 +154,12 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         match &layer.content {
             LayerContent::Paint(p) if p.path.is_some() => {
                 let path = state.pen.preview(&state.session).cloned().unwrap_or_else(|| p.path.as_ref().unwrap().clone());
-                section(ui, "pen", "Editable pen path", true, |ui| crate::pen::properties(state, ui, &path, now));
+                section(ui, "pen", tr("Editable pen path"), true, |ui| crate::pen::properties(state, ui, &path, now));
             }
             LayerContent::Paint(p) => {
-                section(ui, "paint", "Paint layer", true, |ui| {
+                section(ui, "paint", tr("Paint layer"), true, |ui| {
                     if p.channels.is_empty() {
-                        hint(ui, "Empty. Paint in the viewport with the Brush tool.");
+                        hint(ui, tr("Empty. Paint in the viewport with the Brush tool."));
                     } else {
                         ui.horizontal_wrapped(|ui| {
                             for k in p.channels.keys() {
@@ -147,15 +167,31 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                             }
                         });
                     }
+                    if !p.channels.is_empty() && p.text.is_none() {
+                        let size = state.session.scene().mesh.bounds.extent().max_element().max(1e-6);
+                        let key = ui.id().with("world_blur_radius");
+                        let mut radius = ui.data_mut(|d| *d.get_temp_mut_or(key, size * 0.05));
+                        prop_row(ui, "World blur", |ui| {
+                            ui.add(egui::DragValue::new(&mut radius).range(size * 0.001..=size * 0.5).speed(size * 0.002).max_decimals(3))
+                                .on_hover_text("Blur radius in model units over the surface, so it is even where the UVs stretch. Does not cross hard edges.");
+                            if ui.button("Blur").on_hover_text("Blur this layer's painted channels in world space (one undo step; Normal paint is left alone)").clicked() {
+                                match state.session.world_blur_layer(id, radius) {
+                                    Ok(()) => state.set_status("World-space blur applied", now),
+                                    Err(e) => state.set_status(format!("World-space blur: {e}"), now),
+                                }
+                            }
+                        });
+                        ui.data_mut(|d| d.insert_temp(key, radius));
+                    }
                 });
             }
             LayerContent::Group(g) => {
-                section(ui, "folder", "Folder", true, |ui| {
+                section(ui, "folder", tr("Folder"), true, |ui| {
                     ui.label(RichText::new(format!("{} layers inside", g.children.len())).color(TEXT_DIM));
                 });
             }
             LayerContent::Fill(f) => {
-                section(ui, "projection", "Projection", true, |ui| {
+                section(ui, "projection", tr("Projection"), true, |ui| {
                     let mut proj = f.projection;
                     let changed = projection_editor(ui, &mut proj);
                     if changed {
@@ -163,7 +199,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     }
                 });
 
-                section(ui, "channels", "Channels", true, |ui| {
+                section(ui, "channels", tr("Channels"), true, |ui| {
                 let states: Vec<_> = channels.iter().map(|k| (*k, f.channels.get(k).is_some_and(|c| c.enabled))).collect();
                 let addable: Vec<ChannelKind> = ADDABLE_CHANNELS.into_iter().filter(|k| !channels.contains(k)).collect();
                 match channel_chips(ui, &states, &addable) {
@@ -171,7 +207,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     Some(ChannelAction::Add(channel)) => cmds.push(Command::AddFillChannel { layer: id, channel }),
                     None => {}
                 }
-                hint(ui, "Tip: drag a texture from Shelf › Textures onto a channel below.");
+                hint(ui, tr("Tip: drag a texture from Shelf › Textures onto a channel below."));
                 for kind in &channels {
                     let mut ch = f.channels.get(kind).cloned().unwrap_or(FillChannel::disabled(FillSource::uniform(kind.default_paint_value())));
                     if !ch.enabled { continue; }
@@ -192,10 +228,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                                 .width(110.0)
                                 .selected_text(["Uniform", "Procedural", "Mesh map", "Image"][current])
                                 .show_ui(ui, |ui| {
-                                    ui.selectable_value(&mut sel, 0, "Uniform");
-                                    ui.selectable_value(&mut sel, 1, "Procedural");
-                                    ui.selectable_value(&mut sel, 2, "Mesh map");
-                                    ui.selectable_value(&mut sel, 3, "Image");
+                                    ui.selectable_value(&mut sel, 0, tr("Uniform"));
+                                    ui.selectable_value(&mut sel, 1, tr("Procedural"));
+                                    ui.selectable_value(&mut sel, 2, tr("Mesh map"));
+                                    ui.selectable_value(&mut sel, 3, tr("Image"));
                                 });
                             if sel != current {
                                 match sel {
@@ -264,18 +300,18 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             },
             |ui| match &layer.mask {
                 None => {
-                    hint(ui, "Masks hide parts of the layer. Start white (all visible) or black (all hidden).");
+                    hint(ui, tr("Masks hide parts of the layer. Start white (all visible) or black (all hidden)."));
                     ui.horizontal(|ui| {
-                        if secondary_button(ui, "Add white mask").clicked() {
+                        if secondary_button(ui, tr("Add white mask")).clicked() {
                             cmds.push(Command::AddMask { layer: id, white: true });
                         }
-                        if secondary_button(ui, "Add black mask").clicked() {
+                        if secondary_button(ui, tr("Add black mask")).clicked() {
                             cmds.push(Command::AddMask { layer: id, white: false });
                         }
                     });
                 }
                 Some(mask) => {
-                    hint(ui, "Paint the mask with the mask toggle in the tool strip, or stack generators below.");
+                    hint(ui, tr("Paint the mask with the mask toggle in the tool strip, or stack generators below."));
                     ui.add_space(2.0);
                     ui.horizontal_wrapped(|ui| {
                         ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
@@ -298,7 +334,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         add(ui, "ID Color", MaskEffectKind::IdColor(Default::default()));
                         super::effects::add_mask_filters(ui, id, &mut cmds);
                         if ui.add(egui::Button::new(RichText::new(format!("{}  Image", icons::PLUS)).font(theme::font(12.0))))
-                            .on_hover_text("A black & white image or a logo with transparency")
+                            .on_hover_text(tr("A black & white image or a logo with transparency"))
                             .clicked()
                         {
                             crate::files::pick(ui.ctx(), crate::files::Purpose::AddMaskImage { layer: id }, crate::files::IMAGES, false, None);
@@ -351,105 +387,112 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
             });
         });
         if eff.visible {
-            prop_row(ui, "Blend", |ui| {
+            prop_row(ui, tr("Blend"), |ui| {
                 egui::ComboBox::from_id_salt(("effect_blend", eff.id)).selected_text(eff.blend.label()).show_ui(ui, |ui| {
                     for mode in subcraft_doc::BlendMode::available(false, false) {
                         changed |= ui.selectable_value(&mut eff.blend, mode, mode.label()).changed();
                     }
                 });
             });
-            changed |= slider_row(ui, "Opacity", egui::Slider::new(&mut eff.opacity, 0.0..=1.0)).changed();
+            changed |= slider_row(ui, tr("Opacity"), egui::Slider::new(&mut eff.opacity, 0.0..=1.0)).changed();
             match &mut eff.kind {
                 MaskEffectKind::Generator(g) => {
-                    prop_row(ui, "Generator", |ui| egui::ComboBox::from_id_salt("generator_kind").selected_text(g.kind.label()).show_ui(ui, |ui| {
+                    prop_row(ui, tr("Generator"), |ui| egui::ComboBox::from_id_salt("generator_kind").selected_text(g.kind.label()).show_ui(ui, |ui| {
                         for kind in [GeneratorKind::Edges, GeneratorKind::Cavity, GeneratorKind::Concave, GeneratorKind::Directional, GeneratorKind::PositionGradient]
                             .into_iter().chain(MeshMapKind::ALL.into_iter().map(GeneratorKind::MeshMap)) {
                             changed |= ui.selectable_value(&mut g.kind, kind, kind.label()).changed();
                         }
                     }));
                     if g.kind == GeneratorKind::PositionGradient {
-                        prop_row(ui, "Axis", |ui| for axis in subcraft_doc::GradientAxis::ALL {
+                        prop_row(ui, tr("Axis"), |ui| for axis in subcraft_doc::GradientAxis::ALL {
                             changed |= ui.selectable_value(&mut g.axis, axis, axis.label()).changed();
                         });
                     }
                     if g.kind == GeneratorKind::Edges {
                         let mut natural = g.edge_spread.is_some();
-                        if ui.checkbox(&mut natural, "Natural edge wear").on_hover_text("Surface-constrained spread with an irregular boundary. Older projects retain their original wear until enabled.").changed() {
+                        if ui.checkbox(&mut natural, tr("Natural edge wear")).on_hover_text(tr("Surface-constrained spread with an irregular boundary. Older projects retain their original wear until enabled.")).changed() {
                             g.edge_spread = natural.then(subcraft_doc::EdgeSpread::default); changed = true;
                         }
                         if let Some(spread) = &mut g.edge_spread {
-                            changed |= slider_row(ui, "Spread", egui::Slider::new(&mut spread.distance, 0.0..=12.5).suffix("%")).on_hover_text("How far wear can reach from an exposed edge along the surface, as a percentage of the model's longest dimension. Level decides how much of that reach is worn. Follows connected edges, not UV islands.").changed();
-                            changed |= slider_row(ui, "Variation", egui::Slider::new(&mut spread.variation, 0.0..=1.0)).on_hover_text("Irregular, chipped boundary, independent of Breakup. Zero gives a clean geometric band.").changed();
+                            changed |= slider_row(ui, tr("Spread"), egui::Slider::new(&mut spread.distance, 0.0..=12.5).suffix("%")).on_hover_text("How far wear can reach from an exposed edge along the surface, as a percentage of the model's longest dimension. Level decides how much of that reach is worn. Follows connected edges, not UV islands.").changed();
+                            changed |= slider_row(ui, tr("Variation"), egui::Slider::new(&mut spread.variation, 0.0..=1.0)).on_hover_text(tr("Irregular, chipped boundary, independent of Breakup. Zero gives a clean geometric band.")).changed();
                             if !spread.level_reach {
                                 prop_row(ui, "", |ui| {
-                                    if ui.checkbox(&mut spread.level_reach, "Level controls the amount").on_hover_text("This wear was made when Level only selected baked detail and Spread alone set the reach. Turn on to make Level the amount of wear within Spread.").changed() { changed = true; }
+                                    if ui.checkbox(&mut spread.level_reach, tr("Level controls the amount")).on_hover_text("This wear was made when Level only selected baked detail and Spread alone set the reach. Turn on to make Level the amount of wear within Spread.").changed() { changed = true; }
                                 });
                             }
                         }
                     }
-                    changed |= slider_row(ui, "Level", egui::Slider::new(&mut g.level, 0.0..=1.0).max_decimals(3)).on_hover_text(
+                    changed |= slider_row(ui, tr("Level"), egui::Slider::new(&mut g.level, 0.0..=1.0).max_decimals(3)).on_hover_text(
                         if g.kind == GeneratorKind::Edges && g.edge_spread.is_some() {
                             "Amount of wear: how much of the Spread reach is worn (0 = none, 1 = all of it), and which baked convex detail shows. Spread sets how far wear can reach."
                         } else { "Threshold for the generator's source values." }).changed();
-                    changed |= slider_row(ui, "Softness", egui::Slider::new(&mut g.softness, 0.0..=1.0)).changed();
-                    changed |= slider_row(ui, "Breakup", egui::Slider::new(&mut g.noise_amount, 0.0..=1.0)).changed();
+                    changed |= slider_row(ui, tr("Softness"), egui::Slider::new(&mut g.softness, 0.0..=1.0)).changed();
+                    changed |= slider_row(ui, tr("Breakup"), egui::Slider::new(&mut g.noise_amount, 0.0..=1.0)).changed();
                     let mut size = g.pattern_size();
-                    if slider_row(ui, "Pattern size", egui::Slider::new(&mut size, 1.0..=100.0).logarithmic(true).suffix("%")).changed() {
+                    if slider_row(ui, tr("Pattern size"), egui::Slider::new(&mut size, 1.0..=100.0).logarithmic(true).suffix("%")).changed() {
                         g.set_pattern_size(size); changed = true;
                     }
-                    prop_row(ui, "Seed", |ui| {
+                    prop_row(ui, tr("Seed"), |ui| {
                         changed |= ui.add(egui::DragValue::new(&mut g.noise.seed).speed(1.)).changed();
-                        if ui.small_button("Next").on_hover_text("Try the next deterministic pattern seed").clicked() {
+                        if ui.small_button(tr("Next")).on_hover_text(tr("Try the next deterministic pattern seed")).clicked() {
                             g.noise.seed = g.noise.seed.wrapping_add(1); changed = true;
                         }
                     });
-                    if g.kind != GeneratorKind::Edges || g.edge_spread.is_none() {
-                        changed |= ui.checkbox(&mut g.organic_breakup, "Reduce repetition").changed();
+                    for (axis, name) in ["X", "Y", "Z"].into_iter().enumerate() {
+                        let mut percent = g.offset[axis] * 100.0;
+                        if slider_row(ui, &format!("Offset {name}"), egui::Slider::new(&mut percent, -100.0..=100.0).suffix("%").max_decimals(1))
+                            .on_hover_text("Slides the breakup pattern through the model along this axis, as a percentage of the model's longest dimension. The seed and pattern size stay the same.").changed() {
+                            g.offset[axis] = percent / 100.0; changed = true;
+                        }
                     }
-                    prop_row(ui, "", |ui| changed |= ui.checkbox(&mut g.invert, "Invert").changed());
+                    if g.kind != GeneratorKind::Edges || g.edge_spread.is_none() {
+                        changed |= ui.checkbox(&mut g.organic_breakup, tr("Reduce repetition")).changed();
+                    }
+                    prop_row(ui, "", |ui| changed |= ui.checkbox(&mut g.invert, tr("Invert")).changed());
                     if g.kind == GeneratorKind::Directional {
-                        prop_row(ui, "Direction", |ui| { for value in &mut g.direction {
+                        prop_row(ui, tr("Direction"), |ui| { for value in &mut g.direction {
                             changed |= ui.add(egui::DragValue::new(value).range(-1.0..=1.0).speed(0.01)).changed();
                         } });
                     }
                 }
                 MaskEffectKind::Fill { value, procedural, projection } => {
                     let mut use_procedural = procedural.is_some();
-                    if ui.checkbox(&mut use_procedural, "Procedural").changed() {
+                    if ui.checkbox(&mut use_procedural, tr("Procedural")).changed() {
                         *procedural = use_procedural.then(|| ProceduralParams::new(ProceduralKind::Clouds));
                         changed = true;
                     }
                     if let Some(p) = procedural {
-                        prop_row(ui, "Pattern", |ui| egui::ComboBox::from_id_salt("mask_pattern").selected_text(p.kind.label()).show_ui(ui, |ui| {
+                        prop_row(ui, tr("Pattern"), |ui| egui::ComboBox::from_id_salt("mask_pattern").selected_text(p.kind.label()).show_ui(ui, |ui| {
                             for kind in ProceduralKind::ALL { changed |= ui.selectable_value(&mut p.kind, kind, kind.label()).changed(); }
                         }));
-                        changed |= slider_row(ui, "Scale", egui::Slider::new(&mut p.scale, 1.0..=64.0)).changed();
-                        changed |= slider_row(ui, "Balance", egui::Slider::new(&mut p.balance, 0.0..=1.0)).changed();
-                        changed |= slider_row(ui, "Contrast", egui::Slider::new(&mut p.contrast, 0.0..=1.0)).changed();
-                        prop_row(ui, "Seed", |ui| changed |= ui.add(egui::DragValue::new(&mut p.seed)).changed());
-                        changed |= ui.checkbox(&mut p.invert, "Invert pattern").changed();
+                        changed |= slider_row(ui, tr("Scale"), egui::Slider::new(&mut p.scale, 1.0..=64.0)).changed();
+                        changed |= slider_row(ui, tr("Balance"), egui::Slider::new(&mut p.balance, 0.0..=1.0)).changed();
+                        changed |= slider_row(ui, tr("Contrast"), egui::Slider::new(&mut p.contrast, 0.0..=1.0)).changed();
+                        prop_row(ui, tr("Seed"), |ui| changed |= ui.add(egui::DragValue::new(&mut p.seed)).changed());
+                        changed |= ui.checkbox(&mut p.invert, tr("Invert pattern")).changed();
                         changed |= scratch_controls(ui, p, ("mask_scratch", 0));
-                    } else { changed |= slider_row(ui, "Value", egui::Slider::new(value, 0.0..=1.0)).changed(); }
+                    } else { changed |= slider_row(ui, tr("Value"), egui::Slider::new(value, 0.0..=1.0)).changed(); }
                     changed |= projection_editor(ui, projection);
                 }
                 MaskEffectKind::Levels(l) => {
-                    changed |= slider_row(ui, "In low", egui::Slider::new(&mut l.in_low, 0.0..=1.0)).changed();
-                    changed |= slider_row(ui, "In high", egui::Slider::new(&mut l.in_high, 0.0..=1.0)).changed();
-                    changed |= slider_row(ui, "Gamma", egui::Slider::new(&mut l.gamma, 0.1..=4.0)).changed();
-                    changed |= slider_row(ui, "Out low", egui::Slider::new(&mut l.out_low, 0.0..=1.0)).changed();
-                    changed |= slider_row(ui, "Out high", egui::Slider::new(&mut l.out_high, 0.0..=1.0)).changed();
+                    changed |= slider_row(ui, tr("In low"), egui::Slider::new(&mut l.in_low, 0.0..=1.0)).changed();
+                    changed |= slider_row(ui, tr("In high"), egui::Slider::new(&mut l.in_high, 0.0..=1.0)).changed();
+                    changed |= slider_row(ui, tr("Gamma"), egui::Slider::new(&mut l.gamma, 0.1..=4.0)).changed();
+                    changed |= slider_row(ui, tr("Out low"), egui::Slider::new(&mut l.out_low, 0.0..=1.0)).changed();
+                    changed |= slider_row(ui, tr("Out high"), egui::Slider::new(&mut l.out_high, 0.0..=1.0)).changed();
                 }
                 MaskEffectKind::Filter(filter) => {
                     changed |= super::filter::editor(ui, filter, None);
-                    hint(ui, "Filters the mask below this effect; opacity mixes the result with that input.");
+                    hint(ui, tr("Filters the mask below this effect; opacity mixes the result with that input."));
                 }
                 MaskEffectKind::Image { resource, projection, invert } => {
                     if image_row(ui, state, *resource) {
                         crate::files::pick(ui.ctx(), crate::files::Purpose::MaskImage { layer, effect: e.id }, crate::files::IMAGES, false, None);
                     }
-                    prop_row(ui, "", |ui| changed |= ui.checkbox(invert, "Invert").changed());
+                    prop_row(ui, "", |ui| changed |= ui.checkbox(invert, tr("Invert")).changed());
                     changed |= projection_editor(ui, projection);
-                    hint(ui, "Uses the image's transparency if it has any, otherwise its brightness.");
+                    hint(ui, tr("Uses the image's transparency if it has any, otherwise its brightness."));
                 }
                 MaskEffectKind::IdColor(id) => changed |= id_color_editor(ui, state, layer, e.id, id, cmds),
                 _ => {}
@@ -469,7 +512,7 @@ fn id_color_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_core::Layer
     let mut changed = false;
     let texture_set = state.session.selection().texture_set;
     if !state.session.has_id_map(texture_set) {
-        hint(ui, "No ID map baked: this mask stays black. Bake an ID map in Bake Mesh Maps.");
+        hint(ui, tr("No ID map baked: this mask stays black. Bake an ID map in Bake Mesh Maps."));
     }
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
@@ -484,20 +527,20 @@ fn id_color_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_core::Layer
                 cmds.push(Command::SetIdColors { layer, effect, colors });
             }
         }
-        if id.colors.is_empty() { ui.label(RichText::new("No colors picked").font(theme::font(12.0)).color(TEXT_FAINT)); }
+        if id.colors.is_empty() { ui.label(RichText::new(tr("No colors picked")).font(theme::font(12.0)).color(TEXT_FAINT)); }
     });
     let active = state.picking_id_color == Some((layer, effect));
     let label = if active { "Picking: click the model (Esc to stop)" } else { "Pick from model" };
     if ui.add(egui::Button::new(RichText::new(format!("{}  {label}", icons::CROSSHAIR)).font(theme::font(12.0))).selected(active))
-        .on_hover_text("Click parts in the 3D view to add their ID color")
+        .on_hover_text(tr("Click parts in the 3D view to add their ID color"))
         .clicked()
     {
         state.picking_id_color = if active { None } else { Some((layer, effect)) };
         if !active { state.picking_parts = false; }
     }
-    changed |= slider_row(ui, "Tolerance", egui::Slider::new(&mut id.tolerance, 0.0..=1.0).max_decimals(3)).on_hover_text("Largest RGB distance from a picked color that still counts as a full match").changed();
-    changed |= slider_row(ui, "Softness", egui::Slider::new(&mut id.softness, 0.0..=1.0).max_decimals(3)).on_hover_text("Smooth falloff beyond the tolerance (0 = hard edge)").changed();
-    prop_row(ui, "", |ui| changed |= ui.checkbox(&mut id.invert, "Invert").changed());
+    changed |= slider_row(ui, tr("Tolerance"), egui::Slider::new(&mut id.tolerance, 0.0..=1.0).max_decimals(3)).on_hover_text(tr("Largest RGB distance from a picked color that still counts as a full match")).changed();
+    changed |= slider_row(ui, tr("Softness"), egui::Slider::new(&mut id.softness, 0.0..=1.0).max_decimals(3)).on_hover_text(tr("Smooth falloff beyond the tolerance (0 = hard edge)")).changed();
+    prop_row(ui, "", |ui| changed |= ui.checkbox(&mut id.invert, tr("Invert")).changed());
     changed
 }
 
@@ -508,7 +551,7 @@ fn scratch_controls(ui: &mut Ui, params: &mut ProceduralParams, id: (&str, u32))
         return false;
     }
     let mut changed = false;
-    prop_row(ui, "Preset", |ui| {
+    prop_row(ui, tr("Preset"), |ui| {
         egui::ComboBox::from_id_salt(id).selected_text("Choose…").show_ui(ui, |ui| {
             for preset in subcraft_doc::ScratchPreset::ALL {
                 if ui.selectable_label(false, preset.label()).clicked() {
@@ -519,18 +562,18 @@ fn scratch_controls(ui: &mut Ui, params: &mut ProceduralParams, id: (&str, u32))
         });
     });
     let s = &mut params.scratch;
-    changed |= slider_row(ui, "Direction", egui::Slider::new(&mut s.angle_deg, 0.0..=180.0).suffix("°")).changed();
-    changed |= slider_row(ui, "Spread", egui::Slider::new(&mut s.spread_deg, 0.0..=90.0).suffix("°")).changed();
-    changed |= slider_row(ui, "Length", egui::Slider::new(&mut s.length, 0.1..=2.0)).changed();
-    changed |= slider_row(ui, "Length var.", egui::Slider::new(&mut s.length_var, 0.0..=1.0)).changed();
-    changed |= slider_row(ui, "Width", egui::Slider::new(&mut s.width, 0.001..=0.06).logarithmic(true)).changed();
-    changed |= slider_row(ui, "Width var.", egui::Slider::new(&mut s.width_var, 0.0..=1.0)).changed();
-    changed |= slider_row(ui, "Density", egui::Slider::new(&mut s.density, 0.0..=1.0)).changed();
-    changed |= slider_row(ui, "Curvature", egui::Slider::new(&mut s.curvature, 0.0..=1.0)).changed();
-    changed |= slider_row(ui, "Depth falloff", egui::Slider::new(&mut s.depth_falloff, 0.0..=1.0)).changed();
-    changed |= slider_row(ui, "Clustering", egui::Slider::new(&mut s.cluster, 0.0..=1.0)).changed();
-    changed |= slider_row(ui, "Edge wear", egui::Slider::new(&mut s.wear, 0.0..=1.0)).changed();
-    hint(ui, "Edge wear keeps scratches near edges and grooves; it needs baked mesh maps (Ctrl+B).");
+    changed |= slider_row(ui, tr("Direction"), egui::Slider::new(&mut s.angle_deg, 0.0..=180.0).suffix("°")).changed();
+    changed |= slider_row(ui, tr("Spread"), egui::Slider::new(&mut s.spread_deg, 0.0..=90.0).suffix("°")).changed();
+    changed |= slider_row(ui, tr("Length"), egui::Slider::new(&mut s.length, 0.1..=2.0)).changed();
+    changed |= slider_row(ui, tr("Length var."), egui::Slider::new(&mut s.length_var, 0.0..=1.0)).changed();
+    changed |= slider_row(ui, tr("Width"), egui::Slider::new(&mut s.width, 0.001..=0.06).logarithmic(true)).changed();
+    changed |= slider_row(ui, tr("Width var."), egui::Slider::new(&mut s.width_var, 0.0..=1.0)).changed();
+    changed |= slider_row(ui, tr("Density"), egui::Slider::new(&mut s.density, 0.0..=1.0)).changed();
+    changed |= slider_row(ui, tr("Curvature"), egui::Slider::new(&mut s.curvature, 0.0..=1.0)).changed();
+    changed |= slider_row(ui, tr("Depth falloff"), egui::Slider::new(&mut s.depth_falloff, 0.0..=1.0)).changed();
+    changed |= slider_row(ui, tr("Clustering"), egui::Slider::new(&mut s.cluster, 0.0..=1.0)).changed();
+    changed |= slider_row(ui, tr("Edge wear"), egui::Slider::new(&mut s.wear, 0.0..=1.0)).changed();
+    hint(ui, tr("Edge wear keeps scratches near edges and grooves; it needs baked mesh maps (Ctrl+B)."));
     changed
 }
 
@@ -545,27 +588,27 @@ pub(crate) fn source_controls(ui: &mut Ui, state: &mut UiState, kind: ChannelKin
         ui.add_space(2.0);
         match &mut ch.source {
             FillSource::Uniform { value } => {
-                prop_row(ui, "Value", |ui| changed |= channel_value(ui, *kind, value).changed);
+                prop_row(ui, tr("Value"), |ui| changed |= channel_value(ui, *kind, value).changed);
             }
             FillSource::Procedural { params, low, high } => {
-                prop_row(ui, "Pattern", |ui| {
+                prop_row(ui, tr("Pattern"), |ui| {
                     egui::ComboBox::from_id_salt(("kind", *kind)).selected_text(params.kind.label()).show_ui(ui, |ui| {
                         for k in ProceduralKind::ALL {
                             changed |= ui.selectable_value(&mut params.kind, k, k.label()).changed();
                         }
                     });
                 });
-                changed |= slider_row(ui, "Scale", egui::Slider::new(&mut params.scale, 1.0..=64.0).step_by(1.0)).changed();
-                changed |= slider_row(ui, "Balance", egui::Slider::new(&mut params.balance, 0.0..=1.0)).changed();
-                changed |= slider_row(ui, "Contrast", egui::Slider::new(&mut params.contrast, 0.0..=1.0)).changed();
-                prop_row(ui, "Seed", |ui| changed |= ui.add(egui::DragValue::new(&mut params.seed)).changed());
+                changed |= slider_row(ui, tr("Scale"), egui::Slider::new(&mut params.scale, 1.0..=64.0).step_by(1.0)).changed();
+                changed |= slider_row(ui, tr("Balance"), egui::Slider::new(&mut params.balance, 0.0..=1.0)).changed();
+                changed |= slider_row(ui, tr("Contrast"), egui::Slider::new(&mut params.contrast, 0.0..=1.0)).changed();
+                prop_row(ui, tr("Seed"), |ui| changed |= ui.add(egui::DragValue::new(&mut params.seed)).changed());
                 changed |= scratch_controls(ui, params, ("fill_scratch", *kind as u32));
-                prop_row(ui, "Low", |ui| changed |= channel_value(ui, *kind, low).changed);
-                prop_row(ui, "High", |ui| changed |= channel_value(ui, *kind, high).changed);
-                prop_row(ui, "", |ui| changed |= ui.checkbox(&mut params.invert, "Invert").changed());
+                prop_row(ui, tr("Low"), |ui| changed |= channel_value(ui, *kind, low).changed);
+                prop_row(ui, tr("High"), |ui| changed |= channel_value(ui, *kind, high).changed);
+                prop_row(ui, "", |ui| changed |= ui.checkbox(&mut params.invert, tr("Invert")).changed());
             }
             FillSource::MeshMap { map } => {
-                prop_row(ui, "Map", |ui| {
+                prop_row(ui, tr("Map"), |ui| {
                     egui::ComboBox::from_id_salt(("map", *kind)).selected_text(map.display_name()).show_ui(ui, |ui| {
                         for m in MeshMapKind::ALL {
                             changed |= ui.selectable_value(map, m, m.display_name()).changed();
@@ -623,15 +666,15 @@ pub(crate) fn channel_toggles(ui: &mut Ui, channels: &[(ChannelKind, bool)]) -> 
 pub(crate) fn channel_chips(ui: &mut Ui, channels: &[(ChannelKind, bool)], addable: &[ChannelKind]) -> Option<ChannelAction> {
     let mut clicked = None;
     ui.horizontal_wrapped(|ui| {
-        ui.spacing_mut().item_spacing = egui::vec2(3., 4.);
+        ui.spacing_mut().item_spacing = egui::vec2(4., 6.);
         for &(kind, on) in channels {
-            let response = ui.selectable_label(on, kind.short_name()).on_hover_text(format!("{} · Click: toggle · Alt+click: only this channel", kind.display_name()));
+            let response = crate::widgets::chip(ui, kind.short_name(), on).on_hover_text(format!("{} · Click: toggle · Alt+click: only this channel", kind.display_name()));
             response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, on, kind.display_name()));
             if response.clicked() { clicked = Some(ChannelAction::Toggle(kind, ui.input(|i| i.modifiers.alt))); }
         }
         for &kind in addable {
             let label = format!("+ {}", kind.short_name());
-            let response = ui.selectable_label(false, label.clone()).on_hover_text(format!("Add the {} channel to this texture set and turn it on for this layer (one undo step)", kind.display_name()));
+            let response = crate::widgets::chip(ui, &label, false).on_hover_text(format!("Add the {} channel to this texture set and turn it on for this layer (one undo step)", kind.display_name()));
             response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label.clone()));
             if response.clicked() { clicked = Some(ChannelAction::Add(kind)); }
         }
@@ -642,7 +685,7 @@ pub(crate) fn channel_chips(ui: &mut Ui, channels: &[(ChannelKind, bool)], addab
 pub(crate) fn image_row(ui: &mut Ui, state: &mut UiState, resource: subcraft_core::ResourceId) -> bool {
     let Some(r) = state.session.resources().get(resource).cloned() else {
         ui.label(RichText::new(format!("{}  Image missing from the project", icons::WARNING)).color(theme::WARNING));
-        return secondary_button(ui, "Choose image…").clicked();
+        return secondary_button(ui, tr("Choose image…")).clicked();
     };
     let tex = state
         .image_thumbs
@@ -661,7 +704,7 @@ pub(crate) fn image_row(ui: &mut Ui, state: &mut UiState, resource: subcraft_cor
         ui.vertical(|ui| {
             ui.label(RichText::new(&r.name).color(theme::TEXT));
             ui.label(RichText::new(format!("{} × {}", r.bitmap.width, r.bitmap.height)).color(TEXT_DIM).font(theme::font(11.0)));
-            clicked = secondary_button(ui, "Replace…").clicked();
+            clicked = secondary_button(ui, tr("Replace…")).clicked();
         });
     });
     clicked
@@ -670,19 +713,19 @@ pub(crate) fn image_row(ui: &mut Ui, state: &mut UiState, resource: subcraft_cor
 /// Mode / scale / rotation (+ sharpness or axis) editor shared by fill layers and image masks.
 pub(crate) fn projection_editor(ui: &mut Ui, proj: &mut Projection) -> bool {
     let mut changed = false;
-    prop_row(ui, "Mode", |ui| {
+    prop_row(ui, tr("Mode"), |ui| {
         changed |= segmented(ui, &mut proj.mode, &[(ProjectionMode::Uv, "UV"), (ProjectionMode::Triplanar, "Tri-planar"), (ProjectionMode::Planar, "Planar")]);
     });
     // Tiling: X and Y linked by default (lock), separate when unlocked. The lock is UI state,
     // remembered per editor; it starts unlocked if the two values already differ.
     let lock_id = ui.id().with("tiling_lock");
     let mut locked = ui.data(|d| d.get_temp::<bool>(lock_id)).unwrap_or(proj.scale[0] == proj.scale[1]);
-    prop_row(ui, "Tiling", |ui| {
+    prop_row(ui, tr("Tiling"), |ui| {
         fn tiling(v: &mut f32) -> egui::DragValue<'_> {
             egui::DragValue::new(v).speed(0.05).range(0.01..=256.0).max_decimals(2)
         }
         if locked {
-            if ui.add(tiling(&mut proj.scale[0])).on_hover_text("Repeats across the surface (X and Y together)").changed() {
+            if ui.add(tiling(&mut proj.scale[0])).on_hover_text(tr("Repeats across the surface (X and Y together)")).changed() {
                 proj.scale[1] = proj.scale[0];
                 changed = true;
             }
@@ -692,7 +735,7 @@ pub(crate) fn projection_editor(ui: &mut Ui, proj: &mut Projection) -> bool {
             ui.label(RichText::new("Y").color(TEXT_DIM));
             changed |= ui.add(tiling(&mut proj.scale[1])).changed();
         }
-        if ui.checkbox(&mut locked, "Link").on_hover_text("Same tiling for X and Y; untick to set them separately").changed() {
+        if ui.checkbox(&mut locked, tr("Link")).on_hover_text(tr("Same tiling for X and Y; untick to set them separately")).changed() {
             if locked && proj.scale[1] != proj.scale[0] {
                 proj.scale[1] = proj.scale[0];
                 changed = true;
@@ -700,8 +743,8 @@ pub(crate) fn projection_editor(ui: &mut Ui, proj: &mut Projection) -> bool {
         }
     });
     ui.data_mut(|d| d.insert_temp(lock_id, locked));
-    changed |= slider_row(ui, "Rotation", egui::Slider::new(&mut proj.rotation_deg, -180.0..=180.0).suffix("°")).changed();
-    prop_row(ui, "Offset", |ui| {
+    changed |= slider_row(ui, tr("Rotation"), egui::Slider::new(&mut proj.rotation_deg, -180.0..=180.0).suffix("°")).changed();
+    prop_row(ui, tr("Offset"), |ui| {
         fn offset(v: &mut f32) -> egui::DragValue<'_> {
             egui::DragValue::new(v).speed(0.005).range(-16.0..=16.0).max_decimals(3)
         }
@@ -711,15 +754,15 @@ pub(crate) fn projection_editor(ui: &mut Ui, proj: &mut Projection) -> bool {
         changed |= ui.add(offset(&mut proj.offset[1])).changed();
     });
     if proj.mode == ProjectionMode::Triplanar {
-        changed |= slider_row(ui, "Sharpness", egui::Slider::new(&mut proj.triplanar_sharpness, 1.0..=32.0)).changed();
+        changed |= slider_row(ui, tr("Sharpness"), egui::Slider::new(&mut proj.triplanar_sharpness, 1.0..=32.0)).changed();
     }
     if proj.mode == ProjectionMode::Planar {
-        prop_row(ui, "Axis", |ui| {
+        prop_row(ui, tr("Axis"), |ui| {
             changed |= segmented(ui, &mut proj.planar_axis, &[(0u8, "X"), (1, "Y"), (2, "Z")]);
         });
     }
     let default = Projection { mode: proj.mode, planar_axis: proj.planar_axis, ..Projection::default() };
-    if *proj != default && ui.small_button("Reset tiling, offset and rotation").clicked() {
+    if *proj != default && ui.small_button(tr("Reset tiling, offset and rotation")).clicked() {
         *proj = default;
         changed = true;
     }

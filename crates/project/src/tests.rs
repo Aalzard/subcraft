@@ -735,3 +735,48 @@ fn text_layer_schema_is_pinned_and_rejects_bad_values() {
     decal.opacity = f32::NAN;
     assert!(decal.validate().is_err());
 }
+
+#[test]
+fn generator_offset_round_trips_and_old_files_have_none() {
+    use subcraft_doc::{Generator, GeneratorKind};
+    let mut g = Generator::new(GeneratorKind::Edges);
+    let none = serde_json::to_value(g).unwrap();
+    assert!(none.get("offset").is_none(), "a zero offset is not written, so older readers and files are unchanged");
+    assert_eq!(serde_json::from_value::<Generator>(none).unwrap().offset, [0.0; 3]);
+    g.offset = [0.25, 0.0, -0.5];
+    let moved = serde_json::to_value(g).unwrap();
+    assert_eq!(moved["offset"], serde_json::json!([0.25, 0.0, -0.5]));
+    assert_eq!(serde_json::from_value::<Generator>(moved).unwrap(), g);
+}
+
+#[test]
+fn painter_generator_controls_round_trip_and_are_absent_in_older_files() {
+    let mut g = Generator::new(GeneratorKind::Cavity); g.painter = None;
+    assert!(serde_json::to_value(g).unwrap().get("painter").is_none(), "none is not written, so older files are unchanged");
+    g.painter = Some(subcraft_doc::PainterControls { edges_masking: 0.5, ao_masking: 0.25, curvature_weight: 0.75, smoothness: 0.5, grunge_scale: 4.0, grunge_floor: 0.2, grain: 0.35 });
+    let back: Generator = serde_json::from_value(serde_json::to_value(g).unwrap()).unwrap();
+    assert_eq!(back, g);
+    let mut json = serde_json::to_value(g).unwrap();
+    json.as_object_mut().unwrap().remove("painter");
+    assert_eq!(serde_json::from_value::<Generator>(json).unwrap().painter, None);
+}
+
+#[test]
+fn truncated_and_bit_flipped_files_never_panic() {
+    let doc = rich_document();
+    let good = write_project(Cursor::new(Vec::new()), &primitives::sample_crate(), &doc, &ResourceStore::default(), &MeshMapSet::new()).unwrap().into_inner();
+    // Every truncation point on a coarse grid, plus the first and last bytes.
+    let step = (good.len() / 97).max(1);
+    for cut in (0..good.len()).step_by(step).chain([good.len() - 1]) {
+        let _ = read_project(Cursor::new(good[..cut].to_vec())); // Ok or Err, never a panic
+    }
+    // Deterministic pseudo-random single-byte corruption across the whole file.
+    let mut x = 0x9E3779B97F4A7C15u64;
+    for _ in 0..150 {
+        x ^= x << 13; x ^= x >> 7; x ^= x << 17;
+        let mut bad = good.clone();
+        let at = (x as usize) % bad.len();
+        bad[at] ^= 1 << ((x >> 40) % 8);
+        let _ = read_project(Cursor::new(bad));
+    }
+}

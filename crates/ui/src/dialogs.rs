@@ -1,5 +1,6 @@
 //! File dialogs and windows: save / open project, export textures, unsaved-changes prompt.
 
+use crate::i18n::tr;
 use std::path::PathBuf;
 
 use egui::RichText;
@@ -82,7 +83,7 @@ pub fn save(state: &mut UiState, save_as: bool, now: f64) -> bool {
 pub fn run_pending(state: &mut UiState, action: Pending, ctx: &egui::Context, _now: f64) {
     match action {
         Pending::Close => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
-        Pending::NewSample => state.set_session(Session::sample()),
+        Pending::NewSample => state.set_session(Session::default_model()),
         // The New Project window shows what is in the model and the project options.
         Pending::OpenMesh => state.new_project.show_window(&state.recovery.prefs.new_project.clone()),
         Pending::OpenProject => crate::files::pick(ctx, crate::files::Purpose::OpenProject, PROJECT_FILTER, false, None),
@@ -123,9 +124,9 @@ pub fn unsaved_prompt(state: &mut UiState, ctx: &egui::Context, now: f64) -> Opt
         ui.add_space(14.0);
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             use subcraft_app::unsaved::{Answer, Outcome, resolve};
-            let answer = if primary_button(ui, "Save").clicked() { Some(Answer::Save) }
-                else if secondary_button(ui, "Don't save").clicked() { Some(Answer::DontSave) }
-                else if secondary_button(ui, "Cancel").clicked() { Some(Answer::Cancel) }
+            let answer = if primary_button(ui, tr("Save")).clicked() { Some(Answer::Save) }
+                else if secondary_button(ui, tr("Don't save")).clicked() { Some(Answer::DontSave) }
+                else if secondary_button(ui, tr("Cancel")).clicked() { Some(Answer::Cancel) }
                 else { None };
             if let Some(answer) = answer {
                 let saved = answer == Answer::Save && save(state, false, now);
@@ -167,7 +168,7 @@ pub fn export_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
                 ui.label(dim("Folder"));
                 ui.horizontal(|ui| {
                     ui.add(egui::TextEdit::singleline(&mut ex.folder).desired_width(300.0));
-                    if ui.button("Browse…").clicked()
+                    if ui.button(tr("Browse…")).clicked()
                         && let Some(p) = rfd::FileDialog::new().set_directory(&ex.folder).pick_folder()
                     {
                         ex.folder = p.display().to_string();
@@ -190,7 +191,7 @@ pub fn export_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
             ui.label(dim("File format"));
             let fmt_text = ex.settings.format_override.map_or("Template default", |f| f.label());
             egui::ComboBox::from_id_salt("format").selected_text(fmt_text).show_ui(ui, |ui| {
-                ui.selectable_value(&mut ex.settings.format_override, None, "Template default");
+                ui.selectable_value(&mut ex.settings.format_override, None, tr("Template default"));
                 for f in FileFormat::ALL {
                     ui.selectable_value(&mut ex.settings.format_override, Some(f), f.label());
                 }
@@ -204,9 +205,9 @@ pub fn export_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
                     Padding::None => 2,
                 };
                 let before = kind;
-                ui.selectable_value(&mut kind, 0, "Infinite");
-                ui.selectable_value(&mut kind, 1, "Texels");
-                ui.selectable_value(&mut kind, 2, "None");
+                ui.selectable_value(&mut kind, 0, tr("Infinite"));
+                ui.selectable_value(&mut kind, 1, tr("Texels"));
+                ui.selectable_value(&mut kind, 2, tr("None"));
                 if kind != before {
                     ex.settings.padding = match kind {
                         0 => Padding::Infinite,
@@ -263,7 +264,7 @@ pub fn export_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
             egui::ComboBox::from_id_salt("scene_format").selected_text(formats[state.export.scene_format.min(formats.len() - 1)].label()).show_ui(ui, |ui| {
                 for (i, f) in formats.iter().enumerate() { ui.selectable_value(&mut state.export.scene_format, i, f.label()); }
             });
-            scene_go = ui.button("Export model + textures").on_hover_text("Writes the mesh with a textured PBR material (glTF PBR, USD preview surface, or OBJ with separate maps) into the folder").clicked();
+            scene_go = ui.button(tr("Export model + textures")).on_hover_text(tr("Writes the mesh with a textured PBR material (glTF PBR, USD preview surface, or OBJ with separate maps) into the folder")).clicked();
         });
         if scene_go {
             let format = formats[state.export.scene_format.min(formats.len() - 1)];
@@ -305,14 +306,14 @@ fn export_options(ui: &mut egui::Ui, state: &mut UiState) {
         ui.label(dim("Normal maps"));
         let text = project.normal_format.map_or("Template default", |f| f.label());
         egui::ComboBox::from_id_salt("export_normal_format").selected_text(text).show_ui(ui, |ui| {
-            ui.selectable_value(&mut project.normal_format, None, "Template default");
+            ui.selectable_value(&mut project.normal_format, None, tr("Template default"));
             ui.selectable_value(&mut project.normal_format, Some(subcraft_doc::NormalFormat::OpenGl), subcraft_doc::NormalFormat::OpenGl.label());
             ui.selectable_value(&mut project.normal_format, Some(subcraft_doc::NormalFormat::DirectX), subcraft_doc::NormalFormat::DirectX.label());
         });
     });
     if state.session.udim_tile_count() >= 2 {
-        ui.checkbox(&mut project.udim_folders, "Export Each UDIM to a Separate Folder")
-            .on_hover_text("On: 1001/, 1002/ ... one sub-folder per tile. Off: one folder, file names end in .1001, .1002");
+        ui.checkbox(&mut project.udim_folders, tr("Export Each UDIM to a Separate Folder"))
+            .on_hover_text(tr("On: 1001/, 1002/ ... one sub-folder per tile. Off: one folder, file names end in .1001, .1002"));
     }
     if project != *state.session.settings() {
         state.session.set_settings(project);
@@ -335,9 +336,9 @@ fn export_map_list(ui: &mut egui::Ui, state: &mut UiState, settings: &ExportSett
     ui.horizontal(|ui| {
         ui.label(caption(&format!("{} of {} files", choices.iter().filter(|f| f.enabled).count(), choices.len())));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui.small_button("Invert").clicked() { click = Some(MapClick::Invert); }
-            if ui.small_button("None").clicked() { click = Some(MapClick::None); }
-            if ui.small_button("Select all").clicked() { click = Some(MapClick::All); }
+            if ui.small_button(tr("Invert")).clicked() { click = Some(MapClick::Invert); }
+            if ui.small_button(tr("None")).clicked() { click = Some(MapClick::None); }
+            if ui.small_button(tr("Select all")).clicked() { click = Some(MapClick::All); }
         });
     });
     egui::Frame::new().fill(theme::FIELD).inner_margin(egui::Margin::same(8)).show(ui, |ui| {
@@ -355,7 +356,7 @@ fn export_map_list(ui: &mut egui::Ui, state: &mut UiState, settings: &ExportSett
                 ui.horizontal(|ui| {
                     ui.add_space(18.0);
                     let mut on = f.enabled;
-                    let r = ui.checkbox(&mut on, RichText::new(&f.suffix)).on_hover_text("Alt+click: export only this map (Alt+click again to bring the others back)");
+                    let r = ui.checkbox(&mut on, RichText::new(&f.suffix)).on_hover_text(tr("Alt+click: export only this map (Alt+click again to bring the others back)"));
                     if r.clicked() {
                         click = Some(if ui.input(|i| i.modifiers.alt) { MapClick::Solo(f.set.clone(), f.suffix.clone()) } else { MapClick::Toggle(f.set.clone(), f.suffix.clone(), on) });
                     }
@@ -403,6 +404,8 @@ pub struct BakeUi {
     pub report: String,
     /// Non-fatal notes of the last bake (low parts without a high part of the same name).
     pub notices: Vec<String>,
+    /// Log of the running or last bake: per-map timing and path (CPU / GPU), warnings, errors.
+    pub log: Vec<subcraft_app::BakeLogLine>,
     pub preview: bool,
     pub cage: bool,
     pub live_maps: bool,
@@ -420,7 +423,7 @@ pub struct BakeUi {
 
 impl Default for BakeUi {
     fn default() -> Self {
-        Self { open: false, settings: subcraft_app::BakeSettings::default(), high_poly: String::new(), all_sets: true, job: None, result: None, report: String::new(), notices: Vec::new(),
+        Self { open: false, settings: subcraft_app::BakeSettings::default(), high_poly: String::new(), all_sets: true, job: None, result: None, report: String::new(), notices: Vec::new(), log: Vec::new(),
             preview: true, cage: true, live_maps: true, displayed_map: None, follow_maps: true, preview_mesh: None,
             preview_job: None, preview_source: None, preview_path: String::new(), preview_scene: None, preview_error: None, preview_uploaded: false, preview_checked_at: 0. }
     }
@@ -474,6 +477,7 @@ pub fn poll_bake(state: &mut UiState, ctx: &egui::Context, now: f64) {
     let result = job.poll(&mut state.session);
     if state.bake.follow_maps && let Some((_, kind)) = job.latest_map { state.bake.displayed_map = Some(kind); }
     state.bake.notices = job.notices().to_vec();
+    if state.bake.log.len() != job.log().len() { state.bake.log = job.log().to_vec(); }
     if let Some(result) = result {
         let summary = state.bake.job.as_ref().map(|j| j.summary()).unwrap_or_default();
         state.bake.job = None;
@@ -526,8 +530,8 @@ pub fn bake_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
                 ui.end_row();
                 ui.label(dim("High poly"));
                 ui.horizontal(|ui| {
-                    ui.add(egui::TextEdit::singleline(&mut b.high_poly).hint_text("optional (none = low on low)").desired_width(220.0));
-                    if ui.button("Browse…").clicked() {
+                    ui.add(egui::TextEdit::singleline(&mut b.high_poly).hint_text(tr("optional (none = low on low)")).desired_width(220.0));
+                    if ui.button(tr("Browse…")).clicked() {
                         crate::files::pick(ui.ctx(), crate::files::Purpose::BakeHighPoly, crate::files::MESHES, false, None);
                     }
                     if !b.high_poly.is_empty() && crate::widgets::icon_button(ui, crate::icons::X, "Clear").clicked() {
@@ -572,13 +576,13 @@ pub fn bake_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
             hint(ui, "High poly needs no UVs; keep it aligned with the low poly. Cage distances are fractions of the model diagonal. A normal bake adds a live Baked normal layer; AO and curvature feed shading and generators.");
         });
         ui.horizontal(|ui| {
-            ui.checkbox(&mut state.bake.preview, "High / low overlay");
-            ui.checkbox(&mut state.bake.cage, "Cage wireframe");
-            ui.checkbox(&mut state.bake.live_maps, "Live maps");
+            ui.checkbox(&mut state.bake.preview, tr("High / low overlay"));
+            ui.checkbox(&mut state.bake.cage, tr("Cage wireframe"));
+            ui.checkbox(&mut state.bake.live_maps, tr("Live maps"));
         });
         if state.bake.preview_pending() { ui.label(dim("Loading high-poly preview…")); }
         if let Some(error) = &state.bake.preview_error { ui.add(egui::Label::new(RichText::new(error).color(theme::WARNING)).wrap()); }
-        if !busy && !state.bake.high_poly.trim().is_empty() && secondary_button(ui, "Reload high poly").clicked() {
+        if !busy && !state.bake.high_poly.trim().is_empty() && secondary_button(ui, tr("Reload high poly")).clicked() {
             state.bake.preview_mesh = None; state.bake.preview_source = None; state.bake.preview_job = None;
             state.bake.preview_error = None; state.bake.preview_uploaded = false; state.bake.result = None;
             state.bake.displayed_map = None;
@@ -588,13 +592,13 @@ pub fn bake_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
             project.bake_match = bake_match.clone();
             state.session.set_settings(project);
         }
-        hint(ui, "Blue: high poly · Red: exposed low poly · Pale lines: front/rear cage. Orbit to inspect. Imported transforms are preserved.");
+        hint(ui, tr("Blue: high poly · Red: exposed low poly · Pale lines: front/rear cage. Orbit to inspect. Imported transforms are preserved."));
         if state.session.mesh_maps(sel_id).is_some() {
             ui.horizontal(|ui| {
-                ui.checkbox(&mut state.bake.follow_maps, "Follow bake");
+                ui.checkbox(&mut state.bake.follow_maps, tr("Follow bake"));
                 egui::ComboBox::from_id_salt("bake_display_map")
                     .selected_text(state.bake.displayed_map.map_or("Material", |k| k.display_name())).show_ui(ui, |ui| {
-                        if ui.selectable_value(&mut state.bake.displayed_map, None, "Material").clicked() { state.bake.follow_maps = false; }
+                        if ui.selectable_value(&mut state.bake.displayed_map, None, tr("Material")).clicked() { state.bake.follow_maps = false; }
                         if let Some(maps) = state.session.mesh_maps(sel_id) { for (kind, _) in maps.iter() {
                             if ui.selectable_value(&mut state.bake.displayed_map, Some(kind), kind.display_name()).clicked() { state.bake.follow_maps = false; }
                         }}
@@ -602,7 +606,7 @@ pub fn bake_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
             });
         }
         if !busy && state.bake.preview_mesh.is_some() && state.bake.result.is_some()
-            && secondary_button(ui, "Inspect high / low geometry").clicked() {
+            && secondary_button(ui, tr("Inspect high / low geometry")).clicked() {
             state.bake.result = None; state.bake.displayed_map = None; state.bake.follow_maps = false;
         }
         ui.add_space(6.0);
@@ -622,12 +626,13 @@ pub fn bake_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
             ui.colored_label(theme::WARNING, note);
             ui.add_space(6.0);
         }
+        bake_log_section(ui, &state.bake.log);
         match &state.bake.job {
             Some(job) => {
                 ui.label(dim(&job.stage()));
                 ui.add(egui::ProgressBar::new(job.fraction()).show_percentage().fill(theme::ACCENT));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if secondary_button(ui, "Cancel").clicked() {
+                    if secondary_button(ui, tr("Cancel")).clicked() {
                         job.cancel();
                     }
                 });
@@ -640,6 +645,7 @@ pub fn bake_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
                 if go.inner {
                     state.bake.result = None;
                     state.bake.notices.clear();
+                    state.bake.log.clear();
                     state.bake.displayed_map = None;
                     state.bake.follow_maps = true;
                     let mut settings = state.bake.settings.clone();
@@ -664,6 +670,31 @@ pub fn bake_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
 }
 
 /// "Match" choice and, for By mesh name, the low / high suffix fields.
+/// The bake log: what ran where and for how long, warnings in amber, errors in red, with a Copy button.
+fn bake_log_section(ui: &mut egui::Ui, lines: &[subcraft_app::BakeLogLine]) {
+    use subcraft_app::BakeLogLevel;
+    if lines.is_empty() { return; }
+    let problems = lines.iter().filter(|l| l.level != BakeLogLevel::Info).count();
+    let title = if problems == 0 { "Bake log".to_string() } else { format!("Bake log ({problems} warning(s) or error(s))") };
+    egui::CollapsingHeader::new(title).id_salt("bake_log").default_open(problems > 0).show(ui, |ui| {
+        if ui.small_button("Copy log").on_hover_text("Copies the whole log as plain text").clicked() {
+            ui.ctx().copy_text(subcraft_app::bake_log_text(lines));
+        }
+        egui::ScrollArea::vertical().id_salt("bake_log_scroll").max_height(160.0).auto_shrink([false, true]).show(ui, |ui| {
+            for line in lines {
+                let text = RichText::new(line.plain()).monospace().size(11.0);
+                let text = match line.level {
+                    BakeLogLevel::Info => text.color(theme::TEXT_DIM),
+                    BakeLogLevel::Warning => text.color(theme::WARNING),
+                    BakeLogLevel::Error => text.color(egui::Color32::from_rgb(235, 100, 100)),
+                };
+                ui.add(egui::Label::new(text).wrap());
+            }
+        });
+    });
+    ui.add_space(6.0);
+}
+
 fn bake_match_rows(ui: &mut egui::Ui, m: &mut subcraft_core::BakeMatch) {
     use subcraft_core::BakeMatchMode;
     ui.label(dim("Match"));
@@ -673,10 +704,10 @@ fn bake_match_rows(ui: &mut egui::Ui, m: &mut subcraft_core::BakeMatch) {
     if m.mode == BakeMatchMode::ByName {
         ui.label(dim("Low / high suffix"));
         ui.horizontal(|ui| {
-            ui.add(egui::TextEdit::singleline(&mut m.low_suffix).desired_width(70.0).hint_text("_low"))
-                .on_hover_text("Low-poly part names end with this (case-insensitive; _lo also works)");
-            ui.add(egui::TextEdit::singleline(&mut m.high_suffix).desired_width(70.0).hint_text("_high"))
-                .on_hover_text("High-poly part names end with this (case-insensitive; _hi also works)");
+            ui.add(egui::TextEdit::singleline(&mut m.low_suffix).desired_width(70.0).hint_text(tr("_low")))
+                .on_hover_text(tr("Low-poly part names end with this (case-insensitive; _lo also works)"));
+            ui.add(egui::TextEdit::singleline(&mut m.high_suffix).desired_width(70.0).hint_text(tr("_high")))
+                .on_hover_text(tr("High-poly part names end with this (case-insensitive; _hi also works)"));
         });
         ui.end_row();
     }
@@ -832,5 +863,32 @@ mod bake_tests {
         state.bake.notices = vec!["Match by name: 1 low-poly part(s) have no matching high-poly part: Clip_low".into()];
         let output = draw(&mut state, &ctx, vec![]);
         assert!(output.shapes.iter().any(|s| matches!(&s.shape, egui::epaint::Shape::Text(t) if t.galley.job.text.contains("Clip_low"))));
+    }
+}
+
+#[cfg(test)]
+mod bake_log_tests {
+    use super::*;
+    use subcraft_app::{BakeLogLevel, BakeLogLine, Session};
+
+    #[test]
+    fn the_bake_window_shows_the_log_and_marks_problems() {
+        let ctx = egui::Context::default(); theme::apply(&ctx);
+        let mut state = UiState::new(Session::new(subcraft_mesh::primitives::plane(2., 1), 128), None);
+        state.bake.open = true; state.bake.preview = false;
+        state.bake.log = vec![
+            BakeLogLine { at: 0.0, level: BakeLogLevel::Info, text: "Baking 1 texture set(s)".into() },
+            BakeLogLine { at: 1.2, level: BakeLogLevel::Warning, text: "Cage: 12 of 100 texels missed".into() },
+        ];
+        let frame = |state: &mut UiState| {
+            let mut out = ctx.run_ui(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1100.0, 900.0))), ..Default::default() }, |ui| bake_window(state, ui.ctx(), 0.0));
+            out.textures_delta.clear(); out
+        };
+        frame(&mut state); frame(&mut state);
+        let out = frame(&mut state);
+        let has = |needle: &str| out.shapes.iter().any(|s| matches!(&s.shape, egui::epaint::Shape::Text(t) if t.galley.job.text.contains(needle)));
+        assert!(has("Bake log (1 warning(s) or error(s))"), "problems open the section and are counted");
+        assert!(has("warning: Cage: 12 of 100 texels missed") && has("[   1.2 s]"), "lines are shown in their copyable form");
+        assert!(has("Copy log"));
     }
 }

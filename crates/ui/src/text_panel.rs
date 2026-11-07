@@ -19,7 +19,20 @@ pub enum Armed {
     StampProjected,
 }
 
+/// Which text window is open.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Window {
+    /// Compose new text, then add it as a layer and place it.
+    New,
+    /// Edit the selected text layer (double-click it in the Layers panel).
+    Edit,
+}
+
 pub struct TextUi {
+    /// Text window (opened from the Layers panel, Layer menu, Ctrl+Shift+T, or a double-click).
+    pub window: Option<Window>,
+    /// Draft of the New window (kept separate from the Brush panel's draft).
+    compose: Option<TextDecal>,
     /// Text being composed (before it becomes a layer).
     pub draft: Option<TextDecal>,
     /// Working copy of the selected text layer; written back when an edit is finished.
@@ -37,7 +50,19 @@ pub struct TextUi {
 
 impl Default for TextUi {
     fn default() -> Self {
-        Self { draft: None, edit: None, edit_base: None, edit_for: None, armed: None, system: None, filter: String::new(), stamp_size: 25.0, stamp_angle: 0.0 }
+        Self { window: None, compose: None, draft: None, edit: None, edit_base: None, edit_for: None, armed: None, system: None, filter: String::new(), stamp_size: 25.0, stamp_angle: 0.0 }
+    }
+}
+
+impl TextUi {
+    /// Open the "new text" window with a fresh, empty draft.
+    pub fn open_new(&mut self) {
+        self.window = Some(Window::New);
+        self.compose = None;
+    }
+    /// Open the editor for the selected text layer.
+    pub fn open_edit(&mut self) {
+        self.window = Some(Window::Edit);
     }
 }
 
@@ -50,9 +75,10 @@ fn font_label(font: &FontRef, embedded: &[(subcraft_core::ResourceId, String)]) 
 }
 
 /// Controls shared by the draft and the selected layer. Returns `(changed, finished)`.
-fn controls(ui: &mut Ui, d: &mut TextDecal, text_ui: &mut TextUi, embedded: &[(subcraft_core::ResourceId, String)], placed: bool) -> Edit {
+fn controls(ui: &mut Ui, d: &mut TextDecal, text_ui: &mut TextUi, embedded: &[(subcraft_core::ResourceId, String)], placed: bool, focus: bool) -> Edit {
     let mut edit = Edit::default();
     let r = ui.add(egui::TextEdit::multiline(&mut d.style.text).desired_rows(2).desired_width(f32::INFINITY).hint_text("Type text…"));
+    if focus { r.request_focus(); }
     edit = edit.or(Edit::from(&r));
 
     prop_row(ui, "Font", |ui| {
@@ -124,8 +150,8 @@ fn controls(ui: &mut Ui, d: &mut TextDecal, text_ui: &mut TextUi, embedded: &[(s
     edit
 }
 
-pub fn show(state: &mut UiState, ui: &mut Ui, now: f64) {
-    let embedded = state.session.embedded_fonts();
+/// Keep the working copy of the selected text layer in step with the document.
+fn sync_edit(state: &mut UiState) {
     let selected = state.session.selected_text().cloned();
     let layer_id = state.session.selected_layer().map(|l| l.id);
     match (&selected, layer_id) {
@@ -142,31 +168,101 @@ pub fn show(state: &mut UiState, ui: &mut Ui, now: f64) {
             state.text.edit_for = None;
         }
     }
+}
+
+/// Controls of the selected text layer; edits are written back when finished. Returns false when
+/// no text layer is selected.
+fn edit_body(state: &mut UiState, ui: &mut Ui, now: f64, embedded: &[(subcraft_core::ResourceId, String)]) -> bool {
+    let Some(mut d) = state.text.edit.take() else { return false };
+    ui.label(caption("Editing the selected text layer"));
+    let e = controls(ui, &mut d, &mut state.text, embedded, true, false);
+    if e.done && state.text.edit_base.as_ref() != Some(&d) {
+        if let Err(err) = state.session.update_selected_text(d.clone()) { state.set_status(format!("Text: {err}"), now); }
+        state.gpu_dirty = true;
+    }
+    state.text.edit = Some(d);
+    hint(ui, "Drag the handle to move the text (corner square scales, top circle rotates, Shift+drag the centre rotates).");
+    if ui.button("Place by clicking the model").clicked() { state.text.armed = Some(Armed::PlaceDecal); }
+    hint(ui, "Changes apply when you release a slider or leave the text box. Undo (Ctrl+Z) steps back one edit.");
+    true
+}
+
+/// Add `d` as a text layer; `place` then arms "click the model to place it".
+fn add_layer(state: &mut UiState, d: &TextDecal, place: bool, now: f64) -> bool {
+    let mut at = d.clone();
+    at.center = Vec2::splat(0.5);
+    match state.session.add_text_layer(at) {
+        Ok(()) => {
+            state.gpu_dirty = true;
+            if place {
+                state.text.armed = Some(Armed::PlaceDecal);
+                state.set_status("Text layer added: click the model to place it (Esc keeps it centered). Double-click the layer to edit it later", now);
+            } else {
+                state.set_status("Text layer added: double-click it in Layers to edit, or use Place by clicking the model", now);
+            }
+            true
+        }
+        Err(e) => { state.set_status(format!("Text: {e}"), now); false }
+    }
+}
+
+/// Width of the floating text window in points (the dialog can never stretch past it).
+pub const WINDOW_WIDTH: f32 = 460.0;
+
+/// The floating text window: "new text" (type, font, size, colour, alignment, then place) or the
+/// editor of the selected text layer.
+pub fn window(state: &mut UiState, ctx: &egui::Context, now: f64) {
+    let Some(mode) = state.text.window else { return };
+    sync_edit(state);
+    if mode == Window::Edit && state.text.edit.is_none() { state.text.window = None; return; }
+    let embedded = state.session.embedded_fonts();
+    let mut open = true;
+    let mut close = false;
+    let title = if mode == Window::New { "New text" } else { "Edit text" };
+    let screen = ctx.content_rect();
+    let width = WINDOW_WIDTH.min((screen.width() - 32.0).max(280.0));
+    egui::Window::new(title).id(egui::Id::new("text_window")).open(&mut open).collapsible(false).resizable(false)
+        .default_width(width).max_width(width)
+        .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, -40.0))
+        .show(ctx, |ui| {
+        // Fixed content width: sliders and the text box fill the dialog, never the screen.
+        ui.set_width(width - 24.0);
+        ui.spacing_mut().item_spacing.y = 4.0;
+        match mode {
+            Window::New => {
+                let first = state.text.compose.is_none();
+                let mut d = state.text.compose.take().unwrap_or_else(|| state.session.new_text_decal(""));
+                controls(ui, &mut d, &mut state.text, &embedded, false, first);
+                ui.add_space(4.0);
+                let ready = !d.style.text.trim().is_empty();
+                ui.horizontal(|ui| {
+                    let place = ui.add_enabled(ready, egui::Button::new(egui::RichText::new("Add and place on model").strong())).on_hover_text("Adds the text layer, then click the model to put it where you want it");
+                    if place.clicked() && add_layer(state, &d, true, now) { close = true; }
+                    if ui.add_enabled(ready, egui::Button::new("Add centered")).on_hover_text("Adds the text layer in the middle of the texture; move it later with Position X/Y").clicked() && add_layer(state, &d, false, now) { close = true; }
+                    if ui.button("Cancel").clicked() { close = true; }
+                });
+                hint(ui, "Colour comes from the Base Color row below (the brush colour by default). Double-click a text layer in Layers to edit it later.");
+                state.text.compose = Some(d);
+            }
+            Window::Edit => { edit_body(state, ui, now, &embedded); }
+        }
+    });
+    if !open || close { state.text.window = None; state.text.compose = None; }
+}
+
+pub fn show(state: &mut UiState, ui: &mut Ui, now: f64) {
+    let embedded = state.session.embedded_fonts();
+    sync_edit(state);
 
     section(ui, "text", "Text", false, |ui| {
-        if let Some(mut d) = state.text.edit.take() {
-            ui.label(caption("Editing the selected text layer"));
-            let e = controls(ui, &mut d, &mut state.text, &embedded, true);
-            if e.done && state.text.edit_base.as_ref() != Some(&d) {
-                if let Err(err) = state.session.update_selected_text(d.clone()) { state.set_status(format!("Text: {err}"), now); }
-                state.gpu_dirty = true;
-            }
-            state.text.edit = Some(d);
-            if ui.button("Place by clicking the model").clicked() { state.text.armed = Some(Armed::PlaceDecal); }
-            hint(ui, "Changes apply when you release a slider or leave the text box. Undo (Ctrl+Z) steps back one edit.");
-        } else {
+        if !edit_body(state, ui, now, &embedded) {
             let mut d = state.text.draft.take().unwrap_or_else(|| state.session.new_text_decal("Text"));
             // New text uses the brush colour, so a changed brush material is picked up.
-            let e = controls(ui, &mut d, &mut state.text, &embedded, false);
+            let e = controls(ui, &mut d, &mut state.text, &embedded, false, false);
             let _ = e;
             ui.add_space(4.0);
             if primary_button(ui, "Add text layer (decal)").on_hover_text("An editable layer you can move, rotate and re-render at any resolution").clicked() {
-                let mut at = d.clone();
-                at.center = Vec2::splat(0.5);
-                match state.session.add_text_layer(at) {
-                    Ok(()) => { state.gpu_dirty = true; state.set_status("Text layer added: set its position in this panel or place it on the model", now); }
-                    Err(e) => state.set_status(format!("Text: {e}"), now),
-                }
+                add_layer(state, &d, true, now);
             }
             ui.horizontal(|ui| {
                 if ui.button("Use as brush tip").on_hover_text("Strokes then paint the text along the path").clicked() {

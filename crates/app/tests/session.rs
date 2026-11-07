@@ -784,3 +784,65 @@ fn a_radial_symmetry_stroke_is_one_undo_step_that_restores_the_document_exactly(
     s.perform(Action::Redo).unwrap();
     assert_ne!(s.document(), &before);
 }
+
+#[test]
+fn thumbnail_tiling_boost_repeats_fills_in_the_preview_only_and_leaves_the_asset_alone() {
+    use subcraft_app::assets::Library;
+    use subcraft_app::thumbnails::{PREVIEW_PROJECTED_BOOST, PREVIEW_UV_BOOST, PreviewScene, zoom_out_tiling};
+    use subcraft_doc::ProjectionMode;
+    let lib = Library::builtin();
+    let scene = PreviewScene::sphere();
+    let ts = scene.texture_set();
+    let m = lib.smart_materials.iter().find(|m| m.name == "Brushed Steel").unwrap();
+    let original = m.build(ts);
+    let mut boosted = original.clone();
+    zoom_out_tiling(&mut boosted);
+    let scales = |l: &subcraft_doc::Layer| -> Vec<(ProjectionMode, [f32; 2])> {
+        l.children().iter().filter_map(|c| match &c.content { LayerContent::Fill(f) => Some((f.projection.mode, f.projection.scale)), _ => None }).collect()
+    };
+    let (before, after) = (scales(&original), scales(&boosted));
+    assert!(!before.is_empty() && before.len() == after.len(), "the folder's fills are visited");
+    for ((mode, a), (_, b)) in before.iter().zip(&after) {
+        let k = if *mode == ProjectionMode::Uv { PREVIEW_UV_BOOST } else { PREVIEW_PROJECTED_BOOST };
+        assert!((b[0] - a[0] * k).abs() < 1e-5 && (b[1] - a[1] * k).abs() < 1e-5, "{mode:?}: {a:?} -> {b:?}");
+    }
+    // The boosted preview still composites, and a procedural tiled more often is not the same image.
+    let plain = scene.composite(original.clone());
+    let tiled = scene.composite(boosted);
+    assert_ne!(plain.channel(ChannelKind::BaseColor).unwrap().get(100, 100), tiled.channel(ChannelKind::BaseColor).unwrap().get(100, 100));
+    assert_eq!(scales(&original), before, "the source layer is unchanged");
+}
+
+#[test]
+fn bake_log_records_timing_path_skipped_sets_and_a_missing_high_poly() {
+    use subcraft_app::{BakeLogLevel, BakeRequest, BakeSettings, MeshMapKind, bake_log_text};
+    let mut s = Session::new(primitives::plane(2., 1), 128);
+    let ts = s.selection().texture_set;
+    let run = |s: &mut Session, request: BakeRequest| {
+        let mut job = s.start_bake(request);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        let result = loop {
+            if let Some(result) = job.poll(s) { break result; }
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        };
+        (result, job.log().to_vec())
+    };
+    let settings = BakeSettings { size: 64, maps: vec![MeshMapKind::Normal, MeshMapKind::AmbientOcclusion], ao_samples: 4, use_gpu: false, ..Default::default() };
+    // One good set and one without texels (skipped, with a warning).
+    let (result, log) = run(&mut s, BakeRequest { settings: settings.clone(), high_poly: None, texture_sets: vec![(ts, 0), (ts, 999)] });
+    assert!(result.is_err(), "the skipped set still fails the job as before");
+    let text = bake_log_text(&log);
+    assert!(log[0].text.contains("2 texture set(s) at 64 px") && log[0].text.contains("Ambient Occlusion") && log[0].text.contains("GPU off"), "{text}");
+    assert!(text.contains("No high poly"), "{text}");
+    assert!(text.contains("Normal:") && text.contains("Ambient Occlusion:") && text.contains(" s on CPU"), "per-map timing and path: {text}");
+    let skipped = log.iter().find(|l| l.text.contains("(material slot 999) skipped")).expect("skipped set is logged");
+    assert_eq!(skipped.level, BakeLogLevel::Warning);
+    assert!(log.last().unwrap().text.starts_with("Finished in"), "{text}");
+    assert!(log.windows(2).all(|w| w[0].at <= w[1].at), "timestamps never go back");
+    assert!(text.lines().next().unwrap().starts_with("[   0."), "plain text form: {text}");
+    // A high-poly file that is not there is an error line, and nothing is baked.
+    let (result, log) = run(&mut s, BakeRequest { settings, high_poly: Some("definitely-missing-high.obj".into()), texture_sets: vec![(ts, 0)] });
+    assert!(result.unwrap_err().contains("high poly"));
+    assert!(log.iter().any(|l| l.level == BakeLogLevel::Error && l.text.contains("High poly could not be loaded")), "{}", bake_log_text(&log));
+}

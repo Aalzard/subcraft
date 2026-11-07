@@ -98,6 +98,40 @@ fn main() {
         println!("{:?} in {:?}", found.map(|v| v.iter().map(|s| (s.width, s.height)).collect::<Vec<_>>()), t.elapsed());
         return;
     }
+    if args.get(3).is_some_and(|a| a == "gens") {
+        // `gens`: every mesh-map generator mask effect (graph name and its set tweaks), per layer.
+        let mut spp = subcraft_mesh::spp::SppFile::open(Path::new(path)).unwrap();
+        let project = spp.project().unwrap();
+        for ts in &project.texture_sets {
+            subcraft_mesh::spp::document::walk_layers(&ts.layers, &mut |l, d| {
+                for a in &l.mask {
+                    if let subcraft_mesh::spp::document::ActionKind::Fill { sources, .. } = &a.kind {
+                        for src in sources {
+                            if let subcraft_mesh::spp::document::SourceInfo::Procedural { graph, .. } = src {
+                                if graph.name().starts_with("mg_") || graph.name().contains("wear") {
+                                    let eff: Vec<String> = l.mask.iter().map(|a| match &a.kind {
+                                subcraft_mesh::spp::document::ActionKind::Fill { sources, .. } => match sources.first() {
+                                    Some(subcraft_mesh::spp::document::SourceInfo::Procedural { graph, .. }) => graph.name().to_string(),
+                                    Some(subcraft_mesh::spp::document::SourceInfo::Uniform { color, .. }) => format!("uniform{:.2}", color[0]),
+                                    _ => "fill".into(),
+                                },
+                                subcraft_mesh::spp::document::ActionKind::Filter { graph } => format!("filter:{}", graph.name()),
+                                subcraft_mesh::spp::document::ActionKind::Levels(_) => "levels".into(),
+                                subcraft_mesh::spp::document::ActionKind::Paint { .. } => "paint".into(),
+                                subcraft_mesh::spp::document::ActionKind::Eraser { .. } => "erase".into(),
+                                subcraft_mesh::spp::document::ActionKind::Decal { .. } => "decal".into(),
+                                other => format!("{:?}", other).chars().take(10).collect(),
+                            }).collect();
+                            println!("{}{} | {} | {:?} | {}", " ".repeat(d), l.name, graph.name(), graph.tweaks, eff.join(">"));
+                                }
+                            }
+                        }
+                    }
+                }
+            }, 0);
+        }
+        return;
+    }
     if args.get(3).is_some_and(|a| a == "stencils") {
         // `stencils`: every Substance-graph stencil of the strokes (url, stroke count) and what the
         // archive holds: file sizes and the image signatures found inside the compiled graph.
@@ -414,6 +448,105 @@ fn main() {
             println!("== trace {x},{y} {kind:?}");
             trace(&session, &f, x, y, kind);
         }
+        return;
+    }
+    if args.get(3).is_some_and(|a| a == "genfit") {
+        // `genfit`: for every layer whose whole mask is one mesh-map generator, Painter's effective mask
+        // (as `layer_alpha`) written as `pm_<k>.f32`, with `gens.txt` listing graph, tweaks and our mapped
+        // generator, in the same order. Fit material for the generator models.
+        let mut spp = subcraft_mesh::spp::SppFile::open(Path::new(path)).unwrap();
+        let project = spp.project().unwrap();
+        let mut theirs: Vec<(String, subcraft_mesh::spp::document::GraphRef)> = Vec::new();
+        for pts in &project.texture_sets {
+            subcraft_mesh::spp::document::walk_layers(&pts.layers, &mut |l, _| {
+                if l.mask.len() == 1 {
+                    if let subcraft_mesh::spp::document::ActionKind::Fill { sources, .. } = &l.mask[0].kind {
+                        if let Some(subcraft_mesh::spp::document::SourceInfo::Procedural { graph, .. }) = sources.first() {
+                            if matches!(graph.name().to_ascii_lowercase().as_str(), "mg_dirt" | "mg_curvature" | "mg_ambient_occlusion" | "mg_position") || graph.name().to_ascii_lowercase().contains("edge_wear") {
+                                theirs.push((l.name.clone(), graph.clone()));
+                            }
+                        }
+                    }
+                }
+            }, 0);
+            break;
+        }
+        fn collect(l: &subcraft_doc::Layer, path: &mut Vec<usize>, out: &mut Vec<(Vec<usize>, String, subcraft_doc::Generator)>) {
+            if let Some(m) = &l.mask {
+                if m.effects.len() == 1 {
+                    if let subcraft_doc::MaskEffectKind::Generator(g) = &m.effects[0].kind {
+                        out.push((path.clone(), l.name.clone(), *g));
+                    }
+                }
+            }
+            if let LayerContent::Group(g) = &l.content {
+                for (i, c) in g.children.iter().enumerate() {
+                    path.push(i);
+                    collect(c, path, out);
+                    path.pop();
+                }
+            }
+        }
+        let mut ours = Vec::new();
+        collect(&folder, &mut Vec::new(), &mut ours);
+        println!("project {} clean generator layers, rebuilt {}", theirs.len(), ours.len());
+        let flat_bc = dense(&flat[&ChannelKind::BaseColor], 3);
+        let n = (w * h) as usize;
+        let mut meta = std::fs::File::create(dir.join("gens.txt")).unwrap();
+        for (k, ((tname, graph), (path, oname, g))) in theirs.iter().zip(ours.iter()).enumerate() {
+            if tname.trim() != oname.trim() {
+                println!("misaligned at {k}: {tname} vs {oname}");
+                break;
+            }
+            fn mutate(l: &mut subcraft_doc::Layer, path: &[usize], how: &dyn Fn(&mut subcraft_doc::Layer)) {
+                if path.is_empty() {
+                    how(l);
+                    return;
+                }
+                if let LayerContent::Group(g) = &mut l.content {
+                    mutate(Arc::make_mut(&mut g.children[path[0]]), &path[1..], how);
+                }
+            }
+            let mut without = (*folder).clone();
+            mutate(&mut without, path, &|l| l.visible = false);
+            let mut target = (*folder).clone();
+            mutate(&mut target, path, &|l| l.mask = None);
+            let below = stack_composite(&session, without);
+            let full = stack_composite(&session, target);
+            let (b, u) = (dense(below.channel(ChannelKind::BaseColor).unwrap(), 3), dense(full.channel(ChannelKind::BaseColor).unwrap(), 3));
+            let mut pm = vec![-1.0f32; n];
+            for i in 0..n {
+                let (mut num, mut den) = (0.0f32, 0.0f32);
+                for c in 0..3 {
+                    let d = u[i * 3 + c] - b[i * 3 + c];
+                    num += (flat_bc[i * 3 + c] - b[i * 3 + c]) * d;
+                    den += d * d;
+                }
+                if den > 0.02 * 0.02 * 3.0 {
+                    pm[i] = (num / den).clamp(-0.5, 1.5);
+                }
+            }
+            {
+                fn at(l: &subcraft_doc::Layer, path: &[usize]) -> subcraft_doc::Layer {
+                    match (path.first(), &l.content) {
+                        (Some(i), LayerContent::Group(g)) => at(&g.children[*i], &path[1..]),
+                        _ => l.clone(),
+                    }
+                }
+                let layer = at(&folder, path);
+                if let Some(mask) = &layer.mask {
+                    let empty = subcraft_materials::MeshMaps::default();
+                    let img = subcraft_app::spp_stack::eval_mask_image(mask, ts, &geometry, session.resources(), session.mesh_maps(ts.id).unwrap_or(&empty));
+                    std::fs::write(dir.join(format!("our_{k}.f32")), dense(&img, 1).iter().flat_map(|v| v.to_le_bytes()).collect::<Vec<u8>>()).unwrap();
+                }
+            }
+            let valid = pm.iter().filter(|v| **v >= 0.0).count();
+            std::fs::write(dir.join(format!("pm_{k}.f32")), pm.iter().flat_map(|v| v.to_le_bytes()).collect::<Vec<u8>>()).unwrap();
+            writeln!(meta, "{k}	{}	{}	{valid}	{:?}	{:?}", tname.trim(), graph.name(), graph.tweaks, g).unwrap();
+            println!("{k} {tname} {} valid texels {valid}", graph.name());
+        }
+        let covf: Vec<f32> = cov.iter().map(|c| if *c { 1.0 } else { 0.0 }).collect();
+        write_f32(dir, "coverage", w, h, 1, &covf, &mut index);
         return;
     }
     if args.get(3).is_some_and(|a| a == "layer_alpha") {
