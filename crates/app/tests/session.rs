@@ -914,3 +914,30 @@ fn high_poly_placement_makes_a_misplaced_file_bake_and_saves_with_the_project() 
     assert_eq!(reopened.settings().bake_placement, settings.bake_placement);
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn per_map_progress_never_goes_backwards_and_ends_with_every_map_done() {
+    use subcraft_app::{BakeRequest, BakeSettings, MapState, MeshMapKind};
+    let mut s = Session::new(primitives::sample_crate(), 128);
+    let ts = s.selection().texture_set;
+    let maps = vec![MeshMapKind::Normal, MeshMapKind::Curvature, MeshMapKind::AmbientOcclusion, MeshMapKind::Thickness];
+    let mut job = s.start_bake(BakeRequest { settings: BakeSettings { size: 128, maps: maps.clone(), ao_samples: 8, ..Default::default() }, high_poly: None, texture_sets: vec![(ts, 0)] });
+    let rank = |m: MapState| match m { MapState::Waiting => 0, MapState::Running => 1, MapState::Done | MapState::Warning => 2 };
+    let mut last = vec![0; maps.len()];
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    let result = loop {
+        let done = job.poll(&mut s);
+        let rows = job.map_progress(&maps);
+        for (i, r) in rows.iter().enumerate() {
+            assert!(r.seconds >= 0.0 && !r.seconds.is_sign_negative(), "time is never negative: {:?}", r.seconds);
+            assert!(rank(r.state) >= last[i], "{:?} went backwards", r.kind);
+            last[i] = rank(r.state);
+        }
+        if let Some(r) = done { break r; }
+        assert!(std::time::Instant::now() < deadline, "bake timed out");
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    };
+    assert_eq!(result, Ok(1));
+    let rows = job.map_progress(&maps);
+    assert!(rows.iter().all(|r| r.state == MapState::Done), "{:?}", rows.iter().map(|r| (r.kind, r.state)).collect::<Vec<_>>());
+}

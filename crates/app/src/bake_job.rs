@@ -89,6 +89,22 @@ pub struct BakeJob {
     pub latest_map: Option<(TextureSetId, MeshMapKind)>,
     notices: Vec<String>,
     log: Vec<BakeLogLine>,
+    /// Maps seen finishing while the job runs (the per-set reports only arrive at the end of a set).
+    live: LiveMaps,
+}
+
+#[derive(Default)]
+struct LiveMaps {
+    done: BTreeMap<MeshMapKind, f32>,
+    current: Option<(MeshMapKind, std::time::Instant)>,
+}
+
+impl LiveMaps {
+    fn observe(&mut self, now_current: Option<MeshMapKind>) {
+        if self.current.map(|c| c.0) == now_current { return; }
+        if let Some((kind, at)) = self.current.take() { self.done.insert(kind, at.elapsed().as_secs_f32()); }
+        if let Some(kind) = now_current { self.current = Some((kind, std::time::Instant::now())); }
+    }
 }
 
 impl Drop for BakeJob {
@@ -204,7 +220,7 @@ impl BakeJob {
             say(BakeLogLevel::Info, format!("Finished in {:.1} s.", started.elapsed().as_secs_f32()));
             let _ = tx.send(Message::Finished);
         });
-        Self { progress, sets_done, sets_total, stage, rx, applied: 0, error: None, high_poly, low: scene, started: std::time::Instant::now(), elapsed: None, reports: Vec::new(), latest_map: None, notices: Vec::new(), log: Vec::new() }
+        Self { progress, sets_done, sets_total, stage, rx, applied: 0, error: None, high_poly, low: scene, started: std::time::Instant::now(), elapsed: None, reports: Vec::new(), latest_map: None, notices: Vec::new(), log: Vec::new(), live: LiveMaps::default() }
     }
 
     /// Overall progress 0..1.
@@ -240,11 +256,14 @@ impl BakeJob {
         let current = if finished { None } else { self.progress.current_map() };
         maps.iter().map(|&kind| {
             let mine: Vec<&MapReport> = self.reports.iter().filter(|r| r.kind == kind).collect();
-            let seconds = mine.iter().map(|r| r.seconds).sum();
-            let state = if mine.iter().any(|r| r.backend.contains("failed")) { MapState::Warning }
-                else if current == Some(kind) { MapState::Running }
-                else if mine.len() >= self.sets_total.max(1) || (finished && !mine.is_empty()) { MapState::Done }
-                else { MapState::Waiting };
+            let reported: f32 = mine.iter().map(|r| r.seconds).sum::<f32>().max(0.0);
+            let live_done = self.live.done.get(&kind).copied();
+            let running_for = self.live.current.filter(|c| c.0 == kind).map(|c| c.1.elapsed().as_secs_f32());
+            let (state, seconds) = if mine.iter().any(|r| r.backend.contains("failed")) { (MapState::Warning, reported) }
+                else if current == Some(kind) { (MapState::Running, running_for.unwrap_or(0.0)) }
+                else if mine.len() >= self.sets_total.max(1) || (finished && !mine.is_empty()) { (MapState::Done, reported) }
+                else if let Some(t) = live_done { (MapState::Done, t) }
+                else { (MapState::Waiting, 0.0) };
             MapProgress { kind, state, seconds }
         }).collect()
     }
@@ -267,6 +286,7 @@ impl BakeJob {
             self.cancel();
             return Some(Err("bake discarded: the project mesh changed".into()));
         }
+        if self.elapsed.is_none() { self.live.observe(self.progress.current_map()); }
         // Installing the display layer must not commit a partially drawn brush stroke.
         if session.is_stroking() { return None; }
         loop {
@@ -276,6 +296,7 @@ impl BakeJob {
                     session.set_mesh_maps(ts, BTreeMap::from([(kind, image)]));
                     if self.high_poly && kind == MeshMapKind::Normal { session.show_baked_normal(ts); }
                     self.latest_map = Some((ts, kind));
+                    if self.live.current.map(|c| c.0) == Some(kind) { self.live.observe(None); } else { self.live.done.entry(kind).or_insert(0.0); }
                     return None;
                 }
                 Ok(Message::Baked) => self.applied += 1,
@@ -308,7 +329,7 @@ mod tests {
     fn queued_job(session: &Session, rx: Receiver<Message>) -> BakeJob {
         BakeJob { progress: Arc::new(Progress::new()), sets_done: Arc::new(AtomicUsize::new(0)),
             sets_total: 1, stage: Arc::new(Mutex::new(String::new())), rx, applied: 0, error: None, high_poly: false,
-            low: session.scene().mesh.clone(), started: std::time::Instant::now(), elapsed: None, reports: Vec::new(), latest_map: None, notices: Vec::new(), log: Vec::new() }
+            low: session.scene().mesh.clone(), started: std::time::Instant::now(), elapsed: None, reports: Vec::new(), latest_map: None, notices: Vec::new(), log: Vec::new(), live: LiveMaps::default() }
     }
 
     #[test]
@@ -387,7 +408,7 @@ mod tests {
         drop(tx);
         let mut job = BakeJob { progress: Arc::new(Progress::new()), sets_done: Arc::new(AtomicUsize::new(0)),
             sets_total: 1, stage: Arc::new(Mutex::new(String::new())), rx, applied: 0, error: None, high_poly: true,
-            low: session.scene().mesh.clone(), started: std::time::Instant::now(), elapsed: None, reports: Vec::new(), latest_map: None, notices: Vec::new(), log: Vec::new() };
+            low: session.scene().mesh.clone(), started: std::time::Instant::now(), elapsed: None, reports: Vec::new(), latest_map: None, notices: Vec::new(), log: Vec::new(), live: LiveMaps::default() };
         assert!(job.poll(&mut session).unwrap().unwrap_err().contains("stopped unexpectedly"));
     }
 }

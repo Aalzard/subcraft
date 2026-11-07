@@ -65,7 +65,7 @@ pub fn card_title(ui: &mut Ui, icon: &str, title: &str, right: impl FnOnce(&mut 
 /// One line per map while baking: status icon, name, time spent.
 pub fn status_row(ui: &mut Ui, p: &MapProgress) {
     ui.horizontal(|ui| {
-        ui.set_min_height(22.0);
+        ui.set_min_height(20.0);
         let (icon, color): (&str, Color32) = match p.state {
             MapState::Waiting => ("\u{b7}", TEXT_FAINT),
             MapState::Running => ("", ACCENT),

@@ -525,10 +525,11 @@ pub fn bake_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
     let low_box = { let b = state.session.scene().mesh.bounds; (b.min, b.max) };
     let high_box = state.bake.preview_mesh.as_ref().map(|m| (m.bounds.min, m.bounds.max));
     let baked_maps: Vec<MeshMapKind> = state.session.mesh_maps(sel_id).map(|m| m.iter().map(|(k, _)| k).collect()).unwrap_or_default();
-    let reserve = if state.bake.job.is_some() || !state.bake.map_rows.is_empty() { 340.0 } else { 200.0 };
+    let reserve = if state.bake.job.is_some() || !state.bake.map_rows.is_empty() { 410.0 } else { 150.0 };
     let max_height = (ctx.content_rect().height() - 130.0 - reserve).max(160.0);
     crate::widgets::window(ctx, window_title(tr("Bake Mesh Maps"))).open(&mut open).collapsible(false).default_width(500.0)
-        .default_pos(egui::pos2(32., 80.)).show(ctx, |ui| {
+        .default_pos(egui::pos2(32., if ctx.content_rect().height() < 800.0 { 48. } else { 80. })).show(ctx, |ui| {
+        ui.set_max_width((ctx.content_rect().width() - 80.0).clamp(300.0, 540.0));
         egui::ScrollArea::vertical().id_salt("bake_scroll").max_height(max_height).auto_shrink([false, true]).show(ui, |ui| {
         ui.spacing_mut().item_spacing.y = 6.0;
         let busy = state.bake.job.is_some();
@@ -663,7 +664,13 @@ pub fn bake_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
         // --- Progress and result (pinned below the scrolling cards, so Bake is always in view) ---
         card(ui, theme::ACCENT, |ui| {
             ui.set_width(ui.available_width());
-            card_title(ui, icons::MAGIC_WAND, tr("Bake"), |_| {});
+            let mut go = false;
+            let can = !state.bake.settings.maps.is_empty();
+            let running = state.bake.job.as_ref();
+            card_title(ui, icons::MAGIC_WAND, tr("Bake"), |ui| match &running {
+                Some(job) => { if secondary_button(ui, tr("Cancel")).clicked() { job.cancel(); } }
+                None => { go = ui.add_enabled_ui(can, |ui| primary_button(ui, format!("{}  {}", icons::MAGIC_WAND, tr("Bake")))).inner.clicked(); }
+            });
             if let Some(job) = &state.bake.job {
                 ui.label(dim(&job.stage()));
                 ui.add(egui::ProgressBar::new(job.fraction()).show_percentage().fill(theme::ACCENT));
@@ -681,21 +688,7 @@ pub fn bake_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
             }
             if !state.bake.map_rows.is_empty() || !state.bake.log.is_empty() { ui.add_space(4.0); }
             bake_log_section(ui, &state.bake.log);
-            ui.add_space(4.0);
-            match &state.bake.job {
-                Some(job) => {
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if secondary_button(ui, tr("Cancel")).clicked() {
-                            job.cancel();
-                        }
-                    });
-                }
-                None => {
-                    let can = !state.bake.settings.maps.is_empty();
-                    let go = ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.add_enabled_ui(can, |ui| primary_button(ui, format!("{}  {}", icons::MAGIC_WAND, tr("Bake")))).inner.clicked()
-                    });
-                    if go.inner {
+            if go {
                         state.bake.result = None;
                         state.bake.notices.clear();
                         state.bake.log.clear();
@@ -718,8 +711,6 @@ pub fn bake_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
                             .then(|| state.bake.preview_source.clone()).flatten();
                         state.bake.job = Some(state.session.start_bake_prepared(request, prepared));
                         state.set_status("Baking…", now);
-                    }
-                }
             }
         });
     });
@@ -945,7 +936,7 @@ mod bake_log_tests {
             let mut out = ctx.run_ui(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1100.0, 900.0))), ..Default::default() }, |ui| bake_window(state, ui.ctx(), 0.0));
             out.textures_delta.clear(); out
         };
-        frame(&mut state); frame(&mut state);
+        for _ in 0..5 { frame(&mut state); }
         let out = frame(&mut state);
         let has = |needle: &str| out.shapes.iter().any(|s| matches!(&s.shape, egui::epaint::Shape::Text(t) if t.galley.job.text.contains(needle)));
         assert!(has("Details (1 warning(s) or error(s))"), "problems are counted in the collapsed header");
