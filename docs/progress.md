@@ -4529,3 +4529,9 @@ frame pacing. Mouse/pen pressure per sample inside a frame is still the last val
 ## 2026-11-07 — Default texture resolution is 2048
 
 * New projects already defaulted to 2048 (`NewProjectSettings`); `DEFAULT_RESOLUTION` (sample crate, models opened without the New Project window, SPP import, mesh reload fallback) was 1024 and is now 2048. Saved projects store each set's resolution explicitly, so existing files keep their size. 256-4096 (and 128 in the Texture Sets panel) stay in every resolution list. Unchanged: the Bake window size default (1024), UV unwrap packing resolution, example binaries.
+## 2026-11-07 — New logo and warm charcoal palette (branch branding-logo-orange-tint)
+
+* **Logo**: master art is the traced vector in `branding/make_assets.py` (2 ribbon polygons + a quadratic star, 0.991 IoU against the supplied 1254 px JPEG). It generates `branding/*` (orange PNG, white-on-transparent PNG, two SVGs, GitHub social preview), `apps/subcraft/assets/icon.ico` (16/24/32/48/64/128/256), `crates/ui/assets/icon.png` (window icon), `crates/ui/assets/logo-mark.png` (header mark) and `packaging/linux/subcraft.png` (also the source of the macOS .icns, built by `scripts/build-macos.sh`).
+* **UI**: the only logo is the 22 pt header mark (`theme::brand_mark`). Welcome, About, startup and empty states never had artwork and still have none.
+* **Palette**: surfaces and borders moved to hue ~25 deg, 5% HSL saturation, lightness kept (BG_1 36,36,36 to 38,36,34, etc.); text and accent untouched.
+* **Not verified by eye**: the new header mark and tint in the running app.

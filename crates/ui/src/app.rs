@@ -200,6 +200,8 @@ fn migrate_layout(dock: &mut DockState<Tab>) {
 
 // Apply the requested shelf-left / utility-tabs-bottom arrangement once, then retain edits.
 const DOCK_KEY: &str = "subcraft_dock_v5";
+/// Side of the header logo in points (a small mark, never a splash).
+const BRAND_MARK_SIZE: f32 = 22.0;
 
 /// A restored dock layout is only used when it still holds every panel exactly once, has no
 /// floating windows (they can be left off-screen after a monitor change) and no split is
@@ -891,9 +893,10 @@ impl SubcraftApp {
         }).inner;
         let left_edge = ui.scope_builder(egui::UiBuilder::new().max_rect(bar).layout(egui::Layout::left_to_right(egui::Align::Center)), |ui| {
             // Brand mark.
-            let (r, _) = ui.allocate_exact_size(egui::vec2(18.0, 18.0), egui::Sense::hover());
-            ui.painter().rect_filled(r, 0.0, theme::ACCENT);
-            ui.painter().rect_filled(egui::Rect::from_min_size(r.min + egui::vec2(5.0, 5.0), egui::vec2(8.0, 8.0)), 0.0, theme::BG_2);
+            // The only logo in the interface: the small mark beside the name.
+            let (r, _) = ui.allocate_exact_size(egui::vec2(BRAND_MARK_SIZE, BRAND_MARK_SIZE), egui::Sense::hover());
+            let mark = theme::brand_mark(ui.ctx());
+            ui.painter().image(mark.id(), r, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
             ui.label(RichText::new(tr("SubCraft")).font(theme::font_strong(14.0)).color(theme::TEXT));
             ui.add_space(10.0);
             self.menu(ui)
