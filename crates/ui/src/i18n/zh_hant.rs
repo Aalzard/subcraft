@@ -212,6 +212,8 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Reset", "重設"),
     ("Reset UI size to 95%", "將介面大小重設為 95%"),
     ("Reset camera", "重設相機"),
+    ("Side-by-side 3D | 2D", "3D | 2D 並排顯示"),
+    ("Tab 2D view behind 3D view", "將 2D 檢視頁籤置於 3D 檢視後方"),
     ("Reset layout", "重設版面配置"),
     ("Reset look", "重設外觀"),
     ("Reset tiling, offset and rotation", "重設拼貼、位移與旋轉"),
