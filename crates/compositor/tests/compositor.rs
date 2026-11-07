@@ -857,3 +857,52 @@ fn fine_grain_speckles_the_dirt_threshold() {
     assert_ne!(smooth, grainy, "grain must change the mask");
     assert!(grainy.iter().all(|v| v.is_finite()));
 }
+
+#[test]
+fn breakup_zero_is_exactly_smooth_whatever_the_grain() {
+    for kind in [GeneratorKind::Cavity, GeneratorKind::Edges] {
+        let mut g = Generator::new(kind);
+        g.level = 0.6; g.softness = 0.4; g.noise_amount = 0.0;
+        if let Some(e) = &mut g.edge_spread { e.distance = 0.0; e.variation = 0.0; }
+        g.painter = Some(subcraft_doc::PainterControls { grain: 0.0, ..Default::default() });
+        let clean = generator_texels(g.clone());
+        g.painter = Some(subcraft_doc::PainterControls { grain: 1.0, ..Default::default() });
+        let with_grain = generator_texels(g.clone());
+        assert_eq!(clean, with_grain, "{kind:?}: grain must not act at Breakup 0");
+        assert_eq!(clean, generator_texels(g), "{kind:?}: deterministic");
+        // Smooth input (a slow sine) gives no pixel-to-pixel jump above a small bound.
+        let jump = clean.chunks(RES as usize).flat_map(|row| row.windows(2).map(|w| (w[1] - w[0]).abs())).fold(0.0f32, f32::max);
+        assert!(jump < 0.2, "{kind:?}: max neighbour jump {jump}");
+    }
+}
+
+#[test]
+fn grain_fades_in_with_breakup() {
+    let mut g = Generator::new(GeneratorKind::Cavity);
+    g.level = 0.6; g.softness = 0.1; g.noise_amount = 0.3;
+    g.painter = Some(subcraft_doc::PainterControls { grain: 1.0, ..Default::default() });
+    let grainy = generator_texels(g.clone());
+    g.painter = Some(subcraft_doc::PainterControls::default());
+    assert_ne!(grainy, generator_texels(g), "grain still works once Breakup is up");
+}
+
+#[test]
+fn a_mesh_map_baked_below_the_set_resolution_is_sampled_smoothly_not_in_blocks() {
+    use subcraft_core::MeshMapKind;
+    let mut fx = Fixture::plane();
+    let half = RES / 2;
+    let dense: Vec<f32> = (0..half * half).map(|i| 0.1 + 0.8 * ((i % half) as f32 / half as f32)).collect();
+    fx.maps.insert(MeshMapKind::AmbientOcclusion, subcraft_image::TiledImage::from_dense(half, half, 1, [0.0; 4], &dense));
+    let mut ts = texture_set(); let tc = ts.clone();
+    let mut layer = fill_layer(&tc, &[(ChannelKind::Roughness, ChannelValue::scalar(1.))]);
+    let mut mask = Mask::new(RES, false);
+    let mut g = Generator::new(GeneratorKind::Cavity);
+    g.noise_amount = 0.0; g.painter = None; g.level = 0.5; g.softness = 1.0;
+    mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Generator(g))));
+    layer.mask = Some(mask); ts.insert_above(None, layer);
+    let out = composite_full(&ts, &fx.ctx()).channel(ChannelKind::Roughness).unwrap().to_dense();
+    let row = &out[(RES as usize / 2) * RES as usize..][..RES as usize];
+    let diffs: Vec<f32> = row[8..RES as usize - 8].windows(2).map(|w| (w[1] - w[0]).abs()).collect();
+    let (max, mean) = (diffs.iter().cloned().fold(0.0, f32::max), diffs.iter().sum::<f32>() / diffs.len() as f32);
+    assert!(max < mean * 1.6, "blocky: max step {max} vs mean {mean}");
+}

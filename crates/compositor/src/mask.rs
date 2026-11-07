@@ -88,7 +88,9 @@ fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]]) {
     }
     let floor = g.painter.map_or(0.0, |p| p.grunge_floor.clamp(0.0, 1.0));
     // Grain speckles dirt's threshold; the plain Edges threshold (no spread model) keeps its exact look.
-    let grain = if g.kind == GeneratorKind::Edges { 0.0 } else { g.painter.map_or(0.0, |p| p.grain.clamp(0.0, 1.0)) };
+    // Grain is part of Breakup: it fades in over the first quarter of the Breakup slider, so
+    // Breakup 0 is exactly smooth whatever the Grain value.
+    let grain = if g.kind == GeneratorKind::Edges { 0.0 } else { g.painter.map_or(0.0, |p| p.grain.clamp(0.0, 1.0)) * (g.noise_amount * 4.0).clamp(0.0, 1.0) };
     let fine = (grain > 0.0).then(|| fine_noise(g, geo));
     for (i, o) in out.iter_mut().enumerate() {
         let raw = match g.kind {
@@ -174,7 +176,7 @@ fn eval_edge_spread(g: &Generator, spread: subcraft_doc::EdgeSpread, tc: &TileCo
         subcraft_materials::sample::organic_tile_at(&p, offset, tc.geo)
     });
     let breakup = g.noise_amount.clamp(0.0, 1.0);
-    let grain = painter.map_or(0.0, |p| p.grain.clamp(0.0, 1.0));
+    let grain = painter.map_or(0.0, |p| p.grain.clamp(0.0, 1.0)) * (breakup * 4.0).clamp(0.0, 1.0);
     let fine = (grain > 0.0).then(|| fine_noise(g, tc.geo));
     let softness = (g.softness + painter.map_or(0.0, |p| p.smoothness.clamp(0.0, 1.0))).clamp(0.02, 1.0);
     for (i, o) in out.iter_mut().enumerate() {
