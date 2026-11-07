@@ -3,6 +3,15 @@
 What changed in SubCraft, newest first. Download the latest build from the
 [Releases page](https://github.com/Aalzard/subcraft/releases/latest).
 
+## Unreleased
+
+### Changed
+- **New logo**: a white hexagonal S ribbon with a four-point star on orange. It is the program,
+  window, taskbar, installer and README icon. Inside the app it appears only as a small mark at the
+  top left of the main window.
+- **Warmer charcoal**: panels, windows, fields and borders carry a very faint orange tint (the
+  lightness is unchanged, so the interface is as dark as before).
+
 ## 0.2.1 — 2026-11-04
 
 ### New

@@ -6,20 +6,20 @@ use std::sync::Arc;
 use egui::{Color32, CornerRadius, FontData, FontDefinitions, FontFamily, FontId, Margin, Shadow, Stroke, TextStyle, Visuals};
 use egui_dock::Style as DockStyle;
 
-// Surfaces, darkest to lightest.
-pub const BG_0: Color32 = Color32::from_rgb(25, 25, 25); // gaps between panels, status bar
-pub const BG_1: Color32 = Color32::from_rgb(36, 36, 36); // panels
-pub const BG_2: Color32 = Color32::from_rgb(41, 41, 41); // header bar, tab bar, cards
-pub const BG_3: Color32 = Color32::from_rgb(49, 49, 49); // controls
-pub const BG_4: Color32 = Color32::from_rgb(61, 61, 60); // hovered controls
+// Surfaces, darkest to lightest. The greys carry a faint warm tint (hue about 25 degrees, 5% HSL\n// saturation, lightness unchanged from the old neutral greys) so the charcoal sits with the orange accent.
+pub const BG_0: Color32 = Color32::from_rgb(26, 25, 24); // gaps between panels, status bar
+pub const BG_1: Color32 = Color32::from_rgb(38, 36, 34); // panels
+pub const BG_2: Color32 = Color32::from_rgb(43, 41, 39); // header bar, tab bar, cards
+pub const BG_3: Color32 = Color32::from_rgb(51, 49, 47); // controls
+pub const BG_4: Color32 = Color32::from_rgb(64, 60, 57); // hovered controls
 /// Quiet alternating bands, below the contrast of hover and selection.
-pub const ROW_BANDS: [Color32; 2] = [BG_1, Color32::from_rgb(46, 46, 46)];
-pub const SECTION_BANDS: [Color32; 2] = [BG_2, Color32::from_rgb(45, 45, 45)];
-pub const FIELD: Color32 = Color32::from_rgb(29, 29, 29); // text fields, slider rails
+pub const ROW_BANDS: [Color32; 2] = [BG_1, Color32::from_rgb(48, 46, 44)];
+pub const SECTION_BANDS: [Color32; 2] = [BG_2, Color32::from_rgb(47, 45, 43)];
+pub const FIELD: Color32 = Color32::from_rgb(30, 29, 28); // text fields, slider rails
 
 /// Stacked blocks in Properties (one channel, one mask effect): clearly lighter than the panel.
-pub const CARD: Color32 = Color32::from_rgb(56, 56, 55);
-pub const CARD_BORDER: Color32 = Color32::from_rgb(86, 86, 83);
+pub const CARD: Color32 = Color32::from_rgb(58, 55, 53);
+pub const CARD_BORDER: Color32 = Color32::from_rgb(89, 84, 80);
 
 /// Colour of the left accent bar of a channel card (muted, so the set reads as a family).
 pub fn channel_accent(kind: subcraft_core::ChannelKind) -> Color32 {
@@ -36,8 +36,8 @@ pub fn channel_accent(kind: subcraft_core::ChannelKind) -> Color32 {
     }
 }
 
-pub const BORDER: Color32 = Color32::from_rgb(52, 52, 52);
-pub const BORDER_STRONG: Color32 = Color32::from_rgb(72, 72, 70);
+pub const BORDER: Color32 = Color32::from_rgb(55, 52, 49);
+pub const BORDER_STRONG: Color32 = Color32::from_rgb(75, 70, 67);
 
 pub const TEXT: Color32 = Color32::from_rgb(196, 195, 191);
 pub const TEXT_DIM: Color32 = Color32::from_rgb(166, 165, 160);
@@ -237,6 +237,22 @@ pub fn dock_style(ui_style: &egui::Style) -> DockStyle {
     d.buttons.collapse_tabs_color = TEXT_FAINT;
     d.buttons.collapse_tabs_active_color = TEXT;
     d
+}
+
+/// The header logo (orange square with the white ribbon-star mark), uploaded once per context.
+pub fn brand_mark(ctx: &egui::Context) -> egui::TextureHandle {
+    let id = egui::Id::new("subcraft-brand-mark");
+    if let Some(handle) = ctx.data(|d| d.get_temp::<egui::TextureHandle>(id)) {
+        return handle;
+    }
+    let img = image::load_from_memory_with_format(include_bytes!("../assets/logo-mark.png"), image::ImageFormat::Png)
+        .expect("embedded logo is a valid PNG")
+        .into_rgba8();
+    let size = [img.width() as usize, img.height() as usize];
+    let color = egui::ColorImage::from_rgba_unmultiplied(size, img.as_raw());
+    let handle = ctx.load_texture("brand-mark", color, egui::TextureOptions::LINEAR);
+    ctx.data_mut(|d| d.insert_temp(id, handle.clone()));
+    handle
 }
 
 /// Window / taskbar icon: the app artwork (same as the .exe, installer and Linux icon).
