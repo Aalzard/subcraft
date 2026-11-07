@@ -122,6 +122,8 @@ fn run_app() -> anyhow::Result<()> {
             }
             "--bake-high" => options.bake_high_poly = Some(args.next().ok_or_else(|| anyhow::anyhow!("--bake-high expects a high-poly mesh path"))?.into()),
             "--bake-preview" => options.bake_preview_only = true,
+            "--bake-low" => options.bake_low = true,
+            "--select-layer" => options.select_layer = args.next(),
             "--bake-match" => {
                 options.bake_match = Some(match args.next().as_deref() {
                     Some("always") => subcraft_app::BakeMatchMode::Always,

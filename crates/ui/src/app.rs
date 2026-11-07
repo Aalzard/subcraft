@@ -138,6 +138,10 @@ pub struct LaunchOptions {
     pub bake_match: Option<subcraft_core::BakeMatchMode>,
     /// Inspect the real high/low geometry before baking, without starting the bake.
     pub bake_preview_only: bool,
+    /// Bake every mesh map of the low poly onto itself at start (scripted captures of the Mesh Maps rows).
+    pub bake_low: bool,
+    /// Select the layer of this name after the demo stack is built (scripted captures).
+    pub select_layer: Option<String>,
     /// Pin a completed map for reproducible native screenshot validation.
     pub bake_preview_map: Option<subcraft_core::MeshMapKind>,
     /// Light the viewport with the environment of this name.
@@ -179,9 +183,9 @@ pub fn default_layout() -> DockState<Tab> {
     let surface = dock.main_surface_mut();
     let [center, right] = surface.split_right(NodeIndex::root(), 0.76, vec![Tab::TextureSetList]);
     // Brush settings live inside the context-sensitive Properties panel (no separate tab).
-    let [_, stack] = surface.split_below(right, 0.11, vec![Tab::Layers, Tab::TextureSetSettings]);
-    surface.split_below(stack, 0.5, vec![Tab::Properties]);
-    surface.split_left(center, 0.25, vec![Tab::Shelf, Tab::History, Tab::Parts]);
+    let [_, stack] = surface.split_below(right, 0.10, vec![Tab::Layers, Tab::TextureSetSettings]);
+    surface.split_below(stack, 0.42, vec![Tab::Properties]);
+    surface.split_left(center, 0.265, vec![Tab::Shelf, Tab::History, Tab::Parts]);
     for visible in [Tab::Shelf, Tab::Layers, Tab::Viewport] {
         if let Some(path) = dock.find_tab(&visible) { let _ = dock.set_active_tab(path); }
     }
@@ -278,6 +282,17 @@ mod layout_tests {
         let vertical_parent = |n: NodeIndex| n.parent().map(|p| matches!(dock.main_surface()[p], Node::Vertical(_))).unwrap_or(false);
         assert!(vertical_parent(list) && vertical_parent(layers) && vertical_parent(props));
         assert!(!dock.iter_all_tabs().any(|(_, t)| *t == Tab::Brush));
+        // Proportions of Painter's right column: short list, Layers + Settings about a third,
+        // Properties the rest (about half or more).
+        let share = |n: NodeIndex| match dock.main_surface()[n.parent().unwrap()] { Node::Vertical(ref v) | Node::Horizontal(ref v) => if n.is_left() { v.fraction } else { 1.0 - v.fraction }, _ => unreachable!() };
+        let list_share = share(list);
+        let stack_parent = layers.parent().unwrap();
+        let props_share = share(props);
+        let layers_share = (1.0 - list_share) * share(layers);
+        assert!(list_share <= 0.15, "texture set list is short: {list_share}");
+        assert!((0.28..=0.40).contains(&layers_share), "layers + settings about a third: {layers_share}");
+        assert!(props_share * (1.0 - list_share) >= 0.5, "properties gets half or more");
+        let _ = stack_parent;
     }
     #[test]
     fn brush_settings_live_in_properties_and_old_layouts_with_a_brush_tab_still_load() {
@@ -550,6 +565,12 @@ impl SubcraftApp {
         crate::i18n::sync(&cc.egui_ctx, state.recovery.prefs.language);
         subcraft_compositor::gpu::set_gpu_compositing_enabled(state.recovery.prefs.use_gpu_compositing && !subcraft_app::safe_mode::is_active());
         state.recovery.show_prefs = options.preferences;
+        if options.bake_low && options.texture_set_settings { cc.egui_ctx.data_mut(|d| d.insert_temp(egui::Id::new("capture_jump_maps"), true)); }
+        if options.bake_low && options.bake_high_poly.is_none() {
+            if let Some(size) = options.bake_size { state.bake.settings.size = size; }
+            let texture_sets = state.session.document().texture_sets.iter().map(|t| (t.id, t.material_slot)).collect();
+            state.bake.job = Some(state.session.start_bake(subcraft_app::BakeRequest { settings: state.bake.settings.clone(), high_poly: None, texture_sets }));
+        }
         if let Some(high) = &options.bake_high_poly {
             state.bake.open = true;
             state.bake.high_poly = high.display().to_string();
@@ -589,6 +610,11 @@ impl SubcraftApp {
         }
         if options.demo || options.profile_edits.is_some() {
             build_demo(&mut state);
+        }
+        if let Some(name) = &options.select_layer {
+            let mut found = None;
+            state.session.selected_texture_set().walk(|l, _| if l.name == *name { found = Some(l.id); });
+            if let Some(id) = found { let _ = state.session.execute(Command::SelectLayer(Some(id))); }
         }
         if let Some(resolution) = options.profile_edits.as_ref().and_then(|p| p.1) {
             let _ = state.session.execute(Command::SetResolution { texture_set: None, resolution });
@@ -1453,6 +1479,7 @@ impl eframe::App for SubcraftApp {
         self.state.recovery.prefs.apply_ui_size(&ctx);
         crate::i18n::sync(&ctx, self.state.recovery.prefs.language);
         self.frames += 1;
+        if self.frames == 12 && ctx.data(|d| d.get_temp::<bool>(egui::Id::new("capture_jump_maps"))).unwrap_or(false) { ctx.data_mut(|d| d.insert_temp(egui::Id::new("tss_jump"), 2u8)); }
         if self.frames == 5 { subcraft_app::startup_probe::step(subcraft_app::startup_probe::COMPLETE_MARKER); }
         if self.frames == 15 && let Some(name) = self.state.capture_select_brush.take() {
             let now = ctx.input(|i| i.time);

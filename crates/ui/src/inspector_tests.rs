@@ -56,7 +56,7 @@ fn setup() -> (SubcraftApp, egui::Context, [LayerId; 3]) {
 fn frame(app: &mut SubcraftApp, ctx: &egui::Context, events: Vec<Event>) -> egui::FullOutput {
     let mut out = ctx.run_ui(
         egui::RawInput {
-            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(1600.0, 1100.0))),
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(1600.0, 1300.0))),
             events,
             ..Default::default()
         },
@@ -153,7 +153,7 @@ fn clicking_paint_fill_and_another_fill_reveals_the_selected_layers_controls() {
     assert_eq!(app.state.session.selection().layer, Some(paint));
     assert!(active(&app, Tab::Brush));
     let out = settle(&mut app, &ctx);
-    assert!(text(&out, "Paint target").is_some());
+    assert!(text(&out, "PAINT TARGET").is_some());
     assert!(text(&out, "Projection").is_none());
     assert_eq!(app.state.session.document(), &before);
     assert_eq!(app.state.session.history().entries().len(), history);
@@ -335,7 +335,7 @@ fn click_modified(
     for pressed in [true, false] {
         let mut out = ctx.run_ui(
             egui::RawInput {
-                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(1600.0, 1100.0))),
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(1600.0, 1300.0))),
                 events: vec![
                     Event::ModifiersChanged(modifiers),
                     Event::PointerMoved(pos),
@@ -509,7 +509,7 @@ fn effect_rows_add_select_edit_and_route_paint_effects_to_the_brush() {
     // The effect's own Properties replace the fill material controls.
     assert!(active(&app, Tab::Properties));
     let out = settle(&mut app, &ctx);
-    assert!(text(&out, "Blending per channel").is_some());
+    assert!(text(&out, "BLENDING PER CHANNEL").is_some());
     assert!(text(&out, "Projection").is_none());
     assert!(text(&out, "Levels (Base Color)").is_some(), "nested row under the layer");
     // Per-channel opacity sliders and their values fit inside the inspector (not past the edge).

@@ -4565,3 +4565,10 @@ frame pacing. Mouse/pen pressure per sample inside a frame is still the last val
 - Read-only / not supported: description (no field in the project schema), shader instance (single "Main shader"), channel format gear and channel remove X (no engine command; layers store per-channel data), non-square sizes.
 - Assets shelf: breadcrumb, search, always-visible icon category row (no dropdown), square tiles with per-category fallback icon, bottom icon toolbar (import / library folder) with preview-size slider. No filter/generator/text assets exist in the shelf data, so those categories are not listed.
 - Verified: unit tests (`texture_sets`, layout, shelf footer) and `session::clear_mesh_map_*`; native screenshots in `docs/ui/painter-layout/` (`--texture-set-settings` launch option added). Known pre-existing failure: `i18n::every_translated_key_exists...` (4 stale keys unrelated to this work).
+
+### Painter layout parity, round 2
+- Properties (Fill layers): FILL block (Projection dropdown wired to `SetFillProjection`; Filtering and UV Wrap shown disabled: no engine field; UV transformations group with a disabled Scale dropdown, Tiling sliders with link toggle, Rotation, Offset sliders), then MATERIAL block with Painter-order channel buttons (color metal rough nrm height ao emiss, toggled through `ToggleFillChannel`/`AddFillChannel`) and a disabled "Material mode / No Resource Selected" box. Section headers everywhere are now bold capitals without icons.
+- Default split fractions: list 10% of the right column, Layers | Texture Set Settings about 38%, Properties the rest; shelf about 20% of the window. Layout test checks the shares.
+- Capture options: `--bake-low` (bake all maps low-on-low), `--select-layer NAME`; with `--texture-set-settings --bake-low` the settings panel scrolls to the Mesh Maps rows.
+- i18n: stale keys removed and the new/renamed texts translated; the lib tests pass (100).
+- Still different: lock toggle uses a check/x glyph (the icon font has no lock), Fill rows use the existing slider widget style, Texture Set List keeps a minimum height, Paint/Filter/Generator panels got the header style only.

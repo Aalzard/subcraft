@@ -191,18 +191,18 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 });
             }
             LayerContent::Fill(f) => {
-                section(ui, "projection", tr("Projection"), true, |ui| {
+                block_header(ui, tr("Fill"));
+                {
                     let mut proj = f.projection;
-                    let changed = projection_editor(ui, &mut proj);
-                    if changed {
+                    if fill_properties(ui, &mut proj) {
                         cmds.push(Command::SetFillProjection { layer: id, projection: proj });
                     }
-                });
-
-                section(ui, "channels", tr("Channels"), true, |ui| {
+                }
+                block_header(ui, tr("Material"));
+                {
                 let states: Vec<_> = channels.iter().map(|k| (*k, f.channels.get(k).is_some_and(|c| c.enabled))).collect();
                 let addable: Vec<ChannelKind> = ADDABLE_CHANNELS.into_iter().filter(|k| !channels.contains(k)).collect();
-                match channel_chips(ui, &states, &addable) {
+                match material_buttons(ui, &states, &addable) {
                     Some(ChannelAction::Toggle(channel, solo)) => cmds.push(Command::ToggleFillChannel { layer: id, effect: None, channel, solo }),
                     Some(ChannelAction::Add(channel)) => cmds.push(Command::AddFillChannel { layer: id, channel }),
                     None => {}
@@ -276,7 +276,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         cmds.push(Command::SetFillChannel { layer: id, channel: *kind, fill: ch });
                     }
                 }
-                });
+                }
             }
         }
 
@@ -707,6 +707,120 @@ pub(crate) fn image_row(ui: &mut Ui, state: &mut UiState, resource: subcraft_cor
             clicked = secondary_button(ui, tr("Replace…")).clicked();
         });
     });
+    clicked
+}
+
+/// Painter-style block title: bold capitals, no caret.
+pub(crate) fn block_header(ui: &mut Ui, text: &str) {
+    ui.add_space(10.0);
+    ui.label(RichText::new(text.to_uppercase()).font(theme::font_strong(12.0)).color(theme::TEXT));
+    ui.add_space(4.0);
+}
+
+/// Labelled dropdown row (label column, then the combo filling the row). `options` is
+/// (value, label); a disabled row shows the current text and nothing to pick.
+fn dropdown_row<T: PartialEq + Copy>(ui: &mut Ui, id: &str, label: &str, value: &mut T, options: &[(T, &str)], enabled: bool, why_disabled: &str) -> bool {
+    let mut changed = false;
+    let current = options.iter().find(|o| o.0 == *value).map_or("", |o| o.1);
+    prop_row(ui, label, |ui| {
+        ui.add_enabled_ui(enabled, |ui| {
+            let r = egui::ComboBox::from_id_salt(("fill_dd", id)).width(ui.available_width().max(60.0)).selected_text(current).show_ui(ui, |ui| {
+                for (v, name) in options {
+                    if ui.selectable_value(value, *v, *name).changed() { changed = true; }
+                }
+            });
+            if !enabled && !why_disabled.is_empty() { r.response.on_disabled_hover_text(why_disabled); }
+        });
+    });
+    changed
+}
+
+/// The FILL block of Painter's Properties: Projection / Filtering / UV Wrap dropdowns and the
+/// collapsible UV transformations group. Filtering, UV Wrap and the Scale mode do not exist in the
+/// engine yet and are shown disabled.
+pub(crate) fn fill_properties(ui: &mut Ui, proj: &mut Projection) -> bool {
+    let mut changed = false;
+    changed |= dropdown_row(ui, "projection", tr("Projection"), &mut proj.mode,
+        &[(ProjectionMode::Uv, "UV projection"), (ProjectionMode::Triplanar, "Tri-planar projection"), (ProjectionMode::Planar, "Planar projection")], true, "");
+    let mut filtering = 0u8;
+    dropdown_row(ui, "filtering", tr("Filtering"), &mut filtering, &[(0u8, "Bilinear | HQ")], false, "Texture filtering is not configurable yet");
+    let mut wrap = 0u8;
+    dropdown_row(ui, "wrap", tr("UV Wrap"), &mut wrap, &[(0u8, "Repeat")], false, "UV wrap is always Repeat for now");
+    ui.add_space(4.0);
+    egui::CollapsingHeader::new(RichText::new(tr("UV transformations")).font(theme::font_strong(12.0)).color(theme::TEXT)).default_open(true).show(ui, |ui| {
+        let mut scale_mode = 0u8;
+        dropdown_row(ui, "scale", tr("Scale"), &mut scale_mode, &[(0u8, "Tiling")], false, "Only tiling is supported");
+        let lock_id = ui.id().with("tiling_lock");
+        let mut locked = ui.data(|d| d.get_temp::<bool>(lock_id)).unwrap_or(proj.scale[0] == proj.scale[1]);
+        ui.add(egui::Label::new(crate::widgets::row_label(tr("Tiling"))));
+        ui.horizontal(|ui| {
+            let w = ((ui.available_width() - 34.0) / 2.0 - 46.0).max(30.0);
+            ui.spacing_mut().slider_width = w;
+            let mut sx = proj.scale[0];
+            if ui.add(egui::Slider::new(&mut sx, 0.01..=16.0).clamping(egui::SliderClamping::Never).max_decimals(2)).changed() {
+                proj.scale[0] = sx;
+                if locked { proj.scale[1] = sx; }
+                changed = true;
+            }
+            let lock = ui.add(egui::Button::new(RichText::new(if locked { icons::CHECK } else { icons::X }).font(theme::font(12.0))).selected(locked).min_size(egui::vec2(26.0, 24.0)))
+                .on_hover_text(tr("Same tiling for X and Y; click to set them separately"));
+            if lock.clicked() {
+                locked = !locked;
+                if locked && proj.scale[1] != proj.scale[0] { proj.scale[1] = proj.scale[0]; changed = true; }
+            }
+            let mut sy = proj.scale[1];
+            if ui.add_enabled(!locked, egui::Slider::new(&mut sy, 0.01..=16.0).clamping(egui::SliderClamping::Never).max_decimals(2)).changed() {
+                proj.scale[1] = sy;
+                changed = true;
+            }
+        });
+        ui.data_mut(|d| d.insert_temp(lock_id, locked));
+        changed |= slider_row(ui, tr("Rotation"), egui::Slider::new(&mut proj.rotation_deg, -180.0..=180.0).suffix("°")).changed();
+        ui.add(egui::Label::new(crate::widgets::row_label(tr("Offset"))));
+        ui.horizontal(|ui| {
+            ui.spacing_mut().slider_width = ((ui.available_width() - 8.0) / 2.0 - 50.0).max(30.0);
+            changed |= ui.add(egui::Slider::new(&mut proj.offset[0], -1.0..=1.0).clamping(egui::SliderClamping::Never).max_decimals(3)).changed();
+            changed |= ui.add(egui::Slider::new(&mut proj.offset[1], -1.0..=1.0).clamping(egui::SliderClamping::Never).max_decimals(3)).changed();
+        });
+        if proj.mode == ProjectionMode::Triplanar {
+            changed |= slider_row(ui, tr("Sharpness"), egui::Slider::new(&mut proj.triplanar_sharpness, 1.0..=32.0)).changed();
+        }
+        if proj.mode == ProjectionMode::Planar {
+            prop_row(ui, tr("Axis"), |ui| { changed |= segmented(ui, &mut proj.planar_axis, &[(0u8, "X"), (1, "Y"), (2, "Z")]); });
+        }
+        let default = Projection { mode: proj.mode, planar_axis: proj.planar_axis, ..Projection::default() };
+        if *proj != default && ui.small_button(tr("Reset tiling, offset and rotation")).clicked() { *proj = default; changed = true; }
+    });
+    changed
+}
+
+/// The MATERIAL block's channel buttons in Painter's order and lower-case short names, plus the
+/// material-mode box beneath them (disabled: SubCraft has no material resource slot yet).
+pub(crate) fn material_buttons(ui: &mut Ui, states: &[(ChannelKind, bool)], addable: &[ChannelKind]) -> Option<ChannelAction> {
+    const ORDER: [ChannelKind; 7] = [ChannelKind::BaseColor, ChannelKind::Metallic, ChannelKind::Roughness, ChannelKind::Normal, ChannelKind::Height, ChannelKind::AmbientOcclusion, ChannelKind::Emissive];
+    let mut clicked = None;
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing = egui::vec2(5.0, 6.0);
+        for kind in ORDER {
+            let state = states.iter().find(|s| s.0 == kind).map(|s| s.1);
+            let can_add = state.is_none() && addable.contains(&kind);
+            let r = ui.add_enabled(state.is_some() || can_add, egui::Button::new(RichText::new(kind.short_name()).font(theme::font(12.0)).color(if state == Some(true) { theme::TEXT } else { theme::TEXT_DIM }))
+                .selected(state == Some(true)).min_size(egui::vec2(38.0, 22.0)))
+                .on_hover_text(format!("{} · Click: toggle · Alt+click: only this channel", kind.display_name()));
+            if r.clicked() {
+                clicked = Some(if state.is_some() { ChannelAction::Toggle(kind, ui.input(|i| i.modifiers.alt)) } else { ChannelAction::Add(kind) });
+            }
+        }
+    });
+    ui.add_space(6.0);
+    egui::Frame::new().fill(theme::BG_2).stroke(egui::Stroke::new(1.0, theme::BORDER)).inner_margin(egui::Margin::symmetric(8, 6)).show(ui, |ui| {
+        ui.set_width(ui.available_width());
+        ui.vertical_centered(|ui| {
+            ui.label(RichText::new("Material mode").font(theme::font_strong(12.0)).color(theme::TEXT));
+            ui.label(RichText::new("No Resource Selected").font(theme::font(11.5)).color(theme::TEXT_DIM));
+        });
+    }).response.on_hover_text("Material resources are not supported yet: each channel below has its own source");
+    ui.add_space(4.0);
     clicked
 }
 

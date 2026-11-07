@@ -158,21 +158,21 @@ fn general(state: &mut UiState, ui: &mut Ui, cmds: &mut Vec<Command>) {
     let mut text: String = ui.data(|d| d.get_temp(name_id)).unwrap_or_else(|| name.clone());
     ui.horizontal(|ui| {
         field_label(ui, "Name");
-        let r = ui.add(egui::TextEdit::singleline(&mut text).desired_width(ui.available_width()));
+        let r = ui.add(egui::TextEdit::singleline(&mut text).desired_width(ui.available_width() - 12.0));
         if r.lost_focus() && text != name && !text.trim().is_empty() { cmds.push(Command::RenameTextureSet { texture_set: id, name: text.clone() }); }
         if r.has_focus() { ui.data_mut(|d| d.insert_temp(name_id, text.clone())); } else { ui.data_mut(|d| d.remove_temp::<String>(name_id)); }
     });
     ui.horizontal_top(|ui| {
         field_label(ui, "Description");
         let mut empty = String::new();
-        ui.add_enabled(false, egui::TextEdit::multiline(&mut empty).hint_text("Description").desired_rows(4).desired_width(ui.available_width()))
+        ui.add_enabled(false, egui::TextEdit::multiline(&mut empty).hint_text("Description").desired_rows(4).desired_width(ui.available_width() - 12.0))
             .on_disabled_hover_text("Texture set descriptions are not stored in SubCraft projects yet");
     });
     // Size: square sets only; the lock is shown engaged and the second field mirrors the first.
     let mut picked = current;
     ui.horizontal(|ui| {
         field_label(ui, "Size");
-        let w = ((ui.available_width() - 48.0) / 2.0).max(40.0);
+        let w = ((ui.available_width() - 64.0) / 2.0).max(40.0);
         egui::ComboBox::from_id_salt("tss_size").width(w).selected_text(current.to_string()).show_ui(ui, |ui| {
             for r in subcraft_doc::RESOLUTIONS.iter().rev() { ui.selectable_value(&mut picked, *r, r.to_string()); }
         }).response.on_hover_text(crate::keys::native("Working resolution. Painted strokes are resampled; Ctrl+Z restores them."));
@@ -192,7 +192,7 @@ fn general(state: &mut UiState, ui: &mut Ui, cmds: &mut Vec<Command>) {
     ui.horizontal(|ui| {
         field_label(ui, "Shader Instance");
         ui.add_enabled_ui(false, |ui| {
-            egui::ComboBox::from_id_salt("tss_shader").width(ui.available_width() - 8.0).selected_text(SHADER_NAME).show_ui(ui, |_| {});
+            egui::ComboBox::from_id_salt("tss_shader").width(ui.available_width() - 28.0).selected_text(SHADER_NAME).show_ui(ui, |_| {});
         });
     });
     ui.horizontal(|ui| { crate::viewport_bar::albedo_filter(ui, state); });
