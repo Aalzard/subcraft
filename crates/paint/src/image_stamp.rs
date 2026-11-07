@@ -70,7 +70,8 @@ pub fn blend_slope(base: [f32; 3], slope: [f32; 2]) -> [f32; 3] {
 pub fn lit(slope: Vec2) -> f32 {
     let n = normal::from_slope(slope.x, slope.y);
     let light = glam::Vec3::new(-0.45, 0.55, 0.7).normalize();
-    (0.18 + 0.75 * n.dot(light).max(0.0)).clamp(0.0, 1.0)
+    // Display value (not linear): flat ground mid-gray, lit faces lighter, shaded faces dark.
+    (0.06 + 0.5 * n.dot(light).max(0.0)).clamp(0.0, 1.0)
 }
 
 /// A square stamp at `center`/`radius` (pixels) with a soft edge, as the brush lays it down:
@@ -126,11 +127,11 @@ pub fn render_preview(image: &Bitmap, stamp: &ImageStamp, hardness: f32, spacing
                 }
             }
             let gray = if stamp.kind == StampKind::Height {
-                0.18 + 0.75 * (sum.x / weight.max(1.0)).clamp(0.0, 1.0)
+                0.1 + 0.8 * (sum.x / weight.max(1.0)).clamp(0.0, 1.0)
             } else {
                 lit(sum / weight.max(1.0))
             };
-            let v = (subcraft_core::color::linear_to_srgb(gray).clamp(0.0, 1.0) * 255.0).round() as u8;
+            let v = (gray.clamp(0.0, 1.0) * 255.0).round() as u8;
             let o = (py * w + pxl) * 4;
             out[o..o + 4].copy_from_slice(&[v, v, v, 255]);
         }
