@@ -866,3 +866,51 @@ fn clear_mesh_map_removes_only_that_map_and_is_a_noop_when_missing() {
     s.execute(Command::ClearMeshMap { texture_set: ts, kind: MeshMapKind::Curvature }).unwrap();
     assert!(s.mesh_maps(ts).is_none());
 }
+
+#[test]
+fn high_poly_placement_makes_a_misplaced_file_bake_and_saves_with_the_project() {
+    use subcraft_app::{BakeRequest, BakeSettings, MeshMapKind};
+    use subcraft_core::BakePlacement;
+    let mut s = Session::new(primitives::plane(2., 1), 128);
+    let ts = s.selection().texture_set;
+    let dir = std::env::temp_dir().join(format!("subcraft-bake-place-{}", subcraft_core::LayerId::new()));
+    std::fs::create_dir_all(&dir).unwrap();
+    // A sloped quad three units to the side of the low plane: nowhere near the cage as imported.
+    let high = dir.join("far_high.obj");
+    std::fs::write(&high, "o High\nv 2 0 -1\nv 2 0.1 1\nv 4 0.1 1\nv 4 0 -1\nf 1 2 3\nf 1 3 4\n").unwrap();
+    let bake = |s: &mut Session, placement: BakePlacement| {
+        let settings = BakeSettings { size: 64, maps: vec![MeshMapKind::Normal], cage_front: 0.1, cage_rear: 0.1, placement, ..Default::default() };
+        let mut job = s.start_bake(BakeRequest { settings, high_poly: Some(high.clone()), texture_sets: vec![(ts, 0)] });
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+        loop {
+            if let Some(result) = job.poll(s) { return (result, job.log().iter().map(|l| l.text.clone()).collect::<Vec<_>>()); }
+            assert!(std::time::Instant::now() < deadline, "bake worker timed out");
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+    };
+    let (result, _) = bake(&mut s, BakePlacement::default());
+    assert!(result.is_err(), "unplaced high poly is outside the cage: {result:?}");
+    let mut placement = BakePlacement::default();
+    placement.center_on_low();
+    let (result, log) = bake(&mut s, placement.clone());
+    assert_eq!(result, Ok(1), "{log:?}");
+    assert!(log.iter().any(|l| l.contains("High-poly placement")), "the placement is logged: {log:?}");
+    let n = s.mesh_maps(ts).unwrap().get(MeshMapKind::Normal).unwrap().get(32, 32);
+    assert!((n[0] - 0.5).abs() < 0.2 && n[2] > 0.5, "baked a tilted but valid normal {n:?}");
+    // The imported file was not touched.
+    assert!(std::fs::read_to_string(&high).unwrap().starts_with("o High\nv 2 0 -1"));
+
+    // Saved with the project (optional field); defaults are absent from the file and read back as identity.
+    assert!(!serde_json::to_string(&subcraft_doc::ProjectSettings::default()).unwrap().contains("bake_placement"));
+    let old: subcraft_doc::ProjectSettings = serde_json::from_str("{}").unwrap();
+    assert!(old.bake_placement.is_identity());
+    let mut settings = s.settings().clone();
+    settings.bake_placement = BakePlacement { offset: [0.1, -0.2, 0.3], scale: 0.8, rotation_deg: [0., 15., 0.], ..placement };
+    s.set_settings(settings.clone());
+    assert!(s.is_modified());
+    let project = dir.join("placed.subcraft");
+    s.save(Some(&project)).unwrap();
+    let reopened = Session::open_project(&project).unwrap();
+    assert_eq!(reopened.settings().bake_placement, settings.bake_placement);
+    std::fs::remove_dir_all(dir).unwrap();
+}

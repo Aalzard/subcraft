@@ -8,7 +8,7 @@ use std::sync::mpsc::{Receiver, TryRecvError, channel};
 use std::sync::{Arc, Mutex};
 
 use subcraft_bake::name_match::PartMatch;
-use subcraft_bake::{BakeInput, BakeSettings, Geometry, MapReport, Progress, bake_streamed};
+use subcraft_bake::{place_high, BakeInput, BakeSettings, Geometry, MapReport, Progress, bake_streamed};
 use subcraft_core::{MeshMapKind, TextureSetId};
 use subcraft_image::TiledImage;
 use subcraft_mesh::{Bvh, Mesh, import_mesh_for_baking};
@@ -47,6 +47,18 @@ impl BakeLogLine {
 /// The whole log as plain text (for Copy).
 pub fn log_text(lines: &[BakeLogLine]) -> String {
     lines.iter().map(BakeLogLine::plain).collect::<Vec<_>>().join("\n")
+}
+
+/// Where one map is in the running or last bake (for the Bake window's per-map rows).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MapState { Waiting, Running, Done, Warning }
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MapProgress {
+    pub kind: MeshMapKind,
+    pub state: MapState,
+    /// Seconds spent on this map so far (all texture sets); 0 while waiting.
+    pub seconds: f32,
 }
 
 enum Message {
@@ -137,6 +149,11 @@ impl BakeJob {
             };
             if p.is_cancelled() { say(BakeLogLevel::Warning, "Bake cancelled.".into()); let _ = tx.send(Message::Failed("bake cancelled".into())); let _ = tx.send(Message::Finished); return; }
             *st.lock().expect("stage lock") = "Building high-poly BVH".into();
+            let high_mesh = high_mesh.map(|mesh| {
+                let placement = &request.settings.placement;
+                if !placement.is_identity() { say(BakeLogLevel::Info, format!("High-poly placement: offset {:?}, scale {} x {:?}, rotation {:?}°, pivot {:?}, anchor {:?}.", placement.offset, placement.scale, placement.axis_scale, placement.rotation_deg, placement.pivot, placement.anchor)); }
+                place_high(&low, &mesh, placement)
+            });
             let high = high_mesh.map(|mesh| { let bvh = Bvh::build(&mesh); (mesh, bvh) });
             if let Some((mesh, _)) = &high && let Some(parts) = PartMatch::new(&low, mesh, &request.settings.name_match) {
                 log::info!("bake match by name: {} group(s) {:?}; unmatched high parts {:?}", parts.groups.len(), parts.groups, parts.unmatched_high);
@@ -214,6 +231,22 @@ impl BakeJob {
         let maps: Vec<String> = self.reports.iter().map(|r| format!("{} {:.1} s on {}", r.kind.display_name(), r.seconds, r.backend)).collect();
         let total = self.elapsed.unwrap_or_else(|| self.started.elapsed());
         if maps.is_empty() { String::new() } else { format!("{:.1} s total. {}", total.as_secs_f32(), maps.join("; ")) }
+    }
+
+    /// One row per requested map: waiting / running / done (or warning when the GPU path failed and
+    /// the CPU took over), with the time spent. A finished job shows no running row.
+    pub fn map_progress(&self, maps: &[MeshMapKind]) -> Vec<MapProgress> {
+        let finished = self.elapsed.is_some();
+        let current = if finished { None } else { self.progress.current_map() };
+        maps.iter().map(|&kind| {
+            let mine: Vec<&MapReport> = self.reports.iter().filter(|r| r.kind == kind).collect();
+            let seconds = mine.iter().map(|r| r.seconds).sum();
+            let state = if mine.iter().any(|r| r.backend.contains("failed")) { MapState::Warning }
+                else if current == Some(kind) { MapState::Running }
+                else if mine.len() >= self.sets_total.max(1) || (finished && !mine.is_empty()) { MapState::Done }
+                else { MapState::Waiting };
+            MapProgress { kind, state, seconds }
+        }).collect()
     }
 
     /// The bake's log so far: what ran where and for how long, and every warning (cage misses,
