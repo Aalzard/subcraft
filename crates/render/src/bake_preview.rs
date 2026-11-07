@@ -14,13 +14,17 @@ use crate::{SAMPLE_COUNT, target};
 struct Vertex { position: [f32; 3], normal: [f32; 3], color: [f32; 4] }
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
-struct Uniforms { view_proj: [[f32; 4]; 4], cage: [f32; 4] }
+struct Uniforms { view_proj: [[f32; 4]; 4], model: [[f32; 4]; 4], cage: [f32; 4] }
 
 pub(crate) struct BakePreviewPass {
     surfaces: [wgpu::RenderPipeline; 2],
     lines: [wgpu::RenderPipeline; 2],
     uniform: wgpu::Buffer,
     group: wgpu::BindGroup,
+    /// Same layout as `uniform`, for the high poly: its placement matrix and opacity.
+    uniform_high: wgpu::Buffer,
+    group_high: wgpu::BindGroup,
+    low_index_count: u32,
     vertices: Option<wgpu::Buffer>,
     indices: Option<wgpu::Buffer>,
     cage: Option<wgpu::Buffer>,
@@ -41,10 +45,16 @@ impl BakePreviewPass {
                 ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: None }, count: None,
             }],
         });
-        let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        let make_group = |buffer: &wgpu::Buffer| device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("bake preview"), layout: &layout,
-            entries: &[wgpu::BindGroupEntry { binding: 0, resource: uniform.as_entire_binding() }],
+            entries: &[wgpu::BindGroupEntry { binding: 0, resource: buffer.as_entire_binding() }],
         });
+        let group = make_group(&uniform);
+        let uniform_high = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("bake preview high uniforms"), contents: bytemuck::bytes_of(&Uniforms::zeroed()),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+        let group_high = make_group(&uniform_high);
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("bake preview shader"), source: wgpu::ShaderSource::Wgsl(include_str!("bake_preview.wgsl").into()),
         });
@@ -70,7 +80,7 @@ impl BakePreviewPass {
             multiview_mask: None, cache: None,
         });
         Self { surfaces: [make(1, false), make(SAMPLE_COUNT, false)], lines: [make(1, true), make(SAMPLE_COUNT, true)],
-            uniform, group, vertices: None, indices: None, cage: None, count: 0, cage_count: 0, diagonal: 1. }
+            uniform, group, uniform_high, group_high, low_index_count: 0, vertices: None, indices: None, cage: None, count: 0, cage_count: 0, diagonal: 1. }
     }
 
     pub fn set_meshes(&mut self, device: &wgpu::Device, meshes: Option<(&Mesh, &Mesh)>) {
@@ -98,13 +108,20 @@ impl BakePreviewPass {
         self.vertices = Some(buffer("bake surfaces", bytemuck::cast_slice(&vertices), wgpu::BufferUsages::VERTEX));
         self.indices = Some(buffer("bake surface indices", bytemuck::cast_slice(&indices), wgpu::BufferUsages::INDEX));
         self.cage = Some(buffer("bake cage", bytemuck::cast_slice(&cage), wgpu::BufferUsages::VERTEX));
-        self.count = indices.len() as u32; self.cage_count = cage.len() as u32;
+        self.count = indices.len() as u32; self.low_index_count = low.indices.len() as u32; self.cage_count = cage.len() as u32;
         self.diagonal = low.bounds.diagonal().max(high.bounds.diagonal()).max(1e-6);
     }
 
-    pub fn prepare(&self, queue: &wgpu::Queue, view_proj: Mat4, distances: [f32; 2]) {
+    /// `high_model` places the high poly (object space of the loaded file to the low poly's space);
+    /// `high_opacity` < 1 draws it see-through over the low poly.
+    pub fn prepare(&self, queue: &wgpu::Queue, view_proj: Mat4, distances: [f32; 2], high_model: Mat4, high_opacity: f32) {
+        let vp = view_proj.to_cols_array_2d();
         queue.write_buffer(&self.uniform, 0, bytemuck::bytes_of(&Uniforms {
-            view_proj: view_proj.to_cols_array_2d(), cage: [distances[0] * self.diagonal, distances[1] * self.diagonal, 0., 0.],
+            view_proj: vp, model: Mat4::IDENTITY.to_cols_array_2d(),
+            cage: [distances[0] * self.diagonal, distances[1] * self.diagonal, 1., 0.],
+        }));
+        queue.write_buffer(&self.uniform_high, 0, bytemuck::bytes_of(&Uniforms {
+            view_proj: vp, model: high_model.to_cols_array_2d(), cage: [0., 0., high_opacity.clamp(0.05, 1.), 0.],
         }));
     }
     pub fn draw(&self, pass: &mut wgpu::RenderPass<'_>, antialias: bool, show_cage: bool) {
@@ -113,9 +130,12 @@ impl BakePreviewPass {
         pass.set_bind_group(0, &self.group, &[]);
         pass.set_vertex_buffer(0, vertices.slice(..));
         pass.set_index_buffer(indices.slice(..), wgpu::IndexFormat::Uint32);
-        pass.draw_indexed(0..self.count, 0, 0..1);
+        pass.draw_indexed(0..self.low_index_count, 0, 0..1);
+        pass.set_bind_group(0, &self.group_high, &[]);
+        pass.draw_indexed(self.low_index_count..self.count, 0, 0..1);
         if show_cage && let Some(cage) = &self.cage {
             pass.set_pipeline(&self.lines[usize::from(antialias)]);
+            pass.set_bind_group(0, &self.group, &[]);
             pass.set_vertex_buffer(0, cage.slice(..));
             pass.draw(0..self.cage_count, 0..1);
         }

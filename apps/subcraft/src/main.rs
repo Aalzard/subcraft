@@ -121,6 +121,7 @@ fn run_app() -> anyhow::Result<()> {
                 options.radial_symmetry = Some((axis as u8, count));
             }
             "--bake-high" => options.bake_high_poly = Some(args.next().ok_or_else(|| anyhow::anyhow!("--bake-high expects a high-poly mesh path"))?.into()),
+            "--bake-place" => options.bake_place = Some(args.next().ok_or_else(|| anyhow::anyhow!("--bake-place expects e.g. auto,offset=0.1:0:0,scale=0.8"))?),
             "--bake-preview" => options.bake_preview_only = true,
             "--bake-low" => options.bake_low = true,
             "--select-layer" => options.select_layer = args.next(),
