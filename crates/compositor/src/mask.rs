@@ -86,6 +86,8 @@ fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]]) {
         tc.sample.mesh_maps.read_tile(MeshMapKind::Curvature, geo, &mut curvature);
     }
     let floor = g.painter.map_or(0.0, |p| p.grunge_floor.clamp(0.0, 1.0));
+    let grain = g.painter.map_or(0.0, |p| p.grain.clamp(0.0, 1.0));
+    let fine = (grain > 0.0).then(|| fine_noise(g, geo));
     for (i, o) in out.iter_mut().enumerate() {
         let raw = match g.kind {
             GeneratorKind::Edges | GeneratorKind::MeshMap(_) => map[i][0],
@@ -99,6 +101,10 @@ fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]]) {
             g.level + (noise[i] - 0.5) * g.noise_amount
         } else {
             g.level
+        };
+        let level = match &fine {
+            Some(f) => level + ((f[i] - 0.5) * 3.0).clamp(-0.5, 0.5) * grain * 0.5,
+            None => level,
         };
         let mut v = smoothstep(level - half, level + half, raw);
         if floor > 0.0 && let Some(noise) = &noise {
@@ -116,6 +122,14 @@ fn scaled_noise(g: &Generator) -> subcraft_doc::ProceduralParams {
         p.scale = (p.scale * pc.grunge_scale.clamp(0.05, 64.0)).clamp(0.01, 256.0);
     }
     p
+}
+
+/// Noise six times finer than the breakup pattern (same seed family), in object space.
+fn fine_noise(g: &Generator, geo: &subcraft_materials::sample::TileGeometry) -> std::sync::Arc<subcraft_materials::sample::field::Field> {
+    let mut p = scaled_noise(g);
+    p.scale = (p.scale * 6.0).clamp(0.01, 256.0);
+    p.seed = p.seed.wrapping_add(0x9e37);
+    subcraft_materials::sample::organic_tile(&p, geo)
 }
 
 fn eval_edge_spread(g: &Generator, spread: subcraft_doc::EdgeSpread, tc: &TileContext, out: &mut [[f32; 4]]) {
@@ -152,6 +166,8 @@ fn eval_edge_spread(g: &Generator, spread: subcraft_doc::EdgeSpread, tc: &TileCo
         subcraft_materials::sample::organic_tile(&p, tc.geo)
     });
     let breakup = g.noise_amount.clamp(0.0, 1.0);
+    let grain = painter.map_or(0.0, |p| p.grain.clamp(0.0, 1.0));
+    let fine = (grain > 0.0).then(|| fine_noise(g, tc.geo));
     let softness = (g.softness + painter.map_or(0.0, |p| p.smoothness.clamp(0.0, 1.0))).clamp(0.02, 1.0);
     for (i, o) in out.iter_mut().enumerate() {
         let n = noise[i];
@@ -161,6 +177,8 @@ fn eval_edge_spread(g: &Generator, spread: subcraft_doc::EdgeSpread, tc: &TileCo
         let boundary = chips.as_ref().map_or(coarse, |c| coarse * 0.5 + ((c[i] - 0.5) * 4.0).clamp(-0.5, 0.5) * 0.5);
         let reach = radius * (1.0 + variation * boundary * 1.8) * (1.0 - breakup * 0.7 * (1.0 - n));
         let reach = reach * extent;
+        // Fine grain erodes the band edge into chips and specks.
+        let reach = match &fine { Some(f) => reach * (1.0 - grain * 0.8 * (1.0 - ((f[i] - 0.5) * 4.0 + 0.5).clamp(0.0, 1.0))), None => reach };
         let geometric = if reach > 0.0 { 1.0 - smoothstep(reach * (1.0 - softness), reach, distances[i]) } else { 0.0 };
         // Keep baked rounded/high-poly detail, but explicitly exclude the neutral flat baseline.
         // Geometric sources are independent of contact curvature from other crate components.

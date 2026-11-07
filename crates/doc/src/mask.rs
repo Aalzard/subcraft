@@ -86,10 +86,14 @@ pub struct PainterControls {
     /// times this is added to the mask, which never exceeds 1 (0 = no tail).
     #[serde(default)]
     pub grunge_floor: f32,
+    /// Fine grain (a noise six times finer than the breakup) that speckles the threshold, so wear
+    /// edges chip and dirt falls off in grains instead of smooth bands (0 = none).
+    #[serde(default)]
+    pub grain: f32,
 }
 
 impl Default for PainterControls {
-    fn default() -> Self { Self { edges_masking: 0.0, ao_masking: 0.0, curvature_weight: 1.0, smoothness: 0.0, grunge_scale: 1.0, grunge_floor: 0.0 } }
+    fn default() -> Self { Self { edges_masking: 0.0, ao_masking: 0.0, curvature_weight: 1.0, smoothness: 0.0, grunge_scale: 1.0, grunge_floor: 0.0, grain: 0.0 } }
 }
 
 /// World axis a position gradient runs along (0 at the mesh minimum, 1 at its maximum).
@@ -125,7 +129,7 @@ impl EdgeSpread {
 }
 
 impl Default for EdgeSpread {
-    fn default() -> Self { Self { distance: 1.5, variation: 0.7, level_reach: true } }
+    fn default() -> Self { Self { distance: 2.5, variation: 0.8, level_reach: true } }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -173,7 +177,13 @@ impl Generator {
             edge_spread: (kind == GeneratorKind::Edges).then(EdgeSpread::default),
             direction: [0.0, 1.0, 0.0],
             axis: GradientAxis::Y,
-            painter: None,
+            // New Dirt/Edges generators get fine grain so they chip and speckle; older projects keep None.
+            painter: matches!(kind, GeneratorKind::Edges | GeneratorKind::Cavity).then(|| PainterControls {
+                grain: 0.7,
+                edges_masking: if kind == GeneratorKind::Cavity { 0.5 } else { 0.0 },
+                grunge_floor: if kind == GeneratorKind::Cavity { 0.1 } else { 0.0 },
+                ..PainterControls::default()
+            }),
         }
     }
 
