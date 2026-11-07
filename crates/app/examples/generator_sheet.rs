@@ -2,6 +2,10 @@
 //! cargo run -p subcraft-app --example generator_sheet -- <out_prefix> <crate|cube|torus|sphere|slab> [size] [tag]
 //! Writes <prefix>_<shape>_3d.png (ray-cast render, one column per setting) and
 //! <prefix>_<shape>_uv.png (composited base color of texture set 0 for the same settings).
+// The app uses mimalloc; the system heap serializes per-tile buffer allocation across cores.
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 use glam::{Vec2, Vec3};
 use subcraft_app::{Command, NewLayer, Session};
 use subcraft_bake::{BakeInput, BakeSettings, Geometry, Progress, bake};
@@ -46,10 +50,10 @@ fn settings() -> Vec<(&'static str, Option<Generator>, Option<Generator>)> {
         ("dirt low", Some(dirt(0.8, 0.3, 0.3)), None),
         ("dirt mid", Some(dirt(0.55, 0.4, 0.5)), None),
         ("dirt high", Some(dirt(0.3, 0.5, 0.7)), None),
-        ("wear default", None, Some(wear(0.5, 1.5, 0.3))),
+        ("wear default", None, Some(Generator::new(GeneratorKind::Edges))),
         ("wear wide", None, Some(wear(0.6, 8.0, 0.5))),
         ("wear fine", None, Some(wear(0.3, 2.0, 0.3))),
-        ("both", Some(dirt(0.55, 0.4, 0.5)), Some(wear(0.5, 1.5, 0.3))),
+        ("both", Some(dirt(0.55, 0.4, 0.5)), Some(Generator::new(GeneratorKind::Edges))),
     ]
 }
 
@@ -100,7 +104,16 @@ fn main() -> Result<(), String> {
         handles.push((ts, pair[0], pair[1]));
     }
     println!("bake {:.2}s", t0.elapsed().as_secs_f32());
-    let cols = settings();
+    let mut cols = settings();
+    // `legacy` renders the pre-grain model (what older projects keep): no painter controls, old Spread defaults.
+    if args.get(3).map(String::as_str) == Some("legacy") {
+        for (_, d, w) in cols.iter_mut() {
+            for g in [d, w].into_iter().flatten() {
+                g.painter = None;
+                if let Some(e) = g.edge_spread.as_mut() { e.distance = e.distance.min(1.5); e.variation = 0.7; }
+            }
+        }
+    }
     let (cw, ch) = (480u32, 360u32);
     let per_row = 4u32;
     let rows = (cols.len() as u32).div_ceil(per_row);

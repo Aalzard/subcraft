@@ -4542,3 +4542,18 @@ frame pacing. Mouse/pen pressure per sample inside a frame is still the last val
 * Inspected with the importer (`cargo run -p subcraft-mesh --example model_stats -- file.fbx`): 18,720 triangles, 9,629 vertices, 2 objects (Cylinder, Sphere), 1 material (`DefaultMaterial`, so one texture set), Y-up, 198.5 x 132.2 x 198.5 units (centimetres in the file; SubCraft's tools scale with the bounds diagonal, so no rescale), UVs 0.001-0.81 u and 0.001-0.999 v in one tile, no overlapping texels at 1024², normals present and agreeing with the winding of all triangles, no importer warnings. No loading-path fixes were needed.
 * Odd: the model is one material, so painting by part uses the two objects rather than two texture sets; the UVs fill only the left 81 % of the tile.
 * Tests: `crates/app/tests/default_model.rs` (stats, UV range, no overlap, normals, texture set, resolution). Not run: the app itself.
+
+## Session 115: generator look (grain, defaults), property tests
+
+- `PainterControls.grain` (serde default 0): a noise six times finer than the breakup that speckles Dirt's threshold and erodes
+  the Spread band of Edge wear (up to 65% of its reach, so the real edge stays solid). New Dirt and Edges generators get
+  grain 0.7 (Dirt also edges masking 0.5 and a 0.1 grunge floor); Spread defaults are now 2.5 / Variation 0.8. Older projects
+  load with `painter` absent and keep their exact look. Grain is not applied to the plain Edges threshold path.
+- Contact sheets in `docs/generators/` (before/after, see its README). Checked by eye: wear is chipped and uneven instead of a
+  ruler-straight line, dirt breaks up in grains; on convex shapes with no cavities dirt is only the grunge tail (as in Painter).
+- Tests: finite/bounded/deterministic output at extreme settings for every generator kind; grain changes the mask.
+  Existing legacy tests pin their old settings (`painter = None`). `cargo test -p subcraft-doc -p subcraft-compositor -p subcraft-project -p subcraft-app` passes.
+- Performance at 2048: the 12-16 s recomposite was the example harness using the system heap, not the app (which uses mimalloc).
+  With mimalloc the same recomposite takes 0.13-0.52 s at 2048 (see docs/generators/README.md). No algorithmic change was needed.
+- Not done: gravity streaks, mirrored/overlapping-UV bake test, a bake-side change (`texels` keeps the first triangle of
+  overlapping UVs, deterministic; mirrored symmetric geometry bakes correctly, asymmetric overlap cannot).
