@@ -66,7 +66,7 @@ impl Session {
             settings: b.settings,
             options: b.options,
             material: b.material.clone(),
-            images: b.material.textures.values().copied().collect::<std::collections::BTreeSet<_>>().into_iter()
+            images: b.material.textures.values().copied().chain(b.material.stamp.as_ref().and_then(|s| s.resource)).collect::<std::collections::BTreeSet<_>>().into_iter()
                 .filter_map(|id| self.resources().get(id).map(|r| PresetImage {
                     id, name: r.name.clone(), encoded: r.encoded.as_deref().cloned().unwrap_or_default(),
                 })).collect(),
@@ -110,10 +110,19 @@ impl Session {
             }
         }
         for id in material.textures.values_mut() { *id = remap[id]; }
+        if let Some(old) = material.stamp.as_ref().and_then(|s| s.resource) {
+            let Some(image) = p.images.iter().find(|image| image.id == old) else {
+                return Err("Brush preset is missing its normal-map stamp image; brush unchanged".into());
+            };
+            let id = self.import_image_bytes(&image.name, image.encoded.clone()).map_err(|e| format!("Brush preset stamp image: {e}; brush unchanged"))?;
+            if let Some(s) = material.stamp.as_mut() { s.resource = Some(id); }
+        }
         self.brush.settings = p.settings;
         self.brush.options = p.options;
         if !p.material.channels.is_empty() {
             self.brush.material = material;
+        } else {
+            self.clear_brush_stamp();
         }
         let tip = match &p.tip {
             None => tips.iter().find(|a| a.bitmap.is_none()),
@@ -121,12 +130,12 @@ impl Session {
         };
         match tip {
             Some(a) => {
-                self.set_brush_alpha(a);
+                self.set_brush_tip(a);
                 Ok(None)
             }
             None => {
                 if let Some(round) = tips.iter().find(|a| a.bitmap.is_none()) {
-                    self.set_brush_alpha(round);
+                    self.set_brush_tip(round);
                 }
                 Ok(Some(format!("brush tip \"{}\" not found; using Round", p.tip.as_deref().unwrap_or("?"))))
             }
@@ -152,7 +161,7 @@ pub struct SelectedBrush {
 
 /// Save to `brush-presets/<name>.scbrush` (numbered if taken). Returns the stored preset.
 pub fn save_brush_preset(lib: &UserLibrary, preset: &BrushPreset) -> Result<BrushPreset, String> {
-    if preset.material.textures.values().any(|id| !preset.images.iter().any(|image| image.id == *id && !image.encoded.is_empty())) {
+    if preset.material.textures.values().copied().chain(preset.material.stamp.as_ref().and_then(|s| s.resource)).any(|id| !preset.images.iter().any(|image| image.id == id && !image.encoded.is_empty())) {
         return Err("brush preset has a missing channel image".into());
     }
     let name = if preset.name.is_empty() { "Brush" } else { preset.name.as_str() };
