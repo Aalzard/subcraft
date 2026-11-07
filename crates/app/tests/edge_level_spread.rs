@@ -27,7 +27,7 @@ fn setup() -> Crate {
 impl Crate {
     /// Wear (0..1) per texel of the Body set for these settings.
     fn wear(&mut self, level: f32, spread: f32, variation: f32, seed: u32, level_reach: bool) -> Vec<f32> {
-        let mut g = Generator::new(GeneratorKind::Edges);
+        let mut g = Generator::new(GeneratorKind::Edges); g.painter = None;
         g.level = level; g.noise_amount = 0.0; g.noise.seed = seed;
         let e = g.edge_spread.as_mut().unwrap(); e.distance = spread; e.variation = variation; e.level_reach = level_reach;
         let mut effect = self.session.selected_texture_set().find(self.layer).unwrap().mask.as_ref().unwrap().effects[0].as_ref().clone();

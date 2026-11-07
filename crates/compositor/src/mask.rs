@@ -86,7 +86,8 @@ fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]]) {
         tc.sample.mesh_maps.read_tile(MeshMapKind::Curvature, geo, &mut curvature);
     }
     let floor = g.painter.map_or(0.0, |p| p.grunge_floor.clamp(0.0, 1.0));
-    let grain = g.painter.map_or(0.0, |p| p.grain.clamp(0.0, 1.0));
+    // Grain speckles dirt's threshold; the plain Edges threshold (no spread model) keeps its exact look.
+    let grain = if g.kind == GeneratorKind::Edges { 0.0 } else { g.painter.map_or(0.0, |p| p.grain.clamp(0.0, 1.0)) };
     let fine = (grain > 0.0).then(|| fine_noise(g, geo));
     for (i, o) in out.iter_mut().enumerate() {
         let raw = match g.kind {
@@ -178,7 +179,7 @@ fn eval_edge_spread(g: &Generator, spread: subcraft_doc::EdgeSpread, tc: &TileCo
         let reach = radius * (1.0 + variation * boundary * 1.8) * (1.0 - breakup * 0.7 * (1.0 - n));
         let reach = reach * extent;
         // Fine grain erodes the band edge into chips and specks.
-        let reach = match &fine { Some(f) => reach * (1.0 - grain * 0.8 * (1.0 - ((f[i] - 0.5) * 4.0 + 0.5).clamp(0.0, 1.0))), None => reach };
+        let reach = match &fine { Some(f) => reach * (1.0 - grain * 0.65 * (1.0 - ((f[i] - 0.5) * 2.5 + 0.5).clamp(0.0, 1.0))), None => reach };
         let geometric = if reach > 0.0 { 1.0 - smoothstep(reach * (1.0 - softness), reach, distances[i]) } else { 0.0 };
         // Keep baked rounded/high-poly detail, but explicitly exclude the neutral flat baseline.
         // Geometric sources are independent of contact curvature from other crate components.
