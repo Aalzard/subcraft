@@ -11,7 +11,31 @@
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-fn main() -> anyhow::Result<()> {
+fn main() {
+    // Every failure ends in something visible: a packaged Windows build has no console.
+    let outcome = std::panic::catch_unwind(run_app);
+    match outcome {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => {
+            let text = format!("{e:#}
+
+Log folder: {}", subcraft_app::recovery::data_dir().map(|d| d.display().to_string()).unwrap_or_else(|| "unavailable".into()));
+            eprintln!("SubCraft: {text}");
+            subcraft_ui::show_fatal("SubCraft cannot start", &text);
+            std::process::exit(1);
+        }
+        Err(panic) => {
+            let msg = panic.downcast_ref::<&str>().map(|s| s.to_string()).or_else(|| panic.downcast_ref::<String>().cloned()).unwrap_or_default();
+            subcraft_ui::show_fatal("SubCraft crashed", &format!("SubCraft hit an internal error and has to close:
+{msg}
+
+A crash report was saved in the SubCraft data folder (crashes). Please attach it, and startup.log, to a bug report. Starting again opens in safe mode if this happened during start-up."));
+            std::process::exit(101);
+        }
+    }
+}
+
+fn run_app() -> anyhow::Result<()> {
     let cli: Vec<_> = std::env::args_os().skip(1).collect();
     if cli.first().is_some_and(|a| a == "--apply-update") {
         let path = cli.get(1).ok_or_else(|| anyhow::anyhow!("Missing update job"))?;
@@ -31,6 +55,8 @@ fn main() -> anyhow::Result<()> {
     if let Some(d) = &data {
         subcraft_app::diagnostics::install_panic_hook(d.join("crashes"));
     }
+    let flag = |name: &str| cli.iter().any(|a| a == name);
+    subcraft_app::safe_mode::init(subcraft_app::startup_probe::previous_log(), flag("--safe-mode"), flag("--normal-mode"));
     let mut options = subcraft_ui::LaunchOptions::default();
     let mut args = std::env::args().skip(1).peekable();
     while let Some(a) = args.next() {
@@ -48,6 +74,7 @@ fn main() -> anyhow::Result<()> {
             "--check-updates" => options.check_updates = true,
             #[cfg(feature = "update-fixture")]
             "--auto-update-fixture" => options.auto_update_fixture = true,
+            "--safe-mode" | "--normal-mode" => {}
             "--demo" => options.demo = true,
             "--view-2d" => options.view_2d = true,
             "--brush-panel" => options.brush_panel = true,

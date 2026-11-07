@@ -202,10 +202,18 @@ impl UiState {
         let tool = if session.selected_layer().is_some_and(|l| l.kind() == subcraft_doc::LayerKind::Path) { Tool::Pen } else { Tool::Brush };
         // A brush color that stands out on the default gray material.
         session.brush.material.set(ChannelKind::BaseColor, subcraft_core::ChannelValue::rgb(0.85, 0.32, 0.06));
+        if let Some(rs) = &render_state {
+            // Probe optional capabilities before any pipeline is built, and keep wgpu errors from panicking.
+            let caps = subcraft_render::caps::GpuCaps::from_adapter(&rs.adapter);
+            subcraft_app::startup_probe::step(&format!("adapter caps: {}", caps.report().replace('\n', " | ")));
+            for problem in [caps.msaa_problem(), caps.compute_problem()].into_iter().flatten() { log::warn!("{problem}"); subcraft_app::startup_probe::step(&problem); }
+            subcraft_render::caps::set(caps);
+            subcraft_render::caps::install_error_handlers(&rs.device);
+        }
         let renderer = render_state.as_ref().map(|rs| ViewportRenderer::new(&rs.device, &rs.queue));
         let mut graphics = crate::graphics::GraphicsUi::default();
         if let Some(rs) = &render_state { graphics.record_active(rs.adapter.get_info().backend); }
-        subcraft_app::startup_probe::step(&format!("{} (adapter: {})", subcraft_app::startup_probe::COMPLETE_MARKER, render_state.as_ref().map(|rs| rs.adapter.get_info().name).unwrap_or_else(|| "none".into())));
+        subcraft_app::startup_probe::step(&format!("renderer created (adapter: {})", render_state.as_ref().map(|rs| rs.adapter.get_info().name).unwrap_or_else(|| "none".into())));
         Self {
             composite_deadline: None,
             layer_previews: Default::default(),

@@ -6,6 +6,7 @@
 //! procedural sky environment (analytic irradiance + split-sum approximation); ACES tone map;
 //! sRGB output.
 
+pub mod caps;
 pub mod gpu_composite;
 pub mod gpu_mesh;
 pub mod grid;
@@ -375,7 +376,7 @@ impl ViewportRenderer {
             multiview_mask: None,
             cache: None,
         });
-        let pipeline = make_pipeline(SAMPLE_COUNT);
+        let pipeline = make_pipeline(if caps::get().msaa4 { SAMPLE_COUNT } else { 1 });
         let pipeline_no_aa = make_pipeline(1);
         let globals = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("globals"),
@@ -612,7 +613,7 @@ impl ViewportRenderer {
     /// device can allocate) and return the target.
     pub fn render(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, size: [u32; 2], params: &ViewParams) -> &RenderTarget {
         let size = fit_target_size(size, device.limits().max_texture_dimension_2d);
-        let samples = if params.antialias { SAMPLE_COUNT } else { 1 };
+        let samples = if params.antialias && caps::get().msaa4 { SAMPLE_COUNT } else { 1 };
         if self.target.as_ref().is_none_or(|t| t.size != size || t.samples != samples) {
             self.target = Some(RenderTarget::new(device, size, samples));
         }

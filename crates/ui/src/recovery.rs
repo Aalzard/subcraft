@@ -314,7 +314,7 @@ pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
             .on_hover_text("Blends layers on the graphics card for big edits (opening a project, changing a layer under many others) on texture sets of 2048 and larger. Procedural fills, generator masks and blur-type filters are still computed by the processor, and sets with blur-type filters use the processor entirely. Small edits such as brush strokes always use the processor.")
             .changed()
         {
-            subcraft_compositor::gpu::set_gpu_compositing_enabled(rec.prefs.use_gpu_compositing);
+            subcraft_compositor::gpu::set_gpu_compositing_enabled(rec.prefs.use_gpu_compositing && !subcraft_app::safe_mode::is_active());
         }
         ui.add_space(10.0);
         ui.label(RichText::new(tr("Rendering mode")).font(theme::font_strong(12.5)));

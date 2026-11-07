@@ -88,6 +88,7 @@ impl PathTraceStatus {
 
 /// `Err` with a message for the user when the device lacks what the path tracer needs.
 pub fn check_support(device: &wgpu::Device) -> Result<(), String> {
+    if crate::caps::safe_mode() { return Err("Path tracing is off in safe mode (SubCraft did not start cleanly last time). Restart normally to use it.".into()); }
     let l = device.limits();
     let mut missing = Vec::new();
     if l.max_storage_buffers_per_shader_stage < 7 {

@@ -539,7 +539,7 @@ impl SubcraftApp {
         state.recovery = crate::recovery::RecoveryUi::start(&state.session, prefs, options.autosave_interval);
         state.recovery.prefs.apply_ui_size(&cc.egui_ctx);
         crate::i18n::sync(&cc.egui_ctx, state.recovery.prefs.language);
-        subcraft_compositor::gpu::set_gpu_compositing_enabled(state.recovery.prefs.use_gpu_compositing);
+        subcraft_compositor::gpu::set_gpu_compositing_enabled(state.recovery.prefs.use_gpu_compositing && !subcraft_app::safe_mode::is_active());
         state.recovery.show_prefs = options.preferences;
         if let Some(high) = &options.bake_high_poly {
             state.bake.open = true;
@@ -1427,6 +1427,7 @@ impl eframe::App for SubcraftApp {
         self.state.recovery.prefs.apply_ui_size(&ctx);
         crate::i18n::sync(&ctx, self.state.recovery.prefs.language);
         self.frames += 1;
+        if self.frames == 5 { subcraft_app::startup_probe::step(subcraft_app::startup_probe::COMPLETE_MARKER); }
         if self.frames == 15 && let Some(name) = self.state.capture_select_brush.take() {
             let now = ctx.input(|i| i.time);
             let preset = self.state.brush_presets.iter().find(|p| p.name == name).cloned();
@@ -1504,6 +1505,7 @@ impl eframe::App for SubcraftApp {
         crate::text_panel::window(&mut self.state, &ctx, now);
         crate::bug_report::report_window(&mut self.state, &ctx);
         crate::bug_report::crash_window(&mut self.state, &ctx);
+        crate::bug_report::safe_mode_window(&mut self.state, &ctx);
         if let Some(action) = crate::welcome::show(&mut self.state, &ctx) {
             match action {
                 crate::welcome::WelcomeAction::Pending(pending) => self.request(pending, now),

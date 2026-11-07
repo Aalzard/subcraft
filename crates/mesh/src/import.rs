@@ -281,7 +281,8 @@ fn load_fbx(path: &Path, b: &mut MeshBuilder, warnings: &mut Vec<String>) -> Res
 pub fn write_obj(mesh: &Mesh, path: &Path) -> std::io::Result<()> {
     use std::io::Write;
     let mtl_path = path.with_extension("mtl");
-    let mut f = std::io::BufWriter::new(std::fs::File::create(path)?);
+    // Built in memory, then replaced atomically: a full disk never leaves a truncated OBJ.
+    let mut f: Vec<u8> = Vec::new();
     writeln!(f, "# SubCraft OBJ export")?;
     writeln!(f, "mtllib {}", mtl_path.file_name().and_then(|s| s.to_str()).unwrap_or("mesh.mtl"))?;
     for p in &mesh.positions {
@@ -306,11 +307,12 @@ pub fn write_obj(mesh: &Mesh, path: &Path) -> std::io::Result<()> {
             writeln!(f, "f {a}/{a}/{a} {b}/{b}/{b} {c}/{c}/{c}")?;
         }
     }
-    let mut m = std::io::BufWriter::new(std::fs::File::create(&mtl_path)?);
+    let mut m: Vec<u8> = Vec::new();
     for mat in &mesh.materials {
         writeln!(m, "newmtl {}\nKd 0.8 0.8 0.8\n", mat.name)?;
     }
-    Ok(())
+    subcraft_core::vfs::write(path, &f)?;
+    subcraft_core::vfs::write(&mtl_path, &m)
 }
 
 #[cfg(test)]
