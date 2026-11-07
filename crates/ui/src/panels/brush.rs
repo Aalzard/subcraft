@@ -10,6 +10,7 @@ use crate::widgets::{hint, panel, prop_row, section, segmented, slider_row};
 pub fn show(state: &mut UiState, ui: &mut Ui) {
     egui::ScrollArea::vertical().id_salt("brush").auto_shrink([false, false]).show(ui, |ui| {
         panel(ui, |ui| {
+            super::stamp_brush::show(state, ui);
             section(ui, "tool", "Paint target", true, |ui| {
                 if state.tool == Tool::PolygonFill {
                     prop_row(ui, "Fill by", |ui| {
