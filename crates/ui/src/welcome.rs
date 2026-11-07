@@ -35,7 +35,7 @@ pub fn show(state: &mut UiState, ctx: &egui::Context) -> Option<WelcomeAction> {
             ui.horizontal_wrapped(|ui| {
                 if primary_button(ui, tr("New from a model…")).on_hover_text(tr("OBJ, GLB/glTF, FBX, USD, PLY, STL or Substance Painter .spp with UVs")).clicked() { action = Some(WelcomeAction::Pending(Pending::OpenMesh)); }
                 if secondary_button(ui, tr("Open project…")).on_hover_text(tr("Open a saved .subcraft project")).clicked() { action = Some(WelcomeAction::Pending(Pending::OpenProject)); }
-                if secondary_button(ui, tr("Try the sample")).on_hover_text(tr("Open the built-in crate with UVs")).clicked() { action = Some(WelcomeAction::Pending(Pending::NewSample)); }
+                if secondary_button(ui, tr("Try the sample")).on_hover_text(tr("Open the built-in SubCraft base model with UVs")).clicked() { action = Some(WelcomeAction::Pending(Pending::NewSample)); }
             });
             ui.add_space(10.0);
             ui.horizontal_wrapped(|ui| {

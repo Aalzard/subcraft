@@ -4535,3 +4535,10 @@ frame pacing. Mouse/pen pressure per sample inside a frame is still the last val
 * **UI**: the only logo is the 22 pt header mark (`theme::brand_mark`). Welcome, About, startup and empty states never had artwork and still have none.
 * **Palette**: surfaces and borders moved to hue ~25 deg, 5% HSL saturation, lightness kept (BG_1 36,36,36 to 38,36,34, etc.); text and accent untouched.
 * **Not verified by eye**: the new header mark and tint in the running app.
+
+## 2026-11-07 — SubCraft_base.fbx is the default model
+
+* `assets/models/SubCraft_base.fbx` (481 KB, the user's own model) is compiled into the program (`subcraft_assets::default_model`, `include_bytes!`) and imported from memory by the new `subcraft_mesh::import_fbx_bytes`; nothing extra to install. `Session::default_model()` is what starts the app, what File > New (sample model) and the welcome screen's "Try the sample" open, and what `--demo` builds on. `Session::sample()` (the old crate) stays as a fixture because many geometry tests are written against it.
+* Inspected with the importer (`cargo run -p subcraft-mesh --example model_stats -- file.fbx`): 18,720 triangles, 9,629 vertices, 2 objects (Cylinder, Sphere), 1 material (`DefaultMaterial`, so one texture set), Y-up, 198.5 x 132.2 x 198.5 units (centimetres in the file; SubCraft's tools scale with the bounds diagonal, so no rescale), UVs 0.001-0.81 u and 0.001-0.999 v in one tile, no overlapping texels at 1024², normals present and agreeing with the winding of all triangles, no importer warnings. No loading-path fixes were needed.
+* Odd: the model is one material, so painting by part uses the two objects rather than two texture sets; the UVs fill only the left 81 % of the tile.
+* Tests: `crates/app/tests/default_model.rs` (stats, UV range, no overlap, normals, texture set, resolution). Not run: the app itself.

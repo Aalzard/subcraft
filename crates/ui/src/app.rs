@@ -78,7 +78,7 @@ pub struct LaunchOptions {
     pub check_updates: bool,
     #[cfg(feature = "update-fixture")]
     pub auto_update_fixture: bool,
-    /// Project (`.subcraft`) or mesh to open instead of the sample crate.
+    /// Project (`.subcraft`) or mesh to open instead of the bundled default model.
     pub mesh: Option<PathBuf>,
     /// Build a small demo layer stack (fills, masks and painted strokes) on start.
     pub demo: bool,
@@ -494,11 +494,11 @@ impl SubcraftApp {
                 Ok(s) => s,
                 Err(e) => {
                     status = Some(format!("Could not open {}: {e}. Showing the sample.", path.display()));
-                    Session::sample()
+                    Session::default_model()
                 }
             },
             // A Painter project opens in the background (started below): show the sample until then.
-            Some(path) if crate::spp_import::is_spp(path) => Session::sample(),
+            Some(path) if crate::spp_import::is_spp(path) => Session::default_model(),
             Some(path) => match Session::open_mesh(path, subcraft_app::DEFAULT_RESOLUTION) {
                 Ok((s, warnings)) => {
                     if !warnings.is_empty() {
@@ -508,10 +508,10 @@ impl SubcraftApp {
                 }
                 Err(e) => {
                     status = Some(format!("Could not open {}: {e}. Showing the sample.", path.display()));
-                    Session::sample()
+                    Session::default_model()
                 }
             },
-            None => Session::sample(),
+            None => Session::default_model(),
         }};
         let restore_failed = status.is_some();
         let mut state = UiState::new(session, cc.wgpu_render_state.clone())
@@ -962,7 +962,7 @@ impl SubcraftApp {
             let item = |ui: &mut Ui, icon: &str, label: &str, sc: &str| ui.add(egui::Button::new(format!("{icon}   {label}")).shortcut_text(sc)).clicked();
             ui.menu_button(tr("File"), |ui| {
                 ui.set_min_width(240.0);
-                if item(ui, icons::FILE_PLUS, tr("New (sample crate)"), "") {
+                if item(ui, icons::FILE_PLUS, tr("New (sample model)"), "") {
                     self.request(Pending::NewSample, now);
                     ui.close();
                 }
@@ -1588,7 +1588,7 @@ impl eframe::App for SubcraftApp {
     }
 }
 
-/// Demo stack on the sample crate: procedural base, an upward-facing "moss" fill masked by a
+/// Demo stack on the default model: procedural base, an upward-facing "moss" fill masked by a
 /// directional generator, and a few painted strokes.
 /// Native-capture helper: the same session calls the viewport makes, driven by a script instead of
 /// the mouse (no input is sent to the desktop).

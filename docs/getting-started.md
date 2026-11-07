@@ -20,7 +20,7 @@ mesh-edge smoothing.
 ![Imported wood PBR with stable distance filtering](screenshots/material-filtering-after.png)
 
 The welcome hub and in-app guide are in development for the next desktop release. In v0.1.4,
-use **File → New from mesh…** or **File → New (sample crate)** to follow these steps.
+use **File → New from mesh…** or **File → New (sample model)** to follow these steps.
 
 Start with **Try the sample** on the welcome screen, or bring a model with UVs. Open
 **Help → Quick start** for the same six steps inside the app. You can move the guide aside
