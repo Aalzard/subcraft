@@ -1,11 +1,11 @@
-//! Properties > Channels: a "+ emiss" chip adds Emission to a texture set that lacks it.
+//! Properties > MATERIAL: the "emiss" button adds Emission to a texture set that lacks it.
 use subcraft_app::{Command, NewLayer, Session};
 use subcraft_core::ChannelKind;
 use subcraft_ui::state::UiState;
 
 fn frame(state: &mut UiState, ctx: &egui::Context, events: Vec<egui::Event>) -> egui::FullOutput {
     let mut out = ctx.run_ui(
-        egui::RawInput { events, screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(420.0, 1400.0))), ..Default::default() },
+        egui::RawInput { events, screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(420.0, 3200.0))), ..Default::default() },
         |ui| subcraft_ui::panels::properties::show(state, ui),
     );
     out.textures_delta.clear();
@@ -38,16 +38,18 @@ fn the_plus_chip_adds_emission_to_the_set_and_the_layer_then_shows_its_controls(
         frame(&mut state, &ctx, vec![]);
     }
     let out = frame(&mut state, &ctx, vec![]);
-    assert!(position(&out, "+ emiss").is_some(), "chip offered when the set lacks Emission: {:?}", texts(&out));
-    assert!(position(&out, "+ ao").is_some());
-    assert!(position(&out, "emiss").is_none());
+    // Painter-style MATERIAL block: every channel is a button; a channel the set lacks is offered through the same button.
+    assert!(!state.session.selected_texture_set().has_channel(ChannelKind::Emissive));
+    assert!(position(&out, "emiss").is_some(), "emiss button offered when the set lacks Emission: {:?}", texts(&out));
+    assert!(position(&out, "ao").is_some());
+    assert!(position(&out, "Emissive").is_none(), "no Emissive controls before the channel exists");
+
     let before = state.session.document().clone();
 
-    click(&mut state, &ctx, "+ emiss");
+    click(&mut state, &ctx, "emiss");
     assert!(state.session.selected_texture_set().has_channel(ChannelKind::Emissive));
+    for _ in 0..3 { frame(&mut state, &ctx, vec![]); }
     let out = frame(&mut state, &ctx, vec![]);
-    assert!(position(&out, "+ emiss").is_none(), "offered only once");
-    assert!(position(&out, "emiss").is_some(), "a normal chip replaces it");
     assert!(position(&out, "Emissive").is_some(), "the Emissive controls are shown: {:?}", texts(&out));
     state.session.execute(Command::Undo).unwrap();
     assert_eq!(state.session.document(), &before, "one undo removes the channel again");
