@@ -42,3 +42,243 @@ pub const RAIL: Color32 = Color32::from_rgb(30, 30, 30);
 pub const BORDER_SOFT: Color32 = Color32::from_rgb(46, 46, 46);
 pub const BORDER: Color32 = Color32::from_rgb(55, 52, 49);
 pub const BORDER_STRONG: Color32 = Color32::from_rgb(75, 70, 67);
+
+pub const TEXT: Color32 = Color32::from_rgb(196, 195, 191);
+pub const TEXT_DIM: Color32 = Color32::from_rgb(166, 165, 160);
+pub const TEXT_FAINT: Color32 = Color32::from_rgb(122, 121, 118);
+
+pub const ACCENT: Color32 = Color32::from_rgb(218, 145, 56);
+pub const ACCENT_HOVER: Color32 = Color32::from_rgb(232, 164, 79);
+/// Accent at low alpha over panels (selected rows, active toggles).
+pub const ACCENT_SOFT: Color32 = Color32::from_rgb(62, 58, 50);
+pub const ACCENT_DIM: Color32 = Color32::from_rgb(113, 81, 40);
+
+pub const WARNING: Color32 = Color32::from_rgb(240, 196, 110);
+
+// Layer tree: folder icons and badges, folder row band, hierarchy guide lines.
+pub const FOLDER: Color32 = Color32::from_rgb(226, 184, 98);
+pub const FOLDER_BAND: Color32 = Color32::from_rgb(38, 35, 31);
+pub const TREE_LINE: Color32 = Color32::from_rgb(104, 90, 64);
+
+/// Panel content padding.
+pub const PAD: i8 = 12;
+/// Height of rows in lists (layers, history, texture sets).
+pub const ROW_HEIGHT: f32 = 34.0;
+/// Material/mask previews need more room than a nested adjustment.
+pub const LAYER_ROW_HEIGHT: f32 = 48.0;
+pub const LAYER_THUMB_SIZE: f32 = 36.0;
+pub const EFFECT_ROW_HEIGHT: f32 = 26.0;
+/// Width of the label column in property rows (the maximum; narrow panels shrink it).
+pub const LABEL_WIDTH: f32 = 92.0;
+
+// Spacing scale. Rows are one step apart, groups two, sections three.
+pub const SP_XS: f32 = 4.0;
+pub const SP_S: f32 = 8.0;
+pub const SP_M: f32 = 12.0;
+pub const SP_L: f32 = 16.0;
+/// Height of every editable control in a property row (slider, combo, field, button).
+pub const CONTROL_H: f32 = 24.0;
+/// Width of the quiet numeric field to the right of a slider.
+pub const VALUE_W: f32 = 54.0;
+/// Corner radius of controls, chips and cards.
+pub const RADIUS: u8 = 4;
+/// Small dimmed row label.
+pub const LABEL_SIZE: f32 = 12.0;
+
+/// Font family for headings / emphasis.
+pub fn semibold() -> FontFamily {
+    FontFamily::Name("semibold".into())
+}
+
+pub fn font(size: f32) -> FontId {
+    FontId::new(size, FontFamily::Proportional)
+}
+
+pub fn font_strong(size: f32) -> FontId {
+    FontId::new(size, semibold())
+}
+
+pub(crate) fn fonts() -> FontDefinitions {
+    let mut f = FontDefinitions::default();
+    let add = |f: &mut FontDefinitions, name: &str, bytes: &'static [u8]| {
+        f.font_data.insert(name.into(), Arc::new(FontData::from_static(bytes)));
+    };
+    add(&mut f, "inter", include_bytes!("../assets/fonts/Inter-Regular.ttf"));
+    add(&mut f, "inter-semibold", include_bytes!("../assets/fonts/Inter-SemiBold.ttf"));
+    let mut icons = FontData::from_static(include_bytes!("../assets/fonts/Phosphor.ttf"));
+    icons.tweak.y_offset_factor = 0.08;
+    icons.tweak.scale = 1.1;
+    f.font_data.insert("phosphor".into(), Arc::new(icons));
+
+    let fallback: Vec<String> = f.families.get(&FontFamily::Proportional).cloned().unwrap_or_default();
+    let mut prop = vec!["inter".to_string(), "phosphor".to_string()];
+    prop.extend(fallback.iter().cloned());
+    f.families.insert(FontFamily::Proportional, prop);
+    let mut strong = vec!["inter-semibold".to_string(), "phosphor".to_string()];
+    strong.extend(fallback);
+    f.families.insert(semibold(), strong);
+    if let Some(mono) = f.families.get_mut(&FontFamily::Monospace) {
+        mono.push("phosphor".into());
+    }
+    f
+}
+
+pub fn apply(ctx: &egui::Context) {
+    ctx.set_fonts(fonts());
+
+    let mut v = Visuals::dark();
+    v.panel_fill = BG_1;
+    v.window_fill = BG_2;
+    v.window_stroke = Stroke::new(1.0, BORDER_STRONG);
+    v.window_corner_radius = CornerRadius::ZERO;
+    v.window_shadow = Shadow { offset: [0, 8], blur: 24, spread: 0, color: Color32::from_black_alpha(110) };
+    v.popup_shadow = Shadow { offset: [0, 4], blur: 12, spread: 0, color: Color32::from_black_alpha(90) };
+    v.menu_corner_radius = CornerRadius::ZERO;
+    v.extreme_bg_color = FIELD;
+    v.faint_bg_color = BG_2;
+    v.code_bg_color = FIELD;
+    v.override_text_color = None;
+    v.selection.bg_fill = ACCENT;
+    // egui also uses this stroke as selected-label text, including channel toggles.
+    v.selection.stroke = Stroke::new(1.0, BG_0);
+    v.hyperlink_color = ACCENT;
+    v.warn_fg_color = WARNING;
+    v.slider_trailing_fill = true;
+    v.handle_shape = egui::style::HandleShape::Circle;
+    v.striped = false;
+    v.indent_has_left_vline = false;
+    v.collapsing_header_frame = false;
+
+    let w = &mut v.widgets;
+    w.noninteractive.bg_fill = BG_1;
+    w.noninteractive.weak_bg_fill = BG_1;
+    w.noninteractive.bg_stroke = Stroke::new(1.0, BORDER);
+    w.noninteractive.fg_stroke = Stroke::new(1.0, TEXT_DIM);
+
+    // `bg_fill` paints slider rails, handles and checkbox boxes; `weak_bg_fill` buttons and value fields.
+    w.inactive.bg_fill = RAIL;
+    w.inactive.weak_bg_fill = BG_3;
+    w.inactive.bg_stroke = Stroke::new(1.0, BORDER_SOFT);
+    w.inactive.fg_stroke = Stroke::new(1.0, TEXT);
+
+    w.hovered.bg_fill = BG_4;
+    w.hovered.weak_bg_fill = BG_4;
+    w.hovered.bg_stroke = Stroke::new(1.0, BORDER);
+    w.hovered.fg_stroke = Stroke::new(1.5, TEXT);
+    w.hovered.expansion = 0.0;
+
+    w.active.bg_fill = ACCENT_DIM;
+    w.active.weak_bg_fill = ACCENT_DIM;
+    w.active.bg_stroke = Stroke::new(1.0, ACCENT);
+    w.active.fg_stroke = Stroke::new(1.5, TEXT);
+    w.active.expansion = 0.0;
+
+    w.open.bg_fill = BG_3;
+    w.open.weak_bg_fill = BG_3;
+    w.open.bg_stroke = Stroke::new(1.0, BORDER_STRONG);
+    w.open.fg_stroke = Stroke::new(1.0, TEXT);
+
+    for s in [&mut w.noninteractive, &mut w.inactive, &mut w.hovered, &mut w.active, &mut w.open] {
+        s.corner_radius = CornerRadius::same(RADIUS);
+    }
+    ctx.set_visuals(v);
+
+    ctx.global_style_mut(|s| {
+        s.text_styles = [
+            (TextStyle::Small, font(11.0)),
+            (TextStyle::Body, font(13.0)),
+            (TextStyle::Button, font(13.0)),
+            (TextStyle::Heading, font_strong(17.0)),
+            (TextStyle::Monospace, FontId::monospace(12.0)),
+        ]
+        .into();
+        let sp = &mut s.spacing;
+        sp.item_spacing = egui::vec2(SP_S, SP_S);
+        sp.button_padding = egui::vec2(10.0, 5.0);
+        // Sliders derive their circular handle radius from this height; padding and explicit
+        // button sizes retain the larger hit targets used elsewhere.
+        sp.interact_size = egui::vec2(36.0, 18.0);
+        sp.window_margin = Margin::same(16);
+        sp.menu_margin = Margin::same(6);
+        sp.indent = 16.0;
+        sp.slider_width = 150.0;
+        sp.slider_rail_height = 4.0;
+        sp.combo_width = 150.0;
+        sp.icon_width = 16.0;
+        sp.icon_width_inner = 9.0;
+        sp.icon_spacing = 8.0;
+        sp.menu_spacing = 4.0;
+        sp.tooltip_width = 320.0;
+        sp.scroll.bar_width = 6.0;
+        sp.scroll.floating = true;
+        s.interaction.selectable_labels = false;
+    });
+}
+
+/// Dock styling: dark tab strip, the active tab merges with its panel, thin gaps between panels.
+pub fn dock_style(ui_style: &egui::Style) -> DockStyle {
+    let mut d = DockStyle::from_egui(ui_style);
+    d.dock_area_padding = None;
+    d.main_surface_border_stroke = Stroke::NONE;
+    d.main_surface_border_rounding = CornerRadius::ZERO;
+
+    d.separator.width = 3.0;
+    d.separator.extra_interact_width = 4.0;
+    d.separator.color_idle = BG_0;
+    d.separator.color_hovered = ACCENT_DIM;
+    d.separator.color_dragged = ACCENT;
+
+    d.tab_bar.bg_fill = BG_2;
+    d.tab_bar.height = 32.0;
+    d.tab_bar.corner_radius = CornerRadius::ZERO;
+    d.tab_bar.hline_color = BORDER;
+    d.tab_bar.inner_margin = Margin::ZERO;
+
+    let tab = |bg: Color32, text: Color32| egui_dock::TabInteractionStyle { outline_color: Color32::TRANSPARENT, corner_radius: CornerRadius::ZERO, bg_fill: bg, text_color: text };
+    d.tab.active = tab(BG_1, TEXT);
+    d.tab.focused = tab(BG_1, TEXT);
+    d.tab.active_with_kb_focus = tab(BG_1, TEXT);
+    d.tab.focused_with_kb_focus = tab(BG_1, TEXT);
+    d.tab.inactive = tab(BG_2, TEXT_FAINT);
+    d.tab.inactive_with_kb_focus = tab(BG_2, TEXT_FAINT);
+    d.tab.hovered = tab(BG_3, TEXT_DIM);
+    d.tab.hline_below_active_tab_name = false;
+    d.tab.minimum_width = Some(84.0);
+    d.tab.spacing = 0.0;
+    d.tab.tab_body.inner_margin = Margin::ZERO;
+    d.tab.tab_body.stroke = Stroke::NONE;
+    d.tab.tab_body.corner_radius = CornerRadius::ZERO;
+    d.tab.tab_body.bg_fill = BG_1;
+
+    d.overlay.selection_color = ACCENT.linear_multiply(0.35);
+    d.overlay.button_color = BG_3;
+    d.overlay.button_border_stroke = Stroke::new(1.0, BORDER_STRONG);
+    d.buttons.collapse_tabs_color = TEXT_FAINT;
+    d.buttons.collapse_tabs_active_color = TEXT;
+    d
+}
+
+/// The header logo (orange square with the white ribbon-star mark), uploaded once per context.
+pub fn brand_mark(ctx: &egui::Context) -> egui::TextureHandle {
+    let id = egui::Id::new("subcraft-brand-mark");
+    if let Some(handle) = ctx.data(|d| d.get_temp::<egui::TextureHandle>(id)) {
+        return handle;
+    }
+    let img = image::load_from_memory_with_format(include_bytes!("../assets/logo-mark.png"), image::ImageFormat::Png)
+        .expect("embedded logo is a valid PNG")
+        .into_rgba8();
+    let size = [img.width() as usize, img.height() as usize];
+    let color = egui::ColorImage::from_rgba_unmultiplied(size, img.as_raw());
+    let handle = ctx.load_texture("brand-mark", color, egui::TextureOptions::LINEAR);
+    ctx.data_mut(|d| d.insert_temp(id, handle.clone()));
+    handle
+}
+
+/// Window / taskbar icon: the app artwork (same as the .exe, installer and Linux icon).
+pub fn app_icon() -> egui::IconData {
+    let img = image::load_from_memory_with_format(include_bytes!("../assets/icon.png"), image::ImageFormat::Png)
+        .expect("embedded icon is a valid PNG")
+        .into_rgba8();
+    let (width, height) = img.dimensions();
+    egui::IconData { rgba: img.into_raw(), width, height }
+}
