@@ -13,7 +13,7 @@ use subcraft_doc::{
 
 use crate::icons;
 use crate::state::UiState;
-use crate::theme::{self, ACCENT, TEXT_DIM, TEXT_FAINT};
+use crate::theme::{self, ACCENT, TEXT_DIM, TEXT_FAINT, VALUE_W};
 use crate::widgets::{channel_value, empty_state, fill_width, hint, icon_button, panel, primary_button, prop_row, secondary_button, section, section_with, segmented, slider_row};
 
 /// Properties is context-sensitive like Substance Painter's: while a paint layer (or a paint
@@ -768,7 +768,9 @@ pub(crate) fn fill_properties(ui: &mut Ui, proj: &mut Projection) -> bool {
         let mut locked = ui.data(|d| d.get_temp::<bool>(lock_id)).unwrap_or(proj.scale[0] == proj.scale[1]);
         ui.add(egui::Label::new(crate::widgets::row_label(tr("Tiling"))));
         ui.horizontal(|ui| {
-            let w = ((ui.available_width() - 34.0) / 2.0 - 46.0).max(30.0);
+            ui.spacing_mut().interact_size.x = VALUE_W; ui.spacing_mut().button_padding.x = 4.0;
+            let sp = ui.spacing().item_spacing.x;
+            let w = ((ui.available_width() - 26.0 - 2.0 * sp) / 2.0 - sp - VALUE_W).max(30.0);
             ui.spacing_mut().slider_width = w;
             let mut sx = proj.scale[0];
             if ui.add(egui::Slider::new(&mut sx, 0.01..=16.0).clamping(egui::SliderClamping::Never).max_decimals(2)).changed() {
@@ -792,7 +794,9 @@ pub(crate) fn fill_properties(ui: &mut Ui, proj: &mut Projection) -> bool {
         changed |= slider_row(ui, tr("Rotation"), egui::Slider::new(&mut proj.rotation_deg, -180.0..=180.0).suffix("°")).changed();
         ui.add(egui::Label::new(crate::widgets::row_label(tr("Offset"))));
         ui.horizontal(|ui| {
-            ui.spacing_mut().slider_width = ((ui.available_width() - 8.0) / 2.0 - 50.0).max(30.0);
+            ui.spacing_mut().interact_size.x = VALUE_W; ui.spacing_mut().button_padding.x = 4.0;
+            let sp = ui.spacing().item_spacing.x;
+            ui.spacing_mut().slider_width = ((ui.available_width() - sp) / 2.0 - sp - VALUE_W).max(30.0);
             changed |= ui.add(egui::Slider::new(&mut proj.offset[0], -1.0..=1.0).clamping(egui::SliderClamping::Never).max_decimals(3)).changed();
             changed |= ui.add(egui::Slider::new(&mut proj.offset[1], -1.0..=1.0).clamping(egui::SliderClamping::Never).max_decimals(3)).changed();
         });

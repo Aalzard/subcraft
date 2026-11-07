@@ -8,7 +8,13 @@ use subcraft_doc::TextDecal;
 use subcraft_text::{Align, BUNDLED_FONTS, Direction, FontRef, SystemFontInfo};
 
 use crate::state::UiState;
-use crate::widgets::{Edit, caption, channel_value, hint, primary_button, prop_row, section, segmented, slider_row};
+
+/// Width of the value box beside the text dialog's sliders (room for suffixes such as "% width").
+const VALUE_BOX_W: f32 = 90.0;
+fn slider_row(ui: &mut Ui, label: &str, slider: egui::Slider<'_>) -> egui::Response {
+    crate::widgets::slider_row_boxed(ui, label, slider, VALUE_BOX_W, |_| {})
+}
+use crate::widgets::{Edit, caption, channel_value, hint, primary_button, prop_row, section, segmented};
 
 /// What the next click on the model does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -221,12 +227,15 @@ pub fn window(state: &mut UiState, ctx: &egui::Context, now: f64) {
     let title = if mode == Window::New { "New text" } else { "Edit text" };
     let screen = ctx.content_rect();
     let width = WINDOW_WIDTH.min((screen.width() - 32.0).max(280.0));
+    // WINDOW_WIDTH is the whole dialog: the frame (margin and stroke) comes out of the content width.
+    let m = ctx.global_style().spacing.window_margin;
+    let content = width - (m.left as f32 + m.right as f32) - 2.0;
     egui::Window::new(title).id(egui::Id::new("text_window")).open(&mut open).collapsible(false).resizable(false)
-        .default_width(width).max_width(width)
+        .default_width(content).max_width(content)
         .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, -40.0))
         .show(ctx, |ui| {
         // Fixed content width: sliders and the text box fill the dialog, never the screen.
-        ui.set_width(width - 24.0);
+        ui.set_width(content - 4.0);
         ui.spacing_mut().item_spacing.y = 4.0;
         match mode {
             Window::New => {

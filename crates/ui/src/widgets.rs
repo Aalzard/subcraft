@@ -34,6 +34,8 @@ pub fn fill_width(ui: &mut Ui) {
 /// Make the numeric field next to a slider a quiet, fixed-width inset instead of a raised button.
 fn quiet_value_field(ui: &mut Ui) {
     ui.spacing_mut().interact_size.x = VALUE_W;
+    // The theme's roomy button padding would make the box wider than VALUE_W and push sliders past the panel edge.
+    ui.spacing_mut().button_padding.x = 4.0;
     let w = &mut ui.visuals_mut().widgets;
     for state in [&mut w.inactive, &mut w.hovered, &mut w.active] {
         state.weak_bg_fill = RAIL;
@@ -182,6 +184,12 @@ pub fn slider_row(ui: &mut Ui, label: &str, slider: egui::Slider<'_>) -> Respons
 /// Like [`slider_row`], with small secondary actions (Image..., reset) aligned to the right end of the
 /// label line. `actions` runs in a right-to-left layout.
 pub fn slider_row_with(ui: &mut Ui, label: &str, slider: egui::Slider<'_>, actions: impl FnOnce(&mut Ui)) -> Response {
+    slider_row_boxed(ui, label, slider, VALUE_W, actions)
+}
+
+/// [`slider_row_with`] for sliders whose number carries a long suffix ("% width"): the value box is `box_w` wide
+/// and the slider shrinks to match, so the row still fits its container.
+pub fn slider_row_boxed(ui: &mut Ui, label: &str, slider: egui::Slider<'_>, box_w: f32, actions: impl FnOnce(&mut Ui)) -> Response {
     ui.scope(|ui| {
         ui.spacing_mut().item_spacing.y = SP_XS;
         quiet_value_field(ui);
@@ -193,6 +201,12 @@ pub fn slider_row_with(ui: &mut Ui, label: &str, slider: egui::Slider<'_>, actio
             });
         }
         fill_width(ui);
+        if box_w != VALUE_W {
+            let sp = ui.spacing().item_spacing.x;
+            let w = ui.available_width();
+            ui.spacing_mut().interact_size.x = box_w;
+            ui.spacing_mut().slider_width = (w - box_w - sp).max(48.0);
+        }
         ui.add(slider)
     })
     .inner

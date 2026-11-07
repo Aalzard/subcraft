@@ -32,7 +32,7 @@ fn expanded_material_action_never_overlaps_its_header_at_sidebar_widths() {
             .collect::<Vec<_>>();
         let heading = texts
             .iter()
-            .find(|t| t.galley.text() == "Material")
+            .find(|t| t.galley.text() == "MATERIAL")
             .unwrap();
         let action = texts
             .iter()
