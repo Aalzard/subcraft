@@ -82,7 +82,7 @@ pub fn save(state: &mut UiState, save_as: bool, now: f64) -> bool {
 pub fn run_pending(state: &mut UiState, action: Pending, ctx: &egui::Context, _now: f64) {
     match action {
         Pending::Close => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
-        Pending::NewSample => state.set_session(Session::sample()),
+        Pending::NewSample => state.set_session(Session::default_model()),
         // The New Project window shows what is in the model and the project options.
         Pending::OpenMesh => state.new_project.show_window(&state.recovery.prefs.new_project.clone()),
         Pending::OpenProject => crate::files::pick(ctx, crate::files::Purpose::OpenProject, PROJECT_FILTER, false, None),

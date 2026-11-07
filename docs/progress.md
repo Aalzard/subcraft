@@ -4359,3 +4359,10 @@ real cost of the big_project stack), and letting GPU-composited tiles fill the C
 ## 2026-11-07 — Default texture resolution is 2048
 
 * New projects already defaulted to 2048 (`NewProjectSettings`); `DEFAULT_RESOLUTION` (sample crate, models opened without the New Project window, SPP import, mesh reload fallback) was 1024 and is now 2048. Saved projects store each set's resolution explicitly, so existing files keep their size. 256-4096 (and 128 in the Texture Sets panel) stay in every resolution list. Unchanged: the Bake window size default (1024), UV unwrap packing resolution, example binaries.
+
+## 2026-11-07 — SubCraft_base.fbx is the default model
+
+* `assets/models/SubCraft_base.fbx` (481 KB, the user's own model) is compiled into the program (`subcraft_assets::default_model`, `include_bytes!`) and imported from memory by the new `subcraft_mesh::import_fbx_bytes`; nothing extra to install. `Session::default_model()` is what starts the app, what File > New (sample model) and the welcome screen's "Try the sample" open, and what `--demo` builds on. `Session::sample()` (the old crate) stays as a fixture because many geometry tests are written against it.
+* Inspected with the importer (`cargo run -p subcraft-mesh --example model_stats -- file.fbx`): 18,720 triangles, 9,629 vertices, 2 objects (Cylinder, Sphere), 1 material (`DefaultMaterial`, so one texture set), Y-up, 198.5 x 132.2 x 198.5 units (centimetres in the file; SubCraft's tools scale with the bounds diagonal, so no rescale), UVs 0.001-0.81 u and 0.001-0.999 v in one tile, no overlapping texels at 1024², normals present and agreeing with the winding of all triangles, no importer warnings. No loading-path fixes were needed.
+* Odd: the model is one material, so painting by part uses the two objects rather than two texture sets; the UVs fill only the left 81 % of the tile.
+* Tests: `crates/app/tests/default_model.rs` (stats, UV range, no overlap, normals, texture set, resolution). Not run: the app itself.

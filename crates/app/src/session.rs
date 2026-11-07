@@ -411,7 +411,20 @@ impl Session {
         self.commit("Show baked normal", None);
     }
 
-    /// The built-in two-material sample crate.
+    /// The model SubCraft starts with and the "sample model" action opens: the bundled
+    /// `SubCraft_base.fbx` (see `subcraft_assets::default_model`). Falls back to
+    /// [`Session::sample`] if the bundled file ever fails to import.
+    pub fn default_model() -> Self {
+        match subcraft_mesh::import_fbx_bytes(subcraft_assets::default_model::FBX, subcraft_assets::default_model::NAME) {
+            Ok(report) if report.mesh.triangle_count() > 0 => Self::new(report.mesh, DEFAULT_RESOLUTION),
+            other => {
+                log::error!("bundled default model failed to import ({:?}); using the sample crate", other.err());
+                Self::sample()
+            }
+        }
+    }
+
+    /// The built-in two-material sample crate (kept as a small fixture for tests and examples).
     pub fn sample() -> Self {
         Self::new(primitives::sample_crate(), DEFAULT_RESOLUTION)
     }

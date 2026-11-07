@@ -203,7 +203,7 @@ Open a model with **File > New project from a model** (or the Welcome screen): t
 shows what is in the model and lets you pick template, resolution and options before creating it.
 Then bake mesh maps, drag a smart material or paint, and export. The
 [illustrated getting-started guide](docs/getting-started.md) walks through each step. To try SubCraft
-without a model, use the sample crate that opens by default, or start it with `--demo`.
+without a model, use the base model that opens by default, or start it with `--demo`.
 
 ## Download and install
 
@@ -274,7 +274,7 @@ cd subcraft
 cargo run --release
 ```
 
-The app opens with a sample crate. Try `cargo run --release -- --demo` for a ready-made layer
+The app opens with the bundled SubCraft base model. Try `cargo run --release -- --demo` for a ready-made layer
 stack, or pass a mesh / project file: `cargo run --release -- path/to/model.fbx`.
 
 Step-by-step Windows setup, the daily workflow and building the `.exe` yourself:
