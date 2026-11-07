@@ -366,6 +366,80 @@ pub fn install_panic_hook(dir: PathBuf) {
     }));
 }
 
+// ----- diagnostic report -----------------------------------------------------------------------
+
+/// Last `max_lines` lines of `text`.
+pub fn tail_lines(text: &str, max_lines: usize) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    lines[lines.len().saturating_sub(max_lines)..].join("
+")
+}
+
+/// Everything a bug report needs, as plain text for the clipboard (nothing is sent anywhere).
+/// `sections` are extra (title, body) blocks from the UI (adapter limits, DPI, window).
+pub fn diagnostic_report(sections: &[(&str, String)]) -> String {
+    let info = SystemInfo::current();
+    let mut out = format!("SubCraft diagnostic info
+Version: {}
+OS: {}
+GPU: {}
+Time: {}
+", info.version, info.os, info.gpu, timestamp());
+    out.push_str(&format!("Executable: {}
+", std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_else(|_| "unknown".into())));
+    out.push_str(&format!("Data folder: {}
+", crate::recovery::data_dir().map(|p| p.display().to_string()).unwrap_or_else(|| "unavailable".into())));
+    out.push_str(&format!("Safe mode: {}
+", crate::safe_mode::active().map(|r| r.text()).unwrap_or("off")));
+    out.push_str(&format!("CPU threads: {}
+", std::thread::available_parallelism().map(|n| n.get()).unwrap_or(0)));
+    for var in ["WGPU_BACKEND", "SUBCRAFT_GPU", crate::startup_probe::SKIP_ENV, crate::safe_mode::ENV, "XDG_SESSION_TYPE", "WAYLAND_DISPLAY"] {
+        if let Ok(v) = std::env::var(var) { out.push_str(&format!("env {var}={v}
+")); }
+    }
+    for (title, body) in sections { out.push_str(&format!("
+== {title} ==
+{body}
+")); }
+    if let Some(dir) = crate::recovery::data_dir() {
+        for file in ["graphics.json", "gpu-probe.json"] {
+            if let Ok(t) = std::fs::read_to_string(dir.join(file)) { out.push_str(&format!("
+== {file} ==
+{}
+", tail_lines(&t, 60))); }
+        }
+    }
+    out.push_str(&format!("
+== startup.log (this run) ==
+{}
+", tail_lines(&std::fs::read_to_string(crate::startup_probe::startup_log_path().unwrap_or_default()).unwrap_or_default(), 80)));
+    out.push_str(&format!("
+== previous start ==
+{}
+", tail_lines(crate::startup_probe::previous_log(), 40)));
+    out.push_str(&format!("
+== log tail ==
+{}
+", recent_lines().join("
+")));
+    out
+}
+
+#[cfg(test)]
+mod diag_tests {
+    use super::*;
+    #[test]
+    fn report_has_core_fields_and_tail_is_bounded() {
+        let r = diagnostic_report(&[("Display", "scale 1.5".into())]);
+        for needle in ["Version:", "OS:", "GPU:", "Safe mode:", "== Display ==", "scale 1.5", "== log tail =="] { assert!(r.contains(needle), "{needle}"); }
+        assert_eq!(tail_lines("a
+b
+c", 2), "b
+c");
+        assert_eq!(tail_lines("a", 5), "a");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

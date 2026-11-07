@@ -735,3 +735,23 @@ fn text_layer_schema_is_pinned_and_rejects_bad_values() {
     decal.opacity = f32::NAN;
     assert!(decal.validate().is_err());
 }
+
+#[test]
+fn truncated_and_bit_flipped_files_never_panic() {
+    let doc = rich_document();
+    let good = write_project(Cursor::new(Vec::new()), &primitives::sample_crate(), &doc, &ResourceStore::default(), &MeshMapSet::new()).unwrap().into_inner();
+    // Every truncation point on a coarse grid, plus the first and last bytes.
+    let step = (good.len() / 97).max(1);
+    for cut in (0..good.len()).step_by(step).chain([good.len() - 1]) {
+        let _ = read_project(Cursor::new(good[..cut].to_vec())); // Ok or Err, never a panic
+    }
+    // Deterministic pseudo-random single-byte corruption across the whole file.
+    let mut x = 0x9E3779B97F4A7C15u64;
+    for _ in 0..150 {
+        x ^= x << 13; x ^= x >> 7; x ^= x << 17;
+        let mut bad = good.clone();
+        let at = (x as usize) % bad.len();
+        bad[at] ^= 1 << ((x >> 40) % 8);
+        let _ = read_project(Cursor::new(bad));
+    }
+}
