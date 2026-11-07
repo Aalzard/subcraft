@@ -11,7 +11,9 @@
 Paint directly on 3D models with layered PBR materials, masks, generators and smart materials,
 bake mesh maps and export game-ready textures. Windows and Linux.
 
-![SubCraft opening on the SubCraft_base model with the Dusty Plastic smart material](docs/images/readme/ui-overview.png)
+![SubCraft main window: icon shelf with normal-map tiles, SubCraft_base with the Dusty Plastic smart material, layers with a masked Dust fill and generators, and the Properties panel](docs/images/readme/ui-overview.png)
+
+*The Painter-style layout on the bundled SubCraft_base model: Assets shelf with normal-map tiles (left), 3D view (center), texture set list, layers (Dusty Plastic smart material with a Directional generator mask, Dirt generator) and Properties (right).*
 
 > **Status: early but usable.** Painting, layers, baking, smart materials, save/load and export work
 > and are covered by tests. Expect rough edges and breaking changes to the project file format.
