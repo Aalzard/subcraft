@@ -11,7 +11,7 @@
 Paint directly on 3D models with layered PBR materials, masks, generators and smart materials,
 bake mesh maps and export game-ready textures. Windows and Linux.
 
-![SubCraft with the bundled SubCraft_base model](docs/images/readme/ui-overview.png)
+![SubCraft opening on the SubCraft_base model with the Dusty Plastic smart material](docs/images/readme/ui-overview.png)
 
 > **Status: early but usable.** Painting, layers, baking, smart materials, save/load and export work
 > and are covered by tests. Expect rough edges and breaking changes to the project file format.
@@ -74,7 +74,9 @@ not as guarantees.
   handles in 3D or 2D, paths stay editable).
 - Paint in the 3D view or directly in the 2D UV view; Shift+click eyedropper picks all channels.
 
-![UV 2D view of SubCraft_base](docs/images/readme/uv-2d-view.png)
+![The 2D UV view with a layer stack: moss fill, generator and paint strokes](docs/images/readme/uv-2d-view.png)
+
+*The 2D view paints straight into the UV layout; the stack shown is the `--demo` project.*
 
 ### Layers, masks, generators and filters
 - Paint layers, fill layers (uniform, procedural, image, mesh-map sources) and folders; 32 blend modes;
@@ -94,7 +96,9 @@ not as guarantees.
 - CC0 starter pack of normal maps and brush alphas plus 10 bundled HDRI environments
   ([credits](assets/starter-pack/CREDITS-CC0.txt)). Your own library lives in `Documents\SubCraft\Library`.
 
-![Smart materials on the Shelf](docs/screenshots/v018-shelf-smart-materials.png)
+![Layer stack with a paint layer, a masked moss fill and a generator](docs/images/readme/demo-stack.png)
+
+*Paint layer over a masked fill with a Directional generator (the `--demo` project).*
 
 ### Baking
 - Normal (optionally from a high poly through a cage), world-space normal, Ambient Occlusion, Curvature,
@@ -105,6 +109,8 @@ not as guarantees.
   rasterization. Stencils and projected brush images cover decal-style work.
 
 ### Viewport and rendering
+![Render quality window](docs/images/readme/render-quality.png)
+
 - Real-time PBR viewport with studio or HDRI lighting; tone mapping, bloom, ambient occlusion, depth of field
   (off by default), emission glow and glare. These are display-only and never change exported textures.
 - Painter-style or Blender-style 3D navigation, wireframe overlay, camera bookmarks.
@@ -120,11 +126,11 @@ not as guarantees.
 - Export templates: PBR metal/rough, Unreal (ORM), Unity HDRP, Unity URP, Godot 4, glTF, Roblox and Sketchfab
   presets, 2D View export, and scene export (OBJ, glTF, GLB, USDA). Per-map checkboxes; Alt+click exports one map.
 
-![Export Textures window](docs/screenshots/v018-export-window.png)
-
 ### Languages
 - English, **한국어 (Korean)** and **繁體中文 (Traditional Chinese)**: Preferences > Interface > Language,
   applied immediately. CJK fonts are loaded from the system. See [`docs/localization.md`](docs/localization.md).
+
+![Preferences window with Language, graphics and 3D navigation settings](docs/images/readme/preferences.png)
 
 ## Install
 
