@@ -282,7 +282,8 @@ pub(crate) fn tile(ui: &mut Ui, side: f32, thumb: Option<&egui::TextureHandle>, 
             painter.image(t.id(), img.shrink(1.0), egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), Color32::WHITE);
         }
         None => {
-            painter.text(img.center(), egui::Align2::CENTER_CENTER, crate::icons::IMAGE, theme::font(20.0), theme::TEXT_FAINT);
+            let icon = ui.data(|d| d.get_temp::<&'static str>(egui::Id::new("shelf_fallback_icon"))).unwrap_or(crate::icons::IMAGE);
+            painter.text(img.center(), egui::Align2::CENTER_CENTER, icon, theme::font(24.0), theme::TEXT_FAINT);
         }
     }
     let stroke = if selected {
@@ -448,90 +449,12 @@ fn shelf_hint(ui: &mut Ui, text: &str) {
 pub fn show(state: &mut UiState, ui: &mut Ui) {
     let now = ui.input(|i| i.time);
     handle_drops(state, ui, now);
-    egui::Frame::new().inner_margin(egui::Margin { left: 6, right: theme::PAD, top: 0, bottom: 0 }).show(ui, |ui| {
-    ui.horizontal_wrapped(|ui| {
-        ui.spacing_mut().item_spacing.x = 0.0;
-        let narrow = ui.available_width() < 720.0;
-        let tab = &mut state.shelf.tab;
-        if narrow {
-            let label = match tab { ShelfTab::Textures => tr("Textures"), ShelfTab::NormalMaps => tr("Normal Maps"), ShelfTab::Materials => tr("Materials"), ShelfTab::SmartMaterials => tr("Smart Materials"), ShelfTab::SmartMasks => tr("Smart Masks"), ShelfTab::Brushes => tr("Brushes"), ShelfTab::Environments => tr("Environments") };
-            egui::ComboBox::from_id_salt("shelf_category").selected_text(label).width(144.0).show_ui(ui, |ui| {
-                for (kind, name) in [(ShelfTab::Textures,tr("Textures")),(ShelfTab::NormalMaps,tr("Normal Maps")),(ShelfTab::Materials,tr("Materials")),(ShelfTab::SmartMaterials,tr("Smart Materials")),(ShelfTab::SmartMasks,tr("Smart Masks")),(ShelfTab::Brushes,tr("Brushes")),(ShelfTab::Environments,tr("Environments"))] {
-                    ui.selectable_value(tab, kind, name);
-                }
-            });
-        } else {
-        shelf_tab(ui, tab, ShelfTab::Textures, crate::icons::IMAGE, tr("Textures"));
-        shelf_tab(ui, tab, ShelfTab::NormalMaps, BUMPS, tr("Normal Maps"));
-        shelf_tab(ui, tab, ShelfTab::Materials, crate::icons::DROP, tr("Materials"));
-        shelf_tab(ui, tab, ShelfTab::SmartMaterials, crate::icons::SPARKLE, tr("Smart Materials"));
-        shelf_tab(ui, tab, ShelfTab::SmartMasks, crate::icons::MASK, tr("Smart Masks"));
-        shelf_tab(ui, tab, ShelfTab::Brushes, crate::icons::PAINT_BRUSH, tr("Brushes"));
-        shelf_tab(ui, tab, ShelfTab::Environments, crate::icons::SUN, tr("Environments"));
-        }
-        ui.spacing_mut().item_spacing.x = 8.0;
-        ui.add_space(16.0);
-        match state.shelf.tab {
-            ShelfTab::NormalMaps => {
-                if ui.button(format!("{}  Import normal maps…", crate::icons::DOWNLOAD)).clicked() {
-                    crate::files::pick(ui.ctx(), crate::files::Purpose::ShelfTextures, crate::files::IMAGES, true, None);
-                }
-                library_folder_button(ui, state, subcraft_app::assets::UserAssetKind::Texture);
-                shelf_hint(ui, "Tangent-space normal maps. Drag one onto a Normal channel in Properties, or onto the model / a layer for a new fill layer; click to preview and adjust.");
-            }
-            ShelfTab::Textures => {
-                if ui.button(format!("{}  Import textures…", crate::icons::DOWNLOAD)).clicked() {
-                    crate::files::pick(ui.ctx(), crate::files::Purpose::ShelfTextures, crate::files::IMAGES, true, None);
-                }
-                library_folder_button(ui, state, subcraft_app::assets::UserAssetKind::Texture);
-                shelf_hint(ui, "Imported maps become one material. Drag a texture onto a channel in Properties (Base Color, Normal…), or onto the model / a layer for a new fill layer.");
-            }
-            ShelfTab::Materials => {
-                if ui.button(format!("{}  Import texture set…", crate::icons::DOWNLOAD)).clicked() {
-                    crate::panels::layers::import_texture_set_dialog(ui.ctx());
-                }
-                shelf_hint(ui, tr("Select a texture's maps (color, roughness, normal…) to make one fill layer."));
-            }
-            ShelfTab::Brushes => {
-                if ui.button(format!("{}  Import alpha…", crate::icons::DOWNLOAD)).clicked() {
-                    crate::files::pick(ui.ctx(), crate::files::Purpose::Alpha, crate::files::ALPHAS, false, None);
-                }
-                library_folder_button(ui, state, subcraft_app::assets::UserAssetKind::Alpha);
-            }
-            ShelfTab::Environments => {
-                if ui.button(format!("{}  Import HDRI…", crate::icons::DOWNLOAD)).clicked() {
-                    crate::files::pick(ui.ctx(), crate::files::Purpose::Hdri, crate::files::PANORAMAS, false, None);
-                }
-                library_folder_button(ui, state, subcraft_app::assets::UserAssetKind::Environment);
-                let width = ui.max_rect().width().min(300.0);
-                for (label, value, range) in [("Rotation", &mut state.env.rotation_deg, -180.0..=180.0), ("Intensity", &mut state.env.intensity, 0.1..=4.0)] {
-                    // Give compound sliders a known width before wrapping their parent row.
-                    ui.allocate_ui_with_layout(egui::vec2(width, 20.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                        ui.add_sized([60.0, 18.0], egui::Label::new(RichText::new(label).color(theme::TEXT_DIM)));
-                        ui.spacing_mut().slider_width = (ui.available_width() - 64.0).max(20.0);
-                        let slider = egui::Slider::new(value, range);
-                        ui.add(if label == "Rotation" { slider.suffix("°") } else { slider.logarithmic(true) });
-                    });
-                }
-            }
-            ShelfTab::SmartMasks => {
-                shelf_hint(ui, crate::keys::native("Applies to the selected layer. Edges / Cavity need baked maps (Ctrl+B)."));
-            }
-            ShelfTab::SmartMaterials => {
-                shelf_hint(ui, crate::keys::native("Wear and dirt follow baked curvature / AO (Ctrl+B). Drop .scsmart files or texture folders here to import."));
-                if ui.button(format!("{}  Import", crate::icons::DOWNLOAD)).on_hover_text(tr("Import smart materials (.scsmart) or PBR texture sets (Color, NormalGL, Roughness…)")).clicked() {
-                    import_smart_dialog(ui.ctx());
-                }
-                if ui.button(format!("{}  Import folder", crate::icons::FOLDER_OPEN)).on_hover_text(tr("Import a folder of .scsmart files or PBR texture sets")).clicked() {
-                    import_smart_folder_dialog(ui.ctx());
-                }
-            }
-        }
-    });
-    });
+    header(state, ui);
+    env_controls(state, ui);
     filter_row(state, ui);
-    crate::widgets::divider(ui);
     generate_one_thumbnail(state, ui.ctx());
+    let fallback = category_icon(state.shelf.tab);
+    ui.data_mut(|d| d.insert_temp(egui::Id::new("shelf_fallback_icon"), fallback));
     let mut action: Option<Box<dyn FnOnce(&mut UiState)>> = None;
     let mut lib_status: Option<String> = None;
     let filter = state.shelf.filter.clone();
@@ -722,7 +645,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         }));
     });
     });
-    crate::widgets::preview_size_footer(ui, &mut state.recovery.prefs.shelf_preview_size, 48..=160);
+    bottom_toolbar(state, ui);
     if let Some(a) = action {
         a(state);
     }
@@ -732,6 +655,142 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     if state.shelf.tab != ShelfTab::Brushes || state.shelf.thumbs.len() < state.library.alphas.len() {
         ui.ctx().request_repaint_after(std::time::Duration::from_millis(30));
     }
+}
+
+/// Painter's category icon row, in its order. The shelf has no filter, generator or text assets
+/// (those are made from the layer menus), so those categories are not listed.
+const CATEGORIES: [(ShelfTab, &str, &str); 7] = [
+    (ShelfTab::Materials, crate::icons::DROP, "Materials"),
+    (ShelfTab::SmartMaterials, crate::icons::SPARKLE, "Smart Materials"),
+    (ShelfTab::SmartMasks, crate::icons::MASK, "Smart Masks"),
+    (ShelfTab::Brushes, crate::icons::PAINT_BRUSH, "Brushes"),
+    (ShelfTab::Textures, crate::icons::IMAGE, "Textures"),
+    (ShelfTab::NormalMaps, BUMPS, "Normal Maps"),
+    (ShelfTab::Environments, crate::icons::SUN, "Environments"),
+];
+
+fn category_icon(tab: ShelfTab) -> &'static str {
+    match tab {
+        ShelfTab::NormalMaps => crate::icons::GRID,
+        other => CATEGORIES.iter().find(|c| c.0 == other).map_or(crate::icons::IMAGE, |c| c.1),
+    }
+}
+
+fn category_name(tab: ShelfTab) -> &'static str {
+    match tab {
+        ShelfTab::Materials => tr("Materials"),
+        ShelfTab::SmartMaterials => tr("Smart Materials"),
+        ShelfTab::SmartMasks => tr("Smart Masks"),
+        ShelfTab::Brushes => tr("Brushes"),
+        ShelfTab::Textures => tr("Textures"),
+        ShelfTab::NormalMaps => tr("Normal Maps"),
+        ShelfTab::Environments => tr("Environments"),
+    }
+}
+
+/// Breadcrumb, search box and the row of category icons (always icons, never a dropdown).
+fn header(state: &mut UiState, ui: &mut Ui) {
+    ui.add_space(6.0);
+    ui.horizontal(|ui| {
+        ui.add_space(8.0);
+        ui.label(RichText::new(crate::icons::CARET_RIGHT).font(theme::font(11.0)).color(theme::TEXT_DIM));
+        ui.label(RichText::new(tr("All libraries")).font(theme::font_strong(12.0)).color(theme::TEXT));
+        ui.label(RichText::new("/").color(theme::TEXT_FAINT));
+        ui.label(RichText::new(category_name(state.shelf.tab)).font(theme::font(12.0)).color(theme::TEXT_DIM));
+    });
+    ui.add_space(4.0);
+    egui::Frame::new().inner_margin(egui::Margin::symmetric(8, 0)).show(ui, |ui| {
+        ui.horizontal(|ui| {
+            ui.label(RichText::new(crate::icons::MAGNIFYING_GLASS).font(theme::font(13.0)).color(theme::TEXT_DIM));
+            let filter = &mut state.shelf.filter;
+            ui.add(egui::TextEdit::singleline(&mut filter.query).hint_text(tr("Search…")).desired_width(ui.available_width() - 28.0));
+            if !filter.query.is_empty() && crate::widgets::icon_button(ui, crate::icons::X, "Clear search").clicked() { filter.query.clear(); }
+        });
+    });
+    ui.add_space(4.0);
+    egui::Frame::new().inner_margin(egui::Margin::symmetric(8, 0)).show(ui, |ui| {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 3.0;
+            for (tab, icon, _) in CATEGORIES {
+                let selected = state.shelf.tab == tab;
+                let (rect, resp) = ui.allocate_exact_size(egui::vec2(28.0, 26.0), egui::Sense::click());
+                let painter = ui.painter();
+                if selected { painter.rect_filled(rect, 2.0, theme::BG_4); } else if resp.hovered() { painter.rect_filled(rect, 2.0, theme::BG_3); }
+                let color = if selected { theme::TEXT } else { theme::TEXT_DIM };
+                if icon == BUMPS { draw_bumps(painter, rect.center(), color); }
+                else { painter.text(rect.center(), egui::Align2::CENTER_CENTER, icon, theme::font(16.0), color); }
+                if resp.on_hover_text(category_name(tab)).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() { state.shelf.tab = tab; }
+            }
+        });
+    });
+    ui.add_space(4.0);
+}
+
+/// Rotation / intensity of the viewport environment (only on the Environments category).
+fn env_controls(state: &mut UiState, ui: &mut Ui) {
+    if state.shelf.tab != ShelfTab::Environments { return; }
+    egui::Frame::new().inner_margin(egui::Margin::symmetric(8, 2)).show(ui, |ui| {
+        let width = ui.available_width();
+        for (label, value, range) in [("Rotation", &mut state.env.rotation_deg, -180.0..=180.0), ("Intensity", &mut state.env.intensity, 0.1..=4.0)] {
+            ui.allocate_ui_with_layout(egui::vec2(width, 20.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                ui.add_sized([60.0, 18.0], egui::Label::new(RichText::new(label).color(theme::TEXT_DIM)));
+                ui.spacing_mut().slider_width = (ui.available_width() - 64.0).max(20.0);
+                let slider = egui::Slider::new(value, range);
+                ui.add(if label == "Rotation" { slider.suffix("°") } else { slider.logarithmic(true) });
+            });
+        }
+    });
+}
+
+/// Bottom icon toolbar: the category's import / library-folder actions on the left, the
+/// preview-size slider on the right.
+fn bottom_toolbar(state: &mut UiState, ui: &mut Ui) {
+    use crate::widgets::icon_button;
+    crate::widgets::divider(ui);
+    type Pick = (crate::files::Purpose, (&'static str, &'static [&'static str]), bool);
+    let mut pick: Option<Pick> = None;
+    let mut folder: Option<subcraft_app::assets::UserAssetKind> = None;
+    egui::Frame::new().inner_margin(egui::Margin::symmetric(8, 3)).show(ui, |ui| {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 4.0;
+            match state.shelf.tab {
+                ShelfTab::Textures | ShelfTab::NormalMaps => {
+                    if icon_button(ui, crate::icons::DOWNLOAD, "Import textures…").clicked() { pick = Some((crate::files::Purpose::ShelfTextures, crate::files::IMAGES, true)); }
+                    folder = Some(subcraft_app::assets::UserAssetKind::Texture);
+                }
+                ShelfTab::Materials => {
+                    if icon_button(ui, crate::icons::DOWNLOAD, tr("Select a texture's maps (color, roughness, normal…) to make one fill layer.")).clicked() { crate::panels::layers::import_texture_set_dialog(ui.ctx()); }
+                }
+                ShelfTab::Brushes => {
+                    if icon_button(ui, crate::icons::DOWNLOAD, "Import alpha…").clicked() { pick = Some((crate::files::Purpose::Alpha, crate::files::ALPHAS, false)); }
+                    folder = Some(subcraft_app::assets::UserAssetKind::Alpha);
+                }
+                ShelfTab::Environments => {
+                    if icon_button(ui, crate::icons::DOWNLOAD, "Import HDRI…").clicked() { pick = Some((crate::files::Purpose::Hdri, crate::files::PANORAMAS, false)); }
+                    folder = Some(subcraft_app::assets::UserAssetKind::Environment);
+                }
+                ShelfTab::SmartMaterials => {
+                    if icon_button(ui, crate::icons::DOWNLOAD, tr("Import smart materials (.scsmart) or PBR texture sets (Color, NormalGL, Roughness…)")).clicked() { import_smart_dialog(ui.ctx()); }
+                    if icon_button(ui, crate::icons::FOLDER_OPEN, tr("Import a folder of .scsmart files or PBR texture sets")).clicked() { import_smart_folder_dialog(ui.ctx()); }
+                }
+                ShelfTab::SmartMasks => {}
+            }
+            if let Some(kind) = folder && let Some(lib) = &state.user_library {
+                let dir = lib.folder(kind);
+                if icon_button(ui, crate::icons::FOLDER, &format!("Library folder: {}\nFiles here appear in the shelf at startup.", dir.display())).clicked() {
+                    if let Err(e) = std::fs::create_dir_all(&dir) { log::warn!("could not create {}: {e}", dir.display()); }
+                    show_in_folder(&dir);
+                }
+            }
+            ui.add_space(6.0);
+            ui.label(RichText::new("Preview size").font(theme::font(10.5)).color(theme::TEXT_FAINT));
+            let v = &mut state.recovery.prefs.shelf_preview_size;
+            *v = (*v).clamp(48, 160);
+            ui.spacing_mut().slider_width = (ui.available_width() - 12.0).clamp(24.0, 90.0);
+            ui.add(egui::Slider::new(v, 48..=160).show_value(false)).on_hover_text("Preview size in UI points; texture resolution stays unchanged");
+        });
+    });
+    if let Some((purpose, filter, multi)) = pick { crate::files::pick(ui.ctx(), purpose, filter, multi, None); }
 }
 
 /// Grayscale bitmap → egui image.
