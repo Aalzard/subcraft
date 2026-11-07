@@ -785,6 +785,7 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
                 smoothness: if dirt { 0.0 } else { pt[2] * default(&["Edges_Smoothness"], 1.0) },
                 grunge_scale: pt[3] * default(&["Grunge_Scale"], 1.0),
                 grunge_floor: if dirt { pt[4] * default(&["grunge_amount"], 0.0) } else { 0.0 },
+                grain: 0.0,
             };
             (c != subcraft_doc::PainterControls::default()).then_some(c)
         };
