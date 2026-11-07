@@ -339,8 +339,6 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Placement", "배치"),
     ("Quality", "품질"),
     ("Read the high-poly file again", "하이 폴리 파일을 다시 읽습니다"),
-    ("Side-by-side 3D | 2D", "3D | 2D 나란히"),
-    ("Tab 2D view behind 3D view", "3D 뷰 뒤의 2D 뷰 탭"),
     ("Texture sets", "텍스처 세트"),
     ("Viewport", "뷰포트"),
 ];

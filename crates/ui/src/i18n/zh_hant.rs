@@ -339,8 +339,6 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Placement", "擺放"),
     ("Quality", "品質"),
     ("Read the high-poly file again", "重新讀取高模檔案"),
-    ("Side-by-side 3D | 2D", "3D | 2D 並排"),
-    ("Tab 2D view behind 3D view", "3D 視圖後方的 2D 視圖分頁"),
     ("Texture sets", "紋理組"),
     ("Viewport", "視埠"),
 ];
