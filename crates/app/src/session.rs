@@ -416,12 +416,34 @@ impl Session {
     /// [`Session::sample`] if the bundled file ever fails to import.
     pub fn default_model() -> Self {
         match subcraft_mesh::import_fbx_bytes(subcraft_assets::default_model::FBX, subcraft_assets::default_model::NAME) {
-            Ok(report) if report.mesh.triangle_count() > 0 => Self::new(report.mesh, DEFAULT_RESOLUTION),
+            Ok(report) if report.mesh.triangle_count() > 0 => Self::with_default_material(report.mesh, DEFAULT_RESOLUTION),
             other => {
                 log::error!("bundled default model failed to import ({:?}); using the sample crate", other.err());
                 Self::sample()
             }
         }
+    }
+
+    /// Like [`Session::new`], but every texture set starts with the default smart material
+    /// (`subcraft_assets::default_model::SMART_MATERIAL`, a folder of layers) below its empty
+    /// paint layer. Built into the starting document, so it is not an edit: a fresh start has
+    /// nothing to save and nothing to undo.
+    fn with_default_material(mesh: Mesh, resolution: u32) -> Self {
+        let smart = subcraft_assets::smart::smart_materials().into_iter().find(|m| m.name == subcraft_assets::default_model::SMART_MATERIAL);
+        let Some(smart) = smart else { return Self::new(mesh, resolution) };
+        let names: Vec<String> = mesh.materials.iter().map(|m| m.name.clone()).collect();
+        let mut doc = Document::from_material_slots(&names, resolution);
+        let mut resources = ResourceStore::default();
+        for r in smart.resources() {
+            resources.insert_shared(r.clone());
+        }
+        let ids = subcraft_assets::ImageIds::new();
+        for ts in doc.texture_sets.iter_mut() {
+            let tc = ts.clone();
+            ts.insert_above(None, smart.build_with(&tc, &ids));
+            ts.insert_above(None, Layer::new_paint("Layer 1", &tc));
+        }
+        Self::from_parts(mesh, doc, resources, "New Project")
     }
 
     /// The built-in two-material sample crate (kept as a small fixture for tests and examples).

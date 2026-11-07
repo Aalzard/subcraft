@@ -59,3 +59,18 @@ fn uv_islands_do_not_overlap() {
     eprintln!("covered {covered} texels, {clashes} texel hits shared between triangles");
     assert!(clashes * 50 < covered, "UV islands overlap: {clashes} of {covered} texels");
 }
+
+#[test]
+fn the_default_model_starts_with_the_dusty_plastic_smart_material_under_an_empty_paint_layer() {
+    use subcraft_assets::default_model::SMART_MATERIAL;
+    assert_eq!(SMART_MATERIAL, "Dusty Plastic");
+    let s = Session::default_model();
+    assert!(!s.is_modified(), "the starting material is part of the new project, not an edit");
+    let ts = &s.document().texture_sets[0];
+    let names: Vec<&str> = ts.layers.iter().map(|l| l.name.as_str()).collect();
+    assert_eq!(names, [SMART_MATERIAL, "Layer 1"], "smart material folder below the paint layer");
+    assert_eq!(s.selection().layer, ts.layers.last().map(|l| l.id), "the paint layer stays selected");
+    let smart = subcraft_assets::smart::smart_materials().into_iter().find(|m| m.name == SMART_MATERIAL).expect("built-in");
+    assert!(smart.images().is_empty(), "procedural, nothing to embed");
+    assert!(subcraft_assets::smart_material_info(SMART_MATERIAL).expect("described").description.contains("red plastic"));
+}
