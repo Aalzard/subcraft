@@ -64,7 +64,25 @@ pub struct Stroke {
     /// Average UV units per object unit of the painted texture set (2D-view strokes).
     uv_per_unit: Option<f32>,
     raster: RasterCache,
+    preview: LivePreview,
 }
+
+/// Live preview of expensive strokes: while the brush touches more than `tiles` tiles per stamp,
+/// only every `stride`-th stamp is applied to the layer as the pen moves; the others wait in
+/// `deferred` and are applied in one batched pass when the stroke ends. Coverage accumulates as
+/// `1 - prod(1 - a_i)`, which does not depend on stamp order, so the final texels equal the exact
+/// stroke up to float rounding.
+#[derive(Clone)]
+struct LivePreview {
+    /// Tiles per stamp above which stamps are thinned out; 0 disables the preview.
+    tiles: usize,
+    /// Tiles the last applied batch touched (the cost estimate).
+    last_tiles: usize,
+    deferred: Vec<Stamp>,
+}
+
+/// At most this many stamps are skipped between two applied ones.
+const PREVIEW_MAX_STRIDE: usize = 3;
 
 /// The visible texel samples of every tile the stroke touched, per camera: later stamps on the
 /// same tile skip rasterizing and the visibility test (a pen stroke stamps the same tiles again
@@ -137,6 +155,7 @@ impl Stroke {
             carried: Vec::new(),
             uv_per_unit: None,
             raster: RasterCache { enabled: std::env::var_os("SUBCRAFT_NO_RASTER_CACHE").is_none(), key: None, tiles: HashMap::new(), samples: 0 },
+            preview: LivePreview { tiles: if std::env::var_os("SUBCRAFT_NO_STROKE_PREVIEW").is_some() { 0 } else { 32 }, last_tiles: 0, deferred: Vec::new() },
         })
     }
 
@@ -146,6 +165,25 @@ impl Stroke {
     pub fn without_raster_cache(mut self) -> Self {
         self.raster.enabled = false;
         self
+    }
+
+    /// Thin out the stamps applied while drawing once a stamp touches more than `tiles` tiles
+    /// (`0`: never); the skipped ones are applied by [`Stroke::flush_deferred`].
+    pub fn with_live_preview(mut self, tiles: usize) -> Self {
+        self.preview.tiles = tiles;
+        self
+    }
+
+    /// Apply the stamps the live preview skipped (call at the end of the stroke, after `finish`).
+    pub fn flush_deferred(&mut self, ts: &mut TextureSet, ctx: &PaintContext) -> Result<Vec<usize>, PaintError> {
+        if self.preview.deferred.is_empty() {
+            return Ok(Vec::new());
+        }
+        self.check(ts, ctx)?;
+        let stamps = std::mem::take(&mut self.preview.deferred);
+        let cameras = self.cameras(ctx);
+        let alignment = self.settings.alignment;
+        self.apply_stamps(ts, ctx, &cameras, &stamps, alignment, true)
     }
 
     /// Clone from `point` (object space). `offset` is the screen offset kept from an earlier
@@ -363,6 +401,7 @@ impl Stroke {
         let s = &self.settings;
         let base_radius = s.radius(ctx.mesh.bounds.diagonal());
         let mut stamps = Vec::new();
+        let mut stamp_k: Vec<u32> = Vec::new();
         for sample in samples {
             let k = self.stamp_count;
             self.stamp_count += 1;
@@ -408,12 +447,23 @@ impl Stroke {
                             self.last_depth = Some(cam.view_depth(st.center).max(1e-3));
                         }
                         stamps.push(st);
+                        stamp_k.push(k);
                     }
                 }
             }
         }
         if self.mode == StrokeMode::Smudge {
             return self.smudge_stamps(ts, ctx, &cameras, &stamps);
+        }
+        if self.preview.tiles > 0 && matches!(self.mode, StrokeMode::Paint | StrokeMode::Erase) {
+            let stride = (self.preview.last_tiles / self.preview.tiles).clamp(1, PREVIEW_MAX_STRIDE) as u32;
+            if stride > 1 {
+                let mut live = Vec::with_capacity(stamps.len() / stride as usize + 1);
+                for (st, k) in stamps.into_iter().zip(stamp_k) {
+                    if k % stride == 0 { live.push(st) } else { self.preview.deferred.push(st) }
+                }
+                stamps = live;
+            }
         }
         self.apply_stamps(ts, ctx, &cameras, &stamps, self.settings.alignment, true)
     }
@@ -439,6 +489,11 @@ impl Stroke {
         let t_bin = std::time::Instant::now();
         let bins = input.bin(stamps);
         profile::add(profile::BIN, t_bin);
+        if alignment != Alignment::Uv {
+            // Cost estimate for the live preview: the tiles a batch touches per stamp.
+            let n = stamps.len().max(1);
+            self.preview.last_tiles = bins.len() / ((n as f32).sqrt().ceil() as usize);
+        }
         let cached = self.raster.enabled;
         if cached {
             let key: RasterKey = (cameras.to_vec(), alignment, backface_cos.map(f32::to_bits), ctx.geometry.resolution, ctx.geometry.material_slot, ctx.mesh as *const Mesh as usize);

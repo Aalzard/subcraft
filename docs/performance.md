@@ -35,10 +35,40 @@ So on the CPU, `write` is the largest stage, then footprint evaluation, then fir
   footprint loop (bit-identical output). Best-of-6 at 2048², 1 thread: 13.1 ms vs 12.4 ms base, i.e.
   no measurable gain; reverted.
 
+## Live preview for expensive strokes (kept)
+
+Reasoning for choosing it over GPU stamping first: it is a small change inside `Stroke` (no new GPU
+paths, no per-GPU risk), the final texels do not depend on it, and it cuts the live cost of exactly the
+case that hurts (big brush, big texture). GPU stamping stays the longer-term answer (below).
+
+How it works (`paint::stroke::LivePreview`, `Stroke::flush_deferred`, called from `Session::end_stroke`):
+the stroke estimates tiles touched per stamp; above 32 tiles it applies only every 2nd/3rd resolved
+stamp while the pen moves and keeps the rest. On release the skipped stamps are applied in one batched
+pass (one tile write each). Coverage accumulates as `1 - prod(1 - a_i)`, independent of order, so the
+released stroke equals the exact one up to float rounding. Test
+`live_preview_thins_stamps_but_the_released_stroke_is_exact` (max texel difference < 1e-3, fewer
+stamps applied while drawing). Paint and Erase only; smudge, clone and 2D-view strokes are unchanged.
+`SUBCRAFT_NO_STROKE_PREVIEW=1` turns it off (used for the A/B below).
+
+Same binary, env switch, 10 layers, 300 px soft brush, batch mode, wall clock on a still-busy PC
+(three alternated pairs each; ms per `stroke_to` call / end_stroke):
+
+| case | off | on |
+|---|---|---|
+| 2048² (stamp touches < 32 tiles mostly) | 6.6 / 15.7 / 39.7 | 5.3 / 15.9 / 16.6 (no consistent change) |
+| 4096² | 22.3, 29.1, 128 | 8.1, 9.6, 33.0; end_stroke adds 148-236 ms |
+| 4096² frame p95 (ms) | 78.8, 105, 251 | 34.4, 44.4, 149 |
+
+So at 4096² the work while drawing drops about 2.5-3x and the total including the release flush is
+still lower (one write per tile instead of one per stamp), at the price of a 0.15-0.25 s pause on pen
+up and a preview that lags the pen by up to 2 stamps and updates every 2nd-3rd frame. A frame that
+does apply a stamp still costs 20-30 ms at 4096², so this is smoother, not 60 fps.
+
 ## Not done (needs a quiet machine and a decision)
 
 * 60 fps for a 300 px brush at 4096² is not reachable by tuning the CPU kernel: per stamp it is
   still rasterize + footprint + f16 tile write over 40-110 tiles. Options that change the design:
   GPU stamping into a GPU tile cache with deferred readback; or a low-resolution live preview while
   drawing (exact result at stroke end). Both are multi-day work and need owner sign-off.
+* Prototype GPU stamping behind a feature flag (the next step; not started).
 * Benchmarks for 20/50-layer stacks, orbit at 2048, texture-set switch and export were not run.

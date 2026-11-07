@@ -1642,9 +1642,16 @@ impl Session {
     /// was painted).
     pub fn end_stroke(&mut self) {
         if let Some(active) = self.stroke.take() {
-            // Catch-up end: let the brush reach the last cursor position first.
-            if let Some(camera) = active.camera.filter(|_| self.brush.options.catch_up) {
-                if self.with_stroke_context(active.texture_set, &camera, |stroke, ts, ctx| stroke.finish(ts, ctx), active).is_ok_and(|t| !t.is_empty()) {
+            // Catch-up end: let the brush reach the last cursor position first; then apply the
+            // stamps the live preview thinned out (one batched pass).
+            if let Some(camera) = active.camera {
+                let catch_up = self.brush.options.catch_up;
+                let run = |stroke: &mut Stroke, ts: &mut TextureSet, ctx: &PaintContext| -> Result<Vec<usize>, PaintError> {
+                    let mut tiles = if catch_up { stroke.finish(ts, ctx)? } else { Vec::new() };
+                    tiles.extend(stroke.flush_deferred(ts, ctx)?);
+                    Ok(tiles)
+                };
+                if self.with_stroke_context(active.texture_set, &camera, run, active).is_ok_and(|t| !t.is_empty()) {
                     self.revision += 1;
                 }
             } else {
