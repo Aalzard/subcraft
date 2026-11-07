@@ -100,7 +100,16 @@ fn main() -> Result<(), String> {
         handles.push((ts, pair[0], pair[1]));
     }
     println!("bake {:.2}s", t0.elapsed().as_secs_f32());
-    let cols = settings();
+    let mut cols = settings();
+    // `legacy` renders the pre-grain model (what older projects keep): no painter controls, old Spread defaults.
+    if args.get(3).map(String::as_str) == Some("legacy") {
+        for (_, d, w) in cols.iter_mut() {
+            for g in [d, w].into_iter().flatten() {
+                g.painter = None;
+                if let Some(e) = g.edge_spread.as_mut() { e.distance = e.distance.min(1.5); e.variation = 0.7; }
+            }
+        }
+    }
     let (cw, ch) = (480u32, 360u32);
     let per_row = 4u32;
     let rows = (cols.len() as u32).div_ceil(per_row);

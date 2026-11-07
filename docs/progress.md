@@ -4375,3 +4375,19 @@ Goal was Dirt / Edge Wear behaving like Painter's. Findings, not a full rebuild:
 * The existing level/contrast mapping (`dirt: level [0.85, -0.5], soft [0.3, 0.4]`) already reproduced Painter's transfer curve for this layer (a single parameter point: level 0.16 / contrast 0.42); what was missing was the grunge tail over unoccluded surfaces. `PainterControls.grunge_floor` (strength 0.23 x `grunge_amount`, contrast-stretched breakup noise, never above 1) adds it.
 * Gate at 512 (Base Color / Roughness / Metallic / Normal / Height): CarInteriro 0.0093 / 0.0326 / 0.0026 / 0.0024 / 0.0040 -> 0.0086 / 0.0326 / 0.0026 / 0.0024 / 0.0040; DBAL-A2 0.0145 / 0.0421 / 0.0455 / 0.0014 / 0.0010 -> 0.0145 / 0.0414 / 0.0455 / 0.0014 / 0.0009; Street_cyberpunk unchanged.
 * Not matched: the level and contrast response is verified at one parameter point only (the project's other dirt layers are overridden or masked, so no per-layer reference); Metal Edge Wear has no usable reference mask at all (DBAL-A2's generator-only wear layers have no texels where they are visible), so edge wear is unchanged apart from the AO masking constant; Painter's grunge texture itself is not reproduced (distribution only).
+
+## Session 115: generator look (grain, defaults), property tests
+
+- `PainterControls.grain` (serde default 0): a noise six times finer than the breakup that speckles Dirt's threshold and erodes
+  the Spread band of Edge wear (up to 65% of its reach, so the real edge stays solid). New Dirt and Edges generators get
+  grain 0.7 (Dirt also edges masking 0.5 and a 0.1 grunge floor); Spread defaults are now 2.5 / Variation 0.8. Older projects
+  load with `painter` absent and keep their exact look. Grain is not applied to the plain Edges threshold path.
+- Contact sheets in `docs/generators/` (before/after, see its README). Checked by eye: wear is chipped and uneven instead of a
+  ruler-straight line, dirt breaks up in grains; on convex shapes with no cavities dirt is only the grunge tail (as in Painter).
+- Tests: finite/bounded/deterministic output at extreme settings for every generator kind; grain changes the mask.
+  Existing legacy tests pin their old settings (`painter = None`). `cargo test -p subcraft-doc -p subcraft-compositor -p subcraft-project -p subcraft-app` passes.
+- Performance at 2048 (crate, 4 texture sets, 3 layers): a full recomposite takes about 12-14 s per setting (5.5 s with no active
+  generator). Generator evaluation is about 25-32 s of summed thread time per recomposite. Not interactive; not fixed.
+  Noise fields are recomputed per setting change rather than reused; that is the next thing to look at.
+- Not done: gravity streaks, mirrored/overlapping-UV bake test, a bake-side change (`texels` keeps the first triangle of
+  overlapping UVs, deterministic; mirrored symmetric geometry bakes correctly, asymmetric overlap cannot).
