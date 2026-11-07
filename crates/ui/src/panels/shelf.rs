@@ -463,7 +463,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     let alt = ui.input(|i| i.modifiers.alt);
     let grid_width = ui.available_width();
     let tile_size = (state.recovery.prefs.shelf_preview_size.clamp(48, 160) as f32).min((grid_width - 2.0 * f32::from(theme::PAD)).max(1.0));
-    let grid_height = (ui.available_height() - 44.0).max(0.0);
+    let grid_height = (ui.available_height() - 56.0).max(0.0);
     ui.allocate_ui_with_layout(egui::vec2(grid_width, grid_height), egui::Layout::top_down(egui::Align::Min), |ui| {
     egui::ScrollArea::vertical().id_salt("shelf").auto_shrink([false, false]).min_scrolled_height(0.0).max_height(grid_height).show(ui, |ui| {
         egui::Frame::new().inner_margin(egui::Margin::same(theme::PAD)).show(ui, |ui| ui.horizontal_wrapped(|ui| {
