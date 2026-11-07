@@ -397,6 +397,8 @@ pub struct BakeUi {
     pub settings: subcraft_app::BakeSettings,
     pub high_poly: String,
     pub all_sets: bool,
+    /// The user picked a size; until then it follows the texture set resolution.
+    pub size_chosen: bool,
     pub job: Option<subcraft_app::BakeJob>,
     /// Kept in the dialog until another bake starts, including actionable failures.
     pub result: Option<Result<usize, String>>,
@@ -423,7 +425,7 @@ pub struct BakeUi {
 
 impl Default for BakeUi {
     fn default() -> Self {
-        Self { open: false, settings: subcraft_app::BakeSettings::default(), high_poly: String::new(), all_sets: true, job: None, result: None, report: String::new(), notices: Vec::new(), log: Vec::new(),
+        Self { open: false, settings: subcraft_app::BakeSettings::default(), high_poly: String::new(), all_sets: true, size_chosen: false, job: None, result: None, report: String::new(), notices: Vec::new(), log: Vec::new(),
             preview: true, cage: true, live_maps: true, displayed_map: None, follow_maps: true, preview_mesh: None,
             preview_job: None, preview_source: None, preview_path: String::new(), preview_scene: None, preview_error: None, preview_uploaded: false, preview_checked_at: 0. }
     }
@@ -506,6 +508,8 @@ pub fn bake_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
     let selected = state.session.selected_texture_set();
     let (sel_id, sel_slot, sel_name) = (selected.id, selected.material_slot, selected.name.clone());
     let all: Vec<(subcraft_core::TextureSetId, u32)> = state.session.document().texture_sets.iter().map(|t| (t.id, t.material_slot)).collect();
+    // Maps below the texture set's resolution look blocky: default to the largest targeted set.
+    let target_res = if state.bake.all_sets { state.session.document().texture_sets.iter().map(|t| t.resolution).max().unwrap_or(1024) } else { selected.resolution }.clamp(256, 4096);
     // Part matching is a project setting (saved with the project), edited here.
     let mut bake_match = state.session.settings().bake_match.clone();
     crate::widgets::window(ctx, window_title("Bake Mesh Maps")).open(&mut open).collapsible(false).default_width(440.0)
@@ -513,6 +517,7 @@ pub fn bake_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
         let busy = state.bake.job.is_some();
         ui.add_enabled_ui(!busy, |ui| {
             let b = &mut state.bake;
+            if !b.size_chosen { b.settings.size = target_res; }
             ui.horizontal(|ui| {
                 ui.label(dim("Bake"));
                 ui.add_space(8.0);
@@ -524,7 +529,7 @@ pub fn bake_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
                 ui.label(dim("Size"));
                 egui::ComboBox::from_id_salt("bake_size").selected_text(format!("{}²", b.settings.size)).show_ui(ui, |ui| {
                     for r in [256u32, 512, 1024, 2048, 4096] {
-                        ui.selectable_value(&mut b.settings.size, r, format!("{r}²"));
+                        if ui.selectable_value(&mut b.settings.size, r, format!("{r}²")).clicked() { b.size_chosen = true; }
                     }
                 });
                 ui.end_row();
