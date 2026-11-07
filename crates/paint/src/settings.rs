@@ -168,6 +168,58 @@ pub enum NormalPaintBlend {
     Detail,
 }
 
+/// What the stamp image of an [`ImageStamp`] brush encodes.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StampKind {
+    /// Tangent-space normal map: painted into the layer's Normal channel (whiteout blend).
+    #[default]
+    Normal,
+    /// Grayscale height: painted into the layer's Height channel.
+    Height,
+}
+
+impl StampKind {
+    /// The layer channel this kind of stamp writes.
+    pub fn channel(self) -> ChannelKind {
+        match self {
+            StampKind::Normal => ChannelKind::Normal,
+            StampKind::Height => ChannelKind::Height,
+        }
+    }
+}
+
+/// A "normal map stamp" (or height stamp) brush: the brush footprint is an image that is laid
+/// onto the surface (rotated, sized and spaced like any tip) and writes its tangent-space
+/// normals / heights instead of a flat value. Size, spacing, rotation, hardness (edge fade) and
+/// jitter come from [`BrushSettings`].
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ImageStamp {
+    pub kind: StampKind,
+    /// The stamp image (a project resource; identity is never a path).
+    pub resource: Option<ResourceId>,
+    pub name: String,
+    /// Scales the XY deviation of the normals (heights: gain). 1 = the map as authored.
+    pub strength: f32,
+    /// The map is DirectX (+Y down): flip its green channel.
+    pub flip_green: bool,
+    /// Repeat the image over the surface under the stroke (anchored at the stroke start) instead
+    /// of one image per stamp.
+    pub tiled: bool,
+    /// Brush channels that were enabled before the stamp took over (restored by "Back to normal brush").
+    pub restore_channels: Vec<ChannelKind>,
+    /// Brush settings before the stamp changed spacing and edge fade.
+    pub restore_settings: Option<BrushSettings>,
+}
+
+impl Default for ImageStamp {
+    fn default() -> Self {
+        Self { kind: StampKind::Normal, resource: None, name: String::new(), strength: 1.0, flip_green: false, tiled: false,
+            restore_channels: Vec::new(), restore_settings: None }
+    }
+}
+
 /// What a paint stroke deposits per channel; masks receive `mask_value`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -186,12 +238,14 @@ pub struct BrushMaterial {
     pub camera_projection: bool,
     /// Grayscale painted into mask rasters.
     pub mask_value: f32,
+    /// Normal-map (or height) stamp brush; `None` = an ordinary brush.
+    pub stamp: Option<ImageStamp>,
 }
 
 impl Default for BrushMaterial {
     fn default() -> Self {
         Self { channels: BTreeMap::new(), textures: BTreeMap::new(), projection: Projection::default(), texture_tiling: true,
-            normal_blend: NormalPaintBlend::Replace, camera_projection: false, mask_value: 1.0 }
+            normal_blend: NormalPaintBlend::Replace, camera_projection: false, mask_value: 1.0, stamp: None }
     }
 }
 

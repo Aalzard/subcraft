@@ -50,6 +50,8 @@ pub struct TexelSample {
     pub p: Vec3,
     pub ng: Vec3,
     pub uv: Vec2,
+    /// Triangle the texel belongs to (for its UV tangent frame).
+    pub tri: u32,
 }
 
 /// Work for one tile: triangles to rasterize and stamps to evaluate.
@@ -200,6 +202,7 @@ impl KernelInput<'_> {
                     p: bary_point(&pos, h.bary),
                     ng,
                     uv: Vec2::new((h.x as f32 + 0.5) / res as f32, (h.y as f32 + 0.5) / res as f32),
+                    tri: t,
                 });
             });
         }
@@ -240,6 +243,71 @@ impl KernelInput<'_> {
             let a = st.footprint(self.alignment, cam, s.p, s.ng, s.uv, self.alpha);
             let slot = &mut out[s.idx as usize];
             if a > *slot { *slot = a; }
+        }
+        out
+    }
+
+    /// Orthonormal UV tangent frame `(T, B)` of a triangle (T toward +U, B toward +V with V up, the
+    /// OpenGL convention of the normal maps), or `None` for a degenerate UV mapping.
+    pub fn tri_frame(&self, tri: u32) -> Option<(Vec3, Vec3)> {
+        let p = self.mesh.tri_positions(tri as usize);
+        let uv = self.mesh.tri_uvs(tri as usize).map(|u| Vec2::new(u.x, 1.0 - u.y));
+        let (e1, e2) = (p[1] - p[0], p[2] - p[0]);
+        let (d1, d2) = (uv[1] - uv[0], uv[2] - uv[0]);
+        let det = d1.x * d2.y - d2.x * d1.y;
+        if det.abs() < 1e-14 { return None; }
+        let t = (e1 * d2.y - e2 * d1.y) / det;
+        let b = (e2 * d1.x - e1 * d2.x) / det;
+        let n = e1.cross(e2).normalize_or_zero();
+        let t = (t - n * t.dot(n)).try_normalize()?;
+        let b = (b - n * b.dot(n) - t * b.dot(t)).try_normalize()?;
+        Some((t, b))
+    }
+
+    /// Convert a stamp-local slope vector (x right, y down, unrotated brush frame) to the tangent
+    /// space of texel `s`.
+    pub fn local_to_tangent(&self, st: &Stamp, v: Vec2, s: &TexelSample, frame: Option<(Vec3, Vec3)>) -> Option<Vec2> {
+        if self.alignment == Alignment::Uv {
+            // The local frame is UV space with V down.
+            return Some(Vec2::new(v.x, -v.y));
+        }
+        let (t, b) = frame?;
+        let _ = s;
+        let w = st.tangent * v.x + st.bitangent * v.y;
+        Some(Vec2::new(w.dot(t), w.dot(b)))
+    }
+
+    /// Image-stamp contribution of one stamp to a tile: per texel `[weight, v0, v1]` where the
+    /// weight is the brush footprint (soft round edge) and `(v0, v1)` the stamp image's slope in
+    /// the texel's tangent space (height stamps: `v0` = the height). Texels outside the stamp
+    /// have weight 0. Where triangles overlap a texel, the strongest footprint wins.
+    pub fn stamp_values(&self, samples: &[TexelSample], st: &Stamp, image: &subcraft_image::Bitmap, stamp: &crate::settings::ImageStamp) -> Vec<[f32; 3]> {
+        use crate::image_stamp::{rotate, sample_height, sample_slope, to_local};
+        use crate::settings::{StampKind, falloff};
+        let mut out = vec![[0.0f32; 3]; TILE_TEXELS];
+        let Some(cam) = self.cameras.get(st.camera) else { return out };
+        let mut last: Option<(u32, Option<(Vec3, Vec3)>)> = None;
+        for s in samples {
+            if !self.visible(st.camera, s) { continue; }
+            let Some(local) = st.local(self.alignment, cam, s.p, s.ng, s.uv, 1.0) else { continue };
+            let r = rotate(local, -st.angle);
+            let r = Vec2::new(r.x, r.y / st.roundness.clamp(0.01, 1.0));
+            let a = falloff(r.length(), st.hardness);
+            let slot = &mut out[s.idx as usize];
+            if a <= 0.0 || a <= slot[0] { continue; }
+            let p = r * 0.5 + Vec2::splat(0.5);
+            let v = match stamp.kind {
+                StampKind::Height => [sample_height(image, stamp, p, subcraft_image::Wrap::Clamp), 0.0],
+                StampKind::Normal => {
+                    let slope = sample_slope(image, stamp, p, subcraft_image::Wrap::Clamp);
+                    let frame = match last { Some((t, f)) if t == s.tri => f, _ => { let f = self.tri_frame(s.tri); last = Some((s.tri, f)); f } };
+                    match self.local_to_tangent(st, to_local(slope, st.angle), s, frame) {
+                        Some(v) => [v.x, v.y],
+                        None => continue,
+                    }
+                }
+            };
+            *slot = [a, v[0], v[1]];
         }
         out
     }
