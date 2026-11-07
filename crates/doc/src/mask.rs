@@ -415,6 +415,36 @@ mod tests {
     use super::*;
 
     #[test]
+    fn micro_effect_is_off_by_default_and_ticking_picks_the_kind_default() {
+        for kind in [GeneratorKind::Edges, GeneratorKind::Cavity, GeneratorKind::Directional, GeneratorKind::Concave, GeneratorKind::PositionGradient, GeneratorKind::MeshMap(MeshMapKind::Curvature)] {
+            let mut g = Generator::new(kind);
+            assert!(g.micro.is_none() && !g.micro_active(), "{kind:?} defaults off");
+            g.set_micro_enabled(true);
+            let m = g.micro.unwrap();
+            assert!(g.micro_active() && m.grain_follows);
+            assert_eq!(m.direction, if kind == GeneratorKind::Edges { MicroDirection::Carve } else { MicroDirection::Raise });
+            assert_eq!(m.height().signum(), m.direction.sign());
+            // Unticking keeps the tuned values and turns the effect off.
+            g.micro.as_mut().unwrap().amount = 0.9;
+            g.set_micro_enabled(false);
+            assert!(!g.micro_active() && g.micro.unwrap().amount == 0.9);
+            g.set_micro_enabled(true);
+            assert_eq!(g.micro.unwrap().amount, 0.9);
+        }
+        let mut g = Generator::new(GeneratorKind::Edges);
+        g.set_micro_enabled(false);
+        assert!(g.micro.is_none(), "unticking an untouched generator leaves it untouched");
+    }
+
+    #[test]
+    fn micro_height_is_bounded_and_ignores_bad_amounts() {
+        let m = MicroEffect { enabled: true, amount: 5.0, direction: MicroDirection::Carve, grain_follows: true };
+        assert_eq!(m.height(), -MicroEffect::MAX_HEIGHT);
+        assert_eq!(MicroEffect { amount: f32::NAN, ..m }.height(), 0.0);
+        assert_eq!(MicroEffect { enabled: false, ..m }.height(), 0.0);
+    }
+
+    #[test]
     fn id_color_match_respects_tolerance_softness_and_invert() {
         let mut m = IdColorMask::default();
         assert_eq!(m.value([0.5, 0.5, 0.5]), 0.0, "no picked colors selects nothing");
