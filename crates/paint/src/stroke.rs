@@ -436,7 +436,9 @@ impl Stroke {
             alpha: self.alpha.as_deref(),
             stencil: self.stencil.as_deref().filter(|_| stencil),
         };
+        let t_bin = std::time::Instant::now();
         let bins = input.bin(stamps);
+        profile::add(profile::BIN, t_bin);
         let cached = self.raster.enabled;
         if cached {
             let key: RasterKey = (cameras.to_vec(), alignment, backface_cos.map(f32::to_bits), ctx.geometry.resolution, ctx.geometry.material_slot, ctx.mesh as *const Mesh as usize);
@@ -445,6 +447,7 @@ impl Stroke {
                 self.raster.samples = 0;
             }
             self.raster.key = Some(key);
+            let t_ras = std::time::Instant::now();
             let mut missing = std::collections::BTreeSet::new();
             for (&t, w) in &bins {
                 for &si in &w.stamps {
@@ -460,6 +463,7 @@ impl Stroke {
                 self.raster.samples += samples.len();
                 self.raster.tiles.insert(k, samples);
             }
+            profile::add(profile::RASTER, t_ras);
         }
         let raster = &self.raster.tiles;
         let work: Vec<(usize, TileWork, Box<[f32]>)> = bins
@@ -469,6 +473,7 @@ impl Stroke {
                 (t, w, cov)
             })
             .collect();
+        let t_acc = std::time::Instant::now();
         let done: Vec<(usize, Box<[f32]>, bool)> = work
             .into_par_iter()
             .map(|(t, w, mut cov)| {
@@ -487,9 +492,13 @@ impl Stroke {
                 (t, cov, changed)
             })
             .collect();
+        profile::add(profile::ACCUM, t_acc);
         let tiles: Vec<usize> = done.iter().filter(|d| d.2).map(|d| d.0).collect();
         self.coverage.extend(done.into_iter().map(|(t, cov, _)| (t, cov)));
-        self.write(ts, ctx, &tiles)
+        let t_wr = std::time::Instant::now();
+        let r = self.write(ts, ctx, &tiles);
+        profile::add(profile::WRITE, t_wr);
+        r
     }
 
     /// Recompute `tiles` of every target image from snapshot + coverage and store them.
@@ -845,4 +854,24 @@ pub fn triangle_at_uv(mesh: &Mesh, geometry: &TextureSetGeometry, uv: Vec2) -> O
         }
     }
     best.map(|b| b.1)
+}
+
+/// Wall-clock nanoseconds spent in each stage of the stamp pipeline since the last
+/// [`profile::take`]; read by the benchmarks. Costs one `Instant::now` per stage per call.
+pub mod profile {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::Instant;
+    pub const BIN: usize = 0;
+    pub const RASTER: usize = 1;
+    pub const ACCUM: usize = 2;
+    pub const WRITE: usize = 3;
+    pub const NAMES: [&str; 4] = ["bin", "raster", "accumulate", "write"];
+    static NS: [AtomicU64; 4] = [AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0)];
+    pub(super) fn add(stage: usize, since: Instant) {
+        NS[stage].fetch_add(since.elapsed().as_nanos() as u64, Ordering::Relaxed);
+    }
+    /// Milliseconds per stage, resetting the counters.
+    pub fn take() -> [f64; 4] {
+        std::array::from_fn(|i| NS[i].swap(0, Ordering::Relaxed) as f64 / 1e6)
+    }
 }

@@ -135,6 +135,7 @@ fn main() {
     let mut tiles_per_frame = Vec::new();
     let mut gen_calls = 0usize;
 
+    let _ = subcraft_paint::stroke::profile::take();
     s.begin_stroke().unwrap();
     let start = Instant::now();
     let mut next = 0usize;
@@ -204,6 +205,8 @@ fn main() {
     }
     let settle = ms(t_settle.elapsed());
 
+    let prof = subcraft_paint::stroke::profile::take();
+    println!("stage wall ms: {}", subcraft_paint::stroke::profile::NAMES.iter().zip(prof).map(|(n, v)| format!("{n} {v:.0}")).collect::<Vec<_>>().join(", "));
     let total: f64 = stroke_cost.iter().sum();
     println!("stroke_to calls {gen_calls}, stroke total {total:.0} ms ({:.1} ms/call avg); end_stroke {end_ms:.1} ms; settle after release {settle:.0} ms",
         total / gen_calls as f64);
