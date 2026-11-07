@@ -4579,3 +4579,13 @@ frame pacing. Mouse/pen pressure per sample inside a frame is still the last val
 - Capture options: `--bake-low` (bake all maps low-on-low), `--select-layer NAME`; with `--texture-set-settings --bake-low` the settings panel scrolls to the Mesh Maps rows.
 - i18n: stale keys removed and the new/renamed texts translated; the lib tests pass (100).
 - Still different: lock toggle uses a check/x glyph (the icon font has no lock), Fill rows use the existing slider widget style, Texture Set List keeps a minimum height, Paint/Filter/Generator panels got the header style only.
+
+## 2026-11-07 — smooth and sharp (branch `smooth-and-sharp`)
+
+Root causes of "AO band is blocky with dirt-like breaks at Breakup 0" and "everything looks pixelated at 2K":
+
+* New Dirt (Cavity) / Edges generators carry `PainterControls.grain = 0.7`; grain speckled the threshold even at Breakup 0. Grain now fades in with Breakup (`grain * clamp(breakup * 4, 0, 1)`), so Breakup 0 is exactly smooth whatever Grain is.
+* The Bake window defaulted to 1024² for a 2048² texture set, and `MeshMaps::read_tile` point-sampled a map of a different size: 2 x 2 blocks. It now samples bilinearly, and the Bake window follows the largest targeted set's resolution until the user picks a size.
+* AO/thickness bakes were 32 rays per texel with a per-texel rotation and no filtering (33 discrete levels + grain). They now get a 3 x 3 binomial smooth over covered texels (`smooth_covered`).
+* Checked, not the cause: viewport samplers are linear + mipmapped; the 512² quick preview only appears with >= 128 stale tiles and the full composite replaces it. Branch `fix/viewport-texture-limit` is NOT merged (device-limit clamp, irrelevant at 2048).
+* Tests: compositor (breakup 0 smooth/deterministic, grain fades in, low-res map sampled smoothly), bake (smoothing). bake/compositor/materials suites pass. Not verified: before/after screenshots in the real app, `subcraft-ui --lib` run, and `subcraft-app` lib test `actions::tests::every_action_is_listed_once` fails (in code this change does not touch; not investigated).
