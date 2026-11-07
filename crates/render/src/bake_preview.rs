@@ -41,7 +41,7 @@ impl BakePreviewPass {
         });
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("bake preview layout"), entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0, visibility: wgpu::ShaderStages::VERTEX,
+                binding: 0, visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
                 ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: None }, count: None,
             }],
         });
