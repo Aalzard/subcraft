@@ -54,7 +54,6 @@ pub const LIGHTNING: &str = "\u{e2de}";
 pub const CURSOR: &str = "\u{e7c8}";
 pub const CURVE: &str = "\u{eb00}";
 pub const FILE_PLUS: &str = "\u{e236}";
-pub const MAGNIFYING_GLASS: &str = "\u{e30c}";
 
 /// Every icon above (for tests).
 pub const ALL: &[&str] = &[
@@ -111,5 +110,4 @@ pub const ALL: &[&str] = &[
     CURSOR,
     CURVE,
     FILE_PLUS,
-    MAGNIFYING_GLASS,
 ];

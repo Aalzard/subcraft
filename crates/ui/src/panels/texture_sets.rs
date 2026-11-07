@@ -195,7 +195,7 @@ fn general(state: &mut UiState, ui: &mut Ui, cmds: &mut Vec<Command>) {
             egui::ComboBox::from_id_salt("tss_shader").width(ui.available_width() - 8.0).selected_text(SHADER_NAME).show_ui(ui, |_| {});
         });
     });
-    ui.horizontal(|ui| { field_label(ui, "Base color"); crate::viewport_bar::albedo_filter(ui, state); });
+    ui.horizontal(|ui| { crate::viewport_bar::albedo_filter(ui, state); });
 }
 
 fn channels(state: &mut UiState, ui: &mut Ui, cmds: &mut Vec<Command>) {
@@ -339,7 +339,7 @@ mod tests {
         assert!(t.iter().any(|s| s == SHADER_NAME));
         for _ in 0..2 { frame(&mut state, &ctx, settings); }
         let t = texts(&frame(&mut state, &ctx, settings));
-        for want in ["GENERAL PROPERTIES", "CHANNELS", "MESH MAPS", "Base color", "sRGB8", "Select height map", "Select bent normals map"] {
+        for want in ["GENERAL PROPERTIES", "CHANNELS", "MESH MAPS", "Base Color", "sRGB8", "Select height map", "Select bent normals map"] {
             assert!(t.iter().any(|s| s.contains(want)), "missing {want}: {t:?}");
         }
     }

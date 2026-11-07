@@ -701,7 +701,10 @@ fn header(state: &mut UiState, ui: &mut Ui) {
     ui.add_space(4.0);
     egui::Frame::new().inner_margin(egui::Margin::symmetric(8, 0)).show(ui, |ui| {
         ui.horizontal(|ui| {
-            ui.label(RichText::new(crate::icons::MAGNIFYING_GLASS).font(theme::font(13.0)).color(theme::TEXT_DIM));
+            let (r, _) = ui.allocate_exact_size(egui::vec2(16.0, 16.0), egui::Sense::hover());
+            let stroke = egui::Stroke::new(1.6, theme::TEXT_DIM);
+            ui.painter().circle_stroke(r.center() - egui::vec2(1.5, 1.5), 5.0, stroke);
+            ui.painter().line_segment([r.center() + egui::vec2(2.0, 2.0), r.center() + egui::vec2(6.5, 6.5)], stroke);
             let filter = &mut state.shelf.filter;
             ui.add(egui::TextEdit::singleline(&mut filter.query).hint_text(tr("Search…")).desired_width(ui.available_width() - 28.0));
             if !filter.query.is_empty() && crate::widgets::icon_button(ui, crate::icons::X, "Clear search").clicked() { filter.query.clear(); }
@@ -1037,11 +1040,6 @@ fn filter_row(state: &mut UiState, ui: &mut Ui) {
     egui::Frame::new().inner_margin(egui::Margin { left: theme::PAD, right: theme::PAD, top: 4, bottom: 6 }).show(ui, |ui| {
         ui.horizontal_wrapped(|ui| {
             let filter = &mut state.shelf.filter;
-            ui.add(egui::TextEdit::singleline(&mut filter.query).hint_text(tr("Search…")).desired_width(ui.available_width().min(180.0)));
-            if !filter.query.is_empty() && crate::widgets::icon_button(ui, crate::icons::X, "Clear search").clicked() {
-                filter.query.clear();
-            }
-            ui.add_space(8.0);
             ui.spacing_mut().item_spacing.x = 4.0;
             for (chip, label) in chips {
                 let selected = filter.chip == chip;

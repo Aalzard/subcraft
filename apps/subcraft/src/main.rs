@@ -79,6 +79,7 @@ fn run_app() -> anyhow::Result<()> {
             "--view-2d" => options.view_2d = true,
             "--brush-panel" => options.brush_panel = true,
             "--shelf-panel" => options.shelf_panel = true,
+            "--texture-set-settings" => options.texture_set_settings = true,
             "--generator-panel" => options.generator_panel = true,
             "--effect-panel" => options.effect_panel = true,
             "--select-brush" => options.select_brush = Some(args.next().ok_or_else(|| anyhow::anyhow!("--select-brush expects a Shelf brush name"))?),

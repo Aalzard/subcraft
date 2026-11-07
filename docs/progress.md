@@ -4557,3 +4557,11 @@ frame pacing. Mouse/pen pressure per sample inside a frame is still the last val
   With mimalloc the same recomposite takes 0.13-0.52 s at 2048 (see docs/generators/README.md). No algorithmic change was needed.
 - Not done: gravity streaks, mirrored/overlapping-UV bake test, a bake-side change (`texels` keeps the first triangle of
   overlapping UVs, deterministic; mirrored symmetric geometry bakes correctly, asymmetric overlap cannot).
+
+## Painter layout parity (branch painter-layout-parity)
+
+- Default layout now mirrors Substance Painter: right column TEXTURE SET LIST, then LAYERS | TEXTURE SET SETTINGS, then PROPERTIES - <KIND>; left ASSETS | HISTORY | PARTS; nothing below the 3D view (2D view is a tab behind it). `DOCK_KEY` is `subcraft_dock_v6`; old layouts (with the Texture Sets tab) fail to parse and fall back to this one. Brush settings stay inside Properties (no separate tab).
+- New panels in `crates/ui/src/panels/texture_sets.rs`; the old Texture Sets tab is retired. Settings: name (rename command), size dropdown (linked width/height lock shown engaged, square sets only), channels with format badge and `+` (AddChannel), mesh map rows with generated thumbnails, Bake Mesh Maps button, X per map via the new `Command::ClearMeshMap`.
+- Read-only / not supported: description (no field in the project schema), shader instance (single "Main shader"), channel format gear and channel remove X (no engine command; layers store per-channel data), non-square sizes.
+- Assets shelf: breadcrumb, search, always-visible icon category row (no dropdown), square tiles with per-category fallback icon, bottom icon toolbar (import / library folder) with preview-size slider. No filter/generator/text assets exist in the shelf data, so those categories are not listed.
+- Verified: unit tests (`texture_sets`, layout, shelf footer) and `session::clear_mesh_map_*`; native screenshots in `docs/ui/painter-layout/` (`--texture-set-settings` launch option added). Known pre-existing failure: `i18n::every_translated_key_exists...` (4 stale keys unrelated to this work).

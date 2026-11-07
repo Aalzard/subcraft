@@ -94,6 +94,8 @@ pub struct LaunchOptions {
     pub brush_panel: bool,
     /// Start with a narrow vertical texture shelf (native layout validation).
     pub shelf_panel: bool,
+    /// Bring Texture Set Settings in front of Layers (scripted captures).
+    pub texture_set_settings: bool,
     /// Open the selected layer's first mask generator for native validation.
     pub generator_panel: bool,
     /// Select this Shelf brush (tip or preset name) shortly before a scripted screenshot, the
@@ -177,7 +179,7 @@ pub fn default_layout() -> DockState<Tab> {
     let surface = dock.main_surface_mut();
     let [center, right] = surface.split_right(NodeIndex::root(), 0.76, vec![Tab::TextureSetList]);
     // Brush settings live inside the context-sensitive Properties panel (no separate tab).
-    let [_, stack] = surface.split_below(right, 0.13, vec![Tab::Layers, Tab::TextureSetSettings]);
+    let [_, stack] = surface.split_below(right, 0.11, vec![Tab::Layers, Tab::TextureSetSettings]);
     surface.split_below(stack, 0.5, vec![Tab::Properties]);
     surface.split_left(center, 0.25, vec![Tab::Shelf, Tab::History, Tab::Parts]);
     for visible in [Tab::Shelf, Tab::Layers, Tab::Viewport] {
@@ -705,6 +707,7 @@ impl SubcraftApp {
         let mut dock = dock;
         migrate_layout(&mut dock);
         if options.properties_panel && let Some(path) = dock.find_tab(&Tab::Layers) { let _ = dock.remove_tab(path); }
+        if options.texture_set_settings && let Some(path) = dock.find_tab(&Tab::TextureSetSettings) { let _ = dock.set_active_tab(path); }
         if options.shelf_panel {
             dock = default_layout();
             state.shelf.tab = crate::panels::shelf::ShelfTab::Textures;
