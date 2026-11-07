@@ -5,6 +5,7 @@
 //! mesh-map vocabulary shared by every subsystem, color-space math and small geometry helpers.
 
 pub mod bake_match;
+pub mod bake_placement;
 pub mod channel;
 pub mod color;
 pub mod ids;
@@ -19,6 +20,7 @@ pub use glam;
 pub use half::f16;
 
 pub use bake_match::{BakeMatch, BakeMatchMode};
+pub use bake_placement::{BakePlacement, Box3, FitMode, PlaceAnchor, PlacePivot};
 pub use channel::{ChannelKind, ChannelValue};
 pub use ids::*;
 pub use meshmap::MeshMapKind;

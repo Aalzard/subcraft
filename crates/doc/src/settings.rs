@@ -40,6 +40,10 @@ pub struct ProjectSettings {
     /// absent = Always with `_low` / `_high`, so no schema bump is needed.
     #[serde(skip_serializing_if = "is_default_match")]
     pub bake_match: subcraft_core::BakeMatch,
+    /// Transform applied to the high-poly bake source (offset / scale / rotation / centring).
+    /// Optional in the file: absent = identity, so no schema bump is needed.
+    #[serde(skip_serializing_if = "is_default_placement")]
+    pub bake_placement: subcraft_core::BakePlacement,
     /// Model file the project's mesh was last imported or reloaded from (default for
     /// File > Reload mesh). A hint only: the project never depends on the file existing.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -52,4 +56,8 @@ pub struct ProjectSettings {
 
 fn is_default_match(m: &subcraft_core::BakeMatch) -> bool {
     *m == subcraft_core::BakeMatch::default()
+}
+
+fn is_default_placement(p: &subcraft_core::BakePlacement) -> bool {
+    p.is_identity()
 }

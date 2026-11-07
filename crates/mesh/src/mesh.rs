@@ -108,6 +108,22 @@ pub struct SurfacePoint {
 }
 
 impl Mesh {
+    /// A copy with every position moved by `m` (normals by the inverse transpose, tangent
+    /// directions by the linear part, winding flipped for mirroring transforms) and the bounds
+    /// recomputed. UVs, materials and object identity are untouched.
+    pub fn transformed(&self, m: &glam::Mat4) -> Mesh {
+        let mut out = self.clone();
+        let lin = glam::Mat3::from_mat4(*m);
+        let det = lin.determinant();
+        let nm = if det.abs() > 1e-20 { lin.inverse().transpose() } else { lin };
+        for p in &mut out.positions { *p = m.transform_point3(*p); }
+        for n in &mut out.normals { *n = (nm * *n).normalize_or_zero(); }
+        for t in &mut out.tangents { let d = (lin * t.truncate()).normalize_or_zero(); *t = d.extend(if det < 0. { -t.w } else { t.w }); }
+        if det < 0. { for tri in out.indices.chunks_exact_mut(3) { tri.swap(1, 2); } }
+        out.bounds = Aabb::from_points(out.positions.iter().copied());
+        out
+    }
+
     pub fn triangle_count(&self) -> usize {
         self.indices.len() / 3
     }

@@ -56,6 +56,8 @@ pub struct BakeSettings {
     pub use_gpu: bool,
     /// Which high-poly parts rays from each low-poly part may hit (see [`name_match`]).
     pub name_match: subcraft_core::BakeMatch,
+    /// Transform put on the loaded high poly before baking (identity = as imported).
+    pub placement: subcraft_core::BakePlacement,
 }
 
 impl Default for BakeSettings {
@@ -72,8 +74,17 @@ impl Default for BakeSettings {
             cage_rear: 0.01,
             use_gpu: true,
             name_match: subcraft_core::BakeMatch::default(),
+            placement: subcraft_core::BakePlacement::default(),
         }
     }
+}
+
+/// The high poly as the baker and the overlay see it: `placement` applied to a copy (the
+/// imported mesh is untouched). The identity returns the same allocation.
+pub fn place_high(low: &Mesh, high: &std::sync::Arc<Mesh>, placement: &subcraft_core::BakePlacement) -> std::sync::Arc<Mesh> {
+    if placement.is_identity() { return high.clone(); }
+    let m = placement.matrix((low.bounds.min, low.bounds.max), (high.bounds.min, high.bounds.max));
+    std::sync::Arc::new(high.transformed(&m))
 }
 
 /// A mesh with its BVH.
@@ -508,3 +519,5 @@ fn gpu_ray_map(
 mod tests;
 #[cfg(test)]
 mod match_tests;
+#[cfg(test)]
+mod placement_tests;
