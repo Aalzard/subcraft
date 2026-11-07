@@ -3,18 +3,61 @@
 What changed in SubCraft, newest first. Download the latest build from the
 [Releases page](https://github.com/Aalzard/subcraft/releases/latest).
 
-## Unreleased
+## 0.2.5 — release candidate
 
-### New
-- **Depth of field** in the 3D view (Render quality > Depth of field, off by default): focus
-  distance, sharp range, blur amount and a click-to-pick focus point. Applies to rendered stills
-  and turntables when on, never to exported textures. `--quality dof-amount=0.6,dof-focus=1,dof-range=10`.
+Test status for this candidate is recorded in `docs/progress.md`; items marked "untested" were not
+run by hand.
+
+### Added
+- **Painter-style layout** (default): Assets shelf with category icons, search and a bottom toolbar on
+  the left; 3D view in the centre; Texture Set List, Layers, Texture Set Settings and a
+  context-sensitive Properties panel on the right. Painter Fill / Material properties, mesh-map
+  capture flags. View menu: side-by-side 3D | 2D split.
+- **Default model SubCraft_base** (bundled FBX, imported from memory) with the **Dusty Plastic** smart
+  material already applied; the default texture resolution is now **2048**.
+- **Languages**: Korean and Traditional Chinese, a language preference and CJK font fallback.
+- **Text tool**: Aa entry point, composer window (Ctrl+Shift+T), on-model move / scale / rotate handle,
+  drag coalesced into one undo step; shelf drops highlight and explain; Alt applies shelf items in place.
+- **Depth of field** in the 3D view (off by default; display and renders only, never exported textures).
+- **Generators**: Painter-style edges masking, AO masking, curvature weight, smoothness, grunge scale,
+  fine grain control and breakup noise offset; new Dirt and Edges generators start with chipped /
+  speckled defaults (older projects keep their look). Contact sheets in `docs/generators/`.
+- **World-space blur** for paint layers.
+- **Painter keymap preset**, shortcut cheat sheet, mouse gestures and a viewport hint overlay.
+- **Compatibility**: safe mode, GPU capability checks, device-lost handling, atomic exports, copyable
+  diagnostics and fatal-error dialogs (`docs/compatibility.md`).
+- **Bake log** with per-map timing and warnings, copyable from the Bake window.
+- **Content**: 30 more normal maps and 4 alpha brushes in the starter pack; a separate Normal Maps shelf tab.
+
 ### Changed
-- **New logo**: a white hexagonal S ribbon with a four-point star on orange. It is the program,
-  window, taskbar, installer and README icon. Inside the app it appears only as a small mark at the
-  top left of the main window.
-- **Warmer charcoal**: panels, windows, fields and borders carry a very faint orange tint (the
-  lightness is unchanged, so the interface is as dark as before).
+- **New logo** (white hexagonal S ribbon with a four-point star on orange) and a slightly warmer
+  charcoal interface (lightness unchanged).
+- Shelf previews render with a preview-only tiling boost, at higher resolution, off the UI thread.
+- 13 built-in smart materials were removed.
+- README rewritten with new screenshots; a Support link was added.
+
+### Fixed
+- Pen strokes: stamps along every pointer position of a frame (fewer gaps on fast strokes).
+- Directional / cavity / edge generator breakup is continuous across UV seams.
+- Text composer window layout (value boxes fully visible); stale or untranslated UI strings.
+
+### Performance
+- **Pen lag**: expensive strokes (large brush, large texture) use a live preview that applies every
+  2nd-3rd stamp and the rest exactly on pen lift; per-stroke raster cache and unchanged-tile skip.
+  At 4096 the work while drawing dropped about 2.5-3x with a 0.15-0.25 s pause on release.
+- Generators: the slow 12-16 s recomposite at 2048 seen in an example harness was the harness using the
+  system heap; the app uses mimalloc and takes roughly 0.13-0.5 s (single PC, indicative).
+
+### Known issues
+- Pen strokes with very large brushes (e.g. 300 px) at 4096 are faster but still not 60 fps
+  (about 17 ms per stamp on the processor); tablet-driver behaviour was not reproduced.
+- Generator timing figures come from one machine; stacks dominated by blur-type filters or procedural
+  noise are not helped by the GPU compositor, and a 4096 cold composite takes over a second.
+- Texture Set Settings has read-only fields: description, shader instance, channel format and channel
+  remove, and non-square sizes. Filtering and UV Wrap on Fill layers are shown disabled.
+- The Korean and Traditional Chinese translations are machine-drafted and need native-speaker review.
+- The layout is a close but not exact match of Substance Painter; the lock toggle uses a check/x glyph.
+- Linux and macOS builds of this candidate were not produced or tested on the release machine.
 
 ## 0.2.1 — 2026-11-04
 
