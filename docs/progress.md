@@ -4579,3 +4579,42 @@ frame pacing. Mouse/pen pressure per sample inside a frame is still the last val
 - Capture options: `--bake-low` (bake all maps low-on-low), `--select-layer NAME`; with `--texture-set-settings --bake-low` the settings panel scrolls to the Mesh Maps rows.
 - i18n: stale keys removed and the new/renamed texts translated; the lib tests pass (100).
 - Still different: lock toggle uses a check/x glyph (the icon font has no lock), Fill rows use the existing slider widget style, Texture Set List keeps a minimum height, Paint/Filter/Generator panels got the header style only.
+
+## High-poly alignment and Bake window redesign (2026-11-08)
+
+Baking an AI-generated high poly (Tripo etc.) needs the two meshes to overlap. Added a per-project
+**placement** of the high-poly source plus a new Bake window.
+
+* `core::BakePlacement`: `p' = anchor + offset + R * S * (p - pivot)`; offset (relative to model
+  size), uniform + per-axis scale, XYZ rotation, pivot (origin / bounds centre), anchor (keep / low
+  centre / low origin); `center_on_low`, `pivot_to_low_origin`, `auto_fit_scale` (height / longest axis /
+  fit both) and `auto_align`. Saved in `ProjectSettings.bake_placement`, absent = identity (no schema bump).
+* `Mesh::transformed`, `bake::place_high` (same `Arc` for the identity; the file on disk is never changed);
+  the bake job applies it before the BVH is built and logs the placement.
+* Overlay: the high poly shares one GPU vertex buffer and is drawn with its own transform + opacity
+  uniform, so sliders only write a uniform (no per-frame rebuild; works for million-triangle meshes).
+* Bake window rebuilt as cards: Models, Placement, Maps to bake (icon + tooltip), Quality, Viewport and a
+  pinned Bake card with a progress bar, one status line per map (waiting / running / done / warning + time)
+  and a collapsed **Details** log (still copyable). `--bake-place auto,center,origin,offset=x:y:z,scale=s,rot=x:y:z`
+  for scripted runs. All new texts go through `tr()` (ko / zh-Hant tables extended).
+* Cage / distance logic checked with known shapes (`bake/src/placement_tests.rs`): front and rear misses and
+  hits at the exact distance, a 4% larger cube, fractions follow the larger of the low / high diagonals.
+  **No bug found.** Note: `diag = max(low diag, placed high diag)`, so scaling the high poly changes the
+  absolute reach; AO sampling was not touched.
+* Found by running the app: the overlay pipeline layout was vertex-only while the shader reads the opacity
+  in the fragment stage (validation error, overlay invisible). Fixed, with a headless render test
+  (`bake_overlay_high_poly_follows_the_placement_transform_and_opacity`). The per-map status was also
+  wrong while baking (finished maps stayed "waiting", "-0.0 s"); fixed with live tracking and a monotonic test.
+
+Tests (`cargo test` of core, bake, mesh, doc, project, app, ui, render): 722 passed, 1 failed.
+The failure is `ui/tests/emission_chip.rs` (a "+ emiss" chip expectation in the Properties panel); none
+of the touched files are involved, and it was not run against the base commit, so it is not confirmed
+pre-existing. New tests: placement maths (7), `transformed` (3), bake placement / distance (7), project
+round trip with old-file defaults + CLI plumbing (app session), placement UI + Bake window (ui), render overlay.
+
+Verified in the real release app (RTX 4060, DX12): `subcraft crate_low.obj --bake-high crate_high_misaligned.obj`
+with `--bake-preview` shows the misaligned blue/red overlay; `--bake-place auto` aligns it (scale 0.7407); a real
+bake produces all nine maps and the grooves / rivets appear in the baked normal map. Screenshots are in
+`docs/ui/highpoly-align/` (before/after Bake window, misaligned and aligned overlay, baked result, running bake,
+small 1000x640 window). Not verified: a real Tripo model, million-triangle overlay speed, interactive dragging of
+sliders (only scripted captures), and keyboard / touch use of the new window.

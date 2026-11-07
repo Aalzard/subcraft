@@ -512,8 +512,8 @@ surface; **red** shows exposed low-poly surfaces sticking through it. Orbit with
 Alt+LMB), pan with MMB and zoom with the wheel to inspect all sides. **Cage wireframe** shows
 the front/rear projection limits; changing **Cage front / rear** updates those lines live.
 This is a surface comparison, not a complete cage-error heatmap: blue does not guarantee every
-detail lies inside the cage. Export both models in matching coordinates; SubCraft does not
-automatically align or rescale them.
+detail lies inside the cage. If the two models are not in matching coordinates (typical for
+AI-generated meshes), use the **Placement** card to align them: see the next section.
 Re-exporting or replacing the high-poly file automatically refreshes the preview while Bake
 is open. Loading runs in the background; the previous mesh remains visible until the replacement
 is ready. **Reload high poly** is optional. A running bake keeps the source it started with;
@@ -556,6 +556,75 @@ target application. Maps are written to the folder you choose.
 
 The Unreal template packs ORM and uses DirectX normals; PBR/glTF use OpenGL normals. Choose the
 right template before judging the result under lighting.
+
+### Baking an AI-generated high poly (e.g. from Tripo)
+
+You can make a simple low-poly model yourself, let an image-to-3D service (Tripo, Meshy, Rodin ...)
+invent a detailed version of it, and bake that detail onto your low poly. The AI model never
+matches your model exactly: it is usually a different size, sits somewhere else and may be a
+little rotated. The **Placement** section of the Bake window fixes that without any 3D tool.
+
+A ready-made practice pair is in `docs/samples/highpoly-align/`: `crate_low.obj` (your
+low-poly crate) and `crate_high_misaligned.obj` (a detailed crate that is 35% too big and shifted,
+just like AI output). Use it to try the steps below first.
+
+1. **Open your low-poly model** (File → Open, or drag it in). It needs UVs; use Unwrap first if it has none.
+2. **Take a picture of it for the AI.** Orbit to a three-quarter view and take a screenshot of the
+   3D view with your system's screenshot tool (crop it to the model).
+   A clean, centred view on a plain background gives the AI the best start.
+3. **Generate the detailed model** in the image-to-3D service from that picture. Pick the
+   highest-detail setting and choose **GLB** or **OBJ** as the download format.
+4. **Download the file** to a folder you can find again.
+5. **Open the Bake window** (Ctrl+B or F8, or the Bake button in the Texture Sets panel). Under **Models**, press the folder icon next to
+   **High poly** and choose the downloaded file. A **Placement** card appears and the 3D view shows
+   the **overlay**: your low poly in **red**, the detailed model in transparent **blue**.
+   If they are far apart, that is normal.
+6. **Press Auto align.** SubCraft moves the blue model's centre onto your model's centre and scales
+   it so both have the same height. Most AI models are lined up after this single click.
+7. **Fine-tune** in the Placement card if needed. Watch the 3D view while you drag:
+   * **Offset X / Y / Z** moves the blue model left/right, up/down, forward/back.
+   * **Scale** makes it bigger or smaller. **Auto-fit scale** offers *match height*, *longest side*
+     and *fit both*; pick the one that suits the shape.
+   * **Center on low poly** only moves; **Pivot to low-poly origin** places the blue model's own
+     origin on your model's origin (use this when the AI model is already correctly sized).
+   * Under *Stretch and rotation* you can scale each axis separately and turn the model.
+   * **Reset placement** returns everything to the file as it was imported. The downloaded
+     file itself is never changed.
+8. **Check the overlay.** Blue should wrap around the red surface evenly. Red patches showing
+   through mean your low poly sticks out of the detailed model there; large blue gaps mean the
+   detailed model floats away. Turn on **Cage wireframe** to see how far the bake will look.
+9. **Choose the maps** you want under **Maps to bake** (Normal and Ambient Occlusion are a good start), pick
+   a resolution and press **Bake**. Each map shows a spinner, then a tick with its time.
+   The **Details** line at the bottom opens the full log if you need it (and has a Copy button).
+10. **Look at the result.** Use the map menu in the Viewport card to switch the model between
+    its material, the Normal map and the Ambient Occlusion map. Placement is saved with your
+    project, so you can re-bake later with the same alignment.
+
+What you should see (sample crate):
+
+| Before Auto align | After Auto align | Baked normal map on the low poly |
+|---|---|---|
+| ![Misaligned overlay](ui/highpoly-align/overlay-misaligned.png) | ![Aligned overlay](ui/highpoly-align/overlay-aligned.png) | ![Baked](ui/highpoly-align/baked-done.png) |
+
+The Bake window while a bake runs (one line per map, the log stays under **Details**):
+![Bake window while baking](ui/highpoly-align/baked-ao-running.png)
+
+**Troubleshooting**
+
+| What you see | What to do |
+|---|---|
+| Blue model is somewhere else, much bigger or tiny | Press **Auto align**. If it is still wrong, try **Auto-fit scale** with another fit mode. |
+| Blue model is turned or upside down | Open *Stretch and rotation* and set the rotation (90° steps usually). |
+| Bake fails with "no high-poly surface was hit" | The models do not overlap. Press **Auto align**, then raise **Cage front / rear**. |
+| Holes or empty black areas in the map | The cage does not reach the detailed surface there. Raise **Cage front / rear** a little at a time, or nudge the offset so the blue surface wraps the red one. |
+| Smeared or stretched details | Increase the cage distance (front for details above the surface, rear for dents) and make sure the scale is right; also check that your low-poly UVs are not stretched. |
+| Details look soft | Use a bigger resolution. AI meshes are often smooth; very fine detail may not exist in the source. |
+| Normal map looks inverted | Your engine may expect DirectX normals; choose the matching export template. |
+| It looked right, then moved after editing the file | The placement is applied to the imported file every time. If you replaced the file with a re-export of different size, press **Auto align** again. |
+
+For power users the same placement can be given on the command line when launching:
+`subcraft crate_low.obj --bake-high crate_high_misaligned.obj --bake-place auto`
+(items: `auto`, `center`, `origin`, `offset=x:y:z`, `scale=s`, `rot=x:y:z`; combine with commas).
 
 ## Editable pen paths
 
