@@ -198,6 +198,32 @@ fn migrate_layout(dock: &mut DockState<Tab>) {
     }
 }
 
+/// Whether the 2D view sits beside the 3D view (its own pane) instead of behind it as a tab.
+pub fn is_side_by_side(dock: &DockState<Tab>) -> bool {
+    match (dock.find_tab(&Tab::Viewport), dock.find_tab(&Tab::UvView)) {
+        (Some(a), Some(b)) => (a.surface, a.node) != (b.surface, b.node),
+        _ => false,
+    }
+}
+
+/// View > Side-by-side 3D | 2D: put the 2D view in its own pane to the right of the 3D view
+/// (50/50; the divider then drags horizontally like every dock divider and the ratio is saved
+/// with the layout), or tab it behind the 3D view again.
+pub fn toggle_side_by_side(dock: &mut DockState<Tab>) {
+    let (Some(_), Some(uv)) = (dock.find_tab(&Tab::Viewport), dock.find_tab(&Tab::UvView)) else { return };
+    if is_side_by_side(dock) {
+        let _ = dock.remove_tab(uv);
+        let Some(view) = dock.find_tab(&Tab::Viewport) else { return };
+        dock[view.surface][view.node].append_tab(Tab::UvView);
+        if let Some(path) = dock.find_tab(&Tab::UvView) { let _ = dock.set_active_tab(path); }
+        if let Some(path) = dock.find_tab(&Tab::Viewport) { let _ = dock.set_active_tab(path); }
+    } else {
+        let _ = dock.remove_tab(uv);
+        let Some(view) = dock.find_tab(&Tab::Viewport) else { return };
+        dock.main_surface_mut().split_right(view.node, 0.5, vec![Tab::UvView]);
+    }
+}
+
 // Apply the requested shelf-left / utility-tabs-bottom arrangement once, then retain edits.
 const DOCK_KEY: &str = "subcraft_dock_v5";
 /// Side of the header logo in points (a small mark, never a splash).
@@ -292,6 +318,30 @@ mod layout_tests {
         app.state.session.execute(Command::AddLayer(NewLayer::Fill)).unwrap();
         app.follow_layer_selection();
         assert!(!app.state.brush_pinned && !panels::properties::shows_brush(&app.state));
+    }
+    #[test]
+    fn side_by_side_splits_2d_beside_3d_with_a_saved_ratio_and_toggles_back() {
+        let mut dock = default_layout();
+        assert!(!is_side_by_side(&dock));
+        toggle_side_by_side(&mut dock);
+        assert!(is_side_by_side(&dock) && layout_is_valid(&dock), "a valid layout with both views in their own panes");
+        let view = dock.find_tab(&Tab::Viewport).unwrap();
+        let uv = dock.find_tab(&Tab::UvView).unwrap();
+        // The panes are the two halves of a horizontal split, 50 / 50.
+        let parent = view.node.parent().unwrap();
+        assert_eq!(uv.node.parent(), Some(parent));
+        match &dock[view.surface][parent] {
+            egui_dock::Node::Horizontal(split) => assert!((split.fraction - 0.5).abs() < 1e-6),
+            other => panic!("expected a horizontal split, got {:?}", other.is_parent()),
+        }
+        // Dragging the divider (a different fraction) survives a save and load, so the ratio is kept.
+        if let egui_dock::Node::Horizontal(split) = &mut dock[view.surface][parent] { split.fraction = 0.3; }
+        // The ratio lives in the dock state that is saved and restored as a whole (DOCK_KEY), so a dragged divider is kept.
+        assert!(layout_is_valid(&dock) && is_side_by_side(&dock));
+        toggle_side_by_side(&mut dock);
+        assert!(!is_side_by_side(&dock) && layout_is_valid(&dock));
+        let v = dock.find_tab(&Tab::Viewport).unwrap();
+        assert!(dock[v.surface][v.node].get_leaf().unwrap().active == v.tab, "3D visible again");
     }
     #[test]
     fn window_size_parsing() {
@@ -1100,6 +1150,10 @@ impl SubcraftApp {
                 }
                 if item(ui, icons::PAINT_BRUSH, tr("Brush settings"), "") {
                     self.state.open_brush_editor = true;
+                    ui.close();
+                }
+                if item(ui, icons::SQUARES, if is_side_by_side(&self.dock) { tr("Tab 2D view behind 3D view") } else { tr("Side-by-side 3D | 2D") }, "") {
+                    toggle_side_by_side(&mut self.dock);
                     ui.close();
                 }
                 if item(ui, icons::SQUARES, tr("Reset layout"), "") {
