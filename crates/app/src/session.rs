@@ -1202,6 +1202,15 @@ impl Session {
                 let changed = if hidden { self.hidden_sets.insert(texture_set) } else { self.hidden_sets.remove(&texture_set) };
                 if changed { self.revision += 1; }
             }
+            Command::ClearMeshMap { texture_set, kind } => {
+                if self.doc.texture_set(texture_set).is_none() { return Err(CommandError::TextureSetNotFound); }
+                if self.mesh_maps.get_mut(&texture_set).is_some_and(|m| m.remove(kind).is_some()) {
+                    self.invalidated.insert(texture_set);
+                    self.maps_dirty = true;
+                    self.maps_generation += 1;
+                    self.revision += 1;
+                }
+            }
             Command::GroupLayer(id) => {
                 self.edit_layer_set(id, "Group Layer", None, |ts| ts.group(id, "Folder").map_err(|_| CommandError::LayerNotFound))?;
             }

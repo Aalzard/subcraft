@@ -846,3 +846,23 @@ fn bake_log_records_timing_path_skipped_sets_and_a_missing_high_poly() {
     assert!(result.unwrap_err().contains("high poly"));
     assert!(log.iter().any(|l| l.level == BakeLogLevel::Error && l.text.contains("High poly could not be loaded")), "{}", bake_log_text(&log));
 }
+
+#[test]
+fn clear_mesh_map_removes_only_that_map_and_is_a_noop_when_missing() {
+    use std::collections::BTreeMap;
+    use subcraft_core::MeshMapKind;
+    let mut s = session();
+    let ts = s.selection().texture_set;
+    let img = || subcraft_image::TiledImage::new(8, 8, 1, [0.0; 4]);
+    let mut maps = BTreeMap::new();
+    maps.insert(MeshMapKind::Normal, img());
+    maps.insert(MeshMapKind::Curvature, img());
+    s.set_mesh_maps(ts, maps);
+    assert_eq!(s.mesh_maps(ts).unwrap().len(), 2);
+    s.execute(Command::ClearMeshMap { texture_set: ts, kind: MeshMapKind::Normal }).unwrap();
+    let left = s.mesh_maps(ts).unwrap();
+    assert!(left.get(MeshMapKind::Normal).is_none() && left.get(MeshMapKind::Curvature).is_some());
+    s.execute(Command::ClearMeshMap { texture_set: ts, kind: MeshMapKind::Normal }).unwrap();
+    s.execute(Command::ClearMeshMap { texture_set: ts, kind: MeshMapKind::Curvature }).unwrap();
+    assert!(s.mesh_maps(ts).is_none());
+}

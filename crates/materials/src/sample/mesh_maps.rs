@@ -22,6 +22,10 @@ impl MeshMaps {
         self.maps.insert(kind, image);
     }
 
+    pub fn remove(&mut self, kind: MeshMapKind) -> Option<TiledImage> {
+        self.maps.remove(&kind)
+    }
+
     pub fn get(&self, kind: MeshMapKind) -> Option<&TiledImage> {
         self.maps.get(&kind)
     }

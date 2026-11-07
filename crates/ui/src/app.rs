@@ -25,7 +25,10 @@ pub enum Tab {
     Layers,
     Properties,
     Brush,
-    TextureSets,
+    /// Painter's TEXTURE SET LIST panel (one row per texture set).
+    TextureSetList,
+    /// Painter's TEXTURE SET SETTINGS panel (general properties, channels, mesh maps).
+    TextureSetSettings,
     Parts,
     History,
     Shelf,
@@ -39,10 +42,11 @@ impl Tab {
             Tab::Layers => tr("Layers"),
             Tab::Properties => tr("Properties"),
             Tab::Brush => tr("Brush"),
-            Tab::TextureSets => tr("Texture Sets"),
+            Tab::TextureSetList => tr("Texture Set List"),
+            Tab::TextureSetSettings => tr("Texture Set Settings"),
             Tab::Parts => tr("Parts"),
             Tab::History => tr("History"),
-            Tab::Shelf => tr("Shelf"),
+            Tab::Shelf => tr("Assets"),
         }
     }
 
@@ -53,7 +57,7 @@ impl Tab {
             Tab::Layers => icons::STACK,
             Tab::Properties => icons::SLIDERS,
             Tab::Brush => icons::PAINT_BRUSH,
-            Tab::TextureSets => icons::CUBE_WIRE,
+            Tab::TextureSetList | Tab::TextureSetSettings => icons::CUBE_WIRE,
             Tab::Parts => icons::CUBE_WIRE,
             Tab::History => icons::HISTORY,
             Tab::Shelf => icons::SQUARES,
@@ -90,6 +94,8 @@ pub struct LaunchOptions {
     pub brush_panel: bool,
     /// Start with a narrow vertical texture shelf (native layout validation).
     pub shelf_panel: bool,
+    /// Bring Texture Set Settings in front of Layers (scripted captures).
+    pub texture_set_settings: bool,
     /// Open the selected layer's first mask generator for native validation.
     pub generator_panel: bool,
     /// Select this Shelf brush (tip or preset name) shortly before a scripted screenshot, the
@@ -132,6 +138,10 @@ pub struct LaunchOptions {
     pub bake_match: Option<subcraft_core::BakeMatchMode>,
     /// Inspect the real high/low geometry before baking, without starting the bake.
     pub bake_preview_only: bool,
+    /// Bake every mesh map of the low poly onto itself at start (scripted captures of the Mesh Maps rows).
+    pub bake_low: bool,
+    /// Select the layer of this name after the demo stack is built (scripted captures).
+    pub select_layer: Option<String>,
     /// Pin a completed map for reproducible native screenshot validation.
     pub bake_preview_map: Option<subcraft_core::MeshMapKind>,
     /// Light the viewport with the environment of this name.
@@ -165,17 +175,18 @@ impl LaunchOptions {
     }
 }
 
+/// Substance Painter's arrangement: the 3D view alone in the centre (2D view behind it as a tab),
+/// ASSETS | HISTORY (| PARTS) on the left, and on the right TEXTURE SET LIST, then
+/// LAYERS | TEXTURE SET SETTINGS, then PROPERTIES. Nothing below the centre.
 pub fn default_layout() -> DockState<Tab> {
     let mut dock = DockState::new(vec![Tab::Viewport, Tab::UvView]);
     let surface = dock.main_surface_mut();
-    let [center, right] = surface.split_right(NodeIndex::root(), 0.77, vec![Tab::Layers]);
+    let [center, right] = surface.split_right(NodeIndex::root(), 0.76, vec![Tab::TextureSetList]);
     // Brush settings live inside the context-sensitive Properties panel (no separate tab).
-    surface.split_below(right, 0.48, vec![Tab::Properties]);
-    let [center, _] = surface.split_left(center, 0.28, vec![Tab::Shelf]);
-    surface.split_below(center, 0.82, vec![Tab::Parts, Tab::TextureSets, Tab::History]);
-    // One group per pair: the 2D view is a tab behind the 3D view (3D visible) and Parts is a tab
-    // beside Texture Sets (Texture Sets visible). Saved layouts are untouched by this.
-    for visible in [Tab::TextureSets, Tab::Viewport] {
+    let [_, stack] = surface.split_below(right, 0.10, vec![Tab::Layers, Tab::TextureSetSettings]);
+    surface.split_below(stack, 0.42, vec![Tab::Properties]);
+    surface.split_left(center, 0.265, vec![Tab::Shelf, Tab::History, Tab::Parts]);
+    for visible in [Tab::Shelf, Tab::Layers, Tab::Viewport] {
         if let Some(path) = dock.find_tab(&visible) { let _ = dock.set_active_tab(path); }
     }
     dock
@@ -225,7 +236,7 @@ pub fn toggle_side_by_side(dock: &mut DockState<Tab>) {
 }
 
 // Apply the requested shelf-left / utility-tabs-bottom arrangement once, then retain edits.
-const DOCK_KEY: &str = "subcraft_dock_v5";
+const DOCK_KEY: &str = "subcraft_dock_v6";
 /// Side of the header logo in points (a small mark, never a splash).
 const BRAND_MARK_SIZE: f32 = 22.0;
 
@@ -237,7 +248,7 @@ pub fn layout_is_valid(dock: &DockState<Tab>) -> bool {
     let mut seen = std::collections::HashMap::<Tab, usize>::new();
     for (_, tab) in dock.iter_all_tabs() { *seen.entry(*tab).or_default() += 1; }
     // Brush is optional: layouts saved before the Brush settings moved into Properties still have it.
-    let all = [Tab::Viewport, Tab::UvView, Tab::Layers, Tab::Properties, Tab::TextureSets, Tab::Parts, Tab::History, Tab::Shelf];
+    let all = [Tab::Viewport, Tab::UvView, Tab::Layers, Tab::Properties, Tab::TextureSetList, Tab::TextureSetSettings, Tab::Parts, Tab::History, Tab::Shelf];
     let brush = seen.get(&Tab::Brush).copied().unwrap_or(0);
     if !all.iter().all(|t| seen.get(t) == Some(&1)) || brush > 1 || seen.len() != all.len() + brush { return false; }
     if dock.iter_surfaces().count() != 1 { return false; }
@@ -277,14 +288,37 @@ mod layout_tests {
         assert!(!layout_is_valid(&doubled));
     }
     #[test]
-    fn default_layout_groups_2d_with_3d_and_parts_with_texture_sets_with_the_main_views_visible() {
+    fn default_layout_matches_painter_with_nothing_below_the_centre() {
         let dock = default_layout();
-        let visible = |tab: Tab| { let p = dock.find_tab(&tab).unwrap(); (p.surface, p.node, dock[p.surface][p.node].get_leaf().unwrap().active == p.tab) };
-        let (s3, n3, v3) = visible(Tab::Viewport); let (s2, n2, v2) = visible(Tab::UvView);
-        assert_eq!((s3, n3), (s2, n2), "2D and 3D share one tab group"); assert!(v3 && !v2, "3D is the visible tab");
-        let (sp, np, vp) = visible(Tab::Parts); let (st, nt, vt) = visible(Tab::TextureSets);
-        assert_eq!((sp, np), (st, nt), "Parts and Texture Sets share one tab group"); assert!(vt && !vp, "Texture Sets is the visible tab");
-        assert_ne!(n3, nt);
+        let node = |t: Tab| { let p = dock.find_tab(&t).unwrap(); (p.surface, p.node) };
+        let visible = |tab: Tab| { let p = dock.find_tab(&tab).unwrap(); dock[p.surface][p.node].get_leaf().unwrap().active == p.tab };
+        assert_eq!(node(Tab::Viewport), node(Tab::UvView), "2D is a tab behind 3D");
+        assert!(visible(Tab::Viewport) && !visible(Tab::UvView));
+        assert_eq!(node(Tab::Shelf), node(Tab::History), "History sits beside Assets");
+        assert_eq!(node(Tab::Layers), node(Tab::TextureSetSettings), "Layers | Texture Set Settings");
+        for t in [Tab::TextureSetList, Tab::Properties, Tab::Layers, Tab::Shelf] { assert_ne!(node(t), node(Tab::Viewport)); }
+        assert_ne!(node(Tab::TextureSetList), node(Tab::Layers));
+        assert_ne!(node(Tab::Layers), node(Tab::Properties));
+        // The centre leaf is the only thing in its column: its parent split is horizontal only.
+        let leaves = dock.main_surface().iter().filter(|n| n.is_leaf()).count();
+        assert_eq!(leaves, 5, "centre, assets group, list, layers group, properties");
+        // Vertical order on the right: list above layers above properties (by split nesting).
+        use egui_dock::Node;
+        let (list, layers, props) = (node(Tab::TextureSetList).1, node(Tab::Layers).1, node(Tab::Properties).1);
+        let vertical_parent = |n: NodeIndex| n.parent().map(|p| matches!(dock.main_surface()[p], Node::Vertical(_))).unwrap_or(false);
+        assert!(vertical_parent(list) && vertical_parent(layers) && vertical_parent(props));
+        assert!(!dock.iter_all_tabs().any(|(_, t)| *t == Tab::Brush));
+        // Proportions of Painter's right column: short list, Layers + Settings about a third,
+        // Properties the rest (about half or more).
+        let share = |n: NodeIndex| match dock.main_surface()[n.parent().unwrap()] { Node::Vertical(ref v) | Node::Horizontal(ref v) => if n.is_left() { v.fraction } else { 1.0 - v.fraction }, _ => unreachable!() };
+        let list_share = share(list);
+        let stack_parent = layers.parent().unwrap();
+        let props_share = share(props);
+        let layers_share = (1.0 - list_share) * share(layers);
+        assert!(list_share <= 0.15, "texture set list is short: {list_share}");
+        assert!((0.28..=0.40).contains(&layers_share), "layers + settings about a third: {layers_share}");
+        assert!(props_share * (1.0 - list_share) >= 0.5, "properties gets half or more");
+        let _ = stack_parent;
     }
     #[test]
     fn brush_settings_live_in_properties_and_old_layouts_with_a_brush_tab_still_load() {
@@ -348,16 +382,6 @@ mod layout_tests {
         assert_eq!(parse_size("1280x720"), Some([1280.0, 720.0]));
         assert_eq!(parse_size("10x10"), None);
         assert_eq!(parse_size("abc"), None);
-    }
-    #[test]
-    fn shelf_is_separate_and_utility_tabs_share_the_bottom_center_node() {
-        let dock = default_layout();
-        let parts = dock.find_tab(&Tab::Parts).unwrap();
-        for tab in [Tab::TextureSets,Tab::History] {
-            let path = dock.find_tab(&tab).unwrap(); assert_eq!((path.surface,path.node),(parts.surface,parts.node));
-        }
-        for tab in [Tab::Shelf,Tab::Viewport,Tab::Layers] {assert_ne!(dock.find_tab(&tab).unwrap().node,parts.node);}
-        assert_ne!(dock.find_tab(&Tab::Shelf).unwrap().node,dock.find_tab(&Tab::Viewport).unwrap().node);
     }
 }
 
@@ -591,6 +615,12 @@ impl SubcraftApp {
         crate::i18n::sync(&cc.egui_ctx, state.recovery.prefs.language);
         subcraft_compositor::gpu::set_gpu_compositing_enabled(state.recovery.prefs.use_gpu_compositing && !subcraft_app::safe_mode::is_active());
         state.recovery.show_prefs = options.preferences;
+        if options.bake_low && options.texture_set_settings { cc.egui_ctx.data_mut(|d| d.insert_temp(egui::Id::new("capture_jump_maps"), true)); }
+        if options.bake_low && options.bake_high_poly.is_none() {
+            if let Some(size) = options.bake_size { state.bake.settings.size = size; }
+            let texture_sets = state.session.document().texture_sets.iter().map(|t| (t.id, t.material_slot)).collect();
+            state.bake.job = Some(state.session.start_bake(subcraft_app::BakeRequest { settings: state.bake.settings.clone(), high_poly: None, texture_sets }));
+        }
         if let Some(high) = &options.bake_high_poly {
             state.bake.open = true;
             state.bake.high_poly = high.display().to_string();
@@ -630,6 +660,11 @@ impl SubcraftApp {
         }
         if options.demo || options.profile_edits.is_some() {
             build_demo(&mut state);
+        }
+        if let Some(name) = &options.select_layer {
+            let mut found = None;
+            state.session.selected_texture_set().walk(|l, _| if l.name == *name { found = Some(l.id); });
+            if let Some(id) = found { let _ = state.session.execute(Command::SelectLayer(Some(id))); }
         }
         if let Some(resolution) = options.profile_edits.as_ref().and_then(|p| p.1) {
             let _ = state.session.execute(Command::SetResolution { texture_set: None, resolution });
@@ -748,10 +783,11 @@ impl SubcraftApp {
         let mut dock = dock;
         migrate_layout(&mut dock);
         if options.properties_panel && let Some(path) = dock.find_tab(&Tab::Layers) { let _ = dock.remove_tab(path); }
+        if options.texture_set_settings && let Some(path) = dock.find_tab(&Tab::TextureSetSettings) { let _ = dock.set_active_tab(path); }
         if options.shelf_panel {
             dock = default_layout();
             state.shelf.tab = crate::panels::shelf::ShelfTab::Textures;
-            if let Some(path) = dock.find_tab(&Tab::TextureSets) { let _ = dock.set_active_tab(path); }
+            if let Some(path) = dock.find_tab(&Tab::Shelf) { let _ = dock.set_active_tab(path); }
         }
         if let Some(name) = options.environment.as_deref() {
             match state.library.environments.iter().position(|e| e.name == name) {
@@ -1417,7 +1453,22 @@ impl egui_dock::TabViewer for Viewer<'_> {
     }
 
     fn title(&mut self, tab: &mut Tab) -> egui::WidgetText {
-        RichText::new(format!("{}   {}", tab.icon(), tab.title())).font(theme::font_strong(12.0)).into()
+        if matches!(tab, Tab::Viewport | Tab::UvView) {
+            return RichText::new(format!("{}   {}", tab.icon(), tab.title())).font(theme::font_strong(12.0)).into();
+        }
+        // Painter titles its panels in capitals, without icons; Properties names the layer kind.
+        let mut title = tab.title().to_uppercase();
+        if *tab == Tab::Properties {
+            let kind = self.state.session.selected_layer().map(|l| match l.kind() {
+                subcraft_doc::LayerKind::Paint => "PAINT",
+                subcraft_doc::LayerKind::Path => "PATH",
+                subcraft_doc::LayerKind::Text => "TEXT",
+                subcraft_doc::LayerKind::Fill => "FILL",
+                subcraft_doc::LayerKind::Folder => "FOLDER",
+            });
+            if let Some(kind) = kind { title = format!("{title} - {kind}"); }
+        }
+        RichText::new(title).font(theme::font_strong(11.5)).into()
     }
 
     fn on_tab_button(&mut self, tab: &mut Tab, response: &egui::Response) {
@@ -1436,7 +1487,8 @@ impl egui_dock::TabViewer for Viewer<'_> {
             Tab::Layers => crate::edit_profile::time_tab("  tab Layers", || panels::layers::show(self.state, ui)),
             Tab::Properties => crate::edit_profile::time_tab("  tab Properties", || panels::properties::show(self.state, ui)),
             Tab::Brush => crate::edit_profile::time_tab("  tab Brush", || panels::brush::show(self.state, ui)),
-            Tab::TextureSets => crate::edit_profile::time_tab("  tab Texture sets", || panels::texture_sets::show(self.state, ui)),
+            Tab::TextureSetList => crate::edit_profile::time_tab("  tab Texture set list", || panels::texture_sets::list(self.state, ui)),
+            Tab::TextureSetSettings => crate::edit_profile::time_tab("  tab Texture set settings", || panels::texture_sets::settings(self.state, ui)),
             Tab::Parts => crate::edit_profile::time_tab("  tab Parts", || panels::parts::show(self.state, ui)),
             Tab::History => crate::edit_profile::time_tab("  tab History", || panels::history::show(self.state, ui)),
             Tab::Shelf => crate::edit_profile::time_tab("  tab Shelf", || panels::shelf::show(self.state, ui)),
@@ -1450,7 +1502,7 @@ impl egui_dock::TabViewer for Viewer<'_> {
     fn scroll_bars(&self, tab: &Tab) -> [bool; 2] {
         // These panels own bounded vertical lists and pinned preview-size footers. The dock's
         // extra scroll area would let content widen itself and scroll the footer offscreen.
-        if matches!(tab, Tab::Shelf | Tab::Layers | Tab::TextureSets) { [false, false] } else { [true, true] }
+        if matches!(tab, Tab::Shelf | Tab::Layers | Tab::TextureSetList) { [false, false] } else { [true, true] }
     }
 
     fn clear_background(&self, tab: &Tab) -> bool {
@@ -1481,6 +1533,7 @@ impl eframe::App for SubcraftApp {
         self.state.recovery.prefs.apply_ui_size(&ctx);
         crate::i18n::sync(&ctx, self.state.recovery.prefs.language);
         self.frames += 1;
+        if self.frames == 12 && ctx.data(|d| d.get_temp::<bool>(egui::Id::new("capture_jump_maps"))).unwrap_or(false) { ctx.data_mut(|d| d.insert_temp(egui::Id::new("tss_jump"), 2u8)); }
         if self.frames == 5 { subcraft_app::startup_probe::step(subcraft_app::startup_probe::COMPLETE_MARKER); }
         if self.frames == 15 && let Some(name) = self.state.capture_select_brush.take() {
             let now = ctx.input(|i| i.time);

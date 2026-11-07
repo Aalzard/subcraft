@@ -80,6 +80,9 @@ pub enum Command {
     /// Show or hide a texture set's part of the model in the viewport. View state only: not saved,
     /// no undo step.
     SetTextureSetHidden { texture_set: TextureSetId, hidden: bool },
+    /// Forget one baked mesh map of a texture set (Texture Set Settings > Mesh maps > X). Not an
+    /// undo step; bake again to get it back. No-op when the map is not baked.
+    ClearMeshMap { texture_set: TextureSetId, kind: subcraft_core::MeshMapKind },
     /// Wrap the layer into a new folder.
     GroupLayer(LayerId),
     MoveLayer { layer: LayerId, parent: Option<LayerId>, index: usize },

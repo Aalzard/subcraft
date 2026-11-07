@@ -119,22 +119,8 @@ pub fn section_with(ui: &mut Ui, id: &str, title: &str, default_open: bool, righ
     let fg = if resp.hovered() { TEXT } else { TEXT_DIM };
     let caret = if open { icons::CARET_DOWN } else { icons::CARET_RIGHT };
     painter.text(rect.left_center() + egui::vec2(8.0, 0.0), egui::Align2::LEFT_CENTER, caret, theme::font(12.0), TEXT_FAINT);
-    let icon = match title {
-        "Tool" | "Brush" | "Paint layer" => Some(icons::PAINT_BRUSH),
-        "Presets" => Some(icons::STACK),
-        "Stencil" => Some(icons::IMAGE),
-        "Material" | "Fill layer" => Some(icons::PAINT_BUCKET),
-        "Jitter" => Some(icons::SPARKLE),
-        "Stroke" | "Pen path" => Some(icons::CURVE),
-        "Parts" => Some(icons::CUBE),
-        "Mask" | "Paint target" => Some(icons::MASK),
-        "Projection" => Some(icons::CUBE_WIRE),
-        _ => None,
-    };
-    if let Some(icon) = icon {
-        painter.text(rect.left_center() + egui::vec2(27.0, 0.0), egui::Align2::LEFT_CENTER, icon, theme::font(13.0), TEXT_DIM);
-    }
-    painter.text(rect.left_center() + egui::vec2(if icon.is_some() { 47.0 } else { 27.0 }, 0.0), egui::Align2::LEFT_CENTER, title, theme::font_strong(12.5), fg);
+    // Painter-style: bold capitals, no icon.
+    painter.text(rect.left_center() + egui::vec2(27.0, 0.0), egui::Align2::LEFT_CENTER, title.to_uppercase(), theme::font_strong(11.5), fg);
     painter.hline(rect.x_range(), rect.bottom() - 0.5, Stroke::new(1.0, BORDER_SOFT));
     // The header already owns this rectangle. A layout scope would advance the parent cursor
     // a second time (even when empty), allowing the first body widget to overlap the header.
