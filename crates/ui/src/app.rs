@@ -1748,6 +1748,54 @@ fn scripted_tool_capture(state: &mut UiState, which: &str, now: f64) {
                 stroke(s, StrokeMode::Paint, &shaky(250.0 + 60.0 * i as f32));
             }
         }
+        "normal-brush-select" => {
+            // The same call a click on a Starter pack normal map makes (loads the image off-thread).
+            use subcraft_assets::starter::{ENTRIES, Kind};
+            if let Some(i) = ENTRIES.iter().position(|e| e.kind == Kind::Normal && e.name == "Bolted Armor") {
+                let _ = s.execute(Command::AddLayer(NewLayer::Paint));
+                state.asset_preview.queue_stamp(&state.session, i, subcraft_paint::StampKind::Normal);
+                state.tool = Tool::Brush;
+            }
+        }
+        "normal-brush-panel" => {
+            // End state of a click on a Starter pack normal map (the load itself is `normal-brush-select`).
+            use subcraft_assets::starter::{ENTRIES, Kind};
+            let _ = s.execute(Command::AddLayer(NewLayer::Paint));
+            state.tool = Tool::Brush;
+            if let Some(i) = ENTRIES.iter().position(|e| e.kind == Kind::Normal && e.name == "Bolted Armor")
+                && let Some(bytes) = subcraft_assets::starter::encoded(i)
+                && let Ok(bitmap) = subcraft_image::io::decode_bitmap(bytes, Some("starter.png"))
+            {
+                let _ = s.set_brush_stamp("Bolted Armor", subcraft_paint::StampKind::Normal, bitmap);
+                s.brush.settings.size = 16.0;
+            }
+        }
+        "normal-brush" | "normal-brush-channel" => {
+            // Stamp starter normal maps onto the model with a paint layer selected (screws, dents, plates).
+            use subcraft_assets::starter::{ENTRIES, Kind};
+            let _ = s.execute(Command::AddLayer(NewLayer::Paint));
+            state.tool = Tool::Brush;
+            if which == "normal-brush-channel" { state.active_channel = ChannelKind::Normal; }
+            let jobs: [(&str, f32, f32, f32, &[(f32, f32)]); 4] = [
+                ("Bolted Armor", 26.0, 0.0, 2.0, &[(400.0, 270.0)]),
+                ("Bullet Holes Dents", 22.0, 35.0, 2.5, &[(500.0, 290.0), (450.0, 360.0)]),
+                ("Cratered Surface", 24.0, -20.0, 2.0, &[(380.0, 380.0), (520.0, 400.0)]),
+                ("Diamond Plate", 16.0, 0.0, 2.0, &[(450.0, 215.0)]),
+            ];
+            for (name, size, angle, strength, points) in jobs {
+                let Some(i) = ENTRIES.iter().position(|e| e.kind == Kind::Normal && e.name == name) else { continue };
+                let Some(bytes) = subcraft_assets::starter::encoded(i) else { continue };
+                let Ok(bitmap) = subcraft_image::io::decode_bitmap(bytes, Some("starter.png")) else { continue };
+                if s.set_brush_stamp(name, subcraft_paint::StampKind::Normal, bitmap).is_err() { continue }
+                s.brush.settings.size = size;
+                s.brush.settings.angle_deg = angle;
+                if let Some(st) = s.brush.material.stamp.as_mut() { st.strength = strength; }
+                for &(x, y) in points { stroke(s, StrokeMode::Paint, &[(x, y)]); }
+            }
+            // A stamped line: spacing 1 repeats the same map along the stroke.
+            s.brush.settings.size = 12.0;
+            stroke(s, StrokeMode::Paint, &line(330.0, 330.0, 570.0, 330.0));
+        }
         "clone" => {
             state.tool = Tool::Clone;
             set(s, [0.85, 0.1, 0.05]);

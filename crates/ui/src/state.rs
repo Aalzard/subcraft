@@ -187,6 +187,8 @@ pub struct UiState {
     pub brush_presets: Vec<subcraft_app::brush_preset::BrushPreset>,
     /// Name typed for the next "Save preset".
     pub preset_name: String,
+    /// Live preview of the normal-map brush panel.
+    pub stamp_preview: crate::panels::stamp_brush::PreviewCache,
     /// Overlay texture of the current stencil image (keyed by its bitmap pointer).
     pub stencil_tex: Option<(usize, egui::TextureHandle)>,
     /// Image textures shown in Shelf → Textures (the library's `textures/` folder).
@@ -298,6 +300,7 @@ impl UiState {
             env_loader: None,
             brush_presets: builtin_brush_presets(),
             preset_name: String::new(),
+            stamp_preview: Default::default(),
             stencil_tex: None,
             textures: Default::default(),
             recovery: crate::recovery::RecoveryUi::disabled(),

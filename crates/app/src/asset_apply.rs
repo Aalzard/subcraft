@@ -6,13 +6,17 @@ use subcraft_doc::{FillChannel, FillSource, Layer, LayerContent, Resource, Resou
 use subcraft_image::Bitmap;
 use crate::{Command, Selection, Session};
 
-pub struct Destination { scene: Arc<subcraft_mesh::Mesh>, selection: Selection, channel: Option<(LayerId,ChannelKind)>, brush_channel: Option<ChannelKind> }
+pub struct Destination { scene: Arc<subcraft_mesh::Mesh>, selection: Selection, channel: Option<(LayerId,ChannelKind)>, brush_channel: Option<ChannelKind>, stamp: Option<subcraft_paint::StampKind> }
 impl Destination {
-    pub fn capture(session: &Session, channel: Option<(LayerId,ChannelKind)>) -> Self { Self { scene:session.scene().mesh.clone(),selection:session.selection(),channel,brush_channel:None } }
+    pub fn capture(session: &Session, channel: Option<(LayerId,ChannelKind)>) -> Self { Self { scene:session.scene().mesh.clone(),selection:session.selection(),channel,brush_channel:None,stamp:None } }
     /// The brush's image for `channel` (tool state: no layer or document change).
     pub fn capture_brush(session: &Session, channel: ChannelKind) -> Self { Self { brush_channel:Some(channel),..Self::capture(session,None) } }
+    /// The active normal-map / height stamp brush (tool state: no layer or document change).
+    pub fn capture_stamp(session: &Session, kind: subcraft_paint::StampKind) -> Self { Self { stamp:Some(kind),..Self::capture(session,None) } }
+    pub fn is_stamp(&self) -> bool { self.stamp.is_some() }
     pub fn apply(self, session: &mut Session, name: &str, kind: Kind, bitmap: Bitmap) -> Result<(),String> {
         if !Arc::ptr_eq(&self.scene,&session.scene().mesh) { return Err("Project changed; image application canceled".into()); }
+        if let Some(stamp)=self.stamp { return session.set_brush_stamp(name,stamp,bitmap); }
         if kind==Kind::Alpha {
             let alpha=BrushAlpha { id:AssetId::from_name(&format!("adjusted-alpha/{name}")),name:name.into(),bitmap:Some(Arc::new(bitmap)),user_file:None };
             session.set_brush_alpha(&alpha); return Ok(());

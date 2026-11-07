@@ -19,7 +19,7 @@ use crate::camera::Camera;
 use crate::depth::{DepthCache, DepthMap};
 use crate::kernel::{KernelInput, TexelSample, TileWork};
 use crate::path::{PathSample, ScreenPath, rand01};
-use crate::settings::{Alignment, BrushMaterial, BrushSettings, PaintTarget, PolygonFillMode, StrokeMode, StrokeOptions};
+use crate::settings::{Alignment, BrushMaterial, BrushSettings, ImageStamp, StampKind, PaintTarget, PolygonFillMode, StrokeMode, StrokeOptions};
 use crate::stamp::{Dab, Stamp, resolve_overlap};
 use crate::target::{ImageKey, PaintError, TargetImage, begin_targets, store};
 
@@ -65,6 +65,12 @@ pub struct Stroke {
     uv_per_unit: Option<f32>,
     raster: RasterCache,
     preview: LivePreview,
+    /// Normal-map / height stamp brush and its image.
+    stamp: Option<(ImageStamp, Arc<subcraft_image::Bitmap>)>,
+    /// Per tile and texel `[sum weight*v0, sum weight*v1, sum weight]` of the stamps laid so far.
+    stamp_acc: HashMap<usize, Box<[[f32; 3]]>>,
+    /// Tiled stamp mode: UV origin and the UV size of one image repeat, fixed by the first stamp.
+    tile_ref: Option<(Vec2, f32)>,
 }
 
 /// Live preview of expensive strokes: while the brush touches more than `tiles` tiles per stamp,
@@ -156,6 +162,9 @@ impl Stroke {
             uv_per_unit: None,
             raster: RasterCache { enabled: std::env::var_os("SUBCRAFT_NO_RASTER_CACHE").is_none(), key: None, tiles: HashMap::new(), samples: 0 },
             preview: LivePreview { tiles: if std::env::var_os("SUBCRAFT_NO_STROKE_PREVIEW").is_some() { 0 } else { 32 }, last_tiles: 0, deferred: Vec::new() },
+            stamp: None,
+            stamp_acc: HashMap::new(),
+            tile_ref: None,
         })
     }
 
@@ -201,6 +210,23 @@ impl Stroke {
     /// Use a brush alpha (tip image: white paints) instead of the round procedural tip.
     pub fn with_alpha(mut self, alpha: Option<Arc<subcraft_image::Bitmap>>) -> Self {
         self.alpha = alpha;
+        self
+    }
+
+    /// Paint with an image stamp (normal map / height): only paint strokes on the stamp's channel
+    /// use it. Needs the decoded image; `None` leaves an ordinary brush.
+    pub fn with_stamp(mut self, stamp: Option<ImageStamp>, image: Option<Arc<subcraft_image::Bitmap>>) -> Self {
+        if let (Some(stamp), Some(image)) = (stamp, image)
+            && self.mode == StrokeMode::Paint
+        {
+            let channel = stamp.kind.channel();
+            let mut any = false;
+            for img in self.images.iter_mut().filter(|i| i.key.channel() == Some(channel)) {
+                img.stamp = Some(stamp.kind);
+                any = true;
+            }
+            if any { self.stamp = Some((stamp, image)); }
+        }
         self
     }
 
@@ -486,6 +512,13 @@ impl Stroke {
             alpha: self.alpha.as_deref(),
             stencil: self.stencil.as_deref().filter(|_| stencil),
         };
+        if let Some((st, _)) = &self.stamp
+            && st.tiled
+            && self.tile_ref.is_none()
+            && let Some(first) = stamps.first()
+        {
+            self.tile_ref = Some((first.uv, (2.0 * first.radius_uv).max(1e-6)));
+        }
         let t_bin = std::time::Instant::now();
         let bins = input.bin(stamps);
         profile::add(profile::BIN, t_bin);
@@ -521,35 +554,52 @@ impl Stroke {
             profile::add(profile::RASTER, t_ras);
         }
         let raster = &self.raster.tiles;
-        let work: Vec<(usize, TileWork, Box<[f32]>)> = bins
+        let single_stamp = self.stamp.as_ref().filter(|(s, _)| !s.tiled).map(|(s, b)| (s.clone(), b.clone()));
+        let work: Vec<(usize, TileWork, Box<[f32]>, Option<Box<[[f32; 3]]>>)> = bins
             .into_iter()
             .map(|(t, w)| {
                 let cov = self.coverage.remove(&t).unwrap_or_else(|| vec![0.0; TILE_TEXELS].into_boxed_slice());
-                (t, w, cov)
+                let acc = single_stamp.as_ref().map(|_| self.stamp_acc.remove(&t).unwrap_or_else(|| vec![[0.0; 3]; TILE_TEXELS].into_boxed_slice()));
+                (t, w, cov, acc)
             })
             .collect();
         let t_acc = std::time::Instant::now();
-        let done: Vec<(usize, Box<[f32]>, bool)> = work
+        let done: Vec<(usize, Box<[f32]>, Option<Box<[[f32; 3]]>>, bool)> = work
             .into_par_iter()
-            .map(|(t, w, mut cov)| {
+            .map(|(t, w, mut cov, mut acc)| {
                 // A stamp's bounding region covers whole triangles, so many touched tiles gain
                 // nothing; those need no rewrite, no re-composite and no GPU upload.
-                let before = cached.then(|| cov.clone());
+                let before = cached.then(|| (cov.clone(), acc.clone()));
                 if cached {
                     let per_camera: Vec<Option<&[TexelSample]>> = (0..cameras.len()).map(|c| raster.get(&(t, c)).map(|s| &s[..])).collect();
                     input.accumulate_visible(&per_camera, stamps, &w.stamps, &mut cov);
+                    if let (Some((cfg, bitmap)), Some(acc)) = (&single_stamp, acc.as_mut()) {
+                        for &si in &w.stamps {
+                            let st = &stamps[si as usize];
+                            let Some(samples) = per_camera[st.camera] else { continue };
+                            lay_stamp(&input, samples, st, bitmap, cfg, acc);
+                        }
+                    }
                 } else {
                     let samples = input.rasterize_tile(t, w.tris.iter().copied());
                     input.accumulate(&samples, stamps, &w.stamps, &mut cov);
+                    if let (Some((cfg, bitmap)), Some(acc)) = (&single_stamp, acc.as_mut()) {
+                        for &si in &w.stamps {
+                            lay_stamp(&input, &samples, &stamps[si as usize], bitmap, cfg, acc);
+                        }
+                    }
                 }
                 self.restrict_coverage(ctx.geometry, t, &mut cov);
-                let changed = before.is_none_or(|b| b != cov);
-                (t, cov, changed)
+                let changed = before.is_none_or(|(c, a)| c != cov || a != acc);
+                (t, cov, acc, changed)
             })
             .collect();
         profile::add(profile::ACCUM, t_acc);
-        let tiles: Vec<usize> = done.iter().filter(|d| d.2).map(|d| d.0).collect();
-        self.coverage.extend(done.into_iter().map(|(t, cov, _)| (t, cov)));
+        let tiles: Vec<usize> = done.iter().filter(|d| d.3).map(|d| d.0).collect();
+        for (t, cov, acc, _) in done {
+            self.coverage.insert(t, cov);
+            if let Some(acc) = acc { self.stamp_acc.insert(t, acc); }
+        }
         let t_wr = std::time::Instant::now();
         let r = self.write(ts, ctx, &tiles);
         profile::add(profile::WRITE, t_wr);
@@ -568,7 +618,7 @@ impl Stroke {
                 let cov = &self.coverage[&t];
                 let remap = self.remap(ctx, t, cov);
                 self.images.iter().map(move |img| {
-                    let source = match (&remap, self.mode) {
+                    let source = if img.stamp.is_some() { self.stamp_source(ctx, t, cov) } else { match (&remap, self.mode) {
                         (Remap::Clone(uvs), StrokeMode::Clone) => Some(clone_source_tile(img, uvs)),
                         _ => img.texture.filter(|_| self.mode == StrokeMode::Paint).map(|id| {
                             let mut values = vec![[0.0; 4]; TILE_TEXELS];
@@ -601,7 +651,7 @@ impl Stroke {
                             }
                             values
                         }),
-                    };
+                    } };
                     (img.key, t, img.compute_tile(t, cov, opacity, self.mode, source.as_deref()))
                 })
             })
@@ -610,6 +660,41 @@ impl Stroke {
         let mut tiles = tiles;
         tiles.sort_unstable();
         Ok(tiles)
+    }
+
+    /// Per-texel `[v0, v1, 0, 1]` source of a stamp stroke on tile `t`: the stamps' summed
+    /// tangent-space slope (height stamps: height), averaged where stamps overlap beyond weight 1.
+    fn stamp_source(&self, ctx: &PaintContext, t: usize, cov: &[f32]) -> Option<Vec<[f32; 4]>> {
+        let (cfg, bitmap) = self.stamp.as_ref()?;
+        let mut values = vec![[0.0; 4]; TILE_TEXELS];
+        if !cfg.tiled {
+            let acc = self.stamp_acc.get(&t)?;
+            for ((out, a), &c) in values.iter_mut().zip(acc.iter()).zip(cov) {
+                if c <= 0.0 || a[2] <= 0.0 { continue; }
+                let n = a[2].max(1.0);
+                *out = [a[0] / n, a[1] / n, 0.0, 1.0];
+            }
+            return Some(values);
+        }
+        let (origin, size) = self.tile_ref?;
+        let g = ctx.geometry;
+        let res = g.resolution as f32;
+        let x0 = (t as u32 % g.tiles_x) * TILE_SIZE;
+        let y0 = (t as u32 / g.tiles_x) * TILE_SIZE;
+        let angle = self.settings.angle_deg.to_radians();
+        for (i, out) in values.iter_mut().enumerate() {
+            if cov[i] <= 0.0 { continue; }
+            let uv = Vec2::new((x0 + i as u32 % TILE_SIZE) as f32 / res + 0.5 / res, (y0 + i as u32 / TILE_SIZE) as f32 / res + 0.5 / res);
+            let p = crate::image_stamp::rotate(uv - origin, -angle) / size + Vec2::splat(0.5);
+            *out = match cfg.kind {
+                StampKind::Height => [crate::image_stamp::sample_height(bitmap, cfg, p, Wrap::Repeat), 0.0, 0.0, 1.0],
+                StampKind::Normal => {
+                    let v = crate::image_stamp::to_local(crate::image_stamp::sample_slope(bitmap, cfg, p, Wrap::Repeat), angle);
+                    [v.x, -v.y, 0.0, 1.0] // UV space: V down -> tangent space V up
+                }
+            };
+        }
+        Some(values)
     }
 
     /// Object-space position of covered texel `i` of a tile.
@@ -835,6 +920,17 @@ impl Stroke {
                 *c *= parts.factor(geo.region(i, parts.kind));
             }
         }
+    }
+}
+
+/// Add one stamp's image contribution to a tile's accumulator.
+fn lay_stamp(input: &KernelInput, samples: &[TexelSample], st: &Stamp, image: &subcraft_image::Bitmap, cfg: &ImageStamp, acc: &mut [[f32; 3]]) {
+    for (slot, v) in acc.iter_mut().zip(input.stamp_values(samples, st, image, cfg)) {
+        let w = v[0] * st.flow;
+        if w <= 0.0 { continue; }
+        slot[0] += w * v[1];
+        slot[1] += w * v[2];
+        slot[2] += w;
     }
 }
 

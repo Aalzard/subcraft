@@ -104,8 +104,8 @@ pub struct Session {
     no_maps: MeshMaps,
     pub(crate) history: History,
     /// Live document: equals the current history entry except while a stroke is in progress.
-    doc: Document,
-    selection: Selection,
+    pub(crate) doc: Document,
+    pub(crate) selection: Selection,
     mask_clipboard: Option<Mask>,
     hidden_sets: std::collections::BTreeSet<TextureSetId>,
     /// Selected effect of the selected layer's current domain (see [`Session::selected_effect`]).
@@ -131,7 +131,7 @@ pub struct Session {
     /// Changes whenever newly evaluated composites are installed, including synchronous callers.
     composite_generation: u64,
     /// Bumped on every document change (UI caches key off it).
-    revision: u64,
+    pub(crate) revision: u64,
     layer_counter: u32,
     project_path: Option<PathBuf>,
     /// Document as of the last save / load / new (for the unsaved-changes indicator).
@@ -1534,11 +1534,22 @@ impl Session {
             return Ok(());
         }
         let layer = self.selection.layer.ok_or(PaintError::LayerNotFound)?;
+        // A normal-map / height stamp turns on its channel on the layer with the first stroke.
+        let stamp = self.stroke_stamp();
+        if let Some((s, _)) = &stamp {
+            self.enable_layer_channel(layer, s.kind.channel());
+        }
         let ts = self.selected_texture_set();
         let b = &self.brush;
-        let mut stroke = Stroke::begin(ts, layer, b.target, b.mode, b.settings, b.options, &b.material)?
+        let mut material = b.material.clone();
+        if let Some((s, _)) = &stamp {
+            let channel = s.kind.channel();
+            material.channels.entry(channel).or_insert(subcraft_paint::BrushChannel { enabled: true, value: channel.default_paint_value() }).enabled = true;
+        }
+        let mut stroke = Stroke::begin(ts, layer, b.target, b.mode, b.settings, b.options, &material)?
             .with_resources(self.resources())
-            .with_alpha(b.alpha.clone())
+            .with_alpha(if stamp.is_some() { None } else { b.alpha.clone() })
+            .with_stamp(stamp.as_ref().map(|(s, _)| s.clone()), stamp.as_ref().map(|(_, i)| i.clone()))
             .with_stencil(if b.stencil_bypass { None } else { b.stencil.clone() });
         if b.mode == StrokeMode::Clone {
             let point = self.clone_source.ok_or(PaintError::NoCloneSource)?;
@@ -1548,6 +1559,8 @@ impl Session {
         let label = match (b.mode, b.target) {
             (StrokeMode::Smudge, _) => "Smudge Stroke",
             (StrokeMode::Clone, _) => "Clone Stroke",
+            (StrokeMode::Paint, PaintTarget::Content) if stamp.as_ref().is_some_and(|(s, _)| s.kind == subcraft_paint::StampKind::Normal) => "Normal Map Stamp Stroke",
+            (StrokeMode::Paint, PaintTarget::Content) if stamp.is_some() => "Height Stamp Stroke",
             (StrokeMode::Paint, PaintTarget::Content) => "Paint Stroke",
             (StrokeMode::Erase, PaintTarget::Content) => "Erase Stroke",
             (StrokeMode::Paint, PaintTarget::ContentEffect(_)) => "Paint Effect Stroke",
@@ -2006,6 +2019,12 @@ impl Session {
 
     /// Use a brush alpha for the next strokes.
     pub fn set_brush_alpha(&mut self, alpha: &subcraft_assets::BrushAlpha) {
+        self.clear_brush_stamp();
+        self.set_brush_tip(alpha);
+    }
+
+    /// Set the tip image only (presets restore their own stamp state separately).
+    pub(crate) fn set_brush_tip(&mut self, alpha: &subcraft_assets::BrushAlpha) {
         self.brush.alpha = alpha.bitmap.clone();
         self.brush.alpha_name = alpha.name.clone();
     }
