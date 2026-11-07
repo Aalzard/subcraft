@@ -132,7 +132,7 @@ fn scaled_noise(g: &Generator) -> subcraft_doc::ProceduralParams {
 }
 
 /// Noise six times finer than the breakup pattern (same seed family), in object space.
-fn fine_noise(g: &Generator, geo: &subcraft_materials::sample::TileGeometry) -> std::sync::Arc<subcraft_materials::sample::field::Field> {
+pub(crate) fn fine_noise(g: &Generator, geo: &subcraft_materials::sample::TileGeometry) -> std::sync::Arc<subcraft_materials::sample::field::Field> {
     let mut p = scaled_noise(g);
     p.scale = (p.scale * 6.0).clamp(0.01, 256.0);
     p.seed = p.seed.wrapping_add(0x9e37);

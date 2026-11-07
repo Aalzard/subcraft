@@ -10,7 +10,7 @@ use std::{
 };
 use subcraft_core::{ChannelKind, LayerId};
 use subcraft_doc::{
-    BlendMode, ContentEffect, ContentEffectKind, Filter, Layer, LayerContent, Mask, MaskEffect,
+    BlendMode, ContentEffect, ContentEffectKind, Filter, Generator, Layer, LayerContent, Mask, MaskEffect,
     MaskEffectKind, TextureSet,
 };
 use subcraft_image::{TILE_SIZE, TILE_TEXELS, TiledImage};
@@ -163,6 +163,24 @@ enum Node<'a> {
         weights: Arc<Vec<f32>>,
         horizontal: bool,
     },
+    /// Micro effect: the signed height change `generator`'s mask (the running mask right after the
+    /// generator effect) writes. Read by [`Node::MicroHeight`] and, through its neighbours, by
+    /// [`Node::MicroNormal`]; the mask is evaluated once and shared, never recomputed.
+    MicroDelta {
+        mask: usize,
+        generator: &'a Generator,
+        opacity: f32,
+    },
+    /// Height channel: adds the micro delta.
+    MicroHeight {
+        below: usize,
+        delta: usize,
+    },
+    /// Normal channel: whiteout-blends the normal of the micro delta's slope.
+    MicroNormal {
+        below: usize,
+        delta: usize,
+    },
 }
 impl Node<'_> {
     /// Profile bucket name (`SUBCRAFT_COMPOSITE_PROFILE=1`).
@@ -185,6 +203,9 @@ impl Node<'_> {
             Self::Pixelwise { .. } => "pixelwise filter",
             Self::Contour { .. } => "contour",
             Self::Gaussian { .. } => "gaussian pass",
+            Self::MicroDelta { .. } => "micro delta",
+            Self::MicroHeight { .. } => "micro height",
+            Self::MicroNormal { .. } => "micro normal",
         }
     }
     fn primary(&self) -> Option<usize> {
@@ -197,7 +218,8 @@ impl Node<'_> {
             | Self::Warp { input, .. }
             | Self::Pixelwise { input, .. }
             | Self::Directional { input, .. } => Some(*input),
-            Self::Layer { below, .. } => Some(*below),
+            Self::Layer { below, .. } | Self::MicroHeight { below, .. } | Self::MicroNormal { below, .. } => Some(*below),
+            Self::MicroDelta { mask, .. } => Some(*mask),
             _ => None,
         }
     }
@@ -207,6 +229,10 @@ pub(crate) struct Graph<'a> {
     nodes: Vec<Node<'a>>,
     uniform: Vec<bool>,
     masks: HashMap<LayerId, usize>,
+    /// Per layer: the mask node right after each micro-effect generator.
+    micro_masks: HashMap<LayerId, Vec<(usize, &'a Generator)>>,
+    /// (layer, micro generator index) -> its shared delta node.
+    micro_deltas: HashMap<(LayerId, usize), usize>,
     roots: Vec<(ChannelKind, usize)>,
     radius_scale: f32,
     ctx: EvalContext<'a>,
@@ -260,6 +286,8 @@ impl<'a> Graph<'a> {
             nodes: Vec::new(),
             uniform: Vec::new(),
             masks: HashMap::new(),
+            micro_masks: HashMap::new(),
+            micro_deltas: HashMap::new(),
             roots: Vec::new(),
             ctx,
             albedo,
@@ -353,6 +381,7 @@ impl<'a> Graph<'a> {
                         _ => true,
                     }
             }
+            Node::MicroDelta { .. } | Node::MicroHeight { .. } | Node::MicroNormal { .. } => false,
             Node::Layer {
                 below,
                 input,
@@ -436,7 +465,23 @@ impl<'a> Graph<'a> {
             horizontal: false,
         }))
     }
+    /// The layer's mask node, built once per layer together with its micro-effect taps.
+    fn layer_mask(&mut self, layer: &'a Layer, mask: &'a Mask) -> usize {
+        if let Some(&node) = self.masks.get(&layer.id) {
+            return node;
+        }
+        let (node, micro) = self.mask_with_micro(mask);
+        self.masks.insert(layer.id, node);
+        if !micro.is_empty() {
+            self.micro_masks.insert(layer.id, micro);
+        }
+        node
+    }
     fn mask(&mut self, mask: &'a Mask) -> usize {
+        self.mask_with_micro(mask).0
+    }
+    fn mask_with_micro(&mut self, mask: &'a Mask) -> (usize, Vec<(usize, &'a Generator)>) {
+        let mut micro = Vec::new();
         let mut input = self.push(Node::MaskBase(&mask.base));
         for effect in mask.effects.iter().filter(|e| e.visible && e.opacity > 0.0) {
             let filtered = if let MaskEffectKind::Filter(f) = effect.kind {
@@ -449,8 +494,13 @@ impl<'a> Graph<'a> {
                 effect,
                 filtered,
             });
+            if let MaskEffectKind::Generator(g) = &effect.kind
+                && g.micro_active()
+            {
+                micro.push((input, g));
+            }
         }
-        input
+        (input, micro)
     }
     fn stack(&mut self, layers: &'a [Arc<Layer>], mut below: usize, kind: ChannelKind) -> usize {
         for layer in layers {
@@ -459,6 +509,43 @@ impl<'a> Graph<'a> {
         below
     }
     fn layer(&mut self, layer: &'a Layer, below: usize, kind: ChannelKind) -> usize {
+        let out = self.layer_inner(layer, below, kind);
+        if layer.visible && matches!(kind, ChannelKind::Normal | ChannelKind::Height) && micro_layer(layer) {
+            return self.micro(layer, out, kind);
+        }
+        out
+    }
+    /// Micro effect: the layer's micro-effect generators also write into the Normal / Height
+    /// accumulated so far. Nothing is added to a channel nothing has written to (no channel is
+    /// created), and the generator layer's own per-channel blends do not matter: the generator
+    /// is a mask, and the layer need not carry height or normal content itself.
+    fn micro(&mut self, layer: &'a Layer, mut out: usize, kind: ChannelKind) -> usize {
+        if matches!(self.nodes[out], Node::Constant(_)) {
+            return out;
+        }
+        let Some(mask) = layer.mask.as_ref().filter(|m| m.enabled) else { return out };
+        self.layer_mask(layer, mask);
+        let taps = self.micro_masks.get(&layer.id).cloned().unwrap_or_default();
+        let base = layer.blend_for(ChannelKind::BaseColor);
+        let opacity = if base.is_active() { base.opacity.clamp(0.0, 1.0) } else { 1.0 };
+        for (index, (mask_node, generator)) in taps.into_iter().enumerate() {
+            let delta = match self.micro_deltas.get(&(layer.id, index)) {
+                Some(&d) => d,
+                None => {
+                    let d = self.push(Node::MicroDelta { mask: mask_node, generator, opacity });
+                    self.micro_deltas.insert((layer.id, index), d);
+                    d
+                }
+            };
+            out = self.push(if kind == ChannelKind::Height {
+                Node::MicroHeight { below: out, delta }
+            } else {
+                Node::MicroNormal { below: out, delta }
+            });
+        }
+        out
+    }
+    fn layer_inner(&mut self, layer: &'a Layer, below: usize, kind: ChannelKind) -> usize {
         if !layer.visible || !layer.blend_for(kind).is_active() {
             return below;
         }
@@ -473,13 +560,7 @@ impl<'a> Graph<'a> {
             return below;
         }
         let mask = if let Some(m) = layer.mask.as_ref().filter(|m| m.enabled) {
-            if let Some(&node) = self.masks.get(&layer.id) {
-                Some(node)
-            } else {
-                let node = self.mask(m);
-                self.masks.insert(layer.id, node);
-                Some(node)
-            }
+            Some(self.layer_mask(layer, m))
         } else {
             None
         };
@@ -574,6 +655,17 @@ impl<'a> Graph<'a> {
                     | Node::Gaussian { input, .. } => {
                         shared[*input] = true;
                         uses[*input] += 2;
+                    }
+                    Node::MicroDelta { mask, .. } => {
+                        // The generator mask feeds the delta of this tile and, later, the layer
+                        // itself: keep it so the generator runs once per tile.
+                        shared[*mask] = true;
+                        uses[*mask] += 2;
+                    }
+                    Node::MicroHeight { below, delta } | Node::MicroNormal { below, delta } => {
+                        read(*below);
+                        shared[*delta] = true;
+                        uses[*delta] += 2;
                     }
                 }
             }
@@ -858,6 +950,66 @@ impl<'a> Graph<'a> {
                             BlendTarget::for_channel(*kind),
                         );
                     }
+                }
+                out
+            }
+            Node::MicroDelta { mask, generator, opacity } => {
+                let mask = self.get(*mask, tile);
+                let micro = generator.micro.unwrap_or_default();
+                let amount = micro.height() * opacity;
+                let grain = (micro.grain_follows && amount != 0.0).then(|| crate::mask::fine_noise(generator, &geo));
+                let mut out = vec![[0.0; 4]; TILE_TEXELS];
+                for (i, o) in out.iter_mut().enumerate() {
+                    let m = mask[i][0].clamp(0.0, 1.0);
+                    if m <= 0.0 {
+                        continue;
+                    }
+                    // Fine grain pits the surface: 0.55..1 of the full change.
+                    let g = grain.as_ref().map_or(1.0, |f| 0.55 + 0.45 * ((f[i] - 0.5) * 2.5 + 0.5).clamp(0.0, 1.0));
+                    let d = amount * m * g;
+                    *o = [d, d, d, 1.0];
+                }
+                out
+            }
+            Node::MicroHeight { below, delta } => {
+                let mut out = self.get(*below, tile).as_ref().clone();
+                let delta = self.get(*delta, tile);
+                for (o, d) in out.iter_mut().zip(delta.iter()) {
+                    if d[0] != 0.0 {
+                        for c in &mut o[..3] {
+                            *c += d[0];
+                        }
+                    }
+                }
+                out
+            }
+            Node::MicroNormal { below, delta } => {
+                let mut out = self.get(*below, tile).as_ref().clone();
+                let grid = Neighborhood::new(self, *delta, &geo, 1);
+                let res = self.ctx.geometry.resolution;
+                // Height per texel -> slope per UV unit, so the look is resolution independent.
+                let gain = res as f32 * MICRO_NORMAL_GAIN;
+                for (i, o) in out.iter_mut().enumerate() {
+                    let (x, y) = geo.texel_xy(i);
+                    if x >= res || y >= res {
+                        continue;
+                    }
+                    let h = |dx: i32, dy: i32| {
+                        let px = (x as i32 + dx).clamp(0, res as i32 - 1) as u32;
+                        let py = (y as i32 + dy).clamp(0, res as i32 - 1) as u32;
+                        grid.pixel(px, py)[0]
+                    };
+                    let gx = (h(1, 0) - h(-1, 0)) * 0.5;
+                    let gy = (h(0, 1) - h(0, -1)) * 0.5;
+                    if gx == 0.0 && gy == 0.0 {
+                        continue;
+                    }
+                    // OpenGL (+Y up) normal map, texel y grows downwards: the normal leans away
+                    // from rising height.
+                    let n = glam::Vec3::new(-gx * gain, gy * gain, 1.0).normalize();
+                    let detail = [n.x * 0.5 + 0.5, n.y * 0.5 + 0.5, n.z * 0.5 + 0.5];
+                    let r = crate::blend::whiteout([o[0], o[1], o[2]], detail);
+                    o[..3].copy_from_slice(&r);
                 }
                 out
             }
@@ -1267,8 +1419,18 @@ pub(crate) fn mask_spatial(mask: &Mask) -> bool {
         .iter()
         .any(|e| e.visible && e.opacity > 0.0 && matches!(e.kind,MaskEffectKind::Filter(f) if f.valid() && f.supports_mask() && f.radius().is_some()))
 }
+/// Slope per UV unit per (height unit per texel x resolution): how strongly a micro height change
+/// leans the normal.
+const MICRO_NORMAL_GAIN: f32 = 0.35;
+/// Whether the layer's mask holds a generator whose micro effect is on.
+pub(crate) fn micro_layer(l: &Layer) -> bool {
+    l.mask.as_ref().filter(|m| m.enabled).is_some_and(|m| {
+        m.effects.iter().any(|e| e.visible && e.opacity > 0.0 && matches!(&e.kind, MaskEffectKind::Generator(g) if g.micro_active()))
+    })
+}
 pub(crate) fn has_spatial(layers: &[Arc<Layer>]) -> bool {
     layers.iter().filter(|l|l.visible).any(|l| {
+        micro_layer(l) ||
         l.content_effects.iter().any(
             |e| e.visible && matches!(e.kind,ContentEffectKind::Filter{channel,filter} if filter.valid() && filter.supports_channel(channel) && e.blend_for(channel).is_active() && filter.radius().is_some()),
         ) || l.mask.as_ref().filter(|m|m.enabled).is_some_and(mask_spatial)
@@ -1277,7 +1439,8 @@ pub(crate) fn has_spatial(layers: &[Arc<Layer>]) -> bool {
 }
 /// Supports of the filters in a layer's own content and mask effects (not its children).
 pub(crate) fn own_halo(l: &Layer) -> u32 {
-    let mut sum = 0u32;
+    // The micro effect's normal reads one texel of its neighbours' height.
+    let mut sum = micro_layer(l) as u32;
     for e in l.content_effects.iter().filter(|e| e.visible) {
         if let ContentEffectKind::Filter { filter, .. } = e.kind {
             sum = sum.saturating_add(filter.support());
@@ -1296,6 +1459,7 @@ pub(crate) fn own_halo(l: &Layer) -> u32 {
 pub(crate) fn halo(layers: &[Arc<Layer>]) -> u32 {
     let mut sum = 0u32;
     for l in layers.iter().filter(|l| l.visible) {
+        sum = sum.saturating_add(micro_layer(l) as u32);
         for e in l.content_effects.iter().filter(|e| e.visible) {
             if let ContentEffectKind::Filter { filter, .. } = e.kind {
                 sum = sum.saturating_add(filter.support());
