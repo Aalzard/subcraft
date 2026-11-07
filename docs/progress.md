@@ -4386,8 +4386,7 @@ Goal was Dirt / Edge Wear behaving like Painter's. Findings, not a full rebuild:
   ruler-straight line, dirt breaks up in grains; on convex shapes with no cavities dirt is only the grunge tail (as in Painter).
 - Tests: finite/bounded/deterministic output at extreme settings for every generator kind; grain changes the mask.
   Existing legacy tests pin their old settings (`painter = None`). `cargo test -p subcraft-doc -p subcraft-compositor -p subcraft-project -p subcraft-app` passes.
-- Performance at 2048 (crate, 4 texture sets, 3 layers): a full recomposite takes about 12-14 s per setting (5.5 s with no active
-  generator). Generator evaluation is about 25-32 s of summed thread time per recomposite. Not interactive; not fixed.
-  Noise fields are recomputed per setting change rather than reused; that is the next thing to look at.
+- Performance at 2048: the 12-16 s recomposite was the example harness using the system heap, not the app (which uses mimalloc).
+  With mimalloc the same recomposite takes 0.13-0.52 s at 2048 (see docs/generators/README.md). No algorithmic change was needed.
 - Not done: gravity streaks, mirrored/overlapping-UV bake test, a bake-side change (`texels` keeps the first triangle of
   overlapping UVs, deterministic; mirrored symmetric geometry bakes correctly, asymmetric overlap cannot).
