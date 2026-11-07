@@ -79,6 +79,33 @@ fn bake_overlay_compares_depth_and_raw_maps_preserve_materials() {
 }
 
 #[test]
+fn bake_overlay_high_poly_follows_the_placement_transform_and_opacity() {
+    let _gpu = gpu_test();
+    let Some((_, device, queue)) = headless::device() else { eprintln!("no adapter: skipping"); return };
+    let low = primitives::cube(2.);
+    let mut renderer = ViewportRenderer::new(&device, &queue);
+    renderer.set_mesh(&device, &low);
+    let mut p = params(); p.antialias = false; p.bake_overlay = true; p.bake_cage = false;
+    renderer.set_bake_preview(&device, Some((&low, &primitives::cube(2.2))));
+    let at = |renderer: &mut ViewportRenderer, p: &ViewParams| { let img = renderer.render(&device, &queue, [SIZE, SIZE], p).read_rgba8(&device, &queue); px(&img, SIZE / 2, SIZE / 2) };
+    let solid_blue = at(&mut renderer, &p);
+    assert!(solid_blue[2] > solid_blue[0] * 2, "high poly wraps the low poly: {solid_blue:?}");
+    // Only a uniform changes: moving the high poly far away exposes the red low poly.
+    p.bake_high_transform = Mat4::from_translation(Vec3::new(30., 0., 0.));
+    let moved = at(&mut renderer, &p);
+    assert!(moved[0] > moved[2] * 2, "moved high poly no longer covers the low poly: {moved:?}");
+    // Scaling it down inside the low poly hides it behind the low surface.
+    p.bake_high_transform = Mat4::from_scale(Vec3::splat(0.5));
+    let inside = at(&mut renderer, &p);
+    assert!(inside[0] > inside[2] * 2, "scaled-down high poly sits inside: {inside:?}");
+    // Opacity blends the blue surface with what is behind it.
+    p.bake_high_transform = Mat4::IDENTITY;
+    p.bake_high_opacity = 0.4;
+    let faint = at(&mut renderer, &p);
+    assert!(faint != solid_blue, "opacity changes the overlay: {faint:?} vs {solid_blue:?}");
+}
+
+#[test]
 fn albedo_filter_preserves_nearest_palette_and_bilinear_values_without_affecting_data() {
     let _gpu = gpu_test();
     use subcraft_image::TextureFilter;

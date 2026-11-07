@@ -417,7 +417,7 @@ mod tests {
     fn every_action_is_listed_once() {
         use std::collections::HashSet;
         let all = [
-            Action::Undo, Action::Redo, Action::NewPaintLayer, Action::NewFillLayer, Action::NewFolder, Action::DeleteLayer, Action::DuplicateLayer,
+            Action::Undo, Action::Redo, Action::NewPaintLayer, Action::NewFillLayer, Action::NewFolder, Action::NewTextLayer, Action::DeleteLayer, Action::DuplicateLayer,
             Action::BrushTool, Action::EraserTool, Action::PenTool, Action::PolygonFillTool, Action::SmudgeTool, Action::CloneTool, Action::EyedropperTool,
             Action::BrushSmaller, Action::BrushLarger, Action::ToggleSymmetryX, Action::ToggleLazyMouse, Action::ResetCamera, Action::PerspectiveCamera,
             Action::OrthographicCamera, Action::NextChannel, Action::PrevChannel, Action::DisplayMaterial, Action::NewProject, Action::Quit, Action::Save,
