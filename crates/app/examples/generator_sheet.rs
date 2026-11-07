@@ -2,6 +2,10 @@
 //! cargo run -p subcraft-app --example generator_sheet -- <out_prefix> <crate|cube|torus|sphere|slab> [size] [tag]
 //! Writes <prefix>_<shape>_3d.png (ray-cast render, one column per setting) and
 //! <prefix>_<shape>_uv.png (composited base color of texture set 0 for the same settings).
+// The app uses mimalloc; the system heap serializes per-tile buffer allocation across cores.
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 use glam::{Vec2, Vec3};
 use subcraft_app::{Command, NewLayer, Session};
 use subcraft_bake::{BakeInput, BakeSettings, Geometry, Progress, bake};
