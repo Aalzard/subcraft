@@ -455,6 +455,20 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
                             changed |= ui.add(egui::DragValue::new(value).range(-1.0..=1.0).speed(0.01)).changed();
                         } });
                     }
+                    // Micro effect: the same mask also writes Normal / Height of the layers below.
+                    let mut micro_on = g.micro.is_some_and(|m| m.enabled);
+                    prop_row(ui, "", |ui| {
+                        if ui.checkbox(&mut micro_on, tr("Micro effect (Normal / Height)")).on_hover_text(tr("Also applies this generator's pattern, grain included, to the Normal and Height of the layers below it: wear chips the surface, dirt fills it. Only channels that already hold a normal or height map change; none is created. Costs extra only while on.")).changed() {
+                            g.set_micro_enabled(micro_on); changed = true;
+                        }
+                    });
+                    if let Some(m) = g.micro.as_mut().filter(|m| m.enabled) {
+                        changed |= slider_row(ui, tr("Micro amount"), egui::Slider::new(&mut m.amount, 0.0..=1.0)).on_hover_text(tr("Height change at full mask. Normals follow the height slope.")).changed();
+                        prop_row(ui, tr("Micro direction"), |ui| for d in [subcraft_doc::MicroDirection::Raise, subcraft_doc::MicroDirection::Carve] {
+                            changed |= ui.selectable_value(&mut m.direction, d, tr(d.label())).changed();
+                        });
+                        prop_row(ui, "", |ui| changed |= ui.checkbox(&mut m.grain_follows, tr("Grain follows generator")).on_hover_text(tr("Pit the micro surface with the generator's fine grain, so it is as speckled as the mask. Off: a smooth surface that follows the mask only.")).changed());
+                    }
                 }
                 MaskEffectKind::Fill { value, procedural, projection } => {
                     let mut use_procedural = procedural.is_some();

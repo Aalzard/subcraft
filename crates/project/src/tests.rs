@@ -780,3 +780,37 @@ fn truncated_and_bit_flipped_files_never_panic() {
         let _ = read_project(Cursor::new(bad));
     }
 }
+
+#[test]
+fn generator_micro_effect_round_trips_and_is_absent_in_older_files() {
+    let mut g = Generator::new(GeneratorKind::Edges);
+    assert!(g.micro.is_none());
+    assert!(serde_json::to_value(g).unwrap().get("micro").is_none(), "off is not written, so older files are unchanged");
+    g.micro = Some(subcraft_doc::MicroEffect { enabled: true, amount: 0.35, direction: subcraft_doc::MicroDirection::Carve, grain_follows: false });
+    let json = serde_json::to_value(g).unwrap();
+    assert_eq!(json["micro"]["direction"], "carve");
+    assert_eq!(serde_json::from_value::<Generator>(json.clone()).unwrap(), g);
+    // A whole project file keeps it, and a file saved before the field existed still opens with it off.
+    let mut ts = TextureSet::new("Body", 0, 128);
+    let mut layer = Layer::new_fill("Wear", &ts);
+    layer.mask = Some(Mask::new(128, false));
+    layer.mask.as_mut().unwrap().effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Generator(g))));
+    ts.insert_above(None, layer);
+    let doc = Document { texture_sets: vec![ts] };
+    let bytes = write_project(Cursor::new(Vec::new()), &primitives::sample_crate(), &doc, &ResourceStore::default(), &MeshMapSet::new()).unwrap().into_inner();
+    assert_eq!(read_project(Cursor::new(bytes.clone())).unwrap().document, doc);
+    let mut zip = zip::ZipArchive::new(Cursor::new(bytes)).unwrap();
+    let mut out = zip::ZipWriter::new(Cursor::new(Vec::new()));
+    for i in 0..zip.len() {
+        let mut f = zip.by_index(i).unwrap(); let name = f.name().unwrap().to_string(); let mut data = Vec::new(); f.read_to_end(&mut data).unwrap();
+        if name == "document.json" {
+            let mut json: serde_json::Value = serde_json::from_slice(&data).unwrap();
+            json["texture_sets"][0]["layers"][0]["mask"]["effects"][0]["kind"]["generator"].as_object_mut().unwrap().remove("micro").expect("micro was written");
+            data = serde_json::to_vec(&json).unwrap();
+        }
+        out.start_file(name, SimpleFileOptions::default()).unwrap(); out.write_all(&data).unwrap();
+    }
+    let old = read_project(Cursor::new(out.finish().unwrap().into_inner())).unwrap();
+    let MaskEffectKind::Generator(back) = old.document.texture_sets[0].layers[0].mask.as_ref().unwrap().effects[0].kind else { panic!() };
+    assert_eq!(back, Generator { micro: None, ..g });
+}
