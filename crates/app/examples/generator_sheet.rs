@@ -46,10 +46,10 @@ fn settings() -> Vec<(&'static str, Option<Generator>, Option<Generator>)> {
         ("dirt low", Some(dirt(0.8, 0.3, 0.3)), None),
         ("dirt mid", Some(dirt(0.55, 0.4, 0.5)), None),
         ("dirt high", Some(dirt(0.3, 0.5, 0.7)), None),
-        ("wear default", None, Some(wear(0.5, 1.5, 0.3))),
+        ("wear default", None, Some(Generator::new(GeneratorKind::Edges))),
         ("wear wide", None, Some(wear(0.6, 8.0, 0.5))),
         ("wear fine", None, Some(wear(0.3, 2.0, 0.3))),
-        ("both", Some(dirt(0.55, 0.4, 0.5)), Some(wear(0.5, 1.5, 0.3))),
+        ("both", Some(dirt(0.55, 0.4, 0.5)), Some(Generator::new(GeneratorKind::Edges))),
     ]
 }
 
