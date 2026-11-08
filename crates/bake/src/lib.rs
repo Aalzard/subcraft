@@ -396,6 +396,11 @@ pub fn bake_streamed_with(
             let i = t.index as usize;
             dense[i * comps..(i + 1) * comps].copy_from_slice(&v[..comps]);
         }
+        if matches!(kind, MeshMapKind::AmbientOcclusion | MeshMapKind::Thickness) {
+            // Ray maps are a finite-sample estimate with a per-texel rotation: remove the
+            // grain and the stair-steps of the few discrete levels.
+            smooth_covered(size as usize, comps, &mut dense, &covered);
+        }
         subcraft_image::dilate::apply_nearest(comps, &mut dense, &covered, &nearest);
         let mut fill = [0.0f32; 4];
         fill[..comps].copy_from_slice(&neutral[..comps]);
@@ -409,6 +414,33 @@ pub fn bake_streamed_with(
     }
     progress.current_map.store(0, Ordering::Relaxed);
     Ok(out)
+}
+
+/// 3 x 3 binomial blur over covered texels only (uncovered neighbours do not contribute).
+pub(crate) fn smooth_covered(size: usize, comps: usize, dense: &mut [f32], covered: &[bool]) {
+    let src = dense.to_vec();
+    const W: [f32; 3] = [1.0, 2.0, 1.0];
+    for y in 0..size {
+        for x in 0..size {
+            if !covered[y * size + x] { continue; }
+            let mut acc = [0.0f32; 4];
+            let mut wsum = 0.0;
+            for (dy, wy) in W.iter().enumerate() {
+                let yy = y as isize + dy as isize - 1;
+                if yy < 0 || yy >= size as isize { continue; }
+                for (dx, wx) in W.iter().enumerate() {
+                    let xx = x as isize + dx as isize - 1;
+                    if xx < 0 || xx >= size as isize { continue; }
+                    let j = yy as usize * size + xx as usize;
+                    if !covered[j] { continue; }
+                    let w = wy * wx;
+                    wsum += w;
+                    for c in 0..comps { acc[c] += src[j * comps + c] * w; }
+                }
+            }
+            for c in 0..comps { dense[(y * size + x) * comps + c] = acc[c] / wsum; }
+        }
+    }
 }
 
 struct GpuControl<'a> {

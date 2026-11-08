@@ -618,6 +618,7 @@ impl SubcraftApp {
         if options.bake_low && options.texture_set_settings { cc.egui_ctx.data_mut(|d| d.insert_temp(egui::Id::new("capture_jump_maps"), true)); }
         if options.bake_low && options.bake_high_poly.is_none() {
             if let Some(size) = options.bake_size { state.bake.settings.size = size; }
+            else if let Some(r) = state.session.document().texture_sets.iter().map(|t| t.resolution).max() { state.bake.settings.size = r.clamp(256, 4096); }
             let texture_sets = state.session.document().texture_sets.iter().map(|t| (t.id, t.material_slot)).collect();
             state.bake.job = Some(state.session.start_bake(subcraft_app::BakeRequest { settings: state.bake.settings.clone(), high_poly: None, texture_sets }));
         }
