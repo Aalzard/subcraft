@@ -95,16 +95,16 @@ fn library_lists_the_pack_and_textured_smart_materials_use_its_images() {
     assert_eq!(ids.len(), lib.materials.len() + lib.smart_materials.len() + lib.environments.len(), "unique ids");
 
     let ts = TextureSet::new("T", 0, 64);
-    let smart = lib.smart_materials.iter().find(|m| m.name == "Mossy Bricks").unwrap();
+    let smart = lib.smart_materials.iter().find(|m| m.name == "Bricks").unwrap();
     assert_eq!(smart.images().len(), 4);
     let (ids, _) = decode_images(smart.images());
     let layer = smart.build_with(&ts, &ids);
-    assert_eq!(layer.name, "Mossy Bricks");
+    assert_eq!(layer.name, "Bricks");
     let children = layer.children();
-    assert_eq!(children.len(), 3, "bricks, grime, moss");
+    assert_eq!(children.len(), 2, "bricks, grime (no moss)");
     let LayerContent::Fill(base) = &children[0].content else { panic!() };
     assert!(matches!(base.channels[&ChannelKind::BaseColor].source, FillSource::Bitmap { .. }));
-    assert!(children[1].mask.is_some() && children[2].mask.is_some());
+    assert!(children[1].mask.is_some());
     // Without imported images the base keeps its image channels off rather than dangling.
     let bare = smart.build_with(&ts, &ImageIds::new());
     let LayerContent::Fill(base) = &bare.children()[0].content else { panic!() };

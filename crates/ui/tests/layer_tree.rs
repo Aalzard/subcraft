@@ -91,17 +91,17 @@ fn key(key: egui::Key) -> egui::Event {
 #[test]
 fn f2_renames_inline_enter_commits_and_escape_or_blank_preserve_original() {
     let (mut state, ctx, [_, _, top]) = setup(); layout(&mut state, &ctx);
-    state.rename_request = true; frame(&mut state, &ctx, vec![]); frame(&mut state, &ctx, vec![]);
+    frame(&mut state, &ctx, vec![key(egui::Key::F2)]); frame(&mut state, &ctx, vec![]);
     // Ctrl+A targets the focused text editor, followed by replacement text and Enter.
     let select_all = egui::Event::Key { key: egui::Key::A, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers { ctrl: true, command: true, ..Default::default() } };
     frame(&mut state, &ctx, vec![select_all.clone(), egui::Event::Text("  Details  ".into())]);
     frame(&mut state, &ctx, vec![key(egui::Key::Enter)]);
     assert_eq!(state.session.selected_texture_set().find(top).unwrap().name, "Details");
-    layout(&mut state, &ctx); state.rename_request = true; frame(&mut state, &ctx, vec![]); frame(&mut state, &ctx, vec![]);
+    layout(&mut state, &ctx); frame(&mut state, &ctx, vec![key(egui::Key::F2)]); frame(&mut state, &ctx, vec![]);
     frame(&mut state, &ctx, vec![select_all.clone(), egui::Event::Text("Cancelled".into())]);
     frame(&mut state, &ctx, vec![key(egui::Key::Escape)]);
     assert_eq!(state.session.selected_texture_set().find(top).unwrap().name, "Details");
-    layout(&mut state, &ctx); state.rename_request = true; frame(&mut state, &ctx, vec![]); frame(&mut state, &ctx, vec![]);
+    layout(&mut state, &ctx); frame(&mut state, &ctx, vec![key(egui::Key::F2)]); frame(&mut state, &ctx, vec![]);
     frame(&mut state, &ctx, vec![select_all, egui::Event::Text("   ".into())]);
     frame(&mut state, &ctx, vec![key(egui::Key::Enter)]);
     assert_eq!(state.session.selected_texture_set().find(top).unwrap().name, "Details");

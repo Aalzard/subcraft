@@ -46,18 +46,6 @@ pub(crate) fn top(level: f32, softness: f32, noise: f32) -> MaskEffectKind { gen
 
 // ----- smart materials -----------------------------------------------------------------------
 
-fn worn_leather(ts: &TextureSet) -> Layer {
-    let base = mat(ts, "Leather", vec![
-        (BaseColor, proc(ProceduralKind::Cells, 28.0, 61, v(0.12, 0.055, 0.03), v(0.25, 0.115, 0.06))),
-        (Roughness, proc(ProceduralKind::Clouds, 10.0, 62, s(0.5), s(0.75))),
-        (Metallic, uni(0.0)),
-        (Height, proc(ProceduralKind::Pores, 26.0, 63, s(0.0), s(0.05))),
-    ], triplanar(1.5));
-    let wear = masked(coat(ts, "Worn Edges", [0.38, 0.22, 0.11], 0.3, 0.0), ts, vec![fx(edges(0.6, 0.18, 0.5)), fx_blend(pattern(ProceduralKind::Grunge, 7.0, 9, 0.5, 0.3), BlendMode::Multiply)]);
-    let creases = masked(coat(ts, "Creases", [0.04, 0.025, 0.015], 0.8, 0.0), ts, vec![fx(cavity(0.3, 0.3, 0.3))]);
-    folder("Worn Leather", ts, vec![base, creases, wear])
-}
-
 fn chipped_painted_metal(ts: &TextureSet) -> Layer {
     let steel = mat(ts, "Bare Steel", vec![
         (BaseColor, proc(ProceduralKind::Clouds, 9.0, 71, v(0.42, 0.42, 0.43), v(0.58, 0.58, 0.59))),
@@ -151,28 +139,14 @@ fn hammered_brass(ts: &TextureSet) -> Layer {
     folder("Hammered Brass", ts, vec![brass, tarnish, polish])
 }
 
-fn sandstone(ts: &TextureSet) -> Layer {
-    let sand = mat(ts, "Sandstone", vec![
-        (BaseColor, proc(ProceduralKind::Brushed, 3.0, 181, v(0.48, 0.34, 0.2), v(0.7, 0.54, 0.34))),
-        (Roughness, uni(0.95)),
-        (Metallic, uni(0.0)),
-        (Height, proc(ProceduralKind::Speckles, 14.0, 182, s(0.0), s(0.08))),
-    ], triplanar(1.2));
-    let strata = masked(coat(ts, "Strata", [0.55, 0.36, 0.22], 0.95, 0.0), ts, vec![fx(pattern(ProceduralKind::Brushed, 3.0, 183, 0.5, 0.6)), fx_blend(pattern(ProceduralKind::Clouds, 6.0, 184, 0.5, 0.4), BlendMode::Multiply)]);
-    let dust = masked(coat(ts, "Sand Drift", [0.76, 0.62, 0.42], 0.98, 0.0), ts, vec![fx(top(0.65, 0.35, 0.4)), fx_blend(cavity(0.4, 0.3, 0.3), BlendMode::LinearDodge)]);
-    folder("Sandstone", ts, vec![sand, strata, dust])
-}
-
 pub fn smart_materials() -> Vec<SmartMaterial> {
     vec![
-        smart("Worn Leather", worn_leather),
         smart("Chipped Painted Metal", chipped_painted_metal),
         smart("Brushed Steel", brushed_steel),
         smart("Dusty Concrete", dusty_concrete),
         smart("Oxidized Copper", oxidized_copper),
         smart("Frosted Ice", frosted_ice),
         smart("Hammered Brass", hammered_brass),
-        smart("Sandstone", sandstone),
     ]
 }
 

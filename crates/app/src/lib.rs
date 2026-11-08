@@ -22,6 +22,7 @@ pub mod launch;
 pub mod layer_tree;
 pub mod new_project;
 pub mod effect_stack;
+pub mod filter_shelf;
 pub mod parts;
 pub mod part_workflow;
 pub mod pen;

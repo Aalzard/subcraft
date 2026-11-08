@@ -1,4 +1,4 @@
-//! Writes a .subcraft crate with Old Wood and glowing orange edges (an Emissive fill masked by
+//! Writes a .subcraft crate with Rusty Iron and glowing orange edges (an Emissive fill masked by
 //! the Edges generator), for native render-quality captures.
 //! cargo run -p subcraft-app --example glow_project -- <out.subcraft> [size]
 use std::sync::Arc;

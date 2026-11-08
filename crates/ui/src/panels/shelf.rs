@@ -828,7 +828,7 @@ fn bottom_toolbar(state: &mut UiState, ui: &mut Ui) {
                     if icon_button(ui, crate::icons::DOWNLOAD, tr("Import smart materials (.scsmart) or PBR texture sets (Color, NormalGL, Roughness…)")).clicked() { import_smart_dialog(ui.ctx()); }
                     if icon_button(ui, crate::icons::FOLDER_OPEN, tr("Import a folder of .scsmart files or PBR texture sets")).clicked() { import_smart_folder_dialog(ui.ctx()); }
                 }
-                ShelfTab::SmartMasks => {}
+                ShelfTab::SmartMasks | ShelfTab::Filters => {}
             }
             if let Some(kind) = folder && let Some(lib) = &state.user_library {
                 let dir = lib.folder(kind);

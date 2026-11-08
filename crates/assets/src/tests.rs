@@ -167,7 +167,7 @@ fn every_smart_asset_has_a_category_and_description() {
 fn new_smart_materials_are_folders_of_fill_layers_with_masks_and_measured_pbr_values() {
     use subcraft_doc::FillSource;
     let ts = TextureSet::new("T", 0, 128);
-    for name in ["Rusted Painted Metal", "Oily Metal", "Painted Steel Edge Wear", "Dirty Rubber", "Sandblasted Aluminium", "Muddy Leather", "Galvanized Steel", "Pitted Cast Iron"] {
+    for name in ["Rusted Painted Metal", "Oily Metal", "Painted Steel Edge Wear", "Sandblasted Aluminium", "Galvanized Steel", "Pitted Cast Iron"] {
         let lib = Library::builtin();
         let m = lib.smart_materials.iter().find(|m| m.name == name).unwrap_or_else(|| panic!("missing {name}"));
         let layer = m.build(&ts);
