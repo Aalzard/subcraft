@@ -124,7 +124,11 @@ fn real_click_selects_and_double_click_opens_the_editor_without_a_second_notice(
     assert_eq!(s.session.brush.alpha_name, alpha);
     assert_eq!(s.tool, Tool::Brush);
     assert_eq!(s.session.brush.target, target);
-    assert!(!s.open_brush_editor && !s.asset_preview.open, "a single click paints; no preview popup or editor");
+    assert!(!s.asset_preview.open, "a single click paints; no preview popup");
+    // Like Substance Painter, the brush properties come forward showing the selected brush.
+    assert!(s.open_brush_editor && s.brush_scroll_top, "a single click shows the brush settings at the selected brush");
+    assert!(s.is_selected_shelf_brush(&alpha), "the clicked tile is highlighted");
+    s.open_brush_editor = false; // consumed by the app's frame loop
     let since = s.brush_notice.as_ref().unwrap().since;
     click(&mut s, &ctx, 1.1, tile);
     assert!(s.open_brush_editor, "double-click opens Brush settings");

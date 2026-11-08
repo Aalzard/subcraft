@@ -74,7 +74,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 ui.label(RichText::new(format!("Tip: {tip_name}")).small().color(theme::TEXT_DIM));
             }
             ui.add_space(4.0);
-            ui.add(egui::Image::new((texture, egui::vec2(PREVIEW[0] as f32, PREVIEW[1] as f32))).corner_radius(3.0));
+            // Shrinks with a narrow panel (never widens the card past it).
+            let w = ui.available_width().min(PREVIEW[0] as f32).max(1.0);
+            ui.add(egui::Image::new((texture, egui::vec2(w, w * PREVIEW[1] as f32 / PREVIEW[0] as f32))).corner_radius(3.0));
             if let Some(p) = pending {
                 loading_row(ui, p);
             } else {
@@ -86,7 +88,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
 
 /// "Loading full resolution…" with a spinner, while a thumbnail stands in for the image.
 pub fn loading_row(ui: &mut Ui, progress: f32) {
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.add(egui::Spinner::new().size(12.0));
         let pct = if progress > 0.0 { format!(" {:.0}%", progress * 100.0) } else { String::new() };
         ui.label(RichText::new(format!("Loading full resolution…{pct} (painting uses the preview meanwhile)")).small().color(theme::TEXT_DIM));

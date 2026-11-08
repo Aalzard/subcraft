@@ -61,7 +61,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             ui.label(RichText::new(&stamp.name).color(theme::TEXT));
             if let Some(t) = &state.stamp_preview.texture {
                 ui.add_space(4.0);
-                ui.add(egui::Image::new((t.id(), egui::vec2(PREVIEW[0] as f32, PREVIEW[1] as f32))).corner_radius(3.0));
+                let w = ui.available_width().min(PREVIEW[0] as f32).max(1.0);
+                ui.add(egui::Image::new((t.id(), egui::vec2(w, w * PREVIEW[1] as f32 / PREVIEW[0] as f32))).corner_radius(3.0));
                 match state.asset_preview.pending_brush().filter(|(n, _)| n.strip_prefix("Starter: ").unwrap_or(n) == stamp.name).map(|(_, p)| p) {
                     Some(p) => super::brush_header::loading_row(ui, p),
                     None => hint(ui, if height { "Lit preview: one stamp and an example stroke" } else { "Lit preview: one stamp and an example stroke (light from the upper left)" }),

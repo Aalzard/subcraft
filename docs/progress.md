@@ -4684,10 +4684,20 @@ normal map as the brush took 4–5 s.
   once at 96 px and under 250 ms, full 1024 px arrives from the worker while frames keep running,
   adjustment kept, cached reselect instant; a late image never replaces a tip chosen meanwhile; Starter
   alpha thumbnail → full tip; tile highlight + Properties request). The two existing asset-preview
-  tests now wait for the worker instead of a fixed frame count.
+  tests now wait for the worker instead of a fixed frame count. `ui/tests/shelf_brush.rs` now expects
+  a single click to bring the brush settings forward (it asserted the old no-editor behaviour).
+  `ui/tests/properties_polish.rs` caught the fixed-width 264 px preview widening the card in a 260 px
+  panel; both previews (BRUSH and NORMAL MAP BRUSH) now shrink with the panel.
+* Test runs (release profile, shared target): `subcraft-paint` + `subcraft-app` all 59 test binaries
+  pass (0 failures, incl. 94 app unit tests); `subcraft-ui` lib 109 passed; ui integration targets
+  brush_bar, brush_material, channels_panel, shelf_brush, shelf_drop, shelf_import, properties_polish,
+  preview_layout, panel_bands, hover, viewport_paint, text_and_alt, emission_chip pass. **Not run**: the
+  other 22 ui integration targets (each takes about 10 minutes to link on this machine under load).
 * Screenshots (`docs/ui/brush-preview/`): before / after alpha selection (Properties shows nothing
   about the brush before; the BRUSH card with the Splatter preview and the highlighted tile after),
-  before / after normal-map selection, after Starter alpha selection, and during the background load.
+  before / after normal-map selection, after Starter alpha selection. A shot of the loading state was
+  not possible with the scripted capture: the full image (about 350 ms) arrives before the screenshot is
+  delivered (`--capture-tool normal-brush-select-loading` exists but showed the finished state).
 * Build note: other worktrees link into the shared target at the same time, so a first "after" binary
   silently came from another branch. Built with `--config profile.release.package.<crate>.codegen-units=15`
   for the changed crates (distinct artifact hashes) and checked the exe contains the new log strings.
