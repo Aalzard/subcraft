@@ -155,3 +155,23 @@ fn new_smart_materials_and_masks_survive_a_project_save_and_load() {
     std::fs::remove_file(&path).ok();
     assert_eq!(&loaded.document, s.document(), "the document with all new smart content round-trips exactly");
 }
+
+/// Projects store the layers a smart material made, never a reference to the library entry, so a
+/// project made with a material that was later removed (or renamed) still opens. The image-backed
+/// materials (PBR pack, Bricks, Brown Leather) keep their textures through save and load.
+#[test]
+fn image_backed_smart_materials_survive_save_and_load_without_the_library_entry() {
+    let lib = Library::builtin();
+    let mut s = baked_crate();
+    for n in ["Black Basalt", "Hex Armor", "Worn Leather PBR", "Bricks", "Brown Leather"] {
+        s.add_smart_material(lib.smart_materials.iter().find(|m| m.name == n).unwrap_or_else(|| panic!("missing {n}"))).unwrap();
+    }
+    let path = std::env::temp_dir().join(format!("subcraft-smart-pbr-{}.subcraft", std::process::id()));
+    subcraft_project::save_project(&path, &s.scene().mesh, s.document(), s.resources(), &Default::default()).unwrap();
+    let loaded = subcraft_project::load_project(&path).unwrap();
+    std::fs::remove_file(&path).ok();
+    assert_eq!(&loaded.document, s.document());
+    for removed in ["Muddy Leather", "Dirty Rubber", "Sandstone", "Old Wood", "Mossy Bricks", "Worn Brown Leather"] {
+        assert!(!lib.smart_materials.iter().any(|m| m.name == removed), "{removed} should be gone from the library");
+    }
+}
