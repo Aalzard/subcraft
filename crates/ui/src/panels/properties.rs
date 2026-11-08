@@ -465,7 +465,7 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
                     if let Some(m) = g.micro.as_mut().filter(|m| m.enabled) {
                         changed |= slider_row(ui, tr("Micro amount"), egui::Slider::new(&mut m.amount, 0.0..=1.0)).on_hover_text(tr("Height change at full mask. Normals follow the height slope.")).changed();
                         prop_row(ui, tr("Micro direction"), |ui| for d in [subcraft_doc::MicroDirection::Raise, subcraft_doc::MicroDirection::Carve] {
-                            changed |= ui.selectable_value(&mut m.direction, d, tr(d.label())).changed();
+                            changed |= ui.selectable_value(&mut m.direction, d, match d { subcraft_doc::MicroDirection::Raise => tr("Raise"), subcraft_doc::MicroDirection::Carve => tr("Carve") }).changed();
                         });
                         prop_row(ui, "", |ui| changed |= ui.checkbox(&mut m.grain_follows, tr("Grain follows generator")).on_hover_text(tr("Pit the micro surface with the generator's fine grain, so it is as speckled as the mask. Off: a smooth surface that follows the mask only.")).changed());
                     }
