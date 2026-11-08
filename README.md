@@ -32,6 +32,10 @@ and a six-step in-app guide are included. The app opens on the bundled **SubCraf
   filters, smart materials and smart masks.
 - **Bake and export**: nine mesh maps (the ray-based AO, Curvature and Thickness bakes can run on the GPU), per-map export checkboxes and presets for
   Unreal, Unity HDRP / URP, Godot 4 and glTF.
+- **Normal-map brush and Micro effect**: stamp normal / height textures from the shelf as a brush, and let
+  a generator's mask also carve or raise relief in Normal / Height.
+- **Align a high poly before baking**: offset, scale, rotate and auto-fit it against the low poly with a
+  blue overlay, in a redesigned Bake window.
 - **Opens Painter projects**: read `.spp` files and rebuild their layer stacks; import OBJ, glTF / GLB,
   FBX, USD, Alembic, PLY and STL.
 - **Fast at 2048 and 4096**: tiled texture storage, a GPU layer compositor and live-preview thinning for

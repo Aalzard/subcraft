@@ -28,6 +28,20 @@ run by hand.
   diagnostics and fatal-error dialogs (`docs/compatibility.md`).
 - **Bake log** with per-map timing and warnings, copyable from the Bake window.
 - **Content**: 30 more normal maps and 4 alpha brushes in the starter pack; a separate Normal Maps shelf tab.
+- **Normal-map brush**: paint a normal map or height texture from the shelf as a stamp brush (whiteout
+  blend, per-stamp slope accumulation, optional tiled mode) with a NORMAL MAP BRUSH panel and live
+  preview. Not tried with a real pen or tablet.
+- **Micro effect on generators**: a generator's mask can also write relief into the Normal / Height
+  channels of the layers below (amount, Raise / Carve direction, optional "grain follows generator").
+  Saved in the project; older projects are unchanged.
+- **Smoother AO, sharper mesh maps**: AO and thickness bakes get a 3x3 smoothing of covered texels,
+  mesh maps below the texture set resolution are sampled bilinearly, and generator grain now fades in
+  with Breakup (Breakup 0 is exactly smooth).
+- **High-poly alignment and a redesigned Bake window**: offset, scale, rotation, centring and auto-fit
+  for the high-poly source, drawn as a blue transparent overlay on the low poly; the Bake window is
+  now organised in cards (Models, placement, maps) with per-map live progress, a collapsed details
+  section and a size that defaults to the texture set resolution.
+- **Support link**: a donate button in the README and a donate link in the repository funding file.
 
 ### Changed
 - **New logo** (white hexagonal S ribbon with a four-point star on orange) and a slightly warmer
@@ -58,6 +72,9 @@ run by hand.
 - The Korean and Traditional Chinese translations are machine-drafted and need native-speaker review.
 - The layout is a close but not exact match of Substance Painter; the lock toggle uses a check/x glyph.
 - Linux and macOS builds of this candidate were not produced or tested on the release machine.
+- The normal-map brush, Micro effect, smoother AO / sharper mesh maps and high-poly alignment were
+  verified by unit / integration tests and scripted captures; none were exercised by hand with a mouse
+  or pen, and the Bake window redesign was not compared against real production models.
 
 ## 0.2.1 — 2026-11-04
 
