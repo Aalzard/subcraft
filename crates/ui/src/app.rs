@@ -674,7 +674,9 @@ impl SubcraftApp {
             let c = state.recovery.crashed.remove(0);
             crate::recovery::recover(&mut state, c, 0.0);
         }
-        if options.demo || options.profile_edits.is_some() {
+        // `--profile-edits` profiles the demo unless a project was given (`SUBCRAFT_PROFILE_GENERATOR`
+        // then picks which generator's Level is dragged).
+        if options.demo || (options.profile_edits.is_some() && options.mesh.is_none()) {
             build_demo(&mut state);
         }
         if let Some(name) = &options.select_layer {

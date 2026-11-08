@@ -1,6 +1,6 @@
 # SubCraft — implementation progress
 
-Last updated: 2026-11-03 (automatic UV unwrapping)
+Last updated: 2026-11-09 (generator sliders interactive at 4K)
 
 ## Decisions
 
@@ -4641,3 +4641,50 @@ bake produces all nine maps and the grooves / rivets appear in the baked normal 
 `docs/ui/highpoly-align/` (before/after Bake window, misaligned and aligned overlay, baked result, running bake,
 small 1000x640 window). Not verified: a real Tripo model, million-triangle overlay speed, interactive dragging of
 sliders (only scripted captures), and keyboard / touch use of the new window.
+
+### Session 117 - Generator sliders interactive on 4096² sets (2026-11-09, branch `claude/generator-4k-speed-9d41ff`)
+
+Owner report: changing any generator's settings on a 4K texture set is really slow. Full write-up with
+every number: `performance/generator-4k.md`.
+
+* **Measured first** with the new `crates/app/examples/generator_4k.rs` (sample crate at 4096², baked
+  curvature + AO, base metal + paint + one masked fill per generator: Dirt, Edges, Concave, Directional,
+  Position Gradient, Dirt with micro effect; sync step, preview cost, 60 Hz drag through the worker) and
+  in the real app (`subcraft <project> --profile-edits out.txt`, which now opens a project instead of the
+  demo when one is given; `SUBCRAFT_PROFILE_GENERATOR=dirt` picks the generator; the report adds
+  edit-to-visible-update latency and max per section).
+* **Causes:** (1) the procedural field cache held 8 fields per tile with plain LRU; this stack needs 13
+  per tile read in the same order every step, so every read missed and every generator recomputed its
+  noise on every step (Dirt step 4.9 to 6.9 s); (2) quick previews took 165 to 190 ms to stretch over all
+  4096 tiles of every channel and were re-uploaded whole; (3) the next snapshot (one per frame while
+  dragging) cancelled every preview, so **nothing was shown until the drag paused** (real app before: no
+  visible update during the drag, settle 4.9 to 14 s).
+* **Fixes (results bit-identical, composite hash `68f9fd3373067faf` before and after):**
+  `materials::sample::field`: 24 fields per tile, budget sized from RAM (`budget_for_memory`, set once in
+  `Scene::new`), scan-resistant replacement (a field is replaced only after 48 unused reads of its tile).
+  `compositor`: parallel f16 stretch straight into new tiles; the worker keeps a 512² baseline of the
+  exact state when idle and a preview only replaces tiles (per channel) whose low-res texels changed
+  (`Composite::overlay_preview_against`); previews are finished instead of cancelled, and the exact slice
+  is skipped while a newer snapshot waits.
+* **After (benchmark, 4096 maps):** one exact Level step 0.23 to 1.35 s (was 0.5 to 6.9 s); during a
+  60 Hz drag visible updates p50 36 to 43 ms, p95 73 to 94 ms; full-res settle 0.57 to 1.65 s.
+  **Real release app**, Dirt (bottom of the stack), quiet runs: visible update p50 18 to 43 ms, p95 74 to
+  113 ms, settle 1.0 to 1.4 s (final build: Dirt 1.4 s, Edges 1.5 s, Edges p95 67 ms), frame interval p50 ~15 ms; under heavy load from other sessions' builds
+  one run settled in 5.4 s (all runs are listed in the write-up).
+* **Generator settings vs Painter ("spread" question):** nothing was removed. `Spread` exists for Edges
+  only while "Natural edge wear" is on; the built-in smart materials' chip lines (`assets::smart_more::edges`)
+  create Edges with natural wear off, so it was hidden there. Spread is now always shown for Edges (moving
+  it turns natural wear on). Painter's extra controls that the evaluator already supported but the UI never
+  showed are now in Properties: Dirt - Edges masking, Grunge floor; natural edge wear - AO masking,
+  Curvature weight, Edges smoothness; every kind except the plain curvature threshold - Grain. Untouched
+  generators keep `painter: None` (exact older look). ko / zh-Hant labels added. Mapping: Painter Level /
+  Contrast / Grunge Amount / Grunge Scale = Level / Softness (inverse) / Breakup / Pattern size. Still
+  missing vs Painter: choosing the grunge texture of the breakup.
+* **Tests:** new `cyclic_field_reads_beyond_capacity_do_not_thrash`, updated field eviction test,
+  `stretched_preview_repeats_each_low_resolution_texel`, `previews_after_an_idle_baseline_only_cover_what_changed`
+  (worker), `generator_controls_follow_the_kind_and_spread_is_always_offered_for_edges` (ui). Ran (release): materials lib 49 passed (1 ignored); compositor lib + all 10 test files 110 passed; app lib 94 + session, filters, effect_drag, edge_level_spread, spp_stack 52 passed; ui lib 106 + layer_tree 10 + natural_edge 1 passed (`natural_edge` was updated: it pinned Spread being hidden without natural wear). **Not run:** the rest of the app / ui integration tests and the other crates (`cargo test --workspace` did not fit: E: had 3 to 4 GB free and the shared build directory was locked by other sessions for hours).
+* **Not verified / open:** generators above the edited layer are still re-evaluated each step (mask cache
+  not done); mesh maps baked below the set resolution are resampled on every read; new Properties rows
+  checked by the headless egui test and scripted captures only (the panel cannot be scrolled to them in a
+  scripted capture; no mouse used). Seen in every app log, unrelated: the viewport's `grid pipeline`
+  fails wgpu validation each frame (MSAA sample count mismatch).

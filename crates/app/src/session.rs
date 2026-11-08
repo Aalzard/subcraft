@@ -33,9 +33,25 @@ pub struct Scene {
 
 impl Scene {
     pub fn new(mesh: Mesh) -> Self {
+        size_field_cache();
         let mesh = Arc::new(mesh);
         Self { symmetry_sections: Default::default(), bvh: Bvh::build(&mesh), geometry: GeometryCache::new(mesh.clone()), depth: DepthCache::new(), mesh }
     }
+}
+
+/// Size the procedural field cache from this machine's memory, once per process: at 4096² a stack
+/// with a dozen generator noises needs about 0.9 GB of cached fields, more than the conservative
+/// default, and every field that does not fit is recomputed on every slider step.
+fn size_field_cache() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        let mut system = sysinfo::System::new();
+        system.refresh_memory();
+        let total = system.total_memory();
+        if total > 0 {
+            subcraft_materials::sample::field::set_budget(subcraft_materials::sample::field::budget_for_memory(total));
+        }
+    });
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

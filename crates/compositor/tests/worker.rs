@@ -194,6 +194,72 @@ fn resolution_and_channel_changes_replace_pending_tile_layouts() {
     assert!(w.idle());
 }
 
+/// Wait (bounded) until the worker has made more than `before` preview baselines.
+fn wait_for_baseline(w: &CompositeWorker, before: u64) {
+    let start = std::time::Instant::now();
+    while w.baselines_made() <= before {
+        assert!(start.elapsed() < std::time::Duration::from_secs(60), "no preview baseline was made");
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+}
+
+/// A quick preview is the low-resolution composite stretched by nearest texel, value for value.
+#[test]
+fn stretched_preview_repeats_each_low_resolution_texel() {
+    let mesh = Arc::new(primitives::cube(2.0));
+    let low_geo = TextureSetGeometry::new(mesh, 0, 512);
+    let (ts, _) = stack(1024);
+    let mut low_ts = ts.clone();
+    low_ts.resolution = 512;
+    let low = full(&low_ts, &low_geo);
+    let mut shown = Composite::new(&ts);
+    let all: Vec<usize> = (0..shown.tile_count()).collect();
+    shown.overlay_preview(&low, &all);
+    for (kind, img) in &shown.channels {
+        let src = low.channel(*kind).unwrap();
+        for y in (0..1024).step_by(7) {
+            for x in (0..1024).step_by(5) {
+                assert_eq!(img.get(x, y), src.get(x / 2, y / 2), "{kind:?} at {x},{y}");
+            }
+        }
+    }
+}
+
+/// After the worker went idle, a preview only replaces the tiles whose low-resolution texels
+/// changed: a generator edit on a layer that only writes Base Color reports nothing to upload for
+/// Roughness, the rest shows the exact tiles, and the result converges exactly.
+#[test]
+fn previews_after_an_idle_baseline_only_cover_what_changed() {
+    let mesh = Arc::new(primitives::cube(2.0));
+    let geo = Arc::new(TextureSetGeometry::new(mesh.clone(), 0, 1024));
+    let low = Arc::new(TextureSetGeometry::new(mesh, 0, 512));
+    let (ts, moss) = stack(1024);
+    let with_preview = |ts: &TextureSet| {
+        let mut s = snapshot(ts, &geo);
+        s.sets[0].preview_geometry = Some(low.clone());
+        s
+    };
+    let w = worker();
+    let a = with_level(&ts, moss, 0.4);
+    let made = w.baselines_made();
+    w.submit(with_preview(&a));
+    w.finish();
+    let first = published(&w, ts.id);
+    wait_for_baseline(&w, made);
+
+    let previews = w.previews_published();
+    let b = with_level(&ts, moss, 0.6);
+    w.submit(with_preview(&b));
+    w.finish();
+    assert!(w.previews_published() > previews, "a whole-texture edit still starts with a preview");
+    let second = published(&w, ts.id);
+    assert_eq!(second.composite, full(&b, &geo));
+    assert_eq!(uploaded(&first.composite, &second), second.composite);
+    assert!(second.changed.get(&ChannelKind::Roughness).is_none_or(Vec::is_empty), "Roughness does not change: nothing to upload");
+    let color = second.changed.get(&ChannelKind::BaseColor).map_or(0, Vec::len);
+    assert!(color > 0 && color < second.tiles.len(), "only the Base Color tiles the level moved: {color} of {}", second.tiles.len());
+}
+
 #[test]
 fn quick_preview_precedes_and_exact_result_replaces_it() {
     let mesh = Arc::new(primitives::cube(2.0));

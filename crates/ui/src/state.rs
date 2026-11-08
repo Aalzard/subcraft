@@ -62,6 +62,9 @@ pub const COMPOSITE_FRAME_BUDGET: std::time::Duration = std::time::Duration::fro
 pub struct UiState {
     /// End of this frame's compositing time (shared by every `sync_gpu` call in the frame).
     pub composite_deadline: Option<web_time::Instant>,
+    /// Most tiles one texture set received in the last [`UiState::sync_gpu`] (a quick preview
+    /// lists every stale tile; `--profile-edits` uses it to tell a visible update from a slice).
+    pub last_sync_tiles: usize,
     pub layer_previews: crate::layer_previews::PreviewUi,
     pub graphics: crate::graphics::GraphicsUi,
     pub asset_preview: crate::asset_preview::AssetPreviewUi,
@@ -224,6 +227,7 @@ impl UiState {
         subcraft_app::startup_probe::step(&format!("renderer created (adapter: {})", render_state.as_ref().map(|rs| rs.adapter.get_info().name).unwrap_or_else(|| "none".into())));
         Self {
             composite_deadline: None,
+            last_sync_tiles: 0,
             layer_previews: Default::default(),
             graphics,
             asset_preview: Default::default(),
@@ -523,6 +527,7 @@ impl UiState {
         // Several panels sync in one frame: they share one budget (see `begin_frame`).
         let budget = self.composite_deadline.map_or(COMPOSITE_FRAME_BUDGET, |d| d.saturating_duration_since(web_time::Instant::now()));
         let updates = crate::edit_profile::time_tab("  sync: composite", || self.session.update_composites_within(Some(budget)));
+        self.last_sync_tiles = updates.iter().map(|u| u.tiles.len()).max().unwrap_or(0);
         let upload_start = web_time::Instant::now();
         let session = &self.session;
         for ts in &session.document().texture_sets { renderer.set_albedo_filter(ts.material_slot, ts.albedo_filter); }

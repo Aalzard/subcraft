@@ -93,6 +93,12 @@ pub struct EditProfile {
     sections: std::collections::BTreeMap<&'static str, Vec<Duration>>,
     /// Longest time per section during the warm-up.
     warm_sections: std::collections::BTreeMap<&'static str, Duration>,
+    /// Steady edits not yet shown: when each was made.
+    unseen: Vec<Instant>,
+    /// Time from each steady edit to the first frame that installed a new composite (a quick
+    /// preview or exact tiles): the visible update.
+    latencies: Vec<Duration>,
+    shown_generation: u64,
 }
 
 impl EditProfile {
@@ -118,6 +124,9 @@ impl EditProfile {
             cold_settle: Duration::ZERO,
             sections: Default::default(),
             warm_sections: Default::default(),
+            unseen: Vec::new(),
+            latencies: Vec::new(),
+            shown_generation: 0,
         }
     }
 
@@ -198,15 +207,28 @@ impl EditProfile {
             self.frames.push(now - last);
         }
         self.last = Some(now);
-        let target = state.session.document().texture_sets.iter().flat_map(|ts| ts.layers.iter()).find_map(|l| {
-            let e = l.mask.as_ref()?.effects.iter().find(|e| matches!(e.kind, MaskEffectKind::Generator(_)))?;
-            Some((l.id, (**e).clone()))
-        });
+        // `SUBCRAFT_PROFILE_GENERATOR=dirt` (any part of the generator's label) picks the first
+        // generator of that kind anywhere in the stack; by default the first generator found.
+        let wanted = std::env::var("SUBCRAFT_PROFILE_GENERATOR").ok().map(|w| w.to_lowercase());
+        let mut target = None;
+        for ts in &state.session.document().texture_sets {
+            ts.walk(|l, _| {
+                if target.is_some() { return; }
+                let Some(mask) = l.mask.as_ref() else { return };
+                if let Some(e) = mask.effects.iter().find(|e| match &e.kind {
+                    MaskEffectKind::Generator(g) => wanted.as_ref().is_none_or(|w| g.kind.label().to_lowercase().contains(w.as_str())),
+                    _ => false,
+                }) {
+                    target = Some((l.id, (**e).clone()));
+                }
+            });
+        }
         if let Some((layer, mut effect)) = target
             && let MaskEffectKind::Generator(g) = &mut effect.kind
         {
             g.level = 0.6 + 0.25 * (self.frame as f32 * 0.15).sin();
             let _ = state.session.execute(Command::SetMaskEffect { layer, effect });
+            if self.frame > WARMUP { self.unseen.push(now); }
         }
         self.sync_start = Some(Instant::now());
     }
@@ -219,9 +241,21 @@ impl EditProfile {
         {
             self.syncs.push(start.elapsed());
         }
+        // Visible: a publication covering the whole image (a quick preview lists every stale tile)
+        // or the exact result; a slice of exact tiles alone does not count.
         let pending = state.session.composites_pending();
+        let generation = state.session.composite_generation();
+        let tiles = state.session.document().texture_sets.iter().map(|ts| (ts.resolution as usize).div_ceil(64).pow(2)).max().unwrap_or(1);
+        if generation != self.shown_generation && (state.last_sync_tiles * 2 >= tiles || !pending) {
+            self.shown_generation = generation;
+            let now = Instant::now();
+            self.latencies.extend(self.unseen.drain(..).map(|t| now - t));
+        }
         match self.stage {
-            Stage::Steady if self.frames.len() >= FRAMES => self.stage = Stage::SettleSteady(Instant::now()),
+            Stage::Steady if self.frames.len() >= FRAMES => {
+                self.unseen.clear();
+                self.stage = Stage::SettleSteady(Instant::now());
+            }
             Stage::SettleSteady(start) if !pending => {
                 self.settle = start.elapsed();
                 self.stage = Stage::Cold;
@@ -252,7 +286,7 @@ impl EditProfile {
         };
         let mut report = format!(
             "warm-up (first composite): {} frames in {:.1} ms, frame interval {}\n\
-             frames {}: frame interval {}\nwhole ui() {}\ncomposite+upload {}\nfull refresh after the last edit {:.1} ms\n\
+             frames {}: frame interval {}\nwhole ui() {}\ncomposite+upload {}\nedit to visible update {}\nfull refresh after the last edit {:.1} ms\n\
              pattern scale drag, {} frames: frame interval {}\nfull refresh after the last scale edit {:.1} ms\n",
             self.warmup.intervals.len(),
             ms(self.warm_total),
@@ -261,6 +295,7 @@ impl EditProfile {
             stats(&mut self.frames),
             stats(&mut self.uis),
             stats(&mut self.syncs),
+            stats(&mut self.latencies),
             ms(self.settle),
             self.cold.intervals.len(),
             stats(&mut self.cold.intervals),
@@ -268,8 +303,8 @@ impl EditProfile {
         );
         for (label, v) in &mut self.sections {
             v.sort();
-            let (p50, p95) = (v[v.len() / 2].as_secs_f64() * 1e3, v[v.len() * 95 / 100].as_secs_f64() * 1e3);
-            report.push_str(&format!("  {label}: p50 {p50:.2} ms, p95 {p95:.2} ms\n"));
+            let (p50, p95, max) = (ms(v[v.len() / 2]), ms(v[v.len() * 95 / 100]), ms(v[v.len() - 1]));
+            report.push_str(&format!("  {label}: p50 {p50:.2} ms, p95 {p95:.2} ms, max {max:.2} ms\n"));
         }
         report.push_str(&format!("warm-up first 12 intervals (ms): {}\nwarm-up longest interval number: {:?}\n", warm_trace.join(", "), warm_longest));
         report.push_str("warm-up, longest per section:\n");
