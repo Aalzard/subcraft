@@ -8,7 +8,11 @@
 //! results are bit-identical to evaluating again.
 //!
 //! Memory is bounded twice: at most [`PER_TILE`] fields per tile (least recently used are
-//! dropped) and a process-wide byte budget beyond which new fields are computed uncached.
+//! dropped) and a process-wide byte budget. Over the budget a new field replaces the tile's least
+//! recently used field if that one was not used since the current evaluation pass began
+//! ([`begin_pass`]: stale fields of deleted layers or old slider values give way); otherwise it is
+//! computed uncached, so a stack with more fields than fit keeps hitting the ones it holds instead
+//! of thrashing.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
@@ -17,13 +21,25 @@ use parking_lot::Mutex;
 use subcraft_doc::{ProceduralParams, Projection};
 use subcraft_image::TILE_TEXELS;
 
-/// Fields kept per tile (a typical stack has a handful of procedural fills/noises).
-pub const PER_TILE: usize = 8;
+/// Fields kept per tile. A few smart materials with triplanar fills already need a dozen or more
+/// per tile; with fewer slots than a stack uses, least-recently-used eviction drops every field
+/// before its next use and each recomposite evaluates all noise again. The byte budget below is
+/// what bounds memory (at 2048² a field costs 16 MiB over the whole set, at 4096² 64 MiB).
+pub const PER_TILE: usize = 32;
 /// Process-wide budget for cached field data (all tiles of all texture sets).
 pub const BUDGET_BYTES: usize = 768 << 20;
 
 static BYTES: AtomicUsize = AtomicUsize::new(0);
 static CLOCK: AtomicU64 = AtomicU64::new(0);
+/// Value of [`CLOCK`] when the current evaluation pass began.
+static PASS: AtomicU64 = AtomicU64::new(0);
+
+/// Mark the start of an evaluation pass (a recomposite): fields not used since then may give way
+/// to new ones when the byte budget is reached. Overlapping passes only move the mark forward,
+/// which can cost cache hits but never changes results.
+pub fn begin_pass() {
+    PASS.fetch_max(CLOCK.load(Ordering::Relaxed), Ordering::Relaxed);
+}
 
 /// Bytes currently held by cached fields (diagnostics and tests).
 pub fn cached_bytes() -> usize {
@@ -138,13 +154,22 @@ impl FieldCache {
         if let Some(e) = entries.iter().find(|e| e.key == key) {
             return e.field.clone(); // another thread finished first
         }
+        let oldest = |entries: &Vec<Entry>| entries.iter().enumerate().min_by_key(|(_, e)| e.used).map(|(i, _)| i);
         if entries.len() >= PER_TILE {
-            let oldest = entries.iter().enumerate().min_by_key(|(_, e)| e.used).map(|(i, _)| i).unwrap();
-            entries.swap_remove(oldest);
+            let i = oldest(&entries).unwrap();
+            entries.swap_remove(i);
         }
-        if cached_bytes() <= BUDGET_BYTES {
-            entries.push(Entry { key, field: field.clone(), used: now });
+        if cached_bytes() > BUDGET_BYTES {
+            // Make room by dropping a field this pass has not used; keep the ones it is using.
+            let pass = PASS.load(Ordering::Relaxed);
+            match oldest(&entries) {
+                Some(i) if entries[i].used < pass => {
+                    entries.swap_remove(i);
+                }
+                _ => return field,
+            }
         }
+        entries.push(Entry { key, field: field.clone(), used: now });
         field
     }
 

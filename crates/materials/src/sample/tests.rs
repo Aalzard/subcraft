@@ -186,6 +186,25 @@ fn procedural_fields_are_cached_exactly_per_parameter_set() {
 }
 
 #[test]
+fn a_stack_with_a_dozen_fields_per_tile_keeps_them_all() {
+    // Five smart materials with triplanar fills use well over 8 fields per tile; every one must
+    // still be cached on the next pass (an 8-entry LRU dropped each before its reuse).
+    let geo = TextureSetGeometry::new(Arc::new(primitives::cube(2.0)), 0, 128);
+    let g = geo.tile(2);
+    let tri = Projection { mode: ProjectionMode::Triplanar, ..Projection::default() };
+    let params: Vec<_> = (0..16u32).map(|seed| ProceduralParams { seed: 500 + seed, ..ProceduralParams::new(ProceduralKind::Grunge) }).collect();
+    let first: Vec<_> = params.iter().map(|p| procedural_tile(p, &tri, &g)).collect();
+    field::begin_pass();
+    for (p, a) in params.iter().zip(&first) {
+        let b = procedural_tile(p, &tri, &g);
+        assert!(Arc::ptr_eq(a, &b), "field recomputed although it fits");
+        for i in (0..TILE_TEXELS).step_by(97) {
+            assert_eq!(b[i].to_bits(), eval_procedural(p, &tri, &g, i).to_bits());
+        }
+    }
+}
+
+#[test]
 fn colored_procedural_fills_draw_each_component_from_its_own_pattern() {
     let geometry = TextureSetGeometry::new(Arc::new(subcraft_mesh::primitives::plane(2.0, 1)), 0, 64);
     let geo = geometry.tile(0);

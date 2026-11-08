@@ -196,6 +196,7 @@ impl Composite {
         scale: f32,
         cancel: Option<&(dyn Fn() -> bool + Sync)>,
     ) -> ChangedTiles {
+        subcraft_materials::sample::field::begin_pass();
         let graph = stages::has_spatial(&ts.layers).then(|| {
             let g = stages::Graph::new_scaled(ts, *ctx, cache, scale);
             match prefix {
