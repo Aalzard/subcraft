@@ -67,6 +67,60 @@ pub struct Generator {
     /// their exact behavior.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub painter: Option<PainterControls>,
+    /// "Micro effect": also writes this generator's pattern into the Normal / Height channels of the
+    /// layers below. Absent (the default, and in every older project): colour channels only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub micro: Option<MicroEffect>,
+}
+
+/// Settings of a generator's micro effect (see [`Generator::micro`]). `Default` is the neutral
+/// "off" state; [`MicroEffect::enabled_for`] gives the settings a freshly ticked checkbox starts with.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct MicroEffect {
+    /// Master switch. Stored (rather than removing the struct) so unticking keeps the tuned values.
+    pub enabled: bool,
+    /// Height change at full mask, 0..1 (1 = [`MicroEffect::MAX_HEIGHT`] height units).
+    pub amount: f32,
+    /// Raise (dirt fills, deposits) or carve (wear chips) the height.
+    pub direction: MicroDirection,
+    /// Modulate the height with the generator's own fine grain, so the micro surface is as
+    /// speckled as the mask. Off: the height follows the smooth mask only.
+    pub grain_follows: bool,
+}
+
+/// Which way a micro effect moves the height.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MicroDirection { Raise, Carve }
+
+impl MicroDirection {
+    pub fn sign(self) -> f32 { match self { Self::Raise => 1.0, Self::Carve => -1.0 } }
+    pub fn label(self) -> &'static str { match self { Self::Raise => "Raise", Self::Carve => "Carve" } }
+}
+
+impl Default for MicroEffect {
+    fn default() -> Self { Self { enabled: false, amount: 0.5, direction: MicroDirection::Raise, grain_follows: true } }
+}
+
+impl MicroEffect {
+    /// Height units written by `amount` = 1 at full mask.
+    pub const MAX_HEIGHT: f32 = 0.1;
+
+    /// The micro settings a generator of `kind` starts with when the checkbox is ticked: edge wear
+    /// chips (carves), everything else deposits (raises).
+    pub fn enabled_for(kind: GeneratorKind) -> Self {
+        Self {
+            enabled: true,
+            direction: if kind == GeneratorKind::Edges { MicroDirection::Carve } else { MicroDirection::Raise },
+            ..Self::default()
+        }
+    }
+
+    /// Signed height at full mask (0 when off or non-finite).
+    pub fn height(&self) -> f32 {
+        if !self.enabled || !self.amount.is_finite() { return 0.0; }
+        self.direction.sign() * self.amount.clamp(0.0, 1.0) * Self::MAX_HEIGHT
+    }
 }
 
 /// Controls of Painter's `Dirt` and `Metal Edge Wear` generators that a plain threshold generator
@@ -192,6 +246,19 @@ impl Generator {
                 grunge_floor: if kind == GeneratorKind::Cavity { 0.1 } else { 0.0 },
                 ..PainterControls::default()
             }),
+            micro: None,
+        }
+    }
+
+    /// Whether the micro effect is on and strong enough to change anything.
+    pub fn micro_active(&self) -> bool { self.micro.is_some_and(|m| m.height() != 0.0) }
+
+    /// Switch the micro effect on or off, keeping tuned values and starting from the per-kind defaults.
+    pub fn set_micro_enabled(&mut self, on: bool) {
+        match (&mut self.micro, on) {
+            (Some(m), _) => m.enabled = on,
+            (None, true) => self.micro = Some(MicroEffect::enabled_for(self.kind)),
+            (None, false) => {}
         }
     }
 
@@ -346,6 +413,36 @@ impl Mask {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn micro_effect_is_off_by_default_and_ticking_picks_the_kind_default() {
+        for kind in [GeneratorKind::Edges, GeneratorKind::Cavity, GeneratorKind::Directional, GeneratorKind::Concave, GeneratorKind::PositionGradient, GeneratorKind::MeshMap(MeshMapKind::Curvature)] {
+            let mut g = Generator::new(kind);
+            assert!(g.micro.is_none() && !g.micro_active(), "{kind:?} defaults off");
+            g.set_micro_enabled(true);
+            let m = g.micro.unwrap();
+            assert!(g.micro_active() && m.grain_follows);
+            assert_eq!(m.direction, if kind == GeneratorKind::Edges { MicroDirection::Carve } else { MicroDirection::Raise });
+            assert_eq!(m.height().signum(), m.direction.sign());
+            // Unticking keeps the tuned values and turns the effect off.
+            g.micro.as_mut().unwrap().amount = 0.9;
+            g.set_micro_enabled(false);
+            assert!(!g.micro_active() && g.micro.unwrap().amount == 0.9);
+            g.set_micro_enabled(true);
+            assert_eq!(g.micro.unwrap().amount, 0.9);
+        }
+        let mut g = Generator::new(GeneratorKind::Edges);
+        g.set_micro_enabled(false);
+        assert!(g.micro.is_none(), "unticking an untouched generator leaves it untouched");
+    }
+
+    #[test]
+    fn micro_height_is_bounded_and_ignores_bad_amounts() {
+        let m = MicroEffect { enabled: true, amount: 5.0, direction: MicroDirection::Carve, grain_follows: true };
+        assert_eq!(m.height(), -MicroEffect::MAX_HEIGHT);
+        assert_eq!(MicroEffect { amount: f32::NAN, ..m }.height(), 0.0);
+        assert_eq!(MicroEffect { enabled: false, ..m }.height(), 0.0);
+    }
 
     #[test]
     fn id_color_match_respects_tolerance_softness_and_invert() {

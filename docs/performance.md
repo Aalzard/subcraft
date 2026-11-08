@@ -72,3 +72,17 @@ does apply a stamp still costs 20-30 ms at 4096², so this is smoother, not 60 f
   drawing (exact result at stroke end). Both are multi-day work and need owner sign-off.
 * Prototype GPU stamping behind a feature flag (the next step; not started).
 * Benchmarks for 20/50-layer stacks, orbit at 2048, texture-set switch and export were not run.
+
+
+## Generator micro effect (2048, SubCraft_base, 2 texture sets, Dirt + Edges layers)
+
+`cargo run --release -p subcraft-app --example micro_sheet -- <prefix> 2048` (mimalloc, 16 threads, release). The loop recomposites
+everything after changing both generators; the first state of a round pays the noise fields of a new seed, the second reuses them.
+
+| state | first of round (new seed) | second of round (noise cached) |
+|---|---|---|
+| micro OFF | 0.44, 0.39 s | 0.175 s |
+| micro ON | 0.34 s | 0.156, 0.172 s |
+
+So with the noise cached ON costs about the same as OFF within run noise (0.16-0.17 s vs 0.175 s). OFF has no extra work: the micro nodes are never built. ON reuses the generator's own mask node (shared, so the generator runs once per tile), and its extra work is one delta tile, a one-texel halo read and a whiteout per changed texel. The earlier ordered runs of the example showed the same (dirt on 0.13 s, wear on 0.11 s). Single machine, no quiet-machine controls: treat differences under 0.05 s as noise.
+GPU compositor: sets with an active micro effect take the CPU graph path (the GPU declines them like spatial filters).
