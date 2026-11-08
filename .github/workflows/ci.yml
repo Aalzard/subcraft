@@ -10,12 +10,21 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  # Many integration-test binaries link the whole workspace; without debug info and incremental
+  # state the Linux runner stays within its disk (it ran out of space with the defaults).
+  CARGO_INCREMENTAL: "0"
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_PROFILE_TEST_DEBUG: "0"
 
 jobs:
   linux:
     name: Test (Linux)
     runs-on: ubuntu-latest
     steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
