@@ -213,8 +213,6 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Reset", "초기화"),
     ("Reset UI size to 95%", "UI 크기를 95%로 초기화"),
     ("Reset camera", "카메라 초기화"),
-    ("Side-by-side 3D | 2D", "3D | 2D 나란히 보기"),
-    ("Tab 2D view behind 3D view", "2D 뷰를 3D 뷰 뒤 탭으로 이동"),
     ("Reset layout", "레이아웃 초기화"),
     ("Reset look", "룩 초기화"),
     ("Reset tiling, offset and rotation", "타일링, 오프셋, 회전 초기화"),
