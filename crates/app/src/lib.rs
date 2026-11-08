@@ -38,6 +38,7 @@ pub mod spp_import;
 pub mod spp_job;
 pub mod smart_import;
 pub mod spp_select;
+pub mod stamp_brush;
 pub mod spp_stack;
 pub mod thumbnails;
 pub mod world_blur;

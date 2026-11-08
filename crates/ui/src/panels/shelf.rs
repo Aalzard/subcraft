@@ -480,7 +480,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                             continue;
                         }
                         shown += 1;
-                        let resp = tile(ui, tile_size, t.thumb.as_ref(), &t.name, false, &format!("{} ({}): drag onto a channel, the model or a layer. Alt+click: use it in the active channel of the selected fill layer", t.name, t.category));
+                        let resp = tile(ui, tile_size, t.thumb.as_ref(), &t.name, false, &if normals { format!("{} (normal map): click to use it as the normal-map brush, double-click to preview and adjust. Drag onto a channel, the model or a layer. Alt+click: use it in the active channel of the selected fill layer", t.name) } else { format!("{} ({}): drag onto a channel, the model or a layer. Alt+click: use it in the active channel of the selected fill layer", t.name, t.category) });
                         resp.dnd_set_drag_payload(ShelfDrag::Texture(i));
                         if library_menu(&resp, state.user_library.as_ref(), &t.path, &mut lib_status) {
                             let path = t.path.clone();
@@ -488,6 +488,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         }
                         if resp.clicked() && alt {
                             action = Some(Box::new(move |s: &mut UiState| apply_shelf_item_with(s, ShelfDrag::Texture(i), true, now)));
+                        } else if normals && resp.clicked() && !resp.double_clicked() {
+                            let name=t.name.clone();let path=t.path.clone();let ctx=ui.ctx().clone();
+                            action = Some(Box::new(move |s: &mut UiState| { let UiState { asset_preview, session, .. } = s; asset_preview.start_stamp(&ctx,session,name,subcraft_assets::starter::Kind::Normal,crate::asset_preview::Source::File(path),subcraft_paint::StampKind::Normal); s.tool = crate::state::Tool::Brush; }));
                         } else if resp.clicked() {
                             let name=t.name.clone();let path=t.path.clone();let ctx=ui.ctx().clone();
                             let kind=if t.category=="Normal" {subcraft_assets::starter::Kind::Normal} else {subcraft_assets::starter::Kind::Texture};

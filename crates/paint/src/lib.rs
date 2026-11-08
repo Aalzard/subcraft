@@ -9,6 +9,7 @@
 
 pub mod camera;
 pub mod depth;
+pub mod image_stamp;
 pub mod kernel;
 pub mod path;
 pub mod pen;
@@ -22,7 +23,7 @@ pub mod text_decal;
 pub use camera::Camera;
 pub use depth::{DepthCache, DepthMap};
 pub use path::MAX_SMOOTHING;
-pub use settings::{Alignment, BrushChannel, BrushMaterial, BrushSettings, NormalPaintBlend, PaintTarget, PolygonFillMode, RadialSymmetry, MAX_SYMMETRY_COPIES, StrokeMode, StrokeOptions, falloff, MAX_SCATTER};
+pub use settings::{Alignment, BrushChannel, BrushMaterial, BrushSettings, NormalPaintBlend, ImageStamp, StampKind, PaintTarget, PolygonFillMode, RadialSymmetry, MAX_SYMMETRY_COPIES, StrokeMode, StrokeOptions, falloff, MAX_SCATTER};
 pub use stamp::Stamp;
 pub use stencil::Stencil;
 pub use stroke::{PaintContext, Stroke};

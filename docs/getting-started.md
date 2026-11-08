@@ -181,6 +181,36 @@ set the painting tool's material; fill-layer material controls live in Propertie
 
 ![Selecting a fill reveals that layer's Properties](screenshots/inspector-fill-selected.jpg)
 
+### Stamp a normal map: the Normal Map Brush
+
+Open **Assets > Normal Maps** and **click** a normal map (a Starter pack map, or one you
+imported, which shows under **Mine**). It becomes the active brush: the right-hand
+**Properties** column shows a **NORMAL MAP BRUSH** block with the map's name, a lit
+brush preview (one stamp and an example stroke) and its controls. Double-click a tile
+instead to open the preview window (adjust strength, flip green, rotation, seamless), where
+**Use as normal-map brush** applies the adjusted copy. Grayscale images (Brushes tab or
+Textures) get **Use as height brush** in their preview window, which paints the Height channel.
+
+<img src="ui/normal-brush/panel.png" alt="NORMAL MAP BRUSH block with preview in the Properties column" width="760">
+
+Select a **paint layer** and paint on the model. The first stroke switches that layer's
+**Normal** channel on (the layer row shows its blend, `NMC`), leaves its other channels
+alone, and blends the map's tangent-space normals into whatever normals the layer already
+has (whiteout blend, flat areas of the map change nothing, the result is re-normalised).
+One stroke is one undo step; symmetry, lazy mouse, pen pressure and size work as usual.
+
+- **Size / Strength / Rotation / Random rotation / Spacing**: rotation also turns the map's
+  X/Y normals. Spacing 1 places one stamp per brush diameter, so a click leaves one screw or
+  nail; small spacing averages overlapping stamps instead of stacking their strength.
+- **Edge softness** fades the stamp toward its rim so no square border remains.
+- **Flip green** converts a DirectX (+Y down) map.
+- **Mode**: *Single stamp* (one image per stamp) or *Tiled* (the image repeats over the
+  surface under the stroke).
+- **Back to normal brush** restores the previous channels, spacing and edge softness.
+  Presets saved while a normal-map brush is active keep the image and these settings.
+
+<img src="ui/normal-brush/strokes.png" alt="Starter pack normal maps stamped onto the sphere of SubCraft_base" width="760">
+
 ### Layer content and mask thumbnails
 
 Layer rows now show a square **content thumbnail** in place of the generic material icon.

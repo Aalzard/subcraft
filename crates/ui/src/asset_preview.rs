@@ -30,6 +30,18 @@ impl AssetPreviewUi {
     pub fn queue_brush(&mut self, session: &subcraft_app::Session, index: usize, channel: subcraft_core::ChannelKind) {
         self.queue_to(index,subcraft_app::asset_apply::Destination::capture_brush(session,channel));
     }
+    /// Use starter image `index` as the normal-map (or height) stamp brush.
+    pub fn queue_stamp(&mut self, session: &subcraft_app::Session, index: usize, kind: subcraft_paint::StampKind) {
+        self.queue_to(index,subcraft_app::asset_apply::Destination::capture_stamp(session,kind));
+    }
+    /// Use an image file (imported / Mine) as the stamp brush.
+    pub fn start_stamp(&mut self, ctx: &egui::Context, session: &subcraft_app::Session, name: String, kind: Kind, source: Source, stamp: subcraft_paint::StampKind) {
+        self.start(ctx,name,kind,source,false); self.destination=Some(subcraft_app::asset_apply::Destination::capture_stamp(session,stamp));
+    }
+    /// Make the image shown in the preview window the stamp brush (with its adjustments).
+    pub fn stamp_from_preview(&mut self, session: &subcraft_app::Session, stamp: subcraft_paint::StampKind) {
+        self.destination=Some(subcraft_app::asset_apply::Destination::capture_stamp(session,stamp));self.apply=None;
+    }
     fn queue_to(&mut self, index: usize, destination: subcraft_app::asset_apply::Destination) {
         if self.builtin==Some(index)&&self.source.is_some()&&self.loader.is_none() {self.destination=Some(destination);self.apply=None;return;}
         if ENTRIES.get(index).is_none() {return;} self.cancel_apply();self.queued=Some(index);self.destination=Some(destination);
@@ -85,9 +97,11 @@ impl AssetPreviewUi {
                 let bitmap=self.apply.take().unwrap().finish().unwrap();
                 let kind=self.kind.unwrap();
                 let saved_alpha=(kind==Kind::Alpha).then(||subcraft_assets::BrushAlpha {id:subcraft_core::AssetId::from_name(&format!("adjusted-alpha/{}",self.name)),name:self.name.clone(),bitmap:Some(Arc::new(bitmap.clone())),user_file:None});
-                let result=self.destination.take().unwrap().apply(&mut state.session,&self.name,kind,bitmap);
+                let destination=self.destination.take().unwrap(); let is_stamp=destination.is_stamp();
+                let result=destination.apply(&mut state.session,&self.name,kind,bitmap);
                 match result {
                     Ok(())=>{
+                        if is_stamp {state.tool=Tool::Brush;}
                         if let Some(a)=saved_alpha {state.library.alphas.retain(|old|old.id!=a.id);state.library.alphas.push(a);state.tool=Tool::Brush;}
                         state.recovery.autosaver.request_soon();state.set_status(format!("Applied {}",self.name),ctx.input(|i|i.time));
                     }
@@ -147,6 +161,13 @@ impl AssetPreviewUi {
                         ui.add(egui::ProgressBar::new(self.apply.as_ref().map_or(0.0,|j|j.progress())).text("Applying image…"));
                         if ui.button("Cancel application").clicked() {self.cancel_apply();}
                     } else if ui.add_enabled(self.source.is_some()&&self.error.is_none(),egui::Button::new(if self.kind==Some(Kind::Alpha) {"Use as brush tip"} else {"Add adjusted fill layer"})).clicked() {self.apply_to(&state.session,None);}
+                    if !self.is_applying()&&self.source.is_some()&&self.error.is_none() {
+                        match self.kind {
+                            Some(Kind::Normal)=>if ui.button("Use as normal-map brush").on_hover_text("Stamp this normal map onto the model: paints the Normal channel of the selected paint layer").clicked() {self.stamp_from_preview(&state.session,subcraft_paint::StampKind::Normal);},
+                            Some(Kind::Alpha)|Some(Kind::Texture)=>if ui.button("Use as height brush").on_hover_text("Stamp this grayscale image as height: paints the Height channel of the selected paint layer").clicked() {self.stamp_from_preview(&state.session,subcraft_paint::StampKind::Height);},
+                            None=>{}
+                        }
+                    }
                     ui.small("Adjustments are baked into a copy. Full images load only when selected; the original pack stays unchanged.");
                     if let Some(b)=&self.source {ui.small(format!("{} × {} pixels",b.width,b.height));}
                 });
@@ -186,7 +207,7 @@ pub fn open(state: &mut UiState, ctx: &egui::Context, index: usize, apply: bool,
 pub fn shelf(state: &mut UiState, ui: &mut egui::Ui, side: f32) -> usize {
     use crate::panels::shelf::{ShelfTab,ShelfDrag};
     let kind=match state.shelf.tab {ShelfTab::NormalMaps=>Kind::Normal,ShelfTab::Textures=>Kind::Texture,ShelfTab::Brushes=>Kind::Alpha,_=>return 0};
-    let mut shown=0;let mut clicked=None;
+    let mut shown=0;let mut clicked=None;let mut stamped=None;
     for (i,e) in ENTRIES.iter().enumerate() {
         if e.kind!=kind||!state.shelf.filter.matches_tagged(e.name,Some("Starter pack"),false,e.tileable()) {continue;}
         shown+=1;
@@ -194,11 +215,16 @@ pub fn shelf(state: &mut UiState, ui: &mut egui::Ui, side: f32) -> usize {
             && let Ok(b)=subcraft_image::io::decode_bitmap(e.thumb,Some("thumb.png")) {
                 slot.insert(texture(ui.ctx(),&format!("starter-thumb-{i}"),&b));
         }
-        let resp=crate::panels::shelf::tile(ui,side,state.asset_preview.thumbs.get(&i),e.name,false,"CC0 Starter pack: click to preview and adjust. Drag normals onto Normal, the model or a layer.");
+        let tip=if kind==Kind::Normal {"CC0 Starter pack normal map: click to use it as the normal-map brush, double-click to preview and adjust. Drag it onto Normal, the model or a layer."} else {"CC0 Starter pack: click to preview and adjust. Drag normals onto Normal, the model or a layer."};
+        let resp=crate::panels::shelf::tile(ui,side,state.asset_preview.thumbs.get(&i),e.name,false,tip);
         if kind==Kind::Normal {resp.dnd_set_drag_payload(ShelfDrag::Starter(i));}
-        if resp.clicked() {clicked=Some(i);}
+        if kind==Kind::Normal {
+            if resp.double_clicked() {clicked=Some(i);} else if resp.clicked() {stamped=Some(i);}
+        } else if resp.clicked() {clicked=Some(i);}
     }
-    if let Some(i)=clicked {open(state,ui.ctx(),i,false,None);} shown
+    if let Some(i)=clicked {open(state,ui.ctx(),i,false,None);}
+    if let Some(i)=stamped {state.asset_preview.queue_stamp(&state.session,i,subcraft_paint::StampKind::Normal);state.tool=Tool::Brush;}
+    shown
 }
 
 #[cfg(test)]
