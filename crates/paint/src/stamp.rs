@@ -161,19 +161,7 @@ impl Stamp {
     #[inline]
     pub fn footprint(&self, alignment: Alignment, camera: &Camera, p: Vec3, ng: Vec3, uv: Vec2, alpha: Option<&Bitmap>) -> f32 {
         let Some(local) = self.local(alignment, camera, p, ng, uv, reach(alpha.is_some())) else { return 0.0 };
-        let (s, c) = self.angle.sin_cos();
-        let r = Vec2::new(local.x * c + local.y * s, -local.x * s + local.y * c);
-        let r = Vec2::new(r.x, r.y / self.roundness.clamp(0.01, 1.0));
-        match alpha {
-            None => falloff(r.length(), self.hardness),
-            Some(bmp) => {
-                if r.x.abs() >= 1.0 || r.y.abs() >= 1.0 {
-                    return 0.0;
-                }
-                let t = bmp.sample(r.x * 0.5 + 0.5, r.y * 0.5 + 0.5, Wrap::Clamp, false);
-                (t[0] * t[3]).clamp(0.0, 1.0)
-            }
-        }
+        tip_footprint(alpha, self.hardness, self.angle, self.roundness, local)
     }
 
     /// Footprint coordinates in brush radii (before angle/roundness), or `None` outside reach.
@@ -225,6 +213,26 @@ impl Stamp {
         // the rotation about that line sends ng to n, i.e. a×ng to a×n.
         let lambda = n.dot(self.center - p) / s;
         p + (a.cross(ng) - a.cross(n)) * lambda
+    }
+}
+
+/// Tip strength (0..1) at `local` (brush radii, before angle / roundness): the alpha image
+/// stretched over the square [-1, 1]² (luminance × alpha), or the round falloff without one.
+/// Shared by the surface footprint and the brush-panel preview, so both show the same tip.
+#[inline]
+pub fn tip_footprint(alpha: Option<&Bitmap>, hardness: f32, angle: f32, roundness: f32, local: Vec2) -> f32 {
+    let (s, c) = angle.sin_cos();
+    let r = Vec2::new(local.x * c + local.y * s, -local.x * s + local.y * c);
+    let r = Vec2::new(r.x, r.y / roundness.clamp(0.01, 1.0));
+    match alpha {
+        None => falloff(r.length(), hardness),
+        Some(bmp) => {
+            if r.x.abs() >= 1.0 || r.y.abs() >= 1.0 {
+                return 0.0;
+            }
+            let t = bmp.sample(r.x * 0.5 + 0.5, r.y * 0.5 + 0.5, Wrap::Clamp, false);
+            (t[0] * t[3]).clamp(0.0, 1.0)
+        }
     }
 }
 

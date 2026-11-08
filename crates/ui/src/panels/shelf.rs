@@ -313,6 +313,12 @@ pub(crate) fn tile(ui: &mut Ui, side: f32, thumb: Option<&egui::TextureHandle>, 
         egui::Stroke::new(1.0, theme::BORDER)
     };
     painter.rect_stroke(img, 0.0, stroke, egui::StrokeKind::Inside);
+    if selected {
+        // The active brush: an accent check badge in the corner, readable on any thumbnail.
+        let badge = egui::pos2(img.right() - 11.0, img.top() + 11.0);
+        painter.circle_filled(badge, 8.0, theme::ACCENT);
+        painter.text(badge, egui::Align2::CENTER_CENTER, crate::icons::CHECK, theme::font(11.0), Color32::WHITE);
+    }
     let color = if selected || resp.hovered() { theme::TEXT } else { theme::TEXT_DIM };
     let mut job = egui::text::LayoutJob::simple(name.to_string(), theme::font(11.0), color, side);
     job.wrap.max_rows = 1;
@@ -507,7 +513,16 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                             continue;
                         }
                         shown += 1;
-                        let resp = tile(ui, tile_size, t.thumb.as_ref(), &t.name, false, &if normals { format!("{} (normal map): click to use it as the normal-map brush, double-click to preview and adjust. Drag onto a channel, the model or a layer. Alt+click: use it in the active channel of the selected fill layer", t.name) } else { format!("{} ({}): drag onto a channel, the model or a layer. Alt+click: use it in the active channel of the selected fill layer", t.name, t.category) });
+                        // Normal maps and height maps are stamp brushes on a click (Substance Painter:
+                        // a click on a brush resource makes it the active brush).
+                        let stamp = if normals { Some(subcraft_paint::StampKind::Normal) } else if t.category == subcraft_core::ChannelKind::Height.display_name() { Some(subcraft_paint::StampKind::Height) } else { None };
+                        let selected = stamp.is_some_and(|k| state.session.brush.material.stamp.as_ref().is_some_and(|s| s.kind == k && s.name == t.name));
+                        let tip = match stamp {
+                            Some(subcraft_paint::StampKind::Normal) => format!("{} (normal map): click to use it as the normal-map brush, double-click to preview and adjust. Drag onto a channel, the model or a layer. Alt+click: use it in the active channel of the selected fill layer", t.name),
+                            Some(subcraft_paint::StampKind::Height) => format!("{} (height map): click to use it as the height brush, double-click to preview and adjust. Drag onto a channel, the model or a layer. Alt+click: use it in the active channel of the selected fill layer", t.name),
+                            None => format!("{} ({}): drag onto a channel, the model or a layer. Alt+click: use it in the active channel of the selected fill layer", t.name, t.category),
+                        };
+                        let resp = tile(ui, tile_size, t.thumb.as_ref(), &t.name, selected, &tip);
                         resp.dnd_set_drag_payload(ShelfDrag::Texture(i));
                         if library_menu(&resp, state.user_library.as_ref(), &t.path, &mut lib_status) {
                             let path = t.path.clone();
@@ -515,9 +530,15 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         }
                         if resp.clicked() && alt {
                             action = Some(Box::new(move |s: &mut UiState| apply_shelf_item_with(s, ShelfDrag::Texture(i), true, now)));
-                        } else if normals && resp.clicked() && !resp.double_clicked() {
-                            let name=t.name.clone();let path=t.path.clone();let ctx=ui.ctx().clone();
-                            action = Some(Box::new(move |s: &mut UiState| { let UiState { asset_preview, session, .. } = s; asset_preview.start_stamp(&ctx,session,name,subcraft_assets::starter::Kind::Normal,crate::asset_preview::Source::File(path),subcraft_paint::StampKind::Normal); s.tool = crate::state::Tool::Brush; }));
+                        } else if let Some(kind) = stamp.filter(|_| resp.clicked() && !resp.double_clicked()) {
+                            let name=t.name.clone();let path=t.path.clone();let ctx=ui.ctx().clone();let thumb=t.thumb_bitmap.clone();
+                            let image_kind = if kind == subcraft_paint::StampKind::Normal { subcraft_assets::starter::Kind::Normal } else { subcraft_assets::starter::Kind::Alpha };
+                            action = Some(Box::new(move |s: &mut UiState| {
+                                let UiState { asset_preview, session, .. } = s;
+                                asset_preview.start_stamp(&ctx,session,name,image_kind,crate::asset_preview::Source::File(path),kind,thumb);
+                                s.tool = crate::state::Tool::Brush;
+                                s.show_selected_brush(None);
+                            }));
                         } else if resp.clicked() {
                             let name=t.name.clone();let path=t.path.clone();let ctx=ui.ctx().clone();
                             let kind=if t.category=="Normal" {subcraft_assets::starter::Kind::Normal} else {subcraft_assets::starter::Kind::Texture};
@@ -600,7 +621,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                             Some(d) => format!("{}: {d}", p.name),
                             None => "Brush preset: tip, size, flow, jitter and material (right-click for options)".to_string(),
                         };
-                        let resp = tile(ui, tile_size, thumb, &p.name, false, &tip);
+                        let resp = tile(ui, tile_size, thumb, &p.name, state.is_selected_shelf_brush(&p.name), &tip);
                         if let Some(file) = &p.user_file
                             && library_menu(&resp, state.user_library.as_ref(), file, &mut lib_status)
                         {
@@ -615,7 +636,6 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                             action = Some(a);
                         }
                     }
-                    let current = state.session.brush.alpha_name.clone();
                     for (i, a) in state.library.alphas.iter().enumerate() {
                         if a.name.starts_with("Starter: ") {continue;}
                         if !filter.matches(&a.name, None, a.user_file.is_some()) {
@@ -623,7 +643,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         }
                         shown += 1;
                         let tip = if a.user_file.is_some() { "Brush tip (your library: right-click for options). Drag onto a layer's mask, or Alt+click, to use it as the mask shape" } else { "Brush tip. Drag onto a layer's mask, or Alt+click, to use it as the mask shape" };
-                        let resp = tile(ui, tile_size, thumbs.get(&a.id), &a.name, a.name == current, tip);
+                        let resp = tile(ui, tile_size, thumbs.get(&a.id), &a.name, state.is_selected_shelf_brush(&a.name), tip);
                         if a.bitmap.is_some() { resp.dnd_set_drag_payload(ShelfDrag::Alpha(i)); }
                         if let Some(file) = &a.user_file
                             && library_menu(&resp, state.user_library.as_ref(), file, &mut lib_status)

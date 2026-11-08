@@ -1,5 +1,7 @@
 //! Shelf image loading and preview presentation. Image math lives in assets; project edits in app.
-use std::{collections::HashMap, path::PathBuf, sync::{Arc,mpsc::{Receiver,TryRecvError,channel}}};
+use std::{collections::HashMap, path::PathBuf, sync::{Arc,atomic::{AtomicBool,AtomicU32,Ordering},mpsc::{Receiver,TryRecvError,channel}}};
+use subcraft_app::asset_apply::{Destination,Placeholder};
+use subcraft_app::stamp_brush::PreparedStamp;
 use egui::{Color32, RichText};
 use subcraft_assets::{preview::{Address,ImageJob,Settings},starter::{ENTRIES,Kind}};
 use subcraft_image::Bitmap;
@@ -16,10 +18,44 @@ pub struct AssetPreviewUi {
     error: Option<String>, job: Option<ImageJob>, dirty: bool,
     image: Option<egui::TextureHandle>, example: Option<egui::TextureHandle>,
     thumbs: HashMap<usize,egui::TextureHandle>,
-    destination: Option<subcraft_app::asset_apply::Destination>, apply: Option<ImageJob>,
+    destination: Option<Destination>, apply: Option<ApplyTask>,
     queued: Option<usize>,
     builtin: Option<usize>,
+    /// When the pending application was requested (click-to-ready timing in the log).
+    requested: Option<web_time::Instant>,
+    /// Full-resolution stamps already encoded this session, by name and kind (unadjusted
+    /// images only): choosing one again is instant.
+    ready: Vec<(String,subcraft_paint::StampKind,PreparedStamp)>,
 }
+
+/// Most recently used full-resolution stamps kept in memory.
+const READY_STAMPS: usize = 8;
+
+/// What the worker thread hands back: the adjusted image, encoded already for a stamp.
+enum Applied { Image(Bitmap), Stamp(PreparedStamp) }
+
+/// The adjusted full image is resampled (and, for a stamp, PNG-encoded) on a worker thread so
+/// the UI never waits for it; the frame loop only polls.
+struct ApplyTask { rx: Receiver<Result<Applied,String>>, progress: Arc<AtomicU32>, cancel: Arc<AtomicBool> }
+impl ApplyTask {
+    fn spawn(ctx: &egui::Context, source: Arc<Bitmap>, kind: Kind, settings: Settings, stamp: bool, name: String) -> Result<Self,String> {
+        let mut job=ImageJob::new(source.clone(),kind,settings,source.width.max(source.height).min(4096)).map_err(str::to_string)?;
+        let (tx,rx)=channel(); let progress=Arc::new(AtomicU32::new(0)); let cancel=Arc::new(AtomicBool::new(false));
+        let (p,c,ctx)=(progress.clone(),cancel.clone(),ctx.clone());
+        subcraft_core::task::spawn(move || {
+            while !job.is_done() {
+                if c.load(Ordering::Relaxed) {return;}
+                job.step(1<<16); p.store((job.progress()*1000.0) as u32,Ordering::Relaxed);
+            }
+            let bitmap=job.finish().expect("finished job");
+            let result=if stamp {subcraft_app::stamp_brush::prepare_stamp(&name,bitmap).map(Applied::Stamp)} else {Ok(Applied::Image(bitmap))};
+            if !c.load(Ordering::Relaxed) {let _=tx.send(result);ctx.request_repaint();}
+        });
+        Ok(Self{rx,progress,cancel})
+    }
+    fn progress(&self) -> f32 {self.progress.load(Ordering::Relaxed) as f32/1000.0}
+}
+impl Drop for ApplyTask { fn drop(&mut self) {self.cancel.store(true,Ordering::Relaxed);} }
 impl AssetPreviewUi {
     pub fn is_applying(&self) -> bool {self.destination.is_some()}
     pub fn cancel_apply(&mut self) {self.destination=None;self.apply=None;self.queued=None;}
@@ -32,17 +68,69 @@ impl AssetPreviewUi {
     }
     /// Use starter image `index` as the normal-map (or height) stamp brush.
     pub fn queue_stamp(&mut self, session: &subcraft_app::Session, index: usize, kind: subcraft_paint::StampKind) {
-        self.queue_to(index,subcraft_app::asset_apply::Destination::capture_stamp(session,kind));
+        self.queue_to(index,Destination::capture_stamp(session,kind));
     }
-    /// Use an image file (imported / Mine) as the stamp brush.
-    pub fn start_stamp(&mut self, ctx: &egui::Context, session: &subcraft_app::Session, name: String, kind: Kind, source: Source, stamp: subcraft_paint::StampKind) {
-        self.start(ctx,name,kind,source,false); self.destination=Some(subcraft_app::asset_apply::Destination::capture_stamp(session,stamp));
+    /// Click on a Starter pack image in the Shelf: the brush changes in this frame. A
+    /// full-resolution copy already encoded this session is used directly; otherwise the
+    /// embedded thumbnail becomes the brush at once and the full image replaces it when its
+    /// background load finishes (painting meanwhile uses the thumbnail resolution).
+    /// `stamp: None` makes the image the brush tip (alpha).
+    pub fn select_starter(&mut self, session: &mut subcraft_app::Session, index: usize, stamp: Option<subcraft_paint::StampKind>) {
+        let Some(e)=ENTRIES.get(index) else {return};
+        let started=web_time::Instant::now(); let name=format!("Starter: {}",e.name);
+        match stamp {
+            Some(kind) => {
+                if self.use_ready(session,&name,kind) {return;}
+                let thumb=subcraft_image::io::decode_bitmap(e.thumb,Some("thumb.png")).ok();
+                let destination=Destination::capture_stamp(session,kind);
+                let destination=match thumb.and_then(|t|subcraft_app::stamp_brush::prepare_stamp(&name,t).ok()) {
+                    Some(prepared)=>{let id=session.set_prepared_stamp(kind,prepared);destination.with_placeholder(Placeholder::Stamp(id))}
+                    None=>destination,
+                };
+                self.queue_to(index,destination);
+            }
+            None => {
+                if let Ok(t)=subcraft_image::io::decode_bitmap(e.thumb,Some("thumb.png")) {
+                    session.set_brush_alpha(&adjusted_alpha(&name,t));
+                }
+                self.queue_to(index,Destination::capture_tip(session).with_placeholder(Placeholder::Tip));
+            }
+        }
+        self.requested=Some(started);
+        log::info!("brush timing: {name} selected (thumbnail brush) in {:.1} ms",started.elapsed().as_secs_f64()*1000.0);
+    }
+    /// Use an image file (imported / Mine) as the stamp brush. `thumb` (the Shelf thumbnail)
+    /// is the brush until the full file is loaded.
+    pub fn start_stamp(&mut self, ctx: &egui::Context, session: &mut subcraft_app::Session, name: String, kind: Kind, source: Source, stamp: subcraft_paint::StampKind, thumb: Option<Arc<Bitmap>>) {
+        let started=web_time::Instant::now();
+        if self.use_ready(session,&name,stamp) {return;}
+        let mut destination=Destination::capture_stamp(session,stamp);
+        if let Some(t)=thumb {
+            let t=if let Source::File(p)=&source {convert_for(p,(*t).clone())} else {(*t).clone()};
+            if let Ok(prepared)=subcraft_app::stamp_brush::prepare_stamp(&name,t) {destination=destination.with_placeholder(Placeholder::Stamp(session.set_prepared_stamp(stamp,prepared)));}
+        }
+        self.start(ctx,name.clone(),kind,source,false); self.destination=Some(destination); self.requested=Some(started);
+        log::info!("brush timing: {name} selected (thumbnail brush) in {:.1} ms",started.elapsed().as_secs_f64()*1000.0);
+    }
+    /// An already encoded full-resolution stamp: becomes the brush at once.
+    fn use_ready(&mut self, session: &mut subcraft_app::Session, name: &str, kind: subcraft_paint::StampKind) -> bool {
+        let Some(i)=self.ready.iter().position(|(n,k,_)|n==name&&*k==kind) else {return false};
+        let entry=self.ready.remove(i); session.set_prepared_stamp(kind,entry.2.clone()); self.ready.push(entry);
+        self.cancel_apply();
+        log::info!("brush timing: {name} selected (full resolution, cached)");
+        true
+    }
+    /// The brush is waiting for this image's full resolution: name and progress (0..1).
+    pub fn pending_brush(&self) -> Option<(&str,f32)> {
+        let d=self.destination.as_ref()?;
+        (d.stamp_kind().is_some()||self.kind==Some(Kind::Alpha)).then(||(self.name.as_str(),self.apply.as_ref().map_or(0.0,ApplyTask::progress)))
     }
     /// Make the image shown in the preview window the stamp brush (with its adjustments).
     pub fn stamp_from_preview(&mut self, session: &subcraft_app::Session, stamp: subcraft_paint::StampKind) {
         self.destination=Some(subcraft_app::asset_apply::Destination::capture_stamp(session,stamp));self.apply=None;
     }
-    fn queue_to(&mut self, index: usize, destination: subcraft_app::asset_apply::Destination) {
+    fn queue_to(&mut self, index: usize, destination: Destination) {
+        self.requested=Some(web_time::Instant::now());
         if self.builtin==Some(index)&&self.source.is_some()&&self.loader.is_none() {self.destination=Some(destination);self.apply=None;return;}
         if ENTRIES.get(index).is_none() {return;} self.cancel_apply();self.queued=Some(index);self.destination=Some(destination);
     }
@@ -77,8 +165,9 @@ impl AssetPreviewUi {
                 self.job=ImageJob::new(source.clone(),kind,self.settings,256).ok(); self.dirty=false;
             }
             if self.destination.is_some()&&self.apply.is_none() {
-                match ImageJob::new(source.clone(),kind,self.settings,source.width.max(source.height).min(4096)) {
-                    Ok(job)=>self.apply=Some(job),Err(e)=>{self.error=Some(e.into());self.cancel_apply();}
+                let stamp=self.destination.as_ref().is_some_and(|d|d.stamp_kind().is_some());
+                match ApplyTask::spawn(ctx,source.clone(),kind,self.settings,stamp,self.name.clone()) {
+                    Ok(task)=>self.apply=Some(task),Err(e)=>{self.error=Some(e);self.cancel_apply();}
                 }
             }
         }
@@ -90,30 +179,40 @@ impl AssetPreviewUi {
                 self.image=Some(texture(ctx,"asset-preview",&bitmap));
             }
         }
-        if let Some(job)=&mut self.apply {
-            job.step(16384);
-            state.set_status(format!("Applying {}… {:.0}%",self.name,job.progress()*100.0),ctx.input(|i|i.time));
-            if job.is_done() {
-                let bitmap=self.apply.take().unwrap().finish().unwrap();
-                let kind=self.kind.unwrap();
-                let saved_alpha=(kind==Kind::Alpha).then(||subcraft_assets::BrushAlpha {id:subcraft_core::AssetId::from_name(&format!("adjusted-alpha/{}",self.name)),name:self.name.clone(),bitmap:Some(Arc::new(bitmap.clone())),user_file:None});
-                let destination=self.destination.take().unwrap(); let is_stamp=destination.is_stamp();
-                let result=destination.apply(&mut state.session,&self.name,kind,bitmap);
-                match result {
-                    Ok(())=>{
-                        if is_stamp {state.tool=Tool::Brush;}
-                        if let Some(a)=saved_alpha {state.library.alphas.retain(|old|old.id!=a.id);state.library.alphas.push(a);state.tool=Tool::Brush;}
-                        state.recovery.autosaver.request_soon();state.set_status(format!("Applied {}",self.name),ctx.input(|i|i.time));
+        let finished=self.apply.as_ref().and_then(|t|match t.rx.try_recv() {Ok(r)=>Some(r),Err(TryRecvError::Empty)=>None,Err(TryRecvError::Disconnected)=>Some(Err("Image worker stopped; select the image again to retry".into()))});
+        if let Some(result)=finished {
+            self.apply=None;
+            let kind=self.kind.unwrap();
+            let destination=self.destination.take().unwrap(); let stamp_kind=destination.stamp_kind();
+            let mut saved_alpha=None;
+            let result=result.and_then(|applied|match applied {
+                Applied::Stamp(prepared)=>{
+                    if self.settings==Settings::default() && let Some(k)=stamp_kind {
+                        self.ready.retain(|(n,kk,_)|!(n==&self.name&&*kk==k)); self.ready.push((self.name.clone(),k,prepared.clone()));
+                        if self.ready.len()>READY_STAMPS {self.ready.remove(0);}
                     }
-                    Err(e)=>{log::warn!("Asset application: {e}");state.set_status(e.clone(),ctx.input(|i|i.time));self.error=Some(e);self.open=true;}
+                    destination.apply_prepared_stamp(&mut state.session,prepared)
                 }
-                // The dock/viewport was drawn before this frame's job completion.
-                ctx.request_repaint();
+                Applied::Image(bitmap)=>{
+                    if kind==Kind::Alpha {saved_alpha=Some(adjusted_alpha(&self.name,bitmap.clone()));}
+                    destination.apply(&mut state.session,&self.name,kind,bitmap)
+                }
+            });
+            match result {
+                Ok(())=>{
+                    if stamp_kind.is_some() {state.tool=Tool::Brush;}
+                    if let Some(a)=saved_alpha.filter(|a|state.session.brush.alpha_name==a.name) {state.library.alphas.retain(|old|old.id!=a.id);state.library.alphas.push(a);state.tool=Tool::Brush;}
+                    if let Some(t)=self.requested.take() {log::info!("brush timing: {} full resolution ready {:.0} ms after the click",self.name,t.elapsed().as_secs_f64()*1000.0);}
+                    state.recovery.autosaver.request_soon();state.set_status(format!("Applied {}",self.name),ctx.input(|i|i.time));
+                }
+                Err(e)=>{log::warn!("Asset application: {e}");state.set_status(e.clone(),ctx.input(|i|i.time));self.error=Some(e);self.open=true;}
             }
+            // The dock/viewport was drawn before this frame's job completion.
+            ctx.request_repaint();
         }
-        if self.destination.is_some()&&self.loader.is_some() {state.set_status(format!("Loading {}…",self.name),ctx.input(|i|i.time));}
-        if self.job.is_some()||self.apply.is_some() {ctx.request_repaint();}
-        else if self.loader.is_some() {ctx.request_repaint_after(std::time::Duration::from_millis(100));}
+        if self.destination.is_some()&&(self.loader.is_some()||self.apply.is_some()) {state.set_status(format!("Loading full resolution of {}…",self.name),ctx.input(|i|i.time));}
+        if self.job.is_some() {ctx.request_repaint();}
+        else if self.loader.is_some()||self.apply.is_some() {ctx.request_repaint_after(std::time::Duration::from_millis(100));}
     }
     fn window(&mut self, state: &UiState, ctx: &egui::Context) {
         if !self.open {return;} let mut open=self.open;
@@ -158,7 +257,7 @@ impl AssetPreviewUi {
                     self.dirty|=before!=self.settings;
                     ui.separator();
                     if self.is_applying() {
-                        ui.add(egui::ProgressBar::new(self.apply.as_ref().map_or(0.0,|j|j.progress())).text("Applying image…"));
+                        ui.add(egui::ProgressBar::new(self.apply.as_ref().map_or(0.0,ApplyTask::progress)).text("Applying image…"));
                         if ui.button("Cancel application").clicked() {self.cancel_apply();}
                     } else if ui.add_enabled(self.source.is_some()&&self.error.is_none(),egui::Button::new(if self.kind==Some(Kind::Alpha) {"Use as brush tip"} else {"Add adjusted fill layer"})).clicked() {self.apply_to(&state.session,None);}
                     if !self.is_applying()&&self.source.is_some()&&self.error.is_none() {
@@ -182,10 +281,20 @@ fn decode(bytes: &[u8]) -> Result<Arc<Bitmap>,String> {
 }
 
 fn load_file(path: &std::path::Path) -> Result<Arc<Bitmap>,String> {
-    use subcraft_assets::texture_maps::{Classified,MapConversion,classify};
     let bitmap=subcraft_image::load_bitmap(path).map_err(|e|e.to_string())?;
+    Ok(Arc::new(convert_for(path,bitmap)))
+}
+
+/// The conversion a texture's file name asks for (inverted gloss, DirectX normal green...).
+fn convert_for(path: &std::path::Path, bitmap: Bitmap) -> Bitmap {
+    use subcraft_assets::texture_maps::{Classified,MapConversion,classify};
     let conversion=match classify(path.file_name().and_then(|n|n.to_str()).unwrap_or_default()) {Classified::Map(m)=>m.conversion,_=>MapConversion::None};
-    Ok(Arc::new(match conversion {MapConversion::None=>bitmap,MapConversion::Invert=>bitmap.map_color(|_,v|1.0-v),_=>bitmap.map_color(|c,v|if c==1 {1.0-v}else{v})}))
+    match conversion {MapConversion::None=>bitmap,MapConversion::Invert=>bitmap.map_color(|_,v|1.0-v),_=>bitmap.map_color(|c,v|if c==1 {1.0-v}else{v})}
+}
+
+/// A Shelf image used as the brush tip (same id for its thumbnail and full resolution).
+fn adjusted_alpha(name: &str, bitmap: Bitmap) -> subcraft_assets::BrushAlpha {
+    subcraft_assets::BrushAlpha {id:subcraft_core::AssetId::from_name(&format!("adjusted-alpha/{name}")),name:name.to_string(),bitmap:Some(Arc::new(bitmap)),user_file:None}
 }
 
 
@@ -215,15 +324,27 @@ pub fn shelf(state: &mut UiState, ui: &mut egui::Ui, side: f32) -> usize {
             && let Ok(b)=subcraft_image::io::decode_bitmap(e.thumb,Some("thumb.png")) {
                 slot.insert(texture(ui.ctx(),&format!("starter-thumb-{i}"),&b));
         }
-        let tip=if kind==Kind::Normal {"CC0 Starter pack normal map: click to use it as the normal-map brush, double-click to preview and adjust. Drag it onto Normal, the model or a layer."} else {"CC0 Starter pack: click to preview and adjust. Drag normals onto Normal, the model or a layer."};
-        let resp=crate::panels::shelf::tile(ui,side,state.asset_preview.thumbs.get(&i),e.name,false,tip);
+        let tip=match kind {
+            Kind::Normal=>"CC0 Starter pack normal map: click to use it as the normal-map brush, double-click to preview and adjust. Drag it onto Normal, the model or a layer.",
+            Kind::Alpha=>"CC0 Starter pack alpha: click to use it as the brush tip, double-click to preview and adjust (or use it as a height brush).",
+            Kind::Texture=>"CC0 Starter pack: click to preview and adjust.",
+        };
+        let selected=match kind {
+            Kind::Normal=>state.session.brush.material.stamp.as_ref().is_some_and(|s|s.kind==subcraft_paint::StampKind::Normal&&s.name==e.name),
+            Kind::Alpha=>state.session.brush.material.stamp.is_none()&&state.session.brush.alpha_name.strip_prefix("Starter: ")==Some(e.name),
+            Kind::Texture=>false,
+        };
+        let resp=crate::panels::shelf::tile(ui,side,state.asset_preview.thumbs.get(&i),e.name,selected,tip);
         if kind==Kind::Normal {resp.dnd_set_drag_payload(ShelfDrag::Starter(i));}
-        if kind==Kind::Normal {
-            if resp.double_clicked() {clicked=Some(i);} else if resp.clicked() {stamped=Some(i);}
-        } else if resp.clicked() {clicked=Some(i);}
+        if kind==Kind::Texture {if resp.clicked() {clicked=Some(i);}}
+        else if resp.double_clicked() {clicked=Some(i);} else if resp.clicked() {stamped=Some(i);}
     }
     if let Some(i)=clicked {open(state,ui.ctx(),i,false,None);}
-    if let Some(i)=stamped {state.asset_preview.queue_stamp(&state.session,i,subcraft_paint::StampKind::Normal);state.tool=Tool::Brush;}
+    if let Some(i)=stamped {
+        let stamp=(kind==Kind::Normal).then_some(subcraft_paint::StampKind::Normal);
+        let UiState{asset_preview,session,..}=state; asset_preview.select_starter(session,i,stamp);
+        state.tool=Tool::Brush; state.show_selected_brush(None);
+    }
     shown
 }
 
@@ -245,6 +366,83 @@ mod tests {
     fn click(s: &mut UiState,c: &egui::Context,p: egui::Pos2) {
         for pressed in [true,false] {frame(s,c,vec![egui::Event::PointerMoved(p),egui::Event::PointerButton{pos:p,button:egui::PointerButton::Primary,pressed,modifiers:egui::Modifiers::NONE}]);}
     }
+    /// Run frames until `done` (worker threads finish in the background), at most ~60 s.
+    fn settle(s: &mut UiState,c: &egui::Context,done: impl Fn(&UiState)->bool)->egui::FullOutput {
+        let start=std::time::Instant::now();
+        loop {
+            let out=frame(s,c,vec![]);
+            if done(s) {return out;}
+            assert!(start.elapsed().as_secs()<60,"background load did not finish");
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+    }
+    fn bolted_armor()->usize {ENTRIES.iter().position(|e|e.kind==Kind::Normal&&e.name=="Bolted Armor").unwrap()}
+    fn stamp_width(s: &UiState)->u32 {s.session.brush_stamp().unwrap().1.width}
+
+    #[test]
+    fn starter_normal_click_is_the_brush_at_once_then_full_resolution_arrives_in_the_background() {
+        let (mut s,c)=setup(Kind::Normal);s.asset_preview=Default::default();
+        let t=std::time::Instant::now();
+        let UiState{asset_preview,session,..}=&mut s; asset_preview.select_starter(session,bolted_armor(),Some(subcraft_paint::StampKind::Normal));
+        let click=t.elapsed();
+        assert!(click.as_millis()<250,"the click itself must not decode the full image ({click:?})");
+        assert_eq!(stamp_width(&s),96,"the embedded thumbnail is the brush in the same frame");
+        assert_eq!(s.session.brush.material.stamp.as_ref().unwrap().name,"Bolted Armor");
+        assert!(s.asset_preview.pending_brush().is_some());
+        // The user adjusts the stamp while the full image loads.
+        s.session.brush.material.stamp.as_mut().unwrap().strength=1.7;
+        // Frames keep running (no UI blocking) until the worker delivers.
+        settle(&mut s,&c,|s|s.asset_preview.pending_brush().is_none());
+        assert_eq!(stamp_width(&s),1024,"full resolution swapped in");
+        assert_eq!(s.session.brush.material.stamp.as_ref().unwrap().strength,1.7,"adjustment kept");
+        assert_eq!(s.tool,Tool::Brush);
+        // Choosing it again uses the encoded full-resolution copy: no load at all.
+        let UiState{asset_preview,session,..}=&mut s; session.clear_brush_stamp(); asset_preview.select_starter(session,bolted_armor(),Some(subcraft_paint::StampKind::Normal));
+        assert_eq!(stamp_width(&s),1024);
+        assert!(s.asset_preview.pending_brush().is_none());
+    }
+
+    #[test]
+    fn a_late_full_image_never_replaces_a_brush_chosen_meanwhile() {
+        let (mut s,c)=setup(Kind::Normal);s.asset_preview=Default::default();
+        let UiState{asset_preview,session,..}=&mut s; asset_preview.select_starter(session,bolted_armor(),Some(subcraft_paint::StampKind::Normal));
+        // Before the load finishes the user picks a tip from the Shelf.
+        let tip=s.library.alphas.iter().find(|a|a.bitmap.is_some()).cloned().unwrap();
+        s.select_shelf_brush(subcraft_app::brush_preset::ShelfBrush::Tip(&tip),0.0);
+        assert!(s.asset_preview.pending_brush().is_none(),"the pending load is canceled");
+        for _ in 0..20 {frame(&mut s,&c,vec![]);std::thread::sleep(std::time::Duration::from_millis(5));}
+        assert!(s.session.brush.material.stamp.is_none(),"the tip stays the brush");
+        assert_eq!(s.session.brush.alpha_name,tip.name);
+        assert!(s.is_selected_shelf_brush(&tip.name));
+    }
+
+    #[test]
+    fn starter_alpha_click_sets_the_thumbnail_tip_then_the_full_image() {
+        let (mut s,c)=setup(Kind::Alpha);s.asset_preview=Default::default();
+        let i=ENTRIES.iter().position(|e|e.kind==Kind::Alpha).unwrap();
+        let UiState{asset_preview,session,..}=&mut s; asset_preview.select_starter(session,i,None);
+        let name=format!("Starter: {}",ENTRIES[i].name);
+        assert_eq!(s.session.brush.alpha_name,name);
+        assert_eq!(s.session.brush.alpha.as_ref().unwrap().width,96,"thumbnail tip at once");
+        settle(&mut s,&c,|s|s.asset_preview.pending_brush().is_none());
+        assert_eq!(s.session.brush.alpha.as_ref().unwrap().width,1024);
+        assert!(s.library.alphas.iter().any(|a|a.name==name));
+    }
+
+    #[test]
+    fn shelf_selection_highlights_the_chosen_brush_only() {
+        let (mut s,_)=setup(Kind::Alpha);
+        let tips: Vec<_>=s.library.alphas.iter().filter(|a|a.bitmap.is_some()).take(2).cloned().collect();
+        s.select_shelf_brush(subcraft_app::brush_preset::ShelfBrush::Tip(&tips[0]),0.0);
+        assert!(s.open_brush_editor&&s.brush_scroll_top,"Properties is asked to show the brush, scrolled to its preview");
+        assert!(s.is_selected_shelf_brush(&tips[0].name));
+        assert!(!s.is_selected_shelf_brush(&tips[1].name));
+        // A stamp brush: no tip tile stays highlighted.
+        s.session.set_brush_stamp("Bolts",subcraft_paint::StampKind::Normal,Bitmap::new_u8(1,1,3,vec![128,128,255])).unwrap();
+        assert!(!s.is_selected_shelf_brush(&tips[0].name));
+        assert_eq!(crate::panels::brush_header::title(&s),tips[0].name);
+    }
+
     #[test]
     fn actual_preview_controls_flip_normal_green_without_modifying_source() {
         let (mut s,c)=setup(Kind::Normal);let source=s.asset_preview.source.clone().unwrap();let original=source.clone();
@@ -257,7 +455,7 @@ mod tests {
     fn use_button_sets_adjusted_alpha_and_restart_waits_for_pending_application() {
         let (mut s,c)=setup(Kind::Alpha);for _ in 0..6 {frame(&mut s,&c,vec![]);}let out=frame(&mut s,&c,vec![]);
         let p=at(&out,"Use as brush tip");click(&mut s,&c,p);assert!(s.asset_preview.is_applying());assert!(!crate::updates::can_restart(&s));
-        for _ in 0..8 {frame(&mut s,&c,vec![]);}assert!(!s.asset_preview.is_applying());assert_eq!(s.session.brush.alpha_name,"Starter: Test");assert!(s.library.alphas.iter().any(|a|a.name=="Starter: Test"));assert!(crate::updates::can_restart(&s));
+        settle(&mut s,&c,|s|!s.asset_preview.is_applying());assert_eq!(s.session.brush.alpha_name,"Starter: Test");assert!(s.library.alphas.iter().any(|a|a.name=="Starter: Test"));assert!(crate::updates::can_restart(&s));
     }
     #[test]
     fn cancel_application_leaves_document_unchanged_and_tileable_filter_uses_metadata() {
@@ -270,8 +468,8 @@ mod tests {
         s.asset_preview.source=Some(Arc::new(Bitmap::new_u8(256,256,3,vec![180;256*256*3])));
         let render=|s: &mut UiState| {let mut o=c.run_ui(egui::RawInput::default(),|ui| {ui.label(&s.session.selected_layer().unwrap().name);show(s,ui.ctx());});o.textures_delta.clear();o};
         for _ in 0..3 {render(&mut s);}s.asset_preview.apply_to(&s.session,None);
-        for _ in 0..3 {render(&mut s);}let output=render(&mut s);
-        assert!(!s.asset_preview.is_applying());assert_eq!(s.session.selected_layer().unwrap().name,"Starter: Test");
+        let start=std::time::Instant::now();
+        let output=loop {let o=render(&mut s);if !s.asset_preview.is_applying() {break o;}assert!(start.elapsed().as_secs()<60);std::thread::sleep(std::time::Duration::from_millis(5));};assert_eq!(s.session.selected_layer().unwrap().name,"Starter: Test");
         assert_eq!(output.viewport_output[&egui::ViewportId::ROOT].repaint_delay,std::time::Duration::ZERO);
         let next=render(&mut s);assert!(next.shapes.iter().any(|v|matches!(&v.shape,egui::Shape::Text(t) if t.galley.text()=="Starter: Test")));
     }
