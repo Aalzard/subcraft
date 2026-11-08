@@ -189,13 +189,39 @@ pub fn blend_fn(mode: BlendMode, cb: [f32; 3], cs: [f32; 3], target: BlendTarget
 /// Composite source `(cs, alpha)` onto `dst = [Cb.r, Cb.g, Cb.b, ab]` in place.
 #[inline]
 pub fn composite(dst: &mut [f32; 4], cs: [f32; 3], alpha: f32, mode: BlendMode, target: BlendTarget) {
-    if alpha <= 0.0 || mode == BlendMode::Disable {
+    if mode == BlendMode::Disable {
+        return;
+    }
+    composite_with(dst, cs, alpha, |cb, cs| blend_fn(mode, cb, cs, target));
+}
+
+/// [`composite`] for every texel of a run, with the mode's `B(Cb, Cs)` chosen once instead of per
+/// texel (same arithmetic, same bits). `alpha(i)` is the source coverage of texel `i`.
+#[inline]
+pub fn composite_run(dst: &mut [[f32; 4]], src: &[[f32; 4]], mode: BlendMode, target: BlendTarget, alpha: impl Fn(usize, &[f32; 4]) -> f32) {
+    #[inline(always)]
+    fn run(dst: &mut [[f32; 4]], src: &[[f32; 4]], alpha: impl Fn(usize, &[f32; 4]) -> f32, b: impl Fn([f32; 3], [f32; 3]) -> [f32; 3]) {
+        for (i, (d, s)) in dst.iter_mut().zip(src).enumerate() {
+            composite_with(d, [s[0], s[1], s[2]], alpha(i, s), &b);
+        }
+    }
+    match mode {
+        BlendMode::Disable => {}
+        BlendMode::Normal | BlendMode::Replace | BlendMode::Passthrough => run(dst, src, alpha, |_, cs| cs),
+        BlendMode::Multiply if !target.signed => run(dst, src, alpha, |cb, cs| std::array::from_fn(|c| (cb[c] * cs[c]).clamp(0.0, 1.0))),
+        _ => run(dst, src, alpha, |cb, cs| blend_fn(mode, cb, cs, target)),
+    }
+}
+
+#[inline(always)]
+fn composite_with(dst: &mut [f32; 4], cs: [f32; 3], alpha: f32, blend: impl Fn([f32; 3], [f32; 3]) -> [f32; 3]) {
+    if alpha <= 0.0 {
         return;
     }
     let a = alpha.min(1.0);
     let ab = dst[3];
     let cb = [dst[0], dst[1], dst[2]];
-    let b = if ab > 0.0 { blend_fn(mode, cb, cs, target) } else { cs };
+    let b = if ab > 0.0 { blend(cb, cs) } else { cs };
     let ao = a + ab * (1.0 - a);
     for c in 0..3 {
         let mixed = (1.0 - ab) * cs[c] + ab * b[c];
@@ -283,6 +309,32 @@ mod tests {
         assert_eq!(blend_fn(BlendMode::NormalMapInverseDetail, tilted, other, n), reoriented(other, tilted));
         // Normal-map modes on a non-normal channel behave like Normal.
         assert_eq!(blend_fn(BlendMode::NormalMapCombine, [0.1; 3], [0.7; 3], COLOR), [0.7; 3]);
+    }
+
+    #[test]
+    fn composite_run_is_bit_identical_to_composite_per_texel() {
+        let vals = [-0.5f32, 0.0, 1e-7, 0.1, 0.3333, 0.5, 0.75, 0.999, 1.0, 1.5, f32::NAN];
+        let mut src = Vec::new();
+        let mut dst0 = Vec::new();
+        for (k, &a) in vals.iter().enumerate() {
+            for &b in &vals {
+                src.push([a, b, vals[(k + 3) % vals.len()], b]);
+                dst0.push([b, a, 0.25, vals[(k + 5) % vals.len()].abs().min(1.0)]);
+            }
+        }
+        for mode in BlendMode::ALL {
+            for target in [COLOR, BlendTarget { signed: true, normal: false }, BlendTarget { signed: false, normal: true }] {
+                let alpha = |i: usize, s: &[f32; 4]| s[3] * 0.8 * vals[i % vals.len()];
+                let mut a = dst0.clone();
+                for (i, (d, s)) in a.iter_mut().zip(&src).enumerate() {
+                    composite(d, [s[0], s[1], s[2]], alpha(i, s), mode, target);
+                }
+                let mut b = dst0.clone();
+                composite_run(&mut b, &src, mode, target, alpha);
+                let bits = |v: &Vec<[f32; 4]>| v.iter().flat_map(|p| p.map(f32::to_bits)).collect::<Vec<_>>();
+                assert_eq!(bits(&a), bits(&b), "{mode:?} {target:?}");
+            }
+        }
     }
 
     #[test]

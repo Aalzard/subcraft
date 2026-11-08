@@ -123,6 +123,26 @@ pub fn preview_content_context_scaled(layer: &Layer, channel: ChannelKind, tc: &
     std::mem::take(&mut acc[0].px)
 }
 
+fn fill_label(fill: &subcraft_doc::FillContent, kind: ChannelKind) -> &'static str {
+    use subcraft_doc::{FillSource, ProjectionMode};
+    let tri = fill.projection.mode == ProjectionMode::Triplanar;
+    match fill.channels.get(&kind).map(|c| &c.source) {
+        Some(FillSource::Uniform { .. }) => "fill uniform",
+        Some(FillSource::Bitmap { .. }) if tri => "fill bitmap tri",
+        Some(FillSource::Bitmap { .. }) => "fill bitmap",
+        Some(FillSource::Procedural { .. }) if tri => "fill procedural tri",
+        Some(FillSource::Procedural { .. }) => "fill procedural",
+        Some(FillSource::MeshMap { .. }) => "fill mesh map",
+        None => "fill (off)",
+    }
+}
+
+/// Charge `f` to `label` in the optional evaluation profile (`SUBCRAFT_COMPOSITE_PROFILE`).
+#[inline]
+fn prof<T>(label: &'static str, f: impl FnOnce() -> T) -> T {
+    if crate::profile::enabled() { crate::profile::timed(label, f) } else { f() }
+}
+
 #[inline]
 pub(crate) fn effective_mode(mode: BlendMode) -> BlendMode {
     if mode == BlendMode::Passthrough { BlendMode::Normal } else { mode }
@@ -137,7 +157,7 @@ fn apply_layer(layer: &Layer, accs: &mut [Acc], active: &[bool], tc: &TileContex
     if !live.contains(&true) {
         return;
     }
-    let mut mask = eval_mask(layer.mask.as_ref(), tc);
+    let mut mask = prof("mask (local)", || eval_mask(layer.mask.as_ref(), tc));
     // Part mask: the layer only shows on its chosen mesh parts.
     if let Some(parts) = layer.parts.as_ref().filter(|p| p.enabled) {
         if parts.parts.is_empty() {
@@ -154,6 +174,7 @@ fn apply_layer(layer: &Layer, accs: &mut [Acc], active: &[bool], tc: &TileContex
         return;
     }
     let mask_at = |i: usize| mask.as_ref().map_or(1.0, |m| m[i]);
+    let mask_ref = mask.as_deref();
     let mut content = vec![[0.0f32; 4]; TILE_TEXELS];
 
     match &layer.content {
@@ -166,24 +187,24 @@ fn apply_layer(layer: &Layer, accs: &mut [Acc], active: &[bool], tc: &TileContex
                     }
                     content.fill([0.0; 4]);
                     apply_content_effects(&layer.content_effects, acc, &mut content, tc);
-                    blend_content(acc, &content, layer, &mask_at);
+                    blend_content(acc, &content, layer, mask_ref);
                     continue;
                 };
-                read_paint(img, acc.kind, tc, &mut content);
+                prof("paint (local)", || read_paint(img, acc.kind, tc, &mut content));
                 apply_content_effects(&layer.content_effects, acc, &mut content, tc);
-                blend_content(acc, &content, layer, &mask_at);
+                prof("blend (local)", || blend_content(acc, &content, layer, mask_ref));
             }
         }
         LayerContent::Fill(fill) => {
             for (acc, _) in accs.iter_mut().zip(&live).filter(|(_, l)| **l) {
-                if !eval_fill(fill, acc.kind, tc, &mut content) {
+                if !prof(fill_label(fill, acc.kind), || eval_fill(fill, acc.kind, tc, &mut content)) {
                     if !crate::util::effects_touch(layer, acc.kind) {
                         continue;
                     }
                     content.fill([0.0; 4]);
                 }
-                apply_content_effects(&layer.content_effects, acc, &mut content, tc);
-                blend_content(acc, &content, layer, &mask_at);
+                prof("content effects (local)", || apply_content_effects(&layer.content_effects, acc, &mut content, tc));
+                prof("blend (local)", || blend_content(acc, &content, layer, mask_ref));
             }
         }
         LayerContent::Group(group) => {
@@ -210,7 +231,7 @@ fn apply_layer(layer: &Layer, accs: &mut [Acc], active: &[bool], tc: &TileContex
                         }
                     }
                 } else {
-                    blend_content(acc, &inner.px, layer, &mask_at);
+                    blend_content(acc, &inner.px, layer, mask_ref);
                 }
             }
         }
@@ -297,13 +318,15 @@ fn apply_content_effects(effects: &[Arc<ContentEffect>], acc: &Acc, content: &mu
 }
 
 /// Composite `(value, alpha)` content onto a channel with the layer's mode, opacity and mask.
-fn blend_content(acc: &mut Acc, content: &[[f32; 4]], layer: &Layer, mask_at: &dyn Fn(usize) -> f32) {
+fn blend_content(acc: &mut Acc, content: &[[f32; 4]], layer: &Layer, mask: Option<&[f32]>) {
     let blend = layer.blend_for(acc.kind);
     let mode = effective_mode(blend.mode);
     let ignore_alpha = mode == BlendMode::Replace;
-    for (i, (dst, src)) in acc.px.iter_mut().zip(content).enumerate() {
-        let a = if ignore_alpha { 1.0 } else { src[3] } * blend.opacity * mask_at(i);
-        composite(dst, [src[0], src[1], src[2]], a, mode, acc.target);
+    let opacity = blend.opacity;
+    let coverage = |s: &[f32; 4]| if ignore_alpha { 1.0 } else { s[3] } * opacity;
+    match mask {
+        Some(m) => crate::blend::composite_run(&mut acc.px, content, mode, acc.target, |i, s| coverage(s) * m[i]),
+        None => crate::blend::composite_run(&mut acc.px, content, mode, acc.target, |_, s| coverage(s) * 1.0),
     }
 }
 
