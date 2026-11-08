@@ -4,6 +4,7 @@
 //! logic lives in `subcraft-app`.
 
 pub mod app;
+pub mod bake_view;
 pub mod bug_report;
 pub mod clipboard;
 mod brush_bar;
@@ -22,6 +23,7 @@ pub mod nav;
 pub mod orbit;
 pub mod render_export;
 pub mod pen;
+pub mod placement;
 pub mod pen_input;
 pub mod text_panel;
 pub mod panels;
