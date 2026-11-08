@@ -764,7 +764,7 @@ fn header(state: &mut UiState, ui: &mut Ui) {
     });
     ui.add_space(4.0);
     egui::Frame::new().inner_margin(egui::Margin::symmetric(8, 0)).show(ui, |ui| {
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing.x = 3.0;
             for (tab, icon, _) in CATEGORIES {
                 let selected = state.shelf.tab == tab;

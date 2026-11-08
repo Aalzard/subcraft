@@ -42,12 +42,27 @@ run by hand.
   now organised in cards (Models, placement, maps) with per-map live progress, a collapsed details
   section and a size that defaults to the texture set resolution.
 - **Support link**: a donate button in the README and a donate link in the repository funding file.
+- **18-material PBR pack** (Black Basalt, Travertine, Terrazzo, Cobblestone, Cracked Asphalt, Dry Mud,
+  Desert Sand, Mossy Stone, Tree Bark, Cork, Bamboo Flooring, Woven Linen, Worn Leather, Industrial
+  Rubber, Brushed Aluminum, Oxidized Copper, Galvanized Steel, Hex Armor): textured color / roughness /
+  metallic / normal / height / AO materials, each also a smart material with wear and dirt layers.
+  Where a name was already taken the smart material is called "... PBR".
+- **Shelf**: a Filters tab (click adds a filter to the selected layer or swaps the selected filter);
+  clicking a material swaps the selected fill layer's material (Alt+click replaces in place, drag adds
+  a layer); import Painter smart materials (`.spsm`); model files can be dropped anywhere on the window.
+- **Layers and tools**: Ctrl+A selects all layers, Delete / Ctrl+D act on all selected layers; fill layers
+  show a map slot per channel and accept dropped image files; the brush always paints (it adds a paint
+  layer above a selected fill layer or folder); the path tool rasterizes the whole path at once;
+  View > Mesh maps shows any baked map raw on the model; Shift+RMB / Shift+MMB drag turns the light /
+  environment.
+- Commands to remove a texture-set channel and change its format exist in the app; the Texture Set
+  Settings panel does not use them yet.
 
 ### Changed
 - **New logo** (white hexagonal S ribbon with a four-point star on orange) and a slightly warmer
   charcoal interface (lightness unchanged).
 - Shelf previews render with a preview-only tiling boost, at higher resolution, off the UI thread.
-- 13 built-in smart materials were removed.
+- 13 built-in smart materials were removed, and later also Muddy Leather, Dirty Rubber, Sandstone, Worn Leather and Old Wood; "Mossy Bricks" is now "Bricks" without moss and "Worn Brown Leather" is "Brown Leather".
 - README rewritten with new screenshots; a Support link was added.
 
 ### Fixed

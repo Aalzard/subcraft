@@ -425,7 +425,7 @@ mod tests {
             Action::BrushTool, Action::EraserTool, Action::PenTool, Action::PolygonFillTool, Action::SmudgeTool, Action::CloneTool, Action::EyedropperTool,
             Action::BrushSmaller, Action::BrushLarger, Action::ToggleSymmetryX, Action::ToggleLazyMouse, Action::ResetCamera, Action::PerspectiveCamera,
             Action::OrthographicCamera, Action::NextChannel, Action::PrevChannel, Action::DisplayMaterial, Action::NewProject, Action::Quit, Action::Save,
-            Action::SaveAs, Action::OpenProject, Action::Export, Action::Bake, Action::TogglePathTracing,
+            Action::SaveAs, Action::OpenProject, Action::Export, Action::Bake, Action::TogglePathTracing, Action::SelectAllLayers,
         ];
         let listed: HashSet<_> = ACTIONS.iter().map(|a| a.action).collect();
         assert_eq!(listed.len(), ACTIONS.len(), "an action is listed twice");
