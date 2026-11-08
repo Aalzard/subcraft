@@ -81,6 +81,13 @@ impl<R: Read + Seek> SppFile<R> {
         Ok(document::project_info(&root))
     }
 
+    /// The layer stack of a smart material file (`.spsm`): one folder of layers, named after
+    /// `fallback` when the preset has no label. `None` when the file is not a smart material.
+    pub fn smart_material(&mut self, fallback: &str) -> Result<Option<document::LayerInfo>, SppError> {
+        let root = document::parse(&self.bytes("preset.bin")?)?;
+        Ok(document::smart_material_layer(&root, fallback))
+    }
+
     /// Names of the baked mesh maps stored for the texture set called `set_name`.
     pub fn baked_map_kinds(&mut self, set_name: &str) -> Result<Vec<BakedKind>, SppError> {
         let toc = images::read_toc(&self.bytes("resources.toc")?);

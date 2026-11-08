@@ -1,0 +1,7 @@
+PBR pack: 18 materials (Base Color, Roughness, Metallic, Normal OpenGL, Height, Ambient Occlusion)
+supplied by the SubCraft project owner for inclusion in SubCraft. Converted from the original
+1024x1024 PNG files to JPEG (16-bit height maps to 8-bit, full range kept).
+
+Black Basalt, Travertine, Terrazzo, Cobblestone, Cracked Asphalt, Dry Mud, Desert Sand,
+Mossy Stone, Tree Bark, Cork, Bamboo Flooring, Woven Linen, Worn Leather, Industrial Rubber,
+Brushed Aluminum, Oxidized Copper, Galvanized Steel, Hex Armor.

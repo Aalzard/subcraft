@@ -9,7 +9,8 @@ use serde::{Deserialize, Serialize};
 /// Which mouse/modifier combinations navigate the 3D view. The wheel always zooms.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum NavScheme {
-    /// Alt+LMB or RMB orbit, MMB pan, Alt+RMB zoom.
+    /// Alt+LMB or RMB orbit, MMB or Ctrl+Alt+LMB pan, Alt+RMB zoom; Shift+RMB rotates the light,
+    /// Shift+MMB the environment.
     #[default]
     Painter,
     /// MMB orbit, Shift+MMB pan, Ctrl+MMB zoom.
@@ -28,7 +29,7 @@ impl NavScheme {
     /// Text for the shortcuts window: (action, how).
     pub fn help(self) -> [(&'static str, &'static str); 3] {
         match self {
-            NavScheme::Painter => [("Orbit", "Alt+LMB or RMB drag"), ("Pan", "MMB drag"), ("Zoom", "Wheel or Alt+RMB drag")],
+            NavScheme::Painter => [("Orbit", "Alt+LMB or RMB drag"), ("Pan", "MMB or Ctrl+Alt+LMB drag"), ("Zoom", "Wheel or Alt+RMB drag")],
             NavScheme::Blender => [("Orbit", "MMB drag"), ("Pan", "Shift+MMB drag"), ("Zoom", "Wheel or Ctrl+MMB drag")],
         }
     }
@@ -51,6 +52,10 @@ pub enum NavMode {
     Orbit,
     Pan,
     Zoom,
+    /// Turn the key light around the model.
+    Light,
+    /// Turn the environment (HDRI / sky) around the model.
+    Environment,
 }
 
 /// Held mouse buttons and modifiers.
@@ -68,11 +73,16 @@ pub struct NavInput {
 pub fn mode_for(scheme: NavScheme, i: NavInput) -> NavMode {
     match scheme {
         NavScheme::Painter => {
-            if i.secondary && i.alt {
+            if i.shift && i.secondary {
+                NavMode::Light
+            } else if i.shift && i.middle {
+                NavMode::Environment
+            } else if i.secondary && i.alt {
                 NavMode::Zoom
-            } else if i.middle {
+            } else if i.middle || (i.primary && i.alt && i.ctrl) {
                 NavMode::Pan
-            } else if i.secondary || (i.primary && i.alt) {
+            } else if (i.secondary && !i.ctrl) || (i.primary && i.alt) {
+                // Ctrl+RMB is the brush size / hardness drag, not navigation.
                 NavMode::Orbit
             } else {
                 NavMode::None
@@ -144,6 +154,17 @@ mod tests {
         assert_eq!(mode_for(p, inp(false, true, false, false, false, false)), NavMode::Pan);
         assert_eq!(mode_for(p, inp(false, true, false, false, false, true)), NavMode::Pan);
         assert_eq!(mode_for(p, inp(false, false, true, false, false, true)), NavMode::Zoom);
+        assert_eq!(mode_for(p, inp(false, false, true, true, false, false)), NavMode::Light, "Shift+RMB turns the light");
+        assert_eq!(mode_for(p, inp(false, true, false, true, false, false)), NavMode::Environment, "Shift+MMB turns the environment");
+    }
+
+    #[test]
+    fn painter_ctrl_alt_lmb_pans_and_ctrl_rmb_is_left_for_the_brush() {
+        let p = NavScheme::Painter;
+        assert_eq!(mode_for(p, inp(true, false, false, false, true, true)), NavMode::Pan);
+        assert_eq!(mode_for(p, inp(true, false, false, false, true, false)), NavMode::None, "Ctrl+LMB adjusts the brush");
+        assert_eq!(mode_for(p, inp(false, false, true, false, true, false)), NavMode::None, "Ctrl+RMB adjusts the brush");
+        assert_eq!(mode_for(p, inp(false, false, true, false, true, true)), NavMode::Zoom, "Ctrl+Alt+RMB still zooms");
     }
 
     #[test]

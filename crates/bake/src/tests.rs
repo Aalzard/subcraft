@@ -512,3 +512,41 @@ mod ray_backend {
         assert_eq!(r.unwrap_err(), BakeError::Cancelled);
     }
 }
+
+#[test]
+fn partial_cage_misses_and_name_matching_on_the_cpu_are_warned_about() {
+    let low = primitives::plane(2., 8);
+    let mut high = MeshBuilder::new("partial");
+    let mat = high.material("high");
+    high.push_triangle(mat, [corner(Vec3::new(-1., 0.01, -1.), Vec2::ZERO),
+        corner(Vec3::new(-1., 0.01, 1.), Vec2::Y), corner(Vec3::new(1., 0.01, -1.), Vec2::X)]);
+    let high = high.build().unwrap();
+    let (lb, hb) = (Bvh::build(&low), Bvh::build(&high));
+    let input = BakeInput { low: Geometry { mesh: &low, bvh: &lb }, high: Some(Geometry { mesh: &high, bvh: &hb }), material_slot: 0 };
+    let progress = Progress::new();
+    bake(&input, &settings(&[MeshMapKind::Id]), &progress).unwrap();
+    let warnings = progress.warnings();
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert!(warnings[0].starts_with("Cage:") && warnings[0].contains("Cage front / rear") && warnings[0].contains('%'), "{warnings:?}");
+    // Low on low never warns, and the list is reset by every bake.
+    let flat = BakeInput { low: Geometry { mesh: &low, bvh: &lb }, high: None, material_slot: 0 };
+    bake(&flat, &settings(&[MeshMapKind::Id]), &progress).unwrap();
+    assert!(progress.warnings().is_empty());
+}
+
+#[test]
+fn smoothing_removes_ray_noise_but_not_gradients_and_ignores_uncovered_texels() {
+    let size = 16usize;
+    let covered: Vec<bool> = (0..size * size).map(|i| i % size < 12).collect();
+    // A ramp plus alternating +-0.1 noise; uncovered texels hold garbage that must not leak in.
+    let mut dense: Vec<f32> = (0..size * size).map(|i| {
+        let (x, y) = (i % size, i / size);
+        if x >= 12 { 99.0 } else { x as f32 / 20.0 + if (x + y) % 2 == 0 { 0.1 } else { -0.1 } }
+    }).collect();
+    let before = dense.clone();
+    crate::smooth_covered(size, 1, &mut dense, &covered);
+    let roughness = |d: &[f32]| (1..11).map(|x| (d[5 * size + x + 1] - d[5 * size + x]).abs()).fold(0.0f32, f32::max);
+    assert!(roughness(&dense) < roughness(&before) * 0.35, "{} vs {}", roughness(&dense), roughness(&before));
+    assert!(dense.iter().enumerate().all(|(i, v)| !covered[i] || *v < 1.0), "garbage leaked");
+    assert!((dense[5 * size + 6] - 6.0 / 20.0).abs() < 0.06);
+}

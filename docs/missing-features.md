@@ -25,8 +25,8 @@ as generally known. It is a planning list, not a promise. "Known" means we alrea
 - Generators: more bake-driven generators (Ambient Occlusion cavity variants, Thickness, World-space normal usage
   in more presets), Dirt/curvature presets beyond the new five.
 - Smart material export/import compatibility with Substance `.spsm` / `.sbsar` (not started).
-- Built-in content is now 34 smart materials, 36 smart masks and 13 brush presets. Still missing: a real brick-course
-  pattern (Weathered Brick uses irregular Cells), smart masks that combine several effects with blend modes (a recipe is
+- Built-in content is now 26 smart materials (13 were removed on remove-13-materials), 36 smart masks and 13 brush presets. Still missing: a real brick-course
+  pattern, smart masks that combine several effects with blend modes (a recipe is
   one effect), fingerprint / fabric-weave / rivet patterns, and shelf tags beyond one category per smart asset.
 
 ## Baking
@@ -35,7 +35,7 @@ as generally known. It is a planning list, not a promise. "Known" means we alrea
   texture-set-wide baking queue with presets.
 
 ## Viewport and rendering
-- Real path-traced / Iray-style rendering and render settings; depth of field, motion blur, SSS, refraction,
+- Real path-traced / Iray-style rendering and render settings; motion blur, SSS, refraction,
   anisotropy, clear coat and sheen layers in the viewport shader.
 - Environment: custom environment blur/rotation lock, background modes and lights (point/spot/area), shadows.
 - Turntable as GIF/MP4 (PNG frames only), scene camera bookmarks.

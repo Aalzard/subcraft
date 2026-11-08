@@ -77,6 +77,8 @@ pub struct TargetImage {
     pub has_alpha: bool,
     pub texture: Option<ResourceId>,
     pub normal_blend: NormalPaintBlend,
+    /// Set when an image stamp paints this image: the stroke source holds slopes / heights.
+    pub stamp: Option<crate::settings::StampKind>,
 }
 
 /// Snapshot the images a stroke will write.
@@ -96,6 +98,7 @@ pub fn begin_targets(ts: &TextureSet, layer: LayerId, target: PaintTarget, mater
                 has_alpha: false,
                 texture: None,
                 normal_blend: NormalPaintBlend::Replace,
+                stamp: None,
             }])
         }
         PaintTarget::MaskEffect(id) => {
@@ -112,6 +115,7 @@ pub fn begin_targets(ts: &TextureSet, layer: LayerId, target: PaintTarget, mater
                 has_alpha: true,
                 texture: None,
                 normal_blend: NormalPaintBlend::Replace,
+                stamp: None,
             }])
         }
         PaintTarget::Content => {
@@ -144,7 +148,7 @@ fn channel_targets(
         let n = kind.components();
         let value = if n == 1 { [ch.value.0[0]; 3] } else { ch.value.0 };
         out.push(TargetImage { key: key(kind), snapshot, value, value_comps: n, has_alpha: true,
-            texture: material.textures.get(&kind).copied(), normal_blend: material.normal_blend });
+            texture: material.textures.get(&kind).copied(), normal_blend: material.normal_blend, stamp: None });
     }
     if out.is_empty() {
         return Err(PaintError::NothingToPaint);
@@ -179,7 +183,11 @@ impl TargetImage {
                     let a = a0 + k * (1.0 - a0);
                     let mut value = [src[0], src[1], src[2]];
                     let is_normal = self.key.channel() == Some(ChannelKind::Normal);
-                    if is_normal && self.normal_blend == NormalPaintBlend::Detail && a0 > 0.0 {
+                    if is_normal && self.stamp == Some(crate::settings::StampKind::Normal) {
+                        // Stamp source = summed slope: whiteout it over what this layer already holds.
+                        let base = if a0 > 0.0 { [px[0], px[1], px[2]] } else { [0.5, 0.5, 1.0] };
+                        value = crate::image_stamp::blend_slope(base, [src[0], src[1]]);
+                    } else if is_normal && self.normal_blend == NormalPaintBlend::Detail && a0 > 0.0 {
                         let combined = normal::reoriented([px[0], px[1], px[2]], value);
                         // Transparent backdrop contributes only the source, as in W3C blending.
                         for j in 0..3 { value[j] += a0 * (combined[j] - value[j]); }
@@ -195,7 +203,13 @@ impl TargetImage {
                 }
                 (true, StrokeMode::Erase | StrokeMode::Smudge) => px[n] *= 1.0 - k,
                 (false, mode) => {
-                    let to = if matches!(mode, StrokeMode::Paint | StrokeMode::Clone) { src[0] } else { fill[0] };
+                    // A mask has no alpha: painting moves it to the brush's mask value, erasing to
+                    // black (hidden), as painters expect; smudge settles back to the background.
+                    let to = match mode {
+                        StrokeMode::Paint | StrokeMode::Clone => src[0],
+                        StrokeMode::Erase => 0.0,
+                        StrokeMode::Smudge => fill[0],
+                    };
                     px[0] += (to - px[0]) * k;
                 }
             }

@@ -27,7 +27,7 @@ fn setup() -> Crate {
 impl Crate {
     /// Wear (0..1) per texel of the Body set for these settings.
     fn wear(&mut self, level: f32, spread: f32, variation: f32, seed: u32, level_reach: bool) -> Vec<f32> {
-        let mut g = Generator::new(GeneratorKind::Edges);
+        let mut g = Generator::new(GeneratorKind::Edges); g.painter = None;
         g.level = level; g.noise_amount = 0.0; g.noise.seed = seed;
         let e = g.edge_spread.as_mut().unwrap(); e.distance = spread; e.variation = variation; e.level_reach = level_reach;
         let mut effect = self.session.selected_texture_set().find(self.layer).unwrap().mask.as_ref().unwrap().effects[0].as_ref().clone();
@@ -89,4 +89,34 @@ fn old_projects_keep_independent_reach_and_new_wear_defaults_to_level_as_amount(
     assert_eq!(subcraft_doc::EdgeSpread::level_extent(0.0), 0.0);
     assert_eq!(subcraft_doc::EdgeSpread::level_extent(1.0), 1.0);
     assert!(subcraft_doc::EdgeSpread::level_extent(0.065) > 0.3);
+}
+
+#[test]
+fn generator_offset_goes_through_set_mask_effect_changes_the_wear_and_undoes_and_redoes() {
+    let mut c = setup();
+    let run = |c: &mut Crate, offset: [f32; 3]| {
+        let mut g = Generator::new(GeneratorKind::Edges);
+        g.level = 0.4; g.noise_amount = 0.6; g.offset = offset;
+        g.edge_spread = None; // plain curvature wear: the breakup noise alone shapes the threshold
+        let mut effect = c.session.selected_texture_set().find(c.layer).unwrap().mask.as_ref().unwrap().effects[0].as_ref().clone();
+        effect.kind = MaskEffectKind::Generator(g);
+        c.session.execute(Command::SetMaskEffect { layer: c.layer, effect }).unwrap();
+        c.session.update_composites();
+        let albedo = c.session.composite(c.ts).unwrap().channel(ChannelKind::BaseColor).unwrap().clone();
+        texels(&c.mesh, c.slot, SIZE).iter().map(|t| albedo.get(t.index % SIZE, t.index / SIZE)[0]).collect::<Vec<f32>>()
+    };
+    let before = run(&mut c, [0.0; 3]);
+    let moved = run(&mut c, [0.31, 0.0, -0.17]);
+    assert_ne!(before, moved, "the offset moves the breakup pattern");
+    assert!(before.iter().chain(&moved).all(|v| v.is_finite()));
+    let texel_values = |c: &mut Crate| {
+        c.session.update_composites();
+        let albedo = c.session.composite(c.ts).unwrap().channel(ChannelKind::BaseColor).unwrap().clone();
+        texels(&c.mesh, c.slot, SIZE).iter().map(|t| albedo.get(t.index % SIZE, t.index / SIZE)[0]).collect::<Vec<f32>>()
+    };
+    // Consecutive edits of one effect may share an undo step, so undo only has to leave the moved pattern.
+    c.session.execute(Command::Undo).unwrap();
+    assert_ne!(texel_values(&mut c), moved, "undo takes the offset away");
+    c.session.execute(Command::Redo).unwrap();
+    assert_eq!(texel_values(&mut c), moved, "redo brings the moved pattern back bit for bit");
 }

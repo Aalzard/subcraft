@@ -20,7 +20,7 @@ mesh-edge smoothing.
 ![Imported wood PBR with stable distance filtering](screenshots/material-filtering-after.png)
 
 The welcome hub and in-app guide are in development for the next desktop release. In v0.1.4,
-use **File → New from mesh…** or **File → New (sample crate)** to follow these steps.
+use **File → New from mesh…** or **File → New (sample model)** to follow these steps.
 
 Start with **Try the sample** on the welcome screen, or bring a model with UVs. Open
 **Help → Quick start** for the same six steps inside the app. You can move the guide aside
@@ -181,6 +181,36 @@ set the painting tool's material; fill-layer material controls live in Propertie
 
 ![Selecting a fill reveals that layer's Properties](screenshots/inspector-fill-selected.jpg)
 
+### Stamp a normal map: the Normal Map Brush
+
+Open **Assets > Normal Maps** and **click** a normal map (a Starter pack map, or one you
+imported, which shows under **Mine**). It becomes the active brush: the right-hand
+**Properties** column shows a **NORMAL MAP BRUSH** block with the map's name, a lit
+brush preview (one stamp and an example stroke) and its controls. Double-click a tile
+instead to open the preview window (adjust strength, flip green, rotation, seamless), where
+**Use as normal-map brush** applies the adjusted copy. Grayscale images (Brushes tab or
+Textures) get **Use as height brush** in their preview window, which paints the Height channel.
+
+<img src="ui/normal-brush/panel.png" alt="NORMAL MAP BRUSH block with preview in the Properties column" width="760">
+
+Select a **paint layer** and paint on the model. The first stroke switches that layer's
+**Normal** channel on (the layer row shows its blend, `NMC`), leaves its other channels
+alone, and blends the map's tangent-space normals into whatever normals the layer already
+has (whiteout blend, flat areas of the map change nothing, the result is re-normalised).
+One stroke is one undo step; symmetry, lazy mouse, pen pressure and size work as usual.
+
+- **Size / Strength / Rotation / Random rotation / Spacing**: rotation also turns the map's
+  X/Y normals. Spacing 1 places one stamp per brush diameter, so a click leaves one screw or
+  nail; small spacing averages overlapping stamps instead of stacking their strength.
+- **Edge softness** fades the stamp toward its rim so no square border remains.
+- **Flip green** converts a DirectX (+Y down) map.
+- **Mode**: *Single stamp* (one image per stamp) or *Tiled* (the image repeats over the
+  surface under the stroke).
+- **Back to normal brush** restores the previous channels, spacing and edge softness.
+  Presets saved while a normal-map brush is active keep the image and these settings.
+
+<img src="ui/normal-brush/strokes.png" alt="Starter pack normal maps stamped onto the sphere of SubCraft_base" width="760">
+
 ### Layer content and mask thumbnails
 
 Layer rows now show a square **content thumbnail** in place of the generic material icon.
@@ -254,6 +284,17 @@ for re-enabling. Fill layers and Fill effects apply the whole solo action in one
 Brush buttons choose channels for future strokes; they do not hide existing paint on a layer.
 Projection **Rotation** sits directly below **Tiling**, and changes orientation independently
 of scale. These controls are shared by the supported texture projections.
+
+### Generator micro effect (Normal / Height)
+
+Every generator (Edges, Dirt, Concave, Directional, Gradient, mesh-map generators) has a **Micro effect
+(Normal / Height)** checkbox in its Properties, off by default. When on, the generator's mask (breakup and grain
+included) is also written into the **Normal** and **Height** of the layers below it, so wear chips the surface and dirt
+fills it, visible in lighting and in a Height export. **Micro amount** sets the height change, **Micro direction**
+chooses Raise or Carve (Edges start on Carve, everything else on Raise), and **Grain follows generator** pits the
+surface with the generator's fine grain. Only channels that already hold a normal or height map change: with a
+Normal but no Height only the Normal changes, with neither nothing is added. Turning it on uses the CPU compositor.
+Images: `docs/generators/micro-effect/`.
 
 ### Content and mask effects
 
@@ -512,8 +553,8 @@ surface; **red** shows exposed low-poly surfaces sticking through it. Orbit with
 Alt+LMB), pan with MMB and zoom with the wheel to inspect all sides. **Cage wireframe** shows
 the front/rear projection limits; changing **Cage front / rear** updates those lines live.
 This is a surface comparison, not a complete cage-error heatmap: blue does not guarantee every
-detail lies inside the cage. Export both models in matching coordinates; SubCraft does not
-automatically align or rescale them.
+detail lies inside the cage. If the two models are not in matching coordinates (typical for
+AI-generated meshes), use the **Placement** card to align them: see the next section.
 Re-exporting or replacing the high-poly file automatically refreshes the preview while Bake
 is open. Loading runs in the background; the previous mesh remains visible until the replacement
 is ready. **Reload high poly** is optional. A running bake keeps the source it started with;
@@ -557,6 +598,75 @@ target application. Maps are written to the folder you choose.
 The Unreal template packs ORM and uses DirectX normals; PBR/glTF use OpenGL normals. Choose the
 right template before judging the result under lighting.
 
+### Baking an AI-generated high poly (e.g. from Tripo)
+
+You can make a simple low-poly model yourself, let an image-to-3D service (Tripo, Meshy, Rodin ...)
+invent a detailed version of it, and bake that detail onto your low poly. The AI model never
+matches your model exactly: it is usually a different size, sits somewhere else and may be a
+little rotated. The **Placement** section of the Bake window fixes that without any 3D tool.
+
+A ready-made practice pair is in `docs/samples/highpoly-align/`: `crate_low.obj` (your
+low-poly crate) and `crate_high_misaligned.obj` (a detailed crate that is 35% too big and shifted,
+just like AI output). Use it to try the steps below first.
+
+1. **Open your low-poly model** (File → Open, or drag it in). It needs UVs; use Unwrap first if it has none.
+2. **Take a picture of it for the AI.** Orbit to a three-quarter view and take a screenshot of the
+   3D view with your system's screenshot tool (crop it to the model).
+   A clean, centred view on a plain background gives the AI the best start.
+3. **Generate the detailed model** in the image-to-3D service from that picture. Pick the
+   highest-detail setting and choose **GLB** or **OBJ** as the download format.
+4. **Download the file** to a folder you can find again.
+5. **Open the Bake window** (Ctrl+B or F8, or the Bake button in the Texture Sets panel). Under **Models**, press the folder icon next to
+   **High poly** and choose the downloaded file. A **Placement** card appears and the 3D view shows
+   the **overlay**: your low poly in **red**, the detailed model in transparent **blue**.
+   If they are far apart, that is normal.
+6. **Press Auto align.** SubCraft moves the blue model's centre onto your model's centre and scales
+   it so both have the same height. Most AI models are lined up after this single click.
+7. **Fine-tune** in the Placement card if needed. Watch the 3D view while you drag:
+   * **Offset X / Y / Z** moves the blue model left/right, up/down, forward/back.
+   * **Scale** makes it bigger or smaller. **Auto-fit scale** offers *match height*, *longest side*
+     and *fit both*; pick the one that suits the shape.
+   * **Center on low poly** only moves; **Pivot to low-poly origin** places the blue model's own
+     origin on your model's origin (use this when the AI model is already correctly sized).
+   * Under *Stretch and rotation* you can scale each axis separately and turn the model.
+   * **Reset placement** returns everything to the file as it was imported. The downloaded
+     file itself is never changed.
+8. **Check the overlay.** Blue should wrap around the red surface evenly. Red patches showing
+   through mean your low poly sticks out of the detailed model there; large blue gaps mean the
+   detailed model floats away. Turn on **Cage wireframe** to see how far the bake will look.
+9. **Choose the maps** you want under **Maps to bake** (Normal and Ambient Occlusion are a good start), pick
+   a resolution and press **Bake**. Each map shows a spinner, then a tick with its time.
+   The **Details** line at the bottom opens the full log if you need it (and has a Copy button).
+10. **Look at the result.** Use the map menu in the Viewport card to switch the model between
+    its material, the Normal map and the Ambient Occlusion map. Placement is saved with your
+    project, so you can re-bake later with the same alignment.
+
+What you should see (sample crate):
+
+| Before Auto align | After Auto align | Baked normal map on the low poly |
+|---|---|---|
+| ![Misaligned overlay](ui/highpoly-align/overlay-misaligned.png) | ![Aligned overlay](ui/highpoly-align/overlay-aligned.png) | ![Baked](ui/highpoly-align/baked-done.png) |
+
+The Bake window while a bake runs (one line per map, the log stays under **Details**):
+![Bake window while baking](ui/highpoly-align/baked-ao-running.png)
+
+**Troubleshooting**
+
+| What you see | What to do |
+|---|---|
+| Blue model is somewhere else, much bigger or tiny | Press **Auto align**. If it is still wrong, try **Auto-fit scale** with another fit mode. |
+| Blue model is turned or upside down | Open *Stretch and rotation* and set the rotation (90° steps usually). |
+| Bake fails with "no high-poly surface was hit" | The models do not overlap. Press **Auto align**, then raise **Cage front / rear**. |
+| Holes or empty black areas in the map | The cage does not reach the detailed surface there. Raise **Cage front / rear** a little at a time, or nudge the offset so the blue surface wraps the red one. |
+| Smeared or stretched details | Increase the cage distance (front for details above the surface, rear for dents) and make sure the scale is right; also check that your low-poly UVs are not stretched. |
+| Details look soft | Use a bigger resolution. AI meshes are often smooth; very fine detail may not exist in the source. |
+| Normal map looks inverted | Your engine may expect DirectX normals; choose the matching export template. |
+| It looked right, then moved after editing the file | The placement is applied to the imported file every time. If you replaced the file with a re-export of different size, press **Auto align** again. |
+
+For power users the same placement can be given on the command line when launching:
+`subcraft crate_low.obj --bake-high crate_high_misaligned.obj --bake-place auto`
+(items: `auto`, `center`, `origin`, `offset=x:y:z`, `scale=s`, `rot=x:y:z`; combine with commas).
+
 ## Editable pen paths
 
 
@@ -590,7 +700,7 @@ brightness/contrast, invert and a sample stroke. Both offer scale, rotation, wra
 **Make seamless** edge blending. Inspect the repeated result; blending softens boundary details.
 **Add adjusted fill layer** bakes the adjustments into a new image copy. The original files stay
 unchanged, and normal-map resources travel inside saved projects. Width/height are 1024px for
-all pack images. Full images load only when selected; desktop needs no network connection.
+all pack normal maps and the older alphas (the 4 alphas added in 2026-11 are 512px). Full images load only when selected; desktop needs no network connection.
 
 ![The 60 included images](screenshots/starter-pack-overview.jpg)
 
@@ -602,3 +712,31 @@ The images are [CC0](../assets/starter-pack/CREDITS-CC0.txt), including for comm
 
 For more detail, see the [README](../README.md), [changelog](../CHANGELOG.md) and
 [development notes](development.md).
+
+## Text and drag and drop
+
+**Add text:** click **Aa** next to Paint / Fill / Folder in the Layers panel, use *Layer → New Text Layer*
+(Ctrl+Shift+T), or right-click a layer → *Add text layer…*. A small window asks for the text, font, size,
+alignment and colour. *Add and place on model* creates the layer and then waits for one click on the model
+(Esc keeps it centered); *Add centered* just adds it. **Double-click a text layer** to edit it later
+(rename with F2). Text layers are decals in UV space; Brush panel › Text still has the brush-tip and
+projected-stamp variants.
+
+**Drop targets** (they highlight and say what will happen):
+
+| Drag from the shelf | Onto a layer row | Onto a mask thumbnail | Top of the stack | Viewport |
+|---|---|---|---|---|
+| Material / texture | new layer above it | – | new layer on top | new layer above the selection |
+| Smart material | folder above it | – | folder on top | same |
+| Smart mask | mask applied to that layer | same | – | the selected layer |
+| Alpha (Brushes) | alpha becomes that layer's mask shape | same | – | brush tip |
+
+**Alt** applies a shelf item *in place* instead of creating a layer: Alt+click (or Alt+drop) a material replaces
+the selected fill layer's material (name, blending and mask are kept); Alt+click a texture sets the active
+channel of the selected fill layer; Alt+click an alpha uses it in the selected layer's mask. Where Alt has no
+meaning (smart materials, non-fill layers) a message in the status bar says why. In the 3D view Alt+left-drag
+still orbits the camera; that is navigation, not a drop modifier.
+
+### Moving placed text
+
+Select a text layer and a handle appears on the model at the text's centre. Drag it to move the text along the surface; drag the corner square to scale, the circle above it (or Shift+drag the centre) to rotate. One drag is one undo step. "Place by clicking the model" still works.

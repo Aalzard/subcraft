@@ -46,18 +46,6 @@ pub(crate) fn top(level: f32, softness: f32, noise: f32) -> MaskEffectKind { gen
 
 // ----- smart materials -----------------------------------------------------------------------
 
-fn worn_leather(ts: &TextureSet) -> Layer {
-    let base = mat(ts, "Leather", vec![
-        (BaseColor, proc(ProceduralKind::Cells, 28.0, 61, v(0.12, 0.055, 0.03), v(0.25, 0.115, 0.06))),
-        (Roughness, proc(ProceduralKind::Clouds, 10.0, 62, s(0.5), s(0.75))),
-        (Metallic, uni(0.0)),
-        (Height, proc(ProceduralKind::Pores, 26.0, 63, s(0.0), s(0.05))),
-    ], triplanar(1.5));
-    let wear = masked(coat(ts, "Worn Edges", [0.38, 0.22, 0.11], 0.3, 0.0), ts, vec![fx(edges(0.6, 0.18, 0.5)), fx_blend(pattern(ProceduralKind::Grunge, 7.0, 9, 0.5, 0.3), BlendMode::Multiply)]);
-    let creases = masked(coat(ts, "Creases", [0.04, 0.025, 0.015], 0.8, 0.0), ts, vec![fx(cavity(0.3, 0.3, 0.3))]);
-    folder("Worn Leather", ts, vec![base, creases, wear])
-}
-
 fn chipped_painted_metal(ts: &TextureSet) -> Layer {
     let steel = mat(ts, "Bare Steel", vec![
         (BaseColor, proc(ProceduralKind::Clouds, 9.0, 71, v(0.42, 0.42, 0.43), v(0.58, 0.58, 0.59))),
@@ -72,26 +60,6 @@ fn chipped_painted_metal(ts: &TextureSet) -> Layer {
     ]);
     let grime = masked(coat(ts, "Grime", [0.05, 0.04, 0.035], 0.85, 0.0), ts, vec![fx(cavity(0.22, 0.3, 0.3))]);
     folder("Chipped Painted Metal", ts, vec![steel, paint, grime])
-}
-
-fn mossy_stone(ts: &TextureSet) -> Layer {
-    let stone = mat(ts, "Stone", vec![
-        (BaseColor, proc(ProceduralKind::Clouds, 7.0, 81, v(0.2, 0.2, 0.19), v(0.42, 0.41, 0.38))),
-        (Roughness, proc(ProceduralKind::Grunge, 14.0, 82, s(0.8), s(0.97))),
-        (Metallic, uni(0.0)),
-        (Height, proc(ProceduralKind::Cells, 10.0, 83, s(0.0), s(0.12))),
-    ], triplanar(1.5));
-    let moss = masked(
-        mat(ts, "Moss", vec![
-            (BaseColor, proc(ProceduralKind::Clouds, 14.0, 84, v(0.04, 0.12, 0.025), v(0.14, 0.3, 0.05))),
-            (Roughness, uni(0.95)),
-            (Metallic, uni(0.0)),
-            (Height, proc(ProceduralKind::Clouds, 30.0, 85, s(0.02), s(0.09))),
-        ], triplanar(2.0)),
-        ts,
-        vec![fx(top(0.55, 0.3, 0.45)), fx_blend(cavity(0.4, 0.3, 0.3), BlendMode::LinearDodge), fx_blend(pattern(ProceduralKind::Clouds, 9.0, 86, 0.45, 0.4), BlendMode::Multiply)],
-    );
-    folder("Mossy Stone", ts, vec![stone, moss])
 }
 
 fn brushed_steel(ts: &TextureSet) -> Layer {
@@ -138,29 +106,6 @@ fn oxidized_copper(ts: &TextureSet) -> Layer {
     folder("Oxidized Copper", ts, vec![copper, verdigris])
 }
 
-fn scratched_plastic(ts: &TextureSet) -> Layer {
-    let plastic = mat(ts, "Plastic", vec![
-        (BaseColor, rgb(0.04, 0.17, 0.5)),
-        (Roughness, proc(ProceduralKind::Clouds, 12.0, 121, s(0.2), s(0.32))),
-        (Metallic, uni(0.0)),
-    ], Projection::default());
-    let scratches = masked(coat(ts, "Scratches", [0.75, 0.78, 0.85], 0.55, 0.0), ts, vec![fx(pattern(ProceduralKind::Scratches, 6.0, 122, 0.5, 0.7))]);
-    let scuffs = masked(coat(ts, "Scuffs", [0.3, 0.33, 0.45], 0.65, 0.0), ts, vec![fx(edges(0.55, 0.2, 0.6)), fx_blend(pattern(ProceduralKind::Speckles, 5.0, 123, 0.5, 0.2), BlendMode::LinearDodge)]);
-    folder("Scratched Plastic", ts, vec![plastic, scuffs, scratches])
-}
-
-fn cracked_clay(ts: &TextureSet) -> Layer {
-    let clay = mat(ts, "Clay", vec![
-        (BaseColor, proc(ProceduralKind::Clouds, 6.0, 131, v(0.4, 0.17, 0.09), v(0.58, 0.29, 0.16))),
-        (Roughness, proc(ProceduralKind::Clouds, 14.0, 132, s(0.75), s(0.95))),
-        (Metallic, uni(0.0)),
-        (Height, proc(ProceduralKind::Cells, 6.0, 133, s(0.0), s(0.1))),
-    ], triplanar(1.5));
-    let cracks = masked(coat(ts, "Cracks", [0.06, 0.03, 0.02], 0.95, 0.0), ts, vec![fx(pattern(ProceduralKind::Cracks, 5.0, 134, 0.5, 0.9))]);
-    let dust = masked(coat(ts, "Dry Dust", [0.62, 0.45, 0.32], 0.98, 0.0), ts, vec![fx(top(0.6, 0.35, 0.4)), fx_blend(pattern(ProceduralKind::Dirt, 6.0, 135, 0.5, 0.2), BlendMode::Multiply)]);
-    folder("Cracked Clay", ts, vec![clay, dust, cracks])
-}
-
 fn frosted_ice(ts: &TextureSet) -> Layer {
     let ice = mat(ts, "Ice", vec![
         (BaseColor, proc(ProceduralKind::Clouds, 5.0, 141, v(0.28, 0.52, 0.72), v(0.5, 0.75, 0.9))),
@@ -182,34 +127,6 @@ fn frosted_ice(ts: &TextureSet) -> Layer {
     folder("Frosted Ice", ts, vec![ice, fractures, frost])
 }
 
-fn rough_wood(ts: &TextureSet) -> Layer {
-    let wood = mat(ts, "Rough Wood", vec![
-        (BaseColor, proc(ProceduralKind::WoodRings, 3.0, 151, v(0.15, 0.075, 0.035), v(0.4, 0.22, 0.1))),
-        (Roughness, proc(ProceduralKind::Brushed, 3.0, 152, s(0.65), s(0.9))),
-        (Metallic, uni(0.0)),
-        (Height, proc(ProceduralKind::WoodRings, 3.0, 151, s(0.0), s(0.08))),
-    ], triplanar(1.0));
-    let weathered = masked(coat(ts, "Weathering", [0.34, 0.29, 0.24], 0.97, 0.0), ts, vec![fx(pattern(ProceduralKind::Streaks, 3.0, 153, 0.45, 0.3)), fx_blend(top(0.6, 0.4, 0.4), BlendMode::LinearDodge)]);
-    let splinters = masked(coat(ts, "Splinters", [0.55, 0.4, 0.25], 0.9, 0.0), ts, vec![fx(edges(0.6, 0.2, 0.6))]);
-    folder("Rough Wood", ts, vec![wood, weathered, splinters])
-}
-
-fn peeling_paint_wood(ts: &TextureSet) -> Layer {
-    let wood = mat(ts, "Bare Wood", vec![
-        (BaseColor, proc(ProceduralKind::WoodRings, 3.0, 161, v(0.2, 0.1, 0.05), v(0.5, 0.3, 0.15))),
-        (Roughness, uni(0.75)),
-        (Metallic, uni(0.0)),
-        (Height, proc(ProceduralKind::WoodRings, 3.0, 161, s(0.0), s(0.05))),
-    ], triplanar(1.0));
-    let paint = masked(coat(ts, "Paint", [0.08, 0.32, 0.4], 0.5, 0.0), ts, vec![
-        fx(all_white()),
-        fx_blend(pattern(ProceduralKind::Grunge, 4.0, 162, 0.6, 0.8), BlendMode::Subtract),
-        fx_blend(edges(0.5, 0.15, 0.6), BlendMode::Subtract),
-    ]);
-    let dirt = masked(coat(ts, "Dirt", [0.06, 0.05, 0.04], 0.9, 0.0), ts, vec![fx(cavity(0.25, 0.3, 0.3))]);
-    folder("Peeling Painted Wood", ts, vec![wood, paint, dirt])
-}
-
 fn hammered_brass(ts: &TextureSet) -> Layer {
     let brass = mat(ts, "Brass", vec![
         (BaseColor, proc(ProceduralKind::Cells, 12.0, 171, v(0.62, 0.45, 0.16), v(0.85, 0.66, 0.28))),
@@ -222,59 +139,14 @@ fn hammered_brass(ts: &TextureSet) -> Layer {
     folder("Hammered Brass", ts, vec![brass, tarnish, polish])
 }
 
-fn sandstone(ts: &TextureSet) -> Layer {
-    let sand = mat(ts, "Sandstone", vec![
-        (BaseColor, proc(ProceduralKind::Brushed, 3.0, 181, v(0.48, 0.34, 0.2), v(0.7, 0.54, 0.34))),
-        (Roughness, uni(0.95)),
-        (Metallic, uni(0.0)),
-        (Height, proc(ProceduralKind::Speckles, 14.0, 182, s(0.0), s(0.08))),
-    ], triplanar(1.2));
-    let strata = masked(coat(ts, "Strata", [0.55, 0.36, 0.22], 0.95, 0.0), ts, vec![fx(pattern(ProceduralKind::Brushed, 3.0, 183, 0.5, 0.6)), fx_blend(pattern(ProceduralKind::Clouds, 6.0, 184, 0.5, 0.4), BlendMode::Multiply)]);
-    let dust = masked(coat(ts, "Sand Drift", [0.76, 0.62, 0.42], 0.98, 0.0), ts, vec![fx(top(0.65, 0.35, 0.4)), fx_blend(cavity(0.4, 0.3, 0.3), BlendMode::LinearDodge)]);
-    folder("Sandstone", ts, vec![sand, strata, dust])
-}
-
-fn dry_mud(ts: &TextureSet) -> Layer {
-    let mud = mat(ts, "Mud", vec![
-        (BaseColor, proc(ProceduralKind::Clouds, 5.0, 191, v(0.1, 0.06, 0.035), v(0.24, 0.15, 0.08))),
-        (Roughness, proc(ProceduralKind::Clouds, 9.0, 192, s(0.55), s(0.9))),
-        (Metallic, uni(0.0)),
-        (Height, proc(ProceduralKind::Clouds, 6.0, 193, s(0.0), s(0.12))),
-    ], triplanar(1.5));
-    let cracks = masked(coat(ts, "Dry Cracks", [0.04, 0.025, 0.015], 0.95, 0.0), ts, vec![fx(pattern(ProceduralKind::Cracks, 4.0, 194, 0.5, 0.85)), fx_blend(pattern(ProceduralKind::Clouds, 5.0, 195, 0.4, 0.4), BlendMode::Multiply)]);
-    let dried = masked(coat(ts, "Dried Crust", [0.5, 0.38, 0.26], 0.97, 0.0), ts, vec![fx(top(0.6, 0.4, 0.5)), fx_blend(pattern(ProceduralKind::Dirt, 5.0, 196, 0.5, 0.2), BlendMode::Multiply)]);
-    folder("Dry Mud", ts, vec![mud, dried, cracks])
-}
-
-fn worn_rubber(ts: &TextureSet) -> Layer {
-    let rubber = mat(ts, "Rubber", vec![
-        (BaseColor, rgb(0.025, 0.025, 0.027)),
-        (Roughness, proc(ProceduralKind::Clouds, 12.0, 201, s(0.8), s(0.95))),
-        (Metallic, uni(0.0)),
-        (Height, proc(ProceduralKind::Pores, 20.0, 202, s(0.0), s(0.03))),
-    ], triplanar(2.0));
-    let scuffs = masked(coat(ts, "Scuffs", [0.14, 0.14, 0.15], 0.6, 0.0), ts, vec![fx(edges(0.55, 0.2, 0.6)), fx_blend(pattern(ProceduralKind::Scratches, 5.0, 203, 0.5, 0.6), BlendMode::LinearDodge)]);
-    let chalk = masked(coat(ts, "Road Dust", [0.4, 0.39, 0.37], 0.95, 0.0), ts, vec![fx(pattern(ProceduralKind::Speckles, 5.0, 204, 0.5, 0.25)), fx_blend(top(0.6, 0.4, 0.4), BlendMode::Multiply)]);
-    folder("Worn Rubber", ts, vec![rubber, scuffs, chalk])
-}
-
 pub fn smart_materials() -> Vec<SmartMaterial> {
     vec![
-        smart("Worn Leather", worn_leather),
         smart("Chipped Painted Metal", chipped_painted_metal),
-        smart("Mossy Stone", mossy_stone),
         smart("Brushed Steel", brushed_steel),
         smart("Dusty Concrete", dusty_concrete),
         smart("Oxidized Copper", oxidized_copper),
-        smart("Scratched Plastic", scratched_plastic),
-        smart("Cracked Clay", cracked_clay),
         smart("Frosted Ice", frosted_ice),
-        smart("Rough Wood", rough_wood),
-        smart("Peeling Painted Wood", peeling_paint_wood),
         smart("Hammered Brass", hammered_brass),
-        smart("Sandstone", sandstone),
-        smart("Dry Mud", dry_mud),
-        smart("Worn Rubber", worn_rubber),
     ]
 }
 

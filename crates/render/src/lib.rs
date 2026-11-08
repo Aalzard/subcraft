@@ -6,6 +6,7 @@
 //! procedural sky environment (analytic irradiance + split-sum approximation); ACES tone map;
 //! sRGB output.
 
+pub mod caps;
 pub mod gpu_composite;
 pub mod gpu_mesh;
 pub mod grid;
@@ -116,6 +117,9 @@ pub struct ViewParams {
     /// Display-only high/low comparison using meshes supplied by `set_bake_preview`.
     pub bake_overlay: bool,
     pub bake_cage: bool,
+    /// Placement matrix of the high poly in the overlay, and its opacity (1 = solid).
+    pub bake_high_transform: Mat4,
+    pub bake_high_opacity: f32,
     pub bake_distances: [f32; 2],
     /// Show a raw baked map on the low-poly UVs without changing material textures.
     pub bake_map: Option<MeshMapKind>,
@@ -200,7 +204,7 @@ impl ViewParams {
             antialias: true,
             view_mode: ViewMode::Material,
             grid: None,
-            bake_overlay: false, bake_cage: true, bake_distances: [0.01; 2], bake_map: None, symmetry_guides: false, wireframe: false,
+            bake_overlay: false, bake_cage: true, bake_high_transform: Mat4::IDENTITY, bake_high_opacity: 1.0, bake_distances: [0.01; 2], bake_map: None, symmetry_guides: false, wireframe: false,
             post: PostParams::default(),
         }
     }
@@ -375,7 +379,7 @@ impl ViewportRenderer {
             multiview_mask: None,
             cache: None,
         });
-        let pipeline = make_pipeline(SAMPLE_COUNT);
+        let pipeline = make_pipeline(if caps::get().msaa4 { SAMPLE_COUNT } else { 1 });
         let pipeline_no_aa = make_pipeline(1);
         let globals = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("globals"),
@@ -612,7 +616,7 @@ impl ViewportRenderer {
     /// device can allocate) and return the target.
     pub fn render(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, size: [u32; 2], params: &ViewParams) -> &RenderTarget {
         let size = fit_target_size(size, device.limits().max_texture_dimension_2d);
-        let samples = if params.antialias { SAMPLE_COUNT } else { 1 };
+        let samples = if params.antialias && caps::get().msaa4 { SAMPLE_COUNT } else { 1 };
         if self.target.as_ref().is_none_or(|t| t.size != size || t.samples != samples) {
             self.target = Some(RenderTarget::new(device, size, samples));
         }
@@ -686,7 +690,7 @@ impl ViewportRenderer {
         if params.symmetry_guides && let Some(guides) = &self.symmetry { guides.prepare_lines(queue, params.proj * params.view); }
         if params.wireframe && let Some(wire) = &self.wireframe { wire.prepare_lines(queue, params.proj * params.view); }
         if params.bake_overlay {
-            self.bake_preview.prepare(queue, params.proj * params.view, params.bake_distances);
+            self.bake_preview.prepare(queue, params.proj * params.view, params.bake_distances, params.bake_high_transform, params.bake_high_opacity);
         }
         if let Some(grid) = params.grid {
             self.grid.prepare(device, queue, params.proj * params.view, params.eye, grid);

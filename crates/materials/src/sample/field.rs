@@ -32,7 +32,7 @@ pub fn cached_bytes() -> usize {
 
 /// Exact identity of a procedural field: every parameter bit that changes its values.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct FieldKey([u32; 15]);
+pub struct FieldKey([u32; 16]);
 
 impl FieldKey {
     pub fn edge_distance() -> Self {
@@ -63,7 +63,16 @@ impl FieldKey {
             p.triplanar_sharpness.to_bits(),
             p.planar_axis as u32,
             scratch_bits(&params.scratch),
+            0,
         ])
+    }
+    /// The same field sampled `offset` (object-space, in units of the model's longest dimension)
+    /// away. A zero offset keeps the original key, so unmoved patterns share their cache entry.
+    pub fn at(mut self, offset: [f32; 3]) -> Self {
+        if offset != [0.0; 3] {
+            self.0[15] = offset.iter().fold(0x811c_9dc5u32, |h, v| (h ^ v.to_bits()).wrapping_mul(0x0100_0193).rotate_left(5)) | 1;
+        }
+        self
     }
 }
 

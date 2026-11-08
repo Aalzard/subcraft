@@ -4,14 +4,17 @@
 //! logic lives in `subcraft-app`.
 
 pub mod app;
+pub mod bake_view;
 pub mod bug_report;
 pub mod clipboard;
 mod brush_bar;
 pub mod keys;
+pub mod shortcuts_window;
 pub mod dialogs;
 pub mod files;
 pub mod graphics;
 pub mod gpu_probe;
+pub mod i18n;
 pub mod icons;
 pub mod auto_uv;
 pub mod mesh_reload;
@@ -20,6 +23,7 @@ pub mod nav;
 pub mod orbit;
 pub mod render_export;
 pub mod pen;
+pub mod placement;
 pub mod pen_input;
 pub mod text_panel;
 pub mod panels;
@@ -30,6 +34,7 @@ pub mod layer_previews;
 pub mod edit_profile;
 pub mod theme;
 pub mod viewport;
+pub mod viewport_hints;
 pub mod viewport_bar;
 pub mod view_extras;
 pub mod widgets;
@@ -77,11 +82,22 @@ pub fn register_gpu_baking() {
     subcraft_compositor::gpu::register_gpu_compositor(subcraft_render::gpu_composite::create_backend);
 }
 
+/// Native error dialog for failures before or outside the main window (a packaged Windows
+/// build has no console, so otherwise the user sees nothing).
+static DIALOG_SHOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+pub fn show_fatal(title: &str, text: &str) {
+    if DIALOG_SHOWN.swap(true, std::sync::atomic::Ordering::Relaxed) { return; } // one dialog is enough
+    subcraft_app::startup_probe::step(&format!("fatal: {title}: {}", text.replace('\n', " | ")));
+    rfd::MessageDialog::new().set_level(rfd::MessageLevel::Error).set_title(title).set_description(text).set_buttons(rfd::MessageButtons::Ok).show();
+}
+
 /// Open the main window. If the chosen graphics API cannot start, the others are tried in turn;
 /// if none works, a message window explains what to do (a packaged build has no console, so
 /// without it the app would simply vanish).
 pub fn run(options: LaunchOptions) -> eframe::Result {
-    register_gpu_baking();
+    let safe = subcraft_app::safe_mode::is_active();
+    subcraft_render::caps::set_safe_mode(safe);
+    if !safe { register_gpu_baking(); }
     let graphics = graphics::GraphicsUi::load();
     let preferred = graphics.selected;
     let environment_override = graphics.environment_override;
@@ -120,7 +136,7 @@ pub fn run(options: LaunchOptions) -> eframe::Result {
     } else { startup_failure_message(&errors, log.as_deref()) };
     subcraft_app::startup_probe::step(&format!("startup failed: {}", text.replace('\n', " | ")));
     log::error!("{text}");
-    rfd::MessageDialog::new().set_level(rfd::MessageLevel::Error).set_title("SubCraft cannot start").set_description(text).set_buttons(rfd::MessageButtons::Ok).show();
+    show_fatal("SubCraft cannot start", &text);
     Err(last.unwrap_or_else(|| eframe::Error::AppCreation("no graphics adapter passed the startup probe".into())))
 }
 
@@ -138,7 +154,7 @@ fn run_with_graphics(mut options: LaunchOptions, graphics: graphics::GraphicsUi,
         // Scripted screenshots start from a clean UI state (no remembered scroll positions or
         // window size) and never touch the user's saved settings.
         // --reset-layout also ignores the saved window position and size.
-        persist_window: !options.reset_layout,
+        persist_window: !options.reset_layout && !subcraft_app::safe_mode::is_active(),
         persistence_path: options
             .screenshot
             .as_ref()

@@ -22,6 +22,10 @@ impl MeshMaps {
         self.maps.insert(kind, image);
     }
 
+    pub fn remove(&mut self, kind: MeshMapKind) -> Option<TiledImage> {
+        self.maps.remove(&kind)
+    }
+
     pub fn get(&self, kind: MeshMapKind) -> Option<&TiledImage> {
         self.maps.get(&kind)
     }
@@ -47,7 +51,7 @@ impl MeshMaps {
     }
 
     /// Values of `kind` for every texel of `geo`'s tile (gray maps replicated to 3 components).
-    /// A map at a different resolution is point-sampled at texel centers.
+    /// A map at a different resolution is bilinearly sampled.
     pub fn read_tile(&self, kind: MeshMapKind, geo: &TileGeometry, out: &mut [[f32; 3]]) {
         debug_assert_eq!(out.len(), TILE_TEXELS);
         let Some(img) = self.maps.get(&kind) else {
@@ -68,11 +72,22 @@ impl MeshMaps {
                 *o = expand(p);
             }
         } else {
+            // Bilinear, so a map baked below the set's resolution (1024 on a 2048 set) is smooth
+            // instead of 2 x 2 blocks.
+            let (w, h) = (img.width(), img.height());
             for (i, o) in out.iter_mut().enumerate() {
                 let [u, v] = geo.uv(i);
-                let x = ((u * img.width() as f32) as u32).min(img.width() - 1);
-                let y = ((v * img.height() as f32) as u32).min(img.height() - 1);
-                *o = expand(img.get(x, y));
+                let fx = (u * w as f32 - 0.5).clamp(0.0, (w - 1) as f32);
+                let fy = (v * h as f32 - 0.5).clamp(0.0, (h - 1) as f32);
+                let (x0, y0) = (fx.floor() as u32, fy.floor() as u32);
+                let (x1, y1) = ((x0 + 1).min(w - 1), (y0 + 1).min(h - 1));
+                let (tx, ty) = (fx - x0 as f32, fy - y0 as f32);
+                let (a, b, c, d) = (expand(img.get(x0, y0)), expand(img.get(x1, y0)), expand(img.get(x0, y1)), expand(img.get(x1, y1)));
+                let mut px = [0.0f32; 3];
+                for k in 0..3 {
+                    px[k] = (a[k] * (1.0 - tx) + b[k] * tx) * (1.0 - ty) + (c[k] * (1.0 - tx) + d[k] * tx) * ty;
+                }
+                *o = px;
             }
         }
     }

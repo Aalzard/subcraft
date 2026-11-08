@@ -56,6 +56,8 @@ pub struct BakeSettings {
     pub use_gpu: bool,
     /// Which high-poly parts rays from each low-poly part may hit (see [`name_match`]).
     pub name_match: subcraft_core::BakeMatch,
+    /// Transform put on the loaded high poly before baking (identity = as imported).
+    pub placement: subcraft_core::BakePlacement,
 }
 
 impl Default for BakeSettings {
@@ -72,8 +74,17 @@ impl Default for BakeSettings {
             cage_rear: 0.01,
             use_gpu: true,
             name_match: subcraft_core::BakeMatch::default(),
+            placement: subcraft_core::BakePlacement::default(),
         }
     }
+}
+
+/// The high poly as the baker and the overlay see it: `placement` applied to a copy (the
+/// imported mesh is untouched). The identity returns the same allocation.
+pub fn place_high(low: &Mesh, high: &std::sync::Arc<Mesh>, placement: &subcraft_core::BakePlacement) -> std::sync::Arc<Mesh> {
+    if placement.is_identity() { return high.clone(); }
+    let m = placement.matrix((low.bounds.min, low.bounds.max), (high.bounds.min, high.bounds.max));
+    std::sync::Arc::new(high.transformed(&m))
 }
 
 /// A mesh with its BVH.
@@ -97,6 +108,7 @@ pub struct Progress {
     cancel: AtomicBool,
     current_map: AtomicUsize,
     reports: Mutex<Vec<MapReport>>,
+    warnings: Mutex<Vec<String>>,
 }
 
 /// How one map was produced.
@@ -125,6 +137,15 @@ impl Progress {
     /// Maps finished by the current / last bake, in order.
     pub fn reports(&self) -> Vec<MapReport> {
         self.reports.lock().map(|r| r.clone()).unwrap_or_default()
+    }
+    /// Things the current / last bake did not do as asked (cage misses, CPU fallbacks), in order.
+    pub fn warnings(&self) -> Vec<String> {
+        self.warnings.lock().map(|w| w.clone()).unwrap_or_default()
+    }
+    fn warn(&self, text: String) {
+        if let Ok(mut w) = self.warnings.lock() {
+            w.push(text);
+        }
     }
     pub fn current_map(&self) -> Option<MeshMapKind> {
         self.current_map.load(Ordering::Relaxed).checked_sub(1).and_then(|i| MeshMapKind::ALL.get(i).copied())
@@ -195,6 +216,9 @@ pub fn bake_streamed_with(
     if let Ok(mut r) = progress.reports.lock() {
         r.clear();
     }
+    if let Ok(mut w) = progress.warnings.lock() {
+        w.clear();
+    }
     let low = input.low.mesh;
     let samples = texels(low, input.material_slot, size);
     if samples.is_empty() {
@@ -234,6 +258,17 @@ pub fn bake_streamed_with(
     let details: Option<Vec<Detail>> = input.high.map(|_| samples.par_iter().map(project).collect());
     if details.as_ref().is_some_and(|details| details.iter().all(|d| d.tri.is_none())) {
         return Err(BakeError::NoProjection);
+    }
+    if let Some(details) = &details {
+        let missed = details.iter().filter(|d| d.tri.is_none()).count();
+        if missed > 0 {
+            progress.warn(format!(
+                "Cage: {missed} of {} texels ({:.1}%) reached no high-poly surface and keep the low poly's own surface. Increase Cage front / rear or align the meshes.",
+                details.len(), 100.0 * missed as f32 / details.len() as f32));
+        }
+    }
+    if settings.use_gpu && matching.is_some() && gpu_backend.is_some() && settings.maps.iter().any(|k| matches!(k, MeshMapKind::AmbientOcclusion | MeshMapKind::Thickness)) {
+        progress.warn("Ambient occlusion and thickness run on the CPU because matching parts by name is on (the GPU kernels cannot filter hits by part).".into());
     }
     let elements = if wanted(MeshMapKind::Id) || wanted(MeshMapKind::Curvature) { Some(topology::mesh_elements(detail_geo.mesh)) } else { None };
     let bounds = low.bounds;
@@ -372,6 +407,11 @@ pub fn bake_streamed_with(
             let i = t.index as usize;
             dense[i * comps..(i + 1) * comps].copy_from_slice(&v[..comps]);
         }
+        if matches!(kind, MeshMapKind::AmbientOcclusion | MeshMapKind::Thickness) {
+            // Ray maps are a finite-sample estimate with a per-texel rotation: remove the
+            // grain and the stair-steps of the few discrete levels.
+            smooth_covered(size as usize, comps, &mut dense, &covered);
+        }
         subcraft_image::dilate::apply_nearest(comps, &mut dense, &covered, &nearest);
         let mut fill = [0.0f32; 4];
         fill[..comps].copy_from_slice(&neutral[..comps]);
@@ -385,6 +425,33 @@ pub fn bake_streamed_with(
     }
     progress.current_map.store(0, Ordering::Relaxed);
     Ok(out)
+}
+
+/// 3 x 3 binomial blur over covered texels only (uncovered neighbours do not contribute).
+pub(crate) fn smooth_covered(size: usize, comps: usize, dense: &mut [f32], covered: &[bool]) {
+    let src = dense.to_vec();
+    const W: [f32; 3] = [1.0, 2.0, 1.0];
+    for y in 0..size {
+        for x in 0..size {
+            if !covered[y * size + x] { continue; }
+            let mut acc = [0.0f32; 4];
+            let mut wsum = 0.0;
+            for (dy, wy) in W.iter().enumerate() {
+                let yy = y as isize + dy as isize - 1;
+                if yy < 0 || yy >= size as isize { continue; }
+                for (dx, wx) in W.iter().enumerate() {
+                    let xx = x as isize + dx as isize - 1;
+                    if xx < 0 || xx >= size as isize { continue; }
+                    let j = yy as usize * size + xx as usize;
+                    if !covered[j] { continue; }
+                    let w = wy * wx;
+                    wsum += w;
+                    for c in 0..comps { acc[c] += src[j * comps + c] * w; }
+                }
+            }
+            for c in 0..comps { dense[(y * size + x) * comps + c] = acc[c] / wsum; }
+        }
+    }
 }
 
 struct GpuControl<'a> {
@@ -484,3 +551,5 @@ fn gpu_ray_map(
 mod tests;
 #[cfg(test)]
 mod match_tests;
+#[cfg(test)]
+mod placement_tests;

@@ -6,20 +6,20 @@ use std::sync::Arc;
 use egui::{Color32, CornerRadius, FontData, FontDefinitions, FontFamily, FontId, Margin, Shadow, Stroke, TextStyle, Visuals};
 use egui_dock::Style as DockStyle;
 
-// Surfaces, darkest to lightest.
-pub const BG_0: Color32 = Color32::from_rgb(25, 25, 25); // gaps between panels, status bar
-pub const BG_1: Color32 = Color32::from_rgb(36, 36, 36); // panels
-pub const BG_2: Color32 = Color32::from_rgb(41, 41, 41); // header bar, tab bar, cards
-pub const BG_3: Color32 = Color32::from_rgb(49, 49, 49); // controls
-pub const BG_4: Color32 = Color32::from_rgb(61, 61, 60); // hovered controls
+// Surfaces, darkest to lightest. The greys carry a faint warm tint (hue about 25 degrees, 5% HSL\n// saturation, lightness unchanged from the old neutral greys) so the charcoal sits with the orange accent.
+pub const BG_0: Color32 = Color32::from_rgb(26, 25, 24); // gaps between panels, status bar
+pub const BG_1: Color32 = Color32::from_rgb(38, 36, 34); // panels
+pub const BG_2: Color32 = Color32::from_rgb(43, 41, 39); // header bar, tab bar, cards
+pub const BG_3: Color32 = Color32::from_rgb(51, 49, 47); // controls
+pub const BG_4: Color32 = Color32::from_rgb(64, 60, 57); // hovered controls
 /// Quiet alternating bands, below the contrast of hover and selection.
-pub const ROW_BANDS: [Color32; 2] = [BG_1, Color32::from_rgb(46, 46, 46)];
-pub const SECTION_BANDS: [Color32; 2] = [BG_2, Color32::from_rgb(45, 45, 45)];
-pub const FIELD: Color32 = Color32::from_rgb(29, 29, 29); // text fields, slider rails
+pub const ROW_BANDS: [Color32; 2] = [BG_1, Color32::from_rgb(48, 46, 44)];
+pub const SECTION_BANDS: [Color32; 2] = [BG_2, Color32::from_rgb(47, 45, 43)];
+pub const FIELD: Color32 = Color32::from_rgb(30, 29, 28); // text fields, slider rails
 
 /// Stacked blocks in Properties (one channel, one mask effect): clearly lighter than the panel.
-pub const CARD: Color32 = Color32::from_rgb(56, 56, 55);
-pub const CARD_BORDER: Color32 = Color32::from_rgb(86, 86, 83);
+pub const CARD: Color32 = Color32::from_rgb(58, 55, 53);
+pub const CARD_BORDER: Color32 = Color32::from_rgb(89, 84, 80);
 
 /// Colour of the left accent bar of a channel card (muted, so the set reads as a family).
 pub fn channel_accent(kind: subcraft_core::ChannelKind) -> Color32 {
@@ -36,8 +36,12 @@ pub fn channel_accent(kind: subcraft_core::ChannelKind) -> Color32 {
     }
 }
 
-pub const BORDER: Color32 = Color32::from_rgb(52, 52, 52);
-pub const BORDER_STRONG: Color32 = Color32::from_rgb(72, 72, 70);
+/// Slider rail / value-field fill: darker than the panel so the control reads as an inset track.
+pub const RAIL: Color32 = Color32::from_rgb(30, 30, 30);
+/// Soft separators and control outlines (low contrast on `BG_1`).
+pub const BORDER_SOFT: Color32 = Color32::from_rgb(46, 46, 46);
+pub const BORDER: Color32 = Color32::from_rgb(55, 52, 49);
+pub const BORDER_STRONG: Color32 = Color32::from_rgb(75, 70, 67);
 
 pub const TEXT: Color32 = Color32::from_rgb(196, 195, 191);
 pub const TEXT_DIM: Color32 = Color32::from_rgb(166, 165, 160);
@@ -64,8 +68,22 @@ pub const ROW_HEIGHT: f32 = 34.0;
 pub const LAYER_ROW_HEIGHT: f32 = 48.0;
 pub const LAYER_THUMB_SIZE: f32 = 36.0;
 pub const EFFECT_ROW_HEIGHT: f32 = 26.0;
-/// Width of the label column in property rows.
-pub const LABEL_WIDTH: f32 = 84.0;
+/// Width of the label column in property rows (the maximum; narrow panels shrink it).
+pub const LABEL_WIDTH: f32 = 92.0;
+
+// Spacing scale. Rows are one step apart, groups two, sections three.
+pub const SP_XS: f32 = 4.0;
+pub const SP_S: f32 = 8.0;
+pub const SP_M: f32 = 12.0;
+pub const SP_L: f32 = 16.0;
+/// Height of every editable control in a property row (slider, combo, field, button).
+pub const CONTROL_H: f32 = 24.0;
+/// Width of the quiet numeric field to the right of a slider.
+pub const VALUE_W: f32 = 54.0;
+/// Corner radius of controls, chips and cards.
+pub const RADIUS: u8 = 4;
+/// Small dimmed row label.
+pub const LABEL_SIZE: f32 = 12.0;
 
 /// Font family for headings / emphasis.
 pub fn semibold() -> FontFamily {
@@ -80,7 +98,7 @@ pub fn font_strong(size: f32) -> FontId {
     FontId::new(size, semibold())
 }
 
-fn fonts() -> FontDefinitions {
+pub(crate) fn fonts() -> FontDefinitions {
     let mut f = FontDefinitions::default();
     let add = |f: &mut FontDefinitions, name: &str, bytes: &'static [u8]| {
         f.font_data.insert(name.into(), Arc::new(FontData::from_static(bytes)));
@@ -137,14 +155,15 @@ pub fn apply(ctx: &egui::Context) {
     w.noninteractive.bg_stroke = Stroke::new(1.0, BORDER);
     w.noninteractive.fg_stroke = Stroke::new(1.0, TEXT_DIM);
 
-    w.inactive.bg_fill = BG_3;
+    // `bg_fill` paints slider rails, handles and checkbox boxes; `weak_bg_fill` buttons and value fields.
+    w.inactive.bg_fill = RAIL;
     w.inactive.weak_bg_fill = BG_3;
-    w.inactive.bg_stroke = Stroke::new(1.0, BORDER);
+    w.inactive.bg_stroke = Stroke::new(1.0, BORDER_SOFT);
     w.inactive.fg_stroke = Stroke::new(1.0, TEXT);
 
     w.hovered.bg_fill = BG_4;
     w.hovered.weak_bg_fill = BG_4;
-    w.hovered.bg_stroke = Stroke::new(1.0, BORDER_STRONG);
+    w.hovered.bg_stroke = Stroke::new(1.0, BORDER);
     w.hovered.fg_stroke = Stroke::new(1.5, TEXT);
     w.hovered.expansion = 0.0;
 
@@ -160,7 +179,7 @@ pub fn apply(ctx: &egui::Context) {
     w.open.fg_stroke = Stroke::new(1.0, TEXT);
 
     for s in [&mut w.noninteractive, &mut w.inactive, &mut w.hovered, &mut w.active, &mut w.open] {
-        s.corner_radius = CornerRadius::same(2);
+        s.corner_radius = CornerRadius::same(RADIUS);
     }
     ctx.set_visuals(v);
 
@@ -174,7 +193,7 @@ pub fn apply(ctx: &egui::Context) {
         ]
         .into();
         let sp = &mut s.spacing;
-        sp.item_spacing = egui::vec2(8.0, 7.0);
+        sp.item_spacing = egui::vec2(SP_S, SP_S);
         sp.button_padding = egui::vec2(10.0, 5.0);
         // Sliders derive their circular handle radius from this height; padding and explicit
         // button sizes retain the larger hit targets used elsewhere.
@@ -183,7 +202,7 @@ pub fn apply(ctx: &egui::Context) {
         sp.menu_margin = Margin::same(6);
         sp.indent = 16.0;
         sp.slider_width = 150.0;
-        sp.slider_rail_height = 3.0;
+        sp.slider_rail_height = 4.0;
         sp.combo_width = 150.0;
         sp.icon_width = 16.0;
         sp.icon_width_inner = 9.0;
@@ -237,6 +256,22 @@ pub fn dock_style(ui_style: &egui::Style) -> DockStyle {
     d.buttons.collapse_tabs_color = TEXT_FAINT;
     d.buttons.collapse_tabs_active_color = TEXT;
     d
+}
+
+/// The header logo (orange square with the white ribbon-star mark), uploaded once per context.
+pub fn brand_mark(ctx: &egui::Context) -> egui::TextureHandle {
+    let id = egui::Id::new("subcraft-brand-mark");
+    if let Some(handle) = ctx.data(|d| d.get_temp::<egui::TextureHandle>(id)) {
+        return handle;
+    }
+    let img = image::load_from_memory_with_format(include_bytes!("../assets/logo-mark.png"), image::ImageFormat::Png)
+        .expect("embedded logo is a valid PNG")
+        .into_rgba8();
+    let size = [img.width() as usize, img.height() as usize];
+    let color = egui::ColorImage::from_rgba_unmultiplied(size, img.as_raw());
+    let handle = ctx.load_texture("brand-mark", color, egui::TextureOptions::LINEAR);
+    ctx.data_mut(|d| d.insert_temp(id, handle.clone()));
+    handle
 }
 
 /// Window / taskbar icon: the app artwork (same as the .exe, installer and Linux icon).

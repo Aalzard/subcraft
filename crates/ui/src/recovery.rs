@@ -1,5 +1,6 @@
 //! Autosave in the UI: the "didn't close properly" prompt and the Preferences window.
 
+use crate::i18n::tr;
 use std::time::Duration;
 
 use egui::RichText;
@@ -38,6 +39,8 @@ pub struct Preferences {
     pub use_gpu_baking: bool,
     /// Mouse navigation of the 3D view.
     pub nav_scheme: crate::nav::NavScheme,
+    /// Which keyboard shortcut table is active (SubCraft default or Substance Painter).
+    pub keymap: subcraft_app::KeymapPreset,
     /// Blend layers on the graphics card when one is available and the edit is big (the
     /// processor is the fallback and the reference).
     pub use_gpu_compositing: bool,
@@ -45,6 +48,8 @@ pub struct Preferences {
     pub viewport: crate::viewport_bar::ViewportPrefs,
     /// The choices made in the New Project window last time.
     pub new_project: subcraft_app::new_project::NewProjectSettings,
+    /// Interface language (English when absent from an older settings file).
+    pub language: crate::i18n::Language,
 }
 
 impl Default for Preferences {
@@ -59,9 +64,11 @@ impl Default for Preferences {
             check_updates_on_start: true,
             use_gpu_baking: true,
             nav_scheme: Default::default(),
+            keymap: Default::default(),
             use_gpu_compositing: true,
             viewport: Default::default(),
             new_project: Default::default(),
+            language: Default::default(),
         }
     }
 }
@@ -177,9 +184,9 @@ pub fn prompt(state: &mut UiState, ctx: &egui::Context, now: f64) {
     let mut choice = None;
     egui::Modal::new(egui::Id::new("recover_prompt")).show(ctx, |ui| {
         ui.set_width(420.0);
-        ui.label(RichText::new("SubCraft didn't close properly").font(theme::font_strong(15.0)));
+        ui.label(RichText::new(tr("SubCraft didn't close properly")).font(theme::font_strong(15.0)));
         ui.add_space(4.0);
-        ui.label(RichText::new("Recover your last session?").color(TEXT_DIM));
+        ui.label(RichText::new(tr("Recover your last session?")).color(TEXT_DIM));
         ui.add_space(10.0);
         egui::Grid::new("recover_grid").num_columns(2).spacing([16.0, 6.0]).show(ui, |ui| {
             let dim = |t: &str| RichText::new(t).color(theme::TEXT_FAINT);
@@ -204,13 +211,13 @@ Saving the recovered project writes back to this file.", p.display()));
         }
         ui.add_space(14.0);
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if primary_button(ui, "Recover").clicked() {
+            if primary_button(ui, tr("Recover")).clicked() {
                 choice = Some(Choice::Recover);
             }
-            if secondary_button(ui, "Discard").on_hover_text("Delete the recovery copies").clicked() {
+            if secondary_button(ui, tr("Discard")).on_hover_text(tr("Delete the recovery copies")).clicked() {
                 choice = Some(Choice::Discard);
             }
-            if secondary_button(ui, "Show folder").clicked() {
+            if secondary_button(ui, tr("Show folder")).clicked() {
                 choice = Some(Choice::Folder);
             }
         });
@@ -250,30 +257,41 @@ pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
         return;
     }
     let mut open = true;
-    crate::widgets::window(ctx, RichText::new("Preferences").font(theme::font_strong(14.0))).open(&mut open).collapsible(false).resizable(false).default_height(620.0).show(ctx, |ui| {
+    crate::widgets::window(ctx, RichText::new(tr("Preferences")).font(theme::font_strong(14.0))).open(&mut open).collapsible(false).resizable(false).default_height(620.0).show(ctx, |ui| {
         ui.set_width(380.0);
         egui::ScrollArea::vertical().max_height((ctx.content_rect().height() - 110.0).max(200.0)).show(ui, |ui| {
-        ui.label(RichText::new("Interface").font(theme::font_strong(12.5)));
+        ui.label(RichText::new(tr("Interface")).font(theme::font_strong(12.5)));
         ui.horizontal(|ui| {
-            ui.label("UI size");
+            ui.label(tr("Language"));
+            egui::ComboBox::from_id_salt("ui_language").selected_text(rec.prefs.language.native_name()).show_ui(ui, |ui| {
+                for language in crate::i18n::Language::ALL {
+                    ui.selectable_value(&mut rec.prefs.language, language, language.native_name());
+                }
+            });
+        });
+        if !crate::i18n::font_available(rec.prefs.language) {
+            ui.label(RichText::new(tr("No system font with these characters was found, so text may show as boxes. Set SUBCRAFT_CJK_FONT to a .ttf or .ttc file.")).small().color(theme::WARNING));
+        }
+        ui.horizontal(|ui| {
+            ui.label(tr("UI size"));
             ui.spacing_mut().slider_width = 155.0;
             ui.add(egui::Slider::new(&mut rec.prefs.ui_size_percent, UI_SIZE_RANGE).step_by(5.0).suffix("%"));
-            if secondary_button(ui, "Reset").on_hover_text("Reset UI size to 95%").clicked() {
+            if secondary_button(ui, tr("Reset")).on_hover_text(tr("Reset UI size to 95%")).clicked() {
                 rec.prefs.ui_size_percent = DEFAULT_UI_SIZE;
             }
         });
-        ui.label(RichText::new("Scale text, icons and controls together. Default: 95%.").small().color(TEXT_DIM));
+        ui.label(RichText::new(tr("Scale text, icons and controls together. Default: 95%.")).small().color(TEXT_DIM));
         ui.add_space(12.0);
         ui.separator();
         ui.add_space(8.0);
         crate::graphics::controls(graphics, ui);
-        ui.checkbox(&mut rec.prefs.show_welcome, "Show welcome screen on startup");
-        ui.checkbox(&mut rec.prefs.check_updates_on_start, "Check for updates when SubCraft starts")
-            .on_hover_text("Asks GitHub for the latest release in the background and points at the update button when there is a new one.");
-        ui.checkbox(&mut rec.prefs.use_gpu_baking, "Use GPU for baking")
+        ui.checkbox(&mut rec.prefs.show_welcome, tr("Show welcome screen on startup"));
+        ui.checkbox(&mut rec.prefs.check_updates_on_start, tr("Check for updates when SubCraft starts"))
+            .on_hover_text(tr("Asks GitHub for the latest release in the background and points at the update button when there is a new one."));
+        ui.checkbox(&mut rec.prefs.use_gpu_baking, tr("Use GPU for baking"))
             .on_hover_text("Bakes ambient occlusion and thickness on the graphics card, much faster on big meshes. If it is off or fails, the processor bakes them instead. The Bake window shows which one ran.");
         ui.horizontal(|ui| {
-            ui.label("3D navigation");
+            ui.label(tr("3D navigation"));
             egui::ComboBox::from_id_salt("nav_scheme").selected_text(rec.prefs.nav_scheme.label()).show_ui(ui, |ui| {
                 for scheme in crate::nav::NavScheme::ALL {
                     ui.selectable_value(&mut rec.prefs.nav_scheme, scheme, scheme.label());
@@ -283,27 +301,36 @@ pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
         for (what, how) in rec.prefs.nav_scheme.help() {
             ui.label(RichText::new(format!("{what}: {how}")).small().color(TEXT_DIM));
         }
-        if ui.checkbox(&mut rec.prefs.use_gpu_compositing, "Use GPU for compositing")
+        ui.horizontal(|ui| {
+            ui.label(tr("Keyboard shortcuts"));
+            egui::ComboBox::from_id_salt("keymap_preset").selected_text(rec.prefs.keymap.label()).show_ui(ui, |ui| {
+                for preset in subcraft_app::KeymapPreset::ALL {
+                    ui.selectable_value(&mut rec.prefs.keymap, preset, preset.label());
+                }
+            });
+        });
+        ui.label(RichText::new("The Substance Painter preset adds Painter's keys (P picks material, L is symmetry, Shift+P is Pen paths). Help > Keyboard shortcuts lists them all.").small().color(TEXT_DIM));
+        if ui.checkbox(&mut rec.prefs.use_gpu_compositing, tr("Use GPU for compositing"))
             .on_hover_text("Blends layers on the graphics card for big edits (opening a project, changing a layer under many others) on texture sets of 2048 and larger. Procedural fills, generator masks and blur-type filters are still computed by the processor, and sets with blur-type filters use the processor entirely. Small edits such as brush strokes always use the processor.")
             .changed()
         {
-            subcraft_compositor::gpu::set_gpu_compositing_enabled(rec.prefs.use_gpu_compositing);
+            subcraft_compositor::gpu::set_gpu_compositing_enabled(rec.prefs.use_gpu_compositing && !subcraft_app::safe_mode::is_active());
         }
         ui.add_space(10.0);
-        ui.label(RichText::new("Rendering mode").font(theme::font_strong(12.5)));
+        ui.label(RichText::new(tr("Rendering mode")).font(theme::font_strong(12.5)));
         ui.add_space(4.0);
-        ui.label(RichText::new("Path-traced preview of the 3D view (F10 or Render in its toolbar).").color(TEXT_DIM));
+        ui.label(RichText::new(tr("Path-traced preview of the 3D view (F10 or Render in its toolbar).")).color(TEXT_DIM));
         crate::viewport_bar::rendering_settings(ui, &mut rec.prefs.viewport);
         ui.add_space(10.0);
-        ui.label(RichText::new("Autosave").font(theme::font_strong(12.5)));
+        ui.label(RichText::new(tr("Autosave")).font(theme::font_strong(12.5)));
         ui.add_space(4.0);
-        ui.label(RichText::new("Recovery copies of the open project are written in the background to SubCraft's data folder, never over your own file.").color(TEXT_DIM));
+        ui.label(RichText::new(tr("Recovery copies of the open project are written in the background to SubCraft's data folder, never over your own file.")).color(TEXT_DIM));
         ui.add_space(8.0);
         egui::Grid::new("prefs_grid").num_columns(2).spacing([16.0, 8.0]).show(ui, |ui| {
-            ui.label(RichText::new("Every").color(TEXT_DIM));
+            ui.label(RichText::new(tr("Every")).color(TEXT_DIM));
             ui.add(egui::Slider::new(&mut rec.prefs.autosave_minutes, 0..=30).suffix(" min").custom_formatter(|v, _| if v == 0.0 { "off".into() } else { format!("{v}") }));
             ui.end_row();
-            ui.label(RichText::new("Keep").color(TEXT_DIM));
+            ui.label(RichText::new(tr("Keep")).color(TEXT_DIM));
             ui.add(egui::Slider::new(&mut rec.prefs.autosave_keep, 1..=10).suffix(" copies"));
             ui.end_row();
         });
@@ -311,7 +338,7 @@ pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
         rec.autosaver.set_keep(rec.prefs.autosave_keep);
         if let Some(store) = &rec.store {
             ui.add_space(8.0);
-            if secondary_button(ui, "Open recovery folder").clicked() {
+            if secondary_button(ui, tr("Open recovery folder")).clicked() {
                 let _ = std::fs::create_dir_all(store.root());
                 crate::panels::shelf::show_in_folder(store.root());
             }

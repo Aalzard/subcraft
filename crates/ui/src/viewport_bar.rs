@@ -1,6 +1,7 @@
 //! Toolbar row at the top of the 3D view: render resolution, anti-aliasing, orthographic
 //! projection and what the model shows (the full material or one channel unlit).
 
+use crate::i18n::tr;
 use egui::{RichText, Ui};
 use serde::{Deserialize, Serialize};
 use subcraft_render::ViewMode;
@@ -20,10 +21,16 @@ pub struct ViewportPrefs {
     pub orthographic: bool,
     /// Index into [`ViewMode::ALL`].
     pub view_mode: usize,
+    /// A baked mesh map shown raw on the model instead of the view mode (the mesh map viewer;
+    /// not remembered between runs).
+    #[serde(skip)]
+    pub mesh_map: Option<subcraft_core::MeshMapKind>,
     /// Display-only floor grid and axis guides. Old preference files receive these defaults.
     pub grid: bool,
     pub grid_axes: [bool; 3],
     pub symmetry_guides: bool,
+    /// Bottom-left list of the mouse / key actions that apply now.
+    pub hints: bool,
     /// Index into [`subcraft_render::ToneMap::ALL`].
     pub tone_map: usize,
     pub exposure: f32,
@@ -39,6 +46,12 @@ pub struct ViewportPrefs {
     pub glare: f32,
     pub glare_mode: usize,
     pub glare_length: f32,
+    /// Depth of field (off by default): blur amount 0..1, focus distance as a multiple of the
+    /// orbit distance (1 = the point the camera orbits), sharp band in percent of the model size.
+    pub dof: bool,
+    pub dof_amount: f32,
+    pub dof_focus: f32,
+    pub dof_range: f32,
     /// Rendering mode (path tracing) on. Never saved: the raster viewport is the default.
     #[serde(skip)]
     pub path_tracing: bool,
@@ -65,9 +78,11 @@ impl Default for ViewportPrefs {
             antialias: true,
             orthographic: false,
             view_mode: 0,
+            mesh_map: None,
             grid: true,
             grid_axes: [true, false, true],
             symmetry_guides: true,
+            hints: true,
             tone_map: 0,
             exposure: 1.0,
             bloom: 0.0,
@@ -79,6 +94,10 @@ impl Default for ViewportPrefs {
             glare: 0.0,
             glare_mode: 0,
             glare_length: 0.5,
+            dof: false,
+            dof_amount: 0.5,
+            dof_focus: 1.0,
+            dof_range: 10.0,
             path_tracing: false,
             pt_bounces: 4,
             pt_max_samples: 1024,
@@ -107,7 +126,16 @@ impl ViewportPrefs {
 
     /// Post-processing for a model of bounding-box `diagonal`.
     pub fn post_params(&self, diagonal: f32) -> subcraft_render::PostParams {
+        self.post_params_at(diagonal, 1.0)
+    }
+
+    /// Like [`post_params`](Self::post_params) with the camera's orbit distance, which scales the
+    /// focus distance.
+    pub fn post_params_at(&self, diagonal: f32, orbit_distance: f32) -> subcraft_render::PostParams {
         subcraft_render::PostParams {
+            dof: if self.dof { self.dof_amount.clamp(0.0, 1.0) } else { 0.0 },
+            dof_focus: (self.dof_focus.clamp(0.05, 4.0) * orbit_distance).max(1e-4),
+            dof_range: self.dof_range.clamp(0.0, 100.0) * 0.01 * diagonal,
             tone_map: self.tone_map(),
             bloom: self.bloom.clamp(0.0, 4.0),
             bloom_threshold: self.bloom_threshold.clamp(0.0, 4.0),
@@ -171,11 +199,11 @@ pub fn show(ui: &mut Ui, state: &mut crate::state::UiState) {
             ui.spacing_mut().item_spacing = egui::vec2(7.0, 6.0);
             ui.horizontal(|ui| {
                 if width < 520.0 {
-                    ui.menu_button("View", |ui| {
+                    ui.menu_button(tr("View"), |ui| {
                         ui.horizontal(|ui| resolution(ui, &mut state.recovery.prefs.viewport));
                         let prefs = &mut state.recovery.prefs.viewport;
-                        ui.checkbox(&mut prefs.antialias, "Anti-aliasing");
-                        ui.checkbox(&mut prefs.orthographic, "Orthographic");
+                        ui.checkbox(&mut prefs.antialias, tr("Anti-aliasing"));
+                        ui.checkbox(&mut prefs.orthographic, tr("Orthographic"));
                         ui.horizontal(|ui| view_mode(ui, prefs, false));
                     });
                     grid_control(ui, &mut state.recovery.prefs.viewport);
@@ -230,10 +258,10 @@ fn view_controls(ui: &mut Ui, state: &mut crate::state::UiState, width: f32) {
     resolution(ui, &mut state.recovery.prefs.viewport);
     let prefs = &mut state.recovery.prefs.viewport;
     ui.separator();
-    ui.checkbox(&mut prefs.antialias, "Anti-aliasing")
-        .on_hover_text("Anti-aliasing · smooth edges (4x MSAA); off is faster");
-    ui.checkbox(&mut prefs.orthographic, "Ortho")
-        .on_hover_text("Orthographic · no perspective: parallel lines stay parallel");
+    ui.checkbox(&mut prefs.antialias, tr("Anti-aliasing"))
+        .on_hover_text(tr("Anti-aliasing · smooth edges (4x MSAA); off is faster"));
+    ui.checkbox(&mut prefs.orthographic, tr("Ortho"))
+        .on_hover_text(tr("Orthographic · no perspective: parallel lines stay parallel"));
     ui.separator();
     view_mode(ui, prefs, width >= WIDE_VIEW_COMBO_MIN_WIDTH);
     grid_control(ui, prefs);
@@ -246,18 +274,18 @@ fn view_controls(ui: &mut Ui, state: &mut crate::state::UiState, width: f32) {
 
 /// Rendering mode settings (the 3D view's Render button menu and Preferences).
 pub fn rendering_settings(ui: &mut Ui, prefs: &mut ViewportPrefs) {
-    ui.label(RichText::new("Rendering mode").color(TEXT_DIM));
+    ui.label(RichText::new(tr("Rendering mode")).color(TEXT_DIM));
     egui::Grid::new("pt_settings").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-        ui.label("Bounces");
-        ui.add(egui::Slider::new(&mut prefs.pt_bounces, 1..=16)).on_hover_text("Light bounces after the first hit; more is slower and brighter in enclosed areas");
+        ui.label(tr("Bounces"));
+        ui.add(egui::Slider::new(&mut prefs.pt_bounces, 1..=16)).on_hover_text(tr("Light bounces after the first hit; more is slower and brighter in enclosed areas"));
         ui.end_row();
-        ui.label("Max samples");
+        ui.label(tr("Max samples"));
         ui.add(egui::Slider::new(&mut prefs.pt_max_samples, 0..=8192).logarithmic(true).custom_formatter(|v, _| if v == 0.0 { "unlimited".into() } else { format!("{v}") }))
-            .on_hover_text("Stop refining at this many samples per pixel");
+            .on_hover_text(tr("Stop refining at this many samples per pixel"));
         ui.end_row();
     });
-    ui.checkbox(&mut prefs.pt_denoise, "Denoise").on_hover_text("Edge-aware filter for a clean preview while samples are few");
-    ui.checkbox(&mut prefs.pt_ground, "Ground shadow").on_hover_text("A gray floor under the model that catches its shadow");
+    ui.checkbox(&mut prefs.pt_denoise, tr("Denoise")).on_hover_text(tr("Edge-aware filter for a clean preview while samples are few"));
+    ui.checkbox(&mut prefs.pt_ground, tr("Ground shadow")).on_hover_text(tr("A gray floor under the model that catches its shadow"));
 }
 
 /// Per-set document state: shared by material evaluation, preview and export.
@@ -267,11 +295,11 @@ pub fn albedo_filter(ui: &mut Ui, state: &mut crate::state::UiState) {
     let (id, original) = (ts.id, ts.albedo_filter);
     let mut filter = original;
     let label_width = 55.0;
-    ui.add_sized([label_width, ui.spacing().interact_size.y], egui::Label::new(RichText::new("Albedo").color(TEXT_DIM)));
+    ui.add_sized([label_width, ui.spacing().interact_size.y], egui::Label::new(RichText::new(tr("Albedo")).color(TEXT_DIM)));
     egui::ComboBox::from_id_salt("albedo_filter").width(76.0).selected_text(filter.label()).show_ui(ui, |ui| {
-        ui.selectable_value(&mut filter, TextureFilter::Bilinear, "Bilinear");
-        ui.selectable_value(&mut filter, TextureFilter::Nearest, "Nearest");
-    }).response.on_hover_text("Base Color interpolation · Nearest preserves hard pixels in imported images, the viewport and exports");
+        ui.selectable_value(&mut filter, TextureFilter::Bilinear, tr("Bilinear"));
+        ui.selectable_value(&mut filter, TextureFilter::Nearest, tr("Nearest"));
+    }).response.on_hover_text(tr("Base Color interpolation · Nearest preserves hard pixels in imported images, the viewport and exports"));
     if filter != original
         && let Err(error) = state.session.execute(subcraft_app::Command::SetAlbedoFilter { texture_set: id, filter }) {
         state.set_status(error.to_string(), ui.input(|i| i.time));
@@ -294,8 +322,8 @@ fn grid_control(ui: &mut Ui, prefs: &mut ViewportPrefs) {
     egui::Popup::context_menu(&response)
         .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
         .show(|ui| {
-            ui.label(RichText::new("Grid & axes").color(TEXT_DIM));
-            ui.checkbox(&mut prefs.grid, "Show grid");
+            ui.label(RichText::new(tr("Grid & axes")).color(TEXT_DIM));
+            ui.checkbox(&mut prefs.grid, tr("Show grid"));
             ui.separator();
             for (index, text, color) in [
                 (0, "X · red", egui::Color32::from_rgb(190, 108, 100)),
@@ -308,7 +336,7 @@ fn grid_control(ui: &mut Ui, prefs: &mut ViewportPrefs) {
                 );
             }
             ui.label(
-                RichText::new("Y is hidden by default")
+                RichText::new(tr("Y is hidden by default"))
                     .small()
                     .color(TEXT_DIM),
             );
@@ -316,7 +344,7 @@ fn grid_control(ui: &mut Ui, prefs: &mut ViewportPrefs) {
 }
 
 fn resolution(ui: &mut Ui, prefs: &mut ViewportPrefs) {
-    ui.add_sized([55.0, ui.spacing().interact_size.y], egui::Label::new(RichText::new("Resolution").color(TEXT_DIM)));
+    ui.add_sized([55.0, ui.spacing().interact_size.y], egui::Label::new(RichText::new(tr("Resolution")).color(TEXT_DIM)));
     egui::ComboBox::from_id_salt("viewport_resolution")
         .selected_text(format!("{}%", prefs.scale_percent))
         .width(76.0)
@@ -326,21 +354,41 @@ fn resolution(ui: &mut Ui, prefs: &mut ViewportPrefs) {
             }
         })
         .response
-        .on_hover_text("Render the 3D view at a lower resolution to make it faster");
+        .on_hover_text(tr("Render the 3D view at a lower resolution to make it faster"));
 }
 
 fn view_mode(ui: &mut Ui, prefs: &mut ViewportPrefs, wide: bool) {
     dim(ui, "View");
     let mut mode = prefs.view_mode();
+    let shown = match prefs.mesh_map { Some(k) => format!("Mesh map: {}", k.display_name()), None => mode.label().to_string() };
     egui::ComboBox::from_id_salt("viewport_view_mode")
         .width(if wide { 150.0 } else { 92.0 })
-        .selected_text(mode.label())
+        .selected_text(shown)
         .show_ui(ui, |ui| {
             for m in ViewMode::ALL {
-                ui.selectable_value(&mut mode, m, m.label());
+                if ui.selectable_label(prefs.mesh_map.is_none() && mode == m, m.label()).clicked() {
+                    mode = m;
+                    prefs.mesh_map = None;
+                }
+            }
+            ui.separator();
+            ui.label(RichText::new("Mesh maps (baked)").color(TEXT_DIM));
+            for k in subcraft_core::MeshMapKind::ALL {
+                if ui.selectable_label(prefs.mesh_map == Some(k), k.display_name()).clicked() {
+                    prefs.mesh_map = Some(k);
+                }
             }
         });
     prefs.view_mode = ViewMode::ALL.iter().position(|m| *m == mode).unwrap_or(0);
+}
+
+/// Cycle the mesh map viewer through the baked maps (B), starting from the material view.
+pub fn cycle_mesh_map(prefs: &mut ViewportPrefs) {
+    let all = subcraft_core::MeshMapKind::ALL;
+    prefs.mesh_map = match prefs.mesh_map {
+        None => Some(all[0]),
+        Some(k) => all.iter().position(|&m| m == k).and_then(|i| all.get(i + 1)).copied(),
+    };
 }
 
 fn dim(ui: &mut Ui, text: &str) {
@@ -352,20 +400,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn texture_sets_albedo_dropdown_is_below_resolution_and_dispatches_an_undoable_edit() {
+    fn texture_set_settings_albedo_dropdown_is_below_size_and_dispatches_an_undoable_edit() {
         let ctx = egui::Context::default(); crate::theme::apply(&ctx);
         let mut state = crate::state::UiState::new(subcraft_app::Session::new(subcraft_mesh::primitives::cube(2.), 128), None);
         let initial = state.session.document().clone();
         let draw = |state: &mut crate::state::UiState, events| {
-            let mut out = ctx.run_ui(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1600., 940.))), events, ..Default::default() }, |ui| {
-                egui::CentralPanel::default().show(ui, |ui| crate::panels::texture_sets::show(state, ui));
+            let mut out = ctx.run_ui(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(420., 940.))), events, ..Default::default() }, |ui| {
+                egui::CentralPanel::default().show(ui, |ui| crate::panels::texture_sets::settings(state, ui));
             }); out.textures_delta.clear(); out
         };
         draw(&mut state, vec![]); let output = draw(&mut state, vec![]);
         let text_position = |output: &egui::FullOutput, text: &str| output.shapes.iter().find_map(|s| match &s.shape {
             egui::epaint::Shape::Text(t) if t.galley.job.text == text => Some(t.pos + t.galley.size() * 0.5), _ => None,
         }).unwrap_or_else(|| panic!("missing {text}"));
-        assert!(text_position(&output, "Albedo").y > text_position(&output, "RESOLUTION").y);
+        assert!(text_position(&output, "Albedo").y > text_position(&output, "Size").y);
         let click = |state: &mut crate::state::UiState, pos| {
             draw(state, vec![egui::Event::PointerMoved(pos), egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: true, modifiers: Default::default() }]);
             draw(state, vec![egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: false, modifiers: Default::default() }])

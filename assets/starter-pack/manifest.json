@@ -1,7 +1,7 @@
 {
   "original_bytes": 63064883,
-  "packed_bytes": 59691322,
-  "thumbnail_bytes": 1150474,
+  "packed_bytes": 92194344,
+  "thumbnail_bytes": 1529955,
   "images": [
     {
       "name": "Alien Organic Hull",
@@ -1122,6 +1122,245 @@
       "file": "alphas/WaterStainRing_Alpha.png",
       "bytes": 66207,
       "sha256": "f304f0de47dff62d8fad62a82d7d9adf6f274561e54cd1caaada681c211131d3"
+    },
+    {
+      "name": "Angular Rock Chunk",
+      "kind": "Normal",
+      "file": "textures/AngularRockChunk_Normal.png",
+      "bytes": 1179206,
+      "sha256": "6be8c416e3503bdc28e4382e4eb0e6d6cb9f5e6ff05fb6357cd803ef27f78706"
+    },
+    {
+      "name": "Cracked Earth Patch",
+      "kind": "Normal",
+      "file": "textures/CrackedEarthPatch_Normal.png",
+      "bytes": 1488112,
+      "sha256": "f3caf193ecf85cb4d671d782e6a3cc445241a991b12b2161511dea141c644405"
+    },
+    {
+      "name": "Cracked Gothic Tiles",
+      "kind": "Normal",
+      "file": "textures/CrackedGothicTiles_Normal.png",
+      "bytes": 1579455,
+      "sha256": "96dfad808174378be5c48b7cb0ddfcf59721bbd3da9ab3ab2b6e68d500070274"
+    },
+    {
+      "name": "Deep Claw Scratches",
+      "kind": "Normal",
+      "file": "textures/DeepClawScratches_Normal.png",
+      "bytes": 1315464,
+      "sha256": "fc3a1c6df9423ab8555c30db1e1573aad40def29d793d70db51c38011b4c8a95"
+    },
+    {
+      "name": "Deep Pine Bark",
+      "kind": "Normal",
+      "file": "textures/DeepPineBark_Normal.png",
+      "bytes": 2183094,
+      "sha256": "61d351a2e76c01b2d9d4004832055c0648d4e21f5bd456882ec906937cde6437"
+    },
+    {
+      "name": "Diagonal Branch Veins",
+      "kind": "Normal",
+      "file": "textures/DiagonalBranchVeins_Normal.png",
+      "bytes": 856578,
+      "sha256": "0ea0ea2d94de1872c2b34f0f36e86e2227c31cafb9d4cdfd17e8896c6d844da7"
+    },
+    {
+      "name": "Fine Bubbles",
+      "kind": "Normal",
+      "file": "textures/FineBubbles_Normal.png",
+      "bytes": 1215778,
+      "sha256": "7e5072e241a6c75133c2ada3f3c985bcb159f031ccdb92487d50b62233cde817"
+    },
+    {
+      "name": "Fine Crack Patch",
+      "kind": "Normal",
+      "file": "textures/FineCrackPatch_Normal.png",
+      "bytes": 1098223,
+      "sha256": "ca796e6bd9f3479a2fa7ec505cefa242001426590300eb15fbf3bb2172e6cac0"
+    },
+    {
+      "name": "Hex Bolt Ring",
+      "kind": "Normal",
+      "file": "textures/HexBoltRing_Normal.png",
+      "bytes": 646085,
+      "sha256": "20dbf505bbe553c329ed0e0db840dc2a065150988868127d3b58064f766265d4"
+    },
+    {
+      "name": "Hex Nut Thread",
+      "kind": "Normal",
+      "file": "textures/HexNutThread_Normal.png",
+      "bytes": 1052889,
+      "sha256": "e105bb7939692bfb85a538a8a080cb6703557b6bd1b7079298db70aa0e13197e"
+    },
+    {
+      "name": "L Bracket Plate",
+      "kind": "Normal",
+      "file": "textures/LBracketPlate_Normal.png",
+      "bytes": 582988,
+      "sha256": "ea0edb6de620b7b855b2fcd05459056683c9df79824f44551b94b4f74e16bacd"
+    },
+    {
+      "name": "Long Gouge Scar",
+      "kind": "Normal",
+      "file": "textures/LongGougeScar_Normal.png",
+      "bytes": 907747,
+      "sha256": "89c237ad6f151851080bf62066aec940d9d401fc6697246390968b6523fd654c"
+    },
+    {
+      "name": "Modular Machine Panels",
+      "kind": "Normal",
+      "file": "textures/ModularMachinePanels_Normal.png",
+      "bytes": 1077762,
+      "sha256": "c17dbb98d9af1068eb962953064748d4f2660f0b25d200bc7203caf07020b213"
+    },
+    {
+      "name": "Phillips Recess Flat",
+      "kind": "Normal",
+      "file": "textures/PhillipsRecessFlat_Normal.png",
+      "bytes": 1180789,
+      "sha256": "9e83aaa5f44a1d7a9067cdb521db9d564af859931488067cc5469fe91f36fc4a"
+    },
+    {
+      "name": "Phillips Recess Pyramid",
+      "kind": "Normal",
+      "file": "textures/PhillipsRecessPyramid_Normal.png",
+      "bytes": 1190154,
+      "sha256": "abe479c8e37f037106570e1ad5d2fd89408889293a650e40714c97a1d994be6c"
+    },
+    {
+      "name": "Rock Cluster",
+      "kind": "Normal",
+      "file": "textures/RockCluster_Normal.png",
+      "bytes": 1516768,
+      "sha256": "68e6bc4630b56c085c905fade7ab11e078fcab6d7459f804b64b72e19261bc22"
+    },
+    {
+      "name": "Rock Slab Pair",
+      "kind": "Normal",
+      "file": "textures/RockSlabPair_Normal.png",
+      "bytes": 1216296,
+      "sha256": "b239fd935f67046ac3b580166d3722e44a192f768df3853fbc910a81930ec63d"
+    },
+    {
+      "name": "Root Tangle",
+      "kind": "Normal",
+      "file": "textures/RootTangle_Normal.png",
+      "bytes": 1126013,
+      "sha256": "010f585b30a958f80d2a064b5f9867e3e8f5b620e6085928a46c39ec98e65d8c"
+    },
+    {
+      "name": "Round Vent Grille",
+      "kind": "Normal",
+      "file": "textures/RoundVentGrille_Normal.png",
+      "bytes": 595361,
+      "sha256": "0919bab487c20308d27e3e16922f7f17d75b2fcfc025c857d2a3fe51441af2a3"
+    },
+    {
+      "name": "Rounded Slot",
+      "kind": "Normal",
+      "file": "textures/RoundedSlot_Normal.png",
+      "bytes": 512261,
+      "sha256": "bcd12daa6f24f79df4d381c91b51c11a9cf362ab429078fd2f8ceaaa7bb00d77"
+    },
+    {
+      "name": "Scattered Blisters",
+      "kind": "Normal",
+      "file": "textures/ScatteredBlisters_Normal.png",
+      "bytes": 998876,
+      "sha256": "d0e3e289a32519a45a3b675cdc2fd150e292b6a1e6accb69f0c19828149fe8c8"
+    },
+    {
+      "name": "Small Latch Plate",
+      "kind": "Normal",
+      "file": "textures/SmallLatchPlate_Normal.png",
+      "bytes": 578122,
+      "sha256": "976e0c34ba4e38dfd8381a65599bd5dd8836e31f1e61be0ee5180ea4aa514e0b"
+    },
+    {
+      "name": "Soft Skin Creases",
+      "kind": "Normal",
+      "file": "textures/SoftSkinCreases_Normal.png",
+      "bytes": 956424,
+      "sha256": "ee4757bfde27aba70805300d42e108ddce27027fd514edf7addd7c26d24b8efb"
+    },
+    {
+      "name": "Spreading Veins",
+      "kind": "Normal",
+      "file": "textures/SpreadingVeins_Normal.png",
+      "bytes": 948637,
+      "sha256": "184bc4ce149a33257e02ae50116d25971e30fad3ed9655525737c45b0a03b4dd"
+    },
+    {
+      "name": "Swept Fibers",
+      "kind": "Normal",
+      "file": "textures/SweptFibers_Normal.png",
+      "bytes": 1492138,
+      "sha256": "2f9c8fba251960a27bc41f9f6f850f8e1eeb2d9cf410ded84cf88b30e98ff42e"
+    },
+    {
+      "name": "Thin Slash Scar",
+      "kind": "Normal",
+      "file": "textures/ThinSlashScar_Normal.png",
+      "bytes": 777173,
+      "sha256": "4f6127772d4413c8e1e91074d2cb6e453bb97524c28acfb39ccb3b6fd54a59c5"
+    },
+    {
+      "name": "Upright Branch Veins",
+      "kind": "Normal",
+      "file": "textures/UprightBranchVeins_Normal.png",
+      "bytes": 984244,
+      "sha256": "0522d3f09d1a808f29443939fcd246d0f3426951bfa7320777420ff4b363f2af"
+    },
+    {
+      "name": "Weathered Log",
+      "kind": "Normal",
+      "file": "textures/WeatheredLog_Normal.png",
+      "bytes": 1122973,
+      "sha256": "f9bb7d2683f8eb761e47cb19afba7474f17037295341e20a6ec5248f6736e8ed"
+    },
+    {
+      "name": "Wide Vent Grille",
+      "kind": "Normal",
+      "file": "textures/WideVentGrille_Normal.png",
+      "bytes": 773320,
+      "sha256": "cee80af732697cd46a1b5f29d6d4d8fd1a84ff54c7d36bff58e5629af3740f4b"
+    },
+    {
+      "name": "Wrinkle Cluster",
+      "kind": "Normal",
+      "file": "textures/WrinkleCluster_Normal.png",
+      "bytes": 987566,
+      "sha256": "26ab75f0bb5f71fa90d1646de0d498f9c75492e65aac971609ba72f1a495fde0"
+    },
+    {
+      "name": "Domed Disc",
+      "kind": "Alpha",
+      "file": "alphas/DomedDisc_Alpha.png",
+      "bytes": 79559,
+      "sha256": "65b0740228356068b0a1d7f18998ccadcf34041b690da9480dda19179eac304c"
+    },
+    {
+      "name": "Hex Nut Face",
+      "kind": "Alpha",
+      "file": "alphas/HexNutFace_Alpha.png",
+      "bytes": 90169,
+      "sha256": "52c6947b028febae587ef7e1db70775ff5fc4c3265b1958b4434bd08f13f3b54"
+    },
+    {
+      "name": "Phillips Screw Head",
+      "kind": "Alpha",
+      "file": "alphas/PhillipsScrewHead_Alpha.png",
+      "bytes": 106227,
+      "sha256": "82661ee0758325f54a161b88e5d036ae319cfa2c71b928b4ab096427252ad12d"
+    },
+    {
+      "name": "Torx Screw Head",
+      "kind": "Alpha",
+      "file": "alphas/TorxScrewHead_Alpha.png",
+      "bytes": 86571,
+      "sha256": "1cb10c78739d931cb1488f03825df9be247f4a10147e69b5552a7e4f2fcaea40"
     }
-  ]
+  ],
+  "note_2026_11": "30 normal maps and 4 alpha brushes added from an image generator batch (34 images); normals 1024px, alphas 512px grayscale"
 }

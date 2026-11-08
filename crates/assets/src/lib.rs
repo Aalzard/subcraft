@@ -3,7 +3,9 @@
 //! them and the app turns them into commands.
 
 pub mod alphas;
+pub mod default_model;
 pub mod open_pack;
+pub mod pbr_pack;
 pub mod preview;
 pub mod starter;
 pub mod environment;

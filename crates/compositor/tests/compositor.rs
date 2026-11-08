@@ -457,7 +457,7 @@ fn organic_edge_breakup_matches_numeric_coverage_and_seed_size_invalidate_cached
     let mut ts = texture_set(); let tc = ts.clone();
     let mut layer = fill_layer(&tc, &[(ChannelKind::Roughness, ChannelValue::scalar(1.))]);
     let mut mask = Mask::new(RES, false);
-    let mut generator = Generator::new(GeneratorKind::Edges); generator.level = 0.6; generator.edge_spread = None;
+    let mut generator = Generator::new(GeneratorKind::Edges); generator.level = 0.6; generator.edge_spread = None; generator.painter = None;
     mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Generator(generator))));
     layer.mask = Some(mask); let id = ts.insert_above(None, layer);
     let mut cache = CompositeCache::new(); cache.update(&ts, &fx.ctx());
@@ -491,7 +491,7 @@ fn natural_spread_matches_surface_distance_golden_and_varies_at_zero_breakup() {
     let mut ts = texture_set(); let tc = ts.clone();
     let mut layer = fill_layer(&tc, &[(ChannelKind::Roughness, ChannelValue::scalar(1.0))]);
     let mut mask = Mask::new(RES, false);
-    let mut g = Generator::new(GeneratorKind::Edges); g.noise_amount = 0.0; g.softness = 0.25;
+    let mut g = Generator::new(GeneratorKind::Edges); g.painter = None; g.noise_amount = 0.0; g.softness = 0.25;
     g.edge_spread = Some(subcraft_doc::EdgeSpread { distance: 8.0, variation: 0.9, level_reach: false });
     mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Generator(g)))); layer.mask = Some(mask);
     let id = ts.insert_above(None, layer);
@@ -538,7 +538,7 @@ fn spread_reaches_independently_at_low_level_without_turning_flat_faces_white() 
     let mut ts = texture_set(); let tc = ts.clone();
     let mut layer = fill_layer(&tc, &[(ChannelKind::Roughness, ChannelValue::scalar(1.0))]);
     let mut mask = Mask::new(RES, false);
-    let mut g = Generator::new(GeneratorKind::Edges); g.noise_amount = 0.0;
+    let mut g = Generator::new(GeneratorKind::Edges); g.painter = None; g.noise_amount = 0.0;
     g.edge_spread.as_mut().unwrap().level_reach = false; // Old projects: Level never shrinks the reach.
     g.edge_spread.as_mut().unwrap().distance = 2.0;
     mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Generator(g)))); layer.mask = Some(mask);
@@ -580,7 +580,7 @@ fn narrow_spread_boundary_is_chipped_at_its_own_scale_not_a_straight_stripe() {
     for seed in [1, 7, 23] {
     let mut ts = TextureSet::new("T", 0, HI); let tc = ts.clone();
     let mut layer = fill_layer(&tc, &[(ChannelKind::Roughness, ChannelValue::scalar(1.0))]);
-    let mut g = Generator::new(GeneratorKind::Edges); g.noise_amount = 0.0; g.softness = 0.02; g.noise.seed = seed;
+    let mut g = Generator::new(GeneratorKind::Edges); g.painter = None; g.noise_amount = 0.0; g.softness = 0.02; g.noise.seed = seed;
     g.edge_spread = Some(subcraft_doc::EdgeSpread { distance: 3.0, variation: 0.7, level_reach: false });
     let mut mask = Mask::new(HI, false);
     mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Generator(g)))); layer.mask = Some(mask);
@@ -617,7 +617,7 @@ fn maximum_spread_at_level_point_065_has_the_requested_numeric_reach() {
     let fx = Fixture::with_mesh(primitives::cube(2.0));
     let mut ts = texture_set(); let tc = ts.clone();
     let mut layer = fill_layer(&tc, &[(ChannelKind::Roughness, ChannelValue::scalar(1.0))]);
-    let mut g = Generator::new(GeneratorKind::Edges);
+    let mut g = Generator::new(GeneratorKind::Edges); g.painter = None;
     g.level = 0.065; g.noise_amount = 0.0; g.softness = 0.25;
     g.edge_spread = Some(subcraft_doc::EdgeSpread { distance: 12.5, variation: 0.0, level_reach: false });
     let mut mask = Mask::new(RES, false);
@@ -698,4 +698,211 @@ fn fill_channel_strength_reaches_the_composite() {
     let c = composite_full(&ts, &fx.ctx());
     assert_scalar(&c, ChannelKind::Roughness, 10, 10, 0.75);
     assert_scalar(&c, ChannelKind::Height, 10, 10, 0.6);
+}
+
+fn offset_mask_composite(fx: &Fixture, g: Generator) -> Composite {
+    let mut ts = texture_set(); let tc = ts.clone();
+    let mut layer = fill_layer(&tc, &[(ChannelKind::Roughness, ChannelValue::scalar(1.0))]);
+    let mut mask = Mask::new(RES, false);
+    mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Generator(g)))); layer.mask = Some(mask);
+    ts.insert_above(None, layer);
+    composite_full(&ts, &fx.ctx())
+}
+
+#[test]
+fn generator_offset_slides_the_breakup_noise_through_the_model() {
+    let fx = Fixture::with_mesh(primitives::cube(2.0));
+    // Directional along X reads exactly 0.5 on the faces parallel to X, so there the noise alone
+    // sets the mask: smoothstep(level - half, level + half, 0.5) with level = 0.5 + (noise - 0.5) * amount.
+    let mut g = Generator::new(GeneratorKind::Directional);
+    g.direction = [1.0, 0.0, 0.0]; g.level = 0.5; g.softness = 0.1; g.noise_amount = 0.8; g.organic_breakup = true;
+    assert_eq!(g.offset, [0.0; 3], "no offset by default");
+    let base = offset_mask_composite(&fx, g);
+    let offset = [0.13, -0.07, 0.21];
+    let moved = offset_mask_composite(&fx, Generator { offset, ..g });
+    let smooth = |a: f32, b: f32, x: f32| { let t = ((x - a) / (b - a)).clamp(0.0, 1.0); t * t * (3.0 - 2.0 * t) };
+    let (mut checked, mut changed) = (0, 0);
+    for t in 0..fx.geo.tile_count() {
+        let geo = fx.geo.tile(t);
+        for i in (0..4096).step_by(13) {
+            if geo.coverage(i) < 1.0 || geo.normal(i)[0].abs() > 0.05 { continue; }
+            let p = geo.position(i);
+            let noise = subcraft_materials::organic::eval(&g.noise, [p[0] + offset[0], p[1] + offset[1], p[2] + offset[2]]);
+            let level = 0.5 + (noise - 0.5) * 0.8;
+            let mask = smooth(level - 0.05, level + 0.05, 0.5);
+            let (x, y) = geo.texel_xy(i);
+            // Roughness = the 0.3 default under a black base mask -> the fill's 1.0 where the mask is 1.
+            let want = 0.3 + 0.7 * mask;
+            let got = px(&moved, ChannelKind::Roughness, x, y)[0];
+            assert!((got - want).abs() < 2e-3, "texel {x},{y}: {got} vs {want}");
+            if (px(&base, ChannelKind::Roughness, x, y)[0] - got).abs() > 1e-3 { changed += 1; }
+            checked += 1;
+        }
+    }
+    assert!(checked > 100 && changed > checked / 10, "{checked} checked, {changed} differ from the unmoved pattern");
+    // The non-organic (triplanar) breakup moves too, and a zero offset is bit-identical to the old behaviour.
+    let flat = Generator { organic_breakup: false, ..g };
+    let flat_moved = offset_mask_composite(&fx, Generator { offset, ..flat });
+    let (a, b, c) = (offset_mask_composite(&fx, flat), offset_mask_composite(&fx, Generator { offset: [0.0, -0.0, 0.0], ..flat }), flat_moved);
+    let sample = |c: &Composite| (0..RES).step_by(7).flat_map(|x| (0..RES).step_by(7).map(move |y| (x, y))).map(|(x, y)| px(c, ChannelKind::Roughness, x, y)[0]).collect::<Vec<_>>();
+    assert_eq!(sample(&a), sample(&b));
+    assert_ne!(sample(&a), sample(&c));
+}
+
+/// Mean roughness of a plane whose roughness fill (0.3 base, 1.0 fill) is masked by `generator`
+/// over uniform ambient occlusion `ao` and curvature `curv` maps.
+fn generator_mean_roughness(generator: Generator, ao: f32, curv: f32) -> f32 {
+    use subcraft_core::MeshMapKind;
+    let mut fx = Fixture::plane();
+    fx.maps.insert(MeshMapKind::AmbientOcclusion, subcraft_image::TiledImage::new(RES, RES, 1, [ao; 4]));
+    fx.maps.insert(MeshMapKind::Curvature, subcraft_image::TiledImage::new(RES, RES, 1, [curv; 4]));
+    let mut ts = texture_set(); let tc = ts.clone();
+    let mut layer = fill_layer(&tc, &[(ChannelKind::Roughness, ChannelValue::scalar(1.))]);
+    let mut mask = Mask::new(RES, false);
+    mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Generator(generator))));
+    layer.mask = Some(mask); ts.insert_above(None, layer);
+    let c = composite_full(&ts, &fx.ctx());
+    let v = c.channel(ChannelKind::Roughness).unwrap().to_dense();
+    v.iter().sum::<f32>() / v.len() as f32
+}
+
+#[test]
+fn painter_controls_neutral_values_change_nothing_and_masking_removes_dirt_from_convex_edges() {
+    let mut dirt = Generator::new(GeneratorKind::Cavity); dirt.noise_amount = 0.0; dirt.softness = 0.05; dirt.painter = None;
+    let plain = generator_mean_roughness(dirt, 0.2, 0.9);
+    dirt.painter = Some(subcraft_doc::PainterControls::default());
+    assert_eq!(generator_mean_roughness(dirt, 0.2, 0.9), plain, "default controls are neutral");
+    dirt.painter = Some(subcraft_doc::PainterControls { edges_masking: 1.0, ..Default::default() });
+    let masked = generator_mean_roughness(dirt, 0.2, 0.9);
+    assert!(masked < plain - 0.05, "convex texels lose their dirt: {plain} -> {masked}");
+    // Flat texels (curvature 0.5) are not touched by edges masking.
+    let flat = generator_mean_roughness(dirt, 0.2, 0.5);
+    dirt.painter = None;
+    assert_eq!(flat, generator_mean_roughness(dirt, 0.2, 0.5));
+}
+
+#[test]
+fn painter_wear_controls_ao_masking_and_curvature_weight_reduce_wear() {
+    let mut wear = Generator::new(GeneratorKind::Edges); wear.noise_amount = 0.0; wear.level = 0.8; wear.painter = None;
+    let plain = generator_mean_roughness(wear, 0.2, 0.9);
+    wear.painter = Some(subcraft_doc::PainterControls::default());
+    assert_eq!(generator_mean_roughness(wear, 0.2, 0.9), plain, "default controls are neutral");
+    wear.painter = Some(subcraft_doc::PainterControls { ao_masking: 1.0, ..Default::default() });
+    let occluded = generator_mean_roughness(wear, 0.2, 0.9);
+    assert!(occluded < plain - 0.02, "occluded wear is masked: {plain} -> {occluded}");
+    // Unoccluded surfaces (AO 1) keep all of their wear.
+    assert_eq!(generator_mean_roughness(wear, 1.0, 0.9), { wear.painter = None; generator_mean_roughness(wear, 1.0, 0.9) });
+    wear.painter = Some(subcraft_doc::PainterControls { curvature_weight: 0.0, ..Default::default() });
+    let weightless = generator_mean_roughness(wear, 0.2, 0.9);
+    assert!(weightless < plain, "no curvature weight drops the baked detail: {plain} -> {weightless}");
+}
+
+#[test]
+fn painter_grunge_floor_adds_a_soft_tail_over_unoccluded_surfaces_and_never_exceeds_one() {
+    let mut dirt = Generator::new(GeneratorKind::Cavity); dirt.painter = None; dirt.noise_amount = 0.3; dirt.softness = 0.05;
+    // Unoccluded (AO 1): no dirt from the threshold, so roughness stays at its 0.3 base.
+    let bare = generator_mean_roughness(dirt, 1.0, 0.5);
+    assert!((bare - 0.3).abs() < 1e-3, "{bare}");
+    dirt.painter = Some(subcraft_doc::PainterControls { grunge_floor: 0.3, ..Default::default() });
+    let tail = generator_mean_roughness(dirt, 1.0, 0.5);
+    // Mask = floor * noise (about 0.5 on average): roughness 0.3 + 0.7 * ~0.15.
+    assert!(tail > bare + 0.05 && tail < bare + 0.7 * 0.3, "{bare} -> {tail}");
+    // Fully occluded: already 1, the tail cannot add to it.
+    dirt.painter = None;
+    let full = generator_mean_roughness(dirt, 0.0, 0.5);
+    dirt.painter = Some(subcraft_doc::PainterControls { grunge_floor: 1.0, ..Default::default() });
+    assert!((generator_mean_roughness(dirt, 0.0, 0.5) - full).abs() < 1e-4);
+}
+
+/// Roughness texels of a plane masked by `generator` over smooth, varying AO/curvature maps.
+fn generator_texels(generator: Generator) -> Vec<f32> {
+    use subcraft_core::MeshMapKind;
+    let mut fx = Fixture::plane();
+    let ramp = |f: fn(f32, f32) -> f32| {
+        let dense: Vec<f32> = (0..RES * RES).map(|i| f((i % RES) as f32 / RES as f32, (i / RES) as f32 / RES as f32)).collect();
+        subcraft_image::TiledImage::from_dense(RES, RES, 1, [0.0; 4], &dense)
+    };
+    fx.maps.insert(MeshMapKind::AmbientOcclusion, ramp(|x, y| (0.3 + 0.7 * ((x * 5.0).sin() * (y * 3.0).cos() * 0.5 + 0.5)).clamp(0.0, 1.0)));
+    fx.maps.insert(MeshMapKind::Curvature, ramp(|x, y| (0.5 + 0.6 * ((x * 7.0).cos() * (y * 4.0).sin())).clamp(0.0, 1.0)));
+    let mut ts = texture_set(); let tc = ts.clone();
+    let mut layer = fill_layer(&tc, &[(ChannelKind::Roughness, ChannelValue::scalar(1.))]);
+    let mut mask = Mask::new(RES, false);
+    mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Generator(generator))));
+    layer.mask = Some(mask); ts.insert_above(None, layer);
+    composite_full(&ts, &fx.ctx()).channel(ChannelKind::Roughness).unwrap().to_dense()
+}
+
+#[test]
+fn generators_are_finite_bounded_and_deterministic_at_extreme_settings() {
+    for kind in [GeneratorKind::Edges, GeneratorKind::Cavity, GeneratorKind::Concave, GeneratorKind::Directional, GeneratorKind::PositionGradient] {
+        for (level, softness, noise, grain, invert) in [(0.0, 0.0, 0.0, 0.0, false), (0.5, 0.15, 0.3, 0.7, false), (1.0, 1.0, 1.0, 1.0, true), (0.2, 0.01, 1.0, 1.0, false)] {
+            let mut g = Generator::new(kind);
+            g.level = level; g.softness = softness; g.noise_amount = noise; g.invert = invert;
+            g.painter = Some(subcraft_doc::PainterControls { grain, edges_masking: 1.0, ao_masking: 1.0, grunge_floor: 1.0, smoothness: 1.0, ..Default::default() });
+            let a = generator_texels(g);
+            assert!(a.iter().all(|v| v.is_finite() && (0.0..=1.001).contains(v)), "{kind:?} {level} {softness} {noise} {grain}: out of range or NaN");
+            assert_eq!(a, generator_texels(g), "{kind:?}: evaluation is deterministic");
+        }
+    }
+}
+
+#[test]
+fn fine_grain_speckles_the_dirt_threshold() {
+    let mut g = Generator::new(GeneratorKind::Cavity);
+    g.level = 0.6; g.softness = 0.1; g.noise_amount = 0.2;
+    g.painter = Some(subcraft_doc::PainterControls::default());
+    let smooth = generator_texels(g);
+    g.painter = Some(subcraft_doc::PainterControls { grain: 1.0, ..Default::default() });
+    let grainy = generator_texels(g);
+    assert_ne!(smooth, grainy, "grain must change the mask");
+    assert!(grainy.iter().all(|v| v.is_finite()));
+}
+
+#[test]
+fn breakup_zero_is_exactly_smooth_whatever_the_grain() {
+    for kind in [GeneratorKind::Cavity, GeneratorKind::Edges] {
+        let mut g = Generator::new(kind);
+        g.level = 0.6; g.softness = 0.4; g.noise_amount = 0.0;
+        if let Some(e) = &mut g.edge_spread { e.distance = 0.0; e.variation = 0.0; }
+        g.painter = Some(subcraft_doc::PainterControls { grain: 0.0, ..Default::default() });
+        let clean = generator_texels(g.clone());
+        g.painter = Some(subcraft_doc::PainterControls { grain: 1.0, ..Default::default() });
+        let with_grain = generator_texels(g.clone());
+        assert_eq!(clean, with_grain, "{kind:?}: grain must not act at Breakup 0");
+        assert_eq!(clean, generator_texels(g), "{kind:?}: deterministic");
+        // Smooth input (a slow sine) gives no pixel-to-pixel jump above a small bound.
+        let jump = clean.chunks(RES as usize).flat_map(|row| row.windows(2).map(|w| (w[1] - w[0]).abs())).fold(0.0f32, f32::max);
+        assert!(jump < 0.2, "{kind:?}: max neighbour jump {jump}");
+    }
+}
+
+#[test]
+fn grain_fades_in_with_breakup() {
+    let mut g = Generator::new(GeneratorKind::Cavity);
+    g.level = 0.6; g.softness = 0.1; g.noise_amount = 0.3;
+    g.painter = Some(subcraft_doc::PainterControls { grain: 1.0, ..Default::default() });
+    let grainy = generator_texels(g.clone());
+    g.painter = Some(subcraft_doc::PainterControls::default());
+    assert_ne!(grainy, generator_texels(g), "grain still works once Breakup is up");
+}
+
+#[test]
+fn a_mesh_map_baked_below_the_set_resolution_is_sampled_smoothly_not_in_blocks() {
+    use subcraft_core::MeshMapKind;
+    let mut fx = Fixture::plane();
+    let half = RES / 2;
+    let dense: Vec<f32> = (0..half * half).map(|i| 0.1 + 0.8 * ((i % half) as f32 / half as f32)).collect();
+    fx.maps.insert(MeshMapKind::AmbientOcclusion, subcraft_image::TiledImage::from_dense(half, half, 1, [0.0; 4], &dense));
+    let mut ts = texture_set(); let tc = ts.clone();
+    let mut layer = fill_layer(&tc, &[(ChannelKind::Roughness, ChannelValue::scalar(1.))]);
+    let mut mask = Mask::new(RES, false);
+    let mut g = Generator::new(GeneratorKind::Cavity);
+    g.noise_amount = 0.0; g.painter = None; g.level = 0.5; g.softness = 1.0;
+    mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Generator(g))));
+    layer.mask = Some(mask); ts.insert_above(None, layer);
+    let out = composite_full(&ts, &fx.ctx()).channel(ChannelKind::Roughness).unwrap().to_dense();
+    let row = &out[(RES as usize / 2) * RES as usize..][..RES as usize];
+    let diffs: Vec<f32> = row[8..RES as usize - 8].windows(2).map(|w| (w[1] - w[0]).abs()).collect();
+    let (max, mean) = (diffs.iter().cloned().fold(0.0, f32::max), diffs.iter().sum::<f32>() / diffs.len() as f32);
+    assert!(max < mean * 1.6, "blocky: max step {max} vs mean {mean}");
 }

@@ -49,6 +49,15 @@ pub fn import_mesh_for_baking(path: &Path) -> Result<ImportReport, ImportError> 
     import(path, true)
 }
 
+/// Import an FBX held in memory (a model bundled into the program). `name` names the mesh.
+pub fn import_fbx_bytes(bytes: &[u8], name: &str) -> Result<ImportReport, ImportError> {
+    let mut b = MeshBuilder::new(name);
+    let mut warnings = Vec::new();
+    let scene = ufbx::load_memory(bytes, fbx_opts()).map_err(|e| ImportError::Fbx(format!("{:?}", e.description)))?;
+    fbx_scene(&scene, &mut b, &mut warnings);
+    finish(b, warnings, false)
+}
+
 fn import(path: &Path, bake_source: bool) -> Result<ImportReport, ImportError> {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
     let name = path.file_stem().and_then(|s| s.to_str()).unwrap_or("Mesh").to_string();
@@ -68,6 +77,10 @@ fn import(path: &Path, bake_source: bool) -> Result<ImportReport, ImportError> {
         "spp" => load_spp(path, &mut b, &mut warnings)?,
         other => return Err(ImportError::UnsupportedFormat(other.to_string())),
     }
+    finish(b, warnings, bake_source)
+}
+
+fn finish(b: MeshBuilder, mut warnings: Vec<String>, bake_source: bool) -> Result<ImportReport, ImportError> {
     let stats_pre = b.stats;
     let mesh = if bake_source { b.build_for_baking()? } else { b.build()? };
     let mut stats = stats_pre;
@@ -221,14 +234,22 @@ fn load_spp(path: &Path, b: &mut MeshBuilder, warnings: &mut Vec<String>) -> Res
     Ok(())
 }
 
-fn load_fbx(path: &Path, b: &mut MeshBuilder, warnings: &mut Vec<String>) -> Result<(), ImportError> {
-    let opts = ufbx::LoadOpts {
+fn fbx_opts() -> ufbx::LoadOpts<'static> {
+    ufbx::LoadOpts {
         target_axes: ufbx::CoordinateAxes::right_handed_y_up(),
         generate_missing_normals: true,
         ..Default::default()
-    };
+    }
+}
+
+fn load_fbx(path: &Path, b: &mut MeshBuilder, warnings: &mut Vec<String>) -> Result<(), ImportError> {
     let path_str = path.to_str().ok_or_else(|| ImportError::Fbx("non UTF-8 path".into()))?;
-    let scene = ufbx::load_file(path_str, opts).map_err(|e| ImportError::Fbx(format!("{:?}", e.description)))?;
+    let scene = ufbx::load_file(path_str, fbx_opts()).map_err(|e| ImportError::Fbx(format!("{:?}", e.description)))?;
+    fbx_scene(&scene, b, warnings);
+    Ok(())
+}
+
+fn fbx_scene(scene: &ufbx::Scene, b: &mut MeshBuilder, warnings: &mut Vec<String>) {
     let mut tri_indices: Vec<u32> = Vec::new();
     for node in scene.nodes.iter() {
         let Some(mesh) = node.mesh.as_ref() else { continue };
@@ -273,7 +294,6 @@ fn load_fbx(path: &Path, b: &mut MeshBuilder, warnings: &mut Vec<String>) -> Res
             }
         }
     }
-    Ok(())
 }
 
 /// Write a mesh as Wavefront OBJ (+MTL with material names). Used for test fixtures and
@@ -281,7 +301,8 @@ fn load_fbx(path: &Path, b: &mut MeshBuilder, warnings: &mut Vec<String>) -> Res
 pub fn write_obj(mesh: &Mesh, path: &Path) -> std::io::Result<()> {
     use std::io::Write;
     let mtl_path = path.with_extension("mtl");
-    let mut f = std::io::BufWriter::new(std::fs::File::create(path)?);
+    // Built in memory, then replaced atomically: a full disk never leaves a truncated OBJ.
+    let mut f: Vec<u8> = Vec::new();
     writeln!(f, "# SubCraft OBJ export")?;
     writeln!(f, "mtllib {}", mtl_path.file_name().and_then(|s| s.to_str()).unwrap_or("mesh.mtl"))?;
     for p in &mesh.positions {
@@ -306,11 +327,12 @@ pub fn write_obj(mesh: &Mesh, path: &Path) -> std::io::Result<()> {
             writeln!(f, "f {a}/{a}/{a} {b}/{b}/{b} {c}/{c}/{c}")?;
         }
     }
-    let mut m = std::io::BufWriter::new(std::fs::File::create(&mtl_path)?);
+    let mut m: Vec<u8> = Vec::new();
     for mat in &mesh.materials {
         writeln!(m, "newmtl {}\nKd 0.8 0.8 0.8\n", mat.name)?;
     }
-    Ok(())
+    subcraft_core::vfs::write(path, &f)?;
+    subcraft_core::vfs::write(&mtl_path, &m)
 }
 
 #[cfg(test)]

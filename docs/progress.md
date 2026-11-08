@@ -4355,3 +4355,289 @@ real cost of the big_project stack), and letting GPU-composited tiles fill the C
 * **Cause**: the wireframe/camera feature added two buttons and widened the View combo (92 -> 150), but `viewport_bar.rs` kept hard-coded breakpoints. At 1125 px the bar needed 1228 px (`brush_bar` tests `bar_fits_wide_wrapped_and_tiny_docks_and_hides_for_non_paint_tools` and `flow_and_hardness_open_independent_sliders_and_edit_shared_values` failed on Linux); at 600 px it needed 666 px.
 * **Fix**: wide View combo only from 660 px, wireframe/camera buttons only from 600 px (not reachable from the bar below that), inline brush bar from 1214 px (was 1094). Test's inline breakpoint changed to 1230 (stale assumption); overflow thresholds untouched. Effect: at 1125 px the brush controls now wrap under the view controls.
 * **Run here (Linux)**: `cargo test -p subcraft-ui --test brush_bar` 8/8; `cargo test --workspace` 172 result lines ok, 1135 passed, 0 failed, 2 ignored. Not run: Windows, a visual check of the app.
+
+## 2026-11-06 — Removed 13 built-in smart materials (branch `remove-13-materials`)
+
+* **Removed** (builders, `smart(...)` list entries, shelf `info(...)` lines): Mossy Stone, Scratched Plastic, Cracked Clay, Peeling Painted Wood, Rough Wood, Worn Rubber, Dry Mud (`smart_more.rs`); Snow Covered Stone, Weathered Brick, Charred Wood, Grimy Ceramic, Weathered Plaster, Mossy Wood (`smart_extra.rs`). The now-unused `pattern_inv` helper went with them. Built-in smart materials: 39 -> 26; masks unchanged (44). Other materials untouched.
+* **Tests**: `assets/src/tests.rs` count (26, 44) and the "folders of fill layers" name list; `app/tests/smart_content.rs` wanted-names list, `NEW_MATERIALS` (14 -> 8) and the PBR-values test lost its snow / char / brick assertions. Release notes of earlier versions (README 0.1.8 section) keep their historical counts.
+* **Not run**: the app itself (no hand check of the shelf); saved projects that reference a removed material by its smart-material id are unaffected because applied smart materials are copied into the project as plain layers.
+## 2026-11-06 — 30 normal maps + 4 alpha brushes added to the starter pack (branch `import-normal-maps-alphas`)
+
+* **Source**: `C:\Users\Rayan\Downloads\NormalMaps & Alphas` held 34 `.jfif` files (the brief said 35; there are 34: 30 + 4). Classified by looking at every image: 4 grayscale alphas (Phillips screw head, domed disc, Torx screw head, hex nut face), 30 tangent-space normal maps.
+* **Mechanism**: the existing CC0 starter pack (`crates/assets/src/starter.rs`, `assets/starter-pack/`, ADR-0009). Entries are appended (indices 160..194; the shelf filters by `Kind`, so order does not matter), PNGs are embedded via `include_bytes!`, 96 px thumbnails feed the shelf tiles, the preview/adjust window and the existing drag-to-Normal / apply paths (`asset_apply`) work unchanged. `texture_maps.rs` only matches file names and was not involved.
+* **Conversion**: normals 1024x1024 RGB PNG (lossless, `optimize`), alphas 512x512 grayscale PNG, thumbnails 96 px. Added size: 32.5 MB of full PNGs (only 354 KB of that is the 4 alphas; the generator's JPEG noise makes the normals compress poorly) + 0.38 MB thumbnails; pack total 59.7 -> 92.2 MB, which also grows the executable by that much. Smaller normals (512 px) would cut this to about a quarter.
+* **Tests**: `crates/assets/tests/starter.rs` catalog test (194 unique entries, 110 normals, 4 alphas at 512 px, byte total) and a new test that every new normal reads as tangent-space data (mean R,G near 0.5, B > 0.7) and every new alpha as a 1-channel mask; `subcraft-app` `asset_apply` and `brush_channel_drop` tests pass; workspace `cargo check --all-targets` clean.
+* **Not verified**: nothing was looked at in the running app (shelf tiles, drag, preview window). The images are AI-generated; some (rock pieces, screw heads, scars) are single objects rather than tiling surfaces, though the pack treats every normal as tileable and the preview's seamless setting applies.
+
+## 2026-11-06 — Normal Maps shelf tab (follow-up to `import-normal-maps-alphas`)
+
+* **Change**: the Shelf's Textures tab now lists only color-type images. Normal maps live in a new **Normal Maps** tab right after Textures: the starter pack's normals (80 + the 30 imported ones) and the user's own textures categorized "Normal" (they no longer appear under Textures). Same search box, Tileable / category / Starter pack chips, preview-size slider, click-to-preview and drag-and-drop (onto a Normal channel, the model or a layer) as before; the Import button and library-folder button reuse the textures import. Alphas stay under Brushes.
+* **Icon**: the bundled Phosphor font is a 53-glyph subset without a bumpy-surface glyph, so the tab's icon is drawn in code (`draw_bumps`: rounded tile with a wavy relief line, 1.5 px stroke like the font icons). The narrow-panel category combo lists the tab too; `--shelf-tab normal-maps` selects it.
+* **Compatibility**: the active shelf tab and its filter are not saved anywhere, so no stored preference changes; saved dock layouts are unaffected.
+* **Tests**: `preview_layout` (wrapping/overflow for every tab incl. Normal Maps; Textures is empty on a fresh install, so it asserts no starter normals there), footer/scroll fixtures moved to the Normal Maps tab, `inspector_tests` dock fixture likewise.
+## 2026-11-06 — Default panel layout: tab groups (branch `ui-tabs-default`)
+
+* **Check first**: `default_layout()` already put the 2D view in the 3D view's tab group (3D first/active) and Parts in the group with Texture Sets and History; only the visible tab of the bottom group was Parts (first tab). The default now activates Texture Sets there; 3D stays active in the main group. Tab order and the group structure are unchanged.
+* **Old layouts**: `DOCK_KEY` (`subcraft_dock_v5`) and `layout_is_valid` are untouched, so saved layouts load exactly as before (the change affects only a fresh/reset layout and `--shelf-panel`).
+* **Test**: `app::layout_tests::default_layout_groups_2d_with_3d_and_parts_with_texture_sets_with_the_main_views_visible` (same node + visible tab for both pairs). Not verified: nothing was looked at in the running app; if the user sees 2D beside 3D, that is an older saved layout (View > reset layout / `--reset-layout`).
+## 2026-11-06 — Sharper, better-scaled shelf material thumbnails (branch `shelf-material-previews`)
+
+* **Problem**: material / smart material spheres were rendered 96 px from a 128 px texture set, with fills laid out for a whole model (UV tiling ~1), so image materials (UV) showed half a tile across the sphere and procedural ones a few huge blobs.
+* **Preview-only tiling**: `app::thumbnails::zoom_out_tiling` multiplies every fill's projection scale in the preview layer (UV fills x3, triplanar/planar x1.6; nested folders are visited; mask effects are left alone). The shelf applies it in the Materials and Smart Materials jobs only; applying/saving an asset still uses the unchanged layer. Smart mask and environment thumbnails are unchanged.
+* **Resolution**: preview texture set 128 -> 256 (`THUMB_RESOLUTION`), rendered thumbnail 96 -> 160 px (`RENDER_THUMB`; alpha tips stay 96).
+* **Not stalling a frame**: measured with `cargo run --release -p subcraft-app --example thumb_cost -- <res> <boost>` (CPU composite of every built-in on the preview sphere, i7-class dev machine, release build): at 128 the composite was already 3.2 ms (materials, mean of 26) / 17.9 ms (smart materials, mean of 39, max 44.9) **on the UI thread**; at 256 it is 6.8 / 35.8 ms (max 86); 192: 4.7 / 23.9; 384: 11.1 / 56.3 (tiling boost itself is cost-neutral: 3.0 / 18.8 at 128). Since 256 would have cost several dropped frames per thumbnail, the composite (and the first-use sphere bake, 31 ms -> 120 ms for both scenes) now runs on a worker thread (`Compositing` in `panels/shelf.rs`); the UI thread only builds the layer, uploads the finished channels and starts the async GPU readback, one step per frame as before, and stays lazy (visible tab only, one thumbnail in flight).
+* **Tests**: `tests/session.rs::thumbnail_tiling_boost_repeats_fills_in_the_preview_only_and_leaves_the_asset_alone`; existing thumbnail scene tests, `subcraft-ui` lib tests and the shelf_brush / shelf_drop / shelf_import / preview_layout integration tests pass (two other ui test binaries, brush_material and new_project_window, failed to link here with LNK1140, a PDB size limit unrelated to this change, and were not run). **Not measured**: GPU render time of 160 px vs 96 px and the per-thumbnail upload of four 256 px channels (no GPU in this session); not seen in the app. The factors 3 / 1.6 are judgement, not tuned against a visual; "Travertine / Cobblestone / Tree Bark / Terrazzo" are not in this repository's built-in library (the open pack here has ten other materials), so they come from user/other-branch content and were not checked individually.
+## 2026-11-06 — Offset on mask generators (branch `generator-offset`)
+
+* **Check first**: fills (layer fills, mask fills, brush materials) already have an Offset in their Projection (UI "Offset" row). The mask `Generator` (Edges, Dirt, Directional, Position Gradient, Concave, Mesh Map) had Pattern size / Seed / Breakup but no way to slide its breakup noise, so that is what got the parameter.
+* **Field**: `Generator::offset: [f32; 3]`, object space in units of the model's longest dimension (the same unit as Pattern size; the editor shows percent, -100..100 %). `#[serde(default, skip_serializing_if = zero)]`: a zero offset is not written, old files load with none and old readers see no new key, so no schema bump (same precedent as `axis`).
+* **Engine**: the compositor adds the offset to the object position the breakup noise is sampled at, for the volume ("Reduce repetition"), the triplanar and the natural Edge-Spread noise fields (`organic_tile_at`, `procedural_tile_at`; the field cache key includes the offset only when non-zero, so unmoved patterns keep sharing cache entries; non-finite offsets from a damaged file are ignored). The command is the existing `Command::SetMaskEffect` (it carries the whole generator), so undo/redo and incremental recompositing work as for every other generator parameter.
+* **UI**: three sliders "Offset X/Y/Z" under Pattern size / Seed in the generator section of the Properties panel.
+* **Tests**: `compositor::generator_offset_slides_the_breakup_noise_through_the_model` (numeric golden from `organic::eval` at the offset position, zero offset bit-identical, triplanar noise moves), `project::generator_offset_round_trips_and_old_files_have_none`, `app::edge_level_spread::generator_offset_goes_through_set_mask_effect_changes_the_wear_and_undoes_and_redoes`. Not verified: the sliders in the running app. Fills and mask fills were not touched (they already have it); procedural generators in the filter/pattern sense (`ProceduralParams`) sit inside fills, where the Projection offset applies.
+## 2026-11-06 — Bake log (branch `bake-logs`)
+
+* **Check first**: the Bake window already showed one summary line (per-map seconds and CPU/GPU path) and the unmatched-part notices; nothing recorded cage misses, CPU fallbacks or skipped texture sets, and there was no copyable log. SubCraft has **no "Log panel"** (the docks are 3D, 2D, Layers, Properties, Brush, Texture Sets, Parts, History, Shelf); the application log is the rotating file `logs/subcraft.log`. So the log lives in the Bake window and every line is also written to that file through `log`.
+* **bake crate**: `Progress::warnings()` (reset per texture set like the reports). Partial high-poly misses add "Cage: N of M texels (x %) reached no high-poly surface ... Increase Cage front / rear or align the meshes."; AO/Thickness on the CPU because name matching is on (the GPU kernels cannot filter by part) adds a warning when the GPU was requested and available. The all-miss case is still the `NoProjection` error.
+* **app**: `BakeJob::log()` -> `BakeLogLine { at (s since start), level Info/Warning/Error, text }`, `bake_log_text(lines)` for the plain `[   1.2 s] warning: ...` form. Lines: request header (texture sets, size, maps, GPU requested/off), high poly path or "No high poly", per texture set start/finish with timing, one line per map ("Ambient Occlusion: 1.20 s on GPU (adapter)", a warning when the backend string says the GPU failed), bake warnings, unmatched parts, a skipped set (no UV-covered texels, as a warning) or failed set (error), a missing/unreadable high poly (error), cancel, total time.
+* **ui**: collapsible "Bake log" in the Bake window (open by default when there are warnings/errors, header counts them), monospace lines colored by level, "Copy log" copies the plain text. Kept after the bake until the next one starts.
+* **Tests**: `bake::partial_cage_misses_and_name_matching_on_the_cpu_are_warned_about`, `app/tests/session.rs::bake_log_records_timing_path_skipped_sets_and_a_missing_high_poly` (real worker thread), `ui::dialogs::bake_log_tests::the_bake_window_shows_the_log_and_marks_problems`. Not verified: GPU path lines (no GPU here: only "CPU" lines were produced), the Copy button reaching the system clipboard, the look of the section in the running app. "Missing material" warnings were not added: a texture set whose material slot has no texels is reported as skipped.
+## 2026-11-06 — Decal symmetry: checked, partly present, rest stopped (branch `decal-symmetry`)
+
+* **Already works**: the *projected* text decal ("Stamp projected" in the Text panel, `Session::stamp_text_projected`) is a brush dab, so it goes through the normal stroke machinery and follows the brush's mirror planes and radial symmetry. New test `app/tests/text.rs::projected_text_stamp_follows_mirror_and_radial_symmetry_like_a_brush_stroke` (cube, X mirror: coverage more than 1.6x of the single stamp; 4 radial copies paint more than one mirror).
+* **Not done (stopped, needs a decision)**: the *placed* text decal ("Place by clicking the model", `place_selected_text_at`) is one UV-space text layer with a single `center`; the document has no concept of several placements per layer, and `Session` has no multi-command undo step. Honouring symmetry there means either (a) extra sibling text layers per symmetric point (N undo entries, copies pile up when the text is re-placed unless tracked) or (b) a new multi-placement field in `TextDecal` plus a project-schema change, and in both cases a mirrored copy needs a rule for text orientation (the UV frame at the mirrored point can be flipped). Nothing of this was started; no code changes besides the test.
+## 2026-11-06 — World-space blur, smallest correct version (branch `world-space-blur`)
+
+* **What it is**: `subcraft_materials::world_blur::world_blur(geo, raster, comps, radius)` and `Session::world_blur_layer(layer, radius)`: a Gaussian whose radius is a distance over the mesh surface in model units (support radius, sigma = radius / 3, like the pixel Blur filter's support), so the blur is the same width where UVs stretch or squash. A paint layer's painted channels (not tangent-space Normal) are blurred in place, one undo step (`ReplaceLayer`, label "World-space Blur"); pen-path/text layers are refused (their raster is regenerated); radius must be within 0..0.5 x the model's longest dimension. UI: "World blur" radius + Blur button in the Properties panel of a paint layer.
+* **Algorithm**: every covered texel of the texture set is a surface sample (position, normal, world area per texel = triangle area / its UV texel count). Samples sit in a 3D grid with one-radius cells; each texel sums neighbours within the radius with `gaussian(d) * max(0, n_a . n_b) * area`. So UV seams are invisible to it, stretched and dense areas count by surface area, and the cosine gate stops the blur at hard edges and between the two faces of a thin part. Values are blurred premultiplied by coverage (last component of 2- and 4-component paint), gutters are re-padded with `dilate::apply_nearest`. Euclidean distance replaces geodesic distance (exact on flat areas, a slight underestimate around curvature).
+* **Design note, why not a stack filter**: the compositor's neighbourhood nodes (`Gaussian`, `Median`, `Contour`...) read a UV window of one tile's input plus a halo; a world-space filter reads texels from any tile of the set, so it needs a whole-set node with dependency tracking over all tiles of its input, incremental invalidation and prefix-cache marks (and a GPU path decision). That plumbing was not built. A later `Filter::WorldBlur` (also usable in masks) can reuse `world_blur` for one whole-set node once those exist.
+* **Tests**: `materials::world_blur::tests` (10-90 % rise width equals the Gaussian's both across and along a 4:1 stretched strip, flat values / zero or NaN radius unchanged, premultiplied coverage keeps colour, paint crosses a UV seam that is closed in 3D but not through a thin plate's other face), `app/tests/world_blur.rs` (one undo step, spreads and softens a stroke on a cube, total roughly kept, errors leave no history). Not measured: speed at 4096 px (one grid lookup of 27 cells per covered texel, rayon-parallel; a 4k set has up to ~16 M samples, so expect seconds); not looked at in the app.
+## 2026-11-06 — Depth of field in the 3D view (branch `depth-of-field`)
+
+* **Confirmed absent first**: no depth of field in `crates/render`, `crates/ui`, display settings or the `--quality` spec; only a line in `docs/missing-features.md` (removed).
+* **Render** (`post.rs` / `post.wgsl`): `PostParams { dof, dof_focus, dof_range }` (default off). Depth prepass (shared with SSAO), then one full-resolution gather pass over the finished scene: circle of confusion from view depth (zero in the sharp band, grows with relative distance, max radius = `dof * 5%` of the image height), 20-tap golden-angle disk with per-pixel rotation. A tap only counts when its own circle reaches the centre pixel, and taps behind the centre are limited to the centre's circle: no background halo around a sharp object, blurry foreground still spreads over the background. AO / bloom / glow land on the blurred picture. With `dof = 0` the frame is bit-identical.
+* **Display Settings** ("Render quality" window > Depth of field): Enable, Blur amount, Focus distance (multiple of the orbit distance, so it follows zoom; 1 = the orbit point), Focus range (% of model size), and **Pick in 3D view** (next click on the model sets the focus; Esc cancels). Stored in `ViewportPrefs` (`dof`, `dof_amount`, `dof_focus`, `dof_range`, serde defaults, off). Reset look restores them.
+* **Control protocol**: `--quality dof=1,dof-amount=0.6,dof-focus=1.0,dof-range=10` (`dof-amount` also switches it on).
+* **Exports**: texture export never uses post effects. File > Render image / Turntable already apply the other post effects, so they apply DoF when it is on.
+* **Tests**: `cargo test -p subcraft-render --test post` 10 passed (3 new: focused vs blurred bands, sharp-object-no-halo, orthographic; a plain absolute-gradient sharpness metric does not drop under blur, so the test uses mean squared gradient). New in `crates/ui/tests/render_quality.rs`: prefs default off / old-file load / round trip / clamping / mapping to `PostParams`.
+* **Measured** (RTX 4060, Vulkan, 1920x1080 sample crate, best of 4 rounds of 20 frames, incl. readback; `cargo test --release -p subcraft-render --test post dof_cost -- --ignored --nocapture`): plain 3.04 ms, SSAO 3.66 ms (+0.62), DoF 5.81 ms (+2.77). A 32-tap version cost +3.98 ms; 20 taps chosen, a bit noisier bokeh.
+* **Not verified**: by eye in the real app (no screenshots taken, mouse not driven); the focus picker click and the new settings widgets were not exercised; `cargo test -p subcraft-ui --test render_quality --test brush_bar` 12 passed (E: ran out of space once mid-run; a stale render artifact in the shared target dir needed a touch to rebuild).
+
+## 2026-11-06 — Substance Painter shortcuts + viewport hints (branch `painter-shortcuts`)
+
+* Keymap data in `crates/app/src/actions.rs`: 33 actions, two key sets (`KeymapPreset::SubCraft` default / `Painter`, Preferences → Keyboard shortcuts, `keymap` pref), `PAINTER_REFERENCE` (89 rows of Painter's documented list with status). Details and full table: `docs/painter-shortcuts.md`.
+* New gestures: Ctrl+Alt+LMB pan, Ctrl+RMB drag size/hardness, Ctrl+LMB drag flow/angle, V+click clone source. Menus/tooltips show the active key set; Help → Keyboard shortcuts is a searchable sheet.
+* Viewport hint overlay (`crates/ui/src/viewport_hints.rs`): context-sensitive (tool, Alt/Ctrl/Shift, hidden parts, stencil, mask, Rendering mode), keys from the active key set, rows cached until the context changes, View → Viewport hints toggle (pref `viewport.hints`).
+* Run: `cargo test -p subcraft-ui --lib` 88 passed, `cargo test -p subcraft-app --lib` 91 passed, `cargo check --workspace --tests` clean. NOT run: ui integration tests (disk on E: nearly full, link failed LNK1180), nothing exercised by hand in the running app (no mouse/keyboard driving).
+## 2026-11-06 — Properties panel polish, Brush folded into Properties (branch `properties-panel-polish`)
+
+* **Shared row pattern** (`widgets.rs`, tokens in `theme.rs`): `slider_row` is now label (12 px, dim) on its own line, slider beneath at `CONTROL_H` 24 px, quiet fixed-width numeric field (`VALUE_W` 54, dark inset, no outline) at the right; `slider_row_with` puts secondary actions on the label line's right edge. `prop_row` keeps a label column (38 % of width, max 92) and stacks the label above the control below 300 px. Spacing scale `SP_XS/S/M/L` = 4/8/12/16: rows 8 apart, sections get 4 above + 12 below. Section headers: title case semibold, caret, soft `BORDER_SOFT` hairline, hover tint only (no alternating bands on sections or property rows; list rows keep their bands). Controls use `RADIUS` 4 (was 2), card radius 6, softer card fill/border, slider rail 4 px on a darker `RAIL`, channel toggles are outlined `chip`s.
+* **Brush tab**: no longer in the default layout. `Properties` is context-sensitive (`properties::shows_brush`): paint layer / paint effect target -> brush settings; anything else -> that layer's properties. View > Brush settings and a Shelf double-click pin the brush view until the selection changes. Saved layouts with a Brush tab stay valid (`layout_is_valid` allows 0 or 1) and the tab is dropped on restore (`migrate_layout`); `legacy_layout()` keeps the old arrangement for tests.
+* **Tests changed on purpose**: `panel_bands` (sections/property rows are intentionally unbanded now; asserts spacing and the stacked label), `theme` (rail 3 -> 4), `material_layout` (button radius 2 -> `RADIUS`; section titles are no longer upper-case), `inspector_tests`/`brush_bar` (title-case section names, legacy layout for the Brush-tab routing), New Project window keeps its old 7 px row gap (height budget). New: `properties_polish` (context switch; no text spills out at 260/320/420/600 px wide, 100 % and 150 % scale, fill and paint layer), layout-migration and View-menu pin tests.
+* **Run**: `cargo test -p subcraft-ui` all passing (Windows). Not verified: actual look in the running app (no pixel snapshots exist; only geometry/contract tests), light theme (there is none), Linux.
+### Text discoverability + drag and drop (branch `text-ux-and-drop`)
+
+* Before: text lived only in Brush panel › Text (a collapsed section). Steps: open the Brush panel, expand
+  Text, type, *Add text layer (decal)*, then *Place by clicking the model*, then click the model.
+* Now: **Aa** button in Layers next to Paint/Fill/Folder, Layer menu + Ctrl+Shift+T (`Action::NewTextLayer`),
+  row context menu *Add text layer…* / *Edit text…*, double-click a text layer to edit. New-text window
+  (`text_panel::window`) → *Add and place on model* arms click-to-place. No control-protocol command changed
+  (there is none for text; `Action::NewTextLayer` is a new action).
+* Drops: drop targets now say what will happen (row, mask thumbnail, top zone, viewport pill); alphas are
+  draggable (`ShelfDrag::Alpha`) and go into a mask as an Image effect (`Session::apply_alpha_to_mask`).
+* Alt: `apply_shelf_item_with(.., alt, ..)` — Alt+click/drop material = `Session::apply_material_to_layer`
+  (fill layers), texture = active channel, alpha = mask; unsupported combinations toast the reason.
+* Tests: `crates/app/tests/shelf_apply.rs`, `crates/ui/tests/text_and_alt.rs`, actions shortcut test.
+* Not verified by eye in the real app; drag-to-place with a move/rotate/scale gizmo is not done (click places;
+  rotation/size/position are sliders in the editor).
+* Results (headless, run): `subcraft-app` shelf_apply 3/3, text 8/8, actions unit tests; `subcraft-ui` text_and_alt 6/6,
+  layer_tree 10/10, shelf_drop 3/3, shelf_brush 4/4. Note: worktrees sharing one cargo target dir can link a stale
+  `subcraft-app` rlib from another worktree (same relative paths); touching sources forces a rebuild.
+### Session 114 - Mesh-map generators: Painter's own controls (2026-11-06, branch `generators-painter-accuracy`)
+
+Goal was Dirt / Edge Wear behaving like Painter's. Findings, not a full rebuild:
+* The graphs in the user's projects expose more controls than the importer used. `mg_dirt`: `dirt_level`, `dirt_contrast`, `grunge_amount`, `Grunge_Scale`, `edges_masking`. `mg_metal_edge_wear`: `Wear_Level`, `Wear_Contrast`, `Grunge_Amount`, `grunge_scale`, `Edges_Smoothness`, `Ambient_Occlusion_Masking`, `Curvature_Weight`. Only the level/contrast/grunge amount were read. The `Micro_Details_*` controls are all at their defaults in these projects.
+* `Generator.painter: Option<PainterControls>` (edges masking, AO masking, curvature weight, smoothness, grunge scale). `None` / neutral values leave a generator exactly as before; not written to project files when absent (test).
+* The importer sets them from the tweaks; strengths are `Tuning.painter` (`SUBCRAFT_SPP_PAINTER="em,am,sm,gs"`), defaults 0 / 2 / 0 / 2, chosen by gate sweeps (edges masking made CarInteriro worse, smoothness had no measurable effect).
+* Lab: `gens` (every mesh-map generator's tweaks and mask chain) and `genfit` (Painter's effective mask per generator-only layer).
+* Per-layer recovery of Painter's masks did not work on these projects: DBAL-A2's generator-only layers are all overridden by layers above them (0 valid texels), CarInteriro's one dirt layer is ambiguous (bimodal at fixed AO). So the level/contrast response curves are still the earlier calibrated remapping, NOT Painter's.
+* Gate at 512 (Base Color / Roughness / Metallic), before -> after: CarInteriro 0.0093 / 0.0326 / 0.0026 -> 0.0092 / 0.0326 / 0.0026; DBAL-A2 0.0145 / 0.0421 / 0.0455 -> 0.0145 / 0.0414 / 0.0455; Street_cyberpunk unchanged (no such generators). Gains are within a few percent: effectively unchanged.
+* Tests: doc/project/compositor new tests pass; `subcraft-app` lib, spp_stack, spp_open, edge_corners pass. Full workspace run not done (E: was out of space for a while).
+* Not verified by eye in the app. No UI controls for the new fields yet.
+
+### Session 114b - Dirt matched against Painter's own mask (2026-11-06)
+
+* Reference: CarInteriro's one `mg_dirt` layer (dirt_level 0.16, dirt_contrast 0.42, grunge_amount 0.61). Painter's effective mask recovered with `spp_lab genfit` (now also writes our mask, `our_<k>.f32`), over the two objects (5, 6) where nothing else masks the layer; the other objects carry an object-wide mask from folders/layers above, so they were left out.
+* Mean mask value by baked-AO bin (0.0, 0.1, ... 0.9), Painter vs ours: 0.98/0.73/0.41/0.24/0.14/0.10/0.10/0.10/0.11/0.09 vs 0.93/0.69/0.40/0.24/0.12/0.08/0.09/0.07/0.07/0.07. 10th/90th percentile per bin agree within about 0.05 below AO 0.4 and the tail's within about 0.06. Share of texels above 0.5: 0.268 vs 0.263. Mean absolute mask error 0.069 -> 0.061.
+* The existing level/contrast mapping (`dirt: level [0.85, -0.5], soft [0.3, 0.4]`) already reproduced Painter's transfer curve for this layer (a single parameter point: level 0.16 / contrast 0.42); what was missing was the grunge tail over unoccluded surfaces. `PainterControls.grunge_floor` (strength 0.23 x `grunge_amount`, contrast-stretched breakup noise, never above 1) adds it.
+* Gate at 512 (Base Color / Roughness / Metallic / Normal / Height): CarInteriro 0.0093 / 0.0326 / 0.0026 / 0.0024 / 0.0040 -> 0.0086 / 0.0326 / 0.0026 / 0.0024 / 0.0040; DBAL-A2 0.0145 / 0.0421 / 0.0455 / 0.0014 / 0.0010 -> 0.0145 / 0.0414 / 0.0455 / 0.0014 / 0.0009; Street_cyberpunk unchanged.
+* Not matched: the level and contrast response is verified at one parameter point only (the project's other dirt layers are overridden or masked, so no per-layer reference); Metal Edge Wear has no usable reference mask at all (DBAL-A2's generator-only wear layers have no texels where they are visible), so edge wear is unchanged apart from the AO masking constant; Painter's grunge texture itself is not reproduced (distribution only).
+## 2026-11-06 — Interface languages: 繁體中文 and 한국어 (branch `i18n-zh-hant-ko`)
+
+* **Framework** (`crates/ui/src/i18n.rs`): English text is the key, `tr("...")` / `trf("... {} ...", &[..])`; untranslated text stays English. Language `English | 繁體中文 | 한국어` in Preferences > Interface, saved as `Preferences::language` (`#[serde(default)]`, so old settings load as English), applied every frame via `i18n::sync` (no restart; fonts are reinstalled only on a change). Tables: `i18n/ko.rs`, `i18n/zh_hant.rs` (~280 texts each). See `docs/localization.md` (terminology table, how to add texts).
+* **Fonts**: no CJK font is bundled (many MB each); a system font is loaded as fallback (Malgun Gothic / Microsoft JhengHei, Apple SD Gothic Neo / PingFang, Noto Sans CJK, ...), or `SUBCRAFT_CJK_FONT`. Preferences warns when none is found.
+* **Wrapped** (by pattern: menu items, buttons, checkboxes, labels, hover tooltips up to 130 characters, section titles): header menus, dock tab titles, shelf category tabs, Preferences, Properties panel, welcome screen / quick start, Bake and Render/Export windows, viewport bar, layer panel buttons, texture sets, parts.
+* **Not yet wrapped**: any text built with `format!` (counts, file names, status-bar messages, error messages), text in `RichText::new(format!(..))`, tooltips longer than 130 characters, the Layers panel's context menus and effect-stack names, mask / generator / filter names coming from `subcraft-doc` (`label()` methods), the Brush bar and brush panel, the Text panel, the History panel entries ("Add Layer" ... come from the app crate), the Export window's template names, shelf asset names and categories, keyboard shortcut help, the Update/Crash windows, dialogs' native file pickers, and all of `subcraft-app` messages. They stay English until wrapped.
+* **Both translations were written by hand and need a native-speaker review** (also stated in `docs/localization.md`).
+* **Tests**: `i18n::tests` (every table key is used by a `tr("...")` call, every wrapped text is translated, placeholders match, right script, fill order, language preference round trip, font candidates). Not verified: how it looks in the running app (glyph rendering with the system fonts, text overflow in narrow panels, tab widths).
+## Pen stroke latency (2026-11-06, branch `pen-stroke-latency`)
+
+Report: painting with a pen on a graphics tablet was "really slow". No hardware, OS or file was
+available, so this is measured with a synthetic pen stream (`cargo run --release -p subcraft-app
+--example pen_stroke_bench -- [res] [layers] [brush_px] [textured 0|1] [frame|event|batch] [mid|top]`:
+500 Hz events, pressure 0.15..1 driving size and flow, S-curve over 800 ms, 60 fps frames, the
+calls the viewport makes, headless: GPU upload is not measured, only the tiles it would upload).
+
+Findings (read + measured):
+* Cost does not scale with the event rate. The viewport fed one `stroke_to` per frame (the last
+  pointer position); stamps are spaced by distance, so a frame at 60 fps places 0..2 stamps.
+  Per-event calling (`event` mode) is about the same total cost.
+* Cost scales with brush footprint x texture size: one 300 px soft stamp touches 40-110 tiles
+  (2048² / 4096²) and every stamp re-rasterized those tiles' triangles and re-tested visibility.
+  Thread-sum split on a 4096² stamp: rasterize ~60 %, footprint ~35 %, tile rewrite the rest.
+* Every touched tile was rewritten, re-composited and re-uploaded, even when the stamp added no
+  coverage there (the stamp region covers whole triangles).
+* Session overhead (document clone, geometry lookup, store) is ~0 ms; sync + upload bookkeeping
+  per frame < 0.5 ms. The 40-layer case is bound by background compositing (see below).
+
+Fixes (output unchanged: `raster_cache_gives_identical_strokes` compares texel-for-texel against the
+original path, incl. symmetry and a tip image; `crates/app/tests/stroke_many.rs`):
+* `Stroke` keeps the visible texel samples of each tile per camera for the life of the stroke
+  (bounded at 3M samples, dropped when cameras / mesh / visibility settings change).
+  `SUBCRAFT_NO_RASTER_CACHE=1` or `Stroke::without_raster_cache` selects the original path.
+* Tiles whose coverage did not change are not rewritten and not reported as changed.
+* The viewport now stamps along every pointer position of a frame (`Session::stroke_to_many`,
+  one pass) instead of only the last one: a fast pen curve is no longer cut into one chord per frame;
+  cost equals the single-point path. Mouse at one position per frame is bit-identical.
+
+Numbers (this PC, other builds running in the background, so only the pairs measured back to back
+are comparable; ms per `stroke_to` call, p50 frame in brackets; 10 layers, paint layer mid-stack):
+| case | before | after |
+|---|---|---|
+| 1024², 1 layer, 300 px soft | 3.0 (3.3) | 1.9 (1.3) |
+| 2048², 300 px soft | 4.6 (5.0) | 2.9 (3.1) |
+| 2048², 300 px textured tip | 9.6 (9.4) | 3.6 (3.7) |
+| 4096², 300 px soft | 26.3 (18.9; p95 80) | 17.4 (16.1; p95 60) |
+| 4096², 40 layers | 33.7 (17.7) | 26.7 (12.3), tiles reach the screen ~0.8 s late either way |
+
+Not fixed / not verified: at 4096² a 300 px soft brush is still ~17 ms per stamp on the CPU (first
+touch of a tile pays rasterization; footprint evaluation over every sample of every touched tile),
+so 60 fps needs GPU stamping or culling stamp-vs-tile before evaluating; with 40 layers the stroke is
+limited by background compositing throughput (a stroke dirties ~30 tiles per frame, the worker
+finishes ~5), not by stamping. Not reproducible without the streamer's hardware: tablet driver
+behaviour (Wacom Windows Ink vs WinTab, events delivered per frame), OS, DPI scaling, GPU upload and
+frame pacing. Mouse/pen pressure per sample inside a frame is still the last value of the frame.
+## 2026-11-07 — Default texture resolution is 2048
+
+* New projects already defaulted to 2048 (`NewProjectSettings`); `DEFAULT_RESOLUTION` (sample crate, models opened without the New Project window, SPP import, mesh reload fallback) was 1024 and is now 2048. Saved projects store each set's resolution explicitly, so existing files keep their size. 256-4096 (and 128 in the Texture Sets panel) stay in every resolution list. Unchanged: the Bake window size default (1024), UV unwrap packing resolution, example binaries.
+## 2026-11-07 — New logo and warm charcoal palette (branch branding-logo-orange-tint)
+
+* **Logo**: master art is the traced vector in `branding/make_assets.py` (2 ribbon polygons + a quadratic star, 0.991 IoU against the supplied 1254 px JPEG). It generates `branding/*` (orange PNG, white-on-transparent PNG, two SVGs, GitHub social preview), `apps/subcraft/assets/icon.ico` (16/24/32/48/64/128/256), `crates/ui/assets/icon.png` (window icon), `crates/ui/assets/logo-mark.png` (header mark) and `packaging/linux/subcraft.png` (also the source of the macOS .icns, built by `scripts/build-macos.sh`).
+* **UI**: the only logo is the 22 pt header mark (`theme::brand_mark`). Welcome, About, startup and empty states never had artwork and still have none.
+* **Palette**: surfaces and borders moved to hue ~25 deg, 5% HSL saturation, lightness kept (BG_1 36,36,36 to 38,36,34, etc.); text and accent untouched.
+* **Not verified by eye**: the new header mark and tint in the running app.
+
+## 2026-11-07 — SubCraft_base.fbx is the default model
+
+* `assets/models/SubCraft_base.fbx` (481 KB, the user's own model) is compiled into the program (`subcraft_assets::default_model`, `include_bytes!`) and imported from memory by the new `subcraft_mesh::import_fbx_bytes`; nothing extra to install. `Session::default_model()` is what starts the app, what File > New (sample model) and the welcome screen's "Try the sample" open, and what `--demo` builds on. `Session::sample()` (the old crate) stays as a fixture because many geometry tests are written against it.
+* Inspected with the importer (`cargo run -p subcraft-mesh --example model_stats -- file.fbx`): 18,720 triangles, 9,629 vertices, 2 objects (Cylinder, Sphere), 1 material (`DefaultMaterial`, so one texture set), Y-up, 198.5 x 132.2 x 198.5 units (centimetres in the file; SubCraft's tools scale with the bounds diagonal, so no rescale), UVs 0.001-0.81 u and 0.001-0.999 v in one tile, no overlapping texels at 1024², normals present and agreeing with the winding of all triangles, no importer warnings. No loading-path fixes were needed.
+* Odd: the model is one material, so painting by part uses the two objects rather than two texture sets; the UVs fill only the left 81 % of the tile.
+* Tests: `crates/app/tests/default_model.rs` (stats, UV range, no overlap, normals, texture set, resolution). Not run: the app itself.
+
+## Session 115: generator look (grain, defaults), property tests
+
+- `PainterControls.grain` (serde default 0): a noise six times finer than the breakup that speckles Dirt's threshold and erodes
+  the Spread band of Edge wear (up to 65% of its reach, so the real edge stays solid). New Dirt and Edges generators get
+  grain 0.7 (Dirt also edges masking 0.5 and a 0.1 grunge floor); Spread defaults are now 2.5 / Variation 0.8. Older projects
+  load with `painter` absent and keep their exact look. Grain is not applied to the plain Edges threshold path.
+- Contact sheets in `docs/generators/` (before/after, see its README). Checked by eye: wear is chipped and uneven instead of a
+  ruler-straight line, dirt breaks up in grains; on convex shapes with no cavities dirt is only the grunge tail (as in Painter).
+- Tests: finite/bounded/deterministic output at extreme settings for every generator kind; grain changes the mask.
+  Existing legacy tests pin their old settings (`painter = None`). `cargo test -p subcraft-doc -p subcraft-compositor -p subcraft-project -p subcraft-app` passes.
+- Performance at 2048: the 12-16 s recomposite was the example harness using the system heap, not the app (which uses mimalloc).
+  With mimalloc the same recomposite takes 0.13-0.52 s at 2048 (see docs/generators/README.md). No algorithmic change was needed.
+- Not done: gravity streaks, mirrored/overlapping-UV bake test, a bake-side change (`texels` keeps the first triangle of
+  overlapping UVs, deterministic; mirrored symmetric geometry bakes correctly, asymmetric overlap cannot).
+* **Default material:** the default model starts with the **Dusty Plastic** smart material (glossy red plastic, dust on upward faces) under the empty paint layer, built into the starting document (not an edit; `is_modified()` is false). Before this nothing was applied: a new session had only an empty paint layer, so the model showed the plain default grey; the wood-and-moss look came only from `--demo`, which still adds its own layers on top. Pinned by `the_default_model_starts_with_the_dusty_plastic_smart_material_under_an_empty_paint_layer`.
+
+## 2026-11-06 — Side-by-side 3D | 2D (branch `split-view-slide`, based on `ui-tabs-default`)
+
+* **Check first**: SubCraft had no 3D/2D split view: they are tabs in one group, and the dock library already lets the user drag any divider both ways (and save the ratio with the layout under `subcraft_dock_v5`) once two panes exist. What was missing was a way to get the two views into separate panes.
+* **Added**: View > "Side-by-side 3D | 2D" (and back: "Tab 2D view behind 3D view"). It puts the 2D view in its own pane right of the 3D view at 50/50; the divider drags horizontally, and the dock state, including the ratio, is saved and restored as a whole like every other layout edit (`toggle_side_by_side`, `is_side_by_side` in `ui/src/app.rs`). Old layouts are untouched; `layout_is_valid` accepts the result.
+* **Test**: `layout_tests::side_by_side_splits_2d_beside_3d_with_a_saved_ratio_and_toggles_back` (horizontal split 0.5, still a valid layout after changing the fraction, toggles back with 3D visible); ui lib tests 79 pass. Not verified: dragging the divider and the save/load of a dragged ratio in the running app (a JSON round trip of a never-drawn dock fails on NaN pane rectangles, so that part is by design of the existing mechanism, not tested here).
+
+## Painter layout parity (branch painter-layout-parity)
+
+- Default layout now mirrors Substance Painter: right column TEXTURE SET LIST, then LAYERS | TEXTURE SET SETTINGS, then PROPERTIES - <KIND>; left ASSETS | HISTORY | PARTS; nothing below the 3D view (2D view is a tab behind it). `DOCK_KEY` is `subcraft_dock_v6`; old layouts (with the Texture Sets tab) fail to parse and fall back to this one. Brush settings stay inside Properties (no separate tab).
+- New panels in `crates/ui/src/panels/texture_sets.rs`; the old Texture Sets tab is retired. Settings: name (rename command), size dropdown (linked width/height lock shown engaged, square sets only), channels with format badge and `+` (AddChannel), mesh map rows with generated thumbnails, Bake Mesh Maps button, X per map via the new `Command::ClearMeshMap`.
+- Read-only / not supported: description (no field in the project schema), shader instance (single "Main shader"), channel format gear and channel remove X (no engine command; layers store per-channel data), non-square sizes.
+- Assets shelf: breadcrumb, search, always-visible icon category row (no dropdown), square tiles with per-category fallback icon, bottom icon toolbar (import / library folder) with preview-size slider. No filter/generator/text assets exist in the shelf data, so those categories are not listed.
+- Verified: unit tests (`texture_sets`, layout, shelf footer) and `session::clear_mesh_map_*`; native screenshots in `docs/ui/painter-layout/` (`--texture-set-settings` launch option added). Known pre-existing failure: `i18n::every_translated_key_exists...` (4 stale keys unrelated to this work).
+
+### Painter layout parity, round 2
+- Properties (Fill layers): FILL block (Projection dropdown wired to `SetFillProjection`; Filtering and UV Wrap shown disabled: no engine field; UV transformations group with a disabled Scale dropdown, Tiling sliders with link toggle, Rotation, Offset sliders), then MATERIAL block with Painter-order channel buttons (color metal rough nrm height ao emiss, toggled through `ToggleFillChannel`/`AddFillChannel`) and a disabled "Material mode / No Resource Selected" box. Section headers everywhere are now bold capitals without icons.
+- Default split fractions: list 10% of the right column, Layers | Texture Set Settings about 38%, Properties the rest; shelf about 20% of the window. Layout test checks the shares.
+- Capture options: `--bake-low` (bake all maps low-on-low), `--select-layer NAME`; with `--texture-set-settings --bake-low` the settings panel scrolls to the Mesh Maps rows.
+- i18n: stale keys removed and the new/renamed texts translated; the lib tests pass (100).
+- Still different: lock toggle uses a check/x glyph (the icon font has no lock), Fill rows use the existing slider widget style, Texture Set List keeps a minimum height, Paint/Filter/Generator panels got the header style only.
+
+### Normal-map brush (stamp a screw or nail normal map onto the model)
+- Clicking a normal map in Shelf > Normal Maps (Starter pack or Mine) makes it the active brush (new `ImageStamp` in `BrushMaterial`, `crates/paint/src/settings.rs`; session state in `crates/app/src/stamp_brush.rs`). The Properties column shows a NORMAL MAP BRUSH block with a live lit preview (`paint::image_stamp::render_preview`) and size, strength, rotation, random rotation, spacing, edge softness, flip green, Single stamp / Tiled and Back to normal brush. Double-click opens the preview window, which has Use as normal-map brush and, for grayscale images, Use as height brush (paints Height).
+- Painting: each stamp lays the image in the stamp's screen frame, converts the XY slope into the texel's UV tangent space (per-triangle frame, rotation rotates the normal XY), and the stroke accumulates `[Σw·slope, Σw]` per texel (weights above 1 average, so dense spacing does not stack strength). The layer texel is the whiteout blend (`core::normal::whiteout`) of that slope over the normals the layer already holds, lerped by the stroke coverage (soft round rim, `hardness`). Flat map areas change nothing; data channels are never colour-transformed. Tiled mode samples the image in UV space anchored at the stroke start.
+- The first stroke enables the layer's Normal channel (adds the channel to the texture set if missing, sets the layer blend to Normal Map Combine if it was off), inside the stroke's document change: one undo step. Other channels stay untouched; selecting the brush solos Normal in the brush channel list and Back to normal brush restores the previous channels, spacing and hardness. Presets embed the stamp image (`images`), older presets load unchanged.
+- Verified: `cargo test -p subcraft-core -p subcraft-paint` (paint 11 new tests in `crates/paint/tests/normal_stamp.rs` + 7 unit tests in `image_stamp.rs`: flat stamp changes nothing, tilted stamp over flat gives (0.6,0,0.8), rotation 90/180, strength 0 / 0.5, flip green, whiteout over an existing normal, unit length, soft edge, tiled pattern, height stamp, dense spacing does not stack) and `cargo test -p subcraft-app --test stamp_brush` (6: first stroke enables Normal and only Normal, one undo step incl. the channel switch, solo / restore, erase ignores the stamp, height stamp, preset round trip incl. old presets). Real app (release build, `--capture-tool normal-brush-panel|normal-brush`): `docs/ui/normal-brush/panel.png`, `strokes.png`. `cargo test -p subcraft-app --lib` has one failure, `actions::tests::every_action_is_listed_once` (33 vs 32), in code this work did not touch.
+- Not verified / left: mouse-driven click on a tile in a live window (the scripted capture calls the same `queue_stamp` path, and its async load was seen progressing); pen pressure and symmetry were not exercised on a stamp stroke (they share the unchanged stamp pipeline); export and bake read the composited Normal channel like any other layer, with no stamp-specific path; a Height stamp writes absolute heights (no add-to-existing mode); mirrored (symmetry) stamps mirror the image like any mirrored footprint.
+
+### Generator micro effect (branch `generator-micro-effect`)
+- Every generator has `micro: Option<MicroEffect>` (`doc/src/mask.rs`: enabled, amount 0..1 = 0..0.1 height units, Raise/Carve, grain follows). Serde default + skipped when absent, so no schema bump; old files open with it off (project test removes the key from a real file). Properties: checkbox plus Amount / Raise-Carve / Grain follows (tr() + zh-Hant/ko).
+- Compositor (graph path, `compositor/src/stages.rs`): new nodes `MicroDelta` (height change from the running mask right after the generator, the same mask the layer uses, evaluated once and shared), `MicroHeight` (adds it) and `MicroNormal` (central-difference slope of the delta with a one-texel halo across tiles, whiteout-blended into the existing normal, re-normalised; texels with no slope are untouched). Applies to what is accumulated below the generator's layer; nothing happens when no layer below wrote that channel, so no channel is created. Normal-only stacks change only the Normal; Height stacks change both consistently. The generator layer's own Height/Normal blends are ignored (a colour-only dirt layer works); the texture set's channel list is respected. Layer base-colour opacity scales the effect.
+- Routing: `has_spatial` is true for a layer whose mask has an active micro generator, so the graph path is used, the GPU compositor declines the set (`Unsupported::Spatial`) and the CPU result is what you see; dirty-tile expansion adds one texel. OFF: not a single extra branch evaluated per tile (the predicate is a mask-effect scan).
+- Tests: `compositor/tests/micro_effect.rs` (8: OFF bit-identical incl. amount 0, ON changes Height/Normal only where the mask (plus one texel for the normal) is, Raise/Carve and Amount scaling, unit-length normals, flat outside, no channels created, normal-only stack, determinism + incremental cache equals full, grain toggle), doc unit tests (2), project round-trip + old-file test. Results: compositor micro 8/8, doc 17/17, ui lib 101/101, project and compositor/materials suites see below. `subcraft-app --lib`: 92 pass, 1 fails (`actions::tests::every_action_is_listed_once`, 33 vs 32 listed actions, in the shortcut table this change does not touch).
+- Verified in a render (`micro_sheet` example, images and iterations in `docs/generators/micro-effect/`); timings in `docs/performance.md`.
+- Not verified: the Properties panel in the running window (only the ui lib tests, no screenshot of the new rows); a surface layer with a real baked normal map; GPU path (declines by design).
+## 2026-11-07 — smooth and sharp (branch `smooth-and-sharp`)
+
+Root causes of "AO band is blocky with dirt-like breaks at Breakup 0" and "everything looks pixelated at 2K":
+
+* New Dirt (Cavity) / Edges generators carry `PainterControls.grain = 0.7`; grain speckled the threshold even at Breakup 0. Grain now fades in with Breakup (`grain * clamp(breakup * 4, 0, 1)`), so Breakup 0 is exactly smooth whatever Grain is.
+* The Bake window defaulted to 1024² for a 2048² texture set, and `MeshMaps::read_tile` point-sampled a map of a different size: 2 x 2 blocks. It now samples bilinearly, and the Bake window follows the largest targeted set's resolution until the user picks a size.
+* AO/thickness bakes were 32 rays per texel with a per-texel rotation and no filtering (33 discrete levels + grain). They now get a 3 x 3 binomial smooth over covered texels (`smooth_covered`).
+* Checked, not the cause: viewport samplers are linear + mipmapped; the 512² quick preview only appears with >= 128 stale tiles and the full composite replaces it. Branch `fix/viewport-texture-limit` is NOT merged (device-limit clamp, irrelevant at 2048).
+* Tests: compositor (breakup 0 smooth/deterministic, grain fades in, low-res map sampled smoothly), bake (smoothing). bake/compositor/materials suites pass. Not verified: before/after screenshots in the real app, `subcraft-ui --lib` run, and `subcraft-app` lib test `actions::tests::every_action_is_listed_once` fails (in code this change does not touch; not investigated).
+## High-poly alignment and Bake window redesign (2026-11-08)
+
+Baking an AI-generated high poly (Tripo etc.) needs the two meshes to overlap. Added a per-project
+**placement** of the high-poly source plus a new Bake window.
+
+* `core::BakePlacement`: `p' = anchor + offset + R * S * (p - pivot)`; offset (relative to model
+  size), uniform + per-axis scale, XYZ rotation, pivot (origin / bounds centre), anchor (keep / low
+  centre / low origin); `center_on_low`, `pivot_to_low_origin`, `auto_fit_scale` (height / longest axis /
+  fit both) and `auto_align`. Saved in `ProjectSettings.bake_placement`, absent = identity (no schema bump).
+* `Mesh::transformed`, `bake::place_high` (same `Arc` for the identity; the file on disk is never changed);
+  the bake job applies it before the BVH is built and logs the placement.
+* Overlay: the high poly shares one GPU vertex buffer and is drawn with its own transform + opacity
+  uniform, so sliders only write a uniform (no per-frame rebuild; works for million-triangle meshes).
+* Bake window rebuilt as cards: Models, Placement, Maps to bake (icon + tooltip), Quality, Viewport and a
+  pinned Bake card with a progress bar, one status line per map (waiting / running / done / warning + time)
+  and a collapsed **Details** log (still copyable). `--bake-place auto,center,origin,offset=x:y:z,scale=s,rot=x:y:z`
+  for scripted runs. All new texts go through `tr()` (ko / zh-Hant tables extended).
+* Cage / distance logic checked with known shapes (`bake/src/placement_tests.rs`): front and rear misses and
+  hits at the exact distance, a 4% larger cube, fractions follow the larger of the low / high diagonals.
+  **No bug found.** Note: `diag = max(low diag, placed high diag)`, so scaling the high poly changes the
+  absolute reach; AO sampling was not touched.
+* Found by running the app: the overlay pipeline layout was vertex-only while the shader reads the opacity
+  in the fragment stage (validation error, overlay invisible). Fixed, with a headless render test
+  (`bake_overlay_high_poly_follows_the_placement_transform_and_opacity`). The per-map status was also
+  wrong while baking (finished maps stayed "waiting", "-0.0 s"); fixed with live tracking and a monotonic test.
+
+Tests (`cargo test` of core, bake, mesh, doc, project, app, ui, render): 722 passed, 1 failed.
+The failure is `ui/tests/emission_chip.rs` (a "+ emiss" chip expectation in the Properties panel); none
+of the touched files are involved, and it was not run against the base commit, so it is not confirmed
+pre-existing. New tests: placement maths (7), `transformed` (3), bake placement / distance (7), project
+round trip with old-file defaults + CLI plumbing (app session), placement UI + Bake window (ui), render overlay.
+
+Verified in the real release app (RTX 4060, DX12): `subcraft crate_low.obj --bake-high crate_high_misaligned.obj`
+with `--bake-preview` shows the misaligned blue/red overlay; `--bake-place auto` aligns it (scale 0.7407); a real
+bake produces all nine maps and the grooves / rivets appear in the baked normal map. Screenshots are in
+`docs/ui/highpoly-align/` (before/after Bake window, misaligned and aligned overlay, baked result, running bake,
+small 1000x640 window). Not verified: a real Tripo model, million-triangle overlay speed, interactive dragging of
+sliders (only scripted captures), and keyboard / touch use of the new window.

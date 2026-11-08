@@ -108,6 +108,22 @@ pub struct SurfacePoint {
 }
 
 impl Mesh {
+    /// A copy with every position moved by `m` (normals by the inverse transpose, tangent
+    /// directions by the linear part, winding flipped for mirroring transforms) and the bounds
+    /// recomputed. UVs, materials and object identity are untouched.
+    pub fn transformed(&self, m: &glam::Mat4) -> Mesh {
+        let mut out = self.clone();
+        let lin = glam::Mat3::from_mat4(*m);
+        let det = lin.determinant();
+        let nm = if det.abs() > 1e-20 { lin.inverse().transpose() } else { lin };
+        for p in &mut out.positions { *p = m.transform_point3(*p); }
+        for n in &mut out.normals { *n = (nm * *n).normalize_or_zero(); }
+        for t in &mut out.tangents { let d = (lin * t.truncate()).normalize_or_zero(); *t = d.extend(if det < 0. { -t.w } else { t.w }); }
+        if det < 0. { for tri in out.indices.chunks_exact_mut(3) { tri.swap(1, 2); } }
+        out.bounds = Aabb::from_points(out.positions.iter().copied());
+        out
+    }
+
     pub fn triangle_count(&self) -> usize {
         self.indices.len() / 3
     }
@@ -262,13 +278,18 @@ impl MeshBuilder {
         i
     }
 
-    pub fn push_triangle(&mut self, material: u32, c: [Corner; 3]) {
+    pub fn push_triangle(&mut self, material: u32, mut c: [Corner; 3]) {
         if c.iter().any(|c| !c.position.is_finite()) {
             self.stats.non_finite_dropped += 1;
             return;
         }
+        // NaN / infinite UVs (broken exporters) count as "no UV" instead of poisoning rasterization.
+        for corner in &mut c {
+            if corner.uv.is_some_and(|uv| !uv.is_finite()) { corner.uv = None; }
+        }
         let area = (c[1].position - c[0].position).cross(c[2].position - c[0].position).length();
-        if area <= 1e-12 {
+        // `!(area > eps)` also catches NaN / infinite areas from absurdly large coordinates.
+        if !(area > 1e-12 && area.is_finite()) {
             self.stats.degenerate_dropped += 1;
             return;
         }
@@ -488,5 +509,25 @@ mod tests {
         let c = |p: [f32; 3]| Corner { position: Vec3::from(p), normal: None, uv: None };
         b.push_triangle(m, [c([0.0, 0.0, 0.0]), c([1.0, 0.0, 0.0]), c([0.0, 1.0, 0.0])]);
         assert!(matches!(b.build(), Err(BuildError::NoUvs)));
+    }
+
+    #[test]
+    fn hostile_input_is_dropped_or_repaired_never_poisons_the_mesh() {
+        let mut b = MeshBuilder::new("hostile");
+        let m = b.material("m");
+        let c = |p: [f32; 3], uv: Option<[f32; 2]>, n: Option<[f32; 3]>| Corner { position: Vec3::from(p), normal: n.map(Vec3::from), uv: uv.map(Vec2::from) };
+        // good triangle with a NaN normal on one corner and a NaN UV on another
+        b.push_triangle(m, [c([0., 0., 0.], Some([0., 0.]), Some([f32::NAN, 0., 0.])), c([1., 0., 0.], Some([f32::NAN, 1.]), None), c([0., 1., 0.], Some([0., 1.]), None)]);
+        // good triangle with valid UVs
+        b.push_triangle(m, [c([0., 0., 1.], Some([0., 0.]), None), c([1., 0., 1.], Some([1., 0.]), None), c([0., 1., 1.], Some([0., 1.]), None)]);
+        // zero area, NaN position, and coordinates so large the area overflows
+        b.push_triangle(m, [c([0., 0., 2.], Some([0., 0.]), None); 3]);
+        b.push_triangle(m, [c([f32::NAN, 0., 0.], Some([0., 0.]), None), c([1., 0., 0.], Some([1., 0.]), None), c([0., 1., 0.], Some([0., 1.]), None)]);
+        b.push_triangle(m, [c([0., 0., 0.], Some([0., 0.]), None), c([3e38, 0., 0.], Some([1., 0.]), None), c([0., 3e38, 0.], Some([0., 1.]), None)]);
+        assert_eq!((b.stats.degenerate_dropped, b.stats.non_finite_dropped), (2, 1));
+        let mesh = b.build().expect("two good triangles remain");
+        assert_eq!(mesh.indices.len(), 6);
+        assert!(mesh.normals.iter().all(|n| n.is_finite() && (n.length() - 1.0).abs() < 1e-4));
+        assert!(mesh.uvs.iter().all(|u| u.is_finite()) && mesh.tangents.iter().all(|t| t.is_finite()));
     }
 }

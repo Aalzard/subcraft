@@ -312,7 +312,7 @@ fn symmetry_popup_owns_all_axes_and_lazy_mouse_while_sidebar_has_no_duplicates()
         |ui| subcraft_ui::panels::brush::show(&mut state, ui),
     );
     sidebar.textures_delta.clear();
-    assert!(position(&sidebar, "STROKE").is_none());
+    assert!(position(&sidebar, "Stroke").is_none());
     assert!(position(&sidebar, "Symmetry").is_none());
     assert!(position(&sidebar, "Lazy mouse").is_none());
     assert!(position(&sidebar, "Eraser").is_none());

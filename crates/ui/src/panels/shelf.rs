@@ -1,6 +1,7 @@
 //! Shelf: materials, smart materials, smart masks, brush alphas and environments, with rendered
 //! thumbnails. Clicking applies the asset through the session (undoable where it edits layers).
 
+use crate::i18n::tr;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -24,17 +25,73 @@ pub enum ShelfDrag {
     /// An image from Shelf → Textures (drop on a channel row to use it there).
     Texture(usize),
     Starter(usize),
+    /// A brush alpha (Shelf → Brushes): onto a mask it becomes the mask shape.
+    Alpha(usize),
+}
+
+/// A Shelf click: a material swaps the material of the selected fill layer (or adds one when
+/// no fill layer is selected); everything else does what a drop does.
+pub fn click_shelf_item(s: &mut UiState, item: ShelfDrag, now: f64) {
+    if let ShelfDrag::Material(i) = item {
+        let Some(m) = s.library.materials.get(i).cloned() else { return };
+        match s.session.apply_material(&m) {
+            Ok(swapped) => {
+                if swapped { s.set_status(format!("Material swapped to {} (drag it onto the Layers panel to add a new layer)", m.name), now); }
+                s.recovery.autosaver.request_soon();
+            }
+            Err(e) => s.set_status(e.to_string(), now),
+        }
+        return;
+    }
+    apply_shelf_item(s, item, now);
 }
 
 /// Apply a material / smart material (inserted above the selected layer of the selected
-/// texture set) or a smart mask (on the selected layer). Shared by clicks and drops.
+/// texture set) or a smart mask (on the selected layer). Used by drops.
 pub fn apply_shelf_item(s: &mut UiState, item: ShelfDrag, now: f64) {
+    apply_shelf_item_with(s, item, false, now);
+}
+
+/// What dropping `item` will do, for the drop-target highlight. `target` names the layer under
+/// the cursor; `on_mask` is true over a mask thumbnail.
+pub fn drop_label(item: ShelfDrag, alt: bool, target: Option<&str>, on_mask: bool) -> String {
+    let t = target.map_or(String::new(), |n| format!(" \"{n}\""));
+    match item {
+        ShelfDrag::Material(_) if alt => format!("Replace the material of{t}"),
+        ShelfDrag::Material(_) => format!("Add material layer above{t}"),
+        ShelfDrag::SmartMaterial(_) if alt => "Smart materials are added as a folder: release Alt".to_string(),
+        ShelfDrag::SmartMaterial(_) => format!("Add smart material above{t}"),
+        ShelfDrag::SmartMask(_) => format!("Apply mask to{t}"),
+        ShelfDrag::Texture(_) | ShelfDrag::Starter(_) if alt => format!("Use this image in the active channel of{t}"),
+        ShelfDrag::Texture(_) | ShelfDrag::Starter(_) => format!("Add texture layer above{t}"),
+        ShelfDrag::Alpha(_) if on_mask || target.is_some() => format!("Use this alpha in the mask of{t}"),
+        ShelfDrag::Alpha(_) => "Set as brush tip".to_string(),
+    }
+}
+
+/// `apply_shelf_item` with the Alt reading (Substance-Painter style): Alt applies the item
+/// *in place* to the selected layer instead of creating a layer.
+/// * Material: replaces the selected fill layer's channels (name, blending and mask are kept).
+/// * Texture: sets the active channel of the selected fill layer.
+/// * Alpha: becomes an image effect of the selected layer's mask (adds the mask); without Alt it
+///   is the brush tip.
+/// * Smart material: no in-place form; says so instead of doing nothing.
+/// * Smart mask: always applies to the selected layer.
+pub fn apply_shelf_item_with(s: &mut UiState, item: ShelfDrag, alt: bool, now: f64) {
+    let layer = s.session.selection().layer;
+    let selected_fill = s.session.selected_layer().is_some_and(|l| matches!(l.content, LayerContent::Fill(_)));
     let result = match item {
         ShelfDrag::Starter(i) => {s.asset_preview.queue(&s.session,i,None);Ok(())},
+        ShelfDrag::Material(i) if alt => match (s.library.materials.get(i).cloned(), layer) {
+            (Some(m), Some(l)) if selected_fill => s.session.apply_material_to_layer(l, &m).map_err(|e| e.to_string()),
+            (Some(_), _) => Err("Alt+click replaces a fill layer's material: select a fill layer first (a click without Alt adds a new layer)".to_string()),
+            (None, _) => Ok(()),
+        },
         ShelfDrag::Material(i) => match s.library.materials.get(i).cloned() {
             Some(m) => s.session.add_material(&m).map_err(|e| e.to_string()),
             None => Ok(()),
         },
+        ShelfDrag::SmartMaterial(_) if alt => Err("A smart material is a folder of layers, so Alt cannot apply it in place: click without Alt to add it".to_string()),
         ShelfDrag::SmartMaterial(i) => match s.library.smart_materials.get(i).cloned() {
             Some(m) => s.session.add_smart_material(&m).map_err(|e| e.to_string()),
             None => Ok(()),
@@ -43,8 +100,24 @@ pub fn apply_shelf_item(s: &mut UiState, item: ShelfDrag, now: f64) {
             Some(m) => s.session.apply_smart_mask(&m).map_err(|e| format!("{e} (select a layer first)")),
             None => Ok(()),
         },
+        ShelfDrag::Texture(i) if alt => match (s.textures.items.get(i).map(|t| t.path.clone()), layer) {
+            (Some(p), Some(l)) if selected_fill => {
+                let channel = s.active_channel;
+                s.session.set_fill_channel_image(l, channel, &p).map(|()| s.set_status(format!("Set {} from the image", channel.display_name()), now))
+            }
+            (Some(_), _) => Err("Alt+click puts the image in the active channel of the selected fill layer: select a fill layer first".to_string()),
+            (None, _) => Ok(()),
+        },
         ShelfDrag::Texture(i) => match s.textures.items.get(i).map(|t| t.path.clone()) {
             Some(p) => s.session.add_texture_layer(&p).map(|name| s.set_status(format!("Added \"{name}\" as a fill layer"), now)),
+            None => Ok(()),
+        },
+        ShelfDrag::Alpha(i) => match s.library.alphas.get(i).cloned() {
+            Some(a) if alt => match layer {
+                Some(l) => s.session.apply_alpha_to_mask(l, &a).map(|()| s.set_status(format!("Using \"{}\" in the mask (Properties: projection)", a.name), now)).map_err(|e| e.to_string()),
+                None => Err("Select a layer first: the alpha goes into its mask".to_string()),
+            },
+            Some(a) => { s.session.set_brush_alpha(&a); s.set_status(format!("Brush tip: {} (Alt+click or drag it onto a mask to use it there)", a.name), now); Ok(()) }
             None => Ok(()),
         },
     };
@@ -57,14 +130,23 @@ pub fn apply_shelf_item(s: &mut UiState, item: ShelfDrag, now: f64) {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ShelfTab {
     Textures,
+    /// Tangent-space normal maps (the starter pack's and the user's), apart from color textures.
+    NormalMaps,
     Materials,
     SmartMaterials,
     SmartMasks,
+    /// Filters: click adds one to the selected layer, or swaps the selected filter's type.
+    Filters,
     Brushes,
     Environments,
 }
 
+/// Size of the grayscale alpha thumbnails.
 const THUMB: u32 = 96;
+/// Size of the rendered material / environment thumbnails (the composite behind them is
+/// `subcraft_app::thumbnails::THUMB_RESOLUTION` square; both are sized to stay sharp in the
+/// largest shelf tile, 160 points, without costing a visible frame: see `generate_one_thumbnail`).
+const RENDER_THUMB: u32 = 160;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum SceneKind {
@@ -78,14 +160,27 @@ pub struct ShelfUi {
     pub filter: crate::panels::shelf_filter::ShelfFilter,
     filter_tab: ShelfTab,
     thumbs: HashMap<AssetId, egui::TextureHandle>,
-    sphere: Option<PreviewScene>,
-    baked_sphere: Option<PreviewScene>,
+    sphere: Option<Arc<PreviewScene>>,
+    baked_sphere: Option<Arc<PreviewScene>>,
+    /// Thumbnail being composited on a worker thread (the composite is far longer than a frame).
+    compositing: Option<Compositing>,
     renderer: Option<(ViewportRenderer, Option<SceneKind>)>,
     /// Thumbnail whose pixels are on their way back from the GPU.
     pending: Option<(AssetId, subcraft_render::PendingReadback)>,
     /// Thumbnails of the visible tab are still being rendered (scripted screenshots wait).
     pub busy: bool,
 }
+
+/// A thumbnail composite running off the UI thread. The worker also builds the preview scene on
+/// first use (its mesh bakes take a good fraction of a second at thumbnail resolution).
+struct Compositing {
+    id: AssetId,
+    kind: SceneKind,
+    env_index: Option<usize>,
+    rx: std::sync::mpsc::Receiver<(Arc<PreviewScene>, subcraft_compositor::Composite)>,
+}
+
+type LayerBuilder = Box<dyn Fn(&subcraft_doc::TextureSet) -> Layer + Send>;
 
 impl Default for ShelfUi {
     fn default() -> Self {
@@ -96,6 +191,7 @@ impl Default for ShelfUi {
             thumbs: HashMap::new(),
             sphere: None,
             baked_sphere: None,
+            compositing: None,
             renderer: None,
             pending: None,
             busy: false,
@@ -192,7 +288,7 @@ pub(crate) fn tile(ui: &mut Ui, side: f32, thumb: Option<&egui::TextureHandle>, 
             .show(ui.ctx(), |ui| {
                 egui::Frame::popup(ui.style()).show(ui, |ui| {
                     ui.label(RichText::new(format!("{}  {name}", crate::icons::PLUS)).color(theme::TEXT));
-                    ui.label(RichText::new("Drop on the model or a layer").small().color(theme::TEXT_FAINT));
+                    ui.label(RichText::new(tr("Drop on the model or a layer")).small().color(theme::TEXT_FAINT));
                 });
             });
         ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
@@ -205,7 +301,8 @@ pub(crate) fn tile(ui: &mut Ui, side: f32, thumb: Option<&egui::TextureHandle>, 
             painter.image(t.id(), img.shrink(1.0), egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), Color32::WHITE);
         }
         None => {
-            painter.text(img.center(), egui::Align2::CENTER_CENTER, crate::icons::IMAGE, theme::font(20.0), theme::TEXT_FAINT);
+            let icon = ui.data(|d| d.get_temp::<&'static str>(egui::Id::new("shelf_fallback_icon"))).unwrap_or(crate::icons::IMAGE);
+            painter.text(img.center(), egui::Align2::CENTER_CENTER, icon, theme::font(24.0), theme::TEXT_FAINT);
         }
     }
     let stroke = if selected {
@@ -284,13 +381,21 @@ fn handle_drops(state: &mut UiState, ui: &Ui, now: f64) {
     if !over || dropped.is_empty() {
         return;
     }
+    state.drops_taken = true;
     let smart_tab = state.shelf.tab == ShelfTab::SmartMaterials;
     let paths: Vec<std::path::PathBuf> = dropped
         .into_iter()
         .filter(|p| smart_tab || p.is_dir() || p.extension().is_some_and(|e| e.eq_ignore_ascii_case("scsmart")))
+        .filter(|p| !p.extension().is_some_and(|e| e.eq_ignore_ascii_case("spsm")))
         .collect();
     if !paths.is_empty() {
         crate::files::import_smart_materials(state, &paths, now);
+    }
+    // Painter smart materials go onto the selected texture set, as when dropped on the viewport.
+    for path in ui.ctx().input(|i| i.raw.dropped_files.iter().map(|f| f.path().to_path_buf()).collect::<Vec<_>>()) {
+        if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("spsm")) {
+            crate::files::import_painter_smart_material(state, &path, now);
+        }
     }
 }
 
@@ -331,14 +436,31 @@ pub(crate) fn tip_thumbnail(state: &UiState, tip: &str) -> Option<egui::TextureI
 }
 
 /// Underlined text tab.
+/// Icon of the Normal Maps tab. The icon font has no bumpy-surface glyph, so it is drawn: a
+/// rounded tile with a wavy relief line, in the weight of the font icons.
+const BUMPS: &str = "bumps-icon";
+
+fn draw_bumps(painter: &egui::Painter, center: egui::Pos2, color: Color32) {
+    let stroke = egui::Stroke::new(1.5, color);
+    painter.rect_stroke(egui::Rect::from_center_size(center, egui::vec2(14.0, 14.0)), 3.0, stroke, egui::StrokeKind::Inside);
+    let wave: Vec<egui::Pos2> = (0..=10).map(|i| {
+        let t = i as f32 / 10.0;
+        egui::pos2(center.x - 5.0 + 10.0 * t, center.y + 2.0 * (t * std::f32::consts::TAU * 1.5).sin())
+    }).collect();
+    painter.add(egui::Shape::line(wave, stroke));
+}
+
 fn shelf_tab(ui: &mut Ui, current: &mut ShelfTab, value: ShelfTab, icon: &str, label: &str) {
     let selected = *current == value;
-    let text = format!("{icon}  {label}");
+    let drawn = icon == BUMPS;
+    let text = if drawn { format!("      {label}") } else { format!("{icon}  {label}") };
     let color = if selected { theme::TEXT } else { theme::TEXT_FAINT };
     let galley = ui.painter().layout_no_wrap(text, theme::font_strong(12.0), color);
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(galley.size().x + 16.0, 34.0), egui::Sense::click());
     let color = if resp.hovered() && !selected { theme::TEXT_DIM } else { color };
-    ui.painter().galley_with_override_text_color(rect.center() - galley.size() / 2.0, galley, color);
+    let text_pos = rect.center() - galley.size() / 2.0;
+    if drawn { draw_bumps(ui.painter(), egui::pos2(text_pos.x + 7.0, rect.center().y), color); }
+    ui.painter().galley_with_override_text_color(text_pos, galley, color);
     if selected {
         ui.painter().rect_filled(egui::Rect::from_min_max(egui::pos2(rect.left(), rect.bottom() - 2.0), rect.right_bottom()), 0.0, theme::ACCENT);
     }
@@ -354,89 +476,21 @@ fn shelf_hint(ui: &mut Ui, text: &str) {
 pub fn show(state: &mut UiState, ui: &mut Ui) {
     let now = ui.input(|i| i.time);
     handle_drops(state, ui, now);
-    egui::Frame::new().inner_margin(egui::Margin { left: 6, right: theme::PAD, top: 0, bottom: 0 }).show(ui, |ui| {
-    ui.horizontal_wrapped(|ui| {
-        ui.spacing_mut().item_spacing.x = 0.0;
-        let narrow = ui.available_width() < 720.0;
-        let tab = &mut state.shelf.tab;
-        if narrow {
-            let label = match tab { ShelfTab::Textures => "Textures", ShelfTab::Materials => "Materials", ShelfTab::SmartMaterials => "Smart Materials", ShelfTab::SmartMasks => "Smart Masks", ShelfTab::Brushes => "Brushes", ShelfTab::Environments => "Environments" };
-            egui::ComboBox::from_id_salt("shelf_category").selected_text(label).width(144.0).show_ui(ui, |ui| {
-                for (kind, name) in [(ShelfTab::Textures,"Textures"),(ShelfTab::Materials,"Materials"),(ShelfTab::SmartMaterials,"Smart Materials"),(ShelfTab::SmartMasks,"Smart Masks"),(ShelfTab::Brushes,"Brushes"),(ShelfTab::Environments,"Environments")] {
-                    ui.selectable_value(tab, kind, name);
-                }
-            });
-        } else {
-        shelf_tab(ui, tab, ShelfTab::Textures, crate::icons::IMAGE, "Textures");
-        shelf_tab(ui, tab, ShelfTab::Materials, crate::icons::DROP, "Materials");
-        shelf_tab(ui, tab, ShelfTab::SmartMaterials, crate::icons::SPARKLE, "Smart Materials");
-        shelf_tab(ui, tab, ShelfTab::SmartMasks, crate::icons::MASK, "Smart Masks");
-        shelf_tab(ui, tab, ShelfTab::Brushes, crate::icons::PAINT_BRUSH, "Brushes");
-        shelf_tab(ui, tab, ShelfTab::Environments, crate::icons::SUN, "Environments");
-        }
-        ui.spacing_mut().item_spacing.x = 8.0;
-        ui.add_space(16.0);
-        match state.shelf.tab {
-            ShelfTab::Textures => {
-                if ui.button(format!("{}  Import textures…", crate::icons::DOWNLOAD)).clicked() {
-                    crate::files::pick(ui.ctx(), crate::files::Purpose::ShelfTextures, crate::files::IMAGES, true, None);
-                }
-                library_folder_button(ui, state, subcraft_app::assets::UserAssetKind::Texture);
-                shelf_hint(ui, "Imported maps become one material. Drag a texture onto a channel in Properties (Base Color, Normal…), or onto the model / a layer for a new fill layer.");
-            }
-            ShelfTab::Materials => {
-                if ui.button(format!("{}  Import texture set…", crate::icons::DOWNLOAD)).clicked() {
-                    crate::panels::layers::import_texture_set_dialog(ui.ctx());
-                }
-                shelf_hint(ui, "Select a texture's maps (color, roughness, normal…) to make one fill layer.");
-            }
-            ShelfTab::Brushes => {
-                if ui.button(format!("{}  Import alpha…", crate::icons::DOWNLOAD)).clicked() {
-                    crate::files::pick(ui.ctx(), crate::files::Purpose::Alpha, crate::files::ALPHAS, false, None);
-                }
-                library_folder_button(ui, state, subcraft_app::assets::UserAssetKind::Alpha);
-            }
-            ShelfTab::Environments => {
-                if ui.button(format!("{}  Import HDRI…", crate::icons::DOWNLOAD)).clicked() {
-                    crate::files::pick(ui.ctx(), crate::files::Purpose::Hdri, crate::files::PANORAMAS, false, None);
-                }
-                library_folder_button(ui, state, subcraft_app::assets::UserAssetKind::Environment);
-                let width = ui.max_rect().width().min(300.0);
-                for (label, value, range) in [("Rotation", &mut state.env.rotation_deg, -180.0..=180.0), ("Intensity", &mut state.env.intensity, 0.1..=4.0)] {
-                    // Give compound sliders a known width before wrapping their parent row.
-                    ui.allocate_ui_with_layout(egui::vec2(width, 20.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                        ui.add_sized([60.0, 18.0], egui::Label::new(RichText::new(label).color(theme::TEXT_DIM)));
-                        ui.spacing_mut().slider_width = (ui.available_width() - 64.0).max(20.0);
-                        let slider = egui::Slider::new(value, range);
-                        ui.add(if label == "Rotation" { slider.suffix("°") } else { slider.logarithmic(true) });
-                    });
-                }
-            }
-            ShelfTab::SmartMasks => {
-                shelf_hint(ui, crate::keys::native("Applies to the selected layer. Edges / Cavity need baked maps (Ctrl+B)."));
-            }
-            ShelfTab::SmartMaterials => {
-                shelf_hint(ui, crate::keys::native("Wear and dirt follow baked curvature / AO (Ctrl+B). Drop .scsmart files or texture folders here to import."));
-                if ui.button(format!("{}  Import", crate::icons::DOWNLOAD)).on_hover_text("Import smart materials (.scsmart) or PBR texture sets (Color, NormalGL, Roughness…)").clicked() {
-                    import_smart_dialog(ui.ctx());
-                }
-                if ui.button(format!("{}  Import folder", crate::icons::FOLDER_OPEN)).on_hover_text("Import a folder of .scsmart files or PBR texture sets").clicked() {
-                    import_smart_folder_dialog(ui.ctx());
-                }
-            }
-        }
-    });
-    });
+    header(state, ui);
+    env_controls(state, ui);
     filter_row(state, ui);
-    crate::widgets::divider(ui);
     generate_one_thumbnail(state, ui.ctx());
+    let fallback = category_icon(state.shelf.tab);
+    ui.data_mut(|d| d.insert_temp(egui::Id::new("shelf_fallback_icon"), fallback));
     let mut action: Option<Box<dyn FnOnce(&mut UiState)>> = None;
     let mut lib_status: Option<String> = None;
     let filter = state.shelf.filter.clone();
     let mut shown = 0usize;
+    // Alt at the moment of the click: apply in place to the selected layer instead of adding one.
+    let alt = ui.input(|i| i.modifiers.alt);
     let grid_width = ui.available_width();
     let tile_size = (state.recovery.prefs.shelf_preview_size.clamp(48, 160) as f32).min((grid_width - 2.0 * f32::from(theme::PAD)).max(1.0));
-    let grid_height = (ui.available_height() - 44.0).max(0.0);
+    let grid_height = (ui.available_height() - 56.0).max(0.0);
     ui.allocate_ui_with_layout(egui::vec2(grid_width, grid_height), egui::Layout::top_down(egui::Align::Min), |ui| {
     egui::ScrollArea::vertical().id_salt("shelf").auto_shrink([false, false]).min_scrolled_height(0.0).max_height(grid_height).show(ui, |ui| {
         egui::Frame::new().inner_margin(egui::Margin::same(theme::PAD)).show(ui, |ui| ui.horizontal_wrapped(|ui| {
@@ -446,19 +500,25 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             if state.shelf.tab != ShelfTab::Brushes { shown += crate::asset_preview::shelf(state,ui,tile_size); }
             let thumbs = &state.shelf.thumbs;
             match state.shelf.tab {
-                ShelfTab::Textures => {
+                ShelfTab::Textures | ShelfTab::NormalMaps => {
+                    let normals = state.shelf.tab == ShelfTab::NormalMaps;
                     for (i, t) in state.textures.items.iter().enumerate() {
-                        if !filter.matches(&t.name, Some(t.category), true) {
+                        if (t.category == "Normal") != normals || !filter.matches(&t.name, Some(t.category), true) {
                             continue;
                         }
                         shown += 1;
-                        let resp = tile(ui, tile_size, t.thumb.as_ref(), &t.name, false, &format!("{} ({}): drag onto a channel, the model or a layer", t.name, t.category));
+                        let resp = tile(ui, tile_size, t.thumb.as_ref(), &t.name, false, &if normals { format!("{} (normal map): click to use it as the normal-map brush, double-click to preview and adjust. Drag onto a channel, the model or a layer. Alt+click: use it in the active channel of the selected fill layer", t.name) } else { format!("{} ({}): drag onto a channel, the model or a layer. Alt+click: use it in the active channel of the selected fill layer", t.name, t.category) });
                         resp.dnd_set_drag_payload(ShelfDrag::Texture(i));
                         if library_menu(&resp, state.user_library.as_ref(), &t.path, &mut lib_status) {
                             let path = t.path.clone();
                             action = Some(Box::new(move |s: &mut UiState| s.textures.remove(&path)));
                         }
-                        if resp.clicked() {
+                        if resp.clicked() && alt {
+                            action = Some(Box::new(move |s: &mut UiState| apply_shelf_item_with(s, ShelfDrag::Texture(i), true, now)));
+                        } else if normals && resp.clicked() && !resp.double_clicked() {
+                            let name=t.name.clone();let path=t.path.clone();let ctx=ui.ctx().clone();
+                            action = Some(Box::new(move |s: &mut UiState| { let UiState { asset_preview, session, .. } = s; asset_preview.start_stamp(&ctx,session,name,subcraft_assets::starter::Kind::Normal,crate::asset_preview::Source::File(path),subcraft_paint::StampKind::Normal); s.tool = crate::state::Tool::Brush; }));
+                        } else if resp.clicked() {
                             let name=t.name.clone();let path=t.path.clone();let ctx=ui.ctx().clone();
                             let kind=if t.category=="Normal" {subcraft_assets::starter::Kind::Normal} else {subcraft_assets::starter::Kind::Texture};
                             action = Some(Box::new(move |s: &mut UiState| s.asset_preview.start(&ctx,name,kind,crate::asset_preview::Source::File(path),true)));
@@ -471,10 +531,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                             continue;
                         }
                         shown += 1;
-                        let resp = tile(ui, tile_size, thumbs.get(&m.id), &m.name, false, &format!("{} ({}): click or drag onto the model / a layer", m.name, m.category));
+                        let resp = tile(ui, tile_size, thumbs.get(&m.id), &m.name, false, &format!("{} ({}): click or drag onto the model / a layer (adds a layer). Alt+click: replace the selected fill layer's material", m.name, m.category));
                         resp.dnd_set_drag_payload(ShelfDrag::Material(i));
                         if resp.clicked() {
-                            action = Some(Box::new(move |s: &mut UiState| apply_shelf_item(s, ShelfDrag::Material(i), now)));
+                            action = Some(Box::new(move |s: &mut UiState| if alt { apply_shelf_item_with(s, ShelfDrag::Material(i), alt, now) } else { click_shelf_item(s, ShelfDrag::Material(i), now) }));
                         }
                     }
                 }
@@ -499,7 +559,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                             }));
                         }
                         if resp.clicked() {
-                            action = Some(Box::new(move |s: &mut UiState| apply_shelf_item(s, ShelfDrag::SmartMaterial(i), now)));
+                            action = Some(Box::new(move |s: &mut UiState| apply_shelf_item_with(s, ShelfDrag::SmartMaterial(i), alt, now)));
                         }
                     }
                 }
@@ -562,8 +622,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                             continue;
                         }
                         shown += 1;
-                        let tip = if a.user_file.is_some() { "Brush tip (your library: right-click for options)" } else { "Brush tip" };
+                        let tip = if a.user_file.is_some() { "Brush tip (your library: right-click for options). Drag onto a layer's mask, or Alt+click, to use it as the mask shape" } else { "Brush tip. Drag onto a layer's mask, or Alt+click, to use it as the mask shape" };
                         let resp = tile(ui, tile_size, thumbs.get(&a.id), &a.name, a.name == current, tip);
+                        if a.bitmap.is_some() { resp.dnd_set_drag_payload(ShelfDrag::Alpha(i)); }
                         if let Some(file) = &a.user_file
                             && library_menu(&resp, state.user_library.as_ref(), file, &mut lib_status)
                         {
@@ -571,11 +632,33 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                                 s.library.alphas.remove(i);
                             }));
                         }
-                        if let Some(a) = brush_click(&resp, ui.ctx(), move |s: &mut UiState| {
+                        if alt && resp.clicked() {
+                            action = Some(Box::new(move |s: &mut UiState| apply_shelf_item_with(s, ShelfDrag::Alpha(i), true, now)));
+                        } else if let Some(a) = brush_click(&resp, ui.ctx(), move |s: &mut UiState| {
                             let a = s.library.alphas[i].clone();
                             s.select_shelf_brush(subcraft_app::brush_preset::ShelfBrush::Tip(&a), now);
                         }) {
                             action = Some(a);
+                        }
+                    }
+                }
+                ShelfTab::Filters => {
+                    let selected = selected_filter(&state.session);
+                    for f in subcraft_doc::Filter::ALL {
+                        let label = f.label();
+                        if !filter.matches(label, None, false) {
+                            continue;
+                        }
+                        shown += 1;
+                        let fits = state.session.shelf_filter_command(f).is_some();
+                        let tip = if fits { "Click: add to the selected layer, or swap the selected filter to this one" } else { "Select a layer first (some filters work on color channels or masks only)" };
+                        let resp = tile(ui, tile_size, None, label, selected.as_deref() == Some(label), tip);
+                        if resp.clicked() && fits {
+                            action = Some(Box::new(move |s: &mut UiState| {
+                                if let Some(cmd) = s.session.shelf_filter_command(f) {
+                                    s.run(vec![cmd], now);
+                                }
+                            }));
                         }
                     }
                 }
@@ -612,7 +695,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         }));
     });
     });
-    crate::widgets::preview_size_footer(ui, &mut state.recovery.prefs.shelf_preview_size, 48..=160);
+    bottom_toolbar(state, ui);
     if let Some(a) = action {
         a(state);
     }
@@ -622,6 +705,147 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     if state.shelf.tab != ShelfTab::Brushes || state.shelf.thumbs.len() < state.library.alphas.len() {
         ui.ctx().request_repaint_after(std::time::Duration::from_millis(30));
     }
+}
+
+/// Painter's category icon row, in its order. The shelf has no filter, generator or text assets
+/// (those are made from the layer menus), so those categories are not listed.
+const CATEGORIES: [(ShelfTab, &str, &str); 8] = [
+    (ShelfTab::Materials, crate::icons::DROP, "Materials"),
+    (ShelfTab::SmartMaterials, crate::icons::SPARKLE, "Smart Materials"),
+    (ShelfTab::SmartMasks, crate::icons::MASK, "Smart Masks"),
+    (ShelfTab::Filters, crate::icons::SLIDERS, "Filters"),
+    (ShelfTab::Brushes, crate::icons::PAINT_BRUSH, "Brushes"),
+    (ShelfTab::Textures, crate::icons::IMAGE, "Textures"),
+    (ShelfTab::NormalMaps, BUMPS, "Normal Maps"),
+    (ShelfTab::Environments, crate::icons::SUN, "Environments"),
+];
+
+fn category_icon(tab: ShelfTab) -> &'static str {
+    match tab {
+        ShelfTab::NormalMaps => crate::icons::GRID,
+        other => CATEGORIES.iter().find(|c| c.0 == other).map_or(crate::icons::IMAGE, |c| c.1),
+    }
+}
+
+fn category_name(tab: ShelfTab) -> &'static str {
+    match tab {
+        ShelfTab::Materials => tr("Materials"),
+        ShelfTab::SmartMaterials => tr("Smart Materials"),
+        ShelfTab::SmartMasks => tr("Smart Masks"),
+        ShelfTab::Filters => tr("Filters"),
+        ShelfTab::Brushes => tr("Brushes"),
+        ShelfTab::Textures => tr("Textures"),
+        ShelfTab::NormalMaps => tr("Normal Maps"),
+        ShelfTab::Environments => tr("Environments"),
+    }
+}
+
+/// Breadcrumb, search box and the row of category icons (always icons, never a dropdown).
+fn header(state: &mut UiState, ui: &mut Ui) {
+    ui.add_space(6.0);
+    ui.horizontal(|ui| {
+        ui.add_space(8.0);
+        ui.label(RichText::new(crate::icons::CARET_RIGHT).font(theme::font(11.0)).color(theme::TEXT_DIM));
+        ui.label(RichText::new(tr("All libraries")).font(theme::font_strong(12.0)).color(theme::TEXT));
+        ui.label(RichText::new("/").color(theme::TEXT_FAINT));
+        ui.label(RichText::new(category_name(state.shelf.tab)).font(theme::font(12.0)).color(theme::TEXT_DIM));
+    });
+    ui.add_space(4.0);
+    egui::Frame::new().inner_margin(egui::Margin::symmetric(8, 0)).show(ui, |ui| {
+        ui.horizontal(|ui| {
+            let (r, _) = ui.allocate_exact_size(egui::vec2(16.0, 16.0), egui::Sense::hover());
+            let stroke = egui::Stroke::new(1.6, theme::TEXT_DIM);
+            ui.painter().circle_stroke(r.center() - egui::vec2(1.5, 1.5), 5.0, stroke);
+            ui.painter().line_segment([r.center() + egui::vec2(2.0, 2.0), r.center() + egui::vec2(6.5, 6.5)], stroke);
+            let filter = &mut state.shelf.filter;
+            ui.add(egui::TextEdit::singleline(&mut filter.query).hint_text(tr("Search…")).desired_width(ui.available_width() - 28.0));
+            if !filter.query.is_empty() && crate::widgets::icon_button(ui, crate::icons::X, "Clear search").clicked() { filter.query.clear(); }
+        });
+    });
+    ui.add_space(4.0);
+    egui::Frame::new().inner_margin(egui::Margin::symmetric(8, 0)).show(ui, |ui| {
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing.x = 3.0;
+            for (tab, icon, _) in CATEGORIES {
+                let selected = state.shelf.tab == tab;
+                let (rect, resp) = ui.allocate_exact_size(egui::vec2(28.0, 26.0), egui::Sense::click());
+                let painter = ui.painter();
+                if selected { painter.rect_filled(rect, 2.0, theme::BG_4); } else if resp.hovered() { painter.rect_filled(rect, 2.0, theme::BG_3); }
+                let color = if selected { theme::TEXT } else { theme::TEXT_DIM };
+                if icon == BUMPS { draw_bumps(painter, rect.center(), color); }
+                else { painter.text(rect.center(), egui::Align2::CENTER_CENTER, icon, theme::font(16.0), color); }
+                if resp.on_hover_text(category_name(tab)).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() { state.shelf.tab = tab; }
+            }
+        });
+    });
+    ui.add_space(4.0);
+}
+
+/// Rotation / intensity of the viewport environment (only on the Environments category).
+fn env_controls(state: &mut UiState, ui: &mut Ui) {
+    if state.shelf.tab != ShelfTab::Environments { return; }
+    egui::Frame::new().inner_margin(egui::Margin::symmetric(8, 2)).show(ui, |ui| {
+        let width = ui.available_width();
+        for (label, value, range) in [("Rotation", &mut state.env.rotation_deg, -180.0..=180.0), ("Intensity", &mut state.env.intensity, 0.1..=4.0)] {
+            ui.allocate_ui_with_layout(egui::vec2(width, 20.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                ui.add_sized([60.0, 18.0], egui::Label::new(RichText::new(label).color(theme::TEXT_DIM)));
+                ui.spacing_mut().slider_width = (ui.available_width() - 64.0).max(20.0);
+                let slider = egui::Slider::new(value, range);
+                ui.add(if label == "Rotation" { slider.suffix("°") } else { slider.logarithmic(true) });
+            });
+        }
+    });
+}
+
+/// Bottom icon toolbar: the category's import / library-folder actions on the left, the
+/// preview-size slider on the right.
+fn bottom_toolbar(state: &mut UiState, ui: &mut Ui) {
+    use crate::widgets::icon_button;
+    crate::widgets::divider(ui);
+    type Pick = (crate::files::Purpose, (&'static str, &'static [&'static str]), bool);
+    let mut pick: Option<Pick> = None;
+    let mut folder: Option<subcraft_app::assets::UserAssetKind> = None;
+    egui::Frame::new().inner_margin(egui::Margin::symmetric(8, 3)).show(ui, |ui| {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 4.0;
+            match state.shelf.tab {
+                ShelfTab::Textures | ShelfTab::NormalMaps => {
+                    if icon_button(ui, crate::icons::DOWNLOAD, "Import textures…").clicked() { pick = Some((crate::files::Purpose::ShelfTextures, crate::files::IMAGES, true)); }
+                    folder = Some(subcraft_app::assets::UserAssetKind::Texture);
+                }
+                ShelfTab::Materials => {
+                    if icon_button(ui, crate::icons::DOWNLOAD, tr("Select a texture's maps (color, roughness, normal…) to make one fill layer.")).clicked() { crate::panels::layers::import_texture_set_dialog(ui.ctx()); }
+                }
+                ShelfTab::Brushes => {
+                    if icon_button(ui, crate::icons::DOWNLOAD, "Import alpha…").clicked() { pick = Some((crate::files::Purpose::Alpha, crate::files::ALPHAS, false)); }
+                    folder = Some(subcraft_app::assets::UserAssetKind::Alpha);
+                }
+                ShelfTab::Environments => {
+                    if icon_button(ui, crate::icons::DOWNLOAD, "Import HDRI…").clicked() { pick = Some((crate::files::Purpose::Hdri, crate::files::PANORAMAS, false)); }
+                    folder = Some(subcraft_app::assets::UserAssetKind::Environment);
+                }
+                ShelfTab::SmartMaterials => {
+                    if icon_button(ui, crate::icons::DOWNLOAD, tr("Import smart materials (.scsmart) or PBR texture sets (Color, NormalGL, Roughness…)")).clicked() { import_smart_dialog(ui.ctx()); }
+                    if icon_button(ui, crate::icons::FOLDER_OPEN, tr("Import a folder of .scsmart files or PBR texture sets")).clicked() { import_smart_folder_dialog(ui.ctx()); }
+                }
+                ShelfTab::SmartMasks | ShelfTab::Filters => {}
+            }
+            if let Some(kind) = folder && let Some(lib) = &state.user_library {
+                let dir = lib.folder(kind);
+                if icon_button(ui, crate::icons::FOLDER, &format!("Library folder: {}\nFiles here appear in the shelf at startup.", dir.display())).clicked() {
+                    if let Err(e) = std::fs::create_dir_all(&dir) { log::warn!("could not create {}: {e}", dir.display()); }
+                    show_in_folder(&dir);
+                }
+            }
+            ui.add_space(6.0);
+            ui.label(RichText::new("Preview size").font(theme::font(10.5)).color(theme::TEXT_FAINT));
+            let v = &mut state.recovery.prefs.shelf_preview_size;
+            *v = (*v).clamp(48, 160);
+            ui.spacing_mut().slider_width = (ui.available_width() - 12.0).clamp(24.0, 90.0);
+            ui.add(egui::Slider::new(v, 48..=160).show_value(false)).on_hover_text("Preview size in UI points; texture resolution stays unchanged");
+        });
+    });
+    if let Some((purpose, filter, multi)) = pick { crate::files::pick(ui.ctx(), purpose, filter, multi, None); }
 }
 
 /// Grayscale bitmap → egui image.
@@ -642,7 +866,7 @@ fn alpha_image(b: &subcraft_image::Bitmap) -> egui::ColorImage {
 /// Render one missing thumbnail of the visible tab per frame (keeps the UI responsive).
 fn generate_one_thumbnail(state: &mut UiState, ctx: &egui::Context) {
     // Finish the thumbnail in flight first (the GPU copy is never waited on).
-    state.shelf.busy = state.shelf.pending.is_some();
+    state.shelf.busy = state.shelf.pending.is_some() || state.shelf.compositing.is_some();
     if let Some((id, pending)) = &state.shelf.pending {
         let Some(rs) = state.render_state.clone() else { return };
         match pending.try_take(&rs.device) {
@@ -652,7 +876,7 @@ fn generate_one_thumbnail(state: &mut UiState, ctx: &egui::Context) {
             }
             Some(bytes) => {
                 if let Some(bytes) = bytes {
-                    let img = egui::ColorImage::from_rgba_unmultiplied([THUMB as usize, THUMB as usize], &bytes);
+                    let img = egui::ColorImage::from_rgba_unmultiplied([RENDER_THUMB as usize, RENDER_THUMB as usize], &bytes);
                     let tex = ctx.load_texture(format!("thumb-{id}"), img, egui::TextureOptions::LINEAR);
                     state.shelf.thumbs.insert(*id, tex);
                 }
@@ -660,28 +884,50 @@ fn generate_one_thumbnail(state: &mut UiState, ctx: &egui::Context) {
             }
         }
     }
+    // A composite finished on the worker: draw it. At most one step of work per frame.
+    if state.shelf.compositing.is_some() {
+        let Some(rs) = state.render_state.clone() else { return };
+        let message = state.shelf.compositing.as_ref().map(|c| c.rx.try_recv());
+        match message {
+            Some(Ok((scene, composite))) => {
+                if let Some(done) = state.shelf.compositing.take() {
+                    render_composited(state, ctx, &rs, done, scene, composite);
+                }
+            }
+            Some(Err(std::sync::mpsc::TryRecvError::Empty)) => ctx.request_repaint_after(std::time::Duration::from_millis(8)),
+            _ => {
+                // The worker died without a result: show an empty tile instead of retrying forever.
+                if let Some(done) = state.shelf.compositing.take() {
+                    log::warn!("shelf thumbnail worker failed for {}", done.id);
+                    let blank = egui::ColorImage::new([1, 1], vec![Color32::TRANSPARENT]);
+                    state.shelf.thumbs.insert(done.id, ctx.load_texture(format!("thumb-{}", done.id), blank, egui::TextureOptions::LINEAR));
+                }
+            }
+        }
+        return;
+    }
     let lib = &state.library;
     let missing = |id: &AssetId| !state.shelf.thumbs.contains_key(id);
     enum Job {
         Alpha(usize),
         /// The layer builder and the images the layer uses.
-        Layer(AssetId, SceneKind, Box<dyn Fn(&subcraft_doc::TextureSet) -> Layer>, Vec<std::sync::Arc<subcraft_doc::Resource>>),
+        Layer(AssetId, SceneKind, LayerBuilder, Vec<std::sync::Arc<subcraft_doc::Resource>>),
         Environment(usize),
     }
     let job = match state.shelf.tab {
         // Texture thumbnails come from their own background loader.
-        ShelfTab::Textures => None,
+        ShelfTab::Textures | ShelfTab::NormalMaps | ShelfTab::Filters => None,
         ShelfTab::Brushes => lib.alphas.iter().position(|a| missing(&a.id)).map(Job::Alpha),
         ShelfTab::Materials => lib.materials.iter().find(|m| missing(&m.id)).map(|m| {
             let m = m.clone();
             let (ids, images) = subcraft_assets::presets::decode_images(&m.images);
-            Job::Layer(m.id, SceneKind::Sphere, Box::new(move |ts| m.build_with(ts, &ids)), images)
+            Job::Layer(m.id, SceneKind::Sphere, Box::new(move |ts| preview_layer(m.build_with(ts, &ids))), images)
         }),
         ShelfTab::SmartMaterials => lib.smart_materials.iter().find(|m| missing(&m.id)).map(|m| {
             let m = m.clone();
             let (ids, decoded) = subcraft_assets::presets::decode_images(m.images());
             let images = m.resources().iter().cloned().chain(decoded).collect();
-            Job::Layer(m.id, SceneKind::BakedSphere, Box::new(move |ts| m.build_with(ts, &ids)), images)
+            Job::Layer(m.id, SceneKind::BakedSphere, Box::new(move |ts| preview_layer(m.build_with(ts, &ids))), images)
         }),
         ShelfTab::SmartMasks => lib.smart_masks.iter().find(|m| missing(&m.id)).map(|m| {
             let m = m.clone();
@@ -704,31 +950,52 @@ fn generate_one_thumbnail(state: &mut UiState, ctx: &egui::Context) {
         state.shelf.thumbs.insert(a.id, tex);
         return;
     }
-    let Some(rs) = state.render_state.clone() else { return };
+    if state.render_state.is_none() { return; }
     let (id, kind, layer_fn, images, env_index) = match job {
         Job::Layer(id, k, f, images) => (id, k, Some(f), images, None),
         Job::Environment(i) => (state.library.environments[i].id, SceneKind::Sphere, None, Vec::new(), Some(i)),
         Job::Alpha(_) => unreachable!(),
     };
-    let scene = match kind {
-        SceneKind::Sphere => state.shelf.sphere.get_or_insert_with(PreviewScene::sphere),
-        SceneKind::BakedSphere => state.shelf.baked_sphere.get_or_insert_with(PreviewScene::baked_sphere),
+    // Composite on a worker thread: at thumbnail resolution it takes 10-90 ms, several frames.
+    let existing = match kind {
+        SceneKind::Sphere => state.shelf.sphere.clone(),
+        SceneKind::BakedSphere => state.shelf.baked_sphere.clone(),
     };
-    let composite = match &layer_fn {
-        Some(f) => scene.composite_with(f(scene.texture_set()), &images),
-        None => {
-            // Environment preview: a glossy metal sphere.
-            let ts = scene.texture_set();
-            let mut l = Layer::new_fill("Chrome", ts);
-            if let LayerContent::Fill(f) = &mut l.content {
-                let set = |k| FillChannel::new(FillSource::uniform(k));
-                f.channels.insert(ChannelKind::BaseColor, set(ChannelValue::rgb(0.9, 0.9, 0.9)));
-                f.channels.insert(ChannelKind::Metallic, set(ChannelValue::scalar(1.0)));
-                f.channels.insert(ChannelKind::Roughness, set(ChannelValue::scalar(0.12)));
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let scene = existing.unwrap_or_else(|| Arc::new(match kind {
+            SceneKind::Sphere => PreviewScene::sphere(),
+            SceneKind::BakedSphere => PreviewScene::baked_sphere(),
+        }));
+        let composite = match &layer_fn {
+            Some(f) => scene.composite_with(f(scene.texture_set()), &images),
+            None => {
+                // Environment preview: a glossy metal sphere.
+                let ts = scene.texture_set();
+                let mut l = Layer::new_fill("Chrome", ts);
+                if let LayerContent::Fill(f) = &mut l.content {
+                    let set = |k| FillChannel::new(FillSource::uniform(k));
+                    f.channels.insert(ChannelKind::BaseColor, set(ChannelValue::rgb(0.9, 0.9, 0.9)));
+                    f.channels.insert(ChannelKind::Metallic, set(ChannelValue::scalar(1.0)));
+                    f.channels.insert(ChannelKind::Roughness, set(ChannelValue::scalar(0.12)));
+                }
+                scene.composite(l)
             }
-            scene.composite(l)
-        }
-    };
+        };
+        let _ = tx.send((scene, composite));
+    });
+    state.shelf.compositing = Some(Compositing { id, kind, env_index, rx });
+    state.shelf.busy = true;
+    ctx.request_repaint_after(std::time::Duration::from_millis(8));
+}
+
+/// Second half of a thumbnail: the composite is ready, draw it (the GPU copy is never waited on).
+fn render_composited(state: &mut UiState, ctx: &egui::Context, rs: &subcraft_render::egui_wgpu::RenderState, done: Compositing, scene: Arc<PreviewScene>, composite: subcraft_compositor::Composite) {
+    let Compositing { id, kind, env_index, .. } = done;
+    match kind {
+        SceneKind::Sphere => state.shelf.sphere = Some(scene.clone()),
+        SceneKind::BakedSphere => state.shelf.baked_sphere = Some(scene.clone()),
+    }
     let mesh = scene.mesh.clone();
     let (renderer, current) = state.shelf.renderer.get_or_insert_with(|| (ViewportRenderer::new(&rs.device, &rs.queue), None));
     if *current != Some(kind) {
@@ -748,9 +1015,16 @@ fn generate_one_thumbnail(state: &mut UiState, ctx: &egui::Context) {
         let mut uploaded = None;
         apply_environment(&state.library, i, 0.0, 1.0, &mut params, renderer, &mut uploaded, &rs.device, &rs.queue);
     }
-    let pending = renderer.render(&rs.device, &rs.queue, [THUMB, THUMB], &params).read_rgba8_async(&rs.device, &rs.queue);
+    let pending = renderer.render(&rs.device, &rs.queue, [RENDER_THUMB, RENDER_THUMB], &params).read_rgba8_async(&rs.device, &rs.queue);
     state.shelf.pending = Some((id, pending));
     ctx.request_repaint();
+}
+
+/// A material as the shelf thumbnail shows it: same layer, tiling boosted for the small sphere
+/// (the saved asset is not changed).
+fn preview_layer(mut layer: Layer) -> Layer {
+    subcraft_app::thumbnails::zoom_out_tiling(&mut layer);
+    layer
 }
 
 /// White paint shown through a smart mask (for mask thumbnails).
@@ -807,21 +1081,17 @@ fn filter_row(state: &mut UiState, ui: &mut Ui) {
             chips.push((Chip::Category(c.clone()), c));
         }
     }
-    if state.shelf.tab == ShelfTab::Textures {
+    if matches!(state.shelf.tab, ShelfTab::Textures | ShelfTab::NormalMaps) {
         chips.push((Chip::Tileable,"Tileable".into()));
-        for c in categories(state.textures.items.iter().map(|t| t.category)) {
+        let normals = state.shelf.tab == ShelfTab::NormalMaps;
+        for c in categories(state.textures.items.iter().filter(|t| (t.category == "Normal") == normals).map(|t| t.category)) {
             chips.push((Chip::Category(c.clone()), c));
         }
     }
-    if matches!(state.shelf.tab,ShelfTab::Textures|ShelfTab::Brushes) {chips.push((Chip::Category("Starter pack".into()),"Starter pack".into()));}
+    if matches!(state.shelf.tab,ShelfTab::NormalMaps|ShelfTab::Brushes) {chips.push((Chip::Category("Starter pack".into()),"Starter pack".into()));}
     egui::Frame::new().inner_margin(egui::Margin { left: theme::PAD, right: theme::PAD, top: 4, bottom: 6 }).show(ui, |ui| {
         ui.horizontal_wrapped(|ui| {
             let filter = &mut state.shelf.filter;
-            ui.add(egui::TextEdit::singleline(&mut filter.query).hint_text("Search…").desired_width(ui.available_width().min(180.0)));
-            if !filter.query.is_empty() && crate::widgets::icon_button(ui, crate::icons::X, "Clear search").clicked() {
-                filter.query.clear();
-            }
-            ui.add_space(8.0);
             ui.spacing_mut().item_spacing.x = 4.0;
             for (chip, label) in chips {
                 let selected = filter.chip == chip;
@@ -833,4 +1103,20 @@ fn filter_row(state: &mut UiState, ui: &mut Ui) {
             }
         });
     });
+}
+
+/// Label of the selected filter effect (content or mask), to highlight its Shelf tile.
+fn selected_filter(session: &subcraft_app::Session) -> Option<String> {
+    let layer = session.selected_layer()?;
+    let id = session.selected_effect()?;
+    if let Some(e) = layer.content_effects.iter().find(|e| e.id == id)
+        && let subcraft_doc::ContentEffectKind::Filter { filter, .. } = &e.kind
+    {
+        return Some(filter.label().to_string());
+    }
+    let e = layer.mask.as_ref()?.effects.iter().find(|e| e.id == id)?;
+    match &e.kind {
+        subcraft_doc::MaskEffectKind::Filter(f) => Some(f.label().to_string()),
+        _ => None,
+    }
 }

@@ -3,21 +3,11 @@
 //! procedural patterns and generators. Edges / Cavity read baked curvature / AO, so bake first.
 
 use subcraft_core::ChannelKind::*;
-use subcraft_doc::{BlendMode, GeneratorKind, GradientAxis, Layer, MaskEffectKind, ProceduralKind, ProceduralParams, TextureSet};
+use subcraft_doc::{BlendMode, GeneratorKind, GradientAxis, Layer, MaskEffectKind, ProceduralKind, TextureSet};
 
 use crate::presets::{SmartMask, generator, mask, proc, rgb, triplanar, uni};
 use crate::smart::{SmartMaterial, coat, fx, fx_blend, folder, masked, smart};
 use crate::smart_more::{all_white, cavity, edges, mat, pattern, s, top, v};
-
-/// Pattern with a flipped output (cell borders instead of cell interiors, and so on).
-fn pattern_inv(kind: ProceduralKind, scale: f32, seed: u32, balance: f32, contrast: f32) -> MaskEffectKind {
-    match pattern(kind, scale, seed, balance, contrast) {
-        MaskEffectKind::Fill { value, procedural: Some(p), projection } => {
-            MaskEffectKind::Fill { value, procedural: Some(ProceduralParams { invert: true, ..p }), projection }
-        }
-        other => other,
-    }
-}
 
 fn steel_base(ts: &TextureSet, seed: u32) -> Layer {
     mat(ts, "Steel", vec![
@@ -73,38 +63,6 @@ fn painted_steel_edge_wear(ts: &TextureSet) -> Layer {
     folder("Painted Steel Edge Wear", ts, vec![steel_base(ts, 423), paint, wear, dirt])
 }
 
-fn dirty_rubber(ts: &TextureSet) -> Layer {
-    let rubber = mat(ts, "Rubber", vec![
-        (BaseColor, rgb(0.03, 0.03, 0.032)),
-        (Roughness, proc(ProceduralKind::Clouds, 14.0, 431, s(0.82), s(0.95))),
-        (Metallic, uni(0.0)),
-        (Height, proc(ProceduralKind::Pores, 24.0, 432, s(0.0), s(0.03))),
-    ], triplanar(2.0));
-    let dust = masked(coat(ts, "Dust", [0.34, 0.32, 0.29], 0.97, 0.0), ts, vec![fx(top(0.6, 0.4, 0.45)), fx_blend(pattern(ProceduralKind::Dirt, 6.0, 433, 0.5, 0.25), BlendMode::Multiply)]);
-    let mud = masked(coat(ts, "Caked Mud", [0.13, 0.095, 0.065], 0.92, 0.0), ts, vec![fx(cavity(0.35, 0.35, 0.5))]);
-    folder("Dirty Rubber", ts, vec![rubber, mud, dust])
-}
-
-fn snow_covered_stone(ts: &TextureSet) -> Layer {
-    let stone = mat(ts, "Dark Stone", vec![
-        (BaseColor, proc(ProceduralKind::Clouds, 7.0, 441, v(0.14, 0.14, 0.145), v(0.3, 0.3, 0.3))),
-        (Roughness, proc(ProceduralKind::Grunge, 12.0, 442, s(0.78), s(0.95))),
-        (Metallic, uni(0.0)),
-        (Height, proc(ProceduralKind::Cells, 9.0, 443, s(0.0), s(0.14))),
-    ], triplanar(1.5));
-    let snow = masked(
-        mat(ts, "Snow", vec![
-            (BaseColor, proc(ProceduralKind::Clouds, 18.0, 444, v(0.8, 0.83, 0.88), v(0.9, 0.92, 0.95))),
-            (Roughness, proc(ProceduralKind::Speckles, 20.0, 445, s(0.55), s(0.8))),
-            (Metallic, uni(0.0)),
-            (Height, proc(ProceduralKind::Clouds, 10.0, 446, s(0.04), s(0.16))),
-        ], triplanar(2.0)),
-        ts,
-        vec![fx(top(0.5, 0.3, 0.5)), fx_blend(pattern(ProceduralKind::Clouds, 6.0, 447, 0.45, 0.35), BlendMode::Multiply)],
-    );
-    folder("Snow Covered Stone", ts, vec![stone, snow])
-}
-
 fn sandblasted_aluminium(ts: &TextureSet) -> Layer {
     let alu = mat(ts, "Aluminium", vec![
         (BaseColor, proc(ProceduralKind::Speckles, 30.0, 451, v(0.82, 0.83, 0.83), v(0.92, 0.93, 0.93))),
@@ -117,60 +75,6 @@ fn sandblasted_aluminium(ts: &TextureSet) -> Layer {
     folder("Sandblasted Aluminium", ts, vec![alu, scuffs, polish])
 }
 
-fn weathered_brick(ts: &TextureSet) -> Layer {
-    let brick = mat(ts, "Brick", vec![
-        (BaseColor, proc(ProceduralKind::Cells, 8.0, 461, v(0.27, 0.09, 0.055), v(0.47, 0.2, 0.12))),
-        (Roughness, proc(ProceduralKind::Grunge, 14.0, 462, s(0.8), s(0.97))),
-        (Metallic, uni(0.0)),
-        (Height, proc(ProceduralKind::Cells, 8.0, 461, s(0.0), s(0.18))),
-    ], triplanar(1.5));
-    let mortar = masked(coat(ts, "Mortar", [0.36, 0.34, 0.3], 0.97, 0.0), ts, vec![fx(pattern_inv(ProceduralKind::Cells, 8.0, 461, 0.12, 0.1))]);
-    let soot = masked(coat(ts, "Soot", [0.04, 0.038, 0.035], 0.95, 0.0), ts, vec![fx(pattern(ProceduralKind::Streaks, 4.0, 463, 0.62, 0.4)), fx_blend(cavity(0.3, 0.3, 0.3), BlendMode::LinearDodge)]);
-    let chips = masked(coat(ts, "Chipped Corners", [0.55, 0.42, 0.33], 0.93, 0.0), ts, vec![fx(edges(0.6, 0.15, 0.6))]);
-    folder("Weathered Brick", ts, vec![brick, mortar, soot, chips])
-}
-
-fn muddy_leather(ts: &TextureSet) -> Layer {
-    let leather = mat(ts, "Leather", vec![
-        (BaseColor, proc(ProceduralKind::Cells, 30.0, 471, v(0.1, 0.05, 0.03), v(0.2, 0.1, 0.055))),
-        (Roughness, proc(ProceduralKind::Clouds, 10.0, 472, s(0.45), s(0.7))),
-        (Metallic, uni(0.0)),
-        (Height, proc(ProceduralKind::Pores, 28.0, 473, s(0.0), s(0.05))),
-    ], triplanar(1.5));
-    let mud = masked(
-        mat(ts, "Mud", vec![
-            (BaseColor, proc(ProceduralKind::Clouds, 7.0, 474, v(0.09, 0.06, 0.035), v(0.2, 0.14, 0.08))),
-            (Roughness, uni(0.92)),
-            (Metallic, uni(0.0)),
-            (Height, proc(ProceduralKind::Clouds, 12.0, 475, s(0.0), s(0.1))),
-        ], triplanar(2.0)),
-        ts,
-        vec![fx(generator(GeneratorKind::PositionGradient, 0.35, 0.4, 0.6, true)), fx_blend(cavity(0.35, 0.3, 0.3), BlendMode::LinearDodge)],
-    );
-    folder("Muddy Leather", ts, vec![leather, mud])
-}
-
-fn charred_wood(ts: &TextureSet) -> Layer {
-    let wood = mat(ts, "Wood", vec![
-        (BaseColor, proc(ProceduralKind::WoodRings, 3.0, 481, v(0.16, 0.08, 0.035), v(0.4, 0.22, 0.1))),
-        (Roughness, uni(0.65)),
-        (Metallic, uni(0.0)),
-        (Height, proc(ProceduralKind::WoodRings, 3.0, 481, s(0.0), s(0.05))),
-    ], triplanar(1.0));
-    let char = masked(
-        mat(ts, "Char", vec![
-            (BaseColor, proc(ProceduralKind::Cracks, 6.0, 482, v(0.012, 0.011, 0.01), v(0.06, 0.05, 0.045))),
-            (Roughness, proc(ProceduralKind::Clouds, 12.0, 483, s(0.75), s(0.95))),
-            (Metallic, uni(0.0)),
-            (Height, proc(ProceduralKind::Cracks, 6.0, 482, s(0.0), s(0.1))),
-        ], triplanar(1.5)),
-        ts,
-        vec![fx(edges(0.5, 0.4, 0.5)), fx_blend(pattern(ProceduralKind::Clouds, 4.0, 484, 0.5, 0.3), BlendMode::LinearDodge)],
-    );
-    let ash = masked(coat(ts, "Ash", [0.3, 0.3, 0.29], 0.98, 0.0), ts, vec![fx(top(0.65, 0.35, 0.5))]);
-    folder("Charred Wood", ts, vec![wood, char, ash])
-}
-
 fn galvanized_steel(ts: &TextureSet) -> Layer {
     let zinc = mat(ts, "Galvanized Zinc", vec![
         (BaseColor, proc(ProceduralKind::Cells, 5.0, 491, v(0.55, 0.57, 0.58), v(0.7, 0.72, 0.73))),
@@ -181,49 +85,6 @@ fn galvanized_steel(ts: &TextureSet) -> Layer {
     let white_rust = masked(coat(ts, "White Rust", [0.62, 0.63, 0.6], 0.85, 0.0), ts, vec![fx(cavity(0.35, 0.35, 0.5)), fx_blend(pattern(ProceduralKind::Grunge, 6.0, 493, 0.55, 0.4), BlendMode::Multiply)]);
     let rust = masked(coat(ts, "Rust Spots", [0.25, 0.09, 0.035], 0.85, 0.0), ts, vec![fx(edges(0.6, 0.15, 0.8)), fx_blend(pattern(ProceduralKind::Speckles, 7.0, 494, 0.6, 0.2), BlendMode::LinearDodge)]);
     folder("Galvanized Steel", ts, vec![zinc, white_rust, rust])
-}
-
-fn grimy_ceramic(ts: &TextureSet) -> Layer {
-    let glaze = mat(ts, "Glazed Ceramic", vec![
-        (BaseColor, rgb(0.82, 0.82, 0.8)),
-        (Roughness, proc(ProceduralKind::Clouds, 14.0, 501, s(0.06), s(0.14))),
-        (Metallic, uni(0.0)),
-    ], triplanar(1.5));
-    let grime = masked(coat(ts, "Grime", [0.22, 0.2, 0.15], 0.8, 0.0), ts, vec![fx(cavity(0.35, 0.35, 0.4)), fx_blend(pattern(ProceduralKind::Dirt, 6.0, 502, 0.55, 0.25), BlendMode::Multiply)]);
-    let crazing = masked(coat(ts, "Crazing", [0.35, 0.3, 0.22], 0.5, 0.0), ts, vec![fx(pattern(ProceduralKind::Cracks, 10.0, 503, 0.5, 0.95))]);
-    folder("Grimy Ceramic", ts, vec![glaze, grime, crazing])
-}
-
-fn weathered_plaster(ts: &TextureSet) -> Layer {
-    let plaster = mat(ts, "Plaster", vec![
-        (BaseColor, proc(ProceduralKind::Clouds, 6.0, 511, v(0.62, 0.6, 0.55), v(0.76, 0.74, 0.69))),
-        (Roughness, proc(ProceduralKind::Grunge, 10.0, 512, s(0.85), s(0.97))),
-        (Metallic, uni(0.0)),
-        (Height, proc(ProceduralKind::Speckles, 14.0, 513, s(0.0), s(0.06))),
-    ], triplanar(1.5));
-    let damp = masked(coat(ts, "Damp Stains", [0.3, 0.27, 0.22], 0.9, 0.0), ts, vec![fx(generator(GeneratorKind::PositionGradient, 0.35, 0.4, 0.6, true)), fx_blend(pattern(ProceduralKind::Streaks, 4.0, 514, 0.5, 0.4), BlendMode::Multiply)]);
-    let flaking = masked(coat(ts, "Exposed Brick", [0.4, 0.17, 0.1], 0.93, 0.0), ts, vec![fx(edges(0.55, 0.12, 0.75)), fx_blend(pattern(ProceduralKind::Grunge, 5.0, 515, 0.65, 0.5), BlendMode::Multiply)]);
-    folder("Weathered Plaster", ts, vec![plaster, damp, flaking])
-}
-
-fn mossy_wood(ts: &TextureSet) -> Layer {
-    let wood = mat(ts, "Old Planks", vec![
-        (BaseColor, proc(ProceduralKind::WoodRings, 3.0, 521, v(0.12, 0.075, 0.045), v(0.3, 0.2, 0.12))),
-        (Roughness, proc(ProceduralKind::Brushed, 3.0, 522, s(0.75), s(0.95))),
-        (Metallic, uni(0.0)),
-        (Height, proc(ProceduralKind::WoodRings, 3.0, 521, s(0.0), s(0.07))),
-    ], triplanar(1.0));
-    let moss = masked(
-        mat(ts, "Moss", vec![
-            (BaseColor, proc(ProceduralKind::Clouds, 16.0, 523, v(0.035, 0.1, 0.02), v(0.12, 0.26, 0.045))),
-            (Roughness, uni(0.95)),
-            (Metallic, uni(0.0)),
-            (Height, proc(ProceduralKind::Clouds, 32.0, 524, s(0.02), s(0.1))),
-        ], triplanar(2.0)),
-        ts,
-        vec![fx(cavity(0.4, 0.35, 0.5)), fx_blend(top(0.55, 0.3, 0.5), BlendMode::LinearDodge)],
-    );
-    folder("Mossy Wood", ts, vec![wood, moss])
 }
 
 fn pitted_cast_iron(ts: &TextureSet) -> Layer {
@@ -243,16 +104,8 @@ pub fn smart_materials() -> Vec<SmartMaterial> {
         smart("Rusted Painted Metal", rusted_painted_metal),
         smart("Oily Metal", oily_metal),
         smart("Painted Steel Edge Wear", painted_steel_edge_wear),
-        smart("Dirty Rubber", dirty_rubber),
-        smart("Snow Covered Stone", snow_covered_stone),
         smart("Sandblasted Aluminium", sandblasted_aluminium),
-        smart("Weathered Brick", weathered_brick),
-        smart("Muddy Leather", muddy_leather),
-        smart("Charred Wood", charred_wood),
         smart("Galvanized Steel", galvanized_steel),
-        smart("Grimy Ceramic", grimy_ceramic),
-        smart("Weathered Plaster", weathered_plaster),
-        smart("Mossy Wood", mossy_wood),
         smart("Pitted Cast Iron", pitted_cast_iron),
     ]
 }
@@ -300,45 +153,46 @@ const fn info(category: &'static str, description: &'static str) -> Option<Asset
 
 pub fn smart_material_info(name: &str) -> Option<AssetInfo> {
     match name {
+        // PBR pack (textured, with wear and dirt layers)
+        "Black Basalt" => info("Stone", "Dark volcanic basalt with dirt in the pores and dust on top"),
+        "Travertine" => info("Stone", "Pale pitted travertine with dirt in the holes and settled dust"),
+        "Terrazzo" => info("Stone", "Polished terrazzo chips with grime in the gaps and dust on top"),
+        "Cobblestone" => info("Stone", "Rounded cobbles with dirt between the stones and dust on top"),
+        "Cracked Asphalt" => info("Stone", "Weathered asphalt with dirt in the cracks and road dust"),
+        "Dry Mud PBR" => info("Nature", "Cracked dry mud, darker in the fissures, dusty on top"),
+        "Desert Sand" => info("Nature", "Fine rippled sand with darker hollows and a dusty crust"),
+        "Mossy Stone PBR" => info("Nature", "Stone with moss, dark in the crevices and dusty on top"),
+        "Tree Bark" => info("Wood", "Deep ridged bark with worn ridges and grime in the furrows"),
+        "Cork" => info("Wood", "Granular cork board with worn edges and grime in the pores"),
+        "Bamboo Flooring" => info("Wood", "Bamboo strips with worn edges and dirt in the seams"),
+        "Woven Linen" => info("Fabric", "Woven linen cloth, rubbed pale on edges, grimy in the folds"),
+        "Worn Leather PBR" => info("Fabric", "Creased leather, pale on worn edges and dark in the creases"),
+        "Industrial Rubber" => info("Plastic", "Textured rubber with scuffed edges and dirt in the grooves"),
+        "Brushed Aluminum" => info("Metal", "Brushed aluminium with polished edges and dirt in recesses"),
+        "Oxidized Copper PBR" => info("Metal", "Green-patinated copper, polished on edges, dirty in recesses"),
+        "Galvanized Steel PBR" => info("Metal", "Spangled galvanized steel with bright edges and dirt in recesses"),
+        "Hex Armor" => info("Metal", "Hexagonal armour plating with polished edges and dirt in the seams"),
         "Worn Painted Metal" => info("Metal", "Blue paint worn through to steel on edges, dirt in crevices"),
         "Rusty Iron" => info("Metal", "Rough iron with rust gathering in the cavities"),
         "Dusty Plastic" => info("Plastic", "Glossy red plastic with dust settling on upward faces"),
-        "Old Wood" => info("Wood", "Grained wood with dark grime in the cracks and worn edges"),
         "Tarnished Gold" => info("Metal", "Gold darkened by tarnish in recesses"),
-        "Worn Leather" => info("Fabric", "Brown leather, pale at the edges, dark in the creases"),
         "Chipped Painted Metal" => info("Paint", "Red paint chipping off bare steel along edges and in flakes"),
-        "Mossy Stone" => info("Stone", "Grey stone with moss on top faces and in crevices"),
         "Brushed Steel" => info("Metal", "Brushed steel with scratches and smudges"),
         "Dusty Concrete" => info("Stone", "Concrete with dust on top, stains and chipped corners"),
         "Oxidized Copper" => info("Metal", "Copper with green verdigris growing in recesses"),
-        "Scratched Plastic" => info("Plastic", "Blue plastic with light scratches and scuffed edges"),
-        "Cracked Clay" => info("Stone", "Dry terracotta clay with dark cracks and dust"),
         "Frosted Ice" => info("Nature", "Blue ice with white frost on edges and in crevices"),
-        "Rough Wood" => info("Wood", "Weathered planks with grey streaks and splintered edges"),
-        "Peeling Painted Wood" => info("Paint", "Teal paint flaking off bare wood"),
         "Hammered Brass" => info("Metal", "Dimpled brass, tarnished in dents, polished on edges"),
-        "Sandstone" => info("Stone", "Layered sandstone with drifted sand"),
-        "Dry Mud" => info("Nature", "Dried mud with cracks and a pale crust on top"),
-        "Worn Rubber" => info("Plastic", "Black rubber with scuffs and road dust"),
         "Rusted Painted Metal" => info("Metal", "Teal paint over steel; rust shows where it chipped"),
         "Oily Metal" => info("Metal", "Dark steel with glossy oil in the cavities and greasy streaks"),
         "Painted Steel Edge Wear" => info("Paint", "Yellow safety paint rubbed down to bare steel on edges"),
-        "Dirty Rubber" => info("Plastic", "Black rubber with caked mud in recesses and dust on top"),
-        "Snow Covered Stone" => info("Nature", "Dark stone with a snow cap on upward faces"),
         "Sandblasted Aluminium" => info("Metal", "Matte, finely pitted aluminium with polished edges"),
-        "Weathered Brick" => info("Stone", "Irregular red bricks with mortar, soot and chipped corners"),
-        "Muddy Leather" => info("Fabric", "Brown leather splashed with mud from below"),
-        "Charred Wood" => info("Wood", "Wood burnt black at the edges, ash on top"),
         "Galvanized Steel" => info("Metal", "Spangled zinc coating with white rust and orange spots"),
-        "Grimy Ceramic" => info("Paint", "Glossy ceramic with grime in the cavities and fine crazing"),
-        "Weathered Plaster" => info("Stone", "Off-white plaster with damp stains and flaking to brick"),
-        "Mossy Wood" => info("Wood", "Old planks with moss in cracks and on top"),
         "Pitted Cast Iron" => info("Metal", "Dark pitted iron with surface rust and polished edges"),
         // Open pack: built on its scanned image materials.
         "Painted Steel Plates" => info("Paint", "Scanned metal plates with green paint on the edges and dirt"),
         "Rusted Steel" => info("Metal", "Scanned stained steel with rust in the cavities"),
-        "Worn Brown Leather" => info("Fabric", "Scanned brown leather with worn edges and grime"),
-        "Mossy Bricks" => info("Stone", "Scanned bricks with grime in the joints and moss on top"),
+        "Brown Leather" => info("Fabric", "Scanned brown leather with worn edges and grime"),
+        "Bricks" => info("Stone", "Scanned bricks with grime in the joints"),
         "Dusty Smooth Concrete" => info("Stone", "Scanned concrete with stains from below and dust on top"),
         _ => None,
     }

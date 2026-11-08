@@ -20,7 +20,7 @@ use crate::actions::Action;
 use crate::command::{Command, CommandError, NewLayer};
 
 /// Default texture-set resolution for new sessions.
-pub const DEFAULT_RESOLUTION: u32 = 1024;
+pub const DEFAULT_RESOLUTION: u32 = 2048;
 
 /// Immutable geometry of the session and everything derived from it.
 pub struct Scene {
@@ -104,8 +104,8 @@ pub struct Session {
     no_maps: MeshMaps,
     pub(crate) history: History,
     /// Live document: equals the current history entry except while a stroke is in progress.
-    doc: Document,
-    selection: Selection,
+    pub(crate) doc: Document,
+    pub(crate) selection: Selection,
     mask_clipboard: Option<Mask>,
     hidden_sets: std::collections::BTreeSet<TextureSetId>,
     /// Selected effect of the selected layer's current domain (see [`Session::selected_effect`]).
@@ -131,7 +131,7 @@ pub struct Session {
     /// Changes whenever newly evaluated composites are installed, including synchronous callers.
     composite_generation: u64,
     /// Bumped on every document change (UI caches key off it).
-    revision: u64,
+    pub(crate) revision: u64,
     layer_counter: u32,
     project_path: Option<PathBuf>,
     /// Document as of the last save / load / new (for the unsaved-changes indicator).
@@ -411,7 +411,42 @@ impl Session {
         self.commit("Show baked normal", None);
     }
 
-    /// The built-in two-material sample crate.
+    /// The model SubCraft starts with and the "sample model" action opens: the bundled
+    /// `SubCraft_base.fbx` (see `subcraft_assets::default_model`). Falls back to
+    /// [`Session::sample`] if the bundled file ever fails to import.
+    pub fn default_model() -> Self {
+        match subcraft_mesh::import_fbx_bytes(subcraft_assets::default_model::FBX, subcraft_assets::default_model::NAME) {
+            Ok(report) if report.mesh.triangle_count() > 0 => Self::with_default_material(report.mesh, DEFAULT_RESOLUTION),
+            other => {
+                log::error!("bundled default model failed to import ({:?}); using the sample crate", other.err());
+                Self::sample()
+            }
+        }
+    }
+
+    /// Like [`Session::new`], but every texture set starts with the default smart material
+    /// (`subcraft_assets::default_model::SMART_MATERIAL`, a folder of layers) below its empty
+    /// paint layer. Built into the starting document, so it is not an edit: a fresh start has
+    /// nothing to save and nothing to undo.
+    fn with_default_material(mesh: Mesh, resolution: u32) -> Self {
+        let smart = subcraft_assets::smart::smart_materials().into_iter().find(|m| m.name == subcraft_assets::default_model::SMART_MATERIAL);
+        let Some(smart) = smart else { return Self::new(mesh, resolution) };
+        let names: Vec<String> = mesh.materials.iter().map(|m| m.name.clone()).collect();
+        let mut doc = Document::from_material_slots(&names, resolution);
+        let mut resources = ResourceStore::default();
+        for r in smart.resources() {
+            resources.insert_shared(r.clone());
+        }
+        let ids = subcraft_assets::ImageIds::new();
+        for ts in doc.texture_sets.iter_mut() {
+            let tc = ts.clone();
+            ts.insert_above(None, smart.build_with(&tc, &ids));
+            ts.insert_above(None, Layer::new_paint("Layer 1", &tc));
+        }
+        Self::from_parts(mesh, doc, resources, "New Project")
+    }
+
+    /// The built-in two-material sample crate (kept as a small fixture for tests and examples).
     pub fn sample() -> Self {
         Self::new(primitives::sample_crate(), DEFAULT_RESOLUTION)
     }
@@ -765,7 +800,7 @@ impl Session {
     }
 
     /// Apply `f` to the texture set containing `layer`, then record history.
-    fn edit_layer_set<R>(
+    pub(crate) fn edit_layer_set<R>(
         &mut self,
         layer: LayerId,
         label: &str,
@@ -779,7 +814,7 @@ impl Session {
         Ok(r)
     }
 
-    fn layer_mut(ts: &mut TextureSet, id: LayerId) -> Result<&mut Layer, CommandError> {
+    pub(crate) fn layer_mut(ts: &mut TextureSet, id: LayerId) -> Result<&mut Layer, CommandError> {
         ts.find_mut(id).ok_or(CommandError::LayerNotFound)
     }
 
@@ -1046,6 +1081,26 @@ impl Session {
                 self.brush.material.set(kind, kind.default_paint_value());
                 self.commit(&format!("Add {} Channel", kind.display_name()), None);
             }
+            Command::RemoveChannel { texture_set, kind } => {
+                let ts = self.doc.texture_set_mut(texture_set).ok_or(CommandError::TextureSetNotFound)?;
+                if !ts.has_channel(kind) {
+                    return Ok(());
+                }
+                if ts.channels.len() == 1 {
+                    return Err(CommandError::Invalid("a texture set needs at least one channel".into()));
+                }
+                ts.channels.retain(|c| c.kind != kind);
+                self.commit(&format!("Remove {} Channel", kind.display_name()), None);
+            }
+            Command::SetChannelFormat { texture_set, kind, format } => {
+                let ts = self.doc.texture_set_mut(texture_set).ok_or(CommandError::TextureSetNotFound)?;
+                let Some(def) = ts.channels.iter_mut().find(|c| c.kind == kind) else { return Err(CommandError::Invalid(format!("no {} channel", kind.display_name()))) };
+                if def.format == format {
+                    return Ok(());
+                }
+                def.format = format;
+                self.commit(&format!("{} Format", kind.display_name()), None);
+            }
             Command::InsertLayerWithChannels { layer, channels, label } => {
                 let ts = self.doc.texture_set_mut(self.selection.texture_set).ok_or(CommandError::TextureSetNotFound)?;
                 for kind in channels {
@@ -1166,6 +1221,15 @@ impl Session {
                 if self.doc.texture_set(texture_set).is_none() { return Err(CommandError::TextureSetNotFound); }
                 let changed = if hidden { self.hidden_sets.insert(texture_set) } else { self.hidden_sets.remove(&texture_set) };
                 if changed { self.revision += 1; }
+            }
+            Command::ClearMeshMap { texture_set, kind } => {
+                if self.doc.texture_set(texture_set).is_none() { return Err(CommandError::TextureSetNotFound); }
+                if self.mesh_maps.get_mut(&texture_set).is_some_and(|m| m.remove(kind).is_some()) {
+                    self.invalidated.insert(texture_set);
+                    self.maps_dirty = true;
+                    self.maps_generation += 1;
+                    self.revision += 1;
+                }
             }
             Command::GroupLayer(id) => {
                 self.edit_layer_set(id, "Group Layer", None, |ts| ts.group(id, "Folder").map_err(|_| CommandError::LayerNotFound))?;
@@ -1454,6 +1518,7 @@ impl Session {
             Action::NewPaintLayer => self.execute(Command::AddLayer(NewLayer::Paint))?,
             Action::NewFillLayer => self.execute(Command::AddLayer(NewLayer::Fill))?,
             Action::NewFolder => self.execute(Command::AddLayer(NewLayer::Folder))?,
+            Action::NewTextLayer => { let d = self.new_text_decal("Text"); self.add_text_layer(d)? }
             Action::DeleteLayer => {
                 if let Some(l) = sel {
                     self.execute(Command::DeleteLayer(l))?;
@@ -1469,12 +1534,33 @@ impl Session {
             Action::BrushSmaller => self.brush.settings.size = (self.brush.settings.size / 1.15).max(0.1),
             Action::BrushLarger => self.brush.settings.size = (self.brush.settings.size * 1.15).min(100.0),
             Action::ToggleSymmetryX => self.brush.options.symmetry[0] = !self.brush.options.symmetry[0],
-            Action::PenTool | Action::ResetCamera | Action::Save | Action::SaveAs | Action::OpenProject | Action::Export | Action::Bake | Action::TogglePathTracing => return Ok(false),
+            Action::ToggleLazyMouse => {
+                let o = &mut self.brush.options;
+                o.lazy_distance_px = if o.lazy_distance_px > 0.0 { 0.0 } else { 20.0 };
+            }
+            Action::PenTool | Action::PolygonFillTool | Action::SmudgeTool | Action::CloneTool | Action::EyedropperTool | Action::ResetCamera
+            | Action::PerspectiveCamera | Action::OrthographicCamera | Action::NextChannel | Action::PrevChannel | Action::DisplayMaterial
+            | Action::NewProject | Action::Quit | Action::Save | Action::SaveAs | Action::OpenProject | Action::Export | Action::Bake
+            | Action::TogglePathTracing | Action::SelectAllLayers => return Ok(false),
         }
         Ok(true)
     }
 
     // ----- painting ------------------------------------------------------------------------------
+
+    /// Before a paint stroke on layer content: if the selection cannot take paint (a fill layer,
+    /// a folder, or nothing selected), add a paint layer above it and select it, so the brush
+    /// always draws (a fill layer's material stays as it is). Mask strokes, erasing and layers
+    /// that already take paint are left alone. Returns the new layer's name when one was added.
+    pub fn ensure_paint_layer(&mut self) -> Option<String> {
+        if self.brush.target != PaintTarget::Content || self.brush.mode == StrokeMode::Erase {
+            return None;
+        }
+        let paintable = self.selected_layer().is_some_and(|l| matches!(&l.content, subcraft_doc::LayerContent::Paint(p) if p.path.is_none()));
+        if paintable { return None; }
+        self.execute(Command::AddLayer(NewLayer::Paint)).ok()?;
+        self.selected_layer().map(|l| l.name.clone())
+    }
 
     /// Start a stroke on the selected layer with the current brush.
     pub fn begin_stroke(&mut self) -> Result<(), PaintError> {
@@ -1482,11 +1568,22 @@ impl Session {
             return Ok(());
         }
         let layer = self.selection.layer.ok_or(PaintError::LayerNotFound)?;
+        // A normal-map / height stamp turns on its channel on the layer with the first stroke.
+        let stamp = self.stroke_stamp();
+        if let Some((s, _)) = &stamp {
+            self.enable_layer_channel(layer, s.kind.channel());
+        }
         let ts = self.selected_texture_set();
         let b = &self.brush;
-        let mut stroke = Stroke::begin(ts, layer, b.target, b.mode, b.settings, b.options, &b.material)?
+        let mut material = b.material.clone();
+        if let Some((s, _)) = &stamp {
+            let channel = s.kind.channel();
+            material.channels.entry(channel).or_insert(subcraft_paint::BrushChannel { enabled: true, value: channel.default_paint_value() }).enabled = true;
+        }
+        let mut stroke = Stroke::begin(ts, layer, b.target, b.mode, b.settings, b.options, &material)?
             .with_resources(self.resources())
-            .with_alpha(b.alpha.clone())
+            .with_alpha(if stamp.is_some() { None } else { b.alpha.clone() })
+            .with_stamp(stamp.as_ref().map(|(s, _)| s.clone()), stamp.as_ref().map(|(_, i)| i.clone()))
             .with_stencil(if b.stencil_bypass { None } else { b.stencil.clone() });
         if b.mode == StrokeMode::Clone {
             let point = self.clone_source.ok_or(PaintError::NoCloneSource)?;
@@ -1496,6 +1593,8 @@ impl Session {
         let label = match (b.mode, b.target) {
             (StrokeMode::Smudge, _) => "Smudge Stroke",
             (StrokeMode::Clone, _) => "Clone Stroke",
+            (StrokeMode::Paint, PaintTarget::Content) if stamp.as_ref().is_some_and(|(s, _)| s.kind == subcraft_paint::StampKind::Normal) => "Normal Map Stamp Stroke",
+            (StrokeMode::Paint, PaintTarget::Content) if stamp.is_some() => "Height Stamp Stroke",
             (StrokeMode::Paint, PaintTarget::Content) => "Paint Stroke",
             (StrokeMode::Erase, PaintTarget::Content) => "Erase Stroke",
             (StrokeMode::Paint, PaintTarget::ContentEffect(_)) => "Paint Effect Stroke",
@@ -1520,6 +1619,26 @@ impl Session {
         let result = self.with_stroke_context(active.texture_set, camera, |stroke, ts, ctx| {
             if line { stroke.line_to(ts, ctx, screen) } else { stroke.add_point(ts, ctx, screen) }
         }, active);
+        if result.as_ref().is_ok_and(|t| !t.is_empty()) {
+            self.revision += 1;
+        }
+        if let Some(offset) = self.stroke.as_ref().and_then(|a| a.stroke.clone_offset()) {
+            self.clone_offset = Some(offset);
+        }
+        result
+    }
+
+    /// Continue the stroke through every position of a frame's input events at once (a pen
+    /// reports hundreds per second): one stamping pass, one tile rewrite, stamps spaced along the
+    /// polyline whatever the event rate. A single position is exactly [`Session::stroke_to`].
+    pub fn stroke_to_many(&mut self, camera: &Camera, screens: &[Vec2]) -> Result<Vec<usize>, PaintError> {
+        let Some(mut active) = self.stroke.take() else { return Ok(Vec::new()) };
+        if screens.is_empty() {
+            self.stroke = Some(active);
+            return Ok(Vec::new());
+        }
+        active.camera = Some(*camera);
+        let result = self.with_stroke_context(active.texture_set, camera, |stroke, ts, ctx| stroke.add_points(ts, ctx, screens), active);
         if result.as_ref().is_ok_and(|t| !t.is_empty()) {
             self.revision += 1;
         }
@@ -1622,9 +1741,16 @@ impl Session {
     /// was painted).
     pub fn end_stroke(&mut self) {
         if let Some(active) = self.stroke.take() {
-            // Catch-up end: let the brush reach the last cursor position first.
-            if let Some(camera) = active.camera.filter(|_| self.brush.options.catch_up) {
-                if self.with_stroke_context(active.texture_set, &camera, |stroke, ts, ctx| stroke.finish(ts, ctx), active).is_ok_and(|t| !t.is_empty()) {
+            // Catch-up end: let the brush reach the last cursor position first; then apply the
+            // stamps the live preview thinned out (one batched pass).
+            if let Some(camera) = active.camera {
+                let catch_up = self.brush.options.catch_up;
+                let run = |stroke: &mut Stroke, ts: &mut TextureSet, ctx: &PaintContext| -> Result<Vec<usize>, PaintError> {
+                    let mut tiles = if catch_up { stroke.finish(ts, ctx)? } else { Vec::new() };
+                    tiles.extend(stroke.flush_deferred(ts, ctx)?);
+                    Ok(tiles)
+                };
+                if self.with_stroke_context(active.texture_set, &camera, run, active).is_ok_and(|t| !t.is_empty()) {
                     self.revision += 1;
                 }
             } else {
@@ -1881,6 +2007,23 @@ impl Session {
 
     // ----- assets --------------------------------------------------------------------------------
 
+    /// A material clicked on the Shelf: on a selected fill layer it swaps that layer's material
+    /// (channels and name; its mask, parts, opacity and blend modes stay), otherwise it adds a new
+    /// fill layer above the selection. One undo step either way. Returns true when it swapped.
+    pub fn apply_material(&mut self, preset: &subcraft_assets::MaterialPreset) -> Result<bool, CommandError> {
+        let Some(old) = self.selected_layer().filter(|l| matches!(l.content, subcraft_doc::LayerContent::Fill(_))).cloned() else {
+            self.add_material(preset)?;
+            return Ok(false);
+        };
+        let ids = self.import_preset_images(&preset.images)?;
+        let fresh = preset.build_with(self.selected_texture_set(), &ids);
+        let mut replacement = old.clone();
+        replacement.content = fresh.content;
+        replacement.name = fresh.name;
+        self.execute(Command::ReplaceLayer { layer: old.id, replacement: Box::new(replacement), label: format!("Swap Material: {}", preset.name) })?;
+        Ok(true)
+    }
+
     /// Add a material preset as a fill layer above the selection.
     pub fn add_material(&mut self, preset: &subcraft_assets::MaterialPreset) -> Result<(), CommandError> {
         let ids = self.import_preset_images(&preset.images)?;
@@ -1907,13 +2050,49 @@ impl Session {
 
     /// Import a built-in preset's embedded images (reusing identical ones already in the project),
     /// so the layer's image fills resolve and saving embeds them.
-    fn import_preset_images(&mut self, images: &[subcraft_assets::PresetImage]) -> Result<subcraft_assets::ImageIds, CommandError> {
+    pub(crate) fn import_preset_images(&mut self, images: &[subcraft_assets::PresetImage]) -> Result<subcraft_assets::ImageIds, CommandError> {
         let mut ids = subcraft_assets::ImageIds::new();
         for img in images {
             let id = self.import_image_bytes(img.name, img.bytes.to_vec()).map_err(CommandError::Invalid)?;
             ids.insert(img.name, id);
         }
         Ok(ids)
+    }
+
+    /// Import a Painter smart material file (`.spsm`) as a folder above the selection, rebuilt for
+    /// the selected texture set like a Painter project's layer stack (fills, masks, generators and
+    /// levels; procedural Painter graphs are approximated or kept as hidden placeholders). One
+    /// history entry. Returns the folder's name and how many layers it holds.
+    pub fn import_painter_smart_material(&mut self, path: &Path) -> Result<(String, usize), String> {
+        let fallback = path.file_stem().and_then(|s| s.to_str()).unwrap_or("Smart Material").to_string();
+        let mut spp = subcraft_mesh::spp::SppFile::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let info = spp.smart_material(&fallback).map_err(|e| format!("{}: {e}", path.display()))?
+            .ok_or_else(|| format!("{} is not a smart material", path.display()))?;
+        let ts = self.selected_texture_set().clone();
+        let geometry = self.scene.geometry.get(ts.material_slot, ts.resolution);
+        let maps = self.mesh_maps.get(&ts.id).cloned().unwrap_or_default();
+        let mut resources = std::mem::take(&mut self.resources);
+        let layers = {
+            let mut rebuilder = crate::spp_stack::Rebuilder::new(&mut spp, &ts, &mut resources);
+            rebuilder.mesh_maps = Some(maps);
+            rebuilder.geometry = Some(geometry);
+            rebuilder.rebuild(std::slice::from_ref(&info))
+        };
+        self.resources = resources;
+        let mut layer = layers.into_iter().next().ok_or_else(|| format!("{} holds no layers", path.display()))?;
+        if layer.name.trim().is_empty() { layer.name = fallback; }
+        fn count(l: &Layer) -> usize { 1 + l.children().iter().map(|c| count(c)).sum::<usize>() }
+        let count = count(&layer) - 1;
+        let name = layer.name.clone();
+        let missing: Vec<_> = crate::smart_import::channels_to_add(&layer).into_iter().filter(|&k| !self.selected_texture_set().has_channel(k)).collect();
+        let label = format!("Smart Material: {name}");
+        let result = if missing.is_empty() {
+            self.execute(Command::InsertLayer { layer: Box::new(layer), label })
+        } else {
+            self.execute(Command::InsertLayerWithChannels { layer: Box::new(layer), channels: missing, label })
+        };
+        result.map_err(|e| e.to_string())?;
+        Ok((name, count))
     }
 
     /// Apply a smart mask to the selected layer.
@@ -1927,6 +2106,12 @@ impl Session {
 
     /// Use a brush alpha for the next strokes.
     pub fn set_brush_alpha(&mut self, alpha: &subcraft_assets::BrushAlpha) {
+        self.clear_brush_stamp();
+        self.set_brush_tip(alpha);
+    }
+
+    /// Set the tip image only (presets restore their own stamp state separately).
+    pub(crate) fn set_brush_tip(&mut self, alpha: &subcraft_assets::BrushAlpha) {
         self.brush.alpha = alpha.bitmap.clone();
         self.brush.alpha_name = alpha.name.clone();
     }

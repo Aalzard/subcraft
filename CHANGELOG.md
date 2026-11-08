@@ -3,6 +3,94 @@
 What changed in SubCraft, newest first. Download the latest build from the
 [Releases page](https://github.com/Aalzard/subcraft/releases/latest).
 
+## 0.2.5 — release candidate
+
+Test status for this candidate is recorded in `docs/progress.md`; items marked "untested" were not
+run by hand.
+
+### Added
+- **Painter-style layout** (default): Assets shelf with category icons, search and a bottom toolbar on
+  the left; 3D view in the centre; Texture Set List, Layers, Texture Set Settings and a
+  context-sensitive Properties panel on the right. Painter Fill / Material properties, mesh-map
+  capture flags. View menu: side-by-side 3D | 2D split.
+- **Default model SubCraft_base** (bundled FBX, imported from memory) with the **Dusty Plastic** smart
+  material already applied; the default texture resolution is now **2048**.
+- **Languages**: Korean and Traditional Chinese, a language preference and CJK font fallback.
+- **Text tool**: Aa entry point, composer window (Ctrl+Shift+T), on-model move / scale / rotate handle,
+  drag coalesced into one undo step; shelf drops highlight and explain; Alt applies shelf items in place.
+- **Depth of field** in the 3D view (off by default; display and renders only, never exported textures).
+- **Generators**: Painter-style edges masking, AO masking, curvature weight, smoothness, grunge scale,
+  fine grain control and breakup noise offset; new Dirt and Edges generators start with chipped /
+  speckled defaults (older projects keep their look). Contact sheets in `docs/generators/`.
+- **World-space blur** for paint layers.
+- **Painter keymap preset**, shortcut cheat sheet, mouse gestures and a viewport hint overlay.
+- **Compatibility**: safe mode, GPU capability checks, device-lost handling, atomic exports, copyable
+  diagnostics and fatal-error dialogs (`docs/compatibility.md`).
+- **Bake log** with per-map timing and warnings, copyable from the Bake window.
+- **Content**: 30 more normal maps and 4 alpha brushes in the starter pack; a separate Normal Maps shelf tab.
+- **Normal-map brush**: paint a normal map or height texture from the shelf as a stamp brush (whiteout
+  blend, per-stamp slope accumulation, optional tiled mode) with a NORMAL MAP BRUSH panel and live
+  preview. Not tried with a real pen or tablet.
+- **Micro effect on generators**: a generator's mask can also write relief into the Normal / Height
+  channels of the layers below (amount, Raise / Carve direction, optional "grain follows generator").
+  Saved in the project; older projects are unchanged.
+- **Smoother AO, sharper mesh maps**: AO and thickness bakes get a 3x3 smoothing of covered texels,
+  mesh maps below the texture set resolution are sampled bilinearly, and generator grain now fades in
+  with Breakup (Breakup 0 is exactly smooth).
+- **High-poly alignment and a redesigned Bake window**: offset, scale, rotation, centring and auto-fit
+  for the high-poly source, drawn as a blue transparent overlay on the low poly; the Bake window is
+  now organised in cards (Models, placement, maps) with per-map live progress, a collapsed details
+  section and a size that defaults to the texture set resolution.
+- **Support link**: a donate button in the README and a donate link in the repository funding file.
+- **18-material PBR pack** (Black Basalt, Travertine, Terrazzo, Cobblestone, Cracked Asphalt, Dry Mud,
+  Desert Sand, Mossy Stone, Tree Bark, Cork, Bamboo Flooring, Woven Linen, Worn Leather, Industrial
+  Rubber, Brushed Aluminum, Oxidized Copper, Galvanized Steel, Hex Armor): textured color / roughness /
+  metallic / normal / height / AO materials, each also a smart material with wear and dirt layers.
+  Where a name was already taken the smart material is called "... PBR".
+- **Shelf**: a Filters tab (click adds a filter to the selected layer or swaps the selected filter);
+  clicking a material swaps the selected fill layer's material (Alt+click replaces in place, drag adds
+  a layer); import Painter smart materials (`.spsm`); model files can be dropped anywhere on the window.
+- **Layers and tools**: Ctrl+A selects all layers, Delete / Ctrl+D act on all selected layers; fill layers
+  show a map slot per channel and accept dropped image files; the brush always paints (it adds a paint
+  layer above a selected fill layer or folder); the path tool rasterizes the whole path at once;
+  View > Mesh maps shows any baked map raw on the model; Shift+RMB / Shift+MMB drag turns the light /
+  environment.
+- Commands to remove a texture-set channel and change its format exist in the app; the Texture Set
+  Settings panel does not use them yet.
+
+### Changed
+- **New logo** (white hexagonal S ribbon with a four-point star on orange) and a slightly warmer
+  charcoal interface (lightness unchanged).
+- Shelf previews render with a preview-only tiling boost, at higher resolution, off the UI thread.
+- 13 built-in smart materials were removed, and later also Muddy Leather, Dirty Rubber, Sandstone, Worn Leather and Old Wood; "Mossy Bricks" is now "Bricks" without moss and "Worn Brown Leather" is "Brown Leather".
+- README rewritten with new screenshots; a Support link was added.
+
+### Fixed
+- Pen strokes: stamps along every pointer position of a frame (fewer gaps on fast strokes).
+- Directional / cavity / edge generator breakup is continuous across UV seams.
+- Text composer window layout (value boxes fully visible); stale or untranslated UI strings.
+
+### Performance
+- **Pen lag**: expensive strokes (large brush, large texture) use a live preview that applies every
+  2nd-3rd stamp and the rest exactly on pen lift; per-stroke raster cache and unchanged-tile skip.
+  At 4096 the work while drawing dropped about 2.5-3x with a 0.15-0.25 s pause on release.
+- Generators: the slow 12-16 s recomposite at 2048 seen in an example harness was the harness using the
+  system heap; the app uses mimalloc and takes roughly 0.13-0.5 s (single PC, indicative).
+
+### Known issues
+- Pen strokes with very large brushes (e.g. 300 px) at 4096 are faster but still not 60 fps
+  (about 17 ms per stamp on the processor); tablet-driver behaviour was not reproduced.
+- Generator timing figures come from one machine; stacks dominated by blur-type filters or procedural
+  noise are not helped by the GPU compositor, and a 4096 cold composite takes over a second.
+- Texture Set Settings has read-only fields: description, shader instance, channel format and channel
+  remove, and non-square sizes. Filtering and UV Wrap on Fill layers are shown disabled.
+- The Korean and Traditional Chinese translations are machine-drafted and need native-speaker review.
+- The layout is a close but not exact match of Substance Painter; the lock toggle uses a check/x glyph.
+- Linux and macOS builds of this candidate were not produced or tested on the release machine.
+- The normal-map brush, Micro effect, smoother AO / sharper mesh maps and high-poly alignment were
+  verified by unit / integration tests and scripted captures; none were exercised by hand with a mouse
+  or pen, and the Bake window redesign was not compared against real production models.
+
 ## 0.2.1 — 2026-11-04
 
 ### New
