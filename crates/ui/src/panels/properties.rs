@@ -380,6 +380,39 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     }
 }
 
+/// Substance Painter's extra generator controls that each kind actually uses ([`subcraft_doc::PainterControls`]):
+/// Dirt has Edges masking and a grunge floor, natural edge wear has AO masking, Curvature weight and
+/// Edges smoothness, and Grain speckles every kind except the plain curvature threshold. Untouched
+/// generators keep `painter: None` (their exact older look); the first change stores the controls.
+fn painter_controls(ui: &mut Ui, g: &mut subcraft_doc::Generator) -> bool {
+    let natural_edges = g.kind == GeneratorKind::Edges && g.edge_spread.is_some();
+    let mut pc = g.painter.unwrap_or_default();
+    let before = pc;
+    if g.kind == GeneratorKind::Cavity {
+        slider_row(ui, tr("Edges masking"), egui::Slider::new(&mut pc.edges_masking, 0.0..=1.0))
+            .on_hover_text("Keeps dirt off convex edges (Painter's Dirt: Edges masking). Reads the baked curvature.");
+        slider_row(ui, tr("Grunge floor"), egui::Slider::new(&mut pc.grunge_floor, 0.0..=1.0))
+            .on_hover_text("A faint layer of grunge over open surfaces where the threshold leaves none, like Painter's dirt at higher Grunge Amount. Needs Breakup above 0.");
+    }
+    if natural_edges {
+        slider_row(ui, tr("AO masking"), egui::Slider::new(&mut pc.ao_masking, 0.0..=1.0))
+            .on_hover_text("Removes wear where the surface is occluded (Painter's Metal Edge Wear: Ambient Occlusion Masking). Reads the baked AO.");
+        slider_row(ui, tr("Curvature weight"), egui::Slider::new(&mut pc.curvature_weight, 0.0..=2.0))
+            .on_hover_text("Strength of the baked curvature detail next to the geometric edge band (Painter: Curvature Weight). 1 = default.");
+        slider_row(ui, tr("Edges smoothness"), egui::Slider::new(&mut pc.smoothness, 0.0..=1.0))
+            .on_hover_text("Extra softening of the wear boundary (Painter: Edges Smoothness).");
+    }
+    if g.kind != GeneratorKind::Edges || natural_edges {
+        slider_row(ui, tr("Grain"), egui::Slider::new(&mut pc.grain, 0.0..=1.0))
+            .on_hover_text("Fine grain that chips wear and speckles dirt instead of smooth bands. Fades in with Breakup: Breakup 0 stays smooth.");
+    }
+    if pc == before {
+        return false;
+    }
+    g.painter = Some(pc);
+    true
+}
+
 pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_core::LayerId, e: &Arc<MaskEffect>, cmds: &mut Vec<Command>) {
     let mut eff = (**e).clone();
     let default_name = eff.name == eff.kind.label();
@@ -425,8 +458,19 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
                         if ui.checkbox(&mut natural, tr("Natural edge wear")).on_hover_text(tr("Surface-constrained spread with an irregular boundary. Older projects retain their original wear until enabled.")).changed() {
                             g.edge_spread = natural.then(subcraft_doc::EdgeSpread::default); changed = true;
                         }
+                        // Spread is always offered (wear made without natural wear, such as the
+                        // built-in smart materials' chip lines, used to hide it): moving it turns
+                        // natural edge wear on with that reach.
+                        let mut distance = g.edge_spread.map_or(subcraft_doc::EdgeSpread::default().distance, |s| s.distance);
+                        let natural_on = g.edge_spread.is_some();
+                        if slider_row(ui, tr("Spread"), egui::Slider::new(&mut distance, 0.0..=12.5).suffix("%"))
+                            .on_hover_text(if natural_on { "How far wear can reach from an exposed edge along the surface, as a percentage of the model's longest dimension. Level decides how much of that reach is worn. Follows connected edges, not UV islands." } else { "How far wear can reach from an exposed edge along the surface. Moving it turns on natural edge wear (this wear currently follows the baked curvature only)." })
+                            .changed()
+                        {
+                            g.edge_spread.get_or_insert_with(subcraft_doc::EdgeSpread::default).distance = distance;
+                            changed = true;
+                        }
                         if let Some(spread) = &mut g.edge_spread {
-                            changed |= slider_row(ui, tr("Spread"), egui::Slider::new(&mut spread.distance, 0.0..=12.5).suffix("%")).on_hover_text("How far wear can reach from an exposed edge along the surface, as a percentage of the model's longest dimension. Level decides how much of that reach is worn. Follows connected edges, not UV islands.").changed();
                             changed |= slider_row(ui, tr("Variation"), egui::Slider::new(&mut spread.variation, 0.0..=1.0)).on_hover_text(tr("Irregular, chipped boundary, independent of Breakup. Zero gives a clean geometric band.")).changed();
                             if !spread.level_reach {
                                 prop_row(ui, "", |ui| {
@@ -445,6 +489,7 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
                     if slider_row(ui, tr("Pattern size"), egui::Slider::new(&mut size, 1.0..=100.0).logarithmic(true).suffix("%")).changed() {
                         g.set_pattern_size(size); changed = true;
                     }
+                    changed |= painter_controls(ui, g);
                     prop_row(ui, tr("Seed"), |ui| {
                         changed |= ui.add(egui::DragValue::new(&mut g.noise.seed).speed(1.)).changed();
                         if ui.small_button(tr("Next")).on_hover_text(tr("Try the next deterministic pattern seed")).clicked() {
@@ -1007,6 +1052,37 @@ mod generator_tests {
         for command in commands { state.session.execute(command).unwrap(); }
         let seed = |state: &UiState| match state.session.selected_layer().unwrap().mask.as_ref().unwrap().effects[0].kind { MaskEffectKind::Generator(g) => g.noise.seed, _ => panic!() };
         assert_eq!(seed(&state), 2); state.session.execute(Command::Undo).unwrap(); assert_eq!(seed(&state), 1);
+    }
+    /// Each generator kind shows the Painter controls it uses; Spread is offered for every Edges
+    /// generator (also one made without natural wear, like the smart materials' chip lines).
+    #[test]
+    fn generator_controls_follow_the_kind_and_spread_is_always_offered_for_edges() {
+        let ctx = egui::Context::default(); theme::apply(&ctx);
+        let labels = |g: Generator| -> Vec<String> {
+            let mut state = UiState::new(subcraft_app::Session::new(subcraft_mesh::primitives::plane(2., 1), 128), None);
+            let layer = state.session.selection().layer.unwrap();
+            state.session.execute(Command::AddMask { layer, white: false }).unwrap();
+            state.session.execute(Command::AddMaskEffect { layer, kind: MaskEffectKind::Generator(g) }).unwrap();
+            let effect = state.session.selected_layer().unwrap().mask.as_ref().unwrap().effects[0].clone();
+            let mut commands = Vec::new();
+            let out = ctx.run_ui(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(420., 1400.))), ..Default::default() }, |ui| effect_editor(ui, &mut state, layer, &effect, &mut commands));
+            assert!(commands.is_empty(), "drawing alone must not edit the generator");
+            out.shapes.iter().filter_map(|s| match &s.shape { egui::Shape::Text(t) => Some(t.galley.text().to_string()), _ => None }).collect()
+        };
+        let has = |l: &[String], s: &str| l.iter().any(|t| t == s);
+        let dirt = labels(Generator::new(GeneratorKind::Cavity));
+        for s in ["Edges masking", "Grunge floor", "Grain"] { assert!(has(&dirt, s), "Dirt lacks {s}"); }
+        for s in ["Spread", "AO masking", "Curvature weight", "Edges smoothness"] { assert!(!has(&dirt, s), "Dirt shows {s}"); }
+        let wear = labels(Generator::new(GeneratorKind::Edges));
+        for s in ["Spread", "Variation", "AO masking", "Curvature weight", "Edges smoothness", "Grain"] { assert!(has(&wear, s), "Edges lacks {s}"); }
+        assert!(!has(&wear, "Edges masking"));
+        let mut chips = Generator::new(GeneratorKind::Edges);
+        chips.edge_spread = None;
+        let chips = labels(chips);
+        assert!(has(&chips, "Spread"), "Spread must stay visible without natural wear");
+        for s in ["Variation", "AO masking", "Grain"] { assert!(!has(&chips, s), "legacy Edges shows {s}, which it ignores"); }
+        let top = labels(Generator::new(GeneratorKind::Directional));
+        assert!(has(&top, "Grain") && !has(&top, "Spread") && !has(&top, "Edges masking"));
     }
 }
 

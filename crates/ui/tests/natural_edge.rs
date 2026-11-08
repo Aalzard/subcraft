@@ -28,7 +28,9 @@ fn legacy_effect_can_enable_spread_from_properties_and_undo_without_losing_setti
     session.execute(Command::Seal).unwrap(); let before = session.document().clone();
     let mut state = UiState::new(session, None); let ctx = egui::Context::default(); theme::apply(&ctx);
     draw(&ctx, &mut state, vec![]); let out = draw(&ctx, &mut state, vec![]);
-    assert!(label(&out, "Spread").is_none());
+    // Spread is always offered for Edges (moving it turns natural wear on); Variation only applies
+    // to natural wear, so it appears once that is on.
+    assert!(label(&out, "Spread").is_some() && label(&out, "Variation").is_none());
     let pos = label(&out, "Natural edge wear").unwrap();
     let button = |pressed| Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
     draw(&ctx, &mut state, vec![Event::PointerMoved(pos), button(true)]);
