@@ -196,6 +196,22 @@ impl ExportTemplate {
     }
 
     /// The current 2D view as one RGB texture per texture set (Painter's "2D View" export).
+    /// One raw baked mesh map, read through the 2D-view source (set `ExportSettings::view_2d` to
+    /// `View2d::MeshMap(kind)`). The suffix `baked_<key>` keeps raw maps apart from material
+    /// textures and from each other; scalar maps are one grey channel, height and position 16-bit.
+    pub fn baked_map(kind: subcraft_core::MeshMapKind) -> Self {
+        use subcraft_core::MeshMapKind as M;
+        let format = if matches!(kind, M::Height | M::Position) { FileFormat::Png16 } else { FileFormat::Png8 };
+        let components = (0..kind.components() as u8).map(|component| Source::View2d { component }).collect();
+        Self { name: format!("Baked {}", kind.display_name()), maps: vec![OutputMap::new(&Self::baked_suffix(kind), format, components, false)] }
+    }
+
+    /// File suffix of a raw baked map (`baked_ambient_occlusion`, `baked_normal`, ...).
+    pub fn baked_suffix(kind: subcraft_core::MeshMapKind) -> String {
+        let key = kind.key();
+        format!("baked_{}", key.strip_suffix("_base").unwrap_or(key))
+    }
+
     pub fn view_2d() -> Self {
         Self { name: "2D View".into(), maps: vec![OutputMap::new("View2D", FileFormat::Png8, (0..3).map(|component| Source::View2d { component }).collect(), true)] }
     }

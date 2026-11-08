@@ -109,3 +109,46 @@ fn udim_mesh() -> subcraft_mesh::Mesh {
     }
     b.build().unwrap()
 }
+
+/// Issue #93: the Baked Mesh Maps section exports the checked raw maps of every texture set.
+#[test]
+fn baked_mesh_maps_section_exports_the_checked_maps_of_every_set() {
+    use subcraft_app::{BakeRequest, BakeSettings, MeshMapKind};
+    let mut session = Session::new(subcraft_mesh::primitives::sample_crate(), 64);
+    let sets: Vec<_> = session.document().texture_sets.iter().map(|ts| (ts.id, 0)).collect();
+    let mut job = session.start_bake(BakeRequest {
+        settings: BakeSettings { size: 64, maps: vec![MeshMapKind::AmbientOcclusion, MeshMapKind::Curvature], ao_samples: 4, ..BakeSettings::default() },
+        high_poly: None,
+        texture_sets: sets,
+    });
+    while job.poll(&mut session).is_none() {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    let dir = std::env::temp_dir().join(format!("subcraft-ui-baked-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let mut state = UiState::new(session, None);
+    state.export.open = true;
+    state.export.folder = dir.display().to_string();
+    let ctx = egui::Context::default();
+    subcraft_ui::theme::apply(&ctx);
+    for _ in 0..3 {
+        frame(&mut state, &ctx, vec![], Default::default());
+    }
+    click(&mut state, &ctx, "Baked Mesh Maps", Default::default());
+    // Both baked maps start checked; uncheck Curvature.
+    click(&mut state, &ctx, "Curvature", Default::default());
+    let out = frame(&mut state, &ctx, vec![], Default::default());
+    let export = out.shapes.iter().rev().find_map(|s| match &s.shape {
+        egui::epaint::Shape::Text(t) if t.galley.text().ends_with("Export baked maps") => Some(t.pos + t.galley.size() * 0.5),
+        _ => None,
+    }).expect("Export baked maps button");
+    let b = |pressed| egui::Event::PointerButton { pos: export, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+    frame(&mut state, &ctx, vec![egui::Event::PointerMoved(export), b(true)], Default::default());
+    frame(&mut state, &ctx, vec![b(false)], Default::default());
+    let mut files: Vec<String> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+    files.sort();
+    assert_eq!(files.len(), 2, "AO of Body and Trim, no curvature: {files:?}");
+    assert!(files.iter().all(|f| f.contains("_baked_ambient_occlusion.")), "{files:?}");
+    assert!(files.iter().any(|f| f.contains("_Body_")) && files.iter().any(|f| f.contains("_Trim_")), "{files:?}");
+    std::fs::remove_dir_all(dir).unwrap();
+}

@@ -38,12 +38,18 @@ pub struct ExportUi {
     /// Opened from File > Export 2D view: write only what the 2D panel shows.
     pub view_2d_only: bool,
     pub scene_format: usize,
+    /// Raw baked mesh maps the "Baked Mesh Maps" section exports (issue #93); maps not baked
+    /// in the project are not offered. Empty until the section is first shown (then all on).
+    pub baked: std::collections::BTreeSet<subcraft_core::MeshMapKind>,
+    pub baked_initialized: bool,
+    /// Export only the selected texture set's baked maps.
+    pub baked_selected_only: bool,
 }
 
 impl Default for ExportUi {
     fn default() -> Self {
         let folder = std::env::current_dir().map(|d| d.join("exports")).unwrap_or_else(|_| PathBuf::from("exports"));
-        Self { open: false, settings: ExportSettings::default(), template: 0, folder: folder.display().to_string(), known_template: String::new(), view_2d_only: false, scene_format: 0 }
+        Self { open: false, settings: ExportSettings::default(), template: 0, folder: folder.display().to_string(), known_template: String::new(), view_2d_only: false, scene_format: 0, baked: Default::default(), baked_initialized: false, baked_selected_only: false }
     }
 }
 
@@ -246,6 +252,7 @@ pub fn export_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
         divider(ui);
         ui.add_space(4.0);
         export_options(ui, state);
+        baked_maps_section(ui, state, &folder, &settings, now);
         ui.add_space(4.0);
         divider(ui);
         ui.add_space(4.0);
@@ -284,6 +291,51 @@ pub fn export_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
         }
     });
     state.export.open = open;
+}
+
+/// "Baked Mesh Maps": export raw baked maps (Normal, AO, Curvature...) of every texture set at once,
+/// one file per set and map (`<mesh>_<set>_baked_<map>`), apart from the material textures.
+fn baked_maps_section(ui: &mut egui::Ui, state: &mut UiState, folder: &std::path::Path, settings: &ExportSettings, now: f64) {
+    let available = state.session.baked_map_kinds();
+    let ex = &mut state.export;
+    if !ex.baked_initialized && !available.is_empty() {
+        ex.baked = available.iter().copied().collect();
+        ex.baked_initialized = true;
+    }
+    let mut go = false;
+    egui::CollapsingHeader::new("Baked Mesh Maps").id_salt("baked_maps").default_open(false).show(ui, |ui| {
+        ui.label(dim("Raw baked maps, not the material textures. One file per texture set and map, named after both."));
+        if available.is_empty() {
+            ui.label(dim("Nothing baked yet: bake mesh maps first (Bake in the top bar)."));
+            return;
+        }
+        ui.horizontal(|ui| {
+            if ui.small_button("All").clicked() { ex.baked = available.iter().copied().collect(); }
+            if ui.small_button("None").clicked() { ex.baked.clear(); }
+        });
+        ui.horizontal_wrapped(|ui| {
+            for kind in &available {
+                let mut on = ex.baked.contains(kind);
+                if ui.checkbox(&mut on, kind.display_name()).changed() {
+                    if on { ex.baked.insert(*kind); } else { ex.baked.remove(kind); }
+                }
+            }
+        });
+        ui.checkbox(&mut ex.baked_selected_only, "Selected texture set only");
+        let chosen = available.iter().filter(|k| ex.baked.contains(k)).count();
+        ui.horizontal(|ui| {
+            go = ui.add_enabled(chosen > 0, egui::Button::new(format!("{}  Export baked maps", crate::icons::EXPORT))).clicked();
+            if chosen == 0 { ui.label(dim("Check at least one map.")); }
+        });
+    });
+    if go {
+        let kinds: Vec<_> = available.into_iter().filter(|k| state.export.baked.contains(k)).collect();
+        match state.session.export_baked_maps(folder, &kinds, state.export.baked_selected_only, settings) {
+            Ok(files) if files.is_empty() => state.set_status("No baked maps to export for the chosen texture sets", now),
+            Ok(files) => state.set_status(format!("Exported {} baked maps to {}", files.len(), folder.display()), now),
+            Err(e) => state.set_status(format!("Export failed: {e}"), now),
+        }
+    }
 }
 
 /// Project-wide export choices: template memory, normal-map convention, UDIM folders.
