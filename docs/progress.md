@@ -4629,7 +4629,7 @@ Baking an AI-generated high poly (Tripo etc.) needs the two meshes to overlap. A
   (`bake_overlay_high_poly_follows_the_placement_transform_and_opacity`). The per-map status was also
   wrong while baking (finished maps stayed "waiting", "-0.0 s"); fixed with live tracking and a monotonic test.
 
-Tests (`cargo test` of core, bake, mesh, doc, project, app, ui, render): 722 passed, 1 failed.
+
 The failure is `ui/tests/emission_chip.rs` (a "+ emiss" chip expectation in the Properties panel); none
 of the touched files are involved, and it was not run against the base commit, so it is not confirmed
 pre-existing. New tests: placement maths (7), `transformed` (3), bake placement / distance (7), project
@@ -4641,3 +4641,90 @@ bake produces all nine maps and the grooves / rivets appear in the baked normal 
 `docs/ui/highpoly-align/` (before/after Bake window, misaligned and aligned overlay, baked result, running bake,
 small 1000x640 window). Not verified: a real Tripo model, million-triangle overlay speed, interactive dragging of
 sliders (only scripted captures), and keyboard / touch use of the new window.
+
+## Twice as fast: compositor, noise, bitmap fills, brush store (2026-11-09, branch `claude/perf-2x`)
+
+Goal from the owner: make the app about twice as fast without changing results. Every change below is
+**bit-identical**: a hash of every texel bit of every channel is the same on `main` and on this branch for
+all three benchmark stacks (default smart materials `461a931b48d73faf` / `b02a9af192253faf` after strokes,
+PBR materials `ab065dc628255faf` / `394210721aee9faf`, 40-layer stress stack `0d8d7340015e7faf` /
+`f648aa27a6741faf`), and each rewritten kernel has a test comparing it bit for bit with the old code.
+
+**Benchmarks** (all in the repo):
+* `cargo run --release -p subcraft-app --example smart_bench -- 2048 4` (new): the default model
+  (`SubCraft_base`) with Rusty Iron, Dusty Plastic, Worn Painted Metal and Chipped Painted Metal, layer edits
+  at the bottom and top of the stack, brush strokes, save and open. `SUBCRAFT_BENCH_MATERIALS="Galvanized
+  Steel,Black Basalt,Worn Leather,Mossy Stone"` picks the image-based PBR pack instead; `SUBCRAFT_BENCH_HASH=1`
+  prints the texel hashes; `SUBCRAFT_COMPOSITE_PROFILE=1` now also profiles the per-tile (non-graph) path.
+* `big_project_bench` (40 layers, blurs, generators), `pen_stroke_bench` (existing).
+* `cargo run --release -p subcraft-materials --example pattern_bench -- 64 [tri]` and
+  `cargo run --release -p subcraft-image --example sample_bench` (new micro benchmarks with checksums).
+
+**Measured** (RTX 4060 PC, 16 threads, release). The PC was shared with other builds, so main and branch ran
+alternately, three rounds each in two sessions; each number is the best of those runs (4096² rows: best of
+two, from the final build only). Milliseconds.
+
+| case (2048² unless noted) | main | branch | speed-up |
+|---|---|---|---|
+| smart materials: bottom material visibility / opacity | 2984 / 3092 | 166 / 170 | 18x |
+| smart materials: top material visibility / opacity | 75 / 85 | 55 / 58 | 1.4x |
+| smart materials: add 4 materials (command + composite) | 3493 | 2236 | 1.6x |
+| smart materials: first composite after open / at startup | 3721 / 310 | 2257 / 195 | 1.6x |
+| PBR materials: bottom / top visibility | 557 / 152 | 363 / 103 | 1.5x |
+| PBR materials: add 4 / first composite after open | 2058 / 1789 | 1442 / 1226 | 1.4x |
+| 40 layers: full composite | 6520 | 3369 | 1.9x |
+| 40 layers: stroke on a mid-stack mask | 1544 | 508 | 3.0x |
+| 40 layers: generator level / bottom pattern edit | 6452 / 6240 | 1818 / 2278 | 3.5x / 2.7x |
+| 40 layers: bottom / middle / top layer edit | 6148 / 2830 / 176 | 1734 / 1007 / 54 | 3.5x / 2.8x / 3.3x |
+| 40 layers: top-layer opacity / stroke on a top mask | 129 / 100 | 98 / 88 | 1.3x / 1.1x |
+| pen stroke 300 px, 10 layers: ms per call / p95 frame | 2.6 / 4.6 | 2.1 / 3.5 | 1.2x / 1.3x |
+| pen stroke 300 px at 4096²: ms per call / p95 frame | 7.8 / 24.4 | 4.0 / 14.0 | 1.9x / 1.7x |
+| 4096², 40 layers: full composite | 27533 | 17106 | 1.6x |
+| 4096², smart materials: add / bottom visibility / first composite after open | 13945 / 12372 / 16052 | 9011 / 8004 / 11195 | 1.4-1.6x |
+| procedural patterns (UV / triplanar), 64 tiles | 549 / 1609 | 260 / 848 | 2.1x / 1.9x |
+| bitmap bilinear sample, 8-bit RGBA (ns) | 42.6 | 15.6 | 2.7x |
+| unchanged: bake 7.7 s, save 0.35 s, project file read 0.22 s | | | 1.0x |
+
+**What changed** (one commit each):
+1. Noise (`materials/noise.rs`, `pattern.rs`, `scratch.rs`, `organic.rs`): a per-thread memo of each lattice
+   cell's corner gradients / values / scratch segments, indexed by cell so the three triplanar planes do not
+   evict each other; one integer division per axis instead of four; an exact `floor` (`core::fastmath`) instead
+   of the library call `floor` compiles to on the portable x86-64 baseline (no SSE4.1; same bits for every input,
+   tested over 4M values).
+2. Procedural field cache (`materials/sample/field.rs`): it held 8 fields per tile, but a few smart materials
+   use more (triplanar fills per channel plus mask noise), so least-recently-used eviction dropped every field
+   right before its next use and each edit recomputed all noise. The per-tile cap is now the existing 768 MiB
+   budget shared by all tiles (32 at 2048², 12 at 4096², never under 8), counted from each texture set's tile
+   count when its geometry is created so early tiles cannot take the whole budget. This is the 18x row.
+3. Blending (`compositor/blend.rs`, `tile.rs`, `mask.rs`, `stages.rs`): `composite_run` / `composite_mask_run`
+   pick the blend mode once per tile instead of matching it per texel, and the mask is read as a slice instead
+   of through a `&dyn Fn` per texel. Mask base rasters decode straight into the mask buffer; RGBA tiles without
+   a temporary copy.
+4. Gaussian passes (`stages.rs`): premultiplied row buffers and whole-row taps; same taps, same order.
+5. Bitmap fills (`image/bitmap.rs`, `doc/fill.rs`, `materials/sample`): an 8-bit fast path for the four bilinear
+   taps with table-decoded bytes (`b / 255` and sRGB tables hold exactly the old values), one wrap per axis, and
+   the projection's rotation `sin_cos` computed once per tile instead of per texel (and per triplanar plane).
+6. Brush (`paint/stroke.rs`, `target.rs`, `image/tiled.rs`): stroke tiles are encoded to f16 on all cores and only
+   swapped in on the UI thread; the store was a serial encode of every touched tile of every channel (write stage
+   about halved).
+
+**Tests:** `cargo test --release` of core, image, doc, materials, compositor, paint, mesh, bake, project, export,
+assets and app (lib + all 50 integration tests): 927 passed, 0 failed, 1 ignored.
+
+**Memory:** the field cache holds more: peak working set of the 40-layer stack 1854 -> 2206 MB at 2048² and
+3553 -> 3852 MB at 4096² (within the existing 768 MiB budget, which is unchanged).
+
+**Tried, no gain (not kept):** `codegen-units = 1` for the workspace crates (within noise; slower builds); forcing
+the noise inner loop inline / out-of-line miss path (no change); keeping fields used in the current pass and
+rotating one slot when a tile is full (helps cyclic stacks, but the 40-layer stack at 4096² got slower: 25 vs 19 s).
+
+**Not done / open questions for the owner:**
+* At 4096² the smart-material stack needs more fields per tile than the budget allows (12), so a bottom edit is
+  8 s instead of 0.2 s at 2048². A larger budget (for example 1.5 GiB = 24 fields per tile at 4096²) would fix it at
+  the cost of memory; left unchanged.
+* Not touched: GPU compositor, viewport rendering, startup (the window and Vulkan/DX12 device take ~1-2 s per
+  `startup.log`), generator internals (another branch), bake, export, project IO.
+* Not measured: real tablet input and GPU upload in the app (benchmarks are headless). The release app from this
+  branch was built and started (`--screenshot`): no errors, the default material composites as before. Starting it
+  right after an unfinished start (safe mode) logs a pre-existing `grid pipeline` sample-count validation error in
+  the viewport; render code is untouched here.
