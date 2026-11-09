@@ -3,7 +3,20 @@
 What changed in SubCraft, newest first. Download the latest build from the
 [Releases page](https://github.com/Aalzard/subcraft/releases/latest).
 
-## Unreleased
+## 0.3.0
+
+### Added
+- **Brush preview.** Picking a brush tip, preset, starter alpha, normal map or height map in the Shelf
+  makes it the active brush right away and shows a BRUSH card in Properties with the name, tip and a
+  preview stamp and stroke. The chosen tile gets a highlight.
+- **Ambient Occlusion generator**: smooth by default (Balance 0.5, Contrast 0, no breakup). Raw mesh-map
+  generators also start smooth.
+- **Frameless window.** SubCraft draws its own minimize, maximize and close buttons next to Export; drag
+  the empty header to move the window, double-click to maximize, drag the edges to resize. Set
+  `SUBCRAFT_NATIVE_TITLE_BAR=1` for the normal OS frame.
+- **Texture set size** can be changed from the Texture Set List (128 to 4096, undoable).
+- **Shift+right-drag** rotates the environment, as in Painter. Turning only the key light is now
+  Shift+middle-drag.
 
 ### Changed
 - **Generators like Substance Painter.** New Dirt and Edge wear generators break up with a real grayscale
@@ -11,10 +24,16 @@ What changed in SubCraft, newest first. Download the latest build from the
   names (Dirt Level / Contrast, Wear Level / Contrast, Grunge Amount, Edges Masking, Ambient Occlusion
   Masking, Curvature Weight, Edges Smoothness). Edge wear keeps the edge itself worn and chips the band
   behind it. Older projects and the built-in smart materials keep their exact look.
-
-### Added
-- **Ambient Occlusion generator**: smooth by default (Balance 0.5, Contrast 0, no breakup). Raw mesh-map
-  generators also start smooth.
+- **Generator sliders on 4K sets** update while you drag instead of waiting for you to stop, and the
+  procedural noise cache no longer thrashes (it was recomputing the noise on every step).
+- **Normal-map brushes** switch instantly: the thumbnail is the stamp at once and the full-size image
+  follows a moment later.
+- **Faster compositing, noise, image fills and brush strokes**, roughly 1.5x to 3x depending on the
+  stack, with identical output (checked texel for texel against the old code).
+- **Startup defaults**: the Shelf opens on Smart Materials, the environment is Glasshouse Morning with the
+  sun in front of the camera, the Assets column is narrower, panel greys are closer to Painter's, and the
+  brush, eraser, fill, clone and smudge icons are no longer repeated in the 3D view toolbar.
+- Fixed the language picker for Korean and Traditional Chinese.
 
 ## 0.2.5 — release candidate
 
