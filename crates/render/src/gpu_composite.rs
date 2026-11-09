@@ -103,8 +103,8 @@ pub fn create_any_backend() -> Option<Arc<GpuCompositor>> {
 }
 
 fn create(allow_software: bool) -> Option<GpuCompositor> {
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
-    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())).ok()?;
+    // Same graphics API and adapter as the window (see `headless::secondary_adapter`).
+    let (_instance, adapter) = crate::headless::secondary_adapter()?;
     if adapter.get_info().device_type == wgpu::DeviceType::Cpu && !allow_software {
         return None;
     }
