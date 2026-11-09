@@ -177,12 +177,21 @@ fn procedural_fields_are_cached_exactly_per_parameter_set() {
     assert_ne!(&a[..], &b[..]);
     let rotated = Projection { rotation_deg: 10.0, ..tri };
     assert!(!Arc::ptr_eq(&a, &procedural_tile(&params, &rotated, &g)));
-    // At most PER_TILE fields per tile; the oldest is dropped.
+    // At most the per-tile cap; the oldest is dropped.
     for seed in 0..field::PER_TILE as u32 + 3 {
         procedural_tile(&ProceduralParams { seed: 100 + seed, ..params }, &tri, &g);
     }
-    assert_eq!(g.fields.len(), field::PER_TILE);
+    assert_eq!(g.fields.len(), field::per_tile_cap());
     assert!(!Arc::ptr_eq(&a, &procedural_tile(&params, &tri, &g)), "evicted, then recomputed");
+}
+
+#[test]
+fn the_per_tile_cap_shares_the_budget_between_tiles() {
+    // Few tiles: the full cap. The cap never drops below the old fixed 8 and never exceeds 32.
+    assert!((field::MIN_PER_TILE..=field::PER_TILE).contains(&field::per_tile_cap()));
+    let field_bytes = TILE_TEXELS * 4;
+    assert_eq!((field::BUDGET_BYTES / (1024 * field_bytes)).clamp(8, 32), 32, "2048² set");
+    assert_eq!((field::BUDGET_BYTES / (4096 * field_bytes)).clamp(8, 32), 12, "4096² set");
 }
 
 #[test]
@@ -194,7 +203,6 @@ fn a_stack_with_a_dozen_fields_per_tile_keeps_them_all() {
     let tri = Projection { mode: ProjectionMode::Triplanar, ..Projection::default() };
     let params: Vec<_> = (0..16u32).map(|seed| ProceduralParams { seed: 500 + seed, ..ProceduralParams::new(ProceduralKind::Grunge) }).collect();
     let first: Vec<_> = params.iter().map(|p| procedural_tile(p, &tri, &g)).collect();
-    field::begin_pass();
     for (p, a) in params.iter().zip(&first) {
         let b = procedural_tile(p, &tri, &g);
         assert!(Arc::ptr_eq(a, &b), "field recomputed although it fits");
