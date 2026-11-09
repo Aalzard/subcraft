@@ -61,9 +61,11 @@ fn quintic(t: f32) -> f32 {
 /// Values are exactly what `a.cos(), a.sin()` give, so cached and uncached noise are identical.
 const GRADIENT_SLOTS: usize = 4096;
 /// Lattice cells whose four corner gradients were looked up last on this thread, direct-mapped
-/// by octave seed and period. Neighboring texels almost always fall in the same cell at every
-/// octave, so the wraps, hashes and gradient lookups of a cell run once for many texels.
-const CELL_SLOTS: usize = 64;
+/// by cell, octave seed and period. Neighboring texels almost always fall in the same cell at
+/// every octave, so the wraps, hashes and gradient lookups of a cell run once for many texels;
+/// indexing by the cell too keeps the three planes of a triplanar projection (same seed and
+/// period, different cells) from evicting each other.
+const CELL_SLOTS: usize = 256;
 
 /// Four corner gradients of lattice cell `key = (ix, iy, period.max(1), seed)`.
 #[derive(Clone, Copy)]
@@ -116,7 +118,7 @@ pub fn gradient(p: Vec2, period: i32, seed: u32) -> f32 {
 fn cell_gradients(ix: i32, iy: i32, period: i32, seed: u32, cache: &mut NoiseCache) -> [Vec2; 4] {
     let pm = period.max(1);
     let key = [ix, iy, pm, seed as i32];
-    let slot = (seed.wrapping_mul(0x9e37_79b9) ^ (pm as u32).wrapping_mul(0x85eb_ca6b)) >> 26;
+    let slot = (seed.wrapping_mul(0x9e37_79b9) ^ (pm as u32).wrapping_mul(0x85eb_ca6b) ^ (ix as u32).wrapping_mul(0xc2b2_ae35) ^ (iy as u32).wrapping_mul(0x27d4_eb2f)) >> 24;
     let cell = &mut cache.cells[slot as usize & (CELL_SLOTS - 1)];
     if cell.key == key {
         return cell.g;
