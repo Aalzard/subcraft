@@ -144,6 +144,12 @@ impl std::fmt::Debug for TextureSetGeometry {
     }
 }
 
+impl Drop for TextureSetGeometry {
+    fn drop(&mut self) {
+        super::field::unregister_tiles(self.tiles.len());
+    }
+}
+
 impl TextureSetGeometry {
     pub fn new(mesh: Arc<Mesh>, material_slot: u32, resolution: u32) -> Self {
         let tiles_x = resolution.div_ceil(TILE_SIZE);
@@ -163,6 +169,7 @@ impl TextureSetGeometry {
         }
         let bounds = mesh.bounds;
         let max_extent = bounds.extent().max_element().max(1e-12);
+        super::field::register_tiles(n);
         Self {
             mesh,
             material_slot,

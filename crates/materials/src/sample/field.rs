@@ -8,9 +8,10 @@
 //! results are bit-identical to evaluating again.
 //!
 //! Memory is bounded twice: a per-tile cap with least-recently-used eviction, and a process-wide
-//! byte budget beyond which new fields are computed uncached. The cap is the budget shared fairly
-//! by every tile holding fields ([`PER_TILE`] at most, [`MIN_PER_TILE`] at least), so on a big set
-//! early tiles cannot take the whole budget and leave later tiles with nothing.
+//! byte budget (over it, a new field replaces its tile's oldest one; a tile holding none computes
+//! it uncached). The cap is the budget shared fairly by every tile holding fields ([`PER_TILE`] at
+//! most, [`MIN_PER_TILE`] at least), so on a big set early tiles cannot take the whole budget and
+//! leave later tiles with nothing.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
@@ -28,11 +29,21 @@ pub const MIN_PER_TILE: usize = 8;
 /// Process-wide budget for cached field data (all tiles of all texture sets).
 pub const BUDGET_BYTES: usize = 768 << 20;
 
-/// Tiles currently holding at least one field.
+/// Tiles of every live texture-set geometry (registered when the geometry is created, before its
+/// tiles are built lazily during the first pass).
 static TILES: AtomicUsize = AtomicUsize::new(0);
 
-/// Fields a tile may keep now: the budget shared by the tiles holding fields (32 at 2048², 12 at
-/// 4096² with one texture set), within [`MIN_PER_TILE`]..=[`PER_TILE`].
+pub(crate) fn register_tiles(n: usize) {
+    TILES.fetch_add(n, Ordering::Relaxed);
+}
+
+pub(crate) fn unregister_tiles(n: usize) {
+    TILES.fetch_sub(n, Ordering::Relaxed);
+}
+
+/// Fields a tile may keep now: the budget shared by every live tile (32 at 2048², 12 at 4096² with
+/// one texture set), within [`MIN_PER_TILE`]..=[`PER_TILE`]. Counting all tiles, not only those
+/// already holding fields, keeps the first tiles of a pass from taking the whole budget.
 pub fn per_tile_cap() -> usize {
     let field = TILE_TEXELS * std::mem::size_of::<f32>();
     (BUDGET_BYTES / (TILES.load(Ordering::Relaxed).max(1) * field)).clamp(MIN_PER_TILE, PER_TILE)
@@ -134,9 +145,15 @@ struct Entry {
     used: u64,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct FieldCache {
     entries: Mutex<Vec<Entry>>,
+}
+
+impl Default for FieldCache {
+    fn default() -> Self {
+        Self { entries: Mutex::new(Vec::new()) }
+    }
 }
 
 impl FieldCache {
@@ -154,17 +171,25 @@ impl FieldCache {
         if let Some(e) = entries.iter().find(|e| e.key == key) {
             return e.field.clone(); // another thread finished first
         }
-        let cap = per_tile_cap();
-        while entries.len() >= cap {
+        let evict_oldest = |entries: &mut Vec<Entry>| {
             let oldest = entries.iter().enumerate().min_by_key(|(_, e)| e.used).map(|(i, _)| i).unwrap();
             entries.swap_remove(oldest);
+        };
+        let cap = per_tile_cap();
+        while entries.len() >= cap {
+            evict_oldest(&mut entries);
         }
-        if cached_bytes() <= BUDGET_BYTES {
+        if cached_bytes() > BUDGET_BYTES {
+            // Over the budget (the cap sits right at it, and fields in use outside the cache count
+            // too): keep least-recently-used order by replacing this tile's oldest field. Refusing
+            // instead would freeze the tile's cache on old fields and recompute the newest ones on
+            // every use.
             if entries.is_empty() {
-                TILES.fetch_add(1, Ordering::Relaxed);
+                return field;
             }
-            entries.push(Entry { key, field: field.clone(), used: now });
+            evict_oldest(&mut entries);
         }
+        entries.push(Entry { key, field: field.clone(), used: now });
         field
     }
 
@@ -177,10 +202,4 @@ impl FieldCache {
     }
 }
 
-impl Drop for FieldCache {
-    fn drop(&mut self) {
-        if !self.entries.get_mut().is_empty() {
-            TILES.fetch_sub(1, Ordering::Relaxed);
-        }
-    }
-}
+
