@@ -3,6 +3,14 @@
 What changed in SubCraft, newest first. Download the latest build from the
 [Releases page](https://github.com/Aalzard/subcraft/releases/latest).
 
+## Unreleased
+
+### Fixed
+- **Crash "map accumulators: BufferAsyncError" while baking** (issue #119). When the GPU failed to
+  hand back bake, composite or path-tracer results (for example after a driver reset), SubCraft
+  stopped with an error. It now logs the failure and finishes the bake and the layer composite on
+  the processor instead.
+
 ## 0.3.1
 
 ### Fixed
