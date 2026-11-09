@@ -107,18 +107,23 @@ impl Bitmap {
         let (w, h) = (self.width as i64, self.height as i64);
         let x = u * w as f32 - 0.5;
         let y = v * h as f32 - 0.5;
-        let x0 = x.floor();
-        let y0 = y.floor();
+        let x0 = subcraft_core::fastmath::floor(x);
+        let y0 = subcraft_core::fastmath::floor(y);
         let fx = x - x0;
         let fy = y - y0;
-        let fix = |i: i64, n: i64| -> u32 {
+        // `(fix(i), fix(i + 1))` with `fix` = rem_euclid (Repeat) or clamp to the image: one
+        // division (none for power-of-two sizes) instead of two.
+        let pair = |i: i64, n: i64| -> (u32, u32) {
             match wrap {
-                Wrap::Repeat => i.rem_euclid(n) as u32,
-                Wrap::Clamp => i.clamp(0, n - 1) as u32,
+                Wrap::Repeat => {
+                    let a = if n & (n - 1) == 0 { i & (n - 1) } else { i.rem_euclid(n) };
+                    (a as u32, if a + 1 == n { 0 } else { a as u32 + 1 })
+                }
+                Wrap::Clamp => (i.clamp(0, n - 1) as u32, (i + 1).clamp(0, n - 1) as u32),
             }
         };
-        let (xa, xb) = (fix(x0 as i64, w), fix(x0 as i64 + 1, w));
-        let (ya, yb) = (fix(y0 as i64, h), fix(y0 as i64 + 1, h));
+        let (xa, xb) = pair(x0 as i64, w);
+        let (ya, yb) = pair(y0 as i64, h);
         let t00 = self.texel(xa, ya, linearize);
         let t10 = self.texel(xb, ya, linearize);
         let t01 = self.texel(xa, yb, linearize);
@@ -213,6 +218,49 @@ impl Bitmap {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `sample` before the fast floor and paired wrap.
+    fn sample_reference(b: &Bitmap, u: f32, v: f32, wrap: Wrap, linearize: bool) -> [f32; 4] {
+        let (w, h) = (b.width as i64, b.height as i64);
+        let x = u * w as f32 - 0.5;
+        let y = v * h as f32 - 0.5;
+        let (x0, y0) = (x.floor(), y.floor());
+        let (fx, fy) = (x - x0, y - y0);
+        let fix = |i: i64, n: i64| -> u32 {
+            match wrap {
+                Wrap::Repeat => i.rem_euclid(n) as u32,
+                Wrap::Clamp => i.clamp(0, n - 1) as u32,
+            }
+        };
+        let (xa, xb) = (fix(x0 as i64, w), fix(x0 as i64 + 1, w));
+        let (ya, yb) = (fix(y0 as i64, h), fix(y0 as i64 + 1, h));
+        let (t00, t10, t01, t11) = (b.texel(xa, ya, linearize), b.texel(xb, ya, linearize), b.texel(xa, yb, linearize), b.texel(xb, yb, linearize));
+        let mut out = [0.0; 4];
+        for c in 0..4 {
+            let top = t00[c] + (t10[c] - t00[c]) * fx;
+            let bot = t01[c] + (t11[c] - t01[c]) * fx;
+            out[c] = top + (bot - top) * fy;
+        }
+        out
+    }
+
+    #[test]
+    fn sample_is_bit_identical_to_the_reference() {
+        for (w, h) in [(1, 1), (2, 2), (8, 8), (7, 5), (64, 48), (3, 16)] {
+            let data: Vec<u8> = (0..w * h * 4).map(|i| (i * 37 % 251) as u8).collect();
+            let b = Bitmap::new_u8(w, h, 4, data);
+            for k in 0..4000 {
+                let u = k as f32 * 0.01237 - 13.0;
+                let v = (k % 313) as f32 * -0.0291 + 4.5;
+                for wrap in [Wrap::Repeat, Wrap::Clamp] {
+                    for lin in [false, true] {
+                        let a = b.sample(u, v, wrap, lin).map(f32::to_bits);
+                        assert_eq!(a, sample_reference(&b, u, v, wrap, lin).map(f32::to_bits), "{w}x{h} {u} {v} {wrap:?}");
+                    }
+                }
+            }
+        }
+    }
 
     #[test]
     fn gray_replicates_and_alpha_defaults() {

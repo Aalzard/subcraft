@@ -99,7 +99,12 @@ fn main() {
     println!("recomposite after bake: {:.0} ms ({tiles} tiles)", ms(t));
 
     let lib = subcraft_assets::Library::builtin();
-    let wanted = ["Rusty Iron", "Dusty Plastic", "Worn Painted Metal", "Chipped Paint", "Brushed Steel", "Oxidized Copper"];
+    // `SUBCRAFT_BENCH_MATERIALS="Bricks,Brown Leather"` picks other materials (name prefixes).
+    let custom = std::env::var("SUBCRAFT_BENCH_MATERIALS").ok();
+    let wanted: Vec<&str> = match &custom {
+        Some(list) => list.split(',').map(str::trim).collect(),
+        None => vec!["Rusty Iron", "Dusty Plastic", "Worn Painted Metal", "Chipped Paint", "Brushed Steel", "Oxidized Copper"],
+    };
     let mut picked: Vec<_> = wanted.iter().filter_map(|w| lib.smart_materials.iter().find(|m| m.name.starts_with(w))).collect();
     for m in &lib.smart_materials {
         if picked.len() >= count { break; }

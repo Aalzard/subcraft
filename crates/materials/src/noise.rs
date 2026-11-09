@@ -26,16 +26,10 @@ fn wrap(i: i32, period: i32) -> i32 {
     i.rem_euclid(period.max(1))
 }
 
-/// Exactly `x.floor()` (same bits, including -0.0, NaN and huge values) without the library
-/// call that `floor` compiles to on x86-64 CPUs without SSE4.1 (the portable baseline).
+/// Exactly `x.floor()` without a library call (see [`subcraft_core::fastmath::floor`]).
 #[inline]
 pub(crate) fn floor(x: f32) -> f32 {
-    if x.abs() < 8_388_608.0 && x != 0.0 {
-        let t = x as i32 as f32;
-        if t > x { t - 1.0 } else { t }
-    } else {
-        x.floor()
-    }
+    subcraft_core::fastmath::floor(x)
 }
 
 #[inline]

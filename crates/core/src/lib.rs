@@ -8,6 +8,7 @@ pub mod bake_match;
 pub mod bake_placement;
 pub mod channel;
 pub mod color;
+pub mod fastmath;
 pub mod ids;
 pub mod meshmap;
 pub mod normal;
