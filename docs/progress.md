@@ -4741,7 +4741,7 @@ every number: `performance/generator-4k.md`.
 * **Shelf:** `presets::dirt_generator()` (a fresh Dirt generator) replaces every Cavity generator in the smart
   materials (smart masks keep their tuned values). Two Dirt generators stacked over another effect with
   Linear Dodge (Surface Rust, one smart_more material) keep that blend; all others are the first effect, Normal 1.
-  Every Dirt / Grime layer (25 materials incl. the 18 PBR-pack ones) gets an "Ambient Occlusion" layer right below
+  Every Dirt / Grime layer (six hand-made materials and every PBR-pack material) gets an "Ambient Occlusion" layer right below
   it (`smart::occlusion`): dark base color 0.02, roughness 0.8, no metallic channel, base color / roughness
   blend opacity 0.6, masked by a fresh AO generator alone (Normal 1). Chosen over putting AO into the Dirt
   mask because a Normal 1.0 generator replaces the effects below it.
@@ -4753,3 +4753,5 @@ every number: `performance/generator-4k.md`.
   `painter_defaults_and_older_files` (doc), AO smoothstep expectation (compositor), Bricks layer count
   (open_pack), the mask-stage thumbnail test pins Dirt Contrast 0.5. Ran (test profile): doc, assets, compositor,
   project, app (lib + all integration tests), ui lib: all pass.
+* **Capture** (shared notes folder `dirt-ao-defaults/`, example `smart_gallery`, release build):
+  `worn_painted_metal_before_after.png`.
