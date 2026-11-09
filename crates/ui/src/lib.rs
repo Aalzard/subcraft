@@ -38,6 +38,7 @@ pub mod viewport_hints;
 pub mod viewport_bar;
 pub mod view_extras;
 pub mod widgets;
+pub mod window_frame;
 pub mod welcome;
 
 pub mod updates;
@@ -151,7 +152,10 @@ fn run_with_graphics(mut options: LaunchOptions, graphics: graphics::GraphicsUi,
             .with_title("SubCraft")
             .with_icon(std::sync::Arc::new(theme::app_icon()))
             .with_inner_size(options.window_size.unwrap_or([1600.0, 940.0]))
-            .with_min_inner_size([640.0, 420.0]),
+            .with_min_inner_size([640.0, 420.0])
+            // SubCraft draws its own title bar (window_frame.rs), as Painter does.
+            .with_decorations(!window_frame::frameless())
+            .with_resizable(true),
         renderer: eframe::Renderer::Wgpu,
         wgpu_options,
         // Scripted screenshots start from a clean UI state (no remembered scroll positions or

@@ -263,11 +263,15 @@ pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
         ui.label(RichText::new(tr("Interface")).font(theme::font_strong(12.5)));
         ui.horizontal(|ui| {
             ui.label(tr("Language"));
-            egui::ComboBox::from_id_salt("ui_language").selected_text(rec.prefs.language.native_name()).show_ui(ui, |ui| {
+            let combo = egui::ComboBox::from_id_salt("ui_language").selected_text(rec.prefs.language.native_name()).show_ui(ui, |ui| {
                 for language in crate::i18n::Language::ALL {
                     ui.selectable_value(&mut rec.prefs.language, language, language.native_name());
                 }
             });
+            // `--capture-tool language-picker` opens the dropdown (egui's combo popup id is the button id + "popup").
+            if ui.ctx().data_mut(|d| d.remove_temp::<bool>(egui::Id::new("capture_language_picker"))).unwrap_or(false) {
+                egui::Popup::open_id(ui.ctx(), combo.response.id.with("popup"));
+            }
         });
         if !crate::i18n::font_available(rec.prefs.language) {
             ui.label(RichText::new(tr("No system font with these characters was found, so text may show as boxes. Set SUBCRAFT_CJK_FONT to a .ttf or .ttc file.")).small().color(theme::WARNING));

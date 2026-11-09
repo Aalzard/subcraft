@@ -75,7 +75,7 @@
 | Mouse | `S (hold) + RMB` | Stencil zoom |  | mouse / hold key | already worked |
 | Mouse | `Ctrl+RMB drag` | Change tool size / hardness |  | mouse / hold key | added: horizontal = size, vertical = hardness |
 | Mouse | `Ctrl+LMB drag` | Change tool flow / rotation |  | mouse / hold key | added: horizontal = flow, vertical = angle (Clone keeps Ctrl+click for its source) |
-| Mouse | `Shift+RMB` | Rotate environment |  | no equivalent | no environment rotation |
+| Mouse | `Shift+RMB` | Rotate environment |  | mouse / hold key | added: drag left-right turns the environment and its lighting (Shift+MMB turns only the key light) |
 | Mouse | `Ctrl+MMB` | Auto-focus (Depth of Field) |  | no equivalent | depth of field is being built on another branch |
 | Mouse | `Ctrl+Alt+RMB` | Texture set selection |  | no equivalent | no equivalent |
 | Mouse | `RMB` | Context menu |  | mouse / hold key | already worked (part actions) |

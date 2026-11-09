@@ -61,6 +61,19 @@ run by hand.
 ### Changed
 - **New logo** (white hexagonal S ribbon with a four-point star on orange) and a slightly warmer
   charcoal interface (lightness unchanged).
+- **Closer to Substance Painter's look**: Painter's grey levels (panel bodies lighter than the #2b2b2b
+  strips, brighter text) with the warm tint kept, hairlines between list rows and a narrower Assets column.
+- The language picker in Preferences shows 한국어 and 繁體中文 correctly while the interface is in English
+  (the CJK fonts load while Preferences is open, not only for the active language).
+- **Frameless window**: SubCraft draws its own title bar with minimize, maximize / restore and close
+  beside Export; drag the top bar to move (double-click maximizes), resize from any edge or corner.
+  `SUBCRAFT_NATIVE_TITLE_BAR=1` brings back the OS frame.
+- **Startup**: the Glasshouse Morning environment, turned so the key light comes from the front and
+  above; the Assets shelf always opens on Smart Materials.
+- **Shift+RMB drag rotates the environment** (as in Painter; listed in the hint overlay, shortcuts window
+  and keymap). Turning only the key light moved to Shift+MMB.
+- The Brush / Eraser / Fill / Clone / Smudge icons left the 3D view toolbar (they are in the tool rail).
+- The **texture set size in the Texture Set List** is a dropdown (128 to 4096) that resizes the set, with undo.
 - Shelf previews render with a preview-only tiling boost, at higher resolution, off the UI thread.
 - 13 built-in smart materials were removed, and later also Muddy Leather, Dirty Rubber, Sandstone, Worn Leather and Old Wood; "Mossy Bricks" is now "Bricks" without moss and "Worn Brown Leather" is "Brown Leather".
 - README rewritten with new screenshots; a Support link was added.

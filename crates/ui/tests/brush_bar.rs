@@ -68,13 +68,15 @@ fn bar_fits_wide_wrapped_and_tiny_docks_and_hides_for_non_paint_tools() {
             bounds.right() <= width + 0.5,
             "bar overflow at {width}: {bounds:?}"
         );
-        let brush = position(&output, subcraft_ui::icons::PAINT_BRUSH)
-            .expect("tool icons always reachable");
+        // Tools are chosen in the tool rail; the brush row starts with the stroke options.
+        let brush = position(&output, subcraft_ui::icons::SYMMETRY)
+            .expect("stroke options always reachable");
+        assert!(position(&output, subcraft_ui::icons::PAINT_BRUSH).is_none(), "no tool icons in the 3D bar ({width})");
         let view = position(&output, if width >= 540.0 { "Resolution" } else { "View" }).unwrap();
         // Resolution and Albedo form a two-row left column; the main control band is centered
         // beside that column on wide docks and remains below it on narrow docks.
         let band_y = position(&output, "Albedo").map_or(view.y, |albedo| (view.y + albedo.y) * 0.5);
-        if width >= 1230.0 {
+        if width >= 1100.0 {
             assert!((brush.y - band_y).abs() < 3.0 && brush.x > view.x, "inline beside the filter column on wide docks (width {width}, brush {brush:?}, band_y {band_y}, view {view:?})");
         } else {
             assert!(brush.y > band_y + 15.0, "stacked rows on narrow docks");
@@ -319,33 +321,24 @@ fn symmetry_popup_owns_all_axes_and_lazy_mouse_while_sidebar_has_no_duplicates()
 }
 
 #[test]
-fn icons_select_each_tool_without_touching_document_or_settings() {
+fn tool_icons_live_in_the_rail_and_fill_still_disables_flow() {
     let (mut state, ctx) = setup();
-    let doc = state.session.document().clone();
-    let settings = state.session.brush.settings;
-    for (icon, tool) in [
-        (subcraft_ui::icons::ERASER, Tool::Eraser),
-        (subcraft_ui::icons::PAINT_BUCKET, Tool::PolygonFill),
-        (subcraft_ui::icons::PAINT_BRUSH, Tool::Brush),
-    ] {
+    for tool in [Tool::Brush, Tool::Eraser, Tool::PolygonFill, Tool::Clone, Tool::Smudge] {
+        state.tool = tool;
         for _ in 0..3 {
             frame(&mut state, &ctx, 1125.0, vec![]);
         }
         let (out, _) = frame(&mut state, &ctx, 1125.0, vec![]);
-        click(&mut state, &ctx, position(&out, icon).unwrap());
-        assert_eq!(state.tool, tool);
-        assert_eq!(state.session.brush.settings, settings);
-        assert_eq!(state.session.document(), &doc);
-        if tool == Tool::PolygonFill {
-            let (out, _) = frame(&mut state, &ctx, 1125.0, vec![]);
-            click(&mut state, &ctx, position(&out, "Flow").unwrap());
-            let (out, _) = frame(&mut state, &ctx, 1125.0, vec![]);
-            assert!(
-                position(&out, "Paint per stamp").is_none(),
-                "Fill disables flow popover"
-            );
+        for icon in [subcraft_ui::icons::PAINT_BRUSH, subcraft_ui::icons::ERASER, subcraft_ui::icons::PAINT_BUCKET] {
+            assert!(position(&out, icon).is_none(), "{tool:?}: tool icons are only in the tool rail");
         }
+        assert!(position(&out, "Opacity").is_some(), "{tool:?}: brush values still shown");
     }
+    state.tool = Tool::PolygonFill;
+    let (out, _) = frame(&mut state, &ctx, 1125.0, vec![]);
+    click(&mut state, &ctx, position(&out, "Flow").unwrap());
+    let (out, _) = frame(&mut state, &ctx, 1125.0, vec![]);
+    assert!(position(&out, "Paint per stamp").is_none(), "Fill disables flow popover");
 }
 
 #[test]

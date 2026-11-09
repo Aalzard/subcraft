@@ -13,7 +13,7 @@ pub(crate) fn active(tool: Tool) -> bool {
     matches!(tool, Tool::Brush | Tool::Eraser | Tool::PolygonFill | Tool::Clone | Tool::Smudge)
 }
 
-/// Icons select tools directly; scrubbable values and slider popovers keep the row quiet.
+/// Scrubbable values and slider popovers keep the row quiet.
 pub(crate) fn show(
     ui: &mut Ui,
     tool: &mut Tool,
@@ -22,33 +22,9 @@ pub(crate) fn show(
     guides: &mut bool,
     width: f32,
 ) {
+    // Tool selection lives in the left tool rail only (as in Painter); this row holds the
+    // stroke options and the brush values of the active tool.
     ui.spacing_mut().item_spacing.x = 9.0;
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 1.0;
-        for (value, icon, help) in [
-            (Tool::Brush, icons::PAINT_BRUSH, "Brush (B)"),
-            (Tool::Eraser, icons::ERASER, "Eraser (E)"),
-            (Tool::PolygonFill, icons::PAINT_BUCKET, "Polygon Fill"),
-            (Tool::Clone, icons::COPY, crate::keys::native("Clone (Ctrl+click sets the source)")),
-            (Tool::Smudge, icons::DROP, "Smudge"),
-        ] {
-            // Tiny docks keep the three core tools; Clone and Smudge stay reachable from the
-            // tool rail (and remain shown while one of them is active).
-            if width < 340.0 && matches!(value, Tool::Clone | Tool::Smudge) && *tool != value { continue; }
-            let response = widgets::icon_toggle(ui, icon, *tool == value, help);
-            response.widget_info(|| {
-                egui::WidgetInfo::selected(
-                    egui::WidgetType::Button,
-                    ui.is_enabled(),
-                    *tool == value,
-                    help,
-                )
-            });
-            if response.clicked() {
-                *tool = value;
-            }
-        }
-    });
     stroke_options(ui, options, guides, settings);
     let brush = *tool != Tool::PolygonFill;
     if width < 575.0 {
