@@ -1065,7 +1065,8 @@ mod generator_tests {
             state.session.execute(Command::AddMaskEffect { layer, kind: MaskEffectKind::Generator(g) }).unwrap();
             let effect = state.session.selected_layer().unwrap().mask.as_ref().unwrap().effects[0].clone();
             let mut commands = Vec::new();
-            let out = ctx.run_ui(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(420., 1400.))), ..Default::default() }, |ui| effect_editor(ui, &mut state, layer, &effect, &mut commands));
+            let mut out = ctx.run_ui(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(420., 1400.))), ..Default::default() }, |ui| effect_editor(ui, &mut state, layer, &effect, &mut commands));
+            out.textures_delta.clear();
             assert!(commands.is_empty(), "drawing alone must not edit the generator");
             out.shapes.iter().filter_map(|s| match &s.shape { egui::Shape::Text(t) => Some(t.galley.text().to_string()), _ => None }).collect()
         };
