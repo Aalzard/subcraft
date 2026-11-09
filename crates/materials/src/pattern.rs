@@ -95,40 +95,119 @@ fn smooth(t: f32) -> f32 {
     t * t * (3.0 - 2.0 * t)
 }
 
+/// One line segment of [`scratches`]: centre, direction, half length and width.
+#[derive(Clone, Copy, Default)]
+struct Line {
+    c: Vec2,
+    dir: Vec2,
+    half: f32,
+    w: f32,
+}
+
+/// Last cells' segments on this thread, keyed by `(cx, cy, period, seed)`: neighboring texels
+/// share their 9 cells, so the hashes and trig run once per cell instead of once per texel.
+#[derive(Clone, Copy)]
+struct LineCell {
+    key: [i32; 4],
+    lines: [Line; 3],
+}
+
+const LINE_SLOTS: usize = 64;
+
+thread_local! {
+    // Period 0 never occurs in a key (`rem_euclid` would have panicked), so the initial entries never match.
+    static LINES: std::cell::RefCell<Box<[LineCell]>> = std::cell::RefCell::new(vec![LineCell { key: [0; 4], lines: [Line::default(); 3] }; LINE_SLOTS].into_boxed_slice());
+}
+
+fn line_cell(cx: i32, cy: i32, period: i32, seed: u32) -> [Line; 3] {
+    std::array::from_fn(|k| {
+        let s = seed.wrapping_add(k as u32 * 7919);
+        let wx = cx.rem_euclid(period);
+        let wy = cy.rem_euclid(period);
+        let ox = hash_f(wx, wy, s);
+        let oy = hash_f(wx, wy, s ^ 0xabc);
+        let ang = hash_f(wx, wy, s ^ 0x123) * std::f32::consts::PI;
+        let len = 0.3 + hash_f(wx, wy, s ^ 0x777) * 0.9;
+        let w = 0.012 + hash_f(wx, wy, s ^ 0x999) * 0.01;
+        Line { c: Vec2::new(cx as f32 + ox, cy as f32 + oy), dir: Vec2::new(ang.cos(), ang.sin()), half: len * 0.5, w }
+    })
+}
+
 /// Thin random line segments, a few per lattice cell.
 fn scratches(q: Vec2, period: i32, seed: u32) -> f32 {
-    let i = q.floor();
-    let mut best: f32 = 0.0;
-    for dy in -1..=1 {
-        for dx in -1..=1 {
-            let cx = i.x as i32 + dx;
-            let cy = i.y as i32 + dy;
-            for k in 0..3u32 {
-                let s = seed.wrapping_add(k * 7919);
-                let wx = cx.rem_euclid(period);
-                let wy = cy.rem_euclid(period);
-                let ox = hash_f(wx, wy, s);
-                let oy = hash_f(wx, wy, s ^ 0xabc);
-                let ang = hash_f(wx, wy, s ^ 0x123) * std::f32::consts::PI;
-                let len = 0.3 + hash_f(wx, wy, s ^ 0x777) * 0.9;
-                let c = Vec2::new(cx as f32 + ox, cy as f32 + oy);
-                let dir = Vec2::new(ang.cos(), ang.sin());
-                let d = q - c;
-                let t = d.dot(dir).clamp(-len * 0.5, len * 0.5);
-                let dist = (d - dir * t).length();
-                let fade = 1.0 - (t.abs() / (len * 0.5)).powi(4);
-                let w = 0.012 + hash_f(wx, wy, s ^ 0x999) * 0.01;
-                let line = (1.0 - (dist / w).clamp(0.0, 1.0)) * fade;
-                best = best.max(line);
+    let i = crate::noise::floor2(q);
+    LINES.with(|cells| {
+        let cells = &mut *cells.borrow_mut();
+        let mut best: f32 = 0.0;
+        for dy in -1..=1 {
+            for dx in -1..=1 {
+                let cx = i.x as i32 + dx;
+                let cy = i.y as i32 + dy;
+                let key = [cx, cy, period, seed as i32];
+                let slot = ((cx as u32).wrapping_mul(0x9e37_79b9) ^ (cy as u32).wrapping_mul(0x85eb_ca6b) ^ seed) >> 26;
+                let cell = &mut cells[slot as usize & (LINE_SLOTS - 1)];
+                if cell.key != key {
+                    *cell = LineCell { key, lines: line_cell(cx, cy, period, seed) };
+                }
+                for l in &cell.lines {
+                    let d = q - l.c;
+                    let t = d.dot(l.dir).clamp(-l.half, l.half);
+                    let dist = (d - l.dir * t).length();
+                    let fade = 1.0 - (t.abs() / l.half).powi(4);
+                    let line = (1.0 - (dist / l.w).clamp(0.0, 1.0)) * fade;
+                    best = best.max(line);
+                }
             }
         }
-    }
-    best
+        best
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// [`scratches`] before cells were cached.
+    fn scratches_reference(q: Vec2, period: i32, seed: u32) -> f32 {
+        let i = q.floor();
+        let mut best: f32 = 0.0;
+        for dy in -1..=1 {
+            for dx in -1..=1 {
+                let cx = i.x as i32 + dx;
+                let cy = i.y as i32 + dy;
+                for k in 0..3u32 {
+                    let s = seed.wrapping_add(k * 7919);
+                    let wx = cx.rem_euclid(period);
+                    let wy = cy.rem_euclid(period);
+                    let ox = hash_f(wx, wy, s);
+                    let oy = hash_f(wx, wy, s ^ 0xabc);
+                    let ang = hash_f(wx, wy, s ^ 0x123) * std::f32::consts::PI;
+                    let len = 0.3 + hash_f(wx, wy, s ^ 0x777) * 0.9;
+                    let c = Vec2::new(cx as f32 + ox, cy as f32 + oy);
+                    let dir = Vec2::new(ang.cos(), ang.sin());
+                    let d = q - c;
+                    let t = d.dot(dir).clamp(-len * 0.5, len * 0.5);
+                    let dist = (d - dir * t).length();
+                    let fade = 1.0 - (t.abs() / (len * 0.5)).powi(4);
+                    let w = 0.012 + hash_f(wx, wy, s ^ 0x999) * 0.01;
+                    let line = (1.0 - (dist / w).clamp(0.0, 1.0)) * fade;
+                    best = best.max(line);
+                }
+            }
+        }
+        best
+    }
+
+    #[test]
+    fn cached_scratch_lines_are_bit_identical_to_the_reference() {
+        for (period, seed) in [(4, 0u32), (1, 5), (17, u32::MAX)] {
+            for k in 0..20000 {
+                let q = Vec2::new(k as f32 * 0.00731 - 5.0, (k % 409) as f32 * 0.0213 - 2.0);
+                assert_eq!(scratches(q, period, seed).to_bits(), scratches_reference(q, period, seed).to_bits(), "{q} {period} {seed}");
+                assert_eq!(scratches(q, period + 1, seed).to_bits(), scratches_reference(q, period + 1, seed).to_bits());
+            }
+        }
+    }
 
     #[test]
     fn all_patterns_in_range_and_deterministic() {

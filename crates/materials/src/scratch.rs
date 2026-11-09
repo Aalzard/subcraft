@@ -22,6 +22,88 @@ fn smooth(t: f32) -> f32 {
     t * t * (3.0 - 2.0 * t)
 }
 
+/// One candidate scratch of a cell, everything that does not depend on the texel.
+#[derive(Clone, Copy, Default)]
+struct Seg {
+    c: Vec2,
+    dir: Vec2,
+    nrm: Vec2,
+    hl: f32,
+    w: f32,
+    bend: f32,
+    depth: f32,
+    /// Squared quick-reject radius around `c`.
+    reach2: f32,
+}
+
+/// The existing candidates of one lattice cell.
+#[derive(Clone, Copy, Default)]
+struct CellSegs {
+    cell: (i32, i32),
+    valid: bool,
+    n: u8,
+    segs: [Seg; CANDIDATES as usize],
+}
+
+const CELL_SLOTS: usize = 256;
+
+/// Cells evaluated last on this thread for one parameter set. Neighboring texels read the same
+/// cells, so the hashes and trig of a cell's scratches run once for many texels; values are
+/// exactly what evaluating them again gives.
+struct SegCache {
+    key: [u32; 12],
+    cells: Box<[CellSegs]>,
+}
+
+thread_local! {
+    static SEGS: std::cell::RefCell<SegCache> = std::cell::RefCell::new(SegCache { key: [u32::MAX; 12], cells: vec![CellSegs::default(); CELL_SLOTS].into_boxed_slice() });
+}
+
+fn params_key(period: i32, seed: u32, sp: &ScratchParams) -> [u32; 12] {
+    [
+        period as u32, seed, sp.angle_deg.to_bits(), sp.spread_deg.to_bits(), sp.length.to_bits(), sp.length_var.to_bits(),
+        sp.width.to_bits(), sp.width_var.to_bits(), sp.density.to_bits(), sp.curvature.to_bits(), sp.depth_falloff.to_bits(), sp.cluster.to_bits(),
+    ]
+}
+
+/// Candidates of cell `(cx, cy)` (unwrapped; hashes use the wrapped cell).
+fn cell_segs(cx: i32, cy: i32, period: i32, seed: u32, sp: &ScratchParams, out: &mut CellSegs) {
+    *out = CellSegs { cell: (cx, cy), valid: true, ..Default::default() };
+    let cl_period = (period / 2).max(1);
+    let wx = cx.rem_euclid(period);
+    let wy = cy.rem_euclid(period);
+    // Patchiness: a coarse periodic noise gates the local probability.
+    let p_exist = if sp.cluster > 0.0 {
+        let g = value_xy(Vec2::new(wx as f32 + 0.5, wy as f32 + 0.5) * (cl_period as f32 / period as f32), cl_period, cl_period, seed ^ 0x3c1d);
+        let gate = smooth((g - 0.35) / 0.3) * 2.2;
+        sp.density * (1.0 + (gate - 1.0) * sp.cluster.clamp(0.0, 1.0))
+    } else {
+        sp.density
+    };
+    if p_exist <= 0.0 {
+        return;
+    }
+    for k in 0..CANDIDATES {
+        let s = seed.wrapping_add(k.wrapping_mul(0x9e37_79b1)).wrapping_add(0x51ed);
+        if hash_f(wx, wy, s) >= p_exist {
+            continue;
+        }
+        let h = |salt: u32| hash_f(wx, wy, s ^ salt);
+        let c = Vec2::new(cx as f32 + h(0xa1), cy as f32 + h(0xa2));
+        let ang = (sp.angle_deg + (h(0xa3) * 2.0 - 1.0) * sp.spread_deg).to_radians();
+        let dir = Vec2::new(ang.cos(), ang.sin());
+        let nrm = Vec2::new(-dir.y, dir.x);
+        let len = (sp.length * (1.0 + (h(0xa4) - 0.5) * sp.length_var)).max(0.01);
+        let hl = len * 0.5;
+        let w = (sp.width * (1.0 + (h(0xa5) * 2.0 - 1.0) * 0.8 * sp.width_var)).max(1e-4);
+        let bend = sp.curvature * (h(0xa6) * 2.0 - 1.0) * 0.8;
+        let depth = 1.0 - sp.depth_falloff * 0.6 * h(0xa7);
+        let reach2 = (hl * (1.0 + bend.abs()) + w).powi(2);
+        out.segs[out.n as usize] = Seg { c, dir, nrm, hl, w, bend, depth, reach2 };
+        out.n += 1;
+    }
+}
+
 /// Scratch intensity 0..1 at `q`, in lattice-cell units (`period` cells per tile).
 pub fn eval(q: Vec2, period: i32, seed: u32, sp: &ScratchParams) -> f32 {
     let period = period.max(1);
@@ -29,64 +111,50 @@ pub fn eval(q: Vec2, period: i32, seed: u32, sp: &ScratchParams) -> f32 {
     let w_max = sp.width.max(1e-4) * (1.0 + 0.8 * sp.width_var.clamp(0.0, 1.0));
     let reach = len_max * 0.5 * (1.0 + 0.5 * sp.curvature) + w_max + 0.5 * sp.curvature * len_max * 0.25;
     let r = (reach.ceil() as i32).clamp(1, 4);
-    let cl_period = (period / 2).max(1);
-    let base = Vec2::new(q.x.floor(), q.y.floor());
-    let mut best: f32 = 0.0;
-    for dy in -r..=r {
-        for dx in -r..=r {
-            let cx = base.x as i32 + dx;
-            let cy = base.y as i32 + dy;
-            let wx = cx.rem_euclid(period);
-            let wy = cy.rem_euclid(period);
-            // Patchiness: a coarse periodic noise gates the local probability.
-            let p_exist = if sp.cluster > 0.0 {
-                let g = value_xy(Vec2::new(wx as f32 + 0.5, wy as f32 + 0.5) * (cl_period as f32 / period as f32), cl_period, cl_period, seed ^ 0x3c1d);
-                let gate = smooth((g - 0.35) / 0.3) * 2.2;
-                sp.density * (1.0 + (gate - 1.0) * sp.cluster.clamp(0.0, 1.0))
-            } else {
-                sp.density
-            };
-            if p_exist <= 0.0 {
-                continue;
-            }
-            for k in 0..CANDIDATES {
-                let s = seed.wrapping_add(k.wrapping_mul(0x9e37_79b1)).wrapping_add(0x51ed);
-                if hash_f(wx, wy, s) >= p_exist {
-                    continue;
+    let base = crate::noise::floor2(q);
+    let power = 8.0 - 6.5 * sp.depth_falloff;
+    let key = params_key(period, seed, sp);
+    SEGS.with(|cache| {
+        let cache = &mut *cache.borrow_mut();
+        if cache.key != key {
+            cache.key = key;
+            cache.cells.iter_mut().for_each(|c| c.valid = false);
+        }
+        let mut best: f32 = 0.0;
+        for dy in -r..=r {
+            for dx in -r..=r {
+                let cx = base.x as i32 + dx;
+                let cy = base.y as i32 + dy;
+                let slot = ((cx as u32).wrapping_mul(0x9e37_79b9) ^ (cy as u32).wrapping_mul(0x85eb_ca6b)) >> 24;
+                let cell = &mut cache.cells[slot as usize & (CELL_SLOTS - 1)];
+                if !cell.valid || cell.cell != (cx, cy) {
+                    cell_segs(cx, cy, period, seed, sp, cell);
                 }
-                let h = |salt: u32| hash_f(wx, wy, s ^ salt);
-                let c = Vec2::new(cx as f32 + h(0xa1), cy as f32 + h(0xa2));
-                let ang = (sp.angle_deg + (h(0xa3) * 2.0 - 1.0) * sp.spread_deg).to_radians();
-                let dir = Vec2::new(ang.cos(), ang.sin());
-                let nrm = Vec2::new(-dir.y, dir.x);
-                let len = (sp.length * (1.0 + (h(0xa4) - 0.5) * sp.length_var)).max(0.01);
-                let hl = len * 0.5;
-                let w = (sp.width * (1.0 + (h(0xa5) * 2.0 - 1.0) * 0.8 * sp.width_var)).max(1e-4);
-                let bend = sp.curvature * (h(0xa6) * 2.0 - 1.0) * 0.8;
-                let depth = 1.0 - sp.depth_falloff * 0.6 * h(0xa7);
-                let d = q - c;
-                // Quick reject by distance to the centre.
-                if d.length_squared() > (hl * (1.0 + bend.abs()) + w).powi(2) {
-                    continue;
+                for g in &cell.segs[..cell.n as usize] {
+                    let d = q - g.c;
+                    // Quick reject by distance to the centre.
+                    if d.length_squared() > g.reach2 {
+                        continue;
+                    }
+                    let (hl, bend) = (g.hl, g.bend);
+                    let along = d.dot(g.dir);
+                    let side = d.dot(g.nrm);
+                    let sc = along.clamp(-hl, hl);
+                    let offset = bend * sc * sc / hl;
+                    let slope = 2.0 * bend * sc / hl;
+                    let perp = (side - offset) / (1.0 + slope * slope).sqrt();
+                    let past = along - sc;
+                    let tn = sc.abs() / hl;
+                    let taper = 1.0 - tn.powf(power);
+                    let w_here = g.w * (1.0 - 0.6 * sp.depth_falloff * (1.0 - taper));
+                    let dist = (perp * perp + past * past).sqrt();
+                    let line = 1.0 - smooth(dist / w_here);
+                    best = best.max(line * taper * g.depth);
                 }
-                let along = d.dot(dir);
-                let side = d.dot(nrm);
-                let sc = along.clamp(-hl, hl);
-                let offset = bend * sc * sc / hl;
-                let slope = 2.0 * bend * sc / hl;
-                let perp = (side - offset) / (1.0 + slope * slope).sqrt();
-                let past = along - sc;
-                let tn = sc.abs() / hl;
-                let power = 8.0 - 6.5 * sp.depth_falloff;
-                let taper = 1.0 - tn.powf(power);
-                let w_here = w * (1.0 - 0.6 * sp.depth_falloff * (1.0 - taper));
-                let dist = (perp * perp + past * past).sqrt();
-                let line = 1.0 - smooth(dist / w_here);
-                best = best.max(line * taper * depth);
             }
         }
-    }
-    best
+        best
+    })
 }
 
 /// Weight 0..1 of curvature-map value `curv` (0.5 = flat) for scratch wear: edges and
@@ -194,6 +262,94 @@ mod tests {
             }
         }
         assert!(along * 3.0 < across, "along {along} across {across}");
+    }
+
+    /// The implementation before cells were cached (kept to prove the cache changes nothing).
+    fn eval_reference(q: Vec2, period: i32, seed: u32, sp: &ScratchParams) -> f32 {
+        let period = period.max(1);
+        let len_max = sp.length.max(0.01) * (1.0 + 0.5 * sp.length_var.clamp(0.0, 1.0));
+        let w_max = sp.width.max(1e-4) * (1.0 + 0.8 * sp.width_var.clamp(0.0, 1.0));
+        let reach = len_max * 0.5 * (1.0 + 0.5 * sp.curvature) + w_max + 0.5 * sp.curvature * len_max * 0.25;
+        let r = (reach.ceil() as i32).clamp(1, 4);
+        let cl_period = (period / 2).max(1);
+        let base = Vec2::new(q.x.floor(), q.y.floor());
+        let mut best: f32 = 0.0;
+        for dy in -r..=r {
+            for dx in -r..=r {
+                let cx = base.x as i32 + dx;
+                let cy = base.y as i32 + dy;
+                let wx = cx.rem_euclid(period);
+                let wy = cy.rem_euclid(period);
+                // Patchiness: a coarse periodic noise gates the local probability.
+                let p_exist = if sp.cluster > 0.0 {
+                    let g = value_xy(Vec2::new(wx as f32 + 0.5, wy as f32 + 0.5) * (cl_period as f32 / period as f32), cl_period, cl_period, seed ^ 0x3c1d);
+                    let gate = smooth((g - 0.35) / 0.3) * 2.2;
+                    sp.density * (1.0 + (gate - 1.0) * sp.cluster.clamp(0.0, 1.0))
+                } else {
+                    sp.density
+                };
+                if p_exist <= 0.0 {
+                    continue;
+                }
+                for k in 0..CANDIDATES {
+                    let s = seed.wrapping_add(k.wrapping_mul(0x9e37_79b1)).wrapping_add(0x51ed);
+                    if hash_f(wx, wy, s) >= p_exist {
+                        continue;
+                    }
+                    let h = |salt: u32| hash_f(wx, wy, s ^ salt);
+                    let c = Vec2::new(cx as f32 + h(0xa1), cy as f32 + h(0xa2));
+                    let ang = (sp.angle_deg + (h(0xa3) * 2.0 - 1.0) * sp.spread_deg).to_radians();
+                    let dir = Vec2::new(ang.cos(), ang.sin());
+                    let nrm = Vec2::new(-dir.y, dir.x);
+                    let len = (sp.length * (1.0 + (h(0xa4) - 0.5) * sp.length_var)).max(0.01);
+                    let hl = len * 0.5;
+                    let w = (sp.width * (1.0 + (h(0xa5) * 2.0 - 1.0) * 0.8 * sp.width_var)).max(1e-4);
+                    let bend = sp.curvature * (h(0xa6) * 2.0 - 1.0) * 0.8;
+                    let depth = 1.0 - sp.depth_falloff * 0.6 * h(0xa7);
+                    let d = q - c;
+                    // Quick reject by distance to the centre.
+                    if d.length_squared() > (hl * (1.0 + bend.abs()) + w).powi(2) {
+                        continue;
+                    }
+                    let along = d.dot(dir);
+                    let side = d.dot(nrm);
+                    let sc = along.clamp(-hl, hl);
+                    let offset = bend * sc * sc / hl;
+                    let slope = 2.0 * bend * sc / hl;
+                    let perp = (side - offset) / (1.0 + slope * slope).sqrt();
+                    let past = along - sc;
+                    let tn = sc.abs() / hl;
+                    let power = 8.0 - 6.5 * sp.depth_falloff;
+                    let taper = 1.0 - tn.powf(power);
+                    let w_here = w * (1.0 - 0.6 * sp.depth_falloff * (1.0 - taper));
+                    let dist = (perp * perp + past * past).sqrt();
+                    let line = 1.0 - smooth(dist / w_here);
+                    best = best.max(line * taper * depth);
+                }
+            }
+        }
+        best
+    }
+
+    #[test]
+    fn cached_cells_are_bit_identical_to_the_reference() {
+        let mut variants = vec![ScratchParams::default(), ScratchParams { cluster: 0.7, curvature: 0.6, density: 0.8, ..ScratchParams::default() }];
+        for preset in ScratchPreset::ALL {
+            let mut p = ProceduralParams::new(ProceduralKind::Scratch);
+            preset.apply(&mut p);
+            variants.push(p.scratch);
+        }
+        for (vi, sp) in variants.iter().enumerate() {
+            for (period, seed) in [(4, 1u32), (1, 7), (9, u32::MAX)] {
+                // Interleave parameter sets so the thread cache switches between them.
+                for k in 0..3000 {
+                    let q = Vec2::new(k as f32 * 0.0123 - 7.0, (k % 211) as f32 * 0.0371 - 3.0);
+                    assert_eq!(eval(q, period, seed, sp).to_bits(), eval_reference(q, period, seed, sp).to_bits(), "variant {vi} {period} {seed} {q}");
+                    let other = &variants[(vi + 1) % variants.len()];
+                    assert_eq!(eval(q, period, seed ^ 1, other).to_bits(), eval_reference(q, period, seed ^ 1, other).to_bits());
+                }
+            }
+        }
     }
 
     #[test]

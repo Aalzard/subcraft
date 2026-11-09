@@ -612,7 +612,7 @@ impl Stroke {
         let tiles: Vec<usize> =
             tiles.iter().copied().filter(|t| self.coverage.get(t).is_some_and(|c| c.iter().any(|&v| v > 0.0))).collect();
         let opacity = self.settings.stroke_opacity.clamp(0.0, 1.0);
-        let writes: Vec<(ImageKey, usize, Vec<f32>)> = tiles
+        let writes: Vec<(ImageKey, usize, Box<[half::f16]>)> = tiles
             .par_iter()
             .flat_map_iter(|&t| {
                 let cov = &self.coverage[&t];
@@ -636,15 +636,16 @@ impl Stroke {
                                 } else {
                                     bitmap.sample_filtered(p[0], p[1], if self.texture_tiling { Wrap::Repeat } else { Wrap::Clamp }, linearize, filter)
                                 };
+                                let sc = self.projection.rotation_sin_cos();
                                 for (i, out) in values.iter_mut().enumerate() {
                                     if cov[i] <= 0.0 { continue; }
                                     if let Remap::Camera(coords) = &remap {
-                                        *out = coords[i].map_or([0.0; 4], |p| sample(self.projection.transform_2d(p)));
+                                        *out = coords[i].map_or([0.0; 4], |p| sample(self.projection.transform_2d_sc(sc, p)));
                                         continue;
                                     }
                                     let uv = [(x0 + i as u32 % TILE_SIZE) as f32 / res + 0.5 / res,
                                         (y0 + i as u32 / TILE_SIZE) as f32 / res + 0.5 / res];
-                                    *out = subcraft_materials::sample::sample_projected(&self.projection, uv,
+                                    *out = subcraft_materials::sample::sample_projected_sc(&self.projection, sc, uv,
                                         geo.as_ref().map_or([0.0; 3], |g| g.position(i)),
                                         geo.as_ref().map_or([0.0; 3], |g| g.normal(i)), sample);
                                 }
@@ -652,11 +653,11 @@ impl Stroke {
                             values
                         }),
                     } };
-                    (img.key, t, img.compute_tile(t, cov, opacity, self.mode, source.as_deref()))
+                    (img.key, t, subcraft_image::TiledImage::encode_tile(&img.compute_tile(t, cov, opacity, self.mode, source.as_deref())))
                 })
             })
             .collect();
-        store(ts, self.layer, &writes)?;
+        crate::target::store_encoded(ts, self.layer, writes)?;
         let mut tiles = tiles;
         tiles.sort_unstable();
         Ok(tiles)

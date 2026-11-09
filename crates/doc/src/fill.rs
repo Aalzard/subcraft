@@ -44,7 +44,18 @@ impl Default for Projection {
 impl Projection {
     /// Apply scale/rotation/offset to a 2D coordinate.
     pub fn transform_2d(&self, p: [f32; 2]) -> [f32; 2] {
-        let (s, c) = self.rotation_deg.to_radians().sin_cos();
+        self.transform_2d_sc(self.rotation_sin_cos(), p)
+    }
+
+    /// `(sin, cos)` of the rotation, for [`Projection::transform_2d_sc`] in per-texel loops.
+    #[inline]
+    pub fn rotation_sin_cos(&self) -> (f32, f32) {
+        self.rotation_deg.to_radians().sin_cos()
+    }
+
+    /// [`Projection::transform_2d`] with the rotation's `(sin, cos)` computed once by the caller.
+    #[inline]
+    pub fn transform_2d_sc(&self, (s, c): (f32, f32), p: [f32; 2]) -> [f32; 2] {
         let x = p[0] * self.scale[0];
         let y = p[1] * self.scale[1];
         [x * c - y * s + self.offset[0], x * s + y * c + self.offset[1]]

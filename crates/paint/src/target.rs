@@ -218,6 +218,33 @@ impl TargetImage {
     }
 }
 
+/// [`store`] for tiles already encoded with [`subcraft_image::TiledImage::encode_tile`] (encoded in
+/// parallel by the caller; the result is the same as storing the f32 values).
+pub fn store_encoded(ts: &mut TextureSet, layer: LayerId, writes: Vec<(ImageKey, usize, Box<[half::f16]>)>) -> Result<(), PaintError> {
+    let res = ts.resolution;
+    let l = ts.find_mut(layer).ok_or(PaintError::LayerNotFound)?;
+    for (key, tile, data) in writes {
+        match key {
+            ImageKey::MaskBase => l.mask.as_mut().ok_or(PaintError::NoMask)?.base.write_encoded_tile(tile, data),
+            ImageKey::Channel(kind) => {
+                let LayerContent::Paint(p) = &mut l.content else { return Err(PaintError::NotAPaintLayer) };
+                p.channel_mut(kind, res).write_encoded_tile(tile, data);
+            }
+            ImageKey::EffectChannel(id, kind) => {
+                let effect = l.content_effects.iter_mut().find(|e| e.id == id).ok_or(PaintError::NotAPaintEffect)?;
+                Arc::make_mut(effect).kind.paint_channel_mut(kind, res).ok_or(PaintError::NotAPaintEffect)?.write_encoded_tile(tile, data);
+            }
+            ImageKey::MaskEffect(id) => {
+                let mask = l.mask.as_mut().ok_or(PaintError::NoMask)?;
+                let effect = mask.effects.iter_mut().find(|e| e.id == id).ok_or(PaintError::NotAPaintEffect)?;
+                let MaskEffectKind::Paint { image } = &mut Arc::make_mut(effect).kind else { return Err(PaintError::NotAPaintEffect) };
+                image.write_encoded_tile(tile, data);
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Write computed tiles into the live layer (creating channel images on first use).
 pub fn store(ts: &mut TextureSet, layer: LayerId, writes: &[(ImageKey, usize, Vec<f32>)]) -> Result<(), PaintError> {
     let res = ts.resolution;

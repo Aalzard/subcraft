@@ -144,6 +144,7 @@ impl std::fmt::Debug for TextureSetGeometry {
     }
 }
 
+
 impl TextureSetGeometry {
     pub fn new(mesh: Arc<Mesh>, material_slot: u32, resolution: u32) -> Self {
         let tiles_x = resolution.div_ceil(TILE_SIZE);
