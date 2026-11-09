@@ -213,6 +213,26 @@ pub fn composite_run(dst: &mut [[f32; 4]], src: &[[f32; 4]], mode: BlendMode, ta
     }
 }
 
+/// A grayscale mask run: for every texel `m[i] = composite([m; 3, 1], [e[i][0]; 3], e[i][1] *
+/// opacity, mode, MASK)[0]`, with the mode chosen once (same arithmetic, same bits).
+pub fn composite_mask_run(m: &mut [f32], e: &[[f32; 4]], opacity: f32, mode: BlendMode) {
+    #[inline(always)]
+    fn run(m: &mut [f32], e: &[[f32; 4]], opacity: f32, b: impl Fn([f32; 3], [f32; 3]) -> [f32; 3]) {
+        for (mv, ev) in m.iter_mut().zip(e) {
+            let mut dst = [*mv, *mv, *mv, 1.0];
+            composite_with(&mut dst, [ev[0]; 3], ev[1] * opacity, &b);
+            *mv = dst[0];
+        }
+    }
+    let t = BlendTarget::MASK;
+    match mode {
+        BlendMode::Disable => {}
+        BlendMode::Normal | BlendMode::Replace | BlendMode::Passthrough => run(m, e, opacity, |_, cs| cs),
+        BlendMode::Multiply => run(m, e, opacity, |cb, cs| std::array::from_fn(|c| (cb[c] * cs[c]).clamp(0.0, 1.0))),
+        _ => run(m, e, opacity, |cb, cs| blend_fn(mode, cb, cs, t)),
+    }
+}
+
 #[inline(always)]
 fn composite_with(dst: &mut [f32; 4], cs: [f32; 3], alpha: f32, blend: impl Fn([f32; 3], [f32; 3]) -> [f32; 3]) {
     if alpha <= 0.0 {
@@ -333,6 +353,26 @@ mod tests {
                 composite_run(&mut b, &src, mode, target, alpha);
                 let bits = |v: &Vec<[f32; 4]>| v.iter().flat_map(|p| p.map(f32::to_bits)).collect::<Vec<_>>();
                 assert_eq!(bits(&a), bits(&b), "{mode:?} {target:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn composite_mask_run_is_bit_identical_to_composite_per_texel() {
+        let vals = [-0.5f32, 0.0, 1e-7, 0.1, 0.3333, 0.5, 0.75, 0.999, 1.0, 1.5, f32::NAN];
+        let e: Vec<[f32; 4]> = (0..vals.len() * vals.len()).map(|i| [vals[i % vals.len()], vals[(i / vals.len()) % vals.len()], 0.0, 0.0]).collect();
+        let m0: Vec<f32> = (0..e.len()).map(|i| vals[(i * 7 + 3) % vals.len()]).collect();
+        for mode in BlendMode::ALL {
+            for opacity in [0.0, 0.37, 1.0] {
+                let mut a = m0.clone();
+                for (mv, ev) in a.iter_mut().zip(&e) {
+                    let mut dst = [*mv, *mv, *mv, 1.0];
+                    composite(&mut dst, [ev[0]; 3], ev[1] * opacity, mode, BlendTarget::MASK);
+                    *mv = dst[0];
+                }
+                let mut b = m0.clone();
+                composite_mask_run(&mut b, &e, opacity, mode);
+                assert_eq!(a.iter().map(|v| v.to_bits()).collect::<Vec<_>>(), b.iter().map(|v| v.to_bits()).collect::<Vec<_>>(), "{mode:?} {opacity}");
             }
         }
     }

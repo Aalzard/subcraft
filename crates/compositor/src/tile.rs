@@ -139,7 +139,7 @@ fn fill_label(fill: &subcraft_doc::FillContent, kind: ChannelKind) -> &'static s
 
 /// Charge `f` to `label` in the optional evaluation profile (`SUBCRAFT_COMPOSITE_PROFILE`).
 #[inline]
-fn prof<T>(label: &'static str, f: impl FnOnce() -> T) -> T {
+pub(crate) fn prof<T>(label: &'static str, f: impl FnOnce() -> T) -> T {
     if crate::profile::enabled() { crate::profile::timed(label, f) } else { f() }
 }
 
