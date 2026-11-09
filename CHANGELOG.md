@@ -3,6 +3,19 @@
 What changed in SubCraft, newest first. Download the latest build from the
 [Releases page](https://github.com/Aalzard/subcraft/releases/latest).
 
+## Unreleased
+
+### Added
+- **Export preset editor.** Export Textures has a preset menu with New, Duplicate, Delete, Import and
+  Export, and a Preset editor: per output map a file name pattern (`$mesh`, `$textureSet`, `$udim`,
+  `$suffix`), format (PNG, TGA, EXR, TIFF, JPEG) and bit depth (8 / 16 / 32-bit float where the format
+  allows), channel packing per R/G/B/A slot (any channel and component, grayscale, normal, height,
+  baked mesh map or a constant, with invert), and padding, size and normal-format overrides per map
+  or per preset. Presets are saved in the user library (`export-presets`) and can be exported and
+  imported as JSON; Substance 3D Painter export presets (`.spexp` / export JSON) can be imported.
+  Built-in templates stay read-only and write exactly the same files as before.
+- **TIFF export** at 8, 16 and 32-bit float.
+
 ## 0.3.0
 
 ### Added

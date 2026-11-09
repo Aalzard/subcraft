@@ -1,0 +1,492 @@
+PBR Metallic Roughness/default	Golden_Mesh_Body_BaseColor.png	6101504ee8d1851d
+PBR Metallic Roughness/default	Golden_Mesh_Body_Roughness.png	68bb24ba69bb2e26
+PBR Metallic Roughness/default	Golden_Mesh_Body_Metallic.png	cec15d6a744fe68e
+PBR Metallic Roughness/default	Golden_Mesh_Body_Normal.png	1693d250724aecf6
+PBR Metallic Roughness/default	Golden_Mesh_Body_Height.png	bba13275ff9c2133
+PBR Metallic Roughness/default	Golden_Mesh_Body_Emissive.png	b94f29acbbfb2be9
+PBR Metallic Roughness/default	Golden_Mesh_Body_AO.png	169084a092f83a81
+PBR Metallic Roughness/default	Golden_Mesh_Trim_BaseColor.1002.png	a1e5cdd22642cca2
+PBR Metallic Roughness/default	Golden_Mesh_Trim_Roughness.1002.png	610baec01e7b8685
+PBR Metallic Roughness/default	Golden_Mesh_Trim_Metallic.1002.png	c3ed02788cad4f04
+PBR Metallic Roughness/default	Golden_Mesh_Trim_Normal.1002.png	2b6ac09d441e6dfe
+PBR Metallic Roughness/default	Golden_Mesh_Trim_Height.1002.png	e0c925a5dd4d4402
+PBR Metallic Roughness/default	Golden_Mesh_Trim_Emissive.1002.png	2d1abfa700333d4c
+PBR Metallic Roughness/default	Golden_Mesh_Trim_AO.1002.png	943e43a78a77f7fc
+PBR Metallic Roughness/pad_none	Golden_Mesh_Body_BaseColor.png	75eeaddb07e4bac3
+PBR Metallic Roughness/pad_none	Golden_Mesh_Body_Roughness.png	96adf5ed4e345932
+PBR Metallic Roughness/pad_none	Golden_Mesh_Body_Metallic.png	cec15d6a744fe68e
+PBR Metallic Roughness/pad_none	Golden_Mesh_Body_Normal.png	b21d53a54c23def4
+PBR Metallic Roughness/pad_none	Golden_Mesh_Body_Height.png	a5c0d16fcf79282c
+PBR Metallic Roughness/pad_none	Golden_Mesh_Body_Emissive.png	fb3f82c8cef04c1c
+PBR Metallic Roughness/pad_none	Golden_Mesh_Body_AO.png	7217bfe0093750eb
+PBR Metallic Roughness/pad_none	Golden_Mesh_Trim_BaseColor.1002.png	75eeaddb07e4bac3
+PBR Metallic Roughness/pad_none	Golden_Mesh_Trim_Roughness.1002.png	96adf5ed4e345932
+PBR Metallic Roughness/pad_none	Golden_Mesh_Trim_Metallic.1002.png	cec15d6a744fe68e
+PBR Metallic Roughness/pad_none	Golden_Mesh_Trim_Normal.1002.png	b21d53a54c23def4
+PBR Metallic Roughness/pad_none	Golden_Mesh_Trim_Height.1002.png	a5c0d16fcf79282c
+PBR Metallic Roughness/pad_none	Golden_Mesh_Trim_Emissive.1002.png	fb3f82c8cef04c1c
+PBR Metallic Roughness/pad_none	Golden_Mesh_Trim_AO.1002.png	943e43a78a77f7fc
+PBR Metallic Roughness/pad_4	Golden_Mesh_Body_BaseColor.png	859fad7f6128b332
+PBR Metallic Roughness/pad_4	Golden_Mesh_Body_Roughness.png	4220a95d0d39a7c6
+PBR Metallic Roughness/pad_4	Golden_Mesh_Body_Metallic.png	cec15d6a744fe68e
+PBR Metallic Roughness/pad_4	Golden_Mesh_Body_Normal.png	bdaf7e4f50f6639d
+PBR Metallic Roughness/pad_4	Golden_Mesh_Body_Height.png	2b4d8105b9c0db9a
+PBR Metallic Roughness/pad_4	Golden_Mesh_Body_Emissive.png	50c0deeb75e59301
+PBR Metallic Roughness/pad_4	Golden_Mesh_Body_AO.png	7fe4c31c54fa5bc8
+PBR Metallic Roughness/pad_4	Golden_Mesh_Trim_BaseColor.1002.png	1a84edc2a6a84614
+PBR Metallic Roughness/pad_4	Golden_Mesh_Trim_Roughness.1002.png	36419369e03f95e4
+PBR Metallic Roughness/pad_4	Golden_Mesh_Trim_Metallic.1002.png	dd61e55da9667aa9
+PBR Metallic Roughness/pad_4	Golden_Mesh_Trim_Normal.1002.png	0b5236df90e9b910
+PBR Metallic Roughness/pad_4	Golden_Mesh_Trim_Height.1002.png	f427382a4e2181d3
+PBR Metallic Roughness/pad_4	Golden_Mesh_Trim_Emissive.1002.png	2c6fca225ca5eb23
+PBR Metallic Roughness/pad_4	Golden_Mesh_Trim_AO.1002.png	943e43a78a77f7fc
+PBR Metallic Roughness/png16_dx	Golden_Mesh_Body_BaseColor.png	3b3293ad0a0506fa
+PBR Metallic Roughness/png16_dx	Golden_Mesh_Body_Roughness.png	266621abb14ab578
+PBR Metallic Roughness/png16_dx	Golden_Mesh_Body_Metallic.png	bf22671e9fc96015
+PBR Metallic Roughness/png16_dx	Golden_Mesh_Body_Normal.png	890ccff8a52af514
+PBR Metallic Roughness/png16_dx	Golden_Mesh_Body_Height.png	bba13275ff9c2133
+PBR Metallic Roughness/png16_dx	Golden_Mesh_Body_Emissive.png	f7ff88f284e63799
+PBR Metallic Roughness/png16_dx	Golden_Mesh_Body_AO.png	c4d9b5c69c2a2696
+PBR Metallic Roughness/png16_dx	Golden_Mesh_Trim_BaseColor.1002.png	3097bcbad94c762c
+PBR Metallic Roughness/png16_dx	Golden_Mesh_Trim_Roughness.1002.png	38d6edb0dd00819f
+PBR Metallic Roughness/png16_dx	Golden_Mesh_Trim_Metallic.1002.png	573aaba71ca606f6
+PBR Metallic Roughness/png16_dx	Golden_Mesh_Trim_Normal.1002.png	f7fba3741bd21586
+PBR Metallic Roughness/png16_dx	Golden_Mesh_Trim_Height.1002.png	e0c925a5dd4d4402
+PBR Metallic Roughness/png16_dx	Golden_Mesh_Trim_Emissive.1002.png	b0b3c6f2b8d724c8
+PBR Metallic Roughness/png16_dx	Golden_Mesh_Trim_AO.1002.png	a82900ac4fed91ad
+PBR Metallic Roughness/exr_gl	Golden_Mesh_Body_BaseColor.exr	78c3c75370444fa2
+PBR Metallic Roughness/exr_gl	Golden_Mesh_Body_Roughness.exr	45937124cd6e199a
+PBR Metallic Roughness/exr_gl	Golden_Mesh_Body_Metallic.exr	8bbefb9a6bbcf625
+PBR Metallic Roughness/exr_gl	Golden_Mesh_Body_Normal.exr	1fcae431c0afc02d
+PBR Metallic Roughness/exr_gl	Golden_Mesh_Body_Height.exr	0ed670a810725f55
+PBR Metallic Roughness/exr_gl	Golden_Mesh_Body_Emissive.exr	af25e6c48830e715
+PBR Metallic Roughness/exr_gl	Golden_Mesh_Body_AO.exr	84b807304c051b89
+PBR Metallic Roughness/exr_gl	1002/Golden_Mesh_Trim_BaseColor.exr	37bd0c3970d43511
+PBR Metallic Roughness/exr_gl	1002/Golden_Mesh_Trim_Roughness.exr	b4a4b4a26cc35885
+PBR Metallic Roughness/exr_gl	1002/Golden_Mesh_Trim_Metallic.exr	1c6a7aafbeec3f4b
+PBR Metallic Roughness/exr_gl	1002/Golden_Mesh_Trim_Normal.exr	9efd55f4186e9751
+PBR Metallic Roughness/exr_gl	1002/Golden_Mesh_Trim_Height.exr	4f915919c16d98b8
+PBR Metallic Roughness/exr_gl	1002/Golden_Mesh_Trim_Emissive.exr	7de3823ec3c0926f
+PBR Metallic Roughness/exr_gl	1002/Golden_Mesh_Trim_AO.exr	ae15d35e0cbf835f
+PBR Metallic Roughness/tga_noh2n	Golden_Mesh_Body_BaseColor.tga	dfc4eb3128d34802
+PBR Metallic Roughness/tga_noh2n	Golden_Mesh_Body_Roughness.tga	b8a74e0cf7163abe
+PBR Metallic Roughness/tga_noh2n	Golden_Mesh_Body_Metallic.tga	6e6a63f198c24dc9
+PBR Metallic Roughness/tga_noh2n	Golden_Mesh_Body_Normal.tga	7a30e8308f35b588
+PBR Metallic Roughness/tga_noh2n	Golden_Mesh_Body_Height.tga	1454b71b3ace95d5
+PBR Metallic Roughness/tga_noh2n	Golden_Mesh_Body_Emissive.tga	ace52f9b11efebed
+PBR Metallic Roughness/tga_noh2n	Golden_Mesh_Body_AO.tga	523719820c65248d
+PBR Metallic Roughness/tga_noh2n	Golden_Mesh_Trim_BaseColor.1002.tga	776c40d640912492
+PBR Metallic Roughness/tga_noh2n	Golden_Mesh_Trim_Roughness.1002.tga	e0aa113a2b9cca1a
+PBR Metallic Roughness/tga_noh2n	Golden_Mesh_Trim_Metallic.1002.tga	64c24f8bb4171107
+PBR Metallic Roughness/tga_noh2n	Golden_Mesh_Trim_Normal.1002.tga	bd47e77f55515294
+PBR Metallic Roughness/tga_noh2n	Golden_Mesh_Trim_Height.1002.tga	b69edd11668b5196
+PBR Metallic Roughness/tga_noh2n	Golden_Mesh_Trim_Emissive.1002.tga	b3fe94ee3acef8fb
+PBR Metallic Roughness/tga_noh2n	Golden_Mesh_Trim_AO.1002.tga	034ef3c4e5a1d94e
+Unreal Engine (ORM packed)/default	Golden_Mesh_Body_BaseColor.png	6101504ee8d1851d
+Unreal Engine (ORM packed)/default	Golden_Mesh_Body_Normal.png	8dd02074975a383c
+Unreal Engine (ORM packed)/default	Golden_Mesh_Body_OcclusionRoughnessMetallic.png	b734e29dbb89aa11
+Unreal Engine (ORM packed)/default	Golden_Mesh_Body_Emissive.png	b94f29acbbfb2be9
+Unreal Engine (ORM packed)/default	Golden_Mesh_Trim_BaseColor.1002.png	a1e5cdd22642cca2
+Unreal Engine (ORM packed)/default	Golden_Mesh_Trim_Normal.1002.png	00ef43ab2a63d4ee
+Unreal Engine (ORM packed)/default	Golden_Mesh_Trim_OcclusionRoughnessMetallic.1002.png	b6492b99b3dbbc2e
+Unreal Engine (ORM packed)/default	Golden_Mesh_Trim_Emissive.1002.png	2d1abfa700333d4c
+Unreal Engine (ORM packed)/pad_none	Golden_Mesh_Body_BaseColor.png	75eeaddb07e4bac3
+Unreal Engine (ORM packed)/pad_none	Golden_Mesh_Body_Normal.png	1204ddaceab797dc
+Unreal Engine (ORM packed)/pad_none	Golden_Mesh_Body_OcclusionRoughnessMetallic.png	28cf682900ea50e6
+Unreal Engine (ORM packed)/pad_none	Golden_Mesh_Body_Emissive.png	fb3f82c8cef04c1c
+Unreal Engine (ORM packed)/pad_none	Golden_Mesh_Trim_BaseColor.1002.png	75eeaddb07e4bac3
+Unreal Engine (ORM packed)/pad_none	Golden_Mesh_Trim_Normal.1002.png	1204ddaceab797dc
+Unreal Engine (ORM packed)/pad_none	Golden_Mesh_Trim_OcclusionRoughnessMetallic.1002.png	c4643e1a45d54b00
+Unreal Engine (ORM packed)/pad_none	Golden_Mesh_Trim_Emissive.1002.png	fb3f82c8cef04c1c
+Unreal Engine (ORM packed)/pad_4	Golden_Mesh_Body_BaseColor.png	859fad7f6128b332
+Unreal Engine (ORM packed)/pad_4	Golden_Mesh_Body_Normal.png	ec51a03caee2d831
+Unreal Engine (ORM packed)/pad_4	Golden_Mesh_Body_OcclusionRoughnessMetallic.png	76bf33c8ed7930cb
+Unreal Engine (ORM packed)/pad_4	Golden_Mesh_Body_Emissive.png	50c0deeb75e59301
+Unreal Engine (ORM packed)/pad_4	Golden_Mesh_Trim_BaseColor.1002.png	1a84edc2a6a84614
+Unreal Engine (ORM packed)/pad_4	Golden_Mesh_Trim_Normal.1002.png	41bc69cdfe5c8071
+Unreal Engine (ORM packed)/pad_4	Golden_Mesh_Trim_OcclusionRoughnessMetallic.1002.png	9f75a159e6569396
+Unreal Engine (ORM packed)/pad_4	Golden_Mesh_Trim_Emissive.1002.png	2c6fca225ca5eb23
+Unreal Engine (ORM packed)/png16_dx	Golden_Mesh_Body_BaseColor.png	3b3293ad0a0506fa
+Unreal Engine (ORM packed)/png16_dx	Golden_Mesh_Body_Normal.png	890ccff8a52af514
+Unreal Engine (ORM packed)/png16_dx	Golden_Mesh_Body_OcclusionRoughnessMetallic.png	88fcb67542119410
+Unreal Engine (ORM packed)/png16_dx	Golden_Mesh_Body_Emissive.png	f7ff88f284e63799
+Unreal Engine (ORM packed)/png16_dx	Golden_Mesh_Trim_BaseColor.1002.png	3097bcbad94c762c
+Unreal Engine (ORM packed)/png16_dx	Golden_Mesh_Trim_Normal.1002.png	f7fba3741bd21586
+Unreal Engine (ORM packed)/png16_dx	Golden_Mesh_Trim_OcclusionRoughnessMetallic.1002.png	60823387e531aafe
+Unreal Engine (ORM packed)/png16_dx	Golden_Mesh_Trim_Emissive.1002.png	b0b3c6f2b8d724c8
+Unreal Engine (ORM packed)/exr_gl	Golden_Mesh_Body_BaseColor.exr	78c3c75370444fa2
+Unreal Engine (ORM packed)/exr_gl	Golden_Mesh_Body_Normal.exr	1fcae431c0afc02d
+Unreal Engine (ORM packed)/exr_gl	Golden_Mesh_Body_OcclusionRoughnessMetallic.exr	de665ceaef9dbd67
+Unreal Engine (ORM packed)/exr_gl	Golden_Mesh_Body_Emissive.exr	af25e6c48830e715
+Unreal Engine (ORM packed)/exr_gl	1002/Golden_Mesh_Trim_BaseColor.exr	37bd0c3970d43511
+Unreal Engine (ORM packed)/exr_gl	1002/Golden_Mesh_Trim_Normal.exr	9efd55f4186e9751
+Unreal Engine (ORM packed)/exr_gl	1002/Golden_Mesh_Trim_OcclusionRoughnessMetallic.exr	345fd4a6adf5fd1d
+Unreal Engine (ORM packed)/exr_gl	1002/Golden_Mesh_Trim_Emissive.exr	7de3823ec3c0926f
+Unreal Engine (ORM packed)/tga_noh2n	Golden_Mesh_Body_BaseColor.tga	dfc4eb3128d34802
+Unreal Engine (ORM packed)/tga_noh2n	Golden_Mesh_Body_Normal.tga	7e84524eede6f981
+Unreal Engine (ORM packed)/tga_noh2n	Golden_Mesh_Body_OcclusionRoughnessMetallic.tga	4e1b97356c4aa1e5
+Unreal Engine (ORM packed)/tga_noh2n	Golden_Mesh_Body_Emissive.tga	ace52f9b11efebed
+Unreal Engine (ORM packed)/tga_noh2n	Golden_Mesh_Trim_BaseColor.1002.tga	776c40d640912492
+Unreal Engine (ORM packed)/tga_noh2n	Golden_Mesh_Trim_Normal.1002.tga	2ce68ca59ecefc14
+Unreal Engine (ORM packed)/tga_noh2n	Golden_Mesh_Trim_OcclusionRoughnessMetallic.1002.tga	0b168a0d457fc320
+Unreal Engine (ORM packed)/tga_noh2n	Golden_Mesh_Trim_Emissive.1002.tga	b3fe94ee3acef8fb
+Unity HDRP (Mask Map)/default	Golden_Mesh_Body_BaseColor.png	6101504ee8d1851d
+Unity HDRP (Mask Map)/default	Golden_Mesh_Body_Normal.png	1693d250724aecf6
+Unity HDRP (Mask Map)/default	Golden_Mesh_Body_MaskMap.png	caaca91aa7671c70
+Unity HDRP (Mask Map)/default	Golden_Mesh_Body_Emissive.png	b94f29acbbfb2be9
+Unity HDRP (Mask Map)/default	Golden_Mesh_Trim_BaseColor.1002.png	a1e5cdd22642cca2
+Unity HDRP (Mask Map)/default	Golden_Mesh_Trim_Normal.1002.png	2b6ac09d441e6dfe
+Unity HDRP (Mask Map)/default	Golden_Mesh_Trim_MaskMap.1002.png	ae5d068f56d3beaa
+Unity HDRP (Mask Map)/default	Golden_Mesh_Trim_Emissive.1002.png	2d1abfa700333d4c
+Unity HDRP (Mask Map)/pad_none	Golden_Mesh_Body_BaseColor.png	75eeaddb07e4bac3
+Unity HDRP (Mask Map)/pad_none	Golden_Mesh_Body_Normal.png	b21d53a54c23def4
+Unity HDRP (Mask Map)/pad_none	Golden_Mesh_Body_MaskMap.png	ed9b47a0fd79b327
+Unity HDRP (Mask Map)/pad_none	Golden_Mesh_Body_Emissive.png	fb3f82c8cef04c1c
+Unity HDRP (Mask Map)/pad_none	Golden_Mesh_Trim_BaseColor.1002.png	75eeaddb07e4bac3
+Unity HDRP (Mask Map)/pad_none	Golden_Mesh_Trim_Normal.1002.png	b21d53a54c23def4
+Unity HDRP (Mask Map)/pad_none	Golden_Mesh_Trim_MaskMap.1002.png	21771536a40b6b5b
+Unity HDRP (Mask Map)/pad_none	Golden_Mesh_Trim_Emissive.1002.png	fb3f82c8cef04c1c
+Unity HDRP (Mask Map)/pad_4	Golden_Mesh_Body_BaseColor.png	859fad7f6128b332
+Unity HDRP (Mask Map)/pad_4	Golden_Mesh_Body_Normal.png	bdaf7e4f50f6639d
+Unity HDRP (Mask Map)/pad_4	Golden_Mesh_Body_MaskMap.png	10d5665f70472074
+Unity HDRP (Mask Map)/pad_4	Golden_Mesh_Body_Emissive.png	50c0deeb75e59301
+Unity HDRP (Mask Map)/pad_4	Golden_Mesh_Trim_BaseColor.1002.png	1a84edc2a6a84614
+Unity HDRP (Mask Map)/pad_4	Golden_Mesh_Trim_Normal.1002.png	0b5236df90e9b910
+Unity HDRP (Mask Map)/pad_4	Golden_Mesh_Trim_MaskMap.1002.png	49e221d6ea44d893
+Unity HDRP (Mask Map)/pad_4	Golden_Mesh_Trim_Emissive.1002.png	2c6fca225ca5eb23
+Unity HDRP (Mask Map)/png16_dx	Golden_Mesh_Body_BaseColor.png	3b3293ad0a0506fa
+Unity HDRP (Mask Map)/png16_dx	Golden_Mesh_Body_Normal.png	890ccff8a52af514
+Unity HDRP (Mask Map)/png16_dx	Golden_Mesh_Body_MaskMap.png	bcc97a473f9c6eb4
+Unity HDRP (Mask Map)/png16_dx	Golden_Mesh_Body_Emissive.png	f7ff88f284e63799
+Unity HDRP (Mask Map)/png16_dx	Golden_Mesh_Trim_BaseColor.1002.png	3097bcbad94c762c
+Unity HDRP (Mask Map)/png16_dx	Golden_Mesh_Trim_Normal.1002.png	f7fba3741bd21586
+Unity HDRP (Mask Map)/png16_dx	Golden_Mesh_Trim_MaskMap.1002.png	8909c7fea7d5f7fc
+Unity HDRP (Mask Map)/png16_dx	Golden_Mesh_Trim_Emissive.1002.png	b0b3c6f2b8d724c8
+Unity HDRP (Mask Map)/exr_gl	Golden_Mesh_Body_BaseColor.exr	78c3c75370444fa2
+Unity HDRP (Mask Map)/exr_gl	Golden_Mesh_Body_Normal.exr	1fcae431c0afc02d
+Unity HDRP (Mask Map)/exr_gl	Golden_Mesh_Body_MaskMap.exr	8c4e1a2171d1fda0
+Unity HDRP (Mask Map)/exr_gl	Golden_Mesh_Body_Emissive.exr	af25e6c48830e715
+Unity HDRP (Mask Map)/exr_gl	1002/Golden_Mesh_Trim_BaseColor.exr	37bd0c3970d43511
+Unity HDRP (Mask Map)/exr_gl	1002/Golden_Mesh_Trim_Normal.exr	9efd55f4186e9751
+Unity HDRP (Mask Map)/exr_gl	1002/Golden_Mesh_Trim_MaskMap.exr	173b01b8e09bf4bb
+Unity HDRP (Mask Map)/exr_gl	1002/Golden_Mesh_Trim_Emissive.exr	7de3823ec3c0926f
+Unity HDRP (Mask Map)/tga_noh2n	Golden_Mesh_Body_BaseColor.tga	dfc4eb3128d34802
+Unity HDRP (Mask Map)/tga_noh2n	Golden_Mesh_Body_Normal.tga	7a30e8308f35b588
+Unity HDRP (Mask Map)/tga_noh2n	Golden_Mesh_Body_MaskMap.tga	67802f857ef8954b
+Unity HDRP (Mask Map)/tga_noh2n	Golden_Mesh_Body_Emissive.tga	ace52f9b11efebed
+Unity HDRP (Mask Map)/tga_noh2n	Golden_Mesh_Trim_BaseColor.1002.tga	776c40d640912492
+Unity HDRP (Mask Map)/tga_noh2n	Golden_Mesh_Trim_Normal.1002.tga	bd47e77f55515294
+Unity HDRP (Mask Map)/tga_noh2n	Golden_Mesh_Trim_MaskMap.1002.tga	3713eb61759e3a8b
+Unity HDRP (Mask Map)/tga_noh2n	Golden_Mesh_Trim_Emissive.1002.tga	b3fe94ee3acef8fb
+glTF 2.0/default	Golden_Mesh_Body_BaseColor.png	6101504ee8d1851d
+glTF 2.0/default	Golden_Mesh_Body_Normal.png	1693d250724aecf6
+glTF 2.0/default	Golden_Mesh_Body_OcclusionRoughnessMetallic.png	b734e29dbb89aa11
+glTF 2.0/default	Golden_Mesh_Body_Emissive.png	b94f29acbbfb2be9
+glTF 2.0/default	Golden_Mesh_Trim_BaseColor.1002.png	a1e5cdd22642cca2
+glTF 2.0/default	Golden_Mesh_Trim_Normal.1002.png	2b6ac09d441e6dfe
+glTF 2.0/default	Golden_Mesh_Trim_OcclusionRoughnessMetallic.1002.png	b6492b99b3dbbc2e
+glTF 2.0/default	Golden_Mesh_Trim_Emissive.1002.png	2d1abfa700333d4c
+glTF 2.0/pad_none	Golden_Mesh_Body_BaseColor.png	75eeaddb07e4bac3
+glTF 2.0/pad_none	Golden_Mesh_Body_Normal.png	b21d53a54c23def4
+glTF 2.0/pad_none	Golden_Mesh_Body_OcclusionRoughnessMetallic.png	28cf682900ea50e6
+glTF 2.0/pad_none	Golden_Mesh_Body_Emissive.png	fb3f82c8cef04c1c
+glTF 2.0/pad_none	Golden_Mesh_Trim_BaseColor.1002.png	75eeaddb07e4bac3
+glTF 2.0/pad_none	Golden_Mesh_Trim_Normal.1002.png	b21d53a54c23def4
+glTF 2.0/pad_none	Golden_Mesh_Trim_OcclusionRoughnessMetallic.1002.png	c4643e1a45d54b00
+glTF 2.0/pad_none	Golden_Mesh_Trim_Emissive.1002.png	fb3f82c8cef04c1c
+glTF 2.0/pad_4	Golden_Mesh_Body_BaseColor.png	859fad7f6128b332
+glTF 2.0/pad_4	Golden_Mesh_Body_Normal.png	bdaf7e4f50f6639d
+glTF 2.0/pad_4	Golden_Mesh_Body_OcclusionRoughnessMetallic.png	76bf33c8ed7930cb
+glTF 2.0/pad_4	Golden_Mesh_Body_Emissive.png	50c0deeb75e59301
+glTF 2.0/pad_4	Golden_Mesh_Trim_BaseColor.1002.png	1a84edc2a6a84614
+glTF 2.0/pad_4	Golden_Mesh_Trim_Normal.1002.png	0b5236df90e9b910
+glTF 2.0/pad_4	Golden_Mesh_Trim_OcclusionRoughnessMetallic.1002.png	9f75a159e6569396
+glTF 2.0/pad_4	Golden_Mesh_Trim_Emissive.1002.png	2c6fca225ca5eb23
+glTF 2.0/png16_dx	Golden_Mesh_Body_BaseColor.png	3b3293ad0a0506fa
+glTF 2.0/png16_dx	Golden_Mesh_Body_Normal.png	890ccff8a52af514
+glTF 2.0/png16_dx	Golden_Mesh_Body_OcclusionRoughnessMetallic.png	88fcb67542119410
+glTF 2.0/png16_dx	Golden_Mesh_Body_Emissive.png	f7ff88f284e63799
+glTF 2.0/png16_dx	Golden_Mesh_Trim_BaseColor.1002.png	3097bcbad94c762c
+glTF 2.0/png16_dx	Golden_Mesh_Trim_Normal.1002.png	f7fba3741bd21586
+glTF 2.0/png16_dx	Golden_Mesh_Trim_OcclusionRoughnessMetallic.1002.png	60823387e531aafe
+glTF 2.0/png16_dx	Golden_Mesh_Trim_Emissive.1002.png	b0b3c6f2b8d724c8
+glTF 2.0/exr_gl	Golden_Mesh_Body_BaseColor.exr	78c3c75370444fa2
+glTF 2.0/exr_gl	Golden_Mesh_Body_Normal.exr	1fcae431c0afc02d
+glTF 2.0/exr_gl	Golden_Mesh_Body_OcclusionRoughnessMetallic.exr	de665ceaef9dbd67
+glTF 2.0/exr_gl	Golden_Mesh_Body_Emissive.exr	af25e6c48830e715
+glTF 2.0/exr_gl	1002/Golden_Mesh_Trim_BaseColor.exr	37bd0c3970d43511
+glTF 2.0/exr_gl	1002/Golden_Mesh_Trim_Normal.exr	9efd55f4186e9751
+glTF 2.0/exr_gl	1002/Golden_Mesh_Trim_OcclusionRoughnessMetallic.exr	345fd4a6adf5fd1d
+glTF 2.0/exr_gl	1002/Golden_Mesh_Trim_Emissive.exr	7de3823ec3c0926f
+glTF 2.0/tga_noh2n	Golden_Mesh_Body_BaseColor.tga	dfc4eb3128d34802
+glTF 2.0/tga_noh2n	Golden_Mesh_Body_Normal.tga	7a30e8308f35b588
+glTF 2.0/tga_noh2n	Golden_Mesh_Body_OcclusionRoughnessMetallic.tga	4e1b97356c4aa1e5
+glTF 2.0/tga_noh2n	Golden_Mesh_Body_Emissive.tga	ace52f9b11efebed
+glTF 2.0/tga_noh2n	Golden_Mesh_Trim_BaseColor.1002.tga	776c40d640912492
+glTF 2.0/tga_noh2n	Golden_Mesh_Trim_Normal.1002.tga	bd47e77f55515294
+glTF 2.0/tga_noh2n	Golden_Mesh_Trim_OcclusionRoughnessMetallic.1002.tga	0b168a0d457fc320
+glTF 2.0/tga_noh2n	Golden_Mesh_Trim_Emissive.1002.tga	b3fe94ee3acef8fb
+Unity URP (Metallic + Occlusion)/default	Golden_Mesh_Body_BaseColor.png	6101504ee8d1851d
+Unity URP (Metallic + Occlusion)/default	Golden_Mesh_Body_Normal.png	1693d250724aecf6
+Unity URP (Metallic + Occlusion)/default	Golden_Mesh_Body_MetallicSmoothness.png	f5136e9f2115ce5f
+Unity URP (Metallic + Occlusion)/default	Golden_Mesh_Body_Occlusion.png	a7fa510e5b6fbb10
+Unity URP (Metallic + Occlusion)/default	Golden_Mesh_Body_Emissive.png	b94f29acbbfb2be9
+Unity URP (Metallic + Occlusion)/default	Golden_Mesh_Body_Height.png	bba13275ff9c2133
+Unity URP (Metallic + Occlusion)/default	Golden_Mesh_Trim_BaseColor.1002.png	a1e5cdd22642cca2
+Unity URP (Metallic + Occlusion)/default	Golden_Mesh_Trim_Normal.1002.png	2b6ac09d441e6dfe
+Unity URP (Metallic + Occlusion)/default	Golden_Mesh_Trim_MetallicSmoothness.1002.png	6996f03a3308f1ac
+Unity URP (Metallic + Occlusion)/default	Golden_Mesh_Trim_Occlusion.1002.png	02ddc0754cffcb64
+Unity URP (Metallic + Occlusion)/default	Golden_Mesh_Trim_Emissive.1002.png	2d1abfa700333d4c
+Unity URP (Metallic + Occlusion)/default	Golden_Mesh_Trim_Height.1002.png	e0c925a5dd4d4402
+Unity URP (Metallic + Occlusion)/pad_none	Golden_Mesh_Body_BaseColor.png	75eeaddb07e4bac3
+Unity URP (Metallic + Occlusion)/pad_none	Golden_Mesh_Body_Normal.png	b21d53a54c23def4
+Unity URP (Metallic + Occlusion)/pad_none	Golden_Mesh_Body_MetallicSmoothness.png	42b0300b70ac99d2
+Unity URP (Metallic + Occlusion)/pad_none	Golden_Mesh_Body_Occlusion.png	7a25e0a8b42d7ba7
+Unity URP (Metallic + Occlusion)/pad_none	Golden_Mesh_Body_Emissive.png	fb3f82c8cef04c1c
+Unity URP (Metallic + Occlusion)/pad_none	Golden_Mesh_Body_Height.png	a5c0d16fcf79282c
+Unity URP (Metallic + Occlusion)/pad_none	Golden_Mesh_Trim_BaseColor.1002.png	75eeaddb07e4bac3
+Unity URP (Metallic + Occlusion)/pad_none	Golden_Mesh_Trim_Normal.1002.png	b21d53a54c23def4
+Unity URP (Metallic + Occlusion)/pad_none	Golden_Mesh_Trim_MetallicSmoothness.1002.png	42b0300b70ac99d2
+Unity URP (Metallic + Occlusion)/pad_none	Golden_Mesh_Trim_Occlusion.1002.png	02ddc0754cffcb64
+Unity URP (Metallic + Occlusion)/pad_none	Golden_Mesh_Trim_Emissive.1002.png	fb3f82c8cef04c1c
+Unity URP (Metallic + Occlusion)/pad_none	Golden_Mesh_Trim_Height.1002.png	a5c0d16fcf79282c
+Unity URP (Metallic + Occlusion)/pad_4	Golden_Mesh_Body_BaseColor.png	859fad7f6128b332
+Unity URP (Metallic + Occlusion)/pad_4	Golden_Mesh_Body_Normal.png	bdaf7e4f50f6639d
+Unity URP (Metallic + Occlusion)/pad_4	Golden_Mesh_Body_MetallicSmoothness.png	402a0b2487df492a
+Unity URP (Metallic + Occlusion)/pad_4	Golden_Mesh_Body_Occlusion.png	8a7fa008a94afd29
+Unity URP (Metallic + Occlusion)/pad_4	Golden_Mesh_Body_Emissive.png	50c0deeb75e59301
+Unity URP (Metallic + Occlusion)/pad_4	Golden_Mesh_Body_Height.png	2b4d8105b9c0db9a
+Unity URP (Metallic + Occlusion)/pad_4	Golden_Mesh_Trim_BaseColor.1002.png	1a84edc2a6a84614
+Unity URP (Metallic + Occlusion)/pad_4	Golden_Mesh_Trim_Normal.1002.png	0b5236df90e9b910
+Unity URP (Metallic + Occlusion)/pad_4	Golden_Mesh_Trim_MetallicSmoothness.1002.png	040f0f6c899b664d
+Unity URP (Metallic + Occlusion)/pad_4	Golden_Mesh_Trim_Occlusion.1002.png	02ddc0754cffcb64
+Unity URP (Metallic + Occlusion)/pad_4	Golden_Mesh_Trim_Emissive.1002.png	2c6fca225ca5eb23
+Unity URP (Metallic + Occlusion)/pad_4	Golden_Mesh_Trim_Height.1002.png	f427382a4e2181d3
+Unity URP (Metallic + Occlusion)/png16_dx	Golden_Mesh_Body_BaseColor.png	3b3293ad0a0506fa
+Unity URP (Metallic + Occlusion)/png16_dx	Golden_Mesh_Body_Normal.png	890ccff8a52af514
+Unity URP (Metallic + Occlusion)/png16_dx	Golden_Mesh_Body_MetallicSmoothness.png	84d34893f208fbda
+Unity URP (Metallic + Occlusion)/png16_dx	Golden_Mesh_Body_Occlusion.png	9f65b03875dd0bb7
+Unity URP (Metallic + Occlusion)/png16_dx	Golden_Mesh_Body_Emissive.png	f7ff88f284e63799
+Unity URP (Metallic + Occlusion)/png16_dx	Golden_Mesh_Body_Height.png	bba13275ff9c2133
+Unity URP (Metallic + Occlusion)/png16_dx	Golden_Mesh_Trim_BaseColor.1002.png	3097bcbad94c762c
+Unity URP (Metallic + Occlusion)/png16_dx	Golden_Mesh_Trim_Normal.1002.png	f7fba3741bd21586
+Unity URP (Metallic + Occlusion)/png16_dx	Golden_Mesh_Trim_MetallicSmoothness.1002.png	cc6b7c031e8925ea
+Unity URP (Metallic + Occlusion)/png16_dx	Golden_Mesh_Trim_Occlusion.1002.png	6a5b24b54a8541ec
+Unity URP (Metallic + Occlusion)/png16_dx	Golden_Mesh_Trim_Emissive.1002.png	b0b3c6f2b8d724c8
+Unity URP (Metallic + Occlusion)/png16_dx	Golden_Mesh_Trim_Height.1002.png	e0c925a5dd4d4402
+Unity URP (Metallic + Occlusion)/exr_gl	Golden_Mesh_Body_BaseColor.exr	78c3c75370444fa2
+Unity URP (Metallic + Occlusion)/exr_gl	Golden_Mesh_Body_Normal.exr	1fcae431c0afc02d
+Unity URP (Metallic + Occlusion)/exr_gl	Golden_Mesh_Body_MetallicSmoothness.exr	666b68146df22242
+Unity URP (Metallic + Occlusion)/exr_gl	Golden_Mesh_Body_Occlusion.exr	84b807304c051b89
+Unity URP (Metallic + Occlusion)/exr_gl	Golden_Mesh_Body_Emissive.exr	af25e6c48830e715
+Unity URP (Metallic + Occlusion)/exr_gl	Golden_Mesh_Body_Height.exr	0ed670a810725f55
+Unity URP (Metallic + Occlusion)/exr_gl	1002/Golden_Mesh_Trim_BaseColor.exr	37bd0c3970d43511
+Unity URP (Metallic + Occlusion)/exr_gl	1002/Golden_Mesh_Trim_Normal.exr	9efd55f4186e9751
+Unity URP (Metallic + Occlusion)/exr_gl	1002/Golden_Mesh_Trim_MetallicSmoothness.exr	5b5e9e9769f537b8
+Unity URP (Metallic + Occlusion)/exr_gl	1002/Golden_Mesh_Trim_Occlusion.exr	ae15d35e0cbf835f
+Unity URP (Metallic + Occlusion)/exr_gl	1002/Golden_Mesh_Trim_Emissive.exr	7de3823ec3c0926f
+Unity URP (Metallic + Occlusion)/exr_gl	1002/Golden_Mesh_Trim_Height.exr	4f915919c16d98b8
+Unity URP (Metallic + Occlusion)/tga_noh2n	Golden_Mesh_Body_BaseColor.tga	dfc4eb3128d34802
+Unity URP (Metallic + Occlusion)/tga_noh2n	Golden_Mesh_Body_Normal.tga	7a30e8308f35b588
+Unity URP (Metallic + Occlusion)/tga_noh2n	Golden_Mesh_Body_MetallicSmoothness.tga	430178d4ad516823
+Unity URP (Metallic + Occlusion)/tga_noh2n	Golden_Mesh_Body_Occlusion.tga	cea33f437ab0f284
+Unity URP (Metallic + Occlusion)/tga_noh2n	Golden_Mesh_Body_Emissive.tga	ace52f9b11efebed
+Unity URP (Metallic + Occlusion)/tga_noh2n	Golden_Mesh_Body_Height.tga	1454b71b3ace95d5
+Unity URP (Metallic + Occlusion)/tga_noh2n	Golden_Mesh_Trim_BaseColor.1002.tga	776c40d640912492
+Unity URP (Metallic + Occlusion)/tga_noh2n	Golden_Mesh_Trim_Normal.1002.tga	bd47e77f55515294
+Unity URP (Metallic + Occlusion)/tga_noh2n	Golden_Mesh_Trim_MetallicSmoothness.1002.tga	8ddb25ebc8843c4d
+Unity URP (Metallic + Occlusion)/tga_noh2n	Golden_Mesh_Trim_Occlusion.1002.tga	85a472e3a230314f
+Unity URP (Metallic + Occlusion)/tga_noh2n	Golden_Mesh_Trim_Emissive.1002.tga	b3fe94ee3acef8fb
+Unity URP (Metallic + Occlusion)/tga_noh2n	Golden_Mesh_Trim_Height.1002.tga	b69edd11668b5196
+Godot 4 (ORM)/default	Golden_Mesh_Body_BaseColor.png	6101504ee8d1851d
+Godot 4 (ORM)/default	Golden_Mesh_Body_Normal.png	1693d250724aecf6
+Godot 4 (ORM)/default	Golden_Mesh_Body_ORM.png	b734e29dbb89aa11
+Godot 4 (ORM)/default	Golden_Mesh_Body_Emissive.png	b94f29acbbfb2be9
+Godot 4 (ORM)/default	Golden_Mesh_Body_Height.png	bba13275ff9c2133
+Godot 4 (ORM)/default	Golden_Mesh_Trim_BaseColor.1002.png	a1e5cdd22642cca2
+Godot 4 (ORM)/default	Golden_Mesh_Trim_Normal.1002.png	2b6ac09d441e6dfe
+Godot 4 (ORM)/default	Golden_Mesh_Trim_ORM.1002.png	b6492b99b3dbbc2e
+Godot 4 (ORM)/default	Golden_Mesh_Trim_Emissive.1002.png	2d1abfa700333d4c
+Godot 4 (ORM)/default	Golden_Mesh_Trim_Height.1002.png	e0c925a5dd4d4402
+Godot 4 (ORM)/pad_none	Golden_Mesh_Body_BaseColor.png	75eeaddb07e4bac3
+Godot 4 (ORM)/pad_none	Golden_Mesh_Body_Normal.png	b21d53a54c23def4
+Godot 4 (ORM)/pad_none	Golden_Mesh_Body_ORM.png	28cf682900ea50e6
+Godot 4 (ORM)/pad_none	Golden_Mesh_Body_Emissive.png	fb3f82c8cef04c1c
+Godot 4 (ORM)/pad_none	Golden_Mesh_Body_Height.png	a5c0d16fcf79282c
+Godot 4 (ORM)/pad_none	Golden_Mesh_Trim_BaseColor.1002.png	75eeaddb07e4bac3
+Godot 4 (ORM)/pad_none	Golden_Mesh_Trim_Normal.1002.png	b21d53a54c23def4
+Godot 4 (ORM)/pad_none	Golden_Mesh_Trim_ORM.1002.png	c4643e1a45d54b00
+Godot 4 (ORM)/pad_none	Golden_Mesh_Trim_Emissive.1002.png	fb3f82c8cef04c1c
+Godot 4 (ORM)/pad_none	Golden_Mesh_Trim_Height.1002.png	a5c0d16fcf79282c
+Godot 4 (ORM)/pad_4	Golden_Mesh_Body_BaseColor.png	859fad7f6128b332
+Godot 4 (ORM)/pad_4	Golden_Mesh_Body_Normal.png	bdaf7e4f50f6639d
+Godot 4 (ORM)/pad_4	Golden_Mesh_Body_ORM.png	76bf33c8ed7930cb
+Godot 4 (ORM)/pad_4	Golden_Mesh_Body_Emissive.png	50c0deeb75e59301
+Godot 4 (ORM)/pad_4	Golden_Mesh_Body_Height.png	2b4d8105b9c0db9a
+Godot 4 (ORM)/pad_4	Golden_Mesh_Trim_BaseColor.1002.png	1a84edc2a6a84614
+Godot 4 (ORM)/pad_4	Golden_Mesh_Trim_Normal.1002.png	0b5236df90e9b910
+Godot 4 (ORM)/pad_4	Golden_Mesh_Trim_ORM.1002.png	9f75a159e6569396
+Godot 4 (ORM)/pad_4	Golden_Mesh_Trim_Emissive.1002.png	2c6fca225ca5eb23
+Godot 4 (ORM)/pad_4	Golden_Mesh_Trim_Height.1002.png	f427382a4e2181d3
+Godot 4 (ORM)/png16_dx	Golden_Mesh_Body_BaseColor.png	3b3293ad0a0506fa
+Godot 4 (ORM)/png16_dx	Golden_Mesh_Body_Normal.png	890ccff8a52af514
+Godot 4 (ORM)/png16_dx	Golden_Mesh_Body_ORM.png	88fcb67542119410
+Godot 4 (ORM)/png16_dx	Golden_Mesh_Body_Emissive.png	f7ff88f284e63799
+Godot 4 (ORM)/png16_dx	Golden_Mesh_Body_Height.png	bba13275ff9c2133
+Godot 4 (ORM)/png16_dx	Golden_Mesh_Trim_BaseColor.1002.png	3097bcbad94c762c
+Godot 4 (ORM)/png16_dx	Golden_Mesh_Trim_Normal.1002.png	f7fba3741bd21586
+Godot 4 (ORM)/png16_dx	Golden_Mesh_Trim_ORM.1002.png	60823387e531aafe
+Godot 4 (ORM)/png16_dx	Golden_Mesh_Trim_Emissive.1002.png	b0b3c6f2b8d724c8
+Godot 4 (ORM)/png16_dx	Golden_Mesh_Trim_Height.1002.png	e0c925a5dd4d4402
+Godot 4 (ORM)/exr_gl	Golden_Mesh_Body_BaseColor.exr	78c3c75370444fa2
+Godot 4 (ORM)/exr_gl	Golden_Mesh_Body_Normal.exr	1fcae431c0afc02d
+Godot 4 (ORM)/exr_gl	Golden_Mesh_Body_ORM.exr	de665ceaef9dbd67
+Godot 4 (ORM)/exr_gl	Golden_Mesh_Body_Emissive.exr	af25e6c48830e715
+Godot 4 (ORM)/exr_gl	Golden_Mesh_Body_Height.exr	0ed670a810725f55
+Godot 4 (ORM)/exr_gl	1002/Golden_Mesh_Trim_BaseColor.exr	37bd0c3970d43511
+Godot 4 (ORM)/exr_gl	1002/Golden_Mesh_Trim_Normal.exr	9efd55f4186e9751
+Godot 4 (ORM)/exr_gl	1002/Golden_Mesh_Trim_ORM.exr	345fd4a6adf5fd1d
+Godot 4 (ORM)/exr_gl	1002/Golden_Mesh_Trim_Emissive.exr	7de3823ec3c0926f
+Godot 4 (ORM)/exr_gl	1002/Golden_Mesh_Trim_Height.exr	4f915919c16d98b8
+Godot 4 (ORM)/tga_noh2n	Golden_Mesh_Body_BaseColor.tga	dfc4eb3128d34802
+Godot 4 (ORM)/tga_noh2n	Golden_Mesh_Body_Normal.tga	7a30e8308f35b588
+Godot 4 (ORM)/tga_noh2n	Golden_Mesh_Body_ORM.tga	4e1b97356c4aa1e5
+Godot 4 (ORM)/tga_noh2n	Golden_Mesh_Body_Emissive.tga	ace52f9b11efebed
+Godot 4 (ORM)/tga_noh2n	Golden_Mesh_Body_Height.tga	1454b71b3ace95d5
+Godot 4 (ORM)/tga_noh2n	Golden_Mesh_Trim_BaseColor.1002.tga	776c40d640912492
+Godot 4 (ORM)/tga_noh2n	Golden_Mesh_Trim_Normal.1002.tga	bd47e77f55515294
+Godot 4 (ORM)/tga_noh2n	Golden_Mesh_Trim_ORM.1002.tga	0b168a0d457fc320
+Godot 4 (ORM)/tga_noh2n	Golden_Mesh_Trim_Emissive.1002.tga	b3fe94ee3acef8fb
+Godot 4 (ORM)/tga_noh2n	Golden_Mesh_Trim_Height.1002.tga	b69edd11668b5196
+Roblox (SurfaceAppearance)/default	Golden_Mesh_Body_ColorMap.png	6101504ee8d1851d
+Roblox (SurfaceAppearance)/default	Golden_Mesh_Body_NormalMap.png	1693d250724aecf6
+Roblox (SurfaceAppearance)/default	Golden_Mesh_Body_MetalnessMap.png	cec15d6a744fe68e
+Roblox (SurfaceAppearance)/default	Golden_Mesh_Body_RoughnessMap.png	68bb24ba69bb2e26
+Roblox (SurfaceAppearance)/default	Golden_Mesh_Body_EmissiveMask.png	d20f886da82682d4
+Roblox (SurfaceAppearance)/default	Golden_Mesh_Trim_ColorMap.1002.png	a1e5cdd22642cca2
+Roblox (SurfaceAppearance)/default	Golden_Mesh_Trim_NormalMap.1002.png	2b6ac09d441e6dfe
+Roblox (SurfaceAppearance)/default	Golden_Mesh_Trim_MetalnessMap.1002.png	c3ed02788cad4f04
+Roblox (SurfaceAppearance)/default	Golden_Mesh_Trim_RoughnessMap.1002.png	610baec01e7b8685
+Roblox (SurfaceAppearance)/default	Golden_Mesh_Trim_EmissiveMask.1002.png	6fe2e7f12865c77f
+Roblox (SurfaceAppearance)/pad_none	Golden_Mesh_Body_ColorMap.png	75eeaddb07e4bac3
+Roblox (SurfaceAppearance)/pad_none	Golden_Mesh_Body_NormalMap.png	b21d53a54c23def4
+Roblox (SurfaceAppearance)/pad_none	Golden_Mesh_Body_MetalnessMap.png	cec15d6a744fe68e
+Roblox (SurfaceAppearance)/pad_none	Golden_Mesh_Body_RoughnessMap.png	96adf5ed4e345932
+Roblox (SurfaceAppearance)/pad_none	Golden_Mesh_Body_EmissiveMask.png	4bedb35d7582ed1b
+Roblox (SurfaceAppearance)/pad_none	Golden_Mesh_Trim_ColorMap.1002.png	75eeaddb07e4bac3
+Roblox (SurfaceAppearance)/pad_none	Golden_Mesh_Trim_NormalMap.1002.png	b21d53a54c23def4
+Roblox (SurfaceAppearance)/pad_none	Golden_Mesh_Trim_MetalnessMap.1002.png	cec15d6a744fe68e
+Roblox (SurfaceAppearance)/pad_none	Golden_Mesh_Trim_RoughnessMap.1002.png	96adf5ed4e345932
+Roblox (SurfaceAppearance)/pad_none	Golden_Mesh_Trim_EmissiveMask.1002.png	4bedb35d7582ed1b
+Roblox (SurfaceAppearance)/pad_4	Golden_Mesh_Body_ColorMap.png	859fad7f6128b332
+Roblox (SurfaceAppearance)/pad_4	Golden_Mesh_Body_NormalMap.png	bdaf7e4f50f6639d
+Roblox (SurfaceAppearance)/pad_4	Golden_Mesh_Body_MetalnessMap.png	cec15d6a744fe68e
+Roblox (SurfaceAppearance)/pad_4	Golden_Mesh_Body_RoughnessMap.png	4220a95d0d39a7c6
+Roblox (SurfaceAppearance)/pad_4	Golden_Mesh_Body_EmissiveMask.png	17731728979c20d5
+Roblox (SurfaceAppearance)/pad_4	Golden_Mesh_Trim_ColorMap.1002.png	1a84edc2a6a84614
+Roblox (SurfaceAppearance)/pad_4	Golden_Mesh_Trim_NormalMap.1002.png	0b5236df90e9b910
+Roblox (SurfaceAppearance)/pad_4	Golden_Mesh_Trim_MetalnessMap.1002.png	dd61e55da9667aa9
+Roblox (SurfaceAppearance)/pad_4	Golden_Mesh_Trim_RoughnessMap.1002.png	36419369e03f95e4
+Roblox (SurfaceAppearance)/pad_4	Golden_Mesh_Trim_EmissiveMask.1002.png	2b7b7cfc9f46ea95
+Roblox (SurfaceAppearance)/png16_dx	Golden_Mesh_Body_ColorMap.png	3b3293ad0a0506fa
+Roblox (SurfaceAppearance)/png16_dx	Golden_Mesh_Body_NormalMap.png	890ccff8a52af514
+Roblox (SurfaceAppearance)/png16_dx	Golden_Mesh_Body_MetalnessMap.png	bf22671e9fc96015
+Roblox (SurfaceAppearance)/png16_dx	Golden_Mesh_Body_RoughnessMap.png	266621abb14ab578
+Roblox (SurfaceAppearance)/png16_dx	Golden_Mesh_Body_EmissiveMask.png	313c773d0ff32ccb
+Roblox (SurfaceAppearance)/png16_dx	Golden_Mesh_Trim_ColorMap.1002.png	3097bcbad94c762c
+Roblox (SurfaceAppearance)/png16_dx	Golden_Mesh_Trim_NormalMap.1002.png	f7fba3741bd21586
+Roblox (SurfaceAppearance)/png16_dx	Golden_Mesh_Trim_MetalnessMap.1002.png	573aaba71ca606f6
+Roblox (SurfaceAppearance)/png16_dx	Golden_Mesh_Trim_RoughnessMap.1002.png	38d6edb0dd00819f
+Roblox (SurfaceAppearance)/png16_dx	Golden_Mesh_Trim_EmissiveMask.1002.png	8d8e4aae4e85454a
+Roblox (SurfaceAppearance)/exr_gl	Golden_Mesh_Body_ColorMap.exr	78c3c75370444fa2
+Roblox (SurfaceAppearance)/exr_gl	Golden_Mesh_Body_NormalMap.exr	1fcae431c0afc02d
+Roblox (SurfaceAppearance)/exr_gl	Golden_Mesh_Body_MetalnessMap.exr	8bbefb9a6bbcf625
+Roblox (SurfaceAppearance)/exr_gl	Golden_Mesh_Body_RoughnessMap.exr	45937124cd6e199a
+Roblox (SurfaceAppearance)/exr_gl	Golden_Mesh_Body_EmissiveMask.exr	af25e6c48830e715
+Roblox (SurfaceAppearance)/exr_gl	1002/Golden_Mesh_Trim_ColorMap.exr	37bd0c3970d43511
+Roblox (SurfaceAppearance)/exr_gl	1002/Golden_Mesh_Trim_NormalMap.exr	9efd55f4186e9751
+Roblox (SurfaceAppearance)/exr_gl	1002/Golden_Mesh_Trim_MetalnessMap.exr	1c6a7aafbeec3f4b
+Roblox (SurfaceAppearance)/exr_gl	1002/Golden_Mesh_Trim_RoughnessMap.exr	b4a4b4a26cc35885
+Roblox (SurfaceAppearance)/exr_gl	1002/Golden_Mesh_Trim_EmissiveMask.exr	7de3823ec3c0926f
+Roblox (SurfaceAppearance)/tga_noh2n	Golden_Mesh_Body_ColorMap.tga	dfc4eb3128d34802
+Roblox (SurfaceAppearance)/tga_noh2n	Golden_Mesh_Body_NormalMap.tga	7a30e8308f35b588
+Roblox (SurfaceAppearance)/tga_noh2n	Golden_Mesh_Body_MetalnessMap.tga	6e6a63f198c24dc9
+Roblox (SurfaceAppearance)/tga_noh2n	Golden_Mesh_Body_RoughnessMap.tga	b8a74e0cf7163abe
+Roblox (SurfaceAppearance)/tga_noh2n	Golden_Mesh_Body_EmissiveMask.tga	2151aa839c64df3d
+Roblox (SurfaceAppearance)/tga_noh2n	Golden_Mesh_Trim_ColorMap.1002.tga	776c40d640912492
+Roblox (SurfaceAppearance)/tga_noh2n	Golden_Mesh_Trim_NormalMap.1002.tga	bd47e77f55515294
+Roblox (SurfaceAppearance)/tga_noh2n	Golden_Mesh_Trim_MetalnessMap.1002.tga	64c24f8bb4171107
+Roblox (SurfaceAppearance)/tga_noh2n	Golden_Mesh_Trim_RoughnessMap.1002.tga	e0aa113a2b9cca1a
+Roblox (SurfaceAppearance)/tga_noh2n	Golden_Mesh_Trim_EmissiveMask.1002.tga	22b5d5b8a65aa1b7
+Sketchfab (separate maps)/default	Golden_Mesh_Body_BaseColor.png	6101504ee8d1851d
+Sketchfab (separate maps)/default	Golden_Mesh_Body_Normal.png	1693d250724aecf6
+Sketchfab (separate maps)/default	Golden_Mesh_Body_Roughness.png	68bb24ba69bb2e26
+Sketchfab (separate maps)/default	Golden_Mesh_Body_Metalness.png	cec15d6a744fe68e
+Sketchfab (separate maps)/default	Golden_Mesh_Body_AO.png	169084a092f83a81
+Sketchfab (separate maps)/default	Golden_Mesh_Body_Emission.png	b94f29acbbfb2be9
+Sketchfab (separate maps)/default	Golden_Mesh_Trim_BaseColor.1002.png	a1e5cdd22642cca2
+Sketchfab (separate maps)/default	Golden_Mesh_Trim_Normal.1002.png	2b6ac09d441e6dfe
+Sketchfab (separate maps)/default	Golden_Mesh_Trim_Roughness.1002.png	610baec01e7b8685
+Sketchfab (separate maps)/default	Golden_Mesh_Trim_Metalness.1002.png	c3ed02788cad4f04
+Sketchfab (separate maps)/default	Golden_Mesh_Trim_AO.1002.png	943e43a78a77f7fc
+Sketchfab (separate maps)/default	Golden_Mesh_Trim_Emission.1002.png	2d1abfa700333d4c
+Sketchfab (separate maps)/pad_none	Golden_Mesh_Body_BaseColor.png	75eeaddb07e4bac3
+Sketchfab (separate maps)/pad_none	Golden_Mesh_Body_Normal.png	b21d53a54c23def4
+Sketchfab (separate maps)/pad_none	Golden_Mesh_Body_Roughness.png	96adf5ed4e345932
+Sketchfab (separate maps)/pad_none	Golden_Mesh_Body_Metalness.png	cec15d6a744fe68e
+Sketchfab (separate maps)/pad_none	Golden_Mesh_Body_AO.png	7217bfe0093750eb
+Sketchfab (separate maps)/pad_none	Golden_Mesh_Body_Emission.png	fb3f82c8cef04c1c
+Sketchfab (separate maps)/pad_none	Golden_Mesh_Trim_BaseColor.1002.png	75eeaddb07e4bac3
+Sketchfab (separate maps)/pad_none	Golden_Mesh_Trim_Normal.1002.png	b21d53a54c23def4
+Sketchfab (separate maps)/pad_none	Golden_Mesh_Trim_Roughness.1002.png	96adf5ed4e345932
+Sketchfab (separate maps)/pad_none	Golden_Mesh_Trim_Metalness.1002.png	cec15d6a744fe68e
+Sketchfab (separate maps)/pad_none	Golden_Mesh_Trim_AO.1002.png	943e43a78a77f7fc
+Sketchfab (separate maps)/pad_none	Golden_Mesh_Trim_Emission.1002.png	fb3f82c8cef04c1c
+Sketchfab (separate maps)/pad_4	Golden_Mesh_Body_BaseColor.png	859fad7f6128b332
+Sketchfab (separate maps)/pad_4	Golden_Mesh_Body_Normal.png	bdaf7e4f50f6639d
+Sketchfab (separate maps)/pad_4	Golden_Mesh_Body_Roughness.png	4220a95d0d39a7c6
+Sketchfab (separate maps)/pad_4	Golden_Mesh_Body_Metalness.png	cec15d6a744fe68e
+Sketchfab (separate maps)/pad_4	Golden_Mesh_Body_AO.png	7fe4c31c54fa5bc8
+Sketchfab (separate maps)/pad_4	Golden_Mesh_Body_Emission.png	50c0deeb75e59301
+Sketchfab (separate maps)/pad_4	Golden_Mesh_Trim_BaseColor.1002.png	1a84edc2a6a84614
+Sketchfab (separate maps)/pad_4	Golden_Mesh_Trim_Normal.1002.png	0b5236df90e9b910
+Sketchfab (separate maps)/pad_4	Golden_Mesh_Trim_Roughness.1002.png	36419369e03f95e4
+Sketchfab (separate maps)/pad_4	Golden_Mesh_Trim_Metalness.1002.png	dd61e55da9667aa9
+Sketchfab (separate maps)/pad_4	Golden_Mesh_Trim_AO.1002.png	943e43a78a77f7fc
+Sketchfab (separate maps)/pad_4	Golden_Mesh_Trim_Emission.1002.png	2c6fca225ca5eb23
+Sketchfab (separate maps)/png16_dx	Golden_Mesh_Body_BaseColor.png	3b3293ad0a0506fa
+Sketchfab (separate maps)/png16_dx	Golden_Mesh_Body_Normal.png	890ccff8a52af514
+Sketchfab (separate maps)/png16_dx	Golden_Mesh_Body_Roughness.png	266621abb14ab578
+Sketchfab (separate maps)/png16_dx	Golden_Mesh_Body_Metalness.png	bf22671e9fc96015
+Sketchfab (separate maps)/png16_dx	Golden_Mesh_Body_AO.png	c4d9b5c69c2a2696
+Sketchfab (separate maps)/png16_dx	Golden_Mesh_Body_Emission.png	f7ff88f284e63799
+Sketchfab (separate maps)/png16_dx	Golden_Mesh_Trim_BaseColor.1002.png	3097bcbad94c762c
+Sketchfab (separate maps)/png16_dx	Golden_Mesh_Trim_Normal.1002.png	f7fba3741bd21586
+Sketchfab (separate maps)/png16_dx	Golden_Mesh_Trim_Roughness.1002.png	38d6edb0dd00819f
+Sketchfab (separate maps)/png16_dx	Golden_Mesh_Trim_Metalness.1002.png	573aaba71ca606f6
+Sketchfab (separate maps)/png16_dx	Golden_Mesh_Trim_AO.1002.png	a82900ac4fed91ad
+Sketchfab (separate maps)/png16_dx	Golden_Mesh_Trim_Emission.1002.png	b0b3c6f2b8d724c8
+Sketchfab (separate maps)/exr_gl	Golden_Mesh_Body_BaseColor.exr	78c3c75370444fa2
+Sketchfab (separate maps)/exr_gl	Golden_Mesh_Body_Normal.exr	1fcae431c0afc02d
+Sketchfab (separate maps)/exr_gl	Golden_Mesh_Body_Roughness.exr	45937124cd6e199a
+Sketchfab (separate maps)/exr_gl	Golden_Mesh_Body_Metalness.exr	8bbefb9a6bbcf625
+Sketchfab (separate maps)/exr_gl	Golden_Mesh_Body_AO.exr	84b807304c051b89
+Sketchfab (separate maps)/exr_gl	Golden_Mesh_Body_Emission.exr	af25e6c48830e715
+Sketchfab (separate maps)/exr_gl	1002/Golden_Mesh_Trim_BaseColor.exr	37bd0c3970d43511
+Sketchfab (separate maps)/exr_gl	1002/Golden_Mesh_Trim_Normal.exr	9efd55f4186e9751
+Sketchfab (separate maps)/exr_gl	1002/Golden_Mesh_Trim_Roughness.exr	b4a4b4a26cc35885
+Sketchfab (separate maps)/exr_gl	1002/Golden_Mesh_Trim_Metalness.exr	1c6a7aafbeec3f4b
+Sketchfab (separate maps)/exr_gl	1002/Golden_Mesh_Trim_AO.exr	ae15d35e0cbf835f
+Sketchfab (separate maps)/exr_gl	1002/Golden_Mesh_Trim_Emission.exr	7de3823ec3c0926f
+Sketchfab (separate maps)/tga_noh2n	Golden_Mesh_Body_BaseColor.tga	dfc4eb3128d34802
+Sketchfab (separate maps)/tga_noh2n	Golden_Mesh_Body_Normal.tga	7a30e8308f35b588
+Sketchfab (separate maps)/tga_noh2n	Golden_Mesh_Body_Roughness.tga	b8a74e0cf7163abe
+Sketchfab (separate maps)/tga_noh2n	Golden_Mesh_Body_Metalness.tga	6e6a63f198c24dc9
+Sketchfab (separate maps)/tga_noh2n	Golden_Mesh_Body_AO.tga	523719820c65248d
+Sketchfab (separate maps)/tga_noh2n	Golden_Mesh_Body_Emission.tga	ace52f9b11efebed
+Sketchfab (separate maps)/tga_noh2n	Golden_Mesh_Trim_BaseColor.1002.tga	776c40d640912492
+Sketchfab (separate maps)/tga_noh2n	Golden_Mesh_Trim_Normal.1002.tga	bd47e77f55515294
+Sketchfab (separate maps)/tga_noh2n	Golden_Mesh_Trim_Roughness.1002.tga	e0aa113a2b9cca1a
+Sketchfab (separate maps)/tga_noh2n	Golden_Mesh_Trim_Metalness.1002.tga	64c24f8bb4171107
+Sketchfab (separate maps)/tga_noh2n	Golden_Mesh_Trim_AO.1002.tga	034ef3c4e5a1d94e
+Sketchfab (separate maps)/tga_noh2n	Golden_Mesh_Trim_Emission.1002.tga	b3fe94ee3acef8fb
