@@ -3,6 +3,19 @@
 What changed in SubCraft, newest first. Download the latest build from the
 [Releases page](https://github.com/Aalzard/subcraft/releases/latest).
 
+## Unreleased
+
+### Changed
+- **Generators like Substance Painter.** New Dirt and Edge wear generators break up with a real grayscale
+  grunge texture (bundled, seamless, CC0) instead of stylized speckles, with Painter's defaults and control
+  names (Dirt Level / Contrast, Wear Level / Contrast, Grunge Amount, Edges Masking, Ambient Occlusion
+  Masking, Curvature Weight, Edges Smoothness). Edge wear keeps the edge itself worn and chips the band
+  behind it. Older projects and the built-in smart materials keep their exact look.
+
+### Added
+- **Ambient Occlusion generator**: smooth by default (Balance 0.5, Contrast 0, no breakup). Raw mesh-map
+  generators also start smooth.
+
 ## 0.2.5 — release candidate
 
 Test status for this candidate is recorded in `docs/progress.md`; items marked "untested" were not

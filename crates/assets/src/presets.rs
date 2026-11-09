@@ -219,6 +219,13 @@ pub struct SmartMask {
 
 pub(crate) fn generator(kind: GeneratorKind, level: f32, softness: f32, noise: f32, invert: bool) -> MaskEffectKind {
     let mut g = Generator::new(kind);
+    // The built-in smart materials and masks were tuned with the organic breakup and fine grain
+    // (generator defaults before the grunge map): keep their look exactly.
+    if let Some(p) = g.painter.as_mut() {
+        p.grunge_map = false;
+        p.grain = 0.7;
+        if kind == GeneratorKind::Cavity { p.grunge_floor = 0.1; }
+    }
     g.level = level;
     g.softness = softness;
     g.noise_amount = noise;

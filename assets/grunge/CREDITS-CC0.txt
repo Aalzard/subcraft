@@ -1,0 +1,9 @@
+Grunge maps used by SubCraft's Dirt and Edge wear generators
+
+dirt_grunge.png
+  1024 x 1024, 8-bit grayscale, tiles seamlessly.
+  Made for SubCraft by make_dirt_grunge.py in this folder (spectral synthesis: warped
+  fractal grime, dried-stain rims, smudge streaks, grit specks and porous grain; every
+  step is periodic, so the map has no seams). Regenerate with:
+      python make_dirt_grunge.py dirt_grunge.png 1024 7   (numpy + Pillow; also writes a 2x2 tiling preview)
+  License: CC0 1.0 Universal (public domain dedication). No attribution required.

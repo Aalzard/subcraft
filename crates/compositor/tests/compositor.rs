@@ -906,3 +906,45 @@ fn a_mesh_map_baked_below_the_set_resolution_is_sampled_smoothly_not_in_blocks()
     let (max, mean) = (diffs.iter().cloned().fold(0.0, f32::max), diffs.iter().sum::<f32>() / diffs.len() as f32);
     assert!(max < mean * 1.6, "blocky: max step {max} vs mean {mean}");
 }
+
+/// A freshly added Ambient Occlusion generator is Painter's smooth AO mask: no breakup, and every
+/// texel is exactly `smoothstep(0, 1, 1 - ao)` (Balance 0.5, Contrast 0), so neighbours never jump.
+#[test]
+fn new_ambient_occlusion_generator_is_the_smooth_occlusion_without_breakup() {
+    let g = Generator::new(GeneratorKind::AmbientOcclusion);
+    assert_eq!(g.noise_amount, 0.0);
+    assert!(g.painter.is_none());
+    let texels = generator_texels(g);
+    let mut fx_ao = Vec::new();
+    for i in 0..(RES * RES) {
+        let (x, y) = ((i % RES) as f32 / RES as f32, (i / RES) as f32 / RES as f32);
+        fx_ao.push((0.3 + 0.7 * ((x * 5.0).sin() * (y * 3.0).cos() * 0.5 + 0.5)).clamp(0.0, 1.0));
+    }
+    for (i, (&v, &ao)) in texels.iter().zip(&fx_ao).enumerate() {
+        let t = 1.0 - ao;
+        let mask = t * t * (3.0 - 2.0 * t);
+        // Roughness fill: 0.3 base, 1.0 under the mask.
+        let expected = 0.3 + 0.7 * mask;
+        assert!((v - expected).abs() < 2e-3, "texel {i}: {v} vs {expected}");
+    }
+    let jump = texels.chunks(RES as usize).flat_map(|row| row.windows(2).map(|w| (w[1] - w[0]).abs())).fold(0.0f32, f32::max);
+    assert!(jump < 0.05, "smooth: max neighbour jump {jump}");
+    // Raw mesh-map generators start smooth too.
+    assert_eq!(Generator::new(GeneratorKind::MeshMap(subcraft_core::MeshMapKind::Curvature)).softness, 1.0);
+}
+
+/// New Dirt and Edge wear break up with the bundled grunge map: bounded, deterministic, and a
+/// different pattern from the organic noise older projects keep.
+#[test]
+fn grunge_map_breakup_is_bounded_deterministic_and_replaces_the_organic_noise() {
+    for kind in [GeneratorKind::Cavity, GeneratorKind::Edges] {
+        let g = Generator::new(kind);
+        assert!(g.painter.is_some_and(|p| p.grunge_map) && g.noise_amount > 0.0, "{kind:?} defaults to the grunge map");
+        let a = generator_texels(g);
+        assert!(a.iter().all(|v| v.is_finite() && (0.0..=1.001).contains(v)));
+        assert_eq!(a, generator_texels(g), "{kind:?}: deterministic");
+        let mut organic = g;
+        organic.painter.as_mut().unwrap().grunge_map = false;
+        assert_ne!(a, generator_texels(organic), "{kind:?}: the grunge map changes the pattern");
+    }
+}

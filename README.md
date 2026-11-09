@@ -303,4 +303,5 @@ additional terms or conditions.
   `crates/ui/assets/fonts` with their license files.
 - The starter pack (110 normal maps, 84 brush alphas) is CC0:
   [credits](assets/starter-pack/CREDITS-CC0.txt). The bundled HDRIs are CC0:
-  [credits](assets/environments/CREDITS-CC0.txt).
+  [credits](assets/environments/CREDITS-CC0.txt). The generators' grunge map is CC0:
+  [credits](assets/grunge/CREDITS-CC0.txt).

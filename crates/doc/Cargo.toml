@@ -17,3 +17,6 @@ uuid.workspace = true
 log.workspace = true
 web-time.workspace = true
 subcraft-text.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

@@ -4688,3 +4688,43 @@ every number: `performance/generator-4k.md`.
   checked by the headless egui test and scripted captures only (the panel cannot be scrolled to them in a
   scripted capture; no mouse used). Seen in every app log, unrelated: the viewport's `grid pipeline`
   fails wgpu validation each frame (MSAA sample count mismatch).
+
+### Session 118 - Generators like Painter: Dirt grunge map, Ambient Occlusion generator, Painter controls (2026-11-09, branch `claude/generators-painter`, stacks on #108)
+
+* **Asked:** generators should look and behave like Substance Painter's, especially Dirt, AO and Edge wear:
+  AO smooth by default, Dirt broken up by a real grayscale dirt texture instead of stylized detail,
+  edge wear with Painter's controls and defaults. No generator slower at 4096.
+* **Grunge map:** `assets/grunge/dirt_grunge.png` (1024², 8-bit gray, seamless, CC0), made by
+  `assets/grunge/make_dirt_grunge.py` (spectral synthesis; warped grime, dried-stain rims, smudges, grit,
+  pores; every step periodic). No download was used. `materials::grunge` samples it triplanar in object
+  space with a per-seed placement and a second larger rotated layer against repetition;
+  `sample::grunge_tile_at` caches it per tile like the other fields (`FieldKey::grunge`).
+  `PainterControls::grunge_map` (serde default false, not written when false) selects it; new Dirt and
+  natural Edge wear default to it with Grain 0 (the fine grain was the stylized speckle).
+* **Defaults (new generators only; old projects, `.spp` imports and built-in smart materials unchanged):**
+  Dirt = Dirt Level 0.75, Dirt Contrast 0.5, Grunge Amount 0.5, Edges Masking 0.5, Grunge Floor 0.15.
+  Edge wear = Wear Level 0.3, Wear Contrast 0.85, Grunge Amount 0.3, Spread 2.5 %. New
+  `GeneratorKind::AmbientOcclusion` ("Ambient Occlusion": occluded = white) and raw mesh-map generators =
+  Balance 0.5, Contrast 0, no breakup: exactly `smoothstep(0, 1, 1 - AO)`.
+* **Edge wear:** with the grunge map the holes fade in over the first 40 % of the reach, so the edge apex
+  stays worn and the grunge chips the band behind it (rims never stop and start; `edge_ledge` passes).
+  The plain curvature threshold (natural wear off) keeps the organic noise.
+* **Properties:** Painter names: Dirt Level / Dirt Contrast, Wear Level / Wear Contrast, Balance / Contrast
+  (AO, mesh maps), Grunge Amount, Edges Masking, Grunge Floor, Ambient Occlusion Masking, Curvature Weight,
+  Edges Smoothness, and a Grunge map checkbox. Stored values are still level / softness (Level shown as
+  1 - level for Dirt/AO/maps), so files read the same. Ambient Occlusion added to the Layers generator
+  menu, the mask quick-add buttons and the kind combo. ko / zh-Hant strings added.
+* **Captures** (shared notes folder `generators-painter/`, example `generator_defaults`):
+  `generators_before_after_{crate,torus,sphere}.png`, `generators_zoom_dirt_wear.png`.
+* **Speed (4096², `generator_4k`, #108 binary vs this branch, alternating rounds, CPU loaded by other
+  sessions' builds):** Dirt exact step 308-325 vs 307-354 ms, drag p95 56-97 vs 63-65 ms, settle 0.41-0.52
+  vs 0.48-0.52 s; Edges 192-236 vs 202-370 ms. Equal within noise; field cache 334 MB vs 462 MB (no grain field).
+* **Tests:** new `grunge::tests` (seamless, range, continuity, seeds), `painter_defaults_and_older_files`
+  (doc), `new_ambient_occlusion_generator_is_the_smooth_occlusion_without_breakup` and
+  `grunge_map_breakup_is_bounded_deterministic_and_replaces_the_organic_noise` (compositor), updated UI
+  labels test and project round-trip. Ran (release): libs of materials 51, doc 18, compositor 10,
+  project 41, ui 106, app 94, assets 21; all compositor test files; all app integration tests. **Not run:**
+  the other crates' tests (render, bake, mesh, export...), not touched. Not checked in the running app
+  (headless egui test only for the Properties rows).
+* **Still missing vs Painter:** choosing among several grunge maps, Mask Editor generator (curvature + AO +
+  position + thickness mixed in one generator), a separate Light generator (Directional covers it).

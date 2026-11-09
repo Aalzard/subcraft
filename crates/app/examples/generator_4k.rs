@@ -204,6 +204,8 @@ fn main() {
         };
         // Every layer of a real stack has its own breakup pattern.
         g.noise.seed = 11 + cases.len() as u32;
+        // A/B aid: SUBCRAFT_BENCH_ORGANIC=1 breaks up with the organic noise instead of the grunge map.
+        if std::env::var_os("SUBCRAFT_BENCH_ORGANIC").is_some() && let Some(p) = g.painter.as_mut() { p.grunge_map = false; }
         let id = masked(&mut s, [0.08, 0.06, 0.05], 0.85, 0.02, g);
         cases.push((name, id));
     }

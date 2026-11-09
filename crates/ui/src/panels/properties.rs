@@ -333,7 +333,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                             }
                         };
                         add(ui, "Edges", MaskEffectKind::Generator(Generator::new(GeneratorKind::Edges)));
-                        add(ui, "Cavity", MaskEffectKind::Generator(Generator::new(GeneratorKind::Cavity)));
+                        add(ui, "Dirt", MaskEffectKind::Generator(Generator::new(GeneratorKind::Cavity)));
+                        add(ui, "Ambient Occlusion", MaskEffectKind::Generator(Generator::new(GeneratorKind::AmbientOcclusion)));
                         add(ui, "Directional", MaskEffectKind::Generator(Generator::new(GeneratorKind::Directional)));
                         add(ui, "Gradient", MaskEffectKind::Generator(Generator::new(GeneratorKind::PositionGradient)));
                         add(
@@ -380,6 +381,40 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     }
 }
 
+/// Level / Softness / Breakup under Painter's names for the kinds Painter has: Dirt shows Dirt Level
+/// and Dirt Contrast (more dirt to the right), Metal Edge Wear Wear Level and Wear Contrast,
+/// Ambient Occlusion and mesh maps Balance and Contrast (Contrast 0 = the smooth map itself). The
+/// stored values stay the threshold and softness, so older projects read the same.
+fn level_controls(ui: &mut Ui, g: &mut subcraft_doc::Generator) -> bool {
+    let mut changed = false;
+    let natural_edges = g.kind == GeneratorKind::Edges && g.edge_spread.is_some();
+    if g.kind.uses_painter_names() {
+        // Edges' level already grows the wear; the occlusion/map thresholds grow the mask downwards.
+        let inverted = g.kind != GeneratorKind::Edges;
+        let (level_label, level_tip, contrast_label, contrast_tip) = match g.kind {
+            GeneratorKind::Cavity => (tr("Dirt Level"), "Amount of dirt: how far it creeps out of the occluded areas (Painter's Dirt Level).", tr("Dirt Contrast"), "Sharpness of the dirt's falloff: 0 = a soft gradient, 1 = a hard edge."),
+            GeneratorKind::Edges => (tr("Wear Level"), if natural_edges { "Amount of wear: how much of the Spread reach is worn (0 = none, 1 = all of it), and which baked convex detail shows (Painter's Wear Level)." } else { "Amount of wear on the baked convex edges (Painter's Wear Level)." }, tr("Wear Contrast"), "Sharpness of the wear boundary: 0 = soft, 1 = crisp."),
+            _ => (tr("Balance"), "Shifts the map towards white (more mask) or black (less).", tr("Contrast"), "0 = the map itself, smooth; 1 = a hard threshold at the balance."),
+        };
+        let mut level = if inverted { 1.0 - g.level } else { g.level };
+        if slider_row(ui, level_label, egui::Slider::new(&mut level, 0.0..=1.0).max_decimals(3)).on_hover_text(level_tip).changed() {
+            g.level = if inverted { 1.0 - level } else { level };
+            changed = true;
+        }
+        let mut contrast = (1.0 - g.softness).clamp(0.0, 1.0);
+        if slider_row(ui, contrast_label, egui::Slider::new(&mut contrast, 0.0..=1.0)).on_hover_text(contrast_tip).changed() {
+            g.softness = (1.0 - contrast).max(0.001);
+            changed = true;
+        }
+    } else {
+        changed |= slider_row(ui, tr("Level"), egui::Slider::new(&mut g.level, 0.0..=1.0).max_decimals(3)).on_hover_text("Threshold for the generator's source values.").changed();
+        changed |= slider_row(ui, tr("Softness"), egui::Slider::new(&mut g.softness, 0.0..=1.0)).changed();
+    }
+    let breakup = if matches!(g.kind, GeneratorKind::Cavity | GeneratorKind::Edges) { tr("Grunge Amount") } else { tr("Breakup") };
+    changed |= slider_row(ui, breakup, egui::Slider::new(&mut g.noise_amount, 0.0..=1.0)).on_hover_text("How much the grunge breaks the mask up (0 = smooth).").changed();
+    changed
+}
+
 /// Substance Painter's extra generator controls that each kind actually uses ([`subcraft_doc::PainterControls`]):
 /// Dirt has Edges masking and a grunge floor, natural edge wear has AO masking, Curvature weight and
 /// Edges smoothness, and Grain speckles every kind except the plain curvature threshold. Untouched
@@ -389,22 +424,28 @@ fn painter_controls(ui: &mut Ui, g: &mut subcraft_doc::Generator) -> bool {
     let mut pc = g.painter.unwrap_or_default();
     let before = pc;
     if g.kind == GeneratorKind::Cavity {
-        slider_row(ui, tr("Edges masking"), egui::Slider::new(&mut pc.edges_masking, 0.0..=1.0))
+        slider_row(ui, tr("Edges Masking"), egui::Slider::new(&mut pc.edges_masking, 0.0..=1.0))
             .on_hover_text("Keeps dirt off convex edges (Painter's Dirt: Edges masking). Reads the baked curvature.");
-        slider_row(ui, tr("Grunge floor"), egui::Slider::new(&mut pc.grunge_floor, 0.0..=1.0))
-            .on_hover_text("A faint layer of grunge over open surfaces where the threshold leaves none, like Painter's dirt at higher Grunge Amount. Needs Breakup above 0.");
+        slider_row(ui, tr("Grunge Floor"), egui::Slider::new(&mut pc.grunge_floor, 0.0..=1.0))
+            .on_hover_text("A faint layer of grunge over open surfaces where the dirt level leaves none, like Painter's dirt at higher Grunge Amount. Needs Grunge Amount above 0.");
     }
     if natural_edges {
-        slider_row(ui, tr("AO masking"), egui::Slider::new(&mut pc.ao_masking, 0.0..=1.0))
+        slider_row(ui, tr("Ambient Occlusion Masking"), egui::Slider::new(&mut pc.ao_masking, 0.0..=1.0))
             .on_hover_text("Removes wear where the surface is occluded (Painter's Metal Edge Wear: Ambient Occlusion Masking). Reads the baked AO.");
-        slider_row(ui, tr("Curvature weight"), egui::Slider::new(&mut pc.curvature_weight, 0.0..=2.0))
+        slider_row(ui, tr("Curvature Weight"), egui::Slider::new(&mut pc.curvature_weight, 0.0..=2.0))
             .on_hover_text("Strength of the baked curvature detail next to the geometric edge band (Painter: Curvature Weight). 1 = default.");
-        slider_row(ui, tr("Edges smoothness"), egui::Slider::new(&mut pc.smoothness, 0.0..=1.0))
+        slider_row(ui, tr("Edges Smoothness"), egui::Slider::new(&mut pc.smoothness, 0.0..=1.0))
             .on_hover_text("Extra softening of the wear boundary (Painter: Edges Smoothness).");
     }
     if g.kind != GeneratorKind::Edges || natural_edges {
+        if g.kind != GeneratorKind::AmbientOcclusion && !matches!(g.kind, GeneratorKind::MeshMap(_)) {
+            prop_row(ui, "", |ui| {
+                ui.checkbox(&mut pc.grunge_map, tr("Grunge map"))
+                    .on_hover_text(tr("Break the mask up with the bundled photo-like dirt texture, as Painter's generators do. Off: a smooth procedural noise."));
+            });
+        }
         slider_row(ui, tr("Grain"), egui::Slider::new(&mut pc.grain, 0.0..=1.0))
-            .on_hover_text("Fine grain that chips wear and speckles dirt instead of smooth bands. Fades in with Breakup: Breakup 0 stays smooth.");
+            .on_hover_text("Fine grain that chips wear and speckles dirt instead of smooth bands. Fades in with the grunge amount: 0 stays smooth.");
     }
     if pc == before {
         return false;
@@ -443,7 +484,7 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
             match &mut eff.kind {
                 MaskEffectKind::Generator(g) => {
                     prop_row(ui, tr("Generator"), |ui| egui::ComboBox::from_id_salt("generator_kind").selected_text(g.kind.label()).show_ui(ui, |ui| {
-                        for kind in [GeneratorKind::Edges, GeneratorKind::Cavity, GeneratorKind::Concave, GeneratorKind::Directional, GeneratorKind::PositionGradient]
+                        for kind in [GeneratorKind::Edges, GeneratorKind::Cavity, GeneratorKind::AmbientOcclusion, GeneratorKind::Concave, GeneratorKind::Directional, GeneratorKind::PositionGradient]
                             .into_iter().chain(MeshMapKind::ALL.into_iter().map(GeneratorKind::MeshMap)) {
                             changed |= ui.selectable_value(&mut g.kind, kind, kind.label()).changed();
                         }
@@ -479,12 +520,7 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
                             }
                         }
                     }
-                    changed |= slider_row(ui, tr("Level"), egui::Slider::new(&mut g.level, 0.0..=1.0).max_decimals(3)).on_hover_text(
-                        if g.kind == GeneratorKind::Edges && g.edge_spread.is_some() {
-                            "Amount of wear: how much of the Spread reach is worn (0 = none, 1 = all of it), and which baked convex detail shows. Spread sets how far wear can reach."
-                        } else { "Threshold for the generator's source values." }).changed();
-                    changed |= slider_row(ui, tr("Softness"), egui::Slider::new(&mut g.softness, 0.0..=1.0)).changed();
-                    changed |= slider_row(ui, tr("Breakup"), egui::Slider::new(&mut g.noise_amount, 0.0..=1.0)).changed();
+                    changed |= level_controls(ui, g);
                     let mut size = g.pattern_size();
                     if slider_row(ui, tr("Pattern size"), egui::Slider::new(&mut size, 1.0..=100.0).logarithmic(true).suffix("%")).changed() {
                         g.set_pattern_size(size); changed = true;
@@ -1072,18 +1108,21 @@ mod generator_tests {
         };
         let has = |l: &[String], s: &str| l.iter().any(|t| t == s);
         let dirt = labels(Generator::new(GeneratorKind::Cavity));
-        for s in ["Edges masking", "Grunge floor", "Grain"] { assert!(has(&dirt, s), "Dirt lacks {s}"); }
-        for s in ["Spread", "AO masking", "Curvature weight", "Edges smoothness"] { assert!(!has(&dirt, s), "Dirt shows {s}"); }
+        for s in ["Dirt Level", "Dirt Contrast", "Grunge Amount", "Edges Masking", "Grunge Floor", "Grunge map", "Grain"] { assert!(has(&dirt, s), "Dirt lacks {s}"); }
+        for s in ["Spread", "Ambient Occlusion Masking", "Curvature Weight", "Edges Smoothness", "Level", "Softness"] { assert!(!has(&dirt, s), "Dirt shows {s}"); }
         let wear = labels(Generator::new(GeneratorKind::Edges));
-        for s in ["Spread", "Variation", "AO masking", "Curvature weight", "Edges smoothness", "Grain"] { assert!(has(&wear, s), "Edges lacks {s}"); }
-        assert!(!has(&wear, "Edges masking"));
+        for s in ["Wear Level", "Wear Contrast", "Grunge Amount", "Spread", "Variation", "Ambient Occlusion Masking", "Curvature Weight", "Edges Smoothness", "Grunge map", "Grain"] { assert!(has(&wear, s), "Edges lacks {s}"); }
+        assert!(!has(&wear, "Edges Masking"));
+        let ao = labels(Generator::new(GeneratorKind::AmbientOcclusion));
+        for s in ["Balance", "Contrast", "Breakup"] { assert!(has(&ao, s), "AO lacks {s}"); }
+        for s in ["Grunge map", "Edges Masking", "Spread"] { assert!(!has(&ao, s), "AO shows {s}"); }
         let mut chips = Generator::new(GeneratorKind::Edges);
         chips.edge_spread = None;
         let chips = labels(chips);
         assert!(has(&chips, "Spread"), "Spread must stay visible without natural wear");
-        for s in ["Variation", "AO masking", "Grain"] { assert!(!has(&chips, s), "legacy Edges shows {s}, which it ignores"); }
+        for s in ["Variation", "Ambient Occlusion Masking", "Grain"] { assert!(!has(&chips, s), "legacy Edges shows {s}, which it ignores"); }
         let top = labels(Generator::new(GeneratorKind::Directional));
-        assert!(has(&top, "Grain") && !has(&top, "Spread") && !has(&top, "Edges masking"));
+        assert!(has(&top, "Grain") && has(&top, "Level") && !has(&top, "Spread") && !has(&top, "Edges Masking"));
     }
 }
 

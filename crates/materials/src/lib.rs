@@ -3,6 +3,7 @@
 
 pub mod noise;
 pub mod filter;
+pub mod grunge;
 pub mod organic;
 pub mod pattern;
 pub mod scratch;

@@ -70,6 +70,11 @@ impl FieldKey {
         key.0[6] = u32::MAX; // distinct from every supported projection mode
         key
     }
+    pub fn grunge(params: &ProceduralParams) -> Self {
+        let mut key = Self::new(params, &Projection::default());
+        key.0[6] = u32::MAX - 2; // the bundled grunge map, distinct from organic and edge distance
+        key
+    }
     pub fn new(params: &ProceduralParams, projection: &Projection) -> Self {
         let p = projection;
         Self([
