@@ -1389,7 +1389,7 @@ impl SubcraftApp {
                 self.state.uploaded_maps.get(&(ts, kind)).is_some_and(|gpu| gpu.same_storage(image)))
         });
         if !self.screenshot_requested && self.frames >= 20 && !self.state.mesh_reload.busy() && (pinned_ready || self.state.bake.job.is_none() && self.state.spp_import.is_none() && !self.state.session.composites_pending())
-            && !self.state.bake.preview_pending() && (self.state.bake.preview_mesh.is_none() || self.state.bake.preview_uploaded)
+            && !self.state.bake.preview_pending() && (!self.state.asset_preview.is_applying() || self.state.capture_during_load) && (self.state.bake.preview_mesh.is_none() || self.state.bake.preview_uploaded)
             && self.path_trace_capture_ready()
         {
             if let Some(job) = self.state.pending_render_job.take() {
@@ -1791,13 +1791,28 @@ fn scripted_tool_capture(state: &mut UiState, which: &str, now: f64) {
                 stroke(s, StrokeMode::Paint, &shaky(250.0 + 60.0 * i as f32));
             }
         }
-        "normal-brush-select" => {
+        "normal-brush-select" | "normal-brush-select-loading" => {
             // The same call a click on a Starter pack normal map makes (loads the image off-thread).
             use subcraft_assets::starter::{ENTRIES, Kind};
             if let Some(i) = ENTRIES.iter().position(|e| e.kind == Kind::Normal && e.name == "Bolted Armor") {
                 let _ = s.execute(Command::AddLayer(NewLayer::Paint));
-                state.asset_preview.queue_stamp(&state.session, i, subcraft_paint::StampKind::Normal);
+                state.capture_during_load = which == "normal-brush-select-loading";
+                let UiState { asset_preview, session, .. } = state;
+                asset_preview.select_starter(session, i, Some(subcraft_paint::StampKind::Normal));
                 state.tool = Tool::Brush;
+                state.shelf.tab = crate::panels::shelf::ShelfTab::NormalMaps;
+                state.show_selected_brush(None);
+            }
+        }
+        "starter-alpha-select" => {
+            // A click on a Starter pack alpha in Shelf › Brushes (thumbnail tip at once, full image after).
+            use subcraft_assets::starter::{ENTRIES, Kind};
+            if let Some(i) = ENTRIES.iter().position(|e| e.kind == Kind::Alpha) {
+                let UiState { asset_preview, session, .. } = state;
+                asset_preview.select_starter(session, i, None);
+                state.tool = Tool::Brush;
+                state.shelf.tab = crate::panels::shelf::ShelfTab::Brushes;
+                state.show_selected_brush(None);
             }
         }
         "normal-brush-panel" => {

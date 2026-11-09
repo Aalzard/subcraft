@@ -105,6 +105,11 @@ pub struct UiState {
     pub brush_notice: Option<BrushNotice>,
     /// Shelf double-click: bring the Brush settings tab forward on the next frame.
     pub open_brush_editor: bool,
+    /// Scroll the brush settings back to the top (the selected brush's preview) next frame.
+    pub brush_scroll_top: bool,
+    /// The Shelf brush (preset or tip name) last chosen and the tip it set: highlights that
+    /// Shelf tile while the brush still uses the tip.
+    pub selected_brush: Option<(String, String)>,
     /// Properties shows the brush settings regardless of the selected layer (View menu, Shelf
     /// double-click) until the selection changes.
     pub brush_pinned: bool,
@@ -114,6 +119,9 @@ pub struct UiState {
     pub capture_select_brush: Option<String>,
     /// Scripted Clone/Smudge demonstration for native captures (`--capture-tool`).
     pub capture_tool: Option<String>,
+    /// Scripted capture: take the screenshot while a Shelf image is still loading (shows the
+    /// thumbnail brush and the "Loading full resolution" row) instead of waiting for it.
+    pub capture_during_load: bool,
     /// "Render quality" window open, its export settings, and a pending export request.
     pub render_window: bool,
     /// Scripted export waiting for the first finished frame.
@@ -198,6 +206,8 @@ pub struct UiState {
     pub preset_name: String,
     /// Live preview of the normal-map brush panel.
     pub stamp_preview: crate::panels::stamp_brush::PreviewCache,
+    /// Rendered preview of the active (non-stamp) brush tip.
+    pub tip_preview: crate::panels::brush_header::PreviewCache,
     /// Overlay texture of the current stencil image (keyed by its bitmap pointer).
     pub stencil_tex: Option<(usize, egui::TextureHandle)>,
     /// Image textures shown in Shelf → Textures (the library's `textures/` folder).
@@ -258,10 +268,13 @@ impl UiState {
             import_report: Vec::new(),
             brush_notice: None,
             open_brush_editor: false,
+            brush_scroll_top: false,
+            selected_brush: None,
             brush_pinned: false,
             properties_hosts_brush: true,
             capture_select_brush: None,
             capture_tool: None,
+            capture_during_load: false,
             render_window: false,
             pending_render_job: None,
             render_export: Default::default(),
@@ -314,6 +327,7 @@ impl UiState {
             brush_presets: builtin_brush_presets(),
             preset_name: String::new(),
             stamp_preview: Default::default(),
+            tip_preview: Default::default(),
             stencil_tex: None,
             textures: Default::default(),
             recovery: crate::recovery::RecoveryUi::disabled(),
@@ -478,9 +492,34 @@ impl UiState {
                 if !matches!(self.tool, Tool::Brush | Tool::Eraser) { self.tool = Tool::Brush; }
                 self.picking_parts = false;
                 if let Some(warning) = &selected.warning { self.set_status(warning.clone(), now); }
+                // A full image still loading for the previous brush choice is no longer wanted.
+                if self.asset_preview.pending_brush().is_some() { self.asset_preview.cancel_apply(); }
+                self.show_selected_brush(Some((selected.name.clone(), selected.tip.clone())));
                 self.brush_notice = Some(BrushNotice { name: selected.name, tip: selected.tip, since: now });
             }
             Err(e) => self.set_status(e, now),
+        }
+    }
+
+    /// A Shelf click chose a brush: bring the brush settings forward, scrolled to the top where
+    /// the selected brush's name and preview are shown (like Substance Painter's brush
+    /// properties). `preset` is the Shelf name and tip of a preset / tip; `None` for stamps and
+    /// Starter pack images, which the brush state names itself.
+    pub fn show_selected_brush(&mut self, preset: Option<(String, String)>) {
+        self.open_brush_editor = true;
+        self.brush_scroll_top = true;
+        self.selected_brush = preset;
+    }
+
+    /// The Shelf tile of a preset / tip is the active brush (no stamp, tip unchanged since).
+    pub fn is_selected_shelf_brush(&self, name: &str) -> bool {
+        let b = &self.session.brush;
+        if b.material.stamp.is_some() {
+            return false;
+        }
+        match &self.selected_brush {
+            Some((n, tip)) => n == name && *tip == b.alpha_name,
+            None => b.alpha_name == name,
         }
     }
 

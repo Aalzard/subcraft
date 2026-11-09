@@ -172,3 +172,43 @@ fn preset_round_trip_keeps_the_stamp_and_its_image() {
     assert!(old.material.stamp.is_none());
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+/// A Shelf click puts a thumbnail stamp in place at once; the full image encoded on a worker
+/// thread then replaces it without touching what the user adjusted meanwhile.
+#[test]
+fn full_resolution_upgrade_keeps_settings_and_never_overrides_another_choice() {
+    let mut s = Session::new(primitives::cube(2.0), 64);
+    let thumb = subcraft_app::stamp_brush::prepare_stamp("Starter: Bolts", Bitmap::new_u8(2, 2, 3, [204u8, 128, 230].repeat(4))).unwrap();
+    assert_eq!(thumb.name, "Bolts", "Starter prefix dropped");
+    let placeholder = s.set_prepared_stamp(StampKind::Normal, thumb);
+    assert_eq!(s.brush_stamp().unwrap().1.width, 2, "thumbnail is the brush at once");
+    // The user changes the strength while the full image loads (on another thread).
+    s.brush.material.stamp.as_mut().unwrap().strength = 2.5;
+    let full = std::thread::spawn(|| subcraft_app::stamp_brush::prepare_stamp("Starter: Bolts", tilted()).unwrap()).join().unwrap();
+    assert!(s.upgrade_brush_stamp(placeholder, full.clone()));
+    let (stamp, image) = s.brush_stamp().unwrap();
+    assert_eq!(image.width, 4, "full resolution swapped in");
+    assert_eq!(stamp.strength, 2.5, "user setting kept");
+    assert_eq!(stamp.name, "Bolts");
+    assert_ne!(stamp.resource, Some(placeholder));
+    assert!(s.brush.material.channels[&K::Normal].enabled);
+
+    // Picked another stamp before the load finished: the late image must not replace it.
+    let other = s.set_prepared_stamp(StampKind::Normal, subcraft_app::stamp_brush::prepare_stamp("Rivets", Bitmap::new_u8(1, 1, 3, vec![128, 128, 255])).unwrap());
+    assert!(!s.upgrade_brush_stamp(placeholder, full.clone()));
+    assert_eq!(s.brush.material.stamp.as_ref().unwrap().resource, Some(other));
+    // Back to a normal brush meanwhile: also untouched.
+    s.clear_brush_stamp();
+    assert!(!s.upgrade_brush_stamp(other, full));
+    assert!(s.brush.material.stamp.is_none());
+}
+
+#[test]
+fn identical_prepared_images_share_one_resource() {
+    let mut s = Session::new(primitives::cube(2.0), 64);
+    let a = s.set_prepared_stamp(StampKind::Normal, subcraft_app::stamp_brush::prepare_stamp("A", tilted()).unwrap());
+    let n = s.resources().len();
+    let b = s.set_prepared_stamp(StampKind::Height, subcraft_app::stamp_brush::prepare_stamp("B", tilted()).unwrap());
+    assert_eq!(a, b);
+    assert_eq!(s.resources().len(), n);
+}

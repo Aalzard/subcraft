@@ -8,9 +8,15 @@ use crate::theme::{self, TEXT_FAINT};
 use crate::widgets::{hint, panel, prop_row, section, segmented, slider_row};
 
 pub fn show(state: &mut UiState, ui: &mut Ui) {
-    egui::ScrollArea::vertical().id_salt("brush").auto_shrink([false, false]).show(ui, |ui| {
+    let mut area = egui::ScrollArea::vertical().id_salt("brush").auto_shrink([false, false]);
+    // A Shelf click on a brush scrolls back to the selected brush's preview at the top.
+    if std::mem::take(&mut state.brush_scroll_top) {
+        area = area.vertical_scroll_offset(0.0);
+    }
+    area.show(ui, |ui| {
         panel(ui, |ui| {
             super::stamp_brush::show(state, ui);
+            super::brush_header::show(state, ui);
             section(ui, "tool", "Paint target", true, |ui| {
                 if state.tool == Tool::PolygonFill {
                     prop_row(ui, "Fill by", |ui| {
