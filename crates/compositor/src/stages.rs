@@ -1248,30 +1248,56 @@ impl<'a> Graph<'a> {
                         )
                     })
                     .collect();
+                // Same taps, in the same order, as summing `weights` texel by texel; only the
+                // index arithmetic moves out of the inner loops (results are bit-identical).
+                let taps: Vec<(usize, f32)> = weights.iter().copied().enumerate().filter(|(_, w)| *w > 0.0).collect();
+                let ts = TILE_SIZE as usize;
+                let fetch = |position: i32, across: usize| -> [f32; 4] {
+                    let position = position.clamp(0, res - 1) as usize;
+                    let local = if *horizontal { across * ts + position % ts } else { position % ts * ts + across };
+                    neighbors[position / ts - first][local]
+                };
                 let mut out = vec![[0.0; 4]; TILE_TEXELS];
-                for (i, dst) in out.iter_mut().enumerate() {
-                    let (x, y) = geo.texel_xy(i);
-                    for (w, &weight) in weights.iter().enumerate().filter(|(_, w)| **w > 0.0) {
-                        let position = (if *horizontal { x as i32 } else { y as i32 } + w as i32
-                            - r)
-                            .clamp(0, res - 1) as usize;
-                        let local = if *horizontal {
-                            (y % TILE_SIZE) as usize * TILE_SIZE as usize
-                                + position % TILE_SIZE as usize
-                        } else {
-                            position % TILE_SIZE as usize * TILE_SIZE as usize
-                                + (x % TILE_SIZE) as usize
-                        };
-                        let src = neighbors[position / TILE_SIZE as usize - first][local];
-                        for c in 0..3 {
-                            dst[c] += src[c] * if *horizontal { src[3] } else { 1.0 } * weight;
+                if *horizontal {
+                    // One row at a time: the row's texels with color premultiplied by alpha (the
+                    // `src[c] * src[3]` factor of every tap), padded by the radius on both sides.
+                    let mut line = vec![[0.0f32; 4]; ts + 2 * r as usize];
+                    for row in 0..ts {
+                        for (k, l) in line.iter_mut().enumerate() {
+                            let src = fetch(lo - r + k as i32, row);
+                            *l = [src[0] * src[3], src[1] * src[3], src[2] * src[3], src[3]];
                         }
-                        dst[3] += src[3] * weight;
+                        for (x, dst) in out[row * ts..(row + 1) * ts].iter_mut().enumerate() {
+                            for &(w, weight) in &taps {
+                                let p = line[x + w];
+                                for c in 0..3 {
+                                    dst[c] += p[c] * weight;
+                                }
+                                dst[3] += p[3] * weight;
+                            }
+                        }
                     }
-                    if !horizontal && dst[3] > 1e-12 {
-                        let a = dst[3];
-                        for v in &mut dst[..3] {
-                            *v /= a;
+                } else {
+                    // Whole source rows: for each output row, add every tap's row in order.
+                    let rows: Vec<Vec<[f32; 4]>> = (0..ts + 2 * r as usize)
+                        .map(|k| (0..ts).map(|x| fetch(lo - r + k as i32, x)).collect())
+                        .collect();
+                    for (y, dst_row) in out.chunks_exact_mut(ts).enumerate() {
+                        for &(w, weight) in &taps {
+                            for (dst, src) in dst_row.iter_mut().zip(&rows[y + w]) {
+                                for c in 0..3 {
+                                    dst[c] += src[c] * 1.0 * weight;
+                                }
+                                dst[3] += src[3] * weight;
+                            }
+                        }
+                        for dst in dst_row.iter_mut() {
+                            if dst[3] > 1e-12 {
+                                let a = dst[3];
+                                for v in &mut dst[..3] {
+                                    *v /= a;
+                                }
+                            }
                         }
                     }
                 }
