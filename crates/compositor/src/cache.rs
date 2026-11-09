@@ -119,7 +119,7 @@ impl CompositeCache {
             _ => Dirty::All,
         };
         if !matches!(&dirty,Dirty::Tiles(set) if set.is_empty()) { self.stages.clear(); }
-        let graph_path = crate::stages::has_spatial(&ts.layers);
+        let graph_path = crate::stages::needs_graph(&ts.layers);
         let change = match &dirty {
             _ if !reusable || self.last.as_ref().is_some_and(|l| l.albedo_filter != ts.albedo_filter) => crate::prefix::Change::Everything,
             Dirty::All => crate::prefix::Change::Parameters,
@@ -205,7 +205,11 @@ impl CompositeCache {
 fn diff_lists(old: &[Arc<Layer>], new: &[Arc<Layer>], resolution: u32) -> Dirty {
     let mut tiles = BTreeSet::new();
     let n = resolution.div_ceil(subcraft_image::TILE_SIZE) as usize;
-    if collect_list(old, new, &mut tiles, n, 0) { Dirty::Tiles(tiles) } else { Dirty::All }
+    // Anchor references (ADR-0045) read other layers' content texel by texel, so a raster edit
+    // also changes the readers at the same texels; any filter on a reader's path spreads it.
+    // Conservatively grow by every filter of the set.
+    let readers = if subcraft_doc::anchor::has_references(new) { crate::stages::halo(new) } else { 0 };
+    if collect_list(old, new, &mut tiles, n, readers) { Dirty::Tiles(tiles) } else { Dirty::All }
 }
 
 /// Add the tiles within `radius` texels of `tiles` to `out`.

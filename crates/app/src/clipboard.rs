@@ -114,10 +114,9 @@ impl LayerClip {
                 }
             }
         }
-        self.layers
-            .iter()
-            .map(|l| {
-                let mut l = l.duplicate_with_new_ids();
+        subcraft_doc::duplicate_layers_with_new_ids(&self.layers)
+            .into_iter()
+            .map(|mut l| {
                 if self.resolution != ts.resolution {
                     let r = ts.resolution;
                     l.map_rasters(&|img| img.resampled(r, r));
@@ -191,16 +190,23 @@ impl EffectClip {
     }
 
     pub fn instantiate_mask(&self, resolution: u32) -> Vec<MaskEffect> {
-        self.mask
+        let mut map = std::collections::HashMap::new();
+        let mut out: Vec<Arc<MaskEffect>> = self
+            .mask
             .iter()
             .map(|e| {
                 let mut e = e.clone();
+                let old = e.id;
                 e.id = EffectId::new();
+                map.insert(old, e.id);
                 if let MaskEffectKind::Paint { image } = &mut e.kind {
                     *image = image.resampled(resolution, resolution);
                 }
-                e
+                Arc::new(e)
             })
-            .collect()
+            .collect();
+        // Pasted references to pasted anchors read the pasted copies (ADR-0045).
+        subcraft_doc::anchor::remap_mask_inputs(&mut out, &map);
+        out.into_iter().map(Arc::unwrap_or_clone).collect()
     }
 }

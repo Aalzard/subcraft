@@ -815,3 +815,62 @@ fn generator_micro_effect_round_trips_and_is_absent_in_older_files() {
     let MaskEffectKind::Generator(back) = old.document.texture_sets[0].layers[0].mask.as_ref().unwrap().effects[0].kind else { panic!() };
     assert_eq!(back, Generator { micro: None, ..g });
 }
+
+/// Schema 17 (ADR-0045): anchor points, Anchor References (with Levels), anchor fill sources and
+/// generator inputs survive a round trip with their ids; the new JSON is stable; schema 16
+/// projects load unchanged; a generator without an input writes no `input` key.
+#[test]
+fn schema_17_anchors_roundtrip_have_stable_json_and_older_projects_migrate() {
+    use subcraft_doc::{AnchorInput, ContentEffect, ContentEffectKind};
+    let mesh = primitives::cube(2.0);
+    let save = |doc: &Document| write_project(Cursor::new(Vec::new()), &mesh, doc, &ResourceStore::default(), &MeshMapSet::new()).unwrap().into_inner();
+    let mut ts = TextureSet::new("T", 0, 128);
+    let tc = ts.clone();
+    let mut low = Layer::new_paint("Bumps", &tc);
+    let mut anchor = ContentEffect::new(ContentEffectKind::Anchor, &tc);
+    anchor.name = "Bumps anchor".into();
+    let content_anchor = anchor.id;
+    low.content_effects.push(Arc::new(anchor));
+    let mut mask = Mask::new(128, true);
+    let mask_anchor = MaskEffect::new(MaskEffectKind::Anchor);
+    let mask_anchor_id = mask_anchor.id;
+    mask.effects.push(Arc::new(mask_anchor));
+    low.mask = Some(mask);
+    ts.insert_above(None, low);
+    let mut top = Layer::new_fill("Dirt", &tc);
+    if let LayerContent::Fill(f) = &mut top.content {
+        f.channels.insert(ChannelKind::Roughness, FillChannel::new(FillSource::Anchor { input: AnchorInput::new(content_anchor, ChannelKind::Height) }));
+    }
+    let mut mask = Mask::new(128, false);
+    mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::AnchorRef {
+        input: AnchorInput::new(mask_anchor_id, ChannelKind::Height),
+        levels: Some(Levels { gamma: 2.0, ..Levels::default() }),
+    })));
+    let mut g = Generator::new(GeneratorKind::Edges);
+    g.input = Some(AnchorInput::new(content_anchor, ChannelKind::Height));
+    mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Generator(g))));
+    top.mask = Some(mask);
+    ts.insert_above(None, top);
+    let doc = Document { texture_sets: vec![ts] };
+    let back = read_project(Cursor::new(save(&doc))).unwrap().document;
+    assert_eq!(back, doc, "anchors, references and their ids survive");
+    assert!(subcraft_doc::AnchorIndex::build(&back.texture_sets[0].layers).problems().next().is_none(), "references still resolve after loading");
+
+    let id = uuid::Uuid::nil();
+    let input = AnchorInput::new(subcraft_core::EffectId(id), ChannelKind::Height);
+    assert_eq!(serde_json::to_string(&input).unwrap(), r#"{"anchor":"00000000-0000-0000-0000-000000000000","channel":"height"}"#);
+    assert_eq!(serde_json::to_string(&FillSource::Anchor { input }).unwrap(), r#"{"type":"anchor","input":{"anchor":"00000000-0000-0000-0000-000000000000","channel":"height"}}"#);
+    assert_eq!(serde_json::to_string(&MaskEffectKindV1::Anchor).unwrap(), r#"{"type":"anchor"}"#);
+    assert_eq!(serde_json::to_string(&ContentEffectKindV5::Anchor).unwrap(), r#"{"type":"anchor"}"#);
+    assert_eq!(
+        serde_json::to_string(&MaskEffectKindV1::AnchorRef { input, levels: None }).unwrap(),
+        r#"{"type":"anchor_ref","input":{"anchor":"00000000-0000-0000-0000-000000000000","channel":"height"}}"#
+    );
+    assert!(!serde_json::to_string(&Generator::new(GeneratorKind::Edges)).unwrap().contains("input"), "no input key without an input");
+
+    // Schema 16 projects (no anchors) load unchanged.
+    let old = effect_document();
+    let bytes = with_manifest(save(&old), |m| m.replace(&format!("\"schema_version\": {SCHEMA_VERSION}"), "\"schema_version\": 16"));
+    assert_eq!(read_project(Cursor::new(bytes)).unwrap().document, old);
+    assert_eq!(SCHEMA_VERSION, 17);
+}

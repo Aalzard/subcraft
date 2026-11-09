@@ -105,6 +105,8 @@ impl Writer {
                     MaskEffectKindV1::Image { resource: resource.0, projection: *projection, invert: *invert }
                 }
                 MaskEffectKind::IdColor(id) => MaskEffectKindV1::IdColor { id_color: id.clone() },
+                MaskEffectKind::Anchor => MaskEffectKindV1::Anchor,
+                MaskEffectKind::AnchorRef { input, levels } => MaskEffectKindV1::AnchorRef { input: *input, levels: *levels },
             },
         }
     }
@@ -124,6 +126,7 @@ impl Writer {
                 ContentEffectKind::Fill(f) => ContentEffectKindV5::Fill { projection: f.projection, channels: fill_channels(f) },
                 ContentEffectKind::Levels { channel, levels } => ContentEffectKindV5::Levels { channel: *channel, levels: *levels },
                 ContentEffectKind::Filter { channel, filter } => ContentEffectKindV5::Filter { channel: *channel, filter: *filter },
+                ContentEffectKind::Anchor => ContentEffectKindV5::Anchor,
             },
         }
     }
@@ -426,6 +429,8 @@ impl<R: Read + Seek> Loader<'_, R> {
                 if !id_color.valid() { return Err(ProjectError::Invalid("invalid ID color mask".into())); }
                 MaskEffectKind::IdColor(id_color.clone())
             }
+            MaskEffectKindV1::Anchor => MaskEffectKind::Anchor,
+            MaskEffectKindV1::AnchorRef { input, levels } => MaskEffectKind::AnchorRef { input: *input, levels: *levels },
         };
         Ok(MaskEffect { id: EffectId(e.id), name: e.name.clone(), visible: e.visible, blend: e.blend, opacity: e.opacity, kind })
     }
@@ -456,6 +461,7 @@ impl<R: Read + Seek> Loader<'_, R> {
                 }
                 ContentEffectKind::Levels { channel: *channel, levels: *levels }
             }
+            ContentEffectKindV5::Anchor => ContentEffectKind::Anchor,
         };
         let blend = e.blend.iter().map(|b| (b.channel, ChannelBlend { mode: b.mode, opacity: b.opacity })).collect();
         Ok(ContentEffect { id: EffectId(e.id), name: e.name.clone(), visible: e.visible, blend, kind })
