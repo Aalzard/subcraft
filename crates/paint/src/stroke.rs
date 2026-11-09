@@ -636,15 +636,16 @@ impl Stroke {
                                 } else {
                                     bitmap.sample_filtered(p[0], p[1], if self.texture_tiling { Wrap::Repeat } else { Wrap::Clamp }, linearize, filter)
                                 };
+                                let sc = self.projection.rotation_sin_cos();
                                 for (i, out) in values.iter_mut().enumerate() {
                                     if cov[i] <= 0.0 { continue; }
                                     if let Remap::Camera(coords) = &remap {
-                                        *out = coords[i].map_or([0.0; 4], |p| sample(self.projection.transform_2d(p)));
+                                        *out = coords[i].map_or([0.0; 4], |p| sample(self.projection.transform_2d_sc(sc, p)));
                                         continue;
                                     }
                                     let uv = [(x0 + i as u32 % TILE_SIZE) as f32 / res + 0.5 / res,
                                         (y0 + i as u32 / TILE_SIZE) as f32 / res + 0.5 / res];
-                                    *out = subcraft_materials::sample::sample_projected(&self.projection, uv,
+                                    *out = subcraft_materials::sample::sample_projected_sc(&self.projection, sc, uv,
                                         geo.as_ref().map_or([0.0; 3], |g| g.position(i)),
                                         geo.as_ref().map_or([0.0; 3], |g| g.normal(i)), sample);
                                 }

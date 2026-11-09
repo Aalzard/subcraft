@@ -8,7 +8,7 @@ use subcraft_core::MeshMapKind;
 use subcraft_doc::{Generator, GeneratorKind, Mask, MaskEffectKind, Projection, ProjectionMode};
 use subcraft_image::TILE_TEXELS;
 use subcraft_image::Wrap;
-use subcraft_materials::sample::{procedural_tile, sample_projected};
+use subcraft_materials::sample::procedural_tile;
 
 use crate::TileContext;
 
@@ -230,8 +230,9 @@ fn eval_image(resource: subcraft_core::ResourceId, projection: &Projection, inve
     };
     let has_alpha = bmp.channels == 2 || bmp.channels == 4;
     let geo = tc.geo;
+    let sc = projection.rotation_sin_cos();
     for (i, o) in e.iter_mut().enumerate() {
-        let s = sample_projected(projection, geo.uv(i), geo.position(i), geo.normal(i), |p| bmp.sample(p[0], p[1], Wrap::Repeat, false));
+        let s = subcraft_materials::sample::sample_projected_sc(projection, sc, geo.uv(i), geo.position(i), geo.normal(i), |p| bmp.sample(p[0], p[1], Wrap::Repeat, false));
         let (v, a) = if has_alpha { (1.0, s[3]) } else { (0.2126 * s[0] + 0.7152 * s[1] + 0.0722 * s[2], 1.0) };
         *o = [if invert { 1.0 - v } else { v }, a.clamp(0.0, 1.0), 0.0, 0.0];
     }

@@ -35,11 +35,25 @@ pub fn sample_projected(
     uv: [f32; 2],
     pos: [f32; 3],
     normal: [f32; 3],
+    f: impl FnMut([f32; 2]) -> [f32; 4],
+) -> [f32; 4] {
+    sample_projected_sc(proj, proj.rotation_sin_cos(), uv, pos, normal, f)
+}
+
+/// [`sample_projected`] with the projection's rotation `(sin, cos)` from
+/// [`Projection::rotation_sin_cos`], computed once per tile instead of per texel (same values).
+#[inline]
+pub fn sample_projected_sc(
+    proj: &Projection,
+    sc: (f32, f32),
+    uv: [f32; 2],
+    pos: [f32; 3],
+    normal: [f32; 3],
     mut f: impl FnMut([f32; 2]) -> [f32; 4],
 ) -> [f32; 4] {
     match proj.mode {
-        ProjectionMode::Uv => f(proj.transform_2d(uv)),
-        ProjectionMode::Planar => f(proj.transform_2d(planar_coords(pos, proj.planar_axis))),
+        ProjectionMode::Uv => f(proj.transform_2d_sc(sc, uv)),
+        ProjectionMode::Planar => f(proj.transform_2d_sc(sc, planar_coords(pos, proj.planar_axis))),
         ProjectionMode::Triplanar => {
             let w = triplanar_weights(normal, proj.triplanar_sharpness);
             let mut out = [0.0f32; 4];
@@ -48,7 +62,7 @@ pub fn sample_projected(
                 if wa <= 0.0 {
                     continue;
                 }
-                let s = f(proj.transform_2d(planar_coords(pos, axis)));
+                let s = f(proj.transform_2d_sc(sc, planar_coords(pos, axis)));
                 for c in 0..4 {
                     out[c] += s[c] * wa;
                 }

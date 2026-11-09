@@ -46,6 +46,8 @@ pub struct Bitmap {
 }
 
 static SRGB_LUT: LazyLock<[f32; 256]> = LazyLock::new(srgb8_to_linear_lut);
+/// `b as f32 / 255.0` for every byte (a table lookup instead of a division per channel).
+static UNORM8_LUT: LazyLock<[f32; 256]> = LazyLock::new(|| std::array::from_fn(|b| b as f32 / 255.0));
 
 impl Bitmap {
     pub fn new_f32(width: u32, height: u32, channels: u8, data: Vec<f32>) -> Self {
@@ -82,7 +84,7 @@ impl Bitmap {
                 for c in 0..ch {
                     let b = v[o + c];
                     let is_alpha = (ch == 2 && c == 1) || c == 3;
-                    raw[c] = if linearize && !is_alpha { SRGB_LUT[b as usize] } else { b as f32 / 255.0 };
+                    raw[c] = if linearize && !is_alpha { SRGB_LUT[b as usize] } else { UNORM8_LUT[b as usize] };
                 }
             }
             BitmapData::U16(v) => {
@@ -124,17 +126,24 @@ impl Bitmap {
         };
         let (xa, xb) = pair(x0 as i64, w);
         let (ya, yb) = pair(y0 as i64, h);
+        if let BitmapData::U8(v) = &self.data {
+            // 8-bit images (almost every texture): the four taps decoded by a per-channel-count
+            // copy of `texel` (same conversions, so the same values) without its per-call checks.
+            let unorm = &*UNORM8_LUT;
+            let color = if linearize { &*SRGB_LUT } else { unorm };
+            let taps = match self.channels {
+                1 => u8_taps::<1>(v, self.width, [xa, xb, ya, yb], color, unorm),
+                2 => u8_taps::<2>(v, self.width, [xa, xb, ya, yb], color, unorm),
+                3 => u8_taps::<3>(v, self.width, [xa, xb, ya, yb], color, unorm),
+                _ => u8_taps::<4>(v, self.width, [xa, xb, ya, yb], color, unorm),
+            };
+            return bilerp(taps, fx, fy);
+        }
         let t00 = self.texel(xa, ya, linearize);
         let t10 = self.texel(xb, ya, linearize);
         let t01 = self.texel(xa, yb, linearize);
         let t11 = self.texel(xb, yb, linearize);
-        let mut out = [0.0; 4];
-        for c in 0..4 {
-            let top = t00[c] + (t10[c] - t00[c]) * fx;
-            let bot = t01[c] + (t11[c] - t01[c]) * fx;
-            out[c] = top + (bot - top) * fy;
-        }
-        out
+        bilerp([t00, t10, t01, t11], fx, fy)
     }
 
     pub fn sample_filtered(&self, u: f32, v: f32, wrap: Wrap, linearize: bool, filter: TextureFilter) -> [f32; 4] {
@@ -215,6 +224,45 @@ impl Bitmap {
     }
 }
 
+#[inline(always)]
+fn bilerp([t00, t10, t01, t11]: [[f32; 4]; 4], fx: f32, fy: f32) -> [f32; 4] {
+    let mut out = [0.0; 4];
+    for c in 0..4 {
+        let top = t00[c] + (t10[c] - t00[c]) * fx;
+        let bot = t01[c] + (t11[c] - t01[c]) * fx;
+        out[c] = top + (bot - top) * fy;
+    }
+    out
+}
+
+/// What [`Bitmap::texel`] returns for an 8-bit image with `CH` channels at the four taps
+/// `(xa, ya), (xb, ya), (xa, yb), (xb, yb)`.
+#[inline(always)]
+/// `color` decodes color components (sRGB or plain), `unorm` is `b / 255` for alpha.
+fn u8_taps<const CH: usize>(v: &[u8], width: u32, [xa, xb, ya, yb]: [u32; 4], color: &[f32; 256], unorm: &[f32; 256]) -> [[f32; 4]; 4] {
+    let conv = |c: usize, b: u8| -> f32 {
+        let is_alpha = (CH == 2 && c == 1) || c == 3;
+        if is_alpha { unorm[b as usize] } else { color[b as usize] }
+    };
+    let at = |x: u32, y: u32| -> [f32; 4] {
+        let o = (y as usize * width as usize + x as usize) * CH;
+        let px = &v[o..o + CH];
+        match CH {
+            1 => {
+                let r = conv(0, px[0]);
+                [r, r, r, 1.0]
+            }
+            2 => {
+                let r = conv(0, px[0]);
+                [r, r, r, conv(1, px[1])]
+            }
+            3 => [conv(0, px[0]), conv(1, px[1]), conv(2, px[2]), 1.0],
+            _ => [conv(0, px[0]), conv(1, px[1]), conv(2, px[2]), conv(3, px[3])],
+        }
+    };
+    [at(xa, ya), at(xb, ya), at(xa, yb), at(xb, yb)]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -245,10 +293,17 @@ mod tests {
     }
 
     #[test]
+    fn unorm_table_matches_division() {
+        for b in 0..=255u8 {
+            assert_eq!(UNORM8_LUT[b as usize].to_bits(), (b as f32 / 255.0).to_bits());
+        }
+    }
+
+    #[test]
     fn sample_is_bit_identical_to_the_reference() {
-        for (w, h) in [(1, 1), (2, 2), (8, 8), (7, 5), (64, 48), (3, 16)] {
-            let data: Vec<u8> = (0..w * h * 4).map(|i| (i * 37 % 251) as u8).collect();
-            let b = Bitmap::new_u8(w, h, 4, data);
+        for (w, h, ch) in [(1, 1, 4), (2, 2, 4), (8, 8, 4), (7, 5, 4), (64, 48, 4), (3, 16, 4), (8, 8, 1), (7, 5, 2), (6, 9, 3), (16, 16, 3)] {
+            let data: Vec<u8> = (0..w * h * ch).map(|i| (i * 37 % 251) as u8).collect();
+            let b = Bitmap::new_u8(w, h, ch as u8, data);
             for k in 0..4000 {
                 let u = k as f32 * 0.01237 - 13.0;
                 let v = (k % 313) as f32 * -0.0291 + 4.5;
