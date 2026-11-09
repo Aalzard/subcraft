@@ -59,7 +59,7 @@ fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]]) {
     let mut map = vec![[0.0f32; 3]; TILE_TEXELS];
     let map_kind = match g.kind {
         GeneratorKind::Edges | GeneratorKind::Concave => Some(MeshMapKind::Curvature),
-        GeneratorKind::Cavity => Some(MeshMapKind::AmbientOcclusion),
+        GeneratorKind::Cavity | GeneratorKind::AmbientOcclusion => Some(MeshMapKind::AmbientOcclusion),
         GeneratorKind::MeshMap(k) => Some(k),
         GeneratorKind::Directional | GeneratorKind::PositionGradient => None,
     };
@@ -76,7 +76,11 @@ fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]]) {
     let noise_proj = Projection { mode: ProjectionMode::Triplanar, triplanar_sharpness: 4.0, ..Projection::default() };
     let offset = noise_offset(g);
     let noise_params = scaled_noise(g);
-    let noise = (g.noise_amount > 0.0).then(|| if g.organic_breakup {
+    // The plain Edges threshold (no spread model) keeps its organic noise: the grunge map's broad
+    // range would detach dashes from the baked curvature lines.
+    let noise = (g.noise_amount > 0.0).then(|| if uses_grunge_map(g) && g.kind != GeneratorKind::Edges {
+        subcraft_materials::sample::grunge_tile_at(&noise_params, offset, geo)
+    } else if g.organic_breakup {
         subcraft_materials::sample::organic_tile_at(&noise_params, offset, geo)
     } else { subcraft_materials::sample::procedural_tile_at(&noise_params, &noise_proj, offset, geo) });
     // Painter's dirt: convex edges are kept clear of dirt by `edges_masking`.
@@ -87,6 +91,7 @@ fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]]) {
         tc.sample.mesh_maps.read_tile(MeshMapKind::Curvature, geo, &mut curvature);
     }
     let floor = g.painter.map_or(0.0, |p| p.grunge_floor.clamp(0.0, 1.0));
+    let grunge_map = uses_grunge_map(g) && g.kind != GeneratorKind::Edges;
     // Grain speckles dirt's threshold; the plain Edges threshold (no spread model) keeps its exact look.
     // Grain is part of Breakup: it fades in over the first quarter of the Breakup slider, so
     // Breakup 0 is exactly smooth whatever the Grain value.
@@ -96,7 +101,7 @@ fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]]) {
         let raw = match g.kind {
             GeneratorKind::Edges | GeneratorKind::MeshMap(_) => map[i][0],
             GeneratorKind::Cavity if !curvature.is_empty() => (1.0 - map[i][0]) * (1.0 - edges_masking * ((curvature[i][0] - 0.5) * 2.0).clamp(0.0, 1.0)),
-            GeneratorKind::Cavity => 1.0 - map[i][0],
+            GeneratorKind::Cavity | GeneratorKind::AmbientOcclusion => 1.0 - map[i][0],
             GeneratorKind::Directional => Vec3::from_array(geo.normal(i)).dot(dir) * 0.5 + 0.5,
             GeneratorKind::Concave => 1.0 - map[i][0],
             GeneratorKind::PositionGradient => (geo.position(i)[axis] * set.max_extent / ext_axis).clamp(0.0, 1.0),
@@ -113,9 +118,25 @@ fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]]) {
         let mut v = smoothstep(level - half, level + half, raw);
         if floor > 0.0 && let Some(noise) = &noise {
             // Contrast-stretched around the mean: Painter's tail spans 0.02 to 0.18, not a narrow band.
-            v += (1.0 - v) * floor * ((noise[i] - 0.5) * 3.0 + 0.5).clamp(0.0, 1.0);
+            // The grunge map already spans the range: use it as is, minus its darkest third.
+            let tail = if grunge_map { smoothstep(0.3, 1.0, noise[i]) } else { ((noise[i] - 0.5) * 3.0 + 0.5).clamp(0.0, 1.0) };
+            v += (1.0 - v) * floor * tail;
         }
         *o = [if g.invert { 1.0 - v } else { v }, 1.0, 0.0, 0.0];
+    }
+}
+
+/// Whether the breakup reads the bundled grunge map (Painter-style Dirt / Edge wear).
+fn uses_grunge_map(g: &Generator) -> bool {
+    g.painter.is_some_and(|p| p.grunge_map)
+}
+
+/// The breakup field of natural edge wear: the grunge map or the organic volume noise.
+fn breakup_field(g: &Generator, params: &subcraft_doc::ProceduralParams, offset: [f32; 3], geo: &subcraft_materials::sample::TileGeometry) -> std::sync::Arc<subcraft_materials::sample::field::Field> {
+    if uses_grunge_map(g) {
+        subcraft_materials::sample::grunge_tile_at(params, offset, geo)
+    } else {
+        subcraft_materials::sample::organic_tile_at(params, offset, geo)
     }
 }
 
@@ -147,7 +168,7 @@ fn eval_edge_spread(g: &Generator, spread: subcraft_doc::EdgeSpread, tc: &TileCo
     // both share one cached non-periodic volume field and the existing Pattern size/Seed.
     let offset = noise_offset(g);
     let noise_params = scaled_noise(g);
-    let noise = subcraft_materials::sample::organic_tile_at(&noise_params, offset, tc.geo);
+    let noise = breakup_field(g, &noise_params, offset, tc.geo);
     let painter = g.painter;
     let mut ao_map = Vec::new();
     if painter.is_some_and(|p| p.ao_masking > 0.0) {
@@ -176,6 +197,7 @@ fn eval_edge_spread(g: &Generator, spread: subcraft_doc::EdgeSpread, tc: &TileCo
         subcraft_materials::sample::organic_tile_at(&p, offset, tc.geo)
     });
     let breakup = g.noise_amount.clamp(0.0, 1.0);
+    let grunge_map = uses_grunge_map(g);
     let grain = painter.map_or(0.0, |p| p.grain.clamp(0.0, 1.0)) * (breakup * 4.0).clamp(0.0, 1.0);
     let fine = (grain > 0.0).then(|| fine_noise(g, tc.geo));
     let softness = (g.softness + painter.map_or(0.0, |p| p.smoothness.clamp(0.0, 1.0))).clamp(0.02, 1.0);
@@ -198,7 +220,12 @@ fn eval_edge_spread(g: &Generator, spread: subcraft_doc::EdgeSpread, tc: &TileCo
         let baked = if convex > 1e-4 && g.level > 0.0 {
             smoothstep(threshold - softness * 0.5, threshold + softness * 0.5, convex)
         } else { 0.0 };
-        let holes = if breakup > 0.0 { smoothstep(breakup * 0.65 - 0.2, breakup * 0.65, n) } else { 1.0 };
+        let mut holes = if breakup > 0.0 { smoothstep(breakup * 0.65 - 0.2, breakup * 0.65, n) } else { 1.0 };
+        if grunge_map && holes < 1.0 && distances[i] < reach * 0.4 {
+            // Painter's wear keeps the edge apex worn and lets the grunge eat the band behind it:
+            // holes fade in over the first 40% of the reach, so long rims never stop and start.
+            holes = 1.0 - (1.0 - holes) * smoothstep(0.0, reach * 0.4, distances[i]);
+        }
         let mut v = geometric.max(baked) * holes;
         if ao_masking > 0.0 {
             v *= 1.0 - ao_masking * (1.0 - ao_map[i][0]);

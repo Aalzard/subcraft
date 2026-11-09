@@ -3873,6 +3873,7 @@ dependencies = [
  "glam",
  "log",
  "serde",
+ "serde_json",
  "subcraft-core",
  "subcraft-image",
  "subcraft-text",

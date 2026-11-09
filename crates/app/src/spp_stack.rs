@@ -786,6 +786,8 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
                 grunge_scale: pt[3] * default(&["Grunge_Scale"], 1.0),
                 grunge_floor: if dirt { pt[4] * default(&["grunge_amount"], 0.0) } else { 0.0 },
                 grain: 0.0,
+                // Calibrated against Painter with the organic breakup; keep it.
+                grunge_map: false,
             };
             (c != subcraft_doc::PainterControls::default()).then_some(c)
         };

@@ -149,10 +149,15 @@ pub struct PainterControls {
     /// edges chip and dirt falls off in grains instead of smooth bands (0 = none).
     #[serde(default)]
     pub grain: f32,
+    /// Break the mask up with the bundled grayscale grunge map (a photo-like dirt texture, as
+    /// Painter's generators do) instead of the smooth organic volume noise. Absent in older
+    /// projects: false, their original pattern. Not written when false.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub grunge_map: bool,
 }
 
 impl Default for PainterControls {
-    fn default() -> Self { Self { edges_masking: 0.0, ao_masking: 0.0, curvature_weight: 1.0, smoothness: 0.0, grunge_scale: 1.0, grunge_floor: 0.0, grain: 0.0 } }
+    fn default() -> Self { Self { edges_masking: 0.0, ao_masking: 0.0, curvature_weight: 1.0, smoothness: 0.0, grunge_scale: 1.0, grunge_floor: 0.0, grain: 0.0, grunge_map: false } }
 }
 
 fn is_zero_offset(offset: &[f32; 3]) -> bool { *offset == [0.0; 3] }
@@ -208,6 +213,9 @@ pub enum GeneratorKind {
     Concave,
     /// Raw mesh map value.
     MeshMap(MeshMapKind),
+    /// Painter's Ambient Occlusion generator: occluded areas white (1 - baked AO), a smooth
+    /// Balance / Contrast remap with no breakup by default.
+    AmbientOcclusion,
 }
 
 impl GeneratorKind {
@@ -219,31 +227,53 @@ impl GeneratorKind {
             GeneratorKind::PositionGradient => "Position Gradient".into(),
             GeneratorKind::Concave => "Concave Curvature".into(),
             GeneratorKind::MeshMap(m) => format!("Mesh Map: {}", m.display_name()),
+            GeneratorKind::AmbientOcclusion => "Ambient Occlusion".into(),
         }
+    }
+
+    /// Painter-style kinds whose Level / Softness the editor shows as Painter's own controls
+    /// (Dirt Level / Dirt Contrast, Wear Level / Wear Contrast, Balance / Contrast).
+    pub fn uses_painter_names(self) -> bool {
+        matches!(self, GeneratorKind::Edges | GeneratorKind::Cavity | GeneratorKind::AmbientOcclusion | GeneratorKind::MeshMap(_))
     }
 }
 
 impl Generator {
+    /// A generator as "add generator" creates it, with Substance Painter's defaults for the kinds
+    /// Painter has: Dirt (Dirt Level 0.75, Dirt Contrast 0.5, Edges Masking 0.5, grunge from the
+    /// bundled grunge map), Metal Edge Wear (Wear Level 0.3 of the Spread reach, crisp contrast,
+    /// grunge map breakup), Ambient Occlusion and raw mesh maps (Balance 0.5, Contrast 0: the map
+    /// itself, smooth, no breakup).
     pub fn new(kind: GeneratorKind) -> Self {
         let mut noise = ProceduralParams::new(crate::fill::ProceduralKind::Clouds);
         noise.scale = 8.0;
+        let (level, softness, noise_amount) = match kind {
+            // Dirt Level 0.75 = threshold 0.25 on the occlusion; Dirt Contrast 0.5; Grunge Amount 0.5.
+            GeneratorKind::Cavity => (0.25, 0.5, 0.5),
+            // Wear Level 0.3; Wear Contrast 0.85; Grunge Amount 0.3.
+            GeneratorKind::Edges => (0.3, 0.15, 0.3),
+            GeneratorKind::Concave => (0.5, 0.15, 0.3),
+            // Balance 0.5, Contrast 0: smoothstep over the whole range, smooth by default.
+            GeneratorKind::AmbientOcclusion | GeneratorKind::MeshMap(_) => (0.5, 1.0, 0.0),
+            GeneratorKind::Directional | GeneratorKind::PositionGradient => (0.5, 0.15, 0.0),
+        };
         Self {
             kind,
-            level: 0.5,
-            softness: 0.15,
+            level,
+            softness,
             invert: false,
-            noise_amount: if matches!(kind, GeneratorKind::Edges | GeneratorKind::Cavity | GeneratorKind::Concave) { 0.3 } else { 0.0 },
+            noise_amount,
             noise,
             organic_breakup: matches!(kind, GeneratorKind::Edges | GeneratorKind::Cavity | GeneratorKind::Concave),
             edge_spread: (kind == GeneratorKind::Edges).then(EdgeSpread::default),
             direction: [0.0, 1.0, 0.0],
             axis: GradientAxis::Y,
             offset: [0.0; 3],
-            // New Dirt/Edges generators get fine grain so they chip and speckle; older projects keep None.
+            // Dirt and Edge wear break up with the grunge map; its own detail replaces the fine grain.
             painter: matches!(kind, GeneratorKind::Edges | GeneratorKind::Cavity).then(|| PainterControls {
-                grain: 0.7,
                 edges_masking: if kind == GeneratorKind::Cavity { 0.5 } else { 0.0 },
-                grunge_floor: if kind == GeneratorKind::Cavity { 0.1 } else { 0.0 },
+                grunge_floor: if kind == GeneratorKind::Cavity { 0.15 } else { 0.0 },
+                grunge_map: true,
                 ..PainterControls::default()
             }),
             micro: None,
@@ -434,6 +464,28 @@ mod tests {
         let mut g = Generator::new(GeneratorKind::Edges);
         g.set_micro_enabled(false);
         assert!(g.micro.is_none(), "unticking an untouched generator leaves it untouched");
+    }
+
+    #[test]
+    fn painter_defaults_and_older_files() {
+        let dirt = Generator::new(GeneratorKind::Cavity);
+        // Dirt Level 0.75 (threshold 0.25), Dirt Contrast 0.5, Edges Masking 0.5, grunge map.
+        assert_eq!((dirt.level, dirt.softness), (0.25, 0.5));
+        let pc = dirt.painter.unwrap();
+        assert!(pc.grunge_map && pc.edges_masking == 0.5 && pc.grain == 0.0);
+        let wear = Generator::new(GeneratorKind::Edges);
+        assert_eq!(wear.level, 0.3);
+        assert!(wear.painter.unwrap().grunge_map && wear.edge_spread.is_some());
+        let ao = Generator::new(GeneratorKind::AmbientOcclusion);
+        assert_eq!((ao.level, ao.softness, ao.noise_amount), (0.5, 1.0, 0.0));
+        assert!(ao.painter.is_none() && ao.kind.uses_painter_names());
+        assert_eq!(ao.kind.label(), "Ambient Occlusion");
+        // Older files: no grunge_map field means the organic noise; false is not written.
+        let old: PainterControls = serde_json::from_str(r#"{"edges_masking":0.5,"ao_masking":0,"curvature_weight":1,"smoothness":0,"grunge_scale":1}"#).unwrap();
+        assert!(!old.grunge_map);
+        assert!(!serde_json::to_string(&old).unwrap().contains("grunge_map"));
+        let kind: GeneratorKind = serde_json::from_str("\"ambient_occlusion\"").unwrap();
+        assert_eq!(kind, GeneratorKind::AmbientOcclusion);
     }
 
     #[test]
