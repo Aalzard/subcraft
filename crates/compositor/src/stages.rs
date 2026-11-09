@@ -894,15 +894,10 @@ impl<'a> Graph<'a> {
                     crate::mask::evaluate_effect(&effect.kind, &tc, &m, &mut e);
                 }
                 let mut out = source.as_ref().clone();
-                for (dst, e) in out.iter_mut().zip(e) {
-                    composite(
-                        dst,
-                        [e[0]; 3],
-                        e[1] * effect.opacity,
-                        effect.blend,
-                        BlendTarget::MASK,
-                    );
-                }
+                // `[value; 3]` with the effect's coverage in alpha, blended with the mode chosen once.
+                let src: Vec<[f32; 4]> = e.iter().map(|e| [e[0], e[0], e[0], e[1]]).collect();
+                let opacity = effect.opacity;
+                crate::blend::composite_run(&mut out, &src, effect.blend, BlendTarget::MASK, |_, s| s[3] * opacity);
                 out
             }
             Node::Layer {
@@ -930,26 +925,18 @@ impl<'a> Graph<'a> {
                 let content = self.get(*input, tile);
                 let blend = layer.blend_for(*kind);
                 let mode = effective_mode(blend.mode);
-                for ((dst, src), m) in out.iter_mut().zip(content.iter()).zip(coverage) {
-                    if *passthrough {
+                if *passthrough {
+                    for ((dst, src), m) in out.iter_mut().zip(content.iter()).zip(coverage) {
                         let f = (blend.opacity * m).clamp(0.0, 1.0);
                         for c in 0..4 {
                             dst[c] += (src[c] - dst[c]) * f;
                         }
-                    } else {
-                        let a = if mode == BlendMode::Replace {
-                            1.0
-                        } else {
-                            src[3]
-                        };
-                        composite(
-                            dst,
-                            [src[0], src[1], src[2]],
-                            a * blend.opacity * m,
-                            mode,
-                            BlendTarget::for_channel(*kind),
-                        );
                     }
+                } else {
+                    let (replace, opacity) = (mode == BlendMode::Replace, blend.opacity);
+                    crate::blend::composite_run(&mut out, &content, mode, BlendTarget::for_channel(*kind), |i, s| {
+                        (if replace { 1.0 } else { s[3] }) * opacity * coverage[i]
+                    });
                 }
                 out
             }
