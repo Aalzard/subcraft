@@ -10,11 +10,16 @@ What changed in SubCraft, newest first. Download the latest build from the
   grunge texture (bundled, seamless, CC0) instead of stylized speckles, with Painter's defaults and control
   names (Dirt Level / Contrast, Wear Level / Contrast, Grunge Amount, Edges Masking, Ambient Occlusion
   Masking, Curvature Weight, Edges Smoothness). Edge wear keeps the edge itself worn and chips the band
-  behind it. Older projects and the built-in smart materials keep their exact look.
+  behind it. Older projects keep their exact look.
+- **Smart-material dirt.** Every Dirt generator on the smart-material shelf, and every newly added Dirt
+  generator, uses Dirt Level 0.75, Dirt Contrast 0.39, Grunge Amount 0.52, Pattern size 16%, Edges Masking 0,
+  Grunge Floor 0.73, Grunge map on, Grain 0, Seed 1. Smart materials with a Dirt or Grime layer get an
+  "Ambient Occlusion" layer just below it: a dark, slightly rougher fill at 60% layer opacity, masked by an
+  Ambient Occlusion generator.
 
 ### Added
-- **Ambient Occlusion generator**: smooth by default (Balance 0.5, Contrast 0, no breakup). Raw mesh-map
-  generators also start smooth.
+- **Ambient Occlusion generator**: smooth by default (Balance 0.53, Contrast 0, no breakup, Pattern size
+  12.5%, Seed 1). Raw mesh-map generators also start smooth.
 
 ## 0.2.5 — release candidate
 

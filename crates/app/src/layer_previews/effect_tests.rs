@@ -61,6 +61,8 @@ fn mask_stage_thumbnails_show_paint_fill_generator_levels_invert_and_filter_inde
     .unwrap();
     let mut generator = Generator::new(GeneratorKind::Cavity);
     generator.noise_amount = 0.0;
+    // Dirt Contrast 0.5: the falloff stops short of unoccluded texels, so the unbaked plane is black.
+    generator.softness = 0.5;
     let stages = [
         MaskEffectKind::Paint {
             image: subcraft_image::TiledImage::new(128, 128, 2, [0.2, 1.0, 0.0, 0.0]),

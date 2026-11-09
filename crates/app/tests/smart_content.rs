@@ -132,7 +132,8 @@ fn new_smart_materials_have_believable_overall_pbr_values_on_the_baked_crate() {
     let oily = look("Oily Metal");
     let zinc = look("Galvanized Steel");
     assert!(alu.0 > 0.6 && alu.2 > 0.5 && (0.35..0.8).contains(&alu.1), "sandblasted aluminium is bright, metallic, semi-rough: {alu:?}");
-    assert!(oily.0 < alu.0 && oily.2 > 0.5, "oily metal is darker than aluminium and still metallic: {oily:?} {alu:?}");
+    // Oil film and dirt (Grunge Floor 0.73) are non-metal films over the steel: partly metallic overall.
+    assert!(oily.0 < alu.0 && oily.2 > 0.2, "oily metal is darker than aluminium and still partly metallic: {oily:?} {alu:?}");
     assert!(zinc.2 > 0.4, "galvanized is metallic: {zinc:?}");
 }
 

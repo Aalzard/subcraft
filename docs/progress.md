@@ -4728,3 +4728,28 @@ every number: `performance/generator-4k.md`.
   (headless egui test only for the Properties rows).
 * **Still missing vs Painter:** choosing among several grunge maps, Mask Editor generator (curvature + AO +
   position + thickness mixed in one generator), a separate Light generator (Directional covers it).
+
+### Session 119 - Smart-material Dirt and Ambient Occlusion settings from the user's screenshot (2026-11-09, branch `claude/dirt-ao-defaults`)
+
+* **Asked:** every smart material with a Dirt generator uses exactly Blend Normal, Opacity 1, Dirt Level 0.75,
+  Dirt Contrast 0.39, Grunge Amount 0.52, Pattern size 16%, Edges Masking 0, Grunge Floor 0.73, Grunge map on,
+  Grain 0, Seed 1, and a freshly added Dirt generator starts there. Add an Ambient Occlusion generator to the
+  dirt / grime layers with Blend Normal, Opacity 1, Balance 0.53, Contrast 0, Breakup 0, Pattern size 12.5%,
+  Grain 0, Seed 1, offsets 0, and make that the new AO default.
+* **Defaults (`Generator::new`):** Cavity = level 0.25, softness 0.61, noise 0.52, scale 6.25 (16%), painter
+  edges_masking 0, grunge_floor 0.73, grunge_map, grain 0. AmbientOcclusion = level 0.47, softness 1, noise 0.
+* **Shelf:** `presets::dirt_generator()` (a fresh Dirt generator) replaces every Cavity generator in the smart
+  materials (smart masks keep their tuned values). Two Dirt generators stacked over another effect with
+  Linear Dodge (Surface Rust, one smart_more material) keep that blend; all others are the first effect, Normal 1.
+  Every Dirt / Grime layer (25 materials incl. the 18 PBR-pack ones) gets an "Ambient Occlusion" layer right below
+  it (`smart::occlusion`): dark base color 0.02, roughness 0.8, no metallic channel, base color / roughness
+  blend opacity 0.6, masked by a fresh AO generator alone (Normal 1). Chosen over putting AO into the Dirt
+  mask because a Normal 1.0 generator replaces the effects below it.
+* **Look change:** Grunge Floor 0.73 with Edges Masking 0 puts a non-metal dirt film over open surfaces and
+  edges, so worn steel is partly metallic (Worn Painted Metal: no texel above metallic 0.9; Oily Metal mean
+  metallic 0.24). Tests `thumbnail_scenes_composite_presets` and
+  `new_smart_materials_have_believable_overall_pbr_values_on_the_baked_crate` now check relative values.
+* **Tests:** new `smart_material_dirt_and_ambient_occlusion_use_the_painter_settings` (assets); updated
+  `painter_defaults_and_older_files` (doc), AO smoothstep expectation (compositor), Bricks layer count
+  (open_pack), the mask-stage thumbnail test pins Dirt Contrast 0.5. Ran (test profile): doc, assets, compositor,
+  project, app (lib + all integration tests), ui lib: all pass.

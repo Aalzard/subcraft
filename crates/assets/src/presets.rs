@@ -233,6 +233,15 @@ pub(crate) fn generator(kind: GeneratorKind, level: f32, softness: f32, noise: f
     MaskEffectKind::Generator(g)
 }
 
+/// The Dirt generator of every built-in smart material: a freshly added Dirt generator (Dirt Level
+/// 0.75, Dirt Contrast 0.39, Grunge Amount 0.52, Pattern size 16%, Edges Masking 0, Grunge Floor
+/// 0.73, grunge map, Grain 0, Seed 1).
+pub(crate) fn dirt_generator() -> MaskEffectKind { MaskEffectKind::Generator(Generator::new(GeneratorKind::Cavity)) }
+
+/// The Ambient Occlusion generator added over the smart materials' dirt (Balance 0.53, Contrast 0,
+/// Breakup 0, Pattern size 12.5%, Grain 0, Seed 1, offsets 0).
+pub(crate) fn ambient_occlusion() -> MaskEffectKind { MaskEffectKind::Generator(Generator::new(GeneratorKind::AmbientOcclusion)) }
+
 pub(crate) fn mask(name: &str, effects: Vec<MaskEffectKind>) -> SmartMask {
     SmartMask { id: AssetId::from_name(&format!("smart_mask/{name}")), name: name.into(), effects, resources: Vec::new(), user_file: None }
 }

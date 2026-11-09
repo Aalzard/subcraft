@@ -186,6 +186,68 @@ fn new_smart_materials_are_folders_of_fill_layers_with_masks_and_measured_pbr_va
     }
 }
 
+/// Every Dirt generator on the smart-material shelf uses exactly the settings of a freshly added
+/// Dirt generator (Normal, opacity 1, Dirt Level 0.75, Dirt Contrast 0.39, Grunge Amount 0.52,
+/// Pattern size 16%, Edges Masking 0, Grunge Floor 0.73, grunge map, Grain 0, Seed 1), and every
+/// Dirt / Grime layer sits on an "Ambient Occlusion" layer masked by a fresh AO generator alone
+/// (Normal, opacity 1, Balance 0.53, Contrast 0, Breakup 0, Pattern size 12.5%, Grain 0, Seed 1).
+#[test]
+fn smart_material_dirt_and_ambient_occlusion_use_the_painter_settings() {
+    use subcraft_doc::{BlendMode, Generator, GeneratorKind, Layer, MaskEffectKind};
+    fn walk<'a>(l: &'a Layer, out: &mut Vec<&'a Layer>) {
+        out.push(l);
+        for c in l.children() { walk(c, out); }
+    }
+    let ts = TextureSet::new("T", 0, 64);
+    let fresh_dirt = Generator::new(GeneratorKind::Cavity);
+    let fresh_ao = Generator::new(GeneratorKind::AmbientOcclusion);
+    // The exact screenshot values, in UI terms.
+    assert_eq!((1.0 - fresh_dirt.level, 1.0 - fresh_dirt.softness, fresh_dirt.noise_amount), (0.75, 0.39, 0.52));
+    let pc = fresh_dirt.painter.unwrap();
+    assert!((fresh_dirt.pattern_size() - 16.0).abs() < 1e-4 && pc.edges_masking == 0.0 && pc.grunge_floor == 0.73 && pc.grunge_map && pc.grain == 0.0 && fresh_dirt.noise.seed == 1);
+    assert!(((1.0 - fresh_ao.level) - 0.53).abs() < 1e-6 && fresh_ao.softness == 1.0 && fresh_ao.noise_amount == 0.0);
+    assert!((fresh_ao.pattern_size() - 12.5).abs() < 1e-4 && fresh_ao.noise.seed == 1 && fresh_ao.offset == [0.0; 3]);
+    let lib = Library::builtin();
+    let (mut dirt_count, mut ao_count) = (0, 0);
+    for m in &lib.smart_materials {
+        let root = m.build(&ts);
+        let mut layers = Vec::new();
+        walk(&root, &mut layers);
+        for l in &layers {
+            let Some(mask) = &l.mask else { continue };
+            for e in &mask.effects {
+                let MaskEffectKind::Generator(g) = &e.kind else { continue };
+                match g.kind {
+                    GeneratorKind::Cavity => {
+                        dirt_count += 1;
+                        assert_eq!(g, &fresh_dirt, "{}/{}: Dirt generator settings", m.name, l.name);
+                        // A Dirt generator stacked over another effect keeps its additive blend.
+                        if std::ptr::eq(e.as_ref(), mask.effects[0].as_ref()) {
+                            assert_eq!((e.blend, e.opacity), (BlendMode::Normal, 1.0), "{}/{}", m.name, l.name);
+                        }
+                    }
+                    GeneratorKind::AmbientOcclusion => {
+                        ao_count += 1;
+                        assert_eq!(g, &fresh_ao, "{}/{}: AO generator settings", m.name, l.name);
+                        assert_eq!((e.blend, e.opacity, mask.effects.len()), (BlendMode::Normal, 1.0, 1), "{}/{}", m.name, l.name);
+                        assert_eq!(l.name, "Ambient Occlusion");
+                    }
+                    _ => {}
+                }
+            }
+        }
+        // Each Dirt / Grime layer has the Ambient Occlusion layer right below it.
+        for siblings in layers.iter().map(|l| l.children()) {
+            for (i, c) in siblings.iter().enumerate() {
+                if c.name == "Dirt" || c.name == "Grime" {
+                    assert!(i > 0 && siblings[i - 1].name == "Ambient Occlusion", "{}: {} sits on the Ambient Occlusion layer", m.name, c.name);
+                }
+            }
+        }
+    }
+    assert!(dirt_count >= 20, "Dirt generators on the shelf: {dirt_count}");
+    assert!(ao_count >= 10, "Ambient Occlusion layers on the shelf: {ao_count}");
+}
 
 #[test]
 fn smart_material_names_are_unique() {

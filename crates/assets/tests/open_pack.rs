@@ -101,10 +101,11 @@ fn library_lists_the_pack_and_textured_smart_materials_use_its_images() {
     let layer = smart.build_with(&ts, &ids);
     assert_eq!(layer.name, "Bricks");
     let children = layer.children();
-    assert_eq!(children.len(), 2, "bricks, grime (no moss)");
+    assert_eq!(children.len(), 3, "bricks, ambient occlusion, grime (no moss)");
+    assert_eq!(children[1].name, "Ambient Occlusion");
     let LayerContent::Fill(base) = &children[0].content else { panic!() };
     assert!(matches!(base.channels[&ChannelKind::BaseColor].source, FillSource::Bitmap { .. }));
-    assert!(children[1].mask.is_some());
+    assert!(children[1].mask.is_some() && children[2].mask.is_some());
     // Without imported images the base keeps its image channels off rather than dangling.
     let bare = smart.build_with(&ts, &ImageIds::new());
     let LayerContent::Fill(base) = &bare.children()[0].content else { panic!() };
