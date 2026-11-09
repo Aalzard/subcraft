@@ -13,7 +13,13 @@
 //!
 //! * Quick previews: when a snapshot dirties many tiles, a low-resolution composite of it is
 //!   published first (stretched over the dirty tiles) and then refined tile by tile to the exact
-//!   result; a newer snapshot cancels a preview still being computed.
+//!   result. A preview in progress is finished even if a newer snapshot arrives (a slider sends
+//!   one per frame; cancelling would restart it forever), and the newest one is previewed next.
+//! * Previews only cover what changed: whenever the worker is idle it keeps a low-resolution
+//!   composite of the exact state (the baseline). A preview then stretches only the tiles, per
+//!   channel, whose low-resolution texels differ from the baseline; everything else keeps showing
+//!   the crisp exact tiles and is not uploaded again. Dragging a generator slider on a 4096² set
+//!   so republishes the tiles it changes instead of every tile of every channel.
 //!
 //! Evaluation runs on the worker's own rayon pool (one thread fewer than the machine has), so
 //! parallel work started by the UI thread (brush stamps) never queues behind composite tiles.
@@ -23,7 +29,7 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use subcraft_core::TextureSetId;
+use subcraft_core::{ChannelKind, TextureSetId};
 use subcraft_doc::{ResourceStore, TextureSet};
 use subcraft_materials::{MeshMaps, TextureSetGeometry};
 
@@ -116,6 +122,8 @@ struct State {
     failed: bool,
     /// Quick previews published so far.
     previews: u64,
+    /// Baselines (quick composites of an idle exact state) made so far.
+    baselines: u64,
 }
 
 struct Shared {
@@ -194,6 +202,12 @@ impl CompositeWorker {
         self.lock().previews
     }
 
+    /// Preview baselines made so far (diagnostics and tests: a baseline is made after the worker
+    /// becomes idle, so a test waits for it before the next submission).
+    pub fn baselines_made(&self) -> u64 {
+        self.lock().baselines
+    }
+
     /// Block until the newest submitted snapshot is completely evaluated.
     pub fn finish(&self) {
         let mut st = self.lock();
@@ -247,7 +261,12 @@ fn run(shared: &Shared, pool: &rayon::ThreadPool) {
     let mut working = false;
     // What is shown while previews are pending: the exact composite with preview tiles on top.
     let mut displays: HashMap<TextureSetId, Composite> = HashMap::new();
-    let mut previewed: HashMap<TextureSetId, BTreeSet<usize>> = HashMap::new();
+    // Per channel, the displayed tiles that show a preview instead of the exact composite.
+    let mut previewed: HashMap<TextureSetId, HashMap<ChannelKind, BTreeSet<usize>>> = HashMap::new();
+    // Quick composite of the exact state, made when the worker last became idle, and the sets whose
+    // exact composite changed since (their baseline is remade at the next idle).
+    let mut baselines: HashMap<TextureSetId, Composite> = HashMap::new();
+    let mut outdated: BTreeSet<TextureSetId> = BTreeSet::new();
     loop {
         let fresh = {
             let mut st = shared.lock();
@@ -277,13 +296,18 @@ fn run(shared: &Shared, pool: &rayon::ThreadPool) {
                 let same_geometry = geometry.get(&id).is_none_or(|g| Arc::ptr_eq(g, &set.geometry));
                 if snap.invalidate.contains(&id) || !same_geometry {
                     cache.invalidate();
+                    baselines.remove(&id);
+                    outdated.insert(id);
                 }
                 geometry.insert(id, set.geometry.clone());
             }
         }
         displays.retain(|id, _| caches.contains_key(id));
         previewed.retain(|id, _| caches.contains_key(id));
+        baselines.retain(|id, _| caches.contains_key(id));
+        outdated.retain(|id| caches.contains_key(id));
         let mut out = Vec::new();
+        let mut previewed_now = false;
         if fresh {
             for set in &snap.sets {
                 let (id, ts) = (set.texture_set.id, &set.texture_set);
@@ -296,28 +320,55 @@ fn run(shared: &Shared, pool: &rayon::ThreadPool) {
                 let mut low = ts.clone();
                 low.resolution = low_geo.resolution;
                 let ctx = EvalContext { geometry: low_geo, resources: &snap.resources, mesh_maps: &set.mesh_maps };
-                let cancel = || {
-                    let st = shared.lock();
-                    st.next.is_some() || st.shutdown
-                };
+                // A preview in progress is finished even when a newer snapshot arrives: a slider
+                // sends one every frame, and a 4096² preview takes about 20 ms, so cancelling made
+                // every preview start over and nothing showed until the drag paused. The newest
+                // snapshot is previewed right after.
+                let cancel = || shared.lock().shutdown;
                 let Some(quick) = pool.install(|| Composite::preview(&low, &ctx, ts.resolution, &cancel)) else { continue };
+                let exact = cache.composite().filter(|c| c.resolution == ts.resolution && c.channels.keys().eq(quick.channels.keys()));
                 let mut display = match displays.remove(&id) {
                     Some(d) if d.resolution == ts.resolution => d,
                     _ => {
                         previewed.remove(&id);
-                        cache.composite().filter(|c| c.resolution == ts.resolution).cloned().unwrap_or_else(|| Composite::new(ts))
+                        exact.cloned().unwrap_or_else(|| Composite::new(ts))
                     }
                 };
-                display.overlay_preview(&quick, &stale);
-                let changed: ChangedTiles = display.channels.keys().map(|k| (*k, stale.clone())).collect();
-                previewed.entry(id).or_default().extend(stale.iter().copied());
+                let changed = match exact {
+                    Some(exact) => {
+                        let (changed, overlaid) = display.overlay_preview_against(&quick, &stale, exact, baselines.get(&id));
+                        // Stale tiles not overlaid now show exactly what `exact` holds.
+                        let shown = previewed.entry(id).or_default();
+                        for kind in display.channels.keys() {
+                            let set = shown.entry(*kind).or_default();
+                            for t in &stale {
+                                set.remove(t);
+                            }
+                            set.extend(overlaid.get(kind).into_iter().flatten().copied());
+                        }
+                        shown.retain(|_, set| !set.is_empty());
+                        changed
+                    }
+                    None => {
+                        display.overlay_preview(&quick, &stale);
+                        let shown = previewed.entry(id).or_default();
+                        for kind in display.channels.keys() {
+                            shown.entry(*kind).or_default().extend(stale.iter().copied());
+                        }
+                        display.channels.keys().map(|k| (*k, stale.clone())).collect()
+                    }
+                };
                 out.push((id, Published { composite: display.clone(), tiles: stale, changed }));
                 displays.insert(id, display);
                 shared.lock().previews += 1;
+                previewed_now = true;
             }
         }
+        // While a slider keeps moving, a newer snapshot is usually waiting by now: preview it next
+        // instead of spending a slice on exact tiles that snapshot dirties again.
+        let skip_exact = previewed_now && shared.lock().next.is_some();
         pool.install(|| {
-            for set in &snap.sets {
+            for set in snap.sets.iter().filter(|_| !skip_exact) {
                 let id = set.texture_set.id;
                 let cache = caches.get_mut(&id).expect("inserted for every set");
                 let ctx = EvalContext { geometry: &set.geometry, resources: &snap.resources, mesh_maps: &set.mesh_maps };
@@ -325,6 +376,7 @@ fn run(shared: &Shared, pool: &rayon::ThreadPool) {
                 if tiles.is_empty() {
                     continue;
                 }
+                outdated.insert(id);
                 let exact = cache.composite().expect("updated");
                 let mut changed = cache.last_changed().clone();
                 let composite = match displays.get_mut(&id) {
@@ -333,13 +385,14 @@ fn run(shared: &Shared, pool: &rayon::ThreadPool) {
                         // Tiles showing a preview must be uploaded even when the exact result
                         // equals the one before the edit.
                         let pending = previewed.entry(id).or_default();
-                        for t in &tiles {
-                            if pending.remove(t) {
-                                for kind in exact.channels.keys() {
+                        for (kind, set) in pending.iter_mut() {
+                            for t in &tiles {
+                                if set.remove(t) {
                                     changed.entry(*kind).or_default().push(*t);
                                 }
                             }
                         }
+                        pending.retain(|_, set| !set.is_empty());
                         for list in changed.values_mut() {
                             list.sort_unstable();
                             list.dedup();
@@ -369,9 +422,49 @@ fn run(shared: &Shared, pool: &rayon::ThreadPool) {
                 }
             }
         }
-        if !working && st.next.is_none() {
+        let idle = !working && st.next.is_none();
+        if idle {
             st.done = *generation;
         }
         shared.changed.notify_all();
+        drop(st);
+        if idle {
+            // The exact composites are complete: remember the quick composites of those that
+            // changed, so the next preview can tell which tiles it changes. Cancelled by the next
+            // snapshot (those baselines are then missing, and that preview stretches every stale
+            // tile, as before).
+            for set in &snap.sets {
+                let (id, ts) = (set.texture_set.id, &set.texture_set);
+                if baselines.contains_key(&id) && !outdated.contains(&id) {
+                    continue;
+                }
+                baselines.remove(&id);
+                let Some(low_geo) = set.preview_geometry.as_ref().filter(|g| Some(g.resolution) == preview_resolution(ts.resolution)) else {
+                    outdated.remove(&id);
+                    continue;
+                };
+                let mut low = ts.clone();
+                low.resolution = low_geo.resolution;
+                let ctx = EvalContext { geometry: low_geo, resources: &snap.resources, mesh_maps: &set.mesh_maps };
+                let cancel = || {
+                    let st = shared.lock();
+                    st.next.is_some() || st.shutdown
+                };
+                match pool.install(|| Composite::preview(&low, &ctx, ts.resolution, &cancel)) {
+                    Some(base) => {
+                        baselines.insert(id, base);
+                        outdated.remove(&id);
+                        shared.lock().baselines += 1;
+                    }
+                    None => {
+                        // The other changed sets keep no stale baseline either.
+                        for id in &outdated {
+                            baselines.remove(id);
+                        }
+                        break;
+                    }
+                }
+            }
+        }
     }
 }

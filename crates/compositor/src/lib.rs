@@ -25,7 +25,8 @@ use subcraft_core::ChannelKind;
 use subcraft_doc::{ResourceStore, TextureSet};
 use half::f16;
 use half::slice::HalfFloatSliceExt;
-use subcraft_image::{TILE_TEXELS, TileSlot, TiledImage, slot_data_mut};
+use std::sync::Arc;
+use subcraft_image::{TILE_SIZE, TILE_TEXELS, Tile, TileSlot, TiledImage, slot_data_mut};
 use subcraft_materials::{MeshMaps, SampleContext, TextureSetGeometry, TileGeometry};
 
 pub use blend::{BlendTarget, blend_fn, composite};
@@ -142,36 +143,69 @@ impl Composite {
     /// Overwrite `tiles` of this (full resolution) composite with `low` stretched to fit (nearest
     /// texel), for a preview shown until the exact tiles arrive.
     pub fn overlay_preview(&mut self, low: &Composite, tiles: &[usize]) {
-        let n = self.resolution.div_ceil(subcraft_image::TILE_SIZE) as usize;
-        let ratio = self.resolution as f32 / low.resolution as f32;
-        for (&kind, img) in self.channels.iter_mut() {
-            let Some(src) = low.channels.get(&kind) else { continue };
+        let kinds: Vec<ChannelKind> = self.channels.keys().copied().collect();
+        for kind in kinds {
+            let (Some(img), Some(src)) = (self.channels.get(&kind), low.channels.get(&kind)) else { continue };
+            let res = self.resolution;
+            let fresh: Vec<(usize, TileSlot)> = tiles.par_iter().map(|&t| (t, Some(stretched_tile(src, img, res, t)))).collect();
+            let img = self.channels.get_mut(&kind).expect("checked above");
             let slots = img.slots_mut();
-            let (comps, fill) = (slots.comps, slots.fill);
-            let tiles_per_row = n;
-            let rows: Vec<(usize, Vec<f16>)> = tiles
-                .par_iter()
-                .map(|&t| {
-                    let (x0, y0) = ((t % tiles_per_row) as u32 * subcraft_image::TILE_SIZE, (t / tiles_per_row) as u32 * subcraft_image::TILE_SIZE);
-                    let mut data = vec![f16::ZERO; TILE_TEXELS * comps];
-                    for ty in 0..subcraft_image::TILE_SIZE {
-                        for tx in 0..subcraft_image::TILE_SIZE {
-                            let sx = (((x0 + tx) as f32 + 0.5) / ratio) as u32;
-                            let sy = (((y0 + ty) as f32 + 0.5) / ratio) as u32;
-                            let v = src.get(sx.min(low.resolution - 1), sy.min(low.resolution - 1));
-                            let at = (ty * subcraft_image::TILE_SIZE + tx) as usize * comps;
-                            for c in 0..comps {
-                                data[at + c] = f16::from_f32(v[c]);
-                            }
-                        }
-                    }
-                    (t, data)
-                })
-                .collect();
-            for (t, data) in rows {
-                slot_data_mut(&mut slots.slots[t], comps, &fill).copy_from_slice(&data);
+            for (t, slot) in fresh {
+                slots.slots[t] = slot;
             }
         }
+    }
+
+    /// Show the quick preview `low` on `tiles` of this displayed composite, but only where it
+    /// says something changed: a tile (per channel) whose low-resolution texels equal those of
+    /// `baseline` (the quick composite of the state `exact` holds) shows the `exact` tile, crisp,
+    /// instead of the blocky stretch. Without a baseline every listed tile is stretched.
+    ///
+    /// Returns per channel the tiles whose displayed texels changed (what to upload) and the
+    /// tiles that now differ from `exact` (still waiting for their exact evaluation).
+    pub fn overlay_preview_against(&mut self, low: &Composite, tiles: &[usize], exact: &Composite, baseline: Option<&Composite>) -> (ChangedTiles, ChangedTiles) {
+        let mut changed = ChangedTiles::new();
+        let mut overlaid = ChangedTiles::new();
+        let res = self.resolution;
+        let kinds: Vec<ChannelKind> = self.channels.keys().copied().collect();
+        for kind in kinds {
+            let (Some(shown), Some(src), Some(exact_img)) = (self.channels.get(&kind), low.channels.get(&kind), exact.channels.get(&kind)) else { continue };
+            let base = baseline.filter(|b| b.resolution == low.resolution).and_then(|b| b.channels.get(&kind));
+            // (tile, new slot, differs from exact); `None` slot: the display already shows it.
+            let work: Vec<(usize, Option<TileSlot>, bool)> = tiles
+                .par_iter()
+                .map(|&t| {
+                    let unchanged = base.is_some_and(|b| same_low_block(src, b, res, t));
+                    let target = if unchanged { exact_img.slot(t).clone() } else { Some(stretched_tile(src, shown, res, t)) };
+                    let current = shown.slot(t);
+                    let same = match (current, &target) {
+                        (Some(a), Some(b)) => Arc::ptr_eq(a, b) || a.data == b.data,
+                        (None, None) => true,
+                        _ => false,
+                    };
+                    (t, (!same).then_some(target), !unchanged)
+                })
+                .collect();
+            let img = self.channels.get_mut(&kind).expect("checked above");
+            let slots = img.slots_mut();
+            let (mut c, mut o) = (Vec::new(), Vec::new());
+            for (t, slot, differs) in work {
+                if let Some(slot) = slot {
+                    slots.slots[t] = slot;
+                    c.push(t);
+                }
+                if differs {
+                    o.push(t);
+                }
+            }
+            if !c.is_empty() {
+                changed.insert(kind, c);
+            }
+            if !o.is_empty() {
+                overlaid.insert(kind, o);
+            }
+        }
+        (changed, overlaid)
     }
 
     /// Copy the listed tiles of every channel from `other` (same resolution).
@@ -275,6 +309,76 @@ impl Composite {
         }
         out
     }
+}
+
+/// Low-resolution texel (column or row) shown at full-resolution texel `x` of a preview stretch
+/// (nearest texel, as the preview has always been sampled).
+#[inline]
+fn low_texel(x: u32, full: u32, low: u32) -> u32 {
+    (((x as f32) + 0.5) / (full as f32 / low as f32)) as u32
+}
+
+/// The f16 texel `(x, y)` of `img` (its fill where the tile is unallocated).
+#[inline]
+fn texel_f16<'a>(img: &'a TiledImage, fill: &'a [f16], x: u32, y: u32) -> &'a [f16] {
+    let comps = img.comps();
+    let t = img.tile_index(x / TILE_SIZE, y / TILE_SIZE);
+    match img.tile(t) {
+        Some(tile) => {
+            let at = ((y % TILE_SIZE) * TILE_SIZE + x % TILE_SIZE) as usize * comps;
+            &tile.data[at..at + comps]
+        }
+        None => fill,
+    }
+}
+
+fn fill_f16(img: &TiledImage) -> Vec<f16> {
+    img.fill()[..img.comps()].iter().map(|&v| f16::from_f32(v)).collect()
+}
+
+/// Tile `t` of a `full`-resolution image shaped like `like`, filled with `low` stretched (nearest
+/// texel). Texels are copied as stored (f16), so they equal what decoding and re-encoding gave.
+fn stretched_tile(low: &TiledImage, like: &TiledImage, full: u32, t: usize) -> Arc<Tile> {
+    let comps = like.comps();
+    debug_assert_eq!(comps, low.comps());
+    let (tx, ty) = like.tile_coords(t);
+    let (x0, y0) = (tx * TILE_SIZE, ty * TILE_SIZE);
+    let lr = low.width();
+    let fill = fill_f16(low);
+    let cols: Vec<u32> = (0..TILE_SIZE).map(|x| low_texel(x0 + x, full, lr).min(lr - 1)).collect();
+    let mut data = vec![f16::ZERO; TILE_TEXELS * comps];
+    for y in 0..TILE_SIZE {
+        let sy = low_texel(y0 + y, full, lr).min(lr - 1);
+        let row = &mut data[(y * TILE_SIZE) as usize * comps..][..TILE_SIZE as usize * comps];
+        for (o, &sx) in row.chunks_exact_mut(comps).zip(&cols) {
+            o.copy_from_slice(texel_f16(low, &fill, sx, sy));
+        }
+    }
+    Arc::new(Tile { data: data.into_boxed_slice() })
+}
+
+/// Whether two low-resolution images hold identical bits in every texel that full-resolution
+/// tile `t` stretches from (so a preview of `a` there shows the same as one of `b`).
+fn same_low_block(a: &TiledImage, b: &TiledImage, full: u32, t: usize) -> bool {
+    if a.comps() != b.comps() || a.width() != b.width() {
+        return false;
+    }
+    let lr = a.width();
+    let n = full.div_ceil(TILE_SIZE);
+    let (tx, ty) = ((t as u32) % n, (t as u32) / n);
+    let (x0, y0) = (tx * TILE_SIZE, ty * TILE_SIZE);
+    let (sx0, sx1) = (low_texel(x0, full, lr).min(lr - 1), low_texel(x0 + TILE_SIZE - 1, full, lr).min(lr - 1));
+    let (sy0, sy1) = (low_texel(y0, full, lr).min(lr - 1), low_texel(y0 + TILE_SIZE - 1, full, lr).min(lr - 1));
+    let (fa, fb) = (fill_f16(a), fill_f16(b));
+    for sy in sy0..=sy1 {
+        for sx in sx0..=sx1 {
+            let (pa, pb) = (texel_f16(a, &fa, sx, sy), texel_f16(b, &fb, sx, sy));
+            if pa.iter().zip(pb).any(|(x, y)| x.to_bits() != y.to_bits()) {
+                return false;
+            }
+        }
+    }
+    true
 }
 
 /// Edge (in tiles) of the square blocks tiles are scheduled in.

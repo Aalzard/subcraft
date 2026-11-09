@@ -144,7 +144,8 @@ mod tests {
             assert!(s.x > 0.0 && s.x < 800.0 && s.y > 0.0 && s.y < 600.0, "{corner} -> {s}");
         }
         let vp = cam.view_params([800, 600]);
-        assert_eq!(vp.proj * vp.view, pc.view_proj());
+        // Same matrix up to rounding (sin/cos of constant angles may be folded at compile time on one path).
+        assert!((vp.proj * vp.view).abs_diff_eq(pc.view_proj(), 1e-5));
     }
 
     #[test]
@@ -196,6 +197,7 @@ mod tests {
         }
         // Painting and rendering still share one matrix.
         let vp = close.view_params([800, 600]);
-        assert_eq!(vp.proj * vp.view, pc.view_proj());
+        // Same matrix up to rounding (sin/cos of constant angles may be folded at compile time on one path).
+        assert!((vp.proj * vp.view).abs_diff_eq(pc.view_proj(), 1e-5));
     }
 }

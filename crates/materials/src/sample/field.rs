@@ -7,23 +7,48 @@
 //! (a generator level, fill colors, opacity, blend modes, levels…) then reuses the fields, and
 //! results are bit-identical to evaluating again.
 //!
-//! Memory is bounded twice: at most [`PER_TILE`] fields per tile (least recently used are
-//! dropped) and a process-wide byte budget beyond which new fields are computed uncached.
+//! Memory is bounded twice: at most [`PER_TILE`] fields per tile and a process-wide byte budget
+//! ([`set_budget`]; the app sizes it from the machine's memory).
+//!
+//! Replacement is scan resistant: a stack whose tiles need more fields than fit used to evict, on
+//! every tile, the field the next layer was about to read (a cyclic access pattern defeats plain
+//! least-recently-used), so at 4K every generator recomputed its noise on every slider step. Now
+//! a field is only replaced once it has gone unused for [`STALE_AFTER`] reads of its tile (a
+//! pattern whose parameters changed, say); while every cached field is still in use, the extra
+//! one is computed uncached and the rest keep hitting.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use parking_lot::Mutex;
 use subcraft_doc::{ProceduralParams, Projection};
 use subcraft_image::TILE_TEXELS;
 
-/// Fields kept per tile (a typical stack has a handful of procedural fills/noises).
-pub const PER_TILE: usize = 8;
-/// Process-wide budget for cached field data (all tiles of all texture sets).
+/// Fields kept per tile (fills, generator breakup / grain / chips, edge distance...).
+pub const PER_TILE: usize = 24;
+/// Default process-wide budget for cached field data (all tiles of all texture sets).
 pub const BUDGET_BYTES: usize = 768 << 20;
+/// Reads of a tile after which a field not read in between counts as stale (replaceable).
+pub const STALE_AFTER: u64 = 2 * PER_TILE as u64;
 
 static BYTES: AtomicUsize = AtomicUsize::new(0);
-static CLOCK: AtomicU64 = AtomicU64::new(0);
+static BUDGET: AtomicUsize = AtomicUsize::new(BUDGET_BYTES);
+
+/// Change the process-wide budget (bytes). Fields already cached stay until replaced.
+pub fn set_budget(bytes: usize) {
+    BUDGET.store(bytes, Ordering::Relaxed);
+}
+
+/// The process-wide budget (bytes).
+pub fn budget() -> usize {
+    BUDGET.load(Ordering::Relaxed)
+}
+
+/// A budget for a machine with `total_memory` bytes of RAM: a twelfth of it, at least the default
+/// and at most 4 GiB (a 4096² set with a dozen generator noises needs about 0.9 GB).
+pub fn budget_for_memory(total_memory: u64) -> usize {
+    (total_memory / 12).clamp(BUDGET_BYTES as u64, 4 << 30) as usize
+}
 
 /// Bytes currently held by cached fields (diagnostics and tests).
 pub fn cached_bytes() -> usize {
@@ -119,37 +144,52 @@ struct Entry {
 }
 
 #[derive(Debug, Default)]
+struct Entries {
+    list: Vec<Entry>,
+    /// Reads of this tile's fields so far (the clock of `Entry::used`).
+    reads: u64,
+}
+
+#[derive(Debug, Default)]
 pub struct FieldCache {
-    entries: Mutex<Vec<Entry>>,
+    entries: Mutex<Entries>,
 }
 
 impl FieldCache {
-    /// The cached field for `key`, or `compute()` it (outside the lock) and keep it.
+    /// The cached field for `key`, or `compute()` it (outside the lock) and keep it if there is room
+    /// (see the module documentation for what gets replaced).
     pub fn get_or_compute(&self, key: FieldKey, compute: impl FnOnce() -> Vec<f32>) -> Arc<Field> {
-        let now = CLOCK.fetch_add(1, Ordering::Relaxed);
-        if let Some(e) = self.entries.lock().iter_mut().find(|e| e.key == key) {
-            e.used = now;
-            return e.field.clone();
+        {
+            let mut e = self.entries.lock();
+            e.reads += 1;
+            let now = e.reads;
+            if let Some(hit) = e.list.iter_mut().find(|x| x.key == key) {
+                hit.used = now;
+                return hit.field.clone();
+            }
         }
         let values = compute();
         debug_assert_eq!(values.len(), TILE_TEXELS);
         let field = Arc::new(Field::new(values.into_boxed_slice()));
-        let mut entries = self.entries.lock();
-        if let Some(e) = entries.iter().find(|e| e.key == key) {
-            return e.field.clone(); // another thread finished first
+        let mut e = self.entries.lock();
+        if let Some(x) = e.list.iter().find(|x| x.key == key) {
+            return x.field.clone(); // another thread finished first
         }
-        if entries.len() >= PER_TILE {
-            let oldest = entries.iter().enumerate().min_by_key(|(_, e)| e.used).map(|(i, _)| i).unwrap();
-            entries.swap_remove(oldest);
-        }
-        if cached_bytes() <= BUDGET_BYTES {
-            entries.push(Entry { key, field: field.clone(), used: now });
+        let now = e.reads;
+        let entry = Entry { key, field: field.clone(), used: now };
+        if e.list.len() < PER_TILE && cached_bytes() <= budget() {
+            e.list.push(entry);
+        } else if let Some((i, oldest)) = e.list.iter().enumerate().min_by_key(|(_, x)| x.used)
+            && now.saturating_sub(oldest.used) > STALE_AFTER
+        {
+            // Replacing frees as much as it takes, so this is fine over budget too.
+            e.list[i] = entry;
         }
         field
     }
 
     pub fn len(&self) -> usize {
-        self.entries.lock().len()
+        self.entries.lock().list.len()
     }
 
     pub fn is_empty(&self) -> bool {

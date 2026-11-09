@@ -177,12 +177,44 @@ fn procedural_fields_are_cached_exactly_per_parameter_set() {
     assert_ne!(&a[..], &b[..]);
     let rotated = Projection { rotation_deg: 10.0, ..tri };
     assert!(!Arc::ptr_eq(&a, &procedural_tile(&params, &rotated, &g)));
-    // At most PER_TILE fields per tile; the oldest is dropped.
+    // At most PER_TILE fields per tile; a field still in use is never pushed out by an extra one
+    // (that one is computed uncached), but one unused for STALE_AFTER reads is replaced.
+    let extra = |seed: u32| ProceduralParams { seed: 100 + seed, ..params };
     for seed in 0..field::PER_TILE as u32 + 3 {
-        procedural_tile(&ProceduralParams { seed: 100 + seed, ..params }, &tri, &g);
+        procedural_tile(&extra(seed), &tri, &g);
     }
     assert_eq!(g.fields.len(), field::PER_TILE);
-    assert!(!Arc::ptr_eq(&a, &procedural_tile(&params, &tri, &g)), "evicted, then recomputed");
+    assert!(Arc::ptr_eq(&a, &procedural_tile(&params, &tri, &g)), "recently used: kept");
+    let overflow = extra(field::PER_TILE as u32 + 2);
+    assert!(!Arc::ptr_eq(&procedural_tile(&overflow, &tri, &g), &procedural_tile(&overflow, &tri, &g)), "no room: uncached");
+    // Keep reading `a` only: every other field goes stale and the next new one takes a slot.
+    for _ in 0..field::STALE_AFTER + 1 {
+        procedural_tile(&params, &tri, &g);
+    }
+    let fresh = procedural_tile(&overflow, &tri, &g);
+    assert!(Arc::ptr_eq(&fresh, &procedural_tile(&overflow, &tri, &g)), "replaced a stale field");
+    assert!(Arc::ptr_eq(&a, &procedural_tile(&params, &tri, &g)));
+    assert_eq!(g.fields.len(), field::PER_TILE);
+}
+
+/// A stack needing more fields per tile than fit, read in the same order on every pass (one pass
+/// per slider step), keeps hitting on the fields it holds instead of missing on every read.
+#[test]
+fn cyclic_field_reads_beyond_capacity_do_not_thrash() {
+    let geo = TextureSetGeometry::new(Arc::new(primitives::cube(2.0)), 0, 128);
+    let g = geo.tile(1);
+    let params = ProceduralParams::new(ProceduralKind::Clouds);
+    let tri = Projection { mode: ProjectionMode::Triplanar, ..Projection::default() };
+    let n = field::PER_TILE as u32 + 5;
+    let pass = || -> Vec<Arc<field::Field>> { (0..n).map(|s| procedural_tile(&ProceduralParams { seed: s, ..params }, &tri, &g)).collect() };
+    let first = pass();
+    let second = pass();
+    let hits = first.iter().zip(&second).filter(|(a, b)| Arc::ptr_eq(a, b)).count();
+    assert_eq!(hits, field::PER_TILE, "every cached field hits again");
+    // Exactness does not depend on caching.
+    for (a, b) in first.iter().zip(&second) {
+        assert_eq!(&a[..], &b[..]);
+    }
 }
 
 #[test]
