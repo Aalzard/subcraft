@@ -3,7 +3,7 @@
 What changed in SubCraft, newest first. Download the latest build from the
 [Releases page](https://github.com/Aalzard/subcraft/releases/latest).
 
-## Unreleased
+## 0.3.1
 
 ### Fixed
 - **Crash a few seconds after start-up on some Windows machines** (issue #98). GPU compositing and
