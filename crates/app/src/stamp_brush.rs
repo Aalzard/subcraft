@@ -16,6 +16,24 @@ use crate::session::Session;
 pub const STAMP_SPACING: f32 = 1.0;
 pub const STAMP_HARDNESS: f32 = 0.85;
 
+/// A stamp image encoded for the project (the slow part of choosing a stamp: PNG encoding of a
+/// 1024² map). Made on a worker thread by [`prepare_stamp`], applied on the UI thread.
+#[derive(Clone)]
+pub struct PreparedStamp {
+    /// Display name (without the "Starter: " prefix).
+    pub name: String,
+    pub bitmap: Arc<Bitmap>,
+    pub encoded: Arc<Vec<u8>>,
+    pub ext: &'static str,
+}
+
+/// Encode `bitmap` for the stamp brush. Thread-safe and session-free.
+pub fn prepare_stamp(name: &str, bitmap: Bitmap) -> Result<PreparedStamp, String> {
+    let name = name.strip_prefix("Starter: ").unwrap_or(name).to_string();
+    let (encoded, ext) = subcraft_image::encode_bitmap(&bitmap).map_err(|e| e.to_string())?;
+    Ok(PreparedStamp { name, bitmap: Arc::new(bitmap), encoded: Arc::new(encoded), ext })
+}
+
 impl Session {
     /// Make a decoded image the active stamp. Normal maps paint the Normal channel, height /
     /// grayscale images the Height channel. The brush keeps only that channel switched on (the
@@ -23,26 +41,55 @@ impl Session {
     /// switches on afterwards paint flat values under the stamp's footprint. Identical images
     /// share one resource.
     pub fn set_brush_stamp(&mut self, name: &str, kind: StampKind, bitmap: Bitmap) -> Result<(), String> {
-        let name = name.strip_prefix("Starter: ").unwrap_or(name);
-        let (encoded, ext) = subcraft_image::encode_bitmap(&bitmap).map_err(|e| e.to_string())?;
+        let prepared = prepare_stamp(name, bitmap)?;
+        self.set_prepared_stamp(kind, prepared);
+        Ok(())
+    }
+
+    /// [`Session::set_brush_stamp`] with the image already encoded (off the UI thread).
+    /// Returns the stamp's resource.
+    pub fn set_prepared_stamp(&mut self, kind: StampKind, prepared: PreparedStamp) -> ResourceId {
+        let name = prepared.name.clone();
+        let id = self.insert_prepared(prepared);
+        self.activate_stamp(&name, kind, id);
+        id
+    }
+
+    /// Swap the full-resolution image in for a quick placeholder (the Shelf thumbnail) while
+    /// keeping every stamp setting the user changed meanwhile. Nothing happens (`false`) when the
+    /// brush no longer uses `placeholder`: the user picked another brush before the load finished.
+    pub fn upgrade_brush_stamp(&mut self, placeholder: ResourceId, prepared: PreparedStamp) -> bool {
+        if self.brush.material.stamp.as_ref().and_then(|s| s.resource) != Some(placeholder) {
+            return false;
+        }
+        let id = self.insert_prepared(prepared);
+        if let Some(s) = self.brush.material.stamp.as_mut() {
+            s.resource = Some(id);
+        }
+        true
+    }
+
+    /// Insert an encoded image as a texture resource; identical images share one resource.
+    fn insert_prepared(&mut self, prepared: PreparedStamp) -> ResourceId {
+        let PreparedStamp { name, bitmap, encoded, ext } = prepared;
         let existing = self
             .resources()
             .iter()
-            .find(|r| r.kind == subcraft_doc::ResourceKind::Texture && r.encoded.as_deref().is_some_and(|e| *e == encoded))
+            .find(|r| r.kind == subcraft_doc::ResourceKind::Texture && r.encoded.as_deref().is_some_and(|e| e.len() == encoded.len() && *e == *encoded))
             .map(|r| r.id);
-        let id = existing.unwrap_or_else(ResourceId::new);
-        if existing.is_none() {
-            self.resources_mut().insert(subcraft_doc::Resource {
-                id,
-                name: format!("{name}.{ext}"),
-                kind: subcraft_doc::ResourceKind::Texture,
-                bitmap: Arc::new(bitmap),
-                source_path: None,
-                encoded: Some(Arc::new(encoded)),
-            });
+        if let Some(id) = existing {
+            return id;
         }
-        self.activate_stamp(name, kind, id);
-        Ok(())
+        let id = ResourceId::new();
+        self.resources_mut().insert(subcraft_doc::Resource {
+            id,
+            name: format!("{name}.{ext}"),
+            kind: subcraft_doc::ResourceKind::Texture,
+            bitmap,
+            source_path: None,
+            encoded: Some(encoded),
+        });
+        id
     }
 
     /// Activate stamp `resource` (already in the store) with fresh strength / flip settings.

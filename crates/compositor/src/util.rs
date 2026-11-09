@@ -8,7 +8,9 @@ use subcraft_materials::TileGeometry;
 pub fn read_tile_rgba(img: &TiledImage, geo: &TileGeometry, out: &mut [[f32; 4]]) {
     debug_assert_eq!(out.len(), TILE_TEXELS);
     let comps = img.comps();
-    if img.width() == geo.resolution && img.height() == geo.resolution {
+    if img.width() == geo.resolution && img.height() == geo.resolution && comps == 4 {
+        img.read_tile(img.tile_index(geo.x0 / TILE_SIZE, geo.y0 / TILE_SIZE), out.as_flattened_mut());
+    } else if img.width() == geo.resolution && img.height() == geo.resolution {
         let mut buf = vec![0.0f32; TILE_TEXELS * comps];
         img.read_tile(img.tile_index(geo.x0 / TILE_SIZE, geo.y0 / TILE_SIZE), &mut buf);
         for (o, px) in out.iter_mut().zip(buf.chunks_exact(comps)) {

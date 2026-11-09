@@ -169,26 +169,48 @@ pub fn font_available(language: Language) -> bool {
     language == Language::English || font_candidates(language).iter().any(|(p, _)| std::path::Path::new(p).is_file())
 }
 
-/// Install the egui fonts for `language`: the interface fonts, plus a CJK fallback when the
-/// language needs one. Returns false when no CJK font was found (text then shows boxes).
+/// Languages whose CJK fonts are added as fallbacks, best first: the interface language's, then,
+/// while the language picker can be shown (Preferences open), every other one so the picker can
+/// draw each language's native name (한국어, 繁體中文) even in English.
+pub fn fallback_languages(language: Language, picker: bool) -> Vec<Language> {
+    let mut out = Vec::new();
+    if language != Language::English { out.push(language); }
+    if picker {
+        out.extend(Language::ALL.into_iter().filter(|l| *l != Language::English && *l != language));
+    }
+    out
+}
+
+/// Install the egui fonts for `language`: the interface fonts, plus CJK fallbacks (see
+/// [`fallback_languages`]). Returns false when the interface language's CJK font was not found
+/// (its text then shows boxes); a missing font for a picker-only name is just logged.
 pub fn install_font(ctx: &egui::Context, language: Language) -> bool {
+    install_fonts(ctx, language, false)
+}
+
+pub fn install_fonts(ctx: &egui::Context, language: Language, picker: bool) -> bool {
     let mut fonts = crate::theme::fonts();
     let mut found = true;
-    if language != Language::English {
-        match find_font(language) {
+    let mut loaded: Vec<String> = Vec::new();
+    for (n, wanted) in fallback_languages(language, picker).into_iter().enumerate() {
+        match find_font(wanted) {
             Some((path, bytes, index)) => {
-                log::info!("interface font for {language:?}: {path} (face {index})");
+                if loaded.contains(&path) { continue; } // one file can cover several languages
+                log::info!("interface font for {wanted:?}: {path} (face {index})");
                 let mut data = egui::FontData::from_owned(bytes);
                 data.index = index;
-                fonts.font_data.insert("cjk".into(), std::sync::Arc::new(data));
+                let name = if n == 0 { "cjk".to_string() } else { format!("cjk-{n}") };
+                fonts.font_data.insert(name.clone(), std::sync::Arc::new(data));
                 for family in fonts.families.values_mut() {
-                    family.push("cjk".into());
+                    family.push(name.clone());
                 }
+                loaded.push(path);
             }
-            None => {
+            None if wanted == language => {
                 log::warn!("no system font with {language:?} glyphs found; set SUBCRAFT_CJK_FONT to a .ttf/.ttc file");
                 found = false;
             }
+            None => log::info!("no system font for the {wanted:?} name in the language picker"),
         }
     }
     ctx.set_fonts(fonts);
@@ -200,11 +222,23 @@ static APPLIED: AtomicU8 = AtomicU8::new(u8::MAX);
 /// Make `language` the interface language: switch the texts and, when the language changed,
 /// install its fonts. Cheap to call every frame; returns false only when a CJK font is missing.
 pub fn sync(ctx: &egui::Context, language: Language) -> bool {
+    sync_fonts(ctx, language, false)
+}
+
+/// Like [`sync`], and `picker` (the language picker may be shown) also loads the other languages'
+/// fonts. Once loaded they stay until the language changes, so opening and closing Preferences does
+/// not rebuild the font atlas each time; English without the picker loads no CJK font at all.
+pub fn sync_fonts(ctx: &egui::Context, language: Language, picker: bool) -> bool {
     set_language(language);
-    if APPLIED.swap(language.to_u8(), Ordering::Relaxed) == language.to_u8() {
+    const PICKER: u8 = 0x10;
+    let previous = APPLIED.load(Ordering::Relaxed);
+    let keep_picker = previous != u8::MAX && previous & !PICKER == language.to_u8() && previous & PICKER != 0;
+    let key = language.to_u8() | if picker || keep_picker { PICKER } else { 0 };
+    if previous == key {
         return true;
     }
-    install_font(ctx, language)
+    APPLIED.store(key, Ordering::Relaxed);
+    install_fonts(ctx, language, key & PICKER != 0)
 }
 
 #[cfg(test)]

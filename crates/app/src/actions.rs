@@ -368,7 +368,7 @@ pub const PAINTER_REFERENCE: &[PainterEntry] = &[
     gesture("Mouse", "S (hold) + RMB", "Stencil zoom", "already worked"),
     gesture("Mouse", "Ctrl+RMB drag", "Change tool size / hardness", "added: horizontal = size, vertical = hardness"),
     gesture("Mouse", "Ctrl+LMB drag", "Change tool flow / rotation", "added: horizontal = flow, vertical = angle (Clone keeps Ctrl+click for its source)"),
-    none("Mouse", "Shift+RMB", "Rotate environment", "no environment rotation"),
+    gesture("Mouse", "Shift+RMB", "Rotate environment", "added: drag left-right turns the environment and its lighting (Shift+MMB turns only the key light)"),
     none("Mouse", "Ctrl+MMB", "Auto-focus (Depth of Field)", "depth of field is being built on another branch"),
     none("Mouse", "Ctrl+Alt+RMB", "Texture set selection", "no equivalent"),
     gesture("Mouse", "RMB", "Context menu", "already worked (part actions)"),

@@ -6,9 +6,34 @@ use subcraft_doc::{FillChannel, FillSource, Layer, LayerContent, Resource, Resou
 use subcraft_image::Bitmap;
 use crate::{Command, Selection, Session};
 
-pub struct Destination { scene: Arc<subcraft_mesh::Mesh>, selection: Selection, channel: Option<(LayerId,ChannelKind)>, brush_channel: Option<ChannelKind>, stamp: Option<subcraft_paint::StampKind> }
+/// A low-resolution stand-in that is already the active brush while the full image loads.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Placeholder {
+    /// The stamp brush uses this (thumbnail) resource.
+    Stamp(ResourceId),
+    /// The brush tip is a thumbnail of the image with the same name.
+    Tip,
+}
+
+pub struct Destination { scene: Arc<subcraft_mesh::Mesh>, selection: Selection, channel: Option<(LayerId,ChannelKind)>, brush_channel: Option<ChannelKind>, stamp: Option<subcraft_paint::StampKind>, placeholder: Option<Placeholder> }
 impl Destination {
-    pub fn capture(session: &Session, channel: Option<(LayerId,ChannelKind)>) -> Self { Self { scene:session.scene().mesh.clone(),selection:session.selection(),channel,brush_channel:None,stamp:None } }
+    pub fn capture(session: &Session, channel: Option<(LayerId,ChannelKind)>) -> Self { Self { scene:session.scene().mesh.clone(),selection:session.selection(),channel,brush_channel:None,stamp:None,placeholder:None } }
+    /// The brush tip (brush alpha); tool state only.
+    pub fn capture_tip(session: &Session) -> Self { Self::capture(session,None) }
+    /// The full image replaces `placeholder` only while the brush still uses it.
+    pub fn with_placeholder(mut self, placeholder: Placeholder) -> Self { self.placeholder=Some(placeholder); self }
+    pub fn stamp_kind(&self) -> Option<subcraft_paint::StampKind> { self.stamp }
+    /// Finish a stamp destination with an image encoded off the UI thread. With a placeholder,
+    /// only swaps the image in (keeping the user's stamp settings) if it is still the brush.
+    pub fn apply_prepared_stamp(self, session: &mut Session, prepared: crate::stamp_brush::PreparedStamp) -> Result<(),String> {
+        if !Arc::ptr_eq(&self.scene,&session.scene().mesh) { return Err("Project changed; image application canceled".into()); }
+        let kind=self.stamp.ok_or("Not a stamp brush destination")?;
+        match self.placeholder {
+            Some(Placeholder::Stamp(id)) => { session.upgrade_brush_stamp(id,prepared); }
+            _ => { session.set_prepared_stamp(kind,prepared); }
+        }
+        Ok(())
+    }
     /// The brush's image for `channel` (tool state: no layer or document change).
     pub fn capture_brush(session: &Session, channel: ChannelKind) -> Self { Self { brush_channel:Some(channel),..Self::capture(session,None) } }
     /// The active normal-map / height stamp brush (tool state: no layer or document change).
@@ -18,6 +43,8 @@ impl Destination {
         if !Arc::ptr_eq(&self.scene,&session.scene().mesh) { return Err("Project changed; image application canceled".into()); }
         if let Some(stamp)=self.stamp { return session.set_brush_stamp(name,stamp,bitmap); }
         if kind==Kind::Alpha {
+            // A thumbnail tip is replaced only while it is still the brush's tip.
+            if self.placeholder==Some(Placeholder::Tip) && (session.brush.alpha_name!=name || session.brush.material.stamp.is_some()) { return Ok(()); }
             let alpha=BrushAlpha { id:AssetId::from_name(&format!("adjusted-alpha/{name}")),name:name.into(),bitmap:Some(Arc::new(bitmap)),user_file:None };
             session.set_brush_alpha(&alpha); return Ok(());
         }

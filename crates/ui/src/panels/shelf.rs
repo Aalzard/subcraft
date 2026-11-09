@@ -223,6 +223,39 @@ impl Default for EnvUi {
     }
 }
 
+/// Environment a new window starts with (Painter-like soft daylight).
+pub const DEFAULT_ENVIRONMENT: &str = "Glasshouse Morning";
+/// Azimuth (degrees, `atan2(x, z)`) the key light should come from in the default view: the
+/// framing camera sits at 35°, so 65° puts the sun in front of the model, over the viewer's
+/// right shoulder, as in Painter's default lighting (never from behind the model).
+pub const KEY_LIGHT_AZIMUTH_DEG: f32 = 65.0;
+/// Rotation of [`DEFAULT_ENVIRONMENT`] that puts its sun at [`KEY_LIGHT_AZIMUTH_DEG`]
+/// (= `rotation_for_key_light` of its sun; fixed so startup does not decode the HDRI early,
+/// checked by a test).
+pub const DEFAULT_ENVIRONMENT_ROTATION_DEG: f32 = -165.6;
+
+/// Environment rotation (degrees, -180..180 like the Rotation slider) that turns a sun at `sun`
+/// (world direction) to [`KEY_LIGHT_AZIMUTH_DEG`].
+pub fn rotation_for_key_light(sun: [f32; 3]) -> f32 {
+    let azimuth = sun[0].atan2(sun[2]).to_degrees();
+    wrap_rotation(KEY_LIGHT_AZIMUTH_DEG - azimuth)
+}
+
+/// Fold an environment rotation into the Rotation slider's -180..180 range.
+pub fn wrap_rotation(deg: f32) -> f32 {
+    (deg + 180.0).rem_euclid(360.0) - 180.0
+}
+
+impl EnvUi {
+    /// Startup environment: [`DEFAULT_ENVIRONMENT`] turned so the model is lit from the front.
+    pub fn startup(library: &Library) -> Self {
+        match library.environments.iter().position(|e| e.name == DEFAULT_ENVIRONMENT) {
+            Some(index) => Self { index, rotation_deg: DEFAULT_ENVIRONMENT_ROTATION_DEG, ..Self::default() },
+            None => Self::default(),
+        }
+    }
+}
+
 /// Configure `params` (and upload an HDRI when needed) for environment `index` of `library`.
 pub fn apply_environment(
     library: &Library,
@@ -313,6 +346,12 @@ pub(crate) fn tile(ui: &mut Ui, side: f32, thumb: Option<&egui::TextureHandle>, 
         egui::Stroke::new(1.0, theme::BORDER)
     };
     painter.rect_stroke(img, 0.0, stroke, egui::StrokeKind::Inside);
+    if selected {
+        // The active brush: an accent check badge in the corner, readable on any thumbnail.
+        let badge = egui::pos2(img.right() - 11.0, img.top() + 11.0);
+        painter.circle_filled(badge, 8.0, theme::ACCENT);
+        painter.text(badge, egui::Align2::CENTER_CENTER, crate::icons::CHECK, theme::font(11.0), Color32::WHITE);
+    }
     let color = if selected || resp.hovered() { theme::TEXT } else { theme::TEXT_DIM };
     let mut job = egui::text::LayoutJob::simple(name.to_string(), theme::font(11.0), color, side);
     job.wrap.max_rows = 1;
@@ -507,7 +546,16 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                             continue;
                         }
                         shown += 1;
-                        let resp = tile(ui, tile_size, t.thumb.as_ref(), &t.name, false, &if normals { format!("{} (normal map): click to use it as the normal-map brush, double-click to preview and adjust. Drag onto a channel, the model or a layer. Alt+click: use it in the active channel of the selected fill layer", t.name) } else { format!("{} ({}): drag onto a channel, the model or a layer. Alt+click: use it in the active channel of the selected fill layer", t.name, t.category) });
+                        // Normal maps and height maps are stamp brushes on a click (Substance Painter:
+                        // a click on a brush resource makes it the active brush).
+                        let stamp = if normals { Some(subcraft_paint::StampKind::Normal) } else if t.category == subcraft_core::ChannelKind::Height.display_name() { Some(subcraft_paint::StampKind::Height) } else { None };
+                        let selected = stamp.is_some_and(|k| state.session.brush.material.stamp.as_ref().is_some_and(|s| s.kind == k && s.name == t.name));
+                        let tip = match stamp {
+                            Some(subcraft_paint::StampKind::Normal) => format!("{} (normal map): click to use it as the normal-map brush, double-click to preview and adjust. Drag onto a channel, the model or a layer. Alt+click: use it in the active channel of the selected fill layer", t.name),
+                            Some(subcraft_paint::StampKind::Height) => format!("{} (height map): click to use it as the height brush, double-click to preview and adjust. Drag onto a channel, the model or a layer. Alt+click: use it in the active channel of the selected fill layer", t.name),
+                            None => format!("{} ({}): drag onto a channel, the model or a layer. Alt+click: use it in the active channel of the selected fill layer", t.name, t.category),
+                        };
+                        let resp = tile(ui, tile_size, t.thumb.as_ref(), &t.name, selected, &tip);
                         resp.dnd_set_drag_payload(ShelfDrag::Texture(i));
                         if library_menu(&resp, state.user_library.as_ref(), &t.path, &mut lib_status) {
                             let path = t.path.clone();
@@ -515,9 +563,15 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         }
                         if resp.clicked() && alt {
                             action = Some(Box::new(move |s: &mut UiState| apply_shelf_item_with(s, ShelfDrag::Texture(i), true, now)));
-                        } else if normals && resp.clicked() && !resp.double_clicked() {
-                            let name=t.name.clone();let path=t.path.clone();let ctx=ui.ctx().clone();
-                            action = Some(Box::new(move |s: &mut UiState| { let UiState { asset_preview, session, .. } = s; asset_preview.start_stamp(&ctx,session,name,subcraft_assets::starter::Kind::Normal,crate::asset_preview::Source::File(path),subcraft_paint::StampKind::Normal); s.tool = crate::state::Tool::Brush; }));
+                        } else if let Some(kind) = stamp.filter(|_| resp.clicked() && !resp.double_clicked()) {
+                            let name=t.name.clone();let path=t.path.clone();let ctx=ui.ctx().clone();let thumb=t.thumb_bitmap.clone();
+                            let image_kind = if kind == subcraft_paint::StampKind::Normal { subcraft_assets::starter::Kind::Normal } else { subcraft_assets::starter::Kind::Alpha };
+                            action = Some(Box::new(move |s: &mut UiState| {
+                                let UiState { asset_preview, session, .. } = s;
+                                asset_preview.start_stamp(&ctx,session,name,image_kind,crate::asset_preview::Source::File(path),kind,thumb);
+                                s.tool = crate::state::Tool::Brush;
+                                s.show_selected_brush(None);
+                            }));
                         } else if resp.clicked() {
                             let name=t.name.clone();let path=t.path.clone();let ctx=ui.ctx().clone();
                             let kind=if t.category=="Normal" {subcraft_assets::starter::Kind::Normal} else {subcraft_assets::starter::Kind::Texture};
@@ -600,7 +654,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                             Some(d) => format!("{}: {d}", p.name),
                             None => "Brush preset: tip, size, flow, jitter and material (right-click for options)".to_string(),
                         };
-                        let resp = tile(ui, tile_size, thumb, &p.name, false, &tip);
+                        let resp = tile(ui, tile_size, thumb, &p.name, state.is_selected_shelf_brush(&p.name), &tip);
                         if let Some(file) = &p.user_file
                             && library_menu(&resp, state.user_library.as_ref(), file, &mut lib_status)
                         {
@@ -615,7 +669,6 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                             action = Some(a);
                         }
                     }
-                    let current = state.session.brush.alpha_name.clone();
                     for (i, a) in state.library.alphas.iter().enumerate() {
                         if a.name.starts_with("Starter: ") {continue;}
                         if !filter.matches(&a.name, None, a.user_file.is_some()) {
@@ -623,7 +676,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         }
                         shown += 1;
                         let tip = if a.user_file.is_some() { "Brush tip (your library: right-click for options). Drag onto a layer's mask, or Alt+click, to use it as the mask shape" } else { "Brush tip. Drag onto a layer's mask, or Alt+click, to use it as the mask shape" };
-                        let resp = tile(ui, tile_size, thumbs.get(&a.id), &a.name, a.name == current, tip);
+                        let resp = tile(ui, tile_size, thumbs.get(&a.id), &a.name, state.is_selected_shelf_brush(&a.name), tip);
                         if a.bitmap.is_some() { resp.dnd_set_drag_payload(ShelfDrag::Alpha(i)); }
                         if let Some(file) = &a.user_file
                             && library_menu(&resp, state.user_library.as_ref(), file, &mut lib_status)
@@ -789,9 +842,10 @@ fn env_controls(state: &mut UiState, ui: &mut Ui) {
         for (label, value, range) in [("Rotation", &mut state.env.rotation_deg, -180.0..=180.0), ("Intensity", &mut state.env.intensity, 0.1..=4.0)] {
             ui.allocate_ui_with_layout(egui::vec2(width, 20.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
                 ui.add_sized([60.0, 18.0], egui::Label::new(RichText::new(label).color(theme::TEXT_DIM)));
-                ui.spacing_mut().slider_width = (ui.available_width() - 64.0).max(20.0);
+                // Room for the value box: "-180°" is the widest rotation (whole degrees).
+                ui.spacing_mut().slider_width = (ui.available_width() - 72.0).max(20.0);
                 let slider = egui::Slider::new(value, range);
-                ui.add(if label == "Rotation" { slider.suffix("°") } else { slider.logarithmic(true) });
+                ui.add(if label == "Rotation" { slider.suffix("°").fixed_decimals(0) } else { slider.logarithmic(true) });
             });
         }
     });
@@ -1118,5 +1172,52 @@ fn selected_filter(session: &subcraft_app::Session) -> Option<String> {
     match &e.kind {
         subcraft_doc::MaskEffectKind::Filter(f) => Some(f.label().to_string()),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod environment_tests {
+    use super::*;
+
+    #[test]
+    fn startup_environment_is_glasshouse_lit_from_the_front() {
+        let library = Library::builtin();
+        let env = EnvUi::startup(&library);
+        let chosen = &library.environments[env.index];
+        assert_eq!(chosen.name, DEFAULT_ENVIRONMENT);
+        let sun = chosen.source.hdri().expect("Glasshouse is a bundled HDRI").sun_direction;
+        let wanted = rotation_for_key_light(sun);
+        eprintln!("glasshouse sun {sun:?}, rotation for a front key light {wanted:.1} deg");
+        let off = (DEFAULT_ENVIRONMENT_ROTATION_DEG - wanted + 180.0).rem_euclid(360.0) - 180.0;
+        assert!(off.abs() < 2.0, "default rotation {DEFAULT_ENVIRONMENT_ROTATION_DEG} should be {wanted:.1}");
+        assert!((-180.0..=180.0).contains(&DEFAULT_ENVIRONMENT_ROTATION_DEG), "inside the Rotation slider's range");
+        // The light apply_environment derives faces the framing camera (35° yaw), never the model's back.
+        let (s, c) = env.rotation_deg.to_radians().sin_cos();
+        let light = Vec3::new(c * sun[0] + s * sun[2], sun[1], -s * sun[0] + c * sun[2]);
+        let camera = Vec3::new(35f32.to_radians().sin(), 0.0, 35f32.to_radians().cos());
+        assert!(Vec3::new(light.x, 0.0, light.z).normalize().dot(camera) > 0.7, "light {light} vs camera {camera}");
+    }
+
+    #[test]
+    fn a_new_window_opens_the_shelf_on_smart_materials_with_glasshouse() {
+        let state = UiState::new(subcraft_app::Session::new(subcraft_mesh::primitives::cube(2.0), 64), None);
+        assert_eq!(state.shelf.tab, ShelfTab::SmartMaterials);
+        assert_eq!(state.library.environments[state.env.index].name, DEFAULT_ENVIRONMENT);
+        assert_eq!(state.env.rotation_deg, DEFAULT_ENVIRONMENT_ROTATION_DEG);
+    }
+
+    #[test]
+    fn key_light_rotation_moves_any_sun_to_the_target_azimuth() {
+        for az in [0.0f32, 90.0, 200.0, 359.0] {
+            let sun = [az.to_radians().sin(), 0.4, az.to_radians().cos()];
+            let r = rotation_for_key_light(sun).to_radians();
+            let x = r.cos() * sun[0] + r.sin() * sun[2];
+            let z = -r.sin() * sun[0] + r.cos() * sun[2];
+            assert!((x.atan2(z).to_degrees() - KEY_LIGHT_AZIMUTH_DEG).abs() < 1e-3, "{az}");
+            assert!((-180.0..=180.0).contains(&rotation_for_key_light(sun)));
+        }
+        for (deg, wrapped) in [(194.4f32, -165.6f32), (-190.0, 170.0), (90.0, 90.0), (540.0, -180.0)] {
+            assert!((wrap_rotation(deg) - wrapped).abs() < 1e-3, "{deg} -> {}", wrap_rotation(deg));
+        }
     }
 }

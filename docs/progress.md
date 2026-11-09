@@ -4629,7 +4629,7 @@ Baking an AI-generated high poly (Tripo etc.) needs the two meshes to overlap. A
   (`bake_overlay_high_poly_follows_the_placement_transform_and_opacity`). The per-map status was also
   wrong while baking (finished maps stayed "waiting", "-0.0 s"); fixed with live tracking and a monotonic test.
 
-Tests (`cargo test` of core, bake, mesh, doc, project, app, ui, render): 722 passed, 1 failed.
+
 The failure is `ui/tests/emission_chip.rs` (a "+ emiss" chip expectation in the Properties panel); none
 of the touched files are involved, and it was not run against the base commit, so it is not confirmed
 pre-existing. New tests: placement maths (7), `transformed` (3), bake placement / distance (7), project
@@ -4728,3 +4728,205 @@ every number: `performance/generator-4k.md`.
   (headless egui test only for the Properties rows).
 * **Still missing vs Painter:** choosing among several grunge maps, Mask Editor generator (curvature + AO +
   position + thickness mixed in one generator), a separate Light generator (Directional covers it).
+## 2026-11-08 — Brush preview on select, instant normal-map brush (branch `claude/brush-preview-instant-f8f307`)
+
+Two user reports: a Shelf click on a brush resource gave no visible confirmation, and choosing a
+normal map as the brush took 4–5 s.
+
+* **Selection is visible** (Substance Painter's brush properties showing the selected alpha): a click
+  on a brush tip, preset, Starter pack alpha, normal map (Starter pack or Mine) or height map
+  (Textures with the Height category, new) makes it the active brush in that frame, brings the brush
+  settings forward (Properties pinned to the brush, or the legacy Brush tab) and scrolls them to the
+  top. There a new **BRUSH** card (`panels/brush_header.rs`) shows the brush name, the tip name and a
+  preview of one stamp plus an example stroke, rendered with the painting kernel's own tip footprint
+  (`paint::stamp::tip_footprint`, factored out of `Stamp::footprint`; `paint::tip_preview`). Stamp
+  brushes keep their NORMAL MAP / HEIGHT BRUSH card. The chosen Shelf tile gets the accent border and
+  a check badge (presets, tips, Starter alphas, normal and height maps; tips are not highlighted while a
+  stamp is active). Starter pack alphas now become the brush tip on a click (double-click: preview).
+* **Instant normal-map brush.** Cause: after the off-thread PNG decode, the 1024² resample ran in the
+  frame loop 16 384 texels per frame (64+ frames, frame-rate bound) and the PNG encode for the project
+  resource ran on the UI thread. Now: the embedded 96² Shelf thumbnail (Starter pack) or the Shelf
+  thumbnail texels (Mine) become the stamp in the click handler (`Session::set_prepared_stamp`); the
+  resample **and** the encode run on a worker thread (`asset_preview::ApplyTask`, cancelable,
+  `app::stamp_brush::prepare_stamp`); when ready, `Session::upgrade_brush_stamp` swaps the full image
+  in, keeping strength / flip / tiling the user changed meanwhile, and does nothing if another brush
+  was chosen in between (a new Shelf brush choice also cancels the pending load). Painting before then
+  uses the thumbnail-resolution stamp; the card shows "Loading full resolution…". The 8 most recent
+  full-resolution stamps stay encoded in memory, so choosing one again is instant. Every other
+  shelf-image application (fill layers, brush channel images, adjusted alphas) also left the frame loop.
+* Measured in the real release app on this machine (loaded by parallel builds), scripted click on
+  Starter "Bolted Armor" (`--capture-tool normal-brush-select`, log lines `brush timing:`):
+
+  | | click → brush active | click → full resolution | UI thread |
+  |---|---|---|---|
+  | before | 1485 / 1512 / 1527 ms (1607 ms with `--demo` at 2560×1440) | same | resample in frames + PNG encode |
+  | after | 0.1–0.2 ms (thumbnail stamp) | 320 / 348 / 359 ms | none (only polls) |
+
+  Starter alpha click: 0.0 ms to the thumbnail tip, 277 ms to the full image. The 4–5 s the user saw is
+  the same frame-bound path at a lower frame rate.
+* Tests: `app/tests/stamp_brush.rs` (upgrade keeps settings and never overrides another choice or a
+  cleared stamp; identical prepared images share a resource), `paint::tip_preview` (round tip centre /
+  corner, alpha image orientation, different tips differ), `ui::asset_preview` (click is the brush at
+  once at 96 px and under 250 ms, full 1024 px arrives from the worker while frames keep running,
+  adjustment kept, cached reselect instant; a late image never replaces a tip chosen meanwhile; Starter
+  alpha thumbnail → full tip; tile highlight + Properties request). The two existing asset-preview
+  tests now wait for the worker instead of a fixed frame count. `ui/tests/shelf_brush.rs` now expects
+  a single click to bring the brush settings forward (it asserted the old no-editor behaviour).
+  `ui/tests/properties_polish.rs` caught the fixed-width 264 px preview widening the card in a 260 px
+  panel; both previews (BRUSH and NORMAL MAP BRUSH) now shrink with the panel.
+* Test runs (release profile, shared target): `subcraft-paint` + `subcraft-app` all 59 test binaries
+  pass (0 failures, incl. 94 app unit tests); `subcraft-ui` lib 109 passed; ui integration targets
+  brush_bar, brush_material, channels_panel, shelf_brush, shelf_drop, shelf_import, properties_polish,
+  preview_layout, panel_bands, hover, viewport_paint, text_and_alt, emission_chip pass. **Not run**: the
+  other 22 ui integration targets (each takes about 10 minutes to link on this machine under load).
+* Screenshots (`docs/ui/brush-preview/`): before / after alpha selection (Properties shows nothing
+  about the brush before; the BRUSH card with the Splatter preview and the highlighted tile after),
+  before / after normal-map selection, after Starter alpha selection. A shot of the loading state was
+  not possible with the scripted capture: the full image (about 350 ms) arrives before the screenshot is
+  delivered (`--capture-tool normal-brush-select-loading` exists but showed the finished state).
+* Build note: other worktrees link into the shared target at the same time, so a first "after" binary
+  silently came from another branch. Built with `--config profile.release.package.<crate>.codegen-units=15`
+  for the changed crates (distinct artifact hashes) and checked the exe contains the new log strings.
+### UI, defaults and shortcuts pass (Painter look, frameless window)
+
+* **Frameless window** (`crates/ui/src/window_frame.rs`): OS title bar off (`with_decorations(false)`), caption
+  buttons (minimize, maximize / restore, close) drawn at the right end of the header beside Export. Empty header
+  space moves the window through `ViewportCommand::StartDrag` (the OS move, so Windows snap / WM moves keep
+  working); double-click toggles maximize; 5 px edge bands and 12 px corners send `BeginResize` from a foreground
+  layer. `SUBCRAFT_NATIVE_TITLE_BAR=1` restores the OS frame.
+* **3D toolbar**: Brush / Eraser / Fill / Clone / Smudge icons removed (tool rail only); the inline threshold
+  dropped from 1214 to 1075 points so the brush values stay on the first row.
+* **Startup**: Glasshouse Morning (`EnvUi::startup`), rotated -165.6° (inside the Rotation slider range; Shift+RMB also wraps to -180..180) so its sun (39° up) sits at azimuth 65°,
+  in front of the framing camera (35°) over the viewer's right shoulder. The constant is checked against the
+  decoded HDRI's sun by `startup_environment_is_glasshouse_lit_from_the_front`. The shelf no longer switches to
+  Textures when the user library has textures; the Assets column is narrower (23.5% of the centre, ~18% of the window).
+  The right column keeps 24%: at Painter's ~18% the Properties chips wrap below a 1600 x 1300 window and the
+  inspector tests (`fill_controls_edit_only_the_selected_fill...`) could no longer click them.
+* **Shift+RMB drag rotates the environment** in both navigation schemes (Painter binding); the key-light-only turn
+  moved to Shift+MMB (Painter scheme). Listed in the hint overlay, shortcuts window, Preferences and keymap table.
+* **Texture Set List**: the size is a dropdown (128 to 4096, the sizes `RESOLUTIONS` supports; 8192 is not a
+  supported texture set size yet) issuing `SetResolution`, so it is undoable.
+* **Look**: grey levels moved toward Painter's (sampled from `painter-reference/`: panels 51, strips 43, fields 38,
+  text 204) while keeping the earlier choices the theme tests record: the faint warm tint, a panel grey within a
+  few levels of #2b2b2b (BG_1 48, BG_2 44) and visible alternating row bands; plus a 1 px hairline under list rows.
+* **Language picker tofu**: in English the 한국어 / 繁體中文 entries showed boxes because the CJK fallback font was only
+  installed for the active language. `i18n::sync_fonts(ctx, language, picker)` now also installs the other languages'
+  system CJK fonts while Preferences is open (`fallback_languages`); they stay until the language changes, so
+  opening / closing Preferences does not rebuild the atlas, and English without Preferences still loads none.
+  `--capture-tool language-picker` opens Preferences with the dropdown open for scripted captures.
+
+Verified with scripted captures of the release app (`--reset-layout --window-size 1920x1040 --screenshot`):
+caption buttons, single-row brush toolbar, Smart Materials shelf, Glasshouse lighting from the front, hint row
+"Shift+RMB Rotate environment". Not verified by hand (no mouse driving on this machine): dragging / snapping /
+edge-resizing the frameless window, the caption buttons' clicks, Shift+RMB in the live viewport, macOS / Linux.
+## Twice as fast: compositor, noise, bitmap fills, brush store (2026-11-09, branch `claude/perf-2x`)
+
+Goal from the owner: make the app about twice as fast without changing results. Every change below is
+**bit-identical**: a hash of every texel bit of every channel is the same on `main` and on this branch for
+all three benchmark stacks (default smart materials `461a931b48d73faf` / `b02a9af192253faf` after strokes,
+PBR materials `ab065dc628255faf` / `394210721aee9faf`, 40-layer stress stack `0d8d7340015e7faf` /
+`f648aa27a6741faf`), and each rewritten kernel has a test comparing it bit for bit with the old code.
+
+**Benchmarks** (all in the repo):
+* `cargo run --release -p subcraft-app --example smart_bench -- 2048 4` (new): the default model
+  (`SubCraft_base`) with Rusty Iron, Dusty Plastic, Worn Painted Metal and Chipped Painted Metal, layer edits
+  at the bottom and top of the stack, brush strokes, save and open. `SUBCRAFT_BENCH_MATERIALS="Galvanized
+  Steel,Black Basalt,Worn Leather,Mossy Stone"` picks the image-based PBR pack instead; `SUBCRAFT_BENCH_HASH=1`
+  prints the texel hashes; `SUBCRAFT_COMPOSITE_PROFILE=1` now also profiles the per-tile (non-graph) path.
+* `big_project_bench` (40 layers, blurs, generators), `pen_stroke_bench` (existing).
+* `cargo run --release -p subcraft-materials --example pattern_bench -- 64 [tri]` and
+  `cargo run --release -p subcraft-image --example sample_bench` (new micro benchmarks with checksums).
+
+**Measured** (RTX 4060 PC, 16 threads, release). The PC was shared with other builds, so main and branch ran
+alternately, three rounds each in two sessions; each number is the best of those runs (4096² rows: best of
+two, from the final build only). Milliseconds.
+
+| case (2048² unless noted) | main | branch | speed-up |
+|---|---|---|---|
+| smart materials: bottom material visibility / opacity | 2984 / 3092 | 166 / 170 | 18x |
+| smart materials: top material visibility / opacity | 75 / 85 | 55 / 58 | 1.4x |
+| smart materials: add 4 materials (command + composite) | 3493 | 2236 | 1.6x |
+| smart materials: first composite after open / at startup | 3721 / 310 | 2257 / 195 | 1.6x |
+| PBR materials: bottom / top visibility | 557 / 152 | 363 / 103 | 1.5x |
+| PBR materials: add 4 / first composite after open | 2058 / 1789 | 1442 / 1226 | 1.4x |
+| 40 layers: full composite | 6520 | 3369 | 1.9x |
+| 40 layers: stroke on a mid-stack mask | 1544 | 508 | 3.0x |
+| 40 layers: generator level / bottom pattern edit | 6452 / 6240 | 1818 / 2278 | 3.5x / 2.7x |
+| 40 layers: bottom / middle / top layer edit | 6148 / 2830 / 176 | 1734 / 1007 / 54 | 3.5x / 2.8x / 3.3x |
+| 40 layers: top-layer opacity / stroke on a top mask | 129 / 100 | 98 / 88 | 1.3x / 1.1x |
+| pen stroke 300 px, 10 layers: ms per call / p95 frame | 2.6 / 4.6 | 2.1 / 3.5 | 1.2x / 1.3x |
+| pen stroke 300 px at 4096²: ms per call / p95 frame | 7.8 / 24.4 | 4.0 / 14.0 | 1.9x / 1.7x |
+| 4096², 40 layers: full composite | 27533 | 17106 | 1.6x |
+| 4096², smart materials: add / bottom visibility / first composite after open | 13945 / 12372 / 16052 | 9011 / 8004 / 11195 | 1.4-1.6x |
+| procedural patterns (UV / triplanar), 64 tiles | 549 / 1609 | 260 / 848 | 2.1x / 1.9x |
+| bitmap bilinear sample, 8-bit RGBA (ns) | 42.6 | 15.6 | 2.7x |
+| unchanged: bake 7.7 s, save 0.35 s, project file read 0.22 s | | | 1.0x |
+
+**What changed** (one commit each):
+1. Noise (`materials/noise.rs`, `pattern.rs`, `scratch.rs`, `organic.rs`): a per-thread memo of each lattice
+   cell's corner gradients / values / scratch segments, indexed by cell so the three triplanar planes do not
+   evict each other; one integer division per axis instead of four; an exact `floor` (`core::fastmath`) instead
+   of the library call `floor` compiles to on the portable x86-64 baseline (no SSE4.1; same bits for every input,
+   tested over 4M values).
+2. Procedural field cache (`materials/sample/field.rs`): it held 8 fields per tile, but a few smart materials
+   use more (triplanar fills per channel plus mask noise), so least-recently-used eviction dropped every field
+   right before its next use and each edit recomputed all noise. The per-tile cap is now the existing 768 MiB
+   budget shared by all tiles (32 at 2048², 12 at 4096², never under 8), counted from each texture set's tile
+   count when its geometry is created so early tiles cannot take the whole budget. This is the 18x row.
+3. Blending (`compositor/blend.rs`, `tile.rs`, `mask.rs`, `stages.rs`): `composite_run` / `composite_mask_run`
+   pick the blend mode once per tile instead of matching it per texel, and the mask is read as a slice instead
+   of through a `&dyn Fn` per texel. Mask base rasters decode straight into the mask buffer; RGBA tiles without
+   a temporary copy.
+4. Gaussian passes (`stages.rs`): premultiplied row buffers and whole-row taps; same taps, same order.
+5. Bitmap fills (`image/bitmap.rs`, `doc/fill.rs`, `materials/sample`): an 8-bit fast path for the four bilinear
+   taps with table-decoded bytes (`b / 255` and sRGB tables hold exactly the old values), one wrap per axis, and
+   the projection's rotation `sin_cos` computed once per tile instead of per texel (and per triplanar plane).
+6. Brush (`paint/stroke.rs`, `target.rs`, `image/tiled.rs`): stroke tiles are encoded to f16 on all cores and only
+   swapped in on the UI thread; the store was a serial encode of every touched tile of every channel (write stage
+   about halved).
+
+**Tests:** `cargo test --release` of core, image, doc, materials, compositor, paint, mesh, bake, project, export,
+assets and app (lib + all 50 integration tests): 927 passed, 0 failed, 1 ignored.
+
+**Memory:** the field cache holds more: peak working set of the 40-layer stack 1854 -> 2206 MB at 2048² and
+3553 -> 3852 MB at 4096² (within the existing 768 MiB budget, which is unchanged).
+
+**Tried, no gain (not kept):** `codegen-units = 1` for the workspace crates (within noise; slower builds); forcing
+the noise inner loop inline / out-of-line miss path (no change); keeping fields used in the current pass and
+rotating one slot when a tile is full (helps cyclic stacks, but the 40-layer stack at 4096² got slower: 25 vs 19 s).
+
+**Not done / open questions for the owner:**
+* At 4096² the smart-material stack needs more fields per tile than the budget allows (12), so a bottom edit is
+  8 s instead of 0.2 s at 2048². A larger budget (for example 1.5 GiB = 24 fields per tile at 4096²) would fix it at
+  the cost of memory; left unchanged.
+* Not touched: GPU compositor, viewport rendering, startup (the window and Vulkan/DX12 device take ~1-2 s per
+  `startup.log`), generator internals (another branch), bake, export, project IO.
+* Not measured: real tablet input and GPU upload in the app (benchmarks are headless). The release app from this
+  branch was built and started (`--screenshot`): no errors, the default material composites as before. Starting it
+  right after an unfinished start (safe mode) logs a pre-existing `grid pipeline` sample-count validation error in
+  the viewport; render code is untouched here.
+
+### Session 119 - Smart-material Dirt and Ambient Occlusion settings from the user's screenshot (2026-11-09, branch `claude/dirt-ao-defaults`)
+
+* **Asked:** every smart material with a Dirt generator uses exactly Blend Normal, Opacity 1, Dirt Level 0.75,
+  Dirt Contrast 0.39, Grunge Amount 0.52, Pattern size 16%, Edges Masking 0, Grunge Floor 0.73, Grunge map on,
+  Grain 0, Seed 1, and a freshly added Dirt generator starts there. Add an Ambient Occlusion generator to the
+  dirt / grime layers with Blend Normal, Opacity 1, Balance 0.53, Contrast 0, Breakup 0, Pattern size 12.5%,
+  Grain 0, Seed 1, offsets 0, and make that the new AO default.
+* **Defaults (`Generator::new`):** Cavity = level 0.25, softness 0.61, noise 0.52, scale 6.25 (16%), painter
+  edges_masking 0, grunge_floor 0.73, grunge_map, grain 0. AmbientOcclusion = level 0.47, softness 1, noise 0.
+* **Shelf:** `presets::dirt_generator()` (a fresh Dirt generator) replaces every Cavity generator in the smart
+  materials (smart masks keep their tuned values). Two Dirt generators stacked over another effect with
+  Linear Dodge (Surface Rust, one smart_more material) keep that blend; all others are the first effect, Normal 1.
+  Every Dirt / Grime layer (25 materials incl. the 18 PBR-pack ones) gets an "Ambient Occlusion" layer right below
+  it (`smart::occlusion`): dark base color 0.02, roughness 0.8, no metallic channel, base color / roughness
+  blend opacity 0.6, masked by a fresh AO generator alone (Normal 1). Chosen over putting AO into the Dirt
+  mask because a Normal 1.0 generator replaces the effects below it.
+* **Look change:** Grunge Floor 0.73 with Edges Masking 0 puts a non-metal dirt film over open surfaces and
+  edges, so worn steel is partly metallic (Worn Painted Metal: no texel above metallic 0.9; Oily Metal mean
+  metallic 0.24). Tests `thumbnail_scenes_composite_presets` and
+  `new_smart_materials_have_believable_overall_pbr_values_on_the_baked_crate` now check relative values.
+* **Tests:** new `smart_material_dirt_and_ambient_occlusion_use_the_painter_settings` (assets); updated
+  `painter_defaults_and_older_files` (doc), AO smoothstep expectation (compositor), Bricks layer count
+  (open_pack), the mask-stage thumbnail test pins Dirt Contrast 0.5. Ran (test profile): doc, assets, compositor,
+  project, app (lib + all integration tests), ui lib: all pass.

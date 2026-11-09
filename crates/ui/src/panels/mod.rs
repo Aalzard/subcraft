@@ -1,4 +1,5 @@
 pub mod brush;
+pub mod brush_header;
 pub mod brush_material;
 pub mod effects;
 pub mod filter;

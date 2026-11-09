@@ -17,6 +17,9 @@ pub struct TextureItem {
     /// Channel the file name suggests ("Normal", "Roughness"…), used as its shelf category.
     pub category: &'static str,
     pub thumb: Option<egui::TextureHandle>,
+    /// The thumbnail's texels (RGBA8, file values): an instant low-resolution stand-in when the
+    /// texture is chosen as a stamp brush, while the full image loads in the background.
+    pub thumb_bitmap: Option<std::sync::Arc<subcraft_image::Bitmap>>,
 }
 
 type ThumbResult = (PathBuf, Result<(u32, u32, Vec<u8>), String>);
@@ -58,6 +61,7 @@ impl TextureLibrary {
                 path: p.clone(),
                 category: category_of(&file),
                 thumb: None,
+                thumb_bitmap: None,
             });
             new.push(p.clone());
         }
@@ -107,6 +111,7 @@ impl TextureLibrary {
                         if let Some(item) = self.items.iter_mut().find(|i| i.path == path) {
                             let img = egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &rgba);
                             item.thumb = Some(ctx.load_texture(format!("tex-{}", item.id), img, egui::TextureOptions::LINEAR));
+                            item.thumb_bitmap = Some(std::sync::Arc::new(subcraft_image::Bitmap::new_u8(w, h, 4, rgba)));
                         }
                     }
                     Ok((path, Err(e))) => log::warn!("texture {}: {e}", path.display()),

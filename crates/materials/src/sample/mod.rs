@@ -16,7 +16,7 @@ use subcraft_image::{TILE_TEXELS, Wrap};
 
 pub use geometry::{GeometryCache, TextureSetGeometry, TileGeometry};
 pub use mesh_maps::MeshMaps;
-pub use projection::{planar_coords, sample_projected, triplanar_weights};
+pub use projection::{planar_coords, sample_projected, sample_projected_sc, triplanar_weights};
 
 use crate::pattern;
 
@@ -56,8 +56,9 @@ pub fn eval_fill_tile_filtered(
                 out.fill([0.0; 4]);
                 return;
             };
+            let sc = projection.rotation_sin_cos();
             for (i, o) in out.iter_mut().enumerate() {
-                *o = sample_projected(projection, geo.uv(i), geo.position(i), geo.normal(i), |p| {
+                *o = sample_projected_sc(projection, sc, geo.uv(i), geo.position(i), geo.normal(i), |p| {
                     bmp.sample_filtered(p[0], p[1], Wrap::Repeat, linearize, filter)
                 });
             }
@@ -114,7 +115,10 @@ pub fn procedural_tile(params: &ProceduralParams, projection: &Projection, geo: 
 /// [`procedural_tile`] with the pattern moved by `offset` in object space (units of the model's
 /// longest dimension). Only projections that read the position (triplanar, planar) move.
 pub fn procedural_tile_at(params: &ProceduralParams, projection: &Projection, offset: [f32; 3], geo: &TileGeometry) -> std::sync::Arc<field::Field> {
-    geo.fields.get_or_compute(field::FieldKey::new(params, projection).at(offset), || (0..TILE_TEXELS).map(|i| eval_procedural_at(params, projection, offset, geo, i)).collect())
+    geo.fields.get_or_compute(field::FieldKey::new(params, projection).at(offset), || {
+        let sc = projection.rotation_sin_cos();
+        (0..TILE_TEXELS).map(|i| eval_procedural_sc(params, projection, sc, offset, geo, i)).collect()
+    })
 }
 
 pub fn organic_tile(params: &ProceduralParams, geo: &TileGeometry) -> std::sync::Arc<field::Field> {
@@ -146,8 +150,13 @@ pub fn eval_procedural(params: &ProceduralParams, projection: &Projection, geo: 
 
 #[inline]
 fn eval_procedural_at(params: &ProceduralParams, projection: &Projection, offset: [f32; 3], geo: &TileGeometry, i: usize) -> f32 {
+    eval_procedural_sc(params, projection, projection.rotation_sin_cos(), offset, geo, i)
+}
+
+#[inline]
+fn eval_procedural_sc(params: &ProceduralParams, projection: &Projection, sc: (f32, f32), offset: [f32; 3], geo: &TileGeometry, i: usize) -> f32 {
     let p = geo.position(i);
-    sample_projected(projection, geo.uv(i), [p[0] + offset[0], p[1] + offset[1], p[2] + offset[2]], geo.normal(i), |p| {
+    sample_projected_sc(projection, sc, geo.uv(i), [p[0] + offset[0], p[1] + offset[1], p[2] + offset[2]], geo.normal(i), |p| {
         [pattern::eval(params, Vec2::new(p[0], p[1])), 0.0, 0.0, 0.0]
     })[0]
 }

@@ -8,10 +8,10 @@ use subcraft_core::MeshMapKind;
 use subcraft_doc::{Generator, GeneratorKind, Mask, MaskEffectKind, Projection, ProjectionMode};
 use subcraft_image::TILE_TEXELS;
 use subcraft_image::Wrap;
-use subcraft_materials::sample::{procedural_tile, sample_projected};
+use subcraft_materials::sample::procedural_tile;
 
 use crate::TileContext;
-use crate::blend::{BlendTarget, composite};
+
 use crate::util::read_tile_rgba;
 
 /// Mask values (0..1) for every texel of the tile, or `None` when the mask is absent/disabled.
@@ -23,23 +23,36 @@ pub fn eval_mask(mask: Option<&Mask>, tc: &TileContext) -> Option<Vec<f32>> {
 pub fn eval_mask_scaled(mask: Option<&Mask>, tc: &TileContext, radius_scale:f32) -> Option<Vec<f32>> {
     let mask = mask.filter(|m| m.enabled)?;
     if crate::stages::mask_spatial(mask) { return Some(crate::stages::mask_preview(mask,tc,radius_scale)); }
-    let mut px = vec![[0.0f32; 4]; TILE_TEXELS];
-    read_tile_rgba(&mask.base, tc.geo, &mut px);
-    let mut m: Vec<f32> = px.iter().map(|p| p[0]).collect();
+    let mut m = crate::tile::prof("mask base", || read_mask_base(&mask.base, tc));
     let mut e = vec![[0.0f32; 4]; TILE_TEXELS];
     for effect in mask.effects.iter().filter(|e| e.visible && e.opacity > 0.0) {
         // e[i] = [value, alpha, _, _]
-        evaluate_effect(&effect.kind, tc, &m, &mut e);
-        for (mv, ev) in m.iter_mut().zip(&e) {
-            let mut dst = [*mv, *mv, *mv, 1.0];
-            composite(&mut dst, [ev[0]; 3], ev[1] * effect.opacity, effect.blend, BlendTarget::MASK);
-            *mv = dst[0];
-        }
+        let label = match &effect.kind {
+            MaskEffectKind::Generator(_) => "mask generator (local)",
+            MaskEffectKind::Fill { .. } => "mask fill (local)",
+            _ => "mask effect (local)",
+        };
+        crate::tile::prof(label, || evaluate_effect(&effect.kind, tc, &m, &mut e));
+        crate::tile::prof("mask blend (local)", || crate::blend::composite_mask_run(&mut m, &e, effect.opacity, effect.blend));
     }
     for v in m.iter_mut() {
         *v = v.clamp(0.0, 1.0);
     }
     Some(m)
+}
+
+/// The first component of the mask's base raster on this tile (what `read_tile_rgba` gives in
+/// `[0]`), decoded straight into the mask buffer when the raster matches the set.
+fn read_mask_base(base: &subcraft_image::TiledImage, tc: &TileContext) -> Vec<f32> {
+    let geo = tc.geo;
+    if base.comps() == 1 && base.width() == geo.resolution && base.height() == geo.resolution {
+        let mut m = vec![0.0f32; TILE_TEXELS];
+        base.read_tile(base.tile_index(geo.x0 / subcraft_image::TILE_SIZE, geo.y0 / subcraft_image::TILE_SIZE), &mut m);
+        return m;
+    }
+    let mut px = vec![[0.0f32; 4]; TILE_TEXELS];
+    read_tile_rgba(base, geo, &mut px);
+    px.iter().map(|p| p[0]).collect()
 }
 
 #[inline]
@@ -244,8 +257,9 @@ fn eval_image(resource: subcraft_core::ResourceId, projection: &Projection, inve
     };
     let has_alpha = bmp.channels == 2 || bmp.channels == 4;
     let geo = tc.geo;
+    let sc = projection.rotation_sin_cos();
     for (i, o) in e.iter_mut().enumerate() {
-        let s = sample_projected(projection, geo.uv(i), geo.position(i), geo.normal(i), |p| bmp.sample(p[0], p[1], Wrap::Repeat, false));
+        let s = subcraft_materials::sample::sample_projected_sc(projection, sc, geo.uv(i), geo.position(i), geo.normal(i), |p| bmp.sample(p[0], p[1], Wrap::Repeat, false));
         let (v, a) = if has_alpha { (1.0, s[3]) } else { (0.2126 * s[0] + 0.7152 * s[1] + 0.0722 * s[2], 1.0) };
         *o = [if invert { 1.0 - v } else { v }, a.clamp(0.0, 1.0), 0.0, 0.0];
     }

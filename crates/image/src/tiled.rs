@@ -230,6 +230,21 @@ impl TiledImage {
         }
     }
 
+    /// Store already-encoded texels (`TILE_TEXELS * comps` values, as [`TiledImage::write_tile`]
+    /// would encode them) as tile `index`. Lets callers encode many tiles in parallel and only
+    /// swap them in here.
+    pub fn write_encoded_tile(&mut self, index: usize, data: Box<[f16]>) {
+        assert_eq!(data.len(), TILE_TEXELS * self.comps(), "encoded tile size");
+        Arc::make_mut(&mut self.tiles)[index] = Some(Arc::new(Tile { data }));
+    }
+
+    /// Encode `data` (`TILE_TEXELS * comps` f32 values) exactly as [`TiledImage::write_tile`] does.
+    pub fn encode_tile(data: &[f32]) -> Box<[f16]> {
+        let mut buf = vec![f16::ZERO; data.len()].into_boxed_slice();
+        buf.convert_from_f32_slice(data);
+        buf
+    }
+
     /// Mutable access to the tile table for parallel per-tile writes.
     /// Use [`slot_data_mut`] on individual slots.
     pub fn slots_mut(&mut self) -> TileSlots<'_> {

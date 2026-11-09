@@ -19,6 +19,7 @@ pub mod stencil;
 pub mod stroke;
 pub mod target;
 pub mod text_decal;
+pub mod tip_preview;
 
 pub use camera::Camera;
 pub use depth::{DepthCache, DepthMap};

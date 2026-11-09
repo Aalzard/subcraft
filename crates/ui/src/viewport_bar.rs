@@ -172,7 +172,8 @@ impl ViewportPrefs {
 /// Narrowest dock where the brush bar sits beside the view controls. Measured: the inline row is
 /// 1228.3 wide incl. 16 of frame margin (view combo 150, wireframe + camera buttons, five tool icons); the brush_bar test
 /// fails if this drifts below the real content width.
-const INLINE_MIN_WIDTH: f32 = 1214.0;
+// The tool icons left this row (they live in the tool rail), so it fits about 140 points sooner.
+const INLINE_MIN_WIDTH: f32 = 1075.0;
 
 /// Narrowest dock width (inside the bar's margins) that fits the wireframe and camera buttons
 /// beside the 92-wide View combo, and the one that also fits the 150-wide combo that shows

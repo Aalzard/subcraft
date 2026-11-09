@@ -3756,7 +3756,7 @@ dependencies = [
 
 [[package]]
 name = "subcraft"
-version = "0.2.5"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "eframe",
@@ -3769,7 +3769,7 @@ dependencies = [
 
 [[package]]
 name = "subcraft-app"
-version = "0.2.5"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "dirs",
@@ -3807,7 +3807,7 @@ dependencies = [
 
 [[package]]
 name = "subcraft-assets"
-version = "0.2.5"
+version = "0.3.0"
 dependencies = [
  "dirs",
  "glam",
@@ -3825,7 +3825,7 @@ dependencies = [
 
 [[package]]
 name = "subcraft-bake"
-version = "0.2.5"
+version = "0.3.0"
 dependencies = [
  "glam",
  "half",
@@ -3839,7 +3839,7 @@ dependencies = [
 
 [[package]]
 name = "subcraft-compositor"
-version = "0.2.5"
+version = "0.3.0"
 dependencies = [
  "glam",
  "half",
@@ -3854,7 +3854,7 @@ dependencies = [
 
 [[package]]
 name = "subcraft-core"
-version = "0.2.5"
+version = "0.3.0"
 dependencies = [
  "bytemuck",
  "glam",
@@ -3868,7 +3868,7 @@ dependencies = [
 
 [[package]]
 name = "subcraft-doc"
-version = "0.2.5"
+version = "0.3.0"
 dependencies = [
  "glam",
  "log",
@@ -3883,7 +3883,7 @@ dependencies = [
 
 [[package]]
 name = "subcraft-export"
-version = "0.2.5"
+version = "0.3.0"
 dependencies = [
  "glam",
  "gltf",
@@ -3904,7 +3904,7 @@ dependencies = [
 
 [[package]]
 name = "subcraft-image"
-version = "0.2.5"
+version = "0.3.0"
 dependencies = [
  "bytemuck",
  "half",
@@ -3917,7 +3917,7 @@ dependencies = [
 
 [[package]]
 name = "subcraft-materials"
-version = "0.2.5"
+version = "0.3.0"
 dependencies = [
  "glam",
  "parking_lot",
@@ -3932,7 +3932,7 @@ dependencies = [
 
 [[package]]
 name = "subcraft-mesh"
-version = "0.2.5"
+version = "0.3.0"
 dependencies = [
  "bytemuck",
  "glam",
@@ -3953,7 +3953,7 @@ dependencies = [
 
 [[package]]
 name = "subcraft-paint"
-version = "0.2.5"
+version = "0.3.0"
 dependencies = [
  "glam",
  "half",
@@ -3971,7 +3971,7 @@ dependencies = [
 
 [[package]]
 name = "subcraft-preview"
-version = "0.2.5"
+version = "0.3.0"
 dependencies = [
  "glam",
  "rayon",
@@ -3985,7 +3985,7 @@ dependencies = [
 
 [[package]]
 name = "subcraft-project"
-version = "0.2.5"
+version = "0.3.0"
 dependencies = [
  "bytemuck",
  "glam",
@@ -4005,7 +4005,7 @@ dependencies = [
 
 [[package]]
 name = "subcraft-render"
-version = "0.2.5"
+version = "0.3.0"
 dependencies = [
  "bytemuck",
  "egui-wgpu",
@@ -4028,7 +4028,7 @@ dependencies = [
 
 [[package]]
 name = "subcraft-text"
-version = "0.2.5"
+version = "0.3.0"
 dependencies = [
  "ab_glyph_rasterizer",
  "fontdb",
@@ -4044,7 +4044,7 @@ dependencies = [
 
 [[package]]
 name = "subcraft-ui"
-version = "0.2.5"
+version = "0.3.0"
 dependencies = [
  "eframe",
  "egui",
