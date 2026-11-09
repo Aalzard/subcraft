@@ -3,7 +3,7 @@
 What changed in SubCraft, newest first. Download the latest build from the
 [Releases page](https://github.com/Aalzard/subcraft/releases/latest).
 
-## Unreleased
+## 0.3.2
 
 ### Fixed
 - **Crash "map accumulators: BufferAsyncError" while baking** (issue #119). When the GPU failed to
