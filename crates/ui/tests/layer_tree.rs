@@ -222,7 +222,7 @@ fn toolbar_adds_generators_listed_under_their_layer_and_clicking_one_edits_it() 
     let (mut state, ctx, [bottom, _, top]) = setup();
     state.session.execute(Command::SelectLayer(Some(bottom))).unwrap();
     click(&mut state, &ctx, subcraft_ui::icons::MAGIC_WAND);
-    click(&mut state, &ctx, &format!("{}  Dirt (cavity)", subcraft_ui::icons::MAGIC_WAND));
+    click(&mut state, &ctx, &format!("{}  Dirt", subcraft_ui::icons::MAGIC_WAND));
     let mask = state.session.selected_texture_set().find(bottom).unwrap().mask.clone().expect("generator adds a mask");
     assert!(matches!(&mask.effects[0].kind, subcraft_doc::MaskEffectKind::Generator(g) if g.kind == subcraft_doc::GeneratorKind::Cavity));
     let effect = mask.effects[0].id;
