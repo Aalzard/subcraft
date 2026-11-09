@@ -3,7 +3,7 @@
 What changed in SubCraft, newest first. Download the latest build from the
 [Releases page](https://github.com/Aalzard/subcraft/releases/latest).
 
-## Unreleased
+## 0.3.3
 
 ### Fixed
 - **Repeated graphics resets on some integrated GPUs** (issue #119). When the graphics card stops
