@@ -612,7 +612,7 @@ impl Stroke {
         let tiles: Vec<usize> =
             tiles.iter().copied().filter(|t| self.coverage.get(t).is_some_and(|c| c.iter().any(|&v| v > 0.0))).collect();
         let opacity = self.settings.stroke_opacity.clamp(0.0, 1.0);
-        let writes: Vec<(ImageKey, usize, Vec<f32>)> = tiles
+        let writes: Vec<(ImageKey, usize, Box<[half::f16]>)> = tiles
             .par_iter()
             .flat_map_iter(|&t| {
                 let cov = &self.coverage[&t];
@@ -652,11 +652,11 @@ impl Stroke {
                             values
                         }),
                     } };
-                    (img.key, t, img.compute_tile(t, cov, opacity, self.mode, source.as_deref()))
+                    (img.key, t, subcraft_image::TiledImage::encode_tile(&img.compute_tile(t, cov, opacity, self.mode, source.as_deref())))
                 })
             })
             .collect();
-        store(ts, self.layer, &writes)?;
+        crate::target::store_encoded(ts, self.layer, writes)?;
         let mut tiles = tiles;
         tiles.sort_unstable();
         Ok(tiles)
