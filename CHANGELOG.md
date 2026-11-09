@@ -3,6 +3,14 @@
 What changed in SubCraft, newest first. Download the latest build from the
 [Releases page](https://github.com/Aalzard/subcraft/releases/latest).
 
+## Unreleased
+
+### Fixed
+- **Crash a few seconds after start-up on some Windows machines** (issue #98). GPU compositing and
+  GPU baking created their own graphics instance with every API enabled, so a window running on DX12
+  still started the Vulkan loader and its implicit layers (for example the GOG Galaxy overlay). They
+  now use the window's API and adapter only.
+
 ## 0.3.0
 
 ### Added
