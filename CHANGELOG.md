@@ -9,7 +9,7 @@ What changed in SubCraft, newest first. Download the latest build from the
 - **Brush preview.** Picking a brush tip, preset, starter alpha, normal map or height map in the Shelf
   makes it the active brush right away and shows a BRUSH card in Properties with the name, tip and a
   preview stamp and stroke. The chosen tile gets a highlight.
-- **Ambient Occlusion generator**: smooth by default (Balance 0.5, Contrast 0, no breakup). Raw mesh-map
+- **Ambient Occlusion generator**: smooth by default (Balance 0.53, Contrast 0, no breakup, Pattern size 12.5%). Raw mesh-map
   generators also start smooth.
 - **Frameless window.** SubCraft draws its own minimize, maximize and close buttons next to Export; drag
   the empty header to move the window, double-click to maximize, drag the edges to resize. Set
@@ -23,7 +23,11 @@ What changed in SubCraft, newest first. Download the latest build from the
   grunge texture (bundled, seamless, CC0) instead of stylized speckles, with Painter's defaults and control
   names (Dirt Level / Contrast, Wear Level / Contrast, Grunge Amount, Edges Masking, Ambient Occlusion
   Masking, Curvature Weight, Edges Smoothness). Edge wear keeps the edge itself worn and chips the band
-  behind it. Older projects and the built-in smart materials keep their exact look.
+  behind it. Older projects keep their exact look.
+- **Smart-material dirt.** Every Dirt generator on the smart-material shelf, and every newly added Dirt
+  generator, uses Painter-style settings (Dirt Level 0.75, Dirt Contrast 0.39, Grunge Amount 0.52, Pattern
+  size 16%, grunge map on). Smart materials with a Dirt or Grime layer get an "Ambient Occlusion" layer just
+  below it: a dark, slightly rougher fill at 60% layer opacity, masked by an Ambient Occlusion generator.
 - **Generator sliders on 4K sets** update while you drag instead of waiting for you to stop, and the
   procedural noise cache no longer thrashes (it was recomputing the noise on every step).
 - **Normal-map brushes** switch instantly: the thumbnail is the stamp at once and the full-size image

@@ -5,8 +5,8 @@
 use subcraft_core::ChannelKind::*;
 use subcraft_doc::{BlendMode, GeneratorKind, GradientAxis, Layer, MaskEffectKind, ProceduralKind, TextureSet};
 
-use crate::presets::{SmartMask, generator, mask, proc, rgb, triplanar, uni};
-use crate::smart::{SmartMaterial, coat, fx, fx_blend, folder, masked, smart};
+use crate::presets::{dirt_generator, SmartMask, generator, mask, proc, rgb, triplanar, uni};
+use crate::smart::{SmartMaterial, coat, occlusion, fx, fx_blend, folder, masked, smart};
 use crate::smart_more::{all_white, cavity, edges, mat, pattern, s, top, v};
 
 fn steel_base(ts: &TextureSet, seed: u32) -> Layer {
@@ -33,7 +33,7 @@ fn rusted_painted_metal(ts: &TextureSet) -> Layer {
         fx_blend(pattern(ProceduralKind::Grunge, 5.0, 404, 0.58, 0.6), BlendMode::Subtract),
         fx_blend(edges(0.55, 0.15, 0.6), BlendMode::Subtract),
     ]);
-    let bleed = masked(coat(ts, "Rust Bleed", [0.25, 0.09, 0.03], 0.85, 0.0), ts, vec![fx(cavity(0.3, 0.3, 0.6))]);
+    let bleed = masked(coat(ts, "Rust Bleed", [0.25, 0.09, 0.03], 0.85, 0.0), ts, vec![fx(dirt_generator())]);
     folder("Rusted Painted Metal", ts, vec![steel_base(ts, 405), rust, paint, bleed])
 }
 
@@ -43,7 +43,7 @@ fn oily_metal(ts: &TextureSet) -> Layer {
         (Roughness, proc(ProceduralKind::Clouds, 10.0, 412, s(0.3), s(0.5))),
         (Metallic, uni(1.0)),
     ], triplanar(2.0));
-    let oil = masked(coat(ts, "Oil Film", [0.02, 0.018, 0.015], 0.1, 0.0), ts, vec![fx(cavity(0.8, 0.25, 0.4)), fx_blend(pattern(ProceduralKind::Dirt, 5.0, 413, 0.8, 0.1), BlendMode::LinearDodge)]);
+    let oil = masked(coat(ts, "Oil Film", [0.02, 0.018, 0.015], 0.1, 0.0), ts, vec![fx(dirt_generator()), fx_blend(pattern(ProceduralKind::Dirt, 5.0, 413, 0.8, 0.1), BlendMode::LinearDodge)]);
     let grime = masked(coat(ts, "Greasy Dust", [0.07, 0.06, 0.05], 0.7, 0.0), ts, vec![fx(pattern(ProceduralKind::Streaks, 5.0, 414, 0.95, 0.05))]);
     folder("Oily Metal", ts, vec![metal, oil, grime])
 }
@@ -59,8 +59,8 @@ fn painted_steel_edge_wear(ts: &TextureSet) -> Layer {
         ts,
         vec![fx(edges(0.5, 0.2, 0.65)), fx_blend(pattern(ProceduralKind::Grunge, 8.0, 422, 0.45, 0.4), BlendMode::Multiply)],
     );
-    let dirt = masked(coat(ts, "Dirt", [0.05, 0.04, 0.03], 0.88, 0.0), ts, vec![fx(cavity(0.25, 0.3, 0.3))]);
-    folder("Painted Steel Edge Wear", ts, vec![steel_base(ts, 423), paint, wear, dirt])
+    let dirt = masked(coat(ts, "Dirt", [0.05, 0.04, 0.03], 0.88, 0.0), ts, vec![fx(dirt_generator())]);
+    folder("Painted Steel Edge Wear", ts, vec![steel_base(ts, 423), paint, wear, occlusion(ts), dirt])
 }
 
 fn sandblasted_aluminium(ts: &TextureSet) -> Layer {
@@ -82,7 +82,7 @@ fn galvanized_steel(ts: &TextureSet) -> Layer {
         (Metallic, uni(1.0)),
         (Height, proc(ProceduralKind::Cells, 5.0, 491, s(0.0), s(0.02))),
     ], triplanar(2.0));
-    let white_rust = masked(coat(ts, "White Rust", [0.62, 0.63, 0.6], 0.85, 0.0), ts, vec![fx(cavity(0.35, 0.35, 0.5)), fx_blend(pattern(ProceduralKind::Grunge, 6.0, 493, 0.55, 0.4), BlendMode::Multiply)]);
+    let white_rust = masked(coat(ts, "White Rust", [0.62, 0.63, 0.6], 0.85, 0.0), ts, vec![fx(dirt_generator()), fx_blend(pattern(ProceduralKind::Grunge, 6.0, 493, 0.55, 0.4), BlendMode::Multiply)]);
     let rust = masked(coat(ts, "Rust Spots", [0.25, 0.09, 0.035], 0.85, 0.0), ts, vec![fx(edges(0.6, 0.15, 0.8)), fx_blend(pattern(ProceduralKind::Speckles, 7.0, 494, 0.6, 0.2), BlendMode::LinearDodge)]);
     folder("Galvanized Steel", ts, vec![zinc, white_rust, rust])
 }
@@ -94,7 +94,7 @@ fn pitted_cast_iron(ts: &TextureSet) -> Layer {
         (Metallic, uni(1.0)),
         (Height, proc(ProceduralKind::Pores, 24.0, 533, s(0.0), s(0.05))),
     ], triplanar(2.0));
-    let rust = masked(coat(ts, "Surface Rust", [0.28, 0.1, 0.04], 0.88, 0.0), ts, vec![fx(pattern(ProceduralKind::Pores, 12.0, 534, 0.5, 0.5)), fx_blend(cavity(0.3, 0.3, 0.4), BlendMode::LinearDodge)]);
+    let rust = masked(coat(ts, "Surface Rust", [0.28, 0.1, 0.04], 0.88, 0.0), ts, vec![fx(pattern(ProceduralKind::Pores, 12.0, 534, 0.5, 0.5)), fx_blend(dirt_generator(), BlendMode::LinearDodge)]);
     let wear = masked(coat(ts, "Handled Edges", [0.55, 0.55, 0.56], 0.3, 1.0), ts, vec![fx(edges(0.6, 0.12, 0.5))]);
     folder("Pitted Cast Iron", ts, vec![iron, rust, wear])
 }

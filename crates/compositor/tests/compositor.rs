@@ -908,7 +908,7 @@ fn a_mesh_map_baked_below_the_set_resolution_is_sampled_smoothly_not_in_blocks()
 }
 
 /// A freshly added Ambient Occlusion generator is Painter's smooth AO mask: no breakup, and every
-/// texel is exactly `smoothstep(0, 1, 1 - ao)` (Balance 0.5, Contrast 0), so neighbours never jump.
+/// texel is exactly `smoothstep(-0.03, 0.97, 1 - ao)` (Balance 0.53, Contrast 0), so neighbours never jump.
 #[test]
 fn new_ambient_occlusion_generator_is_the_smooth_occlusion_without_breakup() {
     let g = Generator::new(GeneratorKind::AmbientOcclusion);
@@ -921,7 +921,7 @@ fn new_ambient_occlusion_generator_is_the_smooth_occlusion_without_breakup() {
         fx_ao.push((0.3 + 0.7 * ((x * 5.0).sin() * (y * 3.0).cos() * 0.5 + 0.5)).clamp(0.0, 1.0));
     }
     for (i, (&v, &ao)) in texels.iter().zip(&fx_ao).enumerate() {
-        let t = 1.0 - ao;
+        let t = ((1.0 - ao + 0.03) / 1.0).clamp(0.0, 1.0);
         let mask = t * t * (3.0 - 2.0 * t);
         // Roughness fill: 0.3 base, 1.0 under the mask.
         let expected = 0.3 + 0.7 * mask;

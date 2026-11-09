@@ -5,8 +5,8 @@
 use subcraft_core::{ChannelKind::*, ChannelValue};
 use subcraft_doc::{BlendMode, GeneratorKind, Layer, MaskEffectKind, ProceduralKind, ProceduralParams, Projection, TextureSet};
 
-use crate::presets::{SmartMask, generator, mask, proc, rgb, triplanar, uni};
-use crate::smart::{SmartMaterial, coat, fx, fx_blend, folder, masked, smart};
+use crate::presets::{dirt_generator, SmartMask, generator, mask, proc, rgb, triplanar, uni};
+use crate::smart::{SmartMaterial, coat, occlusion, fx, fx_blend, folder, masked, smart};
 
 pub(crate) type V = ChannelValue;
 
@@ -58,8 +58,8 @@ fn chipped_painted_metal(ts: &TextureSet) -> Layer {
         fx_blend(edges(0.55, 0.12, 0.55), BlendMode::Subtract),
         fx_blend(pattern(ProceduralKind::Grunge, 5.0, 14, 0.62, 0.7), BlendMode::Subtract),
     ]);
-    let grime = masked(coat(ts, "Grime", [0.05, 0.04, 0.035], 0.85, 0.0), ts, vec![fx(cavity(0.22, 0.3, 0.3))]);
-    folder("Chipped Painted Metal", ts, vec![steel, paint, grime])
+    let grime = masked(coat(ts, "Grime", [0.05, 0.04, 0.035], 0.85, 0.0), ts, vec![fx(dirt_generator())]);
+    folder("Chipped Painted Metal", ts, vec![steel, paint, occlusion(ts), grime])
 }
 
 fn brushed_steel(ts: &TextureSet) -> Layer {
@@ -70,7 +70,7 @@ fn brushed_steel(ts: &TextureSet) -> Layer {
         (Height, proc(ProceduralKind::Brushed, 6.0, 93, s(0.0), s(0.015))),
     ], triplanar(2.0));
     let scratches = masked(coat(ts, "Scratches", [0.78, 0.79, 0.8], 0.45, 1.0), ts, vec![fx(pattern(ProceduralKind::Scratches, 5.0, 94, 0.5, 0.6))]);
-    let smudge = masked(coat(ts, "Smudges", [0.35, 0.35, 0.36], 0.6, 1.0), ts, vec![fx_blend(pattern(ProceduralKind::Dirt, 4.0, 95, 0.55, 0.1), BlendMode::Multiply), fx(cavity(0.3, 0.4, 0.2))]);
+    let smudge = masked(coat(ts, "Smudges", [0.35, 0.35, 0.36], 0.6, 1.0), ts, vec![fx_blend(pattern(ProceduralKind::Dirt, 4.0, 95, 0.55, 0.1), BlendMode::Multiply), fx(dirt_generator())]);
     folder("Brushed Steel", ts, vec![steel, smudge, scratches])
 }
 
@@ -101,7 +101,7 @@ fn oxidized_copper(ts: &TextureSet) -> Layer {
             (Height, proc(ProceduralKind::Grunge, 20.0, 115, s(0.0), s(0.06))),
         ], triplanar(2.0)),
         ts,
-        vec![fx(cavity(0.4, 0.3, 0.45)), fx_blend(pattern(ProceduralKind::Grunge, 7.0, 116, 0.62, 0.5), BlendMode::LinearDodge), fx_blend(pattern(ProceduralKind::Clouds, 8.0, 117, 0.3, 0.4), BlendMode::Multiply)],
+        vec![fx(dirt_generator()), fx_blend(pattern(ProceduralKind::Grunge, 7.0, 116, 0.62, 0.5), BlendMode::LinearDodge), fx_blend(pattern(ProceduralKind::Clouds, 8.0, 117, 0.3, 0.4), BlendMode::Multiply)],
     );
     folder("Oxidized Copper", ts, vec![copper, verdigris])
 }
@@ -121,7 +121,7 @@ fn frosted_ice(ts: &TextureSet) -> Layer {
             (Height, proc(ProceduralKind::Speckles, 14.0, 145, s(0.0), s(0.04))),
         ], triplanar(2.0)),
         ts,
-        vec![fx(pattern(ProceduralKind::Clouds, 7.0, 146, 0.6, 0.5)), fx_blend(edges(0.5, 0.3, 0.5), BlendMode::LinearDodge), fx_blend(cavity(0.4, 0.3, 0.3), BlendMode::LinearDodge)],
+        vec![fx(pattern(ProceduralKind::Clouds, 7.0, 146, 0.6, 0.5)), fx_blend(edges(0.5, 0.3, 0.5), BlendMode::LinearDodge), fx_blend(dirt_generator(), BlendMode::LinearDodge)],
     );
     let fractures = masked(coat(ts, "Fractures", [0.82, 0.92, 0.98], 0.3, 0.0), ts, vec![fx(pattern(ProceduralKind::Cracks, 4.0, 147, 0.5, 0.9))]);
     folder("Frosted Ice", ts, vec![ice, fractures, frost])
@@ -134,7 +134,7 @@ fn hammered_brass(ts: &TextureSet) -> Layer {
         (Metallic, uni(1.0)),
         (Height, proc(ProceduralKind::Cells, 12.0, 171, s(0.0), s(0.1))),
     ], triplanar(2.0));
-    let tarnish = masked(coat(ts, "Tarnish", [0.14, 0.09, 0.04], 0.6, 0.6), ts, vec![fx(cavity(0.35, 0.35, 0.4)), fx_blend(pattern(ProceduralKind::Dirt, 5.0, 172, 0.5, 0.2), BlendMode::Multiply)]);
+    let tarnish = masked(coat(ts, "Tarnish", [0.14, 0.09, 0.04], 0.6, 0.6), ts, vec![fx(dirt_generator()), fx_blend(pattern(ProceduralKind::Dirt, 5.0, 172, 0.5, 0.2), BlendMode::Multiply)]);
     let polish = masked(coat(ts, "Polished Edges", [1.0, 0.8, 0.4], 0.15, 1.0), ts, vec![fx(edges(0.55, 0.15, 0.4))]);
     folder("Hammered Brass", ts, vec![brass, tarnish, polish])
 }

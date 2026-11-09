@@ -3,7 +3,7 @@
 Generators work more like Painter's, 4K sets are a lot more usable, and the app is faster and has a new window.
 
 **What's new**
-- **Generators like Painter.** Dirt and Edge wear use a real grunge texture with Painter's defaults and control names, plus an Ambient Occlusion generator. Old projects and the built-in smart materials look the same as before.
+- **Generators like Painter.** Dirt and Edge wear use a real grunge texture with Painter's defaults and control names, plus an Ambient Occlusion generator. The smart materials now start with Painter-style dirt and an AO layer under it; old projects look the same as before.
 - **4K generator sliders** update while you drag, and the noise cache no longer recomputes everything on each step.
 - **Brush preview.** Pick a tip, preset, alpha, normal map or height map in the Shelf and it becomes the brush right away, with a preview card in Properties. Normal-map brushes switch instantly.
 - **Faster:** compositing, noise, image fills and brush strokes are roughly 1.5x to 3x faster depending on the stack, with identical output.
