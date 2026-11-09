@@ -122,3 +122,11 @@ fn a_cjk_font_is_looked_for_per_language_and_english_needs_none() {
         assert!(font_candidates(l).len() >= 5, "several well-known locations for {l:?}");
     }
 }
+
+#[test]
+fn the_language_picker_loads_every_native_name_font_even_in_english() {
+    assert!(fallback_languages(Language::English, false).is_empty(), "English alone loads no CJK font");
+    assert_eq!(fallback_languages(Language::English, true), vec![Language::ZhHant, Language::Ko]);
+    assert_eq!(fallback_languages(Language::Ko, false), vec![Language::Ko]);
+    assert_eq!(fallback_languages(Language::Ko, true), vec![Language::Ko, Language::ZhHant], "own language first");
+}

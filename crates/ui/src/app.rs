@@ -186,11 +186,12 @@ impl LaunchOptions {
 pub fn default_layout() -> DockState<Tab> {
     let mut dock = DockState::new(vec![Tab::Viewport, Tab::UvView]);
     let surface = dock.main_surface_mut();
+    // Assets ~18% like Painter; the right column keeps 24% so Properties rows and chips fit at 1600 px.
     let [center, right] = surface.split_right(NodeIndex::root(), 0.76, vec![Tab::TextureSetList]);
     // Brush settings live inside the context-sensitive Properties panel (no separate tab).
     let [_, stack] = surface.split_below(right, 0.10, vec![Tab::Layers, Tab::TextureSetSettings]);
     surface.split_below(stack, 0.42, vec![Tab::Properties]);
-    surface.split_left(center, 0.265, vec![Tab::Shelf, Tab::History, Tab::Parts]);
+    surface.split_left(center, 0.235, vec![Tab::Shelf, Tab::History, Tab::Parts]);
     for visible in [Tab::Shelf, Tab::Layers, Tab::Viewport] {
         if let Some(path) = dock.find_tab(&visible) { let _ = dock.set_active_tab(path); }
     }
@@ -986,8 +987,21 @@ impl SubcraftApp {
         let now = ui.input(|i| i.time);
         let km = self.state.recovery.prefs.keymap;
         let bar = ui.max_rect();
+        let frameless = crate::window_frame::frameless();
+        // Empty parts of the header move the window (registered first so widgets stay on top).
+        if frameless {
+            crate::window_frame::title_bar_background(ui, bar);
+        }
         // Right side first so the left side can't push it out of the bar.
         let right_edge = ui.scope_builder(egui::UiBuilder::new().max_rect(bar).layout(egui::Layout::right_to_left(egui::Align::Center)), |ui| {
+            if frameless {
+                // Minimize / maximize / close flush with the window's right edge, beside Export.
+                let gap = ui.spacing().item_spacing.x;
+                ui.spacing_mut().item_spacing.x = 0.0;
+                crate::window_frame::caption_buttons(ui);
+                ui.spacing_mut().item_spacing.x = gap;
+                ui.add_space(8.0);
+            }
             if primary_button(ui, format!("{}  Export", icons::EXPORT)).on_hover_text(tip(km, "Export textures", Action::Export)).clicked() {
                 self.perform(Action::Export, now);
             }
@@ -1563,7 +1577,8 @@ impl eframe::App for SubcraftApp {
             p.ui_begin();
         }
         self.state.recovery.prefs.apply_ui_size(&ctx);
-        crate::i18n::sync(&ctx, self.state.recovery.prefs.language);
+        // Preferences holds the language picker: its native names need the CJK fonts even in English.
+        crate::i18n::sync_fonts(&ctx, self.state.recovery.prefs.language, self.state.recovery.show_prefs);
         self.frames += 1;
         if self.frames == 12 && ctx.data(|d| d.get_temp::<bool>(egui::Id::new("capture_jump_maps"))).unwrap_or(false) { ctx.data_mut(|d| d.insert_temp(egui::Id::new("tss_jump"), 2u8)); }
         if self.frames == 5 { subcraft_app::startup_probe::step(subcraft_app::startup_probe::COMPLETE_MARKER); }
@@ -1578,7 +1593,13 @@ impl eframe::App for SubcraftApp {
             }
         }
         if self.frames == 16 && let Some(which) = self.state.capture_tool.take() {
-            scripted_tool_capture(&mut self.state, &which, ctx.input(|i| i.time));
+            if which == "language-picker" {
+                // Scripted capture: Preferences with the language dropdown open (CJK native names).
+                self.state.recovery.show_prefs = true;
+                ctx.data_mut(|d| d.insert_temp(egui::Id::new("capture_language_picker"), true));
+            } else {
+                scripted_tool_capture(&mut self.state, &which, ctx.input(|i| i.time));
+            }
         }
         crate::pen::keyboard(&mut self.state, &ctx, ctx.input(|i| i.time));
         self.shortcuts(&ctx);
@@ -1613,7 +1634,9 @@ impl eframe::App for SubcraftApp {
         }
 
         let bar = |fill| egui::Frame::new().fill(fill).inner_margin(egui::Margin::symmetric(12, 0));
-        egui::Panel::top("header").exact_size(44.0).show_separator_line(false).frame(bar(theme::BG_2)).show(ui, |ui| self.header_bar(ui));
+        egui::Panel::top("header").exact_size(44.0).show_separator_line(false)
+            .frame(egui::Frame::new().fill(theme::BG_2).inner_margin(egui::Margin { left: 12, right: if crate::window_frame::frameless() { 0 } else { 12 }, top: 0, bottom: 0 }))
+            .show(ui, |ui| self.header_bar(ui));
         egui::Panel::bottom("status").exact_size(26.0).show_separator_line(false).frame(bar(theme::BG_0)).show(ui, |ui| self.status_bar(ui));
         egui::Panel::left("tools")
             .exact_size(48.0)
@@ -1712,6 +1735,7 @@ impl eframe::App for SubcraftApp {
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
             self.state.last_title = title;
         }
+        if crate::window_frame::frameless() { crate::window_frame::resize_edges(&ctx); }
         self.handle_screenshot(&ctx);
         if let Some(p) = &mut self.profile {
             p.mark("rest (title, close)");

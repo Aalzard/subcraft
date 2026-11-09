@@ -6,20 +6,24 @@ use std::sync::Arc;
 use egui::{Color32, CornerRadius, FontData, FontDefinitions, FontFamily, FontId, Margin, Shadow, Stroke, TextStyle, Visuals};
 use egui_dock::Style as DockStyle;
 
-// Surfaces, darkest to lightest. The greys carry a faint warm tint (hue about 25 degrees, 5% HSL\n// saturation, lightness unchanged from the old neutral greys) so the charcoal sits with the orange accent.
-pub const BG_0: Color32 = Color32::from_rgb(26, 25, 24); // gaps between panels, status bar
-pub const BG_1: Color32 = Color32::from_rgb(38, 36, 34); // panels
-pub const BG_2: Color32 = Color32::from_rgb(43, 41, 39); // header bar, tab bar, cards
-pub const BG_3: Color32 = Color32::from_rgb(51, 49, 47); // controls
-pub const BG_4: Color32 = Color32::from_rgb(64, 60, 57); // hovered controls
+// Surfaces, darkest to lightest, on Substance Painter's levels: panel bodies a little lighter than
+// the #2b2b2b title / tab strips, darker fields and gaps. The greys keep a faint warm tint (red leads
+// blue by about 3 levels) so the charcoal sits with the orange accent.
+pub const BG_0: Color32 = Color32::from_rgb(34, 33, 31); // gaps between panels, status bar
+pub const BG_1: Color32 = Color32::from_rgb(48, 47, 45); // panels
+pub const BG_2: Color32 = Color32::from_rgb(44, 43, 41); // header bar, tab bar, cards
+pub const BG_3: Color32 = Color32::from_rgb(59, 58, 56); // controls
+pub const BG_4: Color32 = Color32::from_rgb(71, 70, 67); // hovered controls
 /// Quiet alternating bands, below the contrast of hover and selection.
-pub const ROW_BANDS: [Color32; 2] = [BG_1, Color32::from_rgb(48, 46, 44)];
-pub const SECTION_BANDS: [Color32; 2] = [BG_2, Color32::from_rgb(47, 45, 43)];
-pub const FIELD: Color32 = Color32::from_rgb(30, 29, 28); // text fields, slider rails
+pub const ROW_BANDS: [Color32; 2] = [BG_1, Color32::from_rgb(58, 57, 55)];
+/// Hairline between list rows (Painter's layer stack).
+pub const ROW_SEPARATOR: Color32 = Color32::from_rgb(38, 37, 35);
+pub const SECTION_BANDS: [Color32; 2] = [BG_2, Color32::from_rgb(47, 46, 44)];
+pub const FIELD: Color32 = Color32::from_rgb(37, 36, 35); // text fields, slider rails
 
 /// Stacked blocks in Properties (one channel, one mask effect): clearly lighter than the panel.
-pub const CARD: Color32 = Color32::from_rgb(58, 55, 53);
-pub const CARD_BORDER: Color32 = Color32::from_rgb(89, 84, 80);
+pub const CARD: Color32 = Color32::from_rgb(61, 59, 57);
+pub const CARD_BORDER: Color32 = Color32::from_rgb(88, 85, 82);
 
 /// Colour of the left accent bar of a channel card (muted, so the set reads as a family).
 pub fn channel_accent(kind: subcraft_core::ChannelKind) -> Color32 {
@@ -37,27 +41,27 @@ pub fn channel_accent(kind: subcraft_core::ChannelKind) -> Color32 {
 }
 
 /// Slider rail / value-field fill: darker than the panel so the control reads as an inset track.
-pub const RAIL: Color32 = Color32::from_rgb(30, 30, 30);
+pub const RAIL: Color32 = Color32::from_rgb(34, 34, 34);
 /// Soft separators and control outlines (low contrast on `BG_1`).
-pub const BORDER_SOFT: Color32 = Color32::from_rgb(46, 46, 46);
-pub const BORDER: Color32 = Color32::from_rgb(55, 52, 49);
-pub const BORDER_STRONG: Color32 = Color32::from_rgb(75, 70, 67);
+pub const BORDER_SOFT: Color32 = Color32::from_rgb(56, 55, 53);
+pub const BORDER: Color32 = Color32::from_rgb(39, 38, 36);
+pub const BORDER_STRONG: Color32 = Color32::from_rgb(80, 77, 74);
 
-pub const TEXT: Color32 = Color32::from_rgb(196, 195, 191);
-pub const TEXT_DIM: Color32 = Color32::from_rgb(166, 165, 160);
-pub const TEXT_FAINT: Color32 = Color32::from_rgb(122, 121, 118);
+pub const TEXT: Color32 = Color32::from_rgb(204, 203, 199);
+pub const TEXT_DIM: Color32 = Color32::from_rgb(172, 171, 167);
+pub const TEXT_FAINT: Color32 = Color32::from_rgb(128, 127, 124);
 
 pub const ACCENT: Color32 = Color32::from_rgb(218, 145, 56);
 pub const ACCENT_HOVER: Color32 = Color32::from_rgb(232, 164, 79);
 /// Accent at low alpha over panels (selected rows, active toggles).
-pub const ACCENT_SOFT: Color32 = Color32::from_rgb(62, 58, 50);
+pub const ACCENT_SOFT: Color32 = Color32::from_rgb(70, 62, 52);
 pub const ACCENT_DIM: Color32 = Color32::from_rgb(113, 81, 40);
 
 pub const WARNING: Color32 = Color32::from_rgb(240, 196, 110);
 
 // Layer tree: folder icons and badges, folder row band, hierarchy guide lines.
 pub const FOLDER: Color32 = Color32::from_rgb(226, 184, 98);
-pub const FOLDER_BAND: Color32 = Color32::from_rgb(38, 35, 31);
+pub const FOLDER_BAND: Color32 = Color32::from_rgb(46, 44, 41);
 pub const TREE_LINE: Color32 = Color32::from_rgb(104, 90, 64);
 
 /// Panel content padding.

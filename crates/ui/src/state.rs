@@ -170,7 +170,7 @@ pub struct UiState {
     pub confirm: Option<crate::dialogs::Pending>,
     /// A model dropped on the window: preloaded into the New Project window once it opens.
     pub dropped_model: Option<std::path::PathBuf>,
-    /// Key light rotation around the model (radians), set with Shift+RMB drag.
+    /// Key light rotation around the model (radians), set with Shift+MMB drag (Painter navigation).
     pub light_yaw: f32,
     /// The Shelf took this frame's dropped files (the window-wide drop handler skips them).
     pub drops_taken: bool,
@@ -235,7 +235,7 @@ impl UiState {
         let mut graphics = crate::graphics::GraphicsUi::default();
         if let Some(rs) = &render_state { graphics.record_active(rs.adapter.get_info().backend); }
         subcraft_app::startup_probe::step(&format!("renderer created (adapter: {})", render_state.as_ref().map(|rs| rs.adapter.get_info().name).unwrap_or_else(|| "none".into())));
-        Self {
+        let mut state = Self {
             composite_deadline: None,
             last_sync_tiles: 0,
             layer_previews: Default::default(),
@@ -332,7 +332,9 @@ impl UiState {
             textures: Default::default(),
             recovery: crate::recovery::RecoveryUi::disabled(),
             bug_report: Default::default(),
-        }
+        };
+        state.env = crate::panels::shelf::EnvUi::startup(&state.library);
+        state
     }
 
     /// Add the library's alphas now and start loading its HDRIs in the background.
@@ -359,11 +361,8 @@ impl UiState {
         }
         self.brush_presets = builtin_brush_presets();
         self.brush_presets.extend(presets);
+        // The shelf keeps opening on Smart Materials (Painter's default), even with user textures.
         self.textures = crate::panels::textures::TextureLibrary::load(&lib);
-        if !self.textures.items.is_empty() {
-            // Open the shelf on the user's own textures once there are some.
-            self.shelf.tab = crate::panels::shelf::ShelfTab::Textures;
-        }
         let files = lib.list(UserAssetKind::Environment);
         if !files.is_empty() {
             let (tx, rx) = std::sync::mpsc::channel();

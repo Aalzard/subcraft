@@ -359,6 +359,10 @@ fn list_row_sized(ui: &mut Ui, selected: bool, sense: Sense, band: Option<Color3
     } else if let Some(color) = band {
         painter.rect_filled(rect, CornerRadius::ZERO, color);
     }
+    if band.is_some() {
+        // Painter splits stacked rows with a dark hairline instead of striping them.
+        painter.hline(rect.x_range(), rect.bottom() - 0.5, egui::Stroke::new(1.0, theme::ROW_SEPARATOR));
+    }
     let inner = rect.shrink2(egui::vec2(8.0, 0.0));
     ui.scope_builder(UiBuilder::new().max_rect(inner).layout(Layout::left_to_right(Align::Center)), |ui| {
         ui.spacing_mut().item_spacing.x = 6.0;

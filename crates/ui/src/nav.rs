@@ -9,11 +9,11 @@ use serde::{Deserialize, Serialize};
 /// Which mouse/modifier combinations navigate the 3D view. The wheel always zooms.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum NavScheme {
-    /// Alt+LMB or RMB orbit, MMB or Ctrl+Alt+LMB pan, Alt+RMB zoom; Shift+RMB rotates the light,
-    /// Shift+MMB the environment.
+    /// Alt+LMB or RMB orbit, MMB or Ctrl+Alt+LMB pan, Alt+RMB zoom; Shift+RMB rotates the
+    /// environment (as in Painter), Shift+MMB turns only the key light.
     #[default]
     Painter,
-    /// MMB orbit, Shift+MMB pan, Ctrl+MMB zoom.
+    /// MMB orbit, Shift+MMB pan, Ctrl+MMB zoom; Shift+RMB rotates the environment.
     Blender,
 }
 
@@ -27,10 +27,10 @@ impl NavScheme {
         }
     }
     /// Text for the shortcuts window: (action, how).
-    pub fn help(self) -> [(&'static str, &'static str); 3] {
+    pub fn help(self) -> [(&'static str, &'static str); 4] {
         match self {
-            NavScheme::Painter => [("Orbit", "Alt+LMB or RMB drag"), ("Pan", "MMB or Ctrl+Alt+LMB drag"), ("Zoom", "Wheel or Alt+RMB drag")],
-            NavScheme::Blender => [("Orbit", "MMB drag"), ("Pan", "Shift+MMB drag"), ("Zoom", "Wheel or Ctrl+MMB drag")],
+            NavScheme::Painter => [("Orbit", "Alt+LMB or RMB drag"), ("Pan", "MMB or Ctrl+Alt+LMB drag"), ("Zoom", "Wheel or Alt+RMB drag"), ("Rotate environment", "Shift+RMB drag")],
+            NavScheme::Blender => [("Orbit", "MMB drag"), ("Pan", "Shift+MMB drag"), ("Zoom", "Wheel or Ctrl+MMB drag"), ("Rotate environment", "Shift+RMB drag")],
         }
     }
     /// Short orbit hint for the status bar.
@@ -74,9 +74,9 @@ pub fn mode_for(scheme: NavScheme, i: NavInput) -> NavMode {
     match scheme {
         NavScheme::Painter => {
             if i.shift && i.secondary {
-                NavMode::Light
-            } else if i.shift && i.middle {
                 NavMode::Environment
+            } else if i.shift && i.middle {
+                NavMode::Light
             } else if i.secondary && i.alt {
                 NavMode::Zoom
             } else if i.middle || (i.primary && i.alt && i.ctrl) {
@@ -89,7 +89,9 @@ pub fn mode_for(scheme: NavScheme, i: NavInput) -> NavMode {
             }
         }
         NavScheme::Blender => {
-            if !i.middle {
+            if i.shift && i.secondary && !i.middle {
+                NavMode::Environment
+            } else if !i.middle {
                 NavMode::None
             } else if i.ctrl {
                 NavMode::Zoom
@@ -154,8 +156,8 @@ mod tests {
         assert_eq!(mode_for(p, inp(false, true, false, false, false, false)), NavMode::Pan);
         assert_eq!(mode_for(p, inp(false, true, false, false, false, true)), NavMode::Pan);
         assert_eq!(mode_for(p, inp(false, false, true, false, false, true)), NavMode::Zoom);
-        assert_eq!(mode_for(p, inp(false, false, true, true, false, false)), NavMode::Light, "Shift+RMB turns the light");
-        assert_eq!(mode_for(p, inp(false, true, false, true, false, false)), NavMode::Environment, "Shift+MMB turns the environment");
+        assert_eq!(mode_for(p, inp(false, false, true, true, false, false)), NavMode::Environment, "Shift+RMB rotates the environment (Painter)");
+        assert_eq!(mode_for(p, inp(false, true, false, true, false, false)), NavMode::Light, "Shift+MMB turns only the key light");
     }
 
     #[test]
@@ -179,6 +181,7 @@ mod tests {
         assert_eq!(mode_for(b, inp(true, false, false, false, false, true)), NavMode::None);
         assert_eq!(mode_for(b, inp(false, false, true, false, false, false)), NavMode::None);
         assert_eq!(mode_for(b, inp(false, false, false, true, true, false)), NavMode::None, "modifiers alone");
+        assert_eq!(mode_for(b, inp(false, false, true, true, false, false)), NavMode::Environment, "Shift+RMB rotates the environment");
     }
 
     #[test]
@@ -243,5 +246,8 @@ mod tests {
     fn help_text_follows_the_scheme() {
         assert!(NavScheme::Blender.help().iter().any(|(_, h)| h.contains("Shift+MMB")));
         assert!(NavScheme::Painter.help().iter().any(|(_, h)| h.contains("Alt+LMB")));
+        for scheme in NavScheme::ALL {
+            assert!(scheme.help().contains(&("Rotate environment", "Shift+RMB drag")), "{scheme:?} lists the environment rotation");
+        }
     }
 }

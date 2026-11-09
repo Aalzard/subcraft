@@ -60,7 +60,19 @@ fn set_rows(state: &UiState, ui: &mut Ui, cmds: &mut Vec<Command>) {
                 let color = if hidden { TEXT_FAINT } else { TEXT };
                 ui.add_sized([name_w, 18.0], egui::Label::new(RichText::new(&ts.name).font(theme::font_strong(12.0)).color(color)).truncate().selectable(false)).on_hover_text(&ts.name);
             }
-            ui.add_sized([size_w, 18.0], egui::Label::new(RichText::new(size_label(ts.resolution)).font(theme::font(11.5)).color(TEXT_DIM)).truncate().selectable(false));
+            // The size is a dropdown, as in Painter: picking one resizes the set (undoable).
+            let size = ui.add_sized([size_w, 18.0], egui::Button::new(RichText::new(size_label(ts.resolution)).font(theme::font(11.5)).color(TEXT_DIM)).frame(false).truncate())
+                .on_hover_text(crate::keys::native("Texture set size: click to change it. Painted strokes are resampled; Ctrl+Z restores them."));
+            if size.hovered() { ui.painter().rect_stroke(size.rect, 2.0, egui::Stroke::new(1.0, theme::BORDER_STRONG), egui::StrokeKind::Inside); }
+            egui::Popup::menu(&size).id(egui::Id::new(("texture_set_size", ts.id))).show(|ui| {
+                ui.set_min_width(size_w.max(96.0));
+                for r in subcraft_doc::RESOLUTIONS.iter().rev().copied() {
+                    if ui.selectable_label(ts.resolution == r, size_label(r)).clicked() {
+                        if r != ts.resolution { cmds.push(Command::SetResolution { texture_set: Some(ts.id), resolution: r }); }
+                        ui.close();
+                    }
+                }
+            });
             ui.add(egui::Label::new(RichText::new(SHADER_NAME).font(theme::font(11.5)).color(TEXT_DIM)).truncate().selectable(false));
         });
         if resp.clicked() && !selected { cmds.push(Command::SelectTextureSet(ts.id)); }
@@ -360,5 +372,37 @@ mod tests {
         assert_eq!(tex.size(), [THUMB, THUMB]);
         state.run(vec![Command::ClearMeshMap { texture_set: ts, kind: MeshMapKind::Curvature }], 0.0);
         assert!(state.session.mesh_maps(ts).is_none());
+    }
+
+    fn click_frame(state: &mut UiState, ctx: &egui::Context, at: egui::Pos2) {
+        let screen = Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(420.0, 900.0)));
+        let button = |pressed| egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+        for events in [vec![egui::Event::PointerMoved(at)], vec![button(true)], vec![button(false)]] {
+            let mut out = ctx.run_ui(egui::RawInput { screen_rect: screen, events, ..Default::default() }, |ui| list(state, ui));
+            out.textures_delta.clear();
+        }
+    }
+    fn text_pos(out: &egui::FullOutput, want: &str) -> Option<egui::Pos2> {
+        out.shapes.iter().find_map(|s| match &s.shape {
+            egui::Shape::Text(t) if t.galley.text() == want => Some(t.pos + t.galley.size() * 0.5),
+            _ => None,
+        })
+    }
+
+    #[test]
+    fn clicking_the_size_in_the_list_offers_sizes_and_resizes_with_undo() {
+        let mut state = UiState::new(subcraft_app::Session::new(subcraft_mesh::primitives::cube(2.0), 256), None);
+        let ctx = egui::Context::default(); theme::apply(&ctx);
+        for _ in 0..2 { frame(&mut state, &ctx, list); }
+        let at = text_pos(&frame(&mut state, &ctx, list), "256x256").expect("size shown in the row");
+        click_frame(&mut state, &ctx, at);
+        let out = frame(&mut state, &ctx, list);
+        let t = texts(&out);
+        for r in subcraft_doc::RESOLUTIONS { assert!(t.iter().any(|s| *s == size_label(r)), "dropdown lists {r}: {t:?}"); }
+        let pick = text_pos(&out, "1024x1024").unwrap();
+        click_frame(&mut state, &ctx, pick);
+        assert_eq!(state.session.selected_texture_set().resolution, 1024, "picking a size resizes the set");
+        state.session.perform(subcraft_app::Action::Undo).unwrap();
+        assert_eq!(state.session.selected_texture_set().resolution, 256, "undo restores the size");
     }
 }

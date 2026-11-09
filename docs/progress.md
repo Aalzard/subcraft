@@ -4787,3 +4787,35 @@ normal map as the brush took 4–5 s.
 * Build note: other worktrees link into the shared target at the same time, so a first "after" binary
   silently came from another branch. Built with `--config profile.release.package.<crate>.codegen-units=15`
   for the changed crates (distinct artifact hashes) and checked the exe contains the new log strings.
+### UI, defaults and shortcuts pass (Painter look, frameless window)
+
+* **Frameless window** (`crates/ui/src/window_frame.rs`): OS title bar off (`with_decorations(false)`), caption
+  buttons (minimize, maximize / restore, close) drawn at the right end of the header beside Export. Empty header
+  space moves the window through `ViewportCommand::StartDrag` (the OS move, so Windows snap / WM moves keep
+  working); double-click toggles maximize; 5 px edge bands and 12 px corners send `BeginResize` from a foreground
+  layer. `SUBCRAFT_NATIVE_TITLE_BAR=1` restores the OS frame.
+* **3D toolbar**: Brush / Eraser / Fill / Clone / Smudge icons removed (tool rail only); the inline threshold
+  dropped from 1214 to 1075 points so the brush values stay on the first row.
+* **Startup**: Glasshouse Morning (`EnvUi::startup`), rotated -165.6° (inside the Rotation slider range; Shift+RMB also wraps to -180..180) so its sun (39° up) sits at azimuth 65°,
+  in front of the framing camera (35°) over the viewer's right shoulder. The constant is checked against the
+  decoded HDRI's sun by `startup_environment_is_glasshouse_lit_from_the_front`. The shelf no longer switches to
+  Textures when the user library has textures; the Assets column is narrower (23.5% of the centre, ~18% of the window).
+  The right column keeps 24%: at Painter's ~18% the Properties chips wrap below a 1600 x 1300 window and the
+  inspector tests (`fill_controls_edit_only_the_selected_fill...`) could no longer click them.
+* **Shift+RMB drag rotates the environment** in both navigation schemes (Painter binding); the key-light-only turn
+  moved to Shift+MMB (Painter scheme). Listed in the hint overlay, shortcuts window, Preferences and keymap table.
+* **Texture Set List**: the size is a dropdown (128 to 4096, the sizes `RESOLUTIONS` supports; 8192 is not a
+  supported texture set size yet) issuing `SetResolution`, so it is undoable.
+* **Look**: grey levels moved toward Painter's (sampled from `painter-reference/`: panels 51, strips 43, fields 38,
+  text 204) while keeping the earlier choices the theme tests record: the faint warm tint, a panel grey within a
+  few levels of #2b2b2b (BG_1 48, BG_2 44) and visible alternating row bands; plus a 1 px hairline under list rows.
+* **Language picker tofu**: in English the 한국어 / 繁體中文 entries showed boxes because the CJK fallback font was only
+  installed for the active language. `i18n::sync_fonts(ctx, language, picker)` now also installs the other languages'
+  system CJK fonts while Preferences is open (`fallback_languages`); they stay until the language changes, so
+  opening / closing Preferences does not rebuild the atlas, and English without Preferences still loads none.
+  `--capture-tool language-picker` opens Preferences with the dropdown open for scripted captures.
+
+Verified with scripted captures of the release app (`--reset-layout --window-size 1920x1040 --screenshot`):
+caption buttons, single-row brush toolbar, Smart Materials shelf, Glasshouse lighting from the front, hint row
+"Shift+RMB Rotate environment". Not verified by hand (no mouse driving on this machine): dragging / snapping /
+edge-resizing the frameless window, the caption buttons' clicks, Shift+RMB in the live viewport, macOS / Linux.
