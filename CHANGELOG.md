@@ -3,6 +3,14 @@
 What changed in SubCraft, newest first. Download the latest build from the
 [Releases page](https://github.com/Aalzard/subcraft/releases/latest).
 
+## Unreleased
+
+### Fixed
+- **Repeated graphics resets on some integrated GPUs** (issue #119). When the graphics card stops
+  responding (a driver reset: the screen goes dark for a moment), the next start now opens in safe
+  mode and turns GPU compositing and GPU baking off, so it doesn't happen again on every start. Turn
+  them back on in Preferences after a driver update.
+
 ## 0.3.2
 
 ### Fixed

@@ -39,7 +39,7 @@ pub fn record_gpu(render_state: Option<&egui_wgpu::RenderState>) {
         subcraft_app::startup_probe::step(&format!("GPU device lost: {text}"));
         let text = format!("The graphics device stopped responding ({text}).
 
-This is usually a driver reset or a GPU that was removed or ran out of memory. SubCraft cannot continue drawing. Your work is kept in the automatic recovery copy: start SubCraft again and choose Restore. If it keeps happening, start with the --safe-mode option and see the log in the SubCraft data folder.");
+This is usually a driver reset or a GPU that was removed or ran out of memory. SubCraft cannot continue drawing. Your work is kept in the automatic recovery copy: start SubCraft again and choose Restore. The next start turns GPU compositing and GPU baking off (you can turn them back on in Preferences). If it keeps happening, start with the --safe-mode option and see the log in the SubCraft data folder.");
         std::thread::spawn(move || { rfd::MessageDialog::new().set_level(rfd::MessageLevel::Error).set_title("SubCraft: graphics device lost").set_description(text).set_buttons(rfd::MessageButtons::Ok).show(); });
     });
     let Some(rs) = render_state else { return };
