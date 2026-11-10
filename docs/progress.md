@@ -4930,3 +4930,23 @@ rotating one slot when a tile is full (helps cyclic stacks, but the 40-layer sta
   `painter_defaults_and_older_files` (doc), AO smoothstep expectation (compositor), Bricks layer count
   (open_pack), the mask-stage thumbnail test pins Dirt Contrast 0.5. Ran (test profile): doc, assets, compositor,
   project, app (lib + all integration tests), ui lib: all pass.
+
+### Session 120 - Anchor points (2026-11-10, branch `claude/anchor-points`, ADR-0045)
+
+* **Done:** Anchor Point content / mask effects; Anchor Reference mask effect (with Levels), anchor fill source,
+  anchor input on mask generators. References resolve only to anchors earlier in the evaluation walk; Missing /
+  NotBelow / Cycle are shown on the reference and as a warning on the layer row, and evaluate as absent. Stage graph
+  evaluates references (sets without references take the old path unchanged); GPU backend gets anchored masks and
+  fills as CPU blocks. Raster edits invalidate readers (halo-grown diff). Duplicate / copy-paste / mask paste remap
+  references. Project schema 17 (1-16 load unchanged). `.spp` anchors and references import as live links; missing
+  ones are kept, flagged and counted.
+* **Tests (release, shared target):** workspace 1263 passed, 2 failed (two old tests pinning schema 16, updated to 17;
+  `subcraft-project` then 42/42). New: compositor `tests/anchors.rs` 8/8 (mutation check: the halo is load-bearing),
+  GPU `anchored_sets_run_on_the_gpu_and_match_the_cpu` (worst error 0.25 tolerance units, 0 values beyond 1), app
+  `tests/anchors.rs` 3/3, project schema-17 roundtrip, doc unit tests.
+* **Not done:** app screenshot of an anchor-driven mask and the post-change bench were stopped (disk full on E:, then the
+  weekly usage limit). Baseline for the bench: `big_project_bench 2048 40 ab`, full composite 4187 ms, hash
+  `0d8d7340015e7faf` / after edits `f648aa27a6741faf`; rerun and compare (hashes must match). Demo project:
+  `cargo run --release -p subcraft-app --example anchor_project -- out.subcraft`.
+* **Gaps:** isolated thumbnails show references unresolved; fill content effects can't read anchors; no "accumulate
+  layers below"; no cross-texture-set anchors.
