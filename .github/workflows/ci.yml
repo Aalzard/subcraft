@@ -36,6 +36,55 @@ jobs:
       # One GPU test at a time: lavapipe can crash (SIGSEGV) when several tests create devices at once.
       - name: Test rendering (one GPU test at a time)
         run: cargo test -p subcraft-render -- --test-threads=1
+      # The real application, started the way a user starts it, on a machine with no GPU: the
+      # start-up probe, the window, the viewport and the screenshot path all have to work on
+      # software rendering (lavapipe / llvmpipe) under an X server.
+      - name: Build the application
+        run: cargo build -p subcraft
+      - name: Start headless (Xvfb, software rendering)
+        run: |
+          sudo apt-get install -y --no-install-recommends xvfb libegl1 libgl1-mesa-dri libxkbcommon-x11-0
+          ./scripts/ci-smoke-start.sh target/debug/subcraft "$RUNNER_TEMP/smoke"
+      - name: Upload smoke-start screenshot and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-linux
+          path: ${{ runner.temp }}/smoke
+          if-no-files-found: ignore
+
+  # Oldest supported glibc. The release tarball is built on this base (see release.yml); this job
+  # proves the tree still builds and starts there, and prints the glibc version the binary needs.
+  linux-old-glibc:
+    name: Build + start (Ubuntu 20.04, glibc 2.31)
+    runs-on: ubuntu-latest
+    container: ubuntu:20.04
+    env:
+      DEBIAN_FRONTEND: noninteractive
+    steps:
+      - name: Install build and runtime packages
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates curl git gcc g++ pkg-config binutils \
+            xvfb mesa-vulkan-drivers libegl1 libgl1-mesa-dri libxkbcommon-x11-0 libxkbcommon0
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ubuntu-20.04
+      - name: Build the application
+        run: cargo build -p subcraft
+      - name: Required glibc version
+        run: ./scripts/check-linux-binary.sh target/debug/subcraft 2.31
+      - name: Start headless (Xvfb, software rendering)
+        run: ./scripts/ci-smoke-start.sh target/debug/subcraft "$RUNNER_TEMP/smoke"
+      - name: Upload smoke-start screenshot and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-linux-old-glibc
+          path: ${{ runner.temp }}/smoke
+          if-no-files-found: ignore
 
   windows:
     name: Build + engine tests (Windows)
@@ -48,3 +97,15 @@ jobs:
         run: cargo build --workspace
       - name: Engine tests
         run: cargo test -p subcraft-core -p subcraft-image -p subcraft-mesh -p subcraft-doc -p subcraft-materials -p subcraft-compositor -p subcraft-paint -p subcraft-bake -p subcraft-project -p subcraft-export -p subcraft-assets -p subcraft-app
+      # A Windows machine without a usable GPU: the runner only has the Microsoft Basic Render
+      # Driver (WARP), which is also what a user with a broken or missing driver ends up on.
+      - name: Start headless (WARP)
+        shell: pwsh
+        run: ./scripts/ci-smoke-start.ps1 -Executable target\debug\subcraft.exe -OutDir "$env:RUNNER_TEMP\smoke"
+      - name: Upload smoke-start screenshot and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-windows
+          path: ${{ runner.temp }}\smoke
+          if-no-files-found: ignore
