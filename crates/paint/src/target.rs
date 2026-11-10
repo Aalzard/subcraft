@@ -38,6 +38,8 @@ pub enum PaintError {
     NotAPaintLayer,
     /// The raster is derived from editable anchors, so a brush must not overwrite it.
     EditablePath,
+    /// The raster is rendered from an editable text decal, so a brush must not overwrite it.
+    EditableText,
     NoMask,
     /// The selected effect is missing or is not a Paint effect.
     NotAPaintEffect,
@@ -55,6 +57,7 @@ impl std::fmt::Display for PaintError {
             PaintError::LayerNotFound => "layer not found",
             PaintError::NotAPaintLayer => "only paint layers can be painted",
             PaintError::EditablePath => "use the Pen tool to edit this path, or create a paint layer for brushing",
+            PaintError::EditableText => "use the Text tool to edit this text, or create a paint layer for brushing",
             PaintError::NoMask => "layer has no mask",
             PaintError::NotAPaintEffect => "the selected effect is not a Paint effect",
             PaintError::NothingToPaint => "no enabled brush channel in this texture set",
@@ -121,6 +124,8 @@ pub fn begin_targets(ts: &TextureSet, layer: LayerId, target: PaintTarget, mater
         PaintTarget::Content => {
             let LayerContent::Paint(paint) = &l.content else { return Err(PaintError::NotAPaintLayer) };
             if paint.path.is_some() { return Err(PaintError::EditablePath); }
+            // The next text edit re-renders the layer's channels, which would discard the paint.
+            if paint.text.is_some() { return Err(PaintError::EditableText); }
             channel_targets(ts, &paint.channels, material, ImageKey::Channel)
         }
         PaintTarget::ContentEffect(id) => {
