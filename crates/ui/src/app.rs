@@ -165,6 +165,9 @@ pub struct LaunchOptions {
     pub test_crash: bool,
     /// Ignore the saved dock layout and window geometry for this run.
     pub reset_layout: bool,
+    /// Linux: run under XWayland / X11 instead of Wayland (`--x11`, `SUBCRAFT_X11=1`; pen
+    /// tablets on compositors without pointer emulation, issue #82).
+    pub force_x11: bool,
     /// Initial inner window size in points (scripted layout checks).
     pub window_size: Option<[f32; 2]>,
     /// Force the display scale (pixels per point) for scripted layout checks.

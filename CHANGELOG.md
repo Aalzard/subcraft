@@ -3,6 +3,15 @@
 What changed in SubCraft, newest first. Download the latest build from the
 [Releases page](https://github.com/Aalzard/subcraft/releases/latest).
 
+## Unreleased
+
+### Fixed
+- **Pen tablet clicks on Linux Wayland** (issue #82). On Wayland compositors that do not emulate a
+  mouse for tablet tools (Niri and some wlroots compositors), a pen moved the cursor but SubCraft
+  received no clicks at all. The new `--x11` option (or `SUBCRAFT_X11=1`) runs SubCraft under
+  XWayland, where the pen works as a pointer. It is only used when an X server is reachable, and the
+  start-up log now says which display backend is in use.
+
 ## 0.3.3
 
 ### Fixed

@@ -1,6 +1,6 @@
 //! SubCraft application (desktop).
 //!
-//! Desktop usage: `subcraft [project.subcraft|mesh.obj|.gltf|.glb|.fbx|.abc|.usd|.usda|.usdc|.usdz|.ply|.stl|.spp] [--demo] [--view-2d] [--screenshot out.png]`
+//! Desktop usage: `subcraft [project.subcraft|mesh.obj|.gltf|.glb|.fbx|.abc|.usd|.usda|.usdc|.usdz|.ply|.stl|.spp] [--demo] [--view-2d] [--screenshot out.png] [--x11]`
 
 // Packaged Windows builds open without a console window (logs then go nowhere; run a normal
 // build from a terminal to see them).
@@ -149,6 +149,7 @@ fn run_app() -> anyhow::Result<()> {
             "--environment" => options.environment = args.next(),
             "--screenshot" => options.screenshot = args.next().map(Into::into),
             "--reset-layout" => options.reset_layout = true,
+            "--x11" => options.force_x11 = true,
             "--window-size" => {
                 options.window_size = Some(args.next().and_then(|s| subcraft_ui::app::parse_size(&s))
                     .ok_or_else(|| anyhow::anyhow!("--window-size expects WIDTHxHEIGHT, e.g. 1280x720"))?);
@@ -178,7 +179,7 @@ fn run_app() -> anyhow::Result<()> {
                 options.autosave_interval = args.next().and_then(|s| s.parse::<f64>().ok()).map(std::time::Duration::from_secs_f64);
             }
             "-h" | "--help" => {
-                println!("usage: subcraft [project.subcraft | mesh file] [--demo] [--view-2d] [--brush-panel] [--bake-high mesh] [--bake-preview] [--bake-preview-map map_key] [--bake-match always|name] [--bake-place auto,center,origin,offset=x:y:z,scale=s,rot=x:y:z] [--environment name] [--bake-size 256|512|1024|2048|4096] [--symmetry xyz] [--radial y8] [--screenshot out.png] [--path-trace [samples]] [--welcome] [--quick-start] [--guide-step 1..6] [--reset-layout] [--window-size WxH] [--camera yaw,pitch,zoom[,x,y,z]] [--scale 1.5] [--recover] [--autosave-interval seconds]");
+                println!("usage: subcraft [project.subcraft | mesh file] [--demo] [--view-2d] [--brush-panel] [--bake-high mesh] [--bake-preview] [--bake-preview-map map_key] [--bake-match always|name] [--bake-place auto,center,origin,offset=x:y:z,scale=s,rot=x:y:z] [--environment name] [--bake-size 256|512|1024|2048|4096] [--symmetry xyz] [--radial y8] [--screenshot out.png] [--path-trace [samples]] [--welcome] [--quick-start] [--guide-step 1..6] [--reset-layout] [--window-size WxH] [--camera yaw,pitch,zoom[,x,y,z]] [--scale 1.5] [--x11] [--recover] [--autosave-interval seconds]");
                 return Ok(());
             }
             path => options.mesh = Some(path.into()),

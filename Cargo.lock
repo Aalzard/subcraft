@@ -4073,6 +4073,7 @@ dependencies = [
  "subcraft-render",
  "subcraft-text",
  "web-time",
+ "winit",
 ]
 
 [[package]]
