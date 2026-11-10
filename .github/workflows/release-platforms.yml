@@ -12,7 +12,7 @@ on:
         required: false
         default: ''
   pull_request:
-    paths: ['.github/workflows/release-platforms.yml', 'scripts/build-macos.sh', 'scripts/build-linux.sh', 'scripts/build-windows.ps1', 'packaging/**']
+    paths: ['.github/workflows/release-platforms.yml', 'scripts/build-macos.sh', 'scripts/build-linux.sh', 'scripts/build-windows.ps1', 'scripts/ci-smoke-start.*', 'scripts/check-linux-binary.sh', 'packaging/**']
 permissions:
   contents: read
 env:
@@ -45,6 +45,21 @@ jobs:
           plutil -lint "$app/Contents/Info.plist"
           codesign --verify --deep --strict "$app"
           "$app/Contents/MacOS/subcraft" --help
+      # Does the bundle open a window and draw on this Mac? GitHub's macOS VMs have no GPU, so
+      # this tells us whether the Metal software path starts; a failure does not block the build
+      # until a real Mac has confirmed what the runner can do.
+      - name: Start headless (experimental)
+        continue-on-error: true
+        run: |
+          app=$(ls -d dist/SubCraft-*/SubCraft.app)
+          ./scripts/ci-smoke-start.sh "$app/Contents/MacOS/subcraft" "$RUNNER_TEMP/smoke"
+      - name: Upload smoke-start screenshot and logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: smoke-macos
+          path: ${{ runner.temp }}/smoke
+          if-no-files-found: ignore
       - name: Checksums
         run: |
           cd dist
@@ -77,6 +92,19 @@ jobs:
         run: |
           tar -xzf dist/*.tar.gz -C "$RUNNER_TEMP"
           "$RUNNER_TEMP"/SubCraft-*/subcraft --help
+          ./scripts/check-linux-binary.sh "$RUNNER_TEMP"/SubCraft-*/subcraft
+      - name: Start headless (Xvfb, software rendering)
+        continue-on-error: true
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends xvfb mesa-vulkan-drivers libegl1 libgl1-mesa-dri libxkbcommon-x11-0
+          ./scripts/ci-smoke-start.sh "$(ls "$RUNNER_TEMP"/SubCraft-*/subcraft)" "$RUNNER_TEMP/smoke"
+      - name: Upload smoke-start screenshot and logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: smoke-linux-aarch64
+          path: ${{ runner.temp }}/smoke
+          if-no-files-found: ignore
       - name: Checksums
         run: |
           cd dist
@@ -116,6 +144,19 @@ jobs:
           $pe = [BitConverter]::ToInt32($bytes, 0x3C)
           $machine = [BitConverter]::ToUInt16($bytes, $pe + 4)
           if ($machine -ne 0xAA64) { throw ('SubCraft.exe is not an ARM64 binary (machine 0x{0:X})' -f $machine) }
+      - name: Start headless (WARP)
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem "$env:RUNNER_TEMP/arm64" -Recurse -Filter SubCraft.exe | Select-Object -First 1
+          ./scripts/ci-smoke-start.ps1 -Executable $exe.FullName -OutDir "$env:RUNNER_TEMP\smoke"
+      - name: Upload smoke-start screenshot and logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: smoke-windows-arm64
+          path: ${{ runner.temp }}\smoke
+          if-no-files-found: ignore
       - name: Checksums
         shell: pwsh
         run: |
