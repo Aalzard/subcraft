@@ -64,6 +64,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         return;
     }
     state.last_view_size = size;
+    state.last_view_rect = rect;
     let now = ui.input(|i| i.time);
     // The render target is rounded to whole physical pixels. Map through that exact size,
     // rather than DPI alone, to keep picking/painting stable at fractional UI zoom factors.

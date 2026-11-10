@@ -179,6 +179,10 @@ fn run_app() -> anyhow::Result<()> {
                 if resolution.is_some() { args.next(); }
                 options.profile_edits = Some((out.into(), resolution));
             }
+            "--profile-view" => {
+                let out = args.next().ok_or_else(|| anyhow::anyhow!("--profile-view expects an output file"))?;
+                options.profile_view = Some(out.into());
+            }
             "--autosave-interval" => {
                 options.autosave_interval = args.next().and_then(|s| s.parse::<f64>().ok()).map(std::time::Duration::from_secs_f64);
             }
