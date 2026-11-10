@@ -183,7 +183,9 @@ impl TargetImage {
                     let a = a0 + k * (1.0 - a0);
                     let mut value = [src[0], src[1], src[2]];
                     let is_normal = self.key.channel() == Some(ChannelKind::Normal);
-                    if is_normal && self.stamp == Some(crate::settings::StampKind::Normal) {
+                    // Only a stamp stroke supplies a per-texel slope; a polygon fill with a stamp
+                    // brush has none, and its brush value must not be read as a slope.
+                    if is_normal && self.stamp == Some(crate::settings::StampKind::Normal) && source.is_some() {
                         // Stamp source = summed slope: whiteout it over what this layer already holds.
                         let base = if a0 > 0.0 { [px[0], px[1], px[2]] } else { [0.5, 0.5, 1.0] };
                         value = crate::image_stamp::blend_slope(base, [src[0], src[1]]);
