@@ -359,6 +359,53 @@ fn image_mask_effect_keeps_its_image() {
     assert_eq!((r.bitmap.width, r.bitmap.channels), (2, 2));
 }
 
+/// The Painter importer makes resources from pixels alone (`encoded: None`); saving used to skip
+/// them, so the fill layers of a reopened project pointed at images that were no longer there.
+#[test]
+fn bitmap_only_resources_are_saved_with_the_project() {
+    use subcraft_core::ResourceId;
+    use subcraft_doc::{Resource, ResourceKind};
+
+    let mut res = ResourceStore::default();
+    let gray = ResourceId::new();
+    res.insert(Resource {
+        id: gray,
+        name: "Roughness (solved from Painter's result)".into(),
+        kind: ResourceKind::Texture,
+        bitmap: Arc::new(subcraft_image::Bitmap::new_f32(2, 2, 1, vec![0.25, 0.5, 0.75, 1.0])),
+        source_path: None,
+        encoded: None,
+    });
+    let rgb = ResourceId::new();
+    res.insert(Resource {
+        id: rgb,
+        name: "grunge.jpg".into(),
+        kind: ResourceKind::Texture,
+        bitmap: Arc::new(subcraft_image::Bitmap::new_u8(2, 1, 3, vec![10, 20, 30, 200, 210, 220])),
+        source_path: None,
+        encoded: None,
+    });
+    let mut ts = TextureSet::new("Body", 0, 128);
+    let mut layer = Layer::new_fill("Solved", &ts);
+    if let LayerContent::Fill(f) = &mut layer.content {
+        f.channels.insert(ChannelKind::Roughness, FillChannel::new(FillSource::Bitmap { resource: gray }));
+        f.channels.insert(ChannelKind::BaseColor, FillChannel::new(FillSource::Bitmap { resource: rgb }));
+    }
+    ts.insert_above(None, layer);
+    let doc = Document { texture_sets: vec![ts] };
+
+    let bytes = write_project(Cursor::new(Vec::new()), &primitives::cube(1.0), &doc, &res, &MeshMapSet::new()).unwrap().into_inner();
+    let back = read_project(Cursor::new(bytes)).unwrap();
+    assert_eq!(back.document, doc);
+    let g = back.resources.get(gray).expect("float resource saved");
+    assert_eq!((g.bitmap.width, g.bitmap.height), (2, 2));
+    assert!((g.bitmap.texel(1, 1, false)[0] - 1.0).abs() < 1e-6 && (g.bitmap.texel(0, 0, false)[0] - 0.25).abs() < 1e-6);
+    let c = back.resources.get(rgb).expect("8-bit resource saved");
+    assert_eq!((c.bitmap.width, c.bitmap.height, c.bitmap.channels), (2, 1, 3));
+    let t = c.bitmap.texel(1, 0, false).map(|v| (v * 255.0).round() as u8);
+    assert_eq!(&t[..3], &[200, 210, 220]);
+}
+
 fn effect_document() -> Document {
     use subcraft_doc::{ContentEffect, ContentEffectKind, FillContent};
     let mut ts = TextureSet::new("Body", 0, 128);
