@@ -38,6 +38,18 @@ fn unsupported<T>(what: impl Into<String>) -> Result<T> {
     Err(Jp2Error::Unsupported(what.into()))
 }
 
+/// Largest image side accepted from a codestream.
+const MAX_SIDE: usize = 16384;
+
+/// A marker segment's body (after its marker and length), checked against the codestream's end.
+fn segment(cs: &[u8], p: usize) -> Result<&[u8]> {
+    let l = be16(cs, p + 2)?;
+    if l < 2 {
+        return corrupt("marker segment length");
+    }
+    cs.get(p + 4..p + 2 + l).ok_or(Jp2Error::Corrupt("marker segment past the end"))
+}
+
 fn be16(b: &[u8], o: usize) -> Result<usize> {
     b.get(o..o + 2).map(|s| u16::from_be_bytes([s[0], s[1]]) as usize).ok_or(Jp2Error::Corrupt("short marker"))
 }
@@ -117,8 +129,7 @@ fn decode_codestream(cs: &[u8], reduce: usize) -> Result<Decoded> {
         let marker = be16(cs, p)?;
         match marker {
             0xff51 => {
-                let l = be16(cs, p + 2)?;
-                let b = &cs[p + 4..p + 2 + l];
+                let b = segment(cs, p)?;
                 if be16(b, 0)? != 0 {
                     return unsupported("capabilities (Rsiz)");
                 }
@@ -135,8 +146,13 @@ fn decode_codestream(cs: &[u8], reduce: usize) -> Result<Decoded> {
                 if xt < xs || yt < ys {
                     return unsupported("several tiles");
                 }
-                if prm.components == 0 || prm.components > 4 || prm.width == 0 || prm.height == 0 {
+                // Sizes come from the file: bound them before anything is allocated from them (a
+                // huge size aborted the process). Painter's tiles are far below this.
+                if prm.components == 0 || prm.components > 4 || prm.width == 0 || prm.height == 0 || prm.width > MAX_SIDE || prm.height > MAX_SIDE {
                     return corrupt("image size");
+                }
+                if b.len() < 36 + 3 * prm.components {
+                    return corrupt("image header");
                 }
                 for c in 0..prm.components {
                     let ssiz = b[36 + c * 3] as u32;
@@ -158,8 +174,10 @@ fn decode_codestream(cs: &[u8], reduce: usize) -> Result<Decoded> {
                 }
             }
             0xff52 => {
-                let l = be16(cs, p + 2)?;
-                let b = &cs[p + 4..p + 2 + l];
+                let b = segment(cs, p)?;
+                if b.len() < 10 {
+                    return corrupt("coding style");
+                }
                 let scod = b[0];
                 if scod & 1 != 0 {
                     return unsupported("user-defined precincts");
@@ -184,8 +202,10 @@ fn decode_codestream(cs: &[u8], reduce: usize) -> Result<Decoded> {
                 seen_cod = true;
             }
             0xff5c => {
-                let l = be16(cs, p + 2)?;
-                let b = &cs[p + 4..p + 2 + l];
+                let b = segment(cs, p)?;
+                if b.is_empty() {
+                    return corrupt("quantisation");
+                }
                 if b[0] & 31 != 0 {
                     return unsupported("quantisation (lossy)");
                 }
