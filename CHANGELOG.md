@@ -3,7 +3,7 @@
 What changed in SubCraft, newest first. Download the latest build from the
 [Releases page](https://github.com/Aalzard/subcraft/releases/latest).
 
-## Unreleased
+## 0.3.4
 
 ### Added
 - **Anchor points**, like Substance Painter. Add › Anchor Point on a layer's content or mask captures that
@@ -22,6 +22,11 @@ What changed in SubCraft, newest first. Download the latest build from the
   received no clicks at all. The new `--x11` option (or `SUBCRAFT_X11=1`) runs SubCraft under
   XWayland, where the pen works as a pointer. It is only used when an X server is reachable, and the
   start-up log now says which display backend is in use.
+- **OBJ and glTF import no longer crash** on files where only some corners have UVs or normals (for example DAZ Studio OBJs).
+- **glTF import ignores texture files.** A `.gltf` shared without its textures, or with differently-cased file names on Linux and macOS, now imports its geometry instead of failing.
+- **A quick pen tap** paints with the tap's pressure instead of full pressure, which could leave a big spot.
+- **Saving refuses a project that is too large to open again** (over 1 GiB per entry) and says so, instead of writing a file that then fails to open.
+- **Start-up no longer aborts** when a command-line argument is not valid UTF-8, and the user library works on systems without a Documents folder.
 
 ## 0.3.3
 
