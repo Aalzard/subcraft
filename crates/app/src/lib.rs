@@ -18,6 +18,8 @@ pub mod images;
 pub mod graphics;
 pub mod library;
 pub mod mesh_reload;
+pub mod mesh_map_import;
+pub mod cage_check;
 pub mod launch;
 pub mod layer_tree;
 pub mod new_project;

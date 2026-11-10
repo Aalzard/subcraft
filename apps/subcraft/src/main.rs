@@ -148,6 +148,16 @@ fn run_app() -> anyhow::Result<()> {
             }
             "--environment" => options.environment = args.next(),
             "--screenshot" => options.screenshot = args.next().map(Into::into),
+            "--mesh-maps" => options.mesh_map_files.extend(args.next().ok_or_else(|| anyhow::anyhow!("--mesh-maps expects a comma-separated list of images"))?.split(',').map(Into::into)),
+            "--bake-misses" => options.bake_misses = true,
+            "--bake-cage" => {
+                let spec = args.next().ok_or_else(|| anyhow::anyhow!("--bake-cage expects front,rear"))?;
+                let v: Vec<f32> = spec.split(',').filter_map(|s| s.trim().parse().ok()).collect();
+                if v.len() != 2 { anyhow::bail!("--bake-cage expects front,rear (fractions of the diagonal)"); }
+                options.bake_cage = Some([v[0], v[1]]);
+            }
+            "--curvature-from-normal" => options.curvature_from_normal = true,
+            "--id-colors" => options.id_colors = true,
             "--reset-layout" => options.reset_layout = true,
             "--window-size" => {
                 options.window_size = Some(args.next().and_then(|s| subcraft_ui::app::parse_size(&s))

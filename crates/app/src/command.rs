@@ -88,6 +88,9 @@ pub enum Command {
     /// Forget one baked mesh map of a texture set (Texture Set Settings > Mesh maps > X). Not an
     /// undo step; bake again to get it back. No-op when the map is not baked.
     ClearMeshMap { texture_set: TextureSetId, kind: subcraft_core::MeshMapKind },
+    /// ID color editor: show ID map color `from` as `to` in this texture set, and switch every
+    /// ID Color mask of the set that uses `from` to `to` (one undo step).
+    EditIdColor { texture_set: TextureSetId, from: [f32; 3], to: [f32; 3] },
     /// Wrap the layer into a new folder.
     GroupLayer(LayerId),
     MoveLayer { layer: LayerId, parent: Option<LayerId>, index: usize },

@@ -482,21 +482,58 @@ pub struct BakeUi {
     pub preview_error: Option<String>,
     pub preview_uploaded: bool,
     preview_checked_at: f64,
+    /// Ray-miss heatmap on the low poly of the overlay (red = no high-poly surface reached).
+    pub miss_heatmap: bool,
+    pub cage_job: Option<subcraft_app::cage_check::CageCheckJob>,
+    pub cage_result: Option<subcraft_app::cage_check::CageCheckResult>,
+    /// The current `cage_result` is on the GPU.
+    pub miss_uploaded: bool,
 }
 
 impl Default for BakeUi {
     fn default() -> Self {
         Self { open: false, settings: subcraft_app::BakeSettings::default(), high_poly: String::new(), all_sets: true, size_chosen: false, job: None, result: None, report: String::new(), notices: Vec::new(), log: Vec::new(), map_rows: Vec::new(),
             preview: true, cage: true, fit_mode: Default::default(), high_opacity: 0.55, placement_message: None, live_maps: true, displayed_map: None, follow_maps: true, preview_mesh: None,
-            preview_job: None, preview_source: None, preview_path: String::new(), preview_scene: None, preview_error: None, preview_uploaded: false, preview_checked_at: 0. }
+            preview_job: None, preview_source: None, preview_path: String::new(), preview_scene: None, preview_error: None, preview_uploaded: false, preview_checked_at: 0.,
+            miss_heatmap: false, cage_job: None, cage_result: None, miss_uploaded: false }
     }
 }
 
+/// Preview size of the ray-miss maps (misses depend on the surface, not on the map size).
+pub const MISS_MAP_SIZE: u32 = 512;
+
 impl BakeUi {
     pub fn preview_pending(&self) -> bool { self.preview_job.is_some() }
+    /// The heatmap is drawn: toggled on, the overlay is showing, and a check has finished.
+    pub fn heatmap_shown(&self) -> bool { self.miss_heatmap && self.overlay_active() && self.cage_result.is_some() }
     pub fn overlay_active(&self) -> bool {
         self.open && self.preview && self.job.is_none() && self.result.is_none() && self.displayed_map.is_none() && self.preview_mesh.is_some()
     }
+}
+
+/// Keep the ray-miss check in step with the cage, placement and name matching while the heatmap
+/// is on (a new check starts whenever one of them changes; the BVH of the placed high poly is
+/// reused).
+fn poll_cage_check(state: &mut UiState, ctx: &egui::Context) {
+    let b = &mut state.bake;
+    if let Some(job) = &b.cage_job && let Some(result) = job.poll() {
+        b.cage_job = None;
+        if let Some(r) = result { b.cage_result = Some(r); b.miss_uploaded = false; }
+    }
+    if !(b.open && b.preview && b.miss_heatmap) { return; }
+    let Some(high) = b.preview_mesh.clone() else { b.cage_result = None; return };
+    let low = state.session.scene().mesh.clone();
+    let mut settings = b.settings.clone();
+    settings.placement = state.session.settings().bake_placement.clone();
+    let key = subcraft_app::cage_check::CageCheckKey::new(&low, &high, &settings, MISS_MAP_SIZE);
+    let current = b.cage_result.as_ref().is_some_and(|r| r.key == key);
+    let running = b.cage_job.as_ref().is_some_and(|j| j.key == key);
+    if !current && !running {
+        let sets: Vec<_> = state.session.document().texture_sets.iter().map(|t| (t.id, t.material_slot)).collect();
+        let placed = b.cage_result.as_ref().map(|r| r.placed.clone());
+        b.cage_job = Some(subcraft_app::cage_check::CageCheckJob::start(low, high, placed, settings, sets, MISS_MAP_SIZE));
+    }
+    if b.cage_job.is_some() { ctx.request_repaint_after(std::time::Duration::from_millis(50)); }
 }
 
 /// Apply results of a running bake (call every frame).
@@ -535,6 +572,7 @@ pub fn poll_bake(state: &mut UiState, ctx: &egui::Context, now: f64) {
             match result { Ok(source) => { b.preview_mesh = Some(source.mesh.clone()); b.preview_source = Some(source); b.preview_uploaded = false; }, Err(e) => b.preview_error = Some(e) }
         }
     }
+    poll_cage_check(state, ctx);
     let Some(job) = state.bake.job.as_mut() else { return };
     ctx.request_repaint_after(std::time::Duration::from_millis(100));
     let result = job.poll(&mut state.session);
@@ -689,7 +727,16 @@ pub fn bake_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
                     ui.add_space(6.0);
                 }
                 if curv {
-                    slider_row(ui, tr("Curvature radius"), egui::Slider::new(&mut b.settings.curvature_radius, 0.002..=0.1).logarithmic(true));
+                    ui.checkbox(&mut b.settings.curvature_from_normal, tr("Curvature from the normal map"))
+                        .on_hover_text(tr("Measure curvature from the baked normal map along the surface: one clean band per edge, continuous across UV seams and on curved parts"));
+                    ui.add_space(4.0);
+                    if b.settings.curvature_from_normal {
+                        slider_row(ui, tr("Curvature width (texels)"), egui::Slider::new(&mut b.settings.normal_curvature.radius_texels, 0.5..=8.0));
+                        ui.add_space(6.0);
+                        slider_row(ui, tr("Curvature intensity"), egui::Slider::new(&mut b.settings.normal_curvature.intensity, 0.1..=4.0).logarithmic(true));
+                    } else {
+                        slider_row(ui, tr("Curvature radius"), egui::Slider::new(&mut b.settings.curvature_radius, 0.002..=0.1).logarithmic(true));
+                    }
                 }
             });
             // --- Viewport -----------------------------------------------------------------
@@ -700,6 +747,9 @@ pub fn bake_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
                     ui.spacing_mut().item_spacing.x = 8.0;
                     icon_toggle(ui, icons::EYE, &mut b.preview, "High / low overlay: blue high poly, red exposed low poly");
                     icon_toggle(ui, icons::CUBE_WIRE, &mut b.cage, "Cage wireframe: the front and rear reach of the bake");
+                    if has_high {
+                        icon_toggle(ui, icons::WARNING, &mut b.miss_heatmap, "Ray misses: color the low poly red where the bake's rays reach no high-poly surface (fix with Cage front / rear before baking)");
+                    }
                     icon_toggle(ui, icons::LIGHTNING, &mut b.live_maps, "Live maps: show each map on the model as soon as it is baked");
                     icon_toggle(ui, icons::CROSSHAIR, &mut b.follow_maps, "Follow bake: switch the model to the map being baked");
                     if !baked_maps.is_empty() {
@@ -716,7 +766,19 @@ pub fn bake_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
                     && secondary_button(ui, format!("{}  {}", icons::CUBE_WIRE, tr("Inspect high / low geometry"))).clicked() {
                     b.result = None; b.displayed_map = None; b.follow_maps = false;
                 }
-                if has_high { hint(ui, tr("Blue: high poly · Red: exposed low poly · Pale lines: cage. Orbit to inspect.")); }
+                if has_high && b.miss_heatmap {
+                    let text = match (&b.cage_result, &b.cage_job) {
+                        (_, Some(_)) => tr("Checking where rays miss the high poly…").to_string(),
+                        (Some(r), None) if r.missed == 0 => tr("Every texel's ray reaches the high poly.").to_string(),
+                        (Some(r), None) => format!("{} {:.1}% {}", tr("Ray misses:"), 100.0 * r.miss_fraction(), tr("of texels reach no high-poly surface (red). Raise Cage front / rear or fix the placement.")),
+                        (None, None) => String::new(),
+                    };
+                    if !text.is_empty() {
+                        let color = if b.cage_result.as_ref().is_some_and(|r| r.missed > 0) && b.cage_job.is_none() { theme::WARNING } else { TEXT_DIM };
+                        ui.add(egui::Label::new(egui::RichText::new(text).color(color)).wrap());
+                    }
+                    hint(ui, tr("Gray: rays reach the high poly · Red: rays miss it · Lower the high-poly opacity to see the heatmap underneath."));
+                } else if has_high { hint(ui, tr("Blue: high poly · Red: exposed low poly · Pale lines: cage. Orbit to inspect.")); }
             });
         });
         });

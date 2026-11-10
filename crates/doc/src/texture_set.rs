@@ -80,6 +80,17 @@ pub struct TextureSet {
     /// The UDIM tile (`[column, row]` in stored UV space, see `subcraft_mesh::regroup`) this set
     /// paints; `None` for an ordinary set. Its mesh slot was moved into the 0..1 square.
     pub udim_tile: Option<[i32; 2]>,
+    /// ID map colors the user changed in the ID color editor, applied over the baked / imported
+    /// ID map (`from` is the color in that map). Part of the document, so undo restores the map
+    /// colors together with the ID Color masks that were updated with them.
+    pub id_color_edits: Vec<IdColorEdit>,
+}
+
+/// One edited ID color: texels of `from` in the baked ID map show `to`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct IdColorEdit {
+    pub from: [f32; 3],
+    pub to: [f32; 3],
 }
 
 impl TextureSet {
@@ -93,6 +104,7 @@ impl TextureSet {
             channels: ChannelKind::METAL_ROUGH.iter().map(|&k| ChannelDef::default_for(k)).collect(),
             layers: Vec::new(),
             udim_tile: None,
+            id_color_edits: Vec::new(),
         }
     }
 

@@ -4930,3 +4930,31 @@ rotating one slot when a tile is full (helps cyclic stacks, but the 40-layer sta
   `painter_defaults_and_older_files` (doc), AO smoothstep expectation (compositor), Bricks layer count
   (open_pack), the mask-stage thumbnail test pins Dirt Contrast 0.5. Ran (test profile): doc, assets, compositor,
   project, app (lib + all integration tests), ui lib: all pass.
+
+### Session 120 - Import baked mesh maps, curvature along the surface, ray-miss heatmap, ID color editor (2026-11-10, branch `claude/bake-maps-id`, NOT fully verified)
+
+* **Import mesh maps** (`app::mesh_map_import`, `ui::mesh_map_import`): New Project lists already-baked maps once a
+  model is loaded, and Texture Set Settings has "Import mesh maps…". Files are matched by name suffix (`_normal`,
+  `_world_normal`, `_ao`, `_curvature`, `_position`, `_thickness`, `_id`, `_height`, camelCase and DX/GL markers),
+  to sets by UDIM tile (1001–1999) or the set name in the file name. Values stay raw, DirectX normals get green
+  flipped, and maps are resampled to the set resolution (nearest for ID). Optionally curvature is derived from an
+  imported normal map. Flags: `--mesh-maps a,b,c`.
+* **Curvature from the normal map** (`bake::normal_curvature`, bake setting "Curvature from the normal map"): each
+  texel walks a fixed surface distance in 8 directions across triangle edges (welded positions, so UV seams are
+  crossed), decodes the normal map at each end point with that point's own tangent frame, and sums the change of
+  world normal along the walk. Finding: with a hard-edged low poly, straight-down projection rays give a baked
+  normal that jumps back at every edge, which reads as a dark line on the edge. The test fixture now uses a low cube
+  with averaged corner normals, the usual bevel-bake setup. `bake_maps_demo` still uses the hard-edged cube.
+* **Ray-miss heatmap** (`bake::cage_misses`, `app::cage_check`, bake overlay shader): the bake viewport card has a
+  "Ray misses" toggle that casts the baker's own projection rays in the background and paints texels with no hit
+  red over the low poly, next to the existing high poly and cage overlay. Flags: `--bake-misses`, `--bake-cage f,r`.
+* **ID color editor** (`ui::panels::id_colors`, `app::id_color`): Texture Set Settings lists the ID map's colors
+  with coverage and mask counts, an eyedropper picks in the 3D or 2D view and feeds the selected layer's ID Color
+  mask, and "Apply" recolors an ID. Edits are stored in the document per texture set (`id_color_edits`, project
+  schema field, version unchanged) and every ID Color mask using the old color follows, in one undo step. Flag:
+  `--id-colors`.
+* **Verified:** the whole workspace compiles (release, `cargo test --workspace --no-run`). Bake tests: walker,
+  cage misses, flat-cylinder seam, bake-setting derivation and the existing placement tests pass.
+* **Not verified:** the bevelled-cube and cylinder curvature tests failed on the first run; they were fixed (fixture
+  and grouping, see above) but not re-run. The app, ui and project tests and the scripted captures were not run
+  before the session was stopped for the usage limit. CI on the PR is the first full run.
