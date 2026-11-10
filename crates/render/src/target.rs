@@ -86,13 +86,20 @@ impl RenderTarget {
         PendingReadback { buffer, state, size: [w, h], padded }
     }
 
-    /// Copy the resolved image back to the CPU as tightly packed sRGB RGBA8 rows.
+    /// Copy the resolved image back to the CPU as tightly packed sRGB RGBA8 rows. Panics if the
+    /// GPU fails the copy; app code uses [`Self::try_read_rgba8`].
     pub fn read_rgba8(&self, device: &wgpu::Device, queue: &wgpu::Queue) -> Vec<u8> {
+        self.try_read_rgba8(device, queue).expect("GPU readback")
+    }
+
+    /// Like [`Self::read_rgba8`], with an error instead of a panic when the GPU fails the copy
+    /// (device lost, out of memory, driver reset).
+    pub fn try_read_rgba8(&self, device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Vec<u8>, String> {
         read_texture_rgba8(device, queue, &self.output, self.size)
     }
 }
 
-pub(crate) fn read_texture_rgba8(device: &wgpu::Device, queue: &wgpu::Queue, texture: &wgpu::Texture, size: [u32; 2]) -> Vec<u8> {
+pub(crate) fn read_texture_rgba8(device: &wgpu::Device, queue: &wgpu::Queue, texture: &wgpu::Texture, size: [u32; 2]) -> Result<Vec<u8>, String> {
         let [w, h] = size;
         let row = w * 4;
         let padded = row.div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT) * wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
@@ -113,16 +120,18 @@ pub(crate) fn read_texture_rgba8(device: &wgpu::Device, queue: &wgpu::Queue, tex
         );
         queue.submit([enc.finish()]);
         let slice = buffer.slice(..);
-        slice.map_async(wgpu::MapMode::Read, |r| r.expect("map readback buffer"));
-        device.poll(wgpu::PollType::wait_indefinitely()).expect("device poll");
-        let data = slice.get_mapped_range().expect("mapped readback");
+        // Never panic in the map callback (as in issue #119): a failed map makes
+        // `get_mapped_range` error, and the caller reports it.
+        slice.map_async(wgpu::MapMode::Read, |r| if let Err(e) = r { log::warn!("GPU image readback failed: {e}") });
+        device.poll(wgpu::PollType::wait_indefinitely()).map_err(|e| format!("GPU wait failed: {e}"))?;
+        let data = slice.get_mapped_range().map_err(|e| format!("GPU readback failed: {e}"))?;
         let mut out = Vec::with_capacity((row * h) as usize);
         for y in 0..h {
             out.extend_from_slice(&data[(y * padded) as usize..][..row as usize]);
         }
         drop(data);
         buffer.unmap();
-        out
+        Ok(out)
 }
 
 /// A GPU → CPU image copy in flight (see [`RenderTarget::read_rgba8_async`]).
@@ -152,5 +161,20 @@ impl PendingReadback {
         drop(data);
         self.buffer.unmap();
         Some(Some(out))
+    }
+}
+
+#[cfg(test)]
+mod readback_tests {
+    #[test]
+    fn a_readback_on_a_destroyed_device_returns_an_error_instead_of_panicking() {
+        let Some((_, device, queue)) = crate::headless::device() else { return };
+        crate::caps::install_worker_error_handlers(&device, "test");
+        let texture = device.create_texture(&wgpu::TextureDescriptor { label: Some("readback test"),
+            size: wgpu::Extent3d { width: 4, height: 4, depth_or_array_layers: 1 }, mip_level_count: 1, sample_count: 1,
+            dimension: wgpu::TextureDimension::D2, format: crate::OUTPUT_FORMAT, usage: wgpu::TextureUsages::COPY_SRC, view_formats: &[] });
+        assert_eq!(super::read_texture_rgba8(&device, &queue, &texture, [4, 4]).map(|p| p.len()), Ok(64));
+        device.destroy();
+        assert!(super::read_texture_rgba8(&device, &queue, &texture, [4, 4]).is_err());
     }
 }
