@@ -247,7 +247,9 @@ impl GpuRayBaker {
             enc.copy_buffer_to_buffer(&accum_buf, 0, &read_buf, 0, (part_len * 8) as u64);
             self.queue.submit([enc.finish()]);
             let slice = read_buf.slice(..(part_len * 8) as u64);
-            slice.map_async(wgpu::MapMode::Read, |r| r.expect("map accumulators"));
+            // A failed map (device lost, driver reset) must not panic: `get_mapped_range` below then
+            // errors and the bake falls back to the CPU (issue #119).
+            slice.map_async(wgpu::MapMode::Read, |r| if let Err(e) = r { log::warn!("GPU bake readback failed: {e}") });
             self.wait()?;
             {
                 let data = slice.get_mapped_range().map_err(|e| RayBatchError::Unsupported(format!("GPU readback failed: {e}")))?;

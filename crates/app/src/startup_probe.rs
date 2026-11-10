@@ -85,6 +85,16 @@ pub fn previous_run_incomplete(log: &str) -> bool {
     !log[start..].contains(COMPLETE_MARKER)
 }
 
+/// Marker written (through [`step`]) when the GPU device is lost: driver reset, TDR, GPU removed.
+pub const GPU_LOST_MARKER: &str = "GPU device lost";
+
+/// Whether the GPU device was lost during the last recorded start (issue #119: an integrated GPU
+/// resetting a few seconds after start-up, every start).
+pub fn previous_run_gpu_lost(log: &str) -> bool {
+    let Some(start) = log.rfind(START_MARKER) else { return false };
+    log[start..].contains(GPU_LOST_MARKER)
+}
+
 // ---------------------------------------------------------------- pure model
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]

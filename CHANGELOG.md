@@ -16,6 +16,37 @@ What changed in SubCraft, newest first. Download the latest build from the
 - **`.spp` import keeps anchors live**: Painter anchor points become anchor points, and mask and fill
   references stay linked to them, instead of being baked into fixed rasters.
 
+### Fixed
+- **Pen tablet clicks on Linux Wayland** (issue #82). On Wayland compositors that do not emulate a
+  mouse for tablet tools (Niri and some wlroots compositors), a pen moved the cursor but SubCraft
+  received no clicks at all. The new `--x11` option (or `SUBCRAFT_X11=1`) runs SubCraft under
+  XWayland, where the pen works as a pointer. It is only used when an X server is reachable, and the
+  start-up log now says which display backend is in use.
+
+## 0.3.3
+
+### Fixed
+- **Repeated graphics resets on some integrated GPUs** (issue #119). When the graphics card stops
+  responding (a driver reset: the screen goes dark for a moment), the next start now opens in safe
+  mode and turns GPU compositing and GPU baking off, so it doesn't happen again on every start. Turn
+  them back on in Preferences after a driver update.
+
+## 0.3.2
+
+### Fixed
+- **Crash "map accumulators: BufferAsyncError" while baking** (issue #119). When the GPU failed to
+  hand back bake, composite or path-tracer results (for example after a driver reset), SubCraft
+  stopped with an error. It now logs the failure and finishes the bake and the layer composite on
+  the processor instead.
+
+## 0.3.1
+
+### Fixed
+- **Crash a few seconds after start-up on some Windows machines** (issue #98). GPU compositing and
+  GPU baking created their own graphics instance with every API enabled, so a window running on DX12
+  still started the Vulkan loader and its implicit layers (for example the GOG Galaxy overlay). They
+  now use the window's API and adapter only.
+
 ## 0.3.0
 
 ### Added

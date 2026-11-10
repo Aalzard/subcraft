@@ -355,9 +355,16 @@ fn read_vec4(device: &wgpu::Device, queue: &wgpu::Queue, buffer: &wgpu::Buffer, 
     encoder.copy_buffer_to_buffer(buffer, 0, &read, 0, bytes);
     queue.submit([encoder.finish()]);
     let slice = read.slice(..);
-    slice.map_async(wgpu::MapMode::Read, |r| r.expect("map path tracer readback"));
+    slice.map_async(wgpu::MapMode::Read, |r| if let Err(e) = r { log::warn!("path tracer readback failed: {e}") });
     let _ = device.poll(wgpu::PollType::wait_indefinitely());
-    let out = bytemuck::cast_slice::<u8, [f32; 4]>(&slice.get_mapped_range().expect("mapped readback")).to_vec();
+    // A lost device must not take the app down: show an empty frame and log why.
+    let out = match slice.get_mapped_range() {
+        Ok(mapped) => bytemuck::cast_slice::<u8, [f32; 4]>(&mapped).to_vec(),
+        Err(e) => {
+            log::warn!("path tracer readback unavailable: {e}");
+            return vec![[0.0; 4]; size[0] as usize * size[1] as usize];
+        }
+    };
     read.unmap();
     out
 }

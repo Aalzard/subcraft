@@ -4,7 +4,7 @@ members = ["crates/*", "apps/*", "tools/*"]
 default-members = ["apps/subcraft"]
 
 [workspace.package]
-version = "0.3.0"
+version = "0.3.3"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 rust-version = "1.95"
@@ -64,6 +64,8 @@ eframe = { version = "0.36", default-features = false, features = ["wgpu", "defa
 egui-wgpu = "0.36"
 egui_dock = { version = "0.21", features = ["serde"] }
 rfd = "0.17"
+# Only for the platform extension traits (X11 backend choice on Linux); features come from eframe.
+winit = { version = "0.30", default-features = false }
 dirs = "7"
 pollster = "0.4"
 

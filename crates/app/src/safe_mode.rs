@@ -7,12 +7,13 @@ use std::sync::OnceLock;
 pub const ENV: &str = "SUBCRAFT_SAFE_MODE";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Reason { PreviousStartFailed, Requested }
+pub enum Reason { PreviousStartFailed, GpuLostLastRun, Requested }
 
 impl Reason {
     pub fn text(&self) -> &'static str {
         match self {
             Self::PreviousStartFailed => "SubCraft did not finish starting last time, so this run uses the most conservative graphics settings.",
+            Self::GpuLostLastRun => "The graphics card stopped responding last time (a driver reset), so this run uses the most conservative graphics settings, and GPU compositing and GPU baking stay off until you turn them back on in Preferences.",
             Self::Requested => "Safe mode was requested (--safe-mode or SUBCRAFT_SAFE_MODE), so this run uses the most conservative graphics settings.",
         }
     }
@@ -23,7 +24,8 @@ pub fn decide(previous_log: &str, safe_flag: bool, normal_flag: bool, env: Optio
     if normal_flag { return None; }
     let env_on = env.is_some_and(|v| !v.is_empty() && v != "0");
     if safe_flag || env_on { return Some(Reason::Requested); }
-    crate::startup_probe::previous_run_incomplete(previous_log).then_some(Reason::PreviousStartFailed)
+    if crate::startup_probe::previous_run_incomplete(previous_log) { return Some(Reason::PreviousStartFailed); }
+    crate::startup_probe::previous_run_gpu_lost(previous_log).then_some(Reason::GpuLostLastRun)
 }
 
 static ACTIVE: OnceLock<Reason> = OnceLock::new();
@@ -57,5 +59,21 @@ mod tests {
         assert_eq!(decide(OK, false, false, Some("1")), Some(Reason::Requested));
         assert_eq!(decide(OK, false, false, Some("0")), None);
         assert_eq!(decide(OK, true, true, None), None);
+    }
+
+    #[test]
+    fn a_lost_gpu_last_run_triggers_safe_mode_once_marked() {
+        let lost = "=== SubCraft start 1 pid 1 ===
+x
+startup complete
+12:00 GPU device lost: Unknown
+";
+        assert_eq!(decide(lost, false, false, None), Some(Reason::GpuLostLastRun));
+        // Only the latest start counts: a later clean run clears it.
+        let later = format!("{lost}=== SubCraft start 2 pid 2 ===
+startup complete
+");
+        assert_eq!(decide(&later, false, false, None), None);
+        assert_eq!(decide(lost, false, true, None), None);
     }
 }
