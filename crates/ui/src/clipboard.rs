@@ -59,8 +59,23 @@ pub fn process(state: &mut UiState, ctx: &egui::Context, now: f64) {
     ctx.data_mut(|d| d.insert_temp(egui::Id::new("effect_clip_present"), state.clips.effects.is_some()));
     let requests = ctx.data_mut(|d| std::mem::take(d.get_temp_mut_or_default::<Vec<Request>>(queue_id())));
     for r in requests {
+        let before = state.clips.layers.clone();
         run(state, r, now);
+        if let Some(text) = clipboard_marker(before.as_ref(), state.clips.layers.as_ref()) {
+            ctx.copy_text(text);
+        }
     }
+}
+
+/// Text put on the system clipboard when layers are copied or cut. The window layer only turns
+/// Ctrl+V into a paste event when the system clipboard holds text, so with it empty (or holding an
+/// image) Ctrl+V did nothing; with the marker there, the next Ctrl+V pastes the layers.
+fn clipboard_marker(before: Option<&Arc<LayerClip>>, after: Option<&Arc<LayerClip>>) -> Option<String> {
+    let after = after?;
+    if before.is_some_and(|b| Arc::ptr_eq(b, after)) {
+        return None;
+    }
+    Some(format!("SubCraft: {} layer(s) copied", after.layers.len()))
 }
 
 fn run(state: &mut UiState, r: Request, now: f64) {
@@ -113,6 +128,25 @@ mod tests {
         s.session.execute(Command::AddLayer(NewLayer::Paint)).unwrap();
         let b = s.session.selection().layer.unwrap();
         (s, a, b)
+    }
+
+    #[test]
+    fn copying_layers_puts_text_on_the_system_clipboard_so_ctrl_v_reaches_the_app() {
+        let (mut s, a, _) = state_with_two_layers();
+        s.session.execute(Command::SelectLayer(Some(a))).unwrap();
+        let ctx = egui::Context::default();
+        let copied = |out: &egui::FullOutput| out.platform_output.commands.iter().any(|c| matches!(c, egui::OutputCommand::CopyText(t) if t.starts_with("SubCraft: 1 layer")));
+        let out = ctx.run(egui::RawInput::default(), |ctx| {
+            request(ctx, Request::CopyLayers { cut: false });
+            process(&mut s, ctx, 0.0);
+        });
+        assert!(copied(&out), "copy writes the marker: {:?}", out.platform_output.commands);
+        // Pasting doesn't touch the system clipboard.
+        let out = ctx.run(egui::RawInput::default(), |ctx| {
+            request(ctx, Request::PasteLayers);
+            process(&mut s, ctx, 0.0);
+        });
+        assert!(!copied(&out));
     }
 
     #[test]
