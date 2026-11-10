@@ -171,6 +171,11 @@ pub fn unsaved_prompt(state: &mut UiState, ctx: &egui::Context, now: f64) -> Opt
             if result == Some(Pending::Close) {
                 state.allow_close = true;
             }
+            if result.is_none() {
+                // Cancelled: the file that was dropped or picked must not open with the next request.
+                state.dropped_model = None;
+                state.welcome.pending_recent = None;
+            }
             result
         }
         None => None,

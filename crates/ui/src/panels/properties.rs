@@ -78,6 +78,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             let r = ui.add(egui::TextEdit::singleline(buf).font(theme::font_strong(14.0)).margin(egui::vec2(8.0, 5.0)).desired_width(f32::INFINITY));
             if r.lost_focus() && *buf != layer.name && !buf.trim().is_empty() {
                 cmds.push(Command::Rename { layer: id, name: buf.trim().to_string() });
+            } else if !r.has_focus() && *buf != layer.name {
+                // The name changed under the field (Undo, the Layers panel, PhotoCraft): follow
+                // it, or the next focus change would push the old name back as a new rename.
+                *buf = layer.name.clone();
             }
         });
 
