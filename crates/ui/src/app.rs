@@ -1610,6 +1610,7 @@ impl eframe::App for SubcraftApp {
                 scripted_tool_capture(&mut self.state, &which, ctx.input(|i| i.time));
             }
         }
+        self.state.view_props_swallow = crate::view_props::show(&ctx, &mut self.state);
         crate::pen::keyboard(&mut self.state, &ctx, ctx.input(|i| i.time));
         self.shortcuts(&ctx);
         if ctx.input(|i| i.pointer.any_released()) {
@@ -1886,6 +1887,62 @@ fn scripted_tool_capture(state: &mut UiState, which: &str, now: f64) {
             // A stamped line: spacing 1 repeats the same map along the stroke.
             s.brush.settings.size = 12.0;
             stroke(s, StrokeMode::Paint, &line(330.0, 330.0, 570.0, 330.0));
+        }
+        "fill-box" | "fill-modes" => {
+            // Polygon fill: boxes (visible-only red, x-ray blue) or one click per fill mode.
+            use subcraft_paint::PolygonFillMode as M;
+            state.tool = Tool::PolygonFill;
+            if which == "fill-box" {
+                set(s, [0.85, 0.12, 0.08]);
+                let _ = s.polygon_fill_box(&cam, Vec2::new(300.0, 200.0), Vec2::new(450.0, 470.0), M::Polygon, true);
+                set(s, [0.1, 0.3, 0.95]);
+                let _ = s.polygon_fill_box(&cam, Vec2::new(470.0, 200.0), Vec2::new(620.0, 470.0), M::Polygon, false);
+                // Show the far side: the red box stayed in front, the blue one went through.
+                state.camera.orbit(330.0, 0.0);
+            } else {
+                for (mode, c, at) in [
+                    (M::Triangle, [0.9, 0.15, 0.1], (340.0, 260.0)),
+                    (M::Polygon, [0.95, 0.8, 0.1], (520.0, 250.0)),
+                    (M::MeshElement, [0.15, 0.7, 0.25], (450.0, 420.0)),
+                    (M::UvIsland, [0.15, 0.35, 0.95], (430.0, 330.0)),
+                ] {
+                    set(s, c);
+                    let _ = s.polygon_fill(&cam, Vec2::new(at.0, at.1), mode);
+                }
+            }
+            state.fill_mode = M::Polygon;
+        }
+        "view-props-brush" => {
+            // The right-click Properties popup over the 3D view, brush settings showing.
+            state.tool = Tool::Brush;
+            crate::view_props::open(state, egui::pos2(820.0, 330.0), crate::view_props::View::View3d);
+        }
+        "view-props-uv" => {
+            state.tool = Tool::PolygonFill;
+            crate::view_props::open(state, egui::pos2(900.0, 300.0), crate::view_props::View::View2d);
+        }
+        w if w.starts_with("curvature") => {
+            // Curvature generator on an orange fill: `curvature-both|edges|cavities|sizes[-props]`.
+            use subcraft_doc::{CurvatureDetail, CurvatureMode, FillChannel, FillSource, Generator, GeneratorKind, MaskEffectKind};
+            let ts = s.document().texture_sets[0].clone();
+            let settings = subcraft_bake::BakeSettings { size: 1024, maps: vec![subcraft_core::MeshMapKind::Curvature], ..Default::default() };
+            let mut job = s.start_bake(subcraft_app::BakeRequest { settings, high_poly: None, texture_sets: vec![(ts.id, ts.material_slot)] });
+            while job.poll(s).is_none() { std::thread::sleep(std::time::Duration::from_millis(20)); }
+            let _ = s.execute(Command::AddLayer(NewLayer::Fill));
+            let Some(layer) = s.selection().layer else { return };
+            let _ = s.execute(Command::SetFillChannel { layer, channel: ChannelKind::BaseColor, fill: FillChannel::new(FillSource::uniform(ChannelValue::rgb(1.0, 0.45, 0.05))) });
+            let _ = s.execute(Command::AddMask { layer, white: false });
+            let mut g = Generator::new(GeneratorKind::MeshMap(subcraft_core::MeshMapKind::Curvature));
+            let mode = if w.contains("edges") || w.contains("sizes") { CurvatureMode::Edges } else if w.contains("cavities") { CurvatureMode::Cavities } else { CurvatureMode::Both };
+            let (medium, coarse) = if w.contains("sizes") { (1.5, 1.5) } else { (0.0, 0.0) };
+            g.curvature = (mode != CurvatureMode::Both || medium > 0.0).then_some(CurvatureDetail { mode, fine: if w.contains("sizes") { 0.6 } else { 1.0 }, medium, coarse });
+            let _ = s.execute(Command::AddMaskEffect { layer, kind: MaskEffectKind::Generator(g) });
+            let effect = s.selected_layer().and_then(|l| l.mask.as_ref()).and_then(|m| m.effects.last()).map(|e| e.id);
+            let _ = s.execute(Command::SelectEffect { layer, target: subcraft_app::LayerTarget::Mask, effect });
+            state.tool = Tool::Brush;
+            if w.ends_with("-props") {
+                crate::view_props::open(state, egui::pos2(820.0, 260.0), crate::view_props::View::View3d);
+            }
         }
         "clone" => {
             state.tool = Tool::Clone;

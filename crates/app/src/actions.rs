@@ -371,7 +371,7 @@ pub const PAINTER_REFERENCE: &[PainterEntry] = &[
     gesture("Mouse", "Shift+RMB", "Rotate environment", "added: drag left-right turns the environment and its lighting (Shift+MMB turns only the key light)"),
     none("Mouse", "Ctrl+MMB", "Auto-focus (Depth of Field)", "depth of field is being built on another branch"),
     none("Mouse", "Ctrl+Alt+RMB", "Texture set selection", "no equivalent"),
-    gesture("Mouse", "RMB", "Context menu", "already worked (part actions)"),
+    gesture("Mouse", "RMB", "Context menu", "added: a click without dragging opens the Properties popup at the cursor (3D and 2D views); its header holds the part actions"),
     // Layers (non-editable in Painter)
     gesture("Layers", "Ctrl+C / X / V", "Copy / cut / paste layer", "already worked"),
     e("Layers", "Delete", "Delete layer", Support::Same, Action::DeleteLayer, Shortcut::key(Key::Delete), ""),

@@ -4950,3 +4950,43 @@ rotating one slot when a tile is full (helps cyclic stacks, but the 40-layer sta
   `cargo run --release -p subcraft-app --example anchor_project -- out.subcraft`.
 * **Gaps:** isolated thumbnails show references unresolved; fill content effects can't read anchors; no "accumulate
   layers below"; no cross-texture-set anchors.
+### Session 121 - Right-click Properties popup, curvature modes and detail sizes, polygon fill box / modes (2026-11-10, branch `claude/view-ux-curvature`) - DRAFT, NOT YET BUILT OR TESTED
+
+**Status:** code and tests are written, but nothing has been compiled or run yet. The first builds failed because
+the disk filled up, and then because the shared target mixed another worktree's `subcraft-doc` into this build.
+The work stopped on the weekly usage limit. No feature here is confirmed working.
+
+* **Right-click Properties popup** (`ui/src/view_props.rs`): a right-click without dragging in the 3D or 2D view
+  opens the current Properties panel content at the cursor (brush settings while painting; fill, generator or
+  effect settings for the selection). The 3D view's part actions move from the old context menu into the popup
+  header. Esc, the X button or a click outside closes it, and that click doesn't paint. Right-drag orbit (Painter
+  scheme), Alt+RMB, Shift+RMB and Ctrl+RMB still navigate, because only egui's `secondary_clicked` (no drag) opens
+  the popup. The shortcut overlay, viewport hints and the actions list are updated.
+* **Curvature generator:**
+  * `doc::CurvatureDetail` holds a mode (Both / Edges only / Cavities only) and fine, medium and coarse weights
+    (0..2). It is stored as `Generator.curvature: Option<_>`, so older files read it as None (the old behaviour).
+  * `compositor/src/curvature.rs` builds box-filtered 256² and 64² grids, smoothed with [1 2 1] and sampled
+    bilinearly. They are cached per baked map (LRU of 8). Default or None settings skip all of it and give the
+    baked map bit for bit.
+  * The UI adds a Mode combo and Fine / Medium / Coarse sliders.
+  * The 4K bench gets letters `v` (default) and `w` (Edges, all sizes).
+* **Polygon fill:**
+  * New Polygon mode (quads and ngons recovered by `mesh::topology::polygons`) and Object mode, beside Triangle,
+    Mesh and UV island.
+  * LMB drag makes a box selection in 3D and in the 2D view.
+  * "Visible polygons only" (default on, eye toggle) keeps front faces hit by rays through the box. Off is x-ray.
+  * Each box is one "Polygon Fill" undo step.
+  * The core is in `paint/src/select.rs`, plus `Session::polygon_fill_box` / `polygon_fill_uv_box`.
+* **Tests written, not yet run:**
+  * mesh: `polygons_group_the_triangles_of_each_face`
+  * doc: curvature round trip
+  * compositor: `curvature.rs` unit tests and `tests/curvature_generator.rs`
+  * paint: `tests/polygon_select.rs`
+  * app: `tests/polygon_fill_box.rs`
+  * ui: `view_props` unit tests and `tests/view_props.rs`
+* **Still to do:**
+  * Run the tests above (release, `-j 6`, touching all sources first on the shared target) and fix failures.
+  * Run the 4K bench (`generator_4k 4096 vw`).
+  * Build the app and run the scripted captures: `fill-box`, `fill-modes`, `view-props-brush`, `view-props-uv`
+    (`--view-2d`), `curvature-both|edges|cavities|sizes[-props]`.
+  * Record the real results here.

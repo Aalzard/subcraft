@@ -38,6 +38,7 @@ pub mod viewport;
 pub mod viewport_hints;
 pub mod viewport_bar;
 pub mod view_extras;
+pub mod view_props;
 pub mod widgets;
 pub mod window_frame;
 pub mod welcome;

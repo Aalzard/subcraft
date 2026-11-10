@@ -860,24 +860,38 @@ impl Stroke {
         }
     }
 
+    /// Fill everything a screen box `[a, b]` (pixels) touches, grown to `mode`'s elements.
+    /// `visible_only` skips back faces and occluded triangles (see
+    /// [`crate::select::triangles_in_screen_box`]).
+    pub fn polygon_fill_box(&mut self, ts: &mut TextureSet, ctx: &PaintContext, a: Vec2, b: Vec2, mode: PolygonFillMode, visible_only: bool) -> Result<Vec<usize>, PaintError> {
+        self.check(ts, ctx)?;
+        let seeds = crate::select::triangles_in_screen_box(ctx.mesh, ctx.bvh, ctx.camera, ctx.geometry.material_slot, a, b, visible_only);
+        let tris = crate::select::grow(ctx.mesh, ctx.geometry, &seeds, mode);
+        self.fill_triangles(ts, ctx, &tris)
+    }
+
+    /// [`Stroke::polygon_fill_box`] from the 2D view: a box in UV space.
+    pub fn polygon_fill_uv_box(&mut self, ts: &mut TextureSet, ctx: &PaintContext, a: Vec2, b: Vec2, mode: PolygonFillMode) -> Result<Vec<usize>, PaintError> {
+        self.check(ts, ctx)?;
+        let seeds = crate::select::triangles_in_uv_box(ctx.mesh, ctx.geometry.material_slot, a, b);
+        let tris = crate::select::grow(ctx.mesh, ctx.geometry, &seeds, mode);
+        self.fill_triangles(ts, ctx, &tris)
+    }
+
     fn fill_from(&mut self, ts: &mut TextureSet, ctx: &PaintContext, hit_tri: u32, mode: PolygonFillMode) -> Result<Vec<usize>, PaintError> {
-        let mesh = ctx.mesh;
-        let slot = ctx.geometry.material_slot;
-        if mesh.tri_material[hit_tri as usize] != slot {
+        if ctx.mesh.tri_material[hit_tri as usize] != ctx.geometry.material_slot {
             return Ok(Vec::new());
         }
-        let group = match mode {
-            PolygonFillMode::Triangle => None,
-            PolygonFillMode::MeshElement => Some(ctx.geometry.triangle_parts()),
-            PolygonFillMode::UvIsland => Some(ctx.geometry.triangle_islands()),
-        };
-        let tris: Vec<u32> = match &group {
-            None => vec![hit_tri],
-            Some(g) => {
-                let id = g[hit_tri as usize];
-                mesh.material_triangles(slot).filter(|&t| g[t] == id).map(|t| t as u32).collect()
-            }
-        };
+        let tris = crate::select::grow(ctx.mesh, ctx.geometry, &[hit_tri], mode);
+        self.fill_triangles(ts, ctx, &tris)
+    }
+
+    /// Fill `tris` (of the painted texture set) at full coverage, scaled by stroke opacity.
+    fn fill_triangles(&mut self, ts: &mut TextureSet, ctx: &PaintContext, tris: &[u32]) -> Result<Vec<usize>, PaintError> {
+        if tris.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mesh = ctx.mesh;
         let input = KernelInput {
             mesh,
             bvh: ctx.bvh,
@@ -890,7 +904,7 @@ impl Stroke {
             stencil: None,
         };
         let mut bins: std::collections::BTreeMap<usize, Vec<u32>> = std::collections::BTreeMap::new();
-        for &t in &tris {
+        for &t in tris {
             for tile in input.triangle_tiles(t) {
                 bins.entry(tile).or_default().push(t);
             }

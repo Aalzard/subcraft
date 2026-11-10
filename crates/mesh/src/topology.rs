@@ -107,18 +107,9 @@ pub fn uv_edges(mesh: &Mesh, tris: std::ops::Range<usize>) -> Vec<[Vec2; 2]> {
     out
 }
 
-/// Real polygon edges for the 3D view's wireframe overlay.
-///
-/// [`Mesh`] only stores triangles, so the polygons an importer triangulated (quads as two
-/// triangles, n-gons as a fan around one corner) are recovered here. Consecutive triangles of the
-/// same material and object that share an edge, and whose normals differ by less than
-/// `max_angle_deg`, are one polygon, and the shared diagonal is not an edge. A chain of more than
-/// two triangles only continues as a fan (all diagonals meet at one corner). A diagonal is only
-/// dropped when exactly those two triangles share it. Edges are unique and welded by
-/// position. Limit: a flat region that was authored as plain triangles in fan order looks like a
-/// quad, because the file does not say which it was.
-pub fn polygon_edges(mesh: &Mesh, max_angle_deg: f32) -> Vec<[glam::Vec3; 2]> {
-    let weld = weld_positions(mesh);
+/// Recovered polygon diagonals (see [`polygon_edges`]): each `(t, diagonal)` joins triangle `t`
+/// and `t + 1` into one polygon across the welded edge `diagonal`.
+fn polygon_merges(mesh: &Mesh, weld: &[u32], max_angle_deg: f32) -> Vec<(usize, (u32, u32))> {
     let tri_count = mesh.triangle_count();
     let key = |a: u32, b: u32| if a <= b { (a, b) } else { (b, a) };
     let corners = |t: usize| mesh.tri(t).map(|v| weld[v as usize]);
@@ -130,7 +121,7 @@ pub fn polygon_edges(mesh: &Mesh, max_angle_deg: f32) -> Vec<[glam::Vec3; 2]> {
         }
     }
     let cos_limit = max_angle_deg.to_radians().cos();
-    let mut hidden: std::collections::HashSet<(u32, u32)> = std::collections::HashSet::new();
+    let mut merges = Vec::new();
     let mut previous: Option<(usize, (u32, u32))> = None;
     for t in 0..tri_count.saturating_sub(1) {
         let (a, b) = (corners(t), corners(t + 1));
@@ -149,10 +140,48 @@ pub fn polygon_edges(mesh: &Mesh, max_angle_deg: f32) -> Vec<[glam::Vec3; 2]> {
         }
         let same_group = mesh.tri_material.get(t) == mesh.tri_material.get(t + 1) && mesh.tri_object.get(t) == mesh.tri_object.get(t + 1);
         if same_group && uses.get(&diagonal) == Some(&2) && mesh.geometric_normal(t).dot(mesh.geometric_normal(t + 1)) >= cos_limit {
-            hidden.insert(diagonal);
+            merges.push((t, diagonal));
             previous = Some((t, diagonal));
         }
     }
+    merges
+}
+
+/// Polygon (quad / n-gon) id per triangle, recovered as in [`polygon_edges`]: the triangles an
+/// importer made from one face share an id. Ids are dense, in first-triangle order.
+pub fn polygons(mesh: &Mesh, max_angle_deg: f32) -> Vec<u32> {
+    let weld = weld_positions(mesh);
+    let tri_count = mesh.triangle_count();
+    let mut dsu = Dsu::new(tri_count);
+    for (t, _) in polygon_merges(mesh, &weld, max_angle_deg) {
+        dsu.union(t as u32 + 1, t as u32);
+    }
+    let mut ids: HashMap<u32, u32> = HashMap::new();
+    (0..tri_count as u32)
+        .map(|t| {
+            let r = dsu.find(t);
+            let next = ids.len() as u32;
+            *ids.entry(r).or_insert(next)
+        })
+        .collect()
+}
+
+/// Real polygon edges for the 3D view's wireframe overlay.
+///
+/// [`Mesh`] only stores triangles, so the polygons an importer triangulated (quads as two
+/// triangles, n-gons as a fan around one corner) are recovered here. Consecutive triangles of the
+/// same material and object that share an edge, and whose normals differ by less than
+/// `max_angle_deg`, are one polygon, and the shared diagonal is not an edge. A chain of more than
+/// two triangles only continues as a fan (all diagonals meet at one corner). A diagonal is only
+/// dropped when exactly those two triangles share it. Edges are unique and welded by
+/// position. Limit: a flat region that was authored as plain triangles in fan order looks like a
+/// quad, because the file does not say which it was.
+pub fn polygon_edges(mesh: &Mesh, max_angle_deg: f32) -> Vec<[glam::Vec3; 2]> {
+    let weld = weld_positions(mesh);
+    let key = |a: u32, b: u32| if a <= b { (a, b) } else { (b, a) };
+    let corners = |t: usize| mesh.tri(t).map(|v| weld[v as usize]);
+    let tri_count = mesh.triangle_count();
+    let hidden: std::collections::HashSet<(u32, u32)> = polygon_merges(mesh, &weld, max_angle_deg).into_iter().map(|(_, d)| d).collect();
     let mut seen: std::collections::HashSet<(u32, u32)> = std::collections::HashSet::new();
     let mut out = Vec::new();
     for t in 0..tri_count {
@@ -256,5 +285,22 @@ mod tests {
         // 6 faces x 4x4 cells. Triangle edges: 6*(40 grid + 16 diagonal) - 48 shared = 288.
         let mesh = primitives::cube(1.0);
         assert_eq!(polygon_edges(&mesh, 30.0).len(), 288 - 96);
+    }
+
+    #[test]
+    fn polygons_group_the_triangles_of_each_face() {
+        use glam::Vec3;
+        let q = fan_mesh(&[Vec3::ZERO, Vec3::X, Vec3::new(1., 1., 0.), Vec3::Y]);
+        assert_eq!(polygons(&q, 30.0), vec![0, 0], "a quad is one polygon");
+        let p = fan_mesh(&[Vec3::ZERO, Vec3::new(2., 0., 0.), Vec3::new(3., 1., 0.), Vec3::new(1.5, 2., 0.), Vec3::new(-1., 1., 0.)]);
+        assert_eq!(polygons(&p, 30.0), vec![0, 0, 0], "a pentagon fan is one polygon");
+        // 6 faces x 16 quad cells: 96 polygons of two triangles each.
+        let cube = primitives::cube(1.0);
+        let ids = polygons(&cube, 30.0);
+        let n = *ids.iter().max().unwrap() as usize + 1;
+        assert_eq!(n, 96);
+        let mut count = vec![0; n];
+        for &i in &ids { count[i as usize] += 1; }
+        assert!(count.iter().all(|&c| c == 2), "{count:?}");
     }
 }

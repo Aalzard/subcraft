@@ -1,7 +1,7 @@
 //! Tool and brush settings, stroke options and the brush material.
 
 use egui::{RichText, Ui};
-use subcraft_paint::{Alignment, PaintTarget, PolygonFillMode};
+use subcraft_paint::{Alignment, PaintTarget};
 
 use crate::state::{Tool, UiState};
 use crate::theme::{self, TEXT_FAINT};
@@ -19,13 +19,12 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             super::brush_header::show(state, ui);
             section(ui, "tool", "Paint target", true, |ui| {
                 if state.tool == Tool::PolygonFill {
-                    prop_row(ui, "Fill by", |ui| {
-                        segmented(
-                            ui,
-                            &mut state.fill_mode,
-                            &[(PolygonFillMode::Triangle, "Triangle"), (PolygonFillMode::MeshElement, "Part"), (PolygonFillMode::UvIsland, "UV island")],
-                        );
+                    prop_row(ui, "Fill by", |ui| crate::brush_bar::fill_mode_combo(ui, &mut state.fill_mode, "fill_mode_panel"));
+                    prop_row(ui, "", |ui| {
+                        ui.checkbox(&mut state.fill_visible_only, "Visible polygons only")
+                            .on_hover_text("A box drag in the 3D view fills only what the camera sees: no back faces, nothing behind the model. Off: everything under the box.");
                     });
+                    hint(ui, "Click to fill one element, drag a box to fill every element it touches. Works in the 3D and 2D views.");
                 }
                 let b = &mut state.session.brush;
                 prop_row(ui, "Paint on", |ui| {

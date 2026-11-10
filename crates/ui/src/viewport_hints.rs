@@ -137,7 +137,10 @@ pub fn build(c: &HintContext) -> Vec<Hint> {
                 out.push(h("Enter", "Finish path"));
                 out.push(h("Esc", "Cancel"));
             }
-            Tool::PolygonFill => out.push(h("LMB", "Fill polygon")),
+            Tool::PolygonFill => {
+                out.push(h("LMB", "Fill polygon"));
+                out.push(h("LMB drag", "Box fill"));
+            }
             Tool::Eyedropper => {
                 out.push(h("LMB", "Pick color"));
                 out.push(h("Shift+LMB", "Pick material"));
@@ -168,7 +171,7 @@ pub fn build(c: &HintContext) -> Vec<Hint> {
             }
         }
     }
-    out.push(h("RMB", "Part menu"));
+    out.push(h("RMB click", "Properties / part menu"));
     out.push(h("I / H", "Isolate / hide part"));
     if c.hidden_parts {
         out.push(h("Esc", "Show all parts"));
@@ -254,7 +257,7 @@ mod tests {
     #[test]
     fn brush_lists_painting_camera_and_part_hints() {
         let w = whats(&ctx(Tool::Brush));
-        for want in ["Paint", "Straight line", "Size / hardness", "Flow / angle", "Brush size", "Symmetry X", "Lazy mouse", "Orbit", "Pan", "Zoom", "Frame model", "Part menu", "Isolate / hide part"] {
+        for want in ["Paint", "Straight line", "Size / hardness", "Flow / angle", "Brush size", "Symmetry X", "Lazy mouse", "Orbit", "Pan", "Zoom", "Frame model", "Properties / part menu", "Isolate / hide part"] {
             assert!(w.contains(&want), "{want} missing from {w:?}");
         }
         assert!(!w.contains(&"Show all parts"), "only when something is hidden");

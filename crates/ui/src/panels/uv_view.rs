@@ -79,8 +79,12 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             state.uv.zoom = (state.uv.zoom * (scroll * 0.002).exp()).clamp(0.2, 20.0);
         }
     }
-    let alt = ui.input(|i| i.modifiers.alt);
+    let (alt, mods) = ui.input(|i| (i.modifiers.alt, i.modifiers));
     let paints = painting_tool && !alt;
+    // Right-click (no drag): the Properties popup at the cursor.
+    if response.secondary_clicked() && crate::view_props::opens(state, mods) && let Some(p) = response.interact_pointer_pos() {
+        crate::view_props::open(state, p, crate::view_props::View::View2d);
+    }
     if response.dragged_by(egui::PointerButton::Middle)
         || (response.dragged_by(egui::PointerButton::Primary) && !state.uv.painting && (alt || !(paints || state.tool == Tool::Pen)))
     {
@@ -130,6 +134,11 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     if state.tool == Tool::Pen && let Some(path) = state.pen.preview(&state.session) {
         crate::pen::draw(&painter, path, state.pen.selected_anchor(), |uv| Some(img_rect.min + egui::vec2(uv.x, uv.y) * side));
     }
+    if let (Some(a), Some(b)) = (state.uv.fill_box, response.hover_pos().or(ui.input(|i| i.pointer.latest_pos())))
+        && crate::view_props::is_box_drag(a, b)
+    {
+        crate::view_props::draw_fill_box(&painter, Rect::from_two_pos(a, b), false);
+    }
     if let Some(p) = response.hover_pos() {
         if matches!(state.tool, Tool::Brush | Tool::Eraser) && !alt {
             let mesh = &state.session.scene().mesh;
@@ -145,7 +154,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
         }
     }
-    let hint = if paints { "LMB paint · Shift+click line · Alt+LMB / MMB pan · Wheel zoom" } else { "LMB / MMB pan · Wheel zoom" };
+    let hint = if paints && state.tool == Tool::PolygonFill { "LMB click fill · LMB drag box fill · RMB properties · Alt+LMB / MMB pan · Wheel zoom" } else if paints { "LMB paint · Shift+click line · RMB properties · Alt+LMB / MMB pan · Wheel zoom" } else { "LMB / MMB pan · RMB properties · Wheel zoom" };
     painter.text(rect.left_bottom() + egui::vec2(10.0, -10.0), egui::Align2::LEFT_BOTTOM, hint, crate::theme::font(11.5), crate::theme::TEXT_FAINT);
     if state.uv.painting {
         ui.ctx().request_repaint();
@@ -159,6 +168,9 @@ fn brush_controls(state: &mut UiState, ui: &mut Ui) {
     let (original, original_options) = (settings, options);
     let width = ui.available_width();
     crate::brush_bar::show(ui, &mut state.tool, &mut settings, &mut options, &mut state.recovery.prefs.viewport.symmetry_guides, width);
+    if state.tool == Tool::PolygonFill {
+        crate::brush_bar::fill_options(ui, &mut state.fill_mode, None, "fill_mode_2d");
+    }
     let now = ui.input(|i| i.time);
     if settings != original && let Err(e) = state.session.execute(subcraft_app::Command::SetBrushSettings(settings)) {
         state.set_status(e.to_string(), now);
@@ -174,9 +186,33 @@ fn paint_input(state: &mut UiState, ui: &Ui, response: &egui::Response, image: R
     let (pointer, pressed, down, alt, shift) = ui.input(|i| {
         (i.pointer.interact_pos(), i.pointer.primary_pressed(), i.pointer.primary_down(), i.modifiers.alt, i.modifiers.shift)
     });
+    let pressed = pressed && !state.view_props_swallow;
     let to_uv = |p: Pos2| Vec2::new((p.x - image.left()) / image.width(), (p.y - image.top()) / image.height());
     let texels_per_px = resolution as f32 / image.width().max(1.0);
     let now = ui.input(|i| i.time);
+    // Polygon fill: a click fills the element under the cursor, a drag every element the UV box touches.
+    if let Some(start) = state.uv.fill_box {
+        if state.tool != Tool::PolygonFill || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+            state.uv.fill_box = None;
+        } else if !down {
+            state.uv.fill_box = None;
+            let end = pointer.unwrap_or(start);
+            state.session.brush.mode = StrokeMode::Paint;
+            let boxed = crate::view_props::is_box_drag(start, end);
+            let result = if boxed {
+                state.session.polygon_fill_uv_box(to_uv(start), to_uv(end), state.fill_mode)
+            } else {
+                state.session.polygon_fill_uv(to_uv(start), state.fill_mode)
+            };
+            match result {
+                Ok(tiles) if tiles.is_empty() && boxed => state.set_status("Polygon fill: the box touched no UV island of this texture set", now),
+                Ok(tiles) if tiles.is_empty() => state.set_status("Polygon fill: click inside a UV island of this texture set", now),
+                Ok(_) => {}
+                Err(e) => state.set_status(format!("Polygon fill: {e}"), now),
+            }
+        }
+        return;
+    }
     if state.uv.painting {
         if !down {
             state.session.end_stroke();
@@ -196,12 +232,7 @@ fn paint_input(state: &mut UiState, ui: &Ui, response: &egui::Response, image: R
     let Some(p) = pointer else { return };
     let uv = to_uv(p);
     if state.tool == Tool::PolygonFill {
-        state.session.brush.mode = StrokeMode::Paint;
-        match state.session.polygon_fill_uv(uv, state.fill_mode) {
-            Ok(tiles) if tiles.is_empty() => state.set_status("Polygon fill: click inside a UV island of this texture set", now),
-            Ok(_) => {}
-            Err(e) => state.set_status(format!("Polygon fill: {e}"), now),
-        }
+        state.uv.fill_box = Some(p);
         return;
     }
     state.session.brush.mode = if state.tool == Tool::Eraser { StrokeMode::Erase } else { StrokeMode::Paint };

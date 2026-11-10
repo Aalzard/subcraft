@@ -75,6 +75,54 @@ pub struct Generator {
     /// Concave, Ambient Occlusion and Mesh Map kinds). Absent: the mesh map, as before.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub input: Option<crate::anchor::AnchorInput>,
+    /// Curvature generator (`MeshMap(Curvature)`) mode and detail sizes. Absent (the default, and
+    /// in every older project): the baked map itself.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub curvature: Option<CurvatureDetail>,
+}
+
+/// Which side of the curvature the Curvature generator keeps.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CurvatureMode {
+    /// The map as baked: convex bright, concave dark, flat at 0.5.
+    #[default]
+    Both,
+    /// Convex edges only: flat and concave black, the sharpest edges white.
+    Edges,
+    /// Concave cavities only: flat and convex black, the deepest creases white.
+    Cavities,
+}
+
+impl CurvatureMode {
+    pub const ALL: [Self; 3] = [Self::Both, Self::Edges, Self::Cavities];
+    pub fn label(self) -> &'static str {
+        match self { Self::Both => "Edges and cavities", Self::Edges => "Edges only", Self::Cavities => "Cavities only" }
+    }
+}
+
+/// Curvature generator options: a mode and the weights of three detail sizes. Fine is the baked
+/// map; medium and coarse are the map averaged over about 1/256 and 1/64 of the texture, so broad
+/// bevels and large forms show even where the fine bake is thin. `Default` (Both, fine 1, medium
+/// and coarse 0) is exactly the baked map.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CurvatureDetail {
+    pub mode: CurvatureMode,
+    pub fine: f32,
+    pub medium: f32,
+    pub coarse: f32,
+}
+
+impl Default for CurvatureDetail {
+    fn default() -> Self { Self { mode: CurvatureMode::Both, fine: 1.0, medium: 0.0, coarse: 0.0 } }
+}
+
+impl CurvatureDetail {
+    /// Largest weight a detail size takes.
+    pub const MAX_WEIGHT: f32 = 2.0;
+
+    /// Whether these settings leave the baked map exactly as it is.
+    pub fn is_identity(&self) -> bool { *self == Self::default() }
 }
 
 /// Settings of a generator's micro effect (see [`Generator::micro`]). `Default` is the neutral
@@ -286,6 +334,7 @@ impl Generator {
             }),
             micro: None,
             input: None,
+            curvature: None,
         }
     }
 
@@ -541,5 +590,17 @@ mod tests {
         assert!(m.valid());
         m.tolerance = 2.0;
         assert!(!m.valid());
+    }
+
+    #[test]
+    fn curvature_detail_round_trips_and_older_generators_read_as_none() {
+        let mut g = Generator::new(GeneratorKind::MeshMap(MeshMapKind::Curvature));
+        let plain = serde_json::to_string(&g).unwrap();
+        assert!(!plain.contains("curvature"), "absent settings are not written: {plain}");
+        assert_eq!(serde_json::from_str::<Generator>(&plain).unwrap().curvature, None);
+        g.curvature = Some(CurvatureDetail { mode: CurvatureMode::Cavities, fine: 0.5, medium: 1.25, coarse: 0.75 });
+        let back: Generator = serde_json::from_str(&serde_json::to_string(&g).unwrap()).unwrap();
+        assert_eq!(back, g);
+        assert!(CurvatureDetail::default().is_identity() && !back.curvature.unwrap().is_identity());
     }
 }

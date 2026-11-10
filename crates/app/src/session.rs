@@ -1768,6 +1768,35 @@ impl Session {
         Ok(tiles)
     }
 
+    /// Polygon fill of everything a screen box `[a, b]` touches, grown to `mode` (one history
+    /// entry). `visible_only` leaves back faces and occluded triangles alone.
+    pub fn polygon_fill_box(&mut self, camera: &Camera, a: Vec2, b: Vec2, mode: PolygonFillMode, visible_only: bool) -> Result<Vec<usize>, PaintError> {
+        self.polygon_fill_with(camera, |stroke, ts, ctx| stroke.polygon_fill_box(ts, ctx, a, b, mode, visible_only))
+    }
+
+    /// Polygon fill of everything a UV box `[a, b]` touches in the 2D view (one history entry).
+    pub fn polygon_fill_uv_box(&mut self, a: Vec2, b: Vec2, mode: PolygonFillMode) -> Result<Vec<usize>, PaintError> {
+        self.polygon_fill_with(&uv_camera(), |stroke, ts, ctx| stroke.polygon_fill_uv_box(ts, ctx, a, b, mode))
+    }
+
+    fn polygon_fill_with(
+        &mut self,
+        camera: &Camera,
+        f: impl FnOnce(&mut Stroke, &mut TextureSet, &PaintContext) -> Result<Vec<usize>, PaintError>,
+    ) -> Result<Vec<usize>, PaintError> {
+        if self.stroke.is_some() {
+            return Ok(Vec::new());
+        }
+        self.begin_stroke()?;
+        let active = self.stroke.take().expect("just begun");
+        let tiles = self.with_stroke_context(active.texture_set, camera, f, active)?;
+        if let Some(a) = self.stroke.as_mut() {
+            a.label = "Polygon Fill";
+        }
+        self.end_stroke();
+        Ok(tiles)
+    }
+
     fn with_stroke_context(
         &mut self,
         ts_id: TextureSetId,

@@ -72,6 +72,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     let (mods, scroll, delta, primary_pressed, primary_down, pointer) = ui.input(|i| {
         (i.modifiers, i.smooth_scroll_delta.y, i.pointer.delta(), i.pointer.primary_pressed(), i.pointer.primary_down(), i.pointer.latest_pos())
     });
+    // The press that closed the right-click Properties popup only closes it.
+    let primary_pressed = primary_pressed && !state.view_props_swallow;
 
     // ----- stencil: hold S + drag (LMB rotate, MMB move, RMB scale); hold N to bypass ------------
     let (s_down, n_down) = ui.input(|i| (i.key_down(egui::Key::S) && !i.modifiers.any(), i.key_down(egui::Key::N) && !i.modifiers.any()));
@@ -155,29 +157,11 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
 
     let camera = state.camera.paint_camera(size);
 
-    if response.secondary_clicked() && !alt && !stencil_edit {
-        state.context_part = pointer.and_then(|p| state.session.surface_target(&camera, to_screen(p), state.parts_kind));
+    // Right-click (no drag): the Properties popup at the cursor, part actions in its header.
+    if response.secondary_clicked() && !stencil_edit && crate::view_props::opens(state, mods) && let Some(p) = pointer {
+        state.context_part = state.session.surface_target(&camera, to_screen(p), state.parts_kind);
+        crate::view_props::open(state, p, crate::view_props::View::View3d);
     }
-    let mut part_action = None;
-    response.context_menu(|ui| {
-        if let Some(target) = state.context_part {
-            ui.label(target.part.kind.label());
-            ui.menu_button("Target", |ui| {
-                for kind in subcraft_core::PartKind::ALL {
-                    if ui.selectable_label(state.parts_kind == kind, kind.label()).clicked()
-                        && let Some(next) = state.session.target_kind(target, kind) {
-                        state.context_part = Some(next); state.parts_kind = kind;
-                    }
-                }
-            });
-            if let Some(action) = crate::panels::parts::menu(ui, state.context_part.unwrap_or(target), state.session.selection().layer.is_some() && state.session.selection().texture_set == target.texture_set) {
-                part_action = Some((state.context_part.unwrap_or(target), action));
-            }
-        } else { ui.label("Right-click the model to texture a part."); }
-        if state.session.has_hidden_parts() && ui.button("Show all parts").clicked() { state.session.show_all_parts(); ui.close(); }
-        if ui.button("Eyedropper tool").clicked() { state.tool = Tool::Eyedropper; ui.close(); }
-    });
-    if let Some((target, action)) = part_action { crate::panels::parts::apply(state, target, action, now); }
     if response.hovered() && !typing && !mods.any() {
         let target = pointer.and_then(|p| state.session.surface_target(&camera, to_screen(p), state.parts_kind));
         for (key, action) in [(egui::Key::I, subcraft_app::PartAction::Isolate), (egui::Key::H, subcraft_app::PartAction::Hide)] {
@@ -301,12 +285,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     if state.session.set_clone_source(&camera, sp) { state.set_status("Clone source set: now paint where the copy should go", now); }
                     else { state.set_status(crate::keys::native("Ctrl+click the model to set the clone source"), now); }
                 }
-                Tool::PolygonFill => {
-                    state.session.brush.mode = StrokeMode::Paint;
-                    if let Err(e) = state.session.polygon_fill(&camera, sp, state.fill_mode) {
-                        state.set_status(format!("Polygon fill: {e}"), now);
-                    }
-                }
+                Tool::PolygonFill => state.fill_box = Some(p),
                 _ => {
                     if let Err(e) = state.session.prepare_surface_paint(&camera, sp) { state.set_status(format!("Parts: {e}"), now); }
                     state.session.brush.mode = match state.tool {
@@ -355,6 +334,28 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     } else if state.painting && !primary_down {
         state.session.end_stroke();
         state.painting = false;
+    }
+
+    // ----- polygon fill: a click fills the element under the cursor, a drag every element in the box -----
+    let fill_rect = state.fill_box.zip(pointer).map(|(a, b)| Rect::from_two_pos(a, b));
+    if state.fill_box.is_some() && (state.tool != Tool::PolygonFill || bake_mode || ui.input(|i| i.key_pressed(egui::Key::Escape))) {
+        state.fill_box = None;
+    } else if let Some(start) = state.fill_box
+        && !primary_down
+    {
+        state.fill_box = None;
+        let end = pointer.unwrap_or(start);
+        state.session.brush.mode = StrokeMode::Paint;
+        let result = if crate::view_props::is_box_drag(start, end) {
+            state.session.polygon_fill_box(&camera, to_screen(start), to_screen(end), state.fill_mode, state.fill_visible_only)
+        } else {
+            state.session.polygon_fill(&camera, to_screen(start), state.fill_mode)
+        };
+        match result {
+            Ok(tiles) if tiles.is_empty() && crate::view_props::is_box_drag(start, end) => state.set_status("Polygon fill: the box touched no triangle of this texture set", now),
+            Ok(_) => {}
+            Err(e) => state.set_status(format!("Polygon fill: {e}"), now),
+        }
     }
 
     // ----- render --------------------------------------------------------------------------------
@@ -508,6 +509,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             let from = p + egui::vec2(offset.x / pixel_scale.x, offset.y / pixel_scale.y);
             painter.circle_stroke(from, 6.0, Stroke::new(1.5, cross));
         }
+    }
+    if let Some(r) = fill_rect.filter(|r| state.fill_box.is_some() && crate::view_props::is_box_drag(r.min, r.max)) {
+        crate::view_props::draw_fill_box(&painter, r, state.fill_visible_only);
     }
     draw_stencil(state, ui, &painter, rect, size);
     if let Some(item) = drop_hover {

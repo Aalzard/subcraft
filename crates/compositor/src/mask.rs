@@ -121,8 +121,15 @@ fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]], input: 
     // Breakup 0 is exactly smooth whatever the Grain value.
     let grain = if g.kind == GeneratorKind::Edges { 0.0 } else { g.painter.map_or(0.0, |p| p.grain.clamp(0.0, 1.0)) * (g.noise_amount * 4.0).clamp(0.0, 1.0) };
     let fine = (grain > 0.0).then(|| fine_noise(g, geo));
+    // Curvature generator mode and detail sizes; absent or default: the baked map itself.
+    let mut detail = Vec::new();
+    if g.kind == GeneratorKind::MeshMap(MeshMapKind::Curvature) && let Some(d) = g.curvature.filter(|d| !d.is_identity()) {
+        detail = vec![0.0f32; TILE_TEXELS];
+        crate::curvature::detail_values(&d, tc.sample.mesh_maps.get(MeshMapKind::Curvature), geo, &map, &mut detail);
+    }
     for (i, o) in out.iter_mut().enumerate() {
         let raw = match g.kind {
+            GeneratorKind::MeshMap(_) if !detail.is_empty() => detail[i],
             GeneratorKind::Edges | GeneratorKind::MeshMap(_) => map[i][0],
             GeneratorKind::Cavity if !curvature.is_empty() => (1.0 - map[i][0]) * (1.0 - edges_masking * ((curvature[i][0] - 0.5) * 2.0).clamp(0.0, 1.0)),
             GeneratorKind::Cavity | GeneratorKind::AmbientOcclusion => 1.0 - map[i][0],

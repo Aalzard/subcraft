@@ -80,9 +80,10 @@ pub fn show(state: &mut UiState, ctx: &Context) {
             ui.add_space(10.0);
             ui.label(RichText::new("Mouse and hold keys").font(theme::font_strong(12.5)));
             egui::Grid::new("shortcut_mouse").num_columns(2).spacing([24.0, 6.0]).striped(true).show(ui, |ui| {
-                let extra: [(&str, &str); 9] = [
+                let extra: [(&str, &str); 10] = [
                     ("Straight line", "Shift+click"),
-                    ("Part actions", "RMB click"),
+                    ("Properties at the cursor (part actions in its header)", "RMB click without dragging, 3D or 2D view"),
+                    ("Polygon fill: box selection", "LMB drag with polygon fill (click fills one element)"),
                     ("Isolate / hide part", "I / H in the 3D view"),
                     ("Restore all parts", "Esc in the 3D view"),
                     ("Pick material", "Shift+click with eyedropper"),

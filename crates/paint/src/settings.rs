@@ -401,13 +401,32 @@ impl PaintTarget {
     }
 }
 
-/// Polygon-fill selection grown from the triangle under the cursor.
+/// Polygon-fill selection grown from the triangles a click or a box picks.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PolygonFillMode {
     Triangle,
     MeshElement,
     UvIsland,
+    /// The source polygon (quad / n-gon) the importer triangulated.
+    Polygon,
+    /// The whole mesh object (the texture set's triangles when the mesh has no objects).
+    Object,
+}
+
+impl PolygonFillMode {
+    /// In the order the tool options list them.
+    pub const ALL: [Self; 5] = [Self::Triangle, Self::Polygon, Self::MeshElement, Self::UvIsland, Self::Object];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Triangle => "Triangle",
+            Self::Polygon => "Polygon",
+            Self::MeshElement => "Mesh",
+            Self::UvIsland => "UV island",
+            Self::Object => "Object",
+        }
+    }
 }
 
 #[cfg(test)]
