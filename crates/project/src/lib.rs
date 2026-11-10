@@ -49,6 +49,17 @@ pub enum ProjectError {
     UnsupportedVersion(u32),
     #[error("project data is invalid: {0}")]
     Invalid(String),
+    #[error("not saved: {0} would be {1} MB, more than the {max} MB a project can hold and still open", max = MAX_ENTRY_BYTES >> 20)]
+    TooLarge(String, u64),
+}
+
+/// Saving refuses an entry the loader would reject (`MAX_ENTRY_BYTES`), so a save never writes a
+/// project that then can't be opened. The previous file on disk stays as it was.
+fn check_entry_size(name: &str, len: usize) -> Result<(), ProjectError> {
+    if len as u64 > MAX_ENTRY_BYTES {
+        return Err(ProjectError::TooLarge(name.to_string(), (len as u64) >> 20));
+    }
+    Ok(())
 }
 
 impl From<zip::result::ZipError> for ProjectError {
@@ -232,14 +243,22 @@ pub fn write_project_with<W: Write + Seek>(
         document: "document.json".into(),
     };
 
+    let document = to_json(&document);
+    let mesh_bin = subcraft_mesh::serialize::encode(mesh);
+    check_entry_size("document.json", document.len())?;
+    check_entry_size("mesh.bin", mesh_bin.len())?;
+    for (name, bytes) in &res_files {
+        check_entry_size(name, bytes.len())?;
+    }
+
     let mut zip = zip::ZipWriter::new(w);
     let deflate = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
     zip.start_file("manifest.json", deflate)?;
     zip.write_all(to_json(&manifest).as_bytes())?;
     zip.start_file("document.json", deflate)?;
-    zip.write_all(to_json(&document).as_bytes())?;
+    zip.write_all(document.as_bytes())?;
     zip.start_file("mesh.bin", deflate)?;
-    zip.write_all(&subcraft_mesh::serialize::encode(mesh))?;
+    zip.write_all(&mesh_bin)?;
     write_payload(&mut zip, &writer.rasters, &res_files)?;
     Ok(zip.finish()?)
 }
@@ -541,9 +560,10 @@ pub fn load_project_trusted(path: &Path) -> Result<ProjectData, ProjectError> {
 fn read_project_checked<R: Read + Seek>(r: R, trusted: bool) -> Result<ProjectData, ProjectError> {
     let mut zip = zip::ZipArchive::new(r)?;
     let manifest: Manifest = {
-        let mut f = zip.by_name("manifest.json").map_err(|_| ProjectError::NotAProject)?;
+        let f = zip.by_name("manifest.json").map_err(|_| ProjectError::NotAProject)?;
+        // A manifest is a few hundred bytes; don't inflate an unbounded one from a hostile file.
         let mut s = String::new();
-        f.read_to_string(&mut s)?;
+        f.take(1 << 20).read_to_string(&mut s)?;
         serde_json::from_str(&s).map_err(|_| ProjectError::NotAProject)?
     };
     if manifest.format != FORMAT_NAME {
