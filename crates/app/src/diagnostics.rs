@@ -393,7 +393,7 @@ Time: {}
 ", crate::safe_mode::active().map(|r| r.text()).unwrap_or("off")));
     out.push_str(&format!("CPU threads: {}
 ", std::thread::available_parallelism().map(|n| n.get()).unwrap_or(0)));
-    for var in ["WGPU_BACKEND", "SUBCRAFT_GPU", crate::startup_probe::SKIP_ENV, crate::safe_mode::ENV, "XDG_SESSION_TYPE", "WAYLAND_DISPLAY"] {
+    for var in ["WGPU_BACKEND", "SUBCRAFT_GPU", crate::startup_probe::SKIP_ENV, crate::safe_mode::ENV, "XDG_SESSION_TYPE", "WAYLAND_DISPLAY", "DISPLAY", "SUBCRAFT_X11"] {
         if let Ok(v) = std::env::var(var) { out.push_str(&format!("env {var}={v}
 ")); }
     }

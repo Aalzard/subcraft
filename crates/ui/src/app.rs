@@ -167,6 +167,9 @@ pub struct LaunchOptions {
     pub test_crash: bool,
     /// Ignore the saved dock layout and window geometry for this run.
     pub reset_layout: bool,
+    /// Linux: run under XWayland / X11 instead of Wayland (`--x11`, `SUBCRAFT_X11=1`; pen
+    /// tablets on compositors without pointer emulation, issue #82).
+    pub force_x11: bool,
     /// Initial inner window size in points (scripted layout checks).
     pub window_size: Option<[f32; 2]>,
     /// Force the display scale (pixels per point) for scripted layout checks.
@@ -619,6 +622,12 @@ impl SubcraftApp {
         }
         let prefs = cc.storage.and_then(|s| s.get_string(crate::recovery::PREFS_KEY)).and_then(|j| serde_json::from_str(&j).ok()).unwrap_or_default();
         state.recovery = crate::recovery::RecoveryUi::start(&state.session, prefs, options.autosave_interval);
+        if subcraft_app::safe_mode::active() == Some(&subcraft_app::safe_mode::Reason::GpuLostLastRun) {
+            // The GPU reset last run: keep the heavy GPU work off from now on (saved with the
+            // preferences) so the next normal start does not reset it again (issue #119).
+            state.recovery.prefs.use_gpu_compositing = false;
+            state.recovery.prefs.use_gpu_baking = false;
+        }
         state.recovery.prefs.apply_ui_size(&cc.egui_ctx);
         crate::i18n::sync(&cc.egui_ctx, state.recovery.prefs.language);
         subcraft_compositor::gpu::set_gpu_compositing_enabled(state.recovery.prefs.use_gpu_compositing && !subcraft_app::safe_mode::is_active());

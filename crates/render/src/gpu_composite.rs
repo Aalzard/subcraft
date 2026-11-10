@@ -103,8 +103,8 @@ pub fn create_any_backend() -> Option<Arc<GpuCompositor>> {
 }
 
 fn create(allow_software: bool) -> Option<GpuCompositor> {
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
-    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())).ok()?;
+    // Same graphics API and adapter as the window (see `headless::secondary_adapter`).
+    let (_instance, adapter) = crate::headless::secondary_adapter()?;
     if adapter.get_info().device_type == wgpu::DeviceType::Cpu && !allow_software {
         return None;
     }
@@ -529,9 +529,11 @@ impl GpuCompositeBackend for GpuCompositor {
         let t_gpu = Instant::now();
         self.queue.submit([enc.finish()]);
         let slice = read_buf.slice(..out_bytes);
-        slice.map_async(wgpu::MapMode::Read, |r| r.expect("map composite output"));
+        // Never panic in the map callback (issue #119): a failed map makes `get_mapped_range` error
+        // and the compositor falls back to the CPU.
+        slice.map_async(wgpu::MapMode::Read, |r| if let Err(e) = r { log::warn!("GPU composite readback failed: {e}") });
         if let Some((_, _, read)) = &queries {
-            read.slice(..).map_async(wgpu::MapMode::Read, |r| r.expect("map composite timing"));
+            read.slice(..).map_async(wgpu::MapMode::Read, |r| if let Err(e) = r { log::warn!("GPU timing readback failed: {e}") });
         }
         self.device.poll(wgpu::PollType::wait_indefinitely()).map_err(|e| GpuError::Failed(format!("GPU wait failed: {e}")))?;
         timing.gpu_ms = t_gpu.elapsed().as_secs_f64() * 1e3;

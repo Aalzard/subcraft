@@ -144,6 +144,9 @@ fn select_adapter(adapters: &[wgpu::Adapter], surface: Option<&wgpu::Surface<'_>
         Ok((i, skipped)) => {
             for (s, why) in skipped { log::warn!("GPU adapter skipped: {} ({why})", infos[s].name); }
             log::info!("GPU adapter chosen: {} ({:?})", infos[i].name, infos[i].backend);
+            // GPU compositing and GPU baking create their devices on this API and adapter only,
+            // so a DX12 window never starts the Vulkan loader (and its implicit layers).
+            subcraft_render::headless::set_main_adapter(&infos[i]);
             Ok(adapters[i].clone())
         }
         Err(all) => {

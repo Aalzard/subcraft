@@ -58,9 +58,11 @@ pub struct UserLibrary {
 }
 
 impl UserLibrary {
-    /// `$SUBCRAFT_LIBRARY`, else `Documents/SubCraft/Library`.
+    /// `$SUBCRAFT_LIBRARY`, else `Documents/SubCraft/Library`. On a Linux account without
+    /// `xdg-user-dirs` there is no Documents folder; the library then lives in the data folder
+    /// (`~/.local/share/SubCraft/Library`) instead of not existing at all.
     pub fn default_root() -> Option<PathBuf> {
-        resolve_root(std::env::var_os(ENV_VAR), dirs::document_dir())
+        resolve_root(std::env::var_os(ENV_VAR), dirs::document_dir(), dirs::data_local_dir())
     }
 
     pub fn new(root: impl Into<PathBuf>) -> Self {
@@ -158,11 +160,12 @@ impl UserLibrary {
     }
 }
 
-/// Library root from the override variable's value and the Documents folder.
-fn resolve_root(override_var: Option<std::ffi::OsString>, documents: Option<PathBuf>) -> Option<PathBuf> {
+/// Library root from the override variable's value, the Documents folder, and (when there is no
+/// Documents folder) the platform's local data folder.
+fn resolve_root(override_var: Option<std::ffi::OsString>, documents: Option<PathBuf>, data_local: Option<PathBuf>) -> Option<PathBuf> {
     match override_var.filter(|p| !p.is_empty()) {
         Some(p) => Some(PathBuf::from(p)),
-        None => documents.map(|d| d.join("SubCraft").join("Library")),
+        None => documents.or(data_local).map(|d| d.join("SubCraft").join("Library")),
     }
 }
 
@@ -299,9 +302,11 @@ mod tests {
     #[test]
     fn root_resolution() {
         let docs = Some(PathBuf::from("D:/Docs"));
-        assert_eq!(resolve_root(None, docs.clone()), Some(PathBuf::from("D:/Docs").join("SubCraft").join("Library")));
-        assert_eq!(resolve_root(Some("E:/Portable/Lib".into()), docs.clone()), Some(PathBuf::from("E:/Portable/Lib")));
-        assert_eq!(resolve_root(Some("".into()), docs), Some(PathBuf::from("D:/Docs").join("SubCraft").join("Library")), "empty = unset");
-        assert_eq!(resolve_root(None, None), None);
+        assert_eq!(resolve_root(None, docs.clone(), None), Some(PathBuf::from("D:/Docs").join("SubCraft").join("Library")));
+        assert_eq!(resolve_root(Some("E:/Portable/Lib".into()), docs.clone(), None), Some(PathBuf::from("E:/Portable/Lib")));
+        assert_eq!(resolve_root(Some("".into()), docs.clone(), None), Some(PathBuf::from("D:/Docs").join("SubCraft").join("Library")), "empty = unset");
+        assert_eq!(resolve_root(None, None, None), None);
+        assert_eq!(resolve_root(None, None, Some("/home/u/.local/share".into())), Some(PathBuf::from("/home/u/.local/share").join("SubCraft").join("Library")), "no Documents folder: data folder");
+        assert_eq!(resolve_root(None, docs, Some("/home/u/.local/share".into())), Some(PathBuf::from("D:/Docs").join("SubCraft").join("Library")), "Documents wins over the data folder");
     }
 }

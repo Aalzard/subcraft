@@ -815,3 +815,14 @@ fn generator_micro_effect_round_trips_and_is_absent_in_older_files() {
     let MaskEffectKind::Generator(back) = old.document.texture_sets[0].layers[0].mask.as_ref().unwrap().effects[0].kind else { panic!() };
     assert_eq!(back, Generator { micro: None, ..g });
 }
+
+#[test]
+fn saving_refuses_an_entry_too_large_to_open_again() {
+    // The loader rejects entries over MAX_ENTRY_BYTES (issue seen in TextureCraft #215: a
+    // project saved fine and then refused to open). The save checks the same limit up front.
+    let max = MAX_ENTRY_BYTES as usize;
+    assert!(check_entry_size("mesh.bin", max).is_ok());
+    let err = check_entry_size("mesh.bin", max + 1).unwrap_err();
+    assert!(matches!(err, ProjectError::TooLarge(ref n, _) if n == "mesh.bin"));
+    assert!(err.to_string().contains("mesh.bin") && err.to_string().contains("not saved"), "{err}");
+}
