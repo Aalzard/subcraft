@@ -251,6 +251,14 @@ impl Layer {
     /// Deep copy with fresh ids for this node, its children and mask effects.
     /// Raster data stays shared (copy-on-write).
     pub fn duplicate_with_new_ids(&self) -> Layer {
+        let mut map = std::collections::HashMap::new();
+        let mut l = self.duplicate_ids(&mut map);
+        // References inside the copy read the copied anchors (ADR-0045).
+        crate::anchor::remap_inputs(&mut l, &map);
+        l
+    }
+
+    fn duplicate_ids(&self, map: &mut std::collections::HashMap<subcraft_core::EffectId, subcraft_core::EffectId>) -> Layer {
         let mut l = self.clone();
         l.id = LayerId::new();
         if let LayerContent::Paint(p) = &mut l.content && let Some(path) = &mut p.path {
@@ -258,15 +266,19 @@ impl Layer {
         }
         if let Some(mask) = &mut l.mask {
             for e in mask.effects.iter_mut() {
-                Arc::make_mut(e).id = subcraft_core::EffectId::new();
+                let new = subcraft_core::EffectId::new();
+                map.insert(e.id, new);
+                Arc::make_mut(e).id = new;
             }
         }
         for e in l.content_effects.iter_mut() {
-            Arc::make_mut(e).id = subcraft_core::EffectId::new();
+            let new = subcraft_core::EffectId::new();
+            map.insert(e.id, new);
+            Arc::make_mut(e).id = new;
         }
         if let LayerContent::Group(g) = &mut l.content {
             for c in g.children.iter_mut() {
-                *c = Arc::new(c.duplicate_with_new_ids());
+                *c = Arc::new(c.duplicate_ids(map));
             }
         }
         l
@@ -381,6 +393,17 @@ impl Layer {
             _ => false,
         }
     }
+}
+
+/// Copies of several layers with fresh ids (see [`Layer::duplicate_with_new_ids`]); references
+/// between the copied layers read the copied anchors.
+pub fn duplicate_layers_with_new_ids<'a>(layers: impl IntoIterator<Item = &'a Layer>) -> Vec<Layer> {
+    let mut map = std::collections::HashMap::new();
+    let mut out: Vec<Layer> = layers.into_iter().map(|l| l.duplicate_ids(&mut map)).collect();
+    for l in &mut out {
+        crate::anchor::remap_inputs(l, &map);
+    }
+    out
 }
 
 /// Two per-channel paint raster sets differ only in texels (absent = transparent, e.g. created

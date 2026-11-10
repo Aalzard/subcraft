@@ -5,6 +5,17 @@ What changed in SubCraft, newest first. Download the latest build from the
 
 ## Unreleased
 
+### Added
+- **Anchor points**, like Substance Painter. Add › Anchor Point on a layer's content or mask captures that
+  stack at that point. Layers above can read it: a fill channel's source (Anchor), an Anchor Reference mask
+  effect (with optional Levels), or a generator's input image in place of its baked map. Pick the anchor and,
+  for content anchors, the channel. References only read anchors below them; a missing, misplaced or
+  circular reference is shown with a warning on the layer row and in Properties and changes nothing.
+  Duplicates and pasted masks read their own copied anchors. Works with GPU compositing. Projects use schema
+  17 (older projects open unchanged; older SubCraft refuses the new files instead of losing anchors).
+- **`.spp` import keeps anchors live**: Painter anchor points become anchor points, and mask and fill
+  references stay linked to them, instead of being baked into fixed rasters.
+
 ### Fixed
 - **Pen tablet clicks on Linux Wayland** (issue #82). On Wayland compositors that do not emulate a
   mouse for tablet tools (Niri and some wlroots compositors), a pen moved the cursor but SubCraft
