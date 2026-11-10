@@ -146,7 +146,11 @@ fn load_obj(path: &Path, b: &mut MeshBuilder, warnings: &mut Vec<String>) -> Res
 }
 
 fn load_gltf(path: &Path, b: &mut MeshBuilder, warnings: &mut Vec<String>) -> Result<(), ImportError> {
-    let (doc, buffers, _images) = gltf::import(path).map_err(|e| ImportError::Gltf(e.to_string()))?;
+    // Geometry only. `gltf::import` would also decode every referenced image and fail the whole
+    // import when one is missing or its file name differs in case from the disk (Linux), although
+    // SubCraft never uses them: textures come from the Shelf, not from the model file.
+    let gltf::Gltf { document: doc, blob } = gltf::Gltf::open(path).map_err(|e| ImportError::Gltf(e.to_string()))?;
+    let buffers = gltf::import_buffers(&doc, path.parent(), blob).map_err(|e| ImportError::Gltf(e.to_string()))?;
     let scene = doc.default_scene().or_else(|| doc.scenes().next());
     let roots: Vec<gltf::Node> = match &scene {
         Some(s) => s.nodes().collect(),
@@ -385,7 +389,9 @@ mod tests {
 
     #[test]
     fn gltf_minimal_triangle() {
-        // One triangle with positions + uvs in an embedded data URI buffer.
+        // One triangle with positions + uvs in an embedded data URI buffer. The material points at
+        // an image file that does not exist (and would not match in case on a case-sensitive file
+        // system if it did): the geometry must still import.
         let positions: [f32; 9] = [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0];
         let uvs: [f32; 6] = [0.0, 1.0, 1.0, 1.0, 0.0, 0.0];
         let mut bytes: Vec<u8> = Vec::new();
@@ -396,7 +402,9 @@ mod tests {
         let json = format!(
             r#"{{"asset":{{"version":"2.0"}},"scene":0,"scenes":[{{"nodes":[0]}}],
             "nodes":[{{"mesh":0,"translation":[0,0,1]}}],
-            "materials":[{{"name":"Painted"}}],
+            "images":[{{"uri":"Missing_Texture.PNG"}}],
+            "textures":[{{"source":0}}],
+            "materials":[{{"name":"Painted","pbrMetallicRoughness":{{"baseColorTexture":{{"index":0}}}}}}],
             "meshes":[{{"primitives":[{{"attributes":{{"POSITION":0,"TEXCOORD_0":1}},"material":0}}]}}],
             "buffers":[{{"byteLength":{len},"uri":"data:application/octet-stream;base64,{b64}"}}],
             "bufferViews":[{{"buffer":0,"byteOffset":0,"byteLength":36}},{{"buffer":0,"byteOffset":36,"byteLength":24}}],
