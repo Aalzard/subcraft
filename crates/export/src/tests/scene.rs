@@ -97,6 +97,38 @@ fn usda_round_trips_and_declares_preview_surface_networks() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 
+/// Material names that are not USD identifiers (a leading digit, accents, spaces) or that
+/// repeat used to produce a `.usda` that USD refuses or that merges two materials into one.
+#[test]
+fn usda_prim_names_are_valid_and_distinct_for_awkward_material_names() {
+    let mut mesh = primitives::sample_crate();
+    mesh.name = "7 crates".into();
+    mesh.materials[0].name = "1_Default".into();
+    mesh.materials[1].name = "Métal A".into();
+    let ch = channels();
+    let sets = vec![
+        ExportTextureSet { name: "1_Default", material_slot: 0, udim: None, channels: &ch, mesh_maps: None },
+        ExportTextureSet { name: "Métal A", material_slot: 1, udim: None, channels: &ch, mesh_maps: None },
+    ];
+    let dir = tmp("scene-usda-names");
+    let files = export_scene(&mesh, "7 crates", &sets, &ExportSettings::default(), SceneFormat::Usda, &dir).unwrap();
+    let text = std::fs::read_to_string(&files[0]).unwrap();
+    assert!(text.contains("def Material \"_1_Default\"") && text.contains("def Material \"M_tal_A\""), "{text}");
+    assert!(text.contains("def Xform \"_7_crates\""));
+    let back = import_mesh(&files[0]).unwrap().mesh;
+    assert_eq!(back.triangle_count(), mesh.triangle_count());
+    assert_eq!(back.materials.len(), 2, "{:?}", back.materials);
+    std::fs::remove_dir_all(&dir).unwrap();
+
+    // Two slots with the same name stay two materials.
+    let mut same = primitives::sample_crate();
+    same.materials[0].name = "Material".into();
+    same.materials[1].name = "Material".into();
+    let text = crate::scene::usda_text(&same, &[Default::default(), Default::default()]);
+    assert!(text.contains("def Material \"Material\"") && text.contains("def Material \"Material_2\""), "{text}");
+    assert!(text.contains("</Crate/Materials/Material_2>") || text.contains("/Materials/Material_2>"), "{text}");
+}
+
 #[test]
 fn glb_without_textures_is_still_valid() {
     let mesh = primitives::plane(2.0, 1);
