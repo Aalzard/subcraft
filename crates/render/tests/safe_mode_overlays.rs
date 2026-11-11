@@ -29,9 +29,9 @@ fn overlays_follow_the_real_sample_count_in_safe_mode() {
     p.wireframe = true;
     for overlay in [false, true] {
         p.bake_overlay = overlay;
-        device.push_error_scope(subcraft_render::wgpu_api::ErrorFilter::Validation);
+        let scope = device.push_error_scope(subcraft_render::wgpu_api::ErrorFilter::Validation);
         let image = renderer.render(&device, &queue, [128, 128], &p).read_rgba8(&device, &queue);
-        let error = pollster::block_on(device.pop_error_scope());
+        let error = pollster::block_on(scope.pop());
         assert!(error.is_none(), "bake overlay {overlay}: {error:?}");
         assert!(image.iter().any(|&b| b != image[0]), "something was drawn");
     }
