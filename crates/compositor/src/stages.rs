@@ -113,6 +113,16 @@ enum Node<'a> {
         input: usize,
         effect: &'a MaskEffect,
         filtered: Option<usize>,
+        /// Anchor input (ADR-0045): the anchor's node and its channel (`None`: a mask anchor).
+        anchor: Option<(usize, Option<ChannelKind>)>,
+    },
+    /// A fill channel reading an anchor (ADR-0045): `source`'s `from` channel (`None`: a mask
+    /// anchor) as `to`, scaled by the channel's strength.
+    AnchorRead {
+        source: usize,
+        from: Option<ChannelKind>,
+        to: ChannelKind,
+        strength: f32,
     },
     ContentEffect {
         input: usize,
@@ -196,6 +206,7 @@ impl Node<'_> {
                 _ => "mask effect",
             },
             Self::ContentEffect { .. } => "content effect",
+            Self::AnchorRead { .. } => "anchor read",
             Self::Layer { .. } => "layer blend",
             Self::Directional { .. } => "directional blur",
             Self::Median { .. } => "median",
@@ -220,6 +231,7 @@ impl Node<'_> {
             | Self::Directional { input, .. } => Some(*input),
             Self::Layer { below, .. } | Self::MicroHeight { below, .. } | Self::MicroNormal { below, .. } => Some(*below),
             Self::MicroDelta { mask, .. } => Some(*mask),
+            Self::AnchorRead { source, .. } => Some(*source),
             _ => None,
         }
     }
@@ -244,6 +256,21 @@ pub(crate) struct Graph<'a> {
     /// after it and that accumulation's node (`None` while still the channel's base value).
     tops: Vec<(ChannelKind, Vec<Option<(usize, usize)>>)>,
     prefix: Option<Prefix<'a>>,
+    /// Anchor points and references (ADR-0045); `None` when no layer reads an anchor, so sets
+    /// without references build exactly the graph they always did.
+    anchors: Option<Anchors<'a>>,
+}
+
+/// Anchor bookkeeping of a graph whose texture set has references.
+struct Anchors<'a> {
+    index: subcraft_doc::AnchorIndex,
+    layers: HashMap<LayerId, &'a Layer>,
+    /// Per (layer, channel): the isolated content chain, `[base, after effect 0, ...]`.
+    content: HashMap<(LayerId, ChannelKind), Vec<usize>>,
+    /// Per layer: the mask chain, `[base, after effect 0, ...]`.
+    masks: HashMap<LayerId, Vec<usize>>,
+    /// Per (layer, channel): the content node the layer blends (for the GPU preparation).
+    sources: HashMap<(LayerId, ChannelKind), usize>,
 }
 
 /// Cached accumulations at chosen top-level boundaries (see [`crate::prefix`]).
@@ -296,7 +323,134 @@ impl<'a> Graph<'a> {
             modes: OnceLock::new(),
             tops: Vec::new(),
             prefix: None,
+            anchors: None,
         }
+    }
+    /// Index the anchors of `layers` when any layer reads one.
+    fn with_anchors(&mut self, layers: &'a [Arc<Layer>]) {
+        if !subcraft_doc::anchor::has_references(layers) {
+            return;
+        }
+        fn collect<'a>(layers: &'a [Arc<Layer>], out: &mut HashMap<LayerId, &'a Layer>) {
+            for l in layers {
+                out.insert(l.id, l);
+                collect(l.children(), out);
+            }
+        }
+        let mut map = HashMap::new();
+        collect(layers, &mut map);
+        self.anchors = Some(Anchors {
+            index: subcraft_doc::AnchorIndex::build(layers),
+            layers: map,
+            content: HashMap::new(),
+            masks: HashMap::new(),
+            sources: HashMap::new(),
+        });
+    }
+    /// The node a valid reference at `site` reads, with the anchor's channel (`None`: mask).
+    fn anchor_node(&mut self, site: subcraft_doc::RefSite) -> Option<(usize, Option<ChannelKind>)> {
+        let anchors = self.anchors.as_ref()?;
+        let input = anchors.index.reference(site).filter(|r| r.status.is_ok())?.input;
+        let info = anchors.index.anchor(input.anchor)?;
+        let (domain, at) = (info.domain, info.index);
+        let layer: &'a Layer = *anchors.layers.get(&info.layer)?;
+        match domain {
+            subcraft_doc::AnchorDomain::Content => {
+                let steps = self.isolated_content(layer, input.channel);
+                Some((steps[at], Some(input.channel)))
+            }
+            subcraft_doc::AnchorDomain::Mask => {
+                let mask = layer.mask.as_ref()?;
+                self.layer_mask(layer, mask);
+                let steps = self.anchors.as_ref()?.masks.get(&layer.id)?;
+                Some((steps[at], None))
+            }
+        }
+    }
+    /// A layer's own content chain for `kind` on a transparent base, built once and shared.
+    fn isolated_content(&mut self, layer: &'a Layer, kind: ChannelKind) -> Vec<usize> {
+        if let Some(steps) = self.anchors.as_ref().and_then(|a| a.content.get(&(layer.id, kind))) {
+            return steps.clone();
+        }
+        let base = match &layer.content {
+            LayerContent::Group(_) => self.push(Node::Constant([0.0; 4])),
+            _ => usize::MAX,
+        };
+        let base = self.content_base(layer, kind, base);
+        let mut steps = vec![base];
+        self.content_effects(layer, kind, base, Some(&mut steps));
+        if let Some(a) = self.anchors.as_mut() {
+            a.content.insert((layer.id, kind), steps.clone());
+        }
+        steps
+    }
+    /// The layer's content before its content effects: its paint raster, fill channel, or
+    /// folder children composited on `folder_base`.
+    fn content_base(&mut self, layer: &'a Layer, kind: ChannelKind, folder_base: usize) -> usize {
+        match &layer.content {
+            LayerContent::Paint(p) => {
+                if let Some(image) = p.channels.get(&kind) {
+                    self.push(Node::Paint(image, kind))
+                } else {
+                    self.push(Node::Constant([0.0; 4]))
+                }
+            }
+            LayerContent::Fill(f) => {
+                if self.anchors.is_some()
+                    && let Some(ch) = f.channels.get(&kind).filter(|c| c.enabled)
+                    && let subcraft_doc::FillSource::Anchor { .. } = ch.source
+                {
+                    let strength = ch.strength;
+                    return match self.anchor_node(subcraft_doc::RefSite::Fill { layer: layer.id, channel: kind }) {
+                        Some((source, from)) => self.push(Node::AnchorRead { source, from, to: kind, strength }),
+                        None => self.push(Node::Constant([0.0; 4])),
+                    };
+                }
+                self.push(Node::Fill(f, kind))
+            }
+            LayerContent::Group(group) => self.stack(&group.children, folder_base, kind),
+        }
+    }
+    /// The layer's content effects for `kind` on `input`. `steps` (anchors only) receives the
+    /// node after every effect, including those that change nothing for `kind`.
+    fn content_effects(&mut self, layer: &'a Layer, kind: ChannelKind, mut input: usize, mut steps: Option<&mut Vec<usize>>) -> usize {
+        for effect in layer.content_effects.iter() {
+            let usable = effect.visible
+                && effect.blend_for(kind).is_active()
+                && !matches!(effect.kind, ContentEffectKind::Anchor)
+                && !matches!(effect.kind, ContentEffectKind::Filter {channel,..} | ContentEffectKind::Levels {channel,..} if channel != kind);
+            let filtered = match effect.kind {
+                ContentEffectKind::Filter { filter, .. } if usable => {
+                    if !filter.valid() || !filter.supports_channel(kind) {
+                        None
+                    } else {
+                        Some(self.neighborhood(input, filter, kind))
+                    }
+                }
+                _ => Some(None),
+            };
+            if usable && let Some(filtered) = filtered {
+                input = self.push(Node::ContentEffect {
+                    input,
+                    effect,
+                    kind,
+                    filtered,
+                });
+            }
+            if let Some(s) = steps.as_deref_mut() {
+                s.push(input);
+            }
+        }
+        input
+    }
+    /// The content node `layer` blends for `kind` (after its content effects), when the set has
+    /// anchor references.
+    pub(crate) fn layer_content_node(&self, layer: LayerId, kind: ChannelKind) -> Option<usize> {
+        self.anchors.as_ref()?.sources.get(&(layer, kind)).copied()
+    }
+    /// The final mask node of `layer` (built when the layer takes part in a channel).
+    pub(crate) fn layer_mask_node(&self, layer: LayerId) -> Option<usize> {
+        self.masks.get(&layer).copied()
     }
     pub(crate) fn new(ts: &'a TextureSet, ctx: EvalContext<'a>, cache: &'a StageCache) -> Self {
         Self::new_scaled(ts, ctx, cache, 1.0)
@@ -306,6 +460,7 @@ impl<'a> Graph<'a> {
     pub(crate) fn new_scaled(ts: &'a TextureSet, ctx: EvalContext<'a>, cache: &'a StageCache, scale: f32) -> Self {
         let mut g = Self::empty(ctx, ts.albedo_filter, cache);
         g.radius_scale = scale;
+        g.with_anchors(&ts.layers);
         for kind in ts.channel_kinds() {
             let d = kind.default_value().0;
             let root = g.push(Node::Constant([d[0], d[1], d[2], 1.0]));
@@ -372,8 +527,9 @@ impl<'a> Graph<'a> {
                         _ => true,
                     }
             }
-            Node::MaskEffect { input, effect, .. } => {
+            Node::MaskEffect { input, effect, anchor, .. } => {
                 self.uniform[*input]
+                    && anchor.is_none_or(|(a, _)| self.uniform[a])
                     && match &effect.kind {
                         MaskEffectKind::Paint { image } => image.allocated_tiles() == 0,
                         MaskEffectKind::Fill { procedural, .. } => procedural.is_none(),
@@ -382,6 +538,7 @@ impl<'a> Graph<'a> {
                     }
             }
             Node::MicroDelta { .. } | Node::MicroHeight { .. } | Node::MicroNormal { .. } => false,
+            Node::AnchorRead { source, .. } => self.uniform[*source],
             Node::Layer {
                 below,
                 input,
@@ -470,7 +627,7 @@ impl<'a> Graph<'a> {
         if let Some(&node) = self.masks.get(&layer.id) {
             return node;
         }
-        let (node, micro) = self.mask_with_micro(mask);
+        let (node, micro) = self.mask_with_micro(mask, Some(layer));
         self.masks.insert(layer.id, node);
         if !micro.is_empty() {
             self.micro_masks.insert(layer.id, micro);
@@ -478,27 +635,46 @@ impl<'a> Graph<'a> {
         node
     }
     fn mask(&mut self, mask: &'a Mask) -> usize {
-        self.mask_with_micro(mask).0
+        self.mask_with_micro(mask, None).0
     }
-    fn mask_with_micro(&mut self, mask: &'a Mask) -> (usize, Vec<(usize, &'a Generator)>) {
+    /// The mask chain. With its `owner` known, anchor references in it resolve (ADR-0045).
+    fn mask_with_micro(&mut self, mask: &'a Mask, owner: Option<&'a Layer>) -> (usize, Vec<(usize, &'a Generator)>) {
         let mut micro = Vec::new();
         let mut input = self.push(Node::MaskBase(&mask.base));
-        for effect in mask.effects.iter().filter(|e| e.visible && e.opacity > 0.0) {
-            let filtered = if let MaskEffectKind::Filter(f) = effect.kind {
-                self.neighborhood(input, f, ChannelKind::Roughness)
-            } else {
-                None
-            };
-            input = self.push(Node::MaskEffect {
-                input,
-                effect,
-                filtered,
-            });
-            if let MaskEffectKind::Generator(g) = &effect.kind
-                && g.micro_active()
-            {
-                micro.push((input, g));
+        let record = owner.filter(|_| self.anchors.is_some());
+        let mut steps = record.map(|_| vec![input]);
+        for effect in mask.effects.iter() {
+            if effect.visible && effect.opacity > 0.0 && !matches!(effect.kind, MaskEffectKind::Anchor) {
+                let anchor = match (record, subcraft_doc::anchor::mask_effect_input(&effect.kind)) {
+                    (Some(layer), Some(_)) => self.anchor_node(subcraft_doc::RefSite::Mask { layer: layer.id, effect: effect.id }),
+                    _ => None,
+                };
+                // An unresolved Anchor Reference contributes nothing: no node at all.
+                if !(anchor.is_none() && matches!(effect.kind, MaskEffectKind::AnchorRef { .. })) {
+                    let filtered = if let MaskEffectKind::Filter(f) = effect.kind {
+                        self.neighborhood(input, f, ChannelKind::Roughness)
+                    } else {
+                        None
+                    };
+                    input = self.push(Node::MaskEffect {
+                        input,
+                        effect,
+                        filtered,
+                        anchor,
+                    });
+                    if let MaskEffectKind::Generator(g) = &effect.kind
+                        && g.micro_active()
+                    {
+                        micro.push((input, g));
+                    }
+                }
             }
+            if let Some(s) = steps.as_mut() {
+                s.push(input);
+            }
+        }
+        if let (Some(layer), Some(steps), Some(a)) = (record, steps, self.anchors.as_mut()) {
+            a.masks.insert(layer.id, steps);
         }
         (input, micro)
     }
@@ -566,47 +742,20 @@ impl<'a> Graph<'a> {
         };
         let passthrough = matches!(layer.content, LayerContent::Group(_))
             && layer.blend_for(kind).mode == BlendMode::Passthrough;
-        let mut input = match &layer.content {
-            LayerContent::Paint(p) => {
-                if let Some(image) = p.channels.get(&kind) {
-                    self.push(Node::Paint(image, kind))
-                } else {
-                    self.push(Node::Constant([0.0; 4]))
-                }
-            }
-            LayerContent::Fill(f) => self.push(Node::Fill(f, kind)),
-            LayerContent::Group(group) => {
-                let base = if passthrough {
-                    below
-                } else {
-                    self.push(Node::Constant([0.0; 4]))
-                };
-                self.stack(&group.children, base, kind)
-            }
-        };
-        for effect in layer
-            .content_effects
-            .iter()
-            .filter(|e| e.visible && e.blend_for(kind).is_active())
-        {
-            if matches!(effect.kind, ContentEffectKind::Filter {channel,..} | ContentEffectKind::Levels {channel,..} if channel != kind)
-            {
-                continue;
-            }
-            let filtered = if let ContentEffectKind::Filter { filter, .. } = effect.kind {
-                if !filter.valid() || !filter.supports_channel(kind) {
-                    continue;
-                }
-                self.neighborhood(input, filter, kind)
-            } else {
-                None
+        let input = if self.anchors.is_some() && !passthrough {
+            // Shared with any anchor captured in this stack.
+            *self.isolated_content(layer, kind).last().expect("chain has a base")
+        } else {
+            let base = match &layer.content {
+                LayerContent::Group(_) if passthrough => below,
+                LayerContent::Group(_) => self.push(Node::Constant([0.0; 4])),
+                _ => usize::MAX,
             };
-            input = self.push(Node::ContentEffect {
-                input,
-                effect,
-                kind,
-                filtered,
-            });
+            let base = self.content_base(layer, kind, base);
+            self.content_effects(layer, kind, base, None)
+        };
+        if let Some(a) = self.anchors.as_mut() {
+            a.sources.insert((layer.id, kind), input);
         }
         self.push(Node::Layer {
             below,
@@ -634,12 +783,22 @@ impl<'a> Graph<'a> {
                 let mut read = |i: usize| uses[i] += 1;
                 match node {
                     Node::Constant(_) | Node::Paint(..) | Node::Fill(..) | Node::MaskBase(_) => {}
-                    Node::MaskEffect { input, filtered, .. } | Node::ContentEffect { input, filtered, .. } => {
+                    Node::MaskEffect { input, filtered, anchor, .. } => {
+                        read(*input);
+                        if let Some(f) = filtered {
+                            read(*f);
+                        }
+                        if let Some((a, _)) = anchor {
+                            read(*a);
+                        }
+                    }
+                    Node::ContentEffect { input, filtered, .. } => {
                         read(*input);
                         if let Some(f) = filtered {
                             read(*f);
                         }
                     }
+                    Node::AnchorRead { source, .. } => read(*source),
                     Node::Layer { below, input, mask, .. } => {
                         read(*below);
                         read(*input);
@@ -869,10 +1028,22 @@ impl<'a> Graph<'a> {
                 }
                 out
             }
+            Node::AnchorRead { source, from, to, strength } => {
+                let mut p = self.get(*source, tile).as_ref().clone();
+                anchor_as_channel(&mut p, *from, *to);
+                crate::strength::apply_strength(*to, *strength, &mut p);
+                if to.components() == 1 {
+                    for px in p.iter_mut() {
+                        *px = [px[0], px[0], px[0], px[3]];
+                    }
+                }
+                p
+            }
             Node::MaskEffect {
                 input,
                 effect,
                 filtered,
+                anchor,
             } => {
                 let source = self.get(*input, tile);
                 let mut e = vec![[0.0; 4]; TILE_TEXELS];
@@ -891,7 +1062,8 @@ impl<'a> Graph<'a> {
                     }
                 } else {
                     let m: Vec<_> = source.iter().map(|v| v[0]).collect();
-                    crate::mask::evaluate_effect(&effect.kind, &tc, &m, &mut e);
+                    let input = anchor.map(|(node, from)| anchor_gray(&self.get(node, tile), from));
+                    crate::mask::evaluate_effect(&effect.kind, &tc, &m, &mut e, input.as_deref());
                 }
                 let mut out = source.as_ref().clone();
                 // `[value; 3]` with the effect's coverage in alpha, blended with the mode chosen once.
@@ -1429,6 +1601,41 @@ fn spatial_value(
         _ => source,
     }
 }
+/// Rec. 709 weights for reading a color channel as gray.
+const LUMA: [f32; 3] = [0.2126, 0.7152, 0.0722];
+
+/// An anchor's texels as one grayscale value per texel, premultiplied by coverage (mask anchors
+/// are opaque and hold the mask value).
+fn anchor_gray(px: &[[f32; 4]], from: Option<ChannelKind>) -> Vec<f32> {
+    match from {
+        None => px.iter().map(|p| p[0]).collect(),
+        Some(k) if k.components() == 1 => px.iter().map(|p| p[0] * p[3]).collect(),
+        Some(_) => px.iter().map(|p| (p[0] * LUMA[0] + p[1] * LUMA[1] + p[2] * LUMA[2]) * p[3]).collect(),
+    }
+}
+
+/// Convert an anchor's `(value, alpha)` texels from channel `from` (`None`: a mask anchor) to
+/// channel `to`: same component count as is, gray to color broadcast, color to gray by luminance.
+fn anchor_as_channel(px: &mut [[f32; 4]], from: Option<ChannelKind>, to: ChannelKind) {
+    let from_comps = from.map_or(1, |k| k.components());
+    if from_comps == 3 && to.components() == 1 {
+        for p in px.iter_mut() {
+            let l = p[0] * LUMA[0] + p[1] * LUMA[1] + p[2] * LUMA[2];
+            *p = [l, l, l, p[3]];
+        }
+    } else if from_comps == 1 {
+        for p in px.iter_mut() {
+            *p = [p[0], p[0], p[0], p[3]];
+        }
+    }
+}
+
+/// Whether evaluation needs the stage graph: neighborhood filters, micro effects or anchor
+/// references (ADR-0045).
+pub(crate) fn needs_graph(layers: &[Arc<Layer>]) -> bool {
+    has_spatial(layers) || subcraft_doc::anchor::has_references(layers)
+}
+
 pub(crate) fn mask_spatial(mask: &Mask) -> bool {
     mask.effects
         .iter()

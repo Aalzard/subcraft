@@ -31,6 +31,7 @@ fn content_icon(kind: &ContentEffectKind) -> &'static str {
         ContentEffectKind::Paint { .. } => icons::PAINT_BRUSH,
         ContentEffectKind::Fill(_) => icons::PAINT_BUCKET,
         ContentEffectKind::Levels { .. } | ContentEffectKind::Filter { .. } => icons::SLIDERS,
+        ContentEffectKind::Anchor => icons::CROSSHAIR,
     }
 }
 
@@ -43,6 +44,8 @@ fn mask_icon(kind: &MaskEffectKind) -> &'static str {
         MaskEffectKind::Invert => icons::INTERSECT,
         MaskEffectKind::Image { .. } => icons::IMAGE,
         MaskEffectKind::IdColor(_) => icons::SELECTION,
+        MaskEffectKind::Anchor => icons::CROSSHAIR,
+        MaskEffectKind::AnchorRef { .. } => icons::CURVE,
     }
 }
 
@@ -72,6 +75,10 @@ fn add_content_menu(ui: &mut Ui, layer: &Layer, channels: &[ChannelKind], active
             ui.close();
         }
     }
+    if ui.button("Anchor Point").on_hover_text("Captures this layer's content at this point, so layers above can read it").clicked() {
+        cmds.push(Command::AddContentEffect { layer: layer.id, kind: ContentEffectKind::Anchor });
+        ui.close();
+    }
     ui.menu_button("Filter", |ui| {
         for filter in subcraft_doc::Filter::ALL {
             let channel = if filter.supports_channel(active) { Some(active) }
@@ -94,8 +101,26 @@ pub(crate) fn add_mask_filters(ui: &mut Ui, layer: LayerId, cmds: &mut Vec<Comma
     });
 }
 
-fn add_mask_menu(ui: &mut Ui, layer: &Layer, resolution: u32, cmds: &mut Vec<Command>) {
+/// Anchor Point / Anchor Reference entries of a mask's Add menu (ADR-0045).
+pub(crate) fn add_mask_anchor_items(ui: &mut Ui, layer: LayerId, index: &subcraft_doc::AnchorIndex, cmds: &mut Vec<Command>) {
+    if ui.button("Anchor Point").on_hover_text("Captures the mask at this point, so other masks and generators can read it").clicked() {
+        cmds.push(Command::AddMaskEffect { layer, kind: MaskEffectKind::Anchor });
+        ui.close();
+    }
+    let candidates = index.candidates_above_mask(layer);
+    let input = super::anchor::default_input(&candidates, ChannelKind::Height);
+    let tip = if input.is_some() { "Grayscale from an anchor point below: a lower layer's channel or mask" } else { "Needs an anchor point below: add one to a lower layer first" };
+    if ui.add_enabled(input.is_some(), egui::Button::new("Anchor Reference")).on_hover_text(tip).on_disabled_hover_text(tip).clicked()
+        && let Some(input) = input
+    {
+        cmds.push(Command::AddMaskEffect { layer, kind: MaskEffectKind::AnchorRef { input, levels: None } });
+        ui.close();
+    }
+}
+
+fn add_mask_menu(ui: &mut Ui, layer: &Layer, resolution: u32, index: &subcraft_doc::AnchorIndex, cmds: &mut Vec<Command>) {
     add_mask_filters(ui, layer.id, cmds);
+    add_mask_anchor_items(ui, layer.id, index, cmds);
     let options = [
         ("Paint", MaskEffectKind::Paint { image: TiledImage::new(resolution, resolution, 2, [0.0; 4]) }),
         ("Fill", MaskEffectKind::Fill { value: 1.0, procedural: None, projection: Default::default() }),
@@ -149,7 +174,10 @@ pub fn rows(
             if ui.add(egui::Button::new(RichText::new(title).small().color(TEXT_DIM)).frame(false)).clicked() { open = !open; }
             ui.label(RichText::new(rows.len().to_string()).small().color(TEXT_FAINT));
             ui.menu_button(RichText::new(format!("{} Add", icons::PLUS)).small(), |ui| {
-                if mask_domain { add_mask_menu(ui, layer, resolution, cmds) } else { add_content_menu(ui, layer, channels, active, cmds) }
+                if mask_domain {
+                    let index = subcraft_doc::AnchorIndex::build(&session.selected_texture_set().layers);
+                    add_mask_menu(ui, layer, resolution, &index, cmds)
+                } else { add_content_menu(ui, layer, channels, active, cmds) }
             })
             .response
             .on_hover_text("Add an effect on top of this stack");
@@ -349,6 +377,7 @@ fn content_editor(ui: &mut Ui, state: &mut UiState, layer: &Layer, e: &ContentEf
                         if ch.enabled {
                             let current = match ch.source {
                                 FillSource::Procedural { .. } => 1,
+                                // Fill effects offer Uniform / Procedural only (anchors: fill layers).
                                 _ => 0,
                             };
                             let mut sel = current;
@@ -392,6 +421,10 @@ fn content_editor(ui: &mut Ui, state: &mut UiState, layer: &Layer, e: &ContentEf
                 changed |= slider_row(ui, "Out low", egui::Slider::new(&mut levels.out_low, 0.0..=1.0)).changed();
                 changed |= slider_row(ui, "Out high", egui::Slider::new(&mut levels.out_high, 0.0..=1.0)).changed();
             }
+            ContentEffectKind::Anchor => {
+                let index = subcraft_doc::AnchorIndex::build(&state.session.selected_texture_set().layers);
+                super::anchor::anchor_info(ui, &index, eff.id, false);
+            }
             ContentEffectKind::Filter { channel, filter } => {
                 hint(ui, "Adjusts the preceding effect stage. Blur filters soften coverage; others preserve it.");
                 prop_row(ui, "Channel", |ui| {
@@ -405,7 +438,7 @@ fn content_editor(ui: &mut Ui, state: &mut UiState, layer: &Layer, e: &ContentEf
             }
         }
     });
-    section(ui, "effect_blend", "Blending per channel", true, |ui| {
+    if !matches!(eff.kind, ContentEffectKind::Anchor) { section(ui, "effect_blend", "Blending per channel", true, |ui| {
         hint(ui, "How this effect combines with the content below it, per channel.");
         for kind in &channels {
             if let ContentEffectKind::Filter { channel, .. } | ContentEffectKind::Levels { channel, .. } = &eff.kind
@@ -425,7 +458,7 @@ fn content_editor(ui: &mut Ui, state: &mut UiState, layer: &Layer, e: &ContentEf
                 });
             });
         }
-    });
+    }); }
     ui.horizontal_wrapped(|ui| {
         if secondary_button(ui, format!("{}  Duplicate", icons::COPY)).clicked() {
             cmds.push(Command::DuplicateContentEffect { layer: layer.id, effect: e.id });

@@ -208,6 +208,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     None => {}
                 }
                 hint(ui, tr("Tip: drag a texture from Shelf › Textures onto a channel below."));
+                let anchor_index = subcraft_doc::AnchorIndex::build(&state.session.selected_texture_set().layers);
                 for kind in &channels {
                     let mut ch = f.channels.get(kind).cloned().unwrap_or(FillChannel::disabled(FillSource::uniform(kind.default_paint_value())));
                     if !ch.enabled { continue; }
@@ -225,16 +226,18 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                                 FillSource::Procedural { .. } => 1,
                                 FillSource::MeshMap { .. } => 2,
                                 FillSource::Bitmap { .. } => 3,
+                                FillSource::Anchor { .. } => 4,
                             };
                             let mut sel = current;
                             egui::ComboBox::from_id_salt(("src", *kind))
                                 .width(110.0)
-                                .selected_text(["Uniform", "Procedural", "Mesh map", "Image"][current])
+                                .selected_text(["Uniform", "Procedural", "Mesh map", "Image", "Anchor"][current])
                                 .show_ui(ui, |ui| {
                                     ui.selectable_value(&mut sel, 0, tr("Uniform"));
                                     ui.selectable_value(&mut sel, 1, tr("Procedural"));
                                     ui.selectable_value(&mut sel, 2, tr("Mesh map"));
                                     ui.selectable_value(&mut sel, 3, tr("Image"));
+                                    ui.selectable_value(&mut sel, 4, tr("Anchor")).on_hover_text(tr("A channel or mask captured by an anchor point in a lower layer"));
                                 });
                             if sel != current {
                                 match sel {
@@ -247,6 +250,12 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                                         }
                                     }
                                     2 => ch.source = FillSource::MeshMap { map: MeshMapKind::AmbientOcclusion },
+                                    4 => {
+                                        let candidates = anchor_index.candidates(subcraft_doc::RefSite::Fill { layer: id, channel: *kind });
+                                        let input = super::anchor::default_input(&candidates, *kind)
+                                            .unwrap_or_else(|| subcraft_doc::AnchorInput::new(subcraft_core::EffectId::nil(), *kind));
+                                        ch.source = FillSource::Anchor { input };
+                                    }
                                     // Picked after the layout closure (needs the session).
                                     _ => pick_image = true,
                                 }
@@ -255,6 +264,16 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         });
                     });
                     crate::widgets::card_header_rule(ui);
+                    if let FillSource::Anchor { input } = &mut ch.source {
+                        let mut pick = Some(*input);
+                        if super::anchor::picker(ui, &anchor_index, subcraft_doc::RefSite::Fill { layer: id, channel: *kind }, &mut pick, None, &channels, *kind)
+                            && let Some(p) = pick
+                        {
+                            *input = p;
+                            changed = true;
+                        }
+                        hint(ui, tr("Reads the anchor's value and coverage. Color and gray convert automatically."));
+                    }
                     let (c, p) = source_controls(ui, state, *kind, &mut ch);
                     changed |= c;
                     pick_image |= p;
@@ -346,6 +365,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         add(ui, "Invert", MaskEffectKind::Invert);
                         add(ui, "ID Color", MaskEffectKind::IdColor(Default::default()));
                         super::effects::add_mask_filters(ui, id, &mut cmds);
+                        ui.menu_button(tr("Anchor"), |ui| {
+                            let index = subcraft_doc::AnchorIndex::build(&state.session.selected_texture_set().layers);
+                            super::effects::add_mask_anchor_items(ui, id, &index, &mut cmds);
+                        });
                         if ui.add(egui::Button::new(RichText::new(format!("{}  Image", icons::PLUS)).font(theme::font(12.0))))
                             .on_hover_text(tr("A black & white image or a logo with transparency"))
                             .clicked()
@@ -473,6 +496,12 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
             });
         });
         if eff.visible {
+            let anchored = matches!(eff.kind, MaskEffectKind::Anchor | MaskEffectKind::AnchorRef { .. })
+                || matches!(&eff.kind, MaskEffectKind::Generator(g) if g.accepts_input());
+            let anchor_index = if anchored { subcraft_doc::AnchorIndex::build(&state.session.selected_texture_set().layers) } else { Default::default() };
+            let channels: Vec<ChannelKind> = if anchored { state.session.selected_texture_set().channel_kinds().collect() } else { Vec::new() };
+            let site = subcraft_doc::RefSite::Mask { layer, effect: eff.id };
+            if !matches!(eff.kind, MaskEffectKind::Anchor) {
             prop_row(ui, tr("Blend"), |ui| {
                 egui::ComboBox::from_id_salt(("effect_blend", eff.id)).selected_text(eff.blend.label()).show_ui(ui, |ui| {
                     for mode in subcraft_doc::BlendMode::available(false, false) {
@@ -481,7 +510,39 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
                 });
             });
             changed |= slider_row(ui, tr("Opacity"), egui::Slider::new(&mut eff.opacity, 0.0..=1.0)).changed();
+            }
             match &mut eff.kind {
+                MaskEffectKind::Anchor => {
+                    prop_row(ui, tr("Name"), |ui| {
+                        let mut name = eff.name.clone();
+                        let r = ui.text_edit_singleline(&mut name);
+                        if r.lost_focus() && !name.trim().is_empty() && name.trim() != eff.name {
+                            eff.name = name.trim().to_string();
+                            changed = true;
+                        }
+                    });
+                    super::anchor::anchor_info(ui, &anchor_index, eff.id, true);
+                }
+                MaskEffectKind::AnchorRef { input, levels } => {
+                    let mut pick = Some(*input);
+                    if super::anchor::picker(ui, &anchor_index, site, &mut pick, None, &channels, ChannelKind::Height) && let Some(p) = pick {
+                        *input = p;
+                        changed = true;
+                    }
+                    let mut use_levels = levels.is_some();
+                    if ui.checkbox(&mut use_levels, tr("Levels")).changed() {
+                        *levels = use_levels.then(Levels::default);
+                        changed = true;
+                    }
+                    if let Some(l) = levels {
+                        changed |= slider_row(ui, tr("In low"), egui::Slider::new(&mut l.in_low, 0.0..=1.0)).changed();
+                        changed |= slider_row(ui, tr("In high"), egui::Slider::new(&mut l.in_high, 0.0..=1.0)).changed();
+                        changed |= slider_row(ui, tr("Gamma"), egui::Slider::new(&mut l.gamma, 0.1..=4.0)).changed();
+                        changed |= slider_row(ui, tr("Out low"), egui::Slider::new(&mut l.out_low, 0.0..=1.0)).changed();
+                        changed |= slider_row(ui, tr("Out high"), egui::Slider::new(&mut l.out_high, 0.0..=1.0)).changed();
+                    }
+                    hint(ui, tr("Gray value of the anchor (color channels by luminance), times its coverage. Stack Levels or Invert above it to remap."));
+                }
                 MaskEffectKind::Generator(g) => {
                     prop_row(ui, tr("Generator"), |ui| egui::ComboBox::from_id_salt("generator_kind").selected_text(g.kind.label()).show_ui(ui, |ui| {
                         for kind in [GeneratorKind::Edges, GeneratorKind::Cavity, GeneratorKind::AmbientOcclusion, GeneratorKind::Concave, GeneratorKind::Directional, GeneratorKind::PositionGradient]
@@ -489,6 +550,16 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
                             changed |= ui.selectable_value(&mut g.kind, kind, kind.label()).changed();
                         }
                     }));
+                    if g.accepts_input() {
+                        let mut input = g.input;
+                        if super::anchor::picker(ui, &anchor_index, site, &mut input, Some("Baked mesh map"), &channels, ChannelKind::Height) {
+                            g.input = input;
+                            changed = true;
+                        }
+                        if g.input.is_some() {
+                            hint(ui, tr("The anchor replaces the baked map this generator reads (curvature for Edges and Concave, occlusion for Dirt and Ambient Occlusion)."));
+                        }
+                    }
                     if g.kind == GeneratorKind::PositionGradient {
                         prop_row(ui, tr("Axis"), |ui| for axis in subcraft_doc::GradientAxis::ALL {
                             changed |= ui.selectable_value(&mut g.axis, axis, axis.label()).changed();
@@ -724,6 +795,8 @@ pub(crate) fn source_controls(ui: &mut Ui, state: &mut UiState, kind: ChannelKin
                 });
                 hint(ui, crate::keys::native("Uses the baked map (Ctrl+B); neutral until baked."));
             }
+            // The anchor picker sits above (it needs the layer and the texture set).
+            FillSource::Anchor { .. } => {}
             FillSource::Bitmap { resource } => {
                 pick_image |= image_row(ui, state, *resource);
                 hint(ui, if kind.is_color() {

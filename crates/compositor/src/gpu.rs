@@ -8,7 +8,9 @@
 //! range). Everything else is evaluated by the CPU for that layer and tile and passed as a
 //! source: procedural / bitmap / mesh-map fills, generator masks, part masks, gradient maps,
 //! HSL, paint / fill effects. Texture sets with neighborhood filters (blur, ...) are not handled
-//! (they need other tiles) and use the CPU for the whole set.
+//! (they need other tiles) and use the CPU for the whole set. Anchor references (ADR-0045) are
+//! prepared on the CPU through the stage graph: a mask or fill channel that reads an anchor is
+//! evaluated there (anchor capture included) and passed as a block; the GPU blends it.
 //!
 //! Stored data is untouched: paint tiles are uploaded to a GPU-side cache keyed by tile identity
 //! (an `Arc<Tile>` the cache holds, so copy-on-write guarantees an edited tile has a new key).
@@ -281,6 +283,8 @@ struct Plan {
     program: GpuProgram,
     ops: Vec<Vec<PlanOp>>,
     resolution: u32,
+    /// Some layer reads an anchor: its sources come from the stage graph.
+    anchored: bool,
 }
 
 /// Translate a visible, active content effect for `kind`. `Ok(None)` = ignored by the CPU too,
@@ -296,6 +300,7 @@ fn translate_effect(e: &ContentEffect, kind: ChannelKind) -> Result<Option<GpuEf
     let mode = crate::tile::effective_mode(blend.mode);
     let (k, p) = match &e.kind {
         ContentEffectKind::Paint { .. } | ContentEffectKind::Fill(_) => return Err(()),
+        ContentEffectKind::Anchor => return Ok(None),
         ContentEffectKind::Levels { channel, levels } => {
             if *channel != kind || kind == ChannelKind::Normal {
                 return Ok(None);
@@ -401,7 +406,12 @@ impl Planner<'_> {
     }
 
     fn leaf(&mut self, layer: &Layer, index: usize, leaf: Leaf, mode: BlendMode, opacity: f32) {
-        let translated = translate_effects(layer, self.kind, &mut self.channel.effects);
+        // A fill channel reading an anchor comes from the stage graph with its effects applied.
+        let translated = if subcraft_doc::anchor::fill_has_references(layer) {
+            None
+        } else {
+            translate_effects(layer, self.kind, &mut self.channel.effects)
+        };
         let effects = translated.unwrap_or((0, 0));
         self.channel.ops.push(GpuOp { kind: OpKind::Leaf, mode, passthrough: false, opacity, effects });
         self.ops.push(PlanOp { layer: index, leaf, cpu_effects: translated.is_none() });
@@ -430,17 +440,38 @@ fn plan(ts: &TextureSet) -> Result<Plan, Unsupported> {
         program.channels.push(p.channel);
         ops.push(p.ops);
     }
-    Ok(Plan { layers, program, ops, resolution: ts.resolution })
+    Ok(Plan { layers, program, ops, resolution: ts.resolution, anchored: subcraft_doc::anchor::has_references(&ts.layers) })
 }
 
 // ---------------------------------------------------------------------------------------------
 // Per-tile preparation (CPU, parallel over tiles).
 
-fn mask_source(layer: &Layer, tc: &TileContext, res: u32, dyn_mask: &mut Vec<f32>) -> GpuSrc {
+fn mask_source(layer: &Layer, tc: &TileContext, res: u32, dyn_mask: &mut Vec<f32>, graph: Option<&crate::stages::Graph>, tile: usize) -> GpuSrc {
     let mask = layer.mask.as_ref().filter(|m| m.enabled);
     let parts = layer.parts.as_ref().filter(|p| p.enabled);
     if mask.is_none() && parts.is_none() {
         return GpuSrc::None;
+    }
+    // A mask reading an anchor: the stage graph evaluates it (ADR-0045).
+    let from_graph = match (graph, mask) {
+        (Some(g), Some(_)) if subcraft_doc::anchor::mask_has_references(layer) => {
+            g.layer_mask_node(layer.id).map(|node| g.root(node, tile).iter().map(|v| v[0].clamp(0.0, 1.0)).collect::<Vec<f32>>())
+        }
+        _ => None,
+    };
+    if let Some(values) = from_graph {
+        let mut values = values;
+        if let Some(parts) = parts {
+            for (i, v) in values.iter_mut().enumerate() {
+                *v *= parts.factor(tc.geo.region(i, parts.kind));
+            }
+        }
+        if values.iter().all(|&v| v <= 0.0) {
+            return GpuSrc::Const([0.0; 4]);
+        }
+        let block = (dyn_mask.len() / TILE_TEXELS) as u32;
+        dyn_mask.extend_from_slice(&values);
+        return GpuSrc::Dyn(block);
     }
     if let (Some(m), None) = (mask, parts)
         && m.base.width() == res
@@ -481,7 +512,16 @@ fn apply_cpu_effects(layer: &Layer, kind: ChannelKind, content: &mut [[f32; 4]],
     }
 }
 
-fn content_source(layer: &Layer, kind: ChannelKind, leaf: Leaf, cpu_effects: bool, res: u32, tc: &TileContext, dyn_px: &mut Vec<[f32; 4]>) -> GpuSrc {
+#[allow(clippy::too_many_arguments)]
+fn content_source(layer: &Layer, kind: ChannelKind, leaf: Leaf, cpu_effects: bool, res: u32, tc: &TileContext, dyn_px: &mut Vec<[f32; 4]>, graph: Option<&crate::stages::Graph>, tile: usize) -> GpuSrc {
+    // A fill channel reading an anchor: the stage graph evaluates the content (ADR-0045).
+    if leaf == Leaf::Fill
+        && let Some(g) = graph
+        && subcraft_doc::anchor::fill_has_references(layer)
+        && let Some(node) = g.layer_content_node(layer.id, kind)
+    {
+        return push_dyn(dyn_px, &g.root(node, tile));
+    }
     let mut content = vec![[0.0f32; 4]; TILE_TEXELS];
     match (&layer.content, leaf) {
         (LayerContent::Paint(paint), Leaf::Paint) => match paint.channels.get(&kind) {
@@ -531,7 +571,7 @@ fn content_source(layer: &Layer, kind: ChannelKind, leaf: Leaf, cpu_effects: boo
     }
 }
 
-fn prepare_tile(plan: &Plan, ts: &TextureSet, ctx: &EvalContext, t: usize) -> GpuTile {
+fn prepare_tile(plan: &Plan, ts: &TextureSet, ctx: &EvalContext, t: usize, graph: Option<&crate::stages::Graph>) -> GpuTile {
     let geo = ctx.geometry.tile(t);
     let tc = TileContext {
         albedo_filter: ts.albedo_filter,
@@ -549,10 +589,10 @@ fn prepare_tile(plan: &Plan, ts: &TextureSet, ctx: &EvalContext, t: usize) -> Gp
             let layer = &*plan.layers[op.layer];
             let mask = match gop.kind {
                 OpKind::Begin => GpuSrc::None,
-                _ => masks[op.layer].get_or_insert_with(|| mask_source(layer, &tc, plan.resolution, &mut dyn_mask)).clone(),
+                _ => masks[op.layer].get_or_insert_with(|| mask_source(layer, &tc, plan.resolution, &mut dyn_mask, graph, t)).clone(),
             };
             let src = if gop.kind == OpKind::Leaf {
-                content_source(layer, ch.kind, op.leaf, op.cpu_effects, plan.resolution, &tc, &mut dyn_px)
+                content_source(layer, ch.kind, op.leaf, op.cpu_effects, plan.resolution, &tc, &mut dyn_px, graph, t)
             } else {
                 GpuSrc::None
             };
@@ -588,6 +628,9 @@ pub(crate) fn evaluate_tiles(composite: &mut Composite, ts: &TextureSet, ctx: &E
         }
     };
     let batch = (MAX_BATCH).min((192usize << 20) / dyn_bytes_per_tile(&plan).max(1)).max(4);
+    // Anchor references: their masks / fill channels are evaluated by the stage graph.
+    let stage_cache = crate::stages::StageCache::default();
+    let graph = plan.anchored.then(|| crate::stages::Graph::new(ts, *ctx, &stage_cache));
     let mut changed = ChangedTiles::new();
     let mut left = Vec::new();
     let mut work: Vec<&[usize]> = tiles.chunks(batch).collect();
@@ -595,7 +638,8 @@ pub(crate) fn evaluate_tiles(composite: &mut Composite, ts: &TextureSet, ctx: &E
     let mut first = true;
     while let Some(chunk) = work.pop() {
         let t0 = Instant::now();
-        let prepared: Vec<GpuTile> = chunk.par_iter().map(|&t| prepare_tile(&plan, ts, ctx, t)).collect();
+        let prepared: Vec<GpuTile> = chunk.par_iter().map(|&t| prepare_tile(&plan, ts, ctx, t, graph.as_ref())).collect();
+        stage_cache.trim();
         let prep = t0.elapsed().as_secs_f64() * 1e3;
         if first {
             first = false;
