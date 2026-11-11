@@ -57,7 +57,7 @@ pub fn channel_value(ui: &mut Ui, kind: ChannelKind, v: &mut ChannelValue) -> Ed
             .scope(|ui| {
                 quiet_value_field(ui);
                 fill_width(ui);
-                ui.add(egui::Slider::new(&mut x, range).max_decimals(3))
+                ui.add(typed_slider(egui::Slider::new(&mut x, range).max_decimals(3)))
             })
             .inner;
         if r.changed() {
@@ -190,6 +190,16 @@ pub fn slider_row_with(ui: &mut Ui, label: &str, slider: egui::Slider<'_>, actio
 /// [`slider_row_with`] for sliders whose number carries a long suffix ("% width"): the value box is `box_w` wide
 /// and the slider shrinks to match, so the row still fits its container.
 pub fn slider_row_boxed(ui: &mut Ui, label: &str, slider: egui::Slider<'_>, box_w: f32, actions: impl FnOnce(&mut Ui)) -> Response {
+    slider_row_inner(ui, label, typed_slider(slider), box_w, actions)
+}
+
+/// [`slider_row`] for a slider that brings its own `custom_parser` (a value shown in other units). The typed text
+/// is still kept as it is until Enter or focus loss.
+pub fn slider_row_own_parser(ui: &mut Ui, label: &str, slider: egui::Slider<'_>) -> Response {
+    slider_row_inner(ui, label, slider.update_while_editing(false), VALUE_W, |_| {})
+}
+
+fn slider_row_inner(ui: &mut Ui, label: &str, slider: egui::Slider<'_>, box_w: f32, actions: impl FnOnce(&mut Ui)) -> Response {
     ui.scope(|ui| {
         ui.spacing_mut().item_spacing.y = SP_XS;
         quiet_value_field(ui);
@@ -210,6 +220,34 @@ pub fn slider_row_boxed(ui: &mut Ui, label: &str, slider: egui::Slider<'_>, box_
         ui.add(slider)
     })
     .inner
+}
+
+/// Parse a number typed into a value box: `.25`, `-.5`, `+3`, `25`, `1e-2`, `0,25` (decimal comma) and the
+/// typographic minus all work; whitespace is ignored. Empty, non-finite or other text gives `None`.
+pub fn parse_number(text: &str) -> Option<f64> {
+    let mut t: String = text.chars().filter(|c| !c.is_whitespace()).map(|c| if c == '\u{2212}' { '-' } else { c }).collect();
+    if !t.contains('.') && t.matches(',').count() == 1 {
+        t = t.replace(',', ".");
+    }
+    let t = t.strip_prefix('+').unwrap_or(&t);
+    // Rust also accepts "inf" / "nan"; a value box never wants those.
+    if t.is_empty() || !t.chars().all(|c| c.is_ascii_digit() || matches!(c, '.' | '-' | 'e' | 'E' | '+')) {
+        return None;
+    }
+    t.parse::<f64>().ok().filter(|v| v.is_finite())
+}
+
+/// A slider whose number box keeps the text exactly as typed while it has focus (issue #140): the value is parsed
+/// with [`parse_number`] on Enter or focus loss, and Escape reverts. egui's default re-applies the value on every
+/// keystroke, and when the value comes back changed (rounded, stored in other units) the box is rewritten under
+/// the caret, so `.25` turned into `0.52`.
+pub fn typed_slider(slider: egui::Slider<'_>) -> egui::Slider<'_> {
+    slider.update_while_editing(false).custom_parser(parse_number)
+}
+
+/// [`typed_slider`] for a bare `DragValue`.
+pub fn typed_drag(drag: egui::DragValue<'_>) -> egui::DragValue<'_> {
+    drag.update_while_editing(false).custom_parser(parse_number)
 }
 
 /// A small outlined toggle chip (channel toggles). `selected` shows the accent outline.
@@ -437,4 +475,23 @@ pub fn window<'a>(ctx: &egui::Context, title: impl Into<egui::WidgetText>) -> eg
 /// Largest window size for a screen of this size.
 pub fn window_limits(screen: Vec2) -> (f32, f32) {
     ((screen.x - 24.0).max(280.0), (screen.y - 48.0).max(200.0))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_number;
+
+    #[test]
+    fn parses_typed_numbers() {
+        for (text, want) in [(".25", 0.25), ("-.5", -0.5), ("25", 25.0), ("1e-2", 0.01), ("+3", 3.0), (" 0.5 ", 0.5), ("0,25", 0.25), ("\u{2212}2", -2.0), ("1 000", 1000.0), ("5.", 5.0), ("2E3", 2000.0)] {
+            assert_eq!(parse_number(text), Some(want), "{text:?}");
+        }
+    }
+
+    #[test]
+    fn rejects_non_numbers() {
+        for text in ["", " ", ".", "-", "abc", "inf", "NaN", "1e999", "1,2,3", "0x10", "1.2.3"] {
+            assert_eq!(parse_number(text), None, "{text:?}");
+        }
+    }
 }
