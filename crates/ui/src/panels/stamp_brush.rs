@@ -79,7 +79,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 slider_row(ui, "Random rotation", egui::Slider::new(&mut b.angle_jitter_deg, 0.0..=180.0).suffix("°"));
                 slider_row(ui, "Spacing", egui::Slider::new(&mut b.spacing, 0.05..=3.0).logarithmic(true))
                     .on_hover_text("Distance between stamps in brush diameters. 1 = one stamp per diameter; small values average the overlapping stamps");
-                slider_row(ui, "Edge softness", egui::Slider::new(&mut b.hardness, 0.0..=1.0).custom_formatter(|v, _| format!("{:.0}%", (1.0 - v) * 100.0)).custom_parser(|s| s.trim_end_matches('%').parse::<f64>().ok().map(|v| 1.0 - v / 100.0)))
+                crate::widgets::slider_row_own_parser(ui, "Edge softness", egui::Slider::new(&mut b.hardness, 0.0..=1.0).custom_formatter(|v, _| format!("{:.0}%", (1.0 - v) * 100.0)).custom_parser(|s| crate::widgets::parse_number(s.trim().trim_end_matches('%')).map(|v| 1.0 - v / 100.0)))
                     .on_hover_text("Fades the stamp out toward its rim, so no square border is left");
             }
             if !height {

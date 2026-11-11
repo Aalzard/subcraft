@@ -4950,3 +4950,26 @@ rotating one slot when a tile is full (helps cyclic stacks, but the 40-layer sta
   `cargo run --release -p subcraft-app --example anchor_project -- out.subcraft`.
 * **Gaps:** isolated thumbnails show references unresolved; fill content effects can't read anchors; no "accumulate
   layers below"; no cross-texture-set anchors.
+
+### Session 121 - Typed slider boxes (#140) and brush colour picker (#141) (2026-11-11, branch `claude/issues-140-141`)
+
+* **#140 cause:** egui's `DragValue` (inside every `Slider`) applies the text on each keystroke
+  (`update_while_editing`). When the value read back next frame differs from what was set (stored in other
+  units, e.g. the brush bar's percent boxes, or rounded), egui treats the edit buffer as stale and rewrites it
+  with the formatted value under the caret: `.2` became `0.2|`, then `5` gave `0.52`.
+* **Fix:** `widgets::typed_slider` / `typed_drag` turn `update_while_editing` off and parse with
+  `widgets::parse_number` (`.25`, `-.5`, `+3`, `1e-2`, decimal comma, U+2212 minus; rejects inf/NaN). Applied
+  once in `slider_row` / `slider_row_with` / `slider_row_boxed` (all ~150 property sliders), `channel_value`,
+  and the brush bar's scrub boxes and popover sliders. `slider_row_own_parser` keeps a caller's own parser
+  (stamp brush "Edge softness"). Direct `ui.add(egui::Slider…)` calls outside these helpers are unchanged.
+* **#141:** new `color_picker` module: hue ring around a saturation/value square (vertex-coloured meshes),
+  R/G/B 0-255 and H/S/V sliders (typed boxes), hex field (`#RRGGBB`, `RRGGBB`, `#RGB`; a complete 6-digit
+  code applies while typing so paste works, 3-digit on Enter/focus loss, Escape reverts), old/new swatches
+  (click Old to restore) and 12 recent colours in `Preferences::recent_colors` (pushed when the popup closes
+  with a changed colour). The value stays linear; HSV/RGB/hex are sRGB display values via
+  `subcraft_core::color`. Hue is kept through grey/black. Opened from the brush Base Color / Emissive swatch in
+  the Brush panel; edits flow through the existing `Command::SetBrushMaterial` dispatch.
+* Tests: `widgets::tests` (2), `color_picker::tests` (8: hex parse/format, HSV known values and round trip,
+  linear<->hex round trip, hue kept on grey, recent list cap/dedupe, headless render without spurious edits).
+  The headless test caught `Slider::integer()` rounding the shown HSV every frame (step + clamping), so the
+  picker sliders use `fixed_decimals(0)` instead.

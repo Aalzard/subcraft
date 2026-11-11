@@ -50,6 +50,9 @@ pub struct Preferences {
     pub new_project: subcraft_app::new_project::NewProjectSettings,
     /// Interface language (English when absent from an older settings file).
     pub language: crate::i18n::Language,
+    /// Last brush colours picked (linear RGB, newest first, at most
+    /// [`crate::color_picker::MAX_RECENT`]).
+    pub recent_colors: Vec<[f32; 3]>,
 }
 
 impl Default for Preferences {
@@ -69,6 +72,7 @@ impl Default for Preferences {
             viewport: Default::default(),
             new_project: Default::default(),
             language: Default::default(),
+            recent_colors: Vec::new(),
         }
     }
 }
