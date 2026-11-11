@@ -528,17 +528,20 @@ mod tests {
         st.open = true;
         let mut recent = vec![[1.0, 0.0, 0.0]];
         for _ in 0..2 {
-            let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
                 let e = picker_body(ui, Id::new("t"), &mut rgb, &mut st, &mut recent);
                 assert!(!e.changed, "no input, no change");
             });
+            // Debug builds assert that texture uploads are handled before the output is dropped.
+            out.textures_delta.clear();
         }
         assert_eq!(rgb, [0.2, 0.4, 0.6]);
         rgb = [0.0, 0.0, 0.0];
         let hue = st.hsv[0];
-        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+        let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
             picker_body(ui, Id::new("t"), &mut rgb, &mut st, &mut recent);
         });
+        out.textures_delta.clear();
         assert_eq!(st.synced, [0.0, 0.0, 0.0]);
         assert_eq!(st.hsv[2], 0.0);
         assert!((st.hsv[0] - hue).abs() < 1e-6, "black keeps the previous hue");
