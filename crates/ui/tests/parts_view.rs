@@ -6,6 +6,14 @@ use subcraft_mesh::primitives;
 use subcraft_render::{egui_wgpu, headless, wgpu_api as wgpu};
 use subcraft_ui::state::UiState;
 
+/// One GPU test at a time. The four tests here each create their own device; in parallel (the
+/// default inside one test binary) that crashes lavapipe on Linux CI now and then (SIGSEGV), and can
+/// stall DX12 device creation on Windows. Same guard as the other GPU test files.
+fn gpu_test() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 fn ui_state() -> Option<UiState> {
     let (adapter, device, queue) = headless::device()?;
     let target_format = wgpu::TextureFormat::Rgba8Unorm;
@@ -39,6 +47,7 @@ fn visible_pixels(image: &[u8]) -> usize {
 
 #[test]
 fn isolate_hide_and_restore_reupload_materials_and_render_real_geometry() {
+    let _gpu = gpu_test();
     let Some(mut ui) = ui_state() else { eprintln!("no adapter: skipping"); return };
     let before = render(&mut ui);
     let target = ui.session.target_for_part(PartKey { kind: PartKind::Connected, id: 0 }).unwrap();
@@ -56,6 +65,7 @@ fn isolate_hide_and_restore_reupload_materials_and_render_real_geometry() {
 
 #[test]
 fn visibility_refresh_keeps_baked_ambient_occlusion_uploaded() {
+    let _gpu = gpu_test();
     let Some(mut ui) = ui_state() else { eprintln!("no adapter: skipping"); return };
     let target = ui.session.target_for_part(PartKey { kind: PartKind::Connected, id: 0 }).unwrap();
     ui.session.set_mesh_maps(target.texture_set, [(subcraft_core::MeshMapKind::AmbientOcclusion,
@@ -68,6 +78,7 @@ fn visibility_refresh_keeps_baked_ambient_occlusion_uploaded() {
 
 #[test]
 fn eyedropper_cannot_consume_a_fill_before_it_reaches_the_gpu() {
+    let _gpu = gpu_test();
     let Some(mut ui) = ui_state() else { eprintln!("no adapter: skipping"); return };
     let before = render(&mut ui);
     let target = ui.session.target_for_part(PartKey { kind: PartKind::Connected, id: 0 }).unwrap();
@@ -81,6 +92,7 @@ fn eyedropper_cannot_consume_a_fill_before_it_reaches_the_gpu() {
 
 #[test]
 fn synchronous_export_cannot_leave_a_stale_viewport_composite() {
+    let _gpu = gpu_test();
     let Some(mut ui) = ui_state() else { eprintln!("no adapter: skipping"); return };
     let before = render(&mut ui);
     let target = ui.session.target_for_part(PartKey { kind: PartKind::Connected, id: 0 }).unwrap();
