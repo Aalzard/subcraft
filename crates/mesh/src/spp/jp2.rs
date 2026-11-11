@@ -253,6 +253,11 @@ fn decode_codestream(cs: &[u8], reduce: usize) -> Result<Decoded> {
     if tile_data.is_empty() {
         return corrupt("no tile data");
     }
+    // No SIZ segment (its marker was damaged): nothing sized the image, and precision 0 would
+    // underflow below.
+    if prm.precision == 0 || prm.width == 0 || prm.height == 0 || prm.components == 0 {
+        return corrupt("missing image header");
+    }
     decode_tile(&prm, &tile_data, reduce)
 }
 
