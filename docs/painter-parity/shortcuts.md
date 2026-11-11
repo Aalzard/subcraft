@@ -100,9 +100,9 @@ Layout notes: these are listed in the same editable list; mouse combinations can
 | Use tool / paint | Viewport | Mouse left | done | crates/ui/src/viewport.rs:318 | - |
 | Draw straight lines | Viewport | Shift+Mouse left | done | crates/ui/src/viewport.rs:326 | - |
 | Straight line preview (dotted line while Shift is held) | Viewport | shown while Shift held | missing | - | - |
-| Draw straight lines with snapping | Viewport | Ctrl+Shift+Mouse left; 5 degree steps | done | crates/ui/src/nav.rs (snap_line_end) | TBD-NAV |
+| Draw straight lines with snapping | Viewport | Ctrl+Shift+Mouse left; 5 degree steps | done | crates/ui/src/nav.rs (snap_line_end) | #163 |
 | Camera rotate | Viewport 3D | Alt+Mouse left | done | crates/ui/src/nav.rs:84 | - |
-| Camera snap rotate | Viewport | Alt+Shift+Mouse left; 90 degree steps | done | crates/ui/src/nav.rs (NavMode::OrbitSnap) | TBD-NAV |
+| Camera snap rotate | Viewport | Alt+Shift+Mouse left; 90 degree steps | done | crates/ui/src/nav.rs (NavMode::OrbitSnap) | #163 |
 | Camera translate | Viewport | Alt+Middle mouse | done | crates/ui/src/nav.rs:82 | - |
 | Camera translate (alternative) | Viewport | Ctrl+Alt+Mouse left | done | crates/ui/src/nav.rs:82 | - |
 | Camera zoom | Viewport | Alt+Mouse right | done | crates/ui/src/nav.rs:80 | - |
@@ -115,7 +115,7 @@ Layout notes: these are listed in the same editable list; mouse combinations can
 | Change tool Flow / Rotation | Viewport | Ctrl+Mouse left; horizontal = flow, vertical = rotation | done | crates/ui/src/viewport.rs:150 | - |
 | Rotate environment | Viewport | Shift+Mouse right | done | crates/ui/src/nav.rs:76 | - |
 | Auto-Focus (Depth of Field) | Viewport | Ctrl+Middle mouse | partial: a pick-focus button then a click, no direct gesture | crates/ui/src/render_export.rs:104 | - |
-| Texture set selection | Viewport | Ctrl+Alt+Mouse right | done | crates/ui/src/viewport.rs (pick_set) | TBD-NAV |
+| Texture set selection | Viewport | Ctrl+Alt+Mouse right | done | crates/ui/src/viewport.rs (pick_set) | #163 |
 | Context menu (properties at the cursor) | Viewport | Mouse right | partial: opens a part-actions menu, not the tool properties | crates/ui/src/viewport.rs:162 | #131 |
 | Set Clone tool source location | Viewport | V+Mouse left | done | crates/ui/src/viewport.rs:154 | - |
 | Ignore stencil mask | Viewport | N (hold) | done | crates/ui/src/viewport.rs:79 | - |
@@ -129,7 +129,7 @@ Layout notes: these are listed in the same editable list; mouse combinations can
 | Snap UV rotation to orthogonal angles | 2D view | Alt+Shift+Left click | missing | - | - |
 | Pan | 2D view | Alt+Middle click | partial: plain middle drag or Alt+left drag | crates/ui/src/panels/uv_view.rs:83 | - |
 | Zoom / dolly | 2D view | Alt+Right click | partial: wheel only | crates/ui/src/panels/uv_view.rs:77 | - |
-| Orbit around the cursor position (3D) | 3D view | Alt+Left click | done | crates/ui/src/orbit.rs (orbit_around) | TBD-NAV |
+| Orbit around the cursor position (3D) | 3D view | Alt+Left click | done | crates/ui/src/orbit.rs (orbit_around) | #163 |
 
 ## Non-editable shortcuts: layer stack
 
