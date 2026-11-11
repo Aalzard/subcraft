@@ -166,6 +166,8 @@ impl PendingReadback {
 
 #[cfg(test)]
 mod readback_tests {
+    use egui_wgpu::wgpu;
+
     #[test]
     fn a_readback_on_a_destroyed_device_returns_an_error_instead_of_panicking() {
         let Some((_, device, queue)) = crate::headless::device() else { return };
