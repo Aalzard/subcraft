@@ -136,16 +136,18 @@ mod tests {
         s.session.execute(Command::SelectLayer(Some(a))).unwrap();
         let ctx = egui::Context::default();
         let copied = |out: &egui::FullOutput| out.platform_output.commands.iter().any(|c| matches!(c, egui::OutputCommand::CopyText(t) if t.starts_with("SubCraft: 1 layer")));
-        let out = ctx.run(egui::RawInput::default(), |ctx| {
-            request(ctx, Request::CopyLayers { cut: false });
-            process(&mut s, ctx, 0.0);
+        let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+            request(ui.ctx(), Request::CopyLayers { cut: false });
+            process(&mut s, ui.ctx(), 0.0);
         });
+        out.textures_delta.clear();
         assert!(copied(&out), "copy writes the marker: {:?}", out.platform_output.commands);
         // Pasting doesn't touch the system clipboard.
-        let out = ctx.run(egui::RawInput::default(), |ctx| {
-            request(ctx, Request::PasteLayers);
-            process(&mut s, ctx, 0.0);
+        let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+            request(ui.ctx(), Request::PasteLayers);
+            process(&mut s, ui.ctx(), 0.0);
         });
+        out.textures_delta.clear();
         assert!(!copied(&out));
     }
 
