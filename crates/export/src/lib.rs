@@ -201,12 +201,43 @@ pub(crate) fn output_path(mesh_name: &str, set: &ExportTextureSet, suffix: &str,
     }
 }
 
+/// The file format a map is written in: the export-wide override, except that a four-component
+/// map keeps its own format when the override is JPEG. JPEG has no alpha channel, so the override
+/// used to drop the fourth component (Unity's smoothness in a mask map) without a word.
+pub(crate) fn output_format(map: &OutputMap, settings: &ExportSettings) -> FileFormat {
+    match settings.format_override {
+        Some(FileFormat::Jpeg) if map.components.len() == 4 && map.format != FileFormat::Jpeg => map.format,
+        Some(format) => format,
+        None => map.format,
+    }
+}
+
+/// Two checked maps that would be written to the same file (texture sets whose names differ only
+/// in characters a file name cannot hold, or only in letter case): `(path, first set, second set)`.
+pub fn colliding_outputs(mesh_name: &str, sets: &[ExportTextureSet], settings: &ExportSettings) -> Option<(String, String, String)> {
+    let mut seen: HashMap<String, String> = HashMap::new();
+    for (set, path) in plan(mesh_name, sets, settings) {
+        // Windows and macOS file names ignore case.
+        if let Some(first) = seen.insert(path.to_lowercase(), set.clone()) {
+            return Some((path, first, set));
+        }
+    }
+    None
+}
+
+fn check_outputs(mesh_name: &str, sets: &[ExportTextureSet], settings: &ExportSettings) -> Result<(), ExportError> {
+    match colliding_outputs(mesh_name, sets, settings) {
+        Some((path, a, b)) => Err(ExportError::Write(PathBuf::from(&path), format!("texture sets \"{a}\" and \"{b}\" would both be written to this file; rename one of them"))),
+        None => Ok(()),
+    }
+}
+
 /// Every file the template could write, with its checkbox state.
 pub fn plan_all(mesh_name: &str, sets: &[ExportTextureSet], settings: &ExportSettings) -> Vec<PlannedFile> {
     let mut out = Vec::new();
     for set in sets {
         for map in settings.template.maps.iter().filter(|m| map_applies(m, set, settings)) {
-            let fmt = settings.format_override.unwrap_or(map.format);
+            let fmt = output_format(map, settings);
             out.push(PlannedFile {
                 set: set.name.to_string(),
                 suffix: map.suffix.clone(),
@@ -423,6 +454,12 @@ pub fn coverage(mesh: &Mesh, material_slot: u32, size: u32) -> Vec<bool> {
 
 /// Write every applicable map of every texture set into `dir`. Returns the written files.
 pub fn export(mesh: &Mesh, mesh_name: &str, sets: &[ExportTextureSet], settings: &ExportSettings, dir: &Path) -> Result<Vec<PathBuf>, ExportError> {
+    // An empty folder is the process's working directory, wherever that happens to be.
+    if dir.as_os_str().is_empty() {
+        return Err(ExportError::Folder(dir.to_path_buf(), std::io::Error::new(std::io::ErrorKind::InvalidInput, "choose an export folder")));
+    }
+    // Before anything is written: the second file would silently replace the first.
+    check_outputs(mesh_name, sets, settings)?;
     subcraft_core::vfs::create_dir_all(dir).map_err(|e| ExportError::Folder(dir.to_path_buf(), e))?;
     let mut written = Vec::new();
     render_maps(mesh,mesh_name,sets,settings,|name,bytes| {
@@ -508,7 +545,7 @@ pub(crate) fn render_maps(mesh: &Mesh, mesh_name: &str, sets: &[ExportTextureSet
             if map.suffix.contains(['/', '\\']) || map.suffix.contains("..") {
                 return Err(ExportError::Archive(format!("invalid map suffix: {}", map.suffix)));
             }
-            let format = settings.format_override.unwrap_or(map.format);
+            let format = output_format(map, settings);
             let comps = map.components.len();
             let mut data = evaluate_map(map, &mut dense, settings, format);
             let padding = map.padding.or(settings.template.padding).unwrap_or(settings.padding);
