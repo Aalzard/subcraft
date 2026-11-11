@@ -58,9 +58,10 @@ fn right_click_in_the_tool_properties_offers_the_three_presets_and_creates_one()
     for _ in 0..3 { frame(&mut s, &ctx, vec![]); }
     let out = frame(&mut s, &ctx, vec![]);
     assert!(!texts(&out).iter().any(|(t, _)| t == "Create tool preset"), "the menu is closed until asked for");
-    // Empty space of the panel: the right margin beside a section title.
+    // Empty space of the panel: its left margin, level with a section title (the section header
+    // itself spans the full width and takes clicks).
     let brush_title = texts(&out).iter().filter(|(t, _)| t == "ALPHA").map(|(_, p)| *p).next().expect("Alpha section");
-    let empty = egui::pos2(300.0, brush_title.y);
+    let empty = egui::pos2(3.0, brush_title.y);
     click(&mut s, &ctx, empty, egui::PointerButton::Secondary);
     let out = frame(&mut s, &ctx, vec![]);
     let menu = texts(&out);
