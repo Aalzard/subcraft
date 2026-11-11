@@ -435,7 +435,8 @@ impl MeshBuilder {
 /// Angle-weighted smooth normals, welding corners with bit-identical positions.
 fn smooth_corner_normals(corners: &[Corner]) -> Vec<Vec3> {
     let mut acc: HashMap<[u32; 3], Vec3> = HashMap::new();
-    let key = |p: Vec3| [p.x.to_bits(), p.y.to_bits(), p.z.to_bits()];
+    // `+ 0.0` turns -0.0 into 0.0, which is the same position with different bits.
+    let key = |p: Vec3| [(p.x + 0.0).to_bits(), (p.y + 0.0).to_bits(), (p.z + 0.0).to_bits()];
     for tri in corners.chunks_exact(3) {
         let p = [tri[0].position, tri[1].position, tri[2].position];
         let n = (p[1] - p[0]).cross(p[2] - p[0]).normalize_or_zero();
