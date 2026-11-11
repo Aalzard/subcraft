@@ -126,6 +126,7 @@ fn create(allow_software: bool) -> Option<GpuCompositor> {
         ..Default::default()
     }))
     .ok()?;
+    crate::caps::install_worker_error_handlers(&device, "compositing");
     Some(GpuCompositor::new(&adapter, device, queue, timestamps))
 }
 

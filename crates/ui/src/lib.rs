@@ -12,6 +12,7 @@ pub mod keys;
 pub mod linux_backend;
 pub mod shortcuts_window;
 pub mod dialogs;
+pub mod export_presets;
 pub mod files;
 pub mod graphics;
 pub mod gpu_probe;

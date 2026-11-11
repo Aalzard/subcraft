@@ -55,6 +55,59 @@ fn jp2_rejects_garbage_and_truncation() {
 }
 
 #[test]
+fn jp2_corrupt_headers_are_errors_not_panics() {
+    // Every byte of the main header (up to the first tile data), set to 0x00, 0x01 and 0xff in
+    // turn: short marker segments and huge image sizes read past the end or aborted on allocation.
+    let header = GRAY16.windows(2).position(|w| w == [0xff, 0x93]).unwrap_or(200).min(GRAY16.len());
+    let mut panics = Vec::new();
+    for i in 0..header {
+        for v in [0x00, 0x01, 0xff] {
+            let mut bad = GRAY16.to_vec();
+            bad[i] = v;
+            if std::panic::catch_unwind(|| { let _ = jp2::decode(&bad); }).is_err() {
+                panics.push((i, v));
+            }
+        }
+    }
+    assert!(panics.is_empty(), "decode panicked for (byte, value): {panics:?}");
+}
+
+#[test]
+fn hdf5_corrupt_projects_are_errors_not_panics() {
+    // Every byte of the synthetic project set to 0x00 and 0xff in turn, then the reader walks the
+    // groups and reads every dataset. Corrupt sizes and offsets must be errors (they read past
+    // the ends of messages, or allocated sizes taken from the file and aborted).
+    let file = project_file();
+    let walk = |bytes: Vec<u8>| {
+        let Ok(mut h5) = spp::hdf5::Hdf5File::open(Cursor::new(bytes)) else { return };
+        let mut stack = vec![String::new()];
+        let mut visited = 0;
+        while let Some(path) = stack.pop() {
+            visited += 1;
+            if visited > 64 { break; }
+            let Ok(children) = h5.list(&path) else { continue };
+            for c in children {
+                let child = if path.is_empty() { c } else { format!("{path}/{c}") };
+                if let Ok(info) = h5.dataset(&child) { let _ = h5.read(&info); }
+                stack.push(child);
+            }
+        }
+    };
+    let mut panics = Vec::new();
+    for i in 0..file.len() {
+        for v in [0x00, 0xff] {
+            if file[i] == v { continue; }
+            let mut bad = file.clone();
+            bad[i] = v;
+            if std::panic::catch_unwind(|| walk(bad)).is_err() {
+                panics.push((i, v));
+            }
+        }
+    }
+    assert!(panics.is_empty(), "{} corruptions panicked, first (byte, value): {:?}", panics.len(), &panics[..panics.len().min(10)]);
+}
+
+#[test]
 fn hdf5_fixture_is_navigable() {
     let mut h5 = spp::hdf5::Hdf5File::open(Cursor::new(project_file())).unwrap();
     let mut top = h5.list("").unwrap();

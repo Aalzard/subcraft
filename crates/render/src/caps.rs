@@ -110,6 +110,14 @@ pub fn install_error_handlers(device: &wgpu::Device) {
         if first && let Some(hook) = LOST_HOOK.get() { hook(&text); }
     });
 }
+/// For the extra devices (GPU compositing, GPU baking): wgpu's default reaction to an uncaptured
+/// error such as running out of video memory is a panic, which killed the compositor or bake
+/// worker. Errors are logged instead; the failed work then errors at readback and falls back to
+/// the processor. A lost worker device doesn't trigger the window's device-lost dialog.
+pub fn install_worker_error_handlers(device: &wgpu::Device, name: &'static str) {
+    device.on_uncaptured_error(std::sync::Arc::new(move |e: wgpu::Error| log::error!("GPU error ({name}): {e}")));
+    device.set_device_lost_callback(move |reason, message| log::warn!("GPU device lost ({name}): {reason:?}: {message}"));
+}
 static LOST_HOOK: OnceLock<fn(&str)> = OnceLock::new();
 /// Called once (on a wgpu thread) when the device is lost; the UI shows a native dialog there,
 /// because a lost device also stops egui from drawing.

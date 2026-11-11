@@ -6,6 +6,7 @@
 //! all absent are skipped. Color channels are sRGB-encoded for integer formats and stay linear in
 //! EXR. Data channels are never color-transformed.
 
+pub mod preset;
 pub mod psd;
 pub mod scene;
 pub mod selection;
@@ -26,7 +27,8 @@ use subcraft_mesh::uv_raster::rasterize_surface;
 pub use selection::{MapKey, MapSelection};
 pub use template::{ExportTemplate, OutputMap, Source};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Padding {
     /// No padding: gutter texels keep their composite values.
     None,
@@ -119,6 +121,44 @@ fn map_applies(map: &OutputMap, set: &ExportTextureSet, settings: &ExportSetting
     }
     map.components.iter().filter_map(|s| s.channel()).any(|k| set.source(k).is_some())
         || map.components.iter().any(|s| matches!(s, Source::Normal { .. })) && set.channels.contains_key(&ChannelKind::Height)
+        || map.components.iter().any(|s| matches!(s, Source::MeshMap { kind, .. } if set.mesh_maps.is_some_and(|m| m.contains_key(kind))))
+}
+
+/// Expand a file name pattern (no extension). Tokens: `$mesh`, `$textureSet` (without its UDIM
+/// tile), `$udim` (tile number; empty outside UDIM sets) and `$suffix` (the map's suffix).
+/// Token values are sanitized like the classic names; other characters outside letters,
+/// digits, `-`, `_` and `.` become `_`. Separators left dangling by an empty `$udim` are trimmed.
+pub fn expand_pattern(pattern: &str, mesh: &str, texture_set: &str, udim: Option<u32>, suffix: &str) -> String {
+    const TOKENS: [&str; 4] = ["$textureSet", "$suffix", "$mesh", "$udim"];
+    let mut out = String::new();
+    let mut rest = pattern;
+    while !rest.is_empty() {
+        if let Some(tok) = TOKENS.iter().find(|t| rest.starts_with(**t)) {
+            match *tok {
+                "$mesh" => out.push_str(&sanitize(mesh)),
+                "$textureSet" => out.push_str(&sanitize(texture_set)),
+                "$udim" => match udim {
+                    Some(n) => out.push_str(&n.to_string()),
+                    // No tile: drop the separator written for it ("_$udim", ".$udim").
+                    None => {
+                        if out.ends_with(['_', '.', '-']) {
+                            out.pop();
+                        }
+                    }
+                },
+                _ => out.push_str(&sanitize(suffix)),
+            }
+            rest = &rest[tok.len()..];
+            continue;
+        }
+        let c = rest.chars().next().expect("rest is not empty");
+        out.push(if c.is_alphanumeric() || c == '-' || c == '_' || c == '.' { c } else { '_' });
+        rest = &rest[c.len_utf8()..];
+    }
+    while out.contains("..") {
+        out = out.replace("..", ".");
+    }
+    out.trim_matches(|c| c == '.' || c == '_' || c == '-').to_string()
 }
 
 /// One output file of the template for one texture set, whether or not it is switched on.
@@ -140,6 +180,19 @@ fn base_name<'a>(set: &'a ExportTextureSet) -> &'a str {
 }
 
 pub(crate) fn output_path(mesh_name: &str, set: &ExportTextureSet, suffix: &str, ext: &str, settings: &ExportSettings) -> String {
+    let pattern = settings.template.maps.iter().find(|m| m.suffix == suffix).and_then(|m| m.pattern.as_deref());
+    if let Some(pattern) = pattern {
+        let mut name = expand_pattern(pattern, mesh_name, base_name(set), set.udim, suffix);
+        if name.is_empty() {
+            name = format!("{}_{}_{suffix}", sanitize(mesh_name), sanitize(base_name(set)));
+        }
+        return match set.udim {
+            None => format!("{name}.{ext}"),
+            Some(n) if settings.udim_folders => format!("{n}/{name}.{ext}"),
+            Some(_) if pattern.contains("$udim") => format!("{name}.{ext}"),
+            Some(n) => format!("{name}.{n}.{ext}"),
+        };
+    }
     let (mesh, base) = (sanitize(mesh_name), sanitize(base_name(set)));
     match set.udim {
         None => format!("{mesh}_{}_{suffix}.{ext}", sanitize(set.name)),
@@ -148,12 +201,43 @@ pub(crate) fn output_path(mesh_name: &str, set: &ExportTextureSet, suffix: &str,
     }
 }
 
+/// The file format a map is written in: the export-wide override, except that a four-component
+/// map keeps its own format when the override is JPEG. JPEG has no alpha channel, so the override
+/// used to drop the fourth component (Unity's smoothness in a mask map) without a word.
+pub(crate) fn output_format(map: &OutputMap, settings: &ExportSettings) -> FileFormat {
+    match settings.format_override {
+        Some(FileFormat::Jpeg) if map.components.len() == 4 && map.format != FileFormat::Jpeg => map.format,
+        Some(format) => format,
+        None => map.format,
+    }
+}
+
+/// Two checked maps that would be written to the same file (texture sets whose names differ only
+/// in characters a file name cannot hold, or only in letter case): `(path, first set, second set)`.
+pub fn colliding_outputs(mesh_name: &str, sets: &[ExportTextureSet], settings: &ExportSettings) -> Option<(String, String, String)> {
+    let mut seen: HashMap<String, String> = HashMap::new();
+    for (set, path) in plan(mesh_name, sets, settings) {
+        // Windows and macOS file names ignore case.
+        if let Some(first) = seen.insert(path.to_lowercase(), set.clone()) {
+            return Some((path, first, set));
+        }
+    }
+    None
+}
+
+fn check_outputs(mesh_name: &str, sets: &[ExportTextureSet], settings: &ExportSettings) -> Result<(), ExportError> {
+    match colliding_outputs(mesh_name, sets, settings) {
+        Some((path, a, b)) => Err(ExportError::Write(PathBuf::from(&path), format!("texture sets \"{a}\" and \"{b}\" would both be written to this file; rename one of them"))),
+        None => Ok(()),
+    }
+}
+
 /// Every file the template could write, with its checkbox state.
 pub fn plan_all(mesh_name: &str, sets: &[ExportTextureSet], settings: &ExportSettings) -> Vec<PlannedFile> {
     let mut out = Vec::new();
     for set in sets {
         for map in settings.template.maps.iter().filter(|m| map_applies(m, set, settings)) {
-            let fmt = settings.format_override.unwrap_or(map.format);
+            let fmt = output_format(map, settings);
             out.push(PlannedFile {
                 set: set.name.to_string(),
                 suffix: map.suffix.clone(),
@@ -177,6 +261,22 @@ struct Dense<'a> {
     cache: HashMap<ChannelKind, (usize, Vec<f32>)>,
     normal: Option<Vec<f32>>,
     view: Option<(usize, Vec<f32>)>,
+    mesh_maps: HashMap<MeshMapKind, (usize, Vec<f32>)>,
+}
+
+/// Nearest-neighbour copy of `img` at `size` × `size` (the image itself when it already fits).
+fn dense_at(img: &TiledImage, size: u32) -> (usize, Vec<f32>) {
+    let c = img.comps();
+    if img.width() == size {
+        return (c, img.to_dense());
+    }
+    let mut out = Vec::with_capacity((size * size) as usize * c);
+    for y in 0..size {
+        for x in 0..size {
+            out.extend_from_slice(&img.get(x * img.width() / size, y * img.height() / size)[..c]);
+        }
+    }
+    (c, out)
 }
 
 impl<'a> Dense<'a> {
@@ -196,6 +296,19 @@ impl<'a> Dense<'a> {
                 }
             }
             (c, out)
+        })
+    }
+
+    /// A baked mesh map at export size; the map's default value when it is not baked.
+    fn mesh_map(&mut self, kind: MeshMapKind) -> &(usize, Vec<f32>) {
+        let (size, set) = (self.size, self.set);
+        self.mesh_maps.entry(kind).or_insert_with(|| match set.mesh_maps.and_then(|m| m.get(&kind)) {
+            Some(img) => dense_at(img, size),
+            None => {
+                let d = kind.neutral_value();
+                let n = (size * size) as usize;
+                (3, (0..n).flat_map(|_| d).collect())
+            }
         })
     }
 
@@ -251,6 +364,15 @@ impl<'a> Dense<'a> {
     }
 }
 
+/// Normal convention of `map`: the export window's override, else the map's, else the
+/// template's, else the source's own.
+fn normal_directx(map: &OutputMap, settings: &ExportSettings, source: bool) -> bool {
+    settings.normal_directx.or(map.normal_directx).or(settings.template.normal_directx).unwrap_or(source)
+}
+
+/// Rec. 709 luminance weights (linear RGB).
+const LUMA: [f32; 3] = [0.2126, 0.7152, 0.0722];
+
 /// Compute one output map's pixels (row-major, `components.len()` interleaved), unpadded.
 fn evaluate_map(map: &OutputMap, dense: &mut Dense, settings: &ExportSettings, format: FileFormat) -> Vec<f32> {
     let n = (dense.size * dense.size) as usize;
@@ -272,7 +394,7 @@ fn evaluate_map(map: &OutputMap, dense: &mut Dense, settings: &ExportSettings, f
                 }
             }
             Source::Normal { component, directx } => {
-                let directx = settings.normal_directx.unwrap_or(directx);
+                let directx = normal_directx(map, settings, directx);
                 let nm = dense.normal(settings.height_to_normal);
                 let c = component.min(2) as usize;
                 for i in 0..n {
@@ -299,6 +421,26 @@ fn evaluate_map(map: &OutputMap, dense: &mut Dense, settings: &ExportSettings, f
                     out[i * comps + ci] = if format.is_float() { h } else { h * 0.5 + 0.5 };
                 }
             }
+            Source::Gray { kind, invert } => {
+                let encode = map.srgb && kind.is_color() && !format.is_float();
+                let (cc, data) = dense.channel(kind);
+                let cc = *cc;
+                for i in 0..n {
+                    let mut v = if cc >= 3 { (0..3).map(|c| data[i * cc + c] * LUMA[c]).sum::<f32>() } else { data[i * cc] };
+                    if invert {
+                        v = 1.0 - v;
+                    }
+                    out[i * comps + ci] = if encode { linear_to_srgb(v) } else { v };
+                }
+            }
+            Source::MeshMap { kind, component, invert } => {
+                let (cc, data) = dense.mesh_map(kind);
+                let c = (component as usize).min(kind.components() - 1).min(*cc - 1);
+                for i in 0..n {
+                    let v = data[i * cc + c];
+                    out[i * comps + ci] = if invert { 1.0 - v } else { v };
+                }
+            }
         }
     }
     out
@@ -312,6 +454,12 @@ pub fn coverage(mesh: &Mesh, material_slot: u32, size: u32) -> Vec<bool> {
 
 /// Write every applicable map of every texture set into `dir`. Returns the written files.
 pub fn export(mesh: &Mesh, mesh_name: &str, sets: &[ExportTextureSet], settings: &ExportSettings, dir: &Path) -> Result<Vec<PathBuf>, ExportError> {
+    // An empty folder is the process's working directory, wherever that happens to be.
+    if dir.as_os_str().is_empty() {
+        return Err(ExportError::Folder(dir.to_path_buf(), std::io::Error::new(std::io::ErrorKind::InvalidInput, "choose an export folder")));
+    }
+    // Before anything is written: the second file would silently replace the first.
+    check_outputs(mesh_name, sets, settings)?;
     subcraft_core::vfs::create_dir_all(dir).map_err(|e| ExportError::Folder(dir.to_path_buf(), e))?;
     let mut written = Vec::new();
     render_maps(mesh,mesh_name,sets,settings,|name,bytes| {
@@ -340,29 +488,84 @@ pub fn archive(mesh: &Mesh, mesh_name: &str, sets: &[ExportTextureSet], settings
     Ok(TextureArchive {name:format!("{}-textures.zip",sanitize(mesh_name)),files,bytes})
 }
 
+/// Resample a square image (`comps` interleaved) from `src` to `dst` texels per side: box
+/// average when shrinking by a whole factor, bilinear (texel centres, clamped) otherwise.
+pub fn resample(data: &[f32], comps: usize, src: u32, dst: u32) -> Vec<f32> {
+    if src == dst {
+        return data.to_vec();
+    }
+    let (s, d) = (src as usize, dst as usize);
+    let mut out = vec![0.0f32; d * d * comps];
+    if d < s && s % d == 0 {
+        let f = s / d;
+        let inv = 1.0 / (f * f) as f32;
+        out.par_chunks_mut(d * comps).enumerate().for_each(|(y, row)| {
+            for x in 0..d {
+                for c in 0..comps {
+                    let mut acc = 0.0;
+                    for sy in y * f..(y + 1) * f {
+                        for sx in x * f..(x + 1) * f {
+                            acc += data[(sy * s + sx) * comps + c];
+                        }
+                    }
+                    row[x * comps + c] = acc * inv;
+                }
+            }
+        });
+        return out;
+    }
+    let scale = s as f32 / d as f32;
+    out.par_chunks_mut(d * comps).enumerate().for_each(|(y, row)| {
+        let fy = ((y as f32 + 0.5) * scale - 0.5).clamp(0.0, (s - 1) as f32);
+        let (y0, ty) = (fy.floor() as usize, fy.fract());
+        let y1 = (y0 + 1).min(s - 1);
+        for x in 0..d {
+            let fx = ((x as f32 + 0.5) * scale - 0.5).clamp(0.0, (s - 1) as f32);
+            let (x0, tx) = (fx.floor() as usize, fx.fract());
+            let x1 = (x0 + 1).min(s - 1);
+            for c in 0..comps {
+                let at = |xx: usize, yy: usize| data[(yy * s + xx) * comps + c];
+                let top = at(x0, y0) + (at(x1, y0) - at(x0, y0)) * tx;
+                let bottom = at(x0, y1) + (at(x1, y1) - at(x0, y1)) * tx;
+                row[x * comps + c] = top + (bottom - top) * ty;
+            }
+        }
+    });
+    out
+}
+
 /// Directory and archive exports share rendering, encoding, templates and padding.
 pub(crate) fn render_maps(mesh: &Mesh, mesh_name: &str, sets: &[ExportTextureSet], settings: &ExportSettings, mut write: impl FnMut(&str,&[u8])->Result<(),ExportError>) -> Result<usize,ExportError> {
     let mut count=0;
     for set in sets {
         let Some(size) = set.channels.values().next().map(|i| i.width()) else { continue };
-        let covered = if settings.padding == Padding::None { Vec::new() } else { coverage(mesh, set.material_slot, size) };
-        let mut dense = Dense { set, size, cache: HashMap::new(), normal: None, view: None };
+        let mut covered: Option<Vec<bool>> = None;
+        let mut dense = Dense { set, size, cache: HashMap::new(), normal: None, view: None, mesh_maps: HashMap::new() };
         for map in settings.template.maps.iter().filter(|m| map_applies(m, set, settings) && settings.selection.is_on(set.name, &m.suffix)) {
             if map.suffix.contains(['/', '\\']) || map.suffix.contains("..") {
                 return Err(ExportError::Archive(format!("invalid map suffix: {}", map.suffix)));
             }
-            let format = settings.format_override.unwrap_or(map.format);
+            let format = output_format(map, settings);
             let comps = map.components.len();
             let mut data = evaluate_map(map, &mut dense, settings, format);
-            match settings.padding {
-                Padding::None => {}
-                Padding::Infinite => dilate_infinite(size as usize, size as usize, comps, &mut data, &covered),
-                Padding::Texels(t) => {
-                    dilate_width(size as usize, size as usize, comps, &mut data, &covered, t);
+            let padding = map.padding.or(settings.template.padding).unwrap_or(settings.padding);
+            if padding != Padding::None {
+                let covered = covered.get_or_insert_with(|| coverage(mesh, set.material_slot, size));
+                match padding {
+                    Padding::None => {}
+                    Padding::Infinite => dilate_infinite(size as usize, size as usize, comps, &mut data, covered),
+                    Padding::Texels(t) => {
+                        dilate_width(size as usize, size as usize, comps, &mut data, covered, t);
+                    }
                 }
             }
+            // Size override after padding, so shrinking never pulls unpadded gutter into islands.
+            let out_size = map.size.or(settings.template.size).unwrap_or(size).max(1);
+            if out_size != size {
+                data = resample(&data, comps, size, out_size);
+            }
             let name = output_path(mesh_name, set, &map.suffix, format.extension(), settings);
-            let bytes=subcraft_image::io::encode_image(size,size,comps,&data,format).map_err(|e|ExportError::Write(PathBuf::from(&name),e.to_string()))?;
+            let bytes=subcraft_image::io::encode_image(out_size,out_size,comps,&data,format).map_err(|e|ExportError::Write(PathBuf::from(&name),e.to_string()))?;
             write(&name,&bytes)?;count+=1;
         }
     }

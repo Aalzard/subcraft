@@ -339,6 +339,17 @@ fn partial_high_poly_misses_do_not_index_low_triangles_into_high_ids() {
     assert_ne!(a, b, "misses retain neutral IDs instead of a false high-poly triangle");
 }
 
+/// QA 2026-11: a thickness distance of 0 divided 0 by 0 and filled the map with NaN.
+#[test]
+fn thickness_with_a_zero_distance_is_finite() {
+    let mesh = primitives::plane(2., 1);
+    let bvh = Bvh::build(&mesh);
+    let input = BakeInput { low: Geometry { mesh: &mesh, bvh: &bvh }, high: None, material_slot: 0 };
+    let s = BakeSettings { thickness_distance: 0.0, use_gpu: false, ..settings(&[MeshMapKind::Thickness]) };
+    let maps = bake(&input, &s, &Progress::new()).unwrap();
+    assert!(maps[&MeshMapKind::Thickness].to_dense().iter().all(|v| v.is_finite()), "NaN in the thickness map");
+}
+
 #[test]
 fn thickness_is_bright_on_thin_parts() {
     let slab = primitives::thin_slab(2.0, 2.0, 0.05);

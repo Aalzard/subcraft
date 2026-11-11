@@ -58,7 +58,10 @@ fn from_surface(dab: &Dab, camera_index: usize, camera: &Camera, mesh: &Mesh, tr
         t = n.any_orthonormal_vector();
     }
     let t = t.normalize();
-    let b = t.cross(n);
+    // A mirrored (symmetry) camera reflects `right` and the normal, and a cross product of two
+    // reflected vectors is the reflection negated: without the sign the mirrored copy of a tilted,
+    // squashed or textured tip was not the mirror image.
+    let b = if camera.view.determinant() < 0.0 { n.cross(t) } else { t.cross(n) };
     let p = mesh.tri_positions(tri as usize);
     let uv = mesh.tri_uvs(tri as usize);
     let world_area = (p[1] - p[0]).cross(p[2] - p[0]).length();
