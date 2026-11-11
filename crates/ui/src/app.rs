@@ -117,6 +117,8 @@ pub struct LaunchOptions {
     pub properties_panel: bool,
     /// Export template to select (index into the built-in list) when the window opens.
     pub export_template: Option<usize>,
+    /// Export preset to select by name or id (built-in or from the user library).
+    pub export_preset: Option<String>,
     /// Open the Render quality window (scripted captures).
     pub render_window: bool,
     /// Render a still or a turntable from the loaded project, then quit (scripted export).
@@ -775,8 +777,14 @@ impl SubcraftApp {
             if let Some(high) = &options.new_project_high { state.new_project.load_high_poly(high); }
             state.welcome.open = false;
         }
-        state.export.open = options.export_window || options.export_template.is_some();
-        if let Some(i) = options.export_template { state.export.template = i.min(subcraft_export::ExportTemplate::builtin().len() - 1); }
+        state.export.open = options.export_window || options.export_template.is_some() || options.export_preset.is_some();
+        if let Some(i) = options.export_template { let all = subcraft_export::ExportTemplate::builtin(); state.export.preset = all[i.min(all.len() - 1)].name.clone(); }
+        if let Some(name) = &options.export_preset {
+            let presets = state.export.presets(state.user_library.as_ref());
+            let found = presets.all().find(|p| p.name == *name || p.key() == name).map(|p| p.key().to_string());
+            if let Some(key) = found { state.export.preset = key; }
+            state.export.edit_presets = true;
+        }
         state.render_window = options.render_window;
         if !options.import_smart.is_empty() {
             crate::files::import_smart_materials(&mut state, &options.import_smart, 0.0);
