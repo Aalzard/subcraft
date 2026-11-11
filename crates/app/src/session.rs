@@ -1351,30 +1351,10 @@ impl Session {
             Command::DuplicateLayers(layers) => {
                 let set = self.common_set(&layers)?;
                 let ts = self.doc.texture_set_mut(set).ok_or(CommandError::TextureSetNotFound)?;
-                let mut last = None;
-                let mut copies = Vec::new();
-                for id in crate::clipboard::top_level_in_order(ts, &layers) {
-                    let copy = ts.duplicate(id).map_err(|_| CommandError::LayerNotFound)?;
-                    copies.push((id, copy));
-                    last = Some(copy);
-                }
-                // Copies read the copied anchors when both were duplicated together (ADR-0045).
-                let mut map = HashMap::new();
-                for (original, copy) in &copies {
-                    if let (Some(a), Some(b)) = (ts.find(*original), ts.find(*copy)) {
-                        subcraft_doc::anchor::copied_effect_ids(a, b, &mut map);
-                    }
-                }
-                if subcraft_doc::anchor::has_references(&ts.layers) {
-                    for (_, copy) in &copies {
-                        if let Some(l) = ts.find_mut(*copy) {
-                            subcraft_doc::anchor::remap_inputs(l, &map);
-                        }
-                    }
-                }
+                let copies = Self::duplicate_in_set(ts, &layers)?;
                 self.commit("Duplicate Layers", None);
                 if set == self.selection.texture_set {
-                    self.selection.layer = last.or(self.selection.layer);
+                    self.selection.layer = copies.last().copied().or(self.selection.layer);
                 }
             }
             Command::SetLayersVisible { layers, visible } => {
@@ -1385,6 +1365,7 @@ impl Session {
                     let l = ts.find_mut(id).ok_or(CommandError::LayerNotFound)?;
                     changed |= l.visible != visible;
                     l.visible = visible;
+                    if visible { changed |= Self::show_ancestors(ts, id); }
                 }
                 if changed { self.commit(if visible { "Show Layers" } else { "Hide Layers" }, None); }
             }
@@ -1519,6 +1500,116 @@ impl Session {
                     self.selection.layer = Some(layer);
                 }
             }
+            Command::DropLayers { texture_set, layers, target, copy } => {
+                use crate::layer_tree::DropTarget;
+                if texture_set != self.selection.texture_set { return Err(CommandError::Invalid("the dragged texture set is no longer selected".into())); }
+                let ts = self.doc.texture_set_mut(texture_set).ok_or(CommandError::TextureSetNotFound)?;
+                let originals = crate::clipboard::top_level_in_order(ts, &layers);
+                if originals.is_empty() { return Err(CommandError::LayerNotFound); }
+                let anchor = match target {
+                    DropTarget::Above(id) | DropTarget::Below(id) | DropTarget::Inside(id) => Some(id),
+                    DropTarget::RootTop | DropTarget::RootBottom => None,
+                };
+                if let Some(anchor) = anchor {
+                    if ts.find(anchor).is_none() { return Err(CommandError::LayerNotFound); }
+                    if matches!(target, DropTarget::Inside(_)) && !ts.find(anchor).is_some_and(|l| l.is_folder()) { return Ok(()); }
+                    // Moved layers cannot land on or inside themselves; copies can land anywhere.
+                    if !copy && originals.iter().any(|&l| ts.is_descendant_or_self(anchor, l)) { return Ok(()); }
+                }
+                let before = ts.layers.clone();
+                let moved = (|| {
+                    let moving = if copy { Self::duplicate_in_set(ts, &originals)? } else { originals };
+                    // The first one goes to the target; each next one right above the one before,
+                    // so the group keeps its stacking order.
+                    let mut at = target;
+                    for &id in &moving {
+                        if let Some(destination) = crate::layer_tree::drop_destination(ts, id, at) {
+                            ts.move_to(id, destination.parent, destination.index).map_err(|e| CommandError::Invalid(format!("{e:?}")))?;
+                        }
+                        at = DropTarget::Above(id);
+                    }
+                    if let DropTarget::Inside(folder) = target
+                        && let Some(LayerContent::Group(group)) = ts.find_mut(folder).map(|l| &mut l.content)
+                    { group.expanded = true; }
+                    Ok(moving)
+                })();
+                let moving = match moved {
+                    Ok(moving) => moving,
+                    // Leave the document as it was when a step is refused.
+                    Err(e) => { ts.layers = before; return Err(e); }
+                };
+                if ts.layers != before {
+                    self.commit(match (copy, moving.len() == 1) {
+                        (true, true) => "Duplicate Layer",
+                        (true, false) => "Duplicate Layers",
+                        (false, true) => "Move Layer",
+                        (false, false) => "Move Layers",
+                    }, None);
+                    if copy || !self.selection.layer.is_some_and(|l| moving.contains(&l)) {
+                        self.selection.layer = moving.last().copied();
+                    }
+                }
+            }
+            Command::SetBlendAllChannels { layer, from, mode, opacity } => {
+                self.edit_layer_set(layer, "Blend All Channels", None, |ts| {
+                    let l = Self::layer_mut(ts, layer)?;
+                    let source = *l.blend.get(&from).ok_or(CommandError::Invalid("channel not blended by this layer".into()))?;
+                    let folder = l.is_folder();
+                    for (kind, blend) in l.blend.iter_mut() {
+                        if mode && subcraft_doc::BlendMode::available(*kind == ChannelKind::Normal, folder).any(|m| m == source.mode) { blend.mode = source.mode; }
+                        if opacity { blend.opacity = source.opacity; }
+                    }
+                    Ok(())
+                })?;
+            }
+            Command::PasteBlending { layers, blend } => {
+                let set = self.common_set(&layers)?;
+                let ts = self.doc.texture_set_mut(set).ok_or(CommandError::TextureSetNotFound)?;
+                let before = ts.layers.clone();
+                for id in layers {
+                    let l = ts.find_mut(id).ok_or(CommandError::LayerNotFound)?;
+                    let folder = l.is_folder();
+                    for (kind, target) in l.blend.iter_mut() {
+                        let Some(source) = blend.get(kind) else { continue };
+                        if subcraft_doc::BlendMode::available(*kind == ChannelKind::Normal, folder).any(|m| m == source.mode) { target.mode = source.mode; }
+                        target.opacity = source.opacity.clamp(0.0, 1.0);
+                    }
+                }
+                if ts.layers != before { self.commit("Paste Blending Options", None); }
+            }
+            Command::SetLayerColor { layers, color } => {
+                let set = self.common_set(&layers)?;
+                let ts = self.doc.texture_set_mut(set).ok_or(CommandError::TextureSetNotFound)?;
+                let mut changed = false;
+                for id in layers {
+                    let l = ts.find_mut(id).ok_or(CommandError::LayerNotFound)?;
+                    changed |= l.color != color;
+                    l.color = color;
+                }
+                if changed { self.commit("Layer Color", None); }
+            }
+            Command::PasteLayerContent { layer, clip } => {
+                let [source] = clip.layers.as_slice() else {
+                    return Err(CommandError::Invalid("Copy the content of one layer first".into()));
+                };
+                if source.is_folder() { return Err(CommandError::Invalid("A folder has no content to paste".into())); }
+                let mesh = crate::clipboard::mesh_signature(&self.scene.mesh);
+                let ts = self.texture_set_of(layer).and_then(|t| self.doc.texture_set(t)).ok_or(CommandError::LayerNotFound)?;
+                if ts.find(layer).ok_or(CommandError::LayerNotFound)?.is_folder() {
+                    return Err(CommandError::Invalid("Layer content cannot be pasted into a folder".into()));
+                }
+                // Fresh effect ids and rasters at this set's resolution, like a pasted layer.
+                let pasted = clip.instantiate(ts, mesh).pop().ok_or(CommandError::LayerNotFound)?;
+                self.edit_layer_set(layer, "Paste Layer Content", None, |ts| {
+                    let l = Self::layer_mut(ts, layer)?;
+                    l.content = pasted.content;
+                    l.content_effects = pasted.content_effects;
+                    Ok(())
+                })?;
+                for r in &clip.resources {
+                    self.resources.insert_shared(r.clone());
+                }
+            }
             Command::MoveUp(id) | Command::MoveDown(id) => {
                 let up = matches!(cmd, Command::MoveUp(_));
                 self.edit_layer_set(id, "Move Layer", None, |ts| {
@@ -1537,6 +1628,7 @@ impl Session {
             Command::SetVisible { layer, visible } => {
                 self.edit_layer_set(layer, if visible { "Show Layer" } else { "Hide Layer" }, None, |ts| {
                     Self::layer_mut(ts, layer)?.visible = visible;
+                    if visible { Self::show_ancestors(ts, layer); }
                     Ok(())
                 })?;
             }
@@ -1751,6 +1843,46 @@ impl Session {
         }
         self.normalize_target();
         Ok(())
+    }
+
+    /// Duplicate `layers` (those not inside another of them), each copy right above its
+    /// original. Returns the copies, bottom to top.
+    fn duplicate_in_set(ts: &mut TextureSet, layers: &[LayerId]) -> Result<Vec<LayerId>, CommandError> {
+        let mut copies = Vec::new();
+        for id in crate::clipboard::top_level_in_order(ts, layers) {
+            let copy = ts.duplicate(id).map_err(|_| CommandError::LayerNotFound)?;
+            copies.push((id, copy));
+        }
+        // Copies read the copied anchors when both were duplicated together (ADR-0045).
+        let mut map = HashMap::new();
+        for (original, copy) in &copies {
+            if let (Some(a), Some(b)) = (ts.find(*original), ts.find(*copy)) {
+                subcraft_doc::anchor::copied_effect_ids(a, b, &mut map);
+            }
+        }
+        if subcraft_doc::anchor::has_references(&ts.layers) {
+            for (_, copy) in &copies {
+                if let Some(l) = ts.find_mut(*copy) {
+                    subcraft_doc::anchor::remap_inputs(l, &map);
+                }
+            }
+        }
+        Ok(copies.into_iter().map(|(_, copy)| copy).collect())
+    }
+
+    /// Make every folder around `layer` visible (Painter: un-hiding a layer inside a hidden
+    /// folder shows the folder too). Returns whether anything changed.
+    fn show_ancestors(ts: &mut TextureSet, layer: LayerId) -> bool {
+        let mut changed = false;
+        let mut at = ts.location(layer).and_then(|l| l.parent);
+        while let Some(id) = at {
+            if let Some(folder) = ts.find_mut(id) {
+                changed |= !folder.visible;
+                folder.visible = true;
+            }
+            at = ts.location(id).and_then(|l| l.parent);
+        }
+        changed
     }
 
     /// Default name of a new anchor point in `layer`: "<layer> anchor", numbered when taken, so

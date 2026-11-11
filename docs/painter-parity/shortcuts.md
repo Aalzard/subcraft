@@ -142,9 +142,9 @@ Layout notes: these act only while the pointer is over the layer stack.
 | Paste layer | Layer stack | Ctrl+V | done | crates/ui/src/clipboard.rs:47 | - |
 | Delete layer | Layer stack | Delete | done | crates/app/src/actions.rs:196 | - |
 | Duplicate layer | Layer stack | Ctrl+D | done | crates/app/src/actions.rs:197 | - |
-| Group layer | Layer stack | Ctrl+G | done (no selection: adds an empty folder) | crates/app/src/session.rs:1617 | - |
-| Copy layer content | Layer stack | Ctrl+Shift+C (Option+Cmd+C) | missing | - | - |
-| Paste layer content | Layer stack | Ctrl+Shift+V (Option+Cmd+V) | missing | - | - |
+| Group layer | Layer stack | Ctrl+G | done (no selection: adds an empty folder) | crates/app/src/session.rs:1908 | - |
+| Copy layer content | Layer stack | Ctrl+Shift+C (Option+Cmd+C) | done | crates/ui/src/clipboard.rs:66 | - |
+| Paste layer content | Layer stack | Ctrl+Shift+V (Option+Cmd+V) | done | crates/ui/src/clipboard.rs:66 | - |
 | Display mask in viewport | Layer stack, mask thumbnail | Alt+Mouse left | partial: opens a preview inspector window, viewport does not switch to the mask | crates/ui/src/panels/layers.rs:312 | - |
 | Disable/Enable mask | Layer stack, mask thumbnail | Shift+Mouse left | done | crates/ui/src/panels/layers.rs:308 | - |
 | Drag and drop material onto one part of the model | Assets to viewport | Ctrl+Drag and drop | missing | - | - |
@@ -158,7 +158,7 @@ Layout notes: these act only while the pointer is over the layer stack.
 | Merge selected layers | Layer stack | Ctrl+M | missing | - | - |
 | Paste as instance | Layer stack | Ctrl+Shift+V after Ctrl+C | missing | - | - |
 | Instantiate across texture sets | Layer stack | Ctrl+Shift+D (release notes) | missing | - | - |
-| Duplicate layers by dragging | Layer stack | Ctrl + drag and drop | missing | - | - |
+| Duplicate layers by dragging | Layer stack | Ctrl + drag and drop | done | crates/ui/src/panels/layers.rs:136 | - |
 | Copy / cut / paste effects | Layer stack, effect selected | Ctrl+C / Ctrl+X / Ctrl+V | done | crates/ui/src/clipboard.rs:61 | - |
 | Delete selected effect | Layer stack, effect selected | Delete | done | crates/app/src/session.rs:1914 | - |
 | Reorder effect up | Layer stack, effect selected | Alt+Up arrow | done | crates/ui/src/panels/effects.rs:287 | - |

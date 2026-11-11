@@ -5288,3 +5288,33 @@ the app kept drawing on the dead device. Safe mode works; 0.3.3's marker only he
 * **Tests:** `crates/app/tests/layer_menu_parity.rs` (grouping, Ctrl+G, empty-folder insert, default blends, a
   default fill leaving Height / Normal / AO unchanged). Compile-checked locally (`cargo check --release --tests` of the
   changed crates); the test run is CI's, per the coordinator's build rule.
+
+### Painter parity chunk 7: effect-stack interactions (2026-11-12, branch `claude/parity-chunk7-effect-stack`)
+
+* **Commands:** `RemoveEffects`, `DuplicateEffects`, `NudgeEffects` (Alt+Up / Alt+Down), `RenameEffect` and
+  `DropEffects` (reorder several effects, move or Alt-copy them onto another layer's row; mask effects create the
+  mask when missing). New and pasted effects go right above the selected effect of the stack.
+* **Rows:** blend mode and opacity on each effect row (content: the view-mode channel), Ctrl / Shift click
+  multi-selection (`effect_stack::EffectSelection`), double-click rename, a right-click menu with cut, copy, paste,
+  duplicate, remove, move up / down, Add effect above and Rename.
+* **Keys:** with an effect selected, Delete, Ctrl+D and Ctrl+C / X / V act on the selected effect(s); Ctrl+V pastes
+  whatever was copied last.
+* **Tests:** `effect_stack.rs` unit tests (block reorder, nudge, selection), `crates/app/tests/effect_stack_parity.rs`,
+  `crates/ui/tests/effect_rows.rs`, clipboard tests in `crates/ui/src/clipboard.rs`. Compile-checked locally; CI runs
+  the tests.
+
+### Painter parity chunk 19: layer row and blending polish (2026-11-12, branch `claude/parity-chunk19-layer-polish`)
+
+* **Blending:** right-click the blend dropdown or the opacity > Apply to all channels (`SetBlendAllChannels`);
+  Blending options > Copy / Paste (`PasteBlending`); a clicked dropdown steps with Up / Down and the wheel; separators
+  between Painter's seven mode groups (`BlendMode::group`).
+* **Rows:** press an eye and slide over others to give them the same state (layers and effects); showing a layer
+  inside hidden folders shows the folders; a line under each thumbnail turns red when its stack has effects.
+* **Dragging:** Ctrl + drag duplicates; several selected rows drag together (`DropLayers`).
+* **Colour tags:** `Layer.color` (`LayerColor`, nine colours), Set color submenu, a stripe on the row, dimmed on rows
+  inside a tagged folder. Saved as an optional `color` field on the layer (no schema bump; absent when none).
+* **Layer content:** Ctrl+Shift+C / Ctrl+Shift+V copy the paint or fill and the content effects of one layer into
+  another (`PasteLayerContent`); name, mask and blending stay.
+* **Not done:** Ctrl+M flatten (chunk 44).
+* **Tests:** `crates/app/tests/layer_polish_parity.rs`, `crates/ui/tests/layer_polish.rs`, a project round trip of
+  colour tags, a blend group test, a layer-content clipboard test. Compile-checked locally; CI runs the tests.

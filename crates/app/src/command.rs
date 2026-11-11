@@ -94,6 +94,9 @@ pub enum Command {
     SetLayersVisible { layers: Vec<LayerId>, visible: bool },
     /// Paste copied layers above the selected layer of the selected texture set (any project).
     PasteLayers(std::sync::Arc<crate::clipboard::LayerClip>),
+    /// Painter's Paste layer content: replace this layer's content (paint or fill) and content
+    /// effects with those of the single copied layer. Name, mask, blending and position stay.
+    PasteLayerContent { layer: LayerId, clip: std::sync::Arc<crate::clipboard::LayerClip> },
     /// Paste copied effects into this layer's matching stack: right above the selected effect
     /// of that stack, else on top.
     PasteEffects { layer: LayerId, clip: std::sync::Arc<crate::clipboard::EffectClip> },
@@ -115,6 +118,9 @@ pub enum Command {
     MoveLayer { layer: LayerId, parent: Option<LayerId>, index: usize },
     /// Visual layer-tree drop. The controller validates UUIDs, cycles and insertion indices.
     DropLayer { texture_set: TextureSetId, layer: LayerId, target: crate::layer_tree::DropTarget },
+    /// Drop several layers at once (they keep their stacking order), or copies of them when
+    /// `copy` (Ctrl held, Painter's Ctrl + drag duplicate). One undo step.
+    DropLayers { texture_set: TextureSetId, layers: Vec<LayerId>, target: crate::layer_tree::DropTarget, copy: bool },
     /// One step up / down among siblings (up = towards the top of the stack).
     MoveUp(LayerId),
     MoveDown(LayerId),
@@ -124,6 +130,14 @@ pub enum Command {
     SetBlendMode { layer: LayerId, channel: ChannelKind, mode: BlendMode },
     /// Coalesces with neighbouring opacity edits of the same layer/channel until [`Command::Seal`].
     SetBlendOpacity { layer: LayerId, channel: ChannelKind, opacity: f32 },
+    /// Painter's "Apply to all channels": give every channel of the layer the blend mode and /
+    /// or the opacity `from` has. A mode a channel cannot use is skipped there.
+    SetBlendAllChannels { layer: LayerId, from: ChannelKind, mode: bool, opacity: bool },
+    /// Paste copied blending options (mode and opacity per channel) onto these layers; channels
+    /// a layer does not blend, or modes it cannot use, are skipped. One undo step.
+    PasteBlending { layers: Vec<LayerId>, blend: std::collections::BTreeMap<ChannelKind, subcraft_doc::ChannelBlend> },
+    /// Colour tag of these layers (`None` clears it). One undo step.
+    SetLayerColor { layers: Vec<LayerId>, color: Option<subcraft_doc::LayerColor> },
     /// Coalesces like opacity.
     SetFillChannel { layer: LayerId, channel: ChannelKind, fill: FillChannel },
     /// Atomic independent toggle or solo (Alt-click), preserving every source and strength.

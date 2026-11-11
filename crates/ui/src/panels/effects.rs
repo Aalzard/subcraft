@@ -197,19 +197,18 @@ fn row_blend(ui: &mut Ui, layer: &Layer, mask: bool, id: EffectId, active: Chann
     inactive.weak_bg_fill = egui::Color32::TRANSPARENT;
     inactive.bg_stroke = egui::Stroke::NONE;
     let what = if mask { "Effect".to_string() } else { format!("Effect {}", active.display_name()) };
-    egui::ComboBox::from_id_salt("effect_row_blend")
+    let modes: Vec<BlendMode> = BlendMode::available(!mask && active == ChannelKind::Normal, false).collect();
+    let combo = egui::ComboBox::from_id_salt("effect_row_blend")
         .width(60.0)
         .height(420.0)
         .selected_text(RichText::new(mode.short_label()).font(theme::font(10.5)).color(TEXT_DIM))
-        .show_ui(ui, |ui| {
-            for m in BlendMode::available(!mask && active == ChannelKind::Normal, false) {
-                if ui.selectable_label(mode == m, m.label()).clicked() {
-                    cmds.extend(set_row_blend(layer, mask, id, active, Some(m), None));
-                }
-            }
-        })
-        .response
-        .on_hover_text(format!("{what} blend mode: {}", mode.label()));
+        .show_ui(ui, |ui| super::layers::blend_mode_list(ui, modes.iter().copied(), mode));
+    let picked = combo.inner.flatten();
+    let stepped = super::layers::blend_step(ui, &combo.response, egui::Id::new(("effect_blend_focus", id)), &modes, mode, picked.is_some());
+    if let Some(m) = picked.or(stepped) {
+        cmds.extend(set_row_blend(layer, mask, id, active, Some(m), None));
+    }
+    combo.response.on_hover_text(format!("{what} blend mode: {}. Click, then Up / Down or the wheel steps through the modes.", mode.label()));
     let mut pct = opacity * 100.0;
     let drag = egui::DragValue::new(&mut pct).range(0.0..=100.0).speed(0.5).suffix("%").max_decimals(0);
     if ui.add_sized([40.0, 18.0], drag).on_hover_text(format!("{what} opacity (drag)")).changed() {
@@ -324,7 +323,8 @@ pub fn rows(
                     ui.add_space(indent);
                     ui.spacing_mut().item_spacing.x = 5.0;
                     let (eye, tip) = if row.visible { (icons::EYE, "Hide effect") } else { (icons::EYE_SLASH, "Show effect") };
-                    if ui.add_sized([20.0, 22.0], egui::Button::new(RichText::new(eye).color(TEXT_FAINT)).frame(false)).on_hover_text(tip).clicked() {
+                    let eye = ui.add_sized([20.0, 22.0], egui::Button::new(RichText::new(eye).color(TEXT_FAINT)).frame(false)).on_hover_text(tip);
+                    if super::layers::eye_slide(ui, &eye, row.visible) {
                         cmds.push(visibility(layer, mask_domain, row.id, !row.visible));
                     }
                     let thumb = previews.image(ui, session, subcraft_app::layer_previews::PreviewKey {

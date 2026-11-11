@@ -110,6 +110,31 @@ fn old_part_masks_default_to_connected_and_new_domains_have_stable_names() {
     }
 }
 
+#[test]
+fn layer_colour_tags_roundtrip_and_untagged_layers_write_no_field() {
+    let mut ts = TextureSet::new("Body", 0, 64);
+    let mut tagged = Layer::new_fill("Tagged", &ts);
+    tagged.color = Some(subcraft_doc::LayerColor::Violet);
+    let mut folder = Layer::new_folder("Folder", &ts);
+    folder.color = Some(subcraft_doc::LayerColor::Grey);
+    let plain = Layer::new_paint("Plain", &ts);
+    ts.insert_above(None, tagged);
+    ts.insert_above(None, folder);
+    ts.insert_above(None, plain);
+    let doc = Document { texture_sets: vec![ts] };
+    let bytes = write_project(Cursor::new(Vec::new()), &primitives::cube(2.), &doc, &ResourceStore::default(), &MeshMapSet::new()).unwrap().into_inner();
+    let back = read_project(Cursor::new(bytes)).unwrap().document;
+    assert_eq!(back, doc);
+    let colors: Vec<_> = back.texture_sets[0].layers.iter().map(|l| l.color).collect();
+    assert_eq!(colors, [Some(subcraft_doc::LayerColor::Violet), Some(subcraft_doc::LayerColor::Grey), None]);
+    // Stable names in the file; a layer without a tag (and any older file) has no field at all.
+    assert_eq!(serde_json::to_string(&subcraft_doc::LayerColor::Violet).unwrap(), "\"violet\"");
+    let json = r#"{"id":"00000000-0000-0000-0000-000000000001","name":"Old","visible":true,"blend":[],"content":{"type":"paint","channels":[]}}"#;
+    let old: LayerV1 = serde_json::from_str(json).unwrap();
+    assert_eq!(old.color, None);
+    assert!(!serde_json::to_string(&old).unwrap().contains("color"));
+}
+
 fn rich_document() -> Document {
     let mut ts = TextureSet::new("Body", 0, 128);
     let tc = ts.clone();
