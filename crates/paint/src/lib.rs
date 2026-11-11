@@ -26,6 +26,6 @@ pub use depth::{DepthCache, DepthMap};
 pub use path::MAX_SMOOTHING;
 pub use settings::{Alignment, BrushChannel, BrushMaterial, BrushSettings, NormalPaintBlend, ImageStamp, StampKind, PaintTarget, PolygonFillMode, RadialSymmetry, SizeContext, SizeSpace, MAX_PRESSURE_MIN, MAX_SYMMETRY_COPIES, StrokeMode, StrokeOptions, falloff, MAX_SCATTER};
 pub use stamp::Stamp;
-pub use stencil::Stencil;
+pub use stencil::{Stencil, StencilTiling, snap_rotation, MAX_STENCIL_COPIES};
 pub use stroke::{PaintContext, Stroke};
 pub use target::PaintError;

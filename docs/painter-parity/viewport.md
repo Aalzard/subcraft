@@ -176,13 +176,13 @@ Layout notes: the stencil is drawn over the whole viewport in screen space. Hold
 |---|---|---|---|---|---|
 | Stencil overlay drawn over the view | 3D view when a stencil is loaded | opacity from Display settings | done | crates/ui/src/viewport.rs:654 | - |
 | Stencil rotate | S + LMB drag | - | done | crates/ui/src/viewport.rs:84 | - |
-| Stencil snap rotate | Shift + S + LMB drag | every 90 degrees | missing | - | - |
+| Stencil snap rotate | Shift + S + LMB drag | every 90 degrees | done | crates/ui/src/viewport.rs (stencil_drag_rotation) | - |
 | Stencil translation | S + MMB drag | - | done | crates/ui/src/viewport.rs:88 | - |
 | Stencil zoom | S + RMB drag | - | partial: scale clamped to 0.02-8 | crates/ui/src/viewport.rs:92 | - |
-| Reset stencil transform button | 3D view, top right while S is held | - | missing | - | - |
+| Reset stencil transform button | 3D view, top right while S is held | - | done | crates/ui/src/viewport.rs (reset_stencil) | - |
 | Ignore stencil mask | hold N | - | done | crates/ui/src/viewport.rs:79 | - |
-| Hide stencil when painting | Display settings > Tool display | not documented | missing | - | - |
-| Stencil display opacity | Display settings > Tool display | not documented | missing | - | - |
+| Hide stencil when painting | Display settings > Tool display | not documented | partial: the option sits in the Properties Stencil block, not in Display settings | crates/ui/src/viewport.rs (stencil_overlay_alpha) | - |
+| Stencil display opacity | Display settings > Tool display | not documented | partial: the slider sits in the Properties Stencil block, not in Display settings | crates/ui/src/viewport.rs (stencil_overlay_alpha) | - |
 | Projection tool transform: rotate | S + LMB drag | - | missing | - | - |
 | Projection tool transform: snap rotate | S + Shift + LMB drag | - | missing | - | - |
 | Projection tool transform: zoom | S + RMB drag | - | missing | - | - |

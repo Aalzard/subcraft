@@ -210,6 +210,8 @@ pub struct UiState {
     pub tip_preview: crate::panels::brush_header::PreviewCache,
     /// Overlay texture of the current stencil image (keyed by its bitmap pointer).
     pub stencil_tex: Option<(usize, egui::TextureHandle)>,
+    /// How the stencil overlay is shown (display only; painting through it is unaffected).
+    pub stencil_display: StencilDisplay,
     /// Image textures shown in Shelf → Textures (the library's `textures/` folder).
     pub textures: crate::panels::textures::TextureLibrary,
     /// Autosave, crash recovery and preferences.
@@ -329,6 +331,7 @@ impl UiState {
             stamp_preview: Default::default(),
             tip_preview: Default::default(),
             stencil_tex: None,
+            stencil_display: StencilDisplay::default(),
             textures: Default::default(),
             recovery: crate::recovery::RecoveryUi::disabled(),
             bug_report: Default::default(),
@@ -621,4 +624,19 @@ fn builtin_brush_presets() -> Vec<subcraft_app::brush_preset::BrushPreset> {
         }
     }
     all
+}
+
+/// Display options of the stencil overlay in the 3D view.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct StencilDisplay {
+    /// Opacity of the overlay (0 = invisible, the stencil still masks paint).
+    pub opacity: f32,
+    /// Hide the overlay while a stroke is being painted.
+    pub hide_when_painting: bool,
+}
+
+impl Default for StencilDisplay {
+    fn default() -> Self {
+        Self { opacity: 110.0 / 255.0, hide_when_painting: false }
+    }
 }

@@ -64,6 +64,17 @@ pub struct Selection {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LayerTarget { Content, Mask }
 
+/// What the Clone tool's source does between strokes.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum CloneSourceMode {
+    /// The source keeps its distance to the brush: each stroke continues where the last one left
+    /// the copy (the source follows the brush).
+    #[default]
+    Relative,
+    /// Every stroke starts copying from the point that was set as the source.
+    Absolute,
+}
+
 /// Current brush configuration (not undoable).
 #[derive(Clone, Debug)]
 pub struct BrushState {
@@ -79,6 +90,8 @@ pub struct BrushState {
     pub stencil: Option<Arc<subcraft_paint::Stencil>>,
     /// Temporarily ignore the stencil (held N key), without removing it.
     pub stencil_bypass: bool,
+    /// Clone tool: whether the source follows the brush or returns to where it was set.
+    pub clone_mode: CloneSourceMode,
 }
 
 /// A surface point under the cursor.
@@ -225,6 +238,7 @@ impl Session {
                 target: PaintTarget::Content,
                 stencil: None,
                 stencil_bypass: false,
+                clone_mode: CloneSourceMode::Relative,
             },
             stroke: None,
             clone_source: None,
@@ -1631,6 +1645,10 @@ impl Session {
         let stamp = self.stroke_stamp();
         if let Some((s, _)) = &stamp {
             self.enable_layer_channel(layer, s.kind.channel());
+        }
+        // Absolute clone source: the first dab of every stroke copies from the source point again.
+        if self.brush.mode == StrokeMode::Clone && self.brush.clone_mode == CloneSourceMode::Absolute && self.clone_source.is_some() {
+            self.clone_offset = None;
         }
         let ts = self.selected_texture_set();
         let b = &self.brush;

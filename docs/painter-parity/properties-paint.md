@@ -135,12 +135,12 @@ Layout notes: a resource slot, then the tiling mode dropdown. Stencil transform 
 | Stencil resource slot | Properties > Stencil | empty (no effect) | partial: "Choose image" file dialog only; no asset slot, no drop from the shelf | crates/ui/src/panels/brush.rs:67 | - |
 | Remove the stencil | Properties > Stencil | n/a | done | crates/ui/src/panels/brush.rs:70 | - |
 | Substance stencil: exposed graph parameters | Properties > Stencil | per resource | missing | - | - |
-| Tiling mode (dropdown) | Properties > Stencil | No Tiling | partial: a single "Tile" checkbox | crates/ui/src/panels/brush.rs:83 | - |
-| Tiling mode: No Tiling | Properties > Stencil > Tiling mode | default | done | crates/ui/src/panels/brush.rs:83 | - |
-| Tiling mode: Horizontal Tiling | Properties > Stencil > Tiling mode | option | missing | - | - |
-| Tiling mode: Vertical Tiling | Properties > Stencil > Tiling mode | option | missing | - | - |
-| Tiling mode: H and V Tiling | Properties > Stencil > Tiling mode | option | done | crates/ui/src/panels/brush.rs:83 | - |
-| Reset stencil transform (button at the viewport's top right while S is held) | Viewport | n/a | missing | - | - |
+| Tiling mode (dropdown) | Properties > Stencil | No Tiling | done | crates/ui/src/panels/brush.rs (show, Stencil block) | - |
+| Tiling mode: No Tiling | Properties > Stencil > Tiling mode | default | done | crates/paint/src/stencil.rs (StencilTiling) | - |
+| Tiling mode: Horizontal Tiling | Properties > Stencil > Tiling mode | option | done | crates/paint/src/stencil.rs (StencilTiling) | - |
+| Tiling mode: Vertical Tiling | Properties > Stencil > Tiling mode | option | done | crates/paint/src/stencil.rs (StencilTiling) | - |
+| Tiling mode: H and V Tiling | Properties > Stencil > Tiling mode | option | done | crates/paint/src/stencil.rs (StencilTiling) | - |
+| Reset stencil transform (button at the viewport's top right while S is held) | Viewport | n/a | done; also a Reset button in the Stencil block | crates/ui/src/viewport.rs (reset_stencil) | - |
 | Text resource / vector graphic as stencil | Properties > Stencil | n/a | missing | - | - |
 
 ## Material
@@ -182,8 +182,8 @@ Layout notes: a row of channel toggle buttons (one per channel of the Texture Se
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
 | Eraser shares Brush, Alpha and Stencil with Paint | Properties | n/a | done | crates/ui/src/panels/brush.rs:101 | - |
-| Material block reduced to channel toggles (no colours, no slots) | Properties > Material | all channels on | partial: full paint Material block still shown; per-channel erase not confirmed in code | crates/ui/src/panels/brush.rs:91 | - |
-| Erase only the selected channels | Properties > Material | n/a | missing | - | - |
+| Material block reduced to channel toggles (no colours, no slots) | Properties > Material | all channels on | done | crates/ui/src/panels/brush.rs (eraser_channels) | - |
+| Erase only the selected channels | Properties > Material | n/a | done | crates/ui/src/panels/brush.rs (eraser_channels); crates/app/tests/tool_gaps.rs | - |
 | Physical eraser (particles) | Properties > Physics | n/a | missing | - | - |
 
 ## Projection tool
@@ -234,8 +234,8 @@ Layout notes: Selection mode icons first, then Fill mode icons (only meaningful 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
 | Clone shares Brush, Alpha and Stencil parameters with Paint | Properties | n/a | done | crates/ui/src/panels/brush.rs:101 | - |
-| Clone source behaviour: relative (source follows after each stroke) | Tool variant / button | default | partial: a single clone mode, no switch | crates/app/src/session.rs:1641 | - |
-| Clone source behaviour: absolute (source returns to where V set it) | Tool variant / button | option | missing | - | - |
+| Clone source behaviour: relative (source follows after each stroke) | Tool variant / button | default | partial: "Source" dropdown in Properties, not a toolbar variant | crates/app/src/session.rs (CloneSourceMode) | - |
+| Clone source behaviour: absolute (source returns to where V set it) | Tool variant / button | option | partial: "Source" dropdown in Properties, not a toolbar variant | crates/app/src/session.rs (CloneSourceMode) | - |
 | Clone from all layers below via Pass through blending | Layer stack + tool | n/a | missing | - | - |
 | Dynamic stroke on the Alpha slot | Properties > Alpha | n/a | missing | - | - |
 
