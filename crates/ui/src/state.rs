@@ -115,6 +115,10 @@ pub struct UiState {
     pub orbit_pivot: Option<glam::Vec3>,
     /// Unsnapped yaw / pitch of a snapped orbit drag (Alt+Shift+LMB).
     pub orbit_free: Option<(f32, f32)>,
+    /// Panels hidden so the views fill the window (Tab).
+    pub hide_ui: bool,
+    /// A plain Tab press taken from this frame's input (see `app::take_tab_press`).
+    pub tab_pressed: bool,
     /// Scripted view used whenever a model is framed (`--camera`).
     pub camera_view: Option<crate::orbit::CameraView>,
     pub render_state: Option<egui_wgpu::RenderState>,
@@ -289,6 +293,8 @@ impl UiState {
             nav_drag: None,
             orbit_pivot: None,
             orbit_free: None,
+            hide_ui: false,
+            tab_pressed: false,
             camera_view: None,
             session,
             render_state,

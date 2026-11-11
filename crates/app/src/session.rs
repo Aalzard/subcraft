@@ -1297,6 +1297,15 @@ impl Session {
             Command::GroupLayer(id) => {
                 self.edit_layer_set(id, "Group Layer", None, |ts| ts.group(id, "Folder").map_err(|_| CommandError::LayerNotFound))?;
             }
+            Command::IsolateTextureSet(texture_set) => {
+                if self.doc.texture_set(texture_set).is_none() { return Err(CommandError::TextureSetNotFound); }
+                let others: std::collections::BTreeSet<TextureSetId> = self.doc.texture_sets.iter().map(|t| t.id).filter(|&id| id != texture_set).collect();
+                let hidden = if self.hidden_sets == others { Default::default() } else { others };
+                if hidden != self.hidden_sets {
+                    self.hidden_sets = hidden;
+                    self.revision += 1;
+                }
+            }
             Command::MoveLayer { layer, parent, index } => {
                 self.edit_layer_set(layer, "Move Layer", None, |ts| {
                     ts.move_to(layer, parent, index).map_err(|e| CommandError::Invalid(format!("{e:?}")))
@@ -1620,6 +1629,10 @@ impl Session {
                 let o = &mut self.brush.options;
                 o.lazy_distance_px = if o.lazy_distance_px > 0.0 { 0.0 } else { 20.0 };
             }
+            Action::InvertMaskGray => self.brush.material.mask_value = 1.0 - self.brush.material.mask_value.clamp(0.0, 1.0),
+            Action::IsolateTextureSet => self.execute(Command::IsolateTextureSet(self.selection.texture_set))?,
+            Action::HideUi | Action::PaintingMode | Action::CloseProject | Action::View3dAnd2d | Action::View3dOnly | Action::View2dOnly
+            | Action::SwapViews | Action::NextMeshMap | Action::PrevMeshMap => return Ok(false),
             Action::PenTool | Action::PolygonFillTool | Action::SmudgeTool | Action::CloneTool | Action::EyedropperTool | Action::ResetCamera
             | Action::PerspectiveCamera | Action::OrthographicCamera | Action::NextChannel | Action::PrevChannel | Action::DisplayMaterial
             | Action::NewProject | Action::Quit | Action::Save | Action::SaveAs | Action::OpenProject | Action::Export | Action::Bake

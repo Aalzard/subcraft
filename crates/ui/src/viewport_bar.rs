@@ -392,6 +392,15 @@ pub fn cycle_mesh_map(prefs: &mut ViewportPrefs) {
     };
 }
 
+/// [`cycle_mesh_map`] backwards (Shift+B): material view, then the last map down to the first.
+pub fn cycle_mesh_map_back(prefs: &mut ViewportPrefs) {
+    let all = subcraft_core::MeshMapKind::ALL;
+    prefs.mesh_map = match prefs.mesh_map {
+        None => all.last().copied(),
+        Some(k) => all.iter().position(|&m| m == k).and_then(|i| i.checked_sub(1)).map(|i| all[i]),
+    };
+}
+
 fn dim(ui: &mut Ui, text: &str) {
     ui.label(RichText::new(text).color(TEXT_DIM));
 }
@@ -399,6 +408,24 @@ fn dim(ui: &mut Ui, text: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mesh_map_cycle_runs_both_ways_through_the_material_view() {
+        let all = subcraft_core::MeshMapKind::ALL;
+        let mut p = ViewportPrefs::default();
+        for kind in all.iter().copied() {
+            cycle_mesh_map(&mut p);
+            assert_eq!(p.mesh_map, Some(kind));
+        }
+        cycle_mesh_map(&mut p);
+        assert_eq!(p.mesh_map, None, "after the last map the material view returns");
+        for kind in all.iter().rev().copied() {
+            cycle_mesh_map_back(&mut p);
+            assert_eq!(p.mesh_map, Some(kind));
+        }
+        cycle_mesh_map_back(&mut p);
+        assert_eq!(p.mesh_map, None);
+    }
 
     #[test]
     fn texture_set_settings_albedo_dropdown_is_below_size_and_dispatches_an_undoable_edit() {

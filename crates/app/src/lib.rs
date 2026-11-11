@@ -51,7 +51,7 @@ pub mod clipboard;
 pub mod multi_select;
 
 pub use bake_job::{BakeJob, MapProgress, MapState, BakeLogLevel, BakeLogLine, BakePreviewJob, BakeRequest, log_text as bake_log_text};
-pub use actions::{ACTIONS, Action, ActionInfo, Key, KeymapPreset, PAINTER_REFERENCE, PainterEntry, Shortcut, Support, action_for, label_in, shortcuts_in};
+pub use actions::{ACTIONS, Action, ActionInfo, Key, KeymapPreset, PAINTER_REFERENCE, PainterEntry, Shortcut, Support, action_for, f2_is_bound, label_in, shortcuts_in};
 pub use spp_job::{ImportControl, SppImportJob, SppPoll};
 pub use command::{Command, CommandError, NewLayer};
 pub use clipboard::{EffectClip, LayerClip};

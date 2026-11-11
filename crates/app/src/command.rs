@@ -90,6 +90,9 @@ pub enum Command {
     ClearMeshMap { texture_set: TextureSetId, kind: subcraft_core::MeshMapKind },
     /// Wrap the layer into a new folder.
     GroupLayer(LayerId),
+    /// Show only this texture set's part of the model, or everything again when it is already
+    /// the only one shown (Painter's Alt+Q). View state only, like `SetTextureSetHidden`.
+    IsolateTextureSet(TextureSetId),
     MoveLayer { layer: LayerId, parent: Option<LayerId>, index: usize },
     /// Visual layer-tree drop. The controller validates UUIDs, cycles and insertion indices.
     DropLayer { texture_set: TextureSetId, layer: LayerId, target: crate::layer_tree::DropTarget },

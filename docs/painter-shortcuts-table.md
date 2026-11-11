@@ -1,13 +1,13 @@
 | Group | Painter key | Painter action | SubCraft action | Status | Note |
 |---|---|---|---|---|---|
-| General | `Tab` | Hide UI |  | no equivalent | no panel-hiding mode (dock layout is owned by another change) |
+| General | `Tab` | Hide UI | HideUi | added (key was free) | hides every panel; Tab again brings them back |
 | General | `Ctrl+Z` | Undo | Undo | already the same |  |
 | General | `Ctrl+Y` | Redo | Redo | already the same |  |
 | General | `F8` | Baking mode | Bake | added (key was free) | opens the Bake window |
-| General | `F9` | Painting mode |  | no equivalent | no separate painting mode |
+| General | `F9` | Painting mode | PaintingMode | added (key was free) | closes the Bake window and leaves Rendering mode |
 | General | `F10` | Rendering (Iray) mode | TogglePathTracing | already the same | path-traced Rendering mode |
 | General | `Ctrl+O` | Open project | OpenProject | already the same |  |
-| General | `Ctrl+F4` | Close project |  | no equivalent | no close-project command |
+| General | `Ctrl+F4` | Close project | CloseProject | added (key was free) | returns to the sample model after the unsaved-changes prompt |
 | General | `Ctrl+S` | Save project | Save | already the same |  |
 | General | `(none)` | Save as |  | no equivalent | Painter has no key; SubCraft keeps Ctrl+Shift+S |
 | General | `Ctrl+N` | New project | NewProject | added (key was free) | New project from a model |
@@ -25,7 +25,7 @@
 | Manipulator | `Shift+W` | Surface tool |  | no equivalent | no equivalent |
 | Tools | `L` | Symmetry | ToggleSymmetryX | added (key was free) | toggles X mirror |
 | Tools | `Shift+Esc` | Pause engine computation |  | no equivalent | no engine pause |
-| Tools | `1` | Paint tool | BrushTool | added (key was free) | B kept as well |
+| Tools | `1` | Paint tool | BrushTool | added (key was free) | B kept as well in the SubCraft key set |
 | Tools | `Ctrl+1` | Paint tool + Particles |  | no equivalent | no particle tool (scatter lives in brush settings) |
 | Tools | `2` | Eraser tool | EraserTool | added (key was free) | E kept as well |
 | Tools | `Ctrl+2` | Eraser tool + Particles |  | no equivalent | no particle tool |
@@ -37,7 +37,7 @@
 | Tools | `Ctrl+6` | Clone tool (absolute source) |  | no equivalent | only one clone mode |
 | Tools | `]` | Increase tool size | BrushLarger | already the same |  |
 | Tools | `[` | Decrease tool size | BrushSmaller | already the same |  |
-| Tools | `X` | Invert grayscale tool |  | no equivalent | no such toggle; in the Painter preset X is unbound (SubCraft's X symmetry moves to L) |
+| Tools | `X` | Invert grayscale tool | InvertMaskGray | Painter preset only (conflict) | mask brush value g becomes 1 - g; X stays symmetry in the SubCraft key set |
 | Tools | `P` | Pick stroke material | EyedropperTool | Painter preset only (conflict) | Eyedropper tool; Pen paths moves to Shift+P in this preset |
 | Tools | `D` | Lazy Mouse | ToggleLazyMouse | added (key was free) | toggles a 20 px rope |
 | Tools | `Alt+H` | Hide/ignore excluded geometry |  | no equivalent | no equivalent |
@@ -49,18 +49,18 @@
 | Viewport | `C` | Display next channel | NextChannel | added (key was free) | cycles the 3D view channels |
 | Viewport | `Shift+C` | Display previous channel | PrevChannel | added (key was free) |  |
 | Viewport | `M` | Display material | DisplayMaterial | added (key was free) |  |
-| Viewport | `B` | Display next mesh map |  | no equivalent | B stays Brush; baked maps are chosen from the view toolbar |
-| Viewport | `Shift+B` | Display previous mesh map |  | no equivalent | see B |
+| Viewport | `B` | Display next mesh map | NextMeshMap | Painter preset only (conflict) | B stays Brush in the SubCraft key set |
+| Viewport | `Shift+B` | Display previous mesh map | PrevMeshMap | added (key was free) |  |
 | Viewport | `Space` | Toggle animation |  | no equivalent | no animation |
 | Viewport | `F` | Center the whole mesh | ResetCamera | added (key was free) | Home kept as well |
 | Viewport | `U` | Toggle quick mask edition |  | no equivalent | no quick mask |
 | Viewport | `Y` | Clear quick mask |  | no equivalent | no quick mask |
 | Viewport | `I` | Invert quick mask |  | no equivalent | no quick mask (I over the model isolates a part) |
-| Viewport | `F1` | Viewport layout 3D/2D |  | no equivalent | layout is dock based; arrange tabs instead |
-| Viewport | `F2` | Viewport layout 3D only |  | no equivalent | layout is dock based |
-| Viewport | `F3` | Viewport layout 2D only |  | no equivalent | layout is dock based |
-| Viewport | `F4` | Swap 2D / 3D view |  | no equivalent | layout is dock based |
-| Viewport | `Alt+Q` | Texture Set isolate |  | no equivalent | no equivalent key (parts: I / H over the model) |
+| Viewport | `F1` | Viewport layout 3D/2D | View3dAnd2d | added (key was free) | 2D view in its own pane beside the 3D view |
+| Viewport | `F2` | Viewport layout 3D only | View3dOnly | Painter preset only (conflict) | F2 renames the selected layer in the SubCraft key set |
+| Viewport | `F3` | Viewport layout 2D only | View2dOnly | added (key was free) |  |
+| Viewport | `F4` | Swap 2D / 3D view | SwapViews | added (key was free) | swaps the two panes, or the front tab when they share one |
+| Viewport | `Alt+Q` | Texture Set isolate | IsolateTextureSet | added (key was free) | hides the other texture sets' geometry; again shows everything |
 | Mouse | `LMB` | Use tool / paint |  | mouse / hold key | already worked |
 | Mouse | `Shift+LMB` | Draw straight lines |  | mouse / hold key | already worked |
 | Mouse | `Ctrl+Shift+LMB` | Draw straight lines with snapping |  | mouse / hold key | added: the line from the last stroke point snaps to 5 degree steps |

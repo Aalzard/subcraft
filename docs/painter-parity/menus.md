@@ -12,12 +12,12 @@ Layout notes: one row of text menus above the toolbars, in this order: File, Edi
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
 | File | Menu bar, 1st | - | done | crates/ui/src/app.rs:1104 | - |
-| Edit | Menu bar, 2nd | - | partial: holds only Undo, Redo, Preferences | crates/ui/src/app.rs:1164 | - |
-| Mode | Menu bar, 3rd | - | missing | - | - |
-| Window | Menu bar, 4th | - | missing | - | - |
-| Viewport | Menu bar, 5th | - | partial: named View, different entries | crates/ui/src/app.rs:1236 | - |
-| JavaScript | Menu bar, 6th (plugins) | - | missing | - | - |
-| Python | Menu bar, 7th (plugins) | - | missing | - | - |
+| Edit | Menu bar, 2nd | - | partial: Undo, Redo, Bake mesh maps, Project configuration, Settings plus a Layers submenu and Auto UV unwrap | crates/ui/src/app.rs (menu) | #164 |
+| Mode | Menu bar, 3rd | - | done | crates/ui/src/app.rs (menu) | #164 |
+| Window | Menu bar, 4th | - | done | crates/ui/src/app.rs (menu) | #164 |
+| Viewport | Menu bar, 5th | - | done | crates/ui/src/app.rs (menu) | #164 |
+| JavaScript | Menu bar, 6th (plugins) | - | partial: one empty Plugins menu; no scripting API | crates/ui/src/app.rs (menu) | #164 |
+| Python | Menu bar, 7th (plugins) | - | partial: one empty Plugins menu; no scripting API | crates/ui/src/app.rs (menu) | #164 |
 | Help | Menu bar, last | - | done | crates/ui/src/app.rs:1276 | - |
 
 ## File menu
@@ -28,20 +28,20 @@ Layout notes: project lifetime first (New to Close), then the save family, Clean
 |---|---|---|---|---|---|
 | New | File | Ctrl+N | done | crates/ui/src/app.rs:1110 | - |
 | Open | File | Ctrl+O | done | crates/ui/src/app.rs:1122 | - |
-| Recent files (submenu, one entry per recent project) | File | not documented | partial: list is only on the Welcome screen, not in the File menu | crates/ui/src/welcome.rs:50 | - |
-| Open sample (submenu, one entry per bundled sample project) | File | not documented | partial: one built-in sample, entry is "New (sample model)" | crates/ui/src/app.rs:1106 | - |
-| Close | File | Ctrl+F4 | missing | - | - |
+| Recent files (submenu, one entry per recent project) | File | not documented | done | crates/ui/src/app.rs (menu) | #164 |
+| Open sample (submenu, one entry per bundled sample project) | File | not documented | partial: one built-in sample, a single entry | crates/ui/src/app.rs (menu) | #164 |
+| Close | File | Ctrl+F4 | partial: returns to the sample model (there is no empty state) | crates/ui/src/app.rs (menu) | #164 |
 | Save | File | Ctrl+S | done | crates/ui/src/app.rs:1127 | - |
 | Save and compact | File | not documented | missing | - | - |
 | Save as | File | no default key (editable) | partial: default key differs (Ctrl+Shift+S) | crates/ui/src/app.rs:1131 | - |
 | Save as copy | File | not documented | missing | - | - |
 | Save as template | File | not documented | missing | - | - |
 | Clean | File | not documented | missing | - | - |
-| Import resources | File | not documented | partial: separate Layer > Import texture set / smart material entries and Shelf import, no single import window | crates/ui/src/app.rs:1214 | - |
+| Import resources | File | not documented | partial: a submenu with texture set / smart material entries, no single import window | crates/ui/src/app.rs (menu) | #164 |
 | Export mesh | File | not documented | partial: scene-file export sits inside the Export textures window, no File entry | crates/ui/src/dialogs.rs:271 | - |
 | Export textures | File | Ctrl+Shift+E | done | crates/ui/src/app.rs:1136 | #124 |
-| Send to (submenu) | File | not documented | partial: no submenu; one external-editor entry lives in the Layer menu | crates/ui/src/app.rs:1231 | - |
-| Send to > Photoshop | File > Send to | not documented | partial: equivalent is Layer > Edit in PhotoCraft (different target app) | crates/ui/src/app.rs:1231 | - |
+| Send to (submenu) | File | not documented | partial: submenu with one entry (PhotoCraft) | crates/ui/src/app.rs (menu) | #164 |
+| Send to > Photoshop | File > Send to | not documented | partial: File > Send to > Edit in PhotoCraft (different target app) | crates/ui/src/app.rs (menu) | #164 |
 | Send to > Substance 3D Stager | File > Send to | not documented | n/a | - | - |
 | Send to > After Effects | File > Send to | not documented | n/a | - | - |
 | Quit | File | Alt+F4 | done | crates/ui/src/app.rs:1159 | - |
@@ -91,10 +91,10 @@ Layout notes: a single dialog. Top block: File, Template, Resolution. When a USD
 |---|---|---|---|---|---|
 | Undo | Edit | Ctrl+Z | done | crates/ui/src/app.rs:1170 | - |
 | Redo | Edit | Ctrl+Y | done | crates/ui/src/app.rs:1173 | - |
-| Project configuration | Edit | not documented | partial: only File > Reload mesh covers part of it | crates/ui/src/app.rs:1114 | - |
-| Reimport mesh | Edit | Ctrl+Shift+R (release notes) | partial: File > Reload mesh opens a window, no one-step reimport, no key | crates/ui/src/app.rs:1114 | - |
-| Settings | Edit | not documented | partial: named Preferences, single page | crates/ui/src/app.rs:1177 | - |
-| Bake Mesh maps | Edit | Ctrl+Shift+B | partial: entry is in the File menu | crates/ui/src/app.rs:1149 | - |
+| Project configuration | Edit | not documented | partial: Edit > Project configuration opens the Reload mesh window | crates/ui/src/app.rs (menu) | #164 |
+| Reimport mesh | Edit | Ctrl+Shift+R (release notes) | partial: Edit > Project configuration opens the Reload mesh window, no one-step reimport, no key | crates/ui/src/app.rs (menu) | #164 |
+| Settings | Edit | not documented | partial: Edit > Settings, single page | crates/ui/src/app.rs (menu) | #164 |
+| Bake Mesh maps | Edit | Ctrl+Shift+B | done | crates/ui/src/app.rs (menu) | #164 |
 
 ## Project configuration dialog (Edit > Project configuration)
 
@@ -127,9 +127,9 @@ Layout notes: three exclusive entries; each mode has its own interface. The same
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Bake mesh maps | Mode | F8 | partial: F8 opens the Bake window over the workspace, no separate mode or menu | crates/app/src/actions.rs:221 | - |
-| Painting | Mode | F9 | missing | - | - |
-| Rendering (Iray) | Mode | F10 | partial: own path tracer toggled from the View menu | crates/ui/src/app.rs:1266 | - |
+| Bake mesh maps | Mode | F8 | partial: Mode > Bake mesh maps (F8) opens the Bake window over the workspace, no separate interface | crates/ui/src/app.rs (menu) | #164 |
+| Painting | Mode | F9 | partial: Mode > Painting (F9) closes the Bake window and leaves Rendering mode | crates/ui/src/app.rs (menu) | #164 |
+| Rendering (Iray) | Mode | F10 | partial: Mode > Rendering (F10), own path tracer | crates/ui/src/app.rs (menu) | #164 |
 
 ## Window menu
 
@@ -137,33 +137,33 @@ Layout notes: two submenus with a tick per item (Views for dockable windows, Too
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Views (submenu with tick boxes) | Window | - | missing | - | - |
-| Views > Assets | Window > Views | shown (unverified) | partial: Shelf tab exists but cannot be hidden or re-shown from a menu | crates/ui/src/app.rs:22 | - |
+| Views (submenu with tick boxes) | Window | - | partial: submenu brings a panel to the front; panels cannot be closed | crates/ui/src/app.rs (menu) | #164 |
+| Views > Assets | Window > Views | shown (unverified) | partial: entry brings the panel to the front; it cannot be hidden | crates/ui/src/app.rs (menu) | #164 |
 | Views > Display settings | Window > Views | (unverified) | partial: Render quality window from the View menu | crates/ui/src/app.rs:1254 | - |
-| Views > History | Window > Views | (unverified) | partial: History tab, no menu toggle | crates/ui/src/app.rs:22 | - |
-| Views > Layers | Window > Views | shown (unverified) | partial: Layers tab, no menu toggle | crates/ui/src/app.rs:22 | - |
+| Views > History | Window > Views | (unverified) | partial: entry brings the panel to the front; it cannot be hidden | crates/ui/src/app.rs (menu) | #164 |
+| Views > Layers | Window > Views | shown (unverified) | partial: entry brings the panel to the front; it cannot be hidden | crates/ui/src/app.rs (menu) | #164 |
 | Views > Log | Window > Views | (unverified) | missing | - | - |
-| Views > Properties | Window > Views | shown (unverified) | partial: Properties tab, no menu toggle | crates/ui/src/app.rs:22 | - |
+| Views > Properties | Window > Views | shown (unverified) | partial: entry brings the panel to the front; it cannot be hidden | crates/ui/src/app.rs (menu) | #164 |
 | Views > Shader settings | Window > Views | (unverified) | missing | - | - |
-| Views > Texture Set List | Window > Views | shown (unverified) | partial: tab, no menu toggle | crates/ui/src/app.rs:22 | - |
-| Views > Texture Set Settings | Window > Views | shown (unverified) | partial: tab, no menu toggle | crates/ui/src/app.rs:22 | - |
-| Toolbars (submenu with tick boxes) | Window | - | missing | - | - |
+| Views > Texture Set List | Window > Views | shown (unverified) | partial: entry brings the panel to the front; it cannot be hidden | crates/ui/src/app.rs (menu) | #164 |
+| Views > Texture Set Settings | Window > Views | shown (unverified) | partial: entry brings the panel to the front; it cannot be hidden | crates/ui/src/app.rs (menu) | #164 |
+| Toolbars (submenu with tick boxes) | Window | - | partial: ticks for the Tools rail and the status bar | crates/ui/src/app.rs (menu) | #164 |
 | Toolbars > Docks | Window > Toolbars | shown | missing | - | - |
 | Toolbars > Plugins | Window > Toolbars | shown | missing | - | - |
-| Toolbars > Tools | Window > Toolbars | shown | missing | - | - |
-| Hide UI | Window | Tab | missing | - | - |
-| Reset UI | Window | not documented | partial: View > Reset layout | crates/ui/src/app.rs:1250 | - |
+| Toolbars > Tools | Window > Toolbars | shown | done | crates/ui/src/app.rs (menu) | #164 |
+| Hide UI | Window | Tab | done | crates/ui/src/app.rs (menu) | #164 |
+| Reset UI | Window | not documented | done | crates/ui/src/app.rs (menu) | #164 |
 
 ## Viewport menu
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Display material | Viewport | M | partial: View > Material view | crates/ui/src/app.rs:1262 | - |
-| Display next channel | Viewport | C | partial: View > Next channel | crates/ui/src/app.rs:1260 | - |
-| Display previous channel | Viewport | Shift+C | partial: View > Previous channel | crates/ui/src/app.rs:1261 | - |
-| Display next mesh map | Viewport | B | missing | - | - |
-| Display previous mesh map | Viewport | Shift+B | missing | - | - |
-| Show entire mesh | Viewport | F | partial: View > Reset camera | crates/ui/src/app.rs:1238 | - |
+| Display material | Viewport | M | done | crates/ui/src/app.rs (menu) | #164 |
+| Display next channel | Viewport | C | done | crates/ui/src/app.rs (menu) | #164 |
+| Display previous channel | Viewport | Shift+C | done | crates/ui/src/app.rs (menu) | #164 |
+| Display next mesh map | Viewport | B | done | crates/ui/src/app.rs (menu) | #164 |
+| Display previous mesh map | Viewport | Shift+B | done | crates/ui/src/app.rs (menu) | #164 |
+| Show entire mesh | Viewport | F | done | crates/ui/src/app.rs (menu) | #164 |
 | Enabled quick mask | Viewport | not documented | missing | - | - |
 | Edit quick mask | Viewport | U | missing | - | - |
 | Invert quick mask | Viewport | I | missing | - | - |

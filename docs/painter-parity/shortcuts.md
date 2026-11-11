@@ -11,14 +11,14 @@ Layout notes: Painter lists editable shortcuts in Settings > Shortcuts as one lo
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Hide UI | Settings > Shortcuts | Tab | missing | - | - |
+| Hide UI | Settings > Shortcuts | Tab | done | crates/app/src/actions.rs (Action::HideUi) | #164 |
 | Undo | Settings > Shortcuts | Ctrl+Z | done | crates/app/src/actions.rs:190 | - |
 | Redo | Settings > Shortcuts | Ctrl+Y | done | crates/app/src/actions.rs:191 | - |
 | Baking | Settings > Shortcuts | F8 | partial: opens the Bake window, not a mode | crates/app/src/actions.rs:221 | - |
-| Painting | Settings > Shortcuts | F9 | missing | - | - |
+| Painting | Settings > Shortcuts | F9 | partial: F9 closes the Bake window and leaves Rendering mode; modes are not separate interfaces | crates/app/src/actions.rs (Action::PaintingMode) | #164 |
 | Rendering (Iray) | Settings > Shortcuts | F10 | done | crates/app/src/actions.rs:222 | - |
 | Open project | Settings > Shortcuts | Ctrl+O | done | crates/app/src/actions.rs:219 | - |
-| Close project | Settings > Shortcuts | Ctrl+F4 (Cmd+W) | missing | - | - |
+| Close project | Settings > Shortcuts | Ctrl+F4 (Cmd+W) | partial: Ctrl+F4 returns to the sample model (there is no empty state) | crates/app/src/actions.rs (Action::CloseProject) | #164 |
 | Save project | Settings > Shortcuts | Ctrl+S | done | crates/app/src/actions.rs:217 | - |
 | Save as project | Settings > Shortcuts | unassigned | partial: bound to Ctrl+Shift+S by default | crates/app/src/actions.rs:218 | - |
 | New project | Settings > Shortcuts | Ctrl+N | done | crates/app/src/actions.rs:215 | - |
@@ -58,7 +58,7 @@ Layout notes: Painter lists editable shortcuts in Settings > Shortcuts as one lo
 | Bake Mesh Maps | Settings > Shortcuts | Ctrl+Shift+B | done | crates/app/src/actions.rs:221 | - |
 | Increase tool size | Settings > Shortcuts | ] | done | crates/app/src/actions.rs:206 | - |
 | Decrease tool size | Settings > Shortcuts | [ | done | crates/app/src/actions.rs:205 | - |
-| Invert grayscale tool | Settings > Shortcuts | X | missing | - | - |
+| Invert grayscale tool | Settings > Shortcuts | X | partial: Painter key set only (X is symmetry in the SubCraft set) | crates/app/src/actions.rs (Action::InvertMaskGray) | #164 |
 | Pick stroke material | Settings > Shortcuts | P | partial: only in the Substance Painter key set; default set has no key (P is Pen paths) | crates/app/src/actions.rs:204 | - |
 | Lazy Mouse | Settings > Shortcuts | D | done | crates/app/src/actions.rs:208 | - |
 | Hide/ignore excluded geometry | Settings > Shortcuts | Alt+H | missing | - | - |
@@ -75,19 +75,19 @@ Layout notes: Painter lists editable shortcuts in Settings > Shortcuts as one lo
 | Display next channel | Settings > Shortcuts | C | done | crates/app/src/actions.rs:212 | - |
 | Display previous channel | Settings > Shortcuts | Shift+C | done | crates/app/src/actions.rs:213 | - |
 | Display material | Settings > Shortcuts | M | done | crates/app/src/actions.rs:214 | - |
-| Display next mesh map | Settings > Shortcuts | B | partial: no key (B is Brush); a cycle function exists but is unbound, maps are picked in the view toolbar | crates/ui/src/viewport_bar.rs:387 | - |
-| Display previous mesh map | Settings > Shortcuts | Shift+B | missing | - | - |
+| Display next mesh map | Settings > Shortcuts | B | partial: Painter key set only (B is Brush in the SubCraft set); cycles every map kind, baked or not | crates/app/src/actions.rs (Action::NextMeshMap) | #164 |
+| Display previous mesh map | Settings > Shortcuts | Shift+B | done | crates/app/src/actions.rs (Action::PrevMeshMap) | #164 |
 | Toggle animation | Settings > Shortcuts | Space | missing | - | - |
 | Export textures | Settings > Shortcuts | Ctrl+Shift+E | done | crates/app/src/actions.rs:220 | - |
 | Center the whole mesh | Settings > Shortcuts | F | done | crates/app/src/actions.rs:209 | - |
 | Toggle quick mask edition | Settings > Shortcuts | U | missing | - | - |
 | Clear quick mask | Settings > Shortcuts | Y | missing | - | - |
 | Invert quick mask | Settings > Shortcuts | I | missing | - | - |
-| Viewport layout 3D/2D | Settings > Shortcuts | F1 | partial: View > Side-by-side 3D / 2D, no key | crates/ui/src/app.rs:1246 | - |
-| Viewport layout 3D only | Settings > Shortcuts | F2 | partial: same menu toggle tabs 2D behind 3D, no key | crates/ui/src/app.rs:1246 | - |
-| Viewport layout 2D only | Settings > Shortcuts | F3 | partial: click the 2D View tab, no key | crates/ui/src/app.rs:24 | - |
-| Swap 2D / 3D view | Settings > Shortcuts | F4 | missing | - | - |
-| Texture Set isolate | Settings > Shortcuts | Alt+Q | missing | - | - |
+| Viewport layout 3D/2D | Settings > Shortcuts | F1 | done | crates/ui/src/app.rs (apply_view_layout) | #164 |
+| Viewport layout 3D only | Settings > Shortcuts | F2 | partial: Painter key set only (F2 renames a layer in the SubCraft set); the 2D view stays a tab behind | crates/ui/src/app.rs (apply_view_layout) | #164 |
+| Viewport layout 2D only | Settings > Shortcuts | F3 | partial: the 3D view stays a tab behind | crates/ui/src/app.rs (apply_view_layout) | #164 |
+| Swap 2D / 3D view | Settings > Shortcuts | F4 | done | crates/ui/src/app.rs (apply_view_layout) | #164 |
+| Texture Set isolate | Settings > Shortcuts | Alt+Q | done | crates/app/src/session.rs (Command::IsolateTextureSet) | #164 |
 | Next camera | Settings > Shortcuts | > (release notes) | missing | - | - |
 | Previous camera | Settings > Shortcuts | < (release notes) | missing | - | - |
 
