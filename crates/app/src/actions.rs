@@ -356,22 +356,22 @@ pub const PAINTER_REFERENCE: &[PainterEntry] = &[
     // Mouse
     gesture("Mouse", "LMB", "Use tool / paint", "already worked"),
     gesture("Mouse", "Shift+LMB", "Draw straight lines", "already worked"),
-    none("Mouse", "Ctrl+Shift+LMB", "Draw straight lines with snapping", "no snapped lines"),
+    gesture("Mouse", "Ctrl+Shift+LMB", "Draw straight lines with snapping", "added: the line from the last stroke point snaps to 5 degree steps"),
     gesture("Mouse", "Alt+LMB", "Camera rotate", "already worked (Painter navigation)"),
-    none("Mouse", "Alt+Shift+LMB", "Camera snap rotate", "no snap rotation"),
+    gesture("Mouse", "Alt+Shift+LMB", "Camera snap rotate", "added: the view snaps every 90 degrees"),
     gesture("Mouse", "Alt+MMB", "Camera translate", "already worked (plain MMB too)"),
     gesture("Mouse", "Ctrl+Alt+LMB", "Camera translate (alternative)", "added"),
     gesture("Mouse", "Alt+RMB", "Camera zoom", "already worked"),
     gesture("Mouse", "S (hold) + LMB", "Stencil rotate", "already worked"),
-    none("Mouse", "Shift+S + LMB", "Stencil snap rotate", "no snap"),
+    gesture("Mouse", "Shift+S + LMB", "Stencil snap rotate", "added: 90 degree steps"),
     gesture("Mouse", "S (hold) + MMB", "Stencil translate", "already worked"),
     gesture("Mouse", "S (hold) + RMB", "Stencil zoom", "already worked"),
     gesture("Mouse", "Ctrl+RMB drag", "Change tool size / hardness", "added: horizontal = size, vertical = hardness"),
     gesture("Mouse", "Ctrl+LMB drag", "Change tool flow / rotation", "added: horizontal = flow, vertical = angle (Clone keeps Ctrl+click for its source)"),
     gesture("Mouse", "Shift+RMB", "Rotate environment", "added: drag left-right turns the environment and its lighting (Shift+MMB turns only the key light)"),
-    none("Mouse", "Ctrl+MMB", "Auto-focus (Depth of Field)", "depth of field is being built on another branch"),
-    none("Mouse", "Ctrl+Alt+RMB", "Texture set selection", "no equivalent"),
-    gesture("Mouse", "RMB", "Context menu", "already worked (part actions)"),
+    gesture("Mouse", "Ctrl+MMB", "Auto-focus (Depth of Field)", "added: focuses the point under the cursor (turns depth of field on)"),
+    gesture("Mouse", "Ctrl+Alt+RMB", "Texture set selection", "added: selects the texture set under the cursor"),
+    gesture("Mouse", "RMB", "Context menu", "already worked (part actions; the Properties popup at the cursor is PR #131)"),
     // Layers (non-editable in Painter)
     gesture("Layers", "Ctrl+C / X / V", "Copy / cut / paste layer", "already worked"),
     e("Layers", "Delete", "Delete layer", Support::Same, Action::DeleteLayer, Shortcut::key(Key::Delete), ""),
@@ -379,15 +379,47 @@ pub const PAINTER_REFERENCE: &[PainterEntry] = &[
     e("Layers", "Ctrl+G", "Group layer", Support::Same, Action::NewFolder, Shortcut::ctrl(Key::G), "creates a folder"),
     none("Layers", "Ctrl+Shift+C", "Copy layer content", "no content-only clipboard"),
     none("Layers", "Ctrl+Shift+V", "Paste layer content", "no content-only clipboard"),
-    none("Layers", "Alt+LMB on mask", "Display mask in viewport", "no mask display toggle"),
-    none("Layers", "Shift+LMB on mask", "Disable/enable mask", "mask toggle is in the layer panel"),
+    gesture("Layers", "Alt+LMB on mask", "Display mask in viewport", "already worked: opens the mask inspector"),
+    gesture("Layers", "Shift+LMB on mask", "Disable/enable mask", "already worked"),
     none("Layers", "Ctrl+drag & drop", "Drag material", "no equivalent"),
     none("Layers", "Shift / Ctrl (drag)", "Manipulator snapping / mirror", "no manipulator"),
 ];
 
+/// `docs/painter-shortcuts-table.md`: one row per entry of [`PAINTER_REFERENCE`] (a test keeps the
+/// file equal to this).
+pub fn reference_table_markdown() -> String {
+    let mut out = String::from("| Group | Painter key | Painter action | SubCraft action | Status | Note |\n|---|---|---|---|---|---|\n");
+    for e in PAINTER_REFERENCE {
+        let action = e.action.map(|a| format!("{a:?}")).unwrap_or_default();
+        let status = match e.support {
+            Support::Same => "already the same",
+            Support::Added => "added (key was free)",
+            Support::PainterPreset => "Painter preset only (conflict)",
+            Support::Gesture => "mouse / hold key",
+            Support::None => "no equivalent",
+        };
+        out.push_str(&format!("| {} | `{}` | {} | {} | {} | {} |\n", e.group, e.keys, e.what, action, status, e.note));
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The shortcut table in the docs is this code's table. Run the test with
+    /// `SUBCRAFT_WRITE_DOCS=1` to rewrite the file after changing [`PAINTER_REFERENCE`].
+    #[test]
+    fn docs_table_is_generated_from_the_reference() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/painter-shortcuts-table.md");
+        let table = reference_table_markdown();
+        if std::env::var_os("SUBCRAFT_WRITE_DOCS").is_some() {
+            std::fs::write(path, &table).unwrap();
+        }
+        let on_disk = std::fs::read_to_string(path).unwrap().replace("\r\n", "\n");
+        assert_eq!(on_disk.trim_end(), table.trim_end(), "docs/painter-shortcuts-table.md is out of date (rerun with SUBCRAFT_WRITE_DOCS=1)");
+    }
+
 
     #[test]
     fn shortcuts_resolve() {

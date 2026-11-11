@@ -39,6 +39,9 @@ pub struct Preferences {
     pub use_gpu_baking: bool,
     /// Mouse navigation of the 3D view.
     pub nav_scheme: crate::nav::NavScheme,
+    /// Orbit around the point of the model under the cursor (as Painter does) instead of the
+    /// centre of the view.
+    pub orbit_around_cursor: bool,
     /// Which keyboard shortcut table is active (SubCraft default or Substance Painter).
     pub keymap: subcraft_app::KeymapPreset,
     /// Blend layers on the graphics card when one is available and the edit is big (the
@@ -90,6 +93,7 @@ impl Default for Preferences {
             check_updates_on_start: true,
             use_gpu_baking: true,
             nav_scheme: Default::default(),
+            orbit_around_cursor: true,
             keymap: Default::default(),
             use_gpu_compositing: true,
             viewport: Default::default(),
@@ -332,6 +336,8 @@ pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
         for (what, how) in rec.prefs.nav_scheme.help() {
             ui.label(RichText::new(format!("{what}: {how}")).small().color(TEXT_DIM));
         }
+        ui.checkbox(&mut rec.prefs.orbit_around_cursor, "Orbit around the point under the cursor")
+            .on_hover_text("Starting an orbit over the model turns the view around that point of the surface, as Substance Painter does. Over the background the last point is kept. Off: the view always turns around its centre. F frames the model and forgets the point.");
         ui.horizontal(|ui| {
             ui.label(tr("Keyboard shortcuts"));
             egui::ComboBox::from_id_salt("keymap_preset").selected_text(rec.prefs.keymap.label()).show_ui(ui, |ui| {
