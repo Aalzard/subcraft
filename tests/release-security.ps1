@@ -49,6 +49,22 @@ try {
     Assert ((Get-FileHash -LiteralPath (Join-Path $case 'input/setup.exe')).Hash -eq (Get-FileHash -LiteralPath $a).Hash) 'Sandbox input must match exactly.'
     Must-Fail { & (Join-Path $repo 'scripts/new-sandbox-check.ps1') -Installer $a -ExpectedSha256 (Get-FileHash -LiteralPath $a).Hash -Destination $case } 'Choose a new*'
     Must-Fail { & (Join-Path $repo 'scripts/sandbox-guest-check.ps1') } 'Guest-only script*'
+    # CI fallback without Defender: the report must say no antivirus scan ran, never "no threats".
+    $skip = Join-Path $temporary 'skip-av'
+    $skipStage = Join-Path $skip 'SubCraft-1.2.3-windows-x64'
+    New-Item -ItemType Directory -Path $skipStage | Out-Null
+    [IO.File]::WriteAllBytes((Join-Path $skipStage 'SubCraft.exe'), [byte[]](0..255))
+    Copy-Item -LiteralPath $a -Destination (Join-Path $skip 'SubCraft-1.2.3-setup.exe')
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    # Explicit entry name: .NET Framework's CreateFromDirectory would write backslashes.
+    $skipZip = [IO.Compression.ZipFile]::Open((Join-Path $skip 'SubCraft-1.2.3-windows-x64.zip'), [IO.Compression.ZipArchiveMode]::Create)
+    try { [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($skipZip, (Join-Path $skipStage 'SubCraft.exe'), 'SubCraft-1.2.3-windows-x64/SubCraft.exe') | Out-Null } finally { $skipZip.Dispose() }
+    & (Join-Path $repo 'scripts/test-release-windows.ps1') -Directory $skip -Version 1.2.3 -Commit ('a' * 40) -SkipAntivirus 3>$null | Out-Null
+    $skipReport = Get-Content -LiteralPath (Join-Path $skip 'release-security-windows.json') -Raw | ConvertFrom-Json
+    Assert ($skipReport.result -like 'antivirus scan skipped*') 'Skipped antivirus scan must be recorded.'
+    Assert (@($skipReport.scanned).Count -eq 3) 'Skipped scan must still record artifact hashes.'
+    Assert (@(Get-Content -LiteralPath (Join-Path $skip 'SHA256SUMS.txt')).Count -eq 2) 'Skipped scan must still write checksums.'
+    Assert (@(Get-ChildItem -LiteralPath $skip -Filter '*.defender.txt').Count -eq 0) 'No Defender logs without a Defender scan.'
     Write-Output "Release security tests passed: $count assertions."
 } finally {
     $full = [IO.Path]::GetFullPath($temporary)

@@ -37,7 +37,7 @@ pub fn parse_stl(bytes: &[u8], warnings: &mut Vec<String>) -> R<Vec<[Vec3; 3]>> 
         if need == bytes.len() {
             return Ok(parse_stl_binary(bytes, n));
         }
-        let looks_ascii = bytes.starts_with(b"solid") && find(bytes, b"facet").is_some();
+        let looks_ascii = starts_with_solid(bytes) && find_ignore_case(bytes, b"facet").is_some();
         if !looks_ascii {
             if bytes.len() < need {
                 return Err(format!("binary STL is truncated: header says {n} triangles ({need} bytes), file has {}", bytes.len()));
@@ -46,7 +46,7 @@ pub fn parse_stl(bytes: &[u8], warnings: &mut Vec<String>) -> R<Vec<[Vec3; 3]>> 
             return Ok(parse_stl_binary(bytes, n));
         }
     }
-    if bytes.starts_with(b"solid") || find(bytes, b"facet").is_some() {
+    if starts_with_solid(bytes) || find_ignore_case(bytes, b"facet").is_some() {
         return parse_stl_ascii(bytes);
     }
     Err("not an STL file (no 'solid' header and the size does not match a binary STL)".into())
@@ -54,6 +54,18 @@ pub fn parse_stl(bytes: &[u8], warnings: &mut Vec<String>) -> R<Vec<[Vec3; 3]>> 
 
 fn find(hay: &[u8], needle: &[u8]) -> Option<usize> {
     hay.windows(needle.len()).position(|w| w == needle)
+}
+
+/// ASCII keywords are matched without case (the tokenizer lowercases them too).
+fn find_ignore_case(hay: &[u8], needle: &[u8]) -> Option<usize> {
+    hay.windows(needle.len()).position(|w| w.eq_ignore_ascii_case(needle))
+}
+
+/// An ASCII STL starts with `solid`, possibly after a byte-order mark and white space, in any case.
+fn starts_with_solid(bytes: &[u8]) -> bool {
+    let bytes = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(bytes);
+    let start = bytes.iter().position(|b| !b.is_ascii_whitespace()).unwrap_or(bytes.len());
+    bytes[start..].get(..5).is_some_and(|w| w.eq_ignore_ascii_case(b"solid"))
 }
 
 fn parse_stl_binary(bytes: &[u8], n: usize) -> Vec<[Vec3; 3]> {
@@ -95,7 +107,8 @@ fn parse_stl_ascii(bytes: &[u8]) -> R<Vec<[Vec3; 3]>> {
 /// Weld triangles by exact position and give each corner the area-weighted normal of the neighbouring faces within the
 /// crease angle, so a scanned surface is smooth and a CAD cube keeps its hard edges.
 fn emit_welded(tris: &[[Vec3; 3]], name: &str, b: &mut MeshBuilder) {
-    let key = |p: Vec3| [p.x.to_bits(), p.y.to_bits(), p.z.to_bits()];
+    // `+ 0.0` turns -0.0 into 0.0, which is the same position with different bits.
+    let key = |p: Vec3| [(p.x + 0.0).to_bits(), (p.y + 0.0).to_bits(), (p.z + 0.0).to_bits()];
     let mut index: HashMap<[u32; 3], u32> = HashMap::new();
     let mut ids: Vec<[u32; 3]> = Vec::with_capacity(tris.len());
     for t in tris {
@@ -219,9 +232,11 @@ impl Src<'_> {
     }
 
     /// Upper bound on how many more values the file can hold; a count above it is corrupt.
+    /// Text has no cheap bound (counting the remaining tokens for every face made the import
+    /// quadratic); reading past the end fails there anyway.
     fn remaining(&self) -> usize {
         match self {
-            Src::Ascii(it) => it.clone().count(),
+            Src::Ascii(_) => usize::MAX,
             Src::Bin { data, pos, .. } => data.len().saturating_sub(*pos),
         }
     }
@@ -344,7 +359,8 @@ pub fn parse_ply(bytes: &[u8], name: &str, b: &mut MeshBuilder, warnings: &mut V
                             list.push(src.scalar(p.ty)?);
                         }
                         match p.name.as_str() {
-                            "vertex_indices" | "vertex_index" => vi = Some(list.iter().map(|&x| x as u32).collect()),
+                            // A negative, fractional or NaN index is out of range (`as u32` alone would turn -1 into vertex 0).
+                            "vertex_indices" | "vertex_index" => vi = Some(list.iter().map(|&x| if x >= 0.0 && x.fract() == 0.0 && x < u32::MAX as f64 { x as u32 } else { u32::MAX }).collect()),
                             "texcoord" => {
                                 tc = Some(list.chunks_exact(2).map(|c| Vec2::new(c[0] as f32, 1.0 - c[1] as f32)).collect())
                             }

@@ -254,12 +254,22 @@ pub fn prepare_mesh(
     // The project does not remember how it was split into texture sets: use the split whose set
     // names match the existing ones best (by material on a tie).
     let mut best = (0usize, NewProjectSettings::default());
-    for split in [SplitRule::ByMaterial, SplitRule::ByObject, SplitRule::Single] {
-        let settings = NewProjectSettings { split, udim: true, ..Default::default() };
-        let score = plan_sets(&mesh, &settings).iter().filter(|p| is_old(&p.name)).count();
-        if score > best.0 {
-            best = (score, settings);
+    // With and without one set per UDIM tile: a project made with that option off has one set
+    // per material ("Body", not "Body.1001") and matched nothing, which stranded all its paint.
+    for udim in [true, false] {
+        for split in [SplitRule::ByMaterial, SplitRule::ByObject, SplitRule::Single] {
+            let settings = NewProjectSettings { split, udim, ..Default::default() };
+            let score = plan_sets(&mesh, &settings).iter().filter(|p| is_old(&p.name)).count();
+            if score > best.0 {
+                best = (score, settings);
+            }
         }
+    }
+    // A project with a single texture set for the whole model is named after the model file;
+    // reloading "ship_v2.obj" over "ship.obj" must still be that one set.
+    let sole = best.0 == 0 && old_doc.texture_sets.len() == 1;
+    if sole {
+        best.1 = NewProjectSettings { split: SplitRule::Single, udim: false, ..Default::default() };
     }
     if best.1.split != SplitRule::ByMaterial {
         warnings.push(format!("Texture sets were matched {} like the existing project.", best.1.split.label().to_lowercase()));
@@ -272,7 +282,7 @@ pub fn prepare_mesh(
     progress.total.store(plans.len(), Ordering::Relaxed);
     progress.set_stage("Comparing UV layouts");
     for (slot, plan) in plans.iter().enumerate() {
-        let old = old_doc.texture_sets.iter().find(|ts| !used.contains(&ts.id) && old_names(&old_mesh, ts).contains(&plan.name.as_str()));
+        let old = old_doc.texture_sets.iter().find(|ts| !used.contains(&ts.id) && (sole || old_names(&old_mesh, ts).contains(&plan.name.as_str())));
         let uv_moved = old.map(|ts| {
             used.push(ts.id);
             let source = TransferSource { mesh: &old_mesh, bvh: old_bvh, material: ts.material_slot };
@@ -350,7 +360,10 @@ pub fn transfer(prepared: &PreparedReload, mode: ReloadMode, old_bvh: &Bvh, old_
             }
         });
         let old_set_maps = old_maps.get(&ts.id).filter(|m| !m.is_empty());
-        if mode == ReloadMode::Reproject {
+        // A set that was kept without geometry by an earlier reload has nothing to reproject from:
+        // its rasters stay as they are (reprojecting from no triangles erased them all).
+        let has_source = !old_mesh.material_triangles(old.material_slot).is_empty();
+        if mode == ReloadMode::Reproject && has_source {
             progress.set_stage(format!("Reprojecting {}", ts.name));
             let source = TransferSource { mesh: old_mesh, bvh: old_bvh, material: old.material_slot };
             let options = CorrespondenceOptions { tile_size: TILE_SIZE, expand: 1.5, max_distance: diagonal * 0.05 };

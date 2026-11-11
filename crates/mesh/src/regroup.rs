@@ -19,7 +19,8 @@ pub type Tile = [i32; 2];
 /// bottom of the image like every DCC tool does. Tiles left of or below the origin (not valid UDIM)
 /// get numbers under 1001 (e.g. 1000, 991); they stay distinct tiles, see [`is_valid_udim`].
 pub fn udim_number(tile: Tile) -> u32 {
-    (1001 + tile[0] - 10 * tile[1]).max(0) as u32
+    // In 64 bits: a huge (finite) UV gives a tile near i32::MAX, which overflowed here.
+    (1001 + tile[0] as i64 - 10 * tile[1] as i64).clamp(0, u32::MAX as i64) as u32
 }
 
 /// Whether the tile is inside the UDIM range: u >= 0 and v >= 0 in image terms, at most 10 wide.
@@ -130,6 +131,15 @@ impl Mesh {
 mod tests {
     use super::*;
     use crate::primitives;
+
+    /// QA 2026-11: a huge finite UV gives a tile near `i32::MAX`; the number overflowed.
+    #[test]
+    fn udim_numbers_of_absurd_tiles_do_not_overflow() {
+        assert_eq!(udim_number([i32::MAX, 0]), 1001 + i32::MAX as u32);
+        assert_eq!(udim_number([0, i32::MAX]), 0);
+        assert_eq!(udim_number([0, i32::MIN]), u32::MAX);
+        assert_eq!(udim_number([i32::MIN, 0]), 0);
+    }
 
     #[test]
     fn udim_numbers_follow_the_1001_convention() {

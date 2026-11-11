@@ -227,9 +227,7 @@ fn apply_layer(layer: &Layer, accs: &mut [Acc], active: &[bool], tc: &TileContex
                 if blend.mode == BlendMode::Passthrough {
                     for (i, (dst, src)) in acc.px.iter_mut().zip(&inner.px).enumerate() {
                         let f = (blend.opacity * mask_at(i)).clamp(0.0, 1.0);
-                        for c in 0..4 {
-                            dst[c] += (src[c] - dst[c]) * f;
-                        }
+                        crate::blend::passthrough_mix(dst, src, f);
                     }
                 } else {
                     blend_content(acc, &inner.px, layer, mask_ref);

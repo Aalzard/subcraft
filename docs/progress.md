@@ -4951,7 +4951,55 @@ rotating one slot when a tile is full (helps cyclic stacks, but the 40-layer sta
 * **Gaps:** isolated thumbnails show references unresolved; fill content effects can't read anchors; no "accumulate
   layers below"; no cross-texture-set anchors.
 
-### Session 121 - Import baked mesh maps, curvature along the surface, ray-miss heatmap, ID color editor (2026-11-10, branch `claude/bake-maps-id`, NOT fully verified)
+### Session 121 - Export preset editor (2026-11-09, branch `claude/export-presets`)
+
+* **Asked:** a Painter-style export preset editor in Export Textures (gaps-vs-Painter row 4): create, duplicate,
+  rename, delete presets; built-ins stay read-only; per-map file name pattern, format, bit depth, channel packing,
+  padding, size override, normal format; presets saved in the user library, JSON import/export, `.spexp` if
+  practical; model in the export crate, UI a thin layer.
+* **Model (`subcraft_export`, toolkit-free):** `ExportTemplate` is the preset. New optional fields (absent on the
+  built-ins): template `id` (UUID; built-ins are identified by name), `padding`, `size`, `normal_directx`; per map
+  `pattern`, `padding`, `size`, `normal_directx`. New sources `Gray { kind, invert }` (Rec. 709 luminance of the
+  linear channel) and `MeshMap { kind, component, invert }` (baked maps; unbaked reads the neutral value).
+  Precedence: map > preset > Export window for padding; window override > map > preset > source for normals.
+  Size override resamples after padding (box filter for whole-factor shrinks, bilinear otherwise).
+  `expand_pattern`: `$mesh`, `$textureSet`, `$udim`, `$suffix`; an empty `$udim` drops its separator; UDIM tiles
+  get `.1001` appended when the pattern has no `$udim` (or a `1001/` folder). `problems()` validates suffixes,
+  component counts, sizes and empty patterns.
+* **Formats (`subcraft_image`):** TIFF 8 / 16 / 32-bit float added (`Tiff8/16/32`, `.tif`); `Container` +
+  `BitDepth` with `FileFormat::from_parts` (clamps to what the container stores: TGA and JPEG 8-bit only, EXR
+  32-bit float only — the image crate's EXR writer has no half-float output, so Painter's 16f maps become 32f).
+* **Files (`subcraft_export::preset`):** `{"format": "subcraft.export-preset", "version": 1, "preset": {...}}`,
+  newer versions refused. `PresetLibrary` keeps one `<uuid>.json` per preset in
+  `<library>/export-presets` (`UserAssetKind::ExportPreset`). Painter import reads the export-config JSON layout
+  (`exportPresets[].maps[].{fileName, channels[{destChannel, srcChannel, srcMapType, srcMapName}], parameters
+  {fileFormat, bitDepth, paddingAlgorithm, dilationDistance, sizeLog2}}`) and a single preset object with `maps`;
+  document / virtual / mesh / default maps are converted, unknown maps become black with a warning, `$colorSpace`
+  / `$project` tokens are removed with a warning. **Not verified against a real `.spexp` file** (no Painter install
+  or sample on this machine); the layout follows Painter's documented export configuration.
+* **App (`subcraft_app::export_presets::ExportPresets`):** built-ins + user presets, create / duplicate / rename
+  (unique names) / update (refuses built-ins and invalid presets) / delete / import / export, written to disk on
+  every change; session-only without a library. The project keeps the selected preset key in
+  `export_template` (name of a built-in, id of a user preset).
+* **UI (`crates/ui/src/export_presets.rs`):** preset combo (Built-in / My presets) with New, Duplicate, Delete
+  (confirmed), Import… (`.json`, `.spexp`), Export…; a "Preset editor" section with name, preset padding / size /
+  normal format, the output map list (+ Map, Copy, Remove, reorder) and the selected map's suffix, file name
+  pattern with a live preview, format + bit depth, channel layout (Gray / Gray+A / RGB / RGBA), sRGB, overrides,
+  and a packing grid (per slot: Channel / Grayscale / Normal / Height / Mesh map / Constant / 2D view, component,
+  invert). Built-ins show read-only. `--export-preset <name>` opens the window on a preset with the editor open.
+* **Tests:** `subcraft-export` 59 pass (1 ignored: the hash printer), including
+  `builtin_templates_write_the_same_bytes_as_v0_3_0` (492 FNV-1a hashes of every built-in template's output over 6
+  settings cases, recorded from the unmodified code at f739604) and the same check for built-ins saved and reloaded
+  as user presets; packing, grayscale, bit depth, per-map padding, size override, normal precedence, file naming,
+  JSON round trip, library and Painter import tests. `crates/app/tests/export_presets.rs` 4 pass, UI preset editor
+  tests 3 pass. New UI strings translated (zh-Hant, ko). Full `cargo test --workspace --release -j 6
+  --no-fail-fast`: 1274 passed, 0 failed, 4 ignored (three crates without doctests first reported a missing
+  compositor rlib in the shared target dir while another session rebuilt it; rerun clean).
+* **Run:** `SUBCRAFT_LIBRARY=<dir with a sample user preset> subcraft --export-preset "Studio ORM 16-bit"
+  --window-size 1600x1000 --screenshot` shows the Export window with the editor open, no errors; the checklist lists
+  the pattern-based names (`T_DefaultMaterial_BaseColor.png`, `..._ORM.png`, `..._N.tif`).
+
+### Session 122 - Import baked mesh maps, curvature along the surface, ray-miss heatmap, ID color editor (2026-11-10, branch `claude/bake-maps-id`, NOT fully verified)
 
 * **Import mesh maps** (`app::mesh_map_import`, `ui::mesh_map_import`): New Project lists already-baked maps once a
   model is loaded, and Texture Set Settings has "Import mesh maps…". Files are matched by name suffix (`_normal`,

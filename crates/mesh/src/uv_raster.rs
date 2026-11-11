@@ -38,7 +38,8 @@ pub fn triangle_rect(uv: [Vec2; 3], width: u32, height: u32, expand: f32) -> IRe
     let p = uv.map(|t| t * s);
     let min = p[0].min(p[1]).min(p[2]) - Vec2::splat(expand + 0.5);
     let max = p[0].max(p[1]).max(p[2]) + Vec2::splat(expand + 0.5);
-    IRect::new(min.x.floor() as i32, min.y.floor() as i32, max.x.ceil() as i32 + 1, max.y.ceil() as i32 + 1)
+    // Saturating: a huge (finite) UV must clip to the tile, not overflow.
+    IRect::new(min.x.floor() as i32, min.y.floor() as i32, (max.x.ceil() as i32).saturating_add(1), (max.y.ceil() as i32).saturating_add(1))
         .intersect(&IRect::from_size(width, height))
 }
 
@@ -197,6 +198,16 @@ pub fn bary_point(p: &[Vec3; 3], b: [f32; 3]) -> Vec3 {
 mod tests {
     use super::*;
     use crate::primitives;
+
+    /// QA 2026-11: `ceil() as i32 + 1` overflowed for a huge (finite) UV: a panic in debug builds,
+    /// an empty rectangle (the triangle silently not rasterized) in release builds.
+    #[test]
+    fn a_triangle_with_a_huge_uv_is_clipped_to_the_tile() {
+        let uv = [Vec2::new(0.0, 0.0), Vec2::new(4.0e9, 0.0), Vec2::new(0.0, 1.0)];
+        let rect = triangle_rect(uv, 64, 64, 0.0);
+        assert!(!rect.is_empty(), "{rect:?}");
+        assert!(rect.x1 <= 64 && rect.y1 <= 64, "{rect:?}");
+    }
 
     #[test]
     fn half_square_covers_half_the_texels() {

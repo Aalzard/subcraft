@@ -110,6 +110,7 @@ fn run_app() -> anyhow::Result<()> {
             "--new-project-high" => options.new_project_high = args.next_os().map(Into::into),
             "--properties-panel" => options.properties_panel = true,
             "--export-template" => options.export_template = args.next().and_then(|s| s.parse().ok()),
+            "--export-preset" => options.export_preset = Some(args.next().ok_or_else(|| anyhow::anyhow!("--export-preset expects a preset name"))?),
             "--render-window" => options.render_window = true,
             "--camera" => options.camera = Some(args.next().and_then(|s| subcraft_ui::orbit::CameraView::parse(&s)).ok_or_else(|| anyhow::anyhow!("--camera expects yaw,pitch,zoom[,x,y,z] (degrees, zoom factor, target offset)"))?),
             "--symmetry" => {

@@ -388,7 +388,8 @@ pub fn bake_streamed_with(
                     let mut dirs = Vec::with_capacity(settings.thickness_samples as usize);
                     cosine_directions(-d.normal, settings.thickness_samples.max(1), hash01(t.index, 2), &mut dirs);
                     let origin = d.position - d.offset * bias;
-                    let max = settings.thickness_distance * diag;
+                    // Never zero: the average below divides by it (a zero distance gave a NaN map).
+                    let max = (settings.thickness_distance * diag).max(1e-9);
                     let total: f32 = dirs.iter().map(|dir| detail_geo.bvh.intersect_filtered(origin, *dir, 0.0, max, |tri| accepts(d.group, tri)).map_or(max, |h| h.t)).sum();
                     let avg = total / dirs.len() as f32 / max;
                     [1.0 - avg; 3]
@@ -599,7 +600,7 @@ fn gpu_ray_map(
 ) -> Result<Option<Vec<f32>>, BakeError> {
     let (rays, mode, salt, sign) = match kind {
         MeshMapKind::AmbientOcclusion => (settings.ao_samples.max(1), RayMode::Occlusion { distance: settings.ao_distance * diag }, 1, 1.0),
-        MeshMapKind::Thickness => (settings.thickness_samples.max(1), RayMode::MeanDistance { max: settings.thickness_distance * diag }, 2, -1.0),
+        MeshMapKind::Thickness => (settings.thickness_samples.max(1), RayMode::MeanDistance { max: (settings.thickness_distance * diag).max(1e-9) }, 2, -1.0),
         _ => return Ok(None),
     };
     let texel = |i: usize| {

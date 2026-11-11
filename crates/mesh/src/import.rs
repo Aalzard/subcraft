@@ -154,11 +154,81 @@ fn load_obj(path: &Path, b: &mut MeshBuilder, warnings: &mut Vec<String>) -> Res
     Ok(())
 }
 
+/// Parse a glTF / GLB file. The library (gltf-json 1.4) indexes `accessors[POSITION]` unchecked
+/// while validating, so a damaged file whose attribute names an accessor that does not exist
+/// panicked the whole app: check those indices before handing the file over.
+pub(crate) fn open_gltf(bytes: &[u8]) -> Result<gltf::Gltf, String> {
+    let json: std::borrow::Cow<[u8]> =
+        if bytes.starts_with(b"glTF") { gltf::Glb::from_slice(bytes).map_err(|e| e.to_string())?.json } else { bytes.into() };
+    let root = gltf::json::Root::from_slice(&json).map_err(|e| e.to_string())?;
+    for mesh in &root.meshes {
+        for primitive in &mesh.primitives {
+            if primitive.attributes.values().any(|index| index.value() >= root.accessors.len()) {
+                return Err("a mesh attribute names an accessor that does not exist".into());
+            }
+        }
+    }
+    // The library does not check that an accessor fits its buffer view either: a damaged `count`
+    // (4 billion vertices in a 100 byte file) ran for minutes and then asked for 20 GB.
+    use gltf::json::validation::Checked;
+    let too_big = || "an accessor is larger than the data it points at".to_string();
+    for accessor in &root.accessors {
+        let (Checked::Valid(component), Checked::Valid(kind)) = (&accessor.component_type, &accessor.type_) else { continue };
+        let element = (component.0.size() * kind.multiplicity()) as u64;
+        let count = accessor.count.0;
+        let Some(view) = accessor.buffer_view.as_ref() else {
+            // No data of its own (zeros, or sparse): only its size can be wrong.
+            if count > 50_000_000 {
+                return Err(too_big());
+            }
+            continue;
+        };
+        let view = root.buffer_views.get(view.value()).ok_or_else(too_big)?;
+        let stride = view.byte_stride.as_ref().map_or(element, |s| s.0 as u64).max(element);
+        let needed = if count == 0 { 0 } else { (count - 1).checked_mul(stride).and_then(|v| v.checked_add(element)).ok_or_else(too_big)? };
+        let offset = accessor.byte_offset.as_ref().map_or(0, |o| o.0);
+        if offset.checked_add(needed).is_none_or(|end| end > view.byte_length.0) {
+            return Err(too_big());
+        }
+        let buffer = root.buffers.get(view.buffer.value()).ok_or_else(too_big)?;
+        if view.byte_offset.as_ref().map_or(0, |o| o.0).checked_add(view.byte_length.0).is_none_or(|end| end > buffer.byte_length.0) {
+            return Err(too_big());
+        }
+    }
+    // Nor that the node hierarchy has no cycle (a node listed among its own descendants): walking
+    // one never ends and grows until memory runs out. Every node of an acyclic graph can be
+    // removed once nothing points at it any more.
+    let nodes = root.nodes.len();
+    let children = |i: usize| root.nodes[i].children.iter().flatten().map(|c| c.value());
+    let mut parents = vec![0usize; nodes];
+    for i in 0..nodes {
+        for c in children(i) {
+            *parents.get_mut(c).ok_or("a node names a child that does not exist")? += 1;
+        }
+    }
+    let mut free: Vec<usize> = (0..nodes).filter(|&i| parents[i] == 0).collect();
+    let mut removed = 0;
+    while let Some(i) = free.pop() {
+        removed += 1;
+        for c in children(i) {
+            parents[c] -= 1;
+            if parents[c] == 0 {
+                free.push(c);
+            }
+        }
+    }
+    if removed != nodes {
+        return Err("the node hierarchy contains a cycle".into());
+    }
+    gltf::Gltf::from_slice(bytes).map_err(|e| e.to_string())
+}
+
 fn load_gltf(path: &Path, b: &mut MeshBuilder, warnings: &mut Vec<String>) -> Result<(), ImportError> {
     // Geometry only. `gltf::import` would also decode every referenced image and fail the whole
     // import when one is missing or its file name differs in case from the disk (Linux), although
     // SubCraft never uses them: textures come from the Shelf, not from the model file.
-    let gltf::Gltf { document: doc, blob } = gltf::Gltf::open(path).map_err(|e| ImportError::Gltf(e.to_string()))?;
+    let bytes = std::fs::read(path).map_err(|e| ImportError::Gltf(format!("{}: {e}", path.display())))?;
+    let gltf::Gltf { document: doc, blob } = open_gltf(&bytes).map_err(ImportError::Gltf)?;
     let buffers = gltf::import_buffers(&doc, path.parent(), blob).map_err(|e| ImportError::Gltf(e.to_string()))?;
     let scene = doc.default_scene().or_else(|| doc.scenes().next());
     let roots: Vec<gltf::Node> = match &scene {

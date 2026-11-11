@@ -1,4 +1,8 @@
 name: Release
+# Windows x64 and Linux x86_64 packages. Windows binaries are code-signed for free through
+# SignPath Foundation when its configuration is present (docs/signing-setup.md); without it the
+# release still completes and is published unsigned, with a notice in the release notes.
+# Every published file gets a Sigstore build provenance attestation.
 on:
   release:
     types: [published]
@@ -36,35 +40,48 @@ jobs:
     if: github.event_name != 'pull_request'
     needs: checks
     runs-on: windows-2025
-    environment: release-signing
     permissions:
       contents: read
+      actions: read
       id-token: write
       attestations: write
+    outputs:
+      signed: ${{ steps.config.outputs.signed }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ inputs.tag || github.ref }}
           persist-credentials: false
       - name: Validate release configuration
+        id: config
         shell: pwsh
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
-          AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
-          AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
-          AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-          SIGNING_ENDPOINT: ${{ vars.SIGNING_ENDPOINT }}
-          SIGNING_ACCOUNT: ${{ vars.SIGNING_ACCOUNT }}
-          SIGNING_PROFILE: ${{ vars.SIGNING_PROFILE }}
+          # Only whether the token exists reaches this step, never its value.
+          HAS_SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN != '' }}
+          SIGNPATH_ORGANIZATION_ID: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          SIGNPATH_PROJECT_SLUG: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          SIGNPATH_SIGNING_POLICY_SLUG: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
         run: |
           $version = (Select-String '^version\s*=\s*"([^"]+)"' Cargo.toml | Select-Object -First 1).Matches[0].Groups[1].Value
-          if ($env:PUBLISH -eq 'true') {
-            if ($env:RELEASE_TAG -ne "v$version") { throw 'Release tag must match Cargo.toml version.' }
-            foreach ($key in 'AZURE_CLIENT_ID','AZURE_TENANT_ID','AZURE_SUBSCRIPTION_ID','SIGNING_ENDPOINT','SIGNING_ACCOUNT','SIGNING_PROFILE') {
-              if (-not [Environment]::GetEnvironmentVariable($key)) { throw "Signing configuration missing: $key. Publishing is blocked." }
-            }
+          if ($env:PUBLISH -eq 'true' -and $env:RELEASE_TAG -ne "v$version") { throw 'Release tag must match Cargo.toml version.' }
+          $missing = @()
+          if ($env:HAS_SIGNPATH_API_TOKEN -ne 'true') { $missing += 'SIGNPATH_API_TOKEN (secret)' }
+          foreach ($key in 'SIGNPATH_ORGANIZATION_ID','SIGNPATH_PROJECT_SLUG','SIGNPATH_SIGNING_POLICY_SLUG') {
+            if (-not [Environment]::GetEnvironmentVariable($key)) { $missing += "$key (variable)" }
+          }
+          $signed = 'false'
+          if ($env:PUBLISH -ne 'true') {
+            Write-Host 'Test build: code signing only runs for published releases.'
+          } elseif ($missing.Count) {
+            # Missing signing never blocks a release: publish unsigned and say so in the notes.
+            Write-Host "::warning title=Unsigned Windows release::SignPath code signing is not configured (missing: $($missing -join ', ')). The Windows packages are published unsigned; see docs/signing-setup.md."
+          } else {
+            $signed = 'true'
           }
           "SUBCRAFT_VERSION=$version" >> $env:GITHUB_ENV
+          "SIGN_WINDOWS=$signed" >> $env:GITHUB_ENV
+          "signed=$signed" >> $env:GITHUB_OUTPUT
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
         with:
           toolchain: ${{ env.RUST_VERSION }}
@@ -93,41 +110,103 @@ jobs:
             Write-Host $deps
             if ($deps -match '(?i)vcruntime|msvcp|concrt') { Write-Error 'subcraft.exe depends on the VC++ redistributable'; exit 1 }
           } else { Write-Warning 'dumpbin not found; dependency check skipped' }
-      - name: Azure login for signing
-        if: env.PUBLISH == 'true'
-        uses: Azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3
+      # SignPath signs GitHub workflow artifacts: upload, submit, wait for the manual approval in
+      # SignPath, then download the signed file (docs/signing-setup.md).
+      - name: Upload unsigned application for signing
+        id: unsigned-application
+        if: env.SIGN_WINDOWS == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          client-id: ${{ vars.AZURE_CLIENT_ID }}
-          tenant-id: ${{ vars.AZURE_TENANT_ID }}
-          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          name: signpath-unsigned-application
+          path: target/dist/subcraft.exe
+          if-no-files-found: error
+          retention-days: 1
       - name: Sign application before packaging
-        if: env.PUBLISH == 'true'
-        uses: Azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2
+        if: env.SIGN_WINDOWS == 'true'
+        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3
         with:
-          endpoint: ${{ vars.SIGNING_ENDPOINT }}
-          signing-account-name: ${{ vars.SIGNING_ACCOUNT }}
-          certificate-profile-name: ${{ vars.SIGNING_PROFILE }}
-          files: ${{ github.workspace }}\target\dist\subcraft.exe
-          file-digest: SHA256
-          timestamp-rfc3161: http://timestamp.acs.microsoft.com
-          timestamp-digest: SHA256
-      - name: Package signed application
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          artifact-configuration-slug: ${{ vars.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
+          github-artifact-id: ${{ steps.unsigned-application.outputs.artifact-id }}
+          parameters: |
+            version: ${{ toJSON(env.SUBCRAFT_VERSION) }}
+          wait-for-completion: true
+          # Release signing requests wait for a manual approval in SignPath.
+          wait-for-completion-timeout-in-seconds: 7200
+          output-artifact-directory: ${{ runner.temp }}/signed-application
+      - name: Use the signed application
+        if: env.SIGN_WINDOWS == 'true'
+        shell: pwsh
+        run: |
+          $signed = Join-Path $env:RUNNER_TEMP 'signed-application\subcraft.exe'
+          ./scripts/sign-windows.ps1 -Path $signed -VerifyOnly
+          Copy-Item -LiteralPath $signed -Destination target\dist\subcraft.exe -Force
+      - name: Ensure Inno Setup 6
+        shell: pwsh
+        run: |
+          $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+          if (Test-Path $iscc) { Write-Host "Found $iscc" } else {
+            choco install innosetup --no-progress -y
+            if (-not (Test-Path $iscc)) { throw 'Inno Setup install failed' }
+          }
+      - name: Package application
         shell: pwsh
         run: ./scripts/build-installer.ps1 -SkipBuild
-      - name: Sign installer
-        if: env.PUBLISH == 'true'
-        uses: Azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2
+      - name: Upload unsigned installer for signing
+        id: unsigned-installer
+        if: env.SIGN_WINDOWS == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          endpoint: ${{ vars.SIGNING_ENDPOINT }}
-          signing-account-name: ${{ vars.SIGNING_ACCOUNT }}
-          certificate-profile-name: ${{ vars.SIGNING_PROFILE }}
-          files: ${{ github.workspace }}\dist\SubCraft-${{ env.SUBCRAFT_VERSION }}-setup.exe
-          file-digest: SHA256
-          timestamp-rfc3161: http://timestamp.acs.microsoft.com
-          timestamp-digest: SHA256
+          name: signpath-unsigned-installer
+          path: dist/SubCraft-${{ env.SUBCRAFT_VERSION }}-setup.exe
+          if-no-files-found: error
+          retention-days: 1
+      - name: Sign installer
+        if: env.SIGN_WINDOWS == 'true'
+        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          artifact-configuration-slug: ${{ vars.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
+          github-artifact-id: ${{ steps.unsigned-installer.outputs.artifact-id }}
+          parameters: |
+            version: ${{ toJSON(env.SUBCRAFT_VERSION) }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 7200
+          output-artifact-directory: ${{ runner.temp }}/signed-installer
+      - name: Use the signed installer
+        if: env.SIGN_WINDOWS == 'true'
+        shell: pwsh
+        run: |
+          $name = "SubCraft-$env:SUBCRAFT_VERSION-setup.exe"
+          $signed = Join-Path $env:RUNNER_TEMP "signed-installer\$name"
+          ./scripts/sign-windows.ps1 -Path $signed -VerifyOnly
+          Copy-Item -LiteralPath $signed -Destination (Join-Path dist $name) -Force
+      - name: Prepare Microsoft Defender for the release scan
+        shell: pwsh
+        run: |
+          # GitHub's Windows images turn real-time protection off and exclude C:\ and D:\. Turn the
+          # scanner back on for this throwaway runner so the static scan really inspects the files.
+          try {
+            Remove-MpPreference -ExclusionPath 'C:\','D:\' -ErrorAction SilentlyContinue
+            Set-MpPreference -DisableRealtimeMonitoring $false -DisableIOAVProtection $false -DisableArchiveScanning $false -ErrorAction Stop
+            Update-MpSignature -ErrorAction Stop
+          } catch { Write-Warning "Defender preparation failed: $_" }
+          $ready = $false
+          try {
+            $s = Get-MpComputerStatus -ErrorAction Stop
+            $ready = [bool]($s.AntivirusEnabled -and $s.RealTimeProtectionEnabled -and $s.AntivirusSignatureLastUpdated -ge (Get-Date).AddDays(-2))
+          } catch { Write-Warning "Defender status unavailable: $_" }
+          if (-not $ready) { Write-Host '::warning title=Antivirus scan skipped::Microsoft Defender could not be activated on the runner; the release report records that no Defender scan ran.' }
+          "DEFENDER_SCAN=$($ready.ToString().ToLowerInvariant())" >> $env:GITHUB_ENV
       - name: Scan final artifacts and verify signatures
         shell: pwsh
-        run: ./scripts/test-release-windows.ps1 -Directory dist -Version $env:SUBCRAFT_VERSION -Commit (git rev-parse HEAD) -RequireSignature:($env:PUBLISH -eq 'true')
+        run: ./scripts/test-release-windows.ps1 -Directory dist -Version $env:SUBCRAFT_VERSION -Commit (git rev-parse HEAD) -RequireSignature:($env:SIGN_WINDOWS -eq 'true') -SkipAntivirus:($env:DEFENDER_SCAN -ne 'true')
       - name: Attest final Windows artifacts
         if: env.PUBLISH == 'true'
         uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
@@ -191,8 +270,14 @@ jobs:
     needs: [windows, linux]
     runs-on: ubuntu-22.04
     environment: release-publish
+    # release-platforms.yml edits the same release notes; never let the two edits interleave.
+    concurrency:
+      group: release-notes-${{ github.event.release.tag_name || inputs.tag }}
+      cancel-in-progress: false
     permissions:
       contents: write
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -206,8 +291,61 @@ jobs:
       - name: Combined final checksums
         shell: pwsh
         run: ./scripts/write-release-checksums.ps1 -Directory dist
+      # The per-job checksum files are merged above, so attest the combined file that is published.
+      - name: Attest combined checksums
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: dist/SHA256SUMS.txt
       - name: Publish verified packages without replacing existing assets
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.event.release.tag_name || inputs.tag }}
-        run: gh release upload "$TAG" dist/*-setup.exe dist/*.zip dist/*.tar.gz dist/SHA256SUMS.txt dist/release-security-windows.json dist/*.defender.txt --repo "${{ github.repository }}"
+        run: |
+          shopt -s nullglob
+          files=(dist/*-setup.exe dist/*.zip dist/*.tar.gz dist/SHA256SUMS.txt dist/release-security-windows.json dist/*.defender.txt)
+          gh release upload "$TAG" "${files[@]}" --repo "${{ github.repository }}"
+      - name: Note signing status and verification in the release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+          SIGNED: ${{ needs.windows.outputs.signed }}
+        run: |
+          notes="$(gh release view "$TAG" --repo "${{ github.repository }}" --json body --jq .body)"
+          out="$RUNNER_TEMP/notes.md"
+          printf '%s' "$notes" > "$out"
+          changed=no
+          # The YAML block strips its own indentation, so the heredoc text and terminators below
+          # start at column 0 in the script that runs.
+          if [ "$SIGNED" != "true" ]; then
+            case "$notes" in *"## Unsigned Windows build"*) ;; *)
+              cat >> "$out" <<'NOTICE'
+
+
+          ## Unsigned Windows build
+
+          The Windows installer and zip in this release are **not code-signed** yet (free code signing
+          through SignPath Foundation is being set up, see CODE_SIGNING.md). Windows SmartScreen may say
+          "Windows protected your PC": click **More info**, then **Run anyway**. You can first check the
+          download against `SHA256SUMS.txt` or its build provenance (below).
+          NOTICE
+              changed=yes ;;
+            esac
+          fi
+          case "$notes" in *"## Verify your download"*) ;; *)
+            cat >> "$out" <<'VERIFY'
+
+
+          ## Verify your download
+
+          Every file in this release was built by GitHub Actions from this tag and has a build
+          provenance attestation (Sigstore). With the GitHub CLI:
+
+              gh attestation verify SubCraft-<version>-setup.exe --repo Aalzard/subcraft
+
+          `SHA256SUMS.txt` lists the SHA-256 checksum of each package.
+          VERIFY
+            changed=yes ;;
+          esac
+          if [ "$changed" = yes ]; then
+            gh release edit "$TAG" --repo "${{ github.repository }}" --notes-file "$out"
+          fi

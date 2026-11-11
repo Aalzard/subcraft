@@ -570,7 +570,8 @@ impl<'a> Graph<'a> {
                 radius: radius * self.radius_scale,
             }));
         }
-        if self.uniform[input]
+        // Edge Detect of a flat input is 0, not the input: it must still be evaluated.
+        if (self.uniform[input] && !matches!(filter, Filter::EdgeDetect { .. }))
             || radius == 0.0
             || matches!(
                 filter,
@@ -1100,9 +1101,7 @@ impl<'a> Graph<'a> {
                 if *passthrough {
                     for ((dst, src), m) in out.iter_mut().zip(content.iter()).zip(coverage) {
                         let f = (blend.opacity * m).clamp(0.0, 1.0);
-                        for c in 0..4 {
-                            dst[c] += (src[c] - dst[c]) * f;
-                        }
+                        crate::blend::passthrough_mix(dst, src, f);
                     }
                 } else {
                     let (replace, opacity) = (mode == BlendMode::Replace, blend.opacity);
