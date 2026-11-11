@@ -193,7 +193,7 @@ mod tests {
         let flat = TiledImage::from_dense(512, 512, 1, [0.5; 4], &vec![0.7; 512 * 512]);
         let g = Grid::build(&flat, MEDIUM_GRID);
         assert_eq!(g.size, 256);
-        assert!(g.data.iter().all(|v| (v - 0.7).abs() < 1e-5));
+        assert!(g.data.iter().all(|v| (v - 0.7).abs() < 1e-3)); // texels are stored as half floats
         // A 1-texel checker vanishes at both scales; a 64-texel one survives the medium scale.
         let fine = Grid::build(&checker(512, 1), MEDIUM_GRID);
         assert!(fine.data.iter().all(|v| (v - 0.5).abs() < 1e-4), "1-texel detail averages to flat");
