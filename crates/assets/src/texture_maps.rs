@@ -204,7 +204,8 @@ pub fn plan(paths: &[PathBuf]) -> TextureSetPlan {
 /// `Wood_Bump` → `Wood`); a single file drops its last word (`oak_planks_diff` → `oak_planks`).
 fn common_name<'a>(paths: impl Iterator<Item = &'a Path>) -> String {
     let stems: Vec<&str> = paths.filter_map(|p| p.file_stem().and_then(|s| s.to_str())).collect();
-    let is_sep = |c: char| !c.is_ascii_alphanumeric();
+    // Letters of any script are part of the name ("Café", "木材"), not separators.
+    let is_sep = |c: char| !c.is_alphanumeric();
     let name = match stems.as_slice() {
         [] => "",
         [only] => only.rsplit_once(is_sep).map_or("", |(head, _)| head),
@@ -212,6 +213,10 @@ fn common_name<'a>(paths: impl Iterator<Item = &'a Path>) -> String {
             let mut len = first.len();
             for s in rest {
                 len = first.bytes().zip(s.bytes()).take(len).take_while(|(a, b)| a.eq_ignore_ascii_case(b)).count();
+            }
+            // The bytes may agree up to the middle of a character ("é_" / "è_"): cut before it.
+            while !first.is_char_boundary(len) {
+                len -= 1;
             }
             let prefix = &first[..len];
             // Keep whole words only: the prefix must end at a separator or at the end of a stem.
@@ -226,6 +231,21 @@ fn common_name<'a>(paths: impl Iterator<Item = &'a Path>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// QA 2026-11: the common prefix of the file names was cut by bytes; two names that share the
+    /// first byte of a different character ("é" / "è", Korean, CJK) panicked the import.
+    #[test]
+    fn names_that_differ_inside_a_character_do_not_panic() {
+        for (a, b, expected) in [
+            ("é_BaseColor.png", "è_Roughness.png", "Imported material"),
+            ("나무_BaseColor.png", "돌_Roughness.png", "Imported material"),
+            ("木_BaseColor.png", "材_Roughness.png", "Imported material"),
+            ("Wood é_BaseColor.png", "Wood è_Roughness.png", "Wood"),
+            ("Café_BaseColor.png", "Café_Roughness.png", "Café"),
+        ] {
+            assert_eq!(plan(&[PathBuf::from(a), PathBuf::from(b)]).name, expected, "{a} + {b}");
+        }
+    }
 
     fn ch(name: &str) -> Option<(ChannelKind, MapConversion)> {
         match classify(name) {
