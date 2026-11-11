@@ -45,11 +45,9 @@ jobs:
           plutil -lint "$app/Contents/Info.plist"
           codesign --verify --deep --strict "$app"
           "$app/Contents/MacOS/subcraft" --help
-      # Does the bundle open a window and draw on this Mac? GitHub's macOS VMs have no GPU, so
-      # this tells us whether the Metal software path starts; a failure does not block the build
-      # until a real Mac has confirmed what the runner can do.
-      - name: Start headless (experimental)
-        continue-on-error: true
+      # The bundle must open a window and draw on this Apple Silicon VM (Metal on the "Apple
+      # Paravirtual device"). Enforced: it passed with 0.3.4 (issue #85).
+      - name: Start the app (window + screenshot)
         run: |
           app=$(ls -d dist/SubCraft-*/SubCraft.app)
           ./scripts/ci-smoke-start.sh "$app/Contents/MacOS/subcraft" "$RUNNER_TEMP/smoke"
