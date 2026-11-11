@@ -209,6 +209,8 @@ pub struct UiState {
     pub multi: subcraft_app::multi_select::MultiSelect,
     /// Texture set the multi-selection belongs to (cleared when the selected set changes).
     multi_texture_set: Option<subcraft_core::TextureSetId>,
+    /// Ctrl / Shift click extras around the session's selected effect (one stack at a time).
+    pub effect_multi: subcraft_app::effect_stack::EffectSelection,
     /// In-app clipboard for layers and effects; outlives the session.
     pub clips: crate::clipboard::Clips,
     /// Action waiting for the unsaved-changes prompt.
@@ -377,6 +379,7 @@ impl UiState {
             multi: Default::default(),
             multi_texture_set: None,
             clips: Default::default(),
+            effect_multi: Default::default(),
             allow_close: false,
             last_title: String::new(),
             bake: Default::default(),

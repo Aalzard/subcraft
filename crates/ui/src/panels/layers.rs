@@ -232,11 +232,15 @@ Files: {}", ex.dir().display()));
                     cmds.push(if multi_selected { Command::DuplicateLayers(state.multi.ids.clone()) } else { Command::DuplicateLayer(id) });
                 }
                 // Painter's trash removes what is selected: the effect when one is, else the layer(s).
-                let tip = if selected_effect.is_some() { "Delete the selected effect" } else if multi_selected { "Delete selected layers (Del)" } else { "Delete (Del)" };
+                let tip = if selected_effect.is_some() { "Delete the selected effect(s) (Del)" } else if multi_selected { "Delete selected layers (Del)" } else { "Delete (Del)" };
                 if icon_button(ui, icons::TRASH, tip).clicked() {
                     cmds.push(match selected_effect {
-                        Some(effect) if mask_stack => Command::RemoveMaskEffect { layer: id, effect },
-                        Some(effect) => Command::RemoveContentEffect { layer: id, effect },
+                        Some(effect) => {
+                            let target = if mask_stack { LayerTarget::Mask } else { LayerTarget::Content };
+                            let effects = state.effect_multi.targets((id, target), Some(effect));
+                            state.effect_multi.clear();
+                            Command::RemoveEffects { layer: id, target, effects }
+                        }
                         None if multi_selected => Command::DeleteLayers(state.multi.ids.clone()),
                         None => Command::DeleteLayer(id),
                     });
@@ -449,6 +453,7 @@ Files: {}", ex.dir().display()));
             if let Some(pointer) = ui.input(|i| i.pointer.interact_pos()) {
                 layer_drop(ui, &resp, ts, row_target(resp.rect, pointer, l), &mut cmds);
             }
+            super::effects::layer_row_drop(ui, &resp, l, &state.session, &state.effect_multi, &mut cmds);
             if egui::DragAndDrop::has_payload_of_type::<ShelfDrag>(ui.ctx())
                 && let Some(item) = resp.dnd_release_payload::<ShelfDrag>() {
                 // A drop on a layer row: alphas go into its mask, everything else per Alt.
@@ -566,7 +571,7 @@ Files: {}", ex.dir().display()));
             }
             if selected {
                 let channels: Vec<ChannelKind> = ts.channel_kinds().collect();
-                super::effects::rows(ui, l, *depth, selected_target, selected_effect, &channels, active, ts.resolution, &mut state.layer_previews, &state.session, (preview_size * 0.55).round().clamp(18.0, 28.0), &mut cmds);
+                super::effects::rows(ui, l, *depth, selected_target, selected_effect, &mut state.effect_multi, &channels, active, ts.resolution, &mut state.layer_previews, &state.session, (preview_size * 0.55).round().clamp(18.0, 28.0), &mut cmds);
             }
         }
         while let Some(f) = open.pop() { close_folder(ui, f); }

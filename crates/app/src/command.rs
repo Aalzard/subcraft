@@ -35,7 +35,8 @@ pub enum Command {
     /// Select an effect in the layer's content or mask stack (`None`: the domain itself). Tool
     /// state only: a Paint effect receives strokes; other effects show their Properties.
     SelectEffect { layer: LayerId, target: crate::session::LayerTarget, effect: Option<EffectId> },
-    /// Append to the layer's content stack (top) and select it. Not on folders; Levels not on Normal.
+    /// Add to the layer's content stack and select it: right above the selected effect of that
+    /// stack, else on top. Not on folders; Levels not on Normal.
     AddContentEffect { layer: LayerId, kind: ContentEffectKind },
     RemoveContentEffect { layer: LayerId, effect: EffectId },
     /// Replace an effect (matched by id); coalesces while dragging.
@@ -45,6 +46,19 @@ pub enum Command {
     /// Same-stack visual reorder; resolve UUID anchors against the current document on release.
     DropEffect { source: crate::effect_stack::EffectAddress, target: crate::effect_stack::EffectAddress, side: crate::effect_stack::DropSide },
     DuplicateContentEffect { layer: LayerId, effect: EffectId },
+    /// Remove several effects of one stack (Delete with effects selected). One undo step.
+    RemoveEffects { layer: LayerId, target: crate::session::LayerTarget, effects: Vec<EffectId> },
+    /// Copy each effect right above its original (Ctrl+D); the topmost copy becomes selected.
+    DuplicateEffects { layer: LayerId, target: crate::session::LayerTarget, effects: Vec<EffectId> },
+    /// Move the effects one step up or down their stack (Alt+Up / Alt+Down). Nothing happens,
+    /// and no undo step is added, when they are already at that end.
+    NudgeEffects { layer: LayerId, target: crate::session::LayerTarget, effects: Vec<EffectId>, up: bool },
+    RenameEffect { layer: LayerId, target: crate::session::LayerTarget, effect: EffectId, name: String },
+    /// Drop one or more effects of `source`'s stack (`source.effect` is the grabbed one; it is
+    /// always included): reorder them inside the stack, or move them to another layer of the
+    /// same texture set. `copy` (Alt held) leaves the originals and drops copies. One undo
+    /// step; stale or unchanged drops do nothing.
+    DropEffects { source: crate::effect_stack::EffectAddress, effects: Vec<EffectId>, to: crate::effect_stack::EffectDrop, copy: bool },
     /// Insert above the selected layer (or at the top) of the selected texture set and select it.
     /// A selected empty folder receives the new layer instead (Painter).
     AddLayer(NewLayer),
@@ -80,7 +94,8 @@ pub enum Command {
     SetLayersVisible { layers: Vec<LayerId>, visible: bool },
     /// Paste copied layers above the selected layer of the selected texture set (any project).
     PasteLayers(std::sync::Arc<crate::clipboard::LayerClip>),
-    /// Paste copied effects onto the end of this layer's matching stack.
+    /// Paste copied effects into this layer's matching stack: right above the selected effect
+    /// of that stack, else on top.
     PasteEffects { layer: LayerId, clip: std::sync::Arc<crate::clipboard::EffectClip> },
     RenameTextureSet { texture_set: TextureSetId, name: String },
     /// Show or hide a texture set's part of the model in the viewport. View state only: not saved,
@@ -128,7 +143,8 @@ pub enum Command {
     MoveMaskEffect { layer: LayerId, effect: EffectId, index: usize },
     DuplicateMaskEffect { layer: LayerId, effect: EffectId },
     SetMaskEnabled { layer: LayerId, enabled: bool },
-    /// Append to the mask's stack (top) and select it.
+    /// Add to the mask's stack and select it: right above the selected effect of that stack,
+    /// else on top.
     AddMaskEffect { layer: LayerId, kind: MaskEffectKind },
     RemoveMaskEffect { layer: LayerId, effect: EffectId },
     /// Replace an effect (matched by id); coalesces while dragging.

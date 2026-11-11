@@ -159,10 +159,10 @@ Layout notes: these act only while the pointer is over the layer stack.
 | Paste as instance | Layer stack | Ctrl+Shift+V after Ctrl+C | missing | - | - |
 | Instantiate across texture sets | Layer stack | Ctrl+Shift+D (release notes) | missing | - | - |
 | Duplicate layers by dragging | Layer stack | Ctrl + drag and drop | missing | - | - |
-| Copy / cut / paste effects | Layer stack, effect selected | Ctrl+C / Ctrl+X / Ctrl+V | partial: effect copy and paste only through menus, no cut, no keys | crates/ui/src/clipboard.rs:90 | - |
-| Delete selected effect | Layer stack, effect selected | Delete | missing | - | - |
-| Reorder effect up | Layer stack, effect selected | Alt+Up arrow | missing | - | - |
-| Reorder effect down | Layer stack, effect selected | Alt+Down arrow | missing | - | - |
+| Copy / cut / paste effects | Layer stack, effect selected | Ctrl+C / Ctrl+X / Ctrl+V | done | crates/ui/src/clipboard.rs:61 | - |
+| Delete selected effect | Layer stack, effect selected | Delete | done | crates/app/src/session.rs:1914 | - |
+| Reorder effect up | Layer stack, effect selected | Alt+Up arrow | done | crates/ui/src/panels/effects.rs:287 | - |
+| Reorder effect down | Layer stack, effect selected | Alt+Down arrow | done | crates/ui/src/panels/effects.rs:287 | - |
 | Change blending mode with keys | Blending mode dropdown focused | Up / Down arrows | missing | - | - |
 | Change blending mode with the wheel | Blending mode dropdown focused | Mouse wheel up / down | missing | - | - |
 | Create a mask when dropping a fill | Assets to layer stack | Ctrl while dropping | missing | - | - |

@@ -1137,6 +1137,12 @@ impl SubcraftApp {
                 }
             }
         }
+        // With an effect selected, Delete and Ctrl+D act on the selected effect(s) (Painter).
+        if matches!(action, Action::DeleteLayer | Action::DuplicateLayer)
+            && crate::panels::effects::selection_action(&mut self.state, action == Action::DeleteLayer, now)
+        {
+            return;
+        }
         // Delete / Duplicate act on every selected layer when several are selected.
         if self.state.multi.is_multi() && matches!(action, Action::DeleteLayer | Action::DuplicateLayer | Action::NewFolder) {
             let ids = self.state.multi.ids.clone();

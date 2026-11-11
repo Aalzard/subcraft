@@ -19,6 +19,22 @@ use subcraft_paint::{
 use crate::actions::Action;
 use crate::command::{Command, CommandError, NewLayer};
 
+/// Run `$body` on the content or mask effect stack of a layer (`$s`: `&mut Vec<Arc<_>>`).
+macro_rules! on_stack {
+    ($layer:expr, $target:expr, |$s:ident| $body:expr) => {
+        match $target {
+            LayerTarget::Content => {
+                let $s = &mut $layer.content_effects;
+                $body
+            }
+            LayerTarget::Mask => {
+                let $s = &mut $layer.mask.as_mut().ok_or(CommandError::NoMask)?.effects;
+                $body
+            }
+        }
+    };
+}
+
 /// Default texture-set resolution for new sessions.
 pub const DEFAULT_RESOLUTION: u32 = 2048;
 
@@ -663,6 +679,20 @@ impl Session {
         exists.then_some(id)
     }
 
+    /// The selected effect when it sits in `layer`'s `target` stack: new and pasted effects go
+    /// right above it (Painter).
+    fn selected_effect_in(&self, layer: LayerId, target: LayerTarget) -> Option<EffectId> {
+        (self.selection.layer == Some(layer) && self.layer_target() == target).then(|| self.selected_effect()).flatten()
+    }
+
+    /// Effect ids of one of a layer's stacks, bottom to top.
+    fn stack_ids(layer: &Layer, target: LayerTarget) -> Result<Vec<EffectId>, CommandError> {
+        Ok(match target {
+            LayerTarget::Content => layer.content_effects.iter().map(|e| e.id).collect(),
+            LayerTarget::Mask => layer.mask.as_ref().ok_or(CommandError::NoMask)?.effects.iter().map(|e| e.id).collect(),
+        })
+    }
+
     /// Brush target for selecting `effect` (or the domain itself) in `target` of `layer`.
     fn target_for(layer: &Layer, target: LayerTarget, effect: Option<EffectId>) -> Result<PaintTarget, CommandError> {
         let missing = || CommandError::Invalid("No such effect in this stack".into());
@@ -989,6 +1019,7 @@ impl Session {
             }
             Command::AddContentEffect { layer, kind } => {
                 Self::check_content_effect(&kind)?;
+                let above = self.selected_effect_in(layer, LayerTarget::Content);
                 let id = self.edit_layer_set(layer, "Add Effect", None, |ts| {
                     let mut effect = ContentEffect::new(kind, ts);
                     if matches!(effect.kind, ContentEffectKind::Anchor) {
@@ -999,7 +1030,8 @@ impl Session {
                         return Err(CommandError::Invalid("Folders support adjustment effects only".into()));
                     }
                     let id = effect.id;
-                    l.content_effects.push(Arc::new(effect));
+                    let at = above.and_then(|a| l.content_effects.iter().position(|e| e.id == a)).map_or(l.content_effects.len(), |i| i + 1);
+                    l.content_effects.insert(at, Arc::new(effect));
                     Ok(id)
                 })?;
                 return self.execute(Command::SelectEffect { layer, target: LayerTarget::Content, effect: Some(id) });
@@ -1057,6 +1089,127 @@ impl Session {
                     l.content_effects.insert(index + 1, Arc::new(copy));
                     Ok(())
                 })?;
+            }
+            Command::RemoveEffects { layer, target, effects } => {
+                let label = if effects.len() == 1 { "Remove Effect" } else { "Remove Effects" };
+                self.edit_layer_set(layer, label, None, |ts| {
+                    let l = Self::layer_mut(ts, layer)?;
+                    let removed = on_stack!(l, target, |s| crate::effect_stack::take(s, &effects).len());
+                    if removed == 0 { Err(CommandError::Invalid("No such effect".into())) } else { Ok(()) }
+                })?;
+            }
+            Command::DuplicateEffects { layer, target, effects } => {
+                let label = if effects.len() == 1 { "Duplicate Effect" } else { "Duplicate Effects" };
+                let new = self.edit_layer_set(layer, label, None, |ts| {
+                    let l = Self::layer_mut(ts, layer)?;
+                    let new = on_stack!(l, target, |s| crate::effect_stack::duplicate_in_place(s, &effects));
+                    if new.is_empty() { Err(CommandError::Invalid("No such effect".into())) } else { Ok(new) }
+                })?;
+                return self.execute(Command::SelectEffect { layer, target, effect: new.last().copied() });
+            }
+            Command::NudgeEffects { layer, target, effects, up } => {
+                let ts = self.texture_set_of(layer).and_then(|t| self.doc.texture_set(t)).ok_or(CommandError::LayerNotFound)?;
+                let ids = Self::stack_ids(ts.find(layer).ok_or(CommandError::LayerNotFound)?, target)?;
+                if !effects.iter().any(|e| ids.contains(e)) {
+                    return Err(CommandError::Invalid("No such effect".into()));
+                }
+                if let Some(order) = crate::effect_stack::nudged(&ids, &effects, up) {
+                    self.edit_layer_set(layer, "Move Effect", None, |ts| {
+                        let l = Self::layer_mut(ts, layer)?;
+                        on_stack!(l, target, |s| crate::effect_stack::apply_order(s, &order));
+                        Ok(())
+                    })?;
+                }
+            }
+            Command::RenameEffect { layer, target, effect, name } => {
+                let name = name.trim().to_string();
+                if name.is_empty() { return Err(CommandError::Invalid("An effect needs a name".into())); }
+                self.edit_layer_set(layer, "Rename Effect", None, |ts| {
+                    use crate::effect_stack::StackEffect;
+                    let l = Self::layer_mut(ts, layer)?;
+                    let found = on_stack!(l, target, |s| match s.iter_mut().find(|e| e.id() == effect) {
+                        Some(e) => { *Arc::make_mut(e).name_mut() = name; true }
+                        None => false,
+                    });
+                    if found { Ok(()) } else { Err(CommandError::Invalid("No such effect".into())) }
+                })?;
+            }
+            Command::DropEffects { source, effects, to, copy } => {
+                use crate::effect_stack::{EffectDrop, DropSide};
+                if source.texture_set != self.selection.texture_set {
+                    return Err(CommandError::Invalid("the dragged texture set is no longer selected".into()));
+                }
+                let ts = self.doc.texture_set(source.texture_set).ok_or(CommandError::TextureSetNotFound)?;
+                // Stale drags (the layer, its mask or the grabbed effect is gone) do nothing.
+                let Some(from) = ts.find(source.layer) else { return Ok(()) };
+                let Ok(ids) = Self::stack_ids(from, source.domain) else { return Ok(()) };
+                if !ids.contains(&source.effect) { return Ok(()); }
+                let moving: Vec<EffectId> = ids.iter().copied().filter(|id| *id == source.effect || effects.contains(id)).collect();
+                let (layer, domain, grabbed) = (source.layer, source.domain, source.effect);
+                let label = match (copy, moving.len() == 1) {
+                    (false, true) => "Move Effect",
+                    (false, false) => "Move Effects",
+                    (true, true) => "Duplicate Effect",
+                    (true, false) => "Duplicate Effects",
+                };
+                // Moving to the top of its own stack is a reorder like any other.
+                let to = match to {
+                    EffectDrop::Layer(dest) if dest == layer && !copy => match ids.iter().rev().find(|id| !moving.contains(id)) {
+                        Some(top) => EffectDrop::Beside { effect: *top, side: DropSide::Above },
+                        None => return Ok(()),
+                    },
+                    other => other,
+                };
+                let (dest, selected) = match to {
+                    EffectDrop::Beside { effect: anchor, side } if !copy => {
+                        let Some(order) = crate::effect_stack::reordered(&ids, &moving, anchor, side) else { return Ok(()) };
+                        self.edit_layer_set(layer, label, None, |ts| {
+                            let l = Self::layer_mut(ts, layer)?;
+                            on_stack!(l, domain, |s| crate::effect_stack::apply_order(s, &order));
+                            Ok(())
+                        })?;
+                        (layer, grabbed)
+                    }
+                    EffectDrop::Beside { effect: anchor, side } => {
+                        if !ids.contains(&anchor) { return Ok(()); }
+                        let selected = self.edit_layer_set(layer, label, None, |ts| {
+                            let l = Self::layer_mut(ts, layer)?;
+                            Ok(on_stack!(l, domain, |s| {
+                                let (items, selected) = crate::effect_stack::lift(s, &moving, true, grabbed);
+                                let at = crate::effect_stack::stack_ids(s).iter().position(|id| *id == anchor).expect("checked above") + usize::from(side == DropSide::Above);
+                                s.splice(at..at, items);
+                                selected
+                            }))
+                        })?;
+                        (layer, selected)
+                    }
+                    EffectDrop::Layer(dest) => {
+                        let Some(to_layer) = ts.find(dest) else { return Ok(()) };
+                        if domain == LayerTarget::Content && to_layer.is_folder()
+                            && from.content_effects.iter().any(|e| moving.contains(&e.id) && !e.kind.is_adjustment() && !matches!(e.kind, ContentEffectKind::Anchor))
+                        {
+                            return Err(CommandError::Invalid("Folders support adjustment effects only".into()));
+                        }
+                        let selected = self.edit_layer_set(layer, label, None, |ts| {
+                            let res = ts.resolution;
+                            Ok(match domain {
+                                LayerTarget::Content => {
+                                    let (items, selected) = crate::effect_stack::lift(&mut Self::layer_mut(ts, layer)?.content_effects, &moving, copy, grabbed);
+                                    Self::layer_mut(ts, dest)?.content_effects.extend(items);
+                                    selected
+                                }
+                                LayerTarget::Mask => {
+                                    let (items, selected) = crate::effect_stack::lift(&mut Self::layer_mut(ts, layer)?.mask.as_mut().ok_or(CommandError::NoMask)?.effects, &moving, copy, grabbed);
+                                    // Mask effects dropped on a layer without a mask give it one.
+                                    Self::layer_mut(ts, dest)?.mask.get_or_insert_with(|| Mask::new(res, true)).effects.extend(items);
+                                    selected
+                                }
+                            })
+                        })?;
+                        (dest, selected)
+                    }
+                };
+                return self.execute(Command::SelectEffect { layer: dest, target: domain, effect: Some(selected) });
             }
             Command::AddLayer(kind) => {
                 self.layer_counter += 1;
@@ -1257,6 +1410,8 @@ impl Session {
                 for e in &clip.content { Self::check_content_effect(&e.kind)?; }
                 for e in &clip.mask { Self::check_mask_effect(&e.kind)?; }
                 let (content, mask) = (!clip.content.is_empty(), !clip.mask.is_empty());
+                let above_content = self.selected_effect_in(layer, LayerTarget::Content);
+                let above_mask = self.selected_effect_in(layer, LayerTarget::Mask);
                 self.edit_layer_set(layer, "Paste Effects", None, |ts| {
                     let res = ts.resolution;
                     let l = Self::layer_mut(ts, layer)?;
@@ -1264,11 +1419,13 @@ impl Session {
                         if l.is_folder() && clip.content.iter().any(|e| !e.kind.is_adjustment() && !matches!(e.kind, ContentEffectKind::Anchor)) {
                             return Err(CommandError::Invalid("Folders support adjustment effects only".into()));
                         }
-                        l.content_effects.extend(clip.instantiate_content(res).into_iter().map(Arc::new));
+                        let at = above_content.and_then(|a| l.content_effects.iter().position(|e| e.id == a)).map_or(l.content_effects.len(), |i| i + 1);
+                        l.content_effects.splice(at..at, clip.instantiate_content(res).into_iter().map(Arc::new));
                     }
                     if mask {
                         let m = l.mask.get_or_insert_with(|| Mask::new(res, true));
-                        m.effects.extend(clip.instantiate_mask(res).into_iter().map(Arc::new));
+                        let at = above_mask.and_then(|a| m.effects.iter().position(|e| e.id == a)).map_or(m.effects.len(), |i| i + 1);
+                        m.effects.splice(at..at, clip.instantiate_mask(res).into_iter().map(Arc::new));
                     }
                     Ok(())
                 })?;
@@ -1524,6 +1681,7 @@ impl Session {
             }
             Command::AddMaskEffect { layer, kind } => {
                 Self::check_mask_effect(&kind)?;
+                let above = self.selected_effect_in(layer, LayerTarget::Mask);
                 let id = self.edit_layer_set(layer, "Add Mask Effect", None, |ts| {
                     let name = matches!(kind, subcraft_doc::MaskEffectKind::Anchor).then(|| Self::new_anchor_name(ts, layer));
                     let mask = Self::layer_mut(ts, layer)?.mask.as_mut().ok_or(CommandError::NoMask)?;
@@ -1532,7 +1690,8 @@ impl Session {
                         effect.name = name;
                     }
                     let id = effect.id;
-                    mask.effects.push(Arc::new(effect));
+                    let at = above.and_then(|a| mask.effects.iter().position(|e| e.id == a)).map_or(mask.effects.len(), |i| i + 1);
+                    mask.effects.insert(at, Arc::new(effect));
                     Ok(id)
                 })?;
                 return self.execute(Command::SelectEffect { layer, target: LayerTarget::Mask, effect: Some(id) });
@@ -1649,16 +1808,17 @@ impl Session {
                 None => self.execute(Command::AddLayer(NewLayer::Folder))?,
             },
             Action::NewTextLayer => { let d = self.new_text_decal("Text"); self.add_text_layer(d)? }
-            Action::DeleteLayer => {
-                if let Some(l) = sel {
-                    self.execute(Command::DeleteLayer(l))?;
-                }
-            }
-            Action::DuplicateLayer => {
-                if let Some(l) = sel {
-                    self.execute(Command::DuplicateLayer(l))?;
-                }
-            }
+            // With an effect selected, Delete and Ctrl+D act on the effect, not its layer (Painter).
+            Action::DeleteLayer => match (sel, self.selected_effect()) {
+                (Some(l), Some(e)) => self.execute(Command::RemoveEffects { layer: l, target: self.layer_target(), effects: vec![e] })?,
+                (Some(l), None) => self.execute(Command::DeleteLayer(l))?,
+                _ => {}
+            },
+            Action::DuplicateLayer => match (sel, self.selected_effect()) {
+                (Some(l), Some(e)) => self.execute(Command::DuplicateEffects { layer: l, target: self.layer_target(), effects: vec![e] })?,
+                (Some(l), None) => self.execute(Command::DuplicateLayer(l))?,
+                _ => {}
+            },
             Action::BrushTool => self.brush.mode = StrokeMode::Paint,
             Action::EraserTool => self.brush.mode = StrokeMode::Erase,
             Action::BrushSmaller => self.brush.settings.size = (self.brush.settings.size / 1.15).max(0.1),
