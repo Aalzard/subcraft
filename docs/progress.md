@@ -5012,3 +5012,15 @@ rotating one slot when a tile is full (helps cyclic stacks, but the 40-layer sta
 * **Tests added:** paint unit tests (size space, pressure toggles, jitter pressure); `crates/ui/tests/brush_block.rs` (6).
 * **Gaps:** Viewport size space uses the object size in the 2D view; Spacing unit/range unconfirmed against Painter;
   no Substance alphas.
+
+### Session 122 - Painter parity chunk 20: stencil, eraser and clone gaps (2026-11-11, branch `claude/parity-tool-gaps`, stacks on chunk 5)
+
+* **Done:** Stencil tiling mode dropdown (No Tiling / Horizontal / Vertical / H and V; `StencilTiling`), Shift + S + drag
+  snaps the rotation to 90 degrees, "Reset stencil" button at the top right of the view while S is held (and in the
+  Stencil block), Stencil opacity and "Hide stencil when painting". Eraser: the Material block is reduced to channel
+  toggles; only the enabled channels are erased. Clone: Source dropdown, Relative or Absolute (`CloneSourceMode`).
+* **Verified locally (release):** `subcraft-paint`, `subcraft-app` and `subcraft-ui` libraries compile with this change.
+  The new and touched tests were NOT run locally (build queue; CI is the test gate for this PR).
+* **Tests added:** paint stencil unit tests; `crates/app/tests/tool_gaps.rs`; tiling cases in `crates/app/tests/stencil.rs`.
+* **Not done:** Polygon Fill blending / opacity (waits for #131); the Ctrl+6 clone variant shortcut (key map is owned by
+  another session); stencil display options live in Properties, not in Display settings.

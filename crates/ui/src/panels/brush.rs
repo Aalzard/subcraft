@@ -95,12 +95,35 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         s.rotation = deg.to_radians();
                         changed = true;
                     }
-                    prop_row(ui, "", |ui| changed |= ui.checkbox(&mut s.tiling, "Tile").changed());
+                    prop_row(ui, "Tiling mode", |ui| {
+                        egui::ComboBox::from_id_salt("stencil_tiling").selected_text(s.tiling.label()).show_ui(ui, |ui| {
+                            for mode in subcraft_paint::StencilTiling::ALL {
+                                changed |= ui.selectable_value(&mut s.tiling, mode, mode.label()).changed();
+                            }
+                        });
+                    });
+                    ui.add_enabled_ui(s.is_transformed(), |ui| {
+                        if crate::widgets::quiet_button(ui, crate::icons::UNDO, "Reset stencil")
+                            .on_hover_text("Back to the center, upright, at its default size. Also at the top right of the 3D view while S is held")
+                            .clicked()
+                        {
+                            s.reset_transform();
+                            changed = true;
+                        }
+                    });
+                    let mut opacity = state.stencil_display.opacity * 100.0;
+                    if slider_row(ui, "Stencil opacity", egui::Slider::new(&mut opacity, 0.0..=100.0).max_decimals(0).suffix("%"))
+                        .on_hover_text("How strongly the stencil shows over the 3D view. Display only: it masks paint the same at any opacity")
+                        .changed()
+                    {
+                        state.stencil_display.opacity = (opacity * 0.01).clamp(0.0, 1.0);
+                    }
+                    prop_row(ui, "", |ui| ui.checkbox(&mut state.stencil_display.hide_when_painting, "Hide stencil when painting"));
                     if changed {
                         state.session.brush.stencil = Some(std::sync::Arc::new(s));
                     }
                 }
-                hint(ui, "White paints, black blocks. In the 3D view hold S and drag: left = rotate, middle = move, right = scale. Hold N to paint without it.");
+                hint(ui, "White paints, black blocks. In the 3D view hold S and drag: left = rotate (Shift snaps to 90°), middle = move, right = scale. Hold N to paint without it.");
             });
 
             section(ui, "material", "Material", true, |ui| {
@@ -109,8 +132,23 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     if slider_row(ui, "Mask value", egui::Slider::new(&mut material.mask_value, 0.0..=1.0)).changed() {
                         let _ = state.session.execute(subcraft_app::Command::SetBrushMaterial(material));
                     }
+                } else if state.tool == Tool::Eraser {
+                    eraser_channels(state, ui);
                 } else { super::brush_material::show(state, ui); }
             });
+
+            if state.tool == Tool::Clone {
+                section(ui, "clone", "Clone", true, |ui| {
+                    use subcraft_app::CloneSourceMode;
+                    prop_row(ui, "Source", |ui| {
+                        segmented(ui, &mut state.session.brush.clone_mode, &[(CloneSourceMode::Relative, "Relative"), (CloneSourceMode::Absolute, "Absolute")]);
+                    });
+                    hint(ui, match state.session.brush.clone_mode {
+                        CloneSourceMode::Relative => "Relative: the source follows the brush, so each stroke continues the copy. Set the source with V + click.",
+                        CloneSourceMode::Absolute => "Absolute: every stroke starts copying from the source point again. Set the source with V + click.",
+                    });
+                });
+            }
 
             section(ui, "presets", "Presets", true, |ui| {
                 ui.vertical(|ui| {
@@ -169,6 +207,16 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
 
         });
     });
+}
+
+/// Eraser: the Material block is only the channel toggles; a stroke erases the channels that
+/// are switched on and leaves the others as painted.
+fn eraser_channels(state: &mut UiState, ui: &mut Ui) {
+    let states: Vec<_> = state.session.channels().into_iter().map(|k| (k, state.session.brush.material.is_enabled(k))).collect();
+    if let Some((channel, solo)) = super::properties::channel_toggles(ui, &states) {
+        let _ = state.session.execute(subcraft_app::Command::ToggleBrushChannel { channel, solo });
+    }
+    hint(ui, "The eraser removes paint from the channels that are on. Alt+click a channel to erase only that one.");
 }
 
 fn s_open(s: &subcraft_paint::BrushSettings) -> bool {

@@ -62,7 +62,7 @@ pub use parts::MeshPart;
 pub use part_workflow::{PartAction, PartInfo, PartKey, SurfaceTarget};
 pub use recovery::{AutosaveEvent, Autosaver, CrashedSession, RecoveryStore};
 pub use subcraft_compositor::ChangedTiles;
-pub use session::{BrushState, CompositeUpdate, DEFAULT_RESOLUTION, LayerTarget, Pick, ProjectSnapshot, Scene, Selection, Session};
+pub use session::{BrushState, CloneSourceMode, CompositeUpdate, DEFAULT_RESOLUTION, LayerTarget, Pick, ProjectSnapshot, Scene, Selection, Session};
 
 pub use subcraft_compositor::{Composite, composite_comps};
 pub use subcraft_assets as assets;
