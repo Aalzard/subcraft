@@ -20,6 +20,11 @@ struct Globals {
     // x: tone map (0 ACES, 1 Filmic, 2 Reinhard, 3 Linear)
     post: vec4<f32>,
     sh: array<vec4<f32>, 9>,
+    inv_view_proj: mat4x4<f32>,
+    // rgb: background color (linear), a: environment opacity behind the model
+    background: vec4<f32>,
+    // x: background blur 0..1
+    env_view: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> g: Globals;
@@ -270,6 +275,43 @@ fn fs_main(in: VsOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f
 
     let color = (direct + ambient + emissive) * g.params.x;
     return vec4<f32>(tonemap(color, i32(round(g.post.x))), 1.0);
+}
+
+// ---- environment behind the model --------------------------------------------------------------
+
+struct BgOut {
+    @builtin(position) clip: vec4<f32>,
+    @location(0) ndc: vec2<f32>,
+};
+
+@vertex
+fn vs_background(@builtin(vertex_index) i: u32) -> BgOut {
+    let uv = vec2<f32>(f32((i << 1u) & 2u), f32(i & 2u));
+    var o: BgOut;
+    o.ndc = vec2<f32>(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
+    o.clip = vec4<f32>(o.ndc, 1.0, 1.0);
+    return o;
+}
+
+// Light arriving from direction `d`, blurred by `blur` (0 sharp .. 1 fully diffused): the HDRI at
+// a prefiltered level, or the procedural sky fading into its irradiance.
+fn background_radiance(d: vec3<f32>, blur: f32) -> vec3<f32> {
+    if (g.lights.w > 0.5) {
+        let uv = equirect(rotate_env(d));
+        return textureSampleLevel(env_tex, env_samp, uv, blur * g.env_misc.z).rgb * g.env_misc.y;
+    }
+    return mix(sky(d), irradiance(d), blur) * g.params.y;
+}
+
+// The environment seen along each pixel's view ray, exposed and tone mapped like the model, mixed
+// over the background color by the environment opacity.
+@fragment
+fn fs_background(in: BgOut) -> @location(0) vec4<f32> {
+    let near = g.inv_view_proj * vec4<f32>(in.ndc, 0.0, 1.0);
+    let far = g.inv_view_proj * vec4<f32>(in.ndc, 1.0, 1.0);
+    let d = normalize(far.xyz / far.w - near.xyz / near.w);
+    let env = tonemap(background_radiance(d, g.env_view.x) * g.params.x, i32(round(g.post.x)));
+    return vec4<f32>(mix(g.background.rgb, env, g.background.a), 1.0);
 }
 
 // Emission only, in linear HDR: feeds the glow and glare passes of the viewport.

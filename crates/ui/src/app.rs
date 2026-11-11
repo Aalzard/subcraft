@@ -1022,6 +1022,7 @@ impl SubcraftApp {
                 let prefs = &mut self.state.recovery.prefs.viewport;
                 prefs.path_tracing = !prefs.path_tracing;
             }
+            Action::PaintingMode => self.state.recovery.prefs.viewport.path_tracing = false,
             Action::Export => {
                 self.state.export.open = true;
                 self.state.export.view_2d_only = false;
@@ -1313,6 +1314,10 @@ impl SubcraftApp {
                 let rendering = self.state.recovery.prefs.viewport.path_tracing;
                 if item(ui, icons::SUN, if rendering { "Leave Rendering mode" } else { "Rendering mode (path tracing)" }, &sc(km, Action::TogglePathTracing)) {
                     self.perform(Action::TogglePathTracing, now);
+                    ui.close();
+                }
+                if item(ui, icons::PAINT_BRUSH, "Painting mode", &sc(km, Action::PaintingMode)) {
+                    self.perform(Action::PaintingMode, now);
                     ui.close();
                 }
                 ui.separator();

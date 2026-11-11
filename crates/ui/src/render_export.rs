@@ -150,7 +150,10 @@ pub fn render_frame(state: &mut UiState, camera: crate::orbit::OrbitCamera, pict
     params.antialias = true;
     params.exposure = prefs.exposure;
     params.post = prefs.post_params_at(state.session.scene().mesh.bounds.diagonal(), camera.eye_distance());
-    crate::panels::shelf::apply_environment(&state.library, state.env.index, state.env.rotation_deg, state.env.intensity,
+    let (env_rotation, env_intensity) = crate::panels::shelf::environment_view(&prefs.display, state.env.rotation_deg, camera.yaw);
+    params.environment.background_opacity = prefs.env_opacity;
+    params.environment.background_blur = prefs.env_blur;
+    crate::panels::shelf::apply_environment(&state.library, state.env.index, env_rotation, env_intensity,
         &mut params, &mut renderer, &mut state.env.uploaded, &rs.device, &rs.queue);
     // The renderer goes back into the state whether or not the GPU managed the readback, so a
     // failed render (device lost, out of video memory) reports an error and the viewport keeps working.

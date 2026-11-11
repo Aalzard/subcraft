@@ -29,6 +29,11 @@ pub enum ShelfDrag {
     Alpha(usize),
 }
 
+/// An environment tile being dragged onto the 3D view or the Display Settings panel's
+/// Environment map button (index into the library's environments).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EnvironmentDrag(pub usize);
+
 /// A Shelf click: a material swaps the material of the selected fill layer (or adds one when
 /// no fill layer is selected); everything else does what a drop does.
 pub fn click_shelf_item(s: &mut UiState, item: ShelfDrag, now: f64) {
@@ -212,14 +217,13 @@ impl ShelfUi {
 pub struct EnvUi {
     pub index: usize,
     pub rotation_deg: f32,
-    pub intensity: f32,
     /// HDRI currently uploaded to the viewport renderer.
     pub uploaded: Option<AssetId>,
 }
 
 impl Default for EnvUi {
     fn default() -> Self {
-        Self { index: 0, rotation_deg: 0.0, intensity: 1.0, uploaded: None }
+        Self { index: 0, rotation_deg: 0.0, uploaded: None }
     }
 }
 
@@ -254,6 +258,14 @@ impl EnvUi {
             None => Self::default(),
         }
     }
+}
+
+/// The environment as the Display Settings describe it, for a camera turned `camera_yaw`
+/// radians around the vertical axis: `(rotation in degrees, brightness multiplier)`. A
+/// camera-aligned ("Local") environment turns with the view, so the lighting follows the camera.
+pub fn environment_view(display: &subcraft_doc::DisplaySettings, rotation_deg: f32, camera_yaw: f32) -> (f32, f32) {
+    let follow = if display.env_alignment == subcraft_doc::EnvAlignment::Local { camera_yaw.to_degrees() } else { 0.0 };
+    (wrap_rotation(rotation_deg + follow), subcraft_doc::display::ev_to_multiplier(display.env_exposure.clamp(-10.0, 10.0)))
 }
 
 /// Configure `params` (and upload an HDRI when needed) for environment `index` of `library`.
@@ -900,6 +912,15 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                                 s.env.uploaded = None;
                             }));
                         }
+                        resp.dnd_set_drag_payload(EnvironmentDrag(i));
+                        if resp.dragged() && let Some(p) = ui.ctx().pointer_latest_pos() {
+                            egui::Area::new(egui::Id::new("environment-drag-ghost")).order(egui::Order::Tooltip).fixed_pos(p + egui::vec2(14.0, 10.0)).interactable(false).show(ui.ctx(), |ui| {
+                                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                                    ui.label(RichText::new(&e.name).color(theme::TEXT));
+                                    ui.label(RichText::new(tr("Drop on the 3D view to light the model with it")).small().color(theme::TEXT_FAINT));
+                                });
+                            });
+                        }
                         if resp.clicked() {
                             action = Some(Box::new(move |s: &mut UiState| s.env.index = i));
                         }
@@ -1005,13 +1026,14 @@ fn env_controls(state: &mut UiState, ui: &mut Ui) {
     if state.shelf.tab != ShelfTab::Environments { return; }
     egui::Frame::new().inner_margin(egui::Margin::symmetric(8, 2)).show(ui, |ui| {
         let width = ui.available_width();
-        for (label, value, range) in [("Rotation", &mut state.env.rotation_deg, -180.0..=180.0), ("Intensity", &mut state.env.intensity, 0.1..=4.0)] {
+        // Exposure is in EV (stops) like Painter's Environment Exposure: +1 doubles the light.
+        for (label, value, range) in [("Rotation", &mut state.env.rotation_deg, -180.0..=180.0), ("Exposure", &mut state.recovery.prefs.viewport.display.env_exposure, -5.0..=5.0)] {
             ui.allocate_ui_with_layout(egui::vec2(width, 20.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
                 ui.add_sized([60.0, 18.0], egui::Label::new(RichText::new(label).color(theme::TEXT_DIM)));
                 // Room for the value box: "-180°" is the widest rotation (whole degrees).
                 ui.spacing_mut().slider_width = (ui.available_width() - 72.0).max(20.0);
                 let slider = egui::Slider::new(value, range);
-                ui.add(if label == "Rotation" { slider.suffix("°").fixed_decimals(0) } else { slider.logarithmic(true) });
+                ui.add(if label == "Rotation" { slider.suffix("°").fixed_decimals(0) } else { slider.suffix(" EV").fixed_decimals(1) });
             });
         }
     });

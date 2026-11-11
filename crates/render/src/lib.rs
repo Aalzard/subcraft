@@ -65,6 +65,11 @@ pub struct EnvironmentParams {
     pub hdri_intensity: f32,
     /// Rotation of the environment around +Y (radians).
     pub rotation: f32,
+    /// How much of the environment is drawn behind the model, over the background color
+    /// (0 = none: the frame is exactly the plain-background render).
+    pub background_opacity: f32,
+    /// Blur of that background, 0 (sharp) to 1 (the fully diffused map).
+    pub background_blur: f32,
 }
 
 impl Default for EnvironmentParams {
@@ -81,6 +86,8 @@ impl Default for EnvironmentParams {
             use_hdri: false,
             hdri_intensity: 1.0,
             rotation: 0.0,
+            background_opacity: 0.0,
+            background_blur: 0.0,
         }
     }
 }
@@ -227,6 +234,11 @@ struct Globals {
     env_misc: [f32; 4],
     post: [f32; 4],
     sh: [[f32; 4]; 9],
+    inv_view_proj: [[f32; 4]; 4],
+    /// rgb: background color (linear), a: environment opacity behind the model.
+    background: [f32; 4],
+    /// x: background blur 0..1.
+    env_view: [f32; 4],
 }
 
 pub const SAMPLE_COUNT: u32 = 4;
@@ -238,6 +250,8 @@ pub struct ViewportRenderer {
     pipeline_no_aa: wgpu::RenderPipeline,
     /// Emission-only pass feeding the glow and glare effects.
     pipeline_emissive: wgpu::RenderPipeline,
+    /// Environment drawn behind the model (4x MSAA and single-sample).
+    pipeline_background: [wgpu::RenderPipeline; 2],
     grid: grid::GridPass,
     symmetry: Option<grid::GridPass>,
     wireframe: Option<grid::GridPass>,
@@ -379,6 +393,36 @@ impl ViewportRenderer {
             multiview_mask: None,
             cache: None,
         });
+        // The environment behind the model: one triangle over the whole view, drawn before the
+        // mesh without touching depth. It needs the globals only.
+        let background_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("background layout"),
+            bind_group_layouts: &[Some(&globals_layout)],
+            immediate_size: 0,
+        });
+        let make_background = |samples: u32| device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("background pipeline"),
+            layout: Some(&background_layout),
+            vertex: wgpu::VertexState { module: &shader, entry_point: Some("vs_background"), compilation_options: Default::default(), buffers: &[] },
+            primitive: Default::default(),
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: target::DEPTH_FORMAT,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(wgpu::CompareFunction::Always),
+                stencil: Default::default(),
+                bias: Default::default(),
+            }),
+            multisample: wgpu::MultisampleState { count: samples, ..Default::default() },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_background"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState { format: OUTPUT_FORMAT, blend: None, write_mask: wgpu::ColorWrites::ALL })],
+            }),
+            multiview_mask: None,
+            cache: None,
+        });
+        let pipeline_background = [make_background(if caps::get().msaa4 { SAMPLE_COUNT } else { 1 }), make_background(1)];
         let pipeline = make_pipeline(if caps::get().msaa4 { SAMPLE_COUNT } else { 1 });
         let pipeline_no_aa = make_pipeline(1);
         let globals = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -422,6 +466,7 @@ impl ViewportRenderer {
         Self {
             post,
             pipeline_emissive,
+            pipeline_background,
             pipeline,
             pipeline_no_aa,
             grid: grid::GridPass::new(device),
@@ -685,6 +730,9 @@ impl ViewportRenderer {
                 bake_map.map_or(params.view_mode.shader_mode() as f32, |k| if k.components() == 1 { 8. } else { 7. })],
             post: [post::tone_map_id(params.post.tone_map), 0.0, 0.0, 0.0],
             sh,
+            inv_view_proj: (params.proj * params.view).inverse().to_cols_array_2d(),
+            background: [params.background[0], params.background[1], params.background[2], e.background_opacity.clamp(0.0, 1.0)],
+            env_view: [e.background_blur.clamp(0.0, 1.0), 0.0, 0.0, 0.0],
         };
         queue.write_buffer(&self.globals, 0, bytemuck::bytes_of(&globals));
         if params.symmetry_guides && let Some(guides) = &self.symmetry { guides.prepare_lines(queue, params.proj * params.view); }
@@ -721,6 +769,11 @@ impl ViewportRenderer {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
+            if e.background_opacity > 0.0 {
+                pass.set_pipeline(&self.pipeline_background[if samples > 1 { 0 } else { 1 }]);
+                pass.set_bind_group(0, &self.globals_bg, &[]);
+                pass.draw(0..3, 0..1);
+            }
             if params.bake_overlay {
                 self.bake_preview.draw(&mut pass, samples > 1, params.bake_cage);
             } else if let Some(mesh) = &self.mesh {

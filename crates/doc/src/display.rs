@@ -80,6 +80,52 @@ impl GlareShape {
     }
 }
 
+/// What the environment map is attached to.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EnvAlignment {
+    /// Fixed in the scene: orbiting the camera shows another part of the map.
+    #[default]
+    World,
+    /// Fixed to the camera: the lighting follows the view while orbiting.
+    Local,
+}
+
+impl EnvAlignment {
+    pub const ALL: [EnvAlignment; 2] = [EnvAlignment::World, EnvAlignment::Local];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            EnvAlignment::World => "World",
+            EnvAlignment::Local => "Local",
+        }
+    }
+}
+
+fn alignment_compat<'de, D: Deserializer<'de>>(d: D) -> Result<EnvAlignment, D::Error> {
+    compat(d, &EnvAlignment::ALL)
+}
+
+/// Sensor height (mm) behind the focal-length readout: a full-frame 36 x 24 mm sensor.
+pub const SENSOR_HEIGHT_MM: f32 = 24.0;
+/// Field-of-view range of the camera (vertical, degrees).
+pub const FOV_RANGE: std::ops::RangeInclusive<f32> = 5.0..=120.0;
+
+/// Focal length (mm) of a lens with vertical field of view `fov_deg` on the reference sensor.
+pub fn focal_length_mm(fov_deg: f32) -> f32 {
+    0.5 * SENSOR_HEIGHT_MM / (fov_deg.to_radians() * 0.5).tan().max(1e-6)
+}
+
+/// Vertical field of view (degrees) of a lens of focal length `mm` on the reference sensor.
+pub fn fov_from_focal_length(mm: f32) -> f32 {
+    2.0 * (0.5 * SENSOR_HEIGHT_MM / mm.max(1e-3)).atan().to_degrees()
+}
+
+/// Brightness multiplier of an exposure offset in EV (stops): +1 EV doubles the light.
+pub fn ev_to_multiplier(ev: f32) -> f32 {
+    2f32.powf(ev)
+}
+
 fn tone_map_compat<'de, D: Deserializer<'de>>(d: D) -> Result<ToneMap, D::Error> {
     compat(d, &ToneMap::ALL)
 }
@@ -93,7 +139,24 @@ fn glare_compat<'de, D: Deserializer<'de>>(d: D) -> Result<GlareShape, D::Error>
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct DisplaySettings {
+    // ----- environment -------------------------------------------------------------------------
+    /// Name of the environment map (an asset name, never a path). `None` = not chosen yet.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub env_map: Option<String>,
+    /// How much of the environment map shows behind the model (0 = the plain background color).
+    pub env_opacity: f32,
+    /// Environment brightness in EV (stops): 0 is the map as authored, +1 doubles it.
+    pub env_exposure: f32,
+    /// Rotation of the environment around the vertical axis, degrees (-180..180).
+    pub env_rotation: f32,
+    /// Blur of the environment shown behind the model (0 = sharp, 1 = fully diffused).
+    pub env_blur: f32,
+    #[serde(deserialize_with = "alignment_compat")]
+    pub env_alignment: EnvAlignment,
+
     // ----- camera ------------------------------------------------------------------------------
+    /// Vertical field of view, degrees.
+    pub fov: f32,
     /// 4x MSAA.
     pub antialias: bool,
     /// Depth of field (off by default): blur amount 0..1, focus distance as a multiple of the
@@ -137,6 +200,13 @@ pub struct DisplaySettings {
 impl Default for DisplaySettings {
     fn default() -> Self {
         Self {
+            env_map: None,
+            env_opacity: 0.0,
+            env_exposure: 0.0,
+            env_rotation: 0.0,
+            env_blur: 0.5,
+            env_alignment: EnvAlignment::World,
+            fov: 40.0,
             antialias: true,
             dof: false,
             dof_amount: 0.5,
@@ -169,6 +239,13 @@ impl DisplaySettings {
     pub fn reset_post_effects(&mut self) {
         let d = Self::default();
         *self = Self {
+            env_map: self.env_map.take(),
+            env_opacity: self.env_opacity,
+            env_exposure: self.env_exposure,
+            env_rotation: self.env_rotation,
+            env_blur: self.env_blur,
+            env_alignment: self.env_alignment,
+            fov: self.fov,
             antialias: self.antialias,
             wireframe: self.wireframe,
             wire_color: self.wire_color,
@@ -201,6 +278,20 @@ mod tests {
         assert_eq!((d.tone_map, d.glare_mode, d.bloom), (ToneMap::Reinhard, GlareShape::Star, 0.5));
         let d: DisplaySettings = serde_json::from_str(r#"{"tone_map":99,"glare_mode":"from_the_future","exposure":2.0}"#).unwrap();
         assert_eq!((d.tone_map, d.glare_mode, d.exposure), (ToneMap::Aces, GlareShape::Horizontal, 2.0));
+    }
+
+    #[test]
+    fn focal_length_and_field_of_view_are_inverses_and_ev_is_in_stops() {
+        // 24 mm sensor height: a 50 mm lens sees 2 * atan(12 / 50) = 26.99 degrees.
+        assert!((fov_from_focal_length(50.0) - 26.991).abs() < 1e-2);
+        assert!((focal_length_mm(90.0) - 12.0).abs() < 1e-4, "90 degrees is half the sensor height");
+        for fov in [5.0f32, 27.0, 40.0, 75.0, 120.0] {
+            assert!((fov_from_focal_length(focal_length_mm(fov)) - fov).abs() < 1e-3);
+        }
+        assert_eq!((ev_to_multiplier(0.0), ev_to_multiplier(1.0), ev_to_multiplier(-2.0)), (1.0, 2.0, 0.25));
+        let d: DisplaySettings = serde_json::from_str(r#"{"env_alignment":"local","env_map":"Studio","fov":55}"#).unwrap();
+        assert_eq!((d.env_alignment, d.env_map.as_deref(), d.fov, d.env_opacity), (EnvAlignment::Local, Some("Studio"), 55.0, 0.0));
+        assert!(!serde_json::to_string(&DisplaySettings::default()).unwrap().contains("env_map"), "no map chosen: nothing written");
     }
 
     #[test]

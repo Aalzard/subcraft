@@ -205,6 +205,14 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         // Alt: apply in place to the selected layer (alphas: brush tip unless Alt).
         crate::panels::shelf::apply_shelf_item_with(state, *item, mods.alt, now);
     }
+    // An environment tile dropped on the view becomes the environment map.
+    if let Some(env) = response.dnd_release_payload::<crate::panels::shelf::EnvironmentDrag>()
+        && let Some(name) = state.library.environments.get(env.0).map(|e| e.name.clone())
+    {
+        state.env.index = env.0;
+        state.set_status(format!("Environment: {name}"), now);
+    }
+    let env_hover = response.dnd_hover_payload::<crate::panels::shelf::EnvironmentDrag>().is_some();
     let drop_hover = response.dnd_hover_payload::<crate::panels::shelf::ShelfDrag>().map(|d| *d);
 
     // ----- part picking: clicks show / hide the selected layer on mesh parts ----------------------
@@ -250,6 +258,16 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         }
     }
     // ----- depth of field focus picker: the next click on the model sets the focus distance --------
+    // Ctrl + middle click focuses on the point under the cursor (the Display Settings' shortcut).
+    if !bake_mode && !state.painting && response.hovered() && mods.command && !mods.shift && !mods.alt
+        && ui.input(|i| i.pointer.button_clicked(egui::PointerButton::Middle))
+        && let Some(p) = pointer
+        && let Some(hit) = state.session.pick(&camera, to_screen(p))
+    {
+        let orbit = state.camera.eye_distance().max(1e-4);
+        state.recovery.prefs.viewport.dof_focus = (hit.depth / orbit).clamp(0.2, 3.0);
+        state.set_status(crate::i18n::tr("Focus set"), now);
+    }
     let focus_picking = !bake_mode && !state.painting && state.picking_focus && state.recovery.prefs.viewport.dof;
     if focus_picking && primary_pressed && response.hovered() && let Some(p) = pointer {
         if let Some(hit) = state.session.pick(&camera, to_screen(p)) {
@@ -419,11 +437,14 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 axes: view.grid_axes,
             });
             let render_size = view.render_size(size);
+            let (env_rotation, env_intensity) = crate::panels::shelf::environment_view(&view.display, state.env.rotation_deg, state.camera.yaw);
+            params.environment.background_opacity = view.env_opacity;
+            params.environment.background_blur = view.env_blur;
             crate::panels::shelf::apply_environment(
                 &state.library,
                 state.env.index,
-                state.env.rotation_deg,
-                state.env.intensity,
+                env_rotation,
+                env_intensity,
                 &mut params,
                 renderer,
                 &mut state.env.uploaded,
@@ -532,6 +553,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         if button.on_hover_text("Stencil back to the center, upright, at its default size").clicked() && transformed {
             reset_stencil(state);
         }
+    }
+    if env_hover {
+        painter.rect_stroke(rect.shrink(2.0), 0.0, egui::Stroke::new(2.0, theme::ACCENT), egui::StrokeKind::Inside);
+        painter.text(rect.center_top() + egui::vec2(0.0, 28.0), egui::Align2::CENTER_CENTER, crate::i18n::tr("Use as the environment map"), theme::font(13.0), theme::ACCENT);
     }
     if let Some(item) = drop_hover {
         painter.rect_stroke(rect.shrink(1.0), 0.0, Stroke::new(2.0, ACCENT), egui::StrokeKind::Inside);

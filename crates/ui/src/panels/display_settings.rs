@@ -81,13 +81,26 @@ impl Section {
 /// carries display settings replaces the live ones when it is opened; a project without them
 /// keeps the user's current ones and only receives a copy once the user changes something, so
 /// merely opening a project never marks it as modified.
+///
+/// The environment choice and the camera's field of view live outside the settings struct (the
+/// Shelf selects the map, navigation and camera bookmarks drive the lens): they are copied into
+/// it every frame, and out of it when a project brings its own.
 pub fn sync_project(state: &mut UiState) {
     if !std::mem::replace(&mut state.display_loaded, true) {
         if let Some(saved) = state.session.settings().display.clone() {
+            if let Some(index) = saved.env_map.as_deref().and_then(|name| state.library.environments.iter().position(|e| e.name == name)) {
+                state.env.index = index;
+                state.env.rotation_deg = crate::panels::shelf::wrap_rotation(saved.env_rotation);
+            }
             state.recovery.prefs.viewport.display = saved;
         }
+        // A new session frames the model with the default lens: put the saved one back.
+        let fov = state.recovery.prefs.viewport.fov;
+        set_fov(&mut state.camera, fov);
+        capture_live(state);
         state.display_baseline = state.recovery.prefs.viewport.display.clone();
     }
+    capture_live(state);
     let live = &state.recovery.prefs.viewport.display;
     if *live != state.display_baseline {
         state.display_baseline = live.clone();
@@ -95,6 +108,29 @@ pub fn sync_project(state: &mut UiState) {
         settings.display = Some(live.clone());
         state.session.set_settings(settings);
     }
+}
+
+/// Copy the environment selection and the lens into the display settings.
+fn capture_live(state: &mut UiState) {
+    let display = &mut state.recovery.prefs.viewport.display;
+    let name = state.library.environments.get(state.env.index).map(|e| e.name.as_str());
+    if display.env_map.as_deref() != name {
+        display.env_map = name.map(str::to_string);
+    }
+    display.env_rotation = state.env.rotation_deg;
+    display.fov = state.camera.fov_y_deg;
+}
+
+/// Change the lens and move the camera along its axis so the orbit target keeps its size on
+/// screen (a wider lens steps closer), the way a dolly zoom does.
+pub fn set_fov(camera: &mut crate::orbit::OrbitCamera, fov_deg: f32) {
+    let fov = fov_deg.clamp(*subcraft_doc::display::FOV_RANGE.start(), *subcraft_doc::display::FOV_RANGE.end());
+    if !fov.is_finite() || (fov - camera.fov_y_deg).abs() < 1e-4 {
+        return;
+    }
+    let half = |deg: f32| (deg.to_radians() * 0.5).tan();
+    camera.distance *= half(camera.fov_y_deg) / half(fov);
+    camera.fov_y_deg = fov;
 }
 
 pub fn show(state: &mut UiState, ui: &mut Ui) {
@@ -145,22 +181,43 @@ fn grid(ui: &mut Ui, id: &str, body: impl FnOnce(&mut Ui)) {
     egui::Grid::new(id).num_columns(2).spacing([10.0, 6.0]).show(ui, body);
 }
 
-/// Environment map and how it lights the model.
+/// Environment map and how it lights the model, in Painter's order: map, opacity, exposure,
+/// rotation, blur, alignment.
 pub fn environment(state: &mut UiState, ui: &mut Ui) {
     grid(ui, "display_env", |ui| {
         ui.label(tr("Environment map"));
         let current = state.library.environments.get(state.env.index).map_or_else(|| "-".to_string(), |e| e.name.clone());
-        egui::ComboBox::from_id_salt("display_env_map").selected_text(current).width(150.0).show_ui(ui, |ui| {
+        let combo = egui::ComboBox::from_id_salt("display_env_map").selected_text(current).width(150.0).show_ui(ui, |ui| {
             for (i, env) in state.library.environments.iter().enumerate() {
                 ui.selectable_value(&mut state.env.index, i, &env.name);
             }
-        }).response.on_hover_text(tr("The lighting around the model. More maps: Assets > Environments."));
+        }).response.on_hover_text(tr("The lighting around the model. Drop a map from Assets > Environments here or on the 3D view."));
+        if let Some(env) = combo.dnd_release_payload::<crate::panels::shelf::EnvironmentDrag>()
+            && env.0 < state.library.environments.len()
+        {
+            state.env.index = env.0;
+        }
+        ui.end_row();
+        let display = &mut state.recovery.prefs.viewport.display;
+        ui.label(tr("Environment opacity"));
+        ui.add(egui::Slider::new(&mut display.env_opacity, 0.0..=1.0).custom_formatter(|v, _| format!("{:.0}", v * 100.0)).custom_parser(|s| s.trim().parse::<f64>().ok().map(|v| v / 100.0)).suffix("%"))
+            .on_hover_text(tr("How much of the environment map shows behind the model. 0 is the plain background."));
+        ui.end_row();
+        ui.label(tr("Environment exposure (EV)"));
+        ui.add(egui::Slider::new(&mut display.env_exposure, -5.0..=5.0).fixed_decimals(2)).on_hover_text(tr("Brightness of the environment in stops: +1 doubles the light, -1 halves it"));
         ui.end_row();
         ui.label(tr("Environment rotation"));
         ui.add(egui::Slider::new(&mut state.env.rotation_deg, -180.0..=180.0).suffix("°").fixed_decimals(0)).on_hover_text(tr("Turn the lighting around the model (also Shift + right mouse drag in the 3D view)"));
         ui.end_row();
-        ui.label(tr("Environment intensity"));
-        ui.add(egui::Slider::new(&mut state.env.intensity, 0.1..=4.0).logarithmic(true)).on_hover_text(tr("Brightness of the environment light"));
+        ui.label(tr("Environment blur"));
+        ui.add_enabled(display.env_opacity > 0.0, egui::Slider::new(&mut display.env_blur, 0.0..=1.0)).on_hover_text(tr("Blur of the environment shown behind the model"));
+        ui.end_row();
+        ui.label(tr("Environment alignment"));
+        egui::ComboBox::from_id_salt("display_env_alignment").selected_text(tr(display.env_alignment.label())).show_ui(ui, |ui| {
+            for a in subcraft_doc::EnvAlignment::ALL {
+                ui.selectable_value(&mut display.env_alignment, a, tr(a.label()));
+            }
+        }).response.on_hover_text(tr("World: the environment stays put while the camera orbits. Local: it turns with the camera, so the lighting follows the view."));
         ui.end_row();
     });
 }
@@ -169,6 +226,7 @@ pub fn environment(state: &mut UiState, ui: &mut Ui) {
 pub fn camera(state: &mut UiState, ui: &mut Ui) {
     let mut pick = false;
     {
+        let camera = &mut state.camera;
         let prefs = &mut state.recovery.prefs.viewport;
         grid(ui, "display_camera_grid", |ui| {
             ui.label(tr("Projection"));
@@ -177,8 +235,21 @@ pub fn camera(state: &mut UiState, ui: &mut Ui) {
                 ui.selectable_value(&mut prefs.orthographic, true, tr("Orthographic"));
             });
             ui.end_row();
+            ui.label(tr("Field of view"));
+            let mut fov = camera.fov_y_deg;
+            if ui.add_enabled(!prefs.orthographic, egui::Slider::new(&mut fov, subcraft_doc::display::FOV_RANGE).suffix("°").fixed_decimals(1)).on_hover_text(tr("Vertical field of view. The camera moves so the model keeps its size.")).changed() {
+                set_fov(camera, fov);
+            }
+            ui.end_row();
+            ui.label(tr("Focal length (mm)"));
+            let (near, far) = (subcraft_doc::display::focal_length_mm(*subcraft_doc::display::FOV_RANGE.end()), subcraft_doc::display::focal_length_mm(*subcraft_doc::display::FOV_RANGE.start()));
+            let mut focal = subcraft_doc::display::focal_length_mm(camera.fov_y_deg);
+            if ui.add_enabled(!prefs.orthographic, egui::Slider::new(&mut focal, near..=far).logarithmic(true).fixed_decimals(1)).on_hover_text(tr("The same lens as a focal length on a full-frame (36 x 24 mm) sensor")).changed() {
+                set_fov(camera, subcraft_doc::display::fov_from_focal_length(focal));
+            }
+            ui.end_row();
             ui.label(tr("Focus distance"));
-            ui.add_enabled(prefs.dof, egui::Slider::new(&mut prefs.dof_focus, 0.2..=3.0).logarithmic(true)).on_hover_text(tr("1 is the point the camera orbits around; it follows zooming. Needs Depth of field (Post effects)."));
+            ui.add_enabled(prefs.dof, egui::Slider::new(&mut prefs.dof_focus, 0.2..=3.0).logarithmic(true)).on_hover_text(tr("1 is the point the camera orbits around; it follows zooming. Ctrl + middle click in the 3D view focuses on the point under the cursor. Needs Depth of field (Post effects)."));
             ui.end_row();
             ui.label(tr("Focus point"));
             pick = ui.add_enabled(prefs.dof, egui::Button::new(tr("Pick in 3D view"))).on_hover_text(tr("Click the model in the 3D view to focus on that spot")).clicked();
@@ -360,6 +431,48 @@ mod tests {
         assert_eq!(s.session.settings().display, None);
     }
 
+    #[test]
+    fn the_environment_and_lens_travel_with_the_project() {
+        let mut s = state();
+        sync_project(&mut s);
+        let glasshouse = s.env.index;
+        let other = (0..s.library.environments.len()).find(|i| *i != glasshouse).expect("more than one environment");
+        let other_name = s.library.environments[other].name.clone();
+        s.env.index = other;
+        s.env.rotation_deg = 40.0;
+        s.recovery.prefs.viewport.env_exposure = 1.5;
+        let before = s.camera.distance;
+        set_fov(&mut s.camera, 80.0);
+        // A wider lens steps closer by the ratio of the half-angle tangents: the target keeps its size.
+        let expected = before * (20f32.to_radians().tan() / 40f32.to_radians().tan());
+        assert!((s.camera.distance - expected).abs() < 1e-4 * before, "{} vs {expected}", s.camera.distance);
+        sync_project(&mut s);
+        let saved = s.session.settings().display.clone().unwrap();
+        assert_eq!((saved.env_map.as_deref(), saved.env_rotation, saved.env_exposure, saved.fov), (Some(other_name.as_str()), 40.0, 1.5, 80.0));
+        // Opening that project elsewhere brings the map, its rotation and the lens back.
+        let mut session = Session::new(subcraft_mesh::primitives::cube(2.0), 64);
+        let mut settings = session.settings().clone();
+        settings.display = Some(saved);
+        session.set_settings(settings);
+        let mut fresh = state();
+        fresh.set_session(session);
+        sync_project(&mut fresh);
+        assert_eq!((fresh.env.index, fresh.env.rotation_deg, fresh.camera.fov_y_deg), (other, 40.0, 80.0));
+        assert_eq!(fresh.recovery.prefs.viewport.env_exposure, 1.5);
+    }
+
+    #[test]
+    fn a_local_environment_turns_with_the_camera_and_exposure_is_in_stops() {
+        use crate::panels::shelf::environment_view;
+        let mut d = subcraft_doc::DisplaySettings { env_exposure: 2.0, ..Default::default() };
+        assert_eq!(environment_view(&d, 30.0, 1.0), (30.0, 4.0), "world aligned: the camera does not matter");
+        d.env_alignment = subcraft_doc::EnvAlignment::Local;
+        let (rotation, _) = environment_view(&d, 30.0, std::f32::consts::FRAC_PI_2);
+        assert!((rotation - 120.0).abs() < 1e-3, "a quarter turn of the camera turns the map a quarter turn: {rotation}");
+        let (wrapped, _) = environment_view(&d, 170.0, std::f32::consts::FRAC_PI_2);
+        assert!((wrapped + 100.0).abs() < 1e-3, "stays in the slider's range: {wrapped}");
+    }
+
     fn texts(output: &egui::FullOutput) -> Vec<(String, f32)> {
         output.shapes.iter().filter_map(|s| match &s.shape {
             egui::epaint::Shape::Text(t) => Some((t.galley.job.text.clone(), t.pos.y)),
@@ -372,7 +485,7 @@ mod tests {
         let ctx = egui::Context::default();
         crate::theme::apply(&ctx);
         let mut s = state();
-        let mut draw = |s: &mut UiState| {
+        let draw = |s: &mut UiState| {
             let mut out = ctx.run_ui(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(420.0, 3000.0))), ..Default::default() }, |ui| {
                 egui::CentralPanel::default().show(ui, |ui| show(s, ui));
             });
@@ -392,7 +505,11 @@ mod tests {
             assert!(y(button) < y(headers[0]), "jump button {button} sits above the groups");
         }
         // The controls that used to be spread over the toolbar, the Render quality window and the shelf.
-        for control in ["Environment map", "Environment rotation", "Aperture", "Anti-aliasing", "Bloom", "Glare", "Tone mapping", "Show mesh wireframe", "Show grid", "Bounces"] {
+        let env = ["Environment map", "Environment opacity", "Environment exposure (EV)", "Environment rotation", "Environment blur", "Environment alignment"];
+        for pair in env.windows(2) {
+            assert!(y(pair[0]) < y(pair[1]), "{} is above {} (Painter's order)", pair[0], pair[1]);
+        }
+        for control in ["Field of view", "Focal length (mm)", "Focus distance", "Aperture", "Anti-aliasing", "Bloom", "Glare", "Tone mapping", "Show mesh wireframe", "Show grid", "Bounces"] {
             y(control);
         }
         assert!(y("Bloom") < y("Glare") && y("Glare") < y("Tone mapping"), "effects keep Painter's stack order");

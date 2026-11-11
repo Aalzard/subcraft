@@ -70,15 +70,15 @@ Layout notes: a thumbnail button for the map (opens a mini-shelf filtered to env
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Environment Map (button opening a mini-shelf) | Display Settings > Environment | not documented | partial: picked by clicking a tile in Shelf > Environments, no button/mini-shelf | crates/ui/src/panels/shelf.rs:725 | - |
-| Drag an environment map onto the 3D view / onto the button | 3D view, Environment Map button | - | missing: shelf drag payloads have no environment kind | - | - |
+| Environment Map (button opening a mini-shelf) | Display Settings > Environment | not documented | partial: a dropdown of the environments (and a drop target), no thumbnail mini-shelf | crates/ui/src/panels/display_settings.rs (environment) | 165 |
+| Drag an environment map onto the 3D view / onto the button | 3D view, Environment Map button | - | done: from Assets > Environments onto the 3D view or the Environment map dropdown | crates/ui/src/panels/shelf.rs (EnvironmentDrag), crates/ui/src/viewport.rs | 165 |
 | Override environment map color space (checkbox + color space list) | Display Settings > Environment (color-managed projects) | off | missing | - | - |
-| Environment Opacity | Display Settings > Environment | not documented | missing: background is a flat color, the map is never drawn behind the model | - | - |
-| Environment Exposure (EV) | Display Settings > Environment | 0 EV | partial: "Intensity" multiplier 0.1-4 (default 1), not EV, in Shelf > Environments | crates/ui/src/panels/shelf.rs:842 | - |
+| Environment Opacity | Display Settings > Environment | not documented | done: 0-100%, default 0 (plain background) | crates/render/src/viewport.wgsl (fs_background), crates/ui/src/panels/display_settings.rs (environment) | 165 |
+| Environment Exposure (EV) | Display Settings > Environment | 0 EV | done: -5..5 EV, default 0 | crates/ui/src/panels/display_settings.rs (environment), crates/ui/src/panels/shelf.rs (environment_view) | 165 |
 | Environment Rotation | Display Settings > Environment | not documented | done | crates/ui/src/panels/display_settings.rs (environment) | 161 |
 | Rotate environment by mouse | 3D view, Shift+Right mouse drag | Shift+RMB | done | crates/ui/src/nav.rs:76 | - |
-| Environment Blur | Display Settings > Environment | not documented | missing | - | - |
-| Environment Alignment | Display Settings > Environment | World; options World, Local | missing | - | - |
+| Environment Blur | Display Settings > Environment | not documented | done: 0-1 (default 0.5), applies to the backdrop | crates/render/src/viewport.wgsl (background_radiance) | 165 |
+| Environment Alignment | Display Settings > Environment | World; options World, Local | done: World (default), Local | crates/doc/src/display.rs (EnvAlignment), crates/ui/src/panels/shelf.rs (environment_view) | 165 |
 
 ## Environment settings: Shadows
 
@@ -105,10 +105,10 @@ a trailing asterisk.
 | Lock camera | Display Settings > Camera, lock icon | unlocked | missing | - | - |
 | Modified marker (italic name with asterisk) | Camera dropdown | - | missing | - | - |
 | Display ratio (read-only; "Unspecified" when absent) | Display Settings > Camera | Unspecified | missing | - | - |
-| Field of View (degrees) | Display Settings > Camera | not documented | missing: value exists on the camera (set only by imported cameras), no control | - | - |
-| Focal length (mm) | Display Settings > Camera | not documented | missing | - | - |
+| Field of View (degrees) | Display Settings > Camera | not documented | done: 5-120 degrees; the camera dollies to keep the model its size | crates/ui/src/panels/display_settings.rs (camera, set_fov) | 165 |
+| Focal length (mm) | Display Settings > Camera | not documented | done: full-frame (24 mm high) equivalent of the field of view | crates/doc/src/display.rs (focal_length_mm) | 165 |
 | Focus Distance | Display Settings > Camera | not documented | partial: a multiple of the orbit distance (0.2-3), not scene units | crates/ui/src/panels/display_settings.rs (camera) | 161 |
-| Set focus distance by clicking the mesh | 3D view, Ctrl+Middle mouse click | Ctrl+MMB | partial: "Pick in 3D view" button then click; no shortcut | crates/ui/src/render_export.rs:103 | - |
+| Set focus distance by clicking the mesh | 3D view, Ctrl+Middle mouse click | Ctrl+MMB | done: Ctrl+MMB, and the "Pick in 3D view" button | crates/ui/src/viewport.rs | 165 |
 | Aperture | Display Settings > Camera | not documented | partial: blur amount 0-1 (default 0.5), not a physical aperture | crates/ui/src/panels/display_settings.rs (camera) | 161 |
 | Camera Perspective | Shortcut F5 (also viewport projection control) | perspective | done | crates/app/src/actions.rs:210 | - |
 | Camera Orthographic | Shortcut F6 | - | done | crates/app/src/actions.rs:211 | - |
@@ -364,7 +364,7 @@ copy in Preferences (`crates/ui/src/recovery.rs:327`). SubCraft extras: Bounces 
 |---|---|---|---|---|---|
 | Rendering (Iray) | Mode menu | - | partial: View > "Rendering mode (path tracing)" (no Mode menu) | crates/ui/src/app.rs:1266 | - |
 | Rendering (Iray) shortcut | F10 | F10 | done | crates/app/src/actions.rs:222 | - |
-| Painting (leave rendering) shortcut | F9 | F9 | missing: F10 toggles; F9 is unbound | - | - |
+| Painting (leave rendering) shortcut | F9 | F9 | done | crates/app/src/actions.rs (Action::PaintingMode) | 165 |
 | Camera icon | Main toolbar | - | partial: "Render" button in the 3D view's bottom-right corner | crates/ui/src/viewport.rs:608 | - |
 | Status (Rendering / Paused / Done) | Iray settings, top | - | partial: status pill in the 3D view (samples per second / paused / done) | crates/ui/src/viewport.rs:557 | - |
 | Resolution (readout) | Iray settings, top | viewport size | missing | - | - |
@@ -393,9 +393,9 @@ copy in Preferences (`crates/ui/src/recovery.rs:327`). SubCraft extras: Bounces 
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Environment map (button; drop an HDR on it) | Viewer settings > Environment | shared with viewport | partial: shared with the viewport, chosen in Shelf > Environments | crates/ui/src/panels/shelf.rs:725 | - |
-| Environment Exposure | Viewer settings > Environment | shared | partial: shared "Intensity" multiplier | crates/ui/src/panels/shelf.rs:842 | - |
-| Environment Rotation | Viewer settings > Environment | shared | partial: shared "Rotation" slider | crates/ui/src/panels/shelf.rs:842 | - |
+| Environment map (button; drop an HDR on it) | Viewer settings > Environment | shared with viewport | partial: shared with the viewport; dropdown in Display Settings, tiles in Assets > Environments | crates/ui/src/panels/display_settings.rs (environment) | 165 |
+| Environment Exposure | Viewer settings > Environment | shared | done: shared EV exposure | crates/ui/src/panels/display_settings.rs (environment) | 165 |
+| Environment Rotation | Viewer settings > Environment | shared | done: shared | crates/ui/src/panels/display_settings.rs (environment) | 165 |
 | Dome type | Viewer settings > Dome | options Infinite Sphere, Sphere, Sphere with ground | partial: "Ground shadow" checkbox adds a gray ground disc; no dome choice | crates/ui/src/viewport_bar.rs:289 | - |
 | Radius | Viewer settings > Dome | not documented | missing | - | - |
 | Texture Scale | Viewer settings > Dome | not documented | missing | - | - |
