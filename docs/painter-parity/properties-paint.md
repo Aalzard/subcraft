@@ -15,7 +15,7 @@ Layout notes: Painter shows one Properties panel whose content follows the selec
 | Open Properties from the dock toolbar | Dock toolbar | n/a | partial: dock tab, no dock-toolbar icon strip | crates/ui/src/app.rs:872 | - |
 | Right-click in the viewport opens a floating Properties at the cursor | Viewport | n/a | missing | - | #131 |
 | Right-click inside Properties opens the preset context menu | Properties (paint tool) | n/a | missing | - | - |
-| Section order: Brush, Alpha, Stencil, Material | Properties (paint tool) | n/a | partial: order is Stencil, Material, Brush, Jitter; no Alpha block | crates/ui/src/panels/brush.rs:65 | - |
+| Section order: Brush, Alpha, Stencil, Material | Properties (paint tool) | n/a | done | crates/ui/src/panels/brush.rs (show) | - |
 | Collapsible parameter groups | Properties | open | done | crates/ui/src/widgets.rs:103 (section) | - |
 
 ## Sliders (all panels)
@@ -45,37 +45,37 @@ Layout notes: one slider per row, label above. Size, Flow and the jitters carry 
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Size | Properties > Brush | not documented | partial: lives in the contextual bar only (not in Properties); 0.1-100 % of model diagonal, default 5 | crates/ui/src/brush_bar.rs:189 | - |
-| Size: pen pressure toggle | Properties > Brush > Size | not documented | partial: a 0-100 % "Pen pressure Size" amount in the stroke-options popup, not a toggle on the row | crates/ui/src/brush_bar.rs:95 | - |
-| Minimum Size (lower bound when pressure drives size) | Properties > Brush > Size | not documented | partial: folded into the pressure amount (1 - amount) | crates/paint/src/settings.rs:131 | - |
-| Flow | Properties > Brush | not documented | partial: contextual-bar popup only; 0-100 %, default 100 | crates/ui/src/brush_bar.rs:44 | - |
-| Flow: pen pressure toggle | Properties > Brush > Flow | not documented | partial: 0-100 % amount in the stroke-options popup | crates/ui/src/brush_bar.rs:96 | - |
-| Minimum Flow | Properties > Brush > Flow | not documented | partial: folded into the pressure amount | crates/paint/src/settings.rs:136 | - |
-| Stroke Opacity (no pressure control) | Properties > Brush | not documented | partial: contextual bar "Opacity" only; 0-100 %, default 100 | crates/ui/src/brush_bar.rs:46 | - |
-| Spacing | Properties > Brush | not documented | partial: 0.02-2.0 brush diameters (log), default 0.1; Painter's unit/range unconfirmed | crates/ui/src/panels/brush.rs:108 | - |
-| Angle | Properties > Brush | not documented | done | crates/ui/src/panels/brush.rs:109 | - |
-| Follow Path | Properties > Brush | off (unverified) | done | crates/ui/src/panels/brush.rs:126 | - |
-| Size Jitter | Properties > Brush | 0; 0-1 | done | crates/ui/src/panels/brush.rs:135 | - |
-| Size Jitter: pen pressure toggle | Properties > Brush > Size Jitter | (unverified) | missing | - | - |
-| Flow Jitter | Properties > Brush | 0; 0-1 | done | crates/ui/src/panels/brush.rs:136 | - |
-| Flow Jitter: pen pressure toggle | Properties > Brush > Flow Jitter | (unverified) | missing | - | - |
-| Angle Jitter | Properties > Brush | 0; 0-1 | partial: expressed as 0-180 degrees instead of 0-1 | crates/ui/src/panels/brush.rs:137 | - |
-| Angle Jitter: pen pressure toggle | Properties > Brush > Angle Jitter | (unverified) | missing | - | - |
-| Position Jitter | Properties > Brush | 0; 0-1 | partial: range 0-2 | crates/ui/src/panels/brush.rs:138 | - |
-| Position Jitter: pen pressure toggle | Properties > Brush > Position Jitter | (unverified) | missing | - | - |
+| Size | Properties > Brush | not documented | done | crates/ui/src/panels/brush_rows.rs (size_flow_opacity) | - |
+| Size: pen pressure toggle | Properties > Brush > Size | not documented | done | crates/ui/src/panels/brush_rows.rs (pressure_toggle) | - |
+| Minimum Size (lower bound when pressure drives size) | Properties > Brush > Size | not documented | done | crates/paint/src/settings.rs (BrushSettings::min_size) | - |
+| Flow | Properties > Brush | not documented | done | crates/ui/src/panels/brush_rows.rs (size_flow_opacity) | - |
+| Flow: pen pressure toggle | Properties > Brush > Flow | not documented | done | crates/ui/src/panels/brush_rows.rs (pressure_toggle) | - |
+| Minimum Flow | Properties > Brush > Flow | not documented | done | crates/paint/src/settings.rs (BrushSettings::min_flow) | - |
+| Stroke Opacity (no pressure control) | Properties > Brush | not documented | done | crates/ui/src/panels/brush_rows.rs (size_flow_opacity) | - |
+| Spacing | Properties > Brush | not documented | partial: 0.02-2.0 brush diameters (log), default 0.1; Painter's unit/range unconfirmed | crates/ui/src/panels/brush.rs (show, Brush block) | - |
+| Angle | Properties > Brush | not documented | done | crates/ui/src/panels/brush.rs (show, Brush block) | - |
+| Follow Path | Properties > Brush | off (unverified) | done | crates/ui/src/panels/brush.rs (show, Brush block) | - |
+| Size Jitter | Properties > Brush | 0; 0-1 | done | crates/ui/src/panels/brush_rows.rs (jitters) | - |
+| Size Jitter: pen pressure toggle | Properties > Brush > Size Jitter | (unverified) | done | crates/ui/src/panels/brush_rows.rs (jitters); pressure scales the jitter | - |
+| Flow Jitter | Properties > Brush | 0; 0-1 | done | crates/ui/src/panels/brush_rows.rs (jitters) | - |
+| Flow Jitter: pen pressure toggle | Properties > Brush > Flow Jitter | (unverified) | done | crates/ui/src/panels/brush_rows.rs (jitters); pressure scales the jitter | - |
+| Angle Jitter | Properties > Brush | 0; 0-1 | done | crates/ui/src/panels/brush_rows.rs (jitters) | - |
+| Angle Jitter: pen pressure toggle | Properties > Brush > Angle Jitter | (unverified) | done | crates/ui/src/panels/brush_rows.rs (jitters); pressure scales the jitter | - |
+| Position Jitter | Properties > Brush | 0; 0-1 | done | crates/ui/src/panels/brush_rows.rs (jitters) | - |
+| Position Jitter: pen pressure toggle | Properties > Brush > Position Jitter | (unverified) | done | crates/ui/src/panels/brush_rows.rs (jitters); pressure scales the jitter | - |
 | Position Jitter Axis (one axis / both axes) | Properties > Brush | not documented | missing | - | - |
 | Stamps Blending (how overlapping stamps of one stroke combine, e.g. Lighten) | Properties > Brush | not documented | missing | - | - |
-| Alignment (dropdown) | Properties > Brush | Tangent &#124; Wrap | done | crates/ui/src/panels/brush.rs:111 | - |
-| Alignment: Camera | Properties > Brush > Alignment | option | done | crates/ui/src/panels/brush.rs:122 | - |
-| Alignment: Tangent &#124; Wrap | Properties > Brush > Alignment | default | done | crates/ui/src/panels/brush.rs:120 | - |
-| Alignment: Tangent &#124; Planar | Properties > Brush > Alignment | option | done | crates/ui/src/panels/brush.rs:121 | - |
-| Alignment: UV | Properties > Brush > Alignment | option | done | crates/ui/src/panels/brush.rs:123 | - |
-| Backface Culling (toggle) | Properties > Brush | on (unverified) | done | crates/ui/src/panels/brush.rs:127 | - |
-| Backface Culling angle | Properties > Brush | 90 (unverified); range not documented | partial: range 10-90 degrees | crates/ui/src/panels/brush.rs:129 | - |
-| Size Space (dropdown) | Properties > Brush | Object | missing | - | - |
-| Size Space: Object | Properties > Brush > Size Space | default | partial: the only behaviour (size is % of model diagonal), no dropdown | crates/paint/src/settings.rs:118 | - |
-| Size Space: Viewport | Properties > Brush > Size Space | option | missing | - | - |
-| Size Space: Texture | Properties > Brush > Size Space | option | missing | - | - |
+| Alignment (dropdown) | Properties > Brush | Tangent &#124; Wrap | done | crates/ui/src/panels/brush.rs (show, Brush block) | - |
+| Alignment: Camera | Properties > Brush > Alignment | option | done | crates/ui/src/panels/brush.rs (show, Brush block) | - |
+| Alignment: Tangent &#124; Wrap | Properties > Brush > Alignment | default | done | crates/ui/src/panels/brush.rs (show, Brush block) | - |
+| Alignment: Tangent &#124; Planar | Properties > Brush > Alignment | option | done | crates/ui/src/panels/brush.rs (show, Brush block) | - |
+| Alignment: UV | Properties > Brush > Alignment | option | done | crates/ui/src/panels/brush.rs (show, Brush block) | - |
+| Backface Culling (toggle) | Properties > Brush | on (unverified) | done | crates/ui/src/panels/brush.rs (show, Brush block) | - |
+| Backface Culling angle | Properties > Brush | 90 (unverified); range not documented | partial: range 10-90 degrees | crates/ui/src/panels/brush.rs (show, Brush block) | - |
+| Size Space (dropdown) | Properties > Brush | Object | done | crates/ui/src/panels/brush_rows.rs (size_space) | - |
+| Size Space: Object | Properties > Brush > Size Space | default | done | crates/paint/src/settings.rs (BrushSettings::radius_in) | - |
+| Size Space: Viewport | Properties > Brush > Size Space | option | partial: 3D view only; the 2D view uses the object size | crates/paint/src/stroke.rs (Stroke::base_radius) | - |
+| Size Space: Texture | Properties > Brush > Size Space | option | done | crates/paint/src/stroke.rs (Stroke::base_radius) | - |
 | Continue the previous stroke (A) so stroke opacity keeps accumulating | Viewport, described with Stroke Opacity | n/a | missing | - | - |
 
 ## Alpha
@@ -84,12 +84,12 @@ Layout notes: a single resource slot (thumbnail button, name, remove cross) foll
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Alpha resource slot (bitmap or Substance) | Properties > Alpha | preset dependent | partial: tip name is a read-only label; change it from Shelf > Brushes, no slot / drop target | crates/ui/src/panels/brush.rs:102 | - |
-| Click the slot to open a mini asset browser | Properties > Alpha | n/a | missing | - | - |
-| Drag an alpha from Assets onto the slot | Properties > Alpha | n/a | missing | - | - |
-| Remove the alpha (cross on the slot) | Properties > Alpha | n/a | missing | - | - |
+| Alpha resource slot (bitmap or Substance) | Properties > Alpha | preset dependent | partial: bitmap tips only, no Substance alphas | crates/ui/src/panels/brush_rows.rs (alpha_slot) | - |
+| Click the slot to open a mini asset browser | Properties > Alpha | n/a | done | crates/ui/src/panels/brush_rows.rs (mini_browser) | - |
+| Drag an alpha from Assets onto the slot | Properties > Alpha | n/a | done | crates/ui/src/panels/brush_rows.rs (alpha_slot) | - |
+| Remove the alpha (cross on the slot) | Properties > Alpha | n/a | done | crates/ui/src/panels/brush_rows.rs (alpha_slot) | - |
 | Substance alpha: exposed graph parameters listed under the slot | Properties > Alpha | per resource | missing | - | - |
-| Hardness (when the alpha Substance exposes a "hardness" input; driven by the hardness shortcuts) | Properties > Alpha | per resource | partial: built-in Hardness for every tip, in the contextual bar popup; 0-100 %, default 50 | crates/ui/src/brush_bar.rs:48 | - |
+| Hardness (when the alpha Substance exposes a "hardness" input; driven by the hardness shortcuts) | Properties > Alpha | per resource | partial: built-in Hardness for every tip, shown in the Alpha block | crates/ui/src/panels/brush.rs (show, Alpha block) | - |
 | Text resource as alpha (font dropped in the slot) | Properties > Alpha | n/a | partial: "Use as brush tip" button in the Text section | crates/ui/src/text_panel.rs:277 | - |
 | Vector graphic (.svg / .ai) as alpha | Properties > Alpha | n/a | missing | - | - |
 
@@ -135,12 +135,12 @@ Layout notes: a resource slot, then the tiling mode dropdown. Stencil transform 
 | Stencil resource slot | Properties > Stencil | empty (no effect) | partial: "Choose image" file dialog only; no asset slot, no drop from the shelf | crates/ui/src/panels/brush.rs:67 | - |
 | Remove the stencil | Properties > Stencil | n/a | done | crates/ui/src/panels/brush.rs:70 | - |
 | Substance stencil: exposed graph parameters | Properties > Stencil | per resource | missing | - | - |
-| Tiling mode (dropdown) | Properties > Stencil | No Tiling | partial: a single "Tile" checkbox | crates/ui/src/panels/brush.rs:83 | - |
-| Tiling mode: No Tiling | Properties > Stencil > Tiling mode | default | done | crates/ui/src/panels/brush.rs:83 | - |
-| Tiling mode: Horizontal Tiling | Properties > Stencil > Tiling mode | option | missing | - | - |
-| Tiling mode: Vertical Tiling | Properties > Stencil > Tiling mode | option | missing | - | - |
-| Tiling mode: H and V Tiling | Properties > Stencil > Tiling mode | option | done | crates/ui/src/panels/brush.rs:83 | - |
-| Reset stencil transform (button at the viewport's top right while S is held) | Viewport | n/a | missing | - | - |
+| Tiling mode (dropdown) | Properties > Stencil | No Tiling | done | crates/ui/src/panels/brush.rs (show, Stencil block) | - |
+| Tiling mode: No Tiling | Properties > Stencil > Tiling mode | default | done | crates/paint/src/stencil.rs (StencilTiling) | - |
+| Tiling mode: Horizontal Tiling | Properties > Stencil > Tiling mode | option | done | crates/paint/src/stencil.rs (StencilTiling) | - |
+| Tiling mode: Vertical Tiling | Properties > Stencil > Tiling mode | option | done | crates/paint/src/stencil.rs (StencilTiling) | - |
+| Tiling mode: H and V Tiling | Properties > Stencil > Tiling mode | option | done | crates/paint/src/stencil.rs (StencilTiling) | - |
+| Reset stencil transform (button at the viewport's top right while S is held) | Viewport | n/a | done; also a Reset button in the Stencil block | crates/ui/src/viewport.rs (reset_stencil) | - |
 | Text resource / vector graphic as stencil | Properties > Stencil | n/a | missing | - | - |
 
 ## Material
@@ -173,7 +173,7 @@ Layout notes: a row of channel toggle buttons (one per channel of the Texture Se
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Paint: Preview, Brush, Alpha, Stencil, Material blocks | Properties | n/a | partial: no Alpha block, different order | crates/ui/src/panels/brush.rs:10 | - |
+| Paint: Preview, Brush, Alpha, Stencil, Material blocks | Properties | n/a | done | crates/ui/src/panels/brush.rs (show) | - |
 | Physical paint: adds the Physics block | Properties | n/a | missing | - | - |
 | Dynamic stroke on Alpha and Material slots | Properties | n/a | missing | - | - |
 
@@ -182,8 +182,8 @@ Layout notes: a row of channel toggle buttons (one per channel of the Texture Se
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
 | Eraser shares Brush, Alpha and Stencil with Paint | Properties | n/a | done | crates/ui/src/panels/brush.rs:101 | - |
-| Material block reduced to channel toggles (no colours, no slots) | Properties > Material | all channels on | partial: full paint Material block still shown; per-channel erase not confirmed in code | crates/ui/src/panels/brush.rs:91 | - |
-| Erase only the selected channels | Properties > Material | n/a | missing | - | - |
+| Material block reduced to channel toggles (no colours, no slots) | Properties > Material | all channels on | done | crates/ui/src/panels/brush.rs (eraser_channels) | - |
+| Erase only the selected channels | Properties > Material | n/a | done | crates/ui/src/panels/brush.rs (eraser_channels); crates/app/tests/tool_gaps.rs | - |
 | Physical eraser (particles) | Properties > Physics | n/a | missing | - | - |
 
 ## Projection tool
@@ -234,8 +234,8 @@ Layout notes: Selection mode icons first, then Fill mode icons (only meaningful 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
 | Clone shares Brush, Alpha and Stencil parameters with Paint | Properties | n/a | done | crates/ui/src/panels/brush.rs:101 | - |
-| Clone source behaviour: relative (source follows after each stroke) | Tool variant / button | default | partial: a single clone mode, no switch | crates/app/src/session.rs:1641 | - |
-| Clone source behaviour: absolute (source returns to where V set it) | Tool variant / button | option | missing | - | - |
+| Clone source behaviour: relative (source follows after each stroke) | Tool variant / button | default | partial: "Source" dropdown in Properties, not a toolbar variant | crates/app/src/session.rs (CloneSourceMode) | - |
+| Clone source behaviour: absolute (source returns to where V set it) | Tool variant / button | option | partial: "Source" dropdown in Properties, not a toolbar variant | crates/app/src/session.rs (CloneSourceMode) | - |
 | Clone from all layers below via Pass through blending | Layer stack + tool | n/a | missing | - | - |
 | Dynamic stroke on the Alpha slot | Properties > Alpha | n/a | missing | - | - |
 

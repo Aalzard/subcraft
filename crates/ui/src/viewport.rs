@@ -74,16 +74,24 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     });
 
     // ----- stencil: hold S + drag (LMB rotate, MMB move, RMB scale); hold N to bypass ------------
-    let (s_down, n_down) = ui.input(|i| (i.key_down(egui::Key::S) && !i.modifiers.any(), i.key_down(egui::Key::N) && !i.modifiers.any()));
+    // Shift is the only modifier allowed with S: it snaps the rotation to quarter turns.
+    let (s_down, n_down) = ui.input(|i| (i.key_down(egui::Key::S) && !(i.modifiers.ctrl || i.modifiers.command || i.modifiers.alt), i.key_down(egui::Key::N) && !i.modifiers.any()));
     let typing = ui.ctx().egui_wants_keyboard_input();
     state.session.brush.stencil_bypass = n_down && !typing;
     let stencil_edit = s_down && !typing && state.session.brush.stencil.is_some();
     if stencil_edit && response.hovered() {
         let mut st = (**state.session.brush.stencil.as_ref().expect("checked above")).clone();
         let mut changed = false;
+        // The free angle of the drag is kept apart so a snapped rotation follows the whole
+        // gesture, not each small mouse step.
+        let free_id = egui::Id::new("stencil-free-rotation");
         if response.dragged_by(PointerButton::Primary) {
-            st.rotation += delta.x * 0.01;
+            let free = ui.data(|d| d.get_temp::<f32>(free_id)).unwrap_or(st.rotation) + delta.x * 0.01;
+            ui.data_mut(|d| d.insert_temp(free_id, free));
+            st.rotation = stencil_drag_rotation(free, mods.shift);
             changed = true;
+        } else {
+            ui.data_mut(|d| d.remove::<f32>(free_id));
         }
         if response.dragged_by(PointerButton::Middle) {
             st.center += Vec2::new(delta.x / rect.width(), delta.y / rect.height());
@@ -486,7 +494,13 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     if let Some(p) = response.hover_pos() {
         if paint_tool && !alt {
             if let Some(pick) = state.session.pick(&camera, to_screen(p)) {
-                let r_px = state.session.brush_radius() * camera.pixels_per_unit(pick.depth) / pixel_scale.y;
+                // Texture size space needs the set's texel density (cached per material slot).
+                let density = if state.session.brush.settings.size_space == subcraft_paint::SizeSpace::Texture {
+                    let (slot, mesh) = (pick.material_slot, &state.session.scene().mesh);
+                    *state.uv_density.entry(slot).or_insert_with(|| subcraft_paint::stroke::uv_per_unit(mesh, slot))
+                } else { 0.0 };
+                let ppu = camera.pixels_per_unit(pick.depth);
+                let r_px = state.session.brush_radius_in(ppu, size[1] as f32, density) * ppu / pixel_scale.y;
                 let color = if state.tool == Tool::Eraser { Color32::from_rgb(120, 190, 255) } else { ACCENT };
                 painter.circle_stroke(p, r_px, Stroke::new(1.5, Color32::from_black_alpha(160)));
                 painter.circle_stroke(p, r_px, Stroke::new(1.0, color));
@@ -510,6 +524,15 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         }
     }
     draw_stencil(state, ui, &painter, rect, size);
+    // Reset button at the top right of the view while S is held.
+    if stencil_edit {
+        let transformed = state.session.brush.stencil.as_ref().is_some_and(|s| s.is_transformed());
+        let at = Rect::from_min_size(egui::pos2(rect.right() - 152.0, rect.top() + 10.0), egui::vec2(142.0, 26.0));
+        let button = ui.put(at, egui::Button::new(format!("{}  Reset stencil", crate::icons::UNDO)));
+        if button.on_hover_text("Stencil back to the center, upright, at its default size").clicked() && transformed {
+            reset_stencil(state);
+        }
+    }
     if let Some(item) = drop_hover {
         painter.rect_stroke(rect.shrink(1.0), 0.0, Stroke::new(2.0, ACCENT), egui::StrokeKind::Inside);
         let target = state.session.selected_layer().map(|l| l.name.clone());
@@ -650,13 +673,37 @@ fn pen_position(state: &UiState, camera: &subcraft_app::Camera, rect: Rect, uv: 
     Some(rect.min + egui::vec2(screen.x * rect.width() / camera.viewport[0] as f32, screen.y * rect.height() / camera.viewport[1] as f32))
 }
 
-/// Semi-transparent stencil image over the 3D view (hidden while N bypasses it).
+/// Rotation of a stencil being dragged: the free angle, or its nearest quarter turn with Shift.
+pub fn stencil_drag_rotation(free: f32, snap: bool) -> f32 {
+    if snap { subcraft_paint::snap_rotation(free) } else { free }
+}
+
+/// Put the stencil back where a newly loaded one sits (image and tiling kept).
+pub fn reset_stencil(state: &mut UiState) {
+    if let Some(st) = state.session.brush.stencil.clone() {
+        let mut st = (*st).clone();
+        st.reset_transform();
+        state.session.brush.stencil = Some(std::sync::Arc::new(st));
+    }
+}
+
+/// Alpha (0..=255) of the stencil overlay: its display opacity, or 0 while it is hidden.
+pub fn stencil_overlay_alpha(display: crate::state::StencilDisplay, painting: bool, bypass: bool) -> u8 {
+    if bypass || (painting && display.hide_when_painting) {
+        return 0;
+    }
+    (display.opacity.clamp(0.0, 1.0) * 255.0).round() as u8
+}
+
+/// Semi-transparent stencil image over the 3D view (hidden while N bypasses it), repeated along
+/// its tiled axes.
 fn draw_stencil(state: &mut UiState, ui: &Ui, painter: &egui::Painter, rect: Rect, size: [u32; 2]) {
     let Some(st) = state.session.brush.stencil.clone() else {
         state.stencil_tex = None;
         return;
     };
-    if state.session.brush.stencil_bypass {
+    let alpha = stencil_overlay_alpha(state.stencil_display, state.painting, state.session.brush.stencil_bypass);
+    if alpha == 0 {
         return;
     }
     let key = std::sync::Arc::as_ptr(&st.bitmap) as usize;
@@ -669,12 +716,15 @@ fn draw_stencil(state: &mut UiState, ui: &Ui, painter: &egui::Painter, rect: Rec
     let Some((_, tex)) = &state.stencil_tex else { return };
     let to_ui = |v: glam::Vec2| egui::pos2(rect.min.x + v.x * rect.width() / size[0] as f32, rect.min.y + v.y * rect.height() / size[1] as f32);
     let c = st.corners(size);
-    let tint = Color32::from_white_alpha(110);
+    let tint = Color32::from_white_alpha(alpha);
     let mut mesh = egui::Mesh::with_texture(tex.id());
-    for (p, uv) in c.iter().zip([egui::pos2(0.0, 0.0), egui::pos2(1.0, 0.0), egui::pos2(1.0, 1.0), egui::pos2(0.0, 1.0)]) {
-        mesh.vertices.push(egui::epaint::Vertex { pos: to_ui(*p), uv, color: tint });
+    for offset in st.copy_offsets(size) {
+        let base = mesh.vertices.len() as u32;
+        for (p, uv) in c.iter().zip([egui::pos2(0.0, 0.0), egui::pos2(1.0, 0.0), egui::pos2(1.0, 1.0), egui::pos2(0.0, 1.0)]) {
+            mesh.vertices.push(egui::epaint::Vertex { pos: to_ui(*p + offset), uv, color: tint });
+        }
+        mesh.indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
     }
-    mesh.indices.extend_from_slice(&[0, 1, 2, 0, 2, 3]);
     painter.with_clip_rect(rect).add(egui::Shape::mesh(mesh));
     let outline: Vec<egui::Pos2> = c.iter().map(|p| to_ui(*p)).collect();
     painter.with_clip_rect(rect).add(egui::Shape::closed_line(outline, Stroke::new(1.0, Color32::from_white_alpha(90))));

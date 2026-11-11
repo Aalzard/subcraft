@@ -4999,7 +4999,33 @@ rotating one slot when a tile is full (helps cyclic stacks, but the 40-layer sta
   --window-size 1600x1000 --screenshot` shows the Export window with the editor open, no errors; the checklist lists
   the pattern-based names (`T_DefaultMaterial_BaseColor.png`, `..._ORM.png`, `..._N.tif`).
 
-### Session 122 - Typed slider boxes (#140) and brush colour picker (#141) (2026-11-11, branch `claude/issues-140-141`)
+### Session 121 - Painter parity chunk 5: Brush block in Properties (2026-11-11, branch `claude/parity-brush-block`)
+
+* **Done:** Properties for a paint tool follow Painter's order: Brush, Alpha, Stencil, Material. Brush block: Size, Flow
+  (each with a pen pressure toggle and a Minimum row while it is on), Stroke opacity, Spacing, Angle, Follow Path, four
+  jitters shown 0-1 with pressure toggles (pressure scales the jitter), Alignment, Backface Culling, Size Space
+  (Object / Viewport / Texture; `BrushSettings::radius_in`, `SizeContext`). Alpha block: resource slot with thumbnail,
+  click opens a mini browser with search, alphas can be dropped from the Shelf, a cross removes the alpha; Hardness.
+  Pressure toggle icon is drawn in code.
+* **Verified locally (release):** `subcraft-paint`, `subcraft-app` and `subcraft-ui` libraries compile with this change.
+  The new and touched tests were NOT run locally (build queue; CI is the test gate for this PR).
+* **Tests added:** paint unit tests (size space, pressure toggles, jitter pressure); `crates/ui/tests/brush_block.rs` (6).
+* **Gaps:** Viewport size space uses the object size in the 2D view; Spacing unit/range unconfirmed against Painter;
+  no Substance alphas.
+
+### Session 122 - Painter parity chunk 20: stencil, eraser and clone gaps (2026-11-11, branch `claude/parity-tool-gaps`, stacks on chunk 5)
+
+* **Done:** Stencil tiling mode dropdown (No Tiling / Horizontal / Vertical / H and V; `StencilTiling`), Shift + S + drag
+  snaps the rotation to 90 degrees, "Reset stencil" button at the top right of the view while S is held (and in the
+  Stencil block), Stencil opacity and "Hide stencil when painting". Eraser: the Material block is reduced to channel
+  toggles; only the enabled channels are erased. Clone: Source dropdown, Relative or Absolute (`CloneSourceMode`).
+* **Verified locally (release):** `subcraft-paint`, `subcraft-app` and `subcraft-ui` libraries compile with this change.
+  The new and touched tests were NOT run locally (build queue; CI is the test gate for this PR).
+* **Tests added:** paint stencil unit tests; `crates/app/tests/tool_gaps.rs`; tiling cases in `crates/app/tests/stencil.rs`.
+* **Not done:** Polygon Fill blending / opacity (waits for #131); the Ctrl+6 clone variant shortcut (key map is owned by
+  another session); stencil display options live in Properties, not in Display settings.
+
+### Session 123 - Typed slider boxes (#140) and brush colour picker (#141) (2026-11-11, branch `claude/issues-140-141`)
 
 * **#140 cause:** egui's `DragValue` (inside every `Slider`) applies the text on each keystroke
   (`update_while_editing`). When the value read back next frame differs from what was set (stored in other

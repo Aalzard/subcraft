@@ -469,6 +469,13 @@ fn brush_click(resp: &egui::Response, ctx: &egui::Context, select: impl FnOnce(&
     } else { None }
 }
 
+impl ShelfUi {
+    /// Thumbnail of an asset, once the Shelf has rendered it.
+    pub(crate) fn thumb(&self, id: &AssetId) -> Option<&egui::TextureHandle> {
+        self.thumbs.get(id)
+    }
+}
+
 /// Thumbnail of a brush tip by name, once the Shelf has rendered it.
 pub(crate) fn tip_thumbnail(state: &UiState, tip: &str) -> Option<egui::TextureId> {
     state.library.alphas.iter().find(|a| a.name == tip).and_then(|a| state.shelf.thumbs.get(&a.id)).map(|t| t.id())
