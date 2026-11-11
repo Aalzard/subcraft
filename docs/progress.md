@@ -5060,3 +5060,20 @@ rotating one slot when a tile is full (helps cyclic stacks, but the 40-layer sta
 * **Tests added:** `crates/app/tests/preset_kinds.rs`, `crates/ui/tests/preset_menus.rs`.
 * **Not done:** Ctrl+drag a smart mask to replace (layers.rs), filter / generator mini-shelves (effects.rs): both files are
   owned by other sessions. No Presets strip for path tools.
+### Parity chunk 33 - Standard filter gaps (2026-11-12, branch `claude/parity-filter-gaps`)
+
+* **Doc (`crates/doc/src/filter.rs`):** new filters Smoothstep (Minimum, Maximum), Contrast Luminosity, Color Correct
+  (Shadows / Midtones / Highlights, each Contrast, Luminosity, Saturation), Transform (Repeat mode, Flip mode,
+  Scaling, Offset, Rotation, Tile Safe Rotation) and Mirror (Axis X, Axis Y, Corner; offsets, axis inverts, corner
+  type). Threshold gains a comparison Mode, Blur and Histogram Shift a Wrap toggle, HSL a Perceptive / Regular mode;
+  these are separate variants sharing the base filter's name, so existing project files load unchanged.
+* **Math (`crates/materials/src/filter.rs`, `filter/pixelwise.rs`):** Smoothstep is the Hermite `3t² - 2t³`
+  between min and max; HSL Perceptive works in OKLCH; Color Correct weights the three ranges by luminance; Transform
+  samples the source through the inverse UV transform (bilinear, per-axis repeat, empty outside when not
+  repeating); Tile Safe snaps rotation to quarter turns and scale to whole fractions. Wrapped blur fetches across
+  the opposite border in the compositor (`Node::Gaussian { wrap }`); Transform and Mirror read the whole texture.
+* **Not done:** apply-to-alpha toggles (Posterize, Pixelate), Highpass colour space, the Invert filter's toggle,
+  Directional Blur Intensity, Mirror Display Debug, Transform's on-canvas Scaling / Offset manipulators.
+* **Checked:** `cargo check --release --all-targets` of doc, materials, compositor, project, app and ui: no errors.
+  New tests (doc domain/support test, materials `standard_filter_tests` and pixelwise tests, compositor spatial
+  tests for wrapped blur, Transform and Mirror) were not run locally (coordinator rule: CI is the test gate).
