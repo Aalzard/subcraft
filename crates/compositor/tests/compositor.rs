@@ -241,6 +241,58 @@ fn passthrough_and_isolated_folders_differ_under_multiply() {
     assert_rgb(&c, ChannelKind::BaseColor, 64, 64, [0.375; 3]);
 }
 
+/// QA 2026-11: a passthrough folder at partial strength inside an isolated folder lerped straight
+/// RGBA against the folder's transparent backdrop, which darkened its colour (0.35 instead of 0.6).
+#[test]
+fn partial_passthrough_folder_inside_an_isolated_folder_keeps_its_colour() {
+    let fx = Fixture::plane();
+    let build = |opacity: f32, half_mask: bool| {
+        let mut ts = texture_set();
+        let tc = ts.clone();
+        ts.insert_above(None, fill_layer(&tc, &[(ChannelKind::BaseColor, ChannelValue::scalar(0.2))]));
+        let mut outer = Layer::new_folder("Isolated", &tc);
+        outer.blend.get_mut(&ChannelKind::BaseColor).unwrap().mode = BlendMode::Normal;
+        let outer = ts.insert_above(None, outer);
+        let mut inner = Layer::new_folder("Passthrough", &tc);
+        let b = inner.blend.get_mut(&ChannelKind::BaseColor).unwrap();
+        b.mode = BlendMode::Passthrough;
+        b.opacity = opacity;
+        if half_mask {
+            let mut mask = Mask::new(RES, true);
+            mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Levels(Levels { out_high: 0.5, ..Levels::default() }))));
+            inner.mask = Some(mask);
+        }
+        let inner = ts.insert(Some(outer), 0, inner).unwrap();
+        ts.insert(Some(inner), 0, fill_layer(&tc, &[(ChannelKind::BaseColor, ChannelValue::scalar(1.0))])).unwrap();
+        ts
+    };
+    // White at 50% over 0.2 is 0.6, whether the 50% comes from the opacity or from the mask.
+    for (opacity, half_mask) in [(0.5, false), (1.0, true)] {
+        let c = composite_full(&build(opacity, half_mask), &fx.ctx());
+        assert_rgb(&c, ChannelKind::BaseColor, 64, 64, [0.6; 3]);
+    }
+    // Full strength and zero strength are unchanged.
+    assert_rgb(&composite_full(&build(1.0, false), &fx.ctx()), ChannelKind::BaseColor, 64, 64, [1.0; 3]);
+    assert_rgb(&composite_full(&build(0.0, false), &fx.ctx()), ChannelKind::BaseColor, 64, 64, [0.2; 3]);
+}
+
+/// QA 2026-11: Edge Detect over a flat input returned the input (0.7) instead of "no edges" (0),
+/// so the result depended on whether the layer's tiles happened to be allocated.
+#[test]
+fn edge_detect_of_a_flat_fill_is_black() {
+    let fx = Fixture::plane();
+    let mut ts = texture_set();
+    let tc = ts.clone();
+    let mut fill = fill_layer(&tc, &[(ChannelKind::Roughness, ChannelValue::scalar(0.7))]);
+    let filter = subcraft_doc::Filter::EdgeDetect { radius: 1.0, strength: 1.0 };
+    fill.content_effects.push(Arc::new(subcraft_doc::ContentEffect::new(subcraft_doc::ContentEffectKind::Filter { channel: ChannelKind::Roughness, filter }, &tc)));
+    ts.insert_above(None, fill);
+    let c = composite_full(&ts, &fx.ctx());
+    for (x, y) in [(64, 64), (0, 0), (127, 127), (63, 64)] {
+        assert_scalar(&c, ChannelKind::Roughness, x, y, 0.0);
+    }
+}
+
 #[test]
 fn paint_layers_contribute_only_channels_they_have() {
     let fx = Fixture::plane();
