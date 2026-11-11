@@ -5077,3 +5077,20 @@ rotating one slot when a tile is full (helps cyclic stacks, but the 40-layer sta
 * **Checked:** `cargo check --release --all-targets` of doc, materials, compositor, project, app and ui: no errors.
   New tests (doc domain/support test, materials `standard_filter_tests` and pixelwise tests, compositor spatial
   tests for wrapped blur, Transform and Mirror) were not run locally (coordinator rule: CI is the test gate).
+### Parity chunk 8 - Fill projection options (2026-11-12, branch `claude/parity-fill-gen`)
+
+* **Doc (`crates/doc/src/fill.rs`):** `FillFiltering` (Bilinear | HQ default, Bilinear | Sharp, Nearest), `UvWrap`
+  (None, Repeat horizontally, Repeat vertically, Repeat default), `ShapeCrop` (cropped to shape, extends outside
+  shape default) on `Projection`, each skipped in JSON when default so existing project files are unchanged.
+  Tri-planar Hardness 0-1 maps onto the stored blend exponent (`s = 1 / (1 - h)`, 1.0 = `TRIPLANAR_HARD`, a hard cut).
+* **Sampling (`crates/materials/src/sample/bitmap.rs`):** Bilinear | HQ is trilinear over a cached, box-filtered mip
+  chain (built in linear light for colour images), with the level picked from texels per output texel; Sharp is
+  bilinear on the full image; Nearest picks the closest texel. UV Wrap applies per axis to image and procedural
+  fills, in content and in masks. Tri-planar always repeats.
+* **UI:** Filtering, UV Wrap (hidden for tri-planar) and Shape crop (hidden for UV) rows on fill layers, fill
+  effects and mask fills; Hardness replaces Sharpness; Offset is hidden for tri-planar.
+* **Not done:** Shape crop's box is the model's bounding cube until the 3D projection transform (chunk 9) exists,
+  so it clips nothing yet.
+* **Checked:** `cargo check --release --all-targets` of doc, materials, compositor, project, app and ui: no errors.
+  The new unit tests (doc, materials, compositor `mask_image_and_procedural_fill_respect_uv_wrap`) were not run
+  locally (coordinator rule: GitHub CI is the test gate); see the PR's CI result.
