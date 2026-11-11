@@ -24,7 +24,7 @@ pub mod tip_preview;
 pub use camera::Camera;
 pub use depth::{DepthCache, DepthMap};
 pub use path::MAX_SMOOTHING;
-pub use settings::{Alignment, BrushChannel, BrushMaterial, BrushSettings, NormalPaintBlend, ImageStamp, StampKind, PaintTarget, PolygonFillMode, RadialSymmetry, MAX_SYMMETRY_COPIES, StrokeMode, StrokeOptions, falloff, MAX_SCATTER};
+pub use settings::{Alignment, BrushChannel, BrushMaterial, BrushSettings, NormalPaintBlend, ImageStamp, StampKind, PaintTarget, PolygonFillMode, RadialSymmetry, SizeContext, SizeSpace, MAX_PRESSURE_MIN, MAX_SYMMETRY_COPIES, StrokeMode, StrokeOptions, falloff, MAX_SCATTER};
 pub use stamp::Stamp;
 pub use stencil::Stencil;
 pub use stroke::{PaintContext, Stroke};

@@ -783,9 +783,16 @@ impl Session {
         })
     }
 
-    /// World radius of the current brush.
+    /// World radius of the current brush in Object size space (see [`Session::brush_radius_in`]).
     pub fn brush_radius(&self) -> f32 {
         self.brush.settings.radius(self.scene.mesh.bounds.diagonal())
+    }
+
+    /// World radius of the current brush in its size space: `pixels_per_unit` and
+    /// `viewport_height` describe the view under the cursor, `uv_per_unit` the painted texture
+    /// set's texel density (0 = unknown; that space then uses the object size).
+    pub fn brush_radius_in(&self, pixels_per_unit: f32, viewport_height: f32, uv_per_unit: f32) -> f32 {
+        self.brush.settings.radius_in(&subcraft_paint::SizeContext { diagonal: self.scene.mesh.bounds.diagonal(), pixels_per_unit, viewport_height, uv_per_unit })
     }
 
     /// Surface position corresponding to a texture UV, for displaying editable path overlays.
@@ -1759,7 +1766,7 @@ impl Session {
 
     /// Brush radius in UV units for the selected texture set (matches [`Session::stroke_to_uv`]).
     pub fn brush_radius_uv(&self, uv_per_unit: f32) -> f32 {
-        self.brush_radius() * uv_per_unit
+        self.brush_radius_in(0.0, 0.0, uv_per_unit) * uv_per_unit
     }
 
     /// Polygon fill on the selected layer at a screen position (one history entry).

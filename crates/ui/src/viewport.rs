@@ -486,7 +486,13 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     if let Some(p) = response.hover_pos() {
         if paint_tool && !alt {
             if let Some(pick) = state.session.pick(&camera, to_screen(p)) {
-                let r_px = state.session.brush_radius() * camera.pixels_per_unit(pick.depth) / pixel_scale.y;
+                // Texture size space needs the set's texel density (cached per material slot).
+                let density = if state.session.brush.settings.size_space == subcraft_paint::SizeSpace::Texture {
+                    let (slot, mesh) = (pick.material_slot, &state.session.scene().mesh);
+                    *state.uv_density.entry(slot).or_insert_with(|| subcraft_paint::stroke::uv_per_unit(mesh, slot))
+                } else { 0.0 };
+                let ppu = camera.pixels_per_unit(pick.depth);
+                let r_px = state.session.brush_radius_in(ppu, size[1] as f32, density) * ppu / pixel_scale.y;
                 let color = if state.tool == Tool::Eraser { Color32::from_rgb(120, 190, 255) } else { ACCENT };
                 painter.circle_stroke(p, r_px, Stroke::new(1.5, Color32::from_black_alpha(160)));
                 painter.circle_stroke(p, r_px, Stroke::new(1.0, color));

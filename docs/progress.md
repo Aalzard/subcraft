@@ -4998,3 +4998,17 @@ rotating one slot when a tile is full (helps cyclic stacks, but the 40-layer sta
 * **Run:** `SUBCRAFT_LIBRARY=<dir with a sample user preset> subcraft --export-preset "Studio ORM 16-bit"
   --window-size 1600x1000 --screenshot` shows the Export window with the editor open, no errors; the checklist lists
   the pattern-based names (`T_DefaultMaterial_BaseColor.png`, `..._ORM.png`, `..._N.tif`).
+
+### Session 121 - Painter parity chunk 5: Brush block in Properties (2026-11-11, branch `claude/parity-brush-block`)
+
+* **Done:** Properties for a paint tool follow Painter's order: Brush, Alpha, Stencil, Material. Brush block: Size, Flow
+  (each with a pen pressure toggle and a Minimum row while it is on), Stroke opacity, Spacing, Angle, Follow Path, four
+  jitters shown 0-1 with pressure toggles (pressure scales the jitter), Alignment, Backface Culling, Size Space
+  (Object / Viewport / Texture; `BrushSettings::radius_in`, `SizeContext`). Alpha block: resource slot with thumbnail,
+  click opens a mini browser with search, alphas can be dropped from the Shelf, a cross removes the alpha; Hardness.
+  Pressure toggle icon is drawn in code.
+* **Verified locally (release):** `subcraft-paint`, `subcraft-app` and `subcraft-ui` libraries compile with this change.
+  The new and touched tests were NOT run locally (build queue; CI is the test gate for this PR).
+* **Tests added:** paint unit tests (size space, pressure toggles, jitter pressure); `crates/ui/tests/brush_block.rs` (6).
+* **Gaps:** Viewport size space uses the object size in the 2D view; Spacing unit/range unconfirmed against Painter;
+  no Substance alphas.
