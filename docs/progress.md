@@ -5112,3 +5112,21 @@ rotating one slot when a tile is full (helps cyclic stacks, but the 40-layer sta
 * **Checked:** `cargo check --release --all-targets` of doc, compositor, project, app and ui: no errors. New tests
   (doc mask editor tests, `crates/compositor/tests/mask_editor.rs`) were not run locally (coordinator rule: CI is
   the test gate).
+## Display Settings dock panel (Painter parity chunk 10, 2026-11-12, branch `claude/parity-display-panel`, PR #161)
+
+* New `subcraft_doc::DisplaySettings` (`crates/doc/src/display.rs`): every display setting in one plain
+  struct with serde defaults. Saved in `ProjectSettings.display` (optional, no schema bump) and embedded in
+  the viewport preferences with `#[serde(flatten)]`, so old preference files load. Enums are written by
+  name; old list indices and unknown names fall back to the default.
+* New optional dock tab: View > Display settings, or `--display-settings [group]` at launch. Its sections
+  follow Painter's order (Environment, Camera, Post effects, Render, Visualization), with jump buttons
+  and the view-mode dropdown. The Render quality window reuses its camera and post-effect sections.
+* `panels::display_settings::sync_project` loads the project's settings when a session opens and writes
+  back only real changes, so opening a project never marks it modified.
+* Section titles and sub-headings go through literal `tr("...")` calls. The Render quality window's old
+  keys were removed from the zh-Hant and Korean tables, and the 47 new texts are translated in both. A
+  first CI run failed `every_translated_key_exists_in_the_english_source...` because of the stale keys.
+* Checked: `cargo check --release --all-targets` for subcraft, doc, project, render, app and ui passes.
+  A Python copy of the i18n test's scan finds no unknown or untranslated keys.
+* NOT verified locally: the test suites (CI is the test gate, per the coordinator) and the panel in the
+  running app (no screenshot yet).

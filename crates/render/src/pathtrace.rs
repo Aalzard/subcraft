@@ -749,7 +749,7 @@ impl PathTracer {
         // Never show an empty accumulation, even when paused right at a restart.
         let passes = if self.samples == 0 { passes.max(1) } else { passes };
         let denoise = settings.denoise && self.samples + passes > 0;
-        let look = [params.exposure, params.post.tone_map.id()];
+        let look = [params.exposure, crate::post::tone_map_id(params.post.tone_map)];
         if passes == 0 && self.shown == Some((look, denoise, self.samples)) {
             return Ok(self.status(settings, 0));
         }

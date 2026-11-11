@@ -12,75 +12,26 @@ use std::collections::HashMap;
 
 use crate::{gpu_mesh, target};
 
-/// How HDR light is mapped to the display.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub enum ToneMap {
-    /// Film-like curve with soft highlights (the original look).
-    #[default]
-    Aces,
-    /// Hable's filmic curve: punchier contrast, warm highlights.
-    Filmic,
-    /// Simple Reinhard: gentle, a little flat.
-    Reinhard,
-    /// No curve: values above 1 clip. Useful to judge raw material colors.
-    Linear,
-}
+pub use subcraft_doc::display::{GlareShape as GlareMode, ToneMap};
 
-impl ToneMap {
-    pub const ALL: [ToneMap; 4] = [ToneMap::Aces, ToneMap::Filmic, ToneMap::Reinhard, ToneMap::Linear];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            ToneMap::Aces => "ACES",
-            ToneMap::Filmic => "Filmic",
-            ToneMap::Reinhard => "Reinhard",
-            ToneMap::Linear => "Linear (clip)",
-        }
-    }
-
-    /// Value passed to the shader.
-    pub(crate) fn id(self) -> f32 {
-        match self {
-            ToneMap::Aces => 0.0,
-            ToneMap::Filmic => 1.0,
-            ToneMap::Reinhard => 2.0,
-            ToneMap::Linear => 3.0,
-        }
+/// Value of the shader's tone-map switch.
+pub(crate) fn tone_map_id(t: ToneMap) -> f32 {
+    match t {
+        ToneMap::Aces => 0.0,
+        ToneMap::Filmic => 1.0,
+        ToneMap::Reinhard => 2.0,
+        ToneMap::Linear => 3.0,
     }
 }
 
-/// Direction of the streaks that bright emission throws.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub enum GlareMode {
-    #[default]
-    Horizontal,
-    Vertical,
-    Both,
-    /// Four streaks (horizontal, vertical and both diagonals): a starburst.
-    Star,
-}
-
-impl GlareMode {
-    pub const ALL: [GlareMode; 4] = [GlareMode::Horizontal, GlareMode::Vertical, GlareMode::Both, GlareMode::Star];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            GlareMode::Horizontal => "Horizontal",
-            GlareMode::Vertical => "Vertical",
-            GlareMode::Both => "Horizontal + vertical",
-            GlareMode::Star => "Starburst",
-        }
-    }
-
-    /// Streak directions as (dx, dy) unit steps.
-    pub(crate) fn directions(self) -> &'static [[f32; 2]] {
-        const D: f32 = std::f32::consts::FRAC_1_SQRT_2;
-        match self {
-            GlareMode::Horizontal => &[[1.0, 0.0]],
-            GlareMode::Vertical => &[[0.0, 1.0]],
-            GlareMode::Both => &[[1.0, 0.0], [0.0, 1.0]],
-            GlareMode::Star => &[[1.0, 0.0], [0.0, 1.0], [D, D], [D, -D]],
-        }
+/// Streak directions of a glare shape as (dx, dy) unit steps.
+pub(crate) fn glare_directions(shape: GlareMode) -> &'static [[f32; 2]] {
+    const D: f32 = std::f32::consts::FRAC_1_SQRT_2;
+    match shape {
+        GlareMode::Horizontal => &[[1.0, 0.0]],
+        GlareMode::Vertical => &[[0.0, 1.0]],
+        GlareMode::Both => &[[1.0, 0.0], [0.0, 1.0]],
+        GlareMode::Star => &[[1.0, 0.0], [0.0, 1.0], [D, D], [D, -D]],
     }
 }
 
@@ -624,7 +575,7 @@ impl PostPass {
                     occlusion_query_set: None,
                     multiview_mask: None,
                 });
-                let dirs = params.glare_mode.directions();
+                let dirs = glare_directions(params.glare_mode);
                 let (scratch_a, scratch_b) = (view(&t.streak[0]), view(&t.streak[1]));
                 let gain = params.glare * 0.5 * 2f32.powf(stages as f32 * 0.5) / dirs.len() as f32;
                 write(U_FX_GLARE, half, [0.0, 0.0, gain, 0.0], [0.0, 0.0, 0.0, focal]);

@@ -932,3 +932,21 @@ fn saving_refuses_an_entry_too_large_to_open_again() {
     assert!(matches!(err, ProjectError::TooLarge(ref n, _) if n == "mesh.bin"));
     assert!(err.to_string().contains("mesh.bin") && err.to_string().contains("not saved"), "{err}");
 }
+
+#[test]
+fn display_settings_are_saved_with_the_project_and_old_projects_have_none() {
+    let doc = Document { texture_sets: vec![TextureSet::new("Body", 0, 128)] };
+    let mesh = primitives::cube(2.);
+    // A project that never touched the display settings writes no settings block at all.
+    let plain = write_project(Cursor::new(Vec::new()), &mesh, &doc, &ResourceStore::default(), &MeshMapSet::new()).unwrap().into_inner();
+    assert_eq!(read_project(Cursor::new(plain)).unwrap().settings.display, None);
+    let display = subcraft_doc::DisplaySettings {
+        tone_map: subcraft_doc::ToneMap::Reinhard, glare_mode: subcraft_doc::GlareShape::Star, bloom: 0.75, exposure: 1.5, dof: true,
+        wireframe: true, wire_color: [0.2, 0.4, 0.6], grid: false, grid_axes: [false, true, true], antialias: false, ..Default::default()
+    };
+    let settings = subcraft_doc::ProjectSettings { display: Some(display.clone()), ..Default::default() };
+    let bytes = write_project_with(Cursor::new(Vec::new()), &mesh, &doc, &ResourceStore::default(), &MeshMapSet::new(), &settings).unwrap().into_inner();
+    let read = read_project(Cursor::new(bytes)).unwrap();
+    assert_eq!(read.settings.display, Some(display));
+    assert_eq!(read.settings, settings);
+}

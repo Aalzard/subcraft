@@ -683,7 +683,7 @@ impl ViewportRenderer {
             lights: [e.panels, e.top, e.key_softbox, if e.use_hdri && self.env_levels > 1 { 1.0 } else { 0.0 }],
             env_misc: [e.rotation, e.hdri_intensity, (self.env_levels - 1) as f32,
                 bake_map.map_or(params.view_mode.shader_mode() as f32, |k| if k.components() == 1 { 8. } else { 7. })],
-            post: [params.post.tone_map.id(), 0.0, 0.0, 0.0],
+            post: [post::tone_map_id(params.post.tone_map), 0.0, 0.0, 0.0],
             sh,
         };
         queue.write_buffer(&self.globals, 0, bytemuck::bytes_of(&globals));

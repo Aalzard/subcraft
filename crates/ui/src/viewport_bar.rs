@@ -11,13 +11,14 @@ use crate::theme::{BG_2, TEXT_DIM};
 /// Render resolutions offered, in percent of the 3D view's pixels.
 pub const SCALES: [u32; 4] = [100, 75, 50, 25];
 
-/// 3D view settings, kept between runs with the other preferences.
+/// 3D view settings, kept between runs with the other preferences. The display settings (also
+/// saved in each project, see [`crate::panels::display_settings::sync_project`]) are reached
+/// directly: `prefs.bloom` is `prefs.display.bloom`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ViewportPrefs {
     /// Render resolution in percent of the 3D view's pixels (lower is faster).
     pub scale_percent: u32,
-    pub antialias: bool,
     pub orthographic: bool,
     /// Index into [`ViewMode::ALL`].
     pub view_mode: usize,
@@ -25,33 +26,13 @@ pub struct ViewportPrefs {
     /// not remembered between runs).
     #[serde(skip)]
     pub mesh_map: Option<subcraft_core::MeshMapKind>,
-    /// Display-only floor grid and axis guides. Old preference files receive these defaults.
-    pub grid: bool,
-    pub grid_axes: [bool; 3],
     pub symmetry_guides: bool,
     /// Bottom-left list of the mouse / key actions that apply now.
     pub hints: bool,
-    /// Index into [`subcraft_render::ToneMap::ALL`].
-    pub tone_map: usize,
-    pub exposure: f32,
-    pub bloom: f32,
-    pub bloom_threshold: f32,
-    pub ssao: f32,
-    /// Ambient-occlusion reach in percent of the model's size.
-    pub ssao_radius: f32,
-    /// Glow around emissive areas (0 = off) and its reach multiplier.
-    pub emission_glow: f32,
-    pub glow_radius: f32,
-    /// Streaks from bright emission (0 = off), index into [`subcraft_render::GlareMode::ALL`], length 0..1.
-    pub glare: f32,
-    pub glare_mode: usize,
-    pub glare_length: f32,
-    /// Depth of field (off by default): blur amount 0..1, focus distance as a multiple of the
-    /// orbit distance (1 = the point the camera orbits), sharp band in percent of the model size.
-    pub dof: bool,
-    pub dof_amount: f32,
-    pub dof_focus: f32,
-    pub dof_range: f32,
+    /// Environment, camera, post-effect and visualisation settings. Flattened, so preference
+    /// files from before the Display Settings panel (same keys, top level) still load.
+    #[serde(flatten)]
+    pub display: subcraft_doc::DisplaySettings,
     /// Rendering mode (path tracing) on. Never saved: the raster viewport is the default.
     #[serde(skip)]
     pub path_tracing: bool,
@@ -61,12 +42,6 @@ pub struct ViewportPrefs {
     pub pt_max_samples: u32,
     pub pt_denoise: bool,
     pub pt_ground: bool,
-    /// Polygon wireframe over the model: on/off, sRGB color, opacity and the largest angle (degrees)
-    /// between two triangles that still count as one polygon.
-    pub wireframe: bool,
-    pub wire_color: [f32; 3],
-    pub wire_opacity: f32,
-    pub wire_angle: f32,
     /// Saved and imported camera viewpoints.
     pub camera_bookmarks: Vec<crate::view_extras::CameraBookmark>,
 }
@@ -75,40 +50,32 @@ impl Default for ViewportPrefs {
     fn default() -> Self {
         Self {
             scale_percent: 100,
-            antialias: true,
             orthographic: false,
             view_mode: 0,
             mesh_map: None,
-            grid: true,
-            grid_axes: [true, false, true],
             symmetry_guides: true,
             hints: true,
-            tone_map: 0,
-            exposure: 1.0,
-            bloom: 0.0,
-            bloom_threshold: 0.8,
-            ssao: 0.0,
-            ssao_radius: 3.0,
-            emission_glow: 0.35,
-            glow_radius: 1.0,
-            glare: 0.0,
-            glare_mode: 0,
-            glare_length: 0.5,
-            dof: false,
-            dof_amount: 0.5,
-            dof_focus: 1.0,
-            dof_range: 10.0,
+            display: Default::default(),
             path_tracing: false,
             pt_bounces: 4,
             pt_max_samples: 1024,
             pt_denoise: true,
             pt_ground: true,
-            wireframe: false,
-            wire_color: [0.85, 0.88, 0.95],
-            wire_opacity: 0.6,
-            wire_angle: 30.0,
             camera_bookmarks: Vec::new(),
         }
+    }
+}
+
+impl std::ops::Deref for ViewportPrefs {
+    type Target = subcraft_doc::DisplaySettings;
+    fn deref(&self) -> &Self::Target {
+        &self.display
+    }
+}
+
+impl std::ops::DerefMut for ViewportPrefs {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.display
     }
 }
 
@@ -121,7 +88,7 @@ impl ViewportPrefs {
     }
 
     pub fn tone_map(&self) -> subcraft_render::ToneMap {
-        subcraft_render::ToneMap::ALL.get(self.tone_map).copied().unwrap_or_default()
+        self.display.tone_map
     }
 
     /// Post-processing for a model of bounding-box `diagonal`.
@@ -144,7 +111,7 @@ impl ViewportPrefs {
             emission_glow: self.emission_glow.clamp(0.0, 4.0),
             glow_radius: self.glow_radius.clamp(0.25, 8.0),
             glare: self.glare.clamp(0.0, 4.0),
-            glare_mode: subcraft_render::GlareMode::ALL.get(self.glare_mode).copied().unwrap_or_default(),
+            glare_mode: self.glare_mode,
             glare_length: self.glare_length.clamp(0.0, 1.0),
         }
     }
@@ -344,7 +311,7 @@ fn grid_control(ui: &mut Ui, prefs: &mut ViewportPrefs) {
         });
 }
 
-fn resolution(ui: &mut Ui, prefs: &mut ViewportPrefs) {
+pub(crate) fn resolution(ui: &mut Ui, prefs: &mut ViewportPrefs) {
     ui.add_sized([55.0, ui.spacing().interact_size.y], egui::Label::new(RichText::new(tr("Resolution")).color(TEXT_DIM)));
     egui::ComboBox::from_id_salt("viewport_resolution")
         .selected_text(format!("{}%", prefs.scale_percent))
@@ -358,7 +325,7 @@ fn resolution(ui: &mut Ui, prefs: &mut ViewportPrefs) {
         .on_hover_text(tr("Render the 3D view at a lower resolution to make it faster"));
 }
 
-fn view_mode(ui: &mut Ui, prefs: &mut ViewportPrefs, wide: bool) {
+pub(crate) fn view_mode(ui: &mut Ui, prefs: &mut ViewportPrefs, wide: bool) {
     dim(ui, "View");
     let mut mode = prefs.view_mode();
     let shown = match prefs.mesh_map { Some(k) => format!("Mesh map: {}", k.display_name()), None => mode.label().to_string() };
