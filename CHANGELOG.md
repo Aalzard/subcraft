@@ -6,6 +6,15 @@ What changed in SubCraft, newest first. Download the latest build from the
 ## Unreleased
 
 ### Added
+- **Export preset editor.** Export Textures has a preset menu with New, Duplicate, Delete, Import and
+  Export, and a Preset editor: per output map a file name pattern (`$mesh`, `$textureSet`, `$udim`,
+  `$suffix`), format (PNG, TGA, EXR, TIFF, JPEG) and bit depth (8 / 16 / 32-bit float where the format
+  allows), channel packing per R/G/B/A slot (any channel and component, grayscale, normal, height,
+  baked mesh map or a constant, with invert), and padding, size and normal-format overrides per map
+  or per preset. Presets are saved in the user library (`export-presets`) and can be exported and
+  imported as JSON; Substance 3D Painter export presets (`.spexp` / export JSON) can be imported.
+  Built-in templates stay read-only and write exactly the same files as before.
+- **TIFF export** at 8, 16 and 32-bit float.
 - **Brush colour picker** (issue #141). Clicking the brush's Base Color or Emissive swatch opens a picker with a
   hue ring around a saturation/value square, R/G/B and H/S/V sliders, a hex field (`#RRGGBB`, `RRGGBB` or `#RGB`;
   pasting a code applies it), old/new swatches (click Old to go back) and the last 12 colours picked, kept in

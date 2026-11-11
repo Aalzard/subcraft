@@ -243,3 +243,45 @@ fn the_last_choices_round_trip_and_old_or_partial_data_gets_defaults() {
     let partial: NewProjectSettings = serde_json::from_str(r#"{"resolution":512,"split":"single"}"#).unwrap();
     assert_eq!((partial.resolution, partial.split, partial.template), (512, SplitRule::Single, ProjectTemplate::PbrMetalRough));
 }
+
+/// QA 2026-11: "A", "A", "A 2" became "A", "A 2", "A 2": two texture sets with one name.
+#[test]
+fn numbered_duplicate_names_do_not_collide_with_given_names() {
+    let mut b = MeshBuilder::new("Model");
+    let m = b.material("Mat");
+    for (i, name) in ["A", "A", "A 2", "A"].into_iter().enumerate() {
+        b.object(name);
+        quad(&mut b, m, Vec3::new(2.0 * i as f32, 0.0, 0.0), Vec2::ZERO);
+    }
+    let mesh = b.build().unwrap();
+    let names: Vec<String> = plan_sets(&mesh, &NewProjectSettings { split: SplitRule::ByObject, ..Default::default() }).into_iter().map(|p| p.name).collect();
+    let unique: std::collections::BTreeSet<&String> = names.iter().collect();
+    assert_eq!(unique.len(), names.len(), "{names:?}");
+    assert!(names.contains(&"A".to_string()) && names.contains(&"A 2".to_string()), "given names are kept: {names:?}");
+}
+
+/// QA 2026-11: a project made without "one texture set per UDIM tile" has one set per material;
+/// reloading its mesh only tried the per-tile names, matched nothing and stranded all the paint.
+#[test]
+fn reloading_a_project_made_without_udim_sets_matches_its_set() {
+    let mesh = udim_mesh();
+    let s = Session::from_mesh_with(mesh.clone(), &NewProjectSettings { udim: false, ..Default::default() }).unwrap();
+    assert_eq!(names(&s), ["Body"]);
+    let prepared = s.check_mesh_reload(std::path::Path::new("tiled.obj"), mesh).unwrap();
+    assert_eq!(prepared.matched(), 1, "added {:?}, unmatched {:?}", prepared.added(), prepared.unmatched_old);
+    assert!(prepared.added().is_empty() && prepared.unmatched_old.is_empty());
+}
+
+/// QA 2026-11: a single-set project is named after the model file, so reloading the edited
+/// "ship_v2" file matched nothing: new empty sets, and the painted set left without geometry.
+#[test]
+fn reloading_a_renamed_file_keeps_a_single_set_project_together() {
+    let mesh = two_objects();
+    let s = Session::from_mesh_with(mesh.clone(), &NewProjectSettings { split: SplitRule::Single, ..Default::default() }).unwrap();
+    assert_eq!(names(&s), ["Ship"]);
+    let mut v2 = mesh;
+    v2.name = "Ship_v2".into();
+    let prepared = s.check_mesh_reload(std::path::Path::new("Ship_v2.obj"), v2).unwrap();
+    assert_eq!(prepared.matched(), 1, "added {:?}, unmatched {:?}", prepared.added(), prepared.unmatched_old);
+    assert!(prepared.added().is_empty() && prepared.unmatched_old.is_empty());
+}

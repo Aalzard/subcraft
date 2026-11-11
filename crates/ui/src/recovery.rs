@@ -55,6 +55,29 @@ pub struct Preferences {
     pub recent_colors: Vec<[f32; 3]>,
 }
 
+impl Preferences {
+    /// Read stored preferences, keeping every setting that still parses. One value this build does
+    /// not know (a language or keymap written by a newer version, a `null` number) used to fail
+    /// the whole parse and silently reset all preferences.
+    pub fn from_json_lenient(json: &str) -> Self {
+        // Only an object is a preferences file (serde would also take an array as the fields in order).
+        let Ok(serde_json::Value::Object(stored)) = serde_json::from_str::<serde_json::Value>(json) else { return Self::default() };
+        if let Ok(p) = serde_json::from_str(json) {
+            return p;
+        }
+        let Ok(serde_json::Value::Object(mut merged)) = serde_json::to_value(Self::default()) else { return Self::default() };
+        for (key, value) in stored {
+            let Some(slot) = merged.get_mut(&key) else { continue };
+            let default = std::mem::replace(slot, value);
+            if serde_json::from_value::<Self>(serde_json::Value::Object(merged.clone())).is_err() {
+                log::warn!("preference \"{key}\" has a value this version does not understand; using the default");
+                merged.insert(key, default);
+            }
+        }
+        serde_json::from_value(serde_json::Value::Object(merged)).unwrap_or_default()
+    }
+}
+
 impl Default for Preferences {
     fn default() -> Self {
         Self {
@@ -355,4 +378,31 @@ pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
     });
     rec.prefs.apply_ui_size(ctx);
     rec.show_prefs = open;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// QA 2026-11: one value this build does not know reset every preference to its default.
+    #[test]
+    fn one_unknown_value_does_not_reset_the_other_preferences() {
+        let stored = r#"{"ui_size_percent":120,"autosave_minutes":2,"language":"ja","keymap":"from_the_future","show_welcome":false,"added_later":7}"#;
+        assert!(serde_json::from_str::<Preferences>(stored).is_err(), "the strict parse rejects the file");
+        let p = Preferences::from_json_lenient(stored);
+        let d = Preferences::default();
+        assert_eq!((p.ui_size_percent, p.autosave_minutes, p.show_welcome), (120, 2, false), "known settings are kept");
+        assert_eq!((p.language, p.keymap), (d.language, d.keymap), "unknown values fall back to their defaults");
+
+        let null = r#"{"ui_size_percent":110,"autosave_keep":null}"#;
+        let p = Preferences::from_json_lenient(null);
+        assert_eq!((p.ui_size_percent, p.autosave_keep), (110, d.autosave_keep));
+
+        assert_eq!(Preferences::from_json_lenient("not json"), d);
+        assert_eq!(Preferences::from_json_lenient("[1, 2]"), d);
+        let mut custom = Preferences::default();
+        custom.ui_size_percent = 130;
+        custom.language = crate::i18n::Language::Ko;
+        assert_eq!(Preferences::from_json_lenient(&serde_json::to_string(&custom).unwrap()), custom, "a valid file round-trips");
+    }
 }

@@ -262,3 +262,25 @@ fn a_reload_prepared_before_an_edit_is_refused() {
     assert!(err.contains("changed"), "{err}");
     assert_eq!(s.document().texture_sets[0].layers.len(), 2, "nothing was replaced");
 }
+
+/// QA 2026-11: a set kept without geometry by one reload and matched again by the next was
+/// "reprojected" from no triangles, which erased every raster in it (not undoable).
+#[test]
+fn reprojecting_a_set_that_had_no_geometry_keeps_its_paint() {
+    let mut s = Session::new(primitives::sample_crate(), RES);
+    let original = (*s.scene().mesh).clone();
+    paint(&mut s, |_| true);
+    let body = s.selected_texture_set().id;
+    let painted = s.document().texture_sets.iter().find(|t| t.id == body).unwrap().layers.clone();
+    // Version 2 renames Body to Lid: the Body set is kept, without geometry.
+    let slot_of: Vec<u32> = original.tri_material.iter().map(|&m| if m == 0 { 1 } else { 0 }).collect();
+    let (v2, _) = original.regroup(&["Trim".to_string(), "Lid".to_string()], &slot_of, &[]);
+    let prepared = Arc::new(s.check_mesh_reload(&PathBuf::from("crate_v2.obj"), v2).unwrap());
+    let report = s.apply_mesh_reload(prepared, ReloadMode::KeepUvs).unwrap();
+    assert_eq!(report.kept_without_geometry, ["Body"]);
+    // Version 3 is the original again: Body matches by name, and the user picks Reproject.
+    let prepared = Arc::new(s.check_mesh_reload(&PathBuf::from("crate_v3.obj"), original).unwrap());
+    s.apply_mesh_reload(prepared, ReloadMode::Reproject).unwrap();
+    let after = s.document().texture_sets.iter().find(|t| t.id == body).expect("the Body set is still there");
+    assert_eq!(after.layers, painted, "paint and mask of the re-matched set are untouched");
+}

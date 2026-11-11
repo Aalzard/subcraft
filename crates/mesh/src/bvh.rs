@@ -500,8 +500,11 @@ pub fn closest_on_triangle(p: Vec3, a: Vec3, e1: Vec3, e2: Vec3) -> (f32, f32, V
 fn slab(min: Vec3, max: Vec3, origin: Vec3, inv: Vec3, t_max: f32) -> Option<f32> {
     let t0 = (min - origin) * inv;
     let t1 = (max - origin) * inv;
-    let tmin = t0.min(t1);
-    let tmax = t0.max(t1);
+    // An axis-parallel ray (`inv` infinite) starting exactly on a face plane gives `0 * inf` = NaN.
+    // On that axis the ray lies in the slab for every t; NaN made the box a miss instead.
+    let on_plane = t0.is_nan_mask() | t1.is_nan_mask();
+    let tmin = Vec3::select(on_plane, Vec3::NEG_INFINITY, t0.min(t1));
+    let tmax = Vec3::select(on_plane, Vec3::INFINITY, t0.max(t1));
     let enter = tmin.max_element().max(0.0);
     let exit = tmax.min_element().min(t_max);
     if enter <= exit { Some(enter) } else { None }
@@ -581,6 +584,22 @@ mod tests {
             assert!((q.distance(p) - hit.distance).abs() < 1e-4);
         }
         assert!(bvh.closest_point(Vec3::new(0.0, 5.0, 0.0), 1.0, |_| true).is_none(), "outside max distance");
+    }
+
+    /// QA 2026-11: with `dir == 0` on an axis and the origin exactly on the box's plane on that
+    /// axis, `(min - origin) * (1 / 0)` is NaN and the box was rejected: bake rays cast along the
+    /// normal of axis-aligned geometry from rim texels missed the surface (the GPU did not).
+    #[test]
+    fn axis_parallel_rays_starting_on_a_bounding_plane_still_hit() {
+        let bvh = Bvh::from_triangles(&[[Vec3::ZERO, Vec3::X, Vec3::Y]]);
+        for origin in [Vec3::new(0.0, 0.25, 1.0), Vec3::new(0.25, 0.0, 1.0), Vec3::new(0.0, 0.0, 1.0), Vec3::new(1.0, 0.0, 1.0)] {
+            let hit = bvh.intersect(origin, -Vec3::Z, 0.0, 10.0).unwrap_or_else(|| panic!("ray from {origin} missed"));
+            assert!((hit.t - 1.0).abs() < 1e-5, "{origin}: t = {}", hit.t);
+            assert!(bvh.occluded(origin, -Vec3::Z, 0.0, 10.0), "{origin}");
+        }
+        // Still a miss just outside the triangle's box.
+        assert!(bvh.intersect(Vec3::new(-0.01, 0.25, 1.0), -Vec3::Z, 0.0, 10.0).is_none());
+        assert!(bvh.intersect(Vec3::new(0.25, 1.5, 1.0), -Vec3::Z, 0.0, 10.0).is_none());
     }
 
     #[test]

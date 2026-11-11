@@ -342,12 +342,17 @@ fn content_editor(ui: &mut Ui, state: &mut UiState, layer: &Layer, e: &ContentEf
     section(ui, "effect_general", "Effect", true, |ui| {
         changed |= ui.checkbox(&mut eff.visible, "Visible").changed();
         prop_row(ui, "Name", |ui| {
-            let mut name = eff.name.clone();
+            // The text being typed lives in egui memory while the field has focus: rebuilt from the
+            // effect every frame, each typed character was gone by the next frame and the field
+            // could not be edited at all.
+            let name_id = egui::Id::new(("content_effect_name", eff.id));
+            let mut name: String = ui.data(|d| d.get_temp(name_id)).unwrap_or_else(|| eff.name.clone());
             let r = ui.text_edit_singleline(&mut name);
-            if r.lost_focus() && !name.trim().is_empty() && name != eff.name {
+            if r.lost_focus() && !name.trim().is_empty() && name.trim() != eff.name {
                 eff.name = name.trim().to_string();
                 changed = true;
             }
+            if r.has_focus() { ui.data_mut(|d| d.insert_temp(name_id, name.clone())); } else { ui.data_mut(|d| d.remove_temp::<String>(name_id)); }
         });
         match &mut eff.kind {
             ContentEffectKind::Paint { channels: painted } => {
