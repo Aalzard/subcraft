@@ -386,4 +386,9 @@ pub static TABLE: &[(&str, &str)] = &[
     ("The anchor replaces the baked map this generator reads (curvature for Edges and Concave, occlusion for Dirt and Ambient Occlusion).", "앵커가 이 제너레이터가 읽는 베이크된 맵을 대신합니다(Edges와 Concave는 곡률, Dirt와 Ambient Occlusion은 오클루전)."),
     ("Shape crop", "형태 자르기"),
     ("How sharply the three projection planes meet: 0 blends them widely, 1 cuts", "세 투영 평면이 만나는 선명도: 0은 넓게 섞고 1은 잘라 냅니다"),
+    ("Blending Mode", "블렌딩 모드"),
+    ("Blurs the blended contributions before Balance and Contrast (radius in texture pixels).", "밸런스와 대비를 적용하기 전에 합쳐진 결과를 흐리게 합니다(반경은 텍스처 픽셀 단위)."),
+    ("Global Blur", "전체 블러"),
+    ("Grayscale Conversion", "그레이스케일 변환"),
+    ("Remove image", "이미지 제거"),
 ];

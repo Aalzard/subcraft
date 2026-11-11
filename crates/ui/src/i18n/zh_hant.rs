@@ -386,4 +386,9 @@ pub static TABLE: &[(&str, &str)] = &[
     ("The anchor replaces the baked map this generator reads (curvature for Edges and Concave, occlusion for Dirt and Ambient Occlusion).", "錨點取代此產生器讀取的烘焙貼圖（Edges 與 Concave 為曲率，Dirt 與 Ambient Occlusion 為遮蔽）。"),
     ("Shape crop", "形狀裁切"),
     ("How sharply the three projection planes meet: 0 blends them widely, 1 cuts", "三個投影平面交接的銳利程度：0 為大範圍混合，1 為直接切換"),
+    ("Blending Mode", "混合模式"),
+    ("Blurs the blended contributions before Balance and Contrast (radius in texture pixels).", "在套用平衡與對比之前模糊混合後的結果（半徑以紋理像素為單位）。"),
+    ("Global Blur", "整體模糊"),
+    ("Grayscale Conversion", "灰階轉換"),
+    ("Remove image", "移除影像"),
 ];

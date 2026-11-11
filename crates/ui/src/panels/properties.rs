@@ -430,7 +430,7 @@ fn editor_blend_row(ui: &mut Ui, id: &str, mode: &mut subcraft_doc::BlendMode) -
     changed
 }
 
-fn editor_group<R>(ui: &mut Ui, title: &str, body: impl FnOnce(&mut Ui) -> R) -> Option<R> {
+fn editor_group<R>(ui: &mut Ui, title: &'static str, body: impl FnOnce(&mut Ui) -> R) -> Option<R> {
     egui::CollapsingHeader::new(RichText::new(tr(title)).font(theme::font_strong(12.0)).color(theme::TEXT)).id_salt(("mask_editor_group", title)).default_open(false).show(ui, body).body_returned
 }
 
@@ -442,9 +442,9 @@ fn mask_editor_controls(ui: &mut Ui, state: &mut UiState, g: &mut subcraft_doc::
     let mut ed = g.editor_settings();
     let before = ed;
     let mut pick = None;
-    let unit = |ui: &mut Ui, label: &str, v: &mut f32| { slider_row(ui, tr(label), egui::Slider::new(v, 0.0..=1.0)); };
-    let signed = |ui: &mut Ui, label: &str, v: &mut f32| { slider_row(ui, tr(label), egui::Slider::new(v, -1.0..=1.0)); };
-    let toggle = |ui: &mut Ui, label: &str, v: &mut bool| { prop_row(ui, "", |ui| { ui.checkbox(v, tr(label)); }); };
+    let unit = |ui: &mut Ui, label: &'static str, v: &mut f32| { slider_row(ui, tr(label), egui::Slider::new(v, 0.0..=1.0)); };
+    let signed = |ui: &mut Ui, label: &'static str, v: &mut f32| { slider_row(ui, tr(label), egui::Slider::new(v, -1.0..=1.0)); };
+    let toggle = |ui: &mut Ui, label: &'static str, v: &mut bool| { prop_row(ui, "", |ui| { ui.checkbox(v, tr(label)); }); };
     toggle(ui, "Global Invert", &mut ed.global_invert);
     slider_row(ui, tr("Global Blur"), egui::Slider::new(&mut ed.global_blur, 0.0..=MaskEditor::MAX_BLUR).suffix(" px"))
         .on_hover_text(tr("Blurs the blended contributions before Balance and Contrast (radius in texture pixels)."));

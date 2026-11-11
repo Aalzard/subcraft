@@ -5094,3 +5094,21 @@ rotating one slot when a tile is full (helps cyclic stacks, but the 40-layer sta
 * **Checked:** `cargo check --release --all-targets` of doc, materials, compositor, project, app and ui: no errors.
   The new unit tests (doc, materials, compositor `mask_image_and_procedural_fill_respect_uv_wrap`) were not run
   locally (coordinator rule: GitHub CI is the test gate); see the PR's CI result.
+### Parity chunk 16 - Mask Editor generator (2026-11-12, branch `claude/parity-mask-editor`)
+
+* **Doc (`crates/doc/src/mask.rs`):** `GeneratorKind::MaskEditor` with `MaskEditor` settings on `Generator.editor`
+  (skipped in JSON for other kinds): Global Invert / Blur / Balance / Contrast, one opacity per contribution and
+  the groups Texture, Texture 2 (image, Invert, Grayscale Conversion, Blending Mode, Scale, Contrast, Brightness,
+  Triplanar, Triplanar Contrast, Non-Square Tiling), Ambient Occlusion, Curvature (Mode Edges / Cavities / Dual /
+  Unprocessed), World Space Normal and Position Gradient (per-axis amounts, each axis with Invert and Blending
+  Mode) and Thickness. Texture images count as project resources (save, fragments, clipboard).
+* **Compositor (`crates/compositor/src/mask.rs`, `stages.rs`):** contributions blend bottom to top over black with
+  the layer blending modes (`out += (blend(out, v) - out) * opacity`); a Global Blur runs as a Gaussian stage
+  between the raw blend and Balance / Contrast / Invert, with its halo counted in dirty tracking.
+* **UI:** Generator dropdown entry "Mask Editor" and the full Properties layout (`mask_editor_controls`); texture
+  images are picked through the file dialog (`Purpose::GeneratorTexture`).
+* **Not done:** per-map Blur (Ambient Occlusion, World Space Normal, Thickness), the seven curvature scale sliders,
+  Micro Details, anchors as texture sources, an entry in the Layers panel's generator menu.
+* **Checked:** `cargo check --release --all-targets` of doc, compositor, project, app and ui: no errors. New tests
+  (doc mask editor tests, `crates/compositor/tests/mask_editor.rs`) were not run locally (coordinator rule: CI is
+  the test gate).
