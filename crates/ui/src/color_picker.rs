@@ -237,26 +237,34 @@ fn picker_body(ui: &mut Ui, id: Id, rgb: &mut [f32; 3], st: &mut PickerState, re
         ui.spacing_mut().slider_width = 150.0;
         ui.spacing_mut().interact_size.x = 44.0;
         let srgb = t.srgb();
-        let mut rgb8 = to_u8(srgb).map(f32::from);
-        let mut rgb_changed = false;
+        // The sliders get whole numbers and only a value that differs from them counts as an edit:
+        // egui rounds a slider's value to its decimals every frame and reports that as a change.
+        let shown_rgb = to_u8(srgb).map(f32::from);
+        let mut rgb8 = shown_rgb;
         for (i, name) in ["R", "G", "B"].into_iter().enumerate() {
             let r = channel_slider(ui, name, &mut rgb8[i], 0.0..=255.0, "");
-            rgb_changed |= r.changed();
             done |= r.drag_stopped() || r.lost_focus();
         }
-        if rgb_changed {
+        if rgb8 != shown_rgb {
             t.set_srgb(rgb8.map(|v| v / 255.0));
         }
         ui.add_space(2.0);
-        let mut hsv = [t.st.hsv[0] * 360.0, t.st.hsv[1] * 100.0, t.st.hsv[2] * 100.0];
-        let mut hsv_changed = false;
-        for (i, (name, max, suffix)) in [("H", 360.0, "°"), ("S", 100.0, "%"), ("V", 100.0, "%")].into_iter().enumerate() {
-            let r = channel_slider(ui, name, &mut hsv[i], 0.0..=max, suffix);
-            hsv_changed |= r.changed();
+        const SCALE: [f32; 3] = [360.0, 100.0, 100.0];
+        let shown_hsv: [f32; 3] = std::array::from_fn(|i| (t.st.hsv[i] * SCALE[i]).round());
+        let mut hsv = shown_hsv;
+        for (i, (name, suffix)) in [("H", "°"), ("S", "%"), ("V", "%")].into_iter().enumerate() {
+            let r = channel_slider(ui, name, &mut hsv[i], 0.0..=SCALE[i], suffix);
             done |= r.drag_stopped() || r.lost_focus();
         }
-        if hsv_changed {
-            t.set_hsv([hsv[0] / 360.0, hsv[1] / 100.0, hsv[2] / 100.0]);
+        if hsv != shown_hsv {
+            // Only the moved component changes; the others keep their exact value.
+            let mut next = t.st.hsv;
+            for i in 0..3 {
+                if hsv[i] != shown_hsv[i] {
+                    next[i] = hsv[i] / SCALE[i];
+                }
+            }
+            t.set_hsv(next);
         }
     });
 
