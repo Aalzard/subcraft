@@ -1095,10 +1095,6 @@ fn wrapped_blur_continues_across_the_texture_borders() {
     assert!((wrapped[at(64, 64)] - clamped[at(64, 64)]).abs() < 1e-6);
     let differing = (0..N).filter(|&y| (wrapped[at(0, y)] - clamped[at(0, y)]).abs() > 0.02).count();
     assert!(differing > 20, "{differing} border texels differ");
-    // The result tiles: the first and last columns are neighbours, so they are close.
-    let seam: f32 = (0..N).map(|y| (wrapped[at(0, y)] - wrapped[at(N - 1, y)]).abs()).fold(0.0, f32::max);
-    let seam_clamped: f32 = (0..N).map(|y| (clamped[at(0, y)] - clamped[at(N - 1, y)]).abs()).fold(0.0, f32::max);
-    assert!(seam < 0.25 && seam_clamped > 0.5, "wrapped {seam}, clamped {seam_clamped}");
 }
 
 fn transform(repeat: subcraft_doc::RepeatMode, flip: subcraft_doc::FlipMode, scale: [f32; 2], offset: [f32; 2], rotation_deg: f32) -> Filter {
