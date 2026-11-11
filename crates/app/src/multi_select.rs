@@ -47,13 +47,21 @@ impl MultiSelect {
         }
     }
 
-    /// Forget ids that no longer exist in `rows`.
+    /// The layer to make the primary selection (highlighted row, Properties, Delete) after a click
+    /// on `clicked`: the clicked row, unless the click just removed it from the selection (Ctrl +
+    /// click on a selected row). Then it is a row that is still selected; making the deselected row
+    /// primary meant Delete removed exactly the layer the user had just taken out of the selection.
+    pub fn primary_after_click(&self, clicked: LayerId) -> LayerId {
+        if self.ids.contains(&clicked) { clicked } else { self.ids.last().copied().unwrap_or(clicked) }
+    }
+
     /// Select every row (Ctrl+A in the layer list); the first one anchors range clicks.
     pub fn select_all(&mut self, rows: &[LayerId]) {
         self.ids = rows.to_vec();
         self.anchor = rows.first().copied();
     }
 
+    /// Forget ids that no longer exist in `rows`.
     pub fn retain_existing(&mut self, rows: &[LayerId]) {
         self.ids.retain(|i| rows.contains(i));
         if self.anchor.is_some_and(|a| !rows.contains(&a)) {
@@ -88,6 +96,26 @@ mod tests {
     fn rows(n: usize) -> Vec<LayerId> { (0..n).map(|_| LayerId::new()).collect() }
     const CTRL: ClickMods = ClickMods { toggle: true, range: false };
     const SHIFT: ClickMods = ClickMods { toggle: false, range: true };
+
+    /// QA 2026-11: Ctrl + click on a selected row took it out of the selection but made it the
+    /// primary layer, so Delete removed the layer the user had just deselected.
+    #[test]
+    fn deselecting_a_row_does_not_make_it_the_primary_layer() {
+        let r = rows(4);
+        let mut m = MultiSelect::default();
+        m.click(&r, r[0], ClickMods::default());
+        assert_eq!(m.primary_after_click(r[0]), r[0]);
+        m.click(&r, r[1], CTRL);
+        assert_eq!(m.primary_after_click(r[1]), r[1], "an added row becomes primary");
+        m.click(&r, r[1], CTRL);
+        assert_eq!(m.ids, vec![r[0]]);
+        assert_eq!(m.primary_after_click(r[1]), r[0], "the row that is still selected is primary");
+        assert_eq!(m.targets(Some(m.primary_after_click(r[1]))), vec![r[0]], "Delete acts on the selected row");
+        // Deselecting the only row leaves it primary (something is always shown in Properties).
+        m.click(&r, r[0], CTRL);
+        assert!(m.ids.is_empty());
+        assert_eq!(m.primary_after_click(r[0]), r[0]);
+    }
 
     #[test]
     fn plain_click_selects_one_ctrl_toggles_shift_selects_a_range() {

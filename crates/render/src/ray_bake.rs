@@ -53,6 +53,7 @@ pub struct GpuRayBaker {
 /// Registered with `subcraft_mesh::ray_batch::register_ray_backend` by the application.
 pub fn create_backend() -> Option<Arc<dyn RayBatchBackend>> {
     let (adapter, device, queue) = crate::headless::device()?;
+    crate::caps::install_worker_error_handlers(&device, "baking");
     Some(Arc::new(GpuRayBaker::new(&adapter, device, queue)))
 }
 

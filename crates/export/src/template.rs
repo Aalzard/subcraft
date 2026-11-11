@@ -1,8 +1,14 @@
-//! Export templates: which files to write and how channels pack into their components.
+//! Export templates (presets): which files to write and how channels pack into their components.
+//!
+//! The built-in templates are read-only; user presets are the same struct, saved as JSON by
+//! [`crate::preset`]. Every option added for the preset editor is optional and absent from the
+//! built-ins, so they keep writing exactly the files they wrote before.
 
 use serde::{Deserialize, Serialize};
-use subcraft_core::ChannelKind;
+use subcraft_core::{ChannelKind, MeshMapKind};
 use subcraft_image::FileFormat;
+
+use crate::Padding;
 
 /// Where one output component comes from.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
@@ -18,6 +24,12 @@ pub enum Source {
     /// Component of whatever the 2D view shows (`ExportSettings::view_2d`): single-component
     /// sources read as gray, values clamped to 0..1, color channels sRGB-encoded like the display.
     View2d { component: u8 },
+    /// Grayscale conversion of a channel: Rec. 709 luminance of its linear RGB (a one-component
+    /// channel reads as itself).
+    Gray { kind: ChannelKind, invert: bool },
+    /// Component of a baked mesh map (Ambient Occlusion, Curvature, Thickness...). Maps not baked
+    /// read their default value.
+    MeshMap { kind: MeshMapKind, component: u8, invert: bool },
 }
 
 impl Source {
@@ -31,32 +43,76 @@ impl Source {
             Source::Channel { kind, .. } => Some(*kind),
             Source::Normal { .. } => Some(ChannelKind::Normal),
             Source::Height => Some(ChannelKind::Height),
-            Source::Constant { .. } | Source::View2d { .. } => None,
+            Source::Gray { kind, .. } => Some(*kind),
+            Source::Constant { .. } | Source::View2d { .. } | Source::MeshMap { .. } => None,
+        }
+    }
+
+    /// Short label for lists ("Roughness", "1 - Roughness", "Base Color.R", "Gray(Base Color)").
+    pub fn label(&self) -> String {
+        const C: [&str; 4] = ["R", "G", "B", "A"];
+        let comp = |c: u8| C[(c as usize).min(3)];
+        let inv = |inv: bool, s: String| if inv { format!("1 - {s}") } else { s };
+        match *self {
+            Source::Channel { kind, component, invert } => inv(invert, if kind.is_color() || kind == ChannelKind::Normal { format!("{}.{}", kind.display_name(), comp(component)) } else { kind.display_name().to_string() }),
+            Source::Normal { component, directx } => format!("Normal {}.{}", if directx { "DX" } else { "GL" }, comp(component)),
+            Source::Height => "Height".into(),
+            Source::Constant { value } => format!("{value:.2}"),
+            Source::View2d { component } => format!("2D view.{}", comp(component)),
+            Source::Gray { kind, invert } => inv(invert, format!("Gray({})", kind.display_name())),
+            Source::MeshMap { kind, component, invert } => inv(invert, if kind.components() > 1 { format!("Baked {}.{}", kind.display_name(), comp(component)) } else { format!("Baked {}", kind.display_name()) }),
         }
     }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct OutputMap {
-    /// File-name suffix (`{mesh}_{set}_{suffix}.ext`).
+    /// File-name suffix (`{mesh}_{set}_{suffix}.ext`) and the map's identity in the export
+    /// checklist: unique within a template.
     pub suffix: String,
     pub format: FileFormat,
-    /// 1 (gray), 3 (RGB) or 4 (RGBA) sources.
+    /// 1 (gray), 2 (gray + alpha), 3 (RGB) or 4 (RGBA) sources.
     pub components: Vec<Source>,
     /// Encode color-channel sources to sRGB for integer formats.
     pub srgb: bool,
+    /// File name pattern without extension (`$mesh_$textureSet_$suffix`; see
+    /// [`crate::expand_pattern`]). `None` = the classic `{mesh}_{set}_{suffix}` naming.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pattern: Option<String>,
+    /// Padding for this map, overriding the template's and the export window's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub padding: Option<Padding>,
+    /// Output size in texels (square), overriding the template's; `None` = texture set size.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size: Option<u32>,
+    /// DirectX (`true`) / OpenGL (`false`) normals for this map, overriding the template's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub normal_directx: Option<bool>,
 }
 
 impl OutputMap {
-    fn new(suffix: &str, format: FileFormat, components: Vec<Source>, srgb: bool) -> Self {
-        Self { suffix: suffix.into(), format, components, srgb }
+    pub fn new(suffix: &str, format: FileFormat, components: Vec<Source>, srgb: bool) -> Self {
+        Self { suffix: suffix.into(), format, components, srgb, pattern: None, padding: None, size: None, normal_directx: None }
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ExportTemplate {
     pub name: String,
     pub maps: Vec<OutputMap>,
+    /// Persistent identity of a user preset (UUID); `None` for the built-in templates, which
+    /// are identified by name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Padding for every map without its own, overriding the export window's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub padding: Option<Padding>,
+    /// Output size for every map without its own; `None` = texture set size.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size: Option<u32>,
+    /// Normal map convention for every map without its own; `None` = each source's own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub normal_directx: Option<bool>,
 }
 
 fn rgb(kind: ChannelKind) -> Vec<Source> {
@@ -82,6 +138,7 @@ impl ExportTemplate {
                 OutputMap::new("Emissive", FileFormat::Png8, rgb(Emissive), true),
                 OutputMap::new("AO", FileFormat::Png8, vec![Source::ch(AmbientOcclusion, 0)], false),
             ],
+            ..Default::default()
         }
     }
 
@@ -101,6 +158,7 @@ impl ExportTemplate {
                 ),
                 OutputMap::new("Emissive", FileFormat::Png8, rgb(Emissive), true),
             ],
+            ..Default::default()
         }
     }
 
@@ -125,6 +183,7 @@ impl ExportTemplate {
                 ),
                 OutputMap::new("Emissive", FileFormat::Png8, rgb(Emissive), true),
             ],
+            ..Default::default()
         }
     }
 
@@ -144,6 +203,7 @@ impl ExportTemplate {
                 ),
                 OutputMap::new("Emissive", FileFormat::Png8, rgb(Emissive), true),
             ],
+            ..Default::default()
         }
     }
 
@@ -171,6 +231,7 @@ impl ExportTemplate {
                 OutputMap::new("Emissive", FileFormat::Png8, rgb(Emissive), true),
                 OutputMap::new("Height", FileFormat::Png16, vec![Source::Height], false),
             ],
+            ..Default::default()
         }
     }
 
@@ -192,6 +253,7 @@ impl ExportTemplate {
                 OutputMap::new("Emissive", FileFormat::Png8, rgb(Emissive), true),
                 OutputMap::new("Height", FileFormat::Png16, vec![Source::Height], false),
             ],
+            ..Default::default()
         }
     }
 
@@ -203,7 +265,7 @@ impl ExportTemplate {
         use subcraft_core::MeshMapKind as M;
         let format = if matches!(kind, M::Height | M::Position) { FileFormat::Png16 } else { FileFormat::Png8 };
         let components = (0..kind.components() as u8).map(|component| Source::View2d { component }).collect();
-        Self { name: format!("Baked {}", kind.display_name()), maps: vec![OutputMap::new(&Self::baked_suffix(kind), format, components, false)] }
+        Self { name: format!("Baked {}", kind.display_name()), maps: vec![OutputMap::new(&Self::baked_suffix(kind), format, components, false)], ..Default::default() }
     }
 
     /// File suffix of a raw baked map (`baked_ambient_occlusion`, `baked_normal`, ...).
@@ -213,7 +275,7 @@ impl ExportTemplate {
     }
 
     pub fn view_2d() -> Self {
-        Self { name: "2D View".into(), maps: vec![OutputMap::new("View2D", FileFormat::Png8, (0..3).map(|component| Source::View2d { component }).collect(), true)] }
+        Self { name: "2D View".into(), maps: vec![OutputMap::new("View2D", FileFormat::Png8, (0..3).map(|component| Source::View2d { component }).collect(), true)], ..Default::default() }
     }
 
     /// Roblox SurfaceAppearance: ColorMap, NormalMap, MetalnessMap, RoughnessMap, EmissiveMask,
@@ -230,6 +292,7 @@ impl ExportTemplate {
                 OutputMap::new("RoughnessMap", FileFormat::Png8, vec![Source::ch(Roughness, 0)], false),
                 OutputMap::new("EmissiveMask", FileFormat::Png8, rgb(Emissive), false),
             ],
+            ..Default::default()
         }
     }
 
@@ -246,7 +309,47 @@ impl ExportTemplate {
                 OutputMap::new("AO", FileFormat::Png8, vec![Source::ch(AmbientOcclusion, 0)], false),
                 OutputMap::new("Emission", FileFormat::Png8, rgb(Emissive), true),
             ],
+            ..Default::default()
         }
+    }
+
+    /// Whether this is one of the read-only built-in templates.
+    pub fn is_builtin(&self) -> bool {
+        self.id.is_none()
+    }
+
+    /// Stable key stored in project settings: the UUID of a user preset, the name of a built-in.
+    pub fn key(&self) -> &str {
+        self.id.as_deref().unwrap_or(&self.name)
+    }
+
+    /// Problems that stop this template from exporting (empty = fine).
+    pub fn problems(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        if self.name.trim().is_empty() {
+            out.push("the preset needs a name".to_string());
+        }
+        let mut seen = std::collections::HashSet::new();
+        for m in &self.maps {
+            if m.suffix.is_empty() || crate::sanitize(&m.suffix) != m.suffix {
+                out.push(format!("map suffix \"{}\" may only use letters, digits, - and _", m.suffix));
+            }
+            if !seen.insert(m.suffix.as_str()) {
+                out.push(format!("two maps share the suffix \"{}\"", m.suffix));
+            }
+            if !(1..=4).contains(&m.components.len()) {
+                out.push(format!("{}: a map has 1 to 4 components", m.suffix));
+            }
+            if m.size.is_some_and(|s| !(1..=16384).contains(&s)) {
+                out.push(format!("{}: size must be 1..16384", m.suffix));
+            }
+            if let Some(p) = &m.pattern
+                && crate::expand_pattern(p, "m", "s", None, &m.suffix).is_empty()
+            {
+                out.push(format!("{}: the file name pattern is empty", m.suffix));
+            }
+        }
+        out
     }
 
     pub fn builtin() -> Vec<ExportTemplate> {

@@ -405,7 +405,12 @@ pub fn export_smart_material(m: &SmartMaterial, dest: &Path) -> Result<(), Strin
 pub fn export_smart_file(src: &Path, name: &str, dest: &Path) -> Result<(), String> {
     let mut fragment = load_fragment(src).map_err(|e| format!("{}: {e}", src.display()))?;
     fragment.name = name.to_string();
-    let dest = if dest.extension().is_some_and(|e| e.eq_ignore_ascii_case("scsmart")) { dest.to_path_buf() } else { dest.with_extension("scsmart") };
+    let dest = if dest.extension().is_some_and(|e| e.eq_ignore_ascii_case("scsmart")) { dest.to_path_buf() } else {
+        // Appended, not `with_extension`: that replaces everything after the last dot ("Wood v1.2" became "Wood v1.scsmart").
+        let mut name = dest.as_os_str().to_os_string();
+        name.push(".scsmart");
+        PathBuf::from(name)
+    };
     save_fragment(&dest, &fragment).map_err(|e| format!("{}: {e}", dest.display()))
 }
 
