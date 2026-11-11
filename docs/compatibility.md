@@ -5,7 +5,7 @@ Each entry: **can fail** → **now** → **changed** → **open**. "Tested" mean
 run on the development PC; everything else was reasoned from the code and is marked *reasoned*.
 
 Files live in `%LOCALAPPDATA%\SubCraft` (Windows), `~/.local/share/SubCraft` (Linux),
-`~/Library/Application Support/SubCraft` (macOS), or `SUBCRAFT_DATA_DIR`. Useful files:
+`~/Library/Application Support/SubCraft` (macOS), or `SUBCRAFT_DATA`. Useful files:
 `startup.log` (every start, adapter info, breadcrumbs), `gpu-probe.json`, `graphics.json`,
 `logs/subcraft.log`, `crashes/`.
 

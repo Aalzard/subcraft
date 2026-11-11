@@ -65,7 +65,7 @@ mod tests {
         // Force the fallback even on DX12/Vulkan so CI exercises its shader numerically.
         let copy = DisplayCopy::new(&device, &source, size);
         let mut encoder = device.create_command_encoder(&Default::default()); copy.encode(&mut encoder); queue.submit([encoder.finish()]);
-        let actual = crate::target::read_texture_rgba8(&device, &queue, &copy.texture, size);
+        let actual = crate::target::read_texture_rgba8(&device, &queue, &copy.texture, size).unwrap();
         assert_eq!(actual.len(), bytes.len());
         assert!(actual.iter().zip(&bytes).all(|(a,b)| a.abs_diff(*b) <= 1), "gamma or orientation changed");
     }

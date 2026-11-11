@@ -1,3 +1,5 @@
+mod golden;
+mod presets;
 mod view2d;
 mod more;
 use std::collections::BTreeMap;
@@ -160,7 +162,7 @@ fn padding_fills_the_gutter_from_islands() {
     let gutter = cov.iter().position(|c| !c).unwrap() as u32;
     let (gx, gy) = (gutter % RES, gutter / RES);
     let dir = tmp("pad");
-    let only_rough = ExportTemplate { name: "R".into(), maps: vec![ExportTemplate::pbr_metal_rough().maps[1].clone()] };
+    let only_rough = ExportTemplate { name: "R".into(), maps: vec![ExportTemplate::pbr_metal_rough().maps[1].clone()], ..Default::default() };
     for (padding, expect) in [(Padding::None, 0.0), (Padding::Infinite, 1.0)] {
         let s = ExportSettings { template: only_rough.clone(), padding, ..ExportSettings::default() };
         export(&mesh, "M", &sets, &s, &dir).unwrap();
