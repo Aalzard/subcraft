@@ -125,7 +125,9 @@ fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]], input: 
     let mut detail = Vec::new();
     if g.kind == GeneratorKind::MeshMap(MeshMapKind::Curvature) && let Some(d) = g.curvature.filter(|d| !d.is_identity()) {
         detail = vec![0.0f32; TILE_TEXELS];
-        crate::curvature::detail_values(&d, tc.sample.mesh_maps.get(MeshMapKind::Curvature), geo, &map, &mut detail);
+        // With an anchor input the grids would describe the baked map, not the input: fine and mode only.
+        let source = if input.is_some() { None } else { tc.sample.mesh_maps.get(MeshMapKind::Curvature) };
+        crate::curvature::detail_values(&d, source, geo, &map, &mut detail);
     }
     for (i, o) in out.iter_mut().enumerate() {
         let raw = match g.kind {

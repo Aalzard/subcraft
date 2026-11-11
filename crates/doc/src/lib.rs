@@ -25,13 +25,8 @@ pub use effect::{ContentEffect, ContentEffectKind};
 pub use fill::{FillSource, ProceduralKind, ProceduralParams, ScratchParams, ScratchPreset, Projection, ProjectionMode};
 pub use filter::{Filter, Gradient, GradientStop, MAX_GRADIENT_STOPS, MAX_MEDIAN_RADIUS, MAX_MOSAIC_SIZE, MAX_POSTERIZE_LEVELS, MAX_WARP_SCALE, GRADIENT_PRESETS, OutlinePosition};
 pub use history::{History, HistoryEntry};
-<<<<<<< HEAD
 pub use layer::{ChannelBlend, FillChannel, FillContent, GroupContent, Layer, LayerContent, LayerKind, PaintContent, PartMask, changed_paint_tiles, duplicate_layers_with_new_ids, empty_paint_image, same_paint_layout};
-pub use mask::{EdgeSpread, Generator, MicroDirection, MicroEffect, PainterControls, GeneratorKind, GradientAxis, IdColorMask, Levels, Mask, MaskEffect, MaskEffectKind};
-=======
-pub use layer::{ChannelBlend, FillChannel, FillContent, GroupContent, Layer, LayerContent, LayerKind, PaintContent, PartMask, changed_paint_tiles, empty_paint_image, same_paint_layout};
 pub use mask::{CurvatureDetail, CurvatureMode, EdgeSpread, Generator, MicroDirection, MicroEffect, PainterControls, GeneratorKind, GradientAxis, IdColorMask, Levels, Mask, MaskEffect, MaskEffectKind};
->>>>>>> d121703 (Right-click Properties popup, curvature modes and detail sizes, polygon fill box selection and modes)
 pub use pen::{PenAnchor, PenPath};
 pub use resources::{Resource, ResourceKind, ResourceStore};
 pub use text::TextDecal;
