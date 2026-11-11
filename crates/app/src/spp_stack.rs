@@ -159,12 +159,12 @@ pub struct Rebuilder<'a, R: Read + Seek> {
     pub blend_map: BTreeMap<i32, BlendMode>,
     /// Mask rasters to paint: (layer, its Paint effect, polygon fills and strokes in order).
     rasters: Vec<(LayerId, EffectId, Vec<RasterOp>)>,
-    /// Baked mesh maps, for evaluating anchored masks (references are baked into rasters).
+    /// Baked mesh maps of the set (kept for callers; anchors are now rebuilt live, ADR-0045).
     pub mesh_maps: Option<subcraft_materials::MeshMaps>,
-    /// Anchor uid -> (layer, number of its mask effects at the anchor).
-    anchors: HashMap<i64, (LayerId, usize)>,
-    /// Mask effects standing for an anchor reference: (layer, effect, anchor uid).
-    references: Vec<(LayerId, EffectId, i64, Option<LevelsInfo>)>,
+    /// Painter anchor uid -> the SubCraft anchor point effect rebuilt for it.
+    anchors: HashMap<i64, EffectId>,
+    /// References waiting for their anchor's id (anchors are numbered by Painter's uid).
+    references: Vec<PendingRef>,
     /// Fill channels whose source (a procedural material or pattern, a bitmap) has no SubCraft
     /// counterpart: rebuilt as uniform values to be fitted against Painter's result
     /// ([`crate::spp_fit`]), in rebuild order (the same for any resolution).
@@ -175,6 +175,14 @@ pub struct Rebuilder<'a, R: Read + Seek> {
     pub tuning: Tuning,
     /// Progress and cancellation of a background import.
     pub control: Option<Arc<crate::spp_job::ImportControl>>,
+}
+
+/// A Painter anchor reference rebuilt with a placeholder input, linked once every anchor is known.
+enum PendingRef {
+    /// An Anchor Reference mask effect.
+    Mask { layer: LayerId, effect: EffectId, uid: i64 },
+    /// A fill channel reading the anchor.
+    Fill { layer: LayerId, channel: ChannelKind, uid: i64 },
 }
 
 impl<'a, R: Read + Seek> Rebuilder<'a, R> {
@@ -242,83 +250,44 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
         *self.stats.timings.entry("strokes and polygon fills").or_default() += t.elapsed();
     }
 
-    /// Fill each anchor reference with the anchored layer's mask as it is at the anchor (evaluated
-    /// once and stored as a raster: the link itself is not live). References inside anchored masks
-    /// are resolved first; a reference whose anchor is missing stays empty.
+    /// Link every rebuilt anchor reference to the anchor point rebuilt for its Painter uid. The
+    /// links are live (ADR-0045): editing the anchored layer updates the readers. A reference whose
+    /// anchor was not rebuilt keeps its place and shows as a missing anchor in the UI.
     fn resolve_references(&mut self, layers: &mut [Layer]) {
-        let (Some(geometry), Some(maps)) = (self.geometry.clone(), self.mesh_maps.clone()) else {
-            for _ in 0..self.references.len() {
-                self.stats.skip("anchor references in masks");
-            }
-            return;
-        };
         let t = std::time::Instant::now();
-        let shared = std::sync::Mutex::new(HashMap::new());
-        // Anchored masks are evaluated at no more than `raster_max_resolution() / 2` (each is a
-        // composite of the mask; at 4096 they took 4 minutes for one project) and resampled.
-        let res = self.ts.resolution;
-        let cap = (raster_max_resolution() / 2).min(res).max(64);
-        let (eval_view, eval_geometry, eval_maps) = if cap < res {
-            let mut view = self.ts.clone();
-            view.resolution = cap;
-            let g = Arc::new(TextureSetGeometry::new(geometry.mesh().clone(), geometry.material_slot, cap));
-            let m = subcraft_materials::MeshMaps::from_map(maps.iter().map(|(k, v)| (k, v.resampled(cap, cap))).collect());
-            (view, g, m)
-        } else {
-            (self.ts.clone(), geometry.clone(), maps.clone())
-        };
-        let mut todo = std::mem::take(&mut self.references);
-        for _round in 0..8 {
-            let unresolved: Vec<EffectId> = todo.iter().map(|r| r.1).collect();
-            let mut left = Vec::new();
-            for (layer_id, effect_id, anchor, levels) in todo {
-                if self.cancelled() {
-                    return;
-                }
-                let Some(&(anchor_layer, count)) = self.anchors.get(&anchor) else {
-                    self.stats.skip("anchor references to a missing anchor");
-                    continue;
-                };
-                let Some(mut mask) = find_layer(layers, anchor_layer).and_then(|l| l.mask.clone()) else {
-                    self.stats.skip("anchor references to a missing anchor");
-                    continue;
-                };
-                mask.effects.truncate(count);
-                if mask.effects.iter().any(|e| unresolved.contains(&e.id) && e.id != effect_id) {
-                    left.push((layer_id, effect_id, anchor, levels));
-                    continue;
-                }
-                mask.enabled = true;
-                if let Some(l) = &levels {
-                    mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Levels(levels_of(l)))));
-                }
-                let image = if cap < res {
-                    eval_mask_image(&scaled_mask(&mask, cap as f32 / res as f32, cap), &eval_view, &eval_geometry, self.resources, &eval_maps).resampled(res, res)
-                } else {
-                    eval_mask_image(&mask, &eval_view, &eval_geometry, self.resources, &eval_maps)
-                };
-                let mut image = image;
-                share_constant_tiles(&mut image, &shared);
-                if let Some(l) = find_layer_mut(layers, layer_id) {
+        for r in std::mem::take(&mut self.references) {
+            let (layer_id, uid) = match &r {
+                PendingRef::Mask { layer, uid, .. } | PendingRef::Fill { layer, uid, .. } => (*layer, *uid),
+            };
+            let anchor = self.anchors.get(&uid).copied();
+            if anchor.is_some() {
+                self.stats.exact += 1;
+            } else {
+                self.stats.skip("anchor references to a missing anchor (kept, flagged in the layer stack)");
+            }
+            let Some(anchor) = anchor else { continue };
+            let Some(l) = find_layer_mut(layers, layer_id) else { continue };
+            match r {
+                PendingRef::Mask { effect, .. } => {
                     if let Some(m) = l.mask.as_mut() {
                         for e in &mut m.effects {
-                            if e.id == effect_id {
-                                Arc::make_mut(e).kind = MaskEffectKind::Paint { image: image.clone() };
+                            if e.id == effect && let MaskEffectKind::AnchorRef { input, .. } = &mut Arc::make_mut(e).kind {
+                                input.anchor = anchor;
                             }
                         }
                     }
                 }
-                self.stats.exact += 1;
+                PendingRef::Fill { channel, .. } => {
+                    if let LayerContent::Fill(f) = &mut l.content
+                        && let Some(ch) = f.channels.get_mut(&channel)
+                        && let FillSource::Anchor { input } = &mut ch.source
+                    {
+                        input.anchor = anchor;
+                    }
+                }
             }
-            if left.is_empty() {
-                *self.stats.timings.entry("anchor references").or_default() += t.elapsed();
-                return;
-            }
-            todo = left;
         }
-        for _ in &todo {
-            self.stats.skip("anchor references in a cycle");
-        }
+        *self.stats.timings.entry("anchor references").or_default() += t.elapsed();
     }
 
     fn cancelled(&self) -> bool {
@@ -444,12 +413,19 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
                 }
                 ActionKind::Levels(_) => {}
                 ActionKind::Decal { .. } => self.stats.skip("decals"),
-                ActionKind::Anchor { .. } => self.stats.skip("anchor points"),
+                ActionKind::Anchor { uid } => {
+                    // A live anchor point: captures the content rebuilt so far (ADR-0045).
+                    let mut e = ContentEffect::new(ContentEffectKind::Anchor, ts);
+                    e.name = if a.label.trim().is_empty() { format!("{name} anchor") } else { a.label.trim().to_string() };
+                    self.anchors.insert(*uid, e.id);
+                    effects.push(e);
+                    self.stats.exact += 1;
+                }
                 ActionKind::Other(c) => self.stats.skip(format!("unknown action {c}")),
             }
         }
         if fills.is_empty() {
-            if !effects.is_empty() && !skip("filter_layers") && info.content.iter().all(|a| matches!(a.kind, ActionKind::Filter { .. } | ActionKind::Levels(_))) {
+            if !effects.is_empty() && !skip("filter_layers") && info.content.iter().all(|a| matches!(a.kind, ActionKind::Filter { .. } | ActionKind::Levels(_) | ActionKind::Anchor { .. })) {
                 // An empty pass-through folder filters the stack below it, mixed in by its mask.
                 // A filter that reads neighbouring texels (sharpen, blur) of everything below makes
                 // each composite evaluate the whole stack around every tile, again for every such
@@ -531,8 +507,17 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
                                 fitted.push(c.kind);
                                 Some(c.kind.default_paint_value())
                             }
-                            SourceInfo::Reference { .. } => {
-                                self.stats.skip("anchor references in layer content");
+                            SourceInfo::Reference { anchor, levels, .. } => {
+                                // The same channel of the anchored content, linked once every
+                                // anchor is rebuilt (ADR-0045). Painter's levels on it are dropped.
+                                let input = subcraft_doc::AnchorInput::new(EffectId::nil(), c.kind);
+                                fill.channels.insert(c.kind, FillChannel::new(FillSource::Anchor { input }));
+                                layer.blend.insert(c.kind, ChannelBlend::new(default_mode(c.kind)));
+                                self.references.push(PendingRef::Fill { layer: layer.id, channel: c.kind, uid: *anchor });
+                                if levels.is_some() {
+                                    self.stats.approximate += 1;
+                                }
+                                covered += 1;
                                 None
                             }
                         };
@@ -648,10 +633,12 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
                                     Vec::new()
                                 }
                             },
-                            SourceInfo::Reference { anchor, levels, .. } => {
-                                let mut effect = MaskEffect::new(MaskEffectKind::Paint { image: TiledImage::new(res, res, 2, [0.0; 4]) });
-                                effect.name = "Anchor reference".into();
-                                self.references.push((layer.id, effect.id, *anchor, levels.clone()));
+                            SourceInfo::Reference { anchor, levels, channels } => {
+                                // A live reference, linked once every anchor is rebuilt (ADR-0045).
+                                let channel = self.ts.channel_kinds().find(|k| channel_bit(*k).is_some_and(|b| channels & b != 0)).unwrap_or(ChannelKind::Height);
+                                let input = subcraft_doc::AnchorInput::new(EffectId::nil(), channel);
+                                let effect = MaskEffect::new(MaskEffectKind::AnchorRef { input, levels: levels.as_ref().map(levels_of) });
+                                self.references.push(PendingRef::Mask { layer: layer.id, effect: effect.id, uid: *anchor });
                                 vec![effect]
                             }
                         };
@@ -733,7 +720,13 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
                     _ => self.stats.skip("mask polygon fills"),
                 },
                 ActionKind::Anchor { uid } => {
-                    self.anchors.insert(*uid, (layer.id, mask.effects.len()));
+                    // A live anchor point on the mask rebuilt so far (ADR-0045).
+                    let mut effect = MaskEffect::new(MaskEffectKind::Anchor);
+                    effect.name = if action.label.trim().is_empty() { format!("{} mask anchor", layer.name) } else { action.label.trim().to_string() };
+                    self.anchors.insert(*uid, effect.id);
+                    mask.effects.push(Arc::new(effect));
+                    self.stats.exact += 1;
+                    mapped += 1;
                 }
                 ActionKind::Other(c) => self.stats.skip(format!("mask action {c}")),
             }
@@ -1132,20 +1125,6 @@ fn skip(step: &str) -> bool {
     std::env::var("SUBCRAFT_SPP_SKIP").is_ok_and(|v| v.split(',').any(|s| s == step))
 }
 
-fn find_layer(layers: &[Layer], id: LayerId) -> Option<&Layer> {
-    layers.iter().find_map(|l| find_in(l, id))
-}
-
-fn find_in(l: &Layer, id: LayerId) -> Option<&Layer> {
-    if l.id == id {
-        return Some(l);
-    }
-    match &l.content {
-        LayerContent::Group(g) => g.children.iter().find_map(|c| find_in(c, id)),
-        _ => None,
-    }
-}
-
 fn find_layer_mut(layers: &mut [Layer], id: LayerId) -> Option<&mut Layer> {
     layers.iter_mut().find_map(|l| find_in_mut(l, id))
 }
@@ -1158,34 +1137,6 @@ fn find_in_mut(l: &mut Layer, id: LayerId) -> Option<&mut Layer> {
         LayerContent::Group(g) => g.children.iter_mut().find_map(|c| find_in_mut(Arc::make_mut(c), id)),
         _ => None,
     }
-}
-
-/// `mask` for a texture `factor` times the size (`res` texels): rasters resampled, filter radii
-/// (in texels) scaled.
-fn scaled_mask(mask: &Mask, factor: f32, res: u32) -> Mask {
-    let mut m = mask.clone();
-    m.base = m.base.resampled(res, res);
-    for e in &mut m.effects {
-        let e = Arc::make_mut(e);
-        match &mut e.kind {
-            MaskEffectKind::Paint { image } => *image = image.resampled(res, res),
-            MaskEffectKind::Filter(f) => {
-                *f = match *f {
-                    Filter::Blur { radius } => Filter::Blur { radius: radius * factor },
-                    Filter::Sharpen { radius, amount } => Filter::Sharpen { radius: (radius * factor).max(0.5), amount },
-                    Filter::Median { radius } => Filter::Median { radius: radius * factor },
-                    Filter::Warp { intensity, scale, seed } => Filter::Warp { intensity: intensity * factor, scale, seed },
-                    Filter::DirectionalBlur { radius, angle_deg } => Filter::DirectionalBlur { radius: radius * factor, angle_deg },
-                    Filter::Highpass { radius, amount } => Filter::Highpass { radius: radius * factor, amount },
-                    Filter::Bevel { radius, amount, threshold } => Filter::Bevel { radius: radius * factor, amount, threshold },
-                    Filter::MaskOutline { radius, threshold, position } => Filter::MaskOutline { radius: radius * factor, threshold, position },
-                    other => other.scaled(factor),
-                }
-            }
-            _ => {}
-        }
-    }
-    m
 }
 
 /// A mask evaluated on its own as a (value, alpha = 1) raster at the set's resolution.

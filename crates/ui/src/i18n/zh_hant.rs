@@ -376,4 +376,12 @@ pub static TABLE: &[(&str, &str)] = &[
     ("This preset chooses its own padding; maps without one use it", "此預設自行設定填充；未設定填充的貼圖會使用它"),
     ("Tokens: $mesh, $textureSet, $udim, $suffix", "代號：$mesh、$textureSet、$udim、$suffix"),
     ("Up", "上移"),
+    // Anchor points (ADR-0045).
+    ("Anchor", "錨點"),
+    ("A channel or mask captured by an anchor point in a lower layer", "下方圖層的錨點所擷取的通道或遮罩"),
+    ("Reads the anchor's value and coverage. Color and gray convert automatically.", "讀取錨點的數值與覆蓋範圍。彩色與灰階會自動轉換。"),
+    ("Name", "名稱"),
+    ("Gray value of the anchor (color channels by luminance), times its coverage. Stack Levels or Invert above it to remap.", "錨點的灰階值（彩色通道依亮度）乘以其覆蓋範圍。可在其上方疊加色階或反轉來重新對應。"),
+    ("Levels", "色階"),
+    ("The anchor replaces the baked map this generator reads (curvature for Edges and Concave, occlusion for Dirt and Ambient Occlusion).", "錨點取代此產生器讀取的烘焙貼圖（Edges 與 Concave 為曲率，Dirt 與 Ambient Occlusion 為遮蔽）。"),
 ];

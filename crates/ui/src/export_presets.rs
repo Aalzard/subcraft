@@ -570,10 +570,12 @@ mod tests {
         crate::theme::apply(&ctx);
         let mut key = p.key().to_string();
         for _ in 0..2 {
-            let _ = ctx.run_ui(Default::default(), |ui| {
+            let mut out = ctx.run_ui(Default::default(), |ui| {
                 preset_bar(ui, &mut presets, &mut key, &mut ed);
                 preset_editor(ui, &mut presets, &key, &mut ed, "Crate");
             });
+            // No renderer here: drop the font atlas upload (epaint asserts on unapplied deltas in debug).
+            out.textures_delta.clear();
         }
         assert!(ed.error.is_none(), "{:?}", ed.error);
         // Simulate an edit through the draft path: change the selected map's format.

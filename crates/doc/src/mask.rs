@@ -71,6 +71,10 @@ pub struct Generator {
     /// layers below. Absent (the default, and in every older project): colour channels only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub micro: Option<MicroEffect>,
+    /// Input image (ADR-0045): an anchor point read instead of the baked mesh map (Edges, Dirt,
+    /// Concave, Ambient Occlusion and Mesh Map kinds). Absent: the mesh map, as before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input: Option<crate::anchor::AnchorInput>,
 }
 
 /// Settings of a generator's micro effect (see [`Generator::micro`]). `Default` is the neutral
@@ -281,7 +285,13 @@ impl Generator {
                 ..PainterControls::default()
             }),
             micro: None,
+            input: None,
         }
+    }
+
+    /// Whether this kind reads a baked map that an anchor input can replace.
+    pub fn accepts_input(&self) -> bool {
+        !matches!(self.kind, GeneratorKind::Directional | GeneratorKind::PositionGradient)
     }
 
     /// Whether the micro effect is on and strong enough to change anything.
@@ -387,6 +397,12 @@ pub enum MaskEffectKind {
     Image { resource: subcraft_core::ResourceId, projection: Projection, invert: bool },
     /// Selection by baked ID map color (ADR-0041). Without a baked ID map it is black.
     IdColor(IdColorMask),
+    /// Anchor point (ADR-0045): captures the mask evaluated up to here. Changes nothing itself.
+    Anchor,
+    /// Grayscale read from an anchor point below (a channel of a content anchor, or a mask
+    /// anchor), premultiplied by its coverage, through optional Levels (Painter's reference
+    /// sources carry their own). Unresolved references contribute nothing.
+    AnchorRef { input: crate::anchor::AnchorInput, levels: Option<Levels> },
 }
 
 impl MaskEffectKind {
@@ -400,6 +416,8 @@ impl MaskEffectKind {
             MaskEffectKind::Invert => "Invert".into(),
             MaskEffectKind::Image { .. } => "Image".into(),
             MaskEffectKind::IdColor(_) => "ID Color Mask".into(),
+            MaskEffectKind::Anchor => "Anchor Point".into(),
+            MaskEffectKind::AnchorRef { .. } => "Anchor Reference".into(),
         }
     }
 }

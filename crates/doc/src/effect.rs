@@ -26,6 +26,9 @@ pub enum ContentEffectKind {
     /// so transparent paint stays transparent. Not valid on the Normal channel (vector data).
     Levels { channel: ChannelKind, levels: Levels },
     Filter { channel: ChannelKind, filter: crate::Filter },
+    /// Anchor point (ADR-0045): captures the content evaluated up to here, per channel, under
+    /// the effect's name, for references elsewhere. Changes nothing itself.
+    Anchor,
 }
 
 impl ContentEffectKind {
@@ -35,6 +38,7 @@ impl ContentEffectKind {
             ContentEffectKind::Fill(_) => "Fill".into(),
             ContentEffectKind::Levels { channel, .. } => format!("Levels ({})", channel.display_name()),
             ContentEffectKind::Filter { channel, filter } => format!("{} ({})", filter.label(), channel.display_name()),
+            ContentEffectKind::Anchor => "Anchor Point".into(),
         }
     }
 

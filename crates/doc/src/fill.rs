@@ -276,6 +276,8 @@ pub enum FillSource {
     Procedural { params: ProceduralParams, low: ChannelValue, high: ChannelValue },
     /// Baked mesh map value.
     MeshMap { map: MeshMapKind },
+    /// A channel of an anchor point below this layer (ADR-0045), as `(value, alpha)`.
+    Anchor { input: crate::anchor::AnchorInput },
 }
 
 impl FillSource {
