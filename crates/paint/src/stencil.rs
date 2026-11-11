@@ -7,7 +7,8 @@ use glam::Vec2;
 use subcraft_image::{Bitmap, Wrap};
 
 /// Along which image axes a stencil repeats.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum StencilTiling {
     /// One image: paint is blocked outside it.
     #[default]

@@ -1,12 +1,73 @@
 //! Tool Properties of the painting tools, in Painter's order: Brush, Alpha, Stencil, Material.
 
 use egui::Ui;
+use subcraft_app::brush_preset::PresetKind;
 use subcraft_paint::{Alignment, PaintTarget, PolygonFillMode};
 
 use crate::state::{Tool, UiState};
 use crate::widgets::{hint, panel, prop_row, section, segmented, slider_row};
 
+/// Id of the panel background that takes the right-click of the tool Properties.
+pub fn properties_menu_id() -> egui::Id {
+    egui::Id::new("tool-properties-menu")
+}
+
+/// Create a preset of `kind` from the current tool in the user library and list it in the Shelf.
+/// The name typed in the Presets block is used when there is one; otherwise the brush's name.
+pub fn create_preset(state: &mut UiState, kind: PresetKind, now: f64) {
+    let Some(lib) = state.user_library.clone() else {
+        state.set_status("Presets need a user library folder", now);
+        return;
+    };
+    let typed = state.preset_name.trim().to_string();
+    let name = if !typed.is_empty() {
+        typed
+    } else if kind == PresetKind::Material {
+        "Material".to_string()
+    } else {
+        super::brush_header::title(state)
+    };
+    match state.session.create_preset(&lib, &name, kind, state.tool.preset_tool()) {
+        Ok((p, tip)) => {
+            if let Some(tip) = tip { state.library.alphas.push(tip); }
+            state.set_status(format!("Created {} \"{}\": it is in Shelf › Brushes (right-click it to rename or update)", kind.label(), p.name), now);
+            state.brush_presets.push(p);
+            state.preset_name.clear();
+        }
+        Err(e) => state.set_status(format!("Create {}: {e}", kind.label()), now),
+    }
+}
+
+fn create_label(kind: PresetKind) -> String {
+    format!("Create {}", kind.label())
+}
+
+fn create_hint(kind: PresetKind) -> &'static str {
+    match kind {
+        PresetKind::Tool => "Everything: brush, alpha, stencil, material and the tool in use",
+        PresetKind::Material => "The material only: channel values and images",
+        PresetKind::Brush => "Brush parameters, alpha and stencil, without the material",
+    }
+}
+
 pub fn show(state: &mut UiState, ui: &mut Ui) {
+    // Right-click on the panel (outside its controls, which are laid on top of this) opens the
+    // preset menu, as in Painter's tool Properties.
+    let now = ui.input(|i| i.time);
+    let background = ui.interact(ui.max_rect(), properties_menu_id(), egui::Sense::click());
+    let can_save = state.user_library.is_some();
+    let mut create = None;
+    background.context_menu(|ui| {
+        for kind in PresetKind::ALL {
+            if ui.add_enabled(can_save, egui::Button::new(create_label(kind))).on_hover_text(create_hint(kind)).clicked() {
+                create = Some(kind);
+                ui.close();
+            }
+        }
+    });
+    if let Some(kind) = create {
+        create_preset(state, kind, now);
+    }
     let mut area = egui::ScrollArea::vertical().id_salt("brush").auto_shrink([false, false]);
     // A Shelf click on a brush scrolls back to the selected brush's preview at the top.
     if std::mem::take(&mut state.brush_scroll_top) {
@@ -150,30 +211,18 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 });
             }
 
-            section(ui, "presets", "Presets", true, |ui| {
+            section(ui, "presets", "Presets", false, |ui| {
                 ui.vertical(|ui| {
                     ui.add(egui::TextEdit::singleline(&mut state.preset_name).hint_text("Preset name").desired_width(f32::INFINITY).margin(egui::vec2(8.0, 5.0)));
                     let can_save = state.user_library.is_some();
-                    if ui
-                        .add_enabled(can_save, egui::Button::new(format!("{}  Save preset", crate::icons::SAVE)))
-                        .on_hover_text("Save size, flow, tip, jitter, symmetry and material to your library")
-                        .clicked()
-                    {
-                        let name = if state.preset_name.trim().is_empty() { state.session.brush.alpha_name.clone() } else { state.preset_name.clone() };
-                        let lib = state.user_library.clone().expect("enabled only with a library");
-                        let now = ui.input(|i| i.time);
-                        match state.session.save_current_brush_preset(&lib, &name) {
-                            Ok((p,tip)) => {
-                                if let Some(tip)=tip {state.library.alphas.push(tip);}
-                                state.set_status(format!("Saved brush preset \"{}\"", p.name), now);
-                                state.brush_presets.push(p);
-                                state.preset_name.clear();
-                            }
-                            Err(e) => state.set_status(format!("Save preset: {e}"), now),
+                    let now = ui.input(|i| i.time);
+                    for kind in PresetKind::ALL {
+                        if ui.add_enabled(can_save, egui::Button::new(format!("{}  {}", crate::icons::SAVE, create_label(kind)))).on_hover_text(create_hint(kind)).clicked() {
+                            create_preset(state, kind, now);
                         }
                     }
                 });
-                hint(ui, "Saved presets appear first in Shelf › Brushes.");
+                hint(ui, "Also on right-click anywhere in this panel. Presets appear in Shelf › Brushes; right-click one there to update, rename, duplicate or favorite it.");
             });
 
             let now = ui.input(|i| i.time);
