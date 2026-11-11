@@ -212,3 +212,24 @@ fn smudge_keeps_normals_unit_length_and_height_in_range() {
     let h = at(&raster(&s, K::Height), 0.0, 0.0);
     assert!(h[1] > 0.02 && (0.0..=1.0).contains(&h[0]), "height in range: {h:?}");
 }
+
+/// QA 2026-11: with mirror symmetry, all copies of a smudge stroke shared one "carried paint":
+/// red picked up on one side of the mirror was deposited on the other, clean, side.
+#[test]
+fn smudge_with_symmetry_does_not_carry_paint_across_the_mirror() {
+    let mut s = session();
+    let cam = camera(Vec3::NEG_Z);
+    // Red on the +x half only.
+    stroke(&mut s, &cam, &[(0.3, 0.0), (0.5, 0.0), (0.7, 0.0)]);
+    let before = raster(&s, K::BaseColor);
+    assert!(at(&before, 0.5, 0.0)[3] > 0.9 && at(&before, -0.5, 0.0)[3] == 0.0);
+    s.brush.mode = StrokeMode::Smudge;
+    s.brush.options.symmetry = [true, false, false];
+    stroke(&mut s, &cam, &[(0.4, 0.0), (0.45, 0.0), (0.5, 0.0), (0.55, 0.0), (0.6, 0.0)]);
+    let after = raster(&s, K::BaseColor);
+    let dense = after.to_dense();
+    let comps = after.comps();
+    let left: f32 = (0..RES).flat_map(|y| (0..RES / 2 - 2).map(move |x| (x, y))).map(|(x, y)| dense[((y * RES + x) as usize) * comps + comps - 1]).sum();
+    assert_eq!(left, 0.0, "smudging clean surface on the mirrored side must leave it clean");
+    assert!(at(&after, 0.5, 0.0)[3] > 0.9, "the painted side is still painted");
+}

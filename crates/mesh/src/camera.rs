@@ -108,7 +108,7 @@ pub fn parse_json(text: &str) -> Result<Vec<CameraSpec>, CameraError> {
 
 /// Cameras of a glTF / GLB file (bytes), with node transforms applied. Buffers are not needed.
 pub fn parse_gltf(bytes: &[u8]) -> Result<Vec<CameraSpec>, CameraError> {
-    let gltf = gltf::Gltf::from_slice(bytes).map_err(|e| CameraError::Gltf(e.to_string()))?;
+    let gltf = crate::import::open_gltf(bytes).map_err(CameraError::Gltf)?;
     let mut out = Vec::new();
     let mut stack: Vec<(gltf::Node, Mat4)> = match gltf.default_scene().or_else(|| gltf.scenes().next()) {
         Some(scene) => scene.nodes().map(|n| (n, Mat4::IDENTITY)).collect(),

@@ -398,7 +398,7 @@ Files: {}", ex.dir().display()));
             if resp.clicked() {
                 let mods = ui.input(|i| subcraft_app::multi_select::ClickMods { toggle: i.modifiers.command, range: i.modifiers.shift });
                 state.multi.click(&order, l.id, mods);
-                cmds.push(Command::SelectLayer(Some(l.id)));
+                cmds.push(Command::SelectLayer(Some(state.multi.primary_after_click(l.id))));
             }
             if resp.double_clicked() {
                 // Text layers open their editor; every other layer renames inline (F2 renames text too).

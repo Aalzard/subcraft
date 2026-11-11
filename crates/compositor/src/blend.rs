@@ -186,6 +186,27 @@ pub fn blend_fn(mode: BlendMode, cb: [f32; 3], cs: [f32; 3], target: BlendTarget
     }
 }
 
+/// A passthrough folder at strength `f` (opacity x mask): a mix of the backdrop `dst` and the
+/// children's result `src`. Texels are straight (not premultiplied) alpha, so the colours are
+/// weighted by their alpha: a plain lerp of all four components darkened a passthrough folder
+/// inside an isolated one, where the backdrop is transparent. With equal alphas (the usual opaque
+/// stack) this is that plain lerp, bit for bit.
+#[inline]
+pub fn passthrough_mix(dst: &mut [f32; 4], src: &[f32; 4], f: f32) {
+    let (wd, ws) = (dst[3] * (1.0 - f), src[3] * f);
+    let alpha = wd + ws;
+    if dst[3] == src[3] || alpha <= 0.0 {
+        for c in 0..4 {
+            dst[c] += (src[c] - dst[c]) * f;
+        }
+        return;
+    }
+    for c in 0..3 {
+        dst[c] = (dst[c] * wd + src[c] * ws) / alpha;
+    }
+    dst[3] = alpha;
+}
+
 /// Composite source `(cs, alpha)` onto `dst = [Cb.r, Cb.g, Cb.b, ab]` in place.
 #[inline]
 pub fn composite(dst: &mut [f32; 4], cs: [f32; 3], alpha: f32, mode: BlendMode, target: BlendTarget) {

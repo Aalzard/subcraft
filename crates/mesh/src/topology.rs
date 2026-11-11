@@ -35,7 +35,8 @@ pub fn weld_positions(mesh: &Mesh) -> Vec<u32> {
     mesh.positions
         .iter()
         .map(|p| {
-            let k = [p.x.to_bits(), p.y.to_bits(), p.z.to_bits()];
+            // `+ 0.0` turns -0.0 into 0.0, which is the same position with different bits.
+            let k = [(p.x + 0.0).to_bits(), (p.y + 0.0).to_bits(), (p.z + 0.0).to_bits()];
             let next = map.len() as u32;
             *map.entry(k).or_insert(next)
         })
