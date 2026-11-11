@@ -5274,3 +5274,17 @@ the app kept drawing on the dead device. Safe mode works; 0.3.3's marker only he
 * **Results (local, release, this PC's GPU):** `subcraft-app` lib 98 passed, `subcraft-render` lib 23 passed, render
   `device_lost` 1 passed, `gpu_composite` 7 passed (incl. many-small-submissions), `subcraft-ui` lib 129 passed, ui
   `device_lost` 1 passed; 0 failed. The full UI/workspace suite is left to CI (speed rule). Not verified on an AMD APU.
+### Painter parity chunk 6: layer header and context menu (2026-11-12, branch `claude/parity-chunk6-layer-menu`)
+
+* **Header:** Add Effect and Create Mask menu buttons first, then paint / fill / folder, SubCraft's own buttons, and
+  the trash last (it removes the selected effect when one is selected). The row wraps in a narrow dock.
+* **Right-click menu in Painter's order:** effect entries with icons, Add generator, mask entries (white / black /
+  bitmap / colour selection), clipboard (cut, copy, paste, duplicate, remove), Group layers (Ctrl+G), Create smart
+  material / smart mask, then SubCraft's extras.
+* **Commands:** `GroupLayers` puts the selection into one folder where the topmost layer was (Ctrl+G, one undo step;
+  with nothing selected Ctrl+G still adds an empty folder). A new layer goes inside a selected empty folder.
+* **Default blends:** `BlendMode::default_for` gives new layers Height = Linear Dodge (Add), Normal = Normal Map
+  Detail, AO = Multiply, folders Passthrough.
+* **Tests:** `crates/app/tests/layer_menu_parity.rs` (grouping, Ctrl+G, empty-folder insert, default blends, a
+  default fill leaving Height / Normal / AO unchanged). Compile-checked locally (`cargo check --release --tests` of the
+  changed crates); the test run is CI's, per the coordinator's build rule.

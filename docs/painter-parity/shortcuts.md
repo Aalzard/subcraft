@@ -142,7 +142,7 @@ Layout notes: these act only while the pointer is over the layer stack.
 | Paste layer | Layer stack | Ctrl+V | done | crates/ui/src/clipboard.rs:47 | - |
 | Delete layer | Layer stack | Delete | done | crates/app/src/actions.rs:196 | - |
 | Duplicate layer | Layer stack | Ctrl+D | done | crates/app/src/actions.rs:197 | - |
-| Group layer | Layer stack | Ctrl+G | partial: Ctrl+G adds an empty folder; grouping the selection is in the context menu | crates/app/src/session.rs:1572 | - |
+| Group layer | Layer stack | Ctrl+G | done (no selection: adds an empty folder) | crates/app/src/session.rs:1617 | - |
 | Copy layer content | Layer stack | Ctrl+Shift+C (Option+Cmd+C) | missing | - | - |
 | Paste layer content | Layer stack | Ctrl+Shift+V (Option+Cmd+V) | missing | - | - |
 | Display mask in viewport | Layer stack, mask thumbnail | Alt+Mouse left | partial: opens a preview inspector window, viewport does not switch to the mask | crates/ui/src/panels/layers.rs:312 | - |

@@ -44,6 +44,28 @@ fn generator_menu(ui: &mut Ui, picked: &mut Option<GeneratorKind>) {
     });
 }
 
+/// Painter's Create Mask menu: the header button and the layer's right-click menu.
+fn mask_menu(ui: &mut Ui, layer: &Layer, action: &mut Option<(LayerId, subcraft_app::part_workflow::LayerAction)>) {
+    use subcraft_app::part_workflow::LayerAction;
+    // As in Painter, adding a mask again replaces the existing one and its effects (undoable).
+    let tip = if layer.mask.is_some() { "Replaces this layer's mask and its effects" } else { "" };
+    for (label, a) in [("Add white mask", LayerAction::WhiteMask), ("Add black mask", LayerAction::BlackMask)] {
+        let r = ui.button(label);
+        if (if tip.is_empty() { r } else { r.on_hover_text(tip) }).clicked() {
+            *action = Some((layer.id, a));
+            ui.close();
+        }
+    }
+    if ui.button(tr("Add bitmap mask")).on_hover_text(tr("Pick a black & white image, or a logo with transparency (a black mask is created if the layer has none)")).clicked() {
+        crate::files::pick(ui.ctx(), crate::files::Purpose::AddMaskImage { layer: layer.id }, crate::files::IMAGES, false, None);
+        ui.close();
+    }
+    if ui.button(tr("Add mask with color selection")).on_hover_text(tr("A black mask with a color selection effect: pick ID colors in Properties")).clicked() {
+        *action = Some((layer.id, LayerAction::IdColorMask));
+        ui.close();
+    }
+}
+
 /// Guide x of a tree level: the center of its disclosure caret (rows pad their content by 8).
 fn guide_x(row_left: f32, depth: usize) -> f32 {
     row_left + 8.0 + depth as f32 * INDENT + 7.0
@@ -156,54 +178,71 @@ Files: {}", ex.dir().display()));
         if stop { state.stop_photocraft(now); }
     }
 
-    // Toolbar: create on the left, arrange on the right.
+    let channels = state.session.channels();
+    if !channels.contains(&state.active_channel) {
+        state.active_channel = channels.first().copied().unwrap_or(ChannelKind::BaseColor);
+    }
+    // Toolbar in Painter's order: Add Effect, Create Mask, paint layer, fill layer, folder, then
+    // SubCraft's own (text, import, move, duplicate) and Delete last. It wraps in a narrow dock.
     egui::Frame::new().inner_margin(pad).show(ui, |ui| {
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 2.0;
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing = egui::vec2(2.0, 2.0);
+            let selected_effect = state.session.selected_effect();
+            let mask_stack = state.session.layer_target() == LayerTarget::Mask;
+            ui.add_enabled_ui(sel.is_some(), |ui| {
+                let layer = state.session.selected_layer();
+                ui.menu_button(RichText::new(icons::SPARKLE).font(theme::font(16.0)), |ui| {
+                    if let Some(l) = layer {
+                        let resolution = state.session.selected_texture_set().resolution;
+                        super::effects::add_effect_menu(ui, l, mask_stack, &channels, state.active_channel, resolution, &state.session, &mut cmds);
+                    }
+                })
+                .response
+                .on_hover_text(if mask_stack { "Add effect to the selected layer's mask" } else { "Add effect to the selected layer" });
+                ui.menu_button(RichText::new(icons::MASK).font(theme::font(16.0)), |ui| {
+                    if let Some(l) = layer { mask_menu(ui, l, &mut layer_action); }
+                })
+                .response
+                .on_hover_text(tr("Create mask"));
+            });
             if icon_button(ui, icons::PAINT_BRUSH, crate::keys::native("New paint layer (Ctrl+Shift+N)")).clicked() {
                 cmds.push(Command::AddLayer(NewLayer::Paint));
             }
             if icon_button(ui, icons::PAINT_BUCKET, crate::keys::native("New fill layer (Ctrl+Shift+F)")).clicked() {
                 cmds.push(Command::AddLayer(NewLayer::Fill));
             }
-            if icon_button(ui, icons::FOLDER, crate::keys::native("New folder (Ctrl+G)")).clicked() {
+            if icon_button(ui, icons::FOLDER, "New folder (inside the selected folder when it is empty)").clicked() {
                 cmds.push(Command::AddLayer(NewLayer::Folder));
             }
             if icon_button(ui, "Aa", crate::keys::native("New text layer (Ctrl+Shift+T): type text, pick font and colour, then click the model to place it")).clicked() {
                 state.text.open_new();
             }
-            ui.add_enabled_ui(sel.is_some(), |ui| {
-                let mut picked = None;
-                ui.menu_button(RichText::new(icons::MAGIC_WAND).font(theme::font(16.0)), |ui| generator_menu(ui, &mut picked))
-                    .response
-                    .on_hover_text(tr("Add a generator to the selected layer's mask (adds a black mask if it has none)"));
-                if let (Some(kind), Some(id)) = (picked, sel) { layer_action = Some((id, subcraft_app::part_workflow::LayerAction::Generator(kind))); }
-            });
             if icon_button(ui, icons::IMAGE, "Import texture set as a fill layer…").clicked() {
                 import_texture_set_dialog(ui.ctx());
             }
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.add_enabled_ui(sel.is_some(), |ui| {
-                    let id = sel.unwrap_or_default();
-                    if icon_button(ui, icons::TRASH, if multi_selected { "Delete selected layers (Del)" } else { "Delete (Del)" }).clicked() {
-                        cmds.push(if multi_selected { Command::DeleteLayers(state.multi.ids.clone()) } else { Command::DeleteLayer(id) });
-                    }
-                    if icon_button(ui, icons::COPY, crate::keys::native(if multi_selected { "Duplicate selected layers (Ctrl+D)" } else { "Duplicate (Ctrl+D)" })).clicked() {
-                        cmds.push(if multi_selected { Command::DuplicateLayers(state.multi.ids.clone()) } else { Command::DuplicateLayer(id) });
-                    }
-                    if icon_button(ui, icons::ARROW_DOWN, "Move down").clicked() {
-                        cmds.push(Command::MoveDown(id));
-                    }
-                    if icon_button(ui, icons::ARROW_UP, "Move up").clicked() {
-                        cmds.push(Command::MoveUp(id));
-                    }
-                });
+            ui.add_enabled_ui(sel.is_some(), |ui| {
+                let id = sel.unwrap_or_default();
+                if icon_button(ui, icons::ARROW_UP, "Move up").clicked() {
+                    cmds.push(Command::MoveUp(id));
+                }
+                if icon_button(ui, icons::ARROW_DOWN, "Move down").clicked() {
+                    cmds.push(Command::MoveDown(id));
+                }
+                if icon_button(ui, icons::COPY, crate::keys::native(if multi_selected { "Duplicate selected layers (Ctrl+D)" } else { "Duplicate (Ctrl+D)" })).clicked() {
+                    cmds.push(if multi_selected { Command::DuplicateLayers(state.multi.ids.clone()) } else { Command::DuplicateLayer(id) });
+                }
+                // Painter's trash removes what is selected: the effect when one is, else the layer(s).
+                let tip = if selected_effect.is_some() { "Delete the selected effect" } else if multi_selected { "Delete selected layers (Del)" } else { "Delete (Del)" };
+                if icon_button(ui, icons::TRASH, tip).clicked() {
+                    cmds.push(match selected_effect {
+                        Some(effect) if mask_stack => Command::RemoveMaskEffect { layer: id, effect },
+                        Some(effect) => Command::RemoveContentEffect { layer: id, effect },
+                        None if multi_selected => Command::DeleteLayers(state.multi.ids.clone()),
+                        None => Command::DeleteLayer(id),
+                    });
+                }
             });
         });
-        let channels = state.session.channels();
-        if !channels.contains(&state.active_channel) {
-            state.active_channel = channels.first().copied().unwrap_or(ChannelKind::BaseColor);
-        }
         ui.add_space(4.0);
         prop_row(ui, tr("Channel"), |ui| {
             egui::ComboBox::from_id_salt("active_channel").selected_text(state.active_channel.display_name()).show_ui(ui, |ui| {
@@ -225,6 +264,7 @@ Files: {}", ex.dir().display()));
     let mut save_request: Option<(subcraft_core::LayerId, bool)> = None;
     let mut drop_request: Option<(subcraft_core::LayerId, ShelfDrag, bool)> = None;
     let mut open_text: Option<(subcraft_core::LayerId, crate::text_panel::Window)> = None;
+    let mut grouped = false;
     let alt = ui.input(|i| i.modifiers.alt);
     let mut open: Vec<OpenFolder> = Vec::new();
     let mut list = Vec::new();
@@ -424,12 +464,73 @@ Files: {}", ex.dir().display()));
                 ui.painter().galley(pill.min + egui::vec2(4.0, 2.0), galley, theme::TEXT);
             }
             let has_effects = l.mask.as_ref().is_some_and(|m| !m.effects.is_empty());
+            // Painter's order: effects, masks, clipboard, grouping, smart presets; SubCraft's own
+            // entries (rename, move, new layers, text) come last.
             resp.context_menu(|ui| {
+                use subcraft_app::part_workflow::LayerAction;
+                let mask_stack = selected && selected_target == LayerTarget::Mask;
+                let row_channels: Vec<ChannelKind> = ts.channel_kinds().collect();
+                super::effects::add_effect_menu(ui, l, mask_stack, &row_channels, active, ts.resolution, &state.session, &mut cmds);
+                if !mask_stack {
+                    ui.menu_button(format!("{}  Add generator", icons::MAGIC_WAND), |ui| {
+                        let mut picked = None;
+                        generator_menu(ui, &mut picked);
+                        if let Some(kind) = picked { layer_action = Some((l.id, LayerAction::Generator(kind))); }
+                    })
+                    .response
+                    .on_hover_text(tr("Adds the generator to this layer's mask (a black mask is created if it has none)"));
+                }
+                ui.separator();
+                mask_menu(ui, l, &mut layer_action);
+                if let Some(mask) = &l.mask {
+                    ui.menu_button(tr("Mask actions"), |ui| super::mask::actions(ui, l.id, mask.enabled, can_paste_mask, &mut cmds));
+                } else if ui.add_enabled(can_paste_mask, egui::Button::new("Paste mask")).clicked() {
+                    cmds.push(Command::PasteMask(l.id)); ui.close();
+                }
+                ui.separator();
+                let in_multi = multi_selected && multi_ids.contains(&l.id);
+                let n = if in_multi { multi_ids.len() } else { 1 };
+                let suffix = if n > 1 { format!(" {n} layers") } else { " layer".to_string() };
+                // Acting on a row outside the multi-selection selects it first.
+                let aim = |cmds: &mut Vec<Command>| if !in_multi { cmds.push(Command::SelectLayer(Some(l.id))); };
+                if ui.add(egui::Button::new(format!("Cut{suffix}")).shortcut_text(crate::keys::native("Ctrl+X"))).clicked() {
+                    aim(&mut cmds); crate::clipboard::request(ui.ctx(), crate::clipboard::Request::CopyLayers { cut: true }); ui.close();
+                }
+                if ui.add(egui::Button::new(format!("{}  Copy{suffix}", icons::COPY)).shortcut_text(crate::keys::native("Ctrl+C"))).clicked() {
+                    aim(&mut cmds); crate::clipboard::request(ui.ctx(), crate::clipboard::Request::CopyLayers { cut: false }); ui.close();
+                }
+                if ui.add_enabled(have_layer_clip, egui::Button::new("Paste layer").shortcut_text(crate::keys::native("Ctrl+V"))).on_hover_text(tr("Pastes above this layer")).clicked() {
+                    aim(&mut cmds); crate::clipboard::request(ui.ctx(), crate::clipboard::Request::PasteLayers); ui.close();
+                }
+                if ui.add(egui::Button::new(format!("Duplicate{suffix}")).shortcut_text(crate::keys::native("Ctrl+D"))).clicked() {
+                    cmds.push(if in_multi { Command::DuplicateLayers(multi_ids.clone()) } else { Command::DuplicateLayer(l.id) });
+                    ui.close();
+                }
+                if ui.add(egui::Button::new(format!("{}  Remove{suffix}", icons::TRASH)).shortcut_text("Del")).clicked() {
+                    cmds.push(if in_multi { Command::DeleteLayers(multi_ids.clone()) } else { Command::DeleteLayer(l.id) });
+                    ui.close();
+                }
+                ui.separator();
+                // "Group layers" puts the whole selection into one new folder.
+                if ui.add(egui::Button::new(format!("{}  Group layers", icons::FOLDER)).shortcut_text(crate::keys::native("Ctrl+G"))).clicked() {
+                    cmds.push(Command::GroupLayers(if in_multi { multi_ids.clone() } else { vec![l.id] }));
+                    grouped = true;
+                    ui.close();
+                }
+                ui.separator();
+                if ui.button(format!("{}  Create smart material", icons::SAVE)).clicked() {
+                    save_request = Some((l.id, false));
+                    ui.close();
+                }
+                if ui.add_enabled(has_effects, egui::Button::new(format!("{}  Create smart mask", icons::MASK))).on_disabled_hover_text(tr("Needs a mask with at least one effect")).clicked() {
+                    save_request = Some((l.id, true));
+                    ui.close();
+                }
+                ui.separator();
                 if ui.add(egui::Button::new("Rename").shortcut_text("F2")).clicked() {
                     rename = Some(InlineRename { layer: l.id, text: l.name.clone(), focus: true });
                     cmds.push(Command::SelectLayer(Some(l.id))); ui.close();
                 }
-                if ui.button(tr("Group in new folder")).clicked() { cmds.push(Command::GroupLayer(l.id)); ui.close(); }
                 ui.menu_button(tr("Move into folder"), |ui| {
                     let mut folders = Vec::new();
                     ts.walk(|folder, depth| {
@@ -448,66 +549,14 @@ Files: {}", ex.dir().display()));
                 if ts.location(l.id).is_some_and(|loc| loc.parent.is_some()) && ui.button(tr("Move to top level")).clicked() {
                     cmds.push(Command::DropLayer { texture_set: ts.id, layer: l.id, target: DropTarget::RootTop }); ui.close();
                 }
-                ui.separator();
-                use subcraft_app::part_workflow::LayerAction;
                 for (label, action) in [("Add paint layer", LayerAction::AddPaint), ("Add fill layer", LayerAction::AddFill)] {
                     if ui.button(label).clicked() { layer_action = Some((l.id, action)); ui.close(); }
                 }
                 if ui.button(tr("Add text layer…")).clicked() { open_text = Some((l.id, crate::text_panel::Window::New)); ui.close(); }
                 if is_text && ui.button(tr("Edit text…")).clicked() { open_text = Some((l.id, crate::text_panel::Window::Edit)); ui.close(); }
-                ui.menu_button("Add mask", |ui| {
-                    for (label, action) in [("White mask", LayerAction::WhiteMask), ("Black mask", LayerAction::BlackMask)] {
-                        if ui.button(label).clicked() { layer_action = Some((l.id, action)); ui.close(); }
-                    }
-                });
-                if let Some(mask) = &l.mask {
-                    ui.menu_button(tr("Mask actions"), |ui| super::mask::actions(ui, l.id, mask.enabled, can_paste_mask, &mut cmds));
-                } else if ui.add_enabled(can_paste_mask, egui::Button::new("Paste mask")).clicked() {
-                    cmds.push(Command::PasteMask(l.id)); ui.close();
-                }
-                ui.menu_button(tr("Add generator"), |ui| {
-                    let mut picked = None;
-                    generator_menu(ui, &mut picked);
-                    if let Some(kind) = picked { layer_action = Some((l.id, LayerAction::Generator(kind))); }
-                });
-                for (label, action) in [("Add fill mask effect", LayerAction::MaskFill), ("Add paint mask effect", LayerAction::MaskPaint), ("Add ID color mask", LayerAction::IdColorMask)] {
-                    if ui.button(label).clicked() { layer_action = Some((l.id, action)); ui.close(); }
-                }
-                ui.separator();
-                if ui.button(format!("{}  Save as smart material", icons::SAVE)).clicked() {
-                    save_request = Some((l.id, false));
-                    ui.close();
-                }
-                if has_effects && ui.button(format!("{}  Save mask as smart mask", icons::MASK)).clicked() {
-                    save_request = Some((l.id, true));
-                    ui.close();
-                }
-                ui.separator();
-                let in_multi = multi_selected && multi_ids.contains(&l.id);
-                let n = if in_multi { multi_ids.len() } else { 1 };
-                let suffix = if n > 1 { format!(" {n} layers") } else { String::new() };
-                // Acting on a row outside the multi-selection selects it first.
-                let aim = |cmds: &mut Vec<Command>| if !in_multi { cmds.push(Command::SelectLayer(Some(l.id))); };
-                if ui.add(egui::Button::new(format!("{}  Copy{suffix}", icons::COPY)).shortcut_text(crate::keys::native("Ctrl+C"))).clicked() {
-                    aim(&mut cmds); crate::clipboard::request(ui.ctx(), crate::clipboard::Request::CopyLayers { cut: false }); ui.close();
-                }
-                if ui.add(egui::Button::new(format!("Cut{suffix}")).shortcut_text(crate::keys::native("Ctrl+X"))).clicked() {
-                    aim(&mut cmds); crate::clipboard::request(ui.ctx(), crate::clipboard::Request::CopyLayers { cut: true }); ui.close();
-                }
-                if ui.add_enabled(have_layer_clip, egui::Button::new("Paste above").shortcut_text(crate::keys::native("Ctrl+V"))).clicked() {
-                    aim(&mut cmds); crate::clipboard::request(ui.ctx(), crate::clipboard::Request::PasteLayers); ui.close();
-                }
-                if ui.button(format!("Duplicate{suffix}")).clicked() {
-                    cmds.push(if in_multi { Command::DuplicateLayers(multi_ids.clone()) } else { Command::DuplicateLayer(l.id) });
-                    ui.close();
-                }
                 if in_multi {
                     if ui.button(format!("Hide{suffix}")).clicked() { cmds.push(Command::SetLayersVisible { layers: multi_ids.clone(), visible: false }); ui.close(); }
                     if ui.button(format!("Show{suffix}")).clicked() { cmds.push(Command::SetLayersVisible { layers: multi_ids.clone(), visible: true }); ui.close(); }
-                }
-                if ui.button(format!("{}  Delete{suffix}", icons::TRASH)).clicked() {
-                    cmds.push(if in_multi { Command::DeleteLayers(multi_ids.clone()) } else { Command::DeleteLayer(l.id) });
-                    ui.close();
                 }
             });
             resp.on_hover_text(tr("Drag to reorder. Drop in a folder's center to move inside it; drop at Top level to move out. Double-click renames (text layers: opens the text editor); F2 renames."));
@@ -534,6 +583,8 @@ Files: {}", ex.dir().display()));
         else { data.remove::<InlineRename>(rename_id); }
     });
     state.run(cmds, now);
+    // The grouped layers are inside the new folder, which is now the selection.
+    if grouped { state.multi.clear(); }
     if let Some((layer, action)) = layer_action {
         use subcraft_app::part_workflow::LayerAction;
         let mask_added = matches!(action, LayerAction::WhiteMask | LayerAction::BlackMask);

@@ -46,6 +46,7 @@ pub enum Command {
     DropEffect { source: crate::effect_stack::EffectAddress, target: crate::effect_stack::EffectAddress, side: crate::effect_stack::DropSide },
     DuplicateContentEffect { layer: LayerId, effect: EffectId },
     /// Insert above the selected layer (or at the top) of the selected texture set and select it.
+    /// A selected empty folder receives the new layer instead (Painter).
     AddLayer(NewLayer),
     /// Insert a ready-made layer (material preset, smart material) like [`Command::AddLayer`].
     InsertLayer { layer: Box<Layer>, label: String },
@@ -93,6 +94,9 @@ pub enum Command {
     /// Show only this texture set's part of the model, or everything again when it is already
     /// the only one shown (Painter's Alt+Q). View state only, like `SetTextureSetHidden`.
     IsolateTextureSet(TextureSetId),
+    /// Put several layers of one texture set into one new folder, created where the topmost of
+    /// them was; their stacking order is kept (Painter's Ctrl+G). One undo step.
+    GroupLayers(Vec<LayerId>),
     MoveLayer { layer: LayerId, parent: Option<LayerId>, index: usize },
     /// Visual layer-tree drop. The controller validates UUIDs, cycles and insertion indices.
     DropLayer { texture_set: TextureSetId, layer: LayerId, target: crate::layer_tree::DropTarget },

@@ -1069,7 +1069,12 @@ impl Session {
                     NewLayer::Fill => (Layer::new_fill(format!("Fill {}", self.layer_counter), &tc), "New Fill Layer"),
                     NewLayer::Folder => (Layer::new_folder(format!("Folder {}", self.layer_counter), &tc), "New Folder"),
                 };
-                let id = ts.insert_above(reference, layer);
+                // Painter: with an empty folder selected, the new layer goes inside it.
+                let empty_folder = reference.filter(|&r| ts.find(r).is_some_and(|l| l.is_folder() && l.children().is_empty()));
+                let id = match empty_folder {
+                    Some(folder) => ts.insert(Some(folder), 0, layer).map_err(|_| CommandError::LayerNotFound)?,
+                    None => ts.insert_above(reference, layer),
+                };
                 self.selection.layer = Some(id);
                 self.commit(label, None);
             }
@@ -1305,6 +1310,36 @@ impl Session {
                     self.hidden_sets = hidden;
                     self.revision += 1;
                 }
+            }
+            Command::GroupLayers(ids) => {
+                let first = *ids.first().ok_or(CommandError::LayerNotFound)?;
+                let set = self.texture_set_of(first).ok_or(CommandError::LayerNotFound)?;
+                if ids.iter().any(|&id| self.texture_set_of(id) != Some(set)) {
+                    return Err(CommandError::Invalid("the layers to group are in different texture sets".into()));
+                }
+                let folder = self.edit_layer_set(first, "Group Layers", None, |ts| {
+                    // Bottom to top, as stored. A layer inside another selected folder moves with that folder.
+                    let mut order = Vec::new();
+                    ts.walk(|l, _| if ids.contains(&l.id) { order.push(l.id); });
+                    let nested = |ts: &TextureSet, id: LayerId| {
+                        let mut parent = ts.location(id).and_then(|l| l.parent);
+                        while let Some(p) = parent {
+                            if ids.contains(&p) { return true; }
+                            parent = ts.location(p).and_then(|l| l.parent);
+                        }
+                        false
+                    };
+                    let order: Vec<LayerId> = order.iter().copied().filter(|&id| !nested(ts, id)).collect();
+                    let (&top, below) = order.split_last().ok_or(CommandError::LayerNotFound)?;
+                    let folder = ts.group(top, "Folder").map_err(|_| CommandError::LayerNotFound)?;
+                    for (i, &id) in below.iter().enumerate() {
+                        ts.move_to(id, Some(folder), i).map_err(|e| CommandError::Invalid(format!("{e:?}")))?;
+                    }
+                    Ok(folder)
+                })?;
+                self.selection = Selection { texture_set: set, layer: Some(folder) };
+                self.brush.target = PaintTarget::Content;
+                self.effect = None;
             }
             Command::MoveLayer { layer, parent, index } => {
                 self.edit_layer_set(layer, "Move Layer", None, |ts| {
@@ -1608,7 +1643,11 @@ impl Session {
             Action::Redo => self.execute(Command::Redo)?,
             Action::NewPaintLayer => self.execute(Command::AddLayer(NewLayer::Paint))?,
             Action::NewFillLayer => self.execute(Command::AddLayer(NewLayer::Fill))?,
-            Action::NewFolder => self.execute(Command::AddLayer(NewLayer::Folder))?,
+            // Ctrl+G is Painter's "Group layers": wrap the selection; with nothing selected, an empty folder.
+            Action::NewFolder => match sel {
+                Some(l) => self.execute(Command::GroupLayers(vec![l]))?,
+                None => self.execute(Command::AddLayer(NewLayer::Folder))?,
+            },
             Action::NewTextLayer => { let d = self.new_text_decal("Text"); self.add_text_layer(d)? }
             Action::DeleteLayer => {
                 if let Some(l) = sel {

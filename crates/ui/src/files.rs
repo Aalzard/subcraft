@@ -289,7 +289,12 @@ fn handle(state: &mut UiState, purpose: Purpose, paths: &[PathBuf], now: f64) {
             Ok(resource) => {
                 state.remember_textures(std::slice::from_ref(first));
                 let kind = subcraft_doc::MaskEffectKind::Image { resource, projection: subcraft_doc::Projection::default(), invert: false };
-                state.run(vec![subcraft_app::Command::AddMaskEffect { layer, kind }], now);
+                // "Add bitmap mask" on a layer without a mask: a black mask first, then the image.
+                let masked = state.session.selected_texture_set().find(layer).is_some_and(|l| l.mask.is_some());
+                let mut cmds = Vec::new();
+                if !masked { cmds.push(subcraft_app::Command::AddMask { layer, white: false }); }
+                cmds.push(subcraft_app::Command::AddMaskEffect { layer, kind });
+                state.run(cmds, now);
             }
             Err(e) => state.set_status(format!("Import image: {e}"), now),
         },

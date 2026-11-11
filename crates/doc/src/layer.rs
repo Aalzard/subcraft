@@ -155,19 +155,7 @@ impl PartMask {
 }
 
 fn default_blends(ts: &TextureSet, folder: bool) -> BTreeMap<ChannelKind, ChannelBlend> {
-    ts.channels
-        .iter()
-        .map(|c| {
-            let mode = if folder {
-                BlendMode::Passthrough
-            } else if c.kind == ChannelKind::Normal {
-                BlendMode::NormalMapCombine
-            } else {
-                BlendMode::Normal
-            };
-            (c.kind, ChannelBlend::new(mode))
-        })
-        .collect()
+    ts.channels.iter().map(|c| (c.kind, ChannelBlend::new(BlendMode::default_for(c.kind, folder)))).collect()
 }
 
 impl Layer {

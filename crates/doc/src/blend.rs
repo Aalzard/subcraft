@@ -153,6 +153,19 @@ impl BlendMode {
         }
     }
 
+    /// Blend mode a new layer gets for `kind`, as in Painter: folders pass through, Height adds
+    /// (Linear Dodge), Normal uses Normal Map Detail, Ambient Occlusion multiplies, the rest is Normal.
+    pub fn default_for(kind: subcraft_core::ChannelKind, folder: bool) -> Self {
+        use subcraft_core::ChannelKind as K;
+        match kind {
+            _ if folder => BlendMode::Passthrough,
+            K::Height => BlendMode::LinearDodge,
+            K::Normal => BlendMode::NormalMapDetail,
+            K::AmbientOcclusion => BlendMode::Multiply,
+            _ => BlendMode::Normal,
+        }
+    }
+
     /// Modes meaningful only for the normal channel.
     pub fn is_normal_only(self) -> bool {
         matches!(self, BlendMode::NormalMapCombine | BlendMode::NormalMapDetail | BlendMode::NormalMapInverseDetail)

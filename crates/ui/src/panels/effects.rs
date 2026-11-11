@@ -60,26 +60,23 @@ pub fn new_fill(channels: impl Iterator<Item = ChannelKind>) -> ContentEffectKin
     ContentEffectKind::Fill(FillContent { projection: Default::default(), channels })
 }
 
-/// Content effects the Add menu offers for a layer.
+/// Content effects the Add menu offers for a layer, in Painter's order (paint, fill, levels,
+/// filter, anchor point), each with its row icon.
 fn add_content_menu(ui: &mut Ui, layer: &Layer, channels: &[ChannelKind], active: ChannelKind, cmds: &mut Vec<Command>) {
     let levels_channel = if active == ChannelKind::Normal { ChannelKind::Roughness } else { active };
     let options = [
-        ("Paint", ContentEffectKind::Paint { channels: BTreeMap::new() }),
-        ("Fill", new_fill(channels.iter().copied())),
-        ("Levels", ContentEffectKind::Levels { channel: levels_channel, levels: Levels::default() }),
+        ("Add paint", ContentEffectKind::Paint { channels: BTreeMap::new() }),
+        ("Add fill", new_fill(channels.iter().copied())),
+        ("Add levels", ContentEffectKind::Levels { channel: levels_channel, levels: Levels::default() }),
     ];
     for (label, kind) in options {
         if layer.is_folder() && !kind.is_adjustment() { continue; }
-        if ui.button(label).clicked() {
+        if ui.button(format!("{}  {label}", content_icon(&kind))).clicked() {
             cmds.push(Command::AddContentEffect { layer: layer.id, kind });
             ui.close();
         }
     }
-    if ui.button("Anchor Point").on_hover_text("Captures this layer's content at this point, so layers above can read it").clicked() {
-        cmds.push(Command::AddContentEffect { layer: layer.id, kind: ContentEffectKind::Anchor });
-        ui.close();
-    }
-    ui.menu_button("Filter", |ui| {
+    ui.menu_button(format!("{}  Add filter", icons::SLIDERS), |ui| {
         for filter in subcraft_doc::Filter::ALL {
             let channel = if filter.supports_channel(active) { Some(active) }
                 else { channels.iter().copied().find(|k| filter.supports_channel(*k)) };
@@ -89,10 +86,14 @@ fn add_content_menu(ui: &mut Ui, layer: &Layer, channels: &[ChannelKind], active
             }
         }
     });
+    if ui.button(format!("{}  Add anchor point", icons::CROSSHAIR)).on_hover_text("Captures this layer's content at this point, so layers above can read it").clicked() {
+        cmds.push(Command::AddContentEffect { layer: layer.id, kind: ContentEffectKind::Anchor });
+        ui.close();
+    }
 }
 
 pub(crate) fn add_mask_filters(ui: &mut Ui, layer: LayerId, cmds: &mut Vec<Command>) {
-    ui.menu_button("Filter", |ui| {
+    ui.menu_button(format!("{}  Add filter", icons::SLIDERS), |ui| {
         for filter in subcraft_doc::Filter::ALL.into_iter().filter(|f| f.supports_mask()) {
             if ui.button(filter.label()).clicked() {
                 cmds.push(Command::AddMaskEffect { layer, kind: MaskEffectKind::Filter(filter) }); ui.close();
@@ -103,14 +104,14 @@ pub(crate) fn add_mask_filters(ui: &mut Ui, layer: LayerId, cmds: &mut Vec<Comma
 
 /// Anchor Point / Anchor Reference entries of a mask's Add menu (ADR-0045).
 pub(crate) fn add_mask_anchor_items(ui: &mut Ui, layer: LayerId, index: &subcraft_doc::AnchorIndex, cmds: &mut Vec<Command>) {
-    if ui.button("Anchor Point").on_hover_text("Captures the mask at this point, so other masks and generators can read it").clicked() {
+    if ui.button(format!("{}  Add anchor point", icons::CROSSHAIR)).on_hover_text("Captures the mask at this point, so other masks and generators can read it").clicked() {
         cmds.push(Command::AddMaskEffect { layer, kind: MaskEffectKind::Anchor });
         ui.close();
     }
     let candidates = index.candidates_above_mask(layer);
     let input = super::anchor::default_input(&candidates, ChannelKind::Height);
     let tip = if input.is_some() { "Grayscale from an anchor point below: a lower layer's channel or mask" } else { "Needs an anchor point below: add one to a lower layer first" };
-    if ui.add_enabled(input.is_some(), egui::Button::new("Anchor Reference")).on_hover_text(tip).on_disabled_hover_text(tip).clicked()
+    if ui.add_enabled(input.is_some(), egui::Button::new(format!("{}  Add anchor reference", icons::CURVE))).on_hover_text(tip).on_disabled_hover_text(tip).clicked()
         && let Some(input) = input
     {
         cmds.push(Command::AddMaskEffect { layer, kind: MaskEffectKind::AnchorRef { input, levels: None } });
@@ -118,22 +119,39 @@ pub(crate) fn add_mask_anchor_items(ui: &mut Ui, layer: LayerId, index: &subcraf
     }
 }
 
+/// Mask effects in Painter's order: generator, paint, fill, levels, filter, color selection,
+/// anchor point; SubCraft's own Invert and Anchor Reference come last.
 fn add_mask_menu(ui: &mut Ui, layer: &Layer, resolution: u32, index: &subcraft_doc::AnchorIndex, cmds: &mut Vec<Command>) {
-    add_mask_filters(ui, layer.id, cmds);
-    add_mask_anchor_items(ui, layer.id, index, cmds);
-    let options = [
-        ("Paint", MaskEffectKind::Paint { image: TiledImage::new(resolution, resolution, 2, [0.0; 4]) }),
-        ("Fill", MaskEffectKind::Fill { value: 1.0, procedural: None, projection: Default::default() }),
-        ("Generator", MaskEffectKind::Generator(Generator::new(GeneratorKind::Edges))),
-        ("Levels", MaskEffectKind::Levels(Levels::default())),
-        ("Invert", MaskEffectKind::Invert),
-        ("ID Color Mask", MaskEffectKind::IdColor(Default::default())),
-    ];
-    for (label, kind) in options {
-        if ui.button(label).clicked() {
+    let mut add = |ui: &mut Ui, label: &str, kind: MaskEffectKind| {
+        if ui.button(format!("{}  {label}", mask_icon(&kind))).clicked() {
             cmds.push(Command::AddMaskEffect { layer: layer.id, kind });
             ui.close();
         }
+    };
+    add(ui, "Add generator", MaskEffectKind::Generator(Generator::new(GeneratorKind::Edges)));
+    add(ui, "Add paint", MaskEffectKind::Paint { image: TiledImage::new(resolution, resolution, 2, [0.0; 4]) });
+    add(ui, "Add fill", MaskEffectKind::Fill { value: 1.0, procedural: None, projection: Default::default() });
+    add(ui, "Add levels", MaskEffectKind::Levels(Levels::default()));
+    add_mask_filters(ui, layer.id, cmds);
+    let mut add = |ui: &mut Ui, label: &str, kind: MaskEffectKind| {
+        if ui.button(format!("{}  {label}", mask_icon(&kind))).clicked() {
+            cmds.push(Command::AddMaskEffect { layer: layer.id, kind });
+            ui.close();
+        }
+    };
+    add(ui, "Add color selection", MaskEffectKind::IdColor(Default::default()));
+    add(ui, "Add invert", MaskEffectKind::Invert);
+    add_mask_anchor_items(ui, layer.id, index, cmds);
+}
+
+/// Painter's Add Effect menu for one of a layer's stacks: the Layers header button, the stack's
+/// own header and the layer's right-click menu all show it. The mask menu needs a mask.
+pub(crate) fn add_effect_menu(ui: &mut Ui, layer: &Layer, mask_domain: bool, channels: &[ChannelKind], active: ChannelKind, resolution: u32, session: &subcraft_app::Session, cmds: &mut Vec<Command>) {
+    if mask_domain && layer.mask.is_some() {
+        let index = subcraft_doc::AnchorIndex::build(&session.selected_texture_set().layers);
+        add_mask_menu(ui, layer, resolution, &index, cmds)
+    } else {
+        add_content_menu(ui, layer, channels, active, cmds)
     }
 }
 
@@ -174,10 +192,7 @@ pub fn rows(
             if ui.add(egui::Button::new(RichText::new(title).small().color(TEXT_DIM)).frame(false)).clicked() { open = !open; }
             ui.label(RichText::new(rows.len().to_string()).small().color(TEXT_FAINT));
             ui.menu_button(RichText::new(format!("{} Add", icons::PLUS)).small(), |ui| {
-                if mask_domain {
-                    let index = subcraft_doc::AnchorIndex::build(&session.selected_texture_set().layers);
-                    add_mask_menu(ui, layer, resolution, &index, cmds)
-                } else { add_content_menu(ui, layer, channels, active, cmds) }
+                add_effect_menu(ui, layer, mask_domain, channels, active, resolution, session, cmds)
             })
             .response
             .on_hover_text("Add an effect on top of this stack");
