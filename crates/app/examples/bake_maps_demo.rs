@@ -1,6 +1,6 @@
 //! Inputs and a comparison sheet for the bake / mesh-map captures:
 //! `cargo run --release -p subcraft-app --example bake_maps_demo -- <folder>` writes
-//! * `bevel_low.obj` / `bevel_high.obj`: a plain cube and a rounded-edge cube (high poly),
+//! * `bevel_low.obj` / `bevel_high.obj`: a cube with averaged normals and a rounded-edge cube (high poly),
 //! * `crate.obj` and `crate_{normal,ambient_occlusion,curvature,id,position}.png`: the sample
 //!   crate's maps baked low on low, to import into a new project by file name,
 //! * `curvature_sheet.png`: normal map | curvature read off the image | curvature along the surface,
@@ -45,6 +45,34 @@ fn rounded_box(r: f32, n: u32) -> Mesh {
         }
     }
     b.build_for_baking().unwrap()
+}
+
+/// Low poly of the bevel bake: a cube with averaged corner normals (projection rays fan out round
+/// the edges, the usual low-poly setup for baking a bevel), each face its own UV island.
+fn smooth_cube() -> Mesh {
+    let mut b = MeshBuilder::new("Cube");
+    let m = b.material("Cube");
+    let mut island = 0;
+    for axis in 0..3 {
+        for sign in [1.0f32, -1.0] {
+            let (ua, va) = ((axis + 1) % 3, (axis + 2) % 3);
+            let origin = Vec2::new(0.02 + (island % 3) as f32 / 3.0, 0.02 + (island / 3) as f32 / 2.0);
+            island += 1;
+            let point = |i: u32, j: u32| {
+                let mut p = Vec3::ZERO;
+                p[axis] = sign;
+                p[ua] = if i == 0 { -1.0 } else { 1.0 };
+                p[va] = if j == 0 { -1.0 } else { 1.0 };
+                Corner { position: p, normal: Some(p.normalize()), uv: Some(origin + Vec2::new(i as f32, j as f32) * 0.29) }
+            };
+            for mut c in [[point(0, 0), point(1, 0), point(1, 1)], [point(0, 0), point(1, 1), point(0, 1)]] {
+                let g = (c[1].position - c[0].position).cross(c[2].position - c[0].position);
+                if g[axis] * sign < 0.0 { c.swap(1, 2); }
+                b.push_triangle(m, c);
+            }
+        }
+    }
+    b.build().unwrap()
 }
 
 fn cylinder(segments: u32, rows: u32, radius: impl Fn(f32) -> f32, slope: impl Fn(f32) -> f32, uv: bool) -> Mesh {
@@ -114,8 +142,8 @@ fn main() {
     std::fs::create_dir_all(&out).unwrap();
     const S: u32 = 256;
 
-    // Bevelled cube: low = plain cube (six UV islands), high = rounded edges.
-    let low = primitives::cube(2.0);
+    // Bevelled cube: low = cube with averaged normals (six UV islands), high = rounded edges.
+    let low = smooth_cube();
     let high = rounded_box(0.15, 96);
     write_obj(&low, &out.join("bevel_low.obj")).unwrap();
     write_obj(&high, &out.join("bevel_high.obj")).unwrap();
