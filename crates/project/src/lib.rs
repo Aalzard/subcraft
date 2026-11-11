@@ -535,7 +535,7 @@ impl<R: Read + Seek> Loader<'_, R> {
             }),
         };
         if matches!(content, LayerContent::Group(_)) && l.content_effects.iter().any(|e|
-            !matches!(e.kind, ContentEffectKindV5::Filter { .. } | ContentEffectKindV5::Levels { .. })) {
+            !matches!(e.kind, ContentEffectKindV5::Filter { .. } | ContentEffectKindV5::Levels { .. } | ContentEffectKindV5::Anchor)) {
             return Err(ProjectError::Invalid("source effects on a folder".into()));
         }
         let content_effects = l.content_effects.iter().map(|e| self.content_effect(e, res).map(Arc::new)).collect::<Result<_, _>>()?;
