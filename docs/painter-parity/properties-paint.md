@@ -14,7 +14,7 @@ Layout notes: Painter shows one Properties panel whose content follows the selec
 | Properties panel shows tool parameters when a paint layer / paint effect is selected | Properties | n/a | done | crates/ui/src/panels/properties.rs:22 (shows_brush) | - |
 | Open Properties from the dock toolbar | Dock toolbar | n/a | partial: dock tab, no dock-toolbar icon strip | crates/ui/src/app.rs:872 | - |
 | Right-click in the viewport opens a floating Properties at the cursor | Viewport | n/a | missing | - | #131 |
-| Right-click inside Properties opens the preset context menu | Properties (paint tool) | n/a | missing | - | - |
+| Right-click inside Properties opens the preset context menu | Properties (paint tool) | n/a | done | crates/ui/src/panels/brush.rs (properties_menu_id) | - |
 | Section order: Brush, Alpha, Stencil, Material | Properties (paint tool) | n/a | done | crates/ui/src/panels/brush.rs (show) | - |
 | Collapsible parameter groups | Properties | open | done | crates/ui/src/widgets.rs:103 (section) | - |
 
@@ -258,8 +258,8 @@ Layout notes: with a path tool active the Properties panel starts with a Presets
 | Presets section at the top of Properties | Properties > Presets | n/a | missing | - | - |
 | Presets: Favorites entry | Properties > Presets | empty | missing | - | - |
 | Presets: Show compatible presets in assets | Properties > Presets | n/a | missing | - | - |
-| Preset right-click: Add to favorites | Properties > Presets / Assets | n/a | missing | - | - |
-| Preset right-click: Remove from favorites | Properties > Presets / Assets | n/a | missing | - | - |
+| Preset right-click: Add to favorites | Properties > Presets / Assets | n/a | partial: from the Assets preset menu; no Presets strip in Properties | crates/ui/src/panels/shelf.rs (preset_menu) | - |
+| Preset right-click: Remove from favorites | Properties > Presets / Assets | n/a | partial: from the Assets preset menu; no Presets strip in Properties | crates/ui/src/panels/shelf.rs (preset_menu) | - |
 | Create tool preset from a path tool (selecting it re-equips the path tool) | Properties right-click | n/a | missing | - | - |
 | Open / close path | Contextual toolbar | open | partial: "Closed path" checkbox in Properties | crates/ui/src/pen.rs:98 | - |
 | Toggle corner / smooth on the selected point | Contextual toolbar / double-click | smooth | partial: Corner / Smooth buttons in Properties | crates/ui/src/pen.rs:92 | - |
@@ -386,15 +386,15 @@ Layout notes: presets are created from a context menu opened by right-clicking e
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Create tool preset (brush + material + tool type, resources embedded) | Properties right-click | n/a | partial: "Save preset" button with a name field; saves settings, stroke options, tip and material, not the tool type | crates/ui/src/panels/brush.rs:40 | - |
-| Create material preset (material values and resources only) | Properties right-click | n/a | missing | - | - |
-| Create brush preset (brush parameters + alpha + stencil only) | Properties right-click | n/a | missing | - | - |
-| Preset stores the pen-pressure toggles | Preset content | n/a | partial: pressure amounts are part of the saved settings | crates/app/src/brush_preset.rs:24 | - |
-| Preset stores the stencil | Preset content | n/a | missing | - | - |
+| Create tool preset (brush + material + tool type, resources embedded) | Properties right-click | n/a | done | crates/app/src/brush_preset.rs (Session::create_preset) | - |
+| Create material preset (material values and resources only) | Properties right-click | n/a | done | crates/app/src/brush_preset.rs (Session::create_preset) | - |
+| Create brush preset (brush parameters + alpha + stencil only) | Properties right-click | n/a | done | crates/app/src/brush_preset.rs (Session::create_preset) | - |
+| Preset stores the pen-pressure toggles | Preset content | n/a | done | crates/app/src/brush_preset.rs (BrushPreset.settings) | - |
+| Preset stores the stencil | Preset content | n/a | done | crates/app/src/brush_preset.rs (PresetStencil) | - |
 | Preset embeds every resource it uses (portable file) | Preset content | n/a | partial: tip and channel images embedded | crates/app/src/brush_preset.rs:31 | - |
-| Selecting a tool preset in Assets switches to its tool | Assets | n/a | missing | - | - |
+| Selecting a tool preset in Assets switches to its tool | Assets | n/a | done | crates/ui/src/state.rs (select_shelf_brush) | - |
 | Selecting a brush preset applies it to the current tool | Assets | n/a | done | crates/app/src/brush_preset.rs:79 | - |
-| Update from current tool (right-click a preset in Assets) | Assets right-click | n/a | missing | - | - |
+| Update from current tool (right-click a preset in Assets) | Assets right-click | n/a | done | crates/ui/src/panels/shelf.rs (apply_preset_action) | - |
 | Particle brush presets | Assets | n/a | missing | - | - |
 | Import Photoshop .abr brush presets (bitmap-tip brushes only) | Assets import | n/a | missing | - | - |
 | ABR import scope: Project / Session / Library | Import resources window | n/a | missing | - | - |

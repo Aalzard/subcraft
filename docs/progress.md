@@ -4976,3 +4976,16 @@ rotating one slot when a tile is full (helps cyclic stacks, but the 40-layer sta
 * **Tests added:** paint stencil unit tests; `crates/app/tests/tool_gaps.rs`; tiling cases in `crates/app/tests/stencil.rs`.
 * **Not done:** Polygon Fill blending / opacity (waits for #131); the Ctrl+6 clone variant shortcut (key map is owned by
   another session); stencil display options live in Properties, not in Display settings.
+
+### Session 123 - Painter parity chunk 23: presets from Properties and the asset menu (2026-11-11, branch `claude/parity-presets`, stacks on chunk 20)
+
+* **Done:** right-click in the tool Properties: Create tool preset / Create material preset / Create brush preset (also as
+  buttons in the Presets block). Preset file version 3 with a kind; a tool preset stores the tool, a brush preset stores
+  brush + alpha + stencil, a material preset stores the material only; versions 1-2 still load. Selecting a tool preset
+  switches to its tool. Shelf preset menu: Update from current tool, Rename, Duplicate, Add to / Remove from favorites,
+  Delete; favorites are saved in the user library (`favorites.json`) and listed first with a star.
+* **Verified locally (release):** `subcraft-paint`, `subcraft-app` and `subcraft-ui` libraries compile with this change.
+  The new and touched tests were NOT run locally (build queue; CI is the test gate for this PR).
+* **Tests added:** `crates/app/tests/preset_kinds.rs`, `crates/ui/tests/preset_menus.rs`.
+* **Not done:** Ctrl+drag a smart mask to replace (layers.rs), filter / generator mini-shelves (effects.rs): both files are
+  owned by other sessions. No Presets strip for path tools.

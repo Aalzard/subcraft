@@ -24,6 +24,32 @@ pub enum Tool {
     Smudge,
 }
 
+impl Tool {
+    /// The tool as stored in a tool preset (`None` for tools that take no brush preset).
+    pub fn preset_tool(self) -> Option<subcraft_app::brush_preset::PresetTool> {
+        use subcraft_app::brush_preset::PresetTool as P;
+        match self {
+            Tool::Brush => Some(P::Paint),
+            Tool::Eraser => Some(P::Eraser),
+            Tool::Smudge => Some(P::Smudge),
+            Tool::Clone => Some(P::Clone),
+            Tool::PolygonFill => Some(P::PolygonFill),
+            Tool::Eyedropper | Tool::Pen => None,
+        }
+    }
+
+    pub fn from_preset(tool: subcraft_app::brush_preset::PresetTool) -> Tool {
+        use subcraft_app::brush_preset::PresetTool as P;
+        match tool {
+            P::Paint => Tool::Brush,
+            P::Eraser => Tool::Eraser,
+            P::Smudge => Tool::Smudge,
+            P::Clone => Tool::Clone,
+            P::PolygonFill => Tool::PolygonFill,
+        }
+    }
+}
+
 /// Viewport acknowledgement of the brush chosen on the Shelf. It holds, then fades out.
 #[derive(Clone, Debug, PartialEq)]
 pub struct BrushNotice {
@@ -202,6 +228,8 @@ pub struct UiState {
     pub env_loader: Option<std::sync::mpsc::Receiver<Result<subcraft_app::assets::Environment, String>>>,
     /// Brush presets from the user library.
     pub brush_presets: Vec<subcraft_app::brush_preset::BrushPreset>,
+    /// Favorite assets of the user library (shown first in the Shelf).
+    pub favorites: subcraft_app::brush_preset::Favorites,
     /// Name typed for the next "Save preset".
     pub preset_name: String,
     /// Live preview of the normal-map brush panel.
@@ -327,6 +355,7 @@ impl UiState {
             user_library: None,
             env_loader: None,
             brush_presets: builtin_brush_presets(),
+            favorites: Default::default(),
             preset_name: String::new(),
             stamp_preview: Default::default(),
             tip_preview: Default::default(),
@@ -364,6 +393,7 @@ impl UiState {
         }
         self.brush_presets = builtin_brush_presets();
         self.brush_presets.extend(presets);
+        self.favorites = subcraft_app::brush_preset::Favorites::load(&lib);
         // The shelf keeps opening on Smart Materials (Painter's default), even with user textures.
         self.textures = crate::panels::textures::TextureLibrary::load(&lib);
         let files = lib.list(UserAssetKind::Environment);
@@ -491,7 +521,14 @@ impl UiState {
     pub fn select_shelf_brush(&mut self, brush: subcraft_app::brush_preset::ShelfBrush, now: f64) {
         match self.session.select_shelf_brush(brush, &self.library.alphas) {
             Ok(selected) => {
-                if !matches!(self.tool, Tool::Brush | Tool::Eraser) { self.tool = Tool::Brush; }
+                use subcraft_app::brush_preset::PresetKind;
+                match (selected.tool, selected.kind) {
+                    // A tool preset brings its tool.
+                    (Some(tool), _) => self.tool = Tool::from_preset(tool),
+                    // A material preset serves whichever painting tool is in use.
+                    (None, Some(PresetKind::Material)) if self.tool.preset_tool().is_some() => {}
+                    _ => if !matches!(self.tool, Tool::Brush | Tool::Eraser) { self.tool = Tool::Brush; },
+                }
                 self.picking_parts = false;
                 if let Some(warning) = &selected.warning { self.set_status(warning.clone(), now); }
                 // A full image still loading for the previous brush choice is no longer wanted.
