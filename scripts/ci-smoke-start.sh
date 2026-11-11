@@ -11,10 +11,20 @@ out="$2"
 mkdir -p "$out"
 export SUBCRAFT_DATA="$out/data"
 export SUBCRAFT_LIBRARY="$out/library"
-# Xvfb is an X server: never let winit look for a Wayland socket from the runner's environment.
-unset WAYLAND_DISPLAY WAYLAND_SOCKET || true
+# Linux: run under Xvfb (an X server), and never let winit look for a Wayland socket from the
+# runner's environment. macOS: the window server is always there, so run the binary directly.
+display=""
+if [ "$(uname -s)" = Linux ]; then
+    unset WAYLAND_DISPLAY WAYLAND_SOCKET || true
+    display="xvfb-run -a -s \"-screen 0 1600x1000x24\""
+fi
+# A time limit: GNU timeout on Linux, gtimeout (coreutils) if installed on macOS, else perl.
+if command -v timeout >/dev/null 2>&1; then limit="timeout 300"
+elif command -v gtimeout >/dev/null 2>&1; then limit="gtimeout 300"
+else limit="perl -e 'alarm shift; exec @ARGV' 300"
+fi
 status=0
-timeout 300 xvfb-run -a -s "-screen 0 1600x1000x24" "$exe" --demo --screenshot "$out/screenshot.png" \
+eval "$limit $display \"\$exe\" --demo --screenshot \"\$out/screenshot.png\"" \
     > "$out/stdout.txt" 2> "$out/stderr.txt" || status=$?
 echo "exit status: $status"
 echo "--- stderr (tail)"; tail -n 40 "$out/stderr.txt" || true
