@@ -369,6 +369,7 @@ fn content_editor(ui: &mut Ui, state: &mut UiState, layer: &Layer, e: &ContentEf
             ContentEffectKind::Fill(fill) => {
                 hint(ui, "A material on top of the layer's content. Enable the channels it should change.");
                 changed |= super::properties::projection_editor(ui, &mut fill.projection);
+                changed |= super::properties::projection_options(ui, &mut fill.projection);
                 let states: Vec<_> = channels.iter().map(|k| (*k, fill.channels.get(k).is_some_and(|c| c.enabled))).collect();
                 if let Some((channel, solo)) = super::properties::channel_toggles(ui, &states) {
                     cmds.push(Command::ToggleFillChannel { layer: layer.id, effect: Some(eff.id), channel, solo });

@@ -7,7 +7,6 @@ use glam::Vec3;
 use subcraft_core::MeshMapKind;
 use subcraft_doc::{Generator, GeneratorKind, Mask, MaskEffectKind, Projection, ProjectionMode};
 use subcraft_image::TILE_TEXELS;
-use subcraft_image::Wrap;
 use subcraft_materials::sample::procedural_tile;
 
 use crate::TileContext;
@@ -270,10 +269,15 @@ fn eval_image(resource: subcraft_core::ResourceId, projection: &Projection, inve
         return;
     };
     let has_alpha = bmp.channels == 2 || bmp.channels == 4;
-    let geo = tc.geo;
-    let sc = projection.rotation_sin_cos();
-    for (i, o) in e.iter_mut().enumerate() {
-        let s = subcraft_materials::sample::sample_projected_sc(projection, sc, geo.uv(i), geo.position(i), geo.normal(i), |p| bmp.sample(p[0], p[1], Wrap::Repeat, false));
+    let mut sampled = vec![[0.0f32; 4]; TILE_TEXELS];
+    subcraft_materials::sample::bitmap_tile(bmp, false, projection, false, tc.geo, &mut sampled);
+    let cover = subcraft_materials::sample::coverage_tile(projection, tc.geo);
+    for (i, (o, s)) in e.iter_mut().zip(&sampled).enumerate() {
+        // Outside a non-repeating / cropped projection the image contributes nothing.
+        if cover.as_ref().is_some_and(|c| c[i] == 0.0) {
+            *o = [0.0; 4];
+            continue;
+        }
         let (v, a) = if has_alpha { (1.0, s[3]) } else { (0.2126 * s[0] + 0.7152 * s[1] + 0.0722 * s[2], 1.0) };
         *o = [if invert { 1.0 - v } else { v }, a.clamp(0.0, 1.0), 0.0, 0.0];
     }
@@ -302,9 +306,11 @@ pub(crate) fn evaluate_effect(kind: &MaskEffectKind, tc: &TileContext, m: &[f32]
             }
             MaskEffectKind::Fill { value, procedural, projection } => {
                 let field = procedural.as_ref().map(|p| procedural_tile(p, projection, tc.geo));
+                // A uniform value has no texture to wrap or crop; a procedural does.
+                let cover = field.as_ref().and_then(|_| subcraft_materials::sample::coverage_tile(projection, tc.geo));
                 for (i, o) in e.iter_mut().enumerate() {
                     let v = field.as_ref().map_or(*value, |f| f[i]);
-                    *o = [v, 1.0, 0.0, 0.0];
+                    *o = [v, cover.as_ref().map_or(1.0, |c| c[i]), 0.0, 0.0];
                 }
             }
             MaskEffectKind::Generator(g) => eval_generator(g, tc, e, input),
