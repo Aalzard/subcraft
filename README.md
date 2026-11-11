@@ -145,7 +145,9 @@ not as guarantees.
 1. Open the [latest release](https://github.com/Aalzard/subcraft/releases/latest) and download
    **`SubCraft-<version>-setup.exe`** under **Assets**.
 2. Run it. Windows SmartScreen may say "Windows protected your PC" because the installer isn't
-   code-signed yet: click **More info → Run anyway**.
+   code-signed yet (free signing through SignPath Foundation is being set up, see the
+   [code signing policy](CODE_SIGNING.md)): click **More info → Run anyway**. Each release's notes say
+   whether its Windows files are signed.
 3. Follow the steps (you can choose "Install for me only" if you don't have admin rights), then
    start SubCraft from the Start Menu. Uninstall it any time from **Settings → Apps**.
 
@@ -169,11 +171,21 @@ says they are still being prepared.
 Needs a Vulkan driver (Mesa or your GPU vendor's) and X11 or Wayland. Built on Ubuntu 22.04, so it
 runs on that and newer distributions.
 
+### Verifying a download
+
+Every release file is built by GitHub Actions and has a build provenance attestation. With the
+[GitHub CLI](https://cli.github.com/): `gh attestation verify <file> --repo Aalzard/subcraft`.
+Checksums are in `SHA256SUMS.txt` on the release page.
+
+**[Code signing policy](CODE_SIGNING.md):** Free code signing provided by SignPath.io, certificate by
+SignPath Foundation (pending approval; until then Windows releases are unsigned and say so in their
+notes).
+
 ### Other platforms (experimental)
 
 | Platform | Package | Status |
 |---|---|---|
-| Windows x64 | `SubCraft-<version>-setup.exe`, `...-windows-x64.zip` | Supported, signed, in-app updates |
+| Windows x64 | `SubCraft-<version>-setup.exe`, `...-windows-x64.zip` | Supported, in-app updates; code signing via SignPath Foundation pending |
 | Linux x86_64 | `SubCraft-<version>-linux-x86_64.tar.gz` | Supported, in-app updates |
 | macOS, Apple Silicon and Intel | `SubCraft-<version>-macos-universal-experimental.dmg` (or `.zip`) | Experimental, not notarized, no in-app updates |
 | Linux aarch64 (Arm64) | `SubCraft-<version>-linux-aarch64.tar.gz` | Experimental, in-app updates |

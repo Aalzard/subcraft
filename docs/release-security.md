@@ -32,50 +32,32 @@ Never put a private key/password in Git, commands, logs or chat.
 The local helper uses DigiCert's [documented RFC3161 endpoint](https://knowledge.digicert.com/general-information/rfc3161-compliant-time-stamp-authority-server);
 timestamp responses must be cryptographically trusted, regardless of HTTP(S) transport.
 
-## Publisher options — owner enrollment required
+## Hosted signing (SignPath Foundation, free)
 
-The owner has no existing signing account and requested options. No purchase or identity
-submission has been made. Confirm current eligibility, full fees and CI support before buying.
+Windows release signing uses SignPath Foundation's free open-source program instead of Azure or a
+paid certificate ([ADR-0046](adr/0046-free-code-signing.md)). The owner steps (application, SignPath
+project, policy, artifact configuration, repository secret and variables) are in
+[signing-setup.md](signing-setup.md); the public policy is [CODE_SIGNING.md](../CODE_SIGNING.md).
 
-| Option | Fit and remaining action |
-|---|---|
-| [Microsoft Artifact Signing](https://learn.microsoft.com/en-us/azure/artifact-signing/quickstart) | Prepared hosted integration. Individual public-trust onboarding currently requires US/Canada residence; organizations have a wider country list. Owner must complete identity validation and billing. |
-| [Certum](https://www.certum.eu/en/code-signing-certificates/) | Individual/company cloud certificates. The [open-source plan](https://support.certum.eu/en/code-signing-required-documents/) restricts commercial distribution; a public repository alone does not establish eligibility. Confirm country, project and automation eligibility. Supported certificate-store integration can use our local helper. |
-| [SSL.com eSigner](https://www.ssl.com/products/software-integrity/signing-service/) | Cloud signing with a vendor [GitHub Action](https://github.com/SSLcom/esigner-codesign). Confirm individual/country eligibility and certificate plus signing-operation fees. Hosted signing steps need adapting after enrollment. |
-
-Pricing/availability checked 2026-10-20: SSL.com's linked page displays IV certificates at
-$129/year plus a cloud Tier 1 displayed at $15/month; confirm billing period/tax/quotas.
-Certum's [open-source shop listing](https://shop.certum.eu/open-source-code-signing-on-simplysign.html)
-advertises a starting EUR 49 price but currently says out of stock. These are options for
-review, not purchases or a recommendation to enroll before eligibility is confirmed.
-
-Signing verifies a publisher and helps reputation; it does not guarantee absence of
-[SmartScreen warnings](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/smartscreen-reputation)
+Until SignPath is configured, a tag release publishes unsigned Windows packages with a notice in the
+release notes instead of failing. Once configured, release.yml signs the application before
+packaging and the installer after, and the scan step requires trusted, timestamped signatures with
+matching publishers. Signing verifies a publisher and helps reputation; it does not guarantee
+absence of [SmartScreen warnings](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/smartscreen-reputation)
 or antivirus detections.
 
-## Hosted workflow setup
+GitHub's Windows runner images disable Defender. The workflow re-enables it on the throwaway runner
+before the static scan; if that fails, release-security-windows.json records that no antivirus scan
+ran (-SkipAntivirus) and no Defender logs are published.
 
-After enrollment, create a protected GitHub environment named release-signing, restrict it
-to release tags and require owner review. Configure AZURE_CLIENT_ID, AZURE_TENANT_ID,
-AZURE_SUBSCRIPTION_ID, SIGNING_ENDPOINT, SIGNING_ACCOUNT and SIGNING_PROFILE environment
-variables. Scope provider OIDC trust to this repository/environment and grant only the
-certificate-profile signing role. No cloud account, role or repository variable was changed here.
+The release-publish environment is still used by the publish jobs; adding required reviewers to it
+is a server setting. An empty workflow-dispatch tag builds unsigned test artifacts. Publishing
+builds the requested tag; old tags without these scripts cannot use the new workflow. Existing
+assets are not overwritten.
 
-Also configure release-publish with required owner review. Before approving this final job,
-download the exact signed build artifacts, run the isolated smoke test on a compatible host,
-inspect its screenshot/log/result and record the tested hashes. GitHub environment protection
-is a server setting; a workflow name alone does not enforce reviewers. Do not enable publishing
-until both protected environments are configured. API/module tracing remains a separate audit.
-
-An empty workflow-dispatch tag builds unsigned test artifacts. Publishing requires configured
-signing, timestamped signatures, passing scans and provenance. It builds the requested tag;
-old tags without these scripts cannot use the new workflow. Existing assets are not overwritten.
-
-Verify checksums and GitHub provenance after a future hosted run:
+Every published file on every platform has a build provenance attestation:
 
     gh attestation verify <downloaded-package> --repo Aalzard/subcraft
-
-The workflow was validated locally; hosted signing, attestation and publication were not run.
 
 ## Isolated runtime test
 
