@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SignPath artifact configuration for SubCraft (docs/signing-setup.md). Paste it into the
+  SignPath project as the default artifact configuration. Keeping it in Git makes changes reviewable.
+
+  .github/workflows/release.yml sends two signing requests per release, each a GitHub workflow
+  artifact (a zip) with exactly one .exe at its root:
+    1. subcraft.exe                   the application, signed before it is packaged
+    2. SubCraft-<version>-setup.exe   the Inno Setup installer, which contains the signed application
+  Both have the product name "SubCraft". The workflow passes the release version (Cargo.toml) as
+  the "version" parameter.
+-->
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <parameters>
+    <parameter name="version" required="true" />
+  </parameters>
+  <zip-file>
+    <!--
+      To also enforce the version, add product-version="${version}" to pe-file-set. Both files carry
+      the release version as their product version text, but check that the first signed release
+      passes before enforcing it.
+    -->
+    <pe-file-set product-name="SubCraft">
+      <include path="*.exe" />
+      <for-each>
+        <authenticode-sign />
+      </for-each>
+    </pe-file-set>
+  </zip-file>
+</artifact-configuration>

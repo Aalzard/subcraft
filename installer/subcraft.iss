@@ -27,6 +27,8 @@ AppSupportURL={#AppUrl}/issues
 AppUpdatesURL={#AppUrl}/releases
 VersionInfoVersion={#AppVersionInfo}
 VersionInfoProductVersion={#AppVersionInfo}
+; Same product version text as SubCraft.exe, so code signing can check both against the release version.
+VersionInfoProductTextVersion={#AppVersion}
 DefaultDirName={autopf}\{#AppName}
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
