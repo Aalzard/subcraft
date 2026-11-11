@@ -620,7 +620,7 @@ impl SubcraftApp {
         if let Some(graphics) = options.graphics_startup.clone() {
             let active = state.graphics.active.clone(); state.graphics = graphics; state.graphics.active = active;
         }
-        let prefs = cc.storage.and_then(|s| s.get_string(crate::recovery::PREFS_KEY)).and_then(|j| serde_json::from_str(&j).ok()).unwrap_or_default();
+        let prefs = cc.storage.and_then(|s| s.get_string(crate::recovery::PREFS_KEY)).map(|j| crate::recovery::Preferences::from_json_lenient(&j)).unwrap_or_default();
         state.recovery = crate::recovery::RecoveryUi::start(&state.session, prefs, options.autosave_interval);
         if subcraft_app::safe_mode::active() == Some(&subcraft_app::safe_mode::Reason::GpuLostLastRun) {
             // The GPU reset last run: keep the heavy GPU work off from now on (saved with the
