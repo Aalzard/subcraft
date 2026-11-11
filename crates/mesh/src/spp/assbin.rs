@@ -125,7 +125,9 @@ pub fn parse(b: &[u8]) -> Result<Vec<DumpMesh>, AssbinError> {
             }
         }
         let faces = r.u32("face count")? as usize;
-        let mut triangles = Vec::with_capacity(faces);
+        // Each face takes 20 bytes: reserve no more than the data left can hold (the count comes
+        // from the file; reserving u32::MAX faces aborted the process).
+        let mut triangles = Vec::with_capacity(faces.min(b.len().saturating_sub(r.p) / 20));
         for _ in 0..faces {
             let _flag = r.u32("faces")?;
             let n = r.u32("faces")?;
