@@ -159,3 +159,72 @@ fn save_now_writes_unsaved_work_without_waiting_for_the_timer() {
     assert!(layer_names(&recovered).contains(&"Lost device".to_string()), "{:?}", layer_names(&recovered));
     std::fs::remove_dir_all(root).unwrap();
 }
+
+/// File > Open (or New) kept the previous project's recovery copies in the session folder while
+/// its `session.json` was rewritten for the new project. After a crash the old project's copy was
+/// offered as the recovery of the new one, pointing at the new project's file.
+#[test]
+fn recovery_copies_of_a_replaced_project_are_not_offered_for_the_new_one() {
+    let root = temp_dir("replaced");
+    let store = RecoveryStore::new(root.join("recovery"));
+    let mut a = Session::sample();
+    let live = store.begin_session(&SessionInfo::for_session(&a), 3).unwrap();
+    let mut autosaver = Autosaver::new(Some(live), Duration::from_secs(60));
+    let t0 = Instant::now();
+    a.execute(Command::AddLayer(NewLayer::Fill)).unwrap();
+    let from_a = a.selection().layer.unwrap();
+    a.execute(Command::Rename { layer: from_a, name: "FROM A".into() }).unwrap();
+    autosaver.tick(&a, t0 + Duration::from_secs(61));
+    saved(autosaver.wait());
+
+    // The user opens project B (saved, unmodified) in the same window.
+    let b_file = root.join("b.subcraft");
+    let mut b = Session::sample();
+    b.save(Some(&b_file)).unwrap();
+    let b = Session::open_project(&b_file).unwrap();
+    autosaver.session_replaced();
+    autosaver.tick(&b, t0 + Duration::from_secs(200));
+    drop(autosaver); // crash
+
+    for crashed in store.crashed() {
+        let recovered = Session::recover(&crashed).unwrap();
+        assert!(
+            !(recovered.project_path() == Some(b_file.as_path()) && layer_names(&recovered).contains(&"FROM A".to_string())),
+            "project A's recovery copy is offered as project B ({})",
+            b_file.display()
+        );
+    }
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// After a manual save the user's file is the newest state; an older recovery copy must not be
+/// offered (recovering and saving it would roll the file back).
+#[test]
+fn saving_the_project_retires_older_recovery_copies() {
+    let root = temp_dir("saved");
+    let store = RecoveryStore::new(root.join("recovery"));
+    let file = root.join("work.subcraft");
+    let mut s = Session::sample();
+    s.save(Some(&file)).unwrap();
+    let live = store.begin_session(&SessionInfo::for_session(&s), 3).unwrap();
+    let dir = live.dir().to_path_buf();
+    let mut autosaver = Autosaver::new(Some(live), Duration::from_secs(60));
+    let t0 = Instant::now();
+    s.execute(Command::AddLayer(NewLayer::Fill)).unwrap();
+    autosaver.tick(&s, t0 + Duration::from_secs(61));
+    saved(autosaver.wait());
+    assert_eq!(list_autosaves(&dir).len(), 1);
+
+    s.execute(Command::AddLayer(NewLayer::Paint)).unwrap();
+    s.save(None).unwrap();
+    autosaver.tick(&s, t0 + Duration::from_secs(62));
+    assert!(list_autosaves(&dir).is_empty(), "the saved file supersedes the copy");
+
+    // New unsaved work is protected again.
+    s.execute(Command::AddLayer(NewLayer::Folder)).unwrap();
+    autosaver.tick(&s, t0 + Duration::from_secs(200));
+    saved(autosaver.wait());
+    assert_eq!(list_autosaves(&dir).len(), 1);
+    drop(autosaver);
+    std::fs::remove_dir_all(root).unwrap();
+}
