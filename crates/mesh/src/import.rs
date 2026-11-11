@@ -102,7 +102,11 @@ fn finish(b: MeshBuilder, mut warnings: Vec<String>, bake_source: bool) -> Resul
 }
 
 fn load_obj(path: &Path, b: &mut MeshBuilder, warnings: &mut Vec<String>) -> Result<(), ImportError> {
-    let opts = tobj::LoadOptions { triangulate: true, single_index: true, ignore_points: true, ignore_lines: true };
+    // Separate index lists per attribute: in single-index mode tobj only stores a UV or normal for
+    // the corners that name one, so an object mixing `f 1/1/1` and `f 2//2` (DAZ Studio and other
+    // exporters write these) gets UV and normal lists shorter than its positions, out of step with
+    // them. With separate lists every corner has a UV and normal index once the object has any.
+    let opts = tobj::LoadOptions { triangulate: true, single_index: false, ignore_points: true, ignore_lines: true };
     // Read through `vfs`; `.mtl` files resolve next to the OBJ.
     let bytes = subcraft_core::vfs::read(path).map_err(|e| ImportError::Obj(format!("{}: {e}", path.display())))?;
     let base = path.parent().map(Path::to_path_buf).unwrap_or_default();
@@ -127,26 +131,35 @@ fn load_obj(path: &Path, b: &mut MeshBuilder, warnings: &mut Vec<String>) -> Res
             None => "DefaultMaterial".to_string(),
         };
         let mat = b.material(&mat_name);
-        let has_n = !m.normals.is_empty();
-        let has_uv = !m.texcoords.is_empty();
-        let corner = |i: u32| {
-            let i = i as usize;
-            Corner {
-                position: Vec3::new(m.positions[3 * i], m.positions[3 * i + 1], m.positions[3 * i + 2]),
-                normal: has_n.then(|| Vec3::new(m.normals[3 * i], m.normals[3 * i + 1], m.normals[3 * i + 2])),
-                // OBJ UVs have their origin at the bottom-left.
-                uv: has_uv.then(|| Vec2::new(m.texcoords[2 * i], 1.0 - m.texcoords[2 * i + 1])),
-            }
+        // Attribute lookups never index past the end: a short or missing list gives `None` (the
+        // builder then counts a missing-UV triangle or regenerates normals) instead of a panic.
+        let vec3 = |data: &[f32], i: Option<&u32>| {
+            let i = *i? as usize;
+            data.get(3 * i..3 * i + 3).map(|v| Vec3::new(v[0], v[1], v[2]))
         };
-        for tri in m.indices.chunks_exact(3) {
-            b.push_triangle(mat, [corner(tri[0]), corner(tri[1]), corner(tri[2])]);
+        let corner = |k: usize| {
+            Some(Corner {
+                position: vec3(&m.positions, m.indices.get(k))?,
+                normal: vec3(&m.normals, m.normal_indices.get(k)),
+                // OBJ UVs have their origin at the bottom-left.
+                uv: m.texcoord_indices.get(k).and_then(|&i| m.texcoords.get(2 * i as usize..2 * i as usize + 2)).map(|t| Vec2::new(t[0], 1.0 - t[1])),
+            })
+        };
+        for k in (0..m.indices.len() / 3).map(|t| 3 * t) {
+            if let (Some(a), Some(c1), Some(c2)) = (corner(k), corner(k + 1), corner(k + 2)) {
+                b.push_triangle(mat, [a, c1, c2]);
+            }
         }
     }
     Ok(())
 }
 
 fn load_gltf(path: &Path, b: &mut MeshBuilder, warnings: &mut Vec<String>) -> Result<(), ImportError> {
-    let (doc, buffers, _images) = gltf::import(path).map_err(|e| ImportError::Gltf(e.to_string()))?;
+    // Geometry only. `gltf::import` would also decode every referenced image and fail the whole
+    // import when one is missing or its file name differs in case from the disk (Linux), although
+    // SubCraft never uses them: textures come from the Shelf, not from the model file.
+    let gltf::Gltf { document: doc, blob } = gltf::Gltf::open(path).map_err(|e| ImportError::Gltf(e.to_string()))?;
+    let buffers = gltf::import_buffers(&doc, path.parent(), blob).map_err(|e| ImportError::Gltf(e.to_string()))?;
     let scene = doc.default_scene().or_else(|| doc.scenes().next());
     let roots: Vec<gltf::Node> = match &scene {
         Some(s) => s.nodes().collect(),
@@ -185,8 +198,10 @@ fn load_gltf(path: &Path, b: &mut MeshBuilder, warnings: &mut Vec<String>) -> Re
                     let i = i as usize;
                     Corner {
                         position: pos[i],
-                        normal: nrm.as_ref().map(|n| n[i]),
-                        uv: uv.as_ref().map(|u| u[i]),
+                        // glTF doesn't force NORMAL/TEXCOORD_0 to have POSITION's count; a short
+                        // list gives missing data, not a panic.
+                        normal: nrm.as_ref().and_then(|n| n.get(i).copied()),
+                        uv: uv.as_ref().and_then(|u| u.get(i).copied()),
                     }
                 };
                 for tri in idx.chunks_exact(3) {
@@ -385,7 +400,9 @@ mod tests {
 
     #[test]
     fn gltf_minimal_triangle() {
-        // One triangle with positions + uvs in an embedded data URI buffer.
+        // One triangle with positions + uvs in an embedded data URI buffer. The material points at
+        // an image file that does not exist (and would not match in case on a case-sensitive file
+        // system if it did): the geometry must still import.
         let positions: [f32; 9] = [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0];
         let uvs: [f32; 6] = [0.0, 1.0, 1.0, 1.0, 0.0, 0.0];
         let mut bytes: Vec<u8> = Vec::new();
@@ -396,7 +413,9 @@ mod tests {
         let json = format!(
             r#"{{"asset":{{"version":"2.0"}},"scene":0,"scenes":[{{"nodes":[0]}}],
             "nodes":[{{"mesh":0,"translation":[0,0,1]}}],
-            "materials":[{{"name":"Painted"}}],
+            "images":[{{"uri":"Missing_Texture.PNG"}}],
+            "textures":[{{"source":0}}],
+            "materials":[{{"name":"Painted","pbrMetallicRoughness":{{"baseColorTexture":{{"index":0}}}}}}],
             "meshes":[{{"primitives":[{{"attributes":{{"POSITION":0,"TEXCOORD_0":1}},"material":0}}]}}],
             "buffers":[{{"byteLength":{len},"uri":"data:application/octet-stream;base64,{b64}"}}],
             "bufferViews":[{{"buffer":0,"byteOffset":0,"byteLength":36}},{{"buffer":0,"byteOffset":36,"byteLength":24}}],
@@ -412,6 +431,62 @@ mod tests {
         assert_eq!(rep.mesh.materials[0].name, "Painted");
         assert!((rep.mesh.bounds.min.z - 1.0).abs() < 1e-6, "node transform applied");
         assert!(rep.mesh.normals.iter().all(|n| (n.z - 1.0).abs() < 1e-5));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn obj_with_corners_missing_uvs_or_normals_imports_without_panicking() {
+        // DAZ-style mix in one object: faces with and without `vt`/`vn`, plus a `0` index (read as
+        // missing). Single-index parsing left the UV/normal lists shorter than the positions.
+        let dir = tmp("obj-mixed");
+        let path = dir.join("mixed.obj");
+        let obj = "v 0 0 0\nv 1 0 0\nv 0 1 0\nv 1 1 0\nv 2 0 0\nv 2 1 0\n\
+                   vt 0 0\nvt 1 0\nvt 0 1\nvt 1 1\nvn 0 0 1\n\
+                   o Figure\nf 1/1/1 2/2/1 3/3/1\nf 2//1 4//1 3//1\nf 2 5 4\nf 5/2/1 6/4/1 4/0/1\n";
+        std::fs::write(&path, obj).unwrap();
+        let rep = import_mesh(&path).unwrap();
+        assert_eq!(rep.mesh.triangle_count(), 4);
+        assert!(rep.mesh.validate().is_empty());
+        assert!(rep.mesh.uvs.iter().all(|u| u.is_finite()));
+        // The first triangle keeps its exact UVs (OBJ v flipped).
+        let mut first: Vec<_> = (0..rep.mesh.triangle_count())
+            .find(|&t| rep.mesh.tri_positions(t).iter().all(|p| p.x <= 1.0 && p.y <= 1.0 && p.x + p.y <= 1.0))
+            .map(|t| rep.mesh.tri_uvs(t).iter().map(|u| ((u.x * 10.).round() as i32, (u.y * 10.).round() as i32)).collect())
+            .unwrap();
+        first.sort();
+        assert_eq!(first, [(0, 0), (0, 10), (10, 10)]);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn gltf_with_short_texcoord_and_normal_accessors_imports_without_panicking() {
+        // Two triangles: POSITION has 6 entries, NORMAL 5 and TEXCOORD_0 only 4. gltf accepts it;
+        // indexing past the short lists panicked.
+        let positions: [f32; 18] = [0., 0., 0., 1., 0., 0., 0., 1., 0., 2., 0., 0., 3., 0., 0., 2., 1., 0.];
+        let normals: [f32; 15] = [0., 0., 1., 0., 0., 1., 0., 0., 1., 0., 0., 1., 0., 0., 1.];
+        let uvs: [f32; 8] = [0., 1., 1., 1., 0., 0., 0.5, 0.5];
+        let mut bytes: Vec<u8> = Vec::new();
+        for v in positions.iter().chain(normals.iter()).chain(uvs.iter()) {
+            bytes.extend_from_slice(&v.to_le_bytes());
+        }
+        let b64 = base64_encode(&bytes);
+        let json = format!(
+            r#"{{"asset":{{"version":"2.0"}},"scene":0,"scenes":[{{"nodes":[0]}}],"nodes":[{{"mesh":0}}],
+            "meshes":[{{"primitives":[{{"attributes":{{"POSITION":0,"NORMAL":1,"TEXCOORD_0":2}}}}]}}],
+            "buffers":[{{"byteLength":{len},"uri":"data:application/octet-stream;base64,{b64}"}}],
+            "bufferViews":[{{"buffer":0,"byteOffset":0,"byteLength":72}},{{"buffer":0,"byteOffset":72,"byteLength":60}},{{"buffer":0,"byteOffset":132,"byteLength":32}}],
+            "accessors":[{{"bufferView":0,"componentType":5126,"count":6,"type":"VEC3","min":[0,0,0],"max":[3,1,0]}},
+                         {{"bufferView":1,"componentType":5126,"count":5,"type":"VEC3"}},
+                         {{"bufferView":2,"componentType":5126,"count":4,"type":"VEC2"}}]}}"#,
+            len = bytes.len()
+        );
+        let dir = tmp("gltf-short");
+        let path = dir.join("short.gltf");
+        std::fs::write(&path, json).unwrap();
+        let rep = import_mesh(&path).unwrap();
+        assert_eq!(rep.mesh.triangle_count(), 2);
+        assert_eq!(rep.stats.missing_uv_triangles, 1);
+        assert!(rep.mesh.normals.iter().all(|n| n.is_finite() && (n.length() - 1.).abs() < 1e-5));
         std::fs::remove_dir_all(&dir).ok();
     }
 

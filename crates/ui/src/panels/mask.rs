@@ -86,6 +86,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     ("Levels", subcraft_doc::MaskEffectKind::Levels(Default::default())),
                     ("ID Color", subcraft_doc::MaskEffectKind::IdColor(Default::default())),
                 ] { if secondary_button(ui, label).clicked() { cmds.push(Command::AddMaskEffect { layer: layer.id, kind }); } }
+                ui.menu_button("Anchor", |ui| {
+                    let index = subcraft_doc::AnchorIndex::build(&state.session.selected_texture_set().layers);
+                    super::effects::add_mask_anchor_items(ui, layer.id, &index, &mut cmds);
+                });
             });
             for (index, effect) in mask.effects.iter().enumerate().rev() {
                 ui.push_id(effect.id, |ui| {
