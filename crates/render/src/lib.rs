@@ -722,7 +722,7 @@ impl ViewportRenderer {
                 multiview_mask: None,
             });
             if params.bake_overlay {
-                self.bake_preview.draw(&mut pass, params.antialias, params.bake_cage);
+                self.bake_preview.draw(&mut pass, samples > 1, params.bake_cage);
             } else if let Some(mesh) = &self.mesh {
                 pass.set_pipeline(if samples > 1 { &self.pipeline } else { &self.pipeline_no_aa });
                 pass.set_bind_group(0, &self.globals_bg, &[]);
@@ -740,10 +740,10 @@ impl ViewportRenderer {
             }
             if params.grid.is_some() {
                 // The mesh depth rejects guides behind it; guides never modify depth or textures.
-                self.grid.draw(&mut pass, params.antialias);
+                self.grid.draw(&mut pass, samples > 1);
             }
-            if params.symmetry_guides && let Some(guides) = &self.symmetry { guides.draw(&mut pass, params.antialias); }
-            if params.wireframe && let Some(wire) = &self.wireframe { wire.draw(&mut pass, params.antialias); }
+            if params.symmetry_guides && let Some(guides) = &self.symmetry { guides.draw(&mut pass, samples > 1); }
+            if params.wireframe && let Some(wire) = &self.wireframe { wire.draw(&mut pass, samples > 1); }
         }
         // Glow and glare only exist where the model has an Emissive channel to draw.
         let has_emission = self.materials.values().any(|m| m.channels.contains_key(&ChannelKind::Emissive));

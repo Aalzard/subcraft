@@ -8,6 +8,9 @@ use std::io::{Read, Seek, SeekFrom};
 
 const SIGNATURE: [u8; 8] = [0x89, b'H', b'D', b'F', 0x0d, 0x0a, 0x1a, 0x0a];
 const UNDEFINED: u64 = u64::MAX;
+/// Deepest B-tree accepted. Real files are a few levels deep; a node that points back at itself
+/// (a corrupt or hostile file) recursed until the stack overflowed and aborted the app.
+const MAX_BTREE_DEPTH: u32 = 32;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Hdf5Error {
@@ -122,6 +125,12 @@ impl<R: Read + Seek> Hdf5File<R> {
 
     /// Read the whole dataset.
     pub fn read(&mut self, info: &DatasetInfo) -> Result<Vec<u8>> {
+        // Datasets are stored unfiltered, so none is larger than the file: a bigger size is
+        // corrupt, and allocating it could abort the process.
+        let file_len = self.r.seek(SeekFrom::End(0))?;
+        if info.len > file_len {
+            return corrupt("dataset larger than the file");
+        }
         match &info.layout {
             Layout::Compact(data) => Ok(data.clone()),
             Layout::Contiguous { address } => {
@@ -134,14 +143,17 @@ impl<R: Read + Seek> Hdf5File<R> {
                 let mut out = vec![0u8; info.len as usize];
                 if *btree != UNDEFINED {
                     let rank = dims.len();
-                    self.read_chunks(*btree, rank, &mut out)?;
+                    self.read_chunks(*btree, rank, &mut out, 0)?;
                 }
                 Ok(out)
             }
         }
     }
 
-    fn read_chunks(&mut self, node: u64, rank: usize, out: &mut [u8]) -> Result<()> {
+    fn read_chunks(&mut self, node: u64, rank: usize, out: &mut [u8], depth: u32) -> Result<()> {
+        if depth > MAX_BTREE_DEPTH {
+            return corrupt("chunk B-tree too deep");
+        }
         let head = read_at(&mut self.r, node, 24)?;
         if &head[..4] != b"TREE" || head[4] != 1 {
             return corrupt("chunk B-tree node");
@@ -156,7 +168,7 @@ impl<R: Read + Seek> Hdf5File<R> {
             let mask = u32_at(&body, key + 4)?;
             let child = u64_at(&body, key + key_size)?;
             if level > 0 {
-                self.read_chunks(child, rank, out)?;
+                self.read_chunks(child, rank, out, depth + 1)?;
                 continue;
             }
             if mask != 0 {
@@ -196,10 +208,13 @@ impl<R: Read + Seek> Hdf5File<R> {
         let heap_data = u64_at(&h, 24)?;
         let heap_size = u64_at(&h, 8)? as usize;
         let heap_bytes = read_at(&mut self.r, heap_data, heap_size)?;
-        self.walk_btree(btree, &heap_bytes, f).map(|_| ())
+        self.walk_btree(btree, &heap_bytes, f, 0).map(|_| ())
     }
 
-    fn walk_btree(&mut self, node: u64, heap: &[u8], f: &mut dyn FnMut(&str, u64) -> bool) -> Result<bool> {
+    fn walk_btree(&mut self, node: u64, heap: &[u8], f: &mut dyn FnMut(&str, u64) -> bool, depth: u32) -> Result<bool> {
+        if depth > MAX_BTREE_DEPTH {
+            return corrupt("group B-tree too deep");
+        }
         let head = read_at(&mut self.r, node, 24)?;
         if &head[..4] != b"TREE" || head[4] != 0 {
             return corrupt("group B-tree node");
@@ -210,7 +225,7 @@ impl<R: Read + Seek> Hdf5File<R> {
         for i in 0..used {
             let child = u64_at(&body, 8 + i * 16)?;
             if level > 0 {
-                if self.walk_btree(child, heap, f)? {
+                if self.walk_btree(child, heap, f, depth + 1)? {
                     return Ok(true);
                 }
                 continue;
@@ -272,19 +287,21 @@ impl<R: Read + Seek> Hdf5File<R> {
         let dims = dataspace_dims(space)?;
         let ty = find(0x03).ok_or_else(|| Hdf5Error::Corrupt("dataset without datatype".into()))?;
         let element = u32_at(ty, 4)? as u64;
-        let len = dims.iter().product::<u64>() * element;
+        // Checked: sizes come from the file, and a wrapped product would pass the size checks.
+        let len = dims.iter().try_fold(element, |n, &d| n.checked_mul(d)).ok_or_else(|| Hdf5Error::Corrupt("dataset size".into()))?;
         let lay = find(0x08).ok_or_else(|| Hdf5Error::Corrupt("dataset without layout".into()))?;
-        if lay[0] != 3 {
-            return Err(Hdf5Error::Unsupported(format!("data layout version {}", lay[0])));
+        let byte = |i: usize| lay.get(i).copied().ok_or_else(|| Hdf5Error::Corrupt("layout message".into()));
+        if byte(0)? != 3 {
+            return Err(Hdf5Error::Unsupported(format!("data layout version {}", byte(0)?)));
         }
-        let layout = match lay[1] {
+        let layout = match byte(1)? {
             0 => {
                 let size = u16_at(lay, 2)? as usize;
                 Layout::Compact(lay.get(4..4 + size).ok_or_else(|| Hdf5Error::Corrupt("compact data".into()))?.to_vec())
             }
             1 => Layout::Contiguous { address: u64_at(lay, 2)? },
             2 => {
-                let rank = lay[2] as usize;
+                let rank = byte(2)? as usize;
                 let btree = u64_at(lay, 3)?;
                 let mut d = Vec::new();
                 for i in 0..rank {
@@ -299,15 +316,22 @@ impl<R: Read + Seek> Hdf5File<R> {
 }
 
 fn dataspace_dims(m: &[u8]) -> Result<Vec<u64>> {
-    let (rank, start) = match m[0] {
-        1 => (m[1] as usize, 8),
-        2 => (m[1] as usize, 4),
+    let rank = || m.get(1).map(|&r| r as usize).ok_or_else(|| Hdf5Error::Corrupt("dataspace message".into()));
+    let (rank, start) = match m.first().copied().unwrap_or(0) {
+        1 => (rank()?, 8),
+        2 => (rank()?, 4),
         v => return Err(Hdf5Error::Unsupported(format!("dataspace version {v}"))),
     };
     (0..rank).map(|i| u64_at(m, start + 8 * i)).collect()
 }
 
 fn read_at<R: Read + Seek>(r: &mut R, offset: u64, len: usize) -> Result<Vec<u8>> {
+    // Lengths and offsets come from the file: check them against its size before allocating, so a
+    // corrupt value is an error instead of a huge allocation that aborts the process.
+    let end = r.seek(SeekFrom::End(0))?;
+    if offset.checked_add(len as u64).is_none_or(|e| e > end) {
+        return corrupt("data past the end of the file");
+    }
     r.seek(SeekFrom::Start(offset))?;
     let mut buf = vec![0u8; len];
     r.read_exact(&mut buf)?;

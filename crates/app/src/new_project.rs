@@ -358,12 +358,22 @@ pub(crate) fn group_mesh(mesh: Mesh, settings: &NewProjectSettings) -> (Mesh, Ve
 }
 
 fn unique_names(mut names: Vec<String>) -> Vec<String> {
+    // Numbered names must not collide with another given name ("A", "A", "A 2" gave two "A 2").
+    let given: std::collections::BTreeSet<String> = names.iter().cloned().collect();
+    let mut used: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     let mut seen: BTreeMap<String, usize> = BTreeMap::new();
     for name in &mut names {
-        let count = seen.entry(name.clone()).or_insert(0);
-        *count += 1;
-        if *count > 1 {
-            *name = format!("{name} {count}");
+        if used.insert(name.clone()) {
+            continue;
+        }
+        let count = seen.entry(name.clone()).or_insert(1);
+        loop {
+            *count += 1;
+            let candidate = format!("{name} {count}");
+            if !given.contains(&candidate) && used.insert(candidate.clone()) {
+                *name = candidate;
+                break;
+            }
         }
     }
     names

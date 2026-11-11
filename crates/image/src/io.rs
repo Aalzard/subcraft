@@ -119,11 +119,110 @@ pub enum FileFormat {
     Tga8,
     Jpeg,
     Exr32,
+    Tiff8,
+    Tiff16,
+    /// 32-bit float TIFF (RGB/RGBA; one-component data is written as gray RGB).
+    Tiff32,
+}
+
+/// File container of a [`FileFormat`] (what the preset editor's "Format" menu picks).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Container {
+    Png,
+    Tga,
+    Exr,
+    Tiff,
+    Jpeg,
+}
+
+/// Bits per component (32 = float).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum BitDepth {
+    B8,
+    B16,
+    F32,
+}
+
+impl Container {
+    pub const ALL: [Container; 5] = [Container::Png, Container::Tga, Container::Exr, Container::Tiff, Container::Jpeg];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Container::Png => "PNG",
+            Container::Tga => "TGA",
+            Container::Exr => "EXR",
+            Container::Tiff => "TIFF",
+            Container::Jpeg => "JPEG",
+        }
+    }
+
+    /// Bit depths this container can store, smallest first.
+    pub fn depths(self) -> &'static [BitDepth] {
+        match self {
+            Container::Png => &[BitDepth::B8, BitDepth::B16],
+            Container::Tga | Container::Jpeg => &[BitDepth::B8],
+            Container::Exr => &[BitDepth::F32],
+            Container::Tiff => &[BitDepth::B8, BitDepth::B16, BitDepth::F32],
+        }
+    }
+}
+
+impl BitDepth {
+    pub fn label(self) -> &'static str {
+        match self {
+            BitDepth::B8 => "8-bit",
+            BitDepth::B16 => "16-bit",
+            BitDepth::F32 => "32-bit float",
+        }
+    }
 }
 
 impl FileFormat {
-    pub const ALL: [FileFormat; 5] =
-        [FileFormat::Png8, FileFormat::Png16, FileFormat::Tga8, FileFormat::Jpeg, FileFormat::Exr32];
+    pub const ALL: [FileFormat; 8] = [
+        FileFormat::Png8,
+        FileFormat::Png16,
+        FileFormat::Tga8,
+        FileFormat::Jpeg,
+        FileFormat::Exr32,
+        FileFormat::Tiff8,
+        FileFormat::Tiff16,
+        FileFormat::Tiff32,
+    ];
+
+    pub fn container(self) -> Container {
+        match self {
+            FileFormat::Png8 | FileFormat::Png16 => Container::Png,
+            FileFormat::Tga8 => Container::Tga,
+            FileFormat::Jpeg => Container::Jpeg,
+            FileFormat::Exr32 => Container::Exr,
+            FileFormat::Tiff8 | FileFormat::Tiff16 | FileFormat::Tiff32 => Container::Tiff,
+        }
+    }
+
+    pub fn depth(self) -> BitDepth {
+        match self {
+            FileFormat::Png8 | FileFormat::Tga8 | FileFormat::Jpeg | FileFormat::Tiff8 => BitDepth::B8,
+            FileFormat::Png16 | FileFormat::Tiff16 => BitDepth::B16,
+            FileFormat::Exr32 | FileFormat::Tiff32 => BitDepth::F32,
+        }
+    }
+
+    /// The format storing `container` at `depth`; when the container can't, the deepest depth it
+    /// has below `depth` (TGA 16 -> TGA 8, PNG 32f -> PNG 16), else its smallest (EXR 8 -> 32f).
+    pub fn from_parts(container: Container, depth: BitDepth) -> FileFormat {
+        let depths = container.depths();
+        let depth = depths.iter().rev().copied().find(|d| *d <= depth).unwrap_or(depths[0]);
+        match (container, depth) {
+            (Container::Png, BitDepth::B8) => FileFormat::Png8,
+            (Container::Png, _) => FileFormat::Png16,
+            (Container::Tga, _) => FileFormat::Tga8,
+            (Container::Jpeg, _) => FileFormat::Jpeg,
+            (Container::Exr, _) => FileFormat::Exr32,
+            (Container::Tiff, BitDepth::B8) => FileFormat::Tiff8,
+            (Container::Tiff, BitDepth::B16) => FileFormat::Tiff16,
+            (Container::Tiff, BitDepth::F32) => FileFormat::Tiff32,
+        }
+    }
 
     pub fn extension(self) -> &'static str {
         match self {
@@ -131,6 +230,7 @@ impl FileFormat {
             FileFormat::Tga8 => "tga",
             FileFormat::Jpeg => "jpg",
             FileFormat::Exr32 => "exr",
+            FileFormat::Tiff8 | FileFormat::Tiff16 | FileFormat::Tiff32 => "tif",
         }
     }
 
@@ -141,11 +241,14 @@ impl FileFormat {
             FileFormat::Tga8 => "TGA 8-bit",
             FileFormat::Jpeg => "JPEG",
             FileFormat::Exr32 => "EXR 32-bit float",
+            FileFormat::Tiff8 => "TIFF 8-bit",
+            FileFormat::Tiff16 => "TIFF 16-bit",
+            FileFormat::Tiff32 => "TIFF 32-bit float",
         }
     }
 
     pub fn is_float(self) -> bool {
-        matches!(self, FileFormat::Exr32)
+        matches!(self, FileFormat::Exr32 | FileFormat::Tiff32)
     }
 }
 
@@ -170,7 +273,7 @@ pub fn encode_image(width: u32, height: u32, comps: usize, data: &[f32], format:
     let q8 = |v: f32| (v.clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
     let q16 = |v: f32| (v.clamp(0.0, 1.0) * 65535.0 + 0.5) as u16;
     match format {
-        FileFormat::Png8 | FileFormat::Tga8 | FileFormat::Jpeg => {
+        FileFormat::Png8 | FileFormat::Tga8 | FileFormat::Jpeg | FileFormat::Tiff8 => {
             let bytes: Vec<u8> = data.iter().map(|&v| q8(v)).collect();
             let comps = if format == FileFormat::Jpeg && comps == 4 {
                 // JPEG has no alpha: drop it.
@@ -188,11 +291,12 @@ pub fn encode_image(width: u32, height: u32, comps: usize, data: &[f32], format:
             let fmt = match format {
                 FileFormat::Png8 => image::ImageFormat::Png,
                 FileFormat::Tga8 => image::ImageFormat::Tga,
+                FileFormat::Tiff8 => image::ImageFormat::Tiff,
                 _ => image::ImageFormat::Jpeg,
             };
             image::write_buffer_with_format(&mut out, &bytes, width, height, color, fmt)?;
         }
-        FileFormat::Png16 => {
+        FileFormat::Png16 | FileFormat::Tiff16 => {
             let words: Vec<u16> = data.iter().map(|&v| q16(v)).collect();
             let img = match comps {
                 1 => image::DynamicImage::ImageLuma16(
@@ -209,7 +313,19 @@ pub fn encode_image(width: u32, height: u32, comps: usize, data: &[f32], format:
                 ),
                 n => return Err(ImageIoError::Unsupported(format!("{n} components"))),
             };
-            img.write_to(&mut out, image::ImageFormat::Png)?;
+            img.write_to(&mut out, if format == FileFormat::Tiff16 { image::ImageFormat::Tiff } else { image::ImageFormat::Png })?;
+        }
+        FileFormat::Tiff32 => {
+            // The TIFF encoder takes RGB/RGBA float; gray data is written as gray RGB.
+            let (color, floats): (_, Vec<f32>) = match comps {
+                1 => (image::ExtendedColorType::Rgb32F, data.iter().flat_map(|&v| [v, v, v]).collect()),
+                2 => (image::ExtendedColorType::Rgba32F, data.chunks_exact(2).flat_map(|p| [p[0], p[0], p[0], p[1]]).collect()),
+                3 => (image::ExtendedColorType::Rgb32F, data.to_vec()),
+                4 => (image::ExtendedColorType::Rgba32F, data.to_vec()),
+                n => return Err(ImageIoError::Unsupported(format!("{n} components"))),
+            };
+            let bytes: Vec<u8> = floats.iter().flat_map(|v| v.to_ne_bytes()).collect();
+            image::write_buffer_with_format(&mut out, &bytes, width, height, color, image::ImageFormat::Tiff)?;
         }
         FileFormat::Exr32 => {
             // EXR via the image crate takes RGB/RGBA float.

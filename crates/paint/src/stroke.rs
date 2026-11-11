@@ -58,7 +58,7 @@ pub struct Stroke {
     view_camera: Option<Camera>,
     clone: Option<CloneSource>,
     /// Smudge: live copies of the target images (the snapshots stay pre-stroke) and the paint
-    /// carried along (premultiplied value, alpha) per image.
+    /// carried along (premultiplied value, alpha) per stroke copy and image.
     work: Vec<TiledImage>,
     carried: Vec<Option<[f32; 4]>>,
     /// Average UV units per object unit of the painted texture set (2D-view strokes).
@@ -424,7 +424,9 @@ impl Stroke {
     }
 
     fn spacing_px(&mut self, ctx: &PaintContext) -> f32 {
-        let r = self.base_radius(ctx);
+        // The spacing follows the size the pen pressure gives the dabs: with the nominal size, a
+        // light contact (a few percent of the diameter) left a dotted line. A mouse is factor 1.
+        let r = self.base_radius(ctx) * self.settings.pressure_size_factor(self.pressure);
         let diameter_px = 2.0 * r * ctx.camera.pixels_per_unit(self.depth_hint(ctx));
         (self.settings.spacing * diameter_px).max(0.5)
     }
@@ -762,7 +764,12 @@ impl Stroke {
         }
         if self.work.is_empty() {
             self.work = self.images.iter().map(|i| i.snapshot.clone()).collect();
-            self.carried = vec![None; self.images.len()];
+        }
+        // One carried colour per stroke copy (symmetry) and image: shared, the paint picked up on
+        // one side of the mirror was deposited on the other.
+        let images = self.images.len();
+        if self.carried.len() != images * cameras.len().max(1) {
+            self.carried = vec![None; images * cameras.len().max(1)];
         }
         let alignment = self.settings.alignment;
         let depth: Vec<Arc<DepthMap>> =
@@ -813,13 +820,14 @@ impl Stroke {
             if weight <= 1e-6 { continue; }
             for (k, p) in pickup.iter_mut().enumerate() {
                 for v in p.iter_mut() { *v /= weight; }
-                self.carried[k] = Some(match self.carried[k] {
+                let slot = st.camera * images + k;
+                self.carried[slot] = Some(match self.carried[slot] {
                     None => *p,
                     Some(c) => std::array::from_fn(|j| c[j] * carry + p[j] * (1.0 - carry)),
                 });
                 if material > 0.0 {
                     // Smudge with material: the brush paint (opaque) mixes into what is carried.
-                    let c = self.carried[k].as_mut().expect("set above");
+                    let c = self.carried[slot].as_mut().expect("set above");
                     let v = self.images[k].value;
                     for j in 0..3 { c[j] += (v[j] - c[j]) * material; }
                     c[3] += (1.0 - c[3]) * material;
@@ -829,7 +837,7 @@ impl Stroke {
             let mut writes = Vec::new();
             for (t, fp) in &footprints {
                 for (k, img) in self.images.iter().enumerate() {
-                    let c = self.carried[k].expect("set above");
+                    let c = self.carried[st.camera * images + k].expect("set above");
                     let comps = img.snapshot.comps();
                     let n = img.value_comps;
                     let mut buf = vec![0.0f32; TILE_TEXELS * comps];

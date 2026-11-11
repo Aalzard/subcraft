@@ -305,12 +305,14 @@ pub struct Autosaver {
     last_saved: Option<(Document, u64)>,
     soon: bool,
     job: Option<Receiver<Result<PathBuf, String>>>,
+    /// The session had unsaved work at the last tick (its copies are still worth keeping).
+    had_unsaved: bool,
 }
 
 impl Autosaver {
     /// `live = None` disables autosaving (no data folder, or it could not be created).
     pub fn new(live: Option<LiveSession>, interval: Duration) -> Self {
-        Self { live, interval, last_save: Instant::now(), last_saved: None, soon: false, job: None }
+        Self { live, interval, last_save: Instant::now(), last_saved: None, soon: false, job: None, had_unsaved: true }
     }
 
     pub fn disabled() -> Self {
@@ -340,9 +342,23 @@ impl Autosaver {
         self.soon = true;
     }
 
-    /// A new session replaced the old one: its copies stay until the next autosave rotates
-    /// them out, but the change tracking starts over.
+    /// A new session replaced the old one (the user saved or discarded it): its copies go, and
+    /// the change tracking starts over. Kept, they would be offered after a crash as the recovery
+    /// of the new project, and saving that recovery would overwrite the new project's file.
     pub fn session_replaced(&mut self) {
+        let _ = self.wait();
+        self.discard_copies();
+    }
+
+    /// Delete this session's copies: the work they protected is saved, or was given up.
+    fn discard_copies(&mut self) {
+        if let Some(live) = &self.live {
+            for p in list_autosaves(live.dir()) {
+                if let Err(e) = std::fs::remove_file(&p) {
+                    log::warn!("recovery copy {} not removed: {e}", p.display());
+                }
+            }
+        }
         self.last_saved = None;
     }
 
@@ -374,6 +390,15 @@ impl Autosaver {
             }
         }
         let event = self.poll();
+        if self.job.is_none() {
+            // Saved (or undone back to the saved state): the user's file now holds everything, and
+            // an older copy must not be offered as its recovery after a crash.
+            let unsaved = session.is_modified();
+            if self.had_unsaved && !unsaved {
+                self.discard_copies();
+            }
+            self.had_unsaved = unsaved;
+        }
         if self.is_due(session, now) {
             self.start(session, now);
         }
@@ -437,8 +462,27 @@ impl Autosaver {
                 }
                 AutosaveEvent::Saved(path)
             }
-            Err(e) => AutosaveEvent::Failed(e),
+            Err(e) => {
+                self.last_saved = None; // try again next time
+                AutosaveEvent::Failed(e)
+            }
         })
+    }
+
+    /// Write a copy of unsaved work right now and wait for it, ignoring the timer. For the moment
+    /// the app learns it cannot go on (the GPU device was lost): the recovery folder then holds the
+    /// work as it is now, not as it was at the last timed copy. `None` when nothing needed saving.
+    pub fn save_now(&mut self, session: &Session) -> Option<AutosaveEvent> {
+        let running = self.wait();
+        let current = match &self.last_saved {
+            Some((doc, maps)) => doc == session.history().current() && *maps == session.maps_generation(),
+            None => false,
+        };
+        if self.live.is_none() || !session.is_modified() || current {
+            return running;
+        }
+        self.start(session, Instant::now());
+        self.wait().or(running)
     }
 
     /// Clean exit: wait for a running copy, then delete the session folder.
