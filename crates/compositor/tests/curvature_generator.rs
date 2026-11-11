@@ -10,7 +10,8 @@ use subcraft_image::TiledImage;
 use subcraft_materials::{MeshMaps, TextureSetGeometry};
 use subcraft_mesh::primitives;
 
-const RES: u32 = 256;
+/// Large enough that the medium scale (256 cells) averages several texels per cell.
+const RES: u32 = 1024;
 
 fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
     let t = ((x - e0) / (e1 - e0)).clamp(0.0, 1.0);
@@ -99,10 +100,11 @@ fn coarse_detail_averages_fine_texel_noise_away_and_medium_keeps_broad_forms() {
     let m = mask_of(curvature(Some(d)), half());
     let at = |x: u32, y: u32| m[(y * RES + x) as usize];
     // Deep inside the left half: 0.5 + 2 x 0.2 = 0.9 before the remap.
-    assert!((at(40, 128) - smoothstep(0.0, 1.0, 0.9)).abs() < 5e-3, "{}", at(40, 128));
-    assert!((at(220, 128) - 0.5).abs() < 2e-3, "{}", at(220, 128));
+    let (y, q) = (RES / 2, RES / 8);
+    assert!((at(q, y) - smoothstep(0.0, 1.0, 0.9)).abs() < 5e-3, "{}", at(q, y));
+    assert!((at(RES - q, y) - 0.5).abs() < 2e-3, "{}", at(RES - q, y));
     // ...with a soft transition, not the fine map's hard step.
-    let ramp: Vec<f32> = (120..136).map(|x| at(x, 128)).collect();
+    let ramp: Vec<f32> = (RES / 2 - 16..RES / 2 + 16).map(|x| at(x, y)).collect();
     assert!(ramp.windows(2).all(|w| w[1] <= w[0] + 1e-6) && ramp.iter().filter(|v| **v > 0.52 && **v < 0.95).count() >= 4, "{ramp:?}");
 }
 

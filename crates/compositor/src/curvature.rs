@@ -97,7 +97,13 @@ impl Grid {
     }
 }
 
-/// One [1 2 1] / 4 pass along x then y, edges clamped.
+/// Index `i` reflected into `0..n` (n >= 2): the texel past an edge mirrors the one inside it,
+/// so smoothing a pattern doesn't bias the border cells.
+fn mirror(i: isize, n: usize) -> usize {
+    if i < 0 { 1 } else if i as usize >= n { n - 2 } else { i as usize }
+}
+
+/// One [1 2 1] / 4 pass along x then y, edges mirrored.
 fn smooth(data: &mut [f32], n: usize) {
     if n < 2 {
         return;
@@ -105,12 +111,12 @@ fn smooth(data: &mut [f32], n: usize) {
     let mut tmp = vec![0.0f32; data.len()];
     for y in 0..n {
         for x in 0..n {
-            let (l, r) = (x.saturating_sub(1), (x + 1).min(n - 1));
+            let (l, r) = (mirror(x as isize - 1, n), mirror(x as isize + 1, n));
             tmp[y * n + x] = (data[y * n + l] + 2.0 * data[y * n + x] + data[y * n + r]) * 0.25;
         }
     }
     for y in 0..n {
-        let (u, d) = (y.saturating_sub(1), (y + 1).min(n - 1));
+        let (u, d) = (mirror(y as isize - 1, n), mirror(y as isize + 1, n));
         for x in 0..n {
             data[y * n + x] = (tmp[u * n + x] + 2.0 * tmp[y * n + x] + tmp[d * n + x]) * 0.25;
         }
