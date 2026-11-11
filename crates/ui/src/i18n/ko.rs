@@ -248,7 +248,7 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Seed", "시드"),
     ("Select a texture's maps (color, roughness, normal…) to make one fill layer.", "텍스처의 맵(컬러, 러프니스, 노멀…)을 선택하면 채우기 레이어 하나가 만들어집니다."),
     ("Select all", "모두 선택"),
-    ("Sharpness", "선명도"),
+    ("Hardness", "경도"),
     ("Show all parts", "모든 파트 표시"),
     ("Show folder", "폴더 열기"),
     ("Show grid", "그리드 표시"),
@@ -384,4 +384,6 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Gray value of the anchor (color channels by luminance), times its coverage. Stack Levels or Invert above it to remap.", "앵커의 회색 값(컬러 채널은 휘도)에 커버리지를 곱한 값입니다. 다시 매핑하려면 위에 레벨 또는 반전을 쌓으세요."),
     ("Levels", "레벨"),
     ("The anchor replaces the baked map this generator reads (curvature for Edges and Concave, occlusion for Dirt and Ambient Occlusion).", "앵커가 이 제너레이터가 읽는 베이크된 맵을 대신합니다(Edges와 Concave는 곡률, Dirt와 Ambient Occlusion은 오클루전)."),
+    ("Shape crop", "형태 자르기"),
+    ("How sharply the three projection planes meet: 0 blends them widely, 1 cuts", "세 투영 평면이 만나는 선명도: 0은 넓게 섞고 1은 잘라 냅니다"),
 ];

@@ -652,6 +652,7 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
                         changed |= scratch_controls(ui, p, ("mask_scratch", 0));
                     } else { changed |= slider_row(ui, tr("Value"), egui::Slider::new(value, 0.0..=1.0)).changed(); }
                     changed |= projection_editor(ui, projection);
+                    changed |= projection_options(ui, projection);
                 }
                 MaskEffectKind::Levels(l) => {
                     changed |= slider_row(ui, tr("In low"), egui::Slider::new(&mut l.in_low, 0.0..=1.0)).changed();
@@ -670,6 +671,7 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
                     }
                     prop_row(ui, "", |ui| changed |= ui.checkbox(invert, tr("Invert")).changed());
                     changed |= projection_editor(ui, projection);
+                    changed |= projection_options(ui, projection);
                     hint(ui, tr("Uses the image's transparency if it has any, otherwise its brightness."));
                 }
                 MaskEffectKind::IdColor(id) => changed |= id_color_editor(ui, state, layer, e.id, id, cmds),
@@ -956,17 +958,44 @@ fn dropdown_row<T: PartialEq + Copy>(ui: &mut Ui, id: &str, label: &str, value: 
     changed
 }
 
-/// The FILL block of Painter's Properties: Projection / Filtering / UV Wrap dropdowns and the
-/// collapsible UV transformations group. Filtering, UV Wrap and the Scale mode do not exist in the
-/// engine yet and are shown disabled.
+/// The rows Painter shows between the Projection dropdown and the UV transformations group:
+/// Filtering (every projection), UV Wrap (UV and planar) and Shape crop (tri-planar and planar).
+pub(crate) fn projection_options(ui: &mut Ui, proj: &mut Projection) -> bool {
+    use subcraft_doc::{FillFiltering, ShapeCrop, UvWrap};
+    let mut changed = false;
+    changed |= dropdown_row(ui, "filtering", tr("Filtering"), &mut proj.filtering, &FillFiltering::ALL.map(|f| (f, f.label())), true, "");
+    if proj.mode != ProjectionMode::Triplanar {
+        changed |= dropdown_row(ui, "wrap", tr("UV Wrap"), &mut proj.uv_wrap, &UvWrap::ALL.map(|w| (w, w.label())), true, "");
+    }
+    if proj.mode != ProjectionMode::Uv {
+        changed |= dropdown_row(ui, "crop", tr("Shape crop"), &mut proj.shape_crop, &ShapeCrop::ALL.map(|c| (c, c.label())), true, "");
+    }
+    changed
+}
+
+/// Tri-planar Hardness 0..1 (1 = hard cut between the three planes), stored as the blend exponent.
+fn hardness_row(ui: &mut Ui, proj: &mut Projection) -> bool {
+    let mut hardness = proj.hardness();
+    let changed = slider_row(ui, tr("Hardness"), egui::Slider::new(&mut hardness, 0.0..=1.0).max_decimals(3))
+        .on_hover_text(tr("How sharply the three projection planes meet: 0 blends them widely, 1 cuts"))
+        .changed();
+    if changed {
+        proj.set_hardness(hardness);
+    }
+    changed
+}
+
+/// The FILL block of Painter's Properties: Projection / Filtering / UV Wrap / Shape crop /
+/// Hardness rows and the collapsible UV transformations group. The Scale mode (Physical Size)
+/// does not exist in the engine yet and is shown disabled.
 pub(crate) fn fill_properties(ui: &mut Ui, proj: &mut Projection) -> bool {
     let mut changed = false;
     changed |= dropdown_row(ui, "projection", tr("Projection"), &mut proj.mode,
         &[(ProjectionMode::Uv, "UV projection"), (ProjectionMode::Triplanar, "Tri-planar projection"), (ProjectionMode::Planar, "Planar projection")], true, "");
-    let mut filtering = 0u8;
-    dropdown_row(ui, "filtering", tr("Filtering"), &mut filtering, &[(0u8, "Bilinear | HQ")], false, "Texture filtering is not configurable yet");
-    let mut wrap = 0u8;
-    dropdown_row(ui, "wrap", tr("UV Wrap"), &mut wrap, &[(0u8, "Repeat")], false, "UV wrap is always Repeat for now");
+    changed |= projection_options(ui, proj);
+    if proj.mode == ProjectionMode::Triplanar {
+        changed |= hardness_row(ui, proj);
+    }
     ui.add_space(4.0);
     egui::CollapsingHeader::new(RichText::new(tr("UV transformations")).font(theme::font_strong(12.0)).color(theme::TEXT)).default_open(true).show(ui, |ui| {
         let mut scale_mode = 0u8;
@@ -999,24 +1028,31 @@ pub(crate) fn fill_properties(ui: &mut Ui, proj: &mut Projection) -> bool {
         });
         ui.data_mut(|d| d.insert_temp(lock_id, locked));
         changed |= slider_row(ui, tr("Rotation"), egui::Slider::new(&mut proj.rotation_deg, -180.0..=180.0).suffix("°")).changed();
-        ui.add(egui::Label::new(crate::widgets::row_label(tr("Offset"))));
-        ui.horizontal(|ui| {
-            ui.spacing_mut().interact_size.x = VALUE_W; ui.spacing_mut().button_padding.x = 4.0;
-            let sp = ui.spacing().item_spacing.x;
-            ui.spacing_mut().slider_width = ((ui.available_width() - sp) / 2.0 - sp - VALUE_W).max(30.0);
-            changed |= ui.add(egui::Slider::new(&mut proj.offset[0], -1.0..=1.0).clamping(egui::SliderClamping::Never).max_decimals(3)).changed();
-            changed |= ui.add(egui::Slider::new(&mut proj.offset[1], -1.0..=1.0).clamping(egui::SliderClamping::Never).max_decimals(3)).changed();
-        });
-        if proj.mode == ProjectionMode::Triplanar {
-            changed |= slider_row(ui, tr("Sharpness"), egui::Slider::new(&mut proj.triplanar_sharpness, 1.0..=32.0)).changed();
+        // Painter has no UV Offset for tri-planar (the projection moves in 3D instead).
+        if proj.mode != ProjectionMode::Triplanar {
+            ui.add(egui::Label::new(crate::widgets::row_label(tr("Offset"))));
+            ui.horizontal(|ui| {
+                ui.spacing_mut().interact_size.x = VALUE_W; ui.spacing_mut().button_padding.x = 4.0;
+                let sp = ui.spacing().item_spacing.x;
+                ui.spacing_mut().slider_width = ((ui.available_width() - sp) / 2.0 - sp - VALUE_W).max(30.0);
+                changed |= ui.add(egui::Slider::new(&mut proj.offset[0], -1.0..=1.0).clamping(egui::SliderClamping::Never).max_decimals(3)).changed();
+                changed |= ui.add(egui::Slider::new(&mut proj.offset[1], -1.0..=1.0).clamping(egui::SliderClamping::Never).max_decimals(3)).changed();
+            });
         }
         if proj.mode == ProjectionMode::Planar {
             prop_row(ui, tr("Axis"), |ui| { changed |= segmented(ui, &mut proj.planar_axis, &[(0u8, "X"), (1, "Y"), (2, "Z")]); });
         }
-        let default = Projection { mode: proj.mode, planar_axis: proj.planar_axis, ..Projection::default() };
+        let default = reset_transform(proj);
         if *proj != default && ui.small_button(tr("Reset tiling, offset and rotation")).clicked() { *proj = default; changed = true; }
     });
     changed
+}
+
+/// `proj` with its tiling, rotation and offset back at their defaults; the projection mode and
+/// its options (axis, filtering, wrap, crop, hardness) are kept.
+fn reset_transform(proj: &Projection) -> Projection {
+    let d = Projection::default();
+    Projection { scale: d.scale, rotation_deg: d.rotation_deg, offset: d.offset, ..*proj }
 }
 
 /// The MATERIAL block's channel buttons in Painter's order and lower-case short names, plus the
@@ -1083,24 +1119,26 @@ pub(crate) fn projection_editor(ui: &mut Ui, proj: &mut Projection) -> bool {
     });
     ui.data_mut(|d| d.insert_temp(lock_id, locked));
     changed |= slider_row(ui, tr("Rotation"), egui::Slider::new(&mut proj.rotation_deg, -180.0..=180.0).suffix("°")).changed();
-    prop_row(ui, tr("Offset"), |ui| {
-        fn offset(v: &mut f32) -> egui::DragValue<'_> {
-            egui::DragValue::new(v).speed(0.005).range(-16.0..=16.0).max_decimals(3)
-        }
-        ui.label(RichText::new("X").color(TEXT_DIM));
-        changed |= ui.add(offset(&mut proj.offset[0])).changed();
-        ui.label(RichText::new("Y").color(TEXT_DIM));
-        changed |= ui.add(offset(&mut proj.offset[1])).changed();
-    });
+    if proj.mode != ProjectionMode::Triplanar {
+        prop_row(ui, tr("Offset"), |ui| {
+            fn offset(v: &mut f32) -> egui::DragValue<'_> {
+                egui::DragValue::new(v).speed(0.005).range(-16.0..=16.0).max_decimals(3)
+            }
+            ui.label(RichText::new("X").color(TEXT_DIM));
+            changed |= ui.add(offset(&mut proj.offset[0])).changed();
+            ui.label(RichText::new("Y").color(TEXT_DIM));
+            changed |= ui.add(offset(&mut proj.offset[1])).changed();
+        });
+    }
     if proj.mode == ProjectionMode::Triplanar {
-        changed |= slider_row(ui, tr("Sharpness"), egui::Slider::new(&mut proj.triplanar_sharpness, 1.0..=32.0)).changed();
+        changed |= hardness_row(ui, proj);
     }
     if proj.mode == ProjectionMode::Planar {
         prop_row(ui, tr("Axis"), |ui| {
             changed |= segmented(ui, &mut proj.planar_axis, &[(0u8, "X"), (1, "Y"), (2, "Z")]);
         });
     }
-    let default = Projection { mode: proj.mode, planar_axis: proj.planar_axis, ..Projection::default() };
+    let default = reset_transform(proj);
     if *proj != default && ui.small_button(tr("Reset tiling, offset and rotation")).clicked() {
         *proj = default;
         changed = true;

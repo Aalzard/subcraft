@@ -11,7 +11,7 @@ Layout notes: with a fill layer or fill effect selected the panel has two upper-
 |---|---|---|---|---|---|
 | FILL block (projection settings) | Properties (fill layer) | n/a | done | crates/ui/src/panels/properties.rs:194 | - |
 | MATERIAL block | Properties (fill layer) | n/a | done | crates/ui/src/panels/properties.rs:201 | - |
-| Same panel for a Fill effect on a layer's content | Properties (fill effect) | n/a | partial: compact editor (segmented mode, no Filtering / UV Wrap rows), sources limited to Uniform and Procedural | crates/ui/src/panels/effects.rs:364 | - |
+| Same panel for a Fill effect on a layer's content | Properties (fill effect) | n/a | partial: compact editor (segmented mode) with the Filtering / UV Wrap / Shape crop rows, sources limited to Uniform and Procedural | crates/ui/src/panels/effects.rs:367 | chunk 8 |
 | Same panel for a Fill effect in a mask (GRAYSCALE block) | Properties (mask fill effect) | n/a | partial: Value slider or built-in procedural, plus the compact projection editor | crates/ui/src/panels/properties.rs:637 | - |
 | Right-click in the viewport opens floating Properties for the selected fill | Viewport | n/a | missing | - | #131 |
 
@@ -41,15 +41,15 @@ Layout notes: Filtering, UV Wrap, then the UV transformations group (Scale mode,
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Filtering (dropdown) | Properties > Fill | Bilinear &#124; HQ | partial: row shown but disabled with one entry | crates/ui/src/panels/properties.rs:967 | - |
-| Filtering: Bilinear &#124; HQ | Properties > Fill > Filtering | default | partial: the fixed behaviour, not selectable | crates/ui/src/panels/properties.rs:967 | - |
-| Filtering: Bilinear &#124; Sharp | Properties > Fill > Filtering | option | missing | - | - |
-| Filtering: Nearest | Properties > Fill > Filtering | option | missing | - | - |
-| UV Wrap (dropdown) | Properties > Fill | Repeat | partial: row shown but disabled with one entry | crates/ui/src/panels/properties.rs:969 | - |
-| UV Wrap: None | Properties > Fill > UV Wrap | option | missing | - | - |
-| UV Wrap: Repeat horizontally | Properties > Fill > UV Wrap | option | missing | - | - |
-| UV Wrap: Repeat vertically | Properties > Fill > UV Wrap | option | missing | - | - |
-| UV Wrap: Repeat | Properties > Fill > UV Wrap | default | partial: the fixed behaviour, not selectable | crates/ui/src/panels/properties.rs:969 | - |
+| Filtering (dropdown) | Properties > Fill | Bilinear &#124; HQ | done | crates/ui/src/panels/properties.rs:963 | chunk 8 |
+| Filtering: Bilinear &#124; HQ | Properties > Fill > Filtering | default | done: trilinear over a cached mip chain (box-filtered, in linear light for colour) | crates/ui/src/panels/properties.rs:963 | chunk 8 |
+| Filtering: Bilinear &#124; Sharp | Properties > Fill > Filtering | option | done: bilinear on the full-size image, no mip-maps | crates/ui/src/panels/properties.rs:963 | chunk 8 |
+| Filtering: Nearest | Properties > Fill > Filtering | option | done | crates/ui/src/panels/properties.rs:963 | chunk 8 |
+| UV Wrap (dropdown) | Properties > Fill | Repeat | done | crates/ui/src/panels/properties.rs:963 | chunk 8 |
+| UV Wrap: None | Properties > Fill > UV Wrap | option | done: empty outside the 0-1 square of the transformed texture | crates/ui/src/panels/properties.rs:963 | chunk 8 |
+| UV Wrap: Repeat horizontally | Properties > Fill > UV Wrap | option | done | crates/ui/src/panels/properties.rs:963 | chunk 8 |
+| UV Wrap: Repeat vertically | Properties > Fill > UV Wrap | option | done | crates/ui/src/panels/properties.rs:963 | chunk 8 |
+| UV Wrap: Repeat | Properties > Fill > UV Wrap | default | done | crates/ui/src/panels/properties.rs:963 | chunk 8 |
 | Single image (or first of a sequence) applied to every UV tile | Properties > Fill | n/a | done | crates/ui/src/panels/properties.rs:965 | - |
 
 ## UV transformations (all projections)
@@ -64,7 +64,7 @@ Layout notes: Filtering, UV Wrap, then the UV transformations group (Scale mode,
 | Tiling lock (link the two values) | UV transformations | linked (unverified) | done | crates/ui/src/panels/properties.rs:976 | - |
 | Rotation | UV transformations | 0 (unverified); range not documented | done | crates/ui/src/panels/properties.rs:1001 | - |
 | Offset (two values) | UV transformations | 0, 0 = texture centred on the UVs | partial: sliders -1 to 1, typed values unclamped | crates/ui/src/panels/properties.rs:1007 | - |
-| Offset hidden for Tri-planar projection | UV transformations | n/a | partial: Offset still shown for tri-planar | crates/ui/src/panels/properties.rs:1002 | - |
+| Offset hidden for Tri-planar projection | UV transformations | n/a | done | crates/ui/src/panels/properties.rs:991 | chunk 8 |
 | Physical Size: automatic scale from the mesh size and the material's embedded size (X and Y only) | UV transformations (Physical Size) | n/a | missing | - | - |
 | Custom Size (toggle; forced on when no size is embedded or when resources disagree) | UV transformations (Physical Size) | off | missing | - | - |
 | Size (cm), two values | UV transformations (Physical Size) | from the asset | missing | - | - |
@@ -97,11 +97,11 @@ Layout notes: Filtering, UV Wrap, then the UV transformations group (Scale mode,
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Filtering (same three options as UV projection) | Properties > Fill | Bilinear &#124; HQ | partial: fixed, not selectable | crates/ui/src/panels/properties.rs:967 | - |
-| Shape crop (dropdown) | Properties > Fill | Projection extends outside shape | missing | - | - |
-| Shape crop: Project cropped to shape | Properties > Fill > Shape crop | option | missing | - | - |
-| Shape crop: Projection extends outside shape | Properties > Fill > Shape crop | default | partial: the fixed behaviour | crates/ui/src/panels/properties.rs:965 | - |
-| Hardness (blend between the three planes; 1.0 = hard cut) | Properties > Fill | not documented; max 1.0 | partial: named "Sharpness", range 1-32, default 8 | crates/ui/src/panels/properties.rs:1011 | - |
+| Filtering (same three options as UV projection) | Properties > Fill | Bilinear &#124; HQ | done | crates/ui/src/panels/properties.rs:963 | chunk 8 |
+| Shape crop (dropdown) | Properties > Fill | Projection extends outside shape | partial: selectable and applied, but the shape is the model's bounding cube until the 3D projection transform exists, so it clips nothing yet | crates/ui/src/panels/properties.rs:963 | chunk 8 |
+| Shape crop: Project cropped to shape | Properties > Fill > Shape crop | option | partial: see the Shape crop row | crates/ui/src/panels/properties.rs:963 | chunk 8 |
+| Shape crop: Projection extends outside shape | Properties > Fill > Shape crop | default | done | crates/ui/src/panels/properties.rs:963 | chunk 8 |
+| Hardness (blend between the three planes; 1.0 = hard cut) | Properties > Fill | not documented; max 1.0 | done: 0-1, 1.0 = hard cut; default 0.875 (the former Sharpness 8) | crates/ui/src/panels/properties.rs:977 | chunk 8 |
 | 3D projection: Offset X, Y, Z (scene bounding-box units, 0 = centre) | Properties > Fill > 3D projection | 0, 0, 0 | missing | - | - |
 | 3D projection: Rotation X, Y, Z (degrees) | Properties > Fill > 3D projection | 0, 0, 0 (unverified) | missing | - | - |
 | 3D projection: Scale X, Y, Z | Properties > Fill > 3D projection | 1, 1, 1 (unverified) | missing | - | - |
@@ -110,9 +110,9 @@ Layout notes: Filtering, UV Wrap, then the UV transformations group (Scale mode,
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Filtering (same three options) | Properties > Fill | Bilinear &#124; HQ | partial: fixed, not selectable | crates/ui/src/panels/properties.rs:967 | - |
-| UV Wrap (None / Repeat horizontally / Repeat vertically / Repeat) | Properties > Fill | Repeat | partial: always Repeat | crates/ui/src/panels/properties.rs:969 | - |
-| Shape crop (cropped to shape / extends outside shape) | Properties > Fill | Projection extends outside shape | missing | - | - |
+| Filtering (same three options) | Properties > Fill | Bilinear &#124; HQ | done | crates/ui/src/panels/properties.rs:963 | chunk 8 |
+| UV Wrap (None / Repeat horizontally / Repeat vertically / Repeat) | Properties > Fill | Repeat | done | crates/ui/src/panels/properties.rs:963 | chunk 8 |
+| Shape crop (cropped to shape / extends outside shape) | Properties > Fill | Projection extends outside shape | partial: selectable and applied, but the shape is the model's bounding cube until the 3D projection transform exists | crates/ui/src/panels/properties.rs:963 | chunk 8 |
 | Depth culling (toggle) | Properties > Fill | not documented | missing | - | - |
 | Depth culling: Hardness | Properties > Fill > Depth culling | not documented | missing | - | - |
 | Backface culling (toggle) | Properties > Fill | not documented | missing | - | - |
