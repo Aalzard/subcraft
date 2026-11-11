@@ -608,6 +608,7 @@ pub fn poll_bake(state: &mut UiState, ctx: &egui::Context, now: f64) {
                 state.bake.report = summary;
                 state.bake.follow_maps = true;
                 state.recovery.prefs.viewport.view_mode = 0;
+                state.recovery.prefs.viewport.solo = None;
                 let detail = if state.bake.report.is_empty() { String::new() } else { format!(" ({})", state.bake.report) };
                 state.set_status(format!("Baked mesh maps for {n} texture set(s). See them in the 2D view.{detail}{note}"), now);
                 state.recovery.autosaver.request_soon();

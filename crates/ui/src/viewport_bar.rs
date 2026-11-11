@@ -26,6 +26,10 @@ pub struct ViewportPrefs {
     /// not remembered between runs).
     #[serde(skip)]
     pub mesh_map: Option<subcraft_core::MeshMapKind>,
+    /// A channel shown alone that the fixed view modes do not cover (Emissive, Opacity,
+    /// Specular, the user channels). Not remembered between runs.
+    #[serde(skip)]
+    pub solo: Option<subcraft_core::ChannelKind>,
     pub symmetry_guides: bool,
     /// Bottom-left list of the mouse / key actions that apply now.
     pub hints: bool,
@@ -53,6 +57,7 @@ impl Default for ViewportPrefs {
             orthographic: false,
             view_mode: 0,
             mesh_map: None,
+            solo: None,
             symmetry_guides: true,
             hints: true,
             display: Default::default(),
@@ -85,6 +90,88 @@ impl ViewportPrefs {
             .get(self.view_mode)
             .copied()
             .unwrap_or_default()
+    }
+
+    /// The channel the 3D view shows alone, if any (the mesh map viewer is not a channel).
+    pub fn shown_channel(&self) -> Option<subcraft_core::ChannelKind> {
+        use subcraft_core::ChannelKind;
+        if self.mesh_map.is_some() {
+            return None;
+        }
+        self.solo.or(match self.view_mode() {
+            ViewMode::BaseColor => Some(ChannelKind::BaseColor),
+            ViewMode::Normal => Some(ChannelKind::Normal),
+            ViewMode::Roughness => Some(ChannelKind::Roughness),
+            ViewMode::Metallic => Some(ChannelKind::Metallic),
+            ViewMode::Height => Some(ChannelKind::Height),
+            ViewMode::AmbientOcclusion => Some(ChannelKind::AmbientOcclusion),
+            ViewMode::Material | ViewMode::BakedNormal | ViewMode::BakedNormalMap => None,
+        })
+    }
+
+    /// Show one channel alone on the model.
+    pub fn show_channel(&mut self, kind: subcraft_core::ChannelKind) {
+        use subcraft_core::ChannelKind;
+        self.mesh_map = None;
+        let mode = match kind {
+            ChannelKind::BaseColor => Some(ViewMode::BaseColor),
+            ChannelKind::Normal => Some(ViewMode::Normal),
+            ChannelKind::Roughness => Some(ViewMode::Roughness),
+            ChannelKind::Metallic => Some(ViewMode::Metallic),
+            ChannelKind::Height => Some(ViewMode::Height),
+            ChannelKind::AmbientOcclusion => Some(ViewMode::AmbientOcclusion),
+            _ => None,
+        };
+        self.solo = if mode.is_some() { None } else { Some(kind) };
+        self.set_view_mode(mode.unwrap_or(ViewMode::Material));
+    }
+
+    /// Back to the full material.
+    pub fn show_material(&mut self) {
+        self.mesh_map = None;
+        self.solo = None;
+        self.view_mode = 0;
+    }
+
+    fn set_view_mode(&mut self, mode: ViewMode) {
+        self.view_mode = ViewMode::ALL.iter().position(|m| *m == mode).unwrap_or(0);
+    }
+
+    /// Display next / previous channel: the material, then each of `channels` (the selected
+    /// texture set's, in its order), wrapping around.
+    pub fn cycle_channel(&mut self, channels: &[subcraft_core::ChannelKind], forward: bool) {
+        let n = channels.len() + 1;
+        let at = self.shown_channel().and_then(|k| channels.iter().position(|c| *c == k)).map_or(0, |i| i + 1);
+        match if forward { (at + 1) % n } else { (at + n - 1) % n } {
+            0 => self.show_material(),
+            i => self.show_channel(channels[i - 1]),
+        }
+    }
+
+    /// How a channel shown alone is displayed (Display Settings > Channel display).
+    pub fn channel_display(&self) -> subcraft_render::ChannelDisplay {
+        let d = &self.display;
+        subcraft_render::ChannelDisplay {
+            unlit: d.solo_unlit,
+            hdr_scale: d.hdr_scale.clamp(1e-3, 1e6),
+            signed_colors: d.hdr_signed_colors,
+            positive: d.hdr_positive.map(|c| c.clamp(0.0, 1.0)),
+            negative: d.hdr_negative.map(|c| c.clamp(0.0, 1.0)),
+            component: d.channel_component,
+        }
+    }
+
+    /// Grid of the 3D view for a model of `bounds`, or `None` while it is hidden.
+    pub fn grid_params(&self, bounds: subcraft_mesh::Aabb) -> Option<subcraft_render::GridParams> {
+        let d = &self.display;
+        d.grid.then(|| subcraft_render::GridParams {
+            bounds,
+            axes: d.grid_axes,
+            plane: d.grid_plane.index(),
+            color: subcraft_core::color::srgb3_to_linear(d.grid_color.map(|c| c.clamp(0.0, 1.0))),
+            // The default opacity draws the lines at the strength they always had.
+            opacity: d.grid_opacity.clamp(0.0, 1.0) / subcraft_doc::display::DEFAULT_GRID_OPACITY,
+        })
     }
 
     pub fn tone_map(&self) -> subcraft_render::ToneMap {
@@ -219,6 +306,7 @@ pub fn show(ui: &mut Ui, state: &mut crate::state::UiState) {
             let width = ui.available_width();
             let inline = width >= INLINE_MIN_WIDTH;
             ui.spacing_mut().item_spacing = egui::vec2(7.0, 6.0);
+            let channels: Vec<_> = state.session.selected_texture_set().channel_kinds().collect();
             ui.horizontal(|ui| {
                 if width < 520.0 {
                     ui.menu_button(tr("View"), |ui| {
@@ -226,7 +314,7 @@ pub fn show(ui: &mut Ui, state: &mut crate::state::UiState) {
                         let prefs = &mut state.recovery.prefs.viewport;
                         ui.checkbox(&mut prefs.antialias, tr("Anti-aliasing"));
                         ui.checkbox(&mut prefs.orthographic, tr("Orthographic"));
-                        ui.horizontal(|ui| view_mode(ui, prefs, false));
+                        ui.horizontal(|ui| view_mode(ui, prefs, &channels, false));
                     });
                     grid_control(ui, &mut state.recovery.prefs.viewport);
                     crate::view_extras::wireframe_control(ui, &mut state.recovery.prefs.viewport);
@@ -285,7 +373,9 @@ fn view_controls(ui: &mut Ui, state: &mut crate::state::UiState, width: f32) {
     ui.checkbox(&mut prefs.orthographic, tr("Ortho"))
         .on_hover_text(tr("Orthographic · no perspective: parallel lines stay parallel"));
     ui.separator();
-    view_mode(ui, prefs, width >= WIDE_VIEW_COMBO_MIN_WIDTH);
+    let channels: Vec<_> = state.session.selected_texture_set().channel_kinds().collect();
+    let prefs = &mut state.recovery.prefs.viewport;
+    view_mode(ui, prefs, &channels, width >= WIDE_VIEW_COMBO_MIN_WIDTH);
     grid_control(ui, prefs);
     // Wireframe and camera buttons would push the row past a narrow dock's edge.
     if width >= EXTRAS_MIN_WIDTH {
@@ -379,29 +469,47 @@ pub(crate) fn resolution(ui: &mut Ui, prefs: &mut ViewportPrefs) {
         .on_hover_text(tr("Render the 3D view at a lower resolution to make it faster"));
 }
 
-pub(crate) fn view_mode(ui: &mut Ui, prefs: &mut ViewportPrefs, wide: bool) {
+/// The view mode dropdown, sectioned like Painter's: Lighting (the material), Single channel (one
+/// entry per channel of the selected texture set), the baked-normal views, and Mesh maps.
+pub(crate) fn view_mode(ui: &mut Ui, prefs: &mut ViewportPrefs, channels: &[subcraft_core::ChannelKind], wide: bool) {
     dim(ui, "View");
-    let mut mode = prefs.view_mode();
-    let shown = match prefs.mesh_map { Some(k) => format!("Mesh map: {}", k.display_name()), None => mode.label().to_string() };
+    let mode = prefs.view_mode();
+    let shown_channel = prefs.shown_channel();
+    let shown = match (prefs.mesh_map, shown_channel) {
+        (Some(k), _) => format!("Mesh map: {}", k.display_name()),
+        (None, Some(k)) => k.display_name().to_string(),
+        (None, None) => mode.label().to_string(),
+    };
     egui::ComboBox::from_id_salt("viewport_view_mode")
         .width(if wide { 150.0 } else { 92.0 })
         .selected_text(shown)
         .show_ui(ui, |ui| {
-            for m in ViewMode::ALL {
-                if ui.selectable_label(prefs.mesh_map.is_none() && mode == m, m.label()).clicked() {
-                    mode = m;
-                    prefs.mesh_map = None;
+            ui.label(RichText::new(tr("Lighting")).color(TEXT_DIM));
+            if ui.selectable_label(prefs.mesh_map.is_none() && shown_channel.is_none() && mode == ViewMode::Material, ViewMode::Material.label()).clicked() {
+                prefs.show_material();
+            }
+            ui.separator();
+            ui.label(RichText::new(tr("Single channel")).color(TEXT_DIM));
+            for &k in channels {
+                if ui.selectable_label(shown_channel == Some(k), k.display_name()).clicked() {
+                    prefs.show_channel(k);
                 }
             }
             ui.separator();
-            ui.label(RichText::new("Mesh maps (baked)").color(TEXT_DIM));
+            for m in [ViewMode::BakedNormal, ViewMode::BakedNormalMap] {
+                if ui.selectable_label(prefs.mesh_map.is_none() && mode == m, m.label()).clicked() {
+                    prefs.show_material();
+                    prefs.set_view_mode(m);
+                }
+            }
+            ui.separator();
+            ui.label(RichText::new(tr("Mesh maps (baked)")).color(TEXT_DIM));
             for k in subcraft_core::MeshMapKind::ALL {
                 if ui.selectable_label(prefs.mesh_map == Some(k), k.display_name()).clicked() {
                     prefs.mesh_map = Some(k);
                 }
             }
         });
-    prefs.view_mode = ViewMode::ALL.iter().position(|m| *m == mode).unwrap_or(0);
 }
 
 /// Cycle the mesh map viewer through the baked maps (B), starting from the material view.
@@ -459,6 +567,60 @@ mod tests {
         assert_eq!((s.max_bounces, s.max_samples, s.denoise, s.ground, s.paused), (7, 300, false, false, true));
         let wild = ViewportPrefs { pt_bounces: 0, pt_max_samples: u32::MAX, ..Default::default() }.path_trace_settings(false);
         assert_eq!((wild.max_bounces, wild.max_samples), (1, 1 << 16));
+    }
+
+    #[test]
+    fn every_channel_of_the_texture_set_can_be_shown_alone_and_cycled() {
+        use subcraft_core::ChannelKind as K;
+        let channels = [K::BaseColor, K::Height, K::Roughness, K::Emissive, K::Opacity, K::User0];
+        let mut p = ViewportPrefs::default();
+        assert_eq!(p.shown_channel(), None);
+        let mut seen = Vec::new();
+        for _ in 0..channels.len() {
+            p.cycle_channel(&channels, true);
+            seen.push(p.shown_channel().expect("a channel is shown"));
+        }
+        assert_eq!(seen, channels, "C walks the texture set's channels in order");
+        // Channels the fixed view modes cover use them; the others are shown through `solo`.
+        p.show_channel(K::Roughness);
+        assert_eq!((p.view_mode(), p.solo), (ViewMode::Roughness, None));
+        p.show_channel(K::Opacity);
+        assert_eq!((p.view_mode(), p.solo, p.shown_channel()), (ViewMode::Material, Some(K::Opacity), Some(K::Opacity)));
+        p.cycle_channel(&channels, true);
+        assert_eq!(p.shown_channel(), Some(K::User0));
+        p.cycle_channel(&channels, true);
+        assert_eq!((p.shown_channel(), p.view_mode()), (None, ViewMode::Material), "after the last channel comes the material");
+        p.cycle_channel(&channels, false);
+        assert_eq!(p.shown_channel(), Some(K::User0), "Shift+C goes backwards");
+        // A channel that is not in this texture set: cycling starts from the material again.
+        p.show_channel(K::Specular);
+        p.cycle_channel(&channels, true);
+        assert_eq!(p.shown_channel(), Some(K::BaseColor));
+        p.mesh_map = Some(subcraft_core::MeshMapKind::Normal);
+        assert_eq!(p.shown_channel(), None, "the mesh map viewer is not a channel view");
+        p.show_material();
+        assert_eq!((p.mesh_map, p.solo, p.view_mode), (None, None, 0));
+    }
+
+    #[test]
+    fn grid_and_channel_display_settings_reach_the_renderer() {
+        let bounds = subcraft_mesh::Aabb { min: glam::Vec3::splat(-1.0), max: glam::Vec3::splat(1.0) };
+        let mut p = ViewportPrefs::default();
+        let g = p.grid_params(bounds).expect("the grid is on by default");
+        assert_eq!((g.plane, g.axes, g.opacity), (1, [true, false, true], 1.0));
+        for (got, want) in g.color.iter().zip(subcraft_render::grid::DEFAULT_GRID_COLOR) {
+            assert!((got - want).abs() < 1e-3, "the default color is the gray the grid always had: {:?}", g.color);
+        }
+        p.grid_plane = subcraft_doc::GridAxis::Z;
+        p.grid_opacity = 1.0;
+        p.grid_color = [1.0, 0.0, 0.0];
+        let g = p.grid_params(bounds).unwrap();
+        assert_eq!((g.plane, g.opacity, g.color), (2, 4.0, [1.0, 0.0, 0.0]));
+        p.grid = false;
+        assert_eq!(p.grid_params(bounds), None);
+        (p.solo_unlit, p.hdr_scale, p.hdr_signed_colors, p.channel_component) = (false, 8.0, true, subcraft_doc::ChannelComponent::G);
+        let c = p.channel_display();
+        assert_eq!((c.unlit, c.hdr_scale, c.signed_colors, c.component), (false, 8.0, true, subcraft_doc::ChannelComponent::G));
     }
 
     #[test]

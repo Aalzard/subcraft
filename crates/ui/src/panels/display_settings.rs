@@ -138,7 +138,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         ui.set_min_width(ui.available_width());
         jump_buttons(state, ui);
         ui.add_space(4.0);
-        ui.horizontal(|ui| crate::viewport_bar::view_mode(ui, &mut state.recovery.prefs.viewport, true));
+        let channels: Vec<_> = state.session.selected_texture_set().channel_kinds().collect();
+        ui.horizontal(|ui| crate::viewport_bar::view_mode(ui, &mut state.recovery.prefs.viewport, &channels, true));
         let jump = state.display_jump.take();
         for section in Section::ALL {
             if jump == Some(section) {
@@ -421,9 +422,62 @@ pub fn render(state: &mut UiState, ui: &mut Ui) {
     crate::viewport_bar::rendering_settings(ui, prefs);
 }
 
-/// Wireframe, grid and the other aids drawn over the model.
+/// Texture filtering, camera frame, tool display, wireframe, channel display and grid: the
+/// groups of Painter's Viewport settings, in its order.
 pub fn visualization(state: &mut UiState, ui: &mut Ui) {
+    let stencil = state.session.brush.stencil.is_some();
     let prefs = &mut state.recovery.prefs.viewport;
+    let shown = prefs.shown_channel();
+    sub_header(ui, tr("Texture filtering"));
+    grid(ui, "display_filtering", |ui| {
+        let d = &mut prefs.display;
+        ui.label(tr("Anisotropic filtering"));
+        egui::ComboBox::from_id_salt("display_anisotropy").selected_text(tr(d.anisotropy.label())).show_ui(ui, |ui| {
+            for a in subcraft_doc::Anisotropy::ALL {
+                ui.selectable_value(&mut d.anisotropy, a, tr(a.label()));
+            }
+        }).response.on_hover_text(tr("Keeps textures sharp on surfaces seen at a grazing angle. Higher is sharper and a little slower."));
+        ui.end_row();
+        ui.label(tr("MipMap bias"));
+        let labels = subcraft_doc::display::MIP_BIAS_LABELS;
+        egui::ComboBox::from_id_salt("display_mip_bias").selected_text(tr(labels[d.mip_bias.min(3) as usize])).show_ui(ui, |ui| {
+            for (i, label) in labels.iter().enumerate() {
+                ui.selectable_value(&mut d.mip_bias, i as u32, tr(*label));
+            }
+        }).response.on_hover_text(tr("Sharper settings read textures from a more detailed level; too sharp shimmers when the model moves."));
+        ui.end_row();
+    });
+    sub_header(ui, tr("Camera frame"));
+    grid(ui, "display_frame", |ui| {
+        let d = &mut prefs.display;
+        ui.label(tr("Show camera frame"));
+        ui.checkbox(&mut d.camera_frame, "").on_hover_text(tr("Outline the picture a camera of this aspect ratio takes"));
+        ui.end_row();
+        ui.label(tr("Aspect ratio"));
+        ui.add_enabled_ui(d.camera_frame, |ui| {
+            let current = FRAME_RATIOS.iter().find(|r| (r.1 - d.camera_frame_ratio).abs() < 1e-3).map_or_else(|| format!("{:.2}", d.camera_frame_ratio), |r| r.0.to_string());
+            egui::ComboBox::from_id_salt("display_frame_ratio").selected_text(current).show_ui(ui, |ui| {
+                for (name, ratio) in FRAME_RATIOS {
+                    ui.selectable_value(&mut d.camera_frame_ratio, ratio, name);
+                }
+            });
+        });
+        ui.end_row();
+        ui.label(tr("Gate mask opacity"));
+        ui.add_enabled(d.camera_frame, egui::Slider::new(&mut d.gate_opacity, 0.0..=1.0)).on_hover_text(tr("How dark the view is outside the frame"));
+        ui.end_row();
+    });
+    sub_header(ui, tr("Tool display"));
+    // The same settings as the stencil display options in Properties > Brush.
+    grid(ui, "display_tool", |ui| {
+        let d = &mut state.stencil_display;
+        ui.label(tr("Hide stencil when painting"));
+        ui.checkbox(&mut d.hide_when_painting, "").on_hover_text(tr("The stencil image disappears during a stroke, so the paint is seen as it lands"));
+        ui.end_row();
+        ui.label(tr("Stencil display opacity"));
+        ui.add(egui::Slider::new(&mut d.opacity, 0.0..=1.0)).on_hover_text(if stencil { tr("Opacity of the stencil image over the view") } else { tr("Opacity of the stencil image over the view (no stencil is loaded)") });
+        ui.end_row();
+    });
     sub_header(ui, tr("Mesh wireframe"));
     grid(ui, "display_wire", |ui| {
         ui.label(tr("Show mesh wireframe"));
@@ -439,10 +493,53 @@ pub fn visualization(state: &mut UiState, ui: &mut Ui) {
         ui.add(egui::Slider::new(&mut prefs.wire_angle, 0.0..=90.0).suffix("°")).on_hover_text(tr("Triangle pairs from the same polygon whose normals differ less than this are drawn as one polygon"));
         ui.end_row();
     });
+    sub_header(ui, tr("Channel display"));
+    // Like Painter: these only apply (and are only enabled) while a single channel is shown.
+    ui.add_enabled_ui(shown.is_some(), |ui| {
+        grid(ui, "display_channel", |ui| {
+            let d = &mut prefs.display;
+            ui.label(tr("Display solo view without lighting"));
+            ui.checkbox(&mut d.solo_unlit, "").on_hover_text(tr("On: the channel exactly as stored. Off: shaded by the light, so the model's shape stays readable."));
+            ui.end_row();
+            ui.label(tr("Scale HDR values"));
+            ui.add(egui::Slider::new(&mut d.hdr_scale, 0.1..=100.0).logarithmic(true)).on_hover_text(tr("The channel is divided by this before it is shown, to bring values above 1 into view"));
+            ui.end_row();
+            ui.label(tr("Use +/- color for HDR values"));
+            ui.checkbox(&mut d.hdr_signed_colors, "").on_hover_text(tr("Grayscale channels: positive and negative values in two colors"));
+            ui.end_row();
+            ui.label(tr("Positive color"));
+            ui.add_enabled_ui(d.hdr_signed_colors, |ui| ui.color_edit_button_rgb(&mut d.hdr_positive));
+            ui.end_row();
+            ui.label(tr("Negative color"));
+            ui.add_enabled_ui(d.hdr_signed_colors, |ui| ui.color_edit_button_rgb(&mut d.hdr_negative));
+            ui.end_row();
+            ui.label(tr("Color channels"));
+            let color = shown.is_some_and(|k| k.components() == 3);
+            egui::ComboBox::from_id_salt("display_component").selected_text(tr(d.channel_component.label(color))).show_ui(ui, |ui| {
+                for c in subcraft_doc::ChannelComponent::ALL {
+                    ui.selectable_value(&mut d.channel_component, c, tr(c.label(color)));
+                }
+            }).response.on_hover_text(tr("Show every component of the channel, or one of them as gray"));
+            ui.end_row();
+        });
+    });
     sub_header(ui, tr("Grid"));
     grid(ui, "display_grid", |ui| {
         ui.label(tr("Show grid"));
         ui.checkbox(&mut prefs.grid, "");
+        ui.end_row();
+        ui.label(tr("Axis"));
+        ui.horizontal(|ui| {
+            for a in subcraft_doc::GridAxis::ALL {
+                ui.selectable_value(&mut prefs.display.grid_plane, a, a.label()).on_hover_text(tr("The axis the grid is perpendicular to (Y is the floor)"));
+            }
+        });
+        ui.end_row();
+        ui.label(tr("Grid color"));
+        ui.color_edit_button_rgb(&mut prefs.display.grid_color);
+        ui.end_row();
+        ui.label(tr("Grid opacity"));
+        ui.add(egui::Slider::new(&mut prefs.display.grid_opacity, 0.0..=1.0));
         ui.end_row();
         ui.label(tr("Axis guides"));
         ui.horizontal(|ui| {
@@ -454,8 +551,11 @@ pub fn visualization(state: &mut UiState, ui: &mut Ui) {
     });
     sub_header(ui, tr("Guides"));
     ui.checkbox(&mut prefs.symmetry_guides, tr("Symmetry guides"));
-    ui.checkbox(&mut prefs.hints, tr("Viewport hints")).on_hover_text(tr("The list of mouse and key actions in the bottom-left corner of the 3D view."));
+    ui.checkbox(&mut prefs.hints, tr("Viewport hints")).on_hover_text(tr("The list of mouse and key actions in the bottom-left corner of the 3D view. While it is hidden the grid unit is shown there."));
 }
+
+/// Camera frame aspect ratios offered (name, width / height).
+pub const FRAME_RATIOS: [(&str, f32); 6] = [("16:9", 16.0 / 9.0), ("3:2", 1.5), ("4:3", 4.0 / 3.0), ("1:1", 1.0), ("2.39:1", 2.39), ("9:16", 9.0 / 16.0)];
 
 #[cfg(test)]
 mod tests {
@@ -618,6 +718,15 @@ mod tests {
             assert!(y(pair[0]) < y(pair[1]), "{} is above {} (the order the effects are applied in)", pair[0], pair[1]);
         }
         for control in ["Falloff", "Remap Factor", "Gamma", "Mapping Factor", "Function"] {
+            y(control);
+        }
+        // Visualization: Painter's Viewport settings groups, in its order.
+        let groups = ["Texture filtering", "Camera frame", "Tool display", "Mesh wireframe", "Channel display", "Grid"];
+        for pair in groups.windows(2) {
+            assert!(y(pair[0]) < y(pair[1]), "{} is above {}", pair[0], pair[1]);
+        }
+        for control in ["Anisotropic filtering", "MipMap bias", "Show camera frame", "Gate mask opacity", "Hide stencil when painting", "Stencil display opacity",
+            "Display solo view without lighting", "Scale HDR values", "Use +/- color for HDR values", "Positive color", "Negative color", "Color channels", "Axis", "Grid color", "Grid opacity"] {
             y(control);
         }
     }

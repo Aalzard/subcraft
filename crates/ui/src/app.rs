@@ -1022,11 +1022,11 @@ impl SubcraftApp {
             Action::PerspectiveCamera => self.state.recovery.prefs.viewport.orthographic = false,
             Action::OrthographicCamera => self.state.recovery.prefs.viewport.orthographic = true,
             Action::NextChannel | Action::PrevChannel => {
-                let v = &mut self.state.recovery.prefs.viewport;
-                let n = subcraft_render::ViewMode::ALL.len();
-                v.view_mode = if action == Action::NextChannel { (v.view_mode + 1) % n } else { (v.view_mode + n - 1) % n };
+                // Painter's C / Shift+C: the material, then each channel of the selected texture set.
+                let channels: Vec<_> = self.state.session.selected_texture_set().channel_kinds().collect();
+                self.state.recovery.prefs.viewport.cycle_channel(&channels, action == Action::NextChannel);
             }
-            Action::DisplayMaterial => self.state.recovery.prefs.viewport.view_mode = 0,
+            Action::DisplayMaterial => self.state.recovery.prefs.viewport.show_material(),
             Action::NewProject => self.request(Pending::OpenMesh, now),
             Action::Quit => self.request(Pending::Close, now),
             Action::PenTool => { self.state.tool = Tool::Pen; self.state.picking_parts = false; }

@@ -5178,3 +5178,35 @@ rotating one slot when a tile is full (helps cyclic stacks, but the 40-layer sta
   test gate) and the running app.
 * Not done: lens distortion, most lens-flare parameters (only camera, amount, threshold, ghost count and
   spacing), colour profile/LUT, TAA. Glare comes from emission only.
+
+## Viewport visualisation settings (Painter parity chunk 28, 2026-11-12, branch `claude/parity-display-viz`)
+
+* Solo view: every channel of the texture set can be shown alone, not just a fixed short list. Channels
+  are grouped in the view-mode dropdown (Lighting, Single channel, mesh maps) and can be cycled. The UI
+  uploads a non-shaded solo channel to the renderer (`ViewParams.solo_channel`, `channel_view` in
+  viewport.wgsl).
+* Channel display (enabled only while one channel is shown, as in Painter):
+  * Display solo view without lighting
+  * Scale HDR values
+  * +/- colours for signed grayscale values, with the two colours
+  * Which colour components to show
+* Texture filtering: anisotropic filtering (Disabled, Low, Medium (default), High, Very high; clamped to the
+  GPU's limit) and MipMap bias (`set_texture_filtering`).
+* Grid: plane (X/Y/Z), colour and opacity (`GridParams`, plane-aware fade in grid.wgsl). The grid unit is
+  shown in the bottom-left corner while the viewport hints are hidden.
+* Camera frame with aspect-ratio presets and gate-mask opacity. Stencil display: opacity, and hide
+  while painting. These rows edit the same `state.stencil_display` as Properties > Brush, which landed
+  on main meanwhile; the first draft of this chunk had its own copy, removed in the rebase.
+* zh-Hant and Korean: 35 new texts translated. The stencil tooltip is now two literal `tr()` calls
+  instead of `tr(if ...)`.
+* Tests added:
+  * `crates/render/tests/display.rs` (GPU): any channel shown alone as stored. HDR scale, signed
+    colours and lighting in the solo view. Anisotropy and a sharper mip bias keeping distant detail.
+    The grid in the chosen plane with its colour and opacity.
+  * UI unit tests: camera-frame geometry, cycling every channel, and grid/channel settings reaching
+    the renderer.
+  * `crates/doc`: options and defaults.
+* Checked: `cargo check --release --all-targets` for the six affected crates (see the PR for the run on
+  this exact commit), and the i18n scan is clean. NOT verified locally: the test suites (CI is the test
+  gate) and the running app.
+* Not done: projection preview channel, B/Shift+B mesh-map cycling, shadows, OIT, SSS.

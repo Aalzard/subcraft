@@ -398,6 +398,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             params.exposure = view.exposure_value();
             params.post = view.post_params_at(state.session.scene().mesh.bounds.diagonal(), state.camera.eye_distance());
             params.view_mode = view.view_mode();
+            params.solo_channel = view.solo.filter(|_| view.mesh_map.is_none());
+            params.channel_display = view.channel_display();
+            params.mip_bias = -(view.mip_bias.min(3) as f32);
+            renderer.set_texture_filtering(&rs.device, view.anisotropy.samples());
             params.symmetry_guides = view.symmetry_guides && state.session.brush.options.has_symmetry() && !bake_mode;
             if params.symmetry_guides {
                 let key = (std::sync::Arc::as_ptr(&state.session.scene().mesh) as usize, state.session.brush.options.symmetry, state.session.brush.options.radial);
@@ -432,10 +436,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             if state.bake.open && state.bake.live_maps && !params.bake_overlay {
                 params.bake_map = state.bake.displayed_map.or(state.recovery.prefs.viewport.mesh_map);
             }
-            params.grid = view.grid.then_some(subcraft_render::GridParams {
-                bounds: state.session.scene().mesh.bounds,
-                axes: view.grid_axes,
-            });
+            params.grid = view.grid_params(state.session.scene().mesh.bounds);
             let render_size = view.render_size(size);
             let (env_rotation, env_intensity) = crate::panels::shelf::environment_view(&view.display, state.env.rotation_deg, state.camera.yaw);
             params.environment.background_opacity = view.env_opacity;
@@ -554,6 +555,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             reset_stencil(state);
         }
     }
+    visualization_overlays(state, &painter, rect, bake_mode);
     if env_hover {
         painter.rect_stroke(rect.shrink(2.0), 0.0, egui::Stroke::new(2.0, theme::ACCENT), egui::StrokeKind::Inside);
         painter.text(rect.center_top() + egui::vec2(0.0, 28.0), egui::Align2::CENTER_CENTER, crate::i18n::tr("Use as the environment map"), theme::font(13.0), theme::ACCENT);
@@ -720,6 +722,54 @@ pub fn stencil_overlay_alpha(display: crate::state::StencilDisplay, painting: bo
     (display.opacity.clamp(0.0, 1.0) * 255.0).round() as u8
 }
 
+/// The largest picture of aspect `ratio` (width / height) that fits `view`, centred: the camera
+/// frame. A ratio that is not a positive number gives the whole view.
+pub fn camera_frame_rect(view: Rect, ratio: f32) -> Rect {
+    if !(ratio.is_finite() && ratio > 0.0) || view.width() <= 0.0 || view.height() <= 0.0 {
+        return view;
+    }
+    let size = if view.width() / view.height() > ratio { egui::vec2(view.height() * ratio, view.height()) } else { egui::vec2(view.width(), view.width() / ratio) };
+    Rect::from_center_size(view.center(), size)
+}
+
+/// Display Settings overlays: the camera frame with its gate mask, the grid unit and the name
+/// of the color component shown.
+fn visualization_overlays(state: &UiState, painter: &egui::Painter, rect: Rect, bake_mode: bool) {
+    let prefs = &state.recovery.prefs.viewport;
+    if prefs.camera_frame {
+        let frame = camera_frame_rect(rect, prefs.camera_frame_ratio);
+        let mask = Color32::from_black_alpha((prefs.gate_opacity.clamp(0.0, 1.0) * 255.0).round() as u8);
+        // The four bars around the frame (two of them are empty, depending on the aspect).
+        for bar in [
+            Rect::from_min_max(rect.min, egui::pos2(rect.max.x, frame.min.y)),
+            Rect::from_min_max(egui::pos2(rect.min.x, frame.max.y), rect.max),
+            Rect::from_min_max(egui::pos2(rect.min.x, frame.min.y), egui::pos2(frame.min.x, frame.max.y)),
+            Rect::from_min_max(egui::pos2(frame.max.x, frame.min.y), egui::pos2(rect.max.x, frame.max.y)),
+        ] {
+            if bar.width() > 0.5 && bar.height() > 0.5 {
+                painter.rect_filled(bar, 0.0, mask);
+            }
+        }
+        painter.rect_stroke(frame, 0.0, Stroke::new(1.0, Color32::from_white_alpha(170)), egui::StrokeKind::Inside);
+    }
+    if bake_mode {
+        return;
+    }
+    if prefs.shown_channel().is_some() && let Some(name) = prefs.channel_component.overlay() {
+        pill(painter, rect.left_top() + egui::vec2(10.0, 10.0), egui::Align2::LEFT_TOP, crate::i18n::tr(name), theme::TEXT);
+    }
+    // The grid's unit, where the hints are not (they own the bottom-left corner when shown).
+    if prefs.grid && !prefs.hints && let Some(step) = subcraft_render::grid_step(state.session.scene().mesh.bounds) {
+        pill(painter, rect.left_bottom() + egui::vec2(10.0, -10.0), egui::Align2::LEFT_BOTTOM, &grid_unit_label(step), theme::TEXT_FAINT);
+    }
+}
+
+/// Bottom-left readout of the grid spacing, in scene units.
+pub fn grid_unit_label(step: f32) -> String {
+    let digits = if step >= 1.0 { 0 } else { (-step.log10()).ceil().clamp(0.0, 6.0) as usize };
+    format!("Grid: {step:.digits$}")
+}
+
 /// Semi-transparent stencil image over the 3D view (hidden while N bypasses it), repeated along
 /// its tiled axes.
 fn draw_stencil(state: &mut UiState, ui: &Ui, painter: &egui::Painter, rect: Rect, size: [u32; 2]) {
@@ -759,6 +809,22 @@ fn draw_stencil(state: &mut UiState, ui: &Ui, painter: &egui::Painter, rect: Rec
 mod tests {
     use super::*;
     use crate::state::BrushNotice;
+
+    #[test]
+    fn the_camera_frame_is_the_largest_centred_picture_of_its_ratio() {
+        let view = Rect::from_min_size(egui::pos2(100.0, 50.0), egui::vec2(800.0, 600.0));
+        // 16:9 in a 4:3 view: full width, bars above and below.
+        let wide = camera_frame_rect(view, 16.0 / 9.0);
+        assert_eq!((wide.width(), wide.height(), wide.center()), (800.0, 450.0, view.center()));
+        // A square: full height, bars left and right.
+        let square = camera_frame_rect(view, 1.0);
+        assert_eq!((square.width(), square.height(), square.center()), (600.0, 600.0, view.center()));
+        assert_eq!(camera_frame_rect(view, 4.0 / 3.0), view, "the view's own ratio fills it");
+        for bad in [0.0, -2.0, f32::NAN, f32::INFINITY] {
+            assert_eq!(camera_frame_rect(view, bad), view);
+        }
+        assert_eq!((grid_unit_label(0.2), grid_unit_label(5.0), grid_unit_label(0.05), grid_unit_label(100.0)), ("Grid: 0.2".to_string(), "Grid: 5".to_string(), "Grid: 0.05".to_string(), "Grid: 100".to_string()));
+    }
 
     fn draw(state: &mut UiState, ctx: &egui::Context, time: f64) -> Vec<egui::epaint::ClippedShape> {
         let rect = Rect::from_min_size(egui::pos2(200.0, 80.0), egui::vec2(600.0, 400.0));

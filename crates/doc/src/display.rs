@@ -212,6 +212,134 @@ fn flare_camera_compat<'de, D: Deserializer<'de>>(d: D) -> Result<FlareCamera, D
     compat(d, &FlareCamera::ALL)
 }
 
+/// Which components of a channel shown alone are displayed.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChannelComponent {
+    /// The channel as it is: RGBA for color channels, grayscale + alpha for the others.
+    #[default]
+    All,
+    R,
+    G,
+    B,
+    Alpha,
+}
+
+impl ChannelComponent {
+    pub const ALL: [ChannelComponent; 5] = [ChannelComponent::All, ChannelComponent::R, ChannelComponent::G, ChannelComponent::B, ChannelComponent::Alpha];
+
+    /// Entry of the Color channels list; the first one is named after the kind of channel.
+    pub fn label(self, color: bool) -> &'static str {
+        match self {
+            ChannelComponent::All if color => "RGBA",
+            ChannelComponent::All => "Grayscale + Alpha",
+            ChannelComponent::R => "R",
+            ChannelComponent::G => "G",
+            ChannelComponent::B => "B",
+            ChannelComponent::Alpha => "Alpha",
+        }
+    }
+
+    /// Name written over the view while a single component is shown.
+    pub fn overlay(self) -> Option<&'static str> {
+        match self {
+            ChannelComponent::All => None,
+            ChannelComponent::R => Some("Red"),
+            ChannelComponent::G => Some("Green"),
+            ChannelComponent::B => Some("Blue"),
+            ChannelComponent::Alpha => Some("Alpha"),
+        }
+    }
+}
+
+fn component_compat<'de, D: Deserializer<'de>>(d: D) -> Result<ChannelComponent, D::Error> {
+    compat(d, &ChannelComponent::ALL)
+}
+
+/// The axis the grid plane is perpendicular to (the "up" of the grid).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GridAxis {
+    X,
+    #[default]
+    Y,
+    Z,
+}
+
+impl GridAxis {
+    pub const ALL: [GridAxis; 3] = [GridAxis::X, GridAxis::Y, GridAxis::Z];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            GridAxis::X => "X",
+            GridAxis::Y => "Y",
+            GridAxis::Z => "Z",
+        }
+    }
+
+    pub fn index(self) -> usize {
+        self as usize
+    }
+}
+
+fn grid_axis_compat<'de, D: Deserializer<'de>>(d: D) -> Result<GridAxis, D::Error> {
+    // Index 1 (Y) is the default, so an unknown value falls back to the usual floor.
+    compat(d, &GridAxis::ALL)
+}
+
+/// Anisotropic texture filtering quality (samples per pixel at grazing angles).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Anisotropy {
+    Disabled,
+    Low,
+    #[default]
+    Medium,
+    High,
+    VeryHigh,
+}
+
+impl Anisotropy {
+    pub const ALL: [Anisotropy; 5] = [Anisotropy::Disabled, Anisotropy::Low, Anisotropy::Medium, Anisotropy::High, Anisotropy::VeryHigh];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Anisotropy::Disabled => "Disabled",
+            Anisotropy::Low => "Low (2 spp)",
+            Anisotropy::Medium => "Medium (4 spp)",
+            Anisotropy::High => "High (8 spp)",
+            Anisotropy::VeryHigh => "Very High (16 spp)",
+        }
+    }
+
+    /// Samples per pixel (1 = off).
+    pub fn samples(self) -> u16 {
+        match self {
+            Anisotropy::Disabled => 1,
+            Anisotropy::Low => 2,
+            Anisotropy::Medium => 4,
+            Anisotropy::High => 8,
+            Anisotropy::VeryHigh => 16,
+        }
+    }
+}
+
+fn anisotropy_compat<'de, D: Deserializer<'de>>(d: D) -> Result<Anisotropy, D::Error> {
+    Ok(match Compat::<Anisotropy>::deserialize(d)? {
+        Compat::Value(v) => v,
+        Compat::Index(i) => Anisotropy::ALL.get(i as usize).copied().unwrap_or_default(),
+        Compat::Other(_) => Anisotropy::default(),
+    })
+}
+
+/// Names of the MipMap bias steps: 0 Soft .. 3 Very Sharp (a texture level bias of 0 .. -3).
+pub const MIP_BIAS_LABELS: [&str; 4] = ["0 - Soft", "1 - Medium Soft", "2 - Sharp", "3 - Very Sharp"];
+
+/// Grid opacity that draws the lines at their original strength.
+pub const DEFAULT_GRID_OPACITY: f32 = 0.25;
+/// Default grid line color (sRGB), the gray the grid always had.
+pub const DEFAULT_GRID_COLOR: [f32; 3] = [0.4245, 0.4370, 0.4614];
+
 fn tone_map_compat<'de, D: Deserializer<'de>>(d: D) -> Result<ToneMap, D::Error> {
     compat(d, &ToneMap::ALL)
 }
@@ -388,6 +516,31 @@ pub struct DisplaySettings {
     /// Display-only floor grid and axis guides.
     pub grid: bool,
     pub grid_axes: [bool; 3],
+    /// Axis the grid plane is perpendicular to, line color (sRGB) and opacity 0..1.
+    #[serde(deserialize_with = "grid_axis_compat")]
+    pub grid_plane: GridAxis,
+    pub grid_color: [f32; 3],
+    pub grid_opacity: f32,
+    /// Channel display (while a single channel is shown): no lighting on the solo view.
+    pub solo_unlit: bool,
+    /// HDR values are divided by this before they are shown.
+    pub hdr_scale: f32,
+    /// Show positive and negative values of grayscale channels in two colors (sRGB).
+    pub hdr_signed_colors: bool,
+    pub hdr_positive: [f32; 3],
+    pub hdr_negative: [f32; 3],
+    #[serde(deserialize_with = "component_compat")]
+    pub channel_component: ChannelComponent,
+    /// Texture filtering of the 3D view.
+    #[serde(deserialize_with = "anisotropy_compat")]
+    pub anisotropy: Anisotropy,
+    /// MipMap bias step 0..3 (see [`MIP_BIAS_LABELS`]).
+    pub mip_bias: u32,
+    /// Camera frame: outline of a picture of `camera_frame_ratio` (width / height) in the view,
+    /// with what is outside dimmed by the gate mask opacity.
+    pub camera_frame: bool,
+    pub camera_frame_ratio: f32,
+    pub gate_opacity: f32,
 }
 
 impl Default for DisplaySettings {
@@ -462,6 +615,20 @@ impl Default for DisplaySettings {
             wire_angle: 30.0,
             grid: true,
             grid_axes: [true, false, true],
+            grid_plane: GridAxis::Y,
+            grid_color: DEFAULT_GRID_COLOR,
+            grid_opacity: DEFAULT_GRID_OPACITY,
+            solo_unlit: true,
+            hdr_scale: 1.0,
+            hdr_signed_colors: false,
+            hdr_positive: [0.25, 0.85, 0.30],
+            hdr_negative: [0.90, 0.25, 0.20],
+            channel_component: ChannelComponent::All,
+            anisotropy: Anisotropy::Medium,
+            mip_bias: 0,
+            camera_frame: false,
+            camera_frame_ratio: 16.0 / 9.0,
+            gate_opacity: 0.5,
         }
     }
 }
@@ -470,24 +637,17 @@ impl DisplaySettings {
     /// Put the post effects back to their defaults (the panel's "Reset" of that group); camera
     /// and visualisation settings are kept.
     pub fn reset_post_effects(&mut self) {
-        let d = Self::default();
-        *self = Self {
-            env_map: self.env_map.take(),
-            env_opacity: self.env_opacity,
-            env_exposure: self.env_exposure,
-            env_rotation: self.env_rotation,
-            env_blur: self.env_blur,
-            env_alignment: self.env_alignment,
-            fov: self.fov,
-            antialias: self.antialias,
-            wireframe: self.wireframe,
-            wire_color: self.wire_color,
-            wire_opacity: self.wire_opacity,
-            wire_angle: self.wire_angle,
-            grid: self.grid,
-            grid_axes: self.grid_axes,
-            ..d
-        };
+        let mut d = Self::default();
+        // Everything that is not a post effect stays as the user set it.
+        macro_rules! keep {
+            ($($field:ident),* $(,)?) => { $( d.$field = std::mem::take(&mut self.$field); )* };
+        }
+        keep!(
+            env_map, env_opacity, env_exposure, env_rotation, env_blur, env_alignment, fov, antialias, wireframe, wire_color, wire_opacity,
+            wire_angle, grid, grid_axes, grid_plane, grid_color, grid_opacity, solo_unlit, hdr_scale, hdr_signed_colors, hdr_positive,
+            hdr_negative, channel_component, anisotropy, mip_bias, camera_frame, camera_frame_ratio, gate_opacity,
+        );
+        *self = d;
     }
 }
 
@@ -548,9 +708,29 @@ mod tests {
     }
 
     #[test]
+    fn visualisation_settings_have_painters_options_and_defaults() {
+        let d = DisplaySettings::default();
+        assert_eq!((d.grid_plane, d.anisotropy, d.mip_bias, d.channel_component, d.solo_unlit, d.hdr_scale), (GridAxis::Y, Anisotropy::Medium, 0, ChannelComponent::All, true, 1.0));
+        assert_eq!(Anisotropy::ALL.map(|a| a.samples()), [1, 2, 4, 8, 16]);
+        assert_eq!(Anisotropy::Medium.label(), "Medium (4 spp)");
+        assert_eq!(MIP_BIAS_LABELS.len(), 4);
+        assert_eq!((ChannelComponent::All.label(true), ChannelComponent::All.label(false)), ("RGBA", "Grayscale + Alpha"));
+        assert_eq!(ChannelComponent::ALL.map(|c| c.overlay()), [None, Some("Red"), Some("Green"), Some("Blue"), Some("Alpha")]);
+        assert_eq!(GridAxis::ALL.map(|a| a.index()), [0, 1, 2]);
+        let read: DisplaySettings = serde_json::from_str(r#"{"grid_plane":"z","anisotropy":"very_high","channel_component":"alpha","mip_bias":3}"#).unwrap();
+        assert_eq!((read.grid_plane, read.anisotropy, read.channel_component, read.mip_bias), (GridAxis::Z, Anisotropy::VeryHigh, ChannelComponent::Alpha, 3));
+        let odd: DisplaySettings = serde_json::from_str(r#"{"grid_plane":"w","anisotropy":77}"#).unwrap();
+        assert_eq!((odd.grid_plane, odd.anisotropy), (GridAxis::Y, Anisotropy::Medium));
+    }
+
+    #[test]
     fn resetting_the_post_effects_keeps_the_visualisation_settings() {
-        let mut d = DisplaySettings { bloom: 1.0, dof: true, tone_map: ToneMap::Linear, wireframe: true, grid: false, antialias: false, ..Default::default() };
+        let kept = DisplaySettings {
+            wireframe: true, grid: false, antialias: false, env_map: Some("Studio".into()), env_opacity: 0.6, fov: 55.0, grid_plane: GridAxis::Z,
+            anisotropy: Anisotropy::High, camera_frame: true, hdr_scale: 4.0, gate_opacity: 0.9, ..Default::default()
+        };
+        let mut d = DisplaySettings { bloom: 1.0, dof: true, tone_map: ToneMap::Linear, vignette_on: true, cc_sepia: 0.4, post_effects: false, ..kept.clone() };
         d.reset_post_effects();
-        assert_eq!(d, DisplaySettings { wireframe: true, grid: false, antialias: false, ..Default::default() });
+        assert_eq!(d, kept);
     }
 }

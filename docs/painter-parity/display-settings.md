@@ -55,12 +55,12 @@ place the 12.2 additions where the release notes put them. The settings are stor
 | Group jump buttons (Environment, Camera, Post effects, Render, Visualization) | Display Settings, top row (12.2) | not documented | done | crates/ui/src/panels/display_settings.rs (jump_buttons) | 161 |
 | Settings saved with the project | Display Settings (whole window) | per project | done: also kept in the preferences as the defaults for new projects | crates/doc/src/display.rs (DisplaySettings), crates/ui/src/panels/display_settings.rs (sync_project) | 161 |
 | View mode dropdown | Display Settings top; also viewport corner dropdown | Material | done: panel top and 3D view toolbar | crates/ui/src/panels/display_settings.rs (show), crates/ui/src/viewport_bar.rs (view_mode) | 161 |
-| View mode: Lighting section (Material) | View mode dropdown | default | partial: toolbar combo entry "Material" | crates/render/src/lib.rs:135 | - |
-| View mode: Single channel section (one entry per Texture Set channel) | View mode dropdown | not documented | partial: 6 fixed channels (Base Color, Normal, Roughness, Metallic, Height, AO); no Emissive, Opacity, Specular, User | crates/render/src/lib.rs:146 | - |
-| View mode: Mesh maps section (one entry per baked map) | View mode dropdown | not documented | partial: toolbar combo "Mesh maps (baked)" list | crates/ui/src/viewport_bar.rs:376 | - |
+| View mode: Lighting section (Material) | View mode dropdown | default | done | crates/ui/src/viewport_bar.rs (view_mode) | - |
+| View mode: Single channel section (one entry per Texture Set channel) | View mode dropdown | not documented | done: one entry per channel of the selected texture set (Emissive, Opacity, Specular and the user channels included) | crates/ui/src/viewport_bar.rs (view_mode, show_channel), crates/render/src/lib.rs (solo_channel) | - |
+| View mode: Mesh maps section (one entry per baked map) | View mode dropdown | not documented | done | crates/ui/src/viewport_bar.rs (view_mode) | - |
 | Display material | Viewport menu; shortcut M | M | done | crates/app/src/actions.rs:214 | - |
-| Display next channel | Viewport menu; shortcut C | C | partial: cycles the fixed view-mode list (includes Material and baked-normal modes) | crates/ui/src/app.rs:959 | - |
-| Display previous channel | Viewport menu; shortcut Shift+C | Shift+C | partial: same as above | crates/app/src/actions.rs:213 | - |
+| Display next channel | Viewport menu; shortcut C | C | done: Material, then the selected texture set's channels | crates/ui/src/viewport_bar.rs (cycle_channel) | - |
+| Display previous channel | Viewport menu; shortcut Shift+C | Shift+C | done | crates/ui/src/viewport_bar.rs (cycle_channel) | - |
 | Display next mesh map | Viewport menu; shortcut B | B | missing: `cycle_mesh_map` exists but nothing calls it (B is the Brush tool) | crates/ui/src/viewport_bar.rs:387 | - |
 | Display previous mesh map | Viewport menu; shortcut Shift+B | Shift+B | missing | - | - |
 
@@ -300,22 +300,22 @@ linear/raw. Hidden or superseded in colour-managed (OCIO/ACE) projects (unverifi
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Anisotropic Filtering | Display Settings > Texture filtering | Medium (4 spp); options Disabled, Low (2), Medium (4), High (8), Very High (16) | missing | - | - |
-| MipMap bias | Display Settings > Texture filtering | 0 - Soft; options 0 Soft, 1 Medium Soft, 2 Sharp, 3 Very Sharp (bias 0 to -3) | missing | - | - |
+| Anisotropic Filtering | Display Settings > Texture filtering | Medium (4 spp); options Disabled, Low (2), Medium (4), High (8), Very High (16) | done: Disabled, Low (2), Medium (4, default), High (8), Very High (16) | crates/render/src/lib.rs (set_texture_filtering) | - |
+| MipMap bias | Display Settings > Texture filtering | 0 - Soft; options 0 Soft, 1 Medium Soft, 2 Sharp, 3 Very Sharp (bias 0 to -3) | done: 0 Soft (default) to 3 Very Sharp (bias 0 to -3); applies to the material view | crates/render/src/viewport.wgsl (material_sample) | - |
 
 ## Viewport settings: Camera frame
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Show camera frame (toggle; exact label unverified) | Display Settings > Camera frame | off (unverified) | missing | - | - |
-| Gate mask opacity | Display Settings > Camera frame | not documented | missing | - | - |
+| Show camera frame (toggle; exact label unverified) | Display Settings > Camera frame | off (unverified) | done: off by default; the aspect ratio is chosen in the panel (cameras carry none) | crates/ui/src/viewport.rs (camera_frame_rect) | - |
+| Gate mask opacity | Display Settings > Camera frame | not documented | done: 0-1, default 0.5 | crates/ui/src/viewport.rs (visualization_overlays) | - |
 
 ## Viewport settings: Tool display
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Hide stencil when painting | Display Settings > Tool display | not documented | missing: stencil overlay only hides while N (bypass) is held | crates/ui/src/viewport.rs:659 | - |
-| Stencil display opacity | Display Settings > Tool display | not documented | missing | - | - |
+| Hide stencil when painting | Display Settings > Tool display | not documented | done: off by default; the same setting as Properties > Brush > stencil | crates/ui/src/viewport.rs (stencil_overlay_alpha), crates/ui/src/panels/display_settings.rs (visualization) | - |
+| Stencil display opacity | Display Settings > Tool display | not documented | done: 0-1, default 0.43; the same setting as Properties > Brush > stencil | crates/ui/src/viewport.rs (stencil_overlay_alpha), crates/ui/src/panels/display_settings.rs (visualization) | - |
 | Projection preview channel | Display Settings > Tool display | not documented | missing | - | - |
 
 ## Viewport settings: Mesh wireframe
@@ -332,13 +332,13 @@ Layout notes: only enabled while a single channel is shown. The selected colour 
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Display solo view without lighting (unlit) | Display Settings > Channel display | not documented | partial: single-channel views are always unlit, no toggle and no edge-shaded variant | crates/render/src/viewport.wgsl:201 | - |
-| Scale HDR values | Display Settings > Channel display | not documented (shown = channel / scale) | missing | - | - |
-| Use +/- color for HDR values (checkbox) | Display Settings > Channel display | off (unverified) | missing | - | - |
-| Positive color | Display Settings > Channel display | not documented | missing | - | - |
-| Negative color | Display Settings > Channel display | not documented | missing | - | - |
-| Color channels | Display Settings > Channel display | RGBA (color) / Grayscale+Alpha (grayscale); options RGBA, Grayscale+Alpha, R, G, B, Alpha | missing | - | - |
-| Component name overlay in the viewport | 3D / 2D view | - | missing | - | - |
+| Display solo view without lighting (unlit) | Display Settings > Channel display | not documented | done: on by default; off shades the channel with the key light | crates/render/src/viewport.wgsl (channel_view) | - |
+| Scale HDR values | Display Settings > Channel display | not documented (shown = channel / scale) | done: 0.1-100, default 1 | crates/render/src/viewport.wgsl (channel_view) | - |
+| Use +/- color for HDR values (checkbox) | Display Settings > Channel display | off (unverified) | done: off by default; grayscale channels | crates/render/src/viewport.wgsl (channel_view) | - |
+| Positive color | Display Settings > Channel display | not documented | done | crates/ui/src/panels/display_settings.rs (visualization) | - |
+| Negative color | Display Settings > Channel display | not documented | done | crates/ui/src/panels/display_settings.rs (visualization) | - |
+| Color channels | Display Settings > Channel display | RGBA (color) / Grayscale+Alpha (grayscale); options RGBA, Grayscale+Alpha, R, G, B, Alpha | done: RGBA / Grayscale + Alpha, R, G, B, Alpha | crates/doc/src/display.rs (ChannelComponent) | - |
+| Component name overlay in the viewport | 3D / 2D view | - | partial: 3D view only | crates/ui/src/viewport.rs (visualization_overlays) | - |
 
 ## Viewport settings: Grid
 
@@ -347,10 +347,10 @@ Layout notes: the grid subdivides automatically with zoom; the current unit is w
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
 | Show grid | Display Settings > Grid | not documented | done: also the toolbar toggle; on by default | crates/ui/src/panels/display_settings.rs (visualization) | 161 |
-| Axis | Display Settings > Grid | Y; options X, Y, Z | partial: three checkboxes toggle axis guide lines; the grid plane itself is fixed to the floor | crates/ui/src/viewport_bar.rs:329 | - |
-| Grid color | Display Settings > Grid | not documented | missing | - | - |
-| Grid opacity | Display Settings > Grid | not documented | missing | - | - |
-| Grid unit readout | 3D view, bottom-left | - | missing | - | - |
+| Axis | Display Settings > Grid | Y; options X, Y, Z | done: X, Y (default), Z; the axis guide lines keep their own toggles | crates/render/src/grid.rs (GridParams::plane) | - |
+| Grid color | Display Settings > Grid | not documented | done | crates/ui/src/panels/display_settings.rs (visualization) | - |
+| Grid opacity | Display Settings > Grid | not documented | done: 0-1, default 0.25 | crates/ui/src/panels/display_settings.rs (visualization) | - |
+| Grid unit readout | 3D view, bottom-left | - | partial: shown bottom-left while the viewport hints are hidden; the spacing follows the model size, not the zoom | crates/ui/src/viewport.rs (grid_unit_label) | - |
 
 ## Rendering mode (Iray): entering and status
 

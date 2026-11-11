@@ -21,7 +21,7 @@ pub mod texture_set;
 
 pub use anchor::{AnchorDomain, AnchorIndex, AnchorInfo, AnchorInput, AnchorRef, RefSite, RefStatus};
 pub use blend::BlendMode;
-pub use display::{DisplaySettings, EnvAlignment, FlareCamera, GlareShape, GrainType, ToneMap};
+pub use display::{Anisotropy, ChannelComponent, DisplaySettings, EnvAlignment, FlareCamera, GlareShape, GridAxis, GrainType, ToneMap};
 pub use document::Document;
 pub use effect::{ContentEffect, ContentEffectKind};
 pub use fill::{FillFiltering, FillSource, ShapeCrop, TRIPLANAR_HARD, UvWrap, ProceduralKind, ProceduralParams, ScratchParams, ScratchPreset, Projection, ProjectionMode};
