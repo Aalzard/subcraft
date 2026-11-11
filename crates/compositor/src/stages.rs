@@ -175,6 +175,11 @@ enum Node<'a> {
         /// Taps past a texture border continue from the opposite border (Blur with Wrap).
         wrap: bool,
     },
+    /// Mask Editor with a global blur: its blended contributions before the blur (the blurred
+    /// result is finished by the generator's [`Node::MaskEffect`]).
+    EditorRaw {
+        generator: &'a Generator,
+    },
     /// Micro effect: the signed height change `generator`'s mask (the running mask right after the
     /// generator effect) writes. Read by [`Node::MicroHeight`] and, through its neighbours, by
     /// [`Node::MicroNormal`]; the mask is evaluated once and shared, never recomputed.
@@ -216,6 +221,7 @@ impl Node<'_> {
             Self::Pixelwise { .. } => "pixelwise filter",
             Self::Contour { .. } => "contour",
             Self::Gaussian { .. } => "gaussian pass",
+            Self::EditorRaw { .. } => "mask editor",
             Self::MicroDelta { .. } => "micro delta",
             Self::MicroHeight { .. } => "micro height",
             Self::MicroNormal { .. } => "micro normal",
@@ -539,7 +545,7 @@ impl<'a> Graph<'a> {
                         _ => true,
                     }
             }
-            Node::MicroDelta { .. } | Node::MicroHeight { .. } | Node::MicroNormal { .. } => false,
+            Node::EditorRaw { .. } | Node::MicroDelta { .. } | Node::MicroHeight { .. } | Node::MicroNormal { .. } => false,
             Node::AnchorRead { source, .. } => self.uniform[*source],
             Node::Layer {
                 below,
@@ -659,10 +665,14 @@ impl<'a> Graph<'a> {
                 };
                 // An unresolved Anchor Reference contributes nothing: no node at all.
                 if !(anchor.is_none() && matches!(effect.kind, MaskEffectKind::AnchorRef { .. })) {
-                    let filtered = if let MaskEffectKind::Filter(f) = effect.kind {
-                        self.neighborhood(input, f, ChannelKind::Roughness)
-                    } else {
-                        None
+                    let filtered = match &effect.kind {
+                        MaskEffectKind::Filter(f) => self.neighborhood(input, *f, ChannelKind::Roughness),
+                        // Mask Editor with a global blur: blur its contributions, finish after.
+                        MaskEffectKind::Generator(g) if g.editor_blur() > 0.0 => {
+                            let raw = self.push(Node::EditorRaw { generator: g });
+                            self.neighborhood(raw, Filter::Blur { radius: g.editor_blur() }, ChannelKind::Roughness)
+                        }
+                        _ => None,
                     };
                     input = self.push(Node::MaskEffect {
                         input,
@@ -790,7 +800,7 @@ impl<'a> Graph<'a> {
             for node in &self.nodes {
                 let mut read = |i: usize| uses[i] += 1;
                 match node {
-                    Node::Constant(_) | Node::Paint(..) | Node::Fill(..) | Node::MaskBase(_) => {}
+                    Node::Constant(_) | Node::Paint(..) | Node::Fill(..) | Node::MaskBase(_) | Node::EditorRaw { .. } => {}
                     Node::MaskEffect { input, filtered, anchor, .. } => {
                         read(*input);
                         if let Some(f) = filtered {
@@ -1057,16 +1067,25 @@ impl<'a> Graph<'a> {
                 let mut e = vec![[0.0; 4]; TILE_TEXELS];
                 if let Some(filtered) = filtered {
                     let blurred = self.get(*filtered, tile);
-                    let MaskEffectKind::Filter(filter) = effect.kind else {
-                        unreachable!()
-                    };
-                    for ((e, src), b) in e.iter_mut().zip(source.iter()).zip(blurred.iter()) {
-                        *e = [
-                            spatial_value(filter, *src, *b, ChannelKind::Roughness)[0],
-                            1.0,
-                            0.0,
-                            0.0,
-                        ];
+                    match &effect.kind {
+                        MaskEffectKind::Filter(filter) => {
+                            for ((e, src), b) in e.iter_mut().zip(source.iter()).zip(blurred.iter()) {
+                                *e = [
+                                    spatial_value(*filter, *src, *b, ChannelKind::Roughness)[0],
+                                    1.0,
+                                    0.0,
+                                    0.0,
+                                ];
+                            }
+                        }
+                        // Mask Editor: `blurred` is its blurred contributions.
+                        MaskEffectKind::Generator(g) => {
+                            let editor = g.editor_settings();
+                            for (e, b) in e.iter_mut().zip(blurred.iter()) {
+                                *e = [editor.finish(b[0]), 1.0, 0.0, 0.0];
+                            }
+                        }
+                        _ => unreachable!(),
                     }
                 } else {
                     let m: Vec<_> = source.iter().map(|v| v[0]).collect();
@@ -1117,6 +1136,11 @@ impl<'a> Graph<'a> {
                     });
                 }
                 out
+            }
+            Node::EditorRaw { generator } => {
+                let mut raw = vec![0.0f32; TILE_TEXELS];
+                crate::mask::editor_raw(generator, &tc, &mut raw);
+                raw.into_iter().map(|v| [v, v, v, 1.0]).collect()
             }
             Node::MicroDelta { mask, generator, opacity } => {
                 let mask = self.get(*mask, tile);
@@ -1700,7 +1724,8 @@ pub(crate) fn needs_graph(layers: &[Arc<Layer>]) -> bool {
 pub(crate) fn mask_spatial(mask: &Mask) -> bool {
     mask.effects
         .iter()
-        .any(|e| e.visible && e.opacity > 0.0 && matches!(e.kind,MaskEffectKind::Filter(f) if f.valid() && f.supports_mask() && f.radius().is_some()))
+        .any(|e| e.visible && e.opacity > 0.0 && (matches!(e.kind,MaskEffectKind::Filter(f) if f.valid() && f.supports_mask() && f.radius().is_some())
+            || matches!(&e.kind, MaskEffectKind::Generator(g) if g.editor_blur() > 0.0)))
 }
 /// Slope per UV unit per (height unit per texel x resolution): how strongly a micro height change
 /// leans the normal.
@@ -1734,9 +1759,17 @@ pub(crate) fn own_halo(l: &Layer) -> u32 {
             if let MaskEffectKind::Filter(f) = e.kind {
                 sum = sum.saturating_add(f.support());
             }
+            sum = sum.saturating_add(editor_support(&e.kind));
         }
     }
     sum
+}
+/// Texels a Mask Editor's global blur reads beyond its own (0 for anything else).
+fn editor_support(kind: &MaskEffectKind) -> u32 {
+    match kind {
+        MaskEffectKind::Generator(g) => g.editor_blur().ceil() as u32,
+        _ => 0,
+    }
 }
 /// Conservative sum of supports along any possible dependency path, including mask domains.
 pub(crate) fn halo(layers: &[Arc<Layer>]) -> u32 {
@@ -1753,6 +1786,7 @@ pub(crate) fn halo(layers: &[Arc<Layer>]) -> u32 {
                 if let MaskEffectKind::Filter(f) = e.kind {
                     sum = sum.saturating_add(f.support());
                 }
+                sum = sum.saturating_add(editor_support(&e.kind));
             }
         }
         if let LayerContent::Group(g) = &l.content {

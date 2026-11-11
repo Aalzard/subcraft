@@ -352,6 +352,9 @@ impl Layer {
             if let crate::mask::MaskEffectKind::Image { resource, .. } = e.kind {
                 add(resource);
             }
+            if let crate::mask::MaskEffectKind::Generator(g) = &e.kind {
+                g.resources().into_iter().for_each(&mut add);
+            }
         }
         for c in self.children() {
             c.collect_resources(out);

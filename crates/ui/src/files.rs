@@ -41,6 +41,8 @@ pub enum Purpose {
     AddMaskImage { layer: LayerId },
     /// Replace the image of an existing image mask effect.
     MaskImage { layer: LayerId, effect: EffectId },
+    /// Image of a Mask Editor generator's texture group (`slot` 0 = Texture, 1 = Texture 2).
+    GeneratorTexture { layer: LayerId, effect: EffectId, slot: u8 },
 }
 
 pub const SMART_MATERIALS: (&str, &[&str]) = ("Smart materials and textures", &["scsmart", "png", "jpg", "jpeg", "tga", "tif", "tiff", "exr", "bmp"]);
@@ -284,6 +286,21 @@ fn handle(state: &mut UiState, purpose: Purpose, paths: &[PathBuf], now: f64) {
                 state.remember_textures(std::slice::from_ref(first));
                 let kind = subcraft_doc::MaskEffectKind::Image { resource, projection: subcraft_doc::Projection::default(), invert: false };
                 state.run(vec![subcraft_app::Command::AddMaskEffect { layer, kind }], now);
+            }
+            Err(e) => state.set_status(format!("Import image: {e}"), now),
+        },
+        Purpose::GeneratorTexture { layer, effect, slot } => match state.session.import_image(first) {
+            Ok(r) => {
+                state.remember_textures(std::slice::from_ref(first));
+                let current = state.session.selected_texture_set().find(layer).and_then(|l| l.mask.as_ref()).and_then(|m| m.effects.iter().find(|e| e.id == effect)).map(|e| (**e).clone());
+                if let Some(mut e) = current
+                    && let subcraft_doc::MaskEffectKind::Generator(g) = &mut e.kind
+                {
+                    let mut editor = g.editor_settings();
+                    if slot == 0 { editor.texture.resource = Some(r) } else { editor.texture2.resource = Some(r) }
+                    g.editor = Some(editor);
+                    state.run(vec![subcraft_app::Command::SetMaskEffect { layer, effect: e }], now);
+                }
             }
             Err(e) => state.set_status(format!("Import image: {e}"), now),
         },
