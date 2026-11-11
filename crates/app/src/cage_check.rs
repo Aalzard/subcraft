@@ -114,14 +114,15 @@ mod tests {
     #[test]
     fn a_check_reports_misses_per_set_and_reuses_the_placed_high_poly() {
         let low = Arc::new(subcraft_mesh::primitives::cube(2.0));
-        // The high poly is a smaller cube: with a thin cage nothing is reached, a deep one reaches it.
-        let high = Arc::new(subcraft_mesh::primitives::cube(1.9));
+        // The high poly is a larger cube around the low one (0.2 out, wider than the rim texels
+        // reach past each face): a thin cage reaches nothing, a deep front cage reaches all of it.
+        let high = Arc::new(subcraft_mesh::primitives::cube(2.4));
         let thin = BakeSettings { cage_front: 0.001, cage_rear: 0.001, ..Default::default() };
         let job = CageCheckJob::start(low.clone(), high.clone(), None, thin.clone(), vec![(TextureSetId::new(), 0)], 32);
         let r = loop { if let Some(r) = job.poll() { break r.unwrap(); } std::thread::sleep(std::time::Duration::from_millis(5)); };
         assert_eq!(r.maps.len(), 1);
         assert!(r.miss_fraction() > 0.99, "{}", r.miss_fraction());
-        let deep = BakeSettings { cage_front: 0.001, cage_rear: 0.05, ..Default::default() };
+        let deep = BakeSettings { cage_front: 0.1, cage_rear: 0.001, ..Default::default() };
         let job = CageCheckJob::start(low.clone(), high.clone(), Some(r.placed.clone()), deep.clone(), vec![(TextureSetId::new(), 0)], 32);
         let r2 = loop { if let Some(r) = job.poll() { break r.unwrap(); } std::thread::sleep(std::time::Duration::from_millis(5)); };
         assert!(Arc::ptr_eq(&r.placed, &r2.placed), "BVH reused while only the cage changed");
