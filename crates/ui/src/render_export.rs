@@ -231,19 +231,23 @@ pub fn render_frame(state: &mut UiState, camera: crate::orbit::OrbitCamera, pict
     params.post = prefs.post_params_at(state.session.scene().mesh.bounds.diagonal(), camera.eye_distance());
     crate::panels::shelf::apply_environment(&state.library, state.env.index, state.env.rotation_deg, state.env.intensity,
         &mut params, &mut renderer, &mut state.env.uploaded, &rs.device, &rs.queue);
-    let mut pixels = if transparent {
+    // The renderer goes back into the state whether or not the GPU managed the readback, so a
+    // failed render (device lost, out of video memory) reports an error and the viewport keeps working.
+    let mut read = |params: &subcraft_render::ViewParams| renderer.render(&rs.device, &rs.queue, big, params).try_read_rgba8(&rs.device, &rs.queue);
+    let pixels = if transparent {
         params.background = [0.0; 3];
-        let black = renderer.render(&rs.device, &rs.queue, big, &params).read_rgba8(&rs.device, &rs.queue);
-        params.background = [1.0; 3];
-        let white = renderer.render(&rs.device, &rs.queue, big, &params).read_rgba8(&rs.device, &rs.queue);
-        offline::matte_from_black_white(&black, &white)
+        read(&params).and_then(|black| {
+            params.background = [1.0; 3];
+            read(&params).map(|white| offline::matte_from_black_white(&black, &white))
+        })
     } else {
-        renderer.render(&rs.device, &rs.queue, big, &params).read_rgba8(&rs.device, &rs.queue)
+        read(&params)
     };
+    state.renderer = Some(renderer);
+    let mut pixels = pixels?;
     if !transparent {
         for a in pixels.iter_mut().skip(3).step_by(4) { *a = 255; }
     }
-    state.renderer = Some(renderer);
     Ok(offline::downsample_rgba8(&pixels, big, factor))
 }
 
