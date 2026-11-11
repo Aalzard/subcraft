@@ -17,6 +17,8 @@ pub struct BugReportUi {
     /// Crash reports from earlier runs not shown yet: (file, text).
     pub crashes: Vec<(PathBuf, String)>,
     pub safe_notice_dismissed: bool,
+    /// The device-lost recovery copy was attempted (once per run).
+    pub lost_handled: bool,
 }
 
 impl BugReportUi {
@@ -29,8 +31,31 @@ impl BugReportUi {
             .into_iter()
             .filter_map(|p| std::fs::read_to_string(&p).ok().map(|t| (p, t)))
             .collect();
-        Self { open: false, crashes, safe_notice_dismissed: false }
+        Self { open: false, crashes, safe_notice_dismissed: false, lost_handled: false }
     }
+}
+
+/// Set once the work was copied to the recovery folder after a device loss.
+static LOST_SAVED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// The GPU device is gone (issue #119): copy unsaved work to the recovery folder once, and tell the
+/// caller to draw nothing. egui-wgpu panics ("Failed to create staging buffer") as soon as it is
+/// given anything to paint on a lost device, which used to end the session with a crash report and
+/// without a recovery copy of the latest edits. Returns whether the frame must stay empty.
+pub fn stop_after_device_loss(state: &mut UiState, lost: Option<String>) -> bool {
+    if lost.is_none() {
+        return false;
+    }
+    if !state.bug_report.lost_handled {
+        state.bug_report.lost_handled = true;
+        match state.recovery.autosaver.save_now(&state.session) {
+            Some(subcraft_app::AutosaveEvent::Saved(p)) => log::info!("GPU device lost: work copied to {}", p.display()),
+            Some(subcraft_app::AutosaveEvent::Failed(e)) => log::error!("GPU device lost: recovery copy failed: {e}"),
+            None => log::info!("GPU device lost: no unsaved work to copy"),
+        }
+        LOST_SAVED.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+    true
 }
 
 /// Record the GPU from the renderer for logs and reports.
@@ -40,7 +65,17 @@ pub fn record_gpu(render_state: Option<&egui_wgpu::RenderState>) {
         let text = format!("The graphics device stopped responding ({text}).
 
 This is usually a driver reset or a GPU that was removed or ran out of memory. SubCraft cannot continue drawing. Your work is kept in the automatic recovery copy: start SubCraft again and choose Restore. The next start turns GPU compositing and GPU baking off (you can turn them back on in Preferences). If it keeps happening, start with the --safe-mode option and see the log in the SubCraft data folder.");
-        std::thread::spawn(move || { rfd::MessageDialog::new().set_level(rfd::MessageLevel::Error).set_title("SubCraft: graphics device lost").set_description(text).set_buttons(rfd::MessageButtons::Ok).show(); });
+        std::thread::spawn(move || {
+            rfd::MessageDialog::new().set_level(rfd::MessageLevel::Error).set_title("SubCraft: graphics device lost").set_description(text).set_buttons(rfd::MessageButtons::Ok).show();
+            // Nothing can be drawn any more: end the process once the recovery copy is written (the
+            // UI thread does that on its next frame; don't wait for ever if the driver hung it).
+            // Not a normal close, which would delete the recovery folder.
+            let start = std::time::Instant::now();
+            while !LOST_SAVED.load(std::sync::atomic::Ordering::SeqCst) && start.elapsed() < std::time::Duration::from_secs(20) {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            std::process::exit(1);
+        });
     });
     let Some(rs) = render_state else { return };
     let i = rs.adapter.get_info();
@@ -198,5 +233,36 @@ pub fn crash_window(state: &mut UiState, ctx: &egui::Context) {
                 log::warn!("crash report {} not marked as seen: {e}", p.display());
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use subcraft_app::recovery::{Autosaver, RecoveryStore, SessionInfo, list_autosaves};
+    use subcraft_app::{Command, NewLayer, Session};
+
+    /// Issue #119: after the device is lost the frame stays empty (egui-wgpu panics when it has
+    /// anything to paint) and the unsaved work is copied to the recovery folder, once.
+    #[test]
+    fn a_lost_device_saves_the_work_once_and_keeps_the_frame_empty() {
+        let root = std::env::temp_dir().join(format!("subcraft-lost-device-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let mut state = UiState::new(Session::sample(), None);
+        let live = RecoveryStore::new(&root).begin_session(&SessionInfo::for_session(&state.session), 3).unwrap();
+        let dir = live.dir().to_path_buf();
+        state.recovery.autosaver = Autosaver::new(Some(live), std::time::Duration::from_secs(3600));
+        state.session.execute(Command::AddLayer(NewLayer::Fill)).unwrap();
+
+        assert!(!stop_after_device_loss(&mut state, None), "a healthy device draws as usual");
+        assert!(list_autosaves(&dir).is_empty());
+
+        assert!(stop_after_device_loss(&mut state, Some("Unknown: Device is lost".into())));
+        assert_eq!(list_autosaves(&dir).len(), 1, "the work is in the recovery folder");
+        state.session.execute(Command::AddLayer(NewLayer::Paint)).unwrap();
+        assert!(stop_after_device_loss(&mut state, Some("Unknown: Device is lost".into())));
+        assert_eq!(list_autosaves(&dir).len(), 1, "later frames only stay empty");
+        drop(state);
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

@@ -441,6 +441,25 @@ impl Autosaver {
         })
     }
 
+    /// Write a copy of unsaved work right now and wait for it, ignoring the timer. For the moment
+    /// the app learns it cannot go on (the GPU device was lost): the recovery folder then holds the
+    /// work as it is now, not as it was at the last timed copy. `None` when nothing needed saving.
+    pub fn save_now(&mut self, session: &Session) -> Option<AutosaveEvent> {
+        let running = self.wait();
+        if matches!(running, Some(AutosaveEvent::Failed(_))) {
+            self.last_saved = None;
+        }
+        let current = match &self.last_saved {
+            Some((doc, maps)) => doc == session.history().current() && *maps == session.maps_generation(),
+            None => false,
+        };
+        if self.live.is_none() || !session.is_modified() || current {
+            return running;
+        }
+        self.start(session, Instant::now());
+        self.wait().or(running)
+    }
+
     /// Clean exit: wait for a running copy, then delete the session folder.
     pub fn finish_clean(&mut self) {
         let _ = self.wait();
