@@ -415,7 +415,7 @@ pub(crate) struct PathTracer {
     passes_per_frame: u32,
     samples_per_second: f32,
     /// Exposure, tone map and denoise of the image last written to the target.
-    shown: Option<([f32; 2], bool, u32)>,
+    shown: Option<([f32; 3], bool, u32)>,
 }
 
 impl PathTracer {
@@ -469,7 +469,7 @@ impl PathTracer {
 
         let display_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("pt display"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("pathtrace_display.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(concat!(include_str!("tonemap.wgsl"), include_str!("pathtrace_display.wgsl")).into()),
         });
         let f = wgpu::ShaderStages::FRAGMENT;
         let display_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -749,7 +749,7 @@ impl PathTracer {
         // Never show an empty accumulation, even when paused right at a restart.
         let passes = if self.samples == 0 { passes.max(1) } else { passes };
         let denoise = settings.denoise && self.samples + passes > 0;
-        let look = [params.exposure, crate::post::tone_map_id(params.post.tone_map)];
+        let look = [params.exposure, crate::grade::tone_map_id(params.post.tone_map), params.post.mapping_factor];
         if passes == 0 && self.shown == Some((look, denoise, self.samples)) {
             return Ok(self.status(settings, 0));
         }
@@ -827,7 +827,7 @@ impl PathTracer {
         if denoise {
             self.denoiser.encode(device, queue, &mut encoder, frame, samples);
         }
-        queue.write_buffer(&self.display_params, 0, bytemuck::bytes_of(&DisplayParams { size: [size[0], size[1], samples, denoise as u32], look: [look[0], look[1], 0.0, 0.0] }));
+        queue.write_buffer(&self.display_params, 0, bytemuck::bytes_of(&DisplayParams { size: [size[0], size[1], samples, denoise as u32], look: [look[0], look[1], look[2], 0.0] }));
         let display_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("pt display"),
             layout: &self.display_layout,

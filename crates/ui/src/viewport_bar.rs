@@ -96,23 +96,77 @@ impl ViewportPrefs {
         self.post_params_at(diagonal, 1.0)
     }
 
+    /// Exposure of the frame: the Tone mapping effect's, or 1 while it (or every post effect) is off.
+    pub fn exposure_value(&self) -> f32 {
+        if self.post_effects && self.tone_mapping_on { self.exposure } else { 1.0 }
+    }
+
     /// Like [`post_params`](Self::post_params) with the camera's orbit distance, which scales the
-    /// focus distance.
+    /// focus distance. An effect contributes only while the master switch and its own are on.
     pub fn post_params_at(&self, diagonal: f32, orbit_distance: f32) -> subcraft_render::PostParams {
+        let d = &self.display;
+        let all = d.post_effects;
+        let amount = |on: bool, value: f32, max: f32| if all && on { value.clamp(0.0, max) } else { 0.0 };
+        let mut grade = subcraft_render::Grade::default();
+        if all && d.aberration_on {
+            grade.aberration = d.aberration_amount.clamp(0.0, 4.0);
+            grade.aberration_radius = d.aberration_radius.clamp(0.0, 2.0);
+            grade.aberration_softness = d.aberration_softness.clamp(0.0, 2.0);
+            grade.aberration_ratio = d.aberration_ratio.clamp(0.1, 10.0);
+            grade.aberration_center = d.aberration_center.map(|c| c.clamp(0.0, 1.0));
+            grade.aberration_achromatic = d.aberration_achromatic;
+        }
+        if all && d.vignette_on {
+            grade.vignette = d.vignette_amount.clamp(0.0, 1.0);
+        }
+        if all && d.sharpen_on {
+            grade.sharpen = d.sharpen_amount.clamp(0.0, 4.0);
+            grade.sharpen_diameter = d.sharpen_diameter.clamp(0.5, 16.0);
+        }
+        if all && d.grain_on {
+            grade.grain = d.grain_amount.clamp(0.0, 1.0);
+            grade.grain_radius = d.grain_radius.clamp(1.0, 16.0);
+            grade.grain_colored = d.grain_type == subcraft_doc::GrainType::Colored;
+        }
+        if all && d.color_correction_on {
+            grade.color_correction = true;
+            grade.saturation = d.cc_saturation.clamp(0.0, 4.0);
+            grade.contrast = d.cc_contrast.clamp(0.0, 4.0);
+            grade.brightness = d.cc_brightness.clamp(0.0, 4.0);
+            grade.bias = d.cc_bias.clamp(-1.0, 1.0);
+            grade.sepia = d.cc_sepia.clamp(0.0, 1.0);
+            grade.temperature = d.cc_temperature.clamp(1000.0, 40000.0);
+        }
+        let toned = all && d.tone_mapping_on;
+        if toned {
+            grade.gamma = d.gamma.clamp(0.1, 10.0);
+        }
+        let flare = all && d.flare_on && d.flare_amount > 0.0;
+        let defaults = subcraft_render::PostParams::default();
         subcraft_render::PostParams {
-            dof: if self.dof { self.dof_amount.clamp(0.0, 1.0) } else { 0.0 },
-            dof_focus: (self.dof_focus.clamp(0.05, 4.0) * orbit_distance).max(1e-4),
-            dof_range: self.dof_range.clamp(0.0, 100.0) * 0.01 * diagonal,
-            tone_map: self.tone_map(),
-            bloom: self.bloom.clamp(0.0, 4.0),
-            bloom_threshold: self.bloom_threshold.clamp(0.0, 4.0),
-            ssao: self.ssao.clamp(0.0, 1.0),
-            ssao_radius: (self.ssao_radius.clamp(0.1, 50.0) * 0.01 * diagonal).max(1e-4),
-            emission_glow: self.emission_glow.clamp(0.0, 4.0),
-            glow_radius: self.glow_radius.clamp(0.25, 8.0),
-            glare: self.glare.clamp(0.0, 4.0),
-            glare_mode: self.glare_mode,
-            glare_length: self.glare_length.clamp(0.0, 1.0),
+            dof: amount(d.dof, d.dof_amount, 1.0),
+            dof_focus: (d.dof_focus.clamp(0.05, 4.0) * orbit_distance).max(1e-4),
+            dof_range: d.dof_range.clamp(0.0, 100.0) * 0.01 * diagonal,
+            // Tone mapping off: linear light, clamped. Every effect off: the default curve.
+            tone_map: if toned { d.tone_map } else if all { subcraft_render::ToneMap::LinearSat } else { defaults.tone_map },
+            mapping_factor: if toned { d.mapping_factor.clamp(0.01, 100.0) } else { 1.0 },
+            bloom: amount(d.bloom_on, d.bloom, 4.0),
+            bloom_threshold: d.bloom_threshold.clamp(0.0, 4.0),
+            bloom_falloff: d.bloom_falloff.clamp(0.0, 1.0),
+            ssao: amount(d.ssao_on, d.ssao, 1.0),
+            ssao_radius: (d.ssao_radius.clamp(0.1, 50.0) * 0.01 * diagonal).max(1e-4),
+            emission_glow: amount(d.glow_on, d.emission_glow, 4.0),
+            glow_radius: d.glow_radius.clamp(0.25, 8.0),
+            glare: amount(d.glare_on, d.glare, 16.0),
+            glare_mode: d.glare_mode,
+            glare_length: d.glare_length.clamp(0.0, 1.0),
+            glare_threshold: d.glare_threshold.clamp(0.0, 16.0),
+            glare_remap: d.glare_remap.clamp(0.05, 8.0),
+            flare: if flare { d.flare_amount.clamp(0.0, 4.0) } else { 0.0 },
+            flare_threshold: if flare { d.flare_threshold.clamp(0.0, 1.0) } else { defaults.flare_threshold },
+            flare_ghosts: if flare { d.flare_ghosts.clamp(1, 8) } else { defaults.flare_ghosts },
+            flare_scale: if flare { d.flare_position_scale.clamp(0.05, 4.0) * if d.flare_camera == subcraft_doc::FlareCamera::Telephoto { 0.5 } else { 1.0 } } else { defaults.flare_scale },
+            grade,
         }
     }
 

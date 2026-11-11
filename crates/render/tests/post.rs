@@ -55,9 +55,15 @@ fn tone_maps_differ_keep_the_default_and_order_highlights() {
     for tone_map in ToneMap::ALL {
         frames.push((tone_map, s.frame(PostParams { tone_map, ..PostParams::default() })));
     }
+    // Auto is the sensitometric curve and LinearSat is Linear on an 8-bit display: the only twins.
+    let twins = |a: ToneMap, b: ToneMap| a.resolved() == b.resolved() || matches!((a, b), (ToneMap::Linear, ToneMap::LinearSat) | (ToneMap::LinearSat, ToneMap::Linear));
     for (i, (a, fa)) in frames.iter().enumerate() {
         for (b, fb) in &frames[i + 1..] {
-            assert_ne!(fa, fb, "{a:?} and {b:?} must look different");
+            if twins(*a, *b) {
+                assert_eq!(fa, fb, "{a:?} and {b:?} are the same function");
+            } else {
+                assert_ne!(fa, fb, "{a:?} and {b:?} must look different");
+            }
         }
     }
     let by = |m: ToneMap| total(&frames.iter().find(|f| f.0 == m).unwrap().1);
@@ -186,6 +192,69 @@ fn glare_streaks_follow_the_chosen_direction() {
     // Longer streaks reach further.
     let short = s.frame(PostParams { glare: 1.5, glare_mode: subcraft_render::GlareMode::Horizontal, glare_length: 0.0, ..base });
     assert!(total(&h) > total(&short));
+}
+
+#[test]
+fn every_glare_shape_draws_its_own_pattern() {
+    use subcraft_render::GlareMode;
+    let Some(mut s) = emissive_scene([6.0, 6.0, 6.0, 1.0]) else { return };
+    let base = PostParams { emission_glow: 0.0, ..PostParams::default() };
+    let off = s.frame(base);
+    let half = (N as f32 * 0.5) as i32;
+    let edge = 60;
+    let mut frames = Vec::new();
+    for shape in GlareMode::ALL {
+        let frame = s.frame(PostParams { glare: 1.5, glare_mode: shape, glare_length: 0.8, ..base });
+        assert!(total(&frame) > total(&off) * 1.002, "{shape:?} adds light: {} vs {}", total(&frame), total(&off));
+        frames.push((shape, frame));
+    }
+    for (i, (a, fa)) in frames.iter().enumerate() {
+        for (b, fb) in &frames[i + 1..] {
+            assert_ne!(fa, fb, "{a:?} and {b:?} must look different");
+        }
+    }
+    let of = |shape: GlareMode| &frames.iter().find(|f| f.0 == shape).unwrap().1;
+    // The round shapes reach the diagonal as much as the sides; a streak does not.
+    let right = |image: &[u8]| probe(image, half + edge, half) - probe(&off, half + edge, half);
+    let diagonal = |image: &[u8]| probe(image, half + 44, half - 44) - probe(&off, half + 44, half - 44);
+    assert!(right(of(GlareMode::Bloom)) > 1.0 && diagonal(of(GlareMode::Bloom)) > 0.5, "bloom glows all around: right {} diagonal {}", right(of(GlareMode::Bloom)), diagonal(of(GlareMode::Bloom)));
+    // (44 px is the corner of the cube's front face, where its own horizontal streak passes; the
+    // streak check probes just beyond the face, like `glare_streaks_follow_the_chosen_direction`.)
+    let beyond = |image: &[u8]| probe(image, half + edge, half - edge) - probe(&off, half + edge, half - edge);
+    assert!(beyond(of(GlareMode::Horizontal)) < 1.0, "a horizontal streak leaves the diagonal alone: {}", beyond(of(GlareMode::Horizontal)));
+    // The snow cross has streaks at 0, 60 and 120 degrees.
+    let at = |image: &[u8], degrees: f32, r: f32| {
+        let (sn, cs) = degrees.to_radians().sin_cos();
+        probe(image, half + (cs * r) as i32, half - (sn * r) as i32) - probe(&off, half + (cs * r) as i32, half - (sn * r) as i32)
+    };
+    let snow = of(GlareMode::SnowCross);
+    assert!(at(snow, 60.0, 70.0) > 2.0 && at(snow, 0.0, 70.0) > 2.0, "snow cross arms: 60 deg {} 0 deg {}", at(snow, 60.0, 70.0), at(snow, 0.0, 70.0));
+    // (Straight up is not a clean "no arm" probe: the 60 and 120 degree streaks from the cube's
+    // 88 px wide top edge cross above it. The 60 degree arm is what a horizontal streak lacks.)
+    assert!(at(snow, 60.0, 70.0) > at(of(GlareMode::Horizontal), 60.0, 70.0) + 1.0, "the 60 degree arm is the snow cross's own: snow {} horizontal {}", at(snow, 60.0, 70.0), at(of(GlareMode::Horizontal), 60.0, 70.0));
+    // Spectral shapes fringe: red reaches further than blue along the streak, so the spectral cross
+    // is redder than its plain twin over the streak to the right of the face. At full strength the
+    // streak is clipped white, so this uses a weak glare. The background is not neutral; it is the
+    // same in both frames and cancels in the comparison.
+    let mut weak = |shape: GlareMode| s.frame(PostParams { glare: 0.2, glare_mode: shape, glare_length: 0.8, ..base });
+    let fringe = |image: &[u8]| -> i64 {
+        let mut sum = 0;
+        for y in half - 2..=half + 2 {
+            for x in half + 48..N as i32 {
+                let i = (y as u32 * N + x as u32) as usize * 4;
+                sum += image[i] as i64 - image[i + 2] as i64;
+            }
+        }
+        sum
+    };
+    let (spectral, plain) = (fringe(&weak(GlareMode::CrossScreenSpectral)), fringe(&weak(GlareMode::Both)));
+    assert!(spectral > plain + 20, "red outruns blue: spectral {spectral} plain {plain}");
+    // Threshold above the emission removes the glare; a remap below 1 lifts it.
+    let cut = s.frame(PostParams { glare: 1.5, glare_threshold: 8.0, glare_length: 0.8, ..base });
+    assert_eq!(cut, off, "emission of 6 is under a threshold of 8");
+    let some = s.frame(PostParams { glare: 1.5, glare_threshold: 5.0, glare_length: 0.8, ..base });
+    let all = of(GlareMode::Horizontal);
+    assert!(total(&some) > total(&off) && total(&some) < total(all), "a threshold of 5 keeps one sixth of the light");
 }
 
 fn checker_scene(eye: Vec3) -> Option<Scene> {

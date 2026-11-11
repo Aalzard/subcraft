@@ -56,7 +56,12 @@ pub fn window(state: &mut UiState, ctx: &Context) {
         return;
     }
     let mut open = true;
-    crate::widgets::window(ctx, "Render quality").open(&mut open).resizable(false).default_width(330.0).show(ctx, |ui| {
+    crate::widgets::window(ctx, "Render quality").open(&mut open).resizable(false).default_width(330.0).show(ctx, |ui| window_body(state, ui));
+    state.render_window = open;
+}
+
+fn window_body(state: &mut UiState, ui: &mut egui::Ui) {
+    {
         // The look is the Display Settings panel's Camera and Post effects groups.
         crate::panels::display_settings::camera(state, ui);
         crate::panels::display_settings::post_effects(state, ui);
@@ -97,8 +102,7 @@ pub fn window(state: &mut UiState, ctx: &Context) {
             });
             ui.label(RichText::new(tr("The grid and guides are left out. 4096 px with smoothing needs about 1 GB of video memory.")).small().color(TEXT_DIM));
         }
-    });
-    state.render_window = open;
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -148,7 +152,7 @@ pub fn render_frame(state: &mut UiState, camera: crate::orbit::OrbitCamera, pict
     let mut params = camera.view_params(big);
     params.height_scale = state.height_scale;
     params.antialias = true;
-    params.exposure = prefs.exposure;
+    params.exposure = prefs.exposure_value();
     params.post = prefs.post_params_at(state.session.scene().mesh.bounds.diagonal(), camera.eye_distance());
     let (env_rotation, env_intensity) = crate::panels::shelf::environment_view(&prefs.display, state.env.rotation_deg, camera.yaw);
     params.environment.background_opacity = prefs.env_opacity;
