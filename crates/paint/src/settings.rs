@@ -21,11 +21,50 @@ pub enum Alignment {
     Uv,
 }
 
+/// What the brush size is measured against.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SizeSpace {
+    /// Percent of the mesh bounding-box diagonal: the brush keeps its size on the model.
+    #[default]
+    Object,
+    /// Percent of the viewport height: the brush keeps its size on screen, whatever the zoom.
+    Viewport,
+    /// Percent of the texture (UV 0..1): the brush covers the same texels everywhere.
+    Texture,
+}
+
+impl SizeSpace {
+    pub const ALL: [SizeSpace; 3] = [SizeSpace::Object, SizeSpace::Viewport, SizeSpace::Texture];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            SizeSpace::Object => "Object",
+            SizeSpace::Viewport => "Viewport",
+            SizeSpace::Texture => "Texture",
+        }
+    }
+}
+
+/// What a brush size is converted with (see [`BrushSettings::radius_in`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SizeContext {
+    /// Mesh bounding-box diagonal (object units).
+    pub diagonal: f32,
+    /// Screen pixels per object unit under the brush (0 = unknown).
+    pub pixels_per_unit: f32,
+    /// Viewport height in pixels (0 = unknown).
+    pub viewport_height: f32,
+    /// Average UV units per object unit of the painted texture set (0 = unknown).
+    pub uv_per_unit: f32,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct BrushSettings {
-    /// Brush diameter in percent of the mesh bounding-box diagonal (object space).
+    /// Brush diameter in percent of what `size_space` names (the mesh bounding-box diagonal by default).
     pub size: f32,
+    pub size_space: SizeSpace,
     /// Coverage each stamp adds (0..1).
     pub flow: f32,
     /// Maximum opacity a single stroke can reach, however many stamps overlap (0..1).
@@ -47,6 +86,11 @@ pub struct BrushSettings {
     pub angle_jitter_deg: f32,
     /// Random screen offset per stamp, in brush diameters.
     pub position_jitter: f32,
+    /// Pen pressure scales the size jitter (a light touch jitters less); a mouse is unchanged.
+    pub size_jitter_pressure: bool,
+    pub flow_jitter_pressure: bool,
+    pub angle_jitter_pressure: bool,
+    pub position_jitter_pressure: bool,
     /// How much pen pressure shrinks the brush (0 = ignored, 1 = zero pressure gives a hairline).
     pub pressure_size: f32,
     /// How much pen pressure lowers the flow of each stamp (0 = ignored).
@@ -82,6 +126,7 @@ impl Default for BrushSettings {
     fn default() -> Self {
         Self {
             size: 5.0,
+            size_space: SizeSpace::Object,
             flow: 1.0,
             stroke_opacity: 1.0,
             spacing: 0.1,
@@ -93,6 +138,10 @@ impl Default for BrushSettings {
             flow_jitter: 0.0,
             angle_jitter_deg: 0.0,
             position_jitter: 0.0,
+            size_jitter_pressure: false,
+            flow_jitter_pressure: false,
+            angle_jitter_pressure: false,
+            position_jitter_pressure: false,
             pressure_size: 1.0,
             pressure_flow: 0.0,
             scatter_count: 0,
@@ -114,11 +163,57 @@ impl Default for BrushSettings {
 }
 
 impl BrushSettings {
-    /// World (object-space) radius for a mesh with bounding-box diagonal `diagonal`.
+    /// World (object-space) radius for a mesh with bounding-box diagonal `diagonal`, in
+    /// [`SizeSpace::Object`] (the other spaces need [`BrushSettings::radius_in`]).
     pub fn radius(&self, diagonal: f32) -> f32 {
         self.size.max(0.0) * 0.01 * diagonal * 0.5
     }
+
+    /// World (object-space) radius in the brush's size space. A space whose scale is unknown
+    /// (0 or not finite) falls back to the object size, so the brush never vanishes.
+    pub fn radius_in(&self, c: &SizeContext) -> f32 {
+        let half = self.size.max(0.0) * 0.01 * 0.5;
+        let known = |v: f32| v.is_finite() && v > 0.0;
+        match self.size_space {
+            SizeSpace::Viewport if known(c.pixels_per_unit) && known(c.viewport_height) => half * c.viewport_height / c.pixels_per_unit,
+            SizeSpace::Texture if known(c.uv_per_unit) => half / c.uv_per_unit,
+            _ => half * c.diagonal,
+        }
+    }
+
+    /// Size, flow, angle (degrees) and position jitter for a pen pressure in 0..1 (1 for a
+    /// mouse): a jitter whose pressure toggle is on is scaled by the pressure.
+    pub fn jitters(&self, pressure: f32) -> [f32; 4] {
+        let p = pressure.clamp(0.0, 1.0);
+        let k = |on: bool| if on { p } else { 1.0 };
+        [
+            self.size_jitter.clamp(0.0, 1.0) * k(self.size_jitter_pressure),
+            self.flow_jitter.clamp(0.0, 1.0) * k(self.flow_jitter_pressure),
+            self.angle_jitter_deg * k(self.angle_jitter_pressure),
+            self.position_jitter.max(0.0) * k(self.position_jitter_pressure),
+        ]
+    }
+
+    /// Whether pen pressure drives the size / the flow (the toggle on the Size and Flow rows).
+    pub fn size_pressure(&self) -> bool { self.pressure_size > 0.0 }
+    pub fn flow_pressure(&self) -> bool { self.pressure_flow > 0.0 }
+
+    /// Size at zero pressure as a fraction of the size ("Minimum Size"); 1 while pressure does
+    /// not drive the size.
+    pub fn min_size(&self) -> f32 { 1.0 - self.pressure_size.clamp(0.0, 1.0) }
+    pub fn min_flow(&self) -> f32 { 1.0 - self.pressure_flow.clamp(0.0, 1.0) }
+
+    /// Switch size pressure on (keeping `min` as the minimum size, below 1) or off.
+    pub fn set_size_pressure(&mut self, on: bool, min: f32) {
+        self.pressure_size = if on { 1.0 - min.clamp(0.0, MAX_PRESSURE_MIN) } else { 0.0 };
+    }
+    pub fn set_flow_pressure(&mut self, on: bool, min: f32) {
+        self.pressure_flow = if on { 1.0 - min.clamp(0.0, MAX_PRESSURE_MIN) } else { 0.0 };
+    }
 }
+
+/// Largest "Minimum Size / Flow": at 1 the pressure would do nothing, which is the toggle's off state.
+pub const MAX_PRESSURE_MIN: f32 = 0.99;
 
 /// Most particles one path stamp may scatter.
 pub const MAX_SCATTER: u32 = 64;
@@ -447,6 +542,53 @@ mod tests {
         assert!(!StrokeOptions::default().has_symmetry());
         assert_eq!(RadialSymmetry { axis: 9, ..r }.axis_dir(), glam::Vec3::Z);
     }
+    #[test]
+    fn size_space_converts_the_same_percentage_per_space() {
+        let c = SizeContext { diagonal: 4.0, pixels_per_unit: 100.0, viewport_height: 800.0, uv_per_unit: 0.25 };
+        let mut s = BrushSettings { size: 10.0, ..BrushSettings::default() };
+        assert_eq!(s.radius_in(&c), s.radius(4.0), "Object is the default and matches radius()");
+        assert!((s.radius_in(&c) - 0.2).abs() < 1e-6);
+        s.size_space = SizeSpace::Viewport;
+        // 10 % of 800 px = 80 px diameter = 40 px radius = 0.4 units at 100 px per unit.
+        assert!((s.radius_in(&c) - 0.4).abs() < 1e-6);
+        // Zooming in (more pixels per unit) shrinks the world radius: constant on screen.
+        assert!((s.radius_in(&SizeContext { pixels_per_unit: 200.0, ..c }) * 200.0 - 40.0).abs() < 1e-4);
+        s.size_space = SizeSpace::Texture;
+        // 10 % of the texture = radius 0.05 UV = 0.2 units at 0.25 UV per unit.
+        assert!((s.radius_in(&c) * c.uv_per_unit - 0.05).abs() < 1e-6);
+        // Unknown scales fall back to the object size.
+        let unknown = SizeContext { pixels_per_unit: 0.0, uv_per_unit: f32::NAN, ..c };
+        assert_eq!(s.radius_in(&unknown), s.radius(4.0));
+        s.size_space = SizeSpace::Viewport;
+        assert_eq!(s.radius_in(&unknown), s.radius(4.0));
+    }
+
+    #[test]
+    fn pressure_toggles_and_minimums() {
+        let mut s = BrushSettings::default();
+        assert!(s.size_pressure() && !s.flow_pressure(), "defaults: size follows pressure, flow does not");
+        assert_eq!(s.min_size(), 0.0);
+        s.set_size_pressure(true, 0.25);
+        assert!((s.min_size() - 0.25).abs() < 1e-6);
+        assert!((s.pressure_size_factor(0.0) - (0.25 + 0.75 * MIN_PRESSURE)).abs() < 1e-6);
+        s.set_size_pressure(true, 1.0);
+        assert!(s.size_pressure(), "a minimum of 1 would silently switch the toggle off");
+        s.set_size_pressure(false, 0.25);
+        assert!(!s.size_pressure());
+        assert_eq!(s.pressure_size_factor(0.1), 1.0);
+        s.set_flow_pressure(true, 0.5);
+        assert!(s.flow_pressure() && (s.min_flow() - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn jitter_pressure_toggles_scale_only_their_jitter() {
+        let s = BrushSettings { size_jitter: 0.8, flow_jitter: 0.6, angle_jitter_deg: 90.0, position_jitter: 0.5,
+            size_jitter_pressure: true, angle_jitter_pressure: true, ..BrushSettings::default() };
+        assert_eq!(s.jitters(1.0), [0.8, 0.6, 90.0, 0.5], "a mouse (pressure 1) is unchanged");
+        assert_eq!(s.jitters(0.5), [0.4, 0.6, 45.0, 0.5]);
+        assert_eq!(s.jitters(0.0), [0.0, 0.6, 0.0, 0.5]);
+    }
+
     #[test]
     fn falloff_shape() {
         assert_eq!(falloff(0.0, 0.5), 1.0);

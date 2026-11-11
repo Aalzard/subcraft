@@ -19,7 +19,7 @@ use crate::camera::Camera;
 use crate::depth::{DepthCache, DepthMap};
 use crate::kernel::{KernelInput, TexelSample, TileWork};
 use crate::path::{PathSample, ScreenPath, rand01};
-use crate::settings::{Alignment, BrushMaterial, BrushSettings, ImageStamp, StampKind, PaintTarget, PolygonFillMode, StrokeMode, StrokeOptions};
+use crate::settings::{Alignment, BrushMaterial, BrushSettings, SizeContext, SizeSpace, ImageStamp, StampKind, PaintTarget, PolygonFillMode, StrokeMode, StrokeOptions};
 use crate::stamp::{Dab, Stamp, resolve_overlap};
 use crate::target::{ImageKey, PaintError, TargetImage, begin_targets, store};
 
@@ -321,9 +321,25 @@ impl Stroke {
 
     /// Brush radius in UV units: the 3D brush size at the texture set's average texel density,
     /// so a stroke covers the same texels in both views.
+    /// Texture size space is exact here; Viewport has no meaning in the 2D view (its zoom is
+    /// not a camera) and uses the object size.
     fn uv_radius(&mut self, ctx: &PaintContext) -> f32 {
         let upu = *self.uv_per_unit.get_or_insert_with(|| uv_per_unit(ctx.mesh, ctx.geometry.material_slot));
-        self.settings.radius(ctx.mesh.bounds.diagonal()) * upu
+        let c = SizeContext { diagonal: ctx.mesh.bounds.diagonal(), pixels_per_unit: 0.0, viewport_height: 0.0, uv_per_unit: upu };
+        self.settings.radius_in(&c) * upu
+    }
+
+    /// World radius of the brush in its size space, under the current view.
+    fn base_radius(&mut self, ctx: &PaintContext) -> f32 {
+        let s = self.settings;
+        let diagonal = ctx.mesh.bounds.diagonal();
+        let c = match s.size_space {
+            SizeSpace::Object => return s.radius(diagonal),
+            SizeSpace::Viewport => SizeContext { diagonal, pixels_per_unit: ctx.camera.pixels_per_unit(self.depth_hint(ctx)), viewport_height: ctx.camera.viewport[1] as f32, uv_per_unit: 0.0 },
+            SizeSpace::Texture => SizeContext { diagonal, pixels_per_unit: 0.0, viewport_height: 0.0,
+                uv_per_unit: *self.uv_per_unit.get_or_insert_with(|| uv_per_unit(ctx.mesh, ctx.geometry.material_slot)) },
+        };
+        s.radius_in(&c)
     }
 
     fn paint_uv_samples(&mut self, ts: &mut TextureSet, ctx: &PaintContext, samples: &[PathSample], radius_uv: f32) -> Result<Vec<usize>, PaintError> {
@@ -332,21 +348,24 @@ impl Stroke {
         }
         let s = self.settings;
         let res = ctx.geometry.resolution as f32;
-        let radius = s.radius(ctx.mesh.bounds.diagonal());
+        // The world radius that gives `radius_uv` at the set's average texel density.
+        let upu = self.uv_per_unit.unwrap_or(0.0);
+        let radius = if upu > 0.0 { radius_uv / upu } else { s.radius(ctx.mesh.bounds.diagonal()) };
+        let [size_jitter, flow_jitter, angle_jitter, position_jitter] = s.jitters(self.pressure);
         let mut stamps = Vec::with_capacity(samples.len());
         for sample in samples {
             let k = self.stamp_count;
             self.stamp_count += 1;
-            let scale = 1.0 - s.size_jitter.clamp(0.0, 1.0) * rand01(s.seed, k, 0);
-            let flow = s.flow.clamp(0.0, 1.0) * (1.0 - s.flow_jitter.clamp(0.0, 1.0) * rand01(s.seed, k, 1));
-            let mut angle = (s.angle_deg + s.angle_jitter_deg * (2.0 * rand01(s.seed, k, 2) - 1.0)).to_radians();
+            let scale = 1.0 - size_jitter * rand01(s.seed, k, 0);
+            let flow = s.flow.clamp(0.0, 1.0) * (1.0 - flow_jitter * rand01(s.seed, k, 1));
+            let mut angle = (s.angle_deg + angle_jitter * (2.0 * rand01(s.seed, k, 2) - 1.0)).to_radians();
             if s.follow_path {
                 angle += sample.dir.y.atan2(sample.dir.x);
             }
             let mut pos = sample.pos;
-            if s.position_jitter > 0.0 {
+            if position_jitter > 0.0 {
                 let (a, d) = (rand01(s.seed, k, 3) * std::f32::consts::TAU, rand01(s.seed, k, 4).sqrt());
-                pos += Vec2::new(a.cos(), a.sin()) * d * s.position_jitter * 2.0 * radius_uv * scale * res;
+                pos += Vec2::new(a.cos(), a.sin()) * d * position_jitter * 2.0 * radius_uv * scale * res;
             }
             stamps.push(Stamp {
                 camera: 0,
@@ -404,8 +423,8 @@ impl Stroke {
         self.last_depth.unwrap_or_else(|| ctx.camera.view_depth(ctx.mesh.bounds.center()).max(1e-3))
     }
 
-    fn spacing_px(&self, ctx: &PaintContext) -> f32 {
-        let r = self.settings.radius(ctx.mesh.bounds.diagonal());
+    fn spacing_px(&mut self, ctx: &PaintContext) -> f32 {
+        let r = self.base_radius(ctx);
         let diameter_px = 2.0 * r * ctx.camera.pixels_per_unit(self.depth_hint(ctx));
         (self.settings.spacing * diameter_px).max(0.5)
     }
@@ -424,24 +443,25 @@ impl Stroke {
             }
         }
         let cameras = self.cameras(ctx);
+        let base_radius = self.base_radius(ctx);
         let s = &self.settings;
-        let base_radius = s.radius(ctx.mesh.bounds.diagonal());
+        let [size_jitter, flow_jitter, angle_jitter, position_jitter] = s.jitters(self.pressure);
         let mut stamps = Vec::new();
         let mut stamp_k: Vec<u32> = Vec::new();
         for sample in samples {
             let k = self.stamp_count;
             self.stamp_count += 1;
-            let radius = base_radius * s.pressure_size_factor(self.pressure) * (1.0 - s.size_jitter.clamp(0.0, 1.0) * rand01(s.seed, k, 0));
-            let flow = s.flow.clamp(0.0, 1.0) * s.pressure_flow_factor(self.pressure) * (1.0 - s.flow_jitter.clamp(0.0, 1.0) * rand01(s.seed, k, 1));
-            let mut angle = (s.angle_deg + s.angle_jitter_deg * (2.0 * rand01(s.seed, k, 2) - 1.0)).to_radians();
+            let radius = base_radius * s.pressure_size_factor(self.pressure) * (1.0 - size_jitter * rand01(s.seed, k, 0));
+            let flow = s.flow.clamp(0.0, 1.0) * s.pressure_flow_factor(self.pressure) * (1.0 - flow_jitter * rand01(s.seed, k, 1));
+            let mut angle = (s.angle_deg + angle_jitter * (2.0 * rand01(s.seed, k, 2) - 1.0)).to_radians();
             if s.follow_path {
                 angle += sample.dir.y.atan2(sample.dir.x);
             }
             let mut screen = sample.pos;
-            if s.position_jitter > 0.0 {
+            if position_jitter > 0.0 {
                 let r_px = radius * ctx.camera.pixels_per_unit(self.depth_hint(ctx));
                 let (a, d) = (rand01(s.seed, k, 3) * std::f32::consts::TAU, rand01(s.seed, k, 4).sqrt());
-                screen += Vec2::new(a.cos(), a.sin()) * d * s.position_jitter * 2.0 * r_px;
+                screen += Vec2::new(a.cos(), a.sin()) * d * position_jitter * 2.0 * r_px;
             }
             let mut dabs = vec![Dab { screen, radius, flow, angle, roundness: s.roundness, hardness: s.hardness }];
             if s.scatter_count > 0 {
