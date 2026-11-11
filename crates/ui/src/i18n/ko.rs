@@ -358,4 +358,12 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Tab 2D view behind 3D view", "3D 뷰 뒤의 2D 뷰 탭"),
     ("Texture sets", "텍스처 세트"),
     ("Viewport", "뷰포트"),
+    // Anchor points (ADR-0045).
+    ("Anchor", "앵커"),
+    ("A channel or mask captured by an anchor point in a lower layer", "아래 레이어의 앵커 포인트가 저장한 채널 또는 마스크"),
+    ("Reads the anchor's value and coverage. Color and gray convert automatically.", "앵커의 값과 커버리지를 읽습니다. 컬러와 회색조는 자동으로 변환됩니다."),
+    ("Name", "이름"),
+    ("Gray value of the anchor (color channels by luminance), times its coverage. Stack Levels or Invert above it to remap.", "앵커의 회색 값(컬러 채널은 휘도)에 커버리지를 곱한 값입니다. 다시 매핑하려면 위에 레벨 또는 반전을 쌓으세요."),
+    ("Levels", "레벨"),
+    ("The anchor replaces the baked map this generator reads (curvature for Edges and Concave, occlusion for Dirt and Ambient Occlusion).", "앵커가 이 제너레이터가 읽는 베이크된 맵을 대신합니다(Edges와 Concave는 곡률, Dirt와 Ambient Occlusion은 오클루전)."),
 ];

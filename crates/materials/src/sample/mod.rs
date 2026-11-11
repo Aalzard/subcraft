@@ -92,6 +92,9 @@ pub fn eval_fill_tile_filtered(
                 *o = [v[0], v[1], v[2], 1.0];
             }
         }
+        // Anchors are read by the compositor's stage graph, which knows the whole texture set
+        // (ADR-0045). Sampled alone, the source is transparent.
+        FillSource::Anchor { .. } => out.fill([0.0; 4]),
     }
 }
 

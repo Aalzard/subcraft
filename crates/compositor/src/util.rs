@@ -38,5 +38,6 @@ pub(crate) fn effects_touch(layer: &subcraft_doc::Layer, kind: subcraft_core::Ch
         K::Fill(f) => f.channels.get(&kind).is_some_and(|c| c.enabled),
         K::Levels { channel, .. } => *channel == kind && kind != subcraft_core::ChannelKind::Normal,
         K::Filter { channel, filter } => *channel == kind && filter.supports_channel(kind) && filter.valid(),
+        K::Anchor => false,
     })
 }

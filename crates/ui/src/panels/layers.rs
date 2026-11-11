@@ -228,6 +228,8 @@ Files: {}", ex.dir().display()));
     let mut open: Vec<OpenFolder> = Vec::new();
     let mut list = Vec::new();
     rows(&ts.layers, 0, &mut list);
+    // Anchor references that cannot be evaluated are flagged on their layer's row (ADR-0045).
+    let anchor_index = subcraft_doc::anchor::has_references(&ts.layers).then(|| subcraft_doc::AnchorIndex::build(&ts.layers));
     let order: Vec<LayerId> = list.iter().map(|(_, l)| l.id).collect();
     state.multi.retain_existing(&order);
     // Default min height (64 px) would let rows spill past the panel when it is short; the list
@@ -337,8 +339,14 @@ Files: {}", ex.dir().display()));
                     let effects = l.content_effects.len() + l.mask.as_ref().map_or(0, |m| m.effects.len());
                     let kind = format!("{:?}", l.kind());
                     let detail = if effects == 0 { kind } else { format!("{kind}  ·  {effects} fx") };
+                    let problem = anchor_index.as_ref().and_then(|i| i.problems().find(|r| r.site.layer() == l.id)).map(|r| r.status);
+                    if let Some(status) = problem {
+                        ui.add(egui::Label::new(RichText::new(format!("{}  {detail}  ·  anchor input ignored", icons::WARNING)).font(theme::font(10.0)).color(theme::WARNING)).truncate())
+                            .on_hover_text(status.message());
+                    } else {
                     ui.add(egui::Label::new(RichText::new(detail).font(theme::font(10.0)).color(TEXT_FAINT)).truncate())
                         .on_hover_text(format!("{} content effects · {} mask effects", l.content_effects.len(), l.mask.as_ref().map_or(0, |m| m.effects.len())));
+                    }
                 });
                 ui.allocate_ui_with_layout(egui::vec2(76.0, 40.0), egui::Layout::top_down(egui::Align::Max), |ui| {
                     ui.spacing_mut().item_spacing.y = 1.0;

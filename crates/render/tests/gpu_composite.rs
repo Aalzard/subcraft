@@ -319,3 +319,66 @@ fn gpu_results_are_repeatable_and_cache_hits_on_a_second_run() {
     assert_eq!(first, second, "same device, same input: identical output");
     assert!(s2.timing.cache_hits > 0 && s2.timing.cache_misses == 0, "second run should hit the tile cache: {s1:?} {s2:?}");
 }
+
+/// Anchor points (ADR-0045): masks, fill channels and generators reading anchors are prepared
+/// through the stage graph and blended on the GPU; the result matches the CPU within tolerance.
+#[test]
+fn anchored_sets_run_on_the_gpu_and_match_the_cpu() {
+    use subcraft_doc::{AnchorInput, Generator, GeneratorKind};
+    let _turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
+    if !adapter_ok() {
+        return;
+    }
+    let fx = Fixture { geo: TextureSetGeometry::new(Arc::new(primitives::plane(2.0, 2)), 0, RES), res: ResourceStore::default(), maps: MeshMaps::new() };
+    let mut ts = rich_set();
+    let base = ts.clone();
+    // Anchored height (hidden layer: it only feeds its anchor) and an anchored color.
+    let mut bumps = paint(&base, ChannelKind::Height, IRect::new(0, 0, 140, 256), [0.8; 3], 1.0);
+    let anchor = ContentEffect::new(ContentEffectKind::Anchor, &base);
+    let height_anchor = anchor.id;
+    bumps.content_effects.push(Arc::new(anchor));
+    bumps.visible = false;
+    ts.insert_above(None, bumps);
+    let mut colored = paint(&base, ChannelKind::BaseColor, IRect::new(40, 30, 220, 200), [0.2, 0.7, 0.9], 0.9);
+    let anchor = ContentEffect::new(ContentEffectKind::Anchor, &base);
+    let color_anchor = anchor.id;
+    colored.content_effects.push(Arc::new(anchor));
+    ts.insert_above(None, colored);
+    // Mask: Anchor Reference with Levels, then a generator whose input is the color anchor.
+    let mut dirt = fill(&base, &[(ChannelKind::BaseColor, ChannelValue::rgb(0.5, 0.25, 0.1)), (ChannelKind::Roughness, ChannelValue::scalar(0.95))]);
+    let mut m = Mask::new(RES, false);
+    m.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::AnchorRef {
+        input: AnchorInput::new(height_anchor, ChannelKind::Height),
+        levels: Some(Levels { gamma: 1.6, out_high: 0.9, ..Levels::default() }),
+    })));
+    let mut g = Generator::new(GeneratorKind::MeshMap(subcraft_core::MeshMapKind::Curvature));
+    g.input = Some(AnchorInput::new(color_anchor, ChannelKind::BaseColor));
+    let mut ge = MaskEffect::new(MaskEffectKind::Generator(g));
+    ge.blend = BlendMode::Multiply;
+    m.effects.push(Arc::new(ge));
+    dirt.mask = Some(m);
+    set_blend(&mut dirt, BlendMode::Normal, 0.85);
+    ts.insert_above(None, dirt);
+    // Fill channel reading the anchored height as roughness.
+    let mut reader = Layer::new_fill("Reader", &base);
+    let LayerContent::Fill(f) = &mut reader.content else { unreachable!() };
+    f.channels.clear();
+    f.channels.insert(ChannelKind::Roughness, FillChannel::new(FillSource::Anchor { input: AnchorInput::new(height_anchor, ChannelKind::Height) }));
+    ts.insert_above(None, reader);
+
+    let cpu = run(&ts, &fx, false);
+    let _ = take_gpu_stats();
+    let on_gpu = run(&ts, &fx, true);
+    let stats = take_gpu_stats();
+    assert!(stats.tiles > 0, "the GPU path did not run on an anchored set: {stats:?}");
+    assert_eq!((stats.errors, stats.fallback_tiles), (0, 0), "{stats:?}");
+    let (worst, over, total) = compare(&cpu, &on_gpu);
+    println!("anchored stack: worst error {worst:.2} tolerance units, {over} of {total} values beyond 1 unit; {stats:?}");
+    assert!(worst <= 8.0, "worst error {worst} tolerance units");
+    assert!(over * 1000 <= total, "{over} of {total} values beyond tolerance");
+    // The anchors really drive the result: without the references the composite differs.
+    let mut plain = ts.clone();
+    let top = plain.layers.len() - 1;
+    plain.layers.truncate(top);
+    assert_ne!(run(&plain, &fx, false), cpu);
+}

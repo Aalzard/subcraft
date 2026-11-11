@@ -3,6 +3,7 @@
 //! Pure data — no UI toolkit, no GPU, no file format. The project crate maps this model to the
 //! versioned on-disk schema; the compositor evaluates it; the UI edits it through commands.
 
+pub mod anchor;
 pub mod blend;
 pub mod document;
 pub mod effect;
@@ -17,13 +18,14 @@ pub mod settings;
 pub mod text;
 pub mod texture_set;
 
+pub use anchor::{AnchorDomain, AnchorIndex, AnchorInfo, AnchorInput, AnchorRef, RefSite, RefStatus};
 pub use blend::BlendMode;
 pub use document::Document;
 pub use effect::{ContentEffect, ContentEffectKind};
 pub use fill::{FillSource, ProceduralKind, ProceduralParams, ScratchParams, ScratchPreset, Projection, ProjectionMode};
 pub use filter::{Filter, Gradient, GradientStop, MAX_GRADIENT_STOPS, MAX_MEDIAN_RADIUS, MAX_MOSAIC_SIZE, MAX_POSTERIZE_LEVELS, MAX_WARP_SCALE, GRADIENT_PRESETS, OutlinePosition};
 pub use history::{History, HistoryEntry};
-pub use layer::{ChannelBlend, FillChannel, FillContent, GroupContent, Layer, LayerContent, LayerKind, PaintContent, PartMask, changed_paint_tiles, empty_paint_image, same_paint_layout};
+pub use layer::{ChannelBlend, FillChannel, FillContent, GroupContent, Layer, LayerContent, LayerKind, PaintContent, PartMask, changed_paint_tiles, duplicate_layers_with_new_ids, empty_paint_image, same_paint_layout};
 pub use mask::{EdgeSpread, Generator, MicroDirection, MicroEffect, PainterControls, GeneratorKind, GradientAxis, IdColorMask, Levels, Mask, MaskEffect, MaskEffectKind};
 pub use pen::{PenAnchor, PenPath};
 pub use resources::{Resource, ResourceKind, ResourceStore};

@@ -25,14 +25,16 @@ pub fn eval_mask_scaled(mask: Option<&Mask>, tc: &TileContext, radius_scale:f32)
     if crate::stages::mask_spatial(mask) { return Some(crate::stages::mask_preview(mask,tc,radius_scale)); }
     let mut m = crate::tile::prof("mask base", || read_mask_base(&mask.base, tc));
     let mut e = vec![[0.0f32; 4]; TILE_TEXELS];
-    for effect in mask.effects.iter().filter(|e| e.visible && e.opacity > 0.0) {
+    // Anchor points change nothing and references cannot resolve without the whole texture set
+    // (the stage graph evaluates them, ADR-0045): both are skipped here.
+    for effect in mask.effects.iter().filter(|e| e.visible && e.opacity > 0.0 && !matches!(e.kind, MaskEffectKind::Anchor | MaskEffectKind::AnchorRef { .. })) {
         // e[i] = [value, alpha, _, _]
         let label = match &effect.kind {
             MaskEffectKind::Generator(_) => "mask generator (local)",
             MaskEffectKind::Fill { .. } => "mask fill (local)",
             _ => "mask effect (local)",
         };
-        crate::tile::prof(label, || evaluate_effect(&effect.kind, tc, &m, &mut e));
+        crate::tile::prof(label, || evaluate_effect(&effect.kind, tc, &m, &mut e, None));
         crate::tile::prof("mask blend (local)", || crate::blend::composite_mask_run(&mut m, &e, effect.opacity, effect.blend));
     }
     for v in m.iter_mut() {
@@ -63,9 +65,12 @@ fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
 
 /// Generator coverage: a mesh-derived raw value thresholded at `level` (optionally broken up by
 /// noise) with a `softness`-wide transition.
-fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]]) {
+///
+/// `input` (an anchor read as gray, ADR-0045) replaces the baked map the generator reads.
+fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]], input: Option<&[f32]>) {
+    let input = input.filter(|_| g.accepts_input());
     if g.kind == GeneratorKind::Edges && let Some(spread) = g.edge_spread {
-        eval_edge_spread(g, spread, tc, out);
+        eval_edge_spread(g, spread, tc, out, input);
         return;
     }
     let geo = tc.geo;
@@ -76,8 +81,14 @@ fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]]) {
         GeneratorKind::MeshMap(k) => Some(k),
         GeneratorKind::Directional | GeneratorKind::PositionGradient => None,
     };
-    if let Some(k) = map_kind {
-        tc.sample.mesh_maps.read_tile(k, geo, &mut map);
+    match (input, map_kind) {
+        (Some(values), _) => {
+            for (m, &v) in map.iter_mut().zip(values) {
+                *m = [v; 3];
+            }
+        }
+        (None, Some(k)) => tc.sample.mesh_maps.read_tile(k, geo, &mut map),
+        (None, None) => {}
     }
     let dir = Vec3::from_array(g.direction).normalize_or(Vec3::Y);
     let set = tc.set_geometry;
@@ -175,7 +186,7 @@ pub(crate) fn fine_noise(g: &Generator, geo: &subcraft_materials::sample::TileGe
     subcraft_materials::sample::organic_tile(&p, geo)
 }
 
-fn eval_edge_spread(g: &Generator, spread: subcraft_doc::EdgeSpread, tc: &TileContext, out: &mut [[f32; 4]]) {
+fn eval_edge_spread(g: &Generator, spread: subcraft_doc::EdgeSpread, tc: &TileContext, out: &mut [[f32; 4]], input: Option<&[f32]>) {
     let distances = tc.set_geometry.edge_distance_tile(tc.geo);
     // Variation changes the boundary even at zero Breakup. Breakup additionally erodes patches;
     // both share one cached non-periodic volume field and the existing Pattern size/Seed.
@@ -191,7 +202,10 @@ fn eval_edge_spread(g: &Generator, spread: subcraft_doc::EdgeSpread, tc: &TileCo
     let curvature_weight = painter.map_or(1.0, |p| p.curvature_weight.clamp(0.0, 2.0));
     let ao_masking = painter.map_or(0.0, |p| p.ao_masking.clamp(0.0, 1.0));
     let mut curvature = vec![[0.0; 3]; TILE_TEXELS];
-    tc.sample.mesh_maps.read_tile(MeshMapKind::Curvature, tc.geo, &mut curvature);
+    match input {
+        Some(values) => curvature.iter_mut().zip(values).for_each(|(c, &v)| *c = [v; 3]),
+        None => tc.sample.mesh_maps.read_tile(MeshMapKind::Curvature, tc.geo, &mut curvature),
+    }
     // Spread is a physical reach, independent of the baked-detail threshold. Multiplying by
     // Level made even maximum Spread almost disappear at the owner's Level 0.065 setting.
     let radius = spread.distance.clamp(0.0, 12.5) * 0.01;
@@ -279,7 +293,9 @@ fn eval_id_color(id: &subcraft_doc::IdColorMask, tc: &TileContext, e: &mut [[f32
     }
 }
 
-pub(crate) fn evaluate_effect(kind: &MaskEffectKind, tc: &TileContext, m: &[f32], e: &mut [[f32; 4]]) {
+/// One mask effect's `[value, coverage, _, _]` per texel. `input` is the effect's anchor input as
+/// gray (ADR-0045), when it has a resolved one.
+pub(crate) fn evaluate_effect(kind: &MaskEffectKind, tc: &TileContext, m: &[f32], e: &mut [[f32; 4]], input: Option<&[f32]>) {
         match kind {
             MaskEffectKind::Paint { image } => {
                 read_tile_rgba(image, tc.geo, e);
@@ -291,7 +307,16 @@ pub(crate) fn evaluate_effect(kind: &MaskEffectKind, tc: &TileContext, m: &[f32]
                     *o = [v, 1.0, 0.0, 0.0];
                 }
             }
-            MaskEffectKind::Generator(g) => eval_generator(g, tc, e),
+            MaskEffectKind::Generator(g) => eval_generator(g, tc, e, input),
+            MaskEffectKind::Anchor => e.fill([0.0; 4]),
+            MaskEffectKind::AnchorRef { levels, .. } => match input {
+                Some(values) => {
+                    for (o, &v) in e.iter_mut().zip(values) {
+                        *o = [levels.map_or(v, |l| l.apply(v)), 1.0, 0.0, 0.0];
+                    }
+                }
+                None => e.fill([0.0; 4]),
+            },
             MaskEffectKind::Levels(l) => {
                 for (o, &v) in e.iter_mut().zip(m) {
                     *o = [l.apply(v), 1.0, 0.0, 0.0];
