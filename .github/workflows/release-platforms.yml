@@ -93,8 +93,8 @@ jobs:
           tar -xzf dist/*.tar.gz -C "$RUNNER_TEMP"
           "$RUNNER_TEMP"/SubCraft-*/subcraft --help
           ./scripts/check-linux-binary.sh "$RUNNER_TEMP"/SubCraft-*/subcraft
+      # Enforced: passed on ubuntu-22.04-arm (lavapipe) in the first run.
       - name: Start headless (Xvfb, software rendering)
-        continue-on-error: true
         run: |
           sudo apt-get update && sudo apt-get install -y --no-install-recommends xvfb mesa-vulkan-drivers libegl1 libgl1-mesa-dri libxkbcommon-x11-0
           ./scripts/ci-smoke-start.sh "$(ls "$RUNNER_TEMP"/SubCraft-*/subcraft)" "$RUNNER_TEMP/smoke"
@@ -144,12 +144,28 @@ jobs:
           $pe = [BitConverter]::ToInt32($bytes, 0x3C)
           $machine = [BitConverter]::ToUInt16($bytes, $pe + 4)
           if ($machine -ne 0xAA64) { throw ('SubCraft.exe is not an ARM64 binary (machine 0x{0:X})' -f $machine) }
+      # Non-blocking: the first run crashed with an access violation (0xC0000005) right after
+      # "opening window with DirectX 12 / Microsoft Basic Render Driver"; the probe child had
+      # created a device there successfully. Under investigation; enforce once it passes.
       - name: Start headless (WARP)
         continue-on-error: true
         shell: pwsh
         run: |
           $exe = Get-ChildItem "$env:RUNNER_TEMP/arm64" -Recurse -Filter SubCraft.exe | Select-Object -First 1
+          # A native crash leaves no crash report of ours: keep a minidump (runner only).
+          $dumps = "$env:RUNNER_TEMP\smoke\dumps"
+          New-Item -ItemType Directory -Force $dumps | Out-Null
+          $key = 'HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\SubCraft.exe'
+          New-Item -Force $key | Out-Null
+          Set-ItemProperty $key DumpFolder $dumps
+          Set-ItemProperty $key DumpType 1
           ./scripts/ci-smoke-start.ps1 -Executable $exe.FullName -OutDir "$env:RUNNER_TEMP\smoke"
+      - name: Faulting module of a crash (Windows event log)
+        if: always()
+        shell: pwsh
+        run: |
+          Get-WinEvent -FilterHashtable @{ LogName = 'Application'; Id = 1000 } -MaxEvents 20 -ErrorAction SilentlyContinue |
+            Where-Object Message -match '(?i)subcraft' | ForEach-Object { $_.Message; '----' }
       - name: Upload smoke-start screenshot and logs
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
