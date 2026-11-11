@@ -1590,6 +1590,9 @@ impl eframe::App for SubcraftApp {
 
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        if crate::bug_report::stop_after_device_loss(&mut self.state, subcraft_render::caps::device_lost()) {
+            return;
+        }
         if let Some(p) = &mut self.profile {
             p.ui_begin();
         }
