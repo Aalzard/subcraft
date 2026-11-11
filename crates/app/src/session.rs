@@ -1020,9 +1020,12 @@ impl Session {
             Command::AddContentEffect { layer, kind } => {
                 Self::check_content_effect(&kind)?;
                 let id = self.edit_layer_set(layer, "Add Effect", None, |ts| {
-                    let effect = ContentEffect::new(kind, ts);
+                    let mut effect = ContentEffect::new(kind, ts);
+                    if matches!(effect.kind, ContentEffectKind::Anchor) {
+                        effect.name = Self::new_anchor_name(ts, layer);
+                    }
                     let l = Self::layer_mut(ts, layer)?;
-                    if l.is_folder() && !effect.kind.is_adjustment() {
+                    if l.is_folder() && !effect.kind.is_adjustment() && !matches!(effect.kind, ContentEffectKind::Anchor) {
                         return Err(CommandError::Invalid("Folders support adjustment effects only".into()));
                     }
                     let id = effect.id;
@@ -1217,8 +1220,25 @@ impl Session {
                 let set = self.common_set(&layers)?;
                 let ts = self.doc.texture_set_mut(set).ok_or(CommandError::TextureSetNotFound)?;
                 let mut last = None;
+                let mut copies = Vec::new();
                 for id in crate::clipboard::top_level_in_order(ts, &layers) {
-                    last = Some(ts.duplicate(id).map_err(|_| CommandError::LayerNotFound)?);
+                    let copy = ts.duplicate(id).map_err(|_| CommandError::LayerNotFound)?;
+                    copies.push((id, copy));
+                    last = Some(copy);
+                }
+                // Copies read the copied anchors when both were duplicated together (ADR-0045).
+                let mut map = HashMap::new();
+                for (original, copy) in &copies {
+                    if let (Some(a), Some(b)) = (ts.find(*original), ts.find(*copy)) {
+                        subcraft_doc::anchor::copied_effect_ids(a, b, &mut map);
+                    }
+                }
+                if subcraft_doc::anchor::has_references(&ts.layers) {
+                    for (_, copy) in &copies {
+                        if let Some(l) = ts.find_mut(*copy) {
+                            subcraft_doc::anchor::remap_inputs(l, &map);
+                        }
+                    }
                 }
                 self.commit("Duplicate Layers", None);
                 self.selection.layer = last.or(self.selection.layer);
@@ -1445,14 +1465,18 @@ impl Session {
                 let mut mask = self.mask_clipboard.clone().ok_or_else(|| CommandError::Invalid("Copy a mask first".into()))?;
                 self.edit_layer_set(layer, "Paste Mask", None, |ts| {
                     mask.base = mask.base.resampled(ts.resolution, ts.resolution);
+                    let mut ids = std::collections::HashMap::new();
                     mask.effects = mask.effects.iter().map(|effect| {
                         let mut effect = (**effect).clone();
+                        let old = effect.id;
                         effect.id = subcraft_core::EffectId::new();
+                        ids.insert(old, effect.id);
                         if let subcraft_doc::MaskEffectKind::Paint { image } = &mut effect.kind {
                             *image = image.resampled(ts.resolution, ts.resolution);
                         }
                         Arc::new(effect)
                     }).collect();
+                    subcraft_doc::anchor::remap_mask_inputs(&mut mask.effects, &ids);
                     Self::layer_mut(ts, layer)?.mask = Some(mask);
                     Ok(())
                 })?;
@@ -1479,8 +1503,12 @@ impl Session {
             Command::AddMaskEffect { layer, kind } => {
                 Self::check_mask_effect(&kind)?;
                 let id = self.edit_layer_set(layer, "Add Mask Effect", None, |ts| {
+                    let name = matches!(kind, subcraft_doc::MaskEffectKind::Anchor).then(|| Self::new_anchor_name(ts, layer));
                     let mask = Self::layer_mut(ts, layer)?.mask.as_mut().ok_or(CommandError::NoMask)?;
-                    let effect = MaskEffect::new(kind);
+                    let mut effect = MaskEffect::new(kind);
+                    if let Some(name) = name {
+                        effect.name = name;
+                    }
                     let id = effect.id;
                     mask.effects.push(Arc::new(effect));
                     Ok(id)
@@ -1549,6 +1577,14 @@ impl Session {
         }
         self.normalize_target();
         Ok(())
+    }
+
+    /// Default name of a new anchor point in `layer`: "<layer> anchor", numbered when taken, so
+    /// pickers can tell anchors apart (ADR-0045).
+    fn new_anchor_name(ts: &TextureSet, layer: LayerId) -> String {
+        let base = format!("{} anchor", ts.find(layer).map_or("Layer", |l| l.name.as_str()));
+        let taken: std::collections::HashSet<String> = subcraft_doc::AnchorIndex::build(&ts.layers).anchors.into_iter().map(|a| a.name).collect();
+        (1..).map(|n| if n == 1 { base.clone() } else { format!("{base} {n}") }).find(|n| !taken.contains(n)).expect("unbounded")
     }
 
     fn check_content_effect(kind: &ContentEffectKind) -> Result<(), CommandError> {

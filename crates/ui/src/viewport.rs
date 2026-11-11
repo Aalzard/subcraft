@@ -289,7 +289,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     }
 
     // ----- painting ----------------------------------------------------------------------------
-    state.pen_pressure = pen_pressure(&ui.input(|i| i.events.clone()), state.pen_pressure);
+    // `stroke_pressure` is this frame's contact force: a quick pen tap can touch down, press and
+    // lift within one frame, and its dab must use the tap's force, not the reset after release.
+    let (stroke_pressure, carried) = pen_pressure(&ui.input(|i| i.events.clone()), state.pen_pressure);
+    state.pen_pressure = carried;
     if !bake_mode && state.tool == Tool::Pen && !picking && !alt && !stencil_edit && !typing && let Some(p) = pointer {
             if primary_pressed && response.hovered() {
                 let hit = state.pen.preview(&state.session).and_then(|path| crate::pen::hit(path, state.pen.selected_anchor(), p, |uv| pen_position(state, &camera, rect, uv)));
@@ -334,7 +337,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     match state.session.begin_stroke() {
                         Ok(()) => {
                             state.painting = true;
-                            state.session.set_stroke_pressure(state.pen_pressure);
+                            state.session.set_stroke_pressure(stroke_pressure);
                             let line_from = if mods.shift { state.last_stroke_point } else { None };
                             if let Some(from) = line_from {
                                 let _ = state.session.stroke_to(&camera, from, true);
@@ -355,7 +358,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             && delta != egui::Vec2::ZERO
         {
             let sp = to_screen(p);
-            state.session.set_stroke_pressure(state.pen_pressure);
+            state.session.set_stroke_pressure(stroke_pressure);
             // Every pointer position of this frame, not just the last: a pen reports several
             // hundred per second, and stamping along all of them follows a fast curve instead
             // of cutting it into one chord per frame (at no extra stamping cost).
@@ -733,20 +736,27 @@ mod tests {
 }
 
 
-/// Pen pressure after this frame's input events. egui forwards pen/finger contacts as touch
-/// events; a pen reports its force (0..1), a finger or a mouse none, which counts as full
-/// pressure. The value is kept between frames while the contact lasts and resets on release.
-pub(crate) fn pen_pressure(events: &[egui::Event], current: f32) -> f32 {
-    let mut pressure = current;
+/// Pen pressure for this frame's input events, as `(this frame, carried to the next frame)`.
+/// egui forwards pen/finger contacts as touch events; a pen reports its force (0..1), a finger or
+/// a mouse none, which counts as full pressure. This frame's value is the last contact force seen
+/// in the frame (or the carried one when there was none). The carried value is kept while the
+/// contact lasts and resets to full on release, so a later mouse stroke isn't light.
+pub(crate) fn pen_pressure(events: &[egui::Event], current: f32) -> (f32, f32) {
+    let mut frame = None;
+    let mut carried = current;
     for event in events {
         if let egui::Event::Touch { phase, force, .. } = event {
-            pressure = match phase {
-                egui::TouchPhase::End | egui::TouchPhase::Cancel => 1.0,
-                _ => force.map_or(1.0, |f| f.clamp(0.0, 1.0)),
-            };
+            match phase {
+                egui::TouchPhase::End | egui::TouchPhase::Cancel => carried = 1.0,
+                _ => {
+                    let f = force.map_or(1.0, |f| f.clamp(0.0, 1.0));
+                    frame = Some(f);
+                    carried = f;
+                }
+            }
         }
     }
-    pressure
+    (frame.unwrap_or(current), carried)
 }
 
 #[cfg(test)]
@@ -765,23 +775,31 @@ mod pressure_tests {
 
     #[test]
     fn mouse_stays_full_pressure() {
-        assert_eq!(pen_pressure(&[], 1.0), 1.0);
+        assert_eq!(pen_pressure(&[], 1.0), (1.0, 1.0));
     }
 
     #[test]
     fn pen_force_is_followed_and_reset_on_release() {
-        let p = pen_pressure(&[touch(egui::TouchPhase::Start, Some(0.25))], 1.0);
-        assert_eq!(p, 0.25);
-        let p = pen_pressure(&[], p);
-        assert_eq!(p, 0.25, "kept while the pen stays down");
-        let p = pen_pressure(&[touch(egui::TouchPhase::Move, Some(0.8))], p);
-        assert_eq!(p, 0.8);
-        assert_eq!(pen_pressure(&[touch(egui::TouchPhase::End, Some(0.0))], p), 1.0);
+        let (p, c) = pen_pressure(&[touch(egui::TouchPhase::Start, Some(0.25))], 1.0);
+        assert_eq!((p, c), (0.25, 0.25));
+        let (p, c) = pen_pressure(&[], c);
+        assert_eq!((p, c), (0.25, 0.25), "kept while the pen stays down");
+        let (p, c) = pen_pressure(&[touch(egui::TouchPhase::Move, Some(0.8))], c);
+        assert_eq!((p, c), (0.8, 0.8));
+        assert_eq!(pen_pressure(&[touch(egui::TouchPhase::End, Some(0.0))], c).1, 1.0);
+    }
+
+    #[test]
+    fn a_tap_within_one_frame_paints_with_the_tap_force() {
+        // Touch down, press and lift all arrive in one frame (a quick tap on a slow frame): the
+        // stroke that starts this frame uses the tap's light force, not full pressure.
+        let events = [touch(egui::TouchPhase::Start, Some(0.2)), touch(egui::TouchPhase::End, Some(0.0))];
+        assert_eq!(pen_pressure(&events, 1.0), (0.2, 1.0));
     }
 
     #[test]
     fn finger_without_force_is_full_pressure() {
-        assert_eq!(pen_pressure(&[touch(egui::TouchPhase::Start, None)], 0.3), 1.0);
+        assert_eq!(pen_pressure(&[touch(egui::TouchPhase::Start, None)], 0.3), (1.0, 1.0));
     }
 }
 

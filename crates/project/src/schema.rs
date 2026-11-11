@@ -30,7 +30,10 @@ use uuid::Uuid;
 // 15: ID Color Mask effect (`id_color`); schemas 1-14 migrate unchanged (they cannot contain it).
 // 16: editable text decals on paint layers (`text`) and font resources; schemas 1-15 migrate
 //     unchanged (no text layers). Font files are stored like images, kind `font`.
-pub const SCHEMA_VERSION: u32 = 16;
+// 17: anchor points (ADR-0045): `anchor` content / mask effects, `anchor_ref` mask effects, the
+//     `anchor` fill source and the generator `input`. Schemas 1-16 migrate unchanged (they cannot
+//     contain anchors); older SubCraft versions refuse schema-17 files instead of dropping them.
+pub const SCHEMA_VERSION: u32 = 17;
 pub const FORMAT_NAME: &str = "subcraft-project";
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -138,6 +141,8 @@ pub enum ContentEffectKindV5 {
     Fill { projection: Projection, channels: Vec<FillChannelV1> },
     Levels { channel: ChannelKind, levels: Levels },
     Filter { channel: ChannelKind, filter: subcraft_doc::Filter },
+    /// Schema 17: anchor point (its name is the effect's name).
+    Anchor,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -252,6 +257,14 @@ pub enum MaskEffectKindV1 {
     Image { resource: Uuid, projection: Projection, invert: bool },
     /// Schema 15 (ADR-0041).
     IdColor { id_color: subcraft_doc::IdColorMask },
+    /// Schema 17 (ADR-0045): anchor point in a mask stack.
+    Anchor,
+    /// Schema 17 (ADR-0045): grayscale read from an anchor point.
+    AnchorRef {
+        input: subcraft_doc::AnchorInput,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        levels: Option<Levels>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

@@ -9,6 +9,7 @@ pub mod bug_report;
 pub mod clipboard;
 mod brush_bar;
 pub mod keys;
+pub mod linux_backend;
 pub mod shortcuts_window;
 pub mod dialogs;
 pub mod files;
@@ -107,6 +108,12 @@ pub fn run(options: LaunchOptions) -> eframe::Result {
     let mut errors: Vec<(String, String)> = Vec::new();
     let mut last = None;
     let previous_start_crashed = subcraft_app::startup_probe::previous_run_incomplete(subcraft_app::startup_probe::previous_log());
+    if cfg!(target_os = "linux") {
+        let decision = linux_backend::current(options.force_x11);
+        let text = linux_backend::describe(decision);
+        subcraft_app::startup_probe::step(&text);
+        if decision == linux_backend::Decision::NoXServer { log::warn!("{text}"); } else { log::info!("{text}"); }
+    }
     for api in startup_attempts(preferred, environment_override, previous_start_crashed) {
         let mut graphics = graphics.clone();
         let mut options = options.clone();
@@ -148,7 +155,7 @@ pub fn run(options: LaunchOptions) -> eframe::Result {
 fn run_with_graphics(mut options: LaunchOptions, graphics: graphics::GraphicsUi, api: subcraft_app::graphics::GraphicsApi) -> eframe::Result {
     let wgpu_options = graphics::wgpu_options(api, graphics.environment_override, graphics.gpu.clone());
     options.graphics_startup = Some(graphics);
-    let native = eframe::NativeOptions {
+    let mut native = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("SubCraft")
             .with_icon(std::sync::Arc::new(theme::app_icon()))
@@ -169,6 +176,16 @@ fn run_with_graphics(mut options: LaunchOptions, graphics: graphics::GraphicsUi,
             .map(|_| std::env::temp_dir().join(format!("subcraft-screenshot-state-{}", std::process::id()))),
         ..Default::default()
     };
+    // Pen tablets on Wayland (issue #82): run under XWayland when asked and an X server exists.
+    #[cfg(target_os = "linux")]
+    if linux_backend::current(options.force_x11) == linux_backend::Decision::ForceX11 {
+        native.event_loop_builder = Some(Box::new(|builder| {
+            use winit::platform::x11::EventLoopBuilderExtX11;
+            builder.with_x11();
+        }));
+    }
+    #[cfg(not(target_os = "linux"))]
+    { let _ = &mut native; }
     eframe::run_native("SubCraft", native, Box::new(move |cc| Ok(Box::new(SubcraftApp::new(cc, options)))))
 }
 

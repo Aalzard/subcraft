@@ -1,6 +1,6 @@
 //! SubCraft application (desktop).
 //!
-//! Desktop usage: `subcraft [project.subcraft|mesh.obj|.gltf|.glb|.fbx|.abc|.usd|.usda|.usdc|.usdz|.ply|.stl|.spp] [--demo] [--view-2d] [--screenshot out.png]`
+//! Desktop usage: `subcraft [project.subcraft|mesh.obj|.gltf|.glb|.fbx|.abc|.usd|.usda|.usdc|.usdz|.ply|.stl|.spp] [--demo] [--view-2d] [--screenshot out.png] [--x11]`
 
 // Packaged Windows builds open without a console window (logs then go nowhere; run a normal
 // build from a terminal to see them).
@@ -58,8 +58,12 @@ fn run_app() -> anyhow::Result<()> {
     let flag = |name: &str| cli.iter().any(|a| a == name);
     subcraft_app::safe_mode::init(subcraft_app::startup_probe::previous_log(), flag("--safe-mode"), flag("--normal-mode"));
     let mut options = subcraft_ui::LaunchOptions::default();
-    let mut args = std::env::args().skip(1).peekable();
-    while let Some(a) = args.next() {
+    // Arguments are read as OS strings: `std::env::args()` aborts on a file name that is not
+    // valid UTF-8 (Latin-1 file systems on Linux, unpaired surrogates on Windows). Flags and
+    // numbers are matched on a lossy copy; paths keep their original bytes.
+    let mut args = Args::new(std::env::args_os().skip(1).collect());
+    while let Some(raw) = args.next_os() {
+        let a = raw.to_string_lossy().into_owned();
         match a.as_str() {
             "--preferences" => options.preferences = true,
             "--welcome" => options.welcome = true,
@@ -70,7 +74,7 @@ fn run_app() -> anyhow::Result<()> {
                 options.guide_step = Some(step - 1);
             }
 
-            "--resume-update" => options.resume_update = args.next().map(Into::into),
+            "--resume-update" => options.resume_update = args.next_os().map(Into::into),
             "--check-updates" => options.check_updates = true,
             #[cfg(feature = "update-fixture")]
             "--auto-update-fixture" => options.auto_update_fixture = true,
@@ -84,15 +88,15 @@ fn run_app() -> anyhow::Result<()> {
             "--effect-panel" => options.effect_panel = true,
             "--select-brush" => options.select_brush = Some(args.next().ok_or_else(|| anyhow::anyhow!("--select-brush expects a Shelf brush name"))?),
             "--capture-tool" => options.capture_tool = Some(args.next().ok_or_else(|| anyhow::anyhow!("--capture-tool expects clone or smudge"))?),
-            "--import-smart" => options.import_smart.push(args.next().ok_or_else(|| anyhow::anyhow!("--import-smart expects a .scsmart file or a folder"))?.into()),
+            "--import-smart" => options.import_smart.push(args.next_os().ok_or_else(|| anyhow::anyhow!("--import-smart expects a .scsmart file or a folder"))?.into()),
             "--shelf-tab" => options.shelf_tab = Some(args.next().ok_or_else(|| anyhow::anyhow!("--shelf-tab expects a Shelf tab name"))?),
             "--render-image" => {
-                let path: std::path::PathBuf = args.next().ok_or_else(|| anyhow::anyhow!("--render-image expects an output .png"))?.into();
+                let path: std::path::PathBuf = args.next_os().ok_or_else(|| anyhow::anyhow!("--render-image expects an output .png"))?.into();
                 options.render_job = Some(subcraft_ui::render_export::Job::Image(path));
                 options.screenshot.get_or_insert_with(|| std::env::temp_dir().join("subcraft-render-window.png"));
             }
             "--turntable" => {
-                let dir: std::path::PathBuf = args.next().ok_or_else(|| anyhow::anyhow!("--turntable expects an output folder"))?.into();
+                let dir: std::path::PathBuf = args.next_os().ok_or_else(|| anyhow::anyhow!("--turntable expects an output folder"))?.into();
                 options.render_job = Some(subcraft_ui::render_export::Job::Turntable(dir));
                 options.screenshot.get_or_insert_with(|| std::env::temp_dir().join("subcraft-render-window.png"));
             }
@@ -102,8 +106,8 @@ fn run_app() -> anyhow::Result<()> {
             }
             "--quality" => options.quality = Some(args.next().ok_or_else(|| anyhow::anyhow!("--quality expects tone=..,bloom=..,ao=.."))?),
             "--export-window" => options.export_window = true,
-            "--new-project" => options.new_project_model = args.next().map(Into::into),
-            "--new-project-high" => options.new_project_high = args.next().map(Into::into),
+            "--new-project" => options.new_project_model = args.next_os().map(Into::into),
+            "--new-project-high" => options.new_project_high = args.next_os().map(Into::into),
             "--properties-panel" => options.properties_panel = true,
             "--export-template" => options.export_template = args.next().and_then(|s| s.parse().ok()),
             "--render-window" => options.render_window = true,
@@ -120,7 +124,7 @@ fn run_app() -> anyhow::Result<()> {
                 if !(2..=64).contains(&count) { anyhow::bail!("--radial count must be 2..=64"); }
                 options.radial_symmetry = Some((axis as u8, count));
             }
-            "--bake-high" => options.bake_high_poly = Some(args.next().ok_or_else(|| anyhow::anyhow!("--bake-high expects a high-poly mesh path"))?.into()),
+            "--bake-high" => options.bake_high_poly = Some(args.next_os().ok_or_else(|| anyhow::anyhow!("--bake-high expects a high-poly mesh path"))?.into()),
             "--bake-place" => options.bake_place = Some(args.next().ok_or_else(|| anyhow::anyhow!("--bake-place expects e.g. auto,offset=0.1:0:0,scale=0.8"))?),
             "--bake-preview" => options.bake_preview_only = true,
             "--bake-low" => options.bake_low = true,
@@ -147,7 +151,7 @@ fn run_app() -> anyhow::Result<()> {
                     .ok_or_else(|| anyhow::anyhow!("--bake-size expects 256, 512, 1024, 2048 or 4096"))?);
             }
             "--environment" => options.environment = args.next(),
-            "--screenshot" => options.screenshot = args.next().map(Into::into),
+            "--screenshot" => options.screenshot = args.next_os().map(Into::into),
             "--mesh-maps" => options.mesh_map_files.extend(args.next().ok_or_else(|| anyhow::anyhow!("--mesh-maps expects a comma-separated list of images"))?.split(',').map(Into::into)),
             "--bake-misses" => options.bake_misses = true,
             "--bake-cage" => {
@@ -159,6 +163,7 @@ fn run_app() -> anyhow::Result<()> {
             "--curvature-from-normal" => options.curvature_from_normal = true,
             "--id-colors" => options.id_colors = true,
             "--reset-layout" => options.reset_layout = true,
+            "--x11" => options.force_x11 = true,
             "--window-size" => {
                 options.window_size = Some(args.next().and_then(|s| subcraft_ui::app::parse_size(&s))
                     .ok_or_else(|| anyhow::anyhow!("--window-size expects WIDTHxHEIGHT, e.g. 1280x720"))?);
@@ -168,7 +173,7 @@ fn run_app() -> anyhow::Result<()> {
                     .ok_or_else(|| anyhow::anyhow!("--scale expects a number from 0.5 to 4"))?);
             }
             "--recover" => options.recover = true,
-            "--reload-mesh" => options.reload_mesh = Some(args.next().ok_or_else(|| anyhow::anyhow!("--reload-mesh expects a model path"))?.into()),
+            "--reload-mesh" => options.reload_mesh = Some(args.next_os().ok_or_else(|| anyhow::anyhow!("--reload-mesh expects a model path"))?.into()),
             "--reload-mode" => {
                 options.reload_mode = Some(match args.next().as_deref() {
                     Some("keep") => subcraft_app::ReloadMode::KeepUvs,
@@ -179,7 +184,7 @@ fn run_app() -> anyhow::Result<()> {
             "--auto-uv" => options.auto_uv = true,
             "--test-crash" => options.test_crash = true,
             "--profile-edits" => {
-                let out = args.next().ok_or_else(|| anyhow::anyhow!("--profile-edits expects an output file"))?;
+                let out = args.next_os().ok_or_else(|| anyhow::anyhow!("--profile-edits expects an output file"))?;
                 let resolution = args.peek().and_then(|s| s.parse::<u32>().ok());
                 if resolution.is_some() { args.next(); }
                 options.profile_edits = Some((out.into(), resolution));
@@ -188,10 +193,10 @@ fn run_app() -> anyhow::Result<()> {
                 options.autosave_interval = args.next().and_then(|s| s.parse::<f64>().ok()).map(std::time::Duration::from_secs_f64);
             }
             "-h" | "--help" => {
-                println!("usage: subcraft [project.subcraft | mesh file] [--demo] [--view-2d] [--brush-panel] [--bake-high mesh] [--bake-preview] [--bake-preview-map map_key] [--bake-match always|name] [--bake-place auto,center,origin,offset=x:y:z,scale=s,rot=x:y:z] [--environment name] [--bake-size 256|512|1024|2048|4096] [--symmetry xyz] [--radial y8] [--screenshot out.png] [--path-trace [samples]] [--welcome] [--quick-start] [--guide-step 1..6] [--reset-layout] [--window-size WxH] [--camera yaw,pitch,zoom[,x,y,z]] [--scale 1.5] [--recover] [--autosave-interval seconds]");
+                println!("usage: subcraft [project.subcraft | mesh file] [--demo] [--view-2d] [--brush-panel] [--bake-high mesh] [--bake-preview] [--bake-preview-map map_key] [--bake-match always|name] [--bake-place auto,center,origin,offset=x:y:z,scale=s,rot=x:y:z] [--environment name] [--bake-size 256|512|1024|2048|4096] [--symmetry xyz] [--radial y8] [--screenshot out.png] [--path-trace [samples]] [--welcome] [--quick-start] [--guide-step 1..6] [--reset-layout] [--window-size WxH] [--camera yaw,pitch,zoom[,x,y,z]] [--scale 1.5] [--x11] [--recover] [--autosave-interval seconds]");
                 return Ok(());
             }
-            path => options.mesh = Some(path.into()),
+            _ => options.mesh = Some(std::path::PathBuf::from(raw)),
         }
     }
     #[cfg(feature = "update-fixture")]
@@ -199,4 +204,47 @@ fn run_app() -> anyhow::Result<()> {
         options.screenshot = std::env::var_os("SUBCRAFT_UPDATE_FIXTURE_SCREENSHOT").map(Into::into);
     }
     subcraft_ui::run(options).map_err(|e| anyhow::anyhow!("{e}"))
+}
+
+/// Command-line words as OS strings, with lossy `String` access for flags and numbers.
+struct Args {
+    words: std::collections::VecDeque<std::ffi::OsString>,
+}
+
+impl Args {
+    fn new(words: Vec<std::ffi::OsString>) -> Self { Self { words: words.into() } }
+    /// Next word with its original bytes (file names).
+    fn next_os(&mut self) -> Option<std::ffi::OsString> { self.words.pop_front() }
+    /// Next word as text (flags, numbers, names); invalid UTF-8 becomes U+FFFD instead of a panic.
+    fn next(&mut self) -> Option<String> { self.next_os().map(|w| w.to_string_lossy().into_owned()) }
+    fn peek(&self) -> Option<String> { self.words.front().map(|w| w.to_string_lossy().into_owned()) }
+    /// Take the next word only when `accept` says so (optional trailing values).
+    fn next_if(&mut self, accept: impl FnOnce(&str) -> bool) -> Option<String> {
+        if self.peek().is_some_and(|w| accept(&w)) { self.next() } else { None }
+    }
+}
+
+#[cfg(test)]
+mod args_tests {
+    use super::Args;
+
+    #[test]
+    fn words_keep_their_bytes_and_optional_values_are_optional() {
+        let mut a = Args::new(vec!["--path-trace".into(), "64".into(), "model.obj".into()]);
+        assert_eq!(a.next().as_deref(), Some("--path-trace"));
+        assert_eq!(a.next_if(|s| s.parse::<u32>().is_ok()).as_deref(), Some("64"));
+        assert_eq!(a.next_if(|s| s.parse::<u32>().is_ok()), None, "a file name is not a sample count");
+        assert_eq!(a.next_os().as_deref(), Some(std::ffi::OsStr::new("model.obj")));
+        assert_eq!(a.next(), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_non_utf8_file_name_does_not_abort() {
+        use std::os::unix::ffi::OsStringExt;
+        let raw = std::ffi::OsString::from_vec(vec![b'm', 0xE9, b'.', b'o', b'b', b'j']); // "mé.obj" in Latin-1
+        let mut a = Args::new(vec![raw.clone()]);
+        assert_eq!(a.peek().as_deref(), Some("m\u{FFFD}.obj"));
+        assert_eq!(a.next_os(), Some(raw));
+    }
 }

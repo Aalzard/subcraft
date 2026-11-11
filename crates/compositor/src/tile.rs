@@ -39,7 +39,7 @@ impl Acc {
 /// Composite all layers of `ts` for one tile. Returns, per texture-set channel (in
 /// `ts.channels` order), the accumulated `[v0, v1, v2, alpha]` texels.
 pub fn evaluate_tile(ts: &TextureSet, tc: &TileContext) -> Vec<(ChannelKind, Vec<[f32; 4]>)> {
-    if crate::stages::has_spatial(&ts.layers) {
+    if crate::stages::needs_graph(&ts.layers) {
         let cache = crate::stages::StageCache::default();
         let ctx = crate::EvalContext { geometry: tc.set_geometry, resources: tc.sample.resources, mesh_maps: tc.sample.mesh_maps };
         let graph = crate::stages::Graph::new(ts, ctx, &cache);
@@ -133,6 +133,7 @@ fn fill_label(fill: &subcraft_doc::FillContent, kind: ChannelKind) -> &'static s
         Some(FillSource::Procedural { .. }) if tri => "fill procedural tri",
         Some(FillSource::Procedural { .. }) => "fill procedural",
         Some(FillSource::MeshMap { .. }) => "fill mesh map",
+        Some(FillSource::Anchor { .. }) => "fill anchor",
         None => "fill (off)",
     }
 }
@@ -251,6 +252,10 @@ pub(crate) fn read_paint(img: &subcraft_image::TiledImage, kind: ChannelKind, tc
 /// Evaluate one channel of a fill as `[v0, v1, v2, alpha]`; false if the channel is off/absent.
 pub(crate) fn eval_fill(fill: &subcraft_doc::FillContent, kind: ChannelKind, tc: &TileContext, out: &mut [[f32; 4]]) -> bool {
     let Some(ch) = fill.channels.get(&kind).filter(|c| c.enabled) else { return false };
+    // Anchor sources need the whole texture set: the stage graph reads them (ADR-0045).
+    if matches!(ch.source, subcraft_doc::FillSource::Anchor { .. }) {
+        return false;
+    }
     let filter = if kind == ChannelKind::BaseColor { tc.albedo_filter } else { subcraft_image::TextureFilter::Bilinear };
     eval_fill_tile_filtered(&ch.source, kind.is_color(), &fill.projection, tc.geo, &tc.sample, filter, out);
     crate::strength::apply_strength(kind, ch.strength, out);
@@ -298,6 +303,7 @@ fn apply_content_effects(effects: &[Arc<ContentEffect>], acc: &Acc, content: &mu
                 }
                 continue;
             }
+            ContentEffectKind::Anchor => continue,
             ContentEffectKind::Filter { channel, filter } => {
                 if *channel != kind || !filter.supports_channel(kind) || !filter.valid() { continue; }
                 for px in content.iter_mut() {

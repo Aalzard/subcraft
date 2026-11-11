@@ -3,7 +3,40 @@
 What changed in SubCraft, newest first. Download the latest build from the
 [Releases page](https://github.com/Aalzard/subcraft/releases/latest).
 
-## Unreleased
+## 0.3.4
+
+### Added
+- **Anchor points**, like Substance Painter. Add › Anchor Point on a layer's content or mask captures that
+  stack at that point. Layers above can read it: a fill channel's source (Anchor), an Anchor Reference mask
+  effect (with optional Levels), or a generator's input image in place of its baked map. Pick the anchor and,
+  for content anchors, the channel. References only read anchors below them; a missing, misplaced or
+  circular reference is shown with a warning on the layer row and in Properties and changes nothing.
+  Duplicates and pasted masks read their own copied anchors. Works with GPU compositing. Projects use schema
+  17 (older projects open unchanged; older SubCraft refuses the new files instead of losing anchors).
+- **`.spp` import keeps anchors live**: Painter anchor points become anchor points, and mask and fill
+  references stay linked to them, instead of being baked into fixed rasters.
+
+### Fixed
+- **Pen tablet clicks on Linux Wayland** (issue #82). On Wayland compositors that do not emulate a
+  mouse for tablet tools (Niri and some wlroots compositors), a pen moved the cursor but SubCraft
+  received no clicks at all. The new `--x11` option (or `SUBCRAFT_X11=1`) runs SubCraft under
+  XWayland, where the pen works as a pointer. It is only used when an X server is reachable, and the
+  start-up log now says which display backend is in use.
+- **OBJ and glTF import no longer crash** on files where only some corners have UVs or normals (for example DAZ Studio OBJs).
+- **glTF import ignores texture files.** A `.gltf` shared without its textures, or with differently-cased file names on Linux and macOS, now imports its geometry instead of failing.
+- **A quick pen tap** paints with the tap's pressure instead of full pressure, which could leave a big spot.
+- **Saving refuses a project that is too large to open again** (over 1 GiB per entry) and says so, instead of writing a file that then fails to open.
+- **Start-up no longer aborts** when a command-line argument is not valid UTF-8, and the user library works on systems without a Documents folder.
+
+## 0.3.3
+
+### Fixed
+- **Repeated graphics resets on some integrated GPUs** (issue #119). When the graphics card stops
+  responding (a driver reset: the screen goes dark for a moment), the next start now opens in safe
+  mode and turns GPU compositing and GPU baking off, so it doesn't happen again on every start. Turn
+  them back on in Preferences after a driver update.
+
+## 0.3.2
 
 ### Fixed
 - **Crash "map accumulators: BufferAsyncError" while baking** (issue #119). When the GPU failed to
