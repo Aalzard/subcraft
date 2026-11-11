@@ -64,7 +64,15 @@ jobs:
     steps:
       - name: Install build and runtime packages
         run: |
-          apt-get update
+          # archive.ubuntu.com drops connections now and then; a failed index fetch makes every
+          # package "unavailable". Retry downloads, and the whole update, before giving up.
+          echo 'Acquire::Retries "5";' > /etc/apt/apt.conf.d/80retries
+          # (focal's apt 2.0 still exits 0 when an index fails, so look at its output.)
+          for i in 1 2 3; do
+            apt-get update 2>&1 | tee /tmp/apt-update.log
+            grep -Eq '^(Err:|W: Failed to fetch|E: )' /tmp/apt-update.log || break
+            sleep 20
+          done
           apt-get install -y --no-install-recommends ca-certificates curl git gcc g++ pkg-config binutils \
             xvfb mesa-vulkan-drivers libvulkan1 libegl1 libgl1-mesa-dri libxkbcommon-x11-0 libxkbcommon0
           # The X11 client libraries winit loads at run time (dlopen). A desktop install always has
