@@ -204,7 +204,7 @@ pub(crate) fn editor_raw(g: &Generator, tc: &TileContext, out: &mut [f32]) {
         };
         let sc = projection.rotation_sin_cos();
         editor_mix(out, texture.opacity, texture.blend, |i| {
-            let s = subcraft_materials::sample::sample_projected_sc(&projection, sc, geo.uv(i), geo.position(i), geo.normal(i), |p| bmp.sample(p[0], p[1], Wrap::Repeat, false));
+            let s = subcraft_materials::sample::sample_projected_sc(&projection, sc, geo.uv(i), geo.position(i), geo.normal(i), |p| bmp.sample(p[0], p[1], subcraft_image::Wrap::Repeat, false));
             texture.shape([s[0], s[1], s[2]])
         });
     }
