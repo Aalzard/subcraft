@@ -363,13 +363,14 @@ fn filtering_hq_averages_a_minified_texture_sharp_and_nearest_do_not() {
     let tiled = |filtering| Projection { scale: [8.0, 8.0], filtering, ..Projection::default() };
     let hq = eval_bitmap(&res, id, &tiled(FillFiltering::BilinearHq), &g);
     assert!(hq.iter().all(|o| (o[0] - 128.0 / 255.0).abs() < 1e-6 && o[3] == 1.0), "{:?}", &hq[..4]);
-    // Sharp point-samples the full-size image: texel centers land on texel corners (the average
-    // of the four neighbours, 0.5) or on texel centers depending on the phase; with a quarter
-    // texel offset every sample is a distinct bilinear mix, not the average.
-    let shifted = |filtering| Projection { offset: [0.25 / 64.0, 0.0], ..tiled(filtering) };
+    // Sharp bilinear-samples the full-size image. Tiling 7 steps 3.5 source texels per texel, so
+    // the sample phase alternates between 0.25 and 0.75 texel on both axes: bilinear mixes of
+    // 0.375 and 0.625, never the 0.5 average. (Tiling 8 would land every sample halfway between
+    // two rows, where even point sampling of a checker reads 0.5.)
+    let shifted = |filtering| Projection { scale: [7.0, 7.0], filtering, ..Projection::default() };
     let sharp = eval_bitmap(&res, id, &shifted(FillFiltering::BilinearSharp), &g);
     let (lo, hi) = sharp.iter().fold((1.0f32, 0.0f32), |(lo, hi), o| (lo.min(o[0]), hi.max(o[0])));
-    assert!(hi - lo > 0.4, "sharp keeps the checker contrast (aliasing): {lo}..{hi}");
+    assert!(hi - lo > 0.2, "sharp keeps the checker contrast (aliasing): {lo}..{hi}");
     let hq_shifted = eval_bitmap(&res, id, &shifted(FillFiltering::BilinearHq), &g);
     assert!(hq_shifted.iter().all(|o| (o[0] - 128.0 / 255.0).abs() < 1e-6));
     // Nearest only ever returns texel values.
