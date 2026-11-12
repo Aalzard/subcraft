@@ -143,3 +143,20 @@ fn polygon_fill_in_the_2d_view_fills_the_clicked_island() {
     assert_eq!(state.session.history().undo_label(), Some("Polygon Fill"));
     assert!(painted(&state, ChannelKind::BaseColor) > 0);
 }
+
+/// QA 2026-11: the Clone and Smudge tools painted a plain brush-colour stroke in the 2D view.
+#[test]
+fn clone_and_smudge_do_not_paint_plain_strokes_in_the_2d_view() {
+    for tool in [Tool::Clone, Tool::Smudge] {
+        let (mut state, ctx) = setup();
+        state.tool = tool;
+        let rect = image(&settle(&mut state, &ctx));
+        let uv = island_uv(&state);
+        let start = rect.min + egui::vec2(uv.x, uv.y) * rect.width();
+        let (doc, entries) = (state.session.document().clone(), state.session.history().entries().len());
+        drag(&mut state, &ctx, start, start + egui::vec2(6.0, 3.0), Modifiers::NONE);
+        assert!(!state.session.is_stroking(), "{tool:?}");
+        assert_eq!(state.session.document(), &doc, "{tool:?} changed the document");
+        assert_eq!(state.session.history().entries().len(), entries, "{tool:?}");
+    }
+}
