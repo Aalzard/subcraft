@@ -1064,6 +1064,49 @@ fn out_of_range_mask_editor_settings_are_refused_on_load() {
     assert!(matches!(err, ProjectError::Invalid(ref m) if m.contains("Mask Editor")), "{err}");
 }
 
+/// QA 2026-11: shape settings (3D Distance, gradients...) were never checked on load, and
+/// generators in the content stack skipped every check: out-of-range values loaded and turned
+/// the mask, or every channel, NaN.
+#[test]
+fn out_of_range_generator_shapes_are_refused_in_masks_and_content_stacks() {
+    use subcraft_doc::{ContentEffect, ContentEffectKind, Generator, GeneratorKind, Mask, MaskEffect, MaskEffectKind};
+    let generator = |radius: f32, contrast: f32| {
+        let mut g = Generator::new(GeneratorKind::Distance3D);
+        g.shape = Some(subcraft_doc::ShapeSettings { radius, ..g.shape_settings() });
+        let mut editor = Generator::new(GeneratorKind::Cavity);
+        editor.set_kind(GeneratorKind::MaskEditor);
+        editor.editor.as_mut().unwrap().global_contrast = contrast;
+        (g, editor)
+    };
+    let doc_with = |radius: f32, contrast: f32, in_content: bool| {
+        let mut ts = TextureSet::new("Body", 0, 128);
+        let tc = ts.clone();
+        let mut layer = Layer::new_fill("Fill", &tc);
+        let (shape, editor) = generator(radius, contrast);
+        if in_content {
+            for g in [shape, editor] {
+                layer.content_effects.push(std::sync::Arc::new(ContentEffect::new(ContentEffectKind::Generator(g), &tc)));
+            }
+        } else {
+            let mut mask = Mask::new(128, false);
+            for g in [shape, editor] {
+                mask.effects.push(std::sync::Arc::new(MaskEffect::new(MaskEffectKind::Generator(g))));
+            }
+            layer.mask = Some(mask);
+        }
+        ts.insert_above(None, layer);
+        Document { texture_sets: vec![ts] }
+    };
+    let bytes = |doc: &Document| write_project(Cursor::new(Vec::new()), &primitives::cube(2.), doc, &ResourceStore::default(), &MeshMapSet::new()).unwrap().into_inner();
+    for in_content in [false, true] {
+        assert!(read_project(Cursor::new(bytes(&doc_with(0.5, 0.5, in_content)))).is_ok(), "valid settings load (content: {in_content})");
+        let err = read_project(Cursor::new(bytes(&doc_with(1.0e30, 0.5, in_content)))).unwrap_err();
+        assert!(matches!(err, ProjectError::Invalid(ref m) if m.contains("shape")), "content {in_content}: {err}");
+        let err = read_project(Cursor::new(bytes(&doc_with(0.5, 1.0e30, in_content)))).unwrap_err();
+        assert!(matches!(err, ProjectError::Invalid(ref m) if m.contains("Mask Editor")), "content {in_content}: {err}");
+    }
+}
+
 #[test]
 fn imported_cameras_are_saved_with_the_project_and_old_projects_have_none() {
     let doc = Document { texture_sets: vec![TextureSet::new("Body", 0, 128)] };
