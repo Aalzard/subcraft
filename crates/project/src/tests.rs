@@ -112,7 +112,7 @@ fn old_part_masks_default_to_connected_and_new_domains_have_stable_names() {
 
 #[test]
 fn layer_colour_tags_roundtrip_and_untagged_layers_write_no_field() {
-    let mut ts = TextureSet::new("Body", 0, 64);
+    let mut ts = TextureSet::new("Body", 0, 128);
     let mut tagged = Layer::new_fill("Tagged", &ts);
     tagged.color = Some(subcraft_doc::LayerColor::Violet);
     let mut folder = Layer::new_folder("Folder", &ts);
