@@ -241,3 +241,23 @@ fn absurdly_nested_prims_are_an_error_not_a_crash() {
     assert!(matches!(&r, Err(ImportError::Usd(m)) if m.contains("nested")), "{r:?}");
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+/// QA 2026-11: the nesting limit was only applied after parsing, and the text parser itself
+/// recurses per nested prim. On an ordinary thread (the app opens models on the UI thread) a
+/// deeply nested file overflowed the stack, which ends the process. No big-stack thread here.
+#[test]
+fn deeply_nested_text_files_are_refused_before_they_are_parsed() {
+    let dir = tmp("deeper");
+    let depth = 200_000;
+    let mut text = String::from("#usda 1.0\n");
+    for i in 0..depth {
+        text += &format!("def Xform \"X{i}\"\n{{\n");
+    }
+    text += &"}\n".repeat(depth);
+    let r = import_mesh(&write(&dir, "deeper.usda", &text));
+    assert!(matches!(&r, Err(ImportError::Usd(m)) if m.contains("nested")), "{r:?}");
+    // Braces inside comments do not count; an ordinary file still imports.
+    let commented = QUAD.replace("def Xform \"Root\"", &format!("# {}\ndef Xform \"Root\"", "{".repeat(2000)));
+    assert_eq!(import_mesh(&write(&dir, "commented.usda", &commented)).unwrap().mesh.triangle_count(), 2);
+    std::fs::remove_dir_all(dir).unwrap();
+}

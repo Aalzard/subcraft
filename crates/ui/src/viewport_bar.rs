@@ -405,12 +405,18 @@ pub fn show(ui: &mut Ui, state: &mut crate::state::UiState) {
                     ui.separator();
                     ui.add_space(5.0);
                     crate::brush_bar::show(ui, &mut state.tool, &mut settings, &mut options, &mut state.recovery.prefs.viewport, width);
+                    if state.tool == crate::state::Tool::PolygonFill {
+                        crate::brush_bar::fill_options(ui, &mut state.fill_mode, Some(&mut state.fill_visible_only), "fill_mode_3d");
+                    }
                 }
             });
             if painting && !inline {
                 ui.separator();
                 ui.horizontal(|ui| {
-                    crate::brush_bar::show(ui, &mut state.tool, &mut settings, &mut options, &mut state.recovery.prefs.viewport, width)
+                    crate::brush_bar::show(ui, &mut state.tool, &mut settings, &mut options, &mut state.recovery.prefs.viewport, width);
+                    if state.tool == crate::state::Tool::PolygonFill {
+                        crate::brush_bar::fill_options(ui, &mut state.fill_mode, Some(&mut state.fill_visible_only), "fill_mode_3d");
+                    }
                 });
             }
             if painting {

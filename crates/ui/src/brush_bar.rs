@@ -50,6 +50,40 @@ pub(crate) fn show(
     }
 }
 
+/// Polygon fill's element choice (Triangle, Polygon, Mesh, UV island, Object).
+pub(crate) fn fill_mode_combo(ui: &mut Ui, mode: &mut subcraft_paint::PolygonFillMode, id: &str) -> egui::Response {
+    use subcraft_paint::PolygonFillMode;
+    let tip = |m: PolygonFillMode| match m {
+        PolygonFillMode::Triangle => "One triangle",
+        PolygonFillMode::Polygon => "The quad or n-gon the model was made of",
+        PolygonFillMode::MeshElement => "A connected piece of the mesh",
+        PolygonFillMode::UvIsland => "A UV island",
+        PolygonFillMode::Object => "A whole object of the model",
+    };
+    egui::ComboBox::from_id_salt(id)
+        .selected_text(mode.label())
+        .width(96.0)
+        .show_ui(ui, |ui| {
+            for m in PolygonFillMode::ALL {
+                ui.selectable_value(mode, m, m.label()).on_hover_text(tip(m));
+            }
+        })
+        .response
+        .on_hover_text("Polygon fill: what a click or a box fills")
+}
+
+/// Polygon fill options for the viewport rows: element mode and, in 3D, visible-only boxes.
+pub(crate) fn fill_options(ui: &mut Ui, mode: &mut subcraft_paint::PolygonFillMode, visible_only: Option<&mut bool>, id: &str) {
+    ui.label(RichText::new("Fill").color(TEXT_DIM));
+    fill_mode_combo(ui, mode, id);
+    if let Some(v) = visible_only {
+        let r = widgets::icon_toggle(ui, icons::EYE, *v, "Visible polygons only: boxes skip back faces and hidden triangles (click to toggle)");
+        if r.clicked() {
+            *v = !*v;
+        }
+    }
+}
+
 fn stroke_options(ui: &mut Ui, options: &mut StrokeOptions, view: &mut crate::viewport_bar::ViewportPrefs, settings: &mut BrushSettings) {
     let on = options.has_symmetry() || options.lazy_distance_px > 0.0 || options.smoothing > 0.0;
     let response = widgets::icon_toggle(
