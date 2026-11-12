@@ -144,7 +144,19 @@ impl Session {
         if !self.has_hidden_parts() { return; }
         self.part_view.hidden.clear(); self.part_view.isolated = None;
         // Geometry hidden by Alt+H stays hidden: it follows the layer's mask, not these clicks.
-        self.rebuild_part_view();
+        self.refresh_part_view();
+    }
+
+    /// Rebuild the picking / painting scene after parts or texture sets were hidden or shown, or
+    /// the geometry hidden by Alt+H changed.
+    pub(crate) fn refresh_part_view(&mut self) {
+        if self.has_hidden_parts() || self.part_view.excluded.is_some() || self.document().texture_sets.iter().any(|ts| self.is_set_hidden(ts.id)) {
+            self.rebuild_part_view();
+        } else if self.part_view.scene.is_some() {
+            self.part_view.scene = None;
+            self.part_view.visible = Default::default();
+            self.part_view.revision += 1;
+        }
     }
 
     /// Whether Painter's "hide / ignore excluded geometry" (Alt+H) is on.
@@ -173,23 +185,20 @@ impl Session {
         let want = if self.part_view.hide_excluded { self.excluded_mask() } else { None };
         if want != self.part_view.excluded {
             self.part_view.excluded = want;
-            self.rebuild_part_view();
+            self.refresh_part_view();
         }
     }
 
     fn rebuild_part_view(&mut self) {
-        if self.part_view.hidden.is_empty() && self.part_view.isolated.is_none() && self.part_view.excluded.is_none() {
-            if self.part_view.scene.take().is_some() {
-                self.part_view.visible = Default::default();
-                self.part_view.revision += 1;
-            }
-            return;
-        }
         let mut mesh = (*self.scene().mesh).clone();
         let geo = self.scene().geometry.get(0, 1);
+        // Texture sets hidden in the viewport (eye, Alt+Q isolation) are gone for picking and
+        // painting too: invisible geometry used to take the orbit pivot and block strokes.
+        let hidden_slots: Vec<u32> = self.document().texture_sets.iter().filter(|ts| self.is_set_hidden(ts.id)).map(|ts| ts.material_slot).collect();
         let excluded = self.part_view.excluded.as_ref();
         for t in 0..mesh.triangle_count() {
             let hidden = self.part_view.hidden.iter().any(|key| geo.triangle_region(t, key.kind) == Some(key.id))
+                || mesh.tri_material.get(t).is_some_and(|m| hidden_slots.contains(m))
                 || excluded.is_some_and(|(slot, mask)| mesh.tri_material[t] == *slot && mask.factor(geo.triangle_region(t, mask.kind)) <= 0.0);
             let outside = self.part_view.isolated.is_some_and(|key| geo.triangle_region(t, key.kind) != Some(key.id));
             // Retain triangle numbering and material ranges. Degenerate faces don't draw, hit or
@@ -210,11 +219,11 @@ impl Session {
         match action {
             PartAction::Hide => {
                 if !self.part_view.hidden.remove(&target.part) { self.part_view.hidden.insert(target.part); }
-                self.rebuild_part_view(); return Ok(());
+                self.refresh_part_view(); return Ok(());
             }
             PartAction::Isolate => {
                 self.part_view.isolated = if self.part_view.isolated == Some(target.part) { None } else { Some(target.part) };
-                self.part_view.hidden.remove(&target.part); self.rebuild_part_view(); return Ok(());
+                self.part_view.hidden.remove(&target.part); self.refresh_part_view(); return Ok(());
             }
             PartAction::PickColor | PartAction::PickMaterial => {
                 self.sample_material_at(target.texture_set, target.uv, action == PartAction::PickMaterial); return Ok(());

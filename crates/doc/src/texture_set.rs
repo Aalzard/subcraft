@@ -48,6 +48,62 @@ impl ChannelDef {
     }
 }
 
+/// How the viewport draws a texture set's opacity (Painter's alpha shader variants:
+/// `pbr-metal-rough` = Opaque, `...-with-alpha-test`, `...-with-alpha-blending`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AlphaMode {
+    /// Opacity is ignored in the viewport (it still exports).
+    #[default]
+    Opaque,
+    /// Texels below the threshold are cut out; the rest is drawn solid (depth-correct).
+    Test,
+    /// Blended over what is behind it (no depth write, drawn after the opaque sets).
+    Blend,
+}
+
+impl AlphaMode {
+    pub const ALL: [AlphaMode; 3] = [AlphaMode::Opaque, AlphaMode::Test, AlphaMode::Blend];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            AlphaMode::Opaque => "Opaque",
+            AlphaMode::Test => "Alpha test",
+            AlphaMode::Blend => "Alpha blending",
+        }
+    }
+}
+
+/// Viewport treatment of a texture set's opacity (Painter's shader "Alpha threshold" and
+/// "Alpha dithering" common parameters). Display only: export never reads it.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct AlphaSettings {
+    #[serde(default)]
+    pub mode: AlphaMode,
+    /// Alpha test cut-off, 0..1 (Painter's default 0.33).
+    #[serde(default = "default_alpha_threshold")]
+    pub threshold: f32,
+    /// Replace blending/testing by an ordered (Bayer) dither: depth-correct, no sorting.
+    #[serde(default)]
+    pub dithering: bool,
+}
+
+fn default_alpha_threshold() -> f32 {
+    0.33
+}
+
+impl Default for AlphaSettings {
+    fn default() -> Self {
+        Self { mode: AlphaMode::Opaque, threshold: default_alpha_threshold(), dithering: false }
+    }
+}
+
+impl AlphaSettings {
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
 pub const RESOLUTIONS: [u32; 6] = [128, 256, 512, 1024, 2048, 4096];
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -80,6 +136,11 @@ pub struct TextureSet {
     /// The UDIM tile (`[column, row]` in stored UV space, see `subcraft_mesh::regroup`) this set
     /// paints; `None` for an ordinary set. Its mesh slot was moved into the 0..1 square.
     pub udim_tile: Option<[i32; 2]>,
+    /// Start empty: every channel's stack begins transparent (alpha 0) instead of the opaque
+    /// channel default, so unpainted texels export with alpha 0 (issue #145).
+    pub transparent: bool,
+    /// How the viewport draws opacity.
+    pub alpha: AlphaSettings,
 }
 
 impl TextureSet {
@@ -93,6 +154,8 @@ impl TextureSet {
             channels: ChannelKind::METAL_ROUGH.iter().map(|&k| ChannelDef::default_for(k)).collect(),
             layers: Vec::new(),
             udim_tile: None,
+            transparent: false,
+            alpha: AlphaSettings::default(),
         }
     }
 
@@ -107,6 +170,11 @@ impl TextureSet {
             (Some(_), Some((base, tail))) if tail.len() == 4 && tail.bytes().all(|b| b.is_ascii_digit()) => base,
             _ => &self.name,
         }
+    }
+
+    /// Alpha the layer stack starts from: 0 for a transparent set, 1 otherwise.
+    pub fn base_alpha(&self) -> f32 {
+        if self.transparent { 0.0 } else { 1.0 }
     }
 
     pub fn has_channel(&self, kind: ChannelKind) -> bool {

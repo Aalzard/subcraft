@@ -1,7 +1,7 @@
 //! Evaluation of a layer tree for one tile.
 //!
 //! Every channel keeps a running accumulation of straight `(value, alpha)` texels. The root starts
-//! at the channel's default value with alpha 1; isolated folders start transparent; passthrough
+//! at the channel's default value with alpha 1 (0 in a transparent texture set); isolated folders start transparent; passthrough
 //! folders let their children act directly on the accumulation below and then lerp the result
 //! by folder opacity × mask.
 
@@ -26,9 +26,10 @@ struct Acc {
 }
 
 impl Acc {
-    fn root(kind: ChannelKind) -> Self {
+    /// The channel default with the set's base alpha (0 for a transparent set, issue #145).
+    fn root(kind: ChannelKind, alpha: f32) -> Self {
         let d = kind.default_value().0;
-        Self { kind, target: BlendTarget::for_channel(kind), px: vec![[d[0], d[1], d[2], 1.0]; TILE_TEXELS] }
+        Self { kind, target: BlendTarget::for_channel(kind), px: vec![[d[0], d[1], d[2], alpha]; TILE_TEXELS] }
     }
 
     fn transparent(kind: ChannelKind) -> Self {
@@ -61,7 +62,7 @@ pub(crate) fn evaluate_tile_local_cached(
     tile: usize,
     prefix: Option<(&crate::PrefixCache, &[usize])>,
 ) -> Vec<(ChannelKind, Vec<[f32; 4]>)> {
-    let mut accs: Vec<Acc> = ts.channel_kinds().map(Acc::root).collect();
+    let mut accs: Vec<Acc> = ts.channel_kinds().map(|k| Acc::root(k, ts.base_alpha())).collect();
     let active = vec![true; accs.len()];
     let Some((cache, plan)) = prefix else {
         apply_stack(&ts.layers, &mut accs, &active, tc);
@@ -114,7 +115,7 @@ pub fn preview_content_context_scaled(layer: &Layer, channel: ChannelKind, tc: &
     source.visible = true;
     source.mask = None;
     source.parts = None;
-    let mode=if layer.is_folder() && layer.blend_for(channel).mode==BlendMode::Passthrough {BlendMode::Passthrough} else {BlendMode::Normal};
+    let mode=if layer.blend_for(channel).mode==BlendMode::Passthrough {BlendMode::Passthrough} else {BlendMode::Normal};
     source.blend.insert(channel, subcraft_doc::ChannelBlend::new(mode));
     if source.is_folder() && !stack.is_empty() { return crate::stages::content_preview_in_stack(&source,channel,tc,radius_scale,stack); }
     if crate::stages::has_spatial(&[Arc::new(source.clone())]) { return crate::stages::content_preview(&source,channel,tc,radius_scale); }
@@ -177,6 +178,23 @@ fn apply_layer(layer: &Layer, accs: &mut [Acc], active: &[bool], tc: &TileContex
     let mask_at = |i: usize| mask.as_ref().map_or(1.0, |m| m[i]);
     let mask_ref = mask.as_deref();
     let mut content = vec![[0.0f32; 4]; TILE_TEXELS];
+    // A paint / fill layer in Passthrough: the accumulated stack is its content, its effects
+    // process it, and the result mixes back by opacity and mask (like a passthrough folder).
+    let mut live = live;
+    if !layer.is_folder() {
+        for (acc, on) in accs.iter_mut().zip(live.iter_mut()) {
+            let blend = layer.blend_for(acc.kind);
+            if !*on || blend.mode != BlendMode::Passthrough {
+                continue;
+            }
+            *on = false;
+            let mut inner = acc.px.clone();
+            apply_content_effects(&layer.content_effects, acc, &mut inner, tc);
+            for (i, (dst, src)) in acc.px.iter_mut().zip(&inner).enumerate() {
+                crate::blend::passthrough_mix(dst, src, (blend.opacity * mask_at(i)).clamp(0.0, 1.0));
+            }
+        }
+    }
 
     match &layer.content {
         LayerContent::Paint(paint) => {
@@ -302,8 +320,8 @@ fn apply_content_effects(effects: &[Arc<ContentEffect>], acc: &Acc, content: &mu
                 continue;
             }
             ContentEffectKind::Anchor => continue,
-            ContentEffectKind::Filter { channel, filter } => {
-                if *channel != kind || !filter.supports_channel(kind) || !filter.valid() { continue; }
+            ContentEffectKind::Filter { filter, .. } => {
+                if !effect.applies_to(kind) || !filter.valid() { continue; }
                 for px in content.iter_mut() {
                     let mut dst = [px[0], px[1], px[2], 1.0];
                     let value = subcraft_materials::filter::apply(*filter, [px[0], px[1], px[2]], kind);

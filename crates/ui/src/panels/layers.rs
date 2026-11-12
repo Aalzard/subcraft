@@ -173,11 +173,12 @@ struct EyeSlide(bool);
 pub(crate) fn eye_slide(ui: &Ui, eye: &egui::Response, visible: bool) -> bool {
     let id = egui::Id::new("eye_slide");
     let (pressed, down, pos) = ui.input(|i| (i.pointer.primary_pressed(), i.pointer.primary_down(), i.pointer.interact_pos()));
+    let over = pos.is_some_and(|p| eye.rect.contains(p));
     if !down {
         ui.data_mut(|d| d.remove::<EyeSlide>(id));
-        return false;
+        // Pressed and released within one frame (a quick pen tap, a slow frame): still a click.
+        return pressed && over && eye.contains_pointer();
     }
-    let over = pos.is_some_and(|p| eye.rect.contains(p));
     if pressed {
         if over && eye.contains_pointer() {
             ui.data_mut(|d| d.insert_temp(id, EyeSlide(!visible)));

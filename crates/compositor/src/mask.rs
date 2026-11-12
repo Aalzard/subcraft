@@ -78,6 +78,10 @@ fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]], input: 
         }
         return;
     }
+    if g.kind.uses_shape() {
+        eval_shape_generator(g, tc, out);
+        return;
+    }
     let input = input.filter(|_| g.accepts_input());
     if g.kind == GeneratorKind::Edges && let Some(spread) = g.edge_spread {
         eval_edge_spread(g, spread, tc, out, input);
@@ -90,6 +94,7 @@ fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]], input: 
         GeneratorKind::Cavity | GeneratorKind::AmbientOcclusion => Some(MeshMapKind::AmbientOcclusion),
         GeneratorKind::MeshMap(k) => Some(k),
         GeneratorKind::Directional | GeneratorKind::PositionGradient | GeneratorKind::MaskEditor => None,
+        GeneratorKind::Distance3D | GeneratorKind::LinearGradient3D | GeneratorKind::UvRandomColor | GeneratorKind::GrayscaleConversion => None,
     };
     match (input, map_kind) {
         (Some(values), _) => {
@@ -102,6 +107,8 @@ fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]], input: 
     }
     let dir = Vec3::from_array(g.direction).normalize_or(Vec3::Y);
     let set = tc.set_geometry;
+    let attenuation = g.shape.map_or(0.0, |s| s.attenuation.clamp(0.0, 1.0));
+    let extent = set.bounds.extent().to_array().map(|e| e.max(1e-12));
     let axis = g.axis.index();
     let ext_axis = set.bounds.extent()[axis].max(1e-12);
     let half = g.softness.max(1e-4) * 0.5;
@@ -148,7 +155,8 @@ fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]], input: 
             GeneratorKind::Directional => Vec3::from_array(geo.normal(i)).dot(dir) * 0.5 + 0.5,
             GeneratorKind::Concave => 1.0 - map[i][0],
             GeneratorKind::PositionGradient => (geo.position(i)[axis] * set.max_extent / ext_axis).clamp(0.0, 1.0),
-            GeneratorKind::MaskEditor => 0.0, // handled above
+            // Handled above.
+            GeneratorKind::MaskEditor | GeneratorKind::Distance3D | GeneratorKind::LinearGradient3D | GeneratorKind::UvRandomColor | GeneratorKind::GrayscaleConversion => 0.0,
         };
         let level = if let Some(noise) = &noise {
             g.level + (noise[i] - 0.5) * g.noise_amount
@@ -160,6 +168,15 @@ fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]], input: 
             None => level,
         };
         let mut v = smoothstep(level - half, level + half, raw);
+        // Light: attenuation fades the light toward the side of the model facing away from it.
+        if g.kind == GeneratorKind::Directional && attenuation > 0.0 {
+            let p = geo.position(i);
+            // A flat axis (a plane) sits at the box centre.
+            let centred: [f32; 3] = std::array::from_fn(|a| if extent[a] > set.max_extent * 1e-6 { p[a] * set.max_extent / extent[a] - 0.5 } else { 0.0 });
+            // 1 at the lit end of the box, 0 at the far end (the half-diagonal spans 0.5).
+            let t = ((centred[0] * dir.x + centred[1] * dir.y + centred[2] * dir.z) / 0.866_025_4 * 0.5 + 0.5).clamp(0.0, 1.0);
+            v *= 1.0 - attenuation * (1.0 - t);
+        }
         if floor > 0.0 && let Some(noise) = &noise {
             // Contrast-stretched around the mean: Painter's tail spans 0.02 to 0.18, not a narrow band.
             // The grunge map already spans the range: use it as is, minus its darkest third.
@@ -167,6 +184,55 @@ fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]], input: 
             v += (1.0 - v) * floor * tail;
         }
         *o = [if g.invert { 1.0 - v } else { v }, 1.0, 0.0, 0.0];
+    }
+}
+
+/// The position, UV and conversion generators ([`GeneratorKind::uses_shape`]).
+fn eval_shape_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]]) {
+    let s = g.shape_settings();
+    let geo = tc.geo;
+    let set = tc.set_geometry;
+    let extent = set.bounds.extent().to_array().map(|e| e.max(1e-12));
+    // Box coordinates (0..1 per axis) to positions in units of the model's longest side.
+    let to_units = |b: [f32; 3]| -> [f32; 3] { std::array::from_fn(|a| b[a] * extent[a] / set.max_extent.max(1e-12)) };
+    let finish = |v: f32| {
+        let v = subcraft_doc::mask::balance_contrast(v, s.balance, s.contrast);
+        if g.invert { 1.0 - v } else { v }
+    };
+    match g.kind {
+        GeneratorKind::Distance3D => {
+            let c = to_units(s.point);
+            for (i, o) in out.iter_mut().enumerate() {
+                let p = geo.position(i);
+                let d = ((p[0] - c[0]).powi(2) + (p[1] - c[1]).powi(2) + (p[2] - c[2]).powi(2)).sqrt();
+                *o = [finish(s.distance_value(d)), 1.0, 0.0, 0.0];
+            }
+        }
+        GeneratorKind::LinearGradient3D => {
+            let (a, b) = (to_units(s.start), to_units(s.end));
+            for (i, o) in out.iter_mut().enumerate() {
+                *o = [finish(s.gradient_value(geo.position(i), a, b)), 1.0, 0.0, 0.0];
+            }
+        }
+        GeneratorKind::UvRandomColor => {
+            for (i, o) in out.iter_mut().enumerate() {
+                let v = geo.region(i, subcraft_core::PartKind::UvIsland).map_or(0.0, |island| s.island_value(island));
+                *o = [finish(v), 1.0, 0.0, 0.0];
+            }
+        }
+        GeneratorKind::GrayscaleConversion => {
+            let Some(bmp) = s.texture.and_then(|id| tc.sample.resources.bitmap(id)) else {
+                out.fill([finish(0.0), 1.0, 0.0, 0.0]);
+                return;
+            };
+            let projection = Projection { mode: ProjectionMode::Uv, scale: [s.tile; 2], rotation_deg: s.effective_rotation(), ..Projection::default() };
+            let mut px = vec![[0.0f32; 4]; TILE_TEXELS];
+            subcraft_materials::sample::bitmap_tile(bmp, false, &projection, false, geo, &mut px);
+            for (o, p) in out.iter_mut().zip(&px) {
+                *o = [finish(s.grayscale.convert([p[0], p[1], p[2]])), 1.0, 0.0, 0.0];
+            }
+        }
+        _ => unreachable!("not a shape generator"),
     }
 }
 

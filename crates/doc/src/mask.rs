@@ -82,6 +82,124 @@ pub struct Generator {
     /// Settings of [`GeneratorKind::MaskEditor`]. Absent for every other kind.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub editor: Option<MaskEditor>,
+    /// Settings of the position, UV and conversion generators (3D Distance, 3D Linear Gradient,
+    /// UV Random Color, Grayscale Conversion) and the Light's attenuation. Absent: their defaults.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shape: Option<ShapeSettings>,
+}
+
+/// Parameters of the position, UV and conversion generators. Positions are in the model's
+/// bounding box, 0..=1 on each axis (Painter's Position map colours).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ShapeSettings {
+    /// 3D Distance: the source point.
+    pub point: [f32; 3],
+    /// 3D Distance: falloff length, in units of the model's longest side.
+    pub radius: f32,
+    /// 3D Distance: distance kept fully white before the falloff starts (same units).
+    pub offset: f32,
+    /// 3D Linear Gradient: where the gradient is 0 and where it is 1.
+    pub start: [f32; 3],
+    pub end: [f32; 3],
+    /// Balance / Contrast of the result (see [`balance_contrast`]).
+    pub balance: f32,
+    pub contrast: f32,
+    /// UV Random Color: the random sequence.
+    pub seed: u32,
+    /// Grayscale Conversion: the source image, how it becomes gray, its tiling and rotation
+    /// (degrees; Safe Rotation snaps to 45 degree steps).
+    pub texture: Option<subcraft_core::ResourceId>,
+    pub grayscale: GrayscaleType,
+    pub tile: f32,
+    pub rotation: f32,
+    pub safe_rotation: bool,
+    /// Light: 0 lights the whole model alike; 1 fades it out completely toward the far side.
+    pub attenuation: f32,
+}
+
+impl Default for ShapeSettings {
+    fn default() -> Self {
+        Self {
+            point: [0.5; 3],
+            radius: 0.5,
+            offset: 0.0,
+            start: [0.5, 0.0, 0.5],
+            end: [0.5, 1.0, 0.5],
+            balance: 0.5,
+            contrast: 0.0,
+            seed: 1,
+            texture: None,
+            grayscale: GrayscaleType::Luma,
+            tile: 1.0,
+            rotation: 0.0,
+            safe_rotation: false,
+            attenuation: 0.0,
+        }
+    }
+}
+
+impl ShapeSettings {
+    pub fn valid(&self) -> bool {
+        let unit = |v: f32| v.is_finite() && (0.0..=1.0).contains(&v);
+        self.point.iter().chain(&self.start).chain(&self.end).all(|v| v.is_finite() && (-1.0..=2.0).contains(v))
+            && self.radius.is_finite() && (0.0..=4.0).contains(&self.radius)
+            && self.offset.is_finite() && (0.0..=4.0).contains(&self.offset)
+            && unit(self.balance) && unit(self.contrast) && unit(self.attenuation)
+            && self.tile.is_finite() && (0.01..=256.0).contains(&self.tile)
+            && self.rotation.is_finite() && (-360.0..=360.0).contains(&self.rotation)
+    }
+
+    /// The rotation in effect: snapped to 45 degree steps with Safe Rotation.
+    pub fn effective_rotation(&self) -> f32 {
+        if self.safe_rotation { (self.rotation / 45.0).round() * 45.0 } else { self.rotation }
+    }
+
+    /// 3D Distance before Balance / Contrast: 1 within `offset` of the point, falling linearly
+    /// to 0 over `radius` (`d` in units of the model's longest side).
+    pub fn distance_value(&self, d: f32) -> f32 {
+        if self.radius <= 1e-6 {
+            return if d <= self.offset { 1.0 } else { 0.0 };
+        }
+        (1.0 - (d - self.offset) / self.radius).clamp(0.0, 1.0)
+    }
+
+    /// 3D Linear Gradient before Balance / Contrast: the position projected on start -> end.
+    pub fn gradient_value(&self, p: [f32; 3], start: [f32; 3], end: [f32; 3]) -> f32 {
+        let d: [f32; 3] = std::array::from_fn(|a| end[a] - start[a]);
+        let len2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+        if len2 <= 1e-12 {
+            return 0.0;
+        }
+        (((p[0] - start[0]) * d[0] + (p[1] - start[1]) * d[1] + (p[2] - start[2]) * d[2]) / len2).clamp(0.0, 1.0)
+    }
+
+    /// UV Random Color: one gray value per UV island, from the island and the seed.
+    pub fn island_value(&self, island: u32) -> f32 {
+        let mut h = (island as u64) ^ ((self.seed as u64) << 32) ^ 0x9e37_79b9_7f4a_7c15;
+        h ^= h >> 33;
+        h = h.wrapping_mul(0xff51_afd7_ed55_8ccd);
+        h ^= h >> 33;
+        h = h.wrapping_mul(0xc4ce_b9fe_1a85_ec53);
+        h ^= h >> 33;
+        (h >> 40) as f32 / (1u64 << 24) as f32
+    }
+}
+
+/// Light direction from Painter's angles (degrees): horizontal around the up axis (0 = toward
+/// +Z, 90 = toward +X), vertical above the horizon (90 = straight up).
+pub fn light_direction(horizontal: f32, vertical: f32) -> [f32; 3] {
+    let (h, v) = (horizontal.to_radians(), vertical.to_radians());
+    [v.cos() * h.sin(), v.sin(), v.cos() * h.cos()]
+}
+
+/// Painter's angles (degrees) of a light direction: the inverse of [`light_direction`].
+pub fn light_angles(dir: [f32; 3]) -> (f32, f32) {
+    let len = (dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]).sqrt().max(1e-12);
+    let (x, y, z) = (dir[0] / len, dir[1] / len, dir[2] / len);
+    let vertical = y.clamp(-1.0, 1.0).asin().to_degrees();
+    let horizontal = if x.abs() < 1e-6 && z.abs() < 1e-6 { 0.0 } else { x.atan2(z).to_degrees() };
+    (horizontal, vertical)
 }
 
 /// Which side of the curvature the Curvature generator keeps.
@@ -593,6 +711,16 @@ pub enum GeneratorKind {
     /// Painter's Mask Editor: textures and mesh maps blended by per-group opacity and blending
     /// mode, with global Blur / Balance / Contrast ([`Generator::editor`]).
     MaskEditor,
+    /// Painter's 3D Distance: white at a point of the model, fading with the distance from it.
+    #[serde(rename = "distance_3d")]
+    Distance3D,
+    /// Painter's 3D Linear Gradient: 0 at one point of the model, 1 at another.
+    #[serde(rename = "linear_gradient_3d")]
+    LinearGradient3D,
+    /// Painter's UV Random Color (as a mask): one random gray per UV island.
+    UvRandomColor,
+    /// Painter's Grayscale Conversion: an image turned gray.
+    GrayscaleConversion,
 }
 
 impl GeneratorKind {
@@ -606,7 +734,17 @@ impl GeneratorKind {
             GeneratorKind::MeshMap(m) => format!("Mesh Map: {}", m.display_name()),
             GeneratorKind::AmbientOcclusion => "Ambient Occlusion".into(),
             GeneratorKind::MaskEditor => "Mask Editor".into(),
+            GeneratorKind::Distance3D => "3D Distance".into(),
+            GeneratorKind::LinearGradient3D => "3D Linear Gradient".into(),
+            GeneratorKind::UvRandomColor => "UV Random Color".into(),
+            GeneratorKind::GrayscaleConversion => "Grayscale Conversion".into(),
         }
+    }
+
+    /// Kinds whose settings live in [`Generator::shape`] (Light keeps Level / Softness and only
+    /// reads its attenuation there).
+    pub fn uses_shape(self) -> bool {
+        matches!(self, GeneratorKind::Distance3D | GeneratorKind::LinearGradient3D | GeneratorKind::UvRandomColor | GeneratorKind::GrayscaleConversion)
     }
 
     /// Painter-style kinds whose Level / Softness the editor shows as Painter's own controls
@@ -638,8 +776,9 @@ impl Generator {
             // Balance 0.5, Contrast 0: the map itself.
             GeneratorKind::MeshMap(_) => (0.5, 1.0, 0.0),
             GeneratorKind::Directional | GeneratorKind::PositionGradient => (0.5, 0.15, 0.0),
-            // Unused by the Mask Editor (its own settings are in `editor`).
-            GeneratorKind::MaskEditor => (0.5, 1.0, 0.0),
+            // Unused by the Mask Editor (its own settings are in `editor`) and the shape kinds
+            // (theirs are in `shape`).
+            GeneratorKind::MaskEditor | GeneratorKind::Distance3D | GeneratorKind::LinearGradient3D | GeneratorKind::UvRandomColor | GeneratorKind::GrayscaleConversion => (0.5, 1.0, 0.0),
         };
         Self {
             kind,
@@ -664,7 +803,13 @@ impl Generator {
             input: None,
             curvature: None,
             editor: (kind == GeneratorKind::MaskEditor).then(MaskEditor::default),
+            shape: kind.uses_shape().then(ShapeSettings::default),
         }
+    }
+
+    /// The position / UV / conversion settings in effect (defaults when absent).
+    pub fn shape_settings(&self) -> ShapeSettings {
+        self.shape.unwrap_or_default()
     }
 
     /// The Mask Editor settings in effect (the defaults when the kind is set but they are absent).
@@ -679,20 +824,27 @@ impl Generator {
     pub fn set_kind(&mut self, kind: GeneratorKind) {
         self.kind = kind;
         if kind == GeneratorKind::MaskEditor && self.editor.is_none() { self.editor = Some(MaskEditor::default()); }
+        if kind.uses_shape() && self.shape.is_none() { self.shape = Some(ShapeSettings::default()); }
     }
 
     /// Image resources the generator reads (the Mask Editor's textures).
     pub fn resources(&self) -> Vec<subcraft_core::ResourceId> {
-        if self.kind == GeneratorKind::MaskEditor { self.editor_settings().resources().collect() } else { Vec::new() }
+        match self.kind {
+            GeneratorKind::MaskEditor => self.editor_settings().resources().collect(),
+            GeneratorKind::GrayscaleConversion => self.shape_settings().texture.into_iter().collect(),
+            _ => Vec::new(),
+        }
     }
 
     /// Whether this kind reads a baked map that an anchor input can replace.
     pub fn accepts_input(&self) -> bool {
-        !matches!(self.kind, GeneratorKind::Directional | GeneratorKind::PositionGradient | GeneratorKind::MaskEditor)
+        !matches!(self.kind, GeneratorKind::Directional | GeneratorKind::PositionGradient | GeneratorKind::MaskEditor) && !self.kind.uses_shape()
     }
 
     /// Whether the micro effect is on and strong enough to change anything.
-    pub fn micro_active(&self) -> bool { self.micro.is_some_and(|m| m.height() != 0.0) }
+    /// The Mask Editor has no Micro controls: a micro effect kept from the kind it was switched
+    /// from used to keep changing the layers below, with no way to turn it off.
+    pub fn micro_active(&self) -> bool { self.kind != GeneratorKind::MaskEditor && self.micro.is_some_and(|m| m.height() != 0.0) }
 
     /// Switch the micro effect on or off, keeping tuned values and starting from the per-kind defaults.
     pub fn set_micro_enabled(&mut self, on: bool) {
@@ -862,6 +1014,64 @@ impl Mask {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// QA 2026-11: switching a generator with a micro effect to Mask Editor (which has no Micro
+    /// controls) kept the effect active on the layers below with no way to turn it off.
+    #[test]
+    fn a_mask_editor_never_applies_a_micro_effect_kept_from_another_kind() {
+        let mut g = Generator::new(GeneratorKind::Cavity);
+        g.set_micro_enabled(true);
+        assert!(g.micro_active());
+        g.set_kind(GeneratorKind::MaskEditor);
+        assert!(!g.micro_active());
+        g.set_kind(GeneratorKind::Cavity);
+        assert!(g.micro_active(), "the tuned micro effect is back with the kind that has it");
+    }
+
+    #[test]
+    fn position_and_uv_generators_have_their_math_and_settings() {
+        let s = ShapeSettings::default();
+        assert!(s.valid());
+        // 3D Distance: white inside the offset, linear over the radius.
+        let d = ShapeSettings { offset: 0.1, radius: 0.4, ..s };
+        assert_eq!(d.distance_value(0.05), 1.0);
+        assert!((d.distance_value(0.3) - 0.5).abs() < 1e-6);
+        assert_eq!(d.distance_value(0.6), 0.0);
+        // 3D Linear Gradient: the projection on start -> end, clamped.
+        assert!((s.gradient_value([0.2, 0.25, 0.9], [0.5, 0.0, 0.5], [0.5, 1.0, 0.5]) - 0.25).abs() < 1e-6);
+        assert_eq!(s.gradient_value([0.5, 1.5, 0.5], [0.5, 0.0, 0.5], [0.5, 1.0, 0.5]), 1.0);
+        assert_eq!(s.gradient_value([0.5; 3], [0.5; 3], [0.5; 3]), 0.0, "a zero-length gradient");
+        // UV Random Color: stable per island and seed, spread over 0..1.
+        let v: Vec<f32> = (0..64).map(|i| s.island_value(i)).collect();
+        assert_eq!(v[3], s.island_value(3));
+        assert!(v.iter().all(|x| (0.0..1.0).contains(x)));
+        assert!(v.iter().cloned().fold(0.0, f32::max) > 0.8 && v.iter().cloned().fold(1.0, f32::min) < 0.2);
+        assert_ne!(ShapeSettings { seed: 2, ..s }.island_value(3), v[3]);
+        // Safe rotation snaps to 45 degree steps.
+        assert_eq!(ShapeSettings { rotation: 50.0, safe_rotation: true, ..s }.effective_rotation(), 45.0);
+        assert_eq!(ShapeSettings { rotation: 50.0, ..s }.effective_rotation(), 50.0);
+        assert!(!ShapeSettings { tile: 0.0, ..s }.valid());
+        // Light angles round-trip with the direction vector.
+        let dir = light_direction(30.0, 45.0);
+        let (h, vert) = light_angles(dir);
+        assert!((h - 30.0).abs() < 1e-3 && (vert - 45.0).abs() < 1e-3, "{h} {vert}");
+        assert!((light_direction(0.0, 90.0)[1] - 1.0).abs() < 1e-6);
+        // New kinds carry their settings; switching kind creates them; Grayscale Conversion
+        // reports its image as a resource.
+        let g = Generator::new(GeneratorKind::Distance3D);
+        assert!(g.shape.is_some() && !g.accepts_input() && g.kind.label() == "3D Distance");
+        let mut g = Generator::new(GeneratorKind::Edges);
+        assert!(g.shape.is_none());
+        g.set_kind(GeneratorKind::GrayscaleConversion);
+        let id = subcraft_core::ResourceId::new();
+        g.shape = Some(ShapeSettings { texture: Some(id), ..g.shape_settings() });
+        assert_eq!(g.resources(), vec![id]);
+        // Older generators (no shape field) read and write as before.
+        let old = Generator::new(GeneratorKind::Directional);
+        assert!(!serde_json::to_string(&old).unwrap().contains("shape"));
+        assert_eq!(serde_json::to_string(&GeneratorKind::Distance3D).unwrap(), "\"distance_3d\"");
+        assert_eq!(serde_json::to_string(&GeneratorKind::LinearGradient3D).unwrap(), "\"linear_gradient_3d\"");
+    }
 
     #[test]
     fn micro_effect_is_off_by_default_and_ticking_picks_the_kind_default() {
