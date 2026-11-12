@@ -198,7 +198,7 @@ fn row_blend(ui: &mut Ui, layer: &Layer, mask: bool, id: EffectId, active: Chann
     inactive.bg_stroke = egui::Stroke::NONE;
     let what = if mask { "Effect".to_string() } else { format!("Effect {}", active.display_name()) };
     egui::ComboBox::from_id_salt("effect_row_blend")
-        .width(66.0)
+        .width(60.0)
         .height(420.0)
         .selected_text(RichText::new(mode.short_label()).font(theme::font(10.5)).color(TEXT_DIM))
         .show_ui(ui, |ui| {
@@ -338,8 +338,10 @@ pub fn rows(
                     let color = if is_selected { ACCENT } else { TEXT_DIM };
                     ui.label(RichText::new(row.icon).font(theme::font(13.0)).color(color));
                     // Blend and opacity sit at the right when the row is wide enough for them.
-                    let controls = row.blend.filter(|_| !renaming && ui.available_width() >= 160.0);
-                    let name_width = (ui.available_width() - if controls.is_some() { 120.0 } else { 0.0 }).max(20.0);
+                    // Room for the blend dropdown, the opacity box and their spacing.
+                    const CONTROLS: f32 = 128.0;
+                    let controls = row.blend.filter(|_| !renaming && ui.available_width() >= CONTROLS + 48.0);
+                    let name_width = (ui.available_width() - if controls.is_some() { CONTROLS + 8.0 } else { 0.0 }).max(20.0);
                     ui.allocate_ui_with_layout(egui::vec2(name_width, 20.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
                         ui.set_min_width(name_width);
                         if let Some(edit) = rename.as_mut().filter(|r| r.effect == row.id) {

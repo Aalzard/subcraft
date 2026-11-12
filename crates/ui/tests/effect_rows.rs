@@ -188,7 +188,7 @@ fn the_row_shows_blend_and_opacity_and_dragging_the_opacity_edits_the_effect() {
     // The effect row has its own blend mode and opacity, next to the layer rows' ones.
     let on_row = |name: &str| texts(&out, name).into_iter().find(|r| (r.center().y - row.center().y).abs() < 8.0);
     assert!(on_row("Norm").is_some(), "blend mode on the effect row");
-    let opacity = on_row("100%").expect("opacity on the effect row");
+    let opacity = on_row("100").expect("opacity on the effect row");
     let history = state.session.history().entries().len();
     let start = opacity.center();
     frame(&mut state, &ctx, Modifiers::NONE, vec![Event::PointerMoved(start), button(start, true, Modifiers::NONE)]);
@@ -207,15 +207,15 @@ fn the_row_shows_blend_and_opacity_and_dragging_the_opacity_edits_the_effect() {
     state.active_channel = ChannelKind::Roughness;
     let out = layout(&mut state, &ctx);
     let row = label(&out, "Step 0");
-    assert!(!texts(&out, "100%").into_iter().any(|r| (r.center().y - row.center().y).abs() < 8.0));
+    assert!(!texts(&out, "100").into_iter().any(|r| (r.center().y - row.center().y).abs() < 8.0));
 
-    // A narrow panel hides the controls instead of overflowing.
+    // At the narrowest supported panel width (280, see layer_hierarchy) the controls give way to the name.
     state.active_channel = ChannelKind::BaseColor;
     for _ in 0..3 {
-        let out = frame_at(&mut state, &ctx, 250.0, Modifiers::NONE, vec![]);
+        let out = frame_at(&mut state, &ctx, 280.0, Modifiers::NONE, vec![]);
         for shape in &out.shapes {
             if let egui::Shape::Text(t) = &shape.shape {
-                assert!(t.pos.x + t.galley.size().x <= 251.0, "text overflow: {}", t.galley.text());
+                assert!(t.pos.x + t.galley.size().x <= 281.0, "text overflow: {:?}", t.galley.text());
             }
         }
     }
