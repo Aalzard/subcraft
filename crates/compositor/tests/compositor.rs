@@ -433,8 +433,13 @@ fn normal_channel_combines_with_whiteout() {
         let n = glam::Vec3::new(x, 0.0, 1.0).normalize();
         ChannelValue::rgb(n.x * 0.5 + 0.5, n.y * 0.5 + 0.5, n.z * 0.5 + 0.5)
     };
-    ts.insert_above(None, fill_layer(&tc, &[(ChannelKind::Normal, tilt(0.3))]));
-    ts.insert_above(None, fill_layer(&tc, &[(ChannelKind::Normal, tilt(0.3))]));
+    // New layers default to Normal Map Detail (Painter); this test is about Combine.
+    let combine = |mut l: Layer| {
+        l.blend.insert(ChannelKind::Normal, subcraft_doc::ChannelBlend::new(subcraft_doc::BlendMode::NormalMapCombine));
+        l
+    };
+    ts.insert_above(None, combine(fill_layer(&tc, &[(ChannelKind::Normal, tilt(0.3))])));
+    ts.insert_above(None, combine(fill_layer(&tc, &[(ChannelKind::Normal, tilt(0.3))])));
     let c = composite_full(&ts, &fx.ctx());
     let expect = subcraft_compositor::blend::whiteout(tilt(0.3).0, tilt(0.3).0);
     // First layer combines with the flat default (identity), the second tilts further.
