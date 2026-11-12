@@ -413,6 +413,7 @@ fn map_editor(ui: &mut Ui, map: &mut OutputMap, mesh: &str, pending: &mut Option
                 udim: None,
                 suffix: &map.suffix,
                 color_space: subcraft_export::color_space(map, map.format),
+                ..Default::default()
             };
             let name = subcraft_export::expand_pattern_with(&pattern, &vars);
             ui.label(RichText::new(format!("{name}.{}", map.format.extension())).monospace().small().color(TEXT_DIM));

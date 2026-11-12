@@ -2185,6 +2185,7 @@ impl eframe::App for SubcraftApp {
             panic!("test crash requested with --test-crash");
         }
         dialogs::export_window(&mut self.state, &ctx, now);
+        crate::layer_export::layer_export_window(&mut self.state, &ctx, now);
         dialogs::bake_window(&mut self.state, &ctx, now);
         crate::mesh_reload::window(&mut self.state, &ctx, now);
         crate::auto_uv::window(&mut self.state, &ctx, now);

@@ -210,6 +210,8 @@ pub struct UiState {
     /// Viewport height-to-bump strength.
     pub height_scale: f32,
     pub export: crate::dialogs::ExportUi,
+    /// Layer stack > Export flattened / Export mask window.
+    pub layer_export: crate::layer_export::LayerExportUi,
     pub new_project: crate::new_project::NewProjectUi,
     pub mesh_reload: crate::mesh_reload::MeshReloadUi,
     pub auto_uv: crate::auto_uv::AutoUvUi,
@@ -387,6 +389,7 @@ impl UiState {
             pt_capture_samples: None,
             height_scale: 0.02,
             export: Default::default(),
+            layer_export: Default::default(),
             confirm: None,
             dropped_model: None,
             light_yaw: 0.0,

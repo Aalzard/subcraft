@@ -271,6 +271,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     { rename = Some(InlineRename { layer: layer.id, text: layer.name.clone(), focus: true }); }
     let mut finish_rename = None;
     let mut layer_action = None;
+    // Export flattened / Export mask: (layers, masks).
+    let mut export_request: Option<(Vec<LayerId>, bool)> = None;
     let cancel_rename = rename.is_some() && ui.input(|i| i.key_pressed(egui::Key::Escape));
 
     // Edit in PhotoCraft is running for this texture set: say so and offer to stop.
@@ -670,6 +672,14 @@ Files: {}", ex.dir().display()));
                     ui.close();
                 }
                 let targets = if in_multi { multi_ids.clone() } else { vec![l.id] };
+                if ui.button(format!("{}  {}", icons::EXPORT, tr("Export flattened…"))).on_hover_text(tr("Writes this layer (a folder with its content) on its own, one file per channel")).clicked() {
+                    export_request = Some((targets.clone(), false));
+                    ui.close();
+                }
+                if l.mask.is_some() && ui.button(tr("Export mask…")).on_hover_text(tr("Writes this layer's mask as a gray image")).clicked() {
+                    export_request = Some((targets.clone(), true));
+                    ui.close();
+                }
                 ui.menu_button("Blending options", |ui| {
                     if ui.button("Copy").on_hover_text("Copies this layer's blend mode and opacity of every channel").clicked() {
                         copy_blending = Some(l.id);
@@ -785,6 +795,10 @@ Files: {}", ex.dir().display()));
     state.run(cmds, now);
     // The grouped layers are inside the new folder, which is now the selection.
     if grouped || duplicated { state.multi.clear(); }
+    if let Some((layers, masks)) = export_request {
+        let folder = state.export.folder.clone();
+        state.layer_export.show_for(layers, masks, &folder);
+    }
     if let Some((layer, action)) = layer_action {
         use subcraft_app::part_workflow::LayerAction;
         let mask_added = matches!(action, LayerAction::WhiteMask | LayerAction::BlackMask);

@@ -6,6 +6,9 @@ What changed in SubCraft, newest first. Download the latest build from the
 ## Unreleased
 
 ### Added
+- **Export flattened / Export mask** from the layer stack, like Painter: right-click a layer or folder (or a
+  multi-selection) to write it on its own, one file per channel (`$textureSet_$layerName_$srcMap`, height and
+  normal as EXR, 1 texel of padding), or its mask as a gray image.
 - **More export file types and bit depths**, like Painter: BMP, Radiance HDR, lossless WebP and 16-bit
   (half) float EXR. File type and bit depth are now two menus; the bit depth menu only lists what the
   file type stores and offers **8-bit + dithering**, which turns banding in smooth gradients into fine

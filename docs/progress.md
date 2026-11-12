@@ -5630,3 +5630,19 @@ the app kept drawing on the dead device. Safe mode works; 0.3.3's marker only he
 * **Tests:** `crates/export/src/tests/patterns.rs` (keywords, folders, optional parts, colour space names,
   sub-folders written, project / material from settings, per-map types per set, the folder template) and
   `the_five_map_types_and_dropped_sources` (ui). Not run locally (coordinator: CI only).
+
+### Session 136 - Painter parity chunk 44 (export part): Export flattened and Export mask (2026-11-13, branch `claude/export-layers`, stacks on chunk 22)
+
+* **Export (`crates/export/src/layer_export.rs`):** `write_flattened` / `write_mask` write a composite one file
+  per channel: sRGB for colour in PNG, height 0.5 + h/2 in PNG and raw in EXR, 1 texel of dilation, names from
+  `FLATTENED_PATTERN` (`$textureSet_$layerName_$srcMap(.$udim)`); `flattened_format` picks EXR for height /
+  normal, else PNG 8 / 16 or EXR by the channel's format. Patterns gained `$layerName` and `$srcMap`
+  (`PatternVars`, not in the template editor's `$` menu).
+* **Session:** `export_flattened_layers` composites a copy of the texture set whose stack is the layer alone
+  (made visible; a folder keeps its children) and writes the channels the layer blends into;
+  `export_layer_masks` composites a white Metallic fill through the layer's mask into a black channel.
+* **UI:** layer right-click > Export flattened… / Export mask… (for the multi-selection) opens
+  `crates/ui/src/layer_export.rs` (folder, remembered pattern with a preview, mask file type).
+* **Not done (layers part of chunk 44):** Ctrl+M flatten to a fill layer.
+* **Tests:** names, skipped channels, sRGB / bit depth / raw height, the mask file, UDIM names, formats by
+  channel. Not run locally (coordinator: CI only).

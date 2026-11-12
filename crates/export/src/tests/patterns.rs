@@ -3,7 +3,7 @@
 use super::*;
 
 fn vars<'a>(udim: Option<u32>, color_space: &'a str) -> PatternVars<'a> {
-    PatternVars { mesh: "Crate", project: "My Project", texture_set: "Body", scene_material: "M_Body", udim, suffix: "BaseColor", color_space }
+    PatternVars { mesh: "Crate", project: "My Project", texture_set: "Body", scene_material: "M_Body", udim, suffix: "BaseColor", color_space, ..Default::default() }
 }
 
 #[test]
