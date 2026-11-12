@@ -593,3 +593,97 @@ fn cage_misses_mark_texels_without_a_high_poly_surface() {
     let none = BakeInput { high: None, ..input };
     assert_eq!(cage_misses(&none, &s, 32).unwrap().missed, 0);
 }
+
+/// A plane low poly under a high poly made of two quads: the x < 0 one is object "left" with
+/// material "Red" (file colour red) and green vertex colours, the x > 0 one is object "right" with
+/// material "Blue" and yellow vertex colours.
+fn two_part_high(vertex_colors: bool, material_colors: bool) -> Mesh {
+    let mut b = MeshBuilder::new("parts");
+    let p = |x: f32, z: f32| Corner { position: Vec3::new(x, 0.005, z), normal: Some(Vec3::Y), uv: None };
+    // A small gap in the middle keeps the two quads separate mesh elements.
+    for (name, material, x0, x1, kd, vc) in [("left", "Red", -1.0f32, -0.01f32, [1.0f32, 0.0, 0.0], [0.0f32, 1.0, 0.0, 1.0]), ("right", "Blue", 0.01, 1.0, [0.0, 0.0, 1.0], [1.0, 1.0, 0.0, 1.0])] {
+        b.object(name);
+        let m = b.material(material);
+        if material_colors {
+            b.set_material_color(m, kd);
+        }
+        for tri in [[p(x0, -1.0), p(x1, 1.0), p(x1, -1.0)], [p(x0, -1.0), p(x0, 1.0), p(x1, 1.0)]] {
+            if vertex_colors {
+                b.push_triangle_colored(m, tri, [vc; 3]);
+            } else {
+                b.push_triangle(m, tri);
+            }
+        }
+    }
+    b.build_for_baking().unwrap()
+}
+
+/// The ID map's colour left and right of the middle of the plane, with the bake's warnings.
+fn id_bake(high: &Mesh, source: IdSource) -> ([f32; 3], [f32; 3], Vec<String>) {
+    let low = primitives::plane(2.0, 4);
+    let (lb, hb) = (Bvh::build(&low), Bvh::build(high));
+    let input = BakeInput { low: Geometry { mesh: &low, bvh: &lb }, high: Some(Geometry { mesh: high, bvh: &hb }), material_slot: 0 };
+    let s = BakeSettings { id_source: source, ..settings(&[MeshMapKind::Id]) };
+    let progress = Progress::new();
+    let maps = bake(&input, &s, &progress).unwrap();
+    let id = &maps[&MeshMapKind::Id];
+    let (mut left, mut right) = (None, None);
+    for t in texels(&low, 0, RES) {
+        let c = at(id, &t);
+        let c = [c[0], c[1], c[2]];
+        // Every texel of a side has that side's colour (away from the gap in the middle and
+        // from the rim, whose texels lie just outside the high poly).
+        if t.position.x.abs() > 0.95 || t.position.z.abs() > 0.95 {
+            continue;
+        }
+        if t.position.x < -0.1 {
+            assert_eq!(*left.get_or_insert(c), c, "left side is one colour");
+        } else if t.position.x > 0.1 {
+            assert_eq!(*right.get_or_insert(c), c, "right side is one colour");
+        }
+    }
+    // The gap between the two quads leaves a column of texels without a high surface, which the
+    // bake reports on its own; the tests here look at the warnings about colour sources.
+    let warnings = progress.warnings().into_iter().filter(|w| !w.starts_with("Cage:")).collect();
+    (left.unwrap(), right.unwrap(), warnings)
+}
+
+fn close(a: [f32; 3], b: [f32; 3]) -> bool {
+    a.iter().zip(b).all(|(x, y)| (x - y).abs() < 2e-3)
+}
+
+#[test]
+fn id_map_takes_its_colours_from_the_chosen_source() {
+    let high = two_part_high(true, true);
+    let (l, r, w) = id_bake(&high, IdSource::VertexColor);
+    assert!(close(l, [0.0, 1.0, 0.0]) && close(r, [1.0, 1.0, 0.0]), "vertex colours: {l:?} {r:?}");
+    assert!(w.is_empty(), "{w:?}");
+    let (l, r, w) = id_bake(&high, IdSource::MaterialColor);
+    assert!(close(l, [1.0, 0.0, 0.0]) && close(r, [0.0, 0.0, 1.0]), "material colours: {l:?} {r:?}");
+    assert!(w.is_empty(), "{w:?}");
+    // Generated colours: the two quads are separate elements and separate objects.
+    let (ml, mr, _) = id_bake(&high, IdSource::MeshId);
+    assert!(!close(ml, mr), "one colour per mesh element");
+    let (sl, sr, _) = id_bake(&high, IdSource::Submesh);
+    assert!(!close(sl, sr), "one colour per object");
+    assert_eq!(BakeSettings::default().id_source, IdSource::MeshId, "the default is today's behaviour");
+}
+
+#[test]
+fn id_sources_the_model_lacks_fall_back_to_generated_colours_with_a_warning() {
+    let plain = two_part_high(false, false);
+    let (ml, mr, w) = id_bake(&plain, IdSource::MeshId);
+    assert!(w.is_empty(), "{w:?}");
+    let (l, r, w) = id_bake(&plain, IdSource::VertexColor);
+    assert!(close(l, ml) && close(r, mr), "no vertex colours: the mesh-element colours");
+    assert!(w.iter().any(|w| w.contains("no vertex colours")), "{w:?}");
+    let (sl, sr, _) = id_bake(&plain, IdSource::Submesh);
+    let (l, r, w) = id_bake(&plain, IdSource::MaterialColor);
+    assert!(close(l, sl) && close(r, sr), "no material colours: the per-object colours");
+    assert!(w.iter().any(|w| w.contains("materials have no colours")), "{w:?}");
+    // A placed (mirrored) high poly keeps each corner's colour.
+    let high = two_part_high(true, false);
+    let mirrored = high.transformed(&glam::Mat4::from_scale(Vec3::new(-1.0, 1.0, 1.0)));
+    let (l, r, _) = id_bake(&mirrored, IdSource::VertexColor);
+    assert!(close(l, [1.0, 1.0, 0.0]) && close(r, [0.0, 1.0, 0.0]), "mirrored: the sides swap, {l:?} {r:?}");
+}

@@ -686,4 +686,10 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Measure curvature from the baked normal map along the surface: one clean band per edge, continuous across UV seams and on curved parts", "沿表面由烘焙的法線貼圖測量曲率：每條邊一道清晰的帶狀，跨越 UV 接縫及曲面部位時保持連續"),
     ("Ray misses:", "射線未命中："),
     ("of texels reach no high-poly surface (red). Raise Cage front / rear or fix the placement.", "的紋素無法到達任何高模表面（紅色）。請加大前 / 後籠罩或修正擺放。"),
+    ("ID colors from", "ID 顏色來源"),
+    ("Vertex color", "頂點色"),
+    ("Material color", "材質顏色"),
+    ("Mesh ID / Polygroup", "網格 ID／多邊形群組"),
+    ("Submesh (object)", "子網格（物件）"),
+    ("Where the ID map takes its colors: the model's vertex colors or material colors, or one generated color per mesh element or per object. With a high poly, its colors are used.", "ID 貼圖的顏色來源：模型的頂點色或材質顏色，或為每個網格元素、每個物件各產生一種顏色。有高模時使用高模的顏色。"),
 ];

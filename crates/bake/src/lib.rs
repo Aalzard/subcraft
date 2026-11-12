@@ -37,6 +37,25 @@ use subcraft_mesh::{Bvh, Mesh, topology};
 use name_match::PartMatch;
 use surface::{Texel, cosine_directions, hash01, texels};
 
+/// Where the ID map takes its colours from (issue #117). The colours come from the mesh the bake
+/// reads its detail from: the high poly when there is one, else the low poly.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum IdSource {
+    /// The file's vertex colours (polypaint), interpolated over each triangle.
+    VertexColor,
+    /// The file's colour of each material (diffuse / base colour).
+    MaterialColor,
+    /// One generated colour per connected mesh element (polygroup-like): the default.
+    #[default]
+    MeshId,
+    /// One generated colour per named object of the file (per material when it names none).
+    Submesh,
+}
+
+impl IdSource {
+    pub const ALL: [IdSource; 4] = [IdSource::VertexColor, IdSource::MaterialColor, IdSource::MeshId, IdSource::Submesh];
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct BakeSettings {
     /// Output size (square).
@@ -63,6 +82,8 @@ pub struct BakeSettings {
     /// surface, see [`normal_curvature`]) instead of from the detail geometry.
     pub curvature_from_normal: bool,
     pub normal_curvature: normal_curvature::NormalCurvatureSettings,
+    /// Where the ID map's colours come from.
+    pub id_source: IdSource,
 }
 
 impl Default for BakeSettings {
@@ -82,6 +103,7 @@ impl Default for BakeSettings {
             placement: subcraft_core::BakePlacement::default(),
             curvature_from_normal: false,
             normal_curvature: normal_curvature::NormalCurvatureSettings::default(),
+            id_source: IdSource::default(),
         }
     }
 }
@@ -287,6 +309,19 @@ pub fn bake_streamed_with(
         progress.warn("Ambient occlusion and thickness run on the CPU because matching parts by name is on (the GPU kernels cannot filter hits by part).".into());
     }
     let elements = if wanted(MeshMapKind::Id) || (wanted(MeshMapKind::Curvature) && !from_normal) { Some(topology::mesh_elements(detail_geo.mesh)) } else { None };
+    // The ID source the mesh can actually serve: a file without the asked colours falls back to
+    // generated ones, and says so.
+    let id_source = match settings.id_source {
+        IdSource::VertexColor if wanted(MeshMapKind::Id) && detail_geo.mesh.corner_colors.len() != 3 * detail_geo.mesh.triangle_count() => {
+            progress.warn("ID map: the model has no vertex colours, so one colour per mesh element was used instead".into());
+            IdSource::MeshId
+        }
+        IdSource::MaterialColor if wanted(MeshMapKind::Id) && detail_geo.mesh.material_colors.iter().all(Option::is_none) => {
+            progress.warn("ID map: the model's materials have no colours, so one colour per object / material was used instead".into());
+            IdSource::Submesh
+        }
+        source => source,
+    };
     let bounds = low.bounds;
     let extent = bounds.extent().max(Vec3::splat(1e-6));
 
@@ -337,9 +372,27 @@ pub fn bake_streamed_with(
                 }
                 MeshMapKind::Id => {
                     let Some(tri) = d.tri else { return kind.neutral_value()[..3].try_into().expect("RGB ID"); };
-                    let e = elements.as_ref().map_or(0, |e| e[tri as usize]);
-                    let hue = (e as f32 * 0.618_034).fract();
-                    hsv_to_rgb([hue, 0.65, 0.9])
+                    let mesh = detail_geo.mesh;
+                    let tri = tri as usize;
+                    let generated = |i: u32| hsv_to_rgb([(i as f32 * 0.618_034).fract(), 0.65, 0.9]);
+                    let slot = mesh.tri_material.get(tri).copied().unwrap_or(0);
+                    match id_source {
+                        IdSource::VertexColor => {
+                            let [a, b, c] = mesh.tri_positions(tri);
+                            let l = normal_curvature::barycentric(d.position, a, b, c);
+                            match mesh.corner_color(tri, l[1], l[2]) {
+                                Some(c) => [c[0].clamp(0.0, 1.0), c[1].clamp(0.0, 1.0), c[2].clamp(0.0, 1.0)],
+                                None => generated(elements.as_ref().map_or(0, |e| e[tri])),
+                            }
+                        }
+                        IdSource::MaterialColor => mesh.material_color(tri).unwrap_or_else(|| generated(slot)),
+                        IdSource::MeshId => generated(elements.as_ref().map_or(0, |e| e[tri])),
+                        // Objects are numbered after the material slots so the two never share a colour.
+                        IdSource::Submesh => match mesh.tri_object.get(tri).copied().flatten() {
+                            Some(object) => generated(mesh.materials.len() as u32 + object),
+                            None => generated(slot),
+                        },
+                    }
                 }
                 MeshMapKind::AmbientOcclusion => {
                     let mut dirs = Vec::with_capacity(settings.ao_samples as usize);

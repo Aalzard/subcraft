@@ -49,7 +49,7 @@ pub(crate) struct SurfaceWalker<'a> {
 }
 
 /// Barycentric weights of `p` (projected onto the plane of `a b c`).
-fn barycentric(p: Vec3, a: Vec3, b: Vec3, c: Vec3) -> [f32; 3] {
+pub(crate) fn barycentric(p: Vec3, a: Vec3, b: Vec3, c: Vec3) -> [f32; 3] {
     let (v0, v1, v2) = (b - a, c - a, p - a);
     let (d00, d01, d11) = (v0.dot(v0), v0.dot(v1), v1.dot(v1));
     let (d20, d21) = (v2.dot(v0), v2.dot(v1));

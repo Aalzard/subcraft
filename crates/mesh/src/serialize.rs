@@ -142,7 +142,7 @@ pub fn decode(bytes: &[u8]) -> Result<Mesh, MeshDecodeError> {
         }
         tri_object = r.u32s()?.into_iter().map(|o| (o != u32::MAX).then_some(o)).collect();
     }
-    let mesh = Mesh { name, positions, normals, uvs, tangents, indices, tri_material, tri_object, objects, materials, submeshes, bounds };
+    let mesh = Mesh { name, positions, normals, uvs, tangents, indices, tri_material, tri_object, objects, materials, submeshes, bounds, ..Default::default() };
     let problems = mesh.validate();
     if !problems.is_empty() {
         return Err(MeshDecodeError::Invalid(problems.join("; ")));
