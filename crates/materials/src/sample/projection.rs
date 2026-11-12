@@ -25,7 +25,9 @@ pub fn planar_coords(pos: [f32; 3], axis: u8) -> [f32; 2] {
 #[inline]
 pub fn triplanar_weights(normal: [f32; 3], sharpness: f32) -> [f32; 3] {
     let s = sharpness.max(1e-3);
-    if s > 64.0 {
+    // From 32 up: at the exponents the Hardness slider reaches (up to 64) the plain powers of a
+    // near-diagonal normal sum to under 1e-12 and fell back to an even 1/3 split (a visible pop).
+    if s > 32.0 {
         // Past this the plain powers underflow: divide by the largest component first, and at
         // Hardness 1 (`TRIPLANAR_HARD`) cut to the dominant plane (ties share it).
         let a = normal.map(f32::abs);

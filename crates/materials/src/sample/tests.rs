@@ -350,6 +350,20 @@ fn hardness_one_cuts_to_the_dominant_plane_and_lower_values_blend() {
     assert_eq!(w8, raw.map(|c| c / s));
 }
 
+/// QA 2026-11: between exponent 32 and 64 (Hardness about 0.97-0.984) the plain powers of a
+/// near-diagonal normal summed to under 1e-12 and the weights fell back to an even 1/3 split.
+#[test]
+fn high_hardness_keeps_the_dominant_plane_for_near_diagonal_normals() {
+    let len = (0.6f32 * 0.6 + 0.57 * 0.57 + 0.565 * 0.565).sqrt();
+    let n = [0.6 / len, 0.57 / len, 0.565 / len];
+    for s in [40.0, 52.0, 60.0, 64.0] {
+        let w = triplanar_weights(n, s);
+        assert!(w[0] > w[1] && w[1] > w[2], "exponent {s}: {w:?}");
+        assert!((w[0] + w[1] + w[2] - 1.0).abs() < 1e-5, "exponent {s}: {w:?}");
+        assert!(w[0] > 0.8, "exponent {s}: the largest component dominates, not an even split: {w:?}");
+    }
+}
+
 #[test]
 fn mip_chain_averages_in_the_space_the_texture_is_used_in() {
     use crate::sample::MipChain;
