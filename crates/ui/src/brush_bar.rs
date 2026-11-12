@@ -53,13 +53,7 @@ pub(crate) fn show(
 /// Polygon fill's element choice (Triangle, Polygon, Mesh, UV island, Object).
 pub(crate) fn fill_mode_combo(ui: &mut Ui, mode: &mut subcraft_paint::PolygonFillMode, id: &str) -> egui::Response {
     use subcraft_paint::PolygonFillMode;
-    let tip = |m: PolygonFillMode| match m {
-        PolygonFillMode::Triangle => "One triangle",
-        PolygonFillMode::Polygon => "The quad or n-gon the model was made of",
-        PolygonFillMode::MeshElement => "A connected piece of the mesh",
-        PolygonFillMode::UvIsland => "A UV island",
-        PolygonFillMode::Object => "A whole object of the model",
-    };
+    let tip = fill_mode_tip;
     egui::ComboBox::from_id_salt(id)
         .selected_text(mode.label())
         .width(96.0)
@@ -72,15 +66,49 @@ pub(crate) fn fill_mode_combo(ui: &mut Ui, mode: &mut subcraft_paint::PolygonFil
         .on_hover_text("Polygon fill: what a click or a box fills")
 }
 
-/// Polygon fill options for the viewport rows: element mode and, in 3D, visible-only boxes.
-pub(crate) fn fill_options(ui: &mut Ui, mode: &mut subcraft_paint::PolygonFillMode, visible_only: Option<&mut bool>, id: &str) {
+/// Polygon fill options for the contextual toolbar (3D and 2D views): the element a click or a
+/// box fills as a row of buttons (a menu when the row is narrow), visible-only boxes in 3D, and
+/// where the fill lands on the selected layer.
+pub(crate) fn fill_options(ui: &mut Ui, mode: &mut subcraft_paint::PolygonFillMode, visible_only: Option<&mut bool>, destination: Option<subcraft_app::LayerTarget>, id: &str) {
+    use subcraft_paint::PolygonFillMode;
     ui.label(RichText::new("Fill").color(TEXT_DIM));
-    fill_mode_combo(ui, mode, id);
+    if ui.available_width() >= 330.0 {
+        for m in PolygonFillMode::ALL {
+            if ui.selectable_label(*mode == m, m.label()).on_hover_text(fill_mode_tip(m)).clicked() {
+                *mode = m;
+            }
+        }
+    } else {
+        fill_mode_combo(ui, mode, id);
+    }
     if let Some(v) = visible_only {
         let r = widgets::icon_toggle(ui, icons::EYE, *v, "Visible polygons only: boxes skip back faces and hidden triangles (click to toggle)");
         if r.clicked() {
             *v = !*v;
         }
+    }
+    match destination {
+        Some(subcraft_app::LayerTarget::Mask) => {
+            ui.label(RichText::new("→ mask").color(ACCENT)).on_hover_text(
+                "Fills the selected layer's mask: on a fill layer or folder (a smart material) the layer then shows only on the filled elements. A black mask is added if the layer has none.",
+            );
+        }
+        Some(subcraft_app::LayerTarget::Content) => {}
+        None => {
+            ui.label(RichText::new("select a paint or fill layer").color(theme::WARNING));
+        }
+    }
+}
+
+/// What each polygon fill mode fills, for tooltips.
+pub(crate) fn fill_mode_tip(m: subcraft_paint::PolygonFillMode) -> &'static str {
+    use subcraft_paint::PolygonFillMode;
+    match m {
+        PolygonFillMode::Triangle => "One triangle",
+        PolygonFillMode::Polygon => "The quad or n-gon the model was made of",
+        PolygonFillMode::MeshElement => "A connected piece of the mesh",
+        PolygonFillMode::UvIsland => "A UV island",
+        PolygonFillMode::Object => "A whole object of the model",
     }
 }
 

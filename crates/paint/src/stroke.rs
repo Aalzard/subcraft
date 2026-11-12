@@ -61,6 +61,8 @@ pub struct Stroke {
     uv_clone: Option<UvClone>,
     /// 2D-view strokes: where the texture sits in the 2D view (stencil masking).
     uv_view: Option<UvView>,
+    /// Quick mask: paint lands only where this single-channel image is white.
+    quick_mask: Option<TiledImage>,
     /// Smudge: live copies of the target images (the snapshots stay pre-stroke) and the paint
     /// carried along (premultiplied value, alpha) per stroke copy and image.
     work: Vec<TiledImage>,
@@ -171,6 +173,7 @@ impl Stroke {
             clone: None,
             uv_clone: None,
             uv_view: None,
+            quick_mask: None,
             work: Vec::new(),
             carried: Vec::new(),
             uv_per_unit: None,
@@ -232,6 +235,13 @@ impl Stroke {
     /// view masks the stroke like it masks a 3D stroke. `None`: the stencil is not used in UV.
     pub fn with_uv_view(mut self, view: Option<UvView>) -> Self {
         self.uv_view = view;
+        self
+    }
+
+    /// Restrict the stroke to the white of a quick mask (one channel, the texture set's
+    /// resolution; 0 blocks, 1 lets paint through). A mask of another size is ignored.
+    pub fn with_quick_mask(mut self, mask: Option<TiledImage>) -> Self {
+        self.quick_mask = mask;
         self
     }
 
@@ -1028,6 +1038,14 @@ impl Stroke {
             let geo = geometry.tile(tile);
             for (i, c) in cov.iter_mut().enumerate() {
                 *c *= parts.factor(geo.region(i, parts.kind));
+            }
+        }
+        if let Some(mask) = self.quick_mask.as_ref().filter(|m| m.width() == geometry.resolution && m.height() == geometry.resolution && tile < m.tile_count()) {
+            let comps = mask.comps();
+            let mut buf = vec![0.0f32; TILE_TEXELS * comps];
+            mask.read_tile(tile, &mut buf);
+            for (c, px) in cov.iter_mut().zip(buf.chunks_exact(comps)) {
+                *c *= px[0].clamp(0.0, 1.0);
             }
         }
     }

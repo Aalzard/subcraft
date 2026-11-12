@@ -5385,3 +5385,36 @@ Every paint tool now works in the 2D view the same way as in the 3D view:
 
 Tests: `crates/paint/tests/uv_tools.rs` covers smudge, clone, refused clone, the stencil through the 2D view and
 symmetry. `crates/app/tests/uv_tools.rs` covers session routing: the 2D clone source, smudge and the eyedropper.
+
+### Session - Paint or fill a part, a UV island or the whole object: Polygon Fill, geometry mask, quick mask, Painter chunks 45 and 52 (2026-11-12, branch `claude/paint-parts-targeting`, stacks on `claude/paint-2d-parts`)
+
+**Status:** before splitting into two PRs, the release build of `subcraft-ui` passed with this code. The app lib
+tests passed (107) with the new actions. `parts_targeting`: 7 of 9 passed on the first run. Three test
+assumptions were then fixed: the cube's island triangle count, the default part kind and the smudge measure.
+That rerun was stopped when the shared build gate was overloaded, so GitHub CI runs it. Not tried in the running app yet.
+
+* **Polygon Fill on a fill layer or folder** (a smart material) fills its mask. If the layer has no mask, a black
+  one is added in the same undo step (`Session::polygon_fill_with`). So "this material on just this island / part /
+  object" takes two clicks: tool 4, then click (or box). A fill that fills nothing leaves no mask and no history.
+  `Session::polygon_fill_destination` drives a "→ mask" note in the contextual toolbar.
+* **Fill mode row:** the contextual toolbar shows Triangle / Polygon / Mesh / UV island / Object as buttons (a menu
+  when narrow), in the 3D and 2D views.
+* **Geometry mask (chunk 45):**
+  * The layer row has a polygon icon showing the included / total count. Click it to pick parts. Right-click for:
+    edit in the views, list by (connected pieces / UV islands / objects / material IDs), include all, exclude all,
+    invert, ignore temporarily, copy, paste, remove.
+  * Picking in the 3D view and the 2D view: click toggles a part, a box adds, Ctrl+box removes
+    (`Session::parts_in_screen_box`, `parts_in_uv_box`, `part_at_uv`, `set_layer_parts`).
+  * **Alt+H** and a toolbar button hide what the selected layer's geometry mask leaves out. The view follows the
+    selection and the mask (`Session::sync_excluded_view`).
+  * **Ctrl+drop** of a material or smart material on the model restricts the new layer to the part under the cursor.
+* **Quick mask (chunk 52):**
+  * **U** starts editing. Strokes and polygon fills then paint a temporary mask: a one-layer scratch texture set,
+    with no document change and no history step. **U** again applies it, so strokes and fills land only on its
+    painted areas (`Stroke::with_quick_mask`, applied in `restrict_coverage`).
+  * **I** inverts it. Without a quick mask, I still isolates the part under the cursor. **Y** clears it.
+  * There is a tool-rail button. In the 2D view, a red tint shows the protected areas. The 3D view only shows a
+    status pill: no 3D tint yet.
+
+Tests: `crates/app/tests/parts_targeting.rs` covers the fill-layer and folder mask routing and its undo, empty
+fills, geometry mask UV and box edits, Alt+H, and the quick mask edit / apply / invert / clear.

@@ -43,6 +43,9 @@ pub enum LayerAction { AddPaint, AddFill, WhiteMask, BlackMask, Generator(Genera
 #[derive(Default)]
 pub(crate) struct PartView {
     hidden: BTreeSet<PartKey>, isolated: Option<PartKey>,
+    /// Painter's "hide / ignore excluded geometry" (Alt+H) is on, and the geometry mask it hides
+    /// by right now (material slot, mask): what the selected layer's geometry mask leaves out.
+    hide_excluded: bool, excluded: Option<(u32, PartMask)>,
     pub scene: Option<Scene>, revision: u64,
     catalog: [OnceLock<Vec<PartInfo>>; 4],
     visible: [OnceLock<BTreeSet<u32>>; 4],
@@ -52,7 +55,7 @@ impl PartView {
     /// Forget hidden / isolated parts of the previous mesh; the bumped revision makes viewers
     /// upload the new geometry.
     pub(crate) fn reset_for_new_mesh(&mut self) {
-        *self = PartView { revision: self.revision + 1, ..Default::default() };
+        *self = PartView { revision: self.revision + 1, hide_excluded: self.hide_excluded, ..Default::default() };
     }
 }
 
@@ -139,16 +142,55 @@ impl Session {
 
     pub fn show_all_parts(&mut self) {
         if !self.has_hidden_parts() { return; }
-        self.part_view.hidden.clear(); self.part_view.isolated = None; self.part_view.scene = None;
-        self.part_view.visible = Default::default();
-        self.part_view.revision += 1;
+        self.part_view.hidden.clear(); self.part_view.isolated = None;
+        // Geometry hidden by Alt+H stays hidden: it follows the layer's mask, not these clicks.
+        self.rebuild_part_view();
+    }
+
+    /// Whether Painter's "hide / ignore excluded geometry" (Alt+H) is on.
+    pub fn hide_excluded(&self) -> bool { self.part_view.hide_excluded }
+
+    /// The selected layer's geometry mask and its material slot, when it is on (the geometry it
+    /// leaves out is what Alt+H hides).
+    fn excluded_mask(&self) -> Option<(u32, PartMask)> {
+        let parts = self.selected_layer()?.parts.as_ref().filter(|p| p.enabled)?.clone();
+        Some((self.selected_texture_set().material_slot, parts))
+    }
+
+    /// Whether the selected layer has a geometry mask (so Alt+H has something to hide).
+    pub fn has_excluded_geometry(&self) -> bool { self.excluded_mask().is_some() }
+
+    /// Alt+H: hide (again: show) the geometry the selected layer's geometry mask leaves out, so
+    /// strokes reach what it covered. View state only; it follows the selection and the mask.
+    pub fn toggle_hide_excluded(&mut self) {
+        self.part_view.hide_excluded = !self.part_view.hide_excluded;
+        self.sync_excluded_view();
+    }
+
+    /// Keep the Alt+H view on the selected layer's geometry mask (call once per frame; it only
+    /// rebuilds the view when the layer or its mask changed).
+    pub fn sync_excluded_view(&mut self) {
+        let want = if self.part_view.hide_excluded { self.excluded_mask() } else { None };
+        if want != self.part_view.excluded {
+            self.part_view.excluded = want;
+            self.rebuild_part_view();
+        }
     }
 
     fn rebuild_part_view(&mut self) {
+        if self.part_view.hidden.is_empty() && self.part_view.isolated.is_none() && self.part_view.excluded.is_none() {
+            if self.part_view.scene.take().is_some() {
+                self.part_view.visible = Default::default();
+                self.part_view.revision += 1;
+            }
+            return;
+        }
         let mut mesh = (*self.scene().mesh).clone();
         let geo = self.scene().geometry.get(0, 1);
+        let excluded = self.part_view.excluded.as_ref();
         for t in 0..mesh.triangle_count() {
-            let hidden = self.part_view.hidden.iter().any(|key| geo.triangle_region(t, key.kind) == Some(key.id));
+            let hidden = self.part_view.hidden.iter().any(|key| geo.triangle_region(t, key.kind) == Some(key.id))
+                || excluded.is_some_and(|(slot, mask)| mesh.tri_material[t] == *slot && mask.factor(geo.triangle_region(t, mask.kind)) <= 0.0);
             let outside = self.part_view.isolated.is_some_and(|key| geo.triangle_region(t, key.kind) != Some(key.id));
             // Retain triangle numbering and material ranges. Degenerate faces don't draw, hit or
             // occlude; project geometry and its masks/bakes remain intact.

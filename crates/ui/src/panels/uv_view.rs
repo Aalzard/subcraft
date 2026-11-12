@@ -102,7 +102,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     let lmb_adjust = crate::viewport::brush_gestures(state, &response, mods, delta, !stencil_edit && !typing && !state.uv.painting);
     let paints = painting_tool && !alt && !stencil_edit;
     // Tools that use a click in the view: a drag with them must not pan.
-    let clicks = paints || matches!(state.tool, Tool::Pen | Tool::Eyedropper);
+    let picking = state.picking_parts && state.session.selected_layer().is_some();
+    let clicks = paints || picking || matches!(state.tool, Tool::Pen | Tool::Eyedropper);
     // Right-click (no drag): the Properties popup at the cursor.
     if response.secondary_clicked() && !stencil_edit && crate::view_props::opens(state, mods) && let Some(p) = response.interact_pointer_pos() {
         crate::view_props::open(state, p, crate::view_props::View::View2d);
@@ -122,7 +123,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         viewport,
     };
     crate::pen::uv_input(state, ui, &response, img_rect);
-    if !stencil_edit {
+    if picking {
+        parts_input(state, ui, &response, img_rect);
+    } else if !stencil_edit {
         paint_input(state, ui, &response, img_rect, resolution, ts_id, view, lmb_adjust);
     }
     let painter = ui.painter_at(rect);
@@ -152,6 +155,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         painter.image(id, img_rect, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
     }
     painter.rect_stroke(img_rect, 0.0, Stroke::new(1.0, crate::theme::BORDER_STRONG), egui::StrokeKind::Outside);
+    quick_mask_overlay(state, ui, &painter, img_rect);
 
     if state.uv_wireframe {
         let mesh = state.session.scene().mesh.clone();
@@ -165,10 +169,12 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     if state.tool == Tool::Pen && let Some(path) = state.pen.preview(&state.session) {
         crate::pen::draw(&painter, path, state.pen.selected_anchor(), |uv| Some(img_rect.min + egui::vec2(uv.x, uv.y) * side));
     }
-    if let (Some(a), Some(b)) = (state.uv.fill_box, response.hover_pos().or(ui.input(|i| i.pointer.latest_pos())))
-        && crate::view_props::is_box_drag(a, b)
-    {
-        crate::view_props::draw_fill_box(&painter, Rect::from_two_pos(a, b), false);
+    for start in [state.uv.fill_box, state.uv.parts_box] {
+        if let (Some(a), Some(b)) = (start, response.hover_pos().or(ui.input(|i| i.pointer.latest_pos())))
+            && crate::view_props::is_box_drag(a, b)
+        {
+            crate::view_props::draw_fill_box(&painter, Rect::from_two_pos(a, b), false);
+        }
     }
     let to_px = |uv: Vec2| img_rect.min + egui::vec2(uv.x, uv.y) * side;
     if state.tool == Tool::Clone && let Some(source) = state.session.clone_source_uv() {
@@ -205,10 +211,77 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
         }
     }
-    let hint = hint(state.tool, paints);
+    let hint = if picking { "Geometry mask: click an island to show / hide the layer on it · drag a box to add · Ctrl+drag to remove · Esc done" } else { hint(state.tool, paints) };
     painter.text(rect.left_bottom() + egui::vec2(10.0, -10.0), egui::Align2::LEFT_BOTTOM, hint, crate::theme::font(11.5), crate::theme::TEXT_FAINT);
     if state.uv.painting {
         ui.ctx().request_repaint();
+    }
+}
+
+/// Geometry mask editing in the 2D view (Properties → Parts → pick, or the layer row's geometry
+/// mask icon): a click shows / hides the layer on the part under the cursor, a drag adds every
+/// part the box touches, Ctrl+drag removes them.
+fn parts_input(state: &mut UiState, ui: &Ui, response: &egui::Response, image: Rect) {
+    let (pointer, pressed, down, mods) = ui.input(|i| (i.pointer.interact_pos(), i.pointer.primary_pressed(), i.pointer.primary_down(), i.modifiers));
+    let to_uv = |p: Pos2| Vec2::new((p.x - image.left()) / image.width(), (p.y - image.top()) / image.height());
+    let now = ui.input(|i| i.time);
+    if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+        state.uv.parts_box = None;
+        state.picking_parts = false;
+        return;
+    }
+    let Some(start) = state.uv.parts_box else {
+        if pressed && response.hovered() && !mods.alt && !state.view_props_swallow && let Some(p) = pointer {
+            state.uv.parts_box = Some(p);
+        }
+        return;
+    };
+    if down {
+        return;
+    }
+    state.uv.parts_box = None;
+    let Some(layer) = state.session.selected_layer().map(|l| l.id) else { return };
+    let end = pointer.unwrap_or(start);
+    let result = if crate::view_props::is_box_drag(start, end) {
+        let parts = state.session.parts_in_uv_box(to_uv(start), to_uv(end));
+        if parts.is_empty() { Err("the box touched no UV island of this texture set".to_string()) }
+        else { state.session.set_layer_parts(layer, &parts, !(mods.command || mods.ctrl)).map_err(|e| e.to_string()) }
+    } else {
+        match state.session.part_at_uv(to_uv(start)) {
+            Some(part) => state.session.toggle_layer_part(layer, part).map_err(|e| e.to_string()),
+            None => Err("click inside a UV island of this texture set".to_string()),
+        }
+    };
+    if let Err(e) = result {
+        state.set_status(format!("Parts: {e}"), now);
+    }
+}
+
+/// The quick mask over the 2D view: its protected areas tinted red (strongly while it is being
+/// edited, lightly once applied).
+fn quick_mask_overlay(state: &mut UiState, ui: &Ui, painter: &egui::Painter, image: Rect) {
+    let Some(q) = state.session.quick_mask() else {
+        state.quick_mask_tex = None;
+        return;
+    };
+    let (revision, editing) = (q.revision, q.editing);
+    if state.quick_mask_tex.as_ref().is_none_or(|(r, _)| *r != revision) {
+        let img = &q.image;
+        let n = img.width().min(512).max(1);
+        let step = img.width() as f32 / n as f32;
+        let mut rgba = Vec::with_capacity((n * n * 4) as usize);
+        for y in 0..n {
+            for x in 0..n {
+                let v = img.get(((x as f32 + 0.5) * step) as u32, ((y as f32 + 0.5) * step) as u32)[0].clamp(0.0, 1.0);
+                rgba.extend_from_slice(&[230, 40, 40, ((1.0 - v) * 255.0) as u8]);
+            }
+        }
+        let tex = ui.ctx().load_texture("quick_mask", egui::ColorImage::from_rgba_unmultiplied([n as usize, n as usize], &rgba), egui::TextureOptions::LINEAR);
+        state.quick_mask_tex = Some((revision, tex));
+    }
+    if let Some((_, tex)) = &state.quick_mask_tex {
+        let tint = Color32::from_white_alpha(if editing { 128 } else { 50 });
+        painter.image(tex.id(), image, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), tint);
     }
 }
 
@@ -252,7 +325,8 @@ fn brush_controls(state: &mut UiState, ui: &mut Ui) {
     let width = ui.available_width();
     crate::brush_bar::show(ui, &mut state.tool, &mut settings, &mut options, &mut state.recovery.prefs.viewport.symmetry_guides, width);
     if state.tool == Tool::PolygonFill {
-        crate::brush_bar::fill_options(ui, &mut state.fill_mode, None, "fill_mode_2d");
+        let destination = state.session.polygon_fill_destination();
+        crate::brush_bar::fill_options(ui, &mut state.fill_mode, None, destination, "fill_mode_2d");
     }
     let now = ui.input(|i| i.time);
     if settings != original && let Err(e) = state.session.execute(subcraft_app::Command::SetBrushSettings(settings)) {

@@ -82,6 +82,8 @@ pub struct UvView {
     pub last_point: Option<Vec2>,
     /// Polygon fill drag started in the 2D view (screen points), as [`UiState::fill_box`].
     pub fill_box: Option<egui::Pos2>,
+    /// Geometry mask box started in the 2D view while picking parts (screen point).
+    pub parts_box: Option<egui::Pos2>,
 }
 
 /// Compositing time spent per frame before the remaining dirty tiles wait for the next frame.
@@ -191,8 +193,15 @@ pub struct UiState {
     pub pen_pressure: f32,
     /// Pen / touch contact to primary-button mapping applied to raw input.
     pub pen_input: crate::pen_input::PenInputFixer,
-    /// Clicks in the 3D view show / hide the selected layer on mesh parts (Properties → Parts).
+    /// Clicks in the 3D and 2D views show / hide the selected layer on mesh parts (its geometry
+    /// mask, Properties → Parts); a drag boxes several (Ctrl+drag removes them).
     pub picking_parts: bool,
+    /// Geometry mask box started in a view (screen point), while picking parts.
+    pub parts_box: Option<egui::Pos2>,
+    /// Geometry mask copied from a layer row's menu.
+    pub parts_clipboard: Option<subcraft_doc::PartMask>,
+    /// Quick mask overlay of the 2D view: (quick mask revision, texture).
+    pub quick_mask_tex: Option<(u64, egui::TextureHandle)>,
     /// Depth of field: the next click on the model sets the focus distance.
     pub picking_focus: bool,
     /// Clicks in the 3D view add the ID map color under the cursor to this ID Color Mask effect.
@@ -369,9 +378,12 @@ impl UiState {
             render_request: None,
             last_view_size: [1280, 720],
             last_view_rect: egui::Rect::NOTHING,
-            uv: UvView { zoom: 1.0, offset: egui::Vec2::ZERO, source: PreviewSource::Channel(ChannelKind::BaseColor), texture: None, painting: false, last_point: None, fill_box: None },
+            uv: UvView { zoom: 1.0, offset: egui::Vec2::ZERO, source: PreviewSource::Channel(ChannelKind::BaseColor), texture: None, painting: false, last_point: None, fill_box: None, parts_box: None },
             painting: false,
             picking_parts: false,
+            parts_box: None,
+            parts_clipboard: None,
+            quick_mask_tex: None,
             picking_focus: false,
             picking_id_color: None,
             last_stroke_point: None,
