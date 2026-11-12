@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use subcraft_compositor::{EvalContext, composite_full};
 use subcraft_core::{ChannelKind, ChannelValue, MeshMapKind};
-use subcraft_doc::{CurvatureDetail, CurvatureSide, FillChannel, FillSource, Generator, GeneratorKind, Layer, LayerContent, Mask, MaskEffect, MaskEffectKind, ResourceStore, TextureSet};
+use subcraft_doc::{CurvatureDetail, CurvatureDetailMode, FillChannel, FillSource, Generator, GeneratorKind, Layer, LayerContent, Mask, MaskEffect, MaskEffectKind, ResourceStore, TextureSet};
 use subcraft_image::TiledImage;
 use subcraft_materials::{MeshMaps, TextureSetGeometry};
 use subcraft_mesh::primitives;
@@ -70,8 +70,8 @@ fn default_detail_is_the_baked_map_bit_for_bit() {
 
 #[test]
 fn edges_only_keeps_convex_and_cavities_only_keeps_concave() {
-    let edges = |c: f32| mask_of(curvature(Some(CurvatureDetail { side: CurvatureSide::Edges, ..CurvatureDetail::default() })), dense(|_, _| c))[RES as usize * 128 + 128];
-    let cavities = |c: f32| mask_of(curvature(Some(CurvatureDetail { side: CurvatureSide::Cavities, ..CurvatureDetail::default() })), dense(|_, _| c))[RES as usize * 128 + 128];
+    let edges = |c: f32| mask_of(curvature(Some(CurvatureDetail { mode: CurvatureDetailMode::Edges, ..CurvatureDetail::default() })), dense(|_, _| c))[RES as usize * 128 + 128];
+    let cavities = |c: f32| mask_of(curvature(Some(CurvatureDetail { mode: CurvatureDetailMode::Cavities, ..CurvatureDetail::default() })), dense(|_, _| c))[RES as usize * 128 + 128];
     // Convex 0.8: deviation 0.3 -> source 0.6 for edges, 0 for cavities; concave mirrors it.
     assert!((edges(0.8) - smoothstep(0.0, 1.0, 0.6)).abs() < 2e-3, "{}", edges(0.8));
     assert!(edges(0.2).abs() < 1e-3 && edges(0.5).abs() < 1e-3, "flat and concave are black");
@@ -111,8 +111,8 @@ fn coarse_detail_averages_fine_texel_noise_away_and_medium_keeps_broad_forms() {
 #[test]
 fn weights_are_bounded_and_garbage_values_stay_finite() {
     for d in [
-        CurvatureDetail { fine: f32::NAN, medium: f32::INFINITY, coarse: -3.0, side: CurvatureSide::Edges },
-        CurvatureDetail { fine: 100.0, medium: 100.0, coarse: 100.0, side: CurvatureSide::Both },
+        CurvatureDetail { fine: f32::NAN, medium: f32::INFINITY, coarse: -3.0, mode: CurvatureDetailMode::Edges },
+        CurvatureDetail { fine: 100.0, medium: 100.0, coarse: 100.0, mode: CurvatureDetailMode::Both },
     ] {
         let m = mask_of(curvature(Some(d)), varied());
         assert!(m.iter().all(|v| v.is_finite() && (-1e-4..=1.0001).contains(v)), "{d:?}");

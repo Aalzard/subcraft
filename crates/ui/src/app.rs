@@ -1388,6 +1388,12 @@ impl SubcraftApp {
             ui.add_space(6.0);
             rail_divider(ui);
             ui.add_space(6.0);
+            // The 2D view beside the 3D view, or back to the 3D view alone (Painter's F1 / F2).
+            let both = is_side_by_side(&self.dock);
+            let view_tip = if both { tip(km, "Hide the 2D view (3D view only)", Action::View3dOnly) } else { tip(km, "Show the 2D view (UV space) beside the 3D view", Action::View3dAnd2d) };
+            if tool_button(ui, icons::GRID, both, &view_tip).clicked() {
+                self.perform(if both { Action::View3dOnly } else { Action::View3dAnd2d }, ui.input(|i| i.time));
+            }
             if tool_button(ui, icons::CAMERA, false, &tip(km, "Reset camera", Action::ResetCamera)).clicked() {
                 self.perform(Action::ResetCamera, ui.input(|i| i.time));
             }
@@ -2410,7 +2416,7 @@ fn scripted_tool_capture(state: &mut UiState, which: &str, now: f64) {
         }
         w if w.starts_with("curvature") => {
             // Curvature generator on an orange fill: `curvature-both|edges|cavities|sizes[-props]`.
-            use subcraft_doc::{CurvatureDetail, CurvatureSide, FillChannel, FillSource, Generator, GeneratorKind, MaskEffectKind};
+            use subcraft_doc::{CurvatureDetail, CurvatureDetailMode, FillChannel, FillSource, Generator, GeneratorKind, MaskEffectKind};
             let ts = s.document().texture_sets[0].clone();
             let settings = subcraft_bake::BakeSettings { size: 1024, maps: vec![subcraft_core::MeshMapKind::Curvature], ..Default::default() };
             let mut job = s.start_bake(subcraft_app::BakeRequest { settings, high_poly: None, texture_sets: vec![(ts.id, ts.material_slot)] });
@@ -2420,9 +2426,9 @@ fn scripted_tool_capture(state: &mut UiState, which: &str, now: f64) {
             let _ = s.execute(Command::SetFillChannel { layer, channel: ChannelKind::BaseColor, fill: FillChannel::new(FillSource::uniform(ChannelValue::rgb(1.0, 0.45, 0.05))) });
             let _ = s.execute(Command::AddMask { layer, white: false });
             let mut g = Generator::new(GeneratorKind::MeshMap(subcraft_core::MeshMapKind::Curvature));
-            let mode = if w.contains("edges") || w.contains("sizes") { CurvatureSide::Edges } else if w.contains("cavities") { CurvatureSide::Cavities } else { CurvatureSide::Both };
+            let mode = if w.contains("edges") || w.contains("sizes") { CurvatureDetailMode::Edges } else if w.contains("cavities") { CurvatureDetailMode::Cavities } else { CurvatureDetailMode::Both };
             let (medium, coarse) = if w.contains("sizes") { (1.5, 1.5) } else { (0.0, 0.0) };
-            g.curvature = (mode != CurvatureSide::Both || medium > 0.0).then_some(CurvatureDetail { side: mode, fine: if w.contains("sizes") { 0.6 } else { 1.0 }, medium, coarse });
+            g.curvature = (mode != CurvatureDetailMode::Both || medium > 0.0).then_some(CurvatureDetail { mode, fine: if w.contains("sizes") { 0.6 } else { 1.0 }, medium, coarse });
             let _ = s.execute(Command::AddMaskEffect { layer, kind: MaskEffectKind::Generator(g) });
             let effect = s.selected_layer().and_then(|l| l.mask.as_ref()).and_then(|m| m.effects.last()).map(|e| e.id);
             let _ = s.execute(Command::SelectEffect { layer, target: subcraft_app::LayerTarget::Mask, effect });

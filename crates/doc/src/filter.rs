@@ -491,6 +491,11 @@ impl Filter {
             Self::Glow { radius, amount, threshold } => Self::Glow { radius: radius * factor, amount, threshold },
             Self::DirectionalWarp { intensity, angle_deg } => Self::DirectionalWarp { intensity: intensity * factor, angle_deg },
             Self::Mosaic { size } => Self::Mosaic { size: ((size as f32 * factor).round() as u32).clamp(1, MAX_MOSAIC_SIZE) },
+            // The outline shape draws its band from its own width and blur, not from the node
+            // radius the other contour filters use: both follow the resolution scale.
+            Self::MaskOutlineShape { radius, threshold, position, start_black, blur, curve } => {
+                Self::MaskOutlineShape { radius: radius * factor, threshold, position, start_black, blur: blur * factor, curve }
+            }
             other => other,
         }
     }
@@ -624,6 +629,12 @@ mod tests {
         assert_eq!(soft.support(), 6, "radius + blur + the half-pixel band");
         assert_eq!(Filter::mask_outline(soft.outline_parts().unwrap()), soft);
         assert!(!Filter::MaskOutlineShape { radius: 3.0, threshold: 0.5, position: OutlinePosition::Both, start_black: false, blur: 2.0, curve: 1.5 }.valid());
+        // A scaled composite scales the outline's own width and blur, so its band matches the
+        // radius the compositor reads (radius + blur, scaled).
+        let half = soft.scaled(0.5);
+        assert_eq!(half.radius(), Some(2.5));
+        assert!(matches!(half, Filter::MaskOutlineShape { radius, blur, .. } if radius == 1.5 && blur == 1.0), "{half:?}");
+        assert_eq!(soft.scaled(1.0), soft);
         // Drop Shadow: colour content only, offset along its angle, support covers offset + blur.
         let shadow = Filter::DropShadow { angle_deg: 90.0, distance: 4.0, size: 3.0, spread: 0.0, opacity: 0.5, color: [0.0; 3] };
         let ([dx, dy], size) = shadow.shadow_geometry().unwrap();

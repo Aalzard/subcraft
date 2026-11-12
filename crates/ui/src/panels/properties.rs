@@ -708,13 +708,13 @@ fn painter_controls(ui: &mut Ui, g: &mut subcraft_doc::Generator) -> bool {
 /// The Curvature generator's mode and detail sizes ([`subcraft_doc::CurvatureDetail`]). Untouched
 /// generators keep `curvature: None` (the baked map itself); the first change stores the settings.
 fn curvature_controls(ui: &mut Ui, g: &mut subcraft_doc::Generator) -> bool {
-    use subcraft_doc::{CurvatureDetail, CurvatureSide};
+    use subcraft_doc::{CurvatureDetail, CurvatureDetailMode};
     let mut d = g.curvature.unwrap_or_default();
     let before = d;
     prop_row(ui, tr("Mode"), |ui| {
-        egui::ComboBox::from_id_salt("curvature_mode").selected_text(tr(d.side.label())).show_ui(ui, |ui| {
-            for mode in CurvatureSide::ALL {
-                ui.selectable_value(&mut d.side, mode, tr(mode.label()));
+        egui::ComboBox::from_id_salt("curvature_mode").selected_text(tr(d.mode.label())).show_ui(ui, |ui| {
+            for mode in CurvatureDetailMode::ALL {
+                ui.selectable_value(&mut d.mode, mode, tr(mode.label()));
             }
         })
         .response

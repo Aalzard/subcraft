@@ -78,37 +78,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
 
     // ----- stencil: hold S + drag (LMB rotate, MMB move, RMB scale); hold N to bypass ------------
     // Shift is the only modifier allowed with S: it snaps the rotation to quarter turns.
-    let (s_down, n_down) = ui.input(|i| (i.key_down(egui::Key::S) && !(i.modifiers.ctrl || i.modifiers.command || i.modifiers.alt), i.key_down(egui::Key::N) && !i.modifiers.any()));
     let typing = ui.ctx().egui_wants_keyboard_input();
-    state.session.brush.stencil_bypass = n_down && !typing;
-    let stencil_edit = s_down && !typing && state.session.brush.stencil.is_some();
-    if stencil_edit && response.hovered() {
-        let mut st = (**state.session.brush.stencil.as_ref().expect("checked above")).clone();
-        let mut changed = false;
-        // The free angle of the drag is kept apart so a snapped rotation follows the whole
-        // gesture, not each small mouse step.
-        let free_id = egui::Id::new("stencil-free-rotation");
-        if response.dragged_by(PointerButton::Primary) {
-            let free = ui.data(|d| d.get_temp::<f32>(free_id)).unwrap_or(st.rotation) + delta.x * 0.01;
-            ui.data_mut(|d| d.insert_temp(free_id, free));
-            st.rotation = stencil_drag_rotation(free, mods.shift);
-            changed = true;
-        } else {
-            ui.data_mut(|d| d.remove::<f32>(free_id));
-        }
-        if response.dragged_by(PointerButton::Middle) {
-            st.center += Vec2::new(delta.x / rect.width(), delta.y / rect.height());
-            changed = true;
-        }
-        if response.dragged_by(PointerButton::Secondary) {
-            st.scale = (st.scale * (-delta.y * 0.01).exp()).clamp(0.02, 8.0);
-            changed = true;
-        }
-        if changed {
-            state.session.brush.stencil = Some(std::sync::Arc::new(st));
-        }
-        ui.ctx().set_cursor_icon(egui::CursorIcon::AllScroll);
-    }
+    let stencil_edit = stencil_input(state, ui, &response, rect, mods, delta);
 
     // ----- navigation: scheme from Preferences; mode changes mid-drag take over seamlessly -----
     use crate::nav::{NavDrag, NavInput, NavMode};
@@ -202,20 +173,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     }
 
     // ----- Painter-style brush gestures: Ctrl+RMB drag = size / hardness, Ctrl+LMB drag = flow / angle -----
-    let gesture_ok = mods.command && !mods.alt && !stencil_edit && !typing && !(state.bake.open || state.bake.job.is_some());
-    let brush_tool = matches!(state.tool, Tool::Brush | Tool::Eraser | Tool::Smudge | Tool::Clone);
-    // Ctrl+Shift+LMB is the snapped straight line, so the flow / angle drag needs Shift up.
-    let lmb_adjust = gesture_ok && !mods.shift && matches!(state.tool, Tool::Brush | Tool::Eraser | Tool::Smudge);
-    if gesture_ok && brush_tool && !state.painting {
-        let s = &mut state.session.brush.settings;
-        if response.dragged_by(PointerButton::Secondary) {
-            s.size = (s.size * (delta.x * 0.01).exp()).clamp(0.1, 100.0);
-            s.hardness = (s.hardness - delta.y * 0.005).clamp(0.0, 1.0);
-        } else if lmb_adjust && response.dragged_by(PointerButton::Primary) {
-            s.flow = (s.flow + delta.x * 0.003).clamp(0.01, 1.0);
-            s.angle_deg = (s.angle_deg + delta.y * 0.5).rem_euclid(360.0);
-        }
-    }
+    let gesture_ok = !stencil_edit && !typing && !(state.bake.open || state.bake.job.is_some());
+    let lmb_adjust = brush_gestures(state, &response, mods, delta, gesture_ok && !state.painting);
     let v_down = ui.input(|i| i.key_down(egui::Key::V)) && !typing && !mods.any();
 
     // Imported cameras: a locked one ignores the navigation above, an unlocked one hands over.
@@ -223,7 +182,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     let camera = state.camera.paint_camera(size);
 
     // Right-click (no drag): the Properties popup at the cursor, part actions in its header.
-    if response.secondary_clicked() && !stencil_edit && crate::view_props::opens(state, mods) && let Some(p) = pointer {
+    if response.secondary_clicked() && !stencil_edit && !pick_set && crate::view_props::opens(state, mods) && let Some(p) = pointer {
         state.context_part = state.session.surface_target(&camera, to_screen(p), state.parts_kind);
         crate::view_props::open(state, p, crate::view_props::View::View3d);
     }
@@ -906,7 +865,68 @@ pub fn grid_unit_label(step: f32) -> String {
 
 /// Semi-transparent stencil image over the 3D view (hidden while N bypasses it), repeated along
 /// its tiled axes.
-fn draw_stencil(state: &mut UiState, ui: &Ui, painter: &egui::Painter, rect: Rect, size: [u32; 2]) {
+/// Stencil keys shared by the 3D and 2D views: hold N to paint without it; hold S and drag to
+/// place it (LMB rotate, Shift snaps to quarter turns; MMB move; RMB scale). `rect` is the view
+/// the stencil is laid over. Returns whether S is editing the stencil (drags belong to it).
+pub(crate) fn stencil_input(state: &mut UiState, ui: &Ui, response: &egui::Response, rect: Rect, mods: egui::Modifiers, delta: egui::Vec2) -> bool {
+    // Shift is the only modifier allowed with S: it snaps the rotation to quarter turns.
+    let (s_down, n_down) = ui.input(|i| (i.key_down(egui::Key::S) && !(i.modifiers.ctrl || i.modifiers.command || i.modifiers.alt), i.key_down(egui::Key::N) && !i.modifiers.any()));
+    let typing = ui.ctx().egui_wants_keyboard_input();
+    state.session.brush.stencil_bypass = n_down && !typing;
+    let stencil_edit = s_down && !typing && state.session.brush.stencil.is_some();
+    if stencil_edit && response.hovered() {
+        let mut st = (**state.session.brush.stencil.as_ref().expect("checked above")).clone();
+        let mut changed = false;
+        // The free angle of the drag is kept apart so a snapped rotation follows the whole
+        // gesture, not each small mouse step.
+        let free_id = egui::Id::new("stencil-free-rotation");
+        if response.dragged_by(PointerButton::Primary) {
+            let free = ui.data(|d| d.get_temp::<f32>(free_id)).unwrap_or(st.rotation) + delta.x * 0.01;
+            ui.data_mut(|d| d.insert_temp(free_id, free));
+            st.rotation = stencil_drag_rotation(free, mods.shift);
+            changed = true;
+        } else {
+            ui.data_mut(|d| d.remove::<f32>(free_id));
+        }
+        if response.dragged_by(PointerButton::Middle) {
+            st.center += Vec2::new(delta.x / rect.width(), delta.y / rect.height());
+            changed = true;
+        }
+        if response.dragged_by(PointerButton::Secondary) {
+            st.scale = (st.scale * (-delta.y * 0.01).exp()).clamp(0.02, 8.0);
+            changed = true;
+        }
+        if changed {
+            state.session.brush.stencil = Some(std::sync::Arc::new(st));
+        }
+        ui.ctx().set_cursor_icon(egui::CursorIcon::AllScroll);
+    }
+    stencil_edit
+}
+
+/// Painter's brush gestures, shared by the 3D and 2D views: Ctrl+RMB drag = size (left-right) /
+/// hardness (up-down), Ctrl+LMB drag = flow / angle. `allowed` is false while the view's own
+/// state rules them out (a stroke, the stencil, a text field). Returns whether Ctrl+LMB belongs
+/// to the flow / angle drag (so the press must not start a stroke).
+pub(crate) fn brush_gestures(state: &mut UiState, response: &egui::Response, mods: egui::Modifiers, delta: egui::Vec2, allowed: bool) -> bool {
+    let gesture_ok = allowed && mods.command && !mods.alt;
+    let brush_tool = matches!(state.tool, Tool::Brush | Tool::Eraser | Tool::Smudge | Tool::Clone);
+    // Ctrl+Shift+LMB is the snapped straight line, so the flow / angle drag needs Shift up.
+    let lmb_adjust = gesture_ok && !mods.shift && matches!(state.tool, Tool::Brush | Tool::Eraser | Tool::Smudge);
+    if gesture_ok && brush_tool {
+        let s = &mut state.session.brush.settings;
+        if response.dragged_by(PointerButton::Secondary) {
+            s.size = (s.size * (delta.x * 0.01).exp()).clamp(0.1, 100.0);
+            s.hardness = (s.hardness - delta.y * 0.005).clamp(0.0, 1.0);
+        } else if lmb_adjust && response.dragged_by(PointerButton::Primary) {
+            s.flow = (s.flow + delta.x * 0.003).clamp(0.01, 1.0);
+            s.angle_deg = (s.angle_deg + delta.y * 0.5).rem_euclid(360.0);
+        }
+    }
+    lmb_adjust
+}
+
+pub(crate) fn draw_stencil(state: &mut UiState, ui: &Ui, painter: &egui::Painter, rect: Rect, size: [u32; 2]) {
     let Some(st) = state.session.brush.stencil.clone() else {
         state.stencil_tex = None;
         return;

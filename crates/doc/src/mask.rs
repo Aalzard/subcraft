@@ -205,7 +205,7 @@ pub fn light_angles(dir: [f32; 3]) -> (f32, f32) {
 /// Which side of the curvature the Curvature generator keeps.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum CurvatureSide {
+pub enum CurvatureDetailMode {
     /// The map as baked: convex bright, concave dark, flat at 0.5.
     #[default]
     Both,
@@ -215,7 +215,7 @@ pub enum CurvatureSide {
     Cavities,
 }
 
-impl CurvatureSide {
+impl CurvatureDetailMode {
     pub const ALL: [Self; 3] = [Self::Both, Self::Edges, Self::Cavities];
     pub fn label(self) -> &'static str {
         match self { Self::Both => "Edges and cavities", Self::Edges => "Edges only", Self::Cavities => "Cavities only" }
@@ -228,14 +228,14 @@ impl CurvatureSide {
 /// and coarse 0) is exactly the baked map.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct CurvatureDetail {
-    pub side: CurvatureSide,
+    pub mode: CurvatureDetailMode,
     pub fine: f32,
     pub medium: f32,
     pub coarse: f32,
 }
 
 impl Default for CurvatureDetail {
-    fn default() -> Self { Self { side: CurvatureSide::Both, fine: 1.0, medium: 0.0, coarse: 0.0 } }
+    fn default() -> Self { Self { mode: CurvatureDetailMode::Both, fine: 1.0, medium: 0.0, coarse: 0.0 } }
 }
 
 impl CurvatureDetail {
@@ -844,7 +844,7 @@ impl Generator {
     /// Whether the micro effect is on and strong enough to change anything.
     /// The Mask Editor has no Micro controls: a micro effect kept from the kind it was switched
     /// from used to keep changing the layers below, with no way to turn it off.
-    pub fn micro_active(&self) -> bool { self.kind != GeneratorKind::MaskEditor && self.micro.is_some_and(|m| m.height() != 0.0) }
+    pub fn micro_active(&self) -> bool { self.kind != GeneratorKind::MaskEditor && !self.kind.uses_shape() && self.micro.is_some_and(|m| m.height() != 0.0) }
 
     /// Switch the micro effect on or off, keeping tuned values and starting from the per-kind defaults.
     pub fn set_micro_enabled(&mut self, on: bool) {
@@ -1026,6 +1026,9 @@ mod tests {
         assert!(!g.micro_active());
         g.set_kind(GeneratorKind::Cavity);
         assert!(g.micro_active(), "the tuned micro effect is back with the kind that has it");
+        // The position / UV generators have no Micro controls either.
+        g.set_kind(GeneratorKind::Distance3D);
+        assert!(!g.micro_active());
     }
 
     #[test]
@@ -1255,7 +1258,7 @@ mod tests {
         let plain = serde_json::to_string(&g).unwrap();
         assert!(!plain.contains("\"curvature\":"), "absent settings are not written: {plain}");
         assert_eq!(serde_json::from_str::<Generator>(&plain).unwrap().curvature, None);
-        g.curvature = Some(CurvatureDetail { side: CurvatureSide::Cavities, fine: 0.5, medium: 1.25, coarse: 0.75 });
+        g.curvature = Some(CurvatureDetail { mode: CurvatureDetailMode::Cavities, fine: 0.5, medium: 1.25, coarse: 0.75 });
         let back: Generator = serde_json::from_str(&serde_json::to_string(&g).unwrap()).unwrap();
         assert_eq!(back, g);
         assert!(CurvatureDetail::default().is_identity() && !back.curvature.unwrap().is_identity());

@@ -234,3 +234,21 @@ fn deleted_layers_are_reported_not_removed_and_a_resized_canvas_is_refused() {
     assert!(apply_channel(&small, ChannelKind::BaseColor, &out.bytes, &out.baseline).is_err());
     assert!(apply_channel(&ts, ChannelKind::Roughness, &out.bytes, &out.baseline).is_err(), "RGB file for a gray channel");
 }
+
+/// QA 2026-11: pixels edited in the PSD were written into text and pen-path layers, which are
+/// redrawn from their text / path: the next edit of the text silently discarded them.
+#[test]
+fn pixels_of_text_and_path_layers_are_not_taken_from_the_psd() {
+    let mut ts = set();
+    let base = Arc::make_mut(&mut ts.layers[0]);
+    if let LayerContent::Paint(p) = &mut base.content {
+        p.text = Some(subcraft_doc::TextDecal::new("Label", [0.5, 0.5].into(), Default::default()));
+    }
+    let out = write_channel(&ts, ChannelKind::BaseColor).unwrap();
+    let mut file = PsdFile::from_bytes(&out.bytes).unwrap();
+    let index = by_name(&file, "Base").0;
+    edit_plane(&mut file, index, 0, |x, y, v| if (x, y) == (100, 90) { 40000 } else { v });
+    let edit = apply_channel(&ts, ChannelKind::BaseColor, &file.to_bytes().unwrap(), &out.baseline).unwrap();
+    assert_eq!(edit.report.changed_tiles, 0);
+    assert_eq!(image(by_layer_name(&edit.layers, "Base"), ChannelKind::BaseColor), image(by_layer_name(&ts.layers, "Base"), ChannelKind::BaseColor));
+}

@@ -116,10 +116,16 @@ pub fn color_correct(c: [f32; 3], shadows: [f32; 3], midtones: [f32; 3], highlig
     if shadows == [0.0; 3] && midtones == [0.0; 3] && highlights == [0.0; 3] { return c; }
     let w = tonal_weights(luminance(c));
     let p: [f32; 3] = std::array::from_fn(|i| w[0] * shadows[i] + w[1] * midtones[i] + w[2] * highlights[i]);
+    // A texel no range applies to stays exactly as it is (an HDR emissive is not clipped).
+    if p == [0.0; 3] {
+        return c;
+    }
     let enc = linear3_to_srgb(c.map(|v| v.clamp(0.0, 1.0)));
     let enc = enc.map(|v| contrast_luminosity(v, p[0], p[1], ChannelKind::BaseColor));
     let gray = luminance(enc);
-    srgb3_to_linear(enc.map(|v| (gray + (v - gray) * (1.0 + p[2])).clamp(0.0, 1.0)))
+    let out = srgb3_to_linear(enc.map(|v| (gray + (v - gray) * (1.0 + p[2])).clamp(0.0, 1.0)));
+    // The correction works on the 0..1 part; what lies above 1 is added back, not clipped.
+    std::array::from_fn(|i| out[i] + (c[i] - 1.0).max(0.0))
 }
 
 /// Linear sRGB to OKLab (Bjorn Ottosson, 2020).
@@ -463,6 +469,21 @@ mod standard_filter_tests {
         close(apply(f(0.5, 0.0), [-0.2, 0.0, 0.3], K::Height), [-0.4, 0.0, 0.6], 1e-6);
         close(apply(f(0.0, -0.5), [-0.8, 0.0, 0.3], K::Height), [-1.0, -0.5, -0.2], 1e-6);
         assert!((apply_mask(f(0.5, 0.0), 0.4) - 0.3).abs() < 1e-6);
+    }
+
+    /// QA 2026-11: Color Correct clamped its input to 0..1, so an HDR emissive came back at 1
+    /// whenever any slider was set, even where that slider's range has no weight.
+    #[test]
+    fn color_correct_keeps_values_above_one() {
+        let cc = |shadows, midtones, highlights| Filter::ColorCorrect { shadows, midtones, highlights };
+        let z = [0.0; 3];
+        let bright = [4.0, 4.0, 4.0];
+        assert_eq!(apply(cc([0.0, 0.2, 0.0], z, z), bright, K::Emissive), bright, "shadows only: no weight at luminance 4");
+        let hdr = [3.0, 0.5, 0.2];
+        let out = apply(cc(z, z, [0.0, -0.25, 0.0]), hdr, K::Emissive);
+        assert!(out[0] > 2.0, "the part above 1 survives: {out:?}");
+        assert!(out[1] < 0.5 && out[2] <= 0.2 + 1e-6, "the highlights are still dimmed: {out:?}");
+        assert!(out.iter().all(|v| v.is_finite()));
     }
 
     #[test]
