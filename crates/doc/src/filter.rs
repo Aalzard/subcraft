@@ -630,8 +630,8 @@ mod tests {
         assert!(dx.abs() < 1e-5 && (dy + 4.0).abs() < 1e-5 && size == 3.0, "90 degrees points up");
         assert_eq!(shadow.support(), 8);
         assert!(shadow.supports_channel(ChannelKind::BaseColor) && !shadow.supports_channel(ChannelKind::Height) && !shadow.supports_mask());
-        assert!(shadow.softens_coverage() && Filter::DropShadow { opacity: 0.0, ..shadow }.spatial_identity());
-        assert!(!Filter::DropShadow { spread: 1.0, ..shadow }.valid());
+        assert!(shadow.softens_coverage() && Filter::DropShadow { angle_deg: 90.0, distance: 4.0, size: 3.0, spread: 0.0, opacity: 0.0, color: [0.0; 3] }.spatial_identity());
+        assert!(!Filter::DropShadow { angle_deg: 90.0, distance: 4.0, size: 3.0, spread: 1.0, opacity: 0.5, color: [0.0; 3] }.valid());
         // Glow works on masks and every channel; FXAA is a per-texel neighbourhood filter.
         let glow = Filter::OuterGlow { width: 8.0, spread: 0.2, opacity: 1.0, color: [1.0; 3], precise: false };
         assert!(glow.supports_mask() && glow.supports_channel(ChannelKind::Roughness) && glow.label() == "Glow");

@@ -64,7 +64,9 @@ fn rgb(c: &Composite, x: u32, y: u32) -> [f32; 4] {
 #[test]
 fn drop_shadow_lies_under_the_content_offset_along_its_angle() {
     let fx = Fixture::new();
-    let shadow = Filter::DropShadow { angle_deg: 0.0, distance: 10.0, size: 0.0, spread: 0.0, opacity: 1.0, color: [0.0; 3] };
+    // Struct update syntax does not work on enum variants: build each variant from its parts.
+    let drop = |angle_deg: f32, size: f32, opacity: f32, color: [f32; 3]| Filter::DropShadow { angle_deg, distance: 10.0, size, spread: 0.0, opacity, color };
+    let shadow = drop(0.0, 0.0, 1.0, [0.0; 3]);
     let c = composite_full(&painted(C::BaseColor, shadow), &fx.ctx());
     // The square stays white; its shadow, 10 px to the right, is black on the 0.5 background.
     assert!((rgb(&c, 45, 50)[0] - 1.0).abs() < 2e-3);
@@ -72,16 +74,16 @@ fn drop_shadow_lies_under_the_content_offset_along_its_angle() {
     assert!((rgb(&c, 75, 50)[0] - 0.5).abs() < 2e-3);
     assert!((rgb(&c, 35, 50)[0] - 0.5).abs() < 2e-3, "nothing on the other side");
     // Half opacity, red: half way from the background to red.
-    let red = Filter::DropShadow { opacity: 0.5, color: [1.0, 0.0, 0.0], ..shadow };
+    let red = drop(0.0, 0.0, 0.5, [1.0, 0.0, 0.0]);
     let c = composite_full(&painted(C::BaseColor, red), &fx.ctx());
     let px = rgb(&c, 65, 50);
     assert!((px[0] - 0.75).abs() < 2e-3 && (px[1] - 0.25).abs() < 2e-3, "{px:?}");
     // Angle 90 points up: the shadow is above the square.
-    let up = Filter::DropShadow { angle_deg: 90.0, ..shadow };
+    let up = drop(90.0, 0.0, 1.0, [0.0; 3]);
     let c = composite_full(&painted(C::BaseColor, up), &fx.ctx());
     assert!(rgb(&c, 50, 35)[0].abs() < 2e-3 && (rgb(&c, 50, 65)[0] - 0.5).abs() < 2e-3);
     // Blurred: soft, symmetric about the shifted edge.
-    let soft = Filter::DropShadow { size: 4.0, ..shadow };
+    let soft = drop(0.0, 4.0, 1.0, [0.0; 3]);
     let c = composite_full(&painted(C::BaseColor, soft), &fx.ctx());
     let edge = rgb(&c, 70, 50)[0];
     assert!(edge > 0.1 && edge < 0.4, "{edge}");
@@ -90,7 +92,8 @@ fn drop_shadow_lies_under_the_content_offset_along_its_angle() {
 #[test]
 fn glow_surrounds_the_content_and_brightens_masks() {
     let fx = Fixture::new();
-    let glow = Filter::OuterGlow { width: 6.0, spread: 0.0, opacity: 1.0, color: [0.0, 1.0, 0.0], precise: false };
+    let outer = |color: [f32; 3], precise: bool| Filter::OuterGlow { width: 6.0, spread: 0.0, opacity: 1.0, color, precise };
+    let glow = outer([0.0, 1.0, 0.0], false);
     let c = composite_full(&painted(C::BaseColor, glow), &fx.ctx());
     // Right outside the square: tinted green; far away: the background.
     let near = rgb(&c, 61, 50);
@@ -98,7 +101,7 @@ fn glow_surrounds_the_content_and_brightens_masks() {
     assert!((rgb(&c, 100, 50)[1] - 0.5).abs() < 2e-3);
     assert!((rgb(&c, 50, 50)[0] - 1.0).abs() < 2e-3, "the content stays on top");
     // Precise falls off steeper: brighter right at the edge than Soft.
-    let precise = composite_full(&painted(C::BaseColor, Filter::OuterGlow { precise: true, ..glow }), &fx.ctx());
+    let precise = composite_full(&painted(C::BaseColor, outer([0.0, 1.0, 0.0], true)), &fx.ctx());
     assert!(rgb(&precise, 61, 50)[1] > near[1]);
     // On a mask: a white glow brightens the black around a white square.
     let mut ts = TextureSet::new("T", 0, N);
@@ -119,7 +122,7 @@ fn glow_surrounds_the_content_and_brightens_masks() {
             }
         }
     }
-    mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Filter(Filter::OuterGlow { color: [1.0; 3], ..glow }))));
+    mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Filter(outer([1.0; 3], false)))));
     l.mask = Some(mask);
     ts.insert_above(None, l);
     let c = composite_full(&ts, &fx.ctx());
