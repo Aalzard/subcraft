@@ -46,6 +46,8 @@ pub struct ViewportPrefs {
     #[serde(skip)]
     pub solo: Option<subcraft_core::ChannelKind>,
     pub symmetry_guides: bool,
+    /// Which symmetry guides, cursor copies and handles show (Symmetry settings > display).
+    pub symmetry_display: crate::symmetry_view::SymmetryDisplay,
     /// Bottom-left list of the mouse / key actions that apply now.
     pub hints: bool,
     /// Environment, camera, post-effect and visualisation settings. Flattened, so preference
@@ -96,6 +98,7 @@ impl Default for ViewportPrefs {
             mesh_map: None,
             solo: None,
             symmetry_guides: true,
+            symmetry_display: Default::default(),
             hints: true,
             display: Default::default(),
             path_tracing: false,
@@ -401,13 +404,13 @@ pub fn show(ui: &mut Ui, state: &mut crate::state::UiState) {
                     ui.add_space(5.0);
                     ui.separator();
                     ui.add_space(5.0);
-                    crate::brush_bar::show(ui, &mut state.tool, &mut settings, &mut options, &mut state.recovery.prefs.viewport.symmetry_guides, width);
+                    crate::brush_bar::show(ui, &mut state.tool, &mut settings, &mut options, &mut state.recovery.prefs.viewport, width);
                 }
             });
             if painting && !inline {
                 ui.separator();
                 ui.horizontal(|ui| {
-                    crate::brush_bar::show(ui, &mut state.tool, &mut settings, &mut options, &mut state.recovery.prefs.viewport.symmetry_guides, width)
+                    crate::brush_bar::show(ui, &mut state.tool, &mut settings, &mut options, &mut state.recovery.prefs.viewport, width)
                 });
             }
             if painting {

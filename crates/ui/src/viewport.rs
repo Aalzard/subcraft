@@ -275,6 +275,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
 
     // ----- part picking: clicks show / hide the selected layer on mesh parts ----------------------
     let bake_mode = state.bake.open || state.bake.job.is_some();
+    // Symmetry manipulator: a press on a handle moves the mirror plane / radial axis instead of painting.
+    let symmetry_grab = !bake_mode && !alt && !stencil_edit
+        && crate::symmetry_view::manipulate(state, ui, &response, rect, pixel_scale, &camera, primary_pressed, primary_down, pointer);
+    let primary_pressed = primary_pressed && !symmetry_grab;
     let parts_picking = !bake_mode && state.picking_parts && state.session.selected_layer().is_some() && !state.painting;
     // ----- ID Color Mask eyedropper: clicks add the ID map color under the cursor ------------
     let id_picking = !bake_mode && !state.painting
@@ -466,11 +470,13 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             params.channel_display = view.channel_display();
             params.mip_bias = -(view.mip_bias.min(3) as f32);
             renderer.set_texture_filtering(&rs.device, view.anisotropy.samples());
-            params.symmetry_guides = view.symmetry_guides && state.session.brush.options.has_symmetry() && !bake_mode;
+            let symmetry_display = view.symmetry_display;
+            params.symmetry_guides = view.symmetry_guides && state.session.brush.options.has_symmetry() && !bake_mode
+                && !(symmetry_display.hide_while_painting && state.painting);
             if params.symmetry_guides {
-                let key = (std::sync::Arc::as_ptr(&state.session.scene().mesh) as usize, state.session.brush.options.symmetry, state.session.brush.options.radial);
+                let key = crate::symmetry_view::GuideKey::new(&state.session, &symmetry_display);
                 if state.symmetry_uploaded != Some(key) {
-                    renderer.set_symmetry_guides(&rs.device, &state.session.symmetry_guide_segments());
+                    renderer.set_symmetry_guides(&rs.device, &crate::symmetry_view::guide_lines(&state.session, &symmetry_display));
                     state.symmetry_uploaded = Some(key);
                 }
             }
@@ -601,6 +607,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 let color = if state.tool == Tool::Eraser { Color32::from_rgb(120, 190, 255) } else { ACCENT };
                 painter.circle_stroke(p, r_px, Stroke::new(1.5, Color32::from_black_alpha(160)));
                 painter.circle_stroke(p, r_px, Stroke::new(1.0, color));
+                crate::symmetry_view::mirrored_cursor(state, &painter, rect, pixel_scale, &camera, pick.position, pick.depth, r_px, color);
             }
         } else if state.tool == Tool::PolygonFill && !picking {
             painter.circle_filled(p, 3.0, ACCENT);
@@ -620,6 +627,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             painter.circle_stroke(from, 6.0, Stroke::new(1.5, cross));
         }
     }
+    crate::symmetry_view::overlay(state, ui, &painter, rect, pixel_scale, &camera, !bake_mode && state.tool != Tool::Pen);
     draw_stencil(state, ui, &painter, rect, size);
     // Reset button at the top right of the view while S is held.
     if stencil_edit {

@@ -5567,3 +5567,30 @@ the app kept drawing on the dead device. Safe mode works; 0.3.3's marker only he
 * Not done: cameras from Alembic and USD files, camera roll (the orbit camera has none), free
   rotation mode, separate OS windows for undocked views, Shader settings and Log dock buttons
   (no such panels yet).
+
+### Painter parity chunk 31 - Symmetry display and manipulator (2026-11-13, branch `claude/parity-symmetry`)
+
+**Status:** written and pushed to CI; not built locally (current rule: CI compiles). Results go in the PR.
+
+* **Axis position (mirror):** `StrokeOptions::mirror_offset` moves each mirror plane along its axis. Painting
+  (`StrokeOptions::copy_cameras`, now the one place the stroke cameras come from), the guides and the cursor all
+  use `mirror_plane()`. Older brush presets and files read it as 0 (the center). A non-finite value is refused.
+* **Radial flip copy:** `RadialSymmetry::flip` mirrors every other copy across the plane through the axis and
+  the first copy (normal `flip_axis()`), so neighbouring copies face each other.
+* **Display options** (`ViewportPrefs::symmetry_display`, in the Symmetry popup under Show symmetry guides):
+  Plane (translucent fill plus outline), Intersection, Axis, Mirrored cursor, Hide while painting,
+  Manipulator with a size. The GPU guide lines are re-uploaded when the planes, the radial settings or the
+  chosen kinds change (`symmetry_view::GuideKey`).
+* **Mirrored cursor:** one brush ring per copy (`Session::symmetry_copies`, from `copy_transforms`), sized
+  for its depth, faint where the copy is behind the surface.
+* **Manipulator:** a handle per enabled mirror plane drags it along its axis (closest point on the axis to the
+  pointer ray); the radial pivot drags across the plane normal to its axis. A press on a handle never paints.
+* **Tests:**
+  * paint: the copy cameras and `copy_transforms` agree for mirror, offset, radial and flipped combinations;
+    offset plane maths; flipped copies have determinant -1.
+  * app: `guides.rs` moved-plane sections; `tests/symmetry_display.rs` (guides and cursor copies follow the
+    plane, cache refresh, flipped radial copies); `brush_settings` round-trips the new fields.
+  * ui: `symmetry_view` maths (ray to axis, ray to plane, defaults, older prefs);
+    `tests/symmetry_manipulator.rs` (dragging the X handle moves the plane to x = 0.5 with no history and no
+    paint; with the manipulator off the same press paints).
+* **Not done:** the radial axis / mesh intersection point; L still toggles mirror X only (Painter: symmetry on/off).

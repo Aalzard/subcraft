@@ -158,7 +158,7 @@ fn brush_controls(state: &mut UiState, ui: &mut Ui) {
     let mut options = state.session.brush.options;
     let (original, original_options) = (settings, options);
     let width = ui.available_width();
-    crate::brush_bar::show(ui, &mut state.tool, &mut settings, &mut options, &mut state.recovery.prefs.viewport.symmetry_guides, width);
+    crate::brush_bar::show(ui, &mut state.tool, &mut settings, &mut options, &mut state.recovery.prefs.viewport, width);
     let now = ui.input(|i| i.time);
     if settings != original && let Err(e) = state.session.execute(subcraft_app::Command::SetBrushSettings(settings)) {
         state.set_status(e.to_string(), now);

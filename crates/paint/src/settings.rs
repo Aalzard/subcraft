@@ -404,6 +404,9 @@ pub struct StrokeOptions {
     pub catch_up: bool,
     /// Mirror planes (X, Y, Z) through the mesh bounds center.
     pub symmetry: [bool; 3],
+    /// Mirror plane positions: offset of each plane from the mesh bounds center along its own
+    /// axis (object units; Painter's "Axis position"). Zero is the center.
+    pub mirror_offset: [f32; 3],
     /// Copies rotated around an axis (combines with the mirror planes; ADR 0043).
     pub radial: RadialSymmetry,
 }
@@ -424,11 +427,14 @@ pub struct RadialSymmetry {
     pub count: u32,
     /// Offset of the axis line from the mesh bounds center (object units).
     pub center_offset: [f32; 3],
+    /// Flip copy: every other copy is also mirrored across the plane through the axis and the
+    /// first copy's direction, so neighbouring copies face each other.
+    pub flip: bool,
 }
 
 impl Default for RadialSymmetry {
     fn default() -> Self {
-        Self { enabled: false, axis: 1, count: 4, center_offset: [0.0; 3] }
+        Self { enabled: false, axis: 1, count: 4, center_offset: [0.0; 3], flip: false }
     }
 }
 
@@ -448,6 +454,20 @@ impl RadialSymmetry {
         d[(self.axis as usize).min(2)] = 1.0;
         d
     }
+
+    /// Axis normal to the plane a flipped copy is mirrored across: the plane holds the rotation
+    /// axis and the first copy's direction (the next axis after the rotation axis).
+    pub fn flip_axis(&self) -> usize {
+        ((self.axis as usize).min(2) + 2) % 3
+    }
+}
+
+/// Reflection across the plane `p[axis] = at` (its own inverse).
+fn reflection(axis: usize, at: f32) -> glam::Mat4 {
+    let mut r = glam::Mat4::IDENTITY;
+    r.col_mut(axis)[axis] = -1.0;
+    r.w_axis[axis] = 2.0 * at;
+    r
 }
 
 impl StrokeOptions {
@@ -460,6 +480,79 @@ impl StrokeOptions {
     /// Whether any symmetry (mirror or radial) is active.
     pub fn has_symmetry(&self) -> bool {
         self.copies() > 1
+    }
+
+    /// Coordinate of the mirror plane along `axis` for a mesh whose bounds center is `center`.
+    pub fn mirror_plane(&self, axis: usize, center: glam::Vec3) -> f32 {
+        let offset = self.mirror_offset[axis];
+        center[axis] + if offset.is_finite() { offset } else { 0.0 }
+    }
+
+    /// Radial pivot (the axis line passes through it) for a mesh whose bounds center is `center`.
+    pub fn radial_pivot(&self, center: glam::Vec3) -> glam::Vec3 {
+        center + glam::Vec3::from_array(self.radial.center_offset)
+    }
+
+    /// The view camera of every stroke copy, in paint order: the view, its radial copies (odd
+    /// ones mirrored first when flipped), then every mirror of those (all combinations of the
+    /// enabled planes). Without radial symmetry the list is exactly the mirror list (ADR 0043).
+    pub fn copy_cameras(&self, camera: &crate::Camera, center: glam::Vec3) -> Vec<crate::Camera> {
+        let mut cams = vec![*camera];
+        let mirrors = self.symmetry.iter().filter(|&&m| m).count();
+        let radial = &self.radial;
+        let n = radial.effective_count(mirrors);
+        if n > 1 {
+            let pivot = self.radial_pivot(center);
+            for k in 1..n {
+                let angle = std::f32::consts::TAU * k as f32 / n as f32;
+                let base = if radial.flip && k % 2 == 1 {
+                    let v = radial.flip_axis();
+                    camera.mirrored(v, pivot[v])
+                } else {
+                    *camera
+                };
+                cams.push(base.rotated(radial.axis_dir(), pivot, angle));
+            }
+        }
+        for axis in 0..3 {
+            if self.symmetry[axis] {
+                let plane = self.mirror_plane(axis, center);
+                let mirrored: Vec<crate::Camera> = cams.iter().map(|c| c.mirrored(axis, plane)).collect();
+                cams.extend(mirrored);
+            }
+        }
+        cams
+    }
+
+    /// Object-space transform of every stroke copy, in the order of [`Self::copy_cameras`]
+    /// (index 0 is the identity): a point painted at `p` is also painted at `copy_transforms[k] * p`.
+    pub fn copy_transforms(&self, center: glam::Vec3) -> Vec<glam::Mat4> {
+        use glam::Mat4;
+        let mut list = vec![Mat4::IDENTITY];
+        let mirrors = self.symmetry.iter().filter(|&&m| m).count();
+        let radial = &self.radial;
+        let n = radial.effective_count(mirrors);
+        if n > 1 {
+            let pivot = self.radial_pivot(center);
+            for k in 1..n {
+                let angle = std::f32::consts::TAU * k as f32 / n as f32;
+                let rotate = Mat4::from_translation(pivot) * Mat4::from_axis_angle(radial.axis_dir(), angle) * Mat4::from_translation(-pivot);
+                list.push(if radial.flip && k % 2 == 1 {
+                    let v = radial.flip_axis();
+                    rotate * reflection(v, pivot[v])
+                } else {
+                    rotate
+                });
+            }
+        }
+        for axis in 0..3 {
+            if self.symmetry[axis] {
+                let r = reflection(axis, self.mirror_plane(axis, center));
+                let mirrored: Vec<Mat4> = list.iter().map(|t| r * *t).collect();
+                list.extend(mirrored);
+            }
+        }
+        list
     }
 }
 
@@ -541,6 +634,63 @@ mod tests {
         assert_eq!(StrokeOptions { radial: RadialSymmetry { count: 6, ..r }, ..StrokeOptions::default() }.copies(), 6);
         assert!(!StrokeOptions::default().has_symmetry());
         assert_eq!(RadialSymmetry { axis: 9, ..r }.axis_dir(), glam::Vec3::Z);
+    }
+
+    /// Painting through copy camera `k` at the screen point of `p` lands on `copy_transforms[k] * p`.
+    fn assert_cameras_match_transforms(options: &StrokeOptions) {
+        use glam::Vec3;
+        let center = Vec3::new(0.3, -0.2, 0.1);
+        let camera = crate::Camera::perspective(Vec3::new(1.0, 2.0, 6.0), center, Vec3::Y, 45.0, 0.1, 100.0, [640, 480]);
+        let cams = options.copy_cameras(&camera, center);
+        let transforms = options.copy_transforms(center);
+        assert_eq!(cams.len(), transforms.len());
+        assert_eq!(cams.len() as u32, options.copies());
+        for p in [Vec3::new(0.5, 0.1, 0.4), Vec3::new(-0.2, 0.6, -0.3)] {
+            let at = camera.project(p).unwrap();
+            for (k, (cam, t)) in cams.iter().zip(&transforms).enumerate() {
+                let copy = t.transform_point3(p);
+                let seen = cam.project(copy).unwrap();
+                assert!((seen - at).length() < 1e-2, "copy {k}: {seen} vs {at} ({options:?})");
+            }
+        }
+    }
+
+    #[test]
+    fn copy_transforms_match_the_cameras_strokes_paint_through() {
+        let radial = RadialSymmetry { enabled: true, axis: 1, count: 4, center_offset: [0.25, 0.0, -0.1], flip: false };
+        for options in [
+            StrokeOptions { symmetry: [true, false, false], ..StrokeOptions::default() },
+            StrokeOptions { symmetry: [true, false, true], mirror_offset: [0.4, 0.0, -0.3], ..StrokeOptions::default() },
+            StrokeOptions { radial, ..StrokeOptions::default() },
+            StrokeOptions { radial: RadialSymmetry { flip: true, ..radial }, ..StrokeOptions::default() },
+            StrokeOptions { symmetry: [false, true, false], mirror_offset: [0.0, 0.2, 0.0], radial: RadialSymmetry { flip: true, count: 6, ..radial }, ..StrokeOptions::default() },
+        ] {
+            assert_cameras_match_transforms(&options);
+        }
+    }
+
+    #[test]
+    fn mirror_offset_moves_the_plane_and_flip_mirrors_every_other_copy() {
+        use glam::Vec3;
+        let center = Vec3::new(1.0, 2.0, 3.0);
+        let options = StrokeOptions { symmetry: [true, false, false], mirror_offset: [0.5, 0.0, 0.0], ..StrokeOptions::default() };
+        assert_eq!(options.mirror_plane(0, center), 1.5);
+        let t = options.copy_transforms(center);
+        assert!(t[1].transform_point3(Vec3::new(2.0, 0.0, 0.0)).distance(Vec3::new(1.0, 0.0, 0.0)) < 1e-6, "x -> 2 * 1.5 - x");
+        let bad = StrokeOptions { mirror_offset: [f32::NAN, 0.0, 0.0], ..options };
+        assert_eq!(bad.mirror_plane(0, center), 1.0, "a non-finite offset falls back to the center");
+
+        let radial = RadialSymmetry { enabled: true, axis: 1, count: 4, center_offset: [0.0; 3], flip: true };
+        let t = StrokeOptions { radial, ..StrokeOptions::default() }.copy_transforms(Vec3::ZERO);
+        let det: Vec<f32> = t.iter().map(|m| m.determinant()).collect();
+        assert!(det.iter().zip([1.0, -1.0, 1.0, -1.0]).all(|(d, e)| (d - e).abs() < 1e-5), "odd copies are mirrored: {det:?}");
+        // Axis Y: the flip plane holds Y and Z (spoke 0 points along Z), so copy 1 is x -> -x,
+        // then a quarter turn around Y.
+        let p = Vec3::new(1.0, 0.0, 0.0);
+        let expected = glam::Quat::from_rotation_y(std::f32::consts::FRAC_PI_2) * Vec3::new(-1.0, 0.0, 0.0);
+        assert!(t[1].transform_point3(p).distance(expected) < 1e-5);
+        assert_eq!(radial.flip_axis(), 0);
+        assert_eq!(RadialSymmetry { axis: 2, ..radial }.flip_axis(), 1);
     }
     #[test]
     fn size_space_converts_the_same_percentage_per_space() {

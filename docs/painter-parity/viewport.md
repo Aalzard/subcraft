@@ -195,12 +195,12 @@ Layout notes: display options (plane, intersection, cursor, manipulator) are onl
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
 | Symmetry on/off | L | off | partial: L toggles mirror X only | crates/app/src/session.rs:1588 | - |
-| Mirror plane (transparent) | 3D view (Show Plane) | not documented | partial: guide lines drawn, no translucent plane | crates/ui/src/viewport.rs:375 | - |
-| Mirror intersection line on the mesh | 3D view (Show Intersection) | not documented | missing | - | - |
-| Mirrored second cursor | 3D view (Show Cursor) | not documented | missing | - | - |
-| Hide second cursor while painting | 3D view (Hide While Painting) | not documented | missing | - | - |
-| Mirror axis-position manipulator (drag handles) | 3D view | off until enabled | missing | - | - |
-| Radial axis line | 3D view (Show Axis) | not documented | partial: drawn as part of the symmetry guides | crates/ui/src/viewport.rs:379 | - |
+| Mirror plane (transparent) | 3D view (Show Plane) | not documented | done: translucent plane with its outline, at the axis position | crates/ui/src/symmetry_view.rs (overlay) | - |
+| Mirror intersection line on the mesh | 3D view (Show Intersection) | not documented | done: follows the axis position | crates/app/src/guides.rs (symmetry_sections) | - |
+| Mirrored second cursor | 3D view (Show Cursor) | not documented | done: one cursor per mirror / radial copy, faint where hidden behind the surface | crates/ui/src/symmetry_view.rs (mirrored_cursor) | - |
+| Hide second cursor while painting | 3D view (Hide While Painting) | not documented | done: hides the cursor copies and the guides during a stroke | crates/ui/src/symmetry_view.rs | - |
+| Mirror axis-position manipulator (drag handles) | 3D view | off until enabled | done: a handle per mirror plane moves it along its axis; the radial pivot moves across its plane | crates/ui/src/symmetry_view.rs (manipulate) | - |
+| Radial axis line | 3D view (Show Axis) | not documented | done: own Show Axis toggle | crates/app/src/guides.rs (radial_guides) | - |
 | Radial axis / mesh intersection point | 3D view (Show Intersection) | not documented | missing | - | - |
 | Radial axis-position manipulator | 3D view (Show Axis position manipulator) | off | missing | - | - |
 

@@ -38,9 +38,32 @@ macro_rules! on_stack {
 /// Default texture-set resolution for new sessions.
 pub const DEFAULT_RESOLUTION: u32 = 2048;
 
+/// Guide geometry of the active symmetry, in object space (see [`Session::symmetry_guides`]).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SymmetryGuides {
+    /// Where each enabled mirror plane cuts the surface.
+    pub intersections: Vec<[Vec3; 2]>,
+    /// Corners of each enabled mirror plane's rectangle (a little larger than the mesh).
+    pub planes: Vec<[Vec3; 4]>,
+    /// Radial axis line, then one spoke per copy.
+    pub axis: Vec<[Vec3; 2]>,
+}
+
+impl SymmetryGuides {
+    /// The guide lines to draw: the chosen kinds, plane rectangles as their outlines.
+    pub fn segments(&self, intersections: bool, planes: bool, axis: bool) -> Vec<[Vec3; 2]> {
+        let mut lines = Vec::new();
+        if intersections { lines.extend(self.intersections.iter().copied()); }
+        if planes { lines.extend(self.planes.iter().flat_map(crate::guides::outline)); }
+        if axis { lines.extend(self.axis.iter().copied()); }
+        lines
+    }
+}
+
 /// Immutable geometry of the session and everything derived from it.
 pub struct Scene {
-    symmetry_sections: std::sync::OnceLock<[Vec<[Vec3; 2]>; 3]>,
+    /// Mirror guides for the last plane positions (bits of the three plane coordinates).
+    symmetry_sections: std::sync::Mutex<Option<([u32; 3], Arc<[crate::guides::MirrorGuide; 3]>)>>,
     pub mesh: Arc<Mesh>,
     pub bvh: Bvh,
     pub geometry: GeometryCache,
@@ -668,19 +691,49 @@ impl Session {
         &self.scene
     }
 
-    /// Guide lines for the active symmetry: mirror-plane sections, then the radial axis with
-    /// one spoke per copy (same center and copy count the stroke paints with).
-    pub fn symmetry_guide_segments(&self) -> Vec<[Vec3; 2]> {
+    /// Guides of the active symmetry, at the planes and axis the stroke paints with: where each
+    /// enabled mirror plane cuts the surface, each plane's rectangle, and the radial axis with
+    /// one spoke per copy.
+    pub fn symmetry_guides(&self) -> SymmetryGuides {
         let options = &self.brush.options;
-        if !options.has_symmetry() { return Vec::new(); }
-        let mut lines: Vec<[Vec3; 2]> = Vec::new();
+        let mut guides = SymmetryGuides::default();
+        if !options.has_symmetry() { return guides; }
         if options.symmetry.contains(&true) {
-            let sections = self.scene.symmetry_sections.get_or_init(|| crate::guides::symmetry_sections(&self.scene.mesh));
-            lines.extend(sections.iter().zip(options.symmetry).filter(|(_, enabled)| *enabled).flat_map(|(lines, _)| lines.iter().copied()));
+            let center = self.scene.mesh.bounds.center();
+            let planes: [f32; 3] = std::array::from_fn(|axis| options.mirror_plane(axis, center));
+            let key = planes.map(f32::to_bits);
+            let sections = {
+                let mut cache = self.scene.symmetry_sections.lock().unwrap_or_else(|e| e.into_inner());
+                match &*cache {
+                    Some((k, s)) if *k == key => s.clone(),
+                    _ => {
+                        let s = Arc::new(crate::guides::symmetry_sections(&self.scene.mesh, planes));
+                        *cache = Some((key, s.clone()));
+                        s
+                    }
+                }
+            };
+            for (guide, _) in sections.iter().zip(options.symmetry).filter(|(_, enabled)| *enabled) {
+                guides.intersections.extend(guide.intersection.iter().copied());
+                guides.planes.push(guide.plane);
+            }
         }
         let mirrors = options.symmetry.iter().filter(|&&m| m).count();
-        lines.extend(crate::guides::radial_guides(&self.scene.mesh, &options.radial, options.radial.effective_count(mirrors)));
-        lines
+        guides.axis = crate::guides::radial_guides(&self.scene.mesh, &options.radial, options.radial.effective_count(mirrors));
+        guides
+    }
+
+    /// Every guide line of the active symmetry: plane intersections, plane outlines, radial axis.
+    pub fn symmetry_guide_segments(&self) -> Vec<[Vec3; 2]> {
+        self.symmetry_guides().segments(true, true, true)
+    }
+
+    /// Where the active symmetry also paints a stroke point `p` (object space), one point per
+    /// copy, without `p` itself.
+    pub fn symmetry_copies(&self, p: Vec3) -> Vec<Vec3> {
+        let options = &self.brush.options;
+        if !options.has_symmetry() { return Vec::new(); }
+        options.copy_transforms(self.scene.mesh.bounds.center()).iter().skip(1).map(|t| t.transform_point3(p)).collect()
     }
     pub fn document(&self) -> &Document {
         &self.doc
@@ -962,6 +1015,9 @@ impl Session {
                 }
                 if !options.radial.center_offset.iter().all(|v| v.is_finite()) {
                     return Err(CommandError::Invalid("radial symmetry center must be finite".into()));
+                }
+                if !options.mirror_offset.iter().all(|v| v.is_finite()) {
+                    return Err(CommandError::Invalid("mirror plane position must be finite".into()));
                 }
                 if !options.smoothing.is_finite() {
                     return Err(CommandError::Invalid("smoothing must be finite".into()));

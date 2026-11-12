@@ -398,25 +398,7 @@ impl Stroke {
     /// View camera, its radial copies, then every symmetry mirror of those (all combinations of
     /// enabled planes). Without radial symmetry the list is exactly the mirror list (ADR 0043).
     fn cameras(&self, ctx: &PaintContext) -> Vec<Camera> {
-        let center = ctx.mesh.bounds.center();
-        let mut cams = vec![*ctx.camera];
-        let mirrors = self.options.symmetry.iter().filter(|&&m| m).count();
-        let radial = &self.options.radial;
-        let n = radial.effective_count(mirrors);
-        if n > 1 {
-            let pivot = center + Vec3::from_array(radial.center_offset);
-            for k in 1..n {
-                let angle = std::f32::consts::TAU * k as f32 / n as f32;
-                cams.push(ctx.camera.rotated(radial.axis_dir(), pivot, angle));
-            }
-        }
-        for axis in 0..3 {
-            if self.options.symmetry[axis] {
-                let mirrored: Vec<Camera> = cams.iter().map(|c| c.mirrored(axis, center[axis])).collect();
-                cams.extend(mirrored);
-            }
-        }
-        cams
+        self.options.copy_cameras(ctx.camera, ctx.mesh.bounds.center())
     }
 
     fn depth_hint(&self, ctx: &PaintContext) -> f32 {

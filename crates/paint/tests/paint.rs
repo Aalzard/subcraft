@@ -456,7 +456,7 @@ fn radial_off_or_one_copy_is_bit_exact_with_plain_and_mirror_strokes() {
     for symmetry in [[false; 3], [true, false, false]] {
         let base = StrokeOptions { symmetry, ..StrokeOptions::default() };
         let (_, reference) = radial_scene(base);
-        let disabled = RadialSymmetry { enabled: false, axis: 2, count: 12, center_offset: [0.3, 0.0, 0.0] };
+        let disabled = RadialSymmetry { enabled: false, axis: 2, count: 12, center_offset: [0.3, 0.0, 0.0], flip: false };
         for r in [disabled, radial(1, 1), radial(0, 0)] {
             let (_, img) = radial_scene(StrokeOptions { radial: r, ..base });
             assert_eq!(img.to_dense(), reference.to_dense(), "{r:?} with mirror {symmetry:?}");
