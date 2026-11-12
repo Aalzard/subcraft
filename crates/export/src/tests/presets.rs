@@ -374,8 +374,8 @@ fn painter_presets_convert_maps_sources_and_parameters() {
     assert_eq!((h.components.as_slice(), h.format), ([Source::Height].as_slice(), FileFormat::Tiff32));
     assert_eq!(h.pattern.as_deref(), Some("$mesh_$textureSet_Height_"));
     let g = &p.maps[4];
-    assert_eq!(g.components, [Source::Channel { kind: ChannelKind::Roughness, component: 0, invert: true }, Source::Constant { value: 0.0 }]);
-    assert!(imported.warnings.iter().any(|w| w.contains("f0")), "{:?}", imported.warnings);
+    assert_eq!(g.components, [Source::Converted { map: Converted::Glossiness, component: 0 }, Source::Converted { map: Converted::F0, component: 0 }], "virtual maps read the converted maps");
+    assert!(!imported.warnings.iter().any(|w| w.contains("f0")), "{:?}", imported.warnings);
     assert!(imported.warnings.iter().any(|w| w.contains("$colorSpace")));
     assert!(imported.warnings.iter().any(|w| w.contains("16-bit")));
     // And it exports.
