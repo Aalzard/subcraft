@@ -1184,3 +1184,31 @@ fn mirror_filter_copies_the_kept_side_onto_the_other_in_content_and_masks() {
     }).collect();
     assert_image(&ts, &fx, &expected);
 }
+
+/// QA 2026-11: a Transform that leaves gaps (no repeat, scaled down) over a flat layer was marked
+/// "uniform", so it was evaluated for one tile and that tile's result reused for every tile: the
+/// shrunken image and its empty border landed in the wrong places.
+#[test]
+fn a_gap_leaving_transform_of_a_flat_layer_is_evaluated_per_tile() {
+    use subcraft_core::ChannelValue;
+    use subcraft_doc::{FillChannel, FillSource, FlipMode, RepeatMode};
+    let fx = Fixture::new();
+    let ts = TextureSet::new("T", 0, N);
+    let mut fill = Layer::new_fill("Flat", &ts);
+    let LayerContent::Fill(f) = &mut fill.content else { unreachable!() };
+    f.channels.insert(C::Roughness, FillChannel::new(FillSource::uniform(ChannelValue::scalar(0.8))));
+    add(&mut fill, &ts, C::Roughness, transform(RepeatMode::None, FlipMode::None, [0.5; 2], [0.0; 2], 0.0));
+    let mut ts = ts;
+    ts.insert_above(None, fill);
+    let c = composite_full(&ts, &fx.ctx());
+    let img = c.channel(C::Roughness).unwrap();
+    let flat = img.get(0, 0)[0];
+    // Inside the centre half: the (flat) image. Well outside it: the empty border, whatever
+    // tile it is in.
+    for (x, y) in [(64, 64), (70, 70), (40, 40), (90, 40), (40, 90)] {
+        assert!((img.get(x, y)[0] - 0.8).abs() < 0.01, "({x},{y}) = {} should be the image", img.get(x, y)[0]);
+    }
+    for (x, y) in [(5, 5), (120, 120), (64, 120), (120, 64), (5, 64)] {
+        assert!((img.get(x, y)[0] - flat).abs() < 1e-4 && (flat - 0.8).abs() > 0.1, "({x},{y}) = {} should be the empty border ({flat})", img.get(x, y)[0]);
+    }
+}

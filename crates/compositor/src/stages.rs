@@ -518,15 +518,23 @@ impl<'a> Graph<'a> {
             | Node::Directional { input, .. }
             | Node::Median { input, .. }
             | Node::Warp { input, .. }
-            | Node::Pixelwise { input, .. }
             | Node::Contour { input, .. } => self.uniform[*input],
+            // Edge Detect and a Transform that leaves gaps turn a flat input into an image.
+            Node::Pixelwise { input, filter, .. } => {
+                self.uniform[*input]
+                    && !matches!(filter, Filter::EdgeDetect { .. })
+                    && !matches!(filter, Filter::Transform { repeat, .. } if *repeat != subcraft_doc::RepeatMode::Both)
+            }
             Node::ContentEffect {
                 input,
                 effect,
                 kind,
-                ..
+                filtered,
             } => {
+                // A uniform result is computed for one tile and reused for all: the filtered
+                // input must be uniform too (a gap-leaving Transform of a flat layer is not).
                 self.uniform[*input]
+                    && filtered.is_none_or(|f| self.uniform[f])
                     && match &effect.kind {
                         ContentEffectKind::Fill(f) => uniform_fill(f, *kind),
                         ContentEffectKind::Paint { channels } => {
@@ -535,8 +543,9 @@ impl<'a> Graph<'a> {
                         _ => true,
                     }
             }
-            Node::MaskEffect { input, effect, anchor, .. } => {
+            Node::MaskEffect { input, effect, anchor, filtered } => {
                 self.uniform[*input]
+                    && filtered.is_none_or(|f| self.uniform[f])
                     && anchor.is_none_or(|(a, _)| self.uniform[a])
                     && match &effect.kind {
                         MaskEffectKind::Paint { image } => image.allocated_tiles() == 0,
