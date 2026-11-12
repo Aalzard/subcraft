@@ -175,11 +175,16 @@ pub struct OutputMap {
     /// Dither when this map is written at 8 bits ("8 bits + dithering").
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dither: Option<bool>,
+    /// The first three components shown as one RGB slot (`Some(true)`, Painter's RGB / RGB+A
+    /// maps) or as three gray slots (`Some(false)`, R+G+B). `None` = one slot when they read
+    /// the R, G and B of the same source. Only the editor uses it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rgb_slot: Option<bool>,
 }
 
 impl OutputMap {
     pub fn new(suffix: &str, format: FileFormat, components: Vec<Source>, srgb: bool) -> Self {
-        Self { suffix: suffix.into(), format, components, srgb, pattern: None, padding: None, size: None, normal_directx: None, dither: None }
+        Self { suffix: suffix.into(), format, components, srgb, pattern: None, padding: None, size: None, normal_directx: None, dither: None, rgb_slot: None }
     }
 }
 

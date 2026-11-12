@@ -5545,3 +5545,23 @@ the app kept drawing on the dead device. Safe mode works; 0.3.3's marker only he
   `export_config_round_trips_and_stays_out_of_files_that_have_none` (doc),
   `tabs_save_settings_cancel_and_texture_set_overrides` (ui/tests/export_maps.rs). Not run locally (the PC is
   unstable under load; the coordinator asked for CI only).
+
+### Session 134 - Painter parity chunk 22: export template editor (2026-11-12, branch `claude/export-template-editor`, stacks on chunk 14)
+
+* **Patterns (`subcraft_export::expand_pattern_with`, `PatternVars`, `PATTERN_TOKENS`):** `$project` (project
+  file name, `ExportSettings::project_name`, filled by the session), `$sceneMaterial` (mesh material name,
+  `ExportSettings::scene_materials`), `$colorSpace` (`color_space`: sRGB / Linear / Raw). `/` splits into
+  sub-folders (empty and `..` names dropped; the export creates them). `( ... )` is written only when every
+  keyword in it has a value. `expand_pattern` keeps its four-token signature.
+* **Per-map file type per texture set:** `subcraft_doc::MapFormat`, `ExportOverrides::maps` (by suffix);
+  `for_set` copies them into `ExportSettings::map_formats`, which `output_format` checks first. The Settings
+  tab shows a File type / Bit depth pair on each map row when a texture set is selected.
+* **Editor (`crates/ui/src/export_presets.rs`):** the five map-type buttons (`new_map`; `OutputMap::rgb_slot`
+  remembers RGB vs split slots, editor only), Merge / Split RGB, a third column of draggable source lists
+  (`SourceItem`: channels, Normal GL / DX, Height, converted maps, mesh maps), slot names as drop targets,
+  then a channel menu (RGB on an RGB slot, R, G, B, Gray for colour channels; one-component sources apply
+  directly), and a `$` keyword menu beside the file name.
+* **Template:** PBR Metallic Roughness (Folder or PSD Groups): one sub-folder per texture set (no PSD).
+* **Tests:** `crates/export/src/tests/patterns.rs` (keywords, folders, optional parts, colour space names,
+  sub-folders written, project / material from settings, per-map types per set, the folder template) and
+  `the_five_map_types_and_dropped_sources` (ui). Not run locally (coordinator: CI only).

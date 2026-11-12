@@ -2365,6 +2365,14 @@ impl Session {
         let mut s = settings.clone();
         s.selection = self.export_selection();
         s.udim_folders = self.settings.udim_folders;
+        // `$project` and `$sceneMaterial` in file name patterns.
+        s.project_name = Some(self.export_name());
+        s.scene_materials = self
+            .doc
+            .texture_sets
+            .iter()
+            .filter_map(|ts| self.scene.mesh.materials.get(ts.material_slot as usize).map(|m| (ts.name.clone(), m.name.clone())))
+            .collect();
         if let Some(format) = self.settings.normal_format {
             s.normal_directx = Some(format == subcraft_doc::NormalFormat::DirectX);
         }

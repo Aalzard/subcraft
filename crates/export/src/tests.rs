@@ -5,6 +5,7 @@ mod view2d;
 mod more;
 mod formats;
 mod converted;
+mod patterns;
 use std::collections::BTreeMap;
 
 use subcraft_core::{ChannelKind, MeshMapKind};

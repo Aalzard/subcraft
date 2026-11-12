@@ -33,6 +33,6 @@ pub use mask::{ShapeSettings, light_angles, light_direction, CurvatureMode, Edit
 pub use pen::{PenAnchor, PenPath};
 pub use resources::{Resource, ResourceKind, ResourceStore};
 pub use text::TextDecal;
-pub use settings::{ExportConfig, ExportOverrides, NormalFormat, ProjectSettings};
+pub use settings::{ExportConfig, ExportOverrides, MapFormat, NormalFormat, ProjectSettings};
 pub use shader::{MAIN_SHADER, ShaderAssignment, ShaderInstance, ShaderInstanceId, ShaderParams};
 pub use texture_set::{AlphaMode, AlphaSettings, ChannelDef, ChannelFormat, LayerLocation, LayerOpError, RESOLUTIONS, TextureSet};
