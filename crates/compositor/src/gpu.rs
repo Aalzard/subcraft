@@ -307,8 +307,8 @@ fn translate_effect(e: &ContentEffect, kind: ChannelKind) -> Result<Option<GpuEf
             }
             (EffectKind::Levels, [levels.in_low, levels.in_high, levels.gamma, levels.out_low, levels.out_high])
         }
-        ContentEffectKind::Filter { channel, filter } => {
-            if *channel != kind || !filter.supports_channel(kind) || !filter.valid() {
+        ContentEffectKind::Filter { filter, .. } => {
+            if !e.applies_to(kind) || !filter.valid() {
                 return Ok(None);
             }
             match *filter {
@@ -364,6 +364,10 @@ impl Planner<'_> {
             }
             if layer.parts.as_ref().is_some_and(|p| p.enabled && p.parts.is_empty()) {
                 continue;
+            }
+            // Passthrough paint / fill layers read the stack below: the CPU paths evaluate them.
+            if blend.mode == BlendMode::Passthrough && !layer.is_folder() {
+                return Err(Unsupported::GroupEffect);
             }
             let mode = crate::tile::effective_mode(blend.mode);
             let index = match self.layers.iter().position(|l| Arc::ptr_eq(l, layer)) {
@@ -431,7 +435,7 @@ fn plan(ts: &TextureSet) -> Result<Plan, Unsupported> {
             kind,
             target: BlendTarget::for_channel(kind),
             color: kind.is_color(),
-            default: [d[0], d[1], d[2], 1.0],
+            default: [d[0], d[1], d[2], ts.base_alpha()],
             ops: Vec::new(),
             effects: Vec::new(),
         };

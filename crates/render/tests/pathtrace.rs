@@ -6,7 +6,7 @@ use subcraft_core::ChannelKind;
 use subcraft_image::{FileFormat, TiledImage, save_image};
 use subcraft_mesh::{Bvh, primitives};
 use subcraft_render::wgpu_api::{Device, Queue};
-use subcraft_render::{Denoiser, EnvironmentParams, PathTraceScene, PathTraceSettings, ViewParams, ViewportRenderer, headless};
+use subcraft_render::{Denoiser, EnvironmentParams, GroundSettings, PathTraceScene, PathTraceSettings, ViewParams, ViewportRenderer, headless};
 
 const SIZE: u32 = 64;
 
@@ -259,6 +259,106 @@ fn denoiser_keeps_a_flat_image_flat_reduces_noise_and_keeps_normal_edges() {
     let (left, _) = spread(&out, SIZE / 2 - 2, SIZE / 2);
     let (right, _) = spread(&out, SIZE / 2, SIZE / 2 + 2);
     assert!(left < 0.3 && right > 0.6, "edge kept: {left} | {right}");
+}
+
+/// Pixel of world point `w` in a `SIZE` x `SIZE` image of `p`.
+fn pixel_of(p: &ViewParams, w: Vec3) -> (u32, u32) {
+    let c = (p.proj * p.view).project_point3(w);
+    (((c.x * 0.5 + 0.5) * SIZE as f32) as u32, ((0.5 - c.y * 0.5) * SIZE as f32) as u32)
+}
+
+fn lum(c: [f32; 3]) -> f32 {
+    0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+}
+
+#[test]
+fn clear_color_time_limit_and_minimum_samples() {
+    let _gpu = gpu_test();
+    let Some((_, device, queue)) = headless::device() else { eprintln!("no adapter: skipping"); return };
+    let mesh = primitives::uv_sphere(1.0, 32, 16);
+    let bvh = Bvh::build(&mesh);
+    let scene = PathTraceScene { mesh: &mesh, bvh: &bvh, key: 21 };
+    let mut r = ViewportRenderer::new(&device, &queue);
+    r.set_mesh(&device, &mesh);
+    material(&mut r, &device, &queue, [0.5; 3], 1.0, 0.0);
+    let p = furnace(params(Vec3::new(0.0, 0.0, 4.0)));
+    // Camera rays that miss show the clear color exactly; the model is still lit by the environment.
+    let clear = PathTraceSettings { clear_color: Some([0.2, 0.4, 0.6]), max_samples: 16, ..settings() };
+    accumulate(&mut r, &device, &queue, &p, &scene, &clear, 16);
+    let img = r.path_traced_linear(&device, &queue).unwrap();
+    let corner = region_mean(&img, 0, 0, 4);
+    for (k, want) in [0.2, 0.4, 0.6].into_iter().enumerate() {
+        assert!((corner[k] - want).abs() < 1e-4, "clear color {corner:?}");
+    }
+    assert!(lum(region_mean(&img, SIZE / 2 - 4, SIZE / 2 - 4, 8)) > 0.3, "the sphere is still lit");
+    // Changing a setting that changes the image restarts the accumulation.
+    let other = PathTraceSettings { clear_color: Some([0.0, 1.0, 0.0]), ..clear };
+    let (_, status) = r.render_path_traced(&device, &queue, [SIZE, SIZE], &p, &scene, &other).unwrap();
+    assert_eq!(status.samples, status.passes, "restarted after the clear color changed: {status:?}");
+
+    // A time limit already passed stops after the first frame...
+    let timed = PathTraceSettings { max_samples: 0, max_time_s: 1e-6, min_samples: 0, ..settings() };
+    let (_, status) = r.render_path_traced(&device, &queue, [SIZE, SIZE], &p, &scene, &timed).unwrap();
+    let first = status.samples;
+    assert!(status.done && status.converged() && status.elapsed_s > 0.0, "time is up: {status:?}");
+    assert_eq!(status.size, [SIZE, SIZE], "the trace resolution is reported");
+    let (_, status) = r.render_path_traced(&device, &queue, [SIZE, SIZE], &p, &scene, &timed).unwrap();
+    assert_eq!((status.samples, status.passes), (first, 0), "no work after the time limit");
+    // ...unless the minimum sample count is not reached yet.
+    let minimum = PathTraceSettings { min_samples: first + 6, ..timed };
+    let mut status = r.render_path_traced(&device, &queue, [SIZE, SIZE], &p, &scene, &minimum).unwrap().1;
+    for _ in 0..100 {
+        if status.done { break; }
+        status = r.render_path_traced(&device, &queue, [SIZE, SIZE], &p, &scene, &minimum).unwrap().1;
+    }
+    assert!(status.done && status.samples >= first + 6, "the minimum samples are taken first: {status:?}");
+}
+
+#[test]
+fn ground_reflectivity_offset_shadow_intensity_and_visibility_from_below() {
+    let _gpu = gpu_test();
+    let Some((_, device, queue)) = headless::device() else { eprintln!("no adapter: skipping"); return };
+    let mesh = primitives::cube(2.0);
+    let bvh = Bvh::build(&mesh);
+    let scene = PathTraceScene { mesh: &mesh, bvh: &bvh, key: 23 };
+    let mut r = ViewportRenderer::new(&device, &queue);
+    r.set_mesh(&device, &mesh);
+    material(&mut r, &device, &queue, [0.5; 3], 0.5, 0.0);
+    let mut floor_at = |p: &ViewParams, s: &PathTraceSettings, w: Vec3| {
+        accumulate(&mut r, &device, &queue, p, &scene, s, 64);
+        let img = r.path_traced_linear(&device, &queue).unwrap();
+        let (x, y) = pixel_of(p, w);
+        lum(region_mean(&img, x - 1, y - 1, 3))
+    };
+    let above = furnace(params(Vec3::new(0.0, 6.0, 9.0)));
+    let spot = Vec3::new(2.0, -1.0, 1.0);
+    let plain = PathTraceSettings { ground: true, max_samples: 64, ..settings() };
+    let diffuse = floor_at(&above, &plain, spot);
+    // A mirror ground reflects the white environment; the plain floor is an 18% gray.
+    let mirror = PathTraceSettings { ground_settings: GroundSettings { reflectivity: [1.0; 3], glossiness: 1.0, ..Default::default() }, ..plain };
+    let reflected = floor_at(&above, &mirror, spot);
+    assert!(diffuse > 0.05 && diffuse < 0.25, "plain floor {diffuse}");
+    assert!(reflected > 0.7 && reflected > diffuse * 3.0, "mirror floor {reflected} vs plain {diffuse}");
+    // Moving the ground far to the side leaves that spot showing the background.
+    let moved = PathTraceSettings { ground_settings: GroundSettings { offset: [100.0, 0.0, 0.0], ..Default::default() }, ..plain };
+    assert!(floor_at(&above, &moved, spot) < 1e-4, "the ground moved away");
+
+    // From underneath: the floor shows only when it is visible from below.
+    let below = furnace(params(Vec3::new(0.0, -5.0, 6.0)));
+    let seen = floor_at(&below, &plain, spot);
+    let hidden = PathTraceSettings { ground_settings: GroundSettings { visible_from_below: false, ..Default::default() }, ..plain };
+    assert!(seen > 0.05, "floor seen from below {seen}");
+    assert!(floor_at(&below, &hidden, spot) < 1e-4, "floor hidden from below");
+
+    // Shadow intensity 0 lets the key light reach the shadowed floor.
+    let mut lit = params(Vec3::new(0.0, 6.0, 9.0));
+    lit.light_dir = Vec3::new(0.3, 1.0, 0.0);
+    lit.background = [0.0; 3];
+    let shade = Vec3::new(-1.2, -1.0, 0.0);
+    let full = floor_at(&lit, &plain, shade);
+    let none = PathTraceSettings { ground_settings: GroundSettings { shadow_intensity: 0.0, ..Default::default() }, ..plain };
+    let lifted = floor_at(&lit, &none, shade);
+    assert!(lifted > full * 1.15, "shadow intensity 0: {lifted} vs full shadow {full}");
 }
 
 /// Speed at 1920x1080 (run: `cargo test --release -p subcraft-render --test pathtrace -- --ignored --nocapture`).

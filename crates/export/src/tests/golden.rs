@@ -55,7 +55,8 @@ pub(super) fn golden_hashes() -> Vec<(String, String, u64)> {
         ("tga_noh2n", ExportSettings { format_override: Some(FileFormat::Tga8), height_to_normal: 0.0, ..Default::default() }),
     ];
     let mut out = Vec::new();
-    for t in ExportTemplate::builtin().into_iter().filter(|t| t.name != "2D View") {
+    // The nine templates of v0.3.0; the alpha variants (#145) come after them.
+    for t in ExportTemplate::builtin().into_iter().take(9).filter(|t| t.name != "2D View") {
         for (case, base) in &cases {
             let s = ExportSettings { template: t.clone(), ..base.clone() };
             render_maps(&mesh, "Golden Mesh", &sets, &s, |name, bytes| {
@@ -106,7 +107,8 @@ fn builtins_saved_as_user_presets_still_write_the_same_bytes() {
     let ch = gradient_channels();
     let sets = [ExportTextureSet { name: "Body", material_slot: 0, udim: None, channels: &ch, mesh_maps: None }];
     let then = recorded();
-    for t in ExportTemplate::builtin().into_iter().filter(|t| t.name != "2D View") {
+    // The nine templates of v0.3.0; the alpha variants (#145) come after them.
+    for t in ExportTemplate::builtin().into_iter().take(9).filter(|t| t.name != "2D View") {
         let copy = preset::duplicate(&t, "Copy");
         let back = preset::from_json(&preset::to_json(&copy), "x").unwrap().presets.remove(0);
         assert_eq!(back, copy);

@@ -12,11 +12,11 @@ Layout notes: A filter is an effect row in a layer's content stack or its mask s
 | Add filter (on layer content) | Layers panel > effects button above the stack | - | partial: Add > Filter submenu picks the type directly; one channel per filter | crates/ui/src/panels/effects.rs:82 | - |
 | Add filter (on a mask) | Layers panel > effects button above the stack | - | partial: Add > Filter submenu picks the type directly | crates/ui/src/panels/effects.rs:94 | - |
 | Add filter | Layers panel > right-click a layer or mask | - | partial: only in the effect stack's Add menu and the mask Properties menu, not the layer right-click menu | crates/ui/src/panels/properties.rs:367 | - |
-| Filter selection button (opens the mini shelf) | Properties > Filter | no filter selected at first | partial: combo box of built-in filters, no mini shelf | crates/ui/src/panels/filter.rs:11 | - |
+| Filter selection button (opens the mini shelf) | Properties > Filter | no filter selected at first | partial: a button opening a searchable list of filters (no thumbnails) | crates/ui/src/panels/filter.rs:23 | - |
 | Mini shelf: thumbnails of filter resources | Properties > Filter | not documented | missing | - | - |
-| Mini shelf: search field | Properties > Filter | not documented | missing | - | - |
+| Mini shelf: search field | Properties > Filter | not documented | done | crates/ui/src/panels/filter.rs:9 | - |
 | Filter parameters (per filter) | Properties > Filter | - | partial: built-in filters only | crates/ui/src/panels/filter.rs:21 | - |
-| Per-channel toggles (which channels the filter affects) | Properties > Filter | all document channels (generic filter) | partial: one Channel dropdown per filter effect | crates/ui/src/panels/effects.rs:430 | - |
+| Per-channel toggles (which channels the filter affects) | Properties > Filter | all document channels (generic filter) | done | crates/ui/src/panels/effects.rs:705 | - |
 | Blending mode per channel on a filter (8.2) | Properties > Filter | Normal (unverified) | done | crates/ui/src/panels/effects.rs:450 | - |
 | Opacity per channel on a filter (8.2) | Properties > Filter | 100; 0-100 (unverified) | done | crates/ui/src/panels/effects.rs:457 | - |
 | Blending mode on a mask filter | Properties > Filter | Normal (unverified) | done | crates/ui/src/panels/properties.rs:506 | - |
@@ -26,9 +26,9 @@ Layout notes: A filter is an effect row in a layer's content stack or its mask s
 | Mesh map inputs connected automatically | Properties > Filter | - | missing: no filter reads mesh maps | - | - |
 | Presets dropdown that sets several parameters (e.g. Oil Paint, Stylization) | Properties > Filter | - | missing | - | - |
 | Colour filters refused on masks, grayscale filters allowed | Properties > Filter | - | done | crates/doc/src/filter.rs:208 | - |
-| Layer with Passthrough blending so a filter processes the stack below | Layer stack | - | partial: Passthrough is folder-only; a filter can sit on a folder and process its children | crates/doc/src/blend.rs:164 | - |
+| Layer with Passthrough blending so a filter processes the stack below | Layer stack | - | done | crates/compositor/src/stages.rs:770 | - |
 | Filters section in the Assets panel | Assets panel | - | done | crates/ui/src/panels/shelf.rs:769 | - |
-| Drag a filter into the layer stack (creates a layer with all channels in Passthrough) | Assets panel | - | partial: click adds it to the selected layer or swaps the selected filter; no drag, no new layer | crates/ui/src/panels/shelf.rs:698 | - |
+| Drag a filter into the layer stack (creates a layer with all channels in Passthrough) | Assets panel | - | done | crates/app/src/filter_shelf.rs:13 | - |
 | Drop an .sbsar on the Assets panel to import a new filter | Assets panel | - | missing | - | - |
 | Painter filter graph templates | Substance 3D Designer | - | n/a: Designer feature | - | - |
 
@@ -132,13 +132,13 @@ Layout notes: Standard group. Paint layer content.
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Drop Shadow (filter) | Properties > Filter | works on: paint layer content | missing | - | - |
-| Angle | Properties > Filter | not documented | missing | - | - |
-| Distance | Properties > Filter | not documented | missing | - | - |
-| Size | Properties > Filter | not documented | missing | - | - |
-| Spread | Properties > Filter | not documented | missing | - | - |
-| Opacity | Properties > Filter | not documented | missing | - | - |
-| Color | Properties > Filter | not documented | missing | - | - |
+| Drop Shadow (filter) | Properties > Filter | works on: paint layer content | done: colour channels; offset + Gaussian blur of the coverage under the content | crates/doc/src/filter.rs:315 | chunk 50 |
+| Angle | Properties > Filter | not documented | done: 0 = right, counter-clockwise (default -45) | crates/ui/src/panels/filter.rs:143 | chunk 50 |
+| Distance | Properties > Filter | not documented | done: pixels, default 4 | crates/ui/src/panels/filter.rs:143 | chunk 50 |
+| Size | Properties > Filter | not documented | done: blur radius in pixels, default 4 | crates/ui/src/panels/filter.rs:143 | chunk 50 |
+| Spread | Properties > Filter | not documented | done: 0-0.99, widens the shadow | crates/ui/src/panels/filter.rs:143 | chunk 50 |
+| Opacity | Properties > Filter | not documented | done: default 0.75 | crates/ui/src/panels/filter.rs:143 | chunk 50 |
+| Color | Properties > Filter | not documented | done: default black | crates/ui/src/panels/filter.rs:143 | chunk 50 |
 
 ## Fill Area Color
 
@@ -177,8 +177,8 @@ Layout notes: Standard group (10.1). Works on content and masks.
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| FXAA (Anti-Aliasing) (filter) | Properties > Filter | works on: content and masks | missing | - | - |
-| Affect Alpha Channel | Properties > Filter | not documented (toggle) | missing | - | - |
+| FXAA (Anti-Aliasing) (filter) | Properties > Filter | works on: content and masks | done: edge-directed blend toward the neighbour across the edge (compact FXAA) | crates/doc/src/filter.rs:311 | chunk 50 |
+| Affect Alpha Channel | Properties > Filter | not documented (toggle) | done | crates/ui/src/panels/filter.rs:139 | chunk 50 |
 
 ## Glow
 
@@ -186,13 +186,13 @@ Layout notes: Standard group. Works on content and masks (outer glow around visi
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Glow (filter) | Properties > Filter | works on: content and masks | partial: a bloom of bright values (Radius, Amount, Threshold), not an outer glow with colour | crates/doc/src/filter.rs:166 | - |
-| Used on a Mask | Properties > Filter | not documented (toggle) | missing | - | - |
-| Mode | Properties > Filter | not documented; options Soft / Precise | missing | - | - |
-| Width | Properties > Filter | not documented | partial: "Radius" 0-32 px, default 8 | crates/ui/src/panels/filter.rs:72 | - |
-| Spread | Properties > Filter | not documented | missing | - | - |
-| Opacity | Properties > Filter | not documented | partial: "Amount" 0-4, default 1 | crates/ui/src/panels/filter.rs:73 | - |
-| Color | Properties > Filter | not documented | missing | - | - |
+| Glow (filter) | Properties > Filter | works on: content and masks | done: Painter's outer glow is a new "Glow"; the former bloom filter is now named "Bloom" | crates/doc/src/filter.rs:320 | chunk 50 |
+| Used on a Mask | Properties > Filter | not documented (toggle) | partial: masks and scalar channels glow by value automatically (no toggle) | crates/ui/src/panels/filter.rs:155 | chunk 50 |
+| Mode | Properties > Filter | not documented; options Soft / Precise | partial: Soft = blurred coverage; Precise doubles the falloff steepness (approximation) | crates/ui/src/panels/filter.rs:155 | chunk 50 |
+| Width | Properties > Filter | not documented | done: pixels, default 8 | crates/ui/src/panels/filter.rs:155 | chunk 50 |
+| Spread | Properties > Filter | not documented | done | crates/ui/src/panels/filter.rs:155 | chunk 50 |
+| Opacity | Properties > Filter | not documented | done: default 0.75 | crates/ui/src/panels/filter.rs:155 | chunk 50 |
+| Color | Properties > Filter | not documented | done: default white | crates/ui/src/panels/filter.rs:155 | chunk 50 |
 
 ## Gradient
 
@@ -871,11 +871,11 @@ Layout notes: Advanced group. Works on content and masks (grayscale shapes).
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Bevel (filter) | Properties > Filter | works on: content and masks | partial: Radius, Amount and Threshold; no wrap, corner type, smoothing or blur mode | crates/doc/src/filter.rs:143 | - |
+| Bevel (filter) | Properties > Filter | works on: content and masks | partial: Radius, Amount, Threshold, Corner Type and Smoothing; no wrap or blur mode | crates/doc/src/filter.rs:301 | chunk 50 |
 | Bevel Wrap | Properties > Filter | not documented (toggle) | missing | - | - |
 | Distance | Properties > Filter | not documented | partial: "Radius" 0-32 px, default 8 | crates/ui/src/panels/filter.rs:85 | - |
-| Corner Type | Properties > Filter | not documented; rounded / angular | missing | - | - |
-| Smoothing | Properties > Filter | not documented | missing | - | - |
+| Corner Type | Properties > Filter | not documented; rounded / angular | done: Rounded (Euclidean) / Angular (Chebyshev distance, square corners) | crates/ui/src/panels/filter.rs:88 | chunk 50 |
+| Smoothing | Properties > Filter | not documented | done: eases the ramp from linear toward a smoothstep (SubCraft reading; not documented) | crates/ui/src/panels/filter.rs:88 | chunk 50 |
 | Blur Mode | Properties > Filter | not documented; uniform / non-uniform | missing | - | - |
 
 ## Bevel Smooth
@@ -944,10 +944,10 @@ Layout notes: Advanced group. Height channel content (and masks). Offset is appl
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Height Adjust (filter) | Properties > Filter | works on: content and masks | missing | - | - |
-| Invert | Properties > Filter | not documented (toggle) | missing | - | - |
-| Offset | Properties > Filter | not documented | missing | - | - |
-| Multiply | Properties > Filter | not documented | missing | - | - |
+| Height Adjust (filter) | Properties > Filter | works on: content and masks | done: invert, then value x Multiply + Offset | crates/doc/src/filter.rs:308 | chunk 50 |
+| Invert | Properties > Filter | not documented (toggle) | done | crates/ui/src/panels/filter.rs:133 | chunk 50 |
+| Offset | Properties > Filter | not documented | done: -1..1 | crates/ui/src/panels/filter.rs:133 | chunk 50 |
+| Multiply | Properties > Filter | not documented | done: 0..4 | crates/ui/src/panels/filter.rs:133 | chunk 50 |
 
 ## Height To Normal
 
@@ -968,13 +968,13 @@ Layout notes: Advanced group. Works on content and masks.
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Mask Outline (filter) | Properties > Filter | works on: content and masks | partial: no Start From Black, Blur or Curve Shape | crates/doc/src/filter.rs:145 | - |
+| Mask Outline (filter) | Properties > Filter | works on: content and masks | done | crates/doc/src/filter.rs:306 | chunk 50 |
 | Mask Position | Properties > Filter | not documented; options outside / inside / both | done | crates/ui/src/panels/filter.rs:133 | - |
-| Start From Black | Properties > Filter | not documented (toggle) | missing | - | - |
+| Start From Black | Properties > Filter | not documented (toggle) | done: the band ramps from 0 at the contour to 1 at its far edge | crates/ui/src/panels/filter.rs:277 | chunk 50 |
 | Threshold | Properties > Filter | not documented | done | crates/ui/src/panels/filter.rs:131 | - |
 | Width | Properties > Filter | not documented | done | crates/ui/src/panels/filter.rs:85 | - |
-| Blur | Properties > Filter | not documented | missing | - | - |
-| Curve Shape | Properties > Filter | not documented | missing | - | - |
+| Blur | Properties > Filter | not documented | done: fades the band's far edge over this many pixels | crates/ui/src/panels/filter.rs:277 | chunk 50 |
+| Curve Shape | Properties > Filter | not documented | done: -1..1, result raised to 4^curve | crates/ui/src/panels/filter.rs:277 | chunk 50 |
 
 ## PBR Validate
 

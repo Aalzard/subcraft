@@ -139,16 +139,30 @@ impl Session {
 
     pub fn show_all_parts(&mut self) {
         if !self.has_hidden_parts() { return; }
-        self.part_view.hidden.clear(); self.part_view.isolated = None; self.part_view.scene = None;
-        self.part_view.visible = Default::default();
-        self.part_view.revision += 1;
+        self.part_view.hidden.clear(); self.part_view.isolated = None;
+        self.refresh_part_view();
+    }
+
+    /// Rebuild the picking / painting scene after parts or texture sets were hidden or shown.
+    pub(crate) fn refresh_part_view(&mut self) {
+        if self.has_hidden_parts() || self.document().texture_sets.iter().any(|ts| self.is_set_hidden(ts.id)) {
+            self.rebuild_part_view();
+        } else if self.part_view.scene.is_some() {
+            self.part_view.scene = None;
+            self.part_view.visible = Default::default();
+            self.part_view.revision += 1;
+        }
     }
 
     fn rebuild_part_view(&mut self) {
         let mut mesh = (*self.scene().mesh).clone();
         let geo = self.scene().geometry.get(0, 1);
+        // Texture sets hidden in the viewport (eye, Alt+Q isolation) are gone for picking and
+        // painting too: invisible geometry used to take the orbit pivot and block strokes.
+        let hidden_slots: Vec<u32> = self.document().texture_sets.iter().filter(|ts| self.is_set_hidden(ts.id)).map(|ts| ts.material_slot).collect();
         for t in 0..mesh.triangle_count() {
-            let hidden = self.part_view.hidden.iter().any(|key| geo.triangle_region(t, key.kind) == Some(key.id));
+            let hidden = self.part_view.hidden.iter().any(|key| geo.triangle_region(t, key.kind) == Some(key.id))
+                || mesh.tri_material.get(t).is_some_and(|m| hidden_slots.contains(m));
             let outside = self.part_view.isolated.is_some_and(|key| geo.triangle_region(t, key.kind) != Some(key.id));
             // Retain triangle numbering and material ranges. Degenerate faces don't draw, hit or
             // occlude; project geometry and its masks/bakes remain intact.
