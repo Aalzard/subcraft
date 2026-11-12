@@ -9,7 +9,9 @@ use subcraft_image::TiledImage;
 use crate::blend::BlendMode;
 use crate::fill::{ProceduralParams, Projection};
 
-/// Grayscale levels remap.
+/// Levels remap (Painter's Levels effect). The five values are the RGB (or grayscale) levels;
+/// `rgb` holds separate R, G, B levels applied after them (Painter's per-component values; a
+/// mask has one component and ignores them).
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Levels {
     pub in_low: f32,
@@ -17,19 +19,240 @@ pub struct Levels {
     pub gamma: f32,
     pub out_low: f32,
     pub out_high: f32,
+    /// Per-component levels, `None` when all three are the identity.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rgb: Option<[LevelsRange; 3]>,
+    /// Keep the input between the input handles (Painter's Clamp). Off, values outside them
+    /// extend the line (HDR data).
+    #[serde(default = "yes", skip_serializing_if = "is_true")]
+    pub clamp: bool,
 }
 
-impl Default for Levels {
+fn yes() -> bool {
+    true
+}
+fn is_true(v: &bool) -> bool {
+    *v
+}
+
+/// One set of level handles: input low / high, gamma, output low / high.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct LevelsRange {
+    pub in_low: f32,
+    pub in_high: f32,
+    pub gamma: f32,
+    pub out_low: f32,
+    pub out_high: f32,
+}
+
+impl Default for LevelsRange {
     fn default() -> Self {
         Self { in_low: 0.0, in_high: 1.0, gamma: 1.0, out_low: 0.0, out_high: 1.0 }
     }
 }
 
-impl Levels {
-    pub fn apply(&self, v: f32) -> f32 {
-        let t = ((v - self.in_low) / (self.in_high - self.in_low).max(1e-6)).clamp(0.0, 1.0);
-        let t = t.powf(1.0 / self.gamma.max(1e-3));
+impl LevelsRange {
+    pub fn is_identity(&self) -> bool {
+        *self == Self::default()
+    }
+
+    /// Remap one value. Clamped, the result stays between the output handles.
+    pub fn apply(&self, v: f32, clamp: bool) -> f32 {
+        let t = (v - self.in_low) / (self.in_high - self.in_low).max(1e-6);
+        let g = 1.0 / self.gamma.max(1e-3);
+        let t = if clamp { t.clamp(0.0, 1.0).powf(g) } else if t >= 0.0 { t.powf(g) } else { -(-t).powf(g) };
         self.out_low + t * (self.out_high - self.out_low)
+    }
+
+    pub fn valid(&self) -> bool {
+        [self.in_low, self.in_high, self.gamma, self.out_low, self.out_high].iter().all(|v| v.is_finite()) && self.gamma > 0.0
+    }
+}
+
+impl Default for Levels {
+    fn default() -> Self {
+        Self { in_low: 0.0, in_high: 1.0, gamma: 1.0, out_low: 0.0, out_high: 1.0, rgb: None, clamp: true }
+    }
+}
+
+impl Levels {
+    /// The RGB (grayscale) handles.
+    pub fn range(&self) -> LevelsRange {
+        LevelsRange { in_low: self.in_low, in_high: self.in_high, gamma: self.gamma, out_low: self.out_low, out_high: self.out_high }
+    }
+
+    pub fn set_range(&mut self, r: LevelsRange) {
+        (self.in_low, self.in_high, self.gamma, self.out_low, self.out_high) = (r.in_low, r.in_high, r.gamma, r.out_low, r.out_high);
+    }
+
+    /// The handles of one component (`None` = RGB).
+    pub fn component(&self, c: Option<usize>) -> LevelsRange {
+        match c {
+            None => self.range(),
+            Some(c) => self.rgb.map_or_else(LevelsRange::default, |r| r[c]),
+        }
+    }
+
+    /// Change one component's handles; per-component sets that become the identity are dropped.
+    pub fn set_component(&mut self, c: Option<usize>, r: LevelsRange) {
+        match c {
+            None => self.set_range(r),
+            Some(c) => {
+                let mut all = self.rgb.unwrap_or_default();
+                all[c] = r;
+                self.rgb = (!all.iter().all(LevelsRange::is_identity)).then_some(all);
+            }
+        }
+    }
+
+    /// Grayscale remap (masks, scalar channels): the RGB handles only.
+    pub fn apply(&self, v: f32) -> f32 {
+        self.range().apply(v, self.clamp)
+    }
+
+    /// Colour remap: the RGB handles, then each component's own.
+    pub fn apply_rgb(&self, v: [f32; 3]) -> [f32; 3] {
+        let master = self.range();
+        std::array::from_fn(|c| {
+            let m = master.apply(v[c], self.clamp);
+            self.rgb.map_or(m, |r| r[c].apply(m, self.clamp))
+        })
+    }
+
+    /// Whether only the five RGB values matter (what the GPU path evaluates).
+    pub fn is_simple(&self) -> bool {
+        self.rgb.is_none() && self.clamp
+    }
+
+    /// Painter's Invert button: swap the output handles (of the given component).
+    pub fn invert(&mut self, c: Option<usize>) {
+        let mut r = self.component(c);
+        std::mem::swap(&mut r.out_low, &mut r.out_high);
+        self.set_component(c, r);
+    }
+
+    /// Painter's Auto button: the input handles at the darkest and brightest input values
+    /// (`low`, `high`), the other handles reset.
+    pub fn auto(&mut self, c: Option<usize>, low: f32, high: f32) {
+        if low.is_finite() && high.is_finite() && high > low {
+            self.set_component(c, LevelsRange { in_low: low, in_high: high, ..LevelsRange::default() });
+        }
+    }
+
+    pub fn valid(&self) -> bool {
+        self.range().valid() && self.rgb.is_none_or(|r| r.iter().all(LevelsRange::valid))
+    }
+}
+
+/// Operand of a Compare Mask.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CompareOperand {
+    /// The channel as composited by the layers below this one.
+    #[default]
+    LayersBelow,
+    /// This layer's own content in the channel.
+    ThisLayer,
+    /// The mask as evaluated up to the Compare Mask.
+    ThisMask,
+    /// [`CompareMask::constant`].
+    Constant,
+}
+
+impl CompareOperand {
+    pub const ALL: [Self; 4] = [Self::LayersBelow, Self::ThisLayer, Self::ThisMask, Self::Constant];
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::LayersBelow => "Layers Below",
+            Self::ThisLayer => "This Layer",
+            Self::ThisMask => "This Mask",
+            Self::Constant => "Constant",
+        }
+    }
+}
+
+/// Comparison of a Compare Mask.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CompareOp {
+    Lesser,
+    Within,
+    #[default]
+    Greater,
+}
+
+impl CompareOp {
+    pub const ALL: [Self; 3] = [Self::Lesser, Self::Within, Self::Greater];
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Lesser => "Lesser than",
+            Self::Within => "Within tolerance",
+            Self::Greater => "Greater than",
+        }
+    }
+}
+
+/// Painter's Compare Mask (mask only): white where `left op right` holds for the chosen
+/// channel, with a soft edge below hardness 1.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CompareMask {
+    pub channel: subcraft_core::ChannelKind,
+    pub left: CompareOperand,
+    pub op: CompareOp,
+    pub right: CompareOperand,
+    pub constant: f32,
+    pub tolerance: f32,
+    pub hardness: f32,
+}
+
+impl Default for CompareMask {
+    fn default() -> Self {
+        Self::height_combination()
+    }
+}
+
+impl CompareMask {
+    /// Width of the soft edge at hardness 0, in channel value units.
+    pub const SOFT_WIDTH: f32 = 0.25;
+
+    /// Painter's "Add mask with height combination": this layer shows where its height rises
+    /// above the height of the layers below.
+    pub fn height_combination() -> Self {
+        Self {
+            channel: subcraft_core::ChannelKind::Height,
+            left: CompareOperand::ThisLayer,
+            op: CompareOp::Greater,
+            right: CompareOperand::LayersBelow,
+            constant: 0.5,
+            tolerance: 0.1,
+            hardness: 0.9,
+        }
+    }
+
+    /// Whether either side reads the composite or the layer (not only the mask and constants).
+    pub fn reads_layers(&self) -> bool {
+        [self.left, self.right].iter().any(|o| matches!(o, CompareOperand::LayersBelow | CompareOperand::ThisLayer))
+    }
+
+    /// The mask value for operand values `l` and `r`: 1 where the comparison holds, 0 where it
+    /// does not, linear over `(1 - hardness) * SOFT_WIDTH` around the boundary.
+    pub fn eval(&self, l: f32, r: f32) -> f32 {
+        let margin = match self.op {
+            CompareOp::Lesser => r - l,
+            CompareOp::Greater => l - r,
+            CompareOp::Within => self.tolerance - (l - r).abs(),
+        };
+        let w = (1.0 - self.hardness.clamp(0.0, 1.0)) * Self::SOFT_WIDTH;
+        if w <= 0.0 {
+            // Hard: the strict comparisons exclude equality, Within includes it.
+            let holds = if self.op == CompareOp::Within { margin >= 0.0 } else { margin > 0.0 };
+            return f32::from(u8::from(holds));
+        }
+        (margin / w + 0.5).clamp(0.0, 1.0)
+    }
+
+    pub fn valid(&self) -> bool {
+        [self.constant, self.tolerance, self.hardness].iter().all(|v| v.is_finite() && (0.0..=1.0).contains(v))
     }
 }
 
@@ -822,13 +1045,67 @@ pub struct IdColorMask {
     pub colors: Vec<[f32; 3]>,
     /// Maximum RGB distance still counted as a full match.
     pub tolerance: f32,
-    /// Width of the falloff beyond `tolerance` (0 = hard edge).
+    /// Width of the falloff beyond `tolerance` (0 = hard edge). Painter's Hardness is
+    /// `1 - softness`.
     pub softness: f32,
+    /// Older projects' white-background switch; kept so they look the same (the Background
+    /// setting replaces it in the UI).
     pub invert: bool,
+    /// Painter's Output value: the gray written where colors match.
+    #[serde(default = "one", skip_serializing_if = "is_one")]
+    pub output: f32,
+    /// Painter's Background color: what unmatched texels hold.
+    #[serde(default, skip_serializing_if = "SelectionBackground::is_default")]
+    pub background: SelectionBackground,
+}
+
+fn one() -> f32 {
+    1.0
+}
+fn is_one(v: &f32) -> bool {
+    *v == 1.0
+}
+
+/// Background of a Color Selection: what the effect writes where no picked color matches.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SelectionBackground {
+    /// Unmatched texels keep the mask below.
+    Transparent,
+    #[default]
+    Black,
+    White,
+    Gray,
+}
+
+impl SelectionBackground {
+    pub const ALL: [Self; 4] = [Self::Transparent, Self::Black, Self::White, Self::Gray];
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Transparent => "Transparent",
+            Self::Black => "Black",
+            Self::White => "White",
+            Self::Gray => "Gray",
+        }
+    }
+    pub fn is_default(&self) -> bool {
+        *self == Self::Black
+    }
+    /// The gray value, `None` for transparent.
+    pub fn value(self) -> Option<f32> {
+        match self {
+            Self::Transparent => None,
+            Self::Black => Some(0.0),
+            Self::White => Some(1.0),
+            Self::Gray => Some(0.5),
+        }
+    }
 }
 
 impl Default for IdColorMask {
-    fn default() -> Self { Self { colors: Vec::new(), tolerance: Self::DEFAULT_TOLERANCE, softness: 0.0, invert: false } }
+    fn default() -> Self {
+        Self { colors: Vec::new(), tolerance: Self::DEFAULT_TOLERANCE, softness: 0.0, invert: false, output: 1.0, background: SelectionBackground::Black }
+    }
 }
 
 impl IdColorMask {
@@ -842,6 +1119,7 @@ impl IdColorMask {
             && self.colors.iter().flatten().all(|c| c.is_finite())
             && (0.0..=1.0).contains(&self.tolerance)
             && (0.0..=1.0).contains(&self.softness)
+            && (0.0..=1.0).contains(&self.output)
     }
 
     /// Adds a color unless an identical one is already picked. Returns whether it was added.
@@ -875,10 +1153,20 @@ impl IdColorMask {
         }
     }
 
-    /// Final value including `invert`.
+    /// Final value including `invert` (opaque backgrounds; see [`Self::value_coverage`]).
     pub fn value(&self, rgb: [f32; 3]) -> f32 {
-        let v = self.match_value(rgb);
-        if self.invert { 1.0 - v } else { v }
+        self.value_coverage(rgb).0
+    }
+
+    /// `(value, coverage)` for one ID map texel: `output` over the background by the match. A
+    /// transparent background is the match as coverage (the mask below shows elsewhere).
+    pub fn value_coverage(&self, rgb: [f32; 3]) -> (f32, f32) {
+        let s = self.match_value(rgb);
+        let (v, a) = match self.background.value() {
+            Some(bg) => (bg + (self.output - bg) * s, 1.0),
+            None => (self.output, s),
+        };
+        (if self.invert { 1.0 - v } else { v }, a)
     }
 }
 
@@ -897,6 +1185,9 @@ pub enum MaskEffectKind {
     Image { resource: subcraft_core::ResourceId, projection: Projection, invert: bool },
     /// Selection by baked ID map color (ADR-0041). Without a baked ID map it is black.
     IdColor(IdColorMask),
+    /// Painter's Compare Mask: compares two operands (layers below, this layer, this mask or a
+    /// constant) in one channel.
+    Compare(CompareMask),
     /// Anchor point (ADR-0045): captures the mask evaluated up to here. Changes nothing itself.
     Anchor,
     /// Grayscale read from an anchor point below (a channel of a content anchor, or a mask
@@ -916,6 +1207,7 @@ impl MaskEffectKind {
             MaskEffectKind::Invert => "Invert".into(),
             MaskEffectKind::Image { .. } => "Image".into(),
             MaskEffectKind::IdColor(_) => "ID Color Mask".into(),
+            MaskEffectKind::Compare(_) => "Compare Mask".into(),
             MaskEffectKind::Anchor => "Anchor Point".into(),
             MaskEffectKind::AnchorRef { .. } => "Anchor Reference".into(),
         }
@@ -1022,6 +1314,95 @@ mod tests {
         assert!(!serde_json::to_string(&old).unwrap().contains("shape"));
         assert_eq!(serde_json::to_string(&GeneratorKind::Distance3D).unwrap(), "\"distance_3d\"");
         assert_eq!(serde_json::to_string(&GeneratorKind::LinearGradient3D).unwrap(), "\"linear_gradient_3d\"");
+    }
+
+    #[test]
+    fn levels_per_component_clamp_invert_and_auto() {
+        let mut l = Levels::default();
+        assert!(l.is_simple() && l.valid());
+        assert_eq!(l.apply_rgb([0.2, 0.5, 0.9]), [0.2, 0.5, 0.9]);
+        // RGB handles, then one component's own: red is halved after the master inversion.
+        l.out_low = 1.0;
+        l.out_high = 0.0;
+        assert!((l.apply(0.25) - 0.75).abs() < 1e-6);
+        l.set_component(Some(0), LevelsRange { out_high: 0.5, ..LevelsRange::default() });
+        assert!(!l.is_simple());
+        let v = l.apply_rgb([0.25, 0.25, 0.25]);
+        assert!((v[0] - 0.375).abs() < 1e-6 && (v[1] - 0.75).abs() < 1e-6 && (v[2] - 0.75).abs() < 1e-6, "{v:?}");
+        // The grayscale remap ignores the per-component handles.
+        assert!((l.apply(0.25) - 0.75).abs() < 1e-6);
+        // Back to the identity drops the per-component set.
+        l.set_component(Some(0), LevelsRange::default());
+        assert!(l.rgb.is_none());
+        // Invert swaps the output handles of the chosen component.
+        l.invert(None);
+        assert_eq!((l.out_low, l.out_high), (0.0, 1.0));
+        l.invert(Some(2));
+        assert_eq!(l.component(Some(2)).out_low, 1.0);
+        assert!((l.apply_rgb([0.2; 3])[2] - 0.8).abs() < 1e-6);
+        // Clamp off extends the line past the input handles (HDR): in 0.2..0.6 -> out 0..1.
+        let mut h = Levels { in_low: 0.2, in_high: 0.6, ..Levels::default() };
+        assert_eq!(h.apply(0.8), 1.0);
+        h.clamp = false;
+        assert!((h.apply(0.8) - 1.5).abs() < 1e-6 && (h.apply(0.0) + 0.5).abs() < 1e-6);
+        // Auto puts the input handles at the darkest and brightest input values.
+        let mut a = Levels { gamma: 2.0, ..Levels::default() };
+        a.auto(None, 0.1, 0.7);
+        assert_eq!((a.in_low, a.in_high, a.gamma), (0.1, 0.7, 1.0));
+        a.auto(None, 0.5, 0.5);
+        assert_eq!(a.in_high, 0.7, "an empty range changes nothing");
+        // JSON: defaults are skipped, so older files and older readers see the same object.
+        assert_eq!(serde_json::to_string(&Levels::default()).unwrap(), r#"{"in_low":0.0,"in_high":1.0,"gamma":1.0,"out_low":0.0,"out_high":1.0}"#);
+        let back: Levels = serde_json::from_str(&serde_json::to_string(&l).unwrap()).unwrap();
+        assert_eq!(back, l);
+        assert!(serde_json::from_str::<Levels>(r#"{"in_low":0.0,"in_high":1.0,"gamma":1.0,"out_low":0.0,"out_high":1.0}"#).unwrap().clamp);
+    }
+
+    #[test]
+    fn compare_mask_holds_where_the_comparison_does_with_a_soft_edge() {
+        let mut c = CompareMask { hardness: 1.0, ..CompareMask::default() };
+        assert_eq!((c.channel, c.left, c.op, c.right), (subcraft_core::ChannelKind::Height, CompareOperand::ThisLayer, CompareOp::Greater, CompareOperand::LayersBelow));
+        assert!(c.reads_layers() && c.valid());
+        assert_eq!(c.eval(0.6, 0.5), 1.0);
+        assert_eq!(c.eval(0.5, 0.5), 0.0, "strict");
+        assert_eq!(c.eval(0.4, 0.5), 0.0);
+        c.op = CompareOp::Lesser;
+        assert_eq!((c.eval(0.4, 0.5), c.eval(0.6, 0.5)), (1.0, 0.0));
+        c.op = CompareOp::Within;
+        c.tolerance = 0.1;
+        assert_eq!((c.eval(0.6, 0.5), c.eval(0.45, 0.5), c.eval(0.7, 0.5)), (1.0, 1.0, 0.0));
+        // Hardness 0.6: a linear edge 0.1 wide, centred on the boundary.
+        c.op = CompareOp::Greater;
+        c.hardness = 0.6;
+        assert!((c.eval(0.5, 0.5) - 0.5).abs() < 1e-6);
+        assert!((c.eval(0.525, 0.5) - 0.75).abs() < 1e-6);
+        assert_eq!((c.eval(0.56, 0.5), c.eval(0.44, 0.5)), (1.0, 0.0));
+        c.left = CompareOperand::ThisMask;
+        c.right = CompareOperand::Constant;
+        assert!(!c.reads_layers());
+        assert!(!CompareMask { tolerance: 1.5, ..c }.valid());
+    }
+
+    #[test]
+    fn color_selection_writes_output_over_its_background() {
+        let mut id = IdColorMask::default();
+        id.add_color([1.0, 0.0, 0.0]);
+        let (hit, miss) = ([1.0, 0.0, 0.0], [0.0, 0.0, 1.0]);
+        assert_eq!((id.value_coverage(hit), id.value_coverage(miss)), ((1.0, 1.0), (0.0, 1.0)));
+        id.output = 0.4;
+        id.background = SelectionBackground::Gray;
+        assert_eq!((id.value_coverage(hit), id.value_coverage(miss)), ((0.4, 1.0), (0.5, 1.0)));
+        id.background = SelectionBackground::Transparent;
+        assert_eq!((id.value_coverage(hit), id.value_coverage(miss)), ((0.4, 1.0), (0.4, 0.0)));
+        // The legacy invert still gives older projects their white background.
+        let old = IdColorMask { invert: true, ..IdColorMask { colors: vec![[1.0, 0.0, 0.0]], ..IdColorMask::default() } };
+        assert_eq!((old.value(hit), old.value(miss)), (0.0, 1.0));
+        assert!(!IdColorMask { output: 2.0, ..IdColorMask::default() }.valid());
+        // Older files (no output / background) read as before; defaults are not written.
+        let json = r#"{"colors":[[1.0,0.0,0.0]],"tolerance":0.05,"softness":0.0,"invert":false}"#;
+        let back: IdColorMask = serde_json::from_str(json).unwrap();
+        assert_eq!((back.output, back.background), (1.0, SelectionBackground::Black));
+        assert_eq!(serde_json::to_string(&back).unwrap(), json);
     }
 
     #[test]

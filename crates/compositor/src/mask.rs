@@ -458,7 +458,8 @@ fn eval_id_color(id: &subcraft_doc::IdColorMask, tc: &TileContext, e: &mut [[f32
     let mut map = vec![[0.0f32; 3]; TILE_TEXELS];
     tc.sample.mesh_maps.read_tile(MeshMapKind::Id, tc.geo, &mut map);
     for (o, rgb) in e.iter_mut().zip(&map) {
-        *o = [id.value(*rgb), 1.0, 0.0, 0.0];
+        let (v, a) = id.value_coverage(*rgb);
+        *o = [v, a, 0.0, 0.0];
     }
 }
 
@@ -506,5 +507,22 @@ pub(crate) fn evaluate_effect(kind: &MaskEffectKind, tc: &TileContext, m: &[f32]
             }
             MaskEffectKind::Image { resource, projection, invert } => eval_image(*resource, projection, *invert, tc, e),
             MaskEffectKind::IdColor(id) => eval_id_color(id, tc, e),
+            // Without the layer stack (local previews), the layers read as 0.
+            MaskEffectKind::Compare(c) => eval_compare(c, m, None, None, e),
         }
+}
+
+/// Compare Mask: `[value, 1]` per texel from its two operands. `below` / `own` are the compared
+/// channel of the layers below and of this layer as gray (0 when not given).
+pub(crate) fn eval_compare(c: &subcraft_doc::CompareMask, m: &[f32], below: Option<&[f32]>, own: Option<&[f32]>, e: &mut [[f32; 4]]) {
+    use subcraft_doc::CompareOperand as O;
+    let operand = |o: O, i: usize| match o {
+        O::LayersBelow => below.map_or(0.0, |b| b[i]),
+        O::ThisLayer => own.map_or(0.0, |b| b[i]),
+        O::ThisMask => m[i],
+        O::Constant => c.constant,
+    };
+    for (i, o) in e.iter_mut().enumerate() {
+        *o = [c.eval(operand(c.left, i), operand(c.right, i)), 1.0, 0.0, 0.0];
+    }
 }

@@ -305,6 +305,10 @@ fn translate_effect(e: &ContentEffect, kind: ChannelKind) -> Result<Option<GpuEf
             if *channel != kind || kind == ChannelKind::Normal {
                 return Ok(None);
             }
+            // Per-component handles or an unclamped range: the CPU evaluates it.
+            if !levels.is_simple() {
+                return Err(());
+            }
             (EffectKind::Levels, [levels.in_low, levels.in_high, levels.gamma, levels.out_low, levels.out_high])
         }
         ContentEffectKind::Filter { channel, filter } => {
@@ -419,7 +423,7 @@ impl Planner<'_> {
 }
 
 fn plan(ts: &TextureSet) -> Result<Plan, Unsupported> {
-    if crate::stages::has_spatial(&ts.layers) {
+    if crate::stages::has_spatial(&ts.layers) || crate::stages::has_compare(&ts.layers) {
         return Err(Unsupported::Spatial);
     }
     let mut layers = Vec::new();

@@ -160,3 +160,20 @@ fn parameter_edits_dirty_every_tile_and_unchanged_documents_none() {
     assert_eq!(cache.update(&ts, &fx.ctx()).len(), 4);
     assert_eq!(census(cache.composite().unwrap(), |x, _| x >= 64), (64 * 128, 64 * 128));
 }
+
+#[test]
+fn output_value_and_background_set_what_matched_and_unmatched_texels_hold() {
+    use subcraft_doc::SelectionBackground;
+    let fx = Fixture::new(true);
+    // Gray background, output 0.8: the red half 0.8, the blue half 0.5.
+    let (ts, _) = masked_fill(IdColorMask { output: 0.8, background: SelectionBackground::Gray, ..picked(&[RED], 0.05) });
+    let c = composite_full(&ts, &fx.ctx());
+    assert!((mask_at(&c, 10, 10) - 0.8).abs() < 2e-3 && (mask_at(&c, 100, 10) - 0.5).abs() < 2e-3);
+    // Transparent: unmatched texels keep the mask below (the black base); matched get the output.
+    let (ts, _) = masked_fill(IdColorMask { output: 0.6, background: SelectionBackground::Transparent, ..picked(&[RED], 0.05) });
+    let c = composite_full(&ts, &fx.ctx());
+    assert!((mask_at(&c, 10, 10) - 0.6).abs() < 2e-3 && mask_at(&c, 100, 10).abs() < 2e-3);
+    // White background, output 0: the inverse selection, like the older Invert switch.
+    let (ts, _) = masked_fill(IdColorMask { output: 0.0, background: SelectionBackground::White, ..picked(&[RED], 0.05) });
+    assert_eq!(census(&composite_full(&ts, &fx.ctx()), |x, _| x >= 64), (64 * 128, 64 * 128));
+}

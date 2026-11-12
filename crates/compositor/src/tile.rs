@@ -296,7 +296,7 @@ fn apply_content_effects(effects: &[Arc<ContentEffect>], acc: &Acc, content: &mu
                 }
                 for px in content.iter_mut() {
                     let mut dst = [px[0], px[1], px[2], 1.0];
-                    let v = [levels.apply(px[0]), levels.apply(px[1]), levels.apply(px[2])];
+                    let v = if kind.components() >= 3 { levels.apply_rgb([px[0], px[1], px[2]]) } else { [levels.apply(px[0]); 3] };
                     composite(&mut dst, v, blend.opacity, mode, acc.target);
                     px[..3].copy_from_slice(&dst[..3]);
                 }
