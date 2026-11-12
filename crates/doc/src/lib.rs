@@ -32,5 +32,5 @@ pub use mask::{CurvatureMode, EditorCurvature, EditorDirection, EditorDirections
 pub use pen::{PenAnchor, PenPath};
 pub use resources::{Resource, ResourceKind, ResourceStore};
 pub use text::TextDecal;
-pub use settings::{NormalFormat, ProjectSettings};
+pub use settings::{ExportConfig, ExportOverrides, NormalFormat, ProjectSettings};
 pub use texture_set::{ChannelDef, ChannelFormat, LayerLocation, LayerOpError, RESOLUTIONS, TextureSet};

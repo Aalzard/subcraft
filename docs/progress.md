@@ -5361,3 +5361,24 @@ the app kept drawing on the dead device. Safe mode works; 0.3.3's marker only he
   input, sRGB in 8-bit, maps skipped without inputs, every built-in valid and uniquely named, every Painter
   template exports a metal / roughness material, Document channels and Mesh Maps write only what exists,
   UDIM legacy names).
+
+### Session 133 - Painter parity chunk 14: Export window tabs (2026-11-12, branch `claude/export-window-tabs`, stacks on chunk 47)
+
+* **Window (`crates/ui/src/dialogs.rs`):** tabs Settings / Output templates / List of exports (`ExportTab`).
+  Settings: a left column with Global settings and each texture set (checkbox = all its maps; `*` = has
+  its own settings); Global shows the folder, output template, file type, size, padding, height to normal,
+  normal format, UDIM folders, Baked Mesh Maps, the full map checklist and Export model + textures; a
+  texture set shows its own File type / Size / Padding (each "Global" until set) and its maps. Output
+  templates: preset bar + editor (was a collapsing section). List of exports: files per texture set and a
+  console; Export switches to it. Bottom row: Reset all (Settings tab), Cancel, Save settings, Export.
+  File > Export 2D view keeps its one-page form.
+* **Model:** `subcraft_doc::{ExportOverrides, ExportConfig}`; `ProjectSettings::export` (optional, absent =
+  defaults, no schema bump). `Padding` moved to `subcraft_image::dilate` so `doc` can store it (`export`
+  re-exports it). `ExportSettings::set_overrides` (by set name; the UI keeps them by `TextureSetId` and
+  saves them by id) and `for_set`, used by `plan_all` and `render_maps`.
+* **Cancel** restores the snapshot taken when the window opened (window settings and the export-related
+  project settings); Save settings refreshes it. A project's saved settings are applied when it is opened.
+* **Tests:** `texture_set_overrides_replace_the_global_settings_for_that_set_only` (export),
+  `export_config_round_trips_and_stays_out_of_files_that_have_none` (doc),
+  `tabs_save_settings_cancel_and_texture_set_overrides` (ui/tests/export_maps.rs). Not run locally (the PC is
+  unstable under load; the coordinator asked for CI only).

@@ -11,19 +11,19 @@ Layout notes: Painter has one modal Export textures window with three tabs along
 |---|---|---|---|---|---|
 | Export textures (menu entry) | File > Export textures | - | done | crates/ui/src/app.rs:1136 | - |
 | Export textures shortcut | Keyboard | Ctrl+Shift+E (Shift+Cmd+E on macOS) | done | crates/app/src/actions.rs:220 | - |
-| Settings tab | Export window, tab 1 | default tab | partial: single page, no tabs | crates/ui/src/dialogs.rs:161 | - |
-| Output templates tab | Export window, tab 2 | - | missing | - | #124 |
-| List of exports tab | Export window, tab 3 | - | missing | - | - |
+| Settings tab | Export window, tab 1 | default tab | done (default tab) | crates/ui/src/dialogs.rs settings_tab | chunk 14 |
+| Output templates tab | Export window, tab 2 | - | done (preset list, New / Duplicate / Delete / Import / Export, and the template editor) | crates/ui/src/dialogs.rs export_window | #124, chunk 14 |
+| List of exports tab | Export window, tab 3 | - | done | crates/ui/src/dialogs.rs export_log | chunk 14 |
 | --export-path command line argument | Launch argument (default output directory) | not documented | missing (only --export-window / --export-template for scripted captures) | - | - |
 
 ## Window bottom buttons
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Reset all | Bottom row, Settings tab only: resets the project export configuration | - | missing | - | - |
-| Cancel | Bottom row: close without keeping changes | - | partial: window close button only, edits are kept | crates/ui/src/dialogs.rs:173 | - |
-| Save settings | Bottom row: store current export settings in the project | - | partial: template, normal format, UDIM folders and map checklist are stored automatically; folder, format and padding are not stored | crates/ui/src/dialogs.rs:342 | - |
-| Export | Bottom row: run export, then jump to List of exports | - | partial: runs export, result shown as one status-bar line | crates/ui/src/dialogs.rs:268 | - |
+| Reset all | Bottom row, Settings tab only: resets the project export configuration | - | done (file type, size, padding, texture set overrides, normal format, UDIM folders and map checkboxes back to a new project's; folder and template kept) | crates/ui/src/dialogs.rs | chunk 14 |
+| Cancel | Bottom row: close without keeping changes | - | done (restores the window's and the project's export settings from when the window opened, then closes) | crates/ui/src/dialogs.rs | chunk 14 |
+| Save settings | Bottom row: store current export settings in the project | - | done (folder, file type, bit depth, size, padding, height to normal and texture set overrides stored in the project; template, normal format, UDIM folders and map checklist still stored as they change) | crates/doc/src/settings.rs ExportConfig | chunk 14 |
+| Export | Bottom row: run export, then jump to List of exports | - | done (runs the export, then shows List of exports) | crates/ui/src/dialogs.rs run_export | chunk 14 |
 
 ## Settings tab: texture set list (left column)
 
@@ -31,9 +31,9 @@ Layout notes: a resizable left column. First entry is Global settings; below it 
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Global settings entry | Top of the list: parameters shared by all texture sets | selected by default | partial: the whole window is global, no list entry | crates/ui/src/dialogs.rs:175 | - |
-| Texture set entry (per-set override of every parameter) | List row per texture set | inherits global | missing | - | - |
-| Texture set export checkbox | Checkbox next to each set name | checked | done (set header checkbox in the map checklist) | crates/ui/src/dialogs.rs:407 | - |
+| Global settings entry | Top of the list: parameters shared by all texture sets | selected by default | done (top of the list, selected by default) | crates/ui/src/dialogs.rs settings_tab | chunk 14 |
+| Texture set entry (per-set override of every parameter) | List row per texture set | inherits global | partial: file type, bit depth, size and padding per texture set (marked * in the list); folder and template stay global | crates/doc/src/settings.rs ExportOverrides, crates/export/src/lib.rs ExportSettings::for_set | chunk 14 |
+| Texture set export checkbox | Checkbox next to each set name | checked | done (checkbox beside each set in the list, and in the map checklist) | crates/ui/src/dialogs.rs settings_tab | chunk 14 |
 | Selection dropdown: Check all | Dropdown above the list | - | done (Select all button) | crates/ui/src/dialogs.rs:396 | - |
 | Selection dropdown: Uncheck all | Dropdown above the list | - | done (None button) | crates/ui/src/dialogs.rs:395 | - |
 | Selection dropdown: Invert all | Dropdown above the list | - | done (Invert button) | crates/ui/src/dialogs.rs:394 | - |
@@ -112,7 +112,7 @@ Layout notes: shown on the right only when a texture set (not Global settings) i
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Output maps list | Right side, per texture set | - | done (checklist grouped by set, all sets at once) | crates/ui/src/dialogs.rs:389 | - |
+| Output maps list | Right side, per texture set | - | done (all sets under Global settings, one set's maps when a set is selected) | crates/ui/src/dialogs.rs | chunk 14 |
 | Output map checkbox (skip one file) | Row checkbox | checked | done | crates/ui/src/dialogs.rs:414 | - |
 | Resolved file name per map | Row text | - | done (path preview) | crates/ui/src/dialogs.rs:418 | - |
 | File format override per map | Row dropdown | from template | missing | - | - |
@@ -209,9 +209,9 @@ Layout notes: three collapsible groups in this order: Input maps, Converted maps
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Exported files listed per texture set | Tab body | - | missing | - | - |
-| Export console (status and error messages) | Tab body | - | partial: one status-bar message with file count or error | crates/ui/src/dialogs.rs:287 | - |
-| Automatic switch to this tab when Export is pressed | Window behaviour | - | missing | - | - |
+| Exported files listed per texture set | Tab body | - | done | crates/ui/src/dialogs.rs export_log | chunk 14 |
+| Export console (status and error messages) | Tab body | - | done (Console section of List of exports, errors highlighted) | crates/ui/src/dialogs.rs export_log | chunk 14 |
+| Automatic switch to this tab when Export is pressed | Window behaviour | - | done | crates/ui/src/dialogs.rs run_export | chunk 14 |
 | Per-file progress while exporting | Tab body | (unverified) | missing | - | - |
 
 ## Predefined output templates (not editable)

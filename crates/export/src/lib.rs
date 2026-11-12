@@ -28,43 +28,7 @@ use subcraft_mesh::uv_raster::rasterize_surface;
 pub use selection::{MapKey, MapSelection};
 pub use template::{Converted, ExportTemplate, OutputMap, Source};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Padding {
-    /// No padding: gutter texels keep their composite values.
-    None,
-    /// Grow islands by this many texels; the rest of the gutter keeps its composite values.
-    Texels(u32),
-    /// Fill the whole gutter with the nearest island texel (best for mipmaps).
-    Infinite,
-    /// Painter's "Dilation + default background color": grow islands by this many texels, then
-    /// fill the rest of the gutter with each output's default (the value an empty texture set
-    /// exports: flat normal, white occlusion, black base color...).
-    Background(u32),
-    /// Painter's "Dilation + diffusion": grow islands by this many texels, then fill the rest of
-    /// the gutter with a smooth blend of the surrounding islands.
-    Diffusion(u32),
-}
-
-impl Padding {
-    /// Dilation distance of the modes that have one.
-    pub fn distance(self) -> Option<u32> {
-        match self {
-            Padding::Texels(n) | Padding::Background(n) | Padding::Diffusion(n) => Some(n),
-            Padding::None | Padding::Infinite => None,
-        }
-    }
-
-    /// The same mode with another dilation distance (modes without one are unchanged).
-    pub fn with_distance(self, n: u32) -> Padding {
-        match self {
-            Padding::Texels(_) => Padding::Texels(n),
-            Padding::Background(_) => Padding::Background(n),
-            Padding::Diffusion(_) => Padding::Diffusion(n),
-            other => other,
-        }
-    }
-}
+pub use subcraft_image::dilate::Padding;
 
 /// Sizes offered by the export window's Size menu (Painter's list).
 pub const EXPORT_SIZES: [u32; 7] = [128, 256, 512, 1024, 2048, 4096, 8192];
@@ -98,11 +62,33 @@ pub struct ExportSettings {
     pub size: Option<u32>,
     /// Dither 8-bit outputs ("8 bits + dithering"), overriding the maps' own choice.
     pub dither: Option<bool>,
+    /// Per texture set (by name) settings replacing the ones above: Painter's texture set
+    /// entries under Global settings.
+    pub set_overrides: BTreeMap<String, subcraft_doc::ExportOverrides>,
 }
 
 impl Default for ExportSettings {
     fn default() -> Self {
-        Self { view_2d: None, template: ExportTemplate::pbr_metal_rough(), padding: Padding::Infinite, height_to_normal: 0.02, format_override: None, selection: MapSelection::default(), normal_directx: None, udim_folders: false, size: None, dither: None }
+        Self { view_2d: None, template: ExportTemplate::pbr_metal_rough(), padding: Padding::Infinite, height_to_normal: 0.02, format_override: None, selection: MapSelection::default(), normal_directx: None, udim_folders: false, size: None, dither: None, set_overrides: BTreeMap::new() }
+    }
+}
+
+impl ExportSettings {
+    /// These settings with `set`'s overrides applied (file type and bit depth, size, padding).
+    pub fn for_set(&self, set: &str) -> std::borrow::Cow<'_, ExportSettings> {
+        match self.set_overrides.get(set).filter(|o| !o.is_empty()) {
+            None => std::borrow::Cow::Borrowed(self),
+            Some(o) => {
+                let mut s = self.clone();
+                if let Some(format) = o.format {
+                    s.format_override = Some(format);
+                    s.dither = o.dither;
+                }
+                s.size = o.size.or(s.size);
+                s.padding = o.padding.unwrap_or(s.padding);
+                std::borrow::Cow::Owned(s)
+            }
+        }
     }
 }
 
@@ -277,7 +263,9 @@ fn check_outputs(mesh_name: &str, sets: &[ExportTextureSet], settings: &ExportSe
 /// Every file the template could write, with its checkbox state.
 pub fn plan_all(mesh_name: &str, sets: &[ExportTextureSet], settings: &ExportSettings) -> Vec<PlannedFile> {
     let mut out = Vec::new();
+    let all = settings;
     for set in sets {
+        let settings = &*all.for_set(set.name);
         for map in settings.template.maps.iter().filter(|m| map_applies(m, set, settings)) {
             let fmt = output_format(map, settings);
             out.push(PlannedFile {
@@ -668,7 +656,9 @@ pub fn resample(data: &[f32], comps: usize, src: u32, dst: u32) -> Vec<f32> {
 /// Directory and archive exports share rendering, encoding, templates and padding.
 pub(crate) fn render_maps(mesh: &Mesh, mesh_name: &str, sets: &[ExportTextureSet], settings: &ExportSettings, mut write: impl FnMut(&str,&[u8])->Result<(),ExportError>) -> Result<usize,ExportError> {
     let mut count=0;
+    let all = settings;
     for set in sets {
+        let settings = &*all.for_set(set.name);
         let Some(size) = set.channels.values().next().map(|i| i.width()) else { continue };
         let mut covered: Option<Vec<bool>> = None;
         let mut dense = Dense { set, size, cache: HashMap::new(), normal: None, view: None, mesh_maps: HashMap::new() };
