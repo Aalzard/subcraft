@@ -64,6 +64,17 @@ pub struct Selection {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LayerTarget { Content, Mask }
 
+/// What the Clone tool's source does between strokes.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum CloneSourceMode {
+    /// The source keeps its distance to the brush: each stroke continues where the last one left
+    /// the copy (the source follows the brush).
+    #[default]
+    Relative,
+    /// Every stroke starts copying from the point that was set as the source.
+    Absolute,
+}
+
 /// Current brush configuration (not undoable).
 #[derive(Clone, Debug)]
 pub struct BrushState {
@@ -79,6 +90,8 @@ pub struct BrushState {
     pub stencil: Option<Arc<subcraft_paint::Stencil>>,
     /// Temporarily ignore the stencil (held N key), without removing it.
     pub stencil_bypass: bool,
+    /// Clone tool: whether the source follows the brush or returns to where it was set.
+    pub clone_mode: CloneSourceMode,
 }
 
 /// A surface point under the cursor.
@@ -229,6 +242,7 @@ impl Session {
                 target: PaintTarget::Content,
                 stencil: None,
                 stencil_bypass: false,
+                clone_mode: CloneSourceMode::Relative,
             },
             stroke: None,
             clone_source: None,
@@ -833,9 +847,16 @@ impl Session {
         })
     }
 
-    /// World radius of the current brush.
+    /// World radius of the current brush in Object size space (see [`Session::brush_radius_in`]).
     pub fn brush_radius(&self) -> f32 {
         self.brush.settings.radius(self.scene.mesh.bounds.diagonal())
+    }
+
+    /// World radius of the current brush in its size space: `pixels_per_unit` and
+    /// `viewport_height` describe the view under the cursor, `uv_per_unit` the painted texture
+    /// set's texel density (0 = unknown; that space then uses the object size).
+    pub fn brush_radius_in(&self, pixels_per_unit: f32, viewport_height: f32, uv_per_unit: f32) -> f32 {
+        self.brush.settings.radius_in(&subcraft_paint::SizeContext { diagonal: self.scene.mesh.bounds.diagonal(), pixels_per_unit, viewport_height, uv_per_unit })
     }
 
     /// Surface position corresponding to a texture UV, for displaying editable path overlays.
@@ -1693,6 +1714,10 @@ impl Session {
         if let Some((s, _)) = &stamp {
             self.enable_layer_channel(layer, s.kind.channel());
         }
+        // Absolute clone source: the first dab of every stroke copies from the source point again.
+        if self.brush.mode == StrokeMode::Clone && self.brush.clone_mode == CloneSourceMode::Absolute && self.clone_source.is_some() {
+            self.clone_offset = None;
+        }
         let ts = self.selected_texture_set();
         let b = &self.brush;
         let mut material = b.material.clone();
@@ -1818,7 +1843,7 @@ impl Session {
 
     /// Brush radius in UV units for the selected texture set (matches [`Session::stroke_to_uv`]).
     pub fn brush_radius_uv(&self, uv_per_unit: f32) -> f32 {
-        self.brush_radius() * uv_per_unit
+        self.brush_radius_in(0.0, 0.0, uv_per_unit) * uv_per_unit
     }
 
     /// Polygon fill on the selected layer at a screen position (one history entry).

@@ -2,6 +2,7 @@ pub mod anchor;
 pub mod brush;
 pub mod brush_header;
 pub mod brush_material;
+pub mod brush_rows;
 pub mod effects;
 pub mod filter;
 pub mod history;

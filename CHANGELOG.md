@@ -15,6 +15,16 @@ What changed in SubCraft, newest first. Download the latest build from the
   imported as JSON; Substance 3D Painter export presets (`.spexp` / export JSON) can be imported.
   Built-in templates stay read-only and write exactly the same files as before.
 - **TIFF export** at 8, 16 and 32-bit float.
+- **Brush colour picker** (issue #141). Clicking the brush's Base Color or Emissive swatch opens a picker with a
+  hue ring around a saturation/value square, R/G/B and H/S/V sliders, a hex field (`#RRGGBB`, `RRGGBB` or `#RGB`;
+  pasting a code applies it), old/new swatches (click Old to go back) and the last 12 colours picked, kept in
+  the preferences. Changes apply to the brush at once. Colours stay linear; HSV, RGB numbers and hex are sRGB.
+
+### Fixed
+- **Typing into a slider's number box** (issue #140). The box no longer rewrites the number while you type
+  (typing `.25` used to give `0.52`). The text stays as typed until Enter or clicking away; Escape reverts.
+  `.25`, `-.5`, `25`, `1e-2` and a decimal comma (`0,25`) are understood. Applies to all property sliders and
+  the brush bar's number boxes.
 
 ## 0.3.4
 

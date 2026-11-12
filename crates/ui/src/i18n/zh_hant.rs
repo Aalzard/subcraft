@@ -248,7 +248,7 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Seed", "種子值"),
     ("Select a texture's maps (color, roughness, normal…) to make one fill layer.", "選取貼圖的各張貼圖（顏色、粗糙度、法線…）即可建立一個填色圖層。"),
     ("Select all", "全選"),
-    ("Sharpness", "銳利度"),
+    ("Hardness", "硬度"),
     ("Show all parts", "顯示所有部件"),
     ("Show folder", "顯示資料夾"),
     ("Show grid", "顯示格線"),
@@ -384,4 +384,6 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Gray value of the anchor (color channels by luminance), times its coverage. Stack Levels or Invert above it to remap.", "錨點的灰階值（彩色通道依亮度）乘以其覆蓋範圍。可在其上方疊加色階或反轉來重新對應。"),
     ("Levels", "色階"),
     ("The anchor replaces the baked map this generator reads (curvature for Edges and Concave, occlusion for Dirt and Ambient Occlusion).", "錨點取代此產生器讀取的烘焙貼圖（Edges 與 Concave 為曲率，Dirt 與 Ambient Occlusion 為遮蔽）。"),
+    ("Shape crop", "形狀裁切"),
+    ("How sharply the three projection planes meet: 0 blends them widely, 1 cuts", "三個投影平面交接的銳利程度：0 為大範圍混合，1 為直接切換"),
 ];

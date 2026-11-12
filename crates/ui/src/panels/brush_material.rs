@@ -84,6 +84,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         if quiet_button(ui, crate::icons::X, "Clear image").clicked() {
                             material.textures.remove(&kind);
                         }
+                    } else if entry.enabled && kind.is_color() && kind.components() == 3 {
+                        // Brush colour: the full picker (hue ring, RGB/HSV, hex, recent colours).
+                        crate::color_picker::color_button(ui, ("brush", kind), &mut entry.value.0, &mut state.recovery.prefs.recent_colors);
                     } else if entry.enabled {
                         channel_value(ui, kind, &mut entry.value);
                     }

@@ -22,6 +22,9 @@ fn preset_with(name: &str, tip: Option<&str>, settings: BrushSettings, options: 
         options,
         material: Default::default(),
         images: Vec::new(),
+        kind: Default::default(),
+        tool: None,
+        stencil: None,
         user_file: None,
     }
 }
