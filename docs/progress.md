@@ -5567,3 +5567,17 @@ the app kept drawing on the dead device. Safe mode works; 0.3.3's marker only he
 * Not done: cameras from Alembic and USD files, camera roll (the orbit camera has none), free
   rotation mode, separate OS windows for undocked views, Shader settings and Log dock buttons
   (no such panels yet).
+
+### Painter parity: asset drops into the layer stack (2026-11-13, branch `claude/parity-layer-asset-drops`)
+
+* **Ctrl + drop** of a material or texture into the stack: the new layer gets a black mask, selected for painting
+  (`shelf::apply_stack_drop`).
+* **Smart mask dropped above the stack** (the top zone): a new fill layer carrying that mask; on a row it still goes
+  into that row's mask.
+* **Smart material header button:** a searchable list of the library's smart materials; a click adds one above the
+  selection.
+* **Pasted layers are renamed** when the name is taken: "name copy", "name copy 2"... (`clipboard::pasted_name`).
+* Checklist rows that earlier chunks had already closed are marked (multi-layer drag, effect move keys, effect
+  clipboard keys).
+* **Tests:** shelf unit tests (Ctrl-drop mask, smart mask as a new layer), smart material search, the paste test in
+  `crates/app/tests/layers_clipboard.rs`.

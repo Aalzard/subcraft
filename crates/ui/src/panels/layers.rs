@@ -270,6 +270,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         && let Some(layer) = state.session.selected_layer()
     { rename = Some(InlineRename { layer: layer.id, text: layer.name.clone(), focus: true }); }
     let mut finish_rename = None;
+    let mut add_smart: Option<usize> = None;
     let mut layer_action = None;
     let cancel_rename = rename.is_some() && ui.input(|i| i.key_pressed(egui::Key::Escape));
 
@@ -328,6 +329,22 @@ Files: {}", ex.dir().display()));
             if icon_button(ui, icons::FOLDER, "New folder (inside the selected folder when it is empty)").clicked() {
                 cmds.push(Command::AddLayer(NewLayer::Folder));
             }
+            // Painter's fifth header button: a small searchable list of smart materials.
+            let smart = ui.menu_button(RichText::new(icons::STACK).font(theme::font(16.0)), |ui| {
+                ui.set_min_width(200.0);
+                let query_id = egui::Id::new("smart_material_search");
+                let mut query = ui.data(|d| d.get_temp::<String>(query_id)).unwrap_or_default();
+                ui.add(egui::TextEdit::singleline(&mut query).hint_text("Search smart materials").desired_width(190.0));
+                let found = smart_material_matches(state.library.smart_materials.iter().map(|m| m.name.as_str()), &query);
+                egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
+                    if found.is_empty() { ui.weak("No smart material matches"); }
+                    for i in found {
+                        if ui.button(&state.library.smart_materials[i].name).clicked() { add_smart = Some(i); ui.close(); }
+                    }
+                });
+                ui.data_mut(|d| d.insert_temp(query_id, query));
+            });
+            smart.response.on_hover_text("Add a smart material above the selection");
             if icon_button(ui, "Aa", crate::keys::native("New text layer (Ctrl+Shift+T): type text, pick font and colour, then click the model to place it")).clicked() {
                 state.text.open_new();
             }
@@ -381,6 +398,8 @@ Files: {}", ex.dir().display()));
     let ts = state.session.selected_texture_set();
     let mut save_request: Option<(subcraft_core::LayerId, bool)> = None;
     let mut drop_request: Option<(subcraft_core::LayerId, ShelfDrag, bool)> = None;
+    // The drop landed on the top zone, not on a row (a smart mask then makes its own layer).
+    let mut drop_on_top = false;
     let mut open_text: Option<(subcraft_core::LayerId, crate::text_panel::Window)> = None;
     let mut grouped = false;
     let alt = ui.input(|i| i.modifiers.alt);
@@ -425,6 +444,7 @@ Files: {}", ex.dir().display()));
             // Above everything: aim at the top layer, so the item lands above it.
             if let Some((_, top)) = list.iter().find(|(d, _)| *d == 0) { drop_request = Some((top.id, *item, alt)); }
             else { drop_request = Some((LayerId::default(), *item, alt)); }
+            drop_on_top = true;
         }
         if list.is_empty() {
             empty_state(ui, icons::STACK, "No layers yet. Add one above.");
@@ -796,9 +816,16 @@ Files: {}", ex.dir().display()));
             if effect.is_some() { state.run(vec![Command::SelectEffect { layer, target: LayerTarget::Mask, effect }], now); }
         }
     }
+    if let Some(m) = add_smart.and_then(|i| state.library.smart_materials.get(i).cloned()) {
+        match state.session.add_smart_material(&m) {
+            Ok(()) => state.recovery.autosaver.request_soon(),
+            Err(e) => state.set_status(e.to_string(), now),
+        }
+    }
     if let Some((layer, item, alt)) = drop_request {
         if layer != LayerId::default() { state.run(vec![Command::SelectLayer(Some(layer))], now); }
-        shelf::apply_shelf_item_with(state, item, alt, now);
+        let with_mask = ui.input(|i| i.modifiers.command);
+        shelf::apply_stack_drop(state, item, alt, with_mask, drop_on_top, now);
     }
     if let Some((layer, window)) = open_text {
         state.run(vec![Command::SelectLayer(Some(layer))], now);
@@ -842,6 +869,19 @@ fn generator_rows(ui: &mut Ui, layer: &Layer, mask: &subcraft_doc::Mask, depth: 
 
 /// Save a layer as a smart material (or its mask as a smart mask) into the user library and
 /// show it in the shelf.
+/// Indices of the names containing every word of `query` (case-insensitive), in list order.
+pub fn smart_material_matches<'a>(names: impl Iterator<Item = &'a str>, query: &str) -> Vec<usize> {
+    let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
+    names
+        .enumerate()
+        .filter(|(_, n)| {
+            let n = n.to_lowercase();
+            words.iter().all(|w| n.contains(w.as_str()))
+        })
+        .map(|(i, _)| i)
+        .collect()
+}
+
 pub fn save_to_library(state: &mut UiState, layer: subcraft_core::LayerId, mask: bool, now: f64) {
     let Some(lib) = state.user_library.clone() else {
         state.set_status("No library folder (Documents not found; set SUBCRAFT_LIBRARY)", now);
@@ -877,4 +917,18 @@ pub fn import_texture_set_dialog(ctx: &egui::Context) {
         true,
         Some("Import texture set: select the maps (base color, roughness, normal, …)"),
     );
+}
+
+#[cfg(test)]
+mod smart_material_search_tests {
+    use super::smart_material_matches;
+
+    #[test]
+    fn the_smart_material_search_matches_every_word_in_any_case() {
+        let names = ["Rusty Steel", "Painted Steel", "Worn Leather"];
+        assert_eq!(smart_material_matches(names.iter().copied(), ""), [0, 1, 2]);
+        assert_eq!(smart_material_matches(names.iter().copied(), "steel"), [0, 1]);
+        assert_eq!(smart_material_matches(names.iter().copied(), "STEEL paint"), [1]);
+        assert!(smart_material_matches(names.iter().copied(), "glass").is_empty());
+    }
 }
