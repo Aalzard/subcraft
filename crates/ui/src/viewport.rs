@@ -128,7 +128,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     } else if let Some(p) = pointer {
         let pos = Vec2::new(p.x, p.y);
         if state.nav_drag.is_none() && primary_or_other_pressed(ui) && response.hovered() {
-            state.nav_drag = NavDrag::begin(scheme, nav_input, pos);
+            state.nav_drag = NavDrag::begin_with(scheme, &state.recovery.prefs.custom_mouse, nav_input, pos);
             state.orbit_free = None;
             // An orbit that starts over the model turns around that point (issue #115); over the
             // background the previous point is kept.
@@ -147,7 +147,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             }
         } else if let Some(drag) = state.nav_drag.as_mut() {
             let pivot = state.orbit_pivot.filter(|_| state.recovery.prefs.orbit_around_cursor).unwrap_or(state.camera.target);
-            match drag.step(scheme, nav_input, pos) {
+            match drag.step_with(scheme, &state.recovery.prefs.custom_mouse, nav_input, pos) {
                 Some((mode, d)) => {
                     if mode != NavMode::OrbitSnap { state.orbit_free = None; }
                     match mode {
@@ -651,7 +651,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         let c = crate::viewport_hints::HintContext {
             tool: state.tool,
             nav: scheme,
-            keymap: state.recovery.prefs.keymap,
+            keymap: state.recovery.prefs.keys(),
             ctrl: mods.command || mods.ctrl,
             shift: mods.shift,
             alt: mods.alt,
