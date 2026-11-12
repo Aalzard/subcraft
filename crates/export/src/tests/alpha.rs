@@ -60,7 +60,7 @@ fn opacity_preset_writes_rgba_base_color_and_a_grey_opacity_map() {
     let o = load_bitmap(op).unwrap();
     assert_eq!(o.channels, 1, "Opacity is one grey channel");
     assert!(near(o.texel(10, 100, false)[0], 1.0, q) && near(o.texel(10, 10, false)[0], 0.5, q) && o.texel(110, 100, false)[0] == 0.0);
-    std::fs::remove_dir_all(dir).unwrap();
+    std::fs::remove_dir_all(dir).ok();
 }
 
 #[test]
@@ -81,7 +81,7 @@ fn rgba_alpha_survives_tga_and_exr() {
         if format == FileFormat::Exr32 {
             assert!(near(b.texel(10, 100, false)[0], 1.0, tol), "EXR colour stays linear");
         }
-        std::fs::remove_dir_all(dir).unwrap();
+        std::fs::remove_dir_all(dir).ok();
     }
 }
 
@@ -104,7 +104,7 @@ fn transparent_texels_take_the_nearest_visible_colour_and_keep_alpha_zero() {
     // Visible texels are untouched.
     assert_eq!(px(bc, 10, 50), [1.0, 0.0, 0.0, 1.0]);
     assert!(!files.iter().any(|f| f.to_string_lossy().contains("Opacity")), "the alpha presets for engines have no separate map");
-    std::fs::remove_dir_all(dir).unwrap();
+    std::fs::remove_dir_all(dir).ok();
 }
 
 #[test]
@@ -120,7 +120,7 @@ fn opaque_sets_export_alpha_one_and_no_opacity_map() {
     let bc = file(&files, "_BaseColor");
     assert_eq!(load_bitmap(bc).unwrap().channels, 4);
     assert_eq!(px(bc, 40, 40)[3], 1.0);
-    std::fs::remove_dir_all(dir).unwrap();
+    std::fs::remove_dir_all(dir).ok();
 }
 
 #[test]
@@ -151,7 +151,7 @@ fn padding_keeps_alpha_edges_inside_islands() {
             }
         }
         assert!(transparent_inside > 0, "the test covers transparent texels inside islands");
-        std::fs::remove_dir_all(dir).unwrap();
+        std::fs::remove_dir_all(dir).ok();
     }
 }
 
