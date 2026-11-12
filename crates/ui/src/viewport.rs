@@ -460,7 +460,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             let mut params = state.camera.view_params(size);
             params.height_scale = state.height_scale;
             params.background = state.recovery.prefs.background_bottom;
-            params.background_top = state.recovery.prefs.background_top;
+            params.background_top = Some(state.recovery.prefs.background_top);
             let view = &state.recovery.prefs.viewport;
             params.antialias = view.antialias;
             params.exposure = view.exposure_value();

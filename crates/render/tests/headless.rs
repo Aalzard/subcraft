@@ -310,7 +310,7 @@ fn background_is_a_vertical_gradient_between_the_two_colours() {
     let mut r = ViewportRenderer::new(&device, &queue);
     let mut p = params();
     p.background = [0.0, 0.0, 1.0];
-    p.background_top = [1.0, 0.0, 0.0];
+    p.background_top = Some([1.0, 0.0, 0.0]);
     let img = r.render(&device, &queue, [32, 64], &p).read_rgba8(&device, &queue);
     let (top, mid, bottom) = (px(&img, 16, 0), px(&img, 16, 32), px(&img, 16, 63));
     assert!(top[0] > 245 && top[2] < 40, "top row is the top colour: {top:?}");
@@ -318,6 +318,10 @@ fn background_is_a_vertical_gradient_between_the_two_colours() {
     assert!(mid[0] > 100 && mid[2] > 100, "the middle mixes them: {mid:?}");
     let row = |y: u32| (0..32).map(|x| px(&img, x, y)).collect::<Vec<_>>();
     assert!(row(10).windows(2).all(|w| w[0] == w[1]), "each row is one colour");
+    // Without a top colour the background stays plain (every caller that only sets `background`).
+    p.background_top = None;
+    let flat = r.render(&device, &queue, [32, 64], &p).read_rgba8(&device, &queue);
+    assert_eq!(px(&flat, 16, 0), px(&flat, 16, 63), "no gradient without a top colour");
 }
 
 fn render_with(device: &subcraft_render::wgpu_api::Device, queue: &subcraft_render::wgpu_api::Queue, channels: &[(ChannelKind, TiledImage)], p: &ViewParams) -> Vec<u8> {
