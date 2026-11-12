@@ -221,7 +221,13 @@ fn click(state: &mut UiState, ctx: &egui::Context, text: &str) {
 fn toolbar_adds_generators_listed_under_their_layer_and_clicking_one_edits_it() {
     let (mut state, ctx, [bottom, _, top]) = setup();
     state.session.execute(Command::SelectLayer(Some(bottom))).unwrap();
-    click(&mut state, &ctx, subcraft_ui::icons::MAGIC_WAND);
+    // Painter's place for it: the layer's right-click menu > Add generator.
+    let output = layout(&mut state, &ctx);
+    let row = text_position(&output, "Bottom");
+    let secondary = |pressed| egui::Event::PointerButton { pos: row, button: egui::PointerButton::Secondary, pressed, modifiers: egui::Modifiers::NONE };
+    frame(&mut state, &ctx, vec![egui::Event::PointerMoved(row), secondary(true)]);
+    frame(&mut state, &ctx, vec![secondary(false)]);
+    click(&mut state, &ctx, &format!("{}  Add generator", subcraft_ui::icons::MAGIC_WAND));
     click(&mut state, &ctx, &format!("{}  Dirt", subcraft_ui::icons::MAGIC_WAND));
     let mask = state.session.selected_texture_set().find(bottom).unwrap().mask.clone().expect("generator adds a mask");
     assert!(matches!(&mask.effects[0].kind, subcraft_doc::MaskEffectKind::Generator(g) if g.kind == subcraft_doc::GeneratorKind::Cavity));
