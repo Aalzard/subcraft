@@ -491,12 +491,17 @@ impl Apply<'_> {
         let b = self.baseline.layers.get_mut(&id).expect("known");
         let l = self.set.find_mut(layer).expect("known");
         let LayerContent::Paint(paint) = &mut l.content else { return Ok(()) };
-        // A channel the layer never painted is only created when the file put pixels in it.
-        let mut image = paint.channels.get(&kind).cloned().unwrap_or_else(|| empty_paint_image(kind, res));
-        let changed = apply_tiles(&mut image, kind, &planes, b.content.as_mut().expect("paint baseline"));
-        if changed > 0 {
-            paint.channels.insert(kind, image);
-            self.report.changed_tiles += changed;
+        // Text and pen-path layers are redrawn from their text / path: pixels edited in the PSD
+        // were taken in and then thrown away by the next text or path edit, without a word. Their
+        // pixels are left alone (the mask below still comes back).
+        if paint.text.is_none() && paint.path.is_none() {
+            // A channel the layer never painted is only created when the file put pixels in it.
+            let mut image = paint.channels.get(&kind).cloned().unwrap_or_else(|| empty_paint_image(kind, res));
+            let changed = apply_tiles(&mut image, kind, &planes, b.content.as_mut().expect("paint baseline"));
+            if changed > 0 {
+                paint.channels.insert(kind, image);
+                self.report.changed_tiles += changed;
+            }
         }
         if let Some(m) = file_mask {
             self.report.changed_tiles += apply_mask(l, &m, res, &mut b.mask);
