@@ -140,6 +140,7 @@ impl Writer {
                 ContentEffectKind::Anchor => ContentEffectKindV5::Anchor,
                 ContentEffectKind::Generator(g) => ContentEffectKindV5::Generator { generator: *g },
             },
+            extra_channels: e.extra_channels.iter().copied().collect(),
         }
     }
 
@@ -503,7 +504,8 @@ impl<R: Read + Seek> Loader<'_, R> {
             ContentEffectKindV5::Generator { generator } => ContentEffectKind::Generator(*generator),
         };
         let blend = e.blend.iter().map(|b| (b.channel, ChannelBlend { mode: b.mode, opacity: b.opacity })).collect();
-        Ok(ContentEffect { id: EffectId(e.id), name: e.name.clone(), visible: e.visible, blend, kind })
+        let extra_channels = if matches!(kind, ContentEffectKind::Filter { .. }) { e.extra_channels.iter().copied().collect() } else { Default::default() };
+        Ok(ContentEffect { id: EffectId(e.id), name: e.name.clone(), visible: e.visible, blend, kind, extra_channels })
     }
 
     fn layer(&mut self, l: &LayerV1, res: u32) -> Result<Layer, ProjectError> {

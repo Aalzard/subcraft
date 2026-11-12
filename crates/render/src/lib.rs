@@ -542,7 +542,7 @@ impl ViewportRenderer {
             min_filter: wgpu::FilterMode::Nearest, lod_max_clamp: 0.0, ..Default::default()
         });
         let post = post::PostPass::new(device, &globals_layout, &shader);
-        let opaque_params = material::params_buffer(device, &subcraft_doc::AlphaSettings::default());
+        let opaque_params = material::params_buffer(device, &subcraft_doc::AlphaSettings::default(), &subcraft_doc::ShaderParams::default());
         Self {
             post,
             pipeline_blend,
@@ -760,12 +760,24 @@ impl ViewportRenderer {
         }
     }
 
+    /// A texture set's shader instance parameters (Shader Settings): AO intensity, emissive
+    /// intensity and horizon fading.
+    pub fn set_shader(&mut self, material_slot: u32, shader: subcraft_doc::ShaderParams) {
+        let shader = shader.clamped();
+        let mat = self.materials.entry(material_slot).or_default();
+        if mat.shader != shader {
+            mat.shader = shader;
+            mat.params = None;
+            mat.bind_group = None;
+        }
+    }
+
     fn ensure_bind_groups(&mut self, device: &wgpu::Device) {
         for mat in self.materials.values_mut() {
             if mat.bind_group.is_some() {
                 continue;
             }
-            let params = mat.params.get_or_insert_with(|| material::params_buffer(device, &mat.alpha));
+            let params = mat.params.get_or_insert_with(|| material::params_buffer(device, &mat.alpha, &mat.shader));
             let mut entries = vec![wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::Sampler(&self.sampler) }];
             let albedo_sampler = if mat.albedo_filter == subcraft_image::TextureFilter::Nearest { &self.nearest_sampler } else { &self.sampler };
             entries.push(wgpu::BindGroupEntry { binding: 8, resource: wgpu::BindingResource::Sampler(albedo_sampler) });

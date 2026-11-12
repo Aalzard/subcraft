@@ -69,6 +69,9 @@ pub struct ContentEffect {
     /// Per-channel blend of this effect onto the content below it in the stack.
     pub blend: BTreeMap<ChannelKind, ChannelBlend>,
     pub kind: ContentEffectKind,
+    /// Filters only: further channels the filter processes besides its own `channel` (Painter's
+    /// per-channel toggles). Channels the filter cannot process are ignored.
+    pub extra_channels: std::collections::BTreeSet<ChannelKind>,
 }
 
 impl ContentEffect {
@@ -82,7 +85,7 @@ impl ContentEffect {
                 (c.kind, ChannelBlend::new(mode))
             })
             .collect();
-        Self { id: EffectId::new(), name: kind.label(), visible: true, blend, kind }
+        Self { id: EffectId::new(), name: kind.label(), visible: true, blend, kind, extra_channels: Default::default() }
     }
 
     /// Equality ignoring paint texels (dirty-region diffing: painted tiles are diffed instead).
@@ -91,7 +94,29 @@ impl ContentEffect {
             (ContentEffectKind::Paint { channels: a }, ContentEffectKind::Paint { channels: b }) => crate::layer::same_paint_layout(a, b),
             (a, b) => a == b,
         };
-        kinds && self.id == other.id && self.visible == other.visible && self.blend == other.blend
+        kinds && self.id == other.id && self.visible == other.visible && self.blend == other.blend && self.extra_channels == other.extra_channels
+    }
+
+    /// Whether this effect works on `kind`: a filter on its own channel and the extra ones it
+    /// supports, Levels on its one channel, anything else on every channel.
+    pub fn applies_to(&self, kind: ChannelKind) -> bool {
+        match &self.kind {
+            ContentEffectKind::Filter { channel, filter } => {
+                (*channel == kind || self.extra_channels.contains(&kind)) && filter.supports_channel(kind)
+            }
+            ContentEffectKind::Levels { channel, .. } => *channel == kind,
+            ContentEffectKind::Generator(_) => kind != ChannelKind::Normal,
+            _ => true,
+        }
+    }
+
+    /// The channels a filter effect processes (its own first), filtered by what it supports.
+    pub fn filter_channels(&self) -> Vec<ChannelKind> {
+        let ContentEffectKind::Filter { channel, filter } = &self.kind else { return Vec::new() };
+        std::iter::once(*channel)
+            .chain(self.extra_channels.iter().copied().filter(|k| k != channel))
+            .filter(|k| filter.supports_channel(*k))
+            .collect()
     }
 
     pub fn blend_for(&self, kind: ChannelKind) -> ChannelBlend {

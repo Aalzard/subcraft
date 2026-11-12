@@ -5421,4 +5421,73 @@ the app kept drawing on the dead device. Safe mode works; 0.3.3's marker only he
 * Alt+Up / Alt+Down already reorder effects (parity chunk 19); the parity row now says so.
 * **Not done:** a content generator's anchor input, its micro effect and the Mask Editor's global blur on content
   (masks only); a mini shelf of generator resources.
+### Parity chunk 50 - Mask-shape filters (2026-11-12, branch `claude/parity-mask-shape-filters`)
+
+* **New filters** (`crates/doc/src/filter.rs`): Height Adjust (invert, then `v * multiply + offset`), FXAA
+  (Affect Alpha Channel; a compact edge-directed blend toward the neighbour across the edge,
+  `crates/materials/src/filter/pixelwise.rs`), Drop Shadow (colour content: Angle, Distance, Size, Spread, Opacity,
+  Color) and Painter's outer Glow (Soft / Precise, Width, Spread, Opacity, Color; masks and scalar channels glow by
+  value). The former bloom filter keeps working and is now named "Bloom".
+* **Bevel** gains Corner Type (Rounded = Euclidean distance, Angular = Chebyshev distance with square corners,
+  `contour::squared_chebyshev`) and Smoothing; **Mask Outline** gains Start From Black, Blur and Curve Shape. Like the
+  chunk 33 mode toggles, these are separate variants (`BevelShape`, `MaskOutlineShape`) that share the base filter's
+  panel, so older projects load unchanged.
+* **Compositor** (`crates/compositor/src/stages.rs`): Drop Shadow / Glow are an offset (a Transform pixelwise node)
+  plus a Gaussian blur of the source, placed under the content by `spatial_value` (`under`); FXAA is a pixelwise node.
+* **Not done:** Bevel Wrap and Blur Mode, Bevel Smooth and Directional Distance (they read a distance-map image:
+  chunk 34), Fill Area Color / Fill Area Mask (area detection), Height To Normal (writes another channel).
 * **Checked:** see the PR (compile check, then CI).
+## Shader Settings panel with instances (Painter parity chunk 29, 2026-11-12, branch `claude/parity-shader-settings`, on top of #198)
+
+* Shader instances: `subcraft_doc::ShaderInstance` (id, name, `ShaderParams`) in
+  `ProjectSettings.shader_instances`, and which one each texture set uses in
+  `ProjectSettings.shader_assignments`. Both are optional (no schema bump); a project without
+  instances has the implicit "Main shader" (nil id, not written).
+* Session API (`crates/app/src/shader_instances.rs`): list, the instance of a set, new (a copy of
+  another), rename (names kept unique), assign, set parameters (clamped), Restore defaults. Edits
+  are settings changes, so they mark the project modified.
+* Viewport shader: `MaterialParams` (the transparency PR's binding 10) gains
+  `shader: vec4<f32>` after `alpha`:
+  * AO Intensity (default 0.75) blends the AO channel toward no occlusion.
+  * Emissive Intensity (default 1) scales emission, including the glow and glare source.
+  * Horizon Fading (default 1.3) fades reflections a normal map tilts below the surface.
+  * Set per material slot with `ViewportRenderer::set_shader`.
+* UI:
+  * The Texture Set List's shader button and Texture Set Settings' Shader Instance dropdown open
+    the instance menu (pick, New shader instance, Shader settings…).
+  * New Shader Settings dock tab (Window > Shader settings): instance name, Used by, Restore
+    defaults and the three common parameters.
+* zh-Hant and Korean: 21 new texts translated.
+* Tests added:
+  * Doc defaults, clamping and unique names.
+  * The session API (implicit Main shader not written, new / rename / assign / set / restore).
+  * The panel ops and the panel's rows.
+  * GPU (`crates/render/tests/shader_settings.rs`): AO intensity 0 > 0.5 > 0.75 > 1 in
+    brightness with a fully occluding AO map. Emissive intensity 0 < 1 < 3, and the clamp at
+    100. Horizon fading darkening a 70-degree tilted normal and leaving a flat one unchanged.
+* Checked: see the PR (gated `cargo check --release --all-targets`). NOT verified locally: the
+  test suites (CI is the test gate) and the running app.
+* Not done:
+  * Quality (specular samples): the raster viewport uses prefiltered environment lookups.
+  * Shader files and the shader mini-shelf (one built-in shader), parallax occlusion and SSS
+    parameters.
+  * Shader-only undo, and import of shader parameter JSON.
+  * The path tracer ignores the instance parameters.
+  * Alpha settings stay on the texture set (#198) rather than moving into the instance.
+### Painter parity chunk 15: multi-channel filters and Passthrough layers (2026-11-12, branch `claude/parity-chunk15-filters-passthrough`)
+
+* **Passthrough on paint and fill layers:** like a passthrough folder, the stack below is the layer's content (its own
+  paint or fill is not used), its effects process it, and opacity and mask mix the result back. Both CPU paths (tile
+  and stage graph); the GPU planner hands such layers to the CPU. Passthrough is now offered on every layer, not on
+  effect rows.
+* **Per-channel toggles on filters:** `ContentEffect.extra_channels` (project field `extra_channels`, absent when
+  empty); `applies_to` / `filter_channels`; channel chips in Properties (Alt+click: only this one, the last one stays).
+* **Filter layers from the Shelf:** dragging a filter into the stack adds a paint layer, Passthrough on every channel,
+  with the filter on every channel it supports (`filter_shelf::filter_layer`). Alt or a mask target adds it to the
+  layer instead.
+* **Filter picker:** a button with a search field replaces the combo box (filters only, no thumbnails).
+* **Tests:** `crates/compositor/tests/passthrough_layers.rs` (filtered stack, opacity, mask, no-effect identity, a
+  passthrough paint layer equal to an empty passthrough folder for a local filter and a blur, extra channels),
+  project round trip, filter layer from the shelf, UI unit tests (channel chips, search). Local runs: doc, compositor
+  (unit, passthrough_layers, differential, content_effects, compositor), project, app (unit, filters, spp_stack,
+  layer_polish_parity), ui (unit, filters, layer_polish, effect_rows).

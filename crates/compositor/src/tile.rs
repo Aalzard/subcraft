@@ -115,7 +115,7 @@ pub fn preview_content_context_scaled(layer: &Layer, channel: ChannelKind, tc: &
     source.visible = true;
     source.mask = None;
     source.parts = None;
-    let mode=if layer.is_folder() && layer.blend_for(channel).mode==BlendMode::Passthrough {BlendMode::Passthrough} else {BlendMode::Normal};
+    let mode=if layer.blend_for(channel).mode==BlendMode::Passthrough {BlendMode::Passthrough} else {BlendMode::Normal};
     source.blend.insert(channel, subcraft_doc::ChannelBlend::new(mode));
     if source.is_folder() && !stack.is_empty() { return crate::stages::content_preview_in_stack(&source,channel,tc,radius_scale,stack); }
     if crate::stages::has_spatial(&[Arc::new(source.clone())]) { return crate::stages::content_preview(&source,channel,tc,radius_scale); }
@@ -178,6 +178,23 @@ fn apply_layer(layer: &Layer, accs: &mut [Acc], active: &[bool], tc: &TileContex
     let mask_at = |i: usize| mask.as_ref().map_or(1.0, |m| m[i]);
     let mask_ref = mask.as_deref();
     let mut content = vec![[0.0f32; 4]; TILE_TEXELS];
+    // A paint / fill layer in Passthrough: the accumulated stack is its content, its effects
+    // process it, and the result mixes back by opacity and mask (like a passthrough folder).
+    let mut live = live;
+    if !layer.is_folder() {
+        for (acc, on) in accs.iter_mut().zip(live.iter_mut()) {
+            let blend = layer.blend_for(acc.kind);
+            if !*on || blend.mode != BlendMode::Passthrough {
+                continue;
+            }
+            *on = false;
+            let mut inner = acc.px.clone();
+            apply_content_effects(&layer.content_effects, acc, &mut inner, tc);
+            for (i, (dst, src)) in acc.px.iter_mut().zip(&inner).enumerate() {
+                crate::blend::passthrough_mix(dst, src, (blend.opacity * mask_at(i)).clamp(0.0, 1.0));
+            }
+        }
+    }
 
     match &layer.content {
         LayerContent::Paint(paint) => {
@@ -315,8 +332,8 @@ fn apply_content_effects(effects: &[Arc<ContentEffect>], acc: &Acc, content: &mu
                     *o = [v[0], v[0], v[0], v[1]];
                 }
             }
-            ContentEffectKind::Filter { channel, filter } => {
-                if *channel != kind || !filter.supports_channel(kind) || !filter.valid() { continue; }
+            ContentEffectKind::Filter { filter, .. } => {
+                if !effect.applies_to(kind) || !filter.valid() { continue; }
                 for px in content.iter_mut() {
                     let mut dst = [px[0], px[1], px[2], 1.0];
                     let value = subcraft_materials::filter::apply(*filter, [px[0], px[1], px[2]], kind);
