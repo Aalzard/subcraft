@@ -10,7 +10,9 @@ fn frame(state: &mut UiState, ctx: &egui::Context, events: Vec<egui::Event>) -> 
     let mut out = ctx.run_ui(
         egui::RawInput {
             events,
-            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(900.0, 1100.0))),
+            // Tall enough for the whole window (camera, the full post-effect stack and export) to
+            // lay out without scrolling, so every control the test clicks is drawn.
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(900.0, 3000.0))),
             ..Default::default()
         },
         |ui| render_export::window(state, ui.ctx()),

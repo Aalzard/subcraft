@@ -25,7 +25,7 @@ fn compat<'de, D: Deserializer<'de>, T: Deserialize<'de> + Default + Copy>(d: D,
     })
 }
 
-/// How HDR light is mapped to the display.
+/// How HDR light is mapped to the display (the Tone mapping effect's Function).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ToneMap {
@@ -34,50 +34,190 @@ pub enum ToneMap {
     Aces,
     /// Hable's filmic curve: punchier contrast, warm highlights.
     Filmic,
-    /// Simple Reinhard: gentle, a little flat.
+    /// Reinhard per color channel: gentle, a little flat.
     Reinhard,
-    /// No curve: values above 1 clip. Useful to judge raw material colors.
+    /// No curve and no clamp of its own (the display still ends at white).
     Linear,
+    /// Picks the function for you: the sensitometric curve.
+    Auto,
+    /// No curve, values clamped to 0..1.
+    LinearSat,
+    /// Film response (an exponential shoulder), no Mapping Factor.
+    Sensitometric,
+    /// Reinhard on the luminance only: hues are kept while highlights compress.
+    ReinhardLum,
+    /// Logarithmic compression per color channel.
+    Log,
+    /// Logarithmic compression of the luminance only.
+    LogLum,
 }
 
 impl ToneMap {
     /// Storage order of old preference files (an index); new entries are only ever appended.
-    pub const ALL: [ToneMap; 4] = [ToneMap::Aces, ToneMap::Filmic, ToneMap::Reinhard, ToneMap::Linear];
+    pub const ALL: [ToneMap; 10] = [
+        ToneMap::Aces, ToneMap::Filmic, ToneMap::Reinhard, ToneMap::Linear, ToneMap::Auto, ToneMap::LinearSat, ToneMap::Sensitometric,
+        ToneMap::ReinhardLum, ToneMap::Log, ToneMap::LogLum,
+    ];
+
+    /// The Function dropdown: Painter's list in its order, then SubCraft's extra curve.
+    pub const MENU: [ToneMap; 10] = [
+        ToneMap::Auto, ToneMap::Linear, ToneMap::LinearSat, ToneMap::Sensitometric, ToneMap::Reinhard, ToneMap::ReinhardLum, ToneMap::Log,
+        ToneMap::LogLum, ToneMap::Aces, ToneMap::Filmic,
+    ];
 
     pub fn label(self) -> &'static str {
         match self {
             ToneMap::Aces => "ACES",
             ToneMap::Filmic => "Filmic",
             ToneMap::Reinhard => "Reinhard",
-            ToneMap::Linear => "Linear (clip)",
+            ToneMap::Linear => "Linear",
+            ToneMap::Auto => "Auto",
+            ToneMap::LinearSat => "LinearSat",
+            ToneMap::Sensitometric => "Sensitometric",
+            ToneMap::ReinhardLum => "ReinhardLum",
+            ToneMap::Log => "Log",
+            ToneMap::LogLum => "LogLum",
         }
+    }
+
+    /// The function actually evaluated (Auto chooses the sensitometric curve).
+    pub fn resolved(self) -> ToneMap {
+        if self == ToneMap::Auto { ToneMap::Sensitometric } else { self }
+    }
+
+    /// Whether the Mapping Factor changes this function.
+    pub fn uses_mapping_factor(self) -> bool {
+        matches!(self, ToneMap::Reinhard | ToneMap::ReinhardLum | ToneMap::Log | ToneMap::LogLum)
     }
 }
 
-/// Direction of the streaks that bright emission throws.
+/// Shape of the glare thrown by bright areas (Painter's Glare > Shape list).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum GlareShape {
+    /// One horizontal streak.
     #[default]
+    #[serde(alias = "horizontal_streak")]
     Horizontal,
+    /// One vertical streak.
+    #[serde(alias = "vertical_streak")]
     Vertical,
+    /// Cross screen filter: a horizontal and a vertical streak (four points).
+    #[serde(alias = "cross_screen")]
     Both,
-    /// Four streaks (horizontal, vertical and both diagonals): a starburst.
+    /// Sunny cross filter: four streaks, eight points.
+    #[serde(alias = "sunny_cross")]
     Star,
+    /// A round glow, no streaks.
+    Bloom,
+    /// A round glow with ghost images mirrored through the view centre.
+    LensFlare,
+    /// A round glow with a four-point cross.
+    Standard,
+    /// A small diagonal cross with one ghost: the look of a simple lens.
+    CheapLens,
+    /// A long, faint horizontal trail.
+    AfterImage,
+    /// Cross screen filter with rainbow fringes.
+    CrossScreenSpectral,
+    /// Snow cross filter: three streaks, six points.
+    SnowCross,
+    SnowCrossSpectral,
+    SunnyCrossSpectral,
 }
 
 impl GlareShape {
     /// Storage order of old preference files (an index); new entries are only ever appended.
-    pub const ALL: [GlareShape; 4] = [GlareShape::Horizontal, GlareShape::Vertical, GlareShape::Both, GlareShape::Star];
+    pub const ALL: [GlareShape; 13] = [
+        GlareShape::Horizontal, GlareShape::Vertical, GlareShape::Both, GlareShape::Star, GlareShape::Bloom, GlareShape::LensFlare,
+        GlareShape::Standard, GlareShape::CheapLens, GlareShape::AfterImage, GlareShape::CrossScreenSpectral, GlareShape::SnowCross,
+        GlareShape::SnowCrossSpectral, GlareShape::SunnyCrossSpectral,
+    ];
+
+    /// The Shape dropdown in Painter's order.
+    pub const MENU: [GlareShape; 13] = [
+        GlareShape::Bloom, GlareShape::LensFlare, GlareShape::Standard, GlareShape::CheapLens, GlareShape::AfterImage, GlareShape::Both,
+        GlareShape::CrossScreenSpectral, GlareShape::SnowCross, GlareShape::SnowCrossSpectral, GlareShape::Star, GlareShape::SunnyCrossSpectral,
+        GlareShape::Horizontal, GlareShape::Vertical,
+    ];
 
     pub fn label(self) -> &'static str {
         match self {
-            GlareShape::Horizontal => "Horizontal",
-            GlareShape::Vertical => "Vertical",
-            GlareShape::Both => "Horizontal + vertical",
-            GlareShape::Star => "Starburst",
+            GlareShape::Horizontal => "Horizontal Streak",
+            GlareShape::Vertical => "Vertical Streak",
+            GlareShape::Both => "Filter Cross Screen",
+            GlareShape::Star => "Filter Sunny Cross",
+            GlareShape::Bloom => "Bloom",
+            GlareShape::LensFlare => "Lens Flare",
+            GlareShape::Standard => "Standard",
+            GlareShape::CheapLens => "Cheap Lens",
+            GlareShape::AfterImage => "After Image",
+            GlareShape::CrossScreenSpectral => "Filter Cross Screen Spectral",
+            GlareShape::SnowCross => "Filter Snow Cross",
+            GlareShape::SnowCrossSpectral => "Filter Snow Cross Spectral",
+            GlareShape::SunnyCrossSpectral => "Filter Sunny Cross Spectral",
         }
     }
+}
+
+/// Film grain look.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GrainType {
+    /// The same noise on red, green and blue.
+    #[default]
+    Monochromatic,
+    /// Independent noise per color channel.
+    Colored,
+}
+
+impl GrainType {
+    pub const ALL: [GrainType; 2] = [GrainType::Monochromatic, GrainType::Colored];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            GrainType::Monochromatic => "Monochromatic",
+            GrainType::Colored => "Colored",
+        }
+    }
+}
+
+fn grain_compat<'de, D: Deserializer<'de>>(d: D) -> Result<GrainType, D::Error> {
+    compat(d, &GrainType::ALL)
+}
+
+/// Lens of the Lens flare effect: how far the ghosts spread.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FlareCamera {
+    /// Ghosts spread over the whole view.
+    #[default]
+    Panoramic,
+    /// Ghosts stay close to the view centre.
+    Telephoto,
+}
+
+impl FlareCamera {
+    pub const ALL: [FlareCamera; 2] = [FlareCamera::Panoramic, FlareCamera::Telephoto];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            FlareCamera::Panoramic => "Panoramic Lens",
+            FlareCamera::Telephoto => "Telephoto Lens",
+        }
+    }
+}
+
+fn flare_camera_compat<'de, D: Deserializer<'de>>(d: D) -> Result<FlareCamera, D::Error> {
+    compat(d, &FlareCamera::ALL)
+}
+
+fn tone_map_compat<'de, D: Deserializer<'de>>(d: D) -> Result<ToneMap, D::Error> {
+    compat(d, &ToneMap::ALL)
+}
+
+fn glare_compat<'de, D: Deserializer<'de>>(d: D) -> Result<GlareShape, D::Error> {
+    compat(d, &GlareShape::ALL)
 }
 
 /// What the environment map is attached to.
@@ -126,14 +266,6 @@ pub fn ev_to_multiplier(ev: f32) -> f32 {
     2f32.powf(ev)
 }
 
-fn tone_map_compat<'de, D: Deserializer<'de>>(d: D) -> Result<ToneMap, D::Error> {
-    compat(d, &ToneMap::ALL)
-}
-
-fn glare_compat<'de, D: Deserializer<'de>>(d: D) -> Result<GlareShape, D::Error> {
-    compat(d, &GlareShape::ALL)
-}
-
 /// Everything the Display Settings panel edits. Field names are the file format: rename with a
 /// `#[serde(alias)]`, never in place.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -167,23 +299,84 @@ pub struct DisplaySettings {
     pub dof_range: f32,
 
     // ----- post effects ------------------------------------------------------------------------
+    /// Master switch ("Activate Post Effects"): off shows the plain render with the default
+    /// tone curve, whatever the effects below are set to.
+    pub post_effects: bool,
+    /// Tone mapping switch: off shows linear, clamped light at exposure 1.
+    pub tone_mapping_on: bool,
     #[serde(deserialize_with = "tone_map_compat")]
     pub tone_map: ToneMap,
     /// Brightness multiplier before tone mapping.
     pub exposure: f32,
+    /// Display gamma applied after the curve (1 = none).
+    pub gamma: f32,
+    /// Strength of the Reinhard / Log compression (1 = the plain curve).
+    pub mapping_factor: f32,
+    pub bloom_on: bool,
     pub bloom: f32,
     pub bloom_threshold: f32,
+    /// How far the bloom spreads, 0 (tight) .. 1 (wide).
+    pub bloom_falloff: f32,
     pub ssao: f32,
     /// Ambient-occlusion reach in percent of the model's size.
     pub ssao_radius: f32,
     /// Glow around emissive areas (0 = off) and its reach multiplier.
     pub emission_glow: f32,
     pub glow_radius: f32,
-    /// Streaks from bright emission (0 = off), their shape and length 0..1.
+    pub ssao_on: bool,
+    pub glow_on: bool,
+    /// Glare from bright emission: luminance (0 = off), shape and streak length 0..1.
+    pub glare_on: bool,
     pub glare: f32,
     #[serde(deserialize_with = "glare_compat")]
     pub glare_mode: GlareShape,
     pub glare_length: f32,
+    /// Light below this brightness throws no glare.
+    pub glare_threshold: f32,
+    /// Response of the glare to brightness above the threshold (1 = proportional).
+    pub glare_remap: f32,
+    /// Lens flare: ghost images of bright areas mirrored through the view centre.
+    pub flare_on: bool,
+    #[serde(deserialize_with = "flare_camera_compat")]
+    pub flare_camera: FlareCamera,
+    pub flare_amount: f32,
+    pub flare_threshold: f32,
+    /// Number of ghost images (1..8).
+    pub flare_ghosts: u32,
+    /// Spacing of the ghosts along the line through the view centre.
+    pub flare_position_scale: f32,
+    /// Lateral (chromatic) aberration: color fringes growing away from the centre.
+    pub aberration_on: bool,
+    pub aberration_amount: f32,
+    /// Distance from the centre (0..1 of the half diagonal) where the fringes reach half strength.
+    pub aberration_radius: f32,
+    pub aberration_softness: f32,
+    /// Horizontal stretch of the unaffected zone (1 = circular).
+    pub aberration_ratio: f32,
+    /// Centre of the effect in the view, 0..1.
+    pub aberration_center: [f32; 2],
+    /// Blur radially instead of splitting the colors.
+    pub aberration_achromatic: bool,
+    pub vignette_on: bool,
+    pub vignette_amount: f32,
+    pub sharpen_on: bool,
+    pub sharpen_amount: f32,
+    /// Sharpen diameter in pixels.
+    pub sharpen_diameter: f32,
+    pub grain_on: bool,
+    pub grain_amount: f32,
+    /// Grain size in pixels.
+    pub grain_radius: f32,
+    #[serde(deserialize_with = "grain_compat")]
+    pub grain_type: GrainType,
+    pub color_correction_on: bool,
+    pub cc_saturation: f32,
+    pub cc_contrast: f32,
+    pub cc_brightness: f32,
+    pub cc_bias: f32,
+    pub cc_sepia: f32,
+    /// White balance temperature, kelvin (6500 = neutral).
+    pub cc_temperature: f32,
 
     // ----- visualisation -----------------------------------------------------------------------
     /// Polygon wireframe over the model: on/off, sRGB color, opacity and the largest angle (degrees)
@@ -212,17 +405,57 @@ impl Default for DisplaySettings {
             dof_amount: 0.5,
             dof_focus: 1.0,
             dof_range: 10.0,
+            post_effects: true,
+            tone_mapping_on: true,
             tone_map: ToneMap::Aces,
             exposure: 1.0,
+            gamma: 1.0,
+            mapping_factor: 1.0,
+            bloom_on: true,
             bloom: 0.0,
             bloom_threshold: 0.8,
+            bloom_falloff: 0.5,
             ssao: 0.0,
             ssao_radius: 3.0,
             emission_glow: 0.35,
             glow_radius: 1.0,
+            ssao_on: true,
+            glow_on: true,
+            glare_on: true,
             glare: 0.0,
             glare_mode: GlareShape::Horizontal,
             glare_length: 0.5,
+            glare_threshold: 0.0,
+            glare_remap: 1.0,
+            flare_on: false,
+            flare_camera: FlareCamera::Panoramic,
+            flare_amount: 0.5,
+            flare_threshold: 0.8,
+            flare_ghosts: 4,
+            flare_position_scale: 1.0,
+            aberration_on: false,
+            aberration_amount: 0.5,
+            aberration_radius: 0.5,
+            aberration_softness: 0.3,
+            aberration_ratio: 1.0,
+            aberration_center: [0.5, 0.5],
+            aberration_achromatic: false,
+            vignette_on: false,
+            vignette_amount: 0.5,
+            sharpen_on: false,
+            sharpen_amount: 0.5,
+            sharpen_diameter: 2.0,
+            grain_on: false,
+            grain_amount: 0.2,
+            grain_radius: 1.0,
+            grain_type: GrainType::Monochromatic,
+            color_correction_on: false,
+            cc_saturation: 1.0,
+            cc_contrast: 1.0,
+            cc_brightness: 1.0,
+            cc_bias: 0.0,
+            cc_sepia: 0.0,
+            cc_temperature: 6500.0,
             wireframe: false,
             wire_color: [0.85, 0.88, 0.95],
             wire_opacity: 0.6,
@@ -269,6 +502,9 @@ mod tests {
         let edited = DisplaySettings { tone_map: ToneMap::Reinhard, glare_mode: GlareShape::Star, bloom: 0.7, grid_axes: [false, true, false], wire_color: [0.1, 0.2, 0.3], ..Default::default() };
         let text = serde_json::to_string(&edited).unwrap();
         assert!(text.contains(r#""tone_map":"reinhard""#), "enums are written by name: {text}");
+        // Shapes written under Painter's names by another build read as the same shape.
+        let named: DisplaySettings = serde_json::from_str(r#"{"glare_mode":"sunny_cross"}"#).unwrap();
+        assert_eq!(named.glare_mode, GlareShape::Star);
         assert_eq!(serde_json::from_str::<DisplaySettings>(&text).unwrap(), edited);
     }
 
@@ -292,6 +528,23 @@ mod tests {
         let d: DisplaySettings = serde_json::from_str(r#"{"env_alignment":"local","env_map":"Studio","fov":55}"#).unwrap();
         assert_eq!((d.env_alignment, d.env_map.as_deref(), d.fov, d.env_opacity), (EnvAlignment::Local, Some("Studio"), 55.0, 0.0));
         assert!(!serde_json::to_string(&DisplaySettings::default()).unwrap().contains("env_map"), "no map chosen: nothing written");
+    }
+
+    #[test]
+    fn menus_list_every_function_and_shape_once_in_painters_order() {
+        use std::collections::HashSet;
+        assert_eq!(ToneMap::MENU.iter().collect::<HashSet<_>>(), ToneMap::ALL.iter().collect::<HashSet<_>>());
+        assert_eq!(GlareShape::MENU.iter().collect::<HashSet<_>>(), GlareShape::ALL.iter().collect::<HashSet<_>>());
+        assert_eq!(ToneMap::MENU.map(|t| t.label())[..8], ["Auto", "Linear", "LinearSat", "Sensitometric", "Reinhard", "ReinhardLum", "Log", "LogLum"]);
+        assert_eq!(GlareShape::MENU.map(|s| s.label()), [
+            "Bloom", "Lens Flare", "Standard", "Cheap Lens", "After Image", "Filter Cross Screen", "Filter Cross Screen Spectral", "Filter Snow Cross",
+            "Filter Snow Cross Spectral", "Filter Sunny Cross", "Filter Sunny Cross Spectral", "Horizontal Streak", "Vertical Streak",
+        ]);
+        // Old files stored list indices: the first four entries never move.
+        assert_eq!(ToneMap::ALL[..4], [ToneMap::Aces, ToneMap::Filmic, ToneMap::Reinhard, ToneMap::Linear]);
+        assert_eq!(GlareShape::ALL[..4], [GlareShape::Horizontal, GlareShape::Vertical, GlareShape::Both, GlareShape::Star]);
+        assert_eq!(ToneMap::Auto.resolved(), ToneMap::Sensitometric);
+        assert!(ToneMap::Log.uses_mapping_factor() && !ToneMap::Sensitometric.uses_mapping_factor() && !ToneMap::Linear.uses_mapping_factor());
     }
 
     #[test]

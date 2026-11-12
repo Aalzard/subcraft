@@ -267,80 +267,150 @@ pub fn camera(state: &mut UiState, ui: &mut Ui) {
     }
 }
 
-/// The post-effect stack, in the order the effects are listed in Painter, then SubCraft's own
-/// extras. Also shown in the Render quality window.
+/// One entry of the post-effect stack: a collapsible row whose header carries the effect's own
+/// on/off switch. The parameters are greyed out while the effect (or the whole stack) is off.
+fn effect(ui: &mut Ui, id: &str, name: &str, on: &mut bool, stack_on: bool, default_open: bool, body: impl FnOnce(&mut Ui)) {
+    let header_id = ui.make_persistent_id(("display_effect", id));
+    egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), header_id, default_open)
+        .show_header(ui, |ui| {
+            ui.add_enabled(stack_on, egui::Checkbox::new(on, RichText::new(name).color(theme::TEXT)));
+        })
+        .body(|ui| {
+            let enabled = *on && stack_on;
+            ui.add_enabled_ui(enabled, |ui| grid(ui, id, body));
+        });
+}
+
+/// A slider row of an effect's grid.
+fn slider(ui: &mut Ui, label: &str, value: &mut f32, range: std::ops::RangeInclusive<f32>, tip: &str) -> egui::Response {
+    ui.label(label);
+    let r = ui.add(egui::Slider::new(value, range)).on_hover_text(tip);
+    ui.end_row();
+    r
+}
+
+/// The post-effect stack: the master switch, then one entry per effect in the order they are
+/// applied (Painter's list), then SubCraft's own extras. Also shown in the Render quality window.
 pub fn post_effects(state: &mut UiState, ui: &mut Ui) {
-    let prefs = &mut state.recovery.prefs.viewport;
-    sub_header(ui, tr("Depth of field"));
-    grid(ui, "display_dof", |ui| {
-        ui.label(tr("Enable"));
-        ui.checkbox(&mut prefs.dof, "").on_hover_text(tr("Blur what is nearer or farther than the focus distance (Camera settings). Off by default."));
-        ui.end_row();
-        ui.label(tr("Focus range"));
-        ui.add_enabled(prefs.dof, egui::Slider::new(&mut prefs.dof_range, 0.0..=50.0).suffix("%")).on_hover_text(tr("Depth that stays sharp around the focus distance, in percent of the model size"));
+    let mut pick = false;
+    let d = &mut state.recovery.prefs.viewport.display;
+    ui.horizontal(|ui| {
+        ui.checkbox(&mut d.post_effects, tr("Activate Post Effects")).on_hover_text(tr("Master switch of every effect below. Off shows the plain render."));
+        // At the top, so it stays in reach however many effects are expanded below.
+        if ui.button(tr("Reset look")).on_hover_text(tr("Put every post effect back to its default")).clicked() {
+            d.reset_post_effects();
+        }
+    });
+    let all = d.post_effects;
+    effect(ui, "display_dof", tr("Depth of field"), &mut d.dof, all, true, |ui| {
+        slider(ui, tr("Focus range"), &mut d.dof_range, 0.0..=50.0, tr("Depth that stays sharp around the focus distance, in percent of the model size"));
+        ui.label(tr("Focus point"));
+        pick = ui.button(tr("Pick in 3D view")).on_hover_text(tr("Click the model in the 3D view to focus on that spot. Focus distance and Aperture are in the Camera settings.")).clicked();
         ui.end_row();
     });
-    sub_header(ui, tr("Bloom"));
-    grid(ui, "display_bloom", |ui| {
-        ui.label(tr("Amount"));
-        ui.add(egui::Slider::new(&mut prefs.bloom, 0.0..=2.0)).on_hover_text(tr("Glow around bright areas. 0 is off."));
-        ui.end_row();
-        ui.label(tr("Threshold"));
-        ui.add_enabled(prefs.bloom > 0.0, egui::Slider::new(&mut prefs.bloom_threshold, 0.0..=1.0)).on_hover_text(tr("Brightness above which an area glows"));
-        ui.end_row();
+    effect(ui, "display_bloom", tr("Bloom"), &mut d.bloom_on, all, true, |ui| {
+        slider(ui, tr("Amount"), &mut d.bloom, 0.0..=2.0, tr("Glow around bright areas. 0 is off."));
+        slider(ui, tr("Threshold"), &mut d.bloom_threshold, 0.0..=1.0, tr("Brightness above which an area glows (1 is screen white)"));
+        slider(ui, tr("Falloff"), &mut d.bloom_falloff, 0.0..=1.0, tr("How far the glow spreads around the bright area"));
     });
-    sub_header(ui, tr("Glare"));
-    grid(ui, "display_glare", |ui| {
-        ui.label(tr("Luminance"));
-        ui.add(egui::Slider::new(&mut prefs.glare, 0.0..=3.0)).on_hover_text(tr("Streaks of light from bright emission. 0 is off."));
-        ui.end_row();
+    effect(ui, "display_glare", tr("Glare"), &mut d.glare_on, all, true, |ui| {
+        slider(ui, tr("Luminance"), &mut d.glare, 0.0..=16.0, tr("Brightness of the glare thrown by emissive areas. 0 is off; 0.5 to 4 looks natural."));
+        slider(ui, tr("Threshold"), &mut d.glare_threshold, 0.0..=4.0, tr("Emission below this brightness throws no glare"));
+        slider(ui, tr("Remap Factor"), &mut d.glare_remap, 0.25..=4.0, tr("Response to brightness above the threshold. 1 is neutral."));
         ui.label(tr("Shape"));
-        ui.add_enabled_ui(prefs.glare > 0.0, |ui| {
-            egui::ComboBox::from_id_salt("display_glare_shape").selected_text(prefs.glare_mode.label()).show_ui(ui, |ui| {
-                for m in GlareMode::ALL {
-                    ui.selectable_value(&mut prefs.glare_mode, m, m.label());
-                }
-            });
+        egui::ComboBox::from_id_salt("display_glare_shape").selected_text(d.glare_mode.label()).width(170.0).height(400.0).show_ui(ui, |ui| {
+            for m in GlareMode::MENU {
+                ui.selectable_value(&mut d.glare_mode, m, m.label());
+            }
         });
         ui.end_row();
-        ui.label(tr("Streak length"));
-        ui.add_enabled(prefs.glare > 0.0, egui::Slider::new(&mut prefs.glare_length, 0.0..=1.0)).on_hover_text(tr("How long the streaks reach"));
+        slider(ui, tr("Streak length"), &mut d.glare_length, 0.0..=1.0, tr("How long the streaks reach"));
+    });
+    effect(ui, "display_flare", tr("Lens flare"), &mut d.flare_on, all, false, |ui| {
+        ui.label(tr("Camera"));
+        egui::ComboBox::from_id_salt("display_flare_camera").selected_text(tr(d.flare_camera.label())).show_ui(ui, |ui| {
+            for c in subcraft_doc::FlareCamera::ALL {
+                ui.selectable_value(&mut d.flare_camera, c, tr(c.label()));
+            }
+        });
+        ui.end_row();
+        slider(ui, tr("Amount"), &mut d.flare_amount, 0.0..=4.0, tr("Brightness of the ghost images. May exceed 1."));
+        slider(ui, tr("Threshold"), &mut d.flare_threshold, 0.0..=1.0, tr("Brightness above which an area throws ghosts"));
+        ui.label(tr("Unique ghosts"));
+        ui.add(egui::Slider::new(&mut d.flare_ghosts, 1..=8)).on_hover_text(tr("Number of ghost images"));
+        ui.end_row();
+        slider(ui, tr("Ghost position scale"), &mut d.flare_position_scale, 0.1..=2.0, tr("Spacing of the ghosts along the line through the view centre"));
+    });
+    effect(ui, "display_aberration", tr("Lateral aberration"), &mut d.aberration_on, all, false, |ui| {
+        slider(ui, tr("Amount"), &mut d.aberration_amount, 0.0..=2.0, tr("Strength of the color fringes"));
+        slider(ui, tr("Radius"), &mut d.aberration_radius, 0.0..=1.0, tr("Distance from the centre where the fringes start"));
+        slider(ui, tr("Softness"), &mut d.aberration_softness, 0.0..=1.0, tr("Width of the transition around the radius"));
+        slider(ui, tr("Ratio"), &mut d.aberration_ratio, 0.25..=4.0, tr("Shape of the clean zone. 1 is circular."));
+        slider(ui, tr("Center X"), &mut d.aberration_center[0], 0.0..=1.0, tr("Centre of the effect across the view"));
+        slider(ui, tr("Center Y"), &mut d.aberration_center[1], 0.0..=1.0, tr("Centre of the effect down the view"));
+        ui.label(tr("Achromatic aberrations"));
+        ui.checkbox(&mut d.aberration_achromatic, "").on_hover_text(tr("Blur toward the edges instead of splitting the colors"));
         ui.end_row();
     });
-    sub_header(ui, tr("Tone mapping"));
-    grid(ui, "display_tone", |ui| {
-        ui.label(tr("Exposure"));
-        ui.add(egui::Slider::new(&mut prefs.exposure, 0.25..=4.0).logarithmic(true)).on_hover_text(tr("Overall brightness before tone mapping"));
+    effect(ui, "display_vignette", tr("Vignette"), &mut d.vignette_on, all, false, |ui| {
+        slider(ui, tr("Amount"), &mut d.vignette_amount, 0.0..=1.0, tr("How dark the corners get"));
+    });
+    effect(ui, "display_sharpen", tr("Sharpen"), &mut d.sharpen_on, all, false, |ui| {
+        slider(ui, tr("Amount"), &mut d.sharpen_amount, 0.0..=2.0, tr("Strength of the sharpening"));
+        slider(ui, tr("Diameter"), &mut d.sharpen_diameter, 1.0..=8.0, tr("Size of the detail that is sharpened, in pixels"));
+    });
+    effect(ui, "display_grain", tr("Film grain"), &mut d.grain_on, all, false, |ui| {
+        slider(ui, tr("Amount"), &mut d.grain_amount, 0.0..=1.0, tr("Strength of the noise"));
+        slider(ui, tr("Radius"), &mut d.grain_radius, 1.0..=8.0, tr("Size of the grain, in pixels"));
+        ui.label(tr("Type"));
+        egui::ComboBox::from_id_salt("display_grain_type").selected_text(tr(d.grain_type.label())).show_ui(ui, |ui| {
+            for t in subcraft_doc::GrainType::ALL {
+                ui.selectable_value(&mut d.grain_type, t, tr(t.label()));
+            }
+        });
         ui.end_row();
+    });
+    effect(ui, "display_tone", tr("Tone mapping"), &mut d.tone_mapping_on, all, true, |ui| {
+        ui.label(tr("Exposure"));
+        ui.add(egui::Slider::new(&mut d.exposure, 0.25..=4.0).logarithmic(true)).on_hover_text(tr("Overall brightness before tone mapping"));
+        ui.end_row();
+        slider(ui, tr("Gamma"), &mut d.gamma, 0.2..=3.0, tr("Display gamma after the curve. 1 leaves the picture as it is."));
         ui.label(tr("Function"));
-        egui::ComboBox::from_id_salt("display_tone_map").selected_text(prefs.tone_map.label()).show_ui(ui, |ui| {
-            for t in ToneMap::ALL {
-                ui.selectable_value(&mut prefs.tone_map, t, t.label());
+        egui::ComboBox::from_id_salt("display_tone_map").selected_text(d.tone_map.label()).height(400.0).show_ui(ui, |ui| {
+            for t in ToneMap::MENU {
+                ui.selectable_value(&mut d.tone_map, t, t.label());
             }
         }).response.on_hover_text(tr("How bright light is squeezed into the display range. ACES is the default look; Linear clips highlights."));
         ui.end_row();
-    });
-    sub_header(ui, tr("Ambient occlusion"));
-    grid(ui, "display_ssao", |ui| {
-        ui.label(tr("Amount"));
-        ui.add(egui::Slider::new(&mut prefs.ssao, 0.0..=1.0)).on_hover_text(tr("Soft shadow in creases, from the view's depth. 0 is off."));
-        ui.end_row();
-        ui.label(tr("Radius"));
-        ui.add_enabled(prefs.ssao > 0.0, egui::Slider::new(&mut prefs.ssao_radius, 0.5..=10.0).suffix("%")).on_hover_text(tr("How far occlusion reaches, in percent of the model size"));
+        ui.label(tr("Mapping Factor"));
+        ui.add_enabled(d.tone_map.uses_mapping_factor(), egui::Slider::new(&mut d.mapping_factor, 0.1..=10.0).logarithmic(true)).on_hover_text(tr("Strength of the Reinhard and Log compression. The other functions ignore it."));
         ui.end_row();
     });
-    sub_header(ui, tr("Emission glow"));
-    grid(ui, "display_glow", |ui| {
-        ui.label(tr("Amount"));
-        ui.add(egui::Slider::new(&mut prefs.emission_glow, 0.0..=3.0)).on_hover_text(tr("Soft glow around emissive areas only. 0 is off; the default is subtle."));
+    effect(ui, "display_cc", tr("Color correction"), &mut d.color_correction_on, all, false, |ui| {
+        slider(ui, tr("Saturation"), &mut d.cc_saturation, 0.0..=2.0, tr("0 is grayscale, 1 leaves the colors as they are"));
+        slider(ui, tr("Contrast"), &mut d.cc_contrast, 0.0..=2.0, tr("Spread of the tones around mid gray"));
+        slider(ui, tr("Brightness"), &mut d.cc_brightness, 0.0..=2.0, tr("Multiplies the picture"));
+        slider(ui, tr("Bias"), &mut d.cc_bias, -0.5..=0.5, tr("Added to every color"));
+        slider(ui, tr("Sepia tone ratio"), &mut d.cc_sepia, 0.0..=1.0, tr("Mix toward a warm brown monochrome"));
+        ui.label(tr("White Balance Temperature"));
+        ui.add(egui::Slider::new(&mut d.cc_temperature, 2000.0..=12000.0).suffix(" K").fixed_decimals(0)).on_hover_text(tr("Light of this temperature becomes neutral. 6500 K changes nothing."));
         ui.end_row();
+    });
+    effect(ui, "display_ssao", tr("Ambient occlusion"), &mut d.ssao_on, all, true, |ui| {
+        slider(ui, tr("Amount"), &mut d.ssao, 0.0..=1.0, tr("Soft shadow in creases, from the view's depth. 0 is off."));
         ui.label(tr("Radius"));
-        ui.add_enabled(prefs.emission_glow > 0.0, egui::Slider::new(&mut prefs.glow_radius, 0.25..=8.0).logarithmic(true)).on_hover_text(tr("How far the glow spreads"));
+        ui.add(egui::Slider::new(&mut d.ssao_radius, 0.5..=10.0).suffix("%")).on_hover_text(tr("How far occlusion reaches, in percent of the model size"));
+        ui.end_row();
+    });
+    effect(ui, "display_glow", tr("Emission glow"), &mut d.glow_on, all, true, |ui| {
+        slider(ui, tr("Amount"), &mut d.emission_glow, 0.0..=3.0, tr("Soft glow around emissive areas only. 0 is off; the default is subtle."));
+        ui.label(tr("Radius"));
+        ui.add(egui::Slider::new(&mut d.glow_radius, 0.25..=8.0).logarithmic(true)).on_hover_text(tr("How far the glow spreads"));
         ui.end_row();
     });
     ui.label(RichText::new(tr("Post effects are viewport effects: exported textures never contain them.")).small().color(TEXT_DIM));
-    if ui.button(tr("Reset look")).on_hover_text(tr("Put every post effect back to its default")).clicked() {
-        prefs.display.reset_post_effects();
+    if pick {
+        state.picking_focus = true;
     }
 }
 
@@ -473,6 +543,37 @@ mod tests {
         assert!((wrapped + 100.0).abs() < 1e-3, "stays in the slider's range: {wrapped}");
     }
 
+    #[test]
+    fn the_master_switch_and_each_effects_own_switch_gate_the_frame() {
+        use subcraft_render::PostParams;
+        let mut p = crate::viewport_bar::ViewportPrefs::default();
+        let d = &mut p.display;
+        (d.bloom, d.ssao, d.glare, d.exposure, d.tone_map, d.gamma, d.mapping_factor) = (1.0, 0.5, 2.0, 2.0, ToneMap::Log, 2.2, 3.0);
+        (d.vignette_on, d.sharpen_on, d.grain_on, d.aberration_on, d.color_correction_on, d.flare_on, d.dof) = (true, true, true, true, true, true, true);
+        d.cc_saturation = 0.5;
+        let on = p.post_params(2.0);
+        assert_eq!((on.bloom, on.ssao, on.glare, on.tone_map, on.mapping_factor, on.grade.gamma), (1.0, 0.5, 2.0, ToneMap::Log, 3.0, 2.2));
+        assert!(on.grade.vignette > 0.0 && on.grade.sharpen > 0.0 && on.grade.grain > 0.0 && on.grade.aberration > 0.0 && on.grade.color_correction && on.flare > 0.0 && on.dof > 0.0);
+        assert_eq!(on.grade.saturation, 0.5);
+        assert_eq!(p.exposure_value(), 2.0);
+        // One effect's switch removes just that effect.
+        p.display.bloom_on = false;
+        p.display.vignette_on = false;
+        let partly = p.post_params(2.0);
+        assert_eq!((partly.bloom, partly.grade.vignette, partly.ssao), (0.0, 0.0, 0.5));
+        // Tone mapping off: linear clamped light at exposure 1, no gamma.
+        p.display.tone_mapping_on = false;
+        let flat = p.post_params(2.0);
+        assert_eq!((flat.tone_map, flat.mapping_factor, flat.grade.gamma, p.exposure_value()), (ToneMap::LinearSat, 1.0, 1.0, 1.0));
+        // The master switch: the plain render, whatever the effects are set to.
+        p.display.post_effects = false;
+        let off = p.post_params(2.0);
+        let plain = PostParams::default();
+        assert_eq!(PostParams { ssao_radius: plain.ssao_radius, dof_range: plain.dof_range, dof_focus: plain.dof_focus, bloom_threshold: plain.bloom_threshold, ..off },
+            PostParams { emission_glow: 0.0, glare_mode: off.glare_mode, glare_threshold: off.glare_threshold, glare_remap: off.glare_remap, glare_length: off.glare_length, glow_radius: off.glow_radius, bloom_falloff: off.bloom_falloff, ..plain });
+        assert!(!off.active() && !off.wants_emission());
+    }
+
     fn texts(output: &egui::FullOutput) -> Vec<(String, f32)> {
         output.shapes.iter().filter_map(|s| match &s.shape {
             egui::epaint::Shape::Text(t) => Some((t.galley.job.text.clone(), t.pos.y)),
@@ -512,6 +613,12 @@ mod tests {
         for control in ["Field of view", "Focal length (mm)", "Focus distance", "Aperture", "Anti-aliasing", "Bloom", "Glare", "Tone mapping", "Show mesh wireframe", "Show grid", "Bounces"] {
             y(control);
         }
-        assert!(y("Bloom") < y("Glare") && y("Glare") < y("Tone mapping"), "effects keep Painter's stack order");
+        let stack = ["Activate Post Effects", "Depth of field", "Bloom", "Glare", "Lens flare", "Lateral aberration", "Vignette", "Sharpen", "Film grain", "Tone mapping", "Color correction"];
+        for pair in stack.windows(2) {
+            assert!(y(pair[0]) < y(pair[1]), "{} is above {} (the order the effects are applied in)", pair[0], pair[1]);
+        }
+        for control in ["Falloff", "Remap Factor", "Gamma", "Mapping Factor", "Function"] {
+            y(control);
+        }
     }
 }

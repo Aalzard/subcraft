@@ -5151,3 +5151,30 @@ rotating one slot when a tile is full (helps cyclic stacks, but the 40-layer sta
   `crates/doc/src/display.rs`.
 * Checked: `cargo check --release --all-targets` for the six affected crates passes, and the i18n scan is
   clean. NOT verified locally: the test suites (CI is the test gate) and the running app.
+
+## Post-effect stack completion (Painter parity chunk 25, 2026-11-12, branch `claude/parity-display-post`)
+
+* Post effects get a master switch ("Activate Post Effects", on by default) and one collapsible entry per
+  effect with its own on/off switch, in Painter's order. The existing effects keep their current look.
+* Tone mapping: new functions Auto, Linear (saturated), Sensitometric, Reinhard (luminance), Log and Log
+  (luminance), plus Gamma and Mapping Factor. All tone functions now live in a shared
+  `crates/render/src/tonemap.wgsl` (prepended to viewport.wgsl and pathtrace_display.wgsl), with a CPU
+  reference in `crates/render/src/grade.rs`.
+* New passes in post.wgsl: bloom falloff, glare threshold/remap with Painter's 13 glare shapes
+  (`glare_recipe`; Lens Flare, Standard, Cheap Lens and After Image are approximations), lens-flare
+  ghosts, and a final grade pass (`fs_grade`). The grade pass does lateral or achromatic aberration,
+  vignette, sharpen, film grain (gray or colored) and color correction (saturation, contrast,
+  brightness, bias, sepia, white balance).
+* zh-Hant and Korean: 54 new texts translated. The effect and slider helpers take translated text, so
+  every label is a literal `tr("...")`.
+* Tests added:
+  * `crates/render/tests/display.rs` (GPU): every tone function against the CPU reference, and the
+    lens/colour stage against `Grade::apply`. Film grain statistics (strength, size, gray versus
+    colored). Bloom falloff widening the glow, and lens flare mirroring a bright spot.
+  * `crates/render/tests/post.rs`: each glare shape draws its own pattern.
+* Checked: `cargo check --release --all-targets` reached borrow checking in subcraft-ui. It found 3
+  lifetime errors in the `effect`/`slider` helpers, and the i18n change removed those calls; render,
+  doc and app compiled clean. The i18n scan is clean. NOT verified locally: the test suites (CI is the
+  test gate) and the running app.
+* Not done: lens distortion, most lens-flare parameters (only camera, amount, threshold, ghost count and
+  spacing), colour profile/LUT, TAA. Glare comes from emission only.

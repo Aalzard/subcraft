@@ -395,7 +395,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             params.height_scale = state.height_scale;
             let view = &state.recovery.prefs.viewport;
             params.antialias = view.antialias;
-            params.exposure = view.exposure;
+            params.exposure = view.exposure_value();
             params.post = view.post_params_at(state.session.scene().mesh.bounds.diagonal(), state.camera.eye_distance());
             params.view_mode = view.view_mode();
             params.symmetry_guides = view.symmetry_guides && state.session.brush.options.has_symmetry() && !bake_mode;

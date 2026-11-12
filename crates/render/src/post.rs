@@ -14,24 +14,39 @@ use crate::{gpu_mesh, target};
 
 pub use subcraft_doc::display::{GlareShape as GlareMode, ToneMap};
 
-/// Value of the shader's tone-map switch.
-pub(crate) fn tone_map_id(t: ToneMap) -> f32 {
-    match t {
-        ToneMap::Aces => 0.0,
-        ToneMap::Filmic => 1.0,
-        ToneMap::Reinhard => 2.0,
-        ToneMap::Linear => 3.0,
-    }
+/// How a glare shape is built: streak directions (unit steps), whether the streaks split into
+/// colors, the weight of a round glow, the number of ghost images and a streak-length multiplier.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct GlareRecipe {
+    pub directions: &'static [[f32; 2]],
+    pub spectral: bool,
+    pub glow: f32,
+    pub ghosts: u32,
+    pub length: f32,
 }
 
-/// Streak directions of a glare shape as (dx, dy) unit steps.
-pub(crate) fn glare_directions(shape: GlareMode) -> &'static [[f32; 2]] {
+/// Recipe of a glare shape.
+pub fn glare_recipe(shape: GlareMode) -> GlareRecipe {
     const D: f32 = std::f32::consts::FRAC_1_SQRT_2;
+    // 60 degree steps for the six-pointed snow cross.
+    const S: f32 = 0.866_025_4;
+    const H: [f32; 2] = [1.0, 0.0];
+    const V: [f32; 2] = [0.0, 1.0];
+    let streaks = |directions: &'static [[f32; 2]], spectral: bool| GlareRecipe { directions, spectral, glow: 0.0, ghosts: 0, length: 1.0 };
     match shape {
-        GlareMode::Horizontal => &[[1.0, 0.0]],
-        GlareMode::Vertical => &[[0.0, 1.0]],
-        GlareMode::Both => &[[1.0, 0.0], [0.0, 1.0]],
-        GlareMode::Star => &[[1.0, 0.0], [0.0, 1.0], [D, D], [D, -D]],
+        GlareMode::Horizontal => streaks(&[H], false),
+        GlareMode::Vertical => streaks(&[V], false),
+        GlareMode::Both => streaks(&[H, V], false),
+        GlareMode::CrossScreenSpectral => streaks(&[H, V], true),
+        GlareMode::Star => streaks(&[H, V, [D, D], [D, -D]], false),
+        GlareMode::SunnyCrossSpectral => streaks(&[H, V, [D, D], [D, -D]], true),
+        GlareMode::SnowCross => streaks(&[H, [0.5, S], [0.5, -S]], false),
+        GlareMode::SnowCrossSpectral => streaks(&[H, [0.5, S], [0.5, -S]], true),
+        GlareMode::Bloom => GlareRecipe { directions: &[], spectral: false, glow: 1.0, ghosts: 0, length: 1.0 },
+        GlareMode::LensFlare => GlareRecipe { directions: &[], spectral: false, glow: 0.6, ghosts: 3, length: 1.0 },
+        GlareMode::Standard => GlareRecipe { directions: &[H, V], spectral: false, glow: 0.6, ghosts: 0, length: 1.0 },
+        GlareMode::CheapLens => GlareRecipe { directions: &[[D, D], [D, -D]], spectral: false, glow: 0.0, ghosts: 1, length: 0.5 },
+        GlareMode::AfterImage => GlareRecipe { directions: &[H], spectral: false, glow: 0.15, ghosts: 0, length: 1.5 },
     }
 }
 
@@ -43,6 +58,10 @@ pub struct PostParams {
     pub bloom: f32,
     /// Brightness (after tone mapping, 0..1) above which pixels glow.
     pub bloom_threshold: f32,
+    /// Reach of the bloom, 0 (tight) .. 1 (wide); 0.5 is the original width.
+    pub bloom_falloff: f32,
+    /// Mapping Factor of the Reinhard / Log tone functions (1 = the plain curve).
+    pub mapping_factor: f32,
     /// Strength of the ambient-occlusion darkening in creases (0 = off).
     pub ssao: f32,
     /// AO reach in object units.
@@ -56,6 +75,20 @@ pub struct PostParams {
     pub glare_mode: GlareMode,
     /// Streak length, 0..1 (fraction of the longest reach).
     pub glare_length: f32,
+    /// Emission below this brightness throws no glare (0 = all of it does).
+    pub glare_threshold: f32,
+    /// Exponent on the brightness above the threshold (1 = proportional).
+    pub glare_remap: f32,
+    /// Lens flare (0 = off): ghost images of the bright areas, mirrored through the view centre.
+    pub flare: f32,
+    /// Brightness (after tone mapping, 0..1) above which pixels throw ghosts.
+    pub flare_threshold: f32,
+    /// Number of ghost images, 1..8.
+    pub flare_ghosts: u32,
+    /// Spacing of the ghosts (1 = spread over the view, smaller keeps them near the centre).
+    pub flare_scale: f32,
+    /// Lateral aberration, vignette, sharpen, film grain, color correction and gamma.
+    pub grade: crate::grade::Grade,
     /// Depth of field: largest blur radius as a share of the maximum (0 = off; 1 = a radius of 5% of
     /// the image height, about 54 px at 1080p). Needs a model in view.
     pub dof: f32,
@@ -71,6 +104,8 @@ impl Default for PostParams {
             tone_map: ToneMap::Aces,
             bloom: 0.0,
             bloom_threshold: 0.8,
+            bloom_falloff: 0.5,
+            mapping_factor: 1.0,
             ssao: 0.0,
             ssao_radius: 0.1,
             emission_glow: 0.35,
@@ -78,6 +113,13 @@ impl Default for PostParams {
             glare: 0.0,
             glare_mode: GlareMode::Horizontal,
             glare_length: 0.5,
+            glare_threshold: 0.0,
+            glare_remap: 1.0,
+            flare: 0.0,
+            flare_threshold: 0.8,
+            flare_ghosts: 4,
+            flare_scale: 1.0,
+            grade: crate::grade::Grade::default(),
             dof: 0.0,
             dof_focus: 1.0,
             dof_range: 0.2,
@@ -86,9 +128,9 @@ impl Default for PostParams {
 }
 
 impl PostParams {
-    /// Whether bloom or AO needs extra passes.
+    /// Whether any effect needs extra passes over the scene.
     pub fn active(&self) -> bool {
-        self.bloom > 0.0 || self.ssao > 0.0 || self.dof > 0.0
+        self.bloom > 0.0 || self.ssao > 0.0 || self.dof > 0.0 || self.flare > 0.0 || self.grade.active()
     }
 
     /// Whether the emission glow / glare passes would add anything for a model with emission.
@@ -104,12 +146,14 @@ struct PostUniform {
     params: [f32; 4],
     size: [f32; 4],
     misc: [f32; 4],
+    /// Rows of the lens and color stage (see `fs_grade`).
+    grade: [[f32; 4]; 4],
 }
 
 const AO_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R8Unorm;
 /// Emission and the effects buffer keep values above 1 until the final composite.
 pub(crate) const HDR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
-const UNIFORMS: usize = 48;
+const UNIFORMS: usize = 56;
 const U_AO: usize = 0;
 const U_AO_H: usize = 1;
 const U_AO_V: usize = 2;
@@ -125,6 +169,16 @@ const U_FX_GLOW: usize = 11;
 const U_FX_GLARE: usize = 12;
 const U_FX_GLARE_ADD: usize = 13;
 const U_DOF: usize = 14;
+const U_GRADE: usize = 15;
+const U_GLARE_SRC: usize = 40;
+const U_GLARE_GLOW_H: usize = 41;
+const U_GLARE_GLOW_V: usize = 42;
+const U_GLARE_GLOW_ADD: usize = 43;
+const U_GLARE_GHOST: usize = 44;
+const U_FLARE_BRIGHT: usize = 45;
+const U_FLARE_H: usize = 46;
+const U_FLARE_V: usize = 47;
+const U_FLARE: usize = 48;
 /// Streak stages: `U_STREAK + direction * STAGES + stage` (four directions, six stages).
 const U_STREAK: usize = 16;
 const STAGES: usize = 6;
@@ -134,6 +188,8 @@ struct Targets {
     depth: wgpu::Texture,
     ao: [wgpu::Texture; 2],
     scene: wgpu::Texture,
+    /// The composited frame, read by the lens and color stage.
+    graded: wgpu::Texture,
     dof: wgpu::Texture,
     bloom: [wgpu::Texture; 2],
     emit: wgpu::Texture,
@@ -167,6 +223,9 @@ pub(crate) struct PostPass {
     hdr_blur_pipeline: wgpu::RenderPipeline,
     tent_pipeline: wgpu::RenderPipeline,
     scale_add_pipeline: wgpu::RenderPipeline,
+    glare_src_pipeline: wgpu::RenderPipeline,
+    ghost_add_pipeline: wgpu::RenderPipeline,
+    grade_pipeline: wgpu::RenderPipeline,
     uniforms: Vec<wgpu::Buffer>,
     targets: Option<Targets>,
 }
@@ -309,6 +368,9 @@ impl PostPass {
             hdr_blur_pipeline: fullscreen("fs_blur", HDR_FORMAT),
             tent_pipeline: fullscreen("fs_tent", HDR_FORMAT),
             scale_add_pipeline: fullscreen_blend("fs_scale", HDR_FORMAT, additive),
+            glare_src_pipeline: fullscreen("fs_glare_src", HDR_FORMAT),
+            ghost_add_pipeline: fullscreen_blend("fs_ghost", HDR_FORMAT, additive),
+            grade_pipeline: fullscreen("fs_grade", target::OUTPUT_FORMAT),
             layout,
             sampler,
             dummy_color,
@@ -330,6 +392,7 @@ impl PostPass {
             depth: texture(device, "post depth", size, target::DEPTH_FORMAT, rt),
             ao: [0, 1].map(|_| texture(device, "post ao", size, AO_FORMAT, rt)),
             scene: texture(device, "post scene copy", size, target::OUTPUT_FORMAT, wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING),
+            graded: texture(device, "post grade input", size, target::OUTPUT_FORMAT, wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING),
             dof: texture(device, "post depth of field", size, target::OUTPUT_FORMAT, rt),
             bloom: [0, 1].map(|_| texture(device, "post bloom", half, target::OUTPUT_FORMAT, rt)),
             emit: texture(device, "post emission", size, HDR_FORMAT, rt),
@@ -413,6 +476,7 @@ impl PostPass {
                 params: params4,
                 size: [size[0] as f32, size[1] as f32, 1.0 / size[0].max(1) as f32, 1.0 / size[1].max(1) as f32],
                 misc,
+                grade: [[0.0; 4]; 4],
             };
             queue.write_buffer(&self.uniforms[index], 0, bytemuck::bytes_of(&u));
         };
@@ -471,7 +535,8 @@ impl PostPass {
         let fx = view(&t.fx);
         let glow_wanted = emission.is_some() && params.emission_glow > 0.0;
         let glare_wanted = emission.is_some() && params.glare > 0.0;
-        let fx_used = params.bloom > 0.0 || glow_wanted || glare_wanted;
+        let flare_wanted = params.flare > 0.0;
+        let fx_used = params.bloom > 0.0 || glow_wanted || glare_wanted || flare_wanted;
         if fx_used {
             // The effects buffer starts black; bloom, glow and glare are added into it.
             let _ = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -490,8 +555,10 @@ impl PostPass {
         }
         if params.bloom > 0.0 {
             write(U_BRIGHT, half, [0.0; 4], [0.0, 0.0, params.bloom_threshold, focal]);
-            write(U_BLOOM_H, half, [0.0; 4], [2.0, 0.0, 0.0, focal]);
-            write(U_BLOOM_V, half, [0.0; 4], [0.0, 2.0, 0.0, focal]);
+            // Falloff widens the blur: 0.5 is the original two-texel step.
+            let step = 1.0 + 2.0 * params.bloom_falloff.clamp(0.0, 1.0);
+            write(U_BLOOM_H, half, [0.0; 4], [step, 0.0, 0.0, focal]);
+            write(U_BLOOM_V, half, [0.0; 4], [0.0, step, 0.0, focal]);
             Self::fullscreen(encoder, &self.bright_pipeline, &self.bind(device, U_BRIGHT, Some(&scene), None, None, None), &bloom_a);
             // Two blur rounds at half resolution give a soft glow a few percent of the view wide.
             for _ in 0..2 {
@@ -500,6 +567,17 @@ impl PostPass {
             }
             write(U_FX_BLOOM, half, [0.0, 0.0, params.bloom, 0.0], [0.0, 0.0, 0.0, focal]);
             Self::draw(encoder, &self.scale_add_pipeline, &self.bind(device, U_FX_BLOOM, Some(&bloom_a), None, None, None), &fx, true);
+        }
+        if flare_wanted {
+            // Lens flare: the bright areas, softened, mirrored through the view centre as ghosts.
+            write(U_FLARE_BRIGHT, half, [0.0; 4], [0.0, 0.0, params.flare_threshold, focal]);
+            write(U_FLARE_H, half, [0.0; 4], [1.5, 0.0, 0.0, focal]);
+            write(U_FLARE_V, half, [0.0; 4], [0.0, 1.5, 0.0, focal]);
+            Self::fullscreen(encoder, &self.bright_pipeline, &self.bind(device, U_FLARE_BRIGHT, Some(&scene), None, None, None), &bloom_b);
+            Self::fullscreen(encoder, &self.blur_pipeline, &self.bind(device, U_FLARE_H, Some(&bloom_b), None, None, None), &bloom_a);
+            Self::fullscreen(encoder, &self.blur_pipeline, &self.bind(device, U_FLARE_V, Some(&bloom_a), None, None, None), &bloom_b);
+            write(U_FLARE, half, [params.flare_ghosts.clamp(1, 8) as f32, params.flare_scale.clamp(0.05, 4.0), params.flare, 0.0], [0.0, 0.0, 0.0, focal]);
+            Self::draw(encoder, &self.ghost_add_pipeline, &self.bind(device, U_FLARE, Some(&bloom_b), None, None, None), &fx, true);
         }
         if let (true, Some(draw)) = (glow_wanted || glare_wanted, emission) {
             let emit = view(&t.emit);
@@ -560,8 +638,14 @@ impl PostPass {
             if glare_wanted {
                 // Each direction: a chain of [1 2 1] stages at doubling strides (a tent of half-width
                 // 2^stages texels). Longer streaks run more stages; the gain keeps them readable.
-                let length = params.glare_length.clamp(0.0, 1.0);
+                let recipe = glare_recipe(params.glare_mode);
+                let length = (params.glare_length.clamp(0.0, 1.0) * recipe.length).clamp(0.0, 1.0);
                 let stages = (4.0 + length * 2.0).round() as usize;
+                // Threshold and remap shape what throws glare; the defaults keep all the emission.
+                if params.glare_threshold > 0.0 || (params.glare_remap - 1.0).abs() > 1e-6 {
+                    write(U_GLARE_SRC, half, [params.glare_threshold.max(0.0), params.glare_remap.clamp(0.05, 8.0), 0.0, 0.0], [0.0, 0.0, 0.0, focal]);
+                    Self::fullscreen(encoder, &self.glare_src_pipeline, &self.bind(device, U_GLARE_SRC, Some(&emit), None, None, None), &glow_a);
+                }
                 let _ = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("post glare clear"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -575,20 +659,40 @@ impl PostPass {
                     occlusion_query_set: None,
                     multiview_mask: None,
                 });
-                let dirs = glare_directions(params.glare_mode);
+                let dirs = recipe.directions;
                 let (scratch_a, scratch_b) = (view(&t.streak[0]), view(&t.streak[1]));
-                let gain = params.glare * 0.5 * 2f32.powf(stages as f32 * 0.5) / dirs.len() as f32;
+                let parts = dirs.len().max(1) as f32;
+                let gain = params.glare * 0.5 * 2f32.powf(stages as f32 * 0.5) / parts;
                 write(U_FX_GLARE, half, [0.0, 0.0, gain, 0.0], [0.0, 0.0, 0.0, focal]);
+                // Spectral shapes spread red further and blue less far along each streak.
+                let spread = if recipe.spectral { 0.35 } else { 0.0 };
                 for (i, d) in dirs.iter().enumerate() {
                     let mut from: &wgpu::TextureView = &glow_a;
                     for k in 0..stages {
                         let stride = (1u32 << k) as f32;
-                        write(U_STREAK + i * STAGES + k, half, [0.0; 4], [d[0] * stride, d[1] * stride, 0.0, focal]);
+                        write(U_STREAK + i * STAGES + k, half, [spread, 0.0, 0.0, 0.0], [d[0] * stride, d[1] * stride, 0.0, focal]);
                         let to = if k % 2 == 0 { &scratch_a } else { &scratch_b };
                         Self::fullscreen(encoder, &self.tent_pipeline, &self.bind(device, U_STREAK + i * STAGES + k, Some(from), None, None, None), to);
                         from = to;
                     }
                     Self::draw(encoder, &self.scale_add_pipeline, &self.bind(device, U_FX_GLARE, Some(from), None, None, None), &glare, true);
+                }
+                if recipe.glow > 0.0 {
+                    // A round glow: three Gaussian rounds over the glare source.
+                    write(U_GLARE_GLOW_H, half, [0.0; 4], [2.0 + 2.0 * length, 0.0, 0.0, focal]);
+                    write(U_GLARE_GLOW_V, half, [0.0; 4], [0.0, 2.0 + 2.0 * length, 0.0, focal]);
+                    let mut from: &wgpu::TextureView = &glow_a;
+                    for _ in 0..3 {
+                        Self::fullscreen(encoder, &self.hdr_blur_pipeline, &self.bind(device, U_GLARE_GLOW_H, Some(from), None, None, None), &scratch_a);
+                        Self::fullscreen(encoder, &self.hdr_blur_pipeline, &self.bind(device, U_GLARE_GLOW_V, Some(&scratch_a), None, None, None), &scratch_b);
+                        from = &scratch_b;
+                    }
+                    write(U_GLARE_GLOW_ADD, half, [0.0, 0.0, params.glare * 4.0 * recipe.glow, 0.0], [0.0, 0.0, 0.0, focal]);
+                    Self::draw(encoder, &self.scale_add_pipeline, &self.bind(device, U_GLARE_GLOW_ADD, Some(from), None, None, None), &glare, true);
+                }
+                if recipe.ghosts > 0 {
+                    write(U_GLARE_GHOST, half, [recipe.ghosts as f32, 1.0, params.glare, 0.0], [0.0, 0.0, 0.0, focal]);
+                    Self::draw(encoder, &self.ghost_add_pipeline, &self.bind(device, U_GLARE_GHOST, Some(&glow_a), None, None, None), &glare, true);
                 }
                 write(U_FX_GLARE_ADD, half, [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, focal]);
                 Self::draw(encoder, &self.scale_add_pipeline, &self.bind(device, U_FX_GLARE_ADD, Some(&glare), None, None, None), &fx, true);
@@ -597,5 +701,59 @@ impl PostPass {
         write(U_COMPOSITE, size, [0.0, if ssao { params.ssao } else { 0.0 }, if fx_used { 1.0 } else { 0.0 }, ortho], [0.0, 0.0, 0.0, focal]);
         let group = self.bind(device, U_COMPOSITE, Some(&scene), fx_used.then_some(&fx), None, ssao.then_some(&ao_a));
         Self::fullscreen(encoder, &self.composite_pipeline, &group, &output.output_view);
+        if params.grade.active() {
+            // Lens and color stage over the finished picture.
+            encoder.copy_texture_to_texture(
+                output.output.as_image_copy(),
+                t.graded.as_image_copy(),
+                wgpu::Extent3d { width: size[0], height: size[1], depth_or_array_layers: 1 },
+            );
+            let g = &params.grade;
+            let wb = if g.color_correction { crate::grade::white_balance(g.temperature) } else { [1.0; 3] };
+            let flag = |on: bool| if on { 1.0 } else { 0.0 };
+            let u = PostUniform {
+                inv_proj: proj.inverse().to_cols_array_2d(),
+                params: [g.saturation, g.contrast, g.brightness, g.bias],
+                size: [size[0] as f32, size[1] as f32, 1.0 / size[0].max(1) as f32, 1.0 / size[1].max(1) as f32],
+                misc: [wb[0], wb[1], wb[2], focal],
+                grade: [
+                    [g.aberration.max(0.0), g.aberration_radius, g.aberration_softness.max(1e-4), g.aberration_ratio.max(1e-3)],
+                    [g.aberration_center[0], g.aberration_center[1], flag(g.aberration_achromatic), g.vignette.clamp(0.0, 1.0)],
+                    [g.sharpen.max(0.0), g.sharpen_diameter.max(0.0), g.grain.max(0.0), g.grain_radius.max(1.0)],
+                    [flag(g.grain_colored), 1.0 / g.gamma.clamp(0.1, 10.0), g.sepia.clamp(0.0, 1.0), flag(g.color_correction)],
+                ],
+            };
+            queue.write_buffer(&self.uniforms[U_GRADE], 0, bytemuck::bytes_of(&u));
+            Self::fullscreen(encoder, &self.grade_pipeline, &self.bind(device, U_GRADE, Some(&view(&t.graded)), None, None, None), &output.output_view);
+        }
+    }
+}
+
+#[cfg(test)]
+mod recipe_tests {
+    use super::*;
+
+    #[test]
+    fn every_glare_shape_has_a_recipe_of_unit_directions() {
+        for shape in GlareMode::ALL {
+            let r = glare_recipe(shape);
+            assert!(!r.directions.is_empty() || r.glow > 0.0, "{shape:?} draws something");
+            assert!(r.directions.len() <= 4, "{shape:?}: the streak uniforms hold four directions");
+            for d in r.directions {
+                assert!(((d[0] * d[0] + d[1] * d[1]).sqrt() - 1.0).abs() < 1e-5, "{shape:?}: {d:?} is a unit step");
+            }
+        }
+        // Painter's filters: cross screen 4 points, snow cross 6, sunny cross 8 (two per direction).
+        assert_eq!(glare_recipe(GlareMode::Both).directions.len() * 2, 4);
+        assert_eq!(glare_recipe(GlareMode::SnowCross).directions.len() * 2, 6);
+        assert_eq!(glare_recipe(GlareMode::Star).directions.len() * 2, 8);
+        let snow = glare_recipe(GlareMode::SnowCross).directions;
+        let angle = |d: [f32; 2]| d[1].atan2(d[0]).to_degrees();
+        assert!((angle(snow[1]) - 60.0).abs() < 1e-3 && (angle(snow[2]) + 60.0).abs() < 1e-3, "arms 60 degrees apart");
+        for (plain, spectral) in [(GlareMode::Both, GlareMode::CrossScreenSpectral), (GlareMode::SnowCross, GlareMode::SnowCrossSpectral), (GlareMode::Star, GlareMode::SunnyCrossSpectral)] {
+            let (a, b) = (glare_recipe(plain), glare_recipe(spectral));
+            assert!(a.directions == b.directions && !a.spectral && b.spectral, "{spectral:?} is {plain:?} with fringes");
+        }
+        assert!(glare_recipe(GlareMode::Bloom).directions.is_empty() && glare_recipe(GlareMode::LensFlare).ghosts > 0);
     }
 }

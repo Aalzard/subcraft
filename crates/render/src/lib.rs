@@ -9,6 +9,7 @@
 pub mod caps;
 pub mod gpu_composite;
 pub mod gpu_mesh;
+pub mod grade;
 pub mod grid;
 mod bake_preview;
 mod display;
@@ -38,6 +39,7 @@ pub use gpu_mesh::GpuMesh;
 pub use grid::GridParams;
 pub use material::{ChannelTexture, GpuMaterial, SHADED_CHANNELS};
 pub use pathtrace::{Denoiser, PathTraceScene, PathTraceSettings, PathTraceStatus};
+pub use grade::Grade;
 pub use post::{GlareMode, PostParams, ToneMap};
 pub use preview::{PreviewPass, PreviewTarget};
 pub use target::{DISPLAY_FORMAT, OUTPUT_FORMAT, PendingReadback, RenderTarget};
@@ -286,7 +288,7 @@ impl ViewportRenderer {
     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("viewport shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("viewport.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(concat!(include_str!("tonemap.wgsl"), include_str!("viewport.wgsl")).into()),
         });
         let globals_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("globals layout"),
@@ -728,7 +730,7 @@ impl ViewportRenderer {
             lights: [e.panels, e.top, e.key_softbox, if e.use_hdri && self.env_levels > 1 { 1.0 } else { 0.0 }],
             env_misc: [e.rotation, e.hdri_intensity, (self.env_levels - 1) as f32,
                 bake_map.map_or(params.view_mode.shader_mode() as f32, |k| if k.components() == 1 { 8. } else { 7. })],
-            post: [post::tone_map_id(params.post.tone_map), 0.0, 0.0, 0.0],
+            post: [grade::tone_map_id(params.post.tone_map), params.post.mapping_factor, 0.0, 0.0],
             sh,
             inv_view_proj: (params.proj * params.view).inverse().to_cols_array_2d(),
             background: [params.background[0], params.background[1], params.background[2], e.background_opacity.clamp(0.0, 1.0)],

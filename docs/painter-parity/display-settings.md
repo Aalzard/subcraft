@@ -123,8 +123,8 @@ extras with no Painter counterpart in this list: screen-space ambient occlusion 
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Activate Post Effects (master switch) | Display Settings > Post effects | off (unverified) | missing: each SubCraft effect is switched by its own amount | - | - |
-| Per-effect on/off switch | Each effect header | off | partial: only Depth of field has a switch; others are off at amount 0 | crates/ui/src/render_export.rs:91 | - |
+| Activate Post Effects (master switch) | Display Settings > Post effects | off (unverified) | done: on by default | crates/ui/src/panels/display_settings.rs (post_effects) | 166 |
+| Per-effect on/off switch | Each effect header | off | done: a collapsible entry per effect with its own switch | crates/ui/src/panels/display_settings.rs (effect) | 166 |
 | Post-effect assets (dedicated asset usage, default assets in the library) | Assets window (12.0) | - | missing | - | - |
 | Effects hidden in the 2D view | 2D view | always | done | crates/render/src/post.rs:89 | - |
 
@@ -140,7 +140,7 @@ extras with no Painter counterpart in this list: screen-space ambient occlusion 
 |---|---|---|---|---|---|
 | Amount | Post effects > Bloom | not documented | done: 0-2, default 0 | crates/ui/src/panels/display_settings.rs (post_effects) | 161 |
 | Threshold | Post effects > Bloom | not documented (1.0 = screen white) | done: 0-1, default 0.8 | crates/ui/src/panels/display_settings.rs (post_effects) | 161 |
-| Falloff | Post effects > Bloom | not documented | missing | - | - |
+| Falloff | Post effects > Bloom | not documented | done: 0-1 (default 0.5) | crates/render/src/post.rs (bloom_falloff) | 166 |
 
 ## Post effects: Glare
 
@@ -149,73 +149,73 @@ Glare was reworked, so parameter names may have changed (unverified).
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Luminance | Post effects > Glare | not documented; 0 disables, realistic 0.5-4, max about 16 | partial: "Glare" 0-3, streaks from emissive areas only | crates/ui/src/render_export.rs:117 | - |
-| Threshold | Post effects > Glare | not documented; 0-1 recommended | missing | - | - |
-| Remap Factor | Post effects > Glare | 1.0 neutral | missing | - | - |
-| Shape (dropdown) | Post effects > Glare | not documented; 13 options below | partial: "Glare shape" with 4 options plus a "Streak length" slider | crates/ui/src/render_export.rs:119 | - |
-| Shape: Bloom | Glare > Shape | - | missing | - | - |
-| Shape: Lens Flare | Glare > Shape | - | missing | - | - |
-| Shape: Standard | Glare > Shape | - | missing | - | - |
-| Shape: Cheap Lens | Glare > Shape | - | missing | - | - |
-| Shape: After Image | Glare > Shape | - | missing | - | - |
-| Shape: Filter Cross Screen | Glare > Shape | - | partial: named "Horizontal + vertical" | crates/render/src/post.rs:70 | - |
-| Shape: Filter Cross Screen Spectral | Glare > Shape | - | missing | - | - |
-| Shape: Filter Snow Cross (6 directions) | Glare > Shape | - | missing | - | - |
-| Shape: Filter Snow Cross Spectral | Glare > Shape | - | missing | - | - |
-| Shape: Filter Sunny Cross (8 directions) | Glare > Shape | - | partial: named "Starburst" | crates/render/src/post.rs:71 | - |
-| Shape: Filter Sunny Cross Spectral | Glare > Shape | - | missing | - | - |
-| Shape: Horizontal Streak | Glare > Shape | - | partial: named "Horizontal" | crates/render/src/post.rs:68 | - |
-| Shape: Vertical Streak | Glare > Shape | - | partial: named "Vertical" | crates/render/src/post.rs:69 | - |
+| Luminance | Post effects > Glare | not documented; 0 disables, realistic 0.5-4, max about 16 | partial: 0-16; glare comes from emissive areas only | crates/render/src/post.rs | 166 |
+| Threshold | Post effects > Glare | not documented; 0-1 recommended | done: 0-4, default 0 | crates/render/src/post.wgsl (fs_glare_src) | 166 |
+| Remap Factor | Post effects > Glare | 1.0 neutral | done: 0.25-4, default 1 | crates/render/src/post.wgsl (fs_glare_src) | 166 |
+| Shape (dropdown) | Post effects > Glare | not documented; 13 options below | done: the 13 shapes in the same order, plus a "Streak length" slider | crates/doc/src/display.rs (GlareShape::MENU) | 166 |
+| Shape: Bloom | Glare > Shape | - | done | crates/render/src/post.rs (glare_recipe) | 166 |
+| Shape: Lens Flare | Glare > Shape | - | partial: an approximation (round glow with three ghosts) | crates/render/src/post.rs (glare_recipe) | 166 |
+| Shape: Standard | Glare > Shape | - | partial: an approximation (round glow with a four-point cross) | crates/render/src/post.rs (glare_recipe) | 166 |
+| Shape: Cheap Lens | Glare > Shape | - | partial: an approximation (short diagonal cross with one ghost) | crates/render/src/post.rs (glare_recipe) | 166 |
+| Shape: After Image | Glare > Shape | - | partial: an approximation (long faint horizontal trail) | crates/render/src/post.rs (glare_recipe) | 166 |
+| Shape: Filter Cross Screen | Glare > Shape | - | done | crates/render/src/post.rs (glare_recipe) | 166 |
+| Shape: Filter Cross Screen Spectral | Glare > Shape | - | done | crates/render/src/post.rs (glare_recipe) | 166 |
+| Shape: Filter Snow Cross (6 directions) | Glare > Shape | - | done | crates/render/src/post.rs (glare_recipe) | 166 |
+| Shape: Filter Snow Cross Spectral | Glare > Shape | - | done | crates/render/src/post.rs (glare_recipe) | 166 |
+| Shape: Filter Sunny Cross (8 directions) | Glare > Shape | - | done | crates/render/src/post.rs (glare_recipe) | 166 |
+| Shape: Filter Sunny Cross Spectral | Glare > Shape | - | done | crates/render/src/post.rs (glare_recipe) | 166 |
+| Shape: Horizontal Streak | Glare > Shape | - | done | crates/render/src/post.rs (glare_recipe) | 166 |
+| Shape: Vertical Streak | Glare > Shape | - | done | crates/render/src/post.rs (glare_recipe) | 166 |
 
 ## Post effects: Lens flare
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
 | Resolution | Post effects > Lens flare | not documented | missing | - | - |
-| Camera | Post effects > Lens flare | options Panoramic Lens, Telephoto Lens | missing | - | - |
-| Amount | Post effects > Lens flare | not documented; may exceed 1.0 | missing | - | - |
-| Threshold | Post effects > Lens flare | not documented | missing | - | - |
+| Camera | Post effects > Lens flare | options Panoramic Lens, Telephoto Lens | partial: the two lenses only change how far the ghosts spread | crates/ui/src/viewport_bar.rs (post_params_at) | 166 |
+| Amount | Post effects > Lens flare | not documented; may exceed 1.0 | done: 0-4, default 0.5 | crates/render/src/post.wgsl (fs_ghost) | 166 |
+| Threshold | Post effects > Lens flare | not documented | done: 0-1, default 0.8 | crates/render/src/post.rs | 166 |
 | Aperture scale | Post effects > Lens flare | not documented | missing | - | - |
 | Coat thickness | Post effects > Lens flare | not documented | missing | - | - |
 | Coat IOR | Post effects > Lens flare | not documented | missing | - | - |
 | Occlusion scale | Post effects > Lens flare | not documented | missing | - | - |
 | Occlusion smoothness | Post effects > Lens flare | not documented | missing | - | - |
-| Unique ghosts | Post effects > Lens flare | not documented | missing | - | - |
-| Ghost position scale | Post effects > Lens flare | not documented | missing | - | - |
+| Unique ghosts | Post effects > Lens flare | not documented | done: 1-8, default 4 | crates/render/src/post.wgsl (fs_ghost) | 166 |
+| Ghost position scale | Post effects > Lens flare | not documented | done: 0.1-2, default 1 | crates/render/src/post.wgsl (fs_ghost) | 166 |
 | Aperture texture (resource slot) | Post effects > Lens flare | not documented | missing | - | - |
 
 ## Post effects: Lateral aberration
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Amount | Post effects > Lateral aberration | not documented | missing | - | - |
-| Radius | Post effects > Lateral aberration | not documented | missing | - | - |
-| Softness | Post effects > Lateral aberration | not documented | missing | - | - |
-| Ratio | Post effects > Lateral aberration | not documented; 1 = circular | missing | - | - |
-| Center X | Post effects > Lateral aberration | not documented | missing | - | - |
-| Center Y | Post effects > Lateral aberration | not documented | missing | - | - |
-| Achromatic aberrations (checkbox) | Post effects > Lateral aberration | off (unverified) | missing | - | - |
+| Amount | Post effects > Lateral aberration | not documented | done: 0-2, default 0.5 | crates/render/src/grade.rs, post.wgsl (fs_grade) | 166 |
+| Radius | Post effects > Lateral aberration | not documented | done: 0-1, default 0.5 | crates/render/src/grade.rs | 166 |
+| Softness | Post effects > Lateral aberration | not documented | done: 0-1, default 0.3 | crates/render/src/grade.rs | 166 |
+| Ratio | Post effects > Lateral aberration | not documented; 1 = circular | done: 0.25-4, default 1 | crates/render/src/grade.rs | 166 |
+| Center X | Post effects > Lateral aberration | not documented | done: 0-1, default 0.5 | crates/render/src/grade.rs | 166 |
+| Center Y | Post effects > Lateral aberration | not documented | done: 0-1, default 0.5 | crates/render/src/grade.rs | 166 |
+| Achromatic aberrations (checkbox) | Post effects > Lateral aberration | off (unverified) | done: off by default | crates/render/src/grade.rs | 166 |
 
 ## Post effects: Vignette
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Vignette (enable; the doc page lists no parameters) | Display Settings > Post effects | not documented | missing | - | - |
+| Vignette (enable; the doc page lists no parameters) | Display Settings > Post effects | not documented | done: plus an "Amount" slider (0-1, default 0.5) | crates/render/src/grade.rs (vignette_factor) | 166 |
 
 ## Post effects: Sharpen
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Amount | Post effects > Sharpen | not documented | missing | - | - |
-| Diameter (pixels) | Post effects > Sharpen | not documented | missing | - | - |
+| Amount | Post effects > Sharpen | not documented | done: 0-2, default 0.5 | crates/render/src/grade.rs | 166 |
+| Diameter (pixels) | Post effects > Sharpen | not documented | done: 1-8 px, default 2 | crates/render/src/grade.rs | 166 |
 
 ## Post effects: Film grain
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Amount | Post effects > Film grain | not documented | missing | - | - |
-| Radius (pixels) | Post effects > Film grain | not documented | missing | - | - |
-| Type | Post effects > Film grain | options monochromatic, colored | missing | - | - |
+| Amount | Post effects > Film grain | not documented | done: 0-1, default 0.2 | crates/render/src/post.wgsl (fs_grade) | 166 |
+| Radius (pixels) | Post effects > Film grain | not documented | done: 1-8 px, default 1 | crates/render/src/post.wgsl (fs_grade) | 166 |
+| Type | Post effects > Film grain | options monochromatic, colored | done: Monochromatic, Colored | crates/doc/src/display.rs (GrainType) | 166 |
 
 ## Post effects: Tone mapping
 
@@ -227,29 +227,29 @@ and Sensitometric.
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
 | Exposure | Post effects > Tone mapping | not documented | done: multiplier 0.25-4 (default 1) | crates/ui/src/panels/display_settings.rs (post_effects) | 161 |
-| Gamma | Post effects > Tone mapping | not documented | missing | - | - |
-| Function (dropdown) | Post effects > Tone mapping | Linear (camera page) / Auto (tone-mapping page) | partial: 4 options, default ACES | crates/ui/src/render_export.rs:65 | - |
-| Function: Auto | Tone mapping > Function | picks Sensitometric | missing | - | - |
-| Function: Linear (unclamped) | Tone mapping > Function | - | partial: "Linear (clip)" clamps, which is LinearSat behaviour | crates/render/src/post.rs:37 | - |
-| Function: LinearSat (clamped) | Tone mapping > Function | - | partial: named "Linear (clip)" | crates/render/src/post.rs:37 | - |
-| Function: Sensitometric | Tone mapping > Function | - | missing | - | - |
-| Function: Reinhard | Tone mapping > Function | - | done | crates/render/src/post.rs:36 | - |
-| Function: ReinhardLum | Tone mapping > Function | - | missing | - | - |
-| Function: Log | Tone mapping > Function | - | missing | - | - |
-| Function: LogLum | Tone mapping > Function | - | missing | - | - |
-| Function: ACES | Tone mapping > Function (camera settings page) | - | done | crates/render/src/post.rs:34 | - |
-| Mapping Factor | Post effects > Tone mapping | not documented | missing | - | - |
+| Gamma | Post effects > Tone mapping | not documented | done: 0.2-3, default 1 | crates/render/src/grade.rs (apply_gamma) | 166 |
+| Function (dropdown) | Post effects > Tone mapping | Linear (camera page) / Auto (tone-mapping page) | done: the 8 functions plus ACES and Filmic; default ACES | crates/doc/src/display.rs (ToneMap::MENU) | 166 |
+| Function: Auto | Tone mapping > Function | picks Sensitometric | done: evaluates Sensitometric | crates/render/src/grade.rs (tone_map) | 166 |
+| Function: Linear (unclamped) | Tone mapping > Function | - | done: the 8-bit view still ends at white | crates/render/src/grade.rs (tone_map) | 166 |
+| Function: LinearSat (clamped) | Tone mapping > Function | - | done | crates/render/src/grade.rs (tone_map) | 166 |
+| Function: Sensitometric | Tone mapping > Function | - | done | crates/render/src/grade.rs (tone_map) | 166 |
+| Function: Reinhard | Tone mapping > Function | - | done | crates/render/src/grade.rs (tone_map) | 166 |
+| Function: ReinhardLum | Tone mapping > Function | - | done | crates/render/src/grade.rs (tone_map) | 166 |
+| Function: Log | Tone mapping > Function | - | done | crates/render/src/grade.rs (tone_map) | 166 |
+| Function: LogLum | Tone mapping > Function | - | done | crates/render/src/grade.rs (tone_map) | 166 |
+| Function: ACES | Tone mapping > Function (camera settings page) | - | done | crates/render/src/grade.rs (tone_map) | 166 |
+| Mapping Factor | Post effects > Tone mapping | not documented | done: 0.1-10, default 1; Reinhard and Log functions only | crates/render/src/tonemap.wgsl | 166 |
 
 ## Post effects: Color correction
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Saturation | Post effects > Color correction | not documented; 0 = grayscale | missing | - | - |
-| Contrast | Post effects > Color correction | not documented | missing | - | - |
-| Brightness | Post effects > Color correction | not documented | missing | - | - |
-| Bias | Post effects > Color correction | not documented | missing | - | - |
-| Sepia tone ratio | Post effects > Color correction | not documented | missing | - | - |
-| White Balance Temperature (K) | Post effects > Color correction | 6500 K | missing | - | - |
+| Saturation | Post effects > Color correction | not documented; 0 = grayscale | done: 0-2, default 1 | crates/render/src/grade.rs (correct) | 166 |
+| Contrast | Post effects > Color correction | not documented | done: 0-2, default 1 | crates/render/src/grade.rs (correct) | 166 |
+| Brightness | Post effects > Color correction | not documented | done: 0-2, default 1 | crates/render/src/grade.rs (correct) | 166 |
+| Bias | Post effects > Color correction | not documented | done: -0.5..0.5, default 0 | crates/render/src/grade.rs (correct) | 166 |
+| Sepia tone ratio | Post effects > Color correction | not documented | done: 0-1, default 0 | crates/render/src/grade.rs (correct) | 166 |
+| White Balance Temperature (K) | Post effects > Color correction | 6500 K | done: 2000-12000 K, default 6500 | crates/render/src/grade.rs (white_balance) | 166 |
 
 ## Post effects: Lens Distortion (pre-12.0 effect, still documented)
 

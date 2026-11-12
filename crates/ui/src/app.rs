@@ -779,9 +779,30 @@ impl SubcraftApp {
                     ("dof-range", Some(v)) => prefs.dof_range = v,
                     ("glare", Some(v)) => prefs.glare = v,
                     ("glare-length", Some(v)) => prefs.glare_length = v,
+                    ("glare-threshold", Some(v)) => prefs.glare_threshold = v,
+                    ("glare-remap", Some(v)) => prefs.glare_remap = v,
+                    ("post", Some(v)) => prefs.post_effects = v > 0.0,
+                    ("falloff", Some(v)) => prefs.bloom_falloff = v,
+                    ("gamma", Some(v)) => prefs.gamma = v,
+                    ("factor", Some(v)) => prefs.mapping_factor = v,
+                    ("flare", Some(v)) => { prefs.flare_on = v > 0.0; prefs.flare_amount = v }
+                    ("aberration", Some(v)) => { prefs.aberration_on = v > 0.0; prefs.aberration_amount = v }
+                    ("vignette", Some(v)) => { prefs.vignette_on = v > 0.0; prefs.vignette_amount = v }
+                    ("sharpen", Some(v)) => { prefs.sharpen_on = v > 0.0; prefs.sharpen_amount = v }
+                    ("grain", Some(v)) => { prefs.grain_on = v > 0.0; prefs.grain_amount = v }
+                    ("grain-colored", Some(v)) => prefs.grain_type = if v > 0.0 { subcraft_doc::GrainType::Colored } else { subcraft_doc::GrainType::Monochromatic },
+                    ("saturation", Some(v)) => { prefs.color_correction_on = true; prefs.cc_saturation = v }
+                    ("contrast", Some(v)) => { prefs.color_correction_on = true; prefs.cc_contrast = v }
+                    ("brightness", Some(v)) => { prefs.color_correction_on = true; prefs.cc_brightness = v }
+                    ("sepia", Some(v)) => { prefs.color_correction_on = true; prefs.cc_sepia = v }
+                    ("temperature", Some(v)) => { prefs.color_correction_on = true; prefs.cc_temperature = v }
+                    ("env-opacity", Some(v)) => prefs.env_opacity = v,
+                    ("env-blur", Some(v)) => prefs.env_blur = v,
+                    ("env-ev", Some(v)) => prefs.env_exposure = v,
+                    ("fov", Some(v)) => crate::panels::display_settings::set_fov(&mut state.camera, v),
                     ("glare-mode", _) => {
                         let wanted = value.trim().to_ascii_lowercase();
-                        if let Some(m) = subcraft_render::GlareMode::ALL.into_iter().find(|m| m.label().to_ascii_lowercase().starts_with(&wanted)) { prefs.glare_mode = m; }
+                        if let Some(m) = subcraft_render::GlareMode::ALL.into_iter().find(|m| format!("{m:?}").to_ascii_lowercase() == wanted || m.label().to_ascii_lowercase().replace(' ', "-").contains(&wanted.replace(' ', "-"))) { prefs.glare_mode = m; }
                     }
                     ("tone", _) => {
                         let wanted = value.trim().to_ascii_lowercase();
