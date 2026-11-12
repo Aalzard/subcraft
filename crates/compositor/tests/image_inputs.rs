@@ -24,7 +24,7 @@ impl Fx {
     fn ctx(&self) -> EvalContext<'_> {
         EvalContext { geometry: &self.geo, resources: &self.res, mesh_maps: &self.maps }
     }
-    fn image(&mut self, w: u32, h: u32, comps: u32, data: Vec<u8>) -> ResourceId {
+    fn image(&mut self, w: u32, h: u32, comps: u8, data: Vec<u8>) -> ResourceId {
         let id = ResourceId::new();
         self.res.insert(Resource { id, name: "i.png".into(), kind: ResourceKind::Texture, bitmap: Arc::new(Bitmap::new_u8(w, h, comps, data)), source_path: None, encoded: None });
         id
