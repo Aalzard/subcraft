@@ -47,24 +47,24 @@ Layout notes: a resizable left column. First entry is Global settings; below it 
 |---|---|---|---|---|---|
 | Output directory | Path field + browse button | last used / project folder (unverified) | done (Folder field + Browse) | crates/ui/src/dialogs.rs:177 | - |
 | Output template | Dropdown: predefined templates first, then default and custom ones | PBR Metallic Roughness (unverified) | partial: built-in list only, no custom templates | crates/ui/src/dialogs.rs:193 | #124 |
-| File type | Dropdown: container format | Based on output template (unverified) | partial: 4 containers (PNG, TGA, JPEG, EXR) | crates/ui/src/dialogs.rs:200 | #124 |
+| File type | Dropdown: container format | Based on output template (unverified) | partial: 8 of Painter's types (bmp, exr, hdr, jpeg, png, targa, tiff, webp), alphabetical, plus Based on output template | crates/ui/src/export_presets.rs format_combo | chunk 21 |
 | File type: Based on output template | First entry of File type | - | done (Template default) | crates/ui/src/dialogs.rs:203 | - |
-| Bit depth | Second dropdown beside File type; choices depend on format | 8 bits (unverified) | partial: merged into the format entry (PNG 8-bit, PNG 16-bit...) | crates/image/src/io.rs:116 | #124 |
-| Size | Dropdown | Based on each Texture Set's size | partial: always the texture set size, no dropdown | crates/export/src/lib.rs:347 | #124 |
-| Size: 128 | Size dropdown | - | missing | - | #124 |
-| Size: 256 | Size dropdown | - | missing | - | #124 |
-| Size: 512 | Size dropdown | - | missing | - | #124 |
-| Size: 1024 | Size dropdown | - | missing | - | #124 |
-| Size: 2048 | Size dropdown | - | missing | - | #124 |
-| Size: 4096 | Size dropdown | - | missing | - | #124 |
-| Size: 8192 | Size dropdown (needs enough VRAM) | - | missing | - | #124 |
-| Padding | Dropdown | Dilation infinite (unverified) | partial: 3 modes instead of 5 | crates/ui/src/dialogs.rs:209 | - |
-| Padding: No padding (passthrough) | Padding dropdown | - | done (None) | crates/ui/src/dialogs.rs:219 | - |
-| Padding: Dilation infinite | Padding dropdown | - | done (Infinite; default) | crates/ui/src/dialogs.rs:217 | - |
+| Bit depth | Second dropdown beside File type; choices depend on format | 8 bits (unverified) | done (second dropdown; only the depths the file type stores, plus 8-bit + dithering) | crates/ui/src/export_presets.rs format_combo | chunk 21 |
+| Size | Dropdown | Based on each Texture Set's size | done (Based on each texture set's size, or 128 to 8192; a preset or map size wins) | crates/export/src/lib.rs output_size | chunk 21 |
+| Size: 128 | Size dropdown | - | done | crates/export/src/lib.rs EXPORT_SIZES | chunk 21 |
+| Size: 256 | Size dropdown | - | done | crates/export/src/lib.rs EXPORT_SIZES | chunk 21 |
+| Size: 512 | Size dropdown | - | done | crates/export/src/lib.rs EXPORT_SIZES | chunk 21 |
+| Size: 1024 | Size dropdown | - | done | crates/export/src/lib.rs EXPORT_SIZES | chunk 21 |
+| Size: 2048 | Size dropdown | - | done | crates/export/src/lib.rs EXPORT_SIZES | chunk 21 |
+| Size: 4096 | Size dropdown | - | done | crates/export/src/lib.rs EXPORT_SIZES | chunk 21 |
+| Size: 8192 | Size dropdown (needs enough VRAM) | - | done | crates/export/src/lib.rs EXPORT_SIZES | chunk 21 |
+| Padding | Dropdown | Dilation infinite (unverified) | partial: 4 of Painter's 5 modes (Dilation + transparent waits for alpha export), plus SubCraft's Dilation only | crates/ui/src/export_presets.rs padding_combo | chunk 21 |
+| Padding: No padding (passthrough) | Padding dropdown | - | done | crates/export/src/lib.rs pad | chunk 21 |
+| Padding: Dilation infinite | Padding dropdown | - | done (default) | crates/export/src/lib.rs pad | chunk 21 |
 | Padding: Dilation + transparent | Padding dropdown | - | missing | - | - |
-| Padding: Dilation + default background color | Padding dropdown | - | partial: Texels mode dilates, rest keeps the composite value instead of the channel default colour | crates/ui/src/dialogs.rs:218 | - |
-| Padding: Dilation + diffusion | Padding dropdown | - | missing | - | - |
-| Dilation distance (pixels) | Number field beside Padding, for the three Dilation + modes | 16 (unverified); range not documented | partial: default 8, range 1-64 | crates/ui/src/dialogs.rs:228 | - |
+| Padding: Dilation + default background color | Padding dropdown | - | done (fill = what an empty texture set exports for that map: channel default, flat normal...) | crates/export/src/lib.rs background_value | chunk 21 |
+| Padding: Dilation + diffusion | Padding dropdown | - | done (push-pull blend of the surrounding islands) | crates/image/src/dilate.rs diffuse_fill | chunk 21 |
+| Dilation distance (pixels) | Number field beside Padding, for the three Dilation + modes | 16 (unverified); range not documented | done: default 16, range 1-256, kept when switching between dilation modes | crates/ui/src/export_presets.rs padding_combo | chunk 21 |
 | Export shaders parameters | Checkbox: also writes a JSON of shader parameters | off (unverified) | missing | - | - |
 | Export USD asset | Checkbox at the bottom of the tab | off | partial: separate "Export model + textures" button with USDA choice | crates/ui/src/dialogs.rs:277 | - |
 | Export USD asset: textures folder | Output of the checkbox | - | partial: textures written beside the scene file | crates/export/src/scene.rs:398 | - |
@@ -78,33 +78,33 @@ Layout notes: Painter lists the formats alphabetically by extension in the File 
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| bmp (Bitmap) | File type | 8, 8 + dithering | missing | - | - |
-| exr (OpenEXR) | File type | 16f, 32f | partial: 32f only | crates/image/src/io.rs:121 | - |
+| bmp (Bitmap) | File type | 8, 8 + dithering | done (8, 8 + dithering) | crates/image/src/io.rs | chunk 21 |
+| exr (OpenEXR) | File type | 16f, 32f | done (16f through the exr crate, 32f) | crates/image/src/io.rs | chunk 21 |
 | gif | File type | 8, 8 + dithering | missing | - | - |
-| hdr (Radiance HDR) | File type | 32f | missing | - | - |
+| hdr (Radiance HDR) | File type | 32f | done (RGB only: alpha dropped) | crates/image/src/io.rs | chunk 21 |
 | ico | File type | 8, 8 + dithering | missing | - | - |
 | j2k (JPEG 2000) | File type | 8, 8 + dithering, 16 | missing | - | - |
 | jng | File type | 8, 8 + dithering, 16 | missing | - | - |
 | jp2 (JPEG 2000) | File type | 8, 8 + dithering, 16 | missing | - | - |
-| jpeg | File type | 8, 8 + dithering | partial: 8 only | crates/image/src/io.rs:120 | - |
+| jpeg | File type | 8, 8 + dithering | done (8, 8 + dithering) | crates/image/src/io.rs | chunk 21 |
 | jpeg-xr | File type | 8, 8 + dithering, 16, 32f | missing | - | - |
 | pbm | File type | 8, 8 + dithering, 16 | missing | - | - |
 | pfm | File type | 32f | missing | - | - |
 | pgm | File type | 8, 8 + dithering, 16 | missing | - | - |
-| png | File type | 8, 8 + dithering, 16 | partial: 8 and 16, no dithering | crates/image/src/io.rs:117 | - |
+| png | File type | 8, 8 + dithering, 16 | done (8, 8 + dithering, 16) | crates/image/src/io.rs | chunk 21 |
 | ppm | File type | 8, 8 + dithering, 16 | missing | - | - |
 | psd (container: all maps of a set in one file, folders become groups) | File type | 8, 8 + dithering, 16 | missing (layered PSD exists only for the per-channel PhotoCraft exchange, crates/export/src/psd.rs:212) | - | - |
-| targa | File type | 8, 8 + dithering | partial: 8 only | crates/image/src/io.rs:119 | - |
-| tiff | File type | 8, 8 + dithering, 16, 32f | missing | - | #124 |
+| targa | File type | 8, 8 + dithering | done (8, 8 + dithering) | crates/image/src/io.rs | chunk 21 |
+| tiff | File type | 8, 8 + dithering, 16, 32f | done (8, 8 + dithering, 16, 32f) | crates/image/src/io.rs | #124, chunk 21 |
 | wbmp | File type | 8, 8 + dithering | missing | - | - |
-| webp | File type | 8, 8 + dithering | missing | - | - |
+| webp | File type | 8, 8 + dithering | done (8, 8 + dithering; lossless) | crates/image/src/io.rs | chunk 21 |
 | xpm | File type | 8, 8 + dithering | missing | - | - |
 | sbsar (bundle the outputs into one Substance archive) | File type (added in 8.2) | - | missing | - | - |
 | Bit depth: 8 bits | Bit depth dropdown | - | done | crates/image/src/io.rs:117 | - |
-| Bit depth: 8 bits + dithering | Bit depth dropdown | - | missing | - | - |
-| Bit depth: 16 bits | Bit depth dropdown | - | partial: PNG only | crates/image/src/io.rs:118 | #124 |
-| Bit depth: 16 bits floating (EXR half) | Bit depth dropdown | - | missing | - | - |
-| Bit depth: 32 bits floating | Bit depth dropdown | - | partial: EXR only | crates/image/src/io.rs:121 | #124 |
+| Bit depth: 8 bits + dithering | Bit depth dropdown | - | done (deterministic triangular dither; 0 and 1 stay exact) | crates/image/src/io.rs quantize8 | chunk 21 |
+| Bit depth: 16 bits | Bit depth dropdown | - | done (PNG, TIFF) | crates/image/src/io.rs | #124 |
+| Bit depth: 16 bits floating (EXR half) | Bit depth dropdown | - | done | crates/image/src/io.rs | chunk 21 |
+| Bit depth: 32 bits floating | Bit depth dropdown | - | done (EXR, TIFF, HDR) | crates/image/src/io.rs | #124, chunk 21 |
 
 ## Settings tab: output maps of a texture set
 

@@ -5436,6 +5436,16 @@ the app kept drawing on the dead device. Safe mode works; 0.3.3's marker only he
 * **Not done:** UV Border Distance (needs a distance field across tiles), UV Checker and UV Texel Density (fill-layer
   generators, chunk 35), UV Random Color's Custom Gradient and Light on a fill layer, picking positions from the
   Position map in the viewport.
+### Parity chunk 35 - Generators on content, random seed (2026-11-12, branch `claude/parity-content-generators`)
+
+* **Generator content effect** (`ContentEffectKind::Generator`, `crates/doc/src/effect.rs`): "Add generator" in a
+  layer's content stack. Its gray result, with its coverage, goes into every channel but Normal through the effect's
+  per-channel blending (`crates/compositor/src/tile.rs`); evaluated on the CPU (the GPU path hands it over). New
+  schema variant `ContentEffectKindV5::Generator`. Properties: kind, level / contrast, Painter controls, seed, Invert.
+* **Seed Random button** next to Next on generators (`random_seed`).
+* Alt+Up / Alt+Down already reorder effects (parity chunk 19); the parity row now says so.
+* **Not done:** a content generator's anchor input, its micro effect and the Mask Editor's global blur on content
+  (masks only); a mini shelf of generator resources.
 ### Parity chunk 50 - Mask-shape filters (2026-11-12, branch `claude/parity-mask-shape-filters`)
 
 * **New filters** (`crates/doc/src/filter.rs`): Height Adjust (invert, then `v * multiply + offset`), FXAA
@@ -5489,6 +5499,25 @@ the app kept drawing on the dead device. Safe mode works; 0.3.3's marker only he
   * Shader-only undo, and import of shader parameter JSON.
   * The path tracer ignores the instance parameters.
   * Alpha settings stay on the texture set (#198) rather than moving into the instance.
+
+### Parity chunk 37 - Editable shortcut editor (2026-11-12, branch `claude/parity-shortcut-editor`)
+
+* **Done:** Edit > Settings has General and Shortcuts pages. Shortcuts: key set, every action with its keys, keyboard
+  button (replace with the next combination, Esc cancels), + (add), x on a key (remove), right-click or reset arrow (default),
+  Reset all, search, the six Painter-navigation camera gestures rebound by clicking a capture pad with the new button
+  and modifiers, and the fixed gestures listed as not editable. `subcraft_app::Keymap` = key set + `CustomKeys`; a
+  rebound key wins over the key set's binding of the same key, so it leaves the old action without editing it.
+  `nav::MouseBindings` does the same for camera gestures (`mode_with`). Both are saved in the preferences by name
+  (unknown names and unreadable keys are skipped). Menus, tooltips, the viewport hints, Help > Keyboard shortcuts and
+  the F2 rename check use the rebinds. Global shortcuts are off while the editor waits for a key.
+* **Tests:** `keymap.rs` (labels and names read back, no-rebind keymap equals the key set, moving a key, reset,
+  adding a key to a keyless action, save / load with unknown names), `nav.rs` (default combinations, rebinding and
+  displacement, Blender ignores rebinds, save / load), `shortcut_editor.rs` (capture reads one key, Esc cancels, Tab
+  through the Tab flag; captured keys and clicks survive a preferences save and older files load), viewport hints with a
+  rebound key. Local: not compiled locally (the PC's compiler crashed twice under load); CI compiles and tests.
+* **Not done:** brush size / flow drags are not rebindable; the Settings window has no Libraries page; not tried in the
+  running app.
+
 ### Painter parity chunk 15: multi-channel filters and Passthrough layers (2026-11-12, branch `claude/parity-chunk15-filters-passthrough`)
 
 * **Passthrough on paint and fill layers:** like a passthrough folder, the stack below is the layer's content (its own
@@ -5506,3 +5535,60 @@ the app kept drawing on the dead device. Safe mode works; 0.3.3's marker only he
   project round trip, filter layer from the shelf, UI unit tests (channel chips, search). Local runs: doc, compositor
   (unit, passthrough_layers, differential, content_effects, compositor), project, app (unit, filters, spp_stack,
   layer_polish_parity), ui (unit, filters, layer_polish, effect_rows).
+
+### Session 131 - Painter parity chunk 21: export file types, bit depth, padding, size (2026-11-12, branch `claude/export-formats`)
+
+* **Asked:** chunk 21 of `parity-gaps-by-area.md` (export.md, Settings tab rows).
+* **Formats (`subcraft_image::io`):** `FileFormat::{Exr16, Bmp8, Hdr32, Webp8}`, `Container::{Bmp, Hdr, Webp}`
+  (`Container::ALL` alphabetical like Painter's menu), `BitDepth::F16`. Half-float EXR goes through the
+  `exr` crate (the version `image` already uses; `image` only writes 32-bit float EXR). HDR is RGB only.
+  WebP needed the `image` crate's `webp` feature (pure Rust, lossless encoder). `encode_image_dithered` /
+  `quantize8`: deterministic triangular dither for 8-bit formats; 0 and 1 stay exact, the mean is kept.
+* **Padding (`subcraft_export::Padding`):** `Background(n)` dilates n texels then fills the rest with
+  `background_value` (the map evaluated on an empty texture set: channel defaults, flat normal, mid height,
+  with the map's own invert / sRGB). `Diffusion(n)` dilates then runs `subcraft_image::dilate::diffuse_fill`
+  (push-pull). Painter preset import maps `color` / `diffusion` to them; `transparent` stays dilation with a
+  warning: transparent padding needs alpha export, which session sc-transparency owns (#145).
+* **Size / dither settings:** `ExportSettings::{size, dither}`, `OutputMap::dither`. Size precedence: map,
+  preset, window, texture set (`output_size`); dither: window, map.
+* **UI:** Export Textures has File type + Bit depth menus, a Size menu and a five-mode Padding menu with the
+  distance; the preset editor's map Format and Padding use the same widgets (`format_combo`, `padding_combo`).
+* **Tests:** `crates/export/src/tests/formats.rs` (background fill values, diffusion ramp vs infinite step,
+  size precedence, dither precedence and mean, BMP / WebP / half EXR / HDR files read back) and io / dilate
+  unit tests. `cargo test --release -p subcraft-export`: 69 passed, 1 ignored (before the dither edge fix);
+  `subcraft-image` lib tests rerun after it. UI, app and the binary pass `cargo check --release --tests`.
+## Cameras and docks (Painter parity chunk 53, 2026-11-12, branch `claude/parity-cameras-docks`)
+
+* Cameras from the mesh file:
+  * `subcraft_mesh::camera::cameras_in_mesh_file` reads glTF / GLB cameras (with aspect) and FBX
+    cameras (`parse_fbx`, ufbx with `target_camera_axes` so FBX's +X-forward cameras come in like
+    glTF's -Z-forward ones).
+  * New project > "Import cameras" (on by default) and File > Reload mesh > "Import cameras" (off)
+    store them in the project (`ProjectSettings.cameras`, optional, no schema bump).
+* Camera dropdown in the 3D view's top-right corner, hidden when the project has no cameras, and
+  in Display Settings > Camera:
+  * Default camera and the imported ones.
+  * Choosing Default camera brings back the earlier view.
+  * Navigating an imported camera hands over to the Default camera unless it is locked.
+  * Lens changes mark it modified (italic name with `*`) until Restore.
+  * Display ratio shows the file's aspect.
+  * Next / previous camera: Alt+] and Alt+[ (Painter documents no keys).
+* Docks toolbar (`crates/ui/src/docks.rs`): a button per closed panel in the header.
+  * A click pops the panel up as a floating window beside the button, and a second click closes
+    it. Dragging its tab docks it.
+  * Every panel but the 3D and 2D views now has a close button. Window > Views reopens a closed
+    panel.
+  * Window > Undock 3D view / 2D view floats a view in a window inside the main window (not a
+    separate OS window).
+* zh-Hant and Korean: 15 new texts translated.
+* Tests added:
+  * The FBX camera convention (an ASCII FBX written in the test) and a mesh file without cameras.
+  * The session import (not marking a new project modified; a missing file changes nothing).
+  * The project round trip.
+  * The camera selection, cycling, lock, hand-over, Restore and modified marker.
+  * The Docks toolbar's float / close / redock and view undocking.
+* Checked: see the PR (gated `cargo check --release --all-targets`). NOT verified locally: the
+  test suites (CI is the test gate) and the running app.
+* Not done: cameras from Alembic and USD files, camera roll (the orbit camera has none), free
+  rotation mode, separate OS windows for undocked views, Shader settings and Log dock buttons
+  (no such panels yet).
