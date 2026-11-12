@@ -40,6 +40,29 @@ pub struct KernelInput<'a> {
     pub alpha: Option<&'a subcraft_image::Bitmap>,
     /// Screen-space stencil, evaluated in the main (first) camera's viewport.
     pub stencil: Option<&'a crate::stencil::Stencil>,
+    /// 2D-view strokes: where texture UV lands in the 2D view, so the stencil masks the texels
+    /// under it there (a UV stroke has no camera to project through).
+    pub stencil_uv: Option<UvView>,
+}
+
+/// Placement of the texture in a 2D view: UV (0..1) maps to `origin + uv * side` pixels of a
+/// view `viewport` pixels large. A stencil laid over that view masks UV strokes.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct UvView {
+    pub origin: Vec2,
+    pub side: f32,
+    pub viewport: [u32; 2],
+}
+
+impl UvView {
+    /// View pixel of texture position `uv`.
+    pub fn to_view(&self, uv: Vec2) -> Vec2 {
+        self.origin + uv * self.side
+    }
+    /// Texture position under view pixel `px`.
+    pub fn to_uv(&self, px: Vec2) -> Vec2 {
+        (px - self.origin) / self.side.max(1e-6)
+    }
 }
 
 /// A rasterized texel of one triangle.
@@ -312,6 +335,20 @@ impl KernelInput<'_> {
         out
     }
 
+    /// Stencil paint factor (0..1) of a texel sample: through the 2D view for UV strokes, else
+    /// through the main camera (the stencil is fixed to the view, even for mirrored stamps). 1
+    /// without a stencil.
+    pub fn stencil_factor(&self, s: &TexelSample) -> f32 {
+        let Some(st) = self.stencil else { return 1.0 };
+        if let Some(view) = self.stencil_uv {
+            return st.value_at(view.to_view(s.uv), view.viewport);
+        }
+        match self.cameras.first() {
+            Some(cam) => cam.project(s.p).map_or(0.0, |q| st.value_at(q.truncate(), cam.viewport)),
+            None => 1.0,
+        }
+    }
+
     /// Accumulate the given stamps into a tile's stroke coverage (`TILE_TEXELS` values).
     pub fn accumulate(&self, samples: &[TexelSample], stamps: &[Stamp], tile_stamps: &BTreeSet<u32>, cov: &mut [f32]) {
         debug_assert_eq!(cov.len(), TILE_TEXELS);
@@ -319,15 +356,7 @@ impl KernelInput<'_> {
         let mut stamp_a = vec![0.0f32; TILE_TEXELS];
         // Stencil factor per sample: the stencil is fixed to the main view, even for mirrored
         // (symmetry) stamps, like a sheet laid over the screen.
-        let stencil: Option<Vec<f32>> = match (self.stencil, self.cameras.first()) {
-            (Some(st), Some(cam)) => Some(
-                samples
-                    .iter()
-                    .map(|s| cam.project(s.p).map_or(0.0, |q| st.value_at(q.truncate(), cam.viewport)))
-                    .collect(),
-            ),
-            _ => None,
-        };
+        let stencil: Option<Vec<f32>> = self.stencil.map(|_| samples.iter().map(|s| self.stencil_factor(s)).collect());
         for &si in tile_stamps {
             let st = &stamps[si as usize];
             let v = vis[st.camera].get_or_insert_with(|| samples.iter().map(|s| self.visible(st.camera, s)).collect());
@@ -367,12 +396,7 @@ impl KernelInput<'_> {
             let st = &stamps[si as usize];
             let Some(samples) = per_camera[st.camera] else { continue };
             let cam = &self.cameras[st.camera];
-            let factors = match (self.stencil, self.cameras.first()) {
-                (Some(sten), Some(main)) => Some(stencil[st.camera].get_or_insert_with(|| {
-                    samples.iter().map(|s| main.project(s.p).map_or(0.0, |q| sten.value_at(q.truncate(), main.viewport))).collect()
-                })),
-                _ => None,
-            };
+            let factors = self.stencil.map(|_| stencil[st.camera].get_or_insert_with(|| samples.iter().map(|s| self.stencil_factor(s)).collect()));
             stamp_a.fill(0.0);
             for (k, s) in samples.iter().enumerate() {
                 let mut a = st.footprint(self.alignment, cam, s.p, s.ng, s.uv, self.alpha);

@@ -705,6 +705,35 @@ fn painter_controls(ui: &mut Ui, g: &mut subcraft_doc::Generator) -> bool {
     true
 }
 
+/// The Curvature generator's mode and detail sizes ([`subcraft_doc::CurvatureDetail`]). Untouched
+/// generators keep `curvature: None` (the baked map itself); the first change stores the settings.
+fn curvature_controls(ui: &mut Ui, g: &mut subcraft_doc::Generator) -> bool {
+    use subcraft_doc::{CurvatureDetail, CurvatureDetailMode};
+    let mut d = g.curvature.unwrap_or_default();
+    let before = d;
+    prop_row(ui, tr("Mode"), |ui| {
+        egui::ComboBox::from_id_salt("curvature_mode").selected_text(tr(d.mode.label())).show_ui(ui, |ui| {
+            for mode in CurvatureDetailMode::ALL {
+                ui.selectable_value(&mut d.mode, mode, tr(mode.label()));
+            }
+        })
+        .response
+    })
+    .on_hover_text("Both: the baked map (convex bright, concave dark). Edges only: convex edges on black. Cavities only: concave creases on black.");
+    let max = CurvatureDetail::MAX_WEIGHT;
+    slider_row(ui, tr("Fine detail"), egui::Slider::new(&mut d.fine, 0.0..=max))
+        .on_hover_text("Weight of the baked curvature itself: small bevels and sharp edges. 1 = the map as baked.");
+    slider_row(ui, tr("Medium detail"), egui::Slider::new(&mut d.medium, 0.0..=max))
+        .on_hover_text("Weight of the curvature averaged over about 1/256 of the texture: wider bevels and grooves.");
+    slider_row(ui, tr("Coarse detail"), egui::Slider::new(&mut d.coarse, 0.0..=max))
+        .on_hover_text("Weight of the curvature averaged over about 1/64 of the texture: large forms and broad rounded edges.");
+    if d == before {
+        return false;
+    }
+    g.curvature = Some(d);
+    true
+}
+
 pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_core::LayerId, e: &Arc<MaskEffect>, cmds: &mut Vec<Command>) {
     let mut eff = (**e).clone();
     let default_name = eff.name == eff.kind.label();
@@ -829,6 +858,9 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
                                 });
                             }
                         }
+                    }
+                    if g.kind == GeneratorKind::MeshMap(MeshMapKind::Curvature) {
+                        changed |= curvature_controls(ui, g);
                     }
                     changed |= level_controls(ui, g);
                     let mut size = g.pattern_size();
