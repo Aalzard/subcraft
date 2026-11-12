@@ -270,7 +270,9 @@ pub fn manipulate(state: &mut UiState, ui: &Ui, response: &egui::Response, rect:
         }
     }
     ui.data_mut(|d| match drag {
-        Some(v) => d.insert_temp(id, v),
+        Some(v) => {
+            d.insert_temp(id, v);
+        }
         None => d.remove::<Drag>(id),
     });
     if drag.is_some() {
