@@ -159,7 +159,8 @@ mod tests {
         crate::theme::apply(&ctx);
         let mut texts = Vec::new();
         for _ in 0..2 {
-            let out = ctx.run_ui(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 600.0))), ..Default::default() }, |ui| section(&mut state, ui));
+            let mut out = ctx.run_ui(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 600.0))), ..Default::default() }, |ui| section(&mut state, ui));
+            out.textures_delta.clear();
             texts = out.shapes.iter().filter_map(|s| if let egui::Shape::Text(t) = &s.shape { Some(t.galley.text().to_string()) } else { None }).collect::<Vec<_>>();
         }
         assert!(texts.iter().any(|t| t == "2 colors"), "{texts:?}");

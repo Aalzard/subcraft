@@ -528,7 +528,8 @@ mod tests {
         crate::theme::apply(&ctx);
         let input = || egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 1000.0))), ..Default::default() };
         for _ in 0..2 {
-            let _ = ctx.run_ui(input(), |ui| window(&mut state, ui.ctx()));
+            let mut out = ctx.run_ui(input(), |ui| window(&mut state, ui.ctx()));
+            out.textures_delta.clear();
         }
         assert!(state.new_project.open, "the window stays open");
         assert!(state.new_project.mesh_maps.iter().all(|f| f.set == Some(0)), "still matched after the window ran");
@@ -537,7 +538,8 @@ mod tests {
         let mut texts = String::new();
         for _ in 0..2 {
             let np = &mut state.new_project;
-            let out = ctx.run_ui(input(), |ui| crate::mesh_map_import::new_project_section(ui, &mut np.mesh_maps, &mut np.derive_curvature, &names, &mut pick));
+            let mut out = ctx.run_ui(input(), |ui| crate::mesh_map_import::new_project_section(ui, &mut np.mesh_maps, &mut np.derive_curvature, &names, &mut pick));
+            out.textures_delta.clear();
             texts = out.shapes.iter().filter_map(|s| if let egui::Shape::Text(t) = &s.shape { Some(t.galley.text().to_string()) } else { None }).collect::<Vec<_>>().join("|");
         }
         assert!(["plane_normal.png", "plane_ao.png", "plane_id.png", "Baked mesh maps"].iter().all(|t| texts.contains(t)), "the section lists the files: {texts}");

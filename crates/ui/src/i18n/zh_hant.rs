@@ -624,4 +624,13 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Texture sets drawn with this shader instance", "使用此著色器實例繪製的貼圖集"),
     ("The shader instance this texture set is drawn with; several sets can share one", "此貼圖集使用的著色器實例；多個貼圖集可以共用一個"),
     ("Used by", "使用者"),
+    ("Checking where rays miss the high poly…", "正在檢查射線未命中高模的位置…"),
+    ("Curvature from the normal map", "由法線貼圖計算曲率"),
+    ("Curvature intensity", "曲率強度"),
+    ("Curvature width (texels)", "曲率寬度（紋素）"),
+    ("Every texel's ray reaches the high poly.", "每個紋素的射線都能到達高模。"),
+    ("Gray: rays reach the high poly · Red: rays miss it · Lower the high-poly opacity to see the heatmap underneath.", "灰色：射線到達高模 · 紅色：射線未命中 · 降低高模不透明度即可看到下方的熱度圖。"),
+    ("Measure curvature from the baked normal map along the surface: one clean band per edge, continuous across UV seams and on curved parts", "沿表面由烘焙的法線貼圖測量曲率：每條邊一道清晰的帶狀，跨越 UV 接縫及曲面部位時保持連續"),
+    ("Ray misses:", "射線未命中："),
+    ("of texels reach no high-poly surface (red). Raise Cage front / rear or fix the placement.", "的紋素無法到達任何高模表面（紅色）。請加大前 / 後籠罩或修正擺放。"),
 ];

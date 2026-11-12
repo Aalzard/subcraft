@@ -624,4 +624,13 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Texture sets drawn with this shader instance", "이 셰이더 인스턴스로 그려지는 텍스처 세트"),
     ("The shader instance this texture set is drawn with; several sets can share one", "이 텍스처 세트를 그리는 셰이더 인스턴스입니다. 여러 세트가 하나를 공유할 수 있습니다"),
     ("Used by", "사용처"),
+    ("Checking where rays miss the high poly…", "광선이 하이 폴리를 놓치는 위치 확인 중…"),
+    ("Curvature from the normal map", "노멀 맵에서 곡률 계산"),
+    ("Curvature intensity", "곡률 강도"),
+    ("Curvature width (texels)", "곡률 너비 (텍셀)"),
+    ("Every texel's ray reaches the high poly.", "모든 텍셀의 광선이 하이 폴리에 도달합니다."),
+    ("Gray: rays reach the high poly · Red: rays miss it · Lower the high-poly opacity to see the heatmap underneath.", "회색: 광선이 하이 폴리에 도달 · 빨간색: 광선이 놓침 · 하이 폴리 불투명도를 낮추면 아래의 히트맵이 보입니다."),
+    ("Measure curvature from the baked normal map along the surface: one clean band per edge, continuous across UV seams and on curved parts", "베이크된 노멀 맵에서 표면을 따라 곡률을 측정합니다. 모서리마다 깔끔한 띠 하나가 생기며 UV 이음새와 곡면에서도 이어집니다"),
+    ("Ray misses:", "광선 누락:"),
+    ("of texels reach no high-poly surface (red). Raise Cage front / rear or fix the placement.", "의 텍셀이 하이 폴리 표면에 닿지 않습니다 (빨간색). 케이지 전면 / 후면을 늘리거나 배치를 수정하세요."),
 ];
