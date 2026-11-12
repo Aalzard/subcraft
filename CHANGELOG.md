@@ -3,6 +3,35 @@
 What changed in SubCraft, newest first. Download the latest build from the
 [Releases page](https://github.com/Aalzard/subcraft/releases/latest).
 
+## 0.3.6 - 2026-11-12
+
+### Added
+- **Orbit around the point under the cursor** (issue #115). Alt+LMB / RMB drag orbits around the point of
+  the model under the cursor (Preferences: "Orbit around the point under the cursor", on by default; `F`
+  forgets the point). Also Painter's mouse gestures: Alt+Shift+LMB orbits in 90 degree steps,
+  Ctrl+Shift+click draws a straight line from the last stroke point snapped to 5 degrees, Ctrl+MMB sets the
+  depth of field focus, Ctrl+Alt+RMB selects the texture set under the cursor, V + click sets the clone
+  source.
+- **Painter's menu bar**: File, Edit, Mode, Window, Viewport, Plugins and Help in Painter's order, with view
+  layouts (3D | 2D, 3D only, 2D only, Swap), Painting / Bake / Rendering modes (F9 / F8 / F10) and Painter's
+  display keys.
+
+### Changed
+- **Faster edits low in large layer stacks**: the per-tile field cache keeps every procedural field of a big
+  stack (an edit at the bottom of a 40-layer 4K stack: about 15 s to 7 s).
+
+### Fixed
+- **Graphics driver resets on integrated GPUs at start-up** (issue #119). GPU compositing is split into short,
+  timed submissions so one never runs long enough to trip the Windows watchdog. Integrated GPUs get a smaller
+  memory budget (no 4x MSAA, a 128 MB compositing tile pool, environment maps up to 1024 px); set
+  `SUBCRAFT_FULL_GPU_MEMORY=1` to turn this off. A lost graphics device no longer crashes the app.
+- **Clone** with no source set no longer leaves an empty layer behind; Clone and Smudge in the 2D view no
+  longer paint plain strokes; Delete, Ctrl+Z and other shortcuts no longer act behind modal windows.
+- **Transform filter** on a flat layer is computed per tile; tri-planar weights no longer pop at high Hardness.
+- **Brush block** no longer rewrites stored values (jitter, spacing) just by being shown; a stencil tiled on
+  one axis no longer bleeds the opposite edge; a tiny stencil scale in a preset no longer hangs; renaming a
+  preset no longer adds a number.
+
 ## 0.3.5 - 2026-11-12
 
 ### Added
