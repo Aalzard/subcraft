@@ -24,6 +24,32 @@ pub enum Tool {
     Smudge,
 }
 
+impl Tool {
+    /// The tool as stored in a tool preset (`None` for tools that take no brush preset).
+    pub fn preset_tool(self) -> Option<subcraft_app::brush_preset::PresetTool> {
+        use subcraft_app::brush_preset::PresetTool as P;
+        match self {
+            Tool::Brush => Some(P::Paint),
+            Tool::Eraser => Some(P::Eraser),
+            Tool::Smudge => Some(P::Smudge),
+            Tool::Clone => Some(P::Clone),
+            Tool::PolygonFill => Some(P::PolygonFill),
+            Tool::Eyedropper | Tool::Pen => None,
+        }
+    }
+
+    pub fn from_preset(tool: subcraft_app::brush_preset::PresetTool) -> Tool {
+        use subcraft_app::brush_preset::PresetTool as P;
+        match tool {
+            P::Paint => Tool::Brush,
+            P::Eraser => Tool::Eraser,
+            P::Smudge => Tool::Smudge,
+            P::Clone => Tool::Clone,
+            P::PolygonFill => Tool::PolygonFill,
+        }
+    }
+}
+
 /// Viewport acknowledgement of the brush chosen on the Shelf. It holds, then fades out.
 #[derive(Clone, Debug, PartialEq)]
 pub struct BrushNotice {
@@ -86,6 +112,15 @@ pub struct UiState {
     pub camera: OrbitCamera,
     /// Navigation drag in progress (mode + rebased origin; see `nav`).
     pub nav_drag: Option<crate::nav::NavDrag>,
+    /// The point the 3D view orbits around: the surface under the cursor when the last orbit
+    /// started over the model (issue #115). `None` orbits around the camera target.
+    pub orbit_pivot: Option<glam::Vec3>,
+    /// Unsnapped yaw / pitch of a snapped orbit drag (Alt+Shift+LMB).
+    pub orbit_free: Option<(f32, f32)>,
+    /// Panels hidden so the views fill the window (Tab).
+    pub hide_ui: bool,
+    /// A plain Tab press taken from this frame's input (see `app::take_tab_press`).
+    pub tab_pressed: bool,
     /// Scripted view used whenever a model is framed (`--camera`).
     pub camera_view: Option<crate::orbit::CameraView>,
     pub render_state: Option<egui_wgpu::RenderState>,
@@ -136,12 +171,20 @@ pub struct UiState {
     pub capture_during_load: bool,
     /// "Render quality" window open, its export settings, and a pending export request.
     pub render_window: bool,
+    /// Display Settings panel: the group a jump button asked to scroll to.
+    pub display_jump: Option<crate::panels::display_settings::Section>,
+    /// Whether the session's saved display settings were taken over yet, and the values last
+    /// seen in step with the project (see `panels::display_settings::sync_project`).
+    pub display_loaded: bool,
+    pub display_baseline: subcraft_doc::DisplaySettings,
     /// Scripted export waiting for the first finished frame.
     pub pending_render_job: Option<crate::render_export::Job>,
     pub render_export: crate::render_export::ExportSettings,
     pub render_request: Option<crate::render_export::RenderRequest>,
     /// Pixel size of the 3D view at its last draw (export keeps the aspect ratio).
     pub last_view_size: [u32; 2],
+    /// Screen rectangle (points) of the 3D view at its last draw (scripted input).
+    pub last_view_rect: egui::Rect,
     pub uv: UvView,
     pub painting: bool,
     /// Pen pressure of the current contact (1.0 for a mouse).
@@ -176,6 +219,10 @@ pub struct UiState {
     pub auto_uv: crate::auto_uv::AutoUvUi,
     /// Layers selected together (Ctrl / Shift click) in the Layers panel.
     pub multi: subcraft_app::multi_select::MultiSelect,
+    /// Texture set the multi-selection belongs to (cleared when the selected set changes).
+    multi_texture_set: Option<subcraft_core::TextureSetId>,
+    /// Ctrl / Shift click extras around the session's selected effect (one stack at a time).
+    pub effect_multi: subcraft_app::effect_stack::EffectSelection,
     /// In-app clipboard for layers and effects; outlives the session.
     pub clips: crate::clipboard::Clips,
     /// Action waiting for the unsaved-changes prompt.
@@ -192,6 +239,8 @@ pub struct UiState {
     pub bake: crate::dialogs::BakeUi,
     /// A Painter project being opened in the background.
     pub spp_import: Option<crate::spp_import::SppImportUi>,
+    /// The reconstruction notice after a Painter import finished: the file name.
+    pub spp_notice: Option<String>,
     /// Running Edit in PhotoCraft exchange (ADR-0040).
     pub photocraft: Option<subcraft_app::photocraft::Exchange>,
     /// Key of the polygon wireframe currently uploaded to the renderer.
@@ -206,6 +255,8 @@ pub struct UiState {
     /// Channel lists of the texture sets last uploaded. A change (an import adding Ambient
     /// Occlusion, or undoing it) re-uploads everything so no removed channel stays on the GPU.
     pub uploaded_channels: Vec<(subcraft_core::TextureSetId, Vec<ChannelKind>)>,
+    /// Channel shown alone that the shader does not otherwise read, as last uploaded.
+    pub uploaded_solo: Option<ChannelKind>,
     /// Thumbnails of imported images (resources are immutable, so entries never go stale).
     pub image_thumbs: HashMap<subcraft_core::ResourceId, egui::TextureHandle>,
     /// The user's asset library folder (None if no Documents folder could be found).
@@ -214,6 +265,8 @@ pub struct UiState {
     pub env_loader: Option<std::sync::mpsc::Receiver<Result<subcraft_app::assets::Environment, String>>>,
     /// Brush presets from the user library.
     pub brush_presets: Vec<subcraft_app::brush_preset::BrushPreset>,
+    /// Favorite assets of the user library (shown first in the Shelf).
+    pub favorites: subcraft_app::brush_preset::Favorites,
     /// Name typed for the next "Save preset".
     pub preset_name: String,
     /// Live preview of the normal-map brush panel.
@@ -222,6 +275,8 @@ pub struct UiState {
     pub tip_preview: crate::panels::brush_header::PreviewCache,
     /// Overlay texture of the current stencil image (keyed by its bitmap pointer).
     pub stencil_tex: Option<(usize, egui::TextureHandle)>,
+    /// How the stencil overlay is shown (display only; painting through it is unaffected).
+    pub stencil_display: StencilDisplay,
     /// Image textures shown in Shelf → Textures (the library's `textures/` folder).
     pub textures: crate::panels::textures::TextureLibrary,
     /// Autosave, crash recovery and preferences.
@@ -240,6 +295,15 @@ impl UiState {
             let caps = subcraft_render::caps::GpuCaps::from_adapter(&rs.adapter);
             subcraft_app::startup_probe::step(&format!("adapter caps: {}", caps.report().replace('\n', " | ")));
             for problem in [caps.msaa_problem(), caps.compute_problem()].into_iter().flatten() { log::warn!("{problem}"); subcraft_app::startup_probe::step(&problem); }
+            // Lighter compute budgets on integrated and software adapters (issue #119): logged
+            // so a report shows what was chosen.
+            let budget = subcraft_render::pace::GpuBudget::for_device_type(&caps.device_type);
+            let memory = subcraft_render::pace::MemoryBudget::for_adapter(&caps.device_type, &caps.backend);
+            subcraft_render::caps::set_low_memory(memory.is_tight());
+            let chosen = format!("GPU budget for {} ({}): {}; {}; 4x anti-aliasing {}", caps.name, caps.device_type, budget.describe(), memory.describe(),
+                if subcraft_render::caps::safe_mode() { "off (safe mode)" } else if !memory.msaa { "off (low video memory)" } else if caps.msaa4 { "on" } else { "off (unsupported)" });
+            log::info!("{chosen}");
+            subcraft_app::startup_probe::step(&chosen);
             subcraft_render::caps::set(caps);
             subcraft_render::caps::install_error_handlers(&rs.device);
         }
@@ -264,6 +328,10 @@ impl UiState {
             uploaded_composite_generation: 0,
             camera: OrbitCamera::framing(&session.scene().mesh.bounds),
             nav_drag: None,
+            orbit_pivot: None,
+            orbit_free: None,
+            hide_ui: false,
+            tab_pressed: false,
             camera_view: None,
             session,
             render_state,
@@ -292,6 +360,9 @@ impl UiState {
             capture_tool: None,
             capture_during_load: false,
             render_window: false,
+            display_jump: None,
+            display_loaded: false,
+            display_baseline: Default::default(),
             pending_render_job: None,
             render_export: Default::default(),
             new_project: Default::default(),
@@ -299,6 +370,7 @@ impl UiState {
             auto_uv: Default::default(),
             render_request: None,
             last_view_size: [1280, 720],
+            last_view_rect: egui::Rect::NOTHING,
             uv: UvView { zoom: 1.0, offset: egui::Vec2::ZERO, source: PreviewSource::Channel(ChannelKind::BaseColor), texture: None, painting: false, last_point: None, fill_box: None },
             painting: false,
             picking_parts: false,
@@ -323,11 +395,14 @@ impl UiState {
             light_yaw: 0.0,
             drops_taken: false,
             multi: Default::default(),
+            multi_texture_set: None,
             clips: Default::default(),
+            effect_multi: Default::default(),
             allow_close: false,
             last_title: String::new(),
             bake: Default::default(),
             spp_import: None,
+            spp_notice: None,
             photocraft: None,
             wire_uploaded: None,
             symmetry_uploaded: None,
@@ -337,14 +412,17 @@ impl UiState {
             env: Default::default(),
             uploaded_maps: HashMap::new(),
             uploaded_channels: Vec::new(),
+            uploaded_solo: None,
             image_thumbs: HashMap::new(),
             user_library: None,
             env_loader: None,
             brush_presets: builtin_brush_presets(),
+            favorites: Default::default(),
             preset_name: String::new(),
             stamp_preview: Default::default(),
             tip_preview: Default::default(),
             stencil_tex: None,
+            stencil_display: StencilDisplay::default(),
             textures: Default::default(),
             recovery: crate::recovery::RecoveryUi::disabled(),
             bug_report: Default::default(),
@@ -377,6 +455,7 @@ impl UiState {
         }
         self.brush_presets = builtin_brush_presets();
         self.brush_presets.extend(presets);
+        self.favorites = subcraft_app::brush_preset::Favorites::load(&lib);
         // The shelf keeps opening on Smart Materials (Painter's default), even with user textures.
         self.textures = crate::panels::textures::TextureLibrary::load(&lib);
         let files = lib.list(UserAssetKind::Environment);
@@ -458,6 +537,11 @@ impl UiState {
 
     /// Replace the session (new project / opened mesh).
     pub fn set_session(&mut self, mut session: Session) {
+        // A Painter import still running would hand its own session over when it finishes and
+        // discard whatever was opened and edited in the meantime (`spp_import::poll` takes the
+        // import out before handing over its result).
+        self.spp_import = None;
+        self.dropped_model = None;
         self.multi.clear();
         self.layer_previews = Default::default();
         self.asset_preview.cancel_apply();
@@ -467,6 +551,7 @@ impl UiState {
         session.brush.material = self.session.brush.material.clone();
         self.camera = OrbitCamera::framing_with(&session.scene().mesh.bounds, self.camera_view.as_ref());
         self.session = session;
+        self.display_loaded = false;
         self.welcome.open = false;
         self.context_part = None;
         self.uploaded_view_revision = u64::MAX;
@@ -492,6 +577,7 @@ impl UiState {
         self.uploaded_view_revision = u64::MAX;
         self.gpu_dirty = true;
         self.uv_edges.clear();
+        self.uv_density.clear();
         self.uploaded_maps.clear();
         self.painting = false;
         self.last_stroke_point = None;
@@ -504,7 +590,14 @@ impl UiState {
     pub fn select_shelf_brush(&mut self, brush: subcraft_app::brush_preset::ShelfBrush, now: f64) {
         match self.session.select_shelf_brush(brush, &self.library.alphas) {
             Ok(selected) => {
-                if !matches!(self.tool, Tool::Brush | Tool::Eraser) { self.tool = Tool::Brush; }
+                use subcraft_app::brush_preset::PresetKind;
+                match (selected.tool, selected.kind) {
+                    // A tool preset brings its tool.
+                    (Some(tool), _) => self.tool = Tool::from_preset(tool),
+                    // A material preset serves whichever painting tool is in use.
+                    (None, Some(PresetKind::Material)) if self.tool.preset_tool().is_some() => {}
+                    _ => if !matches!(self.tool, Tool::Brush | Tool::Eraser) { self.tool = Tool::Brush; },
+                }
                 self.picking_parts = false;
                 if let Some(warning) = &selected.warning { self.set_status(warning.clone(), now); }
                 // A full image still loading for the previous brush choice is no longer wanted.
@@ -538,6 +631,16 @@ impl UiState {
         }
     }
 
+    /// A modal window covers the app ("Unsaved changes", "didn't close properly", the update
+    /// restart, New Project): document shortcuts must not act behind it. Delete or Ctrl+Z used to
+    /// change the document behind the unsaved-changes prompt, which then saved that state.
+    pub fn modal_open(&self) -> bool {
+        self.confirm.is_some()
+            || !self.recovery.crashed.is_empty()
+            || self.new_project.open
+            || self.updater.as_ref().is_some_and(|u| matches!(u.phase, subcraft_app::updater::Phase::Preparing | subcraft_app::updater::Phase::Exiting))
+    }
+
     pub fn set_status(&mut self, msg: impl Into<String>, now: f64) {
         let msg = msg.into();
         log::info!("status: {msg}");
@@ -556,6 +659,13 @@ impl UiState {
     /// Start a frame: the compositing budget for this frame's `sync_gpu` calls.
     pub fn begin_frame(&mut self) {
         self.composite_deadline = Some(web_time::Instant::now() + COMPOSITE_FRAME_BUDGET);
+        // The multi-selection holds layer ids; Delete / Duplicate act on them wherever they live,
+        // so ids kept from another texture set would edit layers the user is no longer looking at.
+        let ts = self.session.selection().texture_set;
+        if self.multi_texture_set != Some(ts) {
+            if self.multi_texture_set.is_some() { self.multi.clear(); }
+            self.multi_texture_set = Some(ts);
+        }
     }
 
     /// Re-evaluate composites (within the frame budget) and upload changed tiles to the GPU.
@@ -606,6 +716,21 @@ impl UiState {
                 upload(renderer, u.texture_set, u.material_slot, Some(&u.changed));
             }
         }
+        // A channel shown alone that shading never reads (Opacity, Specular, a user channel):
+        // uploaded whole when it is first shown, then tile by tile like the others.
+        let solo = self.recovery.prefs.viewport.solo.filter(|k| !SHADED_CHANNELS.contains(k));
+        if let Some(k) = solo {
+            let first = full || self.uploaded_solo != solo;
+            for ts in &session.document().texture_sets {
+                let Some(img) = session.composite(ts.id).and_then(|c| c.channel(k)) else { continue };
+                if first {
+                    renderer.upload_channel(&rs.device, &rs.queue, ts.material_slot, k, img, None);
+                } else if let Some(u) = updates.iter().find(|u| u.texture_set == ts.id) {
+                    renderer.upload_channel(&rs.device, &rs.queue, ts.material_slot, k, img, Some(u.changed.get(&k).map_or(&[], Vec::as_slice)));
+                }
+            }
+        }
+        self.uploaded_solo = solo;
         crate::edit_profile::record("  sync: upload", upload_start.elapsed());
         self.uploaded_composite_generation = session.composite_generation();
         // Baked maps: re-upload when a bake replaced them. Baked AO also shades the viewport
@@ -637,4 +762,42 @@ fn builtin_brush_presets() -> Vec<subcraft_app::brush_preset::BrushPreset> {
         }
     }
     all
+}
+
+/// Display options of the stencil overlay in the 3D view.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct StencilDisplay {
+    /// Opacity of the overlay (0 = invisible, the stencil still masks paint).
+    pub opacity: f32,
+    /// Hide the overlay while a stroke is being painted.
+    pub hide_when_painting: bool,
+}
+
+impl Default for StencilDisplay {
+    fn default() -> Self {
+        Self { opacity: 110.0 / 255.0, hide_when_painting: false }
+    }
+}
+
+#[cfg(test)]
+#[path = "state_sync_tests.rs"]
+mod state_sync_tests;
+
+#[cfg(test)]
+mod modal_tests {
+    use super::*;
+
+    /// QA 2026-11: document shortcuts (Delete, Ctrl+Z) acted behind the unsaved-changes prompt.
+    #[test]
+    fn any_modal_window_blocks_document_shortcuts() {
+        let mut state = UiState::new(Session::sample(), None);
+        assert!(!state.modal_open());
+        state.confirm = Some(crate::dialogs::Pending::Close);
+        assert!(state.modal_open());
+        state.confirm = None;
+        state.new_project.open = true;
+        assert!(state.modal_open());
+        state.new_project.open = false;
+        assert!(!state.modal_open());
+    }
 }

@@ -38,9 +38,9 @@ Layout notes: Standard group. Works on content and masks.
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Blur (filter) | Properties > Filter | works on: content and masks | partial: Radius in pixels instead of Intensity; no wrap | crates/doc/src/filter.rs:136 | - |
+| Blur (filter) | Properties > Filter | works on: content and masks | partial: Radius in pixels instead of Intensity | crates/doc/src/filter.rs:277 | chunk 33 |
 | Blur Intensity | Properties > Filter | not documented | partial: "Radius" 0-32 px, default 4 | crates/ui/src/panels/filter.rs:85 | - |
-| Blur Wrap | Properties > Filter | not documented (toggle) | missing | - | - |
+| Blur Wrap | Properties > Filter | not documented (toggle) | done: taps continue from the opposite border | crates/ui/src/panels/filter.rs:206 | chunk 33 |
 
 ## Blur Directional
 
@@ -105,16 +105,16 @@ Layout notes: Standard group. Colour content (fill layer). Three groups in the o
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Color Correct (filter) | Properties > Filter | works on: colour content | missing | - | - |
-| Contrast | Properties > Filter > Shadows | not documented | missing | - | - |
-| Luminosity | Properties > Filter > Shadows | not documented | missing | - | - |
-| Saturation | Properties > Filter > Shadows | not documented | missing | - | - |
-| Contrast | Properties > Filter > Midtones | not documented | missing | - | - |
-| Luminosity | Properties > Filter > Midtones | not documented | missing | - | - |
-| Saturation | Properties > Filter > Midtones | not documented | missing | - | - |
-| Contrast | Properties > Filter > Highlights | not documented | missing | - | - |
-| Luminosity | Properties > Filter > Highlights | not documented | missing | - | - |
-| Saturation | Properties > Filter > Highlights | not documented | missing | - | - |
+| Color Correct (filter) | Properties > Filter | works on: colour content | done: Shadows / Midtones / Highlights weighted by luminance, each with Contrast, Luminosity, Saturation | crates/doc/src/filter.rs:289 | chunk 33 |
+| Contrast | Properties > Filter > Shadows | not documented | done | crates/ui/src/panels/filter.rs:43 | chunk 33 |
+| Luminosity | Properties > Filter > Shadows | not documented | done | crates/ui/src/panels/filter.rs:43 | chunk 33 |
+| Saturation | Properties > Filter > Shadows | not documented | done | crates/ui/src/panels/filter.rs:43 | chunk 33 |
+| Contrast | Properties > Filter > Midtones | not documented | done | crates/ui/src/panels/filter.rs:43 | chunk 33 |
+| Luminosity | Properties > Filter > Midtones | not documented | done | crates/ui/src/panels/filter.rs:43 | chunk 33 |
+| Saturation | Properties > Filter > Midtones | not documented | done | crates/ui/src/panels/filter.rs:43 | chunk 33 |
+| Contrast | Properties > Filter > Highlights | not documented | done | crates/ui/src/panels/filter.rs:43 | chunk 33 |
+| Luminosity | Properties > Filter > Highlights | not documented | done | crates/ui/src/panels/filter.rs:43 | chunk 33 |
+| Saturation | Properties > Filter > Highlights | not documented | done | crates/ui/src/panels/filter.rs:43 | chunk 33 |
 
 ## Contrast Luminosity
 
@@ -122,9 +122,9 @@ Layout notes: Standard group. Works on content and masks.
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Contrast Luminosity (filter) | Properties > Filter | works on: content and masks | partial: named Contrast; gain and pivot, no luminosity | crates/doc/src/filter.rs:129 | - |
-| Contrast | Properties > Filter | not documented | partial: gain 0-4, default 1 | crates/ui/src/panels/filter.rs:23 | - |
-| Luminosity | Properties > Filter | not documented | missing: "Pivot" moves the contrast centre, it is not a brightness offset | - | - |
+| Contrast Luminosity (filter) | Properties > Filter | works on: content and masks | done: a separate Contrast Luminosity filter; the older Contrast (gain, pivot) stays | crates/doc/src/filter.rs:286 | chunk 33 |
+| Contrast | Properties > Filter | not documented | done | crates/ui/src/panels/filter.rs:39 | chunk 33 |
+| Luminosity | Properties > Filter | not documented | done: brightness offset | crates/ui/src/panels/filter.rs:39 | chunk 33 |
 
 ## Drop Shadow
 
@@ -273,8 +273,8 @@ Layout notes: Standard group. Works on content and masks; values wrap around at 
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Histogram Shift (filter) | Properties > Filter | works on: content and masks | partial: clamps at the range limits instead of wrapping | crates/doc/src/filter.rs:153 | - |
-| Position | Properties > Filter | not documented | partial: "Shift" -1 to 1, clamped, no wrap | crates/ui/src/panels/filter.rs:40 | - |
+| Histogram Shift (filter) | Properties > Filter | works on: content and masks | done: Wrap toggle shifts values around 0-1 instead of clamping | crates/doc/src/filter.rs:279 | chunk 33 |
+| Position | Properties > Filter | not documented | done: "Shift" -1 to 1 with a Wrap toggle | crates/ui/src/panels/filter.rs:206 | chunk 33 |
 
 ## HSL Perceptive
 
@@ -282,8 +282,8 @@ Layout notes: Standard group. Colour content.
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| HSL Perceptive (filter) | Properties > Filter | works on: colour content | partial: named HSL; no Perceptive / Regular mode | crates/doc/src/filter.rs:131 | - |
-| Mode | Properties > Filter | not documented; options Perceptive / Regular | missing | - | - |
+| HSL Perceptive (filter) | Properties > Filter | works on: colour content | done: Perceptive (OKLCH) and Regular (HSL) modes | crates/doc/src/filter.rs:282 | chunk 33 |
+| Mode | Properties > Filter | not documented; options Perceptive / Regular | done | crates/ui/src/panels/filter.rs:74 | chunk 33 |
 | Hue | Properties > Filter | not documented | done | crates/ui/src/panels/filter.rs:27 | - |
 | Saturation | Properties > Filter | not documented | done | crates/ui/src/panels/filter.rs:28 | - |
 | Lightness | Properties > Filter | not documented | done | crates/ui/src/panels/filter.rs:29 | - |
@@ -303,14 +303,14 @@ Layout notes: Standard group. Works on content and masks, in UV space.
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Mirror (filter) | Properties > Filter | works on: content and masks | missing | - | - |
+| Mirror (filter) | Properties > Filter | works on: content and masks | done | crates/doc/src/filter.rs:297 | chunk 33 |
 | Display Debug | Properties > Filter | not documented (toggle) | missing | - | - |
-| Mode | Properties > Filter | not documented (dropdown) | missing | - | - |
-| Axis X Offset | Properties > Filter | not documented | missing | - | - |
-| Axis Y Offset | Properties > Filter | not documented | missing | - | - |
-| Invert Axis X | Properties > Filter | not documented (toggle) | missing | - | - |
-| Invert Axis Y | Properties > Filter | not documented (toggle) | missing | - | - |
-| Corner Type | Properties > Filter | not documented (dropdown) | missing | - | - |
+| Mode | Properties > Filter | not documented (dropdown) | done: Axis X, Axis Y, Corner | crates/ui/src/panels/filter.rs:72 | chunk 33 |
+| Axis X Offset | Properties > Filter | not documented | done | crates/ui/src/panels/filter.rs:72 | chunk 33 |
+| Axis Y Offset | Properties > Filter | not documented | done | crates/ui/src/panels/filter.rs:72 | chunk 33 |
+| Invert Axis X | Properties > Filter | not documented (toggle) | done | crates/ui/src/panels/filter.rs:72 | chunk 33 |
+| Invert Axis Y | Properties > Filter | not documented (toggle) | done | crates/ui/src/panels/filter.rs:72 | chunk 33 |
+| Corner Type | Properties > Filter | not documented (dropdown) | done | crates/ui/src/panels/filter.rs:72 | chunk 33 |
 
 ## Pixelate
 
@@ -347,9 +347,9 @@ Layout notes: Standard group (10.1). Works on content and masks.
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Smoothstep (filter) | Properties > Filter | works on: content and masks | missing: nearest are Histogram Scan and Levels | - | - |
-| Minimum | Properties > Filter | not documented | missing | - | - |
-| Maximum | Properties > Filter | not documented | missing | - | - |
+| Smoothstep (filter) | Properties > Filter | works on: content and masks | done | crates/doc/src/filter.rs:273 | chunk 33 |
+| Minimum | Properties > Filter | not documented | done | crates/ui/src/panels/filter.rs:34 | chunk 33 |
+| Maximum | Properties > Filter | not documented | done | crates/ui/src/panels/filter.rs:34 | chunk 33 |
 
 ## Threshold
 
@@ -357,9 +357,9 @@ Layout notes: Standard group (10.1). Works on content and masks. The page also l
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Threshold (filter) | Properties > Filter | works on: content and masks | partial: Cutoff only (greater than), no comparison mode | crates/doc/src/filter.rs:133 | - |
+| Threshold (filter) | Properties > Filter | works on: content and masks | done: Cutoff with a comparison Mode (greater, greater or equal, lower, lower or equal) | crates/doc/src/filter.rs:275 | chunk 33 |
 | Threshold | Properties > Filter | not documented | done | crates/ui/src/panels/filter.rs:32 | - |
-| Mode | Properties > Filter | not documented; options Greater / Greater or equal / Lower / Lower or equal | missing | - | - |
+| Mode | Properties > Filter | not documented; options Greater / Greater or equal / Lower / Lower or equal | done | crates/ui/src/panels/filter.rs:74 | chunk 33 |
 | _mode (internal) | Properties > Filter | not documented | missing | - | - |
 | _threshold (internal) | Properties > Filter | not documented | missing | - | - |
 | _threshold_min (internal) | Properties > Filter | not documented | missing | - | - |
@@ -371,15 +371,15 @@ Layout notes: Standard group. Works on content and masks.
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Transform (filter) | Properties > Filter | works on: content and masks | missing | - | - |
-| Repeat mode | Properties > Filter | not documented (dropdown) | missing | - | - |
-| Flip mode | Properties > Filter | not documented (dropdown) | missing | - | - |
-| Scaling X | Properties > Filter | not documented | missing | - | - |
-| Scaling Y | Properties > Filter | not documented | missing | - | - |
-| Offset X | Properties > Filter | not documented | missing | - | - |
-| Offset Y | Properties > Filter | not documented | missing | - | - |
-| Tile Safe Rotation | Properties > Filter | not documented (toggle) | missing | - | - |
-| Rotation | Properties > Filter | not documented | missing | - | - |
+| Transform (filter) | Properties > Filter | works on: content and masks | done | crates/doc/src/filter.rs:293 | chunk 33 |
+| Repeat mode | Properties > Filter | not documented (dropdown) | done | crates/ui/src/panels/filter.rs:53 | chunk 33 |
+| Flip mode | Properties > Filter | not documented (dropdown) | done | crates/ui/src/panels/filter.rs:53 | chunk 33 |
+| Scaling X | Properties > Filter | not documented | done | crates/ui/src/panels/filter.rs:53 | chunk 33 |
+| Scaling Y | Properties > Filter | not documented | done | crates/ui/src/panels/filter.rs:53 | chunk 33 |
+| Offset X | Properties > Filter | not documented | done | crates/ui/src/panels/filter.rs:53 | chunk 33 |
+| Offset Y | Properties > Filter | not documented | done | crates/ui/src/panels/filter.rs:53 | chunk 33 |
+| Tile Safe Rotation | Properties > Filter | not documented (toggle) | done: snaps to quarter turns and whole-number scales | crates/ui/src/panels/filter.rs:53 | chunk 33 |
+| Rotation | Properties > Filter | not documented | done | crates/ui/src/panels/filter.rs:53 | chunk 33 |
 | Scaling | Properties > Filter | not documented | missing | - | - |
 | Offset | Properties > Filter | not documented | missing | - | - |
 

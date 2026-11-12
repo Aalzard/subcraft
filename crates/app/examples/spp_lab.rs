@@ -457,7 +457,7 @@ fn main() {
         let mut spp = subcraft_mesh::spp::SppFile::open(Path::new(path)).unwrap();
         let project = spp.project().unwrap();
         let mut theirs: Vec<(String, subcraft_mesh::spp::document::GraphRef)> = Vec::new();
-        for pts in &project.texture_sets {
+        if let Some(pts) = project.texture_sets.iter().next() {
             subcraft_mesh::spp::document::walk_layers(&pts.layers, &mut |l, _| {
                 if l.mask.len() == 1 {
                     if let subcraft_mesh::spp::document::ActionKind::Fill { sources, .. } = &l.mask[0].kind {
@@ -469,7 +469,6 @@ fn main() {
                     }
                 }
             }, 0);
-            break;
         }
         fn collect(l: &subcraft_doc::Layer, path: &mut Vec<usize>, out: &mut Vec<(Vec<usize>, String, subcraft_doc::Generator)>) {
             if let Some(m) = &l.mask {

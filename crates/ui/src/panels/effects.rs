@@ -5,7 +5,7 @@
 use std::collections::BTreeMap;
 
 use egui::{RichText, Ui};
-use subcraft_app::{Command, LayerTarget, effect_stack::{EffectAddress, DropSide, drop_destination}};
+use subcraft_app::{Command, LayerTarget, effect_stack::{DropSide, EffectAddress, EffectDrop, EffectSelection, reordered}};
 use subcraft_core::{ChannelKind, ChannelValue, EffectId, LayerId};
 use subcraft_doc::{
     BlendMode, ContentEffect, ContentEffectKind, FillChannel, FillContent, FillSource, Generator, GeneratorKind, Layer, Levels,
@@ -24,6 +24,9 @@ struct Row {
     name: String,
     visible: bool,
     icon: &'static str,
+    /// Blend mode and opacity shown on the row (content: those of the active channel), for
+    /// effects that have them there.
+    blend: Option<(BlendMode, f32)>,
 }
 
 fn content_icon(kind: &ContentEffectKind) -> &'static str {
@@ -60,26 +63,23 @@ pub fn new_fill(channels: impl Iterator<Item = ChannelKind>) -> ContentEffectKin
     ContentEffectKind::Fill(FillContent { projection: Default::default(), channels })
 }
 
-/// Content effects the Add menu offers for a layer.
+/// Content effects the Add menu offers for a layer, in Painter's order (paint, fill, levels,
+/// filter, anchor point), each with its row icon.
 fn add_content_menu(ui: &mut Ui, layer: &Layer, channels: &[ChannelKind], active: ChannelKind, cmds: &mut Vec<Command>) {
     let levels_channel = if active == ChannelKind::Normal { ChannelKind::Roughness } else { active };
     let options = [
-        ("Paint", ContentEffectKind::Paint { channels: BTreeMap::new() }),
-        ("Fill", new_fill(channels.iter().copied())),
-        ("Levels", ContentEffectKind::Levels { channel: levels_channel, levels: Levels::default() }),
+        ("Add paint", ContentEffectKind::Paint { channels: BTreeMap::new() }),
+        ("Add fill", new_fill(channels.iter().copied())),
+        ("Add levels", ContentEffectKind::Levels { channel: levels_channel, levels: Levels::default() }),
     ];
     for (label, kind) in options {
         if layer.is_folder() && !kind.is_adjustment() { continue; }
-        if ui.button(label).clicked() {
+        if ui.button(format!("{}  {label}", content_icon(&kind))).clicked() {
             cmds.push(Command::AddContentEffect { layer: layer.id, kind });
             ui.close();
         }
     }
-    if ui.button("Anchor Point").on_hover_text("Captures this layer's content at this point, so layers above can read it").clicked() {
-        cmds.push(Command::AddContentEffect { layer: layer.id, kind: ContentEffectKind::Anchor });
-        ui.close();
-    }
-    ui.menu_button("Filter", |ui| {
+    ui.menu_button(format!("{}  Add filter", icons::SLIDERS), |ui| {
         for filter in subcraft_doc::Filter::ALL {
             let channel = if filter.supports_channel(active) { Some(active) }
                 else { channels.iter().copied().find(|k| filter.supports_channel(*k)) };
@@ -89,10 +89,14 @@ fn add_content_menu(ui: &mut Ui, layer: &Layer, channels: &[ChannelKind], active
             }
         }
     });
+    if ui.button(format!("{}  Add anchor point", icons::CROSSHAIR)).on_hover_text("Captures this layer's content at this point, so layers above can read it").clicked() {
+        cmds.push(Command::AddContentEffect { layer: layer.id, kind: ContentEffectKind::Anchor });
+        ui.close();
+    }
 }
 
 pub(crate) fn add_mask_filters(ui: &mut Ui, layer: LayerId, cmds: &mut Vec<Command>) {
-    ui.menu_button("Filter", |ui| {
+    ui.menu_button(format!("{}  Add filter", icons::SLIDERS), |ui| {
         for filter in subcraft_doc::Filter::ALL.into_iter().filter(|f| f.supports_mask()) {
             if ui.button(filter.label()).clicked() {
                 cmds.push(Command::AddMaskEffect { layer, kind: MaskEffectKind::Filter(filter) }); ui.close();
@@ -103,14 +107,14 @@ pub(crate) fn add_mask_filters(ui: &mut Ui, layer: LayerId, cmds: &mut Vec<Comma
 
 /// Anchor Point / Anchor Reference entries of a mask's Add menu (ADR-0045).
 pub(crate) fn add_mask_anchor_items(ui: &mut Ui, layer: LayerId, index: &subcraft_doc::AnchorIndex, cmds: &mut Vec<Command>) {
-    if ui.button("Anchor Point").on_hover_text("Captures the mask at this point, so other masks and generators can read it").clicked() {
+    if ui.button(format!("{}  Add anchor point", icons::CROSSHAIR)).on_hover_text("Captures the mask at this point, so other masks and generators can read it").clicked() {
         cmds.push(Command::AddMaskEffect { layer, kind: MaskEffectKind::Anchor });
         ui.close();
     }
     let candidates = index.candidates_above_mask(layer);
     let input = super::anchor::default_input(&candidates, ChannelKind::Height);
     let tip = if input.is_some() { "Grayscale from an anchor point below: a lower layer's channel or mask" } else { "Needs an anchor point below: add one to a lower layer first" };
-    if ui.add_enabled(input.is_some(), egui::Button::new("Anchor Reference")).on_hover_text(tip).on_disabled_hover_text(tip).clicked()
+    if ui.add_enabled(input.is_some(), egui::Button::new(format!("{}  Add anchor reference", icons::CURVE))).on_hover_text(tip).on_disabled_hover_text(tip).clicked()
         && let Some(input) = input
     {
         cmds.push(Command::AddMaskEffect { layer, kind: MaskEffectKind::AnchorRef { input, levels: None } });
@@ -118,23 +122,121 @@ pub(crate) fn add_mask_anchor_items(ui: &mut Ui, layer: LayerId, index: &subcraf
     }
 }
 
+/// Mask effects in Painter's order: generator, paint, fill, levels, filter, color selection,
+/// anchor point; SubCraft's own Invert and Anchor Reference come last.
 fn add_mask_menu(ui: &mut Ui, layer: &Layer, resolution: u32, index: &subcraft_doc::AnchorIndex, cmds: &mut Vec<Command>) {
-    add_mask_filters(ui, layer.id, cmds);
-    add_mask_anchor_items(ui, layer.id, index, cmds);
-    let options = [
-        ("Paint", MaskEffectKind::Paint { image: TiledImage::new(resolution, resolution, 2, [0.0; 4]) }),
-        ("Fill", MaskEffectKind::Fill { value: 1.0, procedural: None, projection: Default::default() }),
-        ("Generator", MaskEffectKind::Generator(Generator::new(GeneratorKind::Edges))),
-        ("Levels", MaskEffectKind::Levels(Levels::default())),
-        ("Invert", MaskEffectKind::Invert),
-        ("ID Color Mask", MaskEffectKind::IdColor(Default::default())),
-    ];
-    for (label, kind) in options {
-        if ui.button(label).clicked() {
+    let mut add = |ui: &mut Ui, label: &str, kind: MaskEffectKind| {
+        if ui.button(format!("{}  {label}", mask_icon(&kind))).clicked() {
             cmds.push(Command::AddMaskEffect { layer: layer.id, kind });
             ui.close();
         }
+    };
+    add(ui, "Add generator", MaskEffectKind::Generator(Generator::new(GeneratorKind::Edges)));
+    add(ui, "Add paint", MaskEffectKind::Paint { image: TiledImage::new(resolution, resolution, 2, [0.0; 4]) });
+    add(ui, "Add fill", MaskEffectKind::Fill { value: 1.0, procedural: None, projection: Default::default() });
+    add(ui, "Add levels", MaskEffectKind::Levels(Levels::default()));
+    add_mask_filters(ui, layer.id, cmds);
+    let mut add = |ui: &mut Ui, label: &str, kind: MaskEffectKind| {
+        if ui.button(format!("{}  {label}", mask_icon(&kind))).clicked() {
+            cmds.push(Command::AddMaskEffect { layer: layer.id, kind });
+            ui.close();
+        }
+    };
+    add(ui, "Add color selection", MaskEffectKind::IdColor(Default::default()));
+    add(ui, "Add invert", MaskEffectKind::Invert);
+    add_mask_anchor_items(ui, layer.id, index, cmds);
+}
+
+/// Painter's Add Effect menu for one of a layer's stacks: the Layers header button, the stack's
+/// own header and the layer's right-click menu all show it. The mask menu needs a mask.
+pub(crate) fn add_effect_menu(ui: &mut Ui, layer: &Layer, mask_domain: bool, channels: &[ChannelKind], active: ChannelKind, resolution: u32, session: &subcraft_app::Session, cmds: &mut Vec<Command>) {
+    if mask_domain && layer.mask.is_some() {
+        let index = subcraft_doc::AnchorIndex::build(&session.selected_texture_set().layers);
+        add_mask_menu(ui, layer, resolution, &index, cmds)
+    } else {
+        add_content_menu(ui, layer, channels, active, cmds)
     }
+}
+
+/// Blend of a content effect on `active` as its row shows it: none for anchors, for adjustments
+/// of another channel and for fills that leave the channel off.
+fn content_row_blend(e: &ContentEffect, active: ChannelKind) -> Option<(BlendMode, f32)> {
+    let shown = match &e.kind {
+        ContentEffectKind::Anchor => false,
+        ContentEffectKind::Levels { channel, .. } | ContentEffectKind::Filter { channel, .. } => *channel == active,
+        ContentEffectKind::Fill(fill) => fill.channels.get(&active).is_some_and(|c| c.enabled),
+        ContentEffectKind::Paint { .. } => true,
+    };
+    let blend = e.blend.get(&active)?;
+    shown.then_some((blend.mode, blend.opacity))
+}
+
+/// The command that stores a new row blend mode and / or opacity (content: on `active`).
+fn set_row_blend(layer: &Layer, mask: bool, id: EffectId, active: ChannelKind, mode: Option<BlendMode>, opacity: Option<f32>) -> Option<Command> {
+    if mask {
+        let mut e = (**layer.mask.as_ref()?.effects.iter().find(|e| e.id == id)?).clone();
+        e.blend = mode.unwrap_or(e.blend);
+        e.opacity = opacity.unwrap_or(e.opacity).clamp(0.0, 1.0);
+        Some(Command::SetMaskEffect { layer: layer.id, effect: e })
+    } else {
+        let mut e = (**layer.content_effects.iter().find(|e| e.id == id)?).clone();
+        let blend = e.blend.get_mut(&active)?;
+        blend.mode = mode.unwrap_or(blend.mode);
+        blend.opacity = opacity.unwrap_or(blend.opacity).clamp(0.0, 1.0);
+        Some(Command::SetContentEffect { layer: layer.id, effect: e })
+    }
+}
+
+/// Blend mode and opacity at the right of an effect row, like a layer row's.
+#[allow(clippy::too_many_arguments)]
+fn row_blend(ui: &mut Ui, layer: &Layer, mask: bool, id: EffectId, active: ChannelKind, mode: BlendMode, opacity: f32, cmds: &mut Vec<Command>) {
+    ui.spacing_mut().interact_size.y = 18.0;
+    ui.spacing_mut().button_padding = egui::vec2(3.0, 1.0);
+    let inactive = &mut ui.visuals_mut().widgets.inactive;
+    inactive.bg_fill = egui::Color32::TRANSPARENT;
+    inactive.weak_bg_fill = egui::Color32::TRANSPARENT;
+    inactive.bg_stroke = egui::Stroke::NONE;
+    let what = if mask { "Effect".to_string() } else { format!("Effect {}", active.display_name()) };
+    let modes: Vec<BlendMode> = BlendMode::available(!mask && active == ChannelKind::Normal, false).collect();
+    let combo = egui::ComboBox::from_id_salt("effect_row_blend")
+        .width(60.0)
+        .height(420.0)
+        .selected_text(RichText::new(mode.short_label()).font(theme::font(10.5)).color(TEXT_DIM))
+        .show_ui(ui, |ui| super::layers::blend_mode_list(ui, modes.iter().copied(), mode));
+    let picked = combo.inner.flatten();
+    let stepped = super::layers::blend_step(ui, &combo.response, egui::Id::new(("effect_blend_focus", id)), &modes, mode, picked.is_some());
+    if let Some(m) = picked.or(stepped) {
+        cmds.extend(set_row_blend(layer, mask, id, active, Some(m), None));
+    }
+    combo.response.on_hover_text(format!("{what} blend mode: {}. Click, then Up / Down or the wheel steps through the modes.", mode.label()));
+    let mut pct = opacity * 100.0;
+    let drag = egui::DragValue::new(&mut pct).range(0.0..=100.0).speed(0.5).suffix("%").max_decimals(0);
+    if ui.add_sized([40.0, 18.0], drag).on_hover_text(format!("{what} opacity (drag)")).changed() {
+        cmds.extend(set_row_blend(layer, mask, id, active, None, Some(pct / 100.0)));
+    }
+}
+
+/// The name being typed into an effect row.
+#[derive(Clone)]
+struct EffectRename {
+    effect: EffectId,
+    text: String,
+    focus: bool,
+}
+
+fn rename_id() -> egui::Id {
+    egui::Id::new("effect_inline_rename")
+}
+
+/// Delete (`remove`) or Ctrl+D on the selected effect(s). False when no effect is selected, so
+/// the key falls through to the layer.
+pub fn selection_action(state: &mut UiState, remove: bool, now: f64) -> bool {
+    let (Some(layer), Some(effect)) = (state.session.selection().layer, state.session.selected_effect()) else { return false };
+    let target = state.session.layer_target();
+    let effects = state.effect_multi.targets((layer, target), Some(effect));
+    state.effect_multi.clear();
+    state.run(vec![if remove { Command::RemoveEffects { layer, target, effects } } else { Command::DuplicateEffects { layer, target, effects } }], now);
+    true
 }
 
 /// Nested rows under the selected layer for its selected domain's effect stack.
@@ -145,6 +247,7 @@ pub fn rows(
     depth: usize,
     target: LayerTarget,
     selected: Option<EffectId>,
+    multi: &mut EffectSelection,
     channels: &[ChannelKind],
     active: ChannelKind,
     resolution: u32,
@@ -156,12 +259,39 @@ pub fn rows(
     let mask_domain = target == LayerTarget::Mask && layer.mask.is_some();
     let rows: Vec<Row> = if mask_domain {
         let mask = layer.mask.as_ref().unwrap();
-        mask.effects.iter().map(|e| Row { id: e.id, name: e.name.clone(), visible: e.visible, icon: mask_icon(&e.kind) }).collect()
+        mask.effects
+            .iter()
+            .map(|e| Row {
+                id: e.id,
+                name: e.name.clone(),
+                visible: e.visible,
+                icon: mask_icon(&e.kind),
+                blend: (!matches!(e.kind, MaskEffectKind::Anchor)).then_some((e.blend, e.opacity)),
+            })
+            .collect()
     } else {
-        layer.content_effects.iter().map(|e| Row { id: e.id, name: e.name.clone(), visible: e.visible, icon: content_icon(&e.kind) }).collect()
+        layer
+            .content_effects
+            .iter()
+            .map(|e| Row { id: e.id, name: e.name.clone(), visible: e.visible, icon: content_icon(&e.kind), blend: content_row_blend(e, active) })
+            .collect()
     };
     let indent = depth as f32 * 16.0 + 54.0;
     let domain = if mask_domain { LayerTarget::Mask } else { LayerTarget::Content };
+    let stack = (layer.id, domain);
+    let ids: Vec<EffectId> = rows.iter().map(|r| r.id).collect();
+    // Every selected effect of this stack: the session's one plus Ctrl / Shift click extras.
+    let chosen = multi.targets(stack, selected);
+    if !chosen.is_empty() && !ui.ctx().egui_wants_keyboard_input() {
+        for (key, up) in [(egui::Key::ArrowUp, true), (egui::Key::ArrowDown, false)] {
+            if ui.input_mut(|i| i.consume_key(egui::Modifiers::ALT, key)) {
+                cmds.push(Command::NudgeEffects { layer: layer.id, target: domain, effects: chosen.clone(), up });
+            }
+        }
+    }
+    let mut rename = ui.ctx().data(|d| d.get_temp::<EffectRename>(rename_id())).filter(|r| ids.contains(&r.effect));
+    // Some(None): cancelled; Some(Some(name)): confirmed.
+    let mut rename_done: Option<Option<String>> = None;
     ui.push_id(("effects", layer.id, mask_domain), |ui| {
         let open_id = ui.make_persistent_id("expanded");
         let mut open = ui.data(|d| d.get_temp::<bool>(open_id)).unwrap_or(true);
@@ -174,54 +304,106 @@ pub fn rows(
             if ui.add(egui::Button::new(RichText::new(title).small().color(TEXT_DIM)).frame(false)).clicked() { open = !open; }
             ui.label(RichText::new(rows.len().to_string()).small().color(TEXT_FAINT));
             ui.menu_button(RichText::new(format!("{} Add", icons::PLUS)).small(), |ui| {
-                if mask_domain {
-                    let index = subcraft_doc::AnchorIndex::build(&session.selected_texture_set().layers);
-                    add_mask_menu(ui, layer, resolution, &index, cmds)
-                } else { add_content_menu(ui, layer, channels, active, cmds) }
+                add_effect_menu(ui, layer, mask_domain, channels, active, resolution, session, cmds)
             })
             .response
-            .on_hover_text("Add an effect on top of this stack");
+            .on_hover_text("Add an effect above the selected one, or on top of this stack");
         }).response;
         ui.data_mut(|d| d.insert_temp(open_id, open));
         if !open { return; }
         let count = rows.len();
+        let alt = ui.input(|i| i.modifiers.alt);
         // Top of the stack first, like layers.
         for (index, row) in rows.iter().enumerate().rev() {
-            let is_selected = selected == Some(row.id);
+            let is_primary = selected == Some(row.id);
+            let is_selected = chosen.contains(&row.id);
+            let renaming = rename.as_ref().is_some_and(|r| r.effect == row.id);
             let resp = ui.push_id(row.id, |ui| {
                 striped_list_row_height(ui, count - 1 - index, is_selected, (preview_size + 6.0).max(theme::EFFECT_ROW_HEIGHT), egui::Sense::click_and_drag(), |ui| {
                     ui.add_space(indent);
                     ui.spacing_mut().item_spacing.x = 5.0;
                     let (eye, tip) = if row.visible { (icons::EYE, "Hide effect") } else { (icons::EYE_SLASH, "Show effect") };
-                    if ui.add_sized([20.0, 22.0], egui::Button::new(RichText::new(eye).color(TEXT_FAINT)).frame(false)).on_hover_text(tip).clicked() {
+                    let eye = ui.add_sized([20.0, 22.0], egui::Button::new(RichText::new(eye).color(TEXT_FAINT)).frame(false)).on_hover_text(tip);
+                    if super::layers::eye_slide(ui, &eye, row.visible) {
                         cmds.push(visibility(layer, mask_domain, row.id, !row.visible));
                     }
                     let thumb = previews.image(ui, session, subcraft_app::layer_previews::PreviewKey {
                         layer:layer.id,channel:active,mask:mask_domain,effect:Some(row.id),size:64
                     }, preview_size, is_selected).on_hover_text("Result through this effect, including the steps below it. Click to edit. Hidden effects show the bypassed result.");
                     if !row.visible {ui.painter().line_segment([thumb.rect.left_bottom(),thumb.rect.right_top()],egui::Stroke::new(1.0,TEXT_FAINT));}
-                    if thumb.clicked() {cmds.push(Command::SelectEffect {layer:layer.id,target:domain,effect:Some(row.id)});}
+                    if thumb.clicked() {
+                        multi.clear();
+                        cmds.push(Command::SelectEffect {layer:layer.id,target:domain,effect:Some(row.id)});
+                    }
                     let color = if is_selected { ACCENT } else { TEXT_DIM };
                     ui.label(RichText::new(row.icon).font(theme::font(13.0)).color(color));
-                    let text = row_text(&row.name, is_selected || row.visible).font(theme::font(11.5));
-                    ui.add(egui::Label::new(if row.visible { text } else { text.color(TEXT_FAINT) }).truncate().selectable(false));
+                    // Blend and opacity sit at the right when the row is wide enough for them.
+                    // Room for the blend dropdown, the opacity box and their spacing.
+                    const CONTROLS: f32 = 128.0;
+                    let controls = row.blend.filter(|_| !renaming && ui.available_width() >= CONTROLS + 48.0);
+                    let name_width = (ui.available_width() - if controls.is_some() { CONTROLS + 8.0 } else { 0.0 }).max(20.0);
+                    ui.allocate_ui_with_layout(egui::vec2(name_width, 20.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                        ui.set_min_width(name_width);
+                        if let Some(edit) = rename.as_mut().filter(|r| r.effect == row.id) {
+                            let r = ui.add(egui::TextEdit::singleline(&mut edit.text).id_salt("inline_name").font(theme::font(11.5)).desired_width(name_width));
+                            if edit.focus { r.request_focus(); edit.focus = false; }
+                            else if ui.input(|i| i.key_pressed(egui::Key::Escape)) { rename_done = Some(None); }
+                            else if r.lost_focus() || (r.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))) {
+                                rename_done = Some(Some(edit.text.trim().to_string()));
+                            }
+                        } else {
+                            let text = row_text(&row.name, is_selected || row.visible).font(theme::font(11.5));
+                            ui.add(egui::Label::new(if row.visible { text } else { text.color(TEXT_FAINT) }).truncate().selectable(false));
+                        }
+                    });
+                    if let Some((mode, opacity)) = controls {
+                        row_blend(ui, layer, mask_domain, row.id, active, mode, opacity, cmds);
+                    }
                 })
             })
             .inner;
             let address=EffectAddress {texture_set:session.selection().texture_set,layer:layer.id,domain,effect:row.id};
-            resp.dnd_set_drag_payload(address);
-            effect_drop(ui,&resp,session,address,indent,cmds);
+            if !renaming && !super::layers::eye_sliding(ui) { resp.dnd_set_drag_payload(address); }
+            effect_drop(ui,&resp,address,&ids,&chosen,indent,cmds);
             let x = resp.rect.left() + indent - 2.0;
             let y = resp.rect.center().y;
             let bottom = if index == 0 { y } else { resp.rect.bottom() + 1.0 };
             ui.painter().line_segment([egui::pos2(x, resp.rect.top() - 1.0), egui::pos2(x, bottom)], egui::Stroke::new(1.0, theme::BORDER_STRONG));
             ui.painter().line_segment([egui::pos2(x, y), egui::pos2(x + 7.0, y)], egui::Stroke::new(1.0, theme::BORDER_STRONG));
-            if resp.clicked() {
-                let effect = if is_selected { None } else { Some(row.id) };
-                cmds.push(Command::SelectEffect { layer: layer.id, target: domain, effect });
+            if resp.double_clicked() && !alt {
+                // Double-click renames (Painter); the row ends up selected whatever the first click did.
+                multi.clear();
+                cmds.push(Command::SelectEffect { layer: layer.id, target: domain, effect: Some(row.id) });
+                rename = Some(EffectRename { effect: row.id, text: row.name.clone(), focus: true });
+            } else if resp.clicked() {
+                let (toggle, range) = ui.input(|i| (i.modifiers.command, i.modifiers.shift));
+                if toggle || range {
+                    let primary = multi.click(stack, &ids, selected, row.id, toggle, range);
+                    if primary != selected {
+                        cmds.push(Command::SelectEffect { layer: layer.id, target: domain, effect: primary });
+                    }
+                } else {
+                    // A plain click on the only selected effect returns to the layer.
+                    let effect = if is_primary && chosen.len() == 1 { None } else { Some(row.id) };
+                    multi.clear();
+                    cmds.push(Command::SelectEffect { layer: layer.id, target: domain, effect });
+                }
             }
-            resp.context_menu(|ui| actions(ui, layer.id, mask_domain, row.id, index, count, cmds));
-            resp.on_hover_text("Click to edit in Properties (click again to return to the layer). Drag the row or preview to reorder. Esc: cancel. Right-click: order, duplicate, delete.");
+            // The menu acts on the selection when the row is part of it, else on this row alone,
+            // which then becomes the selection (new effects are added above it).
+            if resp.secondary_clicked() && !is_selected {
+                multi.clear();
+                cmds.push(Command::SelectEffect { layer: layer.id, target: domain, effect: Some(row.id) });
+            }
+            let acted: Vec<EffectId> = if is_selected { chosen.clone() } else { vec![row.id] };
+            resp.context_menu(|ui| {
+                if actions(ui, layer, mask_domain, &acted, &ids, channels, active, resolution, session, cmds) {
+                    rename = Some(EffectRename { effect: row.id, text: row.name.clone(), focus: true });
+                }
+            });
+            if !renaming {
+                resp.on_hover_text("Click to edit in Properties (click again to return to the layer). Ctrl / Shift click selects several. Double-click renames. Drag to reorder or onto another layer; hold Alt to copy. Alt+Up / Alt+Down move it. Right-click for more.");
+            }
         }
         if rows.is_empty() {
             ui.horizontal(|ui| {
@@ -233,13 +415,37 @@ pub fn rows(
             ui.painter().line_segment([egui::pos2(x, header.rect.center().y), egui::pos2(x, header.rect.bottom())], egui::Stroke::new(1.0, theme::BORDER_STRONG));
         }
     });
+    match rename_done {
+        Some(done) => {
+            if let (Some(name), Some(edit)) = (done, &rename)
+                && !name.is_empty()
+                && rows.iter().any(|r| r.id == edit.effect && r.name != name)
+            {
+                cmds.push(Command::RenameEffect { layer: layer.id, target: domain, effect: edit.effect, name });
+            }
+            ui.ctx().data_mut(|d| d.remove::<EffectRename>(rename_id()));
+        }
+        None => ui.ctx().data_mut(|d| {
+            if let Some(edit) = rename { d.insert_temp(rename_id(), edit); } else { d.remove::<EffectRename>(rename_id()); }
+        }),
+    }
 }
 
+/// The effects a drag of `source` carries: the whole selection when the grabbed row is part of
+/// it, else that row alone.
+fn dragged(source: EffectAddress, chosen: &[EffectId]) -> Vec<EffectId> {
+    if chosen.contains(&source.effect) { chosen.to_vec() } else { vec![source.effect] }
+}
 
-fn effect_drop(ui:&Ui, response:&egui::Response, session:&subcraft_app::Session, target:EffectAddress, indent:f32, commands:&mut Vec<Command>) {
+/// Drop on an effect row of the stack the drag came from: reorder, or copy with Alt held.
+fn effect_drop(ui:&Ui, response:&egui::Response, target:EffectAddress, ids:&[EffectId], chosen:&[EffectId], indent:f32, commands:&mut Vec<Command>) {
     let Some(pointer)=ui.input(|i|i.pointer.interact_pos()) else {return;};
     let side=if pointer.y<response.rect.center().y {DropSide::Above}else{DropSide::Below};
-    let valid=|source|drop_destination(session.selected_texture_set(),source,target,side).is_some();
+    let copy=ui.input(|i|i.modifiers.alt);
+    let valid=|source:EffectAddress| {
+        source.texture_set==target.texture_set && source.layer==target.layer && source.domain==target.domain && ids.contains(&source.effect)
+            && (copy || reordered(ids,&dragged(source,chosen),target.effect,side).is_some())
+    };
     if let Some(source)=response.dnd_hover_payload::<EffectAddress>() && valid(*source) {
         let y=if side==DropSide::Above {response.rect.top()}else{response.rect.bottom()};
         ui.painter().line_segment([egui::pos2(response.rect.left()+indent,y),egui::pos2(response.rect.right()-4.0,y)],egui::Stroke::new(2.0,ACCENT));
@@ -247,7 +453,33 @@ fn effect_drop(ui:&Ui, response:&egui::Response, session:&subcraft_app::Session,
     // A wrong-type release must never consume a layer or shelf payload.
     if egui::DragAndDrop::has_payload_of_type::<EffectAddress>(ui.ctx())
         && let Some(source)=response.dnd_release_payload::<EffectAddress>() && valid(*source) {
-        commands.push(Command::DropEffect {source:*source,target,side});
+        commands.push(Command::DropEffects {source:*source,effects:dragged(*source,chosen),to:EffectDrop::Beside {effect:target.effect,side},copy});
+    }
+}
+
+/// Drop of dragged effects on a layer row: they go on top of that layer's stack of the same
+/// kind (Alt: copies). Called for every layer row of the panel.
+pub(crate) fn layer_row_drop(ui: &Ui, response: &egui::Response, layer: &Layer, session: &subcraft_app::Session, multi: &EffectSelection, cmds: &mut Vec<Command>) {
+    if !egui::DragAndDrop::has_payload_of_type::<EffectAddress>(ui.ctx()) { return; }
+    let copy = ui.input(|i| i.modifiers.alt);
+    let valid = |source: EffectAddress| source.texture_set == session.selection().texture_set && session.selected_texture_set().find(source.layer).is_some();
+    if let Some(source) = response.dnd_hover_payload::<EffectAddress>() && valid(*source) {
+        let r = response.rect;
+        ui.painter().rect_stroke(r, 0.0, egui::Stroke::new(1.5, ACCENT), egui::StrokeKind::Inside);
+        let verb = if copy { "Copy" } else { "Move" };
+        let place = match (source.domain, source.layer == layer.id) {
+            (_, true) => "to the top of the stack".to_string(),
+            (LayerTarget::Mask, false) => format!("to the mask of {}", layer.name),
+            (LayerTarget::Content, false) => format!("to {}", layer.name),
+        };
+        let galley = ui.painter().layout_no_wrap(format!("{verb} {place}"), theme::font(11.0), theme::TEXT);
+        let pill = egui::Rect::from_min_size(egui::pos2((r.right() - galley.size().x - 14.0).max(r.left()), r.top() + 2.0), galley.size() + egui::vec2(8.0, 4.0));
+        ui.painter().rect_filled(pill, 3.0, theme::ACCENT_SOFT);
+        ui.painter().galley(pill.min + egui::vec2(4.0, 2.0), galley, theme::TEXT);
+    }
+    if let Some(source) = response.dnd_release_payload::<EffectAddress>() && valid(*source) {
+        let chosen = multi.targets((source.layer, source.domain), session.selected_effect());
+        cmds.push(Command::DropEffects { source: *source, effects: dragged(*source, &chosen), to: EffectDrop::Layer(layer.id), copy });
     }
 }
 
@@ -265,36 +497,54 @@ fn visibility(layer: &Layer, mask: bool, id: EffectId, visible: bool) -> Command
     }
 }
 
-/// Order / duplicate / delete for one effect (`index` is bottom-to-top).
-fn actions(ui: &mut Ui, layer: LayerId, mask: bool, effect: EffectId, index: usize, count: usize, cmds: &mut Vec<Command>) {
-    let mut push = |c: Command, ui: &mut Ui| {
-        cmds.push(c);
+/// Right-click menu of an effect row: clipboard, duplicate, remove, move, add above, rename.
+/// `effects` is what the entries act on (the selection, or just this row); `ids` is the stack
+/// bottom to top. Returns true when Rename was picked.
+#[allow(clippy::too_many_arguments)]
+fn actions(ui: &mut Ui, layer: &Layer, mask: bool, effects: &[EffectId], ids: &[EffectId], channels: &[ChannelKind], active: ChannelKind, resolution: u32, session: &subcraft_app::Session, cmds: &mut Vec<Command>) -> bool {
+    use crate::clipboard::{Request, request};
+    let target = if mask { LayerTarget::Mask } else { LayerTarget::Content };
+    let id = layer.id;
+    let many = effects.len() > 1;
+    let suffix = if many { format!(" {} effects", effects.len()) } else { String::new() };
+    let key = |text: &'static str| crate::keys::native(text);
+    if ui.add(egui::Button::new(format!("Cut{suffix}")).shortcut_text(key("Ctrl+X"))).clicked() {
+        request(ui.ctx(), Request::CopyEffects { layer: id, target, effects: effects.to_vec(), cut: true });
         ui.close();
-    };
-    if ui.add_enabled(index + 1 < count, egui::Button::new(format!("{}  Move up", icons::ARROW_UP))).clicked() {
-        let index = index + 1;
-        push(if mask { Command::MoveMaskEffect { layer, effect, index } } else { Command::MoveContentEffect { layer, effect, index } }, ui);
     }
-    if ui.add_enabled(index > 0, egui::Button::new(format!("{}  Move down", icons::ARROW_DOWN))).clicked() {
-        let index = index - 1;
-        push(if mask { Command::MoveMaskEffect { layer, effect, index } } else { Command::MoveContentEffect { layer, effect, index } }, ui);
-    }
-    if ui.button(format!("{}  Duplicate", icons::COPY)).clicked() {
-        push(if mask { Command::DuplicateMaskEffect { layer, effect } } else { Command::DuplicateContentEffect { layer, effect } }, ui);
-    }
-    let target = if mask { subcraft_app::LayerTarget::Mask } else { subcraft_app::LayerTarget::Content };
-    if ui.button("Copy effect").clicked() {
-        crate::clipboard::request(ui.ctx(), crate::clipboard::Request::CopyEffect { layer, target, effect });
+    if ui.add(egui::Button::new(format!("{}  Copy{suffix}", icons::COPY)).shortcut_text(key("Ctrl+C"))).clicked() {
+        request(ui.ctx(), Request::CopyEffects { layer: id, target, effects: effects.to_vec(), cut: false });
         ui.close();
     }
     let have_clip = ui.ctx().data(|d| d.get_temp::<bool>(egui::Id::new("effect_clip_present"))).unwrap_or(false);
-    if ui.add_enabled(have_clip, egui::Button::new("Paste effect")).on_hover_text("Adds the copied effect(s) on top of this layer's matching stack").clicked() {
-        crate::clipboard::request(ui.ctx(), crate::clipboard::Request::PasteEffects { layer });
+    if ui.add_enabled(have_clip, egui::Button::new("Paste").shortcut_text(key("Ctrl+V"))).on_hover_text("Adds the copied effect(s) above the selected effect of the matching stack").clicked() {
+        request(ui.ctx(), Request::PasteEffects { layer: id });
         ui.close();
     }
-    if ui.button(format!("{}  Delete", icons::TRASH)).clicked() {
-        push(if mask { Command::RemoveMaskEffect { layer, effect } } else { Command::RemoveContentEffect { layer, effect } }, ui);
+    if ui.add(egui::Button::new(format!("Duplicate{suffix}")).shortcut_text(key("Ctrl+D"))).clicked() {
+        cmds.push(Command::DuplicateEffects { layer: id, target, effects: effects.to_vec() });
+        ui.close();
     }
+    if ui.add(egui::Button::new(format!("{}  Remove{suffix}", icons::TRASH)).shortcut_text("Del")).clicked() {
+        cmds.push(Command::RemoveEffects { layer: id, target, effects: effects.to_vec() });
+        ui.close();
+    }
+    ui.separator();
+    for (label, icon, keys, up) in [("Move up", icons::ARROW_UP, "Alt+Up", true), ("Move down", icons::ARROW_DOWN, "Alt+Down", false)] {
+        let can = subcraft_app::effect_stack::nudged(ids, effects, up).is_some();
+        if ui.add_enabled(can, egui::Button::new(format!("{icon}  {label}")).shortcut_text(key(keys))).clicked() {
+            cmds.push(Command::NudgeEffects { layer: id, target, effects: effects.to_vec(), up });
+            ui.close();
+        }
+    }
+    ui.separator();
+    ui.menu_button(format!("{}  Add effect above", icons::PLUS), |ui| add_effect_menu(ui, layer, mask, channels, active, resolution, session, cmds));
+    let mut rename = false;
+    if ui.add_enabled(!many, egui::Button::new("Rename")).clicked() {
+        rename = true;
+        ui.close();
+    }
+    rename
 }
 
 /// Properties of the selected effect. Returns false when there is none to show.
@@ -369,6 +619,7 @@ fn content_editor(ui: &mut Ui, state: &mut UiState, layer: &Layer, e: &ContentEf
             ContentEffectKind::Fill(fill) => {
                 hint(ui, "A material on top of the layer's content. Enable the channels it should change.");
                 changed |= super::properties::projection_editor(ui, &mut fill.projection);
+                changed |= super::properties::projection_options(ui, &mut fill.projection);
                 let states: Vec<_> = channels.iter().map(|k| (*k, fill.channels.get(k).is_some_and(|c| c.enabled))).collect();
                 if let Some((channel, solo)) = super::properties::channel_toggles(ui, &states) {
                     cmds.push(Command::ToggleFillChannel { layer: layer.id, effect: Some(eff.id), channel, solo });

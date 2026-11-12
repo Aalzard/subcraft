@@ -4,11 +4,11 @@
 
 use crate::i18n::tr;
 use egui::{Context, RichText};
-use subcraft_render::{ToneMap, offline};
+use subcraft_render::offline;
 
 use crate::state::UiState;
 use crate::theme::TEXT_DIM;
-use crate::viewport_bar::ViewportPrefs;
+
 
 /// Output sizes offered for stills and turntables (square-ish; the view's aspect is kept).
 pub const SIZES: [u32; 4] = [1024, 1536, 2048, 4096];
@@ -56,89 +56,15 @@ pub fn window(state: &mut UiState, ctx: &Context) {
         return;
     }
     let mut open = true;
-    crate::widgets::window(ctx, "Render quality").open(&mut open).resizable(false).default_width(330.0).show(ctx, |ui| {
-        let prefs = &mut state.recovery.prefs.viewport;
-        ui.label(RichText::new(tr("Look")).color(TEXT_DIM));
-        egui::Grid::new("render_look").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
-            ui.label(tr("Tone mapping"));
-            let mut tone = prefs.tone_map();
-            egui::ComboBox::from_id_salt("tone_map").selected_text(tone.label()).show_ui(ui, |ui| {
-                for t in ToneMap::ALL {
-                    ui.selectable_value(&mut tone, t, t.label());
-                }
-            }).response.on_hover_text(tr("How bright light is squeezed into the display range. ACES is the default look; Linear clips highlights."));
-            prefs.tone_map = ToneMap::ALL.iter().position(|t| *t == tone).unwrap_or(0);
-            ui.end_row();
-            ui.label(tr("Exposure"));
-            ui.add(egui::Slider::new(&mut prefs.exposure, 0.25..=4.0).logarithmic(true)).on_hover_text(tr("Overall brightness before tone mapping"));
-            ui.end_row();
-            ui.label(tr("Bloom"));
-            ui.add(egui::Slider::new(&mut prefs.bloom, 0.0..=2.0)).on_hover_text(tr("Glow around bright areas. 0 is off."));
-            ui.end_row();
-            ui.label(tr("Bloom threshold"));
-            ui.add_enabled(prefs.bloom > 0.0, egui::Slider::new(&mut prefs.bloom_threshold, 0.0..=1.0)).on_hover_text(tr("Brightness above which an area glows"));
-            ui.end_row();
-            ui.label(tr("Ambient occlusion"));
-            ui.add(egui::Slider::new(&mut prefs.ssao, 0.0..=1.0)).on_hover_text(tr("Soft shadow in creases, from the view's depth. 0 is off."));
-            ui.end_row();
-            ui.label(tr("AO radius"));
-            ui.add_enabled(prefs.ssao > 0.0, egui::Slider::new(&mut prefs.ssao_radius, 0.5..=10.0).suffix("%")).on_hover_text(tr("How far occlusion reaches, in percent of the model size"));
-            ui.end_row();
-        });
-        ui.label(RichText::new(tr("Depth of field")).color(TEXT_DIM));
-        egui::Grid::new("render_dof").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
-            ui.label(tr("Enable"));
-            ui.checkbox(&mut prefs.dof, "").on_hover_text("Blur what is nearer or farther than the focus distance, from the view's depth. Off by default.");
-            ui.end_row();
-            ui.label(tr("Blur amount"));
-            ui.add_enabled(prefs.dof, egui::Slider::new(&mut prefs.dof_amount, 0.0..=1.0)).on_hover_text("Strength of the blur (the aperture)");
-            ui.end_row();
-            ui.label(tr("Focus distance"));
-            ui.add_enabled(prefs.dof, egui::Slider::new(&mut prefs.dof_focus, 0.2..=3.0).logarithmic(true)).on_hover_text("1 is the point the camera orbits around; it follows zooming");
-            ui.end_row();
-            ui.label(tr("Focus range"));
-            ui.add_enabled(prefs.dof, egui::Slider::new(&mut prefs.dof_range, 0.0..=50.0).suffix("%")).on_hover_text("Depth that stays sharp around the focus distance, in percent of the model size");
-            ui.end_row();
-            ui.label(tr("Focus point"));
-            if ui.add_enabled(prefs.dof, egui::Button::new("Pick in 3D view")).on_hover_text("Click the model in the 3D view to focus on that spot").clicked() {
-                state.picking_focus = true;
-            }
-            ui.end_row();
-        });
-        ui.label(RichText::new(tr("Emission")).color(TEXT_DIM));
-        egui::Grid::new("render_emission").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
-            ui.label(tr("Glow"));
-            ui.add(egui::Slider::new(&mut prefs.emission_glow, 0.0..=3.0)).on_hover_text(tr("Soft glow around emissive areas only. 0 is off; the default is subtle."));
-            ui.end_row();
-            ui.label(tr("Glow radius"));
-            ui.add_enabled(prefs.emission_glow > 0.0, egui::Slider::new(&mut prefs.glow_radius, 0.25..=8.0).logarithmic(true)).on_hover_text(tr("How far the glow spreads"));
-            ui.end_row();
-            ui.label(tr("Glare"));
-            ui.add(egui::Slider::new(&mut prefs.glare, 0.0..=3.0)).on_hover_text(tr("Streaks of light from bright emission. 0 is off."));
-            ui.end_row();
-            ui.label(tr("Glare shape"));
-            let mut mode = subcraft_render::GlareMode::ALL.get(prefs.glare_mode).copied().unwrap_or_default();
-            ui.add_enabled_ui(prefs.glare > 0.0, |ui| {
-                egui::ComboBox::from_id_salt("glare_mode").selected_text(mode.label()).show_ui(ui, |ui| {
-                    for m in subcraft_render::GlareMode::ALL { ui.selectable_value(&mut mode, m, m.label()); }
-                });
-            });
-            prefs.glare_mode = subcraft_render::GlareMode::ALL.iter().position(|m| *m == mode).unwrap_or(0);
-            ui.end_row();
-            ui.label(tr("Streak length"));
-            ui.add_enabled(prefs.glare > 0.0, egui::Slider::new(&mut prefs.glare_length, 0.0..=1.0)).on_hover_text(tr("How long the streaks reach"));
-            ui.end_row();
-        });
-        ui.label(RichText::new(tr("Glow and glare are viewport effects: exported textures never contain them.")).small().color(TEXT_DIM));
-        if ui.button(tr("Reset look")).clicked() {
-            let keep = ViewportPrefs {
-                tone_map: 0, exposure: 1.0, bloom: 0.0, bloom_threshold: 0.8, ssao: 0.0, ssao_radius: 3.0,
-                emission_glow: 0.35, glow_radius: 1.0, glare: 0.0, glare_mode: 0, glare_length: 0.5,
-                dof: false, dof_amount: 0.5, dof_focus: 1.0, dof_range: 10.0,
-                ..prefs.clone()
-            };
-            *prefs = keep;
-        }
+    crate::widgets::window(ctx, "Render quality").open(&mut open).resizable(false).default_width(330.0).show(ctx, |ui| window_body(state, ui));
+    state.render_window = open;
+}
+
+fn window_body(state: &mut UiState, ui: &mut egui::Ui) {
+    {
+        // The look is the Display Settings panel's Camera and Post effects groups.
+        crate::panels::display_settings::camera(state, ui);
+        crate::panels::display_settings::post_effects(state, ui);
         {
             ui.separator();
             ui.label(RichText::new(tr("Export")).color(TEXT_DIM));
@@ -176,14 +102,15 @@ pub fn window(state: &mut UiState, ctx: &Context) {
             });
             ui.label(RichText::new(tr("The grid and guides are left out. 4096 px with smoothing needs about 1 GB of video memory.")).small().color(TEXT_DIM));
         }
-    });
-    state.render_window = open;
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RenderRequest {
     Image,
     Turntable,
+    /// The Rendering mode's path-traced image as it is shown now (Painter's "Save Render").
+    PathTraced,
 }
 
 /// Carry out a request made in the window (file pickers are blocking, desktop only).
@@ -198,6 +125,11 @@ pub fn handle_request(state: &mut UiState, now: f64) {
         RenderRequest::Turntable => {
             let Some(dir) = rfd::FileDialog::new().pick_folder() else { return };
             let result = run(state, &Job::Turntable(dir));
+            report(state, now, result);
+        }
+        RenderRequest::PathTraced => {
+            let Some(path) = rfd::FileDialog::new().add_filter("PNG image", &["png"]).set_file_name("render.png").save_file() else { return };
+            let result = save_path_traced(state, &path);
             report(state, now, result);
         }
     }
@@ -227,9 +159,12 @@ pub fn render_frame(state: &mut UiState, camera: crate::orbit::OrbitCamera, pict
     let mut params = camera.view_params(big);
     params.height_scale = state.height_scale;
     params.antialias = true;
-    params.exposure = prefs.exposure;
+    params.exposure = prefs.exposure_value();
     params.post = prefs.post_params_at(state.session.scene().mesh.bounds.diagonal(), camera.eye_distance());
-    crate::panels::shelf::apply_environment(&state.library, state.env.index, state.env.rotation_deg, state.env.intensity,
+    let (env_rotation, env_intensity) = crate::panels::shelf::environment_view(&prefs.display, state.env.rotation_deg, camera.yaw);
+    params.environment.background_opacity = prefs.env_opacity;
+    params.environment.background_blur = prefs.env_blur;
+    crate::panels::shelf::apply_environment(&state.library, state.env.index, env_rotation, env_intensity,
         &mut params, &mut renderer, &mut state.env.uploaded, &rs.device, &rs.queue);
     // The renderer goes back into the state whether or not the GPU managed the readback, so a
     // failed render (device lost, out of video memory) reports an error and the viewport keeps working.
@@ -254,6 +189,24 @@ pub fn render_frame(state: &mut UiState, camera: crate::orbit::OrbitCamera, pict
 fn save_png(path: &std::path::Path, pixels: &[u8], size: [u32; 2]) -> Result<(), String> {
     let data: Vec<f32> = pixels.iter().map(|&b| b as f32 / 255.0).collect();
     subcraft_image::save_image(path, size[0], size[1], 4, &data, subcraft_image::FileFormat::Png8).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// The path-traced image as shown (tone mapped, sRGB, opaque) and its size, or why there is none.
+pub fn path_traced_pixels(state: &UiState) -> Result<(Vec<u8>, [u32; 2]), String> {
+    let rs = state.render_state.as_ref().ok_or("no GPU renderer is available")?;
+    let target = state.renderer.as_ref().and_then(|r| r.path_target()).filter(|_| state.pt_status.is_some())
+        .ok_or("Turn on the Rendering mode (F10) first: there is no path-traced image yet")?;
+    let mut pixels = target.try_read_rgba8(&rs.device, &rs.queue)?;
+    for a in pixels.iter_mut().skip(3).step_by(4) { *a = 255; }
+    Ok((pixels, target.size))
+}
+
+/// Save the Rendering mode's current image to `path` as a PNG.
+pub fn save_path_traced(state: &UiState, path: &std::path::Path) -> Result<String, String> {
+    let (pixels, size) = path_traced_pixels(state)?;
+    save_png(path, &pixels, size)?;
+    let samples = state.pt_status.map_or(0, |s| s.samples);
+    Ok(format!("Saved {} ({} x {}, {samples} samples)", path.display(), size[0], size[1]))
 }
 
 /// Run an export job with the current view and settings. Returns what to tell the user.

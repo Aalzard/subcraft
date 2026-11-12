@@ -1056,3 +1056,159 @@ fn position_gradient_runs_along_the_chosen_axis_and_concave_inverts_curvature() 
     // Roughness below the mask is the 0.3 default: coverage 1 gives 1.0, coverage 0 leaves 0.3.
     assert!(concave.iter().all(|v| *v > 0.99) && convex.iter().all(|v| (*v - 0.3).abs() < 0.01), "{} {}", concave[N as usize * 5 + 5], convex[N as usize * 5 + 5]);
 }
+
+// ---- Standard filter gaps: Blur wrap, Transform, Mirror ----
+
+/// [`reference`] with taps that continue from the opposite texture border.
+fn wrapped_reference(input: &[f32], radius: f32) -> Vec<f32> {
+    let r = radius.ceil() as i32;
+    let sigma = radius / 3.0;
+    let n = N as i32;
+    let mut out = vec![0.0; input.len()];
+    for y in 0..n {
+        for x in 0..n {
+            let (mut sum, mut norm) = (0.0, 0.0);
+            for dy in -r..=r {
+                for dx in -r..=r {
+                    let w = (-((dx * dx + dy * dy) as f32) / (2.0 * sigma * sigma)).exp();
+                    sum += input[((y + dy).rem_euclid(n) * n + (x + dx).rem_euclid(n)) as usize] * w;
+                    norm += w;
+                }
+            }
+            out[(y * n + x) as usize] = sum / norm;
+        }
+    }
+    out
+}
+
+#[test]
+fn wrapped_blur_continues_across_the_texture_borders() {
+    let fx = Fixture::new();
+    let (mut ts, mut l, data) = field();
+    add(&mut l, &ts, C::Roughness, Filter::blur(5.0, true));
+    ts.insert_above(None, l);
+    let wrapped = wrapped_reference(&data, 5.0);
+    assert_image(&ts, &fx, &wrapped);
+    // It is the clamping blur away from the borders and differs from it next to them.
+    let clamped = reference(&data, 5.0);
+    let at = |x: u32, y: u32| (y * N + x) as usize;
+    assert!((wrapped[at(64, 64)] - clamped[at(64, 64)]).abs() < 1e-6);
+    let differing = (0..N).filter(|&y| (wrapped[at(0, y)] - clamped[at(0, y)]).abs() > 0.02).count();
+    assert!(differing > 20, "{differing} border texels differ");
+}
+
+fn transform(repeat: subcraft_doc::RepeatMode, flip: subcraft_doc::FlipMode, scale: [f32; 2], offset: [f32; 2], rotation_deg: f32) -> Filter {
+    Filter::Transform { repeat, flip, scale, offset, rotation_deg, tile_safe: false }
+}
+
+#[test]
+fn transform_filter_moves_rotates_flips_and_scales_the_image_in_uv_space() {
+    use subcraft_doc::{FlipMode, RepeatMode};
+    let fx = Fixture::new();
+    let n = N as usize;
+    let run = |filter: Filter, expected: &dyn Fn(usize, usize) -> f32| {
+        let (mut ts, mut l, _) = field();
+        add(&mut l, &ts, C::Roughness, filter);
+        ts.insert_above(None, l);
+        let expected: Vec<f32> = (0..n * n).map(|i| expected(i % n, i / n)).collect();
+        assert_image(&ts, &fx, &expected);
+    };
+    let (_, _, data) = field();
+    let at = |x: usize, y: usize| data[y * n + x];
+    // The identity changes nothing.
+    run(transform(RepeatMode::Both, FlipMode::None, [1.0; 2], [0.0; 2], 0.0), &|x, y| at(x, y));
+    // Offset a quarter of the texture right and an eighth up, wrapping.
+    run(transform(RepeatMode::Both, FlipMode::None, [1.0; 2], [0.25, -0.125], 0.0), &|x, y| at((x + n - 32) % n, (y + 16) % n));
+    // A quarter turn counter-clockwise: the right edge of the image becomes the top edge.
+    run(transform(RepeatMode::Both, FlipMode::None, [1.0; 2], [0.0; 2], 90.0), &|x, y| at(n - 1 - y, x));
+    // Flips mirror the image.
+    run(transform(RepeatMode::Both, FlipMode::Horizontal, [1.0; 2], [0.0; 2], 0.0), &|x, y| at(n - 1 - x, y));
+    run(transform(RepeatMode::Both, FlipMode::Both, [1.0; 2], [0.0; 2], 0.0), &|x, y| at(n - 1 - x, n - 1 - y));
+    // Half size without repetition: the image fills the centre (each texel the mean of 2x2
+    // source texels), and the layer is empty around it, so the 0.3 default shows.
+    let half = |x: usize, y: usize| -> Option<f32> {
+        ((n / 4..3 * n / 4).contains(&x) && (n / 4..3 * n / 4).contains(&y)).then(|| {
+            let (sx, sy) = (2 * x - n / 2, 2 * y - n / 2);
+            (at(sx, sy) + at(sx + 1, sy) + at(sx, sy + 1) + at(sx + 1, sy + 1)) * 0.25
+        })
+    };
+    run(transform(RepeatMode::None, FlipMode::None, [0.5; 2], [0.0; 2], 0.0), &|x, y| half(x, y).unwrap_or(0.3));
+    // Half size repeating: four copies.
+    run(transform(RepeatMode::Both, FlipMode::None, [0.5; 2], [0.0; 2], 0.0), &|x, y| half((x + n / 4) % (n / 2) + n / 4, (y + n / 4) % (n / 2) + n / 4).unwrap());
+    // Repeating along U only: the row of copies, empty above and below.
+    run(transform(RepeatMode::Horizontal, FlipMode::None, [0.5; 2], [0.0; 2], 0.0), &|x, y| half((x + n / 4) % (n / 2) + n / 4, y).unwrap_or(0.3));
+    // Tile-safe rotation snaps 80 degrees to the quarter turn.
+    run(Filter::Transform { repeat: RepeatMode::Both, flip: FlipMode::None, scale: [1.0; 2], offset: [0.0; 2], rotation_deg: 80.0, tile_safe: true }, &|x, y| at(n - 1 - y, x));
+}
+
+#[test]
+fn mirror_filter_copies_the_kept_side_onto_the_other_in_content_and_masks() {
+    use subcraft_doc::{MirrorCorner, MirrorMode};
+    let fx = Fixture::new();
+    let n = N as usize;
+    let (_, _, data) = field();
+    let at = |x: usize, y: usize| data[y * n + x];
+    let mirror = |mode, invert_x, invert_y, corner| Filter::Mirror { mode, offset: [0.5; 2], invert_x, invert_y, corner };
+    let run = |filter: Filter, expected: &dyn Fn(usize, usize) -> f32| {
+        let (mut ts, mut l, _) = field();
+        add(&mut l, &ts, C::Roughness, filter);
+        ts.insert_above(None, l);
+        let expected: Vec<f32> = (0..n * n).map(|i| expected(i % n, i / n)).collect();
+        assert_image(&ts, &fx, &expected);
+    };
+    let near = |v: usize| v.min(n - 1 - v);
+    let far = |v: usize| v.max(n - 1 - v);
+    run(mirror(MirrorMode::AxisX, false, false, MirrorCorner::TopLeft), &|x, y| at(near(x), y));
+    run(mirror(MirrorMode::AxisX, true, false, MirrorCorner::TopLeft), &|x, y| at(far(x), y));
+    run(mirror(MirrorMode::AxisY, false, false, MirrorCorner::TopLeft), &|x, y| at(x, near(y)));
+    run(mirror(MirrorMode::Corner, false, false, MirrorCorner::TopLeft), &|x, y| at(near(x), near(y)));
+    run(mirror(MirrorMode::Corner, false, false, MirrorCorner::BottomRight), &|x, y| at(far(x), far(y)));
+    run(mirror(MirrorMode::Corner, true, false, MirrorCorner::BottomRight), &|x, y| at(near(x), far(y)));
+    // Axis a quarter in: the first quarter is reflected once, then clamps to the left border.
+    run(Filter::Mirror { mode: MirrorMode::AxisX, offset: [0.25, 0.5], invert_x: false, invert_y: false, corner: MirrorCorner::TopLeft },
+        &|x, y| at(if x < n / 4 { x } else { (n / 2 - 1).saturating_sub(x) }, y));
+    // On a mask: the mirrored mask reveals the layer symmetrically.
+    let (mut ts, mut l, _) = field();
+    let mut mask = Mask::new(N, false);
+    for y in 0..N {
+        for x in 0..N {
+            mask.base.set(x, y, [if x < 20 && y < 90 { 1.0 } else { 0.0 }, 0.0, 0.0, 0.0]);
+        }
+    }
+    mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Filter(mirror(MirrorMode::AxisX, false, false, MirrorCorner::TopLeft)))));
+    l.mask = Some(mask);
+    ts.insert_above(None, l);
+    let expected: Vec<f32> = (0..n * n).map(|i| {
+        let (x, y) = (i % n, i / n);
+        if near(x) < 20 && y < 90 { at(x, y) } else { 0.3 }
+    }).collect();
+    assert_image(&ts, &fx, &expected);
+}
+
+/// QA 2026-11: a Transform that leaves gaps (no repeat, scaled down) over a flat layer was marked
+/// "uniform", so it was evaluated for one tile and that tile's result reused for every tile: the
+/// shrunken image and its empty border landed in the wrong places.
+#[test]
+fn a_gap_leaving_transform_of_a_flat_layer_is_evaluated_per_tile() {
+    use subcraft_core::ChannelValue;
+    use subcraft_doc::{FillChannel, FillSource, FlipMode, RepeatMode};
+    let fx = Fixture::new();
+    let ts = TextureSet::new("T", 0, N);
+    let mut fill = Layer::new_fill("Flat", &ts);
+    let LayerContent::Fill(f) = &mut fill.content else { unreachable!() };
+    f.channels.insert(C::Roughness, FillChannel::new(FillSource::uniform(ChannelValue::scalar(0.8))));
+    add(&mut fill, &ts, C::Roughness, transform(RepeatMode::None, FlipMode::None, [0.5; 2], [0.0; 2], 0.0));
+    let mut ts = ts;
+    ts.insert_above(None, fill);
+    let c = composite_full(&ts, &fx.ctx());
+    let img = c.channel(C::Roughness).unwrap();
+    let flat = img.get(0, 0)[0];
+    // Inside the centre half: the (flat) image. Well outside it: the empty border, whatever
+    // tile it is in.
+    for (x, y) in [(64, 64), (70, 70), (40, 40), (90, 40), (40, 90)] {
+        assert!((img.get(x, y)[0] - 0.8).abs() < 0.01, "({x},{y}) = {} should be the image", img.get(x, y)[0]);
+    }
+    for (x, y) in [(5, 5), (120, 120), (64, 120), (120, 64), (5, 64)] {
+        assert!((img.get(x, y)[0] - flat).abs() < 1e-4 && (flat - 0.8).abs() > 0.1, "({x},{y}) = {} should be the empty border ({flat})", img.get(x, y)[0]);
+    }
+}

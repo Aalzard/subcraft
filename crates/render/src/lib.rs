@@ -9,6 +9,7 @@
 pub mod caps;
 pub mod gpu_composite;
 pub mod gpu_mesh;
+pub mod grade;
 pub mod grid;
 mod bake_preview;
 mod display;
@@ -16,6 +17,7 @@ pub mod headless;
 pub mod material;
 mod mipmap;
 pub mod offline;
+pub mod pace;
 pub mod pathtrace;
 pub mod post;
 pub mod ray_bake;
@@ -35,9 +37,11 @@ use wgpu::util::DeviceExt;
 pub use egui_wgpu;
 pub use egui_wgpu::wgpu as wgpu_api;
 pub use gpu_mesh::GpuMesh;
-pub use grid::GridParams;
+pub use grid::{GridParams, grid_step};
+pub use subcraft_doc::display::ChannelComponent;
 pub use material::{ChannelTexture, GpuMaterial, SHADED_CHANNELS};
-pub use pathtrace::{Denoiser, PathTraceScene, PathTraceSettings, PathTraceStatus};
+pub use pathtrace::{Denoiser, FIREFLY_CLAMP, GroundSettings, PathTraceScene, PathTraceSettings, PathTraceStatus, render_done};
+pub use grade::Grade;
 pub use post::{GlareMode, PostParams, ToneMap};
 pub use preview::{PreviewPass, PreviewTarget};
 pub use target::{DISPLAY_FORMAT, OUTPUT_FORMAT, PendingReadback, RenderTarget};
@@ -65,6 +69,11 @@ pub struct EnvironmentParams {
     pub hdri_intensity: f32,
     /// Rotation of the environment around +Y (radians).
     pub rotation: f32,
+    /// How much of the environment is drawn behind the model, over the background color
+    /// (0 = none: the frame is exactly the plain-background render).
+    pub background_opacity: f32,
+    /// Blur of that background, 0 (sharp) to 1 (the fully diffused map).
+    pub background_blur: f32,
 }
 
 impl Default for EnvironmentParams {
@@ -81,6 +90,8 @@ impl Default for EnvironmentParams {
             use_hdri: false,
             hdri_intensity: 1.0,
             rotation: 0.0,
+            background_opacity: 0.0,
+            background_blur: 0.0,
         }
     }
 }
@@ -89,6 +100,29 @@ impl Default for EnvironmentParams {
 pub struct HdriUpload<'a> {
     pub levels: &'a [(u32, u32, &'a [f32])],
     pub sh: [[f32; 3]; 9],
+}
+
+/// How a channel shown alone on the model is displayed.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ChannelDisplay {
+    /// The channel as it is, without lighting. Off shades it with the key light, so the shape
+    /// of the model stays readable.
+    pub unlit: bool,
+    /// Values are divided by this before they are shown (brings HDR values into view).
+    pub hdr_scale: f32,
+    /// Grayscale channels: positive values in `positive`, negative ones in `negative`.
+    pub signed_colors: bool,
+    /// Display (sRGB) colors of the two signs.
+    pub positive: [f32; 3],
+    pub negative: [f32; 3],
+    /// One component as gray, or all of them.
+    pub component: ChannelComponent,
+}
+
+impl Default for ChannelDisplay {
+    fn default() -> Self {
+        Self { unlit: true, hdr_scale: 1.0, signed_colors: false, positive: [0.25, 0.85, 0.30], negative: [0.90, 0.25, 0.20], component: ChannelComponent::All }
+    }
 }
 
 /// Camera and lighting for one frame.
@@ -128,6 +162,12 @@ pub struct ViewParams {
     pub wireframe: bool,
     /// Tone mapping, bloom and ambient occlusion (defaults leave the image as before).
     pub post: PostParams,
+    /// Any channel shown alone on the model, uploaded or not (overrides `view_mode`).
+    pub solo_channel: Option<ChannelKind>,
+    /// How single-channel views are displayed.
+    pub channel_display: ChannelDisplay,
+    /// Texture level bias of the material textures: 0 (soft) down to -3 (very sharp).
+    pub mip_bias: f32,
 }
 
 /// What the 3D view shows on the model.
@@ -206,6 +246,9 @@ impl ViewParams {
             grid: None,
             bake_overlay: false, bake_cage: true, bake_high_transform: Mat4::IDENTITY, bake_high_opacity: 1.0, bake_distances: [0.01; 2], bake_map: None, symmetry_guides: false, wireframe: false,
             post: PostParams::default(),
+            solo_channel: None,
+            channel_display: ChannelDisplay::default(),
+            mip_bias: 0.0,
         }
     }
 }
@@ -227,6 +270,16 @@ struct Globals {
     env_misc: [f32; 4],
     post: [f32; 4],
     sh: [[f32; 4]; 9],
+    inv_view_proj: [[f32; 4]; 4],
+    /// rgb: background color (linear), a: environment opacity behind the model.
+    background: [f32; 4],
+    /// x: background blur 0..1.
+    env_view: [f32; 4],
+    /// x: 1 / HDR scale, y: 1 = two-color signed display, z: component (0 all, 1 R, 2 G, 3 B, 4 A), w: 1 = lit.
+    solo: [f32; 4],
+    /// rgb: color of positive values, a: texture level bias.
+    solo_positive: [f32; 4],
+    solo_negative: [f32; 4],
 }
 
 pub const SAMPLE_COUNT: u32 = 4;
@@ -238,6 +291,8 @@ pub struct ViewportRenderer {
     pipeline_no_aa: wgpu::RenderPipeline,
     /// Emission-only pass feeding the glow and glare effects.
     pipeline_emissive: wgpu::RenderPipeline,
+    /// Environment drawn behind the model (4x MSAA and single-sample).
+    pipeline_background: [wgpu::RenderPipeline; 2],
     grid: grid::GridPass,
     symmetry: Option<grid::GridPass>,
     wireframe: Option<grid::GridPass>,
@@ -250,6 +305,8 @@ pub struct ViewportRenderer {
     env_levels: u32,
     env_sh: [[f32; 3]; 9],
     material_layout: wgpu::BindGroupLayout,
+    /// Anisotropic filtering samples of `sampler` (1 = off).
+    anisotropy: u16,
     sampler: wgpu::Sampler,
     nearest_sampler: wgpu::Sampler,
     mipmaps: mipmap::MipGenerator,
@@ -272,7 +329,7 @@ impl ViewportRenderer {
     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("viewport shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("viewport.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(concat!(include_str!("tonemap.wgsl"), include_str!("viewport.wgsl")).into()),
         });
         let globals_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("globals layout"),
@@ -379,6 +436,36 @@ impl ViewportRenderer {
             multiview_mask: None,
             cache: None,
         });
+        // The environment behind the model: one triangle over the whole view, drawn before the
+        // mesh without touching depth. It needs the globals only.
+        let background_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("background layout"),
+            bind_group_layouts: &[Some(&globals_layout)],
+            immediate_size: 0,
+        });
+        let make_background = |samples: u32| device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("background pipeline"),
+            layout: Some(&background_layout),
+            vertex: wgpu::VertexState { module: &shader, entry_point: Some("vs_background"), compilation_options: Default::default(), buffers: &[] },
+            primitive: Default::default(),
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: target::DEPTH_FORMAT,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(wgpu::CompareFunction::Always),
+                stencil: Default::default(),
+                bias: Default::default(),
+            }),
+            multisample: wgpu::MultisampleState { count: samples, ..Default::default() },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_background"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState { format: OUTPUT_FORMAT, blend: None, write_mask: wgpu::ColorWrites::ALL })],
+            }),
+            multiview_mask: None,
+            cache: None,
+        });
+        let pipeline_background = [make_background(if caps::get().msaa4 { SAMPLE_COUNT } else { 1 }), make_background(1)];
         let pipeline = make_pipeline(if caps::get().msaa4 { SAMPLE_COUNT } else { 1 });
         let pipeline_no_aa = make_pipeline(1);
         let globals = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -422,6 +509,7 @@ impl ViewportRenderer {
         Self {
             post,
             pipeline_emissive,
+            pipeline_background,
             pipeline,
             pipeline_no_aa,
             grid: grid::GridPass::new(device),
@@ -435,7 +523,7 @@ impl ViewportRenderer {
             env_texture,
             env_levels: 1,
             env_sh: [[0.0; 3]; 9],
-            material_layout, sampler, nearest_sampler, mipmaps: mipmap::MipGenerator::new(device), defaults, mesh: None, materials: HashMap::new(), target: None, preview: PreviewPass::new(device), preview_target: None,
+            material_layout, anisotropy: 1, sampler, nearest_sampler, mipmaps: mipmap::MipGenerator::new(device), defaults, mesh: None, materials: HashMap::new(), target: None, preview: PreviewPass::new(device), preview_target: None,
             path_tracer: None, hidden_slots: Default::default(), path_target: None, path_support: None }
     }
 
@@ -586,6 +674,36 @@ impl ViewportRenderer {
         Some(dst)
     }
 
+    /// Anisotropic filtering of the material textures: `samples` per pixel (1 = off, up to 16).
+    /// Ignored (stays off) where the GPU has no anisotropic filtering.
+    pub fn set_texture_filtering(&mut self, device: &wgpu::Device, samples: u16) {
+        let samples = if caps::get().anisotropy { samples.clamp(1, 16) } else { 1 };
+        if samples == self.anisotropy {
+            return;
+        }
+        self.anisotropy = samples;
+        self.sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("material sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
+            anisotropy_clamp: samples,
+            ..Default::default()
+        });
+        // Every bind group holds the old sampler.
+        for mat in self.materials.values_mut() {
+            mat.bind_group = None;
+            mat.bake_bind_groups.clear();
+        }
+    }
+
+    /// Anisotropic filtering samples in use (1 = off).
+    pub fn texture_filtering(&self) -> u16 {
+        self.anisotropy
+    }
+
     /// Change only Base Color reconstruction; reuse all channel textures and pipelines.
     pub fn set_albedo_filter(&mut self, material_slot: u32, filter: subcraft_image::TextureFilter) {
         let mat = self.materials.entry(material_slot).or_default();
@@ -643,6 +761,28 @@ impl ViewportRenderer {
                 baked_normal_groups.insert(*slot, device.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("baked normal material"), layout: &self.material_layout, entries: &entries }));
             }
         }
+        // A channel shown alone: its texture in the Base Color slot, read by the unlit modes.
+        // Channels the shader does not otherwise use (Opacity, Specular, User...) work the same.
+        let solo = params.solo_channel.filter(|_| bake_map.is_none());
+        let mut solo_groups: std::collections::HashMap<u32, wgpu::BindGroup> = Default::default();
+        if let Some(kind) = solo {
+            let d = kind.default_value().0;
+            let neutral = ChannelTexture::constant(device, queue, [d[0], d[1], d[2], 1.0], composite_comps(kind), "solo channel default");
+            for (slot, mat) in &self.materials {
+                let nearest = kind == ChannelKind::BaseColor && mat.albedo_filter == subcraft_image::TextureFilter::Nearest;
+                let mut entries = vec![
+                    wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::Sampler(&self.sampler) },
+                    wgpu::BindGroupEntry { binding: 8, resource: wgpu::BindingResource::Sampler(if nearest { &self.nearest_sampler } else { &self.sampler }) },
+                ];
+                for (i, k) in SHADED_CHANNELS.iter().enumerate() {
+                    let view = if i == 0 { mat.channels.get(&kind).map_or(&neutral.view, |t| &t.view) } else { &self.defaults[k].view };
+                    entries.push(wgpu::BindGroupEntry { binding: i as u32 + 1, resource: wgpu::BindingResource::TextureView(view) });
+                }
+                solo_groups.insert(*slot, device.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("solo channel"), layout: &self.material_layout, entries: &entries }));
+            }
+        }
+        // Shader mode of the solo channel: a color (1), three stored components (7) or one (8).
+        let solo_mode = solo.map(|k| if k.is_color() { 1.0 } else if k.components() == 3 { 7.0 } else { 8.0 });
         if let Some(kind) = bake_map {
             for mat in self.materials.values_mut() {
                 if mat.bake_bind_groups.contains_key(&kind) { continue; }
@@ -682,9 +822,20 @@ impl ViewportRenderer {
             irr_down: v4(e.irradiance_down),
             lights: [e.panels, e.top, e.key_softbox, if e.use_hdri && self.env_levels > 1 { 1.0 } else { 0.0 }],
             env_misc: [e.rotation, e.hdri_intensity, (self.env_levels - 1) as f32,
-                bake_map.map_or(params.view_mode.shader_mode() as f32, |k| if k.components() == 1 { 8. } else { 7. })],
-            post: [params.post.tone_map.id(), 0.0, 0.0, 0.0],
+                bake_map.map_or(solo_mode.unwrap_or(params.view_mode.shader_mode() as f32), |k| if k.components() == 1 { 8. } else { 7. })],
+            post: [grade::tone_map_id(params.post.tone_map), params.post.mapping_factor, 0.0, 0.0],
             sh,
+            inv_view_proj: (params.proj * params.view).inverse().to_cols_array_2d(),
+            background: [params.background[0], params.background[1], params.background[2], e.background_opacity.clamp(0.0, 1.0)],
+            env_view: [e.background_blur.clamp(0.0, 1.0), 0.0, 0.0, 0.0],
+            solo: [
+                1.0 / params.channel_display.hdr_scale.max(1e-6),
+                if params.channel_display.signed_colors { 1.0 } else { 0.0 },
+                params.channel_display.component as u32 as f32,
+                if params.channel_display.unlit { 0.0 } else { 1.0 },
+            ],
+            solo_positive: { let c = params.channel_display.positive; [c[0], c[1], c[2], params.mip_bias.clamp(-8.0, 8.0)] },
+            solo_negative: v4(params.channel_display.negative),
         };
         queue.write_buffer(&self.globals, 0, bytemuck::bytes_of(&globals));
         if params.symmetry_guides && let Some(guides) = &self.symmetry { guides.prepare_lines(queue, params.proj * params.view); }
@@ -721,6 +872,11 @@ impl ViewportRenderer {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
+            if e.background_opacity > 0.0 {
+                pass.set_pipeline(&self.pipeline_background[if samples > 1 { 0 } else { 1 }]);
+                pass.set_bind_group(0, &self.globals_bg, &[]);
+                pass.draw(0..3, 0..1);
+            }
             if params.bake_overlay {
                 self.bake_preview.draw(&mut pass, samples > 1, params.bake_cage);
             } else if let Some(mesh) = &self.mesh {
@@ -732,7 +888,7 @@ impl ViewportRenderer {
                     if self.hidden_slots.contains(&r.material_slot) { continue; }
                     let Some(bg) = self.materials.get(&r.material_slot).and_then(|m| match bake_map {
                         Some(k) => m.bake_bind_groups.get(&k),
-                        None => baked_normal_groups.get(&r.material_slot).or(m.bind_group.as_ref()),
+                        None => solo_groups.get(&r.material_slot).or(baked_normal_groups.get(&r.material_slot)).or(m.bind_group.as_ref()),
                     }) else { continue };
                     pass.set_bind_group(1, bg, &[]);
                     pass.draw_indexed(r.first_index..r.first_index + r.index_count, 0, 0..1);

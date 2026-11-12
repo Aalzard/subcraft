@@ -35,7 +35,8 @@ pub enum Command {
     /// Select an effect in the layer's content or mask stack (`None`: the domain itself). Tool
     /// state only: a Paint effect receives strokes; other effects show their Properties.
     SelectEffect { layer: LayerId, target: crate::session::LayerTarget, effect: Option<EffectId> },
-    /// Append to the layer's content stack (top) and select it. Not on folders; Levels not on Normal.
+    /// Add to the layer's content stack and select it: right above the selected effect of that
+    /// stack, else on top. Not on folders; Levels not on Normal.
     AddContentEffect { layer: LayerId, kind: ContentEffectKind },
     RemoveContentEffect { layer: LayerId, effect: EffectId },
     /// Replace an effect (matched by id); coalesces while dragging.
@@ -45,7 +46,21 @@ pub enum Command {
     /// Same-stack visual reorder; resolve UUID anchors against the current document on release.
     DropEffect { source: crate::effect_stack::EffectAddress, target: crate::effect_stack::EffectAddress, side: crate::effect_stack::DropSide },
     DuplicateContentEffect { layer: LayerId, effect: EffectId },
+    /// Remove several effects of one stack (Delete with effects selected). One undo step.
+    RemoveEffects { layer: LayerId, target: crate::session::LayerTarget, effects: Vec<EffectId> },
+    /// Copy each effect right above its original (Ctrl+D); the topmost copy becomes selected.
+    DuplicateEffects { layer: LayerId, target: crate::session::LayerTarget, effects: Vec<EffectId> },
+    /// Move the effects one step up or down their stack (Alt+Up / Alt+Down). Nothing happens,
+    /// and no undo step is added, when they are already at that end.
+    NudgeEffects { layer: LayerId, target: crate::session::LayerTarget, effects: Vec<EffectId>, up: bool },
+    RenameEffect { layer: LayerId, target: crate::session::LayerTarget, effect: EffectId, name: String },
+    /// Drop one or more effects of `source`'s stack (`source.effect` is the grabbed one; it is
+    /// always included): reorder them inside the stack, or move them to another layer of the
+    /// same texture set. `copy` (Alt held) leaves the originals and drops copies. One undo
+    /// step; stale or unchanged drops do nothing.
+    DropEffects { source: crate::effect_stack::EffectAddress, effects: Vec<EffectId>, to: crate::effect_stack::EffectDrop, copy: bool },
     /// Insert above the selected layer (or at the top) of the selected texture set and select it.
+    /// A selected empty folder receives the new layer instead (Painter).
     AddLayer(NewLayer),
     /// Insert a ready-made layer (material preset, smart material) like [`Command::AddLayer`].
     InsertLayer { layer: Box<Layer>, label: String },
@@ -79,7 +94,11 @@ pub enum Command {
     SetLayersVisible { layers: Vec<LayerId>, visible: bool },
     /// Paste copied layers above the selected layer of the selected texture set (any project).
     PasteLayers(std::sync::Arc<crate::clipboard::LayerClip>),
-    /// Paste copied effects onto the end of this layer's matching stack.
+    /// Painter's Paste layer content: replace this layer's content (paint or fill) and content
+    /// effects with those of the single copied layer. Name, mask, blending and position stay.
+    PasteLayerContent { layer: LayerId, clip: std::sync::Arc<crate::clipboard::LayerClip> },
+    /// Paste copied effects into this layer's matching stack: right above the selected effect
+    /// of that stack, else on top.
     PasteEffects { layer: LayerId, clip: std::sync::Arc<crate::clipboard::EffectClip> },
     RenameTextureSet { texture_set: TextureSetId, name: String },
     /// Show or hide a texture set's part of the model in the viewport. View state only: not saved,
@@ -90,9 +109,18 @@ pub enum Command {
     ClearMeshMap { texture_set: TextureSetId, kind: subcraft_core::MeshMapKind },
     /// Wrap the layer into a new folder.
     GroupLayer(LayerId),
+    /// Show only this texture set's part of the model, or everything again when it is already
+    /// the only one shown (Painter's Alt+Q). View state only, like `SetTextureSetHidden`.
+    IsolateTextureSet(TextureSetId),
+    /// Put several layers of one texture set into one new folder, created where the topmost of
+    /// them was; their stacking order is kept (Painter's Ctrl+G). One undo step.
+    GroupLayers(Vec<LayerId>),
     MoveLayer { layer: LayerId, parent: Option<LayerId>, index: usize },
     /// Visual layer-tree drop. The controller validates UUIDs, cycles and insertion indices.
     DropLayer { texture_set: TextureSetId, layer: LayerId, target: crate::layer_tree::DropTarget },
+    /// Drop several layers at once (they keep their stacking order), or copies of them when
+    /// `copy` (Ctrl held, Painter's Ctrl + drag duplicate). One undo step.
+    DropLayers { texture_set: TextureSetId, layers: Vec<LayerId>, target: crate::layer_tree::DropTarget, copy: bool },
     /// One step up / down among siblings (up = towards the top of the stack).
     MoveUp(LayerId),
     MoveDown(LayerId),
@@ -102,6 +130,14 @@ pub enum Command {
     SetBlendMode { layer: LayerId, channel: ChannelKind, mode: BlendMode },
     /// Coalesces with neighbouring opacity edits of the same layer/channel until [`Command::Seal`].
     SetBlendOpacity { layer: LayerId, channel: ChannelKind, opacity: f32 },
+    /// Painter's "Apply to all channels": give every channel of the layer the blend mode and /
+    /// or the opacity `from` has. A mode a channel cannot use is skipped there.
+    SetBlendAllChannels { layer: LayerId, from: ChannelKind, mode: bool, opacity: bool },
+    /// Paste copied blending options (mode and opacity per channel) onto these layers; channels
+    /// a layer does not blend, or modes it cannot use, are skipped. One undo step.
+    PasteBlending { layers: Vec<LayerId>, blend: std::collections::BTreeMap<ChannelKind, subcraft_doc::ChannelBlend> },
+    /// Colour tag of these layers (`None` clears it). One undo step.
+    SetLayerColor { layers: Vec<LayerId>, color: Option<subcraft_doc::LayerColor> },
     /// Coalesces like opacity.
     SetFillChannel { layer: LayerId, channel: ChannelKind, fill: FillChannel },
     /// Atomic independent toggle or solo (Alt-click), preserving every source and strength.
@@ -121,7 +157,8 @@ pub enum Command {
     MoveMaskEffect { layer: LayerId, effect: EffectId, index: usize },
     DuplicateMaskEffect { layer: LayerId, effect: EffectId },
     SetMaskEnabled { layer: LayerId, enabled: bool },
-    /// Append to the mask's stack (top) and select it.
+    /// Add to the mask's stack and select it: right above the selected effect of that stack,
+    /// else on top.
     AddMaskEffect { layer: LayerId, kind: MaskEffectKind },
     RemoveMaskEffect { layer: LayerId, effect: EffectId },
     /// Replace an effect (matched by id); coalesces while dragging.

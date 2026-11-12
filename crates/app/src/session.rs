@@ -19,6 +19,22 @@ use subcraft_paint::{
 use crate::actions::Action;
 use crate::command::{Command, CommandError, NewLayer};
 
+/// Run `$body` on the content or mask effect stack of a layer (`$s`: `&mut Vec<Arc<_>>`).
+macro_rules! on_stack {
+    ($layer:expr, $target:expr, |$s:ident| $body:expr) => {
+        match $target {
+            LayerTarget::Content => {
+                let $s = &mut $layer.content_effects;
+                $body
+            }
+            LayerTarget::Mask => {
+                let $s = &mut $layer.mask.as_mut().ok_or(CommandError::NoMask)?.effects;
+                $body
+            }
+        }
+    };
+}
+
 /// Default texture-set resolution for new sessions.
 pub const DEFAULT_RESOLUTION: u32 = 2048;
 
@@ -64,6 +80,17 @@ pub struct Selection {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LayerTarget { Content, Mask }
 
+/// What the Clone tool's source does between strokes.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum CloneSourceMode {
+    /// The source keeps its distance to the brush: each stroke continues where the last one left
+    /// the copy (the source follows the brush).
+    #[default]
+    Relative,
+    /// Every stroke starts copying from the point that was set as the source.
+    Absolute,
+}
+
 /// Current brush configuration (not undoable).
 #[derive(Clone, Debug)]
 pub struct BrushState {
@@ -79,6 +106,8 @@ pub struct BrushState {
     pub stencil: Option<Arc<subcraft_paint::Stencil>>,
     /// Temporarily ignore the stencil (held N key), without removing it.
     pub stencil_bypass: bool,
+    /// Clone tool: whether the source follows the brush or returns to where it was set.
+    pub clone_mode: CloneSourceMode,
 }
 
 /// A surface point under the cursor.
@@ -225,6 +254,7 @@ impl Session {
                 target: PaintTarget::Content,
                 stencil: None,
                 stencil_bypass: false,
+                clone_mode: CloneSourceMode::Relative,
             },
             stroke: None,
             clone_source: None,
@@ -649,6 +679,20 @@ impl Session {
         exists.then_some(id)
     }
 
+    /// The selected effect when it sits in `layer`'s `target` stack: new and pasted effects go
+    /// right above it (Painter).
+    fn selected_effect_in(&self, layer: LayerId, target: LayerTarget) -> Option<EffectId> {
+        (self.selection.layer == Some(layer) && self.layer_target() == target).then(|| self.selected_effect()).flatten()
+    }
+
+    /// Effect ids of one of a layer's stacks, bottom to top.
+    fn stack_ids(layer: &Layer, target: LayerTarget) -> Result<Vec<EffectId>, CommandError> {
+        Ok(match target {
+            LayerTarget::Content => layer.content_effects.iter().map(|e| e.id).collect(),
+            LayerTarget::Mask => layer.mask.as_ref().ok_or(CommandError::NoMask)?.effects.iter().map(|e| e.id).collect(),
+        })
+    }
+
     /// Brush target for selecting `effect` (or the domain itself) in `target` of `layer`.
     fn target_for(layer: &Layer, target: LayerTarget, effect: Option<EffectId>) -> Result<PaintTarget, CommandError> {
         let missing = || CommandError::Invalid("No such effect in this stack".into());
@@ -783,9 +827,16 @@ impl Session {
         })
     }
 
-    /// World radius of the current brush.
+    /// World radius of the current brush in Object size space (see [`Session::brush_radius_in`]).
     pub fn brush_radius(&self) -> f32 {
         self.brush.settings.radius(self.scene.mesh.bounds.diagonal())
+    }
+
+    /// World radius of the current brush in its size space: `pixels_per_unit` and
+    /// `viewport_height` describe the view under the cursor, `uv_per_unit` the painted texture
+    /// set's texel density (0 = unknown; that space then uses the object size).
+    pub fn brush_radius_in(&self, pixels_per_unit: f32, viewport_height: f32, uv_per_unit: f32) -> f32 {
+        self.brush.settings.radius_in(&subcraft_paint::SizeContext { diagonal: self.scene.mesh.bounds.diagonal(), pixels_per_unit, viewport_height, uv_per_unit })
     }
 
     /// Surface position corresponding to a texture UV, for displaying editable path overlays.
@@ -968,6 +1019,7 @@ impl Session {
             }
             Command::AddContentEffect { layer, kind } => {
                 Self::check_content_effect(&kind)?;
+                let above = self.selected_effect_in(layer, LayerTarget::Content);
                 let id = self.edit_layer_set(layer, "Add Effect", None, |ts| {
                     let mut effect = ContentEffect::new(kind, ts);
                     if matches!(effect.kind, ContentEffectKind::Anchor) {
@@ -978,7 +1030,8 @@ impl Session {
                         return Err(CommandError::Invalid("Folders support adjustment effects only".into()));
                     }
                     let id = effect.id;
-                    l.content_effects.push(Arc::new(effect));
+                    let at = above.and_then(|a| l.content_effects.iter().position(|e| e.id == a)).map_or(l.content_effects.len(), |i| i + 1);
+                    l.content_effects.insert(at, Arc::new(effect));
                     Ok(id)
                 })?;
                 return self.execute(Command::SelectEffect { layer, target: LayerTarget::Content, effect: Some(id) });
@@ -1037,6 +1090,127 @@ impl Session {
                     Ok(())
                 })?;
             }
+            Command::RemoveEffects { layer, target, effects } => {
+                let label = if effects.len() == 1 { "Remove Effect" } else { "Remove Effects" };
+                self.edit_layer_set(layer, label, None, |ts| {
+                    let l = Self::layer_mut(ts, layer)?;
+                    let removed = on_stack!(l, target, |s| crate::effect_stack::take(s, &effects).len());
+                    if removed == 0 { Err(CommandError::Invalid("No such effect".into())) } else { Ok(()) }
+                })?;
+            }
+            Command::DuplicateEffects { layer, target, effects } => {
+                let label = if effects.len() == 1 { "Duplicate Effect" } else { "Duplicate Effects" };
+                let new = self.edit_layer_set(layer, label, None, |ts| {
+                    let l = Self::layer_mut(ts, layer)?;
+                    let new = on_stack!(l, target, |s| crate::effect_stack::duplicate_in_place(s, &effects));
+                    if new.is_empty() { Err(CommandError::Invalid("No such effect".into())) } else { Ok(new) }
+                })?;
+                return self.execute(Command::SelectEffect { layer, target, effect: new.last().copied() });
+            }
+            Command::NudgeEffects { layer, target, effects, up } => {
+                let ts = self.texture_set_of(layer).and_then(|t| self.doc.texture_set(t)).ok_or(CommandError::LayerNotFound)?;
+                let ids = Self::stack_ids(ts.find(layer).ok_or(CommandError::LayerNotFound)?, target)?;
+                if !effects.iter().any(|e| ids.contains(e)) {
+                    return Err(CommandError::Invalid("No such effect".into()));
+                }
+                if let Some(order) = crate::effect_stack::nudged(&ids, &effects, up) {
+                    self.edit_layer_set(layer, "Move Effect", None, |ts| {
+                        let l = Self::layer_mut(ts, layer)?;
+                        on_stack!(l, target, |s| crate::effect_stack::apply_order(s, &order));
+                        Ok(())
+                    })?;
+                }
+            }
+            Command::RenameEffect { layer, target, effect, name } => {
+                let name = name.trim().to_string();
+                if name.is_empty() { return Err(CommandError::Invalid("An effect needs a name".into())); }
+                self.edit_layer_set(layer, "Rename Effect", None, |ts| {
+                    use crate::effect_stack::StackEffect;
+                    let l = Self::layer_mut(ts, layer)?;
+                    let found = on_stack!(l, target, |s| match s.iter_mut().find(|e| e.id() == effect) {
+                        Some(e) => { *Arc::make_mut(e).name_mut() = name; true }
+                        None => false,
+                    });
+                    if found { Ok(()) } else { Err(CommandError::Invalid("No such effect".into())) }
+                })?;
+            }
+            Command::DropEffects { source, effects, to, copy } => {
+                use crate::effect_stack::{EffectDrop, DropSide};
+                if source.texture_set != self.selection.texture_set {
+                    return Err(CommandError::Invalid("the dragged texture set is no longer selected".into()));
+                }
+                let ts = self.doc.texture_set(source.texture_set).ok_or(CommandError::TextureSetNotFound)?;
+                // Stale drags (the layer, its mask or the grabbed effect is gone) do nothing.
+                let Some(from) = ts.find(source.layer) else { return Ok(()) };
+                let Ok(ids) = Self::stack_ids(from, source.domain) else { return Ok(()) };
+                if !ids.contains(&source.effect) { return Ok(()); }
+                let moving: Vec<EffectId> = ids.iter().copied().filter(|id| *id == source.effect || effects.contains(id)).collect();
+                let (layer, domain, grabbed) = (source.layer, source.domain, source.effect);
+                let label = match (copy, moving.len() == 1) {
+                    (false, true) => "Move Effect",
+                    (false, false) => "Move Effects",
+                    (true, true) => "Duplicate Effect",
+                    (true, false) => "Duplicate Effects",
+                };
+                // Moving to the top of its own stack is a reorder like any other.
+                let to = match to {
+                    EffectDrop::Layer(dest) if dest == layer && !copy => match ids.iter().rev().find(|id| !moving.contains(id)) {
+                        Some(top) => EffectDrop::Beside { effect: *top, side: DropSide::Above },
+                        None => return Ok(()),
+                    },
+                    other => other,
+                };
+                let (dest, selected) = match to {
+                    EffectDrop::Beside { effect: anchor, side } if !copy => {
+                        let Some(order) = crate::effect_stack::reordered(&ids, &moving, anchor, side) else { return Ok(()) };
+                        self.edit_layer_set(layer, label, None, |ts| {
+                            let l = Self::layer_mut(ts, layer)?;
+                            on_stack!(l, domain, |s| crate::effect_stack::apply_order(s, &order));
+                            Ok(())
+                        })?;
+                        (layer, grabbed)
+                    }
+                    EffectDrop::Beside { effect: anchor, side } => {
+                        if !ids.contains(&anchor) { return Ok(()); }
+                        let selected = self.edit_layer_set(layer, label, None, |ts| {
+                            let l = Self::layer_mut(ts, layer)?;
+                            Ok(on_stack!(l, domain, |s| {
+                                let (items, selected) = crate::effect_stack::lift(s, &moving, true, grabbed);
+                                let at = crate::effect_stack::stack_ids(s).iter().position(|id| *id == anchor).expect("checked above") + usize::from(side == DropSide::Above);
+                                s.splice(at..at, items);
+                                selected
+                            }))
+                        })?;
+                        (layer, selected)
+                    }
+                    EffectDrop::Layer(dest) => {
+                        let Some(to_layer) = ts.find(dest) else { return Ok(()) };
+                        if domain == LayerTarget::Content && to_layer.is_folder()
+                            && from.content_effects.iter().any(|e| moving.contains(&e.id) && !e.kind.is_adjustment() && !matches!(e.kind, ContentEffectKind::Anchor))
+                        {
+                            return Err(CommandError::Invalid("Folders support adjustment effects only".into()));
+                        }
+                        let selected = self.edit_layer_set(layer, label, None, |ts| {
+                            let res = ts.resolution;
+                            Ok(match domain {
+                                LayerTarget::Content => {
+                                    let (items, selected) = crate::effect_stack::lift(&mut Self::layer_mut(ts, layer)?.content_effects, &moving, copy, grabbed);
+                                    Self::layer_mut(ts, dest)?.content_effects.extend(items);
+                                    selected
+                                }
+                                LayerTarget::Mask => {
+                                    let (items, selected) = crate::effect_stack::lift(&mut Self::layer_mut(ts, layer)?.mask.as_mut().ok_or(CommandError::NoMask)?.effects, &moving, copy, grabbed);
+                                    // Mask effects dropped on a layer without a mask give it one.
+                                    Self::layer_mut(ts, dest)?.mask.get_or_insert_with(|| Mask::new(res, true)).effects.extend(items);
+                                    selected
+                                }
+                            })
+                        })?;
+                        (dest, selected)
+                    }
+                };
+                return self.execute(Command::SelectEffect { layer: dest, target: domain, effect: Some(selected) });
+            }
             Command::AddLayer(kind) => {
                 self.layer_counter += 1;
                 let ts_id = self.selection.texture_set;
@@ -1048,7 +1222,12 @@ impl Session {
                     NewLayer::Fill => (Layer::new_fill(format!("Fill {}", self.layer_counter), &tc), "New Fill Layer"),
                     NewLayer::Folder => (Layer::new_folder(format!("Folder {}", self.layer_counter), &tc), "New Folder"),
                 };
-                let id = ts.insert_above(reference, layer);
+                // Painter: with an empty folder selected, the new layer goes inside it.
+                let empty_folder = reference.filter(|&r| ts.find(r).is_some_and(|l| l.is_folder() && l.children().is_empty()));
+                let id = match empty_folder {
+                    Some(folder) => ts.insert(Some(folder), 0, layer).map_err(|_| CommandError::LayerNotFound)?,
+                    None => ts.insert_above(reference, layer),
+                };
                 self.selection.layer = Some(id);
                 self.commit(label, None);
             }
@@ -1172,30 +1351,10 @@ impl Session {
             Command::DuplicateLayers(layers) => {
                 let set = self.common_set(&layers)?;
                 let ts = self.doc.texture_set_mut(set).ok_or(CommandError::TextureSetNotFound)?;
-                let mut last = None;
-                let mut copies = Vec::new();
-                for id in crate::clipboard::top_level_in_order(ts, &layers) {
-                    let copy = ts.duplicate(id).map_err(|_| CommandError::LayerNotFound)?;
-                    copies.push((id, copy));
-                    last = Some(copy);
-                }
-                // Copies read the copied anchors when both were duplicated together (ADR-0045).
-                let mut map = HashMap::new();
-                for (original, copy) in &copies {
-                    if let (Some(a), Some(b)) = (ts.find(*original), ts.find(*copy)) {
-                        subcraft_doc::anchor::copied_effect_ids(a, b, &mut map);
-                    }
-                }
-                if subcraft_doc::anchor::has_references(&ts.layers) {
-                    for (_, copy) in &copies {
-                        if let Some(l) = ts.find_mut(*copy) {
-                            subcraft_doc::anchor::remap_inputs(l, &map);
-                        }
-                    }
-                }
+                let copies = Self::duplicate_in_set(ts, &layers)?;
                 self.commit("Duplicate Layers", None);
                 if set == self.selection.texture_set {
-                    self.selection.layer = last.or(self.selection.layer);
+                    self.selection.layer = copies.last().copied().or(self.selection.layer);
                 }
             }
             Command::SetLayersVisible { layers, visible } => {
@@ -1206,6 +1365,7 @@ impl Session {
                     let l = ts.find_mut(id).ok_or(CommandError::LayerNotFound)?;
                     changed |= l.visible != visible;
                     l.visible = visible;
+                    if visible { changed |= Self::show_ancestors(ts, id); }
                 }
                 if changed { self.commit(if visible { "Show Layers" } else { "Hide Layers" }, None); }
             }
@@ -1231,6 +1391,8 @@ impl Session {
                 for e in &clip.content { Self::check_content_effect(&e.kind)?; }
                 for e in &clip.mask { Self::check_mask_effect(&e.kind)?; }
                 let (content, mask) = (!clip.content.is_empty(), !clip.mask.is_empty());
+                let above_content = self.selected_effect_in(layer, LayerTarget::Content);
+                let above_mask = self.selected_effect_in(layer, LayerTarget::Mask);
                 self.edit_layer_set(layer, "Paste Effects", None, |ts| {
                     let res = ts.resolution;
                     let l = Self::layer_mut(ts, layer)?;
@@ -1238,11 +1400,13 @@ impl Session {
                         if l.is_folder() && clip.content.iter().any(|e| !e.kind.is_adjustment() && !matches!(e.kind, ContentEffectKind::Anchor)) {
                             return Err(CommandError::Invalid("Folders support adjustment effects only".into()));
                         }
-                        l.content_effects.extend(clip.instantiate_content(res).into_iter().map(Arc::new));
+                        let at = above_content.and_then(|a| l.content_effects.iter().position(|e| e.id == a)).map_or(l.content_effects.len(), |i| i + 1);
+                        l.content_effects.splice(at..at, clip.instantiate_content(res).into_iter().map(Arc::new));
                     }
                     if mask {
                         let m = l.mask.get_or_insert_with(|| Mask::new(res, true));
-                        m.effects.extend(clip.instantiate_mask(res).into_iter().map(Arc::new));
+                        let at = above_mask.and_then(|a| m.effects.iter().position(|e| e.id == a)).map_or(m.effects.len(), |i| i + 1);
+                        m.effects.splice(at..at, clip.instantiate_mask(res).into_iter().map(Arc::new));
                     }
                     Ok(())
                 })?;
@@ -1276,6 +1440,45 @@ impl Session {
             Command::GroupLayer(id) => {
                 self.edit_layer_set(id, "Group Layer", None, |ts| ts.group(id, "Folder").map_err(|_| CommandError::LayerNotFound))?;
             }
+            Command::IsolateTextureSet(texture_set) => {
+                if self.doc.texture_set(texture_set).is_none() { return Err(CommandError::TextureSetNotFound); }
+                let others: std::collections::BTreeSet<TextureSetId> = self.doc.texture_sets.iter().map(|t| t.id).filter(|&id| id != texture_set).collect();
+                let hidden = if self.hidden_sets == others { Default::default() } else { others };
+                if hidden != self.hidden_sets {
+                    self.hidden_sets = hidden;
+                    self.revision += 1;
+                }
+            }
+            Command::GroupLayers(ids) => {
+                let first = *ids.first().ok_or(CommandError::LayerNotFound)?;
+                let set = self.texture_set_of(first).ok_or(CommandError::LayerNotFound)?;
+                if ids.iter().any(|&id| self.texture_set_of(id) != Some(set)) {
+                    return Err(CommandError::Invalid("the layers to group are in different texture sets".into()));
+                }
+                let folder = self.edit_layer_set(first, "Group Layers", None, |ts| {
+                    // Bottom to top, as stored. A layer inside another selected folder moves with that folder.
+                    let mut order = Vec::new();
+                    ts.walk(|l, _| if ids.contains(&l.id) { order.push(l.id); });
+                    let nested = |ts: &TextureSet, id: LayerId| {
+                        let mut parent = ts.location(id).and_then(|l| l.parent);
+                        while let Some(p) = parent {
+                            if ids.contains(&p) { return true; }
+                            parent = ts.location(p).and_then(|l| l.parent);
+                        }
+                        false
+                    };
+                    let order: Vec<LayerId> = order.iter().copied().filter(|&id| !nested(ts, id)).collect();
+                    let (&top, below) = order.split_last().ok_or(CommandError::LayerNotFound)?;
+                    let folder = ts.group(top, "Folder").map_err(|_| CommandError::LayerNotFound)?;
+                    for (i, &id) in below.iter().enumerate() {
+                        ts.move_to(id, Some(folder), i).map_err(|e| CommandError::Invalid(format!("{e:?}")))?;
+                    }
+                    Ok(folder)
+                })?;
+                self.selection = Selection { texture_set: set, layer: Some(folder) };
+                self.brush.target = PaintTarget::Content;
+                self.effect = None;
+            }
             Command::MoveLayer { layer, parent, index } => {
                 self.edit_layer_set(layer, "Move Layer", None, |ts| {
                     ts.move_to(layer, parent, index).map_err(|e| CommandError::Invalid(format!("{e:?}")))
@@ -1297,6 +1500,116 @@ impl Session {
                     self.selection.layer = Some(layer);
                 }
             }
+            Command::DropLayers { texture_set, layers, target, copy } => {
+                use crate::layer_tree::DropTarget;
+                if texture_set != self.selection.texture_set { return Err(CommandError::Invalid("the dragged texture set is no longer selected".into())); }
+                let ts = self.doc.texture_set_mut(texture_set).ok_or(CommandError::TextureSetNotFound)?;
+                let originals = crate::clipboard::top_level_in_order(ts, &layers);
+                if originals.is_empty() { return Err(CommandError::LayerNotFound); }
+                let anchor = match target {
+                    DropTarget::Above(id) | DropTarget::Below(id) | DropTarget::Inside(id) => Some(id),
+                    DropTarget::RootTop | DropTarget::RootBottom => None,
+                };
+                if let Some(anchor) = anchor {
+                    if ts.find(anchor).is_none() { return Err(CommandError::LayerNotFound); }
+                    if matches!(target, DropTarget::Inside(_)) && !ts.find(anchor).is_some_and(|l| l.is_folder()) { return Ok(()); }
+                    // Moved layers cannot land on or inside themselves; copies can land anywhere.
+                    if !copy && originals.iter().any(|&l| ts.is_descendant_or_self(anchor, l)) { return Ok(()); }
+                }
+                let before = ts.layers.clone();
+                let moved = (|| {
+                    let moving = if copy { Self::duplicate_in_set(ts, &originals)? } else { originals };
+                    // The first one goes to the target; each next one right above the one before,
+                    // so the group keeps its stacking order.
+                    let mut at = target;
+                    for &id in &moving {
+                        if let Some(destination) = crate::layer_tree::drop_destination(ts, id, at) {
+                            ts.move_to(id, destination.parent, destination.index).map_err(|e| CommandError::Invalid(format!("{e:?}")))?;
+                        }
+                        at = DropTarget::Above(id);
+                    }
+                    if let DropTarget::Inside(folder) = target
+                        && let Some(LayerContent::Group(group)) = ts.find_mut(folder).map(|l| &mut l.content)
+                    { group.expanded = true; }
+                    Ok(moving)
+                })();
+                let moving = match moved {
+                    Ok(moving) => moving,
+                    // Leave the document as it was when a step is refused.
+                    Err(e) => { ts.layers = before; return Err(e); }
+                };
+                if ts.layers != before {
+                    self.commit(match (copy, moving.len() == 1) {
+                        (true, true) => "Duplicate Layer",
+                        (true, false) => "Duplicate Layers",
+                        (false, true) => "Move Layer",
+                        (false, false) => "Move Layers",
+                    }, None);
+                    if copy || !self.selection.layer.is_some_and(|l| moving.contains(&l)) {
+                        self.selection.layer = moving.last().copied();
+                    }
+                }
+            }
+            Command::SetBlendAllChannels { layer, from, mode, opacity } => {
+                self.edit_layer_set(layer, "Blend All Channels", None, |ts| {
+                    let l = Self::layer_mut(ts, layer)?;
+                    let source = *l.blend.get(&from).ok_or(CommandError::Invalid("channel not blended by this layer".into()))?;
+                    let folder = l.is_folder();
+                    for (kind, blend) in l.blend.iter_mut() {
+                        if mode && subcraft_doc::BlendMode::available(*kind == ChannelKind::Normal, folder).any(|m| m == source.mode) { blend.mode = source.mode; }
+                        if opacity { blend.opacity = source.opacity; }
+                    }
+                    Ok(())
+                })?;
+            }
+            Command::PasteBlending { layers, blend } => {
+                let set = self.common_set(&layers)?;
+                let ts = self.doc.texture_set_mut(set).ok_or(CommandError::TextureSetNotFound)?;
+                let before = ts.layers.clone();
+                for id in layers {
+                    let l = ts.find_mut(id).ok_or(CommandError::LayerNotFound)?;
+                    let folder = l.is_folder();
+                    for (kind, target) in l.blend.iter_mut() {
+                        let Some(source) = blend.get(kind) else { continue };
+                        if subcraft_doc::BlendMode::available(*kind == ChannelKind::Normal, folder).any(|m| m == source.mode) { target.mode = source.mode; }
+                        target.opacity = source.opacity.clamp(0.0, 1.0);
+                    }
+                }
+                if ts.layers != before { self.commit("Paste Blending Options", None); }
+            }
+            Command::SetLayerColor { layers, color } => {
+                let set = self.common_set(&layers)?;
+                let ts = self.doc.texture_set_mut(set).ok_or(CommandError::TextureSetNotFound)?;
+                let mut changed = false;
+                for id in layers {
+                    let l = ts.find_mut(id).ok_or(CommandError::LayerNotFound)?;
+                    changed |= l.color != color;
+                    l.color = color;
+                }
+                if changed { self.commit("Layer Color", None); }
+            }
+            Command::PasteLayerContent { layer, clip } => {
+                let [source] = clip.layers.as_slice() else {
+                    return Err(CommandError::Invalid("Copy the content of one layer first".into()));
+                };
+                if source.is_folder() { return Err(CommandError::Invalid("A folder has no content to paste".into())); }
+                let mesh = crate::clipboard::mesh_signature(&self.scene.mesh);
+                let ts = self.texture_set_of(layer).and_then(|t| self.doc.texture_set(t)).ok_or(CommandError::LayerNotFound)?;
+                if ts.find(layer).ok_or(CommandError::LayerNotFound)?.is_folder() {
+                    return Err(CommandError::Invalid("Layer content cannot be pasted into a folder".into()));
+                }
+                // Fresh effect ids and rasters at this set's resolution, like a pasted layer.
+                let pasted = clip.instantiate(ts, mesh).pop().ok_or(CommandError::LayerNotFound)?;
+                self.edit_layer_set(layer, "Paste Layer Content", None, |ts| {
+                    let l = Self::layer_mut(ts, layer)?;
+                    l.content = pasted.content;
+                    l.content_effects = pasted.content_effects;
+                    Ok(())
+                })?;
+                for r in &clip.resources {
+                    self.resources.insert_shared(r.clone());
+                }
+            }
             Command::MoveUp(id) | Command::MoveDown(id) => {
                 let up = matches!(cmd, Command::MoveUp(_));
                 self.edit_layer_set(id, "Move Layer", None, |ts| {
@@ -1315,6 +1628,7 @@ impl Session {
             Command::SetVisible { layer, visible } => {
                 self.edit_layer_set(layer, if visible { "Show Layer" } else { "Hide Layer" }, None, |ts| {
                     Self::layer_mut(ts, layer)?.visible = visible;
+                    if visible { Self::show_ancestors(ts, layer); }
                     Ok(())
                 })?;
             }
@@ -1459,6 +1773,7 @@ impl Session {
             }
             Command::AddMaskEffect { layer, kind } => {
                 Self::check_mask_effect(&kind)?;
+                let above = self.selected_effect_in(layer, LayerTarget::Mask);
                 let id = self.edit_layer_set(layer, "Add Mask Effect", None, |ts| {
                     let name = matches!(kind, subcraft_doc::MaskEffectKind::Anchor).then(|| Self::new_anchor_name(ts, layer));
                     let mask = Self::layer_mut(ts, layer)?.mask.as_mut().ok_or(CommandError::NoMask)?;
@@ -1467,7 +1782,8 @@ impl Session {
                         effect.name = name;
                     }
                     let id = effect.id;
-                    mask.effects.push(Arc::new(effect));
+                    let at = above.and_then(|a| mask.effects.iter().position(|e| e.id == a)).map_or(mask.effects.len(), |i| i + 1);
+                    mask.effects.insert(at, Arc::new(effect));
                     Ok(id)
                 })?;
                 return self.execute(Command::SelectEffect { layer, target: LayerTarget::Mask, effect: Some(id) });
@@ -1529,6 +1845,46 @@ impl Session {
         Ok(())
     }
 
+    /// Duplicate `layers` (those not inside another of them), each copy right above its
+    /// original. Returns the copies, bottom to top.
+    fn duplicate_in_set(ts: &mut TextureSet, layers: &[LayerId]) -> Result<Vec<LayerId>, CommandError> {
+        let mut copies = Vec::new();
+        for id in crate::clipboard::top_level_in_order(ts, layers) {
+            let copy = ts.duplicate(id).map_err(|_| CommandError::LayerNotFound)?;
+            copies.push((id, copy));
+        }
+        // Copies read the copied anchors when both were duplicated together (ADR-0045).
+        let mut map = HashMap::new();
+        for (original, copy) in &copies {
+            if let (Some(a), Some(b)) = (ts.find(*original), ts.find(*copy)) {
+                subcraft_doc::anchor::copied_effect_ids(a, b, &mut map);
+            }
+        }
+        if subcraft_doc::anchor::has_references(&ts.layers) {
+            for (_, copy) in &copies {
+                if let Some(l) = ts.find_mut(*copy) {
+                    subcraft_doc::anchor::remap_inputs(l, &map);
+                }
+            }
+        }
+        Ok(copies.into_iter().map(|(_, copy)| copy).collect())
+    }
+
+    /// Make every folder around `layer` visible (Painter: un-hiding a layer inside a hidden
+    /// folder shows the folder too). Returns whether anything changed.
+    fn show_ancestors(ts: &mut TextureSet, layer: LayerId) -> bool {
+        let mut changed = false;
+        let mut at = ts.location(layer).and_then(|l| l.parent);
+        while let Some(id) = at {
+            if let Some(folder) = ts.find_mut(id) {
+                changed |= !folder.visible;
+                folder.visible = true;
+            }
+            at = ts.location(id).and_then(|l| l.parent);
+        }
+        changed
+    }
+
     /// Default name of a new anchor point in `layer`: "<layer> anchor", numbered when taken, so
     /// pickers can tell anchors apart (ADR-0045).
     fn new_anchor_name(ts: &TextureSet, layer: LayerId) -> String {
@@ -1578,18 +1934,23 @@ impl Session {
             Action::Redo => self.execute(Command::Redo)?,
             Action::NewPaintLayer => self.execute(Command::AddLayer(NewLayer::Paint))?,
             Action::NewFillLayer => self.execute(Command::AddLayer(NewLayer::Fill))?,
-            Action::NewFolder => self.execute(Command::AddLayer(NewLayer::Folder))?,
+            // Ctrl+G is Painter's "Group layers": wrap the selection; with nothing selected, an empty folder.
+            Action::NewFolder => match sel {
+                Some(l) => self.execute(Command::GroupLayers(vec![l]))?,
+                None => self.execute(Command::AddLayer(NewLayer::Folder))?,
+            },
             Action::NewTextLayer => { let d = self.new_text_decal("Text"); self.add_text_layer(d)? }
-            Action::DeleteLayer => {
-                if let Some(l) = sel {
-                    self.execute(Command::DeleteLayer(l))?;
-                }
-            }
-            Action::DuplicateLayer => {
-                if let Some(l) = sel {
-                    self.execute(Command::DuplicateLayer(l))?;
-                }
-            }
+            // With an effect selected, Delete and Ctrl+D act on the effect, not its layer (Painter).
+            Action::DeleteLayer => match (sel, self.selected_effect()) {
+                (Some(l), Some(e)) => self.execute(Command::RemoveEffects { layer: l, target: self.layer_target(), effects: vec![e] })?,
+                (Some(l), None) => self.execute(Command::DeleteLayer(l))?,
+                _ => {}
+            },
+            Action::DuplicateLayer => match (sel, self.selected_effect()) {
+                (Some(l), Some(e)) => self.execute(Command::DuplicateEffects { layer: l, target: self.layer_target(), effects: vec![e] })?,
+                (Some(l), None) => self.execute(Command::DuplicateLayer(l))?,
+                _ => {}
+            },
             Action::BrushTool => self.brush.mode = StrokeMode::Paint,
             Action::EraserTool => self.brush.mode = StrokeMode::Erase,
             Action::BrushSmaller => self.brush.settings.size = (self.brush.settings.size / 1.15).max(0.1),
@@ -1599,6 +1960,10 @@ impl Session {
                 let o = &mut self.brush.options;
                 o.lazy_distance_px = if o.lazy_distance_px > 0.0 { 0.0 } else { 20.0 };
             }
+            Action::InvertMaskGray => self.brush.material.mask_value = 1.0 - self.brush.material.mask_value.clamp(0.0, 1.0),
+            Action::IsolateTextureSet => self.execute(Command::IsolateTextureSet(self.selection.texture_set))?,
+            Action::HideUi | Action::PaintingMode | Action::CloseProject | Action::View3dAnd2d | Action::View3dOnly | Action::View2dOnly
+            | Action::SwapViews | Action::NextMeshMap | Action::PrevMeshMap => return Ok(false),
             Action::PenTool | Action::PolygonFillTool | Action::SmudgeTool | Action::CloneTool | Action::EyedropperTool | Action::ResetCamera
             | Action::PerspectiveCamera | Action::OrthographicCamera | Action::NextChannel | Action::PrevChannel | Action::DisplayMaterial
             | Action::NewProject | Action::Quit | Action::Save | Action::SaveAs | Action::OpenProject | Action::Export | Action::Bake
@@ -1617,7 +1982,12 @@ impl Session {
         if self.brush.target != PaintTarget::Content || self.brush.mode == StrokeMode::Erase {
             return None;
         }
-        let paintable = self.selected_layer().is_some_and(|l| matches!(&l.content, subcraft_doc::LayerContent::Paint(p) if p.path.is_none()));
+        // A clone stroke without a source fails to start; it must not leave a new empty layer and
+        // an undo step behind.
+        if self.brush.mode == StrokeMode::Clone && self.clone_source.is_none() {
+            return None;
+        }
+        let paintable = self.selected_layer().is_some_and(|l| matches!(&l.content, subcraft_doc::LayerContent::Paint(p) if p.path.is_none() && p.text.is_none()));
         if paintable { return None; }
         self.execute(Command::AddLayer(NewLayer::Paint)).ok()?;
         self.selected_layer().map(|l| l.name.clone())
@@ -1629,10 +1999,18 @@ impl Session {
             return Ok(());
         }
         let layer = self.selection.layer.ok_or(PaintError::LayerNotFound)?;
+        // Before anything below changes the document: a refused stroke leaves no trace.
+        if self.brush.mode == StrokeMode::Clone && self.clone_source.is_none() {
+            return Err(PaintError::NoCloneSource);
+        }
         // A normal-map / height stamp turns on its channel on the layer with the first stroke.
         let stamp = self.stroke_stamp();
         if let Some((s, _)) = &stamp {
             self.enable_layer_channel(layer, s.kind.channel());
+        }
+        // Absolute clone source: the first dab of every stroke copies from the source point again.
+        if self.brush.mode == StrokeMode::Clone && self.brush.clone_mode == CloneSourceMode::Absolute && self.clone_source.is_some() {
+            self.clone_offset = None;
         }
         let ts = self.selected_texture_set();
         let b = &self.brush;
@@ -1759,7 +2137,7 @@ impl Session {
 
     /// Brush radius in UV units for the selected texture set (matches [`Session::stroke_to_uv`]).
     pub fn brush_radius_uv(&self, uv_per_unit: f32) -> f32 {
-        self.brush_radius() * uv_per_unit
+        self.brush_radius_in(0.0, 0.0, uv_per_unit) * uv_per_unit
     }
 
     /// Polygon fill on the selected layer at a screen position (one history entry).

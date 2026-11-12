@@ -24,8 +24,12 @@ use parking_lot::Mutex;
 use subcraft_doc::{ProceduralParams, Projection};
 use subcraft_image::TILE_TEXELS;
 
-/// Fields kept per tile (fills, generator breakup / grain / chips, edge distance...).
-pub const PER_TILE: usize = 24;
+/// Fields kept per tile (fills, generator breakup / grain / chips, edge distance...). A 40-layer
+/// stack of procedural fills reads about 80 per tile (a pattern per channel), so a limit below
+/// that recomputed most fill noise on every edit even when the byte budget had room; the budget,
+/// not this count, is what bounds memory at large resolutions. A lookup scans the tile's list,
+/// well under a microsecond next to the ~0.3 ms a field costs to evaluate.
+pub const PER_TILE: usize = 128;
 /// Default process-wide budget for cached field data (all tiles of all texture sets).
 pub const BUDGET_BYTES: usize = 768 << 20;
 /// Reads of a tile after which a field not read in between counts as stale (replaceable).
@@ -45,9 +49,11 @@ pub fn budget() -> usize {
 }
 
 /// A budget for a machine with `total_memory` bytes of RAM: a twelfth of it, at least the default
-/// and at most 4 GiB (a 4096² set with a dozen generator noises needs about 0.9 GB).
+/// and at most 8 GiB. A 4096² set holds 4096 tiles of 16 KB per field, so a 40-layer stack of
+/// procedural fills (about 80 fields per tile) needs about 5 GB; machines below 48 GB keep the
+/// share they had.
 pub fn budget_for_memory(total_memory: u64) -> usize {
-    (total_memory / 12).clamp(BUDGET_BYTES as u64, 4 << 30) as usize
+    (total_memory / 12).clamp(BUDGET_BYTES as u64, 8 << 30) as usize
 }
 
 /// Bytes currently held by cached fields (diagnostics and tests).

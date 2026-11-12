@@ -118,7 +118,7 @@ fn stroke_options(ui: &mut Ui, options: &mut StrokeOptions, guides: &mut bool, s
             ui.separator();
             ui.label(RichText::new("Lazy Mouse").color(TEXT_DIM));
             ui.spacing_mut().slider_width = 155.0;
-            ui.add(egui::Slider::new(&mut options.lazy_distance_px, 0.0..=100.0).suffix(" px"));
+            ui.add(widgets::typed_slider(egui::Slider::new(&mut options.lazy_distance_px, 0.0..=100.0).suffix(" px")));
             ui.label(
                 RichText::new("0 px = off · X shortcut toggles mirror X")
                     .small()
@@ -155,13 +155,13 @@ fn radial_options(ui: &mut Ui, options: &mut StrokeOptions) {
         });
         ui.spacing_mut().slider_width = 130.0;
         ui.add(
-            egui::Slider::new(&mut radial.count, 2..=subcraft_paint::MAX_SYMMETRY_COPIES)
-                .text("copies"),
+            widgets::typed_slider(egui::Slider::new(&mut radial.count, 2..=subcraft_paint::MAX_SYMMETRY_COPIES)
+                .text("copies")),
         );
         ui.horizontal(|ui| {
             ui.label("Offset");
             for v in &mut radial.center_offset {
-                ui.add(egui::DragValue::new(v).speed(0.01).max_decimals(3));
+                ui.add(widgets::typed_drag(egui::DragValue::new(v).speed(0.01).max_decimals(3)));
             }
         })
         .response
@@ -208,13 +208,13 @@ fn scrub(ui: &mut Ui, value: &mut f32, size: bool) -> egui::Response {
         ui.visuals_mut().override_text_color = Some(if size { ACCENT } else { TEXT });
         ui.spacing_mut().button_padding.x = 1.0;
         ui.spacing_mut().interact_size.x = 36.0;
-        ui.add(
+        ui.add(widgets::typed_drag(
             egui::DragValue::new(value)
                 .speed(if size { 0.1 } else { 0.5 })
                 .range(if size { 0.1..=100.0 } else { 0.0..=100.0 })
                 .suffix("%")
                 .max_decimals(usize::from(size)),
-        )
+        ))
     })
     .inner
     .on_hover_text("Drag left/right to adjust · Shift for precision · click to type")
@@ -311,7 +311,7 @@ fn popup_percent(ui: &mut Ui, name: &str, value: &mut f32, help: &str, tip: bool
                 ui.spacing_mut().slider_width = 160.0;
                 let mut display = *value * 100.0;
                 if ui
-                    .add(egui::Slider::new(&mut display, 0.0..=100.0).suffix("%"))
+                    .add(widgets::typed_slider(egui::Slider::new(&mut display, 0.0..=100.0).suffix("%")))
                     .changed()
                 {
                     *value = display * 0.01;

@@ -35,9 +35,6 @@ impl BugReportUi {
     }
 }
 
-/// Set once the work was copied to the recovery folder after a device loss.
-static LOST_SAVED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
 /// The GPU device is gone (issue #119): copy unsaved work to the recovery folder once, and tell the
 /// caller to draw nothing. egui-wgpu panics ("Failed to create staging buffer") as soon as it is
 /// given anything to paint on a lost device, which used to end the session with a crash report and
@@ -53,30 +50,12 @@ pub fn stop_after_device_loss(state: &mut UiState, lost: Option<String>) -> bool
             Some(subcraft_app::AutosaveEvent::Failed(e)) => log::error!("GPU device lost: recovery copy failed: {e}"),
             None => log::info!("GPU device lost: no unsaved work to copy"),
         }
-        LOST_SAVED.store(true, std::sync::atomic::Ordering::SeqCst);
     }
     true
 }
 
 /// Record the GPU from the renderer for logs and reports.
 pub fn record_gpu(render_state: Option<&egui_wgpu::RenderState>) {
-    subcraft_render::caps::set_device_lost_hook(|text| {
-        subcraft_app::startup_probe::step(&format!("GPU device lost: {text}"));
-        let text = format!("The graphics device stopped responding ({text}).
-
-This is usually a driver reset or a GPU that was removed or ran out of memory. SubCraft cannot continue drawing. Your work is kept in the automatic recovery copy: start SubCraft again and choose Restore. The next start turns GPU compositing and GPU baking off (you can turn them back on in Preferences). If it keeps happening, start with the --safe-mode option and see the log in the SubCraft data folder.");
-        std::thread::spawn(move || {
-            rfd::MessageDialog::new().set_level(rfd::MessageLevel::Error).set_title("SubCraft: graphics device lost").set_description(text).set_buttons(rfd::MessageButtons::Ok).show();
-            // Nothing can be drawn any more: end the process once the recovery copy is written (the
-            // UI thread does that on its next frame; don't wait for ever if the driver hung it).
-            // Not a normal close, which would delete the recovery folder.
-            let start = std::time::Instant::now();
-            while !LOST_SAVED.load(std::sync::atomic::Ordering::SeqCst) && start.elapsed() < std::time::Duration::from_secs(20) {
-                std::thread::sleep(std::time::Duration::from_millis(50));
-            }
-            std::process::exit(1);
-        });
-    });
     let Some(rs) = render_state else { return };
     let i = rs.adapter.get_info();
     let name = if i.name.trim().is_empty() { "unknown GPU" } else { i.name.as_str() };

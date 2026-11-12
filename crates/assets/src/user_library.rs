@@ -118,6 +118,17 @@ impl UserLibrary {
 
     /// A new file path `<folder>/<name>.<ext>` that doesn't exist yet (`name (2).ext`, ...).
     /// Characters not allowed in file names are replaced.
+    /// The file a library item named `name` gets when the name is free (no " (2)" numbering).
+    pub fn unnumbered_file_path(&self, kind: UserAssetKind, name: &str) -> PathBuf {
+        let clean: String = name
+            .chars()
+            .map(|c| if c.is_control() || r#"<>:"/\|?*"#.contains(c) { '_' } else { c })
+            .collect();
+        let clean = clean.trim().trim_end_matches('.');
+        let stem = if clean.is_empty() { "Untitled" } else { clean };
+        self.folder(kind).join(format!("{stem}.{}", kind.extensions()[0]))
+    }
+
     pub fn new_file_path(&self, kind: UserAssetKind, name: &str) -> PathBuf {
         let clean: String = name
             .chars()

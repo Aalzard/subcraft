@@ -26,6 +26,8 @@ pub enum Pending {
     OpenMesh,
     OpenProject,
     OpenRecent,
+    /// Import a Painter `.spp`: the dropped one (`UiState::dropped_model`), else pick one.
+    ImportPainter,
 }
 
 pub struct ExportUi {
@@ -114,7 +116,11 @@ pub fn run_pending(state: &mut UiState, action: Pending, ctx: &egui::Context, _n
             state.new_project.show_window(&state.recovery.prefs.new_project.clone());
             if let Some(model) = state.dropped_model.take() { state.new_project.load_model(&model); }
         }
-        Pending::OpenProject => crate::files::pick(ctx, crate::files::Purpose::OpenProject, PROJECT_FILTER, false, None),
+        Pending::OpenProject => crate::files::pick_with_filters(crate::files::Purpose::OpenProject, &crate::files::OPEN_FILTERS, None),
+        Pending::ImportPainter => match state.dropped_model.take() {
+            Some(path) => crate::spp_import::start(state, &path),
+            None => crate::files::pick(ctx, crate::files::Purpose::OpenProject, crate::files::PAINTER_PROJECTS, false, None),
+        },
         Pending::OpenRecent => {
             if let Some(path) = state.welcome.pending_recent.take() {
                 match Session::open_recent(&path) {
@@ -170,6 +176,11 @@ pub fn unsaved_prompt(state: &mut UiState, ctx: &egui::Context, now: f64) -> Opt
             state.confirm = None;
             if result == Some(Pending::Close) {
                 state.allow_close = true;
+            }
+            if result.is_none() {
+                // Cancelled: the file that was dropped or picked must not open with the next request.
+                state.dropped_model = None;
+                state.welcome.pending_recent = None;
             }
             result
         }
@@ -603,6 +614,7 @@ pub fn poll_bake(state: &mut UiState, ctx: &egui::Context, now: f64) {
                 state.bake.report = summary;
                 state.bake.follow_maps = true;
                 state.recovery.prefs.viewport.view_mode = 0;
+                state.recovery.prefs.viewport.solo = None;
                 let detail = if state.bake.report.is_empty() { String::new() } else { format!(" ({})", state.bake.report) };
                 state.set_status(format!("Baked mesh maps for {n} texture set(s). See them in the 2D view.{detail}{note}"), now);
                 state.recovery.autosaver.request_soon();

@@ -4999,7 +4999,366 @@ rotating one slot when a tile is full (helps cyclic stacks, but the 40-layer sta
   --window-size 1600x1000 --screenshot` shows the Export window with the editor open, no errors; the checklist lists
   the pattern-based names (`T_DefaultMaterial_BaseColor.png`, `..._ORM.png`, `..._N.tif`).
 
-### Session 122 - Right-click Properties popup, curvature modes and detail sizes, polygon fill box / modes (2026-11-10, branch `claude/view-ux-curvature`)
+### Session 121 - Painter parity chunk 5: Brush block in Properties (2026-11-11, branch `claude/parity-brush-block`)
+
+* **Done:** Properties for a paint tool follow Painter's order: Brush, Alpha, Stencil, Material. Brush block: Size, Flow
+  (each with a pen pressure toggle and a Minimum row while it is on), Stroke opacity, Spacing, Angle, Follow Path, four
+  jitters shown 0-1 with pressure toggles (pressure scales the jitter), Alignment, Backface Culling, Size Space
+  (Object / Viewport / Texture; `BrushSettings::radius_in`, `SizeContext`). Alpha block: resource slot with thumbnail,
+  click opens a mini browser with search, alphas can be dropped from the Shelf, a cross removes the alpha; Hardness.
+  Pressure toggle icon is drawn in code.
+* **Verified locally (release):** `subcraft-paint`, `subcraft-app` and `subcraft-ui` libraries compile with this change.
+  The new and touched tests were NOT run locally (build queue; CI is the test gate for this PR).
+* **Tests added:** paint unit tests (size space, pressure toggles, jitter pressure); `crates/ui/tests/brush_block.rs` (6).
+* **Gaps:** Viewport size space uses the object size in the 2D view; Spacing unit/range unconfirmed against Painter;
+  no Substance alphas.
+
+### Session 122 - Painter parity chunk 20: stencil, eraser and clone gaps (2026-11-11, branch `claude/parity-tool-gaps`, stacks on chunk 5)
+
+* **Done:** Stencil tiling mode dropdown (No Tiling / Horizontal / Vertical / H and V; `StencilTiling`), Shift + S + drag
+  snaps the rotation to 90 degrees, "Reset stencil" button at the top right of the view while S is held (and in the
+  Stencil block), Stencil opacity and "Hide stencil when painting". Eraser: the Material block is reduced to channel
+  toggles; only the enabled channels are erased. Clone: Source dropdown, Relative or Absolute (`CloneSourceMode`).
+* **Verified locally (release):** `subcraft-paint`, `subcraft-app` and `subcraft-ui` libraries compile with this change.
+  The new and touched tests were NOT run locally (build queue; CI is the test gate for this PR).
+* **Tests added:** paint stencil unit tests; `crates/app/tests/tool_gaps.rs`; tiling cases in `crates/app/tests/stencil.rs`.
+* **Not done:** Polygon Fill blending / opacity (waits for #131); the Ctrl+6 clone variant shortcut (key map is owned by
+  another session); stencil display options live in Properties, not in Display settings.
+
+### Session 123 - Typed slider boxes (#140) and brush colour picker (#141) (2026-11-11, branch `claude/issues-140-141`)
+
+* **#140 cause:** egui's `DragValue` (inside every `Slider`) applies the text on each keystroke
+  (`update_while_editing`). When the value read back next frame differs from what was set (stored in other
+  units, e.g. the brush bar's percent boxes, or rounded), egui treats the edit buffer as stale and rewrites it
+  with the formatted value under the caret: `.2` became `0.2|`, then `5` gave `0.52`.
+* **Fix:** `widgets::typed_slider` / `typed_drag` turn `update_while_editing` off and parse with
+  `widgets::parse_number` (`.25`, `-.5`, `+3`, `1e-2`, decimal comma, U+2212 minus; rejects inf/NaN). Applied
+  once in `slider_row` / `slider_row_with` / `slider_row_boxed` (all ~150 property sliders), `channel_value`,
+  and the brush bar's scrub boxes and popover sliders. `slider_row_own_parser` keeps a caller's own parser
+  (stamp brush "Edge softness"). Direct `ui.add(egui::Slider…)` calls outside these helpers are unchanged.
+* **#141:** new `color_picker` module: hue ring around a saturation/value square (vertex-coloured meshes),
+  R/G/B 0-255 and H/S/V sliders (typed boxes), hex field (`#RRGGBB`, `RRGGBB`, `#RGB`; a complete 6-digit
+  code applies while typing so paste works, 3-digit on Enter/focus loss, Escape reverts), old/new swatches
+  (click Old to restore) and 12 recent colours in `Preferences::recent_colors` (pushed when the popup closes
+  with a changed colour). The value stays linear; HSV/RGB/hex are sRGB display values via
+  `subcraft_core::color`. Hue is kept through grey/black. Opened from the brush Base Color / Emissive swatch in
+  the Brush panel; edits flow through the existing `Command::SetBrushMaterial` dispatch.
+* Tests: `widgets::tests` (2), `color_picker::tests` (8: hex parse/format, HSV known values and round trip,
+  linear<->hex round trip, hue kept on grey, recent list cap/dedupe, headless render without spurious edits).
+  The headless test caught `Slider::integer()` rounding the shown HSV every frame (step + clamping), so the
+  picker sliders use `fixed_decimals(0)` instead.
+
+### Session 124 - Painter parity chunk 23: presets from Properties and the asset menu (2026-11-11, branch `claude/parity-presets`, stacks on chunk 20)
+
+* **Done:** right-click in the tool Properties: Create tool preset / Create material preset / Create brush preset (also as
+  buttons in the Presets block). Preset file version 3 with a kind; a tool preset stores the tool, a brush preset stores
+  brush + alpha + stencil, a material preset stores the material only; versions 1-2 still load. Selecting a tool preset
+  switches to its tool. Shelf preset menu: Update from current tool, Rename, Duplicate, Add to / Remove from favorites,
+  Delete; favorites are saved in the user library (`favorites.json`) and listed first with a star.
+* **Verified locally (release):** `subcraft-paint`, `subcraft-app` and `subcraft-ui` libraries compile with this change.
+  The new and touched tests were NOT run locally (build queue; CI is the test gate for this PR).
+* **Tests added:** `crates/app/tests/preset_kinds.rs`, `crates/ui/tests/preset_menus.rs`.
+* **Not done:** Ctrl+drag a smart mask to replace (layers.rs), filter / generator mini-shelves (effects.rs): both files are
+  owned by other sessions. No Presets strip for path tools.
+### Parity chunk 33 - Standard filter gaps (2026-11-12, branch `claude/parity-filter-gaps`)
+
+* **Doc (`crates/doc/src/filter.rs`):** new filters Smoothstep (Minimum, Maximum), Contrast Luminosity, Color Correct
+  (Shadows / Midtones / Highlights, each Contrast, Luminosity, Saturation), Transform (Repeat mode, Flip mode,
+  Scaling, Offset, Rotation, Tile Safe Rotation) and Mirror (Axis X, Axis Y, Corner; offsets, axis inverts, corner
+  type). Threshold gains a comparison Mode, Blur and Histogram Shift a Wrap toggle, HSL a Perceptive / Regular mode;
+  these are separate variants sharing the base filter's name, so existing project files load unchanged.
+* **Math (`crates/materials/src/filter.rs`, `filter/pixelwise.rs`):** Smoothstep is the Hermite `3t² - 2t³`
+  between min and max; HSL Perceptive works in OKLCH; Color Correct weights the three ranges by luminance; Transform
+  samples the source through the inverse UV transform (bilinear, per-axis repeat, empty outside when not
+  repeating); Tile Safe snaps rotation to quarter turns and scale to whole fractions. Wrapped blur fetches across
+  the opposite border in the compositor (`Node::Gaussian { wrap }`); Transform and Mirror read the whole texture.
+* **Not done:** apply-to-alpha toggles (Posterize, Pixelate), Highpass colour space, the Invert filter's toggle,
+  Directional Blur Intensity, Mirror Display Debug, Transform's on-canvas Scaling / Offset manipulators.
+* **Checked:** `cargo check --release --all-targets` of doc, materials, compositor, project, app and ui: no errors.
+  New tests (doc domain/support test, materials `standard_filter_tests` and pixelwise tests, compositor spatial
+  tests for wrapped blur, Transform and Mirror) were not run locally (coordinator rule: CI is the test gate).
+### Parity chunk 8 - Fill projection options (2026-11-12, branch `claude/parity-fill-gen`)
+
+* **Doc (`crates/doc/src/fill.rs`):** `FillFiltering` (Bilinear | HQ default, Bilinear | Sharp, Nearest), `UvWrap`
+  (None, Repeat horizontally, Repeat vertically, Repeat default), `ShapeCrop` (cropped to shape, extends outside
+  shape default) on `Projection`, each skipped in JSON when default so existing project files are unchanged.
+  Tri-planar Hardness 0-1 maps onto the stored blend exponent (`s = 1 / (1 - h)`, 1.0 = `TRIPLANAR_HARD`, a hard cut).
+* **Sampling (`crates/materials/src/sample/bitmap.rs`):** Bilinear | HQ is trilinear over a cached, box-filtered mip
+  chain (built in linear light for colour images), with the level picked from texels per output texel; Sharp is
+  bilinear on the full image; Nearest picks the closest texel. UV Wrap applies per axis to image and procedural
+  fills, in content and in masks. Tri-planar always repeats.
+* **UI:** Filtering, UV Wrap (hidden for tri-planar) and Shape crop (hidden for UV) rows on fill layers, fill
+  effects and mask fills; Hardness replaces Sharpness; Offset is hidden for tri-planar.
+* **Not done:** Shape crop's box is the model's bounding cube until the 3D projection transform (chunk 9) exists,
+  so it clips nothing yet.
+* **Checked:** `cargo check --release --all-targets` of doc, materials, compositor, project, app and ui: no errors.
+  The new unit tests (doc, materials, compositor `mask_image_and_procedural_fill_respect_uv_wrap`) were not run
+  locally (coordinator rule: GitHub CI is the test gate); see the PR's CI result.
+### Parity chunk 16 - Mask Editor generator (2026-11-12, branch `claude/parity-mask-editor`)
+
+* **Doc (`crates/doc/src/mask.rs`):** `GeneratorKind::MaskEditor` with `MaskEditor` settings on `Generator.editor`
+  (skipped in JSON for other kinds): Global Invert / Blur / Balance / Contrast, one opacity per contribution and
+  the groups Texture, Texture 2 (image, Invert, Grayscale Conversion, Blending Mode, Scale, Contrast, Brightness,
+  Triplanar, Triplanar Contrast, Non-Square Tiling), Ambient Occlusion, Curvature (Mode Edges / Cavities / Dual /
+  Unprocessed), World Space Normal and Position Gradient (per-axis amounts, each axis with Invert and Blending
+  Mode) and Thickness. Texture images count as project resources (save, fragments, clipboard).
+* **Compositor (`crates/compositor/src/mask.rs`, `stages.rs`):** contributions blend bottom to top over black with
+  the layer blending modes (`out += (blend(out, v) - out) * opacity`); a Global Blur runs as a Gaussian stage
+  between the raw blend and Balance / Contrast / Invert, with its halo counted in dirty tracking.
+* **UI:** Generator dropdown entry "Mask Editor" and the full Properties layout (`mask_editor_controls`); texture
+  images are picked through the file dialog (`Purpose::GeneratorTexture`).
+* **Not done:** per-map Blur (Ambient Occlusion, World Space Normal, Thickness), the seven curvature scale sliders,
+  Micro Details, anchors as texture sources, an entry in the Layers panel's generator menu.
+* **Checked:** `cargo check --release --all-targets` of doc, compositor, project, app and ui: no errors. New tests
+  (doc mask editor tests, `crates/compositor/tests/mask_editor.rs`) were not run locally (coordinator rule: CI is
+  the test gate).
+## Display Settings dock panel (Painter parity chunk 10, 2026-11-12, branch `claude/parity-display-panel`, PR #161)
+
+* New `subcraft_doc::DisplaySettings` (`crates/doc/src/display.rs`): every display setting in one plain
+  struct with serde defaults. Saved in `ProjectSettings.display` (optional, no schema bump) and embedded in
+  the viewport preferences with `#[serde(flatten)]`, so old preference files load. Enums are written by
+  name; old list indices and unknown names fall back to the default.
+* New optional dock tab: View > Display settings, or `--display-settings [group]` at launch. Its sections
+  follow Painter's order (Environment, Camera, Post effects, Render, Visualization), with jump buttons
+  and the view-mode dropdown. The Render quality window reuses its camera and post-effect sections.
+* `panels::display_settings::sync_project` loads the project's settings when a session opens and writes
+  back only real changes, so opening a project never marks it modified.
+* Section titles and sub-headings go through literal `tr("...")` calls. The Render quality window's old
+  keys were removed from the zh-Hant and Korean tables, and the 47 new texts are translated in both. A
+  first CI run failed `every_translated_key_exists_in_the_english_source...` because of the stale keys.
+* Checked: `cargo check --release --all-targets` for subcraft, doc, project, render, app and ui passes.
+  A Python copy of the i18n test's scan finds no unknown or untranslated keys.
+* NOT verified locally: the test suites (CI is the test gate, per the coordinator) and the panel in the
+  running app (no screenshot yet).
+
+## Environment and camera settings (Painter parity chunk 11, 2026-11-12, branch `claude/parity-display-env`)
+
+* Environment backdrop: `vs_background`/`fs_background` draw the environment behind the model before the
+  mesh (MSAA and single-sample pipelines). Opacity 0-100% (default 0, the old plain background) and blur
+  0-1 (`EnvironmentParams.background_opacity/background_blur`). `Globals` gained `inv_view_proj`, the
+  background colour and opacity, and the blur level.
+* Environment exposure is in EV (-5..5, multiplier 2^EV) and replaces the old intensity slider. Alignment
+  is World (default) or Local; Local adds the camera yaw (`shelf::environment_view`). Environment tiles
+  can be dragged from Assets > Environments onto the 3D view or the Environment map dropdown
+  (`EnvironmentDrag`).
+* Camera: field of view 5-120 degrees with a full-frame focal-length readout (`focal_length_mm`,
+  `fov_from_focal_length`). Changing the FOV dollies the camera so the model keeps its size. Ctrl+MMB
+  or "Pick in 3D view" sets the focus distance. F9 (`Action::PaintingMode`) leaves rendering mode.
+* The map name, rotation and FOV are saved in the project's display settings.
+* zh-Hant and Korean: 16 new texts translated, and 4 replaced texts removed.
+* Tests added: `crates/render/tests/display.rs` (GPU, exact pixel values for backdrop opacity, the
+  linear-light mix, EV, rotation, blur levels and view exposure) and the lens/EV maths in
+  `crates/doc/src/display.rs`.
+* Checked: `cargo check --release --all-targets` for the six affected crates passes, and the i18n scan is
+  clean. NOT verified locally: the test suites (CI is the test gate) and the running app.
+
+## Post-effect stack completion (Painter parity chunk 25, 2026-11-12, branch `claude/parity-display-post`)
+
+* Post effects get a master switch ("Activate Post Effects", on by default) and one collapsible entry per
+  effect with its own on/off switch, in Painter's order. The existing effects keep their current look.
+* Tone mapping: new functions Auto, Linear (saturated), Sensitometric, Reinhard (luminance), Log and Log
+  (luminance), plus Gamma and Mapping Factor. All tone functions now live in a shared
+  `crates/render/src/tonemap.wgsl` (prepended to viewport.wgsl and pathtrace_display.wgsl), with a CPU
+  reference in `crates/render/src/grade.rs`.
+* New passes in post.wgsl: bloom falloff, glare threshold/remap with Painter's 13 glare shapes
+  (`glare_recipe`; Lens Flare, Standard, Cheap Lens and After Image are approximations), lens-flare
+  ghosts, and a final grade pass (`fs_grade`). The grade pass does lateral or achromatic aberration,
+  vignette, sharpen, film grain (gray or colored) and color correction (saturation, contrast,
+  brightness, bias, sepia, white balance).
+* zh-Hant and Korean: 54 new texts translated. The effect and slider helpers take translated text, so
+  every label is a literal `tr("...")`.
+* Tests added:
+  * `crates/render/tests/display.rs` (GPU): every tone function against the CPU reference, and the
+    lens/colour stage against `Grade::apply`. Film grain statistics (strength, size, gray versus
+    colored). Bloom falloff widening the glow, and lens flare mirroring a bright spot.
+  * `crates/render/tests/post.rs`: each glare shape draws its own pattern.
+* Checked: `cargo check --release --all-targets` reached borrow checking in subcraft-ui. It found 3
+  lifetime errors in the `effect`/`slider` helpers, and the i18n change removed those calls; render,
+  doc and app compiled clean. The i18n scan is clean. NOT verified locally: the test suites (CI is the
+  test gate) and the running app.
+* Not done: lens distortion, most lens-flare parameters (only camera, amount, threshold, ghost count and
+  spacing), colour profile/LUT, TAA. Glare comes from emission only.
+
+## Viewport visualisation settings (Painter parity chunk 28, 2026-11-12, branch `claude/parity-display-viz`)
+
+* Solo view: every channel of the texture set can be shown alone, not just a fixed short list. Channels
+  are grouped in the view-mode dropdown (Lighting, Single channel, mesh maps) and can be cycled. The UI
+  uploads a non-shaded solo channel to the renderer (`ViewParams.solo_channel`, `channel_view` in
+  viewport.wgsl).
+* Channel display (enabled only while one channel is shown, as in Painter):
+  * Display solo view without lighting
+  * Scale HDR values
+  * +/- colours for signed grayscale values, with the two colours
+  * Which colour components to show
+* Texture filtering: anisotropic filtering (Disabled, Low, Medium (default), High, Very high; clamped to the
+  GPU's limit) and MipMap bias (`set_texture_filtering`).
+* Grid: plane (X/Y/Z), colour and opacity (`GridParams`, plane-aware fade in grid.wgsl). The grid unit is
+  shown in the bottom-left corner while the viewport hints are hidden.
+* Camera frame with aspect-ratio presets and gate-mask opacity. Stencil display: opacity, and hide
+  while painting. These rows edit the same `state.stencil_display` as Properties > Brush, which landed
+  on main meanwhile; the first draft of this chunk had its own copy, removed in the rebase.
+* zh-Hant and Korean: 35 new texts translated. The stencil tooltip is now two literal `tr()` calls
+  instead of `tr(if ...)`.
+* Tests added:
+  * `crates/render/tests/display.rs` (GPU): any channel shown alone as stored. HDR scale, signed
+    colours and lighting in the solo view. Anisotropy and a sharper mip bias keeping distant detail.
+    The grid in the chosen plane with its colour and opacity.
+  * UI unit tests: camera-frame geometry, cycling every channel, and grid/channel settings reaching
+    the renderer.
+  * `crates/doc`: options and defaults.
+* Checked: `cargo check --release --all-targets` for the six affected crates (see the PR for the run on
+  this exact commit), and the i18n scan is clean. NOT verified locally: the test suites (CI is the test
+  gate) and the running app.
+* Not done: projection preview channel, B/Shift+B mesh-map cycling, shadows, OIT, SSS.
+
+### Parity chunk 3 - Navigation and mouse gestures (2026-11-11, branch `claude/parity-nav`)
+
+* **Done:** orbit around the point under the cursor (issue #115, Preferences switch, on by default); Alt+Shift+LMB
+  orbit snapped to 90 degrees; Ctrl+Shift+click straight line snapped to 5 degrees; Ctrl+MMB click sets the depth of
+  field focus; Ctrl+Alt+RMB click selects the texture set under the cursor;
+  V+click sets the clone source; Blender scheme Alt+MMB click centers the view. The Painter reference rows
+  of these gestures are "gesture" now and `docs/painter-shortcuts-table.md` is generated from the table.
+* **Tests:** new unit tests in `orbit.rs`, `nav.rs`, `actions.rs`. Local: `cargo check --release -p subcraft-app -p subcraft-ui --tests` was still queued when the PR was opened. Tests were not run locally (the
+  shared build queue was full all day); CI on the PR is the test gate.
+* **Not done:** not tried in the running app; no dotted preview for the snapped line.
+
+### Session 126 - Painter parity: menu bar, view layout and display keys (2026-11-11, branch `claude/parity-shortcuts`)
+
+* **Done:** menu bar in Painter's layout (File, Edit, Mode, Window, Viewport, Plugins, Help; the old Layer and View
+  menus are folded in, Preferences is Edit > Settings). New actions: Hide UI (Tab), Painting mode (F9), Close project
+  (Ctrl+F4), view layouts F1 / F2 (Painter key set) / F3 / F4, next / previous mesh map (B in the Painter key set,
+  Shift+B), invert the mask brush (X in the Painter key set), isolate the texture set (Alt+Q,
+  `Command::IsolateTextureSet`, view state only). Brush is `1` in the Painter key set. 63 of Painter's 89 documented
+  entries are covered; the other 26 have no feature behind them (`docs/painter-shortcuts.md`).
+* **Tests:** `crates/app/tests/painter_parity.rs`, key map tests in `actions.rs` (no key twice in a set, every action
+  bound in the Painter set, Painter set equals Painter's documented keys), ui unit tests for the view layouts, Tab and
+  the Edit > Settings entry. Local: `cargo check --release -p subcraft-app -p subcraft-ui --tests` was still queued when the PR was opened. Tests were not run locally (the shared build queue was full all
+  day); CI on the PR is the test gate.
+* **Not done:** not tried in the running app; contextual toolbar dropdown for the layout; Views ticks that close a
+  panel; Save and compact / Save as copy / Save as template / Clean / Export mesh.
+
+## Issue #119: driver reset on integrated AMD GPUs at start-up (2026-11-12, branch `claude/fix-119-amd-tdr`)
+
+Report: AMD APU (512 MB dedicated VRAM, DX12, driver 31.0.21925.1001, Windows 10 21H2). About 4 s after the first
+normal start the log shows `GPU device lost: Unknown: Device is lost` (the screen freezes / flashes: a Windows TDR);
+about 10 s later egui-wgpu panics at `renderer.rs:984` ("Failed to create staging buffer for index data") because
+the app kept drawing on the dead device. Safe mode works; 0.3.3's marker only helped from the second start.
+
+* **Root cause (by code reading; not reproduced, no AMD APU here):** the default start-up project (2048², smart
+  material) is composited on the GPU at start-up, and a batch of up to 256 tiles × every channel went to the GPU in
+  ONE submission. On the owner's discrete card a 4096² set takes ~1.2 s of GPU time (~75 ms per 256-tile batch); an
+  integrated GPU is 20–30× slower, so one submission passes the ~2 s watchdog, which resets the driver and loses
+  every device on the adapter. Second suspect for the 512 MB card: the compositor's tile pool allocated buffers of up
+  to 512 MB each. 0.3.3 turning off GPU compositing/baking after a loss is why later starts worked. The thumbnail
+  scene bake also used the GPU baker at start-up whatever the preference said.
+* **Short submissions (`render::pace`):** GPU compositing is split into submissions sized by `DispatchPace` —
+  start small, measure, grow toward a target (discrete: 2048 units / 100 ms target / 250 ms limit; integrated,
+  software and unknown: 64 units / 40 ms / 120 ms, growth ×2). One unit = one layer op on one 64×64 tile.
+* **Memory budget (`pace::MemoryBudget`):** integrated GPUs (except Metal; `SUBCRAFT_FULL_GPU_MEMORY=1` overrides)
+  get 4x MSAA off, a 128 MB compositing tile pool (one 128 MB buffer instead of 512 MB ones) and environment maps up
+  to 1024 px wide (the widest mip levels are not uploaded). The choice is logged and written to the startup log.
+* **Thumbnails:** the preview-scene bake runs on the CPU.
+* **Never panic after a loss:** the window device's lost callback and the uncaptured-error handler (loss texts:
+  "device is lost", DXGI 0x887A0005/6/7, …) report the loss once; `app::gpu_loss` writes the GPU-lost marker to the
+  startup log at once and moves to Lost. The first thing every frame does is `device_lost::frame_gate`: on Lost it
+  draws nothing, saves a recovery copy, releases the session lock (so the restart offers Restore), asks "restart in
+  safe mode?" in a native message box and exits the process (no unwinding through egui-wgpu). A renderer panic that
+  still gets there first (wgpu location + loss/staging-buffer text) is recognised by the panic hook: no crash report,
+  same ending. The secondary devices (compositing, ray baking) check the lost flag before every submission and fall
+  back to the CPU. `--safe-mode` after a loss keeps the GpuLostLastRun reason.
+* **Tests:** `pace` (budgets, growth, shrink, slow-adapter simulation, memory budget), `gpu_composite` pool shape,
+  `caps` loss-text recognition, `app::gpu_loss` state machine, `safe_mode`; `crates/ui/tests/device_lost.rs`
+  (headless: frames draw, simulated loss → marker on disk before the next frame, next start decided safe, no frame
+  drawn again, one recovery save, one restart, renderer panic recognised); `crates/render/tests/device_lost.rs`
+  (after a loss no more submissions, CPU result identical); `gpu_composite` many-small-submissions == one.
+* **Results (local, release, this PC's GPU):** `subcraft-app` lib 98 passed, `subcraft-render` lib 23 passed, render
+  `device_lost` 1 passed, `gpu_composite` 7 passed (incl. many-small-submissions), `subcraft-ui` lib 129 passed, ui
+  `device_lost` 1 passed; 0 failed. The full UI/workspace suite is left to CI (speed rule). Not verified on an AMD APU.
+### Painter parity chunk 6: layer header and context menu (2026-11-12, branch `claude/parity-chunk6-layer-menu`)
+
+* **Header:** Add Effect and Create Mask menu buttons first, then paint / fill / folder, SubCraft's own buttons, and
+  the trash last (it removes the selected effect when one is selected). The row wraps in a narrow dock.
+* **Right-click menu in Painter's order:** effect entries with icons, Add generator, mask entries (white / black /
+  bitmap / colour selection), clipboard (cut, copy, paste, duplicate, remove), Group layers (Ctrl+G), Create smart
+  material / smart mask, then SubCraft's extras.
+* **Commands:** `GroupLayers` puts the selection into one folder where the topmost layer was (Ctrl+G, one undo step;
+  with nothing selected Ctrl+G still adds an empty folder). A new layer goes inside a selected empty folder.
+* **Default blends:** `BlendMode::default_for` gives new layers Height = Linear Dodge (Add), Normal = Normal Map
+  Detail, AO = Multiply, folders Passthrough.
+* **Tests:** `crates/app/tests/layer_menu_parity.rs` (grouping, Ctrl+G, empty-folder insert, default blends, a
+  default fill leaving Height / Normal / AO unchanged). Compile-checked locally (`cargo check --release --tests` of the
+  changed crates); the test run is CI's, per the coordinator's build rule.
+
+### Painter parity chunk 7: effect-stack interactions (2026-11-12, branch `claude/parity-chunk7-effect-stack`)
+
+* **Commands:** `RemoveEffects`, `DuplicateEffects`, `NudgeEffects` (Alt+Up / Alt+Down), `RenameEffect` and
+  `DropEffects` (reorder several effects, move or Alt-copy them onto another layer's row; mask effects create the
+  mask when missing). New and pasted effects go right above the selected effect of the stack.
+* **Rows:** blend mode and opacity on each effect row (content: the view-mode channel), Ctrl / Shift click
+  multi-selection (`effect_stack::EffectSelection`), double-click rename, a right-click menu with cut, copy, paste,
+  duplicate, remove, move up / down, Add effect above and Rename.
+* **Keys:** with an effect selected, Delete, Ctrl+D and Ctrl+C / X / V act on the selected effect(s); Ctrl+V pastes
+  whatever was copied last.
+* **Tests:** `effect_stack.rs` unit tests (block reorder, nudge, selection), `crates/app/tests/effect_stack_parity.rs`,
+  `crates/ui/tests/effect_rows.rs`, clipboard tests in `crates/ui/src/clipboard.rs`. Compile-checked locally; CI runs
+  the tests.
+
+### Painter parity chunk 19: layer row and blending polish (2026-11-12, branch `claude/parity-chunk19-layer-polish`)
+
+* **Blending:** right-click the blend dropdown or the opacity > Apply to all channels (`SetBlendAllChannels`);
+  Blending options > Copy / Paste (`PasteBlending`); a clicked dropdown steps with Up / Down and the wheel; separators
+  between Painter's seven mode groups (`BlendMode::group`).
+* **Rows:** press an eye and slide over others to give them the same state (layers and effects); showing a layer
+  inside hidden folders shows the folders; a line under each thumbnail turns red when its stack has effects.
+* **Dragging:** Ctrl + drag duplicates; several selected rows drag together (`DropLayers`).
+* **Colour tags:** `Layer.color` (`LayerColor`, nine colours), Set color submenu, a stripe on the row, dimmed on rows
+  inside a tagged folder. Saved as an optional `color` field on the layer (no schema bump; absent when none).
+* **Layer content:** Ctrl+Shift+C / Ctrl+Shift+V copy the paint or fill and the content effects of one layer into
+  another (`PasteLayerContent`); name, mask and blending stay.
+* **Not done:** Ctrl+M flatten (chunk 44).
+* **Tests:** `crates/app/tests/layer_polish_parity.rs`, `crates/ui/tests/layer_polish.rs`, a project round trip of
+  colour tags, a blend group test, a layer-content clipboard test. Compile-checked locally; CI runs the tests.
+
+## Rendering mode panel (Painter parity chunk 51, 2026-11-12, branch `claude/parity-rendering-mode`)
+
+* Path tracer (`crates/render/src/pathtrace.rs`, `pathtrace.wgsl`):
+  * New settings: min samples, a time limit (tracing time only), a firefly-filter switch (the
+    indirect clamp the tracer always had), a clear color for camera rays that miss, and ground
+    settings (`GroundSettings`: offset, reflectivity color, glossiness, shadow intensity, visible
+    from below).
+  * The ground gets a glossy Phong-lobe reflection tinted by the reflectivity; the diffuse part
+    keeps the rest. Shadow intensity scales the key light's shadow on the ground.
+  * Accumulation stops at the sample limit, or at the time limit once the minimum samples are
+    done (`render_done`).
+  * `PathTraceStatus` reports the elapsed time, the limit, the traced resolution and `done`.
+  * Every default keeps the image as it was (zero reflectivity skips the new branch without
+    drawing a random number).
+* Display Settings > Render settings:
+  * A Status block: resolution, scene size, iterations, rendering time.
+  * Resolution override (width and height). The picture is letterboxed in the 3D view and keeps
+    the vertical field of view (`viewport::trace_params`).
+  * Dome > Clear color, and the Ground group.
+  * "Save render…" writes the path-traced picture as shown, tone mapped, as a PNG
+    (`render_export::save_path_traced`).
+* The Render button popup gains Min samples, Max time with a unit (seconds, minutes, hours) and
+  Firefly filter.
+* zh-Hant and Korean: 37 new texts translated.
+* Tests added:
+  * `crates/render/tests/pathtrace.rs` (GPU):
+    * The clear color exactly on missed pixels, and a restart when it changes.
+    * The time limit stopping after one frame, then the minimum samples still being taken.
+    * A mirror ground (reflectivity 1, glossiness 1) at least 3x brighter than the 18% floor.
+    * A ground offset of 100 units leaving the background.
+    * The floor hidden from below.
+    * Shadow intensity 0 lifting the shadowed floor.
+  * Unit tests: `render_done`, preference to settings mapping with clamping, `trace_params`
+    (the 16:9 projection equals Mat4::perspective_rh at 16:9), `format_duration`.
+* Checked: see the PR (gated `cargo check --release --all-targets`). NOT verified locally: the
+  test suites (CI is the test gate) and the running app.
+* Not done: Caustic sampler, Share (ArtStation), dome type / radius / texture scale, absolute
+  ground coordinates (an offset instead), MDL parameters.
+
+### Session 127 - Right-click Properties popup, curvature modes and detail sizes, polygon fill box / modes (2026-11-10, branch `claude/view-ux-curvature`)
 
 **Status:** built and tested (release). Not yet done: app screenshots and the 4K timing of the new detail sizes.
 The default Curvature path is unchanged: Some(default) and None give the baked map bit for bit (tested).

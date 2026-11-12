@@ -57,6 +57,10 @@ impl PreviewScene {
                 maps: vec![MeshMapKind::Curvature, MeshMapKind::AmbientOcclusion],
                 ao_samples: 16,
                 curvature_radius: 0.03,
+                // A 256 px sphere bakes in a few milliseconds on the processor. On the GPU it
+                // would create a third graphics device and compile two compute pipelines during
+                // start-up, whatever "Use GPU for baking" says (issue #119).
+                use_gpu: false,
                 ..BakeSettings::default()
             };
             MeshMaps::from_map(bake(&input, &settings, &Progress::new()).unwrap_or_default())

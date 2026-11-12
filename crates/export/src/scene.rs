@@ -105,6 +105,24 @@ fn material_name(mesh: &Mesh, slot: usize) -> String {
     sanitize(mesh.materials.get(slot).map_or("Material", |m| m.name.as_str()))
 }
 
+/// One valid, distinct prim name per material slot: two slots called "Material" (or names that
+/// only differ in dropped characters) would otherwise merge into one USD prim.
+fn usd_material_names(mesh: &Mesh, slots: usize) -> Vec<String> {
+    let mut taken = std::collections::HashSet::new();
+    (0..slots)
+        .map(|slot| {
+            let base = usd_identifier(&material_name(mesh, slot));
+            let mut name = base.clone();
+            let mut n = 1;
+            while !taken.insert(name.clone()) {
+                n += 1;
+                name = format!("{base}_{n}");
+            }
+            name
+        })
+        .collect()
+}
+
 // ───────────────────────────── OBJ + MTL ─────────────────────────────
 
 /// OBJ text for `mesh` referencing `mtl_name`. UV v is flipped (OBJ origin is bottom-left).
@@ -332,13 +350,13 @@ fn usd_identifier(name: &str) -> String {
 /// USD ASCII with one `Mesh` per material slot, bound to a `UsdPreviewSurface` material.
 /// UVs are written as `st` with v flipped (USD origin is bottom-left).
 pub fn usda_text(mesh: &Mesh, mats: &[SceneMaterial]) -> String {
-    let material_name = |mesh: &Mesh, slot: usize| usd_identifier(&material_name(mesh, slot));
     let root = usd_identifier(&sanitize(&mesh.name));
+    let names = usd_material_names(mesh, mats.len().max(mesh.materials.len()));
     let mut s = String::new();
     let _ = writeln!(s, "#usda 1.0\n(\n    defaultPrim = \"{root}\"\n    metersPerUnit = 1\n    upAxis = \"Y\"\n    doc = \"Exported by SubCraft\"\n)\n");
     let _ = writeln!(s, "def Xform \"{root}\"\n{{");
     for (i, p) in parts(mesh).iter().enumerate() {
-        let mname = material_name(mesh, p.material);
+        let mname = names.get(p.material).cloned().unwrap_or_else(|| usd_identifier(&material_name(mesh, p.material)));
         let _ = writeln!(s, "    def Mesh \"Mesh_{i}_{mname}\" (\n        prepend apiSchemas = [\"MaterialBindingAPI\"]\n    )\n    {{");
         let _ = writeln!(s, "        int[] faceVertexCounts = [{}]", vec!["3"; p.indices.len() / 3].join(", "));
         let _ = writeln!(s, "        int[] faceVertexIndices = [{}]", p.indices.iter().map(u32::to_string).collect::<Vec<_>>().join(", "));
@@ -351,7 +369,7 @@ pub fn usda_text(mesh: &Mesh, mats: &[SceneMaterial]) -> String {
     }
     let _ = writeln!(s, "    def Scope \"Materials\"\n    {{");
     for (slot, m) in mats.iter().enumerate() {
-        let n = material_name(mesh, slot);
+        let n = names[slot].clone();
         let base = format!("/{root}/Materials/{n}");
         let _ = writeln!(s, "        def Material \"{n}\"\n        {{");
         let _ = writeln!(s, "            token outputs:surface.connect = <{base}/Surface.outputs:surface>");
