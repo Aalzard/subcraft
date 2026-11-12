@@ -41,6 +41,30 @@ const PACKED: [ChannelKind; 6] = [
 ];
 const ARRAY_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 
+/// The ground disc of the Rendering mode (Painter's Viewer settings > Ground).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct GroundSettings {
+    /// Added to the default position (centred under the model, at the bottom of its bounds).
+    pub offset: [f32; 3],
+    /// Color of the glossy reflection on the ground (black = a plain diffuse floor).
+    pub reflectivity: [f32; 3],
+    /// Sharpness of that reflection, 0 (blurry) .. 1 (mirror).
+    pub glossiness: f32,
+    /// How dark the key light's shadow is on the ground, 0 (none) .. 1 (full).
+    pub shadow_intensity: f32,
+    /// Whether the ground shows when seen from underneath.
+    pub visible_from_below: bool,
+}
+
+impl Default for GroundSettings {
+    fn default() -> Self {
+        Self { offset: [0.0; 3], reflectivity: [0.0; 3], glossiness: 0.5, shadow_intensity: 1.0, visible_from_below: true }
+    }
+}
+
+/// Firefly clamp: indirect environment samples brighter than this are scaled down.
+pub const FIREFLY_CLAMP: f32 = 20.0;
+
 /// User settings of the Rendering mode.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PathTraceSettings {
@@ -48,9 +72,19 @@ pub struct PathTraceSettings {
     pub max_bounces: u32,
     /// Accumulation stops here (0 = never).
     pub max_samples: u32,
+    /// Samples always taken before the time limit may stop the render.
+    pub min_samples: u32,
+    /// Tracing time (seconds, counting only frames that traced) after which accumulation stops
+    /// (0 = no limit).
+    pub max_time_s: f32,
     pub denoise: bool,
     /// Gray ground disc under the model (contact shadows, floor bounce light).
     pub ground: bool,
+    pub ground_settings: GroundSettings,
+    /// Clamp rare very bright indirect samples (fireflies) at [`FIREFLY_CLAMP`].
+    pub firefly_filter: bool,
+    /// Solid color camera rays see where they miss the model, instead of the view's background.
+    pub clear_color: Option<[f32; 3]>,
     /// No new samples while paused; the current image stays.
     pub paused: bool,
     /// GPU time per frame spent on samples.
@@ -59,7 +93,19 @@ pub struct PathTraceSettings {
 
 impl Default for PathTraceSettings {
     fn default() -> Self {
-        Self { max_bounces: 4, max_samples: 1024, denoise: true, ground: true, paused: false, frame_budget_ms: 20.0 }
+        Self {
+            max_bounces: 4,
+            max_samples: 1024,
+            min_samples: 0,
+            max_time_s: 0.0,
+            denoise: true,
+            ground: true,
+            ground_settings: GroundSettings::default(),
+            firefly_filter: true,
+            clear_color: None,
+            paused: false,
+            frame_budget_ms: 20.0,
+        }
     }
 }
 
@@ -78,12 +124,35 @@ pub struct PathTraceStatus {
     pub samples_per_second: f32,
     /// Passes dispatched this frame.
     pub passes: u32,
+    /// Tracing time since the image last restarted (seconds) and the limit (0 = none).
+    pub elapsed_s: f32,
+    pub max_time_s: f32,
+    /// Resolution of the traced image (it may be smaller than asked when the GPU's buffers
+    /// cannot hold the full size).
+    pub size: [u32; 2],
+    /// Accumulation stopped: the sample or the time limit was reached.
+    pub done: bool,
 }
 
 impl PathTraceStatus {
     pub fn converged(&self) -> bool {
-        self.max_samples > 0 && self.samples >= self.max_samples
+        self.done || (self.max_samples > 0 && self.samples >= self.max_samples)
     }
+}
+
+/// Distance between per-pass parameter blocks in one uniform buffer: the block size rounded up to
+/// the device's dynamic-offset alignment (offsets that are not a multiple are a validation error).
+fn uniform_stride(size: u64, alignment: u64) -> u64 {
+    let alignment = alignment.max(1);
+    size.div_ceil(alignment) * alignment
+}
+
+/// Whether accumulation should stop: the sample limit is reached, or the time limit is and the
+/// minimum sample count is done.
+pub fn render_done(settings: &PathTraceSettings, samples: u32, elapsed_s: f32) -> bool {
+    let by_samples = settings.max_samples > 0 && samples >= settings.max_samples;
+    let by_time = settings.max_time_s > 0.0 && elapsed_s >= settings.max_time_s && samples >= settings.min_samples;
+    by_samples || by_time
 }
 
 /// `Err` with a message for the user when the device lacks what the path tracer needs.
@@ -138,6 +207,9 @@ struct TraceParams {
     floor: [f32; 4],
     size: [u32; 4],
     misc: [u32; 4],
+    ground_look: [f32; 4],
+    ground_misc: [f32; 4],
+    clear: [f32; 4],
 }
 
 #[repr(C)]
@@ -160,6 +232,9 @@ struct Signature {
     size: [u32; 2],
     bounces: u32,
     ground: bool,
+    ground_settings: GroundSettings,
+    firefly_filter: bool,
+    clear_color: Option<[f32; 3]>,
     geometry: u64,
     revision: u64,
 }
@@ -414,6 +489,8 @@ pub(crate) struct PathTracer {
     seed: u32,
     passes_per_frame: u32,
     samples_per_second: f32,
+    /// Tracing time since the last restart (seconds).
+    elapsed: f32,
     /// Exposure, tone map and denoise of the image last written to the target.
     shown: Option<([f32; 3], bool, u32)>,
 }
@@ -493,7 +570,7 @@ impl PathTracer {
             multiview_mask: None,
             cache: None,
         });
-        let param_stride = (device.limits().min_uniform_buffer_offset_alignment as u64).max(std::mem::size_of::<TraceParams>() as u64);
+        let param_stride = uniform_stride(std::mem::size_of::<TraceParams>() as u64, device.limits().min_uniform_buffer_offset_alignment as u64);
         let params = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("pt params"),
             size: param_stride * MAX_PASSES as u64,
@@ -546,6 +623,7 @@ impl PathTracer {
             seed: 0,
             passes_per_frame: 1,
             samples_per_second: 0.0,
+            elapsed: 0.0,
             shown: None,
         }
     }
@@ -737,14 +815,24 @@ impl PathTracer {
             size,
             bounces: settings.max_bounces,
             ground: settings.ground,
+            ground_settings: settings.ground_settings,
+            firefly_filter: settings.firefly_filter,
+            clear_color: settings.clear_color,
             geometry: geometry.key,
             revision: self.revision,
         };
         if self.signature != Some(signature) {
             self.signature = Some(signature);
             self.samples = 0;
+            self.elapsed = 0.0;
         }
-        let remaining = if settings.max_samples == 0 { u32::MAX } else { settings.max_samples.saturating_sub(self.samples) };
+        let remaining = if render_done(settings, self.samples, self.elapsed) {
+            0
+        } else if settings.max_samples == 0 {
+            u32::MAX
+        } else {
+            settings.max_samples.saturating_sub(self.samples)
+        };
         let passes = if settings.paused { 0 } else { self.passes_per_frame.min(remaining).min(MAX_PASSES) };
         // Never show an empty accumulation, even when paused right at a restart.
         let passes = if self.samples == 0 { passes.max(1) } else { passes };
@@ -758,6 +846,9 @@ impl PathTracer {
         let inv_view_proj = (params.proj * params.view).inverse();
         let rotated = |d: glam::Vec3| d.normalize_or(glam::Vec3::Y);
         let v4 = |c: [f32; 3], w: f32| [c[0], c[1], c[2], w];
+        let g = settings.ground_settings;
+        let base = geometry.floor;
+        let floor = [base[0] + g.offset[0], base[1] + g.offset[1], base[2] + g.offset[2], base[3]];
         let start = self.samples;
         for k in 0..passes {
             self.seed = self.seed.wrapping_add(1);
@@ -771,10 +862,13 @@ impl PathTracer {
                 horizon: v4(e.horizon, 0.0),
                 zenith: v4(e.zenith, 0.0),
                 lights: [e.panels, e.top, e.key_softbox, if hdri { 1.0 } else { 0.0 }],
-                env: [e.rotation, e.hdri_intensity, geometry.eps, 20.0],
-                floor: if settings.ground { geometry.floor } else { [0.0; 4] },
+                env: [e.rotation, e.hdri_intensity, geometry.eps, if settings.firefly_filter { FIREFLY_CLAMP } else { f32::MAX }],
+                floor: if settings.ground { floor } else { [0.0; 4] },
                 size: [size[0], size[1], start + k, settings.max_bounces.min(16)],
                 misc: [self.seed, (start + k == 0) as u32, 0, 0],
+                ground_look: v4(g.reflectivity.map(|c| c.clamp(0.0, 1.0)), g.glossiness.clamp(0.0, 1.0)),
+                ground_misc: [g.shadow_intensity.clamp(0.0, 1.0), g.visible_from_below as u32 as f32, settings.clear_color.is_some() as u32 as f32, 0.0],
+                clear: v4(settings.clear_color.unwrap_or([0.0; 3]), 0.0),
             };
             queue.write_buffer(&self.params, k as u64 * self.param_stride, bytemuck::bytes_of(&p));
         }
@@ -864,6 +958,7 @@ impl PathTracer {
         self.samples = samples;
         self.shown = Some((look, denoise, samples));
         if passes > 0 {
+            self.elapsed += took;
             let per_pass = took / passes as f32;
             self.samples_per_second = passes as f32 / took;
             let fit = (settings.frame_budget_ms.max(1.0) * 1e-3 / per_pass).floor() as u32;
@@ -873,13 +968,51 @@ impl PathTracer {
     }
 
     fn status(&self, settings: &PathTraceSettings, passes: u32) -> PathTraceStatus {
-        PathTraceStatus { samples: self.samples, max_samples: settings.max_samples, samples_per_second: self.samples_per_second, passes }
+        let size = self.frame.as_ref().map_or([0, 0], |f| f.size);
+        PathTraceStatus {
+            samples: self.samples,
+            max_samples: settings.max_samples,
+            samples_per_second: self.samples_per_second,
+            passes,
+            elapsed_s: self.elapsed,
+            max_time_s: settings.max_time_s,
+            size,
+            done: render_done(settings, self.samples, self.elapsed),
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{fit_trace_size, tree_depth};
+    use super::{PathTraceSettings, TraceParams, fit_trace_size, render_done, tree_depth, uniform_stride};
+
+    #[test]
+    fn per_pass_parameters_sit_at_aligned_offsets() {
+        assert_eq!(uniform_stride(256, 256), 256);
+        assert_eq!(uniform_stride(304, 256), 512, "a block past the alignment takes the next multiple");
+        assert_eq!(uniform_stride(48, 64), 64);
+        assert_eq!(uniform_stride(100, 0), 100);
+        let size = std::mem::size_of::<TraceParams>() as u64;
+        for alignment in [32, 64, 128, 256] {
+            let stride = uniform_stride(size, alignment);
+            assert!(stride >= size && stride % alignment == 0, "{size} bytes at alignment {alignment}: {stride}");
+        }
+    }
+
+    #[test]
+    fn the_render_stops_at_the_sample_limit_or_at_the_time_limit_after_the_minimum_samples() {
+        let s = PathTraceSettings { max_samples: 100, min_samples: 0, max_time_s: 0.0, ..Default::default() };
+        assert!(!render_done(&s, 99, 1e6) && render_done(&s, 100, 0.0), "no time limit: samples only");
+        let unlimited = PathTraceSettings { max_samples: 0, ..s };
+        assert!(!render_done(&unlimited, u32::MAX - 1, 1e6), "0 samples and 0 seconds never stop");
+        let timed = PathTraceSettings { max_samples: 0, max_time_s: 10.0, min_samples: 8, ..s };
+        assert!(!render_done(&timed, 50, 9.9), "under the time limit");
+        assert!(render_done(&timed, 50, 10.0), "time is up");
+        assert!(!render_done(&timed, 7, 60.0), "time is up but the minimum samples are not done yet");
+        assert!(render_done(&timed, 8, 60.0));
+        let both = PathTraceSettings { max_samples: 20, ..timed };
+        assert!(render_done(&both, 20, 0.1), "whichever limit comes first");
+    }
 
     #[test]
     fn trace_size_fits_the_buffer_limit_keeping_the_aspect() {

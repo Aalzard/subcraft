@@ -30,6 +30,10 @@ pub enum Source {
     /// Component of a baked mesh map (Ambient Occlusion, Curvature, Thickness...). Maps not baked
     /// read their default value.
     MeshMap { kind: MeshMapKind, component: u8, invert: bool },
+    /// Effective opacity (issue #145): the Opacity channel (1 where the set has none) times the
+    /// Base Color stack's coverage (below 1 only in a transparent texture set). What the
+    /// "+ Opacity" presets put in Base Color's alpha and in their separate Opacity map.
+    Alpha,
     /// Component of one of Painter's converted maps (Diffuse, Specular, Glossiness...), computed
     /// from the metal / roughness channels.
     Converted { map: Converted, component: u8 },
@@ -121,6 +125,7 @@ impl Source {
             Source::Normal { .. } => Some(ChannelKind::Normal),
             Source::Height => Some(ChannelKind::Height),
             Source::Gray { kind, .. } => Some(*kind),
+            Source::Alpha => Some(ChannelKind::Opacity),
             Source::Constant { .. } | Source::View2d { .. } | Source::MeshMap { .. } | Source::Converted { .. } => None,
         }
     }
@@ -137,6 +142,7 @@ impl Source {
             Source::Constant { value } => format!("{value:.2}"),
             Source::View2d { component } => format!("2D view.{}", comp(component)),
             Source::Gray { kind, invert } => inv(invert, format!("Gray({})", kind.display_name())),
+            Source::Alpha => "Alpha (Opacity)".into(),
             Source::MeshMap { kind, component, invert } => inv(invert, if kind.components() > 1 { format!("Baked {}.{}", kind.display_name(), comp(component)) } else { format!("Baked {}", kind.display_name()) }),
             Source::Converted { map, component } => if map.components() > 1 { format!("{}.{}", map.label(), comp(component)) } else { map.label().to_string() },
         }
@@ -198,6 +204,13 @@ pub struct ExportTemplate {
 
 fn rgb(kind: ChannelKind) -> Vec<Source> {
     (0..3).map(|c| Source::ch(kind, c)).collect()
+}
+
+/// Base Color RGB with the effective opacity in alpha.
+fn rgba(kind: ChannelKind) -> Vec<Source> {
+    let mut c = rgb(kind);
+    c.push(Source::Alpha);
+    c
 }
 
 fn normal(directx: bool) -> Vec<Source> {
@@ -394,6 +407,57 @@ impl ExportTemplate {
         }
     }
 
+    /// A copy of `self` with alpha (issue #145): Base Color gains the effective opacity as its
+    /// fourth component (JPEG maps switch to PNG) and, when `opacity_map`, a separate grey
+    /// "Opacity" map follows it. Painter's "... + Opacity" / "with alpha" presets.
+    fn with_alpha(mut self, name: &str, opacity_map: bool) -> Self {
+        self.name = name.into();
+        let color = self.maps.iter().position(|m| m.components.len() == 3 && m.components.iter().all(|s| matches!(s, Source::Channel { kind: ChannelKind::BaseColor, .. })));
+        if let Some(i) = color {
+            let m = &mut self.maps[i];
+            m.components = rgba(ChannelKind::BaseColor);
+            if m.format == FileFormat::Jpeg {
+                m.format = FileFormat::Png8;
+            }
+            if opacity_map {
+                self.maps.insert(i + 1, OutputMap::new("Opacity", FileFormat::Png8, vec![Source::Alpha], false));
+            }
+        }
+        self
+    }
+
+    /// Painter's "PBR Metallic Roughness" with an alpha channel in Base Color and a separate
+    /// Opacity map.
+    pub fn pbr_metal_rough_opacity() -> Self {
+        Self::pbr_metal_rough().with_alpha("PBR Metallic Roughness + Opacity", true)
+    }
+
+    /// Unreal Engine with opacity in Base Color's alpha (Translucent / Masked materials) and a
+    /// separate Opacity map for the Opacity / Opacity Mask pin.
+    pub fn unreal_opacity() -> Self {
+        Self::unreal().with_alpha("Unreal Engine (ORM packed) + Opacity", true)
+    }
+
+    /// Unity HDRP / URP read transparency from Base Map alpha (Surface Type Transparent or Alpha
+    /// Clipping).
+    pub fn unity_hdrp_alpha() -> Self {
+        Self::unity_hdrp().with_alpha("Unity HDRP (Mask Map) + Alpha", false)
+    }
+
+    pub fn unity_urp_alpha() -> Self {
+        Self::unity_urp().with_alpha("Unity URP (Metallic + Occlusion) + Alpha", false)
+    }
+
+    /// Godot 4: Albedo alpha drives Transparency (Alpha / Alpha Scissor / Alpha Hash).
+    pub fn godot_alpha() -> Self {
+        Self::godot().with_alpha("Godot 4 (ORM) + Alpha", false)
+    }
+
+    /// glTF 2.0: `baseColorTexture` alpha with `alphaMode` BLEND or MASK.
+    pub fn gltf_alpha() -> Self {
+        Self::gltf().with_alpha("glTF 2.0 + Alpha", false)
+    }
+
     /// Whether this is one of the read-only built-in templates.
     pub fn is_builtin(&self) -> bool {
         self.id.is_none()
@@ -437,7 +501,23 @@ impl ExportTemplate {
     /// indexes it), then Painter's predefined and default templates
     /// ([`crate::builtin_presets`]).
     pub fn builtin() -> Vec<ExportTemplate> {
-        let mut all = vec![Self::pbr_metal_rough(), Self::unreal(), Self::unity_hdrp(), Self::gltf(), Self::unity_urp(), Self::godot(), Self::roblox(), Self::sketchfab(), Self::view_2d()];
+        let mut all = vec![
+            Self::pbr_metal_rough(),
+            Self::unreal(),
+            Self::unity_hdrp(),
+            Self::gltf(),
+            Self::unity_urp(),
+            Self::godot(),
+            Self::roblox(),
+            Self::sketchfab(),
+            Self::view_2d(),
+            Self::pbr_metal_rough_opacity(),
+            Self::unreal_opacity(),
+            Self::unity_hdrp_alpha(),
+            Self::unity_urp_alpha(),
+            Self::godot_alpha(),
+            Self::gltf_alpha(),
+        ];
         all.extend(crate::builtin_presets::painter());
         all
     }

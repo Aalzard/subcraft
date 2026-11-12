@@ -301,6 +301,9 @@ mod painter {
                     return Some(Source::Converted { map, component: component.min(map.components() as u8 - 1) });
                 }
                 match document_channel(name) {
+                    // Painter's opacity channel is the texel's coverage: opacity times what the
+                    // stack covers (issue #145), which is SubCraft's effective alpha.
+                    Some((ChannelKind::Opacity, false)) => Some(Source::Alpha),
                     Some((kind, invert)) if gray && kind.is_color() => Some(Source::Gray { kind, invert }),
                     Some((kind, invert)) => Some(Source::Channel { kind, component, invert }),
                     None => {
