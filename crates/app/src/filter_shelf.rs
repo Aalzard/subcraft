@@ -8,7 +8,31 @@ use subcraft_doc::{ContentEffectKind, Filter, MaskEffectKind};
 use crate::session::LayerTarget;
 use crate::{Command, Session};
 
+/// Painter's filter layer: an empty paint layer, Passthrough on every channel, whose only effect
+/// is `filter` on every channel of `ts` it supports. It filters the stack below it.
+pub fn filter_layer(filter: Filter, ts: &subcraft_doc::TextureSet) -> Option<subcraft_doc::Layer> {
+    let channels: Vec<ChannelKind> = ts.channels.iter().map(|c| c.kind).filter(|k| filter.supports_channel(*k)).collect();
+    let (&first, rest) = channels.split_first()?;
+    let mut layer = subcraft_doc::Layer::new_paint(filter.label(), ts);
+    for blend in layer.blend.values_mut() {
+        *blend = subcraft_doc::ChannelBlend::new(subcraft_doc::BlendMode::Passthrough);
+    }
+    let mut effect = subcraft_doc::ContentEffect::new(ContentEffectKind::Filter { channel: first, filter }, ts);
+    effect.name = filter.label().into();
+    effect.extra_channels = rest.iter().copied().collect();
+    layer.content_effects.push(std::sync::Arc::new(effect));
+    Some(layer)
+}
+
 impl Session {
+    /// A filter dragged from the Shelf into the layer stack: a new filter layer above the
+    /// selection (see [`filter_layer`]). One undo step.
+    pub fn add_filter_layer(&mut self, filter: Filter) -> Result<(), crate::CommandError> {
+        let layer = filter_layer(filter, self.selected_texture_set())
+            .ok_or_else(|| crate::CommandError::Invalid(format!("{} works on none of this texture set's channels", filter.label())))?;
+        self.execute(Command::InsertLayer { layer: Box::new(layer), label: format!("Filter layer: {}", filter.label()) })
+    }
+
     /// The command a Shelf click on `filter` runs, or `None` when no layer is selected or the
     /// filter fits nowhere (e.g. a color-only filter on a set without color channels).
     pub fn shelf_filter_command(&self, filter: Filter) -> Option<Command> {
@@ -86,5 +110,34 @@ mod tests {
         assert_eq!(s.selected_layer().unwrap().content_effects.last().unwrap().id, eid, "same effect");
         s.execute(Command::Undo).unwrap();
         assert!(matches!(filter_of(&s)[0].1, Filter::Blur { .. }), "one undo step");
+    }
+
+    #[test]
+    fn a_filter_dragged_into_the_stack_becomes_a_passthrough_filter_layer_on_every_supported_channel() {
+        let mut s = Session::new(subcraft_mesh::primitives::cube(2.0), 32);
+        let set = s.selection().texture_set;
+        s.execute(Command::AddChannel { texture_set: set, kind: ChannelKind::Normal }).unwrap();
+        let below = s.selection().layer.unwrap();
+        let steps = s.history().entries().len();
+        s.add_filter_layer(Filter::Invert).unwrap();
+        assert_eq!(s.history().entries().len(), steps + 1, "one undo step");
+        let ts = s.selected_texture_set();
+        let layer = ts.layers.last().unwrap();
+        assert_eq!(s.selection().layer, Some(layer.id), "the new layer is selected, above the old selection");
+        assert_eq!(ts.location(below).unwrap().index, 0);
+        assert!(layer.blend.values().all(|b| b.mode == subcraft_doc::BlendMode::Passthrough));
+        let [effect] = layer.content_effects.as_slice() else { panic!("one effect") };
+        let expected: Vec<ChannelKind> = ts.channel_kinds().filter(|k| Filter::Invert.supports_channel(*k)).collect();
+        assert!(!expected.contains(&ChannelKind::Normal), "Invert does not work on normals");
+        assert_eq!(effect.filter_channels(), expected);
+        assert_eq!(layer.name, "Invert");
+
+        // A colour-only filter takes the colour channels only.
+        s.add_filter_layer(Filter::Grayscale).unwrap();
+        let effect = &s.selected_texture_set().layers.last().unwrap().content_effects[0];
+        assert!(effect.filter_channels().iter().all(|k| k.is_color()));
+        s.execute(Command::Undo).unwrap();
+        s.execute(Command::Undo).unwrap();
+        assert_eq!(s.selected_texture_set().layers.len(), 1);
     }
 }
