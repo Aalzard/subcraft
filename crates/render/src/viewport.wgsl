@@ -31,11 +31,19 @@ struct Globals {
     // rgb: color of positive values, a: texture level bias of the material textures
     solo_positive: vec4<f32>,
     solo_negative: vec4<f32>,
+    // Key light's view-projection for the shadow map.
+    shadow_mat: mat4x4<f32>,
+    // x: 1 = shadows on, y: opacity, z: one texel in map UV, w: one texel in world units
+    shadow: vec4<f32>,
+    // x: filter radius in texels
+    shadow_filter: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> g: Globals;
 @group(0) @binding(1) var env_tex: texture_2d<f32>;
 @group(0) @binding(2) var env_samp: sampler;
+@group(0) @binding(3) var shadow_map: texture_depth_2d;
+@group(0) @binding(4) var shadow_samp: sampler_comparison;
 @group(1) @binding(0) var samp: sampler;
 @group(1) @binding(1) var t_base: texture_2d<f32>;
 @group(1) @binding(2) var t_rough: texture_2d<f32>;
@@ -57,6 +65,29 @@ struct MaterialParams {
     shader: vec4<f32>,
 };
 @group(1) @binding(10) var<uniform> mat: MaterialParams;
+// Specular level: the reflectance of non-metals (0.5 = 4%).
+@group(1) @binding(11) var t_specular: texture_2d<f32>;
+
+// How much key light reaches `world` (a point on a surface with geometric normal `n`): 1 lit,
+// down to 1 - opacity in full shadow. Percentage-closer filter over the shadow map's texels.
+fn shadow_visibility(world: vec3<f32>, n: vec3<f32>) -> f32 {
+    if (g.shadow.x < 0.5) { return 1.0; }
+    // Offset along the normal so a lit surface does not shadow itself.
+    let c = g.shadow_mat * vec4<f32>(world + n * g.shadow.w * 1.5, 1.0);
+    let ndc = c.xyz / c.w;
+    let uv = vec2<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
+    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || ndc.z > 1.0) { return 1.0; }
+    let r = i32(g.shadow_filter.x);
+    var lit = 0.0;
+    var taps = 0.0;
+    for (var y = -r; y <= r; y = y + 1) {
+        for (var x = -r; x <= r; x = x + 1) {
+            lit += textureSampleCompareLevel(shadow_map, shadow_samp, uv + vec2<f32>(f32(x), f32(y)) * g.shadow.z, ndc.z);
+            taps += 1.0;
+        }
+    }
+    return 1.0 - clamp(g.shadow.y, 0.0, 1.0) * (1.0 - lit / taps);
+}
 
 struct VsIn {
     @location(0) pos: vec3<f32>,
@@ -320,7 +351,8 @@ fn fs_main(in: VsOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f
     let noh = max(dot(n, h), 0.0);
     let voh = max(dot(v, h), 0.0);
 
-    let f0 = mix(vec3<f32>(0.04), base, metal);
+    let spec_level = clamp(material_sample(t_specular, samp, in.uv).r, 0.0, 1.0);
+    let f0 = mix(vec3<f32>(0.08 * spec_level), base, metal);
     let diffuse = base * (1.0 - metal);
 
     let a = rough * rough;
@@ -334,7 +366,7 @@ fn fs_main(in: VsOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f
     let spec = d * gv * gl * f / max(4.0 * nov * nol, 1e-4);
     let kd = (1.0 - f) * diffuse / PI;
     let light = g.light_color.rgb * g.params.z;
-    let direct = (kd + spec) * light * nol;
+    let direct = (kd + spec) * light * nol * shadow_visibility(in.world, n0);
 
     let r = reflect(-v, n);
     // Horizon fading: a normal map can tilt the reflection below the geometric surface; such

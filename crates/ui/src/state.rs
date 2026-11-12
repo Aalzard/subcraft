@@ -745,7 +745,8 @@ impl UiState {
         let upload = |renderer: &mut ViewportRenderer, ts: subcraft_core::TextureSetId, slot: u32, changed: Option<&subcraft_app::ChangedTiles>| {
             let Some(c) = session.composite(ts) else { return };
             // Opacity is not shaded but drives the alpha modes (issue #145).
-            for k in SHADED_CHANNELS.into_iter().chain([ChannelKind::Opacity]) {
+            // Opacity drives the alpha modes (issue #145), Specular the reflectance of non-metals.
+            for k in SHADED_CHANNELS.into_iter().chain([ChannelKind::Opacity, ChannelKind::Specular]) {
                 let Some(img) = c.channel(k) else { continue };
                 match changed {
                     None => renderer.upload_channel(&rs.device, &rs.queue, slot, k, img, None),

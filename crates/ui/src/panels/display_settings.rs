@@ -221,6 +221,35 @@ pub fn environment(state: &mut UiState, ui: &mut Ui) {
         }).response.on_hover_text(tr("World: the environment stays put while the camera orbits. Local: it turns with the camera, so the lighting follows the view."));
         ui.end_row();
     });
+    // Painter's Environment settings > Shadows: cast by the key light, in the raster view.
+    let display = &mut state.recovery.prefs.viewport.display;
+    sub_header(ui, tr("Shadows"));
+    grid(ui, "display_shadows", |ui| {
+        ui.label(tr("Enable"));
+        ui.checkbox(&mut display.shadows, "").on_hover_text(tr("The model casts the key light's shadow on itself in the 3D view (the Rendering mode always has shadows)"));
+        ui.end_row();
+        ui.label(tr("Computation mode"));
+        ui.add_enabled_ui(display.shadows, |ui| {
+            egui::ComboBox::from_id_salt("display_shadow_mode").selected_text(shadow_mode_label(display.shadow_mode)).show_ui(ui, |ui| {
+                for m in subcraft_doc::ShadowMode::MENU {
+                    ui.selectable_value(&mut display.shadow_mode, m, shadow_mode_label(m));
+                }
+            }).response.on_hover_text(tr("Intensive is sharper and slower, Lightweight softer and faster"));
+        });
+        ui.end_row();
+        ui.label(tr("Shadows opacity"));
+        ui.add_enabled(display.shadows, egui::Slider::new(&mut display.shadow_opacity, 0.0..=1.0)).on_hover_text(tr("How dark the shadows are: 1 blocks all of the key light"));
+        ui.end_row();
+    });
+}
+
+/// Painter's name of a shadow computation mode, translated.
+fn shadow_mode_label(mode: subcraft_doc::ShadowMode) -> &'static str {
+    match mode {
+        subcraft_doc::ShadowMode::Lightweight => tr("Lightweight"),
+        subcraft_doc::ShadowMode::Average => tr("Average"),
+        subcraft_doc::ShadowMode::Intensive => tr("Intensive"),
+    }
 }
 
 /// Projection, anti-aliasing and the lens (focus distance and aperture of the depth of field).
@@ -843,7 +872,7 @@ mod tests {
         for pair in env.windows(2) {
             assert!(y(pair[0]) < y(pair[1]), "{} is above {} (Painter's order)", pair[0], pair[1]);
         }
-        for control in ["Field of view", "Focal length (mm)", "Focus distance", "Aperture", "Anti-aliasing", "Bloom", "Glare", "Tone mapping", "Show mesh wireframe", "Show grid", "Bounces"] {
+        for control in ["Field of view", "Focal length (mm)", "Focus distance", "Aperture", "Anti-aliasing", "Bloom", "Glare", "Tone mapping", "Show mesh wireframe", "Show grid", "Bounces", "Computation mode", "Shadows opacity"] {
             y(control);
         }
         let stack = ["Activate Post Effects", "Depth of field", "Bloom", "Glare", "Lens flare", "Lateral aberration", "Vignette", "Sharpen", "Film grain", "Tone mapping", "Color correction"];
