@@ -59,7 +59,8 @@ fn focus_mode_shows_only_the_selected_set_and_follows_the_selection() {
 
 #[test]
 fn description_is_one_undo_step_and_is_saved_with_the_project() {
-    let mut s = Session::new(three_materials(), 64);
+    // 128: the smallest size a project file accepts.
+    let mut s = Session::new(three_materials(), 128);
     let ids = sets(&s);
     s.execute(Command::SetTextureSetDescription { texture_set: ids[1], description: "Windows, tinted  ".into() }).unwrap();
     assert_eq!(s.document().texture_sets[1].description, "Windows, tinted");
