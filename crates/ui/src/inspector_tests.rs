@@ -45,7 +45,7 @@ fn setup() -> (SubcraftApp, egui::Context, [LayerId; 3]) {
         screenshot_requested: false,
         pending_now: None,
         active_tabs: HashSet::new(),
-        test_crash: false,
+        test_crash: false, popped_dock: None,
         profile: None,
         view_profile: None,
     };

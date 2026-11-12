@@ -8,7 +8,7 @@ use std::collections::HashSet;
 use egui::{RichText, Ui};
 use egui_dock::{DockArea, DockState, NodeIndex};
 use serde::{Deserialize, Serialize};
-use subcraft_app::{Action, Command, Key, NewLayer, Session, Shortcut, action_for};
+use subcraft_app::{Action, Command, Key, NewLayer, Session, Shortcut};
 use subcraft_core::{ChannelKind, ChannelValue};
 use subcraft_doc::{FillChannel, FillSource, Generator, GeneratorKind, LayerContent, MaskEffectKind, ProceduralKind, ProceduralParams};
 
@@ -40,7 +40,7 @@ pub enum Tab {
 }
 
 impl Tab {
-    fn title(self) -> &'static str {
+    pub(crate) fn title(self) -> &'static str {
         match self {
             Tab::Viewport => tr("3D View"),
             Tab::UvView => tr("2D View"),
@@ -57,7 +57,7 @@ impl Tab {
         }
     }
 
-    fn icon(self) -> &'static str {
+    pub(crate) fn icon(self) -> &'static str {
         match self {
             Tab::Viewport => icons::CUBE,
             Tab::UvView => icons::GRID,
@@ -382,13 +382,11 @@ pub fn layout_is_valid(dock: &DockState<Tab>) -> bool {
     use egui_dock::Node;
     let mut seen = std::collections::HashMap::<Tab, usize>::new();
     for (_, tab) in dock.iter_all_tabs() { *seen.entry(*tab).or_default() += 1; }
-    // Brush is optional: layouts saved before the Brush settings moved into Properties still have it.
-    let all = [Tab::Viewport, Tab::UvView, Tab::Layers, Tab::Properties, Tab::TextureSetList, Tab::TextureSetSettings, Tab::Parts, Tab::History, Tab::Shelf];
-    let brush = seen.get(&Tab::Brush).copied().unwrap_or(0);
-    // Display Settings is optional too: it is closed until the View menu opens it.
-    let display = seen.get(&Tab::DisplaySettings).copied().unwrap_or(0);
-    let shader = seen.get(&Tab::ShaderSettings).copied().unwrap_or(0);
-    if !all.iter().all(|t| seen.get(t) == Some(&1)) || brush > 1 || display > 1 || shader > 1 || seen.len() != all.len() + brush + display + shader { return false; }
+    // The 3D and 2D views are always there. Every other panel can be closed (it comes back from
+    // the Docks toolbar) but appears at most once; Brush is the legacy tab of old layouts.
+    let required = [Tab::Viewport, Tab::UvView];
+    if !required.iter().all(|t| seen.get(t) == Some(&1)) || seen.values().any(|&n| n > 1) { return false; }
+    if seen.keys().any(|t| !required.contains(t) && !crate::docks::closeable(*t) && *t != Tab::Brush) { return false; }
     if dock.iter_surfaces().count() != 1 { return false; }
     dock.iter_all_nodes().all(|(_, node)| match node {
         Node::Horizontal(split) | Node::Vertical(split) => split.fraction.is_finite() && (0.04..=0.96).contains(&split.fraction),
@@ -410,9 +408,13 @@ mod layout_tests {
     fn default_layout_is_valid_and_broken_ones_are_rejected() {
         assert!(layout_is_valid(&default_layout()));
         let mut missing = default_layout();
-        let path = missing.find_tab(&Tab::Shelf).unwrap();
+        let path = missing.find_tab(&Tab::Viewport).unwrap();
         let _ = missing.remove_tab(path);
-        assert!(!layout_is_valid(&missing));
+        assert!(!layout_is_valid(&missing), "the 3D view is never missing");
+        let mut closed = default_layout();
+        let path = closed.find_tab(&Tab::Shelf).unwrap();
+        let _ = closed.remove_tab(path);
+        assert!(layout_is_valid(&closed), "a panel closed with its X (Docks toolbar) is a valid layout");
         let mut squeezed = default_layout();
         for (_, node) in squeezed.iter_all_nodes_mut() {
             if let egui_dock::Node::Horizontal(s) | egui_dock::Node::Vertical(s) = node { s.fraction = 0.0; }
@@ -421,6 +423,11 @@ mod layout_tests {
         let mut floating = default_layout();
         floating.add_window(vec![]);
         assert!(!layout_is_valid(&floating));
+        // A saved layout with a floating panel loads with the panel docked.
+        let mut popped = default_layout();
+        crate::docks::float(&mut popped, Tab::History, egui::Pos2::ZERO, crate::docks::POPUP_SIZE);
+        crate::docks::settle_floating(&mut popped);
+        assert!(layout_is_valid(&popped) && popped.find_tab(&Tab::History).is_some_and(|p| p.surface.is_main()));
         let mut doubled = default_layout();
         doubled.push_to_focused_leaf(Tab::Viewport);
         assert!(!layout_is_valid(&doubled));
@@ -477,7 +484,7 @@ mod layout_tests {
     fn view_menu_request_pins_brush_settings_in_properties_until_the_selection_changes() {
         let mut app = SubcraftApp {
             state: UiState::new(Session::new(subcraft_mesh::primitives::cube(2.0), 64), None),
-            dock: default_layout(), frames: 0, screenshot: None, screenshot_requested: false,
+            dock: default_layout(), frames: 0, screenshot: None, screenshot_requested: false, popped_dock: None,
             pending_now: None, active_tabs: HashSet::new(), inspector_selection: None, test_crash: false, profile: None, view_profile: None,
         };
         app.state.session.execute(Command::AddLayer(NewLayer::Fill)).unwrap();
@@ -613,7 +620,7 @@ mod launch_tests {
     fn recent_open_waits_for_unsaved_changes_before_replacing_a_session() {
         let mut app = SubcraftApp {
             state: UiState::new(Session::new(subcraft_mesh::primitives::cube(2.0), 128), None),
-            dock: default_layout(), frames: 0, screenshot: None, screenshot_requested: false,
+            dock: default_layout(), frames: 0, screenshot: None, screenshot_requested: false, popped_dock: None,
             pending_now: None, active_tabs: HashSet::new(), inspector_selection: None, test_crash: false, profile: None, view_profile: None,
         };
         app.request(Pending::OpenRecent, 0.0);
@@ -632,7 +639,7 @@ mod launch_tests {
         let mut app = SubcraftApp {
             state: UiState::new(Session::new(subcraft_mesh::primitives::cube(2.0), 64), None),
             dock: legacy_layout(), frames: 0, screenshot: None, screenshot_requested: false,
-            pending_now: None, active_tabs: HashSet::new(), inspector_selection: None, test_crash: false, profile: None, view_profile: None,
+            pending_now: None, active_tabs: HashSet::new(), inspector_selection: None, test_crash: false, popped_dock: None, profile: None, view_profile: None,
         };
         let brush = app.dock.find_tab(&Tab::Brush).unwrap();
         let properties = app.dock.find_tab(&Tab::Properties).unwrap();
@@ -651,7 +658,7 @@ mod launch_tests {
     fn edit_menu_opens_settings_without_project_edits() {
         let mut app = SubcraftApp {
             state: UiState::new(Session::new(subcraft_mesh::primitives::cube(2.0), 64), None),
-            dock: default_layout(), frames: 0, screenshot: None, screenshot_requested: false,
+            dock: default_layout(), frames: 0, screenshot: None, screenshot_requested: false, popped_dock: None,
             pending_now: None, active_tabs: HashSet::new(), inspector_selection: None, test_crash: false, profile: None, view_profile: None,
         };
         let doc = app.state.session.document().clone();
@@ -682,7 +689,7 @@ mod launch_tests {
         mesh.name = "A very long multi-part model with a name that exceeds the header gap".into();
         let mut app = SubcraftApp {
             state: UiState::new(Session::new(mesh, 128), None),
-            dock: default_layout(), frames: 0, screenshot: None, screenshot_requested: false,
+            dock: default_layout(), frames: 0, screenshot: None, screenshot_requested: false, popped_dock: None,
             pending_now: None, active_tabs: HashSet::new(), inspector_selection: None, test_crash: false, profile: None, view_profile: None,
         };
         let title = dialogs::title(&app.state).trim_start_matches("SubCraft — ").to_string();
@@ -714,7 +721,7 @@ mod launch_tests {
         let mut app = SubcraftApp {
             state: UiState::new(session, None), dock: default_layout(), frames: 0,
             screenshot: None, screenshot_requested: false, pending_now: None,
-            active_tabs: HashSet::new(), inspector_selection: None, test_crash: false, profile: None, view_profile: None,
+            active_tabs: HashSet::new(), inspector_selection: None, test_crash: false, popped_dock: None, profile: None, view_profile: None,
         };
         app.state.pen.begin(&app.state.session, glam::Vec2::splat(0.4), None).unwrap();
         app.perform(Action::Save, 0.0); assert!(app.state.pen_after.is_some());
@@ -744,6 +751,8 @@ pub struct SubcraftApp {
     /// Follow selection changes once, leaving explicit tab choices alone between selections.
     inspector_selection: Option<InspectorSelection>,
     test_crash: bool,
+    /// The panel the Docks toolbar last popped up (closed again by a second click).
+    popped_dock: Option<Tab>,
     profile: Option<crate::edit_profile::EditProfile>,
     view_profile: Option<crate::view_profile::ViewProfile>,
 }
@@ -1020,6 +1029,8 @@ impl SubcraftApp {
             .storage
             .and_then(|s| s.get_string(DOCK_KEY))
             .and_then(|j| serde_json::from_str(&j).ok())
+            // Floating panels come back docked: a window could be off screen after a monitor change.
+            .map(|mut d: DockState<Tab>| { crate::docks::settle_floating(&mut d); d })
             .filter(|d: &DockState<Tab>| options.screenshot.is_none() && !options.reset_layout && {
                 let ok = layout_is_valid(d);
                 if !ok { log::warn!("Saved panel layout is invalid; using the default layout"); }
@@ -1066,7 +1077,7 @@ impl SubcraftApp {
             screenshot_requested: false,
             pending_now: None,
             active_tabs: HashSet::new(),
-            test_crash: options.test_crash,
+            test_crash: options.test_crash, popped_dock: None,
             profile: options.profile_edits.map(|(out, res)| crate::edit_profile::EditProfile::new(out, res)),
             view_profile: options.profile_view.map(crate::view_profile::ViewProfile::new),
         }
@@ -1111,7 +1122,7 @@ impl SubcraftApp {
         let mut views = hidden.then(|| views_only(&self.dock));
         egui::Frame::new().fill(theme::BG_0).inner_margin(egui::Margin { left: 3, right: 0, top: 3, bottom: 0 }).show(ui, |ui| {
             let dock = views.as_mut().unwrap_or(&mut self.dock);
-            DockArea::new(dock).style(style).show_close_buttons(false).show_leaf_close_all_buttons(false).show_leaf_collapse_buttons(false).show_inside(ui, &mut viewer);
+            DockArea::new(dock).style(style).show_close_buttons(true).show_leaf_close_all_buttons(false).show_leaf_collapse_buttons(false).show_inside(ui, &mut viewer);
         });
         // A view tab clicked while the panels are hidden is the front one when they come back.
         if let Some(views) = &views && !is_side_by_side(&self.dock) {
@@ -1128,6 +1139,9 @@ impl SubcraftApp {
     }
 
     fn shortcuts(&mut self, ctx: &egui::Context) {
+        if self.state.recovery.capture.is_some() {
+            return; // Settings > Shortcuts takes the next key (and the Tab press) itself.
+        }
         if ctx.egui_wants_keyboard_input() || self.state.modal_open() {
             self.state.tab_pressed = false;
             return;
@@ -1146,13 +1160,13 @@ impl SubcraftApp {
                 })
                 .collect()
         });
-        let keymap = self.state.recovery.prefs.keymap;
+        let keymap = self.state.recovery.prefs.keys();
         let mut pressed = pressed;
         if std::mem::take(&mut self.state.tab_pressed) {
             pressed.push(Shortcut::key(Key::Tab));
         }
         for s in pressed {
-            if let Some(a) = action_for(keymap, s) {
+            if let Some(a) = keymap.action_for(s) {
                 self.perform(a, ctx.input(|i| i.time));
             }
         }
@@ -1236,6 +1250,8 @@ impl SubcraftApp {
             Action::SmudgeTool => self.state.tool = Tool::Smudge,
             Action::CloneTool => self.state.tool = Tool::Clone,
             Action::EyedropperTool => self.state.tool = Tool::Eyedropper,
+            Action::NextCamera => crate::view_extras::cycle_camera(&mut self.state, 1),
+            Action::PrevCamera => crate::view_extras::cycle_camera(&mut self.state, -1),
             Action::PerspectiveCamera => self.state.recovery.prefs.viewport.orthographic = false,
             Action::OrthographicCamera => self.state.recovery.prefs.viewport.orthographic = true,
             Action::NextChannel | Action::PrevChannel => {
@@ -1276,7 +1292,7 @@ impl SubcraftApp {
     /// Top bar: brand, menus, project name, then undo/redo and the main actions on the right.
     fn header_bar(&mut self, ui: &mut Ui) {
         let now = ui.input(|i| i.time);
-        let km = self.state.recovery.prefs.keymap;
+        let km = &self.state.recovery.prefs.keys();
         let bar = ui.max_rect();
         let frameless = crate::window_frame::frameless();
         // Empty parts of the header move the window (registered first so widgets stay on top).
@@ -1298,6 +1314,12 @@ impl SubcraftApp {
             }
             if secondary_button(ui, format!("{}  Bake", icons::MAGIC_WAND)).on_hover_text(tip(km, "Bake mesh maps", Action::Bake)).clicked() {
                 self.perform(Action::Bake, now);
+            }
+            // Painter's Docks toolbar: a button per closed panel, in headers wide enough to keep
+            // the project name (narrower windows reopen panels from Window > Views).
+            if bar.width() >= crate::docks::TOOLBAR_MIN_WIDTH {
+                ui.add_space(6.0);
+                crate::docks::toolbar(ui, &mut self.dock, &mut self.popped_dock);
             }
             crate::updates::button(&mut self.state, ui);
             if icon_button(ui, icons::SAVE, &tip(km, "Save", Action::Save)).clicked() {
@@ -1336,7 +1358,7 @@ impl SubcraftApp {
 
     /// Vertical tool strip left of the dock area.
     fn tool_rail(&mut self, ui: &mut Ui) {
-        let km = self.state.recovery.prefs.keymap;
+        let km = &self.state.recovery.prefs.keys();
         ui.spacing_mut().item_spacing.y = 2.0;
         ui.add_space(6.0);
         ui.vertical_centered(|ui| {
@@ -1380,7 +1402,7 @@ impl SubcraftApp {
 
     fn menu(&mut self, ui: &mut Ui) -> f32 {
         let now = ui.input(|i| i.time);
-        let km = self.state.recovery.prefs.keymap;
+        let km = &self.state.recovery.prefs.keys();
         egui::MenuBar::new().ui(ui, |ui| {
             let item = |ui: &mut Ui, icon: &str, label: &str, sc: &str| ui.add(egui::Button::new(format!("{icon}   {label}")).shortcut_text(sc)).clicked();
             // Same top menus as Painter: File, Edit, Mode, Window, Viewport, Plugins, Help.
@@ -1578,7 +1600,7 @@ impl SubcraftApp {
                     ui.set_min_width(220.0);
                     for tab in [Tab::Shelf, Tab::Layers, Tab::Properties, Tab::TextureSetList, Tab::TextureSetSettings, Tab::History, Tab::Parts, Tab::Viewport, Tab::UvView] {
                         if ui.add(egui::Button::new(format!("{}   {}", tab.icon(), tab.title())).selected(is_front(&self.dock, tab))).clicked() {
-                            front_tab(&mut self.dock, tab);
+                            crate::docks::open(&mut self.dock, tab);
                             self.state.hide_ui = false;
                             ui.close();
                         }
@@ -1597,6 +1619,15 @@ impl SubcraftApp {
                 if item(ui, icons::SPARKLE, if self.dock.find_tab(&Tab::ShaderSettings).is_some() { tr("Close Shader settings") } else { tr("Shader settings") }, "") {
                     toggle_shader_settings(&mut self.dock);
                     ui.close();
+                }
+                // Painter 7.4: the 3D or 2D view in its own window (here a floating window).
+                let at = ui.ctx().content_rect().center() - crate::docks::UNDOCKED_VIEW_SIZE * 0.5;
+                for (tab, undock, dock_back) in [(Tab::Viewport, tr("Undock 3D view"), tr("Dock 3D view")), (Tab::UvView, tr("Undock 2D view"), tr("Dock 2D view"))] {
+                    let floating = crate::docks::is_floating(&self.dock, tab);
+                    if item(ui, icons::SQUARES, if floating { dock_back } else { undock }, "") {
+                        crate::docks::toggle_undock(&mut self.dock, tab, at);
+                        ui.close();
+                    }
                 }
                 if item(ui, icons::PAINT_BRUSH, tr("Brush settings"), "") {
                     self.state.open_brush_editor = true;
@@ -1772,11 +1803,15 @@ impl SubcraftApp {
     }
 
     fn shortcuts_window(&mut self, ctx: &egui::Context) {
-        // Preferences > "Show all keyboard shortcuts…".
+        // "Show all keyboard shortcuts…" buttons.
         if ctx.data_mut(|d| d.remove_temp::<bool>(egui::Id::new("open_shortcuts_window"))).unwrap_or(false) {
             self.state.show_shortcuts = true;
         }
         crate::shortcuts_window::show(&mut self.state, ctx);
+        if ctx.data_mut(|d| d.remove_temp::<bool>(egui::Id::new("open_settings_shortcuts"))).unwrap_or(false) {
+            self.state.recovery.show_prefs = true;
+            self.state.recovery.prefs_tab = crate::recovery::SettingsTab::Shortcuts;
+        }
     }
 
     /// A scripted Rendering-mode capture waits for its samples (or for the mode to give up).
@@ -1853,13 +1888,13 @@ pub(crate) fn take_tab_press(events: &mut Vec<egui::Event>, typing: bool) -> boo
     pressed
 }
 
-/// Menu / tooltip text with the action's first binding in the active key table.
-fn sc(km: subcraft_app::KeymapPreset, a: Action) -> String {
-    crate::keys::native_string(subcraft_app::label_in(km, a))
+/// Menu / tooltip text with the action's first binding (the user's rebinds included).
+fn sc(km: &subcraft_app::Keymap, a: Action) -> String {
+    crate::keys::native_string(km.label(a))
 }
 
-/// `"Brush (B)"`; just the label when the action has no key in this table.
-fn tip(km: subcraft_app::KeymapPreset, label: &str, a: Action) -> String {
+/// `"Brush (B)"`; just the label when the action has no key.
+fn tip(km: &subcraft_app::Keymap, label: &str, a: Action) -> String {
     let s = sc(km, a);
     if s.is_empty() { label.to_string() } else { format!("{label} ({s})") }
 }
@@ -1959,8 +1994,9 @@ impl egui_dock::TabViewer for Viewer<'_> {
     }
 
     fn is_closeable(&self, tab: &Tab) -> bool {
-        // The optional panels close with their tab's X (and reopen from the Window menu).
-        matches!(tab, Tab::DisplaySettings | Tab::ShaderSettings)
+        // Every panel but the 3D and 2D views closes with its tab's X and comes back from the
+        // Docks toolbar or Window > Views.
+        crate::docks::closeable(*tab)
     }
 
     fn scroll_bars(&self, tab: &Tab) -> [bool; 2] {
@@ -2035,6 +2071,10 @@ impl eframe::App for SubcraftApp {
                 // Scripted capture: Preferences with the language dropdown open (CJK native names).
                 self.state.recovery.show_prefs = true;
                 ctx.data_mut(|d| d.insert_temp(egui::Id::new("capture_language_picker"), true));
+            } else if which == "settings-shortcuts" {
+                // Scripted capture: Settings > Shortcuts (the saved preferences are not touched).
+                self.state.recovery.prefs_tab = crate::recovery::SettingsTab::Shortcuts;
+                self.state.recovery.show_prefs = true;
             } else {
                 scripted_tool_capture(&mut self.state, &which, ctx.input(|i| i.time));
             }
@@ -2490,7 +2530,7 @@ fn build_demo(state: &mut UiState) {
     fn save_waits_for_pending_shelf_image_and_embeds_the_result() {
         let file=std::env::temp_dir().join(format!("subcraft-image-save-{}.subcraft",subcraft_core::ObjectId::new()));
         let mut session=Session::new(subcraft_mesh::primitives::cube(2.0),128);session.save(Some(&file)).unwrap();
-        let mut app=SubcraftApp {state:UiState::new(session,None),dock:default_layout(),frames:0,screenshot:None,screenshot_requested:false,pending_now:None,active_tabs:HashSet::new(),inspector_selection:None,test_crash:false,profile:None,view_profile:None};
+        let mut app=SubcraftApp {state:UiState::new(session,None),dock:default_layout(),frames:0,screenshot:None,screenshot_requested:false,pending_now:None,active_tabs:HashSet::new(),inspector_selection:None,test_crash:false,popped_dock:None,profile:None,view_profile:None};
         app.state.asset_preview.queue(&app.state.session,0,None);app.perform(Action::Save,0.0);assert!(app.state.pen_after.is_some());
         let ctx=egui::Context::default();
         // The worker needs real scheduling time under parallel workspace tests; a fixed

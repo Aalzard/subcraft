@@ -123,6 +123,8 @@ pub struct NewProjectSettings {
     pub udim: bool,
     /// Optional high-poly model to bake from after creating the project.
     pub high_poly: Option<PathBuf>,
+    /// Read the cameras stored in the mesh file (glTF, GLB, FBX) into the project.
+    pub import_cameras: bool,
 }
 
 impl Default for NewProjectSettings {
@@ -137,6 +139,7 @@ impl Default for NewProjectSettings {
             split: SplitRule::default(),
             udim: true,
             high_poly: None,
+            import_cameras: true,
         }
     }
 }

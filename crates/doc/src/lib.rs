@@ -5,6 +5,7 @@
 
 pub mod anchor;
 pub mod blend;
+pub mod camera;
 pub mod display;
 pub mod document;
 pub mod effect;
@@ -22,6 +23,7 @@ pub mod texture_set;
 
 pub use anchor::{AnchorDomain, AnchorIndex, AnchorInfo, AnchorInput, AnchorRef, RefSite, RefStatus};
 pub use blend::BlendMode;
+pub use camera::SceneCamera;
 pub use display::{Anisotropy, ChannelComponent, DisplaySettings, EnvAlignment, FlareCamera, GlareShape, GridAxis, GrainType, ToneMap};
 pub use document::Document;
 pub use effect::{ContentEffect, ContentEffectKind};
