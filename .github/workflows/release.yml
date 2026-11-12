@@ -90,7 +90,7 @@ jobs:
       - name: Test and lint
         shell: pwsh
         run: |
-          # Same test set as ci.yml's Windows job: the engine crates. The GPU tests (render, ui)
+          # Same test set as ci.yml's Windows job: the engine crates. The render GPU tests
           # don't match the CPU on the runner's WARP adapter; Linux CI runs them on lavapipe.
           cargo test --locked -p subcraft-core -p subcraft-image -p subcraft-mesh -p subcraft-doc -p subcraft-materials -p subcraft-compositor -p subcraft-paint -p subcraft-bake -p subcraft-project -p subcraft-export -p subcraft-assets -p subcraft-app
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
