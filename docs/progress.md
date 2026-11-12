@@ -5567,3 +5567,21 @@ the app kept drawing on the dead device. Safe mode works; 0.3.3's marker only he
 * Not done: cameras from Alembic and USD files, camera roll (the orbit camera has none), free
   rotation mode, separate OS windows for undocked views, Shader settings and Log dock buttons
   (no such panels yet).
+
+### Parity chunk 46 - Spherical and cylindrical projections, symmetry on fills (2026-11-13, branch `claude/parity-sphere-cyl-projection`)
+
+* **Projections** (`crates/doc/src/fill.rs`): `ProjectionMode::Spherical` and `Cylindrical`, around the centre of the
+  model's bounding cube with the pole / axis chosen like the planar axis (`Projection::wrapped_coords`: u around the
+  axis, v from the pole or along the axis). Cylindrical has an Angle (1-360 degrees: how much of the perimeter one
+  tile covers). Filtering, UV Wrap, Shape crop and the UV transformations apply as for planar.
+* **Symmetry** (`FillSymmetry` on `Projection`, 3D projections only): Mirror (axis, axis position) and Radial (axis,
+  copy count, Flip copy, axis position X / Y / Z). The model position and normal are folded before projecting
+  (`FillSymmetry::fold`), so fills, mask fills and image masks all follow it. New fields are skipped in JSON at their
+  defaults; the procedural field cache key includes them.
+* **UI:** the two modes in the Projection dropdown and compact editor, the Angle row, and a Symmetry group
+  (Enable symmetry, type, settings), greyed out on UV projection.
+* **Not done:** the 3D projection Offset / Rotation / Scale fields and the manipulator (chunk 9), backface culling
+  on the cylinder, symmetry shown in the viewport.
+* **Checked:** not compiled locally (CI is the compile and test gate); new tests: doc
+  `spherical_and_cylindrical_coordinates_and_symmetry_folds`, materials
+  `spherical_cylindrical_and_symmetric_projections_sample_folded_coordinates`.
