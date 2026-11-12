@@ -35,6 +35,7 @@ pub mod spp_import;
 pub mod state;
 pub mod layer_previews;
 pub mod edit_profile;
+pub mod view_profile;
 pub mod theme;
 pub mod viewport;
 pub mod viewport_hints;
@@ -189,7 +190,11 @@ pub fn run(options: LaunchOptions) -> eframe::Result {
 }
 
 fn run_with_graphics(mut options: LaunchOptions, graphics: graphics::GraphicsUi, api: subcraft_app::graphics::GraphicsApi) -> eframe::Result {
-    let wgpu_options = graphics::wgpu_options(api, graphics.environment_override, graphics.gpu.clone());
+    let mut wgpu_options = graphics::wgpu_options(api, graphics.environment_override, graphics.gpu.clone());
+    if options.profile_view.is_some() {
+        // Frame intervals must be costs, not the display's refresh.
+        wgpu_options.surface.present_mode = egui_wgpu::wgpu::PresentMode::AutoNoVsync;
+    }
     options.graphics_startup = Some(graphics);
     let mut native = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
