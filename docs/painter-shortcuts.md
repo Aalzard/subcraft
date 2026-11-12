@@ -1,27 +1,43 @@
-# Substance Painter shortcuts in SubCraft
+# Substance Painter shortcuts, menus and viewport in SubCraft
 
 Source of the list: Adobe's Substance 3D Painter "Shortcuts" page (Experience League copy,
 `experienceleague.adobe.com/en/docs/substance-3d-painter/using/interface/settings/shortcuts`, Windows column, editable
-and non-editable lists). The helpx.adobe.com copy returned HTTP 403, so the Experience League copy is the only source
-read; nothing was added from memory. Painter lists `Save as` without a Windows key.
+and non-editable lists; read again on 2026-11-11, 89 entries). Painter lists `Save as` without a Windows key.
 
 ## Key sets
 
 Preferences → Keyboard shortcuts (and the "Key set" box in Help → Keyboard shortcuts) switches between:
 
-* **SubCraft (default)**: the original keys plus every Painter key that was free (`1 2 4 5 6`, `L`, `D`, `C`, `Shift+C`,
-  `M`, `F`, `F5`, `F6`, `F8`, `Ctrl+N`, `Ctrl+Shift+B`, `Alt+F4`, ...).
-* **Substance Painter**: the same, plus the two keys where Painter and SubCraft disagree:
-  * `P`: Pen paths in SubCraft, "pick stroke material" in Painter -> `P` = Eyedropper tool, Pen paths moves to `Shift+P`.
-  * `X`: symmetry in SubCraft, "invert grayscale tool" in Painter (no equivalent here) -> `X` is unbound, symmetry is on
-    `L` (Painter's symmetry key, also bound in the default set).
+* **SubCraft (default)**: the original keys plus every Painter key that was free.
+* **Substance Painter**: Painter's key wherever the two disagree. Every action has a key in this set (a test checks it).
 
-SubCraft bindings Painter does not use (`B`, `E`, `Home`, `Ctrl+B`, `Ctrl+Shift+Z`, `Ctrl+Shift+S`, ...) stay in both
-sets. There were no user-defined shortcuts before this change (the table was fixed), so there was nothing to
-migrate; the choice is one preference (`keymap`, default SubCraft; missing in old files = SubCraft).
+| Key | SubCraft key set | Substance Painter key set |
+|---|---|---|
+| `P` | Pen paths | Material picker (Eyedropper); Pen paths on `Shift+P` |
+| `B` | Brush | Display next mesh map; Brush on `1` |
+| `X` | Toggle X symmetry | Invert the mask brush (white ↔ black); symmetry on `L` |
+| `F2` | Rename the selected layer | 3D view only; rename with a double-click |
 
-Menus and tooltips show the binding of the active key set. The cheat sheet window has search and lists, per action,
-the active key, Painter's key and the SubCraft default, then the mouse gestures, then Painter's whole list with status.
+Everything else is the same in both sets. SubCraft keys Painter does not use (`E`, `Home`, `Ctrl+B`, `Ctrl+Shift+Z`,
+`Ctrl+Shift+S`, `Ctrl+Shift+N/F/T`, `Ctrl+A`, `Ctrl+Q`) stay in both.
+
+Menus and tooltips show the binding of the active key set. Help → Keyboard shortcuts (also the button under
+Preferences → Keyboard shortcuts) lists, per action, the active key, Painter's key and the SubCraft default, then the
+mouse gestures, then Painter's whole list with its status here.
+
+## Keys added for Painter parity (both sets unless noted)
+
+| Key | Action |
+|---|---|
+| `Tab` | Hide UI: only the menu bar and the view(s) stay; `Tab` again brings the panels back |
+| `F9` | Painting mode: closes the Bake window and leaves Rendering mode |
+| `Ctrl+F4` | Close project (back to the sample model, after the unsaved-changes prompt) |
+| `F1` / `F3` / `F4` | 3D and 2D side by side / 2D only / swap the views |
+| `F2` (Painter set) | 3D only |
+| `B` (Painter set), `Shift+B` | Next / previous baked mesh map on the model, through the material view |
+| `X` (Painter set) | Mask brush value g → 1 − g |
+| `Alt+Q` | Isolate the selected texture set (hides the others' geometry); again shows all |
+| `C`, `Shift+C`, `M` | Unchanged, but they now also leave the mesh map viewer |
 
 ## Mouse gestures
 
@@ -44,10 +60,39 @@ the active key, Painter's key and the SubCraft default, then the mouse gestures,
 | Alt+click / Shift+click a mask thumbnail | Show the mask / disable-enable it |
 | Blender navigation: Alt+MMB click | Center the view on the point under the cursor |
 
-Bold = added in the navigation-parity pass. The right-click Properties popup at the cursor is PR #131.
+Bold = added in the Painter-parity pass. The right-click Properties popup at the cursor is PR #131.
+
+## Menus
+
+The menu bar has Painter's top menus, in Painter's order:
+
+| Menu | Items |
+|---|---|
+| **File** | New… · Open… · Recent files ▸ · Open sample · Close (`Ctrl+F4`) · Save · Save as… · Import resources ▸ (texture set, smart materials, smart material folder) · Export textures… · Export 2D view… · Render image / turntable… · Send to ▸ (PhotoCraft) · Quit |
+| **Edit** | Undo · Redo · Layers ▸ (new paint / fill / folder / text, duplicate, delete, select all, copy / cut / paste) · Bake mesh maps… · Project configuration (reload mesh)… · Auto UV unwrap… · Settings… |
+| **Mode** | Painting (`F9`) · Bake mesh maps (`F8`) · Rendering (`F10`), the current one marked |
+| **Window** | Views ▸ (brings a panel to the front) · Toolbars ▸ (Tools, Status bar ticks) · Brush settings · Hide UI (`Tab`) · Reset UI |
+| **Viewport** | Display material (`M`) · Display next / previous channel (`C` / `Shift+C`) · Display next / previous mesh map (`B` / `Shift+B`) · Show entire mesh (`F`) · 3D \| 2D (`F1`) · 3D only (`F2`) · 2D only (`F3`) · Swap (`F4`) · Perspective (`F5`) · Orthographic (`F6`) · Isolate the texture set (`Alt+Q`) · Render quality… · Viewport hints · Height bump |
+| **Plugins** | empty: SubCraft has no scripting API yet |
+| **Help** | unchanged |
+
+The old Layer and View menus are gone: their items are in Edit ▸ Layers, File ▸ Import resources, File ▸ Send to,
+Window and Viewport. Preferences is Edit ▸ Settings, as in Painter.
+
+Not in the menus yet (Painter has them): Save and compact, Save as copy, Save as template, Clean, Export mesh,
+the quick mask entries, Views ticks that close a panel, the Log, Display settings and Shader settings views.
+
+## Not available
+
+26 of Painter's 89 entries have no SubCraft feature behind them and stay unbound (their keys stay free in the Painter
+key set so they never do something else): the fill manipulator (`Q W E R T + -`, `Shift+W`, `Shift+V`), particles
+(`Ctrl+1/2/3`), the projection tool (`3`), absolute-source clone (`Ctrl+6`), quick mask (`U Y I`), geometry mask
+(`Alt+H`), engine pause (`Shift+Esc`), resume stroke (`A`), animation (`Space`), content-only copy / paste
+(`Ctrl+Shift+C/V`) and Ctrl+drag of a material onto a part.
 
 ## Full table
 
-See [painter-shortcuts-table.md](painter-shortcuts-table.md) (generated from `PAINTER_REFERENCE` in
-`crates/app/src/actions.rs`; a unit test fails when the file and the code differ, rerun it with
-`SUBCRAFT_WRITE_DOCS=1` to rewrite the file; other tests keep every bound row consistent with both key sets).
+See [painter-shortcuts-table.md](painter-shortcuts-table.md). It is generated from `PAINTER_REFERENCE` in
+`crates/app/src/actions.rs`; a unit test fails when the file and the code differ (rerun it with
+`SUBCRAFT_WRITE_DOCS=1` to rewrite the file). Other tests keep every bound row consistent with both key sets, check
+that no key is bound twice in a set and that every action has a key in the Painter set.

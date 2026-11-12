@@ -80,14 +80,14 @@ Layout notes: imported cameras come from the mesh file (FBX / Alembic) at projec
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Viewport layout 3D/2D | Contextual toolbar > Viewport Mode; F1 | default | partial: View > Side-by-side 3D / 2D menu toggle, no F1 | crates/ui/src/app.rs:1246 | - |
-| Viewport layout 3D only | Contextual toolbar > Viewport Mode; F2 | - | partial: click the 3D View dock tab when tabbed; no command or F2 | crates/ui/src/app.rs:189 | - |
-| Viewport layout 2D only | Contextual toolbar > Viewport Mode; F3 | - | partial: click the 2D View dock tab when tabbed; no command or F3 | crates/ui/src/app.rs:189 | - |
-| Swap 2D / 3D view | Contextual toolbar > Viewport Mode; F4 | - | partial: only by dragging dock tabs by hand | crates/ui/src/app.rs:232 | - |
+| Viewport layout 3D/2D | Contextual toolbar > Viewport Mode; F1 | default | partial: F1 and Viewport menu; no contextual-toolbar dropdown | crates/ui/src/app.rs (apply_view_layout) | #164 |
+| Viewport layout 3D only | Contextual toolbar > Viewport Mode; F2 | - | partial: F2 (Painter key set) and Viewport menu; no contextual-toolbar dropdown | crates/ui/src/app.rs (apply_view_layout) | #164 |
+| Viewport layout 2D only | Contextual toolbar > Viewport Mode; F3 | - | partial: F3 and Viewport menu; no contextual-toolbar dropdown | crates/ui/src/app.rs (apply_view_layout) | #164 |
+| Swap 2D / 3D view | Contextual toolbar > Viewport Mode; F4 | - | partial: F4 and Viewport menu; no contextual-toolbar dropdown | crates/ui/src/app.rs (apply_view_layout) | #164 |
 | Undock 3D view to its own window | View menu (7.4) | docked | missing | - | - |
 | Undock 2D view to its own window | View menu (7.4) | docked | missing | - | - |
 | Swap while one view is undocked | View menu (7.4) | - | missing | - | - |
-| Hide UI (maximise the viewport) | Tab | - | missing | - | - |
+| Hide UI (maximise the viewport) | Tab | - | done | crates/ui/src/app.rs (views_only) | #164 |
 
 ## Display modes
 
@@ -103,13 +103,13 @@ Layout notes: the dropdown at the top right of each view switches between Materi
 | Display next channel | C | - | partial: cycles the fixed view-mode list (includes Material and baked-normal modes) | crates/ui/src/app.rs:959 | - |
 | Display previous channel | Shift + C | - | partial: same fixed list | crates/ui/src/app.rs:959 | - |
 | Display material | M | - | done | crates/ui/src/app.rs:964 | - |
-| Display next mesh map | B | - | partial: cycle function exists but no key calls it (B selects Brush) | crates/ui/src/viewport_bar.rs:387 | - |
+| Display next mesh map | B | - | partial: B in the Painter key set; cycles every map kind, baked or not | crates/app/src/actions.rs (Action::NextMeshMap) | #164 |
 | Display previous mesh map | Shift + B | - | missing | - | - |
 | Display mask in viewport | Alt + LMB on a mask thumbnail in the layer stack | - | missing | - | - |
 | Baking visualisation mode (low / high poly, cage) | Baking mode viewport panel | - | partial: bake overlay colours shown while the Bake window is open | crates/ui/src/viewport.rs:522 | - |
 | Live preview of the map being baked | Settings > General | off (unverified) | missing | - | - |
 | Rendering (Iray) mode | F10; Contextual toolbar | off | partial: path-traced Rendering mode, toggle button at the 3D view's bottom right | crates/ui/src/viewport.rs:590 | - |
-| Painting mode | F9 | default mode | missing | - | - |
+| Painting mode | F9 | default mode | partial: F9 closes the Bake window and leaves Rendering mode | crates/app/src/actions.rs (Action::PaintingMode) | #164 |
 | Baking mode | F8 | - | partial: F8 opens the Bake window rather than a mode | crates/app/src/actions.rs:221 | - |
 
 ## Right-click behaviour
@@ -135,7 +135,7 @@ Layout notes: the dropdown at the top right of each view switches between Materi
 | Increase tool size | ] | - | done | crates/app/src/actions.rs:206 | - |
 | Decrease tool size | [ | - | done | crates/app/src/session.rs:1586 | - |
 | Resume previous stroke | hold A | - | missing | - | - |
-| Invert grayscale tool value (on masks) | X | - | missing | - | - |
+| Invert grayscale tool value (on masks) | X | - | partial: X in the Painter key set | crates/app/src/actions.rs (Action::InvertMaskGray) | #164 |
 | Pick stroke material | P, then click the mesh | returns to the previous tool after picking | partial: P only in the Painter keymap; Eyedropper stays active after the pick; Shift+click picks the material | crates/ui/src/viewport.rs:294 | - |
 | Set Clone tool source location | V + LMB | - | done | crates/ui/src/viewport.rs:300 | - |
 | Pause engine computation | Shift + Escape | - | missing | - | - |

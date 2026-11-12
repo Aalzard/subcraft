@@ -42,6 +42,9 @@ pub struct Preferences {
     /// Orbit around the point of the model under the cursor (as Painter does) instead of the
     /// centre of the view.
     pub orbit_around_cursor: bool,
+    /// Window > Toolbars: the tool rail and the status bar.
+    pub show_tools_toolbar: bool,
+    pub show_status_bar: bool,
     /// Which keyboard shortcut table is active (SubCraft default or Substance Painter).
     pub keymap: subcraft_app::KeymapPreset,
     /// Blend layers on the graphics card when one is available and the edit is big (the
@@ -94,6 +97,8 @@ impl Default for Preferences {
             use_gpu_baking: true,
             nav_scheme: Default::default(),
             orbit_around_cursor: true,
+            show_tools_toolbar: true,
+            show_status_bar: true,
             keymap: Default::default(),
             use_gpu_compositing: true,
             viewport: Default::default(),
@@ -346,7 +351,10 @@ pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
                 }
             });
         });
-        ui.label(RichText::new("The Substance Painter preset adds Painter's keys (P picks material, L is symmetry, Shift+P is Pen paths). Help > Keyboard shortcuts lists them all.").small().color(TEXT_DIM));
+        ui.label(RichText::new("The Substance Painter key set follows Painter where the two differ: P picks material (Pen paths: Shift+P), B shows the next mesh map (Brush: 1), X inverts the mask brush (symmetry: L), F2 shows the 3D view only (rename a layer: double-click).").small().color(TEXT_DIM));
+        if ui.button(format!("{}  Show all keyboard shortcuts…", crate::icons::KEYBOARD)).clicked() {
+            ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new("open_shortcuts_window"), true));
+        }
         if ui.checkbox(&mut rec.prefs.use_gpu_compositing, tr("Use GPU for compositing"))
             .on_hover_text("Blends layers on the graphics card for big edits (opening a project, changing a layer under many others) on texture sets of 2048 and larger. Procedural fills, generator masks and blur-type filters are still computed by the processor, and sets with blur-type filters use the processor entirely. Small edits such as brush strokes always use the processor.")
             .changed()

@@ -5221,3 +5221,18 @@ rotating one slot when a tile is full (helps cyclic stacks, but the 40-layer sta
 * **Tests:** new unit tests in `orbit.rs`, `nav.rs`, `actions.rs`. Local: `cargo check --release -p subcraft-app -p subcraft-ui --tests` was still queued when the PR was opened. Tests were not run locally (the
   shared build queue was full all day); CI on the PR is the test gate.
 * **Not done:** not tried in the running app; no dotted preview for the snapped line.
+
+### Session 126 - Painter parity: menu bar, view layout and display keys (2026-11-11, branch `claude/parity-shortcuts`)
+
+* **Done:** menu bar in Painter's layout (File, Edit, Mode, Window, Viewport, Plugins, Help; the old Layer and View
+  menus are folded in, Preferences is Edit > Settings). New actions: Hide UI (Tab), Painting mode (F9), Close project
+  (Ctrl+F4), view layouts F1 / F2 (Painter key set) / F3 / F4, next / previous mesh map (B in the Painter key set,
+  Shift+B), invert the mask brush (X in the Painter key set), isolate the texture set (Alt+Q,
+  `Command::IsolateTextureSet`, view state only). Brush is `1` in the Painter key set. 63 of Painter's 89 documented
+  entries are covered; the other 26 have no feature behind them (`docs/painter-shortcuts.md`).
+* **Tests:** `crates/app/tests/painter_parity.rs`, key map tests in `actions.rs` (no key twice in a set, every action
+  bound in the Painter set, Painter set equals Painter's documented keys), ui unit tests for the view layouts, Tab and
+  the Edit > Settings entry. Local: `cargo check --release -p subcraft-app -p subcraft-ui --tests` was still queued when the PR was opened. Tests were not run locally (the shared build queue was full all
+  day); CI on the PR is the test gate.
+* **Not done:** not tried in the running app; contextual toolbar dropdown for the layout; Views ticks that close a
+  panel; Save and compact / Save as copy / Save as template / Clean / Export mesh.
