@@ -5,6 +5,7 @@
 
 pub mod anchor;
 pub mod blend;
+pub mod display;
 pub mod document;
 pub mod effect;
 pub mod fill;
@@ -20,6 +21,7 @@ pub mod texture_set;
 
 pub use anchor::{AnchorDomain, AnchorIndex, AnchorInfo, AnchorInput, AnchorRef, RefSite, RefStatus};
 pub use blend::BlendMode;
+pub use display::{DisplaySettings, EnvAlignment, GlareShape, ToneMap};
 pub use document::Document;
 pub use effect::{ContentEffect, ContentEffectKind};
 pub use fill::{FillFiltering, FillSource, ShapeCrop, TRIPLANAR_HARD, UvWrap, ProceduralKind, ProceduralParams, ScratchParams, ScratchPreset, Projection, ProjectionMode};

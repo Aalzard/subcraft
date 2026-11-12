@@ -51,10 +51,10 @@ place the 12.2 additions where the release notes put them. The settings are stor
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Display Settings window | Dock toolbar / Window menu | closed dock icon | missing | - | - |
-| Group jump buttons (Environment, Camera, Post effects, Render, Visualization) | Display Settings, top row (12.2) | not documented | missing | - | - |
-| Settings saved with the project | Display Settings (whole window) | per project | partial: stored in per-user preferences, not in the project | crates/ui/src/viewport_bar.rs:17 (ViewportPrefs) | - |
-| View mode dropdown | Display Settings top; also viewport corner dropdown | Material | partial: only in the 3D view toolbar | crates/ui/src/viewport_bar.rs:361 | - |
+| Display Settings window | Dock toolbar / Window menu | closed dock icon | done: View > Display settings (optional dock tab, closed by default) | crates/ui/src/panels/display_settings.rs (show), crates/ui/src/app.rs (Tab::DisplaySettings) | 161 |
+| Group jump buttons (Environment, Camera, Post effects, Render, Visualization) | Display Settings, top row (12.2) | not documented | done | crates/ui/src/panels/display_settings.rs (jump_buttons) | 161 |
+| Settings saved with the project | Display Settings (whole window) | per project | done: also kept in the preferences as the defaults for new projects | crates/doc/src/display.rs (DisplaySettings), crates/ui/src/panels/display_settings.rs (sync_project) | 161 |
+| View mode dropdown | Display Settings top; also viewport corner dropdown | Material | done: panel top and 3D view toolbar | crates/ui/src/panels/display_settings.rs (show), crates/ui/src/viewport_bar.rs (view_mode) | 161 |
 | View mode: Lighting section (Material) | View mode dropdown | default | partial: toolbar combo entry "Material" | crates/render/src/lib.rs:135 | - |
 | View mode: Single channel section (one entry per Texture Set channel) | View mode dropdown | not documented | partial: 6 fixed channels (Base Color, Normal, Roughness, Metallic, Height, AO); no Emissive, Opacity, Specular, User | crates/render/src/lib.rs:146 | - |
 | View mode: Mesh maps section (one entry per baked map) | View mode dropdown | not documented | partial: toolbar combo "Mesh maps (baked)" list | crates/ui/src/viewport_bar.rs:376 | - |
@@ -70,15 +70,15 @@ Layout notes: a thumbnail button for the map (opens a mini-shelf filtered to env
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Environment Map (button opening a mini-shelf) | Display Settings > Environment | not documented | partial: picked by clicking a tile in Shelf > Environments, no button/mini-shelf | crates/ui/src/panels/shelf.rs:725 | - |
-| Drag an environment map onto the 3D view / onto the button | 3D view, Environment Map button | - | missing: shelf drag payloads have no environment kind | - | - |
+| Environment Map (button opening a mini-shelf) | Display Settings > Environment | not documented | partial: a dropdown of the environments (and a drop target), no thumbnail mini-shelf | crates/ui/src/panels/display_settings.rs (environment) | 165 |
+| Drag an environment map onto the 3D view / onto the button | 3D view, Environment Map button | - | done: from Assets > Environments onto the 3D view or the Environment map dropdown | crates/ui/src/panels/shelf.rs (EnvironmentDrag), crates/ui/src/viewport.rs | 165 |
 | Override environment map color space (checkbox + color space list) | Display Settings > Environment (color-managed projects) | off | missing | - | - |
-| Environment Opacity | Display Settings > Environment | not documented | missing: background is a flat color, the map is never drawn behind the model | - | - |
-| Environment Exposure (EV) | Display Settings > Environment | 0 EV | partial: "Intensity" multiplier 0.1-4 (default 1), not EV, in Shelf > Environments | crates/ui/src/panels/shelf.rs:842 | - |
-| Environment Rotation | Display Settings > Environment | not documented | partial: "Rotation" -180..180 degrees in Shelf > Environments | crates/ui/src/panels/shelf.rs:842 | - |
+| Environment Opacity | Display Settings > Environment | not documented | done: 0-100%, default 0 (plain background) | crates/render/src/viewport.wgsl (fs_background), crates/ui/src/panels/display_settings.rs (environment) | 165 |
+| Environment Exposure (EV) | Display Settings > Environment | 0 EV | done: -5..5 EV, default 0 | crates/ui/src/panels/display_settings.rs (environment), crates/ui/src/panels/shelf.rs (environment_view) | 165 |
+| Environment Rotation | Display Settings > Environment | not documented | done | crates/ui/src/panels/display_settings.rs (environment) | 161 |
 | Rotate environment by mouse | 3D view, Shift+Right mouse drag | Shift+RMB | done | crates/ui/src/nav.rs:76 | - |
-| Environment Blur | Display Settings > Environment | not documented | missing | - | - |
-| Environment Alignment | Display Settings > Environment | World; options World, Local | missing | - | - |
+| Environment Blur | Display Settings > Environment | not documented | done: 0-1 (default 0.5), applies to the backdrop | crates/render/src/viewport.wgsl (background_radiance) | 165 |
+| Environment Alignment | Display Settings > Environment | World; options World, Local | done: World (default), Local | crates/doc/src/display.rs (EnvAlignment), crates/ui/src/panels/shelf.rs (environment_view) | 165 |
 
 ## Environment settings: Shadows
 
@@ -105,11 +105,11 @@ a trailing asterisk.
 | Lock camera | Display Settings > Camera, lock icon | unlocked | missing | - | - |
 | Modified marker (italic name with asterisk) | Camera dropdown | - | missing | - | - |
 | Display ratio (read-only; "Unspecified" when absent) | Display Settings > Camera | Unspecified | missing | - | - |
-| Field of View (degrees) | Display Settings > Camera | not documented | missing: value exists on the camera (set only by imported cameras), no control | - | - |
-| Focal length (mm) | Display Settings > Camera | not documented | missing | - | - |
-| Focus Distance | Display Settings > Camera | not documented | partial: "Focus distance" 0.2-3 as a multiple of the orbit distance, in Render quality window | crates/ui/src/render_export.rs:97 | - |
-| Set focus distance by clicking the mesh | 3D view, Ctrl+Middle mouse click | Ctrl+MMB | partial: "Pick in 3D view" button then click; no shortcut | crates/ui/src/render_export.rs:103 | - |
-| Aperture | Display Settings > Camera | not documented | partial: "Blur amount" 0-1 (default 0.5), not a physical aperture | crates/ui/src/render_export.rs:94 | - |
+| Field of View (degrees) | Display Settings > Camera | not documented | done: 5-120 degrees; the camera dollies to keep the model its size | crates/ui/src/panels/display_settings.rs (camera, set_fov) | 165 |
+| Focal length (mm) | Display Settings > Camera | not documented | done: full-frame (24 mm high) equivalent of the field of view | crates/doc/src/display.rs (focal_length_mm) | 165 |
+| Focus Distance | Display Settings > Camera | not documented | partial: a multiple of the orbit distance (0.2-3), not scene units | crates/ui/src/panels/display_settings.rs (camera) | 161 |
+| Set focus distance by clicking the mesh | 3D view, Ctrl+Middle mouse click | Ctrl+MMB | done: Ctrl+MMB, and the "Pick in 3D view" button | crates/ui/src/viewport.rs | 165 |
+| Aperture | Display Settings > Camera | not documented | partial: blur amount 0-1 (default 0.5), not a physical aperture | crates/ui/src/panels/display_settings.rs (camera) | 161 |
 | Camera Perspective | Shortcut F5 (also viewport projection control) | perspective | done | crates/app/src/actions.rs:210 | - |
 | Camera Orthographic | Shortcut F6 | - | done | crates/app/src/actions.rs:211 | - |
 
@@ -132,14 +132,14 @@ extras with no Painter counterpart in this list: screen-space ambient occlusion 
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Depth of Field (enable; no own parameters, driven by Camera Focus Distance and Aperture) | Display Settings > Post effects | off | partial: "Enable" in Render quality window, plus an extra "Focus range" slider | crates/ui/src/render_export.rs:91 | - |
+| Depth of Field (enable; no own parameters, driven by Camera Focus Distance and Aperture) | Display Settings > Post effects | off | done: plus an extra "Focus range" slider | crates/ui/src/panels/display_settings.rs (post_effects) | 161 |
 
 ## Post effects: Bloom
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Amount | Post effects > Bloom | not documented | partial: "Bloom" 0-2, default 0 (off), in Render quality window | crates/ui/src/render_export.rs:76 | - |
-| Threshold | Post effects > Bloom | not documented (1.0 = screen white) | partial: "Bloom threshold" 0-1, default 0.8 | crates/ui/src/render_export.rs:79 | - |
+| Amount | Post effects > Bloom | not documented | done: 0-2, default 0 | crates/ui/src/panels/display_settings.rs (post_effects) | 161 |
+| Threshold | Post effects > Bloom | not documented (1.0 = screen white) | done: 0-1, default 0.8 | crates/ui/src/panels/display_settings.rs (post_effects) | 161 |
 | Falloff | Post effects > Bloom | not documented | missing | - | - |
 
 ## Post effects: Glare
@@ -226,7 +226,7 @@ and Sensitometric.
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Exposure | Post effects > Tone mapping | not documented | partial: "Exposure" multiplier 0.25-4 (default 1) in Render quality window | crates/ui/src/render_export.rs:73 | - |
+| Exposure | Post effects > Tone mapping | not documented | done: multiplier 0.25-4 (default 1) | crates/ui/src/panels/display_settings.rs (post_effects) | 161 |
 | Gamma | Post effects > Tone mapping | not documented | missing | - | - |
 | Function (dropdown) | Post effects > Tone mapping | Linear (camera page) / Auto (tone-mapping page) | partial: 4 options, default ACES | crates/ui/src/render_export.rs:65 | - |
 | Function: Auto | Tone mapping > Function | picks Sensitometric | missing | - | - |
@@ -267,7 +267,7 @@ Layout notes: this page is still in the help but the effect is not in the 12.0 e
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Temporal Anti-Aliasing (enable) | Display Settings > Camera | not documented | partial: "Anti-aliasing" checkbox is 4x MSAA, not temporal accumulation | crates/ui/src/viewport_bar.rs:262 | - |
+| Temporal Anti-Aliasing (enable) | Display Settings > Camera | not documented | partial: "Anti-aliasing" in Camera settings is 4x MSAA, not temporal accumulation | crates/ui/src/panels/display_settings.rs (camera) | 161 |
 | Accumulations | Display Settings > Temporal anti-aliasing | 16 recommended; 64 for high contrast (full option list not documented) | missing | - | - |
 
 ## Camera settings: Subsurface scattering
@@ -322,9 +322,9 @@ linear/raw. Hidden or superseded in colour-managed (OCIO/ACE) projects (unverifi
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Show mesh wireframe | Display Settings > Mesh wireframe | off | partial: toolbar toggle button (and its right-click popup), draws polygon edges with a merge angle | crates/ui/src/view_extras.rs:104 | - |
-| Wireframe color | Display Settings > Mesh wireframe | not documented | partial: in the toolbar button's right-click popup | crates/ui/src/view_extras.rs:115 | - |
-| Wireframe opacity | Display Settings > Mesh wireframe | not documented | partial: 0.05-1 (default 0.6) in the right-click popup | crates/ui/src/view_extras.rs:117 | - |
+| Show mesh wireframe | Display Settings > Mesh wireframe | off | done: also the toolbar toggle | crates/ui/src/panels/display_settings.rs (visualization) | 161 |
+| Wireframe color | Display Settings > Mesh wireframe | not documented | done | crates/ui/src/panels/display_settings.rs (visualization) | 161 |
+| Wireframe opacity | Display Settings > Mesh wireframe | not documented | done: 0.05-1 (default 0.6) | crates/ui/src/panels/display_settings.rs (visualization) | 161 |
 
 ## Viewport settings: Channel display
 
@@ -346,7 +346,7 @@ Layout notes: the grid subdivides automatically with zoom; the current unit is w
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Show grid | Display Settings > Grid | not documented | partial: toolbar toggle button and "Show grid" in its right-click popup; on by default | crates/ui/src/viewport_bar.rs:310 | - |
+| Show grid | Display Settings > Grid | not documented | done: also the toolbar toggle; on by default | crates/ui/src/panels/display_settings.rs (visualization) | 161 |
 | Axis | Display Settings > Grid | Y; options X, Y, Z | partial: three checkboxes toggle axis guide lines; the grid plane itself is fixed to the floor | crates/ui/src/viewport_bar.rs:329 | - |
 | Grid color | Display Settings > Grid | not documented | missing | - | - |
 | Grid opacity | Display Settings > Grid | not documented | missing | - | - |
@@ -364,7 +364,7 @@ copy in Preferences (`crates/ui/src/recovery.rs:327`). SubCraft extras: Bounces 
 |---|---|---|---|---|---|
 | Rendering (Iray) | Mode menu | - | partial: View > "Rendering mode (path tracing)" (no Mode menu) | crates/ui/src/app.rs:1266 | - |
 | Rendering (Iray) shortcut | F10 | F10 | done | crates/app/src/actions.rs:222 | - |
-| Painting (leave rendering) shortcut | F9 | F9 | missing: F10 toggles; F9 is unbound | - | - |
+| Painting (leave rendering) shortcut | F9 | F9 | done | crates/app/src/actions.rs (Action::PaintingMode) | 165 |
 | Camera icon | Main toolbar | - | partial: "Render" button in the 3D view's bottom-right corner | crates/ui/src/viewport.rs:608 | - |
 | Status (Rendering / Paused / Done) | Iray settings, top | - | partial: status pill in the 3D view (samples per second / paused / done) | crates/ui/src/viewport.rs:557 | - |
 | Resolution (readout) | Iray settings, top | viewport size | missing | - | - |
@@ -378,7 +378,7 @@ copy in Preferences (`crates/ui/src/recovery.rs:327`). SubCraft extras: Bounces 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
 | Min Sample | Iray settings | not documented | missing | - | - |
-| Max Sample | Iray settings | not documented | partial: "Max samples" 0-8192 (0 = unlimited, default 1024) in the Render button popup | crates/ui/src/viewport_bar.rs:284 | - |
+| Max Sample | Iray settings | not documented | partial: "Max samples" 0-8192 (0 = unlimited, default 1024) in Display Settings > Render settings and the Render button popup | crates/ui/src/panels/display_settings.rs (render) | 161 |
 | Max Time | Iray settings | not documented | missing | - | - |
 | Max Time unit | Iray settings | options seconds, minutes, hours | missing | - | - |
 | Caustic Sampler Enabled | Iray settings | not documented | missing | - | - |
@@ -393,9 +393,9 @@ copy in Preferences (`crates/ui/src/recovery.rs:327`). SubCraft extras: Bounces 
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Environment map (button; drop an HDR on it) | Viewer settings > Environment | shared with viewport | partial: shared with the viewport, chosen in Shelf > Environments | crates/ui/src/panels/shelf.rs:725 | - |
-| Environment Exposure | Viewer settings > Environment | shared | partial: shared "Intensity" multiplier | crates/ui/src/panels/shelf.rs:842 | - |
-| Environment Rotation | Viewer settings > Environment | shared | partial: shared "Rotation" slider | crates/ui/src/panels/shelf.rs:842 | - |
+| Environment map (button; drop an HDR on it) | Viewer settings > Environment | shared with viewport | partial: shared with the viewport; dropdown in Display Settings, tiles in Assets > Environments | crates/ui/src/panels/display_settings.rs (environment) | 165 |
+| Environment Exposure | Viewer settings > Environment | shared | done: shared EV exposure | crates/ui/src/panels/display_settings.rs (environment) | 165 |
+| Environment Rotation | Viewer settings > Environment | shared | done: shared | crates/ui/src/panels/display_settings.rs (environment) | 165 |
 | Dome type | Viewer settings > Dome | options Infinite Sphere, Sphere, Sphere with ground | partial: "Ground shadow" checkbox adds a gray ground disc; no dome choice | crates/ui/src/viewport_bar.rs:289 | - |
 | Radius | Viewer settings > Dome | not documented | missing | - | - |
 | Texture Scale | Viewer settings > Dome | not documented | missing | - | - |

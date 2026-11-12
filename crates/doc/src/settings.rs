@@ -52,6 +52,10 @@ pub struct ProjectSettings {
     /// mesh reload) and should be baked again. Cleared per set by its next bake.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub stale_mesh_maps: Vec<subcraft_core::TextureSetId>,
+    /// Display settings of the 3D view (environment, camera, post effects, visualisation).
+    /// Optional in the file: absent = the user's own defaults, so no schema bump is needed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display: Option<crate::display::DisplaySettings>,
 }
 
 fn is_default_match(m: &subcraft_core::BakeMatch) -> bool {

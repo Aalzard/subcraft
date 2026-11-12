@@ -75,12 +75,17 @@ fn prefs_map_to_render_settings_and_old_files_get_defaults() {
     assert!((defaults.ssao_radius - 0.03 * 2.0).abs() < 1e-6, "3% of a model with diagonal 2");
     let old: ViewportPrefs = serde_json::from_str(r#"{"grid":false}"#).unwrap();
     assert_eq!((old.tone_map(), old.bloom, old.ssao, old.exposure, old.emission_glow), (ToneMap::Aces, 0.0, 0.0, 1.0, 0.35));
-    let wild = ViewportPrefs { tone_map: 99, bloom: -3.0, ssao: 9.0, glare_mode: 99, glare_length: 7.0, ssao_radius: 1e6, ..Default::default() };
+    let wild = ViewportPrefs { display: subcraft_doc::DisplaySettings { bloom: -3.0, ssao: 9.0, glare_length: 7.0, ssao_radius: 1e6, ..Default::default() }, ..Default::default() };
     let p = wild.post_params(1.0);
     assert_eq!((p.tone_map, p.bloom, p.ssao, p.glare_mode, p.glare_length), (ToneMap::Aces, 0.0, 1.0, GlareMode::Horizontal, 1.0), "out-of-range values are clamped");
     assert!(p.ssao_radius <= 0.5);
-    let round: ViewportPrefs = serde_json::from_str(&serde_json::to_string(&ViewportPrefs { bloom: 0.8, glare_mode: 3, ..Default::default() }).unwrap()).unwrap();
-    assert_eq!((round.bloom, round.glare_mode), (0.8, 3));
+    let mut edited = ViewportPrefs::default();
+    (edited.bloom, edited.glare_mode) = (0.8, GlareMode::Star);
+    let round: ViewportPrefs = serde_json::from_str(&serde_json::to_string(&edited).unwrap()).unwrap();
+    assert_eq!((round.bloom, round.glare_mode), (0.8, GlareMode::Star));
+    // Preference files from before the Display Settings panel: the same keys, enums as list indices.
+    let legacy: ViewportPrefs = serde_json::from_str(r#"{"scale_percent":50,"tone_map":2,"glare_mode":3,"bloom":0.6,"wireframe":true,"pt_bounces":7}"#).unwrap();
+    assert_eq!((legacy.scale_percent, legacy.tone_map, legacy.glare_mode, legacy.bloom, legacy.wireframe, legacy.pt_bounces), (50, ToneMap::Reinhard, GlareMode::Star, 0.6, true, 7));
 }
 
 #[test]
@@ -103,14 +108,15 @@ fn depth_of_field_defaults_off_round_trips_and_maps_to_the_renderer() {
     let old: ViewportPrefs = serde_json::from_str(r#"{"bloom":0.5}"#).unwrap();
     assert!(!old.dof && old.dof_amount == 0.5 && old.dof_focus == 1.0 && old.dof_range == 10.0);
     // Round trip.
-    let set = ViewportPrefs { dof: true, dof_amount: 0.8, dof_focus: 1.7, dof_range: 25.0, ..Default::default() };
+    let look = |dof: bool, dof_amount: f32, dof_focus: f32, dof_range: f32| ViewportPrefs { display: subcraft_doc::DisplaySettings { dof, dof_amount, dof_focus, dof_range, ..Default::default() }, ..Default::default() };
+    let set = look(true, 0.8, 1.7, 25.0);
     let back: ViewportPrefs = serde_json::from_str(&serde_json::to_string(&set).unwrap()).unwrap();
     assert_eq!(back, set);
     // Focus follows the orbit distance; the sharp band is a share of the model size.
     let p = set.post_params_at(4.0, 10.0);
     assert_eq!((p.dof, p.dof_focus, p.dof_range), (0.8, 17.0, 1.0));
     // Out-of-range values are clamped, and "off" wins over any amount.
-    let wild = ViewportPrefs { dof: true, dof_amount: 9.0, dof_focus: -3.0, dof_range: 1e6, ..Default::default() }.post_params_at(1.0, 1.0);
+    let wild = look(true, 9.0, -3.0, 1e6).post_params_at(1.0, 1.0);
     assert_eq!((wild.dof, wild.dof_focus, wild.dof_range), (1.0, 0.05, 1.0));
-    assert_eq!(ViewportPrefs { dof: false, dof_amount: 1.0, ..Default::default() }.post_params(1.0).dof, 0.0);
+    assert_eq!(look(false, 1.0, 1.0, 10.0).post_params(1.0).dof, 0.0);
 }

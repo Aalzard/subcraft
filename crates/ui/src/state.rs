@@ -150,6 +150,12 @@ pub struct UiState {
     pub capture_during_load: bool,
     /// "Render quality" window open, its export settings, and a pending export request.
     pub render_window: bool,
+    /// Display Settings panel: the group a jump button asked to scroll to.
+    pub display_jump: Option<crate::panels::display_settings::Section>,
+    /// Whether the session's saved display settings were taken over yet, and the values last
+    /// seen in step with the project (see `panels::display_settings::sync_project`).
+    pub display_loaded: bool,
+    pub display_baseline: subcraft_doc::DisplaySettings,
     /// Scripted export waiting for the first finished frame.
     pub pending_render_job: Option<crate::render_export::Job>,
     pub render_export: crate::render_export::ExportSettings,
@@ -308,6 +314,9 @@ impl UiState {
             capture_tool: None,
             capture_during_load: false,
             render_window: false,
+            display_jump: None,
+            display_loaded: false,
+            display_baseline: Default::default(),
             pending_render_job: None,
             render_export: Default::default(),
             new_project: Default::default(),
@@ -492,6 +501,7 @@ impl UiState {
         session.brush.material = self.session.brush.material.clone();
         self.camera = OrbitCamera::framing_with(&session.scene().mesh.bounds, self.camera_view.as_ref());
         self.session = session;
+        self.display_loaded = false;
         self.welcome.open = false;
         self.context_part = None;
         self.uploaded_view_revision = u64::MAX;
