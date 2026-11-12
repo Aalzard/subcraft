@@ -12,6 +12,7 @@ pub mod depth;
 pub mod image_stamp;
 pub mod kernel;
 pub mod path;
+pub mod select;
 pub mod pen;
 pub mod settings;
 pub mod stamp;
@@ -22,6 +23,7 @@ pub mod text_decal;
 pub mod tip_preview;
 
 pub use camera::Camera;
+pub use kernel::UvView;
 pub use depth::{DepthCache, DepthMap};
 pub use path::MAX_SMOOTHING;
 pub use settings::{Alignment, BrushChannel, BrushMaterial, BrushSettings, NormalPaintBlend, ImageStamp, StampKind, PaintTarget, PolygonFillMode, RadialSymmetry, SizeContext, SizeSpace, MAX_PRESSURE_MIN, MAX_SYMMETRY_COPIES, StrokeMode, StrokeOptions, falloff, MAX_SCATTER};

@@ -24,6 +24,7 @@ pub mod mesh_map_import;
 pub mod cage_check;
 pub mod launch;
 pub mod layer_tree;
+pub mod flatten;
 pub mod new_project;
 pub mod effect_stack;
 pub mod export_presets;

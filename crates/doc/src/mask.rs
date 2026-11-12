@@ -75,6 +75,10 @@ pub struct Generator {
     /// Concave, Ambient Occlusion and Mesh Map kinds). Absent: the mesh map, as before.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub input: Option<crate::anchor::AnchorInput>,
+    /// Curvature generator (`MeshMap(Curvature)`) mode and detail sizes. Absent (the default, and
+    /// in every older project): the baked map itself.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub curvature: Option<CurvatureDetail>,
     /// Settings of [`GeneratorKind::MaskEditor`]. Absent for every other kind.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub editor: Option<MaskEditor>,
@@ -196,6 +200,50 @@ pub fn light_angles(dir: [f32; 3]) -> (f32, f32) {
     let vertical = y.clamp(-1.0, 1.0).asin().to_degrees();
     let horizontal = if x.abs() < 1e-6 && z.abs() < 1e-6 { 0.0 } else { x.atan2(z).to_degrees() };
     (horizontal, vertical)
+}
+
+/// Which side of the curvature the Curvature generator keeps.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CurvatureDetailMode {
+    /// The map as baked: convex bright, concave dark, flat at 0.5.
+    #[default]
+    Both,
+    /// Convex edges only: flat and concave black, the sharpest edges white.
+    Edges,
+    /// Concave cavities only: flat and convex black, the deepest creases white.
+    Cavities,
+}
+
+impl CurvatureDetailMode {
+    pub const ALL: [Self; 3] = [Self::Both, Self::Edges, Self::Cavities];
+    pub fn label(self) -> &'static str {
+        match self { Self::Both => "Edges and cavities", Self::Edges => "Edges only", Self::Cavities => "Cavities only" }
+    }
+}
+
+/// Curvature generator options: a mode and the weights of three detail sizes. Fine is the baked
+/// map; medium and coarse are the map averaged over about 1/256 and 1/64 of the texture, so broad
+/// bevels and large forms show even where the fine bake is thin. `Default` (Both, fine 1, medium
+/// and coarse 0) is exactly the baked map.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CurvatureDetail {
+    pub mode: CurvatureDetailMode,
+    pub fine: f32,
+    pub medium: f32,
+    pub coarse: f32,
+}
+
+impl Default for CurvatureDetail {
+    fn default() -> Self { Self { mode: CurvatureDetailMode::Both, fine: 1.0, medium: 0.0, coarse: 0.0 } }
+}
+
+impl CurvatureDetail {
+    /// Largest weight a detail size takes.
+    pub const MAX_WEIGHT: f32 = 2.0;
+
+    /// Whether these settings leave the baked map exactly as it is.
+    pub fn is_identity(&self) -> bool { *self == Self::default() }
 }
 
 /// How a color texture becomes one gray value (the Grayscale Conversion options).
@@ -598,10 +646,14 @@ pub struct PainterControls {
     /// projects: false, their original pattern. Not written when false.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub grunge_map: bool,
+    /// Painter's custom grunge (Use Custom Grunge): an image that replaces the breakup noise,
+    /// projected tri-planar on the model at the pattern size. Absent: the noise or grunge map.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_grunge: Option<subcraft_core::ResourceId>,
 }
 
 impl Default for PainterControls {
-    fn default() -> Self { Self { edges_masking: 0.0, ao_masking: 0.0, curvature_weight: 1.0, smoothness: 0.0, grunge_scale: 1.0, grunge_floor: 0.0, grain: 0.0, grunge_map: false } }
+    fn default() -> Self { Self { edges_masking: 0.0, ao_masking: 0.0, curvature_weight: 1.0, smoothness: 0.0, grunge_scale: 1.0, grunge_floor: 0.0, grain: 0.0, grunge_map: false, custom_grunge: None } }
 }
 
 fn is_zero_offset(offset: &[f32; 3]) -> bool { *offset == [0.0; 3] }
@@ -753,6 +805,7 @@ impl Generator {
             }),
             micro: None,
             input: None,
+            curvature: None,
             editor: (kind == GeneratorKind::MaskEditor).then(MaskEditor::default),
             shape: kind.uses_shape().then(ShapeSettings::default),
         }
@@ -780,11 +833,13 @@ impl Generator {
 
     /// Image resources the generator reads (the Mask Editor's textures).
     pub fn resources(&self) -> Vec<subcraft_core::ResourceId> {
-        match self.kind {
+        let mut out: Vec<subcraft_core::ResourceId> = match self.kind {
             GeneratorKind::MaskEditor => self.editor_settings().resources().collect(),
             GeneratorKind::GrayscaleConversion => self.shape_settings().texture.into_iter().collect(),
             _ => Vec::new(),
-        }
+        };
+        out.extend(self.painter.and_then(|p| p.custom_grunge));
+        out
     }
 
     /// Whether this kind reads a baked map that an anchor input can replace.
@@ -795,7 +850,7 @@ impl Generator {
     /// Whether the micro effect is on and strong enough to change anything.
     /// The Mask Editor has no Micro controls: a micro effect kept from the kind it was switched
     /// from used to keep changing the layers below, with no way to turn it off.
-    pub fn micro_active(&self) -> bool { self.kind != GeneratorKind::MaskEditor && self.micro.is_some_and(|m| m.height() != 0.0) }
+    pub fn micro_active(&self) -> bool { self.kind != GeneratorKind::MaskEditor && !self.kind.uses_shape() && self.micro.is_some_and(|m| m.height() != 0.0) }
 
     /// Switch the micro effect on or off, keeping tuned values and starting from the per-kind defaults.
     pub fn set_micro_enabled(&mut self, on: bool) {
@@ -977,6 +1032,9 @@ mod tests {
         assert!(!g.micro_active());
         g.set_kind(GeneratorKind::Cavity);
         assert!(g.micro_active(), "the tuned micro effect is back with the kind that has it");
+        // The position / UV generators have no Micro controls either.
+        g.set_kind(GeneratorKind::Distance3D);
+        assert!(!g.micro_active());
     }
 
     #[test]
@@ -1198,5 +1256,17 @@ mod tests {
         assert!(m.valid());
         m.tolerance = 2.0;
         assert!(!m.valid());
+    }
+
+    #[test]
+    fn curvature_detail_round_trips_and_older_generators_read_as_none() {
+        let mut g = Generator::new(GeneratorKind::MeshMap(MeshMapKind::Curvature));
+        let plain = serde_json::to_string(&g).unwrap();
+        assert!(!plain.contains("\"curvature\":"), "absent settings are not written: {plain}");
+        assert_eq!(serde_json::from_str::<Generator>(&plain).unwrap().curvature, None);
+        g.curvature = Some(CurvatureDetail { mode: CurvatureDetailMode::Cavities, fine: 0.5, medium: 1.25, coarse: 0.75 });
+        let back: Generator = serde_json::from_str(&serde_json::to_string(&g).unwrap()).unwrap();
+        assert_eq!(back, g);
+        assert!(CurvatureDetail::default().is_identity() && !back.curvature.unwrap().is_identity());
     }
 }
