@@ -132,13 +132,13 @@ Layout notes: Standard group. Paint layer content.
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Drop Shadow (filter) | Properties > Filter | works on: paint layer content | missing | - | - |
-| Angle | Properties > Filter | not documented | missing | - | - |
-| Distance | Properties > Filter | not documented | missing | - | - |
-| Size | Properties > Filter | not documented | missing | - | - |
-| Spread | Properties > Filter | not documented | missing | - | - |
-| Opacity | Properties > Filter | not documented | missing | - | - |
-| Color | Properties > Filter | not documented | missing | - | - |
+| Drop Shadow (filter) | Properties > Filter | works on: paint layer content | done: colour channels; offset + Gaussian blur of the coverage under the content | crates/doc/src/filter.rs:315 | chunk 50 |
+| Angle | Properties > Filter | not documented | done: 0 = right, counter-clockwise (default -45) | crates/ui/src/panels/filter.rs:143 | chunk 50 |
+| Distance | Properties > Filter | not documented | done: pixels, default 4 | crates/ui/src/panels/filter.rs:143 | chunk 50 |
+| Size | Properties > Filter | not documented | done: blur radius in pixels, default 4 | crates/ui/src/panels/filter.rs:143 | chunk 50 |
+| Spread | Properties > Filter | not documented | done: 0-0.99, widens the shadow | crates/ui/src/panels/filter.rs:143 | chunk 50 |
+| Opacity | Properties > Filter | not documented | done: default 0.75 | crates/ui/src/panels/filter.rs:143 | chunk 50 |
+| Color | Properties > Filter | not documented | done: default black | crates/ui/src/panels/filter.rs:143 | chunk 50 |
 
 ## Fill Area Color
 
@@ -177,8 +177,8 @@ Layout notes: Standard group (10.1). Works on content and masks.
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| FXAA (Anti-Aliasing) (filter) | Properties > Filter | works on: content and masks | missing | - | - |
-| Affect Alpha Channel | Properties > Filter | not documented (toggle) | missing | - | - |
+| FXAA (Anti-Aliasing) (filter) | Properties > Filter | works on: content and masks | done: edge-directed blend toward the neighbour across the edge (compact FXAA) | crates/doc/src/filter.rs:311 | chunk 50 |
+| Affect Alpha Channel | Properties > Filter | not documented (toggle) | done | crates/ui/src/panels/filter.rs:139 | chunk 50 |
 
 ## Glow
 
@@ -186,13 +186,13 @@ Layout notes: Standard group. Works on content and masks (outer glow around visi
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Glow (filter) | Properties > Filter | works on: content and masks | partial: a bloom of bright values (Radius, Amount, Threshold), not an outer glow with colour | crates/doc/src/filter.rs:166 | - |
-| Used on a Mask | Properties > Filter | not documented (toggle) | missing | - | - |
-| Mode | Properties > Filter | not documented; options Soft / Precise | missing | - | - |
-| Width | Properties > Filter | not documented | partial: "Radius" 0-32 px, default 8 | crates/ui/src/panels/filter.rs:72 | - |
-| Spread | Properties > Filter | not documented | missing | - | - |
-| Opacity | Properties > Filter | not documented | partial: "Amount" 0-4, default 1 | crates/ui/src/panels/filter.rs:73 | - |
-| Color | Properties > Filter | not documented | missing | - | - |
+| Glow (filter) | Properties > Filter | works on: content and masks | done: Painter's outer glow is a new "Glow"; the former bloom filter is now named "Bloom" | crates/doc/src/filter.rs:320 | chunk 50 |
+| Used on a Mask | Properties > Filter | not documented (toggle) | partial: masks and scalar channels glow by value automatically (no toggle) | crates/ui/src/panels/filter.rs:155 | chunk 50 |
+| Mode | Properties > Filter | not documented; options Soft / Precise | partial: Soft = blurred coverage; Precise doubles the falloff steepness (approximation) | crates/ui/src/panels/filter.rs:155 | chunk 50 |
+| Width | Properties > Filter | not documented | done: pixels, default 8 | crates/ui/src/panels/filter.rs:155 | chunk 50 |
+| Spread | Properties > Filter | not documented | done | crates/ui/src/panels/filter.rs:155 | chunk 50 |
+| Opacity | Properties > Filter | not documented | done: default 0.75 | crates/ui/src/panels/filter.rs:155 | chunk 50 |
+| Color | Properties > Filter | not documented | done: default white | crates/ui/src/panels/filter.rs:155 | chunk 50 |
 
 ## Gradient
 
@@ -871,11 +871,11 @@ Layout notes: Advanced group. Works on content and masks (grayscale shapes).
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Bevel (filter) | Properties > Filter | works on: content and masks | partial: Radius, Amount and Threshold; no wrap, corner type, smoothing or blur mode | crates/doc/src/filter.rs:143 | - |
+| Bevel (filter) | Properties > Filter | works on: content and masks | partial: Radius, Amount, Threshold, Corner Type and Smoothing; no wrap or blur mode | crates/doc/src/filter.rs:301 | chunk 50 |
 | Bevel Wrap | Properties > Filter | not documented (toggle) | missing | - | - |
 | Distance | Properties > Filter | not documented | partial: "Radius" 0-32 px, default 8 | crates/ui/src/panels/filter.rs:85 | - |
-| Corner Type | Properties > Filter | not documented; rounded / angular | missing | - | - |
-| Smoothing | Properties > Filter | not documented | missing | - | - |
+| Corner Type | Properties > Filter | not documented; rounded / angular | done: Rounded (Euclidean) / Angular (Chebyshev distance, square corners) | crates/ui/src/panels/filter.rs:88 | chunk 50 |
+| Smoothing | Properties > Filter | not documented | done: eases the ramp from linear toward a smoothstep (SubCraft reading; not documented) | crates/ui/src/panels/filter.rs:88 | chunk 50 |
 | Blur Mode | Properties > Filter | not documented; uniform / non-uniform | missing | - | - |
 
 ## Bevel Smooth
@@ -944,10 +944,10 @@ Layout notes: Advanced group. Height channel content (and masks). Offset is appl
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Height Adjust (filter) | Properties > Filter | works on: content and masks | missing | - | - |
-| Invert | Properties > Filter | not documented (toggle) | missing | - | - |
-| Offset | Properties > Filter | not documented | missing | - | - |
-| Multiply | Properties > Filter | not documented | missing | - | - |
+| Height Adjust (filter) | Properties > Filter | works on: content and masks | done: invert, then value x Multiply + Offset | crates/doc/src/filter.rs:308 | chunk 50 |
+| Invert | Properties > Filter | not documented (toggle) | done | crates/ui/src/panels/filter.rs:133 | chunk 50 |
+| Offset | Properties > Filter | not documented | done: -1..1 | crates/ui/src/panels/filter.rs:133 | chunk 50 |
+| Multiply | Properties > Filter | not documented | done: 0..4 | crates/ui/src/panels/filter.rs:133 | chunk 50 |
 
 ## Height To Normal
 
@@ -968,13 +968,13 @@ Layout notes: Advanced group. Works on content and masks.
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Mask Outline (filter) | Properties > Filter | works on: content and masks | partial: no Start From Black, Blur or Curve Shape | crates/doc/src/filter.rs:145 | - |
+| Mask Outline (filter) | Properties > Filter | works on: content and masks | done | crates/doc/src/filter.rs:306 | chunk 50 |
 | Mask Position | Properties > Filter | not documented; options outside / inside / both | done | crates/ui/src/panels/filter.rs:133 | - |
-| Start From Black | Properties > Filter | not documented (toggle) | missing | - | - |
+| Start From Black | Properties > Filter | not documented (toggle) | done: the band ramps from 0 at the contour to 1 at its far edge | crates/ui/src/panels/filter.rs:277 | chunk 50 |
 | Threshold | Properties > Filter | not documented | done | crates/ui/src/panels/filter.rs:131 | - |
 | Width | Properties > Filter | not documented | done | crates/ui/src/panels/filter.rs:85 | - |
-| Blur | Properties > Filter | not documented | missing | - | - |
-| Curve Shape | Properties > Filter | not documented | missing | - | - |
+| Blur | Properties > Filter | not documented | done: fades the band's far edge over this many pixels | crates/ui/src/panels/filter.rs:277 | chunk 50 |
+| Curve Shape | Properties > Filter | not documented | done: -1..1, result raised to 4^curve | crates/ui/src/panels/filter.rs:277 | chunk 50 |
 
 ## PBR Validate
 

@@ -91,6 +91,12 @@ impl ExportTextureSet<'_> {
         }
     }
 
+    /// Whether the Base Color stack starts transparent (a transparent texture set: the composite
+    /// is filled with alpha 0 where nothing was evaluated).
+    fn has_coverage(&self) -> bool {
+        self.channels.get(&ChannelKind::BaseColor).is_some_and(|img| img.comps() == 4 && img.fill()[3] < 1.0)
+    }
+
     fn source(&self, kind: ChannelKind) -> Option<&TiledImage> {
         self.channels.get(&kind).or_else(|| match kind {
             ChannelKind::AmbientOcclusion => self.mesh_maps.and_then(|m| m.get(&MeshMapKind::AmbientOcclusion)),
@@ -119,7 +125,9 @@ fn map_applies(map: &OutputMap, set: &ExportTextureSet, settings: &ExportSetting
     if map.components.iter().any(|s| matches!(s, Source::View2d { .. })) {
         return settings.view_2d.is_some_and(|v| set.view_source(v).is_some());
     }
-    map.components.iter().filter_map(|s| s.channel()).any(|k| set.source(k).is_some())
+    // A transparent set has alpha without an Opacity channel: its Base Color stack starts empty.
+    map.components.iter().any(|s| matches!(s, Source::Alpha)) && set.has_coverage()
+        || map.components.iter().filter_map(|s| s.channel()).any(|k| set.source(k).is_some())
         || map.components.iter().any(|s| matches!(s, Source::Normal { .. })) && set.channels.contains_key(&ChannelKind::Height)
         || map.components.iter().any(|s| matches!(s, Source::MeshMap { kind, .. } if set.mesh_maps.is_some_and(|m| m.contains_key(kind))))
 }
@@ -262,6 +270,7 @@ struct Dense<'a> {
     normal: Option<Vec<f32>>,
     view: Option<(usize, Vec<f32>)>,
     mesh_maps: HashMap<MeshMapKind, (usize, Vec<f32>)>,
+    alpha: Option<Vec<f32>>,
 }
 
 /// Nearest-neighbour copy of `img` at `size` × `size` (the image itself when it already fits).
@@ -337,6 +346,27 @@ impl<'a> Dense<'a> {
         })
     }
 
+    /// Effective opacity per texel: the Opacity channel (1 when absent) times the Base Color
+    /// coverage (its composite alpha; 1 when absent or opaque).
+    fn alpha(&mut self) -> &Vec<f32> {
+        if self.alpha.is_none() {
+            let n = (self.size * self.size) as usize;
+            let mut out = vec![1.0f32; n];
+            if self.set.source(ChannelKind::Opacity).is_some() {
+                let (oc, o) = self.channel(ChannelKind::Opacity);
+                let oc = *oc;
+                out.iter_mut().enumerate().for_each(|(i, a)| *a = o[i * oc].clamp(0.0, 1.0));
+            }
+            if self.set.source(ChannelKind::BaseColor).is_some_and(|img| img.comps() == 4) {
+                let (bc, b) = self.channel(ChannelKind::BaseColor);
+                let bc = *bc;
+                out.iter_mut().enumerate().for_each(|(i, a)| *a *= b[i * bc + 3].clamp(0.0, 1.0));
+            }
+            self.alpha = Some(out);
+        }
+        self.alpha.as_ref().expect("computed above")
+    }
+
     /// Normal channel with height bumps folded in (whiteout), encoded 0..1, 3 comps.
     fn normal(&mut self, height_scale: f32) -> &Vec<f32> {
         if self.normal.is_none() {
@@ -384,6 +414,12 @@ fn evaluate_map(map: &OutputMap, dense: &mut Dense, settings: &ExportSettings, f
             Source::Channel { kind, component, invert } => {
                 let encode = map.srgb && kind.is_color() && !format.is_float();
                 let (cc, data) = dense.channel(kind);
+                // Component 3 of a colour channel is its stack's coverage; a channel stored
+                // without one (absent: the default) is fully covered.
+                if component == 3 && *cc < 4 {
+                    (0..n).for_each(|i| out[i * comps + ci] = if invert { 0.0 } else { 1.0 });
+                    continue;
+                }
                 let c = (component as usize).min(cc - 1);
                 for i in 0..n {
                     let mut v = data[i * cc + c];
@@ -433,6 +469,10 @@ fn evaluate_map(map: &OutputMap, dense: &mut Dense, settings: &ExportSettings, f
                     out[i * comps + ci] = if encode { linear_to_srgb(v) } else { v };
                 }
             }
+            Source::Alpha => {
+                let a = dense.alpha();
+                (0..n).for_each(|i| out[i * comps + ci] = a[i]);
+            }
             Source::MeshMap { kind, component, invert } => {
                 let (cc, data) = dense.mesh_map(kind);
                 let c = (component as usize).min(kind.components() - 1).min(*cc - 1);
@@ -444,6 +484,33 @@ fn evaluate_map(map: &OutputMap, dense: &mut Dense, settings: &ExportSettings, f
         }
     }
     out
+}
+
+/// Whether a map's fourth component is an alpha (effective opacity or a colour stack's coverage)
+/// over colour in the first three.
+fn has_color_alpha(map: &OutputMap) -> bool {
+    map.components.len() == 4
+        && matches!(map.components[3], Source::Alpha | Source::Channel { component: 3, invert: false, .. })
+        && map.components[..3].iter().all(|s| matches!(s, Source::Channel { kind, .. } if kind.is_color()))
+}
+
+/// Edge bleed of an RGBA colour map: texels with alpha 0 take the colour of the nearest texel
+/// with alpha above 0, keeping their alpha. Without it, filtering and mipmaps blend the hidden
+/// colour under transparent texels (the channel default grey) into the visible edges, which
+/// shows as a grey fringe. Alpha and every visible texel are untouched (issue #145).
+pub fn bleed_under_alpha(map: &OutputMap, size: usize, data: &mut [f32]) {
+    if !has_color_alpha(map) {
+        return;
+    }
+    let visible: Vec<bool> = data.chunks_exact(4).map(|p| p[3] > 0.0).collect();
+    if visible.iter().all(|&v| v) || !visible.iter().any(|&v| v) {
+        return;
+    }
+    let mut rgb: Vec<f32> = data.chunks_exact(4).flat_map(|p| [p[0], p[1], p[2]]).collect();
+    dilate_infinite(size, size, 3, &mut rgb, &visible);
+    for (p, c) in data.chunks_exact_mut(4).zip(rgb.chunks_exact(3)) {
+        p[..3].copy_from_slice(c);
+    }
 }
 
 /// UV coverage of a texture set at `size` (inside + 1-texel rim).
@@ -540,7 +607,7 @@ pub(crate) fn render_maps(mesh: &Mesh, mesh_name: &str, sets: &[ExportTextureSet
     for set in sets {
         let Some(size) = set.channels.values().next().map(|i| i.width()) else { continue };
         let mut covered: Option<Vec<bool>> = None;
-        let mut dense = Dense { set, size, cache: HashMap::new(), normal: None, view: None, mesh_maps: HashMap::new() };
+        let mut dense = Dense { set, size, cache: HashMap::new(), normal: None, view: None, mesh_maps: HashMap::new(), alpha: None };
         for map in settings.template.maps.iter().filter(|m| map_applies(m, set, settings) && settings.selection.is_on(set.name, &m.suffix)) {
             if map.suffix.contains(['/', '\\']) || map.suffix.contains("..") {
                 return Err(ExportError::Archive(format!("invalid map suffix: {}", map.suffix)));
@@ -548,6 +615,7 @@ pub(crate) fn render_maps(mesh: &Mesh, mesh_name: &str, sets: &[ExportTextureSet
             let format = output_format(map, settings);
             let comps = map.components.len();
             let mut data = evaluate_map(map, &mut dense, settings, format);
+            bleed_under_alpha(map, size as usize, &mut data);
             let padding = map.padding.or(settings.template.padding).unwrap_or(settings.padding);
             if padding != Padding::None {
                 let covered = covered.get_or_insert_with(|| coverage(mesh, set.material_slot, size));

@@ -1,7 +1,7 @@
 //! Evaluation of a layer tree for one tile.
 //!
 //! Every channel keeps a running accumulation of straight `(value, alpha)` texels. The root starts
-//! at the channel's default value with alpha 1; isolated folders start transparent; passthrough
+//! at the channel's default value with alpha 1 (0 in a transparent texture set); isolated folders start transparent; passthrough
 //! folders let their children act directly on the accumulation below and then lerp the result
 //! by folder opacity × mask.
 
@@ -26,9 +26,10 @@ struct Acc {
 }
 
 impl Acc {
-    fn root(kind: ChannelKind) -> Self {
+    /// The channel default with the set's base alpha (0 for a transparent set, issue #145).
+    fn root(kind: ChannelKind, alpha: f32) -> Self {
         let d = kind.default_value().0;
-        Self { kind, target: BlendTarget::for_channel(kind), px: vec![[d[0], d[1], d[2], 1.0]; TILE_TEXELS] }
+        Self { kind, target: BlendTarget::for_channel(kind), px: vec![[d[0], d[1], d[2], alpha]; TILE_TEXELS] }
     }
 
     fn transparent(kind: ChannelKind) -> Self {
@@ -61,7 +62,7 @@ pub(crate) fn evaluate_tile_local_cached(
     tile: usize,
     prefix: Option<(&crate::PrefixCache, &[usize])>,
 ) -> Vec<(ChannelKind, Vec<[f32; 4]>)> {
-    let mut accs: Vec<Acc> = ts.channel_kinds().map(Acc::root).collect();
+    let mut accs: Vec<Acc> = ts.channel_kinds().map(|k| Acc::root(k, ts.base_alpha())).collect();
     let active = vec![true; accs.len()];
     let Some((cache, plan)) = prefix else {
         apply_stack(&ts.layers, &mut accs, &active, tc);

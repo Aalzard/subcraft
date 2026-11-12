@@ -211,3 +211,19 @@ fn a_colour_tag_draws_a_stripe_on_its_row_and_a_dimmed_one_inside_a_tagged_folde
     assert_eq!(stripes(&out, teal), 2, "the folder and the tagged layer");
     assert_eq!(stripes(&out, teal.gamma_multiply(0.4)), 1, "the layer inside the folder");
 }
+
+/// QA 2026-11: the eye column ignored a press and release in one frame (a quick pen tap, a slow
+/// frame), which the old plain click handled.
+#[test]
+fn an_eye_tapped_within_one_frame_toggles() {
+    let (mut state, ctx, [_, _, three]) = fixture();
+    let out = layout(&mut state, &ctx);
+    let eye = on_row(&out, "Three", icons::EYE).center();
+    frame(&mut state, &ctx, Modifiers::NONE, vec![Event::PointerMoved(eye)]);
+    frame(&mut state, &ctx, Modifiers::NONE, vec![button(eye, true, Modifiers::NONE), button(eye, false, Modifiers::NONE)]);
+    assert!(!visible(&state, three), "the tap hid the layer");
+    frame(&mut state, &ctx, Modifiers::NONE, vec![]);
+    assert!(!visible(&state, three), "and it stays hidden");
+    frame(&mut state, &ctx, Modifiers::NONE, vec![button(eye, true, Modifiers::NONE), button(eye, false, Modifiers::NONE)]);
+    assert!(visible(&state, three), "a second tap shows it again");
+}

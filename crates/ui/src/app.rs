@@ -37,6 +37,9 @@ pub enum Tab {
     /// An Assets sub-library: one search in a tab of its own (made from the Assets panel; never
     /// saved with the layout, Painter makes them again too).
     SubLibrary(u32),
+    /// Painter's SHADER SETTINGS panel. Optional: closed until the Window menu or a texture
+    /// set's shader menu opens it.
+    ShaderSettings,
 }
 
 impl Tab {
@@ -54,6 +57,7 @@ impl Tab {
             Tab::Shelf => tr("Assets"),
             Tab::DisplaySettings => tr("Display Settings"),
             Tab::SubLibrary(_) => tr("Assets"),
+            Tab::ShaderSettings => tr("Shader Settings"),
         }
     }
 
@@ -69,6 +73,7 @@ impl Tab {
             Tab::History => icons::HISTORY,
             Tab::Shelf | Tab::SubLibrary(_) => icons::SQUARES,
             Tab::DisplaySettings => icons::SUN,
+            Tab::ShaderSettings => icons::SPARKLE,
         }
     }
 }
@@ -278,6 +283,29 @@ pub fn open_display_settings(dock: &mut DockState<Tab>) {
     }
 }
 
+/// Open the Shader Settings panel beside Properties (if closed) and show it.
+pub fn open_shader_settings(dock: &mut DockState<Tab>) {
+    if dock.find_tab(&Tab::ShaderSettings).is_none() {
+        match dock.find_tab(&Tab::Properties) {
+            Some(host) => dock[host.surface][host.node].append_tab(Tab::ShaderSettings),
+            None => dock.push_to_focused_leaf(Tab::ShaderSettings),
+        }
+    }
+    if let Some(path) = dock.find_tab(&Tab::ShaderSettings) {
+        let _ = dock.set_active_tab(path);
+    }
+}
+
+/// Window > Shader settings: open the panel, or close it when it is open.
+pub fn toggle_shader_settings(dock: &mut DockState<Tab>) {
+    match dock.find_tab(&Tab::ShaderSettings) {
+        Some(path) => {
+            let _ = dock.remove_tab(path);
+        }
+        None => open_shader_settings(dock),
+    }
+}
+
 /// Whether the 2D view sits beside the 3D view (its own pane) instead of behind it as a tab.
 pub fn is_side_by_side(dock: &DockState<Tab>) -> bool {
     match (dock.find_tab(&Tab::Viewport), dock.find_tab(&Tab::UvView)) {
@@ -385,7 +413,8 @@ pub fn layout_is_valid(dock: &DockState<Tab>) -> bool {
     let brush = seen.get(&Tab::Brush).copied().unwrap_or(0);
     // Display Settings is optional too: it is closed until the View menu opens it.
     let display = seen.get(&Tab::DisplaySettings).copied().unwrap_or(0);
-    if !all.iter().all(|t| seen.get(t) == Some(&1)) || brush > 1 || display > 1 || seen.len() != all.len() + brush + display { return false; }
+    let shader = seen.get(&Tab::ShaderSettings).copied().unwrap_or(0);
+    if !all.iter().all(|t| seen.get(t) == Some(&1)) || brush > 1 || display > 1 || shader > 1 || seen.len() != all.len() + brush + display + shader { return false; }
     if dock.iter_surfaces().count() != 1 { return false; }
     dock.iter_all_nodes().all(|(_, node)| match node {
         Node::Horizontal(split) | Node::Vertical(split) => split.fraction.is_finite() && (0.04..=0.96).contains(&split.fraction),
@@ -915,7 +944,9 @@ impl SubcraftApp {
             let prefs = &mut state.recovery.prefs.viewport;
             for part in spec.split(',') {
                 let Some((key, value)) = part.split_once('=') else { continue };
-                let number = value.parse::<f32>().ok();
+                // Finite only: `inf` / `nan` parse, and a NaN look setting kept the project "modified"
+                // forever and was saved as `null`.
+                let number = value.parse::<f32>().ok().filter(|v| v.is_finite());
                 match (key.trim(), number) {
                     ("bloom", Some(v)) => prefs.bloom = v,
                     ("threshold", Some(v)) => prefs.bloom_threshold = v,
@@ -1391,6 +1422,10 @@ impl SubcraftApp {
                     ui.close();
                     self.request(Pending::OpenProject, now);
                 }
+                if item(ui, icons::DOWNLOAD, tr("Import Substance Painter project (reconstruction)…"), "") {
+                    ui.close();
+                    self.request(Pending::ImportPainter, now);
+                }
                 ui.menu_button(format!("{}   {}", icons::HISTORY, tr("Recent files")), |ui| {
                     ui.set_min_width(240.0);
                     let mut open = None;
@@ -1585,6 +1620,10 @@ impl SubcraftApp {
                 });
                 if item(ui, icons::SUN, if self.dock.find_tab(&Tab::DisplaySettings).is_some() { tr("Close Display settings") } else { tr("Display settings") }, "") {
                     toggle_display_settings(&mut self.dock);
+                    ui.close();
+                }
+                if item(ui, icons::SPARKLE, if self.dock.find_tab(&Tab::ShaderSettings).is_some() { tr("Close Shader settings") } else { tr("Shader settings") }, "") {
+                    toggle_shader_settings(&mut self.dock);
                     ui.close();
                 }
                 if item(ui, icons::PAINT_BRUSH, tr("Brush settings"), "") {
@@ -1947,12 +1986,13 @@ impl egui_dock::TabViewer for Viewer<'_> {
             Tab::Shelf => crate::edit_profile::time_tab("  tab Shelf", || panels::shelf::show(self.state, ui)),
             Tab::DisplaySettings => crate::edit_profile::time_tab("  tab Display settings", || panels::display_settings::show(self.state, ui)),
             Tab::SubLibrary(id) => crate::edit_profile::time_tab("  tab Sub-library", || panels::shelf::show_sub_library(self.state, ui, *id)),
+            Tab::ShaderSettings => crate::edit_profile::time_tab("  tab Shader settings", || panels::shader_settings::show(self.state, ui)),
         }
     }
 
     fn is_closeable(&self, tab: &Tab) -> bool {
-        // The optional panel closes with its tab's X (and reopens from the View menu).
-        matches!(tab, Tab::DisplaySettings | Tab::SubLibrary(_))
+        // The optional panels close with their tab's X (and reopen from the Window menu).
+        matches!(tab, Tab::DisplaySettings | Tab::ShaderSettings | Tab::SubLibrary(_))
     }
 
     fn on_close(&mut self, tab: &mut Tab) -> egui_dock::tab_viewer::OnCloseResponse {
@@ -2070,6 +2110,10 @@ impl eframe::App for SubcraftApp {
             ctx.request_repaint_after(std::time::Duration::from_millis(200));
         }
 
+        // A texture set's shader menu asked for the Shader Settings panel.
+        if std::mem::take(&mut self.state.open_shader_settings) {
+            open_shader_settings(&mut self.dock);
+        }
         let bar = |fill| egui::Frame::new().fill(fill).inner_margin(egui::Margin::symmetric(12, 0));
         egui::Panel::top("header").exact_size(44.0).show_separator_line(false)
             .frame(egui::Frame::new().fill(theme::BG_2).inner_margin(egui::Margin { left: 12, right: if crate::window_frame::frameless() { 0 } else { 12 }, top: 0, bottom: 0 }))
@@ -2112,6 +2156,7 @@ impl eframe::App for SubcraftApp {
         crate::bug_report::report_window(&mut self.state, &ctx);
         crate::bug_report::crash_window(&mut self.state, &ctx);
         crate::bug_report::safe_mode_window(&mut self.state, &ctx);
+        crate::spp_import::reconstruction_notice(&mut self.state, &ctx);
         if let Some(action) = crate::welcome::show(&mut self.state, &ctx) {
             match action {
                 crate::welcome::WelcomeAction::Pending(pending) => self.request(pending, now),
@@ -2156,6 +2201,7 @@ impl eframe::App for SubcraftApp {
                     crate::files::WindowDrop::SmartMaterial(p) => crate::files::import_painter_smart_material(&mut self.state, &p, now),
                     crate::files::WindowDrop::Model(p) => { self.state.dropped_model = Some(p); self.request(Pending::OpenMesh, now); }
                     crate::files::WindowDrop::Project(p) => { self.state.welcome.pending_recent = Some(p); self.request(Pending::OpenRecent, now); }
+                    crate::files::WindowDrop::PainterProject(p) => { self.state.dropped_model = Some(p); self.request(Pending::ImportPainter, now); }
                 }
             }
         }

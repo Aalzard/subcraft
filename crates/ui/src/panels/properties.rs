@@ -412,13 +412,88 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
 fn generator_kind_row(ui: &mut Ui, g: &mut subcraft_doc::Generator) -> bool {
     let mut picked = None;
     prop_row(ui, tr("Generator"), |ui| egui::ComboBox::from_id_salt("generator_kind").selected_text(g.kind.label()).show_ui(ui, |ui| {
-        for kind in [GeneratorKind::Edges, GeneratorKind::Cavity, GeneratorKind::AmbientOcclusion, GeneratorKind::Concave, GeneratorKind::Directional, GeneratorKind::PositionGradient, GeneratorKind::MaskEditor]
+        for kind in [GeneratorKind::Edges, GeneratorKind::Cavity, GeneratorKind::AmbientOcclusion, GeneratorKind::Concave, GeneratorKind::Directional, GeneratorKind::PositionGradient, GeneratorKind::MaskEditor,
+            GeneratorKind::Distance3D, GeneratorKind::LinearGradient3D, GeneratorKind::UvRandomColor, GeneratorKind::GrayscaleConversion]
             .into_iter().chain(MeshMapKind::ALL.into_iter().map(GeneratorKind::MeshMap)) {
             if ui.selectable_label(g.kind == kind, kind.label()).clicked() && g.kind != kind { picked = Some(kind); }
         }
     }));
     if let Some(kind) = picked { g.set_kind(kind); }
     picked.is_some()
+}
+
+/// Controls of the position, UV and conversion generators. Returns whether anything changed and
+/// whether the Grayscale Conversion image button was clicked.
+fn shape_generator_controls(ui: &mut Ui, state: &mut UiState, g: &mut subcraft_doc::Generator) -> (bool, bool) {
+    let mut s = g.shape_settings();
+    let before = s;
+    let mut pick = false;
+    let point = |ui: &mut Ui, label: &'static str, p: &mut [f32; 3]| {
+        for (axis, name) in ["X", "Y", "Z"].into_iter().enumerate() {
+            slider_row(ui, &format!("{} {name}", tr(label)), egui::Slider::new(&mut p[axis], 0.0..=1.0));
+        }
+    };
+    match g.kind {
+        GeneratorKind::Distance3D => {
+            point(ui, "Position", &mut s.point);
+            slider_row(ui, tr("Radius"), egui::Slider::new(&mut s.radius, 0.0..=2.0)).on_hover_text(tr("Length of the fade, as a share of the model's longest side"));
+            slider_row(ui, tr("Offset"), egui::Slider::new(&mut s.offset, 0.0..=2.0)).on_hover_text(tr("Distance kept fully white before the fade starts"));
+            slider_row(ui, tr("Contrast"), egui::Slider::new(&mut s.contrast, 0.0..=1.0));
+            hint(ui, tr("Positions are in the model's bounding box: 0 to 1 on each axis, like the colours of the Position map."));
+        }
+        GeneratorKind::LinearGradient3D => {
+            slider_row(ui, tr("Balance"), egui::Slider::new(&mut s.balance, 0.0..=1.0));
+            slider_row(ui, tr("Contrast"), egui::Slider::new(&mut s.contrast, 0.0..=1.0));
+            point(ui, "3D Position Start", &mut s.start);
+            point(ui, "3D Position End", &mut s.end);
+            hint(ui, tr("Positions are in the model's bounding box: 0 to 1 on each axis, like the colours of the Position map."));
+        }
+        GeneratorKind::UvRandomColor => {
+            prop_row(ui, tr("Seed"), |ui| {
+                ui.add(egui::DragValue::new(&mut s.seed).speed(1.0));
+                if ui.small_button(tr("Random")).clicked() {
+                    s.seed = s.seed.wrapping_mul(747_796_405).wrapping_add(2_891_336_453) >> 8;
+                }
+            });
+            slider_row(ui, tr("Balance"), egui::Slider::new(&mut s.balance, 0.0..=1.0));
+            slider_row(ui, tr("Contrast"), egui::Slider::new(&mut s.contrast, 0.0..=1.0));
+            hint(ui, tr("One random gray per UV island."));
+        }
+        GeneratorKind::GrayscaleConversion => {
+            match s.texture {
+                Some(id) => {
+                    if image_row(ui, state, id) {
+                        pick = true;
+                    }
+                }
+                None => {
+                    if secondary_button(ui, tr("Choose image…")).clicked() {
+                        pick = true;
+                    }
+                }
+            }
+            prop_row(ui, tr("Grayscale type"), |ui| {
+                egui::ComboBox::from_id_salt("grayscale_conversion_type").selected_text(s.grayscale.label()).show_ui(ui, |ui| {
+                    for t in subcraft_doc::GrayscaleType::ALL {
+                        ui.selectable_value(&mut s.grayscale, t, t.label());
+                    }
+                });
+            });
+            slider_row(ui, tr("Balance"), egui::Slider::new(&mut s.balance, 0.0..=1.0));
+            slider_row(ui, tr("Contrast"), egui::Slider::new(&mut s.contrast, 0.0..=1.0));
+            slider_row(ui, tr("Tile"), egui::Slider::new(&mut s.tile, 0.1..=32.0).logarithmic(true));
+            slider_row(ui, tr("Rotation"), egui::Slider::new(&mut s.rotation, -180.0..=180.0).suffix("\u{00b0}"));
+            prop_row(ui, "", |ui| { ui.checkbox(&mut s.safe_rotation, tr("Safe Rotation")).on_hover_text(tr("Rotation in 45 degree steps")); });
+        }
+        _ => {}
+    }
+    let mut changed = false;
+    prop_row(ui, "", |ui| changed |= ui.checkbox(&mut g.invert, tr("Invert")).changed());
+    if s != before {
+        g.shape = Some(s);
+        changed = true;
+    }
+    (changed, pick)
 }
 
 /// A blending-mode dropdown row of a Mask Editor group.
@@ -679,6 +754,14 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
                         crate::files::pick(ui.ctx(), crate::files::Purpose::GeneratorTexture { layer, effect: e.id, slot }, crate::files::IMAGES, false, None);
                     }
                 }
+                MaskEffectKind::Generator(g) if g.kind.uses_shape() => {
+                    changed |= generator_kind_row(ui, g);
+                    let (edited, pick) = shape_generator_controls(ui, state, g);
+                    changed |= edited;
+                    if pick {
+                        crate::files::pick(ui.ctx(), crate::files::Purpose::GeneratorTexture { layer, effect: e.id, slot: 2 }, crate::files::IMAGES, false, None);
+                    }
+                }
                 MaskEffectKind::Generator(g) => {
                     changed |= generator_kind_row(ui, g);
                     if g.accepts_input() {
@@ -746,9 +829,22 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
                     }
                     prop_row(ui, "", |ui| changed |= ui.checkbox(&mut g.invert, tr("Invert")).changed());
                     if g.kind == GeneratorKind::Directional {
+                        // Painter's Light: the direction as two angles, plus attenuation.
+                        let (mut h, mut v) = subcraft_doc::light_angles(g.direction);
+                        let a = slider_row(ui, tr("Horizontal Angle"), egui::Slider::new(&mut h, -180.0..=180.0).suffix("\u{00b0}")).changed();
+                        let b = slider_row(ui, tr("Vertical Angle"), egui::Slider::new(&mut v, -90.0..=90.0).suffix("\u{00b0}")).changed();
+                        if a || b {
+                            g.direction = subcraft_doc::light_direction(h, v);
+                            changed = true;
+                        }
                         prop_row(ui, tr("Direction"), |ui| { for value in &mut g.direction {
                             changed |= ui.add(egui::DragValue::new(value).range(-1.0..=1.0).speed(0.01)).changed();
                         } });
+                        let mut att = g.shape.map_or(0.0, |s| s.attenuation);
+                        if slider_row(ui, tr("Light Attenuation"), egui::Slider::new(&mut att, 0.0..=1.0)).on_hover_text(tr("Fades the light toward the side of the model facing away from it")).changed() {
+                            g.shape = Some(subcraft_doc::ShapeSettings { attenuation: att, ..g.shape_settings() });
+                            changed = true;
+                        }
                     }
                     // Micro effect: the same mask also writes Normal / Height of the layers below.
                     let mut micro_on = g.micro.is_some_and(|m| m.enabled);
