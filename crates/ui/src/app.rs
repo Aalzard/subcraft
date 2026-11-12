@@ -1363,7 +1363,7 @@ impl SubcraftApp {
                     ui.close();
                     self.request(Pending::OpenProject, now);
                 }
-                if item(ui, icons::DOWNLOAD, tr("Import Substance Painter project (.spp)…"), "") {
+                if item(ui, icons::DOWNLOAD, tr("Import Substance Painter project (reconstruction)…"), "") {
                     ui.close();
                     self.request(Pending::ImportPainter, now);
                 }
@@ -2077,6 +2077,7 @@ impl eframe::App for SubcraftApp {
         crate::bug_report::report_window(&mut self.state, &ctx);
         crate::bug_report::crash_window(&mut self.state, &ctx);
         crate::bug_report::safe_mode_window(&mut self.state, &ctx);
+        crate::spp_import::reconstruction_notice(&mut self.state, &ctx);
         if let Some(action) = crate::welcome::show(&mut self.state, &ctx) {
             match action {
                 crate::welcome::WelcomeAction::Pending(pending) => self.request(pending, now),

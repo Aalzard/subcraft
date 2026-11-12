@@ -27,6 +27,25 @@ impl SppImportUi {
     }
 }
 
+/// What an import is: a rebuild in SubCraft, not the Painter file opened as it is.
+pub const RECONSTRUCTION_NOTICE: &str = "Reconstructed from the .spp: layers, masks, mesh and baked maps were rebuilt in SubCraft. Painter-only effects and Substance materials may be approximated or skipped. The original file is not changed.";
+
+/// Shown once after a Painter import finished, until dismissed.
+pub fn reconstruction_notice(state: &mut UiState, ctx: &egui::Context) {
+    let Some(name) = state.spp_notice.clone() else { return };
+    let mut open = true;
+    let mut ok = false;
+    crate::widgets::window(ctx, format!("{name} imported")).id(egui::Id::new("spp_reconstruction_notice")).open(&mut open).collapsible(false).resizable(false).show(ctx, |ui| {
+        ui.set_max_width(420.0);
+        ui.label(RECONSTRUCTION_NOTICE);
+        ui.add_space(8.0);
+        ok = ui.button("OK").clicked();
+    });
+    if ok || !open {
+        state.spp_notice = None;
+    }
+}
+
 pub fn is_spp(path: &Path) -> bool {
     path.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("spp"))
 }
@@ -71,7 +90,7 @@ pub fn poll(state: &mut UiState, ctx: &egui::Context, now: f64) {
                 let opened = import.job.is_rebuilding();
                 state.spp_import = None;
                 match result {
-                    Ok(()) => {}
+                    Ok(()) => state.spp_notice = Some(name.clone()),
                     Err(e) if e == "cancelled" && opened => state.set_status(format!("Rebuilding the layers of {name} was cancelled; the flattened Painter result stays."), now),
                     Err(e) if e == "cancelled" => state.set_status(format!("Opening {name} was cancelled"), now),
                     Err(e) => state.set_status(format!("Could not open {name}: {e}"), now),
@@ -79,5 +98,33 @@ pub fn poll(state: &mut UiState, ctx: &egui::Context, now: f64) {
                 return;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod notice_tests {
+    use super::*;
+
+    /// The owner's wording: an import is a reconstruction, not the Painter file opened as it is.
+    #[test]
+    fn a_finished_import_shows_the_reconstruction_notice_until_ok() {
+        let mut state = UiState::new(subcraft_app::Session::sample(), None);
+        let ctx = egui::Context::default();
+        let run = |state: &mut UiState, events: Vec<egui::Event>| {
+            ctx.run_ui(egui::RawInput { events, screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1000.0, 700.0))), ..Default::default() }, |ui| reconstruction_notice(state, ui.ctx()))
+        };
+        let texts = |out: &egui::FullOutput| out.shapes.iter().filter_map(|s| match &s.shape { egui::Shape::Text(t) => Some((t.galley.text().to_string(), t.pos + t.galley.size() * 0.5)), _ => None }).collect::<Vec<_>>();
+        assert!(texts(&run(&mut state, vec![])).is_empty(), "nothing before an import finished");
+        state.spp_notice = Some("Robot.spp".into());
+        let mut out = run(&mut state, vec![]);
+        for _ in 0..2 { out = run(&mut state, vec![]); }
+        let shown = texts(&out);
+        let all: String = shown.iter().map(|(t, _)| t.as_str()).collect::<Vec<_>>().join(" ");
+        assert!(all.contains("Reconstructed from the .spp") && all.contains("The original file is not changed"), "{all}");
+        assert!(all.contains("Robot.spp"), "{all}");
+        let ok = shown.iter().find(|(t, _)| t == "OK").map(|(_, p)| *p).expect("an OK button");
+        run(&mut state, vec![egui::Event::PointerMoved(ok), egui::Event::PointerButton { pos: ok, button: egui::PointerButton::Primary, pressed: true, modifiers: Default::default() }]);
+        run(&mut state, vec![egui::Event::PointerButton { pos: ok, button: egui::PointerButton::Primary, pressed: false, modifiers: Default::default() }]);
+        assert!(state.spp_notice.is_none(), "OK dismisses it");
     }
 }

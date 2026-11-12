@@ -49,7 +49,7 @@ pub const SMART_MATERIALS: (&str, &[&str]) = ("Smart materials and textures", &[
 pub const IMAGES: (&str, &[&str]) = ("Images", &subcraft_image::IMAGE_EXTENSIONS);
 pub const MESHES: (&str, &[&str]) = ("Meshes", &subcraft_mesh::SUPPORTED_EXTENSIONS);
 pub const PROJECTS: (&str, &[&str]) = ("SubCraft project", &[subcraft_app::PROJECT_EXTENSION]);
-pub const PAINTER_PROJECTS: (&str, &[&str]) = ("Substance Painter project", &["spp"]);
+pub const PAINTER_PROJECTS: (&str, &[&str]) = ("Substance Painter project \u{2014} reconstructed", &["spp"]);
 /// File > Open: both project kinds, first entry selected. Only `.subcraft` used to be offered, so
 /// a Painter `.spp` could not be picked there at all (it was only reachable from New).
 pub const OPEN_FILTERS: [(&str, &[&str]); 3] =
@@ -375,7 +375,7 @@ mod window_drop_tests {
         let filters = super::OPEN_FILTERS;
         assert_eq!(filters[0].1, [subcraft_app::PROJECT_EXTENSION, "spp"], "the default filter shows both");
         assert!(filters.iter().any(|f| f.1 == [subcraft_app::PROJECT_EXTENSION]));
-        assert!(filters.iter().any(|f| f.0.contains("Painter") && f.1 == ["spp"]));
+        assert!(filters.iter().any(|f| f.0.contains("Painter") && f.0.contains("reconstructed") && f.1 == ["spp"]), "the name says it is a reconstruction");
     }
 
     /// A `.spp` picked in File > Open is imported (it is not a SubCraft project file).
