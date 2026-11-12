@@ -247,7 +247,14 @@ impl FileFormat {
     /// has below `depth` (TGA 16 -> TGA 8, PNG 32f -> PNG 16), else its smallest (EXR 8 -> 16f).
     pub fn from_parts(container: Container, depth: BitDepth) -> FileFormat {
         let depths = container.depths();
-        let depth = depths.iter().rev().copied().find(|d| *d <= depth).unwrap_or(depths[0]);
+        // A float depth the container lacks goes to its other float depth before any integer one:
+        // TIFF 16f is TIFF 32f, not 16-bit integer (which clamps to 0..1).
+        let float = |d: BitDepth| matches!(d, BitDepth::F16 | BitDepth::F32);
+        let depth = if float(depth) && !depths.contains(&depth) && let Some(other) = depths.iter().copied().find(|d| float(*d)) {
+            other
+        } else {
+            depths.iter().rev().copied().find(|d| *d <= depth).unwrap_or(depths[0])
+        };
         match (container, depth) {
             (Container::Png, BitDepth::B8) => FileFormat::Png8,
             (Container::Png, _) => FileFormat::Png16,
@@ -436,7 +443,8 @@ pub fn encode_image_dithered(width: u32, height: u32, comps: usize, data: &[f32]
             use exr::prelude::{f16, Image, SpecificChannels, Vec2, WritableImage};
             let w = width as usize;
             let size = (w, height as usize);
-            let h = f16::from_f32;
+            // Clamped to the half-float range: a larger value became infinity in the file.
+            let h = |v: f32| f16::from_f32(v.clamp(-65504.0, 65504.0));
             let at = |p: Vec2<usize>, c: usize| data[(p.1 * w + p.0) * comps + c];
             let written = match comps {
                 1 => Image::from_channels(size, SpecificChannels::rgb(|p: Vec2<usize>| (h(at(p, 0)), h(at(p, 0)), h(at(p, 0))))).write().to_buffered(&mut out),
@@ -607,5 +615,24 @@ mod tests {
         assert!((b.texel(1, 1, false)[0] + 1.0).abs() < 1e-6);
         assert!((b.texel(0, 1, false)[0] - 2.5).abs() < 1e-6);
         std::fs::remove_dir_all(&dir).ok();
+    }
+}
+
+#[cfg(test)]
+mod depth_fallback_tests {
+    use super::*;
+
+    /// QA 2026-11: TIFF at "16f" fell back to 16-bit integer (values clamp to 0..1) instead of the
+    /// float depth TIFF does have; half-float EXR wrote infinity for values above 65504.
+    #[test]
+    fn float_depths_stay_float_and_half_floats_stay_finite() {
+        assert_eq!(FileFormat::from_parts(Container::Tiff, BitDepth::F16), FileFormat::Tiff32);
+        assert_eq!(FileFormat::from_parts(Container::Tiff, BitDepth::B16), FileFormat::Tiff16);
+        assert_eq!(FileFormat::from_parts(Container::Png, BitDepth::F32), FileFormat::Png16, "no float depth: the deepest integer one");
+        assert_eq!(FileFormat::from_parts(Container::Exr, BitDepth::B8), FileFormat::Exr16);
+        let bytes = encode_image(1, 1, 1, &[1.0e6], FileFormat::Exr16).unwrap();
+        let back = decode_bitmap(&bytes, Some("x.exr")).unwrap();
+        let v = back.texel(0, 0, false)[0];
+        assert!(v.is_finite() && v > 60000.0, "{v}");
     }
 }
