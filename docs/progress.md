@@ -5567,3 +5567,18 @@ the app kept drawing on the dead device. Safe mode works; 0.3.3's marker only he
 * Not done: cameras from Alembic and USD files, camera roll (the orbit camera has none), free
   rotation mode, separate OS windows for undocked views, Shader settings and Log dock buttons
   (no such panels yet).
+
+### Painter parity chunk 4 (toolbar buttons): Symmetry, Lazy mouse, Spacing on the brush bar (2026-11-13, branch `claude/parity-toolbar`)
+
+* **Done:** the brush bar has Painter's three buttons: Symmetry on / off (switching off remembers the mirror axes and
+  radial state; on restores them, mirror X the first time), a narrow settings button beside it that opens the symmetry
+  menu, and a Lazy mouse on / off button (remembers the distance; 20 px the first time). Spacing (% of the brush
+  diameter) and the lazy mouse Distance are on the bar where the row has room, and in the "Brush settings" menu on
+  narrow docks. The pen pressure amounts left the bar: they are the pressure toggles in Properties > Brush.
+  The bar grew 48 points: the view controls and the brush bar share one row from 1140 points (was 1075), and every
+  brush value shows from 640 (was 575).
+* **Verified:** NOT compiled or run locally (no local builds; CI is the gate).
+* **Tests:** unit tests in `brush_bar.rs` (toggles restore, where Spacing / Distance show); `tests/brush_bar.rs` updated
+  (the settings button opens the menu; new widths).
+* **Not done (same chunk):** brush cursor styles, the lazy-mouse ring, the dotted straight-line preview with angle
+  snapping (all in `viewport.rs`, which #199 / #200 rewrite), the fixed right-side group, pressure curves.
