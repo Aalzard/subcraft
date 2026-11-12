@@ -4999,11 +4999,10 @@ rotating one slot when a tile is full (helps cyclic stacks, but the 40-layer sta
   --window-size 1600x1000 --screenshot` shows the Export window with the editor open, no errors; the checklist lists
   the pattern-based names (`T_DefaultMaterial_BaseColor.png`, `..._ORM.png`, `..._N.tif`).
 
-### Session 122 - Right-click Properties popup, curvature modes and detail sizes, polygon fill box / modes (2026-11-10, branch `claude/view-ux-curvature`) - DRAFT, NOT YET BUILT OR TESTED
+### Session 122 - Right-click Properties popup, curvature modes and detail sizes, polygon fill box / modes (2026-11-10, branch `claude/view-ux-curvature`)
 
-**Status:** code and tests are written, but nothing has been compiled or run yet. The first builds failed because
-the disk filled up, and then because the shared target mixed another worktree's `subcraft-doc` into this build.
-The work stopped on the weekly usage limit. No feature here is confirmed working.
+**Status:** built and tested (release). Not yet done: app screenshots and the 4K timing of the new detail sizes.
+The default Curvature path is unchanged: Some(default) and None give the baked map bit for bit (tested).
 
 * **Right-click Properties popup** (`ui/src/view_props.rs`): a right-click without dragging in the 3D or 2D view
   opens the current Properties panel content at the cursor (brush settings while painting; fill, generator or
@@ -5026,16 +5025,16 @@ The work stopped on the weekly usage limit. No feature here is confirmed working
   * "Visible polygons only" (default on, eye toggle) keeps front faces hit by rays through the box. Off is x-ray.
   * Each box is one "Polygon Fill" undo step.
   * The core is in `paint/src/select.rs`, plus `Session::polygon_fill_box` / `polygon_fill_uv_box`.
-* **Tests written, not yet run:**
-  * mesh: `polygons_group_the_triangles_of_each_face`
-  * doc: curvature round trip
-  * compositor: `curvature.rs` unit tests and `tests/curvature_generator.rs`
-  * paint: `tests/polygon_select.rs`
-  * app: `tests/polygon_fill_box.rs`
-  * ui: `view_props` unit tests and `tests/view_props.rs`
+* **Tests (release, own target on D:, 2026-11-12), all pass:**
+  * mesh lib 88 (incl. `polygons_group_the_triangles_of_each_face`); doc lib 22 (curvature round trip)
+  * compositor lib 15 (curvature grid unit tests) and `tests/curvature_generator.rs` 4
+  * paint lib 32 and `tests/polygon_select.rs` 6; app lib 97 and `tests/polygon_fill_box.rs` 2
+  * ui lib 133 (incl. `view_props` unit tests and the i18n check) and `tests/view_props.rs` 4 (real egui input)
+* **Fixes found by the tests:** the medium-scale test needed a 1024 map (at 256 the 256-cell grid is one cell per texel);
+  grid smoothing mirrors at the edges instead of clamping; translations for the three detail labels (zh-Hant, ko);
+  test-only fixes (half-float tolerance, field-key check, capitalised section headers, Alt released after the click).
+* **With an anchor input** a Curvature generator applies Mode and Fine only; Medium/Coarse would average the baked map.
 * **Still to do:**
-  * Run the tests above (release, `-j 6`, touching all sources first on the shared target) and fix failures.
-  * Run the 4K bench (`generator_4k 4096 vw`).
-  * Build the app and run the scripted captures: `fill-box`, `fill-modes`, `view-props-brush`, `view-props-uv`
-    (`--view-2d`), `curvature-both|edges|cavities|sizes[-props]`.
-  * Record the real results here.
+  * Run the 4K bench (`generator_4k 4096 vw`) for the detail sizes.
+  * Scripted captures: `fill-box`, `fill-modes`, `view-props-brush`, `view-props-uv` (`--view-2d`),
+    `curvature-both|edges|cavities|sizes[-props]`.
