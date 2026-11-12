@@ -75,7 +75,7 @@ impl Composite {
             .channel_kinds()
             .map(|k| {
                 let d = k.default_value().0;
-                (k, TiledImage::new(r, r, composite_comps(k), [d[0], d[1], d[2], 1.0]))
+                (k, TiledImage::new(r, r, composite_comps(k), [d[0], d[1], d[2], ts.base_alpha()]))
             })
             .collect();
         Self { resolution: r, channels }

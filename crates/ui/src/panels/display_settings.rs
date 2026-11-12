@@ -417,9 +417,102 @@ pub fn post_effects(state: &mut UiState, ui: &mut Ui) {
 
 /// Render resolution and the Rendering mode (path tracing).
 pub fn render(state: &mut UiState, ui: &mut Ui) {
+    let extent = state.session.scene().mesh.bounds.max - state.session.scene().mesh.bounds.min;
+    let status = state.pt_status;
     let prefs = &mut state.recovery.prefs.viewport;
+    let tracing = prefs.path_tracing;
     ui.horizontal(|ui| crate::viewport_bar::resolution(ui, prefs));
     crate::viewport_bar::rendering_settings(ui, prefs);
+
+    // Painter's Iray status block: what the Rendering mode is doing right now.
+    sub_header(ui, tr("Status"));
+    grid(ui, "display_pt_status", |ui| {
+        let off = || tr("Rendering mode is off (F10)");
+        ui.label(tr("Resolution"));
+        ui.label(status.filter(|_| tracing).map_or_else(|| off().to_string(), |s| format!("{} x {}", s.size[0], s.size[1])));
+        ui.end_row();
+        ui.label(tr("Scene size"));
+        ui.label(format!("{:.3} x {:.3} x {:.3}", extent.x, extent.y, extent.z)).on_hover_text(tr("Width, height and depth of the model's bounding box, in scene units"));
+        ui.end_row();
+        ui.label(tr("Iterations"));
+        ui.label(status.filter(|_| tracing).map_or_else(|| "-".to_string(), |s| if s.max_samples > 0 { format!("{} / {}", s.samples, s.max_samples) } else { s.samples.to_string() }));
+        ui.end_row();
+        ui.label(tr("Rendering time"));
+        ui.label(status.filter(|_| tracing).map_or_else(|| "-".to_string(), |s| {
+            if s.max_time_s > 0.0 { format!("{} / {}", format_duration(s.elapsed_s), format_duration(s.max_time_s)) } else { format_duration(s.elapsed_s) }
+        }));
+        ui.end_row();
+    });
+
+    sub_header(ui, tr("Resolution"));
+    grid(ui, "display_pt_size", |ui| {
+        ui.label(tr("Override viewport resolution"));
+        ui.checkbox(&mut prefs.pt_override, "").on_hover_text(tr("Render at a fixed size instead of the 3D view's; the picture is fitted into the view"));
+        ui.end_row();
+        let max = crate::viewport_bar::MAX_TRACE_SIDE;
+        ui.label(tr("Width"));
+        ui.add_enabled(prefs.pt_override, egui::DragValue::new(&mut prefs.pt_width).range(16..=max).suffix(" px"));
+        ui.end_row();
+        ui.label(tr("Height"));
+        ui.add_enabled(prefs.pt_override, egui::DragValue::new(&mut prefs.pt_height).range(16..=max).suffix(" px"));
+        ui.end_row();
+    });
+
+    sub_header(ui, tr("Dome"));
+    grid(ui, "display_pt_dome", |ui| {
+        ui.label(tr("Clear color"));
+        ui.horizontal(|ui| {
+            ui.checkbox(&mut prefs.pt_clear, "").on_hover_text(tr("Show a solid color where the camera sees past the model; the lighting is unchanged"));
+            ui.add_enabled_ui(prefs.pt_clear, |ui| ui.color_edit_button_rgb(&mut prefs.pt_clear_color));
+        });
+        ui.end_row();
+    });
+
+    sub_header(ui, tr("Ground"));
+    ui.add_enabled_ui(prefs.pt_ground, |ui| {
+        grid(ui, "display_pt_ground", |ui| {
+            for (i, label) in [tr("Ground X"), tr("Ground Y"), tr("Ground Z")].into_iter().enumerate() {
+                ui.label(label);
+                ui.add(egui::DragValue::new(&mut prefs.pt_ground_offset[i]).speed(0.01).range(-1e4..=1e4))
+                    .on_hover_text(tr("Offset from the default place: centred under the model, at the bottom of its bounding box"));
+                ui.end_row();
+            }
+            ui.label(tr("Reflectivity"));
+            ui.color_edit_button_rgb(&mut prefs.pt_ground_reflectivity).on_hover_text(tr("Color of the ground's reflection; black is a plain matte floor"));
+            ui.end_row();
+            ui.label(tr("Glossiness"));
+            ui.add(egui::Slider::new(&mut prefs.pt_ground_glossiness, 0.0..=1.0)).on_hover_text(tr("Sharpness of the reflection: 1 is a mirror"));
+            ui.end_row();
+            ui.label(tr("Shadow intensity"));
+            ui.add(egui::Slider::new(&mut prefs.pt_ground_shadow, 0.0..=1.0)).on_hover_text(tr("How dark the key light's shadow is on the ground"));
+            ui.end_row();
+            ui.label(tr("Visible from below"));
+            ui.checkbox(&mut prefs.pt_ground_below, "").on_hover_text(tr("Show the ground when the camera is underneath it"));
+            ui.end_row();
+        });
+    });
+
+    if ui.add_enabled(tracing && status.is_some(), egui::Button::new(tr("Save render…")))
+        .on_hover_text(tr("Save the path-traced picture as it is shown now, as a PNG"))
+        .on_disabled_hover_text(tr("Turn on the Rendering mode (F10) first"))
+        .clicked()
+    {
+        state.render_request = Some(crate::render_export::RenderRequest::PathTraced);
+    }
+}
+
+/// "12.3 s", "4 min 05 s" or "1 h 02 min": a rendering time for the status readout.
+pub fn format_duration(seconds: f32) -> String {
+    let s = if seconds.is_finite() { seconds.max(0.0) } else { 0.0 };
+    if s < 60.0 {
+        format!("{s:.1} s")
+    } else if s < 3600.0 {
+        let whole = s as u32;
+        format!("{} min {:02} s", whole / 60, whole % 60)
+    } else {
+        let minutes = (s / 60.0) as u32;
+        format!("{} h {:02} min", minutes / 60, minutes % 60)
+    }
 }
 
 /// Texture filtering, camera frame, tool display, wireframe, channel display and grid: the
@@ -682,12 +775,24 @@ mod tests {
     }
 
     #[test]
+    fn rendering_times_read_in_seconds_minutes_or_hours() {
+        assert_eq!(format_duration(0.0), "0.0 s");
+        assert_eq!(format_duration(12.34), "12.3 s");
+        assert_eq!(format_duration(245.0), "4 min 05 s");
+        assert_eq!(format_duration(3720.0), "1 h 02 min");
+        assert_eq!(format_duration(f32::NAN), "0.0 s");
+        assert_eq!(format_duration(-3.0), "0.0 s");
+    }
+
+    #[test]
     fn the_panel_lists_painters_groups_in_order_with_jump_buttons() {
         let ctx = egui::Context::default();
         crate::theme::apply(&ctx);
         let mut s = state();
         let draw = |s: &mut UiState| {
-            let mut out = ctx.run_ui(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(420.0, 3000.0))), ..Default::default() }, |ui| {
+            // Tall enough for every group expanded (Render settings has the status, resolution,
+            // dome and ground blocks), so every control is laid out and drawn.
+            let mut out = ctx.run_ui(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(420.0, 8000.0))), ..Default::default() }, |ui| {
                 egui::CentralPanel::default().show(ui, |ui| show(s, ui));
             });
             out.textures_delta.clear();
@@ -696,6 +801,9 @@ mod tests {
         draw(&mut s);
         let out = draw(&mut s);
         let texts = texts(&out);
+        for control in ["Min samples", "Max time", "Firefly filter", "Scene size", "Override viewport resolution", "Clear color", "Glossiness", "Visible from below", "Save render…"] {
+            assert!(texts.iter().any(|t| t.0 == control), "Render settings shows {control:?}");
+        }
         let y = |text: &str| texts.iter().find(|t| t.0 == text).unwrap_or_else(|| panic!("missing {text:?} in {:?}", texts.iter().map(|t| &t.0).collect::<Vec<_>>())).1;
         // Jump buttons on top, then the group headers in Painter's order.
         let headers = ["ENVIRONMENT SETTINGS", "CAMERA SETTINGS", "POST EFFECTS", "RENDER SETTINGS", "VISUALIZATION SETTINGS"];

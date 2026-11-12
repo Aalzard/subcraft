@@ -43,3 +43,16 @@ fn switching_texture_set_clears_the_multi_selection() {
     state.begin_frame();
     assert!(state.multi.ids.is_empty());
 }
+
+/// QA 2026-11: the orbit pivot (a point on the model under the cursor) survived opening another
+/// model or reloading the mesh, so the next orbit swung around empty space.
+#[test]
+fn the_orbit_pivot_does_not_outlive_its_model() {
+    let mut state = state();
+    state.orbit_pivot = Some(glam::Vec3::splat(0.9));
+    state.mesh_reloaded();
+    assert!(state.orbit_pivot.is_none());
+    state.orbit_pivot = Some(glam::Vec3::splat(0.9));
+    state.set_session(Session::new(primitives::cube(200.0), 64));
+    assert!(state.orbit_pivot.is_none());
+}

@@ -29,6 +29,8 @@ pub enum Pending {
     OpenMesh,
     OpenProject,
     OpenRecent,
+    /// Import a Painter `.spp`: the dropped one (`UiState::dropped_model`), else pick one.
+    ImportPainter,
 }
 
 pub struct ExportUi {
@@ -127,7 +129,11 @@ pub fn run_pending(state: &mut UiState, action: Pending, ctx: &egui::Context, _n
             state.new_project.show_window(&state.recovery.prefs.new_project.clone());
             if let Some(model) = state.dropped_model.take() { state.new_project.load_model(&model); }
         }
-        Pending::OpenProject => crate::files::pick(ctx, crate::files::Purpose::OpenProject, PROJECT_FILTER, false, None),
+        Pending::OpenProject => crate::files::pick_with_filters(crate::files::Purpose::OpenProject, &crate::files::OPEN_FILTERS, None),
+        Pending::ImportPainter => match state.dropped_model.take() {
+            Some(path) => crate::spp_import::start(state, &path),
+            None => crate::files::pick(ctx, crate::files::Purpose::OpenProject, crate::files::PAINTER_PROJECTS, false, None),
+        },
         Pending::OpenRecent => {
             if let Some(path) = state.welcome.pending_recent.take() {
                 match Session::open_recent(&path) {

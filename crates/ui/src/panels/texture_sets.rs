@@ -7,8 +7,8 @@ use subcraft_core::{ChannelKind, MeshMapKind, TextureSetId};
 use subcraft_doc::ChannelFormat;
 use crate::{icons, state::UiState, theme::{self, ACCENT, TEXT, TEXT_DIM, TEXT_FAINT}};
 
-/// Name of the one shader every texture set uses (Painter's "Main shader").
-pub const SHADER_NAME: &str = "Main shader";
+/// Name of the shader instance every texture set starts with (Painter's "Main shader").
+pub const SHADER_NAME: &str = subcraft_doc::MAIN_SHADER;
 
 // ---------------------------------------------------------------------------------------------
 // TEXTURE SET LIST
@@ -17,17 +17,19 @@ pub const SHADER_NAME: &str = "Main shader";
 pub fn list(state: &mut UiState, ui: &mut Ui) {
     let now = ui.input(|i| i.time);
     let mut cmds = Vec::new();
+    let mut shader_ops = Vec::new();
     egui::ScrollArea::vertical().id_salt("texture_set_list").auto_shrink([false, false]).show(ui, |ui| {
         ui.add_space(4.0);
-        set_rows(state, ui, &mut cmds);
+        set_rows(state, ui, &mut cmds, &mut shader_ops);
     });
     state.run(cmds, now);
+    crate::panels::shader_settings::apply(state, shader_ops);
 }
 
 /// "4096x4096", the way Painter prints a texture set's size.
 pub fn size_label(resolution: u32) -> String { format!("{resolution}x{resolution}") }
 
-fn set_rows(state: &UiState, ui: &mut Ui, cmds: &mut Vec<Command>) {
+fn set_rows(state: &UiState, ui: &mut Ui, cmds: &mut Vec<Command>, shader_ops: &mut Vec<crate::panels::shader_settings::ShaderOp>) {
     let sel = state.session.selection().texture_set;
     let rename_id = egui::Id::new("texture_set_rename");
     // (set being renamed, text, first frame)
@@ -73,7 +75,15 @@ fn set_rows(state: &UiState, ui: &mut Ui, cmds: &mut Vec<Command>) {
                     }
                 }
             });
-            ui.add(egui::Label::new(RichText::new(SHADER_NAME).font(theme::font(11.5)).color(TEXT_DIM)).truncate().selectable(false));
+            // The shader button: shows the set's instance, opens the instance menu.
+            let shader = state.session.shader_instance_of(ts.id).name;
+            let button = ui.add(egui::Button::new(RichText::new(shader).font(theme::font(11.5)).color(TEXT_DIM)).frame(false).truncate())
+                .on_hover_text(tr("Shader instance: click to pick another, make a new one or open Shader Settings"));
+            if button.hovered() { ui.painter().rect_stroke(button.rect, 2.0, egui::Stroke::new(1.0, theme::BORDER_STRONG), egui::StrokeKind::Inside); }
+            egui::Popup::menu(&button).id(egui::Id::new(("texture_set_shader", ts.id))).show(|ui| {
+                ui.set_min_width(160.0);
+                crate::panels::shader_settings::instance_menu(state, ui, ts.id, shader_ops);
+            });
         });
         if resp.clicked() && !selected { cmds.push(Command::SelectTextureSet(ts.id)); }
         if resp.double_clicked() { rename = Some((ts.id, ts.name.clone(), true)); }
@@ -201,13 +211,61 @@ fn general(state: &mut UiState, ui: &mut Ui, cmds: &mut Vec<Command>) {
             cmds.push(Command::SetResolution { texture_set: None, resolution: current });
         }
     });
+    let mut shader_ops = Vec::new();
     ui.horizontal(|ui| {
         field_label(ui, "Shader Instance");
-        ui.add_enabled_ui(false, |ui| {
-            egui::ComboBox::from_id_salt("tss_shader").width(ui.available_width() - 28.0).selected_text(SHADER_NAME).show_ui(ui, |_| {});
-        });
+        let current = state.session.shader_instance_of(id).name;
+        egui::ComboBox::from_id_salt("tss_shader").width(ui.available_width() - 28.0).selected_text(current).show_ui(ui, |ui| {
+            crate::panels::shader_settings::instance_menu(state, ui, id, &mut shader_ops);
+        }).response.on_hover_text(tr("The shader instance this texture set is drawn with; several sets can share one"));
     });
+    crate::panels::shader_settings::apply(state, shader_ops);
     ui.horizontal(|ui| { crate::viewport_bar::albedo_filter(ui, state); });
+    transparency(state, ui, cmds);
+}
+
+/// Issue #145: a texture set that starts empty (unpainted texels have alpha 0) and how the
+/// viewport draws opacity (Painter's alpha-test / alpha-blending shaders and their threshold and
+/// dithering parameters).
+fn transparency(state: &UiState, ui: &mut Ui, cmds: &mut Vec<Command>) {
+    let (id, transparent, alpha, has_opacity) = {
+        let ts = state.session.selected_texture_set();
+        (ts.id, ts.transparent, ts.alpha, ts.has_channel(ChannelKind::Opacity))
+    };
+    ui.horizontal(|ui| {
+        field_label(ui, "Background");
+        let mut t = transparent;
+        ui.checkbox(&mut t, "Transparent (start empty)").on_hover_text(
+            "Unpainted texels have alpha 0 instead of the default material: export Base Color with an alpha preset \
+             (\"+ Opacity\" / \"+ Alpha\") to keep them transparent.",
+        );
+        if t != transparent { cmds.push(Command::SetTransparent { texture_set: id, transparent: t }); }
+    });
+    let mut a = alpha;
+    ui.horizontal(|ui| {
+        field_label(ui, "Alpha");
+        egui::ComboBox::from_id_salt("tss_alpha_mode").width(ui.available_width() - 28.0).selected_text(a.mode.label()).show_ui(ui, |ui| {
+            for m in subcraft_doc::AlphaMode::ALL { ui.selectable_value(&mut a.mode, m, m.label()); }
+        }).response.on_hover_text("How the viewport draws Opacity (and the empty parts of a transparent set). Export is not affected.");
+    });
+    if a.mode != subcraft_doc::AlphaMode::Opaque {
+        ui.horizontal(|ui| {
+            field_label(ui, "Alpha threshold");
+            ui.add_enabled(a.mode == subcraft_doc::AlphaMode::Test && !a.dithering, egui::Slider::new(&mut a.threshold, 0.0..=1.0).fixed_decimals(2))
+                .on_disabled_hover_text("Used by alpha test");
+        });
+        ui.horizontal(|ui| {
+            field_label(ui, "");
+            ui.checkbox(&mut a.dithering, "Alpha dithering").on_hover_text("Ordered dither instead of a hard cut / blending: depth-correct, no sorting");
+        });
+        if !has_opacity && !transparent {
+            ui.horizontal(|ui| {
+                field_label(ui, "");
+                ui.label(RichText::new("Add an Opacity channel or make the set transparent to see an effect.").font(theme::font(11.0)).color(TEXT_FAINT));
+            });
+        }
+    }
+    if a != alpha { cmds.push(Command::SetAlphaSettings { texture_set: id, alpha: a }); }
 }
 
 fn channels(state: &mut UiState, ui: &mut Ui, cmds: &mut Vec<Command>) {
@@ -230,8 +288,14 @@ fn channels(state: &mut UiState, ui: &mut Ui, cmds: &mut Vec<Command>) {
         ui.horizontal(|ui| {
             ui.add(egui::Label::new(RichText::new(d.kind.display_name()).font(theme::font_strong(12.0)).color(TEXT)).selectable(false));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.add_enabled(false, egui::Button::new(RichText::new(icons::X).font(theme::font(12.0))).frame(false))
-                    .on_disabled_hover_text("Removing a channel is not supported yet (layers store data per channel)");
+                let last = defs.len() == 1;
+                if ui.add_enabled(!last, egui::Button::new(RichText::new(icons::X).font(theme::font(12.0))).frame(false))
+                    .on_hover_text(format!("Remove the {} channel (undo brings it back)", d.kind.display_name()))
+                    .on_disabled_hover_text("A texture set needs at least one channel")
+                    .clicked()
+                {
+                    cmds.push(Command::RemoveChannel { texture_set: id, kind: d.kind });
+                }
                 ui.add_enabled(false, egui::Button::new(RichText::new(icons::GEAR).font(theme::font(12.0))).frame(false))
                     .on_disabled_hover_text("Channel format is fixed for now");
                 ui.label(RichText::new(format_badge(d.kind, d.format)).font(theme::font(11.0)).color(TEXT_DIM));

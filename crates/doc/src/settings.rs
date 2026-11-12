@@ -54,8 +54,14 @@ pub struct ProjectSettings {
     pub stale_mesh_maps: Vec<subcraft_core::TextureSetId>,
     /// Display settings of the 3D view (environment, camera, post effects, visualisation).
     /// Optional in the file: absent = the user's own defaults, so no schema bump is needed.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", default, deserialize_with = "crate::display::lenient_display")]
     pub display: Option<crate::display::DisplaySettings>,
+    /// Shader instances (Shader Settings) and which one each texture set uses. Optional in the
+    /// file: empty = every set uses the implicit "Main shader", so no schema bump is needed.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub shader_instances: Vec<crate::shader::ShaderInstance>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub shader_assignments: Vec<crate::shader::ShaderAssignment>,
     /// Export window settings stored by its Save settings button. Optional in the file: absent =
     /// the window's defaults, so no schema bump is needed.
     #[serde(skip_serializing_if = "Option::is_none")]
