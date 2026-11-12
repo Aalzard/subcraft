@@ -109,6 +109,8 @@ fn window_body(state: &mut UiState, ui: &mut egui::Ui) {
 pub enum RenderRequest {
     Image,
     Turntable,
+    /// The Rendering mode's path-traced image as it is shown now (Painter's "Save Render").
+    PathTraced,
 }
 
 /// Carry out a request made in the window (file pickers are blocking, desktop only).
@@ -123,6 +125,11 @@ pub fn handle_request(state: &mut UiState, now: f64) {
         RenderRequest::Turntable => {
             let Some(dir) = rfd::FileDialog::new().pick_folder() else { return };
             let result = run(state, &Job::Turntable(dir));
+            report(state, now, result);
+        }
+        RenderRequest::PathTraced => {
+            let Some(path) = rfd::FileDialog::new().add_filter("PNG image", &["png"]).set_file_name("render.png").save_file() else { return };
+            let result = save_path_traced(state, &path);
             report(state, now, result);
         }
     }
@@ -182,6 +189,24 @@ pub fn render_frame(state: &mut UiState, camera: crate::orbit::OrbitCamera, pict
 fn save_png(path: &std::path::Path, pixels: &[u8], size: [u32; 2]) -> Result<(), String> {
     let data: Vec<f32> = pixels.iter().map(|&b| b as f32 / 255.0).collect();
     subcraft_image::save_image(path, size[0], size[1], 4, &data, subcraft_image::FileFormat::Png8).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// The path-traced image as shown (tone mapped, sRGB, opaque) and its size, or why there is none.
+pub fn path_traced_pixels(state: &UiState) -> Result<(Vec<u8>, [u32; 2]), String> {
+    let rs = state.render_state.as_ref().ok_or("no GPU renderer is available")?;
+    let target = state.renderer.as_ref().and_then(|r| r.path_target()).filter(|_| state.pt_status.is_some())
+        .ok_or("Turn on the Rendering mode (F10) first: there is no path-traced image yet")?;
+    let mut pixels = target.try_read_rgba8(&rs.device, &rs.queue)?;
+    for a in pixels.iter_mut().skip(3).step_by(4) { *a = 255; }
+    Ok((pixels, target.size))
+}
+
+/// Save the Rendering mode's current image to `path` as a PNG.
+pub fn save_path_traced(state: &UiState, path: &std::path::Path) -> Result<String, String> {
+    let (pixels, size) = path_traced_pixels(state)?;
+    save_png(path, &pixels, size)?;
+    let samples = state.pt_status.map_or(0, |s| s.samples);
+    Ok(format!("Saved {} ({} x {}, {samples} samples)", path.display(), size[0], size[1]))
 }
 
 /// Run an export job with the current view and settings. Returns what to tell the user.

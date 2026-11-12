@@ -248,6 +248,7 @@ Layout notes: these sit at the top of the Output template dropdown on the Settin
 | Mesh Maps | Output templates list: each baked map as its own file | - | partial: separate "Baked Mesh Maps" section, not a template | crates/ui/src/dialogs.rs:298 | - |
 | Non-PBR Specular Glossiness | Output templates list | - | missing | - | - |
 | PBR Metallic Roughness | Output templates list | - | done | crates/export/src/template.rs:72 | - |
+| Alpha variants: Base Color RGB + A = Opacity (Painter's engine templates put opacity in Base Color alpha) | Output templates list | - | done: "PBR Metallic Roughness + Opacity" and "Unreal Engine (ORM packed) + Opacity" (RGBA Base Color plus a grey Opacity map), Unity HDRP / URP, Godot 4 and glTF 2.0 "+ Alpha"; alpha is Opacity x Base Color coverage, colour bled under alpha 0 | crates/export/src/template.rs (with_alpha) | #145 |
 | PBR Metallic Roughness (Folder or PSD Groups) | Output templates list | - | missing | - | - |
 | PBR Specular Glossiness | Output templates list | - | missing | - | - |
 | PBR Specular Glossiness (converted from Metallic Roughness) | Output templates list | - | missing | - | - |

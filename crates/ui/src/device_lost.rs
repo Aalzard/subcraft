@@ -27,6 +27,13 @@ pub fn install(ctx: &egui::Context, interactive: bool) {
     // The renderer got there first (the device died between the frame's logic and its
     // painting): same ending, without the session (the automatic recovery copies remain).
     gpu_loss::set_panic_handler(|reason| end(&Native, reason, false, INTERACTIVE.load(Ordering::Relaxed)));
+    // A loss reported before the hook existed (the device is made, and can die, before the
+    // window finishes starting): without this the frames never stopped, nothing ended the
+    // process and the next start was not in safe mode.
+    if let Some(text) = subcraft_render::caps::device_lost() {
+        gpu_loss::report(&text);
+        ctx.request_repaint();
+    }
 }
 
 /// Whether a frame may run.

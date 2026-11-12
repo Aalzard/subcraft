@@ -46,6 +46,41 @@ fn line(input: &[f32], output: &mut [f32], sites: &mut Vec<usize>, cuts: &mut Ve
     }
 }
 
+/// Squared Chebyshev (chessboard) distance to the nearest `feature` texel, searched up to
+/// `reach` texels away (infinite beyond): square corners for Angular bevels.
+pub fn squared_chebyshev(classes: &[bool], width: usize, height: usize, feature: bool, reach: usize) -> Vec<f32> {
+    assert_eq!(classes.len(), width * height);
+    // Per row: the horizontal distance to the nearest feature texel.
+    let mut row = vec![f32::INFINITY; width * height];
+    for y in 0..height {
+        let line = &classes[y * width..(y + 1) * width];
+        let out = &mut row[y * width..(y + 1) * width];
+        let mut last = f32::INFINITY;
+        for x in 0..width {
+            last = if line[x] == feature { 0.0 } else { last + 1.0 };
+            out[x] = last;
+        }
+        last = f32::INFINITY;
+        for x in (0..width).rev() {
+            last = if line[x] == feature { 0.0 } else { last + 1.0 };
+            out[x] = out[x].min(last);
+        }
+    }
+    // Per column: the smallest max(vertical, horizontal) distance within reach.
+    let mut field = vec![f32::INFINITY; width * height];
+    for x in 0..width {
+        for y in 0..height {
+            let mut best = f32::INFINITY;
+            for q in y.saturating_sub(reach)..(y + reach + 1).min(height) {
+                let d = (q as f32 - y as f32).abs().max(row[q * width + x]);
+                best = best.min(d);
+            }
+            field[y * width + x] = best * best;
+        }
+    }
+    field
+}
+
 pub fn squared_distance(classes: &[bool], width: usize, height: usize, feature: bool) -> Vec<f32> {
     assert!(width > 0 && height > 0);
     assert_eq!(classes.len(), width * height);
@@ -105,6 +140,29 @@ pub fn value(
                 v.clamp(0.0, 1.0)
             }
         }
+        Filter::BevelShape { amount, smoothing, .. } => {
+            let ramp = if !inside {
+                0.0
+            } else if radius == 0.0 {
+                1.0
+            } else {
+                (distance / radius).clamp(0.0, 1.0)
+            };
+            let eased = ramp + (ramp * ramp * (3.0 - 2.0 * ramp) - ramp) * smoothing;
+            let v = eased * amount;
+            if channel.is_signed() { v } else { v.clamp(0.0, 1.0) }
+        }
+        Filter::MaskOutlineShape { radius: width, position, start_black, blur, curve, .. } => {
+            if width == 0.0
+                || matches!((position, inside), (OutlinePosition::Inner, false) | (OutlinePosition::Outer, true))
+            {
+                return 0.0;
+            }
+            // The band, with its far edge faded over `blur` pixels (one pixel when sharp).
+            let band = ((width + 0.5 + blur - distance) / (1.0 + blur)).clamp(0.0, 1.0);
+            let ramp = if start_black { (distance / width).clamp(0.0, 1.0) } else { 1.0 };
+            (band * ramp).powf(4f32.powf(curve))
+        }
         Filter::MaskOutline { position, .. } => {
             if radius == 0.0
                 || matches!(
@@ -149,6 +207,42 @@ mod tests {
             }
         }
     }
+    #[test]
+    fn angular_distance_is_the_larger_axis_distance() {
+        // A single feature texel in the middle of 7 x 5.
+        let classes: Vec<bool> = (0..35).map(|i| i == 17).collect();
+        let d = squared_chebyshev(&classes, 7, 5, true, 8);
+        assert_eq!(d[17], 0.0);
+        assert_eq!(d[0], 9.0, "corner (0, 0) is 3 columns and 2 rows away");
+        assert_eq!(d[6], 9.0);
+        assert_eq!(d[3], 4.0);
+        // Beyond the reach: infinite.
+        let near = squared_chebyshev(&classes, 7, 5, true, 1);
+        assert_eq!(near[3], f32::INFINITY);
+        assert_eq!(near[10], 1.0);
+    }
+
+    #[test]
+    fn bevel_smoothing_and_outline_shape_options() {
+        let bevel = |smoothing| Filter::BevelShape { radius: 4.0, amount: 1.0, threshold: 0.5, corner: subcraft_doc::BevelCorner::Rounded, smoothing };
+        // Distance 1.5 (squared 4 minus the half pixel) of 4: linear 0.375, smoothstep 0.3164.
+        assert!((value(bevel(0.0), true, 4.0, 4.0, ChannelKind::Roughness) - 0.375).abs() < 1e-6);
+        let s = 0.375f32 * 0.375 * (3.0 - 2.0 * 0.375);
+        assert!((value(bevel(1.0), true, 4.0, 4.0, ChannelKind::Roughness) - s).abs() < 1e-6);
+        let outline = |start_black, blur, curve| Filter::MaskOutlineShape { radius: 4.0, threshold: 0.5, position: OutlinePosition::Both, start_black, blur, curve };
+        // Plain band: 1 inside the width, 0 past it.
+        assert_eq!(value(outline(false, 0.0, 0.0), true, 4.0, 4.0, ChannelKind::Roughness), 1.0);
+        assert_eq!(value(outline(false, 0.0, 0.0), false, 36.0, 4.0, ChannelKind::Roughness), 0.0);
+        // Blur 2: distance 5.5 fades to (4.5 + 2 - 5.5) / 3 = 1/3.
+        let d = (5.5f32 + 0.5).powi(2);
+        assert!((value(outline(false, 2.0, 0.0), false, d, 4.0, ChannelKind::Roughness) - 1.0 / 3.0).abs() < 1e-5);
+        // Start From Black: 0 at the contour, half way at half the width.
+        assert_eq!(value(outline(true, 0.0, 0.0), true, 0.25, 4.0, ChannelKind::Roughness), 0.0);
+        assert!((value(outline(true, 0.0, 0.0), true, 2.5f32.powi(2), 4.0, ChannelKind::Roughness) - 0.5).abs() < 1e-6);
+        // Curve 0.5: squared.
+        assert!((value(outline(true, 0.0, 0.5), true, 2.5f32.powi(2), 4.0, ChannelKind::Roughness) - 0.25).abs() < 1e-6);
+    }
+
     #[test]
     fn contour_boundaries_zero_radius_and_signed_relief_are_explicit() {
         let bevel = Filter::Bevel {

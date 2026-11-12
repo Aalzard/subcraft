@@ -354,6 +354,7 @@ enum Kind {
     Baked,
     Constant,
     View,
+    Alpha,
 }
 
 impl Kind {
@@ -366,6 +367,7 @@ impl Kind {
             Source::MeshMap { .. } => Kind::Baked,
             Source::Constant { .. } => Kind::Constant,
             Source::View2d { .. } => Kind::View,
+            Source::Alpha => Kind::Alpha,
         }
     }
 
@@ -378,6 +380,7 @@ impl Kind {
             Kind::Baked => "Mesh map",
             Kind::Constant => "Constant",
             Kind::View => "2D view",
+            Kind::Alpha => "Alpha",
         }
     }
 
@@ -391,6 +394,7 @@ impl Kind {
             Kind::Baked => Source::MeshMap { kind: MeshMapKind::AmbientOcclusion, component: 0, invert: false },
             Kind::Constant => Source::Constant { value: if slot == 3 { 1.0 } else { 0.0 } },
             Kind::View => Source::View2d { component: c },
+            Kind::Alpha => Source::Alpha,
         }
     }
 }
@@ -412,7 +416,7 @@ fn component_combo(ui: &mut Ui, id: (usize, &str), component: &mut u8, count: us
 fn source_editor(ui: &mut Ui, slot: usize, src: &mut Source) {
     let mut kind = Kind::of(src);
     egui::ComboBox::from_id_salt((slot, "kind")).width(96.0).selected_text(kind.label()).show_ui(ui, |ui| {
-        for k in [Kind::Channel, Kind::Gray, Kind::Normal, Kind::Height, Kind::Baked, Kind::Constant, Kind::View] {
+        for k in [Kind::Channel, Kind::Gray, Kind::Normal, Kind::Height, Kind::Baked, Kind::Constant, Kind::View, Kind::Alpha] {
             ui.selectable_value(&mut kind, k, k.label());
         }
     });
@@ -422,7 +426,8 @@ fn source_editor(ui: &mut Ui, slot: usize, src: &mut Source) {
     match src {
         Source::Channel { kind, component, invert } => {
             channel_combo(ui, slot, kind);
-            let n = if kind.is_color() || *kind == ChannelKind::Normal { 3 } else { 1 };
+            // Colour channels also offer A: the stack's coverage (0 where a transparent set is unpainted).
+            let n = if kind.is_color() { 4 } else if *kind == ChannelKind::Normal { 3 } else { 1 };
             component_combo(ui, (slot, "comp"), component, n);
             ui.checkbox(invert, "Invert");
         }
@@ -461,6 +466,11 @@ fn source_editor(ui: &mut Ui, slot: usize, src: &mut Source) {
         Source::View2d { component } => {
             ui.label(dim("what the 2D view shows"));
             component_combo(ui, (slot, "comp"), component, 3);
+            ui.label("");
+        }
+        Source::Alpha => {
+            ui.label(dim("Opacity × coverage"));
+            ui.label("");
             ui.label("");
         }
     }

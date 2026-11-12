@@ -181,11 +181,11 @@ Layout notes: parameter lists of individual filters are in the filters checklist
 |---|---|---|---|---|---|
 | Add a filter on layer content | Add effect > Add filter | empty slot | done | crates/ui/src/panels/effects.rs:82 | - |
 | Add a filter on a mask | Add effect > Add filter | empty slot | done | crates/ui/src/panels/effects.rs:94 | - |
-| "Filter" button in Properties opens the mini-shelf to pick one | Properties > Filter | no filter selected | partial: filter chosen in the Add submenu; cannot be swapped afterwards | crates/ui/src/panels/effects.rs:83 | - |
-| Filter applies to all channels it supports | Properties > Filter | n/a | partial: one channel per filter effect, picked in Properties | crates/ui/src/panels/effects.rs:430 | - |
+| "Filter" button in Properties opens the mini-shelf to pick one | Properties > Filter | no filter selected | partial: searchable list, no thumbnails; swaps the filter in place | crates/ui/src/panels/filter.rs:23 | - |
+| Filter applies to all channels it supports | Properties > Filter | n/a | done (channel chips; a filter layer from the shelf starts on every supported channel) | crates/ui/src/panels/effects.rs:705 | - |
 | Blending mode and opacity on filters | Effect row | Normal; 100 | done (in Properties) | crates/ui/src/panels/effects.rs:441 | - |
-| Filter on a Passthrough layer affects everything below | Layer blending | n/a | missing (Passthrough is folder-only) | - | - |
-| Drag a filter from Assets into the stack: new layer with the filter, all channels Passthrough | Assets > Layer stack | n/a | missing | - | - |
+| Filter on a Passthrough layer affects everything below | Layer blending | n/a | done | crates/compositor/src/tile.rs:180 | - |
+| Drag a filter from Assets into the stack: new layer with the filter, all channels Passthrough | Assets > Layer stack | n/a | done | crates/app/src/filter_shelf.rs:13 | - |
 | Drag a filter onto the mesh in the viewport | Assets > Viewport | n/a | missing | - | - |
 | Error when an incompatible filter is used in a mask | Layer stack | n/a | done (mask menu lists mask-capable filters only) | crates/ui/src/panels/effects.rs:96 | - |
 | Custom filters (sbsar) from the shelf | Assets | n/a | missing | - | - |

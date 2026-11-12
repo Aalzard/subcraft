@@ -361,7 +361,7 @@ fn painter_presets_convert_maps_sources_and_parameters() {
     assert_eq!(suffixes, ["BaseColor", "ORM", "Normal", "Height", "Gloss"]);
     let bc = &p.maps[0];
     assert!(bc.srgb && bc.components.len() == 4 && bc.format == FileFormat::Png8);
-    assert_eq!(bc.components[3], Source::Channel { kind: ChannelKind::Opacity, component: 0, invert: false });
+    assert_eq!(bc.components[3], Source::Alpha, "Painter's opacity is the effective alpha");
     let orm = &p.maps[1];
     assert_eq!(orm.components[0], Source::MeshMap { kind: MeshMapKind::AmbientOcclusion, component: 0, invert: false });
     assert_eq!(orm.components[1], Source::ch(ChannelKind::Roughness, 0));
