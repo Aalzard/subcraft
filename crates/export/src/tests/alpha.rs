@@ -168,6 +168,20 @@ fn base_color_component_a_is_the_stack_coverage() {
     assert_eq!(at(110, 10, 1), 1.0, "a channel the set lacks is fully covered");
 }
 
+/// QA 2026-11: in an sRGB map, the A component of a colour channel (its coverage) was
+/// sRGB-encoded like the colour: half coverage came out as 0.735 (188 in 8 bits), not 0.5.
+#[test]
+fn coverage_in_an_srgb_map_is_not_colour_encoded() {
+    let ch = transparent_channels(false);
+    let set = ExportTextureSet { name: "S", material_slot: 0, udim: None, channels: &ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY };
+    let map = OutputMap::new("C", FileFormat::Png8, vec![Source::ch(ChannelKind::BaseColor, 1), Source::ch(ChannelKind::BaseColor, 3)], true);
+    let mut dense = Dense { set: &set, size: RES, cache: HashMap::new(), normal: None, view: None, mesh_maps: HashMap::new(), alpha: None };
+    let data = evaluate_map(&map, &mut dense, &ExportSettings::default(), FileFormat::Png8);
+    let at = |x: u32, y: u32, c: usize| data[((y * RES + x) as usize) * 2 + c];
+    assert!(near(at(70, 10, 1), 0.5, 1e-6), "half coverage stays 0.5, got {}", at(70, 10, 1));
+    assert!(near(at(110, 10, 0), linear_to_srgb(0.5), 1e-6), "the colour component is still encoded");
+}
+
 #[test]
 fn alpha_presets_are_builtin_and_valid() {
     let names: Vec<String> = ExportTemplate::builtin().into_iter().map(|t| t.name).collect();

@@ -445,6 +445,21 @@ impl<R: Read + Seek> Loader<'_, R> {
         Ok(img)
     }
 
+    /// Settings a generator computes with must be in range: a NaN point or an infinite radius
+    /// (1e39 reads as infinity) loaded and made the whole mask or channel NaN.
+    fn check_generator(generator: &subcraft_doc::Generator, trusted: bool) -> Result<(), ProjectError> {
+        if trusted {
+            return Ok(());
+        }
+        if generator.editor.as_ref().is_some_and(|e| !e.valid()) {
+            return Err(ProjectError::Invalid("invalid Mask Editor settings".into()));
+        }
+        if generator.shape.as_ref().is_some_and(|s| !s.valid()) {
+            return Err(ProjectError::Invalid("invalid generator shape settings".into()));
+        }
+        Ok(())
+    }
+
     fn mask_effect(&mut self, e: &MaskEffectV1, res: u32) -> Result<MaskEffect, ProjectError> {
         let kind = match &e.kind {
             MaskEffectKindV1::Paint { raster } => MaskEffectKind::Paint { image: self.raster(raster, res)? },
@@ -453,9 +468,7 @@ impl<R: Read + Seek> Loader<'_, R> {
             }
             MaskEffectKindV1::Generator { generator } => {
                 // A Mask Editor value out of range (a huge contrast reads as infinity) made the mask NaN.
-                if !self.trusted && generator.editor.as_ref().is_some_and(|e| !e.valid()) {
-                    return Err(ProjectError::Invalid("invalid Mask Editor settings".into()));
-                }
+                Self::check_generator(generator, self.trusted)?;
                 MaskEffectKind::Generator(*generator)
             }
             MaskEffectKindV1::Levels { levels } => MaskEffectKind::Levels(*levels),
@@ -504,7 +517,10 @@ impl<R: Read + Seek> Loader<'_, R> {
                 ContentEffectKind::Levels { channel: *channel, levels: *levels }
             }
             ContentEffectKindV5::Anchor => ContentEffectKind::Anchor,
-            ContentEffectKindV5::Generator { generator } => ContentEffectKind::Generator(*generator),
+            ContentEffectKindV5::Generator { generator } => {
+                Self::check_generator(generator, self.trusted)?;
+                ContentEffectKind::Generator(*generator)
+            }
         };
         let blend = e.blend.iter().map(|b| (b.channel, ChannelBlend { mode: b.mode, opacity: b.opacity })).collect();
         let extra_channels = if matches!(kind, ContentEffectKind::Filter { .. }) { e.extra_channels.iter().copied().collect() } else { Default::default() };

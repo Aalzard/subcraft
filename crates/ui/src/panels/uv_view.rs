@@ -1,5 +1,7 @@
 //! 2D view: the selected texture set's channels or baked mesh maps, with its UV wireframe.
-//! Brush, eraser and polygon fill paint the selected layer (or its mask) here in UV space.
+//! Every paint tool works here in UV space on the selected layer (or its mask), like in the 3D
+//! view: brush, eraser, smudge, clone, polygon fill and the eyedropper, with the stencil,
+//! symmetry, Shift lines and Ctrl brush gestures.
 
 use egui::{Color32, Pos2, Rect, RichText, Sense, Stroke, Ui};
 use glam::Vec2;
@@ -59,9 +61,21 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 }
             }
             ui.add_space(8.0);
-            if crate::widgets::icon_toggle(ui, crate::icons::GRID, state.uv_wireframe, "Show UV lines").clicked() {
+            let lines = crate::widgets::icon_toggle(ui, crate::icons::GRID, state.uv_wireframe, "UV wireframe · click to show/hide · right-click for color and opacity");
+            if lines.clicked() {
                 state.uv_wireframe = !state.uv_wireframe;
             }
+            egui::Popup::context_menu(&lines).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
+                let prefs = &mut state.recovery.prefs.viewport;
+                ui.label(RichText::new("UV wireframe").color(crate::theme::TEXT_DIM));
+                ui.checkbox(&mut state.uv_wireframe, "Show UV wireframe");
+                ui.horizontal(|ui| {
+                    ui.label("Color");
+                    ui.color_edit_button_rgb(&mut prefs.wire_color);
+                });
+                ui.add(egui::Slider::new(&mut prefs.wire_opacity, 0.05..=1.0).text("Opacity"));
+                ui.label(RichText::new("Shared with the 3D view's mesh wireframe (Display settings)").small().color(crate::theme::TEXT_FAINT));
+            });
             if crate::widgets::icon_button(ui, crate::icons::FIT, "Fit to view").clicked() {
                 state.uv.zoom = 1.0;
                 state.uv.offset = egui::Vec2::ZERO;
@@ -79,17 +93,38 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             state.uv.zoom = (state.uv.zoom * (scroll * 0.002).exp()).clamp(0.2, 20.0);
         }
     }
-    let alt = ui.input(|i| i.modifiers.alt);
-    let paints = painting_tool && !alt;
-    if response.dragged_by(egui::PointerButton::Middle)
-        || (response.dragged_by(egui::PointerButton::Primary) && !state.uv.painting && (alt || !(paints || state.tool == Tool::Pen)))
+    let (alt, mods, delta) = ui.input(|i| (i.modifiers.alt, i.modifiers, i.pointer.delta()));
+    let typing = ui.ctx().egui_wants_keyboard_input();
+    // Hold S and drag to place the stencil over this view, hold N to paint without it: the same
+    // keys as the 3D view.
+    let stencil_edit = crate::viewport::stencil_input(state, ui, &response, rect, mods, delta);
+    // Ctrl+RMB drag: size / hardness; Ctrl+LMB drag: flow / angle (as in the 3D view).
+    let lmb_adjust = crate::viewport::brush_gestures(state, &response, mods, delta, !stencil_edit && !typing && !state.uv.painting);
+    let paints = painting_tool && !alt && !stencil_edit;
+    // Tools that use a click in the view: a drag with them must not pan.
+    let clicks = paints || matches!(state.tool, Tool::Pen | Tool::Eyedropper);
+    // Right-click (no drag): the Properties popup at the cursor.
+    if response.secondary_clicked() && !stencil_edit && crate::view_props::opens(state, mods) && let Some(p) = response.interact_pointer_pos() {
+        crate::view_props::open(state, p, crate::view_props::View::View2d);
+    }
+    if !stencil_edit
+        && (response.dragged_by(egui::PointerButton::Middle)
+            || (response.dragged_by(egui::PointerButton::Primary) && !state.uv.painting && !lmb_adjust && (alt || !clicks)))
     {
         state.uv.offset += response.drag_delta();
     }
     let side = rect.width().min(rect.height()) * 0.95 * state.uv.zoom;
     let img_rect = Rect::from_center_size(rect.center() + state.uv.offset, egui::vec2(side, side));
+    let viewport = [rect.width().round().max(1.0) as u32, rect.height().round().max(1.0) as u32];
+    let view = subcraft_paint::UvView {
+        origin: Vec2::new(img_rect.min.x - rect.min.x, img_rect.min.y - rect.min.y),
+        side,
+        viewport,
+    };
     crate::pen::uv_input(state, ui, &response, img_rect);
-    paint_input(state, ui, &response, img_rect, resolution);
+    if !stencil_edit {
+        paint_input(state, ui, &response, img_rect, resolution, ts_id, view, lmb_adjust);
+    }
     let painter = ui.painter_at(rect);
     let filter = if state.uv.source == PreviewSource::Channel(ChannelKind::BaseColor)
         && state.session.selected_texture_set().albedo_filter == subcraft_image::TextureFilter::Nearest {
@@ -122,7 +157,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         let mesh = state.session.scene().mesh.clone();
         let edges = state.uv_edges.entry(slot).or_insert_with(|| topology::uv_edges(&mesh, mesh.material_triangles(slot)));
         let to = |p: glam::Vec2| img_rect.min + egui::vec2(p.x * side, p.y * side);
-        let stroke = Stroke::new(0.6, Color32::from_rgba_unmultiplied(255, 255, 255, 70));
+        let stroke = Stroke::new(0.6, wire_color(&state.recovery.prefs.viewport));
         for [a, b] in edges.iter() {
             painter.line_segment([to(*a), to(*b)], stroke);
         }
@@ -130,26 +165,83 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     if state.tool == Tool::Pen && let Some(path) = state.pen.preview(&state.session) {
         crate::pen::draw(&painter, path, state.pen.selected_anchor(), |uv| Some(img_rect.min + egui::vec2(uv.x, uv.y) * side));
     }
+    if let (Some(a), Some(b)) = (state.uv.fill_box, response.hover_pos().or(ui.input(|i| i.pointer.latest_pos())))
+        && crate::view_props::is_box_drag(a, b)
+    {
+        crate::view_props::draw_fill_box(&painter, Rect::from_two_pos(a, b), false);
+    }
+    let to_px = |uv: Vec2| img_rect.min + egui::vec2(uv.x, uv.y) * side;
+    if state.tool == Tool::Clone && let Some(source) = state.session.clone_source_uv() {
+        let marker = to_px(source);
+        let cross = Color32::from_rgb(120, 220, 255);
+        for (w, c) in [(3.0, Color32::from_black_alpha(160)), (1.5, cross)] {
+            painter.line_segment([marker - egui::vec2(7.0, 0.0), marker + egui::vec2(7.0, 0.0)], Stroke::new(w, c));
+            painter.line_segment([marker - egui::vec2(0.0, 7.0), marker + egui::vec2(0.0, 7.0)], Stroke::new(w, c));
+        }
+        // While an aligned offset exists the copy comes from beside the cursor: show where.
+        if let (Some(offset), Some(p)) = (state.session.clone_offset_uv(), response.hover_pos()) {
+            painter.circle_stroke(p + egui::vec2(offset.x, offset.y) * side, 6.0, Stroke::new(1.5, cross));
+        }
+    }
+    crate::viewport::draw_stencil(state, ui, &painter, rect, viewport);
     if let Some(p) = response.hover_pos() {
-        if matches!(state.tool, Tool::Brush | Tool::Eraser) && !alt {
+        if matches!(state.tool, Tool::Brush | Tool::Eraser | Tool::Clone | Tool::Smudge) && paints {
             let mesh = &state.session.scene().mesh;
             let density = *state.uv_density.entry(slot).or_insert_with(|| subcraft_paint::stroke::uv_per_unit(mesh, slot));
             let r_px = state.session.brush_radius_uv(density) * side;
             let color = if state.tool == Tool::Eraser { Color32::from_rgb(120, 190, 255) } else { crate::theme::ACCENT };
             painter.circle_stroke(p, r_px, Stroke::new(1.5, Color32::from_black_alpha(160)));
             painter.circle_stroke(p, r_px, Stroke::new(1.0, color));
-        } else if state.tool == Tool::PolygonFill && !alt {
+            // Shift: dotted preview of the straight line from the last stroke point.
+            if mods.shift && !state.uv.painting && let Some(from) = state.uv.last_point {
+                let to = line_end(to_px(from), p, mods.command || mods.ctrl);
+                let dash = Stroke::new(1.2, Color32::from_white_alpha(200));
+                painter.extend(egui::Shape::dashed_line(&[to_px(from), to], dash, 5.0, 4.0));
+            }
+        } else if state.tool == Tool::PolygonFill && paints {
             painter.circle_filled(p, 3.0, crate::theme::ACCENT);
         }
-        if paints {
+        if (clicks && !alt) && !stencil_edit {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
         }
     }
-    let hint = if paints { "LMB paint · Shift+click line · Alt+LMB / MMB pan · Wheel zoom" } else { "LMB / MMB pan · Wheel zoom" };
+    let hint = hint(state.tool, paints);
     painter.text(rect.left_bottom() + egui::vec2(10.0, -10.0), egui::Align2::LEFT_BOTTOM, hint, crate::theme::font(11.5), crate::theme::TEXT_FAINT);
     if state.uv.painting {
         ui.ctx().request_repaint();
     }
+}
+
+/// Colour of the UV lines: Display settings' mesh wireframe colour and opacity, which Painter
+/// applies to both views.
+pub fn wire_color(prefs: &subcraft_doc::DisplaySettings) -> Color32 {
+    let [r, g, b] = prefs.wire_color.map(|c| (c.clamp(0.0, 1.0) * 255.0).round() as u8);
+    Color32::from_rgba_unmultiplied(r, g, b, (prefs.wire_opacity.clamp(0.0, 1.0) * 255.0).round() as u8)
+}
+
+/// The bottom-left help line for the active tool.
+pub fn hint(tool: Tool, paints: bool) -> &'static str {
+    if !paints {
+        return match tool {
+            Tool::Eyedropper => "LMB pick color · Shift+LMB pick material · MMB pan · Wheel zoom",
+            _ => "LMB / MMB pan · RMB properties · Wheel zoom",
+        };
+    }
+    match tool {
+        Tool::PolygonFill => "LMB click fill · LMB drag box fill · RMB properties · Alt+LMB / MMB pan · Wheel zoom",
+        Tool::Clone => "Ctrl+click or V+click set source · LMB clone · Shift+click line · MMB pan · Wheel zoom",
+        Tool::Smudge => "LMB smudge · Shift+click line · Ctrl+drag brush values · MMB pan · Wheel zoom",
+        _ => "LMB paint · Shift+click line · Ctrl+drag brush values · hold S stencil · MMB pan · Wheel zoom",
+    }
+}
+
+/// End of a Shift+click straight line in view pixels: Ctrl snaps it to 5 degree steps (Painter).
+fn line_end(from: Pos2, to: Pos2, snap: bool) -> Pos2 {
+    if !snap {
+        return to;
+    }
+    let e = crate::nav::snap_line_end(Vec2::new(from.x, from.y), Vec2::new(to.x, to.y), 5.0);
+    Pos2::new(e.x, e.y)
 }
 
 /// Tool icons and brush values, shared with the 3D view's top strip.
@@ -159,6 +251,9 @@ fn brush_controls(state: &mut UiState, ui: &mut Ui) {
     let (original, original_options) = (settings, options);
     let width = ui.available_width();
     crate::brush_bar::show(ui, &mut state.tool, &mut settings, &mut options, &mut state.recovery.prefs.viewport.symmetry_guides, width);
+    if state.tool == Tool::PolygonFill {
+        crate::brush_bar::fill_options(ui, &mut state.fill_mode, None, "fill_mode_2d");
+    }
     let now = ui.input(|i| i.time);
     if settings != original && let Err(e) = state.session.execute(subcraft_app::Command::SetBrushSettings(settings)) {
         state.set_status(e.to_string(), now);
@@ -168,15 +263,46 @@ fn brush_controls(state: &mut UiState, ui: &mut Ui) {
     }
 }
 
-/// Brush / eraser strokes and polygon fill at the cursor's texture UV.
-fn paint_input(state: &mut UiState, ui: &Ui, response: &egui::Response, image: Rect, resolution: u32) {
+/// Every paint tool at the cursor's texture UV, as in the 3D view: brush, eraser, smudge and
+/// clone strokes (Shift+click lines, Ctrl+Shift snapped), polygon fill clicks and boxes, the
+/// eyedropper, and the clone source (Ctrl+click or V+click).
+#[allow(clippy::too_many_arguments)]
+fn paint_input(state: &mut UiState, ui: &Ui, response: &egui::Response, image: Rect, resolution: u32, ts_id: subcraft_core::TextureSetId, view: subcraft_paint::UvView, lmb_adjust: bool) {
     let typing = ui.ctx().egui_wants_keyboard_input();
-    let (pointer, pressed, down, alt, shift) = ui.input(|i| {
-        (i.pointer.interact_pos(), i.pointer.primary_pressed(), i.pointer.primary_down(), i.modifiers.alt, i.modifiers.shift)
-    });
+    let (pointer, pressed, down, mods) = ui.input(|i| (i.pointer.interact_pos(), i.pointer.primary_pressed(), i.pointer.primary_down(), i.modifiers));
+    let (alt, shift, ctrl) = (mods.alt, mods.shift, mods.command || mods.ctrl);
+    let v_down = ui.input(|i| i.key_down(egui::Key::V)) && !typing && !mods.any();
+    let pressed = pressed && !state.view_props_swallow;
     let to_uv = |p: Pos2| Vec2::new((p.x - image.left()) / image.width(), (p.y - image.top()) / image.height());
+    let to_px = |uv: Vec2| image.min + egui::vec2(uv.x, uv.y) * image.width();
     let texels_per_px = resolution as f32 / image.width().max(1.0);
     let now = ui.input(|i| i.time);
+    // Pen pressure, as in the 3D view (a mouse reports none: 1).
+    let (pressure, carried) = crate::viewport::pen_pressure(&ui.input(|i| i.events.clone()), state.pen_pressure);
+    state.pen_pressure = carried;
+    // Polygon fill: a click fills the element under the cursor, a drag every element the UV box touches.
+    if let Some(start) = state.uv.fill_box {
+        if state.tool != Tool::PolygonFill || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+            state.uv.fill_box = None;
+        } else if !down {
+            state.uv.fill_box = None;
+            let end = pointer.unwrap_or(start);
+            let boxed = crate::view_props::is_box_drag(start, end);
+            state.session.brush.mode = StrokeMode::Paint;
+            let result = if boxed {
+                state.session.polygon_fill_uv_box(to_uv(start), to_uv(end), state.fill_mode)
+            } else {
+                state.session.polygon_fill_uv(to_uv(start), state.fill_mode)
+            };
+            match result {
+                Ok(tiles) if tiles.is_empty() && boxed => state.set_status("Polygon fill: the box touched no UV island of this texture set", now),
+                Ok(tiles) if tiles.is_empty() => state.set_status("Polygon fill: click inside a UV island of this texture set", now),
+                Ok(_) => state.gpu_dirty = true,
+                Err(e) => state.set_status(format!("Polygon fill: {e}"), now),
+            }
+        }
+        return;
+    }
     if state.uv.painting {
         if !down {
             state.session.end_stroke();
@@ -185,46 +311,65 @@ fn paint_input(state: &mut UiState, ui: &Ui, response: &egui::Response, image: R
             && response.drag_delta() != egui::Vec2::ZERO
         {
             let uv = to_uv(p);
+            state.session.set_stroke_pressure(pressure);
             let _ = state.session.stroke_to_uv(uv, false, texels_per_px);
             state.uv.last_point = Some(uv);
         }
         return;
     }
-    if !pressed || !response.hovered() || alt || typing || state.painting || !crate::brush_bar::active(state.tool) {
+    if !pressed || !response.hovered() || alt || typing || state.painting || lmb_adjust {
         return;
     }
     let Some(p) = pointer else { return };
     let uv = to_uv(p);
-    if state.tool == Tool::PolygonFill {
-        state.session.brush.mode = StrokeMode::Paint;
-        match state.session.polygon_fill_uv(uv, state.fill_mode) {
-            Ok(tiles) if tiles.is_empty() => state.set_status("Polygon fill: click inside a UV island of this texture set", now),
-            Ok(_) => {}
-            Err(e) => state.set_status(format!("Polygon fill: {e}"), now),
+    match state.tool {
+        Tool::Eyedropper => {
+            state.session.sample_material_at(ts_id, uv, shift);
+            state.gpu_dirty = true;
+            state.set_status(if shift { "Picked material" } else { "Picked color" }, now);
+            return;
         }
-        return;
+        Tool::PolygonFill => {
+            state.uv.fill_box = Some(p);
+            return;
+        }
+        Tool::Clone if (ctrl && !shift) || v_down => {
+            if state.session.set_clone_source_uv(uv) {
+                state.set_status("Clone source set: now paint where the copy should go", now);
+            } else {
+                state.set_status(crate::keys::native("Ctrl+click inside a UV island to set the clone source"), now);
+            }
+            return;
+        }
+        Tool::Brush | Tool::Eraser | Tool::Clone | Tool::Smudge => {}
+        _ => return,
     }
-    // Clone and Smudge need the 3D view (a clone source point, a view to smudge in): here they used
-    // to paint a plain stroke with the brush colour.
-    if matches!(state.tool, Tool::Clone | Tool::Smudge) {
-        state.set_status("Clone and Smudge paint in the 3D view", now);
-        return;
-    }
-    state.session.brush.mode = if state.tool == Tool::Eraser { StrokeMode::Erase } else { StrokeMode::Paint };
+    state.session.brush.mode = match state.tool {
+        Tool::Eraser => StrokeMode::Erase,
+        Tool::Clone => StrokeMode::Clone,
+        Tool::Smudge => StrokeMode::Smudge,
+        _ => StrokeMode::Paint,
+    };
     if let Some(name) = state.session.ensure_paint_layer() {
+        state.gpu_dirty = true;
         state.set_status(format!("Painting on a new paint layer, \"{name}\" (the selected layer was not a paint layer)"), now);
     }
-    match state.session.begin_stroke() {
+    match state.session.begin_uv_stroke(Some(view)) {
         Ok(()) => {
             state.uv.painting = true;
+            state.session.set_stroke_pressure(pressure);
             if let Some(from) = state.uv.last_point.filter(|_| shift) {
+                // Ctrl+Shift+click: the line snaps to 5 degree steps, as in the 3D view.
+                let to = to_uv(line_end(to_px(from), p, ctrl));
                 let _ = state.session.stroke_to_uv(from, true, texels_per_px);
-                let _ = state.session.stroke_to_uv(uv, true, texels_per_px);
+                let _ = state.session.stroke_to_uv(to, true, texels_per_px);
+                state.uv.last_point = Some(to);
             } else {
                 let _ = state.session.stroke_to_uv(uv, false, texels_per_px);
+                state.uv.last_point = Some(uv);
             }
-            state.uv.last_point = Some(uv);
         }
+        Err(subcraft_paint::PaintError::NoCloneSource) => state.set_status(crate::keys::native("Ctrl+click inside a UV island to set the clone source first"), now),
         Err(e) => state.set_status(format!("Can't paint here: {e} (select a paint layer)"), now),
     }
 }
