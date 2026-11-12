@@ -156,7 +156,7 @@ fn run_with_graphics(mut options: LaunchOptions, graphics: graphics::GraphicsUi,
     let mut wgpu_options = graphics::wgpu_options(api, graphics.environment_override, graphics.gpu.clone());
     if options.profile_view.is_some() {
         // Frame intervals must be costs, not the display's refresh.
-        wgpu_options.present_mode = egui_wgpu::wgpu::PresentMode::AutoNoVsync;
+        wgpu_options.surface.present_mode = egui_wgpu::wgpu::PresentMode::AutoNoVsync;
     }
     options.graphics_startup = Some(graphics);
     let mut native = eframe::NativeOptions {

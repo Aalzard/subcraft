@@ -1569,6 +1569,14 @@ impl egui_dock::TabViewer for Viewer<'_> {
     }
 }
 
+impl SubcraftApp {
+    /// A section of `ui()` ended (frame profilers).
+    fn mark(&mut self, label: &'static str) {
+        if let Some(p) = &mut self.profile { p.mark(label); }
+        if let Some(p) = &mut self.view_profile { p.mark(label); }
+    }
+}
+
 impl eframe::App for SubcraftApp {
     fn raw_input_hook(&mut self, _ctx: &egui::Context, raw_input: &mut egui::RawInput) {
         let log = crate::pen_input::input_log_enabled();
@@ -1763,12 +1771,6 @@ impl eframe::App for SubcraftApp {
             self.state.allow_close = true;
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
-    }
-
-    /// A section of `ui()` ended (frame profilers).
-    fn mark(&mut self, label: &'static str) {
-        if let Some(p) = &mut self.profile { p.mark(label); }
-        if let Some(p) = &mut self.view_profile { p.mark(label); }
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
