@@ -5318,3 +5318,27 @@ the app kept drawing on the dead device. Safe mode works; 0.3.3's marker only he
 * **Not done:** Ctrl+M flatten (chunk 44).
 * **Tests:** `crates/app/tests/layer_polish_parity.rs`, `crates/ui/tests/layer_polish.rs`, a project round trip of
   colour tags, a blend group test, a layer-content clipboard test. Compile-checked locally; CI runs the tests.
+
+### Parity chunk 13 - Assets panel navigation (2026-11-12, branch `claude/parity-assets-nav`)
+
+* **Search (`crates/ui/src/panels/shelf_filter.rs`):** Painter's query language. `n:` name, `s:` library, `p:` path,
+  `u:` usage; comma or-groups after a prefix, a comma between plain terms means both; `"quotes"` and `\ ` keep
+  spaces; leading `-` excludes; suffixes `!` contains, `#` regex (regex-lite, already in the tree through openusd),
+  `=` equal, `^` starts, `&` ends; no suffix is approximate (one typo forgiven, two in words of 7+ letters, word
+  starts included). A usage word typed alone (`textures`, `alphas`, `images`) filters by usage. Plain terms search
+  the name, the path (`/library/folder/`) and the tags.
+* **Panel (`crates/ui/src/panels/shelf.rs`):** clickable breadcrumbs (All libraries > library > folder) whose arrows
+  list the places below, greyed when they hold no asset of the selected types; Ctrl+click on the type icons shows
+  several types under headings; Alphas is its own type (brush tips left Brushes, which keeps the presets); optional
+  Filter by path tree (Hide non-applicable folders on by default, Ctrl+click multi-select, Shift+click folds every
+  library) and Saved searches section (save, apply, right-click Create new tab / Rename / Delete, a tag in the search
+  field whose hover shows the query); Small / Medium / Large / List size menu at the left of the bottom bar.
+  Libraries are Starter assets (built-in) and Your assets (user library); an asset's folder is its category.
+* **State:** the search is one query in Painter's saved-search form (`u:basematerial=,smartmaterial=
+  p:/starter_assets/metal/^ rust`); types and folders round-trip through it. Saved searches and List view are
+  preferences (old settings files load). Sub-library tabs (`Tab::SubLibrary`) dock beside Assets, each with its own
+  types / search / folders and a Reset back to its query; closing one removes it; they are not saved with the layout.
+* **Not done:** session / project libraries (chunk 24), the reduced-width type menu, Shelf.ini file import / export,
+  particle presets and brush makers, deselecting every type.
+* **Checked:** see the PR; unit tests in `shelf_filter.rs` and `shelf_nav_tests.rs`, `preview_layout.rs` and
+  `shelf_brush.rs` updated for the size menu and the Alphas type.

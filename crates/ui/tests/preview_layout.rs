@@ -13,6 +13,13 @@ fn frame(ctx: &egui::Context, s: &mut UiState, shelf: bool, width: f32, events: 
     out.textures_delta.clear(); (out, bounds)
 }
 
+fn text_center(out: &egui::FullOutput, pick: impl Fn(&str) -> bool) -> Option<Pos2> {
+    out.shapes.iter().rev().find_map(|s| match &s.shape {
+        egui::Shape::Text(t) if pick(t.galley.text()) => Some(Rect::from_min_size(t.pos, t.galley.size()).center()),
+        _ => None,
+    })
+}
+
 fn tiles(out: &egui::FullOutput, size: f32) -> Vec<Rect> {
     out.shapes.iter().filter_map(|s| match &s.shape {
         egui::Shape::Rect(r) if (r.rect.width() - size).abs() < 0.01 && (r.rect.height() - size).abs() < 0.01 && r.stroke.width > 0.0 => Some(r.rect),
@@ -24,7 +31,7 @@ fn tiles(out: &egui::FullOutput, size: f32) -> Vec<Rect> {
 fn shelf_wraps_all_categories_downward_without_horizontal_overflow() {
     for width in [240.0, 320.0, 700.0, 1100.0] {
         for size in [48, 88, 160] {
-            for tab in [ShelfTab::Textures, ShelfTab::NormalMaps, ShelfTab::Materials, ShelfTab::SmartMaterials, ShelfTab::SmartMasks, ShelfTab::Brushes, ShelfTab::Environments] {
+            for tab in [ShelfTab::Textures, ShelfTab::NormalMaps, ShelfTab::Materials, ShelfTab::SmartMaterials, ShelfTab::SmartMasks, ShelfTab::Brushes, ShelfTab::Alphas, ShelfTab::Environments] {
                 let ctx = egui::Context::default(); theme::apply(&ctx);
                 let mut s = state(); s.shelf.tab = tab; s.recovery.prefs.shelf_preview_size = size;
                 let mut result = frame(&ctx, &mut s, true, width, vec![]);
@@ -55,15 +62,25 @@ fn footer_sliders_resize_previews_independently_without_document_edits() {
         let before = s.session.document().clone(); let history = s.session.history().entries().len();
         let mut out = frame(&ctx, &mut s, shelf, width, vec![]).0;
         for _ in 0..2 { out = frame(&ctx, &mut s, shelf, width, vec![]).0; }
-        let pos = out.shapes.iter().find_map(|s| match &s.shape {
-            egui::Shape::Circle(c) if c.center.y > 540.0 => Some(c.center + egui::vec2(25.0, 0.0)), _ => None
-        }).expect("size slider stays beneath the scroll area");
-        for pressed in [true, false] {
-            frame(&ctx, &mut s, shelf, width, vec![Event::PointerMoved(pos), Event::PointerButton {pos, button: egui::PointerButton::Primary, pressed, modifiers: Default::default()}]);
+        let click = |s: &mut UiState, pos: Pos2| for pressed in [true, false] {
+            frame(&ctx, s, shelf, width, vec![Event::PointerMoved(pos), Event::PointerButton {pos, button: egui::PointerButton::Primary, pressed, modifiers: Default::default()}]);
+        };
+        if shelf {
+            // Painter's size menu: Small / Medium / Large / List, beneath the scroll area.
+            let menu = text_center(&out, |t| t.ends_with("Medium")).expect("size menu stays beneath the scroll area");
+            assert!(menu.y > 540.0, "{menu:?}");
+            click(&mut s, menu);
+            out = frame(&ctx, &mut s, shelf, width, vec![]).0;
+            click(&mut s, text_center(&out, |t| t == "Large").expect("the menu lists Large"));
+        } else {
+            let pos = out.shapes.iter().find_map(|s| match &s.shape {
+                egui::Shape::Circle(c) if c.center.y > 540.0 => Some(c.center + egui::vec2(25.0, 0.0)), _ => None
+            }).expect("size slider stays beneath the scroll area");
+            click(&mut s, pos);
         }
         out = frame(&ctx, &mut s, shelf, width, vec![]).0;
         if shelf {
-            assert!(s.recovery.prefs.shelf_preview_size > 88); assert_eq!(s.recovery.prefs.layer_preview_size, 36);
+            assert_eq!(s.recovery.prefs.shelf_preview_size, 144); assert_eq!(s.recovery.prefs.layer_preview_size, 36);
             assert!(!tiles(&out, s.recovery.prefs.shelf_preview_size as f32).is_empty());
         } else {
             assert!(s.recovery.prefs.layer_preview_size > 36); assert_eq!(s.recovery.prefs.shelf_preview_size, 88);
@@ -103,5 +120,5 @@ fn shelf_scroll_reaches_last_asset_while_size_footer_stays_visible() {
     let last = *tiles(&out, 88.0).last().unwrap();
     assert!(last.bottom() < 560.0 && last.bottom() < last_before.bottom(), "last asset is reachable: {last:?}");
     assert!(bounds.bottom() <= 600.5);
-    assert!(out.shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Text(t) if t.galley.text() == "Preview size" && s.clip_rect.contains(t.pos))));
+    assert!(out.shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Text(t) if t.galley.text().ends_with("Medium") && s.clip_rect.contains(t.pos))), "the size menu stays visible");
 }

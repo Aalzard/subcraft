@@ -34,6 +34,9 @@ pub enum Tab {
     Shelf,
     /// Painter's DISPLAY SETTINGS panel. Optional: closed until View > Display settings opens it.
     DisplaySettings,
+    /// An Assets sub-library: one search in a tab of its own (made from the Assets panel; never
+    /// saved with the layout, Painter makes them again too).
+    SubLibrary(u32),
 }
 
 impl Tab {
@@ -50,6 +53,7 @@ impl Tab {
             Tab::History => tr("History"),
             Tab::Shelf => tr("Assets"),
             Tab::DisplaySettings => tr("Display Settings"),
+            Tab::SubLibrary(_) => tr("Assets"),
         }
     }
 
@@ -63,7 +67,7 @@ impl Tab {
             Tab::TextureSetList | Tab::TextureSetSettings => icons::CUBE_WIRE,
             Tab::Parts => icons::CUBE_WIRE,
             Tab::History => icons::HISTORY,
-            Tab::Shelf => icons::SQUARES,
+            Tab::Shelf | Tab::SubLibrary(_) => icons::SQUARES,
             Tab::DisplaySettings => icons::SUN,
         }
     }
@@ -226,6 +230,28 @@ pub fn legacy_layout() -> DockState<Tab> {
 fn migrate_layout(dock: &mut DockState<Tab>) {
     if let Some(path) = dock.find_tab(&Tab::Brush) {
         let _ = dock.remove_tab(path);
+    }
+    dock.retain_tabs(|t| !matches!(t, Tab::SubLibrary(_)));
+}
+
+/// Keep the dock's sub-library tabs in step with the Assets panel: dock a new one beside the
+/// Assets tab and bring it forward; drop the tab of one that was closed.
+pub fn sync_sub_libraries(dock: &mut DockState<Tab>, shelf: &mut panels::shelf::ShelfUi) {
+    dock.retain_tabs(|t| match t {
+        Tab::SubLibrary(id) => shelf.sub_library_name(*id).is_some(),
+        _ => true,
+    });
+    if let Some(id) = shelf.open_sub_library.take() {
+        let tab = Tab::SubLibrary(id);
+        if dock.find_tab(&tab).is_none() {
+            match dock.find_tab(&Tab::Shelf) {
+                Some(host) => dock[host.surface][host.node].append_tab(tab),
+                None => dock.push_to_focused_leaf(tab),
+            }
+        }
+        if let Some(path) = dock.find_tab(&tab) {
+            let _ = dock.set_active_tab(path);
+        }
     }
 }
 
@@ -976,6 +1002,7 @@ impl SubcraftApp {
                 "smart-masks" => ShelfTab::SmartMasks,
                 "filters" => ShelfTab::Filters,
                 "brushes" => ShelfTab::Brushes,
+                "alphas" => ShelfTab::Alphas,
                 "environments" => ShelfTab::Environments,
                 _ => ShelfTab::Textures,
             };
@@ -1073,6 +1100,7 @@ impl SubcraftApp {
         self.state.properties_hosts_brush = self.dock.find_tab(&Tab::Brush).is_none();
         self.follow_layer_selection();
         self.open_requested_brush_editor();
+        sync_sub_libraries(&mut self.dock, &mut self.state.shelf);
         let style = theme::dock_style(ui.style());
         let hidden = self.state.hide_ui;
         let mut viewer = Viewer { state: &mut self.state, was_active: &self.active_tabs, active: HashSet::new() };
@@ -1880,6 +1908,9 @@ impl egui_dock::TabViewer for Viewer<'_> {
         }
         // Painter titles its panels in capitals, without icons; Properties names the layer kind.
         let mut title = tab.title().to_uppercase();
+        if let Tab::SubLibrary(id) = tab {
+            title = self.state.shelf.sub_library_name(*id).unwrap_or(tab.title()).to_uppercase();
+        }
         if *tab == Tab::Properties {
             let kind = self.state.session.selected_layer().map(|l| match l.kind() {
                 subcraft_doc::LayerKind::Paint => "PAINT",
@@ -1915,18 +1946,26 @@ impl egui_dock::TabViewer for Viewer<'_> {
             Tab::History => crate::edit_profile::time_tab("  tab History", || panels::history::show(self.state, ui)),
             Tab::Shelf => crate::edit_profile::time_tab("  tab Shelf", || panels::shelf::show(self.state, ui)),
             Tab::DisplaySettings => crate::edit_profile::time_tab("  tab Display settings", || panels::display_settings::show(self.state, ui)),
+            Tab::SubLibrary(id) => crate::edit_profile::time_tab("  tab Sub-library", || panels::shelf::show_sub_library(self.state, ui, *id)),
         }
     }
 
     fn is_closeable(&self, tab: &Tab) -> bool {
         // The optional panel closes with its tab's X (and reopens from the View menu).
-        matches!(tab, Tab::DisplaySettings)
+        matches!(tab, Tab::DisplaySettings | Tab::SubLibrary(_))
+    }
+
+    fn on_close(&mut self, tab: &mut Tab) -> egui_dock::tab_viewer::OnCloseResponse {
+        if let Tab::SubLibrary(id) = tab {
+            self.state.shelf.close_sub_library(*id);
+        }
+        egui_dock::tab_viewer::OnCloseResponse::Close
     }
 
     fn scroll_bars(&self, tab: &Tab) -> [bool; 2] {
         // These panels own bounded vertical lists and pinned preview-size footers. The dock's
         // extra scroll area would let content widen itself and scroll the footer offscreen.
-        if matches!(tab, Tab::Shelf | Tab::Layers | Tab::TextureSetList) { [false, false] } else { [true, true] }
+        if matches!(tab, Tab::Shelf | Tab::SubLibrary(_) | Tab::Layers | Tab::TextureSetList) { [false, false] } else { [true, true] }
     }
 
     fn clear_background(&self, tab: &Tab) -> bool {
@@ -2157,7 +2196,8 @@ impl eframe::App for SubcraftApp {
         if self.screenshot.is_some() {
             return; // scripted runs never overwrite the user's layout
         }
-        if let Ok(j) = serde_json::to_string(&self.dock) {
+        // Sub-library tabs belong to this session only.
+        if let Ok(j) = serde_json::to_string(&self.dock.filter_tabs(|t| !matches!(t, Tab::SubLibrary(_)))) {
             storage.set_string(DOCK_KEY, j);
         }
         if let Ok(j) = serde_json::to_string(&self.state.recovery.prefs) {

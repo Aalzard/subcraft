@@ -313,12 +313,13 @@ pub fn open(state: &mut UiState, ctx: &egui::Context, index: usize, apply: bool,
     if apply {state.asset_preview.apply_to(&state.session,channel);}
 }
 
-pub fn shelf(state: &mut UiState, ui: &mut egui::Ui, side: f32) -> usize {
+/// Starter-pack tiles of Shelf type `tab`; `visible` holds the indices the search lets through.
+pub fn shelf(state: &mut UiState, ui: &mut egui::Ui, side: f32, tab: crate::panels::shelf::ShelfTab, visible: &std::collections::HashSet<usize>) -> usize {
     use crate::panels::shelf::{ShelfTab,ShelfDrag};
-    let kind=match state.shelf.tab {ShelfTab::NormalMaps=>Kind::Normal,ShelfTab::Textures=>Kind::Texture,ShelfTab::Brushes=>Kind::Alpha,_=>return 0};
+    let kind=match tab {ShelfTab::NormalMaps=>Kind::Normal,ShelfTab::Textures=>Kind::Texture,ShelfTab::Alphas=>Kind::Alpha,_=>return 0};
     let mut shown=0;let mut clicked=None;let mut stamped=None;
     for (i,e) in ENTRIES.iter().enumerate() {
-        if e.kind!=kind||!state.shelf.filter.matches_tagged(e.name,Some("Starter pack"),false,e.tileable()) {continue;}
+        if e.kind!=kind||!visible.contains(&i) {continue;}
         shown+=1;
         if let std::collections::hash_map::Entry::Vacant(slot)=state.asset_preview.thumbs.entry(i)
             && let Ok(b)=subcraft_image::io::decode_bitmap(e.thumb,Some("thumb.png")) {
