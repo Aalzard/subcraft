@@ -37,9 +37,9 @@ fn mask_filter_picker_offers_scalar_operations_and_excludes_hsl() {
     let input=egui::RawInput {screen_rect:Some(Rect::from_min_size(Pos2::ZERO,egui::vec2(480.0,1000.0))),..Default::default()};
     frame(&ctx,input.clone(),|ui|{filter::editor(ui,&mut chosen,None);});
     let out=frame(&ctx,input.clone(),|ui|{filter::editor(ui,&mut chosen,None);});
-    let text=labels(&out);assert!(text.iter().any(|s|s=="Contrast"));
+    let text=labels(&out);assert!(text.iter().any(|s|s.starts_with("Contrast")),"the picker button names the filter: {text:?}");
     // Open the real filter dropdown and inspect offered operations.
-    let pos=out.shapes.iter().find_map(|s|match &s.shape {egui::Shape::Text(t) if t.galley.text()=="Contrast"=>Some(t.pos+t.galley.size()*0.5),_=>None}).unwrap();
+    let pos=out.shapes.iter().find_map(|s|match &s.shape {egui::Shape::Text(t) if t.galley.text().starts_with("Contrast")=>Some(t.pos+t.galley.size()*0.5),_=>None}).unwrap();
     let button=|pressed|egui::Event::PointerButton {pos,button:egui::PointerButton::Primary,pressed,modifiers:Default::default()};
     let mut press=input.clone();press.events=vec![egui::Event::PointerMoved(pos),button(true)];frame(&ctx,press,|ui|{filter::editor(ui,&mut chosen,None);});
     let mut release=input.clone();release.events=vec![button(false)];

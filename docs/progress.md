@@ -5509,3 +5509,20 @@ the app kept drawing on the dead device. Safe mode works; 0.3.3's marker only he
   project, the auto-update menu, SBSAR / SPPR / ABR / GLSL / LUT formats.
 * **Checked:** not built locally (coordinator rule after the PC became unstable under load: CI compiles and tests).
   New tests: `user_library.rs` prefix test, `libraries.rs` and `import_resources.rs` unit tests.
+### Painter parity chunk 15: multi-channel filters and Passthrough layers (2026-11-12, branch `claude/parity-chunk15-filters-passthrough`)
+
+* **Passthrough on paint and fill layers:** like a passthrough folder, the stack below is the layer's content (its own
+  paint or fill is not used), its effects process it, and opacity and mask mix the result back. Both CPU paths (tile
+  and stage graph); the GPU planner hands such layers to the CPU. Passthrough is now offered on every layer, not on
+  effect rows.
+* **Per-channel toggles on filters:** `ContentEffect.extra_channels` (project field `extra_channels`, absent when
+  empty); `applies_to` / `filter_channels`; channel chips in Properties (Alt+click: only this one, the last one stays).
+* **Filter layers from the Shelf:** dragging a filter into the stack adds a paint layer, Passthrough on every channel,
+  with the filter on every channel it supports (`filter_shelf::filter_layer`). Alt or a mask target adds it to the
+  layer instead.
+* **Filter picker:** a button with a search field replaces the combo box (filters only, no thumbnails).
+* **Tests:** `crates/compositor/tests/passthrough_layers.rs` (filtered stack, opacity, mask, no-effect identity, a
+  passthrough paint layer equal to an empty passthrough folder for a local filter and a blur, extra channels),
+  project round trip, filter layer from the shelf, UI unit tests (channel chips, search). Local runs: doc, compositor
+  (unit, passthrough_layers, differential, content_effects, compositor), project, app (unit, filters, spp_stack,
+  layer_polish_parity), ui (unit, filters, layer_polish, effect_rows).

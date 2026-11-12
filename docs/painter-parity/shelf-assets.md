@@ -352,7 +352,7 @@ Layout notes: a mini-shelf is a small floating asset browser, pre-filtered to on
 |---|---|---|---|---|---|
 | Mini-shelf search field | Top of every mini-shelf | usage query followed by a space | partial: on the brush alpha slot only; plain name search, no usage query | crates/ui/src/panels/brush_rows.rs (mini_browser) | - |
 | Smart Material button mini-shelf | Layer stack toolbar | - | missing | - | - |
-| Filter selection mini-shelf | Properties of a filter effect | - | partial: plain "Filter" menu | crates/ui/src/panels/effects.rs:82 | - |
+| Filter selection mini-shelf | Properties of a filter effect | - | partial: searchable list without thumbnails | crates/ui/src/panels/filter.rs:23 | - |
 | Generator selection mini-shelf | Properties of a generator effect | (unverified) | partial: plain menu in the layer context menu | crates/ui/src/panels/layers.rs:470 | - |
 | Fill channel resource slot mini-shelf | Properties of a fill layer / fill effect | - | partial: file picker and anchor picker, no library browser | crates/ui/src/panels/properties.rs:760 | - |
 | Material mode picker mini-shelf | Properties > Material | (unverified) | missing | - | - |
