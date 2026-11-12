@@ -204,7 +204,7 @@ fn main() {
             'v' => ("Curvature", Generator::new(GeneratorKind::MeshMap(MeshMapKind::Curvature))),
             'w' => ("Curvature edges+sizes", {
                 let mut g = Generator::new(GeneratorKind::MeshMap(MeshMapKind::Curvature));
-                g.curvature = Some(subcraft_doc::CurvatureDetail { mode: subcraft_doc::CurvatureMode::Edges, fine: 1.0, medium: 1.0, coarse: 1.0 });
+                g.curvature = Some(subcraft_doc::CurvatureDetail { mode: subcraft_doc::CurvatureDetailMode::Edges, fine: 1.0, medium: 1.0, coarse: 1.0 });
                 g
             }),
             _ => continue,

@@ -110,6 +110,31 @@ fn old_part_masks_default_to_connected_and_new_domains_have_stable_names() {
     }
 }
 
+#[test]
+fn layer_colour_tags_roundtrip_and_untagged_layers_write_no_field() {
+    let mut ts = TextureSet::new("Body", 0, 128);
+    let mut tagged = Layer::new_fill("Tagged", &ts);
+    tagged.color = Some(subcraft_doc::LayerColor::Violet);
+    let mut folder = Layer::new_folder("Folder", &ts);
+    folder.color = Some(subcraft_doc::LayerColor::Grey);
+    let plain = Layer::new_paint("Plain", &ts);
+    ts.insert_above(None, tagged);
+    ts.insert_above(None, folder);
+    ts.insert_above(None, plain);
+    let doc = Document { texture_sets: vec![ts] };
+    let bytes = write_project(Cursor::new(Vec::new()), &primitives::cube(2.), &doc, &ResourceStore::default(), &MeshMapSet::new()).unwrap().into_inner();
+    let back = read_project(Cursor::new(bytes)).unwrap().document;
+    assert_eq!(back, doc);
+    let colors: Vec<_> = back.texture_sets[0].layers.iter().map(|l| l.color).collect();
+    assert_eq!(colors, [Some(subcraft_doc::LayerColor::Violet), Some(subcraft_doc::LayerColor::Grey), None]);
+    // Stable names in the file; a layer without a tag (and any older file) has no field at all.
+    assert_eq!(serde_json::to_string(&subcraft_doc::LayerColor::Violet).unwrap(), "\"violet\"");
+    let json = r#"{"id":"00000000-0000-0000-0000-000000000001","name":"Old","visible":true,"blend":[],"content":{"type":"paint","channels":[]}}"#;
+    let old: LayerV1 = serde_json::from_str(json).unwrap();
+    assert_eq!(old.color, None);
+    assert!(!serde_json::to_string(&old).unwrap().contains("color"));
+}
+
 fn rich_document() -> Document {
     let mut ts = TextureSet::new("Body", 0, 128);
     let tc = ts.clone();
@@ -357,6 +382,53 @@ fn image_mask_effect_keeps_its_image() {
     assert_eq!(back.document, doc);
     let r = back.resources.get(id).expect("mask image saved with the project");
     assert_eq!((r.bitmap.width, r.bitmap.channels), (2, 2));
+}
+
+/// The Painter importer makes resources from pixels alone (`encoded: None`); saving used to skip
+/// them, so the fill layers of a reopened project pointed at images that were no longer there.
+#[test]
+fn bitmap_only_resources_are_saved_with_the_project() {
+    use subcraft_core::ResourceId;
+    use subcraft_doc::{Resource, ResourceKind};
+
+    let mut res = ResourceStore::default();
+    let gray = ResourceId::new();
+    res.insert(Resource {
+        id: gray,
+        name: "Roughness (solved from Painter's result)".into(),
+        kind: ResourceKind::Texture,
+        bitmap: Arc::new(subcraft_image::Bitmap::new_f32(2, 2, 1, vec![0.25, 0.5, 0.75, 1.0])),
+        source_path: None,
+        encoded: None,
+    });
+    let rgb = ResourceId::new();
+    res.insert(Resource {
+        id: rgb,
+        name: "grunge.jpg".into(),
+        kind: ResourceKind::Texture,
+        bitmap: Arc::new(subcraft_image::Bitmap::new_u8(2, 1, 3, vec![10, 20, 30, 200, 210, 220])),
+        source_path: None,
+        encoded: None,
+    });
+    let mut ts = TextureSet::new("Body", 0, 128);
+    let mut layer = Layer::new_fill("Solved", &ts);
+    if let LayerContent::Fill(f) = &mut layer.content {
+        f.channels.insert(ChannelKind::Roughness, FillChannel::new(FillSource::Bitmap { resource: gray }));
+        f.channels.insert(ChannelKind::BaseColor, FillChannel::new(FillSource::Bitmap { resource: rgb }));
+    }
+    ts.insert_above(None, layer);
+    let doc = Document { texture_sets: vec![ts] };
+
+    let bytes = write_project(Cursor::new(Vec::new()), &primitives::cube(1.0), &doc, &res, &MeshMapSet::new()).unwrap().into_inner();
+    let back = read_project(Cursor::new(bytes)).unwrap();
+    assert_eq!(back.document, doc);
+    let g = back.resources.get(gray).expect("float resource saved");
+    assert_eq!((g.bitmap.width, g.bitmap.height), (2, 2));
+    assert!((g.bitmap.texel(1, 1, false)[0] - 1.0).abs() < 1e-6 && (g.bitmap.texel(0, 0, false)[0] - 0.25).abs() < 1e-6);
+    let c = back.resources.get(rgb).expect("8-bit resource saved");
+    assert_eq!((c.bitmap.width, c.bitmap.height, c.bitmap.channels), (2, 1, 3));
+    let t = c.bitmap.texel(1, 0, false).map(|v| (v * 255.0).round() as u8);
+    assert_eq!(&t[..3], &[200, 210, 220]);
 }
 
 fn effect_document() -> Document {
@@ -884,4 +956,22 @@ fn saving_refuses_an_entry_too_large_to_open_again() {
     let err = check_entry_size("mesh.bin", max + 1).unwrap_err();
     assert!(matches!(err, ProjectError::TooLarge(ref n, _) if n == "mesh.bin"));
     assert!(err.to_string().contains("mesh.bin") && err.to_string().contains("not saved"), "{err}");
+}
+
+#[test]
+fn display_settings_are_saved_with_the_project_and_old_projects_have_none() {
+    let doc = Document { texture_sets: vec![TextureSet::new("Body", 0, 128)] };
+    let mesh = primitives::cube(2.);
+    // A project that never touched the display settings writes no settings block at all.
+    let plain = write_project(Cursor::new(Vec::new()), &mesh, &doc, &ResourceStore::default(), &MeshMapSet::new()).unwrap().into_inner();
+    assert_eq!(read_project(Cursor::new(plain)).unwrap().settings.display, None);
+    let display = subcraft_doc::DisplaySettings {
+        tone_map: subcraft_doc::ToneMap::Reinhard, glare_mode: subcraft_doc::GlareShape::Star, bloom: 0.75, exposure: 1.5, dof: true,
+        wireframe: true, wire_color: [0.2, 0.4, 0.6], grid: false, grid_axes: [false, true, true], antialias: false, ..Default::default()
+    };
+    let settings = subcraft_doc::ProjectSettings { display: Some(display.clone()), ..Default::default() };
+    let bytes = write_project_with(Cursor::new(Vec::new()), &mesh, &doc, &ResourceStore::default(), &MeshMapSet::new(), &settings).unwrap().into_inner();
+    let read = read_project(Cursor::new(bytes)).unwrap();
+    assert_eq!(read.settings.display, Some(display));
+    assert_eq!(read.settings, settings);
 }

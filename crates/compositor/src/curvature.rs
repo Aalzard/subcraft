@@ -9,7 +9,7 @@
 use std::sync::{Arc, Mutex, OnceLock};
 
 use rayon::prelude::*;
-use subcraft_doc::{CurvatureDetail, CurvatureMode};
+use subcraft_doc::{CurvatureDetail, CurvatureDetailMode};
 use subcraft_image::{TILE_TEXELS, TiledImage};
 use subcraft_materials::sample::TileGeometry;
 
@@ -177,9 +177,9 @@ pub fn detail_values(detail: &CurvatureDetail, map: Option<&TiledImage>, geo: &T
             if let Some(g) = &coarse { dev += wc * COARSE_GAIN * (g.sample(uv) - 0.5); }
         }
         *o = match detail.mode {
-            CurvatureMode::Both => 0.5 + dev,
-            CurvatureMode::Edges => 2.0 * dev.max(0.0),
-            CurvatureMode::Cavities => 2.0 * (-dev).max(0.0),
+            CurvatureDetailMode::Both => 0.5 + dev,
+            CurvatureDetailMode::Edges => 2.0 * dev.max(0.0),
+            CurvatureDetailMode::Cavities => 2.0 * (-dev).max(0.0),
         }
         .clamp(0.0, 1.0);
     }

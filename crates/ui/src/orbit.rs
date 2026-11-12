@@ -116,6 +116,30 @@ impl OrbitCamera {
         self.pitch = (self.pitch + dy * 0.008).clamp(-1.55, 1.55);
     }
 
+    /// [`OrbitCamera::orbit`] around `pivot` instead of the target: the camera turns rigidly about
+    /// that point, so it stays where it is on screen (Painter orbits around the point under the
+    /// cursor, issue #115). With `pivot == target` this is exactly `orbit`.
+    pub fn orbit_around(&mut self, pivot: Vec3, dx: f32, dy: f32) {
+        let before = glam::Mat3::from_mat4(self.view()).transpose();
+        self.orbit(dx, dy);
+        self.turn_about(pivot, before);
+    }
+
+    /// Set the view angles, turning about `pivot` (snapped orbit).
+    pub fn set_angles_around(&mut self, pivot: Vec3, yaw: f32, pitch: f32) {
+        let before = glam::Mat3::from_mat4(self.view()).transpose();
+        self.yaw = yaw;
+        self.pitch = pitch.clamp(-1.55, 1.55);
+        self.turn_about(pivot, before);
+    }
+
+    /// Move the target by the rotation that took the camera axes `before` to the current ones.
+    fn turn_about(&mut self, pivot: Vec3, before: glam::Mat3) {
+        let after = glam::Mat3::from_mat4(self.view()).transpose();
+        let turn = after * before.transpose();
+        self.target = pivot + turn * (self.target - pivot);
+    }
+
     /// Pan by a screen delta in pixels (keeps the point under the cursor fixed at the target depth).
     pub fn pan(&mut self, dx: f32, dy: f32, viewport_height: f32) {
         let units_per_px = 2.0 * self.half_height() / viewport_height.max(1.0);
@@ -174,6 +198,33 @@ mod tests {
         cam.pan(10.0, 0.0, 600.0);
         assert!(cam.target != t);
         assert!((cam.eye() - cam.target).length() - cam.distance < 1e-4);
+    }
+
+    #[test]
+    fn orbiting_around_a_point_keeps_it_where_it_is_on_screen() {
+        let b = Aabb { min: Vec3::splat(-1.0), max: Vec3::splat(1.0) };
+        let mut cam = OrbitCamera::framing(&b);
+        let pivot = Vec3::new(0.7, -0.4, 0.9);
+        let before = cam.paint_camera([800, 600]).project(pivot).unwrap();
+        let depth = cam.paint_camera([800, 600]).view_depth(pivot);
+        for (dx, dy) in [(40.0, 0.0), (-15.0, 25.0), (120.0, -60.0)] {
+            cam.orbit_around(pivot, dx, dy);
+            let pc = cam.paint_camera([800, 600]);
+            let now = pc.project(pivot).unwrap();
+            assert!((now.truncate() - before.truncate()).length() < 0.05, "{before} -> {now}");
+            assert!((pc.view_depth(pivot) - depth).abs() < 1e-3, "the distance to the pivot is kept");
+        }
+        // Around the target it is the plain orbit.
+        let (mut a, mut c) = (OrbitCamera::framing(&b), OrbitCamera::framing(&b));
+        a.orbit(30.0, 12.0);
+        c.orbit_around(c.target, 30.0, 12.0);
+        assert!((a.target - c.target).length() < 1e-5 && a.yaw == c.yaw && a.pitch == c.pitch);
+        // Snapped angles turn about the pivot too.
+        let mut s = OrbitCamera::framing(&b);
+        let at = s.paint_camera([800, 600]).project(pivot).unwrap();
+        s.set_angles_around(pivot, std::f32::consts::FRAC_PI_2, 0.0);
+        assert!((s.paint_camera([800, 600]).project(pivot).unwrap().truncate() - at.truncate()).length() < 0.05);
+        assert_eq!((s.yaw, s.pitch), (std::f32::consts::FRAC_PI_2, 0.0));
     }
 
     #[test]

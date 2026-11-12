@@ -79,12 +79,15 @@ pub struct Generator {
     /// in every older project): the baked map itself.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub curvature: Option<CurvatureDetail>,
+    /// Settings of [`GeneratorKind::MaskEditor`]. Absent for every other kind.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub editor: Option<MaskEditor>,
 }
 
 /// Which side of the curvature the Curvature generator keeps.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum CurvatureMode {
+pub enum CurvatureDetailMode {
     /// The map as baked: convex bright, concave dark, flat at 0.5.
     #[default]
     Both,
@@ -94,7 +97,7 @@ pub enum CurvatureMode {
     Cavities,
 }
 
-impl CurvatureMode {
+impl CurvatureDetailMode {
     pub const ALL: [Self; 3] = [Self::Both, Self::Edges, Self::Cavities];
     pub fn label(self) -> &'static str {
         match self { Self::Both => "Edges and cavities", Self::Edges => "Edges only", Self::Cavities => "Cavities only" }
@@ -107,14 +110,14 @@ impl CurvatureMode {
 /// and coarse 0) is exactly the baked map.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct CurvatureDetail {
-    pub mode: CurvatureMode,
+    pub mode: CurvatureDetailMode,
     pub fine: f32,
     pub medium: f32,
     pub coarse: f32,
 }
 
 impl Default for CurvatureDetail {
-    fn default() -> Self { Self { mode: CurvatureMode::Both, fine: 1.0, medium: 0.0, coarse: 0.0 } }
+    fn default() -> Self { Self { mode: CurvatureDetailMode::Both, fine: 1.0, medium: 0.0, coarse: 0.0 } }
 }
 
 impl CurvatureDetail {
@@ -124,6 +127,325 @@ impl CurvatureDetail {
     /// Whether these settings leave the baked map exactly as it is.
     pub fn is_identity(&self) -> bool { *self == Self::default() }
 }
+
+/// How a color texture becomes one gray value (the Grayscale Conversion options).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GrayscaleType {
+    /// Mean of the largest and smallest component (HSL lightness).
+    Desaturation,
+    /// Rec. 709 luminance.
+    #[default]
+    Luma,
+    Average,
+    Max,
+    Min,
+    Red,
+    Green,
+    Blue,
+}
+
+impl GrayscaleType {
+    pub const ALL: [Self; 8] = [Self::Desaturation, Self::Luma, Self::Average, Self::Max, Self::Min, Self::Red, Self::Green, Self::Blue];
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Desaturation => "Desaturation", Self::Luma => "Luma", Self::Average => "Average", Self::Max => "Max", Self::Min => "Min",
+            Self::Red => "Red channel", Self::Green => "Green channel", Self::Blue => "Blue channel",
+        }
+    }
+    pub fn convert(self, c: [f32; 3]) -> f32 {
+        let (max, min) = (c[0].max(c[1]).max(c[2]), c[0].min(c[1]).min(c[2]));
+        match self {
+            Self::Desaturation => (max + min) * 0.5,
+            Self::Luma => 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2],
+            Self::Average => (c[0] + c[1] + c[2]) / 3.0,
+            Self::Max => max,
+            Self::Min => min,
+            Self::Red => c[0],
+            Self::Green => c[1],
+            Self::Blue => c[2],
+        }
+    }
+}
+
+/// What the Mask Editor's Curvature group extracts from the baked curvature (0.5 = flat).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CurvatureMode {
+    /// Convex edges: `(c - 0.5) * 2`, clamped.
+    #[default]
+    Edges,
+    /// Concave creases: `(0.5 - c) * 2`, clamped.
+    Cavities,
+    /// Both: `|c - 0.5| * 2`.
+    Dual,
+    /// The map as baked.
+    Unprocessed,
+}
+
+impl CurvatureMode {
+    pub const ALL: [Self; 4] = [Self::Edges, Self::Cavities, Self::Dual, Self::Unprocessed];
+    pub fn label(self) -> &'static str {
+        match self { Self::Edges => "Edges", Self::Cavities => "Cavities", Self::Dual => "Dual", Self::Unprocessed => "Unprocessed" }
+    }
+    pub fn extract(self, c: f32) -> f32 {
+        match self {
+            Self::Edges => ((c - 0.5) * 2.0).clamp(0.0, 1.0),
+            Self::Cavities => ((0.5 - c) * 2.0).clamp(0.0, 1.0),
+            Self::Dual => ((c - 0.5).abs() * 2.0).clamp(0.0, 1.0),
+            Self::Unprocessed => c,
+        }
+    }
+}
+
+/// Contrast then brightness, each -1..=1 with 0 neutral: positive contrast stretches around 0.5
+/// by `1 / (1 - contrast)` (1 = a hard step), negative compresses by `1 + contrast`; brightness
+/// is added. Clamped to 0..=1.
+pub fn contrast_brightness(v: f32, contrast: f32, brightness: f32) -> f32 {
+    let d = v - 0.5;
+    let d = if contrast >= 1.0 { if d > 0.0 { 0.5 } else if d < 0.0 { -0.5 } else { 0.0 } } else if contrast >= 0.0 { d / (1.0 - contrast) } else { d * (1.0 + contrast) };
+    (0.5 + d + brightness).clamp(0.0, 1.0)
+}
+
+/// Balance / Contrast remap, each 0..=1: a linear ramp `1 - contrast` wide centred on
+/// `1 - balance` (Balance 0.5, Contrast 0 is the identity; Contrast 1 a hard threshold; a higher
+/// Balance gives more white).
+pub fn balance_contrast(v: f32, balance: f32, contrast: f32) -> f32 {
+    let (centre, width) = (1.0 - balance, 1.0 - contrast);
+    if width <= 1e-6 { return if v >= centre { 1.0 } else { 0.0 }; }
+    ((v - (centre - width * 0.5)) / width).clamp(0.0, 1.0)
+}
+
+/// A texture contribution of the Mask Editor (its Texture and Texture 2 groups).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct EditorTexture {
+    /// The image; none contributes nothing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resource: Option<subcraft_core::ResourceId>,
+    pub opacity: f32,
+    pub invert: bool,
+    pub grayscale: GrayscaleType,
+    pub blend: BlendMode,
+    /// Repetitions across the UV square (UV) or the model's longest dimension (tri-planar).
+    pub scale: f32,
+    pub contrast: f32,
+    pub brightness: f32,
+    pub triplanar: bool,
+    /// Sharpness of the blend between the three projection planes, 0..=1.
+    pub triplanar_contrast: f32,
+    /// Keep the image's aspect ratio: a non-square image repeats `scale` times along its width
+    /// and proportionally along its height.
+    pub non_square: bool,
+}
+
+impl Default for EditorTexture {
+    fn default() -> Self {
+        Self { resource: None, opacity: 0.0, invert: false, grayscale: GrayscaleType::Luma, blend: BlendMode::Normal, scale: 1.0, contrast: 0.0, brightness: 0.0, triplanar: false, triplanar_contrast: 0.5, non_square: false }
+    }
+}
+
+impl EditorTexture {
+    /// Gray value of a sampled texel through the group's settings.
+    pub fn shape(&self, rgb: [f32; 3]) -> f32 {
+        let v = contrast_brightness(self.grayscale.convert(rgb).clamp(0.0, 1.0), self.contrast, self.brightness);
+        if self.invert { 1.0 - v } else { v }
+    }
+    /// Texture repetitions along `[U, V]` for an image of `width` x `height`.
+    pub fn tiling(&self, width: u32, height: u32) -> [f32; 2] {
+        let aspect = if self.non_square && height > 0 { width as f32 / height as f32 } else { 1.0 };
+        [self.scale, self.scale * aspect]
+    }
+    /// Tri-planar blend exponent of `triplanar_contrast` (0 = widest blend, 1 = a hard cut).
+    pub fn triplanar_sharpness(&self) -> f32 { 1.0 / (1.0 - self.triplanar_contrast.clamp(0.0, 0.98)) }
+}
+
+/// The Mask Editor's Ambient Occlusion group.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct EditorOcclusion {
+    pub opacity: f32,
+    pub invert: bool,
+    pub blend: BlendMode,
+    pub balance: f32,
+    pub contrast: f32,
+}
+
+impl Default for EditorOcclusion {
+    fn default() -> Self { Self { opacity: 0.0, invert: false, blend: BlendMode::Normal, balance: 0.5, contrast: 0.0 } }
+}
+
+impl EditorOcclusion {
+    pub fn shape(&self, ao: f32) -> f32 {
+        let v = balance_contrast(ao, self.balance, self.contrast);
+        if self.invert { 1.0 - v } else { v }
+    }
+}
+
+/// The Mask Editor's Curvature group.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct EditorCurvature {
+    pub opacity: f32,
+    pub invert: bool,
+    pub blend: BlendMode,
+    pub mode: CurvatureMode,
+    pub contrast: f32,
+    pub brightness: f32,
+}
+
+impl Default for EditorCurvature {
+    fn default() -> Self { Self { opacity: 1.0, invert: false, blend: BlendMode::Normal, mode: CurvatureMode::Edges, contrast: 0.0, brightness: 0.0 } }
+}
+
+impl EditorCurvature {
+    pub fn shape(&self, curvature: f32) -> f32 {
+        let v = contrast_brightness(self.mode.extract(curvature), self.contrast, self.brightness);
+        if self.invert { 1.0 - v } else { v }
+    }
+}
+
+/// One direction (Right to Left, Top To Bottom, Front to Back) of a directional group.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct EditorDirection {
+    /// How much of this direction's gradient is blended in, 0..=1.
+    pub amount: f32,
+    pub invert: bool,
+    pub blend: BlendMode,
+}
+
+impl Default for EditorDirection {
+    fn default() -> Self { Self { amount: 0.0, invert: false, blend: BlendMode::Normal } }
+}
+
+/// The Mask Editor's World Space Normal and Position Gradient groups: three per-axis gradients
+/// blended in order (X = Right to Left, Y = Top To Bottom, Z = Front to Back), then remapped.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct EditorDirections {
+    pub opacity: f32,
+    pub invert: bool,
+    pub blend: BlendMode,
+    pub balance: f32,
+    pub contrast: f32,
+    pub brightness: f32,
+    pub axes: [EditorDirection; 3],
+}
+
+impl Default for EditorDirections {
+    fn default() -> Self {
+        // Top To Bottom on, the other two off: the group shows something as soon as its opacity is raised.
+        let axis = |amount| EditorDirection { amount, ..EditorDirection::default() };
+        Self { opacity: 0.0, invert: false, blend: BlendMode::Normal, balance: 0.5, contrast: 0.0, brightness: 0.0, axes: [axis(0.0), axis(1.0), axis(0.0)] }
+    }
+}
+
+impl EditorDirections {
+    pub const AXIS_LABELS: [&'static str; 3] = ["Right to Left", "Top To Bottom", "Front to Back"];
+
+    /// The group's value from the three per-axis gradients (each 0..=1, 1 = right / top / front).
+    /// `blend(mode, below, value)` is the grayscale blend function.
+    pub fn shape(&self, gradients: [f32; 3], blend: impl Fn(BlendMode, f32, f32) -> f32) -> f32 {
+        let mut v = 0.0;
+        for (axis, g) in self.axes.iter().zip(gradients) {
+            let amount = axis.amount.clamp(0.0, 1.0);
+            if amount > 0.0 {
+                let g = if axis.invert { 1.0 - g } else { g }.clamp(0.0, 1.0);
+                v += (blend(axis.blend, v, g).clamp(0.0, 1.0) - v) * amount;
+            }
+        }
+        let v = (balance_contrast(v, self.balance, self.contrast) + self.brightness).clamp(0.0, 1.0);
+        if self.invert { 1.0 - v } else { v }
+    }
+}
+
+/// The Mask Editor's Thickness group.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct EditorThickness {
+    pub opacity: f32,
+    pub invert: bool,
+    pub contrast: f32,
+    pub brightness: f32,
+}
+
+impl Default for EditorThickness {
+    fn default() -> Self { Self { opacity: 0.0, invert: false, contrast: 0.0, brightness: 0.0 } }
+}
+
+impl EditorThickness {
+    pub fn shape(&self, thickness: f32) -> f32 {
+        let v = contrast_brightness(thickness, self.contrast, self.brightness);
+        if self.invert { 1.0 - v } else { v }
+    }
+}
+
+/// Settings of [`GeneratorKind::MaskEditor`]: seven contributions (two textures and five mesh-map
+/// groups) blended bottom to top over black, each by its own opacity and blending mode, then the
+/// global Blur, Balance, Contrast and Invert.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MaskEditor {
+    pub global_invert: bool,
+    /// Gaussian radius in texture pixels applied to the blended contributions (0 = none).
+    pub global_blur: f32,
+    pub global_balance: f32,
+    pub global_contrast: f32,
+    pub texture: EditorTexture,
+    pub texture2: EditorTexture,
+    pub occlusion: EditorOcclusion,
+    pub curvature: EditorCurvature,
+    pub world_normal: EditorDirections,
+    pub position: EditorDirections,
+    pub thickness: EditorThickness,
+}
+
+impl Default for MaskEditor {
+    fn default() -> Self {
+        Self {
+            global_invert: false, global_blur: 0.0, global_balance: 0.5, global_contrast: 0.0,
+            texture: EditorTexture::default(), texture2: EditorTexture::default(), occlusion: EditorOcclusion::default(), curvature: EditorCurvature::default(),
+            world_normal: EditorDirections::default(), position: EditorDirections::default(), thickness: EditorThickness::default(),
+        }
+    }
+}
+
+impl MaskEditor {
+    /// Largest global blur radius, in pixels (the Blur filter's limit).
+    pub const MAX_BLUR: f32 = 32.0;
+
+    /// The global blur radius in effect (0 for anything out of range or non-finite).
+    pub fn blur_radius(&self) -> f32 {
+        if self.global_blur.is_finite() { self.global_blur.clamp(0.0, Self::MAX_BLUR) } else { 0.0 }
+    }
+
+    /// The final value from the blended (and blurred) contributions: Balance, Contrast, Invert.
+    pub fn finish(&self, v: f32) -> f32 {
+        let v = balance_contrast(v.clamp(0.0, 1.0), self.global_balance, self.global_contrast);
+        if self.global_invert { 1.0 - v } else { v }
+    }
+
+    /// The image resources the two texture groups read.
+    pub fn resources(&self) -> impl Iterator<Item = subcraft_core::ResourceId> {
+        [self.texture.resource, self.texture2.resource].into_iter().flatten()
+    }
+
+    /// Whether every number is finite and inside the range its control offers.
+    pub fn valid(&self) -> bool {
+        let unit = |v: f32| v.is_finite() && (0.0..=1.0).contains(&v);
+        let signed = |v: f32| v.is_finite() && (-1.0..=1.0).contains(&v);
+        let texture = |t: &EditorTexture| unit(t.opacity) && t.scale.is_finite() && (0.01..=256.0).contains(&t.scale) && signed(t.contrast) && signed(t.brightness) && unit(t.triplanar_contrast);
+        let directions = |d: &EditorDirections| unit(d.opacity) && unit(d.balance) && unit(d.contrast) && signed(d.brightness) && d.axes.iter().all(|a| unit(a.amount));
+        self.global_blur.is_finite() && (0.0..=Self::MAX_BLUR).contains(&self.global_blur) && unit(self.global_balance) && unit(self.global_contrast)
+            && texture(&self.texture) && texture(&self.texture2)
+            && unit(self.occlusion.opacity) && unit(self.occlusion.balance) && unit(self.occlusion.contrast)
+            && unit(self.curvature.opacity) && signed(self.curvature.contrast) && signed(self.curvature.brightness)
+            && directions(&self.world_normal) && directions(&self.position)
+            && unit(self.thickness.opacity) && signed(self.thickness.contrast) && signed(self.thickness.brightness)
+    }
+}
+
 
 /// Settings of a generator's micro effect (see [`Generator::micro`]). `Default` is the neutral
 /// "off" state; [`MicroEffect::enabled_for`] gives the settings a freshly ticked checkbox starts with.
@@ -268,6 +590,9 @@ pub enum GeneratorKind {
     /// Painter's Ambient Occlusion generator: occluded areas white (1 - baked AO), a smooth
     /// Balance / Contrast remap with no breakup by default.
     AmbientOcclusion,
+    /// Painter's Mask Editor: textures and mesh maps blended by per-group opacity and blending
+    /// mode, with global Blur / Balance / Contrast ([`Generator::editor`]).
+    MaskEditor,
 }
 
 impl GeneratorKind {
@@ -280,6 +605,7 @@ impl GeneratorKind {
             GeneratorKind::Concave => "Concave Curvature".into(),
             GeneratorKind::MeshMap(m) => format!("Mesh Map: {}", m.display_name()),
             GeneratorKind::AmbientOcclusion => "Ambient Occlusion".into(),
+            GeneratorKind::MaskEditor => "Mask Editor".into(),
         }
     }
 
@@ -312,6 +638,8 @@ impl Generator {
             // Balance 0.5, Contrast 0: the map itself.
             GeneratorKind::MeshMap(_) => (0.5, 1.0, 0.0),
             GeneratorKind::Directional | GeneratorKind::PositionGradient => (0.5, 0.15, 0.0),
+            // Unused by the Mask Editor (its own settings are in `editor`).
+            GeneratorKind::MaskEditor => (0.5, 1.0, 0.0),
         };
         Self {
             kind,
@@ -335,12 +663,32 @@ impl Generator {
             micro: None,
             input: None,
             curvature: None,
+            editor: (kind == GeneratorKind::MaskEditor).then(MaskEditor::default),
         }
+    }
+
+    /// The Mask Editor settings in effect (the defaults when the kind is set but they are absent).
+    pub fn editor_settings(&self) -> MaskEditor { self.editor.unwrap_or_default() }
+
+    /// Global blur radius (pixels) of a Mask Editor; 0 for every other kind.
+    pub fn editor_blur(&self) -> f32 {
+        if self.kind == GeneratorKind::MaskEditor { self.editor_settings().blur_radius() } else { 0.0 }
+    }
+
+    /// Switch the generator to `kind`, creating the Mask Editor settings when it needs them.
+    pub fn set_kind(&mut self, kind: GeneratorKind) {
+        self.kind = kind;
+        if kind == GeneratorKind::MaskEditor && self.editor.is_none() { self.editor = Some(MaskEditor::default()); }
+    }
+
+    /// Image resources the generator reads (the Mask Editor's textures).
+    pub fn resources(&self) -> Vec<subcraft_core::ResourceId> {
+        if self.kind == GeneratorKind::MaskEditor { self.editor_settings().resources().collect() } else { Vec::new() }
     }
 
     /// Whether this kind reads a baked map that an anchor input can replace.
     pub fn accepts_input(&self) -> bool {
-        !matches!(self.kind, GeneratorKind::Directional | GeneratorKind::PositionGradient)
+        !matches!(self.kind, GeneratorKind::Directional | GeneratorKind::PositionGradient | GeneratorKind::MaskEditor)
     }
 
     /// Whether the micro effect is on and strong enough to change anything.
@@ -562,6 +910,105 @@ mod tests {
         assert!(!serde_json::to_string(&old).unwrap().contains("grunge_map"));
         let kind: GeneratorKind = serde_json::from_str("\"ambient_occlusion\"").unwrap();
         assert_eq!(kind, GeneratorKind::AmbientOcclusion);
+    }
+
+
+    #[test]
+    fn mask_editor_remaps_match_hand_computed_values() {
+        // Balance / Contrast: identity at 0.5 / 0, a ramp 1 - contrast wide centred on 1 - balance.
+        for v in [0.0, 0.2, 0.5, 0.9, 1.0] { assert!((balance_contrast(v, 0.5, 0.0) - v).abs() < 1e-6); }
+        assert!((balance_contrast(0.5, 0.5, 0.5) - 0.5).abs() < 1e-6);
+        assert_eq!((balance_contrast(0.25, 0.5, 0.5), balance_contrast(0.75, 0.5, 0.5)), (0.0, 1.0));
+        assert!((balance_contrast(0.375, 0.5, 0.5) - 0.25).abs() < 1e-6);
+        // More balance = more white: balance 0.75 centres the ramp on 0.25.
+        assert!((balance_contrast(0.25, 0.75, 0.5) - 0.5).abs() < 1e-6);
+        assert_eq!((balance_contrast(0.399, 0.6, 1.0), balance_contrast(0.4, 0.6, 1.0)), (0.0, 1.0));
+        // Contrast / Brightness: neutral at 0 / 0.
+        for v in [0.0, 0.3, 1.0] { assert_eq!(contrast_brightness(v, 0.0, 0.0), v); }
+        assert!((contrast_brightness(0.4, 0.5, 0.0) - 0.3).abs() < 1e-6);
+        assert!((contrast_brightness(0.1, -0.5, 0.0) - 0.3).abs() < 1e-6);
+        assert!((contrast_brightness(0.4, 0.5, 0.1) - 0.4).abs() < 1e-6);
+        assert_eq!((contrast_brightness(0.49, 1.0, 0.0), contrast_brightness(0.51, 1.0, 0.0), contrast_brightness(0.2, -1.0, 0.0)), (0.0, 1.0, 0.5));
+        assert_eq!(contrast_brightness(0.9, 0.0, 0.5), 1.0, "clamped");
+        // Curvature modes around the flat 0.5.
+        let modes = |c| CurvatureMode::ALL.map(|m| m.extract(c));
+        assert_eq!(modes(0.5), [0.0, 0.0, 0.0, 0.5]);
+        assert_eq!(modes(0.75), [0.5, 0.0, 0.5, 0.75]);
+        assert_eq!(modes(0.25), [0.0, 0.5, 0.5, 0.25]);
+        assert_eq!(modes(1.0), [1.0, 0.0, 1.0, 1.0]);
+        // Grayscale conversions of (0.8, 0.4, 0.2).
+        let c = [0.8, 0.4, 0.2];
+        let got = GrayscaleType::ALL.map(|g| g.convert(c));
+        let want = [0.5, 0.2126 * 0.8 + 0.7152 * 0.4 + 0.0722 * 0.2, 1.4 / 3.0, 0.8, 0.2, 0.8, 0.4, 0.2];
+        for (g, w) in got.iter().zip(want) { assert!((g - w).abs() < 1e-6, "{got:?}"); }
+    }
+
+    #[test]
+    fn mask_editor_groups_shape_their_maps() {
+        let ed = MaskEditor::default();
+        assert!(ed.valid() && ed.blur_radius() == 0.0);
+        // Defaults: only the curvature edges contribute; the global remap is the identity.
+        assert_eq!((ed.curvature.opacity, ed.occlusion.opacity, ed.thickness.opacity, ed.texture.opacity, ed.world_normal.opacity, ed.position.opacity), (1.0, 0.0, 0.0, 0.0, 0.0, 0.0));
+        for v in [0.0, 0.3, 1.0] { assert!((ed.finish(v) - v).abs() < 1e-6); }
+        assert!((MaskEditor { global_invert: true, ..ed }.finish(0.3) - 0.7).abs() < 1e-6);
+        assert_eq!(MaskEditor { global_contrast: 1.0, global_balance: 0.7, ..ed }.finish(0.31), 1.0);
+        assert_eq!(ed.curvature.shape(0.75), 0.5);
+        assert_eq!(EditorCurvature { invert: true, mode: CurvatureMode::Cavities, ..ed.curvature }.shape(0.25), 0.5);
+        assert!((EditorOcclusion { invert: true, ..ed.occlusion }.shape(0.2) - 0.8).abs() < 1e-6);
+        assert!((EditorThickness { contrast: 0.5, brightness: 0.1, ..ed.thickness }.shape(0.4) - 0.4).abs() < 1e-6);
+        // Textures: conversion, contrast, brightness, invert; tiling keeps the aspect on request.
+        let t = EditorTexture { grayscale: GrayscaleType::Red, contrast: 0.5, invert: true, ..EditorTexture::default() };
+        assert!((t.shape([0.4, 0.9, 0.9]) - 0.7).abs() < 1e-6);
+        assert_eq!(EditorTexture { scale: 3.0, ..t }.tiling(512, 256), [3.0, 3.0]);
+        assert_eq!(EditorTexture { scale: 3.0, non_square: true, ..t }.tiling(512, 256), [3.0, 6.0]);
+        assert_eq!((EditorTexture { triplanar_contrast: 0.0, ..t }.triplanar_sharpness(), EditorTexture { triplanar_contrast: 0.5, ..t }.triplanar_sharpness()), (1.0, 2.0));
+        assert!(EditorTexture { triplanar_contrast: 1.0, ..t }.triplanar_sharpness().is_finite());
+        // Directions: the three gradients blend in order, each by its amount, with the plain
+        // "normal" blend standing in for the compositor's.
+        let normal = |_: BlendMode, _: f32, v: f32| v;
+        let d = EditorDirections::default();
+        assert_eq!(d.shape([0.1, 0.8, 0.3], normal), 0.8, "Top To Bottom only by default");
+        let mix = EditorDirections { axes: [EditorDirection { amount: 1.0, ..Default::default() }, EditorDirection { amount: 0.5, invert: true, ..Default::default() }, EditorDirection::default()], ..d };
+        // X fully: 0.1; then half of inverted Y (0.2): 0.15.
+        assert!((mix.shape([0.1, 0.8, 0.3], normal) - 0.15).abs() < 1e-6);
+        let multiply = |m: BlendMode, below: f32, v: f32| if m == BlendMode::Multiply { below * v } else { v };
+        let both = EditorDirections { axes: [EditorDirection { amount: 1.0, ..Default::default() }, EditorDirection { amount: 1.0, blend: BlendMode::Multiply, ..Default::default() }, EditorDirection::default()], brightness: 0.1, invert: true, ..d };
+        // 0.5 * 0.8 = 0.4, + 0.1 brightness, inverted.
+        assert!((both.shape([0.5, 0.8, 0.0], multiply) - 0.5).abs() < 1e-6);
+        // Out-of-range values are rejected; resources lists the texture images.
+        assert!(!MaskEditor { global_blur: 40.0, ..ed }.valid() && !MaskEditor { thickness: EditorThickness { contrast: 2.0, ..ed.thickness }, ..ed }.valid());
+        assert!(!MaskEditor { texture2: EditorTexture { scale: 0.0, ..ed.texture2 }, ..ed }.valid());
+        assert_eq!(MaskEditor { global_blur: f32::NAN, ..ed }.blur_radius(), 0.0);
+        let id = subcraft_core::ResourceId::new();
+        let with = MaskEditor { texture2: EditorTexture { resource: Some(id), ..ed.texture2 }, ..ed };
+        assert_eq!(with.resources().collect::<Vec<_>>(), vec![id]);
+        assert_eq!(ed.resources().count(), 0);
+    }
+
+    #[test]
+    fn mask_editor_generator_defaults_and_serialization() {
+        let g = Generator::new(GeneratorKind::MaskEditor);
+        assert_eq!(g.kind.label(), "Mask Editor");
+        assert_eq!(g.editor, Some(MaskEditor::default()));
+        assert!(!g.accepts_input() && g.noise_amount == 0.0 && g.editor_blur() == 0.0);
+        assert_eq!(serde_json::from_str::<GeneratorKind>("\"mask_editor\"").unwrap(), GeneratorKind::MaskEditor);
+        // Other kinds carry no editor and write none, so older projects serialize unchanged.
+        let dirt = Generator::new(GeneratorKind::Cavity);
+        assert!(dirt.editor.is_none() && !serde_json::to_string(&dirt).unwrap().contains("editor"));
+        // Round trip, and a file written before a setting existed takes the default for it.
+        let mut tuned = g;
+        let ed = tuned.editor.as_mut().unwrap();
+        ed.global_blur = 6.0;
+        ed.occlusion = EditorOcclusion { opacity: 0.7, invert: true, blend: BlendMode::Multiply, balance: 0.6, contrast: 0.2 };
+        ed.position.axes[2].amount = 0.4;
+        ed.texture.resource = Some(subcraft_core::ResourceId::new());
+        let json = serde_json::to_string(&tuned).unwrap();
+        assert_eq!(serde_json::from_str::<Generator>(&json).unwrap(), tuned);
+        assert_eq!(tuned.editor_blur(), 6.0);
+        let sparse: MaskEditor = serde_json::from_str(r#"{"global_balance":0.7,"curvature":{"opacity":0.25}}"#).unwrap();
+        assert_eq!(sparse, MaskEditor { global_balance: 0.7, curvature: EditorCurvature { opacity: 0.25, ..Default::default() }, ..Default::default() });
+        // A Mask Editor that lost its settings (a hand-edited file) behaves as the default one.
+        assert_eq!(Generator { editor: None, ..g }.editor_settings(), MaskEditor::default());
     }
 
     #[test]

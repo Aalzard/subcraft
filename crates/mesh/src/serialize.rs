@@ -189,4 +189,23 @@ mod tests {
         broken.tri_object[0] = Some(100);
         assert!(matches!(decode(&encode(&broken)), Err(MeshDecodeError::Invalid(_))));
     }
+
+    #[test]
+    fn decode_rejects_submesh_ranges_and_material_slots_that_later_code_indexes() {
+        let mesh = primitives::cube(1.0);
+        let tris = mesh.triangle_count() as u32;
+        let mut past_end = mesh.clone();
+        past_end.submeshes[0].first_triangle = 5;
+        assert!(matches!(decode(&encode(&past_end)), Err(MeshDecodeError::Invalid(_))), "range past the triangle list");
+        let mut overflow = mesh.clone();
+        overflow.submeshes[0].first_triangle = u32::MAX - tris + 1;
+        assert!(matches!(decode(&encode(&overflow)), Err(MeshDecodeError::Invalid(_))), "first + count overflows");
+        let mut bad_slot = mesh.clone();
+        bad_slot.submeshes[0].material = 7;
+        assert!(matches!(decode(&encode(&bad_slot)), Err(MeshDecodeError::Invalid(_))), "submesh material slot");
+        let mut bad_tri = mesh.clone();
+        bad_tri.tri_material[0] = 7;
+        assert!(matches!(decode(&encode(&bad_tri)), Err(MeshDecodeError::Invalid(_))), "triangle material slot");
+        assert!(decode(&encode(&mesh)).is_ok());
+    }
 }

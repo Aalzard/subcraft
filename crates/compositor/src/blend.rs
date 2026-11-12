@@ -39,7 +39,9 @@ const SIGNED_LIMIT: f32 = 1.0e4;
 
 #[inline]
 fn safe_div(a: f32, b: f32) -> f32 {
-    a / if b.abs() < 1e-6 { 1e-6f32.copysign(b) } else { b }
+    // `b < 0.0`, not `copysign`: the GPU shader treats -0.0 as positive, and Invert on a signed
+    // channel produces -0.0, so the two paths must agree on it.
+    a / if b.abs() < 1e-6 { if b < 0.0 { -1e-6 } else { 1e-6 } } else { b }
 }
 
 #[inline]
@@ -276,6 +278,16 @@ mod tests {
     use super::*;
 
     const COLOR: BlendTarget = BlendTarget { signed: false, normal: false };
+
+    /// Mirrors `composite.wgsl`: -0.0 divides like +0.0, so Divide after Invert on a signed
+    /// channel gives the same result on the CPU and the GPU.
+    #[test]
+    fn safe_div_treats_negative_zero_like_the_shader() {
+        assert!(safe_div(1.0, -0.0) > 0.0);
+        assert!(safe_div(1.0, 0.0) > 0.0);
+        assert!(safe_div(1.0, -1e-9) < 0.0);
+        assert_eq!(safe_div(1.0, 2.0), 0.5);
+    }
 
     #[test]
     fn all_modes_finite_and_in_range() {

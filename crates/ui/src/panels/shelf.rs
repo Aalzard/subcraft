@@ -29,6 +29,11 @@ pub enum ShelfDrag {
     Alpha(usize),
 }
 
+/// An environment tile being dragged onto the 3D view or the Display Settings panel's
+/// Environment map button (index into the library's environments).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EnvironmentDrag(pub usize);
+
 /// A Shelf click: a material swaps the material of the selected fill layer (or adds one when
 /// no fill layer is selected); everything else does what a drop does.
 pub fn click_shelf_item(s: &mut UiState, item: ShelfDrag, now: f64) {
@@ -212,14 +217,13 @@ impl ShelfUi {
 pub struct EnvUi {
     pub index: usize,
     pub rotation_deg: f32,
-    pub intensity: f32,
     /// HDRI currently uploaded to the viewport renderer.
     pub uploaded: Option<AssetId>,
 }
 
 impl Default for EnvUi {
     fn default() -> Self {
-        Self { index: 0, rotation_deg: 0.0, intensity: 1.0, uploaded: None }
+        Self { index: 0, rotation_deg: 0.0, uploaded: None }
     }
 }
 
@@ -256,6 +260,14 @@ impl EnvUi {
     }
 }
 
+/// The environment as the Display Settings describe it, for a camera turned `camera_yaw`
+/// radians around the vertical axis: `(rotation in degrees, brightness multiplier)`. A
+/// camera-aligned ("Local") environment turns with the view, so the lighting follows the camera.
+pub fn environment_view(display: &subcraft_doc::DisplaySettings, rotation_deg: f32, camera_yaw: f32) -> (f32, f32) {
+    let follow = if display.env_alignment == subcraft_doc::EnvAlignment::Local { camera_yaw.to_degrees() } else { 0.0 };
+    (wrap_rotation(rotation_deg + follow), subcraft_doc::display::ev_to_multiplier(display.env_exposure.clamp(-10.0, 10.0)))
+}
+
 /// Configure `params` (and upload an HDRI when needed) for environment `index` of `library`.
 pub fn apply_environment(
     library: &Library,
@@ -290,7 +302,10 @@ pub fn apply_environment(
         EnvironmentSource::Hdri(_) | EnvironmentSource::Embedded(_) => {
             let Some(h) = env.source.hdri() else { return };
             if *uploaded != Some(env.id) {
-                let levels: Vec<(u32, u32, &[f32])> = h.levels.iter().map(|l| (l.width, l.height, l.rgba.as_slice())).collect();
+                // On a low video memory adapter the widest levels stay on the processor side.
+                let budget = if subcraft_render::caps::low_memory() { subcraft_render::pace::MemoryBudget::TIGHT } else { subcraft_render::pace::MemoryBudget::ROOMY };
+                let skip = budget.environment_levels_skipped(&h.levels.iter().map(|l| l.width).collect::<Vec<_>>());
+                let levels: Vec<(u32, u32, &[f32])> = h.levels.iter().skip(skip).map(|l| (l.width, l.height, l.rgba.as_slice())).collect();
                 renderer.set_hdri(device, queue, Some(subcraft_render::HdriUpload { levels: &levels, sh: h.sh }));
                 *uploaded = Some(env.id);
             }
@@ -457,6 +472,156 @@ pub fn show_in_folder(path: &std::path::Path) {
 
 type ShelfAction = Box<dyn FnOnce(&mut UiState)>;
 
+/// What the right-click menu of a preset asked for.
+#[derive(Clone, Debug, PartialEq)]
+pub enum PresetAction {
+    /// Overwrite the preset with the current tool ("Update from current tool").
+    Update,
+    Rename(String),
+    Duplicate,
+    /// Add to / remove from the favorites.
+    Favorite,
+    Delete,
+}
+
+/// Favorites key of a preset.
+pub fn preset_favorite_key(name: &str) -> String {
+    subcraft_app::brush_preset::favorite_key("brush", name)
+}
+
+/// Shelf order of the presets: favorites first, each group in library order.
+pub fn preset_order(presets: &[subcraft_app::brush_preset::BrushPreset], favorites: &subcraft_app::brush_preset::Favorites) -> Vec<usize> {
+    let fav = |i: &usize| favorites.contains(&preset_favorite_key(&presets[*i].name));
+    let mut order: Vec<usize> = (0..presets.len()).filter(fav).collect();
+    order.extend((0..presets.len()).filter(|i| !fav(i)));
+    order
+}
+
+/// Right-click menu of a preset tile. Built-in presets can only be duplicated or made a favorite.
+fn preset_menu(resp: &egui::Response, p: &subcraft_app::brush_preset::BrushPreset, favorite: bool, has_library: bool) -> Option<PresetAction> {
+    let mut action = None;
+    let user = p.user_file.is_some();
+    resp.context_menu(|ui| {
+        ui.label(RichText::new(format!("{} · {}", p.name, if user { p.kind.label() } else { "built-in preset" })).small().color(theme::TEXT_FAINT));
+        ui.separator();
+        if ui.add_enabled(user, egui::Button::new(format!("{}  Update from current tool", crate::icons::SAVE)))
+            .on_hover_text("Overwrite this preset with what the tool Properties show now")
+            .on_disabled_hover_text("Built-in presets cannot be changed: duplicate it first")
+            .clicked()
+        {
+            action = Some(PresetAction::Update);
+            ui.close();
+        }
+        ui.add_enabled_ui(user, |ui| {
+            ui.menu_button("Rename", |ui| {
+                let id = egui::Id::new(("preset-rename", &p.name));
+                let mut name = ui.data(|d| d.get_temp::<String>(id)).unwrap_or_else(|| p.name.clone());
+                let edit = ui.add(egui::TextEdit::singleline(&mut name).desired_width(180.0));
+                let enter = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                ui.data_mut(|d| d.insert_temp(id, name.clone()));
+                if (ui.button("Rename").clicked() || enter) && !name.trim().is_empty() {
+                    ui.data_mut(|d| d.remove::<String>(id));
+                    action = Some(PresetAction::Rename(name));
+                    ui.close();
+                }
+            });
+        });
+        if ui.add_enabled(has_library, egui::Button::new(format!("{}  Duplicate", crate::icons::COPY))).clicked() {
+            action = Some(PresetAction::Duplicate);
+            ui.close();
+        }
+        if ui.button(if favorite { "Remove from favorites" } else { "Add to favorites" }).clicked() {
+            action = Some(PresetAction::Favorite);
+            ui.close();
+        }
+        if let Some(file) = &p.user_file {
+            ui.separator();
+            if ui.button(format!("{}  Show in folder", crate::icons::FOLDER_OPEN)).clicked() {
+                show_in_folder(file);
+                ui.close();
+            }
+            if ui.button(format!("{}  Delete", crate::icons::TRASH)).clicked() {
+                action = Some(PresetAction::Delete);
+                ui.close();
+            }
+        }
+    });
+    action
+}
+
+/// Carry out a preset menu action on `state.brush_presets[index]`.
+pub fn apply_preset_action(state: &mut UiState, index: usize, action: PresetAction, now: f64) {
+    use subcraft_app::brush_preset as bp;
+    let Some(preset) = state.brush_presets.get(index).cloned() else { return };
+    let key = preset_favorite_key(&preset.name);
+    if action == PresetAction::Favorite {
+        let on = state.favorites.toggle(&key);
+        if let Some(lib) = &state.user_library
+            && let Err(e) = state.favorites.save(lib)
+        {
+            state.set_status(format!("Favorites: {e}"), now);
+            return;
+        }
+        state.set_status(format!("\"{}\" {}", preset.name, if on { "added to favorites" } else { "removed from favorites" }), now);
+        return;
+    }
+    let Some(lib) = state.user_library.clone() else {
+        state.set_status("Presets need a user library folder", now);
+        return;
+    };
+    let result: Result<String, String> = match action {
+        PresetAction::Update => state.session.update_preset(&lib, &preset, state.tool.preset_tool()).map(|(p, tip)| {
+            if let Some(tip) = tip { state.library.alphas.push(tip); }
+            let msg = format!("Updated {} \"{}\" from the current tool", p.kind.label(), p.name);
+            state.brush_presets[index] = p;
+            msg
+        }),
+        PresetAction::Rename(name) => bp::rename_brush_preset(&lib, &preset, &name).map(|p| {
+            state.favorites.rename(&key, &preset_favorite_key(&p.name));
+            let _ = state.favorites.save(&lib);
+            if state.selected_brush.as_ref().is_some_and(|(n, _)| *n == preset.name) {
+                state.selected_brush = state.selected_brush.take().map(|(_, tip)| (p.name.clone(), tip));
+            }
+            let msg = format!("Renamed \"{}\" to \"{}\"", preset.name, p.name);
+            state.brush_presets[index] = p;
+            msg
+        }),
+        PresetAction::Duplicate => bp::duplicate_brush_preset(&lib, &preset).map(|p| {
+            let msg = format!("Duplicated \"{}\" as \"{}\"", preset.name, p.name);
+            state.brush_presets.insert(index + 1, p);
+            msg
+        }),
+        PresetAction::Delete => match &preset.user_file {
+            Some(file) => lib.remove(file).map(|()| {
+                state.favorites.remove(&key);
+                let _ = state.favorites.save(&lib);
+                state.brush_presets.remove(index);
+                format!("Deleted preset \"{}\"", preset.name)
+            }),
+            None => Err("built-in presets cannot be deleted".into()),
+        },
+        PresetAction::Favorite => unreachable!("handled above"),
+    };
+    state.set_status(result.unwrap_or_else(|e| e), now);
+}
+
+/// Small five-point star in the corner of a favorite's tile.
+fn favorite_badge(painter: &egui::Painter, tile: egui::Rect) {
+    let c = egui::pos2(tile.left() + 11.0, tile.top() + 11.0);
+    let points: Vec<egui::Pos2> = (0..10).map(|k| {
+        let r = if k % 2 == 0 { 6.5 } else { 2.8 };
+        let a = std::f32::consts::TAU * k as f32 / 10.0 - std::f32::consts::FRAC_PI_2;
+        c + egui::vec2(a.cos(), a.sin()) * r
+    }).collect();
+    painter.circle_filled(c, 8.5, Color32::from_black_alpha(150));
+    // A star is concave: fan it from the center.
+    let mut mesh = egui::Mesh::default();
+    mesh.colored_vertex(c, theme::ACCENT);
+    for p in &points { mesh.colored_vertex(*p, theme::ACCENT); }
+    for k in 0..10u32 { mesh.add_triangle(0, 1 + k, 1 + (k + 1) % 10); }
+    painter.add(egui::Shape::mesh(mesh));
+}
+
 /// Brush tiles: a click activates the brush; the second click of a double-click opens its
 /// Brush settings instead (the first click already selected it, so no duplicate notice).
 fn brush_click(resp: &egui::Response, ctx: &egui::Context, select: impl FnOnce(&mut UiState) + 'static) -> Option<ShelfAction> {
@@ -467,6 +632,13 @@ fn brush_click(resp: &egui::Response, ctx: &egui::Context, select: impl FnOnce(&
         let ctx = ctx.clone();
         Some(Box::new(move |s: &mut UiState| { select(s); ctx.request_repaint(); }))
     } else { None }
+}
+
+impl ShelfUi {
+    /// Thumbnail of an asset, once the Shelf has rendered it.
+    pub(crate) fn thumb(&self, id: &AssetId) -> Option<&egui::TextureHandle> {
+        self.thumbs.get(id)
+    }
 }
 
 /// Thumbnail of a brush tip by name, once the Shelf has rendered it.
@@ -643,7 +815,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                     }
                 }
                 ShelfTab::Brushes => {
-                    for (i, p) in state.brush_presets.iter().enumerate() {
+                    for i in preset_order(&state.brush_presets, &state.favorites) {
+                        let p = &state.brush_presets[i];
                         if !filter.matches(&p.name, Some("preset"), true) {
                             continue;
                         }
@@ -652,15 +825,23 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         let thumb = tip_id.and_then(|id| thumbs.get(&id));
                         let tip = match subcraft_app::brush_builtin::describe(&p.name).filter(|_| p.user_file.is_none()) {
                             Some(d) => format!("{}: {d}", p.name),
-                            None => "Brush preset: tip, size, flow, jitter and material (right-click for options)".to_string(),
+            None => {
+                                use subcraft_app::brush_preset::PresetKind;
+                                match (p.kind, p.tool) {
+                                    (PresetKind::Tool, Some(tool)) => format!("Tool preset ({}): brush, alpha, stencil and material; selecting it switches to that tool. Right-click for options", tool.label()),
+                                    (PresetKind::Tool, None) => "Tool preset: brush, alpha and material (right-click for options)".to_string(),
+                                    (PresetKind::Brush, _) => "Brush preset: brush parameters, alpha and stencil; the material in use is kept (right-click for options)".to_string(),
+                                    (PresetKind::Material, _) => "Material preset: the material only; the brush in use is kept (right-click for options)".to_string(),
+                                }
+                            }
                         };
+                        let favorite = state.favorites.contains(&preset_favorite_key(&p.name));
                         let resp = tile(ui, tile_size, thumb, &p.name, state.is_selected_shelf_brush(&p.name), &tip);
-                        if let Some(file) = &p.user_file
-                            && library_menu(&resp, state.user_library.as_ref(), file, &mut lib_status)
-                        {
-                            action = Some(Box::new(move |s: &mut UiState| {
-                                s.brush_presets.remove(i);
-                            }));
+                        if favorite {
+                            favorite_badge(ui.painter(), resp.rect);
+                        }
+                        if let Some(chosen) = preset_menu(&resp, p, favorite, state.user_library.is_some()) {
+                            action = Some(Box::new(move |s: &mut UiState| apply_preset_action(s, i, chosen, now)));
                         }
                         if let Some(a) = brush_click(&resp, ui.ctx(), move |s: &mut UiState| {
                             let p = s.brush_presets[i].clone();
@@ -733,6 +914,15 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                                 }
                                 s.env.uploaded = None;
                             }));
+                        }
+                        resp.dnd_set_drag_payload(EnvironmentDrag(i));
+                        if resp.dragged() && let Some(p) = ui.ctx().pointer_latest_pos() {
+                            egui::Area::new(egui::Id::new("environment-drag-ghost")).order(egui::Order::Tooltip).fixed_pos(p + egui::vec2(14.0, 10.0)).interactable(false).show(ui.ctx(), |ui| {
+                                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                                    ui.label(RichText::new(&e.name).color(theme::TEXT));
+                                    ui.label(RichText::new(tr("Drop on the 3D view to light the model with it")).small().color(theme::TEXT_FAINT));
+                                });
+                            });
                         }
                         if resp.clicked() {
                             action = Some(Box::new(move |s: &mut UiState| s.env.index = i));
@@ -839,13 +1029,14 @@ fn env_controls(state: &mut UiState, ui: &mut Ui) {
     if state.shelf.tab != ShelfTab::Environments { return; }
     egui::Frame::new().inner_margin(egui::Margin::symmetric(8, 2)).show(ui, |ui| {
         let width = ui.available_width();
-        for (label, value, range) in [("Rotation", &mut state.env.rotation_deg, -180.0..=180.0), ("Intensity", &mut state.env.intensity, 0.1..=4.0)] {
+        // Exposure is in EV (stops) like Painter's Environment Exposure: +1 doubles the light.
+        for (label, value, range) in [("Rotation", &mut state.env.rotation_deg, -180.0..=180.0), ("Exposure", &mut state.recovery.prefs.viewport.display.env_exposure, -5.0..=5.0)] {
             ui.allocate_ui_with_layout(egui::vec2(width, 20.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
                 ui.add_sized([60.0, 18.0], egui::Label::new(RichText::new(label).color(theme::TEXT_DIM)));
                 // Room for the value box: "-180°" is the widest rotation (whole degrees).
                 ui.spacing_mut().slider_width = (ui.available_width() - 72.0).max(20.0);
                 let slider = egui::Slider::new(value, range);
-                ui.add(if label == "Rotation" { slider.suffix("°").fixed_decimals(0) } else { slider.logarithmic(true) });
+                ui.add(if label == "Rotation" { slider.suffix("°").fixed_decimals(0) } else { slider.suffix(" EV").fixed_decimals(1) });
             });
         }
     });

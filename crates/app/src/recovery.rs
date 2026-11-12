@@ -259,6 +259,13 @@ impl LiveSession {
         crashed.discard()
     }
 
+    /// Release the lock but keep the folder and its copies, as a crash would: used right before
+    /// SubCraft restarts itself (lost graphics device), so the new process finds this session
+    /// and offers to restore it even though this one is still shutting down.
+    pub fn release_for_restart(&mut self) {
+        drop(self.lock.take());
+    }
+
     /// Clean exit: release the lock and delete the folder with its copies.
     pub fn finish_clean(mut self) -> io::Result<()> {
         drop(self.lock.take());
@@ -325,6 +332,13 @@ impl Autosaver {
 
     pub fn is_enabled(&self) -> bool {
         self.live.is_some()
+    }
+
+    /// See [`LiveSession::release_for_restart`]. No copy is written after this.
+    pub fn release_for_restart(&mut self) {
+        if let Some(live) = &mut self.live {
+            live.release_for_restart();
+        }
     }
 
     pub fn is_saving(&self) -> bool {

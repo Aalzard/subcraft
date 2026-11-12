@@ -86,9 +86,9 @@ fn translations_use_the_right_script_and_keep_untranslated_texts_english() {
         let with_script = table.values().filter(|t| if language == Language::Ko { hangul(t) } else { han(t) }).count();
         assert!(with_script * 10 > table.len() * 9, "{language:?}: only {with_script} of {} translations use its script", table.len());
     }
-    assert_eq!(translate(Language::English, "Reset camera"), "Reset camera");
-    assert_eq!(translate(Language::Ko, "Reset camera"), "카메라 초기화");
-    assert_eq!(translate(Language::ZhHant, "Reset camera"), "重設相機");
+    assert_eq!(translate(Language::English, "Help"), "Help");
+    assert_eq!(translate(Language::Ko, "Help"), "도움말");
+    assert_eq!(translate(Language::ZhHant, "Help"), "說明");
     assert_eq!(translate(Language::Ko, "A text nobody translated"), "A text nobody translated");
 }
 

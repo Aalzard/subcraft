@@ -17,9 +17,20 @@ struct Globals {
     // x: environment rotation (radians), y: HDRI intensity, z: last prefiltered mip level,
     // w: view mode (0 material, 1 base color, 2 normal, 3 roughness, 4 metallic, 5 height, 6 AO)
     env_misc: vec4<f32>,
-    // x: tone map (0 ACES, 1 Filmic, 2 Reinhard, 3 Linear)
+    // x: tone map function (see tonemap.wgsl), y: mapping factor
     post: vec4<f32>,
     sh: array<vec4<f32>, 9>,
+    inv_view_proj: mat4x4<f32>,
+    // rgb: background color (linear), a: environment opacity behind the model
+    background: vec4<f32>,
+    // x: background blur 0..1
+    env_view: vec4<f32>,
+    // Single-channel display. x: 1 / HDR scale, y: 1 = two colors for the sign of grayscale
+    // values, z: component (0 all, 1 R, 2 G, 3 B, 4 alpha), w: 1 = lit
+    solo: vec4<f32>,
+    // rgb: color of positive values, a: texture level bias of the material textures
+    solo_positive: vec4<f32>,
+    solo_negative: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> g: Globals;
@@ -155,32 +166,6 @@ fn env_brdf(f0: vec3<f32>, roughness: f32, nov: f32) -> vec3<f32> {
     return f0 * ab.x + ab.y;
 }
 
-fn aces(x: vec3<f32>) -> vec3<f32> {
-    let a = 2.51;
-    let b = 0.03;
-    let c = 2.43;
-    let d = 0.59;
-    let e = 0.14;
-    return clamp((x * (a * x + b)) / (x * (c * x + d) + e), vec3<f32>(0.0), vec3<f32>(1.0));
-}
-
-fn hable(x: vec3<f32>) -> vec3<f32> {
-    let a = 0.15; let b = 0.50; let c = 0.10; let d = 0.20; let e = 0.02; let f = 0.30;
-    return ((x * (a * x + c * b) + d * e) / (x * (a * x + b) + d * f)) - e / f;
-}
-
-fn tonemap(color: vec3<f32>, mode: i32) -> vec3<f32> {
-    switch mode {
-        case 1: {
-            let white = hable(vec3<f32>(11.2));
-            return clamp(hable(color * 2.0) / white, vec3<f32>(0.0), vec3<f32>(1.0));
-        }
-        case 2: { return clamp(color / (color + vec3<f32>(1.0)), vec3<f32>(0.0), vec3<f32>(1.0)); }
-        case 3: { return clamp(color, vec3<f32>(0.0), vec3<f32>(1.0)); }
-        default: { return aces(color); }
-    }
-}
-
 // Data value shown as stored: pre-linearized so the sRGB target encodes it back to `c`.
 fn as_stored(c: vec3<f32>) -> vec4<f32> {
     let v = clamp(c, vec3<f32>(0.0), vec3<f32>(1.0));
@@ -189,34 +174,76 @@ fn as_stored(c: vec3<f32>) -> vec4<f32> {
     return vec4<f32>(select(hi, lo, v <= vec3<f32>(0.04045)), 1.0);
 }
 
-// Single-channel view modes: the channel unlit, as the 2D view shows it. `t_base` is always read
+// Single-channel view modes: the channel as the 2D view shows it. `t_base` is always read
 // with `albedo_samp`: OpenGL allows one sampler per texture, and the viewport pipeline fails there
 // if a texture is sampled with two (issue #91).
-fn channel_view(mode: i32, uv: vec2<f32>) -> vec4<f32> {
+fn channel_raw(mode: i32, uv: vec2<f32>) -> vec4<f32> {
     switch mode {
-        case 1: { return vec4<f32>(textureSample(t_base, albedo_samp, uv).rgb, 1.0); }
-        case 2: { return as_stored(textureSample(t_normal, samp, uv).rgb); }
-        case 3: { return as_stored(vec3<f32>(textureSample(t_rough, samp, uv).r)); }
-        case 4: { return as_stored(vec3<f32>(textureSample(t_metal, samp, uv).r)); }
-        case 5: { return as_stored(vec3<f32>(textureSample(t_height, samp, uv).r)); }
-        case 7: { return as_stored(textureSample(t_base, albedo_samp, uv).rgb); }
-        case 8: { return as_stored(vec3<f32>(textureSample(t_base, albedo_samp, uv).r)); }
-        default: { return as_stored(vec3<f32>(textureSample(t_ao, samp, uv).r)); }
+        case 1, 7: { return textureSample(t_base, albedo_samp, uv); }
+        case 2: { return vec4<f32>(textureSample(t_normal, samp, uv).rgb, 1.0); }
+        case 3: { return vec4<f32>(vec3<f32>(textureSample(t_rough, samp, uv).r), 1.0); }
+        case 4: { return vec4<f32>(vec3<f32>(textureSample(t_metal, samp, uv).r), 1.0); }
+        case 5: { return vec4<f32>(vec3<f32>(textureSample(t_height, samp, uv).r), 1.0); }
+        case 8: { return vec4<f32>(vec3<f32>(textureSample(t_base, albedo_samp, uv).r), 1.0); }
+        default: { return vec4<f32>(vec3<f32>(textureSample(t_ao, samp, uv).r), 1.0); }
     }
+}
+
+// The channel display settings applied to the raw value: HDR scale, one component as gray, two
+// colors for the sign of grayscale values, and `shade` (1 when unlit). Color channels (mode 1) are
+// shown as colors; everything else as stored.
+fn channel_view(mode: i32, uv: vec2<f32>, shade: f32) -> vec4<f32> {
+    let raw = channel_raw(mode, uv);
+    var c = raw.rgb * g.solo.x;
+    let component = i32(round(g.solo.z));
+    let grayscale = mode == 3 || mode == 4 || mode == 5 || mode == 6 || mode == 8;
+    if (component == 1) {
+        c = vec3<f32>(c.r);
+    } else if (component == 2) {
+        c = vec3<f32>(c.g);
+    } else if (component == 3) {
+        c = vec3<f32>(c.b);
+    } else if (component == 4) {
+        c = vec3<f32>(raw.a);
+    } else if (grayscale && g.solo.y > 0.5) {
+        c = select(g.solo_negative.rgb * (-c.r), g.solo_positive.rgb * c.r, c.r >= 0.0);
+    }
+    c = c * shade;
+    if (mode == 1) {
+        return vec4<f32>(c, 1.0);
+    }
+    return as_stored(c);
+}
+
+// A material texture, with the texture level bias of the Display Settings when one is set.
+fn material_sample(t: texture_2d<f32>, s: sampler, uv: vec2<f32>) -> vec4<f32> {
+    if (g.solo_positive.a != 0.0) {
+        return textureSampleBias(t, s, uv, g.solo_positive.a);
+    }
+    return textureSample(t, s, uv);
 }
 
 @fragment
 fn fs_main(in: VsOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
     let mode = i32(round(g.env_misc.w));
     if (mode > 0) {
-        return channel_view(mode, in.uv);
+        var shade = 1.0;
+        if (g.solo.w > 0.5) {
+            // Lit solo view: the channel under the key light, so the model's shape stays readable.
+            var facing = normalize(in.normal);
+            if (!front) {
+                facing = -facing;
+            }
+            shade = 0.35 + 0.65 * max(dot(facing, normalize(g.light_dir.xyz)), 0.0);
+        }
+        return channel_view(mode, in.uv, shade);
     }
-    let base = textureSample(t_base, albedo_samp, in.uv).rgb;
-    let rough = clamp(textureSample(t_rough, samp, in.uv).r, 0.04, 1.0);
-    let metal = clamp(textureSample(t_metal, samp, in.uv).r, 0.0, 1.0);
-    let ntex = textureSample(t_normal, samp, in.uv).rgb * 2.0 - 1.0;
-    let emissive = textureSample(t_emissive, samp, in.uv).rgb;
-    let ao = clamp(textureSample(t_ao, samp, in.uv).r, 0.0, 1.0);
+    let base = material_sample(t_base, albedo_samp, in.uv).rgb;
+    let rough = clamp(material_sample(t_rough, samp, in.uv).r, 0.04, 1.0);
+    let metal = clamp(material_sample(t_metal, samp, in.uv).r, 0.0, 1.0);
+    let ntex = material_sample(t_normal, samp, in.uv).rgb * 2.0 - 1.0;
+    let emissive = material_sample(t_emissive, samp, in.uv).rgb;
+    let ao = clamp(material_sample(t_ao, samp, in.uv).r, 0.0, 1.0);
 
     // Height -> tangent-space bump normal (central differences, one texel apart). UV v grows
     // downward while the bitangent points up the image (OpenGL convention), hence +dh/dv for y.
@@ -269,7 +296,44 @@ fn fs_main(in: VsOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f
     let ambient = (diffuse * irradiance(n) + env_brdf(f0, rough, nov) * env_spec) * g.params.y * ao;
 
     let color = (direct + ambient + emissive) * g.params.x;
-    return vec4<f32>(tonemap(color, i32(round(g.post.x))), 1.0);
+    return vec4<f32>(tonemap(color, i32(round(g.post.x)), g.post.y), 1.0);
+}
+
+// ---- environment behind the model --------------------------------------------------------------
+
+struct BgOut {
+    @builtin(position) clip: vec4<f32>,
+    @location(0) ndc: vec2<f32>,
+};
+
+@vertex
+fn vs_background(@builtin(vertex_index) i: u32) -> BgOut {
+    let uv = vec2<f32>(f32((i << 1u) & 2u), f32(i & 2u));
+    var o: BgOut;
+    o.ndc = vec2<f32>(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
+    o.clip = vec4<f32>(o.ndc, 1.0, 1.0);
+    return o;
+}
+
+// Light arriving from direction `d`, blurred by `blur` (0 sharp .. 1 fully diffused): the HDRI at
+// a prefiltered level, or the procedural sky fading into its irradiance.
+fn background_radiance(d: vec3<f32>, blur: f32) -> vec3<f32> {
+    if (g.lights.w > 0.5) {
+        let uv = equirect(rotate_env(d));
+        return textureSampleLevel(env_tex, env_samp, uv, blur * g.env_misc.z).rgb * g.env_misc.y;
+    }
+    return mix(sky(d), irradiance(d), blur) * g.params.y;
+}
+
+// The environment seen along each pixel's view ray, exposed and tone mapped like the model, mixed
+// over the background color by the environment opacity.
+@fragment
+fn fs_background(in: BgOut) -> @location(0) vec4<f32> {
+    let near = g.inv_view_proj * vec4<f32>(in.ndc, 0.0, 1.0);
+    let far = g.inv_view_proj * vec4<f32>(in.ndc, 1.0, 1.0);
+    let d = normalize(far.xyz / far.w - near.xyz / near.w);
+    let env = tonemap(background_radiance(d, g.env_view.x) * g.params.x, i32(round(g.post.x)), g.post.y);
+    return vec4<f32>(mix(g.background.rgb, env, g.background.a), 1.0);
 }
 
 // Emission only, in linear HDR: feeds the glow and glare passes of the viewport.

@@ -23,9 +23,12 @@ impl Reason {
 pub fn decide(previous_log: &str, safe_flag: bool, normal_flag: bool, env: Option<&str>) -> Option<Reason> {
     if normal_flag { return None; }
     let env_on = env.is_some_and(|v| !v.is_empty() && v != "0");
-    if safe_flag || env_on { return Some(Reason::Requested); }
+    // A lost GPU last run is named as the reason even when safe mode was also asked for: that is
+    // how SubCraft restarts itself after a driver reset (`gpu_loss::RESTART_ARG`).
+    let gpu_lost = crate::startup_probe::previous_run_gpu_lost(previous_log);
+    if safe_flag || env_on { return Some(if gpu_lost { Reason::GpuLostLastRun } else { Reason::Requested }); }
     if crate::startup_probe::previous_run_incomplete(previous_log) { return Some(Reason::PreviousStartFailed); }
-    crate::startup_probe::previous_run_gpu_lost(previous_log).then_some(Reason::GpuLostLastRun)
+    gpu_lost.then_some(Reason::GpuLostLastRun)
 }
 
 static ACTIVE: OnceLock<Reason> = OnceLock::new();
@@ -75,5 +78,9 @@ startup complete
 ");
         assert_eq!(decide(&later, false, false, None), None);
         assert_eq!(decide(lost, false, true, None), None);
+        // The automatic restart after a driver reset passes --safe-mode: the reason shown (and
+        // the GPU options turned off) are still those of the lost GPU.
+        assert_eq!(decide(lost, true, false, None), Some(Reason::GpuLostLastRun));
+        assert_eq!(decide(&later, true, false, None), Some(Reason::Requested));
     }
 }

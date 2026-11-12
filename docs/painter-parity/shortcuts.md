@@ -11,14 +11,14 @@ Layout notes: Painter lists editable shortcuts in Settings > Shortcuts as one lo
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Hide UI | Settings > Shortcuts | Tab | missing | - | - |
+| Hide UI | Settings > Shortcuts | Tab | done | crates/app/src/actions.rs (Action::HideUi) | #164 |
 | Undo | Settings > Shortcuts | Ctrl+Z | done | crates/app/src/actions.rs:190 | - |
 | Redo | Settings > Shortcuts | Ctrl+Y | done | crates/app/src/actions.rs:191 | - |
 | Baking | Settings > Shortcuts | F8 | partial: opens the Bake window, not a mode | crates/app/src/actions.rs:221 | - |
-| Painting | Settings > Shortcuts | F9 | missing | - | - |
+| Painting | Settings > Shortcuts | F9 | partial: F9 closes the Bake window and leaves Rendering mode; modes are not separate interfaces | crates/app/src/actions.rs (Action::PaintingMode) | #164 |
 | Rendering (Iray) | Settings > Shortcuts | F10 | done | crates/app/src/actions.rs:222 | - |
 | Open project | Settings > Shortcuts | Ctrl+O | done | crates/app/src/actions.rs:219 | - |
-| Close project | Settings > Shortcuts | Ctrl+F4 (Cmd+W) | missing | - | - |
+| Close project | Settings > Shortcuts | Ctrl+F4 (Cmd+W) | partial: Ctrl+F4 returns to the sample model (there is no empty state) | crates/app/src/actions.rs (Action::CloseProject) | #164 |
 | Save project | Settings > Shortcuts | Ctrl+S | done | crates/app/src/actions.rs:217 | - |
 | Save as project | Settings > Shortcuts | unassigned | partial: bound to Ctrl+Shift+S by default | crates/app/src/actions.rs:218 | - |
 | New project | Settings > Shortcuts | Ctrl+N | done | crates/app/src/actions.rs:215 | - |
@@ -58,7 +58,7 @@ Layout notes: Painter lists editable shortcuts in Settings > Shortcuts as one lo
 | Bake Mesh Maps | Settings > Shortcuts | Ctrl+Shift+B | done | crates/app/src/actions.rs:221 | - |
 | Increase tool size | Settings > Shortcuts | ] | done | crates/app/src/actions.rs:206 | - |
 | Decrease tool size | Settings > Shortcuts | [ | done | crates/app/src/actions.rs:205 | - |
-| Invert grayscale tool | Settings > Shortcuts | X | missing | - | - |
+| Invert grayscale tool | Settings > Shortcuts | X | partial: Painter key set only (X is symmetry in the SubCraft set) | crates/app/src/actions.rs (Action::InvertMaskGray) | #164 |
 | Pick stroke material | Settings > Shortcuts | P | partial: only in the Substance Painter key set; default set has no key (P is Pen paths) | crates/app/src/actions.rs:204 | - |
 | Lazy Mouse | Settings > Shortcuts | D | done | crates/app/src/actions.rs:208 | - |
 | Hide/ignore excluded geometry | Settings > Shortcuts | Alt+H | missing | - | - |
@@ -75,19 +75,19 @@ Layout notes: Painter lists editable shortcuts in Settings > Shortcuts as one lo
 | Display next channel | Settings > Shortcuts | C | done | crates/app/src/actions.rs:212 | - |
 | Display previous channel | Settings > Shortcuts | Shift+C | done | crates/app/src/actions.rs:213 | - |
 | Display material | Settings > Shortcuts | M | done | crates/app/src/actions.rs:214 | - |
-| Display next mesh map | Settings > Shortcuts | B | partial: no key (B is Brush); a cycle function exists but is unbound, maps are picked in the view toolbar | crates/ui/src/viewport_bar.rs:387 | - |
-| Display previous mesh map | Settings > Shortcuts | Shift+B | missing | - | - |
+| Display next mesh map | Settings > Shortcuts | B | partial: Painter key set only (B is Brush in the SubCraft set); cycles every map kind, baked or not | crates/app/src/actions.rs (Action::NextMeshMap) | #164 |
+| Display previous mesh map | Settings > Shortcuts | Shift+B | done | crates/app/src/actions.rs (Action::PrevMeshMap) | #164 |
 | Toggle animation | Settings > Shortcuts | Space | missing | - | - |
 | Export textures | Settings > Shortcuts | Ctrl+Shift+E | done | crates/app/src/actions.rs:220 | - |
 | Center the whole mesh | Settings > Shortcuts | F | done | crates/app/src/actions.rs:209 | - |
 | Toggle quick mask edition | Settings > Shortcuts | U | missing | - | - |
 | Clear quick mask | Settings > Shortcuts | Y | missing | - | - |
 | Invert quick mask | Settings > Shortcuts | I | missing | - | - |
-| Viewport layout 3D/2D | Settings > Shortcuts | F1 | partial: View > Side-by-side 3D / 2D, no key | crates/ui/src/app.rs:1246 | - |
-| Viewport layout 3D only | Settings > Shortcuts | F2 | partial: same menu toggle tabs 2D behind 3D, no key | crates/ui/src/app.rs:1246 | - |
-| Viewport layout 2D only | Settings > Shortcuts | F3 | partial: click the 2D View tab, no key | crates/ui/src/app.rs:24 | - |
-| Swap 2D / 3D view | Settings > Shortcuts | F4 | missing | - | - |
-| Texture Set isolate | Settings > Shortcuts | Alt+Q | missing | - | - |
+| Viewport layout 3D/2D | Settings > Shortcuts | F1 | done | crates/ui/src/app.rs (apply_view_layout) | #164 |
+| Viewport layout 3D only | Settings > Shortcuts | F2 | partial: Painter key set only (F2 renames a layer in the SubCraft set); the 2D view stays a tab behind | crates/ui/src/app.rs (apply_view_layout) | #164 |
+| Viewport layout 2D only | Settings > Shortcuts | F3 | partial: the 3D view stays a tab behind | crates/ui/src/app.rs (apply_view_layout) | #164 |
+| Swap 2D / 3D view | Settings > Shortcuts | F4 | done | crates/ui/src/app.rs (apply_view_layout) | #164 |
+| Texture Set isolate | Settings > Shortcuts | Alt+Q | done | crates/app/src/session.rs (Command::IsolateTextureSet) | #164 |
 | Next camera | Settings > Shortcuts | > (release notes) | missing | - | - |
 | Previous camera | Settings > Shortcuts | < (release notes) | missing | - | - |
 
@@ -100,22 +100,22 @@ Layout notes: these are listed in the same editable list; mouse combinations can
 | Use tool / paint | Viewport | Mouse left | done | crates/ui/src/viewport.rs:318 | - |
 | Draw straight lines | Viewport | Shift+Mouse left | done | crates/ui/src/viewport.rs:326 | - |
 | Straight line preview (dotted line while Shift is held) | Viewport | shown while Shift held | missing | - | - |
-| Draw straight lines with snapping | Viewport | Ctrl+Shift+Mouse left; 5 degree steps | missing | - | - |
+| Draw straight lines with snapping | Viewport | Ctrl+Shift+Mouse left; 5 degree steps | done | crates/ui/src/nav.rs (snap_line_end) | #163 |
 | Camera rotate | Viewport 3D | Alt+Mouse left | done | crates/ui/src/nav.rs:84 | - |
-| Camera snap rotate | Viewport | Alt+Shift+Mouse left; 90 degree steps | missing | - | - |
+| Camera snap rotate | Viewport | Alt+Shift+Mouse left; 90 degree steps | done | crates/ui/src/nav.rs (NavMode::OrbitSnap) | #163 |
 | Camera translate | Viewport | Alt+Middle mouse | done | crates/ui/src/nav.rs:82 | - |
 | Camera translate (alternative) | Viewport | Ctrl+Alt+Mouse left | done | crates/ui/src/nav.rs:82 | - |
 | Camera zoom | Viewport | Alt+Mouse right | done | crates/ui/src/nav.rs:80 | - |
 | Camera zoom with the wheel | Viewport | Mouse wheel | done | crates/ui/src/viewport.rs:104 | - |
 | Stencil rotate | Viewport | S+Mouse left | done | crates/ui/src/viewport.rs:85 | - |
-| Stencil snap rotate | Viewport | Shift+S+Mouse left; 90 degree steps | missing | - | - |
+| Stencil snap rotate | Viewport | Shift+S+Mouse left; 90 degree steps | done | crates/ui/src/viewport.rs (stencil_drag_rotation) | #158 |
 | Stencil translation | Viewport | S+Middle mouse | done | crates/ui/src/viewport.rs:89 | - |
 | Stencil zoom | Viewport | S+Right mouse | done | crates/ui/src/viewport.rs:93 | - |
 | Change tool Size / Hardness | Viewport | Ctrl+Mouse right; horizontal = size, vertical = hardness | done | crates/ui/src/viewport.rs:146 | - |
 | Change tool Flow / Rotation | Viewport | Ctrl+Mouse left; horizontal = flow, vertical = rotation | done | crates/ui/src/viewport.rs:150 | - |
 | Rotate environment | Viewport | Shift+Mouse right | done | crates/ui/src/nav.rs:76 | - |
 | Auto-Focus (Depth of Field) | Viewport | Ctrl+Middle mouse | partial: a pick-focus button then a click, no direct gesture | crates/ui/src/render_export.rs:104 | - |
-| Texture set selection | Viewport | Ctrl+Alt+Mouse right | missing | - | - |
+| Texture set selection | Viewport | Ctrl+Alt+Mouse right | done | crates/ui/src/viewport.rs (pick_set) | #163 |
 | Context menu (properties at the cursor) | Viewport | Mouse right | partial: opens a part-actions menu, not the tool properties | crates/ui/src/viewport.rs:162 | #131 |
 | Set Clone tool source location | Viewport | V+Mouse left | done | crates/ui/src/viewport.rs:154 | - |
 | Ignore stencil mask | Viewport | N (hold) | done | crates/ui/src/viewport.rs:79 | - |
@@ -129,7 +129,7 @@ Layout notes: these are listed in the same editable list; mouse combinations can
 | Snap UV rotation to orthogonal angles | 2D view | Alt+Shift+Left click | missing | - | - |
 | Pan | 2D view | Alt+Middle click | partial: plain middle drag or Alt+left drag | crates/ui/src/panels/uv_view.rs:83 | - |
 | Zoom / dolly | 2D view | Alt+Right click | partial: wheel only | crates/ui/src/panels/uv_view.rs:77 | - |
-| Orbit around the cursor position (3D) | 3D view | Alt+Left click | partial: orbits around the camera target | crates/ui/src/nav.rs:84 | - |
+| Orbit around the cursor position (3D) | 3D view | Alt+Left click | done | crates/ui/src/orbit.rs (orbit_around) | #163 |
 
 ## Non-editable shortcuts: layer stack
 
@@ -142,9 +142,9 @@ Layout notes: these act only while the pointer is over the layer stack.
 | Paste layer | Layer stack | Ctrl+V | done | crates/ui/src/clipboard.rs:47 | - |
 | Delete layer | Layer stack | Delete | done | crates/app/src/actions.rs:196 | - |
 | Duplicate layer | Layer stack | Ctrl+D | done | crates/app/src/actions.rs:197 | - |
-| Group layer | Layer stack | Ctrl+G | partial: Ctrl+G adds an empty folder; grouping the selection is in the context menu | crates/app/src/session.rs:1572 | - |
-| Copy layer content | Layer stack | Ctrl+Shift+C (Option+Cmd+C) | missing | - | - |
-| Paste layer content | Layer stack | Ctrl+Shift+V (Option+Cmd+V) | missing | - | - |
+| Group layer | Layer stack | Ctrl+G | done (no selection: adds an empty folder) | crates/app/src/session.rs:1908 | - |
+| Copy layer content | Layer stack | Ctrl+Shift+C (Option+Cmd+C) | done | crates/ui/src/clipboard.rs:66 | - |
+| Paste layer content | Layer stack | Ctrl+Shift+V (Option+Cmd+V) | done | crates/ui/src/clipboard.rs:66 | - |
 | Display mask in viewport | Layer stack, mask thumbnail | Alt+Mouse left | partial: opens a preview inspector window, viewport does not switch to the mask | crates/ui/src/panels/layers.rs:312 | - |
 | Disable/Enable mask | Layer stack, mask thumbnail | Shift+Mouse left | done | crates/ui/src/panels/layers.rs:308 | - |
 | Drag and drop material onto one part of the model | Assets to viewport | Ctrl+Drag and drop | missing | - | - |
@@ -158,11 +158,11 @@ Layout notes: these act only while the pointer is over the layer stack.
 | Merge selected layers | Layer stack | Ctrl+M | missing | - | - |
 | Paste as instance | Layer stack | Ctrl+Shift+V after Ctrl+C | missing | - | - |
 | Instantiate across texture sets | Layer stack | Ctrl+Shift+D (release notes) | missing | - | - |
-| Duplicate layers by dragging | Layer stack | Ctrl + drag and drop | missing | - | - |
-| Copy / cut / paste effects | Layer stack, effect selected | Ctrl+C / Ctrl+X / Ctrl+V | partial: effect copy and paste only through menus, no cut, no keys | crates/ui/src/clipboard.rs:90 | - |
-| Delete selected effect | Layer stack, effect selected | Delete | missing | - | - |
-| Reorder effect up | Layer stack, effect selected | Alt+Up arrow | missing | - | - |
-| Reorder effect down | Layer stack, effect selected | Alt+Down arrow | missing | - | - |
+| Duplicate layers by dragging | Layer stack | Ctrl + drag and drop | done | crates/ui/src/panels/layers.rs:136 | - |
+| Copy / cut / paste effects | Layer stack, effect selected | Ctrl+C / Ctrl+X / Ctrl+V | done | crates/ui/src/clipboard.rs:61 | - |
+| Delete selected effect | Layer stack, effect selected | Delete | done | crates/app/src/session.rs:1914 | - |
+| Reorder effect up | Layer stack, effect selected | Alt+Up arrow | done | crates/ui/src/panels/effects.rs:287 | - |
+| Reorder effect down | Layer stack, effect selected | Alt+Down arrow | done | crates/ui/src/panels/effects.rs:287 | - |
 | Change blending mode with keys | Blending mode dropdown focused | Up / Down arrows | missing | - | - |
 | Change blending mode with the wheel | Blending mode dropdown focused | Mouse wheel up / down | missing | - | - |
 | Create a mask when dropping a fill | Assets to layer stack | Ctrl while dropping | missing | - | - |

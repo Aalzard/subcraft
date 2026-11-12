@@ -433,8 +433,13 @@ fn normal_channel_combines_with_whiteout() {
         let n = glam::Vec3::new(x, 0.0, 1.0).normalize();
         ChannelValue::rgb(n.x * 0.5 + 0.5, n.y * 0.5 + 0.5, n.z * 0.5 + 0.5)
     };
-    ts.insert_above(None, fill_layer(&tc, &[(ChannelKind::Normal, tilt(0.3))]));
-    ts.insert_above(None, fill_layer(&tc, &[(ChannelKind::Normal, tilt(0.3))]));
+    // New layers default to Normal Map Detail (Painter); this test is about Combine.
+    let combine = |mut l: Layer| {
+        l.blend.insert(ChannelKind::Normal, subcraft_doc::ChannelBlend::new(subcraft_doc::BlendMode::NormalMapCombine));
+        l
+    };
+    ts.insert_above(None, combine(fill_layer(&tc, &[(ChannelKind::Normal, tilt(0.3))])));
+    ts.insert_above(None, combine(fill_layer(&tc, &[(ChannelKind::Normal, tilt(0.3))])));
     let c = composite_full(&ts, &fx.ctx());
     let expect = subcraft_compositor::blend::whiteout(tilt(0.3).0, tilt(0.3).0);
     // First layer combines with the flat default (identity), the second tilts further.
@@ -999,4 +1004,52 @@ fn grunge_map_breakup_is_bounded_deterministic_and_replaces_the_organic_noise() 
         organic.painter.as_mut().unwrap().grunge_map = false;
         assert_ne!(a, generator_texels(organic), "{kind:?}: the grunge map changes the pattern");
     }
+}
+
+/// UV Wrap on mask effects: outside a non-repeating projection an image or procedural fill
+/// contributes nothing, so the mask keeps what was below it.
+#[test]
+fn mask_image_and_procedural_fill_respect_uv_wrap() {
+    use subcraft_core::ResourceId;
+    use subcraft_doc::{ProceduralKind, ProceduralParams, Projection, Resource, ResourceKind, UvWrap};
+    use subcraft_image::Bitmap;
+
+    let mut fx = Fixture::plane();
+    let white = ResourceId::new();
+    fx.res.insert(Resource { id: white, name: "w.png".into(), kind: ResourceKind::Texture, bitmap: Arc::new(Bitmap::new_u8(2, 2, 1, vec![255; 4])), source_path: None, encoded: None });
+    let eval = |kind: MaskEffectKind| {
+        let mut ts = texture_set();
+        let mut l = fill_layer(&ts, &[(ChannelKind::Roughness, ChannelValue::scalar(1.0))]);
+        let mut mask = Mask::new(RES, false);
+        mask.effects.push(Arc::new(MaskEffect::new(kind)));
+        l.mask = Some(mask);
+        ts.insert_above(None, l);
+        composite_full(&ts, &fx.ctx())
+    };
+    // Tiling 2 without repetition: the image is the top-left quarter only.
+    let quarter = |uv_wrap| Projection { scale: [2.0, 2.0], uv_wrap, ..Projection::default() };
+    let (near, far) = (RES / 4, 3 * RES / 4);
+    let c = eval(MaskEffectKind::Image { resource: white, projection: quarter(UvWrap::None), invert: false });
+    assert_scalar(&c, ChannelKind::Roughness, near, near, 1.0);
+    for (x, y) in [(far, near), (near, far), (far, far)] {
+        assert_scalar(&c, ChannelKind::Roughness, x, y, 0.3);
+    }
+    let c = eval(MaskEffectKind::Image { resource: white, projection: quarter(UvWrap::RepeatHorizontal), invert: false });
+    assert_scalar(&c, ChannelKind::Roughness, far, near, 1.0);
+    assert_scalar(&c, ChannelKind::Roughness, near, far, 0.3);
+    let c = eval(MaskEffectKind::Image { resource: white, projection: quarter(UvWrap::Repeat), invert: false });
+    assert_scalar(&c, ChannelKind::Roughness, far, far, 1.0);
+    // Procedural fill: identical inside the square, the black mask outside.
+    let params = ProceduralParams { invert: true, ..ProceduralParams::new(ProceduralKind::Checker) };
+    let full = eval(MaskEffectKind::Fill { value: 1.0, procedural: Some(params), projection: quarter(UvWrap::Repeat) });
+    let clipped = eval(MaskEffectKind::Fill { value: 1.0, procedural: Some(params), projection: quarter(UvWrap::RepeatVertical) });
+    for y in (1..RES).step_by(7) {
+        for x in (1..RES).step_by(7) {
+            let expect = if x < RES / 2 { px(&full, ChannelKind::Roughness, x, y)[0] } else { 0.3 };
+            assert_scalar(&clipped, ChannelKind::Roughness, x, y, expect);
+        }
+    }
+    // A uniform value has no texture to wrap.
+    let c = eval(MaskEffectKind::Fill { value: 1.0, procedural: None, projection: quarter(UvWrap::None) });
+    assert_scalar(&c, ChannelKind::Roughness, far, far, 1.0);
 }

@@ -10,19 +10,19 @@ Layout notes: one header row. Far left is the view-mode (channel) dropdown; the 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
 | View mode dropdown (channel shown in thumbnails; channel whose blend mode and opacity each row edits) | Layers header, top left | first channel of the texture set; options = channels in Texture Set Settings | partial: on its own row below the toolbar, labelled "Channel" | crates/ui/src/panels/layers.rs:207 | - |
-| Add Effect button (opens the effect menu for the selected layer or mask) | Layers header, icon 1 | not documented | partial: no header button; "+ Add" sits on the effect-stack header of the selected layer, plus a generator-only wand button | crates/ui/src/panels/effects.rs:176 | - |
-| Create Mask button (opens the mask menu) | Layers header, icon 2 | not documented | missing (masks are added from the row context menu or Properties) | - | - |
-| Create Mask > Add white mask | Layers header, mask menu | not documented | partial: only in row context menu "Add mask > White mask" and Properties | crates/ui/src/panels/layers.rs:458 | - |
-| Create Mask > Add black mask | Layers header, mask menu | not documented | partial: only in row context menu "Add mask > Black mask" and Properties | crates/ui/src/panels/layers.rs:458 | - |
-| Create Mask > Add bitmap mask | Layers header, mask menu | not documented | partial: Properties > Mask > "+ Image" adds an image effect to an existing mask; not in a mask menu | crates/ui/src/panels/properties.rs:372 | - |
-| Create Mask > Add mask with color selection | Layers header, mask menu | not documented | partial: row context menu "Add ID color mask" (black mask + ID Color effect) | crates/ui/src/panels/layers.rs:472 | - |
+| Add Effect button (opens the effect menu for the selected layer or mask) | Layers header, icon 1 | not documented | done | crates/ui/src/panels/layers.rs:301 | - |
+| Create Mask button (opens the mask menu) | Layers header, icon 2 | not documented | done | crates/ui/src/panels/layers.rs:309 | - |
+| Create Mask > Add white mask | Layers header, mask menu | not documented | done | crates/ui/src/panels/layers.rs:51 | - |
+| Create Mask > Add black mask | Layers header, mask menu | not documented | done | crates/ui/src/panels/layers.rs:51 | - |
+| Create Mask > Add bitmap mask | Layers header, mask menu | not documented | done (file picker; a black mask is created first) | crates/ui/src/panels/layers.rs:62 | - |
+| Create Mask > Add mask with color selection | Layers header, mask menu | not documented | done | crates/ui/src/panels/layers.rs:66 | - |
 | Create Mask > Add mask with height combination | Layers header, mask menu | not documented | missing (no Compare Mask effect) | - | - |
 | Create New Paint Layer (above the selection) | Layers header, icon 3 | not documented | done | crates/ui/src/panels/layers.rs:162 | - |
 | Create New Fill Layer (above the selection) | Layers header, icon 4 | not documented | done | crates/ui/src/panels/layers.rs:165 | - |
 | Add New Smart Materials (mini-shelf of smart materials, inserts above the selection) | Layers header, icon 5 | not documented | missing (smart materials are added from the shelf only) | - | - |
 | Add New Folder (empty, above the selection) | Layers header, icon 6 | not documented | done | crates/ui/src/panels/layers.rs:168 | - |
-| Delete Layer (selected layer, folder or effect) | Layers header, icon 7 | not documented | partial: deletes layers only; a selected effect is deleted from its own row menu or Properties | crates/ui/src/panels/layers.rs:187 | - |
-| New layer goes inside a selected empty folder | Layers header buttons | not documented | missing (always inserted above the selection) | - | - |
+| Delete Layer (selected layer, folder or effect) | Layers header, icon 7 | not documented | done | crates/ui/src/panels/layers.rs:343 | - |
+| New layer goes inside a selected empty folder | Layers header buttons | not documented | done | crates/app/src/session.rs:1207 | - |
 
 ## Layer row
 
@@ -31,28 +31,28 @@ Layout notes: left to right a Painter row has the visibility eye, the content th
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
 | Visibility toggle (eye) | Layer row, left | visible | done | crates/ui/src/panels/layers.rs:290 | - |
-| Click and slide over several eyes to hide/unhide many rows | Layer row, eye column | not documented | missing | - | - |
-| Un-hiding a layer inside a hidden folder also un-hides the folder | Layer row, eye | not documented | missing | - | - |
+| Click and slide over several eyes to hide/unhide many rows | Layer row, eye column | not documented | done | crates/ui/src/panels/layers.rs:173 | - |
+| Un-hiding a layer inside a hidden folder also un-hides the folder | Layer row, eye | not documented | done | crates/app/src/session.rs:1845 | - |
 | Content thumbnail (click selects the layer content and shows the content effect stack) | Layer row | shows the view-mode channel | done | crates/ui/src/panels/layers.rs:294 | - |
 | Fill-layer thumbnail drawn as a material sphere (optimised thumbnails) | Layer row | optimised thumbnails on by default | partial: flat channel preview, no sphere | crates/ui/src/panels/layers.rs:294 | - |
 | Thumbnail mode setting (legacy vs optimised thumbnails) | Settings (referenced from layer stack) | optimised | missing | - | - |
 | Thumbnail loading indicator | Layer row thumbnail | not documented | partial: previews fill in asynchronously, no explicit indicator | crates/ui/src/layer_previews.rs:33 | - |
 | Mask thumbnail (click selects the mask and shows the mask effect stack) | Layer row, right of content thumbnail | absent until a mask is added | done | crates/ui/src/panels/layers.rs:298 | - |
-| Effect indicator line under each thumbnail (grey none, red at least one effect) | Layer row, under thumbnails | grey | partial: text "N fx" under the name instead of a per-thumbnail line | crates/ui/src/panels/layers.rs:339 | - |
+| Effect indicator line under each thumbnail (grey none, red at least one effect) | Layer row, under thumbnails | grey | done (a "N fx" text under the name as well) | crates/ui/src/panels/layers.rs:453 | - |
 | Layer name | Layer row | "Layer N" / "Fill layer N" / "Folder N" (unverified) | done | crates/ui/src/panels/layers.rs:324 | - |
 | Rename by double-click on the name | Layer row | not documented | done (also F2 and context menu) | crates/ui/src/panels/layers.rs:403 | - |
 | Blending mode dropdown for the view-mode channel | Layer row, right | per channel, see Blending modes | done | crates/ui/src/panels/layers.rs:360 | - |
 | Opacity for the view-mode channel | Layer row, right | 100; 0-100 | done | crates/ui/src/panels/layers.rs:373 | - |
-| Blending dropdown: Arrow Up / Arrow Down step through modes when focused | Layer row, blend dropdown | n/a | missing | - | - |
-| Blending dropdown: mouse wheel steps through modes when focused | Layer row, blend dropdown | n/a | missing | - | - |
-| Right-click blending mode > Apply to all channels | Layer row, blend dropdown | n/a | missing | - | - |
-| Right-click opacity > Apply to all channels | Layer row, opacity | n/a | missing | - | - |
+| Blending dropdown: Arrow Up / Arrow Down step through modes when focused | Layer row, blend dropdown | n/a | done | crates/ui/src/panels/layers.rs:206 | - |
+| Blending dropdown: mouse wheel steps through modes when focused | Layer row, blend dropdown | n/a | done | crates/ui/src/panels/layers.rs:206 | - |
+| Right-click blending mode > Apply to all channels | Layer row, blend dropdown | n/a | done | crates/ui/src/panels/layers.rs:534 | - |
+| Right-click opacity > Apply to all channels | Layer row, opacity | n/a | done | crates/ui/src/panels/layers.rs:547 | - |
 | Folder disclosure arrow (open/close group) | Folder row | open | done | crates/ui/src/panels/layers.rs:286 | - |
 | Folder closes when moved in or out of another folder (fixed in recent versions: state kept) | Folder row | state kept | done | crates/app/src/layer_tree.rs:17 | - |
 | Instance icon (none / source / target; click opens the instance list) | Layer row, right | hidden when not instanced | missing | - | - |
 | Geometry mask icon (click to edit, shows count of included items) | Layer row, far right | all geometry included | partial: no row icon; the "Parts" section in Properties plays this role | crates/ui/src/panels/properties.rs:88 | - |
 | Gamma-corrected alpha "i" icon | Layer row | off | missing | - | - |
-| Layer colour stripe (from Set color) | Layer row | none | missing | - | - |
+| Layer colour stripe (from Set color) | Layer row | none | done (at the right edge of the row; dimmed inside a tagged folder) | crates/ui/src/panels/layers.rs:559 | - |
 | Broken instance / cycle indicator | Layer row | n/a | missing | - | - |
 | Anchor reference broken warning on the row | Layer row | n/a | done | crates/ui/src/panels/layers.rs:342 | - |
 
@@ -77,12 +77,12 @@ Layout notes: one flat dropdown, grouped by separators in this order: Normal / P
 | Passthrough | Layer row > blending dropdown | default for instanced layers and for layers made by dropping a filter | partial: offered on folders only, not on paint/fill layers | crates/doc/src/blend.rs:163 | - |
 | Disable | Layer row > blending dropdown | n/a | done | crates/doc/src/blend.rs:12 | - |
 | Replace | Layer row > blending dropdown | n/a | done | crates/doc/src/blend.rs:14 | - |
-| Multiply | Layer row > blending dropdown | default for Ambient Occlusion channel | partial: mode exists; new layers default AO to Normal | crates/doc/src/blend.rs:15 | - |
+| Multiply | Layer row > blending dropdown | default for Ambient Occlusion channel | done | crates/doc/src/blend.rs:158 | - |
 | Divide | Layer row > blending dropdown | n/a | done | crates/doc/src/blend.rs:16 | - |
 | Inverse Divide | Layer row > blending dropdown | n/a | done | crates/doc/src/blend.rs:17 | - |
 | Darken (Min) | Layer row > blending dropdown | n/a | done | crates/doc/src/blend.rs:18 | - |
 | Lighten (Max) | Layer row > blending dropdown | n/a | done | crates/doc/src/blend.rs:19 | - |
-| Linear Dodge (Add) | Layer row > blending dropdown | default for Height channel | partial: mode exists; new layers default Height to Normal | crates/doc/src/blend.rs:20 | - |
+| Linear Dodge (Add) | Layer row > blending dropdown | default for Height channel | done | crates/doc/src/blend.rs:158 | - |
 | Subtract | Layer row > blending dropdown | n/a | done | crates/doc/src/blend.rs:21 | - |
 | Inverse Subtract | Layer row > blending dropdown | n/a | done | crates/doc/src/blend.rs:22 | - |
 | Difference | Layer row > blending dropdown | n/a | done | crates/doc/src/blend.rs:23 | - |
@@ -103,9 +103,9 @@ Layout notes: one flat dropdown, grouped by separators in this order: Normal / P
 | Color | Layer row > blending dropdown | n/a | done | crates/doc/src/blend.rs:38 | - |
 | Value | Layer row > blending dropdown | n/a | done | crates/doc/src/blend.rs:39 | - |
 | Normal Map Combine | Layer row > blending dropdown | Normal channel only | done | crates/doc/src/blend.rs:40 | - |
-| Normal Map Detail | Layer row > blending dropdown | default for Normal channel | partial: mode exists; new layers default Normal to Normal Map Combine | crates/doc/src/layer.rs:164 | - |
+| Normal Map Detail | Layer row > blending dropdown | default for Normal channel | done | crates/doc/src/blend.rs:158 | - |
 | Normal Map Inverse Detail | Layer row > blending dropdown | Normal channel only | done | crates/doc/src/blend.rs:42 | - |
-| Separators between the seven mode groups | Layer row > blending dropdown | n/a | missing (flat list) | - | - |
+| Separators between the seven mode groups | Layer row > blending dropdown | n/a | done | crates/ui/src/panels/layers.rs:192 | - |
 | Height channel is HDR: Add / Subtract are not clamped | Texture Set channel format | Height is HDR | done | crates/compositor/src/blend.rs:157 | - |
 
 ## Creating layers
@@ -114,7 +114,7 @@ Layout notes: one flat dropdown, grouped by separators in this order: Normal / P
 |---|---|---|---|---|---|
 | Duplicate via Right-click > Duplicate | Layer context menu | n/a | done | crates/ui/src/panels/layers.rs:499 | - |
 | Duplicate via Ctrl+D | Layer stack shortcut | Ctrl+D | done | crates/app/src/actions.rs:197 | - |
-| Duplicate via Ctrl + drag and drop of the layer(s) | Layer stack | n/a | missing | - | - |
+| Duplicate via Ctrl + drag and drop of the layer(s) | Layer stack | n/a | done | crates/ui/src/panels/layers.rs:136 | - |
 | Drag a Material from Assets into the stack (new fill layer at the drop position) | Assets > Layer stack | n/a | partial: lands above the row it is dropped on, no between-rows insert bar | crates/ui/src/panels/layers.rs:411 | - |
 | Drag a Smart Material from Assets into the stack (new folder) | Assets > Layer stack | n/a | partial: lands above the row it is dropped on | crates/ui/src/panels/shelf.rs:95 | - |
 | Drag an effect (filter / generator) from Assets into the stack (new layer set to Passthrough on all channels) | Assets > Layer stack | n/a | missing | - | - |
@@ -142,8 +142,8 @@ Layout notes: one flat dropdown, grouped by separators in this order: Normal / P
 | Single click selects a layer | Layer stack | n/a | done | crates/ui/src/panels/layers.rs:398 | - |
 | Ctrl / Cmd + click adds or removes a layer from the selection | Layer stack | n/a | done | crates/app/src/multi_select.rs:37 | - |
 | Shift + click selects the range between first and last | Layer stack | n/a | done | crates/app/src/multi_select.rs:24 | - |
-| Group layers: Right-click > Group Layers | Layer context menu | n/a | partial: "Group in new folder" wraps only the clicked layer, not the multi-selection | crates/ui/src/panels/layers.rs:431 | - |
-| Group layers: Ctrl+G | Layer stack shortcut | Ctrl+G | partial: Ctrl+G creates an empty folder instead of wrapping the selection | crates/app/src/actions.rs:194 | - |
+| Group layers: Right-click > Group Layers | Layer context menu | n/a | done | crates/ui/src/panels/layers.rs:659 | - |
+| Group layers: Ctrl+G | Layer stack shortcut | Ctrl+G | done (Ctrl+G with no selection adds an empty folder) | crates/app/src/session.rs:1422 | - |
 | Selection stays near the deleted layer after a delete | Layer stack | n/a | done | crates/app/src/session.rs:1150 | - |
 | Layer and effect cannot both be selected | Layer stack | n/a | done | crates/app/src/command.rs:37 | - |
 
@@ -158,9 +158,9 @@ Layout notes: these are Painter's non-editable shortcuts; copy/paste only fire w
 | Paste layer | Layer stack | Ctrl+V | done | crates/ui/src/clipboard.rs:48 | - |
 | Delete layer | Layer stack | Delete | done | crates/app/src/actions.rs:196 | - |
 | Duplicate layer | Layer stack | Ctrl+D | done | crates/app/src/actions.rs:197 | - |
-| Group layer | Layer stack | Ctrl+G | partial: makes an empty folder | crates/app/src/actions.rs:194 | - |
-| Copy layer content (painting and effects) | Layer stack | Ctrl+Shift+C | missing | - | - |
-| Paste layer content | Layer stack | Ctrl+Shift+V | missing | - | - |
+| Group layer | Layer stack | Ctrl+G | done | crates/app/src/session.rs:1908 | - |
+| Copy layer content (painting and effects) | Layer stack | Ctrl+Shift+C | done | crates/ui/src/clipboard.rs:140 | - |
+| Paste layer content | Layer stack | Ctrl+Shift+V | done | crates/app/src/session.rs:1561 | - |
 | Paste as instance | Layer stack | Ctrl+Shift+V (per instancing page) | missing | - | - |
 | Instantiate across texture sets | Layer stack | Ctrl+Shift+D (2017.4 release notes) | missing | - | - |
 | Merge / flatten the selected group | Layer stack | Ctrl+M | missing | - | - |
@@ -172,23 +172,23 @@ Layout notes: these are Painter's non-editable shortcuts; copy/paste only fire w
 
 ## Layer context menu (right-click on a layer)
 
-Layout notes: Painter's menu is, top to bottom: effect entries (with icons), mask entries, clipboard entries, instancing, grouping and flatten, blending options, layer options, smart presets, colour. Adobe's docs name the entries but do not print the full ordered menu; entries marked (unverified) are placed from memory of the application. SubCraft's menu order is: Rename, Group in new folder, Move into folder, Move to top level, Add paint layer, Add fill layer, Add text layer, Add mask, Mask actions, Add generator, Add fill mask effect, Add paint mask effect, Add ID color mask, Save as smart material, Save mask as smart mask, Copy, Cut, Paste above, Duplicate, Hide/Show (multi), Delete.
+Layout notes: Painter's menu is, top to bottom: effect entries (with icons), mask entries, clipboard entries, instancing, grouping and flatten, blending options, layer options, smart presets, colour. Adobe's docs name the entries but do not print the full ordered menu; entries marked (unverified) are placed from memory of the application. SubCraft's menu follows that order: Add paint / fill / levels / filter / anchor point (or the mask effects when the mask is the shown stack), Add generator, the four mask entries, Mask actions, Cut, Copy, Paste, Duplicate, Remove, Group layers, Create smart material, Create smart mask; its own entries come last (Rename, Move into folder, Move to top level, Add paint / fill / text layer, Hide / Show for a multi-selection).
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Add paint (effect) | Layer context menu | n/a | partial: in the effect-stack "+ Add" menu; context menu only has "Add paint mask effect" | crates/ui/src/panels/effects.rs:67 | - |
-| Add fill (effect) | Layer context menu | n/a | partial: in the "+ Add" menu; context menu only has "Add fill mask effect" | crates/ui/src/panels/effects.rs:68 | - |
-| Add generator | Layer context menu | n/a | partial: adds a fixed built-in generator kind to the mask; no generator picker slot | crates/ui/src/panels/layers.rs:467 | - |
-| Add levels | Layer context menu | n/a | partial: only in the "+ Add" menu of the effect stack | crates/ui/src/panels/effects.rs:69 | - |
+| Add paint (effect) | Layer context menu | n/a | done | crates/ui/src/panels/effects.rs:68 | - |
+| Add fill (effect) | Layer context menu | n/a | done | crates/ui/src/panels/effects.rs:69 | - |
+| Add generator | Layer context menu | n/a | partial: adds a built-in generator to the mask from a submenu of kinds; no generator on content | crates/ui/src/panels/layers.rs:619 | - |
+| Add levels | Layer context menu | n/a | done | crates/ui/src/panels/effects.rs:70 | - |
 | Add compare mask (mask only) | Layer context menu | n/a | missing | - | - |
-| Add filter | Layer context menu | n/a | partial: only in the "+ Add" menu of the effect stack | crates/ui/src/panels/effects.rs:82 | - |
-| Add color selection (mask only) | Layer context menu | n/a | partial: "Add ID color mask" | crates/ui/src/panels/layers.rs:472 | - |
-| Add anchor point | Layer context menu | n/a | partial: only in the "+ Add" menu of the effect stack | crates/ui/src/panels/effects.rs:78 | - |
-| Effect icons shown next to the Add entries | Layer context menu | n/a | missing | - | - |
-| Add white mask | Layer context menu | n/a | done | crates/ui/src/panels/layers.rs:458 | - |
-| Add black mask | Layer context menu | n/a | done | crates/ui/src/panels/layers.rs:458 | - |
-| Add bitmap mask | Layer context menu | n/a | missing in the menu (Properties "+ Image" only) | - | - |
-| Add mask with color selection | Layer context menu | n/a | partial: "Add ID color mask" | crates/ui/src/panels/layers.rs:472 | - |
+| Add filter | Layer context menu | n/a | partial: a submenu of built-in filters instead of an empty slot with a picker | crates/ui/src/panels/effects.rs:79 | - |
+| Add color selection (mask only) | Layer context menu | n/a | done | crates/ui/src/panels/effects.rs:142 | - |
+| Add anchor point | Layer context menu | n/a | done | crates/ui/src/panels/effects.rs:89 | - |
+| Effect icons shown next to the Add entries | Layer context menu | n/a | done | crates/ui/src/panels/effects.rs:65 | - |
+| Add white mask | Layer context menu | n/a | done | crates/ui/src/panels/layers.rs:51 | - |
+| Add black mask | Layer context menu | n/a | done | crates/ui/src/panels/layers.rs:51 | - |
+| Add bitmap mask | Layer context menu | n/a | done | crates/ui/src/panels/layers.rs:62 | - |
+| Add mask with color selection | Layer context menu | n/a | done | crates/ui/src/panels/layers.rs:66 | - |
 | Add mask with height combination (Compare Mask on Height, sets Height blend to Normal) | Layer context menu | n/a | missing | - | - |
 | Cut layer(s) | Layer context menu | Ctrl+X | done | crates/ui/src/panels/layers.rs:493 | - |
 | Copy layer(s) | Layer context menu | Ctrl+C | done | crates/ui/src/panels/layers.rs:490 | - |
@@ -197,17 +197,17 @@ Layout notes: Painter's menu is, top to bottom: effect entries (with icons), mas
 | Duplicate layer(s) | Layer context menu | Ctrl+D | done | crates/ui/src/panels/layers.rs:499 | - |
 | Remove layer(s) | Layer context menu | Delete (unverified label) | done | crates/ui/src/panels/layers.rs:507 | - |
 | Instantiate across texture sets | Layer context menu | Ctrl+Shift+D | missing | - | - |
-| Group layer(s) | Layer context menu | Ctrl+G | partial: single layer only | crates/ui/src/panels/layers.rs:431 | - |
+| Group layer(s) | Layer context menu | Ctrl+G | done | crates/ui/src/panels/layers.rs:659 | - |
 | Merge / flatten group | Layer context menu | Ctrl+M | missing | - | - |
 | Export flattened group to files | Layer context menu | n/a | missing | - | - |
-| Blending options > Copy (blend mode and opacity of all channels) | Layer context menu | n/a | missing | - | - |
-| Blending options > Paste | Layer context menu | n/a | missing | - | - |
-| Copy layer content (unverified entry; shortcut is documented) | Layer context menu | Ctrl+Shift+C | missing | - | - |
-| Paste layer content (unverified entry; shortcut is documented) | Layer context menu | Ctrl+Shift+V | missing | - | - |
+| Blending options > Copy (blend mode and opacity of all channels) | Layer context menu | n/a | done | crates/ui/src/panels/layers.rs:665 | - |
+| Blending options > Paste | Layer context menu | n/a | done | crates/app/src/session.rs:1535 | - |
+| Copy layer content (unverified entry; shortcut is documented) | Layer context menu | Ctrl+Shift+C | done | crates/ui/src/panels/layers.rs:678 | - |
+| Paste layer content (unverified entry; shortcut is documented) | Layer context menu | Ctrl+Shift+V | done | crates/ui/src/panels/layers.rs:682 | - |
 | Gamma corrected alpha/mask (per-layer toggle) | Layer context menu | off | missing | - | - |
-| Create smart material (folders) | Layer context menu | n/a | partial: "Save as smart material" on any layer, not folders only | crates/ui/src/panels/layers.rs:476 | - |
-| Create smart mask | Layer context menu | n/a | partial: "Save mask as smart mask", shown only when the mask has effects | crates/ui/src/panels/layers.rs:480 | - |
-| Set color (colour tag submenu: none plus a fixed palette) | Layer context menu | none (palette unverified) | missing | - | - |
+| Create smart material (folders) | Layer context menu | n/a | partial: offered on any layer, not folders only | crates/ui/src/panels/layers.rs:688 | - |
+| Create smart mask | Layer context menu | n/a | done (greyed until the mask has an effect) | crates/ui/src/panels/layers.rs:692 | - |
+| Set color (colour tag submenu: none plus a fixed palette) | Layer context menu | none (palette unverified) | done (None plus nine colours) | crates/ui/src/panels/layers.rs:696 | - |
 | Rename (SubCraft extra; Painter renames by double-click) | Layer context menu | F2 in SubCraft | done | crates/ui/src/panels/layers.rs:427 | - |
 
 ## Copy and paste
@@ -218,8 +218,8 @@ Layout notes: Painter's menu is, top to bottom: effect entries (with icons), mas
 | Paste layers into another texture set | Layer stack | n/a | done | crates/app/src/session.rs:694 | - |
 | Copy/paste layers across projects (not supported in Painter) | Layer stack | not supported | done (SubCraft allows it) | crates/app/src/command.rs:80 | - |
 | Pasted duplicates are renamed ("copy N") | Layer stack | not documented | partial: names kept, ids regenerated | crates/app/src/session.rs:1061 | - |
-| Copy layer content / paste layer content (painting plus effects into an existing layer) | Layer stack | Ctrl+Shift+C / V | missing | - | - |
-| Copy / paste blending options between layers | Layer context menu > Blending options | n/a | missing | - | - |
+| Copy layer content / paste layer content (painting plus effects into an existing layer) | Layer stack | Ctrl+Shift+C / V | done (the content replaces the target's; the mask is not copied) | crates/app/src/session.rs:1561 | - |
+| Copy / paste blending options between layers | Layer context menu > Blending options | n/a | done | crates/app/src/session.rs:1535 | - |
 | Copy / cut / paste effects (see masks-effects.md) | Effect rows | Ctrl+C / X / V | partial: copy and paste from the effect row menu only | crates/ui/src/panels/effects.rs:286 | - |
 | Anchor references survive duplicate and copy/paste | Layer stack | n/a | done | crates/app/src/clipboard.rs:209 | - |
 
@@ -229,9 +229,9 @@ Layout notes: colours are set from the context menu. A layer without its own col
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Assign a colour to a layer or folder | Layer context menu > Set color | none | missing | - | - |
-| Children inherit the folder colour (dimmed) | Layer stack | n/a | missing | - | - |
-| A layer's own colour is not overridden by its folder | Layer stack | n/a | missing | - | - |
+| Assign a colour to a layer or folder | Layer context menu > Set color | none | done | crates/app/src/session.rs:1550 | - |
+| Children inherit the folder colour (dimmed) | Layer stack | n/a | done | crates/ui/src/panels/layers.rs:559 | - |
+| A layer's own colour is not overridden by its folder | Layer stack | n/a | done | crates/ui/src/panels/layers.rs:559 | - |
 | Search / filter box in the layer stack (Painter has none) | Layer stack | not present | n/a | - | - |
 
 ## Layer instancing
@@ -340,9 +340,9 @@ Layout notes: the geometry mask is a second, list-based mask on every layer and 
 |---|---|---|---|---|---|
 | Height: bitmap/substance sources are remapped from 0..1 to -1..1 | Fill and paint sources | n/a | missing (no remap) | - | - |
 | Height: uniform colour picks -1..1 directly | Fill / tool material | -1..1 | done | crates/ui/src/widgets.rs:54 | - |
-| Height default layer blend: Linear Dodge (Add) | New layer | Linear Dodge (Add) | partial: default is Normal | crates/doc/src/layer.rs:166 | - |
-| Normal default layer blend: Normal Map Detail | New layer | Normal Map Detail | partial: default is Normal Map Combine | crates/doc/src/layer.rs:164 | - |
-| Ambient Occlusion default layer blend: Multiply | New layer | Multiply | partial: default is Normal | crates/doc/src/layer.rs:166 | - |
+| Height default layer blend: Linear Dodge (Add) | New layer | Linear Dodge (Add) | done | crates/doc/src/blend.rs:158 | - |
+| Normal default layer blend: Normal Map Detail | New layer | Normal Map Detail | done | crates/doc/src/blend.rs:158 | - |
+| Ambient Occlusion default layer blend: Multiply | New layer | Multiply | done | crates/doc/src/blend.rs:158 | - |
 | Normal resource colour space choice (DirectX / OpenGL) on the slot | Fill layer / tool normal slot | DirectX | partial: one project-wide normal format for export, no per-slot choice | crates/doc/src/settings.rs:9 | - |
 | Texture set normal mixing (Combine / Replace) for painting over baked normals | Texture Set Settings | Combine | missing | - | - |
 | Texture set AO mixing (Multiply / Replace) for painting over baked AO | Texture Set Settings | Multiply | missing | - | - |

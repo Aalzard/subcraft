@@ -116,6 +116,21 @@ impl BlendMode {
     }
 
     /// Compact label for the layer-stack row.
+    /// Group of the mode in the blending dropdown; a separator is drawn where it changes.
+    /// Painter's order: basic, multiply, add / subtract, overlay, light, HSV, normal map.
+    pub fn group(self) -> u8 {
+        use BlendMode::*;
+        match self {
+            Normal | Passthrough | Disable | Replace => 0,
+            Multiply | Divide | InverseDivide | Darken | Lighten => 1,
+            LinearDodge | Subtract | InverseSubtract | Difference | Exclusion | SignedAddition => 2,
+            Overlay | Screen | LinearBurn | ColorBurn | ColorDodge => 3,
+            SoftLight | HardLight | VividLight | LinearLight | PinLight => 4,
+            Tint | Saturation | Color | Value => 5,
+            NormalMapCombine | NormalMapDetail | NormalMapInverseDetail => 6,
+        }
+    }
+
     pub fn short_label(self) -> &'static str {
         match self {
             BlendMode::Normal => "Norm",
@@ -153,6 +168,19 @@ impl BlendMode {
         }
     }
 
+    /// Blend mode a new layer gets for `kind`, as in Painter: folders pass through, Height adds
+    /// (Linear Dodge), Normal uses Normal Map Detail, Ambient Occlusion multiplies, the rest is Normal.
+    pub fn default_for(kind: subcraft_core::ChannelKind, folder: bool) -> Self {
+        use subcraft_core::ChannelKind as K;
+        match kind {
+            _ if folder => BlendMode::Passthrough,
+            K::Height => BlendMode::LinearDodge,
+            K::Normal => BlendMode::NormalMapDetail,
+            K::AmbientOcclusion => BlendMode::Multiply,
+            _ => BlendMode::Normal,
+        }
+    }
+
     /// Modes meaningful only for the normal channel.
     pub fn is_normal_only(self) -> bool {
         matches!(self, BlendMode::NormalMapCombine | BlendMode::NormalMapDetail | BlendMode::NormalMapInverseDetail)
@@ -163,5 +191,22 @@ impl BlendMode {
         Self::ALL.into_iter().filter(move |m| {
             (normal_channel || !m.is_normal_only()) && (is_folder || *m != BlendMode::Passthrough)
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::BlendMode;
+
+    #[test]
+    fn the_mode_list_is_ordered_in_seven_groups() {
+        let groups: Vec<u8> = BlendMode::ALL.iter().map(|m| m.group()).collect();
+        assert!(groups.windows(2).all(|w| w[1] == w[0] || w[1] == w[0] + 1), "groups are contiguous and in order: {groups:?}");
+        assert_eq!((groups[0], *groups.last().unwrap()), (0, 6));
+        assert_eq!(BlendMode::Replace.group(), BlendMode::Normal.group());
+        assert_ne!(BlendMode::Multiply.group(), BlendMode::Replace.group());
+        assert_eq!(BlendMode::LinearDodge.group(), BlendMode::Subtract.group());
+        // Every normal-map mode, and nothing else, is in the last group.
+        assert!(BlendMode::ALL.iter().all(|m| (m.group() == 6) == m.is_normal_only()));
     }
 }
