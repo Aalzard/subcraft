@@ -78,7 +78,7 @@
 | Mouse | `Shift+RMB` | Rotate environment |  | mouse / hold key | added: drag left-right turns the environment and its lighting (Shift+MMB turns only the key light) |
 | Mouse | `Ctrl+MMB` | Auto-focus (Depth of Field) |  | mouse / hold key | added: focuses the point under the cursor (turns depth of field on) |
 | Mouse | `Ctrl+Alt+RMB` | Texture set selection |  | mouse / hold key | added: selects the texture set under the cursor |
-| Mouse | `RMB` | Context menu |  | mouse / hold key | already worked (part actions; the Properties popup at the cursor is PR #131) |
+| Mouse | `RMB` | Context menu |  | mouse / hold key | added: a click without dragging opens the Properties popup at the cursor (3D and 2D views); its header holds the part actions |
 | Layers | `Ctrl+C / X / V` | Copy / cut / paste layer |  | mouse / hold key | already worked |
 | Layers | `Delete` | Delete layer | DeleteLayer | already the same |  |
 | Layers | `Ctrl+D` | Duplicate layer | DuplicateLayer | already the same |  |

@@ -163,6 +163,8 @@ pub(crate) trait StackEffect: Clone {
     fn id(&self) -> EffectId;
     fn set_id(&mut self, id: EffectId);
     fn name_mut(&mut self) -> &mut String;
+    /// Point references among `effects` at the new ids of `map` (old -> new anchor ids).
+    fn remap_inputs(_effects: &mut [std::sync::Arc<Self>], _map: &std::collections::HashMap<EffectId, EffectId>) {}
 }
 
 impl StackEffect for subcraft_doc::ContentEffect {
@@ -175,6 +177,9 @@ impl StackEffect for subcraft_doc::MaskEffect {
     fn id(&self) -> EffectId { self.id }
     fn set_id(&mut self, id: EffectId) { self.id = id }
     fn name_mut(&mut self) -> &mut String { &mut self.name }
+    fn remap_inputs(effects: &mut [std::sync::Arc<Self>], map: &std::collections::HashMap<EffectId, EffectId>) {
+        subcraft_doc::anchor::remap_mask_inputs(effects, map);
+    }
 }
 
 type Stack<T> = Vec<std::sync::Arc<T>>;
@@ -196,9 +201,10 @@ pub(crate) fn take<T: StackEffect>(stack: &mut Stack<T>, ids: &[EffectId]) -> St
 }
 
 /// Copies of `ids` with fresh ids and " copy" names, in stack order, each paired with the id it
-/// was copied from.
+/// was copied from. A copied reference to a copied anchor reads the anchor's copy (as pasting
+/// does); a reference to an anchor left behind keeps reading it.
 pub(crate) fn copies<T: StackEffect>(stack: &Stack<T>, ids: &[EffectId]) -> Vec<(EffectId, std::sync::Arc<T>)> {
-    stack
+    let (from, mut made): (Vec<EffectId>, Vec<std::sync::Arc<T>>) = stack
         .iter()
         .filter(|e| ids.contains(&e.id()))
         .map(|e| {
@@ -208,7 +214,10 @@ pub(crate) fn copies<T: StackEffect>(stack: &Stack<T>, ids: &[EffectId]) -> Vec<
             *name = format!("{name} copy");
             (e.id(), std::sync::Arc::new(copy))
         })
-        .collect()
+        .unzip();
+    let map: std::collections::HashMap<EffectId, EffectId> = from.iter().zip(&made).map(|(old, new)| (*old, new.id())).collect();
+    T::remap_inputs(&mut made, &map);
+    from.into_iter().zip(made).collect()
 }
 
 /// The effects a drop carries: `ids` taken out of `stack`, or copies of them when `copy`.
@@ -231,6 +240,37 @@ pub(crate) fn duplicate_in_place<T: StackEffect>(stack: &mut Stack<T>, ids: &[Ef
         stack.insert(at, copy);
     }
     new
+}
+
+#[cfg(test)]
+mod copy_tests {
+    use super::*;
+    use std::sync::Arc;
+    use subcraft_core::ChannelKind;
+    use subcraft_doc::{AnchorInput, MaskEffect, MaskEffectKind};
+
+    fn reads(e: &MaskEffect) -> Option<EffectId> {
+        subcraft_doc::anchor::mask_effect_input(&e.kind).map(|i| i.anchor)
+    }
+
+    /// QA 2026-11: Ctrl+D / Alt-drag of an anchor with its reference left the copied reference
+    /// reading the original anchor (paste already remapped it).
+    #[test]
+    fn copied_references_read_the_copied_anchor_and_others_keep_theirs() {
+        let anchor = Arc::new(MaskEffect::new(MaskEffectKind::Anchor));
+        let a = anchor.id;
+        let reference = Arc::new(MaskEffect::new(MaskEffectKind::AnchorRef { input: AnchorInput::new(a, ChannelKind::Height), levels: None }));
+        let r = reference.id;
+        let mut stack = vec![anchor, reference];
+        let new = duplicate_in_place(&mut stack, &[a, r]);
+        let (a2, r2) = (new[0], new[1]);
+        let copy_of_ref = stack.iter().find(|e| e.id == r2).unwrap();
+        assert_eq!(reads(copy_of_ref), Some(a2), "the copy reads the copied anchor");
+        assert_eq!(reads(stack.iter().find(|e| e.id == r).unwrap()), Some(a), "the original is untouched");
+        // Copying the reference alone: it still reads the original anchor.
+        let (_, lone) = copies(&stack, &[r]).remove(0);
+        assert_eq!(reads(&lone), Some(a));
+    }
 }
 
 #[cfg(test)]

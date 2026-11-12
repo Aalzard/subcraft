@@ -246,7 +246,10 @@ fn collect_list(old: &[Arc<Layer>], new: &[Arc<Layer>], out: &mut BTreeSet<usize
     let mut running = 0u32;
     for (i, l) in new.iter().enumerate().rev() {
         above[i] = running;
-        if l.visible && l.is_folder() {
+        // A paint or fill layer in Passthrough (a filter layer) filters everything below it, just
+        // like a folder that lets the stack through: its filters carry a change below it on too.
+        let passes_through = l.blend.values().any(|b| b.mode == subcraft_doc::BlendMode::Passthrough);
+        if l.visible && (l.is_folder() || passes_through) {
             running = running.saturating_add(crate::stages::halo(std::slice::from_ref(l)));
         }
     }

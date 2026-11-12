@@ -80,6 +80,8 @@ pub struct UvView {
     pub painting: bool,
     /// UV of the last 2D stroke point (Shift+click draws a line from it).
     pub last_point: Option<Vec2>,
+    /// Polygon fill drag started in the 2D view (screen points), as [`UiState::fill_box`].
+    pub fill_box: Option<egui::Pos2>,
 }
 
 /// Compositing time spent per frame before the remaining dirty tiles wait for the next frame.
@@ -92,6 +94,10 @@ pub struct UiState {
     /// lists every stale tile; `--profile-edits` uses it to tell a visible update from a slice).
     pub last_sync_tiles: usize,
     pub layer_previews: crate::layer_previews::PreviewUi,
+    /// Layers waiting in the "Export flattened" window, and the file name pattern (kept for
+    /// the next export in this session).
+    pub flatten_export: Option<Vec<subcraft_core::LayerId>>,
+    pub flatten_pattern: String,
     pub graphics: crate::graphics::GraphicsUi,
     pub asset_preview: crate::asset_preview::AssetPreviewUi,
     pub welcome: crate::welcome::WelcomeUi,
@@ -137,6 +143,16 @@ pub struct UiState {
     pub text: crate::text_panel::TextUi,
     pub pen_after: Option<crate::pen::After>,
     pub fill_mode: PolygonFillMode,
+    /// Polygon fill boxes in the 3D view pick only what the camera sees (no back faces, nothing
+    /// hidden behind the model). Off: every triangle under the box, x-ray style.
+    pub fill_visible_only: bool,
+    /// Polygon fill drag in progress: where the primary button went down (screen points). A
+    /// release close by is a click fill there, a longer drag a box fill.
+    pub fill_box: Option<egui::Pos2>,
+    /// The floating Properties popup a right-click in a view opened.
+    pub view_props: Option<crate::view_props::ViewProps>,
+    /// This frame's primary press closed that popup: the views don't paint or fill with it.
+    pub view_props_swallow: bool,
     /// Channel whose blend mode/opacity the layer stack shows.
     pub active_channel: ChannelKind,
     pub status: Option<(String, f64)>,
@@ -313,6 +329,8 @@ impl UiState {
             composite_deadline: None,
             last_sync_tiles: 0,
             layer_previews: Default::default(),
+            flatten_export: None,
+            flatten_pattern: subcraft_app::flatten::DEFAULT_PATTERN.to_string(),
             graphics,
             asset_preview: Default::default(),
             welcome: Default::default(),
@@ -345,6 +363,10 @@ impl UiState {
             text: Default::default(),
             pen_after: None,
             fill_mode: PolygonFillMode::UvIsland,
+            fill_visible_only: true,
+            fill_box: None,
+            view_props: None,
+            view_props_swallow: false,
             active_channel: ChannelKind::BaseColor,
             status: None,
             import_report: Vec::new(),
@@ -370,7 +392,7 @@ impl UiState {
             render_request: None,
             last_view_size: [1280, 720],
             last_view_rect: egui::Rect::NOTHING,
-            uv: UvView { zoom: 1.0, offset: egui::Vec2::ZERO, source: PreviewSource::Channel(ChannelKind::BaseColor), texture: None, painting: false, last_point: None },
+            uv: UvView { zoom: 1.0, offset: egui::Vec2::ZERO, source: PreviewSource::Channel(ChannelKind::BaseColor), texture: None, painting: false, last_point: None, fill_box: None },
             painting: false,
             picking_parts: false,
             picking_focus: false,
