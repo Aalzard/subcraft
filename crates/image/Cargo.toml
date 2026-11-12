@@ -14,5 +14,6 @@ half.workspace = true
 bytemuck.workspace = true
 rayon.workspace = true
 image.workspace = true
+exr.workspace = true
 thiserror.workspace = true
 serde.workspace = true

@@ -3,10 +3,31 @@
 //! with how each entry is handled here.
 
 use egui::{Context, RichText};
-use subcraft_app::{ACTIONS, KeymapPreset, PAINTER_REFERENCE, Support, shortcuts_in};
+use subcraft_app::{ACTIONS, Keymap, KeymapPreset, PAINTER_REFERENCE, Support, shortcuts_in};
 
 use crate::state::UiState;
 use crate::theme;
+
+/// Mouse gestures and hold keys that are not in the editable lists (Settings > Shortcuts shows
+/// them as "Not editable").
+pub const FIXED_GESTURES: &[(&str, &str)] = &[
+    ("Straight line", "Shift+click"),
+    ("Straight line snapped to 5°", "Ctrl+Shift+click"),
+    ("Focus the depth of field", "Ctrl+MMB click on the model (Painter navigation)"),
+    ("Select the texture set under the cursor", "Ctrl+Alt+RMB click (Painter navigation)"),
+    ("Stencil rotation snapped to 90°", "hold Shift+S, then LMB drag"),
+    ("Show a layer's mask", "Alt+click its mask thumbnail"),
+    ("Disable / enable a layer's mask", "Shift+click its mask thumbnail"),
+    ("Properties at the cursor (part actions in its header)", "RMB click without dragging, 3D or 2D view"),
+    ("Polygon fill: box selection", "LMB drag with polygon fill (click fills one element)"),
+    ("Isolate / hide part", "I / H in the 3D view"),
+    ("Restore all parts", "Esc in the 3D view"),
+    ("Pick material", "Shift+click with eyedropper"),
+    ("Brush size / hardness", "Ctrl+RMB drag (left-right / up-down)"),
+    ("Brush flow / angle", "Ctrl+LMB drag (left-right / up-down)"),
+    ("Stencil move / rotate / scale", "hold S, then MMB / LMB / RMB drag; hold N to ignore it"),
+    ("Clone source", "Ctrl+click or hold V and click"),
+];
 
 /// Case-insensitive match of every word of `query` against `haystack`.
 pub fn matches(query: &str, haystack: &str) -> bool {
@@ -45,6 +66,9 @@ pub fn show(state: &mut UiState, ctx: &Context) {
     let nav_help = state.recovery.prefs.nav_scheme.help();
     crate::widgets::window(ctx, "Keyboard shortcuts").open(&mut open).resizable(true).collapsible(false).default_width(680.0).show(ctx, |ui| {
         ui.horizontal(|ui| {
+            if ui.button(format!("{}  Edit shortcuts…", crate::icons::GEAR)).on_hover_text("Settings > Shortcuts").clicked() {
+                ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new("open_settings_shortcuts"), true));
+            }
             ui.label("Search");
             ui.add(egui::TextEdit::singleline(&mut query).hint_text("action or key, e.g. brush, F5, ctrl").desired_width(220.0));
             ui.label("Key set");
@@ -65,8 +89,9 @@ pub fn show(state: &mut UiState, ctx: &Context) {
                 ui.label(RichText::new("Substance Painter key").small().color(theme::TEXT_FAINT));
                 ui.label(RichText::new("SubCraft default").small().color(theme::TEXT_FAINT));
                 ui.end_row();
+                let active_keys = Keymap::new(preset, state.recovery.prefs.custom_keys.clone());
                 for a in ACTIONS {
-                    let (active, default, painter) = (join(shortcuts_in(preset, a.action)), join(shortcuts_in(KeymapPreset::SubCraft, a.action)), painter_keys(a.action));
+                    let (active, default, painter) = (join(&active_keys.shortcuts(a.action)), join(shortcuts_in(KeymapPreset::SubCraft, a.action)), painter_keys(a.action));
                     if !matches(&query, &format!("{} {active} {default} {painter}", a.label)) {
                         continue;
                     }
@@ -80,24 +105,7 @@ pub fn show(state: &mut UiState, ctx: &Context) {
             ui.add_space(10.0);
             ui.label(RichText::new("Mouse and hold keys").font(theme::font_strong(12.5)));
             egui::Grid::new("shortcut_mouse").num_columns(2).spacing([24.0, 6.0]).striped(true).show(ui, |ui| {
-                let extra = [
-                    ("Straight line", "Shift+click"),
-                    ("Straight line snapped to 5°", "Ctrl+Shift+click"),
-                    ("Focus the depth of field", "Ctrl+MMB click on the model (Painter navigation)"),
-                    ("Select the texture set under the cursor", "Ctrl+Alt+RMB click (Painter navigation)"),
-                    ("Stencil rotation snapped to 90°", "hold Shift+S, then LMB drag"),
-                    ("Show a layer's mask", "Alt+click its mask thumbnail"),
-                    ("Disable / enable a layer's mask", "Shift+click its mask thumbnail"),
-                    ("Properties at the cursor (part actions in its header)", "RMB click without dragging, 3D or 2D view"),
-                    ("Polygon fill: box selection", "LMB drag with polygon fill (click fills one element)"),
-                    ("Isolate / hide part", "I / H in the 3D view"),
-                    ("Restore all parts", "Esc in the 3D view"),
-                    ("Pick material", "Shift+click with eyedropper"),
-                    ("Brush size / hardness", "Ctrl+RMB drag (left-right / up-down)"),
-                    ("Brush flow / angle", "Ctrl+LMB drag (left-right / up-down)"),
-                    ("Stencil move / rotate / scale", "hold S, then MMB / LMB / RMB drag; hold N to ignore it"),
-                    ("Clone source", "Ctrl+click or hold V and click"),
-                ];
+                let extra = FIXED_GESTURES.iter().copied();
                 let camera_extra = [("Pan (alternative)", "Ctrl+Alt+LMB drag")];
                 for (what, how) in nav_help.into_iter().chain(extra).chain(camera_extra) {
                     if !matches(&query, &format!("{what} {how}")) {

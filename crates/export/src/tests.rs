@@ -3,6 +3,7 @@ mod golden;
 mod presets;
 mod view2d;
 mod more;
+mod formats;
 use std::collections::BTreeMap;
 
 use subcraft_core::{ChannelKind, MeshMapKind};
