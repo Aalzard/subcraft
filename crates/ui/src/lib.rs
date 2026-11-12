@@ -15,6 +15,7 @@ pub mod shortcuts_window;
 pub mod shortcut_editor;
 pub mod device_lost;
 pub mod dialogs;
+pub mod docks;
 pub mod export_presets;
 pub mod files;
 pub mod graphics;

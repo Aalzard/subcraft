@@ -281,6 +281,9 @@ fn project_section(ui: &mut Ui, np: &mut NewProjectUi) {
                 ui.checkbox(&mut np.settings.udim, "Use UDIM tiles (one texture set per tile)").on_hover_text("The model's UVs span several 0-1 squares. Off folds them onto one tile, which overlaps islands.");
                 ui.end_row();
             }
+            ui.label("Cameras");
+            ui.checkbox(&mut np.settings.import_cameras, "Import cameras").on_hover_text("Bring the cameras stored in the model file (glTF, GLB or FBX) into the project; pick one from the 3D view's camera menu.");
+            ui.end_row();
             ui.label("Normal maps");
             let mut format = np.settings.normal_format;
             egui::ComboBox::from_id_salt("np_normal").selected_text(format.label()).show_ui(ui, |ui| {
@@ -392,6 +395,8 @@ fn create_project(state: &mut UiState, now: f64) {
     match created {
         Ok((mut session, warnings, first_warning)) => {
             session.set_mesh_source(&model.path);
+            // Cameras are a bonus: a file whose cameras cannot be read still makes the project.
+            let cameras = if settings.import_cameras { session.import_mesh_cameras(&model.path) } else { Ok(0) };
             state.set_session(session);
             state.welcome.remember(&model.path);
             state.recovery.prefs.new_project = NewProjectSettings { high_poly: None, resolution_overrides: Default::default(), ..settings.clone() };
@@ -403,6 +408,14 @@ fn create_project(state: &mut UiState, now: f64) {
             let mut status = format!("Created {} ({} texture set{})", model.summary.name, sets, if sets == 1 { "" } else { "s" });
             if let Some(first) = first_warning {
                 status = format!("Imported {} with {} note(s): {first}", model.summary.name, warnings);
+            }
+            match cameras {
+                Ok(0) => {}
+                Ok(n) => status.push_str(&format!(" · {n} camera{} imported (3D view, top right)", if n == 1 { "" } else { "s" })),
+                Err(e) => {
+                    log::warn!("{e}");
+                    status.push_str(" · the model's cameras could not be read");
+                }
             }
             state.set_status(status, now);
             state.new_project.open = false;
