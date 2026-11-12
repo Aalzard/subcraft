@@ -160,6 +160,10 @@ pub struct Session {
     /// Clone tool: object-space source point, and the screen offset the first stroke fixed.
     clone_source: Option<Vec3>,
     clone_offset: Option<Vec2>,
+    /// The clone source as a texture position of a texture set (2D-view clone strokes), and the
+    /// UV offset the last 2D clone stroke fixed.
+    clone_source_uv: Option<(TextureSetId, Vec2)>,
+    clone_offset_uv: Option<Vec2>,
     /// Composite caches while compositing runs on the calling thread (until the first
     /// interactive update starts the worker).
     composites: HashMap<TextureSetId, CompositeCache>,
@@ -259,6 +263,8 @@ impl Session {
             stroke: None,
             clone_source: None,
             clone_offset: None,
+            clone_source_uv: None,
+            clone_offset_uv: None,
             composites: HashMap::new(),
             worker: None,
             inline_only: false,
@@ -655,6 +661,8 @@ impl Session {
         }
         self.clone_source = None;
         self.clone_offset = None;
+        self.clone_source_uv = None;
+        self.clone_offset_uv = None;
         self.normalize_target();
         self.mesh_dirty = true;
         self.maps_generation += 1;
@@ -2047,13 +2055,27 @@ impl Session {
 
     /// Start a stroke on the selected layer with the current brush.
     pub fn begin_stroke(&mut self) -> Result<(), PaintError> {
+        self.begin_stroke_with(None)
+    }
+
+    /// Start a 2D-view stroke (continued with [`Session::stroke_to_uv`]). `view` is where the
+    /// texture is drawn in the 2D view: a stencil masks the stroke through it. Clone strokes copy
+    /// from [`Session::clone_source_uv`].
+    pub fn begin_uv_stroke(&mut self, view: Option<subcraft_paint::UvView>) -> Result<(), PaintError> {
+        self.begin_stroke_with(Some(view))
+    }
+
+    fn begin_stroke_with(&mut self, uv: Option<Option<subcraft_paint::UvView>>) -> Result<(), PaintError> {
         if self.stroke.is_some() {
             return Ok(());
         }
         let layer = self.selection.layer.ok_or(PaintError::LayerNotFound)?;
         // Before anything below changes the document: a refused stroke leaves no trace.
-        if self.brush.mode == StrokeMode::Clone && self.clone_source.is_none() {
-            return Err(PaintError::NoCloneSource);
+        if self.brush.mode == StrokeMode::Clone {
+            let missing = if uv.is_some() { self.clone_source_uv().is_none() } else { self.clone_source.is_none() };
+            if missing {
+                return Err(PaintError::NoCloneSource);
+            }
         }
         // A normal-map / height stamp turns on its channel on the layer with the first stroke.
         let stamp = self.stroke_stamp();
@@ -2064,6 +2086,10 @@ impl Session {
         if self.brush.mode == StrokeMode::Clone && self.brush.clone_mode == CloneSourceMode::Absolute && self.clone_source.is_some() {
             self.clone_offset = None;
         }
+        if self.brush.mode == StrokeMode::Clone && self.brush.clone_mode == CloneSourceMode::Absolute {
+            self.clone_offset_uv = None;
+        }
+        let uv_clone = self.clone_source_uv();
         let ts = self.selected_texture_set();
         let b = &self.brush;
         let mut material = b.material.clone();
@@ -2076,7 +2102,12 @@ impl Session {
             .with_alpha(if stamp.is_some() { None } else { b.alpha.clone() })
             .with_stamp(stamp.as_ref().map(|(s, _)| s.clone()), stamp.as_ref().map(|(_, i)| i.clone()))
             .with_stencil(if b.stencil_bypass { None } else { b.stencil.clone() });
-        if b.mode == StrokeMode::Clone {
+        if let Some(view) = uv {
+            stroke = stroke.with_uv_view(view);
+            if b.mode == StrokeMode::Clone {
+                stroke = stroke.with_uv_clone(uv_clone.ok_or(PaintError::NoCloneSource)?, self.clone_offset_uv);
+            }
+        } else if b.mode == StrokeMode::Clone {
             let point = self.clone_source.ok_or(PaintError::NoCloneSource)?;
             stroke = stroke.with_clone(point, self.clone_offset);
         }
@@ -2145,7 +2176,31 @@ impl Session {
         let Some(pick) = self.pick(camera, screen) else { return false };
         self.clone_source = Some(pick.position);
         self.clone_offset = None;
+        self.clone_source_uv = self.doc.texture_set_for_slot(pick.material_slot).map(|ts| (ts.id, pick.uv.rem_euclid(Vec2::ONE)));
+        self.clone_offset_uv = None;
         true
+    }
+
+    /// Clone tool in the 2D view: use texture position `uv` (0..1, origin top-left) of the
+    /// selected texture set as the source. It is also the 3D source (the surface point at that
+    /// texel), so either view can paint from it. Returns false outside the set's UV islands.
+    pub fn set_clone_source_uv(&mut self, uv: Vec2) -> bool {
+        let Some(point) = self.pen_uv_position(uv) else { return false };
+        self.clone_source = Some(point);
+        self.clone_offset = None;
+        self.clone_source_uv = Some((self.selection.texture_set, uv));
+        self.clone_offset_uv = None;
+        true
+    }
+
+    /// The clone source as a texture position of the selected texture set, if one is set there.
+    pub fn clone_source_uv(&self) -> Option<Vec2> {
+        self.clone_source_uv.filter(|(ts, _)| *ts == self.selection.texture_set).map(|(_, uv)| uv)
+    }
+
+    /// UV offset from a 2D clone stroke to its source, once a stroke fixed it.
+    pub fn clone_offset_uv(&self) -> Option<Vec2> {
+        self.clone_offset_uv
     }
 
     /// The clone source point (object space), if one is set.
@@ -2168,6 +2223,9 @@ impl Session {
         }, active);
         if result.as_ref().is_ok_and(|t| !t.is_empty()) {
             self.revision += 1;
+        }
+        if let Some(offset) = self.stroke.as_ref().and_then(|a| a.stroke.uv_clone_offset()) {
+            self.clone_offset_uv = Some(offset);
         }
         result
     }
@@ -2200,6 +2258,35 @@ impl Session {
         self.begin_stroke()?;
         let active = self.stroke.take().expect("just begun");
         let tiles = self.with_stroke_context(active.texture_set, camera, |stroke, ts, ctx| stroke.polygon_fill(ts, ctx, screen, mode), active)?;
+        if let Some(a) = self.stroke.as_mut() {
+            a.label = "Polygon Fill";
+        }
+        self.end_stroke();
+        Ok(tiles)
+    }
+
+    /// Polygon fill of everything a screen box `[a, b]` touches, grown to `mode` (one history
+    /// entry). `visible_only` leaves back faces and occluded triangles alone.
+    pub fn polygon_fill_box(&mut self, camera: &Camera, a: Vec2, b: Vec2, mode: PolygonFillMode, visible_only: bool) -> Result<Vec<usize>, PaintError> {
+        self.polygon_fill_with(camera, |stroke, ts, ctx| stroke.polygon_fill_box(ts, ctx, a, b, mode, visible_only))
+    }
+
+    /// Polygon fill of everything a UV box `[a, b]` touches in the 2D view (one history entry).
+    pub fn polygon_fill_uv_box(&mut self, a: Vec2, b: Vec2, mode: PolygonFillMode) -> Result<Vec<usize>, PaintError> {
+        self.polygon_fill_with(&uv_camera(), |stroke, ts, ctx| stroke.polygon_fill_uv_box(ts, ctx, a, b, mode))
+    }
+
+    fn polygon_fill_with(
+        &mut self,
+        camera: &Camera,
+        f: impl FnOnce(&mut Stroke, &mut TextureSet, &PaintContext) -> Result<Vec<usize>, PaintError>,
+    ) -> Result<Vec<usize>, PaintError> {
+        if self.stroke.is_some() {
+            return Ok(Vec::new());
+        }
+        self.begin_stroke()?;
+        let active = self.stroke.take().expect("just begun");
+        let tiles = self.with_stroke_context(active.texture_set, camera, f, active)?;
         if let Some(a) = self.stroke.as_mut() {
             a.label = "Polygon Fill";
         }

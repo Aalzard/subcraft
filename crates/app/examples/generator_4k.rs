@@ -11,7 +11,8 @@
 //! `cargo run --release -p subcraft-app --example generator_4k -- [resolution] [generators]`
 //!
 //! `generators` is a list of letters (default `decdpm`): `d` Dirt, `e` Edges, `c` Concave,
-//! `r` Directional, `p` Position Gradient, `m` Dirt with the micro effect. Mesh maps are baked at
+//! `r` Directional, `p` Position Gradient, `m` Dirt with the micro effect, `v` Curvature, `w`
+//! Curvature in Edges-only mode with all three detail sizes. Mesh maps are baked at
 //! `SUBCRAFT_BENCH_BAKE` (default 1024; generators read them bilinearly at the set resolution).
 //! `SUBCRAFT_COMPOSITE_PROFILE=1` prints graph node time per step. `SUBCRAFT_BENCH_HASH=1`
 //! prints a hash of every composite texel bit after the steps (exactness across builds).
@@ -200,6 +201,12 @@ fn main() {
             'r' => ("Directional", { let mut g = Generator::new(GeneratorKind::Directional); g.noise_amount = 0.35; g }),
             'p' => ("Position Gradient", { let mut g = Generator::new(GeneratorKind::PositionGradient); g.noise_amount = 0.3; g }),
             'm' => ("Dirt + micro effect", { let mut g = Generator::new(GeneratorKind::Cavity); g.set_micro_enabled(true); g }),
+            'v' => ("Curvature", Generator::new(GeneratorKind::MeshMap(MeshMapKind::Curvature))),
+            'w' => ("Curvature edges+sizes", {
+                let mut g = Generator::new(GeneratorKind::MeshMap(MeshMapKind::Curvature));
+                g.curvature = Some(subcraft_doc::CurvatureDetail { mode: subcraft_doc::CurvatureDetailMode::Edges, fine: 1.0, medium: 1.0, coarse: 1.0 });
+                g
+            }),
             _ => continue,
         };
         // Every layer of a real stack has its own breakup pattern.
