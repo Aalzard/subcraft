@@ -404,6 +404,130 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     }
 }
 
+/// The Generator dropdown of a generator mask effect.
+fn generator_kind_row(ui: &mut Ui, g: &mut subcraft_doc::Generator) -> bool {
+    let mut picked = None;
+    prop_row(ui, tr("Generator"), |ui| egui::ComboBox::from_id_salt("generator_kind").selected_text(g.kind.label()).show_ui(ui, |ui| {
+        for kind in [GeneratorKind::Edges, GeneratorKind::Cavity, GeneratorKind::AmbientOcclusion, GeneratorKind::Concave, GeneratorKind::Directional, GeneratorKind::PositionGradient, GeneratorKind::MaskEditor]
+            .into_iter().chain(MeshMapKind::ALL.into_iter().map(GeneratorKind::MeshMap)) {
+            if ui.selectable_label(g.kind == kind, kind.label()).clicked() && g.kind != kind { picked = Some(kind); }
+        }
+    }));
+    if let Some(kind) = picked { g.set_kind(kind); }
+    picked.is_some()
+}
+
+/// A blending-mode dropdown row of a Mask Editor group.
+fn editor_blend_row(ui: &mut Ui, id: &str, mode: &mut subcraft_doc::BlendMode) -> bool {
+    let mut changed = false;
+    prop_row(ui, tr("Blending Mode"), |ui| {
+        egui::ComboBox::from_id_salt(("editor_blend", id)).selected_text(mode.label()).show_ui(ui, |ui| {
+            for m in subcraft_doc::BlendMode::available(false, false) {
+                changed |= ui.selectable_value(mode, m, m.label()).changed();
+            }
+        });
+    });
+    changed
+}
+
+fn editor_group<R>(ui: &mut Ui, title: &'static str, body: impl FnOnce(&mut Ui) -> R) -> Option<R> {
+    egui::CollapsingHeader::new(RichText::new(tr(title)).font(theme::font_strong(12.0)).color(theme::TEXT)).id_salt(("mask_editor_group", title)).default_open(false).show(ui, body).body_returned
+}
+
+/// Painter's Mask Editor: the four global controls, one opacity per contribution, then one
+/// collapsible group per contribution in the same order. Returns whether anything changed and the
+/// texture slot (0 = Texture, 1 = Texture 2) whose image button was clicked.
+fn mask_editor_controls(ui: &mut Ui, state: &mut UiState, g: &mut subcraft_doc::Generator) -> (bool, Option<u8>) {
+    use subcraft_doc::{CurvatureMode, EditorDirections, GrayscaleType, MaskEditor};
+    let mut ed = g.editor_settings();
+    let before = ed;
+    let mut pick = None;
+    let unit = |ui: &mut Ui, label: &'static str, v: &mut f32| { slider_row(ui, tr(label), egui::Slider::new(v, 0.0..=1.0)); };
+    let signed = |ui: &mut Ui, label: &'static str, v: &mut f32| { slider_row(ui, tr(label), egui::Slider::new(v, -1.0..=1.0)); };
+    let toggle = |ui: &mut Ui, label: &'static str, v: &mut bool| { prop_row(ui, "", |ui| { ui.checkbox(v, tr(label)); }); };
+    toggle(ui, "Global Invert", &mut ed.global_invert);
+    slider_row(ui, tr("Global Blur"), egui::Slider::new(&mut ed.global_blur, 0.0..=MaskEditor::MAX_BLUR).suffix(" px"))
+        .on_hover_text(tr("Blurs the blended contributions before Balance and Contrast (radius in texture pixels)."));
+    unit(ui, "Global Balance", &mut ed.global_balance);
+    unit(ui, "Global Contrast", &mut ed.global_contrast);
+    ui.add_space(4.0);
+    unit(ui, "Texture Opacity", &mut ed.texture.opacity);
+    unit(ui, "Texture 2 Opacity", &mut ed.texture2.opacity);
+    unit(ui, "Ambient Occlusion Opacity", &mut ed.occlusion.opacity);
+    unit(ui, "Curvature Opacity", &mut ed.curvature.opacity);
+    unit(ui, "World Space Normal Opacity", &mut ed.world_normal.opacity);
+    unit(ui, "Position Gradient Opacity", &mut ed.position.opacity);
+    unit(ui, "Thickness Opacity", &mut ed.thickness.opacity);
+    ui.add_space(4.0);
+    for (slot, title, texture) in [(0u8, "Texture", &mut ed.texture), (1, "Texture 2", &mut ed.texture2)] {
+        editor_group(ui, title, |ui| {
+            match texture.resource {
+                Some(id) => { if image_row(ui, state, id) { pick = Some(slot); } }
+                None => { if secondary_button(ui, tr("Choose image…")).clicked() { pick = Some(slot); } }
+            }
+            if texture.resource.is_some() && ui.small_button(tr("Remove image")).clicked() { texture.resource = None; }
+            toggle(ui, "Invert", &mut texture.invert);
+            prop_row(ui, tr("Grayscale Conversion"), |ui| {
+                egui::ComboBox::from_id_salt(("editor_gray", slot)).selected_text(texture.grayscale.label()).show_ui(ui, |ui| {
+                    for t in GrayscaleType::ALL { ui.selectable_value(&mut texture.grayscale, t, t.label()); }
+                });
+            });
+            editor_blend_row(ui, title, &mut texture.blend);
+            slider_row(ui, tr("Scale"), egui::Slider::new(&mut texture.scale, 0.1..=32.0).logarithmic(true));
+            signed(ui, "Contrast", &mut texture.contrast);
+            signed(ui, "Brightness", &mut texture.brightness);
+            toggle(ui, "Triplanar", &mut texture.triplanar);
+            ui.add_enabled_ui(texture.triplanar, |ui| unit(ui, "Triplanar Contrast", &mut texture.triplanar_contrast));
+            toggle(ui, "Non-Square Tiling", &mut texture.non_square);
+        });
+    }
+    editor_group(ui, "Ambient Occlusion", |ui| {
+        toggle(ui, "Invert", &mut ed.occlusion.invert);
+        editor_blend_row(ui, "ao", &mut ed.occlusion.blend);
+        unit(ui, "Balance", &mut ed.occlusion.balance);
+        unit(ui, "Contrast", &mut ed.occlusion.contrast);
+    });
+    editor_group(ui, "Curvature", |ui| {
+        toggle(ui, "Invert", &mut ed.curvature.invert);
+        editor_blend_row(ui, "curvature", &mut ed.curvature.blend);
+        prop_row(ui, tr("Mode"), |ui| {
+            egui::ComboBox::from_id_salt("editor_curvature_mode").selected_text(ed.curvature.mode.label()).show_ui(ui, |ui| {
+                for m in CurvatureMode::ALL { ui.selectable_value(&mut ed.curvature.mode, m, m.label()); }
+            });
+        });
+        signed(ui, "Contrast", &mut ed.curvature.contrast);
+        signed(ui, "Brightness", &mut ed.curvature.brightness);
+    });
+    for (title, group) in [("World Space Normal", &mut ed.world_normal), ("Position Gradient", &mut ed.position)] {
+        editor_group(ui, title, |ui| {
+            toggle(ui, "Invert", &mut group.invert);
+            editor_blend_row(ui, title, &mut group.blend);
+            unit(ui, "Balance", &mut group.balance);
+            unit(ui, "Contrast", &mut group.contrast);
+            signed(ui, "Brightness", &mut group.brightness);
+            for (axis, label) in group.axes.iter_mut().zip(EditorDirections::AXIS_LABELS) {
+                unit(ui, label, &mut axis.amount);
+            }
+            for (axis, label) in group.axes.iter_mut().zip(EditorDirections::AXIS_LABELS) {
+                ui.push_id((title, label), |ui| {
+                    editor_group(ui, label, |ui| {
+                        toggle(ui, "Invert", &mut axis.invert);
+                        editor_blend_row(ui, label, &mut axis.blend);
+                    });
+                });
+            }
+        });
+    }
+    editor_group(ui, "Thickness", |ui| {
+        toggle(ui, "Invert", &mut ed.thickness.invert);
+        signed(ui, "Contrast", &mut ed.thickness.contrast);
+        signed(ui, "Brightness", &mut ed.thickness.brightness);
+    });
+    let changed = ed != before;
+    if changed { g.editor = Some(ed); }
+    (changed, pick)
+}
+
 /// Level / Softness / Breakup under Painter's names for the kinds Painter has: Dirt shows Dirt Level
 /// and Dirt Contrast (more dirt to the right), Metal Edge Wear Wear Level and Wear Contrast,
 /// Ambient Occlusion and mesh maps Balance and Contrast (Contrast 0 = the smooth map itself). The
@@ -543,13 +667,16 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
                     }
                     hint(ui, tr("Gray value of the anchor (color channels by luminance), times its coverage. Stack Levels or Invert above it to remap."));
                 }
+                MaskEffectKind::Generator(g) if g.kind == GeneratorKind::MaskEditor => {
+                    changed |= generator_kind_row(ui, g);
+                    let (edited, pick) = mask_editor_controls(ui, state, g);
+                    changed |= edited;
+                    if let Some(slot) = pick {
+                        crate::files::pick(ui.ctx(), crate::files::Purpose::GeneratorTexture { layer, effect: e.id, slot }, crate::files::IMAGES, false, None);
+                    }
+                }
                 MaskEffectKind::Generator(g) => {
-                    prop_row(ui, tr("Generator"), |ui| egui::ComboBox::from_id_salt("generator_kind").selected_text(g.kind.label()).show_ui(ui, |ui| {
-                        for kind in [GeneratorKind::Edges, GeneratorKind::Cavity, GeneratorKind::AmbientOcclusion, GeneratorKind::Concave, GeneratorKind::Directional, GeneratorKind::PositionGradient]
-                            .into_iter().chain(MeshMapKind::ALL.into_iter().map(GeneratorKind::MeshMap)) {
-                            changed |= ui.selectable_value(&mut g.kind, kind, kind.label()).changed();
-                        }
-                    }));
+                    changed |= generator_kind_row(ui, g);
                     if g.accepts_input() {
                         let mut input = g.input;
                         if super::anchor::picker(ui, &anchor_index, site, &mut input, Some("Baked mesh map"), &channels, ChannelKind::Height) {
