@@ -279,6 +279,15 @@ impl UiState {
             let caps = subcraft_render::caps::GpuCaps::from_adapter(&rs.adapter);
             subcraft_app::startup_probe::step(&format!("adapter caps: {}", caps.report().replace('\n', " | ")));
             for problem in [caps.msaa_problem(), caps.compute_problem()].into_iter().flatten() { log::warn!("{problem}"); subcraft_app::startup_probe::step(&problem); }
+            // Lighter compute budgets on integrated and software adapters (issue #119): logged
+            // so a report shows what was chosen.
+            let budget = subcraft_render::pace::GpuBudget::for_device_type(&caps.device_type);
+            let memory = subcraft_render::pace::MemoryBudget::for_adapter(&caps.device_type, &caps.backend);
+            subcraft_render::caps::set_low_memory(memory.is_tight());
+            let chosen = format!("GPU budget for {} ({}): {}; {}; 4x anti-aliasing {}", caps.name, caps.device_type, budget.describe(), memory.describe(),
+                if subcraft_render::caps::safe_mode() { "off (safe mode)" } else if !memory.msaa { "off (low video memory)" } else if caps.msaa4 { "on" } else { "off (unsupported)" });
+            log::info!("{chosen}");
+            subcraft_app::startup_probe::step(&chosen);
             subcraft_render::caps::set(caps);
             subcraft_render::caps::install_error_handlers(&rs.device);
         }

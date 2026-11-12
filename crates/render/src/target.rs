@@ -171,7 +171,7 @@ mod readback_tests {
     #[test]
     fn a_readback_on_a_destroyed_device_returns_an_error_instead_of_panicking() {
         let Some((_, device, queue)) = crate::headless::device() else { return };
-        crate::caps::install_worker_error_handlers(&device, "test");
+        crate::caps::install_worker_error_handlers(&device, "test", Default::default());
         let texture = device.create_texture(&wgpu::TextureDescriptor { label: Some("readback test"),
             size: wgpu::Extent3d { width: 4, height: 4, depth_or_array_layers: 1 }, mip_level_count: 1, sample_count: 1,
             dimension: wgpu::TextureDimension::D2, format: crate::OUTPUT_FORMAT, usage: wgpu::TextureUsages::COPY_SRC, view_formats: &[] });

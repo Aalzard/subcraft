@@ -11,8 +11,11 @@
 //! are kept and reused between batches. The pool is a derived cache; nothing stored depends on it.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
+
+use crate::pace::DispatchPace;
 
 use bytemuck::{Pod, Zeroable};
 use egui_wgpu::wgpu;
@@ -38,7 +41,8 @@ struct Params {
     refs_off: u32,
     out_off: u32,
     flags: u32,
-    tiles: u32,
+    /// First tile of the batch this pass covers (the dispatch's Y is relative to it).
+    tile_base: u32,
     eff_off: u32,
     /// Slots per pool buffer.
     spb: u32,
@@ -88,6 +92,20 @@ pub struct GpuCompositor {
     dummy: wgpu::Buffer,
     timestamps: bool,
     max_binding: u64,
+    /// Learned size of one submission (see `pace`).
+    pace: Mutex<DispatchPace>,
+    /// Set when this device is lost; nothing more is submitted on it.
+    lost: Arc<AtomicBool>,
+    /// Submissions made so far (tests, diagnostics).
+    submissions: AtomicU64,
+}
+
+/// Compute passes whose GPU time is measured with timestamp queries, per batch.
+const QUERY_PASSES: u32 = 32;
+
+/// Work units of one tile of `ch`: one per layer operation, plus its effects.
+fn pass_cost(ch: &subcraft_compositor::gpu::GpuChannel) -> u64 {
+    (ch.ops.len() + ch.ops.iter().map(|o| o.effects.1 as usize).sum::<usize>()).max(1) as u64
 }
 
 /// Registered with `subcraft_compositor::gpu::register_gpu_compositor` by the application.
@@ -126,8 +144,45 @@ fn create(allow_software: bool) -> Option<GpuCompositor> {
         ..Default::default()
     }))
     .ok()?;
-    crate::caps::install_worker_error_handlers(&device, "compositing");
-    Some(GpuCompositor::new(&adapter, device, queue, timestamps))
+    let lost = Arc::new(AtomicBool::new(false));
+    crate::caps::install_worker_error_handlers(&device, "compositing", lost.clone());
+    let budget = crate::pace::GpuBudget::for_device_type(&format!("{:?}", adapter.get_info().device_type));
+    let memory = crate::pace::MemoryBudget::for_adapter(&format!("{:?}", adapter.get_info().device_type), &format!("{:?}", adapter.get_info().backend));
+    log::info!("GPU compositing on {} ({:?}): {}; {}", adapter.get_info().name, adapter.get_info().device_type, budget.describe(), memory.describe());
+    let mut compositor = GpuCompositor::new(&adapter, device, queue, timestamps);
+    compositor.lost = lost;
+    compositor.pace = Mutex::new(DispatchPace::new(budget));
+    if std::env::var_os("SUBCRAFT_GPU_POOL_MB").is_none() {
+        compositor.limit_pool(memory.composite_pool_mb);
+    }
+    Some(compositor)
+}
+
+/// Slots per pool buffer and number of buffers for a pool of at most `pool_mb` megabytes
+/// (never less than 64 slots, about 2 MB).
+fn pool_shape(max_binding: u64, pool_mb: u64) -> (u32, usize) {
+    let per_buffer = (max_binding.min(512 << 20).min(pool_mb << 20) / SLOT_BYTES).clamp(64, 1 << 20) as u32;
+    let max_buffers = ((pool_mb << 20).div_ceil(per_buffer as u64 * SLOT_BYTES) as usize).clamp(1, POOL_BUFFERS);
+    (per_buffer, max_buffers)
+}
+
+#[cfg(test)]
+mod pool_tests {
+    use super::*;
+
+    #[test]
+    fn the_pool_limit_bounds_each_buffer_and_the_total() {
+        let gib = 1u64 << 30;
+        // Full budget: 512 MB buffers, four of them (unchanged behaviour).
+        let (per, n) = pool_shape(gib, 2048);
+        assert_eq!((per as u64 * SLOT_BYTES, n), (512 << 20, 4));
+        // Low-memory budget: one 128 MB buffer, not a 512 MB one.
+        let (per, n) = pool_shape(gib, crate::pace::MemoryBudget::TIGHT.composite_pool_mb);
+        assert_eq!((per as u64 * SLOT_BYTES, n), (128 << 20, 1));
+        // A small binding limit splits the same total over more buffers.
+        let (per, n) = pool_shape(64 << 20, 128);
+        assert_eq!((per as u64 * SLOT_BYTES, n), (64 << 20, 2));
+    }
 }
 
 fn storage(binding: u32, read_only: bool) -> wgpu::BindGroupLayoutEntry {
@@ -171,8 +226,7 @@ impl GpuCompositor {
         let limits = device.limits();
         let max_binding = (limits.max_storage_buffer_binding_size as u64).min(limits.max_buffer_size);
         let pool_mb: u64 = std::env::var("SUBCRAFT_GPU_POOL_MB").ok().and_then(|v| v.parse().ok()).unwrap_or(2048);
-        let per_buffer = (max_binding.min(512 << 20) / SLOT_BYTES).clamp(64, 1 << 20) as u32;
-        let max_buffers = ((pool_mb << 20).div_ceil(per_buffer as u64 * SLOT_BYTES) as usize).clamp(1, POOL_BUFFERS);
+        let (per_buffer, max_buffers) = pool_shape(max_binding, pool_mb);
         let pool = Pool { buffers: Vec::new(), per_buffer, max_buffers, map: HashMap::new(), free: Vec::new(), stamp: 0 };
         let dummy = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("composite pool placeholder"),
@@ -191,7 +245,45 @@ impl GpuCompositor {
             dummy,
             timestamps,
             max_binding,
+            pace: Mutex::new(DispatchPace::new(crate::pace::GpuBudget::CAUTIOUS)),
+            lost: Arc::default(),
+            submissions: AtomicU64::new(0),
         }
+    }
+
+    /// `Err` once this device, or the window's device on the same adapter, is lost: a driver
+    /// reset takes every device with it, and submitting more work only delays the fallback.
+    fn check_usable(&self) -> Result<(), GpuError> {
+        if self.lost.load(Ordering::Relaxed) || crate::caps::device_lost().is_some() {
+            return Err(GpuError::Failed("the graphics device is lost".into()));
+        }
+        Ok(())
+    }
+
+    /// Limit the tile pool to `mb` megabytes in all. Pool buffers are allocated whole, so on a
+    /// low-memory adapter one buffer must not be the 512 MB it is elsewhere (issue #119).
+    pub fn limit_pool(&mut self, mb: u64) {
+        let (per_buffer, max_buffers) = pool_shape(self.max_binding, mb);
+        let pool = self.pool.get_mut().unwrap_or_else(|p| p.into_inner());
+        if pool.buffers.is_empty() {
+            pool.per_buffer = per_buffer;
+            pool.max_buffers = max_buffers;
+        }
+    }
+
+    /// Bytes the tile pool may grow to.
+    pub fn pool_limit_bytes(&self) -> u64 {
+        self.pool.lock().unwrap_or_else(|p| p.into_inner()).capacity() as u64 * SLOT_BYTES
+    }
+
+    /// Queue submissions made so far.
+    pub fn submissions(&self) -> u64 {
+        self.submissions.load(Ordering::Relaxed)
+    }
+
+    /// Replace the pacing budget (tests use a tiny one to force many submissions).
+    pub fn set_budget(&self, budget: crate::pace::GpuBudget) {
+        *self.pace.lock().unwrap_or_else(|p| p.into_inner()) = DispatchPace::new(budget);
     }
 
     fn buffer(&self, label: &str, size: u64, usage: wgpu::BufferUsages) -> wgpu::Buffer {
@@ -367,6 +459,7 @@ impl GpuCompositeBackend for GpuCompositor {
     }
 
     fn composite(&self, program: &GpuProgram, tiles: &[GpuTile]) -> Result<GpuOutput, GpuError> {
+        self.check_usable()?;
         let start = Instant::now();
         let mut timing = GpuTiming::default();
         let n = tiles.len();
@@ -467,80 +560,109 @@ impl GpuCompositeBackend for GpuCompositor {
         }
         let out_buf = self.kept(scratch, "composite out", out_bytes, wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC);
         let read_buf = self.kept(scratch, "composite readback", out_bytes, wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ);
-        let nch = program.channels.len() as u32;
+        // Timestamp queries cover the first `QUERY_PASSES` compute passes (two queries each).
         let queries = self.timestamps.then(|| {
-            let set = self.device.create_query_set(&wgpu::QuerySetDescriptor { label: Some("composite timing"), ty: wgpu::QueryType::Timestamp, count: nch * 2 });
-            let resolve = self.buffer("composite timing", nch as u64 * 16, wgpu::BufferUsages::QUERY_RESOLVE | wgpu::BufferUsages::COPY_SRC);
-            let read = self.buffer("composite timing read", nch as u64 * 16, wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ);
+            let set = self.device.create_query_set(&wgpu::QuerySetDescriptor { label: Some("composite timing"), ty: wgpu::QueryType::Timestamp, count: QUERY_PASSES * 2 });
+            let resolve = self.buffer("composite timing", u64::from(QUERY_PASSES) * 16, wgpu::BufferUsages::QUERY_RESOLVE | wgpu::BufferUsages::COPY_SRC);
+            let read = self.buffer("composite timing read", u64::from(QUERY_PASSES) * 16, wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ);
             (set, resolve, read)
         });
         let pool_buf = |i: usize| pool.buffers.get(i).unwrap_or(&self.dummy).as_entire_binding();
 
-        let mut enc = self.device.create_command_encoder(&Default::default());
-        let mut keep = Vec::new();
-        for (ci, ch) in program.channels.iter().enumerate() {
-            let params = Params {
-                ops_off: op_offsets[ci],
-                nops: ch.ops.len() as u32,
-                refs_off: refs_offsets[ci],
-                out_off: (ci as u64 * channel_words) as u32,
-                flags: u32::from(ch.target.signed) | (u32::from(ch.target.normal) << 1) | (u32::from(ch.color) << 2),
-                tiles: n as u32,
-                eff_off: eff_offsets[ci],
-                spb: pool.per_buffer,
-                default_value: ch.default,
-            };
-            let ubuf = self.buffer("composite params", std::mem::size_of::<Params>() as u64, wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST);
-            self.queue.write_buffer(&ubuf, 0, bytemuck::bytes_of(&params));
-            let group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("composite"),
-                layout: &self.layout,
-                entries: &[
-                    wgpu::BindGroupEntry { binding: 0, resource: ubuf.as_entire_binding() },
-                    wgpu::BindGroupEntry { binding: 1, resource: prog_buf.as_entire_binding() },
-                    wgpu::BindGroupEntry { binding: 2, resource: refs_buf.as_entire_binding() },
-                    wgpu::BindGroupEntry { binding: 3, resource: consts_buf.as_entire_binding() },
-                    wgpu::BindGroupEntry { binding: 4, resource: pool_buf(0) },
-                    wgpu::BindGroupEntry { binding: 8, resource: pool_buf(1) },
-                    wgpu::BindGroupEntry { binding: 9, resource: pool_buf(2) },
-                    wgpu::BindGroupEntry { binding: 10, resource: pool_buf(3) },
-                    wgpu::BindGroupEntry { binding: 5, resource: px_buf.as_entire_binding() },
-                    wgpu::BindGroupEntry { binding: 6, resource: mask_buf.as_entire_binding() },
-                    wgpu::BindGroupEntry { binding: 7, resource: out_buf.as_entire_binding() },
-                ],
-            });
-            let timestamp_writes = queries.as_ref().map(|(set, _, _)| wgpu::ComputePassTimestampWrites {
-                query_set: set,
-                beginning_of_pass_write_index: Some(ci as u32 * 2),
-                end_of_pass_write_index: Some(ci as u32 * 2 + 1),
-            });
-            let mut pass = enc.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("composite"), timestamp_writes });
-            pass.set_pipeline(&self.pipeline);
-            pass.set_bind_group(0, &group, &[]);
-            pass.dispatch_workgroups((TILE_TEXELS / 64) as u32, n as u32, 1);
-            drop(pass);
-            keep.push((ubuf, group));
-        }
-        enc.copy_buffer_to_buffer(&out_buf, 0, &read_buf, 0, out_bytes);
-        if let Some((set, resolve, read)) = &queries {
-            enc.resolve_query_set(set, 0..nch * 2, resolve, 0);
-            enc.copy_buffer_to_buffer(resolve, 0, read, 0, nch as u64 * 16);
-        }
+        // One compute pass per channel and tile range. Passes are packed into submissions of at
+        // most `pace.units()` work units, each awaited before the next, so no single submission
+        // can hold the GPU long enough for the Windows watchdog to reset the driver (issue #119).
+        // A fast adapter soon fits the whole batch in one submission, as before.
         timing.upload_ms = start.elapsed().as_secs_f64() * 1e3;
         let t_gpu = Instant::now();
+        let mut pace = self.pace.lock().unwrap_or_else(|p| p.into_inner());
+        let mut enc = self.device.create_command_encoder(&Default::default());
+        let mut keep = Vec::new();
+        let (mut used, mut passes, mut submitted_at) = (0u64, 0u32, Instant::now());
+        for (ci, ch) in program.channels.iter().enumerate() {
+            let cost = pass_cost(ch);
+            let mut first = 0usize;
+            while first < n {
+                let room = pace.units().saturating_sub(used) / cost;
+                if room == 0 && used > 0 {
+                    self.check_usable()?;
+                    self.queue.submit([std::mem::replace(&mut enc, self.device.create_command_encoder(&Default::default())).finish()]);
+                    self.device.poll(wgpu::PollType::wait_indefinitely()).map_err(|e| GpuError::Failed(format!("GPU wait failed: {e}")))?;
+                    self.submissions.fetch_add(1, Ordering::Relaxed);
+                    pace.record(used, submitted_at.elapsed());
+                    (used, submitted_at) = (0, Instant::now());
+                    continue;
+                }
+                let count = (room.max(1) as usize).min(n - first);
+                let params = Params {
+                    ops_off: op_offsets[ci],
+                    nops: ch.ops.len() as u32,
+                    refs_off: refs_offsets[ci],
+                    out_off: (ci as u64 * channel_words) as u32,
+                    flags: u32::from(ch.target.signed) | (u32::from(ch.target.normal) << 1) | (u32::from(ch.color) << 2),
+                    tile_base: first as u32,
+                    eff_off: eff_offsets[ci],
+                    spb: pool.per_buffer,
+                    default_value: ch.default,
+                };
+                let ubuf = self.buffer("composite params", std::mem::size_of::<Params>() as u64, wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST);
+                self.queue.write_buffer(&ubuf, 0, bytemuck::bytes_of(&params));
+                let group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("composite"),
+                    layout: &self.layout,
+                    entries: &[
+                        wgpu::BindGroupEntry { binding: 0, resource: ubuf.as_entire_binding() },
+                        wgpu::BindGroupEntry { binding: 1, resource: prog_buf.as_entire_binding() },
+                        wgpu::BindGroupEntry { binding: 2, resource: refs_buf.as_entire_binding() },
+                        wgpu::BindGroupEntry { binding: 3, resource: consts_buf.as_entire_binding() },
+                        wgpu::BindGroupEntry { binding: 4, resource: pool_buf(0) },
+                        wgpu::BindGroupEntry { binding: 8, resource: pool_buf(1) },
+                        wgpu::BindGroupEntry { binding: 9, resource: pool_buf(2) },
+                        wgpu::BindGroupEntry { binding: 10, resource: pool_buf(3) },
+                        wgpu::BindGroupEntry { binding: 5, resource: px_buf.as_entire_binding() },
+                        wgpu::BindGroupEntry { binding: 6, resource: mask_buf.as_entire_binding() },
+                        wgpu::BindGroupEntry { binding: 7, resource: out_buf.as_entire_binding() },
+                    ],
+                });
+                let timestamp_writes = queries.as_ref().filter(|_| passes < QUERY_PASSES).map(|(set, _, _)| wgpu::ComputePassTimestampWrites {
+                    query_set: set,
+                    beginning_of_pass_write_index: Some(passes * 2),
+                    end_of_pass_write_index: Some(passes * 2 + 1),
+                });
+                let mut pass = enc.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("composite"), timestamp_writes });
+                pass.set_pipeline(&self.pipeline);
+                pass.set_bind_group(0, &group, &[]);
+                pass.dispatch_workgroups((TILE_TEXELS / 64) as u32, count as u32, 1);
+                drop(pass);
+                keep.push((ubuf, group));
+                passes += 1;
+                used += count as u64 * cost;
+                first += count;
+            }
+        }
+        let timed = passes.min(QUERY_PASSES);
+        enc.copy_buffer_to_buffer(&out_buf, 0, &read_buf, 0, out_bytes);
+        if let Some((set, resolve, read)) = &queries {
+            enc.resolve_query_set(set, 0..timed * 2, resolve, 0);
+            enc.copy_buffer_to_buffer(resolve, 0, read, 0, u64::from(timed) * 16);
+        }
+        self.check_usable()?;
         self.queue.submit([enc.finish()]);
         let slice = read_buf.slice(..out_bytes);
         // Never panic in the map callback (issue #119): a failed map makes `get_mapped_range` error
         // and the compositor falls back to the CPU.
         slice.map_async(wgpu::MapMode::Read, |r| if let Err(e) = r { log::warn!("GPU composite readback failed: {e}") });
         if let Some((_, _, read)) = &queries {
-            read.slice(..).map_async(wgpu::MapMode::Read, |r| if let Err(e) = r { log::warn!("GPU timing readback failed: {e}") });
+            read.slice(..u64::from(timed) * 16).map_async(wgpu::MapMode::Read, |r| if let Err(e) = r { log::warn!("GPU timing readback failed: {e}") });
         }
         self.device.poll(wgpu::PollType::wait_indefinitely()).map_err(|e| GpuError::Failed(format!("GPU wait failed: {e}")))?;
+        self.submissions.fetch_add(1, Ordering::Relaxed);
+        pace.record(used, submitted_at.elapsed());
+        drop(pace);
         timing.gpu_ms = t_gpu.elapsed().as_secs_f64() * 1e3;
         if let Some((_, _, read)) = &queries {
             {
-                let data = read.slice(..).get_mapped_range().map_err(|e| GpuError::Failed(format!("GPU timing readback failed: {e}")))?;
+                let data = read.slice(..u64::from(timed) * 16).get_mapped_range().map_err(|e| GpuError::Failed(format!("GPU timing readback failed: {e}")))?;
                 let ticks: &[u64] = bytemuck::cast_slice(&data);
                 let period = f64::from(self.queue.get_timestamp_period());
                 timing.kernel_ms = ticks.chunks(2).map(|p| p[1].saturating_sub(p[0]) as f64 * period * 1e-6).sum();

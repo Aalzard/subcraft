@@ -6,6 +6,7 @@
 //! curvature); every dispatch is submitted and awaited on its own and sized from the measured
 //! speed to stay near [`TARGET_PASS`], far below the Windows GPU watchdog (TDR, about 2 s).
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -48,13 +49,18 @@ pub struct GpuRayBaker {
     curvature: Pass,
     /// One bake at a time per device keeps dispatches short and memory bounded.
     busy: Mutex<()>,
+    /// Set when this device is lost; nothing more is submitted on it.
+    lost: Arc<AtomicBool>,
 }
 
 /// Registered with `subcraft_mesh::ray_batch::register_ray_backend` by the application.
 pub fn create_backend() -> Option<Arc<dyn RayBatchBackend>> {
     let (adapter, device, queue) = crate::headless::device()?;
-    crate::caps::install_worker_error_handlers(&device, "baking");
-    Some(Arc::new(GpuRayBaker::new(&adapter, device, queue)))
+    let lost = Arc::new(AtomicBool::new(false));
+    crate::caps::install_worker_error_handlers(&device, "baking", lost.clone());
+    let mut baker = GpuRayBaker::new(&adapter, device, queue);
+    baker.lost = lost;
+    Some(Arc::new(baker))
 }
 
 /// What one chunk's dispatches iterate over.
@@ -124,11 +130,20 @@ impl GpuRayBaker {
         };
         let rays = make("ray bake", &rays_module, 0);
         let curvature = make("curvature bake", &curvature_module, 2);
-        Self { device, queue, adapter_name: adapter.get_info().name, rays, curvature, busy: Mutex::new(()) }
+        Self { device, queue, adapter_name: adapter.get_info().name, rays, curvature, busy: Mutex::new(()), lost: Arc::default() }
     }
 
     fn buffer(&self, label: &str, size: u64, usage: wgpu::BufferUsages) -> wgpu::Buffer {
         self.device.create_buffer(&wgpu::BufferDescriptor { label: Some(label), size, usage, mapped_at_creation: false })
+    }
+
+    /// `Err` (the baker then uses the CPU) once this device, or the window's device on the same
+    /// adapter, is lost: a driver reset takes every device with it (issue #119).
+    fn check_usable(&self) -> Result<(), RayBatchError> {
+        if self.lost.load(Ordering::Relaxed) || crate::caps::device_lost().is_some() {
+            return Err(RayBatchError::Unsupported("the graphics device is lost".into()));
+        }
+        Ok(())
     }
 
     fn wait(&self) -> Result<(), RayBatchError> {
@@ -156,6 +171,7 @@ impl GpuRayBaker {
 
     /// Run `job` over all texels in chunks; one value per texel.
     fn drive(&self, job: &Job, control: &dyn BatchControl) -> Result<Vec<f32>, RayBatchError> {
+        self.check_usable()?;
         let limits = self.device.limits();
         let max_groups = limits.max_compute_workgroups_per_dimension;
         let storage = wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST;
@@ -228,6 +244,7 @@ impl GpuRayBaker {
                     pass.set_bind_group(0, &group, &[]);
                     pass.dispatch_workgroups(gx, gy, 1);
                 }
+                self.check_usable()?;
                 let started = Instant::now();
                 self.queue.submit([enc.finish()]);
                 self.wait()?;
@@ -271,6 +288,7 @@ impl GpuRayBaker {
 
     /// Upload the tree. `Err` when it does not fit the device or is too deep for the shader stack.
     fn upload_bvh(&self, bvh: &Bvh) -> Result<(wgpu::Buffer, wgpu::Buffer, Vec<u32>), RayBatchError> {
+        self.check_usable()?;
         let flat = bvh.flatten();
         if tree_depth(&flat.nodes) + 2 >= STACK_DEPTH {
             return Err(RayBatchError::Unsupported("BVH is too deep for the GPU traversal stack".into()));
