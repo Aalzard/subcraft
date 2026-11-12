@@ -88,11 +88,14 @@ pub struct OutputMap {
     /// DirectX (`true`) / OpenGL (`false`) normals for this map, overriding the template's.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub normal_directx: Option<bool>,
+    /// Dither when this map is written at 8 bits ("8 bits + dithering").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dither: Option<bool>,
 }
 
 impl OutputMap {
     pub fn new(suffix: &str, format: FileFormat, components: Vec<Source>, srgb: bool) -> Self {
-        Self { suffix: suffix.into(), format, components, srgb, pattern: None, padding: None, size: None, normal_directx: None }
+        Self { suffix: suffix.into(), format, components, srgb, pattern: None, padding: None, size: None, normal_directx: None, dither: None }
     }
 }
 

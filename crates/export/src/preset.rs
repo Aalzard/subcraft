@@ -344,6 +344,9 @@ mod painter {
             "exr" => Container::Exr,
             "tif" | "tiff" => Container::Tiff,
             "jpg" | "jpeg" => Container::Jpeg,
+            "bmp" => Container::Bmp,
+            "hdr" => Container::Hdr,
+            "webp" => Container::Webp,
             other => {
                 warnings.push(format!("{preset}: file format \"{other}\" is not supported, using PNG"));
                 Container::Png
@@ -351,16 +354,24 @@ mod painter {
         };
         let depth = match text("bitDepth").unwrap_or_else(|| "8".into()).to_ascii_lowercase().as_str() {
             "16" => BitDepth::B16,
-            "16f" | "32f" | "32" => BitDepth::F32,
+            "16f" => BitDepth::F16,
+            "32f" | "32" => BitDepth::F32,
             _ => BitDepth::B8,
         };
+        let dither = params.get("dithering").and_then(Value::as_bool).filter(|d| *d);
         let format = FileFormat::from_parts(container, depth);
         if format.depth() != depth {
             warnings.push(format!("{preset}: {} has no {} files, using {}", container.label(), depth.label(), format.label()));
         }
+        let distance = params.get("dilationDistance").and_then(Value::as_u64).unwrap_or(16).clamp(1, 256) as u32;
         let padding = text("paddingAlgorithm").map(|a| match a.to_ascii_lowercase().as_str() {
             "passthrough" => Padding::None,
-            "color" | "transparent" => Padding::Texels(params.get("dilationDistance").and_then(Value::as_u64).unwrap_or(16).clamp(1, 256) as u32),
+            "color" => Padding::Background(distance),
+            "diffusion" => Padding::Diffusion(distance),
+            "transparent" => {
+                warnings.push(format!("{preset}: transparent padding is not supported yet, using dilation of {distance} texels"));
+                Padding::Texels(distance)
+            }
             _ => Padding::Infinite,
         });
         let size = params.get("sizeLog2").and_then(Value::as_u64).filter(|n| *n <= 14).map(|n| 1u32 << n);
@@ -374,6 +385,6 @@ mod painter {
             }
         }
         let pattern = (!pattern.is_empty()).then_some(pattern);
-        Some(OutputMap { pattern, padding, size, ..OutputMap::new(&suffix, format, components, srgb) })
+        Some(OutputMap { pattern, padding, size, dither, ..OutputMap::new(&suffix, format, components, srgb) })
     }
 }

@@ -9,7 +9,7 @@ use egui::{RichText, Ui};
 use subcraft_app::export_presets::ExportPresets;
 use subcraft_core::{ChannelKind, MeshMapKind};
 use subcraft_export::{ExportTemplate, OutputMap, Padding, Source};
-use subcraft_image::{Container, FileFormat};
+use subcraft_image::{BitDepth, Container, FileFormat};
 
 use crate::i18n::tr;
 use crate::theme::{self, TEXT_DIM};
@@ -35,7 +35,6 @@ fn dim(text: &str) -> RichText {
     RichText::new(text).color(TEXT_DIM)
 }
 
-const SIZES: [u32; 7] = [256, 512, 1024, 2048, 4096, 8192, 128];
 
 /// Preset picker row with New / Duplicate / Delete / Import / Export. Returns a status message.
 pub fn preset_bar(ui: &mut Ui, presets: &mut ExportPresets, key: &mut String, ed: &mut PresetEditor) -> Option<String> {
@@ -157,7 +156,7 @@ pub fn preset_editor(ui: &mut Ui, presets: &mut ExportPresets, key: &str, ed: &m
             }
             ui.end_row();
             ui.label(dim("Padding"));
-            padding_combo(ui, "preset_padding", &mut draft.padding, "Export window setting");
+            padding_combo(ui, "preset_padding", &mut draft.padding, Some("Export window setting"));
             ui.end_row();
             ui.label(dim("Size"));
             size_combo(ui, "preset_size", &mut draft.size, "Texture set size");
@@ -272,19 +271,9 @@ fn map_editor(ui: &mut Ui, map: &mut OutputMap, mesh: &str) {
         ui.end_row();
         ui.label(dim("Format"));
         ui.horizontal(|ui| {
-            let mut container = map.format.container();
-            egui::ComboBox::from_id_salt("map_container").width(80.0).selected_text(container.label()).show_ui(ui, |ui| {
-                for c in Container::ALL {
-                    ui.selectable_value(&mut container, c, c.label());
-                }
-            });
-            let mut depth = map.format.depth();
-            egui::ComboBox::from_id_salt("map_depth").width(110.0).selected_text(depth.label()).show_ui(ui, |ui| {
-                for d in container.depths() {
-                    ui.selectable_value(&mut depth, *d, d.label());
-                }
-            });
-            map.format = FileFormat::from_parts(container, depth);
+            let mut format = Some(map.format);
+            format_combo(ui, "map", &mut format, &mut map.dither, None);
+            map.format = format.unwrap_or(map.format);
         });
         ui.end_row();
         ui.label(dim("Channels"));
@@ -300,7 +289,7 @@ fn map_editor(ui: &mut Ui, map: &mut OutputMap, mesh: &str) {
         });
         ui.end_row();
         ui.label(dim("Padding"));
-        padding_combo(ui, "map_padding", &mut map.padding, "Preset setting");
+        padding_combo(ui, "map_padding", &mut map.padding, Some("Preset setting"));
         ui.end_row();
         ui.label(dim("Size"));
         size_combo(ui, "map_size", &mut map.size, "Preset setting");
@@ -485,38 +474,133 @@ fn channel_combo(ui: &mut Ui, slot: usize, kind: &mut ChannelKind) {
     });
 }
 
-fn padding_combo(ui: &mut Ui, id: &str, padding: &mut Option<Padding>, inherit: &str) {
-    let text = match padding {
-        None => inherit.to_string(),
-        Some(Padding::None) => "None".into(),
-        Some(Padding::Infinite) => "Infinite".into(),
-        Some(Padding::Texels(n)) => format!("{n} px dilation"),
+/// Painter's padding names. `Texels` (dilate, keep the rest of the gutter) is SubCraft's own.
+pub(crate) fn padding_label(p: Padding) -> &'static str {
+    match p {
+        Padding::None => "No padding",
+        Padding::Infinite => "Dilation infinite",
+        Padding::Texels(_) => "Dilation only",
+        Padding::Background(_) => "Dilation + background color",
+        Padding::Diffusion(_) => "Dilation + diffusion",
+    }
+}
+
+fn padding_tip(p: Padding) -> &'static str {
+    match p {
+        Padding::None => tr("Gutter texels keep their composite values"),
+        Padding::Infinite => tr("Fill the whole gutter with the nearest island texel (best for mipmaps)"),
+        Padding::Texels(_) => tr("Grow islands by the distance; the rest of the gutter keeps its composite values"),
+        Padding::Background(_) => tr("Grow islands by the distance, then fill the rest with each map's default color"),
+        Padding::Diffusion(_) => tr("Grow islands by the distance, then fill the rest with a smooth blend of the islands around it"),
+    }
+}
+
+/// Padding menu plus the dilation distance. `inherit` names the `None` entry ("use the
+/// setting above"); without it the menu has no such entry.
+pub(crate) fn padding_combo(ui: &mut Ui, id: &str, padding: &mut Option<Padding>, inherit: Option<&str>) {
+    let text = match (*padding, inherit) {
+        (None, Some(i)) => i.to_string(),
+        (None, None) => padding_label(Padding::Infinite).to_string(),
+        (Some(p), _) => padding_label(p).to_string(),
     };
+    // Switching between dilation modes keeps the distance.
+    let distance = padding.and_then(Padding::distance).unwrap_or(16);
     ui.horizontal(|ui| {
-        egui::ComboBox::from_id_salt(id).width(150.0).selected_text(text).show_ui(ui, |ui| {
-            ui.selectable_value(padding, None, inherit);
-            ui.selectable_value(padding, Some(Padding::Infinite), "Infinite");
-            if ui.selectable_label(matches!(padding, Some(Padding::Texels(_))), "N px dilation").clicked() && !matches!(padding, Some(Padding::Texels(_))) {
-                *padding = Some(Padding::Texels(8));
+        egui::ComboBox::from_id_salt(id).width(190.0).selected_text(text).show_ui(ui, |ui| {
+            if let Some(i) = inherit {
+                ui.selectable_value(padding, None, i);
             }
-            ui.selectable_value(padding, Some(Padding::None), "None");
+            let modes = [Padding::None, Padding::Infinite, Padding::Texels(distance), Padding::Background(distance), Padding::Diffusion(distance)];
+            for mode in modes {
+                let on = padding.is_some_and(|p| std::mem::discriminant(&p) == std::mem::discriminant(&mode));
+                if ui.selectable_label(on, padding_label(mode)).on_hover_text(padding_tip(mode)).clicked() && !on {
+                    *padding = Some(mode);
+                }
+            }
         });
-        if let Some(Padding::Texels(n)) = padding {
-            ui.add(egui::DragValue::new(n).range(1..=256).suffix(" px"));
+        if let Some(p) = padding
+            && let Some(mut n) = p.distance()
+            && ui.add(egui::DragValue::new(&mut n).range(1..=256).suffix(" px")).on_hover_text(tr("Dilation distance")).changed()
+        {
+            *p = p.with_distance(n);
         }
     });
 }
 
-fn size_combo(ui: &mut Ui, id: &str, size: &mut Option<u32>, inherit: &str) {
+pub(crate) fn size_combo(ui: &mut Ui, id: &str, size: &mut Option<u32>, inherit: &str) {
     let text = size.map_or(inherit.to_string(), |s| format!("{s} × {s}"));
-    let mut sizes = SIZES;
-    sizes.sort();
     egui::ComboBox::from_id_salt(id).width(150.0).selected_text(text).show_ui(ui, |ui| {
         ui.selectable_value(size, None, inherit);
-        for s in sizes {
+        for s in subcraft_export::EXPORT_SIZES {
             ui.selectable_value(size, Some(s), format!("{s} × {s}"));
         }
     });
+}
+
+/// One entry of the bit depth menu: a depth, or 8 bits with dithering.
+#[derive(Clone, Copy, PartialEq)]
+enum DepthChoice {
+    Depth(BitDepth),
+    Dithered,
+}
+
+impl DepthChoice {
+    fn label(self) -> &'static str {
+        match self {
+            DepthChoice::Depth(d) => d.label(),
+            DepthChoice::Dithered => "8-bit + dithering",
+        }
+    }
+}
+
+/// File type and bit depth menus (Painter's two dropdowns). `format` is `None` when the file
+/// type follows the template; that entry is offered when `inherit` names it. `dither` is the
+/// "8-bit + dithering" choice.
+pub(crate) fn format_combo(ui: &mut Ui, id: &str, format: &mut Option<FileFormat>, dither: &mut Option<bool>, inherit: Option<&str>) {
+    let container_text = match (*format, inherit) {
+        (Some(f), _) => f.container().label(),
+        (None, Some(i)) => i,
+        (None, None) => "",
+    };
+    let mut container = format.map(FileFormat::container);
+    egui::ComboBox::from_id_salt((id, "container")).width(if inherit.is_some() { 190.0 } else { 80.0 }).selected_text(container_text).show_ui(ui, |ui| {
+        if let Some(i) = inherit {
+            ui.selectable_value(&mut container, None, i);
+        }
+        for c in Container::ALL {
+            ui.selectable_value(&mut container, Some(c), c.label());
+        }
+    });
+    match container {
+        None => {
+            *format = None;
+            *dither = None;
+        }
+        Some(c) => {
+            let depth = format.map_or(BitDepth::B8, FileFormat::depth);
+            let new = FileFormat::from_parts(c, depth);
+            let mut choice = if new.is_8bit() && *dither == Some(true) { DepthChoice::Dithered } else { DepthChoice::Depth(new.depth()) };
+            egui::ComboBox::from_id_salt((id, "depth")).width(130.0).selected_text(choice.label()).show_ui(ui, |ui| {
+                for d in c.depths() {
+                    ui.selectable_value(&mut choice, DepthChoice::Depth(*d), d.label());
+                    if *d == BitDepth::B8 {
+                        ui.selectable_value(&mut choice, DepthChoice::Dithered, DepthChoice::Dithered.label())
+                            .on_hover_text(tr("Adds fine noise when writing 8 bits per channel, so smooth gradients don't band"));
+                    }
+                }
+            });
+            *format = Some(match choice {
+                DepthChoice::Depth(d) => FileFormat::from_parts(c, d),
+                DepthChoice::Dithered => FileFormat::from_parts(c, BitDepth::B8),
+            });
+            *dither = match choice {
+                DepthChoice::Dithered => Some(true),
+                // Keep "no explicit choice" as it was; an explicit dithered choice is turned off.
+                DepthChoice::Depth(_) if *dither == Some(true) => None,
+                DepthChoice::Depth(_) => *dither,
+            };
+        }
+    }
 }
 
 fn normal_combo(ui: &mut Ui, id: &str, dx: &mut Option<bool>, inherit: &str) {

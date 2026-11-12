@@ -4,7 +4,7 @@ use crate::i18n::tr;
 use std::path::PathBuf;
 
 use egui::RichText;
-use subcraft_app::{ExportSettings, ExportTemplate, FileFormat, Padding, Session};
+use subcraft_app::{ExportSettings, ExportTemplate, Padding, Session};
 
 use crate::state::UiState;
 use crate::theme::{self, TEXT_DIM};
@@ -227,12 +227,17 @@ pub fn export_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
                 }
             }
             ui.end_row();
-            ui.label(dim("File format"));
-            let fmt_text = ex.settings.format_override.map_or("Template default", |f| f.label());
-            egui::ComboBox::from_id_salt("format").selected_text(fmt_text).show_ui(ui, |ui| {
-                ui.selectable_value(&mut ex.settings.format_override, None, tr("Template default"));
-                for f in FileFormat::ALL {
-                    ui.selectable_value(&mut ex.settings.format_override, Some(f), f.label());
+            ui.label(dim("File type"));
+            ui.horizontal(|ui| {
+                crate::export_presets::format_combo(ui, "export_format", &mut ex.settings.format_override, &mut ex.settings.dither, Some(tr("Based on output template")));
+            });
+            ui.end_row();
+            ui.label(dim("Size"));
+            ui.horizontal(|ui| {
+                crate::export_presets::size_combo(ui, "export_size", &mut ex.settings.size, tr("Based on each texture set's size"));
+                let preset_size = ex.preset_list.as_ref().and_then(|l| l.find(&ex.preset)).and_then(|p| p.size);
+                if let Some(s) = preset_size {
+                    ui.label(dim(&format!("the preset writes {s} × {s}"))).on_hover_text(tr("This preset chooses its own size; it wins over this setting"));
                 }
             });
             ui.end_row();
@@ -243,25 +248,9 @@ pub fn export_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
                     ui.label(dim("set by the preset")).on_hover_text(tr("This preset chooses its own padding; maps without one use it"));
                     return;
                 }
-                let mut kind = match ex.settings.padding {
-                    Padding::Infinite => 0,
-                    Padding::Texels(_) => 1,
-                    Padding::None => 2,
-                };
-                let before = kind;
-                ui.selectable_value(&mut kind, 0, tr("Infinite"));
-                ui.selectable_value(&mut kind, 1, tr("Texels"));
-                ui.selectable_value(&mut kind, 2, tr("None"));
-                if kind != before {
-                    ex.settings.padding = match kind {
-                        0 => Padding::Infinite,
-                        1 => Padding::Texels(8),
-                        _ => Padding::None,
-                    };
-                }
-                if let Padding::Texels(t) = &mut ex.settings.padding {
-                    ui.add(egui::DragValue::new(t).range(1..=64));
-                }
+                let mut padding = Some(ex.settings.padding);
+                crate::export_presets::padding_combo(ui, "export_padding", &mut padding, None);
+                ex.settings.padding = padding.unwrap_or(Padding::Infinite);
             });
             ui.end_row();
             ui.label(dim("Height to normal"));
