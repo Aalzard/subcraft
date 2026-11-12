@@ -9,9 +9,9 @@ Layout notes: Edit > Settings opens one window with three sections chosen on the
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Settings window | Edit > Settings | - | partial: Edit > Settings with General and Shortcuts pages; no Libraries page | crates/ui/src/recovery.rs (preferences_window) | TBD-37 |
+| Settings window | Edit > Settings | - | partial: Edit > Settings with General and Shortcuts pages; no Libraries page | crates/ui/src/recovery.rs (preferences_window) | #209 |
 | General section | Settings | first section | partial: single page with other options | crates/ui/src/recovery.rs:263 | - |
-| Shortcuts section | Settings | - | done: key set, editable keys, camera mouse gestures, the fixed list | crates/ui/src/shortcut_editor.rs | TBD-37 |
+| Shortcuts section | Settings | - | done: key set, editable keys, camera mouse gestures, the fixed list | crates/ui/src/shortcut_editor.rs | #209 |
 | Libraries section | Settings | - | missing | - | - |
 
 ## General: Interface options
