@@ -53,6 +53,8 @@ struct MaterialParams {
     // x: alpha mode (0 opaque, 1 alpha test, 2 alpha blending), y: alpha test threshold,
     // z: 1 = alpha dithering (ordered dither instead of test / blend)
     alpha: vec4<f32>,
+    // Shader Settings: x AO intensity, y emissive intensity, z horizon fading
+    shader: vec4<f32>,
 };
 @group(1) @binding(10) var<uniform> mat: MaterialParams;
 
@@ -285,8 +287,9 @@ fn fs_main(in: VsOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f
     let rough = clamp(material_sample(t_rough, samp, in.uv).r, 0.04, 1.0);
     let metal = clamp(material_sample(t_metal, samp, in.uv).r, 0.0, 1.0);
     let ntex = material_sample(t_normal, samp, in.uv).rgb * 2.0 - 1.0;
-    let emissive = material_sample(t_emissive, samp, in.uv).rgb;
-    let ao = clamp(material_sample(t_ao, samp, in.uv).r, 0.0, 1.0);
+    let emissive = material_sample(t_emissive, samp, in.uv).rgb * mat.shader.y;
+    // AO intensity blends the map toward no occlusion.
+    let ao = mix(1.0, clamp(material_sample(t_ao, samp, in.uv).r, 0.0, 1.0), clamp(mat.shader.x, 0.0, 1.0));
 
     // Height -> tangent-space bump normal (central differences, one texel apart). UV v grows
     // downward while the bitangent points up the image (OpenGL convention), hence +dh/dv for y.
@@ -334,7 +337,10 @@ fn fs_main(in: VsOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f
     let direct = (kd + spec) * light * nol;
 
     let r = reflect(-v, n);
-    let env_spec = environment(r, l, rough);
+    // Horizon fading: a normal map can tilt the reflection below the geometric surface; such
+    // reflections would see through the mesh, so they fade out (Painter's Horizon Fading).
+    let horizon = clamp(1.0 + mat.shader.z * dot(r, n0), 0.0, 1.0);
+    let env_spec = environment(r, l, rough) * horizon * horizon;
     // Ambient (environment) light is occluded by AO; specular occlusion approximated by AO too.
     let ambient = (diffuse * irradiance(n) + env_brdf(f0, rough, nov) * env_spec) * g.params.y * ao;
 
@@ -383,7 +389,7 @@ fn fs_background(in: BgOut) -> @location(0) vec4<f32> {
 // Emission only, in linear HDR: feeds the glow and glare passes of the viewport.
 @fragment
 fn fs_emissive(in: VsOut) -> @location(0) vec4<f32> {
-    let e = textureSample(t_emissive, samp, in.uv).rgb * g.params.x;
+    let e = textureSample(t_emissive, samp, in.uv).rgb * mat.shader.y * g.params.x;
     // Cut-out texels emit nothing; blended ones glow by their opacity.
     let alpha = surface_alpha(in.uv, in.clip.xy);
     return vec4<f32>(e * alpha, 1.0);

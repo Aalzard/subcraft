@@ -135,6 +135,34 @@ fn layer_colour_tags_roundtrip_and_untagged_layers_write_no_field() {
     assert!(!serde_json::to_string(&old).unwrap().contains("color"));
 }
 
+#[test]
+fn filter_extra_channels_and_passthrough_paint_layers_roundtrip() {
+    let mut ts = TextureSet::new("Body", 0, 128);
+    let mut layer = Layer::new_paint("Filter layer", &ts);
+    for b in layer.blend.values_mut() {
+        b.mode = BlendMode::Passthrough;
+    }
+    let mut e = ContentEffect::new(ContentEffectKind::Filter { channel: ChannelKind::BaseColor, filter: subcraft_doc::Filter::Invert }, &ts);
+    e.extra_channels = [ChannelKind::Roughness, ChannelKind::Metallic].into_iter().collect();
+    layer.content_effects.push(Arc::new(e));
+    let mut plain = Layer::new_paint("Plain", &ts);
+    plain.content_effects.push(Arc::new(ContentEffect::new(ContentEffectKind::Filter { channel: ChannelKind::Roughness, filter: subcraft_doc::Filter::Invert }, &ts)));
+    ts.insert_above(None, plain);
+    ts.insert_above(None, layer);
+    let doc = Document { texture_sets: vec![ts] };
+    let bytes = write_project(Cursor::new(Vec::new()), &primitives::cube(2.), &doc, &ResourceStore::default(), &MeshMapSet::new()).unwrap().into_inner();
+    let back = read_project(Cursor::new(bytes)).unwrap().document;
+    assert_eq!(back, doc);
+    let extra: Vec<_> = back.texture_sets[0].layers.iter().map(|l| l.content_effects[0].extra_channels.len()).collect();
+    assert_eq!(extra, [0, 2]);
+    // An effect written by an older SubCraft has no field: only its own channel.
+    let json = r#"{"id":"00000000-0000-0000-0000-000000000001","name":"F","visible":true,"blend":[],"kind":{"type":"filter","channel":"base_color","filter":{"type":"invert"}}}"#;
+    if let Ok(old) = serde_json::from_str::<ContentEffectV5>(json) {
+        assert!(old.extra_channels.is_empty());
+        assert!(!serde_json::to_string(&old).unwrap().contains("extra_channels"));
+    }
+}
+
 fn rich_document() -> Document {
     let mut ts = TextureSet::new("Body", 0, 128);
     let tc = ts.clone();
