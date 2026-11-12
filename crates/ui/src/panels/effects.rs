@@ -691,6 +691,9 @@ fn content_editor(ui: &mut Ui, state: &mut UiState, layer: &Layer, e: &ContentEf
                     });
                 });
                 changed |= super::filter::editor(ui, filter, Some(*channel));
+                if super::properties::filter_image_row(ui, state, filter, &mut changed) {
+                    crate::files::pick(ui.ctx(), crate::files::Purpose::FilterImage { layer: layer.id, effect: eff.id, mask: false }, crate::files::IMAGES, false, None);
+                }
             }
         }
     });

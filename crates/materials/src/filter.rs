@@ -15,6 +15,7 @@ pub fn apply(filter: Filter, input: [f32; 3], channel: ChannelKind) -> [f32; 3] 
             if channel.is_signed() { v } else { v.clamp(0.0, 1.0) }
         }),
         Filter::BlurWrap { .. } | Filter::Transform { .. } | Filter::Mirror { .. } => input, // Staged by the compositor too.
+        Filter::GradientDynamic { .. } => input, // Reads an image: evaluated by the compositor.
         Filter::Smoothstep { min, max } => input.map(|v| smoothstep(v, min, max)),
         Filter::ThresholdCompare { cutoff, mode } => {
             let value = if channel.is_color() { luminance(input) } else { input[0] };

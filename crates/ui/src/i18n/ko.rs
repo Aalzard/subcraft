@@ -603,4 +603,7 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Safe Rotation", "안전 회전"),
     ("Tile", "타일"),
     ("Vertical Angle", "수직 각도"),
+    ("An image replaces the breakup noise, projected over the model at the pattern size", "이미지가 분할 노이즈를 대신하며, 패턴 크기로 모델 위에 투영됩니다"),
+    ("Choose gradient image…", "그라디언트 이미지 선택…"),
+    ("Custom grunge", "사용자 그런지"),
 ];

@@ -598,10 +598,14 @@ pub struct PainterControls {
     /// projects: false, their original pattern. Not written when false.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub grunge_map: bool,
+    /// Painter's custom grunge (Use Custom Grunge): an image that replaces the breakup noise,
+    /// projected tri-planar on the model at the pattern size. Absent: the noise or grunge map.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_grunge: Option<subcraft_core::ResourceId>,
 }
 
 impl Default for PainterControls {
-    fn default() -> Self { Self { edges_masking: 0.0, ao_masking: 0.0, curvature_weight: 1.0, smoothness: 0.0, grunge_scale: 1.0, grunge_floor: 0.0, grain: 0.0, grunge_map: false } }
+    fn default() -> Self { Self { edges_masking: 0.0, ao_masking: 0.0, curvature_weight: 1.0, smoothness: 0.0, grunge_scale: 1.0, grunge_floor: 0.0, grain: 0.0, grunge_map: false, custom_grunge: None } }
 }
 
 fn is_zero_offset(offset: &[f32; 3]) -> bool { *offset == [0.0; 3] }
@@ -780,11 +784,13 @@ impl Generator {
 
     /// Image resources the generator reads (the Mask Editor's textures).
     pub fn resources(&self) -> Vec<subcraft_core::ResourceId> {
-        match self.kind {
+        let mut out: Vec<subcraft_core::ResourceId> = match self.kind {
             GeneratorKind::MaskEditor => self.editor_settings().resources().collect(),
             GeneratorKind::GrayscaleConversion => self.shape_settings().texture.into_iter().collect(),
             _ => Vec::new(),
-        }
+        };
+        out.extend(self.painter.and_then(|p| p.custom_grunge));
+        out
     }
 
     /// Whether this kind reads a baked map that an anchor input can replace.

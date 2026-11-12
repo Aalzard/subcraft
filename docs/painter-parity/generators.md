@@ -22,7 +22,7 @@ Layout notes: A generator is an effect row under a layer (content stack) or unde
 | Parameters section (per-generator sliders, toggles, dropdowns) | Properties > Generator | - | partial: only for the built-in kinds | crates/ui/src/panels/properties.rs:411 | - |
 | Seed value field (pencil shows / edits the number) | Properties > Generator | not documented | partial: plain number field, always visible | crates/ui/src/panels/properties.rs:601 | - |
 | Seed Random button (new random seed) | Properties > Generator | - | partial: "Next" steps the seed by one instead of a random value | crates/ui/src/panels/properties.rs:602 | - |
-| Image inputs section (one slot per input) | Properties > Generator | - | missing: no resource slots | - | - |
+| Image inputs section (one slot per input) | Properties > Generator | - | partial: image slots for custom grunge (Dirt, Edge wear, Concave) and Gradient Dynamic; Mask Editor and Grayscale Conversion textures | crates/ui/src/panels/properties.rs:441 | chunk 34 |
 | Image input slot: pick a texture / procedural from the mini shelf | Properties > Generator | - | missing | - | - |
 | Image input slot: use an anchor point (anchor must be below the referencing layer, same texture set) | Properties > Generator | - | partial: an anchor can replace the baked map the generator reads; no extra inputs | crates/ui/src/panels/properties.rs:553 | - |
 | Image input slot: clear / remove the resource | Properties > Generator | not documented | partial: anchor picker has a "Baked mesh map" entry to go back | crates/ui/src/panels/properties.rs:555 | - |
@@ -178,7 +178,7 @@ Layout notes: Seed and Invert first, then level / contrast, triplanar, grunge, E
 | Ambient Occlusion | Properties > Generator > Image inputs | grayscale; baked map | partial: baked map automatic, anchor can replace it, no resource slot | crates/ui/src/panels/properties.rs:553 | - |
 | World Space Normal | Properties > Generator > Image inputs | colour; baked map | missing | - | - |
 | Position | Properties > Generator > Image inputs | colour; baked map | missing | - | - |
-| Custom grunge | Properties > Generator > Image inputs | grayscale; texture or anchor | missing | - | - |
+| Custom grunge | Properties > Generator > Image inputs | grayscale; texture or anchor | partial: an image resource replacing the breakup noise, projected tri-planar at the pattern size (anchors not offered) | crates/ui/src/panels/properties.rs:441 | chunk 34 |
 | Micro Normal | Properties > Generator > Image inputs | colour; texture or anchor | missing | - | - |
 | Micro Height | Properties > Generator > Image inputs | colour; texture or anchor | missing | - | - |
 | Seed | Properties > Generator > Parameters | not documented; Random button and pencil field | partial: number field and "Next" (seed + 1), no random | crates/ui/src/panels/properties.rs:600 | - |
@@ -189,7 +189,7 @@ Layout notes: Seed and Invert first, then level / contrast, triplanar, grunge, E
 | Triplanar Blending Contrast | Properties > Generator > Parameters | not documented | missing | - | - |
 | Grunge Amount | Properties > Generator > Parameters | not documented | done | crates/ui/src/panels/properties.rs:437 | - |
 | Grunge Scale | Properties > Generator > Parameters | not documented | partial: "Pattern size" in percent of the model, 1-100 | crates/ui/src/panels/properties.rs:596 | - |
-| Use Custom Grunge | Properties > Generator > Parameters | not documented (toggle) | partial: "Grunge map" switches to one bundled map, no custom image | crates/ui/src/panels/properties.rs:466 | - |
+| Use Custom Grunge | Properties > Generator > Parameters | not documented (toggle) | done: choosing an image turns it on, removing it turns it off | crates/ui/src/panels/properties.rs:441 | chunk 34 |
 | Edges Masking | Properties > Generator > Parameters | not documented | done | crates/ui/src/panels/properties.rs:450 | - |
 | Micro Height (toggle) | Properties > Generator > Micro Details | not documented | missing | - | - |
 | Micro Normal (toggle) | Properties > Generator > Micro Details | not documented | missing | - | - |
@@ -226,7 +226,7 @@ Layout notes: Same layout as Metal Edge Wear, without Grunge Scale.
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
 | Fiber Glass Edge Wear (generator) | Properties > Generator | used on: mask or fill | missing | - | - |
-| Custom grunge | Properties > Generator > Image inputs | grayscale; texture or anchor | missing | - | - |
+| Custom grunge | Properties > Generator > Image inputs | grayscale; texture or anchor | partial: an image resource replacing the breakup noise, projected tri-planar at the pattern size (anchors not offered) | crates/ui/src/panels/properties.rs:441 | chunk 34 |
 | Curvature | Properties > Generator > Image inputs | grayscale; baked map | missing | - | - |
 | Ambient Occlusion | Properties > Generator > Image inputs | grayscale; baked map | missing | - | - |
 | World Space Normal | Properties > Generator > Image inputs | colour; baked map | missing | - | - |
@@ -240,7 +240,7 @@ Layout notes: Same layout as Metal Edge Wear, without Grunge Scale.
 | Use Triplanar | Properties > Generator > Parameters | not documented (toggle) | missing | - | - |
 | Triplanar Blending Contrast | Properties > Generator > Parameters | not documented | missing | - | - |
 | Grunge Amount | Properties > Generator > Parameters | not documented | missing | - | - |
-| Use Custom Grunge | Properties > Generator > Parameters | not documented (toggle) | missing | - | - |
+| Use Custom Grunge | Properties > Generator > Parameters | not documented (toggle) | done: choosing an image turns it on, removing it turns it off | crates/ui/src/panels/properties.rs:441 | chunk 34 |
 | Edges Smoothness | Properties > Generator > Parameters | not documented | missing | - | - |
 | Ambient Occlusion Masking | Properties > Generator > Parameters | not documented | missing | - | - |
 | Curvature Weight | Properties > Generator > Parameters | not documented | missing | - | - |
@@ -315,7 +315,7 @@ Layout notes: Legacy version of Mask Editor. Global Seed / Level / Contrast / In
 |---|---|---|---|---|---|
 | Mask Builder (generator, legacy) | Properties > Generator | used on: mask or fill | missing | - | - |
 | World space normal | Properties > Generator > Image inputs | colour; baked map | missing | - | - |
-| Custom grunge 1 | Properties > Generator > Image inputs | grayscale; texture or anchor | missing | - | - |
+| Custom grunge 1 | Properties > Generator > Image inputs | grayscale; texture or anchor | partial: an image resource replacing the breakup noise, projected tri-planar at the pattern size (anchors not offered) | crates/ui/src/panels/properties.rs:441 | chunk 34 |
 | Custom grunge 2 | Properties > Generator > Image inputs | grayscale; texture or anchor | missing | - | - |
 | Scatter input | Properties > Generator > Image inputs | grayscale; texture or anchor | missing | - | - |
 | Position | Properties > Generator > Image inputs | colour; baked map | missing | - | - |
@@ -337,7 +337,7 @@ Layout notes: Legacy version of Mask Editor. Global Seed / Level / Contrast / In
 | Scratches | Properties > Generator > Parameters | not documented; needs Grunge, AO or Curvature above 0 | missing | - | - |
 | Scatter | Properties > Generator > Parameters | not documented | missing | - | - |
 | Scale | Properties > Generator > Grunge | not documented | missing | - | - |
-| Use Custom Grunge | Properties > Generator > Grunge | not documented (toggle; shows Custom grunge 1) | missing | - | - |
+| Use Custom Grunge | Properties > Generator > Grunge | not documented (toggle; shows Custom grunge 1) | done: choosing an image turns it on, removing it turns it off | crates/ui/src/panels/properties.rs:441 | chunk 34 |
 | Secondary Custom Grunge | Properties > Generator > Grunge | not documented (visibility of Custom grunge 2) | missing | - | - |
 | Invert | Properties > Generator > Grunge | not documented (toggle) | missing | - | - |
 | Range | Properties > Generator > Ambient Occlusion | not documented | missing | - | - |
@@ -489,7 +489,7 @@ Layout notes: Seed and Invert, wear level / contrast, triplanar, grunge, then Ed
 | Metal Edge Wear (generator) | Properties > Generator | used on: mask or fill | partial: Edges kind ("Edge wear"); no custom grunge, triplanar contrast or micro-detail inputs; adds Spread / Variation / Grain | crates/doc/src/mask.rs:209 | - |
 | World space normal | Properties > Generator > Image inputs | colour; baked map | missing | - | - |
 | Position | Properties > Generator > Image inputs | colour; baked map | missing | - | - |
-| Custom grunge | Properties > Generator > Image inputs | grayscale; texture or anchor | missing | - | - |
+| Custom grunge | Properties > Generator > Image inputs | grayscale; texture or anchor | partial: an image resource replacing the breakup noise, projected tri-planar at the pattern size (anchors not offered) | crates/ui/src/panels/properties.rs:441 | chunk 34 |
 | Curvature | Properties > Generator > Image inputs | grayscale; baked map | partial: baked map automatic, anchor can replace it, no resource slot | crates/ui/src/panels/properties.rs:553 | - |
 | Ambient Occlusion | Properties > Generator > Image inputs | grayscale; baked map | partial: read automatically for AO masking, no slot | crates/ui/src/panels/properties.rs:456 | - |
 | Micro Normal | Properties > Generator > Image inputs | colour; texture or anchor | missing | - | - |
@@ -502,7 +502,7 @@ Layout notes: Seed and Invert, wear level / contrast, triplanar, grunge, then Ed
 | Triplanar Blending Contrast | Properties > Generator > Parameters | not documented | missing | - | - |
 | Grunge Amount | Properties > Generator > Parameters | not documented | done | crates/ui/src/panels/properties.rs:437 | - |
 | Grunge Scale | Properties > Generator > Parameters | not documented | partial: "Pattern size" in percent of the model, 1-100 | crates/ui/src/panels/properties.rs:596 | - |
-| Use Custom Grunge | Properties > Generator > Parameters | not documented (toggle) | partial: "Grunge map" switches to one bundled map, no custom image | crates/ui/src/panels/properties.rs:466 | - |
+| Use Custom Grunge | Properties > Generator > Parameters | not documented (toggle) | done: choosing an image turns it on, removing it turns it off | crates/ui/src/panels/properties.rs:441 | chunk 34 |
 | Edges Smoothness | Properties > Generator > Parameters | not documented | done | crates/ui/src/panels/properties.rs:460 | - |
 | Ambient Occlusion Masking | Properties > Generator > Parameters | not documented | done | crates/ui/src/panels/properties.rs:456 | - |
 | Curvature Weight | Properties > Generator > Parameters | not documented | done | crates/ui/src/panels/properties.rs:458 | - |

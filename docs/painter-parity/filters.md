@@ -222,10 +222,10 @@ Layout notes: Standard group. Works on content and masks; the gradient comes fro
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Gradient Dynamic (filter) | Properties > Filter | works on: content and masks | missing | - | - |
-| Gradient Source | Properties > Filter > Image inputs | colour; texture or anchor | missing | - | - |
-| Gradient Orientation | Properties > Filter | not documented; horizontal / vertical | missing | - | - |
-| Gradient Input Position | Properties > Filter | not documented | missing | - | - |
+| Gradient Dynamic (filter) | Properties > Filter | works on: content and masks | done: evaluated by the compositor (reads its image) | crates/doc/src/filter.rs:301 | chunk 34 |
+| Gradient Source | Properties > Filter > Image inputs | colour; texture or anchor | partial: an image resource (anchors not offered) | crates/ui/src/panels/properties.rs:413 | chunk 34 |
+| Gradient Orientation | Properties > Filter | not documented; horizontal / vertical | done | crates/ui/src/panels/filter.rs:137 | chunk 34 |
+| Gradient Input Position | Properties > Filter | not documented | done | crates/ui/src/panels/filter.rs:137 | chunk 34 |
 
 ## Grayscale Conversion
 

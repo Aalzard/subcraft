@@ -15,6 +15,10 @@ pub fn editor(ui: &mut Ui, filter: &mut Filter, channel: Option<ChannelKind>) ->
                     *filter = choice; changed = true;
                 }
             }
+            // Reads an image, so it is not in `Filter::ALL`: it starts without one.
+            if ui.selectable_label(matches!(filter, Filter::GradientDynamic { .. }), "Gradient Dynamic").clicked() && !matches!(filter, Filter::GradientDynamic { .. }) {
+                *filter = Filter::gradient_dynamic(); changed = true;
+            }
         });
     });
     let lower = if channel.is_some_and(|c| c.is_signed()) { -1.0 } else { 0.0 };
@@ -129,6 +133,14 @@ pub fn editor(ui: &mut Ui, filter: &mut Filter, channel: Option<ChannelKind>) ->
             changed |= slider_row(ui, "Width", egui::Slider::new(radius, 0.0..=32.0).suffix(" px")).changed();
             changed |= slider_row(ui, "Strength", egui::Slider::new(strength, 0.0..=8.0)).changed();
             ui.weak("Sobel edges of the brightness / grayscale result");
+        }
+        Filter::GradientDynamic { vertical, position, .. } => {
+            prop_row(ui, "Gradient Orientation", |ui| {
+                changed |= ui.selectable_value(vertical, false, "Horizontal").changed();
+                changed |= ui.selectable_value(vertical, true, "Vertical").changed();
+            });
+            changed |= slider_row(ui, "Gradient Input Position", egui::Slider::new(position, 0.0..=1.0)).changed();
+            ui.weak("Values pick colours along one row (or column) of the Gradient Source image");
         }
         Filter::Glow { radius, amount, threshold } => {
             changed |= slider_row(ui, "Radius", egui::Slider::new(radius, 0.0..=32.0).suffix(" px")).changed();

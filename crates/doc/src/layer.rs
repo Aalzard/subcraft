@@ -385,6 +385,9 @@ impl Layer {
             add(r);
         }
         for e in &self.content_effects {
+            if let ContentEffectKind::Filter { filter, .. } = e.kind {
+                filter.resource().into_iter().for_each(&mut add);
+            }
             if let ContentEffectKind::Fill(f) = &e.kind {
                 for c in f.channels.values() {
                     if let FillSource::Bitmap { resource } = c.source {
@@ -399,6 +402,9 @@ impl Layer {
             }
             if let crate::mask::MaskEffectKind::Generator(g) = &e.kind {
                 g.resources().into_iter().for_each(&mut add);
+            }
+            if let crate::mask::MaskEffectKind::Filter(f) = e.kind {
+                f.resource().into_iter().for_each(&mut add);
             }
         }
         for c in self.children() {

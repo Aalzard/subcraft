@@ -408,6 +408,64 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     }
 }
 
+/// The image slot of a filter that reads one (Gradient Dynamic's Gradient Source). Returns
+/// whether the image button was clicked; clearing it marks `changed`.
+pub(crate) fn filter_image_row(ui: &mut Ui, state: &mut UiState, filter: &mut subcraft_doc::Filter, changed: &mut bool) -> bool {
+    let subcraft_doc::Filter::GradientDynamic { source, .. } = filter else { return false };
+    let mut pick = false;
+    match filter_resource(*source) {
+        Some(id) => {
+            if image_row(ui, state, id) {
+                pick = true;
+            }
+            if ui.small_button(tr("Remove image")).clicked() {
+                *source = subcraft_core::ResourceId::nil();
+                *changed = true;
+            }
+        }
+        None => {
+            if secondary_button(ui, tr("Choose gradient image…")).clicked() {
+                pick = true;
+            }
+        }
+    }
+    pick
+}
+
+fn filter_resource(id: subcraft_core::ResourceId) -> Option<subcraft_core::ResourceId> {
+    (id != subcraft_core::ResourceId::nil()).then_some(id)
+}
+
+/// Painter's Use Custom Grunge for the generators with a breakup: an image slot replacing the
+/// noise. Returns whether the image button was clicked.
+fn custom_grunge_row(ui: &mut Ui, state: &mut UiState, g: &mut subcraft_doc::Generator, changed: &mut bool) -> bool {
+    if !matches!(g.kind, GeneratorKind::Edges | GeneratorKind::Cavity | GeneratorKind::Concave) {
+        return false;
+    }
+    let mut pick = false;
+    prop_row(ui, tr("Custom grunge"), |ui| {
+        match g.painter.and_then(|p| p.custom_grunge) {
+            Some(id) => {
+                if image_row(ui, state, id) {
+                    pick = true;
+                }
+                if ui.small_button(tr("Remove image")).clicked() {
+                    if let Some(p) = g.painter.as_mut() {
+                        p.custom_grunge = None;
+                    }
+                    *changed = true;
+                }
+            }
+            None => {
+                if secondary_button(ui, tr("Choose image…")).on_hover_text(tr("An image replaces the breakup noise, projected over the model at the pattern size")).clicked() {
+                    pick = true;
+                }
+            }
+        }
+    });
+    pick
+}
+
 /// The Generator dropdown of a generator mask effect.
 fn generator_kind_row(ui: &mut Ui, g: &mut subcraft_doc::Generator) -> bool {
     let mut picked = None;
@@ -811,6 +869,9 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
                         g.set_pattern_size(size); changed = true;
                     }
                     changed |= painter_controls(ui, g);
+                    if custom_grunge_row(ui, state, g, &mut changed) {
+                        crate::files::pick(ui.ctx(), crate::files::Purpose::GeneratorGrunge { layer, effect: e.id }, crate::files::IMAGES, false, None);
+                    }
                     prop_row(ui, tr("Seed"), |ui| {
                         changed |= ui.add(egui::DragValue::new(&mut g.noise.seed).speed(1.)).changed();
                         if ui.small_button(tr("Next")).on_hover_text(tr("Try the next deterministic pattern seed")).clicked() {
@@ -890,6 +951,9 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
                 }
                 MaskEffectKind::Filter(filter) => {
                     changed |= super::filter::editor(ui, filter, None);
+                    if filter_image_row(ui, state, filter, &mut changed) {
+                        crate::files::pick(ui.ctx(), crate::files::Purpose::FilterImage { layer, effect: e.id, mask: true }, crate::files::IMAGES, false, None);
+                    }
                     hint(ui, tr("Filters the mask below this effect; opacity mixes the result with that input."));
                 }
                 MaskEffectKind::Image { resource, projection, invert } => {

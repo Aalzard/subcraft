@@ -28,6 +28,15 @@ pub fn read_tile_rgba(img: &TiledImage, geo: &TileGeometry, out: &mut [[f32; 4]]
     }
 }
 
+/// Painter's Gradient Dynamic: the image's colour at the input value along one row (or column)
+/// of it, at `position` across. `linearize` decodes a colour image for colour channels.
+pub(crate) fn gradient_dynamic(bmp: &subcraft_image::Bitmap, t: f32, vertical: bool, position: f32, linearize: bool) -> [f32; 3] {
+    let t = t.clamp(0.0, 1.0);
+    let (u, v) = if vertical { (position, t) } else { (t, position) };
+    let s = bmp.sample(u.clamp(0.0, 1.0), v.clamp(0.0, 1.0), subcraft_image::Wrap::Clamp, linearize);
+    [s[0], s[1], s[2]]
+}
+
 /// Whether any content effect of `layer` can change channel `kind`. A layer without content for
 /// a channel only takes part in it (even in Replace mode) if such an effect exists; an effect on
 /// another channel must not make it wipe this one.

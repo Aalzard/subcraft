@@ -295,6 +295,10 @@ pub enum Filter {
     /// centre). The near side (left / top) is kept unless inverted; `corner` picks the kept
     /// corner in [`MirrorMode::Corner`], the invert flags then swap it per axis.
     Mirror { mode: MirrorMode, offset: [f32; 2], invert_x: bool, invert_y: bool, corner: MirrorCorner },
+    /// Painter's Gradient Dynamic: each value (luminance on colour channels) picks the colour of
+    /// `source` at that position along one row (`vertical`: one column), `position` across it.
+    /// Masks and scalar channels use the colour's luminance.
+    GradientDynamic { source: subcraft_core::ResourceId, vertical: bool, position: f32 },
 }
 
 impl Filter {
@@ -347,6 +351,19 @@ impl Filter {
         }
     }
 
+    /// The image a filter reads (Gradient Dynamic's source), when it has one.
+    pub fn resource(self) -> Option<subcraft_core::ResourceId> {
+        match self {
+            Self::GradientDynamic { source, .. } if source != subcraft_core::ResourceId::nil() => Some(source),
+            _ => None,
+        }
+    }
+
+    /// A Gradient Dynamic filter whose source image is still to be picked.
+    pub fn gradient_dynamic() -> Self {
+        Self::GradientDynamic { source: subcraft_core::ResourceId::nil(), vertical: false, position: 0.5 }
+    }
+
     pub fn label(self) -> &'static str {
         match self { Self::Contrast { .. } => "Contrast", Self::Hsl { .. } => "HSL",
             Self::Threshold { .. } => "Threshold", Self::Clamp { .. } => "Clamp", Self::Blur { .. } => "Blur", Self::Sharpen { .. } => "Sharpen", Self::DirectionalBlur { .. } => "Directional Blur", Self::Highpass { .. } => "Highpass", Self::Bevel {..} => "Bevel", Self::MaskOutline {..} => "Mask Outline", Self::GradientMap {..} => "Gradient Map", Self::HistogramScan {..} => "Histogram Scan", Self::HistogramRange {..} => "Histogram Range", Self::Median {..} => "Median", Self::Warp {..} => "Warp",
@@ -356,7 +373,7 @@ impl Filter {
             // Mode / wrap variants share the panel (and so the name) of their base filter.
             Self::ThresholdCompare {..} => "Threshold", Self::BlurWrap {..} => "Blur", Self::HistogramShiftWrap {..} => "Histogram Shift", Self::HslPerceptive {..} => "HSL",
             Self::Smoothstep {..} => "Smoothstep", Self::ContrastLuminosity {..} => "Contrast Luminosity", Self::ColorCorrect {..} => "Color Correct",
-            Self::Transform {..} => "Transform", Self::Mirror {..} => "Mirror" }
+            Self::Transform {..} => "Transform", Self::Mirror {..} => "Mirror", Self::GradientDynamic {..} => "Gradient Dynamic" }
     }
 
     pub fn supports_channel(self, channel: ChannelKind) -> bool {
@@ -458,6 +475,7 @@ impl Filter {
             Self::DirectionalWarp { intensity, angle_deg } => Self::Blur { radius: intensity }.valid() && angle_deg.is_finite() && (-180.0..=180.0).contains(&angle_deg),
             Self::Mosaic { size } => (1..=MAX_MOSAIC_SIZE).contains(&size),
             Self::Clamp { low, high } => low.is_finite() && high.is_finite() && low <= high,
+            Self::GradientDynamic { position, .. } => position.is_finite() && (0.0..=1.0).contains(&position),
         }
     }
 }
