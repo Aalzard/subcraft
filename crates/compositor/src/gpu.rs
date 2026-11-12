@@ -431,7 +431,7 @@ fn plan(ts: &TextureSet) -> Result<Plan, Unsupported> {
             kind,
             target: BlendTarget::for_channel(kind),
             color: kind.is_color(),
-            default: [d[0], d[1], d[2], 1.0],
+            default: [d[0], d[1], d[2], ts.base_alpha()],
             ops: Vec::new(),
             effects: Vec::new(),
         };

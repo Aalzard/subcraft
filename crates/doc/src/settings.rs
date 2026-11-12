@@ -54,7 +54,7 @@ pub struct ProjectSettings {
     pub stale_mesh_maps: Vec<subcraft_core::TextureSetId>,
     /// Display settings of the 3D view (environment, camera, post effects, visualisation).
     /// Optional in the file: absent = the user's own defaults, so no schema bump is needed.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", default, deserialize_with = "crate::display::lenient_display")]
     pub display: Option<crate::display::DisplaySettings>,
 }
 
