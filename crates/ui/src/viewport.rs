@@ -58,6 +58,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     crate::viewport_bar::show(ui, state);
     state.camera.orthographic = state.recovery.prefs.viewport.orthographic;
     let (rect, response) = ui.allocate_exact_size(ui.available_size(), Sense::click_and_drag());
+    state.hovered_3d = response.hovered();
     let ppp = ui.ctx().pixels_per_point();
     let size = physical_size([rect.width(), rect.height()], ppp);
     if size[0] < 8 || size[1] < 8 {
@@ -161,7 +162,12 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         }
                         NavMode::Pan => state.camera.pan(d.x * pixel_scale.x, d.y * pixel_scale.y, size[1] as f32),
                         NavMode::Zoom => state.camera.zoom((d.y * 0.01).exp()),
-                        NavMode::Light => state.light_yaw = (state.light_yaw + d.x * 0.01).rem_euclid(std::f32::consts::TAU),
+                        NavMode::Light => {
+                            // Sideways turns the key light around the model, up and down tilts it
+                            // (down to below the horizon: light from underneath).
+                            state.light_yaw = (state.light_yaw + d.x * 0.01).rem_euclid(std::f32::consts::TAU);
+                            state.light_pitch = (state.light_pitch - d.y * 0.01).clamp(-std::f32::consts::PI, std::f32::consts::PI);
+                        }
                         NavMode::Environment => state.env.rotation_deg = crate::panels::shelf::wrap_rotation(state.env.rotation_deg + d.x * 0.5),
                         NavMode::None => {}
                     }
@@ -219,6 +225,13 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     // Imported cameras: a locked one ignores the navigation above, an unlocked one hands over.
     crate::view_extras::follow_camera(state);
     let camera = state.camera.paint_camera(size);
+    // Auto-focus: the depth of field focuses on whatever is at the centre of the view.
+    if !bake_mode && state.recovery.prefs.viewport.dof && state.recovery.prefs.viewport.dof_autofocus
+        && let Some(hit) = state.session.pick(&camera, glam::Vec2::new(size[0] as f32 * 0.5, size[1] as f32 * 0.5))
+    {
+        let orbit = state.camera.eye_distance().max(1e-4);
+        state.recovery.prefs.viewport.dof_focus = (hit.depth / orbit).clamp(0.2, 3.0);
+    }
 
     if response.secondary_clicked() && !alt && !stencil_edit {
         state.context_part = pointer.and_then(|p| state.session.surface_target(&camera, to_screen(p), state.parts_kind));
@@ -517,8 +530,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 &rs.queue,
             );
             // Shift+MMB turns the key light around the model (on top of following the camera).
-            if state.light_yaw != 0.0 {
-                params.light_dir = glam::Quat::from_rotation_y(state.light_yaw) * params.light_dir;
+            if state.light_yaw != 0.0 || state.light_pitch != 0.0 {
+                params.light_dir = lit_direction(params.light_dir, state.light_yaw, state.light_pitch);
             }
             // Rendering mode: path trace instead of rasterizing; any failure falls back to raster.
             let pt_settings = view.path_trace_settings(state.pt_paused);
@@ -704,6 +717,11 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         subcraft_paint::PaintTarget::Content => {}
     }
     brush_notice(state, ui, &painter, rect, now);
+    // Painter's engine progress bar: a thin moving bar at the top while layers are computed.
+    if state.session.composites_pending() {
+        computing_bar(&painter, rect, now);
+        ui.ctx().request_repaint();
+    }
     rendering_toggle(state, ui, rect, bake_mode);
     camera_corner(state, ui, rect, bake_mode);
     if state.painting || response.dragged() {
@@ -794,6 +812,60 @@ fn pen_position(state: &UiState, camera: &subcraft_app::Camera, rect: Rect, uv: 
     let tolerance = state.session.scene().mesh.bounds.diagonal() * 0.03;
     if pick.material_slot != state.session.selected_texture_set().material_slot || pick.position.distance(position) > tolerance { return None; }
     Some(rect.min + egui::vec2(screen.x * rect.width() / camera.viewport[0] as f32, screen.y * rect.height() / camera.viewport[1] as f32))
+}
+
+/// The key light direction `base` turned `yaw` radians around the vertical and tilted `pitch`
+/// radians up (negative: down, below the horizon lights the model from underneath).
+pub fn lit_direction(base: glam::Vec3, yaw: f32, pitch: f32) -> glam::Vec3 {
+    let turned = glam::Quat::from_rotation_y(yaw) * base.normalize_or(glam::Vec3::Y);
+    let flat = glam::Vec2::new(turned.x, turned.z);
+    let flat = if flat.length() > 1e-5 { flat.normalize() } else { glam::Vec2::new(1.0, 0.0) };
+    let limit = std::f32::consts::FRAC_PI_2 - 0.02;
+    let elevation = (turned.y.clamp(-1.0, 1.0).asin() + pitch).clamp(-limit, limit);
+    glam::Vec3::new(flat.x * elevation.cos(), elevation.sin(), flat.y * elevation.cos())
+}
+
+/// Position (0..1) of the moving segment of the progress bar at time `now` (seconds).
+pub fn computing_phase(now: f64) -> f32 {
+    (now * 0.8).rem_euclid(1.0) as f32
+}
+
+fn computing_bar(painter: &egui::Painter, rect: Rect, now: f64) {
+    let track = Rect::from_min_size(rect.left_top(), egui::vec2(rect.width(), 2.0));
+    painter.rect_filled(track, 0.0, Color32::from_white_alpha(18));
+    let width = rect.width() * 0.25;
+    let x = rect.left() - width + (rect.width() + width) * computing_phase(now);
+    let seg = Rect::from_min_max(egui::pos2(x.max(rect.left()), track.top()), egui::pos2((x + width).min(rect.right()), track.bottom()));
+    if seg.width() > 0.0 {
+        painter.rect_filled(seg, 0.0, ACCENT);
+    }
+}
+
+#[cfg(test)]
+mod light_tests {
+    use super::{computing_phase, lit_direction};
+    use glam::Vec3;
+
+    #[test]
+    fn the_key_light_turns_tilts_and_reaches_under_the_model() {
+        let base = Vec3::new(0.65, 0.75, 0.35).normalize();
+        assert!((lit_direction(base, 0.0, 0.0) - base).length() < 1e-5, "no turn, no tilt: unchanged");
+        let turned = lit_direction(base, std::f32::consts::FRAC_PI_2, 0.0);
+        assert!((turned.y - base.y).abs() < 1e-5 && (turned.length() - 1.0).abs() < 1e-5, "turning keeps the height");
+        let under = lit_direction(base, 0.0, -2.0);
+        assert!(under.y < -0.5, "tilted down past the horizon the light comes from underneath: {under:?}");
+        let top = lit_direction(base, 0.0, 10.0);
+        assert!(top.y > 0.99 && top.y < 1.0, "the tilt stops just short of straight up (the direction stays defined): {top:?}");
+        let straight_up = lit_direction(Vec3::Y, 1.0, -0.5);
+        assert!(straight_up.is_finite() && straight_up.y < 1.0);
+    }
+
+    #[test]
+    fn the_progress_segment_sweeps_and_wraps() {
+        assert_eq!(computing_phase(0.0), 0.0);
+        assert!((computing_phase(0.5) - 0.4).abs() < 1e-6);
+        assert!(computing_phase(1.25) < 0.05, "wraps back to the start");
+    }
 }
 
 /// Rotation of a stencil being dragged: the free angle, or its nearest quarter turn with Shift.

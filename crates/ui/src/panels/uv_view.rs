@@ -73,6 +73,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         }
     });
     let (rect, response) = ui.allocate_exact_size(ui.available_size(), Sense::click_and_drag());
+    state.hovered_2d = response.hovered();
     if response.hovered() {
         let scroll = ui.input(|i| i.smooth_scroll_delta.y);
         if scroll != 0.0 {

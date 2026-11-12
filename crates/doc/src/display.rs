@@ -447,6 +447,8 @@ pub struct DisplaySettings {
     pub dof_amount: f32,
     pub dof_focus: f32,
     pub dof_range: f32,
+    /// Focus on whatever is at the centre of the view, every frame (Painter's auto-focus).
+    pub dof_autofocus: bool,
 
     // ----- post effects ------------------------------------------------------------------------
     /// Master switch ("Activate Post Effects"): off shows the plain render with the default
@@ -509,6 +511,13 @@ pub struct DisplaySettings {
     pub aberration_achromatic: bool,
     pub vignette_on: bool,
     pub vignette_amount: f32,
+    /// Lens distortion (Painter's pre-12.0 effect): power (negative = pincushion), FOV (zoom that
+    /// hides the stretched border), edge roundness and edge smoothness.
+    pub lens_on: bool,
+    pub lens_power: f32,
+    pub lens_fov: f32,
+    pub lens_roundness: f32,
+    pub lens_smoothness: f32,
     pub sharpen_on: bool,
     pub sharpen_amount: f32,
     /// Sharpen diameter in pixels.
@@ -580,6 +589,7 @@ impl Default for DisplaySettings {
             dof_amount: 0.5,
             dof_focus: 1.0,
             dof_range: 10.0,
+            dof_autofocus: false,
             post_effects: true,
             tone_mapping_on: true,
             tone_map: ToneMap::Aces,
@@ -617,6 +627,11 @@ impl Default for DisplaySettings {
             aberration_achromatic: false,
             vignette_on: false,
             vignette_amount: 0.5,
+            lens_on: false,
+            lens_power: 0.3,
+            lens_fov: 1.0,
+            lens_roundness: 0.5,
+            lens_smoothness: 0.2,
             sharpen_on: false,
             sharpen_amount: 0.5,
             sharpen_diameter: 2.0,

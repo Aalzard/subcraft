@@ -231,6 +231,12 @@ pub struct UiState {
     pub dropped_model: Option<std::path::PathBuf>,
     /// Key light rotation around the model (radians), set with Shift+MMB drag (Painter navigation).
     pub light_yaw: f32,
+    /// Tilt of the key light (radians added to its elevation; below the horizon lights the model
+    /// from underneath).
+    pub light_pitch: f32,
+    /// Which view the pointer was over last frame (F frames that one, or both when neither).
+    pub hovered_3d: bool,
+    pub hovered_2d: bool,
     /// The Shelf took this frame's dropped files (the window-wide drop handler skips them).
     pub drops_taken: bool,
     /// The user already agreed to close without saving.
@@ -396,6 +402,9 @@ impl UiState {
             confirm: None,
             dropped_model: None,
             light_yaw: 0.0,
+            light_pitch: 0.0,
+            hovered_3d: false,
+            hovered_2d: false,
             drops_taken: false,
             multi: Default::default(),
             multi_texture_set: None,

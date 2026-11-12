@@ -148,6 +148,8 @@ struct PostUniform {
     misc: [f32; 4],
     /// Rows of the lens and color stage (see `fs_grade`).
     grade: [[f32; 4]; 4],
+    /// Lens distortion: power, zoom, edge roundness, edge smoothness.
+    lens: [f32; 4],
 }
 
 const AO_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R8Unorm;
@@ -477,6 +479,7 @@ impl PostPass {
                 size: [size[0] as f32, size[1] as f32, 1.0 / size[0].max(1) as f32, 1.0 / size[1].max(1) as f32],
                 misc,
                 grade: [[0.0; 4]; 4],
+                lens: [0.0; 4],
             };
             queue.write_buffer(&self.uniforms[index], 0, bytemuck::bytes_of(&u));
         };
@@ -722,6 +725,7 @@ impl PostPass {
                     [g.sharpen.max(0.0), g.sharpen_diameter.max(0.0), g.grain.max(0.0), g.grain_radius.max(1.0)],
                     [flag(g.grain_colored), 1.0 / g.gamma.clamp(0.1, 10.0), g.sepia.clamp(0.0, 1.0), flag(g.color_correction)],
                 ],
+                lens: [g.lens_power, g.lens_zoom(), g.lens_roundness.clamp(0.0, 1.0), g.lens_smoothness.clamp(0.0, 1.0)],
             };
             queue.write_buffer(&self.uniforms[U_GRADE], 0, bytemuck::bytes_of(&u));
             Self::fullscreen(encoder, &self.grade_pipeline, &self.bind(device, U_GRADE, Some(&view(&t.graded)), None, None, None), &output.output_view);

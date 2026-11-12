@@ -5579,3 +5579,30 @@ the app kept drawing on the dead device. Safe mode works; 0.3.3's marker only he
   1 px padding, plus the mask as PNG; several selected layers export in one go.
 * **Tests:** `crates/app/tests/flatten.rs` (a folder flattens to the same composite and is hidden, undo; mask baking,
   disabled channels, empty selection; export names, sizes and formats).
+
+## Viewer extras: lens distortion, light from underneath, auto-focus, progress bar, F framing (2026-11-13, branch `claude/parity-viewer-extras`)
+
+* Lens distortion (Painter's pre-12.0 post effect):
+  * Settings: Power (-1..1, negative = pincushion), FOV (the zoom that hides a barrel
+    distortion's stretched border), Edge roundness and Edge smoothness.
+  * One effect entry with its own switch in Display Settings > Post effects.
+  * `fs_grade` bends where each pixel reads the picture and masks the rounded edge
+    (`lens_uv`). The CPU reference `Grade::lens_uv` / `Grade::apply` mirrors it exactly.
+* Light from underneath: Shift+MMB drag now also tilts the key light up and down
+  (`lit_direction`), down to below the horizon. Sideways still turns it.
+* Auto-focus: Display Settings > Camera > Auto-focus keeps the depth-of-field focus on whatever
+  is at the centre of the 3D view.
+* Progress bar: a thin moving bar along the top of the 3D view while layers are being computed.
+* F frames the view under the cursor (3D or 2D), or both when the cursor is elsewhere
+  (`frame_targets`).
+* Checklist rows already done by #181 (single channel, next / previous channel, grid readout)
+  and Shift+B are marked.
+* zh-Hant and Korean: 11 new texts translated.
+* Tests added:
+  * Three lens cases (barrel, pincushion, lens with colour correction and sharpen) in
+    `the_lens_and_color_stage_matches_the_cpu_reference` (GPU against CPU, at most 3 levels).
+  * `the_lens_bends_the_picture_and_masks_its_edge` (the centre fixed, FOV 1 corners on the
+    picture's corner, the mask outside, pincushion inside, oval versus rectangle corners).
+  * The light direction, the progress phase and the F targets.
+* Not compiled locally (the PC is unstable under load): CI is the first compile. NOT verified:
+  the running app.
