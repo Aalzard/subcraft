@@ -596,7 +596,7 @@ mod tests {
     fn curvature_detail_round_trips_and_older_generators_read_as_none() {
         let mut g = Generator::new(GeneratorKind::MeshMap(MeshMapKind::Curvature));
         let plain = serde_json::to_string(&g).unwrap();
-        assert!(!plain.contains("curvature"), "absent settings are not written: {plain}");
+        assert!(!plain.contains("\"curvature\":"), "absent settings are not written: {plain}");
         assert_eq!(serde_json::from_str::<Generator>(&plain).unwrap().curvature, None);
         g.curvature = Some(CurvatureDetail { mode: CurvatureMode::Cavities, fine: 0.5, medium: 1.25, coarse: 0.75 });
         let back: Generator = serde_json::from_str(&serde_json::to_string(&g).unwrap()).unwrap();
