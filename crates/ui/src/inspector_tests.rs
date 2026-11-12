@@ -165,6 +165,8 @@ fn clicking_paint_fill_and_another_fill_reveals_the_selected_layers_controls() {
 fn properties_name_field_follows_a_rename_made_elsewhere() {
     let (mut app, ctx, [_, blue, _]) = setup();
     click_text(&mut app, &ctx, "Blue fill");
+    // The click switches to the Properties tab; its name field is drawn on the next frame.
+    settle(&mut app, &ctx);
     assert_eq!(app.state.rename.as_ref().map(|(id, s)| (*id, s.as_str())), Some((blue, "Blue fill")));
     app.state.session.execute(Command::Rename { layer: blue, name: "Azure".into() }).unwrap();
     settle(&mut app, &ctx);
