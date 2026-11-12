@@ -94,10 +94,23 @@ fn main() {
     let fps: f64 = env("PEN_FPS", 60.0);
     let dur: f64 = env("PEN_MS", 800.0);
 
-    let mesh = subcraft_mesh::primitives::uv_sphere(1.0, 64, 64);
-    let diag = mesh.bounds.diagonal();
-    let mut s = Session::new(mesh, res);
-    build(&mut s, layers, top);
+    // `PEN_PROJECT=file.subcraft`: paint on a new paint layer at the top of that project instead.
+    let (mut s, diag) = match std::env::var_os("PEN_PROJECT") {
+        Some(path) => {
+            let mut s = Session::open_project(std::path::Path::new(&path)).expect("open project");
+            run(&mut s, Command::SelectLayer(None));
+            run(&mut s, Command::AddLayer(NewLayer::Paint));
+            let diag = s.scene().mesh.bounds.diagonal();
+            (s, diag)
+        }
+        None => {
+            let mesh = subcraft_mesh::primitives::uv_sphere(1.0, 64, 64);
+            let diag = mesh.bounds.diagonal();
+            let mut s = Session::new(mesh, res);
+            build(&mut s, layers, top);
+            (s, diag)
+        }
+    };
     // Prime: composite the stack once so the stroke only pays for its own edits.
     s.update_composites();
     s.update_composites_within(Some(Duration::from_millis(1)));
