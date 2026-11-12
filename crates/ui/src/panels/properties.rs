@@ -1474,7 +1474,7 @@ mod generator_tests {
         state.session.execute(Command::AddMaskEffect { layer, kind: MaskEffectKind::Generator(Generator::new(GeneratorKind::Edges)) }).unwrap();
         let draw = |state: &mut UiState, events| {
             let mut commands = Vec::new(); let effect = state.session.selected_layer().unwrap().mask.as_ref().unwrap().effects[0].clone();
-            let mut out = ctx.run_ui(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(420., 850.))), events, ..Default::default() }, |ui| effect_editor(ui, state, layer, &effect, &mut commands));
+            let mut out = ctx.run_ui(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(420., 1000.))), events, ..Default::default() }, |ui| effect_editor(ui, state, layer, &effect, &mut commands));
             out.textures_delta.clear(); (out, commands)
         };
         let (out, _) = draw(&mut state, vec![]);
