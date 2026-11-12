@@ -746,10 +746,11 @@ mod tests {
         let (gear, cross) = (on_row(icons::GEAR).expect("gear on the row"), on_row(icons::X).expect("cross on the row"));
         click(&mut state, gear);
         let out = run(&mut state, vec![]);
-        let pick = text_pos(&out, "L16F").expect("format menu lists L16F");
+        // L32F: no row shows that badge, so the only match is the menu entry.
+        let pick = text_pos(&out, "L32F").expect("format menu lists L32F");
         click(&mut state, pick);
         let def = state.session.selected_texture_set().channels.iter().find(|c| c.kind == ChannelKind::Metallic).copied().unwrap();
-        assert_eq!(def.format, ChannelFormat::Float16);
+        assert_eq!(def.format, ChannelFormat::Float32);
         click(&mut state, cross);
         assert!(!state.session.selected_texture_set().has_channel(ChannelKind::Metallic), "the cross removes the channel");
         state.session.perform(subcraft_app::Action::Undo).unwrap();
