@@ -538,6 +538,38 @@ impl Session {
         }
     }
 
+    /// Import the cameras of the mesh file at `path` into the project, replacing the ones it had
+    /// (New project > Import cameras, or a mesh reload with that option). Returns how many were
+    /// found; glTF, GLB and FBX carry cameras, other formats give 0. Like the mesh source, this
+    /// does not mark an unchanged project modified: it is part of creating or reloading it.
+    pub fn import_mesh_cameras(&mut self, path: &Path) -> Result<usize, String> {
+        let specs = subcraft_mesh::camera::cameras_in_mesh_file(path).map_err(|e| format!("cameras of {}: {e}", path.display()))?;
+        let cameras: Vec<subcraft_doc::SceneCamera> = specs
+            .iter()
+            .map(|c| subcraft_doc::SceneCamera {
+                name: c.name.clone(),
+                position: c.position.to_array(),
+                rotation: c.rotation.to_array(),
+                fov_y_deg: c.fov_y_deg.clamp(1.0, 170.0),
+                orthographic: c.orthographic,
+                aspect: c.aspect,
+            })
+            .filter(subcraft_doc::SceneCamera::is_valid)
+            .collect();
+        let count = cameras.len();
+        let unchanged = self.settings == self.saved_settings;
+        self.settings.cameras = cameras.clone();
+        if unchanged {
+            self.saved_settings.cameras = cameras;
+        }
+        Ok(count)
+    }
+
+    /// Cameras imported from the mesh file, in file order.
+    pub fn scene_cameras(&self) -> &[subcraft_doc::SceneCamera] {
+        &self.settings.cameras
+    }
+
     /// The model file the mesh was imported or last reloaded from, if known.
     pub fn mesh_source(&self) -> Option<&Path> {
         self.settings.mesh_source.as_deref().map(Path::new)
@@ -2029,7 +2061,7 @@ impl Session {
             Action::InvertMaskGray => self.brush.material.mask_value = 1.0 - self.brush.material.mask_value.clamp(0.0, 1.0),
             Action::IsolateTextureSet => self.execute(Command::IsolateTextureSet(self.selection.texture_set))?,
             Action::HideUi | Action::PaintingMode | Action::CloseProject | Action::View3dAnd2d | Action::View3dOnly | Action::View2dOnly
-            | Action::SwapViews | Action::NextMeshMap | Action::PrevMeshMap => return Ok(false),
+            | Action::SwapViews | Action::NextMeshMap | Action::PrevMeshMap | Action::NextCamera | Action::PrevCamera => return Ok(false),
             Action::PenTool | Action::PolygonFillTool | Action::SmudgeTool | Action::CloneTool | Action::EyedropperTool | Action::ResetCamera
             | Action::PerspectiveCamera | Action::OrthographicCamera | Action::NextChannel | Action::PrevChannel | Action::DisplayMaterial
             | Action::NewProject | Action::Quit | Action::Save | Action::SaveAs | Action::OpenProject | Action::Export | Action::Bake
