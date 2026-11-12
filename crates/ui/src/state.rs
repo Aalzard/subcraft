@@ -548,6 +548,8 @@ impl UiState {
         self.painting = false;
         self.last_stroke_point = None;
         self.recovery.autosaver.session_replaced();
+        // A pivot on the old model swung the next orbit around empty space.
+        self.orbit_pivot = None;
     }
 
     /// The session's mesh was replaced in place (File > Reload mesh): drop everything derived
@@ -565,6 +567,7 @@ impl UiState {
         self.uploaded_maps.clear();
         self.painting = false;
         self.last_stroke_point = None;
+        self.orbit_pivot = None;
     }
 
     /// One Shelf click makes the brush usable at once: the app applies it, and Fill, Eyedropper

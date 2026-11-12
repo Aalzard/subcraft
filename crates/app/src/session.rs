@@ -1426,7 +1426,7 @@ impl Session {
             Command::SetTextureSetHidden { texture_set, hidden } => {
                 if self.doc.texture_set(texture_set).is_none() { return Err(CommandError::TextureSetNotFound); }
                 let changed = if hidden { self.hidden_sets.insert(texture_set) } else { self.hidden_sets.remove(&texture_set) };
-                if changed { self.revision += 1; }
+                if changed { self.revision += 1; self.refresh_part_view(); }
             }
             Command::ClearMeshMap { texture_set, kind } => {
                 if self.doc.texture_set(texture_set).is_none() { return Err(CommandError::TextureSetNotFound); }
@@ -1447,6 +1447,7 @@ impl Session {
                 if hidden != self.hidden_sets {
                     self.hidden_sets = hidden;
                     self.revision += 1;
+                    self.refresh_part_view();
                 }
             }
             Command::GroupLayers(ids) => {
