@@ -111,7 +111,10 @@ mod notice_tests {
         let mut state = UiState::new(subcraft_app::Session::sample(), None);
         let ctx = egui::Context::default();
         let run = |state: &mut UiState, events: Vec<egui::Event>| {
-            ctx.run_ui(egui::RawInput { events, screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1000.0, 700.0))), ..Default::default() }, |ui| reconstruction_notice(state, ui.ctx()))
+            let mut out = ctx.run_ui(egui::RawInput { events, screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1000.0, 700.0))), ..Default::default() }, |ui| reconstruction_notice(state, ui.ctx()));
+            // No renderer here: drop the font atlas uploads (epaint panics on unapplied deltas).
+            out.textures_delta.clear();
+            out
         };
         let texts = |out: &egui::FullOutput| out.shapes.iter().filter_map(|s| match &s.shape { egui::Shape::Text(t) => Some((t.galley.text().to_string(), t.pos + t.galley.size() * 0.5)), _ => None }).collect::<Vec<_>>();
         assert!(texts(&run(&mut state, vec![])).is_empty(), "nothing before an import finished");
