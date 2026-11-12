@@ -138,6 +138,7 @@ impl Writer {
                 ContentEffectKind::Levels { channel, levels } => ContentEffectKindV5::Levels { channel: *channel, levels: *levels },
                 ContentEffectKind::Filter { channel, filter } => ContentEffectKindV5::Filter { channel: *channel, filter: *filter },
                 ContentEffectKind::Anchor => ContentEffectKindV5::Anchor,
+                ContentEffectKind::Generator(g) => ContentEffectKindV5::Generator { generator: *g },
             },
             extra_channels: e.extra_channels.iter().copied().collect(),
         }
@@ -500,6 +501,7 @@ impl<R: Read + Seek> Loader<'_, R> {
                 ContentEffectKind::Levels { channel: *channel, levels: *levels }
             }
             ContentEffectKindV5::Anchor => ContentEffectKind::Anchor,
+            ContentEffectKindV5::Generator { generator } => ContentEffectKind::Generator(*generator),
         };
         let blend = e.blend.iter().map(|b| (b.channel, ChannelBlend { mode: b.mode, opacity: b.opacity })).collect();
         let extra_channels = if matches!(kind, ContentEffectKind::Filter { .. }) { e.extra_channels.iter().copied().collect() } else { Default::default() };

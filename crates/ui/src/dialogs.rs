@@ -331,7 +331,9 @@ pub fn export_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
         ui.add_space(4.0);
         divider(ui);
         ui.add_space(6.0);
-        match state.export.tab {
+        // The tab scrolls on its own so the button row stays on screen.
+        let max_h = (ui.ctx().content_rect().height() - 200.0).max(260.0);
+        egui::ScrollArea::vertical().id_salt(("export_tab", state.export.tab as u8)).max_height(max_h).show(ui, |ui| match state.export.tab {
             ExportTab::Settings => settings_tab(ui, state, &lib, &sets, &mut preset_status, now),
             ExportTab::OutputTemplates => {
                 let ex = &mut state.export;
@@ -341,15 +343,12 @@ pub fn export_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
                 }
                 ui.add_space(6.0);
                 let key = ex.preset.clone();
-                let max_h = (ui.ctx().content_rect().height() * 0.6).max(300.0);
-                egui::ScrollArea::vertical().id_salt("preset_editor_scroll").max_height(max_h).show(ui, |ui| {
-                    if let Some(s) = crate::export_presets::preset_editor(ui, list, &key, &mut ex.editor, &mesh_name) {
-                        preset_status = Some(s);
-                    }
-                });
+                if let Some(s) = crate::export_presets::preset_editor(ui, list, &key, &mut ex.editor, &mesh_name) {
+                    preset_status = Some(s);
+                }
             }
             ExportTab::ListOfExports => export_log(ui, &state.export.log),
-        }
+        });
         ui.add_space(6.0);
         divider(ui);
         ui.add_space(4.0);

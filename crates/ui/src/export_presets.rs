@@ -511,14 +511,16 @@ fn map_editor(ui: &mut Ui, map: &mut OutputMap, mesh: &str, pending: &mut Option
             let end = if group { slot + 3 } else { slot + 1 };
             for (c, name) in ["R", "G", "B"].into_iter().enumerate().take(item.components()) {
                 if ui.button(name).clicked() {
-                    map.components[slot..end.min(map.components.len())].iter_mut().for_each(|s| *s = item.source(c as u8));
+                    let n = map.components.len();
+                    map.components[slot..end.min(n)].iter_mut().for_each(|s| *s = item.source(c as u8));
                     done = true;
                 }
             }
             if let Some(gray) = item.gray()
                 && ui.button(tr("Gray")).on_hover_text(tr("Grayscale conversion (luminance)")).clicked()
             {
-                map.components[slot..end.min(map.components.len())].iter_mut().for_each(|s| *s = gray);
+                let n = map.components.len();
+                map.components[slot..end.min(n)].iter_mut().for_each(|s| *s = gray);
                 done = true;
             }
             if ui.small_button(tr("Cancel")).clicked() {

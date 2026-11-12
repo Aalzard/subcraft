@@ -62,6 +62,10 @@ pub struct ProjectSettings {
     pub shader_instances: Vec<crate::shader::ShaderInstance>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub shader_assignments: Vec<crate::shader::ShaderAssignment>,
+    /// Cameras imported from the mesh file (New project > Import cameras). Optional in the file:
+    /// absent = none, so no schema bump is needed.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub cameras: Vec<crate::camera::SceneCamera>,
     /// Export window settings stored by its Save settings button. Optional in the file: absent =
     /// the window's defaults, so no schema bump is needed.
     #[serde(skip_serializing_if = "Option::is_none")]
