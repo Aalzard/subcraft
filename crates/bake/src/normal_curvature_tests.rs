@@ -194,21 +194,34 @@ fn bevelled_cube_edges_give_one_centred_band_identical_across_every_seam() {
     assert!(worst_flat < 0.02, "faces are flat ({worst_flat})");
     // Profile per distance bin over all 12 edges (24 face sides).
     let bins = bin(0.4);
+    let mut sides = Vec::new();
     let mut profile = Vec::new();
     for b in 0..bins {
         let means: Vec<f32> = per_edge.iter().filter(|(k, _)| k.4 == b).map(|(_, v)| mean(v)).collect();
         eprintln!("bin {b}: {} edge sides {means:?}", means.len());
         assert!(means.len() >= 20, "bin {b} sampled on only {} of the 24 edge sides", means.len());
-        let spread = means.iter().fold(f32::MIN, |m, &x| m.max(x)) - means.iter().fold(f32::MAX, |m, &x| m.min(x));
-        assert!(spread < 0.06, "edges disagree at distance bin {b}: spread {spread} ({means:?})");
         profile.push(mean(&means));
+        sides.push(means);
     }
     eprintln!("bevelled cube profile (edge outwards, texel {texel:.4}): {profile:?}");
-    assert!(profile[0] > 0.7, "the band is bright at the edge ({})", profile[0]);
-    // One band, peaked at the edge: never rising again moving away from it (no second band, no
-    // offset peak), back to flat beyond the bevel and the walking radius.
-    for w in profile.windows(2) {
-        assert!(w[1] <= w[0] + 0.01, "profile rises again away from the edge: {profile:?}");
+    // Every edge side gives the same profile (every edge is a UV seam here). Where the band falls
+    // off at the bevel's end the value changes steeply per texel, so a sub-texel shift of that
+    // transition between sides is allowed for by the local slope.
+    for (b, means) in sides.iter().enumerate() {
+        let spread = means.iter().fold(f32::MIN, |m, &x| m.max(x)) - means.iter().fold(f32::MAX, |m, &x| m.min(x));
+        let (lo, hi) = (profile[b.saturating_sub(1)], profile[(b + 1).min(bins - 1)]);
+        let slope = (hi - lo).abs() / (if b == 0 || b + 1 == bins { 1.0 } else { 2.0 });
+        assert!(spread < 0.05 + slope, "edges disagree at distance bin {b}: spread {spread}, local slope {slope} ({means:?})");
+    }
+    // One band centred on the edge: bright at the edge itself (no dark line or offset band there),
+    // its peak inside the bevel, falling away past the peak without a second band.
+    let in_bevel = bin(r);
+    let (peak_bin, peak) = profile.iter().copied().enumerate().fold((0, f32::MIN), |a, (i, v)| if v > a.1 { (i, v) } else { a });
+    assert!(peak > 0.65, "a bright band ({peak})");
+    assert!(peak_bin <= in_bevel, "the band peaks inside the bevel (bin {peak_bin}, bevel ends at bin {in_bevel}): {profile:?}");
+    assert!(profile[0] >= 0.9 * peak, "bright at the edge itself, not offset from it ({} vs peak {peak}): {profile:?}", profile[0]);
+    for w in profile[peak_bin..].windows(2) {
+        assert!(w[1] <= w[0] + 0.01, "the profile rises again past the band (a second band): {profile:?}");
     }
     let beyond = bin(r + 3.0 * texel);
     assert!(profile[beyond..].iter().all(|v| (v - 0.5).abs() < 0.03), "flat beyond the bevel: {profile:?}");

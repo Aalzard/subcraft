@@ -37,7 +37,6 @@ impl LoadedModel {
     }
 }
 
-#[derive(Default)]
 pub struct NewProjectUi {
     pub open: bool,
     pub model: Option<LoadedModel>,
@@ -49,6 +48,22 @@ pub struct NewProjectUi {
     pub mesh_maps: Vec<subcraft_app::mesh_map_import::MeshMapFile>,
     /// Derive curvature from an imported normal map when no curvature map is given.
     pub derive_curvature: bool,
+}
+
+impl Default for NewProjectUi {
+    fn default() -> Self {
+        Self {
+            open: false,
+            model: None,
+            high: None,
+            error: None,
+            settings: NewProjectSettings::default(),
+            advanced: false,
+            mesh_maps: Vec::new(),
+            // On whichever way the window is opened (`show_window` or a launch option).
+            derive_curvature: true,
+        }
+    }
 }
 
 impl NewProjectUi {
@@ -506,14 +521,26 @@ mod tests {
         state.new_project.add_mesh_maps(&paths);
         assert_eq!(state.new_project.mesh_maps.len(), 3);
         assert!(state.new_project.mesh_maps.iter().all(|f| f.kind.is_some() && f.set == Some(0)));
+        // The whole window runs (and keeps the files matched to the planned set); its body is a
+        // height-capped scroll area, so labels below the fold are not drawn: the section's own
+        // rows are checked by drawing the section alone.
         let ctx = egui::Context::default();
         crate::theme::apply(&ctx);
+        let input = || egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 1000.0))), ..Default::default() };
+        for _ in 0..2 {
+            let _ = ctx.run_ui(input(), |ui| window(&mut state, ui.ctx()));
+        }
+        assert!(state.new_project.open, "the window stays open");
+        assert!(state.new_project.mesh_maps.iter().all(|f| f.set == Some(0)), "still matched after the window ran");
+        let names = vec!["Plane".to_string()];
+        let mut pick = false;
         let mut texts = String::new();
         for _ in 0..2 {
-            let out = ctx.run_ui(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 1000.0))), ..Default::default() }, |ui| window(&mut state, ui.ctx()));
+            let np = &mut state.new_project;
+            let out = ctx.run_ui(input(), |ui| crate::mesh_map_import::new_project_section(ui, &mut np.mesh_maps, &mut np.derive_curvature, &names, &mut pick));
             texts = out.shapes.iter().filter_map(|s| if let egui::Shape::Text(t) = &s.shape { Some(t.galley.text().to_string()) } else { None }).collect::<Vec<_>>().join("|");
         }
-        assert!(texts.contains("plane_normal.png") && texts.contains("Baked mesh maps"), "the dialog lists the files");
+        assert!(["plane_normal.png", "plane_ao.png", "plane_id.png", "Baked mesh maps"].iter().all(|t| texts.contains(t)), "the section lists the files: {texts}");
         create_project(&mut state, 0.0);
         let ts = state.session.document().texture_sets[0].id;
         let maps = state.session.mesh_maps(ts).expect("maps imported");
