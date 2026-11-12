@@ -5567,3 +5567,18 @@ the app kept drawing on the dead device. Safe mode works; 0.3.3's marker only he
 * Not done: cameras from Alembic and USD files, camera roll (the orbit camera has none), free
   rotation mode, separate OS windows for undocked views, Shader settings and Log dock buttons
   (no such panels yet).
+
+### Session 135 - Painter parity chunk 48: Export mesh (2026-11-13, branch `claude/export-mesh`)
+
+* **Export (`crates/export/src/mesh_export.rs`):** `export_mesh` writes the mesh without textures through the
+  scene writers (OBJ + MTL with names only, glTF + bin, GLB, USDA). `Displacement { scale, subdivisions,
+  recompute_normals }`: `subdivide` splits each triangle into four (shared edge midpoints, submesh ranges
+  x4), `displaced` moves each vertex along its normal by the bilinear Height sample of its slot's texture set
+  (UDIM by tile) x scale, `smooth_normals` recomputes area-weighted normals welded by position. Triangulation
+  is always on (meshes are triangles). Not done: FBX, USD file splitting (payload / material layers).
+* **App / UI:** `Session::export_mesh`; File > Export mesh… opens `crates/ui/src/export_mesh.rs` (folder, file
+  type, Without / With displacement, subdivisions, height scale defaulting to the viewport's, recompute
+  normals, the resulting triangle count).
+* **Tests:** subdivision (4x triangles, shared midpoints, same area, valid mesh), displacement by height x
+  scale with flat recomputed normals and no move without a Height channel, every format written without
+  textures and triangulated. Not run locally (coordinator: CI only).

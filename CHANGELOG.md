@@ -6,6 +6,9 @@ What changed in SubCraft, newest first. Download the latest build from the
 ## Unreleased
 
 ### Added
+- **File > Export mesh**, like Painter's: the mesh alone as OBJ, glTF, GLB or USDA, either as modelled or
+  with displacement: subdivide 0 to 4 times, push the vertices out by the Height channel and optionally
+  recompute the normals.
 - **More export file types and bit depths**, like Painter: BMP, Radiance HDR, lossless WebP and 16-bit
   (half) float EXR. File type and bit depth are now two menus; the bit depth menu only lists what the
   file type stores and offers **8-bit + dithering**, which turns banding in smooth gradients into fine

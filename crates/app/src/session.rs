@@ -2514,6 +2514,16 @@ impl Session {
         subcraft_export::scene::export_scene(&self.scene.mesh, &name, &sets, &settings, format, dir).map_err(|e| e.to_string())
     }
 
+    /// File > Export mesh: the mesh alone (optionally displaced by the Height channel) into `dir`.
+    pub fn export_mesh(&mut self, dir: &Path, options: &subcraft_export::mesh_export::MeshExport) -> Result<Vec<PathBuf>, String> {
+        if options.displacement.is_some() {
+            self.update_composites();
+        }
+        let name = self.export_name();
+        let sets = self.export_sets();
+        subcraft_export::mesh_export::export_mesh(&self.scene.mesh, &name, &sets, options, dir).map_err(|e| e.to_string())
+    }
+
     /// Export every map as one in-memory ZIP archive.
     pub fn export_archive(&mut self, settings: &subcraft_export::ExportSettings) -> Result<subcraft_export::TextureArchive,String> {
         self.update_composites();let settings=self.effective_export_settings(settings);let name=self.export_name();let sets=self.export_sets();

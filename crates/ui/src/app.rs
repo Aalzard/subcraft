@@ -1482,6 +1482,13 @@ impl SubcraftApp {
                     self.perform(Action::Export, now);
                     self.state.export.view_2d_only = true;
                 }
+                if item(ui, icons::EXPORT, tr("Export mesh…"), "") {
+                    ui.close();
+                    let m = &mut self.state.export_mesh;
+                    m.open = true;
+                    m.folder = self.state.export.folder.clone();
+                    m.displacement.scale = self.state.height_scale;
+                }
                 if item(ui, icons::CAMERA, tr("Render image / turntable…"), "") {
                     ui.close();
                     self.state.render_window = true;
@@ -2185,6 +2192,7 @@ impl eframe::App for SubcraftApp {
             panic!("test crash requested with --test-crash");
         }
         dialogs::export_window(&mut self.state, &ctx, now);
+        crate::export_mesh::export_mesh_window(&mut self.state, &ctx, now);
         dialogs::bake_window(&mut self.state, &ctx, now);
         crate::mesh_reload::window(&mut self.state, &ctx, now);
         crate::auto_uv::window(&mut self.state, &ctx, now);
