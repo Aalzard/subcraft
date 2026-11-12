@@ -11,8 +11,8 @@ Layout notes: a mask is added from the Create Mask button in the Layers header o
 |---|---|---|---|---|---|
 | Add white mask | Create Mask menu / layer context menu | background White | done | crates/app/src/command.rs:114 | - |
 | Add black mask | Create Mask menu / layer context menu | background Black | done | crates/app/src/command.rs:114 | - |
-| Add bitmap mask (pick an image; becomes a mask with a fill effect holding the bitmap) | Create Mask menu / layer context menu | n/a | partial: "+ Image" in Properties adds an image effect to an existing mask; no one-step entry | crates/ui/src/panels/properties.rs:372 | - |
-| Add mask with color selection (black mask plus a Color Selection effect) | Create Mask menu / layer context menu | n/a | partial: "Add ID color mask" in the row menu | crates/ui/src/panels/layers.rs:472 | - |
+| Add bitmap mask (pick an image; becomes a mask with a fill effect holding the bitmap) | Create Mask menu / layer context menu | n/a | done (image effect on a black mask) | crates/ui/src/panels/layers.rs:57 | - |
+| Add mask with color selection (black mask plus a Color Selection effect) | Create Mask menu / layer context menu | n/a | done | crates/ui/src/panels/layers.rs:61 | - |
 | Add mask with height combination (mask plus Compare Mask on Height; Height blend switched to Normal) | Create Mask menu / layer context menu | n/a | missing | - | - |
 | Mask on a folder (applies to every layer inside) | Folder row | n/a | done | crates/ui/src/panels/layers.rs:457 | - |
 | Mask created automatically when a material is dropped with Ctrl held | Assets > Layer stack | n/a | missing | - | - |
@@ -64,34 +64,34 @@ Layout notes: Adobe documents the entries Toggle mask, Copy mask content, Paste 
 
 ## Effect stack: general mechanics
 
-Layout notes: each layer has two independent stacks, one for its content and one for its mask. Selecting a thumbnail shows that stack as indented rows under the layer, top effect first. An effect row has an eye, an icon for its type, a name, and (for most types) its own blending mode and opacity on the right, like a layer row. Properties shows the selected effect's parameters. SubCraft lists the rows the same way but edits blend and opacity in Properties.
+Layout notes: each layer has two independent stacks, one for its content and one for its mask. Selecting a thumbnail shows that stack as indented rows under the layer, top effect first. An effect row has an eye, an icon for its type, a name, and (for most types) its own blending mode and opacity on the right, like a layer row. Properties shows the selected effect's parameters. SubCraft lists the rows the same way, with blend and opacity on the row and in Properties.
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
 | Separate effect stacks for content and for mask | Layer row | n/a | done | crates/ui/src/panels/effects.rs:156 | - |
-| Effects listed under the layer when its thumbnail is selected | Layer stack | n/a | done | crates/ui/src/panels/layers.rs:519 | - |
-| Add effect from the header button | Layers header | n/a | partial: "+ Add" on the stack's own header row | crates/ui/src/panels/effects.rs:176 | - |
-| Add effect from the right-click menu of a layer or mask | Context menu | n/a | partial: only some mask effects are in the row menu | crates/ui/src/panels/layers.rs:467 | - |
-| New effect is inserted above the selected effect | Effect stack | n/a | partial: always added at the top | crates/app/src/command.rs:38 | - |
+| Effects listed under the layer when its thumbnail is selected | Layer stack | n/a | done | crates/ui/src/panels/layers.rs:753 | - |
+| Add effect from the header button | Layers header | n/a | done | crates/ui/src/panels/layers.rs:301 | - |
+| Add effect from the right-click menu of a layer or mask | Context menu | n/a | done | crates/ui/src/panels/layers.rs:617 | - |
+| New effect is inserted above the selected effect | Effect stack | n/a | done | crates/app/src/session.rs:670 | - |
 | Effect visibility toggle (eye) | Effect row | visible | done | crates/ui/src/panels/effects.rs:195 | - |
-| Click and slide over eyes to toggle several effects | Effect rows | n/a | missing | - | - |
-| Effect blending mode (same list as layers; per channel on content, single on mask) | Effect row, right | Normal (unverified) | partial: edited in Properties, not on the row; Passthrough not offered | crates/ui/src/panels/effects.rs:450 | - |
-| Effect opacity | Effect row, right | 100; 0-100 | partial: edited in Properties, 0-1 slider | crates/ui/src/panels/effects.rs:457 | - |
+| Click and slide over eyes to toggle several effects | Effect rows | n/a | done | crates/ui/src/panels/effects.rs:327 | - |
+| Effect blending mode (same list as layers; per channel on content, single on mask) | Effect row, right | Normal (unverified) | partial: on the row (content: the view-mode channel) and in Properties; Passthrough not offered | crates/ui/src/panels/effects.rs:192 | - |
+| Effect opacity | Effect row, right | 100; 0-100 | done (0-100 on the row) | crates/ui/src/panels/effects.rs:192 | - |
 | Blending mode and opacity on filters | Effect row | n/a | done | crates/ui/src/panels/properties.rs:505 | - |
 | Blending mode and opacity on Color Selection | Effect row | n/a | done | crates/ui/src/panels/properties.rs:505 | - |
-| Reorder by drag and drop inside the same stack | Effect rows | n/a | done | crates/ui/src/panels/effects.rs:239 | - |
-| Reorder with Alt + Arrow Up / Arrow Down | Effect rows | Alt+Up / Alt+Down | missing | - | - |
-| Move an effect to another layer by drag and drop | Effect rows | n/a | missing (same layer and stack only) | - | - |
-| Dropping on the other kind of stack switches content/mask automatically (creates the mask if needed) | Effect rows | n/a | missing | - | - |
-| Duplicate with Alt + drag | Effect rows | n/a | missing | - | - |
-| Duplicate with Ctrl+D | Effect rows | Ctrl+D | partial: row menu "Duplicate" only; Ctrl+D duplicates the layer | crates/ui/src/panels/effects.rs:282 | - |
-| Multi-selection of effects | Effect rows | Ctrl / Shift click | missing | - | - |
-| Copy effects | Effect rows | Ctrl+C | partial: row menu "Copy effect" only, one effect | crates/ui/src/panels/effects.rs:286 | - |
-| Cut effects | Effect rows | Ctrl+X | missing | - | - |
-| Paste effects (inserted above the selection; works across texture sets) | Effect rows / layer | Ctrl+V | partial: row menu "Paste effect", appended at the top of the matching stack | crates/ui/src/panels/effects.rs:291 | - |
-| Delete the selected effect with the trash icon | Layers header | n/a | partial: row menu or Properties button; header trash deletes the layer | crates/ui/src/panels/effects.rs:295 | - |
-| Delete the selected effect with the Delete key | Effect rows | Delete | missing (Delete removes the layer) | - | - |
-| Rename Fill and Paint effects | Effect row (double-click) | type name; Fill takes the substance name | partial: content effects have a Name field in Properties; mask effects cannot be renamed (except anchors) | crates/ui/src/panels/effects.rs:344 | - |
+| Reorder by drag and drop inside the same stack | Effect rows | n/a | done (several selected effects move together) | crates/ui/src/panels/effects.rs:439 | - |
+| Reorder with Alt + Arrow Up / Arrow Down | Effect rows | Alt+Up / Alt+Down | done | crates/ui/src/panels/effects.rs:287 | - |
+| Move an effect to another layer by drag and drop | Effect rows | n/a | done (drop on the layer's row: lands on top of its stack) | crates/ui/src/panels/effects.rs:460 | - |
+| Dropping on the other kind of stack switches content/mask automatically (creates the mask if needed) | Effect rows | n/a | partial: mask effects dropped on a layer go to its mask and create it when missing; effects are not converted between content and mask | crates/app/src/session.rs:1182 | - |
+| Duplicate with Alt + drag | Effect rows | n/a | done | crates/ui/src/panels/effects.rs:439 | - |
+| Duplicate with Ctrl+D | Effect rows | Ctrl+D | done | crates/ui/src/panels/effects.rs:233 | - |
+| Multi-selection of effects | Effect rows | Ctrl / Shift click | done | crates/app/src/effect_stack.rs:94 | - |
+| Copy effects | Effect rows | Ctrl+C | done | crates/ui/src/clipboard.rs:181 | - |
+| Cut effects | Effect rows | Ctrl+X | done | crates/ui/src/clipboard.rs:181 | - |
+| Paste effects (inserted above the selection; works across texture sets) | Effect rows / layer | Ctrl+V | done | crates/app/src/session.rs:1369 | - |
+| Delete the selected effect with the trash icon | Layers header | n/a | done | crates/ui/src/panels/layers.rs:343 | - |
+| Delete the selected effect with the Delete key | Effect rows | Delete | done | crates/ui/src/panels/effects.rs:233 | - |
+| Rename Fill and Paint effects | Effect row (double-click) | type name; Fill takes the substance name | done (any effect: double-click or right-click > Rename; a Fill does not take its substance name) | crates/ui/src/panels/effects.rs:221 | - |
 | Clicking an effect does not open or close its folder | Effect rows | n/a | done | crates/ui/src/panels/effects.rs:219 | - |
 | Drag a resource from Assets onto a stack position to create an effect there | Assets > effect stack | n/a | missing | - | - |
 | Effect thumbnails (SubCraft extra: result through that effect) | n/a | n/a | done | crates/ui/src/panels/effects.rs:199 | - |
@@ -102,14 +102,14 @@ Layout notes: reworked in 7.1 to hold clipboard and move actions; Adobe shows th
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Cut effect(s) | Effect context menu | Ctrl+X (unverified label) | missing | - | - |
-| Copy effect(s) | Effect context menu | Ctrl+C (unverified label) | done | crates/ui/src/panels/effects.rs:286 | - |
-| Paste effect(s) | Effect context menu | Ctrl+V (unverified label) | done | crates/ui/src/panels/effects.rs:291 | - |
-| Duplicate effect(s) | Effect context menu | Ctrl+D (unverified label) | done | crates/ui/src/panels/effects.rs:282 | - |
-| Remove effect(s) | Effect context menu | Delete (unverified label) | done | crates/ui/src/panels/effects.rs:295 | - |
-| Move effect up | Effect context menu | Alt+Up (unverified label) | done (no shortcut) | crates/ui/src/panels/effects.rs:274 | - |
-| Move effect down | Effect context menu | Alt+Down (unverified label) | done (no shortcut) | crates/ui/src/panels/effects.rs:278 | - |
-| Add-effect entries (insert above this effect) | Effect context menu | (unverified) | missing | - | - |
+| Cut effect(s) | Effect context menu | Ctrl+X (unverified label) | done | crates/ui/src/panels/effects.rs:509 | - |
+| Copy effect(s) | Effect context menu | Ctrl+C (unverified label) | done | crates/ui/src/panels/effects.rs:513 | - |
+| Paste effect(s) | Effect context menu | Ctrl+V (unverified label) | done | crates/ui/src/panels/effects.rs:518 | - |
+| Duplicate effect(s) | Effect context menu | Ctrl+D (unverified label) | done | crates/ui/src/panels/effects.rs:522 | - |
+| Remove effect(s) | Effect context menu | Delete (unverified label) | done | crates/ui/src/panels/effects.rs:526 | - |
+| Move effect up | Effect context menu | Alt+Up (unverified label) | done | crates/ui/src/panels/effects.rs:531 | - |
+| Move effect down | Effect context menu | Alt+Down (unverified label) | done | crates/ui/src/panels/effects.rs:531 | - |
+| Add-effect entries (insert above this effect) | Effect context menu | (unverified) | done | crates/ui/src/panels/effects.rs:539 | - |
 
 ## Add effect menu
 
@@ -123,7 +123,7 @@ Layout notes: entries carry an icon each. Compare Mask and Color Selection are o
 | Add levels (content or mask) | Add effect menu | n/a | done | crates/ui/src/panels/effects.rs:69 | - |
 | Add compare mask (mask only) | Add effect menu | n/a | missing | - | - |
 | Add filter (content or mask) | Add effect menu | empty slot until a filter is picked | partial: a submenu of built-in filters instead of an empty slot with a picker | crates/ui/src/panels/effects.rs:82 | - |
-| Add color selection (mask only) | Add effect menu | n/a | partial: named "ID Color Mask" | crates/ui/src/panels/effects.rs:130 | - |
+| Add color selection (mask only) | Add effect menu | n/a | done | crates/ui/src/panels/effects.rs:142 | - |
 | Add anchor point (content or mask) | Add effect menu | n/a | done | crates/ui/src/panels/effects.rs:78 | - |
 | Invert (SubCraft extra mask effect; Painter uses the Invert filter) | n/a | n/a | done | crates/ui/src/panels/effects.rs:129 | - |
 | Anchor Reference (SubCraft extra mask effect; Painter uses a fill effect that references the anchor) | n/a | n/a | done | crates/ui/src/panels/effects.rs:113 | - |

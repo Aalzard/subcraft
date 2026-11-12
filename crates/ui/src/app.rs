@@ -1137,11 +1137,23 @@ impl SubcraftApp {
                 }
             }
         }
+        // With an effect selected, Delete and Ctrl+D act on the selected effect(s) (Painter).
+        if matches!(action, Action::DeleteLayer | Action::DuplicateLayer)
+            && crate::panels::effects::selection_action(&mut self.state, action == Action::DeleteLayer, now)
+        {
+            return;
+        }
         // Delete / Duplicate act on every selected layer when several are selected.
-        if self.state.multi.is_multi() && matches!(action, Action::DeleteLayer | Action::DuplicateLayer) {
+        if self.state.multi.is_multi() && matches!(action, Action::DeleteLayer | Action::DuplicateLayer | Action::NewFolder) {
             let ids = self.state.multi.ids.clone();
-            let cmd = if action == Action::DeleteLayer { subcraft_app::Command::DeleteLayers(ids) } else { subcraft_app::Command::DuplicateLayers(ids) };
+            let cmd = match action {
+                Action::DeleteLayer => subcraft_app::Command::DeleteLayers(ids),
+                Action::DuplicateLayer => subcraft_app::Command::DuplicateLayers(ids),
+                // Ctrl+G groups the whole selection into one folder (Painter).
+                _ => subcraft_app::Command::GroupLayers(ids),
+            };
             self.state.run(vec![cmd], now);
+            if action == Action::NewFolder { self.state.multi.clear(); }
             return;
         }
         match action {

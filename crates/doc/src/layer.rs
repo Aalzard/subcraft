@@ -123,9 +123,63 @@ pub struct Layer {
     pub mask: Option<Mask>,
     /// Show the layer only on these mesh parts (like a geometry mask); `None` = everywhere.
     pub parts: Option<PartMask>,
+    /// Colour tag shown on the layer's row (Painter's Set color). Organisation only: it never
+    /// changes the composite.
+    pub color: Option<LayerColor>,
     pub content: LayerContent,
     /// Non-destructive effects on the content, bottom to top (separate from the mask's stack).
     pub content_effects: Vec<Arc<ContentEffect>>,
+}
+
+/// Colour tags a layer or folder can carry. A folder's tag also marks the rows inside it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LayerColor {
+    Red,
+    Orange,
+    Yellow,
+    Green,
+    Teal,
+    Blue,
+    Violet,
+    Magenta,
+    Grey,
+}
+
+impl LayerColor {
+    pub const ALL: [LayerColor; 9] = [
+        LayerColor::Red, LayerColor::Orange, LayerColor::Yellow, LayerColor::Green, LayerColor::Teal,
+        LayerColor::Blue, LayerColor::Violet, LayerColor::Magenta, LayerColor::Grey,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            LayerColor::Red => "Red",
+            LayerColor::Orange => "Orange",
+            LayerColor::Yellow => "Yellow",
+            LayerColor::Green => "Green",
+            LayerColor::Teal => "Teal",
+            LayerColor::Blue => "Blue",
+            LayerColor::Violet => "Violet",
+            LayerColor::Magenta => "Magenta",
+            LayerColor::Grey => "Grey",
+        }
+    }
+
+    /// Display colour (sRGB bytes).
+    pub fn rgb(self) -> [u8; 3] {
+        match self {
+            LayerColor::Red => [224, 82, 82],
+            LayerColor::Orange => [232, 144, 62],
+            LayerColor::Yellow => [226, 200, 70],
+            LayerColor::Green => [102, 187, 106],
+            LayerColor::Teal => [64, 182, 172],
+            LayerColor::Blue => [84, 148, 232],
+            LayerColor::Violet => [150, 116, 226],
+            LayerColor::Magenta => [214, 104, 190],
+            LayerColor::Grey => [150, 150, 156],
+        }
+    }
 }
 
 /// The mesh parts (connected pieces, see `subcraft_mesh::topology::mesh_elements`) a layer is
@@ -155,19 +209,7 @@ impl PartMask {
 }
 
 fn default_blends(ts: &TextureSet, folder: bool) -> BTreeMap<ChannelKind, ChannelBlend> {
-    ts.channels
-        .iter()
-        .map(|c| {
-            let mode = if folder {
-                BlendMode::Passthrough
-            } else if c.kind == ChannelKind::Normal {
-                BlendMode::NormalMapCombine
-            } else {
-                BlendMode::Normal
-            };
-            (c.kind, ChannelBlend::new(mode))
-        })
-        .collect()
+    ts.channels.iter().map(|c| (c.kind, ChannelBlend::new(BlendMode::default_for(c.kind, folder)))).collect()
 }
 
 impl Layer {
@@ -179,6 +221,7 @@ impl Layer {
             blend: default_blends(ts, false),
             mask: None,
             parts: None,
+            color: None,
             content_effects: Vec::new(),
             content: LayerContent::Paint(PaintContent::default()),
         }
@@ -198,6 +241,7 @@ impl Layer {
             blend: default_blends(ts, false),
             mask: None,
             parts: None,
+            color: None,
             content_effects: Vec::new(),
             content: LayerContent::Fill(FillContent { projection: Projection::default(), channels }),
         }
@@ -211,6 +255,7 @@ impl Layer {
             blend: default_blends(ts, true),
             mask: None,
             parts: None,
+            color: None,
             content_effects: Vec::new(),
             content: LayerContent::Group(GroupContent { children: Vec::new(), expanded: true }),
         }
