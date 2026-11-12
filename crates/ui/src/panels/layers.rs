@@ -188,6 +188,11 @@ pub(crate) fn eye_slide(ui: &Ui, eye: &egui::Response, visible: bool) -> bool {
     over && ui.data(|d| d.get_temp::<EyeSlide>(id)).is_some_and(|slide| slide.0 != visible)
 }
 
+/// An eye slide is in progress: rows must not start a drag of their own meanwhile.
+pub(crate) fn eye_sliding(ui: &Ui) -> bool {
+    ui.data(|d| d.get_temp::<EyeSlide>(egui::Id::new("eye_slide")).is_some())
+}
+
 /// Modes of a blending dropdown with a separator between Painter's groups. Returns the pick.
 pub(crate) fn blend_mode_list(ui: &mut Ui, modes: impl Iterator<Item = BlendMode>, current: BlendMode) -> Option<BlendMode> {
     let mut picked = None;
@@ -577,7 +582,7 @@ Files: {}", ex.dir().display()));
             if folder == Some(true) {
                 open.push(OpenFolder { depth: *depth, x: guide_x(resp.rect.left(), *depth), top: center + 8.0, last_child: None });
             }
-            if rename.as_ref().is_none_or(|edit| edit.layer != l.id) {
+            if rename.as_ref().is_none_or(|edit| edit.layer != l.id) && !eye_sliding(ui) {
                 resp.dnd_set_drag_payload(LayerDrag { texture_set: ts.id, layer: l.id });
             }
             if resp.clicked() {

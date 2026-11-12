@@ -363,7 +363,7 @@ pub fn rows(
             })
             .inner;
             let address=EffectAddress {texture_set:session.selection().texture_set,layer:layer.id,domain,effect:row.id};
-            if !renaming { resp.dnd_set_drag_payload(address); }
+            if !renaming && !super::layers::eye_sliding(ui) { resp.dnd_set_drag_payload(address); }
             effect_drop(ui,&resp,address,&ids,&chosen,indent,cmds);
             let x = resp.rect.left() + indent - 2.0;
             let y = resp.rect.center().y;
