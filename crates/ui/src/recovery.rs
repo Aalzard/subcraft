@@ -17,6 +17,14 @@ pub const PREFS_KEY: &str = "subcraft_prefs_v1";
 pub const DEFAULT_UI_SIZE: u32 = 95;
 pub const UI_SIZE_RANGE: std::ops::RangeInclusive<u32> = 75..=150;
 
+/// The pages of the Settings window (Painter: General, Shortcuts, Libraries).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SettingsTab {
+    #[default]
+    General,
+    Shortcuts,
+}
+
 /// User settings kept between runs.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -47,6 +55,10 @@ pub struct Preferences {
     pub show_status_bar: bool,
     /// Which keyboard shortcut table is active (SubCraft default or Substance Painter).
     pub keymap: subcraft_app::KeymapPreset,
+    /// Keys the user rebound in Settings > Shortcuts, on top of `keymap`.
+    pub custom_keys: subcraft_app::CustomKeys,
+    /// Camera mouse gestures the user rebound (Painter navigation).
+    pub custom_mouse: crate::nav::MouseBindings,
     /// Blend layers on the graphics card when one is available and the edit is big (the
     /// processor is the fallback and the reference).
     pub use_gpu_compositing: bool,
@@ -100,6 +112,8 @@ impl Default for Preferences {
             show_tools_toolbar: true,
             show_status_bar: true,
             keymap: Default::default(),
+            custom_keys: Default::default(),
+            custom_mouse: Default::default(),
             use_gpu_compositing: true,
             viewport: Default::default(),
             new_project: Default::default(),
@@ -110,6 +124,10 @@ impl Default for Preferences {
 }
 
 impl Preferences {
+    /// The key bindings in force: the chosen key set plus the user's rebinds.
+    pub fn keys(&self) -> subcraft_app::Keymap {
+        subcraft_app::Keymap::new(self.keymap, self.custom_keys.clone())
+    }
     pub fn apply_ui_size(&mut self, ctx: &egui::Context) {
         self.ui_size_percent = self.ui_size_percent.clamp(*UI_SIZE_RANGE.start(), *UI_SIZE_RANGE.end());
         let zoom = self.ui_size_percent as f32 / 100.0;
@@ -130,6 +148,10 @@ pub struct RecoveryUi {
     pub store: Option<RecoveryStore>,
     pub prefs: Preferences,
     pub show_prefs: bool,
+    /// The page shown in the Settings window.
+    pub prefs_tab: SettingsTab,
+    /// Settings > Shortcuts is waiting for a key or a click (global shortcuts are off meanwhile).
+    pub capture: Option<crate::shortcut_editor::Capture>,
     /// Time of the last finished autosave (for the status bar).
     pub last_saved: Option<std::time::SystemTime>,
 }
@@ -151,7 +173,7 @@ impl RecoveryUi {
             log::info!("recovery copies go to {}", l.dir().display());
         }
         let autosaver = Autosaver::new(live, interval.unwrap_or(prefs.interval()));
-        Self { autosaver, crashed, store, prefs, show_prefs: false, last_saved: None }
+        Self { autosaver, crashed, store, prefs, show_prefs: false, prefs_tab: SettingsTab::General, capture: None, last_saved: None }
     }
 
     /// No autosave, no prompt (tests, scripted runs without a data folder).
@@ -162,6 +184,8 @@ impl RecoveryUi {
             store: None,
             prefs: Preferences::default(),
             show_prefs: false,
+            prefs_tab: SettingsTab::General,
+            capture: None,
             last_saved: None,
         }
     }
@@ -292,10 +316,16 @@ pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
     if !rec.show_prefs {
         return;
     }
+    if rec.prefs_tab == SettingsTab::Shortcuts {
+        shortcuts_page(state, ctx);
+        return;
+    }
     let mut open = true;
-    crate::widgets::window(ctx, RichText::new(tr("Preferences")).font(theme::font_strong(14.0))).open(&mut open).collapsible(false).resizable(false).default_height(620.0).show(ctx, |ui| {
+    let mut tab = SettingsTab::General;
+    crate::widgets::window(ctx, RichText::new(tr("Settings")).font(theme::font_strong(14.0))).id(egui::Id::new("settings_window")).open(&mut open).collapsible(false).resizable(false).default_height(620.0).show(ctx, |ui| {
+        settings_tabs(ui, &mut tab);
         ui.set_width(380.0);
-        egui::ScrollArea::vertical().max_height((ctx.content_rect().height() - 110.0).max(200.0)).show(ui, |ui| {
+        egui::ScrollArea::vertical().max_height((ctx.content_rect().height() - 140.0).max(200.0)).show(ui, |ui| {
         ui.label(RichText::new(tr("Interface")).font(theme::font_strong(12.5)));
         ui.horizontal(|ui| {
             ui.label(tr("Language"));
@@ -345,16 +375,11 @@ pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
             .on_hover_text("Starting an orbit over the model turns the view around that point of the surface, as Substance Painter does. Over the background the last point is kept. Off: the view always turns around its centre. F frames the model and forgets the point.");
         ui.horizontal(|ui| {
             ui.label(tr("Keyboard shortcuts"));
-            egui::ComboBox::from_id_salt("keymap_preset").selected_text(rec.prefs.keymap.label()).show_ui(ui, |ui| {
-                for preset in subcraft_app::KeymapPreset::ALL {
-                    ui.selectable_value(&mut rec.prefs.keymap, preset, preset.label());
-                }
-            });
+            ui.label(RichText::new(rec.prefs.keymap.label()).color(theme::ACCENT));
+            if ui.button(tr("Edit…")).clicked() {
+                tab = SettingsTab::Shortcuts;
+            }
         });
-        ui.label(RichText::new("The Substance Painter key set follows Painter where the two differ: P picks material (Pen paths: Shift+P), B shows the next mesh map (Brush: 1), X inverts the mask brush (symmetry: L), F2 shows the 3D view only (rename a layer: double-click).").small().color(TEXT_DIM));
-        if ui.button(format!("{}  Show all keyboard shortcuts…", crate::icons::KEYBOARD)).clicked() {
-            ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new("open_shortcuts_window"), true));
-        }
         if ui.checkbox(&mut rec.prefs.use_gpu_compositing, tr("Use GPU for compositing"))
             .on_hover_text("Blends layers on the graphics card for big edits (opening a project, changing a layer under many others) on texture sets of 2048 and larger. Procedural fills, generator masks and blur-type filters are still computed by the processor, and sets with blur-type filters use the processor entirely. Small edits such as brush strokes always use the processor.")
             .changed()
@@ -391,7 +416,34 @@ pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
         });
     });
     rec.prefs.apply_ui_size(ctx);
+    rec.prefs_tab = tab;
     rec.show_prefs = open;
+}
+
+/// The page buttons at the top of the Settings window.
+fn settings_tabs(ui: &mut egui::Ui, tab: &mut SettingsTab) {
+    ui.horizontal(|ui| {
+        for (t, name) in [(SettingsTab::General, tr("General")), (SettingsTab::Shortcuts, tr("Shortcuts"))] {
+            ui.selectable_value(tab, t, RichText::new(name).font(theme::font_strong(12.5)));
+        }
+    });
+    ui.separator();
+}
+
+/// Settings > Shortcuts.
+fn shortcuts_page(state: &mut UiState, ctx: &egui::Context) {
+    let mut open = true;
+    let mut tab = SettingsTab::Shortcuts;
+    crate::widgets::window(ctx, RichText::new(tr("Settings")).font(theme::font_strong(14.0))).id(egui::Id::new("settings_window")).open(&mut open).collapsible(false).resizable(false).show(ctx, |ui| {
+        settings_tabs(ui, &mut tab);
+        ui.set_width(560.0);
+        crate::shortcut_editor::show(state, ui);
+    });
+    state.recovery.prefs_tab = tab;
+    state.recovery.show_prefs = open;
+    if !open || tab != SettingsTab::Shortcuts {
+        state.recovery.capture = None;
+    }
 }
 
 #[cfg(test)]

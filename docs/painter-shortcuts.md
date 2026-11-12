@@ -6,7 +6,7 @@ and non-editable lists; read again on 2026-11-11, 89 entries). Painter lists `Sa
 
 ## Key sets
 
-Preferences → Keyboard shortcuts (and the "Key set" box in Help → Keyboard shortcuts) switches between:
+Edit → Settings → Shortcuts (and the "Key set" box in Help → Keyboard shortcuts) switches between:
 
 * **SubCraft (default)**: the original keys plus every Painter key that was free.
 * **Substance Painter**: Painter's key wherever the two disagree. Every action has a key in this set (a test checks it).
@@ -24,6 +24,23 @@ Everything else is the same in both sets. SubCraft keys Painter does not use (`E
 Menus and tooltips show the binding of the active key set. Help → Keyboard shortcuts (also the button under
 Preferences → Keyboard shortcuts) lists, per action, the active key, Painter's key and the SubCraft default, then the
 mouse gestures, then Painter's whole list with its status here.
+
+## Your own keys (Settings → Shortcuts)
+
+As in Painter, every action can be rebound:
+
+* the keyboard button next to an action waits for the next combination and makes it the action's only key (Esc cancels);
+  `+` adds a key instead; `×` on a key removes it;
+* right-click the action (or the reset arrow) puts the key set's default back; "Reset all" forgets every change;
+* a key you give to one action leaves the action that had it (the message says which);
+* actions without a default key (Eyedropper in the SubCraft set, 3D only, next mesh map, mask invert) can get one;
+* the six camera gestures of Painter navigation (rotate, snap rotate, translate, zoom, rotate environment, rotate
+  the key light) are rebound with the cursor button, then by clicking the capture pad with the new button and Ctrl / Shift / Alt held;
+* the gestures that stay fixed (brush size / flow drags, straight lines, stencil keys, clicks on mask thumbnails)
+  are listed under "Not editable".
+
+Your changes sit on top of the key set: switching between SubCraft and Painter keeps them. They are saved with the
+preferences by action name, so a renamed or removed action never breaks the file.
 
 ## Keys added for Painter parity (both sets unless noted)
 

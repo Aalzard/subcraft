@@ -1,4 +1,5 @@
-//! Image file I/O (PNG, TGA, JPEG, TIFF, BMP, HDR, EXR) via the `image` crate.
+//! Image file I/O (PNG, TGA, JPEG, TIFF, BMP, HDR, WebP, EXR) via the `image` crate; half-float
+//! EXR through the `exr` crate.
 
 use std::path::Path;
 
@@ -95,7 +96,7 @@ pub fn encode_bitmap(b: &Bitmap) -> Result<(Vec<u8>, &'static str), ImageIoError
 }
 
 /// File extensions accepted as texture images (file dialogs, texture-set import).
-pub const IMAGE_EXTENSIONS: [&str; 9] = ["png", "jpg", "jpeg", "tga", "tif", "tiff", "exr", "bmp", "hdr"];
+pub const IMAGE_EXTENSIONS: [&str; 10] = ["png", "jpg", "jpeg", "tga", "tif", "tiff", "exr", "bmp", "hdr", "webp"];
 
 /// Extension for encoded image bytes: detected from the content, else taken from `name` if it is
 /// a known image extension (TGA has no signature), else "bin".
@@ -123,6 +124,13 @@ pub enum FileFormat {
     Tiff16,
     /// 32-bit float TIFF (RGB/RGBA; one-component data is written as gray RGB).
     Tiff32,
+    /// 16-bit (half) float EXR.
+    Exr16,
+    Bmp8,
+    /// Radiance HDR (RGBE, RGB only: alpha is dropped, gray is written as gray RGB).
+    Hdr32,
+    /// Lossless WebP.
+    Webp8,
 }
 
 /// File container of a [`FileFormat`] (what the preset editor's "Format" menu picks).
@@ -133,6 +141,9 @@ pub enum Container {
     Exr,
     Tiff,
     Jpeg,
+    Bmp,
+    Hdr,
+    Webp,
 }
 
 /// Bits per component (32 = float).
@@ -140,11 +151,23 @@ pub enum Container {
 pub enum BitDepth {
     B8,
     B16,
+    /// 16-bit (half) float.
+    F16,
     F32,
 }
 
 impl Container {
-    pub const ALL: [Container; 5] = [Container::Png, Container::Tga, Container::Exr, Container::Tiff, Container::Jpeg];
+    /// Alphabetical by extension, like Painter's File type menu.
+    pub const ALL: [Container; 8] = [
+        Container::Bmp,
+        Container::Exr,
+        Container::Hdr,
+        Container::Jpeg,
+        Container::Png,
+        Container::Tga,
+        Container::Tiff,
+        Container::Webp,
+    ];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -153,6 +176,9 @@ impl Container {
             Container::Exr => "EXR",
             Container::Tiff => "TIFF",
             Container::Jpeg => "JPEG",
+            Container::Bmp => "BMP",
+            Container::Hdr => "HDR",
+            Container::Webp => "WebP",
         }
     }
 
@@ -160,8 +186,9 @@ impl Container {
     pub fn depths(self) -> &'static [BitDepth] {
         match self {
             Container::Png => &[BitDepth::B8, BitDepth::B16],
-            Container::Tga | Container::Jpeg => &[BitDepth::B8],
-            Container::Exr => &[BitDepth::F32],
+            Container::Tga | Container::Jpeg | Container::Bmp | Container::Webp => &[BitDepth::B8],
+            Container::Exr => &[BitDepth::F16, BitDepth::F32],
+            Container::Hdr => &[BitDepth::F32],
             Container::Tiff => &[BitDepth::B8, BitDepth::B16, BitDepth::F32],
         }
     }
@@ -172,13 +199,14 @@ impl BitDepth {
         match self {
             BitDepth::B8 => "8-bit",
             BitDepth::B16 => "16-bit",
+            BitDepth::F16 => "16-bit float",
             BitDepth::F32 => "32-bit float",
         }
     }
 }
 
 impl FileFormat {
-    pub const ALL: [FileFormat; 8] = [
+    pub const ALL: [FileFormat; 12] = [
         FileFormat::Png8,
         FileFormat::Png16,
         FileFormat::Tga8,
@@ -187,6 +215,10 @@ impl FileFormat {
         FileFormat::Tiff8,
         FileFormat::Tiff16,
         FileFormat::Tiff32,
+        FileFormat::Exr16,
+        FileFormat::Bmp8,
+        FileFormat::Hdr32,
+        FileFormat::Webp8,
     ];
 
     pub fn container(self) -> Container {
@@ -194,21 +226,25 @@ impl FileFormat {
             FileFormat::Png8 | FileFormat::Png16 => Container::Png,
             FileFormat::Tga8 => Container::Tga,
             FileFormat::Jpeg => Container::Jpeg,
-            FileFormat::Exr32 => Container::Exr,
+            FileFormat::Exr32 | FileFormat::Exr16 => Container::Exr,
             FileFormat::Tiff8 | FileFormat::Tiff16 | FileFormat::Tiff32 => Container::Tiff,
+            FileFormat::Bmp8 => Container::Bmp,
+            FileFormat::Hdr32 => Container::Hdr,
+            FileFormat::Webp8 => Container::Webp,
         }
     }
 
     pub fn depth(self) -> BitDepth {
         match self {
-            FileFormat::Png8 | FileFormat::Tga8 | FileFormat::Jpeg | FileFormat::Tiff8 => BitDepth::B8,
+            FileFormat::Png8 | FileFormat::Tga8 | FileFormat::Jpeg | FileFormat::Tiff8 | FileFormat::Bmp8 | FileFormat::Webp8 => BitDepth::B8,
             FileFormat::Png16 | FileFormat::Tiff16 => BitDepth::B16,
-            FileFormat::Exr32 | FileFormat::Tiff32 => BitDepth::F32,
+            FileFormat::Exr16 => BitDepth::F16,
+            FileFormat::Exr32 | FileFormat::Tiff32 | FileFormat::Hdr32 => BitDepth::F32,
         }
     }
 
     /// The format storing `container` at `depth`; when the container can't, the deepest depth it
-    /// has below `depth` (TGA 16 -> TGA 8, PNG 32f -> PNG 16), else its smallest (EXR 8 -> 32f).
+    /// has below `depth` (TGA 16 -> TGA 8, PNG 32f -> PNG 16), else its smallest (EXR 8 -> 16f).
     pub fn from_parts(container: Container, depth: BitDepth) -> FileFormat {
         let depths = container.depths();
         let depth = depths.iter().rev().copied().find(|d| *d <= depth).unwrap_or(depths[0]);
@@ -217,10 +253,14 @@ impl FileFormat {
             (Container::Png, _) => FileFormat::Png16,
             (Container::Tga, _) => FileFormat::Tga8,
             (Container::Jpeg, _) => FileFormat::Jpeg,
+            (Container::Exr, BitDepth::F16) => FileFormat::Exr16,
             (Container::Exr, _) => FileFormat::Exr32,
+            (Container::Bmp, _) => FileFormat::Bmp8,
+            (Container::Hdr, _) => FileFormat::Hdr32,
+            (Container::Webp, _) => FileFormat::Webp8,
             (Container::Tiff, BitDepth::B8) => FileFormat::Tiff8,
             (Container::Tiff, BitDepth::B16) => FileFormat::Tiff16,
-            (Container::Tiff, BitDepth::F32) => FileFormat::Tiff32,
+            (Container::Tiff, _) => FileFormat::Tiff32,
         }
     }
 
@@ -229,8 +269,11 @@ impl FileFormat {
             FileFormat::Png8 | FileFormat::Png16 => "png",
             FileFormat::Tga8 => "tga",
             FileFormat::Jpeg => "jpg",
-            FileFormat::Exr32 => "exr",
+            FileFormat::Exr32 | FileFormat::Exr16 => "exr",
             FileFormat::Tiff8 | FileFormat::Tiff16 | FileFormat::Tiff32 => "tif",
+            FileFormat::Bmp8 => "bmp",
+            FileFormat::Hdr32 => "hdr",
+            FileFormat::Webp8 => "webp",
         }
     }
 
@@ -244,11 +287,20 @@ impl FileFormat {
             FileFormat::Tiff8 => "TIFF 8-bit",
             FileFormat::Tiff16 => "TIFF 16-bit",
             FileFormat::Tiff32 => "TIFF 32-bit float",
+            FileFormat::Exr16 => "EXR 16-bit float",
+            FileFormat::Bmp8 => "BMP 8-bit",
+            FileFormat::Hdr32 => "HDR 32-bit float",
+            FileFormat::Webp8 => "WebP 8-bit",
         }
     }
 
     pub fn is_float(self) -> bool {
-        matches!(self, FileFormat::Exr32 | FileFormat::Tiff32)
+        matches!(self, FileFormat::Exr32 | FileFormat::Exr16 | FileFormat::Tiff32 | FileFormat::Hdr32)
+    }
+
+    /// 8 bits per component: the formats "8-bit + dithering" applies to.
+    pub fn is_8bit(self) -> bool {
+        self.depth() == BitDepth::B8
     }
 }
 
@@ -268,19 +320,58 @@ pub fn save_image(
 
 /// Encode `data` like [`save_image`] into an in-memory file.
 pub fn encode_image(width: u32, height: u32, comps: usize, data: &[f32], format: FileFormat) -> Result<Vec<u8>, ImageIoError> {
+    encode_image_dithered(width, height, comps, data, format, false)
+}
+
+/// Triangular noise in -1..1 for value `i`: deterministic, so a dithered export writes the same
+/// bytes every time.
+fn tpdf(i: usize) -> f32 {
+    let h = |mut x: u64| {
+        x ^= x >> 33;
+        x = x.wrapping_mul(0xff51_afd7_ed55_8ccd);
+        x ^= x >> 33;
+        x = x.wrapping_mul(0xc4ce_b9fe_1a85_ec53);
+        x ^= x >> 33;
+        (x >> 40) as f32 / (1u64 << 24) as f32
+    };
+    let i = i as u64;
+    h(i.wrapping_mul(2)) + h(i.wrapping_mul(2) + 1) - 1.0
+}
+
+/// Quantize to 8 bits: rounded, or with triangular dither (Painter's "8 bits + dithering"),
+/// which turns banding in smooth gradients into fine noise. The average level is kept; 0 and 1
+/// stay exact.
+pub fn quantize8(data: &[f32], dither: bool) -> Vec<u8> {
+    if !dither {
+        return data.iter().map(|&v| (v.clamp(0.0, 1.0) * 255.0 + 0.5) as u8).collect();
+    }
+    data.iter()
+        .enumerate()
+        .map(|(i, &v)| {
+            let v = v.clamp(0.0, 1.0) * 255.0;
+            // Pure black and white stay exact (masks, flat channels).
+            if v <= 0.0 || v >= 255.0 {
+                return v as u8;
+            }
+            (v + tpdf(i) + 0.5).floor().clamp(0.0, 255.0) as u8
+        })
+        .collect()
+}
+
+/// [`encode_image`], dithering 8-bit formats when `dither` is set (ignored for deeper formats).
+pub fn encode_image_dithered(width: u32, height: u32, comps: usize, data: &[f32], format: FileFormat, dither: bool) -> Result<Vec<u8>, ImageIoError> {
     assert_eq!(data.len(), (width * height) as usize * comps);
     let mut out = std::io::Cursor::new(Vec::new());
-    let q8 = |v: f32| (v.clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
     let q16 = |v: f32| (v.clamp(0.0, 1.0) * 65535.0 + 0.5) as u16;
     match format {
-        FileFormat::Png8 | FileFormat::Tga8 | FileFormat::Jpeg | FileFormat::Tiff8 => {
-            let bytes: Vec<u8> = data.iter().map(|&v| q8(v)).collect();
+        FileFormat::Png8 | FileFormat::Tga8 | FileFormat::Jpeg | FileFormat::Tiff8 | FileFormat::Bmp8 | FileFormat::Webp8 => {
             let comps = if format == FileFormat::Jpeg && comps == 4 {
                 // JPEG has no alpha: drop it.
-                return encode_image(width, height, 3, &drop_alpha(data), format);
+                return encode_image_dithered(width, height, 3, &drop_alpha(data), format, dither);
             } else {
                 comps
             };
+            let bytes = quantize8(data, dither);
             let color = match comps {
                 1 => image::ExtendedColorType::L8,
                 2 => image::ExtendedColorType::La8,
@@ -292,6 +383,8 @@ pub fn encode_image(width: u32, height: u32, comps: usize, data: &[f32], format:
                 FileFormat::Png8 => image::ImageFormat::Png,
                 FileFormat::Tga8 => image::ImageFormat::Tga,
                 FileFormat::Tiff8 => image::ImageFormat::Tiff,
+                FileFormat::Bmp8 => image::ImageFormat::Bmp,
+                FileFormat::Webp8 => image::ImageFormat::WebP,
                 _ => image::ImageFormat::Jpeg,
             };
             image::write_buffer_with_format(&mut out, &bytes, width, height, color, fmt)?;
@@ -338,6 +431,33 @@ pub fn encode_image(width: u32, height: u32, comps: usize, data: &[f32], format:
             let img: image::Rgba32FImage =
                 image::ImageBuffer::from_raw(width, height, rgba).expect("size checked");
             image::DynamicImage::ImageRgba32F(img).write_to(&mut out, image::ImageFormat::OpenExr)?;
+        }
+        FileFormat::Exr16 => {
+            use exr::prelude::{f16, Image, SpecificChannels, Vec2, WritableImage};
+            let w = width as usize;
+            let size = (w, height as usize);
+            let h = f16::from_f32;
+            let at = |p: Vec2<usize>, c: usize| data[(p.1 * w + p.0) * comps + c];
+            let written = match comps {
+                1 => Image::from_channels(size, SpecificChannels::rgb(|p: Vec2<usize>| (h(at(p, 0)), h(at(p, 0)), h(at(p, 0))))).write().to_buffered(&mut out),
+                2 => Image::from_channels(size, SpecificChannels::rgba(|p: Vec2<usize>| (h(at(p, 0)), h(at(p, 0)), h(at(p, 0)), h(at(p, 1))))).write().to_buffered(&mut out),
+                3 => Image::from_channels(size, SpecificChannels::rgb(|p: Vec2<usize>| (h(at(p, 0)), h(at(p, 1)), h(at(p, 2))))).write().to_buffered(&mut out),
+                4 => Image::from_channels(size, SpecificChannels::rgba(|p: Vec2<usize>| (h(at(p, 0)), h(at(p, 1)), h(at(p, 2)), h(at(p, 3))))).write().to_buffered(&mut out),
+                n => return Err(ImageIoError::Unsupported(format!("{n} components"))),
+            };
+            written.map_err(|e| ImageIoError::Unsupported(format!("EXR: {e}")))?;
+        }
+        FileFormat::Hdr32 => {
+            // Radiance HDR stores RGB only, and no negative values.
+            let rgb: Vec<f32> = match comps {
+                1 => data.iter().flat_map(|&v| [v, v, v]).collect(),
+                2 => data.chunks_exact(2).flat_map(|p| [p[0], p[0], p[0]]).collect(),
+                3 => data.to_vec(),
+                4 => drop_alpha(data),
+                n => return Err(ImageIoError::Unsupported(format!("{n} components"))),
+            };
+            let bytes: Vec<u8> = rgb.iter().flat_map(|v| v.max(0.0).to_ne_bytes()).collect();
+            image::write_buffer_with_format(&mut out, &bytes, width, height, image::ExtendedColorType::Rgb32F, image::ImageFormat::Hdr)?;
         }
     }
     Ok(out.into_inner())
@@ -405,6 +525,73 @@ mod tests {
                     }
                 }
             }
+        }
+    }
+
+    #[test]
+    fn new_formats_roundtrip() {
+        // 4x2 RGB gradient, values on the 8-bit grid so 8-bit formats are exact.
+        let data: Vec<f32> = (0..4 * 2 * 3).map(|i| (i * 10) as f32 / 255.0).collect();
+        for format in [FileFormat::Bmp8, FileFormat::Webp8] {
+            let bytes = encode_image(4, 2, 3, &data, format).unwrap();
+            let b = decode_bitmap(&bytes, Some(&format!("t.{}", format.extension()))).unwrap();
+            assert_eq!((b.width, b.height), (4, 2), "{format:?}");
+            for (i, px) in data.chunks_exact(3).enumerate() {
+                let t = b.texel(i as u32 % 4, i as u32 / 4, false);
+                for c in 0..3 {
+                    assert!((t[c] - px[c]).abs() < 1e-6, "{format:?} lossless: {t:?} vs {px:?}");
+                }
+            }
+            assert_eq!(guess_extension(&bytes, None), format.extension());
+        }
+        // Half float keeps HDR values to half precision; gray is written as gray RGB.
+        let hdr = vec![0.0, 0.5, 2.5, -1.0];
+        let b = decode_bitmap(&encode_image(2, 2, 1, &hdr, FileFormat::Exr16).unwrap(), Some("t.exr")).unwrap();
+        assert!(b.is_hdr());
+        for (i, &v) in hdr.iter().enumerate() {
+            let t = b.texel(i as u32 % 2, i as u32 / 2, false);
+            assert!((t[0] - v).abs() < 1e-3 && (t[2] - v).abs() < 1e-3, "{t:?} vs {v}");
+        }
+        // Half float is half the size of 32-bit float for the same image.
+        let big: Vec<f32> = (0..64 * 64 * 3).map(|i| (i % 97) as f32 * 0.37).collect();
+        let (h, f) = (encode_image(64, 64, 3, &big, FileFormat::Exr16).unwrap(), encode_image(64, 64, 3, &big, FileFormat::Exr32).unwrap());
+        assert!(h.len() < f.len(), "half {} vs full {}", h.len(), f.len());
+        // Radiance HDR: RGBE (shared exponent) keeps about 1% precision; negatives clamp to 0.
+        let b = decode_bitmap(&encode_image(2, 2, 1, &hdr, FileFormat::Hdr32).unwrap(), Some("t.hdr")).unwrap();
+        assert!(b.is_hdr());
+        assert!((b.texel(0, 1, false)[0] - 2.5).abs() < 0.03 && b.texel(1, 1, false)[0] == 0.0);
+    }
+
+    #[test]
+    fn dithering_keeps_the_mean_and_breaks_up_bands() {
+        // A level between two 8-bit steps: plain rounding writes one flat value, dithering mixes
+        // the neighbours so the average stays at the true level.
+        let level = 100.3 / 255.0;
+        let data = vec![level; 4096];
+        let plain = quantize8(&data, false);
+        assert!(plain.iter().all(|&v| v == 100));
+        let dithered = quantize8(&data, true);
+        let mean = dithered.iter().map(|&v| v as f32).sum::<f32>() / dithered.len() as f32;
+        assert!((mean - 100.3).abs() < 0.05, "mean {mean}");
+        assert!(dithered.iter().all(|&v| (99..=102).contains(&v)), "noise stays within a step or two");
+        assert_eq!(dithered, quantize8(&data, true), "deterministic");
+        // Black and white stay exact.
+        assert!(quantize8(&[0.0; 64], true).iter().all(|&v| v == 0));
+        assert!(quantize8(&[1.0; 64], true).iter().all(|&v| v == 255));
+        // Deeper formats ignore the flag.
+        let g: Vec<f32> = (0..16).map(|i| i as f32 / 15.0).collect();
+        assert_eq!(encode_image_dithered(4, 4, 1, &g, FileFormat::Png16, true).unwrap(), encode_image(4, 4, 1, &g, FileFormat::Png16).unwrap());
+    }
+
+    #[test]
+    fn containers_list_their_depths() {
+        assert_eq!(FileFormat::from_parts(Container::Exr, BitDepth::F16), FileFormat::Exr16);
+        assert_eq!(FileFormat::from_parts(Container::Exr, BitDepth::B8), FileFormat::Exr16, "smallest the container has");
+        assert_eq!(FileFormat::from_parts(Container::Hdr, BitDepth::B16), FileFormat::Hdr32);
+        assert_eq!(FileFormat::from_parts(Container::Png, BitDepth::F16), FileFormat::Png16);
+        for f in FileFormat::ALL {
+            assert_eq!(FileFormat::from_parts(f.container(), f.depth()), f, "{f:?}");
+            assert!(f.container().depths().contains(&f.depth()));
         }
     }
 

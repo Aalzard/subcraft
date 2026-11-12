@@ -9,7 +9,9 @@
 
 use std::sync::Arc;
 
-use subcraft_app::{Action, KeymapPreset, label_in};
+use subcraft_app::{Action, Keymap};
+#[cfg(test)]
+use subcraft_app::KeymapPreset;
 
 use crate::nav::NavScheme;
 use crate::state::Tool;
@@ -22,11 +24,11 @@ pub struct Hint {
 }
 
 /// Everything the list depends on. Cheap to build and compare every frame.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct HintContext {
     pub tool: Tool,
     pub nav: NavScheme,
-    pub keymap: KeymapPreset,
+    pub keymap: Keymap,
     pub ctrl: bool,
     pub shift: bool,
     pub alt: bool,
@@ -46,7 +48,7 @@ fn h(keys: impl Into<String>, what: &'static str) -> Hint {
 
 /// The key of `action` in the active set, if it has one.
 fn key(c: &HintContext, action: Action) -> Option<String> {
-    let s = label_in(c.keymap, action);
+    let s = c.keymap.label(action);
     (!s.is_empty()).then(|| crate::keys::native_string(s))
 }
 
@@ -235,7 +237,7 @@ mod tests {
         HintContext {
             tool,
             nav: NavScheme::Painter,
-            keymap: KeymapPreset::SubCraft,
+            keymap: KeymapPreset::SubCraft.into(),
             ctrl: false,
             shift: false,
             alt: false,
@@ -320,11 +322,16 @@ mod tests {
         assert_eq!(keys_of(&c, "Frame model"), "Home");
         assert_eq!(keys_of(&c, "Symmetry X"), "X");
         assert_eq!(keys_of(&c, "Rendering mode"), "F10");
-        c.keymap = KeymapPreset::Painter;
+        c.keymap = KeymapPreset::Painter.into();
         assert_eq!(keys_of(&c, "Symmetry X"), "L", "the Painter preset moves symmetry to L");
         c.tool = Tool::Eyedropper;
-        c.keymap = KeymapPreset::SubCraft;
+        c.keymap = KeymapPreset::SubCraft.into();
         assert_eq!(keys_of(&ctx(Tool::Brush), "Brush size"), "[ ]");
+        // A key the user rebound in Settings > Shortcuts shows up here too.
+        c.keymap.bind(Action::ResetCamera, subcraft_app::Shortcut::key(subcraft_app::Key::G));
+        c.keymap.unbind(Action::ResetCamera, subcraft_app::Shortcut::key(subcraft_app::Key::Home));
+        c.tool = Tool::Brush;
+        assert_eq!(keys_of(&c, "Frame model"), "F");
     }
 
     #[test]
