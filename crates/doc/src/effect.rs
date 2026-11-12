@@ -29,6 +29,10 @@ pub enum ContentEffectKind {
     /// Anchor point (ADR-0045): captures the content evaluated up to here, per channel, under
     /// the effect's name, for references elsewhere. Changes nothing itself.
     Anchor,
+    /// A generator in the content stack (Painter: generators on a layer's content): its gray
+    /// result, with its coverage, written into every channel but Normal through the effect's
+    /// per-channel blending.
+    Generator(crate::Generator),
 }
 
 impl ContentEffectKind {
@@ -39,6 +43,7 @@ impl ContentEffectKind {
             ContentEffectKind::Levels { channel, .. } => format!("Levels ({})", channel.display_name()),
             ContentEffectKind::Filter { channel, filter } => format!("{} ({})", filter.label(), channel.display_name()),
             ContentEffectKind::Anchor => "Anchor Point".into(),
+            ContentEffectKind::Generator(g) => format!("Generator ({})", g.kind.label()),
         }
     }
 

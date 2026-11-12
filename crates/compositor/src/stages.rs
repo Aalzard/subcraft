@@ -537,6 +537,7 @@ impl<'a> Graph<'a> {
                     && filtered.is_none_or(|f| self.uniform[f])
                     && match &effect.kind {
                         ContentEffectKind::Fill(f) => uniform_fill(f, *kind),
+                        ContentEffectKind::Generator(_) => false,
                         ContentEffectKind::Paint { channels } => {
                             channels.get(kind).is_none_or(|i| i.allocated_tiles() == 0)
                         }

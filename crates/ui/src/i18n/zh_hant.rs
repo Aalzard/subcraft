@@ -603,4 +603,5 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Safe Rotation", "安全旋轉"),
     ("Tile", "拼貼"),
     ("Vertical Angle", "垂直角度"),
+    ("Pick a new random seed", "挑選新的隨機種子"),
 ];
