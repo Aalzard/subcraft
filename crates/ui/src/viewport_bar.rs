@@ -11,6 +11,21 @@ use crate::theme::{BG_2, TEXT_DIM};
 /// Render resolutions offered, in percent of the 3D view's pixels.
 pub const SCALES: [u32; 4] = [100, 75, 50, 25];
 
+/// Seconds per unit of the Rendering mode's time limit: seconds, minutes, hours.
+pub const TIME_UNITS: [f32; 3] = [1.0, 60.0, 3600.0];
+
+/// Name of time unit `i` (an index into [`TIME_UNITS`]), translated.
+pub fn time_unit_label(i: usize) -> &'static str {
+    match i {
+        0 => tr("seconds"),
+        1 => tr("minutes"),
+        _ => tr("hours"),
+    }
+}
+/// Longest time limit (one day) and largest override side the Rendering mode accepts.
+pub const MAX_RENDER_TIME_S: f32 = 86_400.0;
+pub const MAX_TRACE_SIDE: u32 = 8192;
+
 /// 3D view settings, kept between runs with the other preferences. The display settings (also
 /// saved in each project, see [`crate::panels::display_settings::sync_project`]) are reached
 /// directly: `prefs.bloom` is `prefs.display.bloom`.
@@ -46,6 +61,28 @@ pub struct ViewportPrefs {
     pub pt_max_samples: u32,
     pub pt_denoise: bool,
     pub pt_ground: bool,
+    /// Samples always taken before the time limit may stop the render.
+    pub pt_min_samples: u32,
+    /// Stop accumulating after this much tracing time, in seconds (0 = no limit), shown in
+    /// unit `pt_time_unit` ([`TIME_UNITS`]).
+    pub pt_max_time_s: f32,
+    pub pt_time_unit: usize,
+    /// Clamp very bright indirect samples (fireflies).
+    pub pt_firefly: bool,
+    /// Trace at a fixed size instead of the 3D view's (the image is letterboxed in the view).
+    pub pt_override: bool,
+    pub pt_width: u32,
+    pub pt_height: u32,
+    /// Camera rays that miss the model see this sRGB color instead of the background.
+    pub pt_clear: bool,
+    pub pt_clear_color: [f32; 3],
+    /// Ground: offset from its default place (scene units), sRGB reflectivity color,
+    /// glossiness, key-light shadow intensity and visibility from underneath.
+    pub pt_ground_offset: [f32; 3],
+    pub pt_ground_reflectivity: [f32; 3],
+    pub pt_ground_glossiness: f32,
+    pub pt_ground_shadow: f32,
+    pub pt_ground_below: bool,
     /// Saved and imported camera viewpoints.
     pub camera_bookmarks: Vec<crate::view_extras::CameraBookmark>,
 }
@@ -66,6 +103,20 @@ impl Default for ViewportPrefs {
             pt_max_samples: 1024,
             pt_denoise: true,
             pt_ground: true,
+            pt_min_samples: 0,
+            pt_max_time_s: 0.0,
+            pt_time_unit: 1,
+            pt_firefly: true,
+            pt_override: false,
+            pt_width: 1920,
+            pt_height: 1080,
+            pt_clear: false,
+            pt_clear_color: [0.0; 3],
+            pt_ground_offset: [0.0; 3],
+            pt_ground_reflectivity: [0.0; 3],
+            pt_ground_glossiness: 0.5,
+            pt_ground_shadow: 1.0,
+            pt_ground_below: true,
             camera_bookmarks: Vec::new(),
         }
     }
@@ -259,13 +310,35 @@ impl ViewportPrefs {
 
     /// Path tracer settings from these preferences (clamped to sane ranges).
     pub fn path_trace_settings(&self, paused: bool) -> subcraft_render::PathTraceSettings {
+        let finite = |v: f32, default: f32| if v.is_finite() { v } else { default };
         subcraft_render::PathTraceSettings {
             max_bounces: self.pt_bounces.clamp(1, 16),
             max_samples: self.pt_max_samples.min(1 << 16),
+            min_samples: self.pt_min_samples.min(1 << 16),
+            max_time_s: finite(self.pt_max_time_s, 0.0).clamp(0.0, MAX_RENDER_TIME_S),
             denoise: self.pt_denoise,
             ground: self.pt_ground,
+            ground_settings: subcraft_render::GroundSettings {
+                offset: self.pt_ground_offset.map(|v| finite(v, 0.0).clamp(-1e4, 1e4)),
+                reflectivity: subcraft_core::color::srgb3_to_linear(self.pt_ground_reflectivity.map(|v| finite(v, 0.0).clamp(0.0, 1.0))),
+                glossiness: finite(self.pt_ground_glossiness, 0.5).clamp(0.0, 1.0),
+                shadow_intensity: finite(self.pt_ground_shadow, 1.0).clamp(0.0, 1.0),
+                visible_from_below: self.pt_ground_below,
+            },
+            firefly_filter: self.pt_firefly,
+            clear_color: self.pt_clear.then(|| subcraft_core::color::srgb3_to_linear(self.pt_clear_color.map(|v| finite(v, 0.0).clamp(0.0, 1.0)))),
             paused,
             ..Default::default()
+        }
+    }
+
+    /// Size the Rendering mode traces at for a 3D view of `size` pixels: the override when it is
+    /// on, otherwise the view's render size.
+    pub fn trace_size(&self, size: [u32; 2]) -> [u32; 2] {
+        if self.pt_override {
+            [self.pt_width.clamp(16, MAX_TRACE_SIDE), self.pt_height.clamp(16, MAX_TRACE_SIDE)]
+        } else {
+            self.render_size(size)
         }
     }
 
@@ -391,12 +464,36 @@ pub fn rendering_settings(ui: &mut Ui, prefs: &mut ViewportPrefs) {
         ui.label(tr("Bounces"));
         ui.add(egui::Slider::new(&mut prefs.pt_bounces, 1..=16)).on_hover_text(tr("Light bounces after the first hit; more is slower and brighter in enclosed areas"));
         ui.end_row();
+        ui.label(tr("Min samples"));
+        ui.add(egui::Slider::new(&mut prefs.pt_min_samples, 0..=8192).logarithmic(true))
+            .on_hover_text(tr("Samples always taken before the time limit can stop the render"));
+        ui.end_row();
         ui.label(tr("Max samples"));
         ui.add(egui::Slider::new(&mut prefs.pt_max_samples, 0..=8192).logarithmic(true).custom_formatter(|v, _| if v == 0.0 { "unlimited".into() } else { format!("{v}") }))
             .on_hover_text(tr("Stop refining at this many samples per pixel"));
         ui.end_row();
+        ui.label(tr("Max time"));
+        ui.horizontal(|ui| {
+            let unit = prefs.pt_time_unit.min(TIME_UNITS.len() - 1);
+            let per = TIME_UNITS[unit];
+            let mut value = prefs.pt_max_time_s / per;
+            let max = MAX_RENDER_TIME_S / per;
+            if ui.add(egui::DragValue::new(&mut value).range(0.0..=max).speed(0.1).custom_formatter(|v, _| if v == 0.0 { "unlimited".into() } else { format!("{v:.1}") }))
+                .on_hover_text(tr("Stop refining after this much rendering time (0 is no limit)"))
+                .changed()
+            {
+                prefs.pt_max_time_s = (value * per).clamp(0.0, MAX_RENDER_TIME_S);
+            }
+            egui::ComboBox::from_id_salt("pt_time_unit").selected_text(time_unit_label(unit)).width(80.0).show_ui(ui, |ui| {
+                for i in 0..TIME_UNITS.len() {
+                    ui.selectable_value(&mut prefs.pt_time_unit, i, time_unit_label(i));
+                }
+            });
+        });
+        ui.end_row();
     });
     ui.checkbox(&mut prefs.pt_denoise, tr("Denoise")).on_hover_text(tr("Edge-aware filter for a clean preview while samples are few"));
+    ui.checkbox(&mut prefs.pt_firefly, tr("Firefly filter")).on_hover_text(tr("Tone down rare, very bright speckles from bright lights seen through rough surfaces"));
     ui.checkbox(&mut prefs.pt_ground, tr("Ground shadow")).on_hover_text(tr("A gray floor under the model that catches its shadow"));
 }
 
@@ -594,6 +691,49 @@ mod tests {
         assert_eq!((s.max_bounces, s.max_samples, s.denoise, s.ground, s.paused), (7, 300, false, false, true));
         let wild = ViewportPrefs { pt_bounces: 0, pt_max_samples: u32::MAX, ..Default::default() }.path_trace_settings(false);
         assert_eq!((wild.max_bounces, wild.max_samples), (1, 1 << 16));
+    }
+
+    #[test]
+    fn the_new_rendering_settings_default_to_the_old_picture_and_reach_the_path_tracer() {
+        // Defaults (also for preference files written before these settings existed) keep the
+        // look the Rendering mode always had.
+        let old: ViewportPrefs = serde_json::from_str(r#"{"pt_bounces":5}"#).unwrap();
+        let s = old.path_trace_settings(false);
+        let d = subcraft_render::PathTraceSettings::default();
+        assert_eq!((s.min_samples, s.max_time_s, s.firefly_filter, s.clear_color, s.ground_settings), (0, 0.0, true, None, d.ground_settings));
+        assert_eq!(old.trace_size([800, 600]), old.render_size([800, 600]), "no override: the view's size");
+        // Every setting reaches the path tracer; colors are picked in sRGB and traced linear.
+        let p = ViewportPrefs {
+            pt_min_samples: 32,
+            pt_max_time_s: 90.0,
+            pt_firefly: false,
+            pt_clear: true,
+            pt_clear_color: [1.0, 0.5, 0.0],
+            pt_ground_offset: [0.5, -1.0, 2.0],
+            pt_ground_reflectivity: [0.5; 3],
+            pt_ground_glossiness: 0.8,
+            pt_ground_shadow: 0.25,
+            pt_ground_below: false,
+            pt_override: true,
+            pt_width: 1280,
+            pt_height: 720,
+            ..Default::default()
+        };
+        let s = p.path_trace_settings(false);
+        assert_eq!((s.min_samples, s.max_time_s, s.firefly_filter), (32, 90.0, false));
+        let clear = s.clear_color.unwrap();
+        assert!((clear[0] - 1.0).abs() < 1e-6 && (clear[1] - 0.214_041).abs() < 1e-4 && clear[2] == 0.0, "linear clear color {clear:?}");
+        let g = s.ground_settings;
+        assert_eq!((g.offset, g.glossiness, g.shadow_intensity, g.visible_from_below), ([0.5, -1.0, 2.0], 0.8, 0.25, false));
+        assert!((g.reflectivity[0] - 0.214_041).abs() < 1e-4);
+        assert_eq!(p.trace_size([800, 600]), [1280, 720]);
+        // Out-of-range and non-finite values are clamped, never passed on.
+        let wild = ViewportPrefs { pt_max_time_s: f32::NAN, pt_ground_glossiness: 7.0, pt_ground_shadow: -1.0, pt_override: true, pt_width: 0, pt_height: 99_999, ..Default::default() };
+        let s = wild.path_trace_settings(false);
+        assert_eq!((s.max_time_s, s.ground_settings.glossiness, s.ground_settings.shadow_intensity), (0.0, 1.0, 0.0));
+        assert_eq!(wild.trace_size([800, 600]), [16, MAX_TRACE_SIDE]);
+        assert_eq!(ViewportPrefs { pt_max_time_s: 1e9, ..Default::default() }.path_trace_settings(false).max_time_s, MAX_RENDER_TIME_S);
+        assert_eq!(TIME_UNITS, [1.0, 60.0, 3600.0]);
     }
 
     #[test]
