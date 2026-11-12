@@ -210,3 +210,28 @@ fn leaving_an_empty_quick_mask_removes_it_and_polygon_fill_paints_the_quick_mask
     assert_eq!(s.document(), &doc, "the fill layer gets no mask while the quick mask is edited");
     assert!(s.quick_mask().unwrap().image.allocated_tiles() > 0);
 }
+
+#[test]
+fn a_mask_started_by_kind_includes_everything_and_2d_clicks_default_to_uv_islands() {
+    let mut s = session();
+    s.execute(Command::AddLayer(NewLayer::Fill)).unwrap();
+    let layer = s.selection().layer.unwrap();
+    // Picked in the 2D view: a layer without a mask is masked to the island under the click.
+    s.set_new_mask_kind(PartKind::UvIsland);
+    let a = island_uv(&s, 4);
+    let part = s.part_at_uv(a).unwrap();
+    assert_eq!(part, 4, "the click is read as a UV island, not a connected piece");
+    s.toggle_layer_part(layer, part).unwrap();
+    let p = s.selected_layer().unwrap().parts.clone().unwrap();
+    assert_eq!((p.kind, p.parts.len()), (PartKind::UvIsland, 1));
+    // Started from the bar: every part of the kind is included, in one undo step.
+    let entries = s.history().entries().len();
+    s.begin_layer_parts(layer, PartKind::Connected).unwrap();
+    assert_eq!(s.history().entries().len(), entries + 1);
+    let p = s.selected_layer().unwrap().parts.clone().unwrap();
+    assert_eq!(p.kind, PartKind::Connected);
+    assert_eq!(p.parts.len(), s.parts(PartKind::Connected).len(), "everything included");
+    s.begin_layer_parts(layer, PartKind::UvIsland).unwrap();
+    assert_eq!(s.selected_layer().unwrap().parts.as_ref().unwrap().parts.len(), 6);
+}
+

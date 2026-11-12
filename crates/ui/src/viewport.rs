@@ -337,6 +337,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     // Geometry mask editing: a click shows / hides the layer on the part under the cursor, a drag
     // adds every part the box touches (Ctrl+drag removes them).
     if parts_picking && primary_pressed && response.hovered() && !alt && !stencil_edit && let Some(p) = pointer {
+        // A layer without a geometry mask gets one of the kind chosen in the Parts panel.
+        state.session.set_new_mask_kind(state.parts_kind);
         state.parts_box = Some(p);
     }
     if let Some(start) = state.parts_box {

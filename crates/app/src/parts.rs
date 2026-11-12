@@ -44,7 +44,21 @@ impl Session {
     /// Which kind of part the selected layer's geometry mask lists (connected pieces when it
     /// has none yet).
     fn mask_kind(&self) -> subcraft_core::PartKind {
-        self.selected_layer().and_then(|l| l.parts.as_ref()).map_or(subcraft_core::PartKind::Connected, |p| p.kind)
+        self.selected_layer().and_then(|l| l.parts.as_ref()).map_or(self.part_view.new_mask_kind, |p| p.kind)
+    }
+
+    /// The kind of part a click or box gives a layer that has no geometry mask yet: connected
+    /// pieces by default; the 2D view asks for UV islands.
+    pub fn set_new_mask_kind(&mut self, kind: subcraft_core::PartKind) {
+        self.part_view.new_mask_kind = kind;
+    }
+
+    /// Give the layer a geometry mask listing parts of `kind`, everything included (then clicks
+    /// and boxes exclude or include parts). Replaces a mask of another kind. One undo step.
+    pub fn begin_layer_parts(&mut self, layer: LayerId, kind: subcraft_core::PartKind) -> Result<(), CommandError> {
+        self.selected_texture_set().find(layer).ok_or(CommandError::LayerNotFound)?;
+        let all = self.mesh_parts_of_kind(kind);
+        self.execute(Command::SetParts { layer, parts: Some(PartMask::for_kind(kind, all)) })
     }
 
     fn region_in_mask_kind(&self, triangle: usize) -> Option<u32> {
@@ -116,7 +130,7 @@ impl Session {
                 p
             }
             Some(p) => PartMask::for_kind(p.kind, [part]),
-            None => PartMask::new([part]),
+            None => PartMask::for_kind(self.mask_kind(), [part]),
         };
         self.execute(Command::SetParts { layer, parts: Some(parts) })
     }

@@ -76,3 +76,55 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         if let Some((target, action)) = request { apply(state, target, action, now); }
     });
 }
+
+/// The geometry mask bar of the 3D and 2D views while a layer's geometry mask is edited: what the
+/// mask lists (connected pieces, UV islands, objects, material IDs), the included count, All /
+/// None / Invert, and Done. Choosing a kind starts a mask of that kind with everything included.
+pub fn mask_bar(ui: &mut Ui, state: &mut UiState) {
+    use subcraft_doc::PartMask;
+    let Some((id, parts)) = state.session.selected_layer().map(|l| (l.id, l.parts.clone())) else { return };
+    let slot = state.session.selected_texture_set().material_slot;
+    let now = ui.input(|i| i.time);
+    let current = parts.as_ref().map(|p| p.kind);
+    let mut start = None;
+    let mut set = None;
+    ui.label(RichText::new(format!("{}  Geometry mask by", crate::icons::POLYGON)).color(theme::ACCENT));
+    for kind in PartKind::ALL {
+        let tip = match kind {
+            PartKind::Connected => "Connected pieces of the mesh",
+            PartKind::UvIsland => "UV islands",
+            PartKind::Object => "Named objects of the model",
+            PartKind::Material => "Material IDs",
+        };
+        if ui.selectable_label(current == Some(kind), kind.label()).on_hover_text(tip).clicked() && current != Some(kind) {
+            start = Some(kind);
+        }
+    }
+    match &parts {
+        Some(p) => {
+            let all: std::collections::BTreeSet<u32> = state.session.parts(p.kind).iter().filter(|i| i.materials.contains(&slot)).map(|i| i.id).collect();
+            let shown = all.iter().filter(|part| p.parts.contains(part)).count();
+            ui.separator();
+            ui.label(RichText::new(format!("{shown} / {}", all.len())).color(theme::TEXT_DIM)).on_hover_text("Included parts of this texture set");
+            if ui.small_button(tr("All")).clicked() { set = Some(PartMask::for_kind(p.kind, all.clone())); }
+            if ui.small_button(tr("None")).clicked() { set = Some(PartMask::for_kind(p.kind, [])); }
+            if ui.small_button(tr("Invert")).clicked() { set = Some(PartMask::for_kind(p.kind, all.difference(&p.parts).copied())); }
+        }
+        None => {
+            ui.label(RichText::new("click a part or drag a box in the view").color(theme::TEXT_DIM));
+        }
+    }
+    ui.separator();
+    if ui.button(format!("{}  Done", crate::icons::CHECK)).on_hover_text("Leave geometry mask editing (Esc)").clicked() {
+        state.picking_parts = false;
+    }
+    let result = match (start, set) {
+        (Some(kind), _) => state.session.begin_layer_parts(id, kind),
+        (None, Some(mask)) => state.session.execute(subcraft_app::Command::SetParts { layer: id, parts: Some(mask) }),
+        _ => Ok(()),
+    };
+    if let Err(e) = result {
+        state.set_status(format!("Parts: {e}"), now);
+    }
+}
+

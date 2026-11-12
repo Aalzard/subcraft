@@ -46,6 +46,8 @@ pub(crate) struct PartView {
     /// Painter's "hide / ignore excluded geometry" (Alt+H) is on, and the geometry mask it hides
     /// by right now (material slot, mask): what the selected layer's geometry mask leaves out.
     hide_excluded: bool, excluded: Option<(u32, PartMask)>,
+    /// The kind of part a new geometry mask lists (the view being picked in chooses it).
+    pub(crate) new_mask_kind: PartKind,
     pub scene: Option<Scene>, revision: u64,
     catalog: [OnceLock<Vec<PartInfo>>; 4],
     visible: [OnceLock<BTreeSet<u32>>; 4],

@@ -85,6 +85,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         if painting_tool {
             crate::brush_bar::channel_switches(ui, state);
         }
+        if state.picking_parts {
+            ui.horizontal_wrapped(|ui| crate::panels::parts::mask_bar(ui, state));
+        }
     });
     let (rect, response) = ui.allocate_exact_size(ui.available_size(), Sense::click_and_drag());
     state.hovered_2d = response.hovered();
@@ -127,6 +130,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     // Picking parts for a geometry mask owns the clicks; otherwise the ID eyedropper, then tools.
     let id_eyedropper = !picking && id_pick_input(state, ui, &response, img_rect, ts_id);
     if picking {
+        // A layer without a geometry mask gets one by UV island when it is picked here.
+        if response.hovered() {
+            state.session.set_new_mask_kind(subcraft_core::PartKind::UvIsland);
+        }
         parts_input(state, ui, &response, img_rect);
     } else if !id_eyedropper && !stencil_edit {
         paint_input(state, ui, &response, img_rect, resolution, ts_id, view, lmb_adjust);
