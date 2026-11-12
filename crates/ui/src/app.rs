@@ -8,7 +8,7 @@ use std::collections::HashSet;
 use egui::{RichText, Ui};
 use egui_dock::{DockArea, DockState, NodeIndex};
 use serde::{Deserialize, Serialize};
-use subcraft_app::{Action, Command, Key, NewLayer, Session, Shortcut, action_for};
+use subcraft_app::{Action, Command, Key, NewLayer, Session, Shortcut};
 use subcraft_core::{ChannelKind, ChannelValue};
 use subcraft_doc::{FillChannel, FillSource, Generator, GeneratorKind, LayerContent, MaskEffectKind, ProceduralKind, ProceduralParams};
 
@@ -1128,6 +1128,9 @@ impl SubcraftApp {
     }
 
     fn shortcuts(&mut self, ctx: &egui::Context) {
+        if self.state.recovery.capture.is_some() {
+            return; // Settings > Shortcuts takes the next key (and the Tab press) itself.
+        }
         if ctx.egui_wants_keyboard_input() || self.state.modal_open() {
             self.state.tab_pressed = false;
             return;
@@ -1146,13 +1149,13 @@ impl SubcraftApp {
                 })
                 .collect()
         });
-        let keymap = self.state.recovery.prefs.keymap;
+        let keymap = self.state.recovery.prefs.keys();
         let mut pressed = pressed;
         if std::mem::take(&mut self.state.tab_pressed) {
             pressed.push(Shortcut::key(Key::Tab));
         }
         for s in pressed {
-            if let Some(a) = action_for(keymap, s) {
+            if let Some(a) = keymap.action_for(s) {
                 self.perform(a, ctx.input(|i| i.time));
             }
         }
@@ -1276,7 +1279,7 @@ impl SubcraftApp {
     /// Top bar: brand, menus, project name, then undo/redo and the main actions on the right.
     fn header_bar(&mut self, ui: &mut Ui) {
         let now = ui.input(|i| i.time);
-        let km = self.state.recovery.prefs.keymap;
+        let km = &self.state.recovery.prefs.keys();
         let bar = ui.max_rect();
         let frameless = crate::window_frame::frameless();
         // Empty parts of the header move the window (registered first so widgets stay on top).
@@ -1336,7 +1339,7 @@ impl SubcraftApp {
 
     /// Vertical tool strip left of the dock area.
     fn tool_rail(&mut self, ui: &mut Ui) {
-        let km = self.state.recovery.prefs.keymap;
+        let km = &self.state.recovery.prefs.keys();
         ui.spacing_mut().item_spacing.y = 2.0;
         ui.add_space(6.0);
         ui.vertical_centered(|ui| {
@@ -1380,7 +1383,7 @@ impl SubcraftApp {
 
     fn menu(&mut self, ui: &mut Ui) -> f32 {
         let now = ui.input(|i| i.time);
-        let km = self.state.recovery.prefs.keymap;
+        let km = &self.state.recovery.prefs.keys();
         egui::MenuBar::new().ui(ui, |ui| {
             let item = |ui: &mut Ui, icon: &str, label: &str, sc: &str| ui.add(egui::Button::new(format!("{icon}   {label}")).shortcut_text(sc)).clicked();
             // Same top menus as Painter: File, Edit, Mode, Window, Viewport, Plugins, Help.
@@ -1772,11 +1775,15 @@ impl SubcraftApp {
     }
 
     fn shortcuts_window(&mut self, ctx: &egui::Context) {
-        // Preferences > "Show all keyboard shortcuts…".
+        // "Show all keyboard shortcuts…" buttons.
         if ctx.data_mut(|d| d.remove_temp::<bool>(egui::Id::new("open_shortcuts_window"))).unwrap_or(false) {
             self.state.show_shortcuts = true;
         }
         crate::shortcuts_window::show(&mut self.state, ctx);
+        if ctx.data_mut(|d| d.remove_temp::<bool>(egui::Id::new("open_settings_shortcuts"))).unwrap_or(false) {
+            self.state.recovery.show_prefs = true;
+            self.state.recovery.prefs_tab = crate::recovery::SettingsTab::Shortcuts;
+        }
     }
 
     /// A scripted Rendering-mode capture waits for its samples (or for the mode to give up).
@@ -1853,13 +1860,13 @@ pub(crate) fn take_tab_press(events: &mut Vec<egui::Event>, typing: bool) -> boo
     pressed
 }
 
-/// Menu / tooltip text with the action's first binding in the active key table.
-fn sc(km: subcraft_app::KeymapPreset, a: Action) -> String {
-    crate::keys::native_string(subcraft_app::label_in(km, a))
+/// Menu / tooltip text with the action's first binding (the user's rebinds included).
+fn sc(km: &subcraft_app::Keymap, a: Action) -> String {
+    crate::keys::native_string(km.label(a))
 }
 
-/// `"Brush (B)"`; just the label when the action has no key in this table.
-fn tip(km: subcraft_app::KeymapPreset, label: &str, a: Action) -> String {
+/// `"Brush (B)"`; just the label when the action has no key.
+fn tip(km: &subcraft_app::Keymap, label: &str, a: Action) -> String {
     let s = sc(km, a);
     if s.is_empty() { label.to_string() } else { format!("{label} ({s})") }
 }
@@ -2035,6 +2042,10 @@ impl eframe::App for SubcraftApp {
                 // Scripted capture: Preferences with the language dropdown open (CJK native names).
                 self.state.recovery.show_prefs = true;
                 ctx.data_mut(|d| d.insert_temp(egui::Id::new("capture_language_picker"), true));
+            } else if which == "settings-shortcuts" {
+                // Scripted capture: Settings > Shortcuts (the saved preferences are not touched).
+                self.state.recovery.prefs_tab = crate::recovery::SettingsTab::Shortcuts;
+                self.state.recovery.show_prefs = true;
             } else {
                 scripted_tool_capture(&mut self.state, &which, ctx.input(|i| i.time));
             }

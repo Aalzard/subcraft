@@ -236,13 +236,13 @@ Layout notes: a scrolling list of action name and current binding with a pen ico
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Shortcuts tab in Settings | Edit > Settings > Shortcuts | - | partial: read-only list in Help > Keyboard shortcuts | crates/ui/src/shortcuts_window.rs:68 | - |
-| Pen icon starts editing a binding | Settings > Shortcuts row | - | missing | - | - |
-| Pressing the last key ends editing and stores the combination | Settings > Shortcuts row | - | missing | - | - |
-| Right-click a shortcut to reset it to default | Settings > Shortcuts row | - | missing | - | - |
-| Mouse buttons with modifiers can be bound | Settings > Shortcuts row | - | missing | - | - |
-| Actions with no default key can be given one | Settings > Shortcuts row | - | missing | - | - |
-| Custom bindings saved with the application preferences | Preferences store | - | partial: only the chosen key set is saved | crates/ui/src/recovery.rs:44 | - |
-| Non-editable shortcuts listed separately | Settings > Shortcuts | - | partial: one list, plus a mouse and hold-keys list | crates/ui/src/shortcuts_window.rs:112 | - |
+| Shortcuts tab in Settings | Edit > Settings > Shortcuts | - | done | crates/ui/src/recovery.rs (SettingsTab::Shortcuts) | TBD-37 |
+| Pen icon starts editing a binding | Settings > Shortcuts row | - | done | crates/ui/src/shortcut_editor.rs (Capture) | TBD-37 |
+| Pressing the last key ends editing and stores the combination | Settings > Shortcuts row | - | done | crates/ui/src/shortcut_editor.rs (read_key) | TBD-37 |
+| Right-click a shortcut to reset it to default | Settings > Shortcuts row | - | done | crates/ui/src/shortcut_editor.rs (row context menu) | TBD-37 |
+| Mouse buttons with modifiers can be bound | Settings > Shortcuts row | - | partial: the six camera gestures (rotate, snap rotate, translate, zoom, environment, light) in Painter navigation; brush size / flow drags stay fixed | crates/ui/src/nav.rs (MouseBindings) | TBD-37 |
+| Actions with no default key can be given one | Settings > Shortcuts row | - | done | crates/app/src/keymap.rs (Keymap::bind) | TBD-37 |
+| Custom bindings saved with the application preferences | Preferences store | - | done | crates/ui/src/recovery.rs (custom_keys, custom_mouse) | TBD-37 |
+| Non-editable shortcuts listed separately | Settings > Shortcuts | - | done | crates/ui/src/shortcut_editor.rs (Not editable list) | TBD-37 |
 | Search field in the list | Settings > Shortcuts | (unverified) | done | crates/ui/src/shortcuts_window.rs:80 | - |
 | Keyboard helper in the viewport corner while a modifier is held | Viewport, bottom left | on (unverified) | done | crates/ui/src/viewport_hints.rs:72 | - |

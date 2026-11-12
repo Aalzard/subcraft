@@ -5464,3 +5464,21 @@ the app kept drawing on the dead device. Safe mode works; 0.3.3's marker only he
   * Shader-only undo, and import of shader parameter JSON.
   * The path tracer ignores the instance parameters.
   * Alpha settings stay on the texture set (#198) rather than moving into the instance.
+
+### Parity chunk 37 - Editable shortcut editor (2026-11-12, branch `claude/parity-shortcut-editor`)
+
+* **Done:** Edit > Settings has General and Shortcuts pages. Shortcuts: key set, every action with its keys, keyboard
+  button (replace with the next combination, Esc cancels), + (add), x on a key (remove), right-click or reset arrow (default),
+  Reset all, search, the six Painter-navigation camera gestures rebound by clicking a capture pad with the new button
+  and modifiers, and the fixed gestures listed as not editable. `subcraft_app::Keymap` = key set + `CustomKeys`; a
+  rebound key wins over the key set's binding of the same key, so it leaves the old action without editing it.
+  `nav::MouseBindings` does the same for camera gestures (`mode_with`). Both are saved in the preferences by name
+  (unknown names and unreadable keys are skipped). Menus, tooltips, the viewport hints, Help > Keyboard shortcuts and
+  the F2 rename check use the rebinds. Global shortcuts are off while the editor waits for a key.
+* **Tests:** `keymap.rs` (labels and names read back, no-rebind keymap equals the key set, moving a key, reset,
+  adding a key to a keyless action, save / load with unknown names), `nav.rs` (default combinations, rebinding and
+  displacement, Blender ignores rebinds, save / load), `shortcut_editor.rs` (capture reads one key, Esc cancels, Tab
+  through the Tab flag; captured keys and clicks survive a preferences save and older files load), viewport hints with a
+  rebound key. Local: not compiled locally (the PC's compiler crashed twice under load); CI compiles and tests.
+* **Not done:** brush size / flow drags are not rebindable; the Settings window has no Libraries page; not tried in the
+  running app.
