@@ -233,6 +233,27 @@ fn mask_anchors_and_folder_anchors() {
     assert_color(get(&ts, &fx, C, 100, 10), base_color_default(), "folder anchor outside the child");
 }
 
+/// QA 2026-11: a reference to an anchor of the same mask rebuilt that mask to find the anchor,
+/// which rebuilt it again: the composite overflowed the stack.
+#[test]
+fn a_reference_to_an_anchor_of_the_same_mask_reads_it() {
+    let fx = Fixture::plane();
+    let mut ts = set();
+    let tc = ts.clone();
+    // Mask: 0.6, anchor (holds 0.6), invert (0.4), then a reference to the anchor (0.6 again).
+    let mut l = dirt(&tc, AnchorInput::new(EffectId::new(), H));
+    let m = l.mask.as_mut().unwrap();
+    m.effects.clear();
+    m.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Fill { value: 0.6, procedural: None, projection: Projection::default() })));
+    let a = MaskEffect::new(MaskEffectKind::Anchor);
+    let anchor = a.id;
+    m.effects.push(Arc::new(a));
+    m.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Invert)));
+    m.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::AnchorRef { input: AnchorInput::new(anchor, H), levels: None })));
+    ts.insert_above(None, l);
+    assert_color(get(&ts, &fx, C, 70, 70), mixed(0.6), "the reference reads the 0.6 held by the anchor below it");
+}
+
 /// A generator's input image: the anchored height replaces the baked map it thresholds.
 #[test]
 fn generator_reads_an_anchor_instead_of_the_baked_map() {
