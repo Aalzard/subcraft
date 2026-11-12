@@ -199,3 +199,63 @@ mod tests {
         assert_eq!(mosaic_source(5, 6, 1, 64), (5, 6));
     }
 }
+
+/// FXAA (a compact variant of the edge-directed anti-aliasing filter): where the luminance
+/// contrast of a texel against its four neighbours is high enough to be an edge, the texel is
+/// blended toward its neighbour across the edge, more where it stands out from the neighbours'
+/// mean (a one-texel step) and less on wide gradients. `read(dx, dy)` returns straight texels;
+/// `alpha` also blends the coverage (else the texel keeps its own).
+pub fn fxaa(read: impl Fn(i32, i32) -> [f32; 4], alpha: bool, kind: ChannelKind) -> [f32; 4] {
+    let luma = |p: [f32; 4]| if kind.is_color() { p[0] * 0.2126 + p[1] * 0.7152 + p[2] * 0.0722 } else { p[0] };
+    let c = read(0, 0);
+    let (n, s, w, e) = (read(0, -1), read(0, 1), read(-1, 0), read(1, 0));
+    let (lc, ln, ls, lw, le) = (luma(c), luma(n), luma(s), luma(w), luma(e));
+    let hi = lc.max(ln).max(ls).max(lw).max(le);
+    let lo = lc.min(ln).min(ls).min(lw).min(le);
+    let range = hi - lo;
+    // Edge thresholds of the reference implementation (relative 1/8, absolute 1/32).
+    if range < (hi * 0.125).max(0.0312) {
+        return c;
+    }
+    // A horizontal edge (luminance changes vertically) blends with the texel above or below.
+    let horizontal = (ln + ls - 2.0 * lc).abs() >= (lw + le - 2.0 * lc).abs();
+    let (a, b, la, lb) = if horizontal { (n, s, ln, ls) } else { (w, e, lw, le) };
+    let across = if (la - lc).abs() >= (lb - lc).abs() { a } else { b };
+    let sub = (((ln + ls + lw + le) * 0.25 - lc).abs() / range).clamp(0.0, 1.0);
+    let t = (sub * sub * (3.0 - 2.0 * sub)).powi(2) * 0.75;
+    let mut out = c;
+    for i in 0..3 {
+        out[i] = c[i] + (across[i] - c[i]) * t;
+    }
+    if alpha {
+        out[3] = c[3] + (across[3] - c[3]) * t;
+    }
+    out
+}
+
+#[cfg(test)]
+mod fxaa_tests {
+    use super::*;
+
+    #[test]
+    fn fxaa_softens_a_one_texel_step_and_leaves_flat_areas_and_gradients() {
+        // A lone bright texel in a dark field: blended toward a neighbour by 0.75.
+        let lone = |dx: i32, dy: i32| if dx == 0 && dy == 0 { [1.0, 1.0, 1.0, 1.0] } else { [0.0, 0.0, 0.0, 1.0] };
+        let v = fxaa(lone, false, ChannelKind::Roughness);
+        assert!((v[0] - 0.25).abs() < 1e-6, "{v:?}");
+        // Flat: unchanged.
+        let flat = |_: i32, _: i32| [0.4, 0.4, 0.4, 1.0];
+        assert_eq!(fxaa(flat, false, ChannelKind::Roughness), [0.4, 0.4, 0.4, 1.0]);
+        // A smooth ramp (the centre is its neighbours' mean): no blending.
+        let ramp = |dx: i32, _: i32| { let v = 0.5 + 0.1 * dx as f32; [v, v, v, 1.0] };
+        assert_eq!(fxaa(ramp, false, ChannelKind::Roughness)[0], 0.5);
+        // A vertical edge one texel off the centre blends horizontally, toward the bright side.
+        let edge = |dx: i32, _: i32| if dx > 0 { [1.0, 1.0, 1.0, 1.0] } else { [0.0, 0.0, 0.0, 1.0] };
+        let v = fxaa(edge, false, ChannelKind::Roughness);
+        assert!(v[0] > 0.0 && v[0] < 0.5, "{v:?}");
+        // Coverage moves only with `alpha`.
+        let holes = |dx: i32, dy: i32| if dx == 0 && dy == 0 { [1.0, 1.0, 1.0, 1.0] } else { [0.0, 0.0, 0.0, 0.0] };
+        assert_eq!(fxaa(holes, false, ChannelKind::Roughness)[3], 1.0);
+        assert!((fxaa(holes, true, ChannelKind::Roughness)[3] - 0.25).abs() < 1e-6);
+    }
+}

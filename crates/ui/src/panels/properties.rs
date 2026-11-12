@@ -502,7 +502,7 @@ fn editor_blend_row(ui: &mut Ui, id: &str, mode: &mut subcraft_doc::BlendMode) -
     let mut changed = false;
     prop_row(ui, tr("Blending Mode"), |ui| {
         egui::ComboBox::from_id_salt(("editor_blend", id)).selected_text(mode.label()).show_ui(ui, |ui| {
-            for m in subcraft_doc::BlendMode::available(false, false) {
+            for m in subcraft_doc::BlendMode::available_for_effect(false) {
                 changed |= ui.selectable_value(mode, m, m.label()).changed();
             }
         });
@@ -708,7 +708,7 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
             if !matches!(eff.kind, MaskEffectKind::Anchor) {
             prop_row(ui, tr("Blend"), |ui| {
                 egui::ComboBox::from_id_salt(("effect_blend", eff.id)).selected_text(eff.blend.label()).show_ui(ui, |ui| {
-                    for mode in subcraft_doc::BlendMode::available(false, false) {
+                    for mode in subcraft_doc::BlendMode::available_for_effect(false) {
                         changed |= ui.selectable_value(&mut eff.blend, mode, mode.label()).changed();
                     }
                 });

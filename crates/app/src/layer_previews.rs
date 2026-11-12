@@ -330,7 +330,9 @@ fn evaluate(key: PreviewKey, source: &Source) -> LayerPreview {
             }
         } else {
             let index=layer.content_effects.iter().position(|e|e.id==id).expect("validated effect");
-            if let ContentEffectKind::Filter {channel:target,..} | ContentEffectKind::Levels {channel:target,..}=layer.content_effects[index].kind {channel=target;}
+            // A filter stage previews the view channel when it processes it, else its own channel.
+            if !layer.content_effects[index].applies_to(channel)
+                && let ContentEffectKind::Filter {channel:target,..} | ContentEffectKind::Levels {channel:target,..}=layer.content_effects[index].kind {channel=target;}
             layer.content_effects.truncate(index+1);
         }
     }

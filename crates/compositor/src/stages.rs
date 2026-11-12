@@ -438,7 +438,7 @@ impl<'a> Graph<'a> {
             let usable = effect.visible
                 && effect.blend_for(kind).is_active()
                 && !matches!(effect.kind, ContentEffectKind::Anchor)
-                && !matches!(effect.kind, ContentEffectKind::Filter {channel,..} | ContentEffectKind::Levels {channel,..} if channel != kind);
+                && effect.applies_to(kind);
             let filtered = match effect.kind {
                 ContentEffectKind::Filter { filter, .. } if usable => {
                     if !filter.valid() || !filter.supports_channel(kind) {
@@ -606,6 +606,31 @@ impl<'a> Graph<'a> {
                 kind,
                 radius: radius * self.radius_scale,
             }));
+        }
+        // Drop Shadow / Glow: the coverage moved by the offset, then blurred; `spatial_value`
+        // puts it under the content.
+        if let Some(([dx, dy], size)) = filter.shadow_geometry() {
+            let (dx, dy, size) = (dx * self.radius_scale, dy * self.radius_scale, size * self.radius_scale);
+            let mut node = input;
+            if dx != 0.0 || dy != 0.0 {
+                let res = self.ctx.geometry.resolution.max(1) as f32;
+                let shift = Filter::Transform {
+                    repeat: subcraft_doc::RepeatMode::None,
+                    flip: subcraft_doc::FlipMode::None,
+                    scale: [1.0; 2],
+                    offset: [dx / res, dy / res],
+                    rotation_deg: 0.0,
+                    tile_safe: false,
+                };
+                let support = dx.abs().max(dy.abs()).ceil() as u32 + 1;
+                node = self.push(Node::Pixelwise { input: node, filter: shift, kind, support });
+            }
+            if size > 0.0 {
+                let weights = Arc::new(subcraft_materials::filter::gaussian_weights(size));
+                let h = self.push(Node::Gaussian { input: node, weights: weights.clone(), horizontal: true, wrap: false });
+                node = self.push(Node::Gaussian { input: h, weights, horizontal: false, wrap: false });
+            }
+            return Some(node);
         }
         // A uniform image is unchanged by any of these, except by Edge Detect (0 on a flat input)
         // and by a Transform that leaves part of the texture empty: those must still be evaluated.
@@ -831,18 +856,19 @@ impl<'a> Graph<'a> {
         } else {
             None
         };
-        let passthrough = matches!(layer.content, LayerContent::Group(_))
-            && layer.blend_for(kind).mode == BlendMode::Passthrough;
+        // Folders and, like Painter, paint / fill layers: in Passthrough the stack below is the
+        // layer's content (its own paint or fill is not used) and its effects process it.
+        let passthrough = layer.blend_for(kind).mode == BlendMode::Passthrough;
         let input = if self.anchors.is_some() && !passthrough {
             // Shared with any anchor captured in this stack.
             *self.isolated_content(layer, kind).last().expect("chain has a base")
         } else {
             let base = match &layer.content {
-                LayerContent::Group(_) if passthrough => below,
+                _ if passthrough => below,
                 LayerContent::Group(_) => self.push(Node::Constant([0.0; 4])),
                 _ => usize::MAX,
             };
-            let base = self.content_base(layer, kind, base);
+            let base = if passthrough && !layer.is_folder() { base } else { self.content_base(layer, kind, base) };
             self.content_effects(layer, kind, base, None)
         };
         if let Some(a) = self.anchors.as_mut() {
@@ -1296,11 +1322,15 @@ impl<'a> Graph<'a> {
             } => {
                 use subcraft_materials::filter::contour;
                 let threshold = match filter {
-                    Filter::Bevel { threshold, .. } | Filter::MaskOutline { threshold, .. } => {
-                        *threshold
-                    }
+                    Filter::Bevel { threshold, .. }
+                    | Filter::MaskOutline { threshold, .. }
+                    | Filter::BevelShape { threshold, .. }
+                    | Filter::MaskOutlineShape { threshold, .. } => *threshold,
                     _ => unreachable!(),
                 };
+                let outline = filter.outline_parts().map(|o| o.position);
+                // Angular bevels measure the larger axis distance (square corners).
+                let angular = matches!(filter, Filter::BevelShape { corner: subcraft_doc::BevelCorner::Angular, .. });
                 let source = self.get(*input, tile);
                 if self.uniform[*input] {
                     let v = contour::value(
@@ -1326,23 +1356,15 @@ impl<'a> Graph<'a> {
                     .map(|(x, y)| contour::inside(grid.pixel(x, y), *kind, threshold))
                     .collect();
                 // Only the requested side(s) need a distance field. No full-resolution dense cache.
-                let inner = (!matches!(
-                    filter,
-                    Filter::MaskOutline {
-                        position: subcraft_doc::OutlinePosition::Outer,
-                        ..
+                let field = |feature: bool| {
+                    if angular {
+                        contour::squared_chebyshev(&classes, width, height, feature, support as usize + 1)
+                    } else {
+                        contour::squared_distance(&classes, width, height, feature)
                     }
-                ))
-                .then(|| contour::squared_distance(&classes, width, height, false));
-                let outer = matches!(
-                    filter,
-                    Filter::MaskOutline {
-                        position: subcraft_doc::OutlinePosition::Outer
-                            | subcraft_doc::OutlinePosition::Both,
-                        ..
-                    }
-                )
-                .then(|| contour::squared_distance(&classes, width, height, true));
+                };
+                let inner = (outline != Some(subcraft_doc::OutlinePosition::Outer)).then(|| field(false));
+                let outer = matches!(outline, Some(subcraft_doc::OutlinePosition::Outer | subcraft_doc::OutlinePosition::Both)).then(|| field(true));
                 let mut out = source.as_ref().clone();
                 for (i, p) in out.iter_mut().enumerate() {
                     let (x, y) = geo.texel_xy(i);
@@ -1439,6 +1461,14 @@ impl<'a> Graph<'a> {
                                 Some(q) => unpremultiply(grid.premultiplied_wrapped(q[0] * res as f32 - 0.5, q[1] * res as f32 - 0.5, repeats)),
                                 None => [0.0; 4],
                             }
+                        }
+                        Filter::Fxaa { alpha } => {
+                            let read = |dx: i32, dy: i32| {
+                                let px = (x as i32 + dx).clamp(0, res as i32 - 1) as u32;
+                                let py = (y as i32 + dy).clamp(0, res as i32 - 1) as u32;
+                                grid.pixel(px, py)
+                            };
+                            pw::fxaa(read, alpha, *kind)
                         }
                         Filter::Mirror { mode, offset, invert_x, invert_y, corner } => {
                             let uv = [(x as f32 + 0.5) / res as f32, (y as f32 + 0.5) / res as f32];
@@ -1726,6 +1756,9 @@ fn spatial_value(
 ) -> [f32; 4] {
     match filter {
         Filter::Bevel { .. } | Filter::MaskOutline { .. } | Filter::Median { .. } => blurred,
+        Filter::BevelShape { .. } | Filter::MaskOutlineShape { .. } | Filter::Fxaa { .. } => blurred,
+        Filter::DropShadow { spread, opacity, color, .. } => under(source, blurred, spread, opacity, false, color, kind),
+        Filter::OuterGlow { spread, opacity, color, precise, .. } => under(source, blurred, spread, opacity, precise, color, kind),
         Filter::Blur { radius: 0.0 }
         | Filter::BlurWrap { radius: 0.0 }
         | Filter::Sharpen { radius: 0.0, .. }
@@ -1770,6 +1803,29 @@ fn spatial_value(
         _ => source,
     }
 }
+/// Drop Shadow / Glow: `shape` (the moved and blurred source) widened by `spread`, at
+/// `opacity`, placed under `source`. Colour channels use the coverage and `color`; scalar
+/// channels (and masks) use the blurred value, brightening toward the colour's luminance.
+fn under(source: [f32; 4], shape: [f32; 4], spread: f32, opacity: f32, precise: bool, color: [f32; 3], kind: ChannelKind) -> [f32; 4] {
+    let gain = 1.0 / (1.0 - spread.clamp(0.0, 0.99)) * if precise { 2.0 } else { 1.0 };
+    if kind.is_color() {
+        let a = (shape[3] * gain).clamp(0.0, 1.0) * opacity;
+        let out_a = source[3] + a * (1.0 - source[3]);
+        let mut out = [0.0, 0.0, 0.0, out_a];
+        if out_a > 1e-12 {
+            for c in 0..3 {
+                out[c] = (source[c] * source[3] + color[c] * a * (1.0 - source[3])) / out_a;
+            }
+        }
+        out
+    } else {
+        let a = (shape[0] * shape[3] * gain).clamp(0.0, 1.0) * opacity;
+        let g = color[0] * LUMA[0] + color[1] * LUMA[1] + color[2] * LUMA[2];
+        let v = source[0] + (g - source[0]).max(0.0) * a;
+        [v, v, v, source[3]]
+    }
+}
+
 /// Rec. 709 weights for reading a color channel as gray.
 const LUMA: [f32; 3] = [0.2126, 0.7152, 0.0722];
 
@@ -1869,7 +1925,8 @@ pub(crate) fn has_spatial(layers: &[Arc<Layer>]) -> bool {
     layers.iter().filter(|l|l.visible).any(|l| {
         micro_layer(l) ||
         l.content_effects.iter().any(
-            |e| e.visible && matches!(e.kind,ContentEffectKind::Filter{channel,filter} if filter.valid() && filter.supports_channel(channel) && e.blend_for(channel).is_active() && filter.radius().is_some()),
+            |e| e.visible && matches!(e.kind,ContentEffectKind::Filter{filter,..} if filter.valid() && filter.radius().is_some())
+                && e.filter_channels().into_iter().any(|c| e.blend_for(c).is_active()),
         ) || l.mask.as_ref().filter(|m|m.enabled).is_some_and(mask_spatial)
             || matches!(&l.content,LayerContent::Group(g) if has_spatial(&g.children))
     })
