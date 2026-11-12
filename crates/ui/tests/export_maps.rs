@@ -5,7 +5,7 @@ use subcraft_ui::state::UiState;
 
 fn frame(state: &mut UiState, ctx: &egui::Context, events: Vec<egui::Event>, _modifiers: egui::Modifiers) -> egui::FullOutput {
     let mut out = ctx.run_ui(
-        egui::RawInput { events, screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(900.0, 900.0))), ..Default::default() },
+        egui::RawInput { events, screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1000.0, 1400.0))), ..Default::default() },
         |ui| subcraft_ui::dialogs::export_window(state, ui.ctx(), 0.0),
     );
     out.textures_delta.clear();
