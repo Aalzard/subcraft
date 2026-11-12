@@ -5033,3 +5033,6 @@ the app kept drawing on the dead device. Safe mode works; 0.3.3's marker only he
   (headless: frames draw, simulated loss → marker on disk before the next frame, next start decided safe, no frame
   drawn again, one recovery save, one restart, renderer panic recognised); `crates/render/tests/device_lost.rs`
   (after a loss no more submissions, CPU result identical); `gpu_composite` many-small-submissions == one.
+* **Results (local, release, this PC's GPU):** `subcraft-app` lib 98 passed, `subcraft-render` lib 23 passed, render
+  `device_lost` 1 passed, `gpu_composite` 7 passed (incl. many-small-submissions), `subcraft-ui` lib 129 passed, ui
+  `device_lost` 1 passed; 0 failed. The full UI/workspace suite is left to CI (speed rule). Not verified on an AMD APU.
