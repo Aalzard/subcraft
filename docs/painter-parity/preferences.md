@@ -10,7 +10,7 @@ Layout notes: Edit > Settings opens one window with three sections chosen on the
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
 | Settings window | Edit > Settings | - | partial: Edit > Settings with General and Shortcuts pages; no Libraries page | crates/ui/src/recovery.rs (preferences_window) | #209 |
-| General section | Settings | first section | partial: Settings > General page; Painter options added here, other SubCraft options share the page | crates/ui/src/recovery.rs (general_view_settings) | TBD-38 |
+| General section | Settings | first section | partial: Settings > General page; Painter options added here, other SubCraft options share the page | crates/ui/src/recovery.rs (general_view_settings) | #210 |
 | Shortcuts section | Settings | - | done: key set, editable keys, camera mouse gestures, the fixed list | crates/ui/src/shortcut_editor.rs | #209 |
 | Libraries section | Settings | - | missing | - | - |
 
@@ -26,9 +26,9 @@ Layout notes: Edit > Settings opens one window with three sections chosen on the
 | Language value: Japanese | Settings > General > Interface | - | missing | - | - |
 | Language value: Chinese (simplified) | Settings > General > Interface | - | partial: Traditional Chinese only | crates/ui/src/i18n.rs:38 | - |
 | Show keyboard helper | Settings > General > Interface | not documented | partial: toggle is View > Viewport hints, not in Preferences | crates/ui/src/app.rs:1263 | - |
-| Show world axes | Settings > General > Interface | not documented | done: corner X / Y / Z gizmo, off by default | crates/ui/src/world_axes.rs | TBD-38 |
-| Background color (first gradient colour) | Settings > General > Interface | not documented | done: top colour of the 3D view background | crates/render/src/viewport.wgsl (fs_background) | TBD-38 |
-| Background color (second gradient colour) | Settings > General > Interface | not documented | done: bottom colour; Rendering mode keeps its own background | crates/render/src/viewport.wgsl (fs_background) | TBD-38 |
+| Show world axes | Settings > General > Interface | not documented | done: corner X / Y / Z gizmo, off by default | crates/ui/src/world_axes.rs | #210 |
+| Background color (first gradient colour) | Settings > General > Interface | not documented | done: top colour of the 3D view background | crates/render/src/viewport.wgsl (fs_background) | #210 |
+| Background color (second gradient colour) | Settings > General > Interface | not documented | done: bottom colour; Rendering mode keeps its own background | crates/render/src/viewport.wgsl (fs_background) | #210 |
 | Only display the selected material when painting | Settings > General > Interface | off recommended | missing | - | - |
 | Viewport Scaling | Settings > General > Interface | None or Auto | partial: render resolution 100 / 75 / 50 / 25 % in the 3D view toolbar | crates/ui/src/viewport_bar.rs:347 | - |
 | Viewport Scaling value: None | Settings > General > Interface | native resolution | partial: 100 % | crates/ui/src/viewport_bar.rs:12 | - |
@@ -38,18 +38,18 @@ Layout notes: Edit > Settings opens one window with three sections chosen on the
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Default UV scale for materials | Settings > General > Layer stack | not documented | partial: UV tiling of new fill layers; smart materials and shelf drops keep their own scale | crates/app/src/session.rs (default_uv_scale) | TBD-38 |
+| Default UV scale for materials | Settings > General > Layer stack | not documented | partial: UV tiling of new fill layers; smart materials and shelf drops keep their own scale | crates/app/src/session.rs (default_uv_scale) | #210 |
 | Use simplified thumbnails | Settings > General > Layer stack | not documented | missing | - | - |
 
 ## General: Camera options
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Rotation speed | Settings > General > Camera | multiplier; not documented | done: 0.1 to 5 | crates/ui/src/nav.rs (CameraSpeed) | TBD-38 |
-| Zoom speed | Settings > General > Camera | multiplier; not documented | done: 0.1 to 5 (zoom drag) | crates/ui/src/nav.rs (CameraSpeed) | TBD-38 |
-| Zoom speed: Inverse direction | Settings > General > Camera | not documented | done | crates/ui/src/nav.rs (CameraSpeed) | TBD-38 |
-| Wheel speed | Settings > General > Camera | multiplier; not documented | done: 0.1 to 5 | crates/ui/src/nav.rs (CameraSpeed) | TBD-38 |
-| Wheel speed: Inverse direction | Settings > General > Camera | not documented | done | crates/ui/src/nav.rs (CameraSpeed) | TBD-38 |
+| Rotation speed | Settings > General > Camera | multiplier; not documented | done: 0.1 to 5 | crates/ui/src/nav.rs (CameraSpeed) | #210 |
+| Zoom speed | Settings > General > Camera | multiplier; not documented | done: 0.1 to 5 (zoom drag) | crates/ui/src/nav.rs (CameraSpeed) | #210 |
+| Zoom speed: Inverse direction | Settings > General > Camera | not documented | done | crates/ui/src/nav.rs (CameraSpeed) | #210 |
+| Wheel speed | Settings > General > Camera | multiplier; not documented | done: 0.1 to 5 | crates/ui/src/nav.rs (CameraSpeed) | #210 |
+| Wheel speed: Inverse direction | Settings > General > Camera | not documented | done | crates/ui/src/nav.rs (CameraSpeed) | #210 |
 
 ## General: Baking options
 
@@ -71,7 +71,7 @@ Layout notes: Edit > Settings opens one window with three sections chosen on the
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Cache directory | Settings > General > Temporary Files | overridable by SUBSTANCE_PAINTER_TEMP_LOCATION | partial: Cache folder for the Painter import cache and update downloads; no environment override | crates/app/src/recovery.rs (cache_dir) | TBD-38 |
+| Cache directory | Settings > General > Temporary Files | overridable by SUBSTANCE_PAINTER_TEMP_LOCATION | partial: Cache folder for the Painter import cache and update downloads; no environment override | crates/app/src/recovery.rs (cache_dir) | #210 |
 | Hardware support acceleration | Settings > General > Sparse virtual textures | overridable by SUBSTANCE_PAINTER_SVT_HARDWARE_ACCELERATION | missing | - | - |
 | Iray hardware: CPU tick box | Settings > General > Iray hardware | listed on every computer | n/a | - | - |
 | Iray hardware: one tick box per CUDA GPU | Settings > General > Iray hardware | listed when present | n/a | - | - |
