@@ -196,10 +196,14 @@ fn handle(state: &mut UiState, purpose: Purpose, paths: &[PathBuf], now: f64) {
         Purpose::NewProjectHighPoly => state.new_project.load_high_poly(first),
         Purpose::OpenMesh if crate::spp_import::is_spp(first) => crate::spp_import::start(state, first),
         Purpose::OpenMesh => match subcraft_app::Session::open_mesh(first, subcraft_app::DEFAULT_RESOLUTION) {
-            Ok((s, _)) => {
+            Ok((s, warnings)) => {
                 state.set_session(s);
                 state.welcome.remember(first);
-                state.set_status(format!("Opened {}", file_name(first)), now);
+                let status = match warnings.first() {
+                    Some(w) => format!("Opened {} with {} warning(s): {w}", file_name(first), warnings.len()),
+                    None => format!("Opened {}", file_name(first)),
+                };
+                state.set_status(status, now);
             }
             Err(e) => state.set_status(format!("Could not open mesh: {e}"), now),
         },

@@ -190,6 +190,8 @@ pub struct UiState {
     pub auto_uv: crate::auto_uv::AutoUvUi,
     /// Layers selected together (Ctrl / Shift click) in the Layers panel.
     pub multi: subcraft_app::multi_select::MultiSelect,
+    /// Texture set the multi-selection belongs to (cleared when the selected set changes).
+    multi_texture_set: Option<subcraft_core::TextureSetId>,
     /// In-app clipboard for layers and effects; outlives the session.
     pub clips: crate::clipboard::Clips,
     /// Action waiting for the unsaved-changes prompt.
@@ -337,6 +339,7 @@ impl UiState {
             light_yaw: 0.0,
             drops_taken: false,
             multi: Default::default(),
+            multi_texture_set: None,
             clips: Default::default(),
             allow_close: false,
             last_title: String::new(),
@@ -475,6 +478,11 @@ impl UiState {
 
     /// Replace the session (new project / opened mesh).
     pub fn set_session(&mut self, mut session: Session) {
+        // A Painter import still running would hand its own session over when it finishes and
+        // discard whatever was opened and edited in the meantime (`spp_import::poll` takes the
+        // import out before handing over its result).
+        self.spp_import = None;
+        self.dropped_model = None;
         self.multi.clear();
         self.layer_previews = Default::default();
         self.asset_preview.cancel_apply();
@@ -509,6 +517,7 @@ impl UiState {
         self.uploaded_view_revision = u64::MAX;
         self.gpu_dirty = true;
         self.uv_edges.clear();
+        self.uv_density.clear();
         self.uploaded_maps.clear();
         self.painting = false;
         self.last_stroke_point = None;
@@ -580,6 +589,13 @@ impl UiState {
     /// Start a frame: the compositing budget for this frame's `sync_gpu` calls.
     pub fn begin_frame(&mut self) {
         self.composite_deadline = Some(web_time::Instant::now() + COMPOSITE_FRAME_BUDGET);
+        // The multi-selection holds layer ids; Delete / Duplicate act on them wherever they live,
+        // so ids kept from another texture set would edit layers the user is no longer looking at.
+        let ts = self.session.selection().texture_set;
+        if self.multi_texture_set != Some(ts) {
+            if self.multi_texture_set.is_some() { self.multi.clear(); }
+            self.multi_texture_set = Some(ts);
+        }
     }
 
     /// Re-evaluate composites (within the frame budget) and upload changed tiles to the GPU.
@@ -677,3 +693,7 @@ impl Default for StencilDisplay {
         Self { opacity: 110.0 / 255.0, hide_when_painting: false }
     }
 }
+
+#[cfg(test)]
+#[path = "state_sync_tests.rs"]
+mod state_sync_tests;
