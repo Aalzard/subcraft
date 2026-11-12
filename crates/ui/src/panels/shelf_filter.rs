@@ -28,7 +28,7 @@ pub const STARTER: &str = "starter_assets";
 pub const YOURS: &str = "your_assets";
 
 /// Library ids with the names the breadcrumbs show.
-pub const LIBRARIES: [(&str, &str); 2] = [(STARTER, "Starter assets"), (YOURS, "Your assets")];
+pub const LIBRARIES: [(&str, &str); 3] = [(STARTER, "Starter assets"), (YOURS, "Your assets"), ("session", "Current session")];
 
 /// Display name of a library id.
 pub fn library_name(id: &str) -> &str {

@@ -5489,3 +5489,23 @@ the app kept drawing on the dead device. Safe mode works; 0.3.3's marker only he
   * Shader-only undo, and import of shader parameter JSON.
   * The path tracer ignores the instance parameters.
   * Alpha settings stay on the texture set (#198) rather than moving into the instance.
+
+### Parity chunk 24 - Import resources window and libraries (2026-11-12, branch `claude/parity-import-libraries`, stacks on chunk 13)
+
+* **Import resources** (`crates/ui/src/import_resources.rs`): File > Import resources > Import resources…, the Assets
+  panel's + button and files dropped on the panel open one window. Toolbar: Add resources, Remove selected resources,
+  usage filter. One row per file (folders add their files): usage (a format with one use gets it, `.hdr` is an
+  environment, other images stay undefined until chosen; changing a selected row's usage changes every selected row),
+  prefix (sub-folder inside the library), file name, warning icon. Files dropped on the window are added. Import to
+  Current session (read in place, nothing copied) or any library (the default one preselected); Project is listed
+  but disabled. Imported rows leave the window and the panel shows their type.
+* **Libraries** (`crates/ui/src/libraries.rs`, Preferences > Libraries): starter_assets (built in), your_assets and
+  extra library folders (name, path with a picker, +, remove), a default radio that decides where new presets and
+  imports go, and Refresh libraries. Extra libraries load at startup from the preferences. An asset's library comes
+  from its file (none = starter_assets, a library folder = that library, elsewhere = session); a sub-folder of a
+  library file is its folder in the breadcrumbs / Filter by path (`UserLibrary::list` now reads sub-folders, up to 8
+  levels; `add_file_to` copies into a prefix).
+* **Not done:** the Project library (resources kept inside the project file), editing paths only without an open
+  project, the auto-update menu, SBSAR / SPPR / ABR / GLSL / LUT formats.
+* **Checked:** not built locally (coordinator rule after the PC became unstable under load: CI compiles and tests).
+  New tests: `user_library.rs` prefix test, `libraries.rs` and `import_resources.rs` unit tests.

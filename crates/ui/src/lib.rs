@@ -20,6 +20,8 @@ pub mod graphics;
 pub mod gpu_probe;
 pub mod i18n;
 pub mod icons;
+pub mod import_resources;
+pub mod libraries;
 pub mod auto_uv;
 pub mod mesh_reload;
 pub mod new_project;

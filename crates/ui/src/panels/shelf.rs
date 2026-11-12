@@ -439,8 +439,9 @@ pub struct Item {
     pub starter: bool,
     pub name: String,
     pub usage: &'static str,
-    pub library: &'static str,
-    /// Folder inside the library: the asset's category.
+    /// Library id: `starter_assets`, `your_assets`, an extra library's name, or `session`.
+    pub library: String,
+    /// Folder inside the library: a sub-folder of a library file, else the asset's category.
     pub folder: Option<String>,
     pub tags: Vec<String>,
     pub tileable: bool,
@@ -448,23 +449,26 @@ pub struct Item {
 
 impl Item {
     pub fn entry(&self) -> crate::panels::shelf_filter::Entry<'_> {
-        crate::panels::shelf_filter::Entry { name: &self.name, usage: self.usage, library: self.library, folder: self.folder.as_deref(), tags: &self.tags, tileable: self.tileable }
+        crate::panels::shelf_filter::Entry { name: &self.name, usage: self.usage, library: &self.library, folder: self.folder.as_deref(), tags: &self.tags, tileable: self.tileable }
     }
 }
 
 /// Every asset of type `tab`, in the order the Shelf draws them.
 pub fn items(state: &UiState, tab: ShelfTab) -> Vec<Item> {
-    use crate::panels::shelf_filter::{STARTER, YOURS};
+    use crate::panels::shelf_filter::STARTER;
+    use subcraft_app::assets::UserAssetKind as K;
     let usage = tab.usage();
-    let lib = |user: bool| if user { YOURS } else { STARTER };
-    let item = |index, name: &str, library, folder: Option<&str>, tags: Vec<String>| Item { index, starter: false, name: name.to_string(), usage, library, folder: folder.map(String::from), tags, tileable: false };
+    let lib = |file: Option<&std::path::Path>| state.library_of(file);
+    // A library file's sub-folder is its folder; otherwise its category.
+    let folder = |kind: K, file: Option<&std::path::Path>, category: Option<&str>| state.library_subfolder(kind, file).or_else(|| category.map(String::from));
+    let item = |index, name: &str, library: String, folder: Option<String>, tags: Vec<String>| Item { index, starter: false, name: name.to_string(), usage, library, folder, tags, tileable: false };
     let starters = |kind: subcraft_assets::starter::Kind| {
         subcraft_assets::starter::ENTRIES.iter().enumerate().filter(move |(_, e)| e.kind == kind).map(move |(i, e)| Item {
             index: i,
             starter: true,
             name: e.name.to_string(),
             usage,
-            library: STARTER,
+            library: STARTER.to_string(),
             folder: Some("Starter pack".into()),
             tags: Vec::new(),
             tileable: e.tileable(),
@@ -475,17 +479,17 @@ pub fn items(state: &UiState, tab: ShelfTab) -> Vec<Item> {
             let normals = tab == ShelfTab::NormalMaps;
             let kind = if normals { subcraft_assets::starter::Kind::Normal } else { subcraft_assets::starter::Kind::Texture };
             let mut out: Vec<Item> = starters(kind).collect();
-            out.extend(state.textures.items.iter().enumerate().filter(|(_, t)| (t.category == "Normal") == normals).map(|(i, t)| item(i, &t.name, YOURS, Some(t.category), vec![t.category.to_string()])));
+            out.extend(state.textures.items.iter().enumerate().filter(|(_, t)| (t.category == "Normal") == normals).map(|(i, t)| item(i, &t.name, lib(Some(t.path.as_path())), folder(K::Texture, Some(t.path.as_path()), Some(t.category)), vec![t.category.to_string()])));
             out
         }
-        ShelfTab::Materials => state.library.materials.iter().enumerate().map(|(i, m)| item(i, &m.name, STARTER, Some(m.category), vec![m.category.to_string()])).collect(),
+        ShelfTab::Materials => state.library.materials.iter().enumerate().map(|(i, m)| item(i, &m.name, STARTER.to_string(), Some(m.category.to_string()), vec![m.category.to_string()])).collect(),
         ShelfTab::SmartMaterials => state.library.smart_materials.iter().enumerate().map(|(i, m)| {
             let category = subcraft_app::assets::smart_material_info(&m.name).map(|i| i.category);
-            item(i, &m.name, lib(m.user_file.is_some()), category, category.into_iter().map(String::from).collect())
+            item(i, &m.name, lib(m.user_file.as_deref()), folder(K::SmartMaterial, m.user_file.as_deref(), category), category.into_iter().map(String::from).collect())
         }).collect(),
         ShelfTab::SmartMasks => state.library.smart_masks.iter().enumerate().map(|(i, m)| {
             let category = subcraft_app::assets::smart_mask_info(&m.name).map(|i| i.category);
-            item(i, &m.name, lib(m.user_file.is_some()), category, category.into_iter().map(String::from).collect())
+            item(i, &m.name, lib(m.user_file.as_deref()), folder(K::SmartMask, m.user_file.as_deref(), category), category.into_iter().map(String::from).collect())
         }).collect(),
         ShelfTab::Brushes => preset_order(&state.brush_presets, &state.favorites).into_iter().map(|i| {
             let p = &state.brush_presets[i];
@@ -494,15 +498,15 @@ pub fn items(state: &UiState, tab: ShelfTab) -> Vec<Item> {
                 subcraft_app::brush_preset::PresetKind::Tool => "Tool presets",
                 subcraft_app::brush_preset::PresetKind::Material => "Material presets",
             };
-            item(i, &p.name, lib(p.user_file.is_some()), Some(folder), vec!["preset".into()])
+            item(i, &p.name, lib(p.user_file.as_deref()), Some(folder.to_string()), vec!["preset".into()])
         }).collect(),
         ShelfTab::Alphas => {
-            let mut out: Vec<Item> = state.library.alphas.iter().enumerate().filter(|(_, a)| !a.name.starts_with("Starter: ")).map(|(i, a)| item(i, &a.name, lib(a.user_file.is_some()), None, Vec::new())).collect();
+            let mut out: Vec<Item> = state.library.alphas.iter().enumerate().filter(|(_, a)| !a.name.starts_with("Starter: ")).map(|(i, a)| item(i, &a.name, lib(a.user_file.as_deref()), folder(K::Alpha, a.user_file.as_deref(), None), Vec::new())).collect();
             out.extend(starters(subcraft_assets::starter::Kind::Alpha));
             out
         }
-        ShelfTab::Filters => subcraft_doc::Filter::ALL.iter().enumerate().map(|(i, f)| item(i, f.label(), STARTER, None, Vec::new())).collect(),
-        ShelfTab::Environments => state.library.environments.iter().enumerate().map(|(i, e)| item(i, &e.name, lib(e.user_file.is_some()), None, Vec::new())).collect(),
+        ShelfTab::Filters => subcraft_doc::Filter::ALL.iter().enumerate().map(|(i, f)| item(i, f.label(), STARTER.to_string(), None, Vec::new())).collect(),
+        ShelfTab::Environments => state.library.environments.iter().enumerate().map(|(i, e)| item(i, &e.name, lib(e.user_file.as_deref()), folder(K::Environment, e.user_file.as_deref(), None), Vec::new())).collect(),
     }
 }
 
@@ -534,7 +538,7 @@ impl Search {
 /// and the search would show.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Location {
-    pub library: &'static str,
+    pub library: String,
     pub folder: Option<String>,
     pub assets: usize,
     pub applicable: usize,
@@ -542,7 +546,7 @@ pub struct Location {
 
 impl Location {
     pub fn path(&self) -> String {
-        crate::panels::shelf_filter::folder_path(self.library, self.folder.as_deref()).to_lowercase()
+        crate::panels::shelf_filter::folder_path(&self.library, self.folder.as_deref()).to_lowercase()
     }
 }
 
@@ -550,14 +554,23 @@ impl Location {
 pub fn locations(state: &UiState, search: &Search) -> Vec<Location> {
     use crate::panels::shelf_filter::LIBRARIES;
     let selected = search.nav.tabs();
-    let mut out: Vec<Location> = LIBRARIES.iter().map(|l| Location { library: l.0, folder: None, assets: 0, applicable: 0 }).collect();
+    // The fixed libraries, then the extra ones in the order of the settings.
+    let mut out: Vec<Location> = Vec::new();
+    for id in LIBRARIES.iter().map(|l| l.0.to_string()).chain(state.libraries.iter().map(|l| l.id.clone())) {
+        if !out.iter().any(|l| l.library == id) {
+            out.push(Location { library: id, folder: None, assets: 0, applicable: 0 });
+        }
+    }
     for tab in CATEGORIES.iter().map(|c| c.0) {
         let applies = selected.contains(&tab);
         for it in items(state, tab) {
             let hit = applies && search.matches(&it);
-            if let Some(l) = out.iter_mut().find(|l| l.library == it.library && l.folder.is_none()) {
-                l.assets += 1;
-                l.applicable += usize::from(hit);
+            match out.iter_mut().find(|l| l.library == it.library && l.folder.is_none()) {
+                Some(l) => {
+                    l.assets += 1;
+                    l.applicable += usize::from(hit);
+                }
+                None => out.push(Location { library: it.library.clone(), folder: None, assets: 1, applicable: usize::from(hit) }),
             }
             if let Some(folder) = &it.folder {
                 match out.iter_mut().find(|l| l.library == it.library && l.folder.as_deref().is_some_and(|f| f.eq_ignore_ascii_case(folder))) {
@@ -565,7 +578,7 @@ pub fn locations(state: &UiState, search: &Search) -> Vec<Location> {
                         l.assets += 1;
                         l.applicable += usize::from(hit);
                     }
-                    None => out.push(Location { library: it.library, folder: Some(folder.clone()), assets: 1, applicable: usize::from(hit) }),
+                    None => out.push(Location { library: it.library.clone(), folder: Some(folder.clone()), assets: 1, applicable: usize::from(hit) }),
                 }
             }
         }
@@ -853,14 +866,17 @@ fn handle_drops(state: &mut UiState, ui: &Ui, now: f64) {
         return;
     }
     state.drops_taken = true;
-    let smart_tab = state.shelf.tab == ShelfTab::SmartMaterials;
     let paths: Vec<std::path::PathBuf> = dropped
         .into_iter()
-        .filter(|p| smart_tab || p.is_dir() || p.extension().is_some_and(|e| e.eq_ignore_ascii_case("scsmart")))
         .filter(|p| !p.extension().is_some_and(|e| e.eq_ignore_ascii_case("spsm")))
         .collect();
-    if !paths.is_empty() {
+    if paths.is_empty() {
+    } else if state.shelf.tab == ShelfTab::SmartMaterials && state.shelf.extra_tabs.is_empty() {
+        // On Smart Materials, .scsmart files, folders and PBR texture sets become smart materials.
         crate::files::import_smart_materials(state, &paths, now);
+    } else {
+        // Painter: files dropped on the Assets panel open Import resources with them listed.
+        crate::import_resources::open_with(state, &paths);
     }
     // Painter smart materials go onto the selected texture set, as when dropped on the viewport.
     for path in ui.ctx().input(|i| i.raw.dropped_files.iter().map(|f| f.path().to_path_buf()).collect::<Vec<_>>()) {
@@ -1569,11 +1585,11 @@ fn section_toggle(ui: &mut Ui, on: &mut bool, icon: &str, label: &str) {
 fn breadcrumbs(ui: &mut Ui, nav: &mut ShelfNav, places: &[Location]) {
     use crate::panels::shelf_filter::library_name;
     let current = (nav.paths.len() == 1).then(|| nav.paths[0].clone());
-    let (library, folder): (Option<&'static str>, Option<String>) = match current.as_deref() {
+    let (library, folder): (Option<String>, Option<String>) = match current.as_deref() {
         Some(p) => {
             let p = p.trim_matches('/');
             let (l, f) = p.split_once('/').map_or((p, None), |(l, f)| (l, Some(f.to_string())));
-            (places.iter().find(|x| x.library.eq_ignore_ascii_case(l)).map(|x| x.library), f)
+            (places.iter().find(|x| x.library.eq_ignore_ascii_case(l)).map(|x| x.library.clone()), f)
         }
         None => (None, None),
     };
@@ -1585,8 +1601,8 @@ fn breadcrumbs(ui: &mut Ui, nav: &mut ShelfNav, places: &[Location]) {
     if crumb(ui, tr("All libraries"), library.is_none()) {
         nav.paths.clear();
     }
-    crumb_menu(ui, "root", places.iter().filter(|p| p.folder.is_none() && p.assets > 0).collect(), nav, |p| library_name(p.library).to_string());
-    if let Some(lib) = library {
+    crumb_menu(ui, "root", places.iter().filter(|p| p.folder.is_none() && p.assets > 0).collect(), nav, |p| library_name(&p.library).to_string());
+    if let Some(lib) = library.as_deref() {
         if crumb(ui, library_name(lib), folder.is_none()) {
             nav.paths = vec![crate::panels::shelf_filter::folder_path(lib, None).to_lowercase()];
         }
@@ -1630,7 +1646,7 @@ fn filter_by_path(state: &mut UiState, ui: &mut Ui, nav: &mut ShelfNav, places: 
         let hide = state.shelf.hide_empty_folders;
         let shift = ui.input(|i| i.modifiers.shift);
         for lib in places.iter().filter(|p| p.folder.is_none() && (!hide || p.applicable > 0)) {
-            let folded = state.shelf.folded.contains(lib.library);
+            let folded = state.shelf.folded.contains(&lib.library);
             ui.horizontal(|ui| {
                 let caret = if folded { crate::icons::CARET_RIGHT } else { crate::icons::CARET_DOWN };
                 if ui.add(egui::Label::new(RichText::new(caret).font(theme::font(11.0)).color(theme::TEXT_DIM)).sense(egui::Sense::click())).clicked() {
@@ -1638,18 +1654,18 @@ fn filter_by_path(state: &mut UiState, ui: &mut Ui, nav: &mut ShelfNav, places: 
                         // Shift: every library follows this one.
                         for l in places.iter().filter(|p| p.folder.is_none()) {
                             if folded {
-                                state.shelf.folded.remove(l.library);
+                                state.shelf.folded.remove(&l.library);
                             } else {
-                                state.shelf.folded.insert(l.library.to_string());
+                                state.shelf.folded.insert(l.library.clone());
                             }
                         }
                     } else if folded {
-                        state.shelf.folded.remove(lib.library);
+                        state.shelf.folded.remove(&lib.library);
                     } else {
-                        state.shelf.folded.insert(lib.library.to_string());
+                        state.shelf.folded.insert(lib.library.clone());
                     }
                 }
-                place_row(ui, nav, lib, library_name(lib.library), ctrl);
+                place_row(ui, nav, lib, library_name(&lib.library), ctrl);
             });
             if folded {
                 continue;
@@ -1814,6 +1830,9 @@ fn bottom_toolbar(state: &mut UiState, ui: &mut Ui) {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 4.0;
             size_menu(ui, &mut state.recovery.prefs);
+            if icon_button(ui, crate::icons::PLUS, tr("Import resources…")).clicked() {
+                state.import.open = true;
+            }
             match state.shelf.tab {
                 ShelfTab::Textures | ShelfTab::NormalMaps => {
                     if icon_button(ui, crate::icons::DOWNLOAD, "Import textures…").clicked() { pick = Some((crate::files::Purpose::ShelfTextures, crate::files::IMAGES, true)); }

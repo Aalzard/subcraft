@@ -30,6 +30,10 @@ pub struct Preferences {
     pub shelf_list_view: bool,
     /// Assets panel saved searches (Painter keeps them in Shelf.ini).
     pub shelf_saved_searches: Vec<crate::panels::shelf::SavedSearch>,
+    /// Settings > Libraries: library folders added besides your_assets.
+    pub extra_libraries: Vec<crate::libraries::LibraryPath>,
+    /// The library new presets and imports go to (`your_assets` or an extra library's name).
+    pub default_library: String,
     /// Minutes between autosaves; 0 turns the timer off.
     pub autosave_minutes: u32,
     /// Recovery copies kept.
@@ -96,6 +100,8 @@ impl Default for Preferences {
             layer_preview_size: 36,
             shelf_list_view: false,
             shelf_saved_searches: Vec::new(),
+            extra_libraries: Vec::new(),
+            default_library: crate::panels::shelf_filter::YOURS.to_string(),
             autosave_minutes: (recovery::DEFAULT_INTERVAL.as_secs() / 60) as u32,
             autosave_keep: recovery::DEFAULT_KEEP,
             show_welcome: true,
@@ -298,6 +304,9 @@ pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
     if !rec.show_prefs {
         return;
     }
+    let form = &mut state.libraries_form;
+    let yours = state.libraries.iter().find(|l| l.id == crate::panels::shelf_filter::YOURS).map(|l| l.lib.root().to_path_buf());
+    let mut library_change = None;
     let mut open = true;
     crate::widgets::window(ctx, RichText::new(tr("Preferences")).font(theme::font_strong(14.0))).open(&mut open).collapsible(false).resizable(false).default_height(620.0).show(ctx, |ui| {
         ui.set_width(380.0);
@@ -394,10 +403,20 @@ pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
                 crate::panels::shelf::show_in_folder(store.root());
             }
         }
+        ui.add_space(10.0);
+        library_change = crate::libraries::settings(ui, &mut rec.prefs, yours.as_deref(), form);
         });
     });
     rec.prefs.apply_ui_size(ctx);
     rec.show_prefs = open;
+    match library_change {
+        Some(crate::libraries::LibrariesChange::Changed) => {
+            let (extra, default) = (state.recovery.prefs.extra_libraries.clone(), state.recovery.prefs.default_library.clone());
+            state.set_libraries(&extra, &default);
+        }
+        Some(crate::libraries::LibrariesChange::Refresh) => state.refresh_libraries(),
+        None => {}
+    }
 }
 
 #[cfg(test)]

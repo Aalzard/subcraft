@@ -12,7 +12,7 @@ Layout notes: Edit > Settings opens one window with three sections chosen on the
 | Settings window | Edit > Settings | - | partial: named Preferences, one page | crates/ui/src/recovery.rs:253 | - |
 | General section | Settings | first section | partial: single page with other options | crates/ui/src/recovery.rs:263 | - |
 | Shortcuts section | Settings | - | partial: only a key-set dropdown; the list is in Help > Keyboard shortcuts (see shortcuts.md) | crates/ui/src/recovery.rs:310 | - |
-| Libraries section | Settings | - | missing | - | - |
+| Libraries section | Settings | - | done (a Libraries block in the Preferences window) | crates/ui/src/libraries.rs (settings) | - |
 
 ## General: Interface options
 
@@ -83,14 +83,14 @@ Layout notes: a list of resource paths, each with a name, a folder, a "default" 
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| your_assets path (user Documents folder) | Settings > Libraries | present by default | partial: one fixed user library folder, not listed or editable | crates/ui/src/app.rs:601 | - |
-| starter_assets path (install folder) | Settings > Libraries | present by default | partial: built-in library is compiled in, not a listed path | crates/app/src/library.rs | - |
-| default radio button (where new presets are saved) | Settings > Libraries, per path | your_assets | missing | - | - |
-| Name field | Settings > Libraries > add path | empty | missing | - | - |
-| Path field | Settings > Libraries > add path | empty | missing | - | - |
-| Plus button (adds the path, creates sub-folders) | Settings > Libraries > add path | - | missing | - | - |
-| Minus button (removes a path; default paths are only disabled) | Settings > Libraries, per path | - | missing | - | - |
-| Paths editable only with no project open | Settings > Libraries | rule | missing | - | - |
+| your_assets path (user Documents folder) | Settings > Libraries | present by default | done (listed with its path) | crates/ui/src/libraries.rs (settings) | - |
+| starter_assets path (install folder) | Settings > Libraries | present by default | partial: listed as built in; compiled in, not a folder | crates/ui/src/libraries.rs (settings) | - |
+| default radio button (where new presets are saved) | Settings > Libraries, per path | your_assets | done | crates/ui/src/libraries.rs (settings, UiState::set_libraries) | - |
+| Name field | Settings > Libraries > add path | empty | done | crates/ui/src/libraries.rs (settings) | - |
+| Path field | Settings > Libraries > add path | empty | done (with a folder picker) | crates/ui/src/libraries.rs (settings) | - |
+| Plus button (adds the path, creates sub-folders) | Settings > Libraries > add path | - | done (creates the folder; kind sub-folders appear on first import) | crates/ui/src/libraries.rs (settings) | - |
+| Minus button (removes a path; default paths are only disabled) | Settings > Libraries, per path | - | partial: removes an added library; your_assets cannot be removed or disabled | crates/ui/src/libraries.rs (settings) | - |
+| Paths editable only with no project open | Settings > Libraries | rule | partial: editable any time; the panel reloads at once | crates/ui/src/libraries.rs (settings) | - |
 
 ## Automatic resource update (Assets window, double-arrow button)
 
