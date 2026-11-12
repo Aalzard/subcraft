@@ -1243,6 +1243,21 @@ impl Session {
                 self.selection.layer = Some(id);
                 self.commit(&label, None);
             }
+            Command::SetTransparent { texture_set, transparent } => {
+                let ts = self.doc.texture_set_mut(texture_set).ok_or(CommandError::TextureSetNotFound)?;
+                if ts.transparent != transparent {
+                    ts.transparent = transparent;
+                    self.commit(if transparent { "Transparent texture set" } else { "Opaque texture set" }, None);
+                }
+            }
+            Command::SetAlphaSettings { texture_set, alpha } => {
+                let ts = self.doc.texture_set_mut(texture_set).ok_or(CommandError::TextureSetNotFound)?;
+                let alpha = subcraft_doc::AlphaSettings { threshold: alpha.threshold.clamp(0.0, 1.0), ..alpha };
+                if ts.alpha != alpha {
+                    ts.alpha = alpha;
+                    self.commit("Alpha settings", None);
+                }
+            }
             Command::SetAlbedoFilter { texture_set, filter } => {
                 let ts = self.doc.texture_set_mut(texture_set).ok_or(CommandError::TextureSetNotFound)?;
                 if ts.albedo_filter != filter {
@@ -1276,6 +1291,9 @@ impl Session {
                     return Ok(());
                 }
                 ts.channels.push(ChannelDef::default_for(kind));
+                // Existing layers take part in the new channel at once (Painter: an added
+                // Opacity channel is paintable on the current layer straight away).
+                add_blend(&mut ts.layers, kind);
                 self.brush.material.set(kind, kind.default_paint_value());
                 self.commit(&format!("Add {} Channel", kind.display_name()), None);
             }
@@ -2598,6 +2616,7 @@ fn same_composite_inputs(a: &TextureSet, b: &TextureSet) -> bool {
         && a.material_slot == b.material_slot
         && a.resolution == b.resolution
         && a.albedo_filter == b.albedo_filter
+        && a.transparent == b.transparent
         && a.channels == b.channels
         && a.layers.len() == b.layers.len()
         && a.layers.iter().zip(&b.layers).all(|(x, y)| Arc::ptr_eq(x, y))

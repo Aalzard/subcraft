@@ -681,11 +681,12 @@ impl UiState {
         self.last_sync_tiles = updates.iter().map(|u| u.tiles.len()).max().unwrap_or(0);
         let upload_start = web_time::Instant::now();
         let session = &self.session;
-        for ts in &session.document().texture_sets { renderer.set_albedo_filter(ts.material_slot, ts.albedo_filter); }
+        for ts in &session.document().texture_sets { renderer.set_albedo_filter(ts.material_slot, ts.albedo_filter); renderer.set_alpha(ts.material_slot, ts.alpha); }
         renderer.set_hidden_slots(session.document().texture_sets.iter().filter(|ts| session.is_set_hidden(ts.id)).map(|ts| ts.material_slot));
         let upload = |renderer: &mut ViewportRenderer, ts: subcraft_core::TextureSetId, slot: u32, changed: Option<&subcraft_app::ChangedTiles>| {
             let Some(c) = session.composite(ts) else { return };
-            for k in SHADED_CHANNELS {
+            // Opacity is not shaded but drives the alpha modes (issue #145).
+            for k in SHADED_CHANNELS.into_iter().chain([ChannelKind::Opacity]) {
                 let Some(img) = c.channel(k) else { continue };
                 match changed {
                     None => renderer.upload_channel(&rs.device, &rs.queue, slot, k, img, None),
@@ -705,7 +706,7 @@ impl UiState {
         }
         // A channel shown alone that shading never reads (Opacity, Specular, a user channel):
         // uploaded whole when it is first shown, then tile by tile like the others.
-        let solo = self.recovery.prefs.viewport.solo.filter(|k| !SHADED_CHANNELS.contains(k));
+        let solo = self.recovery.prefs.viewport.solo.filter(|k| !SHADED_CHANNELS.contains(k) && *k != ChannelKind::Opacity);
         if let Some(k) = solo {
             let first = full || self.uploaded_solo != solo;
             for ts in &session.document().texture_sets {
