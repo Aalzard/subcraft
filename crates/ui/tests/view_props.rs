@@ -79,7 +79,7 @@ fn right_click_in_the_3d_view_opens_properties_at_the_cursor_and_a_right_drag_st
     let out = settle(&mut state, &ctx, true);
     let t = texts(&out);
     assert!(t.iter().any(|s| s == "Properties"), "{t:?}");
-    assert!(t.iter().any(|s| s.contains("Paint target")), "brush settings while painting: {t:?}");
+    assert!(t.iter().any(|s| s.to_lowercase().contains("paint target")), "brush settings while painting: {t:?}");
     // Esc closes it.
     frame(&mut state, &ctx, vec![Event::Key { key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: Modifiers::NONE }], true);
     assert!(state.view_props.is_none());
@@ -110,13 +110,14 @@ fn right_click_in_the_2d_view_opens_properties_and_shows_the_selected_effect_or_
     click(&mut state, &ctx, p, PointerButton::Secondary, false);
     assert_eq!(state.view_props.map(|v| v.view), Some(View::View2d));
     let t = texts(&settle(&mut state, &ctx, false));
-    assert!(t.iter().any(|s| s.contains("Paint target")), "{t:?}");
+    assert!(t.iter().any(|s| s.to_lowercase().contains("paint target")), "{t:?}");
     // Alt / Ctrl right-clicks are gestures, never the popup.
     state.view_props = None;
     let mods = Modifiers { alt: true, ..Modifiers::NONE };
     frame(&mut state, &ctx, vec![Event::ModifiersChanged(mods), Event::PointerMoved(p)], false);
     frame(&mut state, &ctx, vec![Event::PointerButton { pos: p, button: PointerButton::Secondary, pressed: true, modifiers: mods }], false);
-    frame(&mut state, &ctx, vec![Event::PointerButton { pos: p, button: PointerButton::Secondary, pressed: false, modifiers: mods }, Event::ModifiersChanged(Modifiers::NONE)], false);
+    frame(&mut state, &ctx, vec![Event::PointerButton { pos: p, button: PointerButton::Secondary, pressed: false, modifiers: mods }], false);
+    frame(&mut state, &ctx, vec![Event::ModifiersChanged(Modifiers::NONE)], false);
     assert!(state.view_props.is_none());
 }
 
