@@ -147,6 +147,8 @@ pub enum ExportError {
     Write(PathBuf, String),
     #[error("could not create texture archive: {0}")]
     Archive(String),
+    #[error("the export preset cannot be used: {0}")]
+    Template(String),
 }
 
 /// File-system friendly name part.
@@ -680,6 +682,12 @@ pub fn resample(data: &[f32], comps: usize, src: u32, dst: u32) -> Vec<f32> {
 
 /// Directory and archive exports share rendering, encoding, templates and padding.
 pub(crate) fn render_maps(mesh: &Mesh, mesh_name: &str, sets: &[ExportTextureSet], settings: &ExportSettings, mut write: impl FnMut(&str,&[u8])->Result<(),ExportError>) -> Result<usize,ExportError> {
+    // Presets read from a file or imported were never checked (only the editor checks them): a
+    // suffix such as `Base:Color` named an NTFS stream or aborted the export halfway, and a size
+    // of 100000 tried to allocate 120 GB. Nothing is written when the preset has a problem.
+    if let Some(problem) = settings.template.problems().into_iter().next() {
+        return Err(ExportError::Template(problem));
+    }
     let mut count=0;
     for set in sets {
         let Some(size) = set.channels.values().next().map(|i| i.width()) else { continue };
