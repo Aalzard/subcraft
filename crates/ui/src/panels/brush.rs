@@ -98,7 +98,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             section(ui, "brush", "Brush", true, |ui| {
                 let s = &mut state.session.brush.settings;
                 super::brush_rows::size_flow_opacity(ui, s, brush);
-                slider_row(ui, "Spacing", egui::Slider::new(&mut s.spacing, 0.02..=2.0).logarithmic(true))
+                slider_row(ui, "Spacing", egui::Slider::new(&mut s.spacing, 0.02..=2.0).logarithmic(true).clamping(egui::SliderClamping::Edits))
                     .on_hover_text("Distance between stamps, in brush diameters");
                 slider_row(ui, "Angle", egui::Slider::new(&mut s.angle_deg, -180.0..=180.0).suffix("°"));
                 prop_row(ui, "", |ui| ui.checkbox(&mut s.follow_path, "Follow Path"));
