@@ -5595,3 +5595,21 @@ the app kept drawing on the dead device. Safe mode works; 0.3.3's marker only he
 * **Not verified:** the bevelled-cube and cylinder curvature tests failed on the first run; they were fixed (fixture
   and grouping, see above) but not re-run. The app, ui and project tests and the scripted captures were not run
   before the session was stopped for the usage limit. CI on the PR is the first full run.
+
+### Session 133 - ID map colour sources for the bake, issue #117 (2026-11-13, branch `claude/id-map-sources`, stacks on #137, NOT run locally)
+
+* **Asked (issue #117):** choose where the high-poly ID map takes its colours, like Painter: Vertex Color first,
+  then Material Color, Mesh ID / Polygroup (the behaviour so far) and Submesh.
+* **Mesh:** `Mesh::corner_colors` (file vertex colour per triangle corner) and `Mesh::material_colors` (file colour
+  per material slot), filled by `MeshBuilder::push_triangle_colored` / `set_material_color`. Read from OBJ
+  (`v x y z r g b`, MTL `Kd`), glTF (`COLOR_0`, base colour factor) and FBX (vertex colour, PBR base colour or
+  diffuse). Not read from PLY, USD or Alembic yet; not saved in projects (the bake reads the high-poly file).
+* **Bake:** `BakeSettings::id_source` (`IdSource`: VertexColor, MaterialColor, MeshId = default, Submesh = per
+  named object, per material when the file names none). A model without the asked colours falls back to generated
+  colours and the bake reports a warning. Colours come from the high poly when there is one, else the low poly.
+* **UI:** Bake window, "ID colors from" (shown when the ID map is ticked), translated (zh-Hant, ko).
+* **Not done:** Painter's "File ID" (needs several high-poly files, parity chunk 27).
+* **Tests (new, run by CI only):** bake `id_map_takes_its_colours_from_the_chosen_source`,
+  `id_sources_the_model_lacks_fall_back_to_generated_colours_with_a_warning`; mesh
+  `obj_vertex_colors_and_material_colors_are_read`. Nothing was built or run locally (coordinator's rule after
+  the PC's power cuts), and no capture was taken.

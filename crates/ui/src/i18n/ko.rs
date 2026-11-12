@@ -680,4 +680,10 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Measure curvature from the baked normal map along the surface: one clean band per edge, continuous across UV seams and on curved parts", "베이크된 노멀 맵에서 표면을 따라 곡률을 측정합니다. 모서리마다 깔끔한 띠 하나가 생기며 UV 이음새와 곡면에서도 이어집니다"),
     ("Ray misses:", "광선 누락:"),
     ("of texels reach no high-poly surface (red). Raise Cage front / rear or fix the placement.", "의 텍셀이 하이 폴리 표면에 닿지 않습니다 (빨간색). 케이지 전면 / 후면을 늘리거나 배치를 수정하세요."),
+    ("ID colors from", "ID 색상 소스"),
+    ("Vertex color", "버텍스 컬러"),
+    ("Material color", "머티리얼 색상"),
+    ("Mesh ID / Polygroup", "메시 ID / 폴리그룹"),
+    ("Submesh (object)", "서브메시 (오브젝트)"),
+    ("Where the ID map takes its colors: the model's vertex colors or material colors, or one generated color per mesh element or per object. With a high poly, its colors are used.", "ID 맵의 색상 소스입니다. 모델의 버텍스 컬러나 머티리얼 색상을 쓰거나, 메시 요소별 또는 오브젝트별로 색상을 하나씩 생성합니다. 하이 폴리가 있으면 하이 폴리의 색상을 사용합니다."),
 ];

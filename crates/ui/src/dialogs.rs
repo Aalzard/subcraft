@@ -777,6 +777,25 @@ pub fn bake_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
                     slider_row(ui, tr("AO distance"), egui::Slider::new(&mut b.settings.ao_distance, 0.01..=1.0).logarithmic(true));
                     ui.add_space(6.0);
                 }
+                if b.settings.maps.contains(&MeshMapKind::Id) {
+                    let label = |s: subcraft_bake::IdSource| match s {
+                        subcraft_bake::IdSource::VertexColor => tr("Vertex color"),
+                        subcraft_bake::IdSource::MaterialColor => tr("Material color"),
+                        subcraft_bake::IdSource::MeshId => tr("Mesh ID / Polygroup"),
+                        subcraft_bake::IdSource::Submesh => tr("Submesh (object)"),
+                    };
+                    ui.horizontal(|ui| {
+                        ui.label(tr("ID colors from"));
+                        egui::ComboBox::from_id_salt("bake_id_source").selected_text(label(b.settings.id_source)).show_ui(ui, |ui| {
+                            for source in subcraft_bake::IdSource::ALL {
+                                ui.selectable_value(&mut b.settings.id_source, source, label(source));
+                            }
+                        });
+                    })
+                    .response
+                    .on_hover_text(tr("Where the ID map takes its colors: the model's vertex colors or material colors, or one generated color per mesh element or per object. With a high poly, its colors are used."));
+                    ui.add_space(6.0);
+                }
                 if curv {
                     ui.checkbox(&mut b.settings.curvature_from_normal, tr("Curvature from the normal map"))
                         .on_hover_text(tr("Measure curvature from the baked normal map along the surface: one clean band per edge, continuous across UV seams and on curved parts"));
