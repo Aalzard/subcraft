@@ -526,7 +526,10 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 let scene = state.session.scene();
                 let key = std::sync::Arc::as_ptr(&scene.mesh) as usize as u64 ^ ((scene.mesh.triangle_count() as u64) << 40);
                 let pt_scene = subcraft_render::PathTraceScene { mesh: &scene.mesh, bvh: &scene.bvh, key };
-                match renderer.render_path_traced(&rs.device, &rs.queue, render_size, &params, &pt_scene, &pt_settings) {
+                // A resolution override keeps the vertical field of view and widens or narrows it.
+                let trace_size = view.trace_size(size);
+                let pt_params = trace_params(&params, render_size, trace_size);
+                match renderer.render_path_traced(&rs.device, &rs.queue, trace_size, &pt_params, &pt_scene, &pt_settings) {
                     Ok((_, status)) => {
                         traced = true;
                         state.pt_active = true;
@@ -552,7 +555,15 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 }
             };
             state.frame_time_ms = t0.elapsed().as_secs_f32() * 1000.0;
-            painter.image(id, rect, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
+            let full = Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
+            if traced && view.pt_override {
+                // The override has its own aspect: letterbox it inside the view.
+                let [w, h] = view.trace_size(size);
+                painter.rect_filled(rect, 0.0, Color32::BLACK);
+                painter.image(id, camera_frame_rect(rect, w as f32 / h as f32), full, Color32::WHITE);
+            } else {
+                painter.image(id, rect, full, Color32::WHITE);
+            }
         }
         _ => {
             painter.rect_filled(rect, 0.0, theme::BG_0);
@@ -778,6 +789,41 @@ pub fn stencil_overlay_alpha(display: crate::state::StencilDisplay, painting: bo
         return 0;
     }
     (display.opacity.clamp(0.0, 1.0) * 255.0).round() as u8
+}
+
+/// View parameters for tracing at `trace` pixels when the view renders at `view` pixels: the
+/// projection keeps its vertical extent and takes the trace's aspect.
+pub fn trace_params(params: &subcraft_render::ViewParams, view: [u32; 2], trace: [u32; 2]) -> subcraft_render::ViewParams {
+    let aspect = |s: [u32; 2]| s[0].max(1) as f32 / s[1].max(1) as f32;
+    let mut p = *params;
+    let k = aspect(view) / aspect(trace);
+    if (k - 1.0).abs() > 1e-6 && k.is_finite() {
+        p.proj = glam::Mat4::from_scale(glam::Vec3::new(k, 1.0, 1.0)) * p.proj;
+    }
+    p
+}
+
+#[cfg(test)]
+mod trace_params_tests {
+    use super::trace_params;
+    use glam::{Mat4, Vec3};
+
+    #[test]
+    fn a_wider_override_keeps_the_vertical_view_and_shows_more_to_the_sides() {
+        let view = Mat4::look_at_rh(Vec3::new(0.0, 0.0, 5.0), Vec3::ZERO, Vec3::Y);
+        let proj = Mat4::perspective_rh(40f32.to_radians(), 800.0 / 600.0, 0.1, 100.0);
+        let params = subcraft_render::ViewParams::new(view, proj);
+        // Same aspect: unchanged.
+        assert_eq!(trace_params(&params, [800, 600], [1600, 1200]).proj, proj);
+        // 16:9 from 4:3: the projection is exactly the 16:9 one with the same vertical angle.
+        let wide = trace_params(&params, [800, 600], [1920, 1080]);
+        let want = Mat4::perspective_rh(40f32.to_radians(), 1920.0 / 1080.0, 0.1, 100.0);
+        assert!(wide.proj.abs_diff_eq(want, 1e-5), "{:?} vs {want:?}", wide.proj);
+        assert_eq!(wide.view, params.view, "only the projection changes");
+        // A point at the view's top edge stays at the top edge.
+        let top = Vec3::new(0.0, 5.0 * (20f32.to_radians()).tan(), 0.0);
+        assert!(((wide.proj * wide.view).project_point3(top).y - 1.0).abs() < 1e-4);
+    }
 }
 
 /// The largest picture of aspect `ratio` (width / height) that fits `view`, centred: the camera

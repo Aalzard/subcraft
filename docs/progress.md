@@ -5318,3 +5318,42 @@ the app kept drawing on the dead device. Safe mode works; 0.3.3's marker only he
 * **Not done:** Ctrl+M flatten (chunk 44).
 * **Tests:** `crates/app/tests/layer_polish_parity.rs`, `crates/ui/tests/layer_polish.rs`, a project round trip of
   colour tags, a blend group test, a layer-content clipboard test. Compile-checked locally; CI runs the tests.
+
+## Rendering mode panel (Painter parity chunk 51, 2026-11-12, branch `claude/parity-rendering-mode`)
+
+* Path tracer (`crates/render/src/pathtrace.rs`, `pathtrace.wgsl`):
+  * New settings: min samples, a time limit (tracing time only), a firefly-filter switch (the
+    indirect clamp the tracer always had), a clear color for camera rays that miss, and ground
+    settings (`GroundSettings`: offset, reflectivity color, glossiness, shadow intensity, visible
+    from below).
+  * The ground gets a glossy Phong-lobe reflection tinted by the reflectivity; the diffuse part
+    keeps the rest. Shadow intensity scales the key light's shadow on the ground.
+  * Accumulation stops at the sample limit, or at the time limit once the minimum samples are
+    done (`render_done`).
+  * `PathTraceStatus` reports the elapsed time, the limit, the traced resolution and `done`.
+  * Every default keeps the image as it was (zero reflectivity skips the new branch without
+    drawing a random number).
+* Display Settings > Render settings:
+  * A Status block: resolution, scene size, iterations, rendering time.
+  * Resolution override (width and height). The picture is letterboxed in the 3D view and keeps
+    the vertical field of view (`viewport::trace_params`).
+  * Dome > Clear color, and the Ground group.
+  * "Save render…" writes the path-traced picture as shown, tone mapped, as a PNG
+    (`render_export::save_path_traced`).
+* The Render button popup gains Min samples, Max time with a unit (seconds, minutes, hours) and
+  Firefly filter.
+* zh-Hant and Korean: 37 new texts translated.
+* Tests added:
+  * `crates/render/tests/pathtrace.rs` (GPU):
+    * The clear color exactly on missed pixels, and a restart when it changes.
+    * The time limit stopping after one frame, then the minimum samples still being taken.
+    * A mirror ground (reflectivity 1, glossiness 1) at least 3x brighter than the 18% floor.
+    * A ground offset of 100 units leaving the background.
+    * The floor hidden from below.
+    * Shadow intensity 0 lifting the shadowed floor.
+  * Unit tests: `render_done`, preference to settings mapping with clamping, `trace_params`
+    (the 16:9 projection equals Mat4::perspective_rh at 16:9), `format_duration`.
+* Checked: see the PR (gated `cargo check --release --all-targets`). NOT verified locally: the
+  test suites (CI is the test gate) and the running app.
+* Not done: Caustic sampler, Share (ArtStation), dome type / radius / texture scale, absolute
+  ground coordinates (an offset instead), MDL parameters.
