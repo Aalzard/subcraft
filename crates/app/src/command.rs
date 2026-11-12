@@ -128,6 +128,10 @@ pub enum Command {
     ClearMeshMap { texture_set: TextureSetId, kind: subcraft_core::MeshMapKind },
     /// Wrap the layer into a new folder.
     GroupLayer(LayerId),
+    /// Painter's flatten (Ctrl+M): each layer or folder (not those inside another of them)
+    /// evaluated into a new paint layer of rasters right above it; the source stays, hidden.
+    /// The new layer becomes the selection. One undo step.
+    FlattenLayers(Vec<LayerId>),
     /// Show only this texture set's part of the model, or everything again when it is already
     /// the only one shown (Painter's Alt+Q). View state only, like `SetTextureSetHidden`.
     IsolateTextureSet(TextureSetId),

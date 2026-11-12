@@ -491,7 +491,9 @@ fn evaluate_map(map: &OutputMap, dense: &mut Dense, settings: &ExportSettings, f
                     if invert {
                         v = 1.0 - v;
                     }
-                    out[i * comps + ci] = if encode { linear_to_srgb(v) } else { v };
+                    // Component 3 is coverage, not colour: it is never sRGB-encoded (alpha 0.5 was
+                    // written as 188 instead of 128).
+                    out[i * comps + ci] = if encode && component != 3 { linear_to_srgb(v) } else { v };
                 }
             }
             Source::Normal { component, directx } => {

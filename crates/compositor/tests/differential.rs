@@ -359,3 +359,30 @@ fn new_neighbourhood_filters_refresh_incrementally_and_match_full_evaluation() {
         }
     }
 }
+
+/// QA 2026-11: a paint layer in Passthrough with a filter (a filter layer) filters the stack
+/// below it, but a dab on a layer below only refreshed the dab's own tile: the blurred result in
+/// the neighbouring tile kept its old value.
+#[test]
+fn a_dab_under_a_passthrough_filter_layer_refreshes_every_tile_the_filter_reaches() {
+    let fx = Fixture::new();
+    let mut ts = TextureSet::new("T", 0, N);
+    let below = ts.insert_above(None, painted(&ts, "below", 4));
+    let mut filter_layer = Layer::new_paint("Blur everything below", &ts);
+    for b in filter_layer.blend.values_mut() {
+        b.mode = subcraft_doc::BlendMode::Passthrough;
+    }
+    filter_layer.content_effects.push(Arc::new(ContentEffect::new(ContentEffectKind::Filter { channel: C::Roughness, filter: Filter::Blur { radius: 8.0 } }, &ts)));
+    ts.insert_above(Some(below), filter_layer);
+    let mut cache = CompositeCache::new();
+    cache.update(&ts, &fx.ctx());
+    assert_eq!(cache.composite().unwrap(), &composite_full(&ts, &fx.ctx()));
+    for (x, y) in [(63, 10), (64, 64), (10, 127), (200, 191)] {
+        dab(&mut ts, below, x, y);
+        cache.update(&ts, &fx.ctx());
+        let full = composite_full(&ts, &fx.ctx());
+        if let Some((k, px, py, d)) = max_diff(cache.composite().unwrap(), &full) {
+            panic!("dab at ({x},{y}): incremental differs from full in {k:?} at ({px},{py}) by {d}");
+        }
+    }
+}
