@@ -520,7 +520,7 @@ fn effect_rows_add_select_edit_and_route_paint_effects_to_the_brush() {
     let out = settle(&mut app, &ctx);
     assert!(text(&out, "Content effects").is_some(), "the selected layer shows its content stack");
     click_text(&mut app, &ctx, &format!("{} Add", icons::PLUS));
-    click_text(&mut app, &ctx, "Levels");
+    click_text(&mut app, &ctx, &format!("{}  Add levels", icons::SLIDERS));
     let layer = app.state.session.selected_layer().unwrap().clone();
     assert_eq!(layer.id, red);
     assert_eq!(layer.content_effects.len(), 1);
@@ -549,7 +549,7 @@ fn effect_rows_add_select_edit_and_route_paint_effects_to_the_brush() {
     assert_eq!(app.state.session.selected_effect(), Some(levels));
     // A Paint effect takes the brush, even on a fill layer.
     click_text(&mut app, &ctx, &format!("{} Add", icons::PLUS));
-    click_text(&mut app, &ctx, "Paint");
+    click_text(&mut app, &ctx, &format!("{}  Add paint", icons::PAINT_BRUSH));
     let paint = app.state.session.selected_layer().unwrap().content_effects[1].id;
     assert_eq!(app.state.session.brush.target, subcraft_paint::PaintTarget::ContentEffect(paint));
     assert!(active(&app, Tab::Brush));
