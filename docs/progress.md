@@ -5210,3 +5210,14 @@ rotating one slot when a tile is full (helps cyclic stacks, but the 40-layer sta
   this exact commit), and the i18n scan is clean. NOT verified locally: the test suites (CI is the test
   gate) and the running app.
 * Not done: projection preview channel, B/Shift+B mesh-map cycling, shadows, OIT, SSS.
+
+### Parity chunk 3 - Navigation and mouse gestures (2026-11-11, branch `claude/parity-nav`)
+
+* **Done:** orbit around the point under the cursor (issue #115, Preferences switch, on by default); Alt+Shift+LMB
+  orbit snapped to 90 degrees; Ctrl+Shift+click straight line snapped to 5 degrees; Ctrl+MMB click sets the depth of
+  field focus; Ctrl+Alt+RMB click selects the texture set under the cursor;
+  V+click sets the clone source; Blender scheme Alt+MMB click centers the view. The Painter reference rows
+  of these gestures are "gesture" now and `docs/painter-shortcuts-table.md` is generated from the table.
+* **Tests:** new unit tests in `orbit.rs`, `nav.rs`, `actions.rs`. Local: `cargo check --release -p subcraft-app -p subcraft-ui --tests` was still queued when the PR was opened. Tests were not run locally (the
+  shared build queue was full all day); CI on the PR is the test gate.
+* **Not done:** not tried in the running app; no dotted preview for the snapped line.

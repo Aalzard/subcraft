@@ -4,7 +4,7 @@
 | General | `Ctrl+Z` | Undo | Undo | already the same |  |
 | General | `Ctrl+Y` | Redo | Redo | already the same |  |
 | General | `F8` | Baking mode | Bake | added (key was free) | opens the Bake window |
-| General | `F9` | Painting mode |  | no equivalent | no separate painting mode |
+| General | `F9` | Painting mode | PaintingMode | already the same | leaves the path-traced Rendering mode |
 | General | `F10` | Rendering (Iray) mode | TogglePathTracing | already the same | path-traced Rendering mode |
 | General | `Ctrl+O` | Open project | OpenProject | already the same |  |
 | General | `Ctrl+F4` | Close project |  | no equivalent | no close-project command |
@@ -63,29 +63,29 @@
 | Viewport | `Alt+Q` | Texture Set isolate |  | no equivalent | no equivalent key (parts: I / H over the model) |
 | Mouse | `LMB` | Use tool / paint |  | mouse / hold key | already worked |
 | Mouse | `Shift+LMB` | Draw straight lines |  | mouse / hold key | already worked |
-| Mouse | `Ctrl+Shift+LMB` | Draw straight lines with snapping |  | no equivalent | no snapped lines |
+| Mouse | `Ctrl+Shift+LMB` | Draw straight lines with snapping |  | mouse / hold key | added: the line from the last stroke point snaps to 5 degree steps |
 | Mouse | `Alt+LMB` | Camera rotate |  | mouse / hold key | already worked (Painter navigation) |
-| Mouse | `Alt+Shift+LMB` | Camera snap rotate |  | no equivalent | no snap rotation |
+| Mouse | `Alt+Shift+LMB` | Camera snap rotate |  | mouse / hold key | added: the view snaps every 90 degrees |
 | Mouse | `Alt+MMB` | Camera translate |  | mouse / hold key | already worked (plain MMB too) |
 | Mouse | `Ctrl+Alt+LMB` | Camera translate (alternative) |  | mouse / hold key | added |
 | Mouse | `Alt+RMB` | Camera zoom |  | mouse / hold key | already worked |
 | Mouse | `S (hold) + LMB` | Stencil rotate |  | mouse / hold key | already worked |
-| Mouse | `Shift+S + LMB` | Stencil snap rotate |  | no equivalent | no snap |
+| Mouse | `Shift+S + LMB` | Stencil snap rotate |  | mouse / hold key | added: 90 degree steps |
 | Mouse | `S (hold) + MMB` | Stencil translate |  | mouse / hold key | already worked |
 | Mouse | `S (hold) + RMB` | Stencil zoom |  | mouse / hold key | already worked |
 | Mouse | `Ctrl+RMB drag` | Change tool size / hardness |  | mouse / hold key | added: horizontal = size, vertical = hardness |
 | Mouse | `Ctrl+LMB drag` | Change tool flow / rotation |  | mouse / hold key | added: horizontal = flow, vertical = angle (Clone keeps Ctrl+click for its source) |
 | Mouse | `Shift+RMB` | Rotate environment |  | mouse / hold key | added: drag left-right turns the environment and its lighting (Shift+MMB turns only the key light) |
-| Mouse | `Ctrl+MMB` | Auto-focus (Depth of Field) |  | no equivalent | depth of field is being built on another branch |
-| Mouse | `Ctrl+Alt+RMB` | Texture set selection |  | no equivalent | no equivalent |
-| Mouse | `RMB` | Context menu |  | mouse / hold key | already worked (part actions) |
+| Mouse | `Ctrl+MMB` | Auto-focus (Depth of Field) |  | mouse / hold key | added: focuses the point under the cursor (turns depth of field on) |
+| Mouse | `Ctrl+Alt+RMB` | Texture set selection |  | mouse / hold key | added: selects the texture set under the cursor |
+| Mouse | `RMB` | Context menu |  | mouse / hold key | already worked (part actions; the Properties popup at the cursor is PR #131) |
 | Layers | `Ctrl+C / X / V` | Copy / cut / paste layer |  | mouse / hold key | already worked |
 | Layers | `Delete` | Delete layer | DeleteLayer | already the same |  |
 | Layers | `Ctrl+D` | Duplicate layer | DuplicateLayer | already the same |  |
 | Layers | `Ctrl+G` | Group layer | NewFolder | already the same | creates a folder |
 | Layers | `Ctrl+Shift+C` | Copy layer content |  | no equivalent | no content-only clipboard |
 | Layers | `Ctrl+Shift+V` | Paste layer content |  | no equivalent | no content-only clipboard |
-| Layers | `Alt+LMB on mask` | Display mask in viewport |  | no equivalent | no mask display toggle |
-| Layers | `Shift+LMB on mask` | Disable/enable mask |  | no equivalent | mask toggle is in the layer panel |
+| Layers | `Alt+LMB on mask` | Display mask in viewport |  | mouse / hold key | already worked: opens the mask inspector |
+| Layers | `Shift+LMB on mask` | Disable/enable mask |  | mouse / hold key | already worked |
 | Layers | `Ctrl+drag & drop` | Drag material |  | no equivalent | no equivalent |
 | Layers | `Shift / Ctrl (drag)` | Manipulator snapping / mirror |  | no equivalent | no manipulator |

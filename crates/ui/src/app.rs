@@ -1016,7 +1016,10 @@ impl SubcraftApp {
                 rows.reverse();
                 self.state.multi.select_all(&rows);
             }
-            Action::ResetCamera => self.state.camera = OrbitCamera::framing(&self.state.session.scene().mesh.bounds),
+            Action::ResetCamera => {
+                self.state.camera = OrbitCamera::framing(&self.state.session.scene().mesh.bounds);
+                self.state.orbit_pivot = None;
+            }
             Action::BrushTool => self.state.tool = Tool::Brush,
             Action::EraserTool => self.state.tool = Tool::Eraser,
             Action::PolygonFillTool => self.state.tool = Tool::PolygonFill,

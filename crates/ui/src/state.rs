@@ -110,6 +110,11 @@ pub struct UiState {
     pub camera: OrbitCamera,
     /// Navigation drag in progress (mode + rebased origin; see `nav`).
     pub nav_drag: Option<crate::nav::NavDrag>,
+    /// The point the 3D view orbits around: the surface under the cursor when the last orbit
+    /// started over the model (issue #115). `None` orbits around the camera target.
+    pub orbit_pivot: Option<glam::Vec3>,
+    /// Unsnapped yaw / pitch of a snapped orbit drag (Alt+Shift+LMB).
+    pub orbit_free: Option<(f32, f32)>,
     /// Scripted view used whenever a model is framed (`--camera`).
     pub camera_view: Option<crate::orbit::CameraView>,
     pub render_state: Option<egui_wgpu::RenderState>,
@@ -294,6 +299,8 @@ impl UiState {
             uploaded_composite_generation: 0,
             camera: OrbitCamera::framing(&session.scene().mesh.bounds),
             nav_drag: None,
+            orbit_pivot: None,
+            orbit_free: None,
             camera_view: None,
             session,
             render_state,

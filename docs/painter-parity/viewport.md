@@ -25,14 +25,14 @@ Layout notes: all navigation is a held modifier plus a mouse drag; the same comb
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Camera rotate (orbit) | Alt + LMB drag | editable shortcut | partial: orbits around the camera target, not the point under the cursor | crates/ui/src/nav.rs:84 | - |
-| Camera snap rotate | Alt + Shift + LMB drag | snaps to orthogonal views (every 90 degrees) | missing | - | - |
+| Camera rotate (orbit) | Alt + LMB drag | editable shortcut | done | crates/ui/src/orbit.rs (orbit_around) | #163 |
+| Camera snap rotate | Alt + Shift + LMB drag | snaps to orthogonal views (every 90 degrees) | done | crates/ui/src/nav.rs (NavMode::OrbitSnap) | #163 |
 | Camera translate (pan) | Alt + MMB drag | editable shortcut | done | crates/ui/src/nav.rs:82 | - |
 | Camera translate (alternative) | Ctrl + Alt + LMB drag | editable shortcut | done | crates/ui/src/nav.rs:82 | - |
 | Camera zoom (dolly) | Alt + RMB drag | editable shortcut | done | crates/ui/src/nav.rs:80 | - |
 | Camera zoom with the mouse wheel | Wheel over the view | (unverified) | done | crates/ui/src/viewport.rs:105 | - |
 | Rotate environment | Shift + RMB drag (horizontal) | editable shortcut | done | crates/ui/src/nav.rs:76 | - |
-| Auto-focus (depth of field focus point) | Ctrl + MMB click on the mesh | needs Post effects + DOF on | partial: focus is picked with a "Pick on model" button then a click, no Ctrl+MMB | crates/ui/src/viewport.rs:245 | - |
+| Auto-focus (depth of field focus point) | Ctrl + MMB click on the mesh | needs Post effects + DOF on | partial: Ctrl+MMB works and turns depth of field on; Post effects is not a separate switch | crates/ui/src/viewport.rs (Painter clicks) | #163 |
 | Texture set selection | Ctrl + Alt + RMB click on the mesh | editable shortcut | missing | - | - |
 | Texture Set highlight under cursor | Hold Ctrl + Alt over the model (12.2) | hidden while LMB is down or panning | missing | - | - |
 | Texture Set / UV Tile highlight from the list | Hover a row in the Texture Set list (12.2) | not documented | missing | - | - |
@@ -127,7 +127,7 @@ Layout notes: the dropdown at the top right of each view switches between Materi
 | Use tool / paint | LMB drag | editable shortcut | done | crates/ui/src/viewport.rs:290 | - |
 | Draw straight line from the last stroke point | Shift + LMB click | editable shortcut | done | crates/ui/src/viewport.rs:326 | - |
 | Dotted preview of the straight line while Shift is held | 3D view overlay | - | missing | - | - |
-| Draw straight line with snapping | Ctrl + Shift + LMB | every 5 degrees | missing | - | - |
+| Draw straight line with snapping | Ctrl + Shift + LMB | every 5 degrees | partial: snaps every 5 degrees; no dotted preview line yet | crates/ui/src/nav.rs (snap_line_end) | #163 |
 | Change tool size (horizontal drag) | Ctrl + RMB drag | editable shortcut | done | crates/ui/src/viewport.rs:147 | - |
 | Change tool hardness (vertical drag) | Ctrl + RMB drag | needs an alpha exposing "hardness" | done | crates/ui/src/viewport.rs:148 | - |
 | Change tool flow (horizontal drag) | Ctrl + LMB drag | editable shortcut | done | crates/ui/src/viewport.rs:150 | - |

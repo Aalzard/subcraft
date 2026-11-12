@@ -129,11 +129,36 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         let pos = Vec2::new(p.x, p.y);
         if state.nav_drag.is_none() && primary_or_other_pressed(ui) && response.hovered() {
             state.nav_drag = NavDrag::begin(scheme, nav_input, pos);
+            state.orbit_free = None;
+            // An orbit that starts over the model turns around that point (issue #115); over the
+            // background the previous point is kept.
+            if state.recovery.prefs.orbit_around_cursor
+                && state.nav_drag.is_some_and(|d| matches!(d.mode(), NavMode::Orbit | NavMode::OrbitSnap))
+                && let Some(hit) = state.session.pick(&state.camera.paint_camera(size), to_screen(p))
+            {
+                state.orbit_pivot = Some(hit.position);
+            }
+            // Blender scheme: Alt+MMB click centers the view on the point under the cursor.
+            if scheme == crate::nav::NavScheme::Blender && nav_input.alt && nav_input.middle
+                && let Some(hit) = state.session.pick(&state.camera.paint_camera(size), to_screen(p))
+            {
+                state.camera.target = hit.position;
+                state.orbit_pivot = None;
+            }
         } else if let Some(drag) = state.nav_drag.as_mut() {
+            let pivot = state.orbit_pivot.filter(|_| state.recovery.prefs.orbit_around_cursor).unwrap_or(state.camera.target);
             match drag.step(scheme, nav_input, pos) {
                 Some((mode, d)) => {
+                    if mode != NavMode::OrbitSnap { state.orbit_free = None; }
                     match mode {
-                        NavMode::Orbit => state.camera.orbit(d.x, d.y),
+                        NavMode::Orbit => state.camera.orbit_around(pivot, d.x, d.y),
+                        NavMode::OrbitSnap => {
+                            let (yaw, pitch) = state.orbit_free.unwrap_or((state.camera.yaw, state.camera.pitch));
+                            let free = (yaw - d.x * 0.008, (pitch + d.y * 0.008).clamp(-std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2));
+                            state.orbit_free = Some(free);
+                            let step = std::f32::consts::FRAC_PI_2;
+                            state.camera.set_angles_around(pivot, crate::nav::snap_angle(free.0, step), crate::nav::snap_angle(free.1, step));
+                        }
                         NavMode::Pan => state.camera.pan(d.x * pixel_scale.x, d.y * pixel_scale.y, size[1] as f32),
                         NavMode::Zoom => state.camera.zoom((d.y * 0.01).exp()),
                         NavMode::Light => state.light_yaw = (state.light_yaw + d.x * 0.01).rem_euclid(std::f32::consts::TAU),
@@ -141,7 +166,35 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         NavMode::None => {}
                     }
                 }
-                None => state.nav_drag = None,
+                None => { state.nav_drag = None; state.orbit_free = None; }
+            }
+        }
+    }
+    // ----- Painter clicks that are not navigation: Ctrl+MMB focus, Ctrl+Alt+RMB texture set -----
+    let ctrl = mods.ctrl || mods.command;
+    let painter_nav = scheme == crate::nav::NavScheme::Painter;
+    let (middle_pressed, secondary_pressed) = ui.input(|i| (i.pointer.button_pressed(PointerButton::Middle), i.pointer.button_pressed(PointerButton::Secondary)));
+    let pick_set = painter_nav && ctrl && mods.alt && !mods.shift;
+    if painter_nav && !stencil_edit && response.hovered() && let Some(p) = pointer {
+        if middle_pressed && ctrl && !mods.alt && !mods.shift {
+            match state.session.pick(&state.camera.paint_camera(size), to_screen(p)) {
+                Some(hit) => {
+                    let orbit = state.camera.eye_distance().max(1e-4);
+                    let view = &mut state.recovery.prefs.viewport;
+                    view.dof = true;
+                    view.dof_focus = (hit.depth / orbit).clamp(0.2, 3.0);
+                    state.set_status(crate::i18n::tr("Focus set"), now);
+                }
+                None => state.set_status(crate::i18n::tr("Click the model to set the focus"), now),
+            }
+        }
+        if secondary_pressed && pick_set
+            && let Some(hit) = state.session.pick(&state.camera.paint_camera(size), to_screen(p))
+            && let Some((id, name)) = state.session.document().texture_set_for_slot(hit.material_slot).map(|t| (t.id, t.name.clone()))
+        {
+            match state.session.execute(subcraft_app::Command::SelectTextureSet(id)) {
+                Ok(()) => state.set_status(format!("Texture set: {name}"), now),
+                Err(e) => state.set_status(e.to_string(), now),
             }
         }
     }
@@ -149,7 +202,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     // ----- Painter-style brush gestures: Ctrl+RMB drag = size / hardness, Ctrl+LMB drag = flow / angle -----
     let gesture_ok = mods.command && !mods.alt && !stencil_edit && !typing && !(state.bake.open || state.bake.job.is_some());
     let brush_tool = matches!(state.tool, Tool::Brush | Tool::Eraser | Tool::Smudge | Tool::Clone);
-    let lmb_adjust = gesture_ok && matches!(state.tool, Tool::Brush | Tool::Eraser | Tool::Smudge);
+    // Ctrl+Shift+LMB is the snapped straight line, so the flow / angle drag needs Shift up.
+    let lmb_adjust = gesture_ok && !mods.shift && matches!(state.tool, Tool::Brush | Tool::Eraser | Tool::Smudge);
     if gesture_ok && brush_tool && !state.painting {
         let s = &mut state.session.brush.settings;
         if response.dragged_by(PointerButton::Secondary) {
@@ -168,7 +222,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         state.context_part = pointer.and_then(|p| state.session.surface_target(&camera, to_screen(p), state.parts_kind));
     }
     let mut part_action = None;
-    response.context_menu(|ui| {
+    // Ctrl+Alt+RMB selected a texture set above: no menu for that click.
+    if !(pick_set && response.secondary_clicked()) { response.context_menu(|ui| {
         if let Some(target) = state.context_part {
             ui.label(target.part.kind.label());
             ui.menu_button("Target", |ui| {
@@ -185,7 +240,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         } else { ui.label("Right-click the model to texture a part."); }
         if state.session.has_hidden_parts() && ui.button("Show all parts").clicked() { state.session.show_all_parts(); ui.close(); }
         if ui.button("Eyedropper tool").clicked() { state.tool = Tool::Eyedropper; ui.close(); }
-    });
+    }); }
     if let Some((target, action)) = part_action { crate::panels::parts::apply(state, target, action, now); }
     if response.hovered() && !typing && !mods.any() {
         let target = pointer.and_then(|p| state.session.surface_target(&camera, to_screen(p), state.parts_kind));
@@ -324,7 +379,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                         state.set_status(if mods.shift { "Picked material" } else { "Picked color" }, now);
                     }
                 }
-                Tool::Clone if mods.command || v_down => {
+                Tool::Clone if (mods.command && !mods.shift) || v_down => {
                     if state.session.set_clone_source(&camera, sp) { state.set_status("Clone source set: now paint where the copy should go", now); }
                     else { state.set_status(crate::keys::native("Ctrl+click the model to set the clone source"), now); }
                 }
@@ -352,6 +407,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                             state.session.set_stroke_pressure(stroke_pressure);
                             let line_from = if mods.shift { state.last_stroke_point } else { None };
                             if let Some(from) = line_from {
+                                // Ctrl+Shift+click: the line snaps to 5 degree steps, as in Painter.
+                                let sp = if mods.command || mods.ctrl { crate::nav::snap_line_end(from, sp, 5.0) } else { sp };
                                 let _ = state.session.stroke_to(&camera, from, true);
                                 let _ = state.session.stroke_to(&camera, sp, true);
                             } else {
