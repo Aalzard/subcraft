@@ -31,7 +31,8 @@ fn all_sixteen_user_channels_can_be_added_and_renamed() {
 
 #[test]
 fn user_channel_names_are_saved_with_the_project() {
-    let mut s = Session::new(primitives::cube(2.0), 64);
+    // 128: the smallest size a project file accepts.
+    let mut s = Session::new(primitives::cube(2.0), 128);
     let ts = s.selection().texture_set;
     s.execute(Command::AddChannel { texture_set: ts, kind: ChannelKind::User15 }).unwrap();
     s.execute(Command::RenameUserChannel { texture_set: ts, kind: ChannelKind::User15, name: "Wetness".into() }).unwrap();
