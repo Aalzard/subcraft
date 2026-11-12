@@ -17,6 +17,5 @@ uuid.workspace = true
 log.workspace = true
 web-time.workspace = true
 subcraft-text.workspace = true
-
-[dev-dependencies]
+# Lenient reading of the display settings block (one bad value must not fail a project).
 serde_json.workspace = true

@@ -55,3 +55,34 @@ fn x_inverts_the_mask_brush_value() {
         assert!(!s.perform(a).unwrap(), "{a:?}");
     }
 }
+
+/// QA 2026-11: a texture set hidden with Alt+Q (or its eye) was hidden only in the renderer: the
+/// pick under the cursor (orbit pivot, Ctrl+Alt+RMB, strokes) still hit its invisible geometry.
+#[test]
+fn hidden_texture_sets_do_not_take_picks() {
+    // Two quads stacked along +Y: "Low" at y = 0 and "High" at y = 1, seen from above.
+    let mut b = MeshBuilder::new("Stack");
+    for (i, name) in ["Low", "High"].into_iter().enumerate() {
+        let m = b.material(name);
+        let y = i as f32;
+        let c = |x: f32, z: f32| Corner { position: Vec3::new(x, y, z), normal: Some(Vec3::Y), uv: Some(Vec2::new(x + 1.0, z + 1.0) * 0.45) };
+        b.push_triangle(m, [c(-1.0, -1.0), c(-1.0, 1.0), c(1.0, 1.0)]);
+        b.push_triangle(m, [c(-1.0, -1.0), c(1.0, 1.0), c(1.0, -1.0)]);
+    }
+    let mut s = Session::new(b.build().unwrap(), 64);
+    let (low, high) = (s.document().texture_sets[0].id, s.document().texture_sets[1].id);
+    let slot = |s: &Session, id| s.document().texture_set(id).unwrap().material_slot;
+    let cam = subcraft_app::Camera::perspective(Vec3::new(0.0, 5.0, 0.01), Vec3::ZERO, Vec3::Y, 40.0, 0.1, 100.0, [256, 256]);
+    let centre = glam::Vec2::new(128.0, 128.0);
+    assert_eq!(s.pick(&cam, centre).map(|p| p.material_slot), Some(slot(&s, high)), "the top quad is hit first");
+
+    s.execute(Command::SetTextureSetHidden { texture_set: high, hidden: true }).unwrap();
+    assert_eq!(s.pick(&cam, centre).map(|p| p.material_slot), Some(slot(&s, low)), "a hidden set is not hit");
+    s.execute(Command::SetTextureSetHidden { texture_set: high, hidden: false }).unwrap();
+    assert_eq!(s.pick(&cam, centre).map(|p| p.material_slot), Some(slot(&s, high)));
+
+    s.execute(Command::IsolateTextureSet(low)).unwrap();
+    assert_eq!(s.pick(&cam, centre).map(|p| p.material_slot), Some(slot(&s, low)), "Alt+Q isolation");
+    s.execute(Command::IsolateTextureSet(low)).unwrap();
+    assert_eq!(s.pick(&cam, centre).map(|p| p.material_slot), Some(slot(&s, high)), "and back");
+}

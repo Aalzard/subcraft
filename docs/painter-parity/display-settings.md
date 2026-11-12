@@ -367,26 +367,26 @@ copy in Preferences (`crates/ui/src/recovery.rs:327`). SubCraft extras: Bounces 
 | Painting (leave rendering) shortcut | F9 | F9 | done | crates/app/src/actions.rs (Action::PaintingMode) | 165 |
 | Camera icon | Main toolbar | - | partial: "Render" button in the 3D view's bottom-right corner | crates/ui/src/viewport.rs:608 | - |
 | Status (Rendering / Paused / Done) | Iray settings, top | - | partial: status pill in the 3D view (samples per second / paused / done) | crates/ui/src/viewport.rs:557 | - |
-| Resolution (readout) | Iray settings, top | viewport size | missing | - | - |
-| Scene Size (readout) | Iray settings, top | - | missing | - | - |
-| Iterations (done / max) | Iray settings, top | - | partial: "n / max samples" in the status pill | crates/ui/src/viewport.rs:556 | - |
-| Rendering time (elapsed / max) | Iray settings, top | - | missing | - | - |
+| Resolution (readout) | Iray settings, top | viewport size | done: Display Settings > Render settings > Status (the traced size, smaller when the GPU cannot hold the full one) | crates/ui/src/panels/display_settings.rs (render) | 193 |
+| Scene Size (readout) | Iray settings, top | - | done: the model's bounding box in scene units | crates/ui/src/panels/display_settings.rs (render) | 193 |
+| Iterations (done / max) | Iray settings, top | - | done: Status > Iterations, and the status pill | crates/ui/src/panels/display_settings.rs (render) | 193 |
+| Rendering time (elapsed / max) | Iray settings, top | - | done: Status > Rendering time (tracing time since the image last restarted) | crates/ui/src/panels/display_settings.rs (render), crates/render/src/pathtrace.rs (PathTraceStatus) | 193 |
 | Pause / resume button | Iray settings | - | partial: Pause/Resume button beside the Render button | crates/ui/src/viewport.rs:603 | - |
 
 ## Rendering mode (Iray): settings
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Min Sample | Iray settings | not documented | missing | - | - |
+| Min Sample | Iray settings | not documented | done: 0-8192, default 0; only matters with a time limit (there is no convergence estimate) | crates/render/src/pathtrace.rs (render_done) | 193 |
 | Max Sample | Iray settings | not documented | partial: "Max samples" 0-8192 (0 = unlimited, default 1024) in Display Settings > Render settings and the Render button popup | crates/ui/src/panels/display_settings.rs (render) | 161 |
-| Max Time | Iray settings | not documented | missing | - | - |
-| Max Time unit | Iray settings | options seconds, minutes, hours | missing | - | - |
+| Max Time | Iray settings | not documented | done: 0 = no limit, up to one day | crates/render/src/pathtrace.rs (render_done) | 193 |
+| Max Time unit | Iray settings | options seconds, minutes, hours | done: seconds, minutes (default), hours | crates/ui/src/viewport_bar.rs (TIME_UNITS) | 193 |
 | Caustic Sampler Enabled | Iray settings | not documented | missing | - | - |
-| Firefly Filter Enabled | Iray settings | not documented | missing: a fixed clamp in the shader, no control | - | - |
-| Override viewport resolution | Iray settings | off | missing | - | - |
-| Width | Iray settings (when overriding) | not documented | missing | - | - |
-| Height | Iray settings (when overriding) | not documented | missing | - | - |
-| Save Render | Iray settings | - | partial: "Save image…" in the Render quality window renders the raster view (PNG only), not the path-traced accumulation | crates/ui/src/render_export.rs:170 | - |
+| Firefly Filter Enabled | Iray settings | not documented | done: on by default (the clamp the tracer always had) | crates/render/src/pathtrace.rs (FIREFLY_CLAMP) | 193 |
+| Override viewport resolution | Iray settings | off | done: off by default; the picture is letterboxed in the 3D view and keeps the vertical field of view | crates/ui/src/viewport.rs (trace_params) | 193 |
+| Width | Iray settings (when overriding) | not documented | done: 16-8192 px, default 1920 | crates/ui/src/panels/display_settings.rs (render) | 193 |
+| Height | Iray settings (when overriding) | not documented | done: 16-8192 px, default 1080 | crates/ui/src/panels/display_settings.rs (render) | 193 |
+| Save Render | Iray settings | - | done: "Save render…" saves the path-traced picture as shown (tone mapped, PNG) | crates/ui/src/render_export.rs (save_path_traced) | 193 |
 | Share (upload the render to ArtStation) | Iray settings | - | missing | - | - |
 
 ## Rendering mode (Iray): viewer settings
@@ -399,14 +399,14 @@ copy in Preferences (`crates/ui/src/recovery.rs:327`). SubCraft extras: Bounces 
 | Dome type | Viewer settings > Dome | options Infinite Sphere, Sphere, Sphere with ground | partial: "Ground shadow" checkbox adds a gray ground disc; no dome choice | crates/ui/src/viewport_bar.rs:289 | - |
 | Radius | Viewer settings > Dome | not documented | missing | - | - |
 | Texture Scale | Viewer settings > Dome | not documented | missing | - | - |
-| Clear Color (checkbox + color) | Viewer settings > Dome | off | missing | - | - |
-| Ground X | Viewer settings > Ground | bottom of the scene bounding box | missing | - | - |
-| Ground Y | Viewer settings > Ground | bottom of the scene bounding box | missing | - | - |
-| Ground Z | Viewer settings > Ground | bottom of the scene bounding box | missing | - | - |
-| Reflectivity (color) | Viewer settings > Ground | not documented | missing | - | - |
-| Glossiness | Viewer settings > Ground | not documented | missing | - | - |
-| Shadow Intensity | Viewer settings > Ground | not documented | missing | - | - |
-| Visible from below | Viewer settings > Ground | not documented | missing | - | - |
+| Clear Color (checkbox + color) | Viewer settings > Dome | off | done: off by default; camera rays that miss see the color, lighting unchanged | crates/render/src/pathtrace.wgsl (backdrop) | 193 |
+| Ground X | Viewer settings > Ground | bottom of the scene bounding box | partial: an offset from the default place (under the model, at the bottom of its bounds), not an absolute coordinate | crates/render/src/pathtrace.rs (GroundSettings) | 193 |
+| Ground Y | Viewer settings > Ground | bottom of the scene bounding box | partial: an offset from the default place, not an absolute coordinate | crates/render/src/pathtrace.rs (GroundSettings) | 193 |
+| Ground Z | Viewer settings > Ground | bottom of the scene bounding box | partial: an offset from the default place, not an absolute coordinate | crates/render/src/pathtrace.rs (GroundSettings) | 193 |
+| Reflectivity (color) | Viewer settings > Ground | not documented | done: black by default (a plain matte floor) | crates/render/src/pathtrace.wgsl | 193 |
+| Glossiness | Viewer settings > Ground | not documented | done: 0-1, default 0.5 | crates/render/src/pathtrace.wgsl | 193 |
+| Shadow Intensity | Viewer settings > Ground | not documented | partial: 0-1, default 1; scales the key light's shadow, not the environment's occlusion | crates/render/src/pathtrace.wgsl | 193 |
+| Visible from below | Viewer settings > Ground | not documented | done: on by default | crates/render/src/pathtrace.wgsl (floor_hit) | 193 |
 | Post effects and camera settings shared with the viewport | Iray mode Display Settings | - | partial: same preferences feed both modes, but there is no panel in the mode | crates/ui/src/viewport_bar.rs:128 | - |
 | Depth of field post effect overrides Iray's own DOF | Post effects | - | missing | - | - |
 

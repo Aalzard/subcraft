@@ -79,7 +79,7 @@ impl CompositeCache {
         let n = ts.resolution.div_ceil(subcraft_image::TILE_SIZE) as usize;
         let reusable = !self.force_all
             && self.composite.as_ref().is_some_and(|c| c.resolution == ts.resolution)
-            && self.last.as_ref().is_some_and(|l| l.id == ts.id && l.channels == ts.channels);
+            && self.last.as_ref().is_some_and(|l| l.id == ts.id && l.channels == ts.channels && l.transparent == ts.transparent);
         match (&self.last, reusable) {
             (Some(last), true) if last.albedo_filter == ts.albedo_filter => match diff_lists(&last.layers, &ts.layers, ts.resolution) {
                 Dirty::Tiles(mut set) => {
@@ -112,7 +112,7 @@ impl CompositeCache {
     pub fn update_within(&mut self, ts: &TextureSet, ctx: &EvalContext, budget: Option<Duration>) -> Vec<usize> {
         let reusable = !self.force_all
             && self.composite.as_ref().is_some_and(|c| c.resolution == ts.resolution)
-            && self.last.as_ref().is_some_and(|l| l.id == ts.id && l.channels == ts.channels);
+            && self.last.as_ref().is_some_and(|l| l.id == ts.id && l.channels == ts.channels && l.transparent == ts.transparent);
         let dirty = match (&self.last, reusable) {
             (Some(last), true) if last.albedo_filter != ts.albedo_filter => Dirty::All,
             (Some(last), true) => diff_lists(&last.layers, &ts.layers, ts.resolution),

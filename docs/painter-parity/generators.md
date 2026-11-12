@@ -43,15 +43,15 @@ Layout notes: Output: monochrome gradient from a 3D source point. Needs the bake
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| 3D Distance (generator) | Properties > Generator | used on: mask or fill | missing | - | - |
-| Position | Properties > Generator > Image inputs | baked Position map | missing | - | - |
-| Invert | Properties > Generator > Parameters | not documented (toggle) | missing | - | - |
-| Position X | Properties > Generator > Parameters | not documented | missing | - | - |
-| Position Y | Properties > Generator > Parameters | not documented | missing | - | - |
-| Position Z | Properties > Generator > Parameters | not documented | missing | - | - |
-| Radius | Properties > Generator > Parameters | not documented | missing | - | - |
-| Offset | Properties > Generator > Parameters | not documented | missing | - | - |
-| Contrast | Properties > Generator > Parameters | not documented | missing | - | - |
+| 3D Distance (generator) | Properties > Generator | used on: mask or fill | done: 1 within Offset, linear to 0 over Radius (units of the longest side); positions in the bounding box 0..1 | crates/doc/src/mask.rs:91 | chunk 49 |
+| Position | Properties > Generator > Image inputs | baked Position map | partial: positions come from the mesh (no baked Position map needed or read) | crates/compositor/src/mask.rs:182 | chunk 49 |
+| Invert | Properties > Generator > Parameters | not documented (toggle) | done | crates/ui/src/panels/properties.rs:427 | chunk 49 |
+| Position X | Properties > Generator > Parameters | not documented | done | crates/ui/src/panels/properties.rs:427 | chunk 49 |
+| Position Y | Properties > Generator > Parameters | not documented | done | crates/ui/src/panels/properties.rs:427 | chunk 49 |
+| Position Z | Properties > Generator > Parameters | not documented | done | crates/ui/src/panels/properties.rs:427 | chunk 49 |
+| Radius | Properties > Generator > Parameters | not documented | done | crates/ui/src/panels/properties.rs:427 | chunk 49 |
+| Offset | Properties > Generator > Parameters | not documented | done | crates/ui/src/panels/properties.rs:427 | chunk 49 |
+| Contrast | Properties > Generator > Parameters | not documented | done | crates/ui/src/panels/properties.rs:427 | chunk 49 |
 
 ## 3D Linear Gradient
 
@@ -59,13 +59,13 @@ Layout notes: Gradient between two points picked as colours of the Position map 
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| 3D Linear Gradient (generator) | Properties > Generator | used on: mask or fill | missing | - | - |
-| Position | Properties > Generator > Image inputs | baked Position map | missing | - | - |
-| Invert | Properties > Generator > Parameters | not documented (toggle) | missing | - | - |
-| Balance | Properties > Generator > Parameters | not documented | missing | - | - |
-| Contrast | Properties > Generator > Parameters | not documented | missing | - | - |
-| 3D Position Start | Properties > Generator > Parameters | colour picked from the Position map | missing | - | - |
-| 3D Position End | Properties > Generator > Parameters | colour picked from the Position map | missing | - | - |
+| 3D Linear Gradient (generator) | Properties > Generator | used on: mask or fill | done | crates/doc/src/mask.rs:91 | chunk 49 |
+| Position | Properties > Generator > Image inputs | baked Position map | partial: positions come from the mesh (no baked Position map needed or read) | crates/compositor/src/mask.rs:182 | chunk 49 |
+| Invert | Properties > Generator > Parameters | not documented (toggle) | done | crates/ui/src/panels/properties.rs:427 | chunk 49 |
+| Balance | Properties > Generator > Parameters | not documented | done | crates/ui/src/panels/properties.rs:427 | chunk 49 |
+| Contrast | Properties > Generator > Parameters | not documented | done | crates/ui/src/panels/properties.rs:427 | chunk 49 |
+| 3D Position Start | Properties > Generator > Parameters | colour picked from the Position map | partial: typed as X / Y / Z in the bounding box (0..1), no colour picker on the Position map | crates/ui/src/panels/properties.rs:427 | chunk 49 |
+| 3D Position End | Properties > Generator > Parameters | colour picked from the Position map | partial: typed as X / Y / Z in the bounding box (0..1), no colour picker on the Position map | crates/ui/src/panels/properties.rs:427 | chunk 49 |
 
 ## Ambient Occlusion
 
@@ -258,15 +258,15 @@ Layout notes: Turns a colour source (texture or anchor) into a grayscale mask.
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Grayscale Conversion (generator) | Properties > Generator | used on: mask or fill | missing | - | - |
-| Source | Properties > Generator > Image inputs | colour; texture or anchor | missing | - | - |
-| Grayscale type | Properties > Generator > Parameters | not documented; options Desaturation / Luma / Average / Max / Min / Red channel / Green channel / Blue channel | missing | - | - |
-| Invert | Properties > Generator > Parameters | not documented (toggle) | missing | - | - |
-| Balance | Properties > Generator > Parameters | not documented | missing | - | - |
-| Contrast | Properties > Generator > Parameters | not documented | missing | - | - |
-| Tile | Properties > Generator > Parameters | not documented | missing | - | - |
-| Rotation | Properties > Generator > Parameters | not documented | missing | - | - |
-| Safe Rotation | Properties > Generator > Parameters | not documented (toggle; locks rotation to 45 degree steps) | missing | - | - |
+| Grayscale Conversion (generator) | Properties > Generator | used on: mask or fill | done | crates/doc/src/mask.rs:91 | chunk 49 |
+| Source | Properties > Generator > Image inputs | colour; texture or anchor | partial: an image resource (anchors not offered) | crates/ui/src/panels/properties.rs:427 | chunk 49 |
+| Grayscale type | Properties > Generator > Parameters | not documented; options Desaturation / Luma / Average / Max / Min / Red channel / Green channel / Blue channel | done | crates/ui/src/panels/properties.rs:427 | chunk 49 |
+| Invert | Properties > Generator > Parameters | not documented (toggle) | done | crates/ui/src/panels/properties.rs:427 | chunk 49 |
+| Balance | Properties > Generator > Parameters | not documented | done | crates/ui/src/panels/properties.rs:427 | chunk 49 |
+| Contrast | Properties > Generator > Parameters | not documented | done | crates/ui/src/panels/properties.rs:427 | chunk 49 |
+| Tile | Properties > Generator > Parameters | not documented | done | crates/ui/src/panels/properties.rs:427 | chunk 49 |
+| Rotation | Properties > Generator > Parameters | not documented | done | crates/ui/src/panels/properties.rs:427 | chunk 49 |
+| Safe Rotation | Properties > Generator > Parameters | not documented (toggle; locks rotation to 45 degree steps) | done | crates/ui/src/panels/properties.rs:427 | chunk 49 |
 
 ## Inflate Shrinkwrap
 
@@ -297,15 +297,15 @@ Layout notes: Fake directional light from world-space normals and position. On a
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Light (generator) | Properties > Generator | used on: mask or fill | partial: Directional kind (normal dot direction, thresholded); mask only, no attenuation | crates/doc/src/mask.rs:213 | - |
+| Light (generator) | Properties > Generator | used on: mask or fill | partial: Directional kind with Painter's angles and attenuation; mask only | crates/ui/src/panels/properties.rs:834 | chunk 49 |
 | World Space Normal | Properties > Generator > Image inputs | colour; baked map | partial: read automatically, no slot | crates/doc/src/mask.rs:213 | - |
-| Position | Properties > Generator > Image inputs | colour; baked map | missing | - | - |
+| Position | Properties > Generator > Image inputs | colour; baked map | partial: positions come from the mesh (no baked Position map needed or read) | crates/compositor/src/mask.rs:182 | chunk 49 |
 | Invert | Properties > Generator > Parameters | not documented (toggle) | done | crates/ui/src/panels/properties.rs:616 | - |
-| Horizontal Angle | Properties > Generator > Parameters | not documented | partial: direction typed as an X / Y / Z vector, no angles | crates/ui/src/panels/properties.rs:617 | - |
-| Vertical Angle | Properties > Generator > Parameters | not documented | partial: direction typed as an X / Y / Z vector, no angles | crates/ui/src/panels/properties.rs:617 | - |
+| Horizontal Angle | Properties > Generator > Parameters | not documented | done (the X / Y / Z vector stays editable) | crates/ui/src/panels/properties.rs:834 | chunk 49 |
+| Vertical Angle | Properties > Generator > Parameters | not documented | done (the X / Y / Z vector stays editable) | crates/ui/src/panels/properties.rs:834 | chunk 49 |
 | Highlight Glossiness | Properties > Generator > Parameters | not documented | partial: "Softness" of the threshold | crates/ui/src/panels/properties.rs:434 | - |
 | Highlight Level | Properties > Generator > Parameters | not documented | partial: "Level" threshold | crates/ui/src/panels/properties.rs:433 | - |
-| Light Attenuation | Properties > Generator > Parameters | not documented | missing | - | - |
+| Light Attenuation | Properties > Generator > Parameters | not documented | done: fades toward the far side of the bounding box | crates/ui/src/panels/properties.rs:834 | chunk 49 |
 
 ## Mask Builder
 
@@ -610,10 +610,10 @@ Layout notes: One flat colour per UV island; usable as a mask or as fill colour.
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| UV Random Color (generator) | Properties > Generator | used on: mask or fill | missing | - | - |
+| UV Random Color (generator) | Properties > Generator | used on: mask or fill | partial: as a mask, one random gray per UV island | crates/doc/src/mask.rs:91 | chunk 49 |
 | Custom Gradient | Properties > Generator > Image inputs | gradient map for the colour range | missing | - | - |
-| Seed | Properties > Generator > Parameters | not documented; Random button and pencil field | missing | - | - |
-| Color Source Mode | Properties > Generator > Parameters | not documented; options Random / Custom Gradient | missing | - | - |
+| Seed | Properties > Generator > Parameters | not documented; Random button and pencil field | done: Random button and number field | crates/ui/src/panels/properties.rs:427 | chunk 49 |
+| Color Source Mode | Properties > Generator > Parameters | not documented; options Random / Custom Gradient | partial: Random only (Custom Gradient needs image inputs) | crates/ui/src/panels/properties.rs:427 | chunk 49 |
 
 ## UV Texel Density
 
