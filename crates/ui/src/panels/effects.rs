@@ -35,6 +35,7 @@ fn content_icon(kind: &ContentEffectKind) -> &'static str {
         ContentEffectKind::Fill(_) => icons::PAINT_BUCKET,
         ContentEffectKind::Levels { .. } | ContentEffectKind::Filter { .. } => icons::SLIDERS,
         ContentEffectKind::Anchor => icons::CROSSHAIR,
+        ContentEffectKind::Generator(_) => icons::MAGIC_WAND,
     }
 }
 
@@ -71,6 +72,7 @@ fn add_content_menu(ui: &mut Ui, layer: &Layer, channels: &[ChannelKind], active
     let options = [
         ("Add paint", ContentEffectKind::Paint { channels: BTreeMap::new() }),
         ("Add fill", new_fill(channels.iter().copied())),
+        ("Add content generator", ContentEffectKind::Generator(subcraft_doc::Generator::new(subcraft_doc::GeneratorKind::Edges))),
         ("Add levels", ContentEffectKind::Levels { channel: levels_channel, levels: Levels::default() }),
     ];
     for (label, kind) in options {
@@ -168,6 +170,7 @@ fn content_row_blend(e: &ContentEffect, active: ChannelKind) -> Option<(BlendMod
         ContentEffectKind::Levels { .. } | ContentEffectKind::Filter { .. } => e.applies_to(active),
         ContentEffectKind::Fill(fill) => fill.channels.get(&active).is_some_and(|c| c.enabled),
         ContentEffectKind::Paint { .. } => true,
+        ContentEffectKind::Generator(_) => active != ChannelKind::Normal,
     };
     let blend = e.blend.get(&active)?;
     shown.then_some((blend.mode, blend.opacity))
@@ -693,6 +696,10 @@ fn content_editor(ui: &mut Ui, state: &mut UiState, layer: &Layer, e: &ContentEf
                 });
                 let key = subcraft_app::layer_previews::PreviewKey { layer: layer.id, channel: *channel, mask: false, effect: Some(eff.id), size: 0 };
                 changed |= super::properties::levels_editor(ui, state, key, levels, channel.components() >= 3);
+            }
+            ContentEffectKind::Generator(g) => {
+                hint(ui, "The generator's gray result goes into every channel but Normal; set each channel's blending below.");
+                changed |= super::properties::content_generator_controls(ui, g);
             }
             ContentEffectKind::Anchor => {
                 let index = subcraft_doc::AnchorIndex::build(&state.session.selected_texture_set().layers);

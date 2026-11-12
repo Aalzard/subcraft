@@ -270,7 +270,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     let mut rename = ui.ctx().data_mut(|data| data.get_temp::<InlineRename>(rename_id));
     if rename.as_ref().is_some_and(|edit| state.session.selected_texture_set().find(edit.layer).is_none()) { rename = None; }
     // F2 renames unless the active key set uses it (Painter: F2 = 3D view only; double-click renames).
-    if !ui.ctx().egui_wants_keyboard_input() && !subcraft_app::f2_is_bound(state.recovery.prefs.keymap) && ui.input(|i| i.key_pressed(egui::Key::F2))
+    if !ui.ctx().egui_wants_keyboard_input() && state.recovery.prefs.keys().action_for(subcraft_app::Shortcut::key(subcraft_app::Key::F2)).is_none() && ui.input(|i| i.key_pressed(egui::Key::F2))
         && let Some(layer) = state.session.selected_layer()
     { rename = Some(InlineRename { layer: layer.id, text: layer.name.clone(), focus: true }); }
     let mut finish_rename = None;

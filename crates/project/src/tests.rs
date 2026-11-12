@@ -1063,3 +1063,20 @@ fn out_of_range_mask_editor_settings_are_refused_on_load() {
     let err = read_project(Cursor::new(bytes(&doc_with(1.0e30)))).unwrap_err();
     assert!(matches!(err, ProjectError::Invalid(ref m) if m.contains("Mask Editor")), "{err}");
 }
+
+#[test]
+fn imported_cameras_are_saved_with_the_project_and_old_projects_have_none() {
+    let doc = Document { texture_sets: vec![TextureSet::new("Body", 0, 128)] };
+    let mesh = primitives::cube(2.);
+    let plain = write_project(Cursor::new(Vec::new()), &mesh, &doc, &ResourceStore::default(), &MeshMapSet::new()).unwrap().into_inner();
+    assert!(read_project(Cursor::new(plain)).unwrap().settings.cameras.is_empty());
+    let cameras = vec![
+        subcraft_doc::SceneCamera { name: "Front".into(), position: [0.0, 1.0, 5.0], rotation: [0.0, 0.0, 0.0, 1.0], fov_y_deg: 35.0, orthographic: false, aspect: Some(16.0 / 9.0) },
+        subcraft_doc::SceneCamera { name: "Top".into(), position: [0.0, 6.0, 0.0], rotation: [-0.7071068, 0.0, 0.0, 0.7071068], fov_y_deg: 50.0, orthographic: true, aspect: None },
+    ];
+    let settings = subcraft_doc::ProjectSettings { cameras: cameras.clone(), ..Default::default() };
+    let bytes = write_project_with(Cursor::new(Vec::new()), &mesh, &doc, &ResourceStore::default(), &MeshMapSet::new(), &settings).unwrap().into_inner();
+    let read = read_project(Cursor::new(bytes)).unwrap();
+    assert_eq!(read.settings.cameras, cameras);
+    assert_eq!(read.settings, settings);
+}

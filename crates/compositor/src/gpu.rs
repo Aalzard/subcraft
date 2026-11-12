@@ -299,7 +299,7 @@ fn translate_effect(e: &ContentEffect, kind: ChannelKind) -> Result<Option<GpuEf
     }
     let mode = crate::tile::effective_mode(blend.mode);
     let (k, p) = match &e.kind {
-        ContentEffectKind::Paint { .. } | ContentEffectKind::Fill(_) => return Err(()),
+        ContentEffectKind::Paint { .. } | ContentEffectKind::Fill(_) | ContentEffectKind::Generator(_) => return Err(()),
         ContentEffectKind::Anchor => return Ok(None),
         ContentEffectKind::Levels { channel, levels } => {
             if *channel != kind || kind == ChannelKind::Normal {

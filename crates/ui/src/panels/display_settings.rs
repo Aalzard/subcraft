@@ -225,6 +225,31 @@ pub fn environment(state: &mut UiState, ui: &mut Ui) {
 
 /// Projection, anti-aliasing and the lens (focus distance and aperture of the depth of field).
 pub fn camera(state: &mut UiState, ui: &mut Ui) {
+    // Painter's Camera Preset row, lock and Restore: only with cameras imported from the mesh.
+    if !state.session.scene_cameras().is_empty() {
+        grid(ui, "display_camera_preset", |ui| {
+            ui.label(tr("Camera preset"));
+            crate::view_extras::camera_dropdown(ui, state, "display_camera_preset_combo");
+            ui.end_row();
+            if let Some(i) = state.active_camera {
+                ui.label(tr("Lock camera"));
+                ui.checkbox(&mut state.camera_locked, "").on_hover_text(tr("Lock the camera: navigation leaves it where it is"));
+                ui.end_row();
+                ui.label(tr("Display ratio"));
+                let ratio = state.session.scene_cameras().get(i).and_then(|c| c.aspect);
+                ui.label(ratio.map_or_else(|| tr("Unspecified").to_string(), |r| format!("{r:.3}")));
+                ui.end_row();
+                ui.label("");
+                if ui.add_enabled(crate::view_extras::camera_modified(state), egui::Button::new(tr("Restore")))
+                    .on_hover_text(tr("Put the camera's field of view and projection back to the imported values"))
+                    .clicked()
+                {
+                    crate::view_extras::restore_camera(state);
+                }
+                ui.end_row();
+            }
+        });
+    }
     let mut pick = false;
     {
         let camera = &mut state.camera;
