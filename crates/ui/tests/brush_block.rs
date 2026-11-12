@@ -207,3 +207,15 @@ fn clicking_the_alpha_slot_opens_a_browser_that_sets_the_tip() {
     click_at(&mut s, &ctx, tile);
     assert_eq!(s.session.brush.alpha_name, name);
 }
+
+/// QA 2026-11: drawing the Brush block clamped stored values above the slider range, so selecting
+/// the built-in "Scatter Dots" (Position Jitter 1.5) and looking at Properties changed it to 1.
+#[test]
+fn showing_the_brush_rows_does_not_clamp_stored_values() {
+    let mut s = state();
+    s.session.brush.settings.position_jitter = 1.5;
+    s.session.brush.settings.spacing = 4.0;
+    let _ctx = context(&mut s);
+    assert_eq!(s.session.brush.settings.position_jitter, 1.5);
+    assert_eq!(s.session.brush.settings.spacing, 4.0);
+}

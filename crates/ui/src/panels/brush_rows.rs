@@ -113,7 +113,9 @@ pub fn jitters(ui: &mut Ui, s: &mut BrushSettings) {
     let row = |ui: &mut Ui, label: &str, key: &str, value: &mut f32, pressure: &mut bool| {
         let on = *pressure;
         let mut toggle = false;
-        slider_row_with(ui, label, egui::Slider::new(value, 0.0..=1.0).max_decimals(2), |ui| {
+        // `Edits`: egui's default clamps the stored value every time the slider is drawn, so just
+        // showing Properties cut the built-in Scatter Dots' Position Jitter of 1.5 down to 1.
+        slider_row_with(ui, label, egui::Slider::new(value, 0.0..=1.0).max_decimals(2).clamping(egui::SliderClamping::Edits), |ui| {
             toggle = pressure_toggle(ui, key, on, &label.to_lowercase()).clicked();
         });
         if toggle {

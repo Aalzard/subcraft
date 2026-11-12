@@ -107,8 +107,19 @@ impl Stencil {
         // One wrap mode serves both axes: an axis that does not tile is inside 0..1 here, where
         // repeating changes nothing except at the very border, so it is clamped by hand.
         let wrap = if self.tiling == StencilTiling::None { Wrap::Clamp } else { Wrap::Repeat };
-        let hold = |v: f32, tiled: bool| if tiled { v } else { v.clamp(0.0, 1.0 - f32::EPSILON) };
-        let t = self.bitmap.sample(hold(uv.x, self.tiling.horizontal()), hold(uv.y, self.tiling.vertical()), wrap, false);
+        // Clamped to the outer texel centres: bilinear sampling with Repeat half a texel from the
+        // border of an axis that does not tile blended in the opposite edge (paint leaked through
+        // a black edge of a stencil tiled along the other axis).
+        let hold = |v: f32, tiled: bool, n: u32| {
+            if tiled {
+                v
+            } else {
+                let half = 0.5 / n.max(1) as f32;
+                v.clamp(half, (1.0 - half).max(half))
+            }
+        };
+        let (w, h) = (self.bitmap.width, self.bitmap.height);
+        let t = self.bitmap.sample(hold(uv.x, self.tiling.horizontal(), w), hold(uv.y, self.tiling.vertical(), h), wrap, false);
         ((0.2126 * t[0] + 0.7152 * t[1] + 0.0722 * t[2]) * t[3]).clamp(0.0, 1.0)
     }
 
@@ -144,7 +155,11 @@ impl Stencil {
         let (s2, c2) = (-self.rotation).sin_cos();
         let local = Vec2::new(to_view.x * c2 - to_view.y * s2, to_view.x * s2 + to_view.y * c2) / size;
         let (ci, cj) = (if self.tiling.horizontal() { local.x.round() as i32 } else { 0 }, if self.tiling.vertical() { local.y.round() as i32 } else { 0 });
-        let (ni, nj) = (span(self.tiling.horizontal(), size.x), span(self.tiling.vertical(), size.y));
+        // Only the nearest copies are kept, and they lie within that many steps of the nearest
+        // one along each axis: a tiny or very thin stencil used to build the whole grid first
+        // (hundreds of millions of copies) before keeping the nearest few hundred.
+        let limit = MAX_STENCIL_COPIES as i32 + 1;
+        let (ni, nj) = (span(self.tiling.horizontal(), size.x).min(limit), span(self.tiling.vertical(), size.y).min(limit));
         let mut copies = Vec::new();
         for i in (ci - ni)..=(ci + ni) {
             for j in (cj - nj)..=(cj + nj) {
@@ -171,6 +186,22 @@ mod tests {
     fn halves() -> Stencil {
         // 2x1: left white, right black.
         Stencil::new(Arc::new(Bitmap::new_u8(4, 2, 1, vec![255, 255, 0, 0, 255, 255, 0, 0])))
+    }
+
+    /// QA 2026-11: tiling along one axis sampled with Repeat on both, so half a texel from the
+    /// border of the other axis the opposite edge blended in (paint leaked through a black edge).
+    #[test]
+    fn tiling_one_axis_does_not_bleed_the_other_axis_edges() {
+        // 1 x 2: top white, bottom black.
+        let base = Stencil { scale: 0.5, ..Stencil::new(Arc::new(Bitmap::new_u8(1, 2, 1, vec![255, 0]))) };
+        let vp = [400, 200];
+        let none = base.clone();
+        let horizontal = Stencil { tiling: StencilTiling::Horizontal, ..base };
+        for y in [51.0, 55.0, 145.0, 149.0] {
+            let p = Vec2::new(200.0, y);
+            let (a, b) = (none.value_at(p, vp), horizontal.value_at(p, vp));
+            assert!((a - b).abs() < 1e-3, "y {y}: untiled {a}, tiled along U {b}");
+        }
     }
 
     #[test]
@@ -248,6 +279,14 @@ mod tests {
                 p.x >= min.x - 0.5 && p.x <= max.x + 0.5 && p.y >= min.y - 0.5 && p.y <= max.y + 0.5
             }), "{p:?} is not covered");
         }
+        // QA 2026-11: a scale far below what the viewport allows (a preset file can hold one)
+        // built ~1e8 copies before keeping the nearest few hundred.
+        let mut speck = halves();
+        speck.scale = 1e-4;
+        speck.tiling = StencilTiling::Both;
+        let started = std::time::Instant::now();
+        assert_eq!(speck.copy_offsets([1920, 1080]).len(), MAX_STENCIL_COPIES);
+        assert!(started.elapsed() < std::time::Duration::from_secs(2), "{:?}", started.elapsed());
         // A tiny stencil is capped, the image itself first.
         s.scale = 0.002;
         let tiny = s.copy_offsets([4000, 4000]);
