@@ -72,6 +72,9 @@ pub enum Command {
     RemoveChannel { texture_set: TextureSetId, kind: ChannelKind },
     /// Change a channel's storage format (export bit depth).
     SetChannelFormat { texture_set: TextureSetId, kind: ChannelKind, format: subcraft_doc::ChannelFormat },
+    /// Name a user channel (User0-User15) of a texture set; an empty name goes back to "User N".
+    /// One undo step.
+    RenameUserChannel { texture_set: TextureSetId, kind: ChannelKind, name: String },
     /// [`Command::InsertLayer`] that first adds these channels to the selected texture set when it
     /// lacks them (an imported texture set brings an Ambient Occlusion map). One undo step.
     InsertLayerWithChannels { layer: Box<Layer>, channels: Vec<ChannelKind>, label: String },

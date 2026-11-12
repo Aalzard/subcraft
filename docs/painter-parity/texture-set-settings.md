@@ -94,24 +94,24 @@ Layout notes: one scrolling column: General properties (Name, Description, Size 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
 | Add channel button | Texture Set Settings > Channels | not documented | done | crates/ui/src/panels/texture_sets.rs:220 | - |
-| Add menu category: Supported channels | Add channel popup | not documented | partial: one flat list, no shader support grouping | crates/ui/src/panels/texture_sets.rs:223 | - |
-| Add menu category: Unsupported channels | Add channel popup | not documented | missing | - | - |
-| Add menu category: User channels | Add channel popup | not documented | partial: user channels in the same flat list | crates/ui/src/panels/texture_sets.rs:223 | - |
+| Add menu category: Supported channels | Add channel popup | not documented | done | crates/ui/src/panels/texture_sets.rs (add_menu_groups) | - |
+| Add menu category: Unsupported channels | Add channel popup | not documented | done | crates/ui/src/panels/texture_sets.rs (add_menu_groups) | - |
+| Add menu category: User channels | Add channel popup | not documented | done | crates/ui/src/panels/texture_sets.rs (add_menu_groups) | - |
 | Select several channels at once (window) | Add channel | not documented | missing | - | - |
-| Remove channel (paint data kept, can be re-added) | Texture Set Settings > channel row | not documented | partial: command exists, row button disabled | crates/app/src/session.rs:1103 | - |
+| Remove channel (paint data kept, can be re-added) | Texture Set Settings > channel row | not documented | done | crates/ui/src/panels/texture_sets.rs (channels) | - |
 | Channel name | Texture Set Settings > channel row | not documented | done | crates/ui/src/panels/texture_sets.rs:231 | - |
-| Rename a user channel by double-click | Texture Set Settings > channel row | not documented | missing | - | - |
+| Rename a user channel by double-click | Texture Set Settings > channel row | not documented | done | crates/app/src/session.rs (Command::RenameUserChannel) | - |
 | Channel format label | Texture Set Settings > channel row | per channel | done | crates/ui/src/panels/texture_sets.rs:237 | - |
-| Channel Settings button | Texture Set Settings > channel row | not documented | partial: gear shown but disabled | crates/ui/src/panels/texture_sets.rs:235 | - |
-| Format sRGB8 | Channel settings menu | not documented | partial: 8 bit via SetChannelFormat only, no menu | crates/app/src/session.rs:1114 | - |
-| Format L8 | Channel settings menu | not documented | partial: 8 bit via command only; L or RGB fixed per channel | crates/app/src/session.rs:1114 | - |
-| Format RGB8 | Channel settings menu | not documented | partial: 8 bit via command only; L or RGB fixed per channel | crates/app/src/session.rs:1114 | - |
-| Format L16 | Channel settings menu | not documented | partial: 16 bit via command only | crates/app/src/session.rs:1114 | - |
-| Format RGB16 | Channel settings menu | not documented | partial: 16 bit via command only | crates/app/src/session.rs:1114 | - |
-| Format L16F | Channel settings menu | not documented | partial: 16F via command only | crates/app/src/session.rs:1114 | - |
-| Format RGB16F | Channel settings menu | not documented | partial: 16F via command only | crates/app/src/session.rs:1114 | - |
-| Format L32F | Channel settings menu | not documented | partial: 32F via command only | crates/app/src/session.rs:1114 | - |
-| Format RGB32F | Channel settings menu | not documented | partial: 32F via command only | crates/app/src/session.rs:1114 | - |
+| Channel Settings button | Texture Set Settings > channel row | not documented | partial: format menu only, no Color channel toggle | crates/ui/src/panels/texture_sets.rs (channels) | - |
+| Format sRGB8 | Channel settings menu | not documented | partial: menu on the channel gear; L or RGB is fixed per channel | crates/ui/src/panels/texture_sets.rs (CHANNEL_FORMATS) | - |
+| Format L8 | Channel settings menu | not documented | partial: menu on the channel gear; L or RGB is fixed per channel | crates/ui/src/panels/texture_sets.rs (CHANNEL_FORMATS) | - |
+| Format RGB8 | Channel settings menu | not documented | partial: menu on the channel gear; L or RGB is fixed per channel | crates/ui/src/panels/texture_sets.rs (CHANNEL_FORMATS) | - |
+| Format L16 | Channel settings menu | not documented | partial: menu on the channel gear; L or RGB is fixed per channel | crates/ui/src/panels/texture_sets.rs (CHANNEL_FORMATS) | - |
+| Format RGB16 | Channel settings menu | not documented | partial: menu on the channel gear; L or RGB is fixed per channel | crates/ui/src/panels/texture_sets.rs (CHANNEL_FORMATS) | - |
+| Format L16F | Channel settings menu | not documented | partial: menu on the channel gear; L or RGB is fixed per channel | crates/ui/src/panels/texture_sets.rs (CHANNEL_FORMATS) | - |
+| Format RGB16F | Channel settings menu | not documented | partial: menu on the channel gear; L or RGB is fixed per channel | crates/ui/src/panels/texture_sets.rs (CHANNEL_FORMATS) | - |
+| Format L32F | Channel settings menu | not documented | partial: menu on the channel gear; L or RGB is fixed per channel | crates/ui/src/panels/texture_sets.rs (CHANNEL_FORMATS) | - |
+| Format RGB32F | Channel settings menu | not documented | partial: menu on the channel gear; L or RGB is fixed per channel | crates/ui/src/panels/texture_sets.rs (CHANNEL_FORMATS) | - |
 | Color channel toggle (colour managed; editable on user channels only) | Channel settings menu | off for user channels | missing | - | - |
 | Color managed indicator icon | Texture Set Settings > channel row | fixed per channel | missing | - | - |
 
@@ -152,7 +152,7 @@ Layout notes: the names below are the channel types Painter offers (from the col
 | Specular level | Add channel | data | done | crates/core/src/channel.rs:20 | - |
 | Translucency | Add channel | data | missing | - | - |
 | Transmissive | Add channel | colour managed | missing | - | - |
-| User0 to User15 (16 user channels) | Add channel > User channels | data unless Color channel is ticked | partial: 4 user channels (User 0 to User 3) | crates/core/src/channel.rs:21 | - |
+| User0 to User15 (16 user channels) | Add channel > User channels | data unless Color channel is ticked | done | crates/core/src/channel.rs (ChannelKind::USER) | - |
 
 ## Texture Set Settings: mixing settings
 

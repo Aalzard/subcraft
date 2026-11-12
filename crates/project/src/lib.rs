@@ -231,6 +231,7 @@ pub fn write_project_with<W: Write + Seek>(
             albedo_filter: ts.albedo_filter,
             udim_tile: ts.udim_tile,
             channels: ts.channels.iter().map(|c| ChannelDefV1 { kind: c.kind, format: c.format }).collect(),
+            user_channel_names: ts.user_channel_names.clone(),
             layers: ts.layers.iter().map(|l| writer.layer(l)).collect(),
             mesh_maps: mesh_maps
                 .get(&ts.id)
@@ -611,6 +612,7 @@ fn read_project_checked<R: Read + Seek>(r: R, trusted: bool) -> Result<ProjectDa
             albedo_filter: t.albedo_filter,
             udim_tile: t.udim_tile,
             channels: t.channels.iter().map(|c| ChannelDef { kind: c.kind, format: c.format }).collect(),
+            user_channel_names: t.user_channel_names.iter().filter(|(k, n)| k.is_user() && !n.trim().is_empty()).map(|(k, n)| (*k, n.clone())).collect(),
             layers: Vec::new(),
         };
         let layers = t.layers.iter().map(|l| loader.layer(l, ts.resolution).map(Arc::new)).collect::<Result<Vec<_>, _>>()?;

@@ -5348,3 +5348,19 @@ the app kept drawing on the dead device. Safe mode works; 0.3.3's marker only he
 * **Not done:** non-square sizes (width / height unlock): about 250 uses of the square `resolution` across paint,
   compositor, export and the renderer; needs its own chunk. 3D Space Neighbor padding. The viewport does not follow
   the mixing settings yet (export only).
+
+### Painter parity chunk 17 (channel rows): Texture Set Settings channels (2026-11-12, branch `claude/parity-ts-channels`, stacks on chunk 41)
+
+* **Done:** channel rows in the docked Texture Set Settings: the cross removes the channel (layers keep their data;
+  add it back or undo to get it), the gear opens the format menu (Painter's badges: sRGB8 / L8 / RGB16F ...), user
+  channels are renamed by double-click (`Command::RenameUserChannel`, one undo step, saved as an optional
+  `user_channel_names` field). The add menu is grouped: Supported channels (the viewport shader's), Unsupported
+  channels, User channels. Sixteen user channels, User0 to User15 (`ChannelKind::USER`); export presets read
+  `user4`-`user15` too.
+* **Verified locally (release):** `cargo check` of core, doc, project, export, app and ui libs and of
+  `tests/texture_set_channels.rs` / `tests/texture_set_list.rs`. Tests were not run locally; CI is the test gate.
+* **Tests added:** `crates/app/tests/texture_set_channels.rs` (3), core `sixteen_user_channels_like_painter`, ui unit
+  tests (grouped add menu, row gear and cross).
+* **Not done:** the mesh-map slot half of chunk 17 (all slots visible, pick / replace / drag, context menu) waits for
+  #137. Renamed user channels show their name in Texture Set Settings only. No Color channel toggle. Opacity is left to
+  the transparency work (#145).

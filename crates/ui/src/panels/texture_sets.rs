@@ -316,36 +316,88 @@ fn general(state: &mut UiState, ui: &mut Ui, cmds: &mut Vec<Command>) {
 
 fn channels(state: &mut UiState, ui: &mut Ui, cmds: &mut Vec<Command>) {
     heading(ui, "Channels");
-    let (id, defs) = { let ts = state.session.selected_texture_set(); (ts.id, ts.channels.clone()) };
+    let (id, defs, names) = { let ts = state.session.selected_texture_set(); (ts.id, ts.channels.clone(), ts.user_channel_names.clone()) };
+    let label = |k: ChannelKind| names.get(&k).cloned().unwrap_or_else(|| k.display_name().to_string());
     ui.horizontal(|ui| {
         ui.label(RichText::new("Channels").font(theme::font(11.5)).color(TEXT_DIM));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let addable: Vec<ChannelKind> = ChannelKind::ALL.iter().copied().filter(|k| !defs.iter().any(|d| d.kind == *k)).collect();
-            let r = crate::widgets::icon_button(ui, icons::PLUS, "Add a channel");
-            egui::Popup::menu(&r).show(|ui| {
-                if addable.is_empty() { ui.label("Every channel is already in this texture set"); }
-                for k in addable {
-                    if ui.button(k.display_name()).clicked() { cmds.push(Command::AddChannel { texture_set: id, kind: k }); ui.close(); }
+            let r = ui.push_id(add_channel_id(), |ui| crate::widgets::icon_button(ui, icons::PLUS, "Add a channel")).inner;
+            egui::Popup::menu(&r).id(add_channel_id().with("popup")).show(|ui| {
+                let groups = add_menu_groups(&defs.iter().map(|d| d.kind).collect::<Vec<_>>());
+                if groups.iter().all(|(_, kinds)| kinds.is_empty()) { ui.label("Every channel is already in this texture set"); }
+                for (title, kinds) in groups {
+                    if kinds.is_empty() { continue; }
+                    ui.label(RichText::new(title).small().color(TEXT_FAINT));
+                    for k in kinds {
+                        if ui.button(label(k)).clicked() { cmds.push(Command::AddChannel { texture_set: id, kind: k }); ui.close(); }
+                    }
+                    ui.separator();
                 }
             });
         });
     });
+    // (set, channel, text, first frame) of a user channel being renamed.
+    let rename_id = egui::Id::new("tss_channel_rename");
+    let mut rename: Option<(TextureSetId, ChannelKind, String, bool)> = ui.data(|d| d.get_temp(rename_id));
+    let last = defs.len() == 1;
     for d in &defs {
         ui.horizontal(|ui| {
-            ui.add(egui::Label::new(RichText::new(d.kind.display_name()).font(theme::font_strong(12.0)).color(TEXT)).selectable(false));
+            if let Some((_, _, text, first)) = rename.as_mut().filter(|(ts, k, ..)| *ts == id && *k == d.kind) {
+                let r = ui.add(egui::TextEdit::singleline(text).desired_width(140.0));
+                if *first { r.request_focus(); *first = false; }
+                else if r.lost_focus() {
+                    if !ui.input(|i| i.key_pressed(egui::Key::Escape)) { cmds.push(Command::RenameUserChannel { texture_set: id, kind: d.kind, name: text.clone() }); }
+                    rename = None;
+                }
+            } else {
+                let r = ui.add(egui::Label::new(RichText::new(label(d.kind)).font(theme::font_strong(12.0)).color(TEXT)).selectable(false).sense(egui::Sense::click()));
+                if d.kind.is_user() {
+                    let r = r.on_hover_text("Double-click to rename this user channel");
+                    if r.double_clicked() { rename = Some((id, d.kind, label(d.kind), true)); }
+                }
+            }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.add_enabled(false, egui::Button::new(RichText::new(icons::X).font(theme::font(12.0))).frame(false))
-                    .on_disabled_hover_text("Removing a channel is not supported yet (layers store data per channel)");
-                ui.add_enabled(false, egui::Button::new(RichText::new(icons::GEAR).font(theme::font(12.0))).frame(false))
-                    .on_disabled_hover_text("Channel format is fixed for now");
+                let x = ui.push_id(("remove_channel", d.kind), |ui| ui.add_enabled(!last, egui::Button::new(RichText::new(icons::X).font(theme::font(12.0))).frame(false))).inner;
+                let x = if last { x.on_disabled_hover_text("A texture set keeps at least one channel") }
+                    else { x.on_hover_text("Remove this channel. Layers keep what they painted in it: add it back (or undo) to get it again") };
+                if x.clicked() { cmds.push(Command::RemoveChannel { texture_set: id, kind: d.kind }); }
+                let gear = ui.push_id(("channel_format", d.kind), |ui| ui.add(egui::Button::new(RichText::new(icons::GEAR).font(theme::font(12.0))).frame(false))).inner
+                    .on_hover_text("Channel format");
+                egui::Popup::menu(&gear).id(egui::Id::new(("channel_format_menu", d.kind))).show(|ui| {
+                    for f in CHANNEL_FORMATS {
+                        if ui.selectable_label(d.format == f, format_badge(d.kind, f)).clicked() {
+                            if f != d.format { cmds.push(Command::SetChannelFormat { texture_set: id, kind: d.kind, format: f }); }
+                            ui.close();
+                        }
+                    }
+                });
                 ui.label(RichText::new(format_badge(d.kind, d.format)).font(theme::font(11.0)).color(TEXT_DIM));
             });
         });
     }
+    ui.data_mut(|d| match rename { Some(r) => { d.insert_temp(rename_id, r); }, None => { d.remove::<(TextureSetId, ChannelKind, String, bool)>(rename_id); } });
     ui.add_space(6.0);
     let current = state.session.selected_texture_set().mixing;
     let picked = mixing_rows(ui, current);
     if picked != current { cmds.push(Command::SetMixing { texture_set: id, mixing: picked }); }
+}
+
+/// Formats offered by a channel's settings menu.
+pub const CHANNEL_FORMATS: [ChannelFormat; 4] = [ChannelFormat::Bit8, ChannelFormat::Bit16, ChannelFormat::Float16, ChannelFormat::Float32];
+
+/// Id of the add-channel button (tests click it).
+pub fn add_channel_id() -> egui::Id { egui::Id::new("tss_add_channel") }
+
+/// The add-channel menu, grouped as in Painter: channels the viewport shader uses, the other standard
+/// channels, then the user channels. Channels the set already has are left out.
+pub fn add_menu_groups(present: &[ChannelKind]) -> [(&'static str, Vec<ChannelKind>); 3] {
+    let missing = |f: &dyn Fn(ChannelKind) -> bool| ChannelKind::ALL.iter().copied().filter(|k| !present.contains(k) && f(*k)).collect::<Vec<_>>();
+    let shaded = |k: ChannelKind| subcraft_render::SHADED_CHANNELS.contains(&k);
+    [
+        ("Supported channels", missing(&|k| !k.is_user() && shaded(k))),
+        ("Unsupported channels", missing(&|k| !k.is_user() && !shaded(k))),
+        ("User channels", missing(&|k| k.is_user())),
+    ]
 }
 
 /// Labels of the mixing dropdowns, in Painter's order.
@@ -597,6 +649,55 @@ mod tests {
         assert_eq!(state.session.selected_texture_set().mixing.normal, NormalMixing::Replace);
         state.session.perform(subcraft_app::Action::Undo).unwrap();
         assert_eq!(state.session.selected_texture_set().mixing, MixingSettings::default());
+    }
+
+    #[test]
+    fn add_menu_is_grouped_and_leaves_out_present_channels() {
+        let groups = add_menu_groups(&ChannelKind::METAL_ROUGH);
+        assert_eq!(groups.iter().map(|(t, _)| *t).collect::<Vec<_>>(), ["Supported channels", "Unsupported channels", "User channels"]);
+        assert!(groups[0].1.contains(&ChannelKind::AmbientOcclusion) && !groups[0].1.contains(&ChannelKind::BaseColor));
+        assert!(groups[1].1.contains(&ChannelKind::Specular));
+        assert_eq!(groups[2].1.len(), 16);
+        let all: Vec<_> = groups.iter().flat_map(|(_, k)| k.clone()).collect();
+        assert_eq!(all.len() + ChannelKind::METAL_ROUGH.len(), ChannelKind::ALL.len(), "every missing channel is offered once");
+    }
+
+    #[test]
+    fn channel_rows_remove_and_change_format_through_commands() {
+        let mut state = UiState::new(subcraft_app::Session::new(subcraft_mesh::primitives::cube(2.0), 64), None);
+        let ts = state.session.selection().texture_set;
+        let ctx = egui::Context::default(); theme::apply(&ctx);
+        let screen = Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(420.0, 1400.0)));
+        let run = |state: &mut UiState, events: Vec<egui::Event>| {
+            let mut out = ctx.run_ui(egui::RawInput { screen_rect: screen, events, ..Default::default() }, |ui| settings(state, ui));
+            out.textures_delta.clear();
+            out
+        };
+        let click = |state: &mut UiState, at: egui::Pos2| {
+            let b = |pressed| egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+            for e in [vec![egui::Event::PointerMoved(at)], vec![b(true)], vec![b(false)]] { run(state, e); }
+        };
+        let row_y = |out: &egui::FullOutput, name: &str| text_pos(out, name).map(|p| p.y);
+        for _ in 0..2 { run(&mut state, vec![]); }
+        let out = run(&mut state, vec![]);
+        // The gear and the cross of the Metallic row.
+        let y = row_y(&out, "Metallic").expect("Metallic row");
+        let on_row = |icon: &str| out.shapes.iter().find_map(|s| match &s.shape {
+            egui::Shape::Text(t) if t.galley.text() == icon && (t.pos.y + t.galley.size().y * 0.5 - y).abs() < 6.0 => Some(t.pos + t.galley.size() * 0.5),
+            _ => None,
+        });
+        let (gear, cross) = (on_row(icons::GEAR).expect("gear on the row"), on_row(icons::X).expect("cross on the row"));
+        click(&mut state, gear);
+        let out = run(&mut state, vec![]);
+        let pick = text_pos(&out, "L16F").expect("format menu lists L16F");
+        click(&mut state, pick);
+        let def = state.session.selected_texture_set().channels.iter().find(|c| c.kind == ChannelKind::Metallic).copied().unwrap();
+        assert_eq!(def.format, ChannelFormat::Float16);
+        click(&mut state, cross);
+        assert!(!state.session.selected_texture_set().has_channel(ChannelKind::Metallic), "the cross removes the channel");
+        state.session.perform(subcraft_app::Action::Undo).unwrap();
+        assert!(state.session.selected_texture_set().has_channel(ChannelKind::Metallic));
+        let _ = ts;
     }
 
     #[test]

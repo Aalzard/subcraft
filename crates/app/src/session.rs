@@ -1313,6 +1313,21 @@ impl Session {
                 def.format = format;
                 self.commit(&format!("{} Format", kind.display_name()), None);
             }
+            Command::RenameUserChannel { texture_set, kind, name } => {
+                if !kind.is_user() {
+                    return Err(CommandError::Invalid(format!("{} is not a user channel and keeps its name", kind.display_name())));
+                }
+                let ts = self.doc.texture_set_mut(texture_set).ok_or(CommandError::TextureSetNotFound)?;
+                let name = name.trim().to_string();
+                let changed = if name.is_empty() || name == kind.display_name() {
+                    ts.user_channel_names.remove(&kind).is_some()
+                } else {
+                    ts.user_channel_names.insert(kind, name.clone()).as_deref() != Some(name.as_str())
+                };
+                if changed {
+                    self.commit("Rename Channel", None);
+                }
+            }
             Command::InsertLayerWithChannels { layer, channels, label } => {
                 let ts = self.doc.texture_set_mut(self.selection.texture_set).ok_or(CommandError::TextureSetNotFound)?;
                 for kind in channels {

@@ -167,6 +167,8 @@ pub struct TextureSet {
     /// Base Color bitmap reconstruction, used for compositing, painting and display.
     pub albedo_filter: subcraft_image::TextureFilter,
     pub channels: Vec<ChannelDef>,
+    /// Names given to user channels (Painter lets User0-User15 be renamed). Missing = "User N".
+    pub user_channel_names: std::collections::BTreeMap<ChannelKind, String>,
     /// Bottom-to-top.
     pub layers: Vec<Arc<Layer>>,
     /// The UDIM tile (`[column, row]` in stored UV space, see `subcraft_mesh::regroup`) this set
@@ -185,6 +187,7 @@ impl TextureSet {
             mixing: MixingSettings::default(),
             albedo_filter: Default::default(),
             channels: ChannelKind::METAL_ROUGH.iter().map(|&k| ChannelDef::default_for(k)).collect(),
+            user_channel_names: Default::default(),
             layers: Vec::new(),
             udim_tile: None,
         }
@@ -201,6 +204,11 @@ impl TextureSet {
             (Some(_), Some((base, tail))) if tail.len() == 4 && tail.bytes().all(|b| b.is_ascii_digit()) => base,
             _ => &self.name,
         }
+    }
+
+    /// The channel's name in this set: a user channel's given name, else the standard name.
+    pub fn channel_label(&self, kind: ChannelKind) -> String {
+        self.user_channel_names.get(&kind).cloned().unwrap_or_else(|| kind.display_name().to_string())
     }
 
     pub fn has_channel(&self, kind: ChannelKind) -> bool {

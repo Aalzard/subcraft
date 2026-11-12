@@ -245,7 +245,10 @@ mod painter {
             "user1" => (User1, false),
             "user2" => (User2, false),
             "user3" => (User3, false),
-            _ => return None,
+            other => {
+                let n: usize = other.strip_prefix("user")?.parse().ok()?;
+                (*ChannelKind::USER.get(n)?, false)
+            }
         })
     }
 

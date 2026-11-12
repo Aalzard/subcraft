@@ -84,6 +84,9 @@ pub struct TextureSetV1 {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub udim_tile: Option<[i32; 2]>,
     pub channels: Vec<ChannelDefV1>,
+    /// Names of renamed user channels. Additive and optional: absent = none renamed.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub user_channel_names: std::collections::BTreeMap<ChannelKind, String>,
     /// Bottom-to-top.
     pub layers: Vec<LayerV1>,
     /// Baked mesh maps (optional; absent in files written before baking existed).
