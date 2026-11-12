@@ -262,6 +262,7 @@ fn mode_id(mode: NavMode) -> String {
 }
 
 /// Camera gestures the user rebound (Painter navigation only); saved by name, unknown names skipped.
+/// Entries stay sorted by name.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(from = "BTreeMap<String, Vec<String>>", into = "BTreeMap<String, Vec<String>>")]
 pub struct MouseBindings {
@@ -319,7 +320,10 @@ impl MouseBindings {
             l.retain(|c| *c != combo);
         }
         self.entries.retain(|(m, _)| *m != mode);
-        self.entries.push((mode, vec![combo]));
+        // Kept sorted by name, as a saved file reads back, so equal bindings compare equal.
+        let id = mode_id(mode);
+        let at = self.entries.partition_point(|(m, _)| mode_id(*m) < id);
+        self.entries.insert(at, (mode, vec![combo]));
         before
     }
     pub fn reset(&mut self, mode: NavMode) {
