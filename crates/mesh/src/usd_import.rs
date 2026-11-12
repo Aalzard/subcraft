@@ -15,6 +15,9 @@ use crate::mesh::{Corner, MeshBuilder};
 
 type R<T> = Result<T, ImportError>;
 
+/// Deepest prim nesting the walk accepts (the same limit as the Alembic reader).
+const MAX_DEPTH: usize = 512;
+
 fn err(e: impl std::fmt::Display) -> ImportError {
     ImportError::Usd(e.to_string())
 }
@@ -98,6 +101,15 @@ pub fn load_usd(path: &Path, b: &mut MeshBuilder, warnings: &mut Vec<String>) ->
 
 impl Walk {
     fn visit(&mut self, prim: &usd::Prim, b: &mut MeshBuilder, inherited_material: Option<String>, is_root: bool) -> R<()> {
+        self.visit_at(prim, b, inherited_material, is_root, 0)
+    }
+
+    fn visit_at(&mut self, prim: &usd::Prim, b: &mut MeshBuilder, inherited_material: Option<String>, is_root: bool, depth: usize) -> R<()> {
+        // The walk recurses once per nesting level; a hostile file with thousands of nested
+        // prims would otherwise overflow the stack and abort the whole process.
+        if depth > MAX_DEPTH {
+            return Err(ImportError::Usd(format!("prim tree is nested deeper than {MAX_DEPTH} levels")));
+        }
         let type_name = prim.type_name().map_err(err)?.map(|t| t.as_str().to_string()).unwrap_or_default();
         let mut material = inherited_material;
         if !is_root {
@@ -128,7 +140,7 @@ impl Walk {
             }
         }
         for child in prim.children().map_err(err)? {
-            self.visit(&child, b, material.clone(), false)?;
+            self.visit_at(&child, b, material.clone(), false, depth + 1)?;
         }
         Ok(())
     }

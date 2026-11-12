@@ -14,6 +14,18 @@ pub fn apply(filter: Filter, input: [f32; 3], channel: ChannelKind) -> [f32; 3] 
             let v = pivot + (v - pivot) * gain;
             if channel.is_signed() { v } else { v.clamp(0.0, 1.0) }
         }),
+        Filter::BlurWrap { .. } | Filter::Transform { .. } | Filter::Mirror { .. } => input, // Staged by the compositor too.
+        Filter::Smoothstep { min, max } => input.map(|v| smoothstep(v, min, max)),
+        Filter::ThresholdCompare { cutoff, mode } => {
+            let value = if channel.is_color() { luminance(input) } else { input[0] };
+            [if mode.test(value, cutoff) { 1.0 } else { 0.0 }; 3]
+        }
+        Filter::HistogramShiftWrap { shift } => input.map(|v| shift_wrapped(v, shift, channel)),
+        Filter::HslPerceptive { hue: 0.0, saturation: 1.0, lightness: 0.0 } => input,
+        Filter::HslPerceptive { hue, saturation, lightness } => hsl_perceptive(input, hue, saturation, lightness),
+        Filter::ContrastLuminosity { contrast: 0.0, luminosity: 0.0 } => input,
+        Filter::ContrastLuminosity { contrast, luminosity } => input.map(|v| contrast_luminosity(v, contrast, luminosity, channel)),
+        Filter::ColorCorrect { shadows, midtones, highlights } => color_correct(input, shadows, midtones, highlights),
         Filter::Blur { .. } | Filter::Sharpen { .. } | Filter::DirectionalBlur { .. } | Filter::Highpass { .. } | Filter::Bevel {..} | Filter::MaskOutline {..} | Filter::Median { .. } | Filter::Warp { .. }
             | Filter::EdgeDetect { .. } | Filter::Glow { .. } | Filter::DirectionalWarp { .. } | Filter::Mosaic { .. } => input, // Neighborhood evaluation is staged by compositor.
         Filter::Grayscale => [luminance(input); 3],
@@ -59,6 +71,82 @@ pub fn apply(filter: Filter, input: [f32; 3], channel: ChannelKind) -> [f32; 3] 
             srgb3_to_linear(rgb.map(|v| v + l - chroma * 0.5))
         }
     }
+}
+
+/// Hermite smoothstep between `min` and `max` (inverted when `min > max`, a step when equal).
+pub fn smoothstep(v: f32, min: f32, max: f32) -> f32 {
+    if min == max { return if v >= min { 1.0 } else { 0.0 }; }
+    let t = ((v - min) / (max - min)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+/// `v + shift` wrapped around the channel range (0..1, or -1..1 for signed Height): what leaves
+/// one end re-enters at the other. A zero shift is the identity and the range's top stays the top.
+pub fn shift_wrapped(v: f32, shift: f32, channel: ChannelKind) -> f32 {
+    if shift == 0.0 { return v; }
+    let (lo, span) = if channel.is_signed() { (-1.0, 2.0) } else { (0.0, 1.0) };
+    let x = (v - lo + shift) / span;
+    let f = x - x.floor();
+    // An exact multiple of the range above its start is the range's end, not its start.
+    lo + span * if f == 0.0 && x > 0.0 { 1.0 } else { f }
+}
+
+/// Contrast then luminosity, both -1..=1: contrast >= 0 stretches around the pivot by
+/// `1 / (1 - c)` (c = 1: a hard step), contrast < 0 compresses by `1 + c`; luminosity is added.
+/// The pivot is 0.5 (0 for signed Height); unsigned results clamp to 0..=1.
+pub fn contrast_luminosity(v: f32, contrast: f32, luminosity: f32, channel: ChannelKind) -> f32 {
+    let pivot = if channel.is_signed() { 0.0 } else { 0.5 };
+    let d = v - pivot;
+    let stretched = if contrast >= 1.0 {
+        // Hard step: the half-range on either side of the pivot.
+        let half = if channel.is_signed() { 1.0 } else { 0.5 };
+        if d > 0.0 { half } else if d < 0.0 { -half } else { 0.0 }
+    } else if contrast >= 0.0 { d / (1.0 - contrast) } else { d * (1.0 + contrast) };
+    let out = pivot + stretched + luminosity;
+    if channel.is_signed() { out.clamp(-1.0, 1.0) } else { out.clamp(0.0, 1.0) }
+}
+
+/// Color Correct: the three ranges' `[contrast, luminosity, saturation]` blended by
+/// [`tonal_weights`] of the linear luminance, applied to the sRGB-encoded color (contrast and
+/// luminosity as [`contrast_luminosity`], saturation as a mix with the encoded gray by
+/// `1 + saturation`), then decoded. All zeros is exactly the identity.
+pub fn color_correct(c: [f32; 3], shadows: [f32; 3], midtones: [f32; 3], highlights: [f32; 3]) -> [f32; 3] {
+    if shadows == [0.0; 3] && midtones == [0.0; 3] && highlights == [0.0; 3] { return c; }
+    let w = tonal_weights(luminance(c));
+    let p: [f32; 3] = std::array::from_fn(|i| w[0] * shadows[i] + w[1] * midtones[i] + w[2] * highlights[i]);
+    let enc = linear3_to_srgb(c.map(|v| v.clamp(0.0, 1.0)));
+    let enc = enc.map(|v| contrast_luminosity(v, p[0], p[1], ChannelKind::BaseColor));
+    let gray = luminance(enc);
+    srgb3_to_linear(enc.map(|v| (gray + (v - gray) * (1.0 + p[2])).clamp(0.0, 1.0)))
+}
+
+/// Linear sRGB to OKLab (Bjorn Ottosson, 2020).
+pub fn linear_to_oklab(c: [f32; 3]) -> [f32; 3] {
+    let l = (0.412_221_47 * c[0] + 0.536_332_55 * c[1] + 0.051_445_995 * c[2]).cbrt();
+    let m = (0.211_903_5 * c[0] + 0.680_699_5 * c[1] + 0.107_396_96 * c[2]).cbrt();
+    let s = (0.088_302_46 * c[0] + 0.281_718_85 * c[1] + 0.629_978_7 * c[2]).cbrt();
+    [0.210_454_26 * l + 0.793_617_8 * m - 0.004_072_047 * s,
+     1.977_998_5 * l - 2.428_592_2 * m + 0.450_593_7 * s,
+     0.025_904_037 * l + 0.782_771_77 * m - 0.808_675_77 * s]
+}
+
+/// OKLab to linear sRGB (may leave the gamut).
+pub fn oklab_to_linear(lab: [f32; 3]) -> [f32; 3] {
+    let l = (lab[0] + 0.396_337_78 * lab[1] + 0.215_803_76 * lab[2]).powi(3);
+    let m = (lab[0] - 0.105_561_346 * lab[1] - 0.063_854_17 * lab[2]).powi(3);
+    let s = (lab[0] - 0.089_484_18 * lab[1] - 1.291_485_5 * lab[2]).powi(3);
+    [4.076_741_7 * l - 3.307_711_6 * m + 0.230_969_94 * s,
+     -1.268_438 * l + 2.609_757_4 * m - 0.341_319_38 * s,
+     -0.004_196_086_3 * l - 0.703_418_6 * m + 1.707_614_7 * s]
+}
+
+/// Perceptive HSL: hue rotation (degrees), chroma multiplier and additive lightness in OKLCH,
+/// so a hue shift keeps the perceived brightness. Results are clipped to non-negative RGB.
+pub fn hsl_perceptive(c: [f32; 3], hue: f32, saturation: f32, lightness: f32) -> [f32; 3] {
+    let lab = linear_to_oklab(c.map(|v| v.max(0.0)));
+    let (sin, cos) = hue.to_radians().sin_cos();
+    let (a, b) = ((lab[1] * cos - lab[2] * sin) * saturation, (lab[1] * sin + lab[2] * cos) * saturation);
+    oklab_to_linear([(lab[0] + lightness).max(0.0), a, b]).map(|v| v.max(0.0))
 }
 
 /// Linear ramp from `position - w/2` to `position + w/2` with `w = 1 - contrast`; hard step at 1.
@@ -286,6 +374,150 @@ mod directional_highpass_tests {
         assert_eq!(highpass([-0.5;3],[0.25;3],2.0,ChannelKind::Height),[-1.5;3]);
         assert_eq!(highpass([0.9;3],[0.1;3],0.0,k),[0.5;3]);
         assert_eq!(highpass([0.9;3],[0.1;3],0.0,ChannelKind::Height),[0.0;3]);
+    }
+}
+
+#[cfg(test)]
+mod standard_filter_tests {
+    use super::*;
+    use ChannelKind as K;
+    use subcraft_doc::{HslMode, ThresholdMode};
+    fn close(a: [f32; 3], b: [f32; 3], eps: f32) { assert!(a.iter().zip(&b).all(|(x, y)| (x - y).abs() < eps), "{a:?} vs {b:?}"); }
+
+    #[test]
+    fn smoothstep_is_the_hermite_ramp_between_min_and_max() {
+        let f = |min, max| Filter::Smoothstep { min, max };
+        // Defaults 0..1: t^2 (3 - 2t).
+        for (v, e) in [(0.0, 0.0), (0.25, 0.15625), (0.5, 0.5), (0.75, 0.84375), (1.0, 1.0)] {
+            assert!((apply_mask(f(0.0, 1.0), v) - e).abs() < 1e-6, "{v}");
+        }
+        // 0.2..0.6: flat outside, t = 0.25 at 0.3.
+        assert_eq!(apply_mask(f(0.2, 0.6), 0.1), 0.0);
+        assert_eq!(apply_mask(f(0.2, 0.6), 0.7), 1.0);
+        assert!((apply_mask(f(0.2, 0.6), 0.3) - 0.15625).abs() < 1e-6);
+        // Inverted limits invert the ramp; equal limits are a step.
+        assert!((apply_mask(f(0.6, 0.2), 0.3) - 0.84375).abs() < 1e-6);
+        assert_eq!((apply_mask(f(0.4, 0.4), 0.399), apply_mask(f(0.4, 0.4), 0.4)), (0.0, 1.0));
+        // Per component on color, raw values on signed Height.
+        close(apply(f(0.0, 1.0), [0.25, 0.5, 2.0], K::BaseColor), [0.15625, 0.5, 1.0], 1e-6);
+        close(apply(f(-1.0, 1.0), [0.0, -1.0, -0.5], K::Height), [0.5, 0.0, 0.15625], 1e-6);
+    }
+
+    #[test]
+    fn threshold_modes_differ_only_at_and_across_the_threshold() {
+        let t = |mode| Filter::threshold(0.4, mode);
+        let row = |mode| [0.399, 0.4, 0.401].map(|v| apply_mask(t(mode), v));
+        assert_eq!(row(ThresholdMode::Greater), [0.0, 0.0, 1.0]);
+        assert_eq!(row(ThresholdMode::GreaterOrEqual), [0.0, 1.0, 1.0]);
+        assert_eq!(row(ThresholdMode::Lower), [1.0, 0.0, 0.0]);
+        assert_eq!(row(ThresholdMode::LowerOrEqual), [1.0, 1.0, 0.0]);
+        // Color compares the linear luminance: red 0.2126 is lower than 0.3, green 0.7152 is not.
+        assert_eq!(apply(Filter::threshold(0.3, ThresholdMode::Lower), [1.0, 0.0, 0.0], K::BaseColor), [1.0; 3]);
+        assert_eq!(apply(Filter::threshold(0.3, ThresholdMode::Lower), [0.0, 1.0, 0.0], K::BaseColor), [0.0; 3]);
+    }
+
+    #[test]
+    fn histogram_shift_wraps_around_the_range_instead_of_clamping() {
+        let w = |shift| Filter::histogram_shift(shift, true);
+        close(apply(w(0.3), [0.5, 0.9, 0.0], K::Roughness), [0.8, 0.2, 0.3], 1e-6);
+        close(apply(w(-0.3), [0.5, 0.1, 1.0], K::Roughness), [0.2, 0.8, 0.7], 1e-6);
+        // The clamping variant is unchanged.
+        close(apply(Filter::histogram_shift(0.3, false), [0.5, 0.9, 0.0], K::Roughness), [0.8, 1.0, 0.3], 1e-6);
+        // Zero is the identity (white stays white), a full turn too.
+        assert_eq!(apply(w(0.0), [1.0, 0.0, 0.37], K::Roughness), [1.0, 0.0, 0.37]);
+        close(apply(w(1.0), [1.0, 0.25, 0.5], K::Roughness), [1.0, 0.25, 0.5], 1e-6);
+        // Signed Height wraps over -1..1 (a range of 2).
+        close(apply(w(0.5), [0.75, -0.75, 0.0], K::Height), [-0.75, -0.25, 0.5], 1e-6);
+        for v in [-1.0f32, -0.3, 0.0, 0.6, 1.0] {
+            for shift in [-1.0f32, -0.45, 0.2, 0.9] {
+                let (a, b) = (shift_wrapped(v, shift, K::Height), shift_wrapped(v.abs(), shift, K::Roughness));
+                assert!((-1.0..=1.0).contains(&a) && (0.0..=1.0).contains(&b), "{v} {shift}: {a} {b}");
+            }
+        }
+    }
+
+    #[test]
+    fn contrast_luminosity_stretches_around_mid_gray_then_offsets() {
+        let f = |contrast, luminosity| Filter::ContrastLuminosity { contrast, luminosity };
+        assert_eq!(apply(f(0.0, 0.0), [0.1, 0.5, 0.9], K::BaseColor), [0.1, 0.5, 0.9]);
+        // Contrast 0.5 doubles the distance to 0.5; -0.5 halves it.
+        close(apply(f(0.5, 0.0), [0.4, 0.5, 0.9], K::Roughness), [0.3, 0.5, 1.0], 1e-6);
+        close(apply(f(-0.5, 0.0), [0.1, 0.5, 0.9], K::Roughness), [0.3, 0.5, 0.7], 1e-6);
+        // The extremes: a hard step, and flat mid gray.
+        assert_eq!(apply(f(1.0, 0.0), [0.49, 0.5, 0.51], K::Roughness), [0.0, 0.5, 1.0]);
+        close(apply(f(-1.0, 0.0), [0.0, 0.3, 1.0], K::Roughness), [0.5; 3], 1e-6);
+        // Luminosity is a plain offset after the contrast.
+        close(apply(f(0.0, 0.2), [0.1, 0.5, 0.9], K::Roughness), [0.3, 0.7, 1.0], 1e-6);
+        close(apply(f(0.5, -0.1), [0.4, 0.5, 0.6], K::Roughness), [0.2, 0.4, 0.6], 1e-6);
+        // Signed Height pivots on 0 and keeps its sign range.
+        close(apply(f(0.5, 0.0), [-0.2, 0.0, 0.3], K::Height), [-0.4, 0.0, 0.6], 1e-6);
+        close(apply(f(0.0, -0.5), [-0.8, 0.0, 0.3], K::Height), [-1.0, -0.5, -0.2], 1e-6);
+        assert!((apply_mask(f(0.5, 0.0), 0.4) - 0.3).abs() < 1e-6);
+    }
+
+    #[test]
+    fn color_correct_acts_on_the_tonal_range_it_is_set_for() {
+        let cc = |shadows, midtones, highlights| Filter::ColorCorrect { shadows, midtones, highlights };
+        let z = [0.0; 3];
+        let (black, mid, white) = ([0.0; 3], [0.5; 3], [1.0; 3]);
+        assert_eq!(apply(cc(z, z, z), [0.3, 0.6, 0.1], K::BaseColor), [0.3, 0.6, 0.1]);
+        // Luminosity on one range moves only that range (weights 1 / 0 at luminance 0, 0.5, 1).
+        let lift = cc([0.0, 0.2, 0.0], z, z);
+        close(apply(lift, black, K::BaseColor), [subcraft_core::color::srgb_to_linear(0.2); 3], 1e-5);
+        close(apply(lift, mid, K::BaseColor), mid, 1e-5);
+        close(apply(lift, white, K::BaseColor), white, 1e-5);
+        let dim = cc(z, z, [0.0, -0.25, 0.0]);
+        close(apply(dim, white, K::BaseColor), [subcraft_core::color::srgb_to_linear(0.75); 3], 1e-5);
+        close(apply(dim, black, K::BaseColor), black, 1e-5);
+        // Saturation -1 on the midtones: a mid-luminance color becomes its encoded gray.
+        let c = [0.8, 0.5, 0.2];
+        let lum = c[0] * 0.2126 + c[1] * 0.7152 + c[2] * 0.0722;
+        let wm = tonal_weights(lum)[1];
+        assert!(wm > 0.8, "{wm}");
+        let enc = linear3_to_srgb(c);
+        let gray = enc[0] * 0.2126 + enc[1] * 0.7152 + enc[2] * 0.0722;
+        let expect = srgb3_to_linear(enc.map(|v| gray + (v - gray) * (1.0 - wm)));
+        close(apply(cc(z, [0.0, 0.0, -1.0], z), c, K::BaseColor), expect, 1e-5);
+        // Saturation +1 doubles the distance to gray (clamped), contrast spreads the components.
+        let more = apply(cc([0.0, 0.0, 1.0], [0.0, 0.0, 1.0], [0.0, 0.0, 1.0]), c, K::BaseColor);
+        assert!(more[0] > c[0] && more[2] < c[2], "{more:?}");
+        let contrast = apply(cc([0.5, 0.0, 0.0], [0.5, 0.0, 0.0], [0.5, 0.0, 0.0]), c, K::BaseColor);
+        let e = linear3_to_srgb(c).map(|v| (0.5 + (v - 0.5) * 2.0).clamp(0.0, 1.0));
+        close(contrast, srgb3_to_linear(e), 1e-5);
+        // Data channels and masks pass through.
+        assert_eq!(apply(lift, [0.3; 3], K::Roughness), [0.3; 3]);
+    }
+
+    #[test]
+    fn perceptive_hsl_works_in_oklch_and_keeps_perceived_lightness() {
+        let p = |hue, saturation, lightness| Filter::hsl(HslMode::Perceptive, hue, saturation, lightness);
+        // OKLab reference values: white is (1, 0, 0); sRGB red is (0.62796, 0.22486, 0.12585).
+        close(linear_to_oklab([1.0; 3]), [1.0, 0.0, 0.0], 2e-4);
+        close(linear_to_oklab([1.0, 0.0, 0.0]), [0.627_96, 0.224_86, 0.125_85], 2e-4);
+        for c in [[0.2, 0.5, 0.9], [1.0, 0.0, 0.0], [0.05, 0.05, 0.05]] { close(oklab_to_linear(linear_to_oklab(c)), c, 2e-4); }
+        // Neutral settings are exactly the identity, HDR included.
+        assert_eq!(apply(p(0.0, 1.0, 0.0), [2.0, 0.035, 0.1234], K::Emissive), [2.0, 0.035, 0.1234]);
+        // A hue shift keeps OKLab lightness and chroma; regular HSL does not keep the lightness.
+        let c = [0.6, 0.2, 0.2];
+        let shifted = apply(p(120.0, 1.0, 0.0), c, K::BaseColor);
+        let (a, b) = (linear_to_oklab(c), linear_to_oklab(shifted));
+        let chroma = |l: [f32; 3]| (l[1] * l[1] + l[2] * l[2]).sqrt();
+        assert!(shifted[1] > shifted[0] && shifted[1] > shifted[2], "red turned green: {shifted:?}");
+        // (The shifted color is clipped to the gamut, so allow a little drift.)
+        assert!((a[0] - b[0]).abs() < 0.03 && (chroma(a) - chroma(b)).abs() < 0.03, "{a:?} {b:?}");
+        let regular = apply(Filter::hsl(HslMode::Regular, 120.0, 1.0, 0.0), c, K::BaseColor);
+        assert!((linear_to_oklab(regular)[0] - a[0]).abs() > 0.05, "regular HSL changes the perceived lightness");
+        // Saturation 0: the gray of the same OKLab lightness (r = g = b = L^3).
+        let gray = apply(p(0.0, 0.0, 0.0), c, K::BaseColor);
+        close(gray, [a[0].powi(3); 3], 2e-4);
+        // Grays stay gray under any hue; lightness adds to L.
+        close(apply(p(77.0, 1.5, 0.0), [0.18; 3], K::BaseColor), [0.18; 3], 2e-4);
+        let l = 0.18f32.cbrt();
+        close(apply(p(0.0, 1.0, 0.1), [0.18; 3], K::BaseColor), [(l + 0.1).powi(3); 3], 2e-4);
+        close(apply(p(0.0, 1.0, -1.0), c, K::BaseColor), [0.0; 3], 1e-3);
+        // Color channels only.
+        assert_eq!(apply(p(50.0, 1.0, 0.0), [0.3; 3], K::Roughness), [0.3; 3]);
+        assert_eq!(apply_mask(p(50.0, 1.0, 0.0), 0.3), 0.3);
     }
 }
 

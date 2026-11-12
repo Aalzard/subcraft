@@ -266,19 +266,29 @@ pub fn write_project_with<W: Write + Seek>(
     Ok(zip.finish()?)
 }
 
-/// Resource table entries + file payloads for `ids` (resources without original bytes are skipped).
+/// Resource table entries + file payloads for `ids`. A resource that only exists as pixels (the
+/// Painter importer's solved textures and embedded images have no original file) is encoded
+/// losslessly; skipping it would leave the layers that use it pointing at nothing after a reload.
 fn pack_resources(ids: &[ResourceId], resources: &ResourceStore) -> (Vec<ResourceV1>, Vec<(String, Arc<Vec<u8>>)>) {
     let mut files = Vec::new();
     let mut entries = Vec::new();
     for &id in ids {
         let Some(r) = resources.get(id) else { continue };
-        let Some(bytes) = &r.encoded else {
-            log::warn!("resource {} has no original file bytes; not saved", r.name);
-            continue;
+        let (bytes, ext) = match &r.encoded {
+            Some(bytes) => {
+                // By content, so re-saving a loaded project keeps the extension (TGA falls back to the name).
+                let hint = r.source_path.as_deref().and_then(|p| p.to_str()).unwrap_or(&r.name);
+                let ext = if r.kind == subcraft_doc::ResourceKind::Font { font_extension(bytes).to_string() } else { subcraft_image::guess_extension(bytes, Some(hint)) };
+                (bytes.clone(), ext)
+            }
+            None => match subcraft_image::encode_bitmap(&r.bitmap) {
+                Ok((bytes, ext)) => (Arc::new(bytes), ext.to_string()),
+                Err(e) => {
+                    log::warn!("resource {} has no original file bytes and could not be encoded ({e}); not saved", r.name);
+                    continue;
+                }
+            },
         };
-        // By content, so re-saving a loaded project keeps the extension (TGA falls back to the name).
-        let hint = r.source_path.as_deref().and_then(|p| p.to_str()).unwrap_or(&r.name);
-        let ext = if r.kind == subcraft_doc::ResourceKind::Font { font_extension(bytes).to_string() } else { subcraft_image::guess_extension(bytes, Some(hint)) };
         let file = format!("resources/{}.{ext}", id.0);
         entries.push(ResourceV1 { id: id.0, name: r.name.clone(), kind: r.kind, file: file.clone() });
         files.push((file, bytes.clone()));

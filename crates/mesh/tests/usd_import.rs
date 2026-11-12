@@ -218,3 +218,26 @@ fn invisible_prims_are_skipped_and_reported() {
     assert!(r.warnings.iter().any(|w| w.contains("invisible")), "{:?}", r.warnings);
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+/// The prim walk recurses per nesting level; a file nested thousands of levels deep must be
+/// refused as an error, not overflow the stack and take the whole process down.
+#[test]
+fn absurdly_nested_prims_are_an_error_not_a_crash() {
+    let dir = tmp("deep");
+    let depth = 3000;
+    let mut text = String::from("#usda 1.0
+");
+    for i in 0..depth {
+        text += &format!("def Xform \"X{i}\"
+{{
+");
+    }
+    text += &"}
+".repeat(depth);
+    let r = std::thread::Builder::new().stack_size(8 << 20).spawn({
+        let p = write(&dir, "deep.usda", &text);
+        move || import_mesh(&p)
+    }).unwrap().join().expect("import thread must not crash");
+    assert!(matches!(&r, Err(ImportError::Usd(m)) if m.contains("nested")), "{r:?}");
+    std::fs::remove_dir_all(dir).unwrap();
+}

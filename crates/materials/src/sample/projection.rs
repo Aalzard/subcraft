@@ -3,6 +3,8 @@
 //! * `Uv` — mesh UV through [`Projection::transform_2d`].
 //! * `Planar` — normalized object position projected along one axis.
 //! * `Triplanar` — the three planar projections weighted by `|n|^sharpness` (normalized).
+//!   Hardness `h` (the panel's 0..1 slider) is the exponent `1 / (1 - h)`; `h = 1` keeps the
+//!   dominant plane only.
 //!
 //! Planar frames keep images upright when viewed down the axis with +Y up (v grows downward,
 //! matching the top-left UV origin): X → (z, 1−y), Y → (x, z), Z → (x, 1−y).
@@ -23,6 +25,18 @@ pub fn planar_coords(pos: [f32; 3], axis: u8) -> [f32; 2] {
 #[inline]
 pub fn triplanar_weights(normal: [f32; 3], sharpness: f32) -> [f32; 3] {
     let s = sharpness.max(1e-3);
+    if s > 64.0 {
+        // Past this the plain powers underflow: divide by the largest component first, and at
+        // Hardness 1 (`TRIPLANAR_HARD`) cut to the dominant plane (ties share it).
+        let a = normal.map(f32::abs);
+        let max = a[0].max(a[1]).max(a[2]);
+        if max <= 1e-6 {
+            return [1.0 / 3.0; 3];
+        }
+        let w = if s >= subcraft_doc::TRIPLANAR_HARD { a.map(|c| if c >= max { 1.0 } else { 0.0 }) } else { a.map(|c| (c / max).powf(s)) };
+        let sum = w[0] + w[1] + w[2];
+        return w.map(|c| c / sum);
+    }
     let w = normal.map(|c| c.abs().powf(s));
     let sum = w[0] + w[1] + w[2];
     if sum <= 1e-12 { [1.0 / 3.0; 3] } else { w.map(|c| c / sum) }

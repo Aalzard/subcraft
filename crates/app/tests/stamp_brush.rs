@@ -212,3 +212,19 @@ fn identical_prepared_images_share_one_resource() {
     assert_eq!(a, b);
     assert_eq!(s.resources().len(), n);
 }
+
+/// The fill stroke carries the stamp but accumulates no slope; the brush's flat normal value
+/// used to be read as a slope of (0.5, 0.5), tilting every normal of the filled island.
+#[test]
+fn polygon_fill_with_a_normal_stamp_brush_fills_a_flat_normal() {
+    let mut s = Session::new(primitives::cube(2.0), 128);
+    s.set_brush_stamp("Test bump", StampKind::Normal, tilted()).unwrap();
+    let target = s.target_for_part(subcraft_app::PartKey { kind: subcraft_core::PartKind::UvIsland, id: 0 }).unwrap();
+    s.polygon_fill_uv(target.uv, subcraft_paint::PolygonFillMode::UvIsland).unwrap();
+    let image = raster(&s, K::Normal).expect("the fill enables the Normal channel");
+    let (x, y) = ((target.uv.x * 128.0) as u32, (target.uv.y * 128.0) as u32);
+    let px = image.get(x, y);
+    assert!(px[3] > 0.99, "island is filled: {px:?}");
+    let n = normal::decode([px[0], px[1], px[2]]);
+    assert!(n.z > 0.999, "a filled normal is flat, not tilted: {n:?}");
+}

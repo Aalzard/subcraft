@@ -71,6 +71,8 @@ pub enum Action {
     Bake,
     /// Switch the 3D view between the raster viewport and the path-traced Rendering mode.
     TogglePathTracing,
+    /// Leave the Rendering mode: back to the painting viewport.
+    PaintingMode,
     /// Select every layer of the texture set (then Delete, Duplicate... act on all of them).
     SelectAllLayers,
 }
@@ -220,6 +222,7 @@ pub const ACTIONS: &[ActionInfo] = &[
     a(Action::Export, "Export Textures", &[Shortcut::ctrl_shift(Key::E)]),
     a(Action::Bake, "Bake Mesh Maps", &[Shortcut::ctrl(Key::B), Shortcut::key(Key::F8), Shortcut::ctrl_shift(Key::B)]),
     a(Action::TogglePathTracing, "Rendering Mode (path tracing)", &[Shortcut::key(Key::F10)]),
+    a(Action::PaintingMode, "Painting Mode (leave Rendering mode)", &[Shortcut::key(Key::F9)]),
     a(Action::SelectAllLayers, "Select All Layers", &[Shortcut::ctrl(Key::A)]),
 ];
 
@@ -293,7 +296,7 @@ pub const PAINTER_REFERENCE: &[PainterEntry] = &[
     e("General", "Ctrl+Z", "Undo", Support::Same, Action::Undo, Shortcut::ctrl(Key::Z), ""),
     e("General", "Ctrl+Y", "Redo", Support::Same, Action::Redo, Shortcut::ctrl(Key::Y), ""),
     e("General", "F8", "Baking mode", Support::Added, Action::Bake, Shortcut::key(Key::F8), "opens the Bake window"),
-    none("General", "F9", "Painting mode", "no separate painting mode"),
+    e("General", "F9", "Painting mode", Support::Same, Action::PaintingMode, Shortcut::key(Key::F9), "leaves the path-traced Rendering mode"),
     e("General", "F10", "Rendering (Iray) mode", Support::Same, Action::TogglePathTracing, Shortcut::key(Key::F10), "path-traced Rendering mode"),
     e("General", "Ctrl+O", "Open project", Support::Same, Action::OpenProject, Shortcut::ctrl(Key::O), ""),
     none("General", "Ctrl+F4", "Close project", "no close-project command"),
@@ -457,7 +460,7 @@ mod tests {
             Action::BrushTool, Action::EraserTool, Action::PenTool, Action::PolygonFillTool, Action::SmudgeTool, Action::CloneTool, Action::EyedropperTool,
             Action::BrushSmaller, Action::BrushLarger, Action::ToggleSymmetryX, Action::ToggleLazyMouse, Action::ResetCamera, Action::PerspectiveCamera,
             Action::OrthographicCamera, Action::NextChannel, Action::PrevChannel, Action::DisplayMaterial, Action::NewProject, Action::Quit, Action::Save,
-            Action::SaveAs, Action::OpenProject, Action::Export, Action::Bake, Action::TogglePathTracing, Action::SelectAllLayers,
+            Action::SaveAs, Action::OpenProject, Action::Export, Action::Bake, Action::TogglePathTracing, Action::PaintingMode, Action::SelectAllLayers,
         ];
         let listed: HashSet<_> = ACTIONS.iter().map(|a| a.action).collect();
         assert_eq!(listed.len(), ACTIONS.len(), "an action is listed twice");

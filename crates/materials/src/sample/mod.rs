@@ -4,6 +4,7 @@
 //! [`TileGeometry`]. Output texels are `[v0, v1, v2, alpha]` (straight alpha, linear values for
 //! color channels; scalar channels use `v0`).
 
+pub mod bitmap;
 pub mod field;
 pub mod geometry;
 pub mod edge_distance;
@@ -12,8 +13,9 @@ pub mod projection;
 
 use glam::Vec2;
 use subcraft_doc::{FillSource, ProceduralParams, Projection, ResourceStore};
-use subcraft_image::{TILE_TEXELS, Wrap};
+use subcraft_image::TILE_TEXELS;
 
+pub use bitmap::{BitmapSampler, MipChain, bitmap_tile, coverage_tile, mip_chain, projection_covers};
 pub use geometry::{GeometryCache, TextureSetGeometry, TileGeometry};
 pub use mesh_maps::MeshMaps;
 pub use projection::{planar_coords, sample_projected, sample_projected_sc, triplanar_weights};
@@ -30,7 +32,8 @@ pub struct SampleContext<'a> {
 /// Evaluate `source` for every texel of a tile into `out` (`TILE_TEXELS` entries).
 ///
 /// `linearize` decodes sRGB bitmaps; pass `ChannelKind::is_color()` (never for data channels
-/// or masks). A missing bitmap resource evaluates fully transparent.
+/// or masks). A missing bitmap resource evaluates fully transparent. The projection's Filtering,
+/// UV Wrap and Shape crop apply (see [`bitmap`]); texels it does not cover are transparent.
 pub fn eval_fill_tile(
     source: &FillSource,
     linearize: bool,
@@ -56,12 +59,7 @@ pub fn eval_fill_tile_filtered(
                 out.fill([0.0; 4]);
                 return;
             };
-            let sc = projection.rotation_sin_cos();
-            for (i, o) in out.iter_mut().enumerate() {
-                *o = sample_projected_sc(projection, sc, geo.uv(i), geo.position(i), geo.normal(i), |p| {
-                    bmp.sample_filtered(p[0], p[1], Wrap::Repeat, linearize, filter)
-                });
-            }
+            bitmap_tile(bmp, linearize, projection, filter == subcraft_image::TextureFilter::Nearest, geo, out);
         }
         FillSource::Procedural { params, low, high } if params.colored => {
             let fields: [_; 3] = std::array::from_fn(|c| procedural_tile(&ProceduralParams { seed: params.seed.wrapping_add(c as u32), colored: false, ..*params }, projection, geo));
@@ -71,6 +69,7 @@ pub fn eval_fill_tile_filtered(
                 }
                 o[3] = 1.0;
             }
+            clip_alpha(projection, geo, out);
         }
         FillSource::Procedural { params, low, high } => {
             let field = procedural_tile(params, projection, geo);
@@ -84,6 +83,7 @@ pub fn eval_fill_tile_filtered(
                 v[3] = 1.0;
                 *o = v;
             }
+            clip_alpha(projection, geo, out);
         }
         FillSource::MeshMap { map } => {
             let mut buf = vec![[0.0f32; 3]; TILE_TEXELS];
@@ -95,6 +95,16 @@ pub fn eval_fill_tile_filtered(
         // Anchors are read by the compositor's stage graph, which knows the whole texture set
         // (ADR-0045). Sampled alone, the source is transparent.
         FillSource::Anchor { .. } => out.fill([0.0; 4]),
+    }
+}
+
+/// Make a procedural transparent where its projection does not cover the texel (UV Wrap other
+/// than Repeat, Shape crop). Nothing to do at the defaults.
+fn clip_alpha(projection: &Projection, geo: &TileGeometry, out: &mut [[f32; 4]]) {
+    if let Some(cover) = coverage_tile(projection, geo) {
+        for (o, c) in out.iter_mut().zip(cover) {
+            o[3] *= c;
+        }
     }
 }
 

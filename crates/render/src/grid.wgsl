@@ -28,9 +28,16 @@ struct Out {
     if v.kind == 4u { return v.color; }
     if v.kind > 0u { enabled = g.axes[v.kind - 1u]; }
     let distance_fade = 1.0 - smoothstep(g.origin_radius.w * 0.4, g.origin_radius.w, distance(v.world, g.origin_radius.xyz));
+    // Lines in the grid plane fade when the plane is seen edge-on; g.axes.w is the plane's
+    // normal axis (0 X, 1 Y, 2 Z) and the line along it never fades.
     var angle_fade = 1.0;
-    if v.kind != 2u {
-        angle_fade = smoothstep(0.02, 0.20, abs(normalize(g.eye.xyz - v.world).y));
+    let up = u32(g.axes.w + 0.5);
+    if v.kind != up + 1u {
+        let view = normalize(g.eye.xyz - v.world);
+        var facing = view.y;
+        if up == 0u { facing = view.x; }
+        if up == 2u { facing = view.z; }
+        angle_fade = smoothstep(0.02, 0.20, abs(facing));
     }
     let alpha = v.color.a * enabled * distance_fade * angle_fade;
     if alpha < 0.003 { discard; }

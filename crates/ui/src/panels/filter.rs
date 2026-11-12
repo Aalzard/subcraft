@@ -23,20 +23,82 @@ pub fn editor(ui: &mut Ui, filter: &mut Filter, channel: Option<ChannelKind>) ->
             changed |= slider_row(ui, "Contrast", egui::Slider::new(gain, 0.0..=4.0)).changed();
             changed |= slider_row(ui, "Pivot", egui::Slider::new(pivot, lower..=1.0)).changed();
         }
-        Filter::Hsl { hue, saturation, lightness } => {
+        Filter::Hsl { hue, saturation, lightness } | Filter::HslPerceptive { hue, saturation, lightness } => {
             changed |= slider_row(ui, "Hue", egui::Slider::new(hue, -180.0..=180.0).suffix("°")).changed();
             changed |= slider_row(ui, "Saturation", egui::Slider::new(saturation, 0.0..=2.0)).changed();
             changed |= slider_row(ui, "Lightness", egui::Slider::new(lightness, -1.0..=1.0)).changed();
         }
-        Filter::Threshold { cutoff } => {
+        Filter::Threshold { cutoff } | Filter::ThresholdCompare { cutoff, .. } => {
             changed |= slider_row(ui, "Cutoff", egui::Slider::new(cutoff, lower..=1.0)).changed();
+        }
+        Filter::Smoothstep { min, max } => {
+            changed |= slider_row(ui, "Minimum", egui::Slider::new(min, lower..=1.0)).changed();
+            changed |= slider_row(ui, "Maximum", egui::Slider::new(max, lower..=1.0)).changed();
+            ui.weak("Smooth ramp from Minimum (0) to Maximum (1)");
+        }
+        Filter::ContrastLuminosity { contrast, luminosity } => {
+            changed |= slider_row(ui, "Contrast", egui::Slider::new(contrast, -1.0..=1.0)).changed();
+            changed |= slider_row(ui, "Luminosity", egui::Slider::new(luminosity, -1.0..=1.0)).changed();
+        }
+        Filter::ColorCorrect { shadows, midtones, highlights } => {
+            for (name, range) in [("Shadows", shadows), ("Midtones", midtones), ("Highlights", highlights)] {
+                ui.label(egui::RichText::new(name).strong());
+                ui.push_id(name, |ui| {
+                    for (label, v) in ["Contrast", "Luminosity", "Saturation"].into_iter().zip(range.iter_mut()) {
+                        changed |= slider_row(ui, label, egui::Slider::new(v, -1.0..=1.0)).changed();
+                    }
+                });
+            }
+        }
+        Filter::Transform { repeat, flip, scale, offset, rotation_deg, tile_safe } => {
+            prop_row(ui, "Repeat mode", |ui| {
+                egui::ComboBox::from_id_salt("transform_repeat").selected_text(repeat.label()).show_ui(ui, |ui| {
+                    for m in subcraft_doc::RepeatMode::ALL { changed |= ui.selectable_value(repeat, m, m.label()).changed(); }
+                });
+            });
+            prop_row(ui, "Flip mode", |ui| {
+                egui::ComboBox::from_id_salt("transform_flip").selected_text(flip.label()).show_ui(ui, |ui| {
+                    for m in subcraft_doc::FlipMode::ALL { changed |= ui.selectable_value(flip, m, m.label()).changed(); }
+                });
+            });
+            changed |= slider_row(ui, "Scaling X", egui::Slider::new(&mut scale[0], 0.01..=8.0).logarithmic(true)).changed();
+            changed |= slider_row(ui, "Scaling Y", egui::Slider::new(&mut scale[1], 0.01..=8.0).logarithmic(true)).changed();
+            changed |= slider_row(ui, "Offset X", egui::Slider::new(&mut offset[0], -1.0..=1.0)).changed();
+            changed |= slider_row(ui, "Offset Y", egui::Slider::new(&mut offset[1], -1.0..=1.0)).changed();
+            prop_row(ui, "Tile Safe Rotation", |ui| { changed |= ui.checkbox(tile_safe, "").on_hover_text("Quarter turns and whole repetitions only, so a tiling image still tiles").changed(); });
+            changed |= slider_row(ui, "Rotation", egui::Slider::new(rotation_deg, -180.0..=180.0).suffix("\u{00b0}")).changed();
+            ui.weak("UV space / also moves paint coverage");
+        }
+        Filter::Mirror { mode, offset, invert_x, invert_y, corner } => {
+            use subcraft_doc::MirrorMode;
+            prop_row(ui, "Mode", |ui| {
+                egui::ComboBox::from_id_salt("mirror_mode").selected_text(mode.label()).show_ui(ui, |ui| {
+                    for m in MirrorMode::ALL { changed |= ui.selectable_value(mode, m, m.label()).changed(); }
+                });
+            });
+            if *mode != MirrorMode::AxisY {
+                changed |= slider_row(ui, "Axis X Offset", egui::Slider::new(&mut offset[0], 0.0..=1.0)).changed();
+                prop_row(ui, "Invert Axis X", |ui| { changed |= ui.checkbox(invert_x, "").changed(); });
+            }
+            if *mode != MirrorMode::AxisX {
+                changed |= slider_row(ui, "Axis Y Offset", egui::Slider::new(&mut offset[1], 0.0..=1.0)).changed();
+                prop_row(ui, "Invert Axis Y", |ui| { changed |= ui.checkbox(invert_y, "").changed(); });
+            }
+            if *mode == MirrorMode::Corner {
+                prop_row(ui, "Corner Type", |ui| {
+                    egui::ComboBox::from_id_salt("mirror_corner").selected_text(corner.label()).show_ui(ui, |ui| {
+                        for c in subcraft_doc::MirrorCorner::ALL { changed |= ui.selectable_value(corner, c, c.label()).changed(); }
+                    });
+                });
+            }
+            ui.weak("UV space / the kept side is copied onto the other");
         }
         Filter::Grayscale => { ui.weak("Luminance to gray / color channels only"); }
         Filter::Invert => { ui.weak("1 - value / signed Height flips its sign"); }
         Filter::Posterize { levels } => {
             changed |= slider_row(ui, "Levels", egui::Slider::new(levels, 2..=subcraft_doc::MAX_POSTERIZE_LEVELS)).changed();
         }
-        Filter::HistogramShift { shift } => {
+        Filter::HistogramShift { shift } | Filter::HistogramShiftWrap { shift } => {
             changed |= slider_row(ui, "Shift", egui::Slider::new(shift, -1.0..=1.0)).changed();
         }
         Filter::ColorBalance { shadows, midtones, highlights } => {
@@ -81,7 +143,7 @@ pub fn editor(ui: &mut Ui, filter: &mut Filter, channel: Option<ChannelKind>) ->
         Filter::Mosaic { size } => {
             changed |= slider_row(ui, "Block size", egui::Slider::new(size, 1..=subcraft_doc::MAX_MOSAIC_SIZE).suffix(" px")).changed();
         }
-        Filter::Blur { radius } | Filter::Sharpen { radius, .. } | Filter::DirectionalBlur {radius,..} | Filter::Highpass {radius,..} | Filter::Bevel {radius,..} | Filter::MaskOutline {radius,..} => {
+        Filter::Blur { radius } | Filter::BlurWrap { radius } | Filter::Sharpen { radius, .. } | Filter::DirectionalBlur {radius,..} | Filter::Highpass {radius,..} | Filter::Bevel {radius,..} | Filter::MaskOutline {radius,..} => {
             changed |= slider_row(ui, "Radius", egui::Slider::new(radius, 0.0..=32.0).suffix(" px")).changed();
         }
         Filter::GradientMap { gradient, to_gray } => {
@@ -121,6 +183,35 @@ pub fn editor(ui: &mut Ui, filter: &mut Filter, channel: Option<ChannelKind>) ->
             changed |= slider_row(ui, "Maximum", egui::Slider::new(high, *low..=upper)).changed();
         }
     }
+    // Mode / wrap rows: these swap between two variants of the same filter (see `Filter::label`).
+    if let Some((cutoff, mut mode)) = filter.threshold_parts() {
+        prop_row(ui, "Mode", |ui| {
+            egui::ComboBox::from_id_salt("threshold_mode").selected_text(mode.label()).show_ui(ui, |ui| {
+                for m in subcraft_doc::ThresholdMode::ALL {
+                    if ui.selectable_value(&mut mode, m, m.label()).changed() { *filter = Filter::threshold(cutoff, mode); changed = true; }
+                }
+            });
+        });
+    }
+    if let Some((mut mode, [hue, saturation, lightness])) = filter.hsl_parts() {
+        prop_row(ui, "Mode", |ui| {
+            egui::ComboBox::from_id_salt("hsl_mode").selected_text(mode.label()).show_ui(ui, |ui| {
+                for m in subcraft_doc::HslMode::ALL {
+                    if ui.selectable_value(&mut mode, m, m.label()).changed() { *filter = Filter::hsl(mode, hue, saturation, lightness); changed = true; }
+                }
+            });
+        });
+    }
+    if let Some((radius, mut wrap)) = filter.blur_parts() {
+        prop_row(ui, "Wrap", |ui| {
+            if ui.checkbox(&mut wrap, "").on_hover_text("The blur continues across the texture borders, for tiling textures").changed() { *filter = Filter::blur(radius, wrap); changed = true; }
+        });
+    }
+    if let Some((shift, mut wrap)) = filter.histogram_shift_parts() {
+        prop_row(ui, "Wrap", |ui| {
+            if ui.checkbox(&mut wrap, "").on_hover_text("Values pushed past one end of the range re-enter at the other").changed() { *filter = Filter::histogram_shift(shift, wrap); changed = true; }
+        });
+    }
     if let Filter::Sharpen { amount, .. } | Filter::Highpass {amount,..} = filter {
         changed |= slider_row(ui, "Amount", egui::Slider::new(amount, 0.0..=4.0)).changed();
     }
@@ -149,7 +240,8 @@ pub fn editor(ui: &mut Ui, filter: &mut Filter, channel: Option<ChannelKind>) ->
         ui.weak("0 degrees horizontal / 90 vertical");
     }
     if matches!(filter,Filter::Highpass {..}) {ui.weak(if channel.is_some_and(|c|c.is_signed()) {"Detail only / neutral Height = 0"} else {"Detail only / neutral = 0.5"});}
-    if filter.radius().is_some() { ui.weak("UV pixels · texture edges clamp"); }
+    if filter.radius().is_some() && !filter.reads_whole_texture() { ui.weak("UV pixels · texture edges clamp"); }
+    if matches!(filter, Filter::BlurWrap { .. }) { ui.weak("UV pixels · wraps around the texture"); }
     if filter.softens_coverage() && channel.is_some() { ui.weak("Blur also softens paint coverage."); }
     changed
 }

@@ -15,6 +15,110 @@ pub enum ProjectionMode {
     Planar,
 }
 
+/// Texture reconstruction of a projected bitmap (Painter's Filtering dropdown).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum FillFiltering {
+    /// Bilinear with mipmaps: a minified texture is averaged instead of aliasing.
+    #[default]
+    BilinearHq,
+    /// Bilinear on the full-size image only (no mipmaps).
+    BilinearSharp,
+    /// Nearest texel, no interpolation.
+    Nearest,
+}
+
+impl FillFiltering {
+    pub const ALL: [FillFiltering; 3] = [FillFiltering::BilinearHq, FillFiltering::BilinearSharp, FillFiltering::Nearest];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            FillFiltering::BilinearHq => "Bilinear | HQ",
+            FillFiltering::BilinearSharp => "Bilinear | Sharp",
+            FillFiltering::Nearest => "Nearest",
+        }
+    }
+
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+/// What a projected texture does outside its 0..1 square (Painter's UV Wrap dropdown).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum UvWrap {
+    /// Drawn once; transparent everywhere else.
+    None,
+    /// Repeats along U only.
+    RepeatHorizontal,
+    /// Repeats along V only.
+    RepeatVertical,
+    #[default]
+    Repeat,
+}
+
+impl UvWrap {
+    pub const ALL: [UvWrap; 4] = [UvWrap::None, UvWrap::RepeatHorizontal, UvWrap::RepeatVertical, UvWrap::Repeat];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            UvWrap::None => "None",
+            UvWrap::RepeatHorizontal => "Repeat horizontally",
+            UvWrap::RepeatVertical => "Repeat vertically",
+            UvWrap::Repeat => "Repeat",
+        }
+    }
+
+    /// Whether the texture repeats along `[U, V]`.
+    #[inline]
+    pub fn repeats(self) -> [bool; 2] {
+        match self {
+            UvWrap::None => [false, false],
+            UvWrap::RepeatHorizontal => [true, false],
+            UvWrap::RepeatVertical => [false, true],
+            UvWrap::Repeat => [true, true],
+        }
+    }
+
+    /// Whether the texture exists at the (transformed) coordinate `p`: an axis that does not
+    /// repeat only covers 0..=1.
+    #[inline]
+    pub fn covers(self, p: [f32; 2]) -> bool {
+        let r = self.repeats();
+        (r[0] || (0.0..=1.0).contains(&p[0])) && (r[1] || (0.0..=1.0).contains(&p[1]))
+    }
+
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+/// Whether a 3D projection is limited to its projection box (Painter's Shape crop dropdown).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ShapeCrop {
+    /// Nothing is projected outside the projection box.
+    Crop,
+    #[default]
+    Extend,
+}
+
+impl ShapeCrop {
+    pub const ALL: [ShapeCrop; 2] = [ShapeCrop::Crop, ShapeCrop::Extend];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            ShapeCrop::Crop => "Project cropped to shape",
+            ShapeCrop::Extend => "Projection extends outside shape",
+        }
+    }
+
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Projection {
     pub mode: ProjectionMode,
@@ -22,11 +126,24 @@ pub struct Projection {
     pub scale: [f32; 2],
     pub rotation_deg: f32,
     pub offset: [f32; 2],
-    /// Triplanar blend sharpness (1 = soft, 32 = hard).
+    /// Triplanar blend exponent (1 = soft; [`TRIPLANAR_HARD`] and above = hard cut). The panel
+    /// edits it as Painter's Hardness, see [`Projection::hardness`].
     pub triplanar_sharpness: f32,
     /// Planar projection axis (0 = X, 1 = Y, 2 = Z).
     pub planar_axis: u8,
+    /// Bitmap reconstruction. Not written at its default, so older projects serialize unchanged.
+    #[serde(default, skip_serializing_if = "FillFiltering::is_default")]
+    pub filtering: FillFiltering,
+    /// Repetition outside 0..1 (UV and planar; tri-planar always repeats). Not written at its default.
+    #[serde(default, skip_serializing_if = "UvWrap::is_default")]
+    pub uv_wrap: UvWrap,
+    /// Limit a tri-planar / planar projection to its box. Not written at its default.
+    #[serde(default, skip_serializing_if = "ShapeCrop::is_default")]
+    pub shape_crop: ShapeCrop,
 }
+
+/// Triplanar exponent stored for Hardness 1.0: the three planes are cut, not blended.
+pub const TRIPLANAR_HARD: f32 = 1.0e6;
 
 impl Default for Projection {
     fn default() -> Self {
@@ -37,11 +154,46 @@ impl Default for Projection {
             offset: [0.0, 0.0],
             triplanar_sharpness: 8.0,
             planar_axis: 2,
+            filtering: FillFiltering::default(),
+            uv_wrap: UvWrap::default(),
+            shape_crop: ShapeCrop::default(),
         }
     }
 }
 
 impl Projection {
+    /// Tri-planar Hardness 0..=1 as Painter shows it: 0 blends the three planes over the widest
+    /// band, 1 is a hard cut. It is the stored exponent `s` seen as `1 - 1 / s`.
+    pub fn hardness(&self) -> f32 {
+        let s = self.triplanar_sharpness;
+        if s >= TRIPLANAR_HARD { 1.0 } else { (1.0 - 1.0 / s.max(1.0)).clamp(0.0, 1.0) }
+    }
+
+    /// Set the tri-planar blend from a Hardness 0..=1 (inverse of [`Projection::hardness`]).
+    pub fn set_hardness(&mut self, hardness: f32) {
+        let h = hardness.clamp(0.0, 1.0);
+        let s = 1.0 / (1.0 - h);
+        self.triplanar_sharpness = if s >= TRIPLANAR_HARD { TRIPLANAR_HARD } else { s };
+    }
+
+    /// The UV wrap in effect: tri-planar has no UV Wrap setting and always repeats.
+    #[inline]
+    pub fn effective_wrap(&self) -> UvWrap {
+        if self.mode == ProjectionMode::Triplanar { UvWrap::Repeat } else { self.uv_wrap }
+    }
+
+    /// Whether Shape crop applies (3D projections only).
+    #[inline]
+    pub fn crops_to_shape(&self) -> bool {
+        self.shape_crop == ShapeCrop::Crop && self.mode != ProjectionMode::Uv
+    }
+
+    /// Whether some texels can fall outside the projected texture (UV wrap or shape crop).
+    #[inline]
+    pub fn clips(&self) -> bool {
+        self.effective_wrap() != UvWrap::Repeat || self.crops_to_shape()
+    }
+
     /// Apply scale/rotation/offset to a 2D coordinate.
     pub fn transform_2d(&self, p: [f32; 2]) -> [f32; 2] {
         self.transform_2d_sc(self.rotation_sin_cos(), p)
@@ -73,6 +225,52 @@ mod tests {
         let r = Projection { rotation_deg: 90.0, ..Projection::default() };
         let q = r.transform_2d([1.0, 0.0]);
         assert!(q[0].abs() < 1e-6 && (q[1] - 1.0).abs() < 1e-6, "{q:?}");
+    }
+
+    #[test]
+    fn hardness_maps_to_the_stored_exponent_and_back() {
+        let mut p = Projection::default();
+        assert_eq!(p.hardness(), 0.875, "the default exponent 8");
+        for (h, s) in [(0.0, 1.0), (0.5, 2.0), (0.75, 4.0), (0.875, 8.0)] {
+            p.set_hardness(h);
+            assert_eq!(p.triplanar_sharpness, s);
+            assert_eq!(p.hardness(), h);
+        }
+        p.set_hardness(1.0);
+        assert_eq!(p.triplanar_sharpness, TRIPLANAR_HARD);
+        assert_eq!(p.hardness(), 1.0);
+        p.set_hardness(7.0);
+        assert_eq!(p.hardness(), 1.0, "clamped");
+        p.triplanar_sharpness = 32.0; // the old slider's maximum
+        assert!((p.hardness() - 0.96875).abs() < 1e-6);
+    }
+
+    #[test]
+    fn uv_wrap_covers_only_the_unit_square_on_axes_that_do_not_repeat() {
+        let (inside, right, below) = ([0.5, 0.5], [1.5, 0.5], [0.5, -0.25]);
+        assert!(UvWrap::ALL.iter().all(|w| w.covers(inside)));
+        assert_eq!(UvWrap::ALL.map(|w| w.covers(right)), [false, true, false, true]);
+        assert_eq!(UvWrap::ALL.map(|w| w.covers(below)), [false, false, true, true]);
+        assert!(UvWrap::None.covers([0.0, 1.0]), "the border belongs to the texture");
+    }
+
+    #[test]
+    fn projection_options_default_to_painters_and_stay_out_of_old_files() {
+        let p = Projection::default();
+        assert_eq!((p.filtering, p.uv_wrap, p.shape_crop), (FillFiltering::BilinearHq, UvWrap::Repeat, ShapeCrop::Extend));
+        assert!(!p.clips());
+        let json = serde_json::to_string(&p).unwrap();
+        assert!(!json.contains("filtering") && !json.contains("uv_wrap") && !json.contains("shape_crop"), "{json}");
+        let old: Projection = serde_json::from_str(r#"{"mode":"triplanar","scale":[1.0,1.0],"rotation_deg":0.0,"offset":[0.0,0.0],"triplanar_sharpness":8.0,"planar_axis":2}"#).unwrap();
+        assert_eq!(old, Projection { mode: ProjectionMode::Triplanar, ..Projection::default() });
+        let set = Projection { filtering: FillFiltering::Nearest, uv_wrap: UvWrap::RepeatHorizontal, shape_crop: ShapeCrop::Crop, ..p };
+        let json = serde_json::to_string(&set).unwrap();
+        assert!(json.ends_with(r#""filtering":"nearest","uv_wrap":"repeat_horizontal","shape_crop":"crop"}"#), "{json}");
+        assert_eq!(serde_json::from_str::<Projection>(&json).unwrap(), set);
+        // Tri-planar has no UV Wrap; UV projection has no shape.
+        assert!(!Projection { mode: ProjectionMode::Triplanar, uv_wrap: UvWrap::None, ..p }.clips());
+        assert!(!Projection { shape_crop: ShapeCrop::Crop, ..p }.clips());
+        assert!(Projection { mode: ProjectionMode::Planar, shape_crop: ShapeCrop::Crop, ..p }.clips());
     }
 }
 
