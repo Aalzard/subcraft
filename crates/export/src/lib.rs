@@ -19,7 +19,7 @@ use glam::Vec3;
 use rayon::prelude::*;
 use subcraft_core::{ChannelKind, MeshMapKind};
 use subcraft_core::color::linear_to_srgb;
-use subcraft_image::dilate::{dilate_infinite, dilate_width};
+use subcraft_image::dilate::{diffuse_fill, dilate_infinite, dilate_width};
 use subcraft_image::{FileFormat, TiledImage};
 use subcraft_mesh::Mesh;
 use subcraft_mesh::uv_raster::rasterize_surface;
@@ -32,11 +32,41 @@ pub use template::{ExportTemplate, OutputMap, Source};
 pub enum Padding {
     /// No padding: gutter texels keep their composite values.
     None,
-    /// Grow islands by this many texels.
+    /// Grow islands by this many texels; the rest of the gutter keeps its composite values.
     Texels(u32),
     /// Fill the whole gutter with the nearest island texel (best for mipmaps).
     Infinite,
+    /// Painter's "Dilation + default background color": grow islands by this many texels, then
+    /// fill the rest of the gutter with each output's default (the value an empty texture set
+    /// exports: flat normal, white occlusion, black base color...).
+    Background(u32),
+    /// Painter's "Dilation + diffusion": grow islands by this many texels, then fill the rest of
+    /// the gutter with a smooth blend of the surrounding islands.
+    Diffusion(u32),
 }
+
+impl Padding {
+    /// Dilation distance of the modes that have one.
+    pub fn distance(self) -> Option<u32> {
+        match self {
+            Padding::Texels(n) | Padding::Background(n) | Padding::Diffusion(n) => Some(n),
+            Padding::None | Padding::Infinite => None,
+        }
+    }
+
+    /// The same mode with another dilation distance (modes without one are unchanged).
+    pub fn with_distance(self, n: u32) -> Padding {
+        match self {
+            Padding::Texels(_) => Padding::Texels(n),
+            Padding::Background(_) => Padding::Background(n),
+            Padding::Diffusion(_) => Padding::Diffusion(n),
+            other => other,
+        }
+    }
+}
+
+/// Sizes offered by the export window's Size menu (Painter's list).
+pub const EXPORT_SIZES: [u32; 7] = [128, 256, 512, 1024, 2048, 4096, 8192];
 
 /// What the 2D view shows: a composite channel or a baked mesh map.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -63,11 +93,15 @@ pub struct ExportSettings {
     pub normal_directx: Option<bool>,
     /// UDIM sets go in one sub-folder per tile (`1001/`...) instead of a `.1001` file-name suffix.
     pub udim_folders: bool,
+    /// Output size (square) for maps whose template sets none; `None` = each texture set's size.
+    pub size: Option<u32>,
+    /// Dither 8-bit outputs ("8 bits + dithering"), overriding the maps' own choice.
+    pub dither: Option<bool>,
 }
 
 impl Default for ExportSettings {
     fn default() -> Self {
-        Self { view_2d: None, template: ExportTemplate::pbr_metal_rough(), padding: Padding::Infinite, height_to_normal: 0.02, format_override: None, selection: MapSelection::default(), normal_directx: None, udim_folders: false }
+        Self { view_2d: None, template: ExportTemplate::pbr_metal_rough(), padding: Padding::Infinite, height_to_normal: 0.02, format_override: None, selection: MapSelection::default(), normal_directx: None, udim_folders: false, size: None, dither: None }
     }
 }
 
@@ -220,6 +254,12 @@ pub(crate) fn output_format(map: &OutputMap, settings: &ExportSettings) -> FileF
         Some(format) => format,
         None => map.format,
     }
+}
+
+/// Output size of `map` for a texture set of `set_size` texels: the map's own size, else the
+/// template's, else the export window's, else the texture set's.
+pub fn output_size(map: &OutputMap, settings: &ExportSettings, set_size: u32) -> u32 {
+    map.size.or(settings.template.size).or(settings.size).unwrap_or(set_size).max(1)
 }
 
 /// Two checked maps that would be written to the same file (texture sets whose names differ only
@@ -511,6 +551,41 @@ fn evaluate_map(map: &OutputMap, dense: &mut Dense, settings: &ExportSettings, f
     out
 }
 
+/// What an empty texture set exports for `map` (one texel): channel defaults, a flat normal,
+/// mid height... The fill colour of [`Padding::Background`].
+fn background_value(map: &OutputMap, settings: &ExportSettings, format: FileFormat) -> Vec<f32> {
+    if map.components.iter().any(|s| matches!(s, Source::View2d { .. })) {
+        return vec![0.0; map.components.len()];
+    }
+    let empty = BTreeMap::new();
+    let set = ExportTextureSet { name: "", material_slot: 0, udim: None, channels: &empty, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY };
+    let mut dense = Dense { set: &set, size: 1, cache: HashMap::new(), normal: None, view: None, mesh_maps: HashMap::new(), alpha: None };
+    evaluate_map(map, &mut dense, settings, format)
+}
+
+/// Pad `data` (`size`² texels, `comps` interleaved) outside `covered` with `padding`.
+fn pad(data: &mut [f32], size: u32, comps: usize, covered: &[bool], padding: Padding, background: impl FnOnce() -> Vec<f32>) {
+    let s = size as usize;
+    match padding {
+        Padding::None => {}
+        Padding::Infinite => dilate_infinite(s, s, comps, data, covered),
+        Padding::Texels(t) => {
+            dilate_width(s, s, comps, data, covered, t);
+        }
+        Padding::Background(t) => {
+            let grown = dilate_width(s, s, comps, data, covered, t);
+            let bg = background();
+            for (px, _) in data.chunks_exact_mut(comps).zip(&grown).filter(|(_, g)| !**g) {
+                px.copy_from_slice(&bg);
+            }
+        }
+        Padding::Diffusion(t) => {
+            let grown = dilate_width(s, s, comps, data, covered, t);
+            diffuse_fill(s, s, comps, data, &grown);
+        }
+    }
+}
+
 /// Whether a map's fourth component is an alpha (effective opacity or a colour stack's coverage)
 /// over colour in the first three.
 fn has_color_alpha(map: &OutputMap) -> bool {
@@ -644,21 +719,16 @@ pub(crate) fn render_maps(mesh: &Mesh, mesh_name: &str, sets: &[ExportTextureSet
             let padding = map.padding.or(settings.template.padding).unwrap_or(settings.padding);
             if padding != Padding::None {
                 let covered = covered.get_or_insert_with(|| coverage(mesh, set.material_slot, size));
-                match padding {
-                    Padding::None => {}
-                    Padding::Infinite => dilate_infinite(size as usize, size as usize, comps, &mut data, covered),
-                    Padding::Texels(t) => {
-                        dilate_width(size as usize, size as usize, comps, &mut data, covered, t);
-                    }
-                }
+                pad(&mut data, size, comps, covered, padding, || background_value(map, settings, format));
             }
             // Size override after padding, so shrinking never pulls unpadded gutter into islands.
-            let out_size = map.size.or(settings.template.size).unwrap_or(size).max(1);
+            let out_size = output_size(map, settings, size);
             if out_size != size {
                 data = resample(&data, comps, size, out_size);
             }
             let name = output_path(mesh_name, set, &map.suffix, format.extension(), settings);
-            let bytes=subcraft_image::io::encode_image(out_size,out_size,comps,&data,format).map_err(|e|ExportError::Write(PathBuf::from(&name),e.to_string()))?;
+            let dither = settings.dither.or(map.dither).unwrap_or(false);
+            let bytes=subcraft_image::io::encode_image_dithered(out_size,out_size,comps,&data,format,dither).map_err(|e|ExportError::Write(PathBuf::from(&name),e.to_string()))?;
             write(&name,&bytes)?;count+=1;
         }
     }

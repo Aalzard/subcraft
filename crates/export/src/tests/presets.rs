@@ -114,7 +114,7 @@ fn format_parts_round_trip_and_clamp_to_what_the_container_allows() {
     }
     assert_eq!(FileFormat::from_parts(Container::Tga, BitDepth::B16), FileFormat::Tga8);
     assert_eq!(FileFormat::from_parts(Container::Png, BitDepth::F32), FileFormat::Png16);
-    assert_eq!(FileFormat::from_parts(Container::Exr, BitDepth::B8), FileFormat::Exr32);
+    assert_eq!(FileFormat::from_parts(Container::Exr, BitDepth::B8), FileFormat::Exr16);
     assert_eq!(FileFormat::from_parts(Container::Jpeg, BitDepth::B16), FileFormat::Jpeg);
 }
 
@@ -368,7 +368,7 @@ fn painter_presets_convert_maps_sources_and_parameters() {
     assert_eq!((orm.format, orm.padding), (FileFormat::Tga8, Some(Padding::None)), "TGA has no 16-bit");
     let n = &p.maps[2];
     assert_eq!(n.components[1], Source::Normal { component: 1, directx: true });
-    assert_eq!((n.format, n.size, n.padding), (FileFormat::Exr32, Some(512), Some(Padding::Texels(8))));
+    assert_eq!((n.format, n.size, n.padding), (FileFormat::Exr16, Some(512), Some(Padding::Background(8))));
     assert_eq!(n.pattern.as_deref(), Some("$textureSet_Normal.$udim"));
     let h = &p.maps[3];
     assert_eq!((h.components.as_slice(), h.format), ([Source::Height].as_slice(), FileFormat::Tiff32));

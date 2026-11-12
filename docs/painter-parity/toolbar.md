@@ -37,17 +37,17 @@ Layout notes: a narrow vertical strip at the top right of the main window, docka
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Docks toolbar strip | Main window, top right | shown | missing | - | - |
-| Button per closed dock window | Docks toolbar | - | missing | - | - |
-| Click a button: dock floats next to the button | Docks toolbar | - | missing | - | - |
-| Click the button again: closes the dock | Docks toolbar | - | missing | - | - |
-| Drag the popped dock away: becomes a regular floating / dockable window | Docks toolbar | - | missing | - | - |
-| Closing a window returns its button to the toolbar | Docks toolbar | - | missing | - | - |
-| Display settings button | Docks toolbar | present by default (unverified) | missing | - | - |
-| Shader settings button | Docks toolbar | present by default (unverified) | missing | - | - |
-| History button | Docks toolbar | present by default (unverified) | missing | - | - |
+| Docks toolbar strip | Main window, top right | shown | done: header bar, right side, beside Bake, in windows at least 1400 px wide (narrower ones reopen panels from Window > Views) | crates/ui/src/docks.rs (toolbar) | 217 |
+| Button per closed dock window | Docks toolbar | - | done: Display settings, History, Properties, Layers, Texture Set List and Settings, Assets, Parts | crates/ui/src/docks.rs (DOCKABLE) | 217 |
+| Click a button: dock floats next to the button | Docks toolbar | - | done | crates/ui/src/docks.rs (float) | 217 |
+| Click the button again: closes the dock | Docks toolbar | - | done | crates/ui/src/docks.rs (toolbar) | 217 |
+| Drag the popped dock away: becomes a regular floating / dockable window | Docks toolbar | - | done: drag its tab into the layout | crates/ui/src/docks.rs | 217 |
+| Closing a window returns its button to the toolbar | Docks toolbar | - | done: every panel but the 3D and 2D views has a close button | crates/ui/src/docks.rs (closed) | 217 |
+| Display settings button | Docks toolbar | present by default (unverified) | done | crates/ui/src/docks.rs | 217 |
+| Shader settings button | Docks toolbar | present by default (unverified) | done | crates/ui/src/docks.rs | 217 |
+| History button | Docks toolbar | present by default (unverified) | done | crates/ui/src/docks.rs | 217 |
 | Log button | Docks toolbar | present by default (unverified) | missing | - | - |
-| Properties reachable from the Docks toolbar | Docks toolbar | when the Properties dock is closed | missing | - | - |
+| Properties reachable from the Docks toolbar | Docks toolbar | when the Properties dock is closed | done | crates/ui/src/docks.rs | 217 |
 | Dock the toolbar on the left or right edge | Drag the toolbar | right | missing | - | - |
 
 ## Plugins toolbar

@@ -3,6 +3,18 @@
 What changed in SubCraft, newest first. Download the latest build from the
 [Releases page](https://github.com/Aalzard/subcraft/releases/latest).
 
+## Unreleased
+
+### Added
+- **More export file types and bit depths**, like Painter: BMP, Radiance HDR, lossless WebP and 16-bit
+  (half) float EXR. File type and bit depth are now two menus; the bit depth menu only lists what the
+  file type stores and offers **8-bit + dithering**, which turns banding in smooth gradients into fine
+  noise.
+- **Export padding modes** Dilation + background color (the gutter beyond the dilation distance gets
+  each map's default: flat normal, white occlusion...) and Dilation + diffusion (a smooth blend of the
+  surrounding islands). The dilation distance defaults to 16 and goes up to 256.
+- **Size menu** in Export Textures: write every map at 128 to 8192, or at each texture set's size.
+
 ## 0.3.6 - 2026-11-12
 
 ### Added
