@@ -327,6 +327,9 @@ fn project_section(ui: &mut Ui, np: &mut NewProjectUi) {
                 ui.checkbox(&mut np.settings.udim, "Use UDIM tiles (one texture set per tile)").on_hover_text("The model's UVs span several 0-1 squares. Off folds them onto one tile, which overlaps islands.");
                 ui.end_row();
             }
+            ui.label("Cameras");
+            ui.checkbox(&mut np.settings.import_cameras, "Import cameras").on_hover_text("Bring the cameras stored in the model file (glTF, GLB or FBX) into the project; pick one from the 3D view's camera menu.");
+            ui.end_row();
             ui.label("Normal maps");
             let mut format = np.settings.normal_format;
             egui::ComboBox::from_id_salt("np_normal").selected_text(format.label()).show_ui(ui, |ui| {
@@ -443,6 +446,8 @@ fn create_project(state: &mut UiState, now: f64) {
                 let assignments = session.mesh_map_assignments(&maps);
                 session.import_mesh_maps(&assignments, state.new_project.derive_curvature)
             });
+            // Cameras are a bonus: a file whose cameras cannot be read still makes the project.
+            let cameras = if settings.import_cameras { session.import_mesh_cameras(&model.path) } else { Ok(0) };
             state.set_session(session);
             state.welcome.remember(&model.path);
             state.recovery.prefs.new_project = NewProjectSettings { high_poly: None, resolution_overrides: Default::default(), ..settings.clone() };
@@ -457,6 +462,14 @@ fn create_project(state: &mut UiState, now: f64) {
             }
             if let Some(report) = imported {
                 status = format!("{status}. {}", report.summary());
+            }
+            match cameras {
+                Ok(0) => {}
+                Ok(n) => status.push_str(&format!(" · {n} camera{} imported (3D view, top right)", if n == 1 { "" } else { "s" })),
+                Err(e) => {
+                    log::warn!("{e}");
+                    status.push_str(" · the model's cameras could not be read");
+                }
             }
             state.set_status(status, now);
             state.new_project.open = false;

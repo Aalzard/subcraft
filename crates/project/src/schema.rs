@@ -158,6 +158,8 @@ pub enum ContentEffectKindV5 {
     Filter { channel: ChannelKind, filter: subcraft_doc::Filter },
     /// Schema 17: anchor point (its name is the effect's name).
     Anchor,
+    /// A generator in the content stack.
+    Generator { generator: subcraft_doc::Generator },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
