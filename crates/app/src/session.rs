@@ -913,6 +913,24 @@ impl Session {
         Ok(r)
     }
 
+    /// [`Self::edit_layer_set`] that adds no history entry when `f` changed nothing (a no-op
+    /// click must not wipe the redo branch or mark the project modified).
+    pub(crate) fn edit_layer_set_if_changed<R>(
+        &mut self,
+        layer: LayerId,
+        label: &str,
+        f: impl FnOnce(&mut TextureSet) -> Result<R, CommandError>,
+    ) -> Result<R, CommandError> {
+        let ts_id = self.texture_set_of(layer).ok_or(CommandError::LayerNotFound)?;
+        let ts = self.doc.texture_set_mut(ts_id).ok_or(CommandError::TextureSetNotFound)?;
+        let before = ts.layers.clone();
+        let r = f(ts)?;
+        if ts.layers != before {
+            self.commit(label, None);
+        }
+        Ok(r)
+    }
+
     pub(crate) fn layer_mut(ts: &mut TextureSet, id: LayerId) -> Result<&mut Layer, CommandError> {
         ts.find_mut(id).ok_or(CommandError::LayerNotFound)
     }
@@ -1156,7 +1174,7 @@ impl Session {
             Command::RenameEffect { layer, target, effect, name } => {
                 let name = name.trim().to_string();
                 if name.is_empty() { return Err(CommandError::Invalid("An effect needs a name".into())); }
-                self.edit_layer_set(layer, "Rename Effect", None, |ts| {
+                self.edit_layer_set_if_changed(layer, "Rename Effect", |ts| {
                     use crate::effect_stack::StackEffect;
                     let l = Self::layer_mut(ts, layer)?;
                     let found = on_stack!(l, target, |s| match s.iter_mut().find(|e| e.id() == effect) {
@@ -1283,6 +1301,8 @@ impl Session {
                 }
             }
             Command::SetAlphaSettings { texture_set, alpha } => {
+                // NaN survives clamp, is saved as null and the project no longer opens.
+                if !alpha.threshold.is_finite() { return Err(CommandError::Invalid("the alpha threshold must be a number".into())); }
                 let ts = self.doc.texture_set_mut(texture_set).ok_or(CommandError::TextureSetNotFound)?;
                 let alpha = subcraft_doc::AlphaSettings { threshold: alpha.threshold.clamp(0.0, 1.0), ..alpha };
                 if ts.alpha != alpha {
@@ -1602,7 +1622,7 @@ impl Session {
                 }
             }
             Command::SetBlendAllChannels { layer, from, mode, opacity } => {
-                self.edit_layer_set(layer, "Blend All Channels", None, |ts| {
+                self.edit_layer_set_if_changed(layer, "Blend All Channels", |ts| {
                     let l = Self::layer_mut(ts, layer)?;
                     let source = *l.blend.get(&from).ok_or(CommandError::Invalid("channel not blended by this layer".into()))?;
                     let folder = l.is_folder();
