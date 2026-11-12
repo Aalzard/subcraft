@@ -219,7 +219,7 @@ mod tests {
     fn shift_insert_pastes_layers_and_ctrl_shift_v_pastes_content() {
         let pasted = |modifiers: egui::Modifiers| {
             let ctx = egui::Context::default();
-            let mut out = ctx.run_ui(egui::RawInput { events: vec![egui::Event::Paste("x".into())], modifiers, ..Default::default() }, |ui| shortcut_requests(ui.ctx()));
+            let mut out = ctx.run_ui(egui::RawInput { events: vec![egui::Event::ModifiersChanged(modifiers), egui::Event::Paste("x".into())], ..Default::default() }, |ui| shortcut_requests(ui.ctx()));
             out.textures_delta.clear();
             ctx.data(|d| d.get_temp::<Vec<Request>>(queue_id())).unwrap_or_default()
         };
