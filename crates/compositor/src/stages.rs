@@ -581,9 +581,11 @@ impl<'a> Graph<'a> {
             return None;
         }
         if filter.is_contour() {
+            // QA 2026-11: the Mask Outline shape kept its full-resolution band in a scaled
+            // composite (cut off where the read area ended, or half as thick at scale 2).
             return Some(self.push(Node::Contour {
                 input,
-                filter,
+                filter: filter.scaled(self.radius_scale),
                 kind,
                 radius: radius * self.radius_scale,
             }));
