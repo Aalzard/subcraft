@@ -426,7 +426,7 @@ impl<'a> Graph<'a> {
             let usable = effect.visible
                 && effect.blend_for(kind).is_active()
                 && !matches!(effect.kind, ContentEffectKind::Anchor)
-                && !matches!(effect.kind, ContentEffectKind::Filter {channel,..} | ContentEffectKind::Levels {channel,..} if channel != kind);
+                && effect.applies_to(kind);
             let filtered = match effect.kind {
                 ContentEffectKind::Filter { filter, .. } if usable => {
                     if !filter.valid() || !filter.supports_channel(kind) {
@@ -792,18 +792,19 @@ impl<'a> Graph<'a> {
         } else {
             None
         };
-        let passthrough = matches!(layer.content, LayerContent::Group(_))
-            && layer.blend_for(kind).mode == BlendMode::Passthrough;
+        // Folders and, like Painter, paint / fill layers: in Passthrough the stack below is the
+        // layer's content (its own paint or fill is not used) and its effects process it.
+        let passthrough = layer.blend_for(kind).mode == BlendMode::Passthrough;
         let input = if self.anchors.is_some() && !passthrough {
             // Shared with any anchor captured in this stack.
             *self.isolated_content(layer, kind).last().expect("chain has a base")
         } else {
             let base = match &layer.content {
-                LayerContent::Group(_) if passthrough => below,
+                _ if passthrough => below,
                 LayerContent::Group(_) => self.push(Node::Constant([0.0; 4])),
                 _ => usize::MAX,
             };
-            let base = self.content_base(layer, kind, base);
+            let base = if passthrough && !layer.is_folder() { base } else { self.content_base(layer, kind, base) };
             self.content_effects(layer, kind, base, None)
         };
         if let Some(a) = self.anchors.as_mut() {
@@ -1804,7 +1805,8 @@ pub(crate) fn has_spatial(layers: &[Arc<Layer>]) -> bool {
     layers.iter().filter(|l|l.visible).any(|l| {
         micro_layer(l) ||
         l.content_effects.iter().any(
-            |e| e.visible && matches!(e.kind,ContentEffectKind::Filter{channel,filter} if filter.valid() && filter.supports_channel(channel) && e.blend_for(channel).is_active() && filter.radius().is_some()),
+            |e| e.visible && matches!(e.kind,ContentEffectKind::Filter{filter,..} if filter.valid() && filter.radius().is_some())
+                && e.filter_channels().into_iter().any(|c| e.blend_for(c).is_active()),
         ) || l.mask.as_ref().filter(|m|m.enabled).is_some_and(mask_spatial)
             || matches!(&l.content,LayerContent::Group(g) if has_spatial(&g.children))
     })
