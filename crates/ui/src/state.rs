@@ -227,6 +227,8 @@ pub struct UiState {
     pub bake: crate::dialogs::BakeUi,
     /// A Painter project being opened in the background.
     pub spp_import: Option<crate::spp_import::SppImportUi>,
+    /// The reconstruction notice after a Painter import finished: the file name.
+    pub spp_notice: Option<String>,
     /// Running Edit in PhotoCraft exchange (ADR-0040).
     pub photocraft: Option<subcraft_app::photocraft::Exchange>,
     /// Key of the polygon wireframe currently uploaded to the renderer.
@@ -384,6 +386,7 @@ impl UiState {
             last_title: String::new(),
             bake: Default::default(),
             spp_import: None,
+            spp_notice: None,
             photocraft: None,
             wire_uploaded: None,
             symmetry_uploaded: None,
