@@ -307,8 +307,8 @@ mod tests {
     fn an_action_without_a_default_key_can_get_one_and_a_key_can_be_removed() {
         let mut km = Keymap::from(KeymapPreset::SubCraft);
         assert!(km.shortcuts(Action::EyedropperTool).is_empty());
-        assert_eq!(km.bind(Action::EyedropperTool, Shortcut::key(Key::I)), None);
-        assert_eq!(km.action_for(Shortcut::key(Key::I)), Some(Action::EyedropperTool));
+        assert_eq!(km.bind(Action::EyedropperTool, Shortcut::key(Key::J)), None);
+        assert_eq!(km.action_for(Shortcut::key(Key::J)), Some(Action::EyedropperTool));
         km.unbind(Action::ResetCamera, Shortcut::key(Key::Home));
         assert_eq!(km.shortcuts(Action::ResetCamera), [Shortcut::key(Key::F)]);
         assert_eq!(km.action_for(Shortcut::key(Key::Home)), None);
