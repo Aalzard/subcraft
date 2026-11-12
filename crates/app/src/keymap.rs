@@ -119,8 +119,11 @@ impl CustomKeys {
         let i = match self.entries.iter().position(|(a, _)| *a == action) {
             Some(i) => i,
             None => {
-                self.entries.push((action, initial));
-                self.entries.len() - 1
+                // Kept sorted by name, as a saved file reads back, so equal maps compare equal.
+                let id = action.id();
+                let at = self.entries.partition_point(|(a, _)| a.id() < id);
+                self.entries.insert(at, (action, initial));
+                at
             }
         };
         &mut self.entries[i].1
@@ -320,6 +323,10 @@ mod tests {
         let json = serde_json::to_string(&km.custom).unwrap();
         assert_eq!(json, r#"{"EyedropperTool":["P","Alt+I"],"Undo":[]}"#);
         assert_eq!(serde_json::from_str::<CustomKeys>(&json).unwrap(), km.custom);
+        let mut other_order = Keymap::from(KeymapPreset::Painter);
+        other_order.unbind(Action::Undo, Shortcut::ctrl(Key::Z));
+        other_order.bind(Action::EyedropperTool, Shortcut::alt(Key::I));
+        assert_eq!(other_order, km, "the order of the edits does not matter");
 
         let future = r#"{"Undo":["Alt+U","Hyper+X"],"TeleportTool":["T"],"Redo":["Alt+U"]}"#;
         let loaded: CustomKeys = serde_json::from_str(future).unwrap();
