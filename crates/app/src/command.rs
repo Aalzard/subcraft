@@ -158,6 +158,12 @@ pub enum Command {
     PasteMask(LayerId),
     /// Non-destructive inversion of the evaluated mask, appended as an editable effect.
     InvertMask(LayerId),
+    /// Painter's "Invert mask background": invert the mask's painted base (white and black
+    /// swap, painted strokes included); its effects stay as they are.
+    InvertMaskBase(LayerId),
+    /// Painter's "Clear mask": remove what was painted into the mask's base, back to its plain
+    /// background value; its effects stay.
+    ClearMask(LayerId),
     /// Destination is a bottom-to-top index in this mask's own effect stack.
     MoveMaskEffect { layer: LayerId, effect: EffectId, index: usize },
     DuplicateMaskEffect { layer: LayerId, effect: EffectId },

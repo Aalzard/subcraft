@@ -164,7 +164,7 @@ Layout notes: these are Painter's non-editable shortcuts; copy/paste only fire w
 | Paste as instance | Layer stack | Ctrl+Shift+V (per instancing page) | missing | - | - |
 | Instantiate across texture sets | Layer stack | Ctrl+Shift+D (2017.4 release notes) | missing | - | - |
 | Merge / flatten the selected group | Layer stack | Ctrl+M | missing | - | - |
-| Display mask in viewport | Mask thumbnail | Alt + left click | partial: opens a floating UV preview window of the mask, viewport unchanged | crates/ui/src/panels/layers.rs:312 | - |
+| Display mask in viewport | Mask thumbnail | Alt + left click | done | crates/ui/src/panels/layers.rs:481 | - |
 | Disable / enable mask | Mask thumbnail | Shift + left click | done | crates/ui/src/panels/layers.rs:308 | - |
 | Move effect up / down | Effect row | Alt + Arrow Up / Arrow Down | missing | - | - |
 | Hide / ignore excluded geometry | Viewport contextual toolbar | Alt+H | missing | - | - |

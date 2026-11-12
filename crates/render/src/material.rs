@@ -170,6 +170,8 @@ pub struct GpuMaterial {
     pub shader: subcraft_doc::ShaderParams,
     /// `MaterialParams` uniform (binding 10), created with the bind group.
     pub(crate) params: Option<wgpu::Buffer>,
+    /// A layer's evaluated mask, shown alone on the model while `ViewParams::mask_view` is set.
+    pub mask_view: Option<ChannelTexture>,
 }
 
 impl GpuMaterial {
@@ -183,6 +185,7 @@ impl GpuMaterial {
             alpha: Default::default(),
             shader: Default::default(),
             params: None,
+            mask_view: None,
         }
     }
 

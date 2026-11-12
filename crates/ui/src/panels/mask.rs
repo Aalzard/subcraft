@@ -11,7 +11,11 @@ pub(crate) fn actions(
     paste: bool,
     cmds: &mut Vec<Command>,
 ) {
-    if ui.button("Preview mask").clicked() {
+    if ui.add(egui::Button::new("Show in viewport").shortcut_text("Alt+click")).on_hover_text("Shows this mask alone on the model; again to go back").clicked() {
+        ui.ctx().data_mut(|d| d.insert_temp(crate::mask_view::toggle_request_id(), layer));
+        ui.close();
+    }
+    if ui.button("Preview mask (UV)").clicked() {
         ui.ctx()
             .data_mut(|d| d.insert_temp(egui::Id::new("inspect_mask"), layer));
         ui.close();
@@ -30,8 +34,16 @@ pub(crate) fn actions(
         });
         ui.close();
     }
-    if ui.button("Invert mask (effect)").clicked() {
+    if ui.button("Invert mask (effect)").on_hover_text("Adds an Invert effect on top of the mask stack").clicked() {
         cmds.push(Command::InvertMask(layer));
+        ui.close();
+    }
+    if ui.button("Invert mask background").on_hover_text("White and black swap in what is painted; the effects stay").clicked() {
+        cmds.push(Command::InvertMaskBase(layer));
+        ui.close();
+    }
+    if ui.button("Clear mask").on_hover_text("Removes what was painted into the mask; the effects stay").clicked() {
+        cmds.push(Command::ClearMask(layer));
         ui.close();
     }
     if ui.button("Copy mask").clicked() {
@@ -43,6 +55,10 @@ pub(crate) fn actions(
         .clicked()
     {
         cmds.push(Command::PasteMask(layer));
+        ui.close();
+    }
+    if ui.button("Export mask to file…").on_hover_text("The mask with its effects, as a grayscale image at the texture set's resolution").clicked() {
+        ui.ctx().data_mut(|d| d.insert_temp(crate::mask_view::export_request_id(), layer));
         ui.close();
     }
     ui.separator();

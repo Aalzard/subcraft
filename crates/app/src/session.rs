@@ -840,7 +840,7 @@ impl Session {
         self.composite_generation
     }
 
-    fn texture_set_of(&self, layer: LayerId) -> Option<TextureSetId> {
+    pub(crate) fn texture_set_of(&self, layer: LayerId) -> Option<TextureSetId> {
         self.doc.texture_sets.iter().find(|t| t.find(layer).is_some()).map(|t| t.id)
     }
 
@@ -1813,6 +1813,34 @@ impl Session {
             Command::SetParts { layer, parts } => {
                 self.edit_layer_set(layer, "Layer Parts", None, |ts| {
                     Self::layer_mut(ts, layer)?.parts = parts;
+                    Ok(())
+                })?;
+            }
+            Command::InvertMaskBase(layer) => {
+                self.edit_layer_set(layer, "Invert Mask Background", None, |ts| {
+                    let mask = Self::layer_mut(ts, layer)?.mask.as_mut().ok_or(CommandError::NoMask)?;
+                    let base = &mask.base;
+                    let fill = base.fill();
+                    let mut out = subcraft_image::TiledImage::new(base.width(), base.height(), base.comps(), [1.0 - fill[0], 0.0, 0.0, 0.0]);
+                    let mut buf = vec![0.0f32; subcraft_image::TILE_TEXELS * base.comps()];
+                    // Only painted tiles carry data; untouched ones are the (inverted) fill.
+                    for t in 0..base.tile_count() {
+                        if base.tile(t).is_none() { continue; }
+                        base.read_tile(t, &mut buf);
+                        for v in buf.iter_mut().step_by(base.comps()) {
+                            *v = 1.0 - *v;
+                        }
+                        out.write_tile(t, &buf);
+                    }
+                    mask.base = out;
+                    Ok(())
+                })?;
+            }
+            Command::ClearMask(layer) => {
+                self.edit_layer_set(layer, "Clear Mask", None, |ts| {
+                    let mask = Self::layer_mut(ts, layer)?.mask.as_mut().ok_or(CommandError::NoMask)?;
+                    let (w, h, comps, fill) = (mask.base.width(), mask.base.height(), mask.base.comps(), mask.base.fill());
+                    mask.base = subcraft_image::TiledImage::new(w, h, comps, fill);
                     Ok(())
                 })?;
             }

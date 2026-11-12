@@ -22,6 +22,7 @@ pub mod library;
 pub mod mesh_reload;
 pub mod launch;
 pub mod layer_tree;
+pub mod mask_tools;
 pub mod new_project;
 pub mod effect_stack;
 pub mod export_presets;

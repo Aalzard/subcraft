@@ -121,7 +121,7 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Mask actions", "마스크 작업"),
     ("Mask by ID color", "ID 색상으로 마스크"),
     ("Mask the selected layer to the baked ID map color under the cursor", "커서 아래의 베이크된 ID 맵 색상으로 선택한 레이어를 마스크합니다"),
-    ("Mask · click to edit · Alt+click: UV preview · Shift+click: enable/disable", "마스크 · 클릭하여 편집 · Alt+클릭: UV 미리보기 · Shift+클릭: 켜기/끄기"),
+    ("Mask · click to edit · Alt+click: show it in the viewport · Shift+click: enable/disable", "마스크 · 클릭하여 편집 · Alt+클릭: 뷰포트에 표시 · Shift+클릭: 켜기/끄기"),
     ("Masks hide parts of the layer. Start white (all visible) or black (all hidden).", "마스크는 레이어의 일부를 숨깁니다. 흰색(모두 표시) 또는 검은색(모두 숨김)으로 시작합니다."),
     ("Material", "머티리얼"),
     ("Materials", "머티리얼"),

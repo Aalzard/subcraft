@@ -105,7 +105,7 @@ Layout notes: the dropdown at the top right of each view switches between Materi
 | Display material | M | - | done | crates/ui/src/app.rs:964 | - |
 | Display next mesh map | B | - | partial: B in the Painter key set; cycles every map kind, baked or not | crates/app/src/actions.rs (Action::NextMeshMap) | #164 |
 | Display previous mesh map | Shift + B | - | missing | - | - |
-| Display mask in viewport | Alt + LMB on a mask thumbnail in the layer stack | - | missing | - | - |
+| Display mask in viewport | Alt + LMB on a mask thumbnail in the layer stack | - | done | crates/render/src/lib.rs:658 | - |
 | Baking visualisation mode (low / high poly, cage) | Baking mode viewport panel | - | partial: bake overlay colours shown while the Bake window is open | crates/ui/src/viewport.rs:522 | - |
 | Live preview of the map being baked | Settings > General | off (unverified) | missing | - | - |
 | Rendering (Iray) mode | F10; Contextual toolbar | off | partial: path-traced Rendering mode, toggle button at the 3D view's bottom right | crates/ui/src/viewport.rs:590 | - |

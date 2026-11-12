@@ -5567,3 +5567,15 @@ the app kept drawing on the dead device. Safe mode works; 0.3.3's marker only he
 * Not done: cameras from Alembic and USD files, camera roll (the orbit camera has none), free
   rotation mode, separate OS windows for undocked views, Shader settings and Log dock buttons
   (no such panels yet).
+### Painter parity chunk 18: mask actions and mask view (2026-11-12, branch `claude/parity-chunk18-mask-view`)
+
+* **Mask in the viewport:** Alt+click on a mask thumbnail shows that mask alone on the model (gray); Alt+click again,
+  or Esc over the viewport, goes back. `ViewportRenderer::upload_mask_view` keeps one mask texture per material slot,
+  shown through the existing single-channel path (`ViewParams::mask_view`). The UI re-evaluates the mask
+  (`Session::mask_image`, effects included, disabled masks too) at most every 0.25 s while the document changes.
+* **Mask menu:** Show in viewport, Invert mask background (`InvertMaskBase`: inverts the painted base, strokes
+  included, effects stay), Clear mask (`ClearMask`: removes the painting, effects stay), Export mask to file (PNG / TGA
+  / EXR / TIFF at the set's resolution).
+* **Not done:** a Mask entry in the viewport display dropdown; greying the tool blend mode while painting a mask.
+* **Tests:** `crates/app/tests/mask_actions.rs` (invert background, clear, evaluated mask, export and errors),
+  `crates/ui/src/mask_view.rs` unit test (toggle, label, format by extension).
