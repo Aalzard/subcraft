@@ -5503,3 +5503,24 @@ the app kept drawing on the dead device. Safe mode works; 0.3.3's marker only he
   size precedence, dither precedence and mean, BMP / WebP / half EXR / HDR files read back) and io / dilate
   unit tests. `cargo test --release -p subcraft-export`: 69 passed, 1 ignored (before the dither edge fix);
   `subcraft-image` lib tests rerun after it. UI, app and the binary pass `cargo check --release --tests`.
+
+### Session 132 - Painter parity chunk 47: converted maps and Painter's export templates (2026-11-12, branch `claude/export-converted-maps`, stacks on chunk 21)
+
+* **Converted maps (`subcraft_export::Converted`, `Source::Converted`):** Diffuse = base x (1 - metal);
+  Specular = lerp(f0, base, metal) with f0 = 0.08 x Specular level; Reflection = lerp(white, base, metal);
+  Glossiness = 1 - rough; Glossiness squared; Mixed AO = AO channel x baked AO (either alone); f0; 1/ior =
+  (1 - sqrt f0) / (1 + sqrt f0). Colour ones are sRGB-encoded in 8/16-bit sRGB maps. A converted map is
+  written where the set has any of its input channels. Painter import maps the virtual maps (`Diffuse`,
+  `Specular`, `Glossiness`, `Mixed_AO`, `f0`, `1/ior`, `Reflection`, `Glossiness2`) to them. The deprecated
+  Unity 4 maps are not added.
+* **Templates (`crates/export/src/builtin_presets.rs`):** 27 more read-only built-ins after SubCraft's
+  first nine (their order is kept for `--export-template`). Map lists come from each target's material
+  inputs; suffixes and formats were not checked against Painter's own preset files (no Painter here).
+  Not added: Dota 2 and Unreal SSS (data SubCraft lacks), PBR Specular Glossiness (needs spec / gloss
+  document channels), PBR Metallic Roughness (Folder or PSD Groups) (needs `/` patterns: chunk 22), and the
+  With Alpha / Opacity variants (opacity export belongs to #145).
+* **Golden test** now pins the eight v0.3.0 templates by name (`V030`), so new built-ins don't change it.
+* **Tests:** `crates/export/src/tests/converted.rs` (each formula on exact EXR values, Mixed AO with either
+  input, sRGB in 8-bit, maps skipped without inputs, every built-in valid and uniquely named, every Painter
+  template exports a metal / roughness material, Document channels and Mesh Maps write only what exists,
+  UDIM legacy names).

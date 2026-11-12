@@ -185,16 +185,16 @@ Layout notes: three collapsible groups in this order: Input maps, Converted maps
 | Input maps grouped by category (OpenPBR naming) | Right column | - | missing | - | - |
 | Converted map: Normal OpenGL | Right column | - | partial: used by built-in templates, not selectable | crates/export/src/template.rs:14 | #124 |
 | Converted map: Normal DirectX | Right column | - | partial: used by built-in templates and a global Normal maps override | crates/ui/src/dialogs.rs:363 | #124 |
-| Converted map: Mixed AO | Right column | - | partial: falls back to the baked AO when the channel is absent, no combination | crates/export/src/lib.rs:94 | - |
-| Converted map: Diffuse | Right column | - | missing | - | - |
-| Converted map: Specular | Right column | - | missing | - | - |
-| Converted map: Glossiness | Right column | - | partial: inverted roughness is used by the Unity templates, not selectable | crates/export/src/template.rs:12 | #124 |
+| Converted map: Mixed AO | Right column | - | done (AO channel x baked AO; either alone when the other is absent) | crates/export/src/lib.rs Dense::converted | chunk 47 |
+| Converted map: Diffuse | Right column | - | done (base color x (1 - metallic)) | crates/export/src/template.rs Converted | chunk 47 |
+| Converted map: Specular | Right column | - | done (f0 from Specular level for dielectrics, base color for metals, blended by metallic) | crates/export/src/template.rs Converted | chunk 47 |
+| Converted map: Glossiness | Right column | - | done (1 - roughness) | crates/export/src/template.rs Converted | chunk 47 |
 | Converted map: Unity4 Diffuse (deprecated) | Right column | - | missing | - | - |
 | Converted map: Unity4 Gloss (deprecated) | Right column | - | missing | - | - |
-| Converted map: Reflection | Right column | - | missing | - | - |
-| Converted map: 1/ior | Right column | - | missing | - | - |
-| Converted map: Glossiness squared | Right column | - | missing | - | - |
-| Converted map: f0 | Right column | - | missing | - | - |
+| Converted map: Reflection | Right column | - | done (white for dielectrics, base color for metals, blended by metallic; formula is SubCraft's reading) | crates/export/src/template.rs Converted | chunk 47 |
+| Converted map: 1/ior | Right column | - | done (from Specular level: level 0.5 = IOR 1.5) | crates/export/src/template.rs Converted | chunk 47 |
+| Converted map: Glossiness squared | Right column | - | done | crates/export/src/template.rs Converted | chunk 47 |
+| Converted map: f0 | Right column | - | done (0.08 x Specular level) | crates/export/src/template.rs Converted | chunk 47 |
 | Mesh map: Normal | Right column | - | partial: raw file via the Baked Mesh Maps section, cannot be packed | crates/ui/src/dialogs.rs:298 | #124 |
 | Mesh map: World space normal | Right column | - | partial: raw file only | crates/ui/src/dialogs.rs:298 | #124 |
 | Mesh map: ID | Right column | - | partial: raw file only | crates/ui/src/dialogs.rs:298 | #124 |
@@ -221,53 +221,53 @@ Layout notes: these sit at the top of the Output template dropdown on the Settin
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
 | 2D View | Output template dropdown | - | done | crates/export/src/template.rs:215 | - |
-| Document channels + Normal + AO (No Alpha) | Output template dropdown | - | missing | - | - |
+| Document channels + Normal + AO (No Alpha) | Output template dropdown | - | done (every channel the set has as its own file, plus normal with height and mixed AO; no Opacity file: alpha/opacity export is #145's) | crates/export/src/builtin_presets.rs | chunk 47 |
 | Document channels + Normal + AO (With Alpha) | Output template dropdown | - | missing | - | - |
 | Sketchfab | Output template dropdown (maps plus upload) | - | partial: map set only (upload is Adobe/Sketchfab service) | crates/export/src/template.rs:237 | - |
 | Substance 3D Stager | Output template dropdown | - | n/a | - | - |
 | USDz (Apple AR) | Output template dropdown: JPG maps, PNG normal, .usdc and .usdz | - | partial: USDA with PNG maps through "Export model + textures", no usdc / usdz | crates/export/src/scene.rs:324 | - |
 | glTF PBR Metal Roughness | Output template dropdown: maps plus .gltf / .glb | - | partial: named "glTF 2.0"; scene file written by a separate button | crates/export/src/template.rs:132 | - |
-| glTF PBR Metal Roughness + Displacement texture (experimental) | Output template dropdown | - | missing | - | - |
+| glTF PBR Metal Roughness + Displacement texture (experimental) | Output template dropdown | - | done (glTF maps plus a 16-bit height file) | crates/export/src/builtin_presets.rs | chunk 47 |
 
 ## Default output templates (editable copies)
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Amazon Lumberyard | Output templates list | - | missing | - | - |
-| Arnold (AiStandard) | Output templates list | - | missing | - | - |
-| Arnold UDIM Legacy (AiStandard) | Output templates list | - | missing | - | - |
-| Blender (Principled BSDF) | Output templates list | - | missing | - | - |
-| Corona | Output templates list | - | missing | - | - |
-| CryEngine 3 | Output templates list | - | missing | - | - |
+| Amazon Lumberyard | Output templates list | - | done (diff, spec, ddna with glossiness in alpha, emissive; unverified against Painter's file) | crates/export/src/builtin_presets.rs | chunk 47 |
+| Arnold (AiStandard) | Output templates list | - | done (unverified against Painter's file) | crates/export/src/builtin_presets.rs | chunk 47 |
+| Arnold UDIM Legacy (AiStandard) | Output templates list | - | done (explicit .$udim names) | crates/export/src/builtin_presets.rs | chunk 47 |
+| Blender (Principled BSDF) | Output templates list | - | done (unverified against Painter's file) | crates/export/src/builtin_presets.rs | chunk 47 |
+| Corona | Output templates list | - | done (Diffuse, Reflection, Glossiness converted; unverified) | crates/export/src/builtin_presets.rs | chunk 47 |
+| CryEngine 3 | Output templates list | - | done (diff, spec, ddna; unverified) | crates/export/src/builtin_presets.rs | chunk 47 |
 | Dota 2 | Output templates list | - | missing | - | - |
-| Keyshot | Output templates list | - | missing | - | - |
-| Keyshot 9+ | Output templates list | - | missing | - | - |
-| Lens Studio | Output templates list | - | missing | - | - |
-| Maxwell (Metallic Roughness) | Output templates list | - | missing | - | - |
-| Maxwell (Specular Glossiness) | Output templates list | - | missing | - | - |
-| Mesh Maps | Output templates list: each baked map as its own file | - | partial: separate "Baked Mesh Maps" section, not a template | crates/ui/src/dialogs.rs:298 | - |
-| Non-PBR Specular Glossiness | Output templates list | - | missing | - | - |
+| Keyshot | Output templates list | - | done (unverified) | crates/export/src/builtin_presets.rs | chunk 47 |
+| Keyshot 9+ | Output templates list | - | done (unverified) | crates/export/src/builtin_presets.rs | chunk 47 |
+| Lens Studio | Output templates list | - | done (Material Params: metallic, roughness, AO; unverified) | crates/export/src/builtin_presets.rs | chunk 47 |
+| Maxwell (Metallic Roughness) | Output templates list | - | done (unverified) | crates/export/src/builtin_presets.rs | chunk 47 |
+| Maxwell (Specular Glossiness) | Output templates list | - | done (converted maps; unverified) | crates/export/src/builtin_presets.rs | chunk 47 |
+| Mesh Maps | Output templates list: each baked map as its own file | - | done (template writing each baked map, where baked; the Baked Mesh Maps section stays) | crates/export/src/builtin_presets.rs | chunk 47 |
+| Non-PBR Specular Glossiness | Output templates list | - | done (converted maps; unverified) | crates/export/src/builtin_presets.rs | chunk 47 |
 | PBR Metallic Roughness | Output templates list | - | done | crates/export/src/template.rs:72 | - |
 | Alpha variants: Base Color RGB + A = Opacity (Painter's engine templates put opacity in Base Color alpha) | Output templates list | - | done: "PBR Metallic Roughness + Opacity" and "Unreal Engine (ORM packed) + Opacity" (RGBA Base Color plus a grey Opacity map), Unity HDRP / URP, Godot 4 and glTF 2.0 "+ Alpha"; alpha is Opacity x Base Color coverage, colour bled under alpha 0 | crates/export/src/template.rs (with_alpha) | #145 |
 | PBR Metallic Roughness (Folder or PSD Groups) | Output templates list | - | missing | - | - |
-| PBR Specular Glossiness | Output templates list | - | missing | - | - |
-| PBR Specular Glossiness (converted from Metallic Roughness) | Output templates list | - | missing | - | - |
-| Redshift | Output templates list | - | missing | - | - |
-| Renderman (pxrDisney) | Output templates list | - | missing | - | - |
-| Renderman (pxrSurface) | Output templates list | - | missing | - | - |
-| Roblox (MaterialVariant) | Output templates list | - | missing | - | - |
+| PBR Specular Glossiness | Output templates list | - | missing (needs specular / glossiness document channels; use the converted template) | - | - |
+| PBR Specular Glossiness (converted from Metallic Roughness) | Output templates list | - | done | crates/export/src/builtin_presets.rs | chunk 47 |
+| Redshift | Output templates list | - | done (unverified) | crates/export/src/builtin_presets.rs | chunk 47 |
+| Renderman (pxrDisney) | Output templates list | - | done (unverified) | crates/export/src/builtin_presets.rs | chunk 47 |
+| Renderman (pxrSurface) | Output templates list | - | done (converted diffuse / specular colours; unverified) | crates/export/src/builtin_presets.rs | chunk 47 |
+| Roblox (MaterialVariant) | Output templates list | - | done | crates/export/src/builtin_presets.rs | chunk 47 |
 | Roblox (SurfaceAppearance) | Output templates list | - | done | crates/export/src/template.rs:222 | - |
-| Shade 3D | Output templates list | - | missing | - | - |
-| Spark AR Studio | Output templates list | - | missing | - | - |
+| Shade 3D | Output templates list | - | done (unverified) | crates/export/src/builtin_presets.rs | chunk 47 |
+| Spark AR Studio | Output templates list | - | done (ORM packed; unverified) | crates/export/src/builtin_presets.rs | chunk 47 |
 | Unity HD Render Pipeline (Metallic Standard) | Output templates list | - | partial: named "Unity HDRP (Mask Map)" | crates/export/src/template.rs:108 | - |
-| Unity HD Render Pipeline (Specular) | Output templates list | - | missing | - | - |
+| Unity HD Render Pipeline (Specular) | Output templates list | - | done (converted maps; unverified) | crates/export/src/builtin_presets.rs | chunk 47 |
 | Unity Universal Render Pipeline (Metallic Standard) | Output templates list | - | partial: named "Unity URP (Metallic + Occlusion)" | crates/export/src/template.rs:152 | - |
-| Unity Universal Render Pipeline (Specular) | Output templates list | - | missing | - | - |
+| Unity Universal Render Pipeline (Specular) | Output templates list | - | done (converted maps; unverified) | crates/export/src/builtin_presets.rs | chunk 47 |
 | Unreal Engine (Packed) | Output templates list | - | partial: named "Unreal Engine (ORM packed)" | crates/export/src/template.rs:89 | - |
 | Unreal Engine SSS (Packed) | Output templates list | - | missing | - | - |
-| Vray Next (Metallic Roughness) | Output templates list | - | missing | - | - |
-| Vray Next (Specular Glossiness) | Output templates list | - | missing | - | - |
-| Vray UDIM Legacy (Metallic Roughness) | Output templates list | - | missing | - | - |
+| Vray Next (Metallic Roughness) | Output templates list | - | done (unverified) | crates/export/src/builtin_presets.rs | chunk 47 |
+| Vray Next (Specular Glossiness) | Output templates list | - | done (Diffuse, Reflection, Glossiness converted; unverified) | crates/export/src/builtin_presets.rs | chunk 47 |
+| Vray UDIM Legacy (Metallic Roughness) | Output templates list | - | done (explicit .$udim names) | crates/export/src/builtin_presets.rs | chunk 47 |
 
 ## Export mesh
 

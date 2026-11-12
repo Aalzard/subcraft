@@ -174,7 +174,8 @@ fn alpha_presets_are_builtin_and_valid() {
     for want in ["PBR Metallic Roughness + Opacity", "Unreal Engine (ORM packed) + Opacity", "Unity HDRP (Mask Map) + Alpha", "Unity URP (Metallic + Occlusion) + Alpha", "Godot 4 (ORM) + Alpha", "glTF 2.0 + Alpha"] {
         assert!(names.iter().any(|n| n == want), "{want}");
     }
-    for t in ExportTemplate::builtin().into_iter().skip(9) {
+    // The alpha variants (Painter's templates come after them).
+    for t in ExportTemplate::builtin().into_iter().filter(|t| t.name.ends_with("+ Opacity") || t.name.ends_with("+ Alpha")) {
         let bc = t.maps.iter().find(|m| m.srgb && m.components.len() == 4).unwrap_or_else(|| panic!("{}: RGBA base colour", t.name));
         assert_eq!(bc.components[3], Source::Alpha, "{}", t.name);
         assert!(bc.format != FileFormat::Jpeg && t.problems().is_empty(), "{}", t.name);

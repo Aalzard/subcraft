@@ -14,7 +14,7 @@ use serde_json::Value;
 use subcraft_core::{ChannelKind, MeshMapKind};
 use subcraft_image::{BitDepth, Container, FileFormat};
 
-use crate::{ExportTemplate, OutputMap, Padding, Source};
+use crate::{Converted, ExportTemplate, OutputMap, Padding, Source};
 
 pub const FORMAT: &str = "subcraft.export-preset";
 pub const VERSION: u32 = 1;
@@ -249,6 +249,22 @@ mod painter {
         })
     }
 
+    /// Painter's converted ("virtual") maps. `diffuse` and `specular` are document channels in a
+    /// specular / glossiness project; as virtual maps they are the converted ones.
+    fn converted_map(name: &str, virtual_map: bool) -> Option<Converted> {
+        Some(match name.replace([' ', '-'], "_").as_str() {
+            "mixed_ao" | "ao_mixed" => Converted::MixedAo,
+            "f0" => Converted::F0,
+            "1/ior" | "ior" | "1_ior" | "inverse_ior" => Converted::InverseIor,
+            "reflection" => Converted::Reflection,
+            "glossiness2" | "glossiness_squared" | "glossinesssquared" => Converted::GlossinessSquared,
+            "diffuse" if virtual_map => Converted::Diffuse,
+            "specular" if virtual_map => Converted::Specular,
+            "glossiness" if virtual_map => Converted::Glossiness,
+            _ => return None,
+        })
+    }
+
     fn mesh_map(name: &str) -> Option<MeshMapKind> {
         use MeshMapKind::*;
         Some(match name.to_ascii_lowercase().replace([' ', '-'], "_").as_str() {
@@ -281,8 +297,8 @@ mod painter {
                 if lower == "height" {
                     return Some(Source::Height);
                 }
-                if lower == "mixed_ao" || lower == "ao_mixed" {
-                    return Some(Source::ch(ChannelKind::AmbientOcclusion, 0));
+                if let Some(map) = converted_map(&lower, kind == "virtualmap") {
+                    return Some(Source::Converted { map, component: component.min(map.components() as u8 - 1) });
                 }
                 match document_channel(name) {
                     // Painter's opacity channel is the texel's coverage: opacity times what the

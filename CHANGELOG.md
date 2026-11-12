@@ -14,6 +14,13 @@ What changed in SubCraft, newest first. Download the latest build from the
   each map's default: flat normal, white occlusion...) and Dilation + diffusion (a smooth blend of the
   surrounding islands). The dilation distance defaults to 16 and goes up to 256.
 - **Size menu** in Export Textures: write every map at 128 to 8192, or at each texture set's size.
+- **Converted maps** in the preset editor, like Painter's: Diffuse, Specular, Reflection, Glossiness,
+  Glossiness squared, Mixed AO, f0 and 1/ior, computed from the metal / roughness channels. Painter
+  presets that use them import without losing those maps.
+- **About 25 more built-in export templates** with Painter's names: Blender, Arnold, Corona, CryEngine 3,
+  Amazon Lumberyard, Keyshot, Lens Studio, Maxwell, Redshift, Renderman, Shade 3D, Spark AR, V-Ray, Unity
+  HDRP / URP Specular, PBR Specular Glossiness (converted), Roblox MaterialVariant, glTF + displacement,
+  Mesh Maps and Document channels + Normal + AO.
 
 ## 0.3.6 - 2026-11-12
 

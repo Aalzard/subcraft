@@ -6,6 +6,7 @@
 //! all absent are skipped. Color channels are sRGB-encoded for integer formats and stay linear in
 //! EXR. Data channels are never color-transformed.
 
+pub mod builtin_presets;
 pub mod preset;
 pub mod psd;
 pub mod scene;
@@ -25,7 +26,7 @@ use subcraft_mesh::Mesh;
 use subcraft_mesh::uv_raster::rasterize_surface;
 
 pub use selection::{MapKey, MapSelection};
-pub use template::{ExportTemplate, OutputMap, Source};
+pub use template::{Converted, ExportTemplate, OutputMap, Source};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -164,6 +165,7 @@ fn map_applies(map: &OutputMap, set: &ExportTextureSet, settings: &ExportSetting
         || map.components.iter().filter_map(|s| s.channel()).any(|k| set.source(k).is_some())
         || map.components.iter().any(|s| matches!(s, Source::Normal { .. })) && set.channels.contains_key(&ChannelKind::Height)
         || map.components.iter().any(|s| matches!(s, Source::MeshMap { kind, .. } if set.mesh_maps.is_some_and(|m| m.contains_key(kind))))
+        || map.components.iter().any(|s| matches!(s, Source::Converted { map, .. } if map.inputs().iter().any(|k| set.source(*k).is_some())))
 }
 
 /// Expand a file name pattern (no extension). Tokens: `$mesh`, `$textureSet` (without its UDIM
@@ -386,6 +388,53 @@ impl<'a> Dense<'a> {
         })
     }
 
+    /// Component `c` of a converted map, linear, one value per texel.
+    fn converted(&mut self, map: Converted, c: usize) -> Vec<f32> {
+        use ChannelKind::*;
+        let n = (self.size * self.size) as usize;
+        let level_f0 = |s: f32| 0.08 * s;
+        match map {
+            Converted::Glossiness | Converted::GlossinessSquared => {
+                let (rc, r) = self.channel(Roughness);
+                (0..n).map(|i| {
+                    let g = 1.0 - r[i * rc];
+                    if map == Converted::GlossinessSquared { g * g } else { g }
+                }).collect()
+            }
+            Converted::Diffuse | Converted::Specular | Converted::Reflection => {
+                let (bc, b) = self.channel(BaseColor).clone();
+                let (mc, m) = self.channel(Metallic).clone();
+                let spec = (map == Converted::Specular).then(|| self.channel(Specular).clone());
+                let bcomp = c.min(bc - 1);
+                (0..n).map(|i| {
+                    let (base, metal) = (b[i * bc + bcomp], m[i * mc]);
+                    match map {
+                        Converted::Diffuse => base * (1.0 - metal),
+                        Converted::Specular => {
+                            let (sc, s) = spec.as_ref().expect("computed for Specular");
+                            let f0 = level_f0(s[i * sc]);
+                            f0 + (base - f0) * metal
+                        }
+                        _ => 1.0 + (base - 1.0) * metal,
+                    }
+                }).collect()
+            }
+            Converted::MixedAo => {
+                // The AO channel alone (not the baked fallback `channel` uses), times the bake.
+                let painted = self.set.channels.contains_key(&AmbientOcclusion).then(|| self.channel(AmbientOcclusion).clone());
+                let baked = self.set.mesh_maps.is_some_and(|m| m.contains_key(&MeshMapKind::AmbientOcclusion)).then(|| self.mesh_map(MeshMapKind::AmbientOcclusion).clone());
+                (0..n).map(|i| painted.as_ref().map_or(1.0, |(ac, a)| a[i * ac]) * baked.as_ref().map_or(1.0, |(bc, b)| b[i * bc])).collect()
+            }
+            Converted::F0 | Converted::InverseIor => {
+                let (sc, s) = self.channel(Specular);
+                (0..n).map(|i| {
+                    let f0 = level_f0(s[i * sc]).clamp(0.0, 0.999);
+                    if map == Converted::F0 { f0 } else { (1.0 - f0.sqrt()) / (1.0 + f0.sqrt()) }
+                }).collect()
+            }
+        }
+    }
+
     /// Effective opacity per texel: the Opacity channel (1 when absent) times the Base Color
     /// coverage (its composite alpha; 1 when absent or opaque).
     fn alpha(&mut self) -> &Vec<f32> {
@@ -519,6 +568,13 @@ fn evaluate_map(map: &OutputMap, dense: &mut Dense, settings: &ExportSettings, f
                 for i in 0..n {
                     let v = data[i * cc + c];
                     out[i * comps + ci] = if invert { 1.0 - v } else { v };
+                }
+            }
+            Source::Converted { map: conv, component } => {
+                let encode = map.srgb && conv.is_color() && !format.is_float();
+                let data = dense.converted(conv, (component as usize).min(conv.components() - 1));
+                for (i, v) in data.into_iter().enumerate() {
+                    out[i * comps + ci] = if encode { linear_to_srgb(v) } else { v };
                 }
             }
         }
