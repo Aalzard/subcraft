@@ -383,53 +383,53 @@ Layout notes: Four global controls, seven opacity sliders (one per contribution)
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Mask Editor (generator) | Properties > Generator | used on: mask or fill | missing | - | - |
-| Texture | Properties > Generator > Image inputs | colour; texture or anchor | missing | - | - |
-| Texture (Secondary) | Properties > Generator > Image inputs | colour; texture or anchor | missing | - | - |
-| World Space Normals | Properties > Generator > Image inputs | colour; baked map | missing | - | - |
-| Position Gradient | Properties > Generator > Image inputs | colour; baked Position map | missing | - | - |
-| Thickness | Properties > Generator > Image inputs | grayscale; baked map | missing | - | - |
-| Curvature | Properties > Generator > Image inputs | grayscale; baked map | missing | - | - |
-| Ambient Occlusion | Properties > Generator > Image inputs | grayscale; baked map | missing | - | - |
+| Mask Editor (generator) | Properties > Generator | used on: mask or fill | partial: the global controls, opacities and every group except per-map Blur, the curvature scale sliders and Micro Details; picked from the Generator dropdown | crates/doc/src/mask.rs:341 | chunk 16 |
+| Texture | Properties > Generator > Image inputs | colour; texture or anchor | partial: an image resource; anchors not offered | crates/compositor/src/mask.rs:191 | chunk 16 |
+| Texture (Secondary) | Properties > Generator > Image inputs | colour; texture or anchor | partial: an image resource; anchors not offered | crates/compositor/src/mask.rs:191 | chunk 16 |
+| World Space Normals | Properties > Generator > Image inputs | colour; baked map | done: reads the baked map, neutral when not baked | crates/compositor/src/mask.rs:191 | chunk 16 |
+| Position Gradient | Properties > Generator > Image inputs | colour; baked Position map | done: reads the baked map, neutral when not baked | crates/compositor/src/mask.rs:191 | chunk 16 |
+| Thickness | Properties > Generator > Image inputs | grayscale; baked map | done: reads the baked map, neutral when not baked | crates/compositor/src/mask.rs:191 | chunk 16 |
+| Curvature | Properties > Generator > Image inputs | grayscale; baked map | done: reads the baked map, neutral when not baked | crates/compositor/src/mask.rs:191 | chunk 16 |
+| Ambient Occlusion | Properties > Generator > Image inputs | grayscale; baked map | done: reads the baked map, neutral when not baked | crates/compositor/src/mask.rs:191 | chunk 16 |
 | Micro Normal | Properties > Generator > Image inputs | colour; texture or anchor | missing | - | - |
 | Micro Height | Properties > Generator > Image inputs | colour; texture or anchor | missing | - | - |
-| Global Invert | Properties > Generator > Parameters | not documented (toggle) | missing | - | - |
-| Global Blur | Properties > Generator > Parameters | not documented | missing | - | - |
-| Global Balance | Properties > Generator > Parameters | not documented | missing | - | - |
-| Global Contrast | Properties > Generator > Parameters | not documented | missing | - | - |
-| Texture Opacity | Properties > Generator > Parameters | not documented | missing | - | - |
-| Texture 2 Opacity | Properties > Generator > Parameters | not documented | missing | - | - |
-| Ambient Occlusion Opacity | Properties > Generator > Parameters | not documented | missing | - | - |
-| Curvature Opacity | Properties > Generator > Parameters | not documented | missing | - | - |
-| World Space Normal Opacity | Properties > Generator > Parameters | not documented | missing | - | - |
-| Position Gradient Opacity | Properties > Generator > Parameters | not documented | missing | - | - |
-| Thickness Opacity | Properties > Generator > Parameters | not documented | missing | - | - |
-| Invert | Properties > Generator > Texture | not documented | missing | - | - |
-| Grayscale Conversion | Properties > Generator > Texture | not documented; options as in the Grayscale Conversion generator | missing | - | - |
-| Blending Mode | Properties > Generator > Texture | not documented; layer blending-mode list | missing | - | - |
-| Scale | Properties > Generator > Texture | not documented | missing | - | - |
-| Contrast | Properties > Generator > Texture | not documented | missing | - | - |
-| Brightness | Properties > Generator > Texture | not documented | missing | - | - |
-| Triplanar | Properties > Generator > Texture | not documented (toggle) | missing | - | - |
-| Triplanar Contrast | Properties > Generator > Texture | not documented | missing | - | - |
-| Non-Square Tiling | Properties > Generator > Texture | not documented (toggle) | missing | - | - |
-| Invert | Properties > Generator > Texture 2 | not documented | missing | - | - |
-| Grayscale Conversion | Properties > Generator > Texture 2 | not documented; options as in the Grayscale Conversion generator | missing | - | - |
-| Blending Mode | Properties > Generator > Texture 2 | not documented; layer blending-mode list | missing | - | - |
-| Scale | Properties > Generator > Texture 2 | not documented | missing | - | - |
-| Contrast | Properties > Generator > Texture 2 | not documented | missing | - | - |
-| Brightness | Properties > Generator > Texture 2 | not documented | missing | - | - |
-| Triplanar | Properties > Generator > Texture 2 | not documented (toggle) | missing | - | - |
-| Triplanar Contrast | Properties > Generator > Texture 2 | not documented | missing | - | - |
-| Non-Square Tiling | Properties > Generator > Texture 2 | not documented (toggle) | missing | - | - |
-| Invert | Properties > Generator > Ambient Occlusion | not documented (toggle) | missing | - | - |
-| Blending Mode | Properties > Generator > Ambient Occlusion | not documented; layer blending-mode list | missing | - | - |
+| Global Invert | Properties > Generator > Parameters | not documented (toggle) | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Global Blur | Properties > Generator > Parameters | not documented | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Global Balance | Properties > Generator > Parameters | not documented | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Global Contrast | Properties > Generator > Parameters | not documented | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Texture Opacity | Properties > Generator > Parameters | not documented | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Texture 2 Opacity | Properties > Generator > Parameters | not documented | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Ambient Occlusion Opacity | Properties > Generator > Parameters | not documented | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Curvature Opacity | Properties > Generator > Parameters | not documented | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| World Space Normal Opacity | Properties > Generator > Parameters | not documented | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Position Gradient Opacity | Properties > Generator > Parameters | not documented | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Thickness Opacity | Properties > Generator > Parameters | not documented | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Invert | Properties > Generator > Texture | not documented | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Grayscale Conversion | Properties > Generator > Texture | not documented; options as in the Grayscale Conversion generator | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Blending Mode | Properties > Generator > Texture | not documented; layer blending-mode list | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Scale | Properties > Generator > Texture | not documented | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Contrast | Properties > Generator > Texture | not documented | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Brightness | Properties > Generator > Texture | not documented | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Triplanar | Properties > Generator > Texture | not documented (toggle) | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Triplanar Contrast | Properties > Generator > Texture | not documented | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Non-Square Tiling | Properties > Generator > Texture | not documented (toggle) | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Invert | Properties > Generator > Texture 2 | not documented | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Grayscale Conversion | Properties > Generator > Texture 2 | not documented; options as in the Grayscale Conversion generator | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Blending Mode | Properties > Generator > Texture 2 | not documented; layer blending-mode list | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Scale | Properties > Generator > Texture 2 | not documented | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Contrast | Properties > Generator > Texture 2 | not documented | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Brightness | Properties > Generator > Texture 2 | not documented | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Triplanar | Properties > Generator > Texture 2 | not documented (toggle) | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Triplanar Contrast | Properties > Generator > Texture 2 | not documented | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Non-Square Tiling | Properties > Generator > Texture 2 | not documented (toggle) | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Invert | Properties > Generator > Ambient Occlusion | not documented (toggle) | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Blending Mode | Properties > Generator > Ambient Occlusion | not documented; layer blending-mode list | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
 | Blur | Properties > Generator > Ambient Occlusion | not documented | missing | - | - |
-| Balance | Properties > Generator > Ambient Occlusion | not documented | missing | - | - |
-| Contrast | Properties > Generator > Ambient Occlusion | not documented | missing | - | - |
-| Invert | Properties > Generator > Curvature | not documented (toggle) | missing | - | - |
-| Blending Mode | Properties > Generator > Curvature | not documented; layer blending-mode list | missing | - | - |
-| Mode | Properties > Generator > Curvature | not documented; options Edges / Cavities / Dual / Unprocessed | missing | - | - |
+| Balance | Properties > Generator > Ambient Occlusion | not documented | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Contrast | Properties > Generator > Ambient Occlusion | not documented | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Invert | Properties > Generator > Curvature | not documented (toggle) | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Blending Mode | Properties > Generator > Curvature | not documented; layer blending-mode list | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Mode | Properties > Generator > Curvature | not documented; options Edges / Cavities / Dual / Unprocessed | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
 | Sharp | Properties > Generator > Curvature | not documented | missing | - | - |
 | Fine | Properties > Generator > Curvature | not documented | missing | - | - |
 | Soft | Properties > Generator > Curvature | not documented | missing | - | - |
@@ -437,41 +437,41 @@ Layout notes: Four global controls, seven opacity sliders (one per contribution)
 | Large | Properties > Generator > Curvature | not documented | missing | - | - |
 | Big | Properties > Generator > Curvature | not documented | missing | - | - |
 | Huge | Properties > Generator > Curvature | not documented | missing | - | - |
-| Contrast | Properties > Generator > Curvature | not documented | missing | - | - |
-| Brightness | Properties > Generator > Curvature | not documented | missing | - | - |
-| Invert | Properties > Generator > World Space Normal | not documented (toggle) | missing | - | - |
-| Blending Mode | Properties > Generator > World Space Normal | not documented; layer blending-mode list | missing | - | - |
+| Contrast | Properties > Generator > Curvature | not documented | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Brightness | Properties > Generator > Curvature | not documented | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Invert | Properties > Generator > World Space Normal | not documented (toggle) | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Blending Mode | Properties > Generator > World Space Normal | not documented; layer blending-mode list | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
 | Blur | Properties > Generator > World Space Normal | not documented | missing | - | - |
-| Balance | Properties > Generator > World Space Normal | not documented | missing | - | - |
-| Contrast | Properties > Generator > World Space Normal | not documented | missing | - | - |
-| Brightness | Properties > Generator > World Space Normal | not documented | missing | - | - |
-| Right to Left | Properties > Generator > World Space Normal | not documented | missing | - | - |
-| Top To Bottom | Properties > Generator > World Space Normal | not documented | missing | - | - |
-| Front to Back | Properties > Generator > World Space Normal | not documented | missing | - | - |
-| Invert | Properties > Generator > World Space Normal > Right to Left | not documented (toggle) | missing | - | - |
-| Blending Mode | Properties > Generator > World Space Normal > Right to Left | not documented; layer blending-mode list | missing | - | - |
-| Invert | Properties > Generator > World Space Normal > Top To Bottom | not documented (toggle) | missing | - | - |
-| Blending Mode | Properties > Generator > World Space Normal > Top To Bottom | not documented; layer blending-mode list | missing | - | - |
-| Invert | Properties > Generator > World Space Normal > Front to Back | not documented (toggle) | missing | - | - |
-| Blending Mode | Properties > Generator > World Space Normal > Front to Back | not documented; layer blending-mode list | missing | - | - |
-| Invert | Properties > Generator > Position Gradient | not documented (toggle) | missing | - | - |
-| Balance | Properties > Generator > Position Gradient | not documented | missing | - | - |
-| Contrast | Properties > Generator > Position Gradient | not documented | missing | - | - |
-| Brightness | Properties > Generator > Position Gradient | not documented | missing | - | - |
-| Blending mode | Properties > Generator > Position Gradient | not documented; layer blending-mode list | missing | - | - |
-| Right to Left | Properties > Generator > Position Gradient | not documented | missing | - | - |
-| Top To Bottom | Properties > Generator > Position Gradient | not documented | missing | - | - |
-| Front to Back | Properties > Generator > Position Gradient | not documented | missing | - | - |
-| Invert | Properties > Generator > Position Gradient > Right to Left | not documented (toggle) | missing | - | - |
-| Blending Mode | Properties > Generator > Position Gradient > Right to Left | not documented; layer blending-mode list | missing | - | - |
-| Invert | Properties > Generator > Position Gradient > Top To Bottom | not documented (toggle) | missing | - | - |
-| Blending Mode | Properties > Generator > Position Gradient > Top To Bottom | not documented; layer blending-mode list | missing | - | - |
-| Invert | Properties > Generator > Position Gradient > Front to Back | not documented (toggle) | missing | - | - |
-| Blending Mode | Properties > Generator > Position Gradient > Front to Back | not documented; layer blending-mode list | missing | - | - |
-| Invert | Properties > Generator > Thickness | not documented (toggle) | missing | - | - |
+| Balance | Properties > Generator > World Space Normal | not documented | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Contrast | Properties > Generator > World Space Normal | not documented | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Brightness | Properties > Generator > World Space Normal | not documented | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Right to Left | Properties > Generator > World Space Normal | not documented | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Top To Bottom | Properties > Generator > World Space Normal | not documented | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Front to Back | Properties > Generator > World Space Normal | not documented | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Invert | Properties > Generator > World Space Normal > Right to Left | not documented (toggle) | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Blending Mode | Properties > Generator > World Space Normal > Right to Left | not documented; layer blending-mode list | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Invert | Properties > Generator > World Space Normal > Top To Bottom | not documented (toggle) | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Blending Mode | Properties > Generator > World Space Normal > Top To Bottom | not documented; layer blending-mode list | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Invert | Properties > Generator > World Space Normal > Front to Back | not documented (toggle) | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Blending Mode | Properties > Generator > World Space Normal > Front to Back | not documented; layer blending-mode list | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Invert | Properties > Generator > Position Gradient | not documented (toggle) | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Balance | Properties > Generator > Position Gradient | not documented | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Contrast | Properties > Generator > Position Gradient | not documented | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Brightness | Properties > Generator > Position Gradient | not documented | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Blending mode | Properties > Generator > Position Gradient | not documented; layer blending-mode list | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Right to Left | Properties > Generator > Position Gradient | not documented | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Top To Bottom | Properties > Generator > Position Gradient | not documented | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Front to Back | Properties > Generator > Position Gradient | not documented | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Invert | Properties > Generator > Position Gradient > Right to Left | not documented (toggle) | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Blending Mode | Properties > Generator > Position Gradient > Right to Left | not documented; layer blending-mode list | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Invert | Properties > Generator > Position Gradient > Top To Bottom | not documented (toggle) | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Blending Mode | Properties > Generator > Position Gradient > Top To Bottom | not documented; layer blending-mode list | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Invert | Properties > Generator > Position Gradient > Front to Back | not documented (toggle) | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Blending Mode | Properties > Generator > Position Gradient > Front to Back | not documented; layer blending-mode list | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Invert | Properties > Generator > Thickness | not documented (toggle) | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
 | Blur | Properties > Generator > Thickness | not documented | missing | - | - |
-| Contrast | Properties > Generator > Thickness | not documented | missing | - | - |
-| Brightness | Properties > Generator > Thickness | not documented | missing | - | - |
+| Contrast | Properties > Generator > Thickness | not documented | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
+| Brightness | Properties > Generator > Thickness | not documented | done | crates/ui/src/panels/properties.rs:440 | chunk 16 |
 | Micro Height (toggle) | Properties > Generator > Micro Details | not documented | missing | - | - |
 | Micro Normal (toggle) | Properties > Generator > Micro Details | not documented | missing | - | - |
 | Curvature Type | Properties > Generator > Micro Details | not documented; options Standard / Sobel / Smooth | missing | - | - |

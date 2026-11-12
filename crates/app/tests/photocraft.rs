@@ -88,6 +88,30 @@ fn a_settled_save_comes_back_as_one_undoable_step() {
     std::fs::remove_dir_all(d).unwrap();
 }
 
+/// A save that arrives while a brush stroke is in progress used to be marked applied even
+/// though the layer replacement was refused, so that save never came back.
+#[test]
+fn a_save_during_a_stroke_waits_for_the_stroke_to_end() {
+    let mut s = session();
+    let d = dir("midstroke");
+    let (mut ex, opened) = start(&s, &d);
+    let roughness = opened.iter().find(|p| p.to_string_lossy().contains("Roughness")).unwrap().clone();
+    let paint = s.selected_texture_set().layers.iter().find(|l| l.name == "Paint").unwrap().id;
+    s.execute(Command::SelectLayer(Some(paint))).unwrap();
+    paint_file(&roughness, 32768);
+    s.begin_stroke().unwrap();
+    for _ in 0..3 {
+        assert!(ex.check(&mut s).is_empty(), "nothing is applied during a stroke");
+    }
+    s.cancel_stroke();
+    let count = s.history().entries().len();
+    let mut events = ex.check(&mut s);
+    if events.is_empty() { events = ex.check(&mut s); }
+    assert!(matches!(&events[..], [PollEvent::Applied(_)]), "{events:?}");
+    assert_eq!(s.history().entries().len(), count + 1);
+    std::fs::remove_dir_all(d).unwrap();
+}
+
 #[test]
 fn a_broken_save_is_reported_and_a_removed_texture_set_ends_the_exchange() {
     let mut s = session();

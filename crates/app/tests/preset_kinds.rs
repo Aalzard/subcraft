@@ -208,3 +208,18 @@ fn favorites_persist_in_the_library_and_follow_a_rename() {
     assert!(Favorites::load(&lib).is_empty());
     std::fs::remove_dir_all(&dir).ok();
 }
+
+/// QA 2026-11: renaming to a name that is stored as the same file ("Rust." becomes "Rust") came
+/// back as "Rust (2)", because the preset's own old file counted as taken.
+#[test]
+fn renaming_to_a_name_with_the_same_file_keeps_one_unnumbered_file() {
+    let (dir, lib) = temp_lib("rename-same-file");
+    let mut a = configured();
+    let (saved, _) = a.create_preset(&lib, "Rust", PresetKind::Brush, None).unwrap();
+    let renamed = rename_brush_preset(&lib, &saved, "Rust.").unwrap();
+    assert_eq!(renamed.name, "Rust");
+    let files: Vec<String> = lib.list(UserAssetKind::BrushPreset).iter().map(|p| p.file_name().unwrap().to_string_lossy().into_owned()).collect();
+    assert_eq!(files, ["Rust.scbrush"]);
+    assert_eq!(reload(&lib, "Rust").settings, saved.settings);
+    std::fs::remove_dir_all(&dir).ok();
+}

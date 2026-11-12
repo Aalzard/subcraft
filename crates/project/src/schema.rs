@@ -119,6 +119,9 @@ pub struct LayerV1 {
     /// Mesh parts the layer is visible on (absent = everywhere). Older readers ignore it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parts: Option<PartsV1>,
+    /// Colour tag of the row (absent = none). Older readers ignore it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<subcraft_doc::LayerColor>,
     pub content: ContentV1,
     /// Schema 5. Bottom-to-top content effects; absent in older files (no effects).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

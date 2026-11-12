@@ -8,7 +8,7 @@ struct Params {
     refs_off: u32,
     out_off: u32,
     flags: u32, // bit0 signed, bit1 normal, bit2 color
-    tiles: u32,
+    tile_base: u32, // first tile of the batch covered by this pass
     eff_off: u32,
     spb: u32, // slots per pool buffer
     default_value: vec4<f32>,
@@ -405,7 +405,7 @@ fn run_effects(px_in: vec4<f32>, first: u32, count: u32) -> vec4<f32> {
 @compute @workgroup_size(64)
 fn main(@builtin(workgroup_id) wg: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
     let texel = wg.x * 64u + lid.x;
-    let tile = wg.y;
+    let tile = P.tile_base + wg.y;
     var acc = P.default_value;
     var stack: array<vec4<f32>, 4>;
     var sp = 0u;

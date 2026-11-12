@@ -67,6 +67,17 @@ fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
 ///
 /// `input` (an anchor read as gray, ADR-0045) replaces the baked map the generator reads.
 fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]], input: Option<&[f32]>) {
+    if g.kind == GeneratorKind::MaskEditor {
+        // Without a global blur the editor is local to the tile; with one, the stage graph
+        // blurs `editor_raw` between these two steps.
+        let mut raw = vec![0.0f32; TILE_TEXELS];
+        editor_raw(g, tc, &mut raw);
+        let editor = g.editor_settings();
+        for (o, v) in out.iter_mut().zip(raw) {
+            *o = [editor.finish(v), 1.0, 0.0, 0.0];
+        }
+        return;
+    }
     let input = input.filter(|_| g.accepts_input());
     if g.kind == GeneratorKind::Edges && let Some(spread) = g.edge_spread {
         eval_edge_spread(g, spread, tc, out, input);
@@ -78,7 +89,7 @@ fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]], input: 
         GeneratorKind::Edges | GeneratorKind::Concave => Some(MeshMapKind::Curvature),
         GeneratorKind::Cavity | GeneratorKind::AmbientOcclusion => Some(MeshMapKind::AmbientOcclusion),
         GeneratorKind::MeshMap(k) => Some(k),
-        GeneratorKind::Directional | GeneratorKind::PositionGradient => None,
+        GeneratorKind::Directional | GeneratorKind::PositionGradient | GeneratorKind::MaskEditor => None,
     };
     match (input, map_kind) {
         (Some(values), _) => {
@@ -128,6 +139,7 @@ fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]], input: 
             GeneratorKind::Directional => Vec3::from_array(geo.normal(i)).dot(dir) * 0.5 + 0.5,
             GeneratorKind::Concave => 1.0 - map[i][0],
             GeneratorKind::PositionGradient => (geo.position(i)[axis] * set.max_extent / ext_axis).clamp(0.0, 1.0),
+            GeneratorKind::MaskEditor => 0.0, // handled above
         };
         let level = if let Some(noise) = &noise {
             g.level + (noise[i] - 0.5) * g.noise_amount
@@ -146,6 +158,93 @@ fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]], input: 
             v += (1.0 - v) * floor * tail;
         }
         *o = [if g.invert { 1.0 - v } else { v }, 1.0, 0.0, 0.0];
+    }
+}
+
+/// Grayscale blend of two Mask Editor values with a layer blending mode.
+fn gray_blend(mode: subcraft_doc::BlendMode, below: f32, value: f32) -> f32 {
+    if mode == subcraft_doc::BlendMode::Disable {
+        return below;
+    }
+    crate::blend::blend_fn(mode, [below; 3], [value; 3], crate::blend::BlendTarget::MASK)[0]
+}
+
+/// Blend one Mask Editor contribution over the running value: `out += (blend(out, v) - out) * opacity`.
+fn editor_mix(out: &mut [f32], opacity: f32, mode: subcraft_doc::BlendMode, value: impl Fn(usize) -> f32) {
+    let opacity = opacity.clamp(0.0, 1.0);
+    if opacity <= 0.0 || !opacity.is_finite() {
+        return;
+    }
+    for (i, o) in out.iter_mut().enumerate() {
+        let v = value(i).clamp(0.0, 1.0);
+        *o += (gray_blend(mode, *o, v).clamp(0.0, 1.0) - *o) * opacity;
+    }
+}
+
+/// Mask Editor (`GeneratorKind::MaskEditor`): its seven contributions blended bottom to top over
+/// black, before the global Blur / Balance / Contrast / Invert (`MaskEditor::finish`).
+///
+/// Order: Texture, Texture 2, Ambient Occlusion, Curvature, World Space Normal, Position
+/// Gradient, Thickness. Maps that are not baked read their neutral value; a texture group
+/// without an image (or whose image is missing) contributes nothing.
+pub(crate) fn editor_raw(g: &Generator, tc: &TileContext, out: &mut [f32]) {
+    let editor = g.editor_settings();
+    let geo = tc.geo;
+    out.fill(0.0);
+    for texture in [&editor.texture, &editor.texture2] {
+        let Some(bmp) = texture.resource.and_then(|id| tc.sample.resources.bitmap(id)) else { continue };
+        if texture.opacity <= 0.0 {
+            continue;
+        }
+        let projection = Projection {
+            mode: if texture.triplanar { ProjectionMode::Triplanar } else { ProjectionMode::Uv },
+            scale: texture.tiling(bmp.width, bmp.height),
+            triplanar_sharpness: texture.triplanar_sharpness(),
+            ..Projection::default()
+        };
+        let sc = projection.rotation_sin_cos();
+        editor_mix(out, texture.opacity, texture.blend, |i| {
+            let s = subcraft_materials::sample::sample_projected_sc(&projection, sc, geo.uv(i), geo.position(i), geo.normal(i), |p| bmp.sample(p[0], p[1], subcraft_image::Wrap::Repeat, false));
+            texture.shape([s[0], s[1], s[2]])
+        });
+    }
+    let read = |kind: MeshMapKind| {
+        let mut map = vec![[0.0f32; 3]; TILE_TEXELS];
+        tc.sample.mesh_maps.read_tile(kind, geo, &mut map);
+        map
+    };
+    if editor.occlusion.opacity > 0.0 {
+        let map = read(MeshMapKind::AmbientOcclusion);
+        editor_mix(out, editor.occlusion.opacity, editor.occlusion.blend, |i| editor.occlusion.shape(map[i][0]));
+    }
+    if editor.curvature.opacity > 0.0 {
+        let map = read(MeshMapKind::Curvature);
+        editor_mix(out, editor.curvature.opacity, editor.curvature.blend, |i| editor.curvature.shape(map[i][0]));
+    }
+    if editor.world_normal.opacity > 0.0 {
+        // The baked world-space normal map when there is one (it carries the high poly), else
+        // the mesh normal; either way `n * 0.5 + 0.5` per axis: 1 facing right / up / front.
+        let baked = tc.sample.mesh_maps.get(MeshMapKind::WorldSpaceNormal).is_some().then(|| read(MeshMapKind::WorldSpaceNormal));
+        editor_mix(out, editor.world_normal.opacity, editor.world_normal.blend, |i| {
+            let gradients = match &baked {
+                Some(map) => map[i],
+                None => geo.normal(i).map(|c| c * 0.5 + 0.5),
+            };
+            editor.world_normal.shape(gradients, gray_blend)
+        });
+    }
+    if editor.position.opacity > 0.0 {
+        // 0 at the model's minimum and 1 at its maximum along each axis.
+        let set = tc.set_geometry;
+        let extent = set.bounds.extent().to_array().map(|e| e.max(1e-12));
+        editor_mix(out, editor.position.opacity, editor.position.blend, |i| {
+            let p = geo.position(i);
+            editor.position.shape(std::array::from_fn(|a| (p[a] * set.max_extent / extent[a]).clamp(0.0, 1.0)), gray_blend)
+        });
+    }
+    if editor.thickness.opacity > 0.0 {
+        let map = read(MeshMapKind::Thickness);
+        editor_mix(out, editor.thickness.opacity, subcraft_doc::BlendMode::Normal, |i| editor.thickness.shape(map[i][0]));
     }
 }
 

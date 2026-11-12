@@ -80,8 +80,14 @@ pub fn show(state: &mut UiState, ctx: &Context) {
             ui.add_space(10.0);
             ui.label(RichText::new("Mouse and hold keys").font(theme::font_strong(12.5)));
             egui::Grid::new("shortcut_mouse").num_columns(2).spacing([24.0, 6.0]).striped(true).show(ui, |ui| {
-                let extra: [(&str, &str); 9] = [
+                let extra = [
                     ("Straight line", "Shift+click"),
+                    ("Straight line snapped to 5°", "Ctrl+Shift+click"),
+                    ("Focus the depth of field", "Ctrl+MMB click on the model (Painter navigation)"),
+                    ("Select the texture set under the cursor", "Ctrl+Alt+RMB click (Painter navigation)"),
+                    ("Stencil rotation snapped to 90°", "hold Shift+S, then LMB drag"),
+                    ("Show a layer's mask", "Alt+click its mask thumbnail"),
+                    ("Disable / enable a layer's mask", "Shift+click its mask thumbnail"),
                     ("Part actions", "RMB click"),
                     ("Isolate / hide part", "I / H in the 3D view"),
                     ("Restore all parts", "Esc in the 3D view"),

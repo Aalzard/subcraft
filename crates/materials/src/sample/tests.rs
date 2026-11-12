@@ -197,6 +197,35 @@ fn procedural_fields_are_cached_exactly_per_parameter_set() {
     assert_eq!(g.fields.len(), field::PER_TILE);
 }
 
+/// A 40-layer stack of procedural fills reads about 80 fields per tile (base color and roughness
+/// patterns per layer): all of them stay cached, so an edit below them re-blends without
+/// recomputing any noise. With 24 fields per tile, 56 of the 80 were recomputed on every edit.
+#[test]
+fn a_forty_layer_stack_keeps_every_field_of_a_tile() {
+    let geo = TextureSetGeometry::new(Arc::new(primitives::cube(2.0)), 0, 128);
+    let g = geo.tile(2);
+    let tri = Projection { mode: ProjectionMode::Triplanar, ..Projection::default() };
+    let pass = || -> Vec<Arc<field::Field>> {
+        (0..80u32).map(|s| procedural_tile(&ProceduralParams { seed: 1000 + s, scale: 2.0 + (s % 5) as f32, ..ProceduralParams::new(ProceduralKind::Clouds) }, &tri, &g)).collect()
+    };
+    let first = pass();
+    let second = pass();
+    assert!(first.iter().zip(&second).all(|(a, b)| Arc::ptr_eq(a, b)), "every field of the stack hits on the next pass");
+    assert_eq!(g.fields.len(), 80);
+}
+
+/// The memory share for cached fields: a twelfth of RAM, never below the default, and enough on a
+/// 64 GB machine for a 4096² 40-layer stack (about 5 GB) instead of stopping at 4 GiB.
+#[test]
+fn field_budget_follows_machine_memory() {
+    let gb = |g: u64| g << 30;
+    assert_eq!(field::budget_for_memory(gb(4)), field::BUDGET_BYTES, "small machines keep the default");
+    assert_eq!(field::budget_for_memory(gb(16)), (gb(16) / 12) as usize);
+    assert_eq!(field::budget_for_memory(gb(32)), (gb(32) / 12) as usize, "unchanged below 48 GB");
+    assert!(field::budget_for_memory(gb(64)) > 5 << 30);
+    assert_eq!(field::budget_for_memory(gb(256)), 8 << 30, "capped");
+}
+
 /// A stack needing more fields per tile than fit, read in the same order on every pass (one pass
 /// per slider step), keeps hitting on the fields it holds instead of missing on every read.
 #[test]
@@ -319,6 +348,20 @@ fn hardness_one_cuts_to_the_dominant_plane_and_lower_values_blend() {
     let raw = n.map(|c| c.powf(8.0));
     let s = raw[0] + raw[1] + raw[2];
     assert_eq!(w8, raw.map(|c| c / s));
+}
+
+/// QA 2026-11: between exponent 32 and 64 (Hardness about 0.97-0.984) the plain powers of a
+/// near-diagonal normal summed to under 1e-12 and the weights fell back to an even 1/3 split.
+#[test]
+fn high_hardness_keeps_the_dominant_plane_for_near_diagonal_normals() {
+    let len = (0.6f32 * 0.6 + 0.57 * 0.57 + 0.565 * 0.565).sqrt();
+    let n = [0.6 / len, 0.57 / len, 0.565 / len];
+    for s in [40.0, 52.0, 60.0, 64.0] {
+        let w = triplanar_weights(n, s);
+        assert!(w[0] > w[1] && w[1] > w[2], "exponent {s}: {w:?}");
+        assert!((w[0] + w[1] + w[2] - 1.0).abs() < 1e-5, "exponent {s}: {w:?}");
+        assert!(w[0] > 0.8, "exponent {s}: the largest component dominates, not an even split: {w:?}");
+    }
 }
 
 #[test]

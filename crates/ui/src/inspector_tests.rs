@@ -47,6 +47,7 @@ fn setup() -> (SubcraftApp, egui::Context, [LayerId; 3]) {
         active_tabs: HashSet::new(),
         test_crash: false,
         profile: None,
+        view_profile: None,
     };
     let ctx = egui::Context::default();
     theme::apply(&ctx);
@@ -157,6 +158,26 @@ fn clicking_paint_fill_and_another_fill_reveals_the_selected_layers_controls() {
     assert!(text(&out, "Projection").is_none());
     assert_eq!(app.state.session.document(), &before);
     assert_eq!(app.state.session.history().entries().len(), history);
+}
+
+/// The Properties name field kept its buffer while the layer was renamed elsewhere (Undo, the
+/// Layers panel), showing the old name and pushing it back as a new rename on the next focus change.
+#[test]
+fn properties_name_field_follows_a_rename_made_elsewhere() {
+    let (mut app, ctx, [_, blue, _]) = setup();
+    click_text(&mut app, &ctx, "Blue fill");
+    // The click switches to the Properties tab; its name field is drawn on the next frame.
+    settle(&mut app, &ctx);
+    assert_eq!(app.state.rename.as_ref().map(|(id, s)| (*id, s.as_str())), Some((blue, "Blue fill")));
+    app.state.session.execute(Command::Rename { layer: blue, name: "Azure".into() }).unwrap();
+    settle(&mut app, &ctx);
+    assert_eq!(app.state.rename.as_ref().map(|(_, s)| s.as_str()), Some("Azure"));
+    let history = app.state.session.history().entries().len();
+    app.state.session.execute(Command::Undo).unwrap();
+    settle(&mut app, &ctx);
+    assert_eq!(app.state.rename.as_ref().map(|(_, s)| s.as_str()), Some("Blue fill"));
+    assert_eq!(app.state.session.selected_layer().unwrap().name, "Blue fill");
+    assert_eq!(app.state.session.history().entries().len(), history, "no rename was pushed by the field");
 }
 
 fn assert_color(app: &mut SubcraftApp, expected: [f32; 3]) {
@@ -499,7 +520,7 @@ fn effect_rows_add_select_edit_and_route_paint_effects_to_the_brush() {
     let out = settle(&mut app, &ctx);
     assert!(text(&out, "Content effects").is_some(), "the selected layer shows its content stack");
     click_text(&mut app, &ctx, &format!("{} Add", icons::PLUS));
-    click_text(&mut app, &ctx, "Levels");
+    click_text(&mut app, &ctx, &format!("{}  Add levels", icons::SLIDERS));
     let layer = app.state.session.selected_layer().unwrap().clone();
     assert_eq!(layer.id, red);
     assert_eq!(layer.content_effects.len(), 1);
@@ -528,7 +549,7 @@ fn effect_rows_add_select_edit_and_route_paint_effects_to_the_brush() {
     assert_eq!(app.state.session.selected_effect(), Some(levels));
     // A Paint effect takes the brush, even on a fill layer.
     click_text(&mut app, &ctx, &format!("{} Add", icons::PLUS));
-    click_text(&mut app, &ctx, "Paint");
+    click_text(&mut app, &ctx, &format!("{}  Add paint", icons::PAINT_BRUSH));
     let paint = app.state.session.selected_layer().unwrap().content_effects[1].id;
     assert_eq!(app.state.session.brush.target, subcraft_paint::PaintTarget::ContentEffect(paint));
     assert!(active(&app, Tab::Brush));

@@ -337,9 +337,9 @@ mod tests {
     #[test]
     fn camera_rows_follow_the_navigation_scheme() {
         let mut c = ctx(Tool::Brush);
-        assert_eq!(keys_of(&c, "Orbit"), "Alt+LMB or RMB");
+        assert_eq!(keys_of(&c, "Orbit"), "Alt+LMB or RMB (add Shift to snap every 90°)");
         c.nav = NavScheme::Blender;
-        assert_eq!(keys_of(&c, "Orbit"), "MMB");
+        assert_eq!(keys_of(&c, "Orbit"), "MMB (Alt+MMB click centers the view on the model)");
         assert_eq!(keys_of(&c, "Pan"), "Shift+MMB");
     }
 
