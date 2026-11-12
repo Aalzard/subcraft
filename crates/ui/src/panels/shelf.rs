@@ -27,6 +27,8 @@ pub enum ShelfDrag {
     Starter(usize),
     /// A brush alpha (Shelf → Brushes): onto a mask it becomes the mask shape.
     Alpha(usize),
+    /// A filter (index into `Filter::ALL`): into the stack it becomes a Passthrough filter layer.
+    Filter(usize),
 }
 
 /// An environment tile being dragged onto the 3D view or the Display Settings panel's
@@ -71,6 +73,8 @@ pub fn drop_label(item: ShelfDrag, alt: bool, target: Option<&str>, on_mask: boo
         ShelfDrag::Texture(_) | ShelfDrag::Starter(_) => format!("Add texture layer above{t}"),
         ShelfDrag::Alpha(_) if on_mask || target.is_some() => format!("Use this alpha in the mask of{t}"),
         ShelfDrag::Alpha(_) => "Set as brush tip".to_string(),
+        ShelfDrag::Filter(_) if alt || on_mask => format!("Add this filter to{t}"),
+        ShelfDrag::Filter(_) => format!("Add a filter layer (Passthrough) above{t}"),
     }
 }
 
@@ -123,6 +127,15 @@ pub fn apply_shelf_item_with(s: &mut UiState, item: ShelfDrag, alt: bool, now: f
                 None => Err("Select a layer first: the alpha goes into its mask".to_string()),
             },
             Some(a) => { s.session.set_brush_alpha(&a); s.set_status(format!("Brush tip: {} (Alt+click or drag it onto a mask to use it there)", a.name), now); Ok(()) }
+            None => Ok(()),
+        },
+        // Alt (or a drop on a mask): into the selected layer, like a click; else a filter layer.
+        ShelfDrag::Filter(i) => match subcraft_doc::Filter::ALL.get(i).copied() {
+            Some(f) if alt => match s.session.shelf_filter_command(f) {
+                Some(cmd) => { s.run(vec![cmd], now); Ok(()) }
+                None => Err(format!("{} does not fit the selected layer", f.label())),
+            },
+            Some(f) => s.session.add_filter_layer(f).map_err(|e| e.to_string()),
             None => Ok(()),
         },
     };
@@ -878,15 +891,16 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                 }
                 ShelfTab::Filters => {
                     let selected = selected_filter(&state.session);
-                    for f in subcraft_doc::Filter::ALL {
+                    for (index, f) in subcraft_doc::Filter::ALL.into_iter().enumerate() {
                         let label = f.label();
                         if !filter.matches(label, None, false) {
                             continue;
                         }
                         shown += 1;
                         let fits = state.session.shelf_filter_command(f).is_some();
-                        let tip = if fits { "Click: add to the selected layer, or swap the selected filter to this one" } else { "Select a layer first (some filters work on color channels or masks only)" };
+                        let tip = if fits { "Click: add to the selected layer, or swap the selected filter to this one. Drag into the layer stack: a new filter layer (Passthrough) that filters everything below" } else { "Select a layer first (some filters work on color channels or masks only). Drag into the layer stack: a new filter layer" };
                         let resp = tile(ui, tile_size, None, label, selected.as_deref() == Some(label), tip);
+                        resp.dnd_set_drag_payload(ShelfDrag::Filter(index));
                         if resp.clicked() && fits {
                             action = Some(Box::new(move |s: &mut UiState| {
                                 if let Some(cmd) = s.session.shelf_filter_command(f) {
