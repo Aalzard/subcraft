@@ -406,7 +406,6 @@ pub fn show(ui: &mut Ui, state: &mut crate::state::UiState) {
                         let destination = state.session.polygon_fill_destination();
                         crate::brush_bar::fill_options(ui, &mut state.fill_mode, Some(&mut state.fill_visible_only), destination, "fill_mode_3d");
                     }
-                    hide_excluded_toggle(ui, state);
                 }
             });
             if painting && !inline {
@@ -417,11 +416,15 @@ pub fn show(ui: &mut Ui, state: &mut crate::state::UiState) {
                         let destination = state.session.polygon_fill_destination();
                         crate::brush_bar::fill_options(ui, &mut state.fill_mode, Some(&mut state.fill_visible_only), destination, "fill_mode_3d");
                     }
-                    hide_excluded_toggle(ui, state);
                 });
             }
             if painting {
-                crate::brush_bar::channel_switches(ui, state);
+                // The Alt+H button leads the channel row: that row wraps, so the brush rows keep
+                // the widths the layout constants above were measured with.
+                ui.horizontal(|ui| {
+                    hide_excluded_toggle(ui, state);
+                    crate::brush_bar::channel_switches(ui, state);
+                });
             }
         });
     ui.painter().hline(
