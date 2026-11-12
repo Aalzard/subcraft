@@ -605,6 +605,8 @@ impl Stroke {
         let t_bin = std::time::Instant::now();
         let bins = input.bin(stamps);
         profile::add(profile::BIN, t_bin);
+        profile::count(0, stamps.len());
+        profile::count(1, bins.len());
         if alignment != Alignment::Uv {
             // Cost estimate for the live preview: the tiles a batch touches per stamp.
             let n = stamps.len().max(1);
@@ -630,6 +632,7 @@ impl Stroke {
             }
             let built: Vec<((usize, usize), Arc<[TexelSample]>)> =
                 missing.into_par_iter().map(|(t, c)| ((t, c), Arc::from(input.tile_samples(t, c)))).collect();
+            profile::count(2, built.len());
             for (k, samples) in built {
                 self.raster.samples += samples.len();
                 self.raster.tiles.insert(k, samples);
@@ -679,6 +682,7 @@ impl Stroke {
             .collect();
         profile::add(profile::ACCUM, t_acc);
         let tiles: Vec<usize> = done.iter().filter(|d| d.3).map(|d| d.0).collect();
+        profile::count(3, tiles.len());
         for (t, cov, acc, _) in done {
             self.coverage.insert(t, cov);
             if let Some(acc) = acc { self.stamp_acc.insert(t, acc); }
@@ -1233,5 +1237,14 @@ pub mod profile {
     /// Milliseconds per stage, resetting the counters.
     pub fn take() -> [f64; 4] {
         std::array::from_fn(|i| NS[i].swap(0, Ordering::Relaxed) as f64 / 1e6)
+    }
+    pub const COUNT_NAMES: [&str; 4] = ["stamps", "tiles binned", "tiles rasterized", "tiles changed"];
+    static COUNTS: [AtomicU64; 4] = [AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0)];
+    pub(super) fn count(what: usize, n: usize) {
+        COUNTS[what].fetch_add(n as u64, Ordering::Relaxed);
+    }
+    /// Work counts since the last call (see [`COUNT_NAMES`]), resetting them.
+    pub fn take_counts() -> [u64; 4] {
+        std::array::from_fn(|i| COUNTS[i].swap(0, Ordering::Relaxed))
     }
 }
