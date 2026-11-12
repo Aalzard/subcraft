@@ -70,7 +70,7 @@ fn rgba_alpha_survives_tga_and_exr() {
     let sets = [ExportTextureSet { name: "Glass", material_slot: 0, udim: None, channels: &ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY }];
     for (format, tol) in [(FileFormat::Tga8, 1.0 / 255.0), (FileFormat::Png16, 1.0 / 65535.0), (FileFormat::Exr32, 1e-3)] {
         let settings = ExportSettings { template: ExportTemplate::pbr_metal_rough_opacity(), padding: Padding::None, format_override: Some(format), ..Default::default() };
-        let dir = tmp(&format!("alpha-{}", format.extension()));
+        let dir = tmp(&format!("alpha-roundtrip-{}", format.extension()));
         let files = export(&mesh, "M", &sets, &settings, &dir).unwrap();
         let bc = file(&files, "_BaseColor");
         assert_eq!(bc.extension().unwrap(), format.extension());

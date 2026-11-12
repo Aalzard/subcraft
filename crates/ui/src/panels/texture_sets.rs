@@ -418,12 +418,11 @@ pub const MIXING_LABELS: [&str; 4] = ["Normal mixing", "Height to normal method"
 /// The four mixing dropdowns under the channel rows. Returns the settings with the user's pick.
 fn mixing_rows(ui: &mut Ui, current: MixingSettings) -> MixingSettings {
     fn row<T: Copy + PartialEq>(ui: &mut Ui, label: &str, value: &mut T, all: &[T], name: fn(T) -> &'static str, tip: &str) {
-        ui.horizontal(|ui| {
-            ui.add_sized([150.0, 20.0], egui::Label::new(RichText::new(label).font(theme::font(11.5)).color(TEXT_DIM)).selectable(false));
-            egui::ComboBox::from_id_salt(("tss_mixing", label)).width((ui.available_width() - 12.0).max(60.0)).selected_text(name(*value)).show_ui(ui, |ui| {
-                for &v in all { ui.selectable_value(value, v, name(v)); }
-            }).response.on_hover_text(tip);
-        });
+        // Label above the dropdown: the labels are long and the panel can be 300 px narrow.
+        ui.add(egui::Label::new(RichText::new(label).font(theme::font(11.5)).color(TEXT_DIM)).selectable(false).truncate());
+        egui::ComboBox::from_id_salt(("tss_mixing", label)).width((ui.available_width() - 28.0).max(60.0)).truncate().selected_text(name(*value)).show_ui(ui, |ui| {
+            for &v in all { ui.selectable_value(value, v, name(v)); }
+        }).response.on_hover_text(tip);
     }
     let mut m = current;
     row(ui, MIXING_LABELS[0], &mut m.normal, &NormalMixing::ALL, NormalMixing::label,
