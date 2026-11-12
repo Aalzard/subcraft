@@ -1255,7 +1255,7 @@ mod tests {
         let plain = serde_json::to_string(&g).unwrap();
         assert!(!plain.contains("\"curvature\":"), "absent settings are not written: {plain}");
         assert_eq!(serde_json::from_str::<Generator>(&plain).unwrap().curvature, None);
-        g.curvature = Some(CurvatureDetail { mode: CurvatureMode::Cavities, fine: 0.5, medium: 1.25, coarse: 0.75 });
+        g.curvature = Some(CurvatureDetail { mode: CurvatureDetailMode::Cavities, fine: 0.5, medium: 1.25, coarse: 0.75 });
         let back: Generator = serde_json::from_str(&serde_json::to_string(&g).unwrap()).unwrap();
         assert_eq!(back, g);
         assert!(CurvatureDetail::default().is_identity() && !back.curvature.unwrap().is_identity());
