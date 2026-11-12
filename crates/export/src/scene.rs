@@ -125,6 +125,25 @@ fn usd_material_names(mesh: &Mesh, slots: usize) -> Vec<String> {
 
 // ───────────────────────────── OBJ + MTL ─────────────────────────────
 
+/// One distinct OBJ / MTL material name per slot. Two slots with the same name (or names that
+/// only differ in characters a file name cannot hold) used to share one `newmtl`, so the importing
+/// program merged them and the second slot's textures were lost.
+fn obj_material_names(mesh: &Mesh, slots: usize) -> Vec<String> {
+    let mut taken = std::collections::HashSet::new();
+    (0..slots)
+        .map(|slot| {
+            let base = material_name(mesh, slot);
+            let mut name = base.clone();
+            let mut n = 1;
+            while !taken.insert(name.clone()) {
+                n += 1;
+                name = format!("{base}_{n}");
+            }
+            name
+        })
+        .collect()
+}
+
 /// OBJ text for `mesh` referencing `mtl_name`. UV v is flipped (OBJ origin is bottom-left).
 pub fn obj_text(mesh: &Mesh, mtl_name: &str) -> String {
     let mut s = String::from("# SubCraft OBJ export\n");
@@ -138,8 +157,10 @@ pub fn obj_text(mesh: &Mesh, mtl_name: &str) -> String {
     for n in &mesh.normals {
         let _ = writeln!(s, "vn {} {} {}", n.x, n.y, n.z);
     }
+    let slots = mesh.submeshes.iter().map(|sm| sm.material as usize + 1).max().unwrap_or(0).max(mesh.materials.len());
+    let names = obj_material_names(mesh, slots);
     for sm in &mesh.submeshes {
-        let _ = writeln!(s, "usemtl {}", material_name(mesh, sm.material as usize));
+        let _ = writeln!(s, "usemtl {}", names[sm.material as usize]);
         let mut last = None;
         for t in sm.first_triangle..sm.first_triangle + sm.triangle_count {
             let object = mesh.tri_object.get(t as usize).copied().flatten();
@@ -157,8 +178,9 @@ pub fn obj_text(mesh: &Mesh, mtl_name: &str) -> String {
 
 pub fn mtl_text(mesh: &Mesh, mats: &[SceneMaterial]) -> String {
     let mut s = String::new();
+    let names = obj_material_names(mesh, mats.len().max(mesh.materials.len()));
     for (slot, m) in mats.iter().enumerate() {
-        let _ = writeln!(s, "newmtl {}", material_name(mesh, slot));
+        let _ = writeln!(s, "newmtl {}", names[slot]);
         let _ = writeln!(s, "Ka 1 1 1\nKd 1 1 1\nKs 0.5 0.5 0.5\nd 1\nillum 2");
         if m.emissive.is_some() {
             let _ = writeln!(s, "Ke 1 1 1");
@@ -517,5 +539,25 @@ mod usd_name_tests {
         assert!(text.contains("defaultPrim = \"_2024_sci_fi_crate__\""), "{text}");
         assert!(text.contains("</_2024_sci_fi_crate__/Materials/_1_Body>"), "the binding names the material prim");
         assert_eq!(usd_identifier("Body_01"), "Body_01", "valid names are unchanged");
+    }
+}
+
+#[cfg(test)]
+mod obj_name_tests {
+    use super::*;
+
+    /// QA 2026-11: #174 kept same-named material slots apart for USD only; OBJ / MTL still wrote
+    /// one `newmtl` name for both.
+    #[test]
+    fn obj_and_mtl_keep_same_named_material_slots_apart() {
+        let mut mesh = subcraft_mesh::primitives::sample_crate();
+        mesh.materials[0].name = "Mat 1".into();
+        mesh.materials[1].name = "Mat_1".into();
+        let mtl = mtl_text(&mesh, &[SceneMaterial::default(), SceneMaterial::default()]);
+        let defined: Vec<&str> = mtl.lines().filter_map(|l| l.strip_prefix("newmtl ")).collect();
+        assert_eq!(defined, ["Mat_1", "Mat_1_2"]);
+        let obj = obj_text(&mesh, "crate.mtl");
+        let used: std::collections::BTreeSet<&str> = obj.lines().filter_map(|l| l.strip_prefix("usemtl ")).collect();
+        assert_eq!(used.into_iter().collect::<Vec<_>>(), ["Mat_1", "Mat_1_2"], "the OBJ uses the names the MTL defines");
     }
 }
