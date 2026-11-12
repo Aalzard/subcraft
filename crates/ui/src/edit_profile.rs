@@ -21,6 +21,16 @@ thread_local! {
     static TABS: std::cell::RefCell<Vec<(&'static str, Duration)>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
+/// Turn section timing on (the view profiler shares it).
+pub fn activate() {
+    ACTIVE.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Take the panel timings recorded since the last call.
+pub fn take_tabs() -> Vec<(&'static str, Duration)> {
+    TABS.with(|t| std::mem::take(&mut *t.borrow_mut()))
+}
+
 /// Record a measured duration while profiling.
 pub fn record(label: &'static str, d: Duration) {
     if ACTIVE.load(std::sync::atomic::Ordering::Relaxed) {

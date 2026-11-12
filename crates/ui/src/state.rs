@@ -171,6 +171,8 @@ pub struct UiState {
     pub render_request: Option<crate::render_export::RenderRequest>,
     /// Pixel size of the 3D view at its last draw (export keeps the aspect ratio).
     pub last_view_size: [u32; 2],
+    /// Screen rectangle (points) of the 3D view at its last draw (scripted input).
+    pub last_view_rect: egui::Rect,
     pub uv: UvView,
     pub painting: bool,
     /// Pen pressure of the current contact (1.0 for a mouse).
@@ -339,6 +341,7 @@ impl UiState {
             auto_uv: Default::default(),
             render_request: None,
             last_view_size: [1280, 720],
+            last_view_rect: egui::Rect::NOTHING,
             uv: UvView { zoom: 1.0, offset: egui::Vec2::ZERO, source: PreviewSource::Channel(ChannelKind::BaseColor), texture: None, painting: false, last_point: None },
             painting: false,
             picking_parts: false,
