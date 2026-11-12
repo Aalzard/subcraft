@@ -63,8 +63,9 @@ pub fn shortcut_requests(ctx: &egui::Context) {
         return;
     }
     let events: Vec<Request> = ctx.input(|i| {
-        // With Shift the copy / paste keys mean the layer's content (Painter).
-        let content = i.modifiers.shift;
+        // Ctrl+Shift+C / Ctrl+Shift+V mean the layer's content (Painter). Shift alone is not
+        // enough: on Windows Shift+Insert is the plain paste key and arrives as the same event.
+        let content = i.modifiers.shift && i.modifiers.command;
         i.events
             .iter()
             .filter_map(|e| match e {
@@ -210,6 +211,21 @@ mod tests {
         s.session.execute(Command::AddLayer(NewLayer::Paint)).unwrap();
         let b = s.session.selection().layer.unwrap();
         (s, a, b)
+    }
+
+    /// QA 2026-11: on Windows Shift+Insert (the plain paste key) arrives as a Paste event with
+    /// Shift held and was taken for Painter's Ctrl+Shift+V (paste into the layer's content).
+    #[test]
+    fn shift_insert_pastes_layers_and_ctrl_shift_v_pastes_content() {
+        let pasted = |modifiers: egui::Modifiers| {
+            let ctx = egui::Context::default();
+            let mut out = ctx.run_ui(egui::RawInput { events: vec![egui::Event::ModifiersChanged(modifiers), egui::Event::Paste("x".into())], ..Default::default() }, |ui| shortcut_requests(ui.ctx()));
+            out.textures_delta.clear();
+            ctx.data(|d| d.get_temp::<Vec<Request>>(queue_id())).unwrap_or_default()
+        };
+        assert!(matches!(pasted(egui::Modifiers::SHIFT).as_slice(), [Request::Paste]), "Shift+Insert");
+        assert!(matches!(pasted(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT).as_slice(), [Request::PasteContent { .. }]), "Ctrl+Shift+V");
+        assert!(matches!(pasted(egui::Modifiers::COMMAND).as_slice(), [Request::Paste]), "Ctrl+V");
     }
 
     #[test]

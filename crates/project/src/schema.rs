@@ -33,7 +33,9 @@ use uuid::Uuid;
 // 17: anchor points (ADR-0045): `anchor` content / mask effects, `anchor_ref` mask effects, the
 //     `anchor` fill source and the generator `input`. Schemas 1-16 migrate unchanged (they cannot
 //     contain anchors); older SubCraft versions refuse schema-17 files instead of dropping them.
-pub const SCHEMA_VERSION: u32 = 17;
+// 18: transparent texture sets (`transparent`) and viewport alpha settings (`alpha`, issue #145).
+//     Both are omitted when default; schemas 1-17 migrate to opaque sets drawn opaque.
+pub const SCHEMA_VERSION: u32 = 18;
 pub const FORMAT_NAME: &str = "subcraft-project";
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -72,6 +74,12 @@ pub struct TextureSetV1 {
     /// Schema 13: UDIM tile `[column, row]` this set paints (absent = ordinary set).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub udim_tile: Option<[i32; 2]>,
+    /// Schema 18: the layer stack starts transparent instead of at the channel defaults.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub transparent: bool,
+    /// Schema 18: viewport alpha mode / threshold / dithering (absent = opaque display).
+    #[serde(default, skip_serializing_if = "subcraft_doc::AlphaSettings::is_default")]
+    pub alpha: subcraft_doc::AlphaSettings,
     pub channels: Vec<ChannelDefV1>,
     /// Bottom-to-top.
     pub layers: Vec<LayerV1>,
@@ -135,6 +143,10 @@ pub struct ContentEffectV5 {
     pub visible: bool,
     pub blend: Vec<BlendV1>,
     pub kind: ContentEffectKindV5,
+    /// Filters: further channels the filter processes (absent = only its own). Older readers
+    /// ignore it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub extra_channels: Vec<ChannelKind>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

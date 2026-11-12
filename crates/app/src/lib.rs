@@ -35,6 +35,7 @@ pub mod recovery;
 pub mod safe_mode;
 pub mod startup_probe;
 pub mod session;
+mod shader_instances;
 pub mod shelf_apply;
 pub mod spp_cache;
 pub mod text;

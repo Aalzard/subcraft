@@ -13,6 +13,7 @@ pub mod parts;
 pub mod properties;
 pub mod channels;
 pub mod display_settings;
+pub mod shader_settings;
 pub mod shelf;
 pub mod shelf_filter;
 pub mod stamp_brush;

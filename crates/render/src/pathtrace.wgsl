@@ -22,6 +22,9 @@ struct Params {
     floor: vec4<f32>,           // xyz center, w = radius (0 = no ground)
     size: vec4<u32>,            // width, height, sample index, max bounces
     misc: vec4<u32>,            // frame seed, write guides, 0, 0
+    ground_look: vec4<f32>,     // rgb reflectivity, w = glossiness
+    ground_misc: vec4<f32>,     // key-light shadow intensity, 1 = visible from below, 1 = clear color, 0
+    clear: vec4<f32>,           // rgb clear color seen by camera rays that miss
 };
 
 @group(0) @binding(0) var<storage, read> nodes: array<vec4<u32>>;     // 2 per node
@@ -152,11 +155,18 @@ fn trace(o: vec3<f32>, d: vec3<f32>, t_max: f32, any_hit: bool) -> Hit {
 // Ground disc (plane y = floor.y), distance or -1.
 fn floor_hit(o: vec3<f32>, d: vec3<f32>, t_max: f32) -> f32 {
     if (p.floor.w <= 0.0 || abs(d.y) < 1e-8) { return -1.0; }
+    // Seen from underneath (a ray going up) only when the ground is visible from below.
+    if (d.y > 0.0 && p.ground_misc.y == 0.0) { return -1.0; }
     let t = (p.floor.y - o.y) / d.y;
     if (t <= 0.0 || t >= t_max) { return -1.0; }
     let q = o + d * t - p.floor.xyz;
     if (dot(q.xz, q.xz) > p.floor.w * p.floor.w) { return -1.0; }
     return t;
+}
+
+// What camera rays see where they miss the model: the clear color, or the view's background.
+fn backdrop() -> vec3<f32> {
+    return select(p.background.rgb, p.clear.rgb, p.ground_misc.z != 0.0);
 }
 
 fn occluded(o: vec3<f32>, d: vec3<f32>) -> bool {
@@ -432,25 +442,45 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
             if (depth == 0u) {
                 let r = length((pos - p.floor.xyz).xz) / p.floor.w;
                 fade = 1.0 - smoothstep(0.55, 1.0, r);
-                radiance += p.background.rgb * (1.0 - fade);
+                radiance += backdrop() * (1.0 - fade);
             }
-            let albedo = vec3<f32>(FLOOR_ALBEDO) * fade;
+            // A glossy reflection tinted by the reflectivity color; the diffuse part keeps the rest.
+            let reflectivity = clamp(p.ground_look.rgb, vec3<f32>(0.0), vec3<f32>(1.0)) * fade;
+            let spec = max(reflectivity.x, max(reflectivity.y, reflectivity.z));
+            let albedo = vec3<f32>(FLOOR_ALBEDO) * fade * (1.0 - spec);
             let origin = pos + up * eps;
-            if (dot(up, key) > 0.0 && p.light_dir.w > 0.0 && !occluded(origin, key)) {
-                radiance += throughput * albedo / PI * key_light * dot(up, key);
+            if (dot(up, key) > 0.0 && p.light_dir.w > 0.0) {
+                // The shadow intensity sets how much of the key light a shadowed spot loses.
+                let lit = select(1.0, 1.0 - p.ground_misc.x, occluded(origin, key));
+                radiance += throughput * albedo / PI * key_light * dot(up, key) * lit;
             }
             if (depth == p.size.w) { break; }
-            let m = basis(up);
-            let r1 = rand();
-            let phi = TAU * rand();
-            let local = vec3<f32>(sqrt(r1) * cos(phi), sqrt(r1) * sin(phi), sqrt(max(0.0, 1.0 - r1)));
-            d = normalize(m * local);
             o = origin;
-            throughput *= albedo;
-            glossy = false;
+            if (spec > 0.0 && rand() < spec) {
+                // Phong lobe around the mirror direction: glossiness 1 is a mirror.
+                let gloss = clamp(p.ground_look.w, 0.0, 1.0);
+                let n = mix(2.0, 4000.0, gloss * gloss * gloss);
+                let cos_t = pow(max(rand(), 1e-6), 1.0 / (n + 1.0));
+                let sin_t = sqrt(max(0.0, 1.0 - cos_t * cos_t));
+                let phi = TAU * rand();
+                let mirror = reflect(d, up);
+                d = normalize(basis(mirror) * vec3<f32>(sin_t * cos(phi), sin_t * sin(phi), cos_t));
+                if (dot(d, up) <= 0.0) { break; }
+                throughput *= reflectivity / spec;
+                glossy = true;
+                last_rough = 1.0 - gloss;
+            } else {
+                let m = basis(up);
+                let r1 = rand();
+                let phi = TAU * rand();
+                let local = vec3<f32>(sqrt(r1) * cos(phi), sqrt(r1) * sin(phi), sqrt(max(0.0, 1.0 - r1)));
+                d = normalize(m * local);
+                throughput *= albedo / max(1.0 - spec, 1e-4);
+                glossy = false;
+            }
         } else if (hit.t >= FAR) {
             if (depth == 0u) {
-                radiance += p.background.rgb;
+                radiance += backdrop();
             } else {
                 var e = environment(d, glossy, last_rough) * throughput;
                 // Clamp rare bright indirect samples (HDRI suns seen through rough bounces).

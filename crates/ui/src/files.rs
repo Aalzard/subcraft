@@ -53,6 +53,11 @@ pub const SMART_MATERIALS: (&str, &[&str]) = ("Smart materials and textures", &[
 pub const IMAGES: (&str, &[&str]) = ("Images", &subcraft_image::IMAGE_EXTENSIONS);
 pub const MESHES: (&str, &[&str]) = ("Meshes", &subcraft_mesh::SUPPORTED_EXTENSIONS);
 pub const PROJECTS: (&str, &[&str]) = ("SubCraft project", &[subcraft_app::PROJECT_EXTENSION]);
+pub const PAINTER_PROJECTS: (&str, &[&str]) = ("Substance Painter project \u{2014} reconstructed", &["spp"]);
+/// File > Open: both project kinds, first entry selected. Only `.subcraft` used to be offered, so
+/// a Painter `.spp` could not be picked there at all (it was only reachable from New).
+pub const OPEN_FILTERS: [(&str, &[&str]); 3] =
+    [("All supported projects", &[subcraft_app::PROJECT_EXTENSION, "spp"]), PROJECTS, PAINTER_PROJECTS];
 pub const FONTS: (&str, &[&str]) = ("Fonts", &["ttf", "otf", "ttc"]);
 pub const ALPHAS: (&str, &[&str]) = ("Images", &["png", "jpg", "jpeg", "tga", "tif", "tiff", "exr"]);
 pub const PANORAMAS: (&str, &[&str]) = ("Panoramas", &["hdr", "exr", "png", "jpg", "jpeg"]);
@@ -73,6 +78,18 @@ pub fn pick(_ctx: &egui::Context, purpose: Purpose, filter: (&str, &[&str]), mul
     }
     let paths = if multiple { d.pick_files().unwrap_or_default() } else { d.pick_file().into_iter().collect() };
     deliver(purpose, paths);
+}
+
+/// [`pick`] with several filters, the first one selected.
+pub fn pick_with_filters(purpose: Purpose, filters: &[(&str, &[&str])], title: Option<&str>) {
+    let mut d = rfd::FileDialog::new();
+    for (name, extensions) in filters {
+        d = d.add_filter(*name, extensions);
+    }
+    if let Some(t) = title {
+        d = d.set_title(t);
+    }
+    deliver(purpose, d.pick_file().into_iter().collect());
 }
 
 /// Ask for a folder for `purpose`.
@@ -165,6 +182,8 @@ pub enum WindowDrop {
     Model(PathBuf),
     Project(PathBuf),
     SmartMaterial(PathBuf),
+    /// A Painter project: imported straight away (after the unsaved-changes question).
+    PainterProject(PathBuf),
 }
 
 /// Classify dropped files (unknown types are ignored).
@@ -173,6 +192,7 @@ pub fn window_drops(paths: &[PathBuf]) -> Vec<WindowDrop> {
     paths.iter().filter_map(|p| {
         let e = ext(p);
         if e == "spsm" { Some(WindowDrop::SmartMaterial(p.clone())) }
+        else if e == "spp" { Some(WindowDrop::PainterProject(p.clone())) }
         else if e == subcraft_app::PROJECT_EXTENSION { Some(WindowDrop::Project(p.clone())) }
         else if subcraft_mesh::SUPPORTED_EXTENSIONS.contains(&e.as_str()) { Some(WindowDrop::Model(p.clone())) }
         else { None }
@@ -224,6 +244,8 @@ fn handle(state: &mut UiState, purpose: Purpose, paths: &[PathBuf], now: f64) {
             }
             Err(e) => state.set_status(format!("Could not open mesh: {e}"), now),
         },
+        // File > Open offers Painter projects too: those are imported.
+        Purpose::OpenProject if crate::spp_import::is_spp(first) => crate::spp_import::start(state, first),
         Purpose::OpenProject => crate::dialogs::open_project(state, first, now),
         Purpose::ReloadMesh => {
             state.mesh_reload.path = first.display().to_string();
@@ -322,9 +344,14 @@ fn handle(state: &mut UiState, purpose: Purpose, paths: &[PathBuf], now: f64) {
                 if let Some(mut e) = current
                     && let subcraft_doc::MaskEffectKind::Generator(g) = &mut e.kind
                 {
-                    let mut editor = g.editor_settings();
-                    if slot == 0 { editor.texture.resource = Some(r) } else { editor.texture2.resource = Some(r) }
-                    g.editor = Some(editor);
+                    if slot == 2 {
+                        // Grayscale Conversion's source image.
+                        g.shape = Some(subcraft_doc::ShapeSettings { texture: Some(r), ..g.shape_settings() });
+                    } else {
+                        let mut editor = g.editor_settings();
+                        if slot == 0 { editor.texture.resource = Some(r) } else { editor.texture2.resource = Some(r) }
+                        g.editor = Some(editor);
+                    }
                     state.run(vec![subcraft_app::Command::SetMaskEffect { layer, effect: e }], now);
                 }
             }
@@ -353,8 +380,35 @@ mod window_drop_tests {
 
     #[test]
     fn models_projects_and_smart_materials_are_recognised_by_extension() {
-        let paths: Vec<PathBuf> = ["tank.FBX", "crate.obj", "scene.glb", "old.subcraft", "Leather.spsm", "notes.txt", "photo.png"].iter().map(PathBuf::from).collect();
-        let kinds: Vec<&str> = window_drops(&paths).iter().map(|d| match d { WindowDrop::Model(_) => "model", WindowDrop::Project(_) => "project", WindowDrop::SmartMaterial(_) => "smart" }).collect();
-        assert_eq!(kinds, ["model", "model", "model", "project", "smart"], "unknown types are ignored");
+        let paths: Vec<PathBuf> = ["tank.FBX", "crate.obj", "scene.glb", "old.subcraft", "Leather.spsm", "notes.txt", "photo.png", "Robot.SPP"].iter().map(PathBuf::from).collect();
+        let kinds: Vec<&str> = window_drops(&paths).iter().map(|d| match d {
+            WindowDrop::Model(_) => "model",
+            WindowDrop::Project(_) => "project",
+            WindowDrop::SmartMaterial(_) => "smart",
+            WindowDrop::PainterProject(_) => "painter",
+        }).collect();
+        assert_eq!(kinds, ["model", "model", "model", "project", "smart", "painter"], "unknown types are ignored");
+    }
+
+    /// Discord report (Windows): File > Open showed no file type for `.spp`, so a Painter
+    /// project could not be opened there. The dialog lists both kinds, "all supported" first.
+    #[test]
+    fn file_open_offers_subcraft_and_painter_projects() {
+        let filters = super::OPEN_FILTERS;
+        assert_eq!(filters[0].1, [subcraft_app::PROJECT_EXTENSION, "spp"], "the default filter shows both");
+        assert!(filters.iter().any(|f| f.1 == [subcraft_app::PROJECT_EXTENSION]));
+        assert!(filters.iter().any(|f| f.0.contains("Painter") && f.0.contains("reconstructed") && f.1 == ["spp"]), "the name says it is a reconstruction");
+    }
+
+    /// A `.spp` picked in File > Open is imported (it is not a SubCraft project file).
+    #[test]
+    fn a_painter_project_picked_in_file_open_starts_the_import() {
+        let dir = std::env::temp_dir().join(format!("subcraft-open-spp-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("Missing.spp"); // the import fails on the missing file; it must still be the import that runs
+        let mut state = crate::state::UiState::new(subcraft_app::Session::sample(), None);
+        super::handle(&mut state, super::Purpose::OpenProject, &[path], 0.0);
+        assert!(state.spp_import.is_some(), "the Painter import started");
+        let _ = std::fs::remove_dir_all(dir);
     }
 }
