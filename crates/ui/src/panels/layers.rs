@@ -535,7 +535,8 @@ Files: {}", ex.dir().display()));
                     if let Some(mode) = picked.or(stepped) {
                         cmds.push(Command::SetBlendMode { layer: l.id, channel: active, mode });
                     }
-                    combo.response.context_menu(|ui| {
+                    // Its own popup id: a context menu on the combo would share (and close) the list's.
+                    egui::Popup::context_menu(&combo.response).id(combo.response.id.with("apply_to_all")).show(|ui| {
                         if ui.button("Apply to all channels").on_hover_text(format!("Gives every channel of this layer the {channel} blend mode")).clicked() {
                             cmds.push(Command::SetBlendAllChannels { layer: l.id, from: active, mode: true, opacity: false });
                             ui.close();
