@@ -5411,6 +5411,21 @@ the app kept drawing on the dead device. Safe mode works; 0.3.3's marker only he
 * **Not done:** UV Border Distance (needs a distance field across tiles), UV Checker and UV Texel Density (fill-layer
   generators, chunk 35), UV Random Color's Custom Gradient and Light on a fill layer, picking positions from the
   Position map in the viewport.
+### Parity chunk 50 - Mask-shape filters (2026-11-12, branch `claude/parity-mask-shape-filters`)
+
+* **New filters** (`crates/doc/src/filter.rs`): Height Adjust (invert, then `v * multiply + offset`), FXAA
+  (Affect Alpha Channel; a compact edge-directed blend toward the neighbour across the edge,
+  `crates/materials/src/filter/pixelwise.rs`), Drop Shadow (colour content: Angle, Distance, Size, Spread, Opacity,
+  Color) and Painter's outer Glow (Soft / Precise, Width, Spread, Opacity, Color; masks and scalar channels glow by
+  value). The former bloom filter keeps working and is now named "Bloom".
+* **Bevel** gains Corner Type (Rounded = Euclidean distance, Angular = Chebyshev distance with square corners,
+  `contour::squared_chebyshev`) and Smoothing; **Mask Outline** gains Start From Black, Blur and Curve Shape. Like the
+  chunk 33 mode toggles, these are separate variants (`BevelShape`, `MaskOutlineShape`) that share the base filter's
+  panel, so older projects load unchanged.
+* **Compositor** (`crates/compositor/src/stages.rs`): Drop Shadow / Glow are an offset (a Transform pixelwise node)
+  plus a Gaussian blur of the source, placed under the content by `spatial_value` (`under`); FXAA is a pixelwise node.
+* **Not done:** Bevel Wrap and Blur Mode, Bevel Smooth and Directional Distance (they read a distance-map image:
+  chunk 34), Fill Area Color / Fill Area Mask (area detection), Height To Normal (writes another channel).
 * **Checked:** see the PR (compile check, then CI).
 ## Shader Settings panel with instances (Painter parity chunk 29, 2026-11-12, branch `claude/parity-shader-settings`, on top of #198)
 
