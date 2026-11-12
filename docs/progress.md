@@ -5411,6 +5411,16 @@ the app kept drawing on the dead device. Safe mode works; 0.3.3's marker only he
 * **Not done:** UV Border Distance (needs a distance field across tiles), UV Checker and UV Texel Density (fill-layer
   generators, chunk 35), UV Random Color's Custom Gradient and Light on a fill layer, picking positions from the
   Position map in the viewport.
+### Parity chunk 35 - Generators on content, random seed (2026-11-12, branch `claude/parity-content-generators`)
+
+* **Generator content effect** (`ContentEffectKind::Generator`, `crates/doc/src/effect.rs`): "Add generator" in a
+  layer's content stack. Its gray result, with its coverage, goes into every channel but Normal through the effect's
+  per-channel blending (`crates/compositor/src/tile.rs`); evaluated on the CPU (the GPU path hands it over). New
+  schema variant `ContentEffectKindV5::Generator`. Properties: kind, level / contrast, Painter controls, seed, Invert.
+* **Seed Random button** next to Next on generators (`random_seed`).
+* Alt+Up / Alt+Down already reorder effects (parity chunk 19); the parity row now says so.
+* **Not done:** a content generator's anchor input, its micro effect and the Mask Editor's global blur on content
+  (masks only); a mini shelf of generator resources.
 ### Parity chunk 50 - Mask-shape filters (2026-11-12, branch `claude/parity-mask-shape-filters`)
 
 * **New filters** (`crates/doc/src/filter.rs`): Height Adjust (invert, then `v * multiply + offset`), FXAA

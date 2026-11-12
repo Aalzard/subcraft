@@ -610,6 +610,7 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Safe Rotation", "안전 회전"),
     ("Tile", "타일"),
     ("Vertical Angle", "수직 각도"),
+    ("Pick a new random seed", "새 무작위 시드를 고릅니다"),
     ("A copy of the current instance, used by this texture set only", "현재 인스턴스의 복사본으로, 이 텍스처 세트만 사용합니다"),
     ("AO Intensity", "AO 강도"),
     ("COMMON PARAMETERS", "공통 매개변수"),
