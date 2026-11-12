@@ -388,6 +388,9 @@ impl Layer {
             if let ContentEffectKind::Filter { filter, .. } = e.kind {
                 filter.resource().into_iter().for_each(&mut add);
             }
+            if let ContentEffectKind::Generator(g) = &e.kind {
+                g.resources().into_iter().for_each(&mut add);
+            }
             if let ContentEffectKind::Fill(f) = &e.kind {
                 for c in f.channels.values() {
                     if let FillSource::Bitmap { resource } = c.source {

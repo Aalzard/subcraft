@@ -10,18 +10,18 @@ Layout notes: A generator is an effect row under a layer (content stack) or unde
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
 | Add generator (on the mask) | Layers panel > right-click a mask | - | done | crates/ui/src/panels/layers.rs:467 | - |
-| Add generator (on the layer content) | Layers panel > right-click a layer | - | missing: generators are mask effects only | - | - |
+| Add generator (on the layer content) | Layers panel > right-click a layer | - | done: "Add content generator" (the layer menu's "Add generator" lists mask generators); gray result into every channel but Normal, per-channel blending | crates/ui/src/panels/effects.rs:74 | chunk 35 |
 | Add generator | Layers panel > effects button above the stack | - | done | crates/ui/src/panels/layers.rs:176 | - |
 | Generator row under its layer (mask effects show when the mask is selected) | Layers panel > effect rows | - | done | crates/ui/src/panels/layers.rs:562 | - |
 | Right-click an effect to reorder it | Layers panel > effect rows | - | done | crates/ui/src/panels/effects.rs:274 | - |
-| ALT+Up arrow / ALT+Down arrow reorders the effect | Layers panel > effect rows | - | partial: menu and drag only, no shortcut | crates/ui/src/panels/effects.rs:274 | - |
+| ALT+Up arrow / ALT+Down arrow reorders the effect | Layers panel > effect rows | - | done | crates/ui/src/panels/effects.rs:290 | parity chunk 19 |
 | Generator button (opens the mini shelf to pick the generator resource) | Properties > Generator | - | partial: combo box of 7 built-in kinds plus mesh maps, no mini shelf | crates/ui/src/panels/properties.rs:547 | - |
 | Mini shelf: thumbnails of generator resources | Properties > Generator | not documented | missing | - | - |
 | Mini shelf: search field | Properties > Generator | not documented | missing | - | - |
 | Empty generator (added before a resource is picked) | Properties > Generator | - | partial: a new generator always starts as Edges | crates/ui/src/panels/effects.rs:127 | - |
 | Parameters section (per-generator sliders, toggles, dropdowns) | Properties > Generator | - | partial: only for the built-in kinds | crates/ui/src/panels/properties.rs:411 | - |
 | Seed value field (pencil shows / edits the number) | Properties > Generator | not documented | partial: plain number field, always visible | crates/ui/src/panels/properties.rs:601 | - |
-| Seed Random button (new random seed) | Properties > Generator | - | partial: "Next" steps the seed by one instead of a random value | crates/ui/src/panels/properties.rs:602 | - |
+| Seed Random button (new random seed) | Properties > Generator | - | done: Random next to Next | crates/ui/src/panels/properties.rs:762 | chunk 35 |
 | Image inputs section (one slot per input) | Properties > Generator | - | partial: image slots for custom grunge (Dirt, Edge wear, Concave) and Gradient Dynamic; Mask Editor and Grayscale Conversion textures | crates/ui/src/panels/properties.rs:441 | chunk 34 |
 | Image input slot: pick a texture / procedural from the mini shelf | Properties > Generator | - | missing | - | - |
 | Image input slot: use an anchor point (anchor must be below the referencing layer, same texture set) | Properties > Generator | - | partial: an anchor can replace the baked map the generator reads; no extra inputs | crates/ui/src/panels/properties.rs:553 | - |

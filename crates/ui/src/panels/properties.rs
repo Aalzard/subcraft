@@ -466,6 +466,31 @@ fn custom_grunge_row(ui: &mut Ui, state: &mut UiState, g: &mut subcraft_doc::Gen
     pick
 }
 
+/// A new seed for Painter's Random button: different on every click.
+pub(crate) fn random_seed() -> u32 {
+    use std::hash::{BuildHasher, Hasher};
+    let mut h = std::collections::hash_map::RandomState::new().build_hasher();
+    h.write_u128(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos()));
+    (h.finish() % 100_000) as u32
+}
+
+/// Controls of a generator in a layer's content stack: kind, level and contrast, the breakup
+/// seed and Invert.
+pub(crate) fn content_generator_controls(ui: &mut Ui, g: &mut subcraft_doc::Generator) -> bool {
+    let mut changed = generator_kind_row(ui, g);
+    changed |= level_controls(ui, g);
+    changed |= painter_controls(ui, g);
+    prop_row(ui, tr("Seed"), |ui| {
+        changed |= ui.add(egui::DragValue::new(&mut g.noise.seed).speed(1.)).changed();
+        if ui.small_button(tr("Random")).on_hover_text(tr("Pick a new random seed")).clicked() {
+            g.noise.seed = random_seed();
+            changed = true;
+        }
+    });
+    prop_row(ui, "", |ui| changed |= ui.checkbox(&mut g.invert, tr("Invert")).changed());
+    changed
+}
+
 /// The Generator dropdown of a generator mask effect.
 fn generator_kind_row(ui: &mut Ui, g: &mut subcraft_doc::Generator) -> bool {
     let mut picked = None;
@@ -876,6 +901,9 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
                         changed |= ui.add(egui::DragValue::new(&mut g.noise.seed).speed(1.)).changed();
                         if ui.small_button(tr("Next")).on_hover_text(tr("Try the next deterministic pattern seed")).clicked() {
                             g.noise.seed = g.noise.seed.wrapping_add(1); changed = true;
+                        }
+                        if ui.small_button(tr("Random")).on_hover_text(tr("Pick a new random seed")).clicked() {
+                            g.noise.seed = random_seed(); changed = true;
                         }
                     });
                     for (axis, name) in ["X", "Y", "Z"].into_iter().enumerate() {

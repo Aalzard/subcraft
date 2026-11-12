@@ -333,6 +333,18 @@ fn apply_content_effects(effects: &[Arc<ContentEffect>], acc: &Acc, content: &mu
                 }
                 continue;
             }
+            ContentEffectKind::Generator(g) => {
+                // Gray data has no meaning as a tangent-space normal.
+                if kind == ChannelKind::Normal {
+                    continue;
+                }
+                let zeros = vec![0.0f32; TILE_TEXELS];
+                let mut out = vec![[0.0f32; 4]; TILE_TEXELS];
+                crate::mask::evaluate_effect(&subcraft_doc::MaskEffectKind::Generator(*g), tc, &zeros, &mut out, None);
+                for (o, v) in e.iter_mut().zip(&out) {
+                    *o = [v[0], v[0], v[0], v[1]];
+                }
+            }
             ContentEffectKind::Filter { filter, .. } => {
                 if !effect.applies_to(kind) || !filter.valid() { continue; }
                 for px in content.iter_mut() {

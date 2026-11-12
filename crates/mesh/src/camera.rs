@@ -1,5 +1,5 @@
-//! Camera import: a position, a rotation and a field of view read from a glTF file or a small
-//! JSON file. Pure parsing, no viewport types.
+//! Camera import: a position, a rotation and a field of view read from a glTF or FBX file (on its
+//! own, or the mesh file of a project) or a small JSON file. Pure parsing, no viewport types.
 //!
 //! JSON forms accepted: one camera object, an array of them, or `{"cameras": [...]}`. A camera is
 //! `{"name": "front", "position": [x,y,z], <orientation>, "fov": 40}` where the orientation is one of
@@ -17,6 +17,8 @@ pub struct CameraSpec {
     pub rotation: Quat,
     pub fov_y_deg: f32,
     pub orthographic: bool,
+    /// Picture aspect (width / height) when the file gives one.
+    pub aspect: Option<f32>,
 }
 
 impl CameraSpec {
@@ -33,6 +35,10 @@ pub enum CameraError {
     Gltf(String),
     #[error("camera {0}: {1}")]
     Field(usize, String),
+    #[error("not a valid FBX file: {0}")]
+    Fbx(String),
+    #[error("cannot read the file: {0}")]
+    Read(String),
     #[error("the file contains no cameras")]
     NoCameras,
 }
@@ -72,6 +78,7 @@ fn one_json(v: &serde_json::Value, i: usize) -> Result<CameraSpec, CameraError> 
         Some(f) => f.as_f64().map(|x| x as f32).filter(|x| *x > 0.0 && *x < 180.0).ok_or_else(|| CameraError::Field(i, "\"fov\" must be between 0 and 180 degrees".into()))?,
     };
     Ok(CameraSpec {
+        aspect: None,
         name: v.get("name").and_then(|n| n.as_str()).map(str::to_owned).unwrap_or_else(|| format!("Camera {}", i + 1)),
         position,
         rotation,
@@ -118,9 +125,9 @@ pub fn parse_gltf(bytes: &[u8]) -> Result<Vec<CameraSpec>, CameraError> {
         let world = parent * Mat4::from_cols_array_2d(&node.transform().matrix());
         if let Some(cam) = node.camera() {
             let (_, rotation, position) = world.to_scale_rotation_translation();
-            let (fov, ortho) = match cam.projection() {
-                gltf::camera::Projection::Perspective(p) => (p.yfov().to_degrees(), false),
-                gltf::camera::Projection::Orthographic(_) => (40.0, true),
+            let (fov, ortho, aspect) = match cam.projection() {
+                gltf::camera::Projection::Perspective(p) => (p.yfov().to_degrees(), false, p.aspect_ratio()),
+                gltf::camera::Projection::Orthographic(o) => (40.0, true, (o.ymag() > 0.0).then(|| o.xmag() / o.ymag())),
             };
             out.push(CameraSpec {
                 name: node.name().or(cam.name()).map(str::to_owned).unwrap_or_else(|| format!("Camera {}", out.len() + 1)),
@@ -128,6 +135,7 @@ pub fn parse_gltf(bytes: &[u8]) -> Result<Vec<CameraSpec>, CameraError> {
                 rotation: rotation.normalize(),
                 fov_y_deg: fov,
                 orthographic: ortho,
+                aspect: aspect.filter(|a| a.is_finite() && *a > 0.0),
             });
         }
         stack.extend(node.children().map(|c| (c, world)));
@@ -137,6 +145,60 @@ pub fn parse_gltf(bytes: &[u8]) -> Result<Vec<CameraSpec>, CameraError> {
     }
     out.reverse(); // stack order is reversed relative to the file
     Ok(out)
+}
+
+/// Cameras of an FBX file (bytes), in the same convention as glTF: Y up, looking down local -Z.
+pub fn parse_fbx(bytes: &[u8]) -> Result<Vec<CameraSpec>, CameraError> {
+    let opts = ufbx::LoadOpts {
+        target_axes: ufbx::CoordinateAxes::right_handed_y_up(),
+        // FBX cameras look down +X; this re-expresses them like glTF cameras (-Z forward, +Y up).
+        target_camera_axes: ufbx::CoordinateAxes::right_handed_y_up(),
+        ..Default::default()
+    };
+    let scene = ufbx::load_memory(bytes, opts).map_err(|e| CameraError::Fbx(format!("{:?}", e.description)))?;
+    let mut out = Vec::new();
+    for cam in scene.cameras.iter() {
+        for node in cam.element.instances.iter() {
+            let m = &node.node_to_world;
+            let col = |x: f64, y: f64, z: f64| Vec3::new(x as f32, y as f32, z as f32);
+            let (right, up, back) = (col(m.m00, m.m10, m.m20), col(m.m01, m.m11, m.m21), col(m.m02, m.m12, m.m22));
+            let position = col(m.m03, m.m13, m.m23);
+            if !position.is_finite() || right.length() < 1e-9 || up.length() < 1e-9 || back.length() < 1e-9 {
+                continue;
+            }
+            let rotation = Quat::from_mat3(&glam::Mat3::from_cols(right.normalize(), up.normalize(), back.normalize())).normalize();
+            let fov = cam.field_of_view_deg.y as f32;
+            let aspect = cam.aspect_ratio as f32;
+            let name = if node.element.name.is_empty() { cam.element.name.to_string() } else { node.element.name.to_string() };
+            out.push(CameraSpec {
+                name: if name.is_empty() { format!("Camera {}", out.len() + 1) } else { name },
+                position,
+                rotation: if rotation.is_finite() { rotation } else { Quat::IDENTITY },
+                fov_y_deg: if fov.is_finite() && fov > 0.0 { fov } else { 40.0 },
+                orthographic: cam.projection_mode == ufbx::ProjectionMode::Orthographic,
+                aspect: (aspect.is_finite() && aspect > 0.0).then_some(aspect),
+            });
+        }
+    }
+    if out.is_empty() {
+        return Err(CameraError::NoCameras);
+    }
+    Ok(out)
+}
+
+/// Cameras stored in a mesh file, for "Import cameras" in New project: glTF, GLB and FBX carry
+/// them; other formats have none (Ok with an empty list), so the caller can say so.
+pub fn cameras_in_mesh_file(path: &std::path::Path) -> Result<Vec<CameraSpec>, CameraError> {
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+    if !matches!(ext.as_str(), "gltf" | "glb" | "fbx") {
+        return Ok(Vec::new());
+    }
+    let bytes = std::fs::read(path).map_err(|e| CameraError::Read(e.to_string()))?;
+    let found = if ext == "fbx" { parse_fbx(&bytes) } else { parse_gltf(&bytes) };
+    match found {
+        Err(CameraError::NoCameras) => Ok(Vec::new()),
+        other => other,
+    }
 }
 
 /// Parse by content: glTF/GLB when the data starts with `glTF` or a JSON object with `"asset"`,
@@ -150,6 +212,76 @@ pub fn parse_any(bytes: &[u8]) -> Result<Vec<CameraSpec>, CameraError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A minimal ASCII FBX: one camera at (0, 0, 10) turned to look at the origin, 16:9.
+    const FBX_CAMERA: &str = r#"; FBX 7.4.0 project file
+FBXHeaderExtension:  {
+	FBXHeaderVersion: 1003
+	FBXVersion: 7400
+}
+GlobalSettings:  {
+	Version: 1000
+	Properties70:  {
+		P: "UpAxis", "int", "Integer", "",1
+		P: "UpAxisSign", "int", "Integer", "",1
+		P: "FrontAxis", "int", "Integer", "",2
+		P: "FrontAxisSign", "int", "Integer", "",1
+		P: "CoordAxis", "int", "Integer", "",0
+		P: "CoordAxisSign", "int", "Integer", "",1
+		P: "UnitScaleFactor", "double", "Number", "",1
+	}
+}
+Objects:  {
+	NodeAttribute: 1001, "NodeAttribute::ShotCam", "Camera" {
+		TypeFlags: "Camera"
+		Properties70:  {
+			P: "AspectWidth", "double", "Number", "",1920
+			P: "AspectHeight", "double", "Number", "",1080
+			P: "FieldOfView", "FieldOfView", "", "A",40
+		}
+	}
+	Model: 1002, "Model::ShotCam", "Camera" {
+		Version: 232
+		Properties70:  {
+			P: "Lcl Translation", "Lcl Translation", "", "A",0,0,10
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",0,90,0
+		}
+	}
+}
+Connections:  {
+	C: "OO",1002,0
+	C: "OO",1001,1002
+}
+"#;
+
+    #[test]
+    fn fbx_cameras_come_in_with_the_gltf_convention() {
+        let cams = parse_fbx(FBX_CAMERA.as_bytes()).unwrap();
+        assert_eq!(cams.len(), 1);
+        let c = &cams[0];
+        assert!(c.name.contains("ShotCam"), "{}", c.name);
+        assert!((c.position - Vec3::new(0.0, 0.0, 10.0)).length() < 1e-3, "{:?}", c.position);
+        assert!((c.forward() - Vec3::NEG_Z).length() < 1e-3, "an FBX camera looking at the origin looks down -Z here: {:?}", c.forward());
+        assert!((c.rotation * Vec3::Y - Vec3::Y).length() < 1e-3, "and stays upright");
+        assert!(c.fov_y_deg > 5.0 && c.fov_y_deg < 60.0, "vertical field of view {}", c.fov_y_deg);
+        assert!((c.aspect.unwrap() - 16.0 / 9.0).abs() < 1e-3, "{:?}", c.aspect);
+        assert!(!c.orthographic);
+        assert!(matches!(parse_fbx(b"not an fbx"), Err(CameraError::Fbx(_))));
+    }
+
+    #[test]
+    fn a_mesh_file_without_cameras_gives_an_empty_list() {
+        let dir = std::env::temp_dir().join(format!("subcraft-cams-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let obj = dir.join("cube.obj");
+        std::fs::write(&obj, "v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n").unwrap();
+        assert!(cameras_in_mesh_file(&obj).unwrap().is_empty(), "OBJ files hold no cameras");
+        let fbx = dir.join("shot.fbx");
+        std::fs::write(&fbx, FBX_CAMERA).unwrap();
+        assert_eq!(cameras_in_mesh_file(&fbx).unwrap().len(), 1);
+        assert!(matches!(cameras_in_mesh_file(&dir.join("missing.glb")), Err(CameraError::Read(_))));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     fn close(a: Vec3, b: Vec3) -> bool {
         (a - b).length() < 1e-4

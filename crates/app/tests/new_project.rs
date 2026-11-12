@@ -285,3 +285,31 @@ fn reloading_a_renamed_file_keeps_a_single_set_project_together() {
     assert_eq!(prepared.matched(), 1, "added {:?}, unmatched {:?}", prepared.added(), prepared.unmatched_old);
     assert!(prepared.added().is_empty() && prepared.unmatched_old.is_empty());
 }
+
+#[test]
+fn cameras_in_the_mesh_file_come_into_the_project_without_marking_it_modified() {
+    let dir = std::env::temp_dir().join(format!("subcraft-np-cams-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let gltf = dir.join("shot.gltf");
+    std::fs::write(&gltf, r#"{"asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0,1]}],
+        "nodes":[{"name":"Front","camera":0,"translation":[0,1,5]},{"name":"Side","camera":0,"translation":[5,1,0],"rotation":[0,0.7071068,0,0.7071068]}],
+        "cameras":[{"type":"perspective","perspective":{"yfov":0.5,"znear":0.1,"aspectRatio":1.5}}]}"#).unwrap();
+    let mut session = Session::new(primitives::cube(2.0), 256);
+    assert!(!session.is_modified());
+    assert_eq!(session.import_mesh_cameras(&gltf).unwrap(), 2);
+    assert!(!session.is_modified(), "importing the cameras is part of creating the project");
+    let cams = session.scene_cameras();
+    assert_eq!(cams.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["Front", "Side"]);
+    assert_eq!(cams[0].position, [0.0, 1.0, 5.0]);
+    assert!((cams[0].fov_y_deg - 0.5f32.to_degrees()).abs() < 1e-3 && cams[0].aspect == Some(1.5));
+    assert!(cams.iter().all(|c| c.is_valid()));
+    // A file without cameras clears the list; a missing file is an error and changes nothing.
+    let obj = dir.join("plain.obj");
+    std::fs::write(&obj, "v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n").unwrap();
+    assert!(session.import_mesh_cameras(&dir.join("missing.glb")).is_err());
+    assert_eq!(session.scene_cameras().len(), 2);
+    assert_eq!(session.import_mesh_cameras(&obj).unwrap(), 0);
+    assert!(session.scene_cameras().is_empty());
+    assert!(NewProjectSettings::default().import_cameras, "on by default, like Painter");
+    let _ = std::fs::remove_dir_all(&dir);
+}
