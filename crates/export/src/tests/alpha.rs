@@ -173,7 +173,7 @@ fn base_color_component_a_is_the_stack_coverage() {
 #[test]
 fn coverage_in_an_srgb_map_is_not_colour_encoded() {
     let ch = transparent_channels(false);
-    let set = ExportTextureSet { name: "S", material_slot: 0, udim: None, channels: &ch, mesh_maps: None };
+    let set = ExportTextureSet { name: "S", material_slot: 0, udim: None, channels: &ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY };
     let map = OutputMap::new("C", FileFormat::Png8, vec![Source::ch(ChannelKind::BaseColor, 1), Source::ch(ChannelKind::BaseColor, 3)], true);
     let mut dense = Dense { set: &set, size: RES, cache: HashMap::new(), normal: None, view: None, mesh_maps: HashMap::new(), alpha: None };
     let data = evaluate_map(&map, &mut dense, &ExportSettings::default(), FileFormat::Png8);
