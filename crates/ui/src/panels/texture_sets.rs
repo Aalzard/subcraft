@@ -18,10 +18,15 @@ pub fn list(state: &mut UiState, ui: &mut Ui) {
     let now = ui.input(|i| i.time);
     let mut cmds = Vec::new();
     let mut shader_ops = Vec::new();
+    let mut hovered = None;
     egui::ScrollArea::vertical().id_salt("texture_set_list").auto_shrink([false, false]).show(ui, |ui| {
         ui.add_space(4.0);
-        set_rows(state, ui, &mut cmds, &mut shader_ops);
+        set_rows(state, ui, &mut cmds, &mut shader_ops, &mut hovered);
     });
+    // Hovering a row highlights its texture set in the 3D view (Painter).
+    if let Some(slot) = hovered {
+        state.highlight_slot = Some(slot);
+    }
     state.run(cmds, now);
     crate::panels::shader_settings::apply(state, shader_ops);
 }
@@ -29,7 +34,7 @@ pub fn list(state: &mut UiState, ui: &mut Ui) {
 /// "4096x4096", the way Painter prints a texture set's size.
 pub fn size_label(resolution: u32) -> String { format!("{resolution}x{resolution}") }
 
-fn set_rows(state: &UiState, ui: &mut Ui, cmds: &mut Vec<Command>, shader_ops: &mut Vec<crate::panels::shader_settings::ShaderOp>) {
+fn set_rows(state: &UiState, ui: &mut Ui, cmds: &mut Vec<Command>, shader_ops: &mut Vec<crate::panels::shader_settings::ShaderOp>, hovered: &mut Option<u32>) {
     let sel = state.session.selection().texture_set;
     let rename_id = egui::Id::new("texture_set_rename");
     // (set being renamed, text, first frame)
@@ -85,6 +90,7 @@ fn set_rows(state: &UiState, ui: &mut Ui, cmds: &mut Vec<Command>, shader_ops: &
                 crate::panels::shader_settings::instance_menu(state, ui, ts.id, shader_ops);
             });
         });
+        if resp.hovered() { *hovered = Some(ts.material_slot); }
         if resp.clicked() && !selected { cmds.push(Command::SelectTextureSet(ts.id)); }
         if resp.double_clicked() { rename = Some((ts.id, ts.name.clone(), true)); }
         resp.context_menu(|ui| {

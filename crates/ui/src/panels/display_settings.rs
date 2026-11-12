@@ -261,6 +261,12 @@ pub fn camera(state: &mut UiState, ui: &mut Ui) {
                 ui.selectable_value(&mut prefs.orthographic, true, tr("Orthographic"));
             });
             ui.end_row();
+            ui.label(tr("Camera rotation"));
+            ui.horizontal(|ui| {
+                ui.selectable_value(&mut prefs.free_rotation, false, tr("Constrained")).on_hover_text(tr("Orbit around the world vertical; the horizon stays level"));
+                ui.selectable_value(&mut prefs.free_rotation, true, tr("Free")).on_hover_text(tr("Orbit around the view's own axes: the camera can roll and go over the top"));
+            });
+            ui.end_row();
             ui.label(tr("Field of view"));
             let mut fov = camera.fov_y_deg;
             if ui.add_enabled(!prefs.orthographic, egui::Slider::new(&mut fov, subcraft_doc::display::FOV_RANGE).suffix("°").fixed_decimals(1)).on_hover_text(tr("Vertical field of view. The camera moves so the model keeps its size.")).changed() {

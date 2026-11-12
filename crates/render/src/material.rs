@@ -168,6 +168,8 @@ pub struct GpuMaterial {
     pub alpha: subcraft_doc::AlphaSettings,
     /// Its shader instance's parameters (Shader Settings).
     pub shader: subcraft_doc::ShaderParams,
+    /// Drawn tinted: the texture set under the cursor or hovered in the Texture Set List.
+    pub highlight: bool,
     /// `MaterialParams` uniform (binding 10), created with the bind group.
     pub(crate) params: Option<wgpu::Buffer>,
 }
@@ -182,6 +184,7 @@ impl GpuMaterial {
             bake_bind_groups: BTreeMap::new(),
             alpha: Default::default(),
             shader: Default::default(),
+            highlight: false,
             params: None,
         }
     }
@@ -198,12 +201,12 @@ impl GpuMaterial {
 pub struct MaterialParams {
     /// x: mode (0 opaque, 1 test, 2 blend), y: threshold, z: 1 = dithering.
     pub alpha: [f32; 4],
-    /// Shader Settings: x AO intensity, y emissive intensity, z horizon fading.
+    /// Shader Settings: x AO intensity, y emissive intensity, z horizon fading; w: 1 = highlighted.
     pub shader: [f32; 4],
 }
 
 impl MaterialParams {
-    pub fn new(alpha: &subcraft_doc::AlphaSettings, shader: &subcraft_doc::ShaderParams) -> Self {
+    pub fn new(alpha: &subcraft_doc::AlphaSettings, shader: &subcraft_doc::ShaderParams, highlight: bool) -> Self {
         use subcraft_doc::AlphaMode;
         let mode = match alpha.mode {
             AlphaMode::Opaque => 0.0,
@@ -212,16 +215,16 @@ impl MaterialParams {
         };
         let dither = if alpha.mode != AlphaMode::Opaque && alpha.dithering { 1.0 } else { 0.0 };
         let s = shader.clamped();
-        Self { alpha: [mode, alpha.threshold.clamp(0.0, 1.0), dither, 0.0], shader: [s.ao_intensity, s.emissive_intensity, s.horizon_fading, 0.0] }
+        Self { alpha: [mode, alpha.threshold.clamp(0.0, 1.0), dither, 0.0], shader: [s.ao_intensity, s.emissive_intensity, s.horizon_fading, if highlight { 1.0 } else { 0.0 }] }
     }
 }
 
 /// A `MaterialParams` uniform buffer for `alpha` and `shader`.
-pub(crate) fn params_buffer(device: &wgpu::Device, alpha: &subcraft_doc::AlphaSettings, shader: &subcraft_doc::ShaderParams) -> wgpu::Buffer {
+pub(crate) fn params_buffer(device: &wgpu::Device, alpha: &subcraft_doc::AlphaSettings, shader: &subcraft_doc::ShaderParams, highlight: bool) -> wgpu::Buffer {
     use wgpu::util::DeviceExt;
     device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("material params"),
-        contents: bytemuck::bytes_of(&MaterialParams::new(alpha, shader)),
+        contents: bytemuck::bytes_of(&MaterialParams::new(alpha, shader, highlight)),
         usage: wgpu::BufferUsages::UNIFORM,
     })
 }

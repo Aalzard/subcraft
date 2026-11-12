@@ -221,8 +221,8 @@ Layout notes: the right end never changes with the tool. It holds the mode switc
 | Viewport Mode: Swap 3D/2D | Viewport Mode menu; F4 | - | partial: manual dock drag only | crates/ui/src/app.rs:232 | - |
 | Perspective Mode: Perspective view | Contextual toolbar, right; F5 | default | partial: "Ortho" checkbox off, at the left of the strip | crates/ui/src/viewport_bar.rs:264 | - |
 | Perspective Mode: Orthographic view | Contextual toolbar, right; F6 | - | partial: "Ortho" checkbox on, at the left of the strip | crates/ui/src/viewport_bar.rs:264 | - |
-| Camera Rotation Mode: Free rotation | Contextual toolbar, right | - | missing | - | - |
-| Camera Rotation Mode: Constrained rotation | Contextual toolbar, right | default | partial: always constrained, no control | crates/ui/src/orbit.rs:116 | - |
+| Camera Rotation Mode: Free rotation | Contextual toolbar, right | - | done: in the camera menu of the top strip (and Display Settings > Camera) | crates/ui/src/orbit.rs (free_orbit) | 258 |
+| Camera Rotation Mode: Constrained rotation | Contextual toolbar, right | default | done: the default; levels a roll left by free rotation | crates/ui/src/orbit.rs (orbit) | 258 |
 | Rendering Mode (Iray) button | Contextual toolbar, right; F10 | off | partial: "Render" toggle at the 3D view's bottom right (path tracing) | crates/ui/src/viewport.rs:590 | - |
 | Baking mode button | Contextual toolbar, right (8.3); F8 | - | partial: F8 / Ctrl+B open the Bake window, no toolbar button | crates/app/src/actions.rs:221 | - |
 | Painting mode button | Contextual toolbar, right; F9 | active | missing | - | - |

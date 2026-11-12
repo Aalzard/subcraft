@@ -168,6 +168,9 @@ pub struct ViewParams {
     pub channel_display: ChannelDisplay,
     /// Texture level bias of the material textures: 0 (soft) down to -3 (very sharp).
     pub mip_bias: f32,
+    /// Material slot drawn with a highlight tint (the texture set under the cursor or hovered in
+    /// the Texture Set List).
+    pub highlight_slot: Option<u32>,
 }
 
 /// What the 3D view shows on the model.
@@ -249,6 +252,7 @@ impl ViewParams {
             solo_channel: None,
             channel_display: ChannelDisplay::default(),
             mip_bias: 0.0,
+            highlight_slot: None,
         }
     }
 }
@@ -542,7 +546,7 @@ impl ViewportRenderer {
             min_filter: wgpu::FilterMode::Nearest, lod_max_clamp: 0.0, ..Default::default()
         });
         let post = post::PostPass::new(device, &globals_layout, &shader);
-        let opaque_params = material::params_buffer(device, &subcraft_doc::AlphaSettings::default(), &subcraft_doc::ShaderParams::default());
+        let opaque_params = material::params_buffer(device, &subcraft_doc::AlphaSettings::default(), &subcraft_doc::ShaderParams::default(), false);
         Self {
             post,
             pipeline_blend,
@@ -777,7 +781,7 @@ impl ViewportRenderer {
             if mat.bind_group.is_some() {
                 continue;
             }
-            let params = mat.params.get_or_insert_with(|| material::params_buffer(device, &mat.alpha, &mat.shader));
+            let params = mat.params.get_or_insert_with(|| material::params_buffer(device, &mat.alpha, &mat.shader, mat.highlight));
             let mut entries = vec![wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::Sampler(&self.sampler) }];
             let albedo_sampler = if mat.albedo_filter == subcraft_image::TextureFilter::Nearest { &self.nearest_sampler } else { &self.sampler };
             entries.push(wgpu::BindGroupEntry { binding: 8, resource: wgpu::BindingResource::Sampler(albedo_sampler) });
@@ -802,6 +806,15 @@ impl ViewportRenderer {
         let samples = if params.antialias && caps::get().msaa4 { SAMPLE_COUNT } else { 1 };
         if self.target.as_ref().is_none_or(|t| t.size != size || t.samples != samples) {
             self.target = Some(RenderTarget::new(device, size, samples));
+        }
+        // Texture set highlight: only the slot that changed gets new parameters.
+        for (slot, mat) in self.materials.iter_mut() {
+            let on = params.highlight_slot == Some(*slot);
+            if mat.highlight != on {
+                mat.highlight = on;
+                mat.params = None;
+                mat.bind_group = None;
+            }
         }
         self.ensure_bind_groups(device);
         // "Baked Normal Map" is the bake-map preview of the Normal map.

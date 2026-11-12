@@ -17,7 +17,7 @@ Layout notes: Painter's viewport is one central area with four parts stacked top
 | Colour-profile name text | 3D view, top left | shown when a profile is loaded | missing | - | - |
 | Axis indicator (X/Y/Z orientation) | 3D view, bottom right | shown | missing | - | - |
 | Grid unit read-out | 3D view, bottom left | shown when the grid is on | missing | - | - |
-| Warning when painting on a non-active Texture Set | 3D view overlay (12.1) | not documented | missing | - | - |
+| Warning when painting on a non-active Texture Set | 3D view overlay (12.1) | not documented | done: a status message naming the set the stroke started on, with how to select it | crates/ui/src/viewport.rs | 258 |
 
 ## Camera navigation (mouse)
 
@@ -34,8 +34,8 @@ Layout notes: all navigation is a held modifier plus a mouse drag; the same comb
 | Rotate environment | Shift + RMB drag (horizontal) | editable shortcut | done | crates/ui/src/nav.rs:76 | - |
 | Auto-focus (depth of field focus point) | Ctrl + MMB click on the mesh | needs Post effects + DOF on | partial: Ctrl+MMB works and turns depth of field on; Post effects is not a separate switch | crates/ui/src/viewport.rs (Painter clicks) | #163 |
 | Texture set selection | Ctrl + Alt + RMB click on the mesh | editable shortcut | missing | - | - |
-| Texture Set highlight under cursor | Hold Ctrl + Alt over the model (12.2) | hidden while LMB is down or panning | missing | - | - |
-| Texture Set / UV Tile highlight from the list | Hover a row in the Texture Set list (12.2) | not documented | missing | - | - |
+| Texture Set highlight under cursor | Hold Ctrl + Alt over the model (12.2) | hidden while LMB is down or panning | done: while Ctrl+Alt is held, not while painting or navigating; a warm tint | crates/ui/src/viewport.rs, crates/render/src/viewport.wgsl | 258 |
+| Texture Set / UV Tile highlight from the list | Hover a row in the Texture Set list (12.2) | not documented | partial: hovering a Texture Set List row highlights its set; no UV tile highlight | crates/ui/src/panels/texture_sets.rs (set_rows) | 258 |
 | Tablet scroll | Ctrl + Alt + click drag scrolls panels (2019.3) | not documented | missing | - | - |
 
 ## Camera commands and projection
@@ -46,7 +46,7 @@ Layout notes: all navigation is a held modifier plus a mouse drag; the same comb
 | Focus on the selected path | F while editing a path (11.0) | not documented | missing | - | - |
 | Camera Perspective | F5 | default mode | done | crates/app/src/actions.rs:210 | - |
 | Camera Orthographic | F6 | off | done | crates/app/src/actions.rs:211 | - |
-| Free rotation (roll allowed) | Contextual toolbar > Camera Rotation Mode | off | missing | - | - |
+| Free rotation (roll allowed) | Contextual toolbar > Camera Rotation Mode | off | done: Camera menu or Display Settings > Camera > Camera rotation: Free orbits about the view's own axes (rolls, goes over the top); Constrained levels the horizon again | crates/ui/src/orbit.rs (free_orbit) | 258 |
 | Constrained rotation (no roll) | Contextual toolbar > Camera Rotation Mode | default | done | crates/ui/src/orbit.rs:114 | - |
 | Light the mesh from underneath | Orbit below the horizon (7.x) | not documented | partial: pitch clamped to about +/-89 degrees | crates/ui/src/orbit.rs:116 | - |
 

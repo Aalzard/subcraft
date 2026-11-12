@@ -5645,3 +5645,32 @@ symmetry. `crates/app/tests/uv_tools.rs` covers session routing: the 2D clone so
   1 px padding, plus the mask as PNG; several selected layers export in one go.
 * **Tests:** `crates/app/tests/flatten.rs` (a folder flattens to the same composite and is hidden, undo; mask baking,
   disabled channels, empty selection; export names, sizes and formats).
+
+## Free camera rotation and texture set highlight (2026-11-13, branch `claude/parity-camera-highlight`)
+
+* Free rotation (Painter's Camera Rotation Mode):
+  * `OrbitCamera` gains `roll` and `orientation()`.
+  * `free_orbit` turns about the camera's own up and right axes and decomposes back into yaw,
+    pitch and roll (YXZ). The view can roll and go over the top of the model while the target
+    stays centred.
+  * Constrained orbiting (the default) levels the horizon again.
+  * A level camera keeps the world up in `view()`, so its matrices are bit-identical to before.
+  * Chosen in the camera menu of the top strip, or in Display Settings > Camera > Camera rotation.
+* Texture set highlight:
+  * `ViewParams.highlight_slot` tints that material slot warm in the viewport shader. The flag
+    sits in the spare w of the shader-parameter row, and only the slots that change get new
+    parameters.
+  * Shown under the cursor while Ctrl+Alt (texture set selection) is held, not while painting or
+    navigating, and while a Texture Set List row is hovered.
+* A stroke that starts on another texture set's part shows a status message naming that set and
+  how to select it.
+* zh-Hant and Korean: 7 new texts translated.
+* Tests added:
+  * Free rotation over the top (finite matrices, constant eye distance, target centred), roll
+    from a yaw after a pitch, the constrained orbit levelling it, and bit-identical level
+    matrices.
+  * `crates/render/tests/highlight.rs` (GPU): the highlighted set turns warm, an unused slot and
+    no highlight are byte-identical, and the background is untouched.
+* Not compiled locally (the PC is unstable under load): CI is the first compile. NOT verified:
+  the running app.
+* Not done: UV tile highlight, SpaceMouse navigation.
