@@ -41,6 +41,7 @@ pub mod view_profile;
 pub mod theme;
 pub mod viewport;
 pub mod viewport_hints;
+pub mod world_axes;
 pub mod viewport_bar;
 pub mod view_extras;
 pub mod widgets;

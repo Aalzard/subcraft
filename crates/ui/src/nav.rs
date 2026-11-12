@@ -117,6 +117,46 @@ pub fn mode_for(scheme: NavScheme, i: NavInput) -> NavMode {
     }
 }
 
+/// Settings > General > Camera (Painter): speed multipliers and the zoom / wheel direction.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CameraSpeed {
+    pub rotation: f32,
+    pub zoom: f32,
+    pub zoom_invert: bool,
+    pub wheel: f32,
+    pub wheel_invert: bool,
+}
+
+impl Default for CameraSpeed {
+    fn default() -> Self {
+        Self { rotation: 1.0, zoom: 1.0, zoom_invert: false, wheel: 1.0, wheel_invert: false }
+    }
+}
+
+/// Range of the three speed sliders.
+pub const SPEED_RANGE: std::ops::RangeInclusive<f32> = 0.1..=5.0;
+
+impl CameraSpeed {
+    fn clamp(v: f32) -> f32 {
+        if v.is_finite() { v.clamp(*SPEED_RANGE.start(), *SPEED_RANGE.end()) } else { 1.0 }
+    }
+    /// Orbit angle change for a pointer movement (radians per pixel at speed 1 is the caller's).
+    pub fn orbit(&self, d: Vec2) -> Vec2 {
+        d * Self::clamp(self.rotation)
+    }
+    /// Distance factor of a zoom drag moving `dy` pixels (down = closer at speed 1, not inverted).
+    pub fn drag_zoom(&self, dy: f32) -> f32 {
+        let dy = if self.zoom_invert { -dy } else { dy };
+        (dy * 0.01 * Self::clamp(self.zoom)).exp()
+    }
+    /// Distance factor of a wheel step (`scroll` > 0 = wheel up = closer, not inverted).
+    pub fn wheel_zoom(&self, scroll: f32) -> f32 {
+        let scroll = if self.wheel_invert { -scroll } else { scroll };
+        (-scroll * 0.0015 * Self::clamp(self.wheel)).exp()
+    }
+}
+
 /// A mouse button of a rebindable camera gesture.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum MouseButton {
@@ -507,6 +547,28 @@ mod tests {
             assert!(scheme.help().contains(&("Rotate environment", "Shift+RMB drag")), "{scheme:?} lists the environment rotation");
         }
     }
+    #[test]
+    fn camera_speeds_scale_and_invert_the_movement() {
+        let d = CameraSpeed::default();
+        assert_eq!(d.orbit(Vec2::new(10.0, -4.0)), Vec2::new(10.0, -4.0));
+        assert!((d.wheel_zoom(100.0) - (-0.15f32).exp()).abs() < 1e-6, "speed 1 is the old wheel step");
+        assert!((d.drag_zoom(10.0) - 0.1f32.exp()).abs() < 1e-6, "speed 1 is the old drag");
+        assert!(d.wheel_zoom(100.0) < 1.0, "wheel up comes closer");
+        let fast = CameraSpeed { rotation: 2.0, zoom: 3.0, wheel: 0.5, ..d };
+        assert_eq!(fast.orbit(Vec2::new(1.0, 1.0)), Vec2::new(2.0, 2.0));
+        assert!((fast.drag_zoom(10.0).ln() - 0.3).abs() < 1e-5);
+        assert!((fast.wheel_zoom(100.0).ln() + 0.075).abs() < 1e-5);
+        let inverted = CameraSpeed { zoom_invert: true, wheel_invert: true, ..d };
+        assert!((inverted.wheel_zoom(100.0) * d.wheel_zoom(100.0) - 1.0).abs() < 1e-5, "inverted wheel goes the other way");
+        assert!((inverted.drag_zoom(10.0) * d.drag_zoom(10.0) - 1.0).abs() < 1e-5);
+        let broken = CameraSpeed { rotation: f32::NAN, zoom: 1000.0, wheel: 0.0, ..d };
+        assert_eq!(broken.orbit(Vec2::ONE), Vec2::ONE, "a broken value falls back to 1");
+        assert!((broken.drag_zoom(1.0).ln() - 0.05).abs() < 1e-5, "clamped to 5");
+        assert!((broken.wheel_zoom(1000.0).ln() + 0.15).abs() < 1e-5, "clamped to 0.1");
+        let old: CameraSpeed = serde_json::from_str(r#"{"rotation":2.0}"#).unwrap();
+        assert_eq!(old, CameraSpeed { rotation: 2.0, ..d });
+    }
+
     #[test]
     fn without_rebinds_every_listed_default_combination_does_its_gesture() {
         let none = MouseBindings::default();

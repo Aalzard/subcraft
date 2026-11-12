@@ -58,7 +58,7 @@ impl SppCache {
         if std::env::vars_os().any(|(k, _)| k.to_string_lossy().starts_with("SUBCRAFT_SPP_") && k != "SUBCRAFT_SPP_TIMING" && k != "SUBCRAFT_SPP_MEMLOG") {
             return None;
         }
-        crate::recovery::data_dir().map(|d| Self { dir: d.join("spp-cache"), min_rebuild: std::time::Duration::from_secs(10) })
+        crate::recovery::cache_dir().map(|d| Self { dir: d.join("spp-cache"), min_rebuild: std::time::Duration::from_secs(10) })
     }
 }
 

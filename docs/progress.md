@@ -5482,3 +5482,18 @@ the app kept drawing on the dead device. Safe mode works; 0.3.3's marker only he
   rebound key. Local: not compiled locally (the PC's compiler crashed twice under load); CI compiles and tests.
 * **Not done:** brush size / flow drags are not rebindable; the Settings window has no Libraries page; not tried in the
   running app.
+
+### Parity chunk 38 - Settings > General (2026-11-12, branch `claude/parity-settings-general`, stacks on chunk 37)
+
+* **Done:** Settings > General gains Painter's options: Show world axes (corner X / Y / Z gizmo that turns with the
+  camera, `world_axes.rs`), Background color as two colours (top and bottom of the 3D view, a vertical gradient in
+  `fs_background`; the top colour rides in the unused `env_view.yzw` of the uniform, equal colours by default), Default UV
+  scale for materials (UV tiling of new fill layers, `Session::default_uv_scale`), Camera rotation / zoom / wheel speed
+  (0.1 to 5) with Inverse direction for zoom and wheel (`nav::CameraSpeed`, applied to orbit, snap orbit, zoom drag and
+  wheel), and a Cache folder (`recovery::cache_dir`, used by the Painter import cache and update downloads).
+* **Tests:** `nav.rs` camera speed scaling, inversion, clamping and old files; `world_axes.rs` projection for two cameras;
+  `crates/app/tests/settings_general.rs` (fill UV scale, cache folder); preferences defaults and save round trip; GPU
+  `background_is_a_vertical_gradient_between_the_two_colours` (skips without an adapter). Local: CHECK_LINE; CI runs the
+  tests.
+* **Not done:** smart materials and shelf drops keep their own UV scale; the Rendering mode keeps its own background;
+  Viewport Scaling, simplified thumbnails, baking and preview options; not tried in the running app.

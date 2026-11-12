@@ -112,7 +112,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     use crate::nav::{NavDrag, NavInput, NavMode};
     let scheme = state.recovery.prefs.nav_scheme;
     if response.hovered() && scroll != 0.0 {
-        state.camera.zoom((-scroll * 0.0015).exp());
+        state.camera.zoom(state.recovery.prefs.camera.wheel_zoom(scroll));
     }
     let alt = mods.alt && scheme.alt_navigates();
     let nav_input = ui.input(|i| NavInput {
@@ -150,17 +150,19 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             match drag.step_with(scheme, &state.recovery.prefs.custom_mouse, nav_input, pos) {
                 Some((mode, d)) => {
                     if mode != NavMode::OrbitSnap { state.orbit_free = None; }
+                    let speed = state.recovery.prefs.camera;
+                    let turn = speed.orbit(d);
                     match mode {
-                        NavMode::Orbit => state.camera.orbit_around(pivot, d.x, d.y),
+                        NavMode::Orbit => state.camera.orbit_around(pivot, turn.x, turn.y),
                         NavMode::OrbitSnap => {
                             let (yaw, pitch) = state.orbit_free.unwrap_or((state.camera.yaw, state.camera.pitch));
-                            let free = (yaw - d.x * 0.008, (pitch + d.y * 0.008).clamp(-std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2));
+                            let free = (yaw - turn.x * 0.008, (pitch + turn.y * 0.008).clamp(-std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2));
                             state.orbit_free = Some(free);
                             let step = std::f32::consts::FRAC_PI_2;
                             state.camera.set_angles_around(pivot, crate::nav::snap_angle(free.0, step), crate::nav::snap_angle(free.1, step));
                         }
                         NavMode::Pan => state.camera.pan(d.x * pixel_scale.x, d.y * pixel_scale.y, size[1] as f32),
-                        NavMode::Zoom => state.camera.zoom((d.y * 0.01).exp()),
+                        NavMode::Zoom => state.camera.zoom(speed.drag_zoom(d.y)),
                         NavMode::Light => state.light_yaw = (state.light_yaw + d.x * 0.01).rem_euclid(std::f32::consts::TAU),
                         NavMode::Environment => state.env.rotation_deg = crate::panels::shelf::wrap_rotation(state.env.rotation_deg + d.x * 0.5),
                         NavMode::None => {}
@@ -455,6 +457,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             let t0 = web_time::Instant::now();
             let mut params = state.camera.view_params(size);
             params.height_scale = state.height_scale;
+            params.background = state.recovery.prefs.background_bottom;
+            params.background_top = state.recovery.prefs.background_top;
             let view = &state.recovery.prefs.viewport;
             params.antialias = view.antialias;
             params.exposure = view.exposure_value();
@@ -663,6 +667,9 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
             text_armed,
         };
         crate::viewport_hints::draw(&painter, rect, &crate::viewport_hints::cached(ui.ctx(), c));
+    }
+    if state.recovery.prefs.show_world_axes && !bake_mode {
+        crate::world_axes::draw(&painter, rect.right_bottom() + egui::vec2(-40.0, -40.0), 22.0, state.camera.view());
     }
     let mut right = rect.right_top() + egui::vec2(-10.0, 10.0);
     if state.tool != Tool::Pen && state.session.brush.options.has_symmetry() {

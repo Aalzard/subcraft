@@ -140,8 +140,11 @@ pub struct ViewParams {
     pub exposure: f32,
     /// Height-to-bump strength (UV units of slope per height unit; 0 disables bumps).
     pub height_scale: f32,
-    /// Linear background color.
+    /// Linear background color (bottom of the view).
     pub background: [f32; 3],
+    /// Linear background color at the top of the view; the background is a vertical gradient
+    /// between the two (the same colour twice = a plain background, the default).
+    pub background_top: [f32; 3],
     /// 4x MSAA when true, no anti-aliasing (faster) when false.
     pub antialias: bool,
     /// Full material shading or one channel shown unlit.
@@ -241,6 +244,7 @@ impl ViewParams {
             exposure: 1.0,
             height_scale: 0.02,
             background: [0.018, 0.019, 0.022],
+            background_top: [0.018, 0.019, 0.022],
             antialias: true,
             view_mode: ViewMode::Material,
             grid: None,
@@ -273,7 +277,7 @@ struct Globals {
     inv_view_proj: [[f32; 4]; 4],
     /// rgb: background color (linear), a: environment opacity behind the model.
     background: [f32; 4],
-    /// x: background blur 0..1.
+    /// x: background blur 0..1, yzw: background colour at the top of the view (linear).
     env_view: [f32; 4],
     /// x: 1 / HDR scale, y: 1 = two-color signed display, z: component (0 all, 1 R, 2 G, 3 B, 4 A), w: 1 = lit.
     solo: [f32; 4],
@@ -896,7 +900,7 @@ impl ViewportRenderer {
             sh,
             inv_view_proj: (params.proj * params.view).inverse().to_cols_array_2d(),
             background: [params.background[0], params.background[1], params.background[2], e.background_opacity.clamp(0.0, 1.0)],
-            env_view: [e.background_blur.clamp(0.0, 1.0), 0.0, 0.0, 0.0],
+            env_view: [e.background_blur.clamp(0.0, 1.0), params.background_top[0], params.background_top[1], params.background_top[2]],
             solo: [
                 1.0 / params.channel_display.hdr_scale.max(1e-6),
                 if params.channel_display.signed_colors { 1.0 } else { 0.0 },

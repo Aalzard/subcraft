@@ -807,6 +807,7 @@ impl SubcraftApp {
             let active = state.graphics.active.clone(); state.graphics = graphics; state.graphics.active = active;
         }
         let prefs = cc.storage.and_then(|s| s.get_string(crate::recovery::PREFS_KEY)).map(|j| crate::recovery::Preferences::from_json_lenient(&j)).unwrap_or_default();
+        crate::recovery::apply_cache_dir(&prefs);
         state.recovery = crate::recovery::RecoveryUi::start(&state.session, prefs, options.autosave_interval);
         if subcraft_app::safe_mode::active() == Some(&subcraft_app::safe_mode::Reason::GpuLostLastRun) {
             // The GPU reset last run: keep the heavy GPU work off from now on (saved with the
@@ -2052,6 +2053,7 @@ impl eframe::App for SubcraftApp {
         }
         crate::pen::keyboard(&mut self.state, &ctx, ctx.input(|i| i.time));
         self.shortcuts(&ctx);
+        self.state.session.default_uv_scale = self.state.recovery.prefs.default_uv_scale;
         if ctx.input(|i| i.pointer.any_released()) {
             let _ = self.state.session.execute(Command::Seal);
         }
