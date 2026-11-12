@@ -163,7 +163,7 @@ pub(crate) fn add_effect_menu(ui: &mut Ui, layer: &Layer, mask_domain: bool, cha
 fn content_row_blend(e: &ContentEffect, active: ChannelKind) -> Option<(BlendMode, f32)> {
     let shown = match &e.kind {
         ContentEffectKind::Anchor => false,
-        ContentEffectKind::Levels { channel, .. } | ContentEffectKind::Filter { channel, .. } => *channel == active,
+        ContentEffectKind::Levels { .. } | ContentEffectKind::Filter { .. } => e.applies_to(active),
         ContentEffectKind::Fill(fill) => fill.channels.get(&active).is_some_and(|c| c.enabled),
         ContentEffectKind::Paint { .. } => true,
     };
@@ -197,7 +197,7 @@ fn row_blend(ui: &mut Ui, layer: &Layer, mask: bool, id: EffectId, active: Chann
     inactive.weak_bg_fill = egui::Color32::TRANSPARENT;
     inactive.bg_stroke = egui::Stroke::NONE;
     let what = if mask { "Effect".to_string() } else { format!("Effect {}", active.display_name()) };
-    let modes: Vec<BlendMode> = BlendMode::available(!mask && active == ChannelKind::Normal, false).collect();
+    let modes: Vec<BlendMode> = BlendMode::available_for_effect(!mask && active == ChannelKind::Normal).collect();
     let combo = egui::ComboBox::from_id_salt("effect_row_blend")
         .width(60.0)
         .height(420.0)
@@ -547,6 +547,24 @@ fn actions(ui: &mut Ui, layer: &Layer, mask: bool, effects: &[EffectId], ids: &[
     rename
 }
 
+/// The channels a filter processes after a click on one of its channel chips (`states`: every
+/// channel it supports and whether it is on). Alt (`solo`) keeps only the clicked one; the last
+/// channel cannot be switched off.
+pub(crate) fn filter_channels_after_toggle(states: &[(ChannelKind, bool)], kind: ChannelKind, solo: bool) -> Vec<ChannelKind> {
+    let mut on: Vec<ChannelKind> = states.iter().filter(|s| s.1).map(|s| s.0).collect();
+    if solo {
+        return vec![kind];
+    }
+    if on.contains(&kind) {
+        if on.len() > 1 {
+            on.retain(|k| *k != kind);
+        }
+    } else {
+        on.push(kind);
+    }
+    on
+}
+
 /// Properties of the selected effect. Returns false when there is none to show.
 pub fn properties(state: &mut UiState, ui: &mut Ui) -> bool {
     let Some(effect) = state.session.selected_effect() else { return false };
@@ -683,16 +701,24 @@ fn content_editor(ui: &mut Ui, state: &mut UiState, layer: &Layer, e: &ContentEf
             }
             ContentEffectKind::Filter { channel, filter } => {
                 hint(ui, "Adjusts the preceding effect stage. Blur filters soften coverage; others preserve it.");
-                prop_row(ui, "Channel", |ui| {
-                    egui::ComboBox::from_id_salt("filter_channel").selected_text(channel.display_name()).show_ui(ui, |ui| {
-                        for k in channels.iter().filter(|k| filter.supports_channel(**k)) {
-                            changed |= ui.selectable_value(channel, *k, k.display_name()).changed();
-                        }
-                    });
-                });
                 changed |= super::filter::editor(ui, filter, Some(*channel));
                 if super::properties::filter_image_row(ui, state, filter, &mut changed) {
                     crate::files::pick(ui.ctx(), crate::files::Purpose::FilterImage { layer: layer.id, effect: eff.id, mask: false }, crate::files::IMAGES, false, None);
+                }
+                // Painter's per-channel toggles: every channel the filter processes.
+                let states: Vec<(ChannelKind, bool)> = channels
+                    .iter()
+                    .filter(|k| filter.supports_channel(**k))
+                    .map(|k| (*k, *k == *channel || eff.extra_channels.contains(k)))
+                    .collect();
+                ui.label(RichText::new("Channels").small().color(TEXT_DIM));
+                if let Some((kind, solo)) = super::properties::channel_toggles(ui, &states) {
+                    let on = filter_channels_after_toggle(&states, kind, solo);
+                    if !on.contains(channel) {
+                        *channel = on[0];
+                    }
+                    eff.extra_channels = on.into_iter().filter(|k| k != channel).collect();
+                    changed = true;
                 }
             }
         }
@@ -700,14 +726,13 @@ fn content_editor(ui: &mut Ui, state: &mut UiState, layer: &Layer, e: &ContentEf
     if !matches!(eff.kind, ContentEffectKind::Anchor) { section(ui, "effect_blend", "Blending per channel", true, |ui| {
         hint(ui, "How this effect combines with the content below it, per channel.");
         for kind in &channels {
-            if let ContentEffectKind::Filter { channel, .. } | ContentEffectKind::Levels { channel, .. } = &eff.kind
-                && channel != kind { continue; }
+            if matches!(eff.kind, ContentEffectKind::Filter { .. } | ContentEffectKind::Levels { .. }) && !eff.applies_to(*kind) { continue; }
             if let ContentEffectKind::Fill(fill) = &eff.kind && !fill.channels.get(kind).is_some_and(|c| c.enabled) { continue; }
             let Some(blend) = eff.blend.get_mut(kind) else { continue };
             ui.push_id(("effect_blend", *kind), |ui| {
                 prop_row(ui, kind.display_name(), |ui| {
                     egui::ComboBox::from_id_salt("mode").width(96.0).selected_text(blend.mode.label()).show_ui(ui, |ui| {
-                        for mode in BlendMode::available(*kind == ChannelKind::Normal, false) {
+                        for mode in BlendMode::available_for_effect(*kind == ChannelKind::Normal) {
                             changed |= ui.selectable_value(&mut blend.mode, mode, mode.label()).changed();
                         }
                     });
@@ -731,5 +756,21 @@ fn content_editor(ui: &mut Ui, state: &mut UiState, layer: &Layer, e: &ContentEf
             eff.name = eff.kind.label();
         }
         cmds.push(Command::SetContentEffect { layer: layer.id, effect: eff });
+    }
+}
+
+#[cfg(test)]
+mod filter_channel_tests {
+    use super::*;
+    use ChannelKind::{BaseColor as C, Metallic as M, Roughness as R};
+
+    #[test]
+    fn channel_chips_toggle_solo_and_never_leave_a_filter_without_a_channel() {
+        let states = [(C, true), (R, false), (M, true)];
+        assert_eq!(filter_channels_after_toggle(&states, R, false), [C, M, R], "switch one on");
+        assert_eq!(filter_channels_after_toggle(&states, C, false), [M], "switch one off");
+        assert_eq!(filter_channels_after_toggle(&states, R, true), [R], "Alt: only this one");
+        let one = [(C, false), (R, true), (M, false)];
+        assert_eq!(filter_channels_after_toggle(&one, R, false), [R], "the last channel stays on");
     }
 }

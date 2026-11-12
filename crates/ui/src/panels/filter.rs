@@ -5,14 +5,37 @@ use subcraft_core::color::{linear3_to_srgb, srgb3_to_linear};
 use subcraft_doc::{Filter, Gradient, GradientStop, OutlinePosition, GRADIENT_PRESETS, MAX_GRADIENT_STOPS};
 use crate::widgets::{prop_row, slider_row};
 
-pub fn editor(ui: &mut Ui, filter: &mut Filter, channel: Option<ChannelKind>) -> bool {
-    let mut changed = false;
-    prop_row(ui, "Filter", |ui| {
-        egui::ComboBox::from_id_salt("filter_kind").selected_text(filter.label()).show_ui(ui, |ui| {
-            for choice in Filter::ALL {
-                if channel.map_or(choice.supports_mask(), |k| choice.supports_channel(k))
-                    && ui.selectable_label(filter.label() == choice.label(), choice.label()).clicked() {
-                    *filter = choice; changed = true;
+/// Filters whose name contains every word of `query` (case-insensitive), in list order.
+pub fn search(query: &str, usable: impl Fn(&Filter) -> bool) -> Vec<Filter> {
+    let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
+    Filter::ALL
+        .into_iter()
+        .filter(|f| usable(f))
+        .filter(|f| {
+            let name = f.label().to_lowercase();
+            words.iter().all(|w| name.contains(w.as_str()))
+        })
+        .collect()
+}
+
+/// Painter's filter mini shelf: a button with the current filter that opens a searchable list.
+/// Returns the picked filter (with its default parameters).
+pub fn picker(ui: &mut Ui, current: &str, usable: impl Fn(&Filter) -> bool) -> Option<Filter> {
+    let button = ui.button(format!("{current}  \u{25be}")).on_hover_text("Pick another filter (type to search)");
+    let query_id = button.id.with("filter_search");
+    let mut picked = None;
+    egui::Popup::menu(&button).id(button.id.with("filter_picker")).show(|ui| {
+        ui.set_min_width(200.0);
+        let mut query = ui.data(|d| d.get_temp::<String>(query_id)).unwrap_or_default();
+        let field = ui.add(egui::TextEdit::singleline(&mut query).hint_text("Search filters").desired_width(190.0));
+        if button.clicked() { field.request_focus(); }
+        let found = search(&query, &usable);
+        egui::ScrollArea::vertical().max_height(560.0).show(ui, |ui| {
+            if found.is_empty() { ui.weak("No filter matches"); }
+            for f in found {
+                if ui.selectable_label(f.label() == current, f.label()).clicked() {
+                    picked = Some(f);
+                    ui.close();
                 }
             }
             // Reads an image, so it is not in `Filter::ALL`: it starts without one.
@@ -20,6 +43,25 @@ pub fn editor(ui: &mut Ui, filter: &mut Filter, channel: Option<ChannelKind>) ->
                 *filter = Filter::gradient_dynamic(); changed = true;
             }
         });
+        // Enter takes the first match.
+        if field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) && let Some(f) = search(&query, &usable).into_iter().next() {
+            picked = Some(f);
+            ui.close();
+        }
+        ui.data_mut(|d| d.insert_temp(query_id, query));
+    });
+    picked
+}
+
+pub fn editor(ui: &mut Ui, filter: &mut Filter, channel: Option<ChannelKind>) -> bool {
+    let mut changed = false;
+    prop_row(ui, "Filter", |ui| {
+        if let Some(choice) = picker(ui, filter.label(), |f| channel.map_or(f.supports_mask(), |k| f.supports_channel(k))) {
+            if choice.label() != filter.label() {
+                *filter = choice;
+                changed = true;
+            }
+        }
     });
     let lower = if channel.is_some_and(|c| c.is_signed()) { -1.0 } else { 0.0 };
     match filter {
@@ -142,6 +184,45 @@ pub fn editor(ui: &mut Ui, filter: &mut Filter, channel: Option<ChannelKind>) ->
             changed |= slider_row(ui, "Gradient Input Position", egui::Slider::new(position, 0.0..=1.0)).changed();
             ui.weak("Values pick colours along one row (or column) of the Gradient Source image");
         }
+        Filter::HeightAdjust { invert, offset, multiply } => {
+            prop_row(ui, "Invert", |ui| { changed |= ui.checkbox(invert, "").changed(); });
+            changed |= slider_row(ui, "Offset", egui::Slider::new(offset, -1.0..=1.0)).changed();
+            changed |= slider_row(ui, "Multiply", egui::Slider::new(multiply, 0.0..=4.0)).changed();
+            ui.weak("Invert, then value x Multiply + Offset");
+        }
+        Filter::Fxaa { alpha } => {
+            prop_row(ui, "Affect Alpha Channel", |ui| { changed |= ui.checkbox(alpha, "").on_hover_text("Also smooth the edges of the paint coverage").changed(); });
+            ui.weak("Smooths stair-stepped edges along their direction");
+        }
+        Filter::DropShadow { angle_deg, distance, size, spread, opacity, color } => {
+            changed |= slider_row(ui, "Angle", egui::Slider::new(angle_deg, -180.0..=180.0).suffix("\u{00b0}")).changed();
+            changed |= slider_row(ui, "Distance", egui::Slider::new(distance, 0.0..=32.0).suffix(" px")).changed();
+            changed |= slider_row(ui, "Size", egui::Slider::new(size, 0.0..=32.0).suffix(" px")).changed();
+            changed |= slider_row(ui, "Spread", egui::Slider::new(spread, 0.0..=0.99)).changed();
+            changed |= slider_row(ui, "Opacity", egui::Slider::new(opacity, 0.0..=1.0)).changed();
+            prop_row(ui, "Color", |ui| {
+                let mut srgb = linear3_to_srgb(*color);
+                if ui.color_edit_button_rgb(&mut srgb).changed() { *color = srgb3_to_linear(srgb); changed = true; }
+            });
+            ui.weak("Shadow of the paint coverage, under the content");
+        }
+        Filter::OuterGlow { width, spread, opacity, color, precise } => {
+            prop_row(ui, "Mode", |ui| {
+                changed |= ui.selectable_value(precise, false, "Soft").changed();
+                changed |= ui.selectable_value(precise, true, "Precise").changed();
+            });
+            changed |= slider_row(ui, "Width", egui::Slider::new(width, 0.0..=32.0).suffix(" px")).changed();
+            changed |= slider_row(ui, "Spread", egui::Slider::new(spread, 0.0..=0.99)).changed();
+            changed |= slider_row(ui, "Opacity", egui::Slider::new(opacity, 0.0..=1.0)).changed();
+            prop_row(ui, "Color", |ui| {
+                let mut srgb = linear3_to_srgb(*color);
+                if ui.color_edit_button_rgb(&mut srgb).changed() { *color = srgb3_to_linear(srgb); changed = true; }
+            });
+            ui.weak(if channel.is_some_and(|c| c.is_color()) { "Glow around the paint coverage, under the content" } else { "Glow around bright values (masks and gray channels use the color's brightness)" });
+        }
+        Filter::BevelShape { radius, .. } | Filter::MaskOutlineShape { radius, .. } => {
+            changed |= slider_row(ui, "Radius", egui::Slider::new(radius, 0.0..=32.0).suffix(" px")).changed();
+        }
         Filter::Glow { radius, amount, threshold } => {
             changed |= slider_row(ui, "Radius", egui::Slider::new(radius, 0.0..=32.0).suffix(" px")).changed();
             changed |= slider_row(ui, "Amount", egui::Slider::new(amount, 0.0..=4.0)).changed();
@@ -227,13 +308,32 @@ pub fn editor(ui: &mut Ui, filter: &mut Filter, channel: Option<ChannelKind>) ->
     if let Filter::Sharpen { amount, .. } | Filter::Highpass {amount,..} = filter {
         changed |= slider_row(ui, "Amount", egui::Slider::new(amount, 0.0..=4.0)).changed();
     }
-    if let Filter::Bevel {amount,..} = filter {
+    if let Filter::Bevel {amount,..} | Filter::BevelShape {amount,..} = filter {
         changed |= slider_row(ui, "Amount", egui::Slider::new(amount, lower..=1.0)).changed();
     }
-    if let Filter::Bevel {threshold,..} | Filter::MaskOutline {threshold,..} = filter {
+    if let Filter::Bevel {threshold,..} | Filter::MaskOutline {threshold,..} | Filter::BevelShape {threshold,..} | Filter::MaskOutlineShape {threshold,..} = filter {
         changed |= slider_row(ui, "Threshold", egui::Slider::new(threshold, lower..=1.0)).changed();
     }
-    if let Filter::MaskOutline {position,..} = filter {
+    // Bevel's Corner Type and Smoothing, Mask Outline's shape options: these swap to the
+    // variant that stores them (see `Filter::bevel`, `Filter::mask_outline`).
+    if let Some(mut p) = filter.bevel_parts() {
+        let before = p;
+        prop_row(ui, "Corner Type", |ui| {
+            egui::ComboBox::from_id_salt("bevel_corner").selected_text(p.corner.label()).show_ui(ui, |ui| {
+                for c in subcraft_doc::BevelCorner::ALL { ui.selectable_value(&mut p.corner, c, c.label()); }
+            });
+        });
+        slider_row(ui, "Smoothing", egui::Slider::new(&mut p.smoothing, 0.0..=1.0)).on_hover_text("Eases the ramp from straight to rounded");
+        if p != before { *filter = Filter::bevel(p); changed = true; }
+    }
+    if let Some(mut o) = filter.outline_parts() {
+        let before = o;
+        prop_row(ui, "Start From Black", |ui| { ui.checkbox(&mut o.start_black, "").on_hover_text("The band ramps up from black at the contour"); });
+        slider_row(ui, "Blur", egui::Slider::new(&mut o.blur, 0.0..=32.0).suffix(" px")).on_hover_text("Fades the band's outer edge over this width");
+        slider_row(ui, "Curve Shape", egui::Slider::new(&mut o.curve, -1.0..=1.0)).on_hover_text("Bends the band's falloff: above 0 sharper, below 0 softer");
+        if o != before { *filter = Filter::mask_outline(o); changed = true; }
+    }
+    if let Filter::MaskOutline {position,..} | Filter::MaskOutlineShape {position,..} = filter {
         prop_row(ui,"Position",|ui| {
             egui::ComboBox::from_id_salt("outline_position").selected_text(match position {OutlinePosition::Inner=>"Inner",OutlinePosition::Outer=>"Outer",OutlinePosition::Both=>"Both"}).show_ui(ui,|ui| {
                 for (value,label) in [(OutlinePosition::Inner,"Inner"),(OutlinePosition::Outer,"Outer"),(OutlinePosition::Both,"Both")] {
@@ -299,4 +399,28 @@ fn gradient_editor(ui: &mut Ui, gradient: &mut Gradient) -> bool {
         changed |= gradient.insert(GradientStop { position, color: gradient.eval(position) });
     }
     changed
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_filter_search_matches_every_word_and_respects_what_the_channel_supports() {
+        let all = search("", |_| true);
+        assert_eq!(all.len(), Filter::ALL.len());
+        let blur: Vec<&str> = search("blur", |_| true).iter().map(|f| f.label()).collect();
+        assert!(!blur.is_empty() && blur.iter().all(|l| l.to_lowercase().contains("blur")), "{blur:?}");
+        assert_eq!(search("BLUR", |_| true).len(), blur.len(), "case does not matter");
+        assert!(search("zzz", |_| true).is_empty());
+        // Words can come in any order.
+        if let Some(two) = Filter::ALL.iter().map(|f| f.label()).find(|l| l.contains(' ')) {
+            let mut words: Vec<&str> = two.split(' ').collect();
+            words.reverse();
+            assert!(search(&words.join(" "), |_| true).iter().any(|f| f.label() == two));
+        }
+        // Colour-only filters are not offered for a grey channel.
+        let grey = search("", |f| f.supports_channel(ChannelKind::Roughness));
+        assert!(!grey.iter().any(|f| f.label() == "Grayscale"));
+    }
 }

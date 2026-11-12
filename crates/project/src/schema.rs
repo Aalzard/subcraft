@@ -134,6 +134,10 @@ pub struct ContentEffectV5 {
     pub visible: bool,
     pub blend: Vec<BlendV1>,
     pub kind: ContentEffectKindV5,
+    /// Filters: further channels the filter processes (absent = only its own). Older readers
+    /// ignore it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub extra_channels: Vec<ChannelKind>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

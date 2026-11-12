@@ -161,6 +161,8 @@ pub struct UiState {
     pub render_window: bool,
     /// Display Settings panel: the group a jump button asked to scroll to.
     pub display_jump: Option<crate::panels::display_settings::Section>,
+    /// A shader menu asked for the Shader Settings panel (opened by the app next frame).
+    pub open_shader_settings: bool,
     /// Whether the session's saved display settings were taken over yet, and the values last
     /// seen in step with the project (see `panels::display_settings::sync_project`).
     pub display_loaded: bool,
@@ -345,6 +347,7 @@ impl UiState {
             capture_during_load: false,
             render_window: false,
             display_jump: None,
+            open_shader_settings: false,
             display_loaded: false,
             display_baseline: Default::default(),
             pending_render_job: None,
@@ -681,7 +684,7 @@ impl UiState {
         self.last_sync_tiles = updates.iter().map(|u| u.tiles.len()).max().unwrap_or(0);
         let upload_start = web_time::Instant::now();
         let session = &self.session;
-        for ts in &session.document().texture_sets { renderer.set_albedo_filter(ts.material_slot, ts.albedo_filter); renderer.set_alpha(ts.material_slot, ts.alpha); }
+        for ts in &session.document().texture_sets { renderer.set_albedo_filter(ts.material_slot, ts.albedo_filter); renderer.set_alpha(ts.material_slot, ts.alpha); renderer.set_shader(ts.material_slot, session.shader_params_of(ts.id)); }
         renderer.set_hidden_slots(session.document().texture_sets.iter().filter(|ts| session.is_set_hidden(ts.id)).map(|ts| ts.material_slot));
         let upload = |renderer: &mut ViewportRenderer, ts: subcraft_core::TextureSetId, slot: u32, changed: Option<&subcraft_app::ChangedTiles>| {
             let Some(c) = session.composite(ts) else { return };

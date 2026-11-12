@@ -16,6 +16,8 @@ pub fn apply(filter: Filter, input: [f32; 3], channel: ChannelKind) -> [f32; 3] 
         }),
         Filter::BlurWrap { .. } | Filter::Transform { .. } | Filter::Mirror { .. } => input, // Staged by the compositor too.
         Filter::GradientDynamic { .. } => input, // Reads an image: evaluated by the compositor.
+        Filter::BevelShape { .. } | Filter::MaskOutlineShape { .. } | Filter::Fxaa { .. } | Filter::DropShadow { .. } | Filter::OuterGlow { .. } => input,
+        Filter::HeightAdjust { invert, offset, multiply } => input.map(|v| height_adjust(v, invert, offset, multiply, channel)),
         Filter::Smoothstep { min, max } => input.map(|v| smoothstep(v, min, max)),
         Filter::ThresholdCompare { cutoff, mode } => {
             let value = if channel.is_color() { luminance(input) } else { input[0] };
@@ -208,6 +210,14 @@ fn gradient_map(g: &subcraft_doc::Gradient, to_gray: bool, input: [f32; 3], chan
     if channel.is_color() && !to_gray { return c; }
     let l = luminance(c);
     [if signed { l * 2.0 - 1.0 } else { l }; 3]
+}
+
+/// Painter's Height Adjust: invert (`1 - v`; signed Height: `-v`), then `v * multiply + offset`,
+/// clamped to the channel's range.
+pub fn height_adjust(v: f32, invert: bool, offset: f32, multiply: f32, channel: ChannelKind) -> f32 {
+    let v = if !invert { v } else if channel.is_signed() { -v } else { 1.0 - v };
+    let v = v * multiply + offset;
+    if channel.is_signed() { v.clamp(-1.0, 1.0) } else { v.clamp(0.0, 1.0) }
 }
 
 pub fn apply_mask(filter: Filter, value: f32) -> f32 {
@@ -578,5 +588,22 @@ mod parity_tests {
         close(replace_color([0.8, 0.0, 0.0], from, to, 0.1, 0.2), [0.3, 0.0, 0.5]);
         close(replace_color([0.0, 1.0, 0.0], from, to, 0.1, 0.2), [0.0, 1.0, 0.0]);
         close(replace_color([0.8, 0.0, 0.0], from, to, 0.1, 0.0), [0.8, 0.0, 0.0]);
+    }
+}
+
+#[cfg(test)]
+mod mask_shape_filter_tests {
+    use super::*;
+
+    #[test]
+    fn height_adjust_inverts_then_scales_then_offsets_within_the_range() {
+        let f = |invert, offset, multiply| Filter::HeightAdjust { invert, offset, multiply };
+        assert_eq!(apply(f(false, 0.0, 1.0), [0.3; 3], ChannelKind::Roughness), [0.3; 3]);
+        assert!((apply(f(false, 0.1, 2.0), [0.3; 3], ChannelKind::Roughness)[0] - 0.7).abs() < 1e-6);
+        assert!((apply(f(true, 0.0, 1.0), [0.3; 3], ChannelKind::Roughness)[0] - 0.7).abs() < 1e-6);
+        // Signed Height inverts its sign and keeps negative values.
+        assert!((apply(f(true, 0.0, 2.0), [0.3; 3], ChannelKind::Height)[0] + 0.6).abs() < 1e-6);
+        assert_eq!(apply(f(false, 0.5, 2.0), [0.4; 3], ChannelKind::Roughness)[0], 1.0, "clamped");
+        assert!((apply_mask(f(true, 0.2, 0.5), 0.4) - 0.5).abs() < 1e-6);
     }
 }

@@ -74,7 +74,7 @@ Layout notes: one flat dropdown, grouped by separators in this order: Normal / P
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
 | Normal | Layer row > blending dropdown | default for most channels | done | crates/doc/src/blend.rs:8 | - |
-| Passthrough | Layer row > blending dropdown | default for instanced layers and for layers made by dropping a filter | partial: offered on folders only, not on paint/fill layers | crates/doc/src/blend.rs:163 | - |
+| Passthrough | Layer row > blending dropdown | default for instanced layers and for layers made by dropping a filter | partial: offered on every layer; on effects it is not offered; instanced layers do not exist | crates/doc/src/blend.rs:189 | - |
 | Disable | Layer row > blending dropdown | n/a | done | crates/doc/src/blend.rs:12 | - |
 | Replace | Layer row > blending dropdown | n/a | done | crates/doc/src/blend.rs:14 | - |
 | Multiply | Layer row > blending dropdown | default for Ambient Occlusion channel | done | crates/doc/src/blend.rs:158 | - |
@@ -117,7 +117,7 @@ Layout notes: one flat dropdown, grouped by separators in this order: Normal / P
 | Duplicate via Ctrl + drag and drop of the layer(s) | Layer stack | n/a | done | crates/ui/src/panels/layers.rs:136 | - |
 | Drag a Material from Assets into the stack (new fill layer at the drop position) | Assets > Layer stack | n/a | partial: lands above the row it is dropped on, no between-rows insert bar | crates/ui/src/panels/layers.rs:411 | - |
 | Drag a Smart Material from Assets into the stack (new folder) | Assets > Layer stack | n/a | partial: lands above the row it is dropped on | crates/ui/src/panels/shelf.rs:95 | - |
-| Drag an effect (filter / generator) from Assets into the stack (new layer set to Passthrough on all channels) | Assets > Layer stack | n/a | missing | - | - |
+| Drag an effect (filter / generator) from Assets into the stack (new layer set to Passthrough on all channels) | Assets > Layer stack | n/a | partial: filters only (generators are not on the shelf) | crates/ui/src/panels/shelf.rs:133 | - |
 | Drag a texture from Assets into the stack (new fill layer) | Assets > Layer stack | n/a | done | crates/ui/src/panels/shelf.rs:111 | - |
 | Drag an alpha / procedural / environment map into the stack | Assets > Layer stack | n/a | partial: alphas go to the row's mask as an image effect; no procedural or environment drop | crates/ui/src/panels/shelf.rs:115 | - |
 | Drag a Smart Mask onto the stack as a new layer (fill layer with that mask) | Assets > Layer stack | n/a | partial: applies to the row it is dropped on, never creates a layer | crates/ui/src/panels/shelf.rs:99 | - |
