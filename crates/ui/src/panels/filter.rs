@@ -5,17 +5,59 @@ use subcraft_core::color::{linear3_to_srgb, srgb3_to_linear};
 use subcraft_doc::{Filter, Gradient, GradientStop, OutlinePosition, GRADIENT_PRESETS, MAX_GRADIENT_STOPS};
 use crate::widgets::{prop_row, slider_row};
 
-pub fn editor(ui: &mut Ui, filter: &mut Filter, channel: Option<ChannelKind>) -> bool {
-    let mut changed = false;
-    prop_row(ui, "Filter", |ui| {
-        egui::ComboBox::from_id_salt("filter_kind").selected_text(filter.label()).show_ui(ui, |ui| {
-            for choice in Filter::ALL {
-                if channel.map_or(choice.supports_mask(), |k| choice.supports_channel(k))
-                    && ui.selectable_label(filter.label() == choice.label(), choice.label()).clicked() {
-                    *filter = choice; changed = true;
+/// Filters whose name contains every word of `query` (case-insensitive), in list order.
+pub fn search(query: &str, usable: impl Fn(&Filter) -> bool) -> Vec<Filter> {
+    let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
+    Filter::ALL
+        .into_iter()
+        .filter(|f| usable(f))
+        .filter(|f| {
+            let name = f.label().to_lowercase();
+            words.iter().all(|w| name.contains(w.as_str()))
+        })
+        .collect()
+}
+
+/// Painter's filter mini shelf: a button with the current filter that opens a searchable list.
+/// Returns the picked filter (with its default parameters).
+pub fn picker(ui: &mut Ui, current: &str, usable: impl Fn(&Filter) -> bool) -> Option<Filter> {
+    let button = ui.button(format!("{current}  \u{25be}")).on_hover_text("Pick another filter (type to search)");
+    let query_id = button.id.with("filter_search");
+    let mut picked = None;
+    egui::Popup::menu(&button).id(button.id.with("filter_picker")).show(|ui| {
+        ui.set_min_width(200.0);
+        let mut query = ui.data(|d| d.get_temp::<String>(query_id)).unwrap_or_default();
+        let field = ui.add(egui::TextEdit::singleline(&mut query).hint_text("Search filters").desired_width(190.0));
+        if button.clicked() { field.request_focus(); }
+        let found = search(&query, &usable);
+        egui::ScrollArea::vertical().max_height(560.0).show(ui, |ui| {
+            if found.is_empty() { ui.weak("No filter matches"); }
+            for f in found {
+                if ui.selectable_label(f.label() == current, f.label()).clicked() {
+                    picked = Some(f);
+                    ui.close();
                 }
             }
         });
+        // Enter takes the first match.
+        if field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) && let Some(f) = search(&query, &usable).into_iter().next() {
+            picked = Some(f);
+            ui.close();
+        }
+        ui.data_mut(|d| d.insert_temp(query_id, query));
+    });
+    picked
+}
+
+pub fn editor(ui: &mut Ui, filter: &mut Filter, channel: Option<ChannelKind>) -> bool {
+    let mut changed = false;
+    prop_row(ui, "Filter", |ui| {
+        if let Some(choice) = picker(ui, filter.label(), |f| channel.map_or(f.supports_mask(), |k| f.supports_channel(k))) {
+            if choice.label() != filter.label() {
+                *filter = choice;
+                changed = true;
+            }
+        }
     });
     let lower = if channel.is_some_and(|c| c.is_signed()) { -1.0 } else { 0.0 };
     match filter {
@@ -345,4 +387,28 @@ fn gradient_editor(ui: &mut Ui, gradient: &mut Gradient) -> bool {
         changed |= gradient.insert(GradientStop { position, color: gradient.eval(position) });
     }
     changed
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_filter_search_matches_every_word_and_respects_what_the_channel_supports() {
+        let all = search("", |_| true);
+        assert_eq!(all.len(), Filter::ALL.len());
+        let blur: Vec<&str> = search("blur", |_| true).iter().map(|f| f.label()).collect();
+        assert!(!blur.is_empty() && blur.iter().all(|l| l.to_lowercase().contains("blur")), "{blur:?}");
+        assert_eq!(search("BLUR", |_| true).len(), blur.len(), "case does not matter");
+        assert!(search("zzz", |_| true).is_empty());
+        // Words can come in any order.
+        if let Some(two) = Filter::ALL.iter().map(|f| f.label()).find(|l| l.contains(' ')) {
+            let mut words: Vec<&str> = two.split(' ').collect();
+            words.reverse();
+            assert!(search(&words.join(" "), |_| true).iter().any(|f| f.label() == two));
+        }
+        // Colour-only filters are not offered for a grey channel.
+        let grey = search("", |f| f.supports_channel(ChannelKind::Roughness));
+        assert!(!grey.iter().any(|f| f.label() == "Grayscale"));
+    }
 }
