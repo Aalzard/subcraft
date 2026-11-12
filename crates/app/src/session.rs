@@ -1651,6 +1651,11 @@ impl Session {
         if self.brush.target != PaintTarget::Content || self.brush.mode == StrokeMode::Erase {
             return None;
         }
+        // A clone stroke without a source fails to start; it must not leave a new empty layer and
+        // an undo step behind.
+        if self.brush.mode == StrokeMode::Clone && self.clone_source.is_none() {
+            return None;
+        }
         let paintable = self.selected_layer().is_some_and(|l| matches!(&l.content, subcraft_doc::LayerContent::Paint(p) if p.path.is_none() && p.text.is_none()));
         if paintable { return None; }
         self.execute(Command::AddLayer(NewLayer::Paint)).ok()?;
@@ -1663,6 +1668,10 @@ impl Session {
             return Ok(());
         }
         let layer = self.selection.layer.ok_or(PaintError::LayerNotFound)?;
+        // Before anything below changes the document: a refused stroke leaves no trace.
+        if self.brush.mode == StrokeMode::Clone && self.clone_source.is_none() {
+            return Err(PaintError::NoCloneSource);
+        }
         // A normal-map / height stamp turns on its channel on the layer with the first stroke.
         let stamp = self.stroke_stamp();
         if let Some((s, _)) = &stamp {

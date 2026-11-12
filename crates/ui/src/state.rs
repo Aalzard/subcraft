@@ -600,6 +600,16 @@ impl UiState {
         }
     }
 
+    /// A modal window covers the app ("Unsaved changes", "didn't close properly", the update
+    /// restart, New Project): document shortcuts must not act behind it. Delete or Ctrl+Z used to
+    /// change the document behind the unsaved-changes prompt, which then saved that state.
+    pub fn modal_open(&self) -> bool {
+        self.confirm.is_some()
+            || !self.recovery.crashed.is_empty()
+            || self.new_project.open
+            || self.updater.as_ref().is_some_and(|u| matches!(u.phase, subcraft_app::updater::Phase::Preparing | subcraft_app::updater::Phase::Exiting))
+    }
+
     pub fn set_status(&mut self, msg: impl Into<String>, now: f64) {
         let msg = msg.into();
         log::info!("status: {msg}");
@@ -741,3 +751,22 @@ impl Default for StencilDisplay {
 #[cfg(test)]
 #[path = "state_sync_tests.rs"]
 mod state_sync_tests;
+
+#[cfg(test)]
+mod modal_tests {
+    use super::*;
+
+    /// QA 2026-11: document shortcuts (Delete, Ctrl+Z) acted behind the unsaved-changes prompt.
+    #[test]
+    fn any_modal_window_blocks_document_shortcuts() {
+        let mut state = UiState::new(Session::sample(), None);
+        assert!(!state.modal_open());
+        state.confirm = Some(crate::dialogs::Pending::Close);
+        assert!(state.modal_open());
+        state.confirm = None;
+        state.new_project.open = true;
+        assert!(state.modal_open());
+        state.new_project.open = false;
+        assert!(!state.modal_open());
+    }
+}

@@ -204,6 +204,12 @@ fn paint_input(state: &mut UiState, ui: &Ui, response: &egui::Response, image: R
         }
         return;
     }
+    // Clone and Smudge need the 3D view (a clone source point, a view to smudge in): here they used
+    // to paint a plain stroke with the brush colour.
+    if matches!(state.tool, Tool::Clone | Tool::Smudge) {
+        state.set_status("Clone and Smudge paint in the 3D view", now);
+        return;
+    }
     state.session.brush.mode = if state.tool == Tool::Eraser { StrokeMode::Erase } else { StrokeMode::Paint };
     if let Some(name) = state.session.ensure_paint_layer() {
         state.set_status(format!("Painting on a new paint layer, \"{name}\" (the selected layer was not a paint layer)"), now);

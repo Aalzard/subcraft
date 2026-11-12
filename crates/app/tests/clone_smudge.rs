@@ -233,3 +233,17 @@ fn smudge_with_symmetry_does_not_carry_paint_across_the_mirror() {
     assert_eq!(left, 0.0, "smudging clean surface on the mirrored side must leave it clean");
     assert!(at(&after, 0.5, 0.0)[3] > 0.9, "the painted side is still painted");
 }
+
+/// QA 2026-11: a click with the Clone tool and no clone source, on a layer that is not a paint
+/// layer, added an empty paint layer (and an undo step) and only then failed.
+#[test]
+fn clone_without_a_source_adds_no_layer_and_no_undo_step() {
+    let mut s = session();
+    s.execute(subcraft_app::Command::AddLayer(subcraft_app::NewLayer::Fill)).unwrap();
+    let (doc, entries) = (s.document().clone(), s.history().entries().len());
+    s.brush.mode = StrokeMode::Clone;
+    assert_eq!(s.ensure_paint_layer(), None);
+    assert_eq!(s.begin_stroke().unwrap_err(), PaintError::NoCloneSource);
+    assert_eq!(s.document(), &doc);
+    assert_eq!(s.history().entries().len(), entries);
+}

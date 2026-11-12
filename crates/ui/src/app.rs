@@ -1094,7 +1094,7 @@ impl SubcraftApp {
     }
 
     fn shortcuts(&mut self, ctx: &egui::Context) {
-        if ctx.egui_wants_keyboard_input() {
+        if ctx.egui_wants_keyboard_input() || self.state.modal_open() {
             self.state.tab_pressed = false;
             return;
         }
