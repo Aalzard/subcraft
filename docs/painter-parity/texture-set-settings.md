@@ -179,7 +179,7 @@ Layout notes: a "Bake Mesh Maps" button, then one slot per mesh map with a thumb
 | Slot: Thickness | Texture Set Settings > Mesh maps | empty | partial: row appears only once baked | crates/ui/src/panels/texture_sets.rs:117 | #137 |
 | Slot: Height | Texture Set Settings > Mesh maps | empty | partial: empty slot opens the bake window, cannot pick a file | crates/ui/src/panels/texture_sets.rs:260 | #137 |
 | Slot: Bent normals | Texture Set Settings > Mesh maps | empty | partial: empty slot opens the bake window, cannot pick a file | crates/ui/src/panels/texture_sets.rs:260 | #137 |
-| Slot: Opacity | Texture Set Settings > Mesh maps | empty | missing | - | - |
+| Slot: Opacity | Texture Set Settings > Mesh maps | empty | missing (the Opacity *channel* is done, see Channels) | - | - |
 | Click a slot to select an image resource | Mesh map slot | (unverified) | missing | - | #137 |
 | Drag a texture from Assets onto a slot | Mesh map slot | (unverified) | missing | - | - |
 | Replace the map in a filled slot | Mesh map slot | (unverified) | missing | - | #137 |

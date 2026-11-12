@@ -19,7 +19,7 @@ fn presets_persist_in_the_user_library() {
     let lib = UserLibrary::new(&root);
     let mut presets = ExportPresets::load(Some(&lib));
     assert_eq!(presets.user().len(), 0);
-    assert_eq!(presets.builtin().len(), 9);
+    assert_eq!(presets.builtin().len(), 15);
 
     let new = presets.create().unwrap();
     assert_eq!(new.name, "New preset");

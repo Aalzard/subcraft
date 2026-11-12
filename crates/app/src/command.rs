@@ -30,6 +30,11 @@ pub enum Command {
     /// resampling its painted rasters; `None` changes every texture set. One undo step.
     SetResolution { texture_set: Option<TextureSetId>, resolution: u32 },
     SetAlbedoFilter { texture_set: TextureSetId, filter: subcraft_image::TextureFilter },
+    /// Start the texture set's layer stack transparent (alpha 0) or at the opaque channel
+    /// defaults (issue #145).
+    SetTransparent { texture_set: TextureSetId, transparent: bool },
+    /// Viewport alpha mode, threshold and dithering of a texture set (display only).
+    SetAlphaSettings { texture_set: TextureSetId, alpha: subcraft_doc::AlphaSettings },
     SelectLayer(Option<LayerId>),
     SelectLayerTarget { layer: LayerId, target: crate::session::LayerTarget },
     /// Select an effect in the layer's content or mask stack (`None`: the domain itself). Tool

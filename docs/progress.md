@@ -5319,6 +5319,100 @@ the app kept drawing on the dead device. Safe mode works; 0.3.3's marker only he
 * **Tests:** `crates/app/tests/layer_polish_parity.rs`, `crates/ui/tests/layer_polish.rs`, a project round trip of
   colour tags, a blend group test, a layer-content clipboard test. Compile-checked locally; CI runs the tests.
 
+### Issue #145: transparent textures (2026-11-12, branch `claude/transparency`)
+
+* **Opacity channel:** already in the channel vocabulary (linear 0-1, default 1); now removable from Texture Set
+  Settings (the X button sends `RemoveChannel`), and adding any channel gives every existing layer a blend entry for it
+  (`AddChannel` calls `add_blend`), so an added Opacity channel is paintable and fillable on the current layer at once.
+  The viewport uploads Opacity with the shaded channels.
+* **Transparent texture sets:** `TextureSet.transparent` ("Transparent (start empty)" in Texture Set Settings,
+  `Command::SetTransparent`). The stack starts from the channel default with alpha 0 instead of 1 (CPU tile path,
+  stage graph, GPU plan and the composite fill), so unpainted texels keep alpha 0 and painting on an empty layer shows
+  only the stroke. Straight-alpha W3C compositing already handled a transparent backdrop (the blend function needs a
+  backdrop; over nothing the source shows). `CompositeCache` and `same_composite_inputs` treat a change as a full
+  re-evaluation.
+* **Viewport:** `TextureSet.alpha` (`AlphaSettings { mode: Opaque | Test | Blend, threshold 0.33, dithering }`,
+  `Command::SetAlphaSettings`), shown under General properties. `viewport.wgsl` reads `t_opacity` (binding 9) and a
+  per-material `MaterialParams` uniform (binding 10); alpha = Base Color coverage x Opacity. Test discards below the
+  threshold, dithering discards against a 4x4 Bayer matrix (depth-correct), Blend draws those sets in a second pass
+  with straight-alpha blending, depth tested but not written (unsorted). The emission pass follows the same alpha.
+  Solo-channel and baked-map views stay opaque. The raster viewport has no shadow maps, so there are no shadows to
+  respect; the path tracer still ignores opacity (follow-up).
+* **Export:** `Source::Alpha` (effective opacity: Opacity, 1 when absent, x Base Color coverage). New built-in
+  presets after the original nine: "PBR Metallic Roughness + Opacity" and "Unreal Engine (ORM packed) + Opacity"
+  (RGBA Base Color plus a grey Opacity map), "Unity HDRP (Mask Map) + Alpha", "Unity URP (Metallic + Occlusion) +
+  Alpha", "Godot 4 (ORM) + Alpha", "glTF 2.0 + Alpha". A map with a standalone alpha source is written for a set
+  with an Opacity channel or a transparent Base Color. Colour channels offer component A (stack coverage) in the
+  preset editor, and Painter presets reading the opacity document map import as `Source::Alpha`. RGBA writes to PNG,
+  TGA, TIFF and EXR (JPEG keeps its map format, as before). Padding only writes gutter texels, so alpha edges inside
+  islands are kept; before padding, texels with alpha 0 take the colour of the nearest visible texel
+  (`bleed_under_alpha`), so filtering shows no grey fringe. The v0.3.0 golden bytes of the original nine templates
+  are unchanged.
+* **Compatibility:** project schema 18 (`transparent`, `alpha` on texture sets, omitted when default); schema 1-17
+  files load as opaque sets drawn opaque. `.spp` import already maps Painter's Opacity channel.
+* **Tests:** `crates/compositor/tests/transparency.rs` (alpha union across layers, Multiply / Screen over covered and
+  empty texels, Opacity painting, cache invalidation), `crates/export/src/tests/alpha.rs` (alpha in PNG / TGA /
+  PNG16 / EXR, Opacity map, colour bleed, padding keeps island alpha, coverage component, presets),
+  `crates/render/tests/alpha.rs` (test / blend / dither / coverage on the GPU), `crates/app/tests/transparency.rs`
+  (export end to end, undo, Opacity on existing layers), a schema 18 round trip in `crates/project/src/tests.rs`.
+* **Not done:** Painter's "Dilation + transparent" padding, the "Document channels + Normal + AO (With Alpha)"
+  template, new-project templates with alpha, opacity in the path tracer and in the glTF / USD scene export
+  (`alphaMode`), alpha settings on shader instances (chunk 29 moves them there).
+
+## Rendering mode panel (Painter parity chunk 51, 2026-11-12, branch `claude/parity-rendering-mode`)
+
+* Path tracer (`crates/render/src/pathtrace.rs`, `pathtrace.wgsl`):
+  * New settings: min samples, a time limit (tracing time only), a firefly-filter switch (the
+    indirect clamp the tracer always had), a clear color for camera rays that miss, and ground
+    settings (`GroundSettings`: offset, reflectivity color, glossiness, shadow intensity, visible
+    from below).
+  * The ground gets a glossy Phong-lobe reflection tinted by the reflectivity; the diffuse part
+    keeps the rest. Shadow intensity scales the key light's shadow on the ground.
+  * Accumulation stops at the sample limit, or at the time limit once the minimum samples are
+    done (`render_done`).
+  * `PathTraceStatus` reports the elapsed time, the limit, the traced resolution and `done`.
+  * Every default keeps the image as it was (zero reflectivity skips the new branch without
+    drawing a random number).
+* Display Settings > Render settings:
+  * A Status block: resolution, scene size, iterations, rendering time.
+  * Resolution override (width and height). The picture is letterboxed in the 3D view and keeps
+    the vertical field of view (`viewport::trace_params`).
+  * Dome > Clear color, and the Ground group.
+  * "Save render…" writes the path-traced picture as shown, tone mapped, as a PNG
+    (`render_export::save_path_traced`).
+* The Render button popup gains Min samples, Max time with a unit (seconds, minutes, hours) and
+  Firefly filter.
+* zh-Hant and Korean: 37 new texts translated.
+* Tests added:
+  * `crates/render/tests/pathtrace.rs` (GPU):
+    * The clear color exactly on missed pixels, and a restart when it changes.
+    * The time limit stopping after one frame, then the minimum samples still being taken.
+    * A mirror ground (reflectivity 1, glossiness 1) at least 3x brighter than the 18% floor.
+    * A ground offset of 100 units leaving the background.
+    * The floor hidden from below.
+    * Shadow intensity 0 lifting the shadowed floor.
+  * Unit tests: `render_done`, preference to settings mapping with clamping, `trace_params`
+    (the 16:9 projection equals Mat4::perspective_rh at 16:9), `format_duration`.
+* Checked: see the PR (gated `cargo check --release --all-targets`). NOT verified locally: the
+  test suites (CI is the test gate) and the running app.
+* Not done: Caustic sampler, Share (ArtStation), dome type / radius / texture scale, absolute
+  ground coordinates (an offset instead), MDL parameters.
+### Parity chunk 49 - Position and UV generators (2026-11-12, branch `claude/parity-position-uv-generators`)
+
+* **New generator kinds** (`crates/doc/src/mask.rs`, settings in `Generator::shape` / `ShapeSettings`, skipped in
+  JSON when absent): 3D Distance (Position X / Y / Z, Radius, Offset, Contrast, Invert), 3D Linear Gradient (start
+  and end positions, Balance, Contrast, Invert), UV Random Color as a mask (one random gray per UV island, Seed with a
+  Random button) and Grayscale Conversion (image, the eight grayscale types, Balance, Contrast, Tile, Rotation, Safe
+  Rotation, Invert). Positions are in the model's bounding box, 0..1 per axis (the Position map's colours); they come
+  from the mesh, so no baked Position map is needed.
+* **Light** (the Directional generator): Horizontal / Vertical Angle rows (`light_direction` / `light_angles`) and
+  Light Attenuation (fades toward the far side of the bounding box).
+* **Compositor** (`crates/compositor/src/mask.rs`, `eval_shape_generator`): per-texel evaluation, no extra stages.
+* **Not done:** UV Border Distance (needs a distance field across tiles), UV Checker and UV Texel Density (fill-layer
+  generators, chunk 35), UV Random Color's Custom Gradient and Light on a fill layer, picking positions from the
+  Position map in the viewport.
+* **Checked:** see the PR (compile check, then CI).
+
 ### Painter parity chunk 12: Texture Set List header (2026-11-12, branch `claude/parity-ts-header`)
 
 * **Done:** the Texture Set List has a header: visibility menu (Show All / Hide All / Invert Show/Hide), Focus mode

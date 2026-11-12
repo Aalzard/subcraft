@@ -230,6 +230,8 @@ pub fn write_project_with<W: Write + Seek>(
             mixing: ts.mixing,
             albedo_filter: ts.albedo_filter,
             udim_tile: ts.udim_tile,
+            transparent: ts.transparent,
+            alpha: ts.alpha,
             channels: ts.channels.iter().map(|c| ChannelDefV1 { kind: c.kind, format: c.format }).collect(),
             user_channel_names: ts.user_channel_names.clone(),
             layers: ts.layers.iter().map(|l| writer.layer(l)).collect(),
@@ -447,7 +449,13 @@ impl<R: Read + Seek> Loader<'_, R> {
             MaskEffectKindV1::Fill { value, procedural, projection } => {
                 MaskEffectKind::Fill { value: *value, procedural: *procedural, projection: *projection }
             }
-            MaskEffectKindV1::Generator { generator } => MaskEffectKind::Generator(*generator),
+            MaskEffectKindV1::Generator { generator } => {
+                // A Mask Editor value out of range (a huge contrast reads as infinity) made the mask NaN.
+                if !self.trusted && generator.editor.as_ref().is_some_and(|e| !e.valid()) {
+                    return Err(ProjectError::Invalid("invalid Mask Editor settings".into()));
+                }
+                MaskEffectKind::Generator(*generator)
+            }
             MaskEffectKindV1::Levels { levels } => MaskEffectKind::Levels(*levels),
             MaskEffectKindV1::Filter { filter } => {
                 if !self.trusted && (!filter.valid() || !filter.supports_mask()) { return Err(ProjectError::Invalid("invalid mask filter".into())); }
@@ -611,6 +619,8 @@ fn read_project_checked<R: Read + Seek>(r: R, trusted: bool) -> Result<ProjectDa
             mixing: t.mixing,
             albedo_filter: t.albedo_filter,
             udim_tile: t.udim_tile,
+            transparent: t.transparent,
+            alpha: t.alpha,
             channels: t.channels.iter().map(|c| ChannelDef { kind: c.kind, format: c.format }).collect(),
             user_channel_names: t.user_channel_names.iter().filter(|(k, n)| k.is_user() && !n.trim().is_empty()).map(|(k, n)| (*k, n.clone())).collect(),
             layers: Vec::new(),

@@ -164,12 +164,60 @@ pub struct GpuMaterial {
     pub mesh_maps: BTreeMap<subcraft_core::MeshMapKind, ChannelTexture>,
     pub bind_group: Option<wgpu::BindGroup>,
     pub bake_bind_groups: BTreeMap<subcraft_core::MeshMapKind, wgpu::BindGroup>,
+    /// How the viewport draws this set's opacity (issue #145).
+    pub alpha: subcraft_doc::AlphaSettings,
+    /// `MaterialParams` uniform (binding 10), created with the bind group.
+    pub(crate) params: Option<wgpu::Buffer>,
 }
 
 impl GpuMaterial {
     pub fn new() -> Self {
-        Self { albedo_filter: Default::default(), channels: BTreeMap::new(), mesh_maps: BTreeMap::new(), bind_group: None, bake_bind_groups: BTreeMap::new() }
+        Self {
+            albedo_filter: Default::default(),
+            channels: BTreeMap::new(),
+            mesh_maps: BTreeMap::new(),
+            bind_group: None,
+            bake_bind_groups: BTreeMap::new(),
+            alpha: Default::default(),
+            params: None,
+        }
     }
+
+    /// Whether this material is drawn in the blended pass (after the opaque ones, no depth write).
+    pub fn blends(&self) -> bool {
+        self.alpha.mode == subcraft_doc::AlphaMode::Blend && !self.alpha.dithering
+    }
+}
+
+/// `MaterialParams` of `viewport.wgsl`.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct MaterialParams {
+    /// x: mode (0 opaque, 1 test, 2 blend), y: threshold, z: 1 = dithering.
+    pub alpha: [f32; 4],
+}
+
+impl MaterialParams {
+    pub fn new(alpha: &subcraft_doc::AlphaSettings) -> Self {
+        use subcraft_doc::AlphaMode;
+        let mode = match alpha.mode {
+            AlphaMode::Opaque => 0.0,
+            AlphaMode::Test => 1.0,
+            AlphaMode::Blend => 2.0,
+        };
+        let dither = if alpha.mode != AlphaMode::Opaque && alpha.dithering { 1.0 } else { 0.0 };
+        Self { alpha: [mode, alpha.threshold.clamp(0.0, 1.0), dither, 0.0] }
+    }
+}
+
+/// A `MaterialParams` uniform buffer for `alpha`.
+pub(crate) fn params_buffer(device: &wgpu::Device, alpha: &subcraft_doc::AlphaSettings) -> wgpu::Buffer {
+    use wgpu::util::DeviceExt;
+    device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("material params"),
+        contents: bytemuck::bytes_of(&MaterialParams::new(alpha)),
+        usage: wgpu::BufferUsages::UNIFORM,
+    })
 }
 
 impl Default for GpuMaterial {

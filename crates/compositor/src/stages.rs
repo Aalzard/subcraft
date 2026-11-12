@@ -471,7 +471,7 @@ impl<'a> Graph<'a> {
         g.with_anchors(&ts.layers);
         for kind in ts.channel_kinds() {
             let d = kind.default_value().0;
-            let root = g.push(Node::Constant([d[0], d[1], d[2], 1.0]));
+            let root = g.push(Node::Constant([d[0], d[1], d[2], ts.base_alpha()]));
             let mut below = root;
             let mut tops = Vec::with_capacity(ts.layers.len());
             let mut last = None;
