@@ -5567,3 +5567,15 @@ the app kept drawing on the dead device. Safe mode works; 0.3.3's marker only he
 * Not done: cameras from Alembic and USD files, camera roll (the orbit camera has none), free
   rotation mode, separate OS windows for undocked views, Shader settings and Log dock buttons
   (no such panels yet).
+### Painter parity chunk 44: flatten and layer export (2026-11-12, branch `claude/parity-chunk44-flatten`)
+
+* **Flatten (Ctrl+M, right-click > Flatten):** `Command::FlattenLayers` evaluates each selected layer or folder on its
+  own (`Session::flattened`, through the compositor's content preview at full resolution) into a paint layer of rasters
+  right above it, with the source's blending (Passthrough becomes Normal), colour tag, part mask and a mask whose
+  effects are baked into its base. The source stays, hidden. One undo step; an empty selection says so in the status
+  line. A Passthrough folder is flattened as an isolated folder.
+* **Export flattened to files:** right-click > Export flattened to files: a pattern field (`$textureSet_$layerName_$srcMap`,
+  kept for the session) and a folder picker. One image per channel, EXR for Height and Normal, 8-bit PNG otherwise,
+  1 px padding, plus the mask as PNG; several selected layers export in one go.
+* **Tests:** `crates/app/tests/flatten.rs` (a folder flattens to the same composite and is hidden, undo; mask baking,
+  disabled channels, empty selection; export names, sizes and formats).
