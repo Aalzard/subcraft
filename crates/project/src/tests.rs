@@ -464,7 +464,7 @@ fn content_effects_roundtrip_exactly_with_schema_5() {
     let mut json = String::new();
     zip.by_name("document.json").unwrap().read_to_string(&mut json).unwrap();
     assert!(json.contains("\"content_effects\"") && json.contains("\"type\": \"levels\""), "{json}");
-    assert_eq!(SCHEMA_VERSION, 17);
+    assert_eq!(SCHEMA_VERSION, 18);
     assert_eq!(read_project(Cursor::new(bytes)).unwrap().document, doc, "effect ids, order, blends, rasters survive");
 }
 
@@ -560,7 +560,7 @@ fn loader_rejects_filters_with_invalid_domains_or_parameters() {
 #[test]
 fn neighborhood_filters_keep_their_original_json() {
     use subcraft_doc::Filter;
-    assert_eq!(SCHEMA_VERSION,17);
+    assert_eq!(SCHEMA_VERSION,18);
     assert_eq!(serde_json::to_string(&Filter::Blur {radius:4.0}).unwrap(),r#"{"kind":"blur","radius":4.0}"#);
     assert_eq!(serde_json::to_string(&Filter::Sharpen {radius:2.0,amount:1.5}).unwrap(),r#"{"kind":"sharpen","radius":2.0,"amount":1.5}"#);
 }
@@ -944,7 +944,7 @@ fn schema_17_anchors_roundtrip_have_stable_json_and_older_projects_migrate() {
     let old = effect_document();
     let bytes = with_manifest(save(&old), |m| m.replace(&format!("\"schema_version\": {SCHEMA_VERSION}"), "\"schema_version\": 16"));
     assert_eq!(read_project(Cursor::new(bytes)).unwrap().document, old);
-    assert_eq!(SCHEMA_VERSION, 17);
+    assert_eq!(SCHEMA_VERSION, 18);
 }
 
 #[test]
@@ -974,4 +974,40 @@ fn display_settings_are_saved_with_the_project_and_old_projects_have_none() {
     let read = read_project(Cursor::new(bytes)).unwrap();
     assert_eq!(read.settings.display, Some(display));
     assert_eq!(read.settings, settings);
+}
+
+/// Schema 18 (issue #145): transparent texture sets and their viewport alpha settings survive a
+/// round trip; opaque sets write neither key; schema 17 projects load as opaque sets.
+#[test]
+fn schema_18_transparent_sets_roundtrip_and_older_projects_stay_opaque() {
+    use subcraft_doc::{AlphaMode, AlphaSettings};
+    let mesh = primitives::cube(2.0);
+    let save = |doc: &Document| write_project(Cursor::new(Vec::new()), &mesh, doc, &ResourceStore::default(), &MeshMapSet::new()).unwrap().into_inner();
+    let doc_json = |bytes: &[u8]| {
+        let mut zip = zip::ZipArchive::new(Cursor::new(bytes.to_vec())).unwrap();
+        let mut json = String::new();
+        zip.by_name("document.json").unwrap().read_to_string(&mut json).unwrap();
+        json
+    };
+    let mut ts = TextureSet::new("Glass", 0, 128);
+    ts.transparent = true;
+    ts.alpha = AlphaSettings { mode: AlphaMode::Test, threshold: 0.5, dithering: true };
+    ts.channels.push(subcraft_doc::ChannelDef::default_for(ChannelKind::Opacity));
+    let doc = Document { texture_sets: vec![ts, TextureSet::new("Body", 1, 128)] };
+    let bytes = save(&doc);
+    let json = doc_json(&bytes);
+    assert!(json.contains("\"transparent\": true"), "{json}");
+    assert!(json.contains("\"mode\": \"test\"") && json.contains("\"dithering\": true"), "{json}");
+    assert_eq!(json.matches("\"transparent\"").count(), 1, "the opaque set writes no key");
+    assert_eq!(json.matches("\"alpha\"").count(), 1, "default alpha settings write no key");
+    assert_eq!(read_project(Cursor::new(bytes.clone())).unwrap().document, doc);
+    assert_eq!(serde_json::to_string(&AlphaSettings::default()).unwrap(), r#"{"mode":"opaque","threshold":0.33,"dithering":false}"#);
+    assert_eq!(serde_json::from_str::<AlphaSettings>("{}").unwrap(), AlphaSettings::default());
+
+    // A schema 17 project (no transparency keys) loads as opaque sets drawn opaque.
+    let old = effect_document();
+    let bytes = with_manifest(save(&old), |m| m.replace(&format!("\"schema_version\": {SCHEMA_VERSION}"), "\"schema_version\": 17"));
+    let back = read_project(Cursor::new(bytes)).unwrap().document;
+    assert_eq!(back, old);
+    assert!(back.texture_sets.iter().all(|t| !t.transparent && t.alpha == AlphaSettings::default()));
 }

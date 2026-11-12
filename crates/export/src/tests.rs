@@ -1,3 +1,4 @@
+mod alpha;
 mod golden;
 mod presets;
 mod view2d;

@@ -208,6 +208,51 @@ fn general(state: &mut UiState, ui: &mut Ui, cmds: &mut Vec<Command>) {
         });
     });
     ui.horizontal(|ui| { crate::viewport_bar::albedo_filter(ui, state); });
+    transparency(state, ui, cmds);
+}
+
+/// Issue #145: a texture set that starts empty (unpainted texels have alpha 0) and how the
+/// viewport draws opacity (Painter's alpha-test / alpha-blending shaders and their threshold and
+/// dithering parameters).
+fn transparency(state: &UiState, ui: &mut Ui, cmds: &mut Vec<Command>) {
+    let (id, transparent, alpha, has_opacity) = {
+        let ts = state.session.selected_texture_set();
+        (ts.id, ts.transparent, ts.alpha, ts.has_channel(ChannelKind::Opacity))
+    };
+    ui.horizontal(|ui| {
+        field_label(ui, "Background");
+        let mut t = transparent;
+        ui.checkbox(&mut t, "Transparent (start empty)").on_hover_text(
+            "Unpainted texels have alpha 0 instead of the default material: export Base Color with an alpha preset \
+             (\"+ Opacity\" / \"+ Alpha\") to keep them transparent.",
+        );
+        if t != transparent { cmds.push(Command::SetTransparent { texture_set: id, transparent: t }); }
+    });
+    let mut a = alpha;
+    ui.horizontal(|ui| {
+        field_label(ui, "Alpha");
+        egui::ComboBox::from_id_salt("tss_alpha_mode").width(ui.available_width() - 28.0).selected_text(a.mode.label()).show_ui(ui, |ui| {
+            for m in subcraft_doc::AlphaMode::ALL { ui.selectable_value(&mut a.mode, m, m.label()); }
+        }).response.on_hover_text("How the viewport draws Opacity (and the empty parts of a transparent set). Export is not affected.");
+    });
+    if a.mode != subcraft_doc::AlphaMode::Opaque {
+        ui.horizontal(|ui| {
+            field_label(ui, "Alpha threshold");
+            ui.add_enabled(a.mode == subcraft_doc::AlphaMode::Test && !a.dithering, egui::Slider::new(&mut a.threshold, 0.0..=1.0).fixed_decimals(2))
+                .on_disabled_hover_text("Used by alpha test");
+        });
+        ui.horizontal(|ui| {
+            field_label(ui, "");
+            ui.checkbox(&mut a.dithering, "Alpha dithering").on_hover_text("Ordered dither instead of a hard cut / blending: depth-correct, no sorting");
+        });
+        if !has_opacity && !transparent {
+            ui.horizontal(|ui| {
+                field_label(ui, "");
+                ui.label(RichText::new("Add an Opacity channel or make the set transparent to see an effect.").font(theme::font(11.0)).color(TEXT_FAINT));
+            });
+        }
+    }
+    if a != alpha { cmds.push(Command::SetAlphaSettings { texture_set: id, alpha: a }); }
 }
 
 fn channels(state: &mut UiState, ui: &mut Ui, cmds: &mut Vec<Command>) {
@@ -230,8 +275,14 @@ fn channels(state: &mut UiState, ui: &mut Ui, cmds: &mut Vec<Command>) {
         ui.horizontal(|ui| {
             ui.add(egui::Label::new(RichText::new(d.kind.display_name()).font(theme::font_strong(12.0)).color(TEXT)).selectable(false));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.add_enabled(false, egui::Button::new(RichText::new(icons::X).font(theme::font(12.0))).frame(false))
-                    .on_disabled_hover_text("Removing a channel is not supported yet (layers store data per channel)");
+                let last = defs.len() == 1;
+                if ui.add_enabled(!last, egui::Button::new(RichText::new(icons::X).font(theme::font(12.0))).frame(false))
+                    .on_hover_text(format!("Remove the {} channel (undo brings it back)", d.kind.display_name()))
+                    .on_disabled_hover_text("A texture set needs at least one channel")
+                    .clicked()
+                {
+                    cmds.push(Command::RemoveChannel { texture_set: id, kind: d.kind });
+                }
                 ui.add_enabled(false, egui::Button::new(RichText::new(icons::GEAR).font(theme::font(12.0))).frame(false))
                     .on_disabled_hover_text("Channel format is fixed for now");
                 ui.label(RichText::new(format_badge(d.kind, d.format)).font(theme::font(11.0)).color(TEXT_DIM));

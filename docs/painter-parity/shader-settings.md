@@ -90,8 +90,8 @@ page are marked (unverified).
 | OpenPBR shader (default since 12.1) | Shader mini-shelf | channels: OpenPBR 1.1 set (base, specular, coat, fuzz, transmission, subsurface, thin-film, emission, geometry; exact list not documented) | missing | - | - |
 | Adobe Standard Material (asm-metal-rough) | Shader mini-shelf | channels: Base color, Roughness, Metallic, Specular level, Specular edge color, Anisotropy level, Anisotropy angle, Coat opacity, Coat color, Coat roughness, Coat specular level, Coat normal, Sheen opacity, Sheen color, Sheen roughness, Scattering, Scattering color, Opacity, Translucency, Absorption color, common (mapping partly unverified) | missing | - | - |
 | pbr-metal-rough | Shader mini-shelf | channels: Base color, Roughness, Metallic, Specular level, Scattering, Displacement, common | partial: the built-in fixed shader; no Specular level, Scattering or Displacement, no parameters | crates/render/src/viewport.wgsl:1 | - |
-| pbr-metal-rough-with-alpha-blending | Shader mini-shelf | channels: as pbr-metal-rough plus Opacity (unverified) | missing | - | - |
-| pbr-metal-rough-with-alpha-test (docs also write pbr-metal-rough-alpha-test; draws back faces) | Shader mini-shelf | channels: as pbr-metal-rough plus Opacity | missing | - | - |
+| pbr-metal-rough-with-alpha-blending | Shader mini-shelf | channels: as pbr-metal-rough plus Opacity (unverified) | partial: Texture Set Settings > Alpha = Alpha blending on the one built-in shader (no shader instances yet); blended after the opaque sets without depth write, unsorted | crates/doc/src/texture_set.rs (AlphaSettings), crates/render/src/viewport.wgsl (surface_alpha) | #145 |
+| pbr-metal-rough-with-alpha-test (docs also write pbr-metal-rough-alpha-test; draws back faces) | Shader mini-shelf | channels: as pbr-metal-rough plus Opacity | partial: Texture Set Settings > Alpha = Alpha test (back faces were already drawn) | crates/doc/src/texture_set.rs (AlphaSettings), crates/render/src/viewport.wgsl (surface_alpha) | #145 |
 | pbr-metal-rough-anisotropy-angle | Shader mini-shelf | channels: as pbr-metal-rough plus Anisotropy level, Anisotropy angle | missing | - | - |
 | pbr-coated (clear coat) | Shader mini-shelf | channels: as pbr-metal-rough plus User0 (coat roughness), User1 (coat mask) | missing | - | - |
 | pbr-spec-gloss | Shader mini-shelf | channels: Diffuse, Specular, Glossiness, Scattering, common (unverified) | missing | - | - |
@@ -118,8 +118,8 @@ Subsurface Scattering Parameters. Alpha threshold and Alpha dithering only appea
 | Quality (specular samples) | Shader Settings > Common Parameters | Low (16 spp); options Very low (4), Low (16), Medium (32), High (64), Very high (128), Ultra (256) | missing | - | - |
 | Horizon Fading | Shader Settings > Common Parameters | 1.3; 0-2 | missing | - | - |
 | Emissive Intensity | Shader Settings > Common Parameters | 1; 0-100 | missing: emissive is shaded at a fixed strength | - | - |
-| Alpha threshold | Shader Settings > Common Parameters (alpha-test shaders) | 0.33; 0-1 | missing | - | - |
-| Alpha dithering | Shader Settings > Common Parameters (alpha shaders) | off | missing | - | - |
+| Alpha threshold | Shader Settings > Common Parameters (alpha-test shaders) | 0.33; 0-1 | done (per texture set until shader instances exist) | crates/doc/src/texture_set.rs (AlphaSettings), crates/render/src/viewport.wgsl (surface_alpha) | #145 |
+| Alpha dithering | Shader Settings > Common Parameters (alpha shaders) | off | done: 4x4 Bayer, per texture set | crates/doc/src/texture_set.rs (AlphaSettings), crates/render/src/viewport.wgsl (surface_alpha) | #145 |
 | Height force (removed from the default shaders in 2018.1) | Shader Settings (legacy) | not documented | partial: View > "Height bump" 0-0.1 (default 0.02), global rather than per instance | crates/ui/src/app.rs:1273 | - |
 
 ## Default PBR shader parameters: Parallax Occlusion Mapping
@@ -151,8 +151,8 @@ everything else here is from memory and marked (unverified). No per-parameter de
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Geometry > Opacity: Alpha test | Shader Settings (ASM, 9.1) | off | missing | - | - |
-| Geometry > Opacity: Alpha blending | Shader Settings (ASM, 9.1) | off | missing | - | - |
+| Geometry > Opacity: Alpha test | Shader Settings (ASM, 9.1) | off | partial: same switch in Texture Set Settings (no ASM shader) | crates/doc/src/texture_set.rs (AlphaSettings), crates/render/src/viewport.wgsl (surface_alpha) | #145 |
+| Geometry > Opacity: Alpha blending | Shader Settings (ASM, 9.1) | off | partial: same switch in Texture Set Settings (no ASM shader) | crates/doc/src/texture_set.rs (AlphaSettings), crates/render/src/viewport.wgsl (surface_alpha) | #145 |
 | Geometry > Opacity: Alpha threshold | Shader Settings (ASM) | 0.33; 0-1 (from lib-alpha) | missing | - | - |
 | Geometry > Opacity: Alpha dithering | Shader Settings (ASM, 9.1) | off | missing | - | - |
 | Interior: Translucency (enable; needs a Translucency channel) | Shader Settings (ASM, 9.1) | off | missing | - | - |

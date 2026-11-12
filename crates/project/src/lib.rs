@@ -228,6 +228,8 @@ pub fn write_project_with<W: Write + Seek>(
             resolution: ts.resolution,
             albedo_filter: ts.albedo_filter,
             udim_tile: ts.udim_tile,
+            transparent: ts.transparent,
+            alpha: ts.alpha,
             channels: ts.channels.iter().map(|c| ChannelDefV1 { kind: c.kind, format: c.format }).collect(),
             layers: ts.layers.iter().map(|l| writer.layer(l)).collect(),
             mesh_maps: mesh_maps
@@ -606,6 +608,8 @@ fn read_project_checked<R: Read + Seek>(r: R, trusted: bool) -> Result<ProjectDa
             resolution: t.resolution,
             albedo_filter: t.albedo_filter,
             udim_tile: t.udim_tile,
+            transparent: t.transparent,
+            alpha: t.alpha,
             channels: t.channels.iter().map(|c| ChannelDef { kind: c.kind, format: c.format }).collect(),
             layers: Vec::new(),
         };
