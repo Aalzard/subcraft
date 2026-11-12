@@ -700,7 +700,7 @@ fn content_editor(ui: &mut Ui, state: &mut UiState, layer: &Layer, e: &ContentEf
             }
             ContentEffectKind::Generator(g) => {
                 hint(ui, "The generator's gray result goes into every channel but Normal; set each channel's blending below.");
-                changed |= super::properties::content_generator_controls(ui, g);
+                changed |= super::properties::content_generator_controls(ui, state, g);
             }
             ContentEffectKind::Anchor => {
                 let index = subcraft_doc::AnchorIndex::build(&state.session.selected_texture_set().layers);

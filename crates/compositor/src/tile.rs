@@ -331,6 +331,12 @@ fn apply_content_effects(effects: &[Arc<ContentEffect>], acc: &Acc, content: &mu
                 for (o, v) in e.iter_mut().zip(&out) {
                     *o = [v[0], v[0], v[0], v[1]];
                 }
+                // UV Checker, UV Texel Density and UV Random Color give a colour on colour channels.
+                if kind.is_color() && let Some(colors) = crate::mask::generator_color(g, tc) {
+                    for (o, c) in e.iter_mut().zip(&colors) {
+                        o[..3].copy_from_slice(c);
+                    }
+                }
             }
             ContentEffectKind::Filter { filter, .. } => {
                 if !effect.applies_to(kind) || !filter.valid() { continue; }

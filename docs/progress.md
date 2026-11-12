@@ -5567,3 +5567,20 @@ the app kept drawing on the dead device. Safe mode works; 0.3.3's marker only he
 * Not done: cameras from Alembic and USD files, camera roll (the orbit camera has none), free
   rotation mode, separate OS windows for undocked views, Shader settings and Log dock buttons
   (no such panels yet).
+
+### Parity: UV generators (2026-11-13, branch `claude/parity-uv-generators`)
+
+* **New generator kinds** (`crates/doc/src/mask.rs`, settings in `ShapeSettings`): UV Border Distance (Distance in
+  pixels up to one tile, Smoothness, Balance, Contrast, Invert), UV Checker (Seed, Checker Color Mode Uniform / Random
+  per island, Checker Color, Checker Grid Tile, Checker Grid Opacity, UV Borders Color and Width) and UV Texel Density
+  (Color Low / Medium / High).
+* **Colour on content:** UV Checker, UV Texel Density and UV Random Color give a colour when the generator sits in a
+  layer's content stack (`generator_color` in `crates/compositor/src/mask.rs`, used by the content Generator effect);
+  in a mask they are that colour's brightness (UV Random Color keeps its gray per island).
+* **Island borders** (`border_distance`): the UV island of every texel of the tile and its eight neighbours, border
+  texels where the island changes or ends, then the exact distance transform. No baked map is read.
+* The content generator's Properties now show the position / UV kinds' own settings.
+* **Not done:** UV Random Color's Custom Gradient, picking a Grayscale Conversion image on a content generator.
+* **Checked:** not compiled locally (CI is the compile and test gate); new tests: doc `uv_generators_have_their_math`,
+  compositor `uv_border_distance_ramps_in_from_the_island_borders`,
+  `uv_checker_and_texel_density_give_colour_on_content`.
