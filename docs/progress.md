@@ -5397,3 +5397,18 @@ the app kept drawing on the dead device. Safe mode works; 0.3.3's marker only he
   test suites (CI is the test gate) and the running app.
 * Not done: Caustic sampler, Share (ArtStation), dome type / radius / texture scale, absolute
   ground coordinates (an offset instead), MDL parameters.
+### Parity chunk 49 - Position and UV generators (2026-11-12, branch `claude/parity-position-uv-generators`)
+
+* **New generator kinds** (`crates/doc/src/mask.rs`, settings in `Generator::shape` / `ShapeSettings`, skipped in
+  JSON when absent): 3D Distance (Position X / Y / Z, Radius, Offset, Contrast, Invert), 3D Linear Gradient (start
+  and end positions, Balance, Contrast, Invert), UV Random Color as a mask (one random gray per UV island, Seed with a
+  Random button) and Grayscale Conversion (image, the eight grayscale types, Balance, Contrast, Tile, Rotation, Safe
+  Rotation, Invert). Positions are in the model's bounding box, 0..1 per axis (the Position map's colours); they come
+  from the mesh, so no baked Position map is needed.
+* **Light** (the Directional generator): Horizontal / Vertical Angle rows (`light_direction` / `light_angles`) and
+  Light Attenuation (fades toward the far side of the bounding box).
+* **Compositor** (`crates/compositor/src/mask.rs`, `eval_shape_generator`): per-texel evaluation, no extra stages.
+* **Not done:** UV Border Distance (needs a distance field across tiles), UV Checker and UV Texel Density (fill-layer
+  generators, chunk 35), UV Random Color's Custom Gradient and Light on a fill layer, picking positions from the
+  Position map in the viewport.
+* **Checked:** see the PR (compile check, then CI).
