@@ -33,8 +33,8 @@ Layout notes: the 2D view sits to the right of the 3D view inside the viewport a
 | Display material | M | - | missing | - | - |
 | Display next mesh map | B | - | missing | - | - |
 | Display previous mesh map | Shift + B | - | missing | - | - |
-| Viewport layout 2D only | F3 | - | partial: click the 2D View dock tab; no key | crates/ui/src/app.rs:189 | - |
-| Swap 2D / 3D view | F4 | - | partial: manual dock drag only | crates/ui/src/app.rs:232 | - |
+| Viewport layout 2D only | F3 | - | done; also a 2D view button on the left tool rail | crates/ui/src/app.rs | - |
+| Swap 2D / 3D view | F4 | - | done | crates/ui/src/app.rs | - |
 
 ## Mesh wireframe and channel display options
 
@@ -42,9 +42,9 @@ Layout notes: these options are in Display settings > Viewport settings and act 
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Show mesh wireframe (UV wireframe in the 2D view) | Display settings > Mesh wireframe | off | partial: "Show UV lines" toggle in the 2D tab header, separate from the 3D wireframe | crates/ui/src/panels/uv_view.rs:62 | - |
-| Wireframe color | Display settings > Mesh wireframe | not documented | partial: fixed white | crates/ui/src/panels/uv_view.rs:125 | - |
-| Wireframe opacity | Display settings > Mesh wireframe | not documented | partial: fixed (about 27 percent) | crates/ui/src/panels/uv_view.rs:125 | - |
+| Show mesh wireframe (UV wireframe in the 2D view) | Display settings > Mesh wireframe | off | partial: grid toggle in the 2D tab header (on by default), separate from the 3D wireframe switch | crates/ui/src/panels/uv_view.rs | - |
+| Wireframe color | Display settings > Mesh wireframe | not documented | done: the 2D UV lines use the mesh wireframe colour; right-click the grid toggle to change it | crates/ui/src/panels/uv_view.rs | - |
+| Wireframe opacity | Display settings > Mesh wireframe | not documented | done: shared with the mesh wireframe opacity; right-click the grid toggle | crates/ui/src/panels/uv_view.rs | - |
 | Scale HDR values | Display settings > Channel display | not documented | missing | - | - |
 | Use +/- color for HDR values | Display settings > Channel display | not documented | missing | - | - |
 | Color channels: RGBA | Display settings > Channel display | default on colour channels | missing | - | - |
@@ -81,27 +81,27 @@ Layout notes: every paint tool works in the 2D view except the Path tools, which
 | Erase with the Eraser | LMB drag | - | done | crates/ui/src/panels/uv_view.rs:207 | - |
 | Projection tool in UV space | LMB drag | - | missing | - | - |
 | Polygon Fill in UV space | LMB click | - | done | crates/ui/src/panels/uv_view.rs:198 | - |
-| Polygon Fill rectangular marquee in UV space | LMB drag | - | missing | - | #131 |
-| Smudge in UV space | LMB drag | - | missing | - | - |
-| Clone in UV space (V + LMB sets the source) | LMB drag | - | missing | - | - |
-| Clone brush preview in the 2D view | 2D view overlay (2018.3) | - | missing | - | - |
-| Material picker in the 2D view | P, then LMB | - | missing | - | - |
+| Polygon Fill rectangular marquee in UV space | LMB drag | - | done | crates/ui/src/panels/uv_view.rs | #131 |
+| Smudge in UV space | LMB drag | - | done | crates/paint/src/stroke.rs | - |
+| Clone in UV space (V + LMB sets the source) | LMB drag | - | done: Ctrl+click or V+click sets the source; the source is shared with the 3D view | crates/app/src/session.rs | - |
+| Clone brush preview in the 2D view | 2D view overlay (2018.3) | - | partial: source cross and offset circle, no image preview | crates/ui/src/panels/uv_view.rs | - |
+| Material picker in the 2D view | P, then LMB | - | done: Eyedropper tool, Shift+click picks the material | crates/ui/src/panels/uv_view.rs | - |
 | Painting limited to the 0-1 range in regular projects | 2D view | - | done | crates/ui/src/panels/uv_view.rs:177 | - |
-| Brush cursor in the 2D view | 2D view overlay | - | partial: outline circle only | crates/ui/src/panels/uv_view.rs:139 | - |
+| Brush cursor in the 2D view | 2D view overlay | - | partial: outline circle for brush, eraser, smudge and clone | crates/ui/src/panels/uv_view.rs | - |
 | Draw straight lines | Shift + LMB | - | done | crates/ui/src/panels/uv_view.rs:214 | - |
-| Draw straight lines with snapping | Ctrl + Shift + LMB | every 5 degrees | missing | - | - |
-| Dotted straight-line preview | 2D view overlay while Shift is held | - | missing | - | - |
-| Change tool size / hardness | Ctrl + RMB drag | - | missing | - | - |
-| Change tool flow / rotation | Ctrl + LMB drag | - | missing | - | - |
+| Draw straight lines with snapping | Ctrl + Shift + LMB | every 5 degrees | done | crates/ui/src/panels/uv_view.rs | - |
+| Dotted straight-line preview | 2D view overlay while Shift is held | - | done | crates/ui/src/panels/uv_view.rs | - |
+| Change tool size / hardness | Ctrl + RMB drag | - | done (shared with the 3D view) | crates/ui/src/viewport.rs | - |
+| Change tool flow / rotation | Ctrl + LMB drag | - | done (shared with the 3D view) | crates/ui/src/viewport.rs | - |
 | Increase / decrease tool size | ] and [ | - | done | crates/app/src/session.rs:1586 | - |
 | Lazy mouse in the 2D view | D; Contextual toolbar | - | done | crates/app/src/session.rs:1725 | - |
-| Symmetry while painting in the 2D view | L; Contextual toolbar | not supported for projection / stencil | missing | - | - |
-| Stencil shown and usable in the 2D view | 2D view with a stencil loaded | - | missing | - | - |
-| Stencil rotate | S + LMB drag | - | missing | - | - |
-| Stencil snap rotate | Shift + S + LMB drag | - | missing | - | - |
-| Stencil translation | S + MMB drag | - | missing | - | - |
-| Stencil zoom | S + RMB drag | - | missing | - | - |
-| Ignore stencil mask | hold N | - | missing | - | - |
+| Symmetry while painting in the 2D view | L; Contextual toolbar | not supported for projection / stencil | done: each dab is mirrored through the 3D model to the matching texture position | crates/paint/src/stroke.rs | - |
+| Stencil shown and usable in the 2D view | 2D view with a stencil loaded | - | done: laid over the 2D view and masks UV strokes there | crates/paint/src/kernel.rs | - |
+| Stencil rotate | S + LMB drag | - | done | crates/ui/src/viewport.rs | - |
+| Stencil snap rotate | Shift + S + LMB drag | - | done | crates/ui/src/viewport.rs | - |
+| Stencil translation | S + MMB drag | - | done | crates/ui/src/viewport.rs | - |
+| Stencil zoom | S + RMB drag | - | done | crates/ui/src/viewport.rs | - |
+| Ignore stencil mask | hold N | - | done | crates/ui/src/viewport.rs | - |
 | Quick mask editing in the 2D view | U / Y / I | - | missing | - | - |
 | Brush Size Space "Texture" follows the 2D zoom | Properties > Brush > Size Space | Object | missing | - | - |
 | Right-click: floating Properties at the cursor | RMB click in the 2D view | - | missing | - | #131 |

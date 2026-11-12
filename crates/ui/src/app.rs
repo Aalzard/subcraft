@@ -1335,6 +1335,12 @@ impl SubcraftApp {
             ui.add_space(6.0);
             rail_divider(ui);
             ui.add_space(6.0);
+            // The 2D view beside the 3D view, or back to the 3D view alone (Painter's F1 / F2).
+            let both = is_side_by_side(&self.dock);
+            let view_tip = if both { tip(km, "Hide the 2D view (3D view only)", Action::View3dOnly) } else { tip(km, "Show the 2D view (UV space) beside the 3D view", Action::View3dAnd2d) };
+            if tool_button(ui, icons::GRID, both, &view_tip).clicked() {
+                self.perform(if both { Action::View3dOnly } else { Action::View3dAnd2d }, ui.input(|i| i.time));
+            }
             if tool_button(ui, icons::CAMERA, false, &tip(km, "Reset camera", Action::ResetCamera)).clicked() {
                 self.perform(Action::ResetCamera, ui.input(|i| i.time));
             }

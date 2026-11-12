@@ -1,8 +1,8 @@
 //! Tool Properties of the painting tools, in Painter's order: Brush, Alpha, Stencil, Material.
 
-use egui::{RichText, Ui};
+use egui::Ui;
 use subcraft_app::brush_preset::PresetKind;
-use subcraft_paint::{Alignment, PaintTarget, PolygonFillMode};
+use subcraft_paint::{Alignment, PaintTarget};
 
 use crate::state::{Tool, UiState};
 use crate::widgets::{hint, panel, prop_row, section, segmented, slider_row};

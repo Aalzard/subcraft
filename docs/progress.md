@@ -5357,3 +5357,31 @@ the app kept drawing on the dead device. Safe mode works; 0.3.3's marker only he
 * **Not done:** Ctrl+M flatten (chunk 44).
 * **Tests:** `crates/app/tests/layer_polish_parity.rs`, `crates/ui/tests/layer_polish.rs`, a project round trip of
   colour tags, a blend group test, a layer-content clipboard test. Compile-checked locally; CI runs the tests.
+
+### Session - 2D view painting parity, Painter chunk 32 (2026-11-12, branch `claude/paint-2d-parts`, stacks on #131)
+
+**Status:** the release build of `subcraft-ui` passes. The new paint tests passed after their setup was fixed:
+five of seven on the first run, then smudge, clone, refused clone, symmetry and stencil-off. The final rerun of
+the stencil test and the app-level `uv_tools` tests was stopped when the shared build gate was overloaded, so
+GitHub CI runs them. Earlier local runs passed: paint `paint`, `uv_paint`, `tile_bounds`; app lib, `session`,
+`part_workflow`, `polygon_fill_box`. Not tried in the running app yet.
+
+Every paint tool now works in the 2D view the same way as in the 3D view:
+* **Smudge** carries the paint in UV space (`Stroke::smudge_stamps` takes the alignment). Before, it painted with the brush colour.
+* **Clone** works in UV space. Ctrl+click or V+click sets the source (`Session::set_clone_source_uv`). That source is
+  also the 3D source, and the reverse is true too. The first dab fixes the UV offset. Absolute mode resets it on every stroke.
+* **Eyedropper:** click picks the colour, Shift+click picks the material, read from the texture under the cursor.
+* **Stencil:** it is laid over the 2D view. `kernel::UvView` tells the stroke where the texture sits in the view, and
+  `KernelInput::stencil_factor` masks texels through it. S + drag places it and N ignores it. This code is shared
+  with the 3D view (`viewport::stencil_input`).
+* **Symmetry** (mirror and radial): each dab's surface point is mirrored in object space, then snapped to the nearest
+  surface of the same texture set. That point's UV is where the copy lands (`stroke::uv_symmetry_copies`).
+* **Ctrl+RMB / Ctrl+LMB brush gestures** (`viewport::brush_gestures`, shared with the 3D view). **Ctrl+Shift+click**
+  snaps a line to 5° steps, with a dotted preview while Shift is held. Pen pressure works in UV too.
+* **UV wireframe:** it uses the mesh wireframe colour and opacity. Right-click the grid toggle to change them.
+* **Left tool rail:** a 2D view button toggles 3D | 2D and 3D only. F1-F4 already came from #164.
+* `docs/painter-shortcuts-table.md` is regenerated: the RMB row from #131.
+* The merge with main renames #131's curvature mode to `CurvatureDetailMode`, because main added a Mask Editor `CurvatureMode`.
+
+Tests: `crates/paint/tests/uv_tools.rs` covers smudge, clone, refused clone, the stencil through the 2D view and
+symmetry. `crates/app/tests/uv_tools.rs` covers session routing: the 2D clone source, smudge and the eyedropper.
