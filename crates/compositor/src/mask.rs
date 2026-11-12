@@ -119,11 +119,14 @@ fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]], input: 
     let noise_params = scaled_noise(g);
     // The plain Edges threshold (no spread model) keeps its organic noise: the grunge map's broad
     // range would detach dashes from the baked curvature lines.
-    let noise = (g.noise_amount > 0.0).then(|| if uses_grunge_map(g) && g.kind != GeneratorKind::Edges {
-        subcraft_materials::sample::grunge_tile_at(&noise_params, offset, geo)
+    let custom = custom_grunge(g, &noise_params, offset, tc);
+    let noise: Option<Vec<f32>> = (g.noise_amount > 0.0).then(|| if let Some(c) = &custom {
+        c.clone()
+    } else if uses_grunge_map(g) && g.kind != GeneratorKind::Edges {
+        subcraft_materials::sample::grunge_tile_at(&noise_params, offset, geo).to_vec()
     } else if g.organic_breakup {
-        subcraft_materials::sample::organic_tile_at(&noise_params, offset, geo)
-    } else { subcraft_materials::sample::procedural_tile_at(&noise_params, &noise_proj, offset, geo) });
+        subcraft_materials::sample::organic_tile_at(&noise_params, offset, geo).to_vec()
+    } else { subcraft_materials::sample::procedural_tile_at(&noise_params, &noise_proj, offset, geo).to_vec() });
     // Painter's dirt: convex edges are kept clear of dirt by `edges_masking`.
     let edges_masking = g.painter.map_or(0.0, |p| p.edges_masking.clamp(0.0, 1.0));
     let mut curvature = Vec::new();
@@ -132,14 +135,23 @@ fn eval_generator(g: &Generator, tc: &TileContext, out: &mut [[f32; 4]], input: 
         tc.sample.mesh_maps.read_tile(MeshMapKind::Curvature, geo, &mut curvature);
     }
     let floor = g.painter.map_or(0.0, |p| p.grunge_floor.clamp(0.0, 1.0));
-    let grunge_map = uses_grunge_map(g) && g.kind != GeneratorKind::Edges;
+    let grunge_map = (uses_grunge_map(g) || custom.is_some()) && g.kind != GeneratorKind::Edges;
     // Grain speckles dirt's threshold; the plain Edges threshold (no spread model) keeps its exact look.
     // Grain is part of Breakup: it fades in over the first quarter of the Breakup slider, so
     // Breakup 0 is exactly smooth whatever the Grain value.
     let grain = if g.kind == GeneratorKind::Edges { 0.0 } else { g.painter.map_or(0.0, |p| p.grain.clamp(0.0, 1.0)) * (g.noise_amount * 4.0).clamp(0.0, 1.0) };
     let fine = (grain > 0.0).then(|| fine_noise(g, geo));
+    // Curvature generator mode and detail sizes; absent or default: the baked map itself.
+    let mut detail = Vec::new();
+    if g.kind == GeneratorKind::MeshMap(MeshMapKind::Curvature) && let Some(d) = g.curvature.filter(|d| !d.is_identity()) {
+        detail = vec![0.0f32; TILE_TEXELS];
+        // With an anchor input the grids would describe the baked map, not the input: fine and mode only.
+        let source = if input.is_some() { None } else { tc.sample.mesh_maps.get(MeshMapKind::Curvature) };
+        crate::curvature::detail_values(&d, source, geo, &map, &mut detail);
+    }
     for (i, o) in out.iter_mut().enumerate() {
         let raw = match g.kind {
+            GeneratorKind::MeshMap(_) if !detail.is_empty() => detail[i],
             GeneratorKind::Edges | GeneratorKind::MeshMap(_) => map[i][0],
             GeneratorKind::Cavity if !curvature.is_empty() => (1.0 - map[i][0]) * (1.0 - edges_masking * ((curvature[i][0] - 0.5) * 2.0).clamp(0.0, 1.0)),
             GeneratorKind::Cavity | GeneratorKind::AmbientOcclusion => 1.0 - map[i][0],
@@ -430,6 +442,25 @@ fn breakup_field(g: &Generator, params: &subcraft_doc::ProceduralParams, offset:
     }
 }
 
+/// Painter's custom grunge: the generator's image projected tri-planar on the model, the
+/// pattern size setting how often it repeats. `None` without one (or when it is missing).
+fn custom_grunge(g: &Generator, params: &subcraft_doc::ProceduralParams, offset: [f32; 3], tc: &TileContext) -> Option<Vec<f32>> {
+    let bmp = tc.sample.resources.bitmap(g.painter?.custom_grunge?)?;
+    let geo = tc.geo;
+    let projection = Projection { mode: ProjectionMode::Triplanar, scale: [params.scale; 2], triplanar_sharpness: 4.0, ..Projection::default() };
+    let sc = projection.rotation_sin_cos();
+    Some(
+        (0..TILE_TEXELS)
+            .map(|i| {
+                let p = geo.position(i);
+                let p = [p[0] + offset[0], p[1] + offset[1], p[2] + offset[2]];
+                let s = subcraft_materials::sample::sample_projected_sc(&projection, sc, geo.uv(i), p, geo.normal(i), |q| bmp.sample(q[0], q[1], subcraft_image::Wrap::Repeat, false));
+                0.2126 * s[0] + 0.7152 * s[1] + 0.0722 * s[2]
+            })
+            .collect(),
+    )
+}
+
 /// The generator's noise offset, with anything non-finite (a damaged file) ignored.
 fn noise_offset(g: &Generator) -> [f32; 3] {
     if g.offset.iter().all(|v| v.is_finite()) { g.offset } else { [0.0; 3] }
@@ -458,7 +489,7 @@ fn eval_edge_spread(g: &Generator, spread: subcraft_doc::EdgeSpread, tc: &TileCo
     // both share one cached non-periodic volume field and the existing Pattern size/Seed.
     let offset = noise_offset(g);
     let noise_params = scaled_noise(g);
-    let noise = breakup_field(g, &noise_params, offset, tc.geo);
+    let noise = custom_grunge(g, &noise_params, offset, tc).unwrap_or_else(|| breakup_field(g, &noise_params, offset, tc.geo).to_vec());
     let painter = g.painter;
     let mut ao_map = Vec::new();
     if painter.is_some_and(|p| p.ao_masking > 0.0) {
@@ -593,6 +624,16 @@ pub(crate) fn evaluate_effect(kind: &MaskEffectKind, tc: &TileContext, m: &[f32]
             MaskEffectKind::Levels(l) => {
                 for (o, &v) in e.iter_mut().zip(m) {
                     *o = [l.apply(v), 1.0, 0.0, 0.0];
+                }
+            }
+            MaskEffectKind::Filter(subcraft_doc::Filter::GradientDynamic { source, vertical, position }) => {
+                let bmp = tc.sample.resources.bitmap(*source);
+                for (o, &value) in e.iter_mut().zip(m) {
+                    let v = bmp.map_or(value, |b| {
+                        let c = crate::util::gradient_dynamic(b, value, *vertical, *position, false);
+                        0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+                    });
+                    *o = [v, 1.0, 0.0, 0.0];
                 }
             }
             MaskEffectKind::Filter(filter) => {

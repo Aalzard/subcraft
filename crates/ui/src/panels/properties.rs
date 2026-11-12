@@ -408,6 +408,64 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     }
 }
 
+/// The image slot of a filter that reads one (Gradient Dynamic's Gradient Source). Returns
+/// whether the image button was clicked; clearing it marks `changed`.
+pub(crate) fn filter_image_row(ui: &mut Ui, state: &mut UiState, filter: &mut subcraft_doc::Filter, changed: &mut bool) -> bool {
+    let subcraft_doc::Filter::GradientDynamic { source, .. } = filter else { return false };
+    let mut pick = false;
+    match filter_resource(*source) {
+        Some(id) => {
+            if image_row(ui, state, id) {
+                pick = true;
+            }
+            if ui.small_button(tr("Remove image")).clicked() {
+                *source = subcraft_core::ResourceId::nil();
+                *changed = true;
+            }
+        }
+        None => {
+            if secondary_button(ui, tr("Choose gradient image…")).clicked() {
+                pick = true;
+            }
+        }
+    }
+    pick
+}
+
+fn filter_resource(id: subcraft_core::ResourceId) -> Option<subcraft_core::ResourceId> {
+    (id != subcraft_core::ResourceId::nil()).then_some(id)
+}
+
+/// Painter's Use Custom Grunge for the generators with a breakup: an image slot replacing the
+/// noise. Returns whether the image button was clicked.
+fn custom_grunge_row(ui: &mut Ui, state: &mut UiState, g: &mut subcraft_doc::Generator, changed: &mut bool) -> bool {
+    if !matches!(g.kind, GeneratorKind::Edges | GeneratorKind::Cavity | GeneratorKind::Concave) {
+        return false;
+    }
+    let mut pick = false;
+    prop_row(ui, tr("Custom grunge"), |ui| {
+        match g.painter.and_then(|p| p.custom_grunge) {
+            Some(id) => {
+                if image_row(ui, state, id) {
+                    pick = true;
+                }
+                if ui.small_button(tr("Remove image")).clicked() {
+                    if let Some(p) = g.painter.as_mut() {
+                        p.custom_grunge = None;
+                    }
+                    *changed = true;
+                }
+            }
+            None => {
+                if secondary_button(ui, tr("Choose image…")).on_hover_text(tr("An image replaces the breakup noise, projected over the model at the pattern size")).clicked() {
+                    pick = true;
+                }
+            }
+        }
+    });
+    pick
+}
+
 /// A new seed for Painter's Random button: different on every click.
 pub(crate) fn random_seed() -> u32 {
     use std::hash::{BuildHasher, Hasher};
@@ -754,6 +812,35 @@ fn painter_controls(ui: &mut Ui, g: &mut subcraft_doc::Generator) -> bool {
     true
 }
 
+/// The Curvature generator's mode and detail sizes ([`subcraft_doc::CurvatureDetail`]). Untouched
+/// generators keep `curvature: None` (the baked map itself); the first change stores the settings.
+fn curvature_controls(ui: &mut Ui, g: &mut subcraft_doc::Generator) -> bool {
+    use subcraft_doc::{CurvatureDetail, CurvatureDetailMode};
+    let mut d = g.curvature.unwrap_or_default();
+    let before = d;
+    prop_row(ui, tr("Mode"), |ui| {
+        egui::ComboBox::from_id_salt("curvature_mode").selected_text(tr(d.mode.label())).show_ui(ui, |ui| {
+            for mode in CurvatureDetailMode::ALL {
+                ui.selectable_value(&mut d.mode, mode, tr(mode.label()));
+            }
+        })
+        .response
+    })
+    .on_hover_text("Both: the baked map (convex bright, concave dark). Edges only: convex edges on black. Cavities only: concave creases on black.");
+    let max = CurvatureDetail::MAX_WEIGHT;
+    slider_row(ui, tr("Fine detail"), egui::Slider::new(&mut d.fine, 0.0..=max))
+        .on_hover_text("Weight of the baked curvature itself: small bevels and sharp edges. 1 = the map as baked.");
+    slider_row(ui, tr("Medium detail"), egui::Slider::new(&mut d.medium, 0.0..=max))
+        .on_hover_text("Weight of the curvature averaged over about 1/256 of the texture: wider bevels and grooves.");
+    slider_row(ui, tr("Coarse detail"), egui::Slider::new(&mut d.coarse, 0.0..=max))
+        .on_hover_text("Weight of the curvature averaged over about 1/64 of the texture: large forms and broad rounded edges.");
+    if d == before {
+        return false;
+    }
+    g.curvature = Some(d);
+    true
+}
+
 pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_core::LayerId, e: &Arc<MaskEffect>, cmds: &mut Vec<Command>) {
     let mut eff = (**e).clone();
     let default_name = eff.name == eff.kind.label();
@@ -879,12 +966,18 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
                             }
                         }
                     }
+                    if g.kind == GeneratorKind::MeshMap(MeshMapKind::Curvature) {
+                        changed |= curvature_controls(ui, g);
+                    }
                     changed |= level_controls(ui, g);
                     let mut size = g.pattern_size();
                     if slider_row(ui, tr("Pattern size"), egui::Slider::new(&mut size, 1.0..=100.0).logarithmic(true).suffix("%")).changed() {
                         g.set_pattern_size(size); changed = true;
                     }
                     changed |= painter_controls(ui, g);
+                    if custom_grunge_row(ui, state, g, &mut changed) {
+                        crate::files::pick(ui.ctx(), crate::files::Purpose::GeneratorGrunge { layer, effect: e.id }, crate::files::IMAGES, false, None);
+                    }
                     prop_row(ui, tr("Seed"), |ui| {
                         changed |= ui.add(egui::DragValue::new(&mut g.noise.seed).speed(1.)).changed();
                         if ui.small_button(tr("Next")).on_hover_text(tr("Try the next deterministic pattern seed")).clicked() {
@@ -967,6 +1060,9 @@ pub(crate) fn effect_editor(ui: &mut Ui, state: &mut UiState, layer: subcraft_co
                 }
                 MaskEffectKind::Filter(filter) => {
                     changed |= super::filter::editor(ui, filter, None);
+                    if filter_image_row(ui, state, filter, &mut changed) {
+                        crate::files::pick(ui.ctx(), crate::files::Purpose::FilterImage { layer, effect: e.id, mask: true }, crate::files::IMAGES, false, None);
+                    }
                     hint(ui, tr("Filters the mask below this effect; opacity mixes the result with that input."));
                 }
                 MaskEffectKind::Image { resource, projection, invert } => {
@@ -1487,7 +1583,7 @@ mod generator_tests {
         state.session.execute(Command::AddMaskEffect { layer, kind: MaskEffectKind::Generator(Generator::new(GeneratorKind::Edges)) }).unwrap();
         let draw = |state: &mut UiState, events| {
             let mut commands = Vec::new(); let effect = state.session.selected_layer().unwrap().mask.as_ref().unwrap().effects[0].clone();
-            let mut out = ctx.run_ui(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(420., 850.))), events, ..Default::default() }, |ui| effect_editor(ui, state, layer, &effect, &mut commands));
+            let mut out = ctx.run_ui(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(420., 1000.))), events, ..Default::default() }, |ui| effect_editor(ui, state, layer, &effect, &mut commands));
             out.textures_delta.clear(); (out, commands)
         };
         let (out, _) = draw(&mut state, vec![]);

@@ -709,6 +709,9 @@ fn content_editor(ui: &mut Ui, state: &mut UiState, layer: &Layer, e: &ContentEf
             ContentEffectKind::Filter { channel, filter } => {
                 hint(ui, "Adjusts the preceding effect stage. Blur filters soften coverage; others preserve it.");
                 changed |= super::filter::editor(ui, filter, Some(*channel));
+                if super::properties::filter_image_row(ui, state, filter, &mut changed) {
+                    crate::files::pick(ui.ctx(), crate::files::Purpose::FilterImage { layer: layer.id, effect: eff.id, mask: false }, crate::files::IMAGES, false, None);
+                }
                 // Painter's per-channel toggles: every channel the filter processes.
                 let states: Vec<(ChannelKind, bool)> = channels
                     .iter()
