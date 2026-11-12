@@ -544,4 +544,12 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Tool display", "工具顯示"),
     ("Use +/- color for HDR values", "HDR 值使用 +/- 顏色"),
     ("Mesh maps (baked)", "網格貼圖（已烘焙）"),
+    ("A black mask with a color selection effect: pick ID colors in Properties", "帶有色彩選取效果的黑色遮罩：在屬性中挑選 ID 顏色"),
+    ("Add bitmap mask", "新增點陣圖遮罩"),
+    ("Add mask with color selection", "新增色彩選取遮罩"),
+    ("Adds the generator to this layer's mask (a black mask is created if it has none)", "將產生器加入此圖層的遮罩（若沒有遮罩會建立黑色遮罩）"),
+    ("Create mask", "建立遮罩"),
+    ("Needs a mask with at least one effect", "需要至少含一個效果的遮罩"),
+    ("Pastes above this layer", "貼到此圖層上方"),
+    ("Pick a black & white image, or a logo with transparency (a black mask is created if the layer has none)", "選擇黑白影像或帶透明度的標誌（若圖層沒有遮罩會建立黑色遮罩）"),
 ];

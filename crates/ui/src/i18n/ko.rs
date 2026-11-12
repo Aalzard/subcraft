@@ -544,4 +544,12 @@ pub static TABLE: &[(&str, &str)] = &[
     ("Tool display", "도구 표시"),
     ("Use +/- color for HDR values", "HDR 값에 +/- 색상 사용"),
     ("Mesh maps (baked)", "메시 맵(베이크됨)"),
+    ("A black mask with a color selection effect: pick ID colors in Properties", "색상 선택 효과가 있는 검은색 마스크: 속성에서 ID 색상을 고르세요"),
+    ("Add bitmap mask", "비트맵 마스크 추가"),
+    ("Add mask with color selection", "색상 선택 마스크 추가"),
+    ("Adds the generator to this layer's mask (a black mask is created if it has none)", "이 레이어의 마스크에 제너레이터를 추가합니다 (마스크가 없으면 검은색 마스크를 만듭니다)"),
+    ("Create mask", "마스크 만들기"),
+    ("Needs a mask with at least one effect", "효과가 하나 이상 있는 마스크가 필요합니다"),
+    ("Pastes above this layer", "이 레이어 위에 붙여넣습니다"),
+    ("Pick a black & white image, or a logo with transparency (a black mask is created if the layer has none)", "흑백 이미지나 투명한 로고를 고르세요 (레이어에 마스크가 없으면 검은색 마스크를 만듭니다)"),
 ];
