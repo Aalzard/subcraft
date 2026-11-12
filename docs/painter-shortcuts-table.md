@@ -4,7 +4,7 @@
 | General | `Ctrl+Z` | Undo | Undo | already the same |  |
 | General | `Ctrl+Y` | Redo | Redo | already the same |  |
 | General | `F8` | Baking mode | Bake | added (key was free) | opens the Bake window |
-| General | `F9` | Painting mode |  | no equivalent | no separate painting mode |
+| General | `F9` | Painting mode | PaintingMode | already the same | leaves the path-traced Rendering mode |
 | General | `F10` | Rendering (Iray) mode | TogglePathTracing | already the same | path-traced Rendering mode |
 | General | `Ctrl+O` | Open project | OpenProject | already the same |  |
 | General | `Ctrl+F4` | Close project |  | no equivalent | no close-project command |
