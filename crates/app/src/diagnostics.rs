@@ -349,6 +349,12 @@ pub fn install_panic_hook(dir: PathBuf) {
             .unwrap_or_else(|| "(no message)".into());
         let location = p.location().map(|l| format!("{}:{}", l.file(), l.line())).unwrap_or_default();
         let thread = std::thread::current().name().unwrap_or("unnamed").to_string();
+        // The renderer failing on a lost graphics device (driver reset) is not a crash of ours:
+        // no crash report; the user is told and SubCraft restarts in safe mode (issue #119).
+        if crate::gpu_loss::handle_panic(&location, &message) {
+            log::error!("panic after the graphics device was lost (thread '{thread}' at {location}): {message}");
+            return;
+        }
         let backtrace = std::backtrace::Backtrace::force_capture().to_string();
         // Not through `log`: the panic may have happened while the logger was busy.
         if let Some(l) = LOGGER.get()

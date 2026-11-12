@@ -16,6 +16,7 @@ pub mod headless;
 pub mod material;
 mod mipmap;
 pub mod offline;
+pub mod pace;
 pub mod pathtrace;
 pub mod post;
 pub mod ray_bake;

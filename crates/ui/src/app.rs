@@ -616,6 +616,9 @@ impl SubcraftApp {
             crate::spp_import::start(&mut state, path);
         }
         crate::bug_report::record_gpu(cc.wgpu_render_state.as_ref());
+        // From here on a lost graphics device ends in a message and a safe-mode restart, never
+        // in a panic of the renderer (issue #119).
+        crate::device_lost::install(&cc.egui_ctx, options.screenshot.is_none());
         state.bug_report = crate::bug_report::BugReportUi::load();
         if let Some(graphics) = options.graphics_startup.clone() {
             let active = state.graphics.active.clone(); state.graphics = graphics; state.graphics.active = active;
@@ -1589,6 +1592,8 @@ impl eframe::App for SubcraftApp {
     }
 
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
+        // A lost graphics device: draw nothing more (the renderer would panic on it).
+        if crate::device_lost::frame_gate(&mut self.state) == crate::device_lost::Gate::Stop { return; }
         let ctx = ui.ctx().clone();
         if let Some(p) = &mut self.profile {
             p.ui_begin();

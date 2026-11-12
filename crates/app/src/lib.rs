@@ -16,6 +16,7 @@ pub mod diagnostics;
 pub mod id_color;
 pub mod images;
 pub mod graphics;
+pub mod gpu_loss;
 pub mod library;
 pub mod mesh_reload;
 pub mod launch;

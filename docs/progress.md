@@ -4998,3 +4998,38 @@ rotating one slot when a tile is full (helps cyclic stacks, but the 40-layer sta
 * **Run:** `SUBCRAFT_LIBRARY=<dir with a sample user preset> subcraft --export-preset "Studio ORM 16-bit"
   --window-size 1600x1000 --screenshot` shows the Export window with the editor open, no errors; the checklist lists
   the pattern-based names (`T_DefaultMaterial_BaseColor.png`, `..._ORM.png`, `..._N.tif`).
+
+## Issue #119: driver reset on integrated AMD GPUs at start-up (2026-11-12, branch `claude/fix-119-amd-tdr`)
+
+Report: AMD APU (512 MB dedicated VRAM, DX12, driver 31.0.21925.1001, Windows 10 21H2). About 4 s after the first
+normal start the log shows `GPU device lost: Unknown: Device is lost` (the screen freezes / flashes: a Windows TDR);
+about 10 s later egui-wgpu panics at `renderer.rs:984` ("Failed to create staging buffer for index data") because
+the app kept drawing on the dead device. Safe mode works; 0.3.3's marker only helped from the second start.
+
+* **Root cause (by code reading; not reproduced, no AMD APU here):** the default start-up project (2048², smart
+  material) is composited on the GPU at start-up, and a batch of up to 256 tiles × every channel went to the GPU in
+  ONE submission. On the owner's discrete card a 4096² set takes ~1.2 s of GPU time (~75 ms per 256-tile batch); an
+  integrated GPU is 20–30× slower, so one submission passes the ~2 s watchdog, which resets the driver and loses
+  every device on the adapter. Second suspect for the 512 MB card: the compositor's tile pool allocated buffers of up
+  to 512 MB each. 0.3.3 turning off GPU compositing/baking after a loss is why later starts worked. The thumbnail
+  scene bake also used the GPU baker at start-up whatever the preference said.
+* **Short submissions (`render::pace`):** GPU compositing is split into submissions sized by `DispatchPace` —
+  start small, measure, grow toward a target (discrete: 2048 units / 100 ms target / 250 ms limit; integrated,
+  software and unknown: 64 units / 40 ms / 120 ms, growth ×2). One unit = one layer op on one 64×64 tile.
+* **Memory budget (`pace::MemoryBudget`):** integrated GPUs (except Metal; `SUBCRAFT_FULL_GPU_MEMORY=1` overrides)
+  get 4x MSAA off, a 128 MB compositing tile pool (one 128 MB buffer instead of 512 MB ones) and environment maps up
+  to 1024 px wide (the widest mip levels are not uploaded). The choice is logged and written to the startup log.
+* **Thumbnails:** the preview-scene bake runs on the CPU.
+* **Never panic after a loss:** the window device's lost callback and the uncaptured-error handler (loss texts:
+  "device is lost", DXGI 0x887A0005/6/7, …) report the loss once; `app::gpu_loss` writes the GPU-lost marker to the
+  startup log at once and moves to Lost. The first thing every frame does is `device_lost::frame_gate`: on Lost it
+  draws nothing, saves a recovery copy, releases the session lock (so the restart offers Restore), asks "restart in
+  safe mode?" in a native message box and exits the process (no unwinding through egui-wgpu). A renderer panic that
+  still gets there first (wgpu location + loss/staging-buffer text) is recognised by the panic hook: no crash report,
+  same ending. The secondary devices (compositing, ray baking) check the lost flag before every submission and fall
+  back to the CPU. `--safe-mode` after a loss keeps the GpuLostLastRun reason.
+* **Tests:** `pace` (budgets, growth, shrink, slow-adapter simulation, memory budget), `gpu_composite` pool shape,
+  `caps` loss-text recognition, `app::gpu_loss` state machine, `safe_mode`; `crates/ui/tests/device_lost.rs`
+  (headless: frames draw, simulated loss → marker on disk before the next frame, next start decided safe, no frame
+  drawn again, one recovery save, one restart, renderer panic recognised); `crates/render/tests/device_lost.rs`
+  (after a loss no more submissions, CPU result identical); `gpu_composite` many-small-submissions == one.

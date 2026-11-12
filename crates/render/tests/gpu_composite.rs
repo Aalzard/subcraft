@@ -23,12 +23,19 @@ const RES: u32 = 256;
 /// The GPU switch is process-wide: the tests take turns.
 static TURN: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+/// The backend the compositor uses (to set its pacing budget and count submissions).
+static BACKEND: std::sync::OnceLock<Arc<subcraft_render::gpu_composite::GpuCompositor>> = std::sync::OnceLock::new();
+
 fn adapter_ok() -> bool {
     if subcraft_render::gpu_composite::create_any_backend().is_none() {
         eprintln!("no GPU adapter: skipping");
         return false;
     }
-    gpu::register_gpu_compositor(|| subcraft_render::gpu_composite::create_any_backend().map(|b| b as Arc<dyn gpu::GpuCompositeBackend>));
+    gpu::register_gpu_compositor(|| {
+        let backend = subcraft_render::gpu_composite::create_any_backend()?;
+        let _ = BACKEND.set(backend.clone());
+        Some(backend as Arc<dyn gpu::GpuCompositeBackend>)
+    });
     gpu::set_gpu_min_tiles(1);
     gpu::set_gpu_min_resolution(0);
     true
@@ -224,6 +231,55 @@ fn gpu_matches_cpu_on_a_rich_stack() {
     println!("rich stack: worst error {worst:.2} tolerance units, {over} of {total} values beyond 1 unit; {stats:?}");
     assert!(worst <= 8.0, "worst error {worst} tolerance units");
     assert!(over * 1000 <= total, "{over} of {total} values beyond tolerance");
+}
+
+/// Issue #119: a slow adapter gets its work in many short submissions instead of one long one.
+/// The texels must not depend on how the batch is cut.
+#[test]
+fn many_small_submissions_give_the_same_texels_as_one() {
+    use std::time::Duration;
+    use subcraft_render::pace::GpuBudget;
+    let _turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
+    if !adapter_ok() {
+        return;
+    }
+    let fx = Fixture { geo: TextureSetGeometry::new(Arc::new(primitives::plane(2.0, 2)), 0, RES), res: ResourceStore::default(), maps: MeshMaps::new() };
+    let ts = rich_set();
+    let cpu = run(&ts, &fx, false);
+    let whole = run(&ts, &fx, true); // also creates the backend
+    let backend = BACKEND.get().expect("backend created");
+    let tiles = ((RES / subcraft_image::TILE_SIZE) * (RES / subcraft_image::TILE_SIZE)) as u64;
+
+    // Everything in one submission (a budget no batch can exceed).
+    let hour = Duration::from_secs(3600);
+    backend.set_budget(GpuBudget { first_units: u64::MAX / 4, target: hour, max: hour, growth: 1 });
+    let before = backend.submissions();
+    let one = run(&ts, &fx, true);
+    let single = backend.submissions() - before;
+
+    // One work unit per submission and no growth: every pass covers a single tile.
+    backend.set_budget(GpuBudget { first_units: 1, target: hour, max: hour, growth: 1 });
+    let _ = take_gpu_stats();
+    let before = backend.submissions();
+    let split = run(&ts, &fx, true);
+    let many = backend.submissions() - before;
+    let stats = take_gpu_stats();
+    backend.set_budget(GpuBudget::DISCRETE);
+
+    assert_eq!(stats.errors, 0);
+    assert!(stats.tiles >= tiles, "{stats:?}");
+    assert!(single >= 1 && many >= single + tiles, "single-submission run: {single}, split run: {many} submissions for {tiles} tiles");
+    for (kind, a) in &one.channels {
+        let b = split.channel(*kind).unwrap();
+        for y in 0..RES {
+            for x in 0..RES {
+                assert_eq!(a.get(x, y), b.get(x, y), "{kind:?} ({x},{y}) differs between one and many submissions");
+            }
+        }
+    }
+    let (worst, over, total) = compare(&cpu, &split);
+    assert!(worst <= 8.0 && over * 1000 <= total, "split run against the CPU: worst {worst}, {over} of {total} beyond tolerance");
+    let _ = whole;
 }
 
 #[test]
