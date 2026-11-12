@@ -101,6 +101,17 @@ pub enum Command {
     /// of that stack, else on top.
     PasteEffects { layer: LayerId, clip: std::sync::Arc<crate::clipboard::EffectClip> },
     RenameTextureSet { texture_set: TextureSetId, name: String },
+    /// Rename a texture set back to the name of the mesh material it paints (Painter's "Reset name
+    /// to original name"). One undo step; no-op when the name is already the original.
+    ResetTextureSetName(TextureSetId),
+    /// Set the description shown under the name in the Texture Set List. One undo step.
+    SetTextureSetDescription { texture_set: TextureSetId, description: String },
+    /// The Texture Set List visibility menu: Show All, Hide All, Invert Show/Hide. View state only,
+    /// like `SetTextureSetHidden`; it also leaves Focus mode.
+    SetTextureSetsVisibility(SetsVisibility),
+    /// Painter's Focus mode: only the selected texture set is shown, and the view follows the
+    /// selection until it is turned off. View state only.
+    SetTextureSetFocus(bool),
     /// Show or hide a texture set's part of the model in the viewport. View state only: not saved,
     /// no undo step.
     SetTextureSetHidden { texture_set: TextureSetId, hidden: bool },
@@ -195,3 +206,12 @@ impl std::fmt::Display for CommandError {
 }
 
 impl std::error::Error for CommandError {}
+
+/// Entries of the Texture Set List visibility menu.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SetsVisibility {
+    ShowAll,
+    HideAll,
+    /// Shown sets become hidden and hidden sets shown.
+    Invert,
+}

@@ -224,6 +224,7 @@ pub fn write_project_with<W: Write + Seek>(
         .map(|ts| TextureSetV1 {
             id: ts.id.0,
             name: ts.name.clone(),
+            description: ts.description.clone(),
             material_slot: ts.material_slot,
             resolution: ts.resolution,
             albedo_filter: ts.albedo_filter,
@@ -602,6 +603,7 @@ fn read_project_checked<R: Read + Seek>(r: R, trusted: bool) -> Result<ProjectDa
         let mut ts = TextureSet {
             id: TextureSetId(t.id),
             name: t.name.clone(),
+            description: t.description.clone(),
             material_slot: t.material_slot,
             resolution: t.resolution,
             albedo_filter: t.albedo_filter,

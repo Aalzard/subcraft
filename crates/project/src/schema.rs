@@ -64,6 +64,9 @@ fn is_default_settings(s: &subcraft_doc::ProjectSettings) -> bool {
 pub struct TextureSetV1 {
     pub id: Uuid,
     pub name: String,
+    /// Texture Set List description. Additive and optional: absent means empty, older readers ignore it.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub description: String,
     pub material_slot: u32,
     pub resolution: u32,
     /// Schema 6 migration: older files retain their original bilinear reconstruction.

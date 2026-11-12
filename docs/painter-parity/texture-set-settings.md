@@ -9,15 +9,15 @@ Layout notes: the panel has a small header with a visibility menu button, a focu
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Open Menu button (visibility menu) | Texture Set List header | not documented | missing | - | - |
-| Show All | Texture Set List > visibility menu | not documented | missing | - | - |
-| Hide All | Texture Set List > visibility menu | not documented | missing | - | - |
-| Invert Show/Hide | Texture Set List > visibility menu | not documented | missing | - | - |
-| Focus Mode (isolate active set, click again to leave) | Texture Set List header | off | missing | - | - |
-| Settings button (gear menu) | Texture Set List header | not documented | missing | - | - |
-| Hide Empty Descriptions | Texture Set List > Settings | default choice | missing | - | - |
-| Hide All Descriptions | Texture Set List > Settings | off | missing | - | - |
-| Show All Descriptions | Texture Set List > Settings | off | missing | - | - |
+| Open Menu button (visibility menu) | Texture Set List header | not documented | done | crates/ui/src/panels/texture_sets.rs (list_header) | - |
+| Show All | Texture Set List > visibility menu | not documented | done | crates/app/src/session.rs (Command::SetTextureSetsVisibility) | - |
+| Hide All | Texture Set List > visibility menu | not documented | done | crates/app/src/session.rs (Command::SetTextureSetsVisibility) | - |
+| Invert Show/Hide | Texture Set List > visibility menu | not documented | done | crates/app/src/session.rs (Command::SetTextureSetsVisibility) | - |
+| Focus Mode (isolate active set, click again to leave) | Texture Set List header | off | done | crates/app/src/session.rs (Command::SetTextureSetFocus) | - |
+| Settings button (gear menu) | Texture Set List header | not documented | partial: description modes only; no Import Shader Parameters or Reassign | crates/ui/src/panels/texture_sets.rs (list_header) | - |
+| Hide Empty Descriptions | Texture Set List > Settings | default choice | done | crates/ui/src/panels/texture_sets.rs (DescriptionDisplay) | - |
+| Hide All Descriptions | Texture Set List > Settings | off | done | crates/ui/src/panels/texture_sets.rs (DescriptionDisplay) | - |
+| Show All Descriptions | Texture Set List > Settings | off | done | crates/ui/src/panels/texture_sets.rs (DescriptionDisplay) | - |
 | Import Shader Parameters (json) | Texture Set List > Settings | not documented | missing | - | - |
 | Reassign Texture Sets | Texture Set List > Settings | not documented | missing | - | - |
 
@@ -30,7 +30,7 @@ Layout notes: the panel has a small header with a visibility menu button, a focu
 | Visibility eye per row | Texture Set List row | visible | done | crates/ui/src/panels/texture_sets.rs:46 | - |
 | Texture set name | Texture Set List row | mesh material name | done | crates/ui/src/panels/texture_sets.rs:61 | - |
 | Double-click name to rename | Texture Set List row | not documented | done | crates/ui/src/panels/texture_sets.rs:79 | - |
-| Description line under the name (editable in place) | Texture Set List row | hidden when empty | missing | - | - |
+| Description line under the name (editable in place) | Texture Set List row | hidden when empty | done | crates/ui/src/panels/texture_sets.rs (set_rows) | - |
 | Resolution quick dropdown | Texture Set List row | 128 to 4096 (unverified) | done | crates/ui/src/panels/texture_sets.rs:64 | - |
 | Shader instance button (pick an instance) | Texture Set List row, right side | all sets share one instance | partial: static "Main shader" label, no menu | crates/ui/src/panels/texture_sets.rs:76 | - |
 | New shader instance | Texture Set List row > shader button menu | not documented | missing | - | - |
@@ -49,8 +49,8 @@ Layout notes: the panel has a small header with a visibility menu button, a focu
 |---|---|---|---|---|---|
 | Show/Hide texture set | Right-click on a set name | not documented | done | crates/ui/src/panels/texture_sets.rs:82 | - |
 | Edit name | Right-click on a set name | not documented | done | crates/ui/src/panels/texture_sets.rs:81 | - |
-| Reset name to original name | Right-click on a set name | not documented | missing | - | - |
-| Edit Description | Right-click on a set name | not documented | missing | - | - |
+| Reset name to original name | Right-click on a set name | not documented | done | crates/app/src/session.rs (Command::ResetTextureSetName) | - |
+| Edit Description | Right-click on a set name | not documented | done | crates/ui/src/panels/texture_sets.rs (set_rows) | - |
 
 ## Texture Set List: shortcuts
 
@@ -83,7 +83,7 @@ Layout notes: one scrolling column: General properties (Name, Description, Size 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
 | Name | Texture Set Settings > General properties | mesh material name | done | crates/ui/src/panels/texture_sets.rs:172 | - |
-| Description | Texture Set Settings > General properties | empty | missing | - | - |
+| Description | Texture Set Settings > General properties | empty | done | crates/ui/src/panels/texture_sets.rs (general) | - |
 | Size (width) | Texture Set Settings > General properties | up to 4096 in app; list 128 to 4096 (unverified) | done | crates/ui/src/panels/texture_sets.rs:188 | - |
 | Size lock button (unlock for non-square) | Texture Set Settings > General properties | locked | partial: shown but always locked | crates/ui/src/panels/texture_sets.rs:191 | - |
 | Size (height) | Texture Set Settings > General properties | same as width | missing | - | - |

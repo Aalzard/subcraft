@@ -5318,3 +5318,17 @@ the app kept drawing on the dead device. Safe mode works; 0.3.3's marker only he
 * **Not done:** Ctrl+M flatten (chunk 44).
 * **Tests:** `crates/app/tests/layer_polish_parity.rs`, `crates/ui/tests/layer_polish.rs`, a project round trip of
   colour tags, a blend group test, a layer-content clipboard test. Compile-checked locally; CI runs the tests.
+
+### Painter parity chunk 12: Texture Set List header (2026-11-12, branch `claude/parity-ts-header`)
+
+* **Done:** the Texture Set List has a header: visibility menu (Show All / Hide All / Invert Show/Hide), Focus mode
+  (only the selected set is shown and the view follows the selection; click again to leave) and a settings menu with
+  the three description modes (Hide Empty / Hide All / Show All Descriptions). Texture sets have a description:
+  shown under the name, edited in place from the row's right-click menu (Edit Description) or in Texture Set Settings
+  > General properties; one undo step; saved as an optional `description` field (no schema bump, older readers ignore
+  it). Right-click > Reset name renames the set back to its mesh material name.
+* **Verified locally (release):** `cargo check` of doc, project, app (lib + `tests/texture_set_list.rs`) and the ui lib.
+  Tests were not run locally (shared build queue); CI is the test gate.
+* **Tests added:** `crates/app/tests/texture_set_list.rs` (4); ui `panels::texture_sets` unit tests (header menus,
+  description modes).
+* **Not done:** Import Shader Parameters and Reassign Texture Sets in the settings menu.

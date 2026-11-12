@@ -69,6 +69,8 @@ pub struct LayerLocation {
 pub struct TextureSet {
     pub id: TextureSetId,
     pub name: String,
+    /// Free text shown under the name in the Texture Set List (Painter's description). Empty by default.
+    pub description: String,
     /// Index of the mesh material slot this texture set paints.
     pub material_slot: u32,
     pub resolution: u32,
@@ -87,6 +89,7 @@ impl TextureSet {
         Self {
             id: TextureSetId::new(),
             name: name.into(),
+            description: String::new(),
             material_slot,
             resolution,
             albedo_filter: Default::default(),
