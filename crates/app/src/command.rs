@@ -101,6 +101,9 @@ pub enum Command {
     /// of that stack, else on top.
     PasteEffects { layer: LayerId, clip: std::sync::Arc<crate::clipboard::EffectClip> },
     RenameTextureSet { texture_set: TextureSetId, name: String },
+    /// Texture Set Settings > Channels mixing dropdowns (normal, height to normal, AO, UV padding).
+    /// One undo step.
+    SetMixing { texture_set: TextureSetId, mixing: subcraft_doc::MixingSettings },
     /// Rename a texture set back to the name of the mesh material it paints (Painter's "Reset name
     /// to original name"). One undo step; no-op when the name is already the original.
     ResetTextureSetName(TextureSetId),

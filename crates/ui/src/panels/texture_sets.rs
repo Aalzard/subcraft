@@ -4,7 +4,7 @@ use crate::i18n::tr;
 use egui::{Color32, RichText, Ui};
 use subcraft_app::{Command, SetsVisibility};
 use subcraft_core::{ChannelKind, MeshMapKind, TextureSetId};
-use subcraft_doc::ChannelFormat;
+use subcraft_doc::{AoMixing, ChannelFormat, HeightToNormal, MixingSettings, NormalMixing, UvPadding};
 use crate::{icons, state::UiState, theme::{self, ACCENT, TEXT, TEXT_DIM, TEXT_FAINT}};
 
 /// Name of the one shader every texture set uses (Painter's "Main shader").
@@ -342,6 +342,35 @@ fn channels(state: &mut UiState, ui: &mut Ui, cmds: &mut Vec<Command>) {
             });
         });
     }
+    ui.add_space(6.0);
+    let current = state.session.selected_texture_set().mixing;
+    let picked = mixing_rows(ui, current);
+    if picked != current { cmds.push(Command::SetMixing { texture_set: id, mixing: picked }); }
+}
+
+/// Labels of the mixing dropdowns, in Painter's order.
+pub const MIXING_LABELS: [&str; 4] = ["Normal mixing", "Height to normal method", "Ambient occlusion mixing", "UV padding"];
+
+/// The four mixing dropdowns under the channel rows. Returns the settings with the user's pick.
+fn mixing_rows(ui: &mut Ui, current: MixingSettings) -> MixingSettings {
+    fn row<T: Copy + PartialEq>(ui: &mut Ui, label: &str, value: &mut T, all: &[T], name: fn(T) -> &'static str, tip: &str) {
+        ui.horizontal(|ui| {
+            ui.add_sized([150.0, 20.0], egui::Label::new(RichText::new(label).font(theme::font(11.5)).color(TEXT_DIM)).selectable(false));
+            egui::ComboBox::from_id_salt(("tss_mixing", label)).width((ui.available_width() - 12.0).max(60.0)).selected_text(name(*value)).show_ui(ui, |ui| {
+                for &v in all { ui.selectable_value(value, v, name(v)); }
+            }).response.on_hover_text(tip);
+        });
+    }
+    let mut m = current;
+    row(ui, MIXING_LABELS[0], &mut m.normal, &NormalMixing::ALL, NormalMixing::label,
+        "Combine adds the detail of the Height channel to the Normal channel; Replace uses the Normal channel alone");
+    row(ui, MIXING_LABELS[1], &mut m.height_to_normal, &HeightToNormal::ALL, HeightToNormal::label,
+        "How height becomes normals: Smooth looks at the 3x3 neighbourhood, Sharp only at the direct neighbours");
+    row(ui, MIXING_LABELS[2], &mut m.ao, &AoMixing::ALL, AoMixing::label,
+        "Multiply darkens the painted Ambient Occlusion channel with the baked map; Replace uses the channel alone");
+    row(ui, MIXING_LABELS[3], &mut m.uv_padding, &UvPadding::ALL, UvPadding::label,
+        "How texels outside the UV islands are filled at export. SubCraft pads from 2D neighbours for both choices for now");
+    m
 }
 
 fn mesh_maps(state: &mut UiState, ui: &mut Ui, cmds: &mut Vec<Command>) {
@@ -549,6 +578,25 @@ mod tests {
         state.set_descriptions = DescriptionDisplay::HideAll;
         for _ in 0..2 { frame(&mut state, &ctx, list); }
         assert!(!texts(&frame(&mut state, &ctx, list)).iter().any(|s| s == "Hull plates"));
+    }
+
+    #[test]
+    fn mixing_dropdowns_are_listed_and_a_pick_is_one_undo_step() {
+        let mut state = UiState::new(subcraft_app::Session::new(subcraft_mesh::primitives::cube(2.0), 64), None);
+        let ctx = egui::Context::default(); theme::apply(&ctx);
+        for _ in 0..2 { frame(&mut state, &ctx, settings); }
+        let t = texts(&frame(&mut state, &ctx, settings));
+        for want in MIXING_LABELS.into_iter().chain(["Combine", "Smooth (Sobel)", "Multiply", "3D Space Neighbor"]) {
+            assert!(t.iter().any(|s| s == want), "missing {want}: {t:?}");
+        }
+        let ts = state.session.selection().texture_set;
+        let mut m = state.session.selected_texture_set().mixing;
+        assert_eq!(m, MixingSettings::default(), "new sets start with Painter's defaults");
+        m.normal = NormalMixing::Replace;
+        state.run(vec![Command::SetMixing { texture_set: ts, mixing: m }], 0.0);
+        assert_eq!(state.session.selected_texture_set().mixing.normal, NormalMixing::Replace);
+        state.session.perform(subcraft_app::Action::Undo).unwrap();
+        assert_eq!(state.session.selected_texture_set().mixing, MixingSettings::default());
     }
 
     #[test]

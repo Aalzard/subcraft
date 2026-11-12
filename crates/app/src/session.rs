@@ -1470,6 +1470,13 @@ impl Session {
                     self.revision += 1;
                 }
             }
+            Command::SetMixing { texture_set, mixing } => {
+                let ts = self.doc.texture_set_mut(texture_set).ok_or(CommandError::TextureSetNotFound)?;
+                if ts.mixing != mixing {
+                    ts.mixing = mixing;
+                    self.commit("Mixing Settings", None);
+                }
+            }
             Command::SetTextureSetHidden { texture_set, hidden } => {
                 if self.doc.texture_set(texture_set).is_none() { return Err(CommandError::TextureSetNotFound); }
                 let changed = if hidden { self.hidden_sets.insert(texture_set) } else { self.hidden_sets.remove(&texture_set) };
@@ -2449,6 +2456,7 @@ impl Session {
                     udim: ts.udim_number(),
                     channels: &c.channels,
                     mesh_maps: self.mesh_maps.get(&ts.id).map(|m| m.as_map()),
+                    mixing: ts.mixing,
                 })
             })
             .collect()

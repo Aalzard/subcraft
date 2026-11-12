@@ -5332,3 +5332,19 @@ the app kept drawing on the dead device. Safe mode works; 0.3.3's marker only he
 * **Tests added:** `crates/app/tests/texture_set_list.rs` (4); ui `panels::texture_sets` unit tests (header menus,
   description modes).
 * **Not done:** Import Shader Parameters and Reassign Texture Sets in the settings menu.
+
+### Painter parity chunk 41: texture set mixing settings (2026-11-12, branch `claude/parity-ts-mixing`, stacks on chunk 12)
+
+* **Done:** Texture Set Settings > Channels has Painter's four mixing dropdowns, stored per texture set
+  (`MixingSettings`, one undo step): Normal mixing (Combine / Replace), Height to normal method (Smooth (Sobel) /
+  Sharp), Ambient occlusion mixing (Multiply / Replace), UV padding (3D / 2D Space Neighbor). Export applies the first
+  three: Replace leaves height out of the normal map, Smooth uses a 3x3 Sobel filter, Multiply multiplies the painted AO
+  channel by the baked AO. New sets get Painter's defaults; projects saved before this load with
+  `MixingSettings::LEGACY` (the old behaviour: Combine, Sharp, Replace, 2D) so their exports do not change.
+  Saved as an optional `mixing` field (no schema bump).
+* **Verified locally (release):** `cargo check` of doc, project, export, app and ui libs, and of the export and project
+  tests. Tests were not run locally (shared build queue); CI is the test gate.
+* **Tests added:** export `tests/mixing.rs` (4), project `schema::mixing_tests`, ui `panels::texture_sets` unit test.
+* **Not done:** non-square sizes (width / height unlock): about 250 uses of the square `resolution` across paint,
+  compositor, export and the renderer; needs its own chunk. 3D Space Neighbor padding. The viewport does not follow
+  the mixing settings yet (export only).

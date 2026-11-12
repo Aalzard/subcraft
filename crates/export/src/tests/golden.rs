@@ -43,8 +43,8 @@ pub(super) fn golden_hashes() -> Vec<(String, String, u64)> {
     let mut no_ao = ch.clone();
     no_ao.remove(&ChannelKind::AmbientOcclusion);
     let sets = [
-        ExportTextureSet { name: "Body", material_slot: 0, udim: None, channels: &ch, mesh_maps: None },
-        ExportTextureSet { name: "Trim.1002", material_slot: 1, udim: Some(1002), channels: &no_ao, mesh_maps: Some(&baked) },
+        ExportTextureSet { name: "Body", material_slot: 0, udim: None, channels: &ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY },
+        ExportTextureSet { name: "Trim.1002", material_slot: 1, udim: Some(1002), channels: &no_ao, mesh_maps: Some(&baked), mixing: subcraft_doc::MixingSettings::LEGACY },
     ];
     let cases: Vec<(&str, ExportSettings)> = vec![
         ("default", ExportSettings::default()),
@@ -104,7 +104,7 @@ fn builtins_saved_as_user_presets_still_write_the_same_bytes() {
     // Duplicate every built-in through the JSON file format; the copy must export identically.
     let mesh = primitives::sample_crate();
     let ch = gradient_channels();
-    let sets = [ExportTextureSet { name: "Body", material_slot: 0, udim: None, channels: &ch, mesh_maps: None }];
+    let sets = [ExportTextureSet { name: "Body", material_slot: 0, udim: None, channels: &ch, mesh_maps: None, mixing: subcraft_doc::MixingSettings::LEGACY }];
     let then = recorded();
     for t in ExportTemplate::builtin().into_iter().filter(|t| t.name != "2D View") {
         let copy = preset::duplicate(&t, "Copy");
