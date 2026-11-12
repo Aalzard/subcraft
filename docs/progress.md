@@ -5510,6 +5510,19 @@ fills, geometry mask UV and box edits, Alt+H, and the quick mask edit / apply / 
 * **Not done:** UV Border Distance (needs a distance field across tiles), UV Checker and UV Texel Density (fill-layer
   generators, chunk 35), UV Random Color's Custom Gradient and Light on a fill layer, picking positions from the
   Position map in the viewport.
+### Parity chunk 34 - Filter and generator image inputs (2026-11-12, branch `claude/parity-image-inputs`)
+
+* **Custom grunge** (`PainterControls::custom_grunge`): Dirt, Edge wear and Concave generators take an image that
+  replaces their breakup noise, projected tri-planar on the model at the pattern size (`custom_grunge` in
+  `crates/compositor/src/mask.rs`), with the grunge-map style tail. Picked in Properties (`Purpose::GeneratorGrunge`);
+  counted as a resource of the generator (save, fragments, clipboard).
+* **Gradient Dynamic** filter (`Filter::GradientDynamic`): each value (luminance on colour channels) picks the colour
+  of its Gradient Source image along one row (or column, Gradient Orientation) at Gradient Input Position; masks and
+  scalar channels use its luminance. Evaluated by the compositor in content and mask stacks (it reads an image);
+  the image slot is picked from Properties (`Purpose::FilterImage`). Filters report their image through
+  `Filter::resource`.
+* **Not done:** anchors as image inputs for these slots, Warp's Custom Noise and Blur Slope, the Directional
+  Distance / Bevel Smooth distance maps, Custom grunge 2 of Metal Edge Wear, a mini shelf for picking resources.
 ### Parity chunk 35 - Generators on content, random seed (2026-11-12, branch `claude/parity-content-generators`)
 
 * **Generator content effect** (`ContentEffectKind::Generator`, `crates/doc/src/effect.rs`): "Add generator" in a
@@ -5666,3 +5679,15 @@ fills, geometry mask UV and box edits, Alt+H, and the quick mask edit / apply / 
 * Not done: cameras from Alembic and USD files, camera roll (the orbit camera has none), free
   rotation mode, separate OS windows for undocked views, Shader settings and Log dock buttons
   (no such panels yet).
+### Painter parity chunk 44: flatten and layer export (2026-11-12, branch `claude/parity-chunk44-flatten`)
+
+* **Flatten (Ctrl+M, right-click > Flatten):** `Command::FlattenLayers` evaluates each selected layer or folder on its
+  own (`Session::flattened`, through the compositor's content preview at full resolution) into a paint layer of rasters
+  right above it, with the source's blending (Passthrough becomes Normal), colour tag, part mask and a mask whose
+  effects are baked into its base. The source stays, hidden. One undo step; an empty selection says so in the status
+  line. A Passthrough folder is flattened as an isolated folder.
+* **Export flattened to files:** right-click > Export flattened to files: a pattern field (`$textureSet_$layerName_$srcMap`,
+  kept for the session) and a folder picker. One image per channel, EXR for Height and Normal, 8-bit PNG otherwise,
+  1 px padding, plus the mask as PNG; several selected layers export in one go.
+* **Tests:** `crates/app/tests/flatten.rs` (a folder flattens to the same composite and is hidden, undo; mask baking,
+  disabled channels, empty selection; export names, sizes and formats).

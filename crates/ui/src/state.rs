@@ -96,6 +96,10 @@ pub struct UiState {
     /// lists every stale tile; `--profile-edits` uses it to tell a visible update from a slice).
     pub last_sync_tiles: usize,
     pub layer_previews: crate::layer_previews::PreviewUi,
+    /// Layers waiting in the "Export flattened" window, and the file name pattern (kept for
+    /// the next export in this session).
+    pub flatten_export: Option<Vec<subcraft_core::LayerId>>,
+    pub flatten_pattern: String,
     pub graphics: crate::graphics::GraphicsUi,
     pub asset_preview: crate::asset_preview::AssetPreviewUi,
     pub welcome: crate::welcome::WelcomeUi,
@@ -332,6 +336,8 @@ impl UiState {
             composite_deadline: None,
             last_sync_tiles: 0,
             layer_previews: Default::default(),
+            flatten_export: None,
+            flatten_pattern: subcraft_app::flatten::DEFAULT_PATTERN.to_string(),
             graphics,
             asset_preview: Default::default(),
             welcome: Default::default(),

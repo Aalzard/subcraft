@@ -56,7 +56,12 @@ struct Samples {
     uis: Vec<Duration>,
     render_ms: Vec<f32>,
     sections: std::collections::BTreeMap<&'static str, Vec<Duration>>,
+    /// The slowest frames: interval, and the sections of the `ui()` call that ended it.
+    slowest: Vec<(Duration, Vec<(&'static str, Duration)>)>,
 }
+
+/// Slow frames kept per phase for the report.
+const SLOWEST: usize = 5;
 
 pub struct ViewProfile {
     out: PathBuf,
@@ -71,6 +76,10 @@ pub struct ViewProfile {
     /// Pointer position of the last synthesized event (points).
     pointer: Option<Pos2>,
     started: Instant,
+    /// Waiting for the composite after a phase's setup (the paint layer of the stroke phase).
+    settling: bool,
+    /// Sections of the current frame (for the slowest-frame list).
+    frame_sections: Vec<(&'static str, Duration)>,
 }
 
 impl ViewProfile {
@@ -88,6 +97,8 @@ impl ViewProfile {
             results: Vec::new(),
             pointer: None,
             started: Instant::now(),
+            settling: false,
+            frame_sections: Vec::new(),
         }
     }
 
@@ -106,7 +117,7 @@ impl ViewProfile {
     /// Add this frame's synthesized input (called from `raw_input_hook`).
     pub fn inject(&mut self, state: &UiState, events: &mut Vec<Event>) {
         let rect = state.last_view_rect;
-        if !self.measuring() || rect.width() < 8.0 {
+        if !self.measuring() || self.settling || rect.width() < 8.0 {
             return;
         }
         let pos = Self::path_point(rect, self.frame);
@@ -147,9 +158,23 @@ impl ViewProfile {
             Phase::Done => return,
             _ => {}
         }
+        let frame_sections = std::mem::take(&mut self.frame_sections);
+        if self.settling {
+            if !(state.session.composites_pending() || state.asset_preview.is_applying()) {
+                self.settling = false;
+            }
+            return;
+        }
         if self.frame > 0 && let Some(last) = self.last {
-            self.current.intervals.push(now - last);
+            let interval = now - last;
+            self.current.intervals.push(interval);
             self.current.render_ms.push(state.frame_time_ms);
+            let slowest = &mut self.current.slowest;
+            if slowest.len() < SLOWEST || slowest.last().is_some_and(|s| s.0 < interval) {
+                slowest.push((interval, frame_sections));
+                slowest.sort_by(|a, b| b.0.cmp(&a.0));
+                slowest.truncate(SLOWEST);
+            }
         }
         self.last = Some(now);
         self.frame += 1;
@@ -168,9 +193,19 @@ impl ViewProfile {
         self.last = None;
         self.current = Samples::default();
         match phase {
-            Phase::Hover | Phase::Stroke => {
+            Phase::Hover => {
                 state.session.clear_brush_stamp();
                 state.tool = Tool::Brush;
+            }
+            Phase::Stroke => {
+                // Paint where a user paints: a new paint layer at the top of the stack (the
+                // selection of an opened project may be a fill or a folder). Measured once its
+                // composite has settled.
+                state.session.clear_brush_stamp();
+                state.tool = Tool::Brush;
+                let _ = state.session.execute(subcraft_app::Command::SelectLayer(None));
+                let _ = state.session.execute(subcraft_app::Command::AddLayer(subcraft_app::NewLayer::Paint));
+                self.settling = true;
             }
             Phase::HoverNormal => {
                 state.tool = Tool::Brush;
@@ -197,18 +232,21 @@ impl ViewProfile {
         let now = Instant::now();
         let prev = self.mark.replace(now);
         let tabs = crate::edit_profile::take_tabs();
-        if let Some(prev) = prev && self.measuring() && self.frame > 1 {
+        if let Some(prev) = prev && self.measuring() && !self.settling && self.frame > 1 {
             self.current.sections.entry(label).or_default().push(now - prev);
+            self.frame_sections.push((label, now - prev));
             for (tab, d) in tabs {
                 self.current.sections.entry(tab).or_default().push(d);
+                self.frame_sections.push((tab, d));
             }
         }
     }
 
     /// End of `ui()`; true once the report is written and the app may close.
     pub fn ui_end(&mut self) -> bool {
-        if let Some(start) = self.ui_start.take() && self.measuring() && self.frame > 1 {
+        if let Some(start) = self.ui_start.take() && self.measuring() && !self.settling && self.frame > 1 {
             self.current.uis.push(start.elapsed());
+            self.frame_sections.push(("whole ui()", start.elapsed()));
         }
         self.phase == Phase::Done
     }
@@ -234,6 +272,14 @@ impl ViewProfile {
             }
             for (section, v) in &mut s.sections {
                 report.push_str(&format!("  {section}: {}\n", stats(v)));
+            }
+            for (interval, sections) in &s.slowest {
+                // Sections of the `ui()` that ended the frame; the rest of the interval was spent
+                // outside `ui()` (egui painting, GPU submit and present).
+                let mut top: Vec<_> = sections.iter().filter(|(_, d)| ms(*d) >= 1.0).collect();
+                top.sort_by(|a, b| b.1.cmp(&a.1));
+                let list: Vec<String> = top.iter().take(6).map(|(n, d)| format!("{} {:.1}", n.trim(), ms(*d))).collect();
+                report.push_str(&format!("  slow frame {:.1} ms: {}\n", ms(*interval), list.join(", ")));
             }
         }
         log::info!("view profile:\n{report}");

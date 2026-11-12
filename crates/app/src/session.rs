@@ -870,7 +870,7 @@ impl Session {
         self.composite_generation
     }
 
-    fn texture_set_of(&self, layer: LayerId) -> Option<TextureSetId> {
+    pub(crate) fn texture_set_of(&self, layer: LayerId) -> Option<TextureSetId> {
         self.doc.texture_sets.iter().find(|t| t.find(layer).is_some()).map(|t| t.id)
     }
 
@@ -1517,6 +1517,7 @@ impl Session {
                     self.revision += 1;
                 }
             }
+            Command::FlattenLayers(layers) => return crate::flatten::flatten_layers(self, &layers),
             Command::GroupLayer(id) => {
                 self.edit_layer_set(id, "Group Layer", None, |ts| ts.group(id, "Folder").map_err(|_| CommandError::LayerNotFound))?;
             }

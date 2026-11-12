@@ -86,6 +86,13 @@ impl From<BTreeMap<String, Vec<String>>> for CustomKeys {
                     parsed.push(s);
                 }
             }
+            // Keys this build cannot read (a newer key name, a hand edit) leave the action on its
+            // default keys; only a list saved empty means "no key". An empty list here used to
+            // unbind the action, Ctrl+Z included.
+            if parsed.is_empty() && !list.is_empty() {
+                log::warn!("unreadable saved shortcuts {list:?} for \"{id}\"; using its default keys");
+                continue;
+            }
             keys.entries.push((action, parsed));
         }
         // Two actions saved with the same key: the first (by name) keeps it.
@@ -256,6 +263,18 @@ mod tests {
         for a in Action::ALL {
             assert_eq!(Action::from_id(&a.id()), Some(a));
         }
+    }
+
+    /// QA 2026-11: a saved shortcut this build cannot read unbound the action instead of leaving
+    /// its default keys.
+    #[test]
+    fn unreadable_saved_keys_keep_the_default_and_an_empty_list_still_unbinds() {
+        let custom: CustomKeys = serde_json::from_str(r#"{"Undo": ["Ctrl+Hyperspace"], "Redo": [], "Save": ["Ctrl+Nope", "Ctrl+S"]}"#).unwrap();
+        let km = Keymap::new(KeymapPreset::SubCraft, custom);
+        assert_eq!(km.shortcuts(Action::Undo), actions::shortcuts_in(KeymapPreset::SubCraft, Action::Undo), "unreadable: default keys");
+        assert!(!km.is_custom(Action::Undo));
+        assert!(km.shortcuts(Action::Redo).is_empty(), "saved empty: the user removed every key");
+        assert_eq!(km.shortcuts(Action::Save), [Shortcut::ctrl(Key::S)], "the readable key of a list is kept");
     }
 
     #[test]

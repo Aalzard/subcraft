@@ -646,10 +646,14 @@ pub struct PainterControls {
     /// projects: false, their original pattern. Not written when false.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub grunge_map: bool,
+    /// Painter's custom grunge (Use Custom Grunge): an image that replaces the breakup noise,
+    /// projected tri-planar on the model at the pattern size. Absent: the noise or grunge map.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_grunge: Option<subcraft_core::ResourceId>,
 }
 
 impl Default for PainterControls {
-    fn default() -> Self { Self { edges_masking: 0.0, ao_masking: 0.0, curvature_weight: 1.0, smoothness: 0.0, grunge_scale: 1.0, grunge_floor: 0.0, grain: 0.0, grunge_map: false } }
+    fn default() -> Self { Self { edges_masking: 0.0, ao_masking: 0.0, curvature_weight: 1.0, smoothness: 0.0, grunge_scale: 1.0, grunge_floor: 0.0, grain: 0.0, grunge_map: false, custom_grunge: None } }
 }
 
 fn is_zero_offset(offset: &[f32; 3]) -> bool { *offset == [0.0; 3] }
@@ -829,11 +833,13 @@ impl Generator {
 
     /// Image resources the generator reads (the Mask Editor's textures).
     pub fn resources(&self) -> Vec<subcraft_core::ResourceId> {
-        match self.kind {
+        let mut out: Vec<subcraft_core::ResourceId> = match self.kind {
             GeneratorKind::MaskEditor => self.editor_settings().resources().collect(),
             GeneratorKind::GrayscaleConversion => self.shape_settings().texture.into_iter().collect(),
             _ => Vec::new(),
-        }
+        };
+        out.extend(self.painter.and_then(|p| p.custom_grunge));
+        out
     }
 
     /// Whether this kind reads a baked map that an anchor input can replace.
@@ -844,7 +850,7 @@ impl Generator {
     /// Whether the micro effect is on and strong enough to change anything.
     /// The Mask Editor has no Micro controls: a micro effect kept from the kind it was switched
     /// from used to keep changing the layers below, with no way to turn it off.
-    pub fn micro_active(&self) -> bool { self.kind != GeneratorKind::MaskEditor && self.micro.is_some_and(|m| m.height() != 0.0) }
+    pub fn micro_active(&self) -> bool { self.kind != GeneratorKind::MaskEditor && !self.kind.uses_shape() && self.micro.is_some_and(|m| m.height() != 0.0) }
 
     /// Switch the micro effect on or off, keeping tuned values and starting from the per-kind defaults.
     pub fn set_micro_enabled(&mut self, on: bool) {
@@ -1026,6 +1032,9 @@ mod tests {
         assert!(!g.micro_active());
         g.set_kind(GeneratorKind::Cavity);
         assert!(g.micro_active(), "the tuned micro effect is back with the kind that has it");
+        // The position / UV generators have no Micro controls either.
+        g.set_kind(GeneratorKind::Distance3D);
+        assert!(!g.micro_active());
     }
 
     #[test]

@@ -132,11 +132,14 @@ pub struct AnchorIndex {
     layers: HashMap<LayerId, (String, usize)>,
 }
 
-/// The anchor input a mask effect reads, if any.
+/// The anchor input a mask effect reads, if any. A generator keeps the input it had before
+/// its kind changed to one that reads no input (it comes back if the kind is switched back),
+/// but that input is not read, so it is no reference: it used to count as one, and deleting
+/// its anchor left an "Anchor not found" problem the Properties panel could not clear.
 pub fn mask_effect_input(kind: &MaskEffectKind) -> Option<AnchorInput> {
     match kind {
         MaskEffectKind::AnchorRef { input, .. } => Some(*input),
-        MaskEffectKind::Generator(g) => g.input,
+        MaskEffectKind::Generator(g) => g.input.filter(|_| g.accepts_input()),
         _ => None,
     }
 }
@@ -424,6 +427,33 @@ mod tests {
         m.effects.push(Arc::new(e));
         l.mask = Some(m);
         (l, id)
+    }
+
+    /// QA 2026-11: an input kept by a generator switched to a kind that reads none still
+    /// counted as a reference (a stale problem once its anchor was deleted, and a dependent).
+    #[test]
+    fn an_input_the_generator_kind_does_not_read_is_no_reference() {
+        let ts = TextureSet::new("T", 0, 64);
+        let (low, a) = anchor_layer(&ts, "Low");
+        let mut top = Layer::new_fill("Top", &ts);
+        let mut g = Generator::new(GeneratorKind::Edges);
+        g.input = Some(AnchorInput::new(a, ChannelKind::Height));
+        let mut m = Mask::new(ts.resolution, false);
+        m.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Generator(g))));
+        top.mask = Some(m);
+        let layers = |top: &Layer| -> Vec<Arc<Layer>> { vec![Arc::new(low.clone()), Arc::new(top.clone())] };
+        assert_eq!(AnchorIndex::build(&layers(&top)).dependents(a).len(), 1, "an input the kind reads is a reference");
+        // Switch the generator to a kind without input: the stored input stays, unread.
+        let e = &mut top.mask.as_mut().unwrap().effects[0];
+        if let MaskEffectKind::Generator(g) = &mut Arc::make_mut(e).kind {
+            g.set_kind(GeneratorKind::MaskEditor);
+            assert!(g.input.is_some(), "kept for when the kind is switched back");
+        }
+        assert!(AnchorIndex::build(&layers(&top)).dependents(a).is_empty());
+        // The anchor deleted: no problem left behind.
+        let alone: Vec<Arc<Layer>> = vec![Arc::new(top.clone())];
+        assert_eq!(AnchorIndex::build(&alone).problems().count(), 0);
+        assert!(!has_references(&alone));
     }
 
     #[test]

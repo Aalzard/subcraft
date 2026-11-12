@@ -101,3 +101,21 @@ fn charcoal_theme_has_readable_muted_text_and_thin_round_sliders() {
     let b = luminance(selection.stroke.color);
     assert!((a.max(b) + 0.05) / (a.min(b) + 0.05) >= 4.5, "selected channel and menu labels must remain readable");
 }
+
+/// Issue #206: with a light system theme egui switched to its own light visuals, so the menu
+/// bar's text was dark on the app's dark header. The app's theme must hold whatever the system says.
+#[test]
+fn a_light_system_theme_does_not_change_the_apps_colours() {
+    let ctx = egui::Context::default();
+    theme::apply(&ctx);
+    let wanted = ctx.global_style().visuals.clone();
+    assert!(wanted.dark_mode);
+    for system in [egui::Theme::Light, egui::Theme::Dark] {
+        let mut out = ctx.run_ui(egui::RawInput { system_theme: Some(system), ..Default::default() }, |_| {});
+        out.textures_delta.clear();
+        let now = ctx.global_style().visuals.clone();
+        assert!(now.dark_mode, "system theme {system:?}");
+        assert_eq!(now.panel_fill, wanted.panel_fill, "system theme {system:?}");
+        assert_eq!(now.widgets.inactive.fg_stroke.color, wanted.widgets.inactive.fg_stroke.color, "menu text colour, system theme {system:?}");
+    }
+}
