@@ -376,6 +376,7 @@ pub static TABLE: &[(&str, &str)] = &[
     ("New…", "新增…"),
     ("No plugins: SubCraft has no scripting API yet.", "沒有外掛程式：SubCraft 尚無指令碼 API。"),
     ("Open sample", "開啟範例"),
+    ("Import Substance Painter project (.spp)…", "匯入 Substance Painter 專案 (.spp)…"),
     ("Open…", "開啟…"),
     ("Painting", "繪製"),
     ("Perspective", "透視"),

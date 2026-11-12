@@ -1363,6 +1363,10 @@ impl SubcraftApp {
                     ui.close();
                     self.request(Pending::OpenProject, now);
                 }
+                if item(ui, icons::DOWNLOAD, tr("Import Substance Painter project (.spp)…"), "") {
+                    ui.close();
+                    self.request(Pending::ImportPainter, now);
+                }
                 ui.menu_button(format!("{}   {}", icons::HISTORY, tr("Recent files")), |ui| {
                     ui.set_min_width(240.0);
                     let mut open = None;
@@ -2117,6 +2121,7 @@ impl eframe::App for SubcraftApp {
                     crate::files::WindowDrop::SmartMaterial(p) => crate::files::import_painter_smart_material(&mut self.state, &p, now),
                     crate::files::WindowDrop::Model(p) => { self.state.dropped_model = Some(p); self.request(Pending::OpenMesh, now); }
                     crate::files::WindowDrop::Project(p) => { self.state.welcome.pending_recent = Some(p); self.request(Pending::OpenRecent, now); }
+                    crate::files::WindowDrop::PainterProject(p) => { self.state.dropped_model = Some(p); self.request(Pending::ImportPainter, now); }
                 }
             }
         }
