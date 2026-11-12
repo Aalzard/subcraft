@@ -90,13 +90,19 @@ fn blending_options_paste_onto_several_layers_and_skip_what_does_not_fit() {
     assert_eq!(s.selected_texture_set().find(b).unwrap().blend, copied);
     assert_eq!(s.selected_texture_set().find(folder).unwrap().blend, copied, "a folder takes ordinary modes too");
 
-    // Passthrough copied from a folder is not a mode of a paint layer: its mode stays, the opacity is pasted.
+    // Passthrough is a mode of every layer (its effects then filter the stack below).
     s.execute(Command::SetBlendMode { layer: folder, channel: ChannelKind::BaseColor, mode: BlendMode::Passthrough }).unwrap();
     s.execute(Command::SetBlendOpacity { layer: folder, channel: ChannelKind::BaseColor, opacity: 0.3 }).unwrap();
     s.execute(Command::Seal).unwrap();
     let from_folder = s.selected_texture_set().find(folder).unwrap().blend.clone();
     s.execute(Command::PasteBlending { layers: vec![b], blend: from_folder }).unwrap();
-    assert_eq!(blend(&s, b, ChannelKind::BaseColor), ChannelBlend { mode: BlendMode::Overlay, opacity: 0.3 });
+    assert_eq!(blend(&s, b, ChannelKind::BaseColor), ChannelBlend { mode: BlendMode::Passthrough, opacity: 0.3 });
+    // A normal-map mode only exists on the Normal channel: elsewhere the mode stays.
+    let mut normal_only = s.selected_texture_set().find(b).unwrap().blend.clone();
+    normal_only.insert(ChannelKind::BaseColor, ChannelBlend { mode: BlendMode::NormalMapCombine, opacity: 0.9 });
+    s.execute(Command::PasteBlending { layers: vec![b], blend: normal_only }).unwrap();
+    assert_eq!(blend(&s, b, ChannelKind::BaseColor), ChannelBlend { mode: BlendMode::Passthrough, opacity: 0.9 });
+    s.execute(Command::SetBlendMode { layer: b, channel: ChannelKind::BaseColor, mode: BlendMode::Overlay }).unwrap();
 
     // Channels missing from the copy are left alone; pasting the same again adds no undo step.
     let only_height: BTreeMap<_, _> = [(ChannelKind::Height, ChannelBlend { mode: BlendMode::Subtract, opacity: 1.0 })].into();

@@ -173,6 +173,8 @@ pub struct UiState {
     pub render_window: bool,
     /// Display Settings panel: the group a jump button asked to scroll to.
     pub display_jump: Option<crate::panels::display_settings::Section>,
+    /// A shader menu asked for the Shader Settings panel (opened by the app next frame).
+    pub open_shader_settings: bool,
     /// Whether the session's saved display settings were taken over yet, and the values last
     /// seen in step with the project (see `panels::display_settings::sync_project`).
     pub display_loaded: bool,
@@ -361,6 +363,7 @@ impl UiState {
             capture_during_load: false,
             render_window: false,
             display_jump: None,
+            open_shader_settings: false,
             display_loaded: false,
             display_baseline: Default::default(),
             pending_render_job: None,
@@ -564,6 +567,8 @@ impl UiState {
         self.painting = false;
         self.last_stroke_point = None;
         self.recovery.autosaver.session_replaced();
+        // A pivot on the old model swung the next orbit around empty space.
+        self.orbit_pivot = None;
     }
 
     /// The session's mesh was replaced in place (File > Reload mesh): drop everything derived
@@ -581,6 +586,7 @@ impl UiState {
         self.uploaded_maps.clear();
         self.painting = false;
         self.last_stroke_point = None;
+        self.orbit_pivot = None;
     }
 
     /// One Shelf click makes the brush usable at once: the app applies it, and Fill, Eyedropper
@@ -694,11 +700,12 @@ impl UiState {
         self.last_sync_tiles = updates.iter().map(|u| u.tiles.len()).max().unwrap_or(0);
         let upload_start = web_time::Instant::now();
         let session = &self.session;
-        for ts in &session.document().texture_sets { renderer.set_albedo_filter(ts.material_slot, ts.albedo_filter); }
+        for ts in &session.document().texture_sets { renderer.set_albedo_filter(ts.material_slot, ts.albedo_filter); renderer.set_alpha(ts.material_slot, ts.alpha); renderer.set_shader(ts.material_slot, session.shader_params_of(ts.id)); }
         renderer.set_hidden_slots(session.document().texture_sets.iter().filter(|ts| session.is_set_hidden(ts.id)).map(|ts| ts.material_slot));
         let upload = |renderer: &mut ViewportRenderer, ts: subcraft_core::TextureSetId, slot: u32, changed: Option<&subcraft_app::ChangedTiles>| {
             let Some(c) = session.composite(ts) else { return };
-            for k in SHADED_CHANNELS {
+            // Opacity is not shaded but drives the alpha modes (issue #145).
+            for k in SHADED_CHANNELS.into_iter().chain([ChannelKind::Opacity]) {
                 let Some(img) = c.channel(k) else { continue };
                 match changed {
                     None => renderer.upload_channel(&rs.device, &rs.queue, slot, k, img, None),
@@ -718,7 +725,7 @@ impl UiState {
         }
         // A channel shown alone that shading never reads (Opacity, Specular, a user channel):
         // uploaded whole when it is first shown, then tile by tile like the others.
-        let solo = self.recovery.prefs.viewport.solo.filter(|k| !SHADED_CHANNELS.contains(k));
+        let solo = self.recovery.prefs.viewport.solo.filter(|k| !SHADED_CHANNELS.contains(k) && *k != ChannelKind::Opacity);
         if let Some(k) = solo {
             let first = full || self.uploaded_solo != solo;
             for ts in &session.document().texture_sets {

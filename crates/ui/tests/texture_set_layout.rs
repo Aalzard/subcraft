@@ -36,13 +36,13 @@ fn panels_never_overflow_horizontally_and_leave_the_document_alone() {
 fn list_selection_and_settings_bake_button_dispatch_correctly() {
     let (mut state,ctx)=setup();
     let click=|state:&mut UiState,f:fn(&mut UiState,&mut egui::Ui),pos| {for pressed in [true,false] {
-        frame(&ctx,state,f,420.,600.,vec![Event::PointerMoved(pos),Event::PointerButton{pos,button:egui::PointerButton::Primary,pressed,modifiers:Default::default()}]);
+        frame(&ctx,state,f,420.,900.,vec![Event::PointerMoved(pos),Event::PointerButton{pos,button:egui::PointerButton::Primary,pressed,modifiers:Default::default()}]);
     }};
-    for _ in 0..3 {frame(&ctx,&mut state,texture_sets::list,420.,600.,vec![]);}
-    let trim=text(&frame(&ctx,&mut state,texture_sets::list,420.,600.,vec![]).0,"Trim").center();
+    for _ in 0..3 {frame(&ctx,&mut state,texture_sets::list,420.,900.,vec![]);}
+    let trim=text(&frame(&ctx,&mut state,texture_sets::list,420.,900.,vec![]).0,"Trim").center();
     click(&mut state,texture_sets::list,trim); assert_eq!(state.session.selected_texture_set().name,"Trim");
-    for _ in 0..3 {frame(&ctx,&mut state,texture_sets::settings,420.,600.,vec![]);}
-    let out=frame(&ctx,&mut state,texture_sets::settings,420.,600.,vec![]).0;
+    for _ in 0..3 {frame(&ctx,&mut state,texture_sets::settings,420.,900.,vec![]);}
+    let out=frame(&ctx,&mut state,texture_sets::settings,420.,900.,vec![]).0;
     let bake=text(&out,"Bake Mesh Maps").center(); click(&mut state,texture_sets::settings,bake);
     assert!(state.bake.open);
 }

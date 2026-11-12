@@ -384,15 +384,19 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
                             state.painting = true;
                             state.session.set_stroke_pressure(stroke_pressure);
                             let line_from = if mods.shift { state.last_stroke_point } else { None };
+                            // Ctrl+Shift+click: the line snaps to 5 degree steps, as in Painter, and
+                            // the next line starts where this one ended (not at the raw click).
+                            let end = match line_from {
+                                Some(from) if mods.command || mods.ctrl => crate::nav::snap_line_end(from, sp, 5.0),
+                                _ => sp,
+                            };
                             if let Some(from) = line_from {
-                                // Ctrl+Shift+click: the line snaps to 5 degree steps, as in Painter.
-                                let sp = if mods.command || mods.ctrl { crate::nav::snap_line_end(from, sp, 5.0) } else { sp };
                                 let _ = state.session.stroke_to(&camera, from, true);
-                                let _ = state.session.stroke_to(&camera, sp, true);
+                                let _ = state.session.stroke_to(&camera, end, true);
                             } else {
                                 let _ = state.session.stroke_to(&camera, sp, false);
                             }
-                            state.last_stroke_point = Some(sp);
+                            state.last_stroke_point = Some(end);
                         }
                         Err(subcraft_paint::PaintError::NoCloneSource) => state.set_status(crate::keys::native("Ctrl+click the model to set the clone source first"), now),
                         Err(e) => state.set_status(format!("Can't paint here: {e} (select a paint layer)"), now),

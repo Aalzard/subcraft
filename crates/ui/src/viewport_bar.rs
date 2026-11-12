@@ -236,7 +236,9 @@ impl ViewportPrefs {
 
     /// Exposure of the frame: the Tone mapping effect's, or 1 while it (or every post effect) is off.
     pub fn exposure_value(&self) -> f32 {
-        if self.post_effects && self.tone_mapping_on { self.exposure } else { 1.0 }
+        // Clamped like every other post parameter: 0, a negative or a huge value from a project
+        // file gave a black or NaN frame.
+        if self.post_effects && self.tone_mapping_on && self.exposure.is_finite() { self.exposure.clamp(1e-3, 1e3) } else { 1.0 }
     }
 
     /// Like [`post_params`](Self::post_params) with the camera's orbit distance, which scales the

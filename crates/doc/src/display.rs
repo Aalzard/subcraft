@@ -394,6 +394,28 @@ pub fn ev_to_multiplier(ev: f32) -> f32 {
     2f32.powf(ev)
 }
 
+/// Read a project's display settings keeping every value that parses. A value this build cannot
+/// read (a `null` written for a non-finite number, a wrong type in a hand-edited file) used to
+/// fail the whole document, so the project could not be opened at all; it takes its default now.
+pub fn lenient_display<'de, D: Deserializer<'de>>(d: D) -> Result<Option<DisplaySettings>, D::Error> {
+    let Some(value) = Option::<serde_json::Value>::deserialize(d)? else { return Ok(None) };
+    if let Ok(settings) = serde_json::from_value::<DisplaySettings>(value.clone()) {
+        return Ok(Some(settings));
+    }
+    let serde_json::Value::Object(stored) = value else { return Ok(Some(DisplaySettings::default())) };
+    let serde_json::Value::Object(mut merged) = serde_json::to_value(DisplaySettings::default()).map_err(serde::de::Error::custom)? else {
+        return Ok(Some(DisplaySettings::default()));
+    };
+    for (key, value) in stored {
+        let Some(slot) = merged.get_mut(&key) else { continue };
+        let default = std::mem::replace(slot, value);
+        if serde_json::from_value::<DisplaySettings>(serde_json::Value::Object(merged.clone())).is_err() {
+            merged.insert(key, default);
+        }
+    }
+    Ok(Some(serde_json::from_value(serde_json::Value::Object(merged)).unwrap_or_default()))
+}
+
 /// Everything the Display Settings panel edits. Field names are the file format: rename with a
 /// `#[serde(alias)]`, never in place.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -732,5 +754,32 @@ mod tests {
         let mut d = DisplaySettings { bloom: 1.0, dof: true, tone_map: ToneMap::Linear, vignette_on: true, cc_sepia: 0.4, post_effects: false, ..kept.clone() };
         d.reset_post_effects();
         assert_eq!(d, kept);
+    }
+}
+
+#[cfg(test)]
+mod lenient_tests {
+    use super::*;
+
+    #[derive(Deserialize)]
+    struct Holder {
+        #[serde(default, deserialize_with = "lenient_display")]
+        display: Option<DisplaySettings>,
+    }
+
+    /// QA 2026-11: a non-finite exposure is written as `null`, and one such value made the whole
+    /// project unopenable ("invalid type: null, expected f32").
+    #[test]
+    fn one_unreadable_display_value_takes_its_default_and_keeps_the_rest() {
+        let h: Holder = serde_json::from_str(r#"{"display": {"exposure": null, "bloom": 0.75, "flare_ghosts": -1, "gamma": "x"}}"#).unwrap();
+        let d = h.display.unwrap();
+        let default = DisplaySettings::default();
+        assert_eq!(d.bloom, 0.75, "readable values are kept");
+        assert_eq!((d.exposure, d.flare_ghosts, d.gamma), (default.exposure, default.flare_ghosts, default.gamma));
+        let none: Holder = serde_json::from_str("{}").unwrap();
+        assert!(none.display.is_none(), "absent stays absent (the user's own defaults)");
+        let full = DisplaySettings { bloom: 0.3, exposure: 2.0, ..Default::default() };
+        let back: Holder = serde_json::from_str(&format!(r#"{{"display": {}}}"#, serde_json::to_string(&full).unwrap())).unwrap();
+        assert_eq!(back.display, Some(full), "a valid block round-trips unchanged");
     }
 }

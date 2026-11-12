@@ -5319,6 +5319,46 @@ the app kept drawing on the dead device. Safe mode works; 0.3.3's marker only he
 * **Tests:** `crates/app/tests/layer_polish_parity.rs`, `crates/ui/tests/layer_polish.rs`, a project round trip of
   colour tags, a blend group test, a layer-content clipboard test. Compile-checked locally; CI runs the tests.
 
+### Issue #145: transparent textures (2026-11-12, branch `claude/transparency`)
+
+* **Opacity channel:** already in the channel vocabulary (linear 0-1, default 1); now removable from Texture Set
+  Settings (the X button sends `RemoveChannel`), and adding any channel gives every existing layer a blend entry for it
+  (`AddChannel` calls `add_blend`), so an added Opacity channel is paintable and fillable on the current layer at once.
+  The viewport uploads Opacity with the shaded channels.
+* **Transparent texture sets:** `TextureSet.transparent` ("Transparent (start empty)" in Texture Set Settings,
+  `Command::SetTransparent`). The stack starts from the channel default with alpha 0 instead of 1 (CPU tile path,
+  stage graph, GPU plan and the composite fill), so unpainted texels keep alpha 0 and painting on an empty layer shows
+  only the stroke. Straight-alpha W3C compositing already handled a transparent backdrop (the blend function needs a
+  backdrop; over nothing the source shows). `CompositeCache` and `same_composite_inputs` treat a change as a full
+  re-evaluation.
+* **Viewport:** `TextureSet.alpha` (`AlphaSettings { mode: Opaque | Test | Blend, threshold 0.33, dithering }`,
+  `Command::SetAlphaSettings`), shown under General properties. `viewport.wgsl` reads `t_opacity` (binding 9) and a
+  per-material `MaterialParams` uniform (binding 10); alpha = Base Color coverage x Opacity. Test discards below the
+  threshold, dithering discards against a 4x4 Bayer matrix (depth-correct), Blend draws those sets in a second pass
+  with straight-alpha blending, depth tested but not written (unsorted). The emission pass follows the same alpha.
+  Solo-channel and baked-map views stay opaque. The raster viewport has no shadow maps, so there are no shadows to
+  respect; the path tracer still ignores opacity (follow-up).
+* **Export:** `Source::Alpha` (effective opacity: Opacity, 1 when absent, x Base Color coverage). New built-in
+  presets after the original nine: "PBR Metallic Roughness + Opacity" and "Unreal Engine (ORM packed) + Opacity"
+  (RGBA Base Color plus a grey Opacity map), "Unity HDRP (Mask Map) + Alpha", "Unity URP (Metallic + Occlusion) +
+  Alpha", "Godot 4 (ORM) + Alpha", "glTF 2.0 + Alpha". A map with a standalone alpha source is written for a set
+  with an Opacity channel or a transparent Base Color. Colour channels offer component A (stack coverage) in the
+  preset editor, and Painter presets reading the opacity document map import as `Source::Alpha`. RGBA writes to PNG,
+  TGA, TIFF and EXR (JPEG keeps its map format, as before). Padding only writes gutter texels, so alpha edges inside
+  islands are kept; before padding, texels with alpha 0 take the colour of the nearest visible texel
+  (`bleed_under_alpha`), so filtering shows no grey fringe. The v0.3.0 golden bytes of the original nine templates
+  are unchanged.
+* **Compatibility:** project schema 18 (`transparent`, `alpha` on texture sets, omitted when default); schema 1-17
+  files load as opaque sets drawn opaque. `.spp` import already maps Painter's Opacity channel.
+* **Tests:** `crates/compositor/tests/transparency.rs` (alpha union across layers, Multiply / Screen over covered and
+  empty texels, Opacity painting, cache invalidation), `crates/export/src/tests/alpha.rs` (alpha in PNG / TGA /
+  PNG16 / EXR, Opacity map, colour bleed, padding keeps island alpha, coverage component, presets),
+  `crates/render/tests/alpha.rs` (test / blend / dither / coverage on the GPU), `crates/app/tests/transparency.rs`
+  (export end to end, undo, Opacity on existing layers), a schema 18 round trip in `crates/project/src/tests.rs`.
+* **Not done:** Painter's "Dilation + transparent" padding, the "Document channels + Normal + AO (With Alpha)"
+  template, new-project templates with alpha, opacity in the path tracer and in the glTF / USD scene export
+  (`alphaMode`), alpha settings on shader instances (chunk 29 moves them there).
+
 ## Rendering mode panel (Painter parity chunk 51, 2026-11-12, branch `claude/parity-rendering-mode`)
 
 * Path tracer (`crates/render/src/pathtrace.rs`, `pathtrace.wgsl`):
@@ -5357,6 +5397,91 @@ the app kept drawing on the dead device. Safe mode works; 0.3.3's marker only he
   test suites (CI is the test gate) and the running app.
 * Not done: Caustic sampler, Share (ArtStation), dome type / radius / texture scale, absolute
   ground coordinates (an offset instead), MDL parameters.
+### Parity chunk 49 - Position and UV generators (2026-11-12, branch `claude/parity-position-uv-generators`)
+
+* **New generator kinds** (`crates/doc/src/mask.rs`, settings in `Generator::shape` / `ShapeSettings`, skipped in
+  JSON when absent): 3D Distance (Position X / Y / Z, Radius, Offset, Contrast, Invert), 3D Linear Gradient (start
+  and end positions, Balance, Contrast, Invert), UV Random Color as a mask (one random gray per UV island, Seed with a
+  Random button) and Grayscale Conversion (image, the eight grayscale types, Balance, Contrast, Tile, Rotation, Safe
+  Rotation, Invert). Positions are in the model's bounding box, 0..1 per axis (the Position map's colours); they come
+  from the mesh, so no baked Position map is needed.
+* **Light** (the Directional generator): Horizontal / Vertical Angle rows (`light_direction` / `light_angles`) and
+  Light Attenuation (fades toward the far side of the bounding box).
+* **Compositor** (`crates/compositor/src/mask.rs`, `eval_shape_generator`): per-texel evaluation, no extra stages.
+* **Not done:** UV Border Distance (needs a distance field across tiles), UV Checker and UV Texel Density (fill-layer
+  generators, chunk 35), UV Random Color's Custom Gradient and Light on a fill layer, picking positions from the
+  Position map in the viewport.
+### Parity chunk 50 - Mask-shape filters (2026-11-12, branch `claude/parity-mask-shape-filters`)
+
+* **New filters** (`crates/doc/src/filter.rs`): Height Adjust (invert, then `v * multiply + offset`), FXAA
+  (Affect Alpha Channel; a compact edge-directed blend toward the neighbour across the edge,
+  `crates/materials/src/filter/pixelwise.rs`), Drop Shadow (colour content: Angle, Distance, Size, Spread, Opacity,
+  Color) and Painter's outer Glow (Soft / Precise, Width, Spread, Opacity, Color; masks and scalar channels glow by
+  value). The former bloom filter keeps working and is now named "Bloom".
+* **Bevel** gains Corner Type (Rounded = Euclidean distance, Angular = Chebyshev distance with square corners,
+  `contour::squared_chebyshev`) and Smoothing; **Mask Outline** gains Start From Black, Blur and Curve Shape. Like the
+  chunk 33 mode toggles, these are separate variants (`BevelShape`, `MaskOutlineShape`) that share the base filter's
+  panel, so older projects load unchanged.
+* **Compositor** (`crates/compositor/src/stages.rs`): Drop Shadow / Glow are an offset (a Transform pixelwise node)
+  plus a Gaussian blur of the source, placed under the content by `spatial_value` (`under`); FXAA is a pixelwise node.
+* **Not done:** Bevel Wrap and Blur Mode, Bevel Smooth and Directional Distance (they read a distance-map image:
+  chunk 34), Fill Area Color / Fill Area Mask (area detection), Height To Normal (writes another channel).
+* **Checked:** see the PR (compile check, then CI).
+## Shader Settings panel with instances (Painter parity chunk 29, 2026-11-12, branch `claude/parity-shader-settings`, on top of #198)
+
+* Shader instances: `subcraft_doc::ShaderInstance` (id, name, `ShaderParams`) in
+  `ProjectSettings.shader_instances`, and which one each texture set uses in
+  `ProjectSettings.shader_assignments`. Both are optional (no schema bump); a project without
+  instances has the implicit "Main shader" (nil id, not written).
+* Session API (`crates/app/src/shader_instances.rs`): list, the instance of a set, new (a copy of
+  another), rename (names kept unique), assign, set parameters (clamped), Restore defaults. Edits
+  are settings changes, so they mark the project modified.
+* Viewport shader: `MaterialParams` (the transparency PR's binding 10) gains
+  `shader: vec4<f32>` after `alpha`:
+  * AO Intensity (default 0.75) blends the AO channel toward no occlusion.
+  * Emissive Intensity (default 1) scales emission, including the glow and glare source.
+  * Horizon Fading (default 1.3) fades reflections a normal map tilts below the surface.
+  * Set per material slot with `ViewportRenderer::set_shader`.
+* UI:
+  * The Texture Set List's shader button and Texture Set Settings' Shader Instance dropdown open
+    the instance menu (pick, New shader instance, Shader settings…).
+  * New Shader Settings dock tab (Window > Shader settings): instance name, Used by, Restore
+    defaults and the three common parameters.
+* zh-Hant and Korean: 21 new texts translated.
+* Tests added:
+  * Doc defaults, clamping and unique names.
+  * The session API (implicit Main shader not written, new / rename / assign / set / restore).
+  * The panel ops and the panel's rows.
+  * GPU (`crates/render/tests/shader_settings.rs`): AO intensity 0 > 0.5 > 0.75 > 1 in
+    brightness with a fully occluding AO map. Emissive intensity 0 < 1 < 3, and the clamp at
+    100. Horizon fading darkening a 70-degree tilted normal and leaving a flat one unchanged.
+* Checked: see the PR (gated `cargo check --release --all-targets`). NOT verified locally: the
+  test suites (CI is the test gate) and the running app.
+* Not done:
+  * Quality (specular samples): the raster viewport uses prefiltered environment lookups.
+  * Shader files and the shader mini-shelf (one built-in shader), parallax occlusion and SSS
+    parameters.
+  * Shader-only undo, and import of shader parameter JSON.
+  * The path tracer ignores the instance parameters.
+  * Alpha settings stay on the texture set (#198) rather than moving into the instance.
+### Painter parity chunk 15: multi-channel filters and Passthrough layers (2026-11-12, branch `claude/parity-chunk15-filters-passthrough`)
+
+* **Passthrough on paint and fill layers:** like a passthrough folder, the stack below is the layer's content (its own
+  paint or fill is not used), its effects process it, and opacity and mask mix the result back. Both CPU paths (tile
+  and stage graph); the GPU planner hands such layers to the CPU. Passthrough is now offered on every layer, not on
+  effect rows.
+* **Per-channel toggles on filters:** `ContentEffect.extra_channels` (project field `extra_channels`, absent when
+  empty); `applies_to` / `filter_channels`; channel chips in Properties (Alt+click: only this one, the last one stays).
+* **Filter layers from the Shelf:** dragging a filter into the stack adds a paint layer, Passthrough on every channel,
+  with the filter on every channel it supports (`filter_shelf::filter_layer`). Alt or a mask target adds it to the
+  layer instead.
+* **Filter picker:** a button with a search field replaces the combo box (filters only, no thumbnails).
+* **Tests:** `crates/compositor/tests/passthrough_layers.rs` (filtered stack, opacity, mask, no-effect identity, a
+  passthrough paint layer equal to an empty passthrough folder for a local filter and a blur, extra channels),
+  project round trip, filter layer from the shelf, UI unit tests (channel chips, search). Local runs: doc, compositor
+  (unit, passthrough_layers, differential, content_effects, compositor), project, app (unit, filters, spp_stack,
+  layer_polish_parity), ui (unit, filters, layer_polish, effect_rows).
+
 
 ### Session 127 - Right-click Properties popup, curvature modes and detail sizes, polygon fill box / modes (2026-11-10, branch `claude/view-ux-curvature`)
 

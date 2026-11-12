@@ -289,6 +289,10 @@ pub struct ViewportRenderer {
     pipeline: wgpu::RenderPipeline,
     /// Single-sample pipeline (anti-aliasing off).
     pipeline_no_aa: wgpu::RenderPipeline,
+    /// Alpha-blended materials (4x MSAA, single-sample), drawn after the opaque ones.
+    pipeline_blend: [wgpu::RenderPipeline; 2],
+    /// Opaque `MaterialParams` for views that ignore opacity (solo channel, baked maps).
+    opaque_params: wgpu::Buffer,
     /// Emission-only pass feeding the glow and glare effects.
     pipeline_emissive: wgpu::RenderPipeline,
     /// Environment drawn behind the model (4x MSAA and single-sample).
@@ -380,6 +384,23 @@ impl ViewportRenderer {
             binding: 8, visibility: wgpu::ShaderStages::FRAGMENT,
             ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering), count: None,
         });
+        // Opacity (9) and the per-material parameters (10), issue #145.
+        entries.push(wgpu::BindGroupLayoutEntry {
+            binding: 9,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                view_dimension: wgpu::TextureViewDimension::D2,
+                multisampled: false,
+            },
+            count: None,
+        });
+        entries.push(wgpu::BindGroupLayoutEntry {
+            binding: 10,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: None },
+            count: None,
+        });
         let material_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { label: Some("material layout"), entries: &entries });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -387,8 +408,10 @@ impl ViewportRenderer {
             bind_group_layouts: &[Some(&globals_layout), Some(&material_layout)],
             immediate_size: 0,
         });
-        let make_pipeline = |samples: u32| device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("viewport pipeline"),
+        // `blend`: the alpha-blended pass (straight alpha over what is drawn, target alpha kept,
+        // depth tested but not written).
+        let make_pipeline = |samples: u32, blend: bool| device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some(if blend { "viewport blend pipeline" } else { "viewport pipeline" }),
             layout: Some(&layout),
             vertex: wgpu::VertexState {
                 module: &shader,
@@ -399,7 +422,7 @@ impl ViewportRenderer {
             primitive: wgpu::PrimitiveState { cull_mode: None, ..Default::default() },
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: target::DEPTH_FORMAT,
-                depth_write_enabled: Some(true),
+                depth_write_enabled: Some(!blend),
                 depth_compare: Some(wgpu::CompareFunction::Less),
                 stencil: Default::default(),
                 bias: Default::default(),
@@ -409,7 +432,18 @@ impl ViewportRenderer {
                 module: &shader,
                 entry_point: Some("fs_main"),
                 compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState { format: OUTPUT_FORMAT, blend: None, write_mask: wgpu::ColorWrites::ALL })],
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: OUTPUT_FORMAT,
+                    blend: blend.then_some(wgpu::BlendState {
+                        color: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::SrcAlpha,
+                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                        alpha: wgpu::BlendComponent { src_factor: wgpu::BlendFactor::Zero, dst_factor: wgpu::BlendFactor::One, operation: wgpu::BlendOperation::Add },
+                    }),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
             }),
             multiview_mask: None,
             cache: None,
@@ -466,8 +500,9 @@ impl ViewportRenderer {
             cache: None,
         });
         let pipeline_background = [make_background(if caps::get().msaa4 { SAMPLE_COUNT } else { 1 }), make_background(1)];
-        let pipeline = make_pipeline(if caps::get().msaa4 { SAMPLE_COUNT } else { 1 });
-        let pipeline_no_aa = make_pipeline(1);
+        let pipeline = make_pipeline(if caps::get().msaa4 { SAMPLE_COUNT } else { 1 }, false);
+        let pipeline_no_aa = make_pipeline(1, false);
+        let pipeline_blend = [make_pipeline(if caps::get().msaa4 { SAMPLE_COUNT } else { 1 }, true), make_pipeline(1, true)];
         let globals = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("globals"),
             contents: bytemuck::bytes_of(&Globals::zeroed()),
@@ -495,6 +530,7 @@ impl ViewportRenderer {
         });
         let defaults = SHADED_CHANNELS
             .iter()
+            .chain(&[ChannelKind::Opacity])
             .map(|&k| {
                 let d = k.default_value().0;
                 (k, ChannelTexture::constant(device, queue, [d[0], d[1], d[2], 1.0], composite_comps(k), k.key()))
@@ -506,8 +542,11 @@ impl ViewportRenderer {
             min_filter: wgpu::FilterMode::Nearest, lod_max_clamp: 0.0, ..Default::default()
         });
         let post = post::PostPass::new(device, &globals_layout, &shader);
+        let opaque_params = material::params_buffer(device, &subcraft_doc::AlphaSettings::default(), &subcraft_doc::ShaderParams::default());
         Self {
             post,
+            pipeline_blend,
+            opaque_params,
             pipeline_emissive,
             pipeline_background,
             pipeline,
@@ -710,11 +749,35 @@ impl ViewportRenderer {
         if mat.albedo_filter != filter { mat.albedo_filter = filter; mat.bind_group = None; }
     }
 
+    /// How the viewport draws a texture set's opacity (issue #145): alpha test, blending or
+    /// dithering of Base Color coverage times the Opacity channel. Opaque by default.
+    pub fn set_alpha(&mut self, material_slot: u32, alpha: subcraft_doc::AlphaSettings) {
+        let mat = self.materials.entry(material_slot).or_default();
+        if mat.alpha != alpha {
+            mat.alpha = alpha;
+            mat.params = None;
+            mat.bind_group = None;
+        }
+    }
+
+    /// A texture set's shader instance parameters (Shader Settings): AO intensity, emissive
+    /// intensity and horizon fading.
+    pub fn set_shader(&mut self, material_slot: u32, shader: subcraft_doc::ShaderParams) {
+        let shader = shader.clamped();
+        let mat = self.materials.entry(material_slot).or_default();
+        if mat.shader != shader {
+            mat.shader = shader;
+            mat.params = None;
+            mat.bind_group = None;
+        }
+    }
+
     fn ensure_bind_groups(&mut self, device: &wgpu::Device) {
         for mat in self.materials.values_mut() {
             if mat.bind_group.is_some() {
                 continue;
             }
+            let params = mat.params.get_or_insert_with(|| material::params_buffer(device, &mat.alpha, &mat.shader));
             let mut entries = vec![wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::Sampler(&self.sampler) }];
             let albedo_sampler = if mat.albedo_filter == subcraft_image::TextureFilter::Nearest { &self.nearest_sampler } else { &self.sampler };
             entries.push(wgpu::BindGroupEntry { binding: 8, resource: wgpu::BindingResource::Sampler(albedo_sampler) });
@@ -722,6 +785,8 @@ impl ViewportRenderer {
                 let view = mat.channels.get(k).map_or(&self.defaults[k].view, |t| &t.view);
                 entries.push(wgpu::BindGroupEntry { binding: i as u32 + 1, resource: wgpu::BindingResource::TextureView(view) });
             }
+            let opacity = mat.channels.get(&ChannelKind::Opacity).map_or(&self.defaults[&ChannelKind::Opacity].view, |t| &t.view);
+            entries.extend(alpha_entries(opacity, params));
             mat.bind_group = Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("material"),
                 layout: &self.material_layout,
@@ -758,6 +823,8 @@ impl ViewportRenderer {
                     };
                     entries.push(wgpu::BindGroupEntry { binding: i as u32 + 1, resource: wgpu::BindingResource::TextureView(view) });
                 }
+                let opacity = mat.channels.get(&ChannelKind::Opacity).map_or(&self.defaults[&ChannelKind::Opacity].view, |t| &t.view);
+                entries.extend(alpha_entries(opacity, mat.params.as_ref().unwrap_or(&self.opaque_params)));
                 baked_normal_groups.insert(*slot, device.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("baked normal material"), layout: &self.material_layout, entries: &entries }));
             }
         }
@@ -778,6 +845,7 @@ impl ViewportRenderer {
                     let view = if i == 0 { mat.channels.get(&kind).map_or(&neutral.view, |t| &t.view) } else { &self.defaults[k].view };
                     entries.push(wgpu::BindGroupEntry { binding: i as u32 + 1, resource: wgpu::BindingResource::TextureView(view) });
                 }
+                entries.extend(alpha_entries(&self.defaults[&ChannelKind::Opacity].view, &self.opaque_params));
                 solo_groups.insert(*slot, device.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("solo channel"), layout: &self.material_layout, entries: &entries }));
             }
         }
@@ -798,6 +866,7 @@ impl ViewportRenderer {
                     let view = if i == 0 { &tex.view } else { &self.defaults[k].view };
                     entries.push(wgpu::BindGroupEntry { binding: i as u32 + 1, resource: wgpu::BindingResource::TextureView(view) });
                 }
+                entries.extend(alpha_entries(&self.defaults[&ChannelKind::Opacity].view, &self.opaque_params));
                 mat.bake_bind_groups.insert(kind, device.create_bind_group(&wgpu::BindGroupDescriptor {
                     label: Some("bake map preview"), layout: &self.material_layout, entries: &entries,
                 }));
@@ -880,18 +949,31 @@ impl ViewportRenderer {
             if params.bake_overlay {
                 self.bake_preview.draw(&mut pass, samples > 1, params.bake_cage);
             } else if let Some(mesh) = &self.mesh {
-                pass.set_pipeline(if samples > 1 { &self.pipeline } else { &self.pipeline_no_aa });
                 pass.set_bind_group(0, &self.globals_bg, &[]);
                 pass.set_vertex_buffer(0, mesh.vertices.slice(..));
                 pass.set_index_buffer(mesh.indices.slice(..), wgpu::IndexFormat::Uint32);
-                for r in &mesh.ranges {
-                    if self.hidden_slots.contains(&r.material_slot) { continue; }
-                    let Some(bg) = self.materials.get(&r.material_slot).and_then(|m| match bake_map {
-                        Some(k) => m.bake_bind_groups.get(&k),
-                        None => solo_groups.get(&r.material_slot).or(baked_normal_groups.get(&r.material_slot)).or(m.bind_group.as_ref()),
-                    }) else { continue };
-                    pass.set_bind_group(1, bg, &[]);
-                    pass.draw_indexed(r.first_index..r.first_index + r.index_count, 0, 0..1);
+                // Opaque (and alpha-tested / dithered) sets first, then alpha-blended ones over
+                // them without writing depth. Single-channel and baked-map views are opaque.
+                let channel_view = bake_map.is_some() || solo.is_some();
+                for blended in [false, true] {
+                    let pipeline = match (blended, samples > 1) {
+                        (false, true) => &self.pipeline,
+                        (false, false) => &self.pipeline_no_aa,
+                        (true, true) => &self.pipeline_blend[0],
+                        (true, false) => &self.pipeline_blend[1],
+                    };
+                    pass.set_pipeline(pipeline);
+                    for r in &mesh.ranges {
+                        if self.hidden_slots.contains(&r.material_slot) { continue; }
+                        let Some(m) = self.materials.get(&r.material_slot) else { continue };
+                        if (m.blends() && !channel_view) != blended { continue; }
+                        let Some(bg) = (match bake_map {
+                            Some(k) => m.bake_bind_groups.get(&k),
+                            None => solo_groups.get(&r.material_slot).or(baked_normal_groups.get(&r.material_slot)).or(m.bind_group.as_ref()),
+                        }) else { continue };
+                        pass.set_bind_group(1, bg, &[]);
+                        pass.draw_indexed(r.first_index..r.first_index + r.index_count, 0, 0..1);
+                    }
                 }
             }
             if params.grid.is_some() {
@@ -985,6 +1067,14 @@ impl ViewportRenderer {
 }
 
 /// Stored components of a composite channel image (mirrors `subcraft_compositor`).
+/// Bindings 9 (Opacity texture) and 10 (`MaterialParams`) of a material bind group.
+fn alpha_entries<'a>(opacity: &'a wgpu::TextureView, params: &'a wgpu::Buffer) -> [wgpu::BindGroupEntry<'a>; 2] {
+    [
+        wgpu::BindGroupEntry { binding: 9, resource: wgpu::BindingResource::TextureView(opacity) },
+        wgpu::BindGroupEntry { binding: 10, resource: params.as_entire_binding() },
+    ]
+}
+
 pub fn composite_comps(kind: ChannelKind) -> usize {
     if kind.components() == 3 { 4 } else { 1 }
 }
