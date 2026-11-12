@@ -5493,7 +5493,7 @@ the app kept drawing on the dead device. Safe mode works; 0.3.3's marker only he
   wheel), and a Cache folder (`recovery::cache_dir`, used by the Painter import cache and update downloads).
 * **Tests:** `nav.rs` camera speed scaling, inversion, clamping and old files; `world_axes.rs` projection for two cameras;
   `crates/app/tests/settings_general.rs` (fill UV scale, cache folder); preferences defaults and save round trip; GPU
-  `background_is_a_vertical_gradient_between_the_two_colours` (skips without an adapter). Local: CHECK_LINE; CI runs the
-  tests.
+  `background_is_a_vertical_gradient_between_the_two_colours` (skips without an adapter). Not compiled locally (the PC's compiler crashed twice under
+  load); CI compiles and tests.
 * **Not done:** smart materials and shelf drops keep their own UV scale; the Rendering mode keeps its own background;
   Viewport Scaling, simplified thumbnails, baking and preview options; not tried in the running app.
