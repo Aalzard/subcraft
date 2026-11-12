@@ -854,7 +854,7 @@ fn generator_offset_round_trips_and_old_files_have_none() {
 fn painter_generator_controls_round_trip_and_are_absent_in_older_files() {
     let mut g = Generator::new(GeneratorKind::Cavity); g.painter = None;
     assert!(serde_json::to_value(g).unwrap().get("painter").is_none(), "none is not written, so older files are unchanged");
-    g.painter = Some(subcraft_doc::PainterControls { edges_masking: 0.5, ao_masking: 0.25, curvature_weight: 0.75, smoothness: 0.5, grunge_scale: 4.0, grunge_floor: 0.2, grain: 0.35, grunge_map: true });
+    g.painter = Some(subcraft_doc::PainterControls { edges_masking: 0.5, ao_masking: 0.25, curvature_weight: 0.75, smoothness: 0.5, grunge_scale: 4.0, grunge_floor: 0.2, grain: 0.35, grunge_map: true, custom_grunge: None });
     let back: Generator = serde_json::from_value(serde_json::to_value(g).unwrap()).unwrap();
     assert_eq!(back, g);
     let mut json = serde_json::to_value(g).unwrap();

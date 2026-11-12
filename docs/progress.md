@@ -5477,6 +5477,19 @@ symmetry. `crates/app/tests/uv_tools.rs` covers session routing: the 2D clone so
 * **Not done:** UV Border Distance (needs a distance field across tiles), UV Checker and UV Texel Density (fill-layer
   generators, chunk 35), UV Random Color's Custom Gradient and Light on a fill layer, picking positions from the
   Position map in the viewport.
+### Parity chunk 34 - Filter and generator image inputs (2026-11-12, branch `claude/parity-image-inputs`)
+
+* **Custom grunge** (`PainterControls::custom_grunge`): Dirt, Edge wear and Concave generators take an image that
+  replaces their breakup noise, projected tri-planar on the model at the pattern size (`custom_grunge` in
+  `crates/compositor/src/mask.rs`), with the grunge-map style tail. Picked in Properties (`Purpose::GeneratorGrunge`);
+  counted as a resource of the generator (save, fragments, clipboard).
+* **Gradient Dynamic** filter (`Filter::GradientDynamic`): each value (luminance on colour channels) picks the colour
+  of its Gradient Source image along one row (or column, Gradient Orientation) at Gradient Input Position; masks and
+  scalar channels use its luminance. Evaluated by the compositor in content and mask stacks (it reads an image);
+  the image slot is picked from Properties (`Purpose::FilterImage`). Filters report their image through
+  `Filter::resource`.
+* **Not done:** anchors as image inputs for these slots, Warp's Custom Noise and Blur Slope, the Directional
+  Distance / Bevel Smooth distance maps, Custom grunge 2 of Metal Edge Wear, a mini shelf for picking resources.
 ### Parity chunk 35 - Generators on content, random seed (2026-11-12, branch `claude/parity-content-generators`)
 
 * **Generator content effect** (`ContentEffectKind::Generator`, `crates/doc/src/effect.rs`): "Add generator" in a

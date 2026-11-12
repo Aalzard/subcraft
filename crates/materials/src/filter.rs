@@ -15,6 +15,7 @@ pub fn apply(filter: Filter, input: [f32; 3], channel: ChannelKind) -> [f32; 3] 
             if channel.is_signed() { v } else { v.clamp(0.0, 1.0) }
         }),
         Filter::BlurWrap { .. } | Filter::Transform { .. } | Filter::Mirror { .. } => input, // Staged by the compositor too.
+        Filter::GradientDynamic { .. } => input, // Reads an image: evaluated by the compositor.
         Filter::BevelShape { .. } | Filter::MaskOutlineShape { .. } | Filter::Fxaa { .. } | Filter::DropShadow { .. } | Filter::OuterGlow { .. } => input,
         Filter::HeightAdjust { invert, offset, multiply } => input.map(|v| height_adjust(v, invert, offset, multiply, channel)),
         Filter::Smoothstep { min, max } => input.map(|v| smoothstep(v, min, max)),
