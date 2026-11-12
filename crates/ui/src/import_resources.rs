@@ -451,7 +451,8 @@ mod tests {
         assert_eq!(Usage::guess(Path::new("a.scbrush")), Usage::BrushPreset);
         assert_eq!(Usage::guess(Path::new("sky.hdr")), Usage::Environment);
         assert_eq!(Usage::guess(Path::new("dirt.png")), Usage::Undefined, "an image can be a texture, an alpha or an environment");
-        assert!(Usage::Texture.accepts("PNG") && Usage::Environment.accepts("exr") && !Usage::Alpha.accepts("hdr"));
+        assert!(Usage::Texture.accepts("PNG") && Usage::Environment.accepts("exr") && Usage::Alpha.accepts("tga"));
+        assert!(!Usage::SmartMask.accepts("png") && !Usage::Texture.accepts("scsmart"), "a usage reads only its own formats");
         assert!(!supported(Path::new("notes.txt")) && supported(Path::new("x.tga")));
     }
 
