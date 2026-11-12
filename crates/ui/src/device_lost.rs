@@ -53,14 +53,11 @@ pub fn frame_gate(state: &mut UiState) -> Gate {
 fn save_recovery_copy(state: &mut UiState) -> bool {
     use subcraft_app::recovery::AutosaveEvent;
     let saver = &mut state.recovery.autosaver;
-    if !saver.is_enabled() { return false; }
-    // A copy already being written is finished first; then a fresh one with the latest edits.
-    let _ = saver.wait();
-    saver.start(&state.session, web_time::Instant::now());
-    match saver.wait() {
+    // Finishes a copy already being written, then writes one with the latest edits if needed.
+    match saver.save_now(&state.session) {
         Some(AutosaveEvent::Saved(path)) => { log::info!("recovery copy written after the graphics device was lost: {}", path.display()); true }
         Some(AutosaveEvent::Failed(e)) => { log::error!("recovery copy after the graphics device was lost failed: {e}"); false }
-        None => false,
+        None => { log::info!("no unsaved work to copy after the graphics device was lost"); false }
     }
 }
 

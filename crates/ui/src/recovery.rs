@@ -39,6 +39,12 @@ pub struct Preferences {
     pub use_gpu_baking: bool,
     /// Mouse navigation of the 3D view.
     pub nav_scheme: crate::nav::NavScheme,
+    /// Orbit around the point of the model under the cursor (as Painter does) instead of the
+    /// centre of the view.
+    pub orbit_around_cursor: bool,
+    /// Window > Toolbars: the tool rail and the status bar.
+    pub show_tools_toolbar: bool,
+    pub show_status_bar: bool,
     /// Which keyboard shortcut table is active (SubCraft default or Substance Painter).
     pub keymap: subcraft_app::KeymapPreset,
     /// Blend layers on the graphics card when one is available and the edit is big (the
@@ -50,6 +56,32 @@ pub struct Preferences {
     pub new_project: subcraft_app::new_project::NewProjectSettings,
     /// Interface language (English when absent from an older settings file).
     pub language: crate::i18n::Language,
+    /// Last brush colours picked (linear RGB, newest first, at most
+    /// [`crate::color_picker::MAX_RECENT`]).
+    pub recent_colors: Vec<[f32; 3]>,
+}
+
+impl Preferences {
+    /// Read stored preferences, keeping every setting that still parses. One value this build does
+    /// not know (a language or keymap written by a newer version, a `null` number) used to fail
+    /// the whole parse and silently reset all preferences.
+    pub fn from_json_lenient(json: &str) -> Self {
+        // Only an object is a preferences file (serde would also take an array as the fields in order).
+        let Ok(serde_json::Value::Object(stored)) = serde_json::from_str::<serde_json::Value>(json) else { return Self::default() };
+        if let Ok(p) = serde_json::from_str(json) {
+            return p;
+        }
+        let Ok(serde_json::Value::Object(mut merged)) = serde_json::to_value(Self::default()) else { return Self::default() };
+        for (key, value) in stored {
+            let Some(slot) = merged.get_mut(&key) else { continue };
+            let default = std::mem::replace(slot, value);
+            if serde_json::from_value::<Self>(serde_json::Value::Object(merged.clone())).is_err() {
+                log::warn!("preference \"{key}\" has a value this version does not understand; using the default");
+                merged.insert(key, default);
+            }
+        }
+        serde_json::from_value(serde_json::Value::Object(merged)).unwrap_or_default()
+    }
 }
 
 impl Default for Preferences {
@@ -64,11 +96,15 @@ impl Default for Preferences {
             check_updates_on_start: true,
             use_gpu_baking: true,
             nav_scheme: Default::default(),
+            orbit_around_cursor: true,
+            show_tools_toolbar: true,
+            show_status_bar: true,
             keymap: Default::default(),
             use_gpu_compositing: true,
             viewport: Default::default(),
             new_project: Default::default(),
             language: Default::default(),
+            recent_colors: Vec::new(),
         }
     }
 }
@@ -305,6 +341,8 @@ pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
         for (what, how) in rec.prefs.nav_scheme.help() {
             ui.label(RichText::new(format!("{what}: {how}")).small().color(TEXT_DIM));
         }
+        ui.checkbox(&mut rec.prefs.orbit_around_cursor, "Orbit around the point under the cursor")
+            .on_hover_text("Starting an orbit over the model turns the view around that point of the surface, as Substance Painter does. Over the background the last point is kept. Off: the view always turns around its centre. F frames the model and forgets the point.");
         ui.horizontal(|ui| {
             ui.label(tr("Keyboard shortcuts"));
             egui::ComboBox::from_id_salt("keymap_preset").selected_text(rec.prefs.keymap.label()).show_ui(ui, |ui| {
@@ -313,7 +351,10 @@ pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
                 }
             });
         });
-        ui.label(RichText::new("The Substance Painter preset adds Painter's keys (P picks material, L is symmetry, Shift+P is Pen paths). Help > Keyboard shortcuts lists them all.").small().color(TEXT_DIM));
+        ui.label(RichText::new("The Substance Painter key set follows Painter where the two differ: P picks material (Pen paths: Shift+P), B shows the next mesh map (Brush: 1), X inverts the mask brush (symmetry: L), F2 shows the 3D view only (rename a layer: double-click).").small().color(TEXT_DIM));
+        if ui.button(format!("{}  Show all keyboard shortcuts…", crate::icons::KEYBOARD)).clicked() {
+            ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new("open_shortcuts_window"), true));
+        }
         if ui.checkbox(&mut rec.prefs.use_gpu_compositing, tr("Use GPU for compositing"))
             .on_hover_text("Blends layers on the graphics card for big edits (opening a project, changing a layer under many others) on texture sets of 2048 and larger. Procedural fills, generator masks and blur-type filters are still computed by the processor, and sets with blur-type filters use the processor entirely. Small edits such as brush strokes always use the processor.")
             .changed()
@@ -351,4 +392,31 @@ pub fn preferences_window(state: &mut UiState, ctx: &egui::Context) {
     });
     rec.prefs.apply_ui_size(ctx);
     rec.show_prefs = open;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// QA 2026-11: one value this build does not know reset every preference to its default.
+    #[test]
+    fn one_unknown_value_does_not_reset_the_other_preferences() {
+        let stored = r#"{"ui_size_percent":120,"autosave_minutes":2,"language":"ja","keymap":"from_the_future","show_welcome":false,"added_later":7}"#;
+        assert!(serde_json::from_str::<Preferences>(stored).is_err(), "the strict parse rejects the file");
+        let p = Preferences::from_json_lenient(stored);
+        let d = Preferences::default();
+        assert_eq!((p.ui_size_percent, p.autosave_minutes, p.show_welcome), (120, 2, false), "known settings are kept");
+        assert_eq!((p.language, p.keymap), (d.language, d.keymap), "unknown values fall back to their defaults");
+
+        let null = r#"{"ui_size_percent":110,"autosave_keep":null}"#;
+        let p = Preferences::from_json_lenient(null);
+        assert_eq!((p.ui_size_percent, p.autosave_keep), (110, d.autosave_keep));
+
+        assert_eq!(Preferences::from_json_lenient("not json"), d);
+        assert_eq!(Preferences::from_json_lenient("[1, 2]"), d);
+        let mut custom = Preferences::default();
+        custom.ui_size_percent = 130;
+        custom.language = crate::i18n::Language::Ko;
+        assert_eq!(Preferences::from_json_lenient(&serde_json::to_string(&custom).unwrap()), custom, "a valid file round-trips");
+    }
 }

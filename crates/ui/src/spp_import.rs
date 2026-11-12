@@ -47,7 +47,10 @@ pub fn poll(state: &mut UiState, ctx: &egui::Context, now: f64) {
         match import.job.poll(&mut state.session) {
             SppPoll::Idle => return,
             SppPoll::Opened(session, notes) => {
+                // `set_session` cancels any running import; this one continues with the stack rebuild.
+                let running = state.spp_import.take();
                 state.set_session(*session);
+                state.spp_import = running;
                 state.welcome.remember(&path);
                 let status = match notes.first() {
                     Some(first) if notes.len() > 1 => format!("Opened {name}; rebuilding its layers in the background. {first}"),

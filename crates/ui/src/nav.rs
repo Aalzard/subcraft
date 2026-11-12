@@ -9,8 +9,9 @@ use serde::{Deserialize, Serialize};
 /// Which mouse/modifier combinations navigate the 3D view. The wheel always zooms.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum NavScheme {
-    /// Alt+LMB or RMB orbit, MMB or Ctrl+Alt+LMB pan, Alt+RMB zoom; Shift+RMB rotates the
-    /// environment (as in Painter), Shift+MMB turns only the key light.
+    /// Alt+LMB or RMB orbit (Alt+Shift+LMB snaps every 90 degrees), MMB or Ctrl+Alt+LMB pan,
+    /// Alt+RMB zoom; Shift+RMB rotates the environment (as in Painter), Shift+MMB turns only the
+    /// key light. Ctrl+MMB (focus) and Ctrl+Alt+RMB (texture set) are clicks, not navigation.
     #[default]
     Painter,
     /// MMB orbit, Shift+MMB pan, Ctrl+MMB zoom; Shift+RMB rotates the environment.
@@ -29,8 +30,8 @@ impl NavScheme {
     /// Text for the shortcuts window: (action, how).
     pub fn help(self) -> [(&'static str, &'static str); 4] {
         match self {
-            NavScheme::Painter => [("Orbit", "Alt+LMB or RMB drag"), ("Pan", "MMB or Ctrl+Alt+LMB drag"), ("Zoom", "Wheel or Alt+RMB drag"), ("Rotate environment", "Shift+RMB drag")],
-            NavScheme::Blender => [("Orbit", "MMB drag"), ("Pan", "Shift+MMB drag"), ("Zoom", "Wheel or Ctrl+MMB drag"), ("Rotate environment", "Shift+RMB drag")],
+            NavScheme::Painter => [("Orbit", "Alt+LMB or RMB drag (add Shift to snap every 90°)"), ("Pan", "MMB or Ctrl+Alt+LMB drag"), ("Zoom", "Wheel or Alt+RMB drag"), ("Rotate environment", "Shift+RMB drag")],
+            NavScheme::Blender => [("Orbit", "MMB drag (Alt+MMB click centers the view on the model)"), ("Pan", "Shift+MMB drag"), ("Zoom", "Wheel or Ctrl+MMB drag"), ("Rotate environment", "Shift+RMB drag")],
         }
     }
     /// Short orbit hint for the status bar.
@@ -50,6 +51,8 @@ impl NavScheme {
 pub enum NavMode {
     None,
     Orbit,
+    /// Orbit that snaps the view every 90 degrees (Painter's Alt+Shift+LMB).
+    OrbitSnap,
     Pan,
     Zoom,
     /// Turn the key light around the model.
@@ -73,12 +76,20 @@ pub struct NavInput {
 pub fn mode_for(scheme: NavScheme, i: NavInput) -> NavMode {
     match scheme {
         NavScheme::Painter => {
-            if i.shift && i.secondary {
+            if i.primary && i.alt && i.shift && !i.ctrl {
+                NavMode::OrbitSnap
+            } else if i.shift && i.secondary {
                 NavMode::Environment
             } else if i.shift && i.middle {
                 NavMode::Light
+            } else if i.secondary && i.alt && i.ctrl {
+                // Ctrl+Alt+RMB selects the texture set under the cursor.
+                NavMode::None
             } else if i.secondary && i.alt {
                 NavMode::Zoom
+            } else if i.middle && i.ctrl && !i.alt {
+                // Ctrl+MMB focuses the depth of field on the point under the cursor.
+                NavMode::None
             } else if i.middle || (i.primary && i.alt && i.ctrl) {
                 NavMode::Pan
             } else if (i.secondary && !i.ctrl) || (i.primary && i.alt) {
@@ -102,6 +113,23 @@ pub fn mode_for(scheme: NavScheme, i: NavInput) -> NavMode {
             }
         }
     }
+}
+
+/// `angle` (radians) rounded to the nearest multiple of `step`.
+pub fn snap_angle(angle: f32, step: f32) -> f32 {
+    if step > 0.0 { (angle / step).round() * step } else { angle }
+}
+
+/// End point of a straight line from `from` towards `to` whose direction is snapped to
+/// `step_deg` steps (Painter's Ctrl+Shift+click); the length is kept.
+pub fn snap_line_end(from: Vec2, to: Vec2, step_deg: f32) -> Vec2 {
+    let d = to - from;
+    let len = d.length();
+    if len <= f32::EPSILON {
+        return to;
+    }
+    let a = snap_angle(d.y.atan2(d.x), step_deg.to_radians());
+    from + Vec2::new(a.cos(), a.sin()) * len
 }
 
 /// A navigation drag in progress. The pointer position is the drag origin; when the mode changes
@@ -166,7 +194,37 @@ mod tests {
         assert_eq!(mode_for(p, inp(true, false, false, false, true, true)), NavMode::Pan);
         assert_eq!(mode_for(p, inp(true, false, false, false, true, false)), NavMode::None, "Ctrl+LMB adjusts the brush");
         assert_eq!(mode_for(p, inp(false, false, true, false, true, false)), NavMode::None, "Ctrl+RMB adjusts the brush");
-        assert_eq!(mode_for(p, inp(false, false, true, false, true, true)), NavMode::Zoom, "Ctrl+Alt+RMB still zooms");
+        assert_eq!(mode_for(p, inp(false, false, true, false, true, true)), NavMode::None, "Ctrl+Alt+RMB selects a texture set");
+        assert_eq!(mode_for(p, inp(false, true, false, false, true, false)), NavMode::None, "Ctrl+MMB sets the focus");
+        assert_eq!(mode_for(p, inp(false, true, false, false, true, true)), NavMode::Pan, "Alt+MMB pans whatever else is held");
+    }
+
+    #[test]
+    fn painter_alt_shift_lmb_snaps_the_orbit() {
+        let p = NavScheme::Painter;
+        assert_eq!(mode_for(p, inp(true, false, false, true, false, true)), NavMode::OrbitSnap);
+        assert_eq!(mode_for(p, inp(true, false, false, false, false, true)), NavMode::Orbit, "without Shift it orbits freely");
+        assert_eq!(mode_for(p, inp(true, false, false, true, false, false)), NavMode::None, "Shift+LMB is the straight line");
+        assert_eq!(mode_for(NavScheme::Blender, inp(true, false, false, true, false, true)), NavMode::None);
+        // Releasing Shift mid-drag continues as a free orbit with no jump.
+        let mut d = NavDrag::begin(p, inp(true, false, false, true, false, true), Vec2::ZERO).unwrap();
+        assert_eq!(d.step(p, inp(true, false, false, true, false, true), Vec2::new(8.0, 0.0)), Some((NavMode::OrbitSnap, Vec2::new(8.0, 0.0))));
+        assert_eq!(d.step(p, inp(true, false, false, false, false, true), Vec2::new(20.0, 0.0)), Some((NavMode::Orbit, Vec2::ZERO)));
+    }
+
+    #[test]
+    fn straight_lines_snap_to_fifteen_degrees_and_keep_their_length() {
+        let from = Vec2::new(100.0, 100.0);
+        let end = snap_line_end(from, Vec2::new(200.0, 104.0), 15.0);
+        assert!((end - Vec2::new(from.x + (end - from).length(), 100.0)).length() < 1e-3, "nearly horizontal becomes horizontal: {end}");
+        assert!(((end - from).length() - Vec2::new(100.0, 4.0).length()).abs() < 1e-3);
+        let diagonal = snap_line_end(from, Vec2::new(150.0, 148.0), 15.0) - from;
+        assert!((diagonal.x - diagonal.y).abs() < 1e-3, "close to 45 degrees snaps to it: {diagonal}");
+        let up = snap_line_end(from, Vec2::new(103.0, 20.0), 15.0) - from;
+        assert!(up.x.abs() < 1e-3 && up.y < 0.0);
+        assert_eq!(snap_line_end(from, from, 15.0), from, "a zero-length line stays put");
+        assert!((snap_angle(0.30, 15f32.to_radians()) - 15f32.to_radians()).abs() < 1e-6);
+        assert!((snap_angle(-1.60, std::f32::consts::FRAC_PI_2) + std::f32::consts::FRAC_PI_2).abs() < 1e-6);
     }
 
     #[test]
@@ -246,6 +304,7 @@ mod tests {
     fn help_text_follows_the_scheme() {
         assert!(NavScheme::Blender.help().iter().any(|(_, h)| h.contains("Shift+MMB")));
         assert!(NavScheme::Painter.help().iter().any(|(_, h)| h.contains("Alt+LMB")));
+        assert!(NavScheme::Painter.help().iter().any(|(_, h)| h.contains("snap every 90")));
         for scheme in NavScheme::ALL {
             assert!(scheme.help().contains(&("Rotate environment", "Shift+RMB drag")), "{scheme:?} lists the environment rotation");
         }

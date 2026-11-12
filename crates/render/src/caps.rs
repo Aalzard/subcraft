@@ -19,13 +19,15 @@ pub struct GpuCaps {
     pub max_storage_buffer_binding: u64,
     pub rgba16f_filterable: bool,
     pub rgba16f_renderable: bool,
+    /// Samplers may ask for anisotropic filtering.
+    pub anisotropy: bool,
 }
 
 impl Default for GpuCaps {
     /// Everything available: used when no adapter was probed (tests, headless tools).
     fn default() -> Self {
         Self { name: "unprobed".into(), backend: String::new(), driver: String::new(), device_type: String::new(), max_texture_2d: 16384, max_buffer_size: u64::MAX,
-            msaa4: true, compute: true, storage_textures_per_stage: 8, max_storage_buffer_binding: u64::MAX, rgba16f_filterable: true, rgba16f_renderable: true }
+            msaa4: true, compute: true, storage_textures_per_stage: 8, max_storage_buffer_binding: u64::MAX, rgba16f_filterable: true, rgba16f_renderable: true, anisotropy: true }
     }
 }
 
@@ -45,6 +47,7 @@ impl GpuCaps {
             max_storage_buffer_binding: limits.max_storage_buffer_binding_size,
             rgba16f_filterable: f16.flags.contains(wgpu::TextureFormatFeatureFlags::FILTERABLE),
             rgba16f_renderable: f16.allowed_usages.contains(wgpu::TextureUsages::RENDER_ATTACHMENT),
+            anisotropy: adapter.get_downlevel_capabilities().flags.contains(wgpu::DownlevelFlags::ANISOTROPIC_FILTERING),
         }
     }
 

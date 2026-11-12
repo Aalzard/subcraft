@@ -27,11 +27,17 @@ static LOG: OnceLock<Mutex<Option<(std::fs::File, PathBuf)>>> = OnceLock::new();
 /// `<data dir>/startup.log`.
 pub fn startup_log_path() -> Option<PathBuf> { crate::recovery::data_dir().map(|d| d.join("startup.log")) }
 
+/// The previous run's log. Lossy: a crash can cut a line in the middle of a character, and one bad
+/// byte must not throw away the evidence of that run (and with it the safe-mode decision).
+fn read_previous(path: &Path) -> String {
+    std::fs::read(path).map(|b| String::from_utf8_lossy(&b).into_owned()).unwrap_or_default()
+}
+
 /// Open the breadcrumb log and install a panic hook that writes to it. Returns the text of the
 /// previous run's log (also kept for [`previous_log`]). The log keeps the last runs
 /// (trimmed to about 64 KiB) and every step is flushed and synced to disk.
 pub fn begin(path: Option<&Path>) {
-    let previous = path.and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default();
+    let previous = path.map(read_previous).unwrap_or_default();
     let keep = trim_log(&previous, 64 * 1024);
     let open = |p: &Path| {
         std::fs::create_dir_all(p.parent()?).ok()?;
@@ -412,6 +418,24 @@ mod tests {
 
     fn ad(backend: ProbeBackend, index: u32, vendor: u32, kind: AdapterKind, name: &str) -> ProbeAdapter {
         ProbeAdapter { backend, index, vendor, device: 1, kind, driver: "1.0".into(), name: name.into() }
+    }
+
+    /// QA 2026-11: a startup log with one invalid UTF-8 byte was read as empty (and then
+    /// overwritten), so a crashed or GPU-lost previous run was not noticed.
+    #[test]
+    fn a_log_with_a_broken_character_still_reports_the_previous_run() {
+        let dir = std::env::temp_dir().join(format!("subcraft-startup-log-{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("startup.log");
+        let mut bytes = format!("12:00 {START_MARKER}\n12:00 half a character: ").into_bytes();
+        bytes.push(0xE2); // first byte of a three-byte character, cut off by the crash
+        bytes.extend_from_slice(format!("\n12:01 {GPU_LOST_MARKER}: Unknown\n").as_bytes());
+        std::fs::write(&path, bytes).unwrap();
+        let log = read_previous(&path);
+        assert!(previous_run_incomplete(&log), "{log:?}");
+        assert!(previous_run_gpu_lost(&log), "{log:?}");
+        assert_eq!(read_previous(&dir.join("missing.log")), "");
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

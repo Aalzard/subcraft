@@ -321,6 +321,81 @@ fn symmetry_produces_mirrored_coverage() {
     assert!(cl.distance(mirrored) < 0.02, "centroids {cl} vs mirror of {cr}");
 }
 
+/// QA 2026-11: the mirrored copy of a tilted, squashed tip leaned the same way as the original
+/// instead of being its mirror image (the stamp's bitangent kept its sign under reflection).
+#[test]
+fn symmetry_mirrors_the_tilt_of_a_squashed_tip() {
+    let res = 512;
+    let mut sc = Scene::new(primitives::cube(2.0), res);
+    let cam = front_camera(5.0);
+    let options = StrokeOptions { symmetry: [true, false, false], ..StrokeOptions::default() };
+    let chisel = BrushSettings { size: 14.0, angle_deg: 45.0, roundness: 0.35, hardness: 1.0, ..BrushSettings::default() };
+    sc.stroke(&cam, &[Vec3::new(0.5, 0.1, 1.0)], chisel, options, &red());
+    let img = sc.image(ChannelKind::BaseColor).unwrap();
+    let surf = sc.surface();
+    // Alpha-weighted xy covariance of the dab on each side of the mirror plane (front face only).
+    let side = |right: bool| {
+        let (mut w, mut c) = (0.0f32, Vec3::ZERO);
+        let mut pts = Vec::new();
+        for i in 0..surf.triangle.len() {
+            if !surf.covered(i) {
+                continue;
+            }
+            let p = Vec3::from_slice(&surf.position[i][..3]);
+            let a = alpha(&img, i, res);
+            if a <= 0.0 || p.z < 0.99 || (p.x > 0.0) != right {
+                continue;
+            }
+            w += a;
+            c += p * a;
+            pts.push((p, a));
+        }
+        assert!(w > 50.0, "painted on the {} side ({w})", if right { "+x" } else { "-x" });
+        let c = c / w;
+        pts.iter().map(|(p, a)| (p.x - c.x) * (p.y - c.y) * a).sum::<f32>() / w
+    };
+    let (r, l) = (side(true), side(false));
+    assert!(r.abs() > 1e-4, "the tip is visibly tilted ({r})");
+    assert!((l + r).abs() < r.abs() * 0.2, "the mirrored dab must lean the other way: xy covariance {l} vs {r}");
+}
+
+/// QA 2026-11: the stamp spacing used the nominal brush size while pen pressure shrank the dabs,
+/// so a light pen stroke was a row of separate dots.
+#[test]
+fn a_light_pen_stroke_is_a_continuous_line() {
+    let res = 512;
+    let mut sc = Scene::new(primitives::cube(2.0), res);
+    let cam = front_camera(5.0);
+    let settings = BrushSettings { size: 30.0, hardness: 1.0, pressure_size: 1.0, pressure_flow: 0.0, ..BrushSettings::default() };
+    let mut s = Stroke::begin(&sc.ts, sc.layer, PaintTarget::Content, StrokeMode::Paint, settings, StrokeOptions::default(), &red()).unwrap();
+    s.set_pressure(0.06);
+    let (a, b) = (cam.project(Vec3::new(-0.6, 0.2, 1.0)).unwrap().truncate(), cam.project(Vec3::new(0.6, 0.2, 1.0)).unwrap().truncate());
+    let mut ts = sc.ts.clone();
+    for k in 0..=60 {
+        s.add_point(&mut ts, &sc.ctx(&cam), a.lerp(b, k as f32 / 60.0)).unwrap();
+    }
+    sc.ts = ts;
+    let img = sc.image(ChannelKind::BaseColor).expect("painted");
+    let surf = sc.surface();
+    // Front-face texels on the stroke's centre line, away from its ends.
+    let (mut on, mut total) = (0, 0);
+    for i in 0..surf.triangle.len() {
+        if !surf.covered(i) {
+            continue;
+        }
+        let p = Vec3::from_slice(&surf.position[i][..3]);
+        if p.z < 0.99 || (p.y - 0.2).abs() > 0.004 || p.x.abs() > 0.5 {
+            continue;
+        }
+        total += 1;
+        if alpha(&img, i, res) > 0.3 {
+            on += 1;
+        }
+    }
+    assert!(total > 30, "centre line texels found ({total})");
+    assert!(on as f32 >= total as f32 * 0.95, "the line has gaps: {on} of {total} centre texels painted");
+}
+
 /// Front-face stroke used by the radial symmetry tests (away from x = 0 and the cube edges).
 fn radial_scene(options: StrokeOptions) -> (Scene, TiledImage) {
     let res = 256;

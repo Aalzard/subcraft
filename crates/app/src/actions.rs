@@ -71,8 +71,39 @@ pub enum Action {
     Bake,
     /// Switch the 3D view between the raster viewport and the path-traced Rendering mode.
     TogglePathTracing,
+    /// Leave the Rendering mode: back to the painting viewport.
+    PaintingMode,
     /// Select every layer of the texture set (then Delete, Duplicate... act on all of them).
     SelectAllLayers,
+    /// Hide every panel so the view(s) fill the window (Painter's Tab); again to bring them back.
+    HideUi,
+    /// Close the project: back to the sample model (asks about unsaved changes first).
+    CloseProject,
+    /// 3D and 2D views side by side / 3D only / 2D only / swap them (Painter's F1..F4).
+    View3dAnd2d,
+    View3dOnly,
+    View2dOnly,
+    SwapViews,
+    /// Show the next / previous baked mesh map on the model (wraps through the material view).
+    NextMeshMap,
+    PrevMeshMap,
+    /// While painting a mask: swap the brush between white and black (gray g becomes 1 - g).
+    InvertMaskGray,
+    /// Show only the selected texture set's part of the model; again to show everything.
+    IsolateTextureSet,
+}
+
+impl Action {
+    /// Every action, in declaration order (the tests check [`ACTIONS`] against it).
+    pub const ALL: [Action; 45] = [
+        Action::Undo, Action::Redo, Action::NewPaintLayer, Action::NewFillLayer, Action::NewFolder, Action::NewTextLayer, Action::DeleteLayer, Action::DuplicateLayer,
+        Action::BrushTool, Action::EraserTool, Action::PenTool, Action::PolygonFillTool, Action::SmudgeTool, Action::CloneTool, Action::EyedropperTool,
+        Action::BrushSmaller, Action::BrushLarger, Action::ToggleSymmetryX, Action::ToggleLazyMouse, Action::ResetCamera, Action::PerspectiveCamera,
+        Action::OrthographicCamera, Action::NextChannel, Action::PrevChannel, Action::DisplayMaterial, Action::NewProject, Action::Quit, Action::Save,
+        Action::SaveAs, Action::OpenProject, Action::Export, Action::Bake, Action::TogglePathTracing, Action::PaintingMode, Action::SelectAllLayers,
+        Action::HideUi, Action::CloseProject, Action::View3dAnd2d, Action::View3dOnly, Action::View2dOnly,
+        Action::SwapViews, Action::NextMeshMap, Action::PrevMeshMap, Action::InvertMaskGray, Action::IsolateTextureSet,
+    ];
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -195,7 +226,7 @@ pub const ACTIONS: &[ActionInfo] = &[
     a(Action::NewTextLayer, "New Text Layer", &[Shortcut::ctrl_shift(Key::T)]),
     a(Action::DeleteLayer, "Delete Layer", &[Shortcut::key(Key::Delete)]),
     a(Action::DuplicateLayer, "Duplicate Layer", &[Shortcut::ctrl(Key::D)]),
-    a(Action::BrushTool, "Brush", &[Shortcut::key(Key::B), Shortcut::key(Key::Num1)]),
+    ActionInfo { action: Action::BrushTool, label: "Brush", shortcuts: &[Shortcut::key(Key::B), Shortcut::key(Key::Num1)], painter: Some(&[Shortcut::key(Key::Num1)]) },
     a(Action::EraserTool, "Eraser", &[Shortcut::key(Key::E), Shortcut::key(Key::Num2)]),
     ActionInfo { action: Action::PenTool, label: "Pen paths", shortcuts: &[Shortcut::key(Key::P)], painter: Some(&[Shortcut::shift(Key::P)]) },
     a(Action::PolygonFillTool, "Polygon Fill", &[Shortcut::key(Key::Num4)]),
@@ -220,8 +251,25 @@ pub const ACTIONS: &[ActionInfo] = &[
     a(Action::Export, "Export Textures", &[Shortcut::ctrl_shift(Key::E)]),
     a(Action::Bake, "Bake Mesh Maps", &[Shortcut::ctrl(Key::B), Shortcut::key(Key::F8), Shortcut::ctrl_shift(Key::B)]),
     a(Action::TogglePathTracing, "Rendering Mode (path tracing)", &[Shortcut::key(Key::F10)]),
+    a(Action::PaintingMode, "Painting Mode (leave Rendering mode)", &[Shortcut::key(Key::F9)]),
     a(Action::SelectAllLayers, "Select All Layers", &[Shortcut::ctrl(Key::A)]),
+    a(Action::HideUi, "Hide UI", &[Shortcut::key(Key::Tab)]),
+    a(Action::CloseProject, "Close Project", &[Shortcut::ctrl(Key::F4)]),
+    a(Action::View3dAnd2d, "Show 3D and 2D Views", &[Shortcut::key(Key::F1)]),
+    // F2 renames the selected layer in the SubCraft key set; Painter uses it for the 3D-only layout.
+    ActionInfo { action: Action::View3dOnly, label: "Show 3D View Only", shortcuts: &[], painter: Some(&[Shortcut::key(Key::F2)]) },
+    a(Action::View2dOnly, "Show 2D View Only", &[Shortcut::key(Key::F3)]),
+    a(Action::SwapViews, "Swap 3D and 2D Views", &[Shortcut::key(Key::F4)]),
+    ActionInfo { action: Action::NextMeshMap, label: "Display Next Mesh Map", shortcuts: &[], painter: Some(&[Shortcut::key(Key::B)]) },
+    a(Action::PrevMeshMap, "Display Previous Mesh Map", &[Shortcut::shift(Key::B)]),
+    ActionInfo { action: Action::InvertMaskGray, label: "Invert Mask Brush (white / black)", shortcuts: &[], painter: Some(&[Shortcut::key(Key::X)]) },
+    a(Action::IsolateTextureSet, "Isolate Texture Set", &[Shortcut::alt(Key::Q)]),
 ];
+
+/// Whether F2 belongs to the key table in `preset` (otherwise the Layers panel uses it to rename).
+pub fn f2_is_bound(preset: KeymapPreset) -> bool {
+    action_for(preset, Shortcut::key(Key::F2)).is_some()
+}
 
 pub fn info(action: Action) -> &'static ActionInfo {
     ACTIONS.iter().find(|a| a.action == action).expect("every action is listed")
@@ -289,14 +337,14 @@ const fn gesture(group: &'static str, keys: &'static str, what: &'static str, no
 /// Painter's list (Adobe Experience League "Shortcuts", Windows column), with SubCraft's handling.
 pub const PAINTER_REFERENCE: &[PainterEntry] = &[
     // General
-    none("General", "Tab", "Hide UI", "no panel-hiding mode (dock layout is owned by another change)"),
+    e("General", "Tab", "Hide UI", Support::Added, Action::HideUi, Shortcut::key(Key::Tab), "hides every panel; Tab again brings them back"),
     e("General", "Ctrl+Z", "Undo", Support::Same, Action::Undo, Shortcut::ctrl(Key::Z), ""),
     e("General", "Ctrl+Y", "Redo", Support::Same, Action::Redo, Shortcut::ctrl(Key::Y), ""),
     e("General", "F8", "Baking mode", Support::Added, Action::Bake, Shortcut::key(Key::F8), "opens the Bake window"),
-    none("General", "F9", "Painting mode", "no separate painting mode"),
+    e("General", "F9", "Painting mode", Support::Added, Action::PaintingMode, Shortcut::key(Key::F9), "closes the Bake window and leaves Rendering mode"),
     e("General", "F10", "Rendering (Iray) mode", Support::Same, Action::TogglePathTracing, Shortcut::key(Key::F10), "path-traced Rendering mode"),
     e("General", "Ctrl+O", "Open project", Support::Same, Action::OpenProject, Shortcut::ctrl(Key::O), ""),
-    none("General", "Ctrl+F4", "Close project", "no close-project command"),
+    e("General", "Ctrl+F4", "Close project", Support::Added, Action::CloseProject, Shortcut::ctrl(Key::F4), "returns to the sample model after the unsaved-changes prompt"),
     e("General", "Ctrl+S", "Save project", Support::Same, Action::Save, Shortcut::ctrl(Key::S), ""),
     none("General", "(none)", "Save as", "Painter has no key; SubCraft keeps Ctrl+Shift+S"),
     e("General", "Ctrl+N", "New project", Support::Added, Action::NewProject, Shortcut::ctrl(Key::N), "New project from a model"),
@@ -316,7 +364,7 @@ pub const PAINTER_REFERENCE: &[PainterEntry] = &[
     e("Tools", "L", "Symmetry", Support::Added, Action::ToggleSymmetryX, Shortcut::key(Key::L), "toggles X mirror"),
     none("Tools", "Shift+Esc", "Pause engine computation", "no engine pause"),
     // Tools
-    e("Tools", "1", "Paint tool", Support::Added, Action::BrushTool, Shortcut::key(Key::Num1), "B kept as well"),
+    e("Tools", "1", "Paint tool", Support::Added, Action::BrushTool, Shortcut::key(Key::Num1), "B kept as well in the SubCraft key set"),
     none("Tools", "Ctrl+1", "Paint tool + Particles", "no particle tool (scatter lives in brush settings)"),
     e("Tools", "2", "Eraser tool", Support::Added, Action::EraserTool, Shortcut::key(Key::Num2), "E kept as well"),
     none("Tools", "Ctrl+2", "Eraser tool + Particles", "no particle tool"),
@@ -328,7 +376,7 @@ pub const PAINTER_REFERENCE: &[PainterEntry] = &[
     none("Tools", "Ctrl+6", "Clone tool (absolute source)", "only one clone mode"),
     e("Tools", "]", "Increase tool size", Support::Same, Action::BrushLarger, Shortcut::key(Key::CloseBracket), ""),
     e("Tools", "[", "Decrease tool size", Support::Same, Action::BrushSmaller, Shortcut::key(Key::OpenBracket), ""),
-    none("Tools", "X", "Invert grayscale tool", "no such toggle; in the Painter preset X is unbound (SubCraft's X symmetry moves to L)"),
+    e("Tools", "X", "Invert grayscale tool", Support::PainterPreset, Action::InvertMaskGray, Shortcut::key(Key::X), "mask brush value g becomes 1 - g; X stays symmetry in the SubCraft key set"),
     e("Tools", "P", "Pick stroke material", Support::PainterPreset, Action::EyedropperTool, Shortcut::key(Key::P), "Eyedropper tool; Pen paths moves to Shift+P in this preset"),
     e("Tools", "D", "Lazy Mouse", Support::Added, Action::ToggleLazyMouse, Shortcut::key(Key::D), "toggles a 20 px rope"),
     none("Tools", "Alt+H", "Hide/ignore excluded geometry", "no equivalent"),
@@ -341,37 +389,37 @@ pub const PAINTER_REFERENCE: &[PainterEntry] = &[
     e("Viewport", "C", "Display next channel", Support::Added, Action::NextChannel, Shortcut::key(Key::C), "cycles the 3D view channels"),
     e("Viewport", "Shift+C", "Display previous channel", Support::Added, Action::PrevChannel, Shortcut::shift(Key::C), ""),
     e("Viewport", "M", "Display material", Support::Added, Action::DisplayMaterial, Shortcut::key(Key::M), ""),
-    none("Viewport", "B", "Display next mesh map", "B stays Brush; baked maps are chosen from the view toolbar"),
-    none("Viewport", "Shift+B", "Display previous mesh map", "see B"),
+    e("Viewport", "B", "Display next mesh map", Support::PainterPreset, Action::NextMeshMap, Shortcut::key(Key::B), "B stays Brush in the SubCraft key set"),
+    e("Viewport", "Shift+B", "Display previous mesh map", Support::Added, Action::PrevMeshMap, Shortcut::shift(Key::B), ""),
     none("Viewport", "Space", "Toggle animation", "no animation"),
     e("Viewport", "F", "Center the whole mesh", Support::Added, Action::ResetCamera, Shortcut::key(Key::F), "Home kept as well"),
     none("Viewport", "U", "Toggle quick mask edition", "no quick mask"),
     none("Viewport", "Y", "Clear quick mask", "no quick mask"),
     none("Viewport", "I", "Invert quick mask", "no quick mask (I over the model isolates a part)"),
-    none("Viewport", "F1", "Viewport layout 3D/2D", "layout is dock based; arrange tabs instead"),
-    none("Viewport", "F2", "Viewport layout 3D only", "layout is dock based"),
-    none("Viewport", "F3", "Viewport layout 2D only", "layout is dock based"),
-    none("Viewport", "F4", "Swap 2D / 3D view", "layout is dock based"),
-    none("Viewport", "Alt+Q", "Texture Set isolate", "no equivalent key (parts: I / H over the model)"),
+    e("Viewport", "F1", "Viewport layout 3D/2D", Support::Added, Action::View3dAnd2d, Shortcut::key(Key::F1), "2D view in its own pane beside the 3D view"),
+    e("Viewport", "F2", "Viewport layout 3D only", Support::PainterPreset, Action::View3dOnly, Shortcut::key(Key::F2), "F2 renames the selected layer in the SubCraft key set"),
+    e("Viewport", "F3", "Viewport layout 2D only", Support::Added, Action::View2dOnly, Shortcut::key(Key::F3), ""),
+    e("Viewport", "F4", "Swap 2D / 3D view", Support::Added, Action::SwapViews, Shortcut::key(Key::F4), "swaps the two panes, or the front tab when they share one"),
+    e("Viewport", "Alt+Q", "Texture Set isolate", Support::Added, Action::IsolateTextureSet, Shortcut::alt(Key::Q), "hides the other texture sets' geometry; again shows everything"),
     // Mouse
     gesture("Mouse", "LMB", "Use tool / paint", "already worked"),
     gesture("Mouse", "Shift+LMB", "Draw straight lines", "already worked"),
-    none("Mouse", "Ctrl+Shift+LMB", "Draw straight lines with snapping", "no snapped lines"),
+    gesture("Mouse", "Ctrl+Shift+LMB", "Draw straight lines with snapping", "added: the line from the last stroke point snaps to 5 degree steps"),
     gesture("Mouse", "Alt+LMB", "Camera rotate", "already worked (Painter navigation)"),
-    none("Mouse", "Alt+Shift+LMB", "Camera snap rotate", "no snap rotation"),
+    gesture("Mouse", "Alt+Shift+LMB", "Camera snap rotate", "added: the view snaps every 90 degrees"),
     gesture("Mouse", "Alt+MMB", "Camera translate", "already worked (plain MMB too)"),
     gesture("Mouse", "Ctrl+Alt+LMB", "Camera translate (alternative)", "added"),
     gesture("Mouse", "Alt+RMB", "Camera zoom", "already worked"),
     gesture("Mouse", "S (hold) + LMB", "Stencil rotate", "already worked"),
-    none("Mouse", "Shift+S + LMB", "Stencil snap rotate", "no snap"),
+    gesture("Mouse", "Shift+S + LMB", "Stencil snap rotate", "added: 90 degree steps"),
     gesture("Mouse", "S (hold) + MMB", "Stencil translate", "already worked"),
     gesture("Mouse", "S (hold) + RMB", "Stencil zoom", "already worked"),
     gesture("Mouse", "Ctrl+RMB drag", "Change tool size / hardness", "added: horizontal = size, vertical = hardness"),
     gesture("Mouse", "Ctrl+LMB drag", "Change tool flow / rotation", "added: horizontal = flow, vertical = angle (Clone keeps Ctrl+click for its source)"),
     gesture("Mouse", "Shift+RMB", "Rotate environment", "added: drag left-right turns the environment and its lighting (Shift+MMB turns only the key light)"),
-    none("Mouse", "Ctrl+MMB", "Auto-focus (Depth of Field)", "depth of field is being built on another branch"),
-    none("Mouse", "Ctrl+Alt+RMB", "Texture set selection", "no equivalent"),
-    gesture("Mouse", "RMB", "Context menu", "already worked (part actions)"),
+    gesture("Mouse", "Ctrl+MMB", "Auto-focus (Depth of Field)", "added: focuses the point under the cursor (turns depth of field on)"),
+    gesture("Mouse", "Ctrl+Alt+RMB", "Texture set selection", "added: selects the texture set under the cursor"),
+    gesture("Mouse", "RMB", "Context menu", "already worked (part actions; the Properties popup at the cursor is PR #131)"),
     // Layers (non-editable in Painter)
     gesture("Layers", "Ctrl+C / X / V", "Copy / cut / paste layer", "already worked"),
     e("Layers", "Delete", "Delete layer", Support::Same, Action::DeleteLayer, Shortcut::key(Key::Delete), ""),
@@ -379,15 +427,57 @@ pub const PAINTER_REFERENCE: &[PainterEntry] = &[
     e("Layers", "Ctrl+G", "Group layer", Support::Same, Action::NewFolder, Shortcut::ctrl(Key::G), "creates a folder"),
     none("Layers", "Ctrl+Shift+C", "Copy layer content", "no content-only clipboard"),
     none("Layers", "Ctrl+Shift+V", "Paste layer content", "no content-only clipboard"),
-    none("Layers", "Alt+LMB on mask", "Display mask in viewport", "no mask display toggle"),
-    none("Layers", "Shift+LMB on mask", "Disable/enable mask", "mask toggle is in the layer panel"),
+    gesture("Layers", "Alt+LMB on mask", "Display mask in viewport", "already worked: opens the mask inspector"),
+    gesture("Layers", "Shift+LMB on mask", "Disable/enable mask", "already worked"),
     none("Layers", "Ctrl+drag & drop", "Drag material", "no equivalent"),
     none("Layers", "Shift / Ctrl (drag)", "Manipulator snapping / mirror", "no manipulator"),
 ];
 
+/// `docs/painter-shortcuts-table.md`: one row per entry of [`PAINTER_REFERENCE`] (a test keeps the
+/// file equal to this).
+pub fn reference_table_markdown() -> String {
+    let mut out = String::from("| Group | Painter key | Painter action | SubCraft action | Status | Note |\n|---|---|---|---|---|---|\n");
+    for e in PAINTER_REFERENCE {
+        let action = e.action.map(|a| format!("{a:?}")).unwrap_or_default();
+        let status = match e.support {
+            Support::Same => "already the same",
+            Support::Added => "added (key was free)",
+            Support::PainterPreset => "Painter preset only (conflict)",
+            Support::Gesture => "mouse / hold key",
+            Support::None => "no equivalent",
+        };
+        out.push_str(&format!("| {} | `{}` | {} | {} | {} | {} |\n", e.group, e.keys, e.what, action, status, e.note));
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The shortcut table in the docs is this code's table. Run the test with
+    /// `SUBCRAFT_WRITE_DOCS=1` to rewrite the file after changing [`PAINTER_REFERENCE`].
+    #[test]
+    fn docs_table_is_generated_from_the_reference() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/painter-shortcuts-table.md");
+        let table = reference_table_markdown();
+        if std::env::var_os("SUBCRAFT_WRITE_DOCS").is_some() {
+            std::fs::write(path, &table).unwrap();
+        }
+        let on_disk = std::fs::read_to_string(path).unwrap().replace("\r\n", "\n");
+        assert_eq!(on_disk.trim_end(), table.trim_end(), "docs/painter-shortcuts-table.md is out of date (rerun with SUBCRAFT_WRITE_DOCS=1)");
+    }
+
+    /// How much of Painter's documented list is covered, so a regression shows up as a number.
+    #[test]
+    fn painter_coverage_counts() {
+        let count = |s: Support| PAINTER_REFERENCE.iter().filter(|e| e.support == s).count();
+        let covered = PAINTER_REFERENCE.len() - count(Support::None);
+        assert!(covered >= 63, "{covered} of {} Painter shortcuts are covered", PAINTER_REFERENCE.len());
+        // What is left has no SubCraft feature behind it: manipulator, particles, projection tool,
+        // quick mask, geometry mask, engine pause, stroke resume, content clipboard, material drag.
+        assert!(count(Support::None) <= 26, "{}", count(Support::None));
+    }
 
     #[test]
     fn shortcuts_resolve() {
@@ -420,13 +510,7 @@ mod tests {
     #[test]
     fn every_action_is_listed_once() {
         use std::collections::HashSet;
-        let all = [
-            Action::Undo, Action::Redo, Action::NewPaintLayer, Action::NewFillLayer, Action::NewFolder, Action::NewTextLayer, Action::DeleteLayer, Action::DuplicateLayer,
-            Action::BrushTool, Action::EraserTool, Action::PenTool, Action::PolygonFillTool, Action::SmudgeTool, Action::CloneTool, Action::EyedropperTool,
-            Action::BrushSmaller, Action::BrushLarger, Action::ToggleSymmetryX, Action::ToggleLazyMouse, Action::ResetCamera, Action::PerspectiveCamera,
-            Action::OrthographicCamera, Action::NextChannel, Action::PrevChannel, Action::DisplayMaterial, Action::NewProject, Action::Quit, Action::Save,
-            Action::SaveAs, Action::OpenProject, Action::Export, Action::Bake, Action::TogglePathTracing, Action::SelectAllLayers,
-        ];
+        let all = Action::ALL;
         let listed: HashSet<_> = ACTIONS.iter().map(|a| a.action).collect();
         assert_eq!(listed.len(), ACTIONS.len(), "an action is listed twice");
         for a in all {
@@ -461,13 +545,61 @@ mod tests {
         assert_eq!(action_for(sc, Shortcut::key(Key::P)), Some(Action::PenTool));
         assert_eq!(action_for(pa, Shortcut::key(Key::P)), Some(Action::EyedropperTool));
         assert_eq!(action_for(pa, Shortcut::shift(Key::P)), Some(Action::PenTool));
-        // X / L: symmetry.
+        // X / L: symmetry; Painter's X inverts the mask brush.
         assert_eq!(action_for(sc, Shortcut::key(Key::X)), Some(Action::ToggleSymmetryX));
-        assert_eq!(action_for(pa, Shortcut::key(Key::X)), None);
+        assert_eq!(action_for(pa, Shortcut::key(Key::X)), Some(Action::InvertMaskGray));
+        // B: Brush in SubCraft, the mesh map viewer in Painter (Brush stays on 1).
+        assert_eq!(action_for(sc, Shortcut::key(Key::B)), Some(Action::BrushTool));
+        assert_eq!(action_for(pa, Shortcut::key(Key::B)), Some(Action::NextMeshMap));
+        assert_eq!(action_for(pa, Shortcut::key(Key::Num1)), Some(Action::BrushTool));
+        // F2: layer rename in SubCraft, 3D-only layout in Painter.
+        assert!(!f2_is_bound(sc) && f2_is_bound(pa));
         assert_eq!(action_for(pa, Shortcut::key(Key::L)), Some(Action::ToggleSymmetryX));
         // SubCraft bindings that Painter does not use survive in the Painter preset.
-        for s in [Shortcut::key(Key::B), Shortcut::key(Key::E), Shortcut::key(Key::Home), Shortcut::ctrl(Key::B), Shortcut::ctrl_shift(Key::Z)] {
+        for s in [Shortcut::key(Key::E), Shortcut::key(Key::Home), Shortcut::ctrl(Key::B), Shortcut::ctrl_shift(Key::Z)] {
             assert_eq!(action_for(pa, s), action_for(sc, s), "{}", s.label());
+        }
+    }
+
+    /// Every action can be reached from the keyboard in the Painter key set, and every Painter
+    /// key that SubCraft implements is a table entry or a documented gesture.
+    #[test]
+    fn every_action_is_bound_in_the_painter_key_set() {
+        for a in Action::ALL {
+            assert!(!shortcuts_in(KeymapPreset::Painter, a).is_empty(), "{a:?} has no key in the Painter key set");
+        }
+        // Only the Painter-conflict actions may be keyless in the SubCraft key set.
+        let keyless: Vec<Action> = Action::ALL.into_iter().filter(|a| shortcuts_in(KeymapPreset::SubCraft, *a).is_empty()).collect();
+        assert_eq!(keyless, [Action::EyedropperTool, Action::View3dOnly, Action::NextMeshMap, Action::InvertMaskGray]);
+    }
+
+    /// The keys Painter documents for features SubCraft has, spelled out (a typo in the table fails here).
+    #[test]
+    fn painter_key_set_matches_painters_documented_keys() {
+        let pa = KeymapPreset::Painter;
+        let expect = [
+            (Shortcut::key(Key::Tab), Action::HideUi), (Shortcut::ctrl(Key::Z), Action::Undo), (Shortcut::ctrl(Key::Y), Action::Redo),
+            (Shortcut::key(Key::F8), Action::Bake), (Shortcut::key(Key::F9), Action::PaintingMode), (Shortcut::key(Key::F10), Action::TogglePathTracing),
+            (Shortcut::ctrl(Key::O), Action::OpenProject), (Shortcut::ctrl(Key::F4), Action::CloseProject), (Shortcut::ctrl(Key::S), Action::Save),
+            (Shortcut::ctrl(Key::N), Action::NewProject), (Shortcut::alt(Key::F4), Action::Quit), (Shortcut::key(Key::L), Action::ToggleSymmetryX),
+            (Shortcut::key(Key::Num1), Action::BrushTool), (Shortcut::key(Key::Num2), Action::EraserTool), (Shortcut::key(Key::Num4), Action::PolygonFillTool),
+            (Shortcut::key(Key::Num5), Action::SmudgeTool), (Shortcut::key(Key::Num6), Action::CloneTool), (Shortcut::ctrl_shift(Key::B), Action::Bake),
+            (Shortcut::key(Key::CloseBracket), Action::BrushLarger), (Shortcut::key(Key::OpenBracket), Action::BrushSmaller), (Shortcut::key(Key::X), Action::InvertMaskGray),
+            (Shortcut::key(Key::P), Action::EyedropperTool), (Shortcut::key(Key::D), Action::ToggleLazyMouse), (Shortcut::key(Key::F5), Action::PerspectiveCamera),
+            (Shortcut::key(Key::F6), Action::OrthographicCamera), (Shortcut::key(Key::C), Action::NextChannel), (Shortcut::shift(Key::C), Action::PrevChannel),
+            (Shortcut::key(Key::M), Action::DisplayMaterial), (Shortcut::key(Key::B), Action::NextMeshMap), (Shortcut::shift(Key::B), Action::PrevMeshMap),
+            (Shortcut::ctrl_shift(Key::E), Action::Export), (Shortcut::key(Key::F), Action::ResetCamera), (Shortcut::key(Key::F1), Action::View3dAnd2d),
+            (Shortcut::key(Key::F2), Action::View3dOnly), (Shortcut::key(Key::F3), Action::View2dOnly), (Shortcut::key(Key::F4), Action::SwapViews),
+            (Shortcut::alt(Key::Q), Action::IsolateTextureSet), (Shortcut::key(Key::Delete), Action::DeleteLayer), (Shortcut::ctrl(Key::D), Action::DuplicateLayer),
+            (Shortcut::ctrl(Key::G), Action::NewFolder),
+        ];
+        for (s, a) in expect {
+            assert_eq!(action_for(pa, s), Some(a), "{}", s.label());
+        }
+        // Hold keys of the viewport (S stencil, N ignore stencil, V clone source) and the keys of
+        // Painter features SubCraft lacks stay free in the Painter key set, so they never do something else.
+        for k in [Key::S, Key::N, Key::V, Key::Q, Key::W, Key::R, Key::T, Key::U, Key::Y, Key::A, Key::Num3, Key::Space] {
+            assert_eq!(action_for(pa, Shortcut::key(k)), None, "{} must stay free", k.label());
         }
     }
 

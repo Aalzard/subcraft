@@ -66,7 +66,7 @@ Layout notes: one row of eight icons under the search field, in the order below.
 | Smart materials | Icon 2 | - | done | crates/ui/src/panels/shelf.rs:767 | - |
 | Smart masks | Icon 3 | - | done | crates/ui/src/panels/shelf.rs:768 | - |
 | Filters | Icon 4 | - | done | crates/ui/src/panels/shelf.rs:769 | - |
-| Brushes (brush, particle and tool presets) | Icon 5 | - | partial: brush presets and tips; no particle or tool presets | crates/ui/src/panels/shelf.rs:770 | - |
+| Brushes (brush, particle and tool presets) | Icon 5 | - | partial: brush, tool and material presets and tips; no particle presets | crates/ui/src/panels/shelf.rs:770 | - |
 | Alphas (alphas and brush makers) | Icon 6 | - | partial: alphas are listed inside Brushes, no own icon | crates/ui/src/panels/shelf.rs:673 | - |
 | Textures (grunges, procedurals, baked maps, hard-surface normals, LUTs) | Icon 7 | - | partial: split into Textures and an extra Normal Maps icon; no procedurals or LUTs | crates/ui/src/panels/shelf.rs:771 | - |
 | Environment maps | Icon 8 | - | done | crates/ui/src/panels/shelf.rs:773 | - |
@@ -171,7 +171,7 @@ Layout notes: rows are grouped by asset type, then by target (viewport, layer st
 | Filter: drag into the layer stack (adds a filter effect) | Layer stack | - | partial: click on the tile adds or swaps the filter, no drag | crates/ui/src/panels/shelf.rs:709 | - |
 | Brush preset: click to load it in the current tool | Assets list | (unverified) | done | crates/ui/src/panels/shelf.rs:663 | - |
 | Particle preset: click to load it | Assets list | (unverified) | missing | - | - |
-| Tool preset: click to load tool + brush + material | Assets list | (unverified) | partial: brush presets carry tip, size, flow, jitter and material; tool type not stored | crates/ui/src/panels/shelf.rs:663 | - |
+| Tool preset: click to load tool + brush + material | Assets list | (unverified) | done | crates/ui/src/state.rs (select_shelf_brush) | - |
 | Alpha: click sets the brush alpha | Assets list | (unverified) | done | crates/ui/src/panels/shelf.rs:690 | - |
 | Alpha: drag onto the brush Alpha slot in Properties | Properties > Brush | - | missing | - | - |
 | Alpha / texture: drag into the layer stack opens a menu asking the target channel | Layer stack | - | partial: texture drop adds a fill layer without a channel menu; alpha drop goes to the layer mask | crates/ui/src/panels/layers.rs:411 | - |
@@ -196,12 +196,12 @@ Layout notes: the public help pages do not list this menu; entries below marked 
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Update from current tool (overwrite a preset with the current Properties values) | Right-click a brush / tool / material preset | - | missing | - | - |
+| Update from current tool (overwrite a preset with the current Properties values) | Right-click a brush / tool / material preset | - | done | crates/ui/src/panels/shelf.rs (preset_menu) | - |
 | Open in explorer (show file on disk; local resources) | Right-click an asset | named in release notes | done (Show in folder; user library items only) | crates/ui/src/panels/shelf.rs:373 | - |
 | Resource info (library name, usage, location) | Top of the context menu | (unverified) | missing | - | - |
-| Add to / remove from favorites | Right-click an asset | (unverified) | missing | - | - |
-| Rename | Right-click an asset | (unverified) | missing | - | - |
-| Duplicate | Right-click an asset | (unverified) | missing | - | - |
+| Add to / remove from favorites | Right-click an asset | (unverified) | partial: brush, tool and material presets only; favorites are listed first | crates/ui/src/panels/shelf.rs (preset_menu) | - |
+| Rename | Right-click an asset | (unverified) | partial: user brush, tool and material presets only | crates/ui/src/panels/shelf.rs (preset_menu) | - |
+| Duplicate | Right-click an asset | (unverified) | partial: brush, tool and material presets only | crates/ui/src/panels/shelf.rs (preset_menu) | - |
 | Delete | Right-click an asset | (unverified) | partial: "Remove from library" for user library items | crates/ui/src/panels/shelf.rs:389 | - |
 | Export resource(s) | Right-click an asset | (unverified) | partial: "Export smart material" for .scsmart only | crates/ui/src/panels/shelf.rs:378 | - |
 | Import to project / library | Right-click an asset | (unverified) | missing | - | - |
@@ -304,10 +304,10 @@ Layout notes: Edit > Settings > Libraries. A Name field, a Path field with a bro
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Create tool preset | Right-click in Properties (paint tool) | - | missing | - | - |
-| Create material preset | Right-click in Properties (paint tool) | - | missing | - | - |
-| Create brush preset | Right-click in Properties (paint tool) | - | partial: "Save preset" button with a name field in the Brush panel; also stores the material | crates/ui/src/panels/brush.rs:41 | - |
-| Update from current tool | Right-click the preset in Assets | - | missing | - | - |
+| Create tool preset | Right-click in Properties (paint tool) | - | done | crates/ui/src/panels/brush.rs (create_preset) | - |
+| Create material preset | Right-click in Properties (paint tool) | - | done | crates/ui/src/panels/brush.rs (create_preset) | - |
+| Create brush preset | Right-click in Properties (paint tool) | - | done | crates/ui/src/panels/brush.rs (create_preset) | - |
+| Update from current tool | Right-click the preset in Assets | - | done | crates/ui/src/panels/shelf.rs (apply_preset_action) | - |
 | Create smart material | Right-click a folder in the layer stack | named after the folder | partial: "Save as smart material" on any layer | crates/ui/src/panels/layers.rs:476 | - |
 | Create smart mask | Right-click a layer in the layer stack | - | done ("Save mask as smart mask") | crates/ui/src/panels/layers.rs:480 | - |
 | Presets embed the resources they use | Preset files | - | partial: brush preset saves its tip image beside it | crates/app/src/brush_preset.rs:56 | - |
@@ -350,13 +350,13 @@ Layout notes: a mini-shelf is a small floating asset browser, pre-filtered to on
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Mini-shelf search field | Top of every mini-shelf | usage query followed by a space | missing | - | - |
+| Mini-shelf search field | Top of every mini-shelf | usage query followed by a space | partial: on the brush alpha slot only; plain name search, no usage query | crates/ui/src/panels/brush_rows.rs (mini_browser) | - |
 | Smart Material button mini-shelf | Layer stack toolbar | - | missing | - | - |
 | Filter selection mini-shelf | Properties of a filter effect | - | partial: plain "Filter" menu | crates/ui/src/panels/effects.rs:82 | - |
 | Generator selection mini-shelf | Properties of a generator effect | (unverified) | partial: plain menu in the layer context menu | crates/ui/src/panels/layers.rs:470 | - |
 | Fill channel resource slot mini-shelf | Properties of a fill layer / fill effect | - | partial: file picker and anchor picker, no library browser | crates/ui/src/panels/properties.rs:760 | - |
 | Material mode picker mini-shelf | Properties > Material | (unverified) | missing | - | - |
-| Brush alpha slot mini-shelf | Properties > Brush > Alpha | (unverified) | missing | - | - |
+| Brush alpha slot mini-shelf | Properties > Brush > Alpha | (unverified) | done | crates/ui/src/panels/brush_rows.rs (mini_browser) | - |
 | Stencil slot mini-shelf | Properties > Stencil | (unverified) | partial: file picker | crates/ui/src/files.rs:25 | - |
 | Environment map slot mini-shelf | Display settings | (unverified) | missing | - | - |
 | Colour profile (LUT) slot mini-shelf | Display settings | (unverified) | missing | - | - |

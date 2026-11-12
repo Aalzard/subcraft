@@ -210,6 +210,19 @@ impl Mesh {
         if covered as usize != self.triangle_count() {
             problems.push("submeshes do not cover all triangles".into());
         }
+        // A submesh range outside the index buffer, or a material slot that does not exist,
+        // would be indexed without a check by baking, unwrapping and OBJ export.
+        let tris = self.triangle_count();
+        if self.submeshes.iter().any(|s| {
+            s.first_triangle as usize > tris || s.first_triangle.checked_add(s.triangle_count).is_none_or(|end| end as usize > tris)
+        }) {
+            problems.push("submesh range outside the triangle list".into());
+        }
+        if self.submeshes.iter().any(|s| s.material as usize >= self.materials.len())
+            || self.tri_material.iter().any(|&m| m as usize >= self.materials.len())
+        {
+            problems.push("material index out of range".into());
+        }
         problems
     }
 }
@@ -435,7 +448,8 @@ impl MeshBuilder {
 /// Angle-weighted smooth normals, welding corners with bit-identical positions.
 fn smooth_corner_normals(corners: &[Corner]) -> Vec<Vec3> {
     let mut acc: HashMap<[u32; 3], Vec3> = HashMap::new();
-    let key = |p: Vec3| [p.x.to_bits(), p.y.to_bits(), p.z.to_bits()];
+    // `+ 0.0` turns -0.0 into 0.0, which is the same position with different bits.
+    let key = |p: Vec3| [(p.x + 0.0).to_bits(), (p.y + 0.0).to_bits(), (p.z + 0.0).to_bits()];
     for tri in corners.chunks_exact(3) {
         let p = [tri[0].position, tri[1].position, tri[2].position];
         let n = (p[1] - p[0]).cross(p[2] - p[0]).normalize_or_zero();

@@ -241,6 +241,58 @@ fn passthrough_and_isolated_folders_differ_under_multiply() {
     assert_rgb(&c, ChannelKind::BaseColor, 64, 64, [0.375; 3]);
 }
 
+/// QA 2026-11: a passthrough folder at partial strength inside an isolated folder lerped straight
+/// RGBA against the folder's transparent backdrop, which darkened its colour (0.35 instead of 0.6).
+#[test]
+fn partial_passthrough_folder_inside_an_isolated_folder_keeps_its_colour() {
+    let fx = Fixture::plane();
+    let build = |opacity: f32, half_mask: bool| {
+        let mut ts = texture_set();
+        let tc = ts.clone();
+        ts.insert_above(None, fill_layer(&tc, &[(ChannelKind::BaseColor, ChannelValue::scalar(0.2))]));
+        let mut outer = Layer::new_folder("Isolated", &tc);
+        outer.blend.get_mut(&ChannelKind::BaseColor).unwrap().mode = BlendMode::Normal;
+        let outer = ts.insert_above(None, outer);
+        let mut inner = Layer::new_folder("Passthrough", &tc);
+        let b = inner.blend.get_mut(&ChannelKind::BaseColor).unwrap();
+        b.mode = BlendMode::Passthrough;
+        b.opacity = opacity;
+        if half_mask {
+            let mut mask = Mask::new(RES, true);
+            mask.effects.push(Arc::new(MaskEffect::new(MaskEffectKind::Levels(Levels { out_high: 0.5, ..Levels::default() }))));
+            inner.mask = Some(mask);
+        }
+        let inner = ts.insert(Some(outer), 0, inner).unwrap();
+        ts.insert(Some(inner), 0, fill_layer(&tc, &[(ChannelKind::BaseColor, ChannelValue::scalar(1.0))])).unwrap();
+        ts
+    };
+    // White at 50% over 0.2 is 0.6, whether the 50% comes from the opacity or from the mask.
+    for (opacity, half_mask) in [(0.5, false), (1.0, true)] {
+        let c = composite_full(&build(opacity, half_mask), &fx.ctx());
+        assert_rgb(&c, ChannelKind::BaseColor, 64, 64, [0.6; 3]);
+    }
+    // Full strength and zero strength are unchanged.
+    assert_rgb(&composite_full(&build(1.0, false), &fx.ctx()), ChannelKind::BaseColor, 64, 64, [1.0; 3]);
+    assert_rgb(&composite_full(&build(0.0, false), &fx.ctx()), ChannelKind::BaseColor, 64, 64, [0.2; 3]);
+}
+
+/// QA 2026-11: Edge Detect over a flat input returned the input (0.7) instead of "no edges" (0),
+/// so the result depended on whether the layer's tiles happened to be allocated.
+#[test]
+fn edge_detect_of_a_flat_fill_is_black() {
+    let fx = Fixture::plane();
+    let mut ts = texture_set();
+    let tc = ts.clone();
+    let mut fill = fill_layer(&tc, &[(ChannelKind::Roughness, ChannelValue::scalar(0.7))]);
+    let filter = subcraft_doc::Filter::EdgeDetect { radius: 1.0, strength: 1.0 };
+    fill.content_effects.push(Arc::new(subcraft_doc::ContentEffect::new(subcraft_doc::ContentEffectKind::Filter { channel: ChannelKind::Roughness, filter }, &tc)));
+    ts.insert_above(None, fill);
+    let c = composite_full(&ts, &fx.ctx());
+    for (x, y) in [(64, 64), (0, 0), (127, 127), (63, 64)] {
+        assert_scalar(&c, ChannelKind::Roughness, x, y, 0.0);
+    }
+}
+
 #[test]
 fn paint_layers_contribute_only_channels_they_have() {
     let fx = Fixture::plane();
@@ -947,4 +999,52 @@ fn grunge_map_breakup_is_bounded_deterministic_and_replaces_the_organic_noise() 
         organic.painter.as_mut().unwrap().grunge_map = false;
         assert_ne!(a, generator_texels(organic), "{kind:?}: the grunge map changes the pattern");
     }
+}
+
+/// UV Wrap on mask effects: outside a non-repeating projection an image or procedural fill
+/// contributes nothing, so the mask keeps what was below it.
+#[test]
+fn mask_image_and_procedural_fill_respect_uv_wrap() {
+    use subcraft_core::ResourceId;
+    use subcraft_doc::{ProceduralKind, ProceduralParams, Projection, Resource, ResourceKind, UvWrap};
+    use subcraft_image::Bitmap;
+
+    let mut fx = Fixture::plane();
+    let white = ResourceId::new();
+    fx.res.insert(Resource { id: white, name: "w.png".into(), kind: ResourceKind::Texture, bitmap: Arc::new(Bitmap::new_u8(2, 2, 1, vec![255; 4])), source_path: None, encoded: None });
+    let eval = |kind: MaskEffectKind| {
+        let mut ts = texture_set();
+        let mut l = fill_layer(&ts, &[(ChannelKind::Roughness, ChannelValue::scalar(1.0))]);
+        let mut mask = Mask::new(RES, false);
+        mask.effects.push(Arc::new(MaskEffect::new(kind)));
+        l.mask = Some(mask);
+        ts.insert_above(None, l);
+        composite_full(&ts, &fx.ctx())
+    };
+    // Tiling 2 without repetition: the image is the top-left quarter only.
+    let quarter = |uv_wrap| Projection { scale: [2.0, 2.0], uv_wrap, ..Projection::default() };
+    let (near, far) = (RES / 4, 3 * RES / 4);
+    let c = eval(MaskEffectKind::Image { resource: white, projection: quarter(UvWrap::None), invert: false });
+    assert_scalar(&c, ChannelKind::Roughness, near, near, 1.0);
+    for (x, y) in [(far, near), (near, far), (far, far)] {
+        assert_scalar(&c, ChannelKind::Roughness, x, y, 0.3);
+    }
+    let c = eval(MaskEffectKind::Image { resource: white, projection: quarter(UvWrap::RepeatHorizontal), invert: false });
+    assert_scalar(&c, ChannelKind::Roughness, far, near, 1.0);
+    assert_scalar(&c, ChannelKind::Roughness, near, far, 0.3);
+    let c = eval(MaskEffectKind::Image { resource: white, projection: quarter(UvWrap::Repeat), invert: false });
+    assert_scalar(&c, ChannelKind::Roughness, far, far, 1.0);
+    // Procedural fill: identical inside the square, the black mask outside.
+    let params = ProceduralParams { invert: true, ..ProceduralParams::new(ProceduralKind::Checker) };
+    let full = eval(MaskEffectKind::Fill { value: 1.0, procedural: Some(params), projection: quarter(UvWrap::Repeat) });
+    let clipped = eval(MaskEffectKind::Fill { value: 1.0, procedural: Some(params), projection: quarter(UvWrap::RepeatVertical) });
+    for y in (1..RES).step_by(7) {
+        for x in (1..RES).step_by(7) {
+            let expect = if x < RES / 2 { px(&full, ChannelKind::Roughness, x, y)[0] } else { 0.3 };
+            assert_scalar(&clipped, ChannelKind::Roughness, x, y, expect);
+        }
+    }
+    // A uniform value has no texture to wrap.
+    let c = eval(MaskEffectKind::Fill { value: 1.0, procedural: None, projection: quarter(UvWrap::None) });
+    assert_scalar(&c, ChannelKind::Roughness, far, far, 1.0);
 }

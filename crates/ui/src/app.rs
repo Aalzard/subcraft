@@ -32,6 +32,8 @@ pub enum Tab {
     Parts,
     History,
     Shelf,
+    /// Painter's DISPLAY SETTINGS panel. Optional: closed until View > Display settings opens it.
+    DisplaySettings,
 }
 
 impl Tab {
@@ -47,6 +49,7 @@ impl Tab {
             Tab::Parts => tr("Parts"),
             Tab::History => tr("History"),
             Tab::Shelf => tr("Assets"),
+            Tab::DisplaySettings => tr("Display Settings"),
         }
     }
 
@@ -61,6 +64,7 @@ impl Tab {
             Tab::Parts => icons::CUBE_WIRE,
             Tab::History => icons::HISTORY,
             Tab::Shelf => icons::SQUARES,
+            Tab::DisplaySettings => icons::SUN,
         }
     }
 }
@@ -92,6 +96,9 @@ pub struct LaunchOptions {
     pub view_2d: bool,
     /// Start with Brush settings in front (also useful for native screenshot verification).
     pub brush_panel: bool,
+    /// Start with the Display Settings panel open, scrolled to this group when it names one
+    /// (`environment`, `camera`, `post`, `render`, `visualization`).
+    pub display_settings: Option<String>,
     /// Start with a narrow vertical texture shelf (native layout validation).
     pub shelf_panel: bool,
     /// Bring Texture Set Settings in front of Layers (scripted captures).
@@ -176,6 +183,8 @@ pub struct LaunchOptions {
     pub scale: Option<f32>,
     /// Measure frames while a generator value changes every frame, write stats, quit.
     pub profile_edits: Option<(PathBuf, Option<u32>)>,
+    /// Measure frames while the 3D view is orbited, hovered and painted with scripted input, write stats, quit.
+    pub profile_view: Option<PathBuf>,
 }
 
 impl LaunchOptions {
@@ -220,6 +229,29 @@ fn migrate_layout(dock: &mut DockState<Tab>) {
     }
 }
 
+/// View > Display settings: add the panel as a tab beside Properties and bring it forward, or
+/// close it when it is already open.
+pub fn toggle_display_settings(dock: &mut DockState<Tab>) {
+    if let Some(path) = dock.find_tab(&Tab::DisplaySettings) {
+        let _ = dock.remove_tab(path);
+        return;
+    }
+    open_display_settings(dock);
+}
+
+/// Open the Display Settings panel (if closed) and show it.
+pub fn open_display_settings(dock: &mut DockState<Tab>) {
+    if dock.find_tab(&Tab::DisplaySettings).is_none() {
+        match dock.find_tab(&Tab::Properties) {
+            Some(host) => dock[host.surface][host.node].append_tab(Tab::DisplaySettings),
+            None => dock.push_to_focused_leaf(Tab::DisplaySettings),
+        }
+    }
+    if let Some(path) = dock.find_tab(&Tab::DisplaySettings) {
+        let _ = dock.set_active_tab(path);
+    }
+}
+
 /// Whether the 2D view sits beside the 3D view (its own pane) instead of behind it as a tab.
 pub fn is_side_by_side(dock: &DockState<Tab>) -> bool {
     match (dock.find_tab(&Tab::Viewport), dock.find_tab(&Tab::UvView)) {
@@ -246,6 +278,70 @@ pub fn toggle_side_by_side(dock: &mut DockState<Tab>) {
     }
 }
 
+/// Painter's view layouts (F1..F4 and the Viewport menu).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ViewLayout {
+    /// 3D and 2D views side by side.
+    Both,
+    Only3d,
+    Only2d,
+    /// Swap the two panes, or bring the other view to the front when they share a pane.
+    Swap,
+}
+
+fn front_tab(dock: &mut DockState<Tab>, tab: Tab) {
+    if let Some(path) = dock.find_tab(&tab) { let _ = dock.set_active_tab(path); }
+}
+
+/// Whether `tab` is the one shown in its pane.
+pub fn is_front(dock: &DockState<Tab>, tab: Tab) -> bool {
+    dock.find_tab(&tab).is_some_and(|path| dock[path.surface][path.node].get_leaf().is_some_and(|leaf| leaf.active == path.tab))
+}
+
+pub fn apply_view_layout(dock: &mut DockState<Tab>, layout: ViewLayout) {
+    match layout {
+        ViewLayout::Both => if !is_side_by_side(dock) { toggle_side_by_side(dock) },
+        ViewLayout::Only3d | ViewLayout::Only2d => {
+            if is_side_by_side(dock) { toggle_side_by_side(dock); }
+            front_tab(dock, if layout == ViewLayout::Only3d { Tab::Viewport } else { Tab::UvView });
+        }
+        ViewLayout::Swap => {
+            let (Some(view), Some(uv)) = (dock.find_tab(&Tab::Viewport), dock.find_tab(&Tab::UvView)) else { return };
+            if !is_side_by_side(dock) {
+                front_tab(dock, if is_front(dock, Tab::Viewport) { Tab::UvView } else { Tab::Viewport });
+                return;
+            }
+            // Exchange what the two panes hold; the split and its ratio stay.
+            let take = |dock: &mut DockState<Tab>, path: egui_dock::TabPath| {
+                dock[path.surface][path.node].get_leaf_mut().map(|leaf| (std::mem::take(&mut leaf.tabs), leaf.active))
+            };
+            let (Some(a), Some(b)) = (take(dock, view), take(dock, uv)) else { return };
+            for (path, (tabs, active)) in [(view, b), (uv, a)] {
+                if let Some(leaf) = dock[path.surface][path.node].get_leaf_mut() { leaf.tabs = tabs; leaf.active = active; }
+            }
+        }
+    }
+}
+
+/// The dock shown while the panels are hidden (Tab): only the 3D and 2D views, arranged as in `dock`.
+pub fn views_only(dock: &DockState<Tab>) -> DockState<Tab> {
+    if is_side_by_side(dock) {
+        // The pane order follows the full layout (F4 may have swapped them).
+        let uv_first = match (dock.find_tab(&Tab::Viewport), dock.find_tab(&Tab::UvView)) {
+            (Some(view), Some(uv)) => uv.node.0 < view.node.0,
+            _ => false,
+        };
+        let (first, second) = if uv_first { (Tab::UvView, Tab::Viewport) } else { (Tab::Viewport, Tab::UvView) };
+        let mut views = DockState::new(vec![first]);
+        views.main_surface_mut().split_right(NodeIndex::root(), 0.5, vec![second]);
+        views
+    } else {
+        let mut views = DockState::new(vec![Tab::Viewport, Tab::UvView]);
+        front_tab(&mut views, if is_front(dock, Tab::UvView) { Tab::UvView } else { Tab::Viewport });
+        views
+    }
+}
+
 // Apply the requested shelf-left / utility-tabs-bottom arrangement once, then retain edits.
 const DOCK_KEY: &str = "subcraft_dock_v6";
 /// Side of the header logo in points (a small mark, never a splash).
@@ -261,7 +357,9 @@ pub fn layout_is_valid(dock: &DockState<Tab>) -> bool {
     // Brush is optional: layouts saved before the Brush settings moved into Properties still have it.
     let all = [Tab::Viewport, Tab::UvView, Tab::Layers, Tab::Properties, Tab::TextureSetList, Tab::TextureSetSettings, Tab::Parts, Tab::History, Tab::Shelf];
     let brush = seen.get(&Tab::Brush).copied().unwrap_or(0);
-    if !all.iter().all(|t| seen.get(t) == Some(&1)) || brush > 1 || seen.len() != all.len() + brush { return false; }
+    // Display Settings is optional too: it is closed until the View menu opens it.
+    let display = seen.get(&Tab::DisplaySettings).copied().unwrap_or(0);
+    if !all.iter().all(|t| seen.get(t) == Some(&1)) || brush > 1 || display > 1 || seen.len() != all.len() + brush + display { return false; }
     if dock.iter_surfaces().count() != 1 { return false; }
     dock.iter_all_nodes().all(|(_, node)| match node {
         Node::Horizontal(split) | Node::Vertical(split) => split.fraction.is_finite() && (0.04..=0.96).contains(&split.fraction),
@@ -351,7 +449,7 @@ mod layout_tests {
         let mut app = SubcraftApp {
             state: UiState::new(Session::new(subcraft_mesh::primitives::cube(2.0), 64), None),
             dock: default_layout(), frames: 0, screenshot: None, screenshot_requested: false,
-            pending_now: None, active_tabs: HashSet::new(), inspector_selection: None, test_crash: false, profile: None,
+            pending_now: None, active_tabs: HashSet::new(), inspector_selection: None, test_crash: false, profile: None, view_profile: None,
         };
         app.state.session.execute(Command::AddLayer(NewLayer::Fill)).unwrap();
         app.follow_layer_selection();
@@ -388,6 +486,61 @@ mod layout_tests {
         let v = dock.find_tab(&Tab::Viewport).unwrap();
         assert!(dock[v.surface][v.node].get_leaf().unwrap().active == v.tab, "3D visible again");
     }
+    #[test]
+    fn painter_view_layouts_f1_to_f4() {
+        let mut dock = default_layout();
+        assert!(!is_side_by_side(&dock) && is_front(&dock, Tab::Viewport) && !is_front(&dock, Tab::UvView));
+        // F3: 2D only, F2: 3D only (the other view stays a tab behind it).
+        apply_view_layout(&mut dock, ViewLayout::Only2d);
+        assert!(!is_side_by_side(&dock) && is_front(&dock, Tab::UvView));
+        apply_view_layout(&mut dock, ViewLayout::Only3d);
+        assert!(is_front(&dock, Tab::Viewport));
+        // F4 in one pane brings the other view forward.
+        apply_view_layout(&mut dock, ViewLayout::Swap);
+        assert!(is_front(&dock, Tab::UvView));
+        apply_view_layout(&mut dock, ViewLayout::Swap);
+        assert!(is_front(&dock, Tab::Viewport));
+        // F1: both, the 3D view on the left.
+        apply_view_layout(&mut dock, ViewLayout::Both);
+        assert!(is_side_by_side(&dock) && layout_is_valid(&dock));
+        let nodes = |dock: &DockState<Tab>| (dock.find_tab(&Tab::Viewport).unwrap().node, dock.find_tab(&Tab::UvView).unwrap().node);
+        let (view, uv) = nodes(&dock);
+        apply_view_layout(&mut dock, ViewLayout::Both);
+        assert_eq!(nodes(&dock), (view, uv), "F1 twice changes nothing");
+        // F4 side by side exchanges the panes and keeps the split.
+        apply_view_layout(&mut dock, ViewLayout::Swap);
+        assert_eq!(nodes(&dock), (uv, view));
+        assert!(is_side_by_side(&dock) && layout_is_valid(&dock));
+        // The views-only layout (Tab) follows the full one.
+        let hidden = views_only(&dock);
+        assert!(is_side_by_side(&hidden) && hidden.iter_all_tabs().count() == 2);
+        assert!(hidden.find_tab(&Tab::UvView).unwrap().node.0 < hidden.find_tab(&Tab::Viewport).unwrap().node.0, "the swapped order is kept");
+        // F2 from side by side returns to one pane with the 3D view in front.
+        apply_view_layout(&mut dock, ViewLayout::Only3d);
+        assert!(!is_side_by_side(&dock) && is_front(&dock, Tab::Viewport) && layout_is_valid(&dock));
+        apply_view_layout(&mut dock, ViewLayout::Only2d);
+        let hidden = views_only(&dock);
+        assert!(!is_side_by_side(&hidden) && is_front(&hidden, Tab::UvView) && hidden.iter_all_tabs().count() == 2);
+    }
+
+    #[test]
+    fn tab_is_a_shortcut_unless_a_text_field_has_the_keyboard() {
+        let key = |key, pressed, modifiers| egui::Event::Key { key, physical_key: None, pressed, repeat: false, modifiers };
+        let none = egui::Modifiers::NONE;
+        let mut events = vec![key(egui::Key::Tab, true, none), key(egui::Key::A, true, none), key(egui::Key::Tab, false, none)];
+        assert!(take_tab_press(&mut events, false));
+        assert_eq!(events.len(), 1, "egui never sees the Tab, so the focus does not move: {events:?}");
+        // While typing, Tab stays egui's.
+        let mut events = vec![key(egui::Key::Tab, true, none)];
+        assert!(!take_tab_press(&mut events, true));
+        assert_eq!(events.len(), 1);
+        // Ctrl+Tab / Shift+Tab are not the shortcut.
+        let mut events = vec![key(egui::Key::Tab, true, egui::Modifiers::SHIFT)];
+        assert!(!take_tab_press(&mut events, false));
+        assert_eq!(events.len(), 1);
+        assert_eq!(map_key(egui::Key::Tab), Some(Key::Tab));
+    }
+
     #[test]
     fn window_size_parsing() {
         assert_eq!(parse_size("1280x720"), Some([1280.0, 720.0]));
@@ -432,7 +585,7 @@ mod launch_tests {
         let mut app = SubcraftApp {
             state: UiState::new(Session::new(subcraft_mesh::primitives::cube(2.0), 128), None),
             dock: default_layout(), frames: 0, screenshot: None, screenshot_requested: false,
-            pending_now: None, active_tabs: HashSet::new(), inspector_selection: None, test_crash: false, profile: None,
+            pending_now: None, active_tabs: HashSet::new(), inspector_selection: None, test_crash: false, profile: None, view_profile: None,
         };
         app.request(Pending::OpenRecent, 0.0);
         assert_eq!(app.pending_now.take(), Some(Pending::OpenRecent));
@@ -450,7 +603,7 @@ mod launch_tests {
         let mut app = SubcraftApp {
             state: UiState::new(Session::new(subcraft_mesh::primitives::cube(2.0), 64), None),
             dock: legacy_layout(), frames: 0, screenshot: None, screenshot_requested: false,
-            pending_now: None, active_tabs: HashSet::new(), inspector_selection: None, test_crash: false, profile: None,
+            pending_now: None, active_tabs: HashSet::new(), inspector_selection: None, test_crash: false, profile: None, view_profile: None,
         };
         let brush = app.dock.find_tab(&Tab::Brush).unwrap();
         let properties = app.dock.find_tab(&Tab::Properties).unwrap();
@@ -466,11 +619,11 @@ mod launch_tests {
     }
 
     #[test]
-    fn file_menu_opens_preferences_without_project_edits() {
+    fn edit_menu_opens_settings_without_project_edits() {
         let mut app = SubcraftApp {
             state: UiState::new(Session::new(subcraft_mesh::primitives::cube(2.0), 64), None),
             dock: default_layout(), frames: 0, screenshot: None, screenshot_requested: false,
-            pending_now: None, active_tabs: HashSet::new(), inspector_selection: None, test_crash: false, profile: None,
+            pending_now: None, active_tabs: HashSet::new(), inspector_selection: None, test_crash: false, profile: None, view_profile: None,
         };
         let doc = app.state.session.document().clone();
         let ctx = egui::Context::default(); theme::apply(&ctx);
@@ -483,7 +636,7 @@ mod launch_tests {
         let find = |out: &egui::FullOutput, text: &str| out.shapes.iter().find_map(|s| match &s.shape {
             egui::Shape::Text(t) if t.galley.text().ends_with(text) => Some(t.pos + t.galley.size() * 0.5), _ => None,
         }).unwrap_or_else(|| panic!("missing {text}"));
-        for label in ["File", "Preferences…"] {
+        for label in ["Edit", "Settings…"] {
             for _ in 0..3 { draw(&mut app, vec![]); }
             let out = draw(&mut app, vec![]); let p = find(&out, label);
             for pressed in [true, false] {
@@ -501,7 +654,7 @@ mod launch_tests {
         let mut app = SubcraftApp {
             state: UiState::new(Session::new(mesh, 128), None),
             dock: default_layout(), frames: 0, screenshot: None, screenshot_requested: false,
-            pending_now: None, active_tabs: HashSet::new(), inspector_selection: None, test_crash: false, profile: None,
+            pending_now: None, active_tabs: HashSet::new(), inspector_selection: None, test_crash: false, profile: None, view_profile: None,
         };
         let title = dialogs::title(&app.state).trim_start_matches("SubCraft — ").to_string();
         for width in [460.0, 1200.0] {
@@ -532,7 +685,7 @@ mod launch_tests {
         let mut app = SubcraftApp {
             state: UiState::new(session, None), dock: default_layout(), frames: 0,
             screenshot: None, screenshot_requested: false, pending_now: None,
-            active_tabs: HashSet::new(), inspector_selection: None, test_crash: false, profile: None,
+            active_tabs: HashSet::new(), inspector_selection: None, test_crash: false, profile: None, view_profile: None,
         };
         app.state.pen.begin(&app.state.session, glam::Vec2::splat(0.4), None).unwrap();
         app.perform(Action::Save, 0.0); assert!(app.state.pen_after.is_some());
@@ -563,6 +716,7 @@ pub struct SubcraftApp {
     inspector_selection: Option<InspectorSelection>,
     test_crash: bool,
     profile: Option<crate::edit_profile::EditProfile>,
+    view_profile: Option<crate::view_profile::ViewProfile>,
 }
 
 impl SubcraftApp {
@@ -623,7 +777,7 @@ impl SubcraftApp {
         if let Some(graphics) = options.graphics_startup.clone() {
             let active = state.graphics.active.clone(); state.graphics = graphics; state.graphics.active = active;
         }
-        let prefs = cc.storage.and_then(|s| s.get_string(crate::recovery::PREFS_KEY)).and_then(|j| serde_json::from_str(&j).ok()).unwrap_or_default();
+        let prefs = cc.storage.and_then(|s| s.get_string(crate::recovery::PREFS_KEY)).map(|j| crate::recovery::Preferences::from_json_lenient(&j)).unwrap_or_default();
         state.recovery = crate::recovery::RecoveryUi::start(&state.session, prefs, options.autosave_interval);
         if subcraft_app::safe_mode::active() == Some(&subcraft_app::safe_mode::Reason::GpuLostLastRun) {
             // The GPU reset last run: keep the heavy GPU work off from now on (saved with the
@@ -750,13 +904,34 @@ impl SubcraftApp {
                     ("dof-range", Some(v)) => prefs.dof_range = v,
                     ("glare", Some(v)) => prefs.glare = v,
                     ("glare-length", Some(v)) => prefs.glare_length = v,
+                    ("glare-threshold", Some(v)) => prefs.glare_threshold = v,
+                    ("glare-remap", Some(v)) => prefs.glare_remap = v,
+                    ("post", Some(v)) => prefs.post_effects = v > 0.0,
+                    ("falloff", Some(v)) => prefs.bloom_falloff = v,
+                    ("gamma", Some(v)) => prefs.gamma = v,
+                    ("factor", Some(v)) => prefs.mapping_factor = v,
+                    ("flare", Some(v)) => { prefs.flare_on = v > 0.0; prefs.flare_amount = v }
+                    ("aberration", Some(v)) => { prefs.aberration_on = v > 0.0; prefs.aberration_amount = v }
+                    ("vignette", Some(v)) => { prefs.vignette_on = v > 0.0; prefs.vignette_amount = v }
+                    ("sharpen", Some(v)) => { prefs.sharpen_on = v > 0.0; prefs.sharpen_amount = v }
+                    ("grain", Some(v)) => { prefs.grain_on = v > 0.0; prefs.grain_amount = v }
+                    ("grain-colored", Some(v)) => prefs.grain_type = if v > 0.0 { subcraft_doc::GrainType::Colored } else { subcraft_doc::GrainType::Monochromatic },
+                    ("saturation", Some(v)) => { prefs.color_correction_on = true; prefs.cc_saturation = v }
+                    ("contrast", Some(v)) => { prefs.color_correction_on = true; prefs.cc_contrast = v }
+                    ("brightness", Some(v)) => { prefs.color_correction_on = true; prefs.cc_brightness = v }
+                    ("sepia", Some(v)) => { prefs.color_correction_on = true; prefs.cc_sepia = v }
+                    ("temperature", Some(v)) => { prefs.color_correction_on = true; prefs.cc_temperature = v }
+                    ("env-opacity", Some(v)) => prefs.env_opacity = v,
+                    ("env-blur", Some(v)) => prefs.env_blur = v,
+                    ("env-ev", Some(v)) => prefs.env_exposure = v,
+                    ("fov", Some(v)) => crate::panels::display_settings::set_fov(&mut state.camera, v),
                     ("glare-mode", _) => {
                         let wanted = value.trim().to_ascii_lowercase();
-                        if let Some(i) = subcraft_render::GlareMode::ALL.iter().position(|m| m.label().to_ascii_lowercase().starts_with(&wanted)) { prefs.glare_mode = i; }
+                        if let Some(m) = subcraft_render::GlareMode::ALL.into_iter().find(|m| format!("{m:?}").to_ascii_lowercase() == wanted || m.label().to_ascii_lowercase().replace(' ', "-").contains(&wanted.replace(' ', "-"))) { prefs.glare_mode = m; }
                     }
                     ("tone", _) => {
                         let wanted = value.trim().to_ascii_lowercase();
-                        if let Some(i) = subcraft_render::ToneMap::ALL.iter().position(|t| t.label().to_ascii_lowercase().starts_with(&wanted)) { prefs.tone_map = i; }
+                        if let Some(t) = subcraft_render::ToneMap::ALL.into_iter().find(|t| t.label().to_ascii_lowercase().starts_with(&wanted)) { prefs.tone_map = t; }
                     }
                     _ => {}
                 }
@@ -840,7 +1015,11 @@ impl SubcraftApp {
         {
             let _ = dock.set_active_tab(path);
         }
-        if options.brush_panel && let Some(path) = dock.find_tab(&Tab::Brush) {
+        if let Some(group) = options.display_settings.as_deref() {
+            open_display_settings(&mut dock);
+            let wanted = group.trim().to_ascii_lowercase();
+            state.display_jump = panels::display_settings::Section::ALL.into_iter().find(|s| !wanted.is_empty() && s.short().to_ascii_lowercase().starts_with(&wanted));
+        } else if options.brush_panel && let Some(path) = dock.find_tab(&Tab::Brush) {
             let _ = dock.set_active_tab(path);
         } else if state.session.selected_layer().is_some_and(|layer| layer.kind() != subcraft_doc::LayerKind::Paint)
             && let Some(path) = dock.find_tab(&Tab::Properties)
@@ -858,6 +1037,7 @@ impl SubcraftApp {
             active_tabs: HashSet::new(),
             test_crash: options.test_crash,
             profile: options.profile_edits.map(|(out, res)| crate::edit_profile::EditProfile::new(out, res)),
+            view_profile: options.profile_view.map(crate::view_profile::ViewProfile::new),
         }
     }
 
@@ -894,10 +1074,18 @@ impl SubcraftApp {
         self.follow_layer_selection();
         self.open_requested_brush_editor();
         let style = theme::dock_style(ui.style());
+        let hidden = self.state.hide_ui;
         let mut viewer = Viewer { state: &mut self.state, was_active: &self.active_tabs, active: HashSet::new() };
+        // Tab hides the panels: only the views are laid out, in the arrangement of the full layout.
+        let mut views = hidden.then(|| views_only(&self.dock));
         egui::Frame::new().fill(theme::BG_0).inner_margin(egui::Margin { left: 3, right: 0, top: 3, bottom: 0 }).show(ui, |ui| {
-            DockArea::new(&mut self.dock).style(style).show_close_buttons(false).show_leaf_close_all_buttons(false).show_leaf_collapse_buttons(false).show_inside(ui, &mut viewer);
+            let dock = views.as_mut().unwrap_or(&mut self.dock);
+            DockArea::new(dock).style(style).show_close_buttons(false).show_leaf_close_all_buttons(false).show_leaf_collapse_buttons(false).show_inside(ui, &mut viewer);
         });
+        // A view tab clicked while the panels are hidden is the front one when they come back.
+        if let Some(views) = &views && !is_side_by_side(&self.dock) {
+            front_tab(&mut self.dock, if is_front(views, Tab::UvView) { Tab::UvView } else { Tab::Viewport });
+        }
         let active = std::mem::take(&mut viewer.active);
         if active != self.active_tabs {
             self.active_tabs = active;
@@ -909,7 +1097,8 @@ impl SubcraftApp {
     }
 
     fn shortcuts(&mut self, ctx: &egui::Context) {
-        if ctx.egui_wants_keyboard_input() {
+        if ctx.egui_wants_keyboard_input() || self.state.modal_open() {
+            self.state.tab_pressed = false;
             return;
         }
         let pressed: Vec<Shortcut> = ctx.input(|i| {
@@ -927,6 +1116,10 @@ impl SubcraftApp {
                 .collect()
         });
         let keymap = self.state.recovery.prefs.keymap;
+        let mut pressed = pressed;
+        if std::mem::take(&mut self.state.tab_pressed) {
+            pressed.push(Shortcut::key(Key::Tab));
+        }
         for s in pressed {
             if let Some(a) = action_for(keymap, s) {
                 self.perform(a, ctx.input(|i| i.time));
@@ -958,7 +1151,42 @@ impl SubcraftApp {
                 rows.reverse();
                 self.state.multi.select_all(&rows);
             }
-            Action::ResetCamera => self.state.camera = OrbitCamera::framing(&self.state.session.scene().mesh.bounds),
+            Action::ResetCamera => {
+                self.state.camera = OrbitCamera::framing(&self.state.session.scene().mesh.bounds);
+                self.state.orbit_pivot = None;
+            }
+            Action::HideUi => self.state.hide_ui = !self.state.hide_ui,
+            Action::PaintingMode => {
+                self.state.bake.open = false;
+                self.state.recovery.prefs.viewport.path_tracing = false;
+            }
+            Action::CloseProject => self.request(Pending::NewSample, now),
+            Action::View3dAnd2d => apply_view_layout(&mut self.dock, ViewLayout::Both),
+            Action::View3dOnly => apply_view_layout(&mut self.dock, ViewLayout::Only3d),
+            Action::View2dOnly => apply_view_layout(&mut self.dock, ViewLayout::Only2d),
+            Action::SwapViews => apply_view_layout(&mut self.dock, ViewLayout::Swap),
+            Action::NextMeshMap => crate::viewport_bar::cycle_mesh_map(&mut self.state.recovery.prefs.viewport),
+            Action::PrevMeshMap => crate::viewport_bar::cycle_mesh_map_back(&mut self.state.recovery.prefs.viewport),
+            Action::InvertMaskGray => {
+                match self.state.session.perform(action) {
+                    Ok(_) => {
+                        let value = self.state.session.brush.material.mask_value;
+                        self.state.set_status(format!("Mask brush value: {value:.2} ({})", if value >= 0.5 { "white: reveals" } else { "black: hides" }), now);
+                    }
+                    Err(e) => self.state.set_status(e.to_string(), now),
+                }
+            }
+            Action::IsolateTextureSet => {
+                match self.state.session.perform(action) {
+                    Ok(_) => {
+                        let session = &self.state.session;
+                        let isolated = session.document().texture_sets.iter().any(|t| session.is_set_hidden(t.id));
+                        let name = session.selected_texture_set().name.clone();
+                        self.state.set_status(if isolated { format!("Showing only texture set {name} (Alt+Q shows all)") } else { "Showing every texture set".to_string() }, now);
+                    }
+                    Err(e) => self.state.set_status(e.to_string(), now),
+                }
+            }
             Action::BrushTool => self.state.tool = Tool::Brush,
             Action::EraserTool => self.state.tool = Tool::Eraser,
             Action::PolygonFillTool => self.state.tool = Tool::PolygonFill,
@@ -968,11 +1196,11 @@ impl SubcraftApp {
             Action::PerspectiveCamera => self.state.recovery.prefs.viewport.orthographic = false,
             Action::OrthographicCamera => self.state.recovery.prefs.viewport.orthographic = true,
             Action::NextChannel | Action::PrevChannel => {
-                let v = &mut self.state.recovery.prefs.viewport;
-                let n = subcraft_render::ViewMode::ALL.len();
-                v.view_mode = if action == Action::NextChannel { (v.view_mode + 1) % n } else { (v.view_mode + n - 1) % n };
+                // Painter's C / Shift+C: the material, then each channel of the selected texture set.
+                let channels: Vec<_> = self.state.session.selected_texture_set().channel_kinds().collect();
+                self.state.recovery.prefs.viewport.cycle_channel(&channels, action == Action::NextChannel);
             }
-            Action::DisplayMaterial => self.state.recovery.prefs.viewport.view_mode = 0,
+            Action::DisplayMaterial => self.state.recovery.prefs.viewport.show_material(),
             Action::NewProject => self.request(Pending::OpenMesh, now),
             Action::Quit => self.request(Pending::Close, now),
             Action::PenTool => { self.state.tool = Tool::Pen; self.state.picking_parts = false; }
@@ -1112,27 +1340,44 @@ impl SubcraftApp {
         let km = self.state.recovery.prefs.keymap;
         egui::MenuBar::new().ui(ui, |ui| {
             let item = |ui: &mut Ui, icon: &str, label: &str, sc: &str| ui.add(egui::Button::new(format!("{icon}   {label}")).shortcut_text(sc)).clicked();
+            // Same top menus as Painter: File, Edit, Mode, Window, Viewport, Plugins, Help.
             ui.menu_button(tr("File"), |ui| {
                 ui.set_min_width(240.0);
-                if item(ui, icons::FILE_PLUS, tr("New (sample model)"), "") {
-                    self.request(Pending::NewSample, now);
-                    ui.close();
-                }
-                if item(ui, icons::CUBE, tr("New project from a model…"), &sc(km, Action::NewProject)) {
+                if item(ui, icons::CUBE, tr("New…"), &sc(km, Action::NewProject)) {
                     ui.close();
                     self.request(Pending::OpenMesh, now);
                 }
-                if item(ui, icons::CUBE_WIRE, tr("Reload mesh…"), "") {
-                    ui.close();
-                    crate::mesh_reload::open(&mut self.state);
-                }
-                if item(ui, icons::CUBE_WIRE, tr("Auto UV unwrap…"), "") {
-                    ui.close();
-                    crate::auto_uv::open(&mut self.state);
-                }
-                if item(ui, icons::FOLDER_OPEN, tr("Open project…"), &sc(km, Action::OpenProject)) {
+                if item(ui, icons::FOLDER_OPEN, tr("Open…"), &sc(km, Action::OpenProject)) {
                     ui.close();
                     self.request(Pending::OpenProject, now);
+                }
+                ui.menu_button(format!("{}   {}", icons::HISTORY, tr("Recent files")), |ui| {
+                    ui.set_min_width(240.0);
+                    let mut open = None;
+                    if self.state.welcome.items.is_empty() {
+                        ui.weak(tr("Projects and models you open or save appear here."));
+                    }
+                    egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
+                        for recent in &self.state.welcome.items {
+                            let label = if recent.available { recent.name.clone() } else { format!("{} (missing)", recent.name) };
+                            if ui.add_enabled(recent.available, egui::Button::new(label)).on_hover_text(recent.path.display().to_string()).clicked() {
+                                open = Some(recent.path.clone());
+                            }
+                        }
+                    });
+                    if let Some(path) = open {
+                        ui.close();
+                        self.state.welcome.pending_recent = Some(path);
+                        self.request(Pending::OpenRecent, now);
+                    }
+                });
+                if item(ui, icons::FILE_PLUS, tr("Open sample"), "") {
+                    self.request(Pending::NewSample, now);
+                    ui.close();
+                }
+                if item(ui, icons::X, tr("Close"), &sc(km, Action::CloseProject)) {
+                    ui.close();
+                    self.perform(Action::CloseProject, now);
                 }
                 ui.separator();
                 if item(ui, icons::SAVE, tr("Save"), &sc(km, Action::Save)) {
@@ -1144,6 +1389,21 @@ impl SubcraftApp {
                     self.perform(Action::SaveAs, now);
                 }
                 ui.separator();
+                ui.menu_button(format!("{}   {}", icons::IMAGE, tr("Import resources")), |ui| {
+                    ui.set_min_width(220.0);
+                    if item(ui, icons::IMAGE, tr("Import texture set…"), "") {
+                        ui.close();
+                        crate::panels::layers::import_texture_set_dialog(ui.ctx());
+                    }
+                    if item(ui, icons::SPARKLE, tr("Import smart material(s)…"), "") {
+                        ui.close();
+                        crate::panels::shelf::import_smart_dialog(ui.ctx());
+                    }
+                    if item(ui, icons::FOLDER_OPEN, tr("Import smart material folder…"), "") {
+                        ui.close();
+                        crate::panels::shelf::import_smart_folder_dialog(ui.ctx());
+                    }
+                });
                 if item(ui, icons::EXPORT, tr("Export textures…"), &sc(km, Action::Export)) {
                     ui.close();
                     self.perform(Action::Export, now);
@@ -1157,15 +1417,19 @@ impl SubcraftApp {
                     ui.close();
                     self.state.render_window = true;
                 }
-                if item(ui, icons::MAGIC_WAND, tr("Bake mesh maps…"), &sc(km, Action::Bake)) {
-                    ui.close();
-                    self.perform(Action::Bake, now);
-                }
-                ui.separator();
-                if item(ui, icons::SLIDERS, tr("Preferences…"), "") {
-                    self.state.recovery.show_prefs = true;
-                    ui.close();
-                }
+                // Painter's Send to lists other applications; here it is the PhotoCraft round trip.
+                ui.menu_button(format!("{}   {}", icons::EXPORT, tr("Send to")), |ui| {
+                    ui.set_min_width(220.0);
+                    if self.state.photocraft.is_some() {
+                        if item(ui, icons::X, tr("Stop editing in PhotoCraft"), "") {
+                            self.state.stop_photocraft(now);
+                            ui.close();
+                        }
+                    } else if item(ui, icons::EXPORT, tr("Edit in PhotoCraft…"), "") {
+                        self.state.start_photocraft(now);
+                        ui.close();
+                    }
+                });
                 ui.separator();
                 if item(ui, icons::X, tr("Quit"), &sc(km, Action::Quit)) {
                     self.request(Pending::Close, now);
@@ -1185,104 +1449,167 @@ impl SubcraftApp {
                     self.perform(Action::Redo, now);
                 }
                 ui.separator();
-                if item(ui, icons::SLIDERS, tr("Preferences…"), "") {
+                // Painter keeps the layer commands in the layer stack's right-click menu; they are
+                // also here so every one of them shows its key.
+                ui.menu_button(format!("{}   {}", icons::STACK, tr("Layers")), |ui| {
+                    ui.set_min_width(240.0);
+                    for (a, icon) in [
+                        (Action::NewPaintLayer, icons::PAINT_BRUSH),
+                        (Action::NewFillLayer, icons::PAINT_BUCKET),
+                        (Action::NewFolder, icons::FOLDER),
+                        (Action::NewTextLayer, "Aa"),
+                        (Action::DuplicateLayer, icons::COPY),
+                        (Action::DeleteLayer, icons::TRASH),
+                        (Action::SelectAllLayers, icons::STACK),
+                    ] {
+                        let info = subcraft_app::actions::info(a);
+                        let key = sc(km, a);
+                        if item(ui, icon, info.label, &key) {
+                            self.perform(a, now);
+                            ui.close();
+                        }
+                    }
+                    ui.separator();
+                    let have_clip = self.state.clips.layers.is_some();
+                    if item(ui, icons::COPY, tr("Copy Layer(s)"), crate::keys::native("Ctrl+C")) {
+                        crate::clipboard::request(ui.ctx(), crate::clipboard::Request::CopyLayers { cut: false });
+                        ui.close();
+                    }
+                    if item(ui, icons::COPY, tr("Cut Layer(s)"), crate::keys::native("Ctrl+X")) {
+                        crate::clipboard::request(ui.ctx(), crate::clipboard::Request::CopyLayers { cut: true });
+                        ui.close();
+                    }
+                    if have_clip && item(ui, icons::COPY, tr("Paste Layer(s)"), crate::keys::native("Ctrl+V")) {
+                        crate::clipboard::request(ui.ctx(), crate::clipboard::Request::PasteLayers);
+                        ui.close();
+                    }
+                });
+                ui.separator();
+                if item(ui, icons::MAGIC_WAND, tr("Bake mesh maps…"), &sc(km, Action::Bake)) {
+                    ui.close();
+                    self.perform(Action::Bake, now);
+                }
+                // Painter: Edit > Project configuration (replace the mesh, its settings).
+                if item(ui, icons::CUBE_WIRE, tr("Project configuration (reload mesh)…"), "") {
+                    ui.close();
+                    crate::mesh_reload::open(&mut self.state);
+                }
+                if item(ui, icons::CUBE_WIRE, tr("Auto UV unwrap…"), "") {
+                    ui.close();
+                    crate::auto_uv::open(&mut self.state);
+                }
+                ui.separator();
+                if item(ui, icons::SLIDERS, tr("Settings…"), "") {
                     self.state.recovery.show_prefs = true;
                     ui.close();
                 }
             });
-            ui.menu_button(tr("Layer"), |ui| {
+            ui.menu_button(tr("Mode"), |ui| {
                 ui.set_min_width(240.0);
-                for (a, icon) in [
-                    (Action::NewPaintLayer, icons::PAINT_BRUSH),
-                    (Action::NewFillLayer, icons::PAINT_BUCKET),
-                    (Action::NewFolder, icons::FOLDER),
-                    (Action::NewTextLayer, "Aa"),
-                    (Action::DuplicateLayer, icons::COPY),
-                    (Action::DeleteLayer, icons::TRASH),
+                let baking = self.state.bake.open || self.state.bake.job.is_some();
+                let rendering = self.state.recovery.prefs.viewport.path_tracing && !baking;
+                let mode = |ui: &mut Ui, on: bool, icon: &str, label: &str, key: &str| ui.add(egui::Button::new(format!("{icon}   {label}")).selected(on).shortcut_text(key)).clicked();
+                if mode(ui, !baking && !rendering, icons::PAINT_BRUSH, tr("Painting"), &sc(km, Action::PaintingMode)) {
+                    self.perform(Action::PaintingMode, now);
+                    ui.close();
+                }
+                if mode(ui, baking, icons::MAGIC_WAND, tr("Bake mesh maps"), &crate::keys::native_string(Shortcut::key(Key::F8).label())) {
+                    self.perform(Action::Bake, now);
+                    ui.close();
+                }
+                if mode(ui, rendering, icons::SUN, tr("Rendering (path tracing)"), &sc(km, Action::TogglePathTracing)) {
+                    if !rendering {
+                        self.state.bake.open = false;
+                        self.state.recovery.prefs.viewport.path_tracing = true;
+                    }
+                    ui.close();
+                }
+            });
+            ui.menu_button(tr("Window"), |ui| {
+                ui.set_min_width(240.0);
+                ui.menu_button(format!("{}   {}", icons::SQUARES, tr("Views")), |ui| {
+                    ui.set_min_width(220.0);
+                    for tab in [Tab::Shelf, Tab::Layers, Tab::Properties, Tab::TextureSetList, Tab::TextureSetSettings, Tab::History, Tab::Parts, Tab::Viewport, Tab::UvView] {
+                        if ui.add(egui::Button::new(format!("{}   {}", tab.icon(), tab.title())).selected(is_front(&self.dock, tab))).clicked() {
+                            front_tab(&mut self.dock, tab);
+                            self.state.hide_ui = false;
+                            ui.close();
+                        }
+                    }
+                });
+                ui.menu_button(format!("{}   {}", icons::SLIDERS, tr("Toolbars")), |ui| {
+                    ui.set_min_width(200.0);
+                    ui.checkbox(&mut self.state.recovery.prefs.show_tools_toolbar, tr("Tools"))
+                        .on_hover_text("The tool buttons along the left edge of the window.");
+                    ui.checkbox(&mut self.state.recovery.prefs.show_status_bar, tr("Status bar"));
+                });
+                if item(ui, icons::SUN, if self.dock.find_tab(&Tab::DisplaySettings).is_some() { tr("Close Display settings") } else { tr("Display settings") }, "") {
+                    toggle_display_settings(&mut self.dock);
+                    ui.close();
+                }
+                if item(ui, icons::PAINT_BRUSH, tr("Brush settings"), "") {
+                    self.state.open_brush_editor = true;
+                    self.state.hide_ui = false;
+                    ui.close();
+                }
+                ui.separator();
+                if ui.add(egui::Button::new(format!("{}   {}", icons::SQUARES, tr("Hide UI"))).selected(self.state.hide_ui).shortcut_text(sc(km, Action::HideUi))).clicked() {
+                    self.perform(Action::HideUi, now);
+                    ui.close();
+                }
+                if item(ui, icons::SQUARES, tr("Reset UI"), "") {
+                    self.dock = default_layout();
+                    self.state.hide_ui = false;
+                    ui.close();
+                }
+            });
+            ui.menu_button(tr("Viewport"), |ui| {
+                ui.set_min_width(260.0);
+                // Painter's entries, in Painter's order.
+                if item(ui, icons::SQUARES, tr("Display material"), &sc(km, Action::DisplayMaterial)) { self.perform(Action::DisplayMaterial, now); ui.close(); }
+                if item(ui, icons::SQUARES, tr("Display next channel"), &sc(km, Action::NextChannel)) { self.perform(Action::NextChannel, now); }
+                if item(ui, icons::SQUARES, tr("Display previous channel"), &sc(km, Action::PrevChannel)) { self.perform(Action::PrevChannel, now); }
+                if item(ui, icons::SQUARES, tr("Display next mesh map"), &sc(km, Action::NextMeshMap)) { self.perform(Action::NextMeshMap, now); }
+                if item(ui, icons::SQUARES, tr("Display previous mesh map"), &sc(km, Action::PrevMeshMap)) { self.perform(Action::PrevMeshMap, now); }
+                if item(ui, icons::CAMERA, tr("Show entire mesh"), &sc(km, Action::ResetCamera)) {
+                    self.perform(Action::ResetCamera, now);
+                    ui.close();
+                }
+                ui.separator();
+                let side = is_side_by_side(&self.dock);
+                let view = |ui: &mut Ui, on: bool, label: &str, key: &str| ui.add(egui::Button::new(format!("{}   {label}", icons::SQUARES)).selected(on).shortcut_text(key)).clicked();
+                for (a, on, label) in [
+                    (Action::View3dAnd2d, side, tr("3D | 2D")),
+                    (Action::View3dOnly, !side && is_front(&self.dock, Tab::Viewport), tr("3D only")),
+                    (Action::View2dOnly, !side && is_front(&self.dock, Tab::UvView), tr("2D only")),
+                    (Action::SwapViews, false, tr("Swap 3D and 2D")),
                 ] {
-                    let info = subcraft_app::actions::info(a);
-                    let key = sc(km, a);
-                    if item(ui, icon, info.label, &key) {
+                    if view(ui, on, label, &sc(km, a)) {
                         self.perform(a, now);
                         ui.close();
                     }
                 }
                 ui.separator();
-                let have_clip = self.state.clips.layers.is_some();
-                if item(ui, icons::COPY, tr("Copy Layer(s)"), "Ctrl+C") {
-                    crate::clipboard::request(ui.ctx(), crate::clipboard::Request::CopyLayers { cut: false });
-                    ui.close();
-                }
-                if item(ui, icons::COPY, tr("Cut Layer(s)"), "Ctrl+X") {
-                    crate::clipboard::request(ui.ctx(), crate::clipboard::Request::CopyLayers { cut: true });
-                    ui.close();
-                }
-                if have_clip && item(ui, icons::COPY, tr("Paste Layer(s)"), "Ctrl+V") {
-                    crate::clipboard::request(ui.ctx(), crate::clipboard::Request::PasteLayers);
-                    ui.close();
-                }
+                let ortho = self.state.recovery.prefs.viewport.orthographic;
+                if ui.add(egui::Button::new(format!("{}   {}", icons::CUBE, tr("Perspective"))).selected(!ortho).shortcut_text(sc(km, Action::PerspectiveCamera))).clicked() { self.perform(Action::PerspectiveCamera, now); ui.close(); }
+                if ui.add(egui::Button::new(format!("{}   {}", icons::CUBE_WIRE, tr("Orthographic"))).selected(ortho).shortcut_text(sc(km, Action::OrthographicCamera))).clicked() { self.perform(Action::OrthographicCamera, now); ui.close(); }
+                if item(ui, icons::CUBE_WIRE, tr("Isolate the texture set"), &sc(km, Action::IsolateTextureSet)) { self.perform(Action::IsolateTextureSet, now); ui.close(); }
                 ui.separator();
-                if item(ui, icons::IMAGE, tr("Import texture set…"), "") {
-                    ui.close();
-                    crate::panels::layers::import_texture_set_dialog(ui.ctx());
-                }
-                if item(ui, icons::SPARKLE, tr("Import smart material(s)…"), "") {
-                    ui.close();
-                    crate::panels::shelf::import_smart_dialog(ui.ctx());
-                }
-                if item(ui, icons::FOLDER_OPEN, tr("Import smart material folder…"), "") {
-                    ui.close();
-                    crate::panels::shelf::import_smart_folder_dialog(ui.ctx());
-                }
-                if self.state.photocraft.is_some() {
-                    if item(ui, icons::X, tr("Stop editing in PhotoCraft"), "") {
-                        self.state.stop_photocraft(now);
-                        ui.close();
-                    }
-                } else if item(ui, icons::EXPORT, tr("Edit in PhotoCraft…"), "") {
-                    self.state.start_photocraft(now);
-                    ui.close();
-                }
-            });
-            ui.menu_button(tr("View"), |ui| {
-                ui.set_min_width(240.0);
-                if item(ui, icons::CAMERA, tr("Reset camera"), &sc(km, Action::ResetCamera)) {
-                    self.perform(Action::ResetCamera, now);
-                    ui.close();
-                }
-                if item(ui, icons::PAINT_BRUSH, tr("Brush settings"), "") {
-                    self.state.open_brush_editor = true;
-                    ui.close();
-                }
-                if item(ui, icons::SQUARES, if is_side_by_side(&self.dock) { tr("Tab 2D view behind 3D view") } else { tr("Side-by-side 3D | 2D") }, "") {
-                    toggle_side_by_side(&mut self.dock);
-                    ui.close();
-                }
-                if item(ui, icons::SQUARES, tr("Reset layout"), "") {
-                    self.dock = default_layout();
-                    ui.close();
-                }
                 if item(ui, icons::SUN, tr("Render quality…"), "") {
                     self.state.render_window = true;
                     ui.close();
                 }
-                if item(ui, icons::CUBE, "Perspective camera", &sc(km, Action::PerspectiveCamera)) { self.perform(Action::PerspectiveCamera, now); ui.close(); }
-                if item(ui, icons::CUBE_WIRE, "Orthographic camera", &sc(km, Action::OrthographicCamera)) { self.perform(Action::OrthographicCamera, now); ui.close(); }
-                if item(ui, icons::SQUARES, "Next channel", &sc(km, Action::NextChannel)) { self.perform(Action::NextChannel, now); }
-                if item(ui, icons::SQUARES, "Previous channel", &sc(km, Action::PrevChannel)) { self.perform(Action::PrevChannel, now); }
-                if item(ui, icons::SQUARES, "Material view", &sc(km, Action::DisplayMaterial)) { self.perform(Action::DisplayMaterial, now); ui.close(); }
                 ui.checkbox(&mut self.state.recovery.prefs.viewport.hints, "Viewport hints")
                     .on_hover_text("The list of mouse and key actions in the bottom-left corner of the 3D view.");
-                let rendering = self.state.recovery.prefs.viewport.path_tracing;
-                if item(ui, icons::SUN, if rendering { "Leave Rendering mode" } else { "Rendering mode (path tracing)" }, &sc(km, Action::TogglePathTracing)) {
-                    self.perform(Action::TogglePathTracing, now);
-                    ui.close();
-                }
-                ui.separator();
                 ui.horizontal(|ui| {
                     ui.label(tr("Height bump"));
                     ui.add(egui::Slider::new(&mut self.state.height_scale, 0.0..=0.1));
                 });
+            });
+            // Painter lists its JavaScript and Python plugins here.
+            ui.menu_button(tr("Plugins"), |ui| {
+                ui.set_min_width(240.0);
+                ui.weak(tr("No plugins: SubCraft has no scripting API yet."));
             });
             ui.menu_button(tr("Help"), |ui| {
                 ui.set_min_width(240.0);
@@ -1394,6 +1721,10 @@ impl SubcraftApp {
     }
 
     fn shortcuts_window(&mut self, ctx: &egui::Context) {
+        // Preferences > "Show all keyboard shortcuts…".
+        if ctx.data_mut(|d| d.remove_temp::<bool>(egui::Id::new("open_shortcuts_window"))).unwrap_or(false) {
+            self.state.show_shortcuts = true;
+        }
         crate::shortcuts_window::show(&mut self.state, ctx);
     }
 
@@ -1456,6 +1787,19 @@ impl SubcraftApp {
 fn rail_divider(ui: &mut Ui) {
     let (r, _) = ui.allocate_exact_size(egui::vec2(24.0, 1.0), egui::Sense::hover());
     ui.painter().hline(r.x_range(), r.center().y, egui::Stroke::new(1.0, theme::BORDER_STRONG));
+}
+
+/// Take a plain Tab press out of the input when no text field has the keyboard: Tab is a
+/// shortcut (Hide UI), and left in the events egui would move the focus to a widget instead, which
+/// then swallows every later shortcut. Returns whether Tab was pressed. While typing, Tab is egui's.
+pub(crate) fn take_tab_press(events: &mut Vec<egui::Event>, typing: bool) -> bool {
+    if typing {
+        return false;
+    }
+    let plain_tab = |e: &egui::Event| matches!(e, egui::Event::Key { key: egui::Key::Tab, modifiers, .. } if !modifiers.any());
+    let pressed = events.iter().any(|e| plain_tab(e) && matches!(e, egui::Event::Key { pressed: true, repeat: false, .. }));
+    events.retain(|e| !plain_tab(e));
+    pressed
 }
 
 /// Menu / tooltip text with the action's first binding in the active key table.
@@ -1558,11 +1902,13 @@ impl egui_dock::TabViewer for Viewer<'_> {
             Tab::Parts => crate::edit_profile::time_tab("  tab Parts", || panels::parts::show(self.state, ui)),
             Tab::History => crate::edit_profile::time_tab("  tab History", || panels::history::show(self.state, ui)),
             Tab::Shelf => crate::edit_profile::time_tab("  tab Shelf", || panels::shelf::show(self.state, ui)),
+            Tab::DisplaySettings => crate::edit_profile::time_tab("  tab Display settings", || panels::display_settings::show(self.state, ui)),
         }
     }
 
-    fn is_closeable(&self, _tab: &Tab) -> bool {
-        false
+    fn is_closeable(&self, tab: &Tab) -> bool {
+        // The optional panel closes with its tab's X (and reopens from the View menu).
+        matches!(tab, Tab::DisplaySettings)
     }
 
     fn scroll_bars(&self, tab: &Tab) -> [bool; 2] {
@@ -1576,14 +1922,26 @@ impl egui_dock::TabViewer for Viewer<'_> {
     }
 }
 
+impl SubcraftApp {
+    /// A section of `ui()` ended (frame profilers).
+    fn mark(&mut self, label: &'static str) {
+        if let Some(p) = &mut self.profile { p.mark(label); }
+        if let Some(p) = &mut self.view_profile { p.mark(label); }
+    }
+}
+
 impl eframe::App for SubcraftApp {
     fn raw_input_hook(&mut self, _ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        if take_tab_press(&mut raw_input.events, _ctx.egui_wants_keyboard_input()) {
+            self.state.tab_pressed = true;
+        }
         let log = crate::pen_input::input_log_enabled();
         if log {
             for e in raw_input.events.iter().filter_map(crate::pen_input::describe) {
                 log::info!(target: "subcraft::input", "in: {e}");
             }
         }
+        if let Some(p) = &mut self.view_profile { p.inject(&self.state, &mut raw_input.events); }
         let before = self.state.pen_input.synthesized;
         self.state.pen_input.fix(&mut raw_input.events);
         if log && self.state.pen_input.synthesized != before {
@@ -1595,8 +1953,14 @@ impl eframe::App for SubcraftApp {
         // A lost graphics device: draw nothing more (the renderer would panic on it).
         if crate::device_lost::frame_gate(&mut self.state) == crate::device_lost::Gate::Stop { return; }
         let ctx = ui.ctx().clone();
+        if crate::bug_report::stop_after_device_loss(&mut self.state, subcraft_render::caps::device_lost()) {
+            return;
+        }
         if let Some(p) = &mut self.profile {
             p.ui_begin();
+        }
+        if let Some(p) = &mut self.view_profile {
+            p.ui_begin(&mut self.state, &ctx);
         }
         self.state.recovery.prefs.apply_ui_size(&ctx);
         // Preferences holds the language picker: its native names need the CJK fonts even in English.
@@ -1628,7 +1992,7 @@ impl eframe::App for SubcraftApp {
         if ctx.input(|i| i.pointer.any_released()) {
             let _ = self.state.session.execute(Command::Seal);
         }
-        if let Some(p) = &mut self.profile { p.mark("input+shortcuts"); }
+        self.mark("input+shortcuts");
         if let Some(p) = &mut self.profile {
             p.before_sync(&mut self.state);
             ctx.request_repaint();
@@ -1650,7 +2014,7 @@ impl eframe::App for SubcraftApp {
         }
         self.state.layer_previews.poll(&ctx);
         self.state.textures.poll(&ctx);
-        if let Some(p) = &mut self.profile { p.mark("sync+polls"); }
+        self.mark("sync+polls");
         if self.state.env_loader.is_some() {
             ctx.request_repaint_after(std::time::Duration::from_millis(200));
         }
@@ -1659,16 +2023,22 @@ impl eframe::App for SubcraftApp {
         egui::Panel::top("header").exact_size(44.0).show_separator_line(false)
             .frame(egui::Frame::new().fill(theme::BG_2).inner_margin(egui::Margin { left: 12, right: if crate::window_frame::frameless() { 0 } else { 12 }, top: 0, bottom: 0 }))
             .show(ui, |ui| self.header_bar(ui));
-        egui::Panel::bottom("status").exact_size(26.0).show_separator_line(false).frame(bar(theme::BG_0)).show(ui, |ui| self.status_bar(ui));
-        egui::Panel::left("tools")
-            .exact_size(48.0)
-            .resizable(false)
-            .show_separator_line(false)
-            .frame(egui::Frame::new().fill(theme::BG_2).inner_margin(egui::Margin::symmetric(4, 0)))
-            .show(ui, |ui| self.tool_rail(ui));
-        if let Some(p) = &mut self.profile { p.mark("bars"); }
+        // Tab (Hide UI) leaves the menu bar and the views.
+        let (rail, status) = (self.state.recovery.prefs.show_tools_toolbar, self.state.recovery.prefs.show_status_bar);
+        if !self.state.hide_ui && status {
+            egui::Panel::bottom("status").exact_size(26.0).show_separator_line(false).frame(bar(theme::BG_0)).show(ui, |ui| self.status_bar(ui));
+        }
+        if !self.state.hide_ui && rail {
+            egui::Panel::left("tools")
+                .exact_size(48.0)
+                .resizable(false)
+                .show_separator_line(false)
+                .frame(egui::Frame::new().fill(theme::BG_2).inner_margin(egui::Margin::symmetric(4, 0)))
+                .show(ui, |ui| self.tool_rail(ui));
+        }
+        self.mark("bars");
         self.workspace(ui);
-        if let Some(p) = &mut self.profile { p.mark("workspace (docked panels)"); }
+        self.mark("workspace (docked panels)");
         if let Some(layer) = ctx.data_mut(|data| data.remove_temp::<subcraft_core::LayerId>(egui::Id::new("inspect_mask"))) {
             self.state.layer_previews.inspect = Some(layer);
         }
@@ -1677,13 +2047,14 @@ impl eframe::App for SubcraftApp {
         let now = ctx.input(|i| i.time);
         crate::asset_preview::show(&mut self.state,&ctx);
         crate::render_export::window(&mut self.state, &ctx);
+        panels::display_settings::sync_project(&mut self.state);
         crate::new_project::window(&mut self.state, &ctx);
         crate::render_export::handle_request(&mut self.state, ctx.input(|i| i.time));
         crate::pen::finish_frame(&mut self.state, &ctx, now);
         self.flush_pen_after(now);
-        if let Some(p) = &mut self.profile { p.mark("windows+pen"); }
+        self.mark("windows+pen");
         crate::recovery::tick(&mut self.state, &ctx, now);
-        if let Some(p) = &mut self.profile { p.mark("recovery tick"); }
+        self.mark("recovery tick");
         crate::recovery::preferences_window(&mut self.state, &ctx);
         crate::recovery::prompt(&mut self.state, &ctx, now);
         crate::text_panel::window(&mut self.state, &ctx, now);
@@ -1712,7 +2083,7 @@ impl eframe::App for SubcraftApp {
         }
 
         crate::updates::tick(&mut self.state, &ctx);
-        if let Some(p) = &mut self.profile { p.mark("dialogs+welcome"); }
+        self.mark("dialogs+welcome");
         if self.test_crash && self.frames > 30 {
             panic!("test crash requested with --test-crash");
         }
@@ -1759,9 +2130,14 @@ impl eframe::App for SubcraftApp {
         }
         if crate::window_frame::frameless() { crate::window_frame::resize_edges(&ctx); }
         self.handle_screenshot(&ctx);
+        self.mark("rest (title, close)");
         if let Some(p) = &mut self.profile {
-            p.mark("rest (title, close)");
             p.ui_end();
+        }
+        if self.view_profile.as_mut().is_some_and(|p| p.ui_end()) {
+            self.view_profile = None;
+            self.state.allow_close = true;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
     }
 
@@ -2056,7 +2432,7 @@ fn build_demo(state: &mut UiState) {
     fn save_waits_for_pending_shelf_image_and_embeds_the_result() {
         let file=std::env::temp_dir().join(format!("subcraft-image-save-{}.subcraft",subcraft_core::ObjectId::new()));
         let mut session=Session::new(subcraft_mesh::primitives::cube(2.0),128);session.save(Some(&file)).unwrap();
-        let mut app=SubcraftApp {state:UiState::new(session,None),dock:default_layout(),frames:0,screenshot:None,screenshot_requested:false,pending_now:None,active_tabs:HashSet::new(),inspector_selection:None,test_crash:false,profile:None};
+        let mut app=SubcraftApp {state:UiState::new(session,None),dock:default_layout(),frames:0,screenshot:None,screenshot_requested:false,pending_now:None,active_tabs:HashSet::new(),inspector_selection:None,test_crash:false,profile:None,view_profile:None};
         app.state.asset_preview.queue(&app.state.session,0,None);app.perform(Action::Save,0.0);assert!(app.state.pen_after.is_some());
         let ctx=egui::Context::default();
         // The worker needs real scheduling time under parallel workspace tests; a fixed

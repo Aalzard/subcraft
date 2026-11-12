@@ -129,7 +129,8 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     let rename_id = egui::Id::new(("layer_inline_rename", state.session.selection().texture_set));
     let mut rename = ui.ctx().data_mut(|data| data.get_temp::<InlineRename>(rename_id));
     if rename.as_ref().is_some_and(|edit| state.session.selected_texture_set().find(edit.layer).is_none()) { rename = None; }
-    if !ui.ctx().egui_wants_keyboard_input() && ui.input(|i| i.key_pressed(egui::Key::F2))
+    // F2 renames unless the active key set uses it (Painter: F2 = 3D view only; double-click renames).
+    if !ui.ctx().egui_wants_keyboard_input() && !subcraft_app::f2_is_bound(state.recovery.prefs.keymap) && ui.input(|i| i.key_pressed(egui::Key::F2))
         && let Some(layer) = state.session.selected_layer()
     { rename = Some(InlineRename { layer: layer.id, text: layer.name.clone(), focus: true }); }
     let mut finish_rename = None;
@@ -398,7 +399,7 @@ Files: {}", ex.dir().display()));
             if resp.clicked() {
                 let mods = ui.input(|i| subcraft_app::multi_select::ClickMods { toggle: i.modifiers.command, range: i.modifiers.shift });
                 state.multi.click(&order, l.id, mods);
-                cmds.push(Command::SelectLayer(Some(l.id)));
+                cmds.push(Command::SelectLayer(Some(state.multi.primary_after_click(l.id))));
             }
             if resp.double_clicked() {
                 // Text layers open their editor; every other layer renames inline (F2 renames text too).

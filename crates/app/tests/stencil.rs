@@ -36,3 +36,18 @@ fn black_stencil_blocks_and_bypass_paints() {
     s.brush.stencil = None;
     assert!(stroke(&mut s), "no stencil paints");
 }
+
+/// A small white stencil beside the stroke: it blocks the stroke unless it repeats along the
+/// axis that reaches it.
+#[test]
+fn tiling_modes_repeat_the_stencil_along_one_or_both_axes() {
+    use subcraft_paint::StencilTiling;
+    let white = Arc::new(Bitmap::new_u8(8, 8, 1, vec![255; 64]));
+    // 5 % of the view, at the left edge, on the row the stroke runs along (the view's middle).
+    let stencil = |tiling| Some(Arc::new(Stencil { scale: 0.05, center: glam::Vec2::new(0.05, 0.5), tiling, ..Stencil::new(white.clone()) }));
+    for (tiling, paints) in [(StencilTiling::None, false), (StencilTiling::Vertical, false), (StencilTiling::Horizontal, true), (StencilTiling::Both, true)] {
+        let mut s = Session::new(primitives::cube(2.0), 128);
+        s.brush.stencil = stencil(tiling);
+        assert_eq!(stroke(&mut s), paints, "{tiling:?}");
+    }
+}

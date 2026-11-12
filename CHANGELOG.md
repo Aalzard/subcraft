@@ -3,7 +3,7 @@
 What changed in SubCraft, newest first. Download the latest build from the
 [Releases page](https://github.com/Aalzard/subcraft/releases/latest).
 
-## Unreleased
+## 0.3.5 - 2026-11-12
 
 ### Added
 - **Export preset editor.** Export Textures has a preset menu with New, Duplicate, Delete, Import and
@@ -15,6 +15,62 @@ What changed in SubCraft, newest first. Download the latest build from the
   imported as JSON; Substance 3D Painter export presets (`.spexp` / export JSON) can be imported.
   Built-in templates stay read-only and write exactly the same files as before.
 - **TIFF export** at 8, 16 and 32-bit float.
+- **Brush colour picker** (issue #141). Clicking the brush's Base Color or Emissive swatch opens a picker with a
+  hue ring around a saturation/value square, R/G/B and H/S/V sliders, a hex field (`#RRGGBB`, `RRGGBB` or `#RGB`;
+  pasting a code applies it), old/new swatches (click Old to go back) and the last 12 colours picked, kept in
+  the preferences. Changes apply to the brush at once. Colours stay linear; HSV, RGB numbers and hex are sRGB.
+- **Brush block in Properties** (Painter parity). Paint tool Properties follow Painter's order: Brush, Alpha,
+  Stencil, Material. Size and Flow have pen pressure toggles (with a Minimum row), plus Stroke opacity,
+  Spacing, Angle, Follow Path, four 0-1 jitters with pressure toggles, Alignment, Backface Culling and
+  Size Space (Object / Viewport / Texture). The Alpha slot has a thumbnail, a searchable mini browser and
+  accepts alphas dropped from the Shelf.
+- **Stencil, eraser and clone options.** Stencil tiling (horizontal, vertical, both), Shift + S + drag snaps
+  the rotation to 90 degrees, a Reset button, stencil opacity and Hide stencil when painting. The eraser
+  erases only the enabled channels. Clone has a Relative / Absolute source mode.
+- **Tool, brush and material presets** from a right-click in Properties or the Presets block. A tool preset
+  switches to its tool. The Shelf preset menu has Update from current tool, Rename, Duplicate, Favorites
+  (listed first with a star) and Delete. Older presets still load.
+- **Fill projection options**: Filtering (Bilinear HQ, Bilinear Sharp, Nearest), UV Wrap, Shape crop for 3D
+  projections, and a 0-1 tri-planar Hardness in place of Sharpness (old projects keep their look).
+- **More Standard filters**: Smoothstep, Threshold modes, Blur and Histogram Shift wrap, HSL Perceptive mode,
+  Contrast Luminosity, Color Correct (shadows, midtones, highlights), Transform and Mirror.
+- **Mask Editor generator** with global Invert, Blur, Balance and Contrast, and Texture, Texture 2, Ambient
+  Occlusion, Curvature, World Space Normal, Position Gradient and Thickness groups, each with its own opacity.
+- **Display Settings panel** (View > Display settings): Environment, Camera, Post effects, Render and
+  Visualization in Painter's order, saved with the project. Opening a project never marks it modified.
+- **Environment and camera**: backdrop opacity and blur, exposure in EV, World or Local alignment, drag an
+  environment onto the 3D view, field of view with a focal-length readout, Ctrl+MMB sets the focus
+  distance, F9 returns from rendering to painting.
+- **Post effects**: master and per-effect switches, more tone mapping functions with Gamma and Mapping
+  Factor, bloom falloff, Painter's 13 glare shapes, lens flare, chromatic aberration, vignette, sharpen,
+  film grain and colour correction.
+- **Viewport visualisation**: solo view of any channel, channel display options (no lighting, HDR scale,
+  signed colours, components), anisotropic filtering and MipMap bias, grid plane, colour and opacity, and
+  a camera frame with aspect presets.
+
+### Fixed
+- **Typing into a slider's number box** (issue #140). The box no longer rewrites the number while you type
+  (typing `.25` used to give `0.52`). The text stays as typed until Enter or clicking away; Escape reverts.
+  `.25`, `-.5`, `25`, `1e-2` and a decimal comma (`0,25`) are understood. Applies to all property sliders and
+  the brush bar's number boxes.
+- **Many crash and bug fixes found by testing:**
+  - A lost GPU device copies unsaved work to the recovery folder and stops drawing instead of crashing
+    (issue #119); older recovery copies are no longer offered for a newer file.
+  - Render export, the GPU compositor and extra GPU devices no longer panic on GPU failures or a poisoned lock.
+  - Corrupt Painter `.spp` files give an error instead of a crash.
+  - Import: non-ASCII texture set names, deeply nested USD, STL / PLY edge cases, huge UVs and out-of-range
+    submeshes no longer crash; mesh reload no longer strands or erases paint.
+  - Export: texture sets can no longer overwrite each other's files, nothing is exported into the working
+    directory, the JPEG override keeps packed alpha, and USD material slots with the same name stay separate.
+  - Painting: brush strokes no longer land on a text layer, nested passthrough folders, Edge Detect, mirror
+    symmetry and pen-pressure spacing are fixed, and a polygon fill with a normal-stamp brush fills a flat normal.
+  - Saving keeps resources that only exist as pixels; projects with folder anchors or NaN values open again.
+  - Ctrl+V pastes layers even when the clipboard held no text; Ctrl+click deselect no longer sets up Delete on the
+    wrong layer; the content effect Name field accepts typing; panels follow the open session.
+  - One unknown preference no longer resets all preferences; no validation error every frame with MSAA off.
+  - PhotoCraft: a save during a brush stroke waits for the stroke to end.
+- **Clear start-up message on Linux** when window libraries are missing or there is no display, instead of
+  "update your graphics driver".
 
 ## 0.3.4
 

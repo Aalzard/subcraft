@@ -469,7 +469,7 @@ impl GpuCompositeBackend for GpuCompositor {
         if n > 4096 {
             return Err(GpuError::TooLarge);
         }
-        let mut pool = self.pool.lock().unwrap();
+        let mut pool = self.pool.lock().unwrap_or_else(|p| p.into_inner());
         let slots = self.resolve_tiles(&mut pool, tiles, &mut timing)?;
 
         // Program words: all channels' ops, then all channels' effects.
@@ -546,7 +546,7 @@ impl GpuCompositeBackend for GpuCompositor {
             }
         }
 
-        let mut scratch = self.scratch.lock().unwrap();
+        let mut scratch = self.scratch.lock().unwrap_or_else(|p| p.into_inner());
         let scratch = &mut *scratch;
         let prog_buf = self.upload(scratch, "composite program", bytemuck::cast_slice(&prog));
         let refs_buf = self.upload(scratch, "composite refs", bytemuck::cast_slice(&refs));

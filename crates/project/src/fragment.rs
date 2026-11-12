@@ -81,6 +81,13 @@ impl Fragment {
             {
                 out.push(resource);
             }
+            if let MaskEffectKind::Generator(g) = &e.kind {
+                for resource in g.resources() {
+                    if !out.contains(&resource) {
+                        out.push(resource);
+                    }
+                }
+            }
         }
         out
     }

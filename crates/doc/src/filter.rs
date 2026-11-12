@@ -107,6 +107,105 @@ impl Gradient {
     }
 }
 
+/// Comparison of a Threshold filter: the result is 1 where `value <op> threshold`, else 0.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ThresholdMode { Greater, GreaterOrEqual, Lower, LowerOrEqual }
+
+impl ThresholdMode {
+    pub const ALL: [Self; 4] = [Self::Greater, Self::GreaterOrEqual, Self::Lower, Self::LowerOrEqual];
+    pub fn label(self) -> &'static str {
+        match self { Self::Greater => "Greater", Self::GreaterOrEqual => "Greater or equal", Self::Lower => "Lower", Self::LowerOrEqual => "Lower or equal" }
+    }
+    pub fn test(self, value: f32, threshold: f32) -> bool {
+        match self { Self::Greater => value > threshold, Self::GreaterOrEqual => value >= threshold, Self::Lower => value < threshold, Self::LowerOrEqual => value <= threshold }
+    }
+}
+
+/// HSL filter color model.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HslMode {
+    /// Hue, chroma and lightness of a perceptually uniform space (OKLCH): a hue shift keeps the
+    /// perceived brightness.
+    Perceptive,
+    /// Classic HSL of the sRGB-encoded color.
+    Regular,
+}
+
+impl HslMode {
+    pub const ALL: [Self; 2] = [Self::Perceptive, Self::Regular];
+    pub fn label(self) -> &'static str { match self { Self::Perceptive => "Perceptive", Self::Regular => "Regular" } }
+}
+
+/// What a Transform filter shows outside the transformed image.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RepeatMode { None, Horizontal, Vertical, Both }
+
+impl RepeatMode {
+    pub const ALL: [Self; 4] = [Self::Both, Self::Horizontal, Self::Vertical, Self::None];
+    pub fn label(self) -> &'static str {
+        match self { Self::None => "No repeat", Self::Horizontal => "Repeat horizontally", Self::Vertical => "Repeat vertically", Self::Both => "Repeat" }
+    }
+    /// Whether the image repeats along `[U, V]`.
+    pub fn repeats(self) -> [bool; 2] {
+        match self { Self::None => [false, false], Self::Horizontal => [true, false], Self::Vertical => [false, true], Self::Both => [true, true] }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FlipMode { None, Horizontal, Vertical, Both }
+
+impl FlipMode {
+    pub const ALL: [Self; 4] = [Self::None, Self::Horizontal, Self::Vertical, Self::Both];
+    pub fn label(self) -> &'static str {
+        match self { Self::None => "None", Self::Horizontal => "Horizontal", Self::Vertical => "Vertical", Self::Both => "Both" }
+    }
+    /// Whether `[U, V]` is flipped.
+    pub fn flips(self) -> [bool; 2] {
+        match self { Self::None => [false, false], Self::Horizontal => [true, false], Self::Vertical => [false, true], Self::Both => [true, true] }
+    }
+}
+
+/// Which axes a Mirror filter reflects across.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MirrorMode {
+    /// Across a vertical line: the left half is copied onto the right.
+    AxisX,
+    /// Across a horizontal line: the top half is copied onto the bottom.
+    AxisY,
+    /// Across both: one corner fills the whole image.
+    Corner,
+}
+
+impl MirrorMode {
+    pub const ALL: [Self; 3] = [Self::AxisX, Self::AxisY, Self::Corner];
+    pub fn label(self) -> &'static str { match self { Self::AxisX => "Mirror axis X", Self::AxisY => "Mirror axis Y", Self::Corner => "Mirror corner" } }
+}
+
+/// The corner a Mirror filter in [`MirrorMode::Corner`] keeps.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MirrorCorner { TopLeft, TopRight, BottomLeft, BottomRight }
+
+impl MirrorCorner {
+    pub const ALL: [Self; 4] = [Self::TopLeft, Self::TopRight, Self::BottomLeft, Self::BottomRight];
+    pub fn label(self) -> &'static str {
+        match self { Self::TopLeft => "Top left", Self::TopRight => "Top right", Self::BottomLeft => "Bottom left", Self::BottomRight => "Bottom right" }
+    }
+    /// Whether the kept side is the far one (right, bottom) along `[U, V]`.
+    pub fn far(self) -> [bool; 2] {
+        match self { Self::TopLeft => [false, false], Self::TopRight => [true, false], Self::BottomLeft => [false, true], Self::BottomRight => [true, true] }
+    }
+}
+
+/// Support of filters that read the whole texture (Transform, Mirror, wrapped Blur): larger than
+/// any texture set, so every tile depends on every other.
+pub const FULL_SUPPORT: u32 = 1 << 16;
+
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Filter {
@@ -169,10 +268,37 @@ pub enum Filter {
     DirectionalWarp { intensity: f32, angle_deg: f32 },
     /// Every `size` x `size` pixel block takes the value at its centre pixel.
     Mosaic { size: u32 },
+    /// Hermite ramp `t * t * (3 - 2t)` with `t = (v - min) / (max - min)` clamped to 0..=1, per
+    /// component. `min > max` gives the inverted ramp; `min == max` is a step at `min`.
+    Smoothstep { min: f32, max: f32 },
+    /// [`Filter::Threshold`] with a comparison other than greater-or-equal (same panel, Mode row).
+    ThresholdCompare { cutoff: f32, mode: ThresholdMode },
+    /// [`Filter::Blur`] that wraps around the texture borders instead of clamping (Wrap toggle).
+    BlurWrap { radius: f32 },
+    /// [`Filter::HistogramShift`] whose values wrap around the range limits instead of clamping.
+    HistogramShiftWrap { shift: f32 },
+    /// [`Filter::Hsl`] in [`HslMode::Perceptive`]: hue rotation in degrees, chroma multiplier and
+    /// additive lightness in OKLCH. Color channels only.
+    HslPerceptive { hue: f32, saturation: f32, lightness: f32 },
+    /// Contrast and Luminosity, each -1..=1 with 0 neutral. Positive contrast stretches around
+    /// 0.5 by `1 / (1 - contrast)` (1 is a hard step), negative compresses by `1 + contrast`
+    /// (-1 is flat mid gray); luminosity is then added. Signed Height pivots on 0.
+    ContrastLuminosity { contrast: f32, luminosity: f32 },
+    /// Per tonal range `[contrast, luminosity, saturation]`, each -1..=1 with 0 neutral, blended
+    /// by the luminance weights of [`Filter::ColorBalance`]. Color channels only.
+    ColorCorrect { shadows: [f32; 3], midtones: [f32; 3], highlights: [f32; 3] },
+    /// 2D transform of the image in UV space about its centre: scale, then rotation (degrees,
+    /// counter-clockwise on screen), then offset (UV units, +v down). `tile_safe` snaps the
+    /// rotation to quarter turns and the scale to whole repetitions so a tiling image still tiles.
+    Transform { repeat: RepeatMode, flip: FlipMode, scale: [f32; 2], offset: [f32; 2], rotation_deg: f32, tile_safe: bool },
+    /// Reflects one side of the image onto the other across an axis at `offset` (UV, 0.5 = the
+    /// centre). The near side (left / top) is kept unless inverted; `corner` picks the kept
+    /// corner in [`MirrorMode::Corner`], the invert flags then swap it per axis.
+    Mirror { mode: MirrorMode, offset: [f32; 2], invert_x: bool, invert_y: bool, corner: MirrorCorner },
 }
 
 impl Filter {
-    pub const ALL: [Self; 26] = [Self::Contrast { gain: 1.0, pivot: 0.5 },
+    pub const ALL: [Self; 31] = [Self::Contrast { gain: 1.0, pivot: 0.5 },
         Self::Hsl { hue: 0.0, saturation: 1.0, lightness: 0.0 },
         Self::Threshold { cutoff: 0.5 }, Self::Clamp { low: 0.0, high: 1.0 }, Self::Blur { radius: 4.0 }, Self::Sharpen { radius: 2.0, amount: 1.0 }, Self::DirectionalBlur { radius: 8.0, angle_deg: 0.0 }, Self::Highpass { radius: 4.0, amount: 1.0 },
         Self::Bevel {radius:8.0,amount:1.0,threshold:0.5}, Self::MaskOutline {radius:4.0,threshold:0.5,position:OutlinePosition::Both},
@@ -185,14 +311,52 @@ impl Filter {
         Self::ReplaceColor { from: [0.5; 3], to: [0.5; 3], tolerance: 0.2, softness: 0.2 },
         Self::NormalInvert { flip_x: false, flip_y: true, flip_z: false },
         Self::EdgeDetect { radius: 1.0, strength: 1.0 }, Self::Glow { radius: 8.0, amount: 1.0, threshold: 0.6 },
-        Self::DirectionalWarp { intensity: 8.0, angle_deg: 0.0 }, Self::Mosaic { size: 8 }];
+        Self::DirectionalWarp { intensity: 8.0, angle_deg: 0.0 }, Self::Mosaic { size: 8 },
+        Self::Smoothstep { min: 0.0, max: 1.0 }, Self::ContrastLuminosity { contrast: 0.0, luminosity: 0.0 },
+        Self::ColorCorrect { shadows: [0.0; 3], midtones: [0.0; 3], highlights: [0.0; 3] },
+        Self::Transform { repeat: RepeatMode::Both, flip: FlipMode::None, scale: [1.0; 2], offset: [0.0; 2], rotation_deg: 0.0, tile_safe: false },
+        Self::Mirror { mode: MirrorMode::AxisX, offset: [0.5; 2], invert_x: false, invert_y: false, corner: MirrorCorner::TopLeft }];
+
+    /// A Threshold filter with `mode` (the greater-or-equal one is the plain [`Filter::Threshold`]).
+    pub fn threshold(cutoff: f32, mode: ThresholdMode) -> Self {
+        if mode == ThresholdMode::GreaterOrEqual { Self::Threshold { cutoff } } else { Self::ThresholdCompare { cutoff, mode } }
+    }
+    /// Cutoff and comparison of either Threshold variant.
+    pub fn threshold_parts(self) -> Option<(f32, ThresholdMode)> {
+        match self { Self::Threshold { cutoff } => Some((cutoff, ThresholdMode::GreaterOrEqual)), Self::ThresholdCompare { cutoff, mode } => Some((cutoff, mode)), _ => None }
+    }
+    /// A Blur filter that wraps around the texture borders or clamps at them.
+    pub fn blur(radius: f32, wrap: bool) -> Self { if wrap { Self::BlurWrap { radius } } else { Self::Blur { radius } } }
+    /// Radius and wrap of either Blur variant.
+    pub fn blur_parts(self) -> Option<(f32, bool)> {
+        match self { Self::Blur { radius } => Some((radius, false)), Self::BlurWrap { radius } => Some((radius, true)), _ => None }
+    }
+    pub fn histogram_shift(shift: f32, wrap: bool) -> Self { if wrap { Self::HistogramShiftWrap { shift } } else { Self::HistogramShift { shift } } }
+    pub fn histogram_shift_parts(self) -> Option<(f32, bool)> {
+        match self { Self::HistogramShift { shift } => Some((shift, false)), Self::HistogramShiftWrap { shift } => Some((shift, true)), _ => None }
+    }
+    pub fn hsl(mode: HslMode, hue: f32, saturation: f32, lightness: f32) -> Self {
+        match mode { HslMode::Regular => Self::Hsl { hue, saturation, lightness }, HslMode::Perceptive => Self::HslPerceptive { hue, saturation, lightness } }
+    }
+    /// Mode, hue, saturation and lightness of either HSL variant.
+    pub fn hsl_parts(self) -> Option<(HslMode, [f32; 3])> {
+        match self {
+            Self::Hsl { hue, saturation, lightness } => Some((HslMode::Regular, [hue, saturation, lightness])),
+            Self::HslPerceptive { hue, saturation, lightness } => Some((HslMode::Perceptive, [hue, saturation, lightness])),
+            _ => None,
+        }
+    }
 
     pub fn label(self) -> &'static str {
         match self { Self::Contrast { .. } => "Contrast", Self::Hsl { .. } => "HSL",
             Self::Threshold { .. } => "Threshold", Self::Clamp { .. } => "Clamp", Self::Blur { .. } => "Blur", Self::Sharpen { .. } => "Sharpen", Self::DirectionalBlur { .. } => "Directional Blur", Self::Highpass { .. } => "Highpass", Self::Bevel {..} => "Bevel", Self::MaskOutline {..} => "Mask Outline", Self::GradientMap {..} => "Gradient Map", Self::HistogramScan {..} => "Histogram Scan", Self::HistogramRange {..} => "Histogram Range", Self::Median {..} => "Median", Self::Warp {..} => "Warp",
             Self::Grayscale => "Grayscale", Self::Invert => "Invert", Self::Posterize {..} => "Posterize", Self::HistogramShift {..} => "Histogram Shift",
             Self::ColorBalance {..} => "Color Balance", Self::ReplaceColor {..} => "Replace Color", Self::NormalInvert {..} => "Normal Invert",
-            Self::EdgeDetect {..} => "Edge Detect", Self::Glow {..} => "Glow", Self::DirectionalWarp {..} => "Directional Warp", Self::Mosaic {..} => "Mosaic" }
+            Self::EdgeDetect {..} => "Edge Detect", Self::Glow {..} => "Glow", Self::DirectionalWarp {..} => "Directional Warp", Self::Mosaic {..} => "Mosaic",
+            // Mode / wrap variants share the panel (and so the name) of their base filter.
+            Self::ThresholdCompare {..} => "Threshold", Self::BlurWrap {..} => "Blur", Self::HistogramShiftWrap {..} => "Histogram Shift", Self::HslPerceptive {..} => "HSL",
+            Self::Smoothstep {..} => "Smoothstep", Self::ContrastLuminosity {..} => "Contrast Luminosity", Self::ColorCorrect {..} => "Color Correct",
+            Self::Transform {..} => "Transform", Self::Mirror {..} => "Mirror" }
     }
 
     pub fn supports_channel(self, channel: ChannelKind) -> bool {
@@ -202,7 +366,7 @@ impl Filter {
 
     /// Filters that only make sense on RGB colour data.
     fn color_only(self) -> bool {
-        matches!(self, Self::Hsl { .. } | Self::Grayscale | Self::ColorBalance { .. } | Self::ReplaceColor { .. })
+        matches!(self, Self::Hsl { .. } | Self::HslPerceptive { .. } | Self::Grayscale | Self::ColorBalance { .. } | Self::ReplaceColor { .. } | Self::ColorCorrect { .. })
     }
 
     pub fn supports_mask(self) -> bool { !self.color_only() && !matches!(self, Self::NormalInvert { .. }) }
@@ -221,11 +385,17 @@ impl Filter {
     /// Neighbourhood filters evaluated per texel by the compositor with direct pixel reads
     /// (no Gaussian staging). The node output is the final value.
     pub fn is_pixelwise(self) -> bool {
-        matches!(self, Self::EdgeDetect { .. } | Self::DirectionalWarp { .. } | Self::Mosaic { .. })
+        matches!(self, Self::EdgeDetect { .. } | Self::DirectionalWarp { .. } | Self::Mosaic { .. } | Self::Transform { .. } | Self::Mirror { .. })
+    }
+
+    /// Filters whose every texel may read any other texel of the texture.
+    pub fn reads_whole_texture(self) -> bool {
+        matches!(self, Self::Transform { .. } | Self::Mirror { .. }) || matches!(self, Self::BlurWrap { radius } if radius > 0.0)
     }
 
     pub fn radius(self) -> Option<f32> {
-        match self { Self::Blur { radius } | Self::Sharpen { radius, .. } | Self::DirectionalBlur { radius, .. } | Self::Highpass { radius, .. } | Self::Median { radius } | Self::Warp { intensity: radius, .. } | Self::Bevel {radius,..} | Self::MaskOutline {radius,..} | Self::EdgeDetect { radius, .. } | Self::Glow { radius, .. } | Self::DirectionalWarp { intensity: radius, .. } => Some(radius),
+        match self { Self::Transform { .. } | Self::Mirror { .. } => Some(FULL_SUPPORT as f32),
+            Self::Blur { radius } | Self::BlurWrap { radius } | Self::Sharpen { radius, .. } | Self::DirectionalBlur { radius, .. } | Self::Highpass { radius, .. } | Self::Median { radius } | Self::Warp { intensity: radius, .. } | Self::Bevel {radius,..} | Self::MaskOutline {radius,..} | Self::EdgeDetect { radius, .. } | Self::Glow { radius, .. } | Self::DirectionalWarp { intensity: radius, .. } => Some(radius),
             Self::Mosaic { size } => Some(size as f32), _ => None }
     }
 
@@ -234,16 +404,17 @@ impl Filter {
     /// Contours need a half-pixel antialias band beyond their nominal radius.
     pub fn support(self) -> u32 {
         if let Self::Mosaic { size } = self { return size / 2 + 1; }
+        if self.reads_whole_texture() { return FULL_SUPPORT; }
         // Edge Detect also reads one sample beyond its offset; Directional Warp interpolates.
         (self.radius().unwrap_or(0.0) + if self.is_contour() {0.5} else {0.0}
             + if matches!(self, Self::DirectionalWarp { .. } | Self::EdgeDetect { .. }) {1.0} else {0.0}).ceil() as u32
     }
 
-    pub fn softens_coverage(self) -> bool { matches!(self, Self::Blur { .. } | Self::DirectionalBlur { .. } | Self::Warp { .. } | Self::DirectionalWarp { .. } | Self::Mosaic { .. }) }
+    pub fn softens_coverage(self) -> bool { matches!(self, Self::Blur { .. } | Self::BlurWrap { .. } | Self::Transform { .. } | Self::Mirror { .. } | Self::DirectionalBlur { .. } | Self::Warp { .. } | Self::DirectionalWarp { .. } | Self::Mosaic { .. }) }
 
     /// Highpass is deliberately excluded: radius/amount zero gives its neutral value.
     pub fn spatial_identity(self) -> bool {
-        matches!(self, Self::Blur {radius:0.0} | Self::DirectionalBlur {radius:0.0,..}
+        matches!(self, Self::Blur {radius:0.0} | Self::BlurWrap {radius:0.0} | Self::DirectionalBlur {radius:0.0,..}
             | Self::Sharpen {radius:0.0,..} | Self::Sharpen {amount:0.0,..} | Self::Warp {intensity:0.0,..}
             | Self::DirectionalWarp {intensity:0.0,..} | Self::Mosaic {size:1} | Self::Glow {radius:0.0,..} | Self::Glow {amount:0.0,..})
             || matches!(self, Self::Median { radius } if radius < 0.5)
@@ -255,7 +426,16 @@ impl Filter {
             Self::Hsl { hue, saturation, lightness } => hue.is_finite() && (-180.0..=180.0).contains(&hue)
                 && saturation.is_finite() && (0.0..=2.0).contains(&saturation)
                 && lightness.is_finite() && (-1.0..=1.0).contains(&lightness),
-            Self::Blur { radius } => radius.is_finite() && (0.0..=32.0).contains(&radius),
+            Self::Blur { radius } | Self::BlurWrap { radius } => radius.is_finite() && (0.0..=32.0).contains(&radius),
+            Self::Smoothstep { min, max } => [min, max].iter().all(|v| v.is_finite() && (-1.0..=1.0).contains(v)),
+            Self::ThresholdCompare { cutoff, .. } => cutoff.is_finite(),
+            Self::HistogramShiftWrap { shift } => Self::HistogramShift { shift }.valid(),
+            Self::HslPerceptive { hue, saturation, lightness } => Self::Hsl { hue, saturation, lightness }.valid(),
+            Self::ContrastLuminosity { contrast, luminosity } => [contrast, luminosity].iter().all(|v| v.is_finite() && (-1.0..=1.0).contains(v)),
+            Self::ColorCorrect { shadows, midtones, highlights } => [shadows, midtones, highlights].iter().all(|r| r.iter().all(|v| v.is_finite() && (-1.0..=1.0).contains(v))),
+            Self::Transform { scale, offset, rotation_deg, .. } => scale.iter().all(|v| v.is_finite() && (0.01..=100.0).contains(v))
+                && offset.iter().all(|v| v.is_finite() && (-8.0..=8.0).contains(v)) && rotation_deg.is_finite() && (-360.0..=360.0).contains(&rotation_deg),
+            Self::Mirror { offset, .. } => offset.iter().all(|v| v.is_finite() && (0.0..=1.0).contains(v)),
             Self::Warp { intensity, scale, .. } => Self::Blur { radius: intensity }.valid() && (1..=MAX_WARP_SCALE).contains(&scale),
             Self::Median { radius } => radius.is_finite() && (0.0..=MAX_MEDIAN_RADIUS).contains(&radius),
             Self::DirectionalBlur { radius, angle_deg } => Self::Blur {radius}.valid() && angle_deg.is_finite() && (-180.0..=180.0).contains(&angle_deg),
@@ -338,6 +518,54 @@ mod tests {
         assert_eq!(Filter::EdgeDetect { radius: 2.0, strength: 1.0 }.support(), 3);
         assert!(Filter::Mosaic { size: 1 }.spatial_identity() && Filter::Glow { radius: 0.0, amount: 1.0, threshold: 0.5 }.spatial_identity());
         assert_eq!(Filter::Mosaic { size: 8 }.scaled(2.0), Filter::Mosaic { size: 16 });
+    }
+
+    #[test]
+    fn parity_filters_have_checked_domains_names_and_supports() {
+        // One list entry per panel: the mode / wrap variants are reached from their base filter.
+        let mut names: Vec<_> = Filter::ALL.iter().map(|f| f.label()).collect();
+        names.sort(); names.dedup();
+        assert_eq!(names.len(), Filter::ALL.len());
+        for name in ["Smoothstep", "Contrast Luminosity", "Color Correct", "Transform", "Mirror"] { assert!(names.contains(&name), "{name}"); }
+        assert_eq!(Filter::threshold(0.4, ThresholdMode::GreaterOrEqual), Filter::Threshold { cutoff: 0.4 });
+        for mode in ThresholdMode::ALL {
+            let f = Filter::threshold(0.4, mode);
+            assert_eq!(f.threshold_parts(), Some((0.4, mode)));
+            assert!(f.valid() && f.supports_mask() && f.label() == "Threshold" && f.radius().is_none());
+        }
+        assert!(ThresholdMode::Greater.test(0.5, 0.4) && !ThresholdMode::Greater.test(0.4, 0.4) && ThresholdMode::GreaterOrEqual.test(0.4, 0.4));
+        assert!(ThresholdMode::Lower.test(0.3, 0.4) && !ThresholdMode::Lower.test(0.4, 0.4) && ThresholdMode::LowerOrEqual.test(0.4, 0.4));
+        for wrap in [false, true] {
+            assert_eq!(Filter::blur(4.0, wrap).blur_parts(), Some((4.0, wrap)));
+            assert_eq!(Filter::histogram_shift(0.2, wrap).histogram_shift_parts(), Some((0.2, wrap)));
+        }
+        assert_eq!(Filter::blur(4.0, false), Filter::Blur { radius: 4.0 });
+        let wrapped = Filter::blur(4.2, true);
+        assert!(wrapped.valid() && wrapped.label() == "Blur" && wrapped.softens_coverage() && wrapped.reads_whole_texture());
+        assert_eq!((wrapped.radius(), wrapped.support()), (Some(4.2), FULL_SUPPORT));
+        assert!(Filter::blur(0.0, true).spatial_identity() && !Filter::blur(0.0, true).reads_whole_texture());
+        assert!(!Filter::blur(33.0, true).valid());
+        for mode in HslMode::ALL {
+            let f = Filter::hsl(mode, 30.0, 1.2, -0.1);
+            assert_eq!(f.hsl_parts(), Some((mode, [30.0, 1.2, -0.1])));
+            assert!(f.valid() && f.label() == "HSL" && !f.supports_mask() && !f.supports_channel(ChannelKind::Roughness));
+        }
+        assert!(!Filter::hsl(HslMode::Perceptive, 181.0, 1.0, 0.0).valid());
+        assert!(!Filter::Smoothstep { min: 0.0, max: 1.5 }.valid() && Filter::Smoothstep { min: 0.8, max: 0.2 }.valid());
+        assert!(!Filter::ContrastLuminosity { contrast: 1.1, luminosity: 0.0 }.valid());
+        let cc = Filter::ColorCorrect { shadows: [0.0; 3], midtones: [0.0, 2.0, 0.0], highlights: [0.0; 3] };
+        assert!(!cc.valid() && !cc.supports_mask() && cc.supports_channel(ChannelKind::BaseColor) && !cc.supports_channel(ChannelKind::Height));
+        let (transform, mirror) = (Filter::ALL[29], Filter::ALL[30]);
+        for f in [transform, mirror] {
+            assert!(f.is_pixelwise() && f.reads_whole_texture() && f.softens_coverage() && f.supports_mask());
+            assert_eq!(f.support(), FULL_SUPPORT);
+            assert_eq!(f.scaled(4.0), f, "UV-space parameters do not depend on the resolution");
+        }
+        assert!(!Filter::Transform { repeat: RepeatMode::Both, flip: FlipMode::None, scale: [0.0, 1.0], offset: [0.0; 2], rotation_deg: 0.0, tile_safe: false }.valid());
+        assert!(!Filter::Mirror { mode: MirrorMode::Corner, offset: [0.5, 1.5], invert_x: false, invert_y: false, corner: MirrorCorner::TopLeft }.valid());
+        assert_eq!(RepeatMode::Horizontal.repeats(), [true, false]);
+        assert_eq!(FlipMode::Vertical.flips(), [false, true]);
+        assert_eq!(MirrorCorner::BottomLeft.far(), [false, true]);
     }
 
     #[test]

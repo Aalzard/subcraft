@@ -218,3 +218,81 @@ fn stl_malformed_inputs_error_without_panicking() {
 fn extensions_are_advertised() {
     assert!(subcraft_mesh::SUPPORTED_EXTENSIONS.contains(&"ply") && subcraft_mesh::SUPPORTED_EXTENSIONS.contains(&"stl"));
 }
+
+/// QA 2026-11: an ASCII STL of 84+ bytes was only recognised when it started with exactly
+/// lowercase `solid` at byte 0; otherwise bytes 80..84 of the text were read as a triangle count
+/// and the file failed as "binary STL is truncated".
+#[test]
+fn ascii_stl_is_recognised_with_leading_space_a_bom_or_upper_case() {
+    let plain = String::from_utf8(stl_ascii(&stl_tris())).unwrap();
+    let expected = load("plain", "stl", plain.as_bytes(), true).unwrap().mesh.triangle_count();
+    assert!(plain.len() >= 84 && expected > 0);
+    let variants = [
+        ("leading-newline", format!("\n{plain}").into_bytes()),
+        ("leading-spaces", format!("  \t{plain}").into_bytes()),
+        ("bom", [b"\xEF\xBB\xBF".as_slice(), plain.as_bytes()].concat()),
+        ("upper", plain.to_uppercase().into_bytes()),
+    ];
+    for (name, bytes) in variants {
+        let r = load(name, "stl", &bytes, true).unwrap_or_else(|e| panic!("{name}: {e}"));
+        assert_eq!(r.mesh.triangle_count(), expected, "{name}");
+    }
+}
+
+/// QA 2026-11: `x as u32` turned a negative (or NaN) index into vertex 0, so a corrupt face was
+/// imported as a wrong triangle instead of being skipped with the warning.
+#[test]
+fn ply_faces_with_negative_indices_are_skipped_not_remapped() {
+    let text = "ply\nformat ascii 1.0\nelement vertex 4\nproperty float x\nproperty float y\nproperty float z\nelement face 2\nproperty list uchar int vertex_indices\nend_header\n0 0 0\n1 0 0\n0 1 0\n1 1 0\n3 0 1 2\n3 -1 1 3\n";
+    let r = load("neg", "ply", text.as_bytes(), true).unwrap();
+    assert_eq!(r.mesh.triangle_count(), 1);
+    assert!(r.warnings.iter().any(|w| w.contains("skipped 1 PLY faces")), "{:?}", r.warnings);
+}
+
+/// QA 2026-11: every face of an ASCII PLY counted all remaining tokens of the file, so import
+/// time grew with the square of the face count (a scan with a few hundred thousand faces hung).
+#[test]
+fn ascii_ply_import_time_is_linear_in_the_face_count() {
+    let grid = |n: usize| {
+        let mut s = format!("ply\nformat ascii 1.0\nelement vertex {}\nproperty float x\nproperty float y\nproperty float z\nelement face {}\nproperty list uchar int vertex_indices\nend_header\n", (n + 1) * (n + 1), n * n);
+        for y in 0..=n {
+            for x in 0..=n {
+                s += &format!("{x} {y} 0\n");
+            }
+        }
+        for y in 0..n {
+            for x in 0..n {
+                let a = y * (n + 1) + x;
+                s += &format!("4 {} {} {} {}\n", a, a + 1, a + n + 2, a + n + 1);
+            }
+        }
+        s.into_bytes()
+    };
+    let time = |n: usize| {
+        let bytes = grid(n);
+        let t = std::time::Instant::now();
+        let r = load("grid", "ply", &bytes, true).unwrap();
+        assert_eq!(r.mesh.triangle_count(), n * n * 2);
+        t.elapsed().as_secs_f64()
+    };
+    let small = time(60).max(1e-3); // 3 600 faces
+    let big = time(240); // 57 600 faces: 16x the faces; the quadratic reader took ~256x as long
+    assert!(big < small * 80.0 + 0.5, "16x the faces took {:.0}x the time ({small:.3}s -> {big:.3}s)", big / small);
+}
+
+/// QA 2026-11: -0.0 and 0.0 are the same position but have different bits; welding by bits left
+/// the shared corner split, with a hard edge through a smooth surface.
+#[test]
+fn stl_welding_treats_negative_zero_as_zero() {
+    let text = "solid a\nfacet normal 0 0 1\nouter loop\nvertex 0 0 0\nvertex 1 0 0\nvertex 0 1 0\nendloop\nendfacet\nfacet normal 0 0 1\nouter loop\nvertex -0 0 0\nvertex 0 1 0\nvertex -1 0 0.3\nendloop\nendfacet\nendsolid a\n";
+    let r = load("negzero", "stl", text.as_bytes(), true).unwrap();
+    assert_eq!(r.mesh.triangle_count(), 2);
+    // The corner at the origin is written as 0 by one facet and as -0 by the other. Welded, both
+    // get the same smooth normal; unwelded, each kept its own face normal (17 degrees apart).
+    let at_origin: Vec<Vec3> = r.mesh.positions.iter().zip(&r.mesh.normals).filter(|(p, _)| **p == Vec3::ZERO).map(|(_, n)| *n).collect();
+    assert!(!at_origin.is_empty());
+    for n in &at_origin {
+        assert!(n.distance(at_origin[0]) < 1e-4, "split corner normals: {at_origin:?}");
+        assert!(n.z < 0.999, "the corner normal is the blend of both faces, not the flat +z: {n}");
+    }
+}

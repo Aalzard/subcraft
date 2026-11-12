@@ -167,6 +167,11 @@ impl EffectClip {
             if let MaskEffectKind::Image { resource, .. } = e.kind && !wanted.contains(&resource) {
                 wanted.push(resource);
             }
+            if let MaskEffectKind::Generator(g) = &e.kind {
+                for resource in g.resources() {
+                    if !wanted.contains(&resource) { wanted.push(resource); }
+                }
+            }
         }
         let resources = wanted.into_iter().filter_map(|id| store.get(id).cloned()).collect();
         Some(Self { content: Vec::new(), mask, resources, resolution: ts.resolution })

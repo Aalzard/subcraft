@@ -435,8 +435,16 @@ fn main(@builtin(workgroup_id) wg: vec3<u32>, @builtin(local_invocation_id) lid:
             let inner = run_effects(acc, ef, en);
             let m = load_mask(refs[rbase + i * 2u + 1u], texel);
             if passthrough {
+                // Straight alpha: weight the colours by their alpha (see `blend::passthrough_mix`).
                 let f = clamp(opacity * m, 0.0, 1.0);
-                acc = base + (inner - base) * f;
+                let wd = base.w * (1.0 - f);
+                let ws = inner.w * f;
+                let a = wd + ws;
+                if base.w == inner.w || a <= 0.0 {
+                    acc = base + (inner - base) * f;
+                } else {
+                    acc = vec4<f32>((base.xyz * wd + inner.xyz * ws) / a, a);
+                }
             } else {
                 let a = select(inner.w, 1.0, mode == M_REPLACE) * opacity * m;
                 acc = composite(base, inner.xyz, a, mode);

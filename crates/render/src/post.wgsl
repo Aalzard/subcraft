@@ -8,6 +8,12 @@ struct Post {
     size: vec4<f32>,
     // xy: blur direction in texels, z: bloom threshold, w: proj[1][1]
     misc: vec4<f32>,
+    // Lens and color stage (fs_grade):
+    // [0] aberration amount, radius, softness, ratio
+    // [1] aberration centre x, y, 1 = achromatic, vignette amount
+    // [2] sharpen amount, sharpen diameter (px), grain amount, grain size (px)
+    // [3] 1 = colored grain, 1 / gamma, sepia ratio, 1 = color correction on
+    grade: mat4x4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> p: Post;
@@ -153,7 +159,113 @@ fn fs_tent(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
     let c = textureSample(src, samp, uv).rgb * 0.5;
     let a = textureSample(src, samp, uv + o).rgb * 0.25;
     let b = textureSample(src, samp, uv - o).rgb * 0.25;
+    // Spectral streaks (p.params.x > 0): red reaches further and blue less far than green.
+    let s = p.params.x;
+    if (s > 0.0) {
+        let far = o * (1.0 + s);
+        let near = o * (1.0 - s);
+        let r = textureSample(src, samp, uv + far).r * 0.25 + textureSample(src, samp, uv - far).r * 0.25;
+        let bl = textureSample(src, samp, uv + near).b * 0.25 + textureSample(src, samp, uv - near).b * 0.25;
+        return vec4<f32>(c.r + r, c.g + a.g + b.g, c.b + bl, 1.0);
+    }
     return vec4<f32>(c + a + b, 1.0);
+}
+
+// Glare source: emission above the threshold (p.params.x), its excess brightness raised to the
+// remap exponent (p.params.y), hue kept.
+@fragment
+fn fs_glare_src(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
+    let uv = frag.xy * p.size.zw;
+    let c = textureSample(src, samp, uv).rgb;
+    let lum = max(max(c.r, c.g), c.b);
+    let kept = pow(max(lum - p.params.x, 0.0), p.params.y);
+    return vec4<f32>(c * (kept / max(lum, 1e-5)), 1.0);
+}
+
+// Ghost images: src mirrored through the view centre at p.params.x evenly spaced scales (spacing
+// p.params.y), each fading toward the edge and tinted a little differently, times p.params.z.
+@fragment
+fn fs_ghost(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
+    let uv = frag.xy * p.size.zw;
+    let count = i32(clamp(p.params.x, 1.0, 8.0));
+    let dir = vec2<f32>(0.5) - uv;
+    var acc = vec3<f32>(0.0);
+    for (var i = 0; i < count; i = i + 1) {
+        // Ghost i of a bright point at offset d from the centre lands at -d * k: the spacing scales
+        // how far out the ghosts sit, so a pixel reads the point at its own offset divided by k.
+        let k = p.params.y * (f32(i) + 1.0) * 2.0 / f32(count);
+        let at = vec2<f32>(0.5) + dir / k;
+        let inside = step(0.0, at.x) * step(at.x, 1.0) * step(0.0, at.y) * step(at.y, 1.0);
+        let edge = 1.0 - smoothstep(0.25, 0.5, length(at - vec2<f32>(0.5)));
+        let phase = f32(i) * 2.1;
+        let tint = vec3<f32>(0.75) + 0.25 * vec3<f32>(cos(phase), cos(phase + 2.094), cos(phase + 4.189));
+        acc = acc + textureSampleLevel(src, samp, at, 0.0).rgb * tint * (inside * edge);
+    }
+    return vec4<f32>(acc * (p.params.z / f32(count)), 1.0);
+}
+
+// ---- lens and color stage ---------------------------------------------------------------------
+// Runs last, over the finished picture (display-linear 0..1). The CPU reference, tested against
+// this pass pixel for pixel, is `grade::Grade::apply`.
+
+// The picture at `uv` with lateral aberration and the vignette.
+fn grade_fetch(uv: vec2<f32>) -> vec3<f32> {
+    let amount = p.grade[0].x;
+    var c = textureSampleLevel(src, samp, uv, 0.0).rgb;
+    if (amount > 0.0) {
+        let d = uv - p.grade[1].xy;
+        let e = vec2<f32>(d.x / p.grade[0].w, d.y) * 1.41421356;
+        let radius = p.grade[0].y;
+        let soft = p.grade[0].z;
+        let shift = d * (amount * 0.04 * smoothstep(radius - soft, radius + soft, length(e)));
+        let plus = textureSampleLevel(src, samp, uv + shift, 0.0).rgb;
+        let minus = textureSampleLevel(src, samp, uv - shift, 0.0).rgb;
+        if (p.grade[1].z > 0.5) {
+            c = (plus + c + minus) / 3.0;
+        } else {
+            c = vec3<f32>(plus.r, c.g, minus.b);
+        }
+    }
+    let r = length(uv - vec2<f32>(0.5)) * 1.41421356;
+    return c * (1.0 - p.grade[1].w * smoothstep(0.4, 1.0, r));
+}
+
+fn grain_hash(cell: vec2<f32>, salt: f32) -> f32 {
+    return fract(sin(dot(cell, vec2<f32>(12.9898, 78.233)) + salt) * 43758.5453);
+}
+
+@fragment
+fn fs_grade(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
+    let uv = frag.xy * p.size.zw;
+    var c = grade_fetch(uv);
+    let sharpen = p.grade[2].x;
+    if (sharpen > 0.0) {
+        let o = 0.5 * p.grade[2].y * p.size.zw;
+        let blur = 0.25 * (grade_fetch(uv + vec2<f32>(-o.x, -o.y)) + grade_fetch(uv + vec2<f32>(o.x, -o.y))
+            + grade_fetch(uv + vec2<f32>(-o.x, o.y)) + grade_fetch(uv + vec2<f32>(o.x, o.y)));
+        c = max(c + sharpen * (c - blur), vec3<f32>(0.0));
+    }
+    let grain = p.grade[2].z;
+    if (grain > 0.0) {
+        let cell = floor(frag.xy / p.grade[2].w);
+        var n = vec3<f32>(grain_hash(cell, 0.0));
+        if (p.grade[3].x > 0.5) {
+            n = vec3<f32>(n.x, grain_hash(cell, 17.0), grain_hash(cell, 43.0));
+        }
+        c = max(c + (n - vec3<f32>(0.5)) * grain, vec3<f32>(0.0));
+    }
+    if (p.grade[3].w > 0.5) {
+        c = ((c * p.misc.xyz - vec3<f32>(0.5)) * p.params.y + vec3<f32>(0.5)) * p.params.z + vec3<f32>(p.params.w);
+        let l = dot(c, vec3<f32>(0.2126, 0.7152, 0.0722));
+        c = vec3<f32>(l) + (c - vec3<f32>(l)) * p.params.x;
+        let sepia = vec3<f32>(
+            dot(c, vec3<f32>(0.393, 0.769, 0.189)),
+            dot(c, vec3<f32>(0.349, 0.686, 0.168)),
+            dot(c, vec3<f32>(0.272, 0.534, 0.131)));
+        c = max(mix(c, sepia, p.grade[3].z), vec3<f32>(0.0));
+    }
+    c = pow(max(c, vec3<f32>(0.0)), vec3<f32>(p.grade[3].y));
+    return vec4<f32>(clamp(c, vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
 }
 
 // ---- depth of field ---------------------------------------------------------------------------

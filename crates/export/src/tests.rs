@@ -39,6 +39,49 @@ fn archive_rejects_colliding_and_unsafe_output_names() {
     let mut settings=ExportSettings::default();settings.template.maps[0].suffix="../outside".into();assert!(archive(&mesh,"M",&[set()],&settings).is_err());
 }
 
+// QA 2026-11: texture sets whose names end up as the same file name overwrote each other and the
+// export still reported both files.
+#[test]
+fn export_refuses_texture_sets_that_would_overwrite_each_other() {
+    let mesh=primitives::plane(2.0,1);let ch=channels();
+    let set=|name|ExportTextureSet {name,material_slot:0,udim:None,channels:&ch,mesh_maps:None};
+    for (a,b) in [("Body Armor","Body_Armor"),("Mat.001","Mat_001"),("Body","body"),("Same","Same")] {
+        let dir=tmp(&format!("collide-{}",sanitize(a)));
+        let err=export(&mesh,"M",&[set(a),set(b)],&ExportSettings::default(),&dir).unwrap_err().to_string();
+        assert!(err.contains(a)&&err.contains(b),"{a} / {b}: {err}");
+        assert!(std::fs::read_dir(&dir).map(|d|d.count()).unwrap_or(0)==0,"{a} / {b}: nothing is written before the check");
+        let _=std::fs::remove_dir_all(dir);
+    }
+    assert!(colliding_outputs("M",&[set("Body"),set("Trim")],&ExportSettings::default()).is_none());
+    let dir=tmp("distinct");assert_eq!(export(&mesh,"M",&[set("Body"),set("Trim")],&ExportSettings::default(),&dir).unwrap().len(),plan("M",&[set("Body"),set("Trim")],&ExportSettings::default()).len());
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+// QA 2026-11: an empty folder wrote the textures into the process's working directory.
+#[test]
+fn export_refuses_an_empty_folder() {
+    let mesh=primitives::plane(2.0,1);let ch=channels();let sets=[ExportTextureSet {name:"Body",material_slot:0,udim:None,channels:&ch,mesh_maps:None}];
+    assert!(matches!(export(&mesh,"M",&sets,&ExportSettings::default(),std::path::Path::new("")),Err(ExportError::Folder(..))));
+}
+
+// QA 2026-11: the JPEG override dropped the alpha component of four-component packed maps.
+#[test]
+fn jpeg_override_keeps_four_component_maps_in_their_own_format() {
+    let mesh=primitives::plane(2.0,1);let ch=channels();let sets=[ExportTextureSet {name:"Body",material_slot:0,udim:None,channels:&ch,mesh_maps:None}];
+    let settings=ExportSettings {template:ExportTemplate::unity_hdrp(),format_override:Some(FileFormat::Jpeg),..Default::default()};
+    let four:Vec<&OutputMap>=settings.template.maps.iter().filter(|m|m.components.len()==4).collect();
+    assert!(!four.is_empty(),"the Unity HDRP template has a four-component mask map");
+    let files=plan("M",&sets,&settings);
+    assert!(files.iter().any(|(_,p)|p.ends_with(".jpg")),"three-component maps follow the override: {files:?}");
+    let result=archive(&mesh,"M",&sets,&settings).unwrap();let mut zip=zip::ZipArchive::new(std::io::Cursor::new(result.bytes)).unwrap();
+    for map in four {
+        let name=files.iter().map(|(_,p)|p).find(|p|p.contains(&format!("_{}.",map.suffix))).unwrap_or_else(||panic!("{} is planned: {files:?}",map.suffix));
+        assert!(!name.ends_with(".jpg"),"{name} would lose its alpha as a JPEG");
+        let mut entry=zip.by_name(name).unwrap();let mut bytes=Vec::new();std::io::Read::read_to_end(&mut entry,&mut bytes).unwrap();
+        assert_eq!(subcraft_image::io::decode_bitmap(&bytes,Some(name.as_str())).unwrap().channels,4,"{name} keeps four components");
+    }
+}
+
 fn channels() -> BTreeMap<ChannelKind, TiledImage> {
     let mut m = BTreeMap::new();
     m.insert(ChannelKind::BaseColor, TiledImage::new(RES, RES, 4, [0.5, 0.25, 0.0, 1.0]));
