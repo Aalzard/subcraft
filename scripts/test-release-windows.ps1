@@ -3,7 +3,8 @@ param(
     [Parameter(Mandatory)][string]$Directory,
     [Parameter(Mandatory)][ValidatePattern('^[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?$')][string]$Version,
     [Parameter(Mandatory)][ValidatePattern('^[0-9a-fA-F]{40}$')][string]$Commit,
-    [switch]$RequireSignature
+    [switch]$RequireSignature,
+    [switch]$SkipAntivirus
 )
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -35,6 +36,15 @@ try {
             $publisher = $subject
         }
         $signatures += @{ file = [IO.Path]::GetFileName($file); status = $sig.Status.ToString(); timestamped = [bool]$sig.TimeStamperCertificate }
+    }
+    if ($SkipAntivirus) {
+        # Only for build hosts where Defender cannot be activated (CI fallback); the report says so.
+        $scanned = foreach ($file in @($installer, $portable, $binary)) { @{ file = [IO.Path]::GetFileName($file); sha256 = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant() } }
+        @{ schema = 1; result = 'antivirus scan skipped: Microsoft Defender unavailable on the build host'; scope = 'optional Authenticode checks only; no antivirus scan, not isolated runtime analysis'; commit = $Commit; version = $Version; checked_at_utc = [DateTime]::UtcNow.ToString('o'); signatures_required = [bool]$RequireSignature; signatures = $signatures; scanned = @($scanned) } |
+            ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $reportPath -Encoding utf8
+        & (Join-Path $PSScriptRoot 'write-release-checksums.ps1') -Directory $dir
+        Write-Warning "Antivirus scan skipped. Report: $reportPath"
+        return
     }
     $status = Get-MpComputerStatus
     if (-not $status.AntivirusEnabled -or -not $status.RealTimeProtectionEnabled) { throw 'Microsoft Defender must be active; no release gate was performed.' }

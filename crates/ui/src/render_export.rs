@@ -4,11 +4,11 @@
 
 use crate::i18n::tr;
 use egui::{Context, RichText};
-use subcraft_render::{ToneMap, offline};
+use subcraft_render::offline;
 
 use crate::state::UiState;
 use crate::theme::TEXT_DIM;
-use crate::viewport_bar::ViewportPrefs;
+
 
 /// Output sizes offered for stills and turntables (square-ish; the view's aspect is kept).
 pub const SIZES: [u32; 4] = [1024, 1536, 2048, 4096];
@@ -56,89 +56,15 @@ pub fn window(state: &mut UiState, ctx: &Context) {
         return;
     }
     let mut open = true;
-    crate::widgets::window(ctx, "Render quality").open(&mut open).resizable(false).default_width(330.0).show(ctx, |ui| {
-        let prefs = &mut state.recovery.prefs.viewport;
-        ui.label(RichText::new(tr("Look")).color(TEXT_DIM));
-        egui::Grid::new("render_look").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
-            ui.label(tr("Tone mapping"));
-            let mut tone = prefs.tone_map();
-            egui::ComboBox::from_id_salt("tone_map").selected_text(tone.label()).show_ui(ui, |ui| {
-                for t in ToneMap::ALL {
-                    ui.selectable_value(&mut tone, t, t.label());
-                }
-            }).response.on_hover_text(tr("How bright light is squeezed into the display range. ACES is the default look; Linear clips highlights."));
-            prefs.tone_map = ToneMap::ALL.iter().position(|t| *t == tone).unwrap_or(0);
-            ui.end_row();
-            ui.label(tr("Exposure"));
-            ui.add(egui::Slider::new(&mut prefs.exposure, 0.25..=4.0).logarithmic(true)).on_hover_text(tr("Overall brightness before tone mapping"));
-            ui.end_row();
-            ui.label(tr("Bloom"));
-            ui.add(egui::Slider::new(&mut prefs.bloom, 0.0..=2.0)).on_hover_text(tr("Glow around bright areas. 0 is off."));
-            ui.end_row();
-            ui.label(tr("Bloom threshold"));
-            ui.add_enabled(prefs.bloom > 0.0, egui::Slider::new(&mut prefs.bloom_threshold, 0.0..=1.0)).on_hover_text(tr("Brightness above which an area glows"));
-            ui.end_row();
-            ui.label(tr("Ambient occlusion"));
-            ui.add(egui::Slider::new(&mut prefs.ssao, 0.0..=1.0)).on_hover_text(tr("Soft shadow in creases, from the view's depth. 0 is off."));
-            ui.end_row();
-            ui.label(tr("AO radius"));
-            ui.add_enabled(prefs.ssao > 0.0, egui::Slider::new(&mut prefs.ssao_radius, 0.5..=10.0).suffix("%")).on_hover_text(tr("How far occlusion reaches, in percent of the model size"));
-            ui.end_row();
-        });
-        ui.label(RichText::new(tr("Depth of field")).color(TEXT_DIM));
-        egui::Grid::new("render_dof").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
-            ui.label(tr("Enable"));
-            ui.checkbox(&mut prefs.dof, "").on_hover_text("Blur what is nearer or farther than the focus distance, from the view's depth. Off by default.");
-            ui.end_row();
-            ui.label(tr("Blur amount"));
-            ui.add_enabled(prefs.dof, egui::Slider::new(&mut prefs.dof_amount, 0.0..=1.0)).on_hover_text("Strength of the blur (the aperture)");
-            ui.end_row();
-            ui.label(tr("Focus distance"));
-            ui.add_enabled(prefs.dof, egui::Slider::new(&mut prefs.dof_focus, 0.2..=3.0).logarithmic(true)).on_hover_text("1 is the point the camera orbits around; it follows zooming");
-            ui.end_row();
-            ui.label(tr("Focus range"));
-            ui.add_enabled(prefs.dof, egui::Slider::new(&mut prefs.dof_range, 0.0..=50.0).suffix("%")).on_hover_text("Depth that stays sharp around the focus distance, in percent of the model size");
-            ui.end_row();
-            ui.label(tr("Focus point"));
-            if ui.add_enabled(prefs.dof, egui::Button::new("Pick in 3D view")).on_hover_text("Click the model in the 3D view to focus on that spot").clicked() {
-                state.picking_focus = true;
-            }
-            ui.end_row();
-        });
-        ui.label(RichText::new(tr("Emission")).color(TEXT_DIM));
-        egui::Grid::new("render_emission").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
-            ui.label(tr("Glow"));
-            ui.add(egui::Slider::new(&mut prefs.emission_glow, 0.0..=3.0)).on_hover_text(tr("Soft glow around emissive areas only. 0 is off; the default is subtle."));
-            ui.end_row();
-            ui.label(tr("Glow radius"));
-            ui.add_enabled(prefs.emission_glow > 0.0, egui::Slider::new(&mut prefs.glow_radius, 0.25..=8.0).logarithmic(true)).on_hover_text(tr("How far the glow spreads"));
-            ui.end_row();
-            ui.label(tr("Glare"));
-            ui.add(egui::Slider::new(&mut prefs.glare, 0.0..=3.0)).on_hover_text(tr("Streaks of light from bright emission. 0 is off."));
-            ui.end_row();
-            ui.label(tr("Glare shape"));
-            let mut mode = subcraft_render::GlareMode::ALL.get(prefs.glare_mode).copied().unwrap_or_default();
-            ui.add_enabled_ui(prefs.glare > 0.0, |ui| {
-                egui::ComboBox::from_id_salt("glare_mode").selected_text(mode.label()).show_ui(ui, |ui| {
-                    for m in subcraft_render::GlareMode::ALL { ui.selectable_value(&mut mode, m, m.label()); }
-                });
-            });
-            prefs.glare_mode = subcraft_render::GlareMode::ALL.iter().position(|m| *m == mode).unwrap_or(0);
-            ui.end_row();
-            ui.label(tr("Streak length"));
-            ui.add_enabled(prefs.glare > 0.0, egui::Slider::new(&mut prefs.glare_length, 0.0..=1.0)).on_hover_text(tr("How long the streaks reach"));
-            ui.end_row();
-        });
-        ui.label(RichText::new(tr("Glow and glare are viewport effects: exported textures never contain them.")).small().color(TEXT_DIM));
-        if ui.button(tr("Reset look")).clicked() {
-            let keep = ViewportPrefs {
-                tone_map: 0, exposure: 1.0, bloom: 0.0, bloom_threshold: 0.8, ssao: 0.0, ssao_radius: 3.0,
-                emission_glow: 0.35, glow_radius: 1.0, glare: 0.0, glare_mode: 0, glare_length: 0.5,
-                dof: false, dof_amount: 0.5, dof_focus: 1.0, dof_range: 10.0,
-                ..prefs.clone()
-            };
-            *prefs = keep;
-        }
+    crate::widgets::window(ctx, "Render quality").open(&mut open).resizable(false).default_width(330.0).show(ctx, |ui| window_body(state, ui));
+    state.render_window = open;
+}
+
+fn window_body(state: &mut UiState, ui: &mut egui::Ui) {
+    {
+        // The look is the Display Settings panel's Camera and Post effects groups.
+        crate::panels::display_settings::camera(state, ui);
+        crate::panels::display_settings::post_effects(state, ui);
         {
             ui.separator();
             ui.label(RichText::new(tr("Export")).color(TEXT_DIM));
@@ -176,8 +102,7 @@ pub fn window(state: &mut UiState, ctx: &Context) {
             });
             ui.label(RichText::new(tr("The grid and guides are left out. 4096 px with smoothing needs about 1 GB of video memory.")).small().color(TEXT_DIM));
         }
-    });
-    state.render_window = open;
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -227,23 +152,30 @@ pub fn render_frame(state: &mut UiState, camera: crate::orbit::OrbitCamera, pict
     let mut params = camera.view_params(big);
     params.height_scale = state.height_scale;
     params.antialias = true;
-    params.exposure = prefs.exposure;
+    params.exposure = prefs.exposure_value();
     params.post = prefs.post_params_at(state.session.scene().mesh.bounds.diagonal(), camera.eye_distance());
-    crate::panels::shelf::apply_environment(&state.library, state.env.index, state.env.rotation_deg, state.env.intensity,
+    let (env_rotation, env_intensity) = crate::panels::shelf::environment_view(&prefs.display, state.env.rotation_deg, camera.yaw);
+    params.environment.background_opacity = prefs.env_opacity;
+    params.environment.background_blur = prefs.env_blur;
+    crate::panels::shelf::apply_environment(&state.library, state.env.index, env_rotation, env_intensity,
         &mut params, &mut renderer, &mut state.env.uploaded, &rs.device, &rs.queue);
-    let mut pixels = if transparent {
+    // The renderer goes back into the state whether or not the GPU managed the readback, so a
+    // failed render (device lost, out of video memory) reports an error and the viewport keeps working.
+    let mut read = |params: &subcraft_render::ViewParams| renderer.render(&rs.device, &rs.queue, big, params).try_read_rgba8(&rs.device, &rs.queue);
+    let pixels = if transparent {
         params.background = [0.0; 3];
-        let black = renderer.render(&rs.device, &rs.queue, big, &params).read_rgba8(&rs.device, &rs.queue);
-        params.background = [1.0; 3];
-        let white = renderer.render(&rs.device, &rs.queue, big, &params).read_rgba8(&rs.device, &rs.queue);
-        offline::matte_from_black_white(&black, &white)
+        read(&params).and_then(|black| {
+            params.background = [1.0; 3];
+            read(&params).map(|white| offline::matte_from_black_white(&black, &white))
+        })
     } else {
-        renderer.render(&rs.device, &rs.queue, big, &params).read_rgba8(&rs.device, &rs.queue)
+        read(&params)
     };
+    state.renderer = Some(renderer);
+    let mut pixels = pixels?;
     if !transparent {
         for a in pixels.iter_mut().skip(3).step_by(4) { *a = 255; }
     }
-    state.renderer = Some(renderer);
     Ok(offline::downsample_rgba8(&pixels, big, factor))
 }
 

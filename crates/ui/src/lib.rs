@@ -7,11 +7,13 @@ pub mod app;
 pub mod bake_view;
 pub mod bug_report;
 pub mod clipboard;
+pub mod color_picker;
 mod brush_bar;
 pub mod keys;
 pub mod linux_backend;
 pub mod shortcuts_window;
 pub mod dialogs;
+pub mod export_presets;
 pub mod files;
 pub mod graphics;
 pub mod gpu_probe;
@@ -79,6 +81,30 @@ No log file could be written."),
     text
 }
 
+/// Text of the window shown when the window system could not be reached: no display server, or
+/// (Linux) the X11 / Wayland client libraries winit loads at run time are not installed. Never
+/// tells the user to update the graphics driver; that is not the problem.
+pub fn window_failure_message(error: &str, log: Option<&std::path::Path>) -> String {
+    let lower = error.to_ascii_lowercase();
+    let mut text = String::from("SubCraft could not open a window. This is not a graphics driver problem.\n\n");
+    if lower.contains("shared librar") || lower.contains("libx11") || lower.contains("libwayland") || lower.contains("libxkbcommon") {
+        text.push_str("Some system libraries for windows are missing. Install them with your package manager, then start SubCraft again:\n");
+        text.push_str("Debian / Ubuntu: sudo apt install libx11-6 libx11-xcb1 libxcursor1 libxrandr2 libxi6 libxkbcommon-x11-0 libwayland-client0\n");
+        text.push_str("Fedora: sudo dnf install libX11 libX11-xcb libXcursor libXrandr libXi libxkbcommon-x11 libwayland-client\n");
+        text.push_str("Arch: sudo pacman -S libx11 libxcursor libxrandr libxi libxkbcommon-x11 wayland\n");
+    } else if lower.contains("display") {
+        text.push_str("No display was found (neither DISPLAY nor WAYLAND_DISPLAY is set). Start SubCraft from a desktop session, not from a plain console or SSH without X forwarding.\n");
+    } else {
+        text.push_str(&format!("The window system reported an error. Please report it at {} and attach the log file.\n", subcraft_app::diagnostics::ISSUES_URL));
+    }
+    text.push_str(&format!("\nError: {error}\n"));
+    match log {
+        Some(path) => text.push_str(&format!("Log file: {}", path.display())),
+        None => text.push_str("No log file could be written."),
+    }
+    text
+}
+
 /// Let the baker cast AO / thickness rays on the GPU (its own headless device, created on the
 /// first bake). Called once at start-up.
 pub fn register_gpu_baking() {
@@ -136,6 +162,17 @@ pub fn run(options: LaunchOptions) -> eframe::Result {
             Err(error) => {
                 log::warn!("{} startup failed: {error}", api.label());
                 errors.push((api.label().to_string(), error.to_string()));
+                // The window system itself failed (no display, missing X11 / Wayland libraries).
+                // That is not a graphics-API problem, and winit allows one event loop per
+                // process, so every further attempt would only fail with "EventLoop can't be
+                // recreated" and hide the real cause.
+                if matches!(error, eframe::Error::WinitEventLoop(_)) {
+                    let text = window_failure_message(&error.to_string(), subcraft_app::diagnostics::log_file().as_deref());
+                    subcraft_app::startup_probe::step(&format!("startup failed: {}", text.replace('\n', " | ")));
+                    log::error!("{text}");
+                    show_fatal("SubCraft cannot open a window", &text);
+                    return Err(error);
+                }
                 last = Some(error);
             }
         }
@@ -212,6 +249,21 @@ mod startup_tests {
         assert_eq!(startup_attempts(DirectX12, false, true), vec![Automatic, DirectX12, OpenGl]);
         assert_eq!(startup_attempts(Automatic, false, true), vec![Automatic, OpenGl], "nothing to fall back from");
         assert_eq!(startup_attempts(OpenGl, true, true), vec![OpenGl], "WGPU_BACKEND is still final");
+    }
+    #[test]
+    fn missing_window_libraries_name_packages_not_drivers() {
+        // The exact text winit 0.30 produced in a minimal Ubuntu 20.04 container (CI, PR #125).
+        let error = "winit EventLoopError: os error at winit-0.30.13/src/platform_impl/linux/mod.rs:788: Failed to load one of xlib's shared libraries";
+        let text = window_failure_message(error, Some(std::path::Path::new("/tmp/subcraft.log")));
+        assert!(text.contains("libx11-6") && text.contains("libX11") && text.contains("libxkbcommon-x11"), "{text}");
+        assert!(text.contains("not a graphics driver problem") && !text.contains("update your graphics driver"), "{text}");
+        assert!(text.contains(error) && text.contains("/tmp/subcraft.log"));
+    }
+    #[test]
+    fn no_display_and_unknown_window_errors() {
+        let text = window_failure_message("neither WAYLAND_DISPLAY nor WAYLAND_SOCKET nor DISPLAY is set.", None);
+        assert!(text.contains("No display was found") && !text.contains("apt install") && text.contains("No log file"));
+        assert!(window_failure_message("something else", None).contains("issues"));
     }
     #[test]
     fn failure_message_names_errors_and_log() {

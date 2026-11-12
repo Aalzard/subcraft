@@ -105,6 +105,24 @@ fn material_name(mesh: &Mesh, slot: usize) -> String {
     sanitize(mesh.materials.get(slot).map_or("Material", |m| m.name.as_str()))
 }
 
+/// One valid, distinct prim name per material slot: two slots called "Material" (or names that
+/// only differ in dropped characters) would otherwise merge into one USD prim.
+fn usd_material_names(mesh: &Mesh, slots: usize) -> Vec<String> {
+    let mut taken = std::collections::HashSet::new();
+    (0..slots)
+        .map(|slot| {
+            let base = usd_identifier(&material_name(mesh, slot));
+            let mut name = base.clone();
+            let mut n = 1;
+            while !taken.insert(name.clone()) {
+                n += 1;
+                name = format!("{base}_{n}");
+            }
+            name
+        })
+        .collect()
+}
+
 // ───────────────────────────── OBJ + MTL ─────────────────────────────
 
 /// OBJ text for `mesh` referencing `mtl_name`. UV v is flipped (OBJ origin is bottom-left).
@@ -319,15 +337,26 @@ fn usd_array3(v: impl Iterator<Item = [f32; 3]>) -> String {
     v.map(|p| format!("({}, {}, {})", p[0], p[1], p[2])).collect::<Vec<_>>().join(", ")
 }
 
+/// A USD prim name: ASCII letters, digits and `_`, not starting with a digit. `sanitize` keeps
+/// `-`, leading digits and non-ASCII letters, none of which a USD reader accepts in a prim path.
+fn usd_identifier(name: &str) -> String {
+    let mut out: String = name.chars().map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' }).collect();
+    if out.is_empty() || out.starts_with(|c: char| c.is_ascii_digit()) {
+        out.insert(0, '_');
+    }
+    out
+}
+
 /// USD ASCII with one `Mesh` per material slot, bound to a `UsdPreviewSurface` material.
 /// UVs are written as `st` with v flipped (USD origin is bottom-left).
 pub fn usda_text(mesh: &Mesh, mats: &[SceneMaterial]) -> String {
-    let root = sanitize(&mesh.name);
+    let root = usd_identifier(&sanitize(&mesh.name));
+    let names = usd_material_names(mesh, mats.len().max(mesh.materials.len()));
     let mut s = String::new();
     let _ = writeln!(s, "#usda 1.0\n(\n    defaultPrim = \"{root}\"\n    metersPerUnit = 1\n    upAxis = \"Y\"\n    doc = \"Exported by SubCraft\"\n)\n");
     let _ = writeln!(s, "def Xform \"{root}\"\n{{");
     for (i, p) in parts(mesh).iter().enumerate() {
-        let mname = material_name(mesh, p.material);
+        let mname = names.get(p.material).cloned().unwrap_or_else(|| usd_identifier(&material_name(mesh, p.material)));
         let _ = writeln!(s, "    def Mesh \"Mesh_{i}_{mname}\" (\n        prepend apiSchemas = [\"MaterialBindingAPI\"]\n    )\n    {{");
         let _ = writeln!(s, "        int[] faceVertexCounts = [{}]", vec!["3"; p.indices.len() / 3].join(", "));
         let _ = writeln!(s, "        int[] faceVertexIndices = [{}]", p.indices.iter().map(u32::to_string).collect::<Vec<_>>().join(", "));
@@ -340,7 +369,7 @@ pub fn usda_text(mesh: &Mesh, mats: &[SceneMaterial]) -> String {
     }
     let _ = writeln!(s, "    def Scope \"Materials\"\n    {{");
     for (slot, m) in mats.iter().enumerate() {
-        let n = material_name(mesh, slot);
+        let n = names[slot].clone();
         let base = format!("/{root}/Materials/{n}");
         let _ = writeln!(s, "        def Material \"{n}\"\n        {{");
         let _ = writeln!(s, "            token outputs:surface.connect = <{base}/Surface.outputs:surface>");
@@ -466,4 +495,27 @@ pub fn export_scene(mesh: &Mesh, mesh_name: &str, sets: &[ExportTextureSet], set
         written.push(path);
     }
     Ok(written)
+}
+
+#[cfg(test)]
+mod usd_name_tests {
+    use super::*;
+
+    /// QA 2026-11: prim names were written with `-`, a leading digit or non-ASCII letters, which
+    /// are not valid in a USD prim path (the file does not open in USD readers).
+    #[test]
+    fn usd_prim_names_are_identifiers() {
+        let mut mesh = subcraft_mesh::primitives::sample_crate();
+        mesh.name = "2024 sci-fi-crate é".into();
+        mesh.materials[0].name = "1-Body".into();
+        let text = usda_text(&mesh, &[SceneMaterial::default(), SceneMaterial::default()]);
+        let names: Vec<&str> = text.lines().filter_map(|l| l.trim().strip_prefix("def ")).filter_map(|l| l.split('"').nth(1)).collect();
+        assert!(names.len() >= 4, "{names:?}");
+        for n in &names {
+            assert!(n.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') && !n.starts_with(|c: char| c.is_ascii_digit()), "invalid prim name {n:?}");
+        }
+        assert!(text.contains("defaultPrim = \"_2024_sci_fi_crate__\""), "{text}");
+        assert!(text.contains("</_2024_sci_fi_crate__/Materials/_1_Body>"), "the binding names the material prim");
+        assert_eq!(usd_identifier("Body_01"), "Body_01", "valid names are unchanged");
+    }
 }

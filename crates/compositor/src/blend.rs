@@ -39,7 +39,9 @@ const SIGNED_LIMIT: f32 = 1.0e4;
 
 #[inline]
 fn safe_div(a: f32, b: f32) -> f32 {
-    a / if b.abs() < 1e-6 { 1e-6f32.copysign(b) } else { b }
+    // `b < 0.0`, not `copysign`: the GPU shader treats -0.0 as positive, and Invert on a signed
+    // channel produces -0.0, so the two paths must agree on it.
+    a / if b.abs() < 1e-6 { if b < 0.0 { -1e-6 } else { 1e-6 } } else { b }
 }
 
 #[inline]
@@ -186,6 +188,27 @@ pub fn blend_fn(mode: BlendMode, cb: [f32; 3], cs: [f32; 3], target: BlendTarget
     }
 }
 
+/// A passthrough folder at strength `f` (opacity x mask): a mix of the backdrop `dst` and the
+/// children's result `src`. Texels are straight (not premultiplied) alpha, so the colours are
+/// weighted by their alpha: a plain lerp of all four components darkened a passthrough folder
+/// inside an isolated one, where the backdrop is transparent. With equal alphas (the usual opaque
+/// stack) this is that plain lerp, bit for bit.
+#[inline]
+pub fn passthrough_mix(dst: &mut [f32; 4], src: &[f32; 4], f: f32) {
+    let (wd, ws) = (dst[3] * (1.0 - f), src[3] * f);
+    let alpha = wd + ws;
+    if dst[3] == src[3] || alpha <= 0.0 {
+        for c in 0..4 {
+            dst[c] += (src[c] - dst[c]) * f;
+        }
+        return;
+    }
+    for c in 0..3 {
+        dst[c] = (dst[c] * wd + src[c] * ws) / alpha;
+    }
+    dst[3] = alpha;
+}
+
 /// Composite source `(cs, alpha)` onto `dst = [Cb.r, Cb.g, Cb.b, ab]` in place.
 #[inline]
 pub fn composite(dst: &mut [f32; 4], cs: [f32; 3], alpha: f32, mode: BlendMode, target: BlendTarget) {
@@ -255,6 +278,16 @@ mod tests {
     use super::*;
 
     const COLOR: BlendTarget = BlendTarget { signed: false, normal: false };
+
+    /// Mirrors `composite.wgsl`: -0.0 divides like +0.0, so Divide after Invert on a signed
+    /// channel gives the same result on the CPU and the GPU.
+    #[test]
+    fn safe_div_treats_negative_zero_like_the_shader() {
+        assert!(safe_div(1.0, -0.0) > 0.0);
+        assert!(safe_div(1.0, 0.0) > 0.0);
+        assert!(safe_div(1.0, -1e-9) < 0.0);
+        assert_eq!(safe_div(1.0, 2.0), 0.5);
+    }
 
     #[test]
     fn all_modes_finite_and_in_range() {

@@ -19,13 +19,15 @@ pub struct GpuCaps {
     pub max_storage_buffer_binding: u64,
     pub rgba16f_filterable: bool,
     pub rgba16f_renderable: bool,
+    /// Samplers may ask for anisotropic filtering.
+    pub anisotropy: bool,
 }
 
 impl Default for GpuCaps {
     /// Everything available: used when no adapter was probed (tests, headless tools).
     fn default() -> Self {
         Self { name: "unprobed".into(), backend: String::new(), driver: String::new(), device_type: String::new(), max_texture_2d: 16384, max_buffer_size: u64::MAX,
-            msaa4: true, compute: true, storage_textures_per_stage: 8, max_storage_buffer_binding: u64::MAX, rgba16f_filterable: true, rgba16f_renderable: true }
+            msaa4: true, compute: true, storage_textures_per_stage: 8, max_storage_buffer_binding: u64::MAX, rgba16f_filterable: true, rgba16f_renderable: true, anisotropy: true }
     }
 }
 
@@ -45,6 +47,7 @@ impl GpuCaps {
             max_storage_buffer_binding: limits.max_storage_buffer_binding_size,
             rgba16f_filterable: f16.flags.contains(wgpu::TextureFormatFeatureFlags::FILTERABLE),
             rgba16f_renderable: f16.allowed_usages.contains(wgpu::TextureUsages::RENDER_ATTACHMENT),
+            anisotropy: adapter.get_downlevel_capabilities().flags.contains(wgpu::DownlevelFlags::ANISOTROPIC_FILTERING),
         }
     }
 
@@ -109,6 +112,14 @@ pub fn install_error_handlers(device: &wgpu::Device) {
         let first = LOST.lock().map(|mut l| l.replace(text.clone()).is_none()).unwrap_or(true);
         if first && let Some(hook) = LOST_HOOK.get() { hook(&text); }
     });
+}
+/// For the extra devices (GPU compositing, GPU baking): wgpu's default reaction to an uncaptured
+/// error such as running out of video memory is a panic, which killed the compositor or bake
+/// worker. Errors are logged instead; the failed work then errors at readback and falls back to
+/// the processor. A lost worker device doesn't trigger the window's device-lost dialog.
+pub fn install_worker_error_handlers(device: &wgpu::Device, name: &'static str) {
+    device.on_uncaptured_error(std::sync::Arc::new(move |e: wgpu::Error| log::error!("GPU error ({name}): {e}")));
+    device.set_device_lost_callback(move |reason, message| log::warn!("GPU device lost ({name}): {reason:?}: {message}"));
 }
 static LOST_HOOK: OnceLock<fn(&str)> = OnceLock::new();
 /// Called once (on a wgpu thread) when the device is lost; the UI shows a native dialog there,

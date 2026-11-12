@@ -66,6 +66,24 @@ fn adding_text_makes_one_undoable_editable_layer() {
     assert!(s.selected_texture_set().layers.iter().any(|l| l.kind() == LayerKind::Text), "redo brings the text layer back");
 }
 
+/// A text layer's raster is re-rendered from the decal on every edit, so brushing on it
+/// would be thrown away by the next edit; the brush goes to a new paint layer instead.
+#[test]
+fn brush_strokes_do_not_land_on_a_text_layer() {
+    let mut s = session();
+    let mut d = s.new_text_decal("Hi");
+    d.size = 0.15;
+    s.add_text_layer(d.clone()).unwrap();
+    let text_layer = s.selection().layer.unwrap();
+    assert_eq!(s.begin_stroke(), Err(subcraft_paint::PaintError::EditableText));
+    assert!(s.ensure_paint_layer().is_some(), "a paint layer is added above the text");
+    let paint_layer = s.selection().layer.unwrap();
+    assert_ne!(paint_layer, text_layer);
+    assert_eq!(s.selected_layer().unwrap().kind(), LayerKind::Paint);
+    assert!(s.begin_stroke().is_ok());
+    s.cancel_stroke();
+}
+
 #[test]
 fn editing_text_rerenders_and_undo_restores_the_exact_raster() {
     let mut s = session();

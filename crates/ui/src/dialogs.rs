@@ -31,7 +31,13 @@ pub enum Pending {
 pub struct ExportUi {
     pub open: bool,
     pub settings: ExportSettings,
-    pub template: usize,
+    /// Key of the selected preset ([`ExportTemplate::key`]: built-in name or user preset id).
+    pub preset: String,
+    /// Built-ins + user presets, loaded from the library on first use.
+    pub preset_list: Option<subcraft_app::export_presets::ExportPresets>,
+    /// Preset editor open, and its state.
+    pub edit_presets: bool,
+    pub editor: crate::export_presets::PresetEditor,
     pub folder: String,
     /// Template name last stored in / read from the project settings.
     pub known_template: String,
@@ -49,7 +55,20 @@ pub struct ExportUi {
 impl Default for ExportUi {
     fn default() -> Self {
         let folder = std::env::current_dir().map(|d| d.join("exports")).unwrap_or_else(|_| PathBuf::from("exports"));
-        Self { open: false, settings: ExportSettings::default(), template: 0, folder: folder.display().to_string(), known_template: String::new(), view_2d_only: false, scene_format: 0, baked: Default::default(), baked_initialized: false, baked_selected_only: false }
+        Self { open: false, settings: ExportSettings::default(), preset: ExportTemplate::pbr_metal_rough().name, preset_list: None, edit_presets: false, editor: Default::default(), folder: folder.display().to_string(), known_template: String::new(), view_2d_only: false, scene_format: 0, baked: Default::default(), baked_initialized: false, baked_selected_only: false }
+    }
+}
+
+impl ExportUi {
+    /// The preset list, loading it from `lib` on first use.
+    pub fn presets(&mut self, lib: Option<&subcraft_app::assets::UserLibrary>) -> &mut subcraft_app::export_presets::ExportPresets {
+        self.preset_list.get_or_insert_with(|| subcraft_app::export_presets::ExportPresets::load(lib))
+    }
+
+    /// The selected preset (the default template when the key is unknown).
+    pub fn current_template(&mut self, lib: Option<&subcraft_app::assets::UserLibrary>) -> ExportTemplate {
+        let key = self.preset.clone();
+        self.presets(lib).find(&key).cloned().unwrap_or_else(ExportTemplate::pbr_metal_rough)
     }
 }
 
@@ -152,6 +171,11 @@ pub fn unsaved_prompt(state: &mut UiState, ctx: &egui::Context, now: f64) -> Opt
             if result == Some(Pending::Close) {
                 state.allow_close = true;
             }
+            if result.is_none() {
+                // Cancelled: the file that was dropped or picked must not open with the next request.
+                state.dropped_model = None;
+                state.welcome.pending_recent = None;
+            }
             result
         }
         None => None,
@@ -163,14 +187,21 @@ pub fn export_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
         return;
     }
     let mut open = true;
-    let templates = ExportTemplate::builtin();
+    let lib = state.user_library.clone();
+    let load_errors = state.export.preset_list.is_none().then(|| state.export.presets(lib.as_ref()).load_errors.clone()).unwrap_or_default();
+    if let Some(e) = load_errors.first() {
+        state.set_status(format!("Some export presets could not be read: {e}"), now);
+    }
+    let mesh_name = state.session.export_name();
+    let mut preset_status = None;
     // Every export knows what the 2D panel shows, so the "2D View" template (and custom
     // presets using `Source::View2d`) write it.
     let view = crate::panels::uv_view::export_view(state.uv.source);
     state.export.settings.view_2d = Some(view);
     let view_only = state.export.view_2d_only;
     let title = if view_only { "Export 2D View" } else { "Export Textures" };
-    crate::widgets::window(ctx, window_title(title)).open(&mut open).collapsible(false).default_width(480.0).show(ctx, |ui| {
+    let width = if state.export.edit_presets && !view_only { 860.0 } else { 520.0 };
+    crate::widgets::window(ctx, window_title(title)).open(&mut open).collapsible(false).default_width(width).show(ctx, |ui| {
         let ex = &mut state.export;
         egui::Grid::new("export_grid").num_columns(2).spacing([16.0, 10.0]).show(ui, |ui| {
             {
@@ -189,12 +220,11 @@ pub fn export_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
                 ui.label(dim("Image"));
                 ui.label(format!("{} (as shown in the 2D view)", crate::panels::uv_view::label(state.uv.source)));
             } else {
-                ui.label(dim("Template"));
-                egui::ComboBox::from_id_salt("template").selected_text(&templates[ex.template].name).show_ui(ui, |ui| {
-                    for (i, t) in templates.iter().enumerate() {
-                        ui.selectable_value(&mut ex.template, i, &t.name);
-                    }
-                });
+                ui.label(dim("Preset"));
+                let list = ex.preset_list.get_or_insert_with(|| subcraft_app::export_presets::ExportPresets::load(lib.as_ref()));
+                if let Some(s) = crate::export_presets::preset_bar(ui, list, &mut ex.preset, &mut ex.editor) {
+                    preset_status = Some(s);
+                }
             }
             ui.end_row();
             ui.label(dim("File format"));
@@ -208,6 +238,11 @@ pub fn export_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
             ui.end_row();
             ui.label(dim("Padding"));
             ui.horizontal(|ui| {
+                let preset_padding = ex.preset_list.as_ref().and_then(|l| l.find(&ex.preset)).and_then(|p| p.padding);
+                if preset_padding.is_some() {
+                    ui.label(dim("set by the preset")).on_hover_text(tr("This preset chooses its own padding; maps without one use it"));
+                    return;
+                }
                 let mut kind = match ex.settings.padding {
                     Padding::Infinite => 0,
                     Padding::Texels(_) => 1,
@@ -233,7 +268,23 @@ pub fn export_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
             ui.add(egui::Slider::new(&mut ex.settings.height_to_normal, 0.0..=0.1));
             ui.end_row();
         });
-        ex.settings.template = templates[ex.template].clone();
+        if !view_only {
+            let header = egui::CollapsingHeader::new(RichText::new("Preset editor").strong()).id_salt("preset_editor").open(Some(ex.edit_presets)).show(ui, |ui| {
+                let list = ex.preset_list.get_or_insert_with(|| subcraft_app::export_presets::ExportPresets::load(lib.as_ref()));
+                let key = ex.preset.clone();
+                // Scrolls on its own so the map checklist and Export stay on screen.
+                let max_h = (ui.ctx().content_rect().height() * 0.42).max(260.0);
+                egui::ScrollArea::vertical().id_salt("preset_editor_scroll").max_height(max_h).show(ui, |ui| {
+                    if let Some(s) = crate::export_presets::preset_editor(ui, list, &key, &mut ex.editor, &mesh_name) {
+                        preset_status = Some(s);
+                    }
+                });
+            });
+            if header.header_response.clicked() {
+                ex.edit_presets = !ex.edit_presets;
+            }
+        }
+        ex.settings.template = ex.current_template(lib.as_ref());
         let settings = ex.settings.clone();
         let folder = PathBuf::from(&ex.folder);
         if view_only {
@@ -290,6 +341,9 @@ pub fn export_window(state: &mut UiState, ctx: &egui::Context, now: f64) {
             }
         }
     });
+    if let Some(s) = preset_status {
+        state.set_status(s, now);
+    }
     state.export.open = open;
 }
 
@@ -340,16 +394,17 @@ fn baked_maps_section(ui: &mut egui::Ui, state: &mut UiState, folder: &std::path
 
 /// Project-wide export choices: template memory, normal-map convention, UDIM folders.
 fn export_options(ui: &mut egui::Ui, state: &mut UiState) {
-    let templates = ExportTemplate::builtin();
+    let lib = state.user_library.clone();
     let stored = state.session.settings().export_template.clone();
     if stored != state.export.known_template || state.export.known_template.is_empty() {
-        // A different project (or first frame): follow its template; one that names none is not rewritten.
-        match templates.iter().position(|t| t.name == stored) {
-            Some(i) => { state.export.template = i; state.export.known_template = stored; }
-            None => state.export.known_template = templates[state.export.template].name.clone(),
+        // A different project (or first frame): follow its preset (user presets by id, built-ins
+        // by name); one that names none, or a preset missing from this library, is not rewritten.
+        match state.export.presets(lib.as_ref()).find(&stored).map(|p| p.key().to_string()) {
+            Some(key) => { state.export.preset = key; state.export.known_template = stored; }
+            None => state.export.known_template = state.export.preset.clone(),
         }
     }
-    let name = templates[state.export.template].name.clone();
+    let name = state.export.current_template(lib.as_ref()).key().to_string();
     if name != state.export.known_template {
         let mut project = state.session.settings().clone();
         project.export_template = name.clone();
@@ -553,6 +608,7 @@ pub fn poll_bake(state: &mut UiState, ctx: &egui::Context, now: f64) {
                 state.bake.report = summary;
                 state.bake.follow_maps = true;
                 state.recovery.prefs.viewport.view_mode = 0;
+                state.recovery.prefs.viewport.solo = None;
                 let detail = if state.bake.report.is_empty() { String::new() } else { format!(" ({})", state.bake.report) };
                 state.set_status(format!("Baked mesh maps for {n} texture set(s). See them in the 2D view.{detail}{note}"), now);
                 state.recovery.autosaver.request_soon();

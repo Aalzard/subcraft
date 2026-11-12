@@ -82,6 +82,7 @@ fn run_app() -> anyhow::Result<()> {
             "--demo" => options.demo = true,
             "--view-2d" => options.view_2d = true,
             "--brush-panel" => options.brush_panel = true,
+            "--display-settings" => options.display_settings = Some(args.next_if(|a| ["environment", "camera", "post", "render", "visualization"].contains(&a)).unwrap_or_default()),
             "--shelf-panel" => options.shelf_panel = true,
             "--texture-set-settings" => options.texture_set_settings = true,
             "--generator-panel" => options.generator_panel = true,
@@ -110,6 +111,7 @@ fn run_app() -> anyhow::Result<()> {
             "--new-project-high" => options.new_project_high = args.next_os().map(Into::into),
             "--properties-panel" => options.properties_panel = true,
             "--export-template" => options.export_template = args.next().and_then(|s| s.parse().ok()),
+            "--export-preset" => options.export_preset = Some(args.next().ok_or_else(|| anyhow::anyhow!("--export-preset expects a preset name"))?),
             "--render-window" => options.render_window = true,
             "--camera" => options.camera = Some(args.next().and_then(|s| subcraft_ui::orbit::CameraView::parse(&s)).ok_or_else(|| anyhow::anyhow!("--camera expects yaw,pitch,zoom[,x,y,z] (degrees, zoom factor, target offset)"))?),
             "--symmetry" => {
@@ -187,7 +189,7 @@ fn run_app() -> anyhow::Result<()> {
                 options.autosave_interval = args.next().and_then(|s| s.parse::<f64>().ok()).map(std::time::Duration::from_secs_f64);
             }
             "-h" | "--help" => {
-                println!("usage: subcraft [project.subcraft | mesh file] [--demo] [--view-2d] [--brush-panel] [--bake-high mesh] [--bake-preview] [--bake-preview-map map_key] [--bake-match always|name] [--bake-place auto,center,origin,offset=x:y:z,scale=s,rot=x:y:z] [--environment name] [--bake-size 256|512|1024|2048|4096] [--symmetry xyz] [--radial y8] [--screenshot out.png] [--path-trace [samples]] [--welcome] [--quick-start] [--guide-step 1..6] [--reset-layout] [--window-size WxH] [--camera yaw,pitch,zoom[,x,y,z]] [--scale 1.5] [--x11] [--recover] [--autosave-interval seconds]");
+                println!("usage: subcraft [project.subcraft | mesh file] [--demo] [--view-2d] [--brush-panel] [--display-settings [environment|camera|post|render|visualization]] [--bake-high mesh] [--bake-preview] [--bake-preview-map map_key] [--bake-match always|name] [--bake-place auto,center,origin,offset=x:y:z,scale=s,rot=x:y:z] [--environment name] [--bake-size 256|512|1024|2048|4096] [--symmetry xyz] [--radial y8] [--screenshot out.png] [--path-trace [samples]] [--welcome] [--quick-start] [--guide-step 1..6] [--reset-layout] [--window-size WxH] [--camera yaw,pitch,zoom[,x,y,z]] [--scale 1.5] [--x11] [--recover] [--autosave-interval seconds]");
                 return Ok(());
             }
             _ => options.mesh = Some(std::path::PathBuf::from(raw)),

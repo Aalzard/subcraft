@@ -1,6 +1,7 @@
 # ADR-0035 — Signed, scanned and attributable releases
 
-Status: Accepted (2026-10-20; production identity enrollment pending)
+Status: Accepted (2026-10-20); signing provider and fail-closed publishing superseded by
+[ADR-0046](0046-free-code-signing.md) (2026-11-11)
 
 Keep verification outside app crates. Release builds pin Rust/actions, use Cargo --locked,
 check out the requested tag, and match its version. Sign the application before packaging,

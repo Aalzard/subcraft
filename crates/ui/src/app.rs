@@ -32,6 +32,8 @@ pub enum Tab {
     Parts,
     History,
     Shelf,
+    /// Painter's DISPLAY SETTINGS panel. Optional: closed until View > Display settings opens it.
+    DisplaySettings,
 }
 
 impl Tab {
@@ -47,6 +49,7 @@ impl Tab {
             Tab::Parts => tr("Parts"),
             Tab::History => tr("History"),
             Tab::Shelf => tr("Assets"),
+            Tab::DisplaySettings => tr("Display Settings"),
         }
     }
 
@@ -61,6 +64,7 @@ impl Tab {
             Tab::Parts => icons::CUBE_WIRE,
             Tab::History => icons::HISTORY,
             Tab::Shelf => icons::SQUARES,
+            Tab::DisplaySettings => icons::SUN,
         }
     }
 }
@@ -92,6 +96,9 @@ pub struct LaunchOptions {
     pub view_2d: bool,
     /// Start with Brush settings in front (also useful for native screenshot verification).
     pub brush_panel: bool,
+    /// Start with the Display Settings panel open, scrolled to this group when it names one
+    /// (`environment`, `camera`, `post`, `render`, `visualization`).
+    pub display_settings: Option<String>,
     /// Start with a narrow vertical texture shelf (native layout validation).
     pub shelf_panel: bool,
     /// Bring Texture Set Settings in front of Layers (scripted captures).
@@ -117,6 +124,8 @@ pub struct LaunchOptions {
     pub properties_panel: bool,
     /// Export template to select (index into the built-in list) when the window opens.
     pub export_template: Option<usize>,
+    /// Export preset to select by name or id (built-in or from the user library).
+    pub export_preset: Option<String>,
     /// Open the Render quality window (scripted captures).
     pub render_window: bool,
     /// Render a still or a turntable from the loaded project, then quit (scripted export).
@@ -220,6 +229,29 @@ fn migrate_layout(dock: &mut DockState<Tab>) {
     }
 }
 
+/// View > Display settings: add the panel as a tab beside Properties and bring it forward, or
+/// close it when it is already open.
+pub fn toggle_display_settings(dock: &mut DockState<Tab>) {
+    if let Some(path) = dock.find_tab(&Tab::DisplaySettings) {
+        let _ = dock.remove_tab(path);
+        return;
+    }
+    open_display_settings(dock);
+}
+
+/// Open the Display Settings panel (if closed) and show it.
+pub fn open_display_settings(dock: &mut DockState<Tab>) {
+    if dock.find_tab(&Tab::DisplaySettings).is_none() {
+        match dock.find_tab(&Tab::Properties) {
+            Some(host) => dock[host.surface][host.node].append_tab(Tab::DisplaySettings),
+            None => dock.push_to_focused_leaf(Tab::DisplaySettings),
+        }
+    }
+    if let Some(path) = dock.find_tab(&Tab::DisplaySettings) {
+        let _ = dock.set_active_tab(path);
+    }
+}
+
 /// Whether the 2D view sits beside the 3D view (its own pane) instead of behind it as a tab.
 pub fn is_side_by_side(dock: &DockState<Tab>) -> bool {
     match (dock.find_tab(&Tab::Viewport), dock.find_tab(&Tab::UvView)) {
@@ -261,7 +293,9 @@ pub fn layout_is_valid(dock: &DockState<Tab>) -> bool {
     // Brush is optional: layouts saved before the Brush settings moved into Properties still have it.
     let all = [Tab::Viewport, Tab::UvView, Tab::Layers, Tab::Properties, Tab::TextureSetList, Tab::TextureSetSettings, Tab::Parts, Tab::History, Tab::Shelf];
     let brush = seen.get(&Tab::Brush).copied().unwrap_or(0);
-    if !all.iter().all(|t| seen.get(t) == Some(&1)) || brush > 1 || seen.len() != all.len() + brush { return false; }
+    // Display Settings is optional too: it is closed until the View menu opens it.
+    let display = seen.get(&Tab::DisplaySettings).copied().unwrap_or(0);
+    if !all.iter().all(|t| seen.get(t) == Some(&1)) || brush > 1 || display > 1 || seen.len() != all.len() + brush + display { return false; }
     if dock.iter_surfaces().count() != 1 { return false; }
     dock.iter_all_nodes().all(|(_, node)| match node {
         Node::Horizontal(split) | Node::Vertical(split) => split.fraction.is_finite() && (0.04..=0.96).contains(&split.fraction),
@@ -621,7 +655,7 @@ impl SubcraftApp {
         if let Some(graphics) = options.graphics_startup.clone() {
             let active = state.graphics.active.clone(); state.graphics = graphics; state.graphics.active = active;
         }
-        let prefs = cc.storage.and_then(|s| s.get_string(crate::recovery::PREFS_KEY)).and_then(|j| serde_json::from_str(&j).ok()).unwrap_or_default();
+        let prefs = cc.storage.and_then(|s| s.get_string(crate::recovery::PREFS_KEY)).map(|j| crate::recovery::Preferences::from_json_lenient(&j)).unwrap_or_default();
         state.recovery = crate::recovery::RecoveryUi::start(&state.session, prefs, options.autosave_interval);
         if subcraft_app::safe_mode::active() == Some(&subcraft_app::safe_mode::Reason::GpuLostLastRun) {
             // The GPU reset last run: keep the heavy GPU work off from now on (saved with the
@@ -748,13 +782,34 @@ impl SubcraftApp {
                     ("dof-range", Some(v)) => prefs.dof_range = v,
                     ("glare", Some(v)) => prefs.glare = v,
                     ("glare-length", Some(v)) => prefs.glare_length = v,
+                    ("glare-threshold", Some(v)) => prefs.glare_threshold = v,
+                    ("glare-remap", Some(v)) => prefs.glare_remap = v,
+                    ("post", Some(v)) => prefs.post_effects = v > 0.0,
+                    ("falloff", Some(v)) => prefs.bloom_falloff = v,
+                    ("gamma", Some(v)) => prefs.gamma = v,
+                    ("factor", Some(v)) => prefs.mapping_factor = v,
+                    ("flare", Some(v)) => { prefs.flare_on = v > 0.0; prefs.flare_amount = v }
+                    ("aberration", Some(v)) => { prefs.aberration_on = v > 0.0; prefs.aberration_amount = v }
+                    ("vignette", Some(v)) => { prefs.vignette_on = v > 0.0; prefs.vignette_amount = v }
+                    ("sharpen", Some(v)) => { prefs.sharpen_on = v > 0.0; prefs.sharpen_amount = v }
+                    ("grain", Some(v)) => { prefs.grain_on = v > 0.0; prefs.grain_amount = v }
+                    ("grain-colored", Some(v)) => prefs.grain_type = if v > 0.0 { subcraft_doc::GrainType::Colored } else { subcraft_doc::GrainType::Monochromatic },
+                    ("saturation", Some(v)) => { prefs.color_correction_on = true; prefs.cc_saturation = v }
+                    ("contrast", Some(v)) => { prefs.color_correction_on = true; prefs.cc_contrast = v }
+                    ("brightness", Some(v)) => { prefs.color_correction_on = true; prefs.cc_brightness = v }
+                    ("sepia", Some(v)) => { prefs.color_correction_on = true; prefs.cc_sepia = v }
+                    ("temperature", Some(v)) => { prefs.color_correction_on = true; prefs.cc_temperature = v }
+                    ("env-opacity", Some(v)) => prefs.env_opacity = v,
+                    ("env-blur", Some(v)) => prefs.env_blur = v,
+                    ("env-ev", Some(v)) => prefs.env_exposure = v,
+                    ("fov", Some(v)) => crate::panels::display_settings::set_fov(&mut state.camera, v),
                     ("glare-mode", _) => {
                         let wanted = value.trim().to_ascii_lowercase();
-                        if let Some(i) = subcraft_render::GlareMode::ALL.iter().position(|m| m.label().to_ascii_lowercase().starts_with(&wanted)) { prefs.glare_mode = i; }
+                        if let Some(m) = subcraft_render::GlareMode::ALL.into_iter().find(|m| format!("{m:?}").to_ascii_lowercase() == wanted || m.label().to_ascii_lowercase().replace(' ', "-").contains(&wanted.replace(' ', "-"))) { prefs.glare_mode = m; }
                     }
                     ("tone", _) => {
                         let wanted = value.trim().to_ascii_lowercase();
-                        if let Some(i) = subcraft_render::ToneMap::ALL.iter().position(|t| t.label().to_ascii_lowercase().starts_with(&wanted)) { prefs.tone_map = i; }
+                        if let Some(t) = subcraft_render::ToneMap::ALL.into_iter().find(|t| t.label().to_ascii_lowercase().starts_with(&wanted)) { prefs.tone_map = t; }
                     }
                     _ => {}
                 }
@@ -778,8 +833,14 @@ impl SubcraftApp {
             if let Some(high) = &options.new_project_high { state.new_project.load_high_poly(high); }
             state.welcome.open = false;
         }
-        state.export.open = options.export_window || options.export_template.is_some();
-        if let Some(i) = options.export_template { state.export.template = i.min(subcraft_export::ExportTemplate::builtin().len() - 1); }
+        state.export.open = options.export_window || options.export_template.is_some() || options.export_preset.is_some();
+        if let Some(i) = options.export_template { let all = subcraft_export::ExportTemplate::builtin(); state.export.preset = all[i.min(all.len() - 1)].name.clone(); }
+        if let Some(name) = &options.export_preset {
+            let presets = state.export.presets(state.user_library.as_ref());
+            let found = presets.all().find(|p| p.name == *name || p.key() == name).map(|p| p.key().to_string());
+            if let Some(key) = found { state.export.preset = key; }
+            state.export.edit_presets = true;
+        }
         state.render_window = options.render_window;
         if !options.import_smart.is_empty() {
             crate::files::import_smart_materials(&mut state, &options.import_smart, 0.0);
@@ -832,7 +893,11 @@ impl SubcraftApp {
         {
             let _ = dock.set_active_tab(path);
         }
-        if options.brush_panel && let Some(path) = dock.find_tab(&Tab::Brush) {
+        if let Some(group) = options.display_settings.as_deref() {
+            open_display_settings(&mut dock);
+            let wanted = group.trim().to_ascii_lowercase();
+            state.display_jump = panels::display_settings::Section::ALL.into_iter().find(|s| !wanted.is_empty() && s.short().to_ascii_lowercase().starts_with(&wanted));
+        } else if options.brush_panel && let Some(path) = dock.find_tab(&Tab::Brush) {
             let _ = dock.set_active_tab(path);
         } else if state.session.selected_layer().is_some_and(|layer| layer.kind() != subcraft_doc::LayerKind::Paint)
             && let Some(path) = dock.find_tab(&Tab::Properties)
@@ -961,11 +1026,11 @@ impl SubcraftApp {
             Action::PerspectiveCamera => self.state.recovery.prefs.viewport.orthographic = false,
             Action::OrthographicCamera => self.state.recovery.prefs.viewport.orthographic = true,
             Action::NextChannel | Action::PrevChannel => {
-                let v = &mut self.state.recovery.prefs.viewport;
-                let n = subcraft_render::ViewMode::ALL.len();
-                v.view_mode = if action == Action::NextChannel { (v.view_mode + 1) % n } else { (v.view_mode + n - 1) % n };
+                // Painter's C / Shift+C: the material, then each channel of the selected texture set.
+                let channels: Vec<_> = self.state.session.selected_texture_set().channel_kinds().collect();
+                self.state.recovery.prefs.viewport.cycle_channel(&channels, action == Action::NextChannel);
             }
-            Action::DisplayMaterial => self.state.recovery.prefs.viewport.view_mode = 0,
+            Action::DisplayMaterial => self.state.recovery.prefs.viewport.show_material(),
             Action::NewProject => self.request(Pending::OpenMesh, now),
             Action::Quit => self.request(Pending::Close, now),
             Action::PenTool => { self.state.tool = Tool::Pen; self.state.picking_parts = false; }
@@ -982,6 +1047,7 @@ impl SubcraftApp {
                 let prefs = &mut self.state.recovery.prefs.viewport;
                 prefs.path_tracing = !prefs.path_tracing;
             }
+            Action::PaintingMode => self.state.recovery.prefs.viewport.path_tracing = false,
             Action::Export => {
                 self.state.export.open = true;
                 self.state.export.view_2d_only = false;
@@ -1255,6 +1321,10 @@ impl SubcraftApp {
                     self.dock = default_layout();
                     ui.close();
                 }
+                if item(ui, icons::SUN, if self.dock.find_tab(&Tab::DisplaySettings).is_some() { tr("Close Display settings") } else { tr("Display settings") }, "") {
+                    toggle_display_settings(&mut self.dock);
+                    ui.close();
+                }
                 if item(ui, icons::SUN, tr("Render quality…"), "") {
                     self.state.render_window = true;
                     ui.close();
@@ -1269,6 +1339,10 @@ impl SubcraftApp {
                 let rendering = self.state.recovery.prefs.viewport.path_tracing;
                 if item(ui, icons::SUN, if rendering { "Leave Rendering mode" } else { "Rendering mode (path tracing)" }, &sc(km, Action::TogglePathTracing)) {
                     self.perform(Action::TogglePathTracing, now);
+                    ui.close();
+                }
+                if item(ui, icons::PAINT_BRUSH, "Painting mode", &sc(km, Action::PaintingMode)) {
+                    self.perform(Action::PaintingMode, now);
                     ui.close();
                 }
                 ui.separator();
@@ -1551,11 +1625,13 @@ impl egui_dock::TabViewer for Viewer<'_> {
             Tab::Parts => crate::edit_profile::time_tab("  tab Parts", || panels::parts::show(self.state, ui)),
             Tab::History => crate::edit_profile::time_tab("  tab History", || panels::history::show(self.state, ui)),
             Tab::Shelf => crate::edit_profile::time_tab("  tab Shelf", || panels::shelf::show(self.state, ui)),
+            Tab::DisplaySettings => crate::edit_profile::time_tab("  tab Display settings", || panels::display_settings::show(self.state, ui)),
         }
     }
 
-    fn is_closeable(&self, _tab: &Tab) -> bool {
-        false
+    fn is_closeable(&self, tab: &Tab) -> bool {
+        // The optional panel closes with its tab's X (and reopens from the View menu).
+        matches!(tab, Tab::DisplaySettings)
     }
 
     fn scroll_bars(&self, tab: &Tab) -> [bool; 2] {
@@ -1595,6 +1671,9 @@ impl eframe::App for SubcraftApp {
 
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        if crate::bug_report::stop_after_device_loss(&mut self.state, subcraft_render::caps::device_lost()) {
+            return;
+        }
         if let Some(p) = &mut self.profile {
             p.ui_begin();
         }
@@ -1680,6 +1759,7 @@ impl eframe::App for SubcraftApp {
         let now = ctx.input(|i| i.time);
         crate::asset_preview::show(&mut self.state,&ctx);
         crate::render_export::window(&mut self.state, &ctx);
+        panels::display_settings::sync_project(&mut self.state);
         crate::new_project::window(&mut self.state, &ctx);
         crate::render_export::handle_request(&mut self.state, ctx.input(|i| i.time));
         crate::pen::finish_frame(&mut self.state, &ctx, now);

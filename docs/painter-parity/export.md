@@ -1,0 +1,307 @@
+# Painter parity: Export
+
+Sources: https://experienceleague.adobe.com/en/docs/substance-3d-painter/using/export/export , https://experienceleague.adobe.com/en/docs/substance-3d-painter/using/export/export-window/export-window , https://experienceleague.adobe.com/en/docs/substance-3d-painter/using/export/export-window/export-settings , https://experienceleague.adobe.com/en/docs/substance-3d-painter/using/export/export-window/output-templates , https://experienceleague.adobe.com/en/docs/substance-3d-painter/using/export/export-window/list-of-exports , https://experienceleague.adobe.com/en/docs/substance-3d-painter/using/export/creating-export-presets , https://experienceleague.adobe.com/en/docs/substance-3d-painter/using/export/export-presets/export-presets , https://experienceleague.adobe.com/en/docs/substance-3d-painter/using/export/export-presets/default-presets , https://experienceleague.adobe.com/en/docs/substance-3d-painter/using/export/export-presets/predefined-presets/predefined-presets , https://experienceleague.adobe.com/en/docs/substance-3d-painter/using/export/export-presets/predefined-presets/usd-pbr-metal-roughness-preset , https://experienceleague.adobe.com/en/docs/substance-3d-painter/using/features/universal-scene-description-usd , https://experienceleague.adobe.com/en/docs/substance-3d-painter/using/interface/layer-stack/flatten-layers , https://experienceleague.adobe.com/en/docs/substance-3d-painter/using/interface/main-menu/file-menu , https://experienceleague.adobe.com/en/docs/substance-3d-painter/using/interface/settings/shortcuts , https://experienceleague.adobe.com/en/docs/substance-3d-painter/using/features/color-management/color-management , https://experienceleague.adobe.com/en/docs/substance-3d-painter/using/features/dynamic-material-layering , https://experienceleague.adobe.com/en/docs/substance-3d-painter/using/pipeline-and-integration/configuration/command-lines , https://experienceleague.adobe.com/en/docs/substance-3d-painter/using/release-notes/all-changes
+Checked against: origin/main 297dcb3 (2026-11-11)
+
+## Opening the Export window
+
+Layout notes: Painter has one modal Export textures window with three tabs along the top (Settings, Output templates, List of exports) and a button row along the bottom. SubCraft has one single-page floating window with everything stacked vertically and no tabs.
+
+| Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
+|---|---|---|---|---|---|
+| Export textures (menu entry) | File > Export textures | - | done | crates/ui/src/app.rs:1136 | - |
+| Export textures shortcut | Keyboard | Ctrl+Shift+E (Shift+Cmd+E on macOS) | done | crates/app/src/actions.rs:220 | - |
+| Settings tab | Export window, tab 1 | default tab | partial: single page, no tabs | crates/ui/src/dialogs.rs:161 | - |
+| Output templates tab | Export window, tab 2 | - | missing | - | #124 |
+| List of exports tab | Export window, tab 3 | - | missing | - | - |
+| --export-path command line argument | Launch argument (default output directory) | not documented | missing (only --export-window / --export-template for scripted captures) | - | - |
+
+## Window bottom buttons
+
+| Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
+|---|---|---|---|---|---|
+| Reset all | Bottom row, Settings tab only: resets the project export configuration | - | missing | - | - |
+| Cancel | Bottom row: close without keeping changes | - | partial: window close button only, edits are kept | crates/ui/src/dialogs.rs:173 | - |
+| Save settings | Bottom row: store current export settings in the project | - | partial: template, normal format, UDIM folders and map checklist are stored automatically; folder, format and padding are not stored | crates/ui/src/dialogs.rs:342 | - |
+| Export | Bottom row: run export, then jump to List of exports | - | partial: runs export, result shown as one status-bar line | crates/ui/src/dialogs.rs:268 | - |
+
+## Settings tab: texture set list (left column)
+
+Layout notes: a resizable left column. First entry is Global settings; below it one entry per texture set with a checkbox; UV-tile projects show the tiles under each set. Selecting an entry shows its parameters on the right; per-set values override the global ones.
+
+| Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
+|---|---|---|---|---|---|
+| Global settings entry | Top of the list: parameters shared by all texture sets | selected by default | partial: the whole window is global, no list entry | crates/ui/src/dialogs.rs:175 | - |
+| Texture set entry (per-set override of every parameter) | List row per texture set | inherits global | missing | - | - |
+| Texture set export checkbox | Checkbox next to each set name | checked | done (set header checkbox in the map checklist) | crates/ui/src/dialogs.rs:407 | - |
+| Selection dropdown: Check all | Dropdown above the list | - | done (Select all button) | crates/ui/src/dialogs.rs:396 | - |
+| Selection dropdown: Uncheck all | Dropdown above the list | - | done (None button) | crates/ui/src/dialogs.rs:395 | - |
+| Selection dropdown: Invert all | Dropdown above the list | - | done (Invert button) | crates/ui/src/dialogs.rs:394 | - |
+| UV tile checkboxes per texture set | Tiles listed under a set in UV-tile projects | checked (unverified) | missing (tiles appear as separate sets in the checklist, no tile picker) | - | - |
+| UV tile resolution-differs marker | Icon on tiles whose size differs from the project default | - | missing | - | - |
+| Resizable list column | Drag the divider | - | missing | - | - |
+
+## Settings tab: general export parameters
+
+| Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
+|---|---|---|---|---|---|
+| Output directory | Path field + browse button | last used / project folder (unverified) | done (Folder field + Browse) | crates/ui/src/dialogs.rs:177 | - |
+| Output template | Dropdown: predefined templates first, then default and custom ones | PBR Metallic Roughness (unverified) | partial: built-in list only, no custom templates | crates/ui/src/dialogs.rs:193 | #124 |
+| File type | Dropdown: container format | Based on output template (unverified) | partial: 4 containers (PNG, TGA, JPEG, EXR) | crates/ui/src/dialogs.rs:200 | #124 |
+| File type: Based on output template | First entry of File type | - | done (Template default) | crates/ui/src/dialogs.rs:203 | - |
+| Bit depth | Second dropdown beside File type; choices depend on format | 8 bits (unverified) | partial: merged into the format entry (PNG 8-bit, PNG 16-bit...) | crates/image/src/io.rs:116 | #124 |
+| Size | Dropdown | Based on each Texture Set's size | partial: always the texture set size, no dropdown | crates/export/src/lib.rs:347 | #124 |
+| Size: 128 | Size dropdown | - | missing | - | #124 |
+| Size: 256 | Size dropdown | - | missing | - | #124 |
+| Size: 512 | Size dropdown | - | missing | - | #124 |
+| Size: 1024 | Size dropdown | - | missing | - | #124 |
+| Size: 2048 | Size dropdown | - | missing | - | #124 |
+| Size: 4096 | Size dropdown | - | missing | - | #124 |
+| Size: 8192 | Size dropdown (needs enough VRAM) | - | missing | - | #124 |
+| Padding | Dropdown | Dilation infinite (unverified) | partial: 3 modes instead of 5 | crates/ui/src/dialogs.rs:209 | - |
+| Padding: No padding (passthrough) | Padding dropdown | - | done (None) | crates/ui/src/dialogs.rs:219 | - |
+| Padding: Dilation infinite | Padding dropdown | - | done (Infinite; default) | crates/ui/src/dialogs.rs:217 | - |
+| Padding: Dilation + transparent | Padding dropdown | - | missing | - | - |
+| Padding: Dilation + default background color | Padding dropdown | - | partial: Texels mode dilates, rest keeps the composite value instead of the channel default colour | crates/ui/src/dialogs.rs:218 | - |
+| Padding: Dilation + diffusion | Padding dropdown | - | missing | - | - |
+| Dilation distance (pixels) | Number field beside Padding, for the three Dilation + modes | 16 (unverified); range not documented | partial: default 8, range 1-64 | crates/ui/src/dialogs.rs:228 | - |
+| Export shaders parameters | Checkbox: also writes a JSON of shader parameters | off (unverified) | missing | - | - |
+| Export USD asset | Checkbox at the bottom of the tab | off | partial: separate "Export model + textures" button with USDA choice | crates/ui/src/dialogs.rs:277 | - |
+| Export USD asset: textures folder | Output of the checkbox | - | partial: textures written beside the scene file | crates/export/src/scene.rs:398 | - |
+| Export USD asset: .usda material layer pointing to the textures | Output of the checkbox | - | partial: one USDA holding mesh and materials | crates/export/src/scene.rs:324 | - |
+| Export USD asset: .usd assembling materials with the original mesh | Optional output | - | missing | - | - |
+| Export USD asset: .usd mesh payload (when source was not USD or was auto-unwrapped) | Optional output | - | missing | - | - |
+
+## Settings tab: file types and bit depths
+
+Layout notes: Painter lists the formats alphabetically by extension in the File type dropdown; the bit depth dropdown next to it only offers the depths valid for the chosen format.
+
+| Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
+|---|---|---|---|---|---|
+| bmp (Bitmap) | File type | 8, 8 + dithering | missing | - | - |
+| exr (OpenEXR) | File type | 16f, 32f | partial: 32f only | crates/image/src/io.rs:121 | - |
+| gif | File type | 8, 8 + dithering | missing | - | - |
+| hdr (Radiance HDR) | File type | 32f | missing | - | - |
+| ico | File type | 8, 8 + dithering | missing | - | - |
+| j2k (JPEG 2000) | File type | 8, 8 + dithering, 16 | missing | - | - |
+| jng | File type | 8, 8 + dithering, 16 | missing | - | - |
+| jp2 (JPEG 2000) | File type | 8, 8 + dithering, 16 | missing | - | - |
+| jpeg | File type | 8, 8 + dithering | partial: 8 only | crates/image/src/io.rs:120 | - |
+| jpeg-xr | File type | 8, 8 + dithering, 16, 32f | missing | - | - |
+| pbm | File type | 8, 8 + dithering, 16 | missing | - | - |
+| pfm | File type | 32f | missing | - | - |
+| pgm | File type | 8, 8 + dithering, 16 | missing | - | - |
+| png | File type | 8, 8 + dithering, 16 | partial: 8 and 16, no dithering | crates/image/src/io.rs:117 | - |
+| ppm | File type | 8, 8 + dithering, 16 | missing | - | - |
+| psd (container: all maps of a set in one file, folders become groups) | File type | 8, 8 + dithering, 16 | missing (layered PSD exists only for the per-channel PhotoCraft exchange, crates/export/src/psd.rs:212) | - | - |
+| targa | File type | 8, 8 + dithering | partial: 8 only | crates/image/src/io.rs:119 | - |
+| tiff | File type | 8, 8 + dithering, 16, 32f | missing | - | #124 |
+| wbmp | File type | 8, 8 + dithering | missing | - | - |
+| webp | File type | 8, 8 + dithering | missing | - | - |
+| xpm | File type | 8, 8 + dithering | missing | - | - |
+| sbsar (bundle the outputs into one Substance archive) | File type (added in 8.2) | - | missing | - | - |
+| Bit depth: 8 bits | Bit depth dropdown | - | done | crates/image/src/io.rs:117 | - |
+| Bit depth: 8 bits + dithering | Bit depth dropdown | - | missing | - | - |
+| Bit depth: 16 bits | Bit depth dropdown | - | partial: PNG only | crates/image/src/io.rs:118 | #124 |
+| Bit depth: 16 bits floating (EXR half) | Bit depth dropdown | - | missing | - | - |
+| Bit depth: 32 bits floating | Bit depth dropdown | - | partial: EXR only | crates/image/src/io.rs:121 | #124 |
+
+## Settings tab: output maps of a texture set
+
+Layout notes: shown on the right only when a texture set (not Global settings) is selected. One row per file the template will write: checkbox, resolved file name, format dropdown, bit depth dropdown, and the colour space when colour management is on.
+
+| Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
+|---|---|---|---|---|---|
+| Output maps list | Right side, per texture set | - | done (checklist grouped by set, all sets at once) | crates/ui/src/dialogs.rs:389 | - |
+| Output map checkbox (skip one file) | Row checkbox | checked | done | crates/ui/src/dialogs.rs:414 | - |
+| Resolved file name per map | Row text | - | done (path preview) | crates/ui/src/dialogs.rs:418 | - |
+| File format override per map | Row dropdown | from template | missing | - | - |
+| Bit depth override per map | Row dropdown | from template | missing | - | - |
+| Colour space shown per map | Row text (colour management on) | - | missing | - | - |
+
+## Output templates tab: presets list (left column)
+
+Layout notes: three columns. Left: list of templates with three icon buttons above it. Middle: output maps of the selected template. Right: source lists (Input maps, Converted maps, Mesh maps) to drag from. Template files are stored one per file in the library's export-presets folder.
+
+| Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
+|---|---|---|---|---|---|
+| Presets list (default + custom templates) | Left column | - | missing | - | #124 |
+| Duplicate button | Above the list | - | missing | - | #124 |
+| Remove button (no undo) | Above the list | - | missing | - | #124 |
+| Add button (new empty template) | Above the list | - | missing | - | #124 |
+| Double-click a template to rename | Presets list | - | missing | - | #124 |
+| Right-click > Delete | Presets list context menu | - | missing | - | #124 |
+| Right-click > Rename | Presets list context menu | - | missing | - | #124 |
+| Right-click > Duplicate | Presets list context menu | - | missing | - | #124 |
+| Import a preset file (.spexp) through Import resources or the export-presets folder | File > Import resources / library folder | - | missing | - | #124 |
+| Template stored as one shareable file in the library | assets/export-presets folder | - | missing | - | #124 |
+| Last used template embedded in the project file | Automatic on save after an export | - | partial: only the template name is stored in project settings | crates/ui/src/dialogs.rs:355 | #124 |
+| "Outdated" marker when the embedded template differs from the library one | Presets list | - | missing | - | - |
+
+## Output templates tab: output maps list (middle column)
+
+| Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
+|---|---|---|---|---|---|
+| Output maps list of the selected template | Middle column | - | missing | - | #124 |
+| Create: Gray | Button row above the list: one grayscale slot | - | missing (model supports 1-component maps, crates/export/src/template.rs:44) | - | #124 |
+| Create: RGB | Button row: one RGB slot | - | missing | - | #124 |
+| Create: R+G+B | Button row: three grayscale slots | - | missing | - | #124 |
+| Create: RGB+A | Button row: RGB slot plus alpha slot | - | missing | - | #124 |
+| Create: R+G+B+A | Button row: four grayscale slots | - | missing | - | #124 |
+| Merge / split slots of a map (collapse when empty or same source) | Slot header of an output map | - | missing | - | - |
+| Remove an output map | Cross button on the map row | - | missing | - | #124 |
+| Map name field (file name pattern) | Text field on the map row | - | missing | - | #124 |
+| $ button (insert a keyword) | Beside the name field | - | missing | - | - |
+| Keyword $project | Name pattern: project file name | - | missing | - | - |
+| Keyword $mesh | Name pattern: mesh file name | - | missing (fixed naming mesh_set_suffix, crates/export/src/lib.rs:142) | - | #124 |
+| Keyword $textureSet | Name pattern: texture set / material name | - | missing | - | #124 |
+| Keyword $sceneMaterial | Name pattern: material name as in the mesh file | (unverified) | missing | - | - |
+| Keyword $udim | Name pattern: UV tile number | - | missing (suffix .1001 or per-tile folder is fixed, crates/export/src/lib.rs:146) | - | #124 |
+| Keyword $colorSpace | Name pattern: colour space of the map | - | missing | - | - |
+| "/" in the name creates sub-folders (groups in PSD) | Name pattern | - | missing | - | - |
+| Optional part in parentheses, e.g. (.$udim) | Name pattern | (unverified) | missing | - | - |
+| Map file format dropdown | First dropdown on the map row | - | missing (per-map format exists in the model, crates/export/src/template.rs:43) | - | #124 |
+| Map bit depth dropdown | Second dropdown on the map row | - | missing | - | #124 |
+| Channel slot (drop target) | One or more coloured slots per map | empty | missing | - | #124 |
+| Drag a source map from the right column onto a slot | Drag and drop | - | missing | - | #124 (picked from a dropdown, no drag) |
+| Drop menu: RGB channels | Popup after dropping on a slot | - | missing | - | #124 |
+| Drop menu: R channel | Popup after dropping | - | missing | - | #124 |
+| Drop menu: G channel | Popup after dropping | - | missing | - | #124 |
+| Drop menu: B channel | Popup after dropping | - | missing | - | #124 |
+| Drop menu: A channel (painted coverage) | Popup after dropping | - | missing | - | - |
+| Drop menu: Gray channel (grayscale conversion) | Popup after dropping | - | missing | - | #124 |
+| Slot colour cue (random colour per source, bar showing RGB / R / G / B / gray / alpha) | Slot button | - | missing | - | - |
+| Empty slot writes a default colour | Export behaviour | - | partial: Constant source, not editable in UI | crates/export/src/template.rs:17 | #124 |
+| Channel missing from a texture set writes its neutral default | Export behaviour | - | done | crates/export/src/lib.rs:219 | - |
+
+## Output templates tab: source map list (right column)
+
+Layout notes: three collapsible groups in this order: Input maps, Converted maps, Mesh maps (the doc page lists Mesh maps before Converted maps; the window shows Converted maps second). Recent versions group input maps by category for OpenPBR.
+
+| Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
+|---|---|---|---|---|---|
+| Input maps group (every texture set channel) | Right column | - | missing as a list (built-in templates read channels, crates/export/src/template.rs:12) | - | #124 |
+| Input maps: user channels listed as user_x | Right column | - | missing | - | #124 |
+| Input maps grouped by category (OpenPBR naming) | Right column | - | missing | - | - |
+| Converted map: Normal OpenGL | Right column | - | partial: used by built-in templates, not selectable | crates/export/src/template.rs:14 | #124 |
+| Converted map: Normal DirectX | Right column | - | partial: used by built-in templates and a global Normal maps override | crates/ui/src/dialogs.rs:363 | #124 |
+| Converted map: Mixed AO | Right column | - | partial: falls back to the baked AO when the channel is absent, no combination | crates/export/src/lib.rs:94 | - |
+| Converted map: Diffuse | Right column | - | missing | - | - |
+| Converted map: Specular | Right column | - | missing | - | - |
+| Converted map: Glossiness | Right column | - | partial: inverted roughness is used by the Unity templates, not selectable | crates/export/src/template.rs:12 | #124 |
+| Converted map: Unity4 Diffuse (deprecated) | Right column | - | missing | - | - |
+| Converted map: Unity4 Gloss (deprecated) | Right column | - | missing | - | - |
+| Converted map: Reflection | Right column | - | missing | - | - |
+| Converted map: 1/ior | Right column | - | missing | - | - |
+| Converted map: Glossiness squared | Right column | - | missing | - | - |
+| Converted map: f0 | Right column | - | missing | - | - |
+| Mesh map: Normal | Right column | - | partial: raw file via the Baked Mesh Maps section, cannot be packed | crates/ui/src/dialogs.rs:298 | #124 |
+| Mesh map: World space normal | Right column | - | partial: raw file only | crates/ui/src/dialogs.rs:298 | #124 |
+| Mesh map: ID | Right column | - | partial: raw file only | crates/ui/src/dialogs.rs:298 | #124 |
+| Mesh map: Ambient occlusion | Right column | - | partial: raw file only | crates/ui/src/dialogs.rs:298 | #124 |
+| Mesh map: Curvature | Right column | - | partial: raw file only | crates/ui/src/dialogs.rs:298 | #124 |
+| Mesh map: Position | Right column | - | partial: raw file only | crates/ui/src/dialogs.rs:298 | #124 |
+| Mesh map: Thickness | Right column | - | partial: raw file only | crates/ui/src/dialogs.rs:298 | #124 |
+| Mesh map: Height | Right column | - | partial: raw file only | crates/ui/src/dialogs.rs:298 | #124 |
+| Mesh map: Bent normals | Right column | - | partial: raw file only | crates/ui/src/dialogs.rs:298 | #124 |
+
+## List of exports tab
+
+| Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
+|---|---|---|---|---|---|
+| Exported files listed per texture set | Tab body | - | missing | - | - |
+| Export console (status and error messages) | Tab body | - | partial: one status-bar message with file count or error | crates/ui/src/dialogs.rs:287 | - |
+| Automatic switch to this tab when Export is pressed | Window behaviour | - | missing | - | - |
+| Per-file progress while exporting | Tab body | (unverified) | missing | - | - |
+
+## Predefined output templates (not editable)
+
+Layout notes: these sit at the top of the Output template dropdown on the Settings tab and do not appear in the Output templates tab.
+
+| Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
+|---|---|---|---|---|---|
+| 2D View | Output template dropdown | - | done | crates/export/src/template.rs:215 | - |
+| Document channels + Normal + AO (No Alpha) | Output template dropdown | - | missing | - | - |
+| Document channels + Normal + AO (With Alpha) | Output template dropdown | - | missing | - | - |
+| Sketchfab | Output template dropdown (maps plus upload) | - | partial: map set only (upload is Adobe/Sketchfab service) | crates/export/src/template.rs:237 | - |
+| Substance 3D Stager | Output template dropdown | - | n/a | - | - |
+| USDz (Apple AR) | Output template dropdown: JPG maps, PNG normal, .usdc and .usdz | - | partial: USDA with PNG maps through "Export model + textures", no usdc / usdz | crates/export/src/scene.rs:324 | - |
+| glTF PBR Metal Roughness | Output template dropdown: maps plus .gltf / .glb | - | partial: named "glTF 2.0"; scene file written by a separate button | crates/export/src/template.rs:132 | - |
+| glTF PBR Metal Roughness + Displacement texture (experimental) | Output template dropdown | - | missing | - | - |
+
+## Default output templates (editable copies)
+
+| Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
+|---|---|---|---|---|---|
+| Amazon Lumberyard | Output templates list | - | missing | - | - |
+| Arnold (AiStandard) | Output templates list | - | missing | - | - |
+| Arnold UDIM Legacy (AiStandard) | Output templates list | - | missing | - | - |
+| Blender (Principled BSDF) | Output templates list | - | missing | - | - |
+| Corona | Output templates list | - | missing | - | - |
+| CryEngine 3 | Output templates list | - | missing | - | - |
+| Dota 2 | Output templates list | - | missing | - | - |
+| Keyshot | Output templates list | - | missing | - | - |
+| Keyshot 9+ | Output templates list | - | missing | - | - |
+| Lens Studio | Output templates list | - | missing | - | - |
+| Maxwell (Metallic Roughness) | Output templates list | - | missing | - | - |
+| Maxwell (Specular Glossiness) | Output templates list | - | missing | - | - |
+| Mesh Maps | Output templates list: each baked map as its own file | - | partial: separate "Baked Mesh Maps" section, not a template | crates/ui/src/dialogs.rs:298 | - |
+| Non-PBR Specular Glossiness | Output templates list | - | missing | - | - |
+| PBR Metallic Roughness | Output templates list | - | done | crates/export/src/template.rs:72 | - |
+| PBR Metallic Roughness (Folder or PSD Groups) | Output templates list | - | missing | - | - |
+| PBR Specular Glossiness | Output templates list | - | missing | - | - |
+| PBR Specular Glossiness (converted from Metallic Roughness) | Output templates list | - | missing | - | - |
+| Redshift | Output templates list | - | missing | - | - |
+| Renderman (pxrDisney) | Output templates list | - | missing | - | - |
+| Renderman (pxrSurface) | Output templates list | - | missing | - | - |
+| Roblox (MaterialVariant) | Output templates list | - | missing | - | - |
+| Roblox (SurfaceAppearance) | Output templates list | - | done | crates/export/src/template.rs:222 | - |
+| Shade 3D | Output templates list | - | missing | - | - |
+| Spark AR Studio | Output templates list | - | missing | - | - |
+| Unity HD Render Pipeline (Metallic Standard) | Output templates list | - | partial: named "Unity HDRP (Mask Map)" | crates/export/src/template.rs:108 | - |
+| Unity HD Render Pipeline (Specular) | Output templates list | - | missing | - | - |
+| Unity Universal Render Pipeline (Metallic Standard) | Output templates list | - | partial: named "Unity URP (Metallic + Occlusion)" | crates/export/src/template.rs:152 | - |
+| Unity Universal Render Pipeline (Specular) | Output templates list | - | missing | - | - |
+| Unreal Engine (Packed) | Output templates list | - | partial: named "Unreal Engine (ORM packed)" | crates/export/src/template.rs:89 | - |
+| Unreal Engine SSS (Packed) | Output templates list | - | missing | - | - |
+| Vray Next (Metallic Roughness) | Output templates list | - | missing | - | - |
+| Vray Next (Specular Glossiness) | Output templates list | - | missing | - | - |
+| Vray UDIM Legacy (Metallic Roughness) | Output templates list | - | missing | - | - |
+
+## Export mesh
+
+Layout notes: a small separate window opened from the File menu, with a file-type choice and two radio options, each with one sub-checkbox.
+
+| Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
+|---|---|---|---|---|---|
+| Export mesh (menu entry) | File > Export mesh | - | partial: "Export model + textures" button inside the Export Textures window, always writes textures too | crates/ui/src/dialogs.rs:277 | - |
+| Mesh file format choice | Export mesh window / save dialog | not documented (USD confirmed; FBX, OBJ, glTF unverified) | partial: OBJ+MTL, glTF, GLB, USDA; no FBX | crates/export/src/scene.rs:19 | - |
+| Without displacement/tessellation | Export mesh window option | selected (unverified) | partial: only mode available | crates/export/src/scene.rs:398 | - |
+| Apply triangulation | Sub-option of Without displacement | off (unverified) | missing | - | - |
+| With displacement/tessellation | Export mesh window option | - | missing | - | - |
+| Recompute vertex normals | Sub-option of With displacement | off (unverified) | missing | - | - |
+| USD as mesh-only export format | Export mesh window | - | partial: USDA text with materials only | crates/export/src/scene.rs:324 | - |
+| glTF / GLB written with the glTF template (mesh + textures) | Export textures, glTF template | - | done | crates/export/src/scene.rs:292 | - |
+
+## Export from the layer stack
+
+| Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
+|---|---|---|---|---|---|
+| Export flattened group to files | Layer stack right-click on a layer or group | - | missing | - | - |
+| Export flattened: batch over a multi-selection | Same entry with several layers selected | - | missing | - | - |
+| Export flattened: folder picker | Dialog | - | missing | - | - |
+| Export flattened: file name pattern field | Dialog | $textureSet_$layerName_$srcMap(.$udim), remembered | missing | - | - |
+| Keyword $layerName | Flattened export pattern | - | missing | - | - |
+| Keyword $srcMap | Flattened export pattern | - | missing | - | - |
+| Export flattened: resolution from texture set, bit depth from channel | Fixed behaviour | - | missing | - | - |
+| Export flattened: padding fixed to 1 px | Fixed behaviour | 1 px | missing | - | - |
+| Export flattened: format by channel (EXR for height / normal, PNG otherwise) | Fixed behaviour | - | missing | - | - |
+| Export flattened: format choice when only a mask is exported | Dialog | - | missing | - | - |
+| Export mask to file | Right-click on a layer mask | (unverified label; named in release notes) | missing | - | - |
+
+## Export of the 2D view
+
+| Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
+|---|---|---|---|---|---|
+| 2D View predefined template (writes what the 2D view currently shows) | Export textures > Output template | - | done (also File > Export 2D view) | crates/ui/src/app.rs:1140 | - |
+| 2D View export follows the chosen file type, size and padding | Export textures settings | - | partial: file format and padding only | crates/ui/src/dialogs.rs:243 | - |

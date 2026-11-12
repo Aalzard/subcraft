@@ -64,6 +64,17 @@ pub struct Selection {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LayerTarget { Content, Mask }
 
+/// What the Clone tool's source does between strokes.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum CloneSourceMode {
+    /// The source keeps its distance to the brush: each stroke continues where the last one left
+    /// the copy (the source follows the brush).
+    #[default]
+    Relative,
+    /// Every stroke starts copying from the point that was set as the source.
+    Absolute,
+}
+
 /// Current brush configuration (not undoable).
 #[derive(Clone, Debug)]
 pub struct BrushState {
@@ -79,6 +90,8 @@ pub struct BrushState {
     pub stencil: Option<Arc<subcraft_paint::Stencil>>,
     /// Temporarily ignore the stencil (held N key), without removing it.
     pub stencil_bypass: bool,
+    /// Clone tool: whether the source follows the brush or returns to where it was set.
+    pub clone_mode: CloneSourceMode,
 }
 
 /// A surface point under the cursor.
@@ -225,6 +238,7 @@ impl Session {
                 target: PaintTarget::Content,
                 stencil: None,
                 stencil_bypass: false,
+                clone_mode: CloneSourceMode::Relative,
             },
             stroke: None,
             clone_source: None,
@@ -783,9 +797,16 @@ impl Session {
         })
     }
 
-    /// World radius of the current brush.
+    /// World radius of the current brush in Object size space (see [`Session::brush_radius_in`]).
     pub fn brush_radius(&self) -> f32 {
         self.brush.settings.radius(self.scene.mesh.bounds.diagonal())
+    }
+
+    /// World radius of the current brush in its size space: `pixels_per_unit` and
+    /// `viewport_height` describe the view under the cursor, `uv_per_unit` the painted texture
+    /// set's texel density (0 = unknown; that space then uses the object size).
+    pub fn brush_radius_in(&self, pixels_per_unit: f32, viewport_height: f32, uv_per_unit: f32) -> f32 {
+        self.brush.settings.radius_in(&subcraft_paint::SizeContext { diagonal: self.scene.mesh.bounds.diagonal(), pixels_per_unit, viewport_height, uv_per_unit })
     }
 
     /// Surface position corresponding to a texture UV, for displaying editable path overlays.
@@ -996,7 +1017,7 @@ impl Session {
                 let key = format!("content-effect:{layer}:{}", effect.id);
                 self.edit_layer_set(layer, "Effect", Some(key), |ts| {
                     let l = Self::layer_mut(ts, layer)?;
-                    if l.is_folder() && !effect.kind.is_adjustment() { return Err(CommandError::Invalid("Folders support adjustment effects only".into())); }
+                    if l.is_folder() && !effect.kind.is_adjustment() && !matches!(effect.kind, ContentEffectKind::Anchor) { return Err(CommandError::Invalid("Folders support adjustment effects only".into())); }
                     let slot = l.content_effects.iter_mut().find(|e| e.id == effect.id).ok_or_else(|| CommandError::Invalid("No such effect".into()))?;
                     *slot = Arc::new(effect);
                     Ok(())
@@ -1146,13 +1167,17 @@ impl Session {
                     ts.remove(id).map_err(|_| CommandError::LayerNotFound)?;
                     Ok(loc)
                 })?;
-                if self.selection.layer == Some(id) {
+                // The selected layer may have been inside the deleted folder.
+                if self.selection.layer.is_some_and(|l| l == id || self.selected_texture_set().find(l).is_none()) {
                     self.selection.layer = self.neighbour_after_removal(loc);
                 }
             }
             Command::DuplicateLayer(id) => {
                 let copy = self.edit_layer_set(id, "Duplicate Layer", None, |ts| ts.duplicate(id).map_err(|_| CommandError::LayerNotFound))?;
-                self.selection.layer = Some(copy);
+                // A copy in another texture set cannot be the selection without switching sets.
+                if self.selected_texture_set().find(copy).is_some() {
+                    self.selection.layer = Some(copy);
+                }
             }
             Command::DeleteLayers(layers) => {
                 let set = self.common_set(&layers)?;
@@ -1190,7 +1215,9 @@ impl Session {
                     }
                 }
                 self.commit("Duplicate Layers", None);
-                self.selection.layer = last.or(self.selection.layer);
+                if set == self.selection.texture_set {
+                    self.selection.layer = last.or(self.selection.layer);
+                }
             }
             Command::SetLayersVisible { layers, visible } => {
                 let set = self.common_set(&layers)?;
@@ -1229,7 +1256,7 @@ impl Session {
                     let res = ts.resolution;
                     let l = Self::layer_mut(ts, layer)?;
                     if content {
-                        if l.is_folder() && clip.content.iter().any(|e| !e.kind.is_adjustment()) {
+                        if l.is_folder() && clip.content.iter().any(|e| !e.kind.is_adjustment() && !matches!(e.kind, ContentEffectKind::Anchor)) {
                             return Err(CommandError::Invalid("Folders support adjustment effects only".into()));
                         }
                         l.content_effects.extend(clip.instantiate_content(res).into_iter().map(Arc::new));
@@ -1336,6 +1363,8 @@ impl Session {
                 self.edit_layer_set(layer, "Opacity", Some(key), |ts| {
                     let l = Self::layer_mut(ts, layer)?;
                     let b = l.blend.get_mut(&channel).ok_or(CommandError::Invalid("channel not blended by this layer".into()))?;
+                    // `clamp` keeps NaN, and a NaN in the document is saved as `null`: a file that never opens again.
+                    if !opacity.is_finite() { return Err(CommandError::Invalid("Opacity must be a number".into())); }
                     b.opacity = opacity.clamp(0.0, 1.0);
                     Ok(())
                 })?;
@@ -1344,6 +1373,7 @@ impl Session {
                 let key = format!("fill:{layer}:{channel:?}");
                 self.edit_layer_set(layer, "Fill", Some(key), |ts| {
                     let LayerContent::Fill(f) = &mut Self::layer_mut(ts, layer)?.content else { return Err(CommandError::NotAFillLayer) };
+                    if !fill.strength.is_finite() { return Err(CommandError::Invalid("Strength must be a number".into())); }
                     f.channels.insert(channel, fill);
                     Ok(())
                 })?;
@@ -1593,7 +1623,7 @@ impl Session {
             Action::PenTool | Action::PolygonFillTool | Action::SmudgeTool | Action::CloneTool | Action::EyedropperTool | Action::ResetCamera
             | Action::PerspectiveCamera | Action::OrthographicCamera | Action::NextChannel | Action::PrevChannel | Action::DisplayMaterial
             | Action::NewProject | Action::Quit | Action::Save | Action::SaveAs | Action::OpenProject | Action::Export | Action::Bake
-            | Action::TogglePathTracing | Action::SelectAllLayers => return Ok(false),
+            | Action::TogglePathTracing | Action::PaintingMode | Action::SelectAllLayers => return Ok(false),
         }
         Ok(true)
     }
@@ -1608,7 +1638,7 @@ impl Session {
         if self.brush.target != PaintTarget::Content || self.brush.mode == StrokeMode::Erase {
             return None;
         }
-        let paintable = self.selected_layer().is_some_and(|l| matches!(&l.content, subcraft_doc::LayerContent::Paint(p) if p.path.is_none()));
+        let paintable = self.selected_layer().is_some_and(|l| matches!(&l.content, subcraft_doc::LayerContent::Paint(p) if p.path.is_none() && p.text.is_none()));
         if paintable { return None; }
         self.execute(Command::AddLayer(NewLayer::Paint)).ok()?;
         self.selected_layer().map(|l| l.name.clone())
@@ -1624,6 +1654,10 @@ impl Session {
         let stamp = self.stroke_stamp();
         if let Some((s, _)) = &stamp {
             self.enable_layer_channel(layer, s.kind.channel());
+        }
+        // Absolute clone source: the first dab of every stroke copies from the source point again.
+        if self.brush.mode == StrokeMode::Clone && self.brush.clone_mode == CloneSourceMode::Absolute && self.clone_source.is_some() {
+            self.clone_offset = None;
         }
         let ts = self.selected_texture_set();
         let b = &self.brush;
@@ -1750,7 +1784,7 @@ impl Session {
 
     /// Brush radius in UV units for the selected texture set (matches [`Session::stroke_to_uv`]).
     pub fn brush_radius_uv(&self, uv_per_unit: f32) -> f32 {
-        self.brush_radius() * uv_per_unit
+        self.brush_radius_in(0.0, 0.0, uv_per_unit) * uv_per_unit
     }
 
     /// Polygon fill on the selected layer at a screen position (one history entry).
@@ -2209,6 +2243,7 @@ fn same_composite_inputs(a: &TextureSet, b: &TextureSet) -> bool {
     a.id == b.id
         && a.material_slot == b.material_slot
         && a.resolution == b.resolution
+        && a.albedo_filter == b.albedo_filter
         && a.channels == b.channels
         && a.layers.len() == b.layers.len()
         && a.layers.iter().zip(&b.layers).all(|(x, y)| Arc::ptr_eq(x, y))

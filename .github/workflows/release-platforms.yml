@@ -1,6 +1,7 @@
 name: Release (experimental platforms)
 # macOS (universal: Apple Silicon + Intel), Linux aarch64 and Windows arm64 packages. These are built
 # by GitHub-hosted runners with no signing or notarization and are published as experimental.
+# Each published file gets a free Sigstore build provenance attestation (gh attestation verify).
 # The main Release workflow (release.yml) still owns Windows x64 and Linux x86_64.
 on:
   release:
@@ -12,7 +13,7 @@ on:
         required: false
         default: ''
   pull_request:
-    paths: ['.github/workflows/release-platforms.yml', 'scripts/build-macos.sh', 'scripts/build-linux.sh', 'scripts/build-windows.ps1', 'packaging/**']
+    paths: ['.github/workflows/release-platforms.yml', 'scripts/build-macos.sh', 'scripts/build-linux.sh', 'scripts/build-windows.ps1', 'scripts/ci-smoke-start.*', 'scripts/check-linux-binary.sh', 'packaging/**']
 permissions:
   contents: read
 env:
@@ -24,6 +25,10 @@ jobs:
   macos:
     name: macOS universal (experimental)
     runs-on: macos-15
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -45,10 +50,31 @@ jobs:
           plutil -lint "$app/Contents/Info.plist"
           codesign --verify --deep --strict "$app"
           "$app/Contents/MacOS/subcraft" --help
+      # The bundle must open a window and draw on this Apple Silicon VM (Metal on the "Apple
+      # Paravirtual device"). Enforced: it passed with 0.3.4 (issue #85).
+      - name: Start the app (window + screenshot)
+        run: |
+          app=$(ls -d dist/SubCraft-*/SubCraft.app)
+          ./scripts/ci-smoke-start.sh "$app/Contents/MacOS/subcraft" "$RUNNER_TEMP/smoke"
+      - name: Upload smoke-start screenshot and logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: smoke-macos
+          path: ${{ runner.temp }}/smoke
+          if-no-files-found: ignore
       - name: Checksums
         run: |
           cd dist
           shasum -a 256 SubCraft-*-macos-universal-experimental.dmg SubCraft-*-macos-universal-experimental.zip > SHA256SUMS-macos.txt
+      - name: Attest macOS packages
+        if: env.PUBLISH == 'true'
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: |
+            dist/*.dmg
+            dist/*.zip
+            dist/SHA256SUMS-macos.txt
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: SubCraft-experimental-macos-universal
@@ -60,6 +86,10 @@ jobs:
   linux-arm64:
     name: Linux aarch64 (experimental)
     runs-on: ubuntu-22.04-arm
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -77,10 +107,30 @@ jobs:
         run: |
           tar -xzf dist/*.tar.gz -C "$RUNNER_TEMP"
           "$RUNNER_TEMP"/SubCraft-*/subcraft --help
+          ./scripts/check-linux-binary.sh "$RUNNER_TEMP"/SubCraft-*/subcraft
+      # Enforced: passed on ubuntu-22.04-arm (lavapipe) in the first run.
+      - name: Start headless (Xvfb, software rendering)
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends xvfb mesa-vulkan-drivers libegl1 libgl1-mesa-dri libxkbcommon-x11-0
+          ./scripts/ci-smoke-start.sh "$(ls "$RUNNER_TEMP"/SubCraft-*/subcraft)" "$RUNNER_TEMP/smoke"
+      - name: Upload smoke-start screenshot and logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: smoke-linux-aarch64
+          path: ${{ runner.temp }}/smoke
+          if-no-files-found: ignore
       - name: Checksums
         run: |
           cd dist
           sha256sum SubCraft-*-linux-aarch64.tar.gz > SHA256SUMS-linux-aarch64.txt
+      - name: Attest Linux aarch64 packages
+        if: env.PUBLISH == 'true'
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: |
+            dist/*.tar.gz
+            dist/SHA256SUMS-linux-aarch64.txt
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: SubCraft-experimental-linux-aarch64
@@ -91,6 +141,10 @@ jobs:
   windows-arm64:
     name: Windows arm64 (experimental)
     runs-on: windows-11-arm
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -116,12 +170,48 @@ jobs:
           $pe = [BitConverter]::ToInt32($bytes, 0x3C)
           $machine = [BitConverter]::ToUInt16($bytes, $pe + 4)
           if ($machine -ne 0xAA64) { throw ('SubCraft.exe is not an ARM64 binary (machine 0x{0:X})' -f $machine) }
+      # Non-blocking: the first run crashed with an access violation (0xC0000005) right after
+      # "opening window with DirectX 12 / Microsoft Basic Render Driver"; the probe child had
+      # created a device there successfully. Under investigation; enforce once it passes.
+      - name: Start headless (WARP)
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem "$env:RUNNER_TEMP/arm64" -Recurse -Filter SubCraft.exe | Select-Object -First 1
+          # A native crash leaves no crash report of ours: keep a minidump (runner only).
+          $dumps = "$env:RUNNER_TEMP\smoke\dumps"
+          New-Item -ItemType Directory -Force $dumps | Out-Null
+          $key = 'HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\SubCraft.exe'
+          New-Item -Force $key | Out-Null
+          Set-ItemProperty $key DumpFolder $dumps
+          Set-ItemProperty $key DumpType 1
+          ./scripts/ci-smoke-start.ps1 -Executable $exe.FullName -OutDir "$env:RUNNER_TEMP\smoke"
+      - name: Faulting module of a crash (Windows event log)
+        if: always()
+        shell: pwsh
+        run: |
+          Get-WinEvent -FilterHashtable @{ LogName = 'Application'; Id = 1000 } -MaxEvents 20 -ErrorAction SilentlyContinue |
+            Where-Object Message -match '(?i)subcraft' | ForEach-Object { $_.Message; '----' }
+      - name: Upload smoke-start screenshot and logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: smoke-windows-arm64
+          path: ${{ runner.temp }}\smoke
+          if-no-files-found: ignore
       - name: Checksums
         shell: pwsh
         run: |
           Get-ChildItem dist/SubCraft-*-windows-arm64.zip | ForEach-Object {
             '{0}  {1}' -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant(), $_.Name
           } | Set-Content -Encoding ascii dist/SHA256SUMS-windows-arm64.txt
+      - name: Attest Windows arm64 packages
+        if: env.PUBLISH == 'true'
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: |
+            dist/*.zip
+            dist/SHA256SUMS-windows-arm64.txt
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: SubCraft-experimental-windows-arm64
@@ -134,6 +224,10 @@ jobs:
     needs: [macos, linux-arm64, windows-arm64]
     runs-on: ubuntu-22.04
     environment: release-publish
+    # release.yml edits the same release notes; never let the two edits interleave.
+    concurrency:
+      group: release-notes-${{ github.event.release.tag_name || inputs.tag }}
+      cancel-in-progress: false
     permissions:
       contents: write
     steps:
@@ -151,6 +245,6 @@ jobs:
           # Mark the new packages as experimental in the release notes (once).
           notes="$(gh release view "$TAG" --repo "${{ github.repository }}" --json body --jq .body)"
           case "$notes" in *"Experimental platforms"*) ;; *)
-            printf '%s\n\n## Experimental platforms\n\nThese packages are built automatically, unsigned and untested on real hardware by the maintainers: `macos-universal-experimental` (Apple Silicon + Intel; not notarized, see READ-ME-FIRST.txt inside), `linux-aarch64` and `windows-arm64`. Please report problems in the issue tracker.\n' "$notes" > "$RUNNER_TEMP/notes.md"
+            printf '%s\n\n## Experimental platforms\n\nThese packages are built automatically, unsigned and untested on real hardware by the maintainers: `macos-universal-experimental` (Apple Silicon + Intel; not notarized, see READ-ME-FIRST.txt inside), `linux-aarch64` and `windows-arm64`. Each file has a build provenance attestation: `gh attestation verify <file> --repo Aalzard/subcraft`. Please report problems in the issue tracker.\n' "$notes" > "$RUNNER_TEMP/notes.md"
             gh release edit "$TAG" --repo "${{ github.repository }}" --notes-file "$RUNNER_TEMP/notes.md" ;;
           esac
