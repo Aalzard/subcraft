@@ -105,6 +105,11 @@ impl Exchange {
     /// One check, regardless of time.
     pub fn check(&mut self, session: &mut Session) -> Vec<PollEvent> {
         let mut events = Vec::new();
+        // Replacing the layers would commit a partially drawn stroke, and the save would then be
+        // marked applied although it was refused; it is picked up once the stroke is over.
+        if session.is_stroking() {
+            return events;
+        }
         for i in 0..self.files.len() {
             let current = stamp(&self.files[i].path);
             let file = &mut self.files[i];
