@@ -387,6 +387,15 @@ impl<'a> Graph<'a> {
             }
         }
     }
+    /// For a reference at `site` in `owner`'s mask: `Some(node)` when it reads an anchor of that
+    /// same mask (`Some(None)` if that anchor's step is not built yet), `None` when the anchor is
+    /// elsewhere.
+    fn own_mask_anchor(&self, site: subcraft_doc::RefSite, owner: LayerId, steps: &[usize]) -> Option<Option<(usize, Option<ChannelKind>)>> {
+        let anchors = self.anchors.as_ref()?;
+        let input = anchors.index.reference(site).filter(|r| r.status.is_ok())?.input;
+        let info = anchors.index.anchor(input.anchor)?;
+        (info.layer == owner && info.domain == subcraft_doc::AnchorDomain::Mask).then(|| steps.get(info.index).map(|&node| (node, None)))
+    }
     /// A layer's own content chain for `kind` on a transparent base, built once and shared.
     fn isolated_content(&mut self, layer: &'a Layer, kind: ChannelKind) -> Vec<usize> {
         if let Some(steps) = self.anchors.as_ref().and_then(|a| a.content.get(&(layer.id, kind))) {
@@ -601,9 +610,11 @@ impl<'a> Graph<'a> {
             return None;
         }
         if filter.is_contour() {
+            // QA 2026-11: the Mask Outline shape kept its full-resolution band in a scaled
+            // composite (cut off where the read area ended, or half as thick at scale 2).
             return Some(self.push(Node::Contour {
                 input,
-                filter,
+                filter: filter.scaled(self.radius_scale),
                 kind,
                 radius: radius * self.radius_scale,
             }));
@@ -753,7 +764,15 @@ impl<'a> Graph<'a> {
         for effect in mask.effects.iter() {
             if effect.visible && effect.opacity > 0.0 && !matches!(effect.kind, MaskEffectKind::Anchor) {
                 let anchor = match (record, subcraft_doc::anchor::mask_effect_input(&effect.kind)) {
-                    (Some(layer), Some(_)) => self.anchor_node(subcraft_doc::RefSite::Mask { layer: layer.id, effect: effect.id }),
+                    (Some(layer), Some(_)) => {
+                        let site = subcraft_doc::RefSite::Mask { layer: layer.id, effect: effect.id };
+                        // An anchor earlier in this same mask: its step is already built here.
+                        // Going through `anchor_node` would build this mask again, endlessly.
+                        match self.own_mask_anchor(site, layer.id, steps.as_deref().unwrap_or(&[])) {
+                            Some(local) => local,
+                            None => self.anchor_node(site),
+                        }
+                    }
                     _ => None,
                 };
                 // An unresolved Anchor Reference contributes nothing: no node at all.

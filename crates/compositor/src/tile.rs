@@ -320,6 +320,19 @@ fn apply_content_effects(effects: &[Arc<ContentEffect>], acc: &Acc, content: &mu
                 continue;
             }
             ContentEffectKind::Anchor => continue,
+            ContentEffectKind::Filter { filter: subcraft_doc::Filter::GradientDynamic { source, vertical, position }, .. } => {
+                if !effect.applies_to(kind) { continue; }
+                let Some(bmp) = tc.sample.resources.bitmap(*source) else { continue };
+                for px in content.iter_mut() {
+                    let mut dst = [px[0], px[1], px[2], 1.0];
+                    let t = if kind.is_color() { 0.2126 * px[0] + 0.7152 * px[1] + 0.0722 * px[2] } else { px[0] };
+                    let c = crate::util::gradient_dynamic(bmp, t, *vertical, *position, kind.is_color());
+                    let value = if kind.is_color() { c } else { [0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; 3] };
+                    composite(&mut dst, value, blend.opacity, mode, acc.target);
+                    px[..3].copy_from_slice(&dst[..3]);
+                }
+                continue;
+            }
             ContentEffectKind::Generator(g) => {
                 // Gray data has no meaning as a tangent-space normal.
                 if kind == ChannelKind::Normal {

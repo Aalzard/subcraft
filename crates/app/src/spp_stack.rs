@@ -781,6 +781,7 @@ impl<'a, R: Read + Seek> Rebuilder<'a, R> {
                 grain: 0.0,
                 // Calibrated against Painter with the organic breakup; keep it.
                 grunge_map: false,
+                custom_grunge: None,
             };
             (c != subcraft_doc::PainterControls::default()).then_some(c)
         };
