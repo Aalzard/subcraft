@@ -16,6 +16,7 @@ pub mod mask;
 pub mod pen;
 pub mod resources;
 pub mod settings;
+pub mod shader;
 pub mod text;
 pub mod texture_set;
 
@@ -33,4 +34,5 @@ pub use pen::{PenAnchor, PenPath};
 pub use resources::{Resource, ResourceKind, ResourceStore};
 pub use text::TextDecal;
 pub use settings::{NormalFormat, ProjectSettings};
+pub use shader::{MAIN_SHADER, ShaderAssignment, ShaderInstance, ShaderInstanceId, ShaderParams};
 pub use texture_set::{AlphaMode, AlphaSettings, ChannelDef, ChannelFormat, LayerLocation, LayerOpError, RESOLUTIONS, TextureSet};
