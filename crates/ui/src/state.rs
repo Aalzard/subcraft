@@ -227,6 +227,8 @@ pub struct UiState {
     pub bake: crate::dialogs::BakeUi,
     /// A Painter project being opened in the background.
     pub spp_import: Option<crate::spp_import::SppImportUi>,
+    /// The reconstruction notice after a Painter import finished: the file name.
+    pub spp_notice: Option<String>,
     /// Running Edit in PhotoCraft exchange (ADR-0040).
     pub photocraft: Option<subcraft_app::photocraft::Exchange>,
     /// Key of the polygon wireframe currently uploaded to the renderer.
@@ -384,6 +386,7 @@ impl UiState {
             last_title: String::new(),
             bake: Default::default(),
             spp_import: None,
+            spp_notice: None,
             photocraft: None,
             wire_uploaded: None,
             symmetry_uploaded: None,
@@ -545,6 +548,8 @@ impl UiState {
         self.painting = false;
         self.last_stroke_point = None;
         self.recovery.autosaver.session_replaced();
+        // A pivot on the old model swung the next orbit around empty space.
+        self.orbit_pivot = None;
     }
 
     /// The session's mesh was replaced in place (File > Reload mesh): drop everything derived
@@ -562,6 +567,7 @@ impl UiState {
         self.uploaded_maps.clear();
         self.painting = false;
         self.last_stroke_point = None;
+        self.orbit_pivot = None;
     }
 
     /// One Shelf click makes the brush usable at once: the app applies it, and Fill, Eyedropper

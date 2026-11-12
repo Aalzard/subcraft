@@ -40,7 +40,7 @@ pub use gpu_mesh::GpuMesh;
 pub use grid::{GridParams, grid_step};
 pub use subcraft_doc::display::ChannelComponent;
 pub use material::{ChannelTexture, GpuMaterial, SHADED_CHANNELS};
-pub use pathtrace::{Denoiser, PathTraceScene, PathTraceSettings, PathTraceStatus};
+pub use pathtrace::{Denoiser, FIREFLY_CLAMP, GroundSettings, PathTraceScene, PathTraceSettings, PathTraceStatus, render_done};
 pub use grade::Grade;
 pub use post::{GlareMode, PostParams, ToneMap};
 pub use preview::{PreviewPass, PreviewTarget};
