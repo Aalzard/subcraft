@@ -57,7 +57,9 @@ ufbx = "0.11"
 openusd = { version = "0.8", default-features = false }
 openusd-schemas = { version = "0.8", default-features = false, features = ["geom"] }
 mikktspace = "0.3"
-image = { version = "0.25", default-features = false, features = ["png", "jpeg", "tga", "tiff", "hdr", "exr", "bmp"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "tga", "tiff", "hdr", "exr", "bmp", "webp"] }
+# Half-float EXR output (the image crate writes 32-bit float only); same version image uses.
+exr = { version = "1.74", default-features = false }
 zip = { version = "9", default-features = false, features = ["deflate"] }
 
 # ui / gpu

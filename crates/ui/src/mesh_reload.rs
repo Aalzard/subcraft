@@ -22,6 +22,8 @@ pub struct MeshReloadUi {
     pub error: Option<String>,
     /// Scripted runs (`--reload-mesh`): reload with this mode as soon as the check finishes.
     pub auto: Option<ReloadMode>,
+    /// Replace the project's cameras with the reloaded file's (Painter: off unless toggled).
+    pub import_cameras: bool,
 }
 
 impl MeshReloadUi {
@@ -86,7 +88,15 @@ pub fn poll(state: &mut UiState, ctx: &egui::Context, now: f64) {
             match result.and_then(|out| state.session.finish_mesh_reload(out)) {
                 Ok(report) => {
                     state.mesh_reloaded();
-                    state.set_status(report.summary(), now);
+                    let mut status = report.summary();
+                    if state.mesh_reload.import_cameras {
+                        let path = std::path::PathBuf::from(state.mesh_reload.path.trim());
+                        match state.session.import_mesh_cameras(&path) {
+                            Ok(n) => status.push_str(&format!(" · {n} camera{}", if n == 1 { "" } else { "s" })),
+                            Err(e) => status.push_str(&format!(" · {e}")),
+                        }
+                    }
+                    state.set_status(status, now);
                     let r = &mut state.mesh_reload;
                     r.open = false;
                     r.prepared = None;
@@ -155,6 +165,7 @@ pub fn window(state: &mut UiState, ctx: &egui::Context, now: f64) {
                 ui.radio_value(&mut mode, ReloadMode::KeepUvs, "Keep UVs: the UV layout did not change (layers stay exactly as they are)");
                 ui.radio_value(&mut mode, ReloadMode::Reproject, "Reproject: the UVs changed (move paint through the surface onto the new layout)");
                 r.mode = Some(mode);
+                ui.checkbox(&mut r.import_cameras, "Import cameras").on_hover_text("Replace the project's cameras with the ones stored in this model file (glTF, GLB or FBX)");
             });
             ui.add_space(6.0);
             hint(ui, "Reloading cannot be undone: the undo history is cleared. Save first to keep this version. Baked mesh maps are kept but marked for rebaking.");

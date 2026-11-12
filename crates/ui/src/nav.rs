@@ -3,6 +3,8 @@
 //! Everything here is pure (no egui types) so the mapping and the takeover rules are unit-tested.
 //! `viewport.rs` only feeds in the held buttons / modifiers and the pointer position.
 
+use std::collections::BTreeMap;
+
 use glam::Vec2;
 use serde::{Deserialize, Serialize};
 
@@ -115,6 +117,198 @@ pub fn mode_for(scheme: NavScheme, i: NavInput) -> NavMode {
     }
 }
 
+/// A mouse button of a rebindable camera gesture.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum MouseButton {
+    Left,
+    Middle,
+    Right,
+}
+
+impl MouseButton {
+    pub const ALL: [MouseButton; 3] = [MouseButton::Left, MouseButton::Middle, MouseButton::Right];
+    pub fn label(self) -> &'static str {
+        match self {
+            MouseButton::Left => "LMB",
+            MouseButton::Middle => "MMB",
+            MouseButton::Right => "RMB",
+        }
+    }
+}
+
+/// One mouse button with modifiers, e.g. Alt+LMB (Painter lists these among its editable shortcuts).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct MouseCombo {
+    pub button: MouseButton,
+    pub ctrl: bool,
+    pub shift: bool,
+    pub alt: bool,
+}
+
+impl MouseCombo {
+    pub const fn new(ctrl: bool, shift: bool, alt: bool, button: MouseButton) -> Self {
+        Self { button, ctrl, shift, alt }
+    }
+    pub fn label(&self) -> String {
+        let mut s = String::new();
+        for (on, name) in [(self.ctrl, "Ctrl+"), (self.shift, "Shift+"), (self.alt, "Alt+")] {
+            if on {
+                s.push_str(name);
+            }
+        }
+        s.push_str(self.button.label());
+        s
+    }
+    /// Reads [`MouseCombo::label`] back.
+    pub fn parse(s: &str) -> Option<Self> {
+        let mut c = MouseCombo::new(false, false, false, MouseButton::Left);
+        let mut parts: Vec<&str> = s.trim().split('+').collect();
+        let button = parts.pop()?;
+        c.button = MouseButton::ALL.into_iter().find(|b| b.label().eq_ignore_ascii_case(button))?;
+        for p in parts {
+            match p.to_ascii_lowercase().as_str() {
+                "ctrl" => c.ctrl = true,
+                "shift" => c.shift = true,
+                "alt" => c.alt = true,
+                _ => return None,
+            }
+        }
+        Some(c)
+    }
+    /// The combination held, when exactly one mouse button is down.
+    pub fn of(i: NavInput) -> Option<Self> {
+        let button = match (i.primary, i.middle, i.secondary) {
+            (true, false, false) => MouseButton::Left,
+            (false, true, false) => MouseButton::Middle,
+            (false, false, true) => MouseButton::Right,
+            _ => return None,
+        };
+        Some(MouseCombo::new(i.ctrl, i.shift, i.alt, button))
+    }
+}
+
+/// The camera gestures that can be rebound (Painter navigation), with their names.
+pub const MOUSE_ACTIONS: [(NavMode, &str); 6] = [
+    (NavMode::Orbit, "Camera rotate"),
+    (NavMode::OrbitSnap, "Camera snap rotate"),
+    (NavMode::Pan, "Camera translate"),
+    (NavMode::Zoom, "Camera zoom"),
+    (NavMode::Environment, "Rotate environment"),
+    (NavMode::Light, "Rotate the key light"),
+];
+
+/// The Painter-navigation combinations of a gesture (what [`mode_for`] does without rebinds).
+pub fn default_mouse(mode: NavMode) -> &'static [MouseCombo] {
+    use MouseButton::*;
+    const ORBIT: &[MouseCombo] = &[MouseCombo::new(false, false, true, Left), MouseCombo::new(false, false, false, Right)];
+    const SNAP: &[MouseCombo] = &[MouseCombo::new(false, true, true, Left)];
+    const PAN: &[MouseCombo] = &[MouseCombo::new(false, false, false, Middle), MouseCombo::new(false, false, true, Middle), MouseCombo::new(true, false, true, Left)];
+    const ZOOM: &[MouseCombo] = &[MouseCombo::new(false, false, true, Right)];
+    const ENV: &[MouseCombo] = &[MouseCombo::new(false, true, false, Right)];
+    const LIGHT: &[MouseCombo] = &[MouseCombo::new(false, true, false, Middle)];
+    match mode {
+        NavMode::Orbit => ORBIT,
+        NavMode::OrbitSnap => SNAP,
+        NavMode::Pan => PAN,
+        NavMode::Zoom => ZOOM,
+        NavMode::Environment => ENV,
+        NavMode::Light => LIGHT,
+        NavMode::None => &[],
+    }
+}
+
+fn mode_id(mode: NavMode) -> String {
+    format!("{mode:?}")
+}
+
+/// Camera gestures the user rebound (Painter navigation only); saved by name, unknown names skipped.
+/// Entries stay sorted by name.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(from = "BTreeMap<String, Vec<String>>", into = "BTreeMap<String, Vec<String>>")]
+pub struct MouseBindings {
+    entries: Vec<(NavMode, Vec<MouseCombo>)>,
+}
+
+impl From<BTreeMap<String, Vec<String>>> for MouseBindings {
+    fn from(map: BTreeMap<String, Vec<String>>) -> Self {
+        let mut b = MouseBindings::default();
+        let mut seen: Vec<MouseCombo> = Vec::new();
+        for (id, list) in map {
+            let Some(mode) = MOUSE_ACTIONS.iter().map(|(m, _)| *m).find(|m| mode_id(*m) == id) else { continue };
+            let combos = list
+                .iter()
+                .filter_map(|s| MouseCombo::parse(s))
+                .filter(|c| if seen.contains(c) { false } else { seen.push(*c); true })
+                .collect();
+            b.entries.push((mode, combos));
+        }
+        b
+    }
+}
+
+impl From<MouseBindings> for BTreeMap<String, Vec<String>> {
+    fn from(b: MouseBindings) -> Self {
+        b.entries.into_iter().map(|(m, l)| (mode_id(m), l.iter().map(MouseCombo::label).collect())).collect()
+    }
+}
+
+impl MouseBindings {
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+    pub fn is_custom(&self, mode: NavMode) -> bool {
+        self.entries.iter().any(|(m, _)| *m == mode)
+    }
+    fn owner(&self, c: MouseCombo) -> Option<NavMode> {
+        self.entries.iter().find(|(_, l)| l.contains(&c)).map(|(m, _)| *m)
+    }
+    /// The combinations of `mode`: the user's when rebound, else Painter's minus the ones the
+    /// user gave to another gesture.
+    pub fn combos(&self, mode: NavMode) -> Vec<MouseCombo> {
+        match self.entries.iter().find(|(m, _)| *m == mode) {
+            Some((_, l)) => l.clone(),
+            None => default_mouse(mode).iter().copied().filter(|c| self.owner(*c).is_none()).collect(),
+        }
+    }
+    /// Replace every combination of `mode` by `combo`; returns the gesture that had it.
+    pub fn rebind(&mut self, mode: NavMode, combo: MouseCombo) -> Option<NavMode> {
+        let before = self
+            .owner(combo)
+            .or_else(|| MOUSE_ACTIONS.iter().map(|(m, _)| *m).find(|m| !self.is_custom(*m) && default_mouse(*m).contains(&combo)))
+            .filter(|m| *m != mode);
+        for (_, l) in &mut self.entries {
+            l.retain(|c| *c != combo);
+        }
+        self.entries.retain(|(m, _)| *m != mode);
+        // Kept sorted by name, as a saved file reads back, so equal bindings compare equal.
+        let id = mode_id(mode);
+        let at = self.entries.partition_point(|(m, _)| mode_id(*m) < id);
+        self.entries.insert(at, (mode, vec![combo]));
+        before
+    }
+    pub fn reset(&mut self, mode: NavMode) {
+        self.entries.retain(|(m, _)| *m != mode);
+    }
+    pub fn reset_all(&mut self) {
+        self.entries.clear();
+    }
+}
+
+/// [`mode_for`] with the user's rebinds: a rebound combination wins; a gesture the user rebound
+/// no longer answers to its old combinations. Rebinds apply to Painter navigation only.
+pub fn mode_with(scheme: NavScheme, bindings: &MouseBindings, i: NavInput) -> NavMode {
+    if scheme != NavScheme::Painter || bindings.is_empty() {
+        return mode_for(scheme, i);
+    }
+    if let Some(mode) = MouseCombo::of(i).and_then(|c| bindings.owner(c)) {
+        return mode;
+    }
+    match mode_for(scheme, i) {
+        m if bindings.is_custom(m) => NavMode::None,
+        m => m,
+    }
+}
+
 /// `angle` (radians) rounded to the nearest multiple of `step`.
 pub fn snap_angle(angle: f32, step: f32) -> f32 {
     if step > 0.0 { (angle / step).round() * step } else { angle }
@@ -144,7 +338,11 @@ pub struct NavDrag {
 impl NavDrag {
     /// Start tracking at `pos`; `None` if the input is not a navigation combination.
     pub fn begin(scheme: NavScheme, input: NavInput, pos: Vec2) -> Option<Self> {
-        let mode = mode_for(scheme, input);
+        Self::begin_with(scheme, &MouseBindings::default(), input, pos)
+    }
+    /// [`NavDrag::begin`] with the user's mouse rebinds.
+    pub fn begin_with(scheme: NavScheme, bindings: &MouseBindings, input: NavInput, pos: Vec2) -> Option<Self> {
+        let mode = mode_with(scheme, bindings, input);
         (mode != NavMode::None).then_some(Self { mode, origin: pos })
     }
     pub fn mode(&self) -> NavMode {
@@ -154,7 +352,11 @@ impl NavDrag {
     /// step in that mode (zero on the frame a takeover happens), or `None` when the drag ended
     /// (no navigation combination is held any more).
     pub fn step(&mut self, scheme: NavScheme, input: NavInput, pos: Vec2) -> Option<(NavMode, Vec2)> {
-        let mode = mode_for(scheme, input);
+        self.step_with(scheme, &MouseBindings::default(), input, pos)
+    }
+    /// [`NavDrag::step`] with the user's mouse rebinds.
+    pub fn step_with(&mut self, scheme: NavScheme, bindings: &MouseBindings, input: NavInput, pos: Vec2) -> Option<(NavMode, Vec2)> {
+        let mode = mode_with(scheme, bindings, input);
         if mode == NavMode::None {
             return None;
         }
@@ -308,5 +510,47 @@ mod tests {
         for scheme in NavScheme::ALL {
             assert!(scheme.help().contains(&("Rotate environment", "Shift+RMB drag")), "{scheme:?} lists the environment rotation");
         }
+    }
+    #[test]
+    fn without_rebinds_every_listed_default_combination_does_its_gesture() {
+        let none = MouseBindings::default();
+        for (mode, _) in MOUSE_ACTIONS {
+            assert_eq!(none.combos(mode), default_mouse(mode));
+            for c in default_mouse(mode) {
+                let i = NavInput { primary: c.button == MouseButton::Left, middle: c.button == MouseButton::Middle, secondary: c.button == MouseButton::Right, shift: c.shift, ctrl: c.ctrl, alt: c.alt };
+                assert_eq!(mode_for(NavScheme::Painter, i), mode, "{}", c.label());
+                assert_eq!(mode_with(NavScheme::Painter, &none, i), mode);
+                assert_eq!(MouseCombo::parse(&c.label()), Some(*c));
+            }
+        }
+        assert_eq!(MouseCombo::parse("Hyper+LMB"), None);
+        assert_eq!(MouseCombo::of(inp(true, false, true, false, false, false)), None, "two buttons are not one combination");
+    }
+
+    #[test]
+    fn a_rebound_camera_gesture_takes_its_new_combination_and_drops_the_old_ones() {
+        let p = NavScheme::Painter;
+        let mut b = MouseBindings::default();
+        // Zoom on Ctrl+Shift+RMB instead of Alt+RMB.
+        assert_eq!(b.rebind(NavMode::Zoom, MouseCombo::new(true, true, false, MouseButton::Right)), None);
+        assert_eq!(mode_with(p, &b, inp(false, false, true, true, true, false)), NavMode::Zoom);
+        assert_eq!(mode_with(p, &b, inp(false, false, true, false, false, true)), NavMode::None, "Alt+RMB no longer zooms");
+        assert_eq!(mode_with(p, &b, inp(false, false, true, false, false, false)), NavMode::Orbit, "other gestures keep their combinations");
+        // Taking RMB for the environment moves it away from the orbit.
+        assert_eq!(b.rebind(NavMode::Environment, MouseCombo::new(false, false, false, MouseButton::Right)), Some(NavMode::Orbit));
+        assert_eq!(mode_with(p, &b, inp(false, false, true, false, false, false)), NavMode::Environment);
+        assert_eq!(b.combos(NavMode::Orbit), [MouseCombo::new(false, false, true, MouseButton::Left)]);
+        // Blender navigation ignores the rebinds.
+        assert_eq!(mode_with(NavScheme::Blender, &b, inp(false, true, false, false, false, false)), NavMode::Orbit);
+        let json = serde_json::to_string(&b).unwrap();
+        assert_eq!(json, r#"{"Environment":["RMB"],"Zoom":["Ctrl+Shift+RMB"]}"#);
+        assert_eq!(serde_json::from_str::<MouseBindings>(&json).unwrap(), b);
+        assert!(serde_json::from_str::<MouseBindings>(r#"{"Teleport":["LMB"],"Zoom":["Hyper+RMB"]}"#).unwrap().combos(NavMode::Zoom).is_empty());
+        b.reset(NavMode::Zoom);
+        assert_eq!(mode_with(p, &b, inp(false, false, true, false, false, true)), NavMode::Zoom);
+        b.reset_all();
+        assert!(b.is_empty());
+        let mut d = NavDrag::begin_with(p, &b, inp(false, false, true, false, false, false), Vec2::ZERO).unwrap();
+        assert_eq!(d.step_with(p, &b, inp(false, false, true, false, false, false), Vec2::X).map(|s| s.0), Some(NavMode::Orbit));
     }
 }
