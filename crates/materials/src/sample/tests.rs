@@ -197,6 +197,35 @@ fn procedural_fields_are_cached_exactly_per_parameter_set() {
     assert_eq!(g.fields.len(), field::PER_TILE);
 }
 
+/// A 40-layer stack of procedural fills reads about 80 fields per tile (base color and roughness
+/// patterns per layer): all of them stay cached, so an edit below them re-blends without
+/// recomputing any noise. With 24 fields per tile, 56 of the 80 were recomputed on every edit.
+#[test]
+fn a_forty_layer_stack_keeps_every_field_of_a_tile() {
+    let geo = TextureSetGeometry::new(Arc::new(primitives::cube(2.0)), 0, 128);
+    let g = geo.tile(2);
+    let tri = Projection { mode: ProjectionMode::Triplanar, ..Projection::default() };
+    let pass = || -> Vec<Arc<field::Field>> {
+        (0..80u32).map(|s| procedural_tile(&ProceduralParams { seed: 1000 + s, scale: 2.0 + (s % 5) as f32, ..ProceduralParams::new(ProceduralKind::Clouds) }, &tri, &g)).collect()
+    };
+    let first = pass();
+    let second = pass();
+    assert!(first.iter().zip(&second).all(|(a, b)| Arc::ptr_eq(a, b)), "every field of the stack hits on the next pass");
+    assert_eq!(g.fields.len(), 80);
+}
+
+/// The memory share for cached fields: a twelfth of RAM, never below the default, and enough on a
+/// 64 GB machine for a 4096² 40-layer stack (about 5 GB) instead of stopping at 4 GiB.
+#[test]
+fn field_budget_follows_machine_memory() {
+    let gb = |g: u64| g << 30;
+    assert_eq!(field::budget_for_memory(gb(4)), field::BUDGET_BYTES, "small machines keep the default");
+    assert_eq!(field::budget_for_memory(gb(16)), (gb(16) / 12) as usize);
+    assert_eq!(field::budget_for_memory(gb(32)), (gb(32) / 12) as usize, "unchanged below 48 GB");
+    assert!(field::budget_for_memory(gb(64)) > 5 << 30);
+    assert_eq!(field::budget_for_memory(gb(256)), 8 << 30, "capped");
+}
+
 /// A stack needing more fields per tile than fit, read in the same order on every pass (one pass
 /// per slider step), keeps hitting on the fields it holds instead of missing on every read.
 #[test]
