@@ -643,7 +643,9 @@ impl Generator {
     }
 
     /// Whether the micro effect is on and strong enough to change anything.
-    pub fn micro_active(&self) -> bool { self.micro.is_some_and(|m| m.height() != 0.0) }
+    /// The Mask Editor has no Micro controls: a micro effect kept from the kind it was switched
+    /// from used to keep changing the layers below, with no way to turn it off.
+    pub fn micro_active(&self) -> bool { self.kind != GeneratorKind::MaskEditor && self.micro.is_some_and(|m| m.height() != 0.0) }
 
     /// Switch the micro effect on or off, keeping tuned values and starting from the per-kind defaults.
     pub fn set_micro_enabled(&mut self, on: bool) {
@@ -813,6 +815,19 @@ impl Mask {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// QA 2026-11: switching a generator with a micro effect to Mask Editor (which has no Micro
+    /// controls) kept the effect active on the layers below with no way to turn it off.
+    #[test]
+    fn a_mask_editor_never_applies_a_micro_effect_kept_from_another_kind() {
+        let mut g = Generator::new(GeneratorKind::Cavity);
+        g.set_micro_enabled(true);
+        assert!(g.micro_active());
+        g.set_kind(GeneratorKind::MaskEditor);
+        assert!(!g.micro_active());
+        g.set_kind(GeneratorKind::Cavity);
+        assert!(g.micro_active(), "the tuned micro effect is back with the kind that has it");
+    }
 
     #[test]
     fn micro_effect_is_off_by_default_and_ticking_picks_the_kind_default() {
