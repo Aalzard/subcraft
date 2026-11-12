@@ -80,9 +80,9 @@ Layout notes: Painter lists editable shortcuts in Settings > Shortcuts as one lo
 | Toggle animation | Settings > Shortcuts | Space | missing | - | - |
 | Export textures | Settings > Shortcuts | Ctrl+Shift+E | done | crates/app/src/actions.rs:220 | - |
 | Center the whole mesh | Settings > Shortcuts | F | done | crates/app/src/actions.rs:209 | - |
-| Toggle quick mask edition | Settings > Shortcuts | U | missing | - | - |
-| Clear quick mask | Settings > Shortcuts | Y | missing | - | - |
-| Invert quick mask | Settings > Shortcuts | I | missing | - | - |
+| Toggle quick mask edition | Settings > Shortcuts | U | done: both key sets, editable | crates/app/src/actions.rs | - |
+| Clear quick mask | Settings > Shortcuts | Y | done | crates/app/src/actions.rs | - |
+| Invert quick mask | Settings > Shortcuts | I | done | crates/app/src/actions.rs | - |
 | Viewport layout 3D/2D | Settings > Shortcuts | F1 | done | crates/ui/src/app.rs (apply_view_layout) | #164 |
 | Viewport layout 3D only | Settings > Shortcuts | F2 | partial: Painter key set only (F2 renames a layer in the SubCraft set); the 2D view stays a tab behind | crates/ui/src/app.rs (apply_view_layout) | #164 |
 | Viewport layout 2D only | Settings > Shortcuts | F3 | partial: the 3D view stays a tab behind | crates/ui/src/app.rs (apply_view_layout) | #164 |

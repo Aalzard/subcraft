@@ -1244,6 +1244,17 @@ impl SubcraftApp {
                     Err(e) => self.state.set_status(e.to_string(), now),
                 }
             }
+            Action::QuickMaskToggle | Action::QuickMaskClear | Action::QuickMaskInvert => {
+                if let Ok(true) = self.state.session.perform(action) {
+                    let msg = match action {
+                        Action::QuickMaskToggle if self.state.session.quick_mask_editing() => "Quick mask edition: strokes paint the mask (U to finish, Y clears, I inverts)",
+                        Action::QuickMaskToggle => "Quick mask closed: painting skips what it covers",
+                        Action::QuickMaskClear => "Quick mask cleared",
+                        _ => "Quick mask inverted",
+                    };
+                    self.state.set_status(msg, now);
+                }
+            }
             Action::BrushTool => self.state.tool = Tool::Brush,
             Action::EraserTool => self.state.tool = Tool::Eraser,
             Action::PolygonFillTool => self.state.tool = Tool::PolygonFill,
@@ -1384,6 +1395,12 @@ impl SubcraftApp {
             let on_mask = target.is_mask();
             if ui.add_enabled_ui(*tool != Tool::Pen, |ui| tool_button(ui, icons::MASK, on_mask, "Paint the layer's mask instead of its content (Brush tool)")).inner.clicked() {
                 *target = if on_mask { subcraft_paint::PaintTarget::Content } else { subcraft_paint::PaintTarget::MaskBase };
+            }
+            // Quick mask (Painter's U): paint a temporary mask that then protects what it covers.
+            let quick = self.state.session.quick_mask_editing();
+            let quick_tip = tip(km, "Quick mask: paint what later strokes must not touch (red), then close it", Action::QuickMaskToggle);
+            if tool_button(ui, icons::SELECTION, quick, &quick_tip).clicked() {
+                self.perform(Action::QuickMaskToggle, ui.input(|i| i.time));
             }
             ui.add_space(6.0);
             rail_divider(ui);
@@ -1682,6 +1699,13 @@ impl SubcraftApp {
                 if ui.add(egui::Button::new(format!("{}   {}", icons::CUBE, tr("Perspective"))).selected(!ortho).shortcut_text(sc(km, Action::PerspectiveCamera))).clicked() { self.perform(Action::PerspectiveCamera, now); ui.close(); }
                 if ui.add(egui::Button::new(format!("{}   {}", icons::CUBE_WIRE, tr("Orthographic"))).selected(ortho).shortcut_text(sc(km, Action::OrthographicCamera))).clicked() { self.perform(Action::OrthographicCamera, now); ui.close(); }
                 if item(ui, icons::CUBE_WIRE, tr("Isolate the texture set"), &sc(km, Action::IsolateTextureSet)) { self.perform(Action::IsolateTextureSet, now); ui.close(); }
+                ui.separator();
+                // Quick mask (Painter's Viewport menu): edit, invert, clear.
+                let quick = self.state.session.quick_mask_editing();
+                if ui.add(egui::Button::new(format!("{}   Edit quick mask", icons::SELECTION)).selected(quick).shortcut_text(sc(km, Action::QuickMaskToggle))).clicked() { self.perform(Action::QuickMaskToggle, now); ui.close(); }
+                let has_mask = self.state.session.quick_mask(self.state.session.selection().texture_set).is_some();
+                if ui.add_enabled(quick, egui::Button::new(format!("{}   Invert quick mask", icons::SELECTION)).shortcut_text(sc(km, Action::QuickMaskInvert))).clicked() { self.perform(Action::QuickMaskInvert, now); ui.close(); }
+                if ui.add_enabled(quick && has_mask, egui::Button::new(format!("{}   Clear quick mask", icons::SELECTION)).shortcut_text(sc(km, Action::QuickMaskClear))).clicked() { self.perform(Action::QuickMaskClear, now); ui.close(); }
                 ui.separator();
                 if item(ui, icons::SUN, tr("Render quality…"), "") {
                     self.state.render_window = true;

@@ -205,6 +205,9 @@ pub struct UiState {
     pub pen_input: crate::pen_input::PenInputFixer,
     /// Clicks in the 3D view show / hide the selected layer on mesh parts (Properties → Parts).
     pub picking_parts: bool,
+    /// While a material is dragged over the 3D view: the region it would land on, the camera
+    /// the outline was computed for, and that region's visible border edges (object space).
+    pub drop_outline: Option<(subcraft_app::drop_target::DropRegion, subcraft_app::Camera, Vec<[glam::Vec3; 2]>)>,
     /// Depth of field: the next click on the model sets the focus distance.
     pub picking_focus: bool,
     /// Clicks in the 3D view add the ID map color under the cursor to this ID Color Mask effect.
@@ -269,6 +272,8 @@ pub struct UiState {
     pub uploaded_channels: Vec<(subcraft_core::TextureSetId, Vec<ChannelKind>)>,
     /// Channel shown alone that the shader does not otherwise read, as last uploaded.
     pub uploaded_solo: Option<ChannelKind>,
+    /// Base Color tinted red where the quick mask covers it, while the quick mask is edited.
+    pub quick_mask_tint: subcraft_app::quick_mask::TintCache,
     /// Thumbnails of imported images (resources are immutable, so entries never go stale).
     pub image_thumbs: HashMap<subcraft_core::ResourceId, egui::TextureHandle>,
     /// The user's asset library folder (None if no Documents folder could be found).
@@ -393,6 +398,7 @@ impl UiState {
             uv: UvView { zoom: 1.0, offset: egui::Vec2::ZERO, source: PreviewSource::Channel(ChannelKind::BaseColor), texture: None, painting: false, last_point: None, fill_box: None },
             painting: false,
             picking_parts: false,
+            drop_outline: None,
             picking_focus: false,
             picking_id_color: None,
             last_stroke_point: None,
@@ -432,6 +438,7 @@ impl UiState {
             uploaded_maps: HashMap::new(),
             uploaded_channels: Vec::new(),
             uploaded_solo: None,
+            quick_mask_tint: Default::default(),
             image_thumbs: HashMap::new(),
             user_library: None,
             env_loader: None,
@@ -759,6 +766,19 @@ impl UiState {
             }
         }
         self.uploaded_solo = solo;
+        // Quick mask edition: Base Color tinted red where the mask covers it (3D and 2D views).
+        let editing = session.quick_mask_editing();
+        for ts in &session.document().texture_sets {
+            let Some(base) = session.composite(ts.id).and_then(|c| c.channel(ChannelKind::BaseColor)) else { continue };
+            let mask = if editing { session.quick_mask(ts.id) } else { None };
+            match self.quick_mask_tint.update(ts.id, base, mask, full) {
+                subcraft_app::quick_mask::TintUpload::None => {}
+                subcraft_app::quick_mask::TintUpload::Tinted(img, tiles) => {
+                    renderer.upload_channel(&rs.device, &rs.queue, ts.material_slot, ChannelKind::BaseColor, img, tiles.as_deref());
+                }
+                subcraft_app::quick_mask::TintUpload::Restore => renderer.upload_channel(&rs.device, &rs.queue, ts.material_slot, ChannelKind::BaseColor, base, None),
+            }
+        }
         crate::edit_profile::record("  sync: upload", upload_start.elapsed());
         self.uploaded_composite_generation = session.composite_generation();
         // Baked maps: re-upload when a bake replaced them. Baked AO also shades the viewport

@@ -26,7 +26,7 @@ Layout notes: a narrow vertical strip, top left of the main window by default; i
 | Clone (relative source) | Tools toolbar; 6 | source follows after each stroke | partial: one clone mode only | crates/ui/src/app.rs:1066 | - |
 | Clone (absolute source) | Tools toolbar, Clone second mode; Ctrl + 6 | - | missing | - | - |
 | Material picker (temporary tool, returns to the previous tool) | Tools toolbar; P | - | partial: Eyedropper stays selected after the pick; P only in the Painter keymap | crates/ui/src/app.rs:1068 | - |
-| Quick mask | Tool list entry; U | off | missing | - | - |
+| Quick mask | Tool list entry; U | off | done: toggle under the mask button in the tool rail | crates/ui/src/app.rs (tool_rail) | - |
 | Tools disabled unless a paint layer / paint effect is selected | Tools toolbar | - | partial: tools stay enabled and a paint layer is created on the first stroke | crates/ui/src/viewport.rs:318 | - |
 | Dock the toolbar on the left or right edge | Drag the toolbar | left | partial: fixed on the left | crates/ui/src/app.rs:1056 | - |
 | Send to (Stager / Photoshop) icon | Tools toolbar, below the tools | - | n/a | - | - |

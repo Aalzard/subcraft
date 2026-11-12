@@ -5658,3 +5658,24 @@ symmetry. `crates/app/tests/uv_tools.rs` covers session routing: the 2D clone so
   1 px padding, plus the mask as PNG; several selected layers export in one go.
 * **Tests:** `crates/app/tests/flatten.rs` (a folder flattens to the same composite and is hidden, undo; mask baking,
   disabled channels, empty selection; export names, sizes and formats).
+
+### Painter parity chunk 52 - Quick mask, Ctrl + drop per part, drop highlight (2026-11-13, branch `claude/parity-quick-mask`)
+
+* **Quick mask (U / Y / I):**
+  * `crates/app/src/quick_mask.rs` keeps one grayscale mask per texture set, outside the document and the undo history.
+  * U (both key sets, tool rail button, Viewport menu) turns edition on. Strokes, polygon fills and 2D-view strokes then
+    paint the mask with the current brush, alpha and stencil through a scratch texture set (paint protects, erase frees).
+  * Closed, the mask scales stroke coverage by `1 - mask` (`Stroke::with_quick_mask`, in `restrict_coverage`), so
+    strokes and fills skip what it covers. Y clears it and I inverts it while editing; outside edition, I still isolates
+    the part under the cursor.
+  * While editing, Base Color is uploaded tinted red where the mask covers it (`TintCache`, tile by tile), in the 3D and
+    2D views, with a banner in the 3D view.
+* **Ctrl + drop** of a material or smart material onto the 3D view gives the new layer a part mask of the part under the
+  cursor (`Session::drop_region_at`, `restrict_drop_to_part`); a second undo step.
+* **Drop highlight:** while a shelf item is dragged over the 3D view, the border of the texture set (Ctrl: the part)
+  under the cursor is outlined, hidden edges left out (one ray per edge, cached per region and camera).
+* **Tests:** `crates/app/tests/quick_mask.rs` (edition paints only the mask; the closed mask protects strokes and polygon
+  fill; erase frees; invert / clear only while editing; drop region, outline and part mask); unit tests for
+  inversion and the tint cache. NOT built or run locally (CI only, per the build rule); the app has not been run.
+* **Not done:** the quick mask is not saved with the project and its strokes are not undoable; no Enable toggle separate from
+  Clear; drops of alphas / textures as warp decals; generator / filter drops.

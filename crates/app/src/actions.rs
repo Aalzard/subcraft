@@ -94,11 +94,17 @@ pub enum Action {
     /// Look through the next / previous camera imported with the model (Default camera included).
     NextCamera,
     PrevCamera,
+    /// Quick mask edition on / off: strokes paint the quick mask instead of the layer (Painter's U).
+    QuickMaskToggle,
+    /// While editing the quick mask: clear it (Painter's Y).
+    QuickMaskClear,
+    /// While editing the quick mask: invert it (Painter's I; otherwise I over the model isolates a part).
+    QuickMaskInvert,
 }
 
 impl Action {
     /// Every action, in declaration order (the tests check [`ACTIONS`] against it).
-    pub const ALL: [Action; 47] = [
+    pub const ALL: [Action; 50] = [
         Action::Undo, Action::Redo, Action::NewPaintLayer, Action::NewFillLayer, Action::NewFolder, Action::NewTextLayer, Action::DeleteLayer, Action::DuplicateLayer,
         Action::BrushTool, Action::EraserTool, Action::PenTool, Action::PolygonFillTool, Action::SmudgeTool, Action::CloneTool, Action::EyedropperTool,
         Action::BrushSmaller, Action::BrushLarger, Action::ToggleSymmetryX, Action::ToggleLazyMouse, Action::ResetCamera, Action::PerspectiveCamera,
@@ -106,7 +112,7 @@ impl Action {
         Action::SaveAs, Action::OpenProject, Action::Export, Action::Bake, Action::TogglePathTracing, Action::PaintingMode, Action::SelectAllLayers,
         Action::HideUi, Action::CloseProject, Action::View3dAnd2d, Action::View3dOnly, Action::View2dOnly,
         Action::SwapViews, Action::NextMeshMap, Action::PrevMeshMap, Action::InvertMaskGray, Action::IsolateTextureSet,
-        Action::NextCamera, Action::PrevCamera,
+        Action::NextCamera, Action::PrevCamera, Action::QuickMaskToggle, Action::QuickMaskClear, Action::QuickMaskInvert,
     ];
 }
 
@@ -271,6 +277,9 @@ pub const ACTIONS: &[ActionInfo] = &[
     a(Action::PrevMeshMap, "Display Previous Mesh Map", &[Shortcut::shift(Key::B)]),
     ActionInfo { action: Action::InvertMaskGray, label: "Invert Mask Brush (white / black)", shortcuts: &[], painter: Some(&[Shortcut::key(Key::X)]) },
     a(Action::IsolateTextureSet, "Isolate Texture Set", &[Shortcut::alt(Key::Q)]),
+    a(Action::QuickMaskToggle, "Toggle Quick Mask Edition", &[Shortcut::key(Key::U)]),
+    a(Action::QuickMaskClear, "Clear Quick Mask", &[Shortcut::key(Key::Y)]),
+    a(Action::QuickMaskInvert, "Invert Quick Mask", &[Shortcut::key(Key::I)]),
 ];
 
 /// Whether F2 belongs to the key table in `preset` (otherwise the Layers panel uses it to rename).
@@ -400,9 +409,9 @@ pub const PAINTER_REFERENCE: &[PainterEntry] = &[
     e("Viewport", "Shift+B", "Display previous mesh map", Support::Added, Action::PrevMeshMap, Shortcut::shift(Key::B), ""),
     none("Viewport", "Space", "Toggle animation", "no animation"),
     e("Viewport", "F", "Center the whole mesh", Support::Added, Action::ResetCamera, Shortcut::key(Key::F), "Home kept as well"),
-    none("Viewport", "U", "Toggle quick mask edition", "no quick mask"),
-    none("Viewport", "Y", "Clear quick mask", "no quick mask"),
-    none("Viewport", "I", "Invert quick mask", "no quick mask (I over the model isolates a part)"),
+    e("Viewport", "U", "Toggle quick mask edition", Support::Same, Action::QuickMaskToggle, Shortcut::key(Key::U), "strokes paint the quick mask (red in the view); once closed it protects what it covers"),
+    e("Viewport", "Y", "Clear quick mask", Support::Same, Action::QuickMaskClear, Shortcut::key(Key::Y), "while the quick mask is edited"),
+    e("Viewport", "I", "Invert quick mask", Support::Same, Action::QuickMaskInvert, Shortcut::key(Key::I), "while the quick mask is edited; otherwise I over the model isolates a part"),
     e("Viewport", "F1", "Viewport layout 3D/2D", Support::Added, Action::View3dAnd2d, Shortcut::key(Key::F1), "2D view in its own pane beside the 3D view"),
     e("Viewport", "F2", "Viewport layout 3D only", Support::PainterPreset, Action::View3dOnly, Shortcut::key(Key::F2), "F2 renames the selected layer in the SubCraft key set"),
     e("Viewport", "F3", "Viewport layout 2D only", Support::Added, Action::View2dOnly, Shortcut::key(Key::F3), ""),
@@ -482,7 +491,7 @@ mod tests {
         let covered = PAINTER_REFERENCE.len() - count(Support::None);
         assert!(covered >= 63, "{covered} of {} Painter shortcuts are covered", PAINTER_REFERENCE.len());
         // What is left has no SubCraft feature behind it: manipulator, particles, projection tool,
-        // quick mask, geometry mask, engine pause, stroke resume, content clipboard, material drag.
+        // geometry mask, engine pause, stroke resume, content clipboard, material drag.
         assert!(count(Support::None) <= 26, "{}", count(Support::None));
     }
 
@@ -598,14 +607,15 @@ mod tests {
             (Shortcut::ctrl_shift(Key::E), Action::Export), (Shortcut::key(Key::F), Action::ResetCamera), (Shortcut::key(Key::F1), Action::View3dAnd2d),
             (Shortcut::key(Key::F2), Action::View3dOnly), (Shortcut::key(Key::F3), Action::View2dOnly), (Shortcut::key(Key::F4), Action::SwapViews),
             (Shortcut::alt(Key::Q), Action::IsolateTextureSet), (Shortcut::key(Key::Delete), Action::DeleteLayer), (Shortcut::ctrl(Key::D), Action::DuplicateLayer),
-            (Shortcut::ctrl(Key::G), Action::NewFolder),
+            (Shortcut::ctrl(Key::G), Action::NewFolder), (Shortcut::key(Key::U), Action::QuickMaskToggle), (Shortcut::key(Key::Y), Action::QuickMaskClear),
+            (Shortcut::key(Key::I), Action::QuickMaskInvert),
         ];
         for (s, a) in expect {
             assert_eq!(action_for(pa, s), Some(a), "{}", s.label());
         }
         // Hold keys of the viewport (S stencil, N ignore stencil, V clone source) and the keys of
         // Painter features SubCraft lacks stay free in the Painter key set, so they never do something else.
-        for k in [Key::S, Key::N, Key::V, Key::Q, Key::W, Key::R, Key::T, Key::U, Key::Y, Key::A, Key::Num3, Key::Space] {
+        for k in [Key::S, Key::N, Key::V, Key::Q, Key::W, Key::R, Key::T, Key::A, Key::Num3, Key::Space] {
             assert_eq!(action_for(pa, Shortcut::key(k)), None, "{} must stay free", k.label());
         }
     }

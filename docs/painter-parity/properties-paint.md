@@ -328,10 +328,10 @@ Layout notes: groups in order: Size, Opacity, Stroke, Stretching & Tiling (a mod
 
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
-| Quick mask edit mode (paint a temporary mask with the current brush) | Tools / U (docs also cite Y) | off | missing | - | - |
-| Leave quick mask edit and paint through the mask (U) | Shortcut | n/a | missing | - | - |
-| Reset / disable the quick mask (Y) | Shortcut | n/a | missing | - | - |
-| Invert the quick mask (I) | Shortcut | n/a | missing | - | - |
+| Quick mask edit mode (paint a temporary mask with the current brush) | Tools / U (docs also cite Y) | off | done: the current brush, alpha and stencil paint the mask | crates/app/src/quick_mask.rs | - |
+| Leave quick mask edit and paint through the mask (U) | Shortcut | n/a | done | crates/paint/src/stroke.rs (with_quick_mask) | - |
+| Reset / disable the quick mask (Y) | Shortcut | n/a | done: while editing | crates/app/src/quick_mask.rs | - |
+| Invert the quick mask (I) | Shortcut | n/a | done: while editing | crates/app/src/quick_mask.rs | - |
 
 ## Text resource parameters
 

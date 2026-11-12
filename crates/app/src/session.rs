@@ -139,6 +139,8 @@ struct ActiveStroke {
     label: &'static str,
     /// Last view camera, for the catch-up end of the stroke.
     camera: Option<Camera>,
+    /// The stroke paints the quick mask (its scratch texture set), not the document.
+    quick_mask: bool,
 }
 
 pub struct Session {
@@ -157,6 +159,8 @@ pub struct Session {
     effect: Option<EffectId>,
     pub brush: BrushState,
     stroke: Option<ActiveStroke>,
+    /// Quick mask (U / Y / I), outside the document.
+    pub(crate) quick_mask: crate::quick_mask::QuickMask,
     /// Clone tool: object-space source point, and the screen offset the first stroke fixed.
     clone_source: Option<Vec3>,
     clone_offset: Option<Vec2>,
@@ -261,6 +265,7 @@ impl Session {
                 clone_mode: CloneSourceMode::Relative,
             },
             stroke: None,
+            quick_mask: Default::default(),
             clone_source: None,
             clone_offset: None,
             clone_source_uv: None,
@@ -2022,6 +2027,11 @@ impl Session {
             }
             Action::InvertMaskGray => self.brush.material.mask_value = 1.0 - self.brush.material.mask_value.clamp(0.0, 1.0),
             Action::IsolateTextureSet => self.execute(Command::IsolateTextureSet(self.selection.texture_set))?,
+            Action::QuickMaskToggle => self.toggle_quick_mask(),
+            // Y and I act on the quick mask only while it is edited (I isolates a part otherwise).
+            Action::QuickMaskClear if self.quick_mask.editing => self.clear_quick_mask(),
+            Action::QuickMaskInvert if self.quick_mask.editing => self.invert_quick_mask(),
+            Action::QuickMaskClear | Action::QuickMaskInvert => return Ok(false),
             Action::HideUi | Action::PaintingMode | Action::CloseProject | Action::View3dAnd2d | Action::View3dOnly | Action::View2dOnly
             | Action::SwapViews | Action::NextMeshMap | Action::PrevMeshMap | Action::NextCamera | Action::PrevCamera => return Ok(false),
             Action::PenTool | Action::PolygonFillTool | Action::SmudgeTool | Action::CloneTool | Action::EyedropperTool | Action::ResetCamera
@@ -2039,7 +2049,7 @@ impl Session {
     /// always draws (a fill layer's material stays as it is). Mask strokes, erasing and layers
     /// that already take paint are left alone. Returns the new layer's name when one was added.
     pub fn ensure_paint_layer(&mut self) -> Option<String> {
-        if self.brush.target != PaintTarget::Content || self.brush.mode == StrokeMode::Erase {
+        if self.brush.target != PaintTarget::Content || self.brush.mode == StrokeMode::Erase || self.quick_mask.editing {
             return None;
         }
         // A clone stroke without a source fails to start; it must not leave a new empty layer and
@@ -2068,6 +2078,9 @@ impl Session {
     fn begin_stroke_with(&mut self, uv: Option<Option<subcraft_paint::UvView>>) -> Result<(), PaintError> {
         if self.stroke.is_some() {
             return Ok(());
+        }
+        if self.quick_mask.editing {
+            return self.begin_quick_mask_stroke(uv);
         }
         let layer = self.selection.layer.ok_or(PaintError::LayerNotFound)?;
         // Before anything below changes the document: a refused stroke leaves no trace.
@@ -2101,7 +2114,8 @@ impl Session {
             .with_resources(self.resources())
             .with_alpha(if stamp.is_some() { None } else { b.alpha.clone() })
             .with_stamp(stamp.as_ref().map(|(s, _)| s.clone()), stamp.as_ref().map(|(_, i)| i.clone()))
-            .with_stencil(if b.stencil_bypass { None } else { b.stencil.clone() });
+            .with_stencil(if b.stencil_bypass { None } else { b.stencil.clone() })
+            .with_quick_mask(self.quick_mask.masks.get(&ts.id).cloned());
         if let Some(view) = uv {
             stroke = stroke.with_uv_view(view);
             if b.mode == StrokeMode::Clone {
@@ -2123,7 +2137,29 @@ impl Session {
             (StrokeMode::Erase, PaintTarget::ContentEffect(_)) => "Erase Effect Stroke",
             (_, PaintTarget::MaskBase | PaintTarget::MaskEffect(_)) => "Mask Stroke",
         };
-        self.stroke = Some(ActiveStroke { stroke, texture_set: ts.id, label, camera: None });
+        self.stroke = Some(ActiveStroke { stroke, texture_set: ts.id, label, camera: None, quick_mask: false });
+        Ok(())
+    }
+
+    /// A stroke into the selected texture set's quick mask: paint protects, erase frees (smudge
+    /// and clone paint like the brush). Stencil and alpha still shape it.
+    fn begin_quick_mask_stroke(&mut self, uv: Option<Option<subcraft_paint::UvView>>) -> Result<(), PaintError> {
+        let ts = self.selected_texture_set();
+        let (scratch, layer) = self.quick_mask.scratch_for(ts);
+        let b = &self.brush;
+        let mode = if b.mode == StrokeMode::Erase { StrokeMode::Erase } else { StrokeMode::Paint };
+        let mut material = b.material.clone();
+        material.mask_value = 1.0;
+        let mut stroke = Stroke::begin(&scratch, layer, PaintTarget::MaskBase, mode, b.settings, b.options, &material)?
+            .with_resources(self.resources())
+            .with_alpha(b.alpha.clone())
+            .with_stencil(if b.stencil_bypass { None } else { b.stencil.clone() });
+        if let Some(view) = uv {
+            stroke = stroke.with_uv_view(view);
+        }
+        let id = scratch.id;
+        self.quick_mask.scratch = Some((scratch, layer));
+        self.stroke = Some(ActiveStroke { stroke, texture_set: id, label: "Quick Mask Stroke", camera: None, quick_mask: true });
         Ok(())
     }
 
@@ -2301,14 +2337,20 @@ impl Session {
         f: impl FnOnce(&mut Stroke, &mut TextureSet, &PaintContext) -> Result<Vec<usize>, PaintError>,
         mut active: ActiveStroke,
     ) -> Result<Vec<usize>, PaintError> {
-        let Some(mut ts) = self.doc.texture_set(ts_id).cloned() else {
+        let source = if active.quick_mask { self.quick_mask.scratch.as_ref().map(|(ts, _)| ts) } else { self.doc.texture_set(ts_id) };
+        let Some(mut ts) = source.cloned() else {
             return Err(PaintError::LayerNotFound);
         };
         let geo = self.scene.geometry.get(ts.material_slot, ts.resolution);
         let view = self.viewport_scene();
         let ctx = PaintContext { mesh: &view.mesh, bvh: &view.bvh, geometry: &geo, camera, depth: &view.depth };
         let result = f(&mut active.stroke, &mut ts, &ctx);
-        if let Some(slot) = self.doc.texture_set_mut(ts_id) {
+        if active.quick_mask {
+            if let Some((slot, _)) = self.quick_mask.scratch.as_mut() {
+                *slot = ts;
+            }
+            self.quick_mask.store_scratch();
+        } else if let Some(slot) = self.doc.texture_set_mut(ts_id) {
             *slot = ts;
         }
         self.stroke = Some(active);
@@ -2336,6 +2378,11 @@ impl Session {
             }
         }
         let Some(active) = self.stroke.take() else { return };
+        if active.quick_mask {
+            self.quick_mask.store_scratch();
+            self.quick_mask.scratch = None;
+            return;
+        }
         if self.doc != *self.history.current() {
             log::info!("action: {}", active.label);
             self.history.push(active.label, self.doc.clone());

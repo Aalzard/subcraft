@@ -10,6 +10,32 @@ use crate::theme::{self, ACCENT};
 use crate::icons;
 
 /// Text on a translucent dark plate, anchored at `pos`; returns the plate rect.
+/// Most border edges tested for visibility when outlining a drop target (one ray each).
+const DROP_OUTLINE_EDGES: usize = 6000;
+
+/// Screen segments of the drop region's border, hidden edges left out. The edges and their
+/// visibility are computed once per region and camera (a ray per edge), then only projected.
+fn drop_outline(state: &mut UiState, region: subcraft_app::drop_target::DropRegion, camera: &subcraft_app::Camera, rect: Rect, pixel_scale: Vec2) -> Vec<[Pos2; 2]> {
+    if !state.drop_outline.as_ref().is_some_and(|(r, c, _)| *r == region && c == camera) {
+        let all = state.session.region_outline(region);
+        let stride = all.len().div_ceil(DROP_OUTLINE_EDGES).max(1);
+        let bounds = state.session.scene().mesh.bounds;
+        let tolerance = (bounds.max - bounds.min).length() * 0.01;
+        let visible = all
+            .into_iter()
+            .step_by(stride)
+            .filter(|[a, b]| {
+                let mid = (*a + *b) * 0.5;
+                camera.project(mid).and_then(|s| state.session.pick(camera, s.truncate())).is_some_and(|hit| hit.position.distance(mid) <= tolerance)
+            })
+            .collect();
+        state.drop_outline = Some((region, *camera, visible));
+    }
+    let Some((_, _, edges)) = &state.drop_outline else { return Vec::new() };
+    let to_pos = |p: glam::Vec3| camera.project(p).map(|s| rect.min + egui::vec2(s.x / pixel_scale.x, s.y / pixel_scale.y));
+    edges.iter().filter_map(|[a, b]| Some([to_pos(*a)?, to_pos(*b)?])).collect()
+}
+
 fn pill(painter: &egui::Painter, pos: Pos2, align: egui::Align2, text: &str, color: Color32) -> Rect {
     let galley = painter.layout_no_wrap(text.to_string(), theme::font(11.5), color);
     let size = galley.size() + egui::vec2(16.0, 10.0);
@@ -188,22 +214,36 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     }
     if response.hovered() && !typing && !mods.any() {
         let target = pointer.and_then(|p| state.session.surface_target(&camera, to_screen(p), state.parts_kind));
+        // While the quick mask is edited, I inverts it (Painter) instead of isolating a part.
+        let quick_mask = state.session.quick_mask_editing();
         for (key, action) in [(egui::Key::I, subcraft_app::PartAction::Isolate), (egui::Key::H, subcraft_app::PartAction::Hide)] {
-            if ui.input(|i| i.key_pressed(key)) && let Some(target) = target { crate::panels::parts::apply(state, target, action, now); }
+            if !(quick_mask && key == egui::Key::I) && ui.input(|i| i.key_pressed(key)) && let Some(target) = target { crate::panels::parts::apply(state, target, action, now); }
         }
         if ui.input(|i| i.key_pressed(egui::Key::Escape)) { state.session.show_all_parts(); }
     }
 
     // ----- drops from the shelf: apply to the texture set under the cursor --------------------
+    // Ctrl + drop of a material: only on the mesh part under the cursor (Painter).
+    let drop_part = |item: crate::panels::shelf::ShelfDrag| (mods.command || mods.ctrl) && !mods.alt
+        && matches!(item, crate::panels::shelf::ShelfDrag::Material(_) | crate::panels::shelf::ShelfDrag::SmartMaterial(_));
     if let Some(item) = response.dnd_release_payload::<crate::panels::shelf::ShelfDrag>() {
-        if let Some(p) = pointer
-            && let Some(pick) = state.session.pick(&camera, to_screen(p))
-            && let Some(ts) = state.session.document().texture_set_for_slot(pick.material_slot).map(|t| t.id)
-        {
-            let _ = state.session.execute(subcraft_app::Command::SelectTextureSet(ts));
+        let part = drop_part(*item).then_some(state.parts_kind);
+        let region = pointer.and_then(|p| state.session.drop_region_at(&camera, to_screen(p), part));
+        if let Some(region) = region {
+            let _ = state.session.execute(subcraft_app::Command::SelectTextureSet(region.texture_set()));
         }
+        let before = state.session.selection().layer;
         // Alt: apply in place to the selected layer (alphas: brush tip unless Alt).
         crate::panels::shelf::apply_shelf_item_with(state, *item, mods.alt, now);
+        if let (Some(region @ subcraft_app::drop_target::DropRegion::Part(..)), Some(layer)) = (region, state.session.selection().layer)
+            && Some(layer) != before
+        {
+            match state.session.restrict_drop_to_part(layer, region) {
+                Ok(()) => state.set_status("Added on the part under the cursor only (part mask; Ctrl+Z twice removes it)", now),
+                Err(e) => state.set_status(e.to_string(), now),
+            }
+        }
+        state.drop_outline = None;
     }
     // An environment tile dropped on the view becomes the environment map.
     if let Some(env) = response.dnd_release_payload::<crate::panels::shelf::EnvironmentDrag>()
@@ -214,6 +254,7 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     }
     let env_hover = response.dnd_hover_payload::<crate::panels::shelf::EnvironmentDrag>().is_some();
     let drop_hover = response.dnd_hover_payload::<crate::panels::shelf::ShelfDrag>().map(|d| *d);
+    let drop_region = drop_hover.zip(pointer).and_then(|(item, p)| state.session.drop_region_at(&camera, to_screen(p), drop_part(item).then_some(state.parts_kind)));
 
     // ----- part picking: clicks show / hide the selected layer on mesh parts ----------------------
     let bake_mode = state.bake.open || state.bake.job.is_some();
@@ -583,6 +624,15 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
         crate::view_props::draw_fill_box(&painter, r, state.fill_visible_only);
     }
     draw_stencil(state, ui, &painter, rect, size);
+    if state.session.quick_mask_editing() {
+        // Quick mask edition banner (the masked texels are tinted red on the model).
+        let text = "QUICK MASK  -  paint protects, erase frees  -  U closes, Y clears, I inverts";
+        let pos = egui::pos2(rect.center().x, rect.top() + 34.0);
+        let galley = painter.layout_no_wrap(text.to_owned(), egui::FontId::proportional(12.0), Color32::WHITE);
+        let bg = egui::Rect::from_center_size(pos, galley.size() + egui::vec2(16.0, 8.0));
+        painter.rect_filled(bg, 4.0, Color32::from_rgba_unmultiplied(170, 20, 20, 210));
+        painter.galley(bg.center() - galley.size() / 2.0, galley, Color32::WHITE);
+    }
     // Reset button at the top right of the view while S is held.
     if stencil_edit {
         let transformed = state.session.brush.stencil.as_ref().is_some_and(|s| s.is_transformed());
@@ -599,6 +649,15 @@ pub fn show(state: &mut UiState, ui: &mut Ui) {
     }
     if let Some(item) = drop_hover {
         painter.rect_stroke(rect.shrink(1.0), 0.0, Stroke::new(2.0, ACCENT), egui::StrokeKind::Inside);
+        // Outline of the texture set (or, with Ctrl, the part) that receives the drop.
+        if let Some(region) = drop_region {
+            for [a, b] in drop_outline(state, region, &camera, rect, pixel_scale) {
+                painter.line_segment([a, b], Stroke::new(3.0, Color32::from_black_alpha(140)));
+                painter.line_segment([a, b], Stroke::new(1.6, ACCENT));
+            }
+        } else {
+            state.drop_outline = None;
+        }
         let target = state.session.selected_layer().map(|l| l.name.clone());
         let what = crate::panels::shelf::drop_label(item, mods.alt, target.as_deref().filter(|_| mods.alt), false);
         pill(&painter, rect.center_top() + egui::vec2(0.0, 14.0), egui::Align2::CENTER_TOP, &format!("Release to: {what}"), theme::TEXT);

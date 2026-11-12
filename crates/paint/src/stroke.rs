@@ -49,6 +49,9 @@ pub struct Stroke {
     alpha: Option<Arc<subcraft_image::Bitmap>>,
     stencil: Option<Arc<crate::stencil::Stencil>>,
     parts: Option<subcraft_doc::PartMask>,
+    /// Quick mask (1 comp, texture-set resolution): 1 protects a texel from the stroke, 0 lets it
+    /// paint (Painter's quick mask once its edition is closed).
+    quick_mask: Option<TiledImage>,
     projection: Projection,
     texture_tiling: bool,
     albedo_filter: subcraft_image::TextureFilter,
@@ -162,6 +165,7 @@ impl Stroke {
             alpha: None,
             stencil: None,
             parts: ts.find(layer).and_then(|l| l.parts.clone()),
+            quick_mask: None,
             projection: material.projection,
             texture_tiling: material.texture_tiling,
             albedo_filter: ts.albedo_filter,
@@ -276,6 +280,13 @@ impl Stroke {
     /// Mask the stroke with a screen-space stencil (white paints, black blocks).
     pub fn with_stencil(mut self, stencil: Option<Arc<crate::stencil::Stencil>>) -> Self {
         self.stencil = stencil;
+        self
+    }
+
+    /// Protect the texels a quick mask covers: coverage is scaled by `1 - mask` (1 comp image at
+    /// the texture set's resolution; another size is ignored).
+    pub fn with_quick_mask(mut self, mask: Option<TiledImage>) -> Self {
+        self.quick_mask = mask.filter(|m| m.comps() >= 1);
         self
     }
 
@@ -1028,6 +1039,17 @@ impl Stroke {
             let geo = geometry.tile(tile);
             for (i, c) in cov.iter_mut().enumerate() {
                 *c *= parts.factor(geo.region(i, parts.kind));
+            }
+        }
+        if let Some(mask) = self.quick_mask.as_ref().filter(|m| m.width() == geometry.resolution && m.height() == geometry.resolution) {
+            if !mask.is_allocated(tile) && mask.fill()[0] <= 0.0 {
+                return;
+            }
+            let comps = mask.comps();
+            let mut texels = vec![0.0f32; TILE_TEXELS * comps];
+            mask.read_tile(tile, &mut texels);
+            for (c, m) in cov.iter_mut().zip(texels.chunks_exact(comps)) {
+                *c *= (1.0 - m[0]).clamp(0.0, 1.0);
             }
         }
     }

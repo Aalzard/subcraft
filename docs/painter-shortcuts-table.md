@@ -53,9 +53,9 @@
 | Viewport | `Shift+B` | Display previous mesh map | PrevMeshMap | added (key was free) |  |
 | Viewport | `Space` | Toggle animation |  | no equivalent | no animation |
 | Viewport | `F` | Center the whole mesh | ResetCamera | added (key was free) | Home kept as well |
-| Viewport | `U` | Toggle quick mask edition |  | no equivalent | no quick mask |
-| Viewport | `Y` | Clear quick mask |  | no equivalent | no quick mask |
-| Viewport | `I` | Invert quick mask |  | no equivalent | no quick mask (I over the model isolates a part) |
+| Viewport | `U` | Toggle quick mask edition | QuickMaskToggle | already the same | strokes paint the quick mask (red in the view); once closed it protects what it covers |
+| Viewport | `Y` | Clear quick mask | QuickMaskClear | already the same | while the quick mask is edited |
+| Viewport | `I` | Invert quick mask | QuickMaskInvert | already the same | while the quick mask is edited; otherwise I over the model isolates a part |
 | Viewport | `F1` | Viewport layout 3D/2D | View3dAnd2d | added (key was free) | 2D view in its own pane beside the 3D view |
 | Viewport | `F2` | Viewport layout 3D only | View3dOnly | Painter preset only (conflict) | F2 renames the selected layer in the SubCraft key set |
 | Viewport | `F3` | Viewport layout 2D only | View2dOnly | added (key was free) |  |
