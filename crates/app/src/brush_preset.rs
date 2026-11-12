@@ -93,7 +93,12 @@ impl PresetStencil {
 
     fn stencil(&self) -> Result<subcraft_paint::Stencil, String> {
         let bitmap = subcraft_image::io::decode_bitmap(&self.encoded, Some("stencil")).map_err(|e| format!("stencil image: {e}"))?;
-        Ok(subcraft_paint::Stencil { center: glam::Vec2::from_array(self.center), scale: self.scale, rotation: self.rotation, tiling: self.tiling,
+        // The same limits as dragging the stencil in the viewport: a file can hold 0 (which blocked
+        // all paint) or NaN.
+        let scale = if self.scale.is_finite() { self.scale.clamp(0.02, 8.0) } else { 1.0 };
+        let rotation = if self.rotation.is_finite() { self.rotation } else { 0.0 };
+        let center = if self.center.iter().all(|c| c.is_finite()) { self.center } else { [0.5, 0.5] };
+        Ok(subcraft_paint::Stencil { center: glam::Vec2::from_array(center), scale, rotation, tiling: self.tiling,
             ..subcraft_paint::Stencil::new(std::sync::Arc::new(bitmap)) })
     }
 }
@@ -376,6 +381,25 @@ pub fn rename_brush_preset(lib: &UserLibrary, preset: &BrushPreset, new_name: &s
     }
     let mut renamed = preset.clone();
     renamed.name = new_name.to_string();
+    // A new name that maps to the preset's own file ("Rust." is stored as "Rust"; "rust" on a
+    // case-insensitive disk) used to come back numbered, "Rust (2)": write it in place instead.
+    let wanted = lib.unnumbered_file_path(UserAssetKind::BrushPreset, new_name);
+    let lower = |p: &Path| p.to_string_lossy().to_lowercase();
+    let taken_exactly = |p: &Path| {
+        p.parent()
+            .and_then(|d| std::fs::read_dir(d).ok())
+            .is_some_and(|mut entries| entries.any(|e| e.is_ok_and(|e| Some(e.file_name().as_os_str()) == p.file_name())))
+    };
+    if wanted == old || (lower(&wanted) == lower(&old) && !taken_exactly(&wanted)) {
+        check_images(&renamed)?;
+        write_preset(&old, &renamed)?;
+        if wanted != old {
+            std::fs::rename(&old, &wanted).map_err(|e| format!("{}: {e}", wanted.display()))?;
+        }
+        renamed.name = display_name(&wanted, new_name);
+        renamed.user_file = Some(wanted);
+        return Ok(renamed);
+    }
     let stored = save_brush_preset(lib, &renamed)?;
     if let Err(e) = lib.remove(&old) {
         // Keep one file: the rename did not happen.
