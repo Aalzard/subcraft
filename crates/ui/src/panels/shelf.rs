@@ -132,7 +132,7 @@ pub fn apply_shelf_item_with(s: &mut UiState, item: ShelfDrag, alt: bool, now: f
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ShelfTab {
     Textures,
     /// Tangent-space normal maps (the starter pack's and the user's), apart from color textures.

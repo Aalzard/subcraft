@@ -75,7 +75,8 @@ fn narrow_shelf_and_layer_footers_fit_the_real_dock_without_outer_scrolling() {
     app.state.shelf.tab = crate::panels::shelf::ShelfTab::NormalMaps;
     let out = settle(&mut app, &ctx);
     let footers: Vec<_> = out.shapes.iter().filter_map(|s| match &s.shape {
-        egui::Shape::Text(t) if t.galley.text() == "Preview size" => Some((s.clip_rect, Rect::from_min_size(t.pos, t.galley.size()))),
+        // Layers: the "Preview size" slider; Assets: Painter's size menu (Medium by default).
+        egui::Shape::Text(t) if t.galley.text() == "Preview size" || t.galley.text().ends_with("  Medium") => Some((s.clip_rect, Rect::from_min_size(t.pos, t.galley.size()))),
         _ => None,
     }).collect();
     assert_eq!(footers.len(), 2);

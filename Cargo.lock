@@ -4057,6 +4057,7 @@ dependencies = [
  "mimalloc",
  "pollster 0.4.0",
  "rayon",
+ "regex-lite",
  "rfd",
  "serde",
  "serde_json",

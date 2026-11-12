@@ -5340,5 +5340,7 @@ the app kept drawing on the dead device. Safe mode works; 0.3.3's marker only he
   types / search / folders and a Reset back to its query; closing one removes it; they are not saved with the layout.
 * **Not done:** session / project libraries (chunk 24), the reduced-width type menu, Shelf.ini file import / export,
   particle presets and brush makers, deselecting every type.
-* **Checked:** see the PR; unit tests in `shelf_filter.rs` and `shelf_nav_tests.rs`, `preview_layout.rs` and
-  `shelf_brush.rs` updated for the size menu and the Alphas type.
+* **Checked:** `cargo check --release -p subcraft-ui --lib --tests` clean. Ran `-p subcraft-ui --lib` (filters shelf,
+  preview, footer, i18n) plus `--test preview_layout --test shelf_brush`: all new query, navigation, sub-library and
+  size-menu tests passed; the one failure (`narrow_shelf_and_layer_footers...` counting "Preview size" footers) was
+  updated for the size menu, and its rerun hit a damaged build cache (LTO bitcode), so CI runs it.

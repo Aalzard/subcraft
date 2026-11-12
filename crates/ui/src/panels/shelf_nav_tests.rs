@@ -8,7 +8,7 @@ fn state() -> UiState {
     UiState::new(subcraft_app::Session::new(subcraft_mesh::primitives::cube(1.0), 64), None)
 }
 
-fn frame(ctx: &egui::Context, s: &mut UiState, draw: impl FnOnce(&mut UiState, &mut Ui)) -> egui::FullOutput {
+fn frame(ctx: &egui::Context, s: &mut UiState, draw: fn(&mut UiState, &mut Ui)) -> egui::FullOutput {
     let mut out = ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(420.0, 2400.0))), ..Default::default() }, |ui| draw(s, ui));
     out.textures_delta.clear();
     out
