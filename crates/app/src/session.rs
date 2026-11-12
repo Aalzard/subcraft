@@ -1638,7 +1638,7 @@ impl Session {
         if self.brush.target != PaintTarget::Content || self.brush.mode == StrokeMode::Erase {
             return None;
         }
-        let paintable = self.selected_layer().is_some_and(|l| matches!(&l.content, subcraft_doc::LayerContent::Paint(p) if p.path.is_none()));
+        let paintable = self.selected_layer().is_some_and(|l| matches!(&l.content, subcraft_doc::LayerContent::Paint(p) if p.path.is_none() && p.text.is_none()));
         if paintable { return None; }
         self.execute(Command::AddLayer(NewLayer::Paint)).ok()?;
         self.selected_layer().map(|l| l.name.clone())
