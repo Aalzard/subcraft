@@ -360,17 +360,17 @@ pub fn quantize8(data: &[f32], dither: bool) -> Vec<u8> {
 
 /// [`encode_image`], dithering 8-bit formats when `dither` is set (ignored for deeper formats).
 pub fn encode_image_dithered(width: u32, height: u32, comps: usize, data: &[f32], format: FileFormat, dither: bool) -> Result<Vec<u8>, ImageIoError> {
-    assert_eq!(data.len(), (width * height) as usize * comps);
+    // usize arithmetic: `width * height` in u32 overflows past 65536 x 65536.
+    assert_eq!(data.len(), width as usize * height as usize * comps);
     let mut out = std::io::Cursor::new(Vec::new());
     let q16 = |v: f32| (v.clamp(0.0, 1.0) * 65535.0 + 0.5) as u16;
     match format {
+        // JPEG has no alpha: drop it (gray + alpha keeps the gray).
+        FileFormat::Jpeg if comps == 4 => return encode_image_dithered(width, height, 3, &drop_alpha(data), format, dither),
+        FileFormat::Jpeg if comps == 2 => return encode_image_dithered(width, height, 1, &gray_only(data), format, dither),
+        // The TIFF encoder has no gray + alpha layout: write it as RGBA with the gray in R, G, B.
+        FileFormat::Tiff8 | FileFormat::Tiff16 if comps == 2 => return encode_image_dithered(width, height, 4, &gray_alpha_to_rgba(data), format, dither),
         FileFormat::Png8 | FileFormat::Tga8 | FileFormat::Jpeg | FileFormat::Tiff8 | FileFormat::Bmp8 | FileFormat::Webp8 => {
-            let comps = if format == FileFormat::Jpeg && comps == 4 {
-                // JPEG has no alpha: drop it.
-                return encode_image_dithered(width, height, 3, &drop_alpha(data), format, dither);
-            } else {
-                comps
-            };
             let bytes = quantize8(data, dither);
             let color = match comps {
                 1 => image::ExtendedColorType::L8,
@@ -426,7 +426,9 @@ pub fn encode_image_dithered(width: u32, height: u32, comps: usize, data: &[f32]
                 1 => data.iter().flat_map(|&v| [v, v, v, 1.0]).collect(),
                 2 => data.chunks_exact(2).flat_map(|p| [p[0], p[0], p[0], p[1]]).collect(),
                 3 => data.chunks_exact(3).flat_map(|p| [p[0], p[1], p[2], 1.0]).collect(),
-                _ => data.to_vec(),
+                4 => data.to_vec(),
+                // More components used to reach `from_raw` with the wrong length and panic.
+                n => return Err(ImageIoError::Unsupported(format!("{n} components"))),
             };
             let img: image::Rgba32FImage =
                 image::ImageBuffer::from_raw(width, height, rgba).expect("size checked");
@@ -467,9 +469,39 @@ fn drop_alpha(data: &[f32]) -> Vec<f32> {
     data.chunks_exact(4).flat_map(|p| [p[0], p[1], p[2]]).collect()
 }
 
+fn gray_only(data: &[f32]) -> Vec<f32> {
+    data.chunks_exact(2).map(|p| p[0]).collect()
+}
+
+fn gray_alpha_to_rgba(data: &[f32]) -> Vec<f32> {
+    data.chunks_exact(2).flat_map(|p| [p[0], p[0], p[0], p[1]]).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// QA 2026-11: a gray + alpha map (an export preset with L and A destinations) failed in
+    /// JPEG and TIFF ("unsupported color type"), and more than four components panicked EXR 32.
+    #[test]
+    fn gray_alpha_maps_encode_in_every_format_and_extra_components_are_an_error() {
+        let (w, h) = (4u32, 2u32);
+        let data: Vec<f32> = (0..w * h).flat_map(|i| [i as f32 / 8.0, 1.0 - i as f32 / 8.0]).collect();
+        for format in [FileFormat::Png8, FileFormat::Tga8, FileFormat::Jpeg, FileFormat::Tiff8, FileFormat::Tiff16, FileFormat::Tiff32, FileFormat::Png16, FileFormat::Exr16, FileFormat::Exr32] {
+            let bytes = encode_image_dithered(w, h, 2, &data, format, false).unwrap_or_else(|e| panic!("{format:?}: {e}"));
+            let back = decode_bitmap(&bytes, Some(&format!("t.{}", format.extension()))).unwrap_or_else(|e| panic!("{format:?} does not read back: {e}"));
+            assert_eq!((back.width, back.height), (w, h), "{format:?}");
+            // Gray and alpha survive (8-bit formats quantize); JPEG is lossy and has no alpha.
+            if format != FileFormat::Jpeg {
+                let [g, _, _, a] = back.texel(3, 1, false);
+                assert!((g - 7.0 / 8.0).abs() < 1.0 / 200.0 && (a - 1.0 / 8.0).abs() < 1.0 / 200.0, "{format:?}: gray {g}, alpha {a}");
+            }
+        }
+        let five = vec![0.5f32; (w * h * 5) as usize];
+        for format in [FileFormat::Exr32, FileFormat::Exr16, FileFormat::Png8, FileFormat::Png16, FileFormat::Tiff32, FileFormat::Hdr32] {
+            assert!(encode_image_dithered(w, h, 5, &five, format, false).is_err(), "{format:?} rejects 5 components");
+        }
+    }
 
     #[test]
     fn png8_roundtrip_exact_quantization() {
