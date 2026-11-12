@@ -10,7 +10,7 @@ Layout notes: A generator is an effect row under a layer (content stack) or unde
 | Painter item | Where in Painter | Default / range | Status | SubCraft location | PR |
 |---|---|---|---|---|---|
 | Add generator (on the mask) | Layers panel > right-click a mask | - | done | crates/ui/src/panels/layers.rs:467 | - |
-| Add generator (on the layer content) | Layers panel > right-click a layer | - | done: gray result into every channel but Normal, per-channel blending | crates/ui/src/panels/effects.rs:74 | chunk 35 |
+| Add generator (on the layer content) | Layers panel > right-click a layer | - | done: "Add content generator" (the layer menu's "Add generator" lists mask generators); gray result into every channel but Normal, per-channel blending | crates/ui/src/panels/effects.rs:74 | chunk 35 |
 | Add generator | Layers panel > effects button above the stack | - | done | crates/ui/src/panels/layers.rs:176 | - |
 | Generator row under its layer (mask effects show when the mask is selected) | Layers panel > effect rows | - | done | crates/ui/src/panels/layers.rs:562 | - |
 | Right-click an effect to reorder it | Layers panel > effect rows | - | done | crates/ui/src/panels/effects.rs:274 | - |

@@ -71,7 +71,7 @@ fn add_content_menu(ui: &mut Ui, layer: &Layer, channels: &[ChannelKind], active
     let options = [
         ("Add paint", ContentEffectKind::Paint { channels: BTreeMap::new() }),
         ("Add fill", new_fill(channels.iter().copied())),
-        ("Add generator", ContentEffectKind::Generator(subcraft_doc::Generator::new(subcraft_doc::GeneratorKind::Edges))),
+        ("Add content generator", ContentEffectKind::Generator(subcraft_doc::Generator::new(subcraft_doc::GeneratorKind::Edges))),
         ("Add levels", ContentEffectKind::Levels { channel: levels_channel, levels: Levels::default() }),
     ];
     for (label, kind) in options {
