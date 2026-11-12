@@ -210,6 +210,19 @@ impl Mesh {
         if covered as usize != self.triangle_count() {
             problems.push("submeshes do not cover all triangles".into());
         }
+        // A submesh range outside the index buffer, or a material slot that does not exist,
+        // would be indexed without a check by baking, unwrapping and OBJ export.
+        let tris = self.triangle_count();
+        if self.submeshes.iter().any(|s| {
+            s.first_triangle as usize > tris || s.first_triangle.checked_add(s.triangle_count).is_none_or(|end| end as usize > tris)
+        }) {
+            problems.push("submesh range outside the triangle list".into());
+        }
+        if self.submeshes.iter().any(|s| s.material as usize >= self.materials.len())
+            || self.tri_material.iter().any(|&m| m as usize >= self.materials.len())
+        {
+            problems.push("material index out of range".into());
+        }
         problems
     }
 }
